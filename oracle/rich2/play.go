@@ -132,7 +132,10 @@ func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
 		}
 	}
 
-	if err := o.Click(BtnMoveX, BtnY); err != nil {
+	// ⚠ **點擊期間也要取樣。** `Click` 內部跑六百萬道指令，走的是 `o.Run`
+	// ——沒有 `Watch` 的話那是一段觀測不到的空窗，而棋子走的**第一格**
+	// 常常就落在裡面（實測第 4、5 步都是）。
+	if err := o.Click(BtnMoveX, BtnY, oracle.Watch(sample)); err != nil {
 		return tr, fmt.Errorf("點「前進」：%w", err)
 	}
 	// ⚠ **等「玩家自己的位置」變，不要等 `ds:1BE`。**

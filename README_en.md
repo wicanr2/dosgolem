@@ -208,7 +208,7 @@ check on whether a decoder is right — one dataset, two paths:
 | Land purchase | price table 0 | take a turn, buy, read what was actually charged | paid 2200, **found in the table** |
 | **Movement (destination)** | reachable set of `Board.Exits` after N steps | take a turn, read start, dice roll, destination | 5 turns, **all hit** |
 | **Movement (directions)** | `Board.Walk` fed the original's direction picks | intercept `11A32`／`11A87` for the pick sequence | 5 turns, **same destination**, and the sequence is **exhausted exactly** each turn — even the re-roll count matches |
-| **Movement (square by square)** | the board's adjacency table | `MoveTrace.Trail` — every square the original stepped on | first 3 turns, **every hop is an edge** |
+| **Movement (square by square)** | the board's adjacency table | `MoveTrace.Trail` — every square the original stepped on | 5 turns, **every hop is an edge** |
 
 | Rent | `RentBase(street, levels)` | land on someone else's property, read what was charged | 3 samples, **all identical** |
 

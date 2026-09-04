@@ -25,10 +25,21 @@ func (o *Oracle) Mouse() (x, y int) {
 // ClickOpt 調整一次點擊。
 type ClickOpt func(*clickCfg)
 
-type clickCfg struct{ hover, hold, settle uint64 }
+type clickCfg struct {
+	hover, hold, settle uint64
+	watch               func(*Oracle)
+}
 
 // Hover 改「移到位置之後、按下之前」等多久。
 func Hover(n uint64) ClickOpt { return func(c *clickCfg) { c.hover = n } }
+
+// Watch 讓 Click 期間也取樣。
+//
+// ⚠ **沒有它的話，點擊那六百萬道指令是一段觀測不到的空窗。**
+// `Click` 內部跑三段（hover／hold／settle），走 `o.Run`——條件函式一次都不會
+// 被呼叫。實測棋子走的**第一格**常常就落在這段裡：`ds:1BE` 的軌跡因此
+// 少一格，而序列其餘部分完全正確，看起來像「原版少走了一步」。
+func Watch(f func(*Oracle)) ClickOpt { return func(c *clickCfg) { c.watch = f } }
 
 // Hold 改按住的指令數。
 func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
@@ -68,17 +79,17 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	//
 	// rich2 的 DOSBox 腳本用 `mousemove` → `sleep 0.4` → `mousedown`
 	// 做同一件事（`tools/dosbox_session.py` 的 click）。
-	if err := o.Run(cfg.hover); err != nil {
+	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 1
 	o.d.Mouse.Press++
-	if err := o.Run(cfg.hold); err != nil {
+	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 0
 	o.d.Mouse.Release++
-	if err := o.Run(cfg.settle); err != nil {
+	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
 
@@ -113,3 +124,16 @@ func (o *Oracle) Type(s string) {
 
 // Pending 回還沒被讀走的鍵數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
+
+// runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
+func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {
+	if watch == nil {
+		return o.Run(n)
+	}
+	start := o.m.Steps
+	c := NewCond("跑滿指令數", func(o *Oracle) bool {
+		watch(o)
+		return o.m.Steps-start >= n
+	})
+	return o.RunUntil(c, Budget(n+1))
+}
