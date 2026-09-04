@@ -50,6 +50,16 @@ func RollIdle(n uint64) RollOpt   { return func(c *rollCfg) { c.idle = n } }
 // 拿指令數猜「走完了沒」在這裡特別容易錯：步數不同、路徑不同，
 // 走完的時間差好幾倍。
 func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
+	f, t, _, e := RollDice(o, opts...)
+	return f, t, e
+}
+
+// RollDice 同 Roll，但多回傳這一次擲出的步數。
+//
+// ⚠ **步數要在棋子開始走的那一刻讀，不能等到回合結束。**
+// `ds:1B0h` 是全域的——回合一推進，AI 擲的骰子就把它蓋掉了。
+// 實測：在 `Answer` 之後讀，六步裡有四步的點數對不上實際走的距離。
+func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error) {
 	cfg := rollCfg{budget: 150_000_000, idle: 20_000_000}
 	for _, f := range opts {
 		f(&cfg)
@@ -57,7 +67,7 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 	player := Turn(o)
 	from = Position(o, player)
 	if err = o.Click(BtnMoveX, BtnY); err != nil {
-		return from, from, fmt.Errorf("點「前進」：%w", err)
+		return from, from, 0, fmt.Errorf("點「前進」：%w", err)
 	}
 	// ⚠ **等「玩家自己的位置」變，不要等 `ds:1BE`。**
 	//
@@ -68,8 +78,11 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 		return Position(o, player) != from || Turn(o) != player
 	})
 	if err = o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), fmt.Errorf("擲骰之後等棋子動：%w", err)
+		return from, Position(o, player), Steps(o),
+			fmt.Errorf("擲骰之後等棋子動：%w", err)
 	}
+	// **就是這裡。** 棋子剛開始走，點數已經定了，而回合還沒推進。
+	dice = Steps(o)
 
 	// ⚠ **`ds:1BE` 是「目前玩家」的格號，不是自己的。**
 	//
@@ -93,9 +106,9 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 			return rIdle.Ready(o) && cIdle.Ready(o)
 		})
 	if err = o.RunUntil(stopped, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), fmt.Errorf("等棋子停：%w", err)
+		return from, Position(o, player), dice, fmt.Errorf("等棋子停：%w", err)
 	}
-	return from, Position(o, player), nil
+	return from, Position(o, player), dice, nil
 }
 
 // Answer 回答 Yes／No 對話框（買地那種）。
@@ -171,8 +184,8 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 		rndBefore = len(tr.Calls)
 	}
 
-	from, to, err := Roll(o)
-	r.From, r.To = from, to
+	from, to, dice, err := RollDice(o)
+	r.From, r.To, r.Dice = from, to, dice
 	r.PosFrom = from
 	if err != nil {
 		return r, err
@@ -185,7 +198,6 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 			return r, err
 		}
 	}
-	r.Dice = Steps(o)
 	r.Cash = Cash(o, player)
 	r.Paid = cashBefore - r.Cash
 	r.PosTo = Position(o, player)
