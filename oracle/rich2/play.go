@@ -64,19 +64,76 @@ func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error)
 	return f, t, d, e
 }
 
-// RollPath 同 RollDice，但多回傳**逐格路徑**。
+// RollPath 同 RollDice，但多回傳玩家位置的變化序列。
 //
-// 路徑是走路期間對玩家位置取樣來的（條件函式每道指令都會被呼叫）。
-// 比從方向序列反推可靠——反推要先假設「哪些格會抽方向」，而那正是要驗的。
+// ⚠ **這不是逐格路徑。** 玩家自己的座標（`1146h` 的 row／col）在走路動畫
+// 期間**不會逐格更新**，實測整趟只變一次——所以回傳的通常只有終點那一格。
+// 要真正的逐格軌跡看 `MoveTrace.Squares`（`RollTrace`），那是對
+// `ds:1BE` 取樣來的。
 func RollPath(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, path []int, err error) {
+	tr, e := RollTrace(o, opts...)
+	return tr.From, tr.To, tr.Dice, tr.Path, e
+}
+
+// MoveTrace 是一次移動的完整軌跡。
+type MoveTrace struct {
+	From, To int   // 這個玩家自己的格號（座標查 11FEh）
+	Dice     int   // 擲出的步數
+	Path     []int // 玩家座標變化出來的格號（實測整趟只變一次，見 RollPath）
+	Squares  []int // ds:1BE 的變化序列，**含擲骰動畫的雜訊**（見下）
+	Trail    []int // Squares 與 Path 合併在同一條時間軸上（見下）
+}
+
+// RollTrace 點「前進」擲骰、等棋子走完，回傳整趟的軌跡。
+//
+// `Squares` 是對 `ds:1BE`（目前正在處理的格號）每道指令取樣、去掉連續重複
+// 之後的序列。它是目前唯一拿得到**逐格軌跡**的來源，但**不是乾淨的路徑**：
+//
+//   - 擲骰動畫期間 `ds:1BE` 就會動（動畫本身在改它），所以序列前段有雜訊；
+//   - 回合一推進它就變成別人的格號，所以尾端也可能混進 AI 的。
+//
+// 取樣窗已經收窄到「按下前進 → 棋子停下來或回合推進」，但窗內的前兩種
+// 雜訊消不掉。**判讀時要自己對照 `From`／`To`／`Dice`**，不要把整串當路徑。
+//
+// `Trail` 是 `Squares` 與 `Path` **合併在同一條時間軸**上的結果。
+// 兩個來源都會漏格，而且漏的不是同一格：實測有一步棋子經過格 64，
+// 玩家座標記到了、`ds:1BE` 一次都沒寫過它。合併之後那一步才湊得齊
+// 骰數那麼多格。
+func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
+	var tr MoveTrace
 	cfg := rollCfg{budget: 150_000_000, idle: 20_000_000}
 	for _, f := range opts {
 		f(&cfg)
 	}
 	player := Turn(o)
-	from = Position(o, player)
-	if err = o.Click(BtnMoveX, BtnY); err != nil {
-		return from, from, 0, path, fmt.Errorf("點「前進」：%w", err)
+	tr.From = Position(o, player)
+	tr.To = tr.From
+
+	// `ds:1BE` 的取樣器。窗從「按下前進」就開始——擲骰動畫期間它已經在動，
+	// 那段雜訊留給呼叫端判讀（見本函式的說明）。
+	lastTile := Tile(o)
+	tr.Squares = append(tr.Squares, lastTile)
+	tr.Trail = append(tr.Trail, lastTile)
+	lastPos := tr.From
+	push := func(v int) {
+		if v != 0 && tr.Trail[len(tr.Trail)-1] != v {
+			tr.Trail = append(tr.Trail, v)
+		}
+	}
+	sample := func(o *oracle.Oracle) {
+		if t := Tile(o); t != lastTile {
+			tr.Squares = append(tr.Squares, t)
+			lastTile = t
+			push(t)
+		}
+		if p := Position(o, player); p != lastPos {
+			lastPos = p
+			push(p)
+		}
+	}
+
+	if err := o.Click(BtnMoveX, BtnY); err != nil {
+		return tr, fmt.Errorf("點「前進」：%w", err)
 	}
 	// ⚠ **等「玩家自己的位置」變，不要等 `ds:1BE`。**
 	//
@@ -84,14 +141,15 @@ func RollPath(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, path []int
 	// 拿它當「動了」的判準會提早回傳，收據上就出現「5 → 5」這種
 	// 走了一步卻沒動的紀錄——而亂數確實消耗了幾十次，看起來一切正常。
 	moved := oracle.NewCond("玩家位置改變", func(o *oracle.Oracle) bool {
-		return Position(o, player) != from || Turn(o) != player
+		sample(o)
+		return Position(o, player) != tr.From || Turn(o) != player
 	})
-	if err = o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), Steps(o), path,
-			fmt.Errorf("擲骰之後等棋子動：%w", err)
+	if err := o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
+		tr.To, tr.Dice = Position(o, player), Steps(o)
+		return tr, fmt.Errorf("擲骰之後等棋子動：%w", err)
 	}
 	// **就是這裡。** 棋子剛開始走，點數已經定了，而回合還沒推進。
-	dice = Steps(o)
+	tr.Dice = Steps(o)
 
 	// ⚠ **`ds:1BE` 是「目前玩家」的格號，不是自己的。**
 	//
@@ -114,20 +172,22 @@ func RollPath(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, path []int
 			}
 			return rIdle.Ready(o) && cIdle.Ready(o)
 		})
-	// 記錄逐格路徑——條件函式每道指令都會被呼叫，順手把位置變化收下來。
-	// **這是「原版到底怎麼走」的直接答案**，比從方向序列反推可靠。
-	lastPathPos := from
+	// 條件函式每道指令都會被呼叫，順手把兩種軌跡都收下來。
+	lastPathPos := tr.From
 	watched := oracle.NewCond(stopped.String(), func(o *oracle.Oracle) bool {
+		sample(o)
 		if p := Position(o, player); p != lastPathPos && p != 0 {
-			path = append(path, p)
+			tr.Path = append(tr.Path, p)
 			lastPathPos = p
 		}
 		return stopped.Ready(o)
 	})
-	if err = o.RunUntil(watched, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), dice, path, fmt.Errorf("等棋子停：%w", err)
+	if err := o.RunUntil(watched, oracle.Budget(cfg.budget)); err != nil {
+		tr.To = Position(o, player)
+		return tr, fmt.Errorf("等棋子停：%w", err)
 	}
-	return from, Position(o, player), dice, path, nil
+	tr.To = Position(o, player)
+	return tr, nil
 }
 
 // Answer 回答 Yes／No 對話框（買地那種）。
@@ -180,7 +240,9 @@ type TurnResult struct {
 	HeldHosp int
 	HeldFroz int
 	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
-	Path     []int // 逐格路徑（不含起點）
+	Path     []int // 玩家座標變化出來的格號（實測整趟只變一次，見 RollPath）
+	Squares  []int // ds:1BE 的變化序列，**含擲骰動畫與 AI 的雜訊**（見 RollTrace）
+	Trail    []int // Squares 與 Path 合併在同一條時間軸上（見 RollTrace）
 	OwnerTo  int   // 終點格走之前的地主（0 ＝ 無主）
 	StreetTo int   // 終點格的街道編號（0 ＝ 不是土地）
 	Levels   []int // 走之前，同街同主的每一格建物等級（算租金要用）
@@ -247,8 +309,8 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 		rndBefore = len(tr.Calls)
 	}
 
-	from, to, dice, path, err := RollPath(o)
-	if err != nil && from == to {
+	mt, err := RollTrace(o)
+	if err != nil && mt.From == mt.To {
 		// 點了前進卻沒反應／等不到棋子動：多半是有畫面擋著
 		// （銀行、股市、賭場、卡片、事件）。ESC 退出去再試。
 		//
@@ -259,13 +321,14 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 			r.Recovered = true
 			if e = WaitTurn(o, player, 0); e == nil {
 				if e = WaitReady(o); e == nil {
-					from, to, dice, path, err = RollPath(o)
+					mt, err = RollTrace(o)
 				}
 			}
 		}
 	}
-	r.From, r.To, r.Dice, r.Path = from, to, dice, path
-	r.PosFrom = from
+	r.From, r.To, r.Dice = mt.From, mt.To, mt.Dice
+	r.Path, r.Squares, r.Trail = mt.Path, mt.Squares, mt.Trail
+	r.PosFrom = mt.From
 	// ⚠ **方向序列要在這裡收窄。**
 	//
 	// `Answer` 之後回合就推進了，AI 走路時也會抽方向——把整段都算進來
@@ -278,8 +341,8 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 		return r, err
 	}
 
-	ownerBefore := Owner(o, to)
-	streetBefore, levelsBefore := StreetLevels(o, to)
+	ownerBefore := Owner(o, mt.To)
+	streetBefore, levelsBefore := StreetLevels(o, mt.To)
 
 	// 回合沒推進 ＝ 遊戲在等回答。
 	if Turn(o) == player {
