@@ -29,7 +29,7 @@ func load(t *testing.T) *oracle.Oracle {
 // TestReachPasswordScreen 釘住「跑得到防拷畫面」，順便釘住位址換算。
 func TestReachPasswordScreen(t *testing.T) {
 	o := load(t)
-	if err := o.RunUntil(oracle.PasswordScreen); err != nil {
+	if err := o.RunUntil(oracle.PasswordScreen()); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("跑了 %d 道指令，開了 %v", o.Steps(), o.Opened())
@@ -66,7 +66,7 @@ func TestReachPasswordScreen(t *testing.T) {
 // DGROUP 基底的那個值：`ds:1B5Ah` 是浮點 1.0。
 func TestDGROUPAddressing(t *testing.T) {
 	o := load(t)
-	if err := o.RunUntil(oracle.PasswordScreen); err != nil {
+	if err := o.RunUntil(oracle.PasswordScreen()); err != nil {
 		t.Fatal(err)
 	}
 	if got := o.Float(o.DS(0x1B5A)); got != 1.0 {
@@ -84,7 +84,7 @@ func TestDGROUPAddressing(t *testing.T) {
 // 卡的是命中判定」）：輪詢讀到了正確座標卻畫面不動。
 func TestClickIsSeen(t *testing.T) {
 	o := load(t)
-	if err := o.RunUntil(oracle.PasswordScreen); err != nil {
+	if err := o.RunUntil(oracle.PasswordScreen()); err != nil {
 		t.Fatal(err)
 	}
 	// 四個色塊的中心（`rich2/docs/re/005`「色塊的精確位置」實測）。
@@ -99,7 +99,7 @@ func TestClickIsSeen(t *testing.T) {
 // 「走到罕見畫面很貴」就是這個問題。
 func TestSaveRestore(t *testing.T) {
 	o := load(t)
-	if err := o.RunUntil(oracle.PasswordScreen); err != nil {
+	if err := o.RunUntil(oracle.PasswordScreen()); err != nil {
 		t.Fatal(err)
 	}
 	snap := o.Save()

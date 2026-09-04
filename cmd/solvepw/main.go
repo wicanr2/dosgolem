@@ -38,6 +38,10 @@ func main() {
 	wrongX := flag.Int("wrong-x", -1, "不點留白區，改點這個座標（負對照）")
 	wrongY := flag.Int("wrong-y", -1, "同上")
 	shot := flag.String("shot", "", "過關後把畫面色號寫到這個檔")
+	after := flag.Uint64("after", 0, "過關後再跑幾道指令（看它走到哪）")
+	keys := flag.String("keys", "", "過關並跑完 -after 之後送這串鍵，"+
+		"每個字元之間再跑 -key-gap 道指令")
+	keyGap := flag.Uint64("key-gap", 20_000_000, "兩個鍵之間跑幾道指令")
 	flag.Parse()
 	if *exe == "" {
 		flag.Usage()
@@ -56,7 +60,7 @@ func main() {
 		}
 	}
 
-	if err := o.RunUntil(oracle.PasswordScreen); err != nil {
+	if err := o.RunUntil(oracle.PasswordScreen()); err != nil {
 		die(err)
 	}
 	fmt.Printf("防拷畫面（跑了 %d 道指令）\n", o.Steps())
@@ -129,6 +133,30 @@ func main() {
 			fmt.Println("四個顏色都不被接受——判準或座標要重看")
 			os.Exit(1)
 		}
+	}
+
+	if *after > 0 {
+		before := len(o.Opened())
+		if err := o.Run(*after); err != nil {
+			fmt.Println("過關後繼續跑：", err)
+		}
+		if n := len(o.Opened()); n > before {
+			fmt.Printf("\n過關後又開了：%v\n", o.Opened()[before:])
+		}
+	}
+
+	for i, k := range []byte(*keys) {
+		before := len(o.Opened())
+		o.Type(string(k))
+		if err := o.Run(*keyGap); err != nil {
+			fmt.Printf("送第 %d 個鍵之後：%v\n", i, err)
+			break
+		}
+		note := ""
+		if n := len(o.Opened()); n > before {
+			note = fmt.Sprintf("，開了 %v", o.Opened()[before:])
+		}
+		fmt.Printf("送鍵 %q：還有 %d 個鍵沒被讀走%s\n", k, o.Pending(), note)
 	}
 
 	fmt.Printf("\n過關後：跑了 %d 道指令，開了 %v\n", o.Steps(), o.Opened())

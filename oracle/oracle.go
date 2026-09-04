@@ -4,7 +4,7 @@
 // 規格在 `docs/spec/005-oracle-api.md`（READY）。
 //
 //	o, err := oracle.Load(exe, root)
-//	o.RunUntil(oracle.PasswordScreen)
+//	o.RunUntil(oracle.PasswordScreen())
 //	o.Click(102, 125)
 //	shot := o.Indexed()
 //

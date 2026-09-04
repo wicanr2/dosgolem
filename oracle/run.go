@@ -190,6 +190,59 @@ func ScreenIdle(n uint64) Cond {
 	}
 }
 
+// NewCond 造一個自訂條件。
+//
+// ready 在**每道指令執行前**被呼叫，所以它必須便宜——
+// 每道指令都做一次 64 KB 的比對，跑四千萬道就完全動不了（實測過）。
+// 需要昂貴的檢查就自己取樣，內建的 ScreenIdle 就是這樣寫的。
+func NewCond(name string, ready func(*Oracle) bool) Cond {
+	return Cond{name: name, ready: ready}
+}
+
+// PaletteIdle 是「調色盤連續 n 道指令沒變」。
+//
+// **等淡入用這個，不要等畫面靜止。** 淡入是調色盤動畫（`rich2/docs/re/146`），
+// 而棋盤上的角色一直在動——畫面永遠不會靜止，`ScreenIdle` 在那裡跑不完。
+//
+// skip 回 true 的色號不列入比較。傳 nil 表示全部都比。
+// **循環動畫的色號要 skip 掉**，否則調色盤永遠在變。
+func PaletteIdle(n uint64, skip func(i int) bool) Cond {
+	every := n / 8
+	if every > 200_000 {
+		every = 200_000
+	}
+	if every < 1 {
+		every = 1
+	}
+	var last [256][3]uint8
+	var have bool
+	var since, nextCheck uint64
+	return Cond{
+		name: fmt.Sprintf("調色盤連續 %d 道指令沒變", n),
+		ready: func(o *Oracle) bool {
+			if o.m.Steps < nextCheck {
+				return false
+			}
+			nextCheck = o.m.Steps + every
+			cur := o.Palette()
+			same := have
+			for i := 0; i < 256 && same; i++ {
+				if skip != nil && skip(i) {
+					continue
+				}
+				if cur[i] != last[i] {
+					same = false
+				}
+			}
+			if !same {
+				last, have, since = cur, true, o.m.Steps
+				return false
+			}
+			return o.m.Steps-since >= n
+		},
+	}
+}
+
 // MouseSettled 是「程式已經自己設過游標位置」。
 //
 // 程式進防拷畫面時用 `int 33h AX=4` 設一次游標位置（實測在第 42,406,064 道）。
@@ -204,14 +257,24 @@ var MouseSettled = Cond{
 //
 // 判準是程式設過游標位置**而且**畫面靜下來——前者是明確的程式行為，
 // 後者擋掉「設完游標但文字動畫還在跑」。
-var PasswordScreen = Cond{
-	name: "防拷密碼畫面",
-	ready: func() func(*Oracle) bool {
-		idle := ScreenIdle(3_000_000)
-		return func(o *Oracle) bool {
+//
+// ⚠ **這是函式不是變數，而且不能改回變數。**
+//
+// 它裡面的 ScreenIdle 帶狀態（上一張畫面、從哪一步開始沒變）。
+// 寫成套件層級的 `var` 的話，**所有 Oracle 共用同一份計數器**——
+// 第二次跑會沿用第一次留下的 `since`，於是同一條路徑走出不同的指令數。
+// 實測症狀：連續三次走到棋盤是 230,316,290 / 230,481,291 / 230,646,291，
+// 每次多一個 PIT 週期，而畫面看起來完全正常。
+//
+// 同一個形狀對任何「內建條件」都成立：**有狀態的條件必須是函式。**
+func PasswordScreen() Cond {
+	idle := ScreenIdle(3_000_000)
+	return Cond{
+		name: "防拷密碼畫面",
+		ready: func(o *Oracle) bool {
 			return MouseSettled.ready(o) && idle.ready(o)
-		}
-	}(),
+		},
+	}
 }
 
 // ---- call hook -----------------------------------------------------------
