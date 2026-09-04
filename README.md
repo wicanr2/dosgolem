@@ -1,5 +1,7 @@
 # dosgolem
 
+*[English](README_en.md)*
+
 **只跑得動一個 binary 的 DOS 執行器**：無頭、決定性、可以當 Go 套件 import。
 它為《大富翁2》（大宇資訊，1993，DOS）的 remake
 [`rich2`](https://github.com/wicanr2/rich2) 而寫。
@@ -61,7 +63,9 @@ dosgolem ＝ DOS 魔像。golem 是被造出來替你做事的自動人偶，
 
 三個量出來的事實：
 
-1. `RUN_full.EXE` 主程式區 52,892 bytes 只用到 **62 個助憶碼，全部是 8086**。
+1. `RUN_full.EXE` 主程式區 52,892 bytes 只用到 **62 個助憶碼**，
+   而且是 8086 加上兩個 80186 指令——`PUSH imm16` 與 `PUSH imm8`，
+   主程式區 3,345 次、全檔 5,280 次。保護模式、分頁、32 位元運算元一概用不到。
 2. **不需要 x87**：全檔 876 個 `INT 34h–3Dh`，浮點走 Microsoft 浮點模擬器，
    而那個模擬器連結在 binary 裡面，執行期只跑整數指令。
 3. 系統服務面很窄，而且 `rich2` 那邊用 unicorn 已經走過一遍、跑到防拷畫面。
@@ -69,20 +73,48 @@ dosgolem ＝ DOS 魔像。golem 是被造出來替你做事的自動人偶，
 ## 它長什麼樣
 
 ```go
-ora := dosgolem.Load("…/RICH2")          // 原版由玩家自備
-ora.RunUntil(dosgolem.CallOf(0x25BF6))   // 跑到收租常式
-rent := ora.Word("ds:1BE")               // 直接讀原版的變數
-shot := ora.Indexed()                    // 320×200 色號，不經過 X
+o, _ := oracle.Load(exe, root)        // 原版由玩家自備
+o.RunUntil(oracle.PasswordScreen)     // 跑到防拷畫面，跑不到會回錯誤
+o.Click(102, 125)                     // 點色塊，對齊指令數不是 sleep
 
-parity.Compare(t, shot, remakeFrame)     // 兩邊都在同一個行程的記憶體裡
+snap := o.Save()                      // 1 毫秒的快照
+o.Restore(snap)                       // 從同一個狀態展開下一個變體
+
+v := o.Word(o.DS(0x1BE))              // 直接讀原版的變數
+shot := o.Indexed()                   // 320×200 色號，不經過 X
 ```
 
-判準因此從「像素」變成**原版自己的呼叫參數**——攔住繪製常式，
-就等於讓原版說出「我在 (154,54) 用色 60 印了第 229 則」。
-對拍也變成 CI 跑得動的 `go test`，不再是要人跑三分鐘、還要回頭看截圖的腳本。
+`o.DS(0x1BE)` 與 `o.IDA(0x25BF6)` 吃的就是 `rich2` 那邊 RE 筆記裡的位址，
+不必再換算一次。判準因此從「像素」變成**原版自己的呼叫參數**——
+`OnCall` 攔住繪製常式，等於讓原版說出「我在 (154,54) 用色 60 印了第 229 則」。
 
-⚠ 上面這段 API 是 **DRAFT**（[`docs/spec/005`](docs/spec/005-oracle-api.md)），
-**還沒實作**。
+對拍也就變成 CI 跑得動的 `go test`：程序內跑到防拷畫面 1.8 秒；
+連 docker 啟動一起算，從冷啟動打完三題防拷 5.3 秒。
+DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.2 秒。
+
+介面定案在 [`docs/spec/005`](docs/spec/005-oracle-api.md)（READY）。
+
+## 要走到哪裡
+
+終點是**讓 AI agent 能自己驗證 remake 對不對**，而且驗證的依據是原版本身，
+不是人事後看截圖判斷。
+
+具體是三件事：
+
+1. **問得到。** agent 在 `go test` 裡問「原版走到這一步時，這個變數是多少、
+   畫面上這一格是什麼色號、它用什麼參數呼叫了繪製常式」，當場拿到答案。
+   現在做到了讀變數、讀畫面、攔呼叫。
+2. **可重播。** 同一組輸入永遠得到同一個畫面。時鐘是指令數不是牆上的時間，
+   亂數種子與原版的固定種子版對齊——這是 MVP-B 能逐點 100% 的前提。
+3. **走得到。** 要驗一個罕見畫面（法院、破產、某張卡片），agent 得能走到那裡。
+   快照讓「從同一個狀態展開多個變體」變成 1 毫秒的事；
+   防拷三題現在就是這樣自動打完的。
+
+做完這三件，`rich2` 那 54 支 DOSBox 腳本、6,116 行可以收斂成一組宣告式的對拍表，
+而且跑在 CI 裡。
+
+範圍還是只有這一個 binary。別的 DOS 程式跑不跑得動不在目標內——
+跑得動是副產物。
 
 ## 現況
 
@@ -90,9 +122,10 @@ parity.Compare(t, shot, remakeFrame)     // 兩邊都在同一個行程的記憶
 |---|---|---|
 | MVP-A | 8086 整數指令核心，SingleStepTests/8088 v2 全綠 | **323／323 檔綠**，一項已知差距見下 |
 | MVP-B | 跑到防拷畫面，與 DOSBox-X 索引截圖逐點相同 | **64,000／64,000 ＝ 100%** |
-| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| PIT 已接（指令數時鐘），鍵盤與週期精確未做 |
-| M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | 未開始 |
-| M4 | Go API 與 `parity` 套件 | 未開始 |
+| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| 滑鼠與 PIT 已接，**防拷三題可自動打完**；鍵盤與週期精確未做 |
+| M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall` 與快照可用，其餘未做 |
+| M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
+| M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |
 
 規格在 [`docs/spec/`](docs/spec/)，標 `DRAFT` 或 `READY`；
 只有 READY 的可以動手。
