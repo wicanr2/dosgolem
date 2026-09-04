@@ -36,7 +36,11 @@ type rollCfg struct{ budget, idle uint64 }
 func RollBudget(n uint64) RollOpt { return func(c *rollCfg) { c.budget = n } }
 func RollIdle(n uint64) RollOpt   { return func(c *rollCfg) { c.idle = n } }
 
-// Roll 點「前進」擲骰，等棋子走完，回傳起點與終點格號。
+// Roll 點「前進」擲骰，等棋子走完，回傳**這個玩家自己的**起點與終點格號。
+//
+// ⚠ 內部用 `ds:1BE`（目前正在處理的格號）判斷「棋子有沒有動」——那是對的，
+// 它一定會變；但**回傳值用 Position**，因為 `ds:1BE` 在回合推進之後
+// 指的是別人。
 //
 // 兩段等待都是必要的：
 //
@@ -50,21 +54,37 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 	for _, f := range opts {
 		f(&cfg)
 	}
-	from = Tile(o)
+	player := Turn(o)
+	from = Position(o, player)
+	tile := Tile(o)
 	if err = o.Click(BtnMoveX, BtnY); err != nil {
 		return from, from, fmt.Errorf("點「前進」：%w", err)
 	}
 	moved := oracle.NewCond("格號改變", func(o *oracle.Oracle) bool {
-		return Tile(o) != from
+		return Tile(o) != tile
 	})
 	if err = o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
-		return from, Tile(o), fmt.Errorf("擲骰之後等棋子動：%w", err)
+		return from, Position(o, player), fmt.Errorf("擲骰之後等棋子動：%w", err)
 	}
-	if err = o.RunUntil(oracle.WordIdle(o.DS(VarTile), cfg.idle),
-		oracle.Budget(cfg.budget)); err != nil {
-		return from, Tile(o), fmt.Errorf("等棋子停：%w", err)
+
+	// ⚠ **`ds:1BE` 是「目前玩家」的格號，不是自己的。**
+	//
+	// 回合一推進，AI 的棋子開始走，這個變數就跟著跳——「等格號穩定」
+	// 於是永遠等不到（實測跑滿一億五千萬道指令仍未達成）。
+	// 所以第二個出口是「回合推進了」：那表示這一步已經結算完、
+	// 沒有對話框要回答。
+	tileIdle := oracle.WordIdle(o.DS(VarTile), cfg.idle)
+	stopped := oracle.NewCond("棋子停下來或回合推進",
+		func(o *oracle.Oracle) bool {
+			if Turn(o) != player {
+				return true
+			}
+			return tileIdle.Ready(o)
+		})
+	if err = o.RunUntil(stopped, oracle.Budget(cfg.budget)); err != nil {
+		return from, Position(o, player), fmt.Errorf("等棋子停：%w", err)
 	}
-	return from, Tile(o), nil
+	return from, Position(o, player), nil
 }
 
 // Answer 回答 Yes／No 對話框（買地那種）。
@@ -88,4 +108,77 @@ func Answer(o *oracle.Oracle, yes bool, settle uint64) error {
 // ClickButton 點頂端按鈕列的某一顆。
 func ClickButton(o *oracle.Oracle, x int) error {
 	return o.Click(x, BtnY)
+}
+
+// WaitTurn 等輪到某個玩家。
+//
+// 原版是輪流制，人類是玩家 1，其餘是 AI——AI 的回合會自己跑完，
+// 所以要走下一步得先等回到自己。
+func WaitTurn(o *oracle.Oracle, player int, budget uint64) error {
+	if budget == 0 {
+		budget = 600_000_000
+	}
+	return o.RunUntil(oracle.NewCond(
+		fmt.Sprintf("輪到玩家 %d", player),
+		func(o *oracle.Oracle) bool { return Turn(o) == player }),
+		oracle.Budget(budget))
+}
+
+// Turn 結果：走一步之後的觀察。
+type TurnResult struct {
+	Player   int
+	From, To int // 這個玩家自己的格號（座標查 11FEh），走之前與走之後
+	PosFrom  int // 同 From，留著讓呼叫端讀起來清楚
+	PosTo    int // 走之後的格號
+	RowTo    int // 走之後的地圖座標
+	ColTo    int
+	Cash     int32 // 走完之後的現金
+	Paid     int32 // 這一步花掉的錢（負數表示收入）
+	RND      int   // 這一步消耗的亂數次數
+	Dialog   bool  // 有沒有跳對話框（回合沒自己推進）
+}
+
+
+
+// PlayTurn 走一步：等輪到 player、擲骰、必要時回答對話框。
+//
+// **對話框不是每一步都有**（只有落在無主地、機會格那些才跳）。
+// 判準是「回合有沒有自己推進」——沒推進就表示遊戲在等回答。
+// 拿「畫面上有沒有框」當判準要做影像比對，而且框的樣式不只一種。
+func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult, error) {
+	r := TurnResult{Player: player}
+	if err := WaitTurn(o, player, 0); err != nil {
+		return r, err
+	}
+	if err := WaitReady(o); err != nil {
+		return r, err
+	}
+	cashBefore := Cash(o, player)
+	rndBefore := 0
+	if tr != nil {
+		rndBefore = len(tr.Calls)
+	}
+
+	from, to, err := Roll(o)
+	r.From, r.To = from, to
+	r.PosFrom = from
+	if err != nil {
+		return r, err
+	}
+
+	// 回合沒推進 ＝ 遊戲在等回答。
+	if Turn(o) == player {
+		r.Dialog = true
+		if err := Answer(o, buy, 0); err != nil {
+			return r, err
+		}
+	}
+	r.Cash = Cash(o, player)
+	r.Paid = cashBefore - r.Cash
+	r.PosTo = Position(o, player)
+	r.RowTo, r.ColTo = MapCoord(o, player)
+	if tr != nil {
+		r.RND = len(tr.Calls) - rndBefore
+	}
+	return r, nil
 }

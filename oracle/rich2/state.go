@@ -13,6 +13,9 @@ const (
 	DescPlayer = 0x1146 // 玩家狀態 1..6 × 0..29，2B
 	DescLand   = 0x1174 // 土地表 0..44 × 0..9，2B
 	DescBoard  = 0x122C // 棋盤 0..282 × 0..19，2B
+	DescCoord  = 0x11FE // 座標 → 格號對照表 0..35 × 0..35，2B（不在存檔裡）
+	DescDraw   = 0x11D0 // 顯示層：每格要畫什麼 0..35 × 0..35，2B
+	DescPos    = 0x125A // 玩家位置層 0..35 × 0..35，2B
 )
 
 // 單一變數（`rich2/CLAUDE.md` §4.1）。
@@ -49,6 +52,15 @@ func Land(o *oracle.Oracle) *oracle.Array {
 		[]oracle.Dim{{Lo: 0, N: 45}, {Lo: 0, N: 10}}, 2)
 }
 
+// Coord 開啟「座標 → 格號」對照表。
+//
+// 原版把玩家的位置存成 36×36 地圖上的座標，格號是查這張表算出來的
+// （`rich2/docs/re/014` §3a）。
+func Coord(o *oracle.Oracle) *oracle.Array {
+	return o.Array(DescCoord,
+		[]oracle.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+}
+
 // Board 開啟棋盤陣列。
 func Board(o *oracle.Oracle) *oracle.Array {
 	return o.Array(DescBoard,
@@ -80,7 +92,39 @@ func ActivePlayers(o *oracle.Oracle) []int {
 	return out
 }
 
-// Tile 回目前格號，Direction 回方向。
+// 玩家狀態陣列的欄位。
+//
+// 欄 0／1 是玩家在 36×36 地圖上的座標（`rich2/docs/spec/014` §1a 第 3 項），
+// **不是格號**。格號要拿座標查 `11FEh`——實測 `1146h(1,0)=21`、
+// `1146h(1,1)=8`，而 `11FEh(21,8)=117`，正是那一步走到的格。
+const (
+	ColRow = 0
+	ColCol = 1
+)
+
+// Position 回某個玩家目前的格號。
+//
+// ⚠ **不要用 `ds:1BE`。** 那是「目前正在處理的格號」，會隨著**任何**玩家
+// 的移動而變——AI 在走的時候它也在跳。實測：人類走完停在 117，
+// 下一次輪到人類時 `ds:1BE` 讀出來是 61（那是別人的）。
+func Position(o *oracle.Oracle, player int) int {
+	ps := PlayerState(o)
+	row := int(ps.Int16(player, ColRow))
+	col := int(ps.Int16(player, ColCol))
+	if row < 0 || row >= 36 || col < 0 || col >= 36 {
+		return 0
+	}
+	return int(Coord(o).Int16(row, col))
+}
+
+// MapCoord 回某個玩家在 36×36 地圖上的座標。
+func MapCoord(o *oracle.Oracle, player int) (row, col int) {
+	ps := PlayerState(o)
+	return int(ps.Int16(player, ColRow)), int(ps.Int16(player, ColCol))
+}
+
+// Tile 回 `ds:1BE`——**「目前正在處理的格號」，不是某個玩家的位置**。
+// 要玩家位置用 Position。
 func Tile(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarTile))) }
 func Direction(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirection))) }
 func Turn(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarPlayer))) }

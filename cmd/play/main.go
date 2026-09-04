@@ -23,6 +23,8 @@ func main() {
 	y := flag.Int("y", 9, "要點的 Y")
 	after := flag.Uint64("after", 40_000_000, "點完再跑幾道指令")
 	roll := flag.Bool("roll", false, "點「前進」擲骰並等棋子走完")
+	turns := flag.Int("turns", 0, "連走幾個回合（人類玩家），印出每一步的收據")
+	buy := flag.Bool("buy", true, "跳出買地對話框時買下來")
 	key := flag.String("key", "", "送這串鍵，一個一個送")
 	keyGap := flag.Uint64("key-gap", 20_000_000, "兩個鍵之間跑幾道指令")
 	shot := flag.String("shot", "", "把畫面存成 PNG")
@@ -48,6 +50,17 @@ func main() {
 	before := o.Save()
 	beforeRND := len(tr.Calls)
 	beforeScreen := append([]uint8(nil), o.Indexed()...)
+
+	if *turns > 0 {
+		playTurns(o, tr, *turns, *buy)
+		if *shot != "" {
+			if err := o.WritePNG(*shot); err != nil {
+				die(err)
+			}
+			fmt.Println("寫出", *shot)
+		}
+		return
+	}
 
 	if *roll {
 		p0, r0 := o.MouseActivity()
@@ -124,6 +137,68 @@ func main() {
 		}
 		fmt.Println("寫出", *shot)
 	}
+}
+
+// Coord 是 rich2.Coord 的別名，讓上面那段短一點。
+func Coord(o *oracle.Oracle) *oracle.Array { return rich2.Coord(o) }
+
+// playTurns 連走幾個回合，印出每一步的收據。
+//
+// **這是移動 parity 的原料**：remake 要重播同一局，需要的就是
+// 「第幾步、從哪走到哪、花了多少、消耗幾次亂數」。
+func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
+	const me = 1 // 人類是玩家 1
+	fmt.Printf("\n連走 %d 步（買地：%v）\n", n, buy)
+	fmt.Println("  步  玩家格號　　地圖座標　　花費　亂數　對話框")
+	for i := 1; i <= n; i++ {
+		r, err := rich2.PlayTurn(o, me, buy, tr)
+		if err != nil {
+			fmt.Printf("  %2d  第 %d 步失敗：%v\n", i, i, err)
+			return
+		}
+		dlg := "－"
+		if r.Dialog {
+			dlg = "有"
+		}
+		fmt.Printf("  %2d  %3d → %3d　(%2d,%2d)　%6d　%4d　%s\n",
+			i, r.PosFrom, r.PosTo, r.RowTo, r.ColTo, r.Paid, r.RND, dlg)
+	}
+	// 走完之後把玩家 1 的欄位全印出來——「哪一欄是位置」用已知的落點反查。
+	ps, mn := rich2.PlayerState(o), rich2.Money(o)
+	fmt.Println("\n1146h(1, 0..29)：")
+	for j := 0; j < 30; j++ {
+		if j%10 == 0 {
+			fmt.Printf("  %2d–%2d ", j, j+9)
+		}
+		fmt.Printf("%7d", ps.Int16(1, j))
+		if j%10 == 9 {
+			fmt.Println()
+		}
+	}
+	fmt.Println("11A2h(1, 0..19)：")
+	for j := 0; j < 20; j++ {
+		if j%10 == 0 {
+			fmt.Printf("  %2d–%2d ", j, j+9)
+		}
+		fmt.Printf("%9d", mn.Int32(1, j))
+		if j%10 == 9 {
+			fmt.Println()
+		}
+	}
+
+	// 玩家的位置是不是存成地圖座標？`1146h` 欄 0／1 是候選，
+	// `11FEh` 是「座標 → 格號」的對照表。
+	row, col := int(ps.Int16(1, 0)), int(ps.Int16(1, 1))
+	cd := Coord(o)
+	fmt.Printf("\n1146h(1,0)=%d 1146h(1,1)=%d　"+
+		"11FEh(%d,%d)=%d　11FEh(%d,%d)=%d\n",
+		row, col, row, col, cd.Int16(row, col), col, row, cd.Int16(col, row))
+
+	fmt.Printf("\n走完之後：")
+	for _, p := range rich2.ActivePlayers(o) {
+		fmt.Printf("玩家 %d %d　", p, rich2.Cash(o, p))
+	}
+	fmt.Println()
 }
 
 func dump(o *oracle.Oracle, tag string) {

@@ -18,6 +18,14 @@ type Cond struct {
 
 func (c Cond) String() string { return c.name }
 
+// Ready 讓呼叫端把內建條件組合起來。
+//
+// ⚠ **有狀態的條件不能共用**（`ScreenIdle`／`PaletteIdle`／`WordIdle`
+// 都記著「從哪一步開始沒變」）。組合時每個 Cond 各造一份，
+// 不要把同一個實例用在兩個地方——那正是 `PasswordScreen` 從變數改成
+// 函式的理由。
+func (c Cond) Ready(o *Oracle) bool { return c.ready(o) }
+
 // RunOpt 調整一次 RunUntil 的行為。
 type RunOpt func(*runCfg)
 
