@@ -47,6 +47,13 @@ const (
 // **而且沒有任何錯誤訊息**。
 const mouseStubOff = 0x10
 
+// DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
+//
+// 真機是 18.2 Hz（55 ms）。以 DOSBox 預設的 3,000 cycles/ms 換算大約
+// 165,000 道指令，這裡取整。用指令數而不是時間，是為了讓對拍決定性——
+// 同一組輸入永遠得到同一個畫面。
+const DefaultIRQ0Every = 165_000
+
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
 type PortWrite struct {
@@ -68,8 +75,20 @@ type Machine struct {
 	// PortsIn 是每個埠被讀了幾次。**輪詢埠的次數會很大**，那是正常的。
 	PortsIn map[uint16]uint64
 
+	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
+	//
+	// 預設 DefaultIRQ0Every。**這個值影響動畫跑多快，不影響最終停下來的
+	// 畫面**——防拷畫面是靜態的，動畫播完就穩定。
+	IRQ0Every uint64
+
+	// Ticks 是送出去的計時器中斷次數。
+	Ticks uint64
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
+
+	nextIRQ0    uint64
+	irq0Pending bool
 
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
@@ -95,9 +114,10 @@ type Machine struct {
 // **還沒有程式**——要呼叫 LoadEXE。
 func New() *Machine {
 	m := &Machine{
-		Mem:     make([]uint8, MemSize),
-		Ports:   map[uint16]uint8{},
-		PortsIn: map[uint16]uint64{},
+		Mem:       make([]uint8, MemSize),
+		Ports:     map[uint16]uint8{},
+		PortsIn:   map[uint16]uint64{},
+		IRQ0Every: DefaultIRQ0Every,
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
@@ -214,10 +234,65 @@ func (m *Machine) Indexed() []uint8 {
 	return out
 }
 
-// Step 執行一道指令。
+// Step 執行一道指令，必要時先送 IRQ0。
 func (m *Machine) Step() error {
+	m.tick()
 	m.Steps++
 	return m.CPU.Step()
+}
+
+// tick 是計時器中斷（IRQ0 ＝ `int 08h`）。
+//
+// ⚠ **沒有它，任何等計時器的迴圈都轉不出來。** `RUN_full.EXE` 的防拷畫面
+// 就停在這一個形狀上（執行期 `3014:167F` ＝ 線性 `406BF`）：
+//
+//	cmp cx, cs:[1727h]
+//	jg  −5              ; 等計數器追上 CX
+//
+// `cs:1727h` 由程式自己的 ISR 遞增。中斷不送 ＝ 值永遠不變 ＝ 死迴圈，
+// **而且畫面看起來是對的**——文字動畫停在第一個字，像是「還沒畫完」。
+//
+// **這是指令數模型，不是時間模型。** 拿執行過的指令數當時鐘，
+// 好處是對拍完全決定性（同樣的輸入永遠得到同樣的畫面）；
+// 代價是動畫速度與真機不同。週期精確的時序在 M2（`docs/spec/004` §5）。
+func (m *Machine) tick() {
+	if m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0 {
+		m.nextIRQ0 = m.Steps + m.IRQ0Every
+		// **先掛起來，不要直接送。** 初始化期間大量 `CLI`，
+		// 當場丟掉的話那一段的 tick 全部消失。
+		m.irq0Pending = true
+	}
+	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
+		return
+	}
+	m.irq0Pending = false
+	m.Ticks++
+	m.bumpBDATicks()
+
+	// 程式自己裝了 `int 08h` 就跑它的。
+	if m.Read16(0x08*4+2) != StubSeg {
+		m.CPU.Interrupt(0x08)
+		return
+	}
+	// 否則做 BIOS 預設的事：更新計數之後轉呼 `int 1Ch`（那是給應用程式的
+	// 掛鉤點，只裝 `1Ch` 不裝 `08h` 的程式很多）。
+	if m.Read16(0x1C*4+2) != StubSeg {
+		m.CPU.Interrupt(0x1C)
+	}
+}
+
+// bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
+// 有些程式直接讀它算時間，不裝任何 ISR。
+func (m *Machine) bumpBDATicks() {
+	const at = 0x0040*16 + 0x6C
+	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
+	v++
+	if v >= 0x001800B0 { // 一天的 tick 數
+		v = 0
+		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
+	}
+	m.Write16(at, uint16(v))
+	m.Write16(at+2, uint16(v>>16))
 }
 
 // ---- 中斷向量表 ----------------------------------------------------------

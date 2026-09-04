@@ -113,6 +113,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 			m.X = c.R[cpu.CX] / m.XScale
 		}
 		m.Y = c.R[cpu.DX]
+		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
 	case 0x0005, 0x0006: // 按下／放開的統計
 		c.R[cpu.AX] = m.Buttons

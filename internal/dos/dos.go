@@ -22,6 +22,12 @@ import (
 //
 // **固定值。** 時間會餵進亂數種子，浮動的話同一組按鍵每次跑到不同畫面
 // （`rich2/CLAUDE.md` §8：截圖驗收要帶固定 seed）。
+//
+// **預設全 0，這是刻意與原版那邊的固定種子版對齊的。**
+// `rich2/tools/patch_seed.py` 把 `TIMER` 內部的 `mov ah,2Ch / int 21h`
+// 換成 `xor cx,cx / xor dx,dx`；我們這邊不改 binary，讓 `AH=2Ch` 直接
+// 回 CX=DX=0，效果相同。兩邊的 `RANDOMIZE TIMER` 因此拿到同一個種子，
+// 逐點對拍才有意義（`docs/spec/001` MVP-B）。
 type Time struct{ Hour, Min, Sec, Hundredth uint8 }
 
 // Mouse 是滑鼠狀態。座標用**像素**存，回報時才乘上 XScale
@@ -36,6 +42,10 @@ type Mouse struct {
 	// Polls 記下每一次 AX=3 回報出去的東西。**這是分辨「輸入沒送到」與
 	// 「送到了但答錯」的唯一辦法**——兩者的畫面表現一模一樣。
 	Polls []Poll
+
+	// Sets 記下每一次 AX=4（程式自己設游標位置）。
+	// 程式設過之後我們注入的位置就被蓋掉了，而症狀是「滑鼠移不動」。
+	Sets []Poll
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -117,7 +127,7 @@ func (c Call) String() string {
 func New(m *machine.Machine, root string) *DOS {
 	return &DOS{
 		M: m, Root: root,
-		Now:           Time{Hour: 12},
+		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
 		Mouse:         Mouse{XScale: 2},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",

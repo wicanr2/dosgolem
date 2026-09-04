@@ -349,3 +349,20 @@ func TestDefaultDriveIsHardDisk(t *testing.T) {
 		t.Errorf("目前磁碟是 %d（0=A: 1=B: 2=C:）——不是 C: 會停在換磁片提示", al)
 	}
 }
+
+// TestClockIsZeroForSeedParity 釘住「固定時刻是全 0」。
+//
+// 原版那邊的固定種子版（rich2/tools/patch_seed.py）把 TIMER 內部的
+// `mov ah,2Ch / int 21h` 換成 `xor cx,cx / xor dx,dx`。我們不改 binary，
+// 讓 `AH=2Ch` 直接回 CX=DX=0，兩邊的 RANDOMIZE TIMER 才拿到同一個種子。
+//
+// 回別的值不會報錯——只會讓防拷畫面問**不同的一題**，
+// 於是逐點比對永遠不合，而畫面看起來完全正常。
+func TestClockIsZeroForSeedParity(t *testing.T) {
+	m, d := newTest(t)
+	call(m, d, 0x21, 0x2C00)
+	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
+		t.Errorf("AH=2Ch 回 CX=%04X DX=%04X，預期都是 0（與固定種子版對齊）",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}

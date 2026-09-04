@@ -31,6 +31,10 @@ func main() {
 	steps := flag.Uint64("steps", 20_000_000, "最多執行幾道指令")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
+	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
+	mouseX := flag.Int("mouse-x", -1, "滑鼠要移到的像素 X（−1 ＝ 不動）")
+	mouseY := flag.Int("mouse-y", -1, "滑鼠要移到的像素 Y")
+	mouseAt := flag.Uint64("mouse-at", 0, "第幾道指令時移動滑鼠（0 ＝ steps 的一半）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -49,6 +53,17 @@ func main() {
 	d := dos.New(m, *root)
 	d.Install()
 
+	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
+	// 兩邊位置不同的話逐點比對會在兩個位置各差一整塊，而畫面看起來完全正常。
+	//
+	// ⚠ **設初始值沒有用**：遊戲只在座標**變化**時才重畫游標，
+	// 一開始就等於目標值的話它一次都不會動（實測改了初始值，
+	// 差異一個像素都沒少）。所以要在跑的中途真的移動一次。
+	moveAt := *mouseAt
+	if moveAt == 0 {
+		moveAt = *steps / 2
+	}
+
 	ring := newRing(*trace)
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
@@ -60,6 +75,9 @@ func main() {
 			runErr = fmt.Errorf("跑出可用記憶體：CS:IP ＝ %04X:%04X（線性 %05X）",
 				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
 			break
+		}
+		if *mouseX >= 0 && m.Steps == moveAt {
+			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
 		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
@@ -80,6 +98,17 @@ func main() {
 			die(err)
 		}
 		fmt.Printf("寫出 %s\n", png)
+	}
+	if *dumpPal != "" {
+		pal := m.Palette()
+		buf := make([]byte, 0, 768)
+		for _, c := range pal {
+			buf = append(buf, c[0], c[1], c[2])
+		}
+		if err := os.WriteFile(*dumpPal, buf, 0o644); err != nil {
+			die(err)
+		}
+		fmt.Printf("寫出 %s（256×3 RGB）\n", *dumpPal)
 	}
 }
 
@@ -144,7 +173,19 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("  %s\n", r)
 	}
 
-	fmt.Printf("\n滑鼠輪詢 %d 次\n", len(d.Mouse.Polls))
+	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
+	if n := len(d.Mouse.Polls); n > 0 {
+		f, l := d.Mouse.Polls[0], d.Mouse.Polls[n-1]
+		fmt.Printf("（第一次 #%d 回報 (%d,%d)；最後一次 #%d 回報 (%d,%d)）",
+			f.Step, f.X, f.Y, l.Step, l.X, l.Y)
+	}
+	fmt.Println()
+
+	if n := len(d.Mouse.Sets); n > 0 {
+		l := d.Mouse.Sets[n-1]
+		fmt.Printf("程式自己設游標位置 %d 次（最後一次 #%d 設成 (%d,%d)）\n",
+			n, l.Step, l.X, l.Y)
+	}
 
 	// 埠寫入：mode 13h 之後 DAC（3C8h/3C9h）與序列器會有動作。
 	ports := make([]int, 0, len(m.Ports))
