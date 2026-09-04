@@ -89,13 +89,27 @@ parity.Compare(t, shot, remakeFrame)     // 兩邊都在同一個行程的記憶
 | | 里程碑 | 狀態 |
 |---|---|---|
 | MVP-A | 8086 整數指令核心，SingleStepTests/8088 v2 全綠 | **323／323 檔綠**，一項已知差距見下 |
-| MVP-B | 跑到防拷畫面，與 DOSBox-X 索引截圖逐點相同 | 未開始 |
-| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| 未開始 |
+| MVP-B | 跑到防拷畫面，與 DOSBox-X 索引截圖逐點相同 | **64,000／64,000 ＝ 100%** |
+| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| PIT 已接（指令數時鐘），鍵盤與週期精確未做 |
 | M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | 未開始 |
 | M4 | Go API 與 `parity` 套件 | 未開始 |
 
 規格在 [`docs/spec/`](docs/spec/)，標 `DRAFT` 或 `READY`；
 只有 READY 的可以動手。
+
+MVP-B 的驗收可以重跑（素材由玩家自備）：
+
+```sh
+# 在 rich2 那邊產 oracle：DOSBox 的 Ctrl+F5 索引截圖
+tools/pyx.sh tools/dosbox_pw_indexed.py 2
+
+# 在這邊比對
+DOSGOLEM_ORIG=~/cht/rich2/workplace tools/parity.sh <oracle.png>
+```
+
+`RUN_full.EXE` 需要的不是純 8086——主程式區有 3,345 個 80186 的 `PUSH imm`。
+`machine.New()` 因此用 `Model80186`；`cpu.New()` 維持 8086，語料驗收走那一條
+（細節與那個「不會報錯」的陷阱見 [`docs/spec/002`](docs/spec/002-cpu-8086.md) §1.1）。
 
 CPU 用 [SingleStepTests/8088](https://github.com/SingleStepTests/8088) v2 驗收：
 **323 個 opcode 檔、每檔 10,000 筆、共 323 萬筆**，
