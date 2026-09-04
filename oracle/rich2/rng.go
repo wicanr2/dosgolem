@@ -110,3 +110,13 @@ func (t *RNDTrace) ByCaller(o *oracle.Oracle) map[uint32]int {
 	}
 	return out
 }
+
+// SetRNDState 直接設定 24 位元亂數狀態。
+//
+// ⚠ **這是實驗工具，不是「重播」。** 改了狀態，原版接下來的行為就與
+// 那一局的自然發展不同了。用它做對照實驗（同一個快照展開幾個不同的種子，
+// 看結果怎麼變），用完要 Restore。
+func SetRNDState(o *oracle.Oracle, state uint32) {
+	o.WriteU16(o.DS(rndStateLo), uint16(state))
+	o.WriteU8(o.DS(rndStateHi), uint8(state>>16))
+}

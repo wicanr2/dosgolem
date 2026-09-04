@@ -18,11 +18,19 @@ const (
 	DescPos    = 0x125A // 玩家位置層 0..35 × 0..35，2B
 )
 
-// 單一變數（`rich2/CLAUDE.md` §4.1）。
+// 單一變數（`rich2/CLAUDE.md` §4.1、`rich2/docs/re/015`、`docs/re/014` §3）。
 const (
 	VarTile      = 0x01BE // 目前格號
 	VarDirection = 0x10DE // 方向
 	VarPlayer    = 0x10AA // 目前玩家（11A2h 的第一索引幾乎都用它）
+
+	// 擲骰（`rich2/docs/re/015` §187–196）。
+	VarDiceRaw  = 0x01AE // 擲骰常式的回傳
+	VarSteps    = 0x01B0 // 步數 ＝ 兩顆骰子的和
+	VarStepLoop = 0x01B6 // 移動迴圈的計數（從 VarSteps 複製過來）
+
+	// 抽方向（`rich2/docs/re/014` §312）。
+	VarDirPick = 0x01C0 // 候選方向 ＝ INT(RND×4)+1，1..4
 )
 
 // 玩家金錢陣列的欄位（`rich2/docs/re/013` §3）。
@@ -122,6 +130,17 @@ func MapCoord(o *oracle.Oracle, player int) (row, col int) {
 	ps := PlayerState(o)
 	return int(ps.Int16(player, ColRow)), int(ps.Int16(player, ColCol))
 }
+
+// Steps 回上一次擲骰的步數（兩顆骰子的和）。
+//
+// **這是移動 parity 的關鍵輸入。** 有了它，remake 不必重現原版的亂數消耗
+// 次數（原版走一步抽數十次，因為擲骰動畫每一幀都真的擲）——
+// 直接餵同樣的點數就能比「同一步走到同一格」。
+func Steps(o *oracle.Oracle) int { return int(o.Word(o.DS(VarSteps))) }
+
+// DiceRaw 回擲骰常式的原始回傳，DirPick 回最後一次抽到的候選方向。
+func DiceRaw(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDiceRaw))) }
+func DirPick(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirPick))) }
 
 // Tile 回 `ds:1BE`——**「目前正在處理的格號」，不是某個玩家的位置**。
 // 要玩家位置用 Position。

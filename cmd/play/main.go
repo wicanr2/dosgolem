@@ -149,7 +149,7 @@ func Coord(o *oracle.Oracle) *oracle.Array { return rich2.Coord(o) }
 func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
 	const me = 1 // 人類是玩家 1
 	fmt.Printf("\n連走 %d 步（買地：%v）\n", n, buy)
-	fmt.Println("  步  玩家格號　　地圖座標　　花費　亂數　對話框")
+	fmt.Println("  步  玩家格號　　骰子　地圖座標　　花費　亂數　對話框")
 	for i := 1; i <= n; i++ {
 		r, err := rich2.PlayTurn(o, me, buy, tr)
 		if err != nil {
@@ -160,8 +160,8 @@ func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
 		if r.Dialog {
 			dlg = "有"
 		}
-		fmt.Printf("  %2d  %3d → %3d　(%2d,%2d)　%6d　%4d　%s\n",
-			i, r.PosFrom, r.PosTo, r.RowTo, r.ColTo, r.Paid, r.RND, dlg)
+		fmt.Printf("  %2d  %3d → %3d　%3d　(%2d,%2d)　%6d　%4d　%s\n",
+			i, r.PosFrom, r.PosTo, r.Dice, r.RowTo, r.ColTo, r.Paid, r.RND, dlg)
 	}
 	// 走完之後把玩家 1 的欄位全印出來——「哪一欄是位置」用已知的落點反查。
 	ps, mn := rich2.PlayerState(o), rich2.Money(o)

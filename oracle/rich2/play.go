@@ -56,12 +56,16 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 	}
 	player := Turn(o)
 	from = Position(o, player)
-	tile := Tile(o)
 	if err = o.Click(BtnMoveX, BtnY); err != nil {
 		return from, from, fmt.Errorf("點「前進」：%w", err)
 	}
-	moved := oracle.NewCond("格號改變", func(o *oracle.Oracle) bool {
-		return Tile(o) != tile
+	// ⚠ **等「玩家自己的位置」變，不要等 `ds:1BE`。**
+	//
+	// `ds:1BE` 在擲骰動畫期間就會動（動畫本身在改它），這時棋子還沒走。
+	// 拿它當「動了」的判準會提早回傳，收據上就出現「5 → 5」這種
+	// 走了一步卻沒動的紀錄——而亂數確實消耗了幾十次，看起來一切正常。
+	moved := oracle.NewCond("玩家位置改變", func(o *oracle.Oracle) bool {
+		return Position(o, player) != from || Turn(o) != player
 	})
 	if err = o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
 		return from, Position(o, player), fmt.Errorf("擲骰之後等棋子動：%w", err)
@@ -73,13 +77,20 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 	// 於是永遠等不到（實測跑滿一億五千萬道指令仍未達成）。
 	// 所以第二個出口是「回合推進了」：那表示這一步已經結算完、
 	// 沒有對話框要回答。
-	tileIdle := oracle.WordIdle(o.DS(VarTile), cfg.idle)
+	// 玩家位置存成座標，所以「停下來」要看那兩個 word 都不動
+	// （`docs/re/184` §3）。**兩個各要一份 WordIdle**——
+	// 有狀態的條件不能共用實例。
+	ps := PlayerState(o)
+	rowAddr := oracle.Phys(ps.Base + uint32((ColRow*6+player-1)*2))
+	colAddr := oracle.Phys(ps.Base + uint32((ColCol*6+player-1)*2))
+	rIdle := oracle.WordIdle(rowAddr, cfg.idle)
+	cIdle := oracle.WordIdle(colAddr, cfg.idle)
 	stopped := oracle.NewCond("棋子停下來或回合推進",
 		func(o *oracle.Oracle) bool {
 			if Turn(o) != player {
 				return true
 			}
-			return tileIdle.Ready(o)
+			return rIdle.Ready(o) && cIdle.Ready(o)
 		})
 	if err = o.RunUntil(stopped, oracle.Budget(cfg.budget)); err != nil {
 		return from, Position(o, player), fmt.Errorf("等棋子停：%w", err)
@@ -132,6 +143,7 @@ type TurnResult struct {
 	PosTo    int // 走之後的格號
 	RowTo    int // 走之後的地圖座標
 	ColTo    int
+	Dice     int   // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
 	Cash     int32 // 走完之後的現金
 	Paid     int32 // 這一步花掉的錢（負數表示收入）
 	RND      int   // 這一步消耗的亂數次數
@@ -173,6 +185,7 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 			return r, err
 		}
 	}
+	r.Dice = Steps(o)
 	r.Cash = Cash(o, player)
 	r.Paid = cashBefore - r.Cash
 	r.PosTo = Position(o, player)
