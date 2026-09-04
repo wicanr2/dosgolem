@@ -23,6 +23,9 @@ type State struct {
 	opened []string
 }
 
+// mem 讓同一個套件裡的搜尋拿得到快照的記憶體。
+func (s *State) mem() []uint8 { return s.m.Mem() }
+
 // Save 深拷貝目前的狀態。1 MB 記憶體，大約 1 毫秒。
 func (o *Oracle) Save() *State {
 	s := &State{

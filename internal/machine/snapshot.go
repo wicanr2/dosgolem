@@ -31,6 +31,9 @@ type Snapshot struct {
 	dacPhase uint8
 }
 
+// Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
+func (s *Snapshot) Mem() []uint8 { return s.mem }
+
 // Snapshot 拍一份快照。1 MB 記憶體，約 1 毫秒。
 func (m *Machine) Snapshot() *Snapshot {
 	s := &Snapshot{
