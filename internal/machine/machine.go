@@ -65,6 +65,18 @@ type Machine struct {
 	Ports   map[uint16]uint8
 	PortLog []PortWrite
 
+	// PortsIn 是每個埠被讀了幾次。**輪詢埠的次數會很大**，那是正常的。
+	PortsIn map[uint16]uint64
+
+	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
+	portTicks uint64
+
+	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
+	DAC [256 * 3]uint8
+
+	dacIndex uint8
+	dacPhase uint8
+
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
 	// （`docs/spec/004` §5）。
 	Steps uint64
@@ -83,10 +95,16 @@ type Machine struct {
 // **還沒有程式**——要呼叫 LoadEXE。
 func New() *Machine {
 	m := &Machine{
-		Mem:   make([]uint8, MemSize),
-		Ports: map[uint16]uint8{},
+		Mem:     make([]uint8, MemSize),
+		Ports:   map[uint16]uint8{},
+		PortsIn: map[uint16]uint64{},
 	}
 	m.CPU = cpu.New(m)
+	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
+	// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`；用 8086 的
+	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
+	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
+	m.CPU.Model = cpu.Model80186
 	m.initBDA()
 	m.initVectors()
 	return m
@@ -100,11 +118,73 @@ func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
-func (m *Machine) In8(uint16) uint8 { return 0xFF }
+// In8 回應 `in`。
+//
+// ⚠ **輪詢埠的值一定要會變，否則程式死在等待迴圈裡**——而那看起來像
+// 「程式沒走到那一步」，不像模擬器缺東西。VGA 的垂直回掃等待長這樣：
+//
+//	mov dx,0x3DA
+//	in al,dx ; test al,8 ; jnz -5   ; 等這一次回掃結束
+//	in al,dx ; test al,8 ; jz  -5   ; 等下一次回掃開始 ← 定值就死在這
+//
+// 不管回定值 0 還是定值 0FFh，兩段一定有一段轉不出來。
+// 出處是 `rich2/tools/dosemu.py` 的 `on_in`（那支跑到畫出防拷畫面）。
+//
+// **這是行為模型，不是時序模型**：拿 `in` 的累計次數當時鐘，
+// 不是週期精確的（時序在 M2，`docs/spec/004` §5）。
+func (m *Machine) In8(port uint16) uint8 {
+	m.PortsIn[port]++
+	m.portTicks++
+	switch {
+	case port == 0x3DA:
+		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
+		// 這樣不管程式等的是哪一種邊緣都轉得出來。
+		if (m.portTicks>>4)&1 != 0 {
+			return 0x09
+		}
+		return 0x00
+	case port >= 0x40 && port <= 0x42:
+		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
+	case port == 0x388:
+		// OPL 狀態埠。回 0 ＝ 偵測不到 AdLib，音樂路徑會被跳過。
+		// 要觀察音樂路徑時改回 0xC0（`rich2/docs/re/011` §4）。
+		return 0x00
+	case port == 0x61:
+		return 0x00
+	}
+	return 0xFF
+}
 
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
+	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
+	switch p {
+	case 0x3C8: // 設寫入索引
+		m.dacIndex, m.dacPhase = v, 0
+	case 0x3C9: // 連寫三次 ＝ R、G、B（各 6 位元）
+		m.DAC[int(m.dacIndex)*3+int(m.dacPhase)] = v & 0x3F
+		m.dacPhase++
+		if m.dacPhase == 3 {
+			m.dacPhase = 0
+			m.dacIndex++ // 索引自動前進，所以整份調色盤可以一次寫完
+		}
+	}
+}
+
+// Palette 把 DAC 的 6 位元色值轉成 8 位元 RGB。
+func (m *Machine) Palette() [256][3]uint8 {
+	var out [256][3]uint8
+	for i := 0; i < 256; i++ {
+		for ch := 0; ch < 3; ch++ {
+			v := m.DAC[i*3+ch]
+			// 6 → 8 位元用「高位補到低位」，不是乘 255/63 四捨五入。
+			out[i][ch] = v<<2 | v>>4
+		}
+	}
+	return out
 }
 
 // ---- 記憶體存取的便利函式 ------------------------------------------------

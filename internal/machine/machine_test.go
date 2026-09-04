@@ -151,3 +151,88 @@ func TestPSPEnvironmentSegment(t *testing.T) {
 		t.Errorf("PSP+2 的記憶體上限是 %04X，預期 %04X", top, MemTop)
 	}
 }
+
+// TestMachineIsA80186 釘住機型（`docs/spec/002` §1.1）。
+//
+// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`（`68` 1,779 次、
+// `6A` 1,566 次）。8086 把 `60`–`6F` 當成條件跳躍的別名，於是 `68 FF 1F`
+// 被解成 `JS` 而不是 `PUSH imm16`——**指令長度差一個 byte，後面整串錯位，
+// 而且一個錯誤訊息都沒有**：第一次實跑就這樣飛進 A0000 後面的空白區
+// （全是 `00 00` ＝ `add [bx+si],al`）跑滿兩百萬道指令。
+func TestMachineIsA80186(t *testing.T) {
+	m := New()
+	if m.CPU.Model < cpu.Model80186 {
+		t.Fatal("機器上的 CPU 是 8086——PUSH imm16 會被當成條件跳躍，整串錯位")
+	}
+
+	// 真的執行一次：`68 34 12` 要推 1234h，而且 IP 前進 3。
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0700, 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0800, 0x100
+	m.WriteBytes(cpu.Addr(0x0700, 0), []byte{0x68, 0x34, 0x12, 0x6A, 0xFF})
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.IP != 3 {
+		t.Fatalf("PUSH imm16 之後 IP ＝ %d，預期 3", m.CPU.IP)
+	}
+	if v := m.Read16(cpu.Addr(0x0800, m.CPU.R[cpu.SP])); v != 0x1234 {
+		t.Errorf("推上去的是 %04X，預期 1234", v)
+	}
+
+	// `6A FF` 的立即數要**符號延伸**：推的是 FFFF，不是 00FF。
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if v := m.Read16(cpu.Addr(0x0800, m.CPU.R[cpu.SP])); v != 0xFFFF {
+		t.Errorf("PUSH imm8 推的是 %04X，預期 FFFF（要符號延伸）", v)
+	}
+}
+
+// TestRetraceBitToggles 釘住「3DAh 的值一定要會變」。
+//
+// VGA 的回掃等待是兩段：先等這一次結束、再等下一次開始。**回任何定值
+// 都一定有一段轉不出來**，而症狀是「程式沒走到那一步」，
+// 完全不指向模擬器（`rich2/tools/dosemu.py` 的 on_in：`SS.EXE` 跑滿
+// 四億條指令沒開 SS.YJA 就是死在這）。
+func TestRetraceBitToggles(t *testing.T) {
+	m := New()
+	seenSet, seenClear := false, false
+	for i := 0; i < 200 && !(seenSet && seenClear); i++ {
+		if m.In8(0x3DA)&0x08 != 0 {
+			seenSet = true
+		} else {
+			seenClear = true
+		}
+	}
+	if !seenSet || !seenClear {
+		t.Fatal("3DAh 的回掃位元不會變——等待迴圈有一段轉不出來")
+	}
+
+	// bit0（顯示中）也要會變：程式等的可能是這一個。
+	m2 := New()
+	set, clear := false, false
+	for i := 0; i < 200; i++ {
+		if m2.In8(0x3DA)&0x01 != 0 {
+			set = true
+		} else {
+			clear = true
+		}
+	}
+	if !set || !clear {
+		t.Error("3DAh 的 bit0 不會變")
+	}
+}
+
+// TestPITCountsDown 釘住「PIT 是遞減計數器」。
+//
+// 回定值的話用 PIT 做延遲的迴圈不會結束。
+func TestPITCountsDown(t *testing.T) {
+	m := New()
+	seen := map[uint8]bool{}
+	for i := 0; i < 8; i++ {
+		seen[m.In8(0x40)] = true
+	}
+	if len(seen) < 4 {
+		t.Errorf("讀 8 次 PIT 只看到 %d 種值——延遲迴圈會卡住", len(seen))
+	}
+}

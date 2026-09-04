@@ -90,6 +90,13 @@ func (c *CPU) execute(op uint8) error {
 	case op >= 0x58 && op <= 0x5F:
 		c.R[op-0x58] = c.pop()
 
+	// ---- 60–6F：機型相關（`docs/spec/002` §1.1）--------------------------
+	//
+	// 8086 把這一段當成 `70`–`7F` 的別名（語料驗證過）；80186 把它給了
+	// `PUSHA` 那一族。**兩者的指令長度不同**，選錯不會報錯，只會錯位。
+	case op >= 0x60 && op <= 0x6F && c.Model >= Model80186:
+		return c.op186_6x(op)
+
 	// ---- 60–7F：條件跳躍（8086 的 60–6F 是 70–7F 的別名）----------------
 	case op >= 0x60 && op <= 0x7F:
 		off := int16(int8(c.fetch8()))
@@ -199,6 +206,17 @@ func (c *CPU) execute(op uint8) error {
 		c.R[op-0xB8] = c.fetch16()
 
 	// ---- C0–CF ----------------------------------------------------------
+	//
+	// ⚠ **C0／C1／C8／C9 也是機型相關的**（`docs/spec/002` §1.1）：
+	// 8086 拿它們當 `RET`／`RETF` 的別名，80186 給了移位 imm8 與
+	// `ENTER`／`LEAVE`。長度同樣不同，同樣不會報錯。
+	case (op == 0xC0 || op == 0xC1) && c.Model >= Model80186:
+		return c.shiftImm(op)
+	case op == 0xC8 && c.Model >= Model80186:
+		c.enter()
+	case op == 0xC9 && c.Model >= Model80186:
+		c.leave()
+
 	case op == 0xC0 || op == 0xC2: // RET imm16（C0 是 8086 的別名）
 		n := c.fetch16()
 		c.IP = c.pop()

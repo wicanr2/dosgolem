@@ -1,6 +1,7 @@
 package dos
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,5 +168,35 @@ func (d *DOS) seek(c *cpu.CPU) {
 	}
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
+	clearCarry(c)
+}
+
+// write 是 `AH=40h`。
+//
+// ⚠ **這是程式對我們說話的主要管道**，不是 `AH=09h`。BASIC runtime 的
+// `PRINT` 與錯誤訊息都走這裡（handle 1／2），一次一小段。
+// 沒接的話主控台是空的——看起來像「程式什麼都沒說」，
+// 而實際上它正在印錯誤訊息（第一次跑通 CPU 之後就是這個症狀）。
+//
+// **寫檔一律不做。** 原版素材唯讀（`CLAUDE.md`），而 MVP-B 不需要存檔；
+// 真的有人寫檔要看得到，所以記一筆而不是安靜地報成功。
+func (d *DOS) write(c *cpu.CPU) {
+	bx, cx := c.R[cpu.BX], c.R[cpu.CX]
+	buf := make([]byte, cx)
+	addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	for i := range buf {
+		buf[i] = d.M.Read8(addr + uint32(i))
+	}
+	switch bx {
+	case 1, 2: // stdout／stderr
+		d.Console = append(d.Console, buf...)
+	default:
+		if h, ok := d.handles[bx]; ok {
+			d.Wrote = append(d.Wrote, Write{Name: h.name, N: int(cx)})
+		} else {
+			d.Wrote = append(d.Wrote, Write{Name: fmt.Sprintf("handle %d", bx), N: int(cx)})
+		}
+	}
+	c.R[cpu.AX] = cx
 	clearCarry(c)
 }

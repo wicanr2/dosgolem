@@ -61,13 +61,33 @@ const (
 // 前綴的段覆寫狀態。noSegOverride 用 −1 以外的值是為了讓零值有意義。
 const noSegOverride = -1
 
-// CPU 是一顆 8086。零值不可用，用 New。
+// Model 是要模擬的機型。**只影響 `60`–`6F` 這一段**（`docs/spec/002` §1.1）。
+type Model uint8
+
+const (
+	// Model8086 是預設：`60`–`6F` 是 `70`–`7F` 條件跳躍的別名。
+	// 那是 SingleStepTests 語料驗證過的實機行為，驗收一律用這個。
+	Model8086 Model = iota
+
+	// Model80186 讓 `68` ＝ `PUSH imm16`、`6A` ＝ `PUSH imm8`，
+	// 其餘 `60`–`6F` 報「未實作的 opcode」。
+	//
+	// `RUN_full.EXE` 需要它：主程式區有 3,345 個 `PUSH imm`，
+	// 用 8086 的別名解讀會讓指令長度差一個 byte，然後整串錯位——
+	// **而且不會報錯**（`docs/spec/002` §1.1 那個方框）。
+	Model80186
+)
+
+// CPU 是一顆 8086（或 80186，看 Model）。零值不可用，用 New。
 type CPU struct {
 	R     [8]uint16
 	Seg   [4]uint16
 	IP    uint16
 	Flags uint16
 	Bus   Bus
+
+	// Model 決定 `60`–`6F` 怎麼解。預設是 Model8086。
+	Model Model
 
 	// IntHook 讓上層攔截 INT。回傳 true 表示「我處理完了」，
 	// CPU 就不走真正的向量表——DOS 服務層靠它接管 int 21h 那些。

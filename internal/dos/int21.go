@@ -84,6 +84,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.close(c)
 	case 0x3F:
 		d.read(c)
+	case 0x40:
+		d.write(c)
 	case 0x42:
 		d.seek(c)
 

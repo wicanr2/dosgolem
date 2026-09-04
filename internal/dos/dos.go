@@ -66,7 +66,12 @@ type DOS struct {
 	Stdin     []byte
 	StdinFill uint8
 
-	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:），Dir 是 `AH=47h` 的目前目錄。
+	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
+	// Dir 是 `AH=47h` 的目前目錄。
+	//
+	// ⚠ **預設一定要是 C:（硬碟）。** 回 A: 的話程式判定自己是從磁片跑，
+	// 停在「Please put Disk#2 in A: and put Disk#3 in B:」等按鍵——
+	// 而在接上 `AH=40h` 之前，那個畫面在主控台上是**一片空白**。
 	Drive uint8
 	Dir   string
 
@@ -80,6 +85,10 @@ type DOS struct {
 	Opened  []string
 	Missing []string
 
+	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
+	// 但安靜地報成功會讓「存檔壞掉」查不出來。
+	Wrote []Write
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
@@ -87,6 +96,12 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+}
+
+// Write 是一次被擋下來的寫檔。
+type Write struct {
+	Name string
+	N    int
 }
 
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
@@ -104,6 +119,7 @@ func New(m *machine.Machine, root string) *DOS {
 		M: m, Root: root,
 		Now:           Time{Hour: 12},
 		Mouse:         Mouse{XScale: 2},
+		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
@@ -140,6 +156,15 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int33(c)
 	case 0x16:
 		d.int16(c)
+	case 0x11:
+		// 取設備清單：就是 BDA 那一格（`docs/spec/003` §1）。
+		// 不實作的話 AX 保持呼叫端傳進來的值，而顯示卡欄位是垃圾。
+		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x10)
+	case 0x12:
+		// 取常規記憶體大小，單位 KB。
+		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x13)
+	case 0x13:
+		d.int13(c)
 	case 0x20:
 		d.exit(c, 0)
 	default:

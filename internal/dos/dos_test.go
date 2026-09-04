@@ -335,3 +335,17 @@ func TestExitStopsTheCPU(t *testing.T) {
 		t.Error("程式結束了但 CPU 還在跑")
 	}
 }
+
+// TestDefaultDriveIsHardDisk 釘住「目前磁碟預設是 C:」。
+//
+// 回 A: 的話程式判定自己是從磁片跑，停在
+// 「Please put Disk#2 in A: and put Disk#3 in B:」等按鍵。
+// 出處是 rich2/tools/dosemu.py 的 `cur_drive = 2`，那支跑通過。
+func TestDefaultDriveIsHardDisk(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.AX] = 0x19FF
+	d.handle(m.CPU, 0x21)
+	if al := uint8(m.CPU.R[cpu.AX]); al != 2 {
+		t.Errorf("目前磁碟是 %d（0=A: 1=B: 2=C:）——不是 C: 會停在換磁片提示", al)
+	}
+}

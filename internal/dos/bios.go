@@ -149,3 +149,24 @@ func (d *DOS) int16(c *cpu.CPU) {
 		d.note(0x16, ah(c), al(c))
 	}
 }
+
+// int13 是 BIOS 磁碟服務。
+//
+// 遊戲用它做**防拷檢查**（`rich2/docs/playtest/001`：開場要輸入密碼）。
+// 這裡一律回成功、狀態 0——真正的防拷邏輯在程式自己那邊。
+func (d *DOS) int13(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x00, 0x04: // 重設磁碟系統／驗證磁區
+		setAH(c, 0)
+		clearCarry(c)
+	case 0x01: // 取上一次的狀態
+		setAH(c, 0)
+		clearCarry(c)
+	default:
+		// 讀寫磁區沒實作：**回失敗**，不要假裝成功。
+		// 假裝成功的話呼叫端會拿沒填過的緩衝區當資料用。
+		d.note(0x13, ah(c), al(c))
+		setAH(c, 0x80) // 逾時
+		setCarry(c)
+	}
+}
