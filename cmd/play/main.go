@@ -160,6 +160,10 @@ func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy, verbose bool) {
 		if r.Dialog {
 			dlg = "有"
 		}
+		rec := ""
+		if r.Recovered {
+			rec = "　⚠恢復"
+		}
 		own := "無主"
 		switch {
 		case r.OwnerTo == me:
@@ -167,8 +171,8 @@ func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy, verbose bool) {
 		case r.OwnerTo > 0:
 			own = fmt.Sprintf("玩家%d", r.OwnerTo)
 		}
-		fmt.Printf("  %2d  %3d → %3d　%3d　%s　%6d　%4d　%s\n",
-			i, r.PosFrom, r.PosTo, r.Dice, own, r.Paid, r.RND, dlg)
+		fmt.Printf("  %2d  %3d → %3d　%3d　%s　%6d　%4d　%s%s\n",
+			i, r.PosFrom, r.PosTo, r.Dice, own, r.Paid, r.RND, dlg, rec)
 		if verbose && len(r.Dirs) > 0 {
 			fmt.Printf("        方向：起始 %d，抽到 %v\n", r.DirFrom, r.Dirs)
 		}

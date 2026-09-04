@@ -161,6 +161,16 @@ const (
 	ColRow = 0
 	ColCol = 1
 
+	// ColJail／ColHospital／ColFrozen 是被關著的剩餘天數
+	// （`rich2/docs/re/165` §17：`FOR ds:84h = 15 DOWNTO 13`，
+	// `ds:EEh = ds:84h − 12` → 1 監獄／2 醫院／3 冬眠）。
+	//
+	// ⚠ **被關著的時候點「前進」不會擲骰。** 連走多步時遇到它，
+	// 症狀是「等棋子動」跑滿上限——看起來像操作失效。
+	ColJail     = 13
+	ColHospital = 14
+	ColFrozen   = 15
+
 	// ColDir 是玩家自己的目前方向（1..4）。
 	//
 	// ⚠ **不要用 `ds:10DEh`。** 那是全域的「目前玩家的方向」，
@@ -203,6 +213,20 @@ func Steps(o *oracle.Oracle) int { return int(o.Word(o.DS(VarSteps))) }
 // DiceRaw 回擲骰常式的原始回傳，DirPick 回最後一次抽到的候選方向。
 func DiceRaw(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDiceRaw))) }
 func DirPick(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirPick))) }
+
+// Held 回某個玩家被關著的剩餘天數。三個都是 0 才動得了。
+func Held(o *oracle.Oracle, player int) (jail, hospital, frozen int) {
+	ps := PlayerState(o)
+	return int(ps.Int16(player, ColJail)),
+		int(ps.Int16(player, ColHospital)),
+		int(ps.Int16(player, ColFrozen))
+}
+
+// IsHeld 回「這個玩家現在動不了」。
+func IsHeld(o *oracle.Oracle, player int) bool {
+	j, h, f := Held(o, player)
+	return j > 0 || h > 0 || f > 0
+}
 
 // PlayerDir 回某個玩家自己的目前方向（1..4）。
 func PlayerDir(o *oracle.Oracle, player int) int {

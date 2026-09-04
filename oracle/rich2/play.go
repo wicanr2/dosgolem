@@ -176,6 +176,9 @@ type TurnResult struct {
 	RowTo    int // 走之後的地圖座標
 	ColTo    int
 	Dice     int   // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
+	HeldJail int   // 走之前被關的剩餘天數（監獄／醫院／冬眠）
+	HeldHosp int
+	HeldFroz int
 	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
 	Path     []int // 逐格路徑（不含起點）
 	OwnerTo  int   // 終點格走之前的地主（0 ＝ 無主）
@@ -186,18 +189,33 @@ type TurnResult struct {
 	Paid     int32 // 這一步花掉的錢（負數表示收入）
 	RND      int   // 這一步消耗的亂數次數
 	Dialog   bool  // 有沒有跳對話框（回合沒自己推進）
+
+	// Recovered 為真表示這一步用了 ClearDialog 才走得下去。
+	//
+	// ⚠ **那一步的收據不可信。** ESC 退出銀行、股市那種畫面時，
+	// 遊戲可能已經執行了某個操作——實測有一步收到 −1500（負數 ＝ 收入），
+	// 看起來像領了款。對拍要跳過這種步。
+	Recovered bool
 }
 
 
 
-// ClearDialog 送一個 Enter，清掉擋在前面的對話框。
+// ClearDialog 用 ESC 退出擋在前面的畫面。
 //
-// ⚠ **這是恢復手段，不是常規流程。** 亂送 Enter 會在不該確認的地方確認。
-// 只在「點了前進卻等不到棋子動」的時候用——那表示遊戲在等別的輸入
-// （卡片、事件、或上一步沒回答完的框），而不是在等擲骰。
+// 原版的選擇器「ESC 逐層退回」（`rich2/docs/re/100`），所以 ESC 比 Enter
+// 安全——Enter 是**確認**，在銀行那種畫面上會真的存錢或領錢。
+//
+// ⚠ **這是恢復手段，不是常規流程。** 只在「點了前進卻等不到棋子動」的
+// 時候用：那表示遊戲在等別的輸入。實測第 11 步走到銀行，畫面是
+// 「路過銀行／存入金額」加上存款、領款、放棄三個選項——不退出去就走不下去。
 func ClearDialog(o *oracle.Oracle) error {
-	o.Type("\r")
-	return o.Run(40_000_000)
+	o.Type("\x1b")
+	if err := o.Run(30_000_000); err != nil {
+		return err
+	}
+	// 有些畫面要退兩層（子選單 → 該畫面）。
+	o.Type("\x1b")
+	return o.Run(30_000_000)
 }
 
 // PlayTurn 走一步：等輪到 player、擲骰、必要時回答對話框。
@@ -215,6 +233,15 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 	}
 	cashBefore := Cash(o, player)
 	r.DirFrom = PlayerDir(o, player)
+	r.HeldJail, r.HeldHosp, r.HeldFroz = Held(o, player)
+	if IsHeld(o, player) {
+		// **被關著就動不了**，點「前進」不會擲骰。回報現況，
+		// 讓呼叫端知道這一步為什麼沒動，而不是等到逾時才發現。
+		r.From = Position(o, player)
+		r.To = r.From
+		return r, fmt.Errorf("玩家 %d 被關著（監獄 %d／醫院 %d／冬眠 %d 天）",
+			player, r.HeldJail, r.HeldHosp, r.HeldFroz)
+	}
 	rndBefore := 0
 	if tr != nil {
 		rndBefore = len(tr.Calls)
@@ -222,10 +249,19 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 
 	from, to, dice, path, err := RollPath(o)
 	if err != nil && from == to {
-		// 點了前進卻等不到棋子動：多半是有對話框擋著（卡片、事件、
-		// 或上一步沒回答完的框）。清掉再試一次。
+		// 點了前進卻沒反應／等不到棋子動：多半是有畫面擋著
+		// （銀行、股市、賭場、卡片、事件）。ESC 退出去再試。
+		//
+		// ⚠ **退出去通常等於「放棄那個操作」，而放棄之後回合就結束了。**
+		// 所以要重新等回到自己，不能直接再點一次前進——實測直接重試會拿到
+		// 「點了畫面完全沒變」（那時已經輪到別人）。
 		if e := ClearDialog(o); e == nil {
-			from, to, dice, path, err = RollPath(o)
+			r.Recovered = true
+			if e = WaitTurn(o, player, 0); e == nil {
+				if e = WaitReady(o); e == nil {
+					from, to, dice, path, err = RollPath(o)
+				}
+			}
 		}
 	}
 	r.From, r.To, r.Dice, r.Path = from, to, dice, path
