@@ -194,6 +194,20 @@ loop drawing three times each), 62 for the title animation, 4 for copy
 protection. **The sequence itself is deterministic; what makes two sides
 diverge is always who drew how many times, and when.**
 
+The third is **data tables**. `Array` reads BASIC array descriptors (the first
+two words are `(offset, segment)`, and indexing is **column-major**), so every
+array in rich2's DIM table becomes readable. That gives the strongest possible
+check on whether a decoder is right — one dataset, two paths:
+
+| | remake path | original path | Result |
+|---|---|---|---|
+| Character stats | `SAVE_7.DSK` → container → decompress segment 0 | runtime `11A2h` | 360 cells, **0 differ** |
+| Land value tables | same → `ParseLandTables` | runtime `1174h` | 144 cells, **0 differ** |
+
+Getting decompression wrong by one byte does not raise an error; it just leaves
+most values coincidentally correct. Previously the only check available was
+"starting cash 25000 matches the screen", which covers two cells.
+
 The MVP-B check is reproducible (originals supplied by the player):
 
 ```sh
