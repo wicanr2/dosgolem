@@ -87,8 +87,19 @@ func (c *CPU) execute(op uint8) error {
 		c.R[r] = c.dec(c.R[r], 16)
 	case op >= 0x50 && op <= 0x57:
 		// **8086 的 PUSH SP 推的是已經減 2 之後的值**（`docs/spec/002` §4 第 1 點）。
-		// push() 先減再寫，所以照寫就是對的；286 以上才要先存舊值。
-		c.push(c.R[op-0x50])
+		// 286 以上推的是舊值。
+		//
+		// ⚠ 不能寫成 `c.push(c.R[op-0x50])`——Go 會**先算好引數**再呼叫，
+		// 於是推進去的是舊 SP，剛好變成 286 的行為。這個錯編譯得過、
+		// 其他七個暫存器全對，只有 `PUSH SP` 一道指令差 2
+		// （SingleStepTests 的 54 檔會抓到）。
+		r := int(op - 0x50)
+		if r == SP {
+			c.R[SP] -= 2
+			c.write16(c.Seg[SS], c.R[SP], c.R[SP])
+		} else {
+			c.push(c.R[r])
+		}
 	case op >= 0x58 && op <= 0x5F:
 		c.R[op-0x58] = c.pop()
 
