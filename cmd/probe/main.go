@@ -17,6 +17,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"strconv"
 	"sort"
 	"strings"
 
@@ -32,9 +33,15 @@ func main() {
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
+	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔，"+
+		"格式 <IDA 線性位址>:<長度> 或 ds:<偏移>:<長度>")
 	mouseX := flag.Int("mouse-x", -1, "滑鼠要移到的像素 X（−1 ＝ 不動）")
 	mouseY := flag.Int("mouse-y", -1, "滑鼠要移到的像素 Y")
 	mouseAt := flag.Uint64("mouse-at", 0, "第幾道指令時移動滑鼠（0 ＝ steps 的一半）")
+	clickX := flag.Int("click-x", -1, "點擊的像素 X（−1 ＝ 不點）")
+	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
+	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
+	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
 	flag.Parse()
 
 	if *exe == "" {
@@ -79,6 +86,21 @@ func main() {
 		if *mouseX >= 0 && m.Steps == moveAt {
 			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
 		}
+		// 點擊：按下 → 按住 clickHold 道指令 → 放開。
+		// **按住時間不能短**。遊戲輪詢 int 33h 的頻率很低，
+		// 按下與放開之間隔太近會整個被跳過（`rich2/docs/playtest/001` §5.6：
+		// DOSBox 那邊同一題要點三次才生效一次，改成按住 0.35 秒才穩）。
+		if *clickX >= 0 {
+			switch m.Steps {
+			case *clickAt:
+				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
+				d.Mouse.Buttons = 1
+				d.Mouse.Press++
+			case *clickAt + *clickHold:
+				d.Mouse.Buttons = 0
+				d.Mouse.Release++
+			}
+		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
 			break
@@ -86,6 +108,9 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	if *peek != "" {
+		dumpPeek(m, *peek)
+	}
 	if *dumpVRAM != "" {
 		if err := os.WriteFile(*dumpVRAM, m.Indexed(), 0o644); err != nil {
 			die(err)
@@ -266,6 +291,54 @@ func (r *ring) dump() {
 	for i := start; i < r.n; i++ {
 		t := r.buf[i%r.size]
 		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X\n", i, t.cs, t.ip, t.ax, t.sp)
+	}
+}
+
+// IDAOffset 是執行期線性位址與 `RUN_full.EXE` 的 IDA 線性位址之差。
+//
+//	IDA 線性 ＝ 執行期線性 ＋ IDAOffset
+//
+// 由「執行期 3014:167F ＝ IDA 線性 406BF」定出（那個防拷等待迴圈）。
+// 前提是映像載在 machine.LoadSeg。
+//
+// **rich2 的每一份筆記都用 IDA 線性位址**，沒有這個換算就對不回去。
+const IDAOffset = 0xEF00
+
+// DGROUPSeg 是 BASIC 的 DGROUP 在執行期的段。
+//
+// rich2 的筆記寫 `ds:XXXX`，它的 IDA 線性基底是 41E90（`rich2/CLAUDE.md` §4.1）；
+// 減掉 IDAOffset 得 32F90 ＝ 段 32F9 偏移 0。**那正是執行期的 SS**——
+// 編譯後 BASIC 的 DGROUP 與堆疊同段，是這一族的慣例。
+const DGROUPSeg = 0x32F9
+
+// dumpPeek 印出指定位址的內容。
+func dumpPeek(m *machine.Machine, spec string) {
+	fmt.Println("\n記憶體：")
+	for _, item := range strings.Split(spec, ",") {
+		f := strings.Split(strings.TrimSpace(item), ":")
+		var addr uint32
+		var n int
+		var label string
+		switch {
+		case len(f) == 3 && f[0] == "ds":
+			off, _ := strconv.ParseUint(f[1], 16, 16)
+			n, _ = strconv.Atoi(f[2])
+			addr = uint32(DGROUPSeg)*16 + uint32(off)
+			label = fmt.Sprintf("ds:%s", strings.ToUpper(f[1]))
+		case len(f) == 2:
+			ida, _ := strconv.ParseUint(f[0], 16, 32)
+			n, _ = strconv.Atoi(f[1])
+			addr = uint32(ida) - IDAOffset
+			label = fmt.Sprintf("IDA %s", strings.ToUpper(f[0]))
+		default:
+			fmt.Printf("  %s：格式看不懂\n", item)
+			continue
+		}
+		buf := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			buf = append(buf, fmt.Sprintf("%02X", m.Read8(addr+uint32(i))))
+		}
+		fmt.Printf("  %-14s（執行期 %05X）%s\n", label, addr, strings.Join(buf, " "))
 	}
 }
 
