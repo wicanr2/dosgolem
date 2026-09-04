@@ -122,7 +122,7 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 |---|---|---|
 | MVP-A | 8086 整數指令核心，SingleStepTests/8088 v2 全綠 | **323／323 檔綠**，一項已知差距見下 |
 | MVP-B | 跑到防拷畫面，與 DOSBox-X 索引截圖逐點相同 | **64,000／64,000 ＝ 100%** |
-| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| 滑鼠、鍵盤、PIT 都接了；**冷啟動到棋盤上擲骰買地全自動**。週期精確未做 |
+| M2 | 輸入與時序（鍵盤／滑鼠／PIT）| 滑鼠、鍵盤、PIT 都接了；**冷啟動連走十四回合全自動**（擲骰、買地、租金、退出銀行那種畫面）。週期精確未做 |
 | M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall`、`Caller`、快照、**RND 追蹤**可用；breakpoint 與 watchpoint 未做 |
 | M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |

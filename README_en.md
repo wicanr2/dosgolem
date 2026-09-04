@@ -144,7 +144,7 @@ goal — if they do, that is a side effect.
 |---|---|---|
 | MVP-A | 8086 integer core, SingleStepTests/8088 v2 all green | **323/323 files green**, one known gap below |
 | MVP-B | Reach the copy-protection screen, pixel-identical to a DOSBox-X indexed screenshot | **64,000/64,000 = 100%** |
-| M2 | Input and timing (keyboard / mouse / PIT) | Mouse, keyboard, and PIT all wired; **cold boot through rolling dice and buying land on the board, fully automated**. Cycle-accurate timing not done |
+| M2 | Input and timing (keyboard / mouse / PIT) | Mouse, keyboard, and PIT all wired; **fourteen turns played automatically from a cold boot** — rolling, buying, paying rent, backing out of screens like the bank. Cycle-accurate timing not done |
 | M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall`, `Caller`, snapshots, and **RND tracing** work; breakpoints and watchpoints not done |
 | M4 | Go API (`oracle` package) | **Usable**, [`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | Regression: re-run `rich2`'s existing parity receipts | Not started |
