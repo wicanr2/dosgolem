@@ -298,6 +298,20 @@ func (o *Oracle) fireCallHooks() {
 	}
 }
 
+// Caller 回 far call 的返回位址，也就是**呼叫端的下一道指令**。
+//
+// ⚠ **只在剛進入被呼叫的常式時有效**（`OnCall` 的 hook 裡）。
+// 常式一旦推了東西上堆疊，`SP` 就不再指向返回位址。
+//
+// 用途是回答「誰在用這支常式」——例如 `RND` 有幾個呼叫端、
+// 擲骰與抽籤各消耗幾次亂數。
+func (o *Oracle) Caller() Addr {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	ip := o.m.Read16(cpu.Addr(ss, sp))
+	cs := o.m.Read16(cpu.Addr(ss, sp+2))
+	return Addr{cs, ip}
+}
+
 // Arg 讀 far call 的第 n 個參數（n 從 0 起，最後推的是第 0 個）。
 //
 // **參數個數看 `retf N`（N/2），不是進場的 `mov bx`**
