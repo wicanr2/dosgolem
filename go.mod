@@ -1,3 +1,3 @@
-module github.com/wicanr2/dosoracle
+module github.com/wicanr2/dosgolem
 
 go 1.24

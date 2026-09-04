@@ -86,20 +86,7 @@ func (c *CPU) execute(op uint8) error {
 		r := int(op - 0x48)
 		c.R[r] = c.dec(c.R[r], 16)
 	case op >= 0x50 && op <= 0x57:
-		// **8086 的 PUSH SP 推的是已經減 2 之後的值**（`docs/spec/002` §4 第 1 點）。
-		// 286 以上推的是舊值。
-		//
-		// ⚠ 不能寫成 `c.push(c.R[op-0x50])`——Go 會**先算好引數**再呼叫，
-		// 於是推進去的是舊 SP，剛好變成 286 的行為。這個錯編譯得過、
-		// 其他七個暫存器全對，只有 `PUSH SP` 一道指令差 2
-		// （SingleStepTests 的 54 檔會抓到）。
-		r := int(op - 0x50)
-		if r == SP {
-			c.R[SP] -= 2
-			c.write16(c.Seg[SS], c.R[SP], c.R[SP])
-		} else {
-			c.push(c.R[r])
-		}
+		c.pushOperand(regOperand(int(op - 0x50)))
 	case op >= 0x58 && op <= 0x5F:
 		c.R[op-0x58] = c.pop()
 
@@ -643,9 +630,30 @@ func (c *CPU) group45(op uint8) error {
 		seg := c.read16(m.rm.seg, m.rm.off+2)
 		c.Seg[CS], c.IP = seg, off
 	case 6, 7: // PUSH r/m16
-		c.push(c.get16(m.rm))
+		c.pushOperand(m.rm)
 	}
 	return nil
+}
+
+// pushOperand 推一個 r/m16 運算元。
+//
+// ⚠ **運算元是 `SP` 時要先減再讀**：8086 的 `PUSH SP` 推的是**已經減 2
+// 之後**的值，286 以上推的才是舊值（`docs/spec/002` §4 第 1 點）。
+//
+// 不能寫成 `c.push(c.get16(o))`——Go 會**先算好引數**再呼叫，
+// 於是推進去的是舊 SP，剛好變成 286 的行為。這個錯編譯得過、vet 過，
+// 其他七個暫存器全對，只有 `PUSH SP` 一道指令差 2。
+//
+// **同一個坑有兩條路徑**：`50`–`57`（`PUSH r16`）與 `FF /6`（`PUSH r/m16`）。
+// 修好第一條之後 `FF.6`／`FF.7` 還是紅的——所以這裡收成一支，
+// 不讓第三條路徑再踩一次。
+func (c *CPU) pushOperand(o operand) {
+	if o.isReg && o.reg == SP {
+		c.R[SP] -= 2
+		c.write16(c.Seg[SS], c.R[SP], c.R[SP])
+		return
+	}
+	c.push(c.get16(o))
 }
 
 // doInt 走 IntHook；沒攔就跳真正的向量表。

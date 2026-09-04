@@ -2,7 +2,7 @@
 Retro Remake Source-Available License, version 1.0 (RRSAL-1.0)
 SPDX-License-Identifier: LicenseRef-RRSAL-1.0
 
-適用作品：dosoracle（dosoracle）
+適用作品：dosgolem（DOS 魔像）
 Copyright (c) 2026 Wang Chun-Yu (wicanr2) <wicanr2@gmail.com>
 
 繁體中文為準，英文譯本僅供參考（The Traditional Chinese text governs;
@@ -79,7 +79,7 @@ the English translation below is provided for convenience only）。
   (a) 散布本作品或修改版時，要保留本授權條款全文與著作權聲明。
   (b) 公開散布、展示或傳播本作品或修改版時，要以合理且明顯的方式標示：
       本作品名稱、著作權人姓名（Wang Chun-Yu／wicanr2），以及原始出處
-      https://github.com/wicanr2/dosoracle 。
+      https://github.com/wicanr2/dosgolem 。
   (c) 散布修改版時，要明確標示這是修改版、改動了什麼、由誰修改。不得讓人
       誤以為修改版出自著作權人或經其認可，也不得以會造成混淆的方式使用
       著作權人的姓名或本作品的名稱。
@@ -114,7 +114,7 @@ the English translation below is provided for convenience only）。
 
 第 8 條　名稱
 
-「dosoracle」、「dosoracle」及本儲存庫名稱是本作品的
+「dosgolem」、「dosgolem」及本儲存庫名稱是本作品的
 識別名稱。修改版可以說明自己「基於」本作品，但不得使用相同或近似的名稱作為
 修改版自己的名稱，除非取得著作權人書面同意。
 
@@ -241,7 +241,7 @@ separate agreement with the copyright holder.
    (b) When publicly distributing, showing or transmitting the Work or a
        Modified Version, give reasonable and visible credit: the name of the
        Work, the copyright holder (Wang Chun-Yu / wicanr2), and the original
-       source at https://github.com/wicanr2/dosoracle .
+       source at https://github.com/wicanr2/dosgolem .
    (c) When distributing a Modified Version, state clearly that it is
        modified, what was changed and by whom. Do not imply that it comes
        from or is endorsed by the copyright holder, and do not use the
@@ -283,7 +283,7 @@ separate agreement with the copyright holder.
        reasonable.
    (d) Do not submit a Contribution if you do not accept this Section.
 
-8. NAMES. "dosoracle", "dosoracle" and this
+8. NAMES. "dosgolem", "dosgolem" and this
    repository's name identify the Work. A Modified Version may state that it
    is based on the Work, but may not use the same or a confusingly similar
    name as its own name without the copyright holder's written consent.

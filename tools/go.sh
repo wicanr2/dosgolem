@@ -8,9 +8,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${DOSORACLE_GO_IMAGE:-golang:1.24-bookworm}"
-RUN_UID="${DOSORACLE_RUN_UID:-$(id -u)}"
-RUN_GID="${DOSORACLE_RUN_GID:-$(id -g)}"
+IMAGE="${DOSGOLEM_GO_IMAGE:-golang:1.24-bookworm}"
+RUN_UID="${DOSGOLEM_RUN_UID:-$(id -u)}"
+RUN_GID="${DOSGOLEM_RUN_GID:-$(id -g)}"
 
 mkdir -p "$ROOT/workplace/gocache" "$ROOT/workplace/gomodcache"
 
@@ -20,8 +20,8 @@ for v in GOOS GOARCH CGO_ENABLED; do
   [[ -n "${!v:-}" ]] && PASS+=(-e "$v=${!v}")
 done
 
-exec timeout "${DOSORACLE_TIMEOUT:-30m}" docker run --rm --network none \
-  --memory "${DOSORACLE_MEM:-4g}" --cpus "${DOSORACLE_CPUS:-4}" --pids-limit 256 \
+exec timeout "${DOSGOLEM_TIMEOUT:-30m}" docker run --rm --network none \
+  --memory "${DOSGOLEM_MEM:-4g}" --cpus "${DOSGOLEM_CPUS:-4}" --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 \
   -u "$RUN_UID:$RUN_GID" \
   -v "$ROOT:/src" \

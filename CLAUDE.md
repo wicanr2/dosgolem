@@ -1,4 +1,4 @@
-# dosoracle — 給 Claude 的專案規則
+# dosgolem — 給 Claude 的專案規則
 
 ## 這是什麼
 

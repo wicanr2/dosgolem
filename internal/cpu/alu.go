@@ -108,8 +108,10 @@ func (c *CPU) neg(v uint16, size int) uint16 {
 //  1. **位移量不遮罩成 5 位元**（286 以上才遮）。CL=32 時值會被移光。
 //  2. **CL ＝ 0 時完全不動旗標**，連 ZF 都不動。
 //
-// OF 只有在「移 1 位」時有定義；移多位時 8086 仍然會寫一個值進去，
-// SingleStepTests 用 flags-mask 把它遮掉，所以這裡照最後一次的規則寫。
+//  3. **OF 每一圈都重算**，不是只在「移 1 位」時才有定義。手冊說移多位時
+//     OF 未定義，但實機的微碼每一圈都做同樣的事，所以**最後一圈的值勝出**。
+//     `D2.3`（RCR by CL）的 flags-mask 是 FFFF——**一個位元都沒遮**，
+//     照「只有移 1 位才算 OF」寫會整批紅。
 
 func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 	if count == 0 {
@@ -120,6 +122,9 @@ func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 	x := uint32(v) & m
 	var last bool // 最後移出去的那一位，變成 CF
 
+	// hi2 是「最高兩位相異」，ROR／RCR 的 OF 就是它。
+	hi2 := func() bool { return (x&sb != 0) != (x&(sb>>1) != 0) }
+
 	switch op {
 	case 0: // ROL
 		for i := uint8(0); i < count; i++ {
@@ -129,9 +134,9 @@ func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 				x |= 1
 			}
 			last = hi != 0
+			c.setFlag(OF, (x&sb != 0) != last)
 		}
 		c.setFlag(CF, last)
-		c.setFlag(OF, (x&sb != 0) != last)
 	case 1: // ROR
 		for i := uint8(0); i < count; i++ {
 			lo := x & 1
@@ -140,10 +145,9 @@ func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 				x |= sb
 			}
 			last = lo != 0
+			c.setFlag(OF, hi2())
 		}
 		c.setFlag(CF, last)
-		// OF ＝ 結果最高兩位相異。
-		c.setFlag(OF, (x&sb != 0) != (x&(sb>>1) != 0))
 	case 2: // RCL
 		cf := uint32(0)
 		if c.Flag(CF) {
@@ -152,20 +156,18 @@ func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 		for i := uint8(0); i < count; i++ {
 			hi := x & sb
 			x = (x<<1)&m | cf
+			cf = 0
 			if hi != 0 {
 				cf = 1
-			} else {
-				cf = 0
 			}
+			c.setFlag(OF, (x&sb != 0) != (cf != 0))
 		}
 		c.setFlag(CF, cf != 0)
-		c.setFlag(OF, (x&sb != 0) != (cf != 0))
 	case 3: // RCR
 		cf := uint32(0)
 		if c.Flag(CF) {
 			cf = 1
 		}
-		// RCR 的 OF 在**移入 CF 之後**看最高兩位（`docs/spec/002` §3.2）。
 		for i := uint8(0); i < count; i++ {
 			lo := x & 1
 			x >>= 1
@@ -173,29 +175,42 @@ func (c *CPU) shiftRotate(op int, v uint16, count uint8, size int) uint16 {
 				x |= sb
 			}
 			cf = lo
-			if i == 0 {
-				c.setFlag(OF, (x&sb != 0) != (x&(sb>>1) != 0))
-			}
+			c.setFlag(OF, hi2())
 		}
 		c.setFlag(CF, cf != 0)
-	case 4, 6: // SHL／SAL（/6 是未公開的別名）
+	case 6: // SETMO／SETMOC——**未公開，而且不是 SHL 的別名**
+		// 186 以上把 `/6` 當成 `/4`（SHL）的別名，**8086 不是**：
+		// 它把目的地整個設成 1（`SETMO`；`D2`／`D3` 的版本 `SETMOC`
+		// 在 CL ＝ 0 時什麼都不做，由上面那個 count == 0 的早退處理）。
+		//
+		// 語料：`D0.6`／`D1.6`／`D2.6`／`D3.6` 四個檔，指令名就叫 `setmo`。
+		// 四個檔的 flags-mask 都是 F72A——**六個算術旗標全部被遮掉**，
+		// 所以下面設的旗標是我們挑的確定值，不是實機保證。
+		x = m
+		c.setFlag(CF, false)
+		c.setFlag(OF, false)
+		c.setFlag(AF, false)
+		c.setSZP(uint16(x), size)
+		return uint16(x)
+	case 4: // SHL／SAL
 		for i := uint8(0); i < count; i++ {
 			last = x&sb != 0
 			x = (x << 1) & m
+			c.setFlag(OF, (x&sb != 0) != last)
 		}
 		c.setFlag(CF, last)
-		c.setFlag(OF, (x&sb != 0) != last)
 		c.setSZP(uint16(x), size)
 		c.setFlag(AF, false)
 		return uint16(x)
 	case 5: // SHR
-		of := x&sb != 0 // OF ＝ **運算元**的最高位
 		for i := uint8(0); i < count; i++ {
+			// OF ＝ **這一圈移之前**的最高位。多位移時最後一圈勝出，
+			// 所以不是「原始運算元的最高位」——那是只移 1 位時的特例。
+			c.setFlag(OF, x&sb != 0)
 			last = x&1 != 0
 			x >>= 1
 		}
 		c.setFlag(CF, last)
-		c.setFlag(OF, of)
 		c.setSZP(uint16(x), size)
 		c.setFlag(AF, false)
 		return uint16(x)
@@ -259,8 +274,30 @@ func (c *CPU) imul16(v uint16) {
 	c.setSZP(uint16(uint32(res)>>16), 16)
 }
 
+// ---- 除法 ---------------------------------------------------------------
+//
+// 除法的旗標在手冊上是「全部未定義」，SingleStepTests 也把它們遮掉——
+// **但溢位那條路會把旗標推上堆疊**（`INT 0`），而堆疊的比對是逐位元組的。
+// 所以「未定義」在這裡不等於「隨便」。
+//
+// 從語料反推出來的規則（`docs/spec/002` §3.4）：
+//
+//	DIV：旗標 ＝ 內部第一次比較「被除數高半部 − 除數」留下來的
+//	     F6.6 的 1,439 筆暫存器型溢位樣本全中，F7.6 的 1,372 筆也全中。
+//
+// **`IDIV` 還沒解**：它先把兩邊取絕對值再做無號除法，溢位是在迴圈中途
+// 才偵測到的，所以旗標來自比較晚的一次內部減法。用同一條規則只對
+// 約 65%（`docs/spec/002` §3.4 有數字）。現況：照 DIV 的規則寫，
+// 並在測試裡以**上限計數**盯住，不讓它悄悄變差。
+
+// divFlags 設「被除數高半部 − 除數」那一次比較的旗標。
+func (c *CPU) divFlags(high, divisor uint32, size int) {
+	c.sub(high, divisor, 0, size)
+}
+
 // div8／div16／idiv8／idiv16 回傳 false 表示要觸發 INT 0（除以 0 或商溢位）。
 func (c *CPU) div8(v uint8) bool {
+	c.divFlags(uint32(c.reg8(4)), uint32(v), 8)
 	if v == 0 {
 		return false
 	}
@@ -274,6 +311,7 @@ func (c *CPU) div8(v uint8) bool {
 }
 
 func (c *CPU) div16(v uint16) bool {
+	c.divFlags(uint32(c.R[DX]), uint32(v), 16)
 	if v == 0 {
 		return false
 	}
@@ -288,6 +326,7 @@ func (c *CPU) div16(v uint16) bool {
 }
 
 func (c *CPU) idiv8(v uint8) bool {
+	c.divFlags(uint32(c.reg8(4)), uint32(v), 8)
 	if v == 0 {
 		return false
 	}
@@ -303,6 +342,7 @@ func (c *CPU) idiv8(v uint8) bool {
 }
 
 func (c *CPU) idiv16(v uint16) bool {
+	c.divFlags(uint32(c.R[DX]), uint32(v), 16)
 	if v == 0 {
 		return false
 	}
