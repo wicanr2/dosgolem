@@ -25,7 +25,10 @@ func (o *Oracle) Mouse() (x, y int) {
 // ClickOpt 調整一次點擊。
 type ClickOpt func(*clickCfg)
 
-type clickCfg struct{ hold, settle uint64 }
+type clickCfg struct{ hover, hold, settle uint64 }
+
+// Hover 改「移到位置之後、按下之前」等多久。
+func Hover(n uint64) ClickOpt { return func(c *clickCfg) { c.hover = n } }
 
 // Hold 改按住的指令數。
 func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
@@ -44,7 +47,7 @@ func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 //  3. **回 error**：點了畫面完全沒動要說出來，不要讓呼叫端拿「畫面沒變」
 //     去猜是點錯位置還是遊戲還沒準備好。
 func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
-	cfg := clickCfg{hold: DefaultHold, settle: DefaultHold}
+	cfg := clickCfg{hover: DefaultHover, hold: DefaultHold, settle: DefaultHold}
 	for _, f := range opts {
 		f(&cfg)
 	}
@@ -56,6 +59,18 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 
 	before := o.Indexed()
 	o.MoveMouse(x, y)
+	// ⚠ **移到位置之後要先停一下再按。**
+	//
+	// 頂端按鈕列是 hover-based：游標移過去先反白，反白之後的點擊才算數。
+	// 移動與按下之間沒有間隔的話，遊戲在同一次輪詢裡同時看到新座標與
+	// 按鍵——按鈕不會執行，只會反白。**畫面有反應**（真的反白了），
+	// 所以看起來像「點到了但遊戲不理」。
+	//
+	// rich2 的 DOSBox 腳本用 `mousemove` → `sleep 0.4` → `mousedown`
+	// 做同一件事（`tools/dosbox_session.py` 的 click）。
+	if err := o.Run(cfg.hover); err != nil {
+		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
+	}
 	o.d.Mouse.Buttons = 1
 	o.d.Mouse.Press++
 	if err := o.Run(cfg.hold); err != nil {

@@ -46,6 +46,10 @@ type Mouse struct {
 	// Sets 記下每一次 AX=4（程式自己設游標位置）。
 	// 程式設過之後我們注入的位置就被蓋掉了，而症狀是「滑鼠移不動」。
 	Sets []Poll
+
+	// Calls 是每個 int 33h 功能號被叫了幾次。
+	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
+	Calls map[uint16]int
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -128,7 +132,7 @@ func New(m *machine.Machine, root string) *DOS {
 	return &DOS{
 		M: m, Root: root,
 		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
-		Mouse:         Mouse{XScale: 2},
+		Mouse:         Mouse{XScale: 2, Calls: map[uint16]int{}},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},

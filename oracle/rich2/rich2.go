@@ -151,6 +151,14 @@ func ToBoard(o *oracle.Oracle) error {
 	//
 	// ⚠ **等調色盤，不要等畫面。** 棋盤上的角色一直在動，`ScreenIdle`
 	// 在這裡跑不完（實測跑滿兩億道指令仍未達成）。
-	return o.RunUntil(oracle.PaletteIdle(20_000_000, cycling),
-		oracle.Budget(250_000_000))
+	if err := o.RunUntil(oracle.PaletteIdle(20_000_000, cycling),
+		oracle.Budget(250_000_000)); err != nil {
+		return err
+	}
+	// ⚠ **再等到遊戲真的開始讀滑鼠。**
+	//
+	// 淡入走完的時候遊戲還在跑收尾，那段期間一次都不輪詢滑鼠——
+	// 這時點下去等於沒點，而按鈕還是會反白（那是遊戲自己畫的），
+	// 所以看起來像「點到了但遊戲不理」。
+	return o.RunUntil(oracle.MousePolled(50), oracle.Budget(400_000_000))
 }

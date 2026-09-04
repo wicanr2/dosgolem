@@ -77,6 +77,23 @@ func (a *Array) Int32(idx ...int) int32 {
 	return int32(uint32(a.o.m.Read16(at)) | uint32(a.o.m.Read16(at+2))<<16)
 }
 
+// Index 把線性位址反查成索引。
+//
+// **這是「這個動作改了哪一格」的答案**：拿快照差分出來的位址丟進來，
+// 直接得到 `(格號, 欄位)`，不必再從畫面反推。
+func (a *Array) Index(linear uint32) ([]int, bool) {
+	if linear < a.Base || linear >= a.Base+uint32(a.Size()) {
+		return nil, false
+	}
+	off := int(linear-a.Base) / a.Width
+	idx := make([]int, len(a.Dims))
+	for k, d := range a.Dims {
+		idx[k] = off%d.N + d.Lo
+		off /= d.N
+	}
+	return idx, true
+}
+
 // InRange 檢查索引在界內。**越界讀不會報錯**，只會讀到鄰居的資料。
 func (a *Array) InRange(idx ...int) bool {
 	if len(idx) != len(a.Dims) {

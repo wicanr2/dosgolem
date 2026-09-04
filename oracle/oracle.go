@@ -46,6 +46,16 @@ const DefaultBudget = 100_000_000
 // （`rich2/docs/playtest/001` §5.6）。
 const DefaultHold = 2_000_000
 
+// DefaultHover 是 Click 在「移到位置」與「按下」之間等的指令數。
+//
+// **不能是 0。** 頂端按鈕列是 hover-based：游標移過去先反白，反白之後的
+// 點擊才算數。沒有間隔的話按鈕只會反白不會執行，而那看起來像
+// 「點到了但遊戲不理」——畫面確實有反應。
+//
+// rich2 的 DOSBox 腳本用 `sleep 0.4` 做同一件事，以 3,000 cycles/ms 換算
+// 約 120 萬道指令；這裡取 200 萬。
+const DefaultHover = 2_000_000
+
 // Oracle 是一台跑著原版的機器。用 Load 造。
 //
 // **不是 goroutine-safe**：一台機器一條時間線。要平行就開多台，
@@ -187,6 +197,39 @@ func (o *Oracle) MouseActivity() (polls, pressed int) {
 		}
 	}
 	return
+}
+
+// MouseCalls 回每個 `int 33h` 功能號被叫了幾次。
+//
+// **診斷「點了沒反應」的第一步**：先確認遊戲在讀哪一支。
+// 讀 `AX=3`（即時狀態）與讀 `AX=5/6`（按下／放開的統計）要餵的東西不一樣。
+func (o *Oracle) MouseCalls() map[uint16]int {
+	out := map[uint16]int{}
+	for k, v := range o.d.Mouse.Calls {
+		out[k] = v
+	}
+	return out
+}
+
+// MouseSets 回程式每一次自己設游標位置（`AX=4`）的座標與時間點。
+//
+// **程式設過之後我們注入的位置就被蓋掉了**，而症狀是「點了沒反應」
+// ——遊戲在按著的那一刻讀到的是它自己設的座標，不是我們要點的地方。
+func (o *Oracle) MouseSets() []struct {
+	X, Y uint16
+	Step uint64
+} {
+	out := make([]struct {
+		X, Y uint16
+		Step uint64
+	}, 0, len(o.d.Mouse.Sets))
+	for _, s := range o.d.Mouse.Sets {
+		out = append(out, struct {
+			X, Y uint16
+			Step uint64
+		}{s.X, s.Y, s.Step})
+	}
+	return out
 }
 
 // LastPressedPoll 回最後一次「回報按著」的座標與當時的指令數。

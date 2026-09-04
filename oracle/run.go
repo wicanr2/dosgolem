@@ -243,6 +243,61 @@ func PaletteIdle(n uint64, skip func(i int) bool) Cond {
 	}
 }
 
+// WordIdle 是「某個變數連續 n 道指令沒變」。
+//
+// 用來等「動作做完」：棋子在走的時候格號一直在跳，停下來才算走完。
+// 比等畫面靜止可靠——棋盤上的角色動畫讓畫面永遠不會靜止。
+func WordIdle(a Addr, n uint64) Cond {
+	every := n / 8
+	if every > 100_000 {
+		every = 100_000
+	}
+	if every < 1 {
+		every = 1
+	}
+	var last uint16
+	var have bool
+	var since, nextCheck uint64
+	return Cond{
+		name: fmt.Sprintf("%s 連續 %d 道指令沒變", a, n),
+		ready: func(o *Oracle) bool {
+			if o.m.Steps < nextCheck {
+				return false
+			}
+			nextCheck = o.m.Steps + every
+			cur := o.Word(a)
+			if !have || cur != last {
+				last, have, since = cur, true, o.m.Steps
+				return false
+			}
+			return o.m.Steps-since >= n
+		},
+	}
+}
+
+// MousePolled 是「滑鼠又被輪詢了 n 次」。
+//
+// ⚠ **這是「遊戲在等輸入」最直接的訊號。**
+//
+// 「畫面畫完」不等於「準備好收輸入」：進棋盤之後遊戲還在跑收尾動畫，
+// 那段期間**一次都不讀滑鼠**——點下去等於沒點，而畫面看起來完全正常
+// （游標甚至會反白按鈕，因為反白是遊戲自己畫的）。
+//
+// 實測：`ToBoard` 回來之後直接點，Click 的六百萬道指令內輪詢 0 次。
+func MousePolled(n int) Cond {
+	var base int
+	first := true
+	return Cond{
+		name: fmt.Sprintf("滑鼠再被輪詢 %d 次", n),
+		ready: func(o *Oracle) bool {
+			if first {
+				base, first = len(o.d.Mouse.Polls), false
+			}
+			return len(o.d.Mouse.Polls)-base >= n
+		},
+	}
+}
+
 // MouseSettled 是「程式已經自己設過游標位置」。
 //
 // 程式進防拷畫面時用 `int 33h AX=4` 設一次游標位置（實測在第 42,406,064 道）。

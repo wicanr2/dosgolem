@@ -89,6 +89,9 @@ func (d *DOS) int33(c *cpu.CPU) {
 	// **先把功能號存起來**：下面好幾個分支會覆寫 AX，之後再拿 AX 判斷
 	// 就是在讀自己剛寫進去的值。（同一個形狀在 CPU 的 `PUSH SP` 上踩過。）
 	fn := c.R[cpu.AX]
+	if m.Calls != nil {
+		m.Calls[fn]++
+	}
 	switch fn {
 	case 0x0000: // 重設並偵測
 		c.R[cpu.AX] = 0xFFFF // 已安裝
