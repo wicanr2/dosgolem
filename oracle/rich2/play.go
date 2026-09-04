@@ -60,6 +60,15 @@ func Roll(o *oracle.Oracle, opts ...RollOpt) (from, to int, err error) {
 // `ds:1B0h` 是全域的——回合一推進，AI 擲的骰子就把它蓋掉了。
 // 實測：在 `Answer` 之後讀，六步裡有四步的點數對不上實際走的距離。
 func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error) {
+	f, t, d, _, e := RollPath(o, opts...)
+	return f, t, d, e
+}
+
+// RollPath 同 RollDice，但多回傳**逐格路徑**。
+//
+// 路徑是走路期間對玩家位置取樣來的（條件函式每道指令都會被呼叫）。
+// 比從方向序列反推可靠——反推要先假設「哪些格會抽方向」，而那正是要驗的。
+func RollPath(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, path []int, err error) {
 	cfg := rollCfg{budget: 150_000_000, idle: 20_000_000}
 	for _, f := range opts {
 		f(&cfg)
@@ -67,7 +76,7 @@ func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error)
 	player := Turn(o)
 	from = Position(o, player)
 	if err = o.Click(BtnMoveX, BtnY); err != nil {
-		return from, from, 0, fmt.Errorf("點「前進」：%w", err)
+		return from, from, 0, path, fmt.Errorf("點「前進」：%w", err)
 	}
 	// ⚠ **等「玩家自己的位置」變，不要等 `ds:1BE`。**
 	//
@@ -78,7 +87,7 @@ func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error)
 		return Position(o, player) != from || Turn(o) != player
 	})
 	if err = o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), Steps(o),
+		return from, Position(o, player), Steps(o), path,
 			fmt.Errorf("擲骰之後等棋子動：%w", err)
 	}
 	// **就是這裡。** 棋子剛開始走，點數已經定了，而回合還沒推進。
@@ -105,10 +114,20 @@ func RollDice(o *oracle.Oracle, opts ...RollOpt) (from, to, dice int, err error)
 			}
 			return rIdle.Ready(o) && cIdle.Ready(o)
 		})
-	if err = o.RunUntil(stopped, oracle.Budget(cfg.budget)); err != nil {
-		return from, Position(o, player), dice, fmt.Errorf("等棋子停：%w", err)
+	// 記錄逐格路徑——條件函式每道指令都會被呼叫，順手把位置變化收下來。
+	// **這是「原版到底怎麼走」的直接答案**，比從方向序列反推可靠。
+	lastPathPos := from
+	watched := oracle.NewCond(stopped.String(), func(o *oracle.Oracle) bool {
+		if p := Position(o, player); p != lastPathPos && p != 0 {
+			path = append(path, p)
+			lastPathPos = p
+		}
+		return stopped.Ready(o)
+	})
+	if err = o.RunUntil(watched, oracle.Budget(cfg.budget)); err != nil {
+		return from, Position(o, player), dice, path, fmt.Errorf("等棋子停：%w", err)
 	}
-	return from, Position(o, player), dice, nil
+	return from, Position(o, player), dice, path, nil
 }
 
 // Answer 回答 Yes／No 對話框（買地那種）。
@@ -157,6 +176,9 @@ type TurnResult struct {
 	RowTo    int // 走之後的地圖座標
 	ColTo    int
 	Dice     int   // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
+	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
+	Path     []int // 逐格路徑（不含起點）
+	DirFrom  int   // 走之前的目前方向（ds:10DEh）
 	Cash     int32 // 走完之後的現金
 	Paid     int32 // 這一步花掉的錢（負數表示收入）
 	RND      int   // 這一步消耗的亂數次數
@@ -179,14 +201,23 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 		return r, err
 	}
 	cashBefore := Cash(o, player)
+	r.DirFrom = PlayerDir(o, player)
 	rndBefore := 0
 	if tr != nil {
 		rndBefore = len(tr.Calls)
 	}
 
-	from, to, dice, err := RollDice(o)
-	r.From, r.To, r.Dice = from, to, dice
+	from, to, dice, path, err := RollPath(o)
+	r.From, r.To, r.Dice, r.Path = from, to, dice, path
 	r.PosFrom = from
+	// ⚠ **方向序列要在這裡收窄。**
+	//
+	// `Answer` 之後回合就推進了，AI 走路時也會抽方向——把整段都算進來
+	// 的話序列裡混著別人的。實測第一步因此拿到 [1 2 3]，
+	// 而原版那一格選的是 4（根本不在序列裡）。
+	if tr != nil {
+		r.Dirs = DirectionPicks(o, tr.Calls[rndBefore:])
+	}
 	if err != nil {
 		return r, err
 	}

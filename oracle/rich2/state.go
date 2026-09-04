@@ -108,6 +108,16 @@ func ActivePlayers(o *oracle.Oracle) []int {
 const (
 	ColRow = 0
 	ColCol = 1
+
+	// ColDir 是玩家自己的目前方向（1..4）。
+	//
+	// ⚠ **不要用 `ds:10DEh`。** 那是全域的「目前玩家的方向」，
+	// 回合一推進就變成別人的——同一個形狀在 `ds:1BE`（格號）與
+	// `ds:1B0h`（骰子點數）上都踩過。
+	//
+	// 判準：第一步走完之後 `1146h(1,2)` 是 2，而下一次輪到玩家 1 時
+	// `ds:10DEh` 讀出來也是 2。
+	ColDir = 2
 )
 
 // Position 回某個玩家目前的格號。
@@ -141,6 +151,11 @@ func Steps(o *oracle.Oracle) int { return int(o.Word(o.DS(VarSteps))) }
 // DiceRaw 回擲骰常式的原始回傳，DirPick 回最後一次抽到的候選方向。
 func DiceRaw(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDiceRaw))) }
 func DirPick(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirPick))) }
+
+// PlayerDir 回某個玩家自己的目前方向（1..4）。
+func PlayerDir(o *oracle.Oracle, player int) int {
+	return int(PlayerState(o).Int16(player, ColDir))
+}
 
 // Tile 回 `ds:1BE`——**「目前正在處理的格號」，不是某個玩家的位置**。
 // 要玩家位置用 Position。

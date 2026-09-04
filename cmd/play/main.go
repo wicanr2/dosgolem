@@ -162,6 +162,29 @@ func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
 		}
 		fmt.Printf("  %2d  %3d → %3d　%3d　(%2d,%2d)　%6d　%4d　%s\n",
 			i, r.PosFrom, r.PosTo, r.Dice, r.RowTo, r.ColTo, r.Paid, r.RND, dlg)
+		if len(r.Path) > 0 {
+			fmt.Printf("        路徑：%v\n", r.Path)
+		}
+		if len(r.Dirs) > 0 {
+			fmt.Printf("        方向：起始 %d，抽到 %v\n", r.DirFrom, r.Dirs)
+		}
+		// 這一步的亂數呼叫端分布——用來找「誰在抽方向」。
+		if tr != nil && r.RND > 0 {
+			seen := map[uint32]int{}
+			for _, c := range tr.Calls[len(tr.Calls)-r.RND:] {
+				seen[o.ToIDA(c.Caller)]++
+			}
+			keys := make([]uint32, 0, len(seen))
+			for k := range seen {
+				keys = append(keys, k)
+			}
+			sort.Slice(keys, func(a, b int) bool { return keys[a] < keys[b] })
+			fmt.Printf("        呼叫端：")
+			for _, k := range keys {
+				fmt.Printf(" %05X×%d", k, seen[k])
+			}
+			fmt.Println()
+		}
 	}
 	// 走完之後把玩家 1 的欄位全印出來——「哪一欄是位置」用已知的落點反查。
 	ps, mn := rich2.PlayerState(o), rich2.Money(o)

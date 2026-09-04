@@ -19,6 +19,7 @@ func main() {
 	exe := flag.String("exe", "", "RUN_full.EXE（必填）")
 	root := flag.String("root", ".", "原版素材目錄")
 	find := flag.Int("find", 0, "順便搜尋這個 32 位元值在哪（0 ＝ 不搜）")
+	square := flag.Int("square", -1, "印出棋盤陣列 122Ch 這一格的 20 個欄位")
 	flag.Parse()
 	if *exe == "" {
 		flag.Usage()
@@ -62,6 +63,19 @@ func main() {
 		}
 		fmt.Printf("  %s %-16s 基底 %05X　%d bytes（DIM 表 %d）\n",
 			mark, a.name, a.arr.Base, a.arr.Size(), a.want)
+	}
+
+	if *square >= 0 {
+		bd := rich2.Board(o)
+		fmt.Printf("\n122Ch(%d, 0..19)：\n ", *square)
+		for j := 0; j < 20; j++ {
+			fmt.Printf("%6d", bd.Int16(*square, j))
+			if j%10 == 9 {
+				fmt.Printf("\n ")
+			}
+		}
+		fmt.Println("\n  欄 4–7 是四個方向的出口（`rich2/docs/re/014` §4c：" +
+			"棋盤[格][候選方向+3]）")
 	}
 
 	if *find != 0 {
