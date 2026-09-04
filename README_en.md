@@ -144,7 +144,7 @@ goal — if they do, that is a side effect.
 |---|---|---|
 | MVP-A | 8086 integer core, SingleStepTests/8088 v2 all green | **323/323 files green**, one known gap below |
 | MVP-B | Reach the copy-protection screen, pixel-identical to a DOSBox-X indexed screenshot | **64,000/64,000 = 100%** |
-| M2 | Input and timing (keyboard / mouse / PIT) | Mouse and PIT done, **all three protection questions answered automatically**; keyboard and cycle-accurate timing not done |
+| M2 | Input and timing (keyboard / mouse / PIT) | Mouse, keyboard, and PIT all wired; **cold boot through rolling dice and buying land on the board, fully automated**. Cycle-accurate timing not done |
 | M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall`, `Caller`, snapshots, and **RND tracing** work; breakpoints and watchpoints not done |
 | M4 | Go API (`oracle` package) | **Usable**, [`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | Regression: re-run `rich2`'s existing parity receipts | Not started |
@@ -203,6 +203,12 @@ check on whether a decoder is right — one dataset, two paths:
 |---|---|---|---|
 | Character stats | `SAVE_7.DSK` → container → decompress segment 0 | runtime `11A2h` | 360 cells, **0 differ** |
 | Land value tables | same → `ParseLandTables` | runtime `1174h` | 144 cells, **0 differ** |
+| Land purchase | price table 0 | take a turn, buy, read what was actually charged | paid 2200, **found in the table** |
+
+That last row goes further than the two above it: matching tables only proves
+the **decoder** is right; it proves **that number is the one the game actually
+charges**. The whole run takes 15 seconds — cold boot to the board, click
+"Move", answer the purchase dialog, all automated.
 
 Getting decompression wrong by one byte does not raise an error; it just leaves
 most values coincidentally correct. Previously the only check available was
