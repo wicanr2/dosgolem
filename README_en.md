@@ -152,6 +152,35 @@ goal — if they do, that is a side effect.
 Specs live in [`docs/spec/`](docs/spec/), marked `DRAFT` or `READY`; only READY
 ones may be implemented against.
 
+### Wiring it into a remake project
+
+`rich2` uses a Go workspace pointing at a local checkout rather than a `replace`
+directive in `go.mod`:
+
+```sh
+# rich2/go.work (gitignored, only meaningful inside the container)
+go 1.24.0
+use .
+use /dosgolem
+```
+
+Its `tools/go.sh` mounts dosgolem read-only when it finds it alongside. The
+parity tests sit behind `-tags oracle`, so anyone without that mount runs
+`go test ./...` and skips them rather than failing.
+
+⚠ **Do not add a `require` for a version that does not exist.** Every package
+then tries to reach the module proxy, and the build container runs with
+`--network none` — the whole project stops compiling, with errors pointing at
+files that have nothing to do with it.
+
+The first parity test wired up is the palette: the original's runtime VGA DAC
+against the remake's decoding of `256.PAT`. 30 of 256 entries differ, and where
+they differ is meaningful — `192`–`206` are the fifteen counties of the Taiwan
+map (a blue gradient in `256.PAT`, which the copy-protection screen repaints as
+one flat green, leaving only the county being asked about in white), and
+`240`–`254` are a cycling animation. **The check is therefore where the
+differences land, not how many there are.**
+
 The MVP-B check is reproducible (originals supplied by the player):
 
 ```sh
