@@ -52,7 +52,7 @@ func main() {
 	beforeScreen := append([]uint8(nil), o.Indexed()...)
 
 	if *turns > 0 {
-		playTurns(o, tr, *turns, *buy)
+		playTurns(o, tr, *turns, *buy, *turns <= 3)
 		if *shot != "" {
 			if err := o.WritePNG(*shot); err != nil {
 				die(err)
@@ -146,10 +146,10 @@ func Coord(o *oracle.Oracle) *oracle.Array { return rich2.Coord(o) }
 //
 // **這是移動 parity 的原料**：remake 要重播同一局，需要的就是
 // 「第幾步、從哪走到哪、花了多少、消耗幾次亂數」。
-func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
+func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy, verbose bool) {
 	const me = 1 // 人類是玩家 1
 	fmt.Printf("\n連走 %d 步（買地：%v）\n", n, buy)
-	fmt.Println("  步  玩家格號　　骰子　地圖座標　　花費　亂數　對話框")
+	fmt.Println("  步  玩家格號　　骰子　落地　　花費　亂數　對話框")
 	for i := 1; i <= n; i++ {
 		r, err := rich2.PlayTurn(o, me, buy, tr)
 		if err != nil {
@@ -160,16 +160,20 @@ func playTurns(o *oracle.Oracle, tr *rich2.RNDTrace, n int, buy bool) {
 		if r.Dialog {
 			dlg = "有"
 		}
-		fmt.Printf("  %2d  %3d → %3d　%3d　(%2d,%2d)　%6d　%4d　%s\n",
-			i, r.PosFrom, r.PosTo, r.Dice, r.RowTo, r.ColTo, r.Paid, r.RND, dlg)
-		if len(r.Path) > 0 {
-			fmt.Printf("        路徑：%v\n", r.Path)
+		own := "無主"
+		switch {
+		case r.OwnerTo == me:
+			own = "自己"
+		case r.OwnerTo > 0:
+			own = fmt.Sprintf("玩家%d", r.OwnerTo)
 		}
-		if len(r.Dirs) > 0 {
+		fmt.Printf("  %2d  %3d → %3d　%3d　%s　%6d　%4d　%s\n",
+			i, r.PosFrom, r.PosTo, r.Dice, own, r.Paid, r.RND, dlg)
+		if verbose && len(r.Dirs) > 0 {
 			fmt.Printf("        方向：起始 %d，抽到 %v\n", r.DirFrom, r.Dirs)
 		}
 		// 這一步的亂數呼叫端分布——用來找「誰在抽方向」。
-		if tr != nil && r.RND > 0 {
+		if verbose && tr != nil && r.RND > 0 {
 			seen := map[uint32]int{}
 			for _, c := range tr.Calls[len(tr.Calls)-r.RND:] {
 				seen[o.ToIDA(c.Caller)]++

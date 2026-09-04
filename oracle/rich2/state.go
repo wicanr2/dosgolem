@@ -60,6 +60,58 @@ func Land(o *oracle.Oracle) *oracle.Array {
 		[]oracle.Dim{{Lo: 0, N: 45}, {Lo: 0, N: 10}}, 2)
 }
 
+// 棋盤陣列 `122Ch` 的欄位（`rich2/internal/assets/board.go`、
+// `rich2/docs/re/016` §82、`docs/re/184` §2.1）。
+const (
+	ColMapRow  = 0  // 在 36×36 地圖上的列
+	ColMapCol  = 1  // 同上，欄
+	ColKind    = 2  // 非街道格的種類 0–10
+	ColLink    = 4  // 4–7 是四個方向的鄰接
+	ColStreet  = 8  // 土地編號，0 表示不是土地
+	ColOrder   = 9  // 該格在街道內的序號
+	ColOwner   = 12 // 地主編號，0 ＝ 無主（`docs/re/184` §2.1，強證據）
+	ColLevel   = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
+)
+
+// Owner／Street／Level 讀某一格的地主、街道編號、建物等級。
+func Owner(o *oracle.Oracle, square int) int {
+	return int(Board(o).Int16(square, ColOwner))
+}
+
+func Street(o *oracle.Oracle, square int) int {
+	return int(Board(o).Int16(square, ColStreet))
+}
+
+func Level(o *oracle.Oracle, square int) int {
+	return int(Board(o).Int16(square, ColLevel))
+}
+
+// StreetLevels 回「同一條街上、同一位地主名下」每一格的建物等級。
+//
+// 原版的租金就是這樣算的：不是只看踩到的那一格，而是同街同主的每一格
+// 各按自己的等級查表再加總（`rich2/docs/spec/004` §0.1）。
+func StreetLevels(o *oracle.Oracle, square int) (street int, levels []int) {
+	bd := Board(o)
+	street = int(bd.Int16(square, ColStreet))
+	if street == 0 {
+		return 0, nil
+	}
+	owner := int(bd.Int16(square, ColOwner))
+	if owner == 0 {
+		return street, nil
+	}
+	for i := 0; i < 283; i++ {
+		if int(bd.Int16(i, ColStreet)) != street {
+			continue
+		}
+		if int(bd.Int16(i, ColOwner)) != owner {
+			continue
+		}
+		levels = append(levels, int(bd.Int16(i, ColLevel)))
+	}
+	return street, levels
+}
+
 // Coord 開啟「座標 → 格號」對照表。
 //
 // 原版把玩家的位置存成 36×36 地圖上的座標，格號是查這張表算出來的

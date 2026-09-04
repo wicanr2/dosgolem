@@ -178,6 +178,9 @@ type TurnResult struct {
 	Dice     int   // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
 	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
 	Path     []int // 逐格路徑（不含起點）
+	OwnerTo  int   // 終點格走之前的地主（0 ＝ 無主）
+	StreetTo int   // 終點格的街道編號（0 ＝ 不是土地）
+	Levels   []int // 走之前，同街同主的每一格建物等級（算租金要用）
 	DirFrom  int   // 走之前的目前方向（ds:10DEh）
 	Cash     int32 // 走完之後的現金
 	Paid     int32 // 這一步花掉的錢（負數表示收入）
@@ -222,6 +225,9 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 		return r, err
 	}
 
+	ownerBefore := Owner(o, to)
+	streetBefore, levelsBefore := StreetLevels(o, to)
+
 	// 回合沒推進 ＝ 遊戲在等回答。
 	if Turn(o) == player {
 		r.Dialog = true
@@ -231,6 +237,10 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 	}
 	r.Cash = Cash(o, player)
 	r.Paid = cashBefore - r.Cash
+	// **地主要在結算之前讀。** 買下來之後那一欄就變成自己了。
+	// 這裡讀的是走完之後、回答對話框之前的狀態——買地的情況下仍是 0。
+	r.OwnerTo = ownerBefore
+	r.StreetTo, r.Levels = streetBefore, levelsBefore
 	r.PosTo = Position(o, player)
 	r.RowTo, r.ColTo = MapCoord(o, player)
 	if tr != nil {
