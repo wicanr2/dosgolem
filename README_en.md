@@ -206,6 +206,11 @@ check on whether a decoder is right — one dataset, two paths:
 | Board array | same → `ParseBoard` | runtime `122Ch` | 5,660 cells, **0 differ** |
 | Coord → square | `Board.SquareAt` scans board data | runtime-computed `11FEh` | 108 squares in use, **0 mismatch** |
 | Land purchase | price table 0 | take a turn, buy, read what was actually charged | paid 2200, **found in the table** |
+| **Movement** | reachable set of `Board.Exits` after N steps | take a turn, read start, dice roll, destination | 5 turns, **all hit** |
+
+That last row is the first behavioural parity check. It sidesteps the gap
+between "the original draws 28–74 random numbers per turn" and "the remake
+draws once" by reading the roll itself (`ds:1B0h`).
 
 That last row goes further than the two above it: matching tables only proves
 the **decoder** is right; it proves **that number is the one the game actually
