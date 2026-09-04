@@ -1,0 +1,8 @@
+# 測試語料：SingleStepTests/8088 v2 共 761 MB，不進版控。
+# 用 tools/fetch_cputests.sh 抓。
+/testdata/
+# docker 裡的 Go 快取
+/workplace/
+# 建置產物
+/dosoracle
+/bin/
