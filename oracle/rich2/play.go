@@ -190,6 +190,16 @@ type TurnResult struct {
 
 
 
+// ClearDialog 送一個 Enter，清掉擋在前面的對話框。
+//
+// ⚠ **這是恢復手段，不是常規流程。** 亂送 Enter 會在不該確認的地方確認。
+// 只在「點了前進卻等不到棋子動」的時候用——那表示遊戲在等別的輸入
+// （卡片、事件、或上一步沒回答完的框），而不是在等擲骰。
+func ClearDialog(o *oracle.Oracle) error {
+	o.Type("\r")
+	return o.Run(40_000_000)
+}
+
 // PlayTurn 走一步：等輪到 player、擲骰、必要時回答對話框。
 //
 // **對話框不是每一步都有**（只有落在無主地、機會格那些才跳）。
@@ -211,6 +221,13 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 	}
 
 	from, to, dice, path, err := RollPath(o)
+	if err != nil && from == to {
+		// 點了前進卻等不到棋子動：多半是有對話框擋著（卡片、事件、
+		// 或上一步沒回答完的框）。清掉再試一次。
+		if e := ClearDialog(o); e == nil {
+			from, to, dice, path, err = RollPath(o)
+		}
+	}
 	r.From, r.To, r.Dice, r.Path = from, to, dice, path
 	r.PosFrom = from
 	// ⚠ **方向序列要在這裡收窄。**
