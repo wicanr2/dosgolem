@@ -208,9 +208,15 @@ check on whether a decoder is right — one dataset, two paths:
 | Land purchase | price table 0 | take a turn, buy, read what was actually charged | paid 2200, **found in the table** |
 | **Movement** | reachable set of `Board.Exits` after N steps | take a turn, read start, dice roll, destination | 5 turns, **all hit** |
 
-That last row is the first behavioural parity check. It sidesteps the gap
-between "the original draws 28–74 random numbers per turn" and "the remake
-draws once" by reading the roll itself (`ds:1B0h`).
+| Rent | `RentBase(street, levels)` | land on someone else's property, read what was charged | 3 samples, **all identical** |
+
+The behavioural checks sidestep the gap between "the original draws 28–74
+random numbers per turn" and "the remake draws once" by reading the roll
+itself (`ds:1B0h`).
+
+The full list of what has and has **not** been checked lives in rich2's
+[`docs/playtest/054`](https://github.com/wicanr2/rich2/blob/master/docs/playtest/054-dosgolem-parity-matrix.md).
+Unchecked is not the same as wrong — but it is also not the same as checked.
 
 That last row goes further than the two above it: matching tables only proves
 the **decoder** is right; it proves **that number is the one the game actually
