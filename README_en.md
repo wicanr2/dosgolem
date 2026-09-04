@@ -145,7 +145,7 @@ goal — if they do, that is a side effect.
 | MVP-A | 8086 integer core, SingleStepTests/8088 v2 all green | **323/323 files green**, one known gap below |
 | MVP-B | Reach the copy-protection screen, pixel-identical to a DOSBox-X indexed screenshot | **64,000/64,000 = 100%** |
 | M2 | Input and timing (keyboard / mouse / PIT) | Mouse and PIT done, **all three protection questions answered automatically**; keyboard and cycle-accurate timing not done |
-| M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall` and snapshots work, rest not done |
+| M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall`, `Caller`, snapshots, and **RND tracing** work; breakpoints and watchpoints not done |
 | M4 | Go API (`oracle` package) | **Usable**, [`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | Regression: re-run `rich2`'s existing parity receipts | Not started |
 
@@ -180,6 +180,19 @@ map (a blue gradient in `256.PAT`, which the copy-protection screen repaints as
 one flat green, leaving only the county being asked about in white), and
 `240`–`254` are a cycling animation. **The check is therefore where the
 differences land, not how many there are.**
+
+The second is the random number generator. The original's BASIC
+`RANDOMIZE TIMER` and the remake's seed had no correspondence, which is what
+blocked `rich2`'s same-path parity. Hooking `RND` here answers it directly:
+when `int 21h AH=2Ch` returns zero, **the initial state is `000000`**, so the
+remake's `seed = 0` is the original fixed-seed build's starting point — across
+the 216 draws from cold boot to the board, both sides produce identical states,
+float values, and `INT(RND×6)` results, draw for draw.
+
+`Caller()` also answers who is drawing: 150 for new-game setup (a 50-iteration
+loop drawing three times each), 62 for the title animation, 4 for copy
+protection. **The sequence itself is deterministic; what makes two sides
+diverge is always who drew how many times, and when.**
 
 The MVP-B check is reproducible (originals supplied by the player):
 

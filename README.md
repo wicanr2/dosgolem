@@ -123,7 +123,7 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 | MVP-A | 8086 整數指令核心，SingleStepTests/8088 v2 全綠 | **323／323 檔綠**，一項已知差距見下 |
 | MVP-B | 跑到防拷畫面，與 DOSBox-X 索引截圖逐點相同 | **64,000／64,000 ＝ 100%** |
 | M2 | 輸入與時序（鍵盤／滑鼠／PIT）| 滑鼠與 PIT 已接，**防拷三題可自動打完**；鍵盤與週期精確未做 |
-| M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall` 與快照可用，其餘未做 |
+| M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall`、`Caller`、快照、**RND 追蹤**可用；breakpoint 與 watchpoint 未做 |
 | M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |
 
@@ -153,6 +153,16 @@ use /dosgolem
 十五個縣市（`256.PAT` 裡是藍色漸層，防拷畫面把它們全改成同一個綠，
 只留要問的那格改成白），`240`–`254` 是循環動畫。
 **判準因此是「差異落在哪」，不是「差異有幾個」。**
+
+第二個是亂數。原版 BASIC 的 `RANDOMIZE TIMER` 與 remake 的 seed 一直沒有
+對應關係，`rich2` 的同路徑對拍因此卡著。在這裡掛上 `RND` 的攔截直接量：
+`int 21h AH=2Ch` 回 0 時**初始狀態是 `000000`**，所以 remake 的 `seed = 0`
+就是原版固定種子版的起點——從冷啟動到棋盤的 216 次抽取，兩邊的狀態、
+浮點值與 `INT(RND×6)` 逐次相同。
+
+`Caller()` 順便答出「誰在抽」：新局初始化 150 次（迴圈 50 圈、每圈三抽）、
+開場動畫 62 次、防拷 4 次。**序列本身是決定性的，兩邊會岔開的永遠是
+「誰在什麼時候抽了幾次」。**
 
 MVP-B 的驗收可以重跑（素材由玩家自備）：
 
