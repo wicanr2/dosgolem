@@ -203,6 +203,16 @@ func (c *CPU) Interrupt(n uint8) {
 	c.Halted = false
 }
 
+// Rewind 把 CS:IP 退回這一道指令的起點（含前綴）。
+//
+// 用途只有一個：**讓一道 `INT` 重新執行**。真實 DOS 的 `AH=3Fh` 讀 stdin
+// 會擋住，計時器 ISR 在背景推進動畫；模擬器立刻回「讀到 0 個」的話，
+// 主程式會當成輸入結束然後退出——**動畫一格都沒播**
+// （`rich2/docs/re/012` §7）。把 IP 退回去再讓中斷注入，語意才完整。
+//
+// 退的是 opCS:opIP 而不是 `IP − 2`，因為前綴會讓指令長度不是 2。
+func (c *CPU) Rewind() { c.Seg[CS], c.IP = c.opCS, c.opIP }
+
 // Error 是執行不下去時回傳的原因。CPU 自己不 panic——
 // 上層要能把「跑到沒實作的東西」與「程式自己出錯」分開記錄。
 type Error struct {
