@@ -203,6 +203,8 @@ check on whether a decoder is right — one dataset, two paths:
 |---|---|---|---|
 | Character stats | `SAVE_7.DSK` → container → decompress segment 0 | runtime `11A2h` | 360 cells, **0 differ** |
 | Land value tables | same → `ParseLandTables` | runtime `1174h` | 144 cells, **0 differ** |
+| Board array | same → `ParseBoard` | runtime `122Ch` | 5,660 cells, **0 differ** |
+| Coord → square | `Board.SquareAt` scans board data | runtime-computed `11FEh` | 108 squares in use, **0 mismatch** |
 | Land purchase | price table 0 | take a turn, buy, read what was actually charged | paid 2200, **found in the table** |
 
 That last row goes further than the two above it: matching tables only proves
