@@ -405,8 +405,8 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
-	if repe && op != 0xae && op != 0xab {
-		return fail("REP／REPE prefix 只支援 SCASB／STOSD")
+	if repe && op != 0xaa && op != 0xab && op != 0xae {
+		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB")
 	}
 	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
@@ -453,16 +453,28 @@ func (c *CPU) Step() error {
 		c.R[op-0x58] = value
 		c.R[ESP] += 4
 	case op == 0xaa:
-		if operand16 || segmentOverride >= 0 || repe {
+		if operand16 || segmentOverride >= 0 {
 			return fail("STOSB 不接受目前的 prefix")
 		}
-		if !c.writeSegment8(c.Seg[SegES], c.R[EDI], c.reg8(0)) {
-			return fail(fmt.Sprintf("STOSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+		count := uint32(1)
+		if repe {
+			count = c.R[ECX]
 		}
-		if c.EFlags&DF != 0 {
-			c.R[EDI]--
-		} else {
-			c.R[EDI]++
+		for count > 0 {
+			if !c.writeSegment8(c.Seg[SegES], c.R[EDI], c.reg8(0)) {
+				return fail(fmt.Sprintf("STOSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			if c.EFlags&DF != 0 {
+				c.R[EDI]--
+			} else {
+				c.R[EDI]++
+			}
+			if repe {
+				c.R[ECX]--
+				count = c.R[ECX]
+			} else {
+				break
+			}
 		}
 	case op == 0xab:
 		if operand16 || segmentOverride >= 0 {
@@ -965,6 +977,26 @@ func (c *CPU) Step() error {
 		}
 		c.R[EAX] |= value
 		c.setLogicFlags(c.R[EAX])
+	case op == 0x05:
+		if operand16 {
+			return fail("16-bit ADD accumulator 尚未支援")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[EAX] = c.add32(c.R[EAX], value)
+	case op == 0x24:
+		if operand16 {
+			return fail("24 不接受 operand-size override")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		result := c.reg8(0) & value
+		c.setReg8(0, result)
+		c.setLogicFlags8(result)
 	case op == 0x3c:
 		if operand16 {
 			return fail("3C 不接受 operand-size override")

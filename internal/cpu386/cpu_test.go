@@ -408,6 +408,26 @@ func TestMoveByteRegisterAndREPSTOSD(t *testing.T) {
 	}
 }
 
+func TestREPSTOSBAndAccumulatorImmediateALU(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0xf3, 0xaa, 0x05, 0x0f, 0x00, 0x00, 0x00, 0x24, 0xf0})
+	c := New(mem)
+	c.R[EAX], c.R[ECX], c.R[EDI] = 0x546b0, 3, 4
+	c.Seg[SegES] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x1f, Writable: true})
+	for range 3 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !bytes.Equal(mem[0x24:0x27], []byte{0xb0, 0xb0, 0xb0}) || c.R[ECX] != 0 || c.R[EDI] != 7 || c.R[EAX] != 0x546b0 {
+		t.Fatalf("bytes=% X ECX=%X EDI=%X EAX=%X", mem[0x24:0x27], c.R[ECX], c.R[EDI], c.R[EAX])
+	}
+	if c.EFlags&CF != 0 || c.EFlags&ZF != 0 || c.EFlags&SF == 0 {
+		t.Fatalf("AND AL flags=%X", c.EFlags)
+	}
+}
+
 func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
 	mem := testBus{0x26, 0x8a, 0x4f, 0xff}
 	c := New(mem)
