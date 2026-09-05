@@ -129,6 +129,54 @@ func TestMoveRegisterToSegmentNarrowForm(t *testing.T) {
 	}
 }
 
+func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x26, 0x8c, 0x1d, 0x40, 0x00, 0x00, 0x00}) // mov es:[40h],ds
+	c := New(mem)
+	c.Seg[SegES] = 0x160
+	c.Seg[SegDS] = 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if mem[0x60] != 0x68 || mem[0x61] != 0x01 {
+		t.Fatalf("descriptor write=%02X%02X", mem[0x61], mem[0x60])
+	}
+
+	for _, descriptor := range []Descriptor{
+		{Base: 0x20, Limit: 0x40, Writable: true},
+		{Base: 0x20, Limit: 0x7f, Writable: false},
+	} {
+		c = New(testBus(append([]byte(nil), mem[:7]...)))
+		c.Seg[SegES] = 0x160
+		c.Seg[SegDS] = 0x168
+		c.SetDescriptor(0x160, descriptor)
+		if err := c.Step(); err == nil {
+			t.Fatalf("invalid descriptor %+v was accepted", descriptor)
+		}
+	}
+	c = New(testBus(append([]byte(nil), mem[:7]...)))
+	c.Seg[SegES] = 0x160
+	c.Seg[SegDS] = 0x168
+	if err := c.Step(); err == nil {
+		t.Fatal("unknown selector was accepted")
+	}
+}
+
+func TestMoveWordRegisterToAbsoluteMemory(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x66, 0x89, 0x0d, 0x40, 0x00, 0x00, 0x00})
+	c := New(mem)
+	c.R[ECX] = 0x12340030
+	c.EFlags = 0x246
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if mem[0x40] != 0x30 || mem[0x41] != 0 || c.EIP != 7 || c.EFlags != 0x246 {
+		t.Fatalf("word=%02X%02X EIP=%d flags=%X", mem[0x41], mem[0x40], c.EIP, c.EFlags)
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)
