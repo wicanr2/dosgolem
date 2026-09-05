@@ -43,21 +43,34 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
 		t.Fatalf("unexpected entry state: EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
 	}
-	interrupted := false
+	interrupts := 0
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
-		if number != 0x21 || uint8(c.R[cpu386.EAX]>>8) != 0x30 {
-			t.Fatalf("unexpected interrupt %X EAX=%X", number, c.R[cpu386.EAX])
+		if number != 0x21 {
+			t.Fatalf("unexpected interrupt %X", number)
 		}
-		interrupted = true
+		interrupts++
+		switch interrupts {
+		case 1:
+			if uint8(c.R[cpu386.EAX]>>8) != 0x30 || c.R[cpu386.EBX] != 0x50484152 {
+				t.Fatalf("unexpected DOS version call EAX=%X EBX=%X", c.R[cpu386.EAX], c.R[cpu386.EBX])
+			}
+			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606 // DOS 6.22
+		case 2:
+			if uint16(c.R[cpu386.EAX]) != 0xff00 || uint16(c.R[cpu386.EDX]) != 0x78 {
+				t.Fatalf("unexpected DOS/4GW check EAX=%X EDX=%X", c.R[cpu386.EAX], c.R[cpu386.EDX])
+			}
+		default:
+			t.Fatalf("unexpected extra interrupt")
+		}
 		return true
 	}
-	for steps := 0; !interrupted && steps < 20; steps++ {
+	for steps := 0; interrupts < 2 && steps < 40; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !interrupted {
-		t.Fatal("entry did not reach first INT 21h")
+	if interrupts != 2 {
+		t.Fatal("entry did not reach DOS/4GW installation check")
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {
@@ -75,5 +88,8 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	if word != 0x24 || m.CPU.R[cpu386.EBX] != 0x50484152 {
 		t.Fatalf("entry globals/register mismatch: word=%X EBX=%X", word, m.CPU.R[cpu386.EBX])
+	}
+	if m.Mem[0x5283a] != 6 || m.Mem[0x5283b] != 22 {
+		t.Fatalf("DOS version globals=%d.%d", m.Mem[0x5283a], m.Mem[0x5283b])
 	}
 }
