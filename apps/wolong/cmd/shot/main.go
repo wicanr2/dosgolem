@@ -45,13 +45,15 @@ func main() {
 	full := flag.Bool("full", false, "存完整的 640×480，不裁成 640×400")
 	dosboxY := flag.Bool("dosbox-y", false, "腳本裡的 y 是 DOSBox-X 的視窗座標，幫忙換算")
 	budget := flag.Uint64("budget", 40_000_000, "每一步的指令數上限")
+	fontFull := flag.String("font-full", "", "全形字模檔（預設 END_S13.DAT）")
+	fontHalf := flag.String("font-half", "", "半形字模檔（預設 END_S14.DAT）")
 	flag.Parse()
 
 	if *exe == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	o, err := wolong.Load(*exe, *root)
+	o, err := wolong.LoadWith(*exe, *root, *fontFull, *fontHalf)
 	if err != nil {
 		die(err)
 	}
@@ -96,6 +98,9 @@ func main() {
 // **「跑得動」與「跑得動但行為不對」的差別在這裡**：沒實作的服務宣告成功，
 // 該填的緩衝區沒填就是垃圾，症狀出現在很後面而且完全不指向這裡。
 func report(o *oracle.Oracle) {
+	full, half, missing := o.FontStats()
+	fmt.Printf("字型常式：全形 %d 次、半形 %d 次，讀不到字模 %d 次\n",
+		full, half, missing)
 	if rep := o.Unimplemented(); len(rep) > 0 {
 		fmt.Printf("沒實作的服務（%d 種）：%s\n", len(rep), strings.Join(rep, "、"))
 	}

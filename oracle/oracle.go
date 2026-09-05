@@ -93,6 +93,14 @@ type Options struct {
 	// mode 13h 的標準驅動回報 0–639 對 320 個像素，所以是 2；
 	// 640 寬的平面模式是 1。**0 當成 2**（沿用既有預設）。
 	MouseXScale uint16
+
+	// FontFull／FontHalf 是 DOS/V 字型服務要讀的全形／半形字模檔
+	// （`docs/spec/008` §3）。空字串沿用預設。
+	//
+	// 做成參數的理由不只是彈性：《臥龍傳》的常駐服務 `STR.EXE` 寫死的
+	// 檔名與封裝內的資料檔對不上（那邊的 `docs/re/29` §6 至今未裁決），
+	// 換個檔名跑一次就是一個可執行的實驗。
+	FontFull, FontHalf string
 }
 
 // Load 載入原版執行檔。
@@ -116,6 +124,12 @@ func LoadWith(exe, root string, opt Options) (*Oracle, error) {
 	d := dos.New(m, root)
 	if opt.MouseXScale != 0 {
 		d.Mouse.XScale = opt.MouseXScale
+	}
+	if opt.FontFull != "" {
+		d.Font.Full = opt.FontFull
+	}
+	if opt.FontHalf != "" {
+		d.Font.Half = opt.FontHalf
 	}
 	d.Install()
 
@@ -248,6 +262,15 @@ func (o *Oracle) Opened() []string { return o.d.Opened }
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
 // `int 10h AH=0Eh`）。**錯誤訊息走這條**，出問題先看它。
 func (o *Oracle) Console() string { return string(o.d.Console) }
+
+// FontStats 回字型常式被叫了幾次（全形、半形）與讀不到字模的次數。
+//
+// **「沒畫字」與「畫了但看不見」的畫面一樣空**，所以要先問常式被叫了幾次。
+// 讀不到字模的次數 > 0 表示檔名或索引式有問題——那會畫出**空白**，
+// 而空白在畫面上就只是「這裡沒有字」。
+func (o *Oracle) FontStats() (full, half, missing int) {
+	return o.d.Font.Calls[0], o.d.Font.Calls[1], o.d.Font.Missing
+}
 
 // Unimplemented 是沒實作的服務被叫了幾次，次數多的在前。
 //

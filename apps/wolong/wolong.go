@@ -39,7 +39,20 @@ const (
 //     mode 13h 的 2 套過來的話送出去的 X 全部差一倍，
 //     而畫面上只看得到「點不到東西」。
 func Load(exe, root string) (*oracle.Oracle, error) {
-	return oracle.LoadWith(exe, root, oracle.Options{MouseXScale: 1})
+	return LoadWith(exe, root, "", "")
+}
+
+// LoadWith 是指定字型檔的 Load。
+//
+// 空字串沿用預設（`END_S13.DAT`／`END_S14.DAT`）。想重現
+// `STR.EXE` 寫死的那一組就給 `END_S10.DAT`／`END_S11.DAT`——
+// 那是臥龍傳專案 `docs/re/29` §6 掛著的未解項，換個檔名跑一次就知道。
+func LoadWith(exe, root, fontFull, fontHalf string) (*oracle.Oracle, error) {
+	return oracle.LoadWith(exe, root, oracle.Options{
+		MouseXScale: 1,
+		FontFull:    fontFull,
+		FontHalf:    fontHalf,
+	})
 }
 
 // 座標：遊戲自己的空間就是內容座標（0–639 × 0–399）。

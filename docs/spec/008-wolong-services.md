@@ -106,9 +106,13 @@ n += cl − 40h
 `END_S13.DAT`（408 格符號 ＋ 倚天 `stdfont.15`）與
 `END_S14.DAT`（＝倚天 `ascfont.15`，byte-for-byte 相同）。
 
-所以檔名做成**參數**，預設 `END_S13.DAT`／`END_S14.DAT`。
-這同時讓「照 `STR.EXE` 的字面跑一次」變成一個可執行的實驗——
-那是臥龍傳專案 `docs/re/29` §6 掛著的未解項，換個檔名參數就能裁決。
+所以檔名做成**參數**（`oracle.Options.FontFull`／`FontHalf`），
+預設 `END_S13.DAT`／`END_S14.DAT`。
+
+⭐ **實驗做了**（[`docs/findings/004`](../findings/004-font-source-and-mouse-events.md) §3）：
+用 `END_S10/S11` 跑，216 次取字模有 68 次超出檔尾，中文變成一片雜訊。
+「照封裝內的檔案跑 `STR.EXE`」確定不成立。⚠ 但那不等於「`STR.EXE` 有 bug」
+——安裝流程如果會改名，安裝後的目錄仍然可能是對的。
 
 > **本專案不含任何字型資料。** 這兩個檔是玩家自備素材目錄裡的檔案，
 > 服務層只是去讀它，跟 `int 21h AH=3Fh` 讀別的資料檔沒有差別。
