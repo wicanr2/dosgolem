@@ -419,6 +419,20 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x31:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("31 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("XOR dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] ^= c.R[src]
+		c.setLogicFlags(c.R[dst])
 	case op == 0x30:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("30 不接受目前的 prefix")
@@ -1101,6 +1115,15 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {
 			c.R[modrm&7] = source
+		} else if modrm>>6 == 1 && modrm&7 == EBP && segmentOverride < 0 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
+			if !c.writeSegment32(c.Seg[SegSS], addr, source) {
+				return fail(fmt.Sprintf("stack dword write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
 			if e != nil {

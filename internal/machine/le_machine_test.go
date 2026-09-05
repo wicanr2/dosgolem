@@ -375,3 +375,19 @@ func TestFD2ThirdCallbackLoadsFSWhenProvided(t *testing.T) {
 		t.Fatalf("third callback LFS EAX=%X FS=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.Seg[cpu386.SegFS], m.CPU.R[cpu386.ESP])
 	}
 }
+
+func TestFD2ThirdCallbackScanSetupWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cc24 && steps < 480; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc24 {
+		t.Fatalf("third callback scan setup not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	local, err := m.Read32(0x5567c)
+	if err != nil || local != 0 || m.CPU.R[cpu386.EAX] != 0x30 || m.CPU.R[cpu386.ESI] != 0 || m.CPU.R[cpu386.EBP] != 0x55680 || m.CPU.R[cpu386.ESP] != 0x5567c || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("third callback scan setup local=%X EAX=%X ESI=%X EBP=%X ESP=%X flags=%X err=%v", local, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], m.CPU.EFlags, err)
+	}
+}

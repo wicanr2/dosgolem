@@ -665,6 +665,33 @@ func TestLFSRejectsUnknownSelectorAtomically(t *testing.T) {
 	}
 }
 
+func TestMoveDwordToEBPDisp8UsesSS(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x89, 0x45, 0xfc})
+	c := New(mem)
+	c.R[EAX], c.R[EBP] = 0x12345678, 0x50
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	low, _ := c.read16(0x6c)
+	high, _ := c.read16(0x6e)
+	value := uint32(low) | uint32(high)<<16
+	if value != 0x12345678 {
+		t.Fatalf("MOV [EBP-4],EAX value=%X", value)
+	}
+}
+
+func TestXORDwordRegisters(t *testing.T) {
+	c := New(testBus([]byte{0x31, 0xf6}))
+	c.R[ESI] = 0x12345678
+	c.EFlags = CF | OF | AF
+	if err := c.Step(); err != nil || c.R[ESI] != 0 || c.EFlags&ZF == 0 || c.EFlags&(CF|OF|AF) != 0 {
+		t.Fatalf("XOR ESI,ESI ESI=%X flags=%X err=%v", c.R[ESI], c.EFlags, err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})
