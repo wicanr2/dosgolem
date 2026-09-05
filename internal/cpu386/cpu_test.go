@@ -326,6 +326,24 @@ func TestLEARegisterSignedDisp8DoesNotReadMemory(t *testing.T) {
 	}
 }
 
+func TestBufferFinalizeInstructions(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x2a, 0xc0, 0xaa, 0x5e, 0x4f})
+	c := New(mem)
+	c.R[EAX], c.R[EDI], c.R[ESP] = 0x20, 0x40, 0x70
+	c.Seg[SegES], c.Seg[SegSS] = 0x160, 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0xff, Writable: true})
+	mem[0x70], mem[0x71], mem[0x72], mem[0x73] = 0x78, 0x56, 0x34, 0x12
+	for range 4 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.R[EAX] != 0 || mem[0x40] != 0 || c.R[ESI] != 0x12345678 || c.R[ESP] != 0x74 || c.R[EDI] != 0x40 {
+		t.Fatalf("EAX=%X ESI=%X ESP=%X EDI=%X", c.R[EAX], c.R[ESI], c.R[ESP], c.R[EDI])
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)
