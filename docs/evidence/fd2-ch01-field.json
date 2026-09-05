@@ -10,7 +10,7 @@
     "sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
   },
   "input_sha256": "cd56da6bd149047314b0d036cda095a93b19fffc9541be657848110254577f00",
-  "dosgolem_commit": "c47fc06",
+  "dosgolem_commit": "8032baa",
   "remake_commit": "bb83e82e",
   "original_capture": "fd2-dosgolem-ch01-live-320.png",
   "original_capture_sha256": "7710c12e5a95d8c974f3b7585ee04b4d9d56df8c6e7817605c61a1beb1b4aa0a",

@@ -8,7 +8,7 @@
 - 原版：固定雜湊 `FD2.EXE`，DOSBox 擷取映像
   `fd2-dosbox-screenshot-local:latest`，`cycles=fixed 12000`。
 - 時間線：`wait:10;repeat:8,Escape,500;wait:2;shot:title-original`。
-- dosgolem：`e0e3906` 的 `tools/fd2/capture.sh`、具型別場景契約與
+- dosgolem：`ce69513` 的 `tools/fd2/capture.sh`、具型別場景契約與
   `apps/fd2/cmd/parity`。
 - 重製：`fd2_re` `1178c8a0` 的既有執行期標題收據
   `title-remake-runtime.png`，明示以最近鄰從 `640×400` 正規化到
