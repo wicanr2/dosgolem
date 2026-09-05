@@ -8,7 +8,7 @@
 - 原版：固定雜湊 `FD2.EXE`，DOSBox 擷取映像
   `fd2-dosbox-screenshot-local:latest`，`cycles=fixed 12000`。
 - 時間線：`wait:10;repeat:8,Escape,500;wait:2;shot:title-original`。
-- dosgolem：`fde7095` 的 `tools/fd2/capture.sh` 與
+- dosgolem：`e0e3906` 的 `tools/fd2/capture.sh`、具型別場景契約與
   `apps/fd2/cmd/parity`。
 - 重製：`fd2_re` `1178c8a0` 的既有執行期標題收據
   `title-remake-runtime.png`，明示以最近鄰從 `640×400` 正規化到
@@ -33,4 +33,3 @@ dosgolem 版控，避免散布原版素材。
 重製執行期畫面，所得 0% 相符率已作廢。正式比較改用
 `title-remake-runtime.png`。這項錯誤保留在本紀錄，避免後續把研究圖再次當成
 執行期收據。
-
