@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	Width  = 640
-	Height = 400
+	Width  = 320
+	Height = 200
 )
 
 type Box struct {

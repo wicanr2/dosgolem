@@ -28,7 +28,7 @@ func TestCompareExactAndSinglePixel(t *testing.T) {
 }
 
 func TestCompareRejectsNonCanonicalGeometry(t *testing.T) {
-	bad := image.NewRGBA(image.Rect(0, 0, 320, 200))
+	bad := image.NewRGBA(image.Rect(0, 0, 640, 400))
 	good := image.NewRGBA(image.Rect(0, 0, Width, Height))
 	if _, _, err := Compare(bad, good); err == nil {
 		t.Fatal("expected original geometry error")

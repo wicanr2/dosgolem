@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "game": "fd2",
+  "scenario": "title-stable",
+  "state": "same-state",
+  "cycles": "fixed 12000",
+  "timeline": "wait:10;repeat:8,Escape,500;wait:2;shot:title-original",
+  "expected_capture": "title-original.png"
+}
