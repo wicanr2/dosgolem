@@ -39,6 +39,32 @@ func ToTitleMenu(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToTitleInvalidSaveError 在素材目錄含無效EOBDATA.SAV時，選取LOAD並等待原版錯誤訊息。
+func ToTitleInvalidSaveError(o *oracle.Oracle) error {
+	if err := ToTitleMenu(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("標題無效存檔錯誤", 0, 0, oracle.Width, oracle.Height,
+		"aaa57e4d66a41bc0eaeb464a9318c5aa5bd1c92e369c5a6df633be21e44f3c43"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待無效存檔錯誤：%w", err)
+	}
+	return nil
+}
+
+// ToTitleInvalidSaveReturn 由無效存檔錯誤按Enter，返回原標題選單。
+func ToTitleInvalidSaveReturn(o *oracle.Oracle) error {
+	if err := ToTitleInvalidSaveError(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("無效存檔錯誤返回標題", 0, 0, oracle.Width, oracle.Height,
+		"caa3082b3e8cb5ee15547555669eb82e954982fe919674d5481271e06a253dc0"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待無效存檔錯誤返回標題：%w", err)
+	}
+	return nil
+}
+
 // ToNewPartyCreation 從冷啟動正常選取START A NEW PARTY，走到建角入口完成繪製。
 func ToNewPartyCreation(o *oracle.Oracle) error {
 	if err := ToTitleMenu(o); err != nil {

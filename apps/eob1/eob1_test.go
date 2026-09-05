@@ -35,6 +35,33 @@ func TestToTitleMenuRealData(t *testing.T) {
 	}
 }
 
+func TestToTitleInvalidSaveErrorAndReturnRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+		port uint64
+	}{
+		{"error", eob1.ToTitleInvalidSaveError, "aaa57e4d66a41bc0eaeb464a9318c5aa5bd1c92e369c5a6df633be21e44f3c43", 4},
+		{"return", eob1.ToTitleInvalidSaveReturn, "caa3082b3e8cb5ee15547555669eb82e954982fe919674d5481271e06a253dc0", 6},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadInvalidSaveData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			if got := digest(o.Indexed()); got != test.want {
+				t.Fatalf("無效存檔全畫面SHA-256=%s", got)
+			}
+			if got := o.PortReads()[0x60]; got != test.port {
+				t.Fatalf("無效存檔路徑port 60h讀取%d次，預期%d次", got, test.port)
+			}
+		})
+	}
+}
+
 func TestToNewPartyCreationRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()
@@ -489,6 +516,19 @@ func loadRealData(t *testing.T) *oracle.Oracle {
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
 	if exe == "" || root == "" {
 		t.Skip("未設定EOB1_ORACLE_EXE／EOB1_ORACLE_ROOT；私有原版資料測試明確略過")
+	}
+	o, err := oracle.Load(exe, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func loadInvalidSaveData(t *testing.T) *oracle.Oracle {
+	t.Helper()
+	exe, root := os.Getenv("EOB1_ORACLE_INVALID_SAVE_EXE"), os.Getenv("EOB1_ORACLE_INVALID_SAVE_ROOT")
+	if exe == "" || root == "" {
+		t.Skip("未設定EOB1_ORACLE_INVALID_SAVE_EXE／ROOT；無效存檔測試明確略過")
 	}
 	o, err := oracle.Load(exe, root)
 	if err != nil {
