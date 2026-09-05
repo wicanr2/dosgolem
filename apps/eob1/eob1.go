@@ -403,6 +403,30 @@ func ToLevel1Entrance(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1FirstForwardStep 從LEVEL1入口以原版鍵盤右轉，再向前走入相鄰格。
+func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
+	if err := ToLevel1Entrance(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyPageUp)
+	if err := o.Run(2_000_000); err != nil {
+		return fmt.Errorf("EOB1 LEVEL1右轉：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("LEVEL1入口右轉", 0, 0, 176, 120,
+		"a35855823bdecf7b0a150b2ca9d35e650234a644871c24a97ebb8d279cb45270"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待LEVEL1右轉畫面：%w", err)
+	}
+	o.PressKey(oracle.KeyUp)
+	if err := o.Run(2_000_000); err != nil {
+		return fmt.Errorf("EOB1 LEVEL1向前：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("LEVEL1第一步", 0, 0, 176, 120,
+		"7fc8b674d93e02578a2dfe79e54232899c4870bb2122e1b89eaf040477e72f08"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待LEVEL1第一步畫面：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

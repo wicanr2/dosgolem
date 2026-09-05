@@ -281,6 +281,20 @@ func TestToLevel1EntranceRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1FirstForwardStepRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1FirstForwardStep(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "7fc8b674d93e02578a2dfe79e54232899c4870bb2122e1b89eaf040477e72f08" {
+		t.Fatalf("LEVEL1第一步視窗SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 88 {
+		t.Fatalf("LEVEL1第一步前port 60h讀取%d次，預期四十四鍵make／break共88次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")

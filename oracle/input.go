@@ -141,6 +141,9 @@ const (
 	KeyEnter Key = 0x1C
 	// KeyDown 是向下方向鍵。
 	KeyDown Key = 0x50
+	// KeyUp 是向上方向鍵；KeyPageUp是數字鍵盤右轉鍵。
+	KeyUp     Key = 0x48
+	KeyPageUp Key = 0x49
 	// 目前EOB1具名姓名fixture使用的字母鍵。
 	KeyA Key = 0x1E
 	KeyB Key = 0x30
