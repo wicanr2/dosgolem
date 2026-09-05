@@ -64,6 +64,12 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	if mode == 0x13 {
 		m.Write16(bdaSeg*16+0x4A, 40)
 	}
+	// 平面模式的記憶體不在 Mem 裡（`docs/spec/007` §3.1）。
+	// **這一行是整條 VGA 路徑的開關**，設模式以外的地方都不該改它。
+	m.planar = planarMode(mode)
+	if m.planar {
+		m.VGA.resetMode()
+	}
 }
 
 // VideoMode 讀回目前模式。

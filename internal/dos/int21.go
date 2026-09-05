@@ -113,6 +113,12 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x4A:
 		d.setBlock(c)
 
+	case 0x51, 0x62: // 取目前行程的 PSP → BX
+		// **這是 `KI.EXE` 的第一道指令。** 不實作的話 BX 是呼叫端留下的值，
+		// 接著 `mov ds,bx / mov al,ds:80h` 就把垃圾當成命令列長度。
+		c.R[cpu.BX] = machine.PSPSeg
+		clearCarry(c)
+
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
 		c.R[cpu.BX] = 0x10

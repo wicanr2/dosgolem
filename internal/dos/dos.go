@@ -35,8 +35,17 @@ type Time struct{ Hour, Min, Sec, Hundredth uint8 }
 type Mouse struct {
 	X, Y    uint16
 	Buttons uint16
-	// Press／Release 是 AX=5／AX=6 的統計，讀走就歸零。
-	Press, Release uint16
+	// Press／Release 是 AX=5／AX=6 的統計，**逐鍵分開**（0 ＝ 左、1 ＝ 右、
+	// 2 ＝ 中），讀走就歸零。
+	//
+	// ⚠ **`AX=5` 的 `BX` 是輸入（問哪一個鍵），不只是輸出。**
+	// 不分鍵的話「按左鍵」會被問右鍵的那一次先領走——而《臥龍傳》的等待迴圈
+	// （IDA `0x121E9`）**先問右鍵**，於是每一次左鍵都被讀成右鍵，
+	// 畫面上看起來像「點了沒反應」或「點什麼都是取消」。
+	Press, Release [3]uint16
+	// PressAt／ReleaseAt 是該鍵最後一次按下／放開的座標。
+	// `AX=5`／`AX=6` 回的是**那一刻**的位置，不是現在的位置。
+	PressAt, ReleaseAt [3][2]uint16
 	// XScale 是水平的虛擬座標倍率。**2 是標準**。
 	XScale uint16
 	// Polls 記下每一次 AX=3 回報出去的東西。**這是分辨「輸入沒送到」與
@@ -50,6 +59,23 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// 座標範圍（`AX=7`／`AX=8` 設的，**虛擬座標**）。
+	// MaxX／MaxY 為 0 表示遊戲還沒設過，那就不夾。
+	//
+	// ⚠ **夾制是遊戲行為的一部分**：《臥龍傳》開機把範圍設成
+	// 0–27Fh × 0–18Fh，真機上送畫面外的座標會被夾回邊界。
+	// 不夾的話「點在畫面外」這種邊界測試會得到相反的結論。
+	MinX, MaxX, MinY, MaxY uint16
+
+	// Handler 是 `AX=000Ch` 登記的事件處理常式（`docs/spec/009`）。
+	Handler struct {
+		Seg, Off, Mask uint16
+		Set            bool
+	}
+
+	// Events 是已經送出去幾次事件。**0 次與「遊戲不看事件」長得一樣。**
+	Events int
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -65,9 +91,15 @@ type DOS struct {
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
 	Root string
 
-	// Now 是固定時刻，Mouse 是滑鼠狀態。
+	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
 	Mouse Mouse
+	Font  Font
+
+	// Sound 記下 `int 61h`（音源 TSR）每個 command 被叫了幾次。
+	// **這一輪不模擬音源**（`docs/spec/008` §6），只留下「走到了沒」。
+	Sound map[uint8]int
+
 
 	// Console 收 `AH=02h`／`06h`／`09h` 與 `int 10h AH=0Eh` 印出來的字。
 	// **錯誤訊息走這條**，收不到就等於什麼都不知道。
@@ -133,6 +165,8 @@ func New(m *machine.Machine, root string) *DOS {
 		M: m, Root: root,
 		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
 		Mouse:         Mouse{XScale: 2, Calls: map[uint16]int{}},
+		Font:          DefaultFont(),
+		Sound:         map[uint8]int{},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
@@ -145,6 +179,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.installFont()
 	d.M.CPU.IntHook = d.handle
 }
 
@@ -179,6 +214,23 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x13)
 	case 0x13:
 		d.int13(c)
+	case 0x15:
+		d.int15(c)
+	case 0x1A:
+		d.int1A(c)
+	case 0x61:
+		d.int61(c)
+	case machine.IntCallbackReturn:
+		// 回呼跑完了，把整份 CPU 狀態還原（`docs/spec/009` §3.1）。
+		if !d.M.FinishCallback() {
+			// **不要吞掉。** 沒有回呼在跑卻收到哨兵，表示有人踩到
+			// `StubSeg:CallbackRetOff`，那是個 bug 不是雜訊。
+			d.note(machine.IntCallbackReturn, 0, 0)
+		}
+	case intFontFull:
+		d.fontGlyph(c, true)
+	case intFontHalf:
+		d.fontGlyph(c, false)
 	case 0x20:
 		d.exit(c, 0)
 	default:
@@ -248,3 +300,74 @@ func setBH(c *cpu.CPU, v uint8) { c.R[cpu.BX] = c.R[cpu.BX]&0x00FF | uint16(v)<<
 func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
+
+// int1A 是 BIOS 的計時器／即時鐘服務。
+//
+// **時刻要與 `int 21h AH=2Ch` 同一份。** 兩份不一致時亂數種子會跟著飄，
+// 而症狀是「同一組輸入跑出不同畫面」——那看起來像模擬器不穩定，
+// 不像少接了一支服務。
+func (d *DOS) int1A(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x00: // 取計時器計數 → CX:DX，AL ＝ 有沒有跨過午夜
+		ticks := d.M.Read16(0x0040*16+0x6C) | 0
+		c.R[cpu.DX] = ticks
+		c.R[cpu.CX] = d.M.Read16(0x0040*16 + 0x6E)
+		setAL(c, 0)
+	case 0x02: // 取 RTC 時刻 → CH:CL:DH（BCD）
+		setCH(c, bcd(d.Now.Hour))
+		setCL(c, bcd(d.Now.Min))
+		setDH(c, bcd(d.Now.Sec))
+		setDL(c, 0) // 沒有日光節約
+		clearCarry(c)
+	default:
+		d.note(0x1A, ah(c), al(c))
+	}
+}
+
+// int61 是松崗 DOS/V 版的音源 TSR（`YNSOUND.COM`）。
+//
+// **只記錄不模擬**（`docs/spec/008` §6）。對拍比的是畫面，
+// 音訊 parity 在臥龍傳專案那邊用錄音比過。
+func (d *DOS) int61(c *cpu.CPU) {
+	d.Sound[ah(c)]++
+	// AH=0Ch 是「登記時鐘回呼」：`DS:DX` 是一支 `retf` 結尾的常式，
+	// `AL=1` 表示取消（臥龍傳專案 `docs/re/61` §2）。
+	//
+	// ⭐ **這一支不接的話遊戲時鐘不會走**，而畫面完全正常——
+	// 日期永遠停在第一天，兩層節流的等待迴圈也永遠等不到。
+	// 驅動把 PIT 設成 4660.9 Hz、分頻 16 之後回呼，＝ 291.30 Hz，
+	// 剛好是 BIOS tick（18.206 Hz）的 16 倍。
+	if ah(c) == 0x0C {
+		if al(c) == 1 {
+			d.M.ClearPeriodicFarCall()
+		} else {
+			every := d.M.IRQ0Every / soundTickDivisor
+			if every == 0 {
+				every = 1
+			}
+			d.M.SetPeriodicFarCall(c.Seg[cpu.DS], c.R[cpu.DX], every)
+		}
+		clearCarry(c)
+		return
+	}
+	// AH=0Ah 回旗標。回 0 ＝ 沒有任何旗標，是安全的預設；
+	// **但它要留在未實作清單裡**，不要安靜地變成「有旗標」。
+	if ah(c) == 0x0A {
+		d.note(0x61, 0x0A, al(c))
+		setAL(c, 0)
+	}
+	clearCarry(c)
+}
+
+// soundTickDivisor 是「音效驅動的回呼比 BIOS tick 快幾倍」。
+//
+// 291.30 ÷ 18.206 ＝ 16，而那正是驅動裡 `cs:0B6Ah` 的分頻值——
+// **兩個獨立來源給同一個 16**。
+const soundTickDivisor = 16
+
+func bcd(v uint8) uint8 { return v/10<<4 | v%10 }
+
+func setCH(c *cpu.CPU, v uint8) { c.R[cpu.CX] = c.R[cpu.CX]&0x00FF | uint16(v)<<8 }
+func setCL(c *cpu.CPU, v uint8) { c.R[cpu.CX] = c.R[cpu.CX]&0xFF00 | uint16(v) }
+func setDH(c *cpu.CPU, v uint8) { c.R[cpu.DX] = c.R[cpu.DX]&0x00FF | uint16(v)<<8 }
+func setDL(c *cpu.CPU, v uint8) { c.R[cpu.DX] = c.R[cpu.DX]&0xFF00 | uint16(v) }

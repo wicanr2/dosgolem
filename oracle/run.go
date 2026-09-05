@@ -131,10 +131,19 @@ func Steps(n uint64) Cond {
 }
 
 // At 是「CS:IP 走到這裡」。位址通常用 o.IDA(...) 造。
+//
+// ⚠ **比的是線性位址，不是 `段:偏移` 這一對數字。** 真實模式下同一段
+// 程式碼可以有無數種寫法（`02C5:000A` 與 `0110:1F0A` 是同一個 byte），
+// 而程式走到哪一種取決於呼叫端當時的 CS——不是我們挑的那一種。
+// 直接比結構會**安靜地永遠不成立**：條件跑滿預算才回錯，
+// 形狀與「那段程式碼真的沒被執行」一模一樣。
+// （`OnCall` 一開始就是比線性位址的，所以同一次執行裡
+// 「攔到了」與「跑不到」可以同時發生——就是這個差別造成的。）
 func At(a Addr) Cond {
+	want := a.Linear()
 	return Cond{
 		name:  "走到 " + a.String(),
-		ready: func(o *Oracle) bool { return o.IP() == a },
+		ready: func(o *Oracle) bool { return o.IP().Linear() == want },
 	}
 }
 
@@ -373,6 +382,16 @@ func (o *Oracle) Caller() Addr {
 	ip := o.m.Read16(cpu.Addr(ss, sp))
 	cs := o.m.Read16(cpu.Addr(ss, sp+2))
 	return Addr{cs, ip}
+}
+
+// NearCaller 回 **near** call 的返回位址（`CS:[SP]`）。
+//
+// ⚠ **near 與 far 的堆疊版面不同**，拿錯的那一支讀到的是垃圾——
+// 而垃圾看起來就是一個合法位址。16 位元真實模式的程式兩種都有，
+// 所以診斷工具要把兩種都印出來讓人自己判斷，不要挑一個安靜地猜。
+func (o *Oracle) NearCaller() Addr {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	return Addr{o.m.CPU.Seg[cpu.CS], o.m.Read16(cpu.Addr(ss, sp))}
 }
 
 // Arg 讀 far call 的第 n 個參數（n 從 0 起，最後推的是第 0 個）。

@@ -179,18 +179,21 @@ func TestVideoModeIsRemembered(t *testing.T) {
 // 防拷畫面的滑鼠點擊因此只有一半有效。
 func TestMouseButtonStatsUseFunctionNumber(t *testing.T) {
 	m, d := newTest(t)
-	d.Mouse.Press, d.Mouse.Release = 3, 7
+	d.Mouse.Press[0], d.Mouse.Release[0] = 3, 7
 
+	m.CPU.R[cpu.BX] = 0 // 問左鍵
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 3 {
 		t.Errorf("AX=5 回 BX=%d，預期 3（按下次數）", m.CPU.R[cpu.BX])
 	}
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0006)
 	if m.CPU.R[cpu.BX] != 7 {
 		t.Errorf("AX=6 回 BX=%d，預期 7（放開次數）——分支是不是讀了剛寫的 AX？",
 			m.CPU.R[cpu.BX])
 	}
 	// 讀走就歸零。
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 0 {
 		t.Errorf("第二次讀按下統計回 %d，預期 0", m.CPU.R[cpu.BX])
@@ -363,6 +366,229 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 	call(m, d, 0x21, 0x2C00)
 	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
 		t.Errorf("AH=2Ch 回 CX=%04X DX=%04X，預期都是 0（與固定種子版對齊）",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestMouseButtonStatsAreePerButton 釘住「`AX=5` 的 `BX` 是輸入」。
+//
+// 《臥龍傳》的等待迴圈（IDA `0x121E9`）**先問右鍵再問左鍵**：
+//
+//	mov ax,5 / mov bx,1 / int 33h   ; 右鍵按下次數 → 有就 stc（取消）
+//	mov ax,5 / xor bx,bx / int 33h  ; 左鍵按下次數 → 有就讀位置
+//
+// 不分鍵的實作會把左鍵那一次交給問右鍵的呼叫，於是**每一次左鍵點擊
+// 都被讀成右鍵**。畫面上看起來像「點什麼都是取消」，
+// 而所有回傳值單獨看都合法。
+func TestMouseButtonStatsArePerButton(t *testing.T) {
+	m, d := newTest(t)
+	d.Mouse.X, d.Mouse.Y = 320, 175
+	d.Mouse.PressButton(0) // 按左鍵
+
+	m.CPU.R[cpu.BX] = 1 // 先問右鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 0 {
+		t.Fatalf("問右鍵回 %d 次按下，預期 0——左鍵的那一次被右鍵領走了",
+			m.CPU.R[cpu.BX])
+	}
+	m.CPU.R[cpu.BX] = 0 // 再問左鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 1 {
+		t.Fatalf("問左鍵回 %d 次按下，預期 1", m.CPU.R[cpu.BX])
+	}
+	// 座標是**按下那一刻**的，不是現在的。
+	d.Mouse.X, d.Mouse.Y = 0, 0
+	d.Mouse.PressButton(0)
+	d.Mouse.X, d.Mouse.Y = 600, 300
+	m.CPU.R[cpu.BX] = 0
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
+		t.Errorf("AX=5 回 (%d,%d)，預期按下那一刻的 (0,0)",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestSoundTimerCallbackActuallyFires 釘住 `int 61h AH=0Ch`。
+//
+// ⭐ **這一支不接的話遊戲時鐘不會走，而畫面完全正常。**
+// 《臥龍傳》的日期是音效驅動用 291.3 Hz 的回呼推的
+// （臥龍傳專案 `docs/re/61`）；沒有回呼，日期永遠停在第一天，
+// 兩層節流的等待迴圈也永遠等不到——**看起來像遊戲在等玩家操作**。
+func TestSoundTimerCallbackActuallyFires(t *testing.T) {
+	m, d := newTest(t)
+	// 回呼本體：一個 retf。放在一個不會被別的東西用到的段。
+	const cbSeg, cbOff = 0x3000, 0x0010
+	m.Write8(cbSeg*16+cbOff, 0xCB)
+	// 主程式：原地跳自己（EB FE），讓機器有東西可以跑。
+	const mainSeg = 0x3100
+	m.Write8(mainSeg*16, 0xEB)
+	m.Write8(mainSeg*16+1, 0xFE)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = mainSeg, 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x3200, 0x100
+
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = cbSeg, cbOff
+	call(m, d, 0x61, 0x0C00)
+
+	before := m.PeriodicCalls()
+	for i := 0; i < 3*int(m.IRQ0Every/16); i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := m.PeriodicCalls() - before; got < 2 {
+		t.Fatalf("跑了三個回呼週期只發出 %d 次遠呼叫——AH=0Ch 有沒有接上？", got)
+	}
+
+	// AL=1 是取消。取消之後就不該再發。
+	call(m, d, 0x61, 0x0C01)
+	now := m.PeriodicCalls()
+	for i := 0; i < 3*int(m.IRQ0Every/16); i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.PeriodicCalls() != now {
+		t.Errorf("取消之後還發了 %d 次", m.PeriodicCalls()-now)
+	}
+}
+
+// mouseTestRig 造一台有主迴圈與一支會弄髒暫存器的事件常式的機器。
+//
+// 常式故意 clobber AX/BX/CX/DX/SI/DI：**真機上這支是從驅動的 ISR 裡呼叫的，
+// ISR 會把暫存器全部存起來**。我們插進去沒存的話，被打斷的那段程式會
+// 莫名其妙拿到別的值，而症狀出現在很後面、完全不指向滑鼠。
+func mouseTestRig(t *testing.T) (*machine.Machine, *DOS) {
+	t.Helper()
+	m, d := newTest(t)
+	const hSeg, mainSeg = 0x3000, 0x3100
+	code := []byte{
+		0x90,             // nop ← 留一格給「進到常式但還沒動暫存器」的取樣
+		0xB8, 0x34, 0x12, // mov ax, 1234h
+		0xBB, 0x78, 0x56, // mov bx, 5678h
+		0xB9, 0xCD, 0xAB, // mov cx, ABCDh
+		0xBA, 0x21, 0x43, // mov dx, 4321h
+		0xCB, // retf
+	}
+	for i, b := range code {
+		m.Write8(hSeg*16+uint32(i), b)
+	}
+	m.Write8(mainSeg*16, 0xEB) // jmp $
+	m.Write8(mainSeg*16+1, 0xFE)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = mainSeg, 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x3200, 0x100
+
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = hSeg, 0
+	m.CPU.R[cpu.CX] = EventMove
+	call(m, d, 0x33, 0x000C)
+	return m, d
+}
+
+func stepN(t *testing.T, m *machine.Machine, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestMouseEventCallbackRestoresEverything 釘住回呼的存檔還原。
+func TestMouseEventCallbackRestoresEverything(t *testing.T) {
+	m, d := mouseTestRig(t)
+	m.CPU.R[cpu.AX], m.CPU.R[cpu.BX] = 0x1111, 0x2222
+	m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = 0x3333, 0x4444
+	m.CPU.R[cpu.SI], m.CPU.R[cpu.DI] = 0x5555, 0x6666
+	before := m.CPU.R
+	beforeCS, beforeIP, beforeSP := m.CPU.Seg[cpu.CS], m.CPU.IP, m.CPU.R[cpu.SP]
+
+	d.MoveMouse(50, 60)
+	if m.CallbackPending() != 1 {
+		t.Fatalf("移動之後佇列有 %d 筆，預期 1", m.CallbackPending())
+	}
+	stepN(t, m, 40)
+
+	if m.CallbacksMade() != 1 {
+		t.Fatalf("回呼送出 %d 次，預期 1——`Machine.tick` 有沒有接上？",
+			m.CallbacksMade())
+	}
+	if m.CPU.R != before {
+		t.Errorf("暫存器沒還原：%v → %v", before, m.CPU.R)
+	}
+	if m.CPU.Seg[cpu.CS] != beforeCS || m.CPU.IP != beforeIP {
+		t.Errorf("回到 %04X:%04X，預期 %04X:%04X",
+			m.CPU.Seg[cpu.CS], m.CPU.IP, beforeCS, beforeIP)
+	}
+	if m.CPU.R[cpu.SP] != beforeSP {
+		t.Errorf("堆疊指標 %04X，預期 %04X——`retf` 與哨兵有沒有對上？",
+			m.CPU.R[cpu.SP], beforeSP)
+	}
+}
+
+// TestMouseEventCarriesPosition 釘住傳給常式的參數。
+func TestMouseEventCarriesPosition(t *testing.T) {
+	m, d := mouseTestRig(t)
+	d.Mouse.XScale = 1
+	d.MoveMouse(123, 45)
+	// 回呼開始的那一刻攔一下：跑一步就會進去。
+	stepN(t, m, 1)
+	if got := m.CPU.R[cpu.CX]; got != 123 {
+		t.Errorf("CX＝%d，預期 123（游標 X）", got)
+	}
+	if got := m.CPU.R[cpu.DX]; got != 45 {
+		t.Errorf("DX＝%d，預期 45（游標 Y）", got)
+	}
+	if got := m.CPU.R[cpu.AX]; got != EventMove {
+		t.Errorf("AX＝%04X，預期 %04X（事件遮罩）", got, EventMove)
+	}
+}
+
+// TestMouseEventMaskFilters 釘住「遮罩沒開的事件不發」。
+func TestMouseEventMaskFilters(t *testing.T) {
+	m, d := mouseTestRig(t) // 遮罩只有 EventMove
+	d.PressMouse(0)
+	if n := m.CallbackPending(); n != 0 {
+		t.Errorf("遮罩沒開左鍵卻排了 %d 筆", n)
+	}
+	d.MoveMouse(10, 10)
+	if n := m.CallbackPending(); n != 1 {
+		t.Errorf("移動排了 %d 筆，預期 1", n)
+	}
+}
+
+// TestMouseEventQueuesWhileBusy 釘住「回呼進行中的事件要排隊，不能丟」。
+//
+// 丟掉的話快速移動的軌跡會少幾格，而畫面看起來完全正常。
+func TestMouseEventQueuesWhileBusy(t *testing.T) {
+	m, d := mouseTestRig(t)
+	d.MoveMouse(10, 10)
+	stepN(t, m, 1) // 第一次進到常式裡
+	d.MoveMouse(20, 20)
+	if n := m.CallbackPending(); n != 1 {
+		t.Fatalf("回呼進行中再移動，佇列有 %d 筆，預期 1（要排隊不要丟）", n)
+	}
+	stepN(t, m, 40)
+	if m.CallbacksMade() != 2 {
+		t.Errorf("總共送出 %d 次，預期 2", m.CallbacksMade())
+	}
+}
+
+// TestMouseRangeClamps 釘住 `AX=7`／`AX=8` 的夾制。
+//
+// ⚠ **夾制是遊戲行為的一部分。**《臥龍傳》開機把範圍設成
+// 0–27Fh × 0–18Fh；不夾的話「點在畫面外」這種邊界測試會得到相反的結論。
+func TestMouseRangeClamps(t *testing.T) {
+	m, d := newTest(t)
+	d.Mouse.XScale = 1
+	m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = 0, 0x27F
+	call(m, d, 0x33, 0x0007)
+	m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = 0, 0x18F
+	call(m, d, 0x33, 0x0008)
+
+	d.MoveMouse(700, 500)
+	m.CPU.R[cpu.BX] = 0
+	call(m, d, 0x33, 0x0003)
+	if m.CPU.R[cpu.CX] != 639 || m.CPU.R[cpu.DX] != 399 {
+		t.Errorf("送 (700,500) 之後回 (%d,%d)，預期 (639,399)",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }

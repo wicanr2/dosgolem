@@ -13,9 +13,7 @@ import "fmt"
 //
 // ⚠ **要在程式的 `AX=4` 之後叫**，否則會被它蓋掉而且畫面看起來完全正常。
 // 用 Click 的話已經幫你等了。
-func (o *Oracle) MoveMouse(x, y int) {
-	o.d.Mouse.X, o.d.Mouse.Y = uint16(x), uint16(y)
-}
+func (o *Oracle) MoveMouse(x, y int) { o.d.MoveMouse(x, y) }
 
 // Mouse 回目前的游標座標。
 func (o *Oracle) Mouse() (x, y int) {
@@ -27,8 +25,15 @@ type ClickOpt func(*clickCfg)
 
 type clickCfg struct {
 	hover, hold, settle uint64
+	button              int
 	watch               func(*Oracle)
 }
+
+// Button 選要按哪一個鍵（0 左／1 右／2 中）。
+//
+// **原版的「取消／退回」是右鍵**（臥龍傳專案 `docs/re/53` §3），
+// 沒有它就退不出任何視窗。
+func Button(n int) ClickOpt { return func(c *clickCfg) { c.button = n } }
 
 // Hover 改「移到位置之後、按下之前」等多久。
 func Hover(n uint64) ClickOpt { return func(c *clickCfg) { c.hover = n } }
@@ -68,7 +73,11 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 		}
 	}
 
-	before := o.Indexed()
+	// ⚠ **要比目前模式的畫面，不能寫死 `Indexed()`。**
+	// `Indexed()` 讀的是 mode 13h 那塊線性緩衝區；平面模式下那裡永遠是全 0，
+	// 於是「畫面沒變」恆成立——**每一次點擊都會被報成沒反應**，
+	// 而畫面其實變了。
+	before := append([]uint8(nil), o.video()...)
 	o.MoveMouse(x, y)
 	// ⚠ **移到位置之後要先停一下再按。**
 	//
@@ -82,18 +91,16 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 1
-	o.d.Mouse.Press++
+	o.d.PressMouse(cfg.button)
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 0
-	o.d.Mouse.Release++
+	o.d.ReleaseMouse(cfg.button)
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
 
-	if sameBytes(before, o.Indexed()) {
+	if sameBytes(before, o.video()) {
 		return &NoResponseError{X: x, Y: y, Polls: len(o.d.Mouse.Polls)}
 	}
 	return nil
@@ -136,4 +143,55 @@ func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {
 		return o.m.Steps-start >= n
 	})
 	return o.RunUntil(c, Budget(n+1))
+}
+
+// DefaultTapHold 是瞬按的按住長度。
+//
+// **與 DefaultHold 是兩個不同的目標，沒有一個值兩邊都對**
+// （`docs/spec/010` §2）：按鈕要按夠久才會被輪詢看到，
+// 而彈出選單如果在開起來的那一瞬間按鍵還按著，
+// 下一次 `AX=5` 輪詢會用當時的游標位置立刻選一列——
+// 框外的游標被夾到第 0 列，於是「第二列以後永遠點不到」。
+//
+// 20 萬道指令 ≈ DOSBox 在 `cycles=fixed 20000` 之下的 10 ms，
+// 落在臥龍傳專案 `docs/playtest/54` 量出來的 5–60 ms 窗口裡。
+const DefaultTapHold = 200_000
+
+// Tap 是瞬按：移過去、很短地按一下。**彈出選單要用這個**，不要用 Click。
+func (o *Oracle) Tap(x, y int, opts ...ClickOpt) error {
+	return o.Click(x, y, append([]ClickOpt{Hold(DefaultTapHold)}, opts...)...)
+}
+
+// Press 在**目前位置**按一下，不移動游標。
+//
+// 既有的 DOSBox 擷取腳本大量用「移過去、再按一次」（`click:x,y` 之後接
+// `press`），這一支讓那些腳本照抄得過來。
+func (o *Oracle) Press(opts ...ClickOpt) error {
+	cfg := clickCfg{hover: 0, hold: DefaultHold, settle: DefaultHold}
+	for _, f := range opts {
+		f(&cfg)
+	}
+	before := append([]uint8(nil), o.video()...)
+	o.d.PressMouse(cfg.button)
+	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
+		return fmt.Errorf("原地按住期間：%w", err)
+	}
+	o.d.ReleaseMouse(cfg.button)
+	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
+		return fmt.Errorf("原地放開之後：%w", err)
+	}
+	if sameBytes(before, o.video()) {
+		x, y := o.Mouse()
+		return &NoResponseError{X: x, Y: y, Polls: len(o.d.Mouse.Polls)}
+	}
+	return nil
+}
+
+// MouseRange 回遊戲用 `int 33h AX=7`／`AX=8` 設的座標範圍。
+//
+// **範圍會變**：有些畫面（例如地圖捲動）會把它放大，好讓游標推得出畫面邊界。
+// 範圍與畫面一樣大時**捲不動**——那不是 bug，是那個模式本來就不捲。
+func (o *Oracle) MouseRange() (minX, maxX, minY, maxY int) {
+	m := &o.d.Mouse
+	return int(m.MinX), int(m.MaxX), int(m.MinY), int(m.MaxY)
 }

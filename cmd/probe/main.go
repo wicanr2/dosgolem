@@ -32,6 +32,10 @@ func main() {
 	steps := flag.Uint64("steps", 20_000_000, "最多執行幾道指令")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
+	dumpScreen := flag.String("dump-screen", "", "平面模式（mode 0Dh–12h）的畫面寫成 PNG")
+	cropTop := flag.Int("crop-top", 0, "存畫面前從上面裁掉幾列")
+	cropH := flag.Int("crop-height", 0, "存畫面只留幾列（0 ＝ 全部）")
+	xscale := flag.Int("xscale", 2, "int 33h 的水平虛擬座標倍率（mode 13h ＝ 2、mode 12h ＝ 1）")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔，"+
 		"格式 <IDA 線性位址>:<長度> 或 ds:<偏移>:<長度>")
@@ -42,6 +46,7 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -58,6 +63,7 @@ func main() {
 		die(err)
 	}
 	d := dos.New(m, *root)
+	d.Mouse.XScale = uint16(*xscale)
 	d.Install()
 
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
@@ -84,7 +90,7 @@ func main() {
 			break
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
-			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
+			d.MoveMouse(*mouseX, *mouseY)
 		}
 		// 點擊：按下 → 按住 clickHold 道指令 → 放開。
 		// **按住時間不能短**。遊戲輪詢 int 33h 的頻率很低，
@@ -93,12 +99,10 @@ func main() {
 		if *clickX >= 0 {
 			switch m.Steps {
 			case *clickAt:
-				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
-				d.Mouse.Buttons = 1
-				d.Mouse.Press++
+				d.MoveMouse(*clickX, *clickY)
+				d.PressMouse(*clickBtn)
 			case *clickAt + *clickHold:
-				d.Mouse.Buttons = 0
-				d.Mouse.Release++
+				d.ReleaseMouse(*clickBtn)
 			}
 		}
 		ring.push(m.CPU)
@@ -123,6 +127,11 @@ func main() {
 			die(err)
 		}
 		fmt.Printf("寫出 %s\n", png)
+	}
+	if *dumpScreen != "" {
+		if err := writeScreen(m, *dumpScreen, *cropTop, *cropH); err != nil {
+			die(err)
+		}
 	}
 	if *dumpPal != "" {
 		pal := m.Palette()
@@ -206,6 +215,22 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	fmt.Println()
 
+	// 每個 int 33h 功能號被叫了幾次。**「點了沒反應」的第一步是先確認
+	// 遊戲在讀哪一支**——讀 AX=3（即時狀態）與讀 AX=5/6（按下／放開的統計）
+	// 要餵的東西不一樣。
+	if len(d.Mouse.Calls) > 0 {
+		fns := make([]int, 0, len(d.Mouse.Calls))
+		for k := range d.Mouse.Calls {
+			fns = append(fns, int(k))
+		}
+		sort.Ints(fns)
+		fmt.Printf("int 33h 功能號：")
+		for _, k := range fns {
+			fmt.Printf(" %04X×%d", k, d.Mouse.Calls[uint16(k)])
+		}
+		fmt.Println()
+	}
+
 	if n := len(d.Mouse.Sets); n > 0 {
 		l := d.Mouse.Sets[n-1]
 		fmt.Printf("程式自己設游標位置 %d 次（最後一次 #%d 設成 (%d,%d)）\n",
@@ -228,14 +253,47 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	fmt.Println()
 
-	// 視訊記憶體：非零的點數。全 0 表示還沒畫任何東西。
-	nz := 0
-	for _, v := range m.Indexed() {
-		if v != 0 {
-			nz++
+	// 字型服務：**「沒畫字」與「畫了但看不見」的畫面一樣空**，
+	// 所以要先問常式被叫了幾次。
+	fmt.Printf("字型常式：全形 %d 次、半形 %d 次，讀不到字模 %d 次\n",
+		d.Font.Calls[0], d.Font.Calls[1], d.Font.Missing)
+	if len(d.Sound) > 0 {
+		cmds := make([]int, 0, len(d.Sound))
+		for k := range d.Sound {
+			cmds = append(cmds, int(k))
 		}
+		sort.Ints(cmds)
+		fmt.Printf("int 61h 音源 command：")
+		for _, k := range cmds {
+			fmt.Printf(" %02Xh×%d", k, d.Sound[uint8(k)])
+		}
+		fmt.Println()
 	}
-	fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
+	if h := d.Mouse.Handler; h.Set {
+		fmt.Printf("int 33h 事件常式 %04X:%04X（遮罩 %04X），送出 %d 次；"+
+			"座標範圍 %d–%d × %d–%d\n",
+			h.Seg, h.Off, h.Mask, d.Mouse.Events,
+			d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY)
+	}
+
+	// 視訊記憶體：非零的點數。全 0 表示還沒畫任何東西。
+	if w, h, px := m.Planar(); px != nil {
+		nz := 0
+		for _, v := range px {
+			if v != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("平面畫面 %d×%d，非零像素 %d / %d\n", w, h, nz, len(px))
+	} else {
+		nz := 0
+		for _, v := range m.Indexed() {
+			if v != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
+	}
 
 	ring.dump()
 }
@@ -356,6 +414,47 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
+}
+
+// writeScreen 把平面模式的畫面存成 PNG。
+//
+// ⚠ **裁切是呼叫端的事，不是機器的事。** 臥龍傳的內容是 640×400，
+// 但它跑在 640×480 的 mode 12h 上、y 原點在第 40 列
+// （`docs/spec/007` §2）。把裁切寫進機器層會讓「畫面是 480 高」
+// 這個事實消失，之後查「上面那 40 列有沒有東西」就沒得查了。
+func writeScreen(m *machine.Machine, path string, top, height int) error {
+	w, h, px := m.Planar()
+	if px == nil {
+		return fmt.Errorf("現在不是平面模式（視訊模式 %02Xh），沒有畫面可存",
+			m.VideoMode())
+	}
+	if height == 0 {
+		height = h - top
+	}
+	if top < 0 || height <= 0 || top+height > h {
+		return fmt.Errorf("裁切範圍 %d..%d 超出畫面高 %d", top, top+height, h)
+	}
+	pal := make(color.Palette, 256)
+	dac := m.Palette()
+	for i := range dac {
+		pal[i] = color.RGBA{dac[i][0], dac[i][1], dac[i][2], 255}
+	}
+	img := image.NewPaletted(image.Rect(0, 0, w, height), pal)
+	for y := 0; y < height; y++ {
+		for x := 0; x < w; x++ {
+			img.Pix[y*img.Stride+x] = m.VGA.DACIndex(px[(y+top)*w+x])
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return err
+	}
+	fmt.Printf("\n寫出 %s（%d×%d，y 偏移 %d）\n", path, w, height, top)
+	return nil
 }
 
 func die(err error) {

@@ -33,6 +33,11 @@ MOUNTS=()
 if [[ -n "${DOSGOLEM_ORIG:-}" ]]; then
   MOUNTS+=(-v "$(cd "$DOSGOLEM_ORIG" && pwd):/orig:ro")
 fi
+# 可寫的輸出目錄，格式 `主機路徑:容器路徑`。截圖要落在 repo 外面時用它——
+# **不要為了省事把整個家目錄掛進來**。
+if [[ -n "${DOSGOLEM_EXTRA_MOUNT:-}" ]]; then
+  MOUNTS+=(-v "$DOSGOLEM_EXTRA_MOUNT")
+fi
 
 exec timeout "${DOSGOLEM_TIMEOUT:-30m}" docker run --rm --network none \
   --memory "${DOSGOLEM_MEM:-4g}" --cpus "${DOSGOLEM_CPUS:-4}" --pids-limit 256 \
