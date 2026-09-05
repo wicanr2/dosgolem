@@ -50,16 +50,16 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x45d9a && steps < 181; steps++ {
+	for steps := 0; m.CPU.EIP != 0x45dac && steps < 190; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x45d9a {
+	if services.Calls() != 2 || m.CPU.EIP != 0x45dac {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != 0x546b0 || m.CPU.R[cpu386.EBX] != 0x556b0 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
-		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
+	if m.CPU.R[cpu386.EAX] != 0x546ff || m.CPU.R[cpu386.EBX] != 0x539e0 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
+		t.Fatalf("first callee prologue mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
 	selectorGS, err := m.Read16(0x527f0)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if err != nil || environmentWord != 0x30 {
 		t.Fatalf("environment word=%X err=%v", environmentWord, err)
 	}
-	if m.CPU.R[cpu386.ESP] != 0x556ac {
+	if m.CPU.R[cpu386.ESP] != 0x5569c {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
 	}
 	if m.CPU.Seg[cpu386.SegDS] != 0x160 || m.CPU.Seg[cpu386.SegES] != 0x160 {
@@ -92,19 +92,23 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.R[cpu386.EDX] != 0x1c4 || m.CPU.R[cpu386.ECX] != 0 {
 		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
 	}
-	if m.CPU.R[cpu386.EAX] != 0x546b0 || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF != 0 {
-		t.Fatalf("environment first dword EAX=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	if m.CPU.R[cpu386.EAX] != 0x546ff || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF != 0 {
+		t.Fatalf("first callee accumulator EAX=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
-	if m.CPU.R[cpu386.ESI] != 0x546b1 || m.CPU.R[cpu386.EDI] != 0x546b0 || m.CPU.R[cpu386.EBX] != 0x556b0 {
-		t.Fatalf("command-tail pointers ESI=%X EDI=%X EBX=%X", m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBX])
+	if m.CPU.R[cpu386.ESI] != 0x539b0 || m.CPU.R[cpu386.EDI] != 0x539e0 || m.CPU.R[cpu386.EBX] != 0x539e0 {
+		t.Fatalf("callee table pointers ESI=%X EDI=%X EBX=%X", m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBX])
 	}
 	stackValue, err := m.Read32(0x556ac)
 	if err != nil || stackValue != 0x3cb8a {
 		t.Fatalf("CALL return address=%X err=%v", stackValue, err)
 	}
-	stackSelector, err := m.Read32(0x556a8)
-	if err != nil || stackSelector != 0x160 || m.Mem[0x546b0] != 0 || !bytes.Equal(m.Mem[0x546b1:0x546b9], []byte("FD2.EXE\x00")) {
-		t.Fatalf("final stack selector=%X buffer=% X err=%v", stackSelector, m.Mem[0x546b0:0x546b9], err)
+	savedESI, err := m.Read32(0x556a8)
+	if err != nil || savedESI != 0x546b1 || m.Mem[0x546b0] != 0 || !bytes.Equal(m.Mem[0x546b1:0x546b9], []byte("FD2.EXE\x00")) {
+		t.Fatalf("callee saved ESI=%X buffer=% X err=%v", savedESI, m.Mem[0x546b0:0x546b9], err)
+	}
+	calleeES, err := m.Read32(0x5569c)
+	if err != nil || calleeES != 0x160 {
+		t.Fatalf("callee PUSH ES stack=%X err=%v", calleeES, err)
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {
