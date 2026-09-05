@@ -424,6 +424,32 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("PUSH ES stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
 		}
 		c.R[ESP] = nextESP
+	case op == 0x1e:
+		if operand16 {
+			return fail("16-bit PUSH DS 尚未支援")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegDS])) {
+			return fail(fmt.Sprintf("PUSH DS stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x07:
+		if operand16 {
+			return fail("16-bit POP ES 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		selector := uint16(value)
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		if !c.canLoadSegment(selector, SegES) {
+			return fail(fmt.Sprintf("ES selector %04X 未登錄", selector))
+		}
+		c.Seg[SegES] = selector
+		c.R[ESP] += 4
 	case op == 0x1f:
 		if operand16 {
 			return fail("16-bit POP DS 尚未支援")
@@ -607,6 +633,26 @@ func (c *CPU) Step() error {
 		}
 		c.R[ESP] = nextESP
 		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
+	case op == 0xff:
+		if operand16 {
+			return fail("16-bit FF group 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 || (modrm>>3)&7 != 2 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EIP) {
+			return fail(fmt.Sprintf("indirect CALL stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+		c.EIP = c.R[modrm&7]
 	case op == 0xeb:
 		delta, e := c.fetch8()
 		if e != nil {
