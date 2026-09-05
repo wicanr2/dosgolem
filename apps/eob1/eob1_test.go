@@ -561,6 +561,41 @@ func TestToLevel1CampSaveCancelRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1CampSaveWrittenRealData(t *testing.T) {
+	o := loadWritableData(t)
+	defer o.Close()
+	if err := o.AllowFileWrites("EOBDATA.SAV", "LEVELS.TMP"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eob1.ToLevel1CampSaveWritten(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 96); got != "a2ca1d151d25aa8df20113ae78f130df05a1daed3c102173bbb02f557ee13d0c" {
+		t.Fatalf("Save Game完成SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 102 {
+		t.Fatalf("Save Game完成port 60h讀取%d次，預期102次", got)
+	}
+	wantWrites := []oracleWrite{{"EOBDATA.SAV", 1458}, {"EOBDATA.SAV", 64}, {"EOBDATA.SAV", 7000}, {"EOBDATA.SAV", 24480}, {"EOBDATA.SAV", 1}, {"EOBDATA.SAV", 1}, {"EOBDATA.SAV", 1}, {"EOBDATA.SAV", 96}}
+	gotWrites := o.Wrote()
+	if len(gotWrites) != len(wantWrites) && len(gotWrites) != len(wantWrites)+1 {
+		t.Fatalf("Save Game寫入%d段，預期8段主檔加可選暫存檔：%v", len(gotWrites), gotWrites)
+	}
+	for i, want := range wantWrites {
+		if gotWrites[i].Name != want.name || gotWrites[i].N != want.n {
+			t.Fatalf("Save Game寫入第%d段=%v，預期%+v", i, gotWrites[i], want)
+		}
+	}
+	if len(gotWrites) == len(wantWrites)+1 && (gotWrites[8].Name != "LEVELS.TMP" || gotWrites[8].N != 24480) {
+		t.Fatalf("Save Game暫存檔寫入=%v，預期LEVELS.TMP 24480 bytes", gotWrites[8])
+	}
+}
+
+type oracleWrite struct {
+	name string
+	n    int
+}
+
 func TestToLevel1CampMemorizeSelectedRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()
@@ -650,6 +685,19 @@ func loadRealData(t *testing.T) *oracle.Oracle {
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
 	if exe == "" || root == "" {
 		t.Skip("未設定EOB1_ORACLE_EXE／EOB1_ORACLE_ROOT；私有原版資料測試明確略過")
+	}
+	o, err := oracle.Load(exe, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func loadWritableData(t *testing.T) *oracle.Oracle {
+	t.Helper()
+	exe, root := os.Getenv("EOB1_ORACLE_WRITABLE_EXE"), os.Getenv("EOB1_ORACLE_WRITABLE_ROOT")
+	if exe == "" || root == "" {
+		t.Skip("未設定EOB1_ORACLE_WRITABLE_EXE／ROOT；可寫覆蓋層測試明確略過")
 	}
 	o, err := oracle.Load(exe, root)
 	if err != nil {

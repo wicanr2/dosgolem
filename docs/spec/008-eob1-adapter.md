@@ -78,3 +78,13 @@ SHA-256皆為`f49fee3af72c50fad10fb0708436e6733b2cfbe068dcfc423f1a4efc0065806e`�
   左上選單`176×96`色號SHA-256為`152007f2…1d49`，Save Game仍為選取列，port `60h`維持100次。
 - 真實資料測試逐案檢查oracle的開檔紀錄，確認到達確認視窗或取消返回期間都未開啟原版存檔；
   這只證明取消分支無存檔交易，不外推Save Game的Yes寫入格式或成功行為。
+
+## 9. LEVEL1 Save Game寫入
+
+- `ToLevel1CampSaveWritten`沿用正常四人建隊至Save確認路徑，以預設Yes的Enter完成存檔；返回
+  Game Options後左上`176×96`色號SHA-256為`a2ca1d15…3d0c`，port `60h`累計102次。
+- 測試只能使用`EOB1_ORACLE_WRITABLE_EXE／ROOT`指定的一次性副本，並逐檔允許
+  `EOBDATA.SAV`、`LEVELS.TMP`；一般oracle環境仍完全唯讀。
+- 已證實八段必要寫入：`EOBDATA.SAV`依序1458、64、7000、24480、1、1、1、96 bytes；新鮮
+  覆蓋層首次存檔另寫`LEVELS.TMP` 24480 bytes，未再變更關卡的重複存檔省略該段。這證明
+  原版Save交易已落地，但尚不證明同工作階段Load成功。

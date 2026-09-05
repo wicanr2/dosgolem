@@ -869,6 +869,20 @@ func ToLevel1CampSaveCancel(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1CampSaveWritten 以確認視窗預設的Yes完成原版單檔存檔。
+// 呼叫端必須先對可丟棄覆蓋層逐檔啟用EOBDATA.SAV與LEVELS.TMP寫入。
+func ToLevel1CampSaveWritten(o *oracle.Oracle) error {
+	if err := ToLevel1CampSaveConfirmation(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 Save Game完成", 0, 0, 176, 96,
+		"a2ca1d151d25aa8df20113ae78f130df05a1daed3c102173bbb02f557ee13d0c"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Save Game完成返回Game Options：%w", err)
+	}
+	return nil
+}
+
 // ToLevel1MemorizeSpells 從CAMP第二列確認，進入ALFA的一級法術記憶頁。
 func ToLevel1MemorizeSpells(o *oracle.Oracle) error {
 	if err := ToLevel1CampMemorizeSelected(o); err != nil {
