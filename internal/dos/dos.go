@@ -313,6 +313,26 @@ func (d *DOS) int1A(c *cpu.CPU) {
 // 音訊 parity 在臥龍傳專案那邊用錄音比過。
 func (d *DOS) int61(c *cpu.CPU) {
 	d.Sound[ah(c)]++
+	// AH=0Ch 是「登記時鐘回呼」：`DS:DX` 是一支 `retf` 結尾的常式，
+	// `AL=1` 表示取消（臥龍傳專案 `docs/re/61` §2）。
+	//
+	// ⭐ **這一支不接的話遊戲時鐘不會走**，而畫面完全正常——
+	// 日期永遠停在第一天，兩層節流的等待迴圈也永遠等不到。
+	// 驅動把 PIT 設成 4660.9 Hz、分頻 16 之後回呼，＝ 291.30 Hz，
+	// 剛好是 BIOS tick（18.206 Hz）的 16 倍。
+	if ah(c) == 0x0C {
+		if al(c) == 1 {
+			d.M.ClearPeriodicFarCall()
+		} else {
+			every := d.M.IRQ0Every / soundTickDivisor
+			if every == 0 {
+				every = 1
+			}
+			d.M.SetPeriodicFarCall(c.Seg[cpu.DS], c.R[cpu.DX], every)
+		}
+		clearCarry(c)
+		return
+	}
 	// AH=0Ah 回旗標。回 0 ＝ 沒有任何旗標，是安全的預設；
 	// **但它要留在未實作清單裡**，不要安靜地變成「有旗標」。
 	if ah(c) == 0x0A {
@@ -321,6 +341,12 @@ func (d *DOS) int61(c *cpu.CPU) {
 	}
 	clearCarry(c)
 }
+
+// soundTickDivisor 是「音效驅動的回呼比 BIOS tick 快幾倍」。
+//
+// 291.30 ÷ 18.206 ＝ 16，而那正是驅動裡 `cs:0B6Ah` 的分頻值——
+// **兩個獨立來源給同一個 16**。
+const soundTickDivisor = 16
 
 func bcd(v uint8) uint8 { return v/10<<4 | v%10 }
 

@@ -407,3 +407,47 @@ func TestMouseButtonStatsArePerButton(t *testing.T) {
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }
+
+// TestSoundTimerCallbackActuallyFires 釘住 `int 61h AH=0Ch`。
+//
+// ⭐ **這一支不接的話遊戲時鐘不會走，而畫面完全正常。**
+// 《臥龍傳》的日期是音效驅動用 291.3 Hz 的回呼推的
+// （臥龍傳專案 `docs/re/61`）；沒有回呼，日期永遠停在第一天，
+// 兩層節流的等待迴圈也永遠等不到——**看起來像遊戲在等玩家操作**。
+func TestSoundTimerCallbackActuallyFires(t *testing.T) {
+	m, d := newTest(t)
+	// 回呼本體：一個 retf。放在一個不會被別的東西用到的段。
+	const cbSeg, cbOff = 0x3000, 0x0010
+	m.Write8(cbSeg*16+cbOff, 0xCB)
+	// 主程式：原地跳自己（EB FE），讓機器有東西可以跑。
+	const mainSeg = 0x3100
+	m.Write8(mainSeg*16, 0xEB)
+	m.Write8(mainSeg*16+1, 0xFE)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = mainSeg, 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x3200, 0x100
+
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = cbSeg, cbOff
+	call(m, d, 0x61, 0x0C00)
+
+	before := m.PeriodicCalls()
+	for i := 0; i < 3*int(m.IRQ0Every/16); i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := m.PeriodicCalls() - before; got < 2 {
+		t.Fatalf("跑了三個回呼週期只發出 %d 次遠呼叫——AH=0Ch 有沒有接上？", got)
+	}
+
+	// AL=1 是取消。取消之後就不該再發。
+	call(m, d, 0x61, 0x0C01)
+	now := m.PeriodicCalls()
+	for i := 0; i < 3*int(m.IRQ0Every/16); i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.PeriodicCalls() != now {
+		t.Errorf("取消之後還發了 %d 次", m.PeriodicCalls()-now)
+	}
+}

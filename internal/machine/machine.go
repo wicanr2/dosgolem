@@ -84,6 +84,17 @@ type Machine struct {
 	// Ticks 是送出去的計時器中斷次數。
 	Ticks uint64
 
+	// periodic 是「每 n 道指令遠呼叫一次」。真機上這種東西是別人的 TSR
+	// 掛在 PIT 上：《臥龍傳》的遊戲時鐘就是 `YNSOUND.COM` 用 291.3 Hz
+	// 的回呼推的（`docs/spec/008` §6）。**沒有它遊戲時鐘不會走**，
+	// 而畫面完全正常——只是日期永遠停在第一天。
+	periodic struct {
+		seg, off    uint16
+		every, next uint64
+		on          bool
+		Calls       uint64
+	}
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -294,6 +305,15 @@ func (m *Machine) Step() error {
 // 好處是對拍完全決定性（同樣的輸入永遠得到同樣的畫面）；
 // 代價是動畫速度與真機不同。週期精確的時序在 M2（`docs/spec/004` §5）。
 func (m *Machine) tick() {
+	// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
+	// 遊戲的回呼，遊戲那一支自己 `cli/pushf … popf/retf`。
+	// 掛在 IF 上的話初始化期間那一大段 `cli` 會把時鐘整個吃掉。
+	if m.periodic.on && m.Steps >= m.periodic.next {
+		m.periodic.next = m.Steps + m.periodic.every
+		m.periodic.Calls++
+		m.CPU.FarCall(m.periodic.seg, m.periodic.off)
+		return
+	}
 	if m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0 {
 		m.nextIRQ0 = m.Steps + m.IRQ0Every
 		// **先掛起來，不要直接送。** 初始化期間大量 `CLI`，
@@ -332,6 +352,26 @@ func (m *Machine) bumpBDATicks() {
 	m.Write16(at, uint16(v))
 	m.Write16(at+2, uint16(v>>16))
 }
+
+// SetPeriodicFarCall 登記「每 every 道指令遠呼叫 seg:off 一次」。
+//
+// every ＝ 0 或位址是 0:0 都當成取消。
+func (m *Machine) SetPeriodicFarCall(seg, off uint16, every uint64) {
+	if every == 0 || (seg == 0 && off == 0) {
+		m.periodic.on = false
+		return
+	}
+	m.periodic.seg, m.periodic.off = seg, off
+	m.periodic.every, m.periodic.next = every, m.Steps+every
+	m.periodic.on = true
+}
+
+// ClearPeriodicFarCall 取消登記。
+func (m *Machine) ClearPeriodicFarCall() { m.periodic.on = false }
+
+// PeriodicCalls 是已經發出去幾次。**收工前看一眼**：0 次表示登記沒生效，
+// 而那與「遊戲不看時鐘」長得一模一樣。
+func (m *Machine) PeriodicCalls() uint64 { return m.periodic.Calls }
 
 // ---- 中斷向量表 ----------------------------------------------------------
 

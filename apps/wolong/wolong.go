@@ -128,3 +128,58 @@ func ToScenarioMenu(o *oracle.Oracle) error {
 func Shot(o *oracle.Oracle, path string) error {
 	return o.WritePNGCrop(path, ContentTop, ContentHigh)
 }
+
+// ---- 遊戲時鐘 ------------------------------------------------------------
+
+// 時鐘欄位在 DGROUP 的位移（臥龍傳專案 `docs/re/06`，機器碼直接讀出來的）。
+//
+// 這一支執行檔程式碼與資料同段，所以 `ds:` 偏移就是 IDA 線性減 0x10000。
+const (
+	dsDay   = 0x0CF0 // u8 日
+	dsHour  = 0x0CF3 // u8 時（1–24）
+	dsMonth = 0x0CF4 // u8 月
+	dsYear  = 0x0CF6 // u16 年
+)
+
+// Date 是遊戲內的日期。
+type Date struct{ Year, Month, Day, Hour int }
+
+func (d Date) String() string {
+	return fmt.Sprintf("%d年%d月%d日 %d時", d.Year, d.Month, d.Day, d.Hour)
+}
+
+// Clock 讀原版的遊戲時鐘。
+//
+// ⭐ **這是不用 DOSBox 最大的好處。** 這一款是即時制，同一串操作在
+// 牆上時鐘的不同時刻會停在不同的遊戲日期——DOSBox 那邊只能靠
+// `wait:3` 之類的秒數去猜，猜錯就是「畫面差了幾天」而看起來像版面不對
+// （臥龍傳專案 `docs/playtest/39`：原版擷取停在 4 月 9 日，
+// remake 停在 4 月 1 日，那 158 個不同像素其實是日期）。
+// 在這裡日期是**問得到的**，所以取樣點可以直接寫成日期。
+func Clock(o *oracle.Oracle) Date {
+	return Date{
+		Year:  int(o.Word(o.DS(dsYear))),
+		Month: int(o.Byte(o.DS(dsMonth))),
+		Day:   int(o.Byte(o.DS(dsDay))),
+		Hour:  int(o.Byte(o.DS(dsHour))),
+	}
+}
+
+// UntilDate 是「跑到遊戲日期到某一天」。
+//
+// ⚠ **已經過了就永遠不會成立。** 條件只往前看，回頭要靠快照。
+func UntilDate(year, month, day int) oracle.Cond {
+	want := Date{Year: year, Month: month, Day: day}
+	return oracle.NewCond(
+		fmt.Sprintf("遊戲日期到 %d年%d月%d日", year, month, day),
+		func(o *oracle.Oracle) bool {
+			d := Clock(o)
+			if d.Year != want.Year {
+				return d.Year > want.Year
+			}
+			if d.Month != want.Month {
+				return d.Month > want.Month
+			}
+			return d.Day >= want.Day
+		})
+}

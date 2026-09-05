@@ -11,6 +11,8 @@
 //	click:X,Y         在遊戲座標 (X,Y) 點左鍵（0–639 × 0–399）
 //	move:X,Y          只移動游標
 //	shot:NAME         當場存一張 <-dir>/NAME.png
+//	until:Y/M/D       跑到遊戲日期到某一天（即時制的取樣點寫成日期，不是秒數）
+//	clock             印出目前的遊戲日期
 //
 // `shot` 讓一次執行產出整條時間軸的每一格——**與 DOSBox-X 那邊的
 // `capture-metadata.txt` 是同一種寫法**，舊腳本可以照抄過來
@@ -105,6 +107,23 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 	switch verb {
 	case "wait":
 		return o.RunUntil(wolong.Booted(), oracle.Budget(budget))
+	case "until":
+		f := strings.Split(arg, "/")
+		if len(f) != 3 {
+			return fmt.Errorf("日期要寫成 年/月/日")
+		}
+		var n [3]int
+		for i, v := range f {
+			x, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return err
+			}
+			n[i] = x
+		}
+		return o.RunUntil(wolong.UntilDate(n[0], n[1], n[2]), oracle.Budget(budget))
+	case "clock":
+		fmt.Printf("   遊戲時鐘：%s\n", wolong.Clock(o))
+		return nil
 	case "shot":
 		path := filepath.Join(dir, arg+".png")
 		if full {

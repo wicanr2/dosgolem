@@ -223,6 +223,20 @@ func (c *CPU) Interrupt(n uint8) {
 	c.Halted = false
 }
 
+// FarCall 從外面插一次遠呼叫：推 CS 與 IP，跳過去。
+//
+// **與 Interrupt 的差別是不推旗標、不清 IF**——被呼叫的是一支
+// `retf` 結尾的常式，不是 `iret` 結尾的中斷處理常式。推錯的話堆疊差兩個
+// byte，`retf` 會回到一個**看起來合法**的位址然後慢慢走歪。
+//
+// 只能在指令邊界叫（`Machine.tick` 就是那個位置）。
+func (c *CPU) FarCall(seg, off uint16) {
+	c.push(c.Seg[CS])
+	c.push(c.IP)
+	c.Seg[CS], c.IP = seg, off
+	c.Halted = false
+}
+
 // Rewind 把 CS:IP 退回這一道指令的起點（含前綴）。
 //
 // 用途只有一個：**讓一道 `INT` 重新執行**。真實 DOS 的 `AH=3Fh` 讀 stdin
