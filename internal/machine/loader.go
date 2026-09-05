@@ -155,3 +155,36 @@ func (m *Machine) initMCB() {
 	// DOS 的「list of lists」：`[BX-2]` 是第一個 MCB 的段位址。
 	m.Write16(LOLSeg*16+0x0E, PSPSeg-1)
 }
+
+// LoadCOM 把一個 `.COM` 映像載進機器並把 CPU 設到進入點。
+//
+// `.COM` 沒有檔頭也沒有重定位表：整個檔案就是映像，載在 PSP 之後
+// 的 `0100h`，四個段暫存器全部指向 PSP，堆疊放在同一個段的頂端。
+// 進入點之下先推一個 0，這樣程式做 `retn` 就會落到 PSP 開頭的
+// `int 20h`（結束行程）——那是 `.COM` 時代的收工慣例。
+func (m *Machine) LoadCOM(data []byte) error {
+	const entry = 0x100
+	if len(data) == 0 {
+		return fmt.Errorf("machine: .COM 映像是空的")
+	}
+	if entry+len(data) > 0xFFF0 {
+		return fmt.Errorf("machine: .COM 映像 %d bytes，塞不進一個段", len(data))
+	}
+
+	m.initPSP()
+	m.WriteBytes(PSPSeg*16+entry, data)
+	m.ImageBase, m.ImageLen = PSPSeg*16+entry, len(data)
+
+	// `.COM` 的行程名義上擁有整個段；可配置區從它後面開始。
+	m.FreeSeg = PSPSeg + 0x1000
+	m.initMCB()
+
+	c := m.CPU
+	for _, s := range []int{cpu.CS, cpu.DS, cpu.ES, cpu.SS} {
+		c.Seg[s] = PSPSeg
+	}
+	c.IP = entry
+	c.R[cpu.SP] = 0xFFFE
+	m.Write16(uint32(PSPSeg)*16+0xFFFE, 0)
+	return nil
+}

@@ -80,6 +80,16 @@ type DOS struct {
 	Stdin     []byte
 	StdinFill uint8
 
+	// Keys 是要餵給 BIOS 鍵盤（`int 16h`）的按鍵佇列。
+	// **空的時候 `int 16h` 照舊回「沒有按鍵」**——`rich2` 的輸入走
+	// `int 21h AH=3Fh`，不受這個佇列影響。
+	// DOS 版 p-System 反過來，它只認 `int 16h`。
+	Keys []Key
+
+	// KeyPolls 是 `int 16h` 被問過幾次。閒置迴圈會把它衝很高，
+	// 「程式到底有沒有在等鍵盤」看這個數字最快。
+	KeyPolls int
+
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
 	//
@@ -110,6 +120,19 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+}
+
+// Key 是一次按鍵：BIOS 的掃描碼與 ASCII 碼。
+// `int 16h AH=00h` 回的 `AX` 就是 `Scan<<8 | ASCII`。
+type Key struct{ Scan, ASCII uint8 }
+
+// TypeKeys 把一串 ASCII 排進按鍵佇列。掃描碼填 0——
+// 只看 `AL` 的程式（DOS 版 p-System 是這種）用得上；
+// 會判掃描碼的程式要自己填 Keys。
+func (d *DOS) TypeKeys(s string) {
+	for i := 0; i < len(s); i++ {
+		d.Keys = append(d.Keys, Key{ASCII: s[i]})
+	}
 }
 
 // Write 是一次被擋下來的寫檔。
