@@ -237,3 +237,36 @@ func TestFD2SecondCallbackLoadsControlBaselineWhenProvided(t *testing.T) {
 		t.Fatalf("second callback control baseline EAX=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
 	}
 }
+
+func TestFD2ControlBaselineDispatchWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cbd0 && steps < 415; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cbd0 {
+		t.Fatalf("control baseline dispatch not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x127f || m.CPU.R[cpu386.ESP] != 0x55690 {
+		t.Fatalf("control baseline dispatch EAX=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+}
+
+func TestFD2X87SelfTestReturnsWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460fb && steps < 440; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460fb {
+		t.Fatalf("x87 self-test did not return: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x0103 || m.CPU.R[cpu386.ESP] != 0x55694 {
+		t.Fatalf("x87 self-test return EAX=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+	if m.CPU.FPUControl != 0x127f || m.CPU.FPUStatus != 0 || m.CPU.FPUDepth != 0 {
+		t.Fatalf("x87 self-test FPU control=%X status=%X depth=%d", m.CPU.FPUControl, m.CPU.FPUStatus, m.CPU.FPUDepth)
+	}
+}
