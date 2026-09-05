@@ -72,6 +72,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
+		d.noteMissingAccess(c, name)
 		c.R[cpu.AX] = 2 // File not found
 		setCarry(c)
 		return
@@ -87,6 +88,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	}
 	if err != nil {
 		d.Missing = append(d.Missing, name)
+		d.noteMissingAccess(c, name)
 		c.R[cpu.AX] = 2
 		setCarry(c)
 		return
@@ -98,6 +100,30 @@ func (d *DOS) open(c *cpu.CPU) {
 	d.Opened = append(d.Opened, filepath.Base(path))
 	c.R[cpu.AX] = h
 	clearCarry(c)
+}
+
+func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {
+	access := FileAccess{Name: name, CS: c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], DX: c.R[cpu.DX], SS: c.Seg[cpu.SS], BP: c.R[cpu.BP]}
+	bp := access.BP
+	for i := range access.Callers {
+		if bp == 0 {
+			break
+		}
+		frame := StackFrame{BP: bp, IP: d.M.Read16(cpu.Addr(access.SS, bp+2)), CS: d.M.Read16(cpu.Addr(access.SS, bp+4))}
+		for j := range frame.Code {
+			frame.Code[j] = d.M.Read8(cpu.Addr(frame.CS, frame.IP-8+uint16(j)))
+		}
+		for j := range frame.Args {
+			frame.Args[j] = d.M.Read16(cpu.Addr(access.SS, bp+6+uint16(j*2)))
+		}
+		access.Callers[i] = frame
+		next := d.M.Read16(cpu.Addr(access.SS, bp))
+		if next <= bp {
+			break
+		}
+		bp = next
+	}
+	d.MissingAccess = append(d.MissingAccess, access)
 }
 
 func (d *DOS) close(c *cpu.CPU) {

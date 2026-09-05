@@ -107,8 +107,9 @@ type DOS struct {
 	UnimplementedDetails []CallDetail
 
 	// Opened 是開過的檔（依序），Missing 是找不到的。兩份都是診斷用。
-	Opened  []string
-	Missing []string
+	Opened        []string
+	Missing       []string
+	MissingAccess []FileAccess
 
 	// Wrote 記下「程式想寫檔」的每一次。只有以AllowFileWrites逐檔
 	// opt-in的可寫覆蓋層才會實際落地；預設仍保護原版素材。
@@ -158,6 +159,19 @@ func (d *DOS) AllowFileWrites(names ...string) error {
 type Write struct {
 	Name string
 	N    int
+}
+
+// FileAccess 是失敗開檔當下的原始路徑與執行期定位。
+type FileAccess struct {
+	Name                   string
+	CS, IP, DS, DX, SS, BP uint16
+	Callers                [8]StackFrame
+}
+
+type StackFrame struct {
+	BP, IP, CS uint16
+	Code       [16]byte
+	Args       [4]uint16
 }
 
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。

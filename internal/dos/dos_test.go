@@ -590,6 +590,12 @@ func TestFileAttributesAndFindFirstFailClosed(t *testing.T) {
 // 只回 CF 的話，缺一個資產與「程式自己決定不載」看起來一樣。
 func TestMissingFileIsRecorded(t *testing.T) {
 	m, d := newTest(t)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x1234, 0x5678
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.BP] = 0x2200, 0x0100
+	m.Write16(cpu.Addr(0x2200, 0x0100), 0)
+	m.Write16(cpu.Addr(0x2200, 0x0102), 0x2222)
+	m.Write16(cpu.Addr(0x2200, 0x0104), 0x3333)
+	m.Write16(cpu.Addr(0x2200, 0x0106), 0x4444)
 	m.CPU.Seg[cpu.DS] = 0x3000
 	m.CPU.R[cpu.DX] = 0
 	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("NOPE.PAK"), 0))
@@ -599,6 +605,16 @@ func TestMissingFileIsRecorded(t *testing.T) {
 	}
 	if len(d.Missing) != 1 || d.Missing[0] != "NOPE.PAK" {
 		t.Errorf("Missing ＝ %v", d.Missing)
+	}
+	if len(d.MissingAccess) != 1 {
+		t.Fatalf("MissingAccess=%v", d.MissingAccess)
+	}
+	a := d.MissingAccess[0]
+	if a.Name != "NOPE.PAK" || a.CS != 0x1234 || a.IP != 0x5678 || a.DS != 0x3000 || a.DX != 0 || a.SS != 0x2200 || a.BP != 0x0100 {
+		t.Fatalf("MissingAccess定位=%+v", a)
+	}
+	if f := a.Callers[0]; f.BP != 0x0100 || f.IP != 0x2222 || f.CS != 0x3333 || f.Args[0] != 0x4444 {
+		t.Fatalf("MissingAccess frame=%+v", f)
 	}
 }
 

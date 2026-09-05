@@ -173,10 +173,11 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64      { return o.m.Steps }
-func (o *Oracle) Opened() []string   { return o.d.Opened }
-func (o *Oracle) Missing() []string  { return o.d.Missing }
-func (o *Oracle) Wrote() []dos.Write { return o.d.Wrote }
+func (o *Oracle) Steps() uint64                     { return o.m.Steps }
+func (o *Oracle) Opened() []string                  { return o.d.Opened }
+func (o *Oracle) Missing() []string                 { return o.d.Missing }
+func (o *Oracle) Wrote() []dos.Write                { return o.d.Wrote }
+func (o *Oracle) MissingAccesses() []dos.FileAccess { return o.d.MissingAccess }
 
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
 // `int 10h AH=0Eh`）。**錯誤訊息走這條**，出問題先看它。
