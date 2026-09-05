@@ -304,6 +304,21 @@ func TestProtectedModePopDS(t *testing.T) {
 	}
 }
 
+func TestProtectedModeNearCALL(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0xe8, 0x10, 0x00, 0x00, 0x00})
+	c := New(mem)
+	c.R[ESP] = 0x50
+	c.Seg[SegSS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EIP != 0x15 || c.R[ESP] != 0x4c || !bytes.Equal(mem[0x6c:0x70], []byte{5, 0, 0, 0}) {
+		t.Fatalf("EIP=%X ESP=%X return=% X", c.EIP, c.R[ESP], mem[0x6c:0x70])
+	}
+}
+
 func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
 	c := New(mem)
