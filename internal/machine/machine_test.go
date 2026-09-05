@@ -221,6 +221,54 @@ func TestMachineIsA80186(t *testing.T) {
 	}
 }
 
+func TestKeyboardIRQ1DeliversScanCodesAndHonorsIF(t *testing.T) {
+	m := New()
+	m.IRQ0Every = 0
+	// in al,60h; mov [0500h],al; iret
+	m.WriteBytes(cpu.Addr(0x0900, 0), []byte{0xE4, 0x60, 0xA2, 0x00, 0x05, 0xCF})
+	m.Write16(0x09*4, 0)
+	m.Write16(0x09*4+2, 0x0900)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0
+	m.CPU.Seg[cpu.DS] = 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x100
+	m.WriteBytes(cpu.Addr(0x0800, 0), []byte{0x90, 0x90, 0x90, 0x90})
+	m.QueueScanCodes(0x01)
+
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read8(0x500); got != 0 {
+		t.Fatalf("IF關閉時送出了掃描碼%02X", got)
+	}
+	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+	for i := 0; i < 4; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := m.Read8(0x500); got != 0x01 {
+		t.Fatalf("IRQ1處理程式讀到%02X，預期01", got)
+	}
+	if got := m.PortsIn[0x60]; got != 1 {
+		t.Fatalf("port 60h讀取%d次，預期1", got)
+	}
+}
+
+func TestKeyboardQueueSurvivesSnapshotRestore(t *testing.T) {
+	m := New()
+	m.QueueScanCodes(0x01, 0x81)
+	s := m.Snapshot()
+	m.keyQueue = nil
+	m.keyData = 0xFF
+	m.Restore(s)
+	if len(m.keyQueue) != 2 || m.keyQueue[0] != 0x01 || m.keyQueue[1] != 0x81 {
+		t.Fatalf("還原後掃描碼佇列=% X", m.keyQueue)
+	}
+	if m.keyData != 0 {
+		t.Fatalf("還原後port 60h資料=%02X，預期00", m.keyData)
+	}
+}
+
 // TestRetraceBitToggles 釘住「3DAh 的值一定要會變」。
 //
 // VGA 的回掃等待是兩段：先等這一次結束、再等下一次開始。**回任何定值

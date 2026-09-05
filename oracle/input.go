@@ -125,6 +125,21 @@ func (o *Oracle) Type(s string) {
 // Pending 回還沒被讀走的鍵數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
 
+// Key 是IBM PC/AT鍵盤Set 1的make掃描碼。
+type Key uint8
+
+const (
+	// KeyEscape 是Esc鍵。
+	KeyEscape Key = 0x01
+)
+
+// PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。
+// 這供自行掛接int 09h的遊戲使用；Type的既有語意維持不變。
+func (o *Oracle) PressKey(key Key) {
+	makeCode := uint8(key)
+	o.m.QueueScanCodes(makeCode, makeCode|0x80)
+}
+
 // runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
 func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {
 	if watch == nil {

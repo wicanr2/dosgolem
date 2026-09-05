@@ -22,6 +22,8 @@ type Snapshot struct {
 	portTicks uint64
 	nextIRQ0  uint64
 	pending   bool
+	keyQueue  []uint8
+	keyData   uint8
 
 	ports   map[uint16]uint8
 	portsIn map[uint16]uint64
@@ -47,6 +49,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		portTicks: m.portTicks,
 		nextIRQ0:  m.nextIRQ0,
 		pending:   m.irq0Pending,
+		keyQueue:  append([]uint8(nil), m.keyQueue...),
+		keyData:   m.keyData,
 		ports:     map[uint16]uint8{},
 		portsIn:   map[uint16]uint64{},
 		dac:       m.DAC,
@@ -72,6 +76,7 @@ func (m *Machine) Restore(s *Snapshot) {
 
 	m.Steps, m.Ticks = s.steps, s.ticks
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.portTicks, s.nextIRQ0, s.pending
+	m.keyQueue, m.keyData = append(m.keyQueue[:0], s.keyQueue...), s.keyData
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.ports {

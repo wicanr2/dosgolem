@@ -22,3 +22,18 @@ func ToWestwoodLogo(o *oracle.Oracle) error {
 	}
 	return nil
 }
+
+// ToTitleMenu 從START1.EXE冷啟動走正常VGA路徑，略過片頭並等待主選單穩定。
+func ToTitleMenu(o *oracle.Oracle) error {
+	if err := ToWestwoodLogo(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(oracle.Opened("EOBDATA3.PAK"), oracle.Budget(20_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待主選單資產：%w", err)
+	}
+	if err := o.RunUntil(oracle.ScreenIdle(1_000_000), oracle.Budget(20_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待主選單穩定：%w", err)
+	}
+	return nil
+}

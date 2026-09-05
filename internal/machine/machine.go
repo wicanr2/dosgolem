@@ -90,6 +90,11 @@ type Machine struct {
 	nextIRQ0    uint64
 	irq0Pending bool
 
+	// keyQueue 是等待送到IRQ1／int 09h的IBM PC/AT Set 1掃描碼。
+	// keyData 是目前可由port 60h讀取的資料。
+	keyQueue []uint8
+	keyData  uint8
+
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
@@ -171,6 +176,8 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port == 0x61:
 		return 0x00
+	case port == 0x60:
+		return m.keyData
 	}
 	return 0xFF
 }
@@ -234,7 +241,7 @@ func (m *Machine) Indexed() []uint8 {
 	return out
 }
 
-// Step 執行一道指令，必要時先送 IRQ0。
+// Step 執行一道指令，必要時先送 IRQ1或IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
 	m.Steps++
@@ -262,7 +269,18 @@ func (m *Machine) tick() {
 		// 當場丟掉的話那一段的 tick 全部消失。
 		m.irq0Pending = true
 	}
-	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
+	if !m.CPU.Flag(cpu.IF) {
+		return
+	}
+	// 鍵盤IRQ1優先於計時器IRQ0；每個掃描碼各送一次中斷。處理程式
+	// 以IRET恢復IF後，下一個Step才可能送下一碼，避免巢狀中斷。
+	if len(m.keyQueue) > 0 {
+		m.keyData = m.keyQueue[0]
+		m.keyQueue = m.keyQueue[1:]
+		m.CPU.Interrupt(0x09)
+		return
+	}
+	if !m.irq0Pending {
 		return
 	}
 	m.irq0Pending = false
@@ -279,6 +297,11 @@ func (m *Machine) tick() {
 	if m.Read16(0x1C*4+2) != StubSeg {
 		m.CPU.Interrupt(0x1C)
 	}
+}
+
+// QueueScanCodes 排入IBM PC/AT Set 1掃描碼。每個byte會各觸發一次IRQ1。
+func (m *Machine) QueueScanCodes(codes ...uint8) {
+	m.keyQueue = append(m.keyQueue, codes...)
 }
 
 // bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
@@ -305,9 +328,9 @@ func (m *Machine) bumpBDATicks() {
 //     到垃圾（`rich2/docs/re/005` §3.2）。
 //  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
 func (m *Machine) initVectors() {
-	m.Mem[StubSeg*16] = 0xCF                   // iret
-	m.Mem[StubSeg*16+mouseStubOff] = 0x90      // nop
-	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF    // iret
+	m.Mem[StubSeg*16] = 0xCF                // iret
+	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
+	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 	for v := 0; v < 256; v++ {
 		m.Write16(uint32(v)*4, 0)
 		m.Write16(uint32(v)*4+2, StubSeg)

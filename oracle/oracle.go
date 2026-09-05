@@ -170,7 +170,7 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64   { return o.m.Steps }
+func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
 
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
@@ -207,6 +207,16 @@ func (o *Oracle) MouseCalls() map[uint16]int {
 	out := map[uint16]int{}
 	for k, v := range o.d.Mouse.Calls {
 		out[k] = v
+	}
+	return out
+}
+
+// PortReads 回每個I/O埠被讀取的次數副本。
+// 這只供診斷直接硬體輪詢，不把埠號自行解釋成裝置語意。
+func (o *Oracle) PortReads() map[uint16]uint64 {
+	out := make(map[uint16]uint64, len(o.m.PortsIn))
+	for port, count := range o.m.PortsIn {
+		out[port] = count
 	}
 	return out
 }
