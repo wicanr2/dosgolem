@@ -53,6 +53,14 @@ func TestRelativeJumpAndUnknownOpcode(t *testing.T) {
 	}
 }
 
+func TestNearRelativeJump(t *testing.T) {
+	mem := testBus{0xe9, 0x10, 0x00, 0x00, 0x00}
+	c := New(mem)
+	if err := c.Step(); err != nil || c.EIP != 0x15 {
+		t.Fatalf("near JMP EIP=%X err=%v", c.EIP, err)
+	}
+}
+
 func TestCompareALAndJumpZero(t *testing.T) {
 	mem := testBus{0x3c, 0x7f, 0x74, 0x02, 0xfb, 0xfb, 0xfb}
 	c := New(mem)
