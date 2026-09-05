@@ -168,6 +168,24 @@ func TestMoveMemorySelectorToSegmentRequiresHostValidation(t *testing.T) {
 	}
 }
 
+func TestMoveSegmentFromESDescriptorMemory(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x26, 0x8e, 0x1d, 0x40, 0x00, 0x00, 0x00})
+	mem[0x60], mem[0x61] = 0x30, 0
+	c := New(mem)
+	c.Seg[SegES] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	c.SegmentLoadOK = func(selector uint16, destination int) bool {
+		return selector == 0x30 && destination == SegDS
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Seg[SegDS] != 0x30 || c.EIP != 7 {
+		t.Fatalf("DS=%X EIP=%d", c.Seg[SegDS], c.EIP)
+	}
+}
+
 func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x26, 0x8c, 0x1d, 0x40, 0x00, 0x00, 0x00}) // mov es:[40h],ds

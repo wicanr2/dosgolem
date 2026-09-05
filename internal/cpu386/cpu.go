@@ -116,6 +116,20 @@ func (c *CPU) readSegment8(selector uint16, offset uint32) (uint8, bool) {
 	return value, err == nil
 }
 
+func (c *CPU) readSegment16(selector uint16, offset uint32) (uint16, bool) {
+	if c.SegmentRead16 != nil {
+		if value, ok := c.SegmentRead16(selector, offset); ok {
+			return value, true
+		}
+	}
+	linear, ok := c.segmentLinear(selector, offset, 2, false)
+	if !ok {
+		return 0, false
+	}
+	value, err := c.read16(linear)
+	return value, err == nil
+}
+
 func (c *CPU) writeSegment8(selector uint16, offset uint32, value uint8) bool {
 	linear, ok := c.segmentLinear(selector, offset, 1, true)
 	return ok && c.Bus.Write8(linear, value) == nil
@@ -380,8 +394,8 @@ func (c *CPU) Step() error {
 	if repe && op != 0xae {
 		return fail("REPE prefix 只支援 SCASB")
 	}
-	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c {
-		return fail("segment override 只支援 8A／8B／8C")
+	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
+		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
 	case op >= 0x48 && op <= 0x4f:
@@ -548,10 +562,7 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if c.SegmentRead16 == nil {
-				return fail("segment word read hook 缺失")
-			}
-			value, ok := c.SegmentRead16(c.Seg[segmentOverride], addr)
+			value, ok := c.readSegment16(c.Seg[segmentOverride], addr)
 			if !ok {
 				return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
 			}
@@ -664,7 +675,7 @@ func (c *CPU) Step() error {
 		}
 		c.R[(modrm>>3)&7] = uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
 	case op == 0x8e:
-		if operand16 || segmentOverride >= 0 {
+		if operand16 {
 			return fail("8E 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -685,9 +696,17 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			value, e = c.read16(addr)
-			if e != nil {
-				return fail(e.Error())
+			if segmentOverride >= 0 {
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[segmentOverride], addr)
+				if !ok {
+					return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+				}
+			} else {
+				value, e = c.read16(addr)
+				if e != nil {
+					return fail(e.Error())
+				}
 			}
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))

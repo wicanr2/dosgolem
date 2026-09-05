@@ -45,13 +45,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cb09 && steps < 80; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cb12 && steps < 90; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cb09 {
-		t.Fatalf("entry did not finalize command-tail buffer: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cb12 {
+		t.Fatalf("entry did not load environment selector: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 0 || m.CPU.R[cpu386.EBX] != 0x28 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
 		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
@@ -81,8 +81,8 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.R[cpu386.ESP] != 0x556a8 {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
 	}
-	if m.CPU.Seg[cpu386.SegDS] != 0x28 || m.CPU.Seg[cpu386.SegES] != 0x160 {
-		t.Fatalf("swapped selectors DS=%X ES=%X", m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
+	if m.CPU.Seg[cpu386.SegDS] != 0x30 || m.CPU.Seg[cpu386.SegES] != 0x160 {
+		t.Fatalf("environment selectors DS=%X ES=%X", m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
 	}
 	if m.CPU.R[cpu386.EDX] != 0x160 || m.CPU.R[cpu386.ECX] != 0 {
 		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
