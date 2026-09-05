@@ -129,6 +129,19 @@ func TestStoreImmediateDwordAbsolute(t *testing.T) {
 	}
 }
 
+func TestSubtractRegisterAbsolute(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x2b, 0x05, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{4, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.R[EAX] = 7
+	if err := c.Step(); err != nil || c.R[EAX] != 3 || c.EFlags&ZF != 0 {
+		t.Fatalf("SUB EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestRegisterSHL32(t *testing.T) {
 	c := New(testBus{0xc1, 0xe0, 2})
 	c.R[EAX] = 0x40000001
@@ -156,6 +169,38 @@ func TestRegisterCMP32(t *testing.T) {
 	c.R[EBX], c.R[EAX] = 7, 7
 	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBX] != 7 || c.R[EAX] != 7 {
 		t.Fatalf("CMP EBX=%X EAX=%X flags=%X err=%v", c.R[EBX], c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestRegisterSUB32(t *testing.T) {
+	c := New(testBus{0x29, 0xc4})
+	c.R[ESP], c.R[EAX] = 9, 4
+	if err := c.Step(); err != nil || c.R[ESP] != 5 || c.R[EAX] != 4 || c.EFlags&ZF != 0 {
+		t.Fatalf("SUB ESP=%X EAX=%X flags=%X err=%v", c.R[ESP], c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestPushAbsoluteDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xff, 0x35, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[ESP] = 0x40
+	if err := c.Step(); err != nil || c.R[ESP] != 0x3c || !bytes.Equal(mem[0x3c:0x40], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("PUSH ESP=%X stack=% X err=%v", c.R[ESP], mem[0x3c:0x40], err)
+	}
+
+	mem = testBus([]byte{0xff, 0x35, 0x20, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 5, Writable: true})
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 5, Writable: true})
+	c.R[ESP] = 4
+	if err := c.Step(); err == nil || c.R[ESP] != 4 {
+		t.Fatalf("out-of-range PUSH ESP=%X err=%v", c.R[ESP], err)
 	}
 }
 
