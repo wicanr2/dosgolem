@@ -47,8 +47,16 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegGS] != 0x20 {
 		t.Fatalf("DOS/4G response EAX=%08X GS=%04X", c.R[cpu386.EAX], c.Seg[cpu386.SegGS])
 	}
-	if s.Handle(c, 0x21) || s.Calls() != 2 {
-		t.Fatal("extra startup call was accepted")
+	c.R[cpu386.EAX] = 0x2c00
+	for want := uint32(0); want < 3; want++ {
+		if !s.Handle(c, 0x21) || uint8(c.R[cpu386.EDX]>>8) != uint8(want) {
+			t.Fatalf("DOS time second=%d EDX=%08X", want, c.R[cpu386.EDX])
+		}
+		c.R[cpu386.EAX] = 0x2c00
+	}
+	c.R[cpu386.EAX] = 0x2900
+	if s.Handle(c, 0x21) || s.Calls() != 5 {
+		t.Fatal("unknown post-startup call was accepted")
 	}
 }
 

@@ -463,6 +463,19 @@ func (c *CPU) Step() error {
 		}
 		dst, src := modrm&7, (modrm>>3)&7
 		c.R[dst] = c.add32(c.R[dst], c.R[src])
+	case op == 0x39:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("39 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("CMP dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.sub32(c.R[dst], c.R[src])
 	case op == 0x85:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("85 不接受目前的 prefix")
@@ -1389,6 +1402,10 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 == 3 {
+			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
+			break
+		}
 		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
@@ -1610,6 +1627,10 @@ func (c *CPU) Step() error {
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if modrm>>6 == 3 {
+			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
+			break
 		}
 		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
