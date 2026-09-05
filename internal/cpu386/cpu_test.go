@@ -55,6 +55,80 @@ func TestRegisterTEST32(t *testing.T) {
 	}
 }
 
+func TestAbsoluteByteANDOR(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})
+	mem[0x20] = 0xff
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x20] != 0xf8 {
+		t.Fatalf("AND byte=%X err=%v", mem[0x20], err)
+	}
+	if err := c.Step(); err != nil || mem[0x20] != 0xfc || c.EFlags&ZF != 0 {
+		t.Fatalf("OR byte=%X flags=%X err=%v", mem[0x20], c.EFlags, err)
+	}
+}
+
+func TestCompareDwordAtBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x83, 0x7b, 0x0c, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.R[EBX] = 0x10
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBX] != 0x10 {
+		t.Fatalf("CMP EBX=%X flags=%X err=%v", c.R[EBX], c.EFlags, err)
+	}
+}
+
+func TestStoreDwordAtBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x89, 0x58, 0x04})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.R[EAX], c.R[EBX] = 0x10, 0x12345678
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x14:0x18], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("store=% X err=%v", mem[0x14:0x18], err)
+	}
+}
+
+func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x8b, 0x15, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || c.R[EDX] != 0x12345678 {
+		t.Fatalf("EDX=%X err=%v", c.R[EDX], err)
+	}
+}
+
+func TestStoreRegisterIndirect(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x89, 0x10})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.R[EAX], c.R[EDX] = 0x20, 0x12345678
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("store=% X err=%v", mem[0x20:0x24], err)
+	}
+}
+
+func TestStoreImmediateDwordAbsolute(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0xc7, 0x05, 0x20, 0, 0, 0, 0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("store=% X err=%v", mem[0x20:0x24], err)
+	}
+}
+
 func TestRegisterSHL32(t *testing.T) {
 	c := New(testBus{0xc1, 0xe0, 2})
 	c.R[EAX] = 0x40000001

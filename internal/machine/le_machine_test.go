@@ -478,3 +478,18 @@ func TestFD2ThirdCallbackEnvironmentCopyCompletesWhenProvided(t *testing.T) {
 		t.Fatalf("environment table=%X tail=%X terminator=%X errors=%v,%v,%v", environmentTable, environmentTail, terminator, errTable, errTail, errTerminator)
 	}
 }
+
+func TestFD2PostEnvironmentRuntimeListWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 800 && m.CPU.EIP != 0x46123; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("post-environment runtime list: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	listHead, errHead := m.Read32(0x541ac)
+	listGate, errGate := m.Read32(0x541a0)
+	if services.Calls() != 2 || m.CPU.EIP != 0x46123 || steps != 767 || m.Mem[0x52881]&7 != 4 || listHead == 0 || listGate != 0 || errHead != nil || errGate != nil {
+		t.Fatalf("runtime list steps=%d EIP=%X flags=%X head=%X gate=%X calls=%d errors=%v,%v", steps, m.CPU.EIP, m.Mem[0x52881], listHead, listGate, services.Calls(), errHead, errGate)
+	}
+}
