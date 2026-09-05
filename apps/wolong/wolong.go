@@ -184,11 +184,27 @@ func Clock(o *oracle.Oracle) Date {
 // UntilDate 是「跑到遊戲日期到某一天」。
 //
 // ⚠ **已經過了就永遠不會成立。** 條件只往前看，回頭要靠快照。
+//
+// ⛔⛔ **不能在時鐘更新的中途判定。** 進位鏈是逐個欄位寫的：
+// 換月那一刻「月」已經是 5、「日」還停在 30，於是
+// `until:196/5/3` 與 `until:196/5/16` **會在同一瞬間都成立**——
+// 兩者停在同一個指令數、同一個「5月30日 23時」，而真正的日期是 5 月初。
+// 換日那一刻同理：日已經進位、時還沒歸位，所以停下來永遠是 23 時。
+//
+// 修法是**只在主迴圈的閒置點取樣**（`sub_1E453`，每一圈叫一次）。
+// 那裡的時鐘一定是自洽的，而且判定成本比每道指令讀四個 byte 低得多。
 func UntilDate(year, month, day int) oracle.Cond {
 	want := Date{Year: year, Month: month, Day: day}
+	idle := uint32(0)
 	return oracle.NewCond(
 		fmt.Sprintf("遊戲日期到 %d年%d月%d日", year, month, day),
 		func(o *oracle.Oracle) bool {
+			if idle == 0 {
+				idle = o.IDA(idaHitTest).Linear()
+			}
+			if o.IP().Linear() != idle {
+				return false
+			}
 			d := Clock(o)
 			if d.Year != want.Year {
 				return d.Year > want.Year
@@ -901,4 +917,48 @@ func big5Name(b []byte) string {
 		b = b[:len(b)-2]
 	}
 	return strings.ToUpper(hex.EncodeToString(b))
+}
+
+// ---- 政略事件的決策軌跡 --------------------------------------------------
+
+// idaEventPush 是**所有事件的共用入口**（臥龍傳專案 `docs/re/15` §2）。
+// AI 的決策（宣戰／合作／停戰／遷都）與玩家面的事件（撥款、俘虜、災害）
+// 都走它，所以攔這一支就是一份完整的決策軌跡。
+//
+//	ax  低位元組 ＝ 事件碼、高位元組 ＝ 發起方勢力編號（呼叫端 `si×4` 的 ah）
+//	dl  對象（勢力或據點，看事件碼）
+//	dh  第二個參數，`0xFF` ＝ 無
+//	bl  槽位，`0xFF` ＝ 由亂數挑（`sub_1ECE0`）
+const idaEventPush = 0x12FBF
+
+// Event 是一次事件推送。
+type Event struct {
+	Step   uint64
+	At     Date
+	Code   uint8
+	From   uint8
+	To     uint8
+	Second uint8
+	Slot   uint8
+}
+
+func (e Event) String() string {
+	return fmt.Sprintf("%s 事件%02X 發起%3d 對象%3d 第二%3d 槽%3d（第 %d 道指令）",
+		e.At, e.Code, e.From, e.To, e.Second, e.Slot, e.Step)
+}
+
+// WatchEvents 裝上事件軌跡的監看。
+//
+// ⚠ **要在遊戲跑起來之後才裝**——事件佇列的段（`cs:word_10D20`）
+// 開場之前還沒配好，那時攔到的參數沒有意義。
+func WatchEvents(o *oracle.Oracle, fn func(Event)) {
+	o.OnCall(o.IDA(idaEventPush), func(o *oracle.Oracle) {
+		r := o.Regs()
+		fn(Event{
+			Step: o.Steps(), At: Clock(o),
+			Code: uint8(r.AX), From: uint8(r.AX >> 8),
+			To: uint8(r.DX), Second: uint8(r.DX >> 8),
+			Slot: uint8(r.BX),
+		})
+	})
 }

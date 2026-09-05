@@ -350,6 +350,14 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		}
 		fmt.Printf("   叫原版開攻城戰：軍團 %d 打據點 %d\n", x, y)
 		return nil
+	case "eventwatch":
+		// 裝上政略事件的軌跡監看（`docs/findings/015`）。之後每一次
+		// 事件推送都會印一行，配 `until:` 就是一段遊戲時間的決策軌跡。
+		wolong.WatchEvents(o, func(e wolong.Event) {
+			fmt.Printf("  ▶ %s\n", e)
+		})
+		fmt.Printf("   裝上事件軌跡監看（%05X）\n", 0x12FBF)
+		return nil
 	case "factions":
 		fs := wolong.FactionTable(o)
 		fmt.Printf("   共 %d 個勢力（編號 君主 軍師 首都 預備兵騎/弓/步 將 城 軍團 資金 好戰 士氣 敵）：\n", len(fs))
