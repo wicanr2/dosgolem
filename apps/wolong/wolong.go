@@ -510,3 +510,60 @@ func scrollTo(o *oracle.Oracle, wantX, wantY int) error {
 	}
 	return nil
 }
+
+// ---- 軍團表 --------------------------------------------------------------
+
+// 軍團表不在 DGROUP。
+//
+// ⚠ **`peek`／`o.DS()` 讀不到它。** 這一版的 DGROUP 就是程式的碼段
+// （`o.DS(0x2240)` 讀到的是程式碼），而據點表與軍團表在另一個段裡——
+// 段值要先從 `cs:word_10D52` 讀出來。臥龍傳專案的
+// `docs/formats/08` 寫「`ds:2240h` 軍團表」，那個 `ds` 是**這一個**段。
+const (
+	idaTableSeg = 0x10D52 // cs:word_10D52 ＝ 據點表／軍團表所在的段
+	offCorps    = 0x2240  // 段內偏移，127 筆 × 64 B
+	corpsCount  = 127
+	corpsSize   = 64
+)
+
+// Corps 是一支軍團的現況（臥龍傳專案 `docs/formats/08` §1.7）。
+type Corps struct {
+	Index    int
+	Flags    uint8  // +0x00 存在旗標與狀態位元
+	Faction  uint8  // +0x01 所屬勢力
+	No       uint8  // +0x02 軍團編號
+	Troops   uint16 // +0x04 總兵力
+	Morale   uint16 // +0x06 士氣
+	Facing   uint8  // +0x08 朝向（4 ＝ 靜止）
+	Step     uint8  // +0x0A 路徑步進量
+	Timer    uint8  // +0x0B 移動計時器
+	At       uint16 // +0x0E 目前據點 × 8
+	X, Y     uint16 // +0x10 / +0x12 目前座標
+	To       uint16 // +0x14 目標據點 × 8
+	Interval uint8  // +0x1E 移動間隔
+	Target   uint8  // +0x20 目標據點（無縮放）
+	Stage    uint8  // +0x23 抵達狀態機
+}
+
+// CorpsTable 讀整張軍團表，只回存在的（`+0x00` 非 0）。
+//
+// **這是「行軍到底有沒有在走」的直接答案。** 從畫面看只知道軍團的圖示
+// 在哪一格，看不到目標、計時器與抵達狀態機——而卡住的原因在後三個裡。
+func CorpsTable(o *oracle.Oracle) []Corps {
+	seg := o.Word(o.IDA(idaTableSeg))
+	var out []Corps
+	for i := 0; i < corpsCount; i++ {
+		b := o.Bytes(oracle.Far(seg, uint16(offCorps+i*corpsSize)), corpsSize)
+		if b[0] == 0 {
+			continue
+		}
+		u16 := func(k int) uint16 { return uint16(b[k]) | uint16(b[k+1])<<8 }
+		out = append(out, Corps{
+			Index: i, Flags: b[0], Faction: b[1], No: b[2],
+			Troops: u16(4), Morale: u16(6), Facing: b[8], Step: b[0x0A],
+			Timer: b[0x0B], At: u16(0x0E), X: u16(0x10), Y: u16(0x12),
+			To: u16(0x14), Interval: b[0x1E], Target: b[0x20], Stage: b[0x23],
+		})
+	}
+	return out
+}
