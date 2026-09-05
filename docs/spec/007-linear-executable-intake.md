@@ -1,7 +1,7 @@
 # 007 — LE 執行檔接入與 FD2 能力探針
 
-狀態：**READY**（§1–§4 的唯讀解析、page map、object 映像與失敗即關閉）／
-**DRAFT**（§5 的實際執行）
+狀態：**READY**（§1–§4 的唯讀解析、page map、object 映像、fixup 索引與
+record 解碼）／**DRAFT**（§5 的 fixup 套用與實際執行）
 日期：2026-09-05
 前置：[`001`](001-scope-and-mvp.md)、[`003`](003-machine-and-loader.md)
 
@@ -39,6 +39,27 @@
 - 所有加法與乘法先做邊界檢查，截斷、超界、`LX` 或其他簽章一律回錯誤；
 - 不執行 MZ stub、不載入 object、不套 fixup，也不假裝已支援保護模式。
 
+### 2.1 READY：fixup page table 與 record 解碼
+
+依 IBM LE 規格，fixup page table 含 `module_pages + 1` 筆 little-endian
+`uint32`，每筆是相對於 fixup record table 起點的位元組偏移；相鄰兩筆界定
+一個 logical page 的 record 範圍，最後一筆界定整張 record table 的結尾。
+
+- page offsets 必須單調不減，空頁可由相等 offsets 表示；table、最後 offset、
+  record range 或 import table 邊界超出檔案時失敗即關閉；
+- source type 僅接受規格定義的 `0, 2, 3, 5, 6, 7, 8`；`1, 4` 與保留值拒絕；
+- 單一 source offset 解為 signed 16-bit，以保存跨頁的負偏移；source-list 模式
+  則先讀一個 byte count，target 與 additive 後再讀該數量的 signed 16-bit offsets；
+- target type 支援 internal、import-by-ordinal、import-by-name 與 internal-entry，
+  並依 flags 選擇 8／16／32-bit ordinal、target offset 與 additive 寬度；
+- alias flag 只允許 selector、16:16 pointer、16:32 pointer；chaining 只允許
+  32-bit offset 且 target 是 internal 或 internal-entry，並禁止與 source-list 並用；
+- parser 保留原始 source／target flags 及 record bytes。此層只建立 typed record，
+  不解析 import 名稱、不套 relocation，也不宣稱執行支援。
+
+主要格式證據：IBM《[32-bit Linear eXecutable Module Format](https://komh.github.io/os2books/os2tk45/lxref.htm)》
+的 Fixup Page Table、Fixup Record Table 與 Fixup Record 區段。
+
 FD2 驗收錨點：header `0x28B8`、3 objects、page size `0x1000`、EIP object 1／
 offset `0x2C964`、ESP object 2／offset `0x56B0`；三筆 object 的
 `(virtual size, relocation base, flags, page index, page count)` 分別是：
@@ -52,6 +73,10 @@ SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb
 `bf7abfabc1b49ea2ff1078a7d59a068d5cb5c359eac4baff6294fba718dd962f`、
 `1fb82889fdaa70b2e3f376ff76638ed565b1ef98070e2704efb27b66b361955b`。
 
+同一實檔的 fixup page table 有 72 筆 offsets；71 個 logical pages 中 68 頁
+含 record，共 7,944 筆。這只證實 §2.1 的 record 邊界與格式可完整消費，不能
+提升為 relocation 已套用或程式可執行。
+
 ## 3. READY：能力探針
 
 `cmd/leprobe` 只輸出格式與物件摘要。原版檔案由使用者以 `-exe` 提供；儲存庫
@@ -62,6 +87,9 @@ SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb
 
 - 合成 fixture 覆蓋有效 LE、非 MZ、非 LE、截斷 header、超界 object／page table、
   valid／zeroed page 與未支援 page flag；
+- 合成 fixup fixture 覆蓋單筆／空頁、負 source offset、source list、四種 target、
+  寬度 flags、additive，以及截斷、非單調 page offsets、未定義 source type、
+  非法 alias／chaining 組合；
 - 可選實檔測試只在 `DOSGOLEM_FD2_EXE` 存在時執行，先核對大小、MD5、SHA-256，
   再檢查 §2 錨點；缺檔必須 skip；
 - `go test ./...` 全綠；
@@ -69,6 +97,6 @@ SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb
 
 ## 5. DRAFT：從解析走到可對拍執行
 
-以下尚未 READY，不可猜接：80386 指令與保護模式、描述子／分頁模型、LE page
-載入與 fixup、DPMI／DOS4GW 契約，以及 FD2 實際使用的 DOS／VGA 服務。每一層須以
+以下尚未 READY，不可猜接：80386 指令與保護模式、描述子／分頁模型、LE fixup
+的實際套用、DPMI／DOS4GW 契約，以及 FD2 實際使用的 DOS／VGA 服務。每一層須以
 獨立語料或 DOSBox-X／原版同狀態結果驗證；硬體時序只採規格近似，不追逐週期一致。

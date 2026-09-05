@@ -25,6 +25,15 @@ func main() {
 	}
 	fmt.Printf("format=LE header_offset=0x%X cpu=%d os=%d pages=%d page_size=0x%X objects=%d\n", h.Offset, h.CPUType, h.OSType, h.ModulePages, h.PageSize, h.ObjectCount)
 	fmt.Printf("entry=object:%d+0x%X stack=object:%d+0x%X execution_supported=false\n", h.EIPObject, h.EIP, h.ESPObject, h.ESP)
+	totalFixups := 0
+	pagesWithFixups := 0
+	for _, page := range h.Fixups {
+		totalFixups += len(page)
+		if len(page) != 0 {
+			pagesWithFixups++
+		}
+	}
+	fmt.Printf("fixup_pages=%d pages_with_fixups=%d records=%d applied=false\n", len(h.Fixups), pagesWithFixups, totalFixups)
 	for i, o := range h.Objects {
 		image, err := h.ObjectImage(b, uint32(i+1))
 		if err != nil {

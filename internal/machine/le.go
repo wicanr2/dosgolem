@@ -22,6 +22,10 @@ type LEHeader struct {
 	ESP               uint32
 	PageSize          uint32
 	LastPageSize      uint32
+	FixupSectionSize  uint32
+	FixupChecksum     uint32
+	LoaderSectionSize uint32
+	LoaderChecksum    uint32
 	ObjectTableOff    uint32
 	ObjectCount       uint32
 	ObjectPageMap     uint32
@@ -33,6 +37,25 @@ type LEHeader struct {
 	DataPagesOffset   uint32
 	Objects           []LEObject
 	Pages             []LEPage
+	FixupPageOffsets  []uint32
+	Fixups            [][]LEFixup
+}
+
+// LEFixup 是尚未套用的原始 LE relocation record。
+// Ordinal 依 TargetType 表示 object、import module 或 entry ordinal；NameOffset
+// 只用於 import-by-name。SourceOffsets 保留 signed 16-bit 跨頁位置。
+type LEFixup struct {
+	SourceFlags   uint8
+	TargetFlags   uint8
+	SourceType    uint8
+	TargetType    uint8
+	SourceOffsets []int16
+	Ordinal       uint32
+	TargetOffset  uint32
+	NameOffset    uint32
+	Additive      uint32
+	HasAdditive   bool
+	Raw           []byte
 }
 
 // LEPage 是 LE 專用四位元組 object page map entry。
@@ -71,7 +94,8 @@ func InspectLE(data []byte) (*LEHeader, error) {
 		CPUType: u16(8), OSType: u16(10), ModuleFlags: u32(0x10),
 		ModulePages: u32(0x14), EIPObject: u32(0x18), EIP: u32(0x1c),
 		ESPObject: u32(0x20), ESP: u32(0x24), PageSize: u32(0x28),
-		LastPageSize:   u32(0x2c),
+		LastPageSize: u32(0x2c), FixupSectionSize: u32(0x30),
+		FixupChecksum: u32(0x34), LoaderSectionSize: u32(0x38), LoaderChecksum: u32(0x3c),
 		ObjectTableOff: u32(0x40), ObjectCount: u32(0x44), ObjectPageMap: u32(0x48),
 		FixupPageTable: u32(0x68), FixupRecordTable: u32(0x6c),
 		ImportModuleTable: u32(0x70), ImportModuleCount: u32(0x74),
@@ -107,7 +131,167 @@ func InspectLE(data []byte) (*LEHeader, error) {
 		p := int(mapStart) + i*4
 		h.Pages[i] = LEPage{Number: uint32(data[p])<<16 | uint32(data[p+1])<<8 | uint32(data[p+2]), Flags: data[p+3]}
 	}
+	if err := h.inspectFixups(data); err != nil {
+		return nil, err
+	}
 	return h, nil
+}
+
+func (h *LEHeader) inspectFixups(data []byte) error {
+	count := uint64(h.ModulePages) + 1
+	start := uint64(h.Offset) + uint64(h.FixupPageTable)
+	size := count * 4
+	if count > uint64(len(data))/4 || start > uint64(len(data)) || size > uint64(len(data))-start {
+		return fmt.Errorf("machine: LE fixup page table 超出檔案")
+	}
+	h.FixupPageOffsets = make([]uint32, count)
+	for i := range h.FixupPageOffsets {
+		p := int(start) + i*4
+		h.FixupPageOffsets[i] = binary.LittleEndian.Uint32(data[p:])
+		if i > 0 && h.FixupPageOffsets[i] < h.FixupPageOffsets[i-1] {
+			return fmt.Errorf("machine: LE fixup page offsets 非單調")
+		}
+	}
+	recordStart := uint64(h.Offset) + uint64(h.FixupRecordTable)
+	recordBytes := uint64(h.FixupPageOffsets[len(h.FixupPageOffsets)-1])
+	if recordStart > uint64(len(data)) || recordBytes > uint64(len(data))-recordStart {
+		return fmt.Errorf("machine: LE fixup record table 超出檔案")
+	}
+	if h.ImportModuleTable != 0 {
+		importStart := uint64(h.Offset) + uint64(h.ImportModuleTable)
+		if recordStart+recordBytes > importStart {
+			return fmt.Errorf("machine: LE fixup records 跨越 import module table")
+		}
+	}
+	h.Fixups = make([][]LEFixup, h.ModulePages)
+	for page := uint32(0); page < h.ModulePages; page++ {
+		lo, hi := h.FixupPageOffsets[page], h.FixupPageOffsets[page+1]
+		chunk := data[int(recordStart+uint64(lo)):int(recordStart+uint64(hi))]
+		for len(chunk) != 0 {
+			fixup, n, err := parseLEFixup(chunk)
+			if err != nil {
+				return fmt.Errorf("machine: LE fixup page %d record %d: %w", page+1, len(h.Fixups[page]), err)
+			}
+			h.Fixups[page] = append(h.Fixups[page], fixup)
+			chunk = chunk[n:]
+		}
+	}
+	return nil
+}
+
+func parseLEFixup(b []byte) (LEFixup, int, error) {
+	var f LEFixup
+	if len(b) < 2 {
+		return f, 0, fmt.Errorf("record header 截斷")
+	}
+	f.SourceFlags, f.TargetFlags = b[0], b[1]
+	f.SourceType, f.TargetType = b[0]&0x0f, b[1]&3
+	if b[0]&0xc0 != 0 || (f.SourceType != 0 && f.SourceType != 2 && f.SourceType != 3 && f.SourceType != 5 && f.SourceType != 6 && f.SourceType != 7 && f.SourceType != 8) {
+		return f, 0, fmt.Errorf("source flags 0x%02X 未定義", b[0])
+	}
+	if b[0]&0x10 != 0 && f.SourceType != 2 && f.SourceType != 3 && f.SourceType != 6 {
+		return f, 0, fmt.Errorf("alias flag 不適用 source type %d", f.SourceType)
+	}
+	if b[1]&0x08 != 0 && (f.SourceType != 7 || (f.TargetType != 0 && f.TargetType != 3) || b[0]&0x20 != 0) {
+		return f, 0, fmt.Errorf("非法 chaining 組合")
+	}
+	p := 2
+	read8 := func() (uint32, error) {
+		if p+1 > len(b) {
+			return 0, fmt.Errorf("8-bit 欄位截斷")
+		}
+		v := uint32(b[p])
+		p++
+		return v, nil
+	}
+	read16 := func() (uint32, error) {
+		if p+2 > len(b) {
+			return 0, fmt.Errorf("16-bit 欄位截斷")
+		}
+		v := uint32(binary.LittleEndian.Uint16(b[p:]))
+		p += 2
+		return v, nil
+	}
+	read32 := func() (uint32, error) {
+		if p+4 > len(b) {
+			return 0, fmt.Errorf("32-bit 欄位截斷")
+		}
+		v := binary.LittleEndian.Uint32(b[p:])
+		p += 4
+		return v, nil
+	}
+	var sourceCount uint32
+	var err error
+	if b[0]&0x20 != 0 {
+		sourceCount, err = read8()
+	} else {
+		var v uint32
+		v, err = read16()
+		f.SourceOffsets = []int16{int16(uint16(v))}
+	}
+	if err != nil {
+		return f, 0, err
+	}
+	readOrdinal := read8
+	if b[1]&0x40 != 0 {
+		readOrdinal = read16
+	}
+	switch f.TargetType {
+	case 0: // internal object
+		if f.Ordinal, err = readOrdinal(); err == nil && f.SourceType != 2 {
+			if b[1]&0x10 != 0 {
+				f.TargetOffset, err = read32()
+			} else {
+				f.TargetOffset, err = read16()
+			}
+		}
+	case 1: // import by ordinal
+		if f.Ordinal, err = readOrdinal(); err == nil {
+			if b[1]&0x80 != 0 {
+				f.TargetOffset, err = read8()
+			} else if b[1]&0x10 != 0 {
+				f.TargetOffset, err = read32()
+			} else {
+				f.TargetOffset, err = read16()
+			}
+		}
+	case 2: // import by name
+		if f.Ordinal, err = readOrdinal(); err == nil {
+			if b[1]&0x10 != 0 {
+				f.NameOffset, err = read32()
+			} else {
+				f.NameOffset, err = read16()
+			}
+		}
+	case 3: // internal entry table ordinal
+		f.Ordinal, err = readOrdinal()
+	}
+	if err != nil {
+		return f, 0, err
+	}
+	if b[1]&0x04 != 0 {
+		f.HasAdditive = true
+		if b[1]&0x20 != 0 {
+			f.Additive, err = read32()
+		} else {
+			f.Additive, err = read16()
+		}
+		if err != nil {
+			return f, 0, err
+		}
+	}
+	if sourceCount > uint32((len(b)-p)/2) {
+		return f, 0, fmt.Errorf("source list 截斷")
+	}
+	for i := uint32(0); i < sourceCount; i++ {
+		v, e := read16()
+		if e != nil {
+			return f, 0, e
+		}
+		f.SourceOffsets = append(f.SourceOffsets, int16(uint16(v)))
+	}
+	f.Raw = append([]byte(nil), b[:p]...)
+	return f, p, nil
 }
 
 // ObjectImage 重建一個尚未套 fixup 的 LE object 映像。index 使用 1-based object number。
