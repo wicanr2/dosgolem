@@ -346,29 +346,43 @@ func TestMouseCallbackUsesFarCallContract(t *testing.T) {
 	m.CPU.R[cpu.CX] = 0x0007
 	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
 	call(m, d, 0x33, 0x000C)
-	m.Write8(cpu.Addr(0x0900, 0x0010), 0xCB) // RETF
+	// callback先把六個事件參數寫進DS:0100，再RETF。
+	callback := []byte{
+		0xA3, 0x00, 0x01, // mov [0100],ax
+		0x89, 0x1E, 0x02, 0x01, // mov [0102],bx
+		0x89, 0x0E, 0x04, 0x01, // mov [0104],cx
+		0x89, 0x16, 0x06, 0x01, // mov [0106],dx
+		0x89, 0x36, 0x08, 0x01, // mov [0108],si
+		0x89, 0x3E, 0x0A, 0x01, // mov [010A],di
+		0xCB,
+	}
+	m.WriteBytes(cpu.Addr(0x0900, 0x0010), callback)
 	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0x1234
 	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
+	m.CPU.Seg[cpu.DS] = 0x0A00
+	m.CPU.R[cpu.AX], m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] =
+		0xA111, 0xB222, 0xC333, 0xD444
+	m.CPU.R[cpu.SI], m.CPU.R[cpu.DI], m.CPU.R[cpu.BP] = 0x5111, 0xD111, 0xB111
+	m.CPU.SetFlags(cpu.IF | cpu.DF | cpu.CF)
+	wantR, wantSeg, wantIP, wantFlags := m.CPU.R, m.CPU.Seg, m.CPU.IP, m.CPU.Flags
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 1
 
-	if !d.MouseEvent(0x0002, 3, -4) {
-		t.Fatal("符合mask的左鍵按下沒有觸發callback")
-	}
-	if m.CPU.Seg[cpu.CS] != 0x0900 || m.CPU.IP != 0x0010 {
-		t.Fatalf("callback入口=%04X:%04X", m.CPU.Seg[cpu.CS], m.CPU.IP)
-	}
-	if m.CPU.R[cpu.AX] != 2 || m.CPU.R[cpu.BX] != 1 ||
-		m.CPU.R[cpu.CX] != 200 || m.CPU.R[cpu.DX] != 50 ||
-		m.CPU.R[cpu.SI] != uint16(0xFFFC) || m.CPU.R[cpu.DI] != 3 {
-		t.Fatalf("callback暫存器AX/BX/CX/DX/SI/DI=%04X/%04X/%04X/%04X/%04X/%04X",
-			m.CPU.R[cpu.AX], m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX],
-			m.CPU.R[cpu.SI], m.CPU.R[cpu.DI])
-	}
-	if err := m.Step(); err != nil {
+	dispatched, err := d.MouseEvent(0x0002, 3, -4)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if m.CPU.Seg[cpu.CS] != 0x0800 || m.CPU.IP != 0x1234 || m.CPU.R[cpu.SP] != 0x0100 {
-		t.Fatalf("RETF後=%04X:%04X SP=%04X", m.CPU.Seg[cpu.CS], m.CPU.IP, m.CPU.R[cpu.SP])
+	if !dispatched {
+		t.Fatal("符合mask的左鍵按下沒有觸發callback")
+	}
+	if m.CPU.R != wantR || m.CPU.Seg != wantSeg || m.CPU.IP != wantIP || m.CPU.Flags != wantFlags {
+		t.Fatalf("callback返回後污染呼叫者狀態：R=%04X Seg=%04X IP=%04X Flags=%04X",
+			m.CPU.R, m.CPU.Seg, m.CPU.IP, m.CPU.Flags)
+	}
+	wantArgs := [6]uint16{2, 1, 200, 50, 0xFFFC, 3}
+	for i, want := range wantArgs {
+		if got := m.Read16(cpu.Addr(0x0A00, 0x0100+uint16(i*2))); got != want {
+			t.Fatalf("callback參數%d=%04X，預期%04X", i, got, want)
+		}
 	}
 }
 
@@ -382,11 +396,12 @@ func TestMouseCallbackReportsRightButtonContract(t *testing.T) {
 	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 2
 
-	if !d.MouseEvent(0x0008, 0, 0) {
-		t.Fatal("符合mask的右鍵按下沒有觸發callback")
+	dispatched, err := d.MouseEvent(0x0008, 0, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if m.CPU.R[cpu.AX] != 0x0008 || m.CPU.R[cpu.BX] != 2 {
-		t.Fatalf("右鍵callback AX/BX=%04X/%04X", m.CPU.R[cpu.AX], m.CPU.R[cpu.BX])
+	if !dispatched {
+		t.Fatal("符合mask的右鍵按下沒有觸發callback")
 	}
 }
 
@@ -395,11 +410,11 @@ func TestMouseCallbackHonorsMaskAndReset(t *testing.T) {
 	m.CPU.R[cpu.CX] = 0x0002
 	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
 	call(m, d, 0x33, 0x000C)
-	if d.MouseEvent(0x0001, 1, 1) {
+	if dispatched, err := d.MouseEvent(0x0001, 1, 1); err != nil || dispatched {
 		t.Fatal("mask只有左鍵按下卻觸發移動callback")
 	}
 	call(m, d, 0x33, 0x0000)
-	if d.MouseEvent(0x0002, 0, 0) {
+	if dispatched, err := d.MouseEvent(0x0002, 0, 0); err != nil || dispatched {
 		t.Fatal("reset後仍觸發callback")
 	}
 }

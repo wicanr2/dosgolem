@@ -1,6 +1,8 @@
 package dos
 
 import (
+	"fmt"
+
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -155,12 +157,17 @@ func (d *DOS) int33(c *cpu.CPU) {
 
 // MouseEvent 依AX=0Ch註冊契約把一個已更新到Mouse狀態的事件送進far callback。
 // dx／dy是本次位移mickey；目前一個邏輯pixel視為一個mickey的決定性近似。
-func (d *DOS) MouseEvent(event uint16, dx, dy int16) bool {
+func (d *DOS) MouseEvent(event uint16, dx, dy int16) (bool, error) {
 	m := &d.Mouse
 	if event&m.CallbackMask == 0 || (m.CallbackSeg == 0 && m.CallbackOff == 0) {
-		return false
+		return false, nil
 	}
 	c := d.M.CPU
+	// 滑鼠driver是外部設備邊界：callback看到的是事件參數，被打斷程式的
+	// 暫存器則必須在callback返回後原樣恢復。只FarCall後立刻把控制交回
+	// 主程式，會讓入口的DX座標覆蓋主程式正在保存的值。
+	savedR, savedSeg := c.R, c.Seg
+	savedIP, savedFlags, savedHalted := c.IP, c.Flags, c.Halted
 	c.R[cpu.AX] = event
 	c.R[cpu.BX] = m.Buttons
 	c.R[cpu.CX] = m.X * m.XScale
@@ -169,8 +176,29 @@ func (d *DOS) MouseEvent(event uint16, dx, dy int16) bool {
 	c.R[cpu.SI] = uint16(dy)
 	c.R[cpu.DI] = uint16(dx)
 	c.FarCall(m.CallbackSeg, m.CallbackOff)
+	const callbackBudget = 1_000_000
+	for steps := 0; ; steps++ {
+		if c.Seg[cpu.CS] == savedSeg[cpu.CS] && c.IP == savedIP &&
+			c.R[cpu.SP] == savedR[cpu.SP] {
+			break
+		}
+		if steps >= callbackBudget {
+			c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+			c.SetFlags(savedFlags)
+			return false, fmt.Errorf("int 33h callback %04X:%04X在%d道指令內未返回",
+				m.CallbackSeg, m.CallbackOff, callbackBudget)
+		}
+		if err := d.M.Step(); err != nil {
+			c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+			c.SetFlags(savedFlags)
+			return false, fmt.Errorf("執行int 33h callback %04X:%04X: %w",
+				m.CallbackSeg, m.CallbackOff, err)
+		}
+	}
+	c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+	c.SetFlags(savedFlags)
 	m.CallbackDispatch++
-	return true
+	return true, nil
 }
 
 // int16 是 BIOS 鍵盤。

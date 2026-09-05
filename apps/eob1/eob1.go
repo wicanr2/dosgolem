@@ -545,8 +545,10 @@ func ToFourthCharacterName(o *oracle.Oracle) error {
 	if err := o.Click(282, 180, oracle.Hover(1_000_000), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1點擊第四角色KEEP：%w", err)
 	}
-	if err := o.RunUntil(screenDigest("第四角色Name輸入頁", 0, 0, oracle.Width, oracle.Height,
-		"868b6ff3dec8ba456efd3ccb71b5d26188deef7e608af9f5313cfc2696b2085a"), oracle.Budget(10_000_000)); err != nil {
+	// 姓名游標會閃爍；只釘住不含游標的Name標籤與左側固定內容，
+	// 避免把剛好錯過某個閃爍相位誤判成沒有轉場。
+	if err := o.RunUntil(screenDigest("第四角色Name輸入頁", 130, 90, 45, 25,
+		"a85053db2ad20dea6b6b6d87b061ddbb9d45aee73eba79d50fb17c5d9dc0bb88"), oracle.Budget(10_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待第四角色姓名輸入：%w", err)
 	}
 	return nil
@@ -605,7 +607,9 @@ func ToLevel1FirstInventory(o *oracle.Oracle) error {
 	if err := o.Click(200, 26, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1開啟ALFA物品欄：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1 ALFA物品欄", 0, 0, oracle.Width, oracle.Height,
 		"2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待ALFA物品欄：%w", err)
@@ -622,7 +626,9 @@ func ToLevel1InventoryNextCharacter(o *oracle.Oracle) error {
 	if err := o.Click(307, 42, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1物品欄切到下一位角色：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1 BETA物品欄", 0, 0, oracle.Width, oracle.Height,
 		"21d28f3144af98f890f13139469364a9334b78443858d709bba3c81c231350df"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待BETA物品欄：%w", err)
@@ -639,7 +645,9 @@ func ToLevel1InventoryPreviousCharacter(o *oracle.Oracle) error {
 	if err := o.Click(284, 42, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1物品欄切到上一位角色：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1物品欄切回ALFA", 0, 0, oracle.Width, oracle.Height,
 		"2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待物品欄切回ALFA：%w", err)
@@ -655,7 +663,9 @@ func ToLevel1InventoryReturn(o *oracle.Oracle) error {
 	if err := o.Click(200, 26, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1關閉ALFA物品欄：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1由物品欄返回探索", 0, 0, oracle.Width, oracle.Height,
 		"b4fd5e6d1a6b2740cc9f390f50d28c65649a4a7c99832e7f27766340a0ebcf26"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待由物品欄返回探索：%w", err)
@@ -672,7 +682,9 @@ func ToLevel1CharacterExchangeSelected(o *oracle.Oracle) error {
 	if err := o.Click(200, 6, oracle.RightButton(), oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(200_000)); err != nil {
 		return fmt.Errorf("EOB1選取ALFA進入角色交換：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1 ALFA角色交換標記", 0, 0, oracle.Width, oracle.Height,
 		"7106257fa9aafd131af18e4623ddb4a094f922f32fcdee95a3d0c887ac6752df"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待ALFA角色交換標記：%w", err)
@@ -689,7 +701,9 @@ func ToLevel1CharacterExchangeCancel(o *oracle.Oracle) error {
 	if err := o.Click(230, 45, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
 		return fmt.Errorf("EOB1取消角色交換：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1取消角色交換", 0, 0, oracle.Width, oracle.Height,
 		"3064a9c9eea5e6f1be2f18915868cd076cce96778e0e25bf9fb0e12995bd325f"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待角色交換取消：%w", err)
@@ -748,7 +762,9 @@ func ToLevel1FirstDrop(o *oracle.Oracle) error {
 	if err := o.Run(2_000_000); err != nil {
 		return fmt.Errorf("EOB1等待起始石塊放回：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.RunUntil(screenDigest("LEVEL1起始石塊已放回", 0, 0, 176, 120,
 		"4cf790c278d6a9115094c61eebacf894d13ad12a118403ed25056c42523352d2"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待起始石塊放回畫面：%w", err)
@@ -766,7 +782,7 @@ func ToLevel1Camp(o *oracle.Oracle) error {
 		return fmt.Errorf("EOB1點擊LEVEL1 CAMP：%w", err)
 	}
 	if err := o.RunUntil(screenDigest("LEVEL1 CAMP根選單", 0, 0, oracle.Width, oracle.Height,
-		"a9f5ef56e878a83df3767854dba801c32f28d475232fb8dd5bd40b0565b402f7"), oracle.Budget(5_000_000)); err != nil {
+		"79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待CAMP根選單：%w", err)
 	}
 	return nil
@@ -862,7 +878,9 @@ func ToLevel1CampSaveCancel(o *oracle.Oracle) error {
 	if err := o.Click(145, 64, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(2_000_000)); err != nil {
 		return fmt.Errorf("EOB1取消Save Game：%w", err)
 	}
-	o.MoveMouse(300, 190)
+	if err := o.MoveMouse(300, 190); err != nil {
+		return err
+	}
 	if err := o.Run(1_000_000); err != nil {
 		return fmt.Errorf("EOB1等待Save Game取消返回Game Options：%w", err)
 	}

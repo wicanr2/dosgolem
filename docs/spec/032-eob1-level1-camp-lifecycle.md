@@ -10,8 +10,8 @@
 - 左側地城視窗被`Camp:`根選單覆蓋；七列依序是Rest Party、Memorize Spells、
   Pray for Spells、Scribe Scrolls、Preferences、Game Options、Exit；
 - 右側四人隊伍、底部方向控制／羅盤／訊息框與CAMP按鈕保持可見；
-- 第一列以紅字選中；完整320×200色號SHA-256為
-  `a9f5ef56e878a83df3767854dba801c32f28d475232fb8dd5bd40b0565b402f7`；
+- 第一列以紅字選中；滑鼠driver完整執行callback並恢復呼叫者暫存器後，完整
+  320×200色號SHA-256為`79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae`；
 - 此時鍵盤port `60h`仍84次，證明進場只使用滑鼠callback。
 
 由根選單送Set 1 `Down=50h`後：

@@ -486,7 +486,7 @@ func TestToLevel1CampRealData(t *testing.T) {
 	if err := eob1.ToLevel1Camp(o); err != nil {
 		t.Fatal(err)
 	}
-	if got := digest(o.Indexed()); got != "a9f5ef56e878a83df3767854dba801c32f28d475232fb8dd5bd40b0565b402f7" {
+	if got := digest(o.Indexed()); got != "79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae" {
 		t.Fatalf("LEVEL1 CAMP根選單SHA-256=%s", got)
 	}
 	if got := o.PortReads()[0x60]; got != 84 {
@@ -588,6 +588,57 @@ func TestToLevel1CampSaveWrittenRealData(t *testing.T) {
 	}
 	if len(gotWrites) == len(wantWrites)+1 && (gotWrites[8].Name != "LEVELS.TMP" || gotWrites[8].N != 24480) {
 		t.Fatalf("Save Game暫存檔寫入=%v，預期LEVELS.TMP 24480 bytes", gotWrites[8])
+	}
+}
+
+// TestToLevel1CampSaveReloadRealData以同一個可丟棄資料副本完成「新隊伍→
+// LEVEL1→CAMP存檔→重啟→標題LOAD」。這條鏈同時釘住存檔寫入與從
+// EOBDATA6.PAK解析ITEML1.CPS，避免只驗各自孤立的helper。
+func TestToLevel1CampSaveReloadRealData(t *testing.T) {
+	o := loadWritableData(t)
+	if err := o.AllowFileWrites("EOBDATA.SAV", "LEVELS.TMP"); err != nil {
+		o.Close()
+		t.Fatal(err)
+	}
+	if err := eob1.ToLevel1CampSaveWritten(o); err != nil {
+		o.Close()
+		t.Fatal(err)
+	}
+	o.Close()
+
+	o = loadWritableData(t)
+	defer o.Close()
+	if err := eob1.ToTitleMenu(o); err != nil {
+		t.Fatal(err)
+	}
+	o.PressKey(oracle.KeyEnter)
+	// 標題畫面本身已經穩定，不能立即用ScreenIdle，否則會在輸入尚未
+	// 由IRQ1消費前誤把標題畫面當成載入完成。
+	if err := o.Run(5_000_000); err != nil {
+		t.Fatalf("重啟後執行標題LOAD：%v", err)
+	}
+	// 存檔從Game Options完成後，原版重載會重畫含現行方向與地面物件的
+	// 地城視窗；這不是新隊伍剛進LEVEL1時的過渡幀。
+	const level1View = "13de273d44682a02ac7b72d4dc3baa8356d1b1394b5e05cbb7f88a0f17963546"
+	var nextScreenCheck uint64
+	loaded := oracle.NewCond("重載後LEVEL1入口", func(o *oracle.Oracle) bool {
+		if o.Steps() < nextScreenCheck {
+			return false
+		}
+		nextScreenCheck = o.Steps() + 10_000
+		return digestRegion(o.Indexed(), 0, 0, 176, 120) == level1View
+	})
+	if err := o.RunUntil(loaded, oracle.Budget(40_000_000)); err != nil {
+		t.Fatalf("重啟後載入新存檔未穩定：%v；缺檔=%v；缺檔存取=%v",
+			err, o.Missing(), o.MissingAccesses())
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != level1View {
+		t.Fatalf("重啟後載入新存檔未回到LEVEL1入口：地城視窗SHA-256=%s；已開啟=%v；缺檔=%v；缺檔存取=%v",
+			got, o.Opened(), o.Missing(), o.MissingAccesses())
+	}
+	opened := strings.ToUpper(strings.Join(o.Opened(), "\n"))
+	if !strings.Contains(opened, "EOBDATA6.PAK") {
+		t.Fatalf("存檔重載資源鏈不完整：%s", opened)
 	}
 }
 

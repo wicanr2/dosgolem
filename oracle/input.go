@@ -13,12 +13,15 @@ import "fmt"
 //
 // ⚠ **要在程式的 `AX=4` 之後叫**，否則會被它蓋掉而且畫面看起來完全正常。
 // 用 Click 的話已經幫你等了。
-func (o *Oracle) MoveMouse(x, y int) {
+func (o *Oracle) MoveMouse(x, y int) error {
 	oldX, oldY := o.d.Mouse.X, o.d.Mouse.Y
 	o.d.Mouse.X, o.d.Mouse.Y = uint16(x), uint16(y)
 	if oldX != o.d.Mouse.X || oldY != o.d.Mouse.Y {
-		o.d.MouseEvent(1, int16(o.d.Mouse.X)-int16(oldX), int16(o.d.Mouse.Y)-int16(oldY))
+		if _, err := o.d.MouseEvent(1, int16(o.d.Mouse.X)-int16(oldX), int16(o.d.Mouse.Y)-int16(oldY)); err != nil {
+			return fmt.Errorf("移動滑鼠到 (%d,%d): %w", x, y, err)
+		}
 	}
+	return nil
 }
 
 // Mouse 回目前的游標座標。
@@ -88,7 +91,9 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	}
 
 	before := o.Indexed()
-	o.MoveMouse(x, y)
+	if err := o.MoveMouse(x, y); err != nil {
+		return err
+	}
 	// ⚠ **移到位置之後要先停一下再按。**
 	//
 	// 頂端按鈕列是 hover-based：游標移過去先反白，反白之後的點擊才算數。
@@ -103,13 +108,17 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	}
 	o.d.Mouse.Buttons = cfg.buttons
 	o.d.Mouse.Press++
-	o.d.MouseEvent(cfg.pressEvent, 0, 0)
+	if _, err := o.d.MouseEvent(cfg.pressEvent, 0, 0); err != nil {
+		return fmt.Errorf("點 (%d,%d) 按下事件：%w", x, y, err)
+	}
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 0
 	o.d.Mouse.Release++
-	o.d.MouseEvent(cfg.releaseEvent, 0, 0)
+	if _, err := o.d.MouseEvent(cfg.releaseEvent, 0, 0); err != nil {
+		return fmt.Errorf("點 (%d,%d) 放開事件：%w", x, y, err)
+	}
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}

@@ -18,20 +18,28 @@ Enter、Right、Down、Right+Down、Down+Right及三次Tab後Enter，畫面均�
 - 移動事件旗標bit 0、左鍵按下bit 1、左鍵放開bit 2；只有與註冊mask交集非零才far call。
 - callback入口：`AX=event`、`BX=buttons`、`CX=X*XScale`、`DX=Y`、`SI`為垂直mickey、`DI`為
   水平mickey，依Microsoft原始參考手冊，不採後來部分列表的對調版本。
-- far call推入原CS:IP後跳到callback，後續由原版routine的`RETF`回復；不偽造軟體中斷框架。
+- driver保存被打斷程式的通用暫存器、段暫存器、IP與FLAGS，far call推入
+  原CS:IP後跳到callback；由原版routine的`RETF`回復後，driver再完整恢復呼叫者狀態。
+  callback必須在100萬道指令內返回，逾時或指令錯誤失敗即關閉（fail-closed）；不偽造
+  軟體中斷框架。
 - `MoveMouse`及`Click`必須由同一事件入口更新狀態；Click順序仍為move／hover／press／hold／
   release／settle，讓每次callback有界執行，不允許未返回時巢狀覆蓋。
 - Save／Restore沿既有Mouse深拷貝保存callback註冊資料。
 
 ## 驗收與失敗邊界
 
-1. 合成callback以`RETF`返回，驗證原CS:IP／SP及六個入口暫存器。
+1. 合成callback先把六個入口暫存器寫入記憶體後以`RETF`返回，驗證事件參數正確，
+   且原呼叫者的通用暫存器、段暫存器、IP及FLAGS全部恢復。
 2. mask不符或mask為0不得呼叫；reset停用callback。
 3. EOB1檢視頁點擊`KEEP`後必須離開該頁並抵達可見姓名輸入checkpoint。
-4. 真實資料測試與既有Rich2全庫回歸通過後升CONFORMED。
+4. EOB1真實資料完成新隊伍、LEVEL1、CAMP存檔、重啟與標題LOAD；重載後必須
+   重繪同一LEVEL1地城視窗，並經`EOBDATA6.PAK`資源鏈完成。
+5. 真實資料測試與既有Rich2全庫回歸通過後升CONFORMED。
 
 以上均已通過：EOB1檢視頁原版註冊`AX=0Ch`三次，`Click(282,180)`經move／press／release
-callback抵達姓名頁；全庫測試與vet通過。
+callback抵達姓名頁；新隊伍存檔後關閉oracle，從`START1.EXE`重啟並由標題LOAD回到
+LEVEL1，地城視窗色號SHA-256為
+`13de273d44682a02ac7b72d4dc3baa8356d1b1394b5e05cbb7f88a0f17963546`；全庫測試與vet通過。
 
 ## 停止線
 
