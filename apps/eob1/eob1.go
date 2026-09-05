@@ -378,6 +378,31 @@ func ToFourthCharacterDELTA(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1Entrance 由完成的四人隊伍正常按PLAY，等待第一格地城完成繪製。
+func ToLevel1Entrance(o *oracle.Oracle) error {
+	if err := ToFourthCharacterDELTA(o); err != nil {
+		return err
+	}
+	// DELTA姓名列會先於觸發它的鍵盤callback返回完成；先讓前一事件收尾，
+	// 避免新的滑鼠callback巢狀進入而破壞原版segment context。
+	if err := o.Run(1_000_000); err != nil {
+		return fmt.Errorf("EOB1等待建角輸入事件收尾：%w", err)
+	}
+	if err := o.Click(65, 190, oracle.Hover(1_000_000), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1點擊PLAY：%w", err)
+	}
+	for i := 0; i < 20_000; i++ {
+		if err := o.Run(1_000); err != nil {
+			return fmt.Errorf("EOB1執行LEVEL1初始化批次%d：%w", i, err)
+		}
+	}
+	if err := o.RunUntil(screenDigest("LEVEL1第一格視窗", 0, 0, 176, 120,
+		"2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc"), oracle.Budget(30_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待LEVEL1第一格：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

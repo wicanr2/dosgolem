@@ -118,6 +118,8 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+	dtaSeg     uint16
+	dtaOff     uint16
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -154,6 +156,8 @@ func New(m *machine.Machine, root string) *DOS {
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
 		nextHandle:    5, // 0–4 是標準 handle
+		dtaSeg:        machine.PSPSeg,
+		dtaOff:        0x80,
 	}
 }
 

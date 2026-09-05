@@ -171,6 +171,54 @@ func (d *DOS) seek(c *cpu.CPU) {
 	clearCarry(c)
 }
 
+func (d *DOS) fileAttributes(c *cpu.CPU) {
+	if al(c) != 0 {
+		d.noteCPU(c, 0x21, 0x43, al(c))
+		c.R[cpu.AX] = 1
+		setCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
+	if d.resolve(name) == "" {
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	c.R[cpu.CX] = 0x20 // 一般唯讀研究輸入；DOS archive bit。
+	clearCarry(c)
+}
+
+func (d *DOS) findFirst(c *cpu.CPU) {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
+	path := d.resolve(name)
+	if path == "" {
+		c.R[cpu.AX] = 18 // No more files / no match.
+		setCarry(c)
+		return
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() || st.Size() < 0 || st.Size() > 0xFFFFFFFF {
+		c.R[cpu.AX] = 18
+		setCarry(c)
+		return
+	}
+	base := cpu.Addr(d.dtaSeg, d.dtaOff)
+	d.M.WriteBytes(base, make([]byte, 43))
+	d.M.Write8(base+0x15, 0x20)
+	d.M.Write16(base+0x16, 0)
+	d.M.Write16(base+0x18, 0)
+	size := uint32(st.Size())
+	d.M.Write16(base+0x1A, uint16(size))
+	d.M.Write16(base+0x1C, uint16(size>>16))
+	dosName := strings.ToUpper(filepath.Base(path))
+	if len(dosName) > 12 {
+		dosName = dosName[:12]
+	}
+	d.M.WriteBytes(base+0x1E, append([]byte(dosName), 0))
+	c.R[cpu.AX] = 0
+	clearCarry(c)
+}
+
 // write 是 `AH=40h`。
 //
 // ⚠ **這是程式對我們說話的主要管道**，不是 `AH=09h`。BASIC runtime 的

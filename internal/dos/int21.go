@@ -36,7 +36,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
 		setAL(c, d.Drive)
 
-	case 0x1A: // 設 DTA。收下就好，我們不用 FCB 那一套。
+	case 0x1A: // 設 DTA ← DS:DX
+		d.dtaSeg, d.dtaOff = c.Seg[cpu.DS], c.R[cpu.DX]
 		clearCarry(c)
 
 	case 0x25: // 設中斷向量 ← DS:DX
@@ -57,6 +58,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		c.R[cpu.CX] = uint16(d.Now.Hour)<<8 | uint16(d.Now.Min)
 		c.R[cpu.DX] = uint16(d.Now.Sec)<<8 | uint16(d.Now.Hundredth)
 		clearCarry(c)
+
+	case 0x2F: // 取 DTA → ES:BX
+		c.Seg[cpu.ES], c.R[cpu.BX] = d.dtaSeg, d.dtaOff
 
 	case 0x30: // 取 DOS 版本
 		c.R[cpu.AX] = 0x0005 // 5.0
@@ -88,6 +92,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.write(c)
 	case 0x42:
 		d.seek(c)
+	case 0x43:
+		d.fileAttributes(c)
 
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
@@ -120,6 +126,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 			c.R[cpu.AX] = 1
 			setCarry(c)
 		}
+	case 0x4E:
+		d.findFirst(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg

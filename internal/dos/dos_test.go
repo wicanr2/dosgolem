@@ -440,6 +440,65 @@ func TestOpenIgnoresPathAndCase(t *testing.T) {
 	}
 }
 
+func TestDTASetGetAndFindFirstExactFile(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "eob.exe"), []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2200, 0x40
+	call(m, d, 0x21, 0x1A00)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0, 0
+	call(m, d, 0x21, 0x2F99)
+	if m.CPU.Seg[cpu.ES] != 0x2200 || m.CPU.R[cpu.BX] != 0x40 {
+		t.Fatalf("DTA=%04X:%04X", m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX])
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2300, 0x20
+	m.WriteBytes(cpu.Addr(0x2300, 0x20), append([]byte(`C:\RICH2\EOB.EXE`), 0))
+	m.CPU.R[cpu.CX] = 0x37
+	call(m, d, 0x21, 0x4E80)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 {
+		t.Fatalf("Find First失敗：CF=%t AX=%d", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	base := cpu.Addr(0x2200, 0x40)
+	if got := m.Read8(base + 0x15); got != 0x20 {
+		t.Fatalf("attribute=%02X", got)
+	}
+	if got := uint32(m.Read16(base+0x1A)) | uint32(m.Read16(base+0x1C))<<16; got != 5 {
+		t.Fatalf("size=%d", got)
+	}
+	name := make([]byte, 7)
+	for i := range name {
+		name[i] = m.Read8(base + 0x1E + uint32(i))
+	}
+	if string(name) != "EOB.EXE" {
+		t.Fatalf("name=%q", name)
+	}
+}
+
+func TestFileAttributesAndFindFirstFailClosed(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "intro.exe"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2200, 0x20
+	m.WriteBytes(cpu.Addr(0x2200, 0x20), append([]byte("INTRO.EXE"), 0))
+	call(m, d, 0x21, 0x4300)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.CX] != 0x20 {
+		t.Fatalf("attributes CF=%t CX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.CX])
+	}
+	call(m, d, 0x21, 0x4301)
+	if m.CPU.Flags&cpu.CF == 0 || d.Unimplemented[Call{Int: 0x21, AH: 0x43, AL: 1}] != 1 {
+		t.Fatal("未支援屬性寫入沒有失敗即關閉")
+	}
+	m.WriteBytes(cpu.Addr(0x2200, 0x20), append([]byte("MISSING.EXE"), 0))
+	dta := cpu.Addr(machine.PSPSeg, 0x80)
+	m.Write8(dta, 0xA5)
+	call(m, d, 0x21, 0x4E00)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 18 || m.Read8(dta) != 0xA5 {
+		t.Fatal("Find First缺檔契約錯誤或污染DTA")
+	}
+}
+
 // TestMissingFileIsRecorded 釘住「找不到的檔要留名字」。
 //
 // 只回 CF 的話，缺一個資產與「程式自己決定不載」看起來一樣。

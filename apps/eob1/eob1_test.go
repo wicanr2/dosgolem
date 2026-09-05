@@ -267,6 +267,20 @@ func TestToFourthCharacterNameAndDELTARealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1EntranceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1Entrance(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc" {
+		t.Fatalf("LEVEL1第一格視窗SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 84 {
+		t.Fatalf("LEVEL1入口前port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
