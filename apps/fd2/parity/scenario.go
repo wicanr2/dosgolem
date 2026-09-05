@@ -11,6 +11,7 @@ type Scenario struct {
 	Game            string   `json:"game"`
 	Name            string   `json:"scenario"`
 	State           string   `json:"state"`
+	OriginalRunner  string   `json:"original_runner"`
 	Cycles          string   `json:"cycles"`
 	Timeline        string   `json:"timeline"`
 	ExpectedCapture string   `json:"expected_capture"`
@@ -41,7 +42,7 @@ func LoadScenario(path string) (Scenario, error) {
 }
 
 func (s Scenario) Validate() error {
-	if s.Schema != 1 {
+	if s.Schema != 2 {
 		return fmt.Errorf("不支援的場景 schema：%d", s.Schema)
 	}
 	if s.Game != "fd2" || s.Name == "" || s.Cycles == "" || s.Timeline == "" || s.ExpectedCapture == "" {
@@ -49,6 +50,12 @@ func (s Scenario) Validate() error {
 	}
 	if s.State != "same-state" && s.State != "near-state" && s.State != "layout-only" {
 		return fmt.Errorf("不支援的狀態等級：%q", s.State)
+	}
+	if s.OriginalRunner != "dosgolem" && s.OriginalRunner != "dosbox-bootstrap" {
+		return fmt.Errorf("不支援的原版執行器：%q", s.OriginalRunner)
+	}
+	if s.OriginalRunner != "dosgolem" && s.State == "same-state" {
+		return fmt.Errorf("%s 擷取不可宣稱 same-state", s.OriginalRunner)
 	}
 	seen := make(map[string]bool, len(s.Regions))
 	for _, region := range s.Regions {

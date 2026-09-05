@@ -3,6 +3,7 @@
   "game": "fd2",
   "scenario": "title-stable",
   "state": "near-state",
+  "original_runner": "dosbox-bootstrap",
   "executable": {
     "path": "FD2.EXE",
     "size": 357074,

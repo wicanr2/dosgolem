@@ -1,8 +1,9 @@
 {
-  "schema": 1,
+  "schema": 2,
   "game": "fd2",
   "scenario": "audience-first-dialogue",
   "state": "near-state",
+  "original_runner": "dosbox-bootstrap",
   "cycles": "fixed 12000",
   "timeline": "wait:10;repeat:8,Escape,500;wait:2;key:Return;wait:42;shot:audience-original",
   "expected_capture": "audience-original.png",
