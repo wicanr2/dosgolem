@@ -992,6 +992,23 @@ func (c *CPU) Step() error {
 			c.sub32(value, uint32(int32(int8(imm))))
 			break
 		}
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 7 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
@@ -1057,6 +1074,27 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 			c.sub8(value, imm)
+		} else if modrm>>6 == 0 && modrm&7 == 5 && (group == 1 || group == 4) {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("logical byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			result := value & imm
+			if group == 1 {
+				result = value | imm
+			}
+			if !c.writeSegment8(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("logical byte write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setLogicFlags8(result)
 		} else if group == 7 && (modrm == 0x3e || modrm == 0x7e) {
 			addr := c.R[ESI]
 			if modrm == 0x7e {
@@ -1136,6 +1174,20 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm == 0x05 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if !c.writeSegment32(c.Seg[SegDS], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			break
+		}
 		if modrm != 0x04 {
 			return fail(fmt.Sprintf("MOV immediate dword ModRM %02X 尚未支援", modrm))
 		}
@@ -1183,6 +1235,16 @@ func (c *CPU) Step() error {
 			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("absolute dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 6 {
 			value, ok := c.readSegment32(c.Seg[SegDS], c.R[ESI])
 			if !ok {
@@ -1229,14 +1291,19 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {
 			c.R[modrm&7] = source
-		} else if modrm>>6 == 1 && modrm&7 == EBP && segmentOverride < 0 {
+		} else if modrm>>6 == 1 && modrm&7 != ESP && segmentOverride < 0 {
 			delta, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
 			}
-			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
-			if !c.writeSegment32(c.Seg[SegSS], addr, source) {
-				return fail(fmt.Sprintf("stack dword write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, source) {
+				return fail(fmt.Sprintf("base dword write %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
@@ -1245,6 +1312,11 @@ func (c *CPU) Step() error {
 			}
 			if e = c.write32(addr, source); e != nil {
 				return fail(e.Error())
+			}
+		} else if modrm>>6 == 0 && modrm&7 != ESP {
+			addr := c.R[modrm&7]
+			if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+				return fail(fmt.Sprintf("indirect dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
