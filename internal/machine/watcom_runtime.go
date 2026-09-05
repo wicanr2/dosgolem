@@ -21,6 +21,11 @@ type WatcomMemset struct {
 	entry   uint32
 }
 
+type WatcomInt386DPMI struct {
+	machine *LEMachine
+	entry   uint32
+}
+
 type WatcomInitArgv struct {
 	machine        *LEMachine
 	heap           *WatcomNearHeap
@@ -175,6 +180,49 @@ func (s *WatcomInitArgv) Handle(c *cpu386.CPU) (bool, error) {
 	return true, nil
 }
 
+func (s *WatcomInt386DPMI) Handle(c *cpu386.CPU) (bool, error) {
+	if c.EIP != s.entry {
+		return false, nil
+	}
+	stack, ok := c.Descriptors[c.Seg[cpu386.SegSS]]
+	if !ok || stack.Base != 0 || c.R[cpu386.ESP] > stack.Limit || stack.Limit-c.R[cpu386.ESP] < 15 {
+		return true, fmt.Errorf("machine: Watcom int386 cdecl 堆疊不可讀")
+	}
+	ret, err := s.machine.Read32(c.R[cpu386.ESP])
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom int386 回傳位址：%w", err)
+	}
+	intno, err := s.machine.Read32(c.R[cpu386.ESP] + 4)
+	if err != nil || intno != 0x31 {
+		return true, fmt.Errorf("machine: Watcom int386 只支援已驗證的 INT 31h")
+	}
+	in, errIn := s.machine.Read32(c.R[cpu386.ESP] + 8)
+	out, errOut := s.machine.Read32(c.R[cpu386.ESP] + 12)
+	if errIn != nil || errOut != nil || uint64(in)+28 > uint64(len(s.machine.Mem)) || uint64(out)+28 > uint64(len(s.machine.Mem)) {
+		return true, fmt.Errorf("machine: Watcom int386 REGS 範圍無效")
+	}
+	var regs [7]uint32
+	for i := range regs {
+		regs[i] = binary.LittleEndian.Uint32(s.machine.Mem[in+uint32(i*4):])
+	}
+	if uint16(regs[0]) != 0x0600 {
+		return true, fmt.Errorf("machine: Watcom int386 未支援 DPMI AX=%04X", uint16(regs[0]))
+	}
+	start := uint64(uint16(regs[1]))<<16 | uint64(uint16(regs[2]))
+	length := uint64(uint16(regs[4]))<<16 | uint64(uint16(regs[5]))
+	if length == 0 || start+length < start || start+length > uint64(len(s.machine.Mem)) {
+		return true, fmt.Errorf("machine: DPMI 0600h 線性區域 0x%X+0x%X 無效", start, length)
+	}
+	regs[6] = 0
+	for i, value := range regs {
+		binary.LittleEndian.PutUint32(s.machine.Mem[out+uint32(i*4):], value)
+	}
+	c.R[cpu386.EAX] = regs[0]
+	c.R[cpu386.ESP] += 4
+	c.EIP = ret
+	return true, nil
+}
+
 // InstallFD2WatcomRuntime 登錄固定雜湊 FD2.EXE 已證實的 Watcom runtime 入口。
 func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 	heap, err := NewWatcomNearHeap(m, 0x36d26, 1024*1024)
@@ -185,6 +233,7 @@ func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 	argv := &WatcomInitArgv{machine: m, heap: heap, entry: 0x46114, commandPointer: 0x52808,
 		programPointer: 0x5280c, internalArgc: 0x527f8, internalArgv: 0x527fc,
 		publicArgc: 0x5462c, publicArgv: 0x54628}
+	int386 := &WatcomInt386DPMI{machine: m, entry: 0x36d98}
 	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
 		if handled, err := heap.Handle(c); handled || err != nil {
 			return handled, err
@@ -192,7 +241,10 @@ func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 		if handled, err := memset.Handle(c); handled || err != nil {
 			return handled, err
 		}
-		return argv.Handle(c)
+		if handled, err := argv.Handle(c); handled || err != nil {
+			return handled, err
+		}
+		return int386.Handle(c)
 	}
 	return heap, nil
 }

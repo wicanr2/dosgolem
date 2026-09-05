@@ -153,3 +153,63 @@ func TestWatcomInitArgvRejectsArguments(t *testing.T) {
 		t.Fatal("non-empty command line was accepted")
 	}
 }
+
+func TestWatcomInt386DPMILockLinearRegion(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x20
+	for offset, value := range []uint32{0x3000, 0x31, 0x60, 0x80} {
+		binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+	}
+	for i, value := range []uint32{0x0600, 0, 0x40, 0, 0, 0x20, 1} {
+		binary.LittleEndian.PutUint32(m.Mem[0x60+i*4:], value)
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x24 || m.CPU.R[cpu386.EAX] != 0x0600 {
+		t.Fatalf("int386 EIP=%X ESP=%X EAX=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EAX])
+	}
+	if cflag := binary.LittleEndian.Uint32(m.Mem[0x80+24:]); cflag != 0 {
+		t.Fatalf("DPMI CFLAG=%X", cflag)
+	}
+}
+
+func TestWatcomInt386DPMIRejectsUnknownInterrupt(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x20
+	for offset, value := range []uint32{0x3000, 0x10, 0x60, 0x80} {
+		binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+	}
+	if err := m.CPU.Step(); err == nil || m.CPU.EIP != 0x2000 || m.CPU.R[cpu386.ESP] != 0x20 {
+		t.Fatalf("unknown int err=%v EIP=%X ESP=%X", err, m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+}
+
+func TestWatcomInt386DPMIRejectsUnknownFunctionAndRange(t *testing.T) {
+	for _, test := range []struct {
+		eax    uint32
+		start  uint32
+		length uint32
+	}{{0x0601, 0x40, 0x20}, {0x0600, 0xf0, 0x20}} {
+		m, _ := watcomHeapFixture(t, 16)
+		service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+		m.CPU.StepHook = service.Handle
+		m.CPU.EIP = 0x2000
+		m.CPU.R[cpu386.ESP] = 0x20
+		for offset, value := range []uint32{0x3000, 0x31, 0x60, 0x80} {
+			binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+		}
+		for i, value := range []uint32{test.eax, test.start >> 16, test.start & 0xffff, 0, test.length >> 16, test.length & 0xffff, 1} {
+			binary.LittleEndian.PutUint32(m.Mem[0x60+i*4:], value)
+		}
+		if err := m.CPU.Step(); err == nil || m.CPU.EIP != 0x2000 || m.CPU.R[cpu386.ESP] != 0x20 {
+			t.Fatalf("eax=%X start=%X length=%X err=%v EIP=%X ESP=%X", test.eax, test.start, test.length, err, m.CPU.EIP, m.CPU.R[cpu386.ESP])
+		}
+	}
+}

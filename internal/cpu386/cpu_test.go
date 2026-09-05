@@ -94,6 +94,18 @@ func TestStoreDwordAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestStoreRegisterToStackDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x4c, 0x24, 0xfc})
+	c := New(mem)
+	c.R[ESP], c.R[ECX] = 0x20, 0x12345678
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x1c:0x20], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("stack store=% X err=%v", mem[0x1c:0x20], err)
+	}
+}
+
 func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x8b, 0x15, 0x20, 0, 0, 0})
@@ -116,6 +128,14 @@ func TestLoadRegisterFromStackDisp8(t *testing.T) {
 	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
 	if err := c.Step(); err != nil || c.R[ECX] != 0x12345678 {
 		t.Fatalf("MOV ECX=%X err=%v", c.R[ECX], err)
+	}
+}
+
+func TestLEAStackDisp8(t *testing.T) {
+	c := New(testBus{0x8d, 0x44, 0x24, 0xfc})
+	c.R[ESP] = 0x20
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1c {
+		t.Fatalf("LEA EAX=%X err=%v", c.R[EAX], err)
 	}
 }
 
@@ -244,6 +264,22 @@ func TestNegRegister32(t *testing.T) {
 	}
 }
 
+func TestAndEAXImmediate32(t *testing.T) {
+	c := New(testBus{0x25, 0xff, 0xff, 0x00, 0x00})
+	c.R[EAX], c.EFlags = 0x12345678, CF|OF|AF
+	if err := c.Step(); err != nil || c.R[EAX] != 0x5678 || c.EFlags&(CF|OF|AF|ZF|SF) != 0 {
+		t.Fatalf("AND EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestAndRegisterImmediate32(t *testing.T) {
+	c := New(testBus{0x81, 0xe2, 0xff, 0xff, 0x00, 0x00})
+	c.R[EDX], c.EFlags = 0x12345678, CF|OF|AF
+	if err := c.Step(); err != nil || c.R[EDX] != 0x5678 || c.EFlags&(CF|OF|AF|ZF|SF) != 0 {
+		t.Fatalf("AND EDX=%X flags=%X err=%v", c.R[EDX], c.EFlags, err)
+	}
+}
+
 func TestPushAbsoluteDword(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xff, 0x35, 0x20, 0, 0, 0})
@@ -310,9 +346,32 @@ func TestMoveImmediateDwordToSIBAddress(t *testing.T) {
 		t.Fatalf("SIB store=% X", mem[0x20:0x24])
 	}
 
-	c = New(testBus{0xc7, 0x04, 0x24})
+	c = New(testBus{0xc7, 0x04, 0x25})
 	if err := c.Step(); err == nil {
-		t.Fatal("reserved ESP index was accepted")
+		t.Fatal("unsupported displacement-only SIB was accepted")
+	}
+}
+
+func TestMoveImmediateDwordToStackSIB(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0xc7, 0x04, 0x24, 0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegDS], c.Seg[SegSS] = 0x30, 0x38
+	c.SetDescriptor(0x30, Descriptor{Base: 0x40, Limit: 0x3f, Writable: true})
+	c.SetDescriptor(0x38, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("stack SIB=% X err=%v", mem[0x20:0x24], err)
+	}
+
+	mem = testBus(make([]byte, 0x20))
+	copy(mem, []byte{0xc7, 0x04, 0x24, 1, 0, 0, 0})
+	c = New(mem)
+	c.R[ESP] = 0x1e
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	if err := c.Step(); err == nil || mem[0x1e] != 0 || mem[0x1f] != 0 {
+		t.Fatalf("out-of-range stack SIB=% X err=%v", mem[0x1e:], err)
 	}
 }
 
@@ -1052,6 +1111,31 @@ func TestGroup83CompareAbsoluteDSDword(t *testing.T) {
 	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
 	if err := c.Step(); err != nil || c.EFlags&ZF == 0 {
 		t.Fatalf("CMP [disp32],0 flags=%X err=%v", c.EFlags, err)
+	}
+}
+
+func TestGroup83CompareStackDisp8Dword(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x83, 0x7c, 0x24, 0x04, 0x00})
+	c := New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 {
+		t.Fatalf("CMP stack flags=%X err=%v", c.EFlags, err)
+	}
+}
+
+func TestSETZRegisterByte(t *testing.T) {
+	for _, test := range []struct {
+		flags uint32
+		want  uint8
+	}{{ZF, 1}, {0, 0}} {
+		c := New(testBus{0x0f, 0x94, 0xc4})
+		c.R[EAX], c.EFlags = 0x12345678, test.flags
+		if err := c.Step(); err != nil || c.reg8(4) != test.want || c.R[EAX]&0xffff00ff != 0x12340078 || c.EFlags != test.flags {
+			t.Fatalf("SETZ EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+		}
 	}
 }
 
