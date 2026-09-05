@@ -798,6 +798,44 @@ func ToLevel1CampReturn(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1CampGameOptions 從正常LEVEL1 CAMP根選單，以鍵盤選取Game Options。
+// 原版畫面文字列與滑鼠命中區在此狀態並不一致，故不猜測滑鼠列座標。
+func ToLevel1CampGameOptions(o *oracle.Oracle) error {
+	if err := ToLevel1Camp(o); err != nil {
+		return err
+	}
+	for i := 0; i < 5; i++ {
+		o.PressKey(oracle.KeyDown)
+		if err := o.Run(300_000); err != nil {
+			return fmt.Errorf("EOB1 CAMP選取Game Options：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP Game Options", 0, 0, oracle.Width, oracle.Height,
+		"2207602e9d4e144c6fadea7d30cd4a189b9c09cb5fd0269d2ed8ed6f0a86d912"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP Game Options：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampGameOptionsExit 由Game Options按Escape回CAMP，再按Escape回探索。
+func ToLevel1CampGameOptionsExit(o *oracle.Oracle) error {
+	if err := ToLevel1CampGameOptions(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("LEVEL1 Game Options返回CAMP", 0, 0, oracle.Width, oracle.Height,
+		"79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Game Options返回CAMP：%w", err)
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("LEVEL1 Game Options返回探索", 0, 0, 176, 120,
+		"2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Game Options返回LEVEL1：%w", err)
+	}
+	return nil
+}
+
 // ToLevel1MemorizeSpells 從CAMP第二列確認，進入ALFA的一級法術記憶頁。
 func ToLevel1MemorizeSpells(o *oracle.Oracle) error {
 	if err := ToLevel1CampMemorizeSelected(o); err != nil {

@@ -55,3 +55,15 @@ SHA-256皆為`f49fee3af72c50fad10fb0708436e6733b2cfbe068dcfc423f1a4efc0065806e`�
   完成原版中止。正常交易累計port `60h`讀取32次。
 - 真實資料測試`TestToSavedGameProtectionBookClosedRealData`固定上述安全矩形與輸入次數；原始
   存檔唯讀，動態肖像不納入永久全畫面雜湊。
+
+## 7. LEVEL1 CAMP Game Options生命週期
+
+- `ToLevel1CampGameOptions`由冷啟動正常建立ALFA／BETA／GAMMA／DELTA四人、按PLAY進LEVEL1，
+  再點原版CAMP按鈕；不使用存檔、direct-entry或預製隊伍。
+- CAMP根選單以五次Down及Enter選取第六列Game Options。全畫面色號SHA-256為
+  `2207602e…d912`，port `60h`累計96次；原版畫面可見Load Game、Save Game、Drop Character、
+  Quit Game與Exit。
+- `ToLevel1CampGameOptionsExit`先按Escape回CAMP根選單，再按Escape回LEVEL1探索；最終地城
+  `176×120`為`2ef2c024…abbc`，port `60h`累計100次。
+- 可丟棄相鄰實驗在文字列附近點`(80,111)`與`(80,102)`都直接關閉CAMP，沒有開啟Game Options；
+  因此adapter不猜測原版滑鼠命中矩形，只把已證實的滑鼠開CAMP＋鍵盤子選單路徑列為契約。

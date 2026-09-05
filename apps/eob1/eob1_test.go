@@ -493,6 +493,36 @@ func TestToLevel1CampRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1CampGameOptionsRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+		port uint64
+	}{
+		{"options", eob1.ToLevel1CampGameOptions, "2207602e9d4e144c6fadea7d30cd4a189b9c09cb5fd0269d2ed8ed6f0a86d912", 96},
+		{"exit", eob1.ToLevel1CampGameOptionsExit, "6766d6f9ae4084a3f02789c5d05261ac9e22e112ca51fd710c1a68c7e6407a96", 100},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadRealData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			if test.name == "options" && digest(o.Indexed()) != test.want {
+				t.Fatalf("Game Options全畫面SHA-256=%s", digest(o.Indexed()))
+			}
+			if test.name == "exit" && digestRegion(o.Indexed(), 0, 0, 176, 120) != "2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc" {
+				t.Fatalf("Game Options返回地城視窗SHA-256=%s", digestRegion(o.Indexed(), 0, 0, 176, 120))
+			}
+			if got := o.PortReads()[0x60]; got != test.port {
+				t.Fatalf("Game Options %s port 60h讀取%d次，預期%d次", test.name, got, test.port)
+			}
+		})
+	}
+}
+
 func TestToLevel1CampMemorizeSelectedRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()
