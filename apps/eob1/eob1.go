@@ -462,6 +462,48 @@ func ToLevel1FirstDrop(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1Camp 從LEVEL1入口點擊原版CAMP按鈕，等待營地根選單穩定。
+func ToLevel1Camp(o *oracle.Oracle) error {
+	if err := ToLevel1Entrance(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs：CAMP是(289,177) 31×21；使用中心安全點。
+	if err := o.Click(304, 187, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1點擊LEVEL1 CAMP：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP根選單", 0, 0, oracle.Width, oracle.Height,
+		"a9f5ef56e878a83df3767854dba801c32f28d475232fb8dd5bd40b0565b402f7"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP根選單：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampMemorizeSelected 從CAMP根選單向下選到Memorize Spells。
+func ToLevel1CampMemorizeSelected(o *oracle.Oracle) error {
+	if err := ToLevel1Camp(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyDown)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP選中Memorize Spells", 0, 0, oracle.Width, oracle.Height,
+		"67c50f4e57e89ad2ed046c4b10a9717ee8a3349f16cdfbc9b2342937c29db5a0"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP選中Memorize Spells：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampReturn 從第二列按Escape返回原本LEVEL1入口場景。
+func ToLevel1CampReturn(o *oracle.Oracle) error {
+	if err := ToLevel1CampMemorizeSelected(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP返回地城", 0, 0, 176, 120,
+		"2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP返回LEVEL1：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

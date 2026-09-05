@@ -329,6 +329,48 @@ func TestToLevel1FirstDropRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1CampRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1Camp(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "a9f5ef56e878a83df3767854dba801c32f28d475232fb8dd5bd40b0565b402f7" {
+		t.Fatalf("LEVEL1 CAMP根選單SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 84 {
+		t.Fatalf("LEVEL1 CAMP前port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+	}
+}
+
+func TestToLevel1CampMemorizeSelectedRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1CampMemorizeSelected(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "67c50f4e57e89ad2ed046c4b10a9717ee8a3349f16cdfbc9b2342937c29db5a0" {
+		t.Fatalf("LEVEL1 CAMP第二列SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 86 {
+		t.Fatalf("LEVEL1 CAMP第二列port 60h讀取%d次，預期四十三鍵make／break共86次", got)
+	}
+}
+
+func TestToLevel1CampReturnRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1CampReturn(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc" {
+		t.Fatalf("LEVEL1 CAMP返回視窗SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 88 {
+		t.Fatalf("LEVEL1 CAMP返回port 60h讀取%d次，預期四十四鍵make／break共88次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
