@@ -558,3 +558,16 @@ func TestFD2CompletesWatcomStackProbeWhenProvided(t *testing.T) {
 		t.Fatalf("stack probe steps=%d EIP=%X calls=%d EAX=%X ESP=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
 	}
 }
+
+func TestFD2CompletesFirstDPMILockWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 1500 && m.CPU.EIP != 0x37859; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("first DPMI lock: step=%d EIP=%X EAX=%X EBX=%X ECX=%X EDX=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	if m.CPU.EIP != 0x37859 || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != 1 {
+		t.Fatalf("first DPMI lock steps=%d EIP=%X calls=%d EAX=%X ESP=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+}
