@@ -19,6 +19,10 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		if uint8(c.R[cpu386.EAX]>>8) != 0x30 || c.R[cpu386.EBX] != 0x50484152 {
 			return false
 		}
+		c.Seg[cpu386.SegDS] = 0x0160
+		c.Seg[cpu386.SegES] = 0x0028
+		c.Seg[cpu386.SegGS] = 0x0020
+		c.Seg[cpu386.SegSS] = 0x0160
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606
 	case 1:
 		if uint16(c.R[cpu386.EAX]) != 0xff00 || uint16(c.R[cpu386.EDX]) != 0x0078 {

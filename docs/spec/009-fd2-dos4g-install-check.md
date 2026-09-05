@@ -1,7 +1,8 @@
 # 009 — FD2 DOS/4G 安裝檢查與成功分支
 
 狀態：**CONFORMED**（固定 FD2 oracle 回傳、`CMP AL,imm8`、`JZ rel8`）／
-**DRAFT**（segment memory、descriptor base 與 `0x3CA7A` 後續）  
+**DRAFT**（segment memory 與 descriptor base）；`0x3CA7A→0x3CA92` 已移至
+[`010`](010-fd2-segment-bootstrap.md)
 日期：2026-09-05  
 前置：[`008`](008-flat-386-entry.md)、
 [`DOS/4G 執行證據`](../re/002-fd2-dos4g-install-check.md)

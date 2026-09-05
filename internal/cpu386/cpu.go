@@ -315,6 +315,33 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
+	case op == 0x8c:
+		if operand16 {
+			return fail("8C 不接受 operand-size override")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		encoding := int((modrm >> 3) & 7)
+		segmentByEncoding := [...]int{SegES, SegCS, SegSS, SegDS, SegFS, SegGS}
+		if encoding >= len(segmentByEncoding) {
+			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
+		}
+		value := c.Seg[segmentByEncoding[encoding]]
+		if modrm>>6 == 3 {
+			c.R[modrm&7] = uint32(value)
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if e = c.write16(addr, value); e != nil {
+				return fail(e.Error())
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
 	case op == 0x88:
 		if operand16 {
 			return fail("88 不接受 operand-size override")

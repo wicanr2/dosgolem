@@ -82,3 +82,29 @@ func TestCompareALAndJumpZero(t *testing.T) {
 		t.Fatalf("untaken JZ EIP=%d want 4", c.EIP)
 	}
 }
+
+func TestMoveSegmentToRegisterAndAbsoluteMemory(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{
+		0x8c, 0xe8, // mov eax,gs
+		0x8c, 0xdb, // mov ebx,ds
+		0x8c, 0x05, 0x80, 0x00, 0x00, 0x00, // mov [80h],es
+	})
+	c := New(mem)
+	c.Seg[SegGS] = 0x20
+	c.Seg[SegDS] = 0x160
+	c.Seg[SegES] = 0x28
+	for range 3 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.R[EAX] != 0x20 || c.R[EBX] != 0x160 || mem[0x80] != 0x28 || mem[0x81] != 0 {
+		t.Fatalf("segment move mismatch: EAX=%X EBX=%X mem=%02X%02X", c.R[EAX], c.R[EBX], mem[0x81], mem[0x80])
+	}
+
+	c = New(testBus{0x8c, 0xf0})
+	if err := c.Step(); err == nil {
+		t.Fatal("invalid segment encoding was accepted")
+	}
+}

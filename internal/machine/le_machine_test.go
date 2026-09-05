@@ -45,16 +45,27 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3ca7a && steps < 44; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3ca92 && steps < 56; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3ca7a {
-		t.Fatalf("entry did not enter DOS/4GW success branch: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3ca92 {
+		t.Fatalf("entry did not complete selector bootstrap: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != 0x4734ffff || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
-		t.Fatalf("DOS/4GW return mismatch: EAX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
+	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
+		t.Fatalf("selector bootstrap mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
+	}
+	selectorGS, err := m.Read16(0x527f0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectorES, err := m.Read16(0x52810)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selectorGS != 0x20 || selectorES != 0x28 {
+		t.Fatalf("selector globals GS=%X ES=%X", selectorGS, selectorES)
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {
@@ -65,13 +76,6 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 		if got != stack {
 			t.Fatalf("[%X]=%X want %X", addr, got, stack)
 		}
-	}
-	word, err := m.Read16(0x52810)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if word != 0x24 || m.CPU.R[cpu386.EBX] != 0x50484152 {
-		t.Fatalf("entry globals/register mismatch: word=%X EBX=%X", word, m.CPU.R[cpu386.EBX])
 	}
 	if m.Mem[0x5283a] != 6 || m.Mem[0x5283b] != 22 {
 		t.Fatalf("DOS version globals=%d.%d", m.Mem[0x5283a], m.Mem[0x5283b])
