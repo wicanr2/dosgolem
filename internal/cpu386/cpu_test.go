@@ -233,6 +233,18 @@ func TestMoveDwordFromDSDisp8AndORRegister(t *testing.T) {
 	}
 }
 
+func TestMoveImmediateByteToDSRegisterMemory(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0xc6, 0x03, 0x02})
+	c := New(mem)
+	c.R[EBX] = 4
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x24] != 2 || c.R[EBX] != 4 {
+		t.Fatalf("byte=%X EBX=%X err=%v", mem[0x24], c.R[EBX], err)
+	}
+}
+
 func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x26, 0x8c, 0x1d, 0x40, 0x00, 0x00, 0x00}) // mov es:[40h],ds
