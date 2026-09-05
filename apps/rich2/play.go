@@ -82,6 +82,18 @@ type MoveTrace struct {
 	Path     []int // 玩家座標變化出來的格號（實測整趟只變一次，見 RollPath）
 	Squares  []int // ds:1BE 的變化序列，**含擲骰動畫的雜訊**（見下）
 	Trail    []int // Squares 與 Path 合併在同一條時間軸上（見下）
+
+	// 三個切點的指令數，用來把一步之內的亂數抽取切段（見 RollTrace）。
+	//
+	// ⚠ **`StepMoved` 是「玩家座標改變」的時刻，那其實是走完。**
+	// 座標整趟只更新一次（見 `Path` 的說明），所以
+	// `[StepClick, StepMoved)` 涵蓋的是**擲骰動畫 ＋ 整段走路**，
+	// 而 `[StepMoved, StepStopped)` 幾乎是空的。
+	// 好消息是前者剛好就是「這個玩家自己的一回合」，
+	// 後面才輪到 AI——要單人的亂數消耗數字，看的就是這一段。
+	StepClick   uint64 // 按下「前進」之前
+	StepMoved   uint64 // 玩家座標改變 ＝ 走完
+	StepStopped uint64 // 座標穩定或回合推進
 }
 
 // RollTrace 點「前進」擲骰、等棋子走完，回傳整趟的軌跡。
@@ -108,6 +120,7 @@ func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
 	player := Turn(o)
 	tr.From = Position(o, player)
 	tr.To = tr.From
+	tr.StepClick = o.Steps()
 
 	// `ds:1BE` 的取樣器。窗從「按下前進」就開始——擲骰動畫期間它已經在動，
 	// 那段雜訊留給呼叫端判讀（見本函式的說明）。
@@ -153,6 +166,7 @@ func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
 	}
 	// **就是這裡。** 棋子剛開始走，點數已經定了，而回合還沒推進。
 	tr.Dice = Steps(o)
+	tr.StepMoved = o.Steps()
 
 	// ⚠ **`ds:1BE` 是「目前玩家」的格號，不是自己的。**
 	//
@@ -190,6 +204,7 @@ func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
 		return tr, fmt.Errorf("等棋子停：%w", err)
 	}
 	tr.To = Position(o, player)
+	tr.StepStopped = o.Steps()
 	return tr, nil
 }
 
@@ -245,6 +260,12 @@ type TurnResult struct {
 	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
 	Path     []int // 玩家座標變化出來的格號（實測整趟只變一次，見 RollPath）
 	Squares  []int // ds:1BE 的變化序列，**含擲骰動畫與 AI 的雜訊**（見 RollTrace）
+
+	// 三個切點的指令數（見 MoveTrace）。用 `basic.Call.Step` 對照，
+	// 就能把一步之內的抽取切成「擲骰動畫／走路／落地結算」三段。
+	StepClick   uint64
+	StepMoved   uint64
+	StepStopped uint64
 	Trail    []int // Squares 與 Path 合併在同一條時間軸上（見 RollTrace）
 	OwnerTo  int   // 終點格走之前的地主（0 ＝ 無主）
 	StreetTo int   // 終點格的街道編號（0 ＝ 不是土地）
@@ -331,6 +352,8 @@ func PlayTurn(o *oracle.Oracle, player int, buy bool, tr *RNDTrace) (TurnResult,
 	}
 	r.From, r.To, r.Dice = mt.From, mt.To, mt.Dice
 	r.Path, r.Squares, r.Trail = mt.Path, mt.Squares, mt.Trail
+	r.StepClick, r.StepMoved, r.StepStopped =
+		mt.StepClick, mt.StepMoved, mt.StepStopped
 	r.PosFrom = mt.From
 	// ⚠ **方向序列要在這裡收窄。**
 	//

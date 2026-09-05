@@ -99,3 +99,26 @@ func CountFrom(o *oracle.Oracle, calls []basic.Call, ida uint32) int {
 	}
 	return n
 }
+
+// InWindow 篩出時間窗 [lo, hi) 之內的抽取。
+//
+// 配 `TurnResult` 的三個切點用：
+//
+//	[StepClick, StepMoved)    **這個玩家自己的一回合**（擲骰動畫 ＋ 走路）
+//	[StepMoved, StepStopped)  幾乎是空的，見 MoveTrace 的說明
+//	[StepStopped, 下一步)      落地結算 ＋ **之後 AI 的回合**
+//
+// ⚠ **第三段含別人的回合。** `PlayTurn` 等到回合推進才回來，所以那一段裡
+// 混著 AI 的擲骰與移動。**要單人的數字只能看第一段。**
+//
+// 實測（`rich2/docs/re/185` §2a）：第一段裡擲骰固定 26 次、
+// 與骰子點數無關，方向的次數則與 `TurnResult.Dirs` 的長度一致。
+func InWindow(calls []basic.Call, lo, hi uint64) []basic.Call {
+	var out []basic.Call
+	for _, c := range calls {
+		if c.Step >= lo && c.Step < hi {
+			out = append(out, c)
+		}
+	}
+	return out
+}
