@@ -11,13 +11,13 @@
   ESP 與堆疊內容不得修改。
 - SIB、disp32、16 位 operand、segment override 與其他 `FF` 形狀維持
   失敗即關閉（fail-closed）。
-- 固定 FD2 在 `0x3F151` 以 `FF 75 08` 將 `getenv` 第一個參數壓棧，
+- 固定 FD2 在 `0x3F151` 以 `FF 75 14` 將 `getenv` 第一個參數壓棧，
   交給 `0x3F154` 的 `strlen`。
 
 驗收：單元測試覆蓋 EBP/SS 成功路徑及來源越界不改 ESP；固定雜湊 FD2
-必須由 LE entry 自然執行到 `0x3F154`，並確認新堆疊頂值等於 `[EBP+8]`。
+必須由 LE entry 自然執行到 `0x3F154`，並確認新堆疊頂值等於 `[EBP+14h]`。
 
 驗收收據（2026-09-06）：`TestPushBaseDisp8Dword` 與
 `TestFD2PassesGetenvArgumentWhenProvided` 通過；後者由 LE entry 自然進入
-Watcom `getenv` 並停在 `0x3F154`，確認壓入值等於 `[EBP+8]`。同一容器內
+Watcom `getenv` 並停在 `0x3F154`，確認壓入值等於 `[EBP+14h]`。同一容器內
 `go test ./... -count=1` 全數通過。
