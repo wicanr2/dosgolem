@@ -186,3 +186,12 @@ func (o *Oracle) Press(opts ...ClickOpt) error {
 	}
 	return nil
 }
+
+// MouseRange 回遊戲用 `int 33h AX=7`／`AX=8` 設的座標範圍。
+//
+// **範圍會變**：有些畫面（例如地圖捲動）會把它放大，好讓游標推得出畫面邊界。
+// 範圍與畫面一樣大時**捲不動**——那不是 bug，是那個模式本來就不捲。
+func (o *Oracle) MouseRange() (minX, maxX, minY, maxY int) {
+	m := &o.d.Mouse
+	return int(m.MinX), int(m.MaxX), int(m.MinY), int(m.MaxY)
+}

@@ -169,7 +169,10 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 	case "origin":
 		ox, oy := wolong.ScrollOrigin(o)
 		cx, cy := wolong.ScreenCursor(o)
-		fmt.Printf("   捲動原點 (%d,%d)，遊戲算出來的畫面游標 (%d,%d)\n", ox, oy, cx, cy)
+		x0, x1, y0, y1 := o.MouseRange()
+		mx, my := o.Mouse()
+		fmt.Printf("   捲動原點 (%d,%d)，畫面游標 (%d,%d)，滑鼠 (%d,%d)，"+
+			"驅動範圍 %d–%d × %d–%d\n", ox, oy, cx, cy, mx, my, x0, x1, y0, y1)
 		return nil
 	case "sclick", "stap":
 		x, y, err := point(arg, dosboxY)
