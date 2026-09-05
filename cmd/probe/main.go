@@ -90,7 +90,7 @@ func main() {
 			break
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
-			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
+			d.MoveMouse(*mouseX, *mouseY)
 		}
 		// 點擊：按下 → 按住 clickHold 道指令 → 放開。
 		// **按住時間不能短**。遊戲輪詢 int 33h 的頻率很低，
@@ -99,10 +99,10 @@ func main() {
 		if *clickX >= 0 {
 			switch m.Steps {
 			case *clickAt:
-				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
-				d.Mouse.PressButton(*clickBtn)
+				d.MoveMouse(*clickX, *clickY)
+				d.PressMouse(*clickBtn)
 			case *clickAt + *clickHold:
-				d.Mouse.ReleaseButton(*clickBtn)
+				d.ReleaseMouse(*clickBtn)
 			}
 		}
 		ring.push(m.CPU)
@@ -269,9 +269,11 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 		fmt.Println()
 	}
-	if d.MouseHandler.Set {
-		fmt.Printf("遊戲裝了 int 33h 事件常式 %04X:%04X（遮罩 %04X），我們不呼叫它\n",
-			d.MouseHandler.Seg, d.MouseHandler.Off, d.MouseHandler.Mask)
+	if h := d.Mouse.Handler; h.Set {
+		fmt.Printf("int 33h 事件常式 %04X:%04X（遮罩 %04X），送出 %d 次；"+
+			"座標範圍 %d–%d × %d–%d\n",
+			h.Seg, h.Off, h.Mask, d.Mouse.Events,
+			d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY)
 	}
 
 	// 視訊記憶體：非零的點數。全 0 表示還沒畫任何東西。

@@ -35,6 +35,18 @@ type Snapshot struct {
 	// 「遊戲沒重畫」，不像「快照少存東西」。
 	planar bool
 	vga    VGA
+
+	// ⚠ **回呼與週期時鐘也是狀態。** 漏了的話從快照展開的機器
+	// 「時鐘不會走」或「卡在一個永遠回不來的回呼裡」，
+	// 而記憶體與 CPU 全對——與 nextIRQ0 那個坑同一個形狀。
+	periodicOn                   bool
+	periodicSeg, periodicOff     uint16
+	periodicEvery, periodicNext  uint64
+	periodicCalls                uint64
+	cbQueue                      []QueuedCall
+	cbSaved                      callbackFrame
+	cbActive                     bool
+	cbMade                       uint64
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -59,6 +71,17 @@ func (m *Machine) Snapshot() *Snapshot {
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
 		planar:    m.planar,
+
+		periodicOn:    m.periodic.on,
+		periodicSeg:   m.periodic.seg,
+		periodicOff:   m.periodic.off,
+		periodicEvery: m.periodic.every,
+		periodicNext:  m.periodic.next,
+		periodicCalls: m.periodic.Calls,
+		cbQueue:       append([]QueuedCall(nil), m.cbQueue...),
+		cbSaved:       m.cbSaved,
+		cbActive:      m.cbActive,
+		cbMade:        m.cbMade,
 	}
 	s.vga = m.VGA.clone()
 	copy(s.mem, m.Mem)
@@ -94,6 +117,12 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
 	m.planar = s.planar
 	m.VGA.restore(&s.vga)
+
+	m.periodic.on, m.periodic.seg, m.periodic.off = s.periodicOn, s.periodicSeg, s.periodicOff
+	m.periodic.every, m.periodic.next = s.periodicEvery, s.periodicNext
+	m.periodic.Calls = s.periodicCalls
+	m.cbQueue = append(m.cbQueue[:0], s.cbQueue...)
+	m.cbSaved, m.cbActive, m.cbMade = s.cbSaved, s.cbActive, s.cbMade
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

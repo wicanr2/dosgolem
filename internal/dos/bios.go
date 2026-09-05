@@ -112,10 +112,13 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.DX] = m.Y
 
 	case 0x0004: // 設位置
+		x := c.R[cpu.CX]
 		if m.XScale > 0 {
-			m.X = c.R[cpu.CX] / m.XScale
+			x /= m.XScale
 		}
-		m.Y = c.R[cpu.DX]
+		// **程式自己設的位置也要夾**，不然遊戲把游標設到範圍外之後
+		// 我們與真機就分家了。不發事件——真機的 `AX=4` 不觸發回呼。
+		m.X, m.Y = m.clamp(x, c.R[cpu.DX])
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
 	case 0x0005, 0x0006: // 按下／放開的統計
@@ -138,14 +141,17 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.CX] = at[0] * m.XScale
 		c.R[cpu.DX] = at[1]
 
-	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+	case 0x0007: // 設水平範圍（虛擬座標）
+		m.MinX, m.MaxX = c.R[cpu.CX], c.R[cpu.DX]
+	case 0x0008: // 設垂直範圍
+		m.MinY, m.MaxY = c.R[cpu.CX], c.R[cpu.DX]
 
 	case 0x000C: // 設事件處理常式：ES:DX ＝ 常式、CX ＝ 事件遮罩
-		// **記下來但不呼叫**（`docs/spec/008` §5）。遊戲的主迴圈同時
-		// 也在輪詢 AX=3，輪詢那條路徑已經夠用；真的要呼叫得連中斷時序
-		// 一起模擬，那是另一個問題。
-		d.MouseHandler.Seg, d.MouseHandler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
-		d.MouseHandler.Mask, d.MouseHandler.Set = c.R[cpu.CX], true
+		// **這一支要真的呼叫**（`docs/spec/009`）。《臥龍傳》靠它維持
+		// 畫面上那隻手：一次四千萬道指令的跑分裡 `AX=3` 只有 5 次，
+		// 而 `AX=5` 有 240 萬次——游標幾乎全靠事件常式重畫。
+		m.Handler.Seg, m.Handler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
+		m.Handler.Mask, m.Handler.Set = c.R[cpu.CX], true
 
 	case 0x000F: // 設 mickey/pixel 比例：收下就好
 
@@ -213,4 +219,86 @@ func (m *Mouse) ReleaseButton(btn int) {
 	m.Buttons &^= 1 << btn
 	m.Release[btn]++
 	m.ReleaseAt[btn] = [2]uint16{m.X, m.Y}
+}
+
+
+// 事件遮罩的位元（MS Mouse `AX=000Ch`）。
+const (
+	EventMove          = 1 << 0
+	EventLeftDown      = 1 << 1
+	EventLeftUp        = 1 << 2
+	EventRightDown     = 1 << 3
+	EventRightUp       = 1 << 4
+	eventButtonDownBit = 1 // 左鍵按下的位元序號；右鍵 +2、中鍵 +4
+)
+
+// clamp 把像素座標夾進遊戲設的範圍。範圍沒設過就不夾。
+//
+// 範圍是**虛擬座標**，我們的 X 是像素，所以水平要先除以倍率。
+func (m *Mouse) clamp(x, y uint16) (uint16, uint16) {
+	if m.MaxX > 0 {
+		lo, hi := m.MinX, m.MaxX
+		if m.XScale > 1 {
+			lo, hi = lo/m.XScale, hi/m.XScale
+		}
+		if x < lo {
+			x = lo
+		}
+		if x > hi {
+			x = hi
+		}
+	}
+	if m.MaxY > 0 {
+		if y < m.MinY {
+			y = m.MinY
+		}
+		if y > m.MaxY {
+			y = m.MaxY
+		}
+	}
+	return x, y
+}
+
+// MoveMouse 移動游標：夾進範圍，位置真的變了才發事件。
+//
+// ⚠ **位置沒變就不要發。** 遊戲的事件常式自己也會比一次位置，
+// 但多發的那些會把「這一輪有沒有動過」的判斷弄髒。
+func (d *DOS) MoveMouse(x, y int) {
+	m := &d.Mouse
+	nx, ny := m.clamp(uint16(x), uint16(y))
+	if nx == m.X && ny == m.Y {
+		return
+	}
+	m.X, m.Y = nx, ny
+	d.fireMouseEvent(EventMove)
+}
+
+// PressMouse／ReleaseMouse 按下／放開某個鍵（0 左／1 右／2 中）。
+func (d *DOS) PressMouse(btn int) {
+	d.Mouse.PressButton(btn)
+	d.fireMouseEvent(uint16(1) << (eventButtonDownBit + 2*btn))
+}
+
+func (d *DOS) ReleaseMouse(btn int) {
+	d.Mouse.ReleaseButton(btn)
+	d.fireMouseEvent(uint16(1) << (eventButtonDownBit + 1 + 2*btn))
+}
+
+// fireMouseEvent 依遮罩把事件排進機器的回呼佇列。
+//
+// ⚠ **是排隊不是立刻跳。** 遠呼叫只能在指令邊界插，
+// 而這一支是從外面（測試腳本、oracle）呼叫的，不在指令邊界上。
+func (d *DOS) fireMouseEvent(mask uint16) {
+	m := &d.Mouse
+	if !m.Handler.Set || m.Handler.Mask&mask == 0 {
+		return
+	}
+	m.Events++
+	d.M.QueueCallback(machine.QueuedCall{
+		Seg: m.Handler.Seg, Off: m.Handler.Off,
+		AX: mask, BX: m.Buttons,
+		CX: m.X * m.XScale, DX: m.Y,
+		// SI／DI 是 mickey 增量。我們是絕對定位，沒有 mickey——
+		// **回 0 是誠實的**，遊戲那一支也沒讀。
+	})
 }

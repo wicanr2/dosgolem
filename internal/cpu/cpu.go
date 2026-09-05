@@ -231,8 +231,17 @@ func (c *CPU) Interrupt(n uint8) {
 //
 // 只能在指令邊界叫（`Machine.tick` 就是那個位置）。
 func (c *CPU) FarCall(seg, off uint16) {
-	c.push(c.Seg[CS])
-	c.push(c.IP)
+	c.FarCallWithReturn(seg, off, c.Seg[CS], c.IP)
+}
+
+// FarCallWithReturn 是 FarCall 的變體：返回位址由呼叫端指定。
+//
+// 用途是**返回哨兵**——把返回位址指到一段我們認得的 stub，
+// 常式 `retf` 回到那裡時就知道「回呼跑完了」，可以把暫存器還原
+// （`docs/spec/009` §3.1）。
+func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
+	c.push(retSeg)
+	c.push(retOff)
 	c.Seg[CS], c.IP = seg, off
 	c.Halted = false
 }

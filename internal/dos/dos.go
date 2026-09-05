@@ -59,6 +59,23 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// 座標範圍（`AX=7`／`AX=8` 設的，**虛擬座標**）。
+	// MaxX／MaxY 為 0 表示遊戲還沒設過，那就不夾。
+	//
+	// ⚠ **夾制是遊戲行為的一部分**：《臥龍傳》開機把範圍設成
+	// 0–27Fh × 0–18Fh，真機上送畫面外的座標會被夾回邊界。
+	// 不夾的話「點在畫面外」這種邊界測試會得到相反的結論。
+	MinX, MaxX, MinY, MaxY uint16
+
+	// Handler 是 `AX=000Ch` 登記的事件處理常式（`docs/spec/009`）。
+	Handler struct {
+		Seg, Off, Mask uint16
+		Set            bool
+	}
+
+	// Events 是已經送出去幾次事件。**0 次與「遊戲不看事件」長得一樣。**
+	Events int
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -83,13 +100,6 @@ type DOS struct {
 	// **這一輪不模擬音源**（`docs/spec/008` §6），只留下「走到了沒」。
 	Sound map[uint8]int
 
-	// MouseHandler 是遊戲用 `int 33h AX=000Ch` 裝的事件常式。
-	// **記下來但不呼叫**；記的理由是診斷——出現「點了沒反應」時，
-	// 第一件要問的事就是「遊戲是不是只等事件不輪詢」。
-	MouseHandler struct {
-		Seg, Off, Mask uint16
-		Set            bool
-	}
 
 	// Console 收 `AH=02h`／`06h`／`09h` 與 `int 10h AH=0Eh` 印出來的字。
 	// **錯誤訊息走這條**，收不到就等於什麼都不知道。
@@ -210,6 +220,13 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int1A(c)
 	case 0x61:
 		d.int61(c)
+	case machine.IntCallbackReturn:
+		// 回呼跑完了，把整份 CPU 狀態還原（`docs/spec/009` §3.1）。
+		if !d.M.FinishCallback() {
+			// **不要吞掉。** 沒有回呼在跑卻收到哨兵，表示有人踩到
+			// `StubSeg:CallbackRetOff`，那是個 bug 不是雜訊。
+			d.note(machine.IntCallbackReturn, 0, 0)
+		}
 	case intFontFull:
 		d.fontGlyph(c, true)
 	case intFontHalf:

@@ -255,3 +255,27 @@ func TestWriteMode3AppliesALU(t *testing.T) {
 		t.Errorf("平面 0 ＝ %02X，預期 0F（FF XOR F0）——模式 3 沒套功能選擇？", got)
 	}
 }
+
+// TestSnapshotKeepsClockAndCallbacks 釘住快照有沒有帶到時鐘與回呼。
+//
+// 漏掉的症狀與 `nextIRQ0` 那個坑同一個形狀：從快照展開的機器記憶體與 CPU
+// 全對，但**時鐘不會走**，或者卡在一個永遠回不來的回呼裡——
+// 而畫面看起來完全正常。
+func TestSnapshotKeepsClockAndCallbacks(t *testing.T) {
+	m := New()
+	m.Write8(0x3000*16, 0xCB) // retf
+	m.SetPeriodicFarCall(0x3000, 0, 1000)
+	m.QueueCallback(QueuedCall{Seg: 0x3000, Off: 0})
+
+	snap := m.Snapshot()
+	m.ClearPeriodicFarCall()
+	m.cbQueue = nil
+
+	m.Restore(snap)
+	if !m.periodic.on {
+		t.Error("還原之後週期回呼是關的——時鐘不會走")
+	}
+	if m.CallbackPending() != 1 {
+		t.Errorf("還原之後佇列有 %d 筆，預期 1", m.CallbackPending())
+	}
+}

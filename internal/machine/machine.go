@@ -95,6 +95,12 @@ type Machine struct {
 		Calls       uint64
 	}
 
+	// 從外面插進去的遠呼叫佇列（`internal/machine/callback.go`）。
+	cbQueue  []QueuedCall
+	cbSaved  callbackFrame
+	cbActive bool
+	cbMade   uint64
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -147,6 +153,7 @@ func New() *Machine {
 	m.CPU.Model = cpu.Model80186
 	m.initBDA()
 	m.initVectors()
+	m.installCallbackStub()
 	return m
 }
 
@@ -305,6 +312,11 @@ func (m *Machine) Step() error {
 // 好處是對拍完全決定性（同樣的輸入永遠得到同樣的畫面）；
 // 代價是動畫速度與真機不同。週期精確的時序在 M2（`docs/spec/004` §5）。
 func (m *Machine) tick() {
+	// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
+	// 事件是有時序意義的，週期回呼晚一格沒差。
+	if m.startCallback() {
+		return
+	}
 	// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
 	// 遊戲的回呼，遊戲那一支自己 `cli/pushf … popf/retf`。
 	// 掛在 IF 上的話初始化期間那一大段 `cli` 會把時鐘整個吃掉。
