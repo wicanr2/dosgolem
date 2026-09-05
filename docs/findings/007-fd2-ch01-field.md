@@ -9,7 +9,7 @@ wait:10;repeat:8,Escape,500;wait:2;key:Down;key:Down;key:Return;wait:5;shot:ch01
 ```
 
 重製端輸入是提交 `bb83e82e` 的 `640×400` 同狀態畫面。dosgolem 提交
-`c47fc06` 以內建 `nearest_2x` 正規化到 `320×200`，不再依賴外部
+`8032baa` 以內建 `nearest_2x` 正規化到 `320×200`，不再依賴外部
 ImageMagick 隱式縮放。比較結果為 63,960／64,000 像素相同（99.9375%），
 RGB 平均絕對誤差 0.00625；40 個差異全部位於左下邊界
 `x=4..45, y=185..195`，內容區沒有差異。
