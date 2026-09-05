@@ -406,3 +406,20 @@ func TestFD2ThirdCallbackEnvironmentFirstByteWhenProvided(t *testing.T) {
 		t.Fatalf("third callback environment first-byte ES=%X EAX=%X flags=%X", m.CPU.Seg[cpu386.SegES], m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2ThirdCallbackFirstAllocationCallWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x36d26 && steps < 490; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x36d26 {
+		t.Fatalf("third callback first allocation call not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	argument, errArg := m.Read32(0x55678)
+	ret, errRet := m.Read32(0x55674)
+	if errArg != nil || errRet != nil || argument != 1 || ret != 0x4cc51 || m.CPU.R[cpu386.ESP] != 0x55674 {
+		t.Fatalf("third callback first allocation argument=%X return=%X ESP=%X errors=%v,%v", argument, ret, m.CPU.R[cpu386.ESP], errArg, errRet)
+	}
+}

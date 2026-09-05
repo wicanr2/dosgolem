@@ -717,6 +717,27 @@ func TestCompareESByteAtEAX(t *testing.T) {
 	}
 }
 
+func TestSubtractStackDwordFromRegister(t *testing.T) {
+	mem := testBus(make([]byte, 0x90))
+	copy(mem, []byte{0x2b, 0x45, 0xfc})
+	copy(mem[0x6c:], []byte{0x34, 0x12, 0x00, 0x00})
+	c := New(mem)
+	c.R[EAX], c.R[EBP] = 0x1234, 0x50
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0 || c.EFlags&ZF == 0 {
+		t.Fatalf("SUB EAX,[EBP-4] EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestSubtractStackDwordRejectsReadWithoutCommit(t *testing.T) {
+	c := New(testBus([]byte{0x2b, 0x45, 0xfc}))
+	c.R[EAX], c.R[EBP], c.Seg[SegSS] = 0x1234, 0x50, 0x30
+	if err := c.Step(); err == nil || c.R[EAX] != 0x1234 {
+		t.Fatalf("SUB stack atomic EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})
