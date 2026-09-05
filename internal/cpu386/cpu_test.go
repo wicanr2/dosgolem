@@ -692,6 +692,31 @@ func TestXORDwordRegisters(t *testing.T) {
 	}
 }
 
+func TestMoveDwordFromEBPDisp8UsesSS(t *testing.T) {
+	mem := testBus(make([]byte, 0x90))
+	copy(mem, []byte{0x8b, 0x45, 0xfc})
+	copy(mem[0x6c:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.R[EBP] = 0x50
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("MOV EAX,[EBP-4] EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
+func TestCompareESByteAtEAX(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x26, 0x80, 0x38, 0x00})
+	mem[0x60] = 0
+	c := New(mem)
+	c.R[EAX], c.Seg[SegES] = 0x40, 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || mem[0x60] != 0 {
+		t.Fatalf("CMP ES:[EAX],0 flags=%X byte=%X err=%v", c.EFlags, mem[0x60], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})
