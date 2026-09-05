@@ -857,6 +857,24 @@ func (c *CPU) Step() error {
 			}
 			c.R[rm] = result
 		}
+	case op == 0xc6:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C6 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0x03 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if !c.writeSegment8(c.Seg[SegDS], c.R[EBX], value) {
+			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[EBX]))
+		}
 	case op == 0x8b:
 		modrm, e := c.fetch8()
 		if e != nil {

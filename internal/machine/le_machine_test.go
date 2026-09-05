@@ -50,12 +50,12 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x45dd3 && steps < 270; steps++ {
+	for steps := 0; m.CPU.EIP != 0x45dd6 && steps < 271; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x45dd3 {
+	if services.Calls() != 2 || m.CPU.EIP != 0x45dd6 {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 0x0003037f || m.CPU.R[cpu386.EBX] != 0x539c2 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
@@ -116,6 +116,9 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	callbackReturn, err := m.Read32(0x55698)
 	if err != nil || callbackReturn != 0x45dd3 || m.CPU.Seg[cpu386.SegES] != 0x160 {
 		t.Fatalf("callback return=%X ES=%X err=%v", callbackReturn, m.CPU.Seg[cpu386.SegES], err)
+	}
+	if got := m.Mem[0x539c2:0x539c8]; !bytes.Equal(got, []byte{0x02, 0x01, 0xcc, 0xcb, 0x03, 0x00}) {
+		t.Fatalf("executed callback record=% X", got)
 	}
 	fpuSavedControl, err := m.Read32(0x55684)
 	if err != nil || fpuSavedControl != 0x0003037f || m.CPU.FPUControl != 0x127f || m.CPU.FPUDepth != 4 {
