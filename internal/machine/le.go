@@ -339,3 +339,51 @@ func (h *LEHeader) ObjectImage(data []byte, index uint32) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// RelocatedObjectImages 重建所有 object 並套用 FD2 實際使用的 internal 32-bit
+// offset fixups。其他 relocation 形狀仍失敗即關閉。
+func (h *LEHeader) RelocatedObjectImages(data []byte) ([][]byte, error) {
+	images := make([][]byte, len(h.Objects))
+	for i := range images {
+		image, err := h.ObjectImage(data, uint32(i+1))
+		if err != nil {
+			return nil, err
+		}
+		images[i] = image
+	}
+	for pageIndex, fixups := range h.Fixups {
+		logicalPage := uint32(pageIndex + 1)
+		sourceObject := -1
+		var pageBase uint64
+		for i, object := range h.Objects {
+			if object.PageTableIndex != 0 && logicalPage >= object.PageTableIndex && logicalPage-object.PageTableIndex < object.PageCount {
+				if sourceObject != -1 {
+					return nil, fmt.Errorf("machine: LE logical page %d 同時屬於多個 objects", logicalPage)
+				}
+				sourceObject = i
+				pageBase = uint64(logicalPage-object.PageTableIndex) * uint64(h.PageSize)
+			}
+		}
+		if len(fixups) != 0 && sourceObject == -1 {
+			return nil, fmt.Errorf("machine: LE fixup page %d 不屬於任何 object", logicalPage)
+		}
+		for recordIndex, fixup := range fixups {
+			if fixup.SourceFlags != 7 || fixup.SourceType != 7 || fixup.TargetType != 0 || (fixup.TargetFlags != 0 && fixup.TargetFlags != 0x10) || len(fixup.SourceOffsets) != 1 || fixup.HasAdditive {
+				return nil, fmt.Errorf("machine: LE fixup page %d record %d 形狀尚未支援", logicalPage, recordIndex)
+			}
+			if fixup.Ordinal == 0 || fixup.Ordinal > uint32(len(h.Objects)) {
+				return nil, fmt.Errorf("machine: LE fixup target object %d 超界", fixup.Ordinal)
+			}
+			position := int64(pageBase) + int64(fixup.SourceOffsets[0])
+			if position < 0 || uint64(position) > uint64(len(images[sourceObject])) || uint64(len(images[sourceObject]))-uint64(position) < 4 {
+				return nil, fmt.Errorf("machine: LE fixup page %d record %d 寫入位置超界", logicalPage, recordIndex)
+			}
+			target := uint64(h.Objects[fixup.Ordinal-1].RelocationBase) + uint64(fixup.TargetOffset)
+			if target > uint64(^uint32(0)) {
+				return nil, fmt.Errorf("machine: LE fixup page %d record %d target 位址溢位", logicalPage, recordIndex)
+			}
+			binary.LittleEndian.PutUint32(images[sourceObject][int(position):], uint32(target))
+		}
+	}
+	return images, nil
+}

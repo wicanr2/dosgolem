@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -121,6 +122,59 @@ func TestInspectLEFixupPages(t *testing.T) {
 	}
 }
 
+func TestRelocatedObjectImages(t *testing.T) {
+	h := &LEHeader{
+		PageSize: 8, LastPageSize: 8, ModulePages: 2,
+		Objects: []LEObject{{VirtualSize: 16, RelocationBase: 0x1000, PageTableIndex: 1, PageCount: 2}},
+		Pages:   []LEPage{{Number: 1}, {Number: 2}},
+		Fixups: [][]LEFixup{
+			{{SourceFlags: 7, SourceType: 7, TargetType: 0, TargetFlags: 0, SourceOffsets: []int16{0}, Ordinal: 1, TargetOffset: 0x20}},
+			{
+				{SourceFlags: 7, SourceType: 7, TargetType: 0, TargetFlags: 0x10, SourceOffsets: []int16{-2}, Ordinal: 1, TargetOffset: 0x30},
+				{SourceFlags: 7, SourceType: 7, TargetType: 0, TargetFlags: 0, SourceOffsets: []int16{4}, Ordinal: 1, TargetOffset: 0x40},
+			},
+		},
+	}
+	images, err := h.RelocatedObjectImages(make([]byte, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := binary.LittleEndian.Uint32(images[0][0:]); got != 0x1020 {
+		t.Fatalf("first fixup = 0x%X", got)
+	}
+	if got := binary.LittleEndian.Uint32(images[0][6:]); got != 0x1030 {
+		t.Fatalf("cross-page fixup = 0x%X", got)
+	}
+	if got := binary.LittleEndian.Uint32(images[0][12:]); got != 0x1040 {
+		t.Fatalf("last fixup = 0x%X", got)
+	}
+}
+
+func TestRelocatedObjectImagesRejectsUnsupportedOrInvalidFixups(t *testing.T) {
+	base := func() *LEHeader {
+		return &LEHeader{
+			PageSize: 8, LastPageSize: 8, ModulePages: 1,
+			Objects: []LEObject{{VirtualSize: 8, RelocationBase: 0x1000, PageTableIndex: 1, PageCount: 1}},
+			Pages:   []LEPage{{Number: 1}},
+			Fixups:  [][]LEFixup{{{SourceFlags: 7, SourceType: 7, TargetType: 0, SourceOffsets: []int16{0}, Ordinal: 1}}},
+		}
+	}
+	for name, mutate := range map[string]func(*LEHeader){
+		"unsupported-shape": func(h *LEHeader) { h.Fixups[0][0].TargetType = 1 },
+		"target-object":     func(h *LEHeader) { h.Fixups[0][0].Ordinal = 2 },
+		"write-range":       func(h *LEHeader) { h.Fixups[0][0].SourceOffsets[0] = 6 },
+		"target-overflow":   func(h *LEHeader) { h.Objects[0].RelocationBase = 0xffffffff; h.Fixups[0][0].TargetOffset = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := base()
+			mutate(h)
+			if _, err := h.RelocatedObjectImages(make([]byte, 8)); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
 func TestInspectLE(t *testing.T) {
 	h, err := InspectLE(leFixture())
 	if err != nil {
@@ -199,6 +253,20 @@ func TestInspectFD2WhenProvided(t *testing.T) {
 		}
 		if sha256.Sum256(image) != wantHash[i] {
 			t.Fatalf("object %d hash mismatch", i+1)
+		}
+	}
+	relocated, err := h.RelocatedObjectImages(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRelocated := []string{
+		"3306c118632220426483866025e5e6dd980a7461361036164d4ca5e63fda9b08",
+		"1461d8d5dc1aacbadfd0d96f322dda24026dcb3f4ed26d7cf371a78af5c2e14c",
+		"89d650594b23d5a797cc10bd6f67cfe608c02304d806dc6fe6fd2b7f65928dae",
+	}
+	for i := range relocated {
+		if got := fmt.Sprintf("%x", sha256.Sum256(relocated[i])); got != wantRelocated[i] {
+			t.Fatalf("relocated object %d hash = %s", i+1, got)
 		}
 	}
 }

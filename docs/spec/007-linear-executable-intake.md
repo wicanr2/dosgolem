@@ -1,7 +1,7 @@
 # 007 — LE 執行檔接入與 FD2 能力探針
 
-狀態：**READY**（§1–§4 的唯讀解析、page map、object 映像、fixup 索引與
-record 解碼）／**DRAFT**（§5 的 fixup 套用與實際執行）
+狀態：**READY**（§1–§4 的唯讀解析、page map、object 映像、fixup 索引、
+record 解碼與 FD2 所需的 internal relocation 套用）／**DRAFT**（§5 的實際執行）
 日期：2026-09-05
 前置：[`001`](001-scope-and-mvp.md)、[`003`](003-machine-and-loader.md)
 
@@ -77,6 +77,30 @@ SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb
 含 record，共 7,944 筆。這只證實 §2.1 的 record 邊界與格式可完整消費，不能
 提升為 relocation 已套用或程式可執行。
 
+### 2.2 READY：FD2 所需的 internal relocation 套用
+
+固定雜湊 FD2.EXE 的 7,944 筆 record 全部是 source type／flags `7`（32-bit
+offset）與 target type `0`（internal）；target flags 僅 `0`（7,055 筆）及
+`0x10`（889 筆），target object 分布為 object 1：890、object 2：6,788、
+object 3：266。沒有 import、additive、chaining、alias 或 source-list。
+
+因此本階段的 relocation 套用器只接受上述形狀：
+
+- 先重建全部 object images，再以 logical page 找到唯一來源 object；
+- patch 位置是該 logical page 在來源 object 的 page-relative base 加 signed
+  source offset，允許規格定義的跨頁負 offset，但寫入的四個 bytes 必須完整落在
+  object image；
+- 寫入值為 target object 的 relocation base 加 target offset，採 little-endian
+  `uint32`，object ordinal、target offset 或加法溢位一律回錯誤；
+- 任一非 FD2 已證實形狀仍回錯誤，不以未測試的通用 relocation 支援掩蓋缺口；
+- 回傳新 images，不修改輸入 bytes 或未 relocation 的 `ObjectImage` 結果。
+
+固定實檔套用後三個 object 的 SHA-256 依序為
+`3306c118632220426483866025e5e6dd980a7461361036164d4ca5e63fda9b08`、
+`1461d8d5dc1aacbadfd0d96f322dda24026dcb3f4ed26d7cf371a78af5c2e14c`、
+`89d650594b23d5a797cc10bd6f67cfe608c02304d806dc6fe6fd2b7f65928dae`。
+探針稱之為 relocation preview；尚未把 images 掛入 CPU runtime。
+
 ## 3. READY：能力探針
 
 `cmd/leprobe` 只輸出格式與物件摘要。原版檔案由使用者以 `-exe` 提供；儲存庫
@@ -94,9 +118,11 @@ SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb
   再檢查 §2 錨點；缺檔必須 skip；
 - `go test ./...` 全綠；
 - `leprobe` 對固定雜湊 FD2.EXE 輸出三個 objects，且明示 `execution_supported=false`。
+- internal relocation 合成測試涵蓋 16／32-bit target offset、跨頁負 source offset、
+  object／寫入範圍與加法溢位；固定雜湊實檔另鎖定 relocation 後 object hashes。
 
 ## 5. DRAFT：從解析走到可對拍執行
 
-以下尚未 READY，不可猜接：80386 指令與保護模式、描述子／分頁模型、LE fixup
-的實際套用、DPMI／DOS4GW 契約，以及 FD2 實際使用的 DOS／VGA 服務。每一層須以
+以下尚未 READY，不可猜接：80386 指令與保護模式、描述子／分頁模型、FD2 未使用的
+其他 LE fixup 形狀、DPMI／DOS4GW 契約，以及 FD2 實際使用的 DOS／VGA 服務。每一層須以
 獨立語料或 DOSBox-X／原版同狀態結果驗證；硬體時序只採規格近似，不追逐週期一致。
