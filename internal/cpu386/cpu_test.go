@@ -372,6 +372,27 @@ func TestImmediateORCompareAndShortJNZ(t *testing.T) {
 	}
 }
 
+func TestCompareRegisterAndShortJAE(t *testing.T) {
+	mem := testBus{0x3b, 0xf7, 0x73, 0x02, 0xff, 0xff, 0xfb}
+	c := New(mem)
+	c.R[ESI], c.R[EDI] = 0x10, 0x20
+	if err := c.Step(); err != nil || c.EFlags&CF == 0 || c.EFlags&ZF != 0 {
+		t.Fatalf("CMP flags=%X err=%v", c.EFlags, err)
+	}
+	if err := c.Step(); err != nil || c.EIP != 4 {
+		t.Fatalf("untaken JAE EIP=%X err=%v", c.EIP, err)
+	}
+
+	c = New(mem)
+	c.R[ESI], c.R[EDI] = 0x20, 0x20
+	if err := c.Step(); err != nil || c.EFlags&CF != 0 || c.EFlags&ZF == 0 {
+		t.Fatalf("equal CMP flags=%X err=%v", c.EFlags, err)
+	}
+	if err := c.Step(); err != nil || c.EIP != 6 {
+		t.Fatalf("taken JAE EIP=%X err=%v", c.EIP, err)
+	}
+}
+
 func TestCompareDSByteAndIncrementPreservesCarry(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x80, 0x3e, 0x00, 0x80, 0x7e, 0xff, 0x00, 0x41})

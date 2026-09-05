@@ -624,6 +624,17 @@ func (c *CPU) Step() error {
 		if c.EFlags&ZF == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0x73:
+		if operand16 {
+			return fail("73 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&CF == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0xfb:
 		c.EFlags |= IF
 	case op == 0x83:
@@ -996,6 +1007,19 @@ func (c *CPU) Step() error {
 			}
 			c.sub32(c.R[EAX], value)
 		}
+	case op == 0x3b:
+		if operand16 {
+			return fail("16-bit 3B 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := (modrm>>3)&7, modrm&7
+		c.sub32(c.R[reg], c.R[rm])
 	case op == 0x0d:
 		if operand16 {
 			return fail("16-bit OR accumulator 尚未支援")
