@@ -144,6 +144,7 @@ const (
 	// 目前EOB1具名姓名fixture使用的字母鍵。
 	KeyA Key = 0x1E
 	KeyB Key = 0x30
+	KeyD Key = 0x20
 	KeyE Key = 0x12
 	KeyF Key = 0x21
 	KeyG Key = 0x22

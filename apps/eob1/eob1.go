@@ -306,6 +306,78 @@ func ToThirdCharacterGAMMA(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFourthCharacterRace 選取第四角色槽，進入其種族／性別頁。
+func ToFourthCharacterRace(o *oracle.Oracle) error {
+	if err := ToThirdCharacterGAMMA(o); err != nil {
+		return err
+	}
+	if err := o.Click(98, 142); err != nil {
+		return fmt.Errorf("EOB1點擊第四角色槽：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第四角色SELECT RACE頁", 130, 55, 180, 140,
+		"b566dd781770ae6af1cd569cc84d82e37a38fe82b81405da0c979722f6e0041c"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第四角色種族選擇：%w", err)
+	}
+	return nil
+}
+
+// ToFourthCharacterReview 由第四角色種族頁走到Human Male Fighter檢視頁。
+func ToFourthCharacterReview(o *oracle.Oracle) error {
+	if err := ToFourthCharacterRace(o); err != nil {
+		return err
+	}
+	steps := []struct {
+		name   string
+		digest string
+	}{
+		{"第四角色SELECT CLASS頁", "31954c4eabf3fe236734a89b17447907ac3c54448a962b4ffd0432a29e2777eb"},
+		{"第四角色SELECT ALIGNMENT頁", "b701f7d8e0738aaf110f702f34a53d3ab9f0c01b60fd0f7e514bdd773a7bafbc"},
+		{"第四角色屬性／肖像頁", "70bcf17584387de8d09f85b2f02ca06ba3d1d324b400cf37caa99153aac79461"},
+		{"第四角色檢視操作頁", "43c8dc52f9f80fad0b54067648f574b297f8dd194a0b40dcd302c1abe3cc6ab9"},
+	}
+	for _, step := range steps {
+		o.PressKey(oracle.KeyEnter)
+		if err := o.RunUntil(screenDigest(step.name, 130, 55, 180, 140, step.digest), oracle.Budget(10_000_000)); err != nil {
+			return fmt.Errorf("EOB1等待%s：%w", step.name, err)
+		}
+	}
+	return nil
+}
+
+// ToFourthCharacterName 以不跨越下一畫面的短按接受第四角色，進入姓名頁。
+func ToFourthCharacterName(o *oracle.Oracle) error {
+	if err := ToFourthCharacterReview(o); err != nil {
+		return err
+	}
+	if err := o.Click(282, 180, oracle.Hover(1_000_000), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1點擊第四角色KEEP：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第四角色Name輸入頁", 0, 0, oracle.Width, oracle.Height,
+		"868b6ff3dec8ba456efd3ccb71b5d26188deef7e608af9f5313cfc2696b2085a"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第四角色姓名輸入：%w", err)
+	}
+	return nil
+}
+
+// ToFourthCharacterDELTA 在第四角色姓名頁鍵入DELTA並確認，返回PLAY已啟用的總覽。
+func ToFourthCharacterDELTA(o *oracle.Oracle) error {
+	if err := ToFourthCharacterName(o); err != nil {
+		return err
+	}
+	for _, key := range []oracle.Key{oracle.KeyD, oracle.KeyE, oracle.KeyL, oracle.KeyT, oracle.KeyA} {
+		o.PressKey(key)
+		if err := o.Run(250_000); err != nil {
+			return fmt.Errorf("EOB1輸入第四角色姓名：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第四角色DELTA姓名列", 75, 160, 70, 16,
+		"5565425afaedff49bad39cd17eac469ec74ee8459698501d1623834ef15c2584"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第四角色DELTA完成：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

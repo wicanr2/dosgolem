@@ -228,6 +228,45 @@ func TestToThirdCharacterNameAndGAMMARealData(t *testing.T) {
 	}
 }
 
+func TestToFourthCharacterRaceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFourthCharacterRace(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "b566dd781770ae6af1cd569cc84d82e37a38fe82b81405da0c979722f6e0041c" {
+		t.Fatalf("第四角色種族選擇區SHA-256=%s", got)
+	}
+}
+
+func TestToFourthCharacterReviewRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFourthCharacterReview(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "43c8dc52f9f80fad0b54067648f574b297f8dd194a0b40dcd302c1abe3cc6ab9" {
+		t.Fatalf("第四角色檢視操作區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 72 {
+		t.Fatalf("第四角色檢視頁前port 60h讀取%d次，預期三十六鍵make／break共72次", got)
+	}
+}
+
+func TestToFourthCharacterNameAndDELTARealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFourthCharacterDELTA(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 75, 160, 70, 16); got != "5565425afaedff49bad39cd17eac469ec74ee8459698501d1623834ef15c2584" {
+		t.Fatalf("第四角色DELTA姓名列SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 84 {
+		t.Fatalf("DELTA完成前port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
