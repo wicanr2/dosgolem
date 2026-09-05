@@ -114,6 +114,20 @@ func TestSavedGameProtectionTargetIgnoresZAndEnterRealData(t *testing.T) {
 	}
 }
 
+func TestToSavedGameProtectionBookClosedRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSavedGameProtectionBookClosed(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 100); got != "689c6d86fd088a78820474561dc899094714b396184bd492598e4f36d066100a" {
+		t.Fatalf("法術書關閉後地城視窗SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 32 {
+		t.Fatalf("法術書中止關閉port 60h讀取%d次，預期十六鍵make／break共32次", got)
+	}
+}
+
 func TestToNewPartyCreationRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()

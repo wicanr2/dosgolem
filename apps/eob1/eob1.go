@@ -201,6 +201,22 @@ func ToSavedGameProtectionTargeting(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToSavedGameProtectionBookClosed 由有效存檔正常開啟牧師法術書，再使用原版
+// ABORT SPELL 控制中止並回到探索畫面。原版目標模式不接受Escape關閉。
+func ToSavedGameProtectionBookClosed(o *oracle.Oracle) error {
+	if err := ToSavedGameProtectionBook(o); err != nil {
+		return err
+	}
+	if err := o.Click(102, 172, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(2_000_000)); err != nil {
+		return fmt.Errorf("EOB1點擊ABORT SPELL關閉法術書：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("Protection From Evil法術書關閉", 0, 0, 176, 168,
+		"b1dd7f80261a818d7913f6ce0cae6f04a37ba65f20e205ad0e55f7c0386f645b"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待法術書關閉並返回探索：%w", err)
+	}
+	return nil
+}
+
 // ToSavedGameProtectionCastOnAriel 點ARIEL角色面板，完成Protection From Evil施法。
 func ToSavedGameProtectionCastOnAriel(o *oracle.Oracle) error {
 	if err := ToSavedGameProtectionTargeting(o); err != nil {

@@ -43,3 +43,15 @@ SHA-256皆為`f49fee3af72c50fad10fb0708436e6733b2cfbe068dcfc423f1a4efc0065806e`�
 - CLI實際輸出64,000-byte色號、768-byte palette、PNG及JSON；測試回讀檔案大小、必要欄位並
   拒絕私有`exe`／`root`路徑出現在收據。
 - 帶真實EOB1環境變數的dosgolem全庫`go test ./... -count=1`與`go vet ./...`通過。
+
+## 6. 有效存檔法術書中止／關閉擴充
+
+- `ToSavedGameProtectionBookClosed`沿用有效`EOBDATA.SAV`的正常標題載入、CAMP祈禱、休息及
+  TENMIYANA聖徽開書路徑，不注入法術或玩家狀態。
+- 開書左側`176×168`色號SHA-256為`1f985614…cf92`；底部`ABORT SPELL`是原版正式中止控制。
+  點擊安全點`(102,172)`後一次關閉法術書並返回探索，左側`176×168`為`b1dd7f80…645b`，
+  地城視窗`176×100`為`689c6d86…00a`。
+- 目標模式的Escape、Z及Enter都會被鍵盤處理常式消費但不改畫面；adapter不得以這些鍵假裝
+  完成原版中止。正常交易累計port `60h`讀取32次。
+- 真實資料測試`TestToSavedGameProtectionBookClosedRealData`固定上述安全矩形與輸入次數；原始
+  存檔唯讀，動態肖像不納入永久全畫面雜湊。
