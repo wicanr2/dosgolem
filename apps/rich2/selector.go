@@ -355,4 +355,31 @@ const (
 	MenuSell  = "\xbd\xe6\xa5\x58"   // 賣出
 	MenuQuery = "\xacd\xb8\xdf"      // 查詢
 	MenuNext  = "\xa4U\xa4@\xad\xb6" // 下一頁
+
+	// 銀行那張是另一組字（`PART1.PAK` 區段 2 的 178–180，三列，
+	// 對得上 `rich2/docs/re/135` 的「銀行三列選單」）：
+	//
+	//	178  A6 73 B4 DA     存款
+	//	179  BB E2 B4 DA     領款
+	//	180  A9 F1 B1 F3     放棄
+	//
+	// ⚠ **離場的字不是每個場所都一樣**：股市寫「離開」，銀行寫「放棄」。
+	// 只找「離開」會在銀行找不到，而找不到只會回 0——
+	// 看起來像「這張選單沒有離場的項目」。用 `RowByExit` 一次試兩個。
+	MenuDeposit  = "\xa6\x73\xb4\xda" // 存款
+	MenuWithdraw = "\xbb\xe2\xb4\xda" // 領款
+	MenuGiveUp   = "\xa9\xf1\xb1\xf3" // 放棄
 )
+
+// RowByExit 找出「離場」的那一列（1 起算）；找不到回 0。
+//
+// 依序試「離開」與「放棄」——**不同場所用不同的字**（股市是離開、
+// 銀行是放棄）。只認一個會在另一個場所安靜地失敗。
+func (s Selector) RowByExit(o *oracle.Oracle) int {
+	for _, w := range []string{MenuLeave, MenuGiveUp} {
+		if r := s.RowByText(o, w); r > 0 {
+			return r
+		}
+	}
+	return 0
+}
