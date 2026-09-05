@@ -717,3 +717,38 @@ func TestFD2BranchesThroughAILTableLoopWhenProvided(t *testing.T) {
 		t.Fatalf("AIL table JL steps=%d EIP=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2SavesFlagsBeforeAILInterruptSetupWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3e930; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL PUSHFD: step=%d EIP=%X flags=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.EFlags, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	flags, beforeESP := m.CPU.EFlags, m.CPU.R[cpu386.ESP]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL PUSHFD step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	stackDescriptor := m.CPU.Descriptors[m.CPU.Seg[cpu386.SegSS]]
+	stored, errStored := m.Read32(stackDescriptor.Base + m.CPU.R[cpu386.ESP])
+	if m.CPU.EIP != 0x3e931 || services.Calls() != 5 || m.CPU.R[cpu386.ESP] != beforeESP-4 || stored != flags || errStored != nil {
+		t.Fatalf("AIL PUSHFD steps=%d EIP=%X calls=%d ESP=%X/%X flags=%X stored=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ESP], beforeESP, flags, stored, errStored)
+	}
+}
+
+func TestFD2DisablesInterruptsForAILSetupWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3e931; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL CLI: step=%d EIP=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.EFlags, err)
+		}
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL CLI step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3e932 || services.Calls() != 5 || m.CPU.EFlags&cpu386.IF != 0 {
+		t.Fatalf("AIL CLI steps=%d EIP=%X calls=%d flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.EFlags)
+	}
+}

@@ -388,6 +388,34 @@ func TestPushBaseDisp8Dword(t *testing.T) {
 	}
 }
 
+func TestPushFlags32(t *testing.T) {
+	mem := testBus(make([]byte, 0x20))
+	mem[0] = 0x9c
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.R[ESP], c.EFlags = 0x20, 0x246
+	if err := c.Step(); err != nil || c.R[ESP] != 0x1c || !bytes.Equal(mem[0x1c:0x20], []byte{0x46, 0x02, 0, 0}) || c.EFlags != 0x246 {
+		t.Fatalf("PUSHFD ESP=%X stack=% X flags=%X err=%v", c.R[ESP], mem[0x1c:0x20], c.EFlags, err)
+	}
+
+	c = New(testBus{0x9c})
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0})
+	c.R[ESP], c.EFlags = 4, 0x246
+	if err := c.Step(); err == nil || c.R[ESP] != 4 || c.EFlags != 0x246 {
+		t.Fatalf("failed PUSHFD ESP=%X flags=%X err=%v", c.R[ESP], c.EFlags, err)
+	}
+}
+
+func TestClearInterruptFlag(t *testing.T) {
+	c := New(testBus{0xfa})
+	c.EFlags = IF | CF | ZF
+	if err := c.Step(); err != nil || c.EFlags != CF|ZF {
+		t.Fatalf("CLI flags=%X err=%v", c.EFlags, err)
+	}
+}
+
 func TestRegisterCMP8(t *testing.T) {
 	c := New(testBus{0x38, 0xf3})
 	c.R[EBX], c.R[EDX] = 0x11, 0x1100
