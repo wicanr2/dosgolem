@@ -578,6 +578,23 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
 		}
 		c.R[ESP] = nextESP
+	case op == 0xe8:
+		if operand16 {
+			return fail("16-bit near CALL 尚未支援")
+		}
+		delta, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EIP) {
+			return fail(fmt.Sprintf("CALL stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
 	case op == 0xeb:
 		delta, e := c.fetch8()
 		if e != nil {

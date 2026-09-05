@@ -50,12 +50,12 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cb85 && steps < 180; steps++ {
+	for steps := 0; m.CPU.EIP != 0x45d9a && steps < 181; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cb85 {
+	if services.Calls() != 2 || m.CPU.EIP != 0x45d9a {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 0x546b0 || m.CPU.R[cpu386.EBX] != 0x556b0 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
@@ -83,7 +83,7 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if err != nil || environmentWord != 0x30 {
 		t.Fatalf("environment word=%X err=%v", environmentWord, err)
 	}
-	if m.CPU.R[cpu386.ESP] != 0x556b0 {
+	if m.CPU.R[cpu386.ESP] != 0x556ac {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
 	}
 	if m.CPU.Seg[cpu386.SegDS] != 0x160 || m.CPU.Seg[cpu386.SegES] != 0x160 {
@@ -99,8 +99,8 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 		t.Fatalf("command-tail pointers ESI=%X EDI=%X EBX=%X", m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBX])
 	}
 	stackValue, err := m.Read32(0x556ac)
-	if err != nil || stackValue != 0x546b1 {
-		t.Fatalf("protected stack value=%X err=%v", stackValue, err)
+	if err != nil || stackValue != 0x3cb8a {
+		t.Fatalf("CALL return address=%X err=%v", stackValue, err)
 	}
 	stackSelector, err := m.Read32(0x556a8)
 	if err != nil || stackSelector != 0x160 || m.Mem[0x546b0] != 0 || !bytes.Equal(m.Mem[0x546b1:0x546b9], []byte("FD2.EXE\x00")) {

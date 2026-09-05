@@ -81,14 +81,14 @@ func executePrefix(data []byte) {
 	services := &machine.FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
 	steps := 0
-	for m.CPU.EIP != 0x3cb85 && steps < 180 {
+	for m.CPU.EIP != 0x45d9a && steps < 181 {
 		if err := m.CPU.Step(); err != nil {
 			die(err)
 		}
 		steps++
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cb85 {
-		die(fmt.Errorf("entry prefix 未在 180 steps 內完成 DOS/4GW environment 與啟動緩衝區對齊流程"))
+	if services.Calls() != 2 || m.CPU.EIP != 0x45d9a {
+		die(fmt.Errorf("entry prefix 未在 181 steps 內完成 DOS/4GW environment、啟動緩衝區與第一個 near CALL"))
 	}
 	stackA, err := m.Read32(0x52818)
 	if err != nil {
@@ -106,7 +106,7 @@ func executePrefix(data []byte) {
 	if err != nil {
 		die(err)
 	}
-	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
+	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true first_near_call_entered=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
 		steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.Seg[cpu386.SegGS], selectorGS, storedES, uint16(m.CPU.R[cpu386.EDX]), stackA, stackB)
 }
 
