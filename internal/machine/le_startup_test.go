@@ -19,6 +19,9 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 0x1606 {
 		t.Fatalf("DOS version response EAX=%08X", c.R[cpu386.EAX])
 	}
+	if c.Seg[cpu386.SegDS] != 0x160 || c.Seg[cpu386.SegES] != 0x28 || c.Seg[cpu386.SegGS] != 0x20 || c.Seg[cpu386.SegSS] != 0x160 {
+		t.Fatalf("startup selectors DS=%X ES=%X GS=%X SS=%X", c.Seg[cpu386.SegDS], c.Seg[cpu386.SegES], c.Seg[cpu386.SegGS], c.Seg[cpu386.SegSS])
+	}
 	c.R[cpu386.EAX] = 0xff00
 	c.R[cpu386.EDX] = 0x78
 	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegGS] != 0x20 {
