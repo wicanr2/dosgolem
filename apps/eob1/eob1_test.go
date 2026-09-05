@@ -281,6 +281,34 @@ func TestToLevel1EntranceRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1InventoryCharacterPagesRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+	}{
+		{"open ALFA", eob1.ToLevel1FirstInventory, "2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"},
+		{"next BETA", eob1.ToLevel1InventoryNextCharacter, "21d28f3144af98f890f13139469364a9334b78443858d709bba3c81c231350df"},
+		{"previous ALFA", eob1.ToLevel1InventoryPreviousCharacter, "2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"},
+		{"return exploration", eob1.ToLevel1InventoryReturn, "b4fd5e6d1a6b2740cc9f390f50d28c65649a4a7c99832e7f27766340a0ebcf26"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadRealData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			if got := digest(o.Indexed()); got != test.want {
+				t.Fatalf("全畫面SHA-256=%s", got)
+			}
+			if got := o.PortReads()[0x60]; got != 84 {
+				t.Fatalf("物品欄路徑port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+			}
+		})
+	}
+}
+
 func TestToLevel1FirstForwardStepRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()

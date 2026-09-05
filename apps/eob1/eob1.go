@@ -403,6 +403,73 @@ func ToLevel1Entrance(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1FirstInventory 從LEVEL1入口點擊第一名角色肖像，開啟ALFA的原版物品欄。
+func ToLevel1FirstInventory(o *oracle.Oracle) error {
+	if err := ToLevel1Entrance(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs第9項：第一名角色肖像是(184,10) 33×33；使用內部安全點。
+	if err := o.Click(200, 26, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1開啟ALFA物品欄：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1 ALFA物品欄", 0, 0, oracle.Width, oracle.Height,
+		"2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待ALFA物品欄：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1InventoryNextCharacter 從ALFA物品欄點擊右箭頭，切到BETA。
+func ToLevel1InventoryNextCharacter(o *oracle.Oracle) error {
+	if err := ToLevel1FirstInventory(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs第60項：(297,35) 20×15。
+	if err := o.Click(307, 42, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1物品欄切到下一位角色：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1 BETA物品欄", 0, 0, oracle.Width, oracle.Height,
+		"21d28f3144af98f890f13139469364a9334b78443858d709bba3c81c231350df"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待BETA物品欄：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1InventoryPreviousCharacter 從BETA物品欄點擊左箭頭，切回ALFA。
+func ToLevel1InventoryPreviousCharacter(o *oracle.Oracle) error {
+	if err := ToLevel1InventoryNextCharacter(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs第59項：(274,35) 20×15。
+	if err := o.Click(284, 42, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1物品欄切到上一位角色：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1物品欄切回ALFA", 0, 0, oracle.Width, oracle.Height,
+		"2d77f8c80423d94e0d28ba9a562a6df86abbe0a587f10ef46e4d19e1b2e95809"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待物品欄切回ALFA：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1InventoryReturn 再點ALFA肖像，關閉物品欄並返回LEVEL1入口探索面板。
+func ToLevel1InventoryReturn(o *oracle.Oracle) error {
+	if err := ToLevel1InventoryPreviousCharacter(o); err != nil {
+		return err
+	}
+	if err := o.Click(200, 26, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1關閉ALFA物品欄：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1由物品欄返回探索", 0, 0, oracle.Width, oracle.Height,
+		"b4fd5e6d1a6b2740cc9f390f50d28c65649a4a7c99832e7f27766340a0ebcf26"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待由物品欄返回探索：%w", err)
+	}
+	return nil
+}
+
 // ToLevel1FirstForwardStep 從LEVEL1入口以原版鍵盤右轉，再向前走入相鄰格。
 func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
 	if err := ToLevel1Entrance(o); err != nil {
