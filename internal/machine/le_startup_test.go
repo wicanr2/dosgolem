@@ -31,7 +31,7 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !c.SegmentLoadOK(0x28, cpu386.SegDS) || !c.SegmentLoadOK(0x28, cpu386.SegES) || c.SegmentLoadOK(0x28, cpu386.SegSS) {
 		t.Fatal("PSP selector load destinations mismatch")
 	}
-	if !c.SegmentLoadOK(0x30, cpu386.SegDS) || c.SegmentLoadOK(0x30, cpu386.SegES) {
+	if !c.SegmentLoadOK(0x30, cpu386.SegDS) || !c.SegmentLoadOK(0x30, cpu386.SegFS) || c.SegmentLoadOK(0x30, cpu386.SegES) {
 		t.Fatal("environment selector load destinations mismatch")
 	}
 	for offset, want := range minimalFD2Environment {

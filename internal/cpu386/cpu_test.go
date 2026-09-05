@@ -640,6 +640,31 @@ func TestGroup83CompareAbsoluteDSDword(t *testing.T) {
 	}
 }
 
+func TestLFSAbsolutePointer(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x0f, 0xb4, 0x05, 0x40, 0x00, 0x00, 0x00})
+	copy(mem[0x60:], []byte{0x78, 0x56, 0x34, 0x12, 0x38, 0x00})
+	c := New(mem)
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
+	c.SetDescriptor(0x38, Descriptor{Base: 0x100, Limit: 0xff})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345678 || c.Seg[SegFS] != 0x38 {
+		t.Fatalf("LFS EAX=%X FS=%X err=%v", c.R[EAX], c.Seg[SegFS], err)
+	}
+}
+
+func TestLFSRejectsUnknownSelectorAtomically(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x0f, 0xb4, 0x05, 0x40, 0x00, 0x00, 0x00})
+	copy(mem[0x60:], []byte{0x78, 0x56, 0x34, 0x12, 0x48, 0x00})
+	c := New(mem)
+	c.R[EAX], c.Seg[SegFS], c.Seg[SegDS] = 0xaabbccdd, 0x38, 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err == nil || c.R[EAX] != 0xaabbccdd || c.Seg[SegFS] != 0x38 {
+		t.Fatalf("LFS atomic EAX=%X FS=%X err=%v", c.R[EAX], c.Seg[SegFS], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})
