@@ -45,16 +45,16 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cad5 && steps < 60; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cae2 && steps < 60; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cad5 {
-		t.Fatalf("entry did not restore ES selector: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cae2 {
+		t.Fatalf("entry did not complete command-tail prelude: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
-		t.Fatalf("selector bootstrap mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
+	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
 	selectorGS, err := m.Read16(0x527f0)
 	if err != nil {
@@ -67,8 +67,8 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if selectorGS != 0x20 || selectorES != 0x28 {
 		t.Fatalf("selector globals GS=%X ES=%X", selectorGS, selectorES)
 	}
-	if m.CPU.R[cpu386.ECX] != 0x30 {
-		t.Fatalf("ES environment word ECX=%X", m.CPU.R[cpu386.ECX])
+	if m.CPU.R[cpu386.ECX] != 0 {
+		t.Fatalf("cleared command-tail count ECX=%X", m.CPU.R[cpu386.ECX])
 	}
 	flatDS, err := m.Read16(0x3c9d8)
 	if err != nil || flatDS != 0x160 {
@@ -83,6 +83,9 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	if m.CPU.Seg[cpu386.SegES] != 0x28 {
 		t.Fatalf("restored ES selector=%X", m.CPU.Seg[cpu386.SegES])
+	}
+	if m.CPU.R[cpu386.EDX] != 0x546b0 || m.CPU.R[cpu386.ECX] != 0 {
+		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
 	}
 	stackValue, err := m.Read32(0x556ac)
 	if err != nil || stackValue != 0 {
