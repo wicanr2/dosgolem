@@ -41,10 +41,13 @@ fi
 for shot in /shots/*.png; do
   [[ -e "$shot" ]] || continue
   geometry=$(identify -format "%wx%h" "$shot")
-  if [[ "$geometry" != 1024x768 ]]; then
-    echo "DOSBox 擷取視窗尺寸不符：$shot 是 $geometry，預期 1024x768" >&2
-    exit 4
-  fi
-  convert "$shot" -crop 320x200+0+0 +repage "$shot"
+  case "$geometry" in
+    1024x768) convert "$shot" -crop 320x200+0+0 +repage "$shot" ;;
+    320x200)  ;; # 同一輸出目錄重跑時，保留已正規化的既有證據。
+    *)
+      echo "DOSBox 擷取尺寸不符：$shot 是 $geometry，預期 1024x768 或 320x200" >&2
+      exit 4
+      ;;
+  esac
 done
 '
