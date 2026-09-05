@@ -72,10 +72,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 
 	case 0x36: // 取磁碟剩餘空間
-		c.R[cpu.AX] = 8      // 每叢集磁區數
-		c.R[cpu.BX] = 20000  // 可用叢集
-		c.R[cpu.CX] = 512    // 每磁區位元組
-		c.R[cpu.DX] = 40000  // 總叢集
+		c.R[cpu.AX] = 8     // 每叢集磁區數
+		c.R[cpu.BX] = 20000 // 可用叢集
+		c.R[cpu.CX] = 512   // 每磁區位元組
+		c.R[cpu.DX] = 40000 // 總叢集
 		clearCarry(c)
 
 	case 0x3D:
@@ -112,6 +112,14 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 	case 0x4A:
 		d.setBlock(c)
+	case 0x4B:
+		if al(c) == 0x03 {
+			d.execOverlay(c)
+		} else {
+			d.noteCPU(c, 0x21, fn, al(c))
+			c.R[cpu.AX] = 1
+			setCarry(c)
+		}
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -121,7 +129,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 	default:
 		// 原則 1：**不要動 AX**。一開始寫 AX=0 會把「設中斷向量」迴圈的
 		// 計數清掉，`AH` 變成 0 就被當成「結束程式」——程式因此提早死掉。
-		d.note(0x21, fn, al(c))
+		d.noteCPU(c, 0x21, fn, al(c))
 		clearCarry(c)
 	}
 }

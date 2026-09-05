@@ -98,6 +98,46 @@ func (m *Machine) LoadEXE(data []byte) error {
 	return nil
 }
 
+// LoadOverlay 把 MZ 映像載到呼叫端指定的段位址，不改動行程狀態。
+// DOS int 21h AX=4B03h 的重定位基準由另一個參數提供，可以與載入段不同。
+func (m *Machine) LoadOverlay(data []byte, loadSeg, relocSeg uint16) error {
+	h, err := parseMZ(data)
+	if err != nil {
+		return err
+	}
+	hdr := int(h.HeaderPar) * 16
+	total := (int(h.Pages)-1)*512 + int(h.LastPage)
+	if h.LastPage == 0 {
+		total = int(h.Pages) * 512
+	}
+	if hdr > len(data) || total > len(data) || total <= hdr {
+		return fmt.Errorf("machine: MZ 檔頭說覆疊映像是 %d..%d，但檔案只有 %d bytes",
+			hdr, total, len(data))
+	}
+	image := append([]byte(nil), data[hdr:total]...)
+	dst := uint32(loadSeg) * 16
+	if uint64(dst)+uint64(len(image)) > uint64(len(m.Mem)) {
+		return fmt.Errorf("machine: 覆疊目的區 %05X..%05X 超出記憶體",
+			dst, uint64(dst)+uint64(len(image)))
+	}
+	for i := 0; i < int(h.Relocs); i++ {
+		p := int(h.RelocOff) + i*4
+		if p < 0 || p+4 > hdr || p+4 > len(data) {
+			return fmt.Errorf("machine: 覆疊重定位表第 %d 筆超出 MZ header", i)
+		}
+		off := binary.LittleEndian.Uint16(data[p:])
+		seg := binary.LittleEndian.Uint16(data[p+2:])
+		idx := int(seg)*16 + int(off)
+		if idx < 0 || idx+2 > len(image) {
+			return fmt.Errorf("machine: 覆疊重定位第 %d 筆指到映像外 %04X:%04X", i, seg, off)
+		}
+		v := binary.LittleEndian.Uint16(image[idx:])
+		binary.LittleEndian.PutUint16(image[idx:], v+relocSeg)
+	}
+	m.WriteBytes(dst, image)
+	return nil
+}
+
 // initPSP 建一個夠用的 PSP。
 //
 // 「夠用」的定義是 Microsoft C runtime 啟動不炸——每一欄都有一個

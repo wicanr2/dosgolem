@@ -199,6 +199,14 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 		fmt.Printf("  %s\n", r)
 	}
+	for _, detail := range d.UnimplementedDetails {
+		fmt.Printf("  首次暫存器 %s @ %04X:%04X DS=%04X ES=%04X AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X\n",
+			detail.Call, detail.CS, detail.IP, detail.DS, detail.ES, detail.AX, detail.BX,
+			detail.CX, detail.DX, detail.SI, detail.DI)
+		if detail.Path != "" {
+			fmt.Printf("    路徑 %q；參數區 % X\n", detail.Path, detail.Param)
+		}
+	}
 
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {

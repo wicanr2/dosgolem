@@ -1,6 +1,7 @@
 package dos
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,22 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
+
+func testMZOverlay() []byte {
+	const headerSize = 32
+	body := make([]byte, 32)
+	body[0], body[1] = 0x90, 0xF4
+	out := make([]byte, headerSize+len(body))
+	out[0], out[1] = 'M', 'Z'
+	binary.LittleEndian.PutUint16(out[2:], uint16(len(out)))
+	binary.LittleEndian.PutUint16(out[4:], 1)
+	binary.LittleEndian.PutUint16(out[6:], 1)
+	binary.LittleEndian.PutUint16(out[8:], 2)
+	binary.LittleEndian.PutUint16(out[24:], 0x1C)
+	binary.LittleEndian.PutUint16(out[0x1C:], 0x10)
+	copy(out[headerSize:], body)
+	return out
+}
 
 // 這一份測試釘的全是**會安靜出錯**的規則：每一條的反面都不會報錯，
 // 只會讓 `RUN.EXE` 在很後面的地方走進錯的分支。測試名字就說症狀。
@@ -52,6 +69,44 @@ func TestSetBlockProbeMustFailFirst(t *testing.T) {
 	call(m, d, 0x21, 0x4A00)
 	if m.CPU.Flags&cpu.CF != 0 {
 		t.Fatalf("拿 DOS 自己回的 %04X 再要一次還失敗——呼叫端的 jb 會判定錯誤", avail)
+	}
+}
+
+func TestExecOverlayLoadsMZAndReturnsToCaller(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "intro.exe"), testMZOverlay(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2000, 0x20
+	m.WriteBytes(cpu.Addr(0x2000, 0x20), append([]byte(`C:\RICH2\INTRO.EXE`), 0))
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0x2100, 0x30
+	m.Write16(cpu.Addr(0x2100, 0x30), 0x3000)
+	m.Write16(cpu.Addr(0x2100, 0x32), 0x1234)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x4444, 0x5555
+	call(m, d, 0x21, 0x4B03)
+
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 {
+		t.Fatalf("覆疊載入失敗：CF=%t AX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	if got := m.Read16(0x3000*16 + 0x10); got != 0x1234 {
+		t.Fatalf("覆疊重定位結果 %04X，預期 1234", got)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x4444 || m.CPU.IP != 0x5555 {
+		t.Fatal("EXEC 覆疊載入不該替呼叫端跳入映像")
+	}
+}
+
+func TestExecOverlayRejectsMissingAndUnsupportedSubfunction(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2000, 0x20
+	m.WriteBytes(cpu.Addr(0x2000, 0x20), append([]byte("MISSING.EXE"), 0))
+	call(m, d, 0x21, 0x4B03)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 2 {
+		t.Fatalf("缺檔應回 CF=1 AX=2，得到 CF=%t AX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	call(m, d, 0x21, 0x4B00)
+	if m.CPU.Flags&cpu.CF == 0 || d.Unimplemented[Call{Int: 0x21, AH: 0x4B, AL: 0}] != 1 {
+		t.Fatal("未支援的 EXEC 子功能沒有失敗即關閉並留下診斷")
 	}
 }
 

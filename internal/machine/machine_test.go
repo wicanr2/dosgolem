@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -116,6 +117,38 @@ func TestLoadEXEAppliesRelocations(t *testing.T) {
 	}
 	if !m.CPU.Halted {
 		t.Error("跑不到 HLT——載入點或 CS:IP 不對")
+	}
+}
+
+func TestLoadOverlayUsesSeparateRelocationFactorAndPreservesCPU(t *testing.T) {
+	m := New()
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2222, 0x3333
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x4444, 0x5555
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read16(0x3000*16 + 0x10); got != 0x1234 {
+		t.Fatalf("覆疊重定位後是 %04X，預期 1234", got)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x2222 || m.CPU.IP != 0x3333 ||
+		m.CPU.Seg[cpu.SS] != 0x4444 || m.CPU.R[cpu.SP] != 0x5555 {
+		t.Fatal("覆疊載入改動了呼叫端 CPU 狀態")
+	}
+}
+
+func TestLoadOverlayFailureDoesNotPartiallyOverwriteDestination(t *testing.T) {
+	m := New()
+	const dst = uint32(0x3000 * 16)
+	m.WriteBytes(dst, []byte{0xAA, 0xBB, 0xCC, 0xDD})
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	data[0x1C], data[0x1D] = 0xFF, 0x7F // relocation offset outside image
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err == nil {
+		t.Fatal("越界重定位竟然載入成功")
+	}
+	got := []byte{m.Read8(dst), m.Read8(dst + 1), m.Read8(dst + 2), m.Read8(dst + 3)}
+	if !bytes.Equal(got, []byte{0xAA, 0xBB, 0xCC, 0xDD}) {
+		t.Fatalf("失敗後目的區被部分改寫：% X", got)
 	}
 }
 

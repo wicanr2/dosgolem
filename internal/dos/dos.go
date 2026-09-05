@@ -94,6 +94,8 @@ type DOS struct {
 	// **「宣告成功」本身也會說謊**：該填的緩衝區沒填就是垃圾，症狀出現在
 	// 很後面而且完全不指向這裡。所以要數、要印（`docs/spec/004` §1.3）。
 	Unimplemented map[Call]int
+	// UnimplementedDetails 保留每種未實作服務第一次出現時的暫存器脈絡。
+	UnimplementedDetails []CallDetail
 
 	// Opened 是開過的檔（依序），Missing 是找不到的。兩份都是診斷用。
 	Opened  []string
@@ -121,6 +123,14 @@ type Write struct {
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
 type Call struct {
 	Int, AH, AL uint8
+}
+
+type CallDetail struct {
+	Call
+	CS, IP, DS, ES         uint16
+	AX, BX, CX, DX, SI, DI uint16
+	Path                   string
+	Param                  [16]byte
 }
 
 func (c Call) String() string {
@@ -196,6 +206,36 @@ func (d *DOS) exit(c *cpu.CPU, code uint8) {
 // note 記一筆沒實作的呼叫。
 func (d *DOS) note(intNo, ah, al uint8) {
 	d.Unimplemented[Call{Int: intNo, AH: ah, AL: al}]++
+}
+
+func (d *DOS) noteCPU(c *cpu.CPU, intNo, fn, sub uint8) {
+	d.note(intNo, fn, sub)
+	for _, detail := range d.UnimplementedDetails {
+		if detail.Int == intNo && detail.AH == fn && detail.AL == sub {
+			return
+		}
+	}
+	detail := CallDetail{
+		Call: Call{Int: intNo, AH: fn, AL: sub},
+		CS:   c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], ES: c.Seg[cpu.ES],
+		AX: c.R[cpu.AX], BX: c.R[cpu.BX], CX: c.R[cpu.CX], DX: c.R[cpu.DX],
+		SI: c.R[cpu.SI], DI: c.R[cpu.DI],
+	}
+	if intNo == 0x21 && fn == 0x4B {
+		pathAddr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+		for i := 0; i < 260; i++ {
+			b := d.M.Read8(pathAddr + uint32(i))
+			if b == 0 {
+				break
+			}
+			detail.Path += string([]byte{b})
+		}
+		paramAddr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+		for i := range detail.Param {
+			detail.Param[i] = d.M.Read8(paramAddr + uint32(i))
+		}
+	}
+	d.UnimplementedDetails = append(d.UnimplementedDetails, detail)
 }
 
 // UnimplementedReport 把統計排成可讀的清單，次數多的在前面。
