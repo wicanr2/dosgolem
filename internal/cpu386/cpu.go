@@ -635,6 +635,17 @@ func (c *CPU) Step() error {
 		if c.EFlags&CF == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0x77:
+		if operand16 {
+			return fail("77 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&(CF|ZF) == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0xfb:
 		c.EFlags |= IF
 	case op == 0x83:
@@ -830,7 +841,7 @@ func (c *CPU) Step() error {
 			c.setReg8(int((modrm>>3)&7), c.reg8(int(modrm&7)))
 			break
 		}
-		if segmentOverride < 0 || modrm>>6 != 1 || modrm&7 == 4 {
+		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 		delta, e := c.fetch8()
@@ -838,9 +849,13 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
-		value, ok := c.readSegment8(c.Seg[segmentOverride], addr)
+		segment := SegDS
+		if segmentOverride >= 0 {
+			segment = segmentOverride
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
 		if !ok {
-			return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+			return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[segment], addr))
 		}
 		c.setReg8(int((modrm>>3)&7), value)
 	case op == 0x8d:
@@ -1020,6 +1035,27 @@ func (c *CPU) Step() error {
 		}
 		reg, rm := (modrm>>3)&7, modrm&7
 		c.sub32(c.R[reg], c.R[rm])
+	case op == 0x38:
+		if operand16 || segmentOverride >= 0 {
+			return fail("38 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+		value, ok := c.readSegment8(c.Seg[SegDS], addr)
+		if !ok {
+			return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+		c.sub8(value, c.reg8(int((modrm>>3)&7)))
 	case op == 0x0d:
 		if operand16 {
 			return fail("16-bit OR accumulator 尚未支援")

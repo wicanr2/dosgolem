@@ -393,6 +393,25 @@ func TestCompareRegisterAndShortJAE(t *testing.T) {
 	}
 }
 
+func TestCompareDSByteLoadAndShortJA(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x38, 0x46, 0x01, 0x77, 0x02, 0xff, 0xff, 0x8a, 0x46, 0x01})
+	mem[0x25] = 0x20
+	c := New(mem)
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.R[ESI], c.R[EAX] = 4, 0x10
+	if err := c.Step(); err != nil || c.EFlags&(CF|ZF) != 0 {
+		t.Fatalf("CMP flags=%X err=%v", c.EFlags, err)
+	}
+	if err := c.Step(); err != nil || c.EIP != 7 {
+		t.Fatalf("taken JA EIP=%X err=%v", c.EIP, err)
+	}
+	if err := c.Step(); err != nil || c.R[EAX] != 0x20 {
+		t.Fatalf("MOV AL,[ESI+1] EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestCompareDSByteAndIncrementPreservesCarry(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x80, 0x3e, 0x00, 0x80, 0x7e, 0xff, 0x00, 0x41})
