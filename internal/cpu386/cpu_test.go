@@ -276,6 +276,31 @@ func TestProtectedModePushRegister(t *testing.T) {
 	}
 }
 
+func TestProtectedModePopDS(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	mem[0] = 0x1f
+	mem[0x70], mem[0x71] = 0x60, 0x01
+	c := New(mem)
+	c.R[ESP] = 0x50
+	c.Seg[SegSS], c.Seg[SegDS] = 0x168, 0x30
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Seg[SegDS] != 0x160 || c.R[ESP] != 0x54 {
+		t.Fatalf("DS=%X ESP=%X", c.Seg[SegDS], c.R[ESP])
+	}
+
+	c = New(mem)
+	c.R[ESP] = 0x50
+	c.Seg[SegSS], c.Seg[SegDS] = 0x168, 0x30
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err == nil || c.Seg[SegDS] != 0x30 || c.R[ESP] != 0x50 {
+		t.Fatalf("unknown selector changed state: err=%v DS=%X ESP=%X", err, c.Seg[SegDS], c.R[ESP])
+	}
+}
+
 func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
 	c := New(mem)
@@ -311,6 +336,50 @@ func TestImmediateORCompareAndShortJNZ(t *testing.T) {
 	}
 	if c.R[EAX] != 0x20212020 || c.EIP != 14 || c.EFlags&ZF != 0 {
 		t.Fatalf("EAX=%X EIP=%d flags=%X", c.R[EAX], c.EIP, c.EFlags)
+	}
+}
+
+func TestCompareDSByteAndIncrementPreservesCarry(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x80, 0x3e, 0x00, 0x80, 0x7e, 0xff, 0x00, 0x41})
+	mem[0x24] = 0x00
+	mem[0x23] = 0x7f
+	c := New(mem)
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.R[ESI], c.R[ECX] = 4, 0xffffffff
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || mem[0x24] != 0 {
+		t.Fatalf("zero CMP changed memory or flags: err=%v flags=%X byte=%X", err, c.EFlags, mem[0x24])
+	}
+	if err := c.Step(); err != nil || c.EFlags&ZF != 0 || c.EFlags&CF != 0 || mem[0x23] != 0x7f {
+		t.Fatalf("nonzero CMP changed memory or flags: err=%v flags=%X byte=%X", err, c.EFlags, mem[0x23])
+	}
+	c.EFlags |= CF
+	if err := c.Step(); err != nil || c.R[ECX] != 0 || c.EFlags&CF == 0 || c.EFlags&ZF == 0 {
+		t.Fatalf("INC ECX=%X flags=%X err=%v", c.R[ECX], c.EFlags, err)
+	}
+}
+
+func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0xac, 0xa4})
+	mem[0x24], mem[0x25] = 0x5a, 0xa5
+	c := New(mem)
+	c.Seg[SegDS], c.Seg[SegES] = 0x30, 0x160
+	c.SetDescriptor(0x30, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.SetDescriptor(0x160, Descriptor{Base: 0x60, Limit: 0x3f, Writable: true})
+	c.R[EAX], c.R[ESI], c.R[EDI] = 0x12345600, 4, 3
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 0x1234565a || c.R[ESI] != 5 {
+		t.Fatalf("LODSB EAX=%X ESI=%X", c.R[EAX], c.R[ESI])
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if mem[0x63] != 0xa5 || c.R[ESI] != 6 || c.R[EDI] != 4 {
+		t.Fatalf("MOVSB dst=%X ESI=%X EDI=%X", mem[0x63], c.R[ESI], c.R[EDI])
 	}
 }
 
