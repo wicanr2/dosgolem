@@ -666,3 +666,21 @@ func TestFD2WritesAILPreferenceWhenProvided(t *testing.T) {
 		t.Fatalf("AIL preference write steps=%d EIP=%X calls=%d index=%X stored=%X replacement=%X err=%v", steps, m.CPU.EIP, services.Calls(), index, stored, replacement, errStored)
 	}
 }
+
+func TestFD2LeavesAILWrapperWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 3000 && m.CPU.EIP != 0x38e1a; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL wrapper exit: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	before, errBefore := m.Read32(0x54178)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL wrapper DEC: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	after, errAfter := m.Read32(0x54178)
+	if m.CPU.EIP != 0x38e20 || services.Calls() != 5 || before == 0 || after != before-1 || errBefore != nil || errAfter != nil {
+		t.Fatalf("AIL wrapper exit steps=%d EIP=%X calls=%d before=%X after=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), before, after, errBefore, errAfter)
+	}
+}

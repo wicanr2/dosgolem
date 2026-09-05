@@ -285,6 +285,30 @@ func TestNotRegister32(t *testing.T) {
 	}
 }
 
+func TestDecrementAbsoluteDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0xff, 0x0d, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{1, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.EFlags = CF
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0, 0, 0, 0}) || c.EFlags&ZF == 0 || c.EFlags&CF == 0 {
+		t.Fatalf("DEC value=% X flags=%X err=%v", mem[0x20:0x24], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x30))
+	copy(mem, []byte{0xff, 0x0d, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{1, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f})
+	c.EFlags = CF | OF
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x20:0x24], []byte{1, 0, 0, 0}) || c.EFlags != CF|OF {
+		t.Fatalf("read-only DEC value=% X flags=%X err=%v", mem[0x20:0x24], c.EFlags, err)
+	}
+}
+
 func TestAndEAXImmediate32(t *testing.T) {
 	c := New(testBus{0x25, 0xff, 0xff, 0x00, 0x00})
 	c.R[EAX], c.EFlags = 0x12345678, CF|OF|AF
