@@ -769,3 +769,20 @@ func TestFD2StoresAILDataSelectorWhenProvided(t *testing.T) {
 		t.Fatalf("AIL DS store steps=%d EIP=%X calls=%d DS=%X stored=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegDS], stored, errStored)
 	}
 }
+
+func TestFD2LoadsAILDataSelectorWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3e93c; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL ES load: step=%d EIP=%X ES=%X: %v", steps, m.CPU.EIP, m.CPU.Seg[cpu386.SegES], err)
+		}
+	}
+	stored, errStored := m.Read16(0x52bee)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL ES load step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3e943 || services.Calls() != 5 || m.CPU.Seg[cpu386.SegES] != stored || errStored != nil {
+		t.Fatalf("AIL ES load steps=%d EIP=%X calls=%d ES=%X stored=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegES], stored, errStored)
+	}
+}

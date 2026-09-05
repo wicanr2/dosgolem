@@ -1750,9 +1750,6 @@ func (c *CPU) Step() error {
 		}
 		c.R[(modrm>>3)&7] = uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
 	case op == 0x8e:
-		if operand16 {
-			return fail("8E 不接受目前的 prefix")
-		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
@@ -1764,7 +1761,9 @@ func (c *CPU) Step() error {
 		}
 		destination := segmentByEncoding[encoding]
 		var value uint16
-		if modrm>>6 == 3 {
+		if operand16 && (segmentOverride >= 0 || modrm>>6 != 0 || modrm&7 != EBP) {
+			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
 			value = uint16(c.R[modrm&7])
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
@@ -1776,6 +1775,12 @@ func (c *CPU) Step() error {
 				value, ok = c.readSegment16(c.Seg[segmentOverride], addr)
 				if !ok {
 					return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+				}
+			} else if operand16 {
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[SegDS], addr))
 				}
 			} else {
 				value, e = c.read16(addr)

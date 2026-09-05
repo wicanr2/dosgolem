@@ -435,6 +435,27 @@ func TestStoreSegmentAbsoluteWord(t *testing.T) {
 	}
 }
 
+func TestLoadSegmentAbsoluteWord(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x66, 0x8e, 0x05, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{0x28, 0})
+	c := New(mem)
+	c.Seg[SegDS], c.Seg[SegES] = 0x160, 0x30
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f})
+	c.SetDescriptor(0x28, Descriptor{Base: 0, Limit: 0x2f})
+	if err := c.Step(); err != nil || c.Seg[SegES] != 0x28 {
+		t.Fatalf("MOV ES=%X err=%v", c.Seg[SegES], err)
+	}
+
+	mem[0x20], mem[0x21] = 0x99, 0
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegES] = 0x160, 0x30
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f})
+	if err := c.Step(); err == nil || c.Seg[SegES] != 0x30 {
+		t.Fatalf("invalid selector MOV ES=%X err=%v", c.Seg[SegES], err)
+	}
+}
+
 func TestRegisterCMP8(t *testing.T) {
 	c := New(testBus{0x38, 0xf3})
 	c.R[EBX], c.R[EDX] = 0x11, 0x1100
