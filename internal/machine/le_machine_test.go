@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
@@ -43,17 +44,21 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
 		t.Fatalf("unexpected entry state: EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
 	}
+	wantScanBytes := []byte{0x80, 0x3e, 0x00, 0xac, 0x75, 0xfa, 0x80, 0x3e, 0x00, 0x75, 0xe0, 0xac, 0x46, 0x46, 0x80, 0x3e, 0x00, 0xa4, 0x75, 0xfa, 0x1f}
+	if got := m.Mem[0x3cb27 : 0x3cb27+uint32(len(wantScanBytes))]; !bytes.Equal(got, wantScanBytes) {
+		t.Fatalf("environment scan bytes=% X", got)
+	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cb27 && steps < 100; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cb3c && steps < 140; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cb27 {
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cb3c {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != 0x20212020 || m.CPU.R[cpu386.EBX] != 0x28 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
+	if m.CPU.R[cpu386.EAX] != 0x20212000 || m.CPU.R[cpu386.EBX] != 0x28 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
 		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
 	selectorGS, err := m.Read16(0x527f0)
@@ -78,19 +83,19 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if err != nil || environmentWord != 0x30 {
 		t.Fatalf("environment word=%X err=%v", environmentWord, err)
 	}
-	if m.CPU.R[cpu386.ESP] != 0x556a8 {
+	if m.CPU.R[cpu386.ESP] != 0x556ac {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
 	}
-	if m.CPU.Seg[cpu386.SegDS] != 0x30 || m.CPU.Seg[cpu386.SegES] != 0x160 {
+	if m.CPU.Seg[cpu386.SegDS] != 0x160 || m.CPU.Seg[cpu386.SegES] != 0x160 {
 		t.Fatalf("environment selectors DS=%X ES=%X", m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
 	}
 	if m.CPU.R[cpu386.EDX] != 0x160 || m.CPU.R[cpu386.ECX] != 0 {
 		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
 	}
-	if m.CPU.R[cpu386.EAX] != 0x20212020 || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF != 0 {
+	if m.CPU.R[cpu386.EAX] != 0x20212000 || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF == 0 {
 		t.Fatalf("environment first dword EAX=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
-	if m.CPU.R[cpu386.ESI] != 0 || m.CPU.R[cpu386.EDI] != 0x546b1 || m.CPU.R[cpu386.EBX] != 0x28 {
+	if m.CPU.R[cpu386.ESI] != 12 || m.CPU.R[cpu386.EDI] != 0x546b9 || m.CPU.R[cpu386.EBX] != 0x28 {
 		t.Fatalf("command-tail pointers ESI=%X EDI=%X EBX=%X", m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBX])
 	}
 	stackValue, err := m.Read32(0x556ac)
@@ -98,8 +103,8 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 		t.Fatalf("protected stack value=%X err=%v", stackValue, err)
 	}
 	stackSelector, err := m.Read32(0x556a8)
-	if err != nil || stackSelector != 0x160 || m.Mem[0x546b0] != 0 || m.Mem[0x546b1] != 0 {
-		t.Fatalf("final stack selector=%X buffer=%02X%02X err=%v", stackSelector, m.Mem[0x546b0], m.Mem[0x546b1], err)
+	if err != nil || stackSelector != 0x160 || m.Mem[0x546b0] != 0 || !bytes.Equal(m.Mem[0x546b1:0x546b9], []byte("FD2.EXE\x00")) {
+		t.Fatalf("final stack selector=%X buffer=% X err=%v", stackSelector, m.Mem[0x546b0:0x546b9], err)
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {

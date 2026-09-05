@@ -412,6 +412,28 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x1f:
+		if operand16 {
+			return fail("16-bit POP DS 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		selector := uint16(value)
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		if !c.canLoadSegment(selector, SegDS) {
+			return fail(fmt.Sprintf("DS selector %04X 未登錄", selector))
+		}
+		c.Seg[SegDS] = selector
+		c.R[ESP] += 4
+	case op >= 0x40 && op <= 0x47:
+		if operand16 {
+			return fail("16-bit INC 尚未支援")
+		}
+		reg := int(op - 0x40)
+		carry := c.EFlags & CF
+		c.R[reg] = c.add32(c.R[reg], 1)
+		c.EFlags = c.EFlags&^CF | carry
 	case op >= 0x48 && op <= 0x4f:
 		if operand16 {
 			return fail("16-bit DEC 尚未支援")
@@ -441,6 +463,38 @@ func (c *CPU) Step() error {
 			c.R[EDI]--
 		} else {
 			c.R[EDI]++
+		}
+	case op == 0xa4:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("MOVSB 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment8(c.Seg[SegDS], c.R[ESI])
+		if !ok {
+			return fail(fmt.Sprintf("MOVSB read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+		}
+		if !c.writeSegment8(c.Seg[SegES], c.R[EDI], value) {
+			return fail(fmt.Sprintf("MOVSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+		}
+		if c.EFlags&DF != 0 {
+			c.R[ESI]--
+			c.R[EDI]--
+		} else {
+			c.R[ESI]++
+			c.R[EDI]++
+		}
+	case op == 0xac:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("LODSB 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment8(c.Seg[SegDS], c.R[ESI])
+		if !ok {
+			return fail(fmt.Sprintf("LODSB read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+		}
+		c.setReg8(0, value)
+		if c.EFlags&DF != 0 {
+			c.R[ESI]--
+		} else {
+			c.R[ESI]++
 		}
 	case op == 0xfc:
 		if operand16 || segmentOverride >= 0 || repe {
@@ -540,17 +594,37 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 || (modrm>>3)&7 != 4 {
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 3 && group == 4 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			rm := int(modrm & 7)
+			result := c.reg8(rm) & imm
+			c.setReg8(rm, result)
+			c.setLogicFlags8(result)
+		} else if group == 7 && (modrm == 0x3e || modrm == 0x7e) {
+			addr := c.R[ESI]
+			if modrm == 0x7e {
+				delta, e := c.fetch8()
+				if e != nil {
+					return fail(e.Error())
+				}
+				addr = uint32(int64(addr) + int64(int8(delta)))
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub8(value, imm)
+		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
-		imm, e := c.fetch8()
-		if e != nil {
-			return fail(e.Error())
-		}
-		rm := int(modrm & 7)
-		result := c.reg8(rm) & imm
-		c.setReg8(rm, result)
-		c.setLogicFlags8(result)
 	case op == 0xc1:
 		if operand16 {
 			return fail("16-bit C1 尚未支援")
