@@ -42,6 +42,10 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	keys := flag.String("keys", "", "要送進鍵盤緩衝區的字元（`\n` ＝ Enter），"+
+		"每 -key-every 道指令送一個")
+	keyEvery := flag.Uint64("key-every", 2_000_000, "兩次送鍵之間隔幾道指令")
+	keyFrom := flag.Uint64("key-from", 2_000_000, "第幾道指令開始送第一個鍵")
 	flag.Parse()
 
 	if *exe == "" {
@@ -71,6 +75,10 @@ func main() {
 		moveAt = *steps / 2
 	}
 
+	// 鍵盤：把字串攤成 rune，一次送一個。`\n` 走 Enter 的掃描碼。
+	runes := []rune(strings.ReplaceAll(*keys, "\\n", "\n"))
+	ki := 0
+
 	ring := newRing(*trace)
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
@@ -99,6 +107,16 @@ func main() {
 			case *clickAt + *clickHold:
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
+			}
+		}
+		// 送鍵：**照指令數排程，不照時間**，這樣對拍才是決定性的。
+		// 空的緩衝區才送下一個，否則同一個鍵會被連續塞進去
+		// （遊戲的輪詢頻率遠低於送鍵頻率）。
+		if ki < len(runes) && m.Steps >= *keyFrom+uint64(ki)*(*keyEvery) {
+			if _, pending := m.PeekKey(); !pending {
+				if m.PushKey(scanOf(runes[ki]), byte(runes[ki])) {
+					ki++
+				}
 			}
 		}
 		ring.push(m.CPU)
@@ -320,6 +338,14 @@ func dumpPeek(m *machine.Machine, spec string) {
 		var n int
 		var label string
 		switch {
+		case len(f) == 3 && f[0] == "abs":
+			// 絕對線性位址，不做任何換算。
+			// **`IDAOffset` 是 rich2 那一支執行檔的常數**，別的程式套不上；
+			// 要看 BDA、視訊緩衝區這種固定位置時得有一條不換算的路。
+			a, _ := strconv.ParseUint(f[1], 16, 32)
+			n, _ = strconv.Atoi(f[2])
+			addr = uint32(a)
+			label = fmt.Sprintf("abs:%s", strings.ToUpper(f[1]))
 		case len(f) == 3 && f[0] == "ds":
 			off, _ := strconv.ParseUint(f[1], 16, 16)
 			n, _ = strconv.Atoi(f[2])
@@ -361,4 +387,30 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 func die(err error) {
 	fmt.Fprintln(os.Stderr, "probe:", err)
 	os.Exit(1)
+}
+
+// scanOf 給一個字元配掃描碼。
+//
+// **只有真的要看掃描碼的程式才在意這個值**（方向鍵、功能鍵那些沒有 ASCII 的）。
+// 一般的字元與數字，程式讀的是低位元組的 ASCII，掃描碼填成合理值就夠；
+// 這裡只把幾個特殊鍵填對，其餘給 0。填錯的代價是「有些程式會忽略這一筆」，
+// 所以寧可留 0 也不要亂猜——0 是「非鍵盤來源」的慣例值。
+func scanOf(r rune) byte {
+	switch r {
+	case '\n', '\r':
+		return 0x1C // Enter
+	case 0x1B:
+		return 0x01 // Esc
+	case ' ':
+		return 0x39
+	case '\b':
+		return 0x0E
+	}
+	if r >= '1' && r <= '9' {
+		return byte(0x02 + (r - '1'))
+	}
+	if r == '0' {
+		return 0x0B
+	}
+	return 0
 }

@@ -179,6 +179,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x13)
 	case 0x13:
 		d.int13(c)
+	case 0x1A:
+		d.int1A(c)
 	case 0x20:
 		d.exit(c, 0)
 	default:

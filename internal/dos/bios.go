@@ -144,9 +144,20 @@ func (d *DOS) int33(c *cpu.CPU) {
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
-		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
-		c.SetFlags(c.Flags | cpu.ZF)
+		// 從 BDA 的環形緩衝取。**空的時候回 0 而不是真的阻塞**——
+		// 這是無頭執行器，沒有人可以等；回 0 讓呼叫端自己決定要不要再問。
+		if v, ok := d.M.PopKey(); ok {
+			c.R[cpu.AX] = v
+		} else {
+			c.R[cpu.AX] = 0
+		}
+	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
+		if v, ok := d.M.PeekKey(); ok {
+			c.R[cpu.AX] = v
+			c.SetFlags(c.Flags &^ cpu.ZF)
+		} else {
+			c.SetFlags(c.Flags | cpu.ZF)
+		}
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	default:
@@ -173,4 +184,32 @@ func (d *DOS) int13(c *cpu.CPU) {
 		setAH(c, 0x80) // 逾時
 		setCarry(c)
 	}
+}
+
+// int1A 是 BIOS 的時刻服務。
+//
+// 只實作 AH=00h（取日內 tick 計數）。這個功能號在 dosgolem 裡幾乎是白拿的：
+// `machine.bumpBDATicks` 本來就在推進 `0040:006C`，這裡只是把它讀出來擺進
+// `CX:DX`——但**沒有它，靠時間換算的等待迴圈一道都轉不出去**。
+//
+// 三國志（DOS 版）就停在這個形狀上：`MAIN.EXE` 跑滿兩千萬道指令，
+// 唯一做的事是 92,090 次 `int 1Ah AH=00`。預設的「宣告成功但不動暫存器」
+// 讓 `CX:DX` 保持呼叫端傳進來的值，計數永遠不變，等於死迴圈——
+// 而 `Unimplemented` 的統計是唯一看得出來的訊號。
+//
+// AL 是跨日旗標（`0040:0070`），**讀完要清掉**：BIOS 的語意是「自從上次查詢
+// 以來有沒有跨過午夜」，不清的話呼叫端會一直以為剛跨日。
+func (d *DOS) int1A(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x00:
+		const at = 0x0040*16 + 0x6C
+		lo, hi := d.M.Read16(at), d.M.Read16(at+2)
+		c.R[cpu.CX], c.R[cpu.DX] = hi, lo
+		roll := d.M.Read8(0x0040*16 + 0x70)
+		setAL(c, roll)
+		d.M.Write8(0x0040*16+0x70, 0)
+	default:
+		d.note(0x1A, ah(c), al(c))
+	}
+	clearCarry(c)
 }
