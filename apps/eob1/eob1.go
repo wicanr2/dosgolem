@@ -76,7 +76,7 @@ func ToFirstCharacterRace(o *oracle.Oracle) error {
 	return nil
 }
 
-// ToFirstCharacterClass 選定第一角色預設Human Male，進入職業選擇頁。
+// ToFirstCharacterClass 由第一角色種族頁進入職業選擇頁。
 func ToFirstCharacterClass(o *oracle.Oracle) error {
 	if err := ToFirstCharacterRace(o); err != nil {
 		return err
@@ -89,7 +89,7 @@ func ToFirstCharacterClass(o *oracle.Oracle) error {
 	return nil
 }
 
-// ToFirstCharacterAlignment 選定第一角色預設Fighter，進入陣營選擇頁。
+// ToFirstCharacterAlignment 由第一角色職業頁進入陣營選擇頁。
 func ToFirstCharacterAlignment(o *oracle.Oracle) error {
 	if err := ToFirstCharacterClass(o); err != nil {
 		return err
@@ -98,6 +98,19 @@ func ToFirstCharacterAlignment(o *oracle.Oracle) error {
 	if err := o.RunUntil(screenDigest("第一角色SELECT ALIGNMENT頁", 138, 60, 170, 130,
 		"aade7402dce32dc8a71b9ca7d1ed057836487dc67b27e0fc482cef512da62b40"), oracle.Budget(10_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待第一角色陣營選擇：%w", err)
+	}
+	return nil
+}
+
+// ToFirstCharacterStats 由第一角色陣營頁進入屬性／肖像頁。
+func ToFirstCharacterStats(o *oracle.Oracle) error {
+	if err := ToFirstCharacterAlignment(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色屬性／肖像頁", 130, 55, 180, 140,
+		"d57c5b9740bf8708984ab7da91f950755a1255d06f0bcc4555500d294f95d42e"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色屬性頁：%w", err)
 	}
 	return nil
 }

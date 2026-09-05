@@ -4,7 +4,7 @@
 
 ## 證據與契約
 
-在CONFORMED第一角色`SELECT RACE:`頁直接按Enter，原版接受預設`HUMAN MALE`並進入
+在CONFORMED第一角色`SELECT RACE:`頁直接按Enter，原版進入
 `SELECT CLASS:`，列出Fighter、Ranger、Mage、Cleric、Thief及複合職業，右下有Back。
 
 左側角色槽星光持續循環；右側矩形`(138,60) 170×130`完成後色號SHA-256固定為
@@ -17,6 +17,11 @@ port `60h`讀取。
 
 ## 限制與停止線
 
-本checkpoint只證實預設Human Male進入職業頁，不代表已選定職業或完成其後陣營、屬性、肖像、
+本checkpoint只證實種族頁進入職業頁，不把當時視覺反白項目推定為已選種族；不代表已選定職業或完成其後陣營、屬性、肖像、
 姓名步驟。原版資料與畫面只作本機研究；真實資料測試、十次port `60h`讀取與人眼檢視均已
 通過，本規格升為CONFORMED。
+
+## 2026-09-07 勘誤
+
+後續屬性頁實際顯示`ELF MALE / MAGE`，推翻原先僅由清單順序推定的「預設Human Male」。保留
+頁面轉移與掃描碼證據，但刪除未經狀態consumer證實的選項身分宣稱。
