@@ -9,6 +9,7 @@ package machine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 )
@@ -37,7 +38,11 @@ const (
 	MemTop = 0x9FFF
 
 	// VideoSeg 是 mode 13h 的畫面。
-	VideoSeg   = 0xA000
+	VideoSeg = 0xA000
+
+	// TextSeg 是彩色文字模式的畫面緩衝區。走文字模式的程式把字元與屬性
+	// 交錯寫在這裡，不經過 VideoSeg。
+	TextSeg    = 0xB800
 	VideoWidth = 320
 	VideoHigh  = 200
 )
@@ -107,7 +112,7 @@ type Machine struct {
 	KeyIRQs uint64
 
 	// kbData 是埠 60h 目前的值。
-	kbData    uint8
+	kbData     uint8
 	nextKeyIRQ uint64
 
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
@@ -361,9 +366,9 @@ func (m *Machine) bumpBDATicks() {
 //     到垃圾（`rich2/docs/re/005` §3.2）。
 //  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
 func (m *Machine) initVectors() {
-	m.Mem[StubSeg*16] = 0xCF                   // iret
-	m.Mem[StubSeg*16+mouseStubOff] = 0x90      // nop
-	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF    // iret
+	m.Mem[StubSeg*16] = 0xCF                // iret
+	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
+	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 	for v := 0; v < 256; v++ {
 		m.Write16(uint32(v)*4, 0)
 		m.Write16(uint32(v)*4+2, StubSeg)
@@ -415,4 +420,56 @@ func (m *Machine) TypeScan(s string) error {
 		}
 	}
 	return nil
+}
+
+// TextScreen 把彩色文字頁（B800）讀成一列一列的字串。
+//
+// cols 為 0 時用 BDA 記的欄數，再不合理就退回 80。
+// 非可列印的字元換成空白——文字模式的緩衝區在程式清畫面之前是垃圾，
+// 直接印出來只會蓋掉真正有內容的那幾列。
+//
+// 每一列的尾端空白會去掉，但**空白列會保留**：第幾列有東西本身是資訊。
+func (m *Machine) TextScreen(cols int) []string {
+	if cols <= 0 || cols > 132 {
+		cols = int(m.Read16(0x44A))
+	}
+	if cols <= 0 || cols > 132 {
+		cols = 80
+	}
+	rows := make([]string, 25)
+	for row := range rows {
+		line := make([]byte, cols)
+		for col := 0; col < cols; col++ {
+			ch := m.Read8(TextSeg*16 + uint32(row*cols+col)*2)
+			if ch < 0x20 || ch > 0x7E {
+				ch = ' '
+			}
+			line[col] = ch
+		}
+		rows[row] = strings.TrimRight(string(line), " ")
+	}
+	return rows
+}
+
+// Find 掃整個位址空間，回傳 pattern 出現的每一個實體位址。
+//
+// 拿來定位「被程式自己搬進記憶體的東西」——那種東西的載入位址靜態看不出來，
+// 而挑一段不會被改寫的內容當指紋是最直接的辦法。
+//
+// pattern 是空的就回 nil：回「到處都是」比回「找不到」更難查。
+func (m *Machine) Find(pattern []byte) []uint32 {
+	if len(pattern) == 0 || len(pattern) > len(m.Mem) {
+		return nil
+	}
+	var hits []uint32
+	last := uint32(len(m.Mem) - len(pattern))
+	for a := uint32(0); a <= last; a++ {
+		if m.Mem[a] != pattern[0] {
+			continue
+		}
+		if string(m.Mem[a:a+uint32(len(pattern))]) == string(pattern) {
+			hits = append(hits, a)
+		}
+	}
+	return hits
 }

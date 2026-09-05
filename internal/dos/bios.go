@@ -48,8 +48,8 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 查 `AL` 的話那個分支永遠不成立（`docs/spec/004` §3）。
 		switch bl(c) {
 		case 0x10: // 取 EGA 資訊
-			setBH(c, 0x00)      // 彩色模式
-			setBL(c, 0x03)      // 記憶體 256 KB
+			setBH(c, 0x00)       // 彩色模式
+			setBL(c, 0x03)       // 記憶體 256 KB
 			c.R[cpu.CX] = 0x0009 // 功能位元／切換設定
 		case 0x20, 0x30, 0x31, 0x32, 0x33, 0x34:
 			setAL(c, 0x12) // 表示有支援
