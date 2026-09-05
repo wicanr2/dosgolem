@@ -762,14 +762,15 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if extended != 0x85 || operand16 {
+		if (extended != 0x84 && extended != 0x85) || operand16 {
 			return fail(fmt.Sprintf("0F %02X 尚未支援", extended))
 		}
 		delta, e := c.fetch32()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if c.EFlags&ZF == 0 {
+		shouldJump := extended == 0x84 && c.EFlags&ZF != 0 || extended == 0x85 && c.EFlags&ZF == 0
+		if shouldJump {
 			c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
 		}
 	case op == 0xcd:

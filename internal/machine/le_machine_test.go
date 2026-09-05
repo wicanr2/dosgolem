@@ -45,13 +45,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3caf2 && steps < 60; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cb01 && steps < 70; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3caf2 {
-		t.Fatalf("entry did not establish command-tail pointers: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cb01 {
+		t.Fatalf("entry did not skip zero-length command-tail copy: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 0x20 || m.CPU.R[cpu386.EBX] != 0x28 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF == 0 {
 		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
@@ -81,10 +81,10 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.R[cpu386.ESP] != 0x556ac {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
 	}
-	if m.CPU.Seg[cpu386.SegES] != 0x28 {
-		t.Fatalf("restored ES selector=%X", m.CPU.Seg[cpu386.SegES])
+	if m.CPU.Seg[cpu386.SegDS] != 0x28 || m.CPU.Seg[cpu386.SegES] != 0x160 {
+		t.Fatalf("swapped selectors DS=%X ES=%X", m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
 	}
-	if m.CPU.R[cpu386.EDX] != 0x546b0 || m.CPU.R[cpu386.ECX] != 0 {
+	if m.CPU.R[cpu386.EDX] != 0x160 || m.CPU.R[cpu386.ECX] != 0 {
 		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
 	}
 	if uint8(m.CPU.R[cpu386.EAX]) != 0x20 || m.CPU.EFlags&cpu386.DF != 0 {
