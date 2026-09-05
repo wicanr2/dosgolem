@@ -256,6 +256,13 @@ func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
 // 退的是 opCS:opIP 而不是 `IP − 2`，因為前綴會讓指令長度不是 2。
 func (c *CPU) Rewind() { c.Seg[CS], c.IP = c.opCS, c.opIP }
 
+// Op 回**本道指令**的 CS:IP。
+//
+// ⚠ **不要用 `Seg[CS]:IP` 當「現在執行到哪」**——取指令會把 IP 推進，
+// 所以在指令執行到一半（例如記憶體寫入的當下）讀到的是**下一道**的位址。
+// 要回答「誰寫了這個位址」一定要用這一支。
+func (c *CPU) Op() (cs, ip uint16) { return c.opCS, c.opIP }
+
 // Error 是執行不下去時回傳的原因。CPU 自己不 panic——
 // 上層要能把「跑到沒實作的東西」與「程式自己出錯」分開記錄。
 type Error struct {

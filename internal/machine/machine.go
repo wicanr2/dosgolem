@@ -114,6 +114,10 @@ type Machine struct {
 	// **只有平面模式會用到**；mode 13h 走 Mem 那條線性路徑。
 	VGA *VGA
 
+	// 記憶體寫入監看（`WatchWrites`）。`watchLo > watchHi` ＝ 沒在盯。
+	watchLo, watchHi uint32
+	OnWrite          func(addr uint32, v uint8)
+
 	// planar 是「目前是不是平面模式」的快取。放在這裡是因為
 	// 每一次記憶體存取都要問它，而 SetVideoMode 是唯一的寫入點。
 	planar bool
@@ -143,6 +147,7 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		VGA:       newVGA(),
+		watchLo:   1, // lo > hi ＝ 沒在盯
 		IRQ0Every: DefaultIRQ0Every,
 	}
 	m.CPU = cpu.New(m)
@@ -169,11 +174,25 @@ func (m *Machine) Read8(a uint32) uint8 {
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
+	if m.watchLo <= m.watchHi && a >= m.watchLo && a <= m.watchHi && m.OnWrite != nil {
+		m.OnWrite(a, v)
+	}
 	if m.planar && a >= VideoSeg*16 && a < VideoSeg*16+PlaneSize {
 		m.VGA.Write(uint16(a-VideoSeg*16), v)
 		return
 	}
 	m.Mem[a] = v
+}
+
+// WatchWrites 盯一段線性位址的寫入。`lo > hi` 表示不盯。
+//
+// ⭐ **這回答的是「誰寫了這個位址」**——靜態的交叉參考掃描對
+// `ds:XXXX` 這種絕對定址、以及經過指標的間接寫入都是盲的
+// （臥龍傳專案 `CONTEXT.md` §6 有一整段講兩支工具的盲區重疊）。
+//
+// ⚠ 只盯 `Write8`；`Write16` 走兩次 `Write8`，所以一個字的寫入會叫兩次。
+func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, v uint8)) {
+	m.watchLo, m.watchHi, m.OnWrite = lo, hi, fn
 }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——

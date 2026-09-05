@@ -21,6 +21,9 @@
 //	corps             印出軍團表（現在據點／目標據點／朝向／計時器／狀態）
 //	siege:攻方,據點   **直接叫原版開一場攻城戰**（守方由原版自己挑）
 //	units[:all]       印出戰場上每個兵的座標與狀態（預設只印活著的）
+//	unitwatch:側,隊,位 盯那個兵的座標欄位，印出**是誰寫的**（每個位址只印前三次）
+//	wwatch:LIN:N      盯 IDA 線性位址起 N 個 byte 的寫入，印出是誰寫的
+//	unwatch           收掉寫入監看
 //	runto:LIN[,N]     跑到 CS:IP 走到 IDA 線性位址 LIN（預算 N 道指令，預設 4 億）
 //	save:NAME         把目前的機器狀態記到記憶體裡的一個格子
 //	restore:NAME      倒回那個格子——**一次執行裡展開多個變體**
@@ -227,6 +230,66 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		}
 		o.Restore(st)
 		fmt.Printf("   倒回狀態「%s」（第 %d 道指令）\n", arg, o.Steps())
+		return nil
+	case "unitwatch":
+		// `unitwatch:側,隊,位` —— 盯那個兵的座標欄位（`+0x06`／`+0x08`），
+		// 每有人寫就印出**寫的那道指令**的 IDA 位址。
+		f := strings.Split(arg, ",")
+		if len(f) != 3 {
+			return fmt.Errorf("格式是 unitwatch:側,隊,位")
+		}
+		var n [3]int
+		for i, v := range f {
+			x, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return err
+			}
+			n[i] = x
+		}
+		if err := o.RunUntil(wolong.UnitsReady(), oracle.Budget(20_000_000)); err != nil {
+			return fmt.Errorf("等單位記錄區配好：%w", err)
+		}
+		base := wolong.UnitAddr(o, n[0], n[1], n[2])
+		seen := map[uint32]int{}
+		o.OnWrite(base+6, base+9, func(o *oracle.Oracle, h oracle.WriteHit) {
+			seen[h.At]++
+			if seen[h.At] <= 3 {
+				fmt.Printf("   #%d 寫 %05X ← %02X（%s）來自 %05X\n",
+					o.Steps(), h.Addr, h.Val,
+					[]string{"X", "上一格X", "Y", "上一格Y"}[h.Addr-base-6], h.At)
+			}
+		})
+		fmt.Printf("   盯住兵 %d/%d/%d 的座標（線性 %05X+6..+9）\n",
+			n[0], n[1], n[2], base)
+		return nil
+	case "wwatch":
+		// `wwatch:LIN:N` —— 盯 IDA 線性位址起 N 個 byte 的寫入。
+		f := strings.Split(arg, ":")
+		if len(f) != 2 {
+			return fmt.Errorf("格式是 wwatch:線性位址:長度")
+		}
+		lin, err := strconv.ParseUint(strings.TrimSpace(f[0]), 16, 32)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(f[1]))
+		if err != nil {
+			return err
+		}
+		lo := o.IDA(uint32(lin)).Linear()
+		seen := map[uint32]int{}
+		o.OnWrite(lo, lo+uint32(n)-1, func(o *oracle.Oracle, h oracle.WriteHit) {
+			seen[h.At]++
+			if seen[h.At] <= 3 {
+				fmt.Printf("   #%d 寫 %05X ← %02X 來自 %05X\n",
+					o.Steps(), h.Addr+o.ToIDA(oracle.Far(0, 0)), h.Val, h.At)
+			}
+		})
+		fmt.Printf("   盯住 %05X 起 %d 個 byte\n", lin, n)
+		return nil
+	case "unwatch":
+		o.StopWrites()
+		fmt.Println("   收掉寫入監看")
 		return nil
 	case "units":
 		us := wolong.Units(o, arg != "all")

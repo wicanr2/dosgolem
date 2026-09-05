@@ -700,3 +700,23 @@ func Units(o *oracle.Oracle, alive bool) []Unit {
 	}
 	return out
 }
+
+// UnitAddr 回某一個兵的記錄在記憶體裡的線性位址。
+//
+// **戰場開起來之後才有意義**——`cs:word_1D30E` 是進戰術畫面時才配的。
+func UnitAddr(o *oracle.Oracle, side, squad, slot int) uint32 {
+	seg := o.Word(o.IDA(idaUnitSeg))
+	off := uint16(side*sideSize + squad*squadSize + slot*unitSize)
+	return oracle.Far(seg, off).Linear()
+}
+
+// UnitsReady 是「單位記錄區配好了」。
+//
+// ⚠ **進到 `sub_11B5A` 的那一刻 `cs:word_1D30E` 還是 0**——那一段是
+// 戰場開場流程裡才配的。太早裝監看只會盯到線性位址 0 附近，
+// 而那看起來就像「沒有人寫」。
+func UnitsReady() oracle.Cond {
+	return oracle.NewCond("單位記錄區配好", func(o *oracle.Oracle) bool {
+		return o.Word(o.IDA(idaUnitSeg)) != 0
+	})
+}

@@ -433,3 +433,32 @@ func sameBytes(a, b []uint8) bool {
 	}
 	return true
 }
+
+// ---- 記憶體寫入監看 ------------------------------------------------------
+
+// WriteHit 是一次被盯到的寫入。
+type WriteHit struct {
+	Addr uint32 // 線性位址
+	Val  uint8
+	// At 是**寫這一下的那道指令**的 IDA 線性位址。
+	At uint32
+}
+
+// OnWrite 盯一段位址的寫入，每一次都叫 fn。
+//
+// ⭐ **「誰寫了這個位址」的直接答案。** 靜態交叉參考對兩種寫法是盲的：
+// `ds:XXXX` 這種絕對定址（IDA 沒把段值傳播進來，不建 xref），
+// 以及 `ptr = &x` 之後的間接寫入。**兩支工具都回 0 的時候，
+// 要做的是換一種觀測，不是換一個假說。**
+//
+// ⚠ 位址是**線性位址**（`Addr.Linear()`），不是 IDA 位址；
+// 而 `At` 回的是 IDA 位址，因為那是拿去查筆記的那一個。
+func (o *Oracle) OnWrite(lo, hi uint32, fn func(*Oracle, WriteHit)) {
+	o.m.WatchWrites(lo, hi, func(addr uint32, v uint8) {
+		cs, ip := o.m.CPU.Op()
+		fn(o, WriteHit{Addr: addr, Val: v, At: o.ToIDA(Addr{cs, ip})})
+	})
+}
+
+// StopWrites 收掉監看。
+func (o *Oracle) StopWrites() { o.m.WatchWrites(1, 0, nil) }
