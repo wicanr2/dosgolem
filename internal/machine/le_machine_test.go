@@ -571,3 +571,17 @@ func TestFD2CompletesFirstDPMILockWhenProvided(t *testing.T) {
 		t.Fatalf("first DPMI lock steps=%d EIP=%X calls=%d EAX=%X ESP=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
 	}
 }
+
+func TestFD2CompletesAILDPMILocksWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 2000 && m.CPU.EIP != 0x378de; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL DPMI locks: step=%d EIP=%X EAX=%X EBX=%X ECX=%X EDX=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	initialized, err := m.Read32(0x527e4)
+	if m.CPU.EIP != 0x378de || services.Calls() != 5 || initialized != 1 || err != nil {
+		t.Fatalf("AIL DPMI locks steps=%d EIP=%X calls=%d initialized=%X err=%v", steps, m.CPU.EIP, services.Calls(), initialized, err)
+	}
+}
