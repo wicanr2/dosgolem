@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "game": "fd2",
+  "scenario": "ch01-field",
+  "state": "near-state",
+  "executable": {
+    "path": "FD2.EXE",
+    "size": 357074,
+    "md5": "b97caf2239a27a896069d03549d96e1e",
+    "sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
+  },
+  "input_sha256": "cd56da6bd149047314b0d036cda095a93b19fffc9541be657848110254577f00",
+  "dosgolem_commit": "c47fc06",
+  "remake_commit": "bb83e82e",
+  "original_capture": "fd2-dosgolem-ch01-live-320.png",
+  "original_capture_sha256": "7710c12e5a95d8c974f3b7585ee04b4d9d56df8c6e7817605c61a1beb1b4aa0a",
+  "remake_capture": "native-map-ch01-remake-handler.png",
+  "remake_capture_sha256": "10cd82b22aa3637fa230f1fcd12146ecae1b8d93fe4055cdefaae85c05bcaeb4",
+  "remake_normalization": "nearest_2x",
+  "comparison": {
+    "equal_pixels": 63960,
+    "total_pixels": 64000,
+    "equal_ratio": 0.999375,
+    "mean_abs_rgb": 0.00625,
+    "diff_box": {
+      "min_x": 4,
+      "min_y": 185,
+      "max_x": 45,
+      "max_y": 195
+    }
+  }
+}
