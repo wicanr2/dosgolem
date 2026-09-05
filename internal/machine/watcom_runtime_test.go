@@ -72,3 +72,42 @@ func TestWatcomNearHeapRejectsUnreadableStack(t *testing.T) {
 		t.Fatalf("unreadable stack err=%v EIP=%X", err, m.CPU.EIP)
 	}
 }
+
+func TestWatcomMemset(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomMemset{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x40
+	binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+	binary.LittleEndian.PutUint32(m.Mem[0x44:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x48:], 0x123456ab)
+	binary.LittleEndian.PutUint32(m.Mem[0x4c:], 3)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x44 || m.CPU.R[cpu386.EAX] != 0x80 || m.Mem[0x80] != 0xab || m.Mem[0x82] != 0xab {
+		t.Fatalf("memset EIP=%X ESP=%X EAX=%X bytes=% X", m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EAX], m.Mem[0x80:0x83])
+	}
+}
+
+func TestWatcomMemsetZeroLengthAndBounds(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomMemset{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	for _, test := range []struct {
+		destination uint32
+		length      uint32
+		wantError   bool
+	}{{0xffffffff, 0, false}, {0xff, 2, true}} {
+		m.CPU.EIP, m.CPU.R[cpu386.ESP] = 0x2000, 0x40
+		binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+		binary.LittleEndian.PutUint32(m.Mem[0x44:], test.destination)
+		binary.LittleEndian.PutUint32(m.Mem[0x48:], 0)
+		binary.LittleEndian.PutUint32(m.Mem[0x4c:], test.length)
+		err := m.CPU.Step()
+		if (err != nil) != test.wantError {
+			t.Fatalf("destination=%X length=%X err=%v", test.destination, test.length, err)
+		}
+	}
+}
