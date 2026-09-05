@@ -178,9 +178,15 @@ func (v *VGA) Write(off uint16, data uint8) {
 	case 3:
 		// ⚠ **模式 3 不看 Enable Set/Reset**：四個平面一律用 Set/Reset，
 		// 而 CPU 送出去的 byte 變成位元遮罩的一部分。
+		//
+		// ⚠ **但功能選擇（AND／OR／XOR）照常作用。**
+		// 少了這一段，用 XOR 反白一列的程式會把那一列的字**整個蓋掉**：
+		// 反白條的顏色也跟著錯（XOR 出來的綠色變成 Set/Reset 的黃色）。
+		// 兩個症狀來自同一行，而單看任何一個都像別的問題。
 		m := bm & ror8(data, rot)
 		for p := 0; p < 4; p++ {
-			out[p] = merge(expand(sr&(1<<p) != 0), v.latch[p], m)
+			src := expand(sr&(1<<p) != 0)
+			out[p] = merge(alu(fn, src, v.latch[p]), v.latch[p], m)
 		}
 	}
 
@@ -295,6 +301,14 @@ func (v *VGA) DACIndex(px uint8) uint8 {
 }
 
 // ---- 機器層的接線 --------------------------------------------------------
+
+// PlanarSize 回目前平面模式的畫面大小。不是平面模式就回 `0, 0`。
+func (m *Machine) PlanarSize() (w, h int) {
+	if !m.planar {
+		return 0, 0
+	}
+	return planarSize(m.VideoMode())
+}
 
 // Planar 回目前平面模式的畫面：寬、高、每點一個 4 bit 色號。
 //

@@ -1,0 +1,130 @@
+// Package wolong 是《臥龍傳－三國制霸之計》（NEO･GETEN 1994／松崗 1995）
+// 專屬的導航與對拍支援。
+//
+// 這一層放的是**這一支 binary 的知識**（`docs/spec/006` 的分層判準）：
+// 畫面幾何、開機流程、座標空間。機器層與觀測層看不到它們。
+//
+//	o, _ := wolong.Load(exe, root)
+//	wolong.ToScenarioMenu(o)
+//	o.WritePNGCrop("shot.png", wolong.ContentTop, wolong.ContentHigh)
+//
+// ⚠ **不含任何原版檔案**，素材由玩家自備。
+package wolong
+
+import (
+	"fmt"
+
+	"github.com/wicanr2/dosgolem/oracle"
+)
+
+// 畫面幾何。
+//
+// 遊戲設 mode 12h（640×480），但**內容只有 640×400，y 原點在第 40 列**：
+// 繪製常式的 VRAM 段是 `A0C8h` ＝ `A000h` ＋ 0xC80 bytes ＝ 40 列
+// （臥龍傳專案 `docs/re/28` §1）。同一個 40 也是 `tools/parity_crop.py`
+// 在 DOSBox-X 截圖上量出來的——兩個獨立來源對上。
+const (
+	ScreenW, ScreenH        = 640, 480
+	ContentTop, ContentHigh = 40, 400
+)
+
+// Load 載入 `KI.EXE`。root 是原版素材目錄（玩家自備）。
+//
+// 兩個與 rich2 不同的設定，兩個弄錯都不會報錯：
+//
+//   - **`DGROUP` ＝ 映像段**：這一支是組語寫的，`ds:` 就是 `cs:`。
+//     rich2 是編譯後的 BASIC，DGROUP 另有其處。
+//   - **`MouseXScale` ＝ 1**：滑鼠驅動的座標範圍被遊戲設成
+//     0–27Fh × 0–18Fh ＝ 640×400（`docs/re/01`），與像素 1:1。
+//     mode 13h 的 2 套過來的話送出去的 X 全部差一倍，
+//     而畫面上只看得到「點不到東西」。
+func Load(exe, root string) (*oracle.Oracle, error) {
+	return oracle.LoadWith(exe, root, oracle.Options{MouseXScale: 1})
+}
+
+// 座標：遊戲自己的空間就是內容座標（0–639 × 0–399）。
+//
+// ⚠ **DOSBox-X 那邊不是。** 它的視窗是 640×480，而 `int 33h` 把**整個視窗**
+// 等比對映到遊戲的 640×400，所以那邊送點擊要 `視窗 y ＝ 遊戲 y × 1.2`
+// （臥龍傳專案 `docs/re/43`）。dosgolem 沒有視窗，送進來的就是遊戲座標——
+// **把舊腳本的視窗座標照抄過來會差幾個像素**，而那幾個像素正好落在
+// 按鈕之間的空隙。
+//
+// FromDOSBoxY 把舊腳本的視窗 y 換算回遊戲 y，讓既有的對拍腳本搬得過來。
+//
+// ⚠ **分母是 479 不是 480。** DOSBox-X 把視窗的 0–479 對映到遊戲的 0–399，
+// 兩端對齊，所以是 `y × 399 ÷ 479`。用 `× 400 ÷ 480` 大部分點算出來一樣，
+// **只有少數點差 1**——視窗 336 是 279 不是 280。實測：那 1 個像素讓
+// 主畫面的游標整塊對不上（62 點），而其餘四區全 0，
+// 看起來像「只差一點點」而不像「換算式錯了」。
+func FromDOSBoxY(windowY int) int {
+	return windowY * (ContentHigh - 1) / (ScreenH - 1)
+}
+
+// NewGameYes 是開機那個 NEW GAME 確認框的「YES」。
+//
+// 座標是從原版擷取腳本的視窗座標 (320,215) 換算來的，
+// 換算式見 FromDOSBoxY。
+var NewGameYes = struct{ X, Y int }{320, FromDOSBoxY(215)}
+
+// Booted 是「畫面畫完並且停住」。
+//
+// ⚠ **只用「畫面沒變」會在開機前就成立。** 剛載入時畫面是全 0，
+// 那當然「連續兩百萬道指令沒變」——條件在 220 萬道就達成，
+// 而遊戲要到 330 萬道才把主畫面畫出來。症狀是接下來的點擊全部落空，
+// 錯誤訊息卻說「點了畫面沒變」，指向座標而不是時機。
+//
+// 所以要先過一道「畫面上真的有東西」的閘，再看它停住。
+//
+// ⚠ **不要用「跑滿 N 道指令」當判準。** 這一款是即時制，
+// 同一個指令數在不同狀態下停在不同的地方。
+func Booted() oracle.Cond {
+	idle := oracle.ScreenIdle(2_000_000)
+	var next uint64
+	var painted bool
+	return oracle.NewCond("畫面畫完並停住", func(o *oracle.Oracle) bool {
+		if !painted {
+			// 取樣，不是每道指令都算——30 萬個像素數一遍不便宜。
+			if o.Steps() < next {
+				return false
+			}
+			next = o.Steps() + 100_000
+			_, _, px := o.Screen()
+			nz := 0
+			for _, v := range px {
+				if v != 0 {
+					nz++
+				}
+			}
+			if nz*10 < len(px) {
+				return false
+			}
+			painted = true
+		}
+		return idle.Ready(o)
+	})
+}
+
+// ToNewGamePrompt 從冷啟動跑到 NEW GAME 確認框。
+func ToNewGamePrompt(o *oracle.Oracle) error {
+	if err := o.RunUntil(Booted(), oracle.Budget(20_000_000)); err != nil {
+		return fmt.Errorf("跑到 NEW GAME 確認框：%w", err)
+	}
+	return nil
+}
+
+// ToScenarioMenu 再往前一步：按下 YES，進劇本選單。
+func ToScenarioMenu(o *oracle.Oracle) error {
+	if err := ToNewGamePrompt(o); err != nil {
+		return err
+	}
+	if err := o.Click(NewGameYes.X, NewGameYes.Y); err != nil {
+		return fmt.Errorf("點 NEW GAME 的 YES：%w", err)
+	}
+	return o.RunUntil(Booted(), oracle.Budget(20_000_000))
+}
+
+// Shot 存一張與原版可以直接逐點比的 640×400 PNG。
+func Shot(o *oracle.Oracle, path string) error {
+	return o.WritePNGCrop(path, ContentTop, ContentHigh)
+}

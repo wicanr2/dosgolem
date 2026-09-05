@@ -68,7 +68,11 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 		}
 	}
 
-	before := o.Indexed()
+	// ⚠ **要比目前模式的畫面，不能寫死 `Indexed()`。**
+	// `Indexed()` 讀的是 mode 13h 那塊線性緩衝區；平面模式下那裡永遠是全 0，
+	// 於是「畫面沒變」恆成立——**每一次點擊都會被報成沒反應**，
+	// 而畫面其實變了。
+	before := append([]uint8(nil), o.video()...)
 	o.MoveMouse(x, y)
 	// ⚠ **移到位置之後要先停一下再按。**
 	//
@@ -91,7 +95,7 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
 
-	if sameBytes(before, o.Indexed()) {
+	if sameBytes(before, o.video()) {
 		return &NoResponseError{X: x, Y: y, Polls: len(o.d.Mouse.Polls)}
 	}
 	return nil

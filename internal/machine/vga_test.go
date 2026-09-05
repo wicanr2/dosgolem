@@ -233,3 +233,25 @@ func TestPlanarSnapshotRoundTrip(t *testing.T) {
 		t.Errorf("還原之後 (0,0) ＝ %d，預期 15", px[0])
 	}
 }
+
+// TestWriteMode3AppliesALU 釘住「模式 3 的功能選擇照常作用」。
+//
+// 這一條漏掉的症狀是**一次出現兩個看起來無關的錯**：
+// 用 XOR 反白一列的程式會把那一列的字整個蓋掉，反白條的顏色也跟著錯。
+// 單看任何一個都不會指向寫入模式（實例：《臥龍傳》的君主清單，
+// 反白列變成純黃色空白條，同一張圖上捲軸滑塊也不見了）。
+func TestWriteMode3AppliesALU(t *testing.T) {
+	v := newVGA()
+	v.Planes[0][0] = 0xF0 // 底下已經有東西
+	setGC(v, 5, 3)
+	setGC(v, 0, 0x01)         // Set/Reset ＝ 平面 0
+	setGC(v, 3, 0x03<<3)      // 功能選擇 ＝ XOR
+	setGC(v, 8, 0xFF)
+
+	v.Read(0)
+	v.Write(0, 0xFF) // 位元遮罩全開
+
+	if got := v.Planes[0][0]; got != 0x0F {
+		t.Errorf("平面 0 ＝ %02X，預期 0F（FF XOR F0）——模式 3 沒套功能選擇？", got)
+	}
+}
