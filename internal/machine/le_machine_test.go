@@ -360,3 +360,18 @@ func TestFD2ThirdCallbackGlobalGateWhenProvided(t *testing.T) {
 		t.Fatalf("third callback global gate value=%X EBP=%X ESP=%X flags=%X err=%v", value, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], m.CPU.EFlags, err)
 	}
 }
+
+func TestFD2ThirdCallbackLoadsFSWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cc1d && steps < 477; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc1d {
+		t.Fatalf("third callback LFS not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0 || m.CPU.Seg[cpu386.SegFS] != 0x30 || m.CPU.R[cpu386.ESP] != 0x5567c {
+		t.Fatalf("third callback LFS EAX=%X FS=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.Seg[cpu386.SegFS], m.CPU.R[cpu386.ESP])
+	}
+}

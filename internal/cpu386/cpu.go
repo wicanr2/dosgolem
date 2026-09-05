@@ -1483,6 +1483,33 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
+		if extended == 0xb4 && !operand16 && segmentOverride < 0 && !repe {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 != 0 || modrm&7 != 5 {
+				return fail(fmt.Sprintf("0F B4 ModRM %02X 尚未支援", modrm))
+			}
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if addr > ^uint32(0)-4 {
+				return fail(fmt.Sprintf("LFS pointer address %08X 溢位", addr))
+			}
+			offset, okOffset := c.readSegment32(c.Seg[SegDS], addr)
+			selector, okSelector := c.readSegment16(c.Seg[SegDS], addr+4)
+			if !okOffset || !okSelector {
+				return fail(fmt.Sprintf("LFS pointer read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			if !c.canLoadSegment(selector, SegFS) {
+				return fail(fmt.Sprintf("LFS FS selector %04X 未登錄", selector))
+			}
+			c.R[(modrm>>3)&7] = offset
+			c.Seg[SegFS] = selector
+			break
+		}
 		if extended == 0xb7 && !operand16 && segmentOverride < 0 && !repe {
 			modrm, e := c.fetch8()
 			if e != nil {
