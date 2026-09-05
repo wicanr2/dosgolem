@@ -415,7 +415,7 @@ func (c *CPU) Step() error {
 	if repe && op != 0xaa && op != 0xab && op != 0xae {
 		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB")
 	}
-	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
+	if segmentOverride >= 0 && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
@@ -963,7 +963,17 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
-		if modrm>>6 == 3 && (group == 4 || group == 7) {
+		if segmentOverride == SegES && group == 7 && modrm == 0x38 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegES], c.R[EAX])
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegES], c.R[EAX]))
+			}
+			c.sub8(value, imm)
+		} else if modrm>>6 == 3 && (group == 4 || group == 7) {
 			imm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
@@ -1085,9 +1095,13 @@ func (c *CPU) Step() error {
 				return fail(e.Error())
 			}
 			addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
-			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			segment := SegDS
+			if modrm&7 == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
 			if !ok {
-				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride >= 0 {

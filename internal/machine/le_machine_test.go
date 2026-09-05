@@ -391,3 +391,18 @@ func TestFD2ThirdCallbackScanSetupWhenProvided(t *testing.T) {
 		t.Fatalf("third callback scan setup local=%X EAX=%X ESI=%X EBP=%X ESP=%X flags=%X err=%v", local, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], m.CPU.EFlags, err)
 	}
 }
+
+func TestFD2ThirdCallbackEnvironmentFirstByteWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cc41 && steps < 485; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc41 {
+		t.Fatalf("third callback environment first-byte gate not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.Seg[cpu386.SegES] != 0x30 || m.CPU.R[cpu386.EAX] != 0 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("third callback environment first-byte ES=%X EAX=%X flags=%X", m.CPU.Seg[cpu386.SegES], m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+}
