@@ -48,8 +48,8 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 查 `AL` 的話那個分支永遠不成立（`docs/spec/004` §3）。
 		switch bl(c) {
 		case 0x10: // 取 EGA 資訊
-			setBH(c, 0x00)      // 彩色模式
-			setBL(c, 0x03)      // 記憶體 256 KB
+			setBH(c, 0x00)       // 彩色模式
+			setBL(c, 0x03)       // 記憶體 256 KB
 			c.R[cpu.CX] = 0x0009 // 功能位元／切換設定
 		case 0x20, 0x30, 0x31, 0x32, 0x33, 0x34:
 			setAL(c, 0x12) // 表示有支援
@@ -144,8 +144,22 @@ func (d *DOS) int33(c *cpu.CPU) {
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
+		d.KeyPolls++
+		if len(d.Keys) > 0 {
+			k := d.Keys[0]
+			d.Keys = d.Keys[1:]
+			c.R[cpu.AX] = uint16(k.Scan)<<8 | uint16(k.ASCII)
+			return
+		}
 		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
+	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
+		d.KeyPolls++
+		if len(d.Keys) > 0 {
+			k := d.Keys[0]
+			c.R[cpu.AX] = uint16(k.Scan)<<8 | uint16(k.ASCII)
+			c.SetFlags(c.Flags &^ cpu.ZF)
+			return
+		}
 		c.SetFlags(c.Flags | cpu.ZF)
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
