@@ -9,16 +9,35 @@
     "md5": "b97caf2239a27a896069d03549d96e1e",
     "sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
   },
-  "input_sha256": "c7bb1fedb8f117c5b441e48513f87397e40a1d4b2b0fab7d13797bc79f551147",
-  "dosgolem_commit": "bad0874",
-  "remake_commit": "bb83e82e",
-  "original_capture_sha256": "d586bfa80484e2a70c7e8953b561933c719dd6735f7d42b499701134f48f1871",
-  "remake_capture_sha256": "7e913cfec62a7034da6ce49935c80bf8971d7dd391a91a4787ff35f55a47301f",
+  "input_sha256": "1b11e390b6f040717d2520f253ca6ca4f22b7b52b429f5e12a9650bbca8d1180",
+  "dosgolem_commit": "19751e4",
+  "remake_commit": "136e3284",
+  "original_capture": "audience-original.png",
+  "original_capture_sha256": "0a8caed453d36dc90df95f73d8d955f91aa376e020d4e6a68282d36421b8efc3",
+  "remake_capture": "audience-remake.png",
+  "remake_capture_sha256": "e5e301a4e60b044efad0bad4dc442e916698b9e5def9d17f818aef53223d7e37",
+  "remake_normalization": "nearest_2x",
   "comparison": {
     "equal_pixels": 33223,
     "total_pixels": 64000,
     "equal_ratio": 0.519109375,
     "mean_abs_rgb": 25.055421875,
     "diff_box": {"min_x": 4, "min_y": 4, "max_x": 315, "max_y": 195}
+  },
+  "regions": {
+    "dialogue": {
+      "equal_pixels": 27992,
+      "total_pixels": 28160,
+      "equal_ratio": 0.9940340909090909,
+      "mean_abs_rgb": 0.20880681818181818,
+      "diff_box": {"min_x": 4, "min_y": 112, "max_x": 315, "max_y": 195}
+    },
+    "map": {
+      "equal_pixels": 5231,
+      "total_pixels": 35840,
+      "equal_ratio": 0.14595424107142857,
+      "mean_abs_rgb": 44.57776227678571,
+      "diff_box": {"min_x": 4, "min_y": 4, "max_x": 315, "max_y": 111}
+    }
   }
 }
