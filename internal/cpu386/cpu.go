@@ -47,6 +47,7 @@ type CPU struct {
 	Bus           Bus
 	IntHook       func(*CPU, uint8) bool
 	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
+	SegmentRead8  func(selector uint16, offset uint32) (uint8, bool)
 	SegmentLoadOK func(selector uint16, destination int) bool
 	Descriptors   map[uint16]Descriptor
 }
@@ -98,6 +99,20 @@ func (c *CPU) writeSegment16(selector uint16, offset uint32, value uint16) bool 
 		return false
 	}
 	return true
+}
+
+func (c *CPU) readSegment8(selector uint16, offset uint32) (uint8, bool) {
+	if c.SegmentRead8 != nil {
+		if value, ok := c.SegmentRead8(selector, offset); ok {
+			return value, true
+		}
+	}
+	linear, ok := c.segmentLinear(selector, offset, 1, false)
+	if !ok {
+		return 0, false
+	}
+	value, err := c.Bus.Read8(linear)
+	return value, err == nil
 }
 
 func (c *CPU) writeSegment32(selector uint16, offset uint32, value uint32) bool {
@@ -337,8 +352,8 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
-	if segmentOverride >= 0 && op != 0x8b && op != 0x8c {
-		return fail("segment override 只支援 8B／8C")
+	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c {
+		return fail("segment override 只支援 8A／8B／8C")
 	}
 	switch {
 	case op >= 0x50 && op <= 0x57:
@@ -519,6 +534,27 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
+	case op == 0x8a:
+		if operand16 || segmentOverride < 0 {
+			return fail("8A 目前只支援 segment byte read")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+		value, ok := c.readSegment8(c.Seg[segmentOverride], addr)
+		if !ok {
+			return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+		}
+		c.setReg8(int((modrm>>3)&7), value)
 	case op == 0x8e:
 		if operand16 || segmentOverride >= 0 {
 			return fail("8E 不接受目前的 prefix")

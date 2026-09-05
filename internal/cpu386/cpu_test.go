@@ -246,6 +246,23 @@ func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	}
 }
 
+func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
+	mem := testBus{0x26, 0x8a, 0x4f, 0xff}
+	c := New(mem)
+	c.R[EDI] = 0x81
+	c.R[ECX] = 0x12345678
+	c.Seg[SegES] = 0x28
+	c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+		return 0, selector == 0x28 && offset == 0x80
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ECX] != 0x12345600 || c.EIP != 4 {
+		t.Fatalf("ECX=%X EIP=%d", c.R[ECX], c.EIP)
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)
