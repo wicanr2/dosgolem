@@ -111,3 +111,45 @@ func TestWatcomMemsetZeroLengthAndBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestWatcomInitArgvEmptyCommandLine(t *testing.T) {
+	m, heap := watcomHeapFixture(t, 32)
+	copy(m.Mem[0x80:], []byte{0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0})
+	binary.LittleEndian.PutUint32(m.Mem[0x60:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x64:], 0x81)
+	binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+	service := &WatcomInitArgv{machine: m, heap: heap, entry: 0x2000, commandPointer: 0x60,
+		programPointer: 0x64, internalArgc: 0x68, internalArgv: 0x6c, publicArgc: 0x70, publicArgv: 0x74}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	argv := uint32(0x101)
+	for _, address := range []uint32{0x68, 0x70} {
+		if got, _ := m.Read32(address); got != 1 {
+			t.Fatalf("argc at %X=%X", address, got)
+		}
+	}
+	for _, address := range []uint32{0x6c, 0x74} {
+		if got, _ := m.Read32(address); got != argv {
+			t.Fatalf("argv at %X=%X", address, got)
+		}
+	}
+	if first, _ := m.Read32(argv); first != 0x81 || m.CPU.R[cpu386.EAX] != argv || m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x44 {
+		t.Fatalf("argv[0]=%X EAX=%X EIP=%X ESP=%X", first, m.CPU.R[cpu386.EAX], m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+}
+
+func TestWatcomInitArgvRejectsArguments(t *testing.T) {
+	m, heap := watcomHeapFixture(t, 32)
+	m.Mem[0x80] = 'x'
+	binary.LittleEndian.PutUint32(m.Mem[0x60:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x64:], 0x81)
+	service := &WatcomInitArgv{machine: m, heap: heap, entry: 0x2000, commandPointer: 0x60, programPointer: 0x64}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	if err := m.CPU.Step(); err == nil {
+		t.Fatal("non-empty command line was accepted")
+	}
+}

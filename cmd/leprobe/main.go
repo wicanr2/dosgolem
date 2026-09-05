@@ -84,14 +84,16 @@ func executePrefix(data []byte) {
 		die(err)
 	}
 	steps := 0
-	for steps < 800 && m.CPU.EIP != 0x46123 {
+	argc := uint32(0)
+	for steps < 800 && argc == 0 {
 		if err := m.CPU.Step(); err != nil {
 			die(err)
 		}
 		steps++
+		argc, _ = m.Read32(0x5462c)
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x46123 {
-		die(fmt.Errorf("entry prefix 未在 800 steps 內完成 DOS/4GW environment 與後續 runtime 清單初始化"))
+	if services.Calls() != 2 || argc != 1 || m.CPU.EIP != 0x45dd3 {
+		die(fmt.Errorf("entry prefix 未在 800 steps 內完成 DOS/4GW environment、runtime 清單與 argv 初始化"))
 	}
 	stackA, err := m.Read32(0x52818)
 	if err != nil {
@@ -109,8 +111,8 @@ func executePrefix(data []byte) {
 	if err != nil {
 		die(err)
 	}
-	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true first_near_call_entered=true callee_prologue_entered=true callee_range_gate_entered=true callee_record_scan_complete=true callback_pointer_loaded=true indirect_callback_entered=true callback_thunk_resolved=true x87_control_probe_complete=true x87_callback_returned=true callback_record_marked=true second_callback_entered=true second_callback_absolute_gate=true second_callback_bl_cleared=true second_callback_x87_control_stored=true second_callback_x87_class_gate=true second_callback_control_baseline_loaded=true second_callback_control_dispatched=true second_callback_x87_self_test_returned=true second_callback_class_result_stored=true second_callback_record_marked=true third_selected_callback_entered=true third_callback_fs_saved=true third_callback_global_gate=true third_callback_lfs_loaded=true third_callback_scan_setup=true third_callback_environment_first_byte=true third_callback_first_alloc_call=true watcom_nmalloc_returned=true third_callback_second_alloc_call=true second_watcom_nmalloc_returned=true environment_table_terminated=true environment_tail_stored=true third_callback_returned=true post_environment_runtime_list_initialized=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
-		steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.Seg[cpu386.SegGS], selectorGS, storedES, uint16(m.CPU.R[cpu386.EDX]), stackA, stackB)
+	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true first_near_call_entered=true callee_prologue_entered=true callee_range_gate_entered=true callee_record_scan_complete=true callback_pointer_loaded=true indirect_callback_entered=true callback_thunk_resolved=true x87_control_probe_complete=true x87_callback_returned=true callback_record_marked=true second_callback_entered=true second_callback_absolute_gate=true second_callback_bl_cleared=true second_callback_x87_control_stored=true second_callback_x87_class_gate=true second_callback_control_baseline_loaded=true second_callback_control_dispatched=true second_callback_x87_self_test_returned=true second_callback_class_result_stored=true second_callback_record_marked=true third_selected_callback_entered=true third_callback_fs_saved=true third_callback_global_gate=true third_callback_lfs_loaded=true third_callback_scan_setup=true third_callback_environment_first_byte=true third_callback_first_alloc_call=true watcom_nmalloc_returned=true third_callback_second_alloc_call=true second_watcom_nmalloc_returned=true environment_table_terminated=true environment_tail_stored=true third_callback_returned=true post_environment_runtime_list_initialized=true watcom_argv_initialized=true argc=%d steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
+		argc, steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.Seg[cpu386.SegGS], selectorGS, storedES, uint16(m.CPU.R[cpu386.EDX]), stackA, stackB)
 }
 
 func printCounts(label string, counts map[uint8]int) {

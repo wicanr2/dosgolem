@@ -482,14 +482,34 @@ func TestFD2ThirdCallbackEnvironmentCopyCompletesWhenProvided(t *testing.T) {
 func TestFD2PostEnvironmentRuntimeListWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	steps := 0
-	for ; steps < 800 && m.CPU.EIP != 0x46123; steps++ {
+	for ; steps < 800 && m.CPU.EIP != 0x46114; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("post-environment runtime list: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
 		}
 	}
 	listHead, errHead := m.Read32(0x541ac)
 	listGate, errGate := m.Read32(0x541a0)
-	if services.Calls() != 2 || m.CPU.EIP != 0x46123 || steps != 767 || m.Mem[0x52881]&7 != 4 || listHead == 0 || listGate != 0 || errHead != nil || errGate != nil {
+	if services.Calls() != 2 || m.CPU.EIP != 0x46114 || m.Mem[0x52881]&7 != 4 || listHead == 0 || listGate != 0 || errHead != nil || errGate != nil {
 		t.Fatalf("runtime list steps=%d EIP=%X flags=%X head=%X gate=%X calls=%d errors=%v,%v", steps, m.CPU.EIP, m.Mem[0x52881], listHead, listGate, services.Calls(), errHead, errGate)
+	}
+}
+
+func TestFD2ArgvInitializationWhenProvided(t *testing.T) {
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	argc := uint32(0)
+	for ; steps < 800 && argc == 0; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+		argc, _ = m.Read32(0x5462c)
+	}
+	argv, errArgv := m.Read32(0x54628)
+	internalArgc, errInternalArgc := m.Read32(0x527f8)
+	internalArgv, errInternalArgv := m.Read32(0x527fc)
+	first, errFirst := m.Read32(argv)
+	terminator, errTerminator := m.Read32(argv + 4)
+	if argc != 1 || internalArgc != 1 || argv == 0 || internalArgv != argv || first != 0x546b1 || terminator != 0 || m.CPU.EIP != 0x45dd3 || errArgv != nil || errInternalArgc != nil || errInternalArgv != nil || errFirst != nil || errTerminator != nil {
+		t.Fatalf("argv init steps=%d EIP=%X argc=%d/%d argv=%X/%X first=%X terminator=%X errors=%v,%v,%v,%v,%v", steps, m.CPU.EIP, argc, internalArgc, argv, internalArgv, first, terminator, errArgv, errInternalArgc, errInternalArgv, errFirst, errTerminator)
 	}
 }
