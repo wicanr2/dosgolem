@@ -762,6 +762,17 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
 			}
 			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != 4 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride >= 0 {
 			return fail(fmt.Sprintf("segment ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 != 3 {
@@ -1066,6 +1077,20 @@ func (c *CPU) Step() error {
 		}
 		c.R[EAX] |= value
 		c.setLogicFlags(c.R[EAX])
+	case op == 0x0b:
+		if operand16 {
+			return fail("16-bit 0B 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := (modrm>>3)&7, modrm&7
+		c.R[reg] |= c.R[rm]
+		c.setLogicFlags(c.R[reg])
 	case op == 0x05:
 		if operand16 {
 			return fail("16-bit ADD accumulator 尚未支援")
