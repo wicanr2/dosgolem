@@ -63,6 +63,19 @@ func ToNewPartyCreation(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterRace 從冷啟動走正常建角入口，開啟第一位角色的種族／性別選擇頁。
+func ToFirstCharacterRace(o *oracle.Oracle) error {
+	if err := ToNewPartyCreation(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色SELECT RACE頁", 138, 60, 170, 130,
+		"34cd6ac1502742323eb299439fe6066154336a9f42f372457eec4d8b5e3b13f6"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色種族選擇：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

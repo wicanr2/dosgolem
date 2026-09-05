@@ -52,6 +52,20 @@ func TestToNewPartyCreationRealData(t *testing.T) {
 	}
 }
 
+func TestToFirstCharacterRaceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFirstCharacterRace(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 138, 60, 170, 130); got != "34cd6ac1502742323eb299439fe6066154336a9f42f372457eec4d8b5e3b13f6" {
+		t.Fatalf("第一角色種族選擇區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 8 {
+		t.Fatalf("第一角色種族頁前port 60h讀取%d次，預期四鍵make／break共8次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
