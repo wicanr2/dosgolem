@@ -1,0 +1,101 @@
+package rich2
+
+import (
+	"sort"
+
+	"github.com/wicanr2/dosgolem/oracle"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+)
+
+// 已知的 `RND` 呼叫端。
+//
+// **這張表是從執行期量出來的**，不是從反組譯猜的：掛上 `TraceRND`、走幾步、
+// 把 `Caller` 做直方圖，次數大的自己會浮出來（`rich2/docs/re/185`）。
+//
+// 位址是**呼叫 `RND` 那一行的返回位址**（`o.Caller()`），所以會落在真正那道
+// `call` 的下一道指令上——比對反組譯時要記得減回去。
+type RNDCaller struct {
+	IDA  uint32
+	Name string
+	Note string
+}
+
+// RNDCallers 是目前解出語意的呼叫端。
+//
+// ⚠ **沒收進來的不是「不存在」，是「還沒解」。** `SplitCalls` 會把它們印成
+// 未知，那正是下一輪要查的東西。
+var RNDCallers = []RNDCaller{
+	{0x215F9, "擲骰", "落在 docs/re/015 §2 的擲骰常式 0x2156E 裡（+0x8B）。" +
+		"一步 38–62 次——擲骰動畫每一幀都真的擲（docs/re/155）"},
+	{0x11A32, "抽方向", "選方向迴圈 sub_11A1E（docs/re/014 §4c）"},
+	{0x11A87, "抽方向（回頭後重抽）", "同上，|目前方向 − 候選| == 2 時從這裡重抽"},
+	{0x2C5D0, "股市更新 1", "每輪各 20 次 ＝ 每支股票一次（rich2 的 StockCount ＝ 20）"},
+	{0x2C707, "股市更新 2", "同上，實測 19 次——有一支走了別的分支"},
+	{0x2C7EA, "股市更新 3", "同上"},
+	{0x13681, "發卡 INT(RND×100)", "docs/re/048 的牌堆／手牌交換"},
+	{0x137B6, "新聞 INT(RND×16)+100", "docs/re/022 §6"},
+}
+
+// 賭場那一段的範圍（`rich2/docs/re/020` §2：賭場 0x156D8、遊樂場 0x16C96）。
+//
+// 賭場整段有 9 次 `RND`；實測在一步之內看到六個不同的呼叫端各抽一次，
+// 全部落在這個區間裡。**`docs/re/014` §4d 把其中三個歸給 `sub_1695B`，
+// 那是 IDA 呼叫圖誤判**（同一份筆記的 §4e 就在講呼叫圖不可信）。
+const (
+	CasinoLo = 0x156D8
+	CasinoHi = 0x16C96
+)
+
+// CallerName 回呼叫端的語意名稱；沒解出來的回空字串。
+func CallerName(ida uint32) string {
+	for _, c := range RNDCallers {
+		if c.IDA == ida {
+			return c.Name
+		}
+	}
+	if ida >= CasinoLo && ida < CasinoHi {
+		return "賭場（段內，未逐項解）"
+	}
+	return ""
+}
+
+// CallerCount 是一個呼叫端在某一段時間窗裡抽了幾次。
+type CallerCount struct {
+	IDA  uint32
+	N    int
+	Name string // 沒解出來的是空字串
+}
+
+// SplitCalls 把一段抽取按呼叫端分組，次數多的在前。
+//
+// **這是對齊亂數消耗次數的工作面**：序列本身是決定性的 LCG，兩邊不會岔在
+// 數值上，只會岔在「誰在什麼時候抽了幾次」。要重播一局，remake 得在同樣的
+// 地方消耗同樣多次——先知道原版在哪裡消耗，才談得上對齊。
+func SplitCalls(o *oracle.Oracle, calls []basic.Call) []CallerCount {
+	hist := map[uint32]int{}
+	for _, c := range calls {
+		hist[o.ToIDA(c.Caller)]++
+	}
+	out := make([]CallerCount, 0, len(hist))
+	for at, n := range hist {
+		out = append(out, CallerCount{IDA: at, N: n, Name: CallerName(at)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].N != out[j].N {
+			return out[i].N > out[j].N
+		}
+		return out[i].IDA < out[j].IDA
+	})
+	return out
+}
+
+// CountFrom 回某個呼叫端在這一段裡抽了幾次。
+func CountFrom(o *oracle.Oracle, calls []basic.Call, ida uint32) int {
+	n := 0
+	for _, c := range calls {
+		if o.ToIDA(c.Caller) == ida {
+			n++
+		}
+	}
+	return n
+}
