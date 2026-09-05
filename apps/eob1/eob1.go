@@ -162,6 +162,78 @@ func ToFirstCharacterALFA(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToSecondCharacterRace 選取第二角色槽，進入其種族／性別頁。
+func ToSecondCharacterRace(o *oracle.Oracle) error {
+	if err := ToFirstCharacterALFA(o); err != nil {
+		return err
+	}
+	if err := o.Click(98, 82); err != nil {
+		return fmt.Errorf("EOB1點擊第二角色槽：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第二角色SELECT RACE頁", 138, 60, 170, 130,
+		"0ac2799d93a1c51adcd884eeefa770b5dc01fbfba36311000a8b5f9d586fc2b3"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第二角色種族選擇：%w", err)
+	}
+	return nil
+}
+
+// ToSecondCharacterReview 由第二角色種族頁走到Human Male Fighter檢視頁。
+func ToSecondCharacterReview(o *oracle.Oracle) error {
+	if err := ToSecondCharacterRace(o); err != nil {
+		return err
+	}
+	steps := []struct {
+		name   string
+		digest string
+	}{
+		{"第二角色SELECT CLASS頁", "31954c4eabf3fe236734a89b17447907ac3c54448a962b4ffd0432a29e2777eb"},
+		{"第二角色SELECT ALIGNMENT頁", "b701f7d8e0738aaf110f702f34a53d3ab9f0c01b60fd0f7e514bdd773a7bafbc"},
+		{"第二角色屬性／肖像頁", "b0794062e92812ef3321b3e3184427a3b2440d6671f6ffd3dffe0fb71e0aa49d"},
+		{"第二角色檢視操作頁", "46c7b7647dd6ae8102a8b970315b5597c422a0690308b05668d548d6bdc40759"},
+	}
+	for _, step := range steps {
+		o.PressKey(oracle.KeyEnter)
+		if err := o.RunUntil(screenDigest(step.name, 130, 55, 180, 140, step.digest), oracle.Budget(10_000_000)); err != nil {
+			return fmt.Errorf("EOB1等待%s：%w", step.name, err)
+		}
+	}
+	return nil
+}
+
+// ToSecondCharacterName 以KEEP接受第二角色，進入姓名頁。
+func ToSecondCharacterName(o *oracle.Oracle) error {
+	if err := ToSecondCharacterReview(o); err != nil {
+		return err
+	}
+	if err := o.Click(282, 180); err != nil {
+		return fmt.Errorf("EOB1點擊第二角色KEEP：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第二角色Name輸入頁", 0, 0, oracle.Width, oracle.Height,
+		"837508573e890228667986bb5932f32dd62732d36c152831984ec504c94bba8b"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第二角色姓名輸入：%w", err)
+	}
+	return nil
+}
+
+// ToSecondCharacterBETA 在第二角色姓名頁鍵入BETA並確認。
+func ToSecondCharacterBETA(o *oracle.Oracle) error {
+	if err := ToSecondCharacterName(o); err != nil {
+		return err
+	}
+	for _, key := range []oracle.Key{oracle.KeyB, oracle.KeyE, oracle.KeyT, oracle.KeyA} {
+		o.PressKey(key)
+		if err := o.Run(250_000); err != nil {
+			return fmt.Errorf("EOB1輸入第二角色姓名：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第二角色BETA姓名列", 75, 100, 70, 16,
+		"26e91595e8209faf10fa52e34ea9d00477ee0fd6c823d3aa1432e623d2a2258c"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第二角色BETA完成：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

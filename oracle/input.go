@@ -143,8 +143,11 @@ const (
 	KeyDown Key = 0x50
 	// 目前EOB1具名姓名fixture使用的字母鍵。
 	KeyA Key = 0x1E
+	KeyB Key = 0x30
+	KeyE Key = 0x12
 	KeyF Key = 0x21
 	KeyL Key = 0x26
+	KeyT Key = 0x14
 )
 
 // PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。

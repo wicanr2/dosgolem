@@ -150,6 +150,45 @@ func TestToFirstCharacterALFARealData(t *testing.T) {
 	}
 }
 
+func TestToSecondCharacterRaceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSecondCharacterRace(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 138, 60, 170, 130); got != "0ac2799d93a1c51adcd884eeefa770b5dc01fbfba36311000a8b5f9d586fc2b3" {
+		t.Fatalf("第二角色種族選擇區SHA-256=%s", got)
+	}
+}
+
+func TestToSecondCharacterReviewRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSecondCharacterReview(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "46c7b7647dd6ae8102a8b970315b5597c422a0690308b05668d548d6bdc40759" {
+		t.Fatalf("第二角色檢視操作區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 34 {
+		t.Fatalf("第二角色檢視頁前port 60h讀取%d次，預期十七鍵make／break共34次", got)
+	}
+}
+
+func TestToSecondCharacterNameAndBETARealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSecondCharacterBETA(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 75, 100, 70, 16); got != "26e91595e8209faf10fa52e34ea9d00477ee0fd6c823d3aa1432e623d2a2258c" {
+		t.Fatalf("第二角色BETA姓名列SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 44 {
+		t.Fatalf("BETA完成前port 60h讀取%d次，預期二十二鍵make／break共44次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
