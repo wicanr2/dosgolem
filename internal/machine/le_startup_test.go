@@ -28,6 +28,9 @@ func TestFD2StartupDOS(t *testing.T) {
 	if _, ok := c.SegmentRead16(0x28, 0x2e); ok {
 		t.Fatal("unknown ES environment cell was accepted")
 	}
+	if !c.SegmentLoadOK(0x28, cpu386.SegDS) || !c.SegmentLoadOK(0x28, cpu386.SegES) || c.SegmentLoadOK(0x28, cpu386.SegSS) {
+		t.Fatal("PSP selector load destinations mismatch")
+	}
 	c.R[cpu386.EAX] = 0xff00
 	c.R[cpu386.EDX] = 0x78
 	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegGS] != 0x20 {

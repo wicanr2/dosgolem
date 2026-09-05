@@ -83,6 +83,22 @@ func TestCompareALAndJumpZero(t *testing.T) {
 	}
 }
 
+func TestNearJumpZero(t *testing.T) {
+	mem := testBus{0x0f, 0x84, 0x03, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff}
+	c := New(mem)
+	c.EFlags |= ZF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EIP != 9 {
+		t.Fatalf("taken near JZ EIP=%d", c.EIP)
+	}
+	c = New(mem)
+	if err := c.Step(); err != nil || c.EIP != 6 {
+		t.Fatalf("untaken near JZ EIP=%d err=%v", c.EIP, err)
+	}
+}
+
 func TestMoveSegmentToRegisterAndAbsoluteMemory(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{
