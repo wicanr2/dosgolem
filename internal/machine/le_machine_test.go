@@ -328,3 +328,19 @@ func TestFD2ThirdCallbackSelectedWhenProvided(t *testing.T) {
 		t.Fatalf("third callback state EAX=%X EBX=%X ESP=%X status=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP], m.Mem[0x539da])
 	}
 }
+
+func TestFD2ThirdCallbackPushesFSWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cc03 && steps < 470; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc03 || m.CPU.R[cpu386.ESP] != 0x55684 {
+		t.Fatalf("third callback PUSH FS state calls=%d EIP=%X ESP=%X", services.Calls(), m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+	value, err := m.Read32(0x55684)
+	if err != nil || uint16(value) != m.CPU.Seg[cpu386.SegFS] {
+		t.Fatalf("third callback saved FS=%X current=%X err=%v", value, m.CPU.Seg[cpu386.SegFS], err)
+	}
+}

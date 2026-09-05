@@ -599,6 +599,27 @@ func TestX87StartupSelfTestSequence(t *testing.T) {
 	}
 }
 
+func TestPushPopFS(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x0f, 0xa0, 0x0f, 0xa1})
+	c := New(mem)
+	c.R[ESP] = 0x60
+	c.Seg[SegSS], c.Seg[SegFS] = 0x30, 0x38
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x7f, Writable: true})
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[ESP] != 0x5c {
+		t.Fatalf("PUSH FS ESP=%X err=%v", c.R[ESP], err)
+	}
+	value, _ := c.read16(0x5c)
+	if value != 0x38 {
+		t.Fatalf("PUSH FS stack=%X", value)
+	}
+	c.Seg[SegFS] = 0
+	if err := c.Step(); err != nil || c.R[ESP] != 0x60 || c.Seg[SegFS] != 0x38 {
+		t.Fatalf("POP FS FS=%X ESP=%X err=%v", c.Seg[SegFS], c.R[ESP], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})

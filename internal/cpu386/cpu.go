@@ -1440,6 +1440,30 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if (extended == 0xa0 || extended == 0xa1) && !operand16 && segmentOverride < 0 && !repe {
+			if extended == 0xa0 {
+				if c.R[ESP] < 4 {
+					return fail("ESP underflow")
+				}
+				nextESP := c.R[ESP] - 4
+				if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegFS])) {
+					return fail(fmt.Sprintf("PUSH FS stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+				}
+				c.R[ESP] = nextESP
+			} else {
+				value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+				selector := uint16(value)
+				if !ok || c.R[ESP] > ^uint32(0)-4 {
+					return fail(fmt.Sprintf("POP FS stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				if !c.canLoadSegment(selector, SegFS) {
+					return fail(fmt.Sprintf("FS selector %04X 未登錄", selector))
+				}
+				c.Seg[SegFS] = selector
+				c.R[ESP] += 4
+			}
+			break
+		}
 		if extended == 0xb7 && !operand16 && segmentOverride < 0 && !repe {
 			modrm, e := c.fetch8()
 			if e != nil {
