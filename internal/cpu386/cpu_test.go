@@ -151,6 +151,22 @@ func TestRegisterADD32(t *testing.T) {
 	}
 }
 
+func TestRegisterCMP32(t *testing.T) {
+	c := New(testBus{0x39, 0xc3})
+	c.R[EBX], c.R[EAX] = 7, 7
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBX] != 7 || c.R[EAX] != 7 {
+		t.Fatalf("CMP EBX=%X EAX=%X flags=%X err=%v", c.R[EBX], c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestRegisterCMP8(t *testing.T) {
+	c := New(testBus{0x38, 0xf3})
+	c.R[EBX], c.R[EDX] = 0x11, 0x1100
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBX] != 0x11 || c.R[EDX] != 0x1100 {
+		t.Fatalf("CMP BL=%X DH=%X flags=%X err=%v", c.reg8(3), c.reg8(6), c.EFlags, err)
+	}
+}
+
 func TestMoveEAXFromAbsoluteAddress(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0xa1, 0x20, 0, 0, 0})

@@ -513,3 +513,17 @@ func TestFD2ArgvInitializationWhenProvided(t *testing.T) {
 		t.Fatalf("argv init steps=%d EIP=%X argc=%d/%d argv=%X/%X first=%X terminator=%X errors=%v,%v,%v,%v,%v", steps, m.CPU.EIP, argc, internalArgc, argv, internalArgv, first, terminator, errArgv, errInternalArgc, errInternalArgv, errFirst, errTerminator)
 	}
 }
+
+func TestFD2DeterministicDelayInitializationWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 1200 && m.CPU.EIP != 0x463be; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("delay init: step=%d EIP=%X EAX=%X EBX=%X ECX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	calibration, err := m.Read32(0x541b0)
+	if m.CPU.EIP != 0x463be || services.Calls() != 5 || calibration != 1 || err != nil {
+		t.Fatalf("delay init steps=%d EIP=%X calls=%d calibration=%d err=%v", steps, m.CPU.EIP, services.Calls(), calibration, err)
+	}
+}
