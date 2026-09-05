@@ -154,10 +154,23 @@ func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 		o.ClearInput()
 		switch row := log.pick(log.cur); {
 		case row < 0: // 不回答
-		case row <= 1:
+		case row == 0:
+			o.Type(KeyEsc) // 0 ＝ 取消
+		case row == 1:
 			o.Type(KeyEnter) // 第 1 列就是游標的起點
 		default:
-			o.Type(KeyEsc)
+			// **第 2 列以後要靠滑鼠。** 鍵盤只有 Enter 與 ESC 送得進去
+			// （方向鍵走 stdin 送不進去，`rich2/docs/playtest/054` §3.2），
+			// 而選擇器的反白**每一圈都直接由滑鼠位置決定**
+			// （`rich2/docs/spec/017` 的「反白跟著滑鼠走」，`1F5A5`）。
+			// 所以把游標放到那一列上，再送 Enter。
+			//
+			// 幾何用進場那六個參數算（`RowPoint` 在 `HitSeen` 之前就是
+			// 走這一條）：x0 ＝ 第 1 參數、y0 ＝ 第 2 參數、間距 18、
+			// x1 ＝ x0 + 16×寬 + 42。命中判定實測與這組吻合。
+			x, y := log.cur.RowPoint(row)
+			o.MoveMouse(x, y)
+			o.Type(KeyEnter)
 		}
 	})
 

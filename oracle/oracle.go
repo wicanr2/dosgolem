@@ -259,3 +259,40 @@ type OPLWrite = machine.OPLWrite
 // 一組；這裡已經配好對。暫存器串是決定性的、可以逐筆比，
 // 而波形要逐樣本一致屬於既定停止線（`rich2/docs/spec/049`）。
 func (o *Oracle) OPLWrites() []OPLWrite { return o.m.OPL }
+
+// WatchWrites 監看一段 DGROUP 偏移的寫入，回一份逐次紀錄。
+//
+// **這是「誰寫這個變數」唯一直接的答案。** 靜態 xref 只涵蓋直接參考
+// （`mov ds:XXXXh, ax`）；`mov [si+456h], ax` 這種間接寫入抓不到，
+// 而「掃不到寫入端」的變數多半就是這樣寫的。
+//
+// lo／hi 是 DGROUP 偏移（含端點）。回傳的 slice 會隨執行成長。
+func (o *Oracle) WatchWrites(lo, hi uint16) *[]MemWrite {
+	log := &[]MemWrite{}
+	base := o.DS(0).Linear()
+	o.m.WatchWrites(base+uint32(lo), base+uint32(hi),
+		func(a uint32, old, nw uint8) {
+			*log = append(*log, MemWrite{
+				Off:  uint16(a - base),
+				Old:  old,
+				New:  nw,
+				IP:   o.IP(),
+				Step: o.Steps(),
+			})
+		})
+	return log
+}
+
+// StopWatchingWrites 關掉監看。
+func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
+
+// MemWrite 是一次寫入。
+//
+// ⚠ **IP 是「寫的那一刻的 CS:IP」，也就是那道指令本身**，
+// 不是它的呼叫端。要找呼叫端就拿這個位址去反組譯它前後幾行。
+type MemWrite struct {
+	Off      uint16 // DGROUP 偏移
+	Old, New uint8
+	IP       Addr
+	Step     uint64
+}

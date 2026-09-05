@@ -84,6 +84,10 @@ type Machine struct {
 	// 合成器再怎麼不同，送給晶片的指令是一樣的。
 	OPL []OPLWrite
 
+	// 寫入監看（WatchWrites）。watchLo > watchHi 表示關閉。
+	watchLo, watchHi uint32
+	onWrite          func(addr uint32, old, new uint8)
+
 	oplReg          uint8
 	oplPresent      bool
 	oplTimerRunning bool
@@ -138,6 +142,8 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
+		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
+		watchLo: 1, watchHi: 0,
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
@@ -154,7 +160,29 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
 
-func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
+func (m *Machine) Write8(a uint32, v uint8) {
+	a &= 0xFFFFF
+	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
+		m.onWrite(a, m.Mem[a], v)
+	}
+	m.Mem[a] = v
+}
+
+// WatchWrites 監看一段線性位址的寫入。
+//
+// **這是「誰寫這個位址」唯一直接的答案。** 靜態 xref 只涵蓋直接參考——
+// `mov ds:XXXXh, ax` 抓得到，`mov [si+456h], ax` 抓不到，而後者正是
+// 那些「掃不到寫入端」的變數的寫法（`rich2/CLAUDE.md` §4.1 第 4 條）。
+//
+// 只在**值真的變了**的時候通知，所以重複寫同一個值不會洗版。
+// 傳 nil 關掉監看。CPU 的每一次寫入都走 Write8，所以 16 位寫入會來兩次。
+func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8)) {
+	if fn == nil {
+		m.watchLo, m.watchHi, m.onWrite = 1, 0, nil // 空區間 ＝ 永遠不命中
+		return
+	}
+	m.watchLo, m.watchHi, m.onWrite = lo, hi, fn
+}
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
