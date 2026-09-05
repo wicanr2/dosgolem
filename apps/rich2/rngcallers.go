@@ -122,3 +122,22 @@ func InWindow(calls []basic.Call, lo, hi uint64) []basic.Call {
 	}
 	return out
 }
+
+// CardDrawCaller 是發卡那一次 `RND` 的呼叫端（`rich2/docs/re/048`）。
+const CardDrawCaller = 0x13681
+
+// DeckSlots 從一段抽取裡篩出發卡的那幾次，算成牌堆索引 `INT(RND×100)`。
+//
+// **這一項不需要對齊整體的消耗次數**（那件事本身不成立，見
+// `rich2/docs/re/185` §2b）——只要定位發卡自己那一次抽取就夠了。
+// 驗的是「算出來的索引 ＝ 牌堆實際變動的那一格」。
+func DeckSlots(o *oracle.Oracle, calls []basic.Call) []int {
+	var out []int
+	for _, c := range calls {
+		if o.ToIDA(c.Caller) != CardDrawCaller {
+			continue
+		}
+		out = append(out, int(uint64(c.Next())*uint64(DeckSize)/basic.LCGMod))
+	}
+	return out
+}
