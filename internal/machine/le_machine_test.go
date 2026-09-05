@@ -288,3 +288,28 @@ func TestFD2SecondCallbackStoresClassResultWhenProvided(t *testing.T) {
 		t.Fatalf("second callback record unexpectedly marked: %X", m.Mem[0x539c8])
 	}
 }
+
+func TestFD2SecondCallbackRecordMarkedWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	returns := 0
+	for steps := 0; returns < 2 && steps < 452; steps++ {
+		if m.CPU.EIP == 0x45dd6 {
+			returns++
+			if returns == 2 {
+				break
+			}
+		}
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || returns != 2 || m.CPU.EIP != 0x45dd6 {
+		t.Fatalf("second callback record mark not reached: calls=%d returns=%d EIP=%X", services.Calls(), returns, m.CPU.EIP)
+	}
+	if got := m.Mem[0x539c2:0x539ce]; !bytes.Equal(got, []byte{2, 1, 0xcc, 0xcb, 3, 0, 2, 2, 0xd5, 0x60, 4, 0}) {
+		t.Fatalf("callback records=% X", got)
+	}
+	if m.CPU.R[cpu386.EBX] != 0x539c8 || m.CPU.R[cpu386.ESP] != 0x5569c {
+		t.Fatalf("second callback return EBX=%X ESP=%X", m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP])
+	}
+}
