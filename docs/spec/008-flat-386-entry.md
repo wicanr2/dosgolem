@@ -1,7 +1,8 @@
 # 008 — 平坦 386 LE entry 第一個執行閘門
 
 狀態：**READY**（載入與 `0x3C964→0x3CA74` 前兩個中斷閘門的最小指令集）／
-**DRAFT**（DOS/4GW 安裝檢查回傳後、完整 386、DPMI 與 DOS/4GW 服務）
+**DRAFT**（完整 386、DPMI 與一般化 DOS/4GW 服務）；安裝檢查的固定 FD2 oracle
+回傳與成功分支已移至 [`009`](009-fd2-dos4g-install-check.md)
 日期：2026-09-05
 前置：[`007`](007-linear-executable-intake.md)、
 [`FD2 entry 證據`](../re/001-fd2-le-entry.md)

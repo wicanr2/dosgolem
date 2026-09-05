@@ -49,3 +49,36 @@ func TestRelativeJumpAndUnknownOpcode(t *testing.T) {
 		t.Fatal("expected unknown opcode error")
 	}
 }
+
+func TestCompareALAndJumpZero(t *testing.T) {
+	mem := testBus{0x3c, 0x7f, 0x74, 0x02, 0xfb, 0xfb, 0xfb}
+	c := New(mem)
+	c.R[EAX] = 0x1234007f
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 0x1234007f || c.EFlags&ZF == 0 {
+		t.Fatalf("CMP AL altered value or missed ZF: EAX=%08X flags=%08X", c.R[EAX], c.EFlags)
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EIP != 6 {
+		t.Fatalf("taken JZ EIP=%d want 6", c.EIP)
+	}
+
+	c = New(mem)
+	c.R[EAX] = 0x80
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EFlags&ZF != 0 || c.EFlags&OF == 0 {
+		t.Fatalf("CMP AL flags=%08X", c.EFlags)
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EIP != 4 {
+		t.Fatalf("untaken JZ EIP=%d want 4", c.EIP)
+	}
+}

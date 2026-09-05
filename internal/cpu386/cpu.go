@@ -21,6 +21,15 @@ const (
 )
 
 const (
+	SegCS = iota
+	SegDS
+	SegES
+	SegFS
+	SegGS
+	SegSS
+)
+
+const (
 	CF uint32 = 1 << 0
 	PF uint32 = 1 << 2
 	AF uint32 = 1 << 4
@@ -32,6 +41,7 @@ const (
 
 type CPU struct {
 	R       [8]uint32
+	Seg     [6]uint16
 	EIP     uint32
 	EFlags  uint32
 	Bus     Bus
@@ -174,6 +184,30 @@ func (c *CPU) sub16(left, right uint16) uint16 {
 		c.EFlags |= PF
 	}
 	if ((left^right)&(left^result))&0x8000 != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) sub8(left, right uint8) uint8 {
+	result := left - right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if left < right {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(result) {
+		c.EFlags |= PF
+	}
+	if ((left^right)&(left^result))&0x80 != 0 {
 		c.EFlags |= OF
 	}
 	return result
@@ -370,6 +404,26 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.sub16(uint16(c.R[EAX]), value)
+	case op == 0x3c:
+		if operand16 {
+			return fail("3C 不接受 operand-size override")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.sub8(uint8(c.R[EAX]), value)
+	case op == 0x74:
+		if operand16 {
+			return fail("74 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0x0f:
 		extended, e := c.fetch8()
 		if e != nil {
