@@ -37,3 +37,31 @@ func TestCompareRejectsNonCanonicalGeometry(t *testing.T) {
 		t.Fatal("expected remake geometry error")
 	}
 }
+
+func TestNormalizeRemakeAcceptsNativeAndExactDouble(t *testing.T) {
+	native := image.NewRGBA(image.Rect(0, 0, Width, Height))
+	native.SetRGBA(7, 9, color.RGBA{11, 22, 33, 255})
+	got, mode, err := NormalizeRemake(native)
+	if err != nil || mode != "native_320x200" || got.RGBAAt(7, 9) != (color.RGBA{11, 22, 33, 255}) {
+		t.Fatalf("native: mode=%q pixel=%v err=%v", mode, got.RGBAAt(7, 9), err)
+	}
+
+	double := image.NewRGBA(image.Rect(0, 0, Width*2, Height*2))
+	double.SetRGBA(14, 18, color.RGBA{44, 55, 66, 255})
+	double.SetRGBA(15, 18, color.RGBA{200, 200, 200, 255})
+	got, mode, err = NormalizeRemake(double)
+	if err != nil || mode != "nearest_2x" || got.RGBAAt(7, 9) != (color.RGBA{44, 55, 66, 255}) {
+		t.Fatalf("double: mode=%q pixel=%v err=%v", mode, got.RGBAAt(7, 9), err)
+	}
+}
+
+func TestNormalizeRemakeRejectsOtherGeometryAndNonZeroOrigin(t *testing.T) {
+	for _, bounds := range []image.Rectangle{
+		image.Rect(0, 0, 960, 600),
+		image.Rect(1, 1, Width+1, Height+1),
+	} {
+		if _, _, err := NormalizeRemake(image.NewRGBA(bounds)); err == nil {
+			t.Fatalf("expected geometry error for %v", bounds)
+		}
+	}
+}

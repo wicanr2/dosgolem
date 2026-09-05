@@ -30,17 +30,18 @@ type fileIdentity struct {
 }
 
 type report struct {
-	Schema          int              `json:"schema"`
-	Game            string           `json:"game"`
-	Scenario        string           `json:"scenario"`
-	State           string           `json:"state"`
-	Executable      fileIdentity     `json:"executable"`
-	InputSHA256     string           `json:"input_sha256"`
-	DosgolemCommit  string           `json:"dosgolem_commit"`
-	RemakeCommit    string           `json:"remake_commit"`
-	OriginalCapture string           `json:"original_capture"`
-	RemakeCapture   string           `json:"remake_capture"`
-	Comparison      fd2parity.Result `json:"comparison"`
+	Schema              int              `json:"schema"`
+	Game                string           `json:"game"`
+	Scenario            string           `json:"scenario"`
+	State               string           `json:"state"`
+	Executable          fileIdentity     `json:"executable"`
+	InputSHA256         string           `json:"input_sha256"`
+	DosgolemCommit      string           `json:"dosgolem_commit"`
+	RemakeCommit        string           `json:"remake_commit"`
+	OriginalCapture     string           `json:"original_capture"`
+	RemakeCapture       string           `json:"remake_capture"`
+	RemakeNormalization string           `json:"remake_normalization"`
+	Comparison          fd2parity.Result `json:"comparison"`
 }
 
 func main() {
@@ -83,6 +84,10 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	b, normalization, err := fd2parity.NormalizeRemake(b)
+	if err != nil {
+		die(err)
+	}
 	comparison, diff, err := fd2parity.Compare(a, b)
 	if err != nil {
 		die(err)
@@ -95,7 +100,8 @@ func main() {
 		Executable: identity, InputSHA256: inputSHA,
 		DosgolemCommit: *dosgolemCommit, RemakeCommit: *remakeCommit,
 		OriginalCapture: filepath.Base(*original), RemakeCapture: filepath.Base(*remake),
-		Comparison: comparison,
+		RemakeNormalization: normalization,
+		Comparison:          comparison,
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {

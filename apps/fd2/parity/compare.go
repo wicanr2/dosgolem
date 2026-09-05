@@ -27,6 +27,32 @@ type Result struct {
 	DiffBox     *Box    `json:"diff_box,omitempty"`
 }
 
+// NormalizeRemake 將重製端明示支援的畫布正規化為原版 320x200。
+// 只接受原生尺寸或精確二倍尺寸，避免比較工具靜默接受任意縮放。
+func NormalizeRemake(src image.Image) (*image.RGBA, string, error) {
+	want := image.Rect(0, 0, Width, Height)
+	switch src.Bounds() {
+	case want:
+		out := image.NewRGBA(want)
+		for y := 0; y < Height; y++ {
+			for x := 0; x < Width; x++ {
+				out.Set(x, y, src.At(x, y))
+			}
+		}
+		return out, "native_320x200", nil
+	case image.Rect(0, 0, Width*2, Height*2):
+		out := image.NewRGBA(want)
+		for y := 0; y < Height; y++ {
+			for x := 0; x < Width; x++ {
+				out.Set(x, y, src.At(x*2, y*2))
+			}
+		}
+		return out, "nearest_2x", nil
+	default:
+		return nil, "", fmt.Errorf("重製畫面尺寸為 %v，只接受 %v 或精確二倍畫布", src.Bounds(), want)
+	}
+}
+
 func Compare(original, remake image.Image) (Result, *image.RGBA, error) {
 	want := image.Rect(0, 0, Width, Height)
 	if original.Bounds() != want {
