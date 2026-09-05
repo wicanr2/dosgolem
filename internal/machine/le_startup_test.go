@@ -34,6 +34,14 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !c.SegmentLoadOK(0x30, cpu386.SegDS) || c.SegmentLoadOK(0x30, cpu386.SegES) {
 		t.Fatal("environment selector load destinations mismatch")
 	}
+	for offset, want := range minimalFD2Environment {
+		if got, ok := c.SegmentRead8(0x30, uint32(offset)); !ok || got != want {
+			t.Fatalf("environment[%d]=%X ok=%v want %X", offset, got, ok, want)
+		}
+	}
+	if _, ok := c.SegmentRead8(0x30, uint32(len(minimalFD2Environment))); ok {
+		t.Fatal("environment out-of-range read accepted")
+	}
 	c.R[cpu386.EAX] = 0xff00
 	c.R[cpu386.EDX] = 0x78
 	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegGS] != 0x20 {

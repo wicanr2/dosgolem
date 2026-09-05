@@ -136,6 +136,20 @@ func (c *CPU) writeSegment8(selector uint16, offset uint32, value uint8) bool {
 }
 
 func (c *CPU) readSegment32(selector uint16, offset uint32) (uint32, bool) {
+	if c.SegmentRead8 != nil {
+		var value uint32
+		for i := uint32(0); i < 4; i++ {
+			part, ok := c.SegmentRead8(selector, offset+i)
+			if !ok {
+				value = 0
+				break
+			}
+			value |= uint32(part) << (8 * i)
+			if i == 3 {
+				return value, true
+			}
+		}
+	}
 	linear, ok := c.segmentLinear(selector, offset, 4, false)
 	if !ok {
 		return 0, false
@@ -570,6 +584,12 @@ func (c *CPU) Step() error {
 			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 6 {
+			value, ok := c.readSegment32(c.Seg[SegDS], c.R[ESI])
+			if !ok {
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride >= 0 {
 			return fail(fmt.Sprintf("segment ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 != 3 {

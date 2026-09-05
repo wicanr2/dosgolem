@@ -186,6 +186,26 @@ func TestMoveSegmentFromESDescriptorMemory(t *testing.T) {
 	}
 }
 
+func TestMoveDwordFromDSIndexedMemory(t *testing.T) {
+	mem := testBus{0x8b, 0x06}
+	c := New(mem)
+	c.Seg[SegDS] = 0x30
+	c.R[ESI] = 4
+	c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+		data := []byte{0x78, 0x56, 0x34, 0x12}
+		if selector != 0x30 || offset < 4 || offset >= 8 {
+			return 0, false
+		}
+		return data[offset-4], true
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 0x12345678 || c.EIP != 2 {
+		t.Fatalf("EAX=%X EIP=%d", c.R[EAX], c.EIP)
+	}
+}
+
 func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x26, 0x8c, 0x1d, 0x40, 0x00, 0x00, 0x00}) // mov es:[40h],ds
