@@ -177,6 +177,28 @@ func TestMoveWordRegisterToAbsoluteMemory(t *testing.T) {
 	}
 }
 
+func TestProtectedModePushRegister(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	mem[0] = 0x56 // push esi
+	c := New(mem)
+	c.R[ESI] = 0x12345678
+	c.R[ESP] = 0x70
+	c.Seg[SegSS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ESP] != 0x6c || mem[0x8c] != 0x78 || mem[0x8f] != 0x12 {
+		t.Fatalf("ESP=%X stack=% X", c.R[ESP], mem[0x8c:0x90])
+	}
+
+	c = New(testBus{0x56})
+	c.R[ESP] = 3
+	if err := c.Step(); err == nil || c.R[ESP] != 3 {
+		t.Fatalf("underflow accepted or ESP changed: %X", c.R[ESP])
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)

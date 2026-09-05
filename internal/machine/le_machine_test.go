@@ -45,13 +45,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cace && steps < 60; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cacf && steps < 60; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cace {
-		t.Fatalf("entry did not save environment word: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cacf {
+		t.Fatalf("entry did not push through protected stack: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
 		t.Fatalf("selector bootstrap mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
@@ -80,6 +80,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	environmentWord, err := m.Read16(0x52838)
 	if err != nil || environmentWord != 0x30 {
 		t.Fatalf("environment word=%X err=%v", environmentWord, err)
+	}
+	if m.CPU.R[cpu386.ESP] != 0x556ac {
+		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
+	}
+	stackValue, err := m.Read32(0x556ac)
+	if err != nil || stackValue != 0 {
+		t.Fatalf("protected stack value=%X err=%v", stackValue, err)
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {
