@@ -1361,11 +1361,23 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
+		reg, rm := (modrm>>3)&7, modrm&7
+		if modrm>>6 == 3 {
+			c.R[reg] = c.sub32(c.R[reg], c.R[rm])
+		} else if modrm>>6 == 1 && rm == EBP {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("SUB stack read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[reg] = c.sub32(c.R[reg], value)
+		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
-		reg, rm := (modrm>>3)&7, modrm&7
-		c.R[reg] = c.sub32(c.R[reg], c.R[rm])
 	case op == 0x2a:
 		if operand16 || segmentOverride >= 0 {
 			return fail("2A 不接受目前的 prefix")
