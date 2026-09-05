@@ -78,27 +78,17 @@ func executePrefix(data []byte) {
 	if err != nil {
 		die(err)
 	}
-	interrupts := 0
-	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
-		if number != 0x21 {
-			return false
-		}
-		interrupts++
-		if interrupts == 1 && uint8(c.R[cpu386.EAX]>>8) == 0x30 && c.R[cpu386.EBX] == 0x50484152 {
-			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606
-			return true
-		}
-		return interrupts == 2 && uint16(c.R[cpu386.EAX]) == 0xff00 && uint16(c.R[cpu386.EDX]) == 0x78
-	}
+	services := &machine.FD2StartupDOS{}
+	m.CPU.IntHook = services.Handle
 	steps := 0
-	for interrupts < 2 && steps < 40 {
+	for m.CPU.EIP != 0x3ca7a && steps < 44 {
 		if err := m.CPU.Step(); err != nil {
 			die(err)
 		}
 		steps++
 	}
-	if interrupts != 2 {
-		die(fmt.Errorf("entry prefix 未在 40 steps 內到達 DOS/4GW installation check"))
+	if services.Calls() != 2 || m.CPU.EIP != 0x3ca7a {
+		die(fmt.Errorf("entry prefix 未在 44 steps 內進入 DOS/4GW success branch"))
 	}
 	stackA, err := m.Read32(0x52818)
 	if err != nil {
@@ -112,8 +102,8 @@ func executePrefix(data []byte) {
 	if err != nil {
 		die(err)
 	}
-	fmt.Printf("entry_prefix_executed=true steps=%d eip=0x%X esp=0x%X interrupts=2 last_ax=0x%X last_dx=0x%X stack_globals=0x%X,0x%X startup_word=0x%X\n",
-		steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], uint16(m.CPU.R[cpu386.EAX]), uint16(m.CPU.R[cpu386.EDX]), stackA, stackB, startupWord)
+	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X gs=0x%X last_dx=0x%X stack_globals=0x%X,0x%X startup_word=0x%X\n",
+		steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.Seg[cpu386.SegGS], uint16(m.CPU.R[cpu386.EDX]), stackA, stackB, startupWord)
 }
 
 func printCounts(label string, counts map[uint8]int) {

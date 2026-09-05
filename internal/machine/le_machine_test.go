@@ -43,34 +43,18 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
 		t.Fatalf("unexpected entry state: EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
 	}
-	interrupts := 0
-	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
-		if number != 0x21 {
-			t.Fatalf("unexpected interrupt %X", number)
-		}
-		interrupts++
-		switch interrupts {
-		case 1:
-			if uint8(c.R[cpu386.EAX]>>8) != 0x30 || c.R[cpu386.EBX] != 0x50484152 {
-				t.Fatalf("unexpected DOS version call EAX=%X EBX=%X", c.R[cpu386.EAX], c.R[cpu386.EBX])
-			}
-			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606 // DOS 6.22
-		case 2:
-			if uint16(c.R[cpu386.EAX]) != 0xff00 || uint16(c.R[cpu386.EDX]) != 0x78 {
-				t.Fatalf("unexpected DOS/4GW check EAX=%X EDX=%X", c.R[cpu386.EAX], c.R[cpu386.EDX])
-			}
-		default:
-			t.Fatalf("unexpected extra interrupt")
-		}
-		return true
-	}
-	for steps := 0; interrupts < 2 && steps < 40; steps++ {
+	services := &FD2StartupDOS{}
+	m.CPU.IntHook = services.Handle
+	for steps := 0; m.CPU.EIP != 0x3ca7a && steps < 44; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if interrupts != 2 {
-		t.Fatal("entry did not reach DOS/4GW installation check")
+	if services.Calls() != 2 || m.CPU.EIP != 0x3ca7a {
+		t.Fatalf("entry did not enter DOS/4GW success branch: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x4734ffff || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
+		t.Fatalf("DOS/4GW return mismatch: EAX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
 	stack := uint32(0x556b0)
 	for _, addr := range []uint32{0x52818, 0x52804} {
