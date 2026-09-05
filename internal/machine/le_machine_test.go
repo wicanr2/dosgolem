@@ -185,3 +185,22 @@ func TestFD2SecondCallbackClearsBLWhenProvided(t *testing.T) {
 		t.Fatalf("second callback BL clear EBX=%X flags=%X", m.CPU.R[cpu386.EBX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2SecondCallbackStoresX87ControlWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460ef && steps < 406; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460ef {
+		t.Fatalf("second callback x87 control store not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.Mem[0x527f5] != 0 || m.CPU.R[cpu386.EAX] != 0 || m.CPU.R[cpu386.ESP] != 0x55690 {
+		t.Fatalf("second callback pre-probe byte=%X EAX=%X ESP=%X", m.Mem[0x527f5], m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+	control, err := m.Read16(0x55690)
+	if err != nil || control != 0x037f || m.CPU.FPUControl != 0x037f {
+		t.Fatalf("second callback x87 control stack=%04X cpu=%04X err=%v", control, m.CPU.FPUControl, err)
+	}
+}
