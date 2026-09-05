@@ -197,6 +197,19 @@ func TestRegisterADD32(t *testing.T) {
 	}
 }
 
+func TestAddRegisterStackDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x03, 0x44, 0x24, 0x08})
+	copy(mem[0x28:], []byte{5, 0, 0, 0})
+	c := New(mem)
+	c.R[ESP], c.R[EAX] = 0x20, 7
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.R[EAX] != 12 || c.EFlags&ZF != 0 {
+		t.Fatalf("ADD EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestRegisterCMP32(t *testing.T) {
 	c := New(testBus{0x39, 0xc3})
 	c.R[EBX], c.R[EAX] = 7, 7
