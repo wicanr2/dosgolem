@@ -1,7 +1,8 @@
 # 010 — FD2 selector 啟動寫入
 
 狀態：**CONFORMED**（固定 selector 狀態、`MOV r/m,Sreg`、執行至 `0x3CA92`）／
-**DRAFT**（descriptor base 與 segment-memory）  
+**DRAFT**（descriptor base 與一般 segment-memory）；固定 `ES:[2Ch]` cell 已移至
+[`011`](011-fd2-es-environment-cell.md)
 日期：2026-09-05  
 前置：[`009`](009-fd2-dos4g-install-check.md)、
 [`selector 啟動證據`](../re/003-fd2-segment-bootstrap.md)

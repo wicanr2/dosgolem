@@ -40,12 +40,13 @@ const (
 )
 
 type CPU struct {
-	R       [8]uint32
-	Seg     [6]uint16
-	EIP     uint32
-	EFlags  uint32
-	Bus     Bus
-	IntHook func(*CPU, uint8) bool
+	R             [8]uint32
+	Seg           [6]uint16
+	EIP           uint32
+	EFlags        uint32
+	Bus           Bus
+	IntHook       func(*CPU, uint8) bool
+	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
 }
 
 type Error struct {
@@ -220,14 +221,29 @@ func (c *CPU) Step() error {
 		return &Error{start, 0, err.Error()}
 	}
 	operand16 := false
-	if op == 0x66 {
-		operand16 = true
+	segmentOverride := -1
+	for op == 0x66 || op == 0x26 {
+		switch op {
+		case 0x66:
+			if operand16 {
+				return &Error{start, op, "重複 operand-size prefix"}
+			}
+			operand16 = true
+		case 0x26:
+			if segmentOverride >= 0 {
+				return &Error{start, op, "重複 segment prefix"}
+			}
+			segmentOverride = SegES
+		}
 		op, err = c.fetch8()
 		if err != nil {
-			return &Error{start, 0x66, err.Error()}
+			return &Error{start, 0, err.Error()}
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
+	if segmentOverride >= 0 && op != 0x8b {
+		return fail("segment override 只支援 8B")
+	}
 	switch {
 	case op == 0xeb:
 		delta, e := c.fetch8()
@@ -282,17 +298,33 @@ func (c *CPU) Step() error {
 			c.R[rm] = result
 		}
 	case op == 0x8b:
-		if operand16 {
-			return fail("16-bit 8B 尚未支援")
-		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
+		if operand16 && segmentOverride == SegES && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if c.SegmentRead16 == nil {
+				return fail("segment word read hook 缺失")
+			}
+			value, ok := c.SegmentRead16(c.Seg[segmentOverride], addr)
+			if !ok {
+				return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+			}
+			reg := (modrm >> 3) & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if segmentOverride >= 0 {
+			return fail(fmt.Sprintf("segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		} else {
+			c.R[(modrm>>3)&7] = c.R[modrm&7]
 		}
-		c.R[(modrm>>3)&7] = c.R[modrm&7]
 	case op == 0x89:
 		if operand16 {
 			return fail("16-bit 89 尚未支援")
