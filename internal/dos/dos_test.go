@@ -2,6 +2,7 @@ package dos
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -477,6 +478,51 @@ func TestOpenIgnoresPathAndCase(t *testing.T) {
 	}
 	if string(got) != "hello" {
 		t.Errorf("讀到 %q", got)
+	}
+}
+
+func TestFileWritesRequireExplicitAllowlist(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allowed=%t", allowed), func(t *testing.T) {
+			m, d := newTest(t)
+			path := filepath.Join(d.Root, "save.dat")
+			if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if allowed {
+				if err := d.AllowFileWrites("SAVE.DAT"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+			m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("SAVE.DAT"), 0))
+			call(m, d, 0x21, 0x3D02)
+			h := m.CPU.R[cpu.AX]
+			m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = h, 3, 0x40
+			m.WriteBytes(cpu.Addr(0x3000, 0x40), []byte("NEW"))
+			call(m, d, 0x21, 0x4000)
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "hello"
+			if allowed {
+				want = "NEWlo"
+			}
+			if string(got) != want {
+				t.Fatalf("內容=%q，預期%q", got, want)
+			}
+		})
+	}
+	if _, d := newTest(t); d.AllowFileWrites("../save.dat") == nil {
+		t.Fatal("路徑逃逸應失敗")
+	}
+	_, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "save.dat"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AllowFileWrites("SAVE.DAT", "../bad.dat"); err == nil || len(d.writableFiles) != 0 {
+		t.Fatalf("allowlist失敗必須原子回滾：err=%v files=%v", err, d.writableFiles)
 	}
 }
 

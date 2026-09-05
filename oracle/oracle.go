@@ -101,6 +101,9 @@ func Load(exe, root string) (*Oracle, error) {
 // Close 關掉還開著的檔。
 func (o *Oracle) Close() { o.d.Close() }
 
+// AllowFileWrites 對可丟棄Root覆蓋層逐檔開啟實際寫入；預設仍完全唯讀。
+func (o *Oracle) AllowFileWrites(names ...string) error { return o.d.AllowFileWrites(names...) }
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。
@@ -170,8 +173,10 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64    { return o.m.Steps }
-func (o *Oracle) Opened() []string { return o.d.Opened }
+func (o *Oracle) Steps() uint64      { return o.m.Steps }
+func (o *Oracle) Opened() []string   { return o.d.Opened }
+func (o *Oracle) Missing() []string  { return o.d.Missing }
+func (o *Oracle) Wrote() []dos.Write { return o.d.Wrote }
 
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
 // `int 10h AH=0Eh`）。**錯誤訊息走這條**，出問題先看它。

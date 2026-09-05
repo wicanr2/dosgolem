@@ -12,10 +12,11 @@ import (
 // 檔案服務：`AH=3Dh` 開、`3Eh` 關、`3Fh` 讀、`42h` seek。
 
 type handle struct {
-	name string
-	path string
-	f    *os.File
-	size int64
+	name     string
+	path     string
+	f        *os.File
+	size     int64
+	writable bool
 }
 
 // resolve 把遊戲組出來的路徑對到實際檔案。
@@ -75,7 +76,15 @@ func (d *DOS) open(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	f, err := os.Open(path)
+	writeAccess := al(c)&3 == 1 || al(c)&3 == 2
+	allowed := writeAccess && d.writableFiles[strings.ToUpper(filepath.Base(path))]
+	var f *os.File
+	var err error
+	if allowed {
+		f, err = os.OpenFile(path, os.O_RDWR, 0)
+	} else {
+		f, err = os.Open(path)
+	}
 	if err != nil {
 		d.Missing = append(d.Missing, name)
 		c.R[cpu.AX] = 2
@@ -85,7 +94,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	st, _ := f.Stat()
 	h := d.nextHandle
 	d.nextHandle++
-	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
+	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(), writable: allowed}
 	d.Opened = append(d.Opened, filepath.Base(path))
 	c.R[cpu.AX] = h
 	clearCarry(c)
@@ -226,8 +235,8 @@ func (d *DOS) findFirst(c *cpu.CPU) {
 // 沒接的話主控台是空的——看起來像「程式什麼都沒說」，
 // 而實際上它正在印錯誤訊息（第一次跑通 CPU 之後就是這個症狀）。
 //
-// **寫檔一律不做。** 原版素材唯讀（`CLAUDE.md`），而 MVP-B 不需要存檔；
-// 真的有人寫檔要看得到，所以記一筆而不是安靜地報成功。
+// **預設寫檔一律不做。** 只有AllowFileWrites逐檔允許且以寫入模式開啟的
+// 覆蓋層handle才實際落地；其他情況維持研究輸入唯讀並記錄寫入企圖。
 func (d *DOS) write(c *cpu.CPU) {
 	bx, cx := c.R[cpu.BX], c.R[cpu.CX]
 	buf := make([]byte, cx)
@@ -241,6 +250,16 @@ func (d *DOS) write(c *cpu.CPU) {
 	default:
 		if h, ok := d.handles[bx]; ok {
 			d.Wrote = append(d.Wrote, Write{Name: h.name, N: int(cx)})
+			if h.writable {
+				n, err := h.f.Write(buf)
+				c.R[cpu.AX] = uint16(n)
+				if err != nil {
+					setCarry(c)
+					return
+				}
+				clearCarry(c)
+				return
+			}
 		} else {
 			d.Wrote = append(d.Wrote, Write{Name: fmt.Sprintf("handle %d", bx), N: int(cx)})
 		}

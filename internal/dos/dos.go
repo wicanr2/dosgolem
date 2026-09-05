@@ -12,7 +12,10 @@ package dos
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -107,9 +110,10 @@ type DOS struct {
 	Opened  []string
 	Missing []string
 
-	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
-	// 但安靜地報成功會讓「存檔壞掉」查不出來。
-	Wrote []Write
+	// Wrote 記下「程式想寫檔」的每一次。只有以AllowFileWrites逐檔
+	// opt-in的可寫覆蓋層才會實際落地；預設仍保護原版素材。
+	Wrote         []Write
+	writableFiles map[string]bool
 
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
@@ -120,6 +124,34 @@ type DOS struct {
 	freeSeg    uint16
 	dtaSeg     uint16
 	dtaOff     uint16
+}
+
+// AllowFileWrites 只允許已存在於Root的指定basename實際寫入。
+// 呼叫端必須把Root指向可丟棄覆蓋層，不能指向原版來源。
+func (d *DOS) AllowFileWrites(names ...string) error {
+	validated := make([]string, 0, len(names))
+	for _, name := range names {
+		base := filepath.Base(name)
+		if base == "." || base == "" || base != name || strings.ContainsAny(name, `\/:`) {
+			return fmt.Errorf("可寫檔名必須是單一basename：%q", name)
+		}
+		path := d.resolve(base)
+		if path == "" {
+			return fmt.Errorf("可寫覆蓋層缺少檔案：%q", name)
+		}
+		st, err := os.Stat(path)
+		if err != nil || !st.Mode().IsRegular() {
+			return fmt.Errorf("可寫覆蓋層不是一般檔案：%q", name)
+		}
+		validated = append(validated, strings.ToUpper(base))
+	}
+	if d.writableFiles == nil {
+		d.writableFiles = map[string]bool{}
+	}
+	for _, base := range validated {
+		d.writableFiles[base] = true
+	}
+	return nil
 }
 
 // Write 是一次被擋下來的寫檔。
