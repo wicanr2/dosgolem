@@ -1,5 +1,5 @@
 // Package cpu386 是與既有 8086 核心隔離的 32-bit 平坦執行核心。
-// 目前只涵蓋 docs/spec/008 的 FD2 entry 第一個執行閘門。
+// 目前依文件化切片擴充 DOS/4GW 啟動路徑；未列形狀一律失敗即關閉。
 package cpu386
 
 import "fmt"
@@ -47,6 +47,7 @@ type CPU struct {
 	Bus           Bus
 	IntHook       func(*CPU, uint8) bool
 	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
+	SegmentLoadOK func(selector uint16, destination int) bool
 	Descriptors   map[uint16]Descriptor
 }
 
@@ -70,6 +71,13 @@ func New(bus Bus) *CPU { return &CPU{Bus: bus, EFlags: 2, Descriptors: make(map[
 
 func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
 	c.Descriptors[selector] = descriptor
+}
+
+func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
+	if _, ok := c.Descriptors[selector]; ok {
+		return true
+	}
+	return c.SegmentLoadOK != nil && c.SegmentLoadOK(selector, destination)
 }
 
 func (c *CPU) segmentLinear(selector uint16, offset uint32, size uint32, write bool) (uint32, bool) {
@@ -130,6 +138,18 @@ func (c *CPU) fetch32() (uint32, error) {
 		return 0, err
 	}
 	return uint32(a) | uint32(b)<<16, nil
+}
+
+func (c *CPU) read16(addr uint32) (uint16, error) {
+	a, err := c.Bus.Read8(addr)
+	if err != nil {
+		return 0, err
+	}
+	b, err := c.Bus.Read8(addr + 1)
+	if err != nil {
+		return 0, err
+	}
+	return uint16(a) | uint16(b)<<8, nil
 }
 
 func (c *CPU) write16(addr uint32, value uint16) error {
@@ -444,15 +464,31 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
-		}
 		encoding := int((modrm >> 3) & 7)
 		segmentByEncoding := [...]int{SegES, -1, SegSS, SegDS, SegFS, SegGS}
 		if encoding >= len(segmentByEncoding) || segmentByEncoding[encoding] < 0 {
 			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
 		}
-		c.Seg[segmentByEncoding[encoding]] = uint16(c.R[modrm&7])
+		destination := segmentByEncoding[encoding]
+		var value uint16
+		if modrm>>6 == 3 {
+			value = uint16(c.R[modrm&7])
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e = c.read16(addr)
+			if e != nil {
+				return fail(e.Error())
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		if !c.canLoadSegment(value, destination) {
+			return fail(fmt.Sprintf("selector %04X 不可載入", value))
+		}
+		c.Seg[destination] = value
 	case op == 0x88:
 		if operand16 {
 			return fail("88 不接受 operand-size override")
