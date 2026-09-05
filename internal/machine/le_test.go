@@ -23,6 +23,9 @@ func leFixture() []byte {
 	binary.LittleEndian.PutUint32(h[0x40:], 0xb0)
 	binary.LittleEndian.PutUint32(h[0x44:], 1)
 	binary.LittleEndian.PutUint32(h[0x48:], 0xc8)
+	binary.LittleEndian.PutUint32(h[0x68:], 0xcc)
+	binary.LittleEndian.PutUint32(h[0x6c:], 0xd4)
+	binary.LittleEndian.PutUint32(h[0x70:], 0xd4)
 	binary.LittleEndian.PutUint32(h[0x80:], 0x180)
 	o := h[0xb0:]
 	for i, v := range []uint32{0x2000, 0x10000, 0x2045, 1, 1, 0} {
@@ -31,6 +34,91 @@ func leFixture() []byte {
 	copy(h[0xc8:], []byte{0, 0, 1, 0})
 	copy(b[0x180:], []byte{1, 2, 3, 4})
 	return b
+}
+
+func TestParseLEFixupVariants(t *testing.T) {
+	tests := []struct {
+		name  string
+		raw   []byte
+		check func(*testing.T, LEFixup)
+	}{
+		{"internal-negative-source", []byte{7, 0, 0xff, 0xff, 2, 0x34, 0x12}, func(t *testing.T, f LEFixup) {
+			if f.SourceOffsets[0] != -1 || f.Ordinal != 2 || f.TargetOffset != 0x1234 {
+				t.Fatalf("unexpected: %+v", f)
+			}
+		}},
+		{"selector", []byte{2, 0, 4, 0, 3}, func(t *testing.T, f LEFixup) {
+			if f.Ordinal != 3 || f.TargetOffset != 0 {
+				t.Fatalf("unexpected: %+v", f)
+			}
+		}},
+		{"import-ordinal-wide", []byte{5, 0x51, 2, 0, 4, 0, 0x78, 0x56, 0x34, 0x12}, func(t *testing.T, f LEFixup) {
+			if f.Ordinal != 4 || f.TargetOffset != 0x12345678 {
+				t.Fatalf("unexpected: %+v", f)
+			}
+		}},
+		{"import-name-additive", []byte{0, 0x06, 2, 0, 1, 0x20, 0, 0x34, 0x12}, func(t *testing.T, f LEFixup) {
+			if f.Ordinal != 1 || f.NameOffset != 0x20 || !f.HasAdditive || f.Additive != 0x1234 {
+				t.Fatalf("unexpected: %+v", f)
+			}
+		}},
+		{"entry-source-list", []byte{0x25, 3, 2, 7, 1, 0, 0xfe, 0xff}, func(t *testing.T, f LEFixup) {
+			if f.Ordinal != 7 || len(f.SourceOffsets) != 2 || f.SourceOffsets[0] != 1 || f.SourceOffsets[1] != -2 {
+				t.Fatalf("unexpected: %+v", f)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, n, err := parseLEFixup(tt.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n != len(tt.raw) || len(f.Raw) != len(tt.raw) {
+				t.Fatalf("consumed %d/%d", n, len(tt.raw))
+			}
+			tt.check(t, f)
+		})
+	}
+}
+
+func TestParseLEFixupRejectsInvalidRecords(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"truncated":         {7},
+		"undefined-source":  {1, 0},
+		"invalid-alias":     {0x10, 0},
+		"invalid-chain":     {7, 0x0a, 0, 0, 1},
+		"short-source-list": {0x25, 3, 2, 7, 1, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := parseLEFixup(raw); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestInspectLEFixupPages(t *testing.T) {
+	b := leFixture()
+	h := b[0x80:]
+	// Page 1 contains one internal 32-bit offset fixup.
+	copy(h[0xd4:], []byte{7, 0, 2, 0, 1, 0x34, 0x12})
+	binary.LittleEndian.PutUint32(h[0xcc:], 0)
+	binary.LittleEndian.PutUint32(h[0xd0:], 7)
+	binary.LittleEndian.PutUint32(h[0x70:], 0xdb)
+	got, err := InspectLE(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Fixups) != 1 || len(got.Fixups[0]) != 1 || got.Fixups[0][0].TargetOffset != 0x1234 {
+		t.Fatalf("unexpected fixups: %+v", got.Fixups)
+	}
+
+	binary.LittleEndian.PutUint32(h[0xcc:], 8)
+	binary.LittleEndian.PutUint32(h[0xd0:], 7)
+	if _, err := InspectLE(b); err == nil {
+		t.Fatal("expected non-monotonic offsets error")
+	}
 }
 
 func TestInspectLE(t *testing.T) {
@@ -86,6 +174,16 @@ func TestInspectFD2WhenProvided(t *testing.T) {
 	}
 	if h.Offset != 0x28b8 || h.ObjectCount != 3 || h.PageSize != 0x1000 || h.EIPObject != 1 || h.EIP != 0x2c964 || h.ESPObject != 2 || h.ESP != 0x56b0 {
 		t.Fatalf("unexpected FD2 header: %+v", h)
+	}
+	totalFixups, pagesWithFixups := 0, 0
+	for _, page := range h.Fixups {
+		totalFixups += len(page)
+		if len(page) != 0 {
+			pagesWithFixups++
+		}
+	}
+	if len(h.FixupPageOffsets) != 72 || len(h.Fixups) != 71 || pagesWithFixups != 68 || totalFixups != 7944 {
+		t.Fatalf("unexpected FD2 fixups: offsets=%d pages=%d nonempty=%d records=%d", len(h.FixupPageOffsets), len(h.Fixups), pagesWithFixups, totalFixups)
 	}
 	want := []LEObject{{0x3ebd9, 0x10000, 0x2045, 1, 0x3f, 0}, {0x56b0, 0x50000, 0x2043, 0x40, 4, 0}, {0x34d2, 0x60000, 0x2043, 0x44, 4, 0}}
 	for i := range want {
