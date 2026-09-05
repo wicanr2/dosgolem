@@ -38,6 +38,32 @@ func TestCompareRejectsNonCanonicalGeometry(t *testing.T) {
 	}
 }
 
+func TestCompareRegionUsesAbsoluteCoordinates(t *testing.T) {
+	a := image.NewRGBA(image.Rect(0, 0, Width, Height))
+	b := image.NewRGBA(image.Rect(0, 0, Width, Height))
+	b.SetRGBA(11, 23, color.RGBA{9, 8, 7, 255})
+	got, err := CompareRegion(a, b, Region{Name: "dialogue", X: 10, Y: 20, Width: 4, Height: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalPixels != 20 || got.EqualPixels != 19 || got.DiffBox == nil ||
+		*got.DiffBox != (Box{11, 23, 11, 23}) {
+		t.Fatalf("region result=%+v", got)
+	}
+}
+
+func TestCompareRegionRejectsInvalidBounds(t *testing.T) {
+	a := image.NewRGBA(image.Rect(0, 0, Width, Height))
+	for _, region := range []Region{
+		{Name: "", X: 0, Y: 0, Width: 1, Height: 1},
+		{Name: "bad", X: 319, Y: 0, Width: 2, Height: 1},
+	} {
+		if _, err := CompareRegion(a, a, region); err == nil {
+			t.Fatalf("expected invalid region error: %+v", region)
+		}
+	}
+}
+
 func TestNormalizeRemakeAcceptsNativeAndExactDouble(t *testing.T) {
 	native := image.NewRGBA(image.Rect(0, 0, Width, Height))
 	native.SetRGBA(7, 9, color.RGBA{11, 22, 33, 255})

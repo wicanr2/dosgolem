@@ -30,20 +30,21 @@ type fileIdentity struct {
 }
 
 type report struct {
-	Schema                int              `json:"schema"`
-	Game                  string           `json:"game"`
-	Scenario              string           `json:"scenario"`
-	State                 string           `json:"state"`
-	Executable            fileIdentity     `json:"executable"`
-	InputSHA256           string           `json:"input_sha256"`
-	DosgolemCommit        string           `json:"dosgolem_commit"`
-	RemakeCommit          string           `json:"remake_commit"`
-	OriginalCapture       string           `json:"original_capture"`
-	OriginalCaptureSHA256 string           `json:"original_capture_sha256"`
-	RemakeCapture         string           `json:"remake_capture"`
-	RemakeCaptureSHA256   string           `json:"remake_capture_sha256"`
-	RemakeNormalization   string           `json:"remake_normalization"`
-	Comparison            fd2parity.Result `json:"comparison"`
+	Schema                int                         `json:"schema"`
+	Game                  string                      `json:"game"`
+	Scenario              string                      `json:"scenario"`
+	State                 string                      `json:"state"`
+	Executable            fileIdentity                `json:"executable"`
+	InputSHA256           string                      `json:"input_sha256"`
+	DosgolemCommit        string                      `json:"dosgolem_commit"`
+	RemakeCommit          string                      `json:"remake_commit"`
+	OriginalCapture       string                      `json:"original_capture"`
+	OriginalCaptureSHA256 string                      `json:"original_capture_sha256"`
+	RemakeCapture         string                      `json:"remake_capture"`
+	RemakeCaptureSHA256   string                      `json:"remake_capture_sha256"`
+	RemakeNormalization   string                      `json:"remake_normalization"`
+	Comparison            fd2parity.Result            `json:"comparison"`
+	Regions               map[string]fd2parity.Result `json:"regions,omitempty"`
 }
 
 func main() {
@@ -115,6 +116,16 @@ func main() {
 		RemakeCaptureSHA256:   remakeSHA,
 		RemakeNormalization:   normalization,
 		Comparison:            comparison,
+	}
+	if len(scenario.Regions) > 0 {
+		r.Regions = make(map[string]fd2parity.Result, len(scenario.Regions))
+		for _, region := range scenario.Regions {
+			result, err := fd2parity.CompareRegion(a, b, region)
+			if err != nil {
+				die(err)
+			}
+			r.Regions[region.Name] = result
+		}
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {

@@ -35,4 +35,14 @@ func TestScenarioValidateRejectsUnsupportedStateAndWrongGame(t *testing.T) {
 	if err := bad.Validate(); err == nil {
 		t.Fatal("expected wrong game error")
 	}
+	bad = good
+	bad.Regions = []Region{{Name: "map", X: 0, Y: 0, Width: Width, Height: Height}, {Name: "map", X: 0, Y: 0, Width: 1, Height: 1}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected duplicate region error")
+	}
+	bad = good
+	bad.Regions = []Region{{Name: "outside", X: Width, Y: 0, Width: 1, Height: 1}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected out-of-bounds region error")
+	}
 }

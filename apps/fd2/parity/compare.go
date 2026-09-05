@@ -62,23 +62,47 @@ func Compare(original, remake image.Image) (Result, *image.RGBA, error) {
 		return Result{}, nil, fmt.Errorf("重製畫面尺寸為 %v，預期 %v", remake.Bounds(), want)
 	}
 
-	diff := image.NewRGBA(want)
-	result := Result{TotalPixels: Width * Height}
+	return compareRectangle(original, remake, want, true)
+}
+
+func CompareRegion(original, remake image.Image, region Region) (Result, error) {
+	want := image.Rect(0, 0, Width, Height)
+	if original.Bounds() != want || remake.Bounds() != want {
+		return Result{}, fmt.Errorf("區域比較只接受 %v 畫布", want)
+	}
+	rect := image.Rect(region.X, region.Y, region.X+region.Width, region.Y+region.Height)
+	if region.Name == "" || rect.Empty() || !rect.In(want) {
+		return Result{}, fmt.Errorf("無效區域：%+v", region)
+	}
+	result, _, err := compareRectangle(original, remake, rect, false)
+	return result, err
+}
+
+func compareRectangle(original, remake image.Image, rect image.Rectangle, makeDiff bool) (Result, *image.RGBA, error) {
+	var diff *image.RGBA
+	if makeDiff {
+		diff = image.NewRGBA(image.Rect(0, 0, Width, Height))
+	}
+	result := Result{TotalPixels: rect.Dx() * rect.Dy()}
 	var sum uint64
 	var box Box
 	hasDiff := false
-	for y := 0; y < Height; y++ {
-		for x := 0; x < Width; x++ {
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		for x := rect.Min.X; x < rect.Max.X; x++ {
 			r0, g0, b0, _ := original.At(x, y).RGBA()
 			r1, g1, b1, _ := remake.At(x, y).RGBA()
 			r0, g0, b0, r1, g1, b1 = r0>>8, g0>>8, b0>>8, r1>>8, g1>>8, b1>>8
 			if r0 == r1 && g0 == g1 && b0 == b1 {
 				result.EqualPixels++
-				diff.SetRGBA(x, y, color.RGBA{0, 0, 0, 255})
+				if diff != nil {
+					diff.SetRGBA(x, y, color.RGBA{0, 0, 0, 255})
+				}
 				continue
 			}
 			sum += abs(r0, r1) + abs(g0, g1) + abs(b0, b1)
-			diff.SetRGBA(x, y, color.RGBA{255, 0, 255, 255})
+			if diff != nil {
+				diff.SetRGBA(x, y, color.RGBA{255, 0, 255, 255})
+			}
 			if !hasDiff {
 				box = Box{x, y, x, y}
 				hasDiff = true
