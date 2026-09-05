@@ -92,6 +92,14 @@ func (c *CPU) writeSegment16(selector uint16, offset uint32, value uint16) bool 
 	return true
 }
 
+func (c *CPU) writeSegment32(selector uint16, offset uint32, value uint32) bool {
+	linear, ok := c.segmentLinear(selector, offset, 4, true)
+	if !ok || c.write32(linear, value) != nil {
+		return false
+	}
+	return true
+}
+
 func (c *CPU) fetch8() (uint8, error) {
 	v, err := c.Bus.Read8(c.EIP)
 	if err == nil {
@@ -276,6 +284,18 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8B／8C")
 	}
 	switch {
+	case op >= 0x50 && op <= 0x57:
+		if operand16 {
+			return fail("16-bit PUSH 尚未支援")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.R[op-0x50]) {
+			return fail(fmt.Sprintf("stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
 	case op == 0xeb:
 		delta, e := c.fetch8()
 		if e != nil {
