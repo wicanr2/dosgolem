@@ -990,6 +990,31 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 6 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("PUSH dword read %04X:%08X 尚未支援", c.Seg[segment], addr))
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+				return fail(fmt.Sprintf("PUSH dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
 		if modrm>>6 == 0 && modrm&7 == 5 && group == 6 {
 			addr, e := c.fetch32()
 			if e != nil {

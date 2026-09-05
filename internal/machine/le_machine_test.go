@@ -585,3 +585,18 @@ func TestFD2CompletesAILDPMILocksWhenProvided(t *testing.T) {
 		t.Fatalf("AIL DPMI locks steps=%d EIP=%X calls=%d initialized=%X err=%v", steps, m.CPU.EIP, services.Calls(), initialized, err)
 	}
 }
+
+func TestFD2PassesGetenvArgumentWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 2500 && m.CPU.EIP != 0x3f154; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("getenv argument: step=%d EIP=%X EBP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	argument, errArgument := m.Read32(m.CPU.R[cpu386.EBP] + 8)
+	pushed, errPushed := m.Read32(m.CPU.R[cpu386.ESP])
+	if m.CPU.EIP != 0x3f154 || services.Calls() != 5 || argument == 0 || pushed != argument || errArgument != nil || errPushed != nil {
+		t.Fatalf("getenv argument steps=%d EIP=%X calls=%d argument=%X pushed=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), argument, pushed, errArgument, errPushed)
+	}
+}
