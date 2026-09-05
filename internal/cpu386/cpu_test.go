@@ -209,6 +209,22 @@ func TestMoveDwordFromDSIndexedMemory(t *testing.T) {
 	}
 }
 
+func TestMoveDwordFromDSDisp8AndORRegister(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x8b, 0x43, 0x02, 0x0b, 0xc0})
+	mem[0x32], mem[0x33], mem[0x34], mem[0x35] = 0xcc, 0xcb, 0x03, 0
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f})
+	c.R[EBX] = 0x10
+	if err := c.Step(); err != nil || c.R[EAX] != 0x3cbcc {
+		t.Fatalf("MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+	if err := c.Step(); err != nil || c.R[EAX] != 0x3cbcc || c.EFlags&ZF != 0 || c.EFlags&CF != 0 {
+		t.Fatalf("OR EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x26, 0x8c, 0x1d, 0x40, 0x00, 0x00, 0x00}) // mov es:[40h],ds
