@@ -543,6 +543,10 @@ type Corps struct {
 	Interval uint8  // +0x1E 移動間隔
 	Target   uint8  // +0x20 目標據點（無縮放）
 	Stage    uint8  // +0x23 抵達狀態機
+
+	// Slots 是六個部隊槽（`+0x28` 起，每槽 4 B）：
+	// `+1` ＝ 兵力（一點 ＝ 10 人）、`+2` ＝ 兵種（1 騎 2 弓 3 步、4 空槽）。
+	Slots [6]struct{ Men, Kind uint8 }
 }
 
 // CorpsTable 讀整張軍團表，只回存在的（`+0x00` 非 0）。
@@ -558,12 +562,17 @@ func CorpsTable(o *oracle.Oracle) []Corps {
 			continue
 		}
 		u16 := func(k int) uint16 { return uint16(b[k]) | uint16(b[k+1])<<8 }
-		out = append(out, Corps{
+		c := Corps{
 			Index: i, Flags: b[0], Faction: b[1], No: b[2],
 			Troops: u16(4), Morale: u16(6), Facing: b[8], Step: b[0x0A],
 			Timer: b[0x0B], At: u16(0x0E), X: u16(0x10), Y: u16(0x12),
 			To: u16(0x14), Interval: b[0x1E], Target: b[0x20], Stage: b[0x23],
-		})
+		}
+		for k := 0; k < 6; k++ {
+			c.Slots[k].Men = b[0x28+k*4+1]
+			c.Slots[k].Kind = b[0x28+k*4+2]
+		}
+		out = append(out, c)
 	}
 	return out
 }

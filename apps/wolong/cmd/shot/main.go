@@ -230,10 +230,14 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		cs := wolong.CorpsTable(o)
 		fmt.Printf("   軍團 %d 支：\n", len(cs))
 		for _, c := range cs {
-			fmt.Printf("     #%3d 勢力%2d 旗標%02X 兵力%5d 士氣%4d "+
-				"現在據點%3d (%4d,%4d) 目標據點%3d 朝向%d 計時%3d 間隔%2d 狀態%02X\n",
-				c.Index, c.Faction, c.Flags, c.Troops, c.Morale,
-				c.At/8, c.X, c.Y, c.Target, c.Facing, c.Timer, c.Interval, c.Stage)
+			slots := ""
+			for _, sl := range c.Slots {
+				slots += fmt.Sprintf(" %d/%d", sl.Men, sl.Kind)
+			}
+			fmt.Printf("     #%3d 勢力%2d 主將%3d 旗標%02X 兵力%5d 士氣%4d "+
+				"現在據點%3d (%4d,%4d) 目標據點%3d 朝向%d 計時%3d 間隔%2d 狀態%02X 槽%s\n",
+				c.Index, c.Faction, c.No, c.Flags, c.Troops, c.Morale,
+				c.At/8, c.X, c.Y, c.Target, c.Facing, c.Timer, c.Interval, c.Stage, slots)
 		}
 		return nil
 	case "celltile":
