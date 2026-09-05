@@ -245,6 +245,23 @@ func TestJBEShort(t *testing.T) {
 	}
 }
 
+func TestJLShort(t *testing.T) {
+	for _, flags := range []uint32{SF, OF} {
+		c := New(testBus{0x7c, 2, 0xfb, 0xfb})
+		c.EFlags = flags
+		if err := c.Step(); err != nil || c.EIP != 4 || c.EFlags != flags {
+			t.Fatalf("taken JL flags=%X EIP=%X err=%v", flags, c.EIP, err)
+		}
+	}
+	for _, flags := range []uint32{0, SF | OF} {
+		c := New(testBus{0x7c, 2, 0xfb, 0xfb})
+		c.EFlags = flags
+		if err := c.Step(); err != nil || c.EIP != 2 || c.EFlags != flags {
+			t.Fatalf("untaken JL flags=%X EIP=%X err=%v", flags, c.EIP, err)
+		}
+	}
+}
+
 func TestRegisterSUB32(t *testing.T) {
 	c := New(testBus{0x29, 0xc4})
 	c.R[ESP], c.R[EAX] = 9, 4
