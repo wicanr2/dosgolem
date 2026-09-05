@@ -446,3 +446,15 @@ func AtTick(n uint64) Cond {
 // 所以**畫面相位對拍時不要動它**，只在趕時間的探索性測試裡用。
 func (o *Oracle) TickRate() uint64         { return o.m.IRQ0Every }
 func (o *Oracle) SetTickRate(every uint64) { o.m.IRQ0Every = every }
+
+// StackWord 讀堆疊上的第 i 個 word（i ＝ 0 是 `SS:SP` 指的那一個）。
+//
+// ⚠ **只在剛進入被呼叫的常式時有意義**——常式一旦 `push` 了東西，
+// `SP` 就不再指向返回位址。與 `Caller` 同一個限制。
+func (o *Oracle) StackWord(i int) uint16 {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	return o.m.Read16(cpu.Addr(ss, sp+uint16(2*i)))
+}
+
+// AX 讀回傳值所在的暫存器。BASIC 的函式用它回傳整數。
+func (o *Oracle) AX() uint16 { return o.m.CPU.R[cpu.AX] }

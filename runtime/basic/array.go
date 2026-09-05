@@ -128,3 +128,26 @@ func (a *Array) Bytes(idx ...int) []byte {
 	}
 	return out
 }
+
+// CallArgs 讀 far call **剛進入時**的參數。
+//
+// 編譯後的 BASIC **傳址**：堆疊上每個參數是一個近指標（DGROUP 偏移），
+// 不是值本身。進入點的版面是
+//
+//	[SP]    返回 IP
+//	[SP+2]  返回 CS
+//	[SP+4]  最後一個參數的指標
+//	…       （參數由左到右 push，所以堆疊上是反序）
+//	         第一個參數在最高位址
+//
+// 回傳的是**解參考之後的值**，順序與原始碼一致（第 1 個參數在 [0]）。
+//
+// ⚠ 這個版面只在 `OnCall` 的 hook 裡成立（常式還沒 push 任何東西）。
+func CallArgs(o *oracle.Oracle, n int) []uint16 {
+	out := make([]uint16, n)
+	for k := 0; k < n; k++ {
+		ptr := o.StackWord(2 + (n - 1 - k))
+		out[k] = o.Word(o.DS(ptr))
+	}
+	return out
+}
