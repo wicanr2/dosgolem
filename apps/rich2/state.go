@@ -241,3 +241,40 @@ func PlayerDir(o *oracle.Oracle, player int) int {
 func Tile(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarTile))) }
 func Direction(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirection))) }
 func Turn(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarPlayer))) }
+
+// 三張還沒被對拍碰過的表（`rich2/docs/playtest/054` §3.1）。
+const (
+	DescCard = 0x1426 // 每種卡片兩欄 1..36 × 0..1，2B
+	DescText = 0x17EC // 定長 20 bytes 的字串表 0..400（`.PAK` 文字）
+)
+
+// CardCount 是卡片種類數。
+const CardCount = 36
+
+// Cards 開啟卡片表：欄 0 是使用方式，欄 1 是價格。
+func Cards(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescCard,
+		[]basic.Dim{{Lo: 1, N: CardCount}, {Lo: 0, N: 2}}, 2)
+}
+
+// TextSlots 是字串表的格數。
+const TextSlots = 401
+
+// Texts 開啟定長字串表。**每格 20 bytes，尾端用空白補滿**，
+// 要自己 trim（見 `basic.Array.Bytes`）。
+func Texts(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescText,
+		[]basic.Dim{{Lo: 0, N: TextSlots}}, 20)
+}
+
+// Draw 開啟顯示層：36×36，每格要畫什麼圖磚（存檔區段 5）。
+func Draw(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescDraw,
+		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+}
+
+// Pos 開啟玩家位置層：36×36，棋子與物件疊加（存檔區段 4）。
+func Pos(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescPos,
+		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+}

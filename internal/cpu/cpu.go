@@ -162,7 +162,7 @@ func Addr(seg, off uint16) uint32 {
 	return (uint32(seg)<<4 + uint32(off)) & 0xFFFFF
 }
 
-func (c *CPU) read8(seg, off uint16) uint8  { return c.Bus.Read8(Addr(seg, off)) }
+func (c *CPU) read8(seg, off uint16) uint8     { return c.Bus.Read8(Addr(seg, off)) }
 func (c *CPU) write8(seg, off uint16, v uint8) { c.Bus.Write8(Addr(seg, off), v) }
 
 // 16 位元存取是兩次 8 位元，而且**位移各自 wrap**：

@@ -72,10 +72,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 
 	case 0x36: // 取磁碟剩餘空間
-		c.R[cpu.AX] = 8      // 每叢集磁區數
-		c.R[cpu.BX] = 20000  // 可用叢集
-		c.R[cpu.CX] = 512    // 每磁區位元組
-		c.R[cpu.DX] = 40000  // 總叢集
+		c.R[cpu.AX] = 8     // 每叢集磁區數
+		c.R[cpu.BX] = 20000 // 可用叢集
+		c.R[cpu.CX] = 512   // 每磁區位元組
+		c.R[cpu.DX] = 40000 // 總叢集
 		clearCarry(c)
 
 	case 0x3D:

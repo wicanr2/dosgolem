@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/wicanr2/dosgolem/apps/rich2"
 	"github.com/wicanr2/dosgolem/oracle"
 	"github.com/wicanr2/dosgolem/runtime/basic"
-	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 func main() {

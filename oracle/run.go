@@ -414,3 +414,35 @@ func sameBytes(a, b []uint8) bool {
 	}
 	return true
 }
+
+// ── 動畫相位 ───────────────────────────────────────────────────────
+
+// Ticks 回目前送出去的計時器中斷次數。
+//
+// **這是動畫的相位。** 原版的動畫每個計時器刻前進一格（擲骰動畫就是
+// 每刻擲一次兩顆，`rich2/docs/re/185` §2b），所以「同一個 Ticks」
+// 就是「同一個動畫相位」。
+//
+// 它由**指令數**驅動（`IRQ0Every`），不是真實時間，所以是決定性的：
+// 同一個輸入跑兩次會停在同一刻。
+func (o *Oracle) Ticks() uint64 { return o.m.Ticks }
+
+// AtTick 是「跑到第 n 個計時器刻」。
+//
+// 畫面對拍要的是**同狀態同相位**：狀態靠存檔與操作序列決定，
+// 相位靠這個。以前那條路只能拿 DOSBox 截圖去猜相位
+// （`rich2/docs/playtest/054` §3.4），現在可以指定。
+func AtTick(n uint64) Cond {
+	return Cond{
+		name:  fmt.Sprintf("第 %d 個計時器刻", n),
+		ready: func(o *Oracle) bool { return o.m.Ticks >= n },
+	}
+}
+
+// TickRate 讀寫「每幾道指令送一次計時器中斷」。
+//
+// ⚠ **改它會改變動畫跑多快，但不改變最終停在哪裡**（`machine` 的註解）。
+// 調小可以讓動畫在較少的指令內走完，代價是與原版在真機上的節奏不同——
+// 所以**畫面相位對拍時不要動它**，只在趕時間的探索性測試裡用。
+func (o *Oracle) TickRate() uint64         { return o.m.IRQ0Every }
+func (o *Oracle) SetTickRate(every uint64) { o.m.IRQ0Every = every }

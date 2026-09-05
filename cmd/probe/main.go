@@ -17,8 +17,8 @@ import (
 	"image/color"
 	"image/png"
 	"os"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"

@@ -170,7 +170,7 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64   { return o.m.Steps }
+func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
 
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
@@ -241,3 +241,21 @@ func (o *Oracle) LastPressedPoll() (x, y int, step uint64, ok bool) {
 	}
 	return 0, 0, 0, false
 }
+
+// ── OPL2（AdLib）───────────────────────────────────────────────────
+
+// AdLib 決定偵測時要不要讓 OPL2 存在。**要在 Run 之前叫。**
+//
+// ⚠ **預設不存在**：偵測失敗，整段音樂路徑被跳過，開機因此快很多。
+// 要做音樂對拍就打開它——打開之後 `OPLWrites` 才會有東西。
+func (o *Oracle) AdLib(present bool) { o.m.SetAdLib(present) }
+
+// OPLWrite 是一次 OPL2 暫存器寫入。
+type OPLWrite = machine.OPLWrite
+
+// OPLWrites 回目前為止的 OPL2 暫存器寫入序列。
+//
+// **這是音樂 parity 的對拍對象。** 0x388 選暫存器、0x389 寫值，兩個埠是
+// 一組；這裡已經配好對。暫存器串是決定性的、可以逐筆比，
+// 而波形要逐樣本一致屬於既定停止線（`rich2/docs/spec/049`）。
+func (o *Oracle) OPLWrites() []OPLWrite { return o.m.OPL }

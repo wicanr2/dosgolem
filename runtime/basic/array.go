@@ -114,3 +114,17 @@ func (a *Array) InRange(idx ...int) bool {
 	}
 	return true
 }
+
+// Bytes 讀一格的原始位元組。
+//
+// 給**定長字串表**用：編譯後的 BASIC 把固定長度的字串陣列存成連續的
+// 位元組區塊（大富翁2 的 `17ECh` 是每格 20 bytes），沒有長度前綴也沒有
+// 結束符，尾端用空白補滿。**所以要自己 trim**，不能當 C 字串讀。
+func (a *Array) Bytes(idx ...int) []byte {
+	base := a.addr(idx...)
+	out := make([]byte, a.Width)
+	for i := range out {
+		out[i] = a.o.Byte(oracle.Phys(base + uint32(i)))
+	}
+	return out
+}
