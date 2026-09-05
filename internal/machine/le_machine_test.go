@@ -684,3 +684,20 @@ func TestFD2LeavesAILWrapperWhenProvided(t *testing.T) {
 		t.Fatalf("AIL wrapper exit steps=%d EIP=%X calls=%d before=%X after=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), before, after, errBefore, errAfter)
 	}
 }
+
+func TestFD2ComparesAILTableIndexWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3fa4d; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL table index compare: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	before := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL table CMP: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, before, err)
+	}
+	if m.CPU.EIP != 0x3fa50 || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != before || before >= 0x10 || m.CPU.EFlags&cpu386.SF == 0 || m.CPU.EFlags&cpu386.ZF != 0 {
+		t.Fatalf("AIL table CMP steps=%d EIP=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+}

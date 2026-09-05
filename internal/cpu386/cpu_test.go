@@ -1213,6 +1213,20 @@ func TestGroup83SubtractRegister(t *testing.T) {
 	}
 }
 
+func TestGroup83CompareRegister(t *testing.T) {
+	c := New(testBus{0x83, 0xf8, 0x10})
+	c.R[EAX] = 0
+	if err := c.Step(); err != nil || c.R[EAX] != 0 || c.EFlags&SF == 0 || c.EFlags&ZF != 0 {
+		t.Fatalf("CMP EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x83, 0xfb, 0xff})
+	c.R[EBX] = 0xffffffff
+	if err := c.Step(); err != nil || c.R[EBX] != 0xffffffff || c.EFlags&ZF == 0 {
+		t.Fatalf("signed immediate CMP EBX=%X flags=%X err=%v", c.R[EBX], c.EFlags, err)
+	}
+}
+
 func TestGroup83CompareAbsoluteDSDword(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x83, 0x3d, 0x40, 0x00, 0x00, 0x00, 0x00})
