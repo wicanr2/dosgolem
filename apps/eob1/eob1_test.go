@@ -309,6 +309,35 @@ func TestToLevel1InventoryCharacterPagesRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1CharacterExchangeCancelRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+	}{
+		{"selected", eob1.ToLevel1CharacterExchangeSelected, "7106257fa9aafd131af18e4623ddb4a094f922f32fcdee95a3d0c887ac6752df"},
+		{"cancelled", eob1.ToLevel1CharacterExchangeCancel, "3064a9c9eea5e6f1be2f18915868cd076cce96778e0e25bf9fb0e12995bd325f"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadRealData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			if got := digest(o.Indexed()); got != test.want {
+				t.Fatalf("角色交換全畫面SHA-256=%s", got)
+			}
+			if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc" {
+				t.Fatalf("角色交換左側視窗SHA-256=%s", got)
+			}
+			if got := o.PortReads()[0x60]; got != 84 {
+				t.Fatalf("角色交換port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+			}
+		})
+	}
+}
+
 func TestToLevel1FirstForwardStepRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()

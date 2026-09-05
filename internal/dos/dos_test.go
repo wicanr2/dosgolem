@@ -349,6 +349,24 @@ func TestMouseCallbackUsesFarCallContract(t *testing.T) {
 	}
 }
 
+func TestMouseCallbackReportsRightButtonContract(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0018
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	m.Write8(cpu.Addr(0x0900, 0x0010), 0xCB)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0x1234
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
+	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 2
+
+	if !d.MouseEvent(0x0008, 0, 0) {
+		t.Fatal("符合mask的右鍵按下沒有觸發callback")
+	}
+	if m.CPU.R[cpu.AX] != 0x0008 || m.CPU.R[cpu.BX] != 2 {
+		t.Fatalf("右鍵callback AX/BX=%04X/%04X", m.CPU.R[cpu.AX], m.CPU.R[cpu.BX])
+	}
+}
+
 func TestMouseCallbackHonorsMaskAndReset(t *testing.T) {
 	m, d := newTest(t)
 	m.CPU.R[cpu.CX] = 0x0002

@@ -101,6 +101,7 @@ type Cond func(*Oracle) bool
 ```go
 func (o *Oracle) MoveMouse(x, y int)
 func (o *Oracle) Click(x, y int) error       // 移動 → 按下 → 按住 → 放開
+func RightButton() ClickOpt                  // Click改送右鍵按下／放開
 func (o *Oracle) Type(s string) error        // 餵給 int 21h AH=3Fh
 func (o *Oracle) PressKey(key Key)            // 以IRQ1送Set 1 make／break掃描碼
 ```
@@ -115,6 +116,14 @@ func (o *Oracle) PressKey(key Key)            // 以IRQ1送Set 1 make／break掃
    而且**畫面看起來完全正常**。`Click` 因此先 `RunUntil(mouseSettled)`。
 3. **`Click` 回 error**。點了沒反應要說出來，不要讓呼叫端拿「畫面沒變」
    去猜是點錯位置還是遊戲還沒準備好。
+
+`Click`預設維持左鍵。`RightButton`只改IBM／Microsoft滑鼠契約中的按鍵位元與callback事件：
+按住狀態`BX=2`，右鍵按下／放開事件分別是`0008h`／`0010h`；hover、hold、settle、畫面回應及
+失敗即關閉規則完全相同。這是平台輸入能力，不含任何EOB專用座標或語意。
+
+2026-09-07驗收：`internal/dos.TestMouseCallbackReportsRightButtonContract`釘住callback的
+`AX=0008h`／`BX=2`；EOB1真實資料測試再由`RightButton`進入角色交換並完成取消，證實公開API到
+原版consumer的垂直鏈。右鍵增量契約為CONFORMED；本文件其餘READY範圍不因此整體升格。
 
 ## 5. 攔截與狀態
 

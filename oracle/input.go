@@ -32,6 +32,9 @@ type ClickOpt func(*clickCfg)
 type clickCfg struct {
 	hover, hold, settle uint64
 	watch               func(*Oracle)
+	buttons             uint16
+	pressEvent          uint16
+	releaseEvent        uint16
 }
 
 // Hover 改「移到位置之後、按下之前」等多久。
@@ -51,6 +54,15 @@ func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
 // Settle 改放開之後再跑多久（讓遊戲把回饋畫出來）。
 func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 
+// RightButton 讓Click送Microsoft滑鼠右鍵；未指定時仍是左鍵。
+func RightButton() ClickOpt {
+	return func(c *clickCfg) {
+		c.buttons = 2
+		c.pressEvent = 0x0008
+		c.releaseEvent = 0x0010
+	}
+}
+
 // Click 在某個像素座標點一下：移動 → 按下 → 按住 → 放開 → 等畫面回應。
 //
 // 三件事是實測出來的，每一件的反面都不會報錯：
@@ -62,7 +74,10 @@ func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 //  3. **回 error**：點了畫面完全沒動要說出來，不要讓呼叫端拿「畫面沒變」
 //     去猜是點錯位置還是遊戲還沒準備好。
 func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
-	cfg := clickCfg{hover: DefaultHover, hold: DefaultHold, settle: DefaultHold}
+	cfg := clickCfg{
+		hover: DefaultHover, hold: DefaultHold, settle: DefaultHold,
+		buttons: 1, pressEvent: 0x0002, releaseEvent: 0x0004,
+	}
 	for _, f := range opts {
 		f(&cfg)
 	}
@@ -86,15 +101,15 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 1
+	o.d.Mouse.Buttons = cfg.buttons
 	o.d.Mouse.Press++
-	o.d.MouseEvent(2, 0, 0)
+	o.d.MouseEvent(cfg.pressEvent, 0, 0)
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 0
 	o.d.Mouse.Release++
-	o.d.MouseEvent(4, 0, 0)
+	o.d.MouseEvent(cfg.releaseEvent, 0, 0)
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}

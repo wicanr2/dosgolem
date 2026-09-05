@@ -470,6 +470,40 @@ func ToLevel1InventoryReturn(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1CharacterExchangeSelected 從LEVEL1入口以右鍵點ALFA姓名列，等待交換標記相位。
+func ToLevel1CharacterExchangeSelected(o *oracle.Oracle) error {
+	if err := ToLevel1Entrance(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs第17項：第一名角色姓名列是(184,2) 63×8。
+	if err := o.Click(200, 6, oracle.RightButton(), oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(200_000)); err != nil {
+		return fmt.Errorf("EOB1選取ALFA進入角色交換：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1 ALFA角色交換標記", 0, 0, oracle.Width, oracle.Height,
+		"7106257fa9aafd131af18e4623ddb4a094f922f32fcdee95a3d0c887ac6752df"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待ALFA角色交換標記：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CharacterExchangeCancel 在交換標記相位點面板非姓名區，取消並恢復原隊伍畫面。
+func ToLevel1CharacterExchangeCancel(o *oracle.Oracle) error {
+	if err := ToLevel1CharacterExchangeSelected(o); err != nil {
+		return err
+	}
+	// 原版button 55涵蓋(184,0) 136×120；此點避開六個姓名列。
+	if err := o.Click(230, 45, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1取消角色交換：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1取消角色交換", 0, 0, oracle.Width, oracle.Height,
+		"3064a9c9eea5e6f1be2f18915868cd076cce96778e0e25bf9fb0e12995bd325f"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待角色交換取消：%w", err)
+	}
+	return nil
+}
+
 // ToLevel1FirstForwardStep 從LEVEL1入口以原版鍵盤右轉，再向前走入相鄰格。
 func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
 	if err := ToLevel1Entrance(o); err != nil {
