@@ -108,3 +108,31 @@ func TestMoveSegmentToRegisterAndAbsoluteMemory(t *testing.T) {
 		t.Fatal("invalid segment encoding was accepted")
 	}
 }
+
+func TestESOverrideWordRead(t *testing.T) {
+	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
+	c := New(mem)
+	c.R[ECX] = 0xabcd0000
+	c.Seg[SegES] = 0x28
+	c.SegmentRead16 = func(selector uint16, offset uint32) (uint16, bool) {
+		return 0x30, selector == 0x28 && offset == 0x2c
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ECX] != 0xabcd0030 || c.EIP != 8 {
+		t.Fatalf("ES word read ECX=%08X EIP=%d", c.R[ECX], c.EIP)
+	}
+
+	c = New(mem)
+	c.Seg[SegES] = 0x28
+	if err := c.Step(); err == nil {
+		t.Fatal("missing segment read hook was accepted")
+	}
+	c = New(mem)
+	c.Seg[SegES] = 0x30
+	c.SegmentRead16 = func(selector uint16, offset uint32) (uint16, bool) { return 0, false }
+	if err := c.Step(); err == nil {
+		t.Fatal("rejected segment cell was accepted")
+	}
+}

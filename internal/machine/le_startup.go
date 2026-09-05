@@ -23,6 +23,12 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		c.Seg[cpu386.SegES] = 0x0028
 		c.Seg[cpu386.SegGS] = 0x0020
 		c.Seg[cpu386.SegSS] = 0x0160
+		c.SegmentRead16 = func(selector uint16, offset uint32) (uint16, bool) {
+			if selector == 0x0028 && offset == 0x002c {
+				return 0x0030, true
+			}
+			return 0, false
+		}
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606
 	case 1:
 		if uint16(c.R[cpu386.EAX]) != 0xff00 || uint16(c.R[cpu386.EDX]) != 0x0078 {
