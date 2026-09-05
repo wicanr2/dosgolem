@@ -639,3 +639,64 @@ func OpenSiege(o *oracle.Oracle, attacker, city int) error {
 	})
 	return nil
 }
+
+// ---- 戰術單位 ------------------------------------------------------------
+
+// 戰術單位記錄（臥龍傳專案 `docs/re/11` §3.6）。
+//
+//	word_1D30E 段：
+//	  0x0000–0x05FF  側 0 六隊，每隊 0x100 B ＝ 8 個 × 32 B
+//	  0x0600–0x0BFF  側 1 六隊
+//
+// ⚠ **側 0 恆為玩家、側 1 恆為對方**，與攻守無關。
+const (
+	idaUnitSeg = 0x1D30E
+	unitSize   = 32
+	squadSize  = 0x100
+	sideSize   = 0x600
+)
+
+// Unit 是場上的一個兵。
+//
+// **座標在 `+0x06`／`+0x08`，不是 `+0x14`。** `+0x14` 是陣形指定的目標，
+// `+0x06`／`+0x08` 才是現在站在哪一格——小地圖的部隊點畫的就是後者
+// （`sub_1B240` 的 `mov dl,[si+6]` / `mov bl,[si+8]`），
+// 而 `+0x07`／`+0x09` 是上一格，給擦除用。
+type Unit struct {
+	Side, Squad, Slot int
+	Off               uint16
+	Flags             uint8
+	Stamina           uint8 // +0x03
+	Leader            uint8 // +0x04
+	X, Y              uint8 // +0x06 / +0x08
+	PrevX, PrevY      uint8 // +0x07 / +0x09
+	Order             uint8 // +0x1A 目前生效的命令
+	NewOrder          uint8 // +0x1B 新下達的命令
+}
+
+// ⚠ 臥龍傳專案 `docs/re/11` §3.6 把「兵種 × 18」記在 `+0x24`，
+// **而記錄只有 32 byte**——`+0x24` 落在下一筆的 `+0x04`。
+// 這裡不讀它，等那一欄的出處重新確認過再加。
+
+// Units 讀場上所有的兵。`alive` 為真時只回體力 > 0 的。
+func Units(o *oracle.Oracle, alive bool) []Unit {
+	seg := o.Word(o.IDA(idaUnitSeg))
+	var out []Unit
+	for side := 0; side < 2; side++ {
+		for sq := 0; sq < 6; sq++ {
+			for k := 0; k < 8; k++ {
+				off := uint16(side*sideSize + sq*squadSize + k*unitSize)
+				b := o.Bytes(oracle.Far(seg, off), unitSize)
+				u := Unit{Side: side, Squad: sq, Slot: k, Off: off,
+					Flags: b[0], Stamina: b[3], Leader: b[4],
+					X: b[6], PrevX: b[7], Y: b[8], PrevY: b[9],
+					Order: b[0x1A], NewOrder: b[0x1B]}
+				if alive && u.Stamina == 0 {
+					continue
+				}
+				out = append(out, u)
+			}
+		}
+	}
+	return out
+}

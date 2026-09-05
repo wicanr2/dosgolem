@@ -20,6 +20,7 @@
 //	celltile          印出游標現在在第幾格
 //	corps             印出軍團表（現在據點／目標據點／朝向／計時器／狀態）
 //	siege:攻方,據點   **直接叫原版開一場攻城戰**（守方由原版自己挑）
+//	units[:all]       印出戰場上每個兵的座標與狀態（預設只印活著的）
 //	runto:LIN[,N]     跑到 CS:IP 走到 IDA 線性位址 LIN（預算 N 道指令，預設 4 億）
 //	save:NAME         把目前的機器狀態記到記憶體裡的一個格子
 //	restore:NAME      倒回那個格子——**一次執行裡展開多個變體**
@@ -226,6 +227,15 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		}
 		o.Restore(st)
 		fmt.Printf("   倒回狀態「%s」（第 %d 道指令）\n", arg, o.Steps())
+		return nil
+	case "units":
+		us := wolong.Units(o, arg != "all")
+		fmt.Printf("   場上 %d 個兵（側/隊/位 座標 體力 命令 旗標）：\n", len(us))
+		for _, u := range us {
+			fmt.Printf("     %d/%d/%d (%2d,%2d) 體%3d 令%02X→%02X 旗%02X\n",
+				u.Side, u.Squad, u.Slot, u.X, u.Y, u.Stamina,
+				u.Order, u.NewOrder, u.Flags)
+		}
 		return nil
 	case "siege":
 		// `siege:攻方軍團,據點`——直接叫原版開一場攻城戰。
