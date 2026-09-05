@@ -270,3 +270,21 @@ func TestFD2X87SelfTestReturnsWhenProvided(t *testing.T) {
 		t.Fatalf("x87 self-test FPU control=%X status=%X depth=%d", m.CPU.FPUControl, m.CPU.FPUStatus, m.CPU.FPUDepth)
 	}
 }
+
+func TestFD2SecondCallbackStoresClassResultWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x46112 && steps < 448; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x46112 {
+		t.Fatalf("second callback class stores not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.Mem[0x52830] != 0 || byte(m.CPU.R[cpu386.EBX]) != 3 || m.Mem[0x527f4] != 3 || m.Mem[0x527f5] != 3 {
+		t.Fatalf("second callback class control=%X BL=%X stores=%X,%X", m.Mem[0x52830], byte(m.CPU.R[cpu386.EBX]), m.Mem[0x527f4], m.Mem[0x527f5])
+	}
+	if m.Mem[0x539c8] != 0 {
+		t.Fatalf("second callback record unexpectedly marked: %X", m.Mem[0x539c8])
+	}
+}
