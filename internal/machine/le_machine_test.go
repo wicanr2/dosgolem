@@ -222,3 +222,18 @@ func TestFD2SecondCallbackX87ClassGateWhenProvided(t *testing.T) {
 		t.Fatalf("second callback record unexpectedly marked: %X", m.Mem[0x539c8])
 	}
 }
+
+func TestFD2SecondCallbackLoadsControlBaselineWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460c6 && steps < 414; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460c6 {
+		t.Fatalf("second callback control baseline not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x127f || m.CPU.R[cpu386.ESP] != 0x55690 {
+		t.Fatalf("second callback control baseline EAX=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+}
