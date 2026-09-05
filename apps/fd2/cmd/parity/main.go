@@ -45,8 +45,8 @@ type report struct {
 
 func main() {
 	exe := flag.String("exe", "", "固定版本 FD2.EXE（必填）")
-	original := flag.String("original", "", "原版 640x400 PNG（必填）")
-	remake := flag.String("remake", "", "重製版 640x400 PNG（必填）")
+	original := flag.String("original", "", "原版 320x200 PNG（必填）")
+	remake := flag.String("remake", "", "重製版 320x200 PNG（必填）")
 	input := flag.String("input", "", "宣告式輸入 JSON（必填）")
 	scenario := flag.String("scenario", "", "場景穩定名稱（必填）")
 	state := flag.String("state", "", "same-state、near-state 或 layout-only（必填）")
