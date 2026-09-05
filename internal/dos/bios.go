@@ -48,8 +48,8 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 查 `AL` 的話那個分支永遠不成立（`docs/spec/004` §3）。
 		switch bl(c) {
 		case 0x10: // 取 EGA 資訊
-			setBH(c, 0x00)      // 彩色模式
-			setBL(c, 0x03)      // 記憶體 256 KB
+			setBH(c, 0x00)       // 彩色模式
+			setBL(c, 0x03)       // 記憶體 256 KB
 			c.R[cpu.CX] = 0x0009 // 功能位元／切換設定
 		case 0x20, 0x30, 0x31, 0x32, 0x33, 0x34:
 			setAL(c, 0x12) // 表示有支援
@@ -138,15 +138,24 @@ func (d *DOS) int33(c *cpu.CPU) {
 
 // int16 是 BIOS 鍵盤。
 //
-// ⚠ **遊戲的鍵盤輸入不走這條**——它走 `int 21h AH=3Fh` 讀 handle 0
-// （BASIC 的 `INKEY$`）。`int 16h` 全程只被呼叫 20–40 次，閒置期間完全沒動
-// （`rich2/docs/re/005`「輸入路徑」）。所以這支只要不說謊就好。
+// Rich2 的鍵盤輸入走 `int 21h AH=3Fh`，但其他DOS程式可能使用這條；兩者共用
+// Stdin佇列，讓同一個可重播輸入來源不必知道程式採哪一種介面。
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
-		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
-		c.SetFlags(c.Flags | cpu.ZF)
+		if len(d.Stdin) == 0 {
+			c.R[cpu.AX] = 0
+			return
+		}
+		c.R[cpu.AX] = uint16(d.Stdin[0])
+		d.Stdin = d.Stdin[1:]
+	case 0x01, 0x11: // 查有沒有按鍵：不消耗佇列
+		if len(d.Stdin) == 0 {
+			c.SetFlags(c.Flags | cpu.ZF)
+			return
+		}
+		c.R[cpu.AX] = uint16(d.Stdin[0])
+		c.SetFlags(c.Flags &^ cpu.ZF)
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	default:

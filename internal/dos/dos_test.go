@@ -109,6 +109,24 @@ func TestReadStdinNeverReturnsZero(t *testing.T) {
 	}
 }
 
+func TestBIOSKeyboardSharesReplayQueue(t *testing.T) {
+	m, d := newTest(t)
+	d.Stdin = []byte{'4'}
+	m.CPU.SetFlags(m.CPU.Flags | cpu.ZF)
+	call(m, d, 0x16, 0x0100)
+	if m.CPU.Flags&cpu.ZF != 0 || m.CPU.R[cpu.AX] != '4' || len(d.Stdin) != 1 {
+		t.Fatalf("BIOS查鍵結果錯誤：AX=%04X ZF=%t pending=%d", m.CPU.R[cpu.AX], m.CPU.Flags&cpu.ZF != 0, len(d.Stdin))
+	}
+	call(m, d, 0x16, 0x0000)
+	if m.CPU.R[cpu.AX] != '4' || len(d.Stdin) != 0 {
+		t.Fatalf("BIOS讀鍵結果錯誤：AX=%04X pending=%d", m.CPU.R[cpu.AX], len(d.Stdin))
+	}
+	call(m, d, 0x16, 0x0100)
+	if m.CPU.Flags&cpu.ZF == 0 {
+		t.Fatal("空鍵盤佇列查詢沒有設定ZF")
+	}
+}
+
 // TestUnimplementedLeavesAXAlone 釘住原則 1（`docs/spec/004` §1.1）。
 //
 // 沒實作的功能號寫 AX=0 會把「設中斷向量」迴圈的計數清掉，`AH` 變成 0
