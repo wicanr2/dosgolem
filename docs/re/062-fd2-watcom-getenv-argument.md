@@ -8,8 +8,9 @@ SHA-256 `222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f`
 位址空間：IDA 載入 LE 映像後的 32 位線性位址
 
 IDA 保留原始名稱 `getenv`，函式邊界 `0x3F13B..0x3F190`。`0x3F151`
-的原始指令是 `push dword ptr [ebp+8]`；Watcom cdecl frame 中 `[ebp+8]`
-是 `getenv` 的第一個參數，下一個 consumer 是 `0x3F154` 對原始 `strlen`
+的原始位元組與指令是 `FF 75 14`／`push dword ptr [ebp+14h]`。函式先保存
+四個暫存器再令 EBP 指向保存區，因此 `[ebp+14h]` 是 `getenv` 的第一個參數；
+下一個 consumer 是 `0x3F154` 對原始 `strlen`
 的直接呼叫。AIL 啟動函式 `0x379EE..0x37B88` 在 `0x37A0C` 與
 `0x37A29` 呼叫 `getenv`。
 

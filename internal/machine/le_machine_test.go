@@ -589,14 +589,18 @@ func TestFD2CompletesAILDPMILocksWhenProvided(t *testing.T) {
 func TestFD2PassesGetenvArgumentWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	steps := 0
-	for ; steps < 2500 && m.CPU.EIP != 0x3f154; steps++ {
+	for ; steps < 2500 && m.CPU.EIP != 0x3f151; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("getenv argument: step=%d EIP=%X EBP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], err)
 		}
 	}
-	argument, errArgument := m.Read32(m.CPU.R[cpu386.EBP] + 8)
-	pushed, errPushed := m.Read32(m.CPU.R[cpu386.ESP])
+	stackDescriptor := m.CPU.Descriptors[m.CPU.Seg[cpu386.SegSS]]
+	argument, errArgument := m.Read32(stackDescriptor.Base + m.CPU.R[cpu386.EBP] + 0x14)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("getenv PUSH: step=%d EIP=%X EBP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], err)
+	}
+	pushed, errPushed := m.Read32(stackDescriptor.Base + m.CPU.R[cpu386.ESP])
 	if m.CPU.EIP != 0x3f154 || services.Calls() != 5 || argument == 0 || pushed != argument || errArgument != nil || errPushed != nil {
-		t.Fatalf("getenv argument steps=%d EIP=%X calls=%d argument=%X pushed=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), argument, pushed, errArgument, errPushed)
+		t.Fatalf("getenv argument steps=%d EIP=%X calls=%d SS=%X base=%X EBP=%X ESP=%X argument=%X pushed=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegSS], stackDescriptor.Base, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], argument, pushed, errArgument, errPushed)
 	}
 }
