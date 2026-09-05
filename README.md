@@ -130,21 +130,26 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 |---|---|---|
 | **機器** `internal/cpu`／`internal/dos`／`internal/machine` | 8086 ＋ 80186、DOS 與 BIOS 服務、VGA、PIT、滑鼠 | **不用**。缺的服務就補，補完誰都受惠 |
 | **觀測** `oracle/` | `Load`／`RunUntil`／`Click`／`Save`／`Restore`／`Search`／`Indexed`／`OnCall` | **不用** |
-| **runtime** | 編譯器與執行期的慣例：MS BASIC 的 `RND`（LCG）、陣列描述子、`retf N` 的參數慣例 | **同一個編譯器就複用**；換一個（Turbo Pascal、Clipper、VB p-code）就新增一包 |
-| **程式** `oracle/rich2/` | 那一支程式自己的位址、按鈕座標、流程 | **一定要自己寫** |
+| **runtime** `runtime/basic/` | 編譯器與執行期的慣例：MS BASIC 的 `RND`（LCG）、陣列描述子 | **同一個編譯器就複用**；換一個（Turbo Pascal、Clipper、VB p-code）就在 `runtime/` 下新增一包 |
+| **程式** `apps/rich2/` | 那一支程式自己的位址、按鈕座標、流程 | **一定要自己寫** |
 
 第三層是接第二個程式時才看得出來的那一層，也是「下一個案例不必 fork」的關鍵。
 
-> ⚠ **目前第三層還混在第四層裡。** `oracle/rich2/rng.go` 的 `LCGNext`／
-> `RNDState`／`SetRNDState`／`TraceRND` 其實對**任何編譯後的 MS BASIC 程式**
-> 都成立——LCG 的三個常數是從 DGROUP 讀出來的，`RND` 的進入點是 BASIC
-> runtime 的，不是遊戲的。只有 `DirPickCaller` 那種呼叫端位址是大富翁2 的。
-> 同理 `oracle/basic.go` 的陣列描述子解讀已經在通用層，那是對的位置。
->
-> 抽開的規劃見 [`docs/spec/006`](docs/spec/006-layering.md)。
+拆的時候有一條分得特別細，值得記：**演算法通用，位址不通用。**
+`runtime/basic` 有 LCG 的公式與追蹤，但 `RND` 的進入點與狀態變數偏移
+放在 `basic.Config` 裡由呼叫端給——runtime 是連結進去的，
+同一份 MS BASIC 落在不同 binary 會在不同位址。拿別的程式的值套過來
+不會報錯，只會一次都攔不到。
+
+反過來，`Array` 原本放在 `oracle/`（通用層）**是錯的**：通用的是 `o.Word`，
+而「描述子前兩個 word 是 `(位移, 段)`、索引是列主序」是 BASIC 編譯器的版面。
+換一個 Turbo Pascal 編的程式那個解讀直接錯，**而且不會報錯**，
+只會讀出一片看起來像資料的東西。它現在在 `runtime/basic`。
+
+過程與判準見 [`docs/spec/006`](docs/spec/006-layering.md)。
 
 **接一個新程式要寫的是第四層**，前三層照用。第四層的形狀可以照抄
-`oracle/rich2/`：
+`apps/rich2/`：
 
 ```
 位址常數      DescPlayer = 0x1146    陣列描述子、單一變數
@@ -166,7 +171,7 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 | M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall`、`Caller`、快照、**RND 追蹤**可用；breakpoint 與 watchpoint 未做 |
 | M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |
-| M6 | **分層**：把 runtime 與程式專屬拆開，讓第二個案例不必 fork | 規格 [`docs/spec/006`](docs/spec/006-layering.md) **DRAFT**，等裁決 |
+| M6 | **分層**：把 runtime 與程式專屬拆開，讓第二個案例不必 fork | **做完**：`runtime/basic`／`apps/rich2`，規格 [`docs/spec/006`](docs/spec/006-layering.md) |
 
 規格在 [`docs/spec/`](docs/spec/)，標 `DRAFT` 或 `READY`；
 只有 READY 的可以動手。

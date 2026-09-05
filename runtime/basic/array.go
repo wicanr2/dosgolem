@@ -1,14 +1,12 @@
-package oracle
+package basic
+
+import "github.com/wicanr2/dosgolem/oracle"
 
 // 編譯後 BASIC 的陣列。
 //
-// rich2 的 RE 筆記記的是**描述子位址**（`ds:11A2h` 那種），資料落在哪要
-// 從描述子解。這一層把那個解讀收在一個地方。
-
-// Phys 把 20 位元線性位址包成 Addr。
-func Phys(linear uint32) Addr {
-	return Addr{Seg: uint16(linear >> 4), Off: uint16(linear & 0xF)}
-}
+// **描述子的解讀是編譯器的版面，不是通用 DOS 的**（`docs/spec/006` §2.1）：
+// 前兩個 word 是 `(位移, 段)`、索引是列主序。換一個 Turbo Pascal 編的程式，
+// 這個解讀直接錯，而且**不會報錯**，只會讀出一片看起來像資料的東西。
 
 // Dim 是一個維度：下界與元素數。
 //
@@ -18,7 +16,7 @@ type Dim struct{ Lo, N int }
 
 // Array 是一個 BASIC 陣列的檢視。
 type Array struct {
-	o     *Oracle
+	o     *oracle.Oracle
 	Base  uint32 // 資料的線性位址
 	Dims  []Dim
 	Width int // 元素寬度（bytes）
@@ -32,7 +30,7 @@ type Array struct {
 //
 // 維度與寬度要呼叫端給——描述子裡也有，但那部分的欄位語意還沒定，
 // 而 `rich2/docs/re/014` §2 已經有完整的對照表，用已知的比猜的可靠。
-func (o *Oracle) Array(descriptor uint16, dims []Dim, width int) *Array {
+func NewArray(o *oracle.Oracle, descriptor uint16, dims []Dim, width int) *Array {
 	off := o.Word(o.DS(descriptor))
 	seg := o.Word(o.DS(descriptor + 2))
 	return &Array{o: o, Base: uint32(seg)*16 + uint32(off), Dims: dims, Width: width}
@@ -56,7 +54,7 @@ func (a *Array) Size() int {
 // **實測是後者**——而搞錯的話讀到的是別的玩家的別的欄位，值看起來完全合理。
 func (a *Array) addr(idx ...int) uint32 {
 	if len(idx) != len(a.Dims) {
-		panic("oracle: 索引個數與維度不符")
+		panic("basic: 索引個數與維度不符")
 	}
 	stride, off := 1, 0
 	for k, d := range a.Dims {
@@ -68,13 +66,14 @@ func (a *Array) addr(idx ...int) uint32 {
 
 // Int16 讀一格 16 位元有號值。
 func (a *Array) Int16(idx ...int) int16 {
-	return int16(a.o.m.Read16(a.addr(idx...)))
+	return int16(a.o.Word(oracle.Phys(a.addr(idx...))))
 }
 
 // Int32 讀一格 32 位元有號值。
 func (a *Array) Int32(idx ...int) int32 {
 	at := a.addr(idx...)
-	return int32(uint32(a.o.m.Read16(at)) | uint32(a.o.m.Read16(at+2))<<16)
+	return int32(uint32(a.o.Word(oracle.Phys(at))) |
+		uint32(a.o.Word(oracle.Phys(at+2)))<<16)
 }
 
 // Index 把線性位址反查成索引。
@@ -106,17 +105,3 @@ func (a *Array) InRange(idx ...int) bool {
 	}
 	return true
 }
-
-// ---- 寫入 ----------------------------------------------------------------
-//
-// ⚠ **改原版的記憶體會讓後面的執行偏離原本的軌跡。**
-//
-// 正當用途只有一種：**做對照實驗**——Save、改一個值、觀察、Restore。
-// 拿它「修正」原版的行為就是在偽造 oracle，那樣對拍出來的東西沒有意義。
-
-// WriteU8／WriteU16 寫原版的記憶體。
-//
-// 名字不叫 WriteByte 是因為那個名字被 io.ByteWriter 佔了，
-// 簽章不同會被 vet 擋下來。
-func (o *Oracle) WriteU8(a Addr, v uint8)   { o.m.Write8(a.Linear(), v) }
-func (o *Oracle) WriteU16(a Addr, v uint16) { o.m.Write16(a.Linear(), v) }

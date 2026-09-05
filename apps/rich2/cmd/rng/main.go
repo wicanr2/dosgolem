@@ -20,7 +20,7 @@ import (
 	"sort"
 
 	"github.com/wicanr2/dosgolem/oracle"
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 // LCG 的三個常數在原版 DGROUP 裡的位置（`rich2/docs/re/050` §2）。

@@ -12,7 +12,8 @@ import (
 	"os"
 
 	"github.com/wicanr2/dosgolem/oracle"
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 	fmt.Println("\n陣列（描述子 → 資料基底，大小對照 docs/re/014 §2）：")
 	for _, a := range []struct {
 		name string
-		arr  *oracle.Array
+		arr  *basic.Array
 		want int
 	}{
 		{"11A2h 玩家金錢", rich2.Money(o), 1440},
@@ -95,7 +96,7 @@ func main() {
 func locate(o *oracle.Oracle, addr uint32) string {
 	for _, a := range []struct {
 		name string
-		arr  *oracle.Array
+		arr  *basic.Array
 	}{
 		{"11A2h 玩家金錢", rich2.Money(o)},
 		{"1146h 玩家狀態", rich2.PlayerState(o)},

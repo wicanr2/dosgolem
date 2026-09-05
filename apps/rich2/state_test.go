@@ -3,7 +3,7 @@ package rich2_test
 import (
 	"testing"
 
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 // TestReadPlayerMoney 釘住 BASIC 陣列的讀法。

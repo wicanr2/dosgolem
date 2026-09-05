@@ -1,6 +1,9 @@
 package rich2
 
-import "github.com/wicanr2/dosgolem/oracle"
+import (
+	"github.com/wicanr2/dosgolem/oracle"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+)
 
 // 落地分派器。
 //
@@ -126,8 +129,8 @@ const (
 )
 
 // Deck 開啟牌堆陣列。
-func Deck(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescDeck, []oracle.Dim{{Lo: 0, N: 120}}, 2)
+func Deck(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescDeck, []basic.Dim{{Lo: 0, N: 120}}, 2)
 }
 
 // DeckCards 回牌堆前 100 格的卡片編號（0 ＝ 這一格被抽走了）。

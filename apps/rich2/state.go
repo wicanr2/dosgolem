@@ -1,6 +1,9 @@
 package rich2
 
-import "github.com/wicanr2/dosgolem/oracle"
+import (
+	"github.com/wicanr2/dosgolem/oracle"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+)
 
 // 棋盤上的遊戲狀態。
 //
@@ -43,21 +46,21 @@ const (
 const MaxPlayers = 6
 
 // Money 開啟玩家金錢陣列。
-func Money(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescMoney,
-		[]oracle.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 60}}, 4)
+func Money(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescMoney,
+		[]basic.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 60}}, 4)
 }
 
 // PlayerState 開啟玩家狀態陣列（16 位欄位，語意多數未解）。
-func PlayerState(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescPlayer,
-		[]oracle.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 30}}, 2)
+func PlayerState(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescPlayer,
+		[]basic.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 30}}, 2)
 }
 
 // Land 開啟土地表。
-func Land(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescLand,
-		[]oracle.Dim{{Lo: 0, N: 45}, {Lo: 0, N: 10}}, 2)
+func Land(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescLand,
+		[]basic.Dim{{Lo: 0, N: 45}, {Lo: 0, N: 10}}, 2)
 }
 
 // 棋盤陣列 `122Ch` 的欄位（`rich2/internal/assets/board.go`、
@@ -116,15 +119,15 @@ func StreetLevels(o *oracle.Oracle, square int) (street int, levels []int) {
 //
 // 原版把玩家的位置存成 36×36 地圖上的座標，格號是查這張表算出來的
 // （`rich2/docs/re/014` §3a）。
-func Coord(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescCoord,
-		[]oracle.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+func Coord(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescCoord,
+		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
 }
 
 // Board 開啟棋盤陣列。
-func Board(o *oracle.Oracle) *oracle.Array {
-	return o.Array(DescBoard,
-		[]oracle.Dim{{Lo: 0, N: 283}, {Lo: 0, N: 20}}, 2)
+func Board(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescBoard,
+		[]basic.Dim{{Lo: 0, N: 283}, {Lo: 0, N: 20}}, 2)
 }
 
 // Cash／Deposit 讀某個玩家的現金與存款。player 從 1 起。

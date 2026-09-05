@@ -13,7 +13,8 @@ import (
 	"sort"
 
 	"github.com/wicanr2/dosgolem/oracle"
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 func main() {
@@ -140,7 +141,7 @@ func main() {
 }
 
 // Coord 是 rich2.Coord 的別名，讓上面那段短一點。
-func Coord(o *oracle.Oracle) *oracle.Array { return rich2.Coord(o) }
+func Coord(o *oracle.Oracle) *basic.Array { return rich2.Coord(o) }
 
 // playTurns 連走幾個回合，印出每一步的收據。
 //
@@ -243,7 +244,7 @@ func dump(o *oracle.Oracle, tag string) {
 func inArrays(o *oracle.Oracle, changed []uint32) {
 	type box struct {
 		name string
-		arr  *oracle.Array
+		arr  *basic.Array
 	}
 	boxes := []box{
 		{"11A2h 玩家金錢", rich2.Money(o)},

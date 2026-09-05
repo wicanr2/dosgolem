@@ -1,7 +1,7 @@
 # 006 — 分層：通用的、runtime 的、程式專屬的
 
 日期：2026-09-05
-狀態：**DRAFT**——搬遷會改 import 路徑，動手前要使用者裁決
+狀態：**READY**（使用者裁決 2026-09-05：「允許拆遷依照你的規劃」）
 
 ---
 
@@ -20,8 +20,8 @@
 |---|---|---|
 | **機器** | `internal/cpu`／`internal/dos`／`internal/machine` | 只依賴 **Intel 手冊或 DOS/BIOS 規格**。看不到任何特定程式 |
 | **觀測** | `oracle/` | 只依賴機器層。提供「問得到、可重播、走得到」的原語，不知道被觀測的是什麼程式 |
-| **runtime** | *（待建）* `runtime/<編譯器>/` | 依賴**某個編譯器或執行期的慣例**，跨程式成立。例：MS BASIC 的 `RND`、陣列描述子、`retf N` 的參數慣例 |
-| **程式** | *（待建）* `apps/<程式>/` | 依賴**某一支 binary 的位址**。換一個程式全部作廢 |
+| **runtime** | `runtime/<編譯器>/` | 依賴**某個編譯器或執行期的慣例**，跨程式成立。例：MS BASIC 的 `RND`、陣列描述子、`retf N` 的參數慣例 |
+| **程式** | `apps/<程式>/` | 依賴**某一支 binary 的位址**。換一個程式全部作廢 |
 
 判準用一句話講：**「換一支 binary 之後，這段程式碼還成立嗎？」**
 
@@ -61,18 +61,53 @@ docs/spec/, docs/findings/                     規格與筆記
 新增一個 runtime：`runtime/<名字>/`，照 `runtime/basic/` 的形狀。
 新增一個程式：`apps/<名字>/`，照 `apps/rich2/` 的形狀。
 
+### 2.2 拆完之後才看清楚的一條：**演算法通用，位址不通用**
+
+第一版把 `RNDEntry = 0x2E3AA`、`Randomize`、狀態變數偏移都當成
+「BASIC runtime 的常數」搬進 `runtime/basic`。**那是錯的**——runtime 是
+**連結進去**的，同一份 MS BASIC 落在不同 binary 會在不同位址；DGROUP 的
+配置也隨程式而異。
+
+所以 `runtime/basic` 收的是**公式與流程**（LCG、追蹤、驗證），
+四個位址收在 `basic.Config` 由呼叫端給：
+
+```go
+var BASIC = basic.Config{
+	RNDEntry: 0x2E3AA, Randomize: 0x2E423,
+	StateLo: 0x22D1, StateHi: 0x22D3,
+}
+tr := basic.TraceRND(o, BASIC)
+```
+
+**拿別的程式的值套過來不會報錯**，只會一次都攔不到——所以
+`Trace.Verify` 的第一個檢查就是「一次都沒呼叫 RND，Config 的位址可能不對」。
+
 ## 4. 搬遷計畫（分三階段，每一階段各自可驗證）
 
 | 階段 | 動作 | 驗收 |
 |---|---|---|
 | A | 建 `runtime/basic/`，把 `LCGNext`／`RNDState`／`SetRNDState`／`TraceRND`／`RNDCall`／`RNDTrace` 搬過去；`oracle/rich2/` 留型別別名轉接 | 兩邊 `go test ./...` 全綠，`rich2` 的 `-tags oracle` 不必改 |
 | B | `Array`／`Dim` 搬進 `runtime/basic/`，`oracle` 留 `Phys` 與 `Word`／`Bytes` | 同上 |
-| C | `oracle/rich2/` → `apps/rich2/`，`cmd/` 的五支 rich2 工具跟著搬；**這一階段會改 `rich2` 的 import 路徑** | `rich2` 改一行 import 之後對拍全綠 |
+| C | `oracle/rich2/` → `apps/rich2/`，`cmd/` 的 rich2 工具跟著搬；**這一階段會改 `rich2` 的 import 路徑** | `rich2` 改 import 之後對拍全綠 |
 
-A 與 B 對外相容（留轉接），C 不相容——所以 C 要與 `rich2` 一起改，
-而且要挑一個兩邊都沒有進行中工作的時候。
+實際搬完的結果（2026-09-05）：
 
-**在使用者裁決之前，這份規格不動手。**
+```
+oracle/basic.go       → runtime/basic/array.go   （Phys 與 WriteU8/16 留在 oracle/write.go）
+oracle/rich2/rng.go   → runtime/basic/rng.go     （位址那一半留在 apps/rich2/rng.go 的 basic.Config）
+oracle/rich2/         → apps/rich2/
+cmd/{solvepw,play,dice,rng,parity,state} → apps/rich2/cmd/
+cmd/probe                                         留著——它吃 exe 路徑，不認識任何遊戲
+```
+
+`cmd/state` 原本以為是通用的，一看 import 就知道不是：它讀的是大富翁2 的
+陣列描述子。**判準不是名字，是 import。**
+
+使用者 2026-09-05 裁決照這個規劃拆，`rich2` 同一輪一起改，所以三階段
+一次做完、**轉接層不做**——留下來只會變成沒有人用的技術債。
+唯一保留的相容措施是 `apps/rich2` 裡四個薄包裝
+（`RNDState`／`SetRNDState`／`TraceRND`／`LCGNext`）與兩個型別別名，
+它們省掉每個呼叫端都要傳 `BASIC`，不是為了相容而留的。
 
 ## 5. 不做的事
 

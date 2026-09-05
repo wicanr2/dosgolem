@@ -22,7 +22,8 @@ import (
 	"sort"
 
 	"github.com/wicanr2/dosgolem/oracle"
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/runtime/basic"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 func main() {
@@ -112,7 +113,7 @@ func main() {
 func locate(o *oracle.Oracle, addr uint32) string {
 	for _, b := range []struct {
 		name string
-		arr  *oracle.Array
+		arr  *basic.Array
 	}{
 		{"11A2h 玩家金錢", rich2.Money(o)},
 		{"1146h 玩家狀態", rich2.PlayerState(o)},

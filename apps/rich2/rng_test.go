@@ -3,7 +3,8 @@ package rich2_test
 import (
 	"testing"
 
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/apps/rich2"
+	"github.com/wicanr2/dosgolem/runtime/basic"
 )
 
 // TestRNDFollowsLCG 釘住原版 BASIC runtime 的亂數。
@@ -42,8 +43,8 @@ func TestRandomizeWithZeroTimerGivesZeroState(t *testing.T) {
 		t.Errorf("初始狀態是 %06X，預期 000000", tr.InitialState)
 	}
 	// 第一個抽出來的值因此一定是加數本身。
-	if got := tr.Calls[0].Next(); got != rich2.LCGAdd {
-		t.Errorf("第一次抽到 %06X，預期 %06X（＝ LCG 的加數）", got, rich2.LCGAdd)
+	if got := tr.Calls[0].Next(); got != basic.LCGAdd {
+		t.Errorf("第一次抽到 %06X，預期 %06X（＝ LCG 的加數）", got, basic.LCGAdd)
 	}
 }
 

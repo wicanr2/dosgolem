@@ -3,7 +3,7 @@ package rich2_test
 import (
 	"testing"
 
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 // TestRollAndBuy 釘住一整步：擲骰 → 落在無主地 → 買下來。

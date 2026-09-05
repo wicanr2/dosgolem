@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/wicanr2/dosgolem/oracle"
-	"github.com/wicanr2/dosgolem/oracle/rich2"
+	"github.com/wicanr2/dosgolem/apps/rich2"
 )
 
 func load(t *testing.T) *oracle.Oracle {

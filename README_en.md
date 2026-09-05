@@ -156,24 +156,31 @@ layers:
 |---|---|---|
 | **Machine** `internal/cpu` / `internal/dos` / `internal/machine` | 8086 + 80186, DOS and BIOS services, VGA, PIT, mouse | **No.** Missing services just get added, and everyone benefits |
 | **Observation** `oracle/` | `Load` / `RunUntil` / `Click` / `Save` / `Restore` / `Search` / `Indexed` / `OnCall` | **No** |
-| **Runtime** | Conventions of a compiler and its runtime: MS BASIC's `RND` (an LCG), array descriptors, the `retf N` argument convention | **Reused across programs built with the same compiler**; a different one (Turbo Pascal, Clipper, VB p-code) gets its own package |
-| **Program** `oracle/rich2/` | One binary's addresses, button coordinates, and flow | **Yes, always written from scratch** |
+| **Runtime** `runtime/basic/` | Conventions of a compiler and its runtime: MS BASIC's `RND` (an LCG), array descriptors | **Reused across programs built with the same compiler**; a different one (Turbo Pascal, Clipper, VB p-code) gets its own package under `runtime/` |
+| **Program** `apps/rich2/` | One binary's addresses, button coordinates, and flow | **Yes, always written from scratch** |
 
 The third layer is the one you only see when a second program shows up, and it
 is what keeps that second case from having to fork.
 
-> ⚠ **Right now the third layer is still mixed into the fourth.** `LCGNext`,
-> `RNDState`, `SetRNDState` and `TraceRND` in `oracle/rich2/rng.go` hold for
-> **any program compiled with MS BASIC** — the LCG constants are read out of
-> DGROUP and the `RND` entry point belongs to the BASIC runtime, not to the
-> game. Only caller addresses like `DirPickCaller` are Richman 2's. The array
-> descriptor decoding in `oracle/basic.go` is likewise generic, and already
-> sits in the right place.
->
-> The plan for pulling them apart is [`docs/spec/006`](docs/spec/006-layering.md).
+One distinction turned out to matter more than the rest: **the algorithm is
+generic, the addresses are not.** `runtime/basic` holds the LCG formula and the
+tracing, but the `RND` entry point and the state variable offsets live in
+`basic.Config` and are supplied by the caller — the runtime is *linked into* the
+program, so the same MS BASIC lands at different addresses in different
+binaries. Borrowing another program's values does not fail loudly; it just never
+intercepts anything.
+
+The other direction: `Array` sitting in `oracle/` (the generic layer) **was
+wrong**. What is generic is `o.Word`; "the first two words of the descriptor are
+`(offset, segment)`, indices are column-major" is the BASIC compiler's layout.
+Against a Turbo Pascal program that reading is simply wrong — **and it does not
+raise an error**, it returns something that looks like data. It now lives in
+`runtime/basic`.
+
+The process and the criteria are in [`docs/spec/006`](docs/spec/006-layering.md).
 
 **Wiring up a new program means writing the fourth layer**; the first three come
-as they are. The shape can be copied straight from `oracle/rich2/`:
+as they are. The shape can be copied straight from `apps/rich2/`:
 
 ```
 address constants   DescPlayer = 0x1146    array descriptors, single variables
@@ -196,7 +203,7 @@ it when it happens.
 | M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall`, `Caller`, snapshots, and **RND tracing** work; breakpoints and watchpoints not done |
 | M4 | Go API (`oracle` package) | **Usable**, [`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | Regression: re-run `rich2`'s existing parity receipts | Not started |
-| M6 | **Layering**: split the runtime and program-specific parts out so a second case does not have to fork | Spec [`docs/spec/006`](docs/spec/006-layering.md) is **DRAFT**, awaiting a decision |
+| M6 | **Layering**: split the runtime and program-specific parts out so a second case does not have to fork | **Done**: `runtime/basic` / `apps/rich2`, see [`docs/spec/006`](docs/spec/006-layering.md) |
 
 Specs live in [`docs/spec/`](docs/spec/), marked `DRAFT` or `READY`; only READY
 ones may be implemented against.
