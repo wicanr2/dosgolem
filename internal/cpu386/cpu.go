@@ -494,6 +494,17 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+	case op == 0x75:
+		if operand16 {
+			return fail("75 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0xfb:
 		c.EFlags |= IF
 	case op == 0x83:
@@ -829,14 +840,29 @@ func (c *CPU) Step() error {
 		reg, rm := int((modrm>>3)&7), int(modrm&7)
 		c.setReg8(reg, c.sub8(c.reg8(reg), c.reg8(rm)))
 	case op == 0x3d:
-		if !operand16 {
-			return fail("32-bit CMP EAX,imm32 尚未支援")
+		if operand16 {
+			value, e := c.fetch16()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.sub16(uint16(c.R[EAX]), value)
+		} else {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.sub32(c.R[EAX], value)
 		}
-		value, e := c.fetch16()
+	case op == 0x0d:
+		if operand16 {
+			return fail("16-bit OR accumulator 尚未支援")
+		}
+		value, e := c.fetch32()
 		if e != nil {
 			return fail(e.Error())
 		}
-		c.sub16(uint16(c.R[EAX]), value)
+		c.R[EAX] |= value
+		c.setLogicFlags(c.R[EAX])
 	case op == 0x3c:
 		if operand16 {
 			return fail("3C 不接受 operand-size override")

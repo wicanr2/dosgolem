@@ -300,6 +300,20 @@ func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	}
 }
 
+func TestImmediateORCompareAndShortJNZ(t *testing.T) {
+	mem := testBus{0x0d, 0x20, 0x20, 0x20, 0x20, 0x3d, 0x6e, 0x6f, 0x38, 0x37, 0x75, 0x02, 0xff, 0xff, 0xfb}
+	c := New(mem)
+	c.R[EAX] = 0x00010000
+	for range 3 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.R[EAX] != 0x20212020 || c.EIP != 14 || c.EFlags&ZF != 0 {
+		t.Fatalf("EAX=%X EIP=%d flags=%X", c.R[EAX], c.EIP, c.EFlags)
+	}
+}
+
 func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
 	mem := testBus{0x26, 0x8a, 0x4f, 0xff}
 	c := New(mem)
