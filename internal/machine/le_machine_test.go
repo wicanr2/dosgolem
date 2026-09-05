@@ -64,6 +64,9 @@ func fixedFD2Machine(t *testing.T) (*LEMachine, *FD2StartupDOS) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
+	if _, err := InstallFD2WatcomRuntime(m); err != nil {
+		t.Fatal(err)
+	}
 	return m, services
 }
 
@@ -421,5 +424,22 @@ func TestFD2ThirdCallbackFirstAllocationCallWhenProvided(t *testing.T) {
 	ret, errRet := m.Read32(0x55674)
 	if errArg != nil || errRet != nil || argument != 1 || ret != 0x4cc51 || m.CPU.R[cpu386.ESP] != 0x55674 {
 		t.Fatalf("third callback first allocation argument=%X return=%X ESP=%X errors=%v,%v", argument, ret, m.CPU.R[cpu386.ESP], errArg, errRet)
+	}
+}
+
+func TestFD2ThirdCallbackFirstAllocationReturnsWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	initialMemory := len(m.Mem)
+	wantBase := uint32((initialMemory + 3) &^ 3)
+	for steps := 0; m.CPU.EIP != 0x4cc51 && steps < 491; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc51 {
+		t.Fatalf("first _nmalloc did not return: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != wantBase || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != int(wantBase)+4 {
+		t.Fatalf("first _nmalloc result=%X ESP=%X memory=%X want-base=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem), wantBase)
 	}
 }

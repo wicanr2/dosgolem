@@ -44,12 +44,15 @@ const (
 )
 
 type CPU struct {
-	R             [8]uint32
-	Seg           [6]uint16
-	EIP           uint32
-	EFlags        uint32
-	Bus           Bus
-	IntHook       func(*CPU, uint8) bool
+	R       [8]uint32
+	Seg     [6]uint16
+	EIP     uint32
+	EFlags  uint32
+	Bus     Bus
+	IntHook func(*CPU, uint8) bool
+	// StepHook 可在已登錄的執行期函式入口取代一次指令步進。
+	// 回傳 handled=false 時仍由 CPU 正常解碼，維持失敗即關閉。
+	StepHook      func(*CPU) (handled bool, err error)
 	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
 	SegmentRead8  func(selector uint16, offset uint32) (uint8, bool)
 	SegmentLoadOK func(selector uint16, destination int) bool
@@ -380,6 +383,15 @@ func (c *CPU) sub8(left, right uint8) uint8 {
 }
 
 func (c *CPU) Step() error {
+	if c.StepHook != nil {
+		handled, err := c.StepHook(c)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
+	}
 	start := c.EIP
 	op, err := c.fetch8()
 	if err != nil {

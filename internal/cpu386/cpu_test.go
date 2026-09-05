@@ -2,8 +2,33 @@ package cpu386
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
+
+func TestStepHookHandledUnhandledAndError(t *testing.T) {
+	c := New(testBus{0xfb})
+	c.StepHook = func(cpu *CPU) (bool, error) {
+		cpu.EIP = 7
+		return true, nil
+	}
+	if err := c.Step(); err != nil || c.EIP != 7 {
+		t.Fatalf("handled hook EIP=%d err=%v", c.EIP, err)
+	}
+
+	c = New(testBus{0xfb})
+	c.StepHook = func(*CPU) (bool, error) { return false, nil }
+	if err := c.Step(); err != nil || c.EIP != 1 {
+		t.Fatalf("unhandled hook did not decode opcode: EIP=%d err=%v", c.EIP, err)
+	}
+
+	want := errors.New("runtime hook failure")
+	c = New(testBus{0xfb})
+	c.StepHook = func(*CPU) (bool, error) { return true, want }
+	if err := c.Step(); !errors.Is(err, want) || c.EIP != 0 {
+		t.Fatalf("hook error=%v EIP=%d", err, c.EIP)
+	}
+}
 
 type testBus []byte
 
