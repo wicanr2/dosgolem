@@ -1,6 +1,8 @@
 package rich2
 
 import (
+	"math"
+
 	"github.com/wicanr2/dosgolem/oracle"
 	"github.com/wicanr2/dosgolem/runtime/basic"
 )
@@ -55,12 +57,19 @@ type BankSlider struct {
 	Choice int   // 進來時的 `ds:874h`
 	Amount int32 // 選出來的金額（回傳之後才有）
 	Done   bool
+
+	Want int32 // 自動操作要的金額（Answer 回傳的）
+	Pos0 int   // 換算出來的把手位移（0..100）
 }
 
 // BankLog 收集整場的銀行操作。
 type BankLog struct {
 	All []BankSlider
 	cur *BankSlider
+
+	answer func(*BankSlider) int32
+	armed  bool // 這一支滑桿還沒送出 Enter
+	laps   int  // 這一支滑桿跑過幾圈
 }
 
 // Open 回目前有沒有一個滑桿在等輸入。
@@ -92,6 +101,21 @@ func WatchBank(o *oracle.Oracle) *BankLog {
 			Choice: int(int16(o.Word(o.DS(VarBankChoice)))),
 		})
 		log.cur = &log.All[len(log.All)-1]
+		log.armed, log.laps = false, 0
+		if log.answer == nil {
+			return
+		}
+		want := log.answer(log.cur)
+		if want < 0 {
+			return
+		}
+		pos := log.cur.Pos(want)
+		x, y := log.cur.Point(pos)
+		log.cur.Want, log.cur.Pos0 = want, pos
+		// **只移滑鼠，不送鍵。** 迴圈每一圈都重讀滑鼠，把手會自己跟過來；
+		// Enter 由 WatchSliderInput 在第二圈送（見 Answer 的註解）。
+		o.MoveMouse(x, y)
+		log.armed = true
 	})
 
 	o.OnCall(o.IDA(IDABankAmountStored), func(o *oracle.Oracle) {
@@ -118,3 +142,117 @@ func BankAmount(o *oracle.Oracle) int32 {
 	hi := uint32(o.Word(o.DS(VarBankAmount + 2)))
 	return int32(hi<<16 | lo)
 }
+
+// 滑桿的幾何與離開條件（`rich2/docs/re/186` §4.3、§4.6，都是 confirmed）。
+//
+// 滑桿本體 `0x2313F` 從三個參數算出這些：
+//
+//	[bp-1Ch] = x − 78                 ; 滑鼠 X 的下界
+//	[bp-1Eh] = x − 73                 ; ★ 左端（把手位移 0 的地方）
+//	[bp-20h] = x − 23                 ; 把手初值（左端 + 50）
+//	[bp-18h] = y + 22                 ; 滑鼠 Y 的下界（**不含**）
+//	[bp-1Ah] = y + 26
+//
+// 命中判定是四道（`0x2325E`–`0x23297`）：Y 要落在 `(y+22, y+43)` 之間、
+// X 要 `>= x−78` 且 `<= 左端+140`；通過之後**把手直接等於滑鼠 X**，
+// 再夾進 `左端 .. 左端+100`。
+const (
+	// SliderLeftOffset 是左端相對於傳進去的 x：左端 ＝ x − 73。
+	SliderLeftOffset = -73
+	// SliderTravel 是把手的行程（像素），與 `÷ 100.0` 的除數互相印證。
+	SliderTravel = 100
+	// SliderBandTop／SliderBandBottom 是滑鼠 Y 的有效範圍，相對於傳進去的 y。
+	// 判斷式是嚴格不等式，所以有效的是 `y+23 .. y+42`。
+	SliderBandTop    = 23
+	SliderBandBottom = 42
+)
+
+// Point 回「要讓把手停在第 pos 格」該把滑鼠放在哪。
+//
+// pos 是 0..100 的位移，不是金額。y 取有效帶的正中間，
+// 免得差一個像素就整個判定不成立。
+func (s BankSlider) Point(pos int) (x, y int) {
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > SliderTravel {
+		pos = SliderTravel
+	}
+	return s.X + SliderLeftOffset + pos, s.Y + (SliderBandTop+SliderBandBottom)/2
+}
+
+// Pos 把金額換算成把手位移（0..100）。
+//
+// 原版的算式是**反過來的**：`金額 = 位移 × (上限 ÷ 100)`，而且
+// `fistp` 是四捨五入到最近的整數。所以這裡取最接近的位移，
+// 呼叫端要驗的是「原版算回來的金額」而不是「我想要的金額」——
+// 上限不是 100 的倍數時兩者本來就會差一點。
+func (s BankSlider) Pos(amount int32) int {
+	if s.Max <= 0 {
+		return 0
+	}
+	pos := int((float64(amount)*SliderTravel)/float64(s.Max) + 0.5)
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > SliderTravel {
+		pos = SliderTravel
+	}
+	return pos
+}
+
+// AmountAt 回「把手停在第 pos 格時原版會算出的金額」。
+//
+// 照抄原版的捨入點：級距先算成**單精度**（`0x23156` 的 `fstp DWORD`），
+// 相乘之後才 `fistp` 成整數。用 float64 全程算會在上限大的時候差 1。
+func (s BankSlider) AmountAt(pos int) int32 {
+	stepF32 := float32(float64(s.Max) / 100.0)
+	return int32(math.Round(float64(float32(pos) * stepF32)))
+}
+
+// Answer 掛上「滑桿一開就自動拉到某個金額再確認」。
+//
+// 回傳要的金額；回傳負數表示不理它（讓呼叫端自己處理）。
+//
+// **走的是正常玩家路徑**：把滑鼠移到對應的把手位置讓原版自己算金額，
+// 再送 Enter——那正是原版自己的離開條件（`rich2/docs/re/186` §4.6）。
+//
+// ⚠ **Enter 不能在滑桿一開就送。** `ds:1094h` 只有 `0CED:6759` 會寫，
+// 而迴圈是「讀鍵 → 移把手 → 算金額 → 比對 Enter」。開場那一次 `6759`
+// （`0x23226`）會先把 Enter 吃掉，於是迴圈裡比對到的是舊值，
+// **看起來像「送了 Enter 但原版不理」**。所以這裡等到迴圈跑過一圈
+// （把手已經移到位、金額已經算好）才送。
+func (l *BankLog) Answer(f func(*BankSlider) int32) {
+	if l != nil {
+		l.answer = f
+	}
+}
+
+// WatchSliderInput 掛上滑桿的自動操作。**要和 WatchBank 一起用。**
+//
+// 分成兩個攔截點，理由見 Answer：
+//
+//	0x214CA  滑桿一開 → 算出把手位置，移滑鼠（WatchBank 做的）
+//	0x23230  迴圈頭   → 跑過一圈之後送 Enter
+func WatchSliderInput(o *oracle.Oracle, log *BankLog) {
+	o.OnCall(o.IDA(IDASliderLoop), func(o *oracle.Oracle) {
+		if log == nil || log.cur == nil || !log.armed {
+			return
+		}
+		log.laps++
+		// 第一圈把手才會移到位、金額才算得出來（`0x2333F`）。
+		// 第二圈開頭送 Enter，這一圈的 `6759` 就讀得到。
+		if log.laps < 2 {
+			return
+		}
+		o.ClearInput()
+		o.Type("\r")
+		log.armed = false
+	})
+}
+
+// IDASliderLoop 是滑桿主迴圈的頭（`0x23230`：`cmp [bp-38h], 0`）。
+//
+// `[bp-38h]` 是離開旗標，Enter 與 ESC 都把它設成 1。
+const IDASliderLoop = 0x23230
+
