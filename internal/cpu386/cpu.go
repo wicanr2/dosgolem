@@ -86,6 +86,9 @@ func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
 }
 
 func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
+	if selector == 0 && destination != SegCS && destination != SegSS {
+		return true
+	}
 	if _, ok := c.Descriptors[selector]; ok {
 		return true
 	}
@@ -431,6 +434,22 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x6a:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("6A 不接受目前的 prefix")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(int32(int8(value)))) {
+			return fail(fmt.Sprintf("PUSH immediate stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
 	case op == 0x01:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("01 不接受目前的 prefix")
@@ -1109,6 +1128,43 @@ func (c *CPU) Step() error {
 		if !c.writeSegment8(c.Seg[SegDS], c.R[EBX], value) {
 			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[EBX]))
 		}
+	case op == 0xc7:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C7 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0x04 {
+			return fail(fmt.Sprintf("MOV immediate dword ModRM %02X 尚未支援", modrm))
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		scale, index, base := sib>>6, (sib>>3)&7, sib&7
+		if scale != 0 || index == ESP || base == EBP {
+			return fail(fmt.Sprintf("MOV immediate dword SIB %02X 尚未支援", sib))
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := c.R[base] + c.R[index]
+		if !c.writeSegment32(c.Seg[SegDS], addr, value) {
+			return fail(fmt.Sprintf("MOV immediate dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+	case op == 0xc9:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C9 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[EBP])
+		if !ok {
+			return fail(fmt.Sprintf("LEAVE stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[EBP]))
+		}
+		c.R[ESP] = c.R[EBP] + 4
+		c.R[EBP] = value
 	case op == 0x8b:
 		modrm, e := c.fetch8()
 		if e != nil {
@@ -1367,6 +1423,19 @@ func (c *CPU) Step() error {
 			}
 			c.R[reg] = value
 		}
+	case op == 0xa1:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("A1 不接受目前的 prefix")
+		}
+		addr, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment32(c.Seg[SegDS], addr)
+		if !ok {
+			return fail(fmt.Sprintf("MOV EAX read %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+		c.R[EAX] = value
 	case op == 0xa3:
 		addr, e := c.fetch32()
 		if e != nil {

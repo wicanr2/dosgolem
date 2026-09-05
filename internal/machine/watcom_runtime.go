@@ -15,6 +15,11 @@ type WatcomNearHeap struct {
 	limit   uint32
 }
 
+type WatcomMemset struct {
+	machine *LEMachine
+	entry   uint32
+}
+
 func NewWatcomNearHeap(m *LEMachine, entry, capacity uint32) (*WatcomNearHeap, error) {
 	if m == nil || m.CPU == nil || capacity == 0 {
 		return nil, fmt.Errorf("machine: Watcom near heap 參數無效")
@@ -62,12 +67,55 @@ func (h *WatcomNearHeap) Handle(c *cpu386.CPU) (bool, error) {
 	return true, nil
 }
 
+func (s *WatcomMemset) Handle(c *cpu386.CPU) (bool, error) {
+	if c.EIP != s.entry {
+		return false, nil
+	}
+	stack, ok := c.Descriptors[c.Seg[cpu386.SegSS]]
+	if !ok || stack.Base != 0 || c.R[cpu386.ESP] > stack.Limit || stack.Limit-c.R[cpu386.ESP] < 15 {
+		return true, fmt.Errorf("machine: Watcom memset cdecl 堆疊不可讀")
+	}
+	ret, err := s.machine.Read32(c.R[cpu386.ESP])
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom memset 返回位址：%w", err)
+	}
+	destination, err := s.machine.Read32(c.R[cpu386.ESP] + 4)
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom memset 目的地：%w", err)
+	}
+	value, err := s.machine.Read32(c.R[cpu386.ESP] + 8)
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom memset 填充值：%w", err)
+	}
+	length, err := s.machine.Read32(c.R[cpu386.ESP] + 12)
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom memset 長度：%w", err)
+	}
+	end := uint64(destination) + uint64(length)
+	if length != 0 && end > uint64(len(s.machine.Mem)) {
+		return true, fmt.Errorf("machine: Watcom memset 範圍 0x%X+0x%X 超界", destination, length)
+	}
+	for address := uint64(destination); address < end; address++ {
+		s.machine.Mem[address] = byte(value)
+	}
+	c.R[cpu386.EAX] = destination
+	c.R[cpu386.ESP] += 4
+	c.EIP = ret
+	return true, nil
+}
+
 // InstallFD2WatcomRuntime 登錄固定雜湊 FD2.EXE 已證實的 Watcom runtime 入口。
 func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 	heap, err := NewWatcomNearHeap(m, 0x36d26, 1024*1024)
 	if err != nil {
 		return nil, err
 	}
-	m.CPU.StepHook = heap.Handle
+	memset := &WatcomMemset{machine: m, entry: 0x375c0}
+	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
+		if handled, err := heap.Handle(c); handled || err != nil {
+			return handled, err
+		}
+		return memset.Handle(c)
+	}
 	return heap, nil
 }

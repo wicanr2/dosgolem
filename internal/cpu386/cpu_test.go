@@ -77,6 +77,74 @@ func TestRegisterADD32(t *testing.T) {
 	}
 }
 
+func TestMoveEAXFromAbsoluteAddress(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0xa1, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+
+	c = New(mem[:0x22])
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x21, Writable: true})
+	c.R[EAX] = 0xabcdef01
+	if err := c.Step(); err == nil || c.R[EAX] != 0xabcdef01 {
+		t.Fatalf("out-of-range MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
+func TestMoveImmediateDwordToSIBAddress(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc7, 0x04, 0x01, 0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EAX], c.R[ECX] = 0x10, 0x10
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("SIB store=% X", mem[0x20:0x24])
+	}
+
+	c = New(testBus{0xc7, 0x04, 0x24})
+	if err := c.Step(); err == nil {
+		t.Fatal("reserved ESP index was accepted")
+	}
+}
+
+func TestPushSignExtendedByte(t *testing.T) {
+	mem := testBus(make([]byte, 0x20))
+	copy(mem, []byte{0x6a, 0x80})
+	c := New(mem)
+	c.Seg[SegSS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.R[ESP] = 0x10
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ESP] != 0x0c || !bytes.Equal(mem[0x0c:0x10], []byte{0x80, 0xff, 0xff, 0xff}) {
+		t.Fatalf("PUSH ESP=%X value=% X", c.R[ESP], mem[0x0c:0x10])
+	}
+}
+
+func TestLeave32(t *testing.T) {
+	mem := testBus(make([]byte, 0x20))
+	mem[0] = 0xc9
+	copy(mem[0x10:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegSS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.R[EBP], c.R[ESP] = 0x10, 2
+	if err := c.Step(); err != nil || c.R[EBP] != 0x12345678 || c.R[ESP] != 0x14 {
+		t.Fatalf("LEAVE EBP=%X ESP=%X err=%v", c.R[EBP], c.R[ESP], err)
+	}
+}
+
 type testBus []byte
 
 func (b testBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }
@@ -689,6 +757,21 @@ func TestPushPopFS(t *testing.T) {
 	c.Seg[SegFS] = 0
 	if err := c.Step(); err != nil || c.R[ESP] != 0x60 || c.Seg[SegFS] != 0x38 {
 		t.Fatalf("POP FS FS=%X ESP=%X err=%v", c.Seg[SegFS], c.R[ESP], err)
+	}
+}
+
+func TestPopNullFSLeavesUnusableSelector(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x0f, 0xa1})
+	c := New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegSS], c.Seg[SegFS] = 0x30, 0x38
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.Seg[SegFS] != 0 || c.R[ESP] != 0x24 {
+		t.Fatalf("POP null FS=%X ESP=%X err=%v", c.Seg[SegFS], c.R[ESP], err)
+	}
+	if _, ok := c.readSegment8(c.Seg[SegFS], 0); ok {
+		t.Fatal("null FS unexpectedly resolved memory")
 	}
 }
 

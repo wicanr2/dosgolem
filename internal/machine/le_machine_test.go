@@ -459,3 +459,22 @@ func TestFD2ThirdCallbackSecondAllocationReturnsWhenProvided(t *testing.T) {
 		t.Fatalf("second _nmalloc result=%X ESP=%X memory=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem))
 	}
 }
+
+func TestFD2ThirdCallbackEnvironmentCopyCompletesWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 620 && !(steps > 500 && m.CPU.EIP == 0x45dd3); steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("environment copy path: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x45dd3 || steps <= 500 {
+		t.Fatalf("third callback did not return: calls=%d steps=%d EIP=%X", services.Calls(), steps, m.CPU.EIP)
+	}
+	environmentTable, errTable := m.Read32(0x537fc)
+	environmentTail, errTail := m.Read32(0x53800)
+	terminator, errTerminator := m.Read32(0x634d8)
+	if errTable != nil || errTail != nil || errTerminator != nil || environmentTable != 0x634d8 || environmentTail != 0x634dc || terminator != 0 {
+		t.Fatalf("environment table=%X tail=%X terminator=%X errors=%v,%v,%v", environmentTable, environmentTail, terminator, errTable, errTail, errTerminator)
+	}
+}
