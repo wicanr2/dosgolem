@@ -604,3 +604,29 @@ func TestFD2PassesGetenvArgumentWhenProvided(t *testing.T) {
 		t.Fatalf("getenv argument steps=%d EIP=%X calls=%d SS=%X base=%X EBP=%X ESP=%X argument=%X pushed=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegSS], stackDescriptor.Base, m.CPU.R[cpu386.EBP], m.CPU.R[cpu386.ESP], argument, pushed, errArgument, errPushed)
 	}
 }
+
+func TestFD2ScansFirstEnvironmentNameWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 2500 && m.CPU.EIP != 0x37818; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("strlen scan: step=%d EIP=%X EAX=%X ECX=%X EDI=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDI], err)
+		}
+	}
+	if m.CPU.EIP != 0x37818 || services.Calls() != 5 || m.CPU.R[cpu386.ECX] == 0xffffffff || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("strlen scan steps=%d EIP=%X calls=%d ECX=%X EDI=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDI], m.CPU.EFlags)
+	}
+}
+
+func TestFD2ComplementsStrlenCountWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 2500 && m.CPU.EIP != 0x3781a; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("strlen complement: step=%d EIP=%X ECX=%X EDI=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDI], err)
+		}
+	}
+	if m.CPU.EIP != 0x3781a || services.Calls() != 5 || m.CPU.R[cpu386.ECX] != 0x0a || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("strlen complement steps=%d EIP=%X calls=%d ECX=%X EDI=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDI], m.CPU.EFlags)
+	}
+}

@@ -277,6 +277,14 @@ func TestNegRegister32(t *testing.T) {
 	}
 }
 
+func TestNotRegister32(t *testing.T) {
+	c := New(testBus{0xf7, 0xd1})
+	c.R[ECX], c.EFlags = 0xfffffff5, CF|ZF|OF
+	if err := c.Step(); err != nil || c.R[ECX] != 0x0a || c.EFlags != CF|ZF|OF {
+		t.Fatalf("NOT ECX=%X flags=%X err=%v", c.R[ECX], c.EFlags, err)
+	}
+}
+
 func TestAndEAXImmediate32(t *testing.T) {
 	c := New(testBus{0x25, 0xff, 0xff, 0x00, 0x00})
 	c.R[EAX], c.EFlags = 0x12345678, CF|OF|AF
@@ -1385,6 +1393,27 @@ func TestCLDAndREPESCASB(t *testing.T) {
 	c.Seg[SegES] = 0x99
 	if err := c.Step(); err != nil || c.R[EDI] != 0x81 {
 		t.Fatalf("zero-count SCASB read memory or moved EDI: err=%v EDI=%X", err, c.R[EDI])
+	}
+}
+
+func TestREPNESCASB(t *testing.T) {
+	c := New(testBus{0xf2, 0xae})
+	c.R[EAX], c.R[ECX], c.R[EDI] = 0, 5, 0x20
+	c.Seg[SegES] = 0x28
+	data := []byte{'A', 'B', 0, 'C'}
+	c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+		if selector != 0x28 || offset < 0x20 || offset-0x20 >= uint32(len(data)) {
+			return 0, false
+		}
+		return data[offset-0x20], true
+	}
+	if err := c.Step(); err != nil || c.R[EDI] != 0x23 || c.R[ECX] != 2 || c.EFlags&ZF == 0 {
+		t.Fatalf("REPNE SCASB EDI=%X ECX=%X flags=%X err=%v", c.R[EDI], c.R[ECX], c.EFlags, err)
+	}
+
+	c = New(testBus{0xf2, 0xaa})
+	if err := c.Step(); err == nil {
+		t.Fatal("REPNE STOSB was accepted")
 	}
 }
 
