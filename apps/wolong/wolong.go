@@ -343,6 +343,12 @@ func ScreenCursor(o *oracle.Oracle) (x, y int) {
 // ⚠ 這一步會**捲動地圖**（原點變了），所以它不是無副作用的。
 // 要保持地圖位置就自己記下原點再捲回去。
 func HomeCursor(o *oracle.Oracle, settle uint64) error {
+	if x, y := ScrollOrigin(o); x == 0 && y == 0 {
+		// 已經歸零了就不要再跑一趟 (0,0)。
+		// **多跑那一趟不是沒有代價**：游標會先移到左上角，
+		// 而彈出選單與 hover 反白都吃游標位置。
+		return nil
+	}
 	o.MoveMouse(0, 0)
 	if err := o.Run(settle); err != nil {
 		return err
