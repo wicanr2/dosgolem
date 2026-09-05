@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "game": "fd2",
+  "scenario": "ch01-field",
+  "state": "near-state",
+  "cycles": "fixed 60000",
+  "timeline": "wait:10;repeat:8,Escape,500;wait:2;key:Down;key:Down;key:Return;wait:5;shot:ch01-original",
+  "expected_capture": "ch01-original.png"
+}
