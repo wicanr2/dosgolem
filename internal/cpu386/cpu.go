@@ -434,6 +434,22 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x68:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("68 不接受目前的 prefix")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+			return fail(fmt.Sprintf("PUSH immediate dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
 	case op == 0x6a:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("6A 不接受目前的 prefix")
@@ -450,6 +466,19 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("PUSH immediate stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
 		}
 		c.R[ESP] = nextESP
+	case op == 0xf7:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("F7 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 || (modrm>>3)&7 != 3 {
+			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
+		}
+		reg := modrm & 7
+		c.R[reg] = c.sub32(0, c.R[reg])
 	case op == 0x01:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("01 不接受目前的 prefix")
@@ -1011,6 +1040,17 @@ func (c *CPU) Step() error {
 		if c.EFlags&(CF|ZF) == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0x76:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("76 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&(CF|ZF) != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0xfb:
 		c.EFlags |= IF
 	case op == 0x83:
@@ -1312,6 +1352,24 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride >= 0 {
 			return fail(fmt.Sprintf("segment ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 != 3 {
@@ -1511,8 +1569,8 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 	case op == 0x87:
-		if !operand16 || segmentOverride >= 0 || repe {
-			return fail("87 目前只支援 16-bit stack 形式")
+		if segmentOverride >= 0 || repe {
+			return fail("87 不接受目前的 segment/repeat prefix")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
@@ -1522,14 +1580,30 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm != 0x04 || sib != 0x24 {
-			return fail(fmt.Sprintf("16-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
+		if operand16 {
+			if modrm != 0x04 || sib != 0x24 {
+				return fail(fmt.Sprintf("16-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
+			}
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], uint16(c.R[EAX])) {
+				return fail(fmt.Sprintf("16-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(value)
+			break
 		}
-		value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
-		if !ok || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], uint16(c.R[EAX])) {
-			return fail(fmt.Sprintf("16-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		if modrm>>6 != 1 || sib != 0x24 {
+			return fail(fmt.Sprintf("32-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
 		}
-		c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(value)
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+		value, ok := c.readSegment32(c.Seg[SegSS], addr)
+		if !ok || !c.writeSegment32(c.Seg[SegSS], addr, c.R[(modrm>>3)&7]) {
+			return fail(fmt.Sprintf("32-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], addr))
+		}
+		c.R[(modrm>>3)&7] = value
 	case op >= 0xb8 && op <= 0xbf:
 		reg := int(op - 0xb8)
 		if operand16 {
@@ -1657,6 +1731,18 @@ func (c *CPU) Step() error {
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(c.R[(modrm>>3)&7], value)
+			break
 		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
@@ -1855,6 +1941,21 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("RET stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
 		}
 		c.R[ESP] += 4
+		c.EIP = value
+	case op == 0xc2:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C2 不接受目前的 prefix")
+		}
+		cleanup, e := c.fetch16()
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		increase := uint32(cleanup) + 4
+		if !ok || c.R[ESP] > ^uint32(0)-increase {
+			return fail(fmt.Sprintf("RET immediate stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += increase
 		c.EIP = value
 	default:
 		return fail("opcode 尚未支援")
