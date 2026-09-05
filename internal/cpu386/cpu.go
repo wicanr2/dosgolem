@@ -405,8 +405,8 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
-	if repe && op != 0xae {
-		return fail("REPE prefix 只支援 SCASB")
+	if repe && op != 0xae && op != 0xab {
+		return fail("REP／REPE prefix 只支援 SCASB／STOSD")
 	}
 	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
@@ -463,6 +463,30 @@ func (c *CPU) Step() error {
 			c.R[EDI]--
 		} else {
 			c.R[EDI]++
+		}
+	case op == 0xab:
+		if operand16 || segmentOverride >= 0 {
+			return fail("STOSD 不接受目前的 prefix")
+		}
+		count := uint32(1)
+		if repe {
+			count = c.R[ECX]
+		}
+		for count > 0 {
+			if !c.writeSegment32(c.Seg[SegES], c.R[EDI], c.R[EAX]) {
+				return fail(fmt.Sprintf("STOSD write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			if c.EFlags&DF != 0 {
+				c.R[EDI] -= 4
+			} else {
+				c.R[EDI] += 4
+			}
+			if repe {
+				c.R[ECX]--
+				count = c.R[ECX]
+			} else {
+				break
+			}
 		}
 	case op == 0xa4:
 		if operand16 || segmentOverride >= 0 || repe {
@@ -743,14 +767,18 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 	case op == 0x8a:
-		if operand16 || segmentOverride < 0 {
-			return fail("8A 目前只支援 segment byte read")
+		if operand16 {
+			return fail("8A 不接受 operand-size override")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 1 || modrm&7 == 4 {
+		if segmentOverride < 0 && modrm>>6 == 3 {
+			c.setReg8(int((modrm>>3)&7), c.reg8(int(modrm&7)))
+			break
+		}
+		if segmentOverride < 0 || modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 		delta, e := c.fetch8()

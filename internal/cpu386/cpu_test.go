@@ -1,6 +1,9 @@
 package cpu386
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 type testBus []byte
 
@@ -380,6 +383,28 @@ func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	}
 	if mem[0x63] != 0xa5 || c.R[ESI] != 6 || c.R[EDI] != 4 {
 		t.Fatalf("MOVSB dst=%X ESI=%X EDI=%X", mem[0x63], c.R[ESI], c.R[EDI])
+	}
+}
+
+func TestMoveByteRegisterAndREPSTOSD(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x8a, 0xd1, 0xf3, 0xab})
+	c := New(mem)
+	c.R[EAX], c.R[ECX], c.R[EDX], c.R[EDI] = 0x12345678, 2, 0xaabbcc00, 4
+	c.Seg[SegES] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x1f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDX] != 0xaabbcc02 || c.R[ECX] != 2 {
+		t.Fatalf("MOV DL,CL EDX=%X ECX=%X", c.R[EDX], c.R[ECX])
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12}
+	if !bytes.Equal(mem[0x24:0x2c], want) || c.R[ECX] != 0 || c.R[EDI] != 12 {
+		t.Fatalf("REP STOSD dst=% X ECX=%X EDI=%X", mem[0x24:0x2c], c.R[ECX], c.R[EDI])
 	}
 }
 
