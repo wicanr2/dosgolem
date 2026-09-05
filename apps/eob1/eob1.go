@@ -128,6 +128,21 @@ func ToFirstCharacterReview(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterName 以原版KEEP按鈕接受目前角色，進入姓名輸入頁。
+func ToFirstCharacterName(o *oracle.Oracle) error {
+	if err := ToFirstCharacterReview(o); err != nil {
+		return err
+	}
+	if err := o.Click(282, 180); err != nil {
+		return fmt.Errorf("EOB1點擊第一角色KEEP：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第一角色Name輸入頁", 0, 0, oracle.Width, oracle.Height,
+		"ae05e3fff97f306ec714c79603509ec45a4778f152d8ccca2943faef23c47a89"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色姓名輸入：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

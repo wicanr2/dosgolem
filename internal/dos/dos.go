@@ -50,6 +50,12 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// Callback是int 33h AX=0Ch註冊的事件遮罩與far routine。
+	CallbackMask     uint16
+	CallbackSeg      uint16
+	CallbackOff      uint16
+	CallbackDispatch uint64
 }
 
 // Poll 是一次 `AX=3` 的回報內容。

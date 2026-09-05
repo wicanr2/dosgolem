@@ -318,6 +318,51 @@ func TestMousePollIsRecorded(t *testing.T) {
 	}
 }
 
+func TestMouseCallbackUsesFarCallContract(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0007
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	m.Write8(cpu.Addr(0x0900, 0x0010), 0xCB) // RETF
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0x1234
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
+	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 1
+
+	if !d.MouseEvent(0x0002, 3, -4) {
+		t.Fatal("符合mask的左鍵按下沒有觸發callback")
+	}
+	if m.CPU.Seg[cpu.CS] != 0x0900 || m.CPU.IP != 0x0010 {
+		t.Fatalf("callback入口=%04X:%04X", m.CPU.Seg[cpu.CS], m.CPU.IP)
+	}
+	if m.CPU.R[cpu.AX] != 2 || m.CPU.R[cpu.BX] != 1 ||
+		m.CPU.R[cpu.CX] != 200 || m.CPU.R[cpu.DX] != 50 ||
+		m.CPU.R[cpu.SI] != uint16(0xFFFC) || m.CPU.R[cpu.DI] != 3 {
+		t.Fatalf("callback暫存器AX/BX/CX/DX/SI/DI=%04X/%04X/%04X/%04X/%04X/%04X",
+			m.CPU.R[cpu.AX], m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX],
+			m.CPU.R[cpu.SI], m.CPU.R[cpu.DI])
+	}
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x0800 || m.CPU.IP != 0x1234 || m.CPU.R[cpu.SP] != 0x0100 {
+		t.Fatalf("RETF後=%04X:%04X SP=%04X", m.CPU.Seg[cpu.CS], m.CPU.IP, m.CPU.R[cpu.SP])
+	}
+}
+
+func TestMouseCallbackHonorsMaskAndReset(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0002
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	if d.MouseEvent(0x0001, 1, 1) {
+		t.Fatal("mask只有左鍵按下卻觸發移動callback")
+	}
+	call(m, d, 0x33, 0x0000)
+	if d.MouseEvent(0x0002, 0, 0) {
+		t.Fatal("reset後仍觸發callback")
+	}
+}
+
 // TestAllocIsRealBumpAllocator 釘住 `AH=48h`。
 //
 // 固定回 64 KB 的話 BASIC runtime 報 Error 07（Out of memory），

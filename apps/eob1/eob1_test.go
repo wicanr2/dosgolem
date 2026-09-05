@@ -122,6 +122,20 @@ func TestToFirstCharacterReviewRealData(t *testing.T) {
 	}
 }
 
+func TestToFirstCharacterNameRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFirstCharacterName(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "ae05e3fff97f306ec714c79603509ec45a4778f152d8ccca2943faef23c47a89" {
+		t.Fatalf("第一角色姓名頁SHA-256=%s", got)
+	}
+	if got := o.MouseCalls()[0x000C]; got != 3 {
+		t.Fatalf("姓名頁前AX=0Ch註冊%d次，預期3次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")

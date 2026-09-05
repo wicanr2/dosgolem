@@ -109,6 +109,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.AX] = 0xFFFF // 已安裝
 		c.R[cpu.BX] = 2      // 兩個鍵
 		m.Buttons = 0
+		m.CallbackMask, m.CallbackSeg, m.CallbackOff = 0, 0, 0
 
 	case 0x0001, 0x0002: // 顯示／隱藏游標
 		// 遊戲**從來不叫 `AX=1`**（全檔 0 個呼叫端），畫面上那隻小手是
@@ -143,9 +144,33 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+	case 0x000C: // 設使用者事件callback
+		m.CallbackMask = c.R[cpu.CX]
+		m.CallbackSeg = c.Seg[cpu.ES]
+		m.CallbackOff = c.R[cpu.DX]
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}
+}
+
+// MouseEvent 依AX=0Ch註冊契約把一個已更新到Mouse狀態的事件送進far callback。
+// dx／dy是本次位移mickey；目前一個邏輯pixel視為一個mickey的決定性近似。
+func (d *DOS) MouseEvent(event uint16, dx, dy int16) bool {
+	m := &d.Mouse
+	if event&m.CallbackMask == 0 || (m.CallbackSeg == 0 && m.CallbackOff == 0) {
+		return false
+	}
+	c := d.M.CPU
+	c.R[cpu.AX] = event
+	c.R[cpu.BX] = m.Buttons
+	c.R[cpu.CX] = m.X * m.XScale
+	c.R[cpu.DX] = m.Y
+	// Microsoft Mouse Programmer's Reference：SI=vertical、DI=horizontal mickeys。
+	c.R[cpu.SI] = uint16(dy)
+	c.R[cpu.DI] = uint16(dx)
+	c.FarCall(m.CallbackSeg, m.CallbackOff)
+	m.CallbackDispatch++
+	return true
 }
 
 // int16 是 BIOS 鍵盤。

@@ -130,6 +130,15 @@ func (c *CPU) SetFlags(v uint16) { c.Flags = (v & flagsMask) | flagsSet }
 // Flag 回報某一個旗標開著沒有。
 func (c *CPU) Flag(f uint16) bool { return c.Flags&f != 0 }
 
+// FarCall 以8086 CALL ptr16:16的堆疊契約進入far routine。
+// 給滑鼠driver等外部裝置callback使用；routine以RETF返回。
+func (c *CPU) FarCall(seg, off uint16) {
+	c.push(c.Seg[CS])
+	c.push(c.IP)
+	c.Seg[CS], c.IP = seg, off
+	c.Halted = false
+}
+
 // setFlag 設或清一個旗標。
 func (c *CPU) setFlag(f uint16, on bool) {
 	if on {
@@ -162,7 +171,7 @@ func Addr(seg, off uint16) uint32 {
 	return (uint32(seg)<<4 + uint32(off)) & 0xFFFFF
 }
 
-func (c *CPU) read8(seg, off uint16) uint8  { return c.Bus.Read8(Addr(seg, off)) }
+func (c *CPU) read8(seg, off uint16) uint8     { return c.Bus.Read8(Addr(seg, off)) }
 func (c *CPU) write8(seg, off uint16, v uint8) { c.Bus.Write8(Addr(seg, off), v) }
 
 // 16 位元存取是兩次 8 位元，而且**位移各自 wrap**：

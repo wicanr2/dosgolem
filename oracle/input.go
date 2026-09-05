@@ -14,7 +14,11 @@ import "fmt"
 // ⚠ **要在程式的 `AX=4` 之後叫**，否則會被它蓋掉而且畫面看起來完全正常。
 // 用 Click 的話已經幫你等了。
 func (o *Oracle) MoveMouse(x, y int) {
+	oldX, oldY := o.d.Mouse.X, o.d.Mouse.Y
 	o.d.Mouse.X, o.d.Mouse.Y = uint16(x), uint16(y)
+	if oldX != o.d.Mouse.X || oldY != o.d.Mouse.Y {
+		o.d.MouseEvent(1, int16(o.d.Mouse.X)-int16(oldX), int16(o.d.Mouse.Y)-int16(oldY))
+	}
 }
 
 // Mouse 回目前的游標座標。
@@ -84,11 +88,13 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	}
 	o.d.Mouse.Buttons = 1
 	o.d.Mouse.Press++
+	o.d.MouseEvent(2, 0, 0)
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 0
 	o.d.Mouse.Release++
+	o.d.MouseEvent(4, 0, 0)
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
