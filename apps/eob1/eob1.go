@@ -89,6 +89,19 @@ func ToFirstCharacterClass(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterAlignment 選定第一角色預設Fighter，進入陣營選擇頁。
+func ToFirstCharacterAlignment(o *oracle.Oracle) error {
+	if err := ToFirstCharacterClass(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色SELECT ALIGNMENT頁", 138, 60, 170, 130,
+		"aade7402dce32dc8a71b9ca7d1ed057836487dc67b27e0fc482cef512da62b40"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色陣營選擇：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
