@@ -131,6 +131,10 @@ type Key uint8
 const (
 	// KeyEscape 是Esc鍵。
 	KeyEscape Key = 0x01
+	// KeyEnter 是主鍵盤Enter鍵。
+	KeyEnter Key = 0x1C
+	// KeyDown 是向下方向鍵。
+	KeyDown Key = 0x50
 )
 
 // PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。

@@ -3,6 +3,7 @@
 package eob1
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/wicanr2/dosgolem/oracle"
@@ -36,4 +37,45 @@ func ToTitleMenu(o *oracle.Oracle) error {
 		return fmt.Errorf("EOB1等待主選單穩定：%w", err)
 	}
 	return nil
+}
+
+// ToNewPartyCreation 從冷啟動正常選取START A NEW PARTY，走到建角入口完成繪製。
+func ToNewPartyCreation(o *oracle.Oracle) error {
+	if err := ToTitleMenu(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyDown)
+	if err := o.RunUntil(screenDigest("主選單選中START A NEW PARTY", 0, 0, oracle.Width, oracle.Height,
+		"c99dc9bf3aabbe1823fdf0a91620344e33a3a8f3827ad8dedda931f24f25e79f"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1選取新隊伍：%w", err)
+	}
+	o.PressKey(oracle.KeyEnter)
+	header := screenDigest("Character Generation標題", 32, 8, 256, 40,
+		"2496edf386e334b90af5de1a670f171e21dd1591b0b574be84847d69177d85f0")
+	instructions := screenDigest("建角操作說明", 130, 55, 180, 140,
+		"39cb98087f15b0604262c4767b6a7df50593a4d29e604b4a778db58a2df3e3f6")
+	both := oracle.NewCond("建角標題與操作說明完成", func(o *oracle.Oracle) bool {
+		return header.Ready(o) && instructions.Ready(o)
+	})
+	if err := o.RunUntil(both, oracle.Budget(20_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待建角入口：%w", err)
+	}
+	return nil
+}
+
+func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
+	var next uint64
+	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
+		if o.Steps() < next {
+			return false
+		}
+		next = o.Steps() + 100_000
+		indexed := o.Indexed()
+		region := make([]byte, 0, width*height)
+		for row := y; row < y+height; row++ {
+			start := row*oracle.Width + x
+			region = append(region, indexed[start:start+width]...)
+		}
+		return fmt.Sprintf("%x", sha256.Sum256(region)) == want
+	})
 }

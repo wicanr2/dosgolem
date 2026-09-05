@@ -6,7 +6,7 @@
 
 為自行掛接`int 09h`的DOS遊戲提供最小、決定性的IBM PC/AT鍵盤輸入：外部排入
 Set 1 make／break掃描碼，machine在IF允許時逐碼觸發IRQ1，遊戲處理程式由port
-`60h`讀取當前掃描碼。本規格先公開Escape鍵；不在本輪模擬8042命令、PIC遮罩、
+`60h`讀取當前掃描碼。本規格公開目前正常路徑所需的Escape、Enter與向下鍵；不在本輪模擬8042命令、PIC遮罩、
 typematic、鍵盤LED或真實硬體wall-clock。
 
 ## 證據與分級
@@ -27,6 +27,7 @@ typematic、鍵盤LED或真實硬體wall-clock。
 
 - `machine.QueueScanCodes(...uint8)`保存有序byte佇列。
 - `oracle.PressKey(KeyEscape)`排入`01h,81h`，不改動`Type`的DOS stdin佇列。
+- `KeyEnter=1Ch`、`KeyDown=50h`；`PressKey`同樣各排入其make與最高位為1的break碼。
 - IF清除時保留掃描碼；IF設定後，每個`Machine.Step`最多送一個IRQ1。
 - IRQ1優先於同一步待送的IRQ0；其後IRQ0仍保留pending，不得遺失。
 - port `60h`在處理期間回傳本次掃描碼；未送鍵時不建立玩家可見契約。

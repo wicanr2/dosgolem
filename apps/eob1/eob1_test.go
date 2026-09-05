@@ -35,6 +35,23 @@ func TestToTitleMenuRealData(t *testing.T) {
 	}
 }
 
+func TestToNewPartyCreationRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToNewPartyCreation(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 32, 8, 256, 40); got != "2496edf386e334b90af5de1a670f171e21dd1591b0b574be84847d69177d85f0" {
+		t.Fatalf("建角標題區SHA-256=%s", got)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "39cb98087f15b0604262c4767b6a7df50593a4d29e604b4a778db58a2df3e3f6" {
+		t.Fatalf("建角操作說明區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 6 {
+		t.Fatalf("建角入口前port 60h讀取%d次，預期三鍵make／break共6次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
@@ -66,4 +83,13 @@ func assertFrame(t *testing.T, o *oracle.Oracle, wantIndexed, wantPalette string
 func digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func digestRegion(indexed []byte, x, y, width, height int) string {
+	region := make([]byte, 0, width*height)
+	for row := y; row < y+height; row++ {
+		start := row*oracle.Width + x
+		region = append(region, indexed[start:start+width]...)
+	}
+	return digest(region)
 }
