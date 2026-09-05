@@ -52,6 +52,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -349,6 +350,74 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 			return err
 		}
 		fmt.Printf("   叫原版開攻城戰：軍團 %d 打據點 %d\n", x, y)
+		return nil
+	case "speed":
+		// `speed:N`——改戰略速度（0 ＝ 不等待）。**遊戲自己的設定**，
+		// 長跑最大的那一個旋鈕（`docs/findings/016`）。
+		n, err := strconv.ParseUint(strings.TrimSpace(arg), 10, 8)
+		if err != nil {
+			return fmt.Errorf("speed 要 0–255，收到 %q", arg)
+		}
+		before := wolong.StrategySpeed(o)
+		wolong.SetStrategySpeed(o, uint8(n))
+		fmt.Printf("   戰略速度 %d → %d（0 ＝ 不等待）\n", before, n)
+		return nil
+	case "nodraw":
+		// 把繪圖底層改成立刻返回。**只給讀狀態的長跑用**，
+		// 開了之後畫面不再更新（`docs/findings/016`）。
+		wolong.NoDraw(o)
+		fmt.Println("   關掉繪圖底層（1D66A／1D615）——畫面從此不更新")
+		return nil
+	case "profile":
+		// `profile:N[,K]`——跑 N 道指令，每 K 道取樣一次 CS:IP，
+		// 印出最熱的幾段程式。**回答「時間花在哪」，不是猜。**
+		f := strings.SplitN(arg, ",", 3)
+		n, err := strconv.ParseUint(strings.TrimSpace(f[0]), 10, 64)
+		if err != nil || n == 0 {
+			return fmt.Errorf("profile 要正整數，收到 %q", arg)
+		}
+		every := uint64(97) // 質數，避開與迴圈長度共振
+		if len(f) == 2 {
+			if v, err := strconv.ParseUint(strings.TrimSpace(f[1]), 10, 64); err == nil && v > 0 {
+				every = v
+			}
+		}
+		bucket := uint32(0xFF) // 預設一段 256 byte
+		if len(f) == 3 {
+			if v, err := strconv.ParseUint(strings.TrimSpace(f[2]), 0, 32); err == nil && v > 0 {
+				bucket = uint32(v) - 1
+			}
+		}
+		hits := map[uint32]int{}
+		total := 0
+		i := uint64(0)
+		cond := oracle.NewCond(fmt.Sprintf("取樣 %d 道指令", n), func(o *oracle.Oracle) bool {
+			if i%every == 0 {
+				hits[o.ToIDA(o.IP())&^bucket]++
+				total++
+			}
+			i++
+			return i > n
+		})
+		if err := o.RunUntil(cond, oracle.Budget(n+1000)); err != nil {
+			return err
+		}
+		type row struct {
+			at uint32
+			n  int
+		}
+		rows := make([]row, 0, len(hits))
+		for a, c := range hits {
+			rows = append(rows, row{a, c})
+		}
+		sort.Slice(rows, func(a, b int) bool { return rows[a].n > rows[b].n })
+		fmt.Printf("   取樣 %d 次（每 %d 道一次），最熱的 %d 段：\n",
+			total, every, min(12, len(rows)))
+		for k := 0; k < len(rows) && k < 12; k++ {
+			fmt.Printf("     %05X–%05X  %6.2f%%  (%d 次)\n",
+				rows[k].at, rows[k].at+bucket,
+				100*float64(rows[k].n)/float64(total), rows[k].n)
+		}
 		return nil
 	case "eventwatch":
 		// 裝上政略事件的軌跡監看（`docs/findings/015`）。之後每一次

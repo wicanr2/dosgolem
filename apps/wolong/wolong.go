@@ -962,3 +962,67 @@ func WatchEvents(o *oracle.Oracle, fn func(Event)) {
 		})
 	})
 }
+
+// ---- 長跑加速 ------------------------------------------------------------
+
+// dsStrategySpeed 是**戰略速度設定值**（臥龍傳專案 `docs/re/06` §3、
+// `docs/re/55`：系統選單第四列，五段最高速／高速／普通／低速／最低速）。
+// `0` ＝ 不等待。
+const dsStrategySpeed = 0x0CFA
+
+// SetStrategySpeed 改戰略速度。
+//
+// ⭐⭐ **這是長跑最大的那一個旋鈕，而且它是遊戲自己的設定，不是外掛。**
+// 取樣式剖析顯示：關掉繪圖之後，**77% 的指令花在 `sub_11D8E` 尾端那兩個
+// 忙等迴圈**——時鐘每推一個子刻就等 `ds:0CFA` 個計時器回呼：
+//
+//	mov al, ds:0CFAh / and al, al / jz  .ret       ; 0 ＝ 不等
+//	.wait1: cmp byte ptr ds:0D2Ch, 0 / jz  .wait1
+//	.wait2: cmp ds:0D2Dh, al        / jb  .wait2
+//
+// 說明書講的「速度超過機器速度時設再快也不會更快」就是這一段：
+// 它只燒時間，**不改變任何邏輯的順序**。設 0 等於「機器要多快就多快」。
+//
+// ⚠ 照樣要自己證明軌跡沒變：跑到同一個遊戲時刻，三張表逐欄比要零差異。
+func SetStrategySpeed(o *oracle.Oracle, n uint8) {
+	o.WriteU8(o.DS(dsStrategySpeed), n)
+}
+
+// StrategySpeed 讀目前的戰略速度設定。
+func StrategySpeed(o *oracle.Oracle) uint8 { return o.Byte(o.DS(dsStrategySpeed)) }
+
+// ---- 無畫面快轉 ----------------------------------------------------------
+
+// 兩支繪圖底層。取樣式剖析顯示大地圖跑一天的一千萬道指令裡
+// **88% 花在這兩段**（`sub_1D66A` 把 40×23 顯示清單搬進 VRAM、
+// `sub_1D615` 是同一族的另一支），遊戲邏輯只佔約 5%。
+// ⭐ 關掉 blit 之後最熱的那一段在 `11E00–11EFF`。**不是 `sub_11E46`**
+// （補它指令數一個都沒少）——是 `sub_11E17`：時鐘進位鏈每一步都把
+// 年月日重畫一次（三次 `sub_1062F` 的十進位繪製）。
+const (
+	idaBlitMap  = 0x1D66A
+	idaBlitList = 0x1D615
+	idaDrawDate = 0x11E17
+)
+
+// retnOpcode 是 `retn`。兩支都是 `proc near`，所以塞這一個 byte
+// 就等於「呼叫了但什麼都不做」。
+const retnOpcode = 0xC3
+
+// NoDraw 把繪圖底層改成立刻返回，讓長跑快一個數量級。
+//
+// ⭐ **它不跳過任何邏輯。** 遊戲時鐘是主迴圈每一圈推的，繪圖只是
+// 那一圈裡最貴的一段；拿掉它，同樣的邏輯序列用少得多的指令跑完。
+//
+// ⛔ **但畫面從此不能當證據**——VRAM 停在補丁生效前的樣子。
+// 這個模式只給「讀狀態」的長跑用（AI 決策軌跡、狀態表對拍），
+// 要截圖就不要開。
+//
+// ⚠ **開了之後要自己證明狀態軌跡沒變**：跑到同一個遊戲時刻，
+// 三張表逐欄比要零差異（臥龍傳專案 `tools/state_diff.py`）。
+// 「快了」而「答案變了」的加速比慢還糟。
+func NoDraw(o *oracle.Oracle) {
+	o.WriteU8(o.IDA(idaBlitMap), retnOpcode)
+	o.WriteU8(o.IDA(idaBlitList), retnOpcode)
+	o.WriteU8(o.IDA(idaDrawDate), retnOpcode)
+}
