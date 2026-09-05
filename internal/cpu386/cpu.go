@@ -1241,6 +1241,8 @@ func (c *CPU) Step() error {
 			c.setLogicFlags(c.R[rm])
 		case 5:
 			c.R[rm] = c.sub32(c.R[rm], uint32(int32(int8(imm))))
+		case 7:
+			c.sub32(c.R[rm], uint32(int32(int8(imm))))
 		default:
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
