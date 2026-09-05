@@ -166,6 +166,25 @@ func (o *Oracle) video() []uint8 {
 // 才不會被調色盤循環干擾（`docs/spec/005` §3.3）。
 func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 
+// IndexedEGA 回 EGA mode 0Dh 的 320×200 色號陣列（`docs/spec/007`）。
+//
+// **和 `Indexed()` 是兩種定址，不是兩種格式**：`Indexed()` 讀 A0000 起的
+// 線性 64000 bytes（mode 13h），這一支把四個位元平面組起來（mode 0Dh）。
+// 拿錯的那一支去對拍會得到**一張看起來正常但錯的圖**，不會報錯。
+func (o *Oracle) IndexedEGA() []uint8 { return o.m.IndexedEGA() }
+
+// EGAPlanarActive 回報序列器的 Map Mask 曾被寫成不是 `0Fh` 的值，也就是
+// 「這支程式在逐平面輸出」。
+//
+// **它是訊號不是事實**：《Pool of Radiance》從來沒呼叫 `int 10h AH=00`，
+// BDA 的模式位元組一路是 `03h`，所以沒有比它更硬的依據
+//（`docs/spec/007` §2.1）。要不要照它切換由呼叫端決定。
+func (o *Oracle) EGAPlanarActive() bool { return o.m.EGAPlanarActive() }
+
+// EGAPlane 回傳一個位元平面的複本（0..3），畫面不對時用來分辨是遮罩錯
+// 還是組裝錯。
+func (o *Oracle) EGAPlane(plane int) []uint8 { return o.m.EGAPlane(plane) }
+
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 

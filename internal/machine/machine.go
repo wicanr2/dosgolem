@@ -107,6 +107,9 @@ type Machine struct {
 	// ImageBase／ImageLen 是載進去的映像位置與長度。
 	ImageBase uint32
 	ImageLen  int
+
+	// ega 是 mode 0Dh 的平面式 VRAM（`docs/spec/007`）。
+	ega *ega
 }
 
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。
@@ -118,6 +121,7 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
+		ega:       newEGA(),
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
@@ -134,7 +138,16 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
 
-func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
+// Write8 照舊寫 Mem，**另外**把 A0000 段的寫入分到 Map Mask 打開的平面上
+// （`docs/spec/007`）。兩份都留著：mode 13h 走 Mem、mode 0Dh 走平面，
+// 這一條因此完全不動到第一個案例的行為。
+func (m *Machine) Write8(a uint32, v uint8) {
+	a &= 0xFFFFF
+	m.Mem[a] = v
+	if a >= egaVRAMBase && a < egaVRAMEnd {
+		m.ega.write(a, v)
+	}
+}
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
@@ -182,6 +195,8 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
 	switch p {
+	case 0x3C4, 0x3C5: // 序列器索引／資料。Map Mask 決定寫入落在哪些平面
+		m.ega.outSequencer(p, v)
 	case 0x3C8: // 設寫入索引
 		m.dacIndex, m.dacPhase = v, 0
 	case 0x3C9: // 連寫三次 ＝ R、G、B（各 6 位元）
