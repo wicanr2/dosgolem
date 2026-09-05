@@ -1303,6 +1303,25 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if extended == 0xb7 && !operand16 && segmentOverride < 0 && !repe {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 != 0 || modrm&7 != 5 {
+				return fail(fmt.Sprintf("0F B7 ModRM %02X 尚未支援", modrm))
+			}
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("MOVZX word read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = uint32(value)
+			break
+		}
 		if (extended != 0x84 && extended != 0x85) || operand16 {
 			return fail(fmt.Sprintf("0F %02X 尚未支援", extended))
 		}

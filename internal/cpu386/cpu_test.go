@@ -559,6 +559,19 @@ func TestXORByteRegisters(t *testing.T) {
 	}
 }
 
+func TestMOVZXAbsoluteDSWord(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x0f, 0xb7, 0x05, 0x40, 0x00, 0x00, 0x00})
+	mem[0x60], mem[0x61] = 0x7f, 0x12
+	c := New(mem)
+	c.R[EAX] = 0xffffffff
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x127f {
+		t.Fatalf("MOVZX EAX,[disp32] EAX=%08X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})

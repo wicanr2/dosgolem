@@ -81,14 +81,14 @@ func executePrefix(data []byte) {
 	services := &machine.FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
 	steps := 0
-	for m.CPU.EIP != 0x460f6 && steps < 410 {
+	for m.CPU.EIP != 0x460c6 && steps < 414 {
 		if err := m.CPU.Step(); err != nil {
 			die(err)
 		}
 		steps++
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x460f6 {
-		die(fmt.Errorf("entry prefix 未在 410 steps 內完成 DOS/4GW environment、第一 callback 與第二 callback x87 control-word class gate"))
+	if services.Calls() != 2 || m.CPU.EIP != 0x460c6 {
+		die(fmt.Errorf("entry prefix 未在 414 steps 內完成 DOS/4GW environment、第二 callback gate 與 control-word baseline load"))
 	}
 	stackA, err := m.Read32(0x52818)
 	if err != nil {
@@ -106,7 +106,7 @@ func executePrefix(data []byte) {
 	if err != nil {
 		die(err)
 	}
-	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true first_near_call_entered=true callee_prologue_entered=true callee_range_gate_entered=true callee_record_scan_complete=true callback_pointer_loaded=true indirect_callback_entered=true callback_thunk_resolved=true x87_control_probe_complete=true x87_callback_returned=true callback_record_marked=true second_callback_entered=true second_callback_absolute_gate=true second_callback_bl_cleared=true second_callback_x87_control_stored=true second_callback_x87_class_gate=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
+	fmt.Printf("entry_prefix_executed=true dos4g_branch_entered=true selector_bootstrap=true environment_path_copied=true startup_buffer_cleared=true startup_buffer_aligned=true first_near_call_entered=true callee_prologue_entered=true callee_range_gate_entered=true callee_record_scan_complete=true callback_pointer_loaded=true indirect_callback_entered=true callback_thunk_resolved=true x87_control_probe_complete=true x87_callback_returned=true callback_record_marked=true second_callback_entered=true second_callback_absolute_gate=true second_callback_bl_cleared=true second_callback_x87_control_stored=true second_callback_x87_class_gate=true second_callback_control_baseline_loaded=true steps=%d eip=0x%X esp=0x%X interrupts=%d eax=0x%X ebx=0x%X ecx=0x%X gs=0x%X stored_gs=0x%X stored_es=0x%X last_dx=0x%X stack_globals=0x%X,0x%X\n",
 		steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.Seg[cpu386.SegGS], selectorGS, storedES, uint16(m.CPU.R[cpu386.EDX]), stackA, stackB)
 }
 
