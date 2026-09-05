@@ -53,3 +53,21 @@ func TestFindRefusesAnEmptyPattern(t *testing.T) {
 		t.Fatalf("空指紋回了 %d 個位址", len(hits))
 	}
 }
+
+func TestSegmentBytesReadsFromTheRightPlace(t *testing.T) {
+	m := New()
+	m.WriteBytes(0x12340, []byte{1, 2, 3, 4})
+	got := m.SegmentBytes(0x1234, 4)
+	for i, w := range []byte{1, 2, 3, 4} {
+		if got[i] != w {
+			t.Fatalf("讀出 % X", got)
+		}
+	}
+}
+
+func TestSegmentBytesRefusesToRunOffTheEnd(t *testing.T) {
+	// 回一段補零的東西會被當成「那裡真的是零」。
+	if b := New().SegmentBytes(0xFFFF, 0x1000); b != nil {
+		t.Fatalf("越界卻回了 %d 個 byte", len(b))
+	}
+}

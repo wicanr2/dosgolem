@@ -451,6 +451,23 @@ func (m *Machine) TextScreen(cols int) []string {
 	return rows
 }
 
+// SegmentBytes 讀一個段開頭的 n 個位元組。
+//
+// 差分比對常要把「原版此刻某個段的內容」整塊拿出來，與另一個來源對拍。
+// 逐 byte 呼叫 Read8 也做得到，但那會讓呼叫端自己算線性位址——
+// 而算錯的症狀是「比對出一堆差異」，不是「報錯」。
+//
+// 越界回 nil：回一段補零的東西會被當成「那裡真的是零」。
+func (m *Machine) SegmentBytes(seg uint16, n int) []byte {
+	base := uint32(seg) * 16
+	if n <= 0 || base+uint32(n) > uint32(len(m.Mem)) {
+		return nil
+	}
+	out := make([]byte, n)
+	copy(out, m.Mem[base:base+uint32(n)])
+	return out
+}
+
 // Find 掃整個位址空間，回傳 pattern 出現的每一個實體位址。
 //
 // 拿來定位「被程式自己搬進記憶體的東西」——那種東西的載入位址靜態看不出來，

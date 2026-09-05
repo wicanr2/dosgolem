@@ -36,6 +36,10 @@ type (
 
 	// Key 是 int 16h 佇列裡的一個按鍵。
 	Key = dos.Key
+
+	// Snapshot 是一份完整的機器狀態，用 Machine.Snapshot 拍、Restore 還原。
+	// 差分比對要「從同一個狀態展開多個變體」時就靠它。
+	Snapshot = machine.Snapshot
 )
 
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。還沒有程式。
