@@ -317,6 +317,28 @@ func TestPushAbsoluteDword(t *testing.T) {
 	}
 }
 
+func TestPushBaseDisp8Dword(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xff, 0x75, 0x08})
+	copy(mem[0x18:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBP], c.R[ESP] = 0x10, 0x40
+	if err := c.Step(); err != nil || c.R[ESP] != 0x3c || !bytes.Equal(mem[0x3c:0x40], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("PUSH ESP=%X stack=% X err=%v", c.R[ESP], mem[0x3c:0x40], err)
+	}
+
+	mem = testBus([]byte{0xff, 0x75, 0x08})
+	c = New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 2, Writable: true})
+	c.R[EBP], c.R[ESP] = 0x10, 4
+	if err := c.Step(); err == nil || c.R[ESP] != 4 {
+		t.Fatalf("out-of-range PUSH ESP=%X err=%v", c.R[ESP], err)
+	}
+}
+
 func TestRegisterCMP8(t *testing.T) {
 	c := New(testBus{0x38, 0xf3})
 	c.R[EBX], c.R[EDX] = 0x11, 0x1100

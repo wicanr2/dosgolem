@@ -8,8 +8,9 @@
 - 來源值由 DS 所指平坦 descriptor 的絕對位移讀取；先成功讀取，
   再檢查與寫入 SS:ESP 堆疊。
 - 來源讀取、ESP 下溢或堆疊寫入失敗時，ESP 與堆疊內容不得修改。
-- 其他 `FF /6` 尋址形狀、前綴與現有 `FF /2` 以外形狀維持
-  失敗即關閉（fail-closed）。
+- `mod=1` 的基址加 8 位移形狀由
+  [`spec 098`](098-cpu386-push-base-disp8-dword.md) 接續；其他 `FF /6`
+  尋址形狀、前綴與現有 `FF /2` 以外形狀維持失敗即關閉（fail-closed）。
 - 固定 FD2 在 `0x45D80` 與 `0x45D86` 依序壓入 `argv`、`argc`，並由
   `0x45D8C` 呼叫 `main`。
 
