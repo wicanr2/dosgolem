@@ -120,11 +120,10 @@ type DOS struct {
 	Exited   bool
 	ExitCode uint8
 
-	handles    map[uint16]*handle
-	nextHandle uint16
-	freeSeg    uint16
-	dtaSeg     uint16
-	dtaOff     uint16
+	handles map[uint16]*handle
+	freeSeg uint16
+	dtaSeg  uint16
+	dtaOff  uint16
 }
 
 // AllowFileWrites 只允許已存在於Root的指定basename實際寫入。
@@ -201,7 +200,6 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		nextHandle:    5, // 0–4 是標準 handle
 		dtaSeg:        machine.PSPSeg,
 		dtaOff:        0x80,
 	}

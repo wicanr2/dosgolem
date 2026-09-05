@@ -481,6 +481,45 @@ func TestOpenIgnoresPathAndCase(t *testing.T) {
 	}
 }
 
+func TestClosedFileHandleIsReused(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "data.pak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("DATA.PAK"), 0))
+	for i := 0; i < 256; i++ {
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 5 {
+			t.Fatalf("第%d次open handle=%d CF=%t，預期重用5", i, m.CPU.R[cpu.AX], m.CPU.Flags&cpu.CF != 0)
+		}
+		m.CPU.R[cpu.BX] = 5
+		call(m, d, 0x21, 0x3E00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("第%d次close失敗", i)
+		}
+	}
+}
+
+func TestOpenFailsWhenDefaultHandleTableIsFull(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "data.pak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("DATA.PAK"), 0))
+	for h := uint16(5); h < 20; h++ {
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != h {
+			t.Fatalf("handle=%d，預期%d", m.CPU.R[cpu.AX], h)
+		}
+	}
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 4 {
+		t.Fatalf("JFT滿時CF=%t AX=%d，預期CF=1 AX=4", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+}
+
 func TestFileWritesRequireExplicitAllowlist(t *testing.T) {
 	for _, allowed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("allowed=%t", allowed), func(t *testing.T) {

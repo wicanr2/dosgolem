@@ -94,12 +94,28 @@ func (d *DOS) open(c *cpu.CPU) {
 		return
 	}
 	st, _ := f.Stat()
-	h := d.nextHandle
-	d.nextHandle++
+	h, ok := d.nextFreeHandle()
+	if !ok {
+		_ = f.Close()
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(), writable: allowed}
 	d.Opened = append(d.Opened, filepath.Base(path))
 	c.R[cpu.AX] = h
 	clearCarry(c)
+}
+
+// nextFreeHandle 回傳PSP預設20-entry JFT中最低可用的檔案handle。
+// DOS會重用已關閉的entry；單調遞增會讓C runtime以handle索引固定表時越界。
+func (d *DOS) nextFreeHandle() (uint16, bool) {
+	for h := uint16(5); h < 20; h++ {
+		if _, used := d.handles[h]; !used {
+			return h, true
+		}
+	}
+	return 0, false
 }
 
 func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {

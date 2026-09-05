@@ -59,6 +59,10 @@
 缺檔診斷除了保留原始檔名，也保存呼叫當下的`CS:IP`、`DS:DX`、`SS:BP`與最多八層
 BP鏈；每層同列返回`CS:IP`、附近16 bytes及前四個stack參數。這些欄位只提供可回查的
 執行期定位，不會把推測性函式語意寫進oracle。
+
+檔案handle依PSP預設20-entry JFT配置：0～4保留，open取5～19中最低可用entry，close後立即
+可重用；表滿以CF=1、AX=4失敗。不得單調遞增handle，否則長時間執行會讓原版C runtime的
+handle metadata固定表越界。
 | `4Bh AL=03h` | MZ 覆疊載入 | 僅 READY 子功能，完整契約見 `007`；`AL=00h／01h` 尚未實作 |
 | `4Ch` | 結束 | |
 
