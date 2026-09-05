@@ -701,3 +701,19 @@ func TestFD2ComparesAILTableIndexWhenProvided(t *testing.T) {
 		t.Fatalf("AIL table CMP steps=%d EIP=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2BranchesThroughAILTableLoopWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3fa50; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL table JL: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL table JL step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3fa43 || services.Calls() != 5 || m.CPU.R[cpu386.EAX] >= 0x10 {
+		t.Fatalf("AIL table JL steps=%d EIP=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+}

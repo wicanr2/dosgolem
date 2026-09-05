@@ -1128,6 +1128,17 @@ func (c *CPU) Step() error {
 		if c.EFlags&(CF|ZF) == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0x7c:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("7C 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if (c.EFlags&SF != 0) != (c.EFlags&OF != 0) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0x76:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("76 不接受目前的 prefix")
