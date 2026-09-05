@@ -313,3 +313,18 @@ func TestFD2SecondCallbackRecordMarkedWhenProvided(t *testing.T) {
 		t.Fatalf("second callback return EBX=%X ESP=%X", m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP])
 	}
 }
+
+func TestFD2ThirdCallbackSelectedWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x4cbfd && steps < 520; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cbfd {
+		t.Fatalf("third callback not selected: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x4cbfd || m.CPU.R[cpu386.EBX] != 0x539da || m.CPU.R[cpu386.ESP] != 0x55698 || m.Mem[0x539da] != 0 {
+		t.Fatalf("third callback state EAX=%X EBX=%X ESP=%X status=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP], m.Mem[0x539da])
+	}
+}
