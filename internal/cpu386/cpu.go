@@ -415,6 +415,22 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x30:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("30 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("XOR ModRM %02X 尚未支援", modrm))
+		}
+		dst := int(modrm & 7)
+		src := int((modrm >> 3) & 7)
+		result := c.reg8(dst) ^ c.reg8(src)
+		c.setReg8(dst, result)
+		c.setLogicFlags8(result)
 	case op == 0x06:
 		if operand16 {
 			return fail("16-bit PUSH ES 尚未支援")

@@ -546,6 +546,19 @@ func TestCompareDSAbsoluteByteImmediate(t *testing.T) {
 	}
 }
 
+func TestXORByteRegisters(t *testing.T) {
+	mem := testBus([]byte{0x30, 0xdb})
+	c := New(mem)
+	c.R[EBX] = 0xa5ff12ef
+	c.EFlags = CF | OF | AF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EBX] != 0xa5ff1200 || c.EFlags&ZF == 0 || c.EFlags&(CF|OF|AF) != 0 {
+		t.Fatalf("XOR BL,BL EBX=%08X flags=%X", c.R[EBX], c.EFlags)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})

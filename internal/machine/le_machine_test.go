@@ -170,3 +170,18 @@ func TestFD2SecondCallbackAbsoluteGateWhenProvided(t *testing.T) {
 		t.Fatalf("callback records=% X", got)
 	}
 }
+
+func TestFD2SecondCallbackClearsBLWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460e1 && steps < 401; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460e1 {
+		t.Fatalf("second callback BL clear not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EBX] != 0x53900 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("second callback BL clear EBX=%X flags=%X", m.CPU.R[cpu386.EBX], m.CPU.EFlags)
+	}
+}
