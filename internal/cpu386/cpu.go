@@ -51,6 +51,9 @@ type CPU struct {
 	SegmentRead8  func(selector uint16, offset uint32) (uint8, bool)
 	SegmentLoadOK func(selector uint16, destination int) bool
 	Descriptors   map[uint16]Descriptor
+	FPUControl    uint16
+	FPUStack      [8]float64
+	FPUDepth      uint8
 }
 
 type Descriptor struct {
@@ -464,6 +467,38 @@ func (c *CPU) Step() error {
 		}
 		c.Seg[SegDS] = selector
 		c.R[ESP] += 4
+	case op == 0xdb:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DB x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0xe3 {
+			return fail(fmt.Sprintf("x87 DB ModRM %02X 尚未支援", modrm))
+		}
+		c.FPUControl = 0x037f
+		c.FPUStack = [8]float64{}
+		c.FPUDepth = 0
+	case op == 0xd9:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("D9 x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0x3c {
+			return fail(fmt.Sprintf("x87 D9 ModRM %02X 尚未支援", modrm))
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if sib != 0x24 || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], c.FPUControl) {
+			return fail(fmt.Sprintf("FNSTCW stack write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
 	case op >= 0x40 && op <= 0x47:
 		if operand16 {
 			return fail("16-bit INC 尚未支援")
