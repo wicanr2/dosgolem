@@ -350,6 +350,77 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		}
 		fmt.Printf("   叫原版開攻城戰：軍團 %d 打據點 %d\n", x, y)
 		return nil
+	case "factions":
+		fs := wolong.FactionTable(o)
+		fmt.Printf("   共 %d 個勢力（編號 君主 軍師 首都 預備兵騎/弓/步 將 城 軍團 資金 好戰 士氣 敵）：\n", len(fs))
+		for _, f := range fs {
+			fmt.Printf("     勢力 %2d 君%3d 師%3d 都%3d 備%5d/%5d/%5d 將%3d 城%3d 團%2d 金%9d 戰%2d 氣%3d 敵%3d\n",
+				f.Index, f.Lord, f.Advisor, f.Capital,
+				f.Reserves[0], f.Reserves[1], f.Reserves[2],
+				f.Generals, f.Cities, f.Corps, f.Money, f.War, f.Morale, f.Enemy)
+		}
+		return nil
+	case "cities":
+		// `cities` 全印；`cities:勢力` 只印那個勢力的。
+		only := -1
+		if arg != "" {
+			n, err := strconv.Atoi(arg)
+			if err != nil {
+				return fmt.Errorf("cities 的參數要是勢力編號，收到 %q", arg)
+			}
+			only = n
+		}
+		cs := wolong.CityTable(o)
+		shown := 0
+		for _, c := range cs {
+			if only >= 0 && int(c.Owner) != only {
+				continue
+			}
+			shown++
+		}
+		fmt.Printf("   共 %d 個據點，印 %d 個（編號 主 名 座標 生產/上限 上昇 防災 兵/上限 類 官 原主 鄰）：\n",
+			len(cs), shown)
+		for _, c := range cs {
+			if only >= 0 && int(c.Owner) != only {
+				continue
+			}
+			fmt.Printf("     據點 %3d 主%3d 名%-12s (%3d,%3d) 產%5d/%5d 昇%3d 災%3d 兵%3d/%3d 類%d 官%3d 原%3d 鄰%3d,%3d,%3d,%3d\n",
+				c.Index, c.Owner, c.Name, c.X, c.Y, c.Prod, c.ProdMax,
+				c.Rise, c.Disaster, c.Troops, c.TroopMax, c.Kind, c.Governor,
+				c.Origin, c.Adjacent[0], c.Adjacent[1], c.Adjacent[2], c.Adjacent[3])
+		}
+		return nil
+	case "generals":
+		// `generals` 全印；`generals:勢力` 只印那個勢力的（255 ＝ 在野）。
+		only := -1
+		if arg != "" {
+			n, err := strconv.Atoi(arg)
+			if err != nil {
+				return fmt.Errorf("generals 的參數要是勢力編號，收到 %q", arg)
+			}
+			only = n
+		}
+		gs := wolong.GeneralTable(o)
+		shown := 0
+		for _, g := range gs {
+			if only >= 0 && int(g.Faction) != only {
+				continue
+			}
+			shown++
+		}
+		fmt.Printf("   共 %d 人在場，印 %d 人（編號 名 呼 勢力 職 武 統 政 攻/野/水 腳本 說 心向 舊主 評）：\n",
+			len(gs), shown)
+		for _, g := range gs {
+			if only >= 0 && int(g.Faction) != only {
+				continue
+			}
+			fmt.Printf("     武將 %3d 名%-12s 呼%-12s 勢%3d 職%d 武%2d 統%2d 政%2d 適%2d/%2d/%2d 本%d 說%d 向%3d 舊%3d 評%3d 旗%02X\n",
+				g.Index, g.Name, g.Alias, g.Faction, g.Post,
+				g.Martial, g.Command, g.Political,
+				g.Siege, g.Field, g.Naval, g.Tactic, g.TalkVariant,
+				g.Loyalty, g.Captor, g.Rating, g.Flags)
+		}
+		return nil
 	case "corps":
 		cs := wolong.CorpsTable(o)
 		fmt.Printf("   軍團 %d 支：\n", len(cs))
@@ -409,15 +480,19 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 	case "click", "rclick", "move", "tap":
 		spec := arg
 		hold := uint64(0)
-		if verb == "tap" {
-			// tap:X,Y[,N]
-			if i := strings.LastIndex(arg, ","); strings.Count(arg, ",") == 2 {
-				n, err := strconv.ParseUint(strings.TrimSpace(arg[i+1:]), 10, 64)
-				if err != nil {
-					return err
-				}
-				hold, spec = n, arg[:i]
+		// `tap:X,Y[,N]` 的 N 是**按住**多久；`click:X,Y[,N]` 的 N 是
+		// **放開之後再跑多久**（settle）。
+		//
+		// ⭐ click 的 settle 預設六百萬道指令，對即時制來說是
+		// **二十幾個遊戲節拍**——載入存檔之後想比「剛載完」的狀態，
+		// 那段時間內政已經掃過二十幾個據點了（`docs/findings/014`）。
+		if strings.Count(arg, ",") == 2 {
+			i := strings.LastIndex(arg, ",")
+			n, err := strconv.ParseUint(strings.TrimSpace(arg[i+1:]), 10, 64)
+			if err != nil {
+				return err
 			}
+			hold, spec = n, arg[:i]
 		}
 		x, y, err := point(spec, dosboxY)
 		if err != nil {
@@ -434,6 +509,9 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 				return o.Tap(x, y, oracle.Hold(hold))
 			}
 			return o.Tap(x, y)
+		}
+		if hold > 0 {
+			return o.Click(x, y, oracle.Settle(hold))
 		}
 		return o.Click(x, y)
 	}

@@ -12,8 +12,10 @@
 package wolong
 
 import (
+	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/oracle"
 )
@@ -740,4 +742,163 @@ func AfterTicks(o *oracle.Oracle, n uint16) oracle.Cond {
 	want := base + n
 	return oracle.NewCond(fmt.Sprintf("節拍走到第 %d 拍", want),
 		func(o *oracle.Oracle) bool { return Tick(o)-base >= n })
+}
+
+// ---- 勢力表／據點表／武將表 ----------------------------------------------
+
+// 三張表與軍團表同一個段（`cs:word_10D52`），段內偏移照
+// 臥龍傳專案 `docs/formats/08` §1.5／§1.6／§3：
+//
+//	0x0000  勢力表  22 筆 × 64 B
+//	0x0840  據點表 192 筆 × 32 B
+//	0x2240  軍團表 127 筆 × 64 B
+//	0x4240  武將表 127 筆 × 32 B
+const (
+	offFactions   = 0x0000
+	factionCount  = 22
+	factionSize   = 64
+	offGenerals   = 0x4240
+	generalCount  = 127
+	generalSize   = 32
+	cityCount     = 192
+	neutralOwner  = 0x18 // 據點 +0x01 ＝ 24 是「中立」的哨兵，不是勢力編號
+	noneSentinel  = 0xFF
+)
+
+// Faction 是一個勢力的現況（`docs/formats/08` §1.5）。
+type Faction struct {
+	Index                  int
+	Flags                  uint8  // +0x00 bit7 存在／bit6 資金吃緊
+	Lord, Advisor, Capital uint8  // +0x01 / +0x02 / +0x03
+	Reserves               [3]uint16 // +0x04 騎 / +0x06 弓 / +0x08 步
+	Generals               uint8  // +0x18 武將數
+	Enemy                  uint8  // +0x19 侵攻目標
+	Corps                  uint8  // +0x14 軍團數
+	Morale                 uint8  // +0x1D 士氣基準
+	Money                  int32  // +0x20 有號 24 位元
+	Cities                 uint8  // +0x23 據點數
+	War                    uint8  // +0x28 君主的好戰等級
+}
+
+// FactionTable 讀整張勢力表，只回存在的（`+0x00` bit 7）。
+func FactionTable(o *oracle.Oracle) []Faction {
+	seg := o.Word(o.IDA(idaTableSeg))
+	var out []Faction
+	for i := 0; i < factionCount; i++ {
+		b := o.Bytes(oracle.Far(seg, uint16(offFactions+i*factionSize)), factionSize)
+		if b[0] < 0x80 {
+			continue
+		}
+		u16 := func(k int) uint16 { return uint16(b[k]) | uint16(b[k+1])<<8 }
+		// 資金是**有號 24 位元**：先湊成 32 位元再補號位，
+		// 直接讀三個 byte 當無號會把負債讀成一千六百萬。
+		money := int32(uint32(b[0x20]) | uint32(b[0x21])<<8 | uint32(b[0x22])<<16)
+		if money&0x800000 != 0 {
+			money |= ^int32(0xFFFFFF)
+		}
+		out = append(out, Faction{
+			Index: i, Flags: b[0], Lord: b[1], Advisor: b[2], Capital: b[3],
+			Reserves: [3]uint16{u16(4), u16(6), u16(8)},
+			Generals: b[0x18], Enemy: b[0x19], Corps: b[0x14], Morale: b[0x1D],
+			Money: money, Cities: b[0x23], War: b[0x28],
+		})
+	}
+	return out
+}
+
+// City 是一個據點的現況（`docs/formats/08` §1.6）。
+type City struct {
+	Index                int
+	Bits                 uint8  // +0x00 鄰接／威脅位元
+	Owner                uint8  // +0x01 執行期所屬勢力（0x18 ＝ 中立）
+	Name                 string // +0x02 六個 byte 的 Big5
+	X, Y                 uint16 // +0x08 / +0x0A
+	ProdMax, Prod        uint16 // +0x0C / +0x0E
+	Rise, Disaster       uint8  // +0x10 上昇值＋100 / +0x11 防災值
+	TroopMax, Troops     uint8  // +0x12 / +0x13（存值，顯示要 ×10）
+	Threat               uint8  // +0x14 周邊威脅量
+	Kind                 uint8  // +0x16 低 4 位＝類型
+	Cooldown             uint8  // +0x17 求援冷卻
+	CorpsHere            uint8  // +0x18 停在這一格的軍團數
+	Governor             uint8  // +0x19 內政官
+	Origin               uint8  // +0x1A 原主
+	Hostile              uint8  // +0x1B 相鄰敵方據點數
+	Adjacent             [4]uint8 // +0x1C..+0x1F
+}
+
+// CityTable 讀整張據點表（192 筆全回，沒有「不存在」這回事）。
+func CityTable(o *oracle.Oracle) []City {
+	seg := o.Word(o.IDA(idaTableSeg))
+	out := make([]City, 0, cityCount)
+	for i := 0; i < cityCount; i++ {
+		b := o.Bytes(oracle.Far(seg, uint16(offCities+i*citySize)), citySize)
+		u16 := func(k int) uint16 { return uint16(b[k]) | uint16(b[k+1])<<8 }
+		c := City{
+			Index: i, Bits: b[0], Owner: b[1], Name: big5Name(b[2:8]),
+			X: u16(8), Y: u16(0x0A), ProdMax: u16(0x0C), Prod: u16(0x0E),
+			Rise: b[0x10], Disaster: b[0x11], TroopMax: b[0x12], Troops: b[0x13],
+			Threat: b[0x14], Kind: b[0x16] & 0x0F, Cooldown: b[0x17],
+			CorpsHere: b[0x18], Governor: b[0x19], Origin: b[0x1A], Hostile: b[0x1B],
+		}
+		copy(c.Adjacent[:], b[0x1C:0x20])
+		out = append(out, c)
+	}
+	return out
+}
+
+// General 是一個武將的現況（`docs/formats/08` §3）。
+type General struct {
+	Index                       int
+	Flags                       uint8  // +0x00 bit7 在場／bit6 主公型
+	Portrait                    uint8  // +0x01
+	Name, Alias                 string // +0x02 / +0x08
+	Siege, Field, Naval         uint8  // +0x0E / +0x0F / +0x10 高半位元組
+	Martial, Command, Political uint8  // +0x11 / +0x12 / +0x13
+	Tactic                      uint8  // +0x16 戰場腳本編號
+	Post                        uint8  // +0x17 職務
+	Timer                       uint8  // +0x18 倒數
+	Loyalty                     uint8  // +0x19 心向的勢力
+	Budget                      uint8  // +0x1A 經費餘額
+	Faction                     uint8  // +0x1C 所屬勢力（0xFF 在野）
+	Captor                      uint8  // +0x1D 舊主（0xFF 非捕虜）
+	TalkVariant                 uint8  // +0x1E 說話類型
+	Rating                      uint8  // +0x1F 評價（衍生值）
+}
+
+// GeneralTable 讀整張武將表，只回在場的（`+0x00` bit 7）。
+func GeneralTable(o *oracle.Oracle) []General {
+	seg := o.Word(o.IDA(idaTableSeg))
+	var out []General
+	for i := 0; i < generalCount; i++ {
+		b := o.Bytes(oracle.Far(seg, uint16(offGenerals+i*generalSize)), generalSize)
+		if b[0]&0x80 == 0 {
+			continue
+		}
+		out = append(out, General{
+			Index: i, Flags: b[0], Portrait: b[1],
+			Name: big5Name(b[2:8]), Alias: big5Name(b[8:14]),
+			// 三個適性在**高半位元組**，低半位元組恆 0。
+			Siege: b[0x0E] >> 4, Field: b[0x0F] >> 4, Naval: b[0x10] >> 4,
+			Martial: b[0x11], Command: b[0x12], Political: b[0x13],
+			Tactic: b[0x16], Post: b[0x17], Timer: b[0x18], Loyalty: b[0x19],
+			Budget: b[0x1A], Faction: b[0x1C], Captor: b[0x1D],
+			TalkVariant: b[0x1E], Rating: b[0x1F],
+		})
+	}
+	return out
+}
+
+// big5Name 把定長的名字欄位去掉補白，**回傳十六進位字串**。
+//
+// ⚠ **補的是全形空格（`A1 40`），不是 ASCII 空白。** 用 TrimSpace
+// 砍不掉，名字後面會拖著看不見的兩個 byte，逐欄對拍就一路紅。
+//
+// ⭐ **不在這裡解 Big5。** dosgolem 刻意零相依（`go.mod` 沒有 require），
+// 而 Big5 要 `golang.org/x/text`。名字以 hex 印出去，讓對拍那一端
+// 用 `cp950` 解——**輸出仍然逐 byte 可比**，而且不必猜編碼。
+func big5Name(b []byte) string {
+	for len(b) >= 2 && b[len(b)-2] == 0xA1 && b[len(b)-1] == 0x40 {
+		b = b[:len(b)-2]
+	}
+	return strings.ToUpper(hex.EncodeToString(b))
 }
