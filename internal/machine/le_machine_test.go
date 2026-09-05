@@ -630,3 +630,39 @@ func TestFD2ComplementsStrlenCountWhenProvided(t *testing.T) {
 		t.Fatalf("strlen complement steps=%d EIP=%X calls=%d ECX=%X EDI=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDI], m.CPU.EFlags)
 	}
 }
+
+func TestFD2ReadsAILPreferenceWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 3000 && m.CPU.EIP != 0x3f5eb; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL preference read: step=%d EIP=%X EAX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	index := m.CPU.R[cpu386.EAX]
+	expected, errExpected := m.Read32(0x5430c + index*4)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL preference indexed MOV: step=%d EIP=%X index=%X: %v", steps, m.CPU.EIP, index, err)
+	}
+	if m.CPU.EIP != 0x3f5f2 || services.Calls() != 5 || m.CPU.R[cpu386.EDX] != expected || errExpected != nil {
+		t.Fatalf("AIL preference read steps=%d EIP=%X calls=%d index=%X EDX=%X expected=%X err=%v", steps, m.CPU.EIP, services.Calls(), index, m.CPU.R[cpu386.EDX], expected, errExpected)
+	}
+}
+
+func TestFD2WritesAILPreferenceWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 3000 && m.CPU.EIP != 0x3f5f6; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL preference write: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	index, replacement := m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL preference indexed store: step=%d EIP=%X index=%X: %v", steps, m.CPU.EIP, index, err)
+	}
+	stored, errStored := m.Read32(0x5430c + index*4)
+	if m.CPU.EIP != 0x3f5fd || services.Calls() != 5 || stored != replacement || errStored != nil {
+		t.Fatalf("AIL preference write steps=%d EIP=%X calls=%d index=%X stored=%X replacement=%X err=%v", steps, m.CPU.EIP, services.Calls(), index, stored, replacement, errStored)
+	}
+}

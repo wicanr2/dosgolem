@@ -375,6 +375,49 @@ func TestMoveEAXFromAbsoluteAddress(t *testing.T) {
 	}
 }
 
+func TestMoveDwordFromAbsoluteIndexedSIB(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x8b, 0x14, 0x85, 0x20, 0, 0, 0})
+	copy(mem[0x28:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f})
+	c.R[EAX], c.R[EDX] = 2, 0xabcdef01
+	if err := c.Step(); err != nil || c.R[EDX] != 0x12345678 {
+		t.Fatalf("indexed MOV EDX=%X err=%v", c.R[EDX], err)
+	}
+
+	mem = testBus([]byte{0x8b, 0x14, 0x85, 0x20, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 6})
+	c.R[EAX], c.R[EDX] = 2, 0xabcdef01
+	if err := c.Step(); err == nil || c.R[EDX] != 0xabcdef01 {
+		t.Fatalf("out-of-range indexed MOV EDX=%X err=%v", c.R[EDX], err)
+	}
+}
+
+func TestMoveDwordToAbsoluteIndexedSIB(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x1c, 0x85, 0x20, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EAX], c.R[EBX] = 2, 0x12345678
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x28:0x2c], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("indexed MOV store=% X err=%v", mem[0x28:0x2c], err)
+	}
+
+	mem = testBus([]byte{0x89, 0x1c, 0x85, 0x20, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 6, Writable: true})
+	c.R[EAX], c.R[EBX] = 2, 0x12345678
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range indexed MOV was accepted")
+	}
+}
+
 func TestMoveImmediateDwordToSIBAddress(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xc7, 0x04, 0x01, 0x78, 0x56, 0x34, 0x12})

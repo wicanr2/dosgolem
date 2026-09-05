@@ -1443,6 +1443,25 @@ func (c *CPU) Step() error {
 			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP || base != EBP {
+				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))
+			}
+			displacement, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := displacement + c.R[index]<<scale
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("absolute indexed dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
 			if e != nil {
@@ -1517,6 +1536,23 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {
 			c.R[modrm&7] = source
+		} else if modrm>>6 == 0 && modrm&7 == ESP && segmentOverride < 0 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP || base != EBP {
+				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))
+			}
+			displacement, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := displacement + c.R[index]<<scale
+			if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+				return fail(fmt.Sprintf("absolute indexed dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
 		} else if modrm>>6 == 1 && modrm&7 != ESP && segmentOverride < 0 {
 			delta, e := c.fetch8()
 			if e != nil {
