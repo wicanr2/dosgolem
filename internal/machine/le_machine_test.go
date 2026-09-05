@@ -752,3 +752,20 @@ func TestFD2DisablesInterruptsForAILSetupWhenProvided(t *testing.T) {
 		t.Fatalf("AIL CLI steps=%d EIP=%X calls=%d flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.EFlags)
 	}
 }
+
+func TestFD2StoresAILDataSelectorWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 4000 && m.CPU.EIP != 0x3e935; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL DS store: step=%d EIP=%X DS=%X: %v", steps, m.CPU.EIP, m.CPU.Seg[cpu386.SegDS], err)
+		}
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL DS store step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+	}
+	stored, errStored := m.Read16(0x52bee)
+	if m.CPU.EIP != 0x3e93c || services.Calls() != 5 || stored != m.CPU.Seg[cpu386.SegDS] || errStored != nil {
+		t.Fatalf("AIL DS store steps=%d EIP=%X calls=%d DS=%X stored=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegDS], stored, errStored)
+	}
+}

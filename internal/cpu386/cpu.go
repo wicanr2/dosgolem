@@ -1648,9 +1648,6 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 	case op == 0x8c:
-		if operand16 {
-			return fail("8C 不接受 operand-size override")
-		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
@@ -1661,7 +1658,17 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
 		}
 		value := c.Seg[segmentByEncoding[encoding]]
-		if modrm>>6 == 3 {
+		if operand16 && segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == EBP {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if !c.writeSegment16(c.Seg[SegDS], addr, value) {
+				return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
 			c.R[modrm&7] = uint32(value)
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()

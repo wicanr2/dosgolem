@@ -416,6 +416,25 @@ func TestClearInterruptFlag(t *testing.T) {
 	}
 }
 
+func TestStoreSegmentAbsoluteWord(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x66, 0x8c, 0x1d, 0x20, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x22], []byte{0x60, 0x01}) {
+		t.Fatalf("MOV segment word=% X err=%v", mem[0x20:0x22], err)
+	}
+
+	mem = testBus([]byte{0x66, 0x8c, 0x1d, 0x20, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 6, Writable: true})
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range segment word store was accepted")
+	}
+}
+
 func TestRegisterCMP8(t *testing.T) {
 	c := New(testBus{0x38, 0xf3})
 	c.R[EBX], c.R[EDX] = 0x11, 0x1100
