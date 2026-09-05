@@ -31,6 +31,9 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !c.SegmentLoadOK(0x28, cpu386.SegDS) || !c.SegmentLoadOK(0x28, cpu386.SegES) || c.SegmentLoadOK(0x28, cpu386.SegSS) {
 		t.Fatal("PSP selector load destinations mismatch")
 	}
+	if !c.SegmentLoadOK(0x30, cpu386.SegDS) || c.SegmentLoadOK(0x30, cpu386.SegES) {
+		t.Fatal("environment selector load destinations mismatch")
+	}
 	c.R[cpu386.EAX] = 0xff00
 	c.R[cpu386.EDX] = 0x78
 	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegGS] != 0x20 {
