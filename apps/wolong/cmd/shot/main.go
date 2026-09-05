@@ -9,7 +9,11 @@
 //	wait              畫面停住為止
 //	steps:N           再跑 N 道指令
 //	click:X,Y         在遊戲座標 (X,Y) 點左鍵（0–639 × 0–399）
+//	rclick:X,Y        點右鍵（原版的取消／退回走右鍵）
+//	tap:X,Y[,N]       瞬按左鍵，按住 N 道指令（預設 20 萬）。**彈出選單要用這個**
+//	press / rpress    在目前位置按一下，不移動
 //	move:X,Y          只移動游標
+//	peek:OFF:N        印出 ds:OFF 起 N 個 byte（十六進位偏移）
 //	shot:NAME         當場存一張 <-dir>/NAME.png
 //	until:Y/M/D       跑到遊戲日期到某一天（即時制的取樣點寫成日期，不是秒數）
 //	clock             印出目前的遊戲日期
@@ -47,6 +51,7 @@ func main() {
 	budget := flag.Uint64("budget", 40_000_000, "每一步的指令數上限")
 	fontFull := flag.String("font-full", "", "全形字模檔（預設 END_S13.DAT）")
 	fontHalf := flag.String("font-half", "", "半形字模檔（預設 END_S14.DAT）")
+	watch := flag.String("watch", "", "攔這些 IDA 線性位址的呼叫，逗號分隔（十六進位）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -58,6 +63,12 @@ func main() {
 		die(err)
 	}
 	defer o.Close()
+
+	if *watch != "" {
+		if err := installWatches(o, *watch); err != nil {
+			die(err)
+		}
+	}
 
 	shots := 0
 	for i, step := range strings.Split(*script, ";") {
@@ -141,18 +152,98 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 			return err
 		}
 		return o.Run(n)
-	case "click", "move":
-		x, y, err := point(arg, dosboxY)
+	case "press", "rpress":
+		// 原地按，不移動——既有的 DOSBox 腳本大量用「移過去、再按一次」。
+		if verb == "rpress" {
+			return o.Press(oracle.Button(1))
+		}
+		return o.Press()
+	case "peek":
+		return peek(o, arg)
+	case "click", "rclick", "move", "tap":
+		spec := arg
+		hold := uint64(0)
+		if verb == "tap" {
+			// tap:X,Y[,N]
+			if i := strings.LastIndex(arg, ","); strings.Count(arg, ",") == 2 {
+				n, err := strconv.ParseUint(strings.TrimSpace(arg[i+1:]), 10, 64)
+				if err != nil {
+					return err
+				}
+				hold, spec = n, arg[:i]
+			}
+		}
+		x, y, err := point(spec, dosboxY)
 		if err != nil {
 			return err
 		}
-		if verb == "move" {
+		switch verb {
+		case "move":
 			o.MoveMouse(x, y)
 			return nil
+		case "rclick":
+			return o.Click(x, y, oracle.Button(1))
+		case "tap":
+			if hold > 0 {
+				return o.Tap(x, y, oracle.Hold(hold))
+			}
+			return o.Tap(x, y)
 		}
 		return o.Click(x, y)
 	}
 	return fmt.Errorf("看不懂的動作")
+}
+
+// installWatches 掛 OnCall。
+//
+// ⚠ **掛在沒人呼叫的位址上印不出東西，與「沒接上」長得一模一樣。**
+// 正對照要用一個已知會被呼叫的位址。
+func installWatches(o *oracle.Oracle, spec string) error {
+	for _, s := range strings.Split(spec, ",") {
+		s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "0x"))
+		lin, err := strconv.ParseUint(s, 16, 32)
+		if err != nil {
+			return fmt.Errorf("看不懂的位址 %q：%w", s, err)
+		}
+		addr := o.IDA(uint32(lin))
+		label := strings.ToUpper(s)
+		o.OnCall(addr, func(o *oracle.Oracle) {
+			r := o.Regs()
+			// ⚠ **near 與 far 的返回位址在堆疊上的版面不同**，
+			// 挑一種安靜地印會讓另一種讀到垃圾——而垃圾看起來
+			// 就是一個合法位址。兩種都印，讓人自己判斷。
+			fmt.Printf("  #%d 呼叫 %s AX=%04X BX=%04X CX=%04X DX=%04X "+
+				"SI=%04X DI=%04X 來自 近=%05X 遠=%05X\n",
+				o.Steps(), label, r.AX, r.BX, r.CX, r.DX, r.SI, r.DI,
+				o.ToIDA(o.NearCaller()), o.ToIDA(o.Caller()))
+		})
+	}
+	return nil
+}
+
+// peek 印出 `ds:OFF` 起 N 個 byte。
+//
+// **畫面只回答「長什麼樣」，行為要問記憶體**——這是不用 DOSBox 的重點。
+func peek(o *oracle.Oracle, arg string) error {
+	offs, ns, ok := strings.Cut(arg, ":")
+	if !ok {
+		return fmt.Errorf("格式是 peek:偏移:長度")
+	}
+	off, err := strconv.ParseUint(strings.TrimSpace(offs), 16, 16)
+	if err != nil {
+		return err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(ns))
+	if err != nil {
+		return err
+	}
+	buf := o.Bytes(o.DS(uint16(off)), n)
+	parts := make([]string, len(buf))
+	for i, b := range buf {
+		parts[i] = fmt.Sprintf("%02X", b)
+	}
+	fmt.Printf("   ds:%04X = %s\n", off, strings.Join(parts, " "))
+	return nil
 }
 
 func point(arg string, dosboxY bool) (int, int, error) {

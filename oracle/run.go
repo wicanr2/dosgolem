@@ -375,6 +375,16 @@ func (o *Oracle) Caller() Addr {
 	return Addr{cs, ip}
 }
 
+// NearCaller 回 **near** call 的返回位址（`CS:[SP]`）。
+//
+// ⚠ **near 與 far 的堆疊版面不同**，拿錯的那一支讀到的是垃圾——
+// 而垃圾看起來就是一個合法位址。16 位元真實模式的程式兩種都有，
+// 所以診斷工具要把兩種都印出來讓人自己判斷，不要挑一個安靜地猜。
+func (o *Oracle) NearCaller() Addr {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	return Addr{o.m.CPU.Seg[cpu.CS], o.m.Read16(cpu.Addr(ss, sp))}
+}
+
 // Arg 讀 far call 的第 n 個參數（n 從 0 起，最後推的是第 0 個）。
 //
 // **參數個數看 `retf N`（N/2），不是進場的 `mov bx`**

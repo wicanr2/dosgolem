@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -53,4 +54,25 @@ func (o *Oracle) Restore(s *State) {
 	o.d.Stdin = append([]byte(nil), s.stdin...)
 	o.d.Opened = append([]string(nil), s.opened...)
 	o.d.Exited = false
+}
+
+// Regs 是進到某支常式時的暫存器快照。
+//
+// **搭配 `OnCall` 用**：把判準從像素換成參數。「AI 選了哪個指令」
+// 不必從畫面猜——攔住分派器，它自己會說。
+type Regs struct {
+	AX, BX, CX, DX, SI, DI, BP, SP uint16
+	DS, ES, SS, CS, IP             uint16
+	Flags                          uint16
+}
+
+// Regs 讀目前的暫存器。
+func (o *Oracle) Regs() Regs {
+	c := o.m.CPU
+	return Regs{
+		AX: c.R[cpu.AX], BX: c.R[cpu.BX], CX: c.R[cpu.CX], DX: c.R[cpu.DX],
+		SI: c.R[cpu.SI], DI: c.R[cpu.DI], BP: c.R[cpu.BP], SP: c.R[cpu.SP],
+		DS: c.Seg[cpu.DS], ES: c.Seg[cpu.ES], SS: c.Seg[cpu.SS],
+		CS: c.Seg[cpu.CS], IP: c.IP, Flags: c.Flags,
+	}
 }
