@@ -115,6 +115,19 @@ func ToFirstCharacterStats(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterReview 由屬性／肖像頁進入含Reroll／Modify／Faces／Keep的檢視頁。
+func ToFirstCharacterReview(o *oracle.Oracle) error {
+	if err := ToFirstCharacterStats(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色檢視操作頁", 130, 55, 180, 140,
+		"1f1bbba36dc25a84f6ce2ebb4f01a60dc64d2b7ddc63bb9ffa3d25d8e47c164f"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色檢視頁：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
