@@ -66,14 +66,14 @@ func Land(o *oracle.Oracle) *basic.Array {
 // 棋盤陣列 `122Ch` 的欄位（`rich2/internal/assets/board.go`、
 // `rich2/docs/re/016` §82、`docs/re/184` §2.1）。
 const (
-	ColMapRow  = 0  // 在 36×36 地圖上的列
-	ColMapCol  = 1  // 同上，欄
-	ColKind    = 2  // 非街道格的種類 0–10
-	ColLink    = 4  // 4–7 是四個方向的鄰接
-	ColStreet  = 8  // 土地編號，0 表示不是土地
-	ColOrder   = 9  // 該格在街道內的序號
-	ColOwner   = 12 // 地主編號，0 ＝ 無主（`docs/re/184` §2.1，強證據）
-	ColLevel   = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
+	ColMapRow = 0  // 在 36×36 地圖上的列
+	ColMapCol = 1  // 同上，欄
+	ColKind   = 2  // 非街道格的種類 0–10
+	ColLink   = 4  // 4–7 是四個方向的鄰接
+	ColStreet = 8  // 土地編號，0 表示不是土地
+	ColOrder  = 9  // 該格在街道內的序號
+	ColOwner  = 12 // 地主編號，0 ＝ 無主（`docs/re/184` §2.1，強證據）
+	ColLevel  = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
 )
 
 // Owner／Street／Level 讀某一格的地主、街道編號、建物等級。

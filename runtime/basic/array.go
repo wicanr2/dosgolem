@@ -76,6 +76,15 @@ func (a *Array) Int32(idx ...int) int32 {
 		uint32(a.o.Word(oracle.Phys(at+2)))<<16)
 }
 
+// Float32 讀一格單精度浮點。
+//
+// **編譯後的 BASIC 在這裡用 IEEE 754，不是 MBF**——浮點指令被 Microsoft
+// 的浮點模擬器換成 `INT 34h`–`INT 3Dh`，那個模擬器算的是 IEEE。
+// 判準是拿已知的常數對：`ds:1B5Ah` 讀出來剛好是 `1.0`。
+func (a *Array) Float32(idx ...int) float32 {
+	return a.o.Float(oracle.Phys(a.addr(idx...)))
+}
+
 // Index 把線性位址反查成索引。
 //
 // **這是「這個動作改了哪一格」的答案**：拿快照差分出來的位址丟進來，
