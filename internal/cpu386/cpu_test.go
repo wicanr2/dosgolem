@@ -279,6 +279,21 @@ func TestProtectedModePushRegister(t *testing.T) {
 	}
 }
 
+func TestProtectedModePushES(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	mem[0] = 0x06
+	c := New(mem)
+	c.R[ESP] = 0x50
+	c.Seg[SegSS], c.Seg[SegES] = 0x168, 0x160
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ESP] != 0x4c || !bytes.Equal(mem[0x6c:0x70], []byte{0x60, 0x01, 0, 0}) || c.Seg[SegES] != 0x160 {
+		t.Fatalf("ESP=%X stack=% X ES=%X", c.R[ESP], mem[0x6c:0x70], c.Seg[SegES])
+	}
+}
+
 func TestProtectedModePopDS(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	mem[0] = 0x1f

@@ -412,6 +412,18 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x06:
+		if operand16 {
+			return fail("16-bit PUSH ES 尚未支援")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegES])) {
+			return fail(fmt.Sprintf("PUSH ES stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
 	case op == 0x1f:
 		if operand16 {
 			return fail("16-bit POP DS 尚未支援")
