@@ -143,6 +143,25 @@ func ToFirstCharacterName(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterALFA 在原版姓名頁鍵入ALFA並確認，返回四槽建角總覽。
+func ToFirstCharacterALFA(o *oracle.Oracle) error {
+	if err := ToFirstCharacterName(o); err != nil {
+		return err
+	}
+	for _, key := range []oracle.Key{oracle.KeyA, oracle.KeyL, oracle.KeyF, oracle.KeyA} {
+		o.PressKey(key)
+		if err := o.Run(250_000); err != nil {
+			return fmt.Errorf("EOB1輸入第一角色姓名：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色ALFA姓名列", 5, 100, 70, 16,
+		"cbc568f33b26cf8dd7809e3f5081b8dc9c63049de4ab7f7caf6c406443109b7c"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色ALFA完成：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

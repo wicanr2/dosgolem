@@ -136,6 +136,20 @@ func TestToFirstCharacterNameRealData(t *testing.T) {
 	}
 }
 
+func TestToFirstCharacterALFARealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToFirstCharacterALFA(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 5, 100, 70, 16); got != "cbc568f33b26cf8dd7809e3f5081b8dc9c63049de4ab7f7caf6c406443109b7c" {
+		t.Fatalf("第一角色ALFA姓名列SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 26 {
+		t.Fatalf("ALFA完成前port 60h讀取%d次，預期十三鍵make／break共26次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
