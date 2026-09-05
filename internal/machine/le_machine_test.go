@@ -45,13 +45,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cacf && steps < 60; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cad5 && steps < 60; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cacf {
-		t.Fatalf("entry did not push through protected stack: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cad5 {
+		t.Fatalf("entry did not restore ES selector: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF != 0 {
 		t.Fatalf("selector bootstrap mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
@@ -70,9 +70,6 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.R[cpu386.ECX] != 0x30 {
 		t.Fatalf("ES environment word ECX=%X", m.CPU.R[cpu386.ECX])
 	}
-	if m.CPU.Seg[cpu386.SegES] != 0x160 {
-		t.Fatalf("loaded ES selector=%X", m.CPU.Seg[cpu386.SegES])
-	}
 	flatDS, err := m.Read16(0x3c9d8)
 	if err != nil || flatDS != 0x160 {
 		t.Fatalf("flat ES write=%X err=%v", flatDS, err)
@@ -83,6 +80,9 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	if m.CPU.R[cpu386.ESP] != 0x556ac {
 		t.Fatalf("protected ESP=%X", m.CPU.R[cpu386.ESP])
+	}
+	if m.CPU.Seg[cpu386.SegES] != 0x28 {
+		t.Fatalf("restored ES selector=%X", m.CPU.Seg[cpu386.SegES])
 	}
 	stackValue, err := m.Read32(0x556ac)
 	if err != nil || stackValue != 0 {

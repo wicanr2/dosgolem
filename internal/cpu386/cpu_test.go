@@ -114,6 +114,7 @@ func TestMoveRegisterToSegmentNarrowForm(t *testing.T) {
 	c := New(mem)
 	c.R[EBX] = 0x12340160
 	c.EFlags = 0x246
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
 	if err := c.Step(); err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +127,28 @@ func TestMoveRegisterToSegmentNarrowForm(t *testing.T) {
 		if err := c.Step(); err == nil {
 			t.Fatalf("unsupported 8E form % X was accepted", code)
 		}
+	}
+}
+
+func TestMoveMemorySelectorToSegmentRequiresHostValidation(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x8e, 0x05, 0x40, 0x00, 0x00, 0x00})
+	mem[0x40], mem[0x41] = 0x28, 0
+	c := New(mem)
+	c.EFlags = 0x246
+	c.SegmentLoadOK = func(selector uint16, destination int) bool {
+		return selector == 0x28 && destination == SegES
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Seg[SegES] != 0x28 || c.EIP != 6 || c.EFlags != 0x246 {
+		t.Fatalf("ES=%X EIP=%d flags=%X", c.Seg[SegES], c.EIP, c.EFlags)
+	}
+
+	c = New(mem)
+	if err := c.Step(); err == nil || c.Seg[SegES] != 0 {
+		t.Fatal("unvalidated selector was accepted")
 	}
 }
 
