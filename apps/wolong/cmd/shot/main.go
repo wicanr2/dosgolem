@@ -19,6 +19,8 @@
 //	tile:TX,TY        把游標移到大地圖的第 (TX,TY) 格（**選據點要用這個**）
 //	celltile          印出游標現在在第幾格
 //	runto:LIN[,N]     跑到 CS:IP 走到 IDA 線性位址 LIN（預算 N 道指令，預設 4 億）
+//	save:NAME         把目前的機器狀態記到記憶體裡的一個格子
+//	restore:NAME      倒回那個格子——**一次執行裡展開多個變體**
 //	hotspots          印出目前畫面的熱區圖（編號 → 像素矩形）
 //	at:X,Y            印出某個像素座標上的熱區編號
 //	sclick:X,Y        **大地圖上**的畫面座標點擊（先把捲動原點歸零）
@@ -127,6 +129,13 @@ func report(o *oracle.Oracle) {
 	}
 }
 
+// states 是 `save:`／`restore:` 的格子。
+//
+// ⚠ **不落地成檔案**：裡面是原版的整份記憶體映像，寫到磁碟等於散布它
+// （`oracle.State` 的說明）。所以變體只能在**同一次執行裡**展開——
+// 而那正好夠用：走到戰場要四億五千萬道指令，之後每個變體只要幾百萬。
+var states = map[string]*oracle.State{}
+
 func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 	dir string, full bool) error {
 	verb, arg, _ := strings.Cut(step, ":")
@@ -203,6 +212,18 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 			return err
 		}
 		fmt.Printf("   走到 %05X（遊戲時鐘 %s）\n", lin, wolong.Clock(o))
+		return nil
+	case "save":
+		states[arg] = o.Save()
+		fmt.Printf("   記下狀態「%s」（第 %d 道指令）\n", arg, o.Steps())
+		return nil
+	case "restore":
+		st, ok := states[arg]
+		if !ok {
+			return fmt.Errorf("沒有記過狀態「%s」", arg)
+		}
+		o.Restore(st)
+		fmt.Printf("   倒回狀態「%s」（第 %d 道指令）\n", arg, o.Steps())
 		return nil
 	case "celltile":
 		x, y := wolong.CursorTile(o)
