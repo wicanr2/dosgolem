@@ -443,3 +443,19 @@ func TestFD2ThirdCallbackFirstAllocationReturnsWhenProvided(t *testing.T) {
 		t.Fatalf("first _nmalloc result=%X ESP=%X memory=%X want-base=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem), wantBase)
 	}
 }
+
+func TestFD2ThirdCallbackSecondAllocationReturnsWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	wantFirst := uint32((len(m.Mem) + 3) &^ 3)
+	for steps := 0; m.CPU.EIP != 0x4cc70 && steps < 520; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("second _nmalloc path: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x4cc70 {
+		t.Fatalf("second _nmalloc did not return: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != wantFirst+4 || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != int(wantFirst)+8 {
+		t.Fatalf("second _nmalloc result=%X ESP=%X memory=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem))
+	}
+}
