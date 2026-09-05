@@ -403,7 +403,8 @@ func (c *CPU) Step() error {
 	operand16 := false
 	segmentOverride := -1
 	repe := false
-	for op == 0x66 || op == 0x26 || op == 0xf3 {
+	repne := false
+	for op == 0x66 || op == 0x26 || op == 0xf2 || op == 0xf3 {
 		switch op {
 		case 0x66:
 			if operand16 {
@@ -416,10 +417,15 @@ func (c *CPU) Step() error {
 			}
 			segmentOverride = SegES
 		case 0xf3:
-			if repe {
-				return &Error{start, op, "重複 REPE prefix"}
+			if repe || repne {
+				return &Error{start, op, "重複或衝突的 repeat prefix"}
 			}
 			repe = true
+		case 0xf2:
+			if repe || repne {
+				return &Error{start, op, "重複或衝突的 repeat prefix"}
+			}
+			repne = true
 		}
 		op, err = c.fetch8()
 		if err != nil {
@@ -429,6 +435,9 @@ func (c *CPU) Step() error {
 	fail := func(reason string) error { return &Error{start, op, reason} }
 	if repe && op != 0xaa && op != 0xab && op != 0xae {
 		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB")
+	}
+	if repne && op != 0xae {
+		return fail("REPNE prefix 只支援 SCASB")
 	}
 	if segmentOverride >= 0 && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
@@ -474,11 +483,18 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 || (modrm>>3)&7 != 3 {
+		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
 		}
 		reg := modrm & 7
-		c.R[reg] = c.sub32(0, c.R[reg])
+		switch (modrm >> 3) & 7 {
+		case 2:
+			c.R[reg] = ^c.R[reg]
+		case 3:
+			c.R[reg] = c.sub32(0, c.R[reg])
+		default:
+			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
+		}
 	case op == 0x01:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("01 不接受目前的 prefix")
@@ -835,7 +851,7 @@ func (c *CPU) Step() error {
 			return fail("STOSB 不接受目前的 prefix")
 		}
 		count := uint32(1)
-		if repe {
+		if repe || repne {
 			count = c.R[ECX]
 		}
 		for count > 0 {
@@ -934,10 +950,10 @@ func (c *CPU) Step() error {
 			} else {
 				c.R[EDI]++
 			}
-			if repe {
+			if repe || repne {
 				c.R[ECX]--
 				count = c.R[ECX]
-				if c.EFlags&ZF == 0 {
+				if repe && c.EFlags&ZF == 0 || repne && c.EFlags&ZF != 0 {
 					break
 				}
 			} else {
