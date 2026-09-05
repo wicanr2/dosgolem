@@ -30,6 +30,53 @@ func TestStepHookHandledUnhandledAndError(t *testing.T) {
 	}
 }
 
+func TestRegisterTEST32(t *testing.T) {
+	c := New(testBus{0x85, 0xc0})
+	c.R[EAX] = 0x80000000
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 0x80000000 || c.EFlags&SF == 0 || c.EFlags&ZF != 0 || c.EFlags&(CF|OF) != 0 {
+		t.Fatalf("nonzero TEST EAX=%X flags=%X", c.R[EAX], c.EFlags)
+	}
+
+	c = New(testBus{0x85, 0xc8})
+	c.R[EAX], c.R[ECX] = 1, 2
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 1 || c.R[ECX] != 2 || c.EFlags&ZF == 0 {
+		t.Fatalf("zero TEST EAX=%X ECX=%X flags=%X", c.R[EAX], c.R[ECX], c.EFlags)
+	}
+
+	c = New(testBus{0x85, 0x00})
+	if err := c.Step(); err == nil {
+		t.Fatal("memory TEST shape was accepted")
+	}
+}
+
+func TestRegisterSHL32(t *testing.T) {
+	c := New(testBus{0xc1, 0xe0, 2})
+	c.R[EAX] = 0x40000001
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 4 || c.EFlags&CF == 0 || c.EFlags&ZF != 0 {
+		t.Fatalf("SHL EAX=%X flags=%X", c.R[EAX], c.EFlags)
+	}
+}
+
+func TestRegisterADD32(t *testing.T) {
+	c := New(testBus{0x01, 0xc6})
+	c.R[ESI], c.R[EAX] = 3, 5
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ESI] != 8 || c.R[EAX] != 5 || c.EFlags&ZF != 0 {
+		t.Fatalf("ADD ESI=%X EAX=%X flags=%X", c.R[ESI], c.R[EAX], c.EFlags)
+	}
+}
+
 type testBus []byte
 
 func (b testBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }

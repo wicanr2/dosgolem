@@ -431,6 +431,32 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
+	case op == 0x01:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("01 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ADD dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] = c.add32(c.R[dst], c.R[src])
+	case op == 0x85:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("85 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("TEST dword ModRM %02X 尚未支援", modrm))
+		}
+		left, right := modrm&7, (modrm>>3)&7
+		c.setLogicFlags(c.R[left] & c.R[right])
 	case op == 0x31:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("31 不接受目前的 prefix")
@@ -1041,7 +1067,8 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 || (modrm>>3)&7 != 5 {
+		group := (modrm >> 3) & 7
+		if modrm>>6 != 3 || (group != 4 && group != 5) {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 		countByte, e := c.fetch8()
@@ -1053,8 +1080,13 @@ func (c *CPU) Step() error {
 		if count != 0 {
 			value := c.R[rm]
 			result := value >> count
+			carry := value >> (count - 1) & 1
+			if group == 4 {
+				result = value << count
+				carry = value >> (32 - count) & 1
+			}
 			c.setLogicFlags(result)
-			if value>>(count-1)&1 != 0 {
+			if carry != 0 {
 				c.EFlags |= CF
 			}
 			c.R[rm] = result
