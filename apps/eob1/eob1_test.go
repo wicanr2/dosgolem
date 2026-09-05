@@ -371,6 +371,48 @@ func TestToLevel1CampReturnRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1MemorizeSpellsRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1MemorizeSpells(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "1c430348d1f4d21309d1b553fb3f21597baa97c6682563c9d599ad9b9bf6c00a" {
+		t.Fatalf("LEVEL1記憶法術頁SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 88 {
+		t.Fatalf("LEVEL1記憶法術頁port 60h讀取%d次，預期四十四鍵make／break共88次", got)
+	}
+}
+
+func TestToLevel1MemorizeFirstSpellRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1MemorizeFirstSpell(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "2d78cd6c8a1886cb8d06b14a708d70ffc6fd9529422c0ade2eff36b2df386da8" {
+		t.Fatalf("LEVEL1第一個待記憶法術SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 90 {
+		t.Fatalf("LEVEL1第一個待記憶法術port 60h讀取%d次，預期四十五鍵make／break共90次", got)
+	}
+}
+
+func TestToLevel1MemorizeReturnRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1MemorizeReturn(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "8bd3e9866787810347ed38d1929b8dbb1a12683359037056f5fc369df3b2962c" {
+		t.Fatalf("LEVEL1記憶法術返回CAMP SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 92 {
+		t.Fatalf("LEVEL1記憶法術返回port 60h讀取%d次，預期四十六鍵make／break共92次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")

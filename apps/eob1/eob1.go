@@ -504,6 +504,45 @@ func ToLevel1CampReturn(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1MemorizeSpells 從CAMP第二列確認，進入ALFA的一級法術記憶頁。
+func ToLevel1MemorizeSpells(o *oracle.Oracle) error {
+	if err := ToLevel1CampMemorizeSelected(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP記憶法術頁", 0, 0, oracle.Width, oracle.Height,
+		"1c430348d1f4d21309d1b553fb3f21597baa97c6682563c9d599ad9b9bf6c00a"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP記憶法術頁：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1MemorizeFirstSpell 在ALFA的一級法術頁確認第一項，使剩餘槽位由二減為一。
+func ToLevel1MemorizeFirstSpell(o *oracle.Oracle) error {
+	if err := ToLevel1MemorizeSpells(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP已選第一個待記憶法術", 0, 0, oracle.Width, oracle.Height,
+		"2d78cd6c8a1886cb8d06b14a708d70ffc6fd9529422c0ade2eff36b2df386da8"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一個待記憶法術：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1MemorizeReturn 從已選法術頁按Escape返回CAMP，保留Memorize Spells列選中。
+func ToLevel1MemorizeReturn(o *oracle.Oracle) error {
+	if err := ToLevel1MemorizeFirstSpell(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP由記憶法術返回", 0, 0, oracle.Width, oracle.Height,
+		"8bd3e9866787810347ed38d1929b8dbb1a12683359037056f5fc369df3b2962c"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待由記憶法術返回CAMP：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
