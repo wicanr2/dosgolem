@@ -67,3 +67,14 @@ SHA-256皆為`f49fee3af72c50fad10fb0708436e6733b2cfbe068dcfc423f1a4efc0065806e`�
   `176×120`為`2ef2c024…abbc`，port `60h`累計100次。
 - 可丟棄相鄰實驗在文字列附近點`(80,111)`與`(80,102)`都直接關閉CAMP，沒有開啟Game Options；
   因此adapter不猜測原版滑鼠命中矩形，只把已證實的滑鼠開CAMP＋鍵盤子選單路徑列為契約。
+
+## 8. LEVEL1 Save Game確認與取消
+
+- `ToLevel1CampSaveConfirmation`沿用正常建隊、PLAY、CAMP及Game Options路徑，按一次Down及Enter
+  選取Save Game；確認視窗全畫面色號SHA-256為`40002452…e768`，port `60h`累計100次。
+- 原版確認文案為`Are you sure you wish to SAVE the game?`，預設選取Yes；本契約不確認寫檔，
+  也不允許adapter開啟`EOBDATA.SAV`。
+- `ToLevel1CampSaveCancel`點擊No的安全點`(145,64)`，再把游標移出選單；返回Game Options後
+  左上選單`176×96`色號SHA-256為`152007f2…1d49`，Save Game仍為選取列，port `60h`維持100次。
+- 真實資料測試逐案檢查oracle的開檔紀錄，確認到達確認視窗或取消返回期間都未開啟原版存檔；
+  這只證明取消分支無存檔交易，不外推Save Game的Yes寫入格式或成功行為。

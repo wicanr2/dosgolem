@@ -836,6 +836,39 @@ func ToLevel1CampGameOptionsExit(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1CampSaveConfirmation 從Game Options選取Save Game，停在原版確認視窗。
+// 此路徑不確認寫檔，僅供觀察原版儲存交易的入口。
+func ToLevel1CampSaveConfirmation(o *oracle.Oracle) error {
+	if err := ToLevel1CampGameOptions(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyDown)
+	if err := o.Run(300_000); err != nil {
+		return fmt.Errorf("EOB1 Game Options選取Save Game：%w", err)
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 Save Game確認", 0, 0, oracle.Width, oracle.Height,
+		"40002452b7022088be0995c5dcc3a98c394786e3481774db36ab50c2c978e768"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Save Game確認：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampSaveCancel 在原版Save Game確認視窗點No，返回Game Options。
+func ToLevel1CampSaveCancel(o *oracle.Oracle) error {
+	if err := ToLevel1CampSaveConfirmation(o); err != nil {
+		return err
+	}
+	if err := o.Click(145, 64, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(2_000_000)); err != nil {
+		return fmt.Errorf("EOB1取消Save Game：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.Run(1_000_000); err != nil {
+		return fmt.Errorf("EOB1等待Save Game取消返回Game Options：%w", err)
+	}
+	return nil
+}
+
 // ToLevel1MemorizeSpells 從CAMP第二列確認，進入ALFA的一級法術記憶頁。
 func ToLevel1MemorizeSpells(o *oracle.Oracle) error {
 	if err := ToLevel1CampMemorizeSelected(o); err != nil {

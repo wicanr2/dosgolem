@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/apps/eob1"
@@ -518,6 +519,43 @@ func TestToLevel1CampGameOptionsRealData(t *testing.T) {
 			}
 			if got := o.PortReads()[0x60]; got != test.port {
 				t.Fatalf("Game Options %s port 60h讀取%d次，預期%d次", test.name, got, test.port)
+			}
+		})
+	}
+}
+
+func TestToLevel1CampSaveCancelRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+	}{
+		{"confirmation", eob1.ToLevel1CampSaveConfirmation, "40002452b7022088be0995c5dcc3a98c394786e3481774db36ab50c2c978e768"},
+		{"cancel", eob1.ToLevel1CampSaveCancel, "152007f23678f6d424ebe6db999fba60044b044ed645930cb36c4d1f17011d49"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadRealData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			if test.name == "confirmation" {
+				got = digest(o.Indexed())
+			} else {
+				got = digestRegion(o.Indexed(), 0, 0, 176, 96)
+			}
+			if got != test.want {
+				t.Fatalf("Save Game %s SHA-256=%s", test.name, got)
+			}
+			if got := o.PortReads()[0x60]; got != 100 {
+				t.Fatalf("Save Game %s port 60h讀取%d次，預期100次", test.name, got)
+			}
+			for _, name := range o.Opened() {
+				if strings.HasSuffix(strings.ToUpper(name), "EOBDATA.SAV") {
+					t.Fatalf("Save Game %s不應開啟原版存檔：%s", test.name, name)
+				}
 			}
 		})
 	}
