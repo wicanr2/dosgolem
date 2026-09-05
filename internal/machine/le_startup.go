@@ -8,6 +8,8 @@ type FD2StartupDOS struct {
 	calls int
 }
 
+var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
+
 func (s *FD2StartupDOS) Calls() int { return s.calls }
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
@@ -31,6 +33,9 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
 			if selector == 0x0028 && offset == 0x0080 {
 				return 0, true
+			}
+			if selector == 0x0030 && uint64(offset) < uint64(len(minimalFD2Environment)) {
+				return minimalFD2Environment[offset], true
 			}
 			return 0, false
 		}
