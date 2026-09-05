@@ -149,6 +149,9 @@ func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 		// 這是 `OnCall` 的 hook，正跑在指令迴圈裡；`Click` 內部會
 		// `RunUntil`，在 hook 裡重入執行迴圈會炸。要按列選就用
 		// `ChooseRow`，那是給呼叫端在迴圈外用的。
+		// **先清掉上一張沒吃掉的鍵。** 不清的話它會把這一張取消掉，
+		// 而症狀是「送了 Enter 卻收到取消碼」（見 `Oracle.ClearInput`）。
+		o.ClearInput()
 		switch row := log.pick(log.cur); {
 		case row < 0: // 不回答
 		case row <= 1:

@@ -137,3 +137,13 @@ func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {
 	})
 	return o.RunUntil(c, Budget(n+1))
 }
+
+// ClearInput 丟掉還沒被讀走的按鍵。
+//
+// **上一張畫面沒吃掉的鍵會流進下一張。** 實測：對股市場所選單送了 ESC
+// 而它沒有消化掉，那個 ESC 就留在佇列裡，於是下一張銀行選單一開就被
+// 取消了——回傳 `0x63` 而不是我們要的第 1 列。
+//
+// 症狀是「明明送了 Enter，原版卻收到取消」，看起來像送鍵的方式錯了，
+// 不像佇列有殘留。所以自動回答之前先清一次。
+func (o *Oracle) ClearInput() { o.d.Stdin = nil }
