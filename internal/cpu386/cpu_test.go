@@ -534,6 +534,18 @@ func TestCompareDSByteAndIncrementPreservesCarry(t *testing.T) {
 	}
 }
 
+func TestCompareDSAbsoluteByteImmediate(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x80, 0x3d, 0x40, 0x00, 0x00, 0x00, 0x00})
+	mem[0x60] = 0
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x7f})
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || mem[0x60] != 0 {
+		t.Fatalf("absolute CMP flags=%X byte=%X err=%v", c.EFlags, mem[0x60], err)
+	}
+}
+
 func TestLODSBAndMOVSBUseSegmentDescriptors(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0xac, 0xa4})

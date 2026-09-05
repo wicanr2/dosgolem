@@ -26,6 +26,27 @@ func TestLoadLESynthetic(t *testing.T) {
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
+		t.Fatalf("unexpected entry state: EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+	wantScanBytes := []byte{0x80, 0x3e, 0x00, 0xac, 0x75, 0xfa, 0x80, 0x3e, 0x00, 0x75, 0xe0, 0xac, 0x46, 0x46, 0x80, 0x3e, 0x00, 0xa4, 0x75, 0xfa, 0x1f}
+	if got := m.Mem[0x3cb27 : 0x3cb27+uint32(len(wantScanBytes))]; !bytes.Equal(got, wantScanBytes) {
+		t.Fatalf("environment scan bytes=% X", got)
+	}
+	for steps := 0; m.CPU.EIP != 0x45dd6 && steps < 271; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x45dd6 {
+		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	assertFD2FirstCallbackState(t, m)
+}
+
+func fixedFD2Machine(t *testing.T) (*LEMachine, *FD2StartupDOS) {
+	t.Helper()
 	path := os.Getenv("DOSGOLEM_FD2_EXE")
 	if path == "" {
 		t.Skip("DOSGOLEM_FD2_EXE 未設定")
@@ -41,23 +62,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
-		t.Fatalf("unexpected entry state: EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
-	}
-	wantScanBytes := []byte{0x80, 0x3e, 0x00, 0xac, 0x75, 0xfa, 0x80, 0x3e, 0x00, 0x75, 0xe0, 0xac, 0x46, 0x46, 0x80, 0x3e, 0x00, 0xa4, 0x75, 0xfa, 0x1f}
-	if got := m.Mem[0x3cb27 : 0x3cb27+uint32(len(wantScanBytes))]; !bytes.Equal(got, wantScanBytes) {
-		t.Fatalf("environment scan bytes=% X", got)
-	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x45dd6 && steps < 271; steps++ {
-		if err := m.CPU.Step(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x45dd6 {
-		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
-	}
+	return m, services
+}
+
+func assertFD2FirstCallbackState(t *testing.T, m *LEMachine) {
+	t.Helper()
 	if m.CPU.R[cpu386.EAX] != 0x0003037f || m.CPU.R[cpu386.EBX] != 0x539c2 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
 		t.Fatalf("first callee prologue mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
@@ -136,5 +147,26 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	if m.Mem[0x5283a] != 6 || m.Mem[0x5283b] != 22 {
 		t.Fatalf("DOS version globals=%d.%d", m.Mem[0x5283a], m.Mem[0x5283b])
+	}
+}
+
+func TestFD2SecondCallbackAbsoluteGateWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460df && steps < 400; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460df {
+		t.Fatalf("second callback gate not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x460d5 || m.CPU.R[cpu386.EBX] != 0x539c8 || m.CPU.R[cpu386.ESP] != 0x55694 {
+		t.Fatalf("second callback state EAX=%X EBX=%X ESP=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP])
+	}
+	if m.Mem[0x527f4] != 0 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("absolute gate byte=%X flags=%X", m.Mem[0x527f4], m.CPU.EFlags)
+	}
+	if got := m.Mem[0x539c2:0x539ce]; !bytes.Equal(got, []byte{2, 1, 0xcc, 0xcb, 3, 0, 0, 2, 0xd5, 0x60, 4, 0}) {
+		t.Fatalf("callback records=% X", got)
 	}
 }
