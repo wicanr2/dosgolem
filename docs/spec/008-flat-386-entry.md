@@ -1,8 +1,8 @@
 # 008 — 平坦 386 LE entry 第一個執行閘門
 
-狀態：**READY**（載入與 `0x3C964→int 21h` 的最小指令集）／
-**DRAFT**（第一次中斷後、完整 386、DPMI 與 DOS/4GW 服務）  
-日期：2026-09-05  
+狀態：**READY**（載入與 `0x3C964→0x3CA74` 前兩個中斷閘門的最小指令集）／
+**DRAFT**（DOS/4GW 安裝檢查回傳後、完整 386、DPMI 與 DOS/4GW 服務）
+日期：2026-09-05
 前置：[`007`](007-linear-executable-intake.md)、
 [`FD2 entry 證據`](../re/001-fd2-le-entry.md)
 
@@ -26,6 +26,11 @@
 `MOV r32,imm32`、operand-size `66` 下的 `MOV r16,imm16` 與
 `MOV [disp32],AX`、`MOV r8,imm8`、`SUB r32,r32`、`INT imm8`。
 
+第二個閘門再加入 `MOV [disp32],r8`、`SHR r32,imm8`、operand-size `66`
+的 `CMP AX,imm16`、`JNZ rel32`。測試中的一般 DOS version handler 只修改 AX，
+不偽造 Phar Lap／Code Builder 高字 signature；因此必須到達 `0x3CA74`，並以
+`AX=FF00h, DX=0078h` 發出第二次 `int 21h`。
+
 未列 opcode、未列 ModRM addressing、其他 prefix 或中斷未被 hook 時均回含
 `EIP/opcode` 的錯誤；不能當作空操作略過。
 
@@ -35,6 +40,8 @@
 - 固定雜湊 FD2 optional test 從真實 LE entry 執行到第一次 `int 21h`，hook 必須看到
   `AH=0x30`；此時 `ESP=0x556B0`，`[0x52818]`、`[0x52804]` 等於該值，
   `[0x52810]=0x24`，`EBX=0x50484152`；
+- 同一測試回傳可設定的一般 DOS 版本後，必須保存 major／minor 到 `0x5283A/B`，
+  排除兩種非 DOS/4GW signature，並在有界 steps 內到達第二次 DOS/4GW 安裝檢查；
 - 該閘門只能報「entry prefix executed」，不得報遊戲已啟動、畫面可對拍或完整 386。
 
 `cmd/leprobe -execute-entry-prefix` 提供可重跑入口；預設仍只檢查檔案，明確給旗標
