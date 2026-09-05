@@ -179,18 +179,21 @@ func TestVideoModeIsRemembered(t *testing.T) {
 // 防拷畫面的滑鼠點擊因此只有一半有效。
 func TestMouseButtonStatsUseFunctionNumber(t *testing.T) {
 	m, d := newTest(t)
-	d.Mouse.Press, d.Mouse.Release = 3, 7
+	d.Mouse.Press[0], d.Mouse.Release[0] = 3, 7
 
+	m.CPU.R[cpu.BX] = 0 // 問左鍵
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 3 {
 		t.Errorf("AX=5 回 BX=%d，預期 3（按下次數）", m.CPU.R[cpu.BX])
 	}
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0006)
 	if m.CPU.R[cpu.BX] != 7 {
 		t.Errorf("AX=6 回 BX=%d，預期 7（放開次數）——分支是不是讀了剛寫的 AX？",
 			m.CPU.R[cpu.BX])
 	}
 	// 讀走就歸零。
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 0 {
 		t.Errorf("第二次讀按下統計回 %d，預期 0", m.CPU.R[cpu.BX])
@@ -363,6 +366,44 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 	call(m, d, 0x21, 0x2C00)
 	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
 		t.Errorf("AH=2Ch 回 CX=%04X DX=%04X，預期都是 0（與固定種子版對齊）",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestMouseButtonStatsAreePerButton 釘住「`AX=5` 的 `BX` 是輸入」。
+//
+// 《臥龍傳》的等待迴圈（IDA `0x121E9`）**先問右鍵再問左鍵**：
+//
+//	mov ax,5 / mov bx,1 / int 33h   ; 右鍵按下次數 → 有就 stc（取消）
+//	mov ax,5 / xor bx,bx / int 33h  ; 左鍵按下次數 → 有就讀位置
+//
+// 不分鍵的實作會把左鍵那一次交給問右鍵的呼叫，於是**每一次左鍵點擊
+// 都被讀成右鍵**。畫面上看起來像「點什麼都是取消」，
+// 而所有回傳值單獨看都合法。
+func TestMouseButtonStatsArePerButton(t *testing.T) {
+	m, d := newTest(t)
+	d.Mouse.X, d.Mouse.Y = 320, 175
+	d.Mouse.PressButton(0) // 按左鍵
+
+	m.CPU.R[cpu.BX] = 1 // 先問右鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 0 {
+		t.Fatalf("問右鍵回 %d 次按下，預期 0——左鍵的那一次被右鍵領走了",
+			m.CPU.R[cpu.BX])
+	}
+	m.CPU.R[cpu.BX] = 0 // 再問左鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 1 {
+		t.Fatalf("問左鍵回 %d 次按下，預期 1", m.CPU.R[cpu.BX])
+	}
+	// 座標是**按下那一刻**的，不是現在的。
+	d.Mouse.X, d.Mouse.Y = 0, 0
+	d.Mouse.PressButton(0)
+	d.Mouse.X, d.Mouse.Y = 600, 300
+	m.CPU.R[cpu.BX] = 0
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
+		t.Errorf("AX=5 回 (%d,%d)，預期按下那一刻的 (0,0)",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }

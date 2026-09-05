@@ -93,6 +93,14 @@ type Machine struct {
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
+	// VGA 是 16 色平面模式的四個平面與繪圖控制器（`docs/spec/007`）。
+	// **只有平面模式會用到**；mode 13h 走 Mem 那條線性路徑。
+	VGA *VGA
+
+	// planar 是「目前是不是平面模式」的快取。放在這裡是因為
+	// 每一次記憶體存取都要問它，而 SetVideoMode 是唯一的寫入點。
+	planar bool
+
 	dacIndex uint8
 	dacPhase uint8
 
@@ -117,6 +125,7 @@ func New() *Machine {
 		Mem:       make([]uint8, MemSize),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
+		VGA:       newVGA(),
 		IRQ0Every: DefaultIRQ0Every,
 	}
 	m.CPU = cpu.New(m)
@@ -132,9 +141,22 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
-func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
+func (m *Machine) Read8(a uint32) uint8 {
+	a &= 0xFFFFF
+	if m.planar && a >= VideoSeg*16 && a < VideoSeg*16+PlaneSize {
+		return m.VGA.Read(uint16(a - VideoSeg*16))
+	}
+	return m.Mem[a]
+}
 
-func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
+func (m *Machine) Write8(a uint32, v uint8) {
+	a &= 0xFFFFF
+	if m.planar && a >= VideoSeg*16 && a < VideoSeg*16+PlaneSize {
+		m.VGA.Write(uint16(a-VideoSeg*16), v)
+		return
+	}
+	m.Mem[a] = v
+}
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
@@ -157,6 +179,8 @@ func (m *Machine) In8(port uint16) uint8 {
 	m.portTicks++
 	switch {
 	case port == 0x3DA:
+		// **讀 3DA 的副作用**：下一次寫 3C0 是索引不是資料。
+		m.VGA.ResetACFlip()
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
 		if (m.portTicks>>4)&1 != 0 {
@@ -171,6 +195,12 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port == 0x61:
 		return 0x00
+	case port == 0x3C5:
+		return m.VGA.seq[m.VGA.seqIdx]
+	case port == 0x3CF:
+		return m.VGA.gc[m.VGA.gcIdx]
+	case port == 0x3C1:
+		return m.VGA.ac[m.VGA.acIdx]
 	}
 	return 0xFF
 }
@@ -178,6 +208,11 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// 序列器／繪圖控制器／屬性控制器（`docs/spec/007` §3.2）。
+	if m.VGA.Out(p, v) {
+		return
+	}
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
@@ -209,18 +244,21 @@ func (m *Machine) Palette() [256][3]uint8 {
 
 // ---- 記憶體存取的便利函式 ------------------------------------------------
 
+// ⚠ **這三支要走 Read8／Write8，不能直接碰 Mem。**
+// 平面模式下 `A0000` 之後不在 Mem 裡，直接碰的話「程式把檔案讀進 VRAM」
+// 這條路徑會安靜地寫到一塊沒人看的記憶體，畫面上什麼都不會出現。
 func (m *Machine) Read16(a uint32) uint16 {
-	return uint16(m.Mem[a&0xFFFFF]) | uint16(m.Mem[(a+1)&0xFFFFF])<<8
+	return uint16(m.Read8(a)) | uint16(m.Read8(a+1))<<8
 }
 
 func (m *Machine) Write16(a uint32, v uint16) {
-	m.Mem[a&0xFFFFF] = uint8(v)
-	m.Mem[(a+1)&0xFFFFF] = uint8(v >> 8)
+	m.Write8(a, uint8(v))
+	m.Write8(a+1, uint8(v>>8))
 }
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
 	for i, v := range b {
-		m.Mem[(a+uint32(i))&0xFFFFF] = v
+		m.Write8(a+uint32(i), v)
 	}
 }
 

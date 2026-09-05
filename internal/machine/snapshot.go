@@ -29,6 +29,12 @@ type Snapshot struct {
 	dac      [256 * 3]uint8
 	dacIndex uint8
 	dacPhase uint8
+
+	// ⚠ **平面模式的畫面不在 mem 裡。** 漏了這一段，從快照展開的機器
+	// 記憶體與 CPU 全對，畫面卻是還原之前的那一張——而那看起來像
+	// 「遊戲沒重畫」，不像「快照少存東西」。
+	planar bool
+	vga    VGA
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -52,7 +58,9 @@ func (m *Machine) Snapshot() *Snapshot {
 		dac:       m.DAC,
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
+		planar:    m.planar,
 	}
+	s.vga = m.VGA.clone()
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
 		s.ports[k] = v
@@ -84,6 +92,8 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.PortLog = m.PortLog[:0]
 
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
+	m.planar = s.planar
+	m.VGA.restore(&s.vga)
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

@@ -119,18 +119,36 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
 	case 0x0005, 0x0006: // 按下／放開的統計
-		c.R[cpu.AX] = m.Buttons
-		if fn == 0x0005 {
-			c.R[cpu.BX] = m.Press
-			m.Press = 0
-		} else {
-			c.R[cpu.BX] = m.Release
-			m.Release = 0
+		// **BX 進來是「問哪一個鍵」**（0 左／1 右／2 中），出去才是次數。
+		btn := int(c.R[cpu.BX])
+		if btn > 2 {
+			btn = 2
 		}
-		c.R[cpu.CX] = m.X * m.XScale
-		c.R[cpu.DX] = m.Y
+		c.R[cpu.AX] = m.Buttons
+		var at [2]uint16
+		if fn == 0x0005 {
+			c.R[cpu.BX] = m.Press[btn]
+			at = m.PressAt[btn]
+			m.Press[btn] = 0
+		} else {
+			c.R[cpu.BX] = m.Release[btn]
+			at = m.ReleaseAt[btn]
+			m.Release[btn] = 0
+		}
+		c.R[cpu.CX] = at[0] * m.XScale
+		c.R[cpu.DX] = at[1]
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+
+	case 0x000C: // 設事件處理常式：ES:DX ＝ 常式、CX ＝ 事件遮罩
+		// **記下來但不呼叫**（`docs/spec/008` §5）。遊戲的主迴圈同時
+		// 也在輪詢 AX=3，輪詢那條路徑已經夠用；真的要呼叫得連中斷時序
+		// 一起模擬，那是另一個問題。
+		d.MouseHandler.Seg, d.MouseHandler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
+		d.MouseHandler.Mask, d.MouseHandler.Set = c.R[cpu.CX], true
+
+	case 0x000F: // 設 mickey/pixel 比例：收下就好
+
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}
@@ -173,4 +191,26 @@ func (d *DOS) int13(c *cpu.CPU) {
 		setAH(c, 0x80) // 逾時
 		setCarry(c)
 	}
+}
+
+// PressButton／ReleaseButton 記一次按下／放開。
+//
+// **座標要當場記下來**：`AX=5`／`AX=6` 回的是按下那一刻的位置，
+// 呼叫端讀到的時候游標可能已經移開了。
+func (m *Mouse) PressButton(btn int) {
+	if btn < 0 || btn > 2 {
+		return
+	}
+	m.Buttons |= 1 << btn
+	m.Press[btn]++
+	m.PressAt[btn] = [2]uint16{m.X, m.Y}
+}
+
+func (m *Mouse) ReleaseButton(btn int) {
+	if btn < 0 || btn > 2 {
+		return
+	}
+	m.Buttons &^= 1 << btn
+	m.Release[btn]++
+	m.ReleaseAt[btn] = [2]uint16{m.X, m.Y}
 }

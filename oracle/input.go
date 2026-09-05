@@ -82,13 +82,11 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 1
-	o.d.Mouse.Press++
+	o.d.Mouse.PressButton(0)
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 0
-	o.d.Mouse.Release++
+	o.d.Mouse.ReleaseButton(0)
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}

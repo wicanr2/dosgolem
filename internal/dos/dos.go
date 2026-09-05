@@ -35,8 +35,17 @@ type Time struct{ Hour, Min, Sec, Hundredth uint8 }
 type Mouse struct {
 	X, Y    uint16
 	Buttons uint16
-	// Press／Release 是 AX=5／AX=6 的統計，讀走就歸零。
-	Press, Release uint16
+	// Press／Release 是 AX=5／AX=6 的統計，**逐鍵分開**（0 ＝ 左、1 ＝ 右、
+	// 2 ＝ 中），讀走就歸零。
+	//
+	// ⚠ **`AX=5` 的 `BX` 是輸入（問哪一個鍵），不只是輸出。**
+	// 不分鍵的話「按左鍵」會被問右鍵的那一次先領走——而《臥龍傳》的等待迴圈
+	// （IDA `0x121E9`）**先問右鍵**，於是每一次左鍵都被讀成右鍵，
+	// 畫面上看起來像「點了沒反應」或「點什麼都是取消」。
+	Press, Release [3]uint16
+	// PressAt／ReleaseAt 是該鍵最後一次按下／放開的座標。
+	// `AX=5`／`AX=6` 回的是**那一刻**的位置，不是現在的位置。
+	PressAt, ReleaseAt [3][2]uint16
 	// XScale 是水平的虛擬座標倍率。**2 是標準**。
 	XScale uint16
 	// Polls 記下每一次 AX=3 回報出去的東西。**這是分辨「輸入沒送到」與
@@ -65,9 +74,22 @@ type DOS struct {
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
 	Root string
 
-	// Now 是固定時刻，Mouse 是滑鼠狀態。
+	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
 	Mouse Mouse
+	Font  Font
+
+	// Sound 記下 `int 61h`（音源 TSR）每個 command 被叫了幾次。
+	// **這一輪不模擬音源**（`docs/spec/008` §6），只留下「走到了沒」。
+	Sound map[uint8]int
+
+	// MouseHandler 是遊戲用 `int 33h AX=000Ch` 裝的事件常式。
+	// **記下來但不呼叫**；記的理由是診斷——出現「點了沒反應」時，
+	// 第一件要問的事就是「遊戲是不是只等事件不輪詢」。
+	MouseHandler struct {
+		Seg, Off, Mask uint16
+		Set            bool
+	}
 
 	// Console 收 `AH=02h`／`06h`／`09h` 與 `int 10h AH=0Eh` 印出來的字。
 	// **錯誤訊息走這條**，收不到就等於什麼都不知道。
@@ -133,6 +155,8 @@ func New(m *machine.Machine, root string) *DOS {
 		M: m, Root: root,
 		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
 		Mouse:         Mouse{XScale: 2, Calls: map[uint16]int{}},
+		Font:          DefaultFont(),
+		Sound:         map[uint8]int{},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
@@ -145,6 +169,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.installFont()
 	d.M.CPU.IntHook = d.handle
 }
 
@@ -179,6 +204,16 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x13)
 	case 0x13:
 		d.int13(c)
+	case 0x15:
+		d.int15(c)
+	case 0x1A:
+		d.int1A(c)
+	case 0x61:
+		d.int61(c)
+	case intFontFull:
+		d.fontGlyph(c, true)
+	case intFontHalf:
+		d.fontGlyph(c, false)
 	case 0x20:
 		d.exit(c, 0)
 	default:
@@ -248,3 +283,48 @@ func setBH(c *cpu.CPU, v uint8) { c.R[cpu.BX] = c.R[cpu.BX]&0x00FF | uint16(v)<<
 func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
+
+// int1A 是 BIOS 的計時器／即時鐘服務。
+//
+// **時刻要與 `int 21h AH=2Ch` 同一份。** 兩份不一致時亂數種子會跟著飄，
+// 而症狀是「同一組輸入跑出不同畫面」——那看起來像模擬器不穩定，
+// 不像少接了一支服務。
+func (d *DOS) int1A(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x00: // 取計時器計數 → CX:DX，AL ＝ 有沒有跨過午夜
+		ticks := d.M.Read16(0x0040*16+0x6C) | 0
+		c.R[cpu.DX] = ticks
+		c.R[cpu.CX] = d.M.Read16(0x0040*16 + 0x6E)
+		setAL(c, 0)
+	case 0x02: // 取 RTC 時刻 → CH:CL:DH（BCD）
+		setCH(c, bcd(d.Now.Hour))
+		setCL(c, bcd(d.Now.Min))
+		setDH(c, bcd(d.Now.Sec))
+		setDL(c, 0) // 沒有日光節約
+		clearCarry(c)
+	default:
+		d.note(0x1A, ah(c), al(c))
+	}
+}
+
+// int61 是松崗 DOS/V 版的音源 TSR（`YNSOUND.COM`）。
+//
+// **只記錄不模擬**（`docs/spec/008` §6）。對拍比的是畫面，
+// 音訊 parity 在臥龍傳專案那邊用錄音比過。
+func (d *DOS) int61(c *cpu.CPU) {
+	d.Sound[ah(c)]++
+	// AH=0Ah 回旗標。回 0 ＝ 沒有任何旗標，是安全的預設；
+	// **但它要留在未實作清單裡**，不要安靜地變成「有旗標」。
+	if ah(c) == 0x0A {
+		d.note(0x61, 0x0A, al(c))
+		setAL(c, 0)
+	}
+	clearCarry(c)
+}
+
+func bcd(v uint8) uint8 { return v/10<<4 | v%10 }
+
+func setCH(c *cpu.CPU, v uint8) { c.R[cpu.CX] = c.R[cpu.CX]&0x00FF | uint16(v)<<8 }
+func setCL(c *cpu.CPU, v uint8) { c.R[cpu.CX] = c.R[cpu.CX]&0xFF00 | uint16(v) }
+func setDH(c *cpu.CPU, v uint8) { c.R[cpu.DX] = c.R[cpu.DX]&0x00FF | uint16(v)<<8 }
+func setDL(c *cpu.CPU, v uint8) { c.R[cpu.DX] = c.R[cpu.DX]&0xFF00 | uint16(v) }
