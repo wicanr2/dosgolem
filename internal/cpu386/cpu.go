@@ -489,15 +489,40 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm != 0x3c {
+		switch modrm {
+		case 0x3c:
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], c.FPUControl) {
+				return fail(fmt.Sprintf("FNSTCW stack write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+		case 0x2d:
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("FLDCW read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.FPUControl = value
+		case 0xee:
+			if c.FPUDepth >= 8 {
+				return fail("x87 stack overflow")
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = 0
+			c.FPUDepth++
+		default:
 			return fail(fmt.Sprintf("x87 D9 ModRM %02X 尚未支援", modrm))
 		}
-		sib, e := c.fetch8()
-		if e != nil {
-			return fail(e.Error())
-		}
-		if sib != 0x24 || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], c.FPUControl) {
-			return fail(fmt.Sprintf("FNSTCW stack write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+	case op == 0x9b:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("WAIT 不接受目前的 prefix")
 		}
 	case op >= 0x40 && op <= 0x47:
 		if operand16 {
@@ -772,15 +797,19 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
-		if modrm>>6 == 3 && group == 4 {
+		if modrm>>6 == 3 && (group == 4 || group == 7) {
 			imm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
 			}
 			rm := int(modrm & 7)
-			result := c.reg8(rm) & imm
-			c.setReg8(rm, result)
-			c.setLogicFlags8(result)
+			if group == 4 {
+				result := c.reg8(rm) & imm
+				c.setReg8(rm, result)
+				c.setLogicFlags8(result)
+			} else {
+				c.sub8(c.reg8(rm), imm)
+			}
 		} else if group == 7 && (modrm == 0x3e || modrm == 0x7e) {
 			addr := c.R[ESI]
 			if modrm == 0x7e {
@@ -1245,6 +1274,16 @@ func (c *CPU) Step() error {
 		if c.IntHook == nil || !c.IntHook(c, number) {
 			return fail(fmt.Sprintf("INT %02X 未處理", number))
 		}
+	case op == 0xc3:
+		if operand16 {
+			return fail("16-bit near RET 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("RET stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += 4
+		c.EIP = value
 	default:
 		return fail("opcode 尚未支援")
 	}
