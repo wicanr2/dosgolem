@@ -13,6 +13,7 @@ package wolong
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/wicanr2/dosgolem/oracle"
 )
@@ -195,4 +196,180 @@ func UntilDate(year, month, day int) oracle.Cond {
 			}
 			return d.Day >= want.Day
 		})
+}
+
+// ---- 熱區圖 --------------------------------------------------------------
+
+// 熱區查表的兩個指標（臥龍傳專案 `docs/re/22` §2）。
+//
+// `sub_1E453` 的定址式是 `offset = (x >> 3) + 10 × (y & 0xF8)`，
+// 也就是**每格 8×8 像素、每列 80 個 byte、50 列**，全圖 4,000 bytes
+// ——由定址式獨立推出的 640×400，不是從畫面量的。
+const (
+	dsHotzoneSeg = 0xE479 // sub_1E3C0 寫進去的段
+	dsHotzoneOff = 0xE47B // 同上，偏移
+)
+
+// 熱區圖的格子大小與尺寸。
+const (
+	HotzoneCell            = 8
+	HotzoneCols, HotzoneRows = 80, 50
+)
+
+// Hotzones 讀目前畫面的熱區圖。
+//
+// ⭐ **這是「點了沒反應」的直接答案。** 送出去的座標對不對，
+// 用 `sub_1E453` 攔得到；但「那個位置到底有沒有東西可點」只有這張圖知道。
+// 沒有它就只能一格一格試，而每一次試都要重跑整條開機流程。
+func Hotzones(o *oracle.Oracle) []byte {
+	seg := o.Word(o.DS(dsHotzoneSeg))
+	off := o.Word(o.DS(dsHotzoneOff))
+	if seg == 0 {
+		return nil
+	}
+	return o.Bytes(oracle.Far(seg, off), HotzoneCols*HotzoneRows)
+}
+
+// Hotzone 是一個熱區編號涵蓋的像素矩形。
+type Hotzone struct {
+	ID      byte
+	X, Y    int
+	W, H    int
+	Cells   int
+}
+
+// HotzoneBoxes 把熱區圖收成「編號 → 像素矩形」，按編號排序。
+//
+// ⚠ **同一個編號不一定是連通的**，所以回的是外接矩形加格數；
+// 兩者差很多就表示那個編號散在好幾塊。
+func HotzoneBoxes(o *oracle.Oracle) []Hotzone {
+	return hotzoneBoxes(Hotzones(o))
+}
+
+// hotzoneBoxes 是純函式版本，好測。
+func hotzoneBoxes(m []byte) []Hotzone {
+	if len(m) < HotzoneCols*HotzoneRows {
+		return nil
+	}
+	type acc struct{ x0, y0, x1, y1, n int }
+	seen := map[byte]*acc{}
+	for row := 0; row < HotzoneRows; row++ {
+		for col := 0; col < HotzoneCols; col++ {
+			id := m[row*HotzoneCols+col]
+			if id == 0 {
+				continue // 0 ＝ 沒有熱區
+			}
+			a := seen[id]
+			if a == nil {
+				a = &acc{x0: col, y0: row, x1: col, y1: row}
+				seen[id] = a
+			}
+			if col < a.x0 {
+				a.x0 = col
+			}
+			if col > a.x1 {
+				a.x1 = col
+			}
+			if row < a.y0 {
+				a.y0 = row
+			}
+			if row > a.y1 {
+				a.y1 = row
+			}
+			a.n++
+		}
+	}
+	out := make([]Hotzone, 0, len(seen))
+	for id, a := range seen {
+		out = append(out, Hotzone{
+			ID: id,
+			X:  a.x0 * HotzoneCell, Y: a.y0 * HotzoneCell,
+			W: (a.x1 - a.x0 + 1) * HotzoneCell, H: (a.y1 - a.y0 + 1) * HotzoneCell,
+			Cells: a.n,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// HotzoneAt 回某個像素座標上的熱區編號（0 ＝ 沒有）。
+func HotzoneAt(o *oracle.Oracle, x, y int) byte {
+	m := Hotzones(o)
+	if m == nil || x < 0 || y < 0 || x >= 640 || y >= 400 {
+		return 0
+	}
+	return m[(y/HotzoneCell)*HotzoneCols+x/HotzoneCell]
+}
+
+// ---- 大地圖的捲動原點 ----------------------------------------------------
+
+// 捲動原點（臥龍傳專案 `docs/re/22` 的輸入模型之外的一層，
+// 在 `sub_11F7F`／`loc_11FD0`，IDA `0x11FD0`）。
+//
+// ⚠ **進到遊戲之後，畫面座標不等於滑鼠座標。**
+//
+//	螢幕 x ＝ 滑鼠 x − 原點 x        （夾在 0..27Fh）
+//	推成負的 → 原點跟著減，游標貼到 0，**地圖往那個方向捲**
+//	推超過 27Fh → 原點跟著加，游標貼到 27Fh
+//
+// 這是遊戲自己實作的「游標推到邊緣就捲地圖」。選單畫面不走這一層
+// （那邊 `sub_121E7` 直接拿原始游標查熱區），所以開機到選劇本那一段
+// 用原始座標是對的——**同一個座標在兩種畫面代表不同的東西**。
+//
+// 症狀：在遊戲中送畫面座標，游標不會到那裡，地圖反而捲走了，
+// 而**畫面看起來完全正常**（地圖本來就會捲）。
+const (
+	dsScrollOriginX = 0x9882
+	dsScrollOriginY = 0x9884
+	dsScreenCurX    = 0x9886 // sub_11F7F 算出來的畫面座標
+	dsScreenCurY    = 0x9888
+)
+
+// ScrollOrigin 讀目前的捲動原點。
+func ScrollOrigin(o *oracle.Oracle) (x, y int) {
+	return int(o.Word(o.DS(dsScrollOriginX))), int(o.Word(o.DS(dsScrollOriginY)))
+}
+
+// ScreenCursor 讀遊戲算出來的畫面座標（＝滑鼠 − 原點）。
+func ScreenCursor(o *oracle.Oracle) (x, y int) {
+	return int(o.Word(o.DS(dsScreenCurX))), int(o.Word(o.DS(dsScreenCurY)))
+}
+
+// HomeCursor 把捲動原點歸零。
+//
+// 作法就是遊戲自己的規則：**把滑鼠推到 (0,0)**，負的差值會被原點吸收，
+// 於是原點變 0、畫面游標也變 0。之後送的座標才等於畫面座標。
+//
+// ⚠ 這一步會**捲動地圖**（原點變了），所以它不是無副作用的。
+// 要保持地圖位置就自己記下原點再捲回去。
+func HomeCursor(o *oracle.Oracle, settle uint64) error {
+	o.MoveMouse(0, 0)
+	if err := o.Run(settle); err != nil {
+		return err
+	}
+	if x, y := ScrollOrigin(o); x != 0 || y != 0 {
+		return fmt.Errorf("歸零之後原點還是 (%d,%d)——遊戲可能不在大地圖畫面", x, y)
+	}
+	return nil
+}
+
+// DefaultHomeSettle 是 HomeCursor 等遊戲處理的指令數。
+//
+// 主迴圈約 25,000 道指令跑一圈（攔 `sub_1E453` 量的），這裡取兩位數倍。
+const DefaultHomeSettle = 400_000
+
+// ClickScreen 在**畫面座標**點一下：先歸零原點，再移到目標。
+func ClickScreen(o *oracle.Oracle, x, y int, opts ...oracle.ClickOpt) error {
+	if err := HomeCursor(o, DefaultHomeSettle); err != nil {
+		return err
+	}
+	return o.Click(x, y, opts...)
+}
+
+// TapScreen 是 ClickScreen 的瞬按版（彈出選單要用）。
+func TapScreen(o *oracle.Oracle, x, y int, opts ...oracle.ClickOpt) error {
+	if err := HomeCursor(o, DefaultHomeSettle); err != nil {
+		return err
+	}
+	return o.Tap(x, y, opts...)
 }

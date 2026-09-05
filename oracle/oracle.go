@@ -165,6 +165,13 @@ func (a Addr) Linear() uint32 { return cpu.Addr(a.Seg, a.Off) }
 // ——`DS(0x1B5A)` 讀到 IEEE 754 的 1.0f。
 func (o *Oracle) DS(off uint16) Addr { return Addr{o.dgroupSeg, off} }
 
+// Far 造一個明確的 段:偏移。
+//
+// **程式執行期自己配置的東西要用它**——那些不在 DGROUP 也不在映像裡，
+// 位址得先從程式的變數讀出來（例：熱區圖的段與偏移）。
+// 名字不叫 `At` 是因為那個已經是「CS:IP 走到這裡」的停止條件。
+func Far(seg, off uint16) Addr { return Addr{seg, off} }
+
 // IDA 把 rich2 筆記裡的五位線性位址轉成執行期位址。
 //
 // **rich2 的每一份 RE 筆記都用這種位址**，所以這是最常用的入口。

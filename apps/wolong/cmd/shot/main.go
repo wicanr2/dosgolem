@@ -14,6 +14,12 @@
 //	press / rpress    在目前位置按一下，不移動
 //	move:X,Y          只移動游標
 //	peek:OFF:N        印出 ds:OFF 起 N 個 byte（十六進位偏移）
+//	peek:SEG:OFF:N    印出 SEG:OFF 起 N 個 byte（程式執行期配置的東西要用這個）
+//	hotspots          印出目前畫面的熱區圖（編號 → 像素矩形）
+//	at:X,Y            印出某個像素座標上的熱區編號
+//	sclick:X,Y        **大地圖上**的畫面座標點擊（先把捲動原點歸零）
+//	stap:X,Y          同上，瞬按
+//	origin            印出捲動原點與遊戲算出來的畫面座標
 //	shot:NAME         當場存一張 <-dir>/NAME.png
 //	until:Y/M/D       跑到遊戲日期到某一天（即時制的取樣點寫成日期，不是秒數）
 //	clock             印出目前的遊戲日期
@@ -160,6 +166,41 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		return o.Press()
 	case "peek":
 		return peek(o, arg)
+	case "origin":
+		ox, oy := wolong.ScrollOrigin(o)
+		cx, cy := wolong.ScreenCursor(o)
+		fmt.Printf("   捲動原點 (%d,%d)，遊戲算出來的畫面游標 (%d,%d)\n", ox, oy, cx, cy)
+		return nil
+	case "sclick", "stap":
+		x, y, err := point(arg, dosboxY)
+		if err != nil {
+			return err
+		}
+		if verb == "stap" {
+			return wolong.TapScreen(o, x, y)
+		}
+		return wolong.ClickScreen(o, x, y)
+	case "hotspots":
+		// ⭐ **「點了沒反應」的直接答案。** 座標對不對攔得到，
+		// 「那裡到底有沒有東西可點」只有這張圖知道。
+		zs := wolong.HotzoneBoxes(o)
+		if len(zs) == 0 {
+			fmt.Println("   （目前沒有熱區圖——遊戲還沒登記，或還沒進到有熱區的畫面）")
+			return nil
+		}
+		fmt.Printf("   熱區 %d 個：\n", len(zs))
+		for _, z := range zs {
+			fmt.Printf("     #%3d  x %3d..%3d  y %3d..%3d  （%d 格）\n",
+				z.ID, z.X, z.X+z.W-1, z.Y, z.Y+z.H-1, z.Cells)
+		}
+		return nil
+	case "at":
+		x, y, err := point(arg, dosboxY)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("   (%d,%d) 的熱區編號 ＝ %d\n", x, y, wolong.HotzoneAt(o, x, y))
+		return nil
 	case "click", "rclick", "move", "tap":
 		spec := arg
 		hold := uint64(0)
@@ -225,24 +266,41 @@ func installWatches(o *oracle.Oracle, spec string) error {
 //
 // **畫面只回答「長什麼樣」，行為要問記憶體**——這是不用 DOSBox 的重點。
 func peek(o *oracle.Oracle, arg string) error {
-	offs, ns, ok := strings.Cut(arg, ":")
-	if !ok {
-		return fmt.Errorf("格式是 peek:偏移:長度")
+	f := strings.Split(arg, ":")
+	if len(f) != 2 && len(f) != 3 {
+		return fmt.Errorf("格式是 peek:偏移:長度 或 peek:段:偏移:長度")
 	}
-	off, err := strconv.ParseUint(strings.TrimSpace(offs), 16, 16)
+	var addr oracle.Addr
+	var label string
+	if len(f) == 3 {
+		seg, err := strconv.ParseUint(strings.TrimSpace(f[0]), 16, 16)
+		if err != nil {
+			return err
+		}
+		off, err := strconv.ParseUint(strings.TrimSpace(f[1]), 16, 16)
+		if err != nil {
+			return err
+		}
+		addr, label = oracle.Far(uint16(seg), uint16(off)),
+			fmt.Sprintf("%04X:%04X", seg, off)
+		f = f[1:]
+	} else {
+		off, err := strconv.ParseUint(strings.TrimSpace(f[0]), 16, 16)
+		if err != nil {
+			return err
+		}
+		addr, label = o.DS(uint16(off)), fmt.Sprintf("ds:%04X", off)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(f[1]))
 	if err != nil {
 		return err
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(ns))
-	if err != nil {
-		return err
-	}
-	buf := o.Bytes(o.DS(uint16(off)), n)
+	buf := o.Bytes(addr, n)
 	parts := make([]string, len(buf))
 	for i, b := range buf {
 		parts[i] = fmt.Sprintf("%02X", b)
 	}
-	fmt.Printf("   ds:%04X = %s\n", off, strings.Join(parts, " "))
+	fmt.Printf("   %s = %s\n", label, strings.Join(parts, " "))
 	return nil
 }
 
