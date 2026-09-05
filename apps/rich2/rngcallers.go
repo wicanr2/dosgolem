@@ -32,7 +32,7 @@ var RNDCallers = []RNDCaller{
 	{0x2C5D0, "股市更新 1", "每輪各 20 次 ＝ 每支股票一次（rich2 的 StockCount ＝ 20）"},
 	{0x2C707, "股市更新 2", "同上，實測 19 次——有一支走了別的分支"},
 	{0x2C7EA, "股市更新 3", "同上"},
-	{0x13681, "發卡 INT(RND×100)", "docs/re/048 的牌堆／手牌交換"},
+	// 發卡那一段用區間認（見 CardDrawLo／CardDrawHi），不列單一位址。
 	{0x137B6, "新聞 INT(RND×16)+100", "docs/re/022 §6"},
 }
 
@@ -52,6 +52,9 @@ func CallerName(ida uint32) string {
 		if c.IDA == ida {
 			return c.Name
 		}
+	}
+	if ida >= CardDrawLo && ida < CardDrawHi {
+		return "發卡 INT(RND×100)"
 	}
 	if ida >= CasinoLo && ida < CasinoHi {
 		return "賭場（段內，未逐項解）"
@@ -123,8 +126,16 @@ func InWindow(calls []basic.Call, lo, hi uint64) []basic.Call {
 	return out
 }
 
-// CardDrawCaller 是發卡那一次 `RND` 的呼叫端（`rich2/docs/re/048`）。
-const CardDrawCaller = 0x13681
+// 發卡那一段的範圍（`rich2/docs/re/048`：`0x13681`–`0x137B5`，
+// 尾端接著新聞格的進入點 `0x137B6`）。
+//
+// ⚠ **用區間不是用單一位址。** `13681` 是那一段的**起點**，不是
+// `RND` 的返回位址——第一版拿它去等值比對，`DeckSlots` 回空陣列，
+// 而「回空」看起來就像「這一步沒發卡」。
+const (
+	CardDrawLo = 0x13681
+	CardDrawHi = 0x137B6
+)
 
 // DeckSlots 從一段抽取裡篩出發卡的那幾次，算成牌堆索引 `INT(RND×100)`。
 //
@@ -134,7 +145,7 @@ const CardDrawCaller = 0x13681
 func DeckSlots(o *oracle.Oracle, calls []basic.Call) []int {
 	var out []int
 	for _, c := range calls {
-		if o.ToIDA(c.Caller) != CardDrawCaller {
+		if at := o.ToIDA(c.Caller); at < CardDrawLo || at >= CardDrawHi {
 			continue
 		}
 		out = append(out, int(uint64(c.Next())*uint64(DeckSize)/basic.LCGMod))
