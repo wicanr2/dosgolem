@@ -15,6 +15,10 @@
 //	move:X,Y          只移動游標
 //	peek:OFF:N        印出 ds:OFF 起 N 個 byte（十六進位偏移）
 //	peek:SEG:OFF:N    印出 SEG:OFF 起 N 個 byte（程式執行期配置的東西要用這個）
+//	ipeek:LIN:N       印出 IDA 線性位址 LIN 起 N 個 byte（`cs:word_XXXX` 用這個）
+//	tile:TX,TY        把游標移到大地圖的第 (TX,TY) 格（**選據點要用這個**）
+//	celltile          印出游標現在在第幾格
+//	runto:LIN[,N]     跑到 CS:IP 走到 IDA 線性位址 LIN（預算 N 道指令，預設 4 億）
 //	hotspots          印出目前畫面的熱區圖（編號 → 像素矩形）
 //	at:X,Y            印出某個像素座標上的熱區編號
 //	sclick:X,Y        **大地圖上**的畫面座標點擊（先把捲動原點歸零）
@@ -166,6 +170,44 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		return o.Press()
 	case "peek":
 		return peek(o, arg)
+	case "ipeek":
+		return ipeek(o, arg)
+	case "tile":
+		tx, ty, err := point(arg, false)
+		if err != nil {
+			return err
+		}
+		if err := wolong.PointAtTile(o, tx, ty); err != nil {
+			return err
+		}
+		mx, my := o.Mouse()
+		fmt.Printf("   游標停在第 (%d,%d) 格，滑鼠 (%d,%d)\n", tx, ty, mx, my)
+		return nil
+	case "runto":
+		// `runto:LIN[,N]`：跑到 CS:IP 走到某個 IDA 線性位址。
+		//
+		// ⭐ **即時制的取樣點寫成「事件」而不是秒數。** 等一場仗開打
+		// 不知道要幾天，但知道它一定會走到 `sub_11B5A`。
+		spec, budgetArg, _ := strings.Cut(arg, ",")
+		lin, err := strconv.ParseUint(strings.TrimSpace(spec), 16, 32)
+		if err != nil {
+			return err
+		}
+		b := uint64(400_000_000)
+		if budgetArg != "" {
+			if b, err = strconv.ParseUint(strings.TrimSpace(budgetArg), 10, 64); err != nil {
+				return err
+			}
+		}
+		if err := o.RunUntil(oracle.At(o.IDA(uint32(lin))), oracle.Budget(b)); err != nil {
+			return err
+		}
+		fmt.Printf("   走到 %05X（遊戲時鐘 %s）\n", lin, wolong.Clock(o))
+		return nil
+	case "celltile":
+		x, y := wolong.CursorTile(o)
+		fmt.Printf("   游標所在的格 ＝ (%d,%d)\n", x, y)
+		return nil
 	case "origin":
 		ox, oy := wolong.ScrollOrigin(o)
 		cx, cy := wolong.ScreenCursor(o)
@@ -304,6 +346,32 @@ func peek(o *oracle.Oracle, arg string) error {
 		parts[i] = fmt.Sprintf("%02X", b)
 	}
 	fmt.Printf("   %s = %s\n", label, strings.Join(parts, " "))
+	return nil
+}
+
+// ipeek 印出一個 **IDA 線性位址**起 N 個 byte。
+//
+// ⚠ **`cs:word_1989A` 這種變數 `peek` 讀不到**——它不在 DGROUP，
+// 而它的段要看程式載到哪裡。RE 筆記寫的是線性位址，這一支就吃線性位址。
+func ipeek(o *oracle.Oracle, arg string) error {
+	f := strings.Split(arg, ":")
+	if len(f) != 2 {
+		return fmt.Errorf("格式是 ipeek:線性位址:長度")
+	}
+	lin, err := strconv.ParseUint(strings.TrimSpace(f[0]), 16, 32)
+	if err != nil {
+		return err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(f[1]))
+	if err != nil {
+		return err
+	}
+	buf := o.Bytes(o.IDA(uint32(lin)), n)
+	parts := make([]string, len(buf))
+	for i, b := range buf {
+		parts[i] = fmt.Sprintf("%02X", b)
+	}
+	fmt.Printf("   %05X = %s\n", lin, strings.Join(parts, " "))
 	return nil
 }
 

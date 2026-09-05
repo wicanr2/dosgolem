@@ -379,3 +379,134 @@ func TapScreen(o *oracle.Oracle, x, y int, opts ...oracle.ClickOpt) error {
 	}
 	return o.Tap(x, y, opts...)
 }
+
+// ---- 大地圖的格座標 ------------------------------------------------------
+
+// 游標所在的**地圖格**，由 `sub_11F7F` 每圈算好放在這裡。
+// `sub_1709E`（判定那一格是不是據點）直接讀這兩個字。
+//
+// ⚠ 位址是 IDA 線性位址，**不在 DGROUP**——它們是 `cs:word_1989A`／
+// `cs:word_1989C`，`o.DS()` 讀不到。
+const (
+	idaCursorTileX = 0x1989A
+	idaCursorTileY = 0x1989C
+)
+
+// CursorTile 讀遊戲算出來的「游標在第幾格」。
+//
+// **這是唯一可信的判準。** 從滑鼠座標自己除 16 會差一格：格座標是
+// `原點 ÷ 16` 與 `畫面座標 ÷ 16` **各自無條件捨去之後相加**，
+// 原點不是 16 的倍數時兩次捨去會各吃掉一點。
+func CursorTile(o *oracle.Oracle) (x, y int) {
+	return int(o.Word(o.IDA(idaCursorTileX))), int(o.Word(o.IDA(idaCursorTileY)))
+}
+
+// TileSettle 是每一輪等遊戲重算的指令數。
+const TileSettle = 300_000
+
+// TilePx 是一格的像素邊長；TileYBias 是世界 Y 比第 0 格多出來的格數
+// （驅動範圍 0–4127 ＝ 258 格，地圖只有 256 格）。
+const (
+	TilePx    = 16
+	TileYBias = 2
+)
+
+// CursorW／CursorH 是滑鼠在大地圖上的可視範圍（＝遊戲畫面大小）。
+const (
+	CursorW = 640
+	CursorH = 400
+)
+
+// mapCursorSpots 是「把游標停在哪個畫面位置」的候選。
+//
+// ⚠ **不能讓游標停在畫面邊緣。** 鏡頭是被游標推著跑的，推到底之後
+// 游標就釘在角落——而角落多半壓在某個熱區上（右下是軍團情報 `#31`，
+// 左下是訊息窗 `#30`）。`sub_1703C` 看到熱區碼非 0 就**根本不會**去問
+// 「那一格是不是據點」，症狀是「按下去完全沒反應」。
+var mapCursorSpots = [][2]int{{320, 160}, {320, 96}, {200, 160}, {360, 288}, {96, 160}}
+
+// CursorTileTarget 把游標停在大地圖的第 (tx,ty) 格，**而且停在沒有熱區的地方**。
+//
+// 兩件事都要做到，缺一個就沒反應：
+//
+//  1. **格座標要相等**——用閉迴路問遊戲，不要自己換算（見 CursorTile）。
+//  2. **畫面位置要沒有熱區**——所以先把鏡頭捲到「目標格出現在畫面中央」，
+//     再在畫面內微調。直接把滑鼠丟到目標的世界座標會讓游標釘在角落。
+func PointAtTile(o *oracle.Oracle, tx, ty int) error {
+	px := tx*TilePx + TilePx/2
+	py := (ty+TileYBias)*TilePx + TilePx/2
+	sx, sy := mapCursorSpots[0][0], mapCursorSpots[0][1]
+	for _, s := range mapCursorSpots {
+		if HotzoneAt(o, s[0], s[1]) == 0 {
+			sx, sy = s[0], s[1]
+			break
+		}
+	}
+	if err := scrollTo(o, px-sx, py-sy); err != nil {
+		return err
+	}
+	ox, oy := ScrollOrigin(o)
+	mx, my := ox+sx, oy+sy
+	for round := 0; round < 6; round++ {
+		o.MoveMouse(mx, my)
+		if err := o.Run(TileSettle); err != nil {
+			return err
+		}
+		cx, cy := CursorTile(o)
+		if cx == tx && cy == ty {
+			gx, gy := ScreenCursor(o)
+			if z := HotzoneAt(o, gx, gy); z != 0 {
+				return fmt.Errorf("游標停在第 (%d,%d) 格，但畫面位置壓在熱區 #%d 上"+
+					"——`sub_1703C` 不會去問那一格是不是據點", tx, ty, z)
+			}
+			return nil
+		}
+		mx += (tx - cx) * TilePx
+		my += (ty - cy) * TilePx
+	}
+	cx, cy := CursorTile(o)
+	return fmt.Errorf("游標補不到第 (%d,%d) 格——補了六輪還停在 (%d,%d)", tx, ty, cx, cy)
+}
+
+// scrollTo 把捲動原點捲到 (wantX, wantY)。
+//
+// 鏡頭沒有自己的操作介面——**它是被游標推著跑的**，所以「捲到某個位置」
+// 就是「把滑鼠推到那個位置的畫面邊緣外」。推到地圖邊界會夾住，
+// 那時原點不再變化，接受夾住的值就好。
+func scrollTo(o *oracle.Oracle, wantX, wantY int) error {
+	if wantX < 0 {
+		wantX = 0
+	}
+	if wantY < 0 {
+		wantY = 0
+	}
+	for round := 0; round < 8; round++ {
+		ox, oy := ScrollOrigin(o)
+		if ox == wantX && oy == wantY {
+			return nil
+		}
+		mx, my := ox+CursorW/2, oy+CursorH/2
+		switch {
+		case wantX < ox:
+			mx = wantX
+		case wantX > ox:
+			mx = wantX + CursorW - 1
+		}
+		switch {
+		case wantY < oy:
+			my = wantY
+		case wantY > oy:
+			my = wantY + CursorH - 1
+		}
+		o.MoveMouse(mx, my)
+		if err := o.Run(TileSettle); err != nil {
+			return err
+		}
+		if nx, ny := ScrollOrigin(o); nx == ox && ny == oy {
+			// 捲不動了＝撞到地圖邊界。**這不是失敗**，
+			// 接受夾住的原點，游標的畫面位置由呼叫端自己補。
+			return nil
+		}
+	}
+	return nil
+}

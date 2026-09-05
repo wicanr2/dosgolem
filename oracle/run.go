@@ -131,10 +131,19 @@ func Steps(n uint64) Cond {
 }
 
 // At 是「CS:IP 走到這裡」。位址通常用 o.IDA(...) 造。
+//
+// ⚠ **比的是線性位址，不是 `段:偏移` 這一對數字。** 真實模式下同一段
+// 程式碼可以有無數種寫法（`02C5:000A` 與 `0110:1F0A` 是同一個 byte），
+// 而程式走到哪一種取決於呼叫端當時的 CS——不是我們挑的那一種。
+// 直接比結構會**安靜地永遠不成立**：條件跑滿預算才回錯，
+// 形狀與「那段程式碼真的沒被執行」一模一樣。
+// （`OnCall` 一開始就是比線性位址的，所以同一次執行裡
+// 「攔到了」與「跑不到」可以同時發生——就是這個差別造成的。）
 func At(a Addr) Cond {
+	want := a.Linear()
 	return Cond{
 		name:  "走到 " + a.String(),
-		ready: func(o *Oracle) bool { return o.IP() == a },
+		ready: func(o *Oracle) bool { return o.IP().Linear() == want },
 	}
 }
 
