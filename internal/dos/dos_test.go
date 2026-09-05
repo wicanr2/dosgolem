@@ -230,6 +230,21 @@ func TestInt10DisplayCombinationSaysVGA(t *testing.T) {
 	}
 }
 
+func TestInt10SetDACBlock(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x2200, 0x10
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.CX] = 2, 2
+	m.WriteBytes(cpu.Addr(0x2200, 0x10), []byte{0x3F, 0x20, 0x00, 0x01, 0x02, 0x03})
+	call(m, d, 0x10, 0x1012)
+	pal := m.Palette()
+	if pal[2] != [3]uint8{255, 130, 0} || pal[3] != [3]uint8{4, 8, 12} {
+		t.Fatalf("DAC block錯誤：色2=%v 色3=%v", pal[2], pal[3])
+	}
+	if d.Unimplemented[Call{Int: 0x10, AH: 0x10, AL: 0x12}] != 0 {
+		t.Fatal("已實作的1012h仍被列為未實作")
+	}
+}
+
 // TestVideoModeIsRemembered 釘住「設了 mode 13h 之後查得到」。
 //
 // `AH=0Fh` 一直回 3 的話，程式設完 mode 13h 再查會以為沒設成功。

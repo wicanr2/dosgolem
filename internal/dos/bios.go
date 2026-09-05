@@ -70,7 +70,19 @@ func (d *DOS) int10(c *cpu.CPU) {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
 		setAL(c, 0x1B) // 表示本服務有支援
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A, 0x10:
+	case 0x10:
+		if al(c) != 0x12 {
+			d.noteCPU(c, 0x10, fn, al(c))
+			break
+		}
+		// 設一段DAC色彩暫存器：BL起始色號、CX色數、ES:DX為RGB三元組。
+		// 色值是VGA原生6-bit；交給Machine的DAC狀態機統一遮罩與遞增。
+		d.M.Out8(0x3C8, bl(c))
+		addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+		for i := uint32(0); i < uint32(c.R[cpu.CX])*3; i++ {
+			d.M.Out8(0x3C9, d.M.Read8(addr+i))
+		}
+	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
 		// 設游標／取游標／設頁／捲動／寫字元／調色盤：收下就好，
 		// 呼叫端不看回傳值。
 
