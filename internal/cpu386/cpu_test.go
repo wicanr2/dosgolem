@@ -310,6 +310,24 @@ func TestProtectedModePushES(t *testing.T) {
 	}
 }
 
+func TestProtectedModeSegmentTransferAndIndirectCALL(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0x1e, 0x07, 0xff, 0xd0})
+	c := New(mem)
+	c.R[ESP], c.R[EAX] = 0x50, 0x40
+	c.Seg[SegSS], c.Seg[SegDS], c.Seg[SegES] = 0x168, 0x160, 0x28
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
+	for range 3 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.Seg[SegES] != 0x160 || c.R[ESP] != 0x4c || c.EIP != 0x40 || !bytes.Equal(mem[0x6c:0x70], []byte{4, 0, 0, 0}) {
+		t.Fatalf("ES=%X ESP=%X EIP=%X return=% X", c.Seg[SegES], c.R[ESP], c.EIP, mem[0x6c:0x70])
+	}
+}
+
 func TestProtectedModePopDS(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	mem[0] = 0x1f
