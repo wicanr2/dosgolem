@@ -1,6 +1,7 @@
 package rich2
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/wicanr2/dosgolem/oracle"
@@ -295,3 +296,63 @@ func trimTextSlot(raw []byte) []byte {
 	}
 	return raw[:end]
 }
+
+// RowByText 找出文字含有 want 的那一列（1 起算）；找不到回 0。
+//
+// **按內容找，不按列號。** 「第 5 列」在不同場所是不同的東西，
+// 「離開」在哪裡都是離開——按列號寫的對拍測試，換一張選單就默默對到
+// 別的項目上。
+//
+// want 是 **Big5 位元組**（原版的編碼）。比對前兩邊都會去掉半形與全形空白：
+// 原版的選單文字有對齊用的填充，例如股市場所的第 5 列是 `" 離　開"`
+// ——中間那個是全形空白，逐字比會找不到。
+func (s Selector) RowByText(o *oracle.Oracle, want string) int {
+	w := squeezeMenuText([]byte(want))
+	if len(w) == 0 {
+		return 0
+	}
+	for i, b := range s.Labels(o) {
+		if bytes.Contains(squeezeMenuText(b), w) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// squeezeMenuText 去掉半形空白與 Big5 的全形空白（`A1 40`）。
+func squeezeMenuText(b []byte) []byte {
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); i++ {
+		if b[i] == ' ' {
+			continue
+		}
+		if b[i] == 0xA1 && i+1 < len(b) && b[i+1] == 0x40 {
+			i++
+			continue
+		}
+		out = append(out, b[i])
+	}
+	return out
+}
+
+// 原版選單裡幾個常用的字（Big5），**從 `PART1.PAK` 區段 2 的位元組讀出來的**。
+// 那張表 §3.1 驗過與執行期的 `17ECh` 逐格相同，所以這就是原版真正用的編碼。
+//
+// ⚠ **不要憑印象打 Big5。** 第一版的「賣出」寫成 `BD E0`，實際是 `BD E6`
+// ——差一個位元組，而 `RowByText` 找不到的時候只會回 0，
+// 看起來像「這張選單沒有賣出這一項」，不像編碼打錯。
+//
+// 原始位元組（含對齊用的半形與全形空白，`RowByText` 會去掉）：
+//
+//	356  20 A4 55 A4 40 AD B6     下一頁
+//	357  20 B6 52 A1 40 B6 69     買　進
+//	358  20 BD E6 A1 40 A5 58     賣　出
+//	359  20 AC 64 A1 40 B8 DF     查　詢
+//	360  20 C2 F7 A1 40 B6 7D     離　開
+const (
+	MenuLeave = "\xc2\xf7\xb6\x7d"   // 離開
+	MenuBuy   = "\xb6R\xb6i"         // 買進
+	MenuSell  = "\xbd\xe6\xa5\x58"   // 賣出
+	MenuQuery = "\xacd\xb8\xdf"      // 查詢
+	MenuNext  = "\xa4U\xa4@\xad\xb6" // 下一頁
+)
