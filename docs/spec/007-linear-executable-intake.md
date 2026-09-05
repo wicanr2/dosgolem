@@ -1,6 +1,7 @@
 # 007 — LE 執行檔接入與 FD2 能力探針
 
-狀態：**READY**（§1–§4 的唯讀解析與失敗即關閉）／**DRAFT**（§5 的實際執行）
+狀態：**READY**（§1–§4 的唯讀解析、page map、object 映像與失敗即關閉）／
+**DRAFT**（§5 的實際執行）
 日期：2026-09-05
 前置：[`001`](001-scope-and-mvp.md)、[`003`](003-machine-and-loader.md)
 
@@ -28,6 +29,13 @@
 - 解析 byte／word order、CPU／OS、module flags、pages、EIP／ESP object 與 offset、
   page size、object table offset／count、page map、fixup、import、data pages 等欄位；
 - object table offset 以 LE header 起點為基準，每筆固定 24 bytes；
+- LE page map 每筆固定 4 bytes：前三 bytes 是高位在前的 24-bit 實體頁碼，末 byte
+  是 page flags；`PAGE_VALID=0` 與 `PAGE_ZEROED=3` 可重建，iterated／invalid／range
+  在尚無 decoder 前必須回錯誤；
+- data pages offset 是檔案絕對偏移；有效頁 N 從
+  `data_pages_offset + (N-1)*page_size` 取值，最後實體頁使用 `last_page_size`；
+- object 映像配置成 `virtual_size`，依 object 的 1-based page index 複製並保留尾端
+  zero fill；任何來源頁或目的範圍超界一律回錯誤；
 - 所有加法與乘法先做邊界檢查，截斷、超界、`LX` 或其他簽章一律回錯誤；
 - 不執行 MZ stub、不載入 object、不套 fixup，也不假裝已支援保護模式。
 
@@ -39,6 +47,11 @@ offset `0x2C964`、ESP object 2／offset `0x56B0`；三筆 object 的
 2. `(0x56B0, 0x50000, 0x2043, 0x40, 4)`
 3. `(0x34D2, 0x60000, 0x2043, 0x44, 4)`
 
+固定實檔的 71 筆 page map 都是依序頁碼 1–71、flags 0。重建後三個 object 的
+SHA-256 分別是 `e6e686d4a6081e697d925d8ec3951cb25141a0baa567dda753049803f4bdb504`、
+`bf7abfabc1b49ea2ff1078a7d59a068d5cb5c359eac4baff6294fba718dd962f`、
+`1fb82889fdaa70b2e3f376ff76638ed565b1ef98070e2704efb27b66b361955b`。
+
 ## 3. READY：能力探針
 
 `cmd/leprobe` 只輸出格式與物件摘要。原版檔案由使用者以 `-exe` 提供；儲存庫
@@ -47,7 +60,8 @@ offset `0x2C964`、ESP object 2／offset `0x56B0`；三筆 object 的
 
 ## 4. 驗收
 
-- 合成 fixture 覆蓋有效 LE、非 MZ、非 LE、截斷 header、超界 object table；
+- 合成 fixture 覆蓋有效 LE、非 MZ、非 LE、截斷 header、超界 object／page table、
+  valid／zeroed page 與未支援 page flag；
 - 可選實檔測試只在 `DOSGOLEM_FD2_EXE` 存在時執行，先核對大小、MD5、SHA-256，
   再檢查 §2 錨點；缺檔必須 skip；
 - `go test ./...` 全綠；
@@ -58,4 +72,3 @@ offset `0x2C964`、ESP object 2／offset `0x56B0`；三筆 object 的
 以下尚未 READY，不可猜接：80386 指令與保護模式、描述子／分頁模型、LE page
 載入與 fixup、DPMI／DOS4GW 契約，以及 FD2 實際使用的 DOS／VGA 服務。每一層須以
 獨立語料或 DOSBox-X／原版同狀態結果驗證；硬體時序只採規格近似，不追逐週期一致。
-
