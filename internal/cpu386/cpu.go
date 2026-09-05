@@ -659,6 +659,15 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+	case op == 0xe9:
+		if operand16 {
+			return fail("16-bit near JMP 尚未支援")
+		}
+		delta, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
 	case op == 0x75:
 		if operand16 {
 			return fail("75 不接受 operand-size override")

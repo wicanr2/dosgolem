@@ -50,12 +50,12 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cbcc && steps < 238; steps++ {
+	for steps := 0; m.CPU.EIP != 0x45e36 && steps < 239; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cbcc {
+	if services.Calls() != 2 || m.CPU.EIP != 0x45e36 {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 0x3cbcc || m.CPU.R[cpu386.EBX] != 0x539c2 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
