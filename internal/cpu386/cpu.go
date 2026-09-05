@@ -374,6 +374,23 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
+	case op == 0x8e:
+		if operand16 || segmentOverride >= 0 {
+			return fail("8E 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		encoding := int((modrm >> 3) & 7)
+		segmentByEncoding := [...]int{SegES, -1, SegSS, SegDS, SegFS, SegGS}
+		if encoding >= len(segmentByEncoding) || segmentByEncoding[encoding] < 0 {
+			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
+		}
+		c.Seg[segmentByEncoding[encoding]] = uint16(c.R[modrm&7])
 	case op == 0x88:
 		if operand16 {
 			return fail("88 不接受 operand-size override")

@@ -1,8 +1,8 @@
 # FD2 王座廳第一句近狀態對拍
 
 本切片以固定雜湊 `FD2.EXE`、宣告式時間線及 320×200 PNG 比較原版與重製版的
-「兒臣索爾，晉見父王陛下。」畫面。原版由 dosgolem 分支的
-`audience-first-dialogue` 場景取得；重製端旁車另證實目前節點為
+「兒臣索爾，晉見父王陛下。」畫面。原版圖片由 dosgolem 分支管理的
+`audience-first-dialogue` 場景透過 DOSBox 輔助擷取取得；重製端旁車另證實目前節點為
 `story_ch00_handler`，相機格為 `(3,20)`，索爾位於 `(8,21)`，目前拍為
 `0x32382`，對白身分為 `FDTXT_033` 第0字串、第0句。
 
@@ -26,6 +26,9 @@
 因此剩餘差異不是等待數秒就會消失的過場相位；現有證據支持「對話
 組合器已高度對齊，主要缺口位於王座廳索引背景的 DAC／色盤來源」。
 在找到該 writer 與 consumer 前，不修改正式 renderer。
+
+2026-09-06 勘誤：上述像素數是 `dosbox-bootstrap` 輔助基準，不證明 dosgolem
+已能輸出王座廳。正式對拍須待 dosgolem 自行執行並重生原版擷取後才可升級。
 
 機器可讀結果見 `docs/evidence/fd2-audience-first-dialogue.json`；原始擷取、重製
 擷取與差異圖只保存在 `workplace/fd2-parity/`，不把遊戲素材加入版本控制。

@@ -21,7 +21,7 @@ func TestVersionedFD2ScenariosValidate(t *testing.T) {
 }
 
 func TestScenarioValidateRejectsUnsupportedStateAndWrongGame(t *testing.T) {
-	good := Scenario{Schema: 1, Game: "fd2", Name: "title", State: "near-state", Cycles: "fixed 12000", Timeline: "wait:1", ExpectedCapture: "title.png"}
+	good := Scenario{Schema: 2, Game: "fd2", Name: "title", State: "near-state", OriginalRunner: "dosgolem", Cycles: "fixed 12000", Timeline: "wait:1", ExpectedCapture: "title.png"}
 	if err := good.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +29,17 @@ func TestScenarioValidateRejectsUnsupportedStateAndWrongGame(t *testing.T) {
 	bad.State = "confirmed"
 	if err := bad.Validate(); err == nil {
 		t.Fatal("expected unsupported evidence level error")
+	}
+	bad = good
+	bad.OriginalRunner = "dosbox-bootstrap"
+	bad.State = "same-state"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected bootstrap runner same-state error")
+	}
+	bad = good
+	bad.OriginalRunner = "dosbox-x"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected unsupported original runner error")
 	}
 	bad = good
 	bad.Game = "rich2"

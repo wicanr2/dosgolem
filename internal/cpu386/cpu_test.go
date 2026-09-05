@@ -109,6 +109,26 @@ func TestMoveSegmentToRegisterAndAbsoluteMemory(t *testing.T) {
 	}
 }
 
+func TestMoveRegisterToSegmentNarrowForm(t *testing.T) {
+	mem := testBus{0x8e, 0xc3} // mov es,bx
+	c := New(mem)
+	c.R[EBX] = 0x12340160
+	c.EFlags = 0x246
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Seg[SegES] != 0x160 || c.EIP != 2 || c.EFlags != 0x246 {
+		t.Fatalf("ES=%04X EIP=%d EFLAGS=%08X", c.Seg[SegES], c.EIP, c.EFlags)
+	}
+
+	for _, code := range [][]byte{{0x8e, 0xcb}, {0x8e, 0x03}} { // CS destination; memory source
+		c = New(testBus(code))
+		if err := c.Step(); err == nil {
+			t.Fatalf("unsupported 8E form % X was accepted", code)
+		}
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)

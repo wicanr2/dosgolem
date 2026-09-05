@@ -34,6 +34,7 @@ type report struct {
 	Game                  string                      `json:"game"`
 	Scenario              string                      `json:"scenario"`
 	State                 string                      `json:"state"`
+	OriginalRunner        string                      `json:"original_runner"`
 	Executable            fileIdentity                `json:"executable"`
 	InputSHA256           string                      `json:"input_sha256"`
 	DosgolemCommit        string                      `json:"dosgolem_commit"`
@@ -107,8 +108,9 @@ func main() {
 		die(err)
 	}
 	r := report{
-		Schema: 1, Game: "fd2", Scenario: scenario.Name, State: scenario.State,
-		Executable: identity, InputSHA256: inputSHA,
+		Schema: 2, Game: "fd2", Scenario: scenario.Name, State: scenario.State,
+		OriginalRunner: scenario.OriginalRunner,
+		Executable:     identity, InputSHA256: inputSHA,
 		DosgolemCommit: *dosgolemCommit, RemakeCommit: *remakeCommit,
 		OriginalCapture:       filepath.Base(*original),
 		OriginalCaptureSHA256: originalSHA,
