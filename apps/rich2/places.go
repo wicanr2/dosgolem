@@ -152,3 +152,57 @@ func Hand(o *oracle.Oracle, player int) []int {
 	}
 	return out
 }
+
+// ---- 事件 ----------------------------------------------------------------
+
+// DescEvent 是事件表的描述子（`rich2/docs/re/014` §58，0..159 × 0..8、2B）。
+//
+// 內容與 `DATA.PAK` 區段 4 逐位元組相同（`rich2/docs/re/022`）。
+// 160 列切成三段：0–99 命運（**加權**，32 種佔 1–5 列不等）、
+// 100–119 新聞（20 種各一列）、120–155 卡片效果（36 張各一列）。
+const DescEvent = 0x1454
+
+const (
+	EventRows = 160
+	EventCols = 9
+)
+
+// Events 開啟事件表。
+func Events(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescEvent,
+		[]basic.Dim{{Lo: 0, N: EventRows}, {Lo: 0, N: EventCols}}, 2)
+}
+
+// EventRow 讀一列事件（九個欄位）。欄 0 是動作代碼。
+func EventRow(o *oracle.Oracle, row int) []int {
+	a := Events(o)
+	out := make([]int, EventCols)
+	for c := range out {
+		out[c] = int(a.Int16(row, c))
+	}
+	return out
+}
+
+// 運氣格那一段的範圍（`rich2/docs/re/020` §2：運氣 0x13580、卡片 0x13669）。
+//
+// 運氣格抽一次 `RND` 決定事件列，然後把該列的欄 0（動作代碼）寫進
+// `ds:2FAh`、**再叫一次分派器**（`020` §4）——所以 `WatchDispatch` 會看到
+// 兩筆：先是種類 2（運氣），接著是那個動作代碼。
+const (
+	LuckLo = 0x13580
+	LuckHi = 0x13669
+)
+
+// FortuneRows 從一段抽取裡篩出運氣格的那幾次，算成事件表的列號。
+//
+// 命運那一段是 0–99（`rich2/docs/re/022` §2），所以係數是 100。
+func FortuneRows(o *oracle.Oracle, calls []basic.Call) []int {
+	var out []int
+	for _, c := range calls {
+		if at := o.ToIDA(c.Caller); at < LuckLo || at >= LuckHi {
+			continue
+		}
+		out = append(out, int(uint64(c.Next())*100/basic.LCGMod))
+	}
+	return out
+}
