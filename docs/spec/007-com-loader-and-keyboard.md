@@ -5,6 +5,19 @@
 延伸 `003-machine-and-loader.md`（載入器）與 `004-dos-bios-services.md`（服務層）。
 這一份只寫新增的部分。
 
+分層照 `006-layering.md` 的判準：**「換一支 binary 之後，這段程式碼還成立嗎？」**
+
+| 東西 | 落在哪 | 為什麼 |
+|---|---|---|
+| `.COM` 載入器、`int 16h` 佇列、IRQ1 與埠 `60h`、`TextScreen`、`Find` | 機器層 | 只依賴 DOS／BIOS／IBM PC 的規格，看不到任何特定程式 |
+| `cmd/run` | `cmd/` | 吃程式路徑，不認識被跑的是什麼 |
+| `package dosgolem`（模組根目錄） | 機器層的對外門面 | `internal/` 跨模組 import 不到；`oracle/` 是觀測層，有自己的取捨（`Click`／`Save`／IDA 位址），不是每個使用端都要 |
+| 「怎麼在記憶體裡找 `SYSTEM.PME.86`」「dispatch 目標怎麼判」「p-code 軌跡怎麼取」 | **不在這裡** | 那是某一支 binary 的知識，屬於 `apps/` 或使用端的 repo |
+
+最後一列是這份 spec 最重要的一條。**第一版把那些寫成了 `oracle/psys`**，
+與 `oracle/rich2` 是同一個問題；已經整包移到使用端
+（[`Parhelion-PME86`](https://github.com/wicanr2/Parhelion-PME86) 的 `oracle/`）。
+
 ## 為什麼
 
 `RUN_full.EXE` 是 MZ 執行檔，輸入走 `int 21h AH=3Fh`。這兩件事都不是 DOS 程式的通例：
