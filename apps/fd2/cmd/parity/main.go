@@ -30,18 +30,20 @@ type fileIdentity struct {
 }
 
 type report struct {
-	Schema              int              `json:"schema"`
-	Game                string           `json:"game"`
-	Scenario            string           `json:"scenario"`
-	State               string           `json:"state"`
-	Executable          fileIdentity     `json:"executable"`
-	InputSHA256         string           `json:"input_sha256"`
-	DosgolemCommit      string           `json:"dosgolem_commit"`
-	RemakeCommit        string           `json:"remake_commit"`
-	OriginalCapture     string           `json:"original_capture"`
-	RemakeCapture       string           `json:"remake_capture"`
-	RemakeNormalization string           `json:"remake_normalization"`
-	Comparison          fd2parity.Result `json:"comparison"`
+	Schema                int              `json:"schema"`
+	Game                  string           `json:"game"`
+	Scenario              string           `json:"scenario"`
+	State                 string           `json:"state"`
+	Executable            fileIdentity     `json:"executable"`
+	InputSHA256           string           `json:"input_sha256"`
+	DosgolemCommit        string           `json:"dosgolem_commit"`
+	RemakeCommit          string           `json:"remake_commit"`
+	OriginalCapture       string           `json:"original_capture"`
+	OriginalCaptureSHA256 string           `json:"original_capture_sha256"`
+	RemakeCapture         string           `json:"remake_capture"`
+	RemakeCaptureSHA256   string           `json:"remake_capture_sha256"`
+	RemakeNormalization   string           `json:"remake_normalization"`
+	Comparison            fd2parity.Result `json:"comparison"`
 }
 
 func main() {
@@ -76,6 +78,14 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	originalSHA, err := hashFile(*original)
+	if err != nil {
+		die(err)
+	}
+	remakeSHA, err := hashFile(*remake)
+	if err != nil {
+		die(err)
+	}
 	a, err := loadPNG(*original)
 	if err != nil {
 		die(err)
@@ -99,9 +109,12 @@ func main() {
 		Schema: 1, Game: "fd2", Scenario: scenario.Name, State: scenario.State,
 		Executable: identity, InputSHA256: inputSHA,
 		DosgolemCommit: *dosgolemCommit, RemakeCommit: *remakeCommit,
-		OriginalCapture: filepath.Base(*original), RemakeCapture: filepath.Base(*remake),
-		RemakeNormalization: normalization,
-		Comparison:          comparison,
+		OriginalCapture:       filepath.Base(*original),
+		OriginalCaptureSHA256: originalSHA,
+		RemakeCapture:         filepath.Base(*remake),
+		RemakeCaptureSHA256:   remakeSHA,
+		RemakeNormalization:   normalization,
+		Comparison:            comparison,
 	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
