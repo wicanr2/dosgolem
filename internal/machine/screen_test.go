@@ -71,3 +71,26 @@ func TestSegmentBytesRefusesToRunOffTheEnd(t *testing.T) {
 		t.Fatalf("越界卻回了 %d 個 byte", len(b))
 	}
 }
+
+func TestSegmentBytesAllowsAnExactFitAtTheTop(t *testing.T) {
+	// 上界差一格的症狀是「最後一段讀不出來」而且回 nil，
+	// 看起來像那一段不存在。
+	m := New()
+	const top = uint16(0xFFFF) // 線性 FFFF0，剩 16 個 byte
+	if b := m.SegmentBytes(top, 16); len(b) != 16 {
+		t.Errorf("剛好放得下卻回了 %d 個 byte", len(b))
+	}
+	if b := m.SegmentBytes(top, 17); b != nil {
+		t.Errorf("超出一個 byte 卻回了 %d 個", len(b))
+	}
+}
+
+func TestFindReportsOverlappingHits(t *testing.T) {
+	// 重疊的命中要全部回報。跳過已命中的長度會讓 "aaa" 裡的第二個 "aa" 消失，
+	// 而那看起來像「只出現一次」。
+	m := New()
+	m.WriteBytes(0x2000, []byte{0xAA, 0xAA, 0xAA})
+	if hits := m.Find([]byte{0xAA, 0xAA}); len(hits) != 2 {
+		t.Fatalf("找到 %d 個，該是 2：%v", len(hits), hits)
+	}
+}

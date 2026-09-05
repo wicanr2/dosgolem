@@ -270,6 +270,14 @@ func (m *Machine) Write16(a uint32, v uint16) {
 }
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
+	// 有監看點時走 Write8，讓「誰寫的」連載入器與宿主擺的資料一起看得到。
+	// 沒有監看點時直接寫——載入映像會走這裡，一個 byte 一次呼叫太貴。
+	if len(m.writeWatches) > 0 {
+		for i, v := range b {
+			m.Write8(a+uint32(i), v)
+		}
+		return
+	}
 	for i, v := range b {
 		m.Mem[(a+uint32(i))&0xFFFFF] = v
 	}

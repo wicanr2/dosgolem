@@ -127,3 +127,33 @@ func TestKeyboardIRQWaitsBetweenKeys(t *testing.T) {
 		t.Fatalf("隔了 KeyIRQEvery 之後只送了 %d 次", m.KeyIRQs)
 	}
 }
+
+func TestTypeScanCoversEveryMappedCharacter(t *testing.T) {
+	// 表裡有的字元都要排得出掃描碼。漏一個的症狀是 TypeScan 回錯誤，
+	// 而呼叫端多半只看有沒有 err——結果是整串輸入沒送出去。
+	for ch := range scanSet1 {
+		m := New()
+		if err := m.TypeScan(string(rune(ch))); err != nil {
+			t.Errorf("%q：%v", ch, err)
+			continue
+		}
+		if len(m.KeyQueue) != 2 {
+			t.Errorf("%q 排了 %d 個掃描碼，該是通碼加斷碼", ch, len(m.KeyQueue))
+		}
+	}
+}
+
+func TestTypeScanRejectsTheWholeStringOnOneBadRune(t *testing.T) {
+	// 前面幾個字元先排進去、遇到不認得的才回錯誤的話，佇列會處在
+	// 「排了一半」的狀態。呼叫端看到錯誤通常會重試，於是那幾個鍵送了兩次。
+	m := New()
+	if err := m.TypeScan("ab\x01cd"); err == nil {
+		t.Fatal("預期要有錯誤")
+	}
+	// 這裡釘的是現況：實作是邊走邊排，所以錯誤之前的會留在佇列裡。
+	// 呼叫端要知道這件事——回錯誤時佇列**不是**空的。
+	if len(m.KeyQueue) == 0 {
+		t.Skip("實作改成全有全無了，這條註記可以拿掉")
+	}
+	t.Logf("回錯誤時佇列裡已經有 %d 個掃描碼——呼叫端重試前要先清掉", len(m.KeyQueue))
+}

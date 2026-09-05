@@ -156,3 +156,75 @@ func TestProbesCostNothingWhenUnused(t *testing.T) {
 		t.Errorf("沒設監看點卻走到 %04X:%04X", m.CPU.Seg[cpu.CS], m.CPU.IP)
 	}
 }
+
+func TestWatchWriteHonoursTheRangeEdges(t *testing.T) {
+	// 範圍差一格的症狀是「那個位址的寫入看不到」，而看不到不會報錯。
+	m := New()
+	var hit []uint32
+	m.WatchWrite(0x500, 0x502, func(_ *Machine, a uint32, _, _ uint8) { hit = append(hit, a) })
+	for _, a := range []uint32{0x4FF, 0x500, 0x501, 0x502, 0x503} {
+		m.Write8(a, 1)
+	}
+	want := []uint32{0x500, 0x501, 0x502}
+	if len(hit) != len(want) {
+		t.Fatalf("觸發在 %v", hit)
+	}
+	for i := range want {
+		if hit[i] != want[i] {
+			t.Fatalf("觸發在 %v，該是 %v", hit, want)
+		}
+	}
+}
+
+func TestWatchWriteSeesHostWritesToo(t *testing.T) {
+	// 載入器與測試自己擺的資料也走 Write8／Write16／WriteBytes。
+	// 只掛 CPU 那條路的話，「這塊資料是誰放的」會少一半答案。
+	m := New()
+	hits := 0
+	m.WatchWrite(0x600, 0x603, func(*Machine, uint32, uint8, uint8) { hits++ })
+	m.Write16(0x600, 0x1234)
+	m.WriteBytes(0x602, []byte{1, 2})
+	if hits != 4 {
+		t.Fatalf("觸發了 %d 次，該是 4", hits)
+	}
+}
+
+func TestBreakpointBeatsThePredicate(t *testing.T) {
+	// 兩個同時成立時要回中斷點——回條件成立的話呼叫端會以為沒撞到中斷點，
+	// 然後在下一次 RunUntil 立刻撞上，位置卻對不起來。
+	m := tinyProgram(t, 0x90, 0x90, 0x90, 0xCD, 0x20)
+	m.BreakAt(PSPSeg, 0x101)
+	why, err := m.RunUntil(func(mm *Machine) bool { return mm.CPU.IP == 0x101 }, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why != StopBreakpoint {
+		t.Fatalf("回的是 %v", why)
+	}
+}
+
+func TestUnwatchIgnoresUnknownID(t *testing.T) {
+	m := New()
+	m.Unwatch(0)
+	m.Unwatch(9999)
+	m.ClearBreak(9999)
+}
+
+func TestWatchWordSurvivesUnwatchOfAnother(t *testing.T) {
+	// 兩種監看點共用同一組 id。拿掉一個卻順手殺掉另一個，
+	// 症狀是「某個監看點莫名其妙不觸發了」。
+	m := New()
+	wordHits, writeHits := 0, 0
+	id := m.WatchWrite(0x700, 0x701, func(*Machine, uint32, uint8, uint8) { writeHits++ })
+	m.WatchWord(0x700, func(*Machine, uint32, uint16, uint16) { wordHits++ })
+	m.Unwatch(id)
+
+	m.Write16(0x700, 0x1234)
+	m.pollWords()
+	if writeHits != 0 {
+		t.Errorf("拿掉的那個還觸發了 %d 次", writeHits)
+	}
+	if wordHits != 1 {
+		t.Errorf("另一個觸發了 %d 次，該是 1", wordHits)
+	}
+}
