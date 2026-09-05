@@ -48,16 +48,14 @@ func main() {
 	original := flag.String("original", "", "原版 320x200 PNG（必填）")
 	remake := flag.String("remake", "", "重製版 320x200 PNG（必填）")
 	input := flag.String("input", "", "宣告式輸入 JSON（必填）")
-	scenario := flag.String("scenario", "", "場景穩定名稱（必填）")
-	state := flag.String("state", "", "same-state、near-state 或 layout-only（必填）")
 	dosgolemCommit := flag.String("dosgolem-commit", "", "dosgolem Git commit（必填）")
 	remakeCommit := flag.String("remake-commit", "", "重製版 Git commit（必填）")
 	reportPath := flag.String("report", "", "輸出 JSON 路徑（必填）")
 	diffPath := flag.String("diff", "", "輸出差異 PNG 路徑（必填）")
 	flag.Parse()
 	if *exe == "" || *original == "" || *remake == "" || *input == "" ||
-		*scenario == "" || *dosgolemCommit == "" || *remakeCommit == "" ||
-		*reportPath == "" || *diffPath == "" || !validState(*state) {
+		*dosgolemCommit == "" || *remakeCommit == "" ||
+		*reportPath == "" || *diffPath == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -70,6 +68,10 @@ func main() {
 		die(fmt.Errorf("FD2.EXE 身分不符：size=%d md5=%s sha256=%s", identity.Size, identity.MD5, identity.SHA256))
 	}
 	inputSHA, err := hashFile(*input)
+	if err != nil {
+		die(err)
+	}
+	scenario, err := fd2parity.LoadScenario(*input)
 	if err != nil {
 		die(err)
 	}
@@ -89,7 +91,7 @@ func main() {
 		die(err)
 	}
 	r := report{
-		Schema: 1, Game: "fd2", Scenario: *scenario, State: *state,
+		Schema: 1, Game: "fd2", Scenario: scenario.Name, State: scenario.State,
 		Executable: identity, InputSHA256: inputSHA,
 		DosgolemCommit: *dosgolemCommit, RemakeCommit: *remakeCommit,
 		OriginalCapture: filepath.Base(*original), RemakeCapture: filepath.Base(*remake),
@@ -104,10 +106,6 @@ func main() {
 		die(err)
 	}
 	fmt.Printf("相同像素 %.3f%%，RGB 平均絕對誤差 %.3f\n", comparison.EqualRatio*100, comparison.MeanAbsRGB)
-}
-
-func validState(s string) bool {
-	return s == "same-state" || s == "near-state" || s == "layout-only"
 }
 
 func identify(path string) (fileIdentity, error) {
