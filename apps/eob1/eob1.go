@@ -65,6 +65,157 @@ func ToTitleInvalidSaveReturn(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToSavedGameEntrance 從標題第一列載入有效EOBDATA.SAV，等待原版存檔的地城畫面穩定。
+func ToSavedGameEntrance(o *oracle.Oracle) error {
+	if err := ToTitleMenu(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("有效原版存檔地城入口", 0, 0, oracle.Width, oracle.Height,
+		"823a0224b25517894968eb0cd1ba95bc5e8e3533084b31a75964f13c93639e1b"), oracle.Budget(40_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待有效原版存檔載入：%w", err)
+	}
+	return nil
+}
+
+// ToSavedGameProtectionPrepared 從有效原版存檔進CAMP，替TENMIYANA排入Protection From Evil。
+func ToSavedGameProtectionPrepared(o *oracle.Oracle) error {
+	if err := ToSavedGameEntrance(o); err != nil {
+		return err
+	}
+	if err := o.Click(304, 187, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1有效存檔開啟CAMP：%w", err)
+	}
+	for i := 0; i < 2; i++ {
+		o.PressKey(oracle.KeyDown)
+		if err := o.Run(1_000_000); err != nil {
+			return fmt.Errorf("EOB1 CAMP選取Pray Spells：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("有效存檔CAMP祈禱選角", 0, 0, oracle.Width, oracle.Height,
+		"421302378922e208ca941c1b2e17050debe55a77f60b33b980df042e70333c5a"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP祈禱選角：%w", err)
+	}
+	// TENMIYANA是第四格；點其肖像安全點。
+	if err := o.Click(272, 78, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1選取TENMIYANA祈禱：%w", err)
+	}
+	// 一級第五列是Protection From Evil。
+	for i := 0; i < 4; i++ {
+		o.PressKey(oracle.KeyDown)
+		if err := o.Run(250_000); err != nil {
+			return fmt.Errorf("EOB1選取Protection From Evil：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("TENMIYANA排入Protection From Evil", 0, 0, 176, 168,
+		"a02ba3f50182043bc84b840f381c1a963ef46044bd1df527cb857720d61cf259"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Protection From Evil排入：%w", err)
+	}
+	return nil
+}
+
+// ToSavedGameProtectionRested 完成八小時休息，令TENMIYANA取得Protection From Evil。
+func ToSavedGameProtectionRested(o *oracle.Oracle) error {
+	if err := ToSavedGameProtectionPrepared(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.Run(1_000_000); err != nil {
+		return fmt.Errorf("EOB1由祈禱頁返回CAMP：%w", err)
+	}
+	for i := 0; i < 2; i++ {
+		o.PressKey(oracle.KeyUp)
+		if err := o.Run(500_000); err != nil {
+			return fmt.Errorf("EOB1 CAMP選取Rest Party：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	const completed = "7afb4aaf383b8f987338d9211fb751145248730ac1e09ce65027033077db8fbf"
+	leftCamp := false
+	var next uint64
+	returned := oracle.NewCond("有效存檔Protection From Evil休息完成", func(o *oracle.Oracle) bool {
+		if o.Steps() < next {
+			return false
+		}
+		next = o.Steps() + 100
+		indexed := o.Indexed()
+		region := make([]byte, 0, 176*168)
+		for row := 0; row < 168; row++ {
+			region = append(region, indexed[row*oracle.Width:row*oracle.Width+176]...)
+		}
+		current := fmt.Sprintf("%x", sha256.Sum256(region))
+		if current != completed {
+			leftCamp = true
+		}
+		return leftCamp && current == completed
+	})
+	if err := o.RunUntil(returned, oracle.Budget(40_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Protection From Evil休息完成：%w", err)
+	}
+	// 選角畫面會先於休息callback返回；讓交易收尾後才交給下一個Escape。
+	if err := o.Run(2_000_000); err != nil {
+		return fmt.Errorf("EOB1等待Protection From Evil休息事件收尾：%w", err)
+	}
+	return nil
+}
+
+// ToSavedGameProtectionBook 退出CAMP，再由TENMIYANA聖徽開啟一級牧師法術書。
+func ToSavedGameProtectionBook(o *oracle.Oracle) error {
+	if err := ToSavedGameProtectionRested(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("Protection From Evil休息後返回CAMP根選單", 0, 0, 176, 168,
+		"518da9a2266e58a2ee431128b788e8031da76c9b350251351c0117120b1e6be8"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待休息後返回CAMP根選單：%w", err)
+	}
+	o.PressKey(oracle.KeyEscape)
+	if err := o.RunUntil(screenDigest("Protection From Evil休息後返回地城", 0, 0, 176, 100,
+		"689c6d86fd088a78820474561dc899094714b396184bd492598e4f36d066100a"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待休息後離開CAMP：%w", err)
+	}
+	if err := o.Click(296, 87, oracle.RightButton(), oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1由TENMIYANA聖徽開書：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("TENMIYANA Protection From Evil法術書", 0, 0, 176, 168,
+		"1f985614d63c648842aea92b3b62cbecca1b5cd5ee11aacc4cd28ae5b893cf92"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待TENMIYANA法術書：%w", err)
+	}
+	return nil
+}
+
+// ToSavedGameProtectionTargeting 點Protection From Evil，進入原版角色目標選擇。
+func ToSavedGameProtectionTargeting(o *oracle.Oracle) error {
+	if err := ToSavedGameProtectionBook(o); err != nil {
+		return err
+	}
+	if err := o.Click(100, 133, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1選取Protection From Evil施法：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("Protection From Evil選擇目標", 0, 0, 176, 168,
+		"f00ab327ba9c9bcb7975e5fbbc69e2b39712ee9b8b498db9c1da00eb393b7e00"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Protection From Evil目標：%w", err)
+	}
+	return nil
+}
+
+// ToSavedGameProtectionCastOnAriel 點ARIEL角色面板，完成Protection From Evil施法。
+func ToSavedGameProtectionCastOnAriel(o *oracle.Oracle) error {
+	if err := ToSavedGameProtectionTargeting(o); err != nil {
+		return err
+	}
+	if err := o.Click(272, 26, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(2_000_000)); err != nil {
+		return fmt.Errorf("EOB1對ARIEL施放Protection From Evil：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("Protection From Evil施放於ARIEL", 0, 168, 320, 32,
+		"fd53da2992f12eda5ce14e4256a3e5f08aeea342aeac3f5ef5f4eb1b5ffbb934"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待Protection From Evil施放完成：%w", err)
+	}
+	return nil
+}
+
 // ToNewPartyCreation 從冷啟動正常選取START A NEW PARTY，走到建角入口完成繪製。
 func ToNewPartyCreation(o *oracle.Oracle) error {
 	if err := ToTitleMenu(o); err != nil {

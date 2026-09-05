@@ -169,6 +169,7 @@ const (
 	KeyL Key = 0x26
 	KeyM Key = 0x32
 	KeyT Key = 0x14
+	KeyZ Key = 0x2C
 )
 
 // PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。

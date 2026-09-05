@@ -62,6 +62,58 @@ func TestToTitleInvalidSaveErrorAndReturnRealData(t *testing.T) {
 	}
 }
 
+func TestToSavedGameEntranceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSavedGameEntrance(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "823a0224b25517894968eb0cd1ba95bc5e8e3533084b31a75964f13c93639e1b" {
+		t.Fatalf("有效存檔全畫面SHA-256=%s", got)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "13de273d44682a02ac7b72d4dc3baa8356d1b1394b5e05cbb7f88a0f17963546" {
+		t.Fatalf("有效存檔地城視窗SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 4 {
+		t.Fatalf("有效存檔載入port 60h讀取%d次，預期兩鍵make／break共4次", got)
+	}
+}
+
+func TestToSavedGameProtectionCastOnArielRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSavedGameProtectionCastOnAriel(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 168, 320, 32); got != "fd53da2992f12eda5ce14e4256a3e5f08aeea342aeac3f5ef5f4eb1b5ffbb934" {
+		t.Fatalf("Protection From Evil施放訊息區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 32 {
+		t.Fatalf("Protection From Evil施放port 60h讀取%d次，預期十六鍵make／break共32次", got)
+	}
+}
+
+func TestSavedGameProtectionTargetIgnoresZAndEnterRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToSavedGameProtectionTargeting(o); err != nil {
+		t.Fatalf("%v current=%s port=%d", err, digest(o.Indexed()), o.PortReads()[0x60])
+	}
+	want := append([]byte(nil), o.Indexed()...)
+	for _, key := range []oracle.Key{oracle.KeyZ, oracle.KeyEnter} {
+		o.PressKey(key)
+		if err := o.Run(1_000_000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := digest(o.Indexed()); got != digest(want) {
+		t.Fatalf("Z／Enter改變原版目標畫面SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 36 {
+		t.Fatalf("原版目標鍵盤探針port 60h讀取%d次，預期十八鍵make／break共36次", got)
+	}
+}
+
 func TestToNewPartyCreationRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()
