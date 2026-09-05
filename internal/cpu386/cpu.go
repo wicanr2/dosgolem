@@ -980,6 +980,18 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
 		}
 		c.R[ESP] = nextESP
+	case op == 0x9c:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("9C 不接受目前的 prefix")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EFlags) {
+			return fail(fmt.Sprintf("PUSHFD stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
 	case op == 0xe8:
 		if operand16 {
 			return fail("16-bit near CALL 尚未支援")
@@ -1152,6 +1164,11 @@ func (c *CPU) Step() error {
 		}
 	case op == 0xfb:
 		c.EFlags |= IF
+	case op == 0xfa:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("FA 不接受目前的 prefix")
+		}
+		c.EFlags &^= IF
 	case op == 0x81:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("81 不接受目前的 prefix")
