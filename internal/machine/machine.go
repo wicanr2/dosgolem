@@ -115,6 +115,14 @@ type Machine struct {
 	kbData     uint8
 	nextKeyIRQ uint64
 
+	// 觀測用（probe.go）。沒設監看點時這幾個都是空的，熱路徑只多一次長度檢查。
+	writeWatches []writeWatch
+	wordWatches  []wordWatch
+	breaks       map[int]uint32
+	nextProbe    int
+	insnCS       uint16
+	insnIP       uint16
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -165,7 +173,16 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
 
-func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
+func (m *Machine) Write8(a uint32, v uint8) {
+	a &= 0xFFFFF
+	if len(m.writeWatches) > 0 {
+		old := m.Mem[a]
+		m.Mem[a] = v
+		m.noteWrite(a, old, v)
+		return
+	}
+	m.Mem[a] = v
+}
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
@@ -248,8 +265,8 @@ func (m *Machine) Read16(a uint32) uint16 {
 }
 
 func (m *Machine) Write16(a uint32, v uint16) {
-	m.Mem[a&0xFFFFF] = uint8(v)
-	m.Mem[(a+1)&0xFFFFF] = uint8(v >> 8)
+	m.Write8(a, uint8(v))
+	m.Write8(a+1, uint8(v>>8))
 }
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
@@ -273,7 +290,12 @@ func (m *Machine) Step() error {
 	m.tick()
 	m.keyTick()
 	m.Steps++
-	return m.CPU.Step()
+	m.insnCS, m.insnIP = m.CPU.Seg[cpu.CS], m.CPU.IP
+	err := m.CPU.Step()
+	if len(m.wordWatches) > 0 {
+		m.pollWords()
+	}
+	return err
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。

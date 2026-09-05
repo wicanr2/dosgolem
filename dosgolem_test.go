@@ -61,4 +61,14 @@ func TestPublicSurfaceIsEnoughToRunSomething(t *testing.T) {
 		t.Error("兩條輸入路徑至少有一條沒排進去")
 	}
 	_ = dosgolem.Key{Scan: 0x21, ASCII: 'f'}
+
+	// 觀測工具也要從外面接得到——第二個案例就是靠它們對拍的。
+	var hook dosgolem.WriteHook = func(*dosgolem.Machine, uint32, uint8, uint8) {}
+	m.Unwatch(m.WatchWrite(0x500, 0x501, hook))
+	m.Unwatch(m.WatchWord(0x500, func(*dosgolem.Machine, uint32, uint16, uint16) {}))
+	m.ClearBreak(m.BreakAt(0x1234, 0x5678))
+	if why, err := m.RunUntil(nil, 1); err != nil || why != dosgolem.StopBudget {
+		t.Errorf("RunUntil 回 %v／%v", why, err)
+	}
+	_, _ = m.Insn()
 }

@@ -40,6 +40,18 @@ type (
 	// Snapshot 是一份完整的機器狀態，用 Machine.Snapshot 拍、Restore 還原。
 	// 差分比對要「從同一個狀態展開多個變體」時就靠它。
 	Snapshot = machine.Snapshot
+
+	// WriteHook／WordHook 是監看點的回呼，Stop 是 RunUntil 停下來的原因。
+	WriteHook = machine.WriteHook
+	WordHook  = machine.WordHook
+	Stop      = machine.Stop
+)
+
+// RunUntil 停下來的原因。
+const (
+	StopBudget     = machine.StopBudget
+	StopPredicate  = machine.StopPredicate
+	StopBreakpoint = machine.StopBreakpoint
 )
 
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。還沒有程式。
