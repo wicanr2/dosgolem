@@ -116,6 +116,24 @@ func (c *CPU) readSegment8(selector uint16, offset uint32) (uint8, bool) {
 	return value, err == nil
 }
 
+func (c *CPU) writeSegment8(selector uint16, offset uint32, value uint8) bool {
+	linear, ok := c.segmentLinear(selector, offset, 1, true)
+	return ok && c.Bus.Write8(linear, value) == nil
+}
+
+func (c *CPU) readSegment32(selector uint16, offset uint32) (uint32, bool) {
+	linear, ok := c.segmentLinear(selector, offset, 4, false)
+	if !ok {
+		return 0, false
+	}
+	a, err := c.read16(linear)
+	if err != nil {
+		return 0, false
+	}
+	b, err := c.read16(linear + 2)
+	return uint32(a) | uint32(b)<<16, err == nil
+}
+
 func (c *CPU) writeSegment32(selector uint16, offset uint32, value uint32) bool {
 	linear, ok := c.segmentLinear(selector, offset, 4, true)
 	if !ok || c.write32(linear, value) != nil {
@@ -366,6 +384,36 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C")
 	}
 	switch {
+	case op >= 0x48 && op <= 0x4f:
+		if operand16 {
+			return fail("16-bit DEC 尚未支援")
+		}
+		reg := int(op - 0x48)
+		carry := c.EFlags & CF
+		c.R[reg] = c.sub32(c.R[reg], 1)
+		c.EFlags = c.EFlags&^CF | carry
+	case op >= 0x58 && op <= 0x5f:
+		if operand16 {
+			return fail("16-bit POP 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[op-0x58] = value
+		c.R[ESP] += 4
+	case op == 0xaa:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("STOSB 不接受目前的 prefix")
+		}
+		if !c.writeSegment8(c.Seg[SegES], c.R[EDI], c.reg8(0)) {
+			return fail(fmt.Sprintf("STOSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+		}
+		if c.EFlags&DF != 0 {
+			c.R[EDI]--
+		} else {
+			c.R[EDI]++
+		}
 	case op == 0xfc:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("CLD 不接受目前的 prefix")
@@ -728,6 +776,19 @@ func (c *CPU) Step() error {
 		}
 		reg, rm := (modrm>>3)&7, modrm&7
 		c.R[reg] = c.sub32(c.R[reg], c.R[rm])
+	case op == 0x2a:
+		if operand16 || segmentOverride >= 0 {
+			return fail("2A 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := int((modrm>>3)&7), int(modrm&7)
+		c.setReg8(reg, c.sub8(c.reg8(reg), c.reg8(rm)))
 	case op == 0x3d:
 		if !operand16 {
 			return fail("32-bit CMP EAX,imm32 尚未支援")
