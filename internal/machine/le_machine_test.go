@@ -45,13 +45,13 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cae2 && steps < 60; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cae6 && steps < 60; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cae2 {
-		t.Fatalf("entry did not complete command-tail prelude: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cae6 {
+		t.Fatalf("entry did not read PSP command-tail length: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
 	if m.CPU.R[cpu386.EAX] != 1 || m.CPU.R[cpu386.EBX] != 0x160 || m.CPU.Seg[cpu386.SegGS] != 0x20 || m.CPU.EFlags&cpu386.ZF == 0 {
 		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)

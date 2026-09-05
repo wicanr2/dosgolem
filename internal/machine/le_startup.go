@@ -27,6 +27,12 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		c.SegmentLoadOK = func(selector uint16, destination int) bool {
 			return selector == 0x0028 && destination == cpu386.SegES
 		}
+		c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+			if selector == 0x0028 && offset == 0x0080 {
+				return 0, true
+			}
+			return 0, false
+		}
 		c.SegmentRead16 = func(selector uint16, offset uint32) (uint16, bool) {
 			if selector == 0x0028 && offset == 0x002c {
 				return 0x0030, true
