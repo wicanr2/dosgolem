@@ -427,6 +427,22 @@ func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1FirstPickup 從LEVEL1入口點擊原版左近場景區，拾起起始地面的石塊。
+func ToLevel1FirstPickup(o *oracle.Oracle) error {
+	if err := ToLevel1Entrance(o); err != nil {
+		return err
+	}
+	// 原版DOS buttonDefs：current-left是(0,102) 88×18；使用中心安全點。
+	if err := o.Click(44, 110, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1拾取LEVEL1起始石塊：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("LEVEL1起始石塊已拾取", 0, 0, 176, 120,
+		"1d123d4fe9a5a1001446f2d180601e8713fa2dd02f00caac4c9f406f31b59375"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待起始石塊拾取畫面：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
