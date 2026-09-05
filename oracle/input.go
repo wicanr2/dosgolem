@@ -146,7 +146,9 @@ const (
 	KeyB Key = 0x30
 	KeyE Key = 0x12
 	KeyF Key = 0x21
+	KeyG Key = 0x22
 	KeyL Key = 0x26
+	KeyM Key = 0x32
 	KeyT Key = 0x14
 )
 

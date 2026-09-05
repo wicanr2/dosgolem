@@ -234,6 +234,78 @@ func ToSecondCharacterBETA(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToThirdCharacterRace 選取第三角色槽，進入其種族／性別頁。
+func ToThirdCharacterRace(o *oracle.Oracle) error {
+	if err := ToSecondCharacterBETA(o); err != nil {
+		return err
+	}
+	if err := o.Click(49, 142); err != nil {
+		return fmt.Errorf("EOB1點擊第三角色槽：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第三角色SELECT RACE頁", 130, 55, 180, 140,
+		"b566dd781770ae6af1cd569cc84d82e37a38fe82b81405da0c979722f6e0041c"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第三角色種族選擇：%w", err)
+	}
+	return nil
+}
+
+// ToThirdCharacterReview 由第三角色種族頁走到Human Male Fighter檢視頁。
+func ToThirdCharacterReview(o *oracle.Oracle) error {
+	if err := ToThirdCharacterRace(o); err != nil {
+		return err
+	}
+	steps := []struct {
+		name   string
+		digest string
+	}{
+		{"第三角色SELECT CLASS頁", "31954c4eabf3fe236734a89b17447907ac3c54448a962b4ffd0432a29e2777eb"},
+		{"第三角色SELECT ALIGNMENT頁", "b701f7d8e0738aaf110f702f34a53d3ab9f0c01b60fd0f7e514bdd773a7bafbc"},
+		{"第三角色屬性／肖像頁", "9e2cbd7c72e68d21971726b39df27ec139e1550373f76abc90f366f879fa8793"},
+		{"第三角色檢視操作頁", "832af588ffc848efb145567ac80698b71481fee9da43b2e63892139712998948"},
+	}
+	for _, step := range steps {
+		o.PressKey(oracle.KeyEnter)
+		if err := o.RunUntil(screenDigest(step.name, 130, 55, 180, 140, step.digest), oracle.Budget(10_000_000)); err != nil {
+			return fmt.Errorf("EOB1等待%s：%w", step.name, err)
+		}
+	}
+	return nil
+}
+
+// ToThirdCharacterName 以KEEP接受第三角色，進入姓名頁。
+func ToThirdCharacterName(o *oracle.Oracle) error {
+	if err := ToThirdCharacterReview(o); err != nil {
+		return err
+	}
+	if err := o.Click(282, 180); err != nil {
+		return fmt.Errorf("EOB1點擊第三角色KEEP：%w", err)
+	}
+	if err := o.RunUntil(screenDigest("第三角色Name輸入頁", 0, 0, oracle.Width, oracle.Height,
+		"95118f4657f2096ec0a4fa0ac8ddfafd0ae162c3351b2d7d82ecb5856190b06f"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第三角色姓名輸入：%w", err)
+	}
+	return nil
+}
+
+// ToThirdCharacterGAMMA 在第三角色姓名頁鍵入GAMMA並確認。
+func ToThirdCharacterGAMMA(o *oracle.Oracle) error {
+	if err := ToThirdCharacterName(o); err != nil {
+		return err
+	}
+	for _, key := range []oracle.Key{oracle.KeyG, oracle.KeyA, oracle.KeyM, oracle.KeyM, oracle.KeyA} {
+		o.PressKey(key)
+		if err := o.Run(250_000); err != nil {
+			return fmt.Errorf("EOB1輸入第三角色姓名：%w", err)
+		}
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第三角色GAMMA姓名列", 5, 160, 70, 16,
+		"84db489bbd3ecd5cc1050df46382eb3468083941f2fcf2584907c85af15bdef1"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第三角色GAMMA完成：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

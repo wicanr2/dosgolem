@@ -189,6 +189,45 @@ func TestToSecondCharacterNameAndBETARealData(t *testing.T) {
 	}
 }
 
+func TestToThirdCharacterRaceRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToThirdCharacterRace(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "b566dd781770ae6af1cd569cc84d82e37a38fe82b81405da0c979722f6e0041c" {
+		t.Fatalf("第三角色種族選擇區SHA-256=%s", got)
+	}
+}
+
+func TestToThirdCharacterReviewRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToThirdCharacterReview(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 130, 55, 180, 140); got != "832af588ffc848efb145567ac80698b71481fee9da43b2e63892139712998948" {
+		t.Fatalf("第三角色檢視操作區SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 52 {
+		t.Fatalf("第三角色檢視頁前port 60h讀取%d次，預期二十六鍵make／break共52次", got)
+	}
+}
+
+func TestToThirdCharacterNameAndGAMMARealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToThirdCharacterGAMMA(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 5, 160, 70, 16); got != "84db489bbd3ecd5cc1050df46382eb3468083941f2fcf2584907c85af15bdef1" {
+		t.Fatalf("第三角色GAMMA姓名列SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 64 {
+		t.Fatalf("GAMMA完成前port 60h讀取%d次，預期三十二鍵make／break共64次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
