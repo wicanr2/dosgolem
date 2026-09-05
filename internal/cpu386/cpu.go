@@ -904,6 +904,23 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 0 && modrm&7 == 5 && group == 7 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
@@ -912,12 +929,14 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		rm := int(modrm & 7)
-		switch (modrm >> 3) & 7 {
+		switch group {
 		case 0:
 			c.R[rm] = c.add32(c.R[rm], uint32(int32(int8(imm))))
 		case 4:
 			c.R[rm] &= uint32(int32(int8(imm)))
 			c.setLogicFlags(c.R[rm])
+		case 5:
+			c.R[rm] = c.sub32(c.R[rm], uint32(int32(int8(imm))))
 		default:
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
