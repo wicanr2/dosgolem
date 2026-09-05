@@ -190,6 +190,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int33(c)
 	case 0x16:
 		d.int16(c)
+	case 0x1A:
+		d.int1A(c)
 	case 0x11:
 		// 取設備清單：就是 BDA 那一格（`docs/spec/003` §1）。
 		// 不實作的話 AX 保持呼叫端傳進來的值，而顯示卡欄位是垃圾。
@@ -206,6 +208,20 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		clearCarry(c)
 	}
 	return true
+}
+
+// int1A 實作 BIOS 時刻服務。計時來源是 Machine 的確定性 IRQ0／BDA tick，
+// 不讀主機牆鐘；完整契約見 docs/spec/009-bios-time-of-day.md。
+func (d *DOS) int1A(c *cpu.CPU) {
+	if ah(c) != 0x00 {
+		d.noteCPU(c, 0x1A, ah(c), al(c))
+		return
+	}
+	const base = uint32(0x0040 * 16)
+	c.R[cpu.DX] = d.M.Read16(base + 0x6C)
+	c.R[cpu.CX] = d.M.Read16(base + 0x6E)
+	setAL(c, d.M.Read8(base+0x70))
+	d.M.Write8(base+0x70, 0)
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {

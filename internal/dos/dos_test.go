@@ -198,6 +198,28 @@ func TestUnimplementedLeavesAXAlone(t *testing.T) {
 	}
 }
 
+func TestBIOSReadTimeOfDay(t *testing.T) {
+	m, d := newTest(t)
+	const base = uint32(0x0040 * 16)
+	m.Write16(base+0x6C, 0x5678)
+	m.Write16(base+0x6E, 0x1234)
+	m.Write8(base+0x70, 1)
+
+	call(m, d, 0x1A, 0x0000)
+	if got := m.CPU.R[cpu.CX]; got != 0x1234 {
+		t.Fatalf("CX=%04X，預期1234", got)
+	}
+	if got := m.CPU.R[cpu.DX]; got != 0x5678 {
+		t.Fatalf("DX=%04X，預期5678", got)
+	}
+	if got := uint8(m.CPU.R[cpu.AX]); got != 1 {
+		t.Fatalf("AL=%02X，預期rollover 01", got)
+	}
+	if got := m.Read8(base + 0x70); got != 0 {
+		t.Fatalf("rollover讀後=%02X，預期00", got)
+	}
+}
+
 // TestInt10AltSelectReadsBL 釘住「子功能選擇子在 BL 不是 AL」。
 //
 // 查 AL 的話 `AH=12h BL=10h` 那個分支永遠不成立，BX 保持呼叫端傳進來的值，
