@@ -2,7 +2,10 @@
 // 目前依文件化切片擴充 DOS/4GW 啟動路徑；未列形狀一律失敗即關閉。
 package cpu386
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 type Bus interface {
 	Read8(addr uint32) (uint8, error)
@@ -52,6 +55,7 @@ type CPU struct {
 	SegmentLoadOK func(selector uint16, destination int) bool
 	Descriptors   map[uint16]Descriptor
 	FPUControl    uint16
+	FPUStatus     uint16
 	FPUStack      [8]float64
 	FPUDepth      uint8
 }
@@ -495,8 +499,62 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("x87 DB ModRM %02X 尚未支援", modrm))
 		}
 		c.FPUControl = 0x037f
+		c.FPUStatus = 0
 		c.FPUStack = [8]float64{}
 		c.FPUDepth = 0
+	case op == 0xde:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DE x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		switch modrm {
+		case 0xf9:
+			if c.FPUDepth < 2 {
+				return fail("FDIVP x87 stack underflow")
+			}
+			dividend, divisor := c.FPUStack[1], c.FPUStack[0]
+			if divisor == 0 {
+				c.FPUStatus |= 1 << 2
+				c.FPUStack[1] = math.Copysign(math.Inf(1), dividend*divisor)
+			} else {
+				c.FPUStack[1] = dividend / divisor
+			}
+			copy(c.FPUStack[0:], c.FPUStack[1:c.FPUDepth])
+			c.FPUDepth--
+		case 0xd9:
+			if c.FPUDepth < 2 {
+				return fail("FCOMPP x87 stack underflow")
+			}
+			left, right := c.FPUStack[0], c.FPUStack[1]
+			c.FPUStatus &^= 0x4500
+			switch {
+			case math.IsNaN(left) || math.IsNaN(right):
+				c.FPUStatus |= 0x4500
+			case left < right:
+				c.FPUStatus |= 0x0100
+			case left == right:
+				c.FPUStatus |= 0x4000
+			}
+			copy(c.FPUStack[0:], c.FPUStack[2:c.FPUDepth])
+			c.FPUDepth -= 2
+		default:
+			return fail(fmt.Sprintf("x87 DE ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0xdf:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DF x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0xe0 {
+			return fail(fmt.Sprintf("x87 DF ModRM %02X 尚未支援", modrm))
+		}
+		c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(c.FPUStatus)
 	case op == 0xd9:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("D9 x87 不接受目前的 prefix")
@@ -506,6 +564,15 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		switch modrm {
+		case 0xe8:
+			if c.FPUDepth >= 8 {
+				return fail("x87 stack overflow")
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = 1
+			c.FPUDepth++
 		case 0x3c:
 			sib, e := c.fetch8()
 			if e != nil {
@@ -524,6 +591,19 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("FLDCW read %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 			c.FPUControl = value
+		case 0x2c:
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("FLDCW SIB %02X 尚未支援", sib))
+			}
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok {
+				return fail(fmt.Sprintf("FLDCW stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			c.FPUControl = value
 		case 0xee:
 			if c.FPUDepth >= 8 {
 				return fail("x87 stack overflow")
@@ -533,6 +613,21 @@ func (c *CPU) Step() error {
 			}
 			c.FPUStack[0] = 0
 			c.FPUDepth++
+		case 0xc0:
+			if c.FPUDepth == 0 || c.FPUDepth >= 8 {
+				return fail("FLD ST(0) x87 stack unavailable")
+			}
+			value := c.FPUStack[0]
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = value
+			c.FPUDepth++
+		case 0xe0:
+			if c.FPUDepth == 0 {
+				return fail("FCHS x87 stack underflow")
+			}
+			c.FPUStack[0] = -c.FPUStack[0]
 		default:
 			return fail(fmt.Sprintf("x87 D9 ModRM %02X 尚未支援", modrm))
 		}
@@ -540,6 +635,13 @@ func (c *CPU) Step() error {
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("WAIT 不接受目前的 prefix")
 		}
+	case op == 0x9e:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("SAHF 不接受目前的 prefix")
+		}
+		ah := uint8(c.R[EAX] >> 8)
+		c.EFlags &^= SF | ZF | AF | PF | CF
+		c.EFlags |= uint32(ah) & (SF | ZF | AF | PF | CF)
 	case op >= 0x40 && op <= 0x47:
 		if operand16 {
 			return fail("16-bit INC 尚未支援")
@@ -558,7 +660,14 @@ func (c *CPU) Step() error {
 		c.EFlags = c.EFlags&^CF | carry
 	case op >= 0x58 && op <= 0x5f:
 		if operand16 {
-			return fail("16-bit POP 尚未支援")
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok || c.R[ESP] > ^uint32(0)-2 {
+				return fail(fmt.Sprintf("16-bit stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			reg := op - 0x58
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+			c.R[ESP] += 2
+			break
 		}
 		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
 		if !ok || c.R[ESP] > ^uint32(0)-4 {
@@ -682,7 +791,15 @@ func (c *CPU) Step() error {
 		}
 	case op >= 0x50 && op <= 0x57:
 		if operand16 {
-			return fail("16-bit PUSH 尚未支援")
+			if c.R[ESP] < 2 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 2
+			if !c.writeSegment16(c.Seg[SegSS], nextESP, uint16(c.R[op-0x50])) {
+				return fail(fmt.Sprintf("16-bit stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
 		}
 		if c.R[ESP] < 4 {
 			return fail("ESP underflow")
@@ -1115,6 +1232,26 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
+	case op == 0x87:
+		if !operand16 || segmentOverride >= 0 || repe {
+			return fail("87 目前只支援 16-bit stack 形式")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0x04 || sib != 0x24 {
+			return fail(fmt.Sprintf("16-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
+		}
+		value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+		if !ok || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], uint16(c.R[EAX])) {
+			return fail(fmt.Sprintf("16-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(value)
 	case op >= 0xb8 && op <= 0xbf:
 		reg := int(op - 0xb8)
 		if operand16 {
