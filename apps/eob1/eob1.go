@@ -76,6 +76,19 @@ func ToFirstCharacterRace(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToFirstCharacterClass 選定第一角色預設Human Male，進入職業選擇頁。
+func ToFirstCharacterClass(o *oracle.Oracle) error {
+	if err := ToFirstCharacterRace(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("第一角色SELECT CLASS頁", 138, 60, 170, 130,
+		"731c3a60b6eec89515314cf85aa352bcd4efad241d3aea7bb5106454aee7b890"), oracle.Budget(10_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待第一角色職業選擇：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
