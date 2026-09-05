@@ -2,9 +2,13 @@
 
 *[English](README_en.md)*
 
-**只跑得動一個 binary 的 DOS 執行器**：無頭、決定性、可以當 Go 套件 import。
-它為《大富翁2》（大宇資訊，1993，DOS）的 remake
-[`rich2`](https://github.com/wicanr2/rich2) 而寫。
+**無頭、決定性、可以當 Go 套件 import 的 DOS 執行器**——為**程式化觀測**而生，
+不是為了給人看畫面。你問「原版跑到這一步時這個變數是多少」，它當場回答。
+
+第一個案例是《大富翁2》（大宇資訊，1993，DOS）的 remake
+[`rich2`](https://github.com/wicanr2/rich2)。那個案例把機器層與觀測層推到
+能用的程度；接第二個程式時要寫的只有最上面一層，見
+[分層](#分層哪些是通用的哪些是某個程式專屬的)。
 
 ## 起源：DOSBox-X 不好跟 AI agent 配合
 
@@ -113,8 +117,44 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 做完這三件，`rich2` 那 54 支 DOSBox 腳本、6,116 行可以收斂成一組宣告式的對拍表，
 而且跑在 CI 裡。
 
-範圍還是只有這一個 binary。別的 DOS 程式跑不跑得動不在目標內——
-跑得動是副產物。
+**已經驗證過的範圍仍然只有那一個 binary。** 別的 DOS 程式跑不跑得動，
+取決於它用到哪些指令與 DOS 服務——機器層是照規格寫的，但**只有被跑過的
+路徑算數**。接新程式的第一件事是跑 `cmd/probe`：它會把「用到而還沒實作的
+服務」列出來（`o.Unimplemented()`），那份清單就是待辦。
+
+## 分層：哪些是通用的，哪些是某個程式專屬的
+
+接第二個程式的時候會發現，這裡面的東西不是同一個性質。四層：
+
+| 層 | 是什麼 | 換一個程式要不要改 |
+|---|---|---|
+| **機器** `internal/cpu`／`internal/dos`／`internal/machine` | 8086 ＋ 80186、DOS 與 BIOS 服務、VGA、PIT、滑鼠 | **不用**。缺的服務就補，補完誰都受惠 |
+| **觀測** `oracle/` | `Load`／`RunUntil`／`Click`／`Save`／`Restore`／`Search`／`Indexed`／`OnCall` | **不用** |
+| **runtime** | 編譯器與執行期的慣例：MS BASIC 的 `RND`（LCG）、陣列描述子、`retf N` 的參數慣例 | **同一個編譯器就複用**；換一個（Turbo Pascal、Clipper、VB p-code）就新增一包 |
+| **程式** `oracle/rich2/` | 那一支程式自己的位址、按鈕座標、流程 | **一定要自己寫** |
+
+第三層是接第二個程式時才看得出來的那一層，也是「下一個案例不必 fork」的關鍵。
+
+> ⚠ **目前第三層還混在第四層裡。** `oracle/rich2/rng.go` 的 `LCGNext`／
+> `RNDState`／`SetRNDState`／`TraceRND` 其實對**任何編譯後的 MS BASIC 程式**
+> 都成立——LCG 的三個常數是從 DGROUP 讀出來的，`RND` 的進入點是 BASIC
+> runtime 的，不是遊戲的。只有 `DirPickCaller` 那種呼叫端位址是大富翁2 的。
+> 同理 `oracle/basic.go` 的陣列描述子解讀已經在通用層，那是對的位置。
+>
+> 抽開的規劃見 [`docs/spec/006`](docs/spec/006-layering.md)。
+
+**接一個新程式要寫的是第四層**，前三層照用。第四層的形狀可以照抄
+`oracle/rich2/`：
+
+```
+位址常數      DescPlayer = 0x1146    陣列描述子、單一變數
+狀態讀取      Cash(o, player)        把位址包成有名字的東西
+流程函式      ToBoard(o)             從冷啟動走到某個畫面
+攔截點        WatchDispatch(o)       掛 OnCall，讓程式自己說它在做什麼
+```
+
+最後一項是最省力的一個：與其想辦法「走到卡片格」，不如攔住**分派器**，
+一路走下去，它踩到的時候自己會說。
 
 ## 現況
 
@@ -126,13 +166,15 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 | M3 | 儀器層：breakpoint／watchpoint／call trace／RND 記錄／savestate | `OnCall`、`Caller`、快照、**RND 追蹤**可用；breakpoint 與 watchpoint 未做 |
 | M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |
+| M6 | **分層**：把 runtime 與程式專屬拆開，讓第二個案例不必 fork | 規格 [`docs/spec/006`](docs/spec/006-layering.md) **DRAFT**，等裁決 |
 
 規格在 [`docs/spec/`](docs/spec/)，標 `DRAFT` 或 `READY`；
 只有 READY 的可以動手。
 
-### 怎麼接進 remake 專案
+### 怎麼接進自己的專案
 
-`rich2` 那邊用 Go workspace 接**本機副本**，不在 `go.mod` 裡 `replace`：
+用 Go workspace 接**本機副本**，不要在 `go.mod` 裡 `replace`
+（`rich2` 就是這樣接的）：
 
 ```sh
 # rich2/go.work（gitignore，只在容器裡成立）
@@ -141,12 +183,16 @@ use .
 use /dosgolem
 ```
 
-`tools/go.sh` 偵測到旁邊有 dosgolem 就唯讀掛載進去。對拍測試放在
+`rich2/tools/go.sh` 偵測到旁邊有 dosgolem 就唯讀掛載進去。對拍測試放在
 `-tags oracle` 之下，所以沒有這份掛載的人跑 `go test ./...` 會跳過，不會失敗。
+**這個做法與遊戲無關**，任何要拿 dosgolem 當 oracle 的專案都適用。
 
 ⚠ **不要在 `go.mod` 加 `require` 指向不存在的版本。** 那會讓每一個 package
 都去抓 proxy，而建置容器是 `--network none`——結果是整個專案編不過，
 錯誤訊息還指向一堆與這件事無關的檔案。
+
+下面這幾類是 `rich2` 實際接出來的東西，列在這裡是因為**形狀可以照抄**——
+換一個程式，比的東西不同，但「兩條路徑算同一件事，逐項比」這個做法一樣。
 
 第一個接起來的對拍是調色盤：拿原版執行期的 VGA DAC 對 remake 解碼 `256.PAT`
 的結果。256 色裡有 30 色不同，而且落點是有意義的——`192`–`206` 是台灣地圖的

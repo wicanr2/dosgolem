@@ -2,9 +2,14 @@
 
 *[中文版](README.md)*
 
-**A DOS runner that only has to run one binary**: headless, deterministic,
-importable as a Go package. It exists for [`rich2`](https://github.com/wicanr2/rich2),
-a remake of *Richman 2* (Softstar, 1993, DOS).
+**A headless, deterministic DOS runner you can import as a Go package** — built
+for **programmatic observation**, not for showing a picture to a person. You ask
+"what was this variable when the original reached that point", and it answers.
+
+The first case was [`rich2`](https://github.com/wicanr2/rich2), a remake of
+*Richman 2* (Softstar, 1993, DOS). That case pushed the machine and observation
+layers to something usable; wiring up a second program means writing only the
+top layer — see [Layers](#layers-what-is-generic-and-what-belongs-to-one-program).
 
 ## Why not DOSBox-X
 
@@ -135,8 +140,51 @@ Three parts:
 With those three, `rich2`'s 54 DOSBox scripts and 6,116 lines collapse into one
 declarative parity table that runs in CI.
 
-The scope is still this one binary. Whether other DOS programs run is not a
-goal — if they do, that is a side effect.
+**The verified scope is still that one binary.** Whether another DOS program
+runs depends on which instructions and DOS services it touches — the machine
+layer is written against the specs, but **only paths that have actually been
+executed count**. The first thing to do with a new program is run `cmd/probe`:
+it lists the services that were used but are not implemented yet
+(`o.Unimplemented()`). That list is the backlog.
+
+## Layers: what is generic and what belongs to one program
+
+Wiring up a second program is what makes the distinction visible. There are four
+layers:
+
+| Layer | Where | Does a different program need to change it? |
+|---|---|---|
+| **Machine** `internal/cpu` / `internal/dos` / `internal/machine` | 8086 + 80186, DOS and BIOS services, VGA, PIT, mouse | **No.** Missing services just get added, and everyone benefits |
+| **Observation** `oracle/` | `Load` / `RunUntil` / `Click` / `Save` / `Restore` / `Search` / `Indexed` / `OnCall` | **No** |
+| **Runtime** | Conventions of a compiler and its runtime: MS BASIC's `RND` (an LCG), array descriptors, the `retf N` argument convention | **Reused across programs built with the same compiler**; a different one (Turbo Pascal, Clipper, VB p-code) gets its own package |
+| **Program** `oracle/rich2/` | One binary's addresses, button coordinates, and flow | **Yes, always written from scratch** |
+
+The third layer is the one you only see when a second program shows up, and it
+is what keeps that second case from having to fork.
+
+> ⚠ **Right now the third layer is still mixed into the fourth.** `LCGNext`,
+> `RNDState`, `SetRNDState` and `TraceRND` in `oracle/rich2/rng.go` hold for
+> **any program compiled with MS BASIC** — the LCG constants are read out of
+> DGROUP and the `RND` entry point belongs to the BASIC runtime, not to the
+> game. Only caller addresses like `DirPickCaller` are Richman 2's. The array
+> descriptor decoding in `oracle/basic.go` is likewise generic, and already
+> sits in the right place.
+>
+> The plan for pulling them apart is [`docs/spec/006`](docs/spec/006-layering.md).
+
+**Wiring up a new program means writing the fourth layer**; the first three come
+as they are. The shape can be copied straight from `oracle/rich2/`:
+
+```
+address constants   DescPlayer = 0x1146    array descriptors, single variables
+state readers       Cash(o, player)        give the addresses names
+flow helpers        ToBoard(o)             drive from a cold boot to a screen
+interception        WatchDispatch(o)       hook OnCall, let the program narrate
+```
+
+The last one saves the most work: rather than engineering a way to *land on the
+card square*, hook the **dispatcher** and keep playing — the program announces
+it when it happens.
 
 ## Status
 
@@ -148,14 +196,15 @@ goal — if they do, that is a side effect.
 | M3 | Instrumentation: breakpoints / watchpoints / call trace / RND log / savestate | `OnCall`, `Caller`, snapshots, and **RND tracing** work; breakpoints and watchpoints not done |
 | M4 | Go API (`oracle` package) | **Usable**, [`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | Regression: re-run `rich2`'s existing parity receipts | Not started |
+| M6 | **Layering**: split the runtime and program-specific parts out so a second case does not have to fork | Spec [`docs/spec/006`](docs/spec/006-layering.md) is **DRAFT**, awaiting a decision |
 
 Specs live in [`docs/spec/`](docs/spec/), marked `DRAFT` or `READY`; only READY
 ones may be implemented against.
 
-### Wiring it into a remake project
+### Wiring it into your own project
 
-`rich2` uses a Go workspace pointing at a local checkout rather than a `replace`
-directive in `go.mod`:
+Use a Go workspace pointing at a local checkout rather than a `replace`
+directive in `go.mod` (this is how `rich2` does it):
 
 ```sh
 # rich2/go.work (gitignored, only meaningful inside the container)
@@ -164,14 +213,19 @@ use .
 use /dosgolem
 ```
 
-Its `tools/go.sh` mounts dosgolem read-only when it finds it alongside. The
+`rich2/tools/go.sh` mounts dosgolem read-only when it finds it alongside. The
 parity tests sit behind `-tags oracle`, so anyone without that mount runs
-`go test ./...` and skips them rather than failing.
+`go test ./...` and skips them rather than failing. **None of this is
+game-specific** — it applies to any project using dosgolem as an oracle.
 
 ⚠ **Do not add a `require` for a version that does not exist.** Every package
 then tries to reach the module proxy, and the build container runs with
 `--network none` — the whole project stops compiling, with errors pointing at
 files that have nothing to do with it.
+
+What follows is what `rich2` actually wired up. It is listed here because the
+**shape transfers**: a different program compares different things, but "run two
+paths that should compute the same thing, then compare item by item" stays.
 
 The first parity test wired up is the palette: the original's runtime VGA DAC
 against the remake's decoding of `256.PAT`. 30 of 256 entries differ, and where
