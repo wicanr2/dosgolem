@@ -47,6 +47,13 @@ type CPU struct {
 	Bus           Bus
 	IntHook       func(*CPU, uint8) bool
 	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
+	Descriptors   map[uint16]Descriptor
+}
+
+type Descriptor struct {
+	Base     uint32
+	Limit    uint32
+	Writable bool
 }
 
 type Error struct {
@@ -59,7 +66,31 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("cpu386: EIP=%08X opcode=%02X：%s", e.EIP, e.Opcode, e.Reason)
 }
 
-func New(bus Bus) *CPU { return &CPU{Bus: bus, EFlags: 2} }
+func New(bus Bus) *CPU { return &CPU{Bus: bus, EFlags: 2, Descriptors: make(map[uint16]Descriptor)} }
+
+func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
+	c.Descriptors[selector] = descriptor
+}
+
+func (c *CPU) segmentLinear(selector uint16, offset uint32, size uint32, write bool) (uint32, bool) {
+	d, ok := c.Descriptors[selector]
+	if !ok || size == 0 || (write && !d.Writable) || offset > d.Limit || size-1 > d.Limit-offset {
+		return 0, false
+	}
+	linear := uint64(d.Base) + uint64(offset)
+	if linear+uint64(size) > uint64(^uint32(0))+1 {
+		return 0, false
+	}
+	return uint32(linear), true
+}
+
+func (c *CPU) writeSegment16(selector uint16, offset uint32, value uint16) bool {
+	linear, ok := c.segmentLinear(selector, offset, 2, true)
+	if !ok || c.write16(linear, value) != nil {
+		return false
+	}
+	return true
+}
 
 func (c *CPU) fetch8() (uint8, error) {
 	v, err := c.Bus.Read8(c.EIP)
@@ -241,8 +272,8 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
-	if segmentOverride >= 0 && op != 0x8b {
-		return fail("segment override 只支援 8B")
+	if segmentOverride >= 0 && op != 0x8b && op != 0x8c {
+		return fail("segment override 只支援 8B／8C")
 	}
 	switch {
 	case op == 0xeb:
@@ -326,15 +357,22 @@ func (c *CPU) Step() error {
 			c.R[(modrm>>3)&7] = c.R[modrm&7]
 		}
 	case op == 0x89:
-		if operand16 {
-			return fail("16-bit 89 尚未支援")
-		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
 		source := c.R[(modrm>>3)&7]
-		if modrm>>6 == 3 {
+		if operand16 && segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if e = c.write16(addr, uint16(source)); e != nil {
+				return fail(e.Error())
+			}
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
 			c.R[modrm&7] = source
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
@@ -368,7 +406,11 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if e = c.write16(addr, value); e != nil {
+			if segmentOverride >= 0 {
+				if !c.writeSegment16(c.Seg[segmentOverride], addr, value) {
+					return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+				}
+			} else if e = c.write16(addr, value); e != nil {
 				return fail(e.Error())
 			}
 		} else {
