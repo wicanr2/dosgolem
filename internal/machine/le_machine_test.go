@@ -527,3 +527,21 @@ func TestFD2DeterministicDelayInitializationWhenProvided(t *testing.T) {
 		t.Fatalf("delay init steps=%d EIP=%X calls=%d calibration=%d err=%v", steps, m.CPU.EIP, services.Calls(), calibration, err)
 	}
 }
+
+func TestFD2ReachesMainWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 2500 && m.CPU.EIP != 0x25bf4; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("main entry: step=%d EIP=%X EAX=%X EBX=%X ECX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	returnAddress, errReturn := m.Read32(m.CPU.R[cpu386.ESP])
+	argc, errArgc := m.Read32(m.CPU.R[cpu386.ESP] + 4)
+	argv, errArgv := m.Read32(m.CPU.R[cpu386.ESP] + 8)
+	publicArgv, errPublicArgv := m.Read32(0x54628)
+	firstArg, errFirstArg := m.Read32(argv)
+	if m.CPU.EIP != 0x25bf4 || services.Calls() != 5 || returnAddress != 0x45d91 || argc != 1 || argv == 0 || argv != publicArgv || firstArg != 0x546b1 || errReturn != nil || errArgc != nil || errArgv != nil || errPublicArgv != nil || errFirstArg != nil {
+		t.Fatalf("main entry steps=%d EIP=%X calls=%d ESP=%X return=%X argc=%d argv=%X/%X first=%X errors=%v,%v,%v,%v,%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ESP], returnAddress, argc, argv, publicArgv, firstArg, errReturn, errArgc, errArgv, errPublicArgv, errFirstArg)
+	}
+}
