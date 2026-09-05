@@ -36,6 +36,7 @@ const (
 	ZF uint32 = 1 << 6
 	SF uint32 = 1 << 7
 	IF uint32 = 1 << 9
+	DF uint32 = 1 << 10
 	OF uint32 = 1 << 11
 )
 
@@ -333,7 +334,8 @@ func (c *CPU) Step() error {
 	}
 	operand16 := false
 	segmentOverride := -1
-	for op == 0x66 || op == 0x26 {
+	repe := false
+	for op == 0x66 || op == 0x26 || op == 0xf3 {
 		switch op {
 		case 0x66:
 			if operand16 {
@@ -345,6 +347,11 @@ func (c *CPU) Step() error {
 				return &Error{start, op, "重複 segment prefix"}
 			}
 			segmentOverride = SegES
+		case 0xf3:
+			if repe {
+				return &Error{start, op, "重複 REPE prefix"}
+			}
+			repe = true
 		}
 		op, err = c.fetch8()
 		if err != nil {
@@ -352,10 +359,47 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
+	if repe && op != 0xae {
+		return fail("REPE prefix 只支援 SCASB")
+	}
 	if segmentOverride >= 0 && op != 0x8a && op != 0x8b && op != 0x8c {
 		return fail("segment override 只支援 8A／8B／8C")
 	}
 	switch {
+	case op == 0xfc:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("CLD 不接受目前的 prefix")
+		}
+		c.EFlags &^= DF
+	case op == 0xae:
+		if operand16 || segmentOverride >= 0 {
+			return fail("SCASB 不接受目前的 prefix")
+		}
+		count := uint32(1)
+		if repe {
+			count = c.R[ECX]
+		}
+		for count > 0 {
+			value, ok := c.readSegment8(c.Seg[SegES], c.R[EDI])
+			if !ok {
+				return fail(fmt.Sprintf("SCASB read %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			c.sub8(c.reg8(0), value)
+			if c.EFlags&DF != 0 {
+				c.R[EDI]--
+			} else {
+				c.R[EDI]++
+			}
+			if repe {
+				c.R[ECX]--
+				count = c.R[ECX]
+				if c.EFlags&ZF == 0 {
+					break
+				}
+			} else {
+				break
+			}
+		}
 	case op >= 0x50 && op <= 0x57:
 		if operand16 {
 			return fail("16-bit PUSH 尚未支援")

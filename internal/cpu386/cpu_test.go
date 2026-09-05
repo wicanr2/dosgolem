@@ -263,6 +263,40 @@ func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
 	}
 }
 
+func TestCLDAndREPESCASB(t *testing.T) {
+	mem := testBus{0xfc, 0xf3, 0xae}
+	c := New(mem)
+	c.EFlags |= DF
+	c.R[EAX] = 0x20
+	c.R[ECX] = 4
+	c.R[EDI] = 0x80
+	c.Seg[SegES] = 0x28
+	data := map[uint32]uint8{0x80: 0x20, 0x81: 0x20, 0x82: 'X'}
+	c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+		v, ok := data[offset]
+		return v, selector == 0x28 && ok
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EFlags&DF != 0 {
+		t.Fatal("CLD did not clear DF")
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDI] != 0x83 || c.R[ECX] != 1 || c.EFlags&ZF != 0 {
+		t.Fatalf("EDI=%X ECX=%X flags=%X", c.R[EDI], c.R[ECX], c.EFlags)
+	}
+
+	c = New(testBus{0xf3, 0xae})
+	c.R[ECX], c.R[EDI] = 0, 0x81
+	c.Seg[SegES] = 0x99
+	if err := c.Step(); err != nil || c.R[EDI] != 0x81 {
+		t.Fatalf("zero-count SCASB read memory or moved EDI: err=%v EDI=%X", err, c.R[EDI])
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)
