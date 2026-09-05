@@ -395,6 +395,34 @@ func TestX87InitAndStoreControlWordToStack(t *testing.T) {
 	}
 }
 
+func TestX87LoadControlPushZerosWaitAndReturn(t *testing.T) {
+	mem := testBus(make([]byte, 0x100))
+	copy(mem, []byte{0xd9, 0x2d, 0x40, 0x00, 0x00, 0x00, 0xd9, 0xee, 0xd9, 0xee, 0x9b, 0xc3})
+	mem[0x40], mem[0x41] = 0x7f, 0x12
+	mem[0x70], mem[0x71] = 0x50, 0x00
+	c := New(mem)
+	c.R[ESP] = 0x50
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0xff})
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x7f, Writable: true})
+	for range 5 {
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.FPUControl != 0x127f || c.FPUDepth != 2 || c.EIP != 0x50 || c.R[ESP] != 0x54 {
+		t.Fatalf("control=%X depth=%d EIP=%X ESP=%X", c.FPUControl, c.FPUDepth, c.EIP, c.R[ESP])
+	}
+}
+
+func TestCompareHighByteImmediateDoesNotWriteBack(t *testing.T) {
+	c := New(testBus{0x80, 0xfc, 0x03})
+	c.R[EAX] = 0x0003037f
+	if err := c.Step(); err != nil || c.R[EAX] != 0x0003037f || c.EFlags&ZF == 0 {
+		t.Fatalf("CMP AH EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
 	c := New(mem)
