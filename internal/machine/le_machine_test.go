@@ -545,3 +545,16 @@ func TestFD2ReachesMainWhenProvided(t *testing.T) {
 		t.Fatalf("main entry steps=%d EIP=%X calls=%d ESP=%X return=%X argc=%d argv=%X/%X first=%X errors=%v,%v,%v,%v,%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ESP], returnAddress, argc, argv, publicArgv, firstArg, errReturn, errArgc, errArgv, errPublicArgv, errFirstArg)
 	}
 }
+
+func TestFD2CompletesWatcomStackProbeWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 1500 && m.CPU.EIP != 0x25bfe; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("stack probe: step=%d EIP=%X EAX=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	if m.CPU.EIP != 0x25bfe || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != 0x556a4 || m.CPU.R[cpu386.ESP] != 0x55698 {
+		t.Fatalf("stack probe steps=%d EIP=%X calls=%d EAX=%X ESP=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP])
+	}
+}

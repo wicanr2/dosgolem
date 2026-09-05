@@ -106,6 +106,19 @@ func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
 	}
 }
 
+func TestLoadRegisterFromStackDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x8b, 0x4c, 0x24, 0x04})
+	copy(mem[0x24:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.R[ESP], c.R[ECX] = 0x20, 0xaabbccdd
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.R[ECX] != 0x12345678 {
+		t.Fatalf("MOV ECX=%X err=%v", c.R[ECX], err)
+	}
+}
+
 func TestStoreRegisterIndirect(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x89, 0x10})
@@ -172,11 +185,62 @@ func TestRegisterCMP32(t *testing.T) {
 	}
 }
 
+func TestCompareRegisterAbsoluteDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x3b, 0x0d, 0x20, 0, 0, 0})
+	copy(mem[0x20:], []byte{7, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f})
+	c.R[ECX] = 7
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[ECX] != 7 {
+		t.Fatalf("CMP ECX=%X flags=%X err=%v", c.R[ECX], c.EFlags, err)
+	}
+}
+
+func TestJBEShort(t *testing.T) {
+	for _, flags := range []uint32{CF, ZF} {
+		c := New(testBus{0x76, 2, 0xfb, 0xfb})
+		c.EFlags = flags
+		if err := c.Step(); err != nil || c.EIP != 4 || c.EFlags != flags {
+			t.Fatalf("taken JBE flags=%X EIP=%X err=%v", flags, c.EIP, err)
+		}
+	}
+	c := New(testBus{0x76, 2, 0xfb, 0xfb})
+	if err := c.Step(); err != nil || c.EIP != 2 {
+		t.Fatalf("untaken JBE EIP=%X err=%v", c.EIP, err)
+	}
+}
+
 func TestRegisterSUB32(t *testing.T) {
 	c := New(testBus{0x29, 0xc4})
 	c.R[ESP], c.R[EAX] = 9, 4
 	if err := c.Step(); err != nil || c.R[ESP] != 5 || c.R[EAX] != 4 || c.EFlags&ZF != 0 {
 		t.Fatalf("SUB ESP=%X EAX=%X flags=%X err=%v", c.R[ESP], c.R[EAX], c.EFlags, err)
+	}
+}
+
+func TestNegRegister32(t *testing.T) {
+	c := New(testBus{0xf7, 0xd8})
+	c.R[EAX] = 5
+	if err := c.Step(); err != nil || c.R[EAX] != 0xfffffffb || c.EFlags&CF == 0 {
+		t.Fatalf("NEG EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+
+	c = New(testBus{0xf7, 0xd8})
+	if err := c.Step(); err != nil || c.R[EAX] != 0 || c.EFlags&ZF == 0 || c.EFlags&CF != 0 {
+		t.Fatalf("NEG zero EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+
+	c = New(testBus{0xf7, 0xd8})
+	c.R[EAX] = 0x80000000
+	if err := c.Step(); err != nil || c.R[EAX] != 0x80000000 || c.EFlags&OF == 0 {
+		t.Fatalf("NEG min EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+
+	c = New(testBus{0xf7, 0xc0})
+	if err := c.Step(); err == nil {
+		t.Fatal("unsupported F7 group was accepted")
 	}
 }
 
@@ -267,6 +331,24 @@ func TestPushSignExtendedByte(t *testing.T) {
 	}
 }
 
+func TestPushImmediateDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x20))
+	copy(mem, []byte{0x68, 0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegSS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.R[ESP] = 0x10
+	if err := c.Step(); err != nil || c.R[ESP] != 0x0c || !bytes.Equal(mem[0x0c:0x10], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("PUSH ESP=%X value=% X err=%v", c.R[ESP], mem[0x0c:0x10], err)
+	}
+
+	c = New(boundedTestBus{0x68, 1, 2, 3})
+	c.R[ESP] = 0x10
+	if err := c.Step(); err == nil || c.R[ESP] != 0x10 {
+		t.Fatalf("truncated PUSH ESP=%X err=%v", c.R[ESP], err)
+	}
+}
+
 func TestLeave32(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	mem[0] = 0xc9
@@ -284,6 +366,23 @@ type testBus []byte
 
 func (b testBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }
 func (b testBus) Write8(addr uint32, value uint8) error { b[addr] = value; return nil }
+
+type boundedTestBus []byte
+
+func (b boundedTestBus) Read8(addr uint32) (uint8, error) {
+	if addr >= uint32(len(b)) {
+		return 0, errors.New("out of range")
+	}
+	return b[addr], nil
+}
+
+func (b boundedTestBus) Write8(addr uint32, value uint8) error {
+	if addr >= uint32(len(b)) {
+		return errors.New("out of range")
+	}
+	b[addr] = value
+	return nil
+}
 
 func TestFD2EntryPrefixInstructionShapes(t *testing.T) {
 	mem := testBus(make([]byte, 0x200))
@@ -871,6 +970,32 @@ func TestX87StartupSelfTestSequence(t *testing.T) {
 	}
 	if c.FPUControl != 0x127f || c.FPUStatus != 0 || c.FPUDepth != 0 {
 		t.Fatalf("self-test FPU control=%X status=%X depth=%d", c.FPUControl, c.FPUStatus, c.FPUDepth)
+	}
+}
+
+func TestXchgRegisterStackDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x87, 0x4c, 0x24, 0x04})
+	copy(mem[0x24:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.R[ESP], c.R[ECX] = 0x20, 0xaabbccdd
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.R[ECX] != 0x12345678 || !bytes.Equal(mem[0x24:0x28], []byte{0xdd, 0xcc, 0xbb, 0xaa}) {
+		t.Fatalf("XCHG ECX=%X stack=% X err=%v", c.R[ECX], mem[0x24:0x28], err)
+	}
+}
+
+func TestReturnImmediate32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc2, 0x04, 0x00})
+	copy(mem[0x20:], []byte{0x34, 0x12, 0, 0})
+	c := New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.EIP != 0x1234 || c.R[ESP] != 0x28 {
+		t.Fatalf("RET EIP=%X ESP=%X err=%v", c.EIP, c.R[ESP], err)
 	}
 }
 

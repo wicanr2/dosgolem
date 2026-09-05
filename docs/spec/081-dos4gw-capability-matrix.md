@@ -13,7 +13,7 @@ binary 路徑與測試收據後才能標為已驗證。
 | 32 位平坦 code/data/stack descriptor | 已驗證 | [`014`](014-dos4gw-flat-descriptors.md)；只允許已註冊 selector |
 | 386 指令集 | 增量驗證 | 僅實作已有 READY 規格與執行路徑的 opcode，其餘失敗即關閉 |
 | DPMI 與 DOS/4GW API | 尚未一般化 | 目前僅有固定 FD2 啟動所消費的 selector／安裝檢查契約 |
-| Watcom C runtime 啟動 | 固定 FD2 已驗證 | environment、near heap、`argv`、決定性 DOS 時間與 `__CMain` 已到 `main` |
+| Watcom C runtime 啟動 | 固定 FD2 已驗證 | environment、near heap、`argv`、決定性 DOS 時間、`__CMain` 與通用 stack probe 正常路徑已驗證 |
 | 一般 DOS 檔案、鍵盤、計時、終止服務 | 待 binary 路徑驅動 | 不從 8086 核心的實作自動推定 386 平坦模式已可用 |
 | VGA 索引畫面與輸入觀測 | 待 FD2 main 下一條垂直切片 | 目前尚無 FD2 權威畫面收據 |
 | Sound Blaster／AdLib／MIDI | 未實作 | 硬體時序依公開規格近似，不以逐週期相同為目標 |
