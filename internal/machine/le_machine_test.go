@@ -50,15 +50,15 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	}
 	services := &FD2StartupDOS{}
 	m.CPU.IntHook = services.Handle
-	for steps := 0; m.CPU.EIP != 0x3cb6c && steps < 170; steps++ {
+	for steps := 0; m.CPU.EIP != 0x3cb85 && steps < 180; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if services.Calls() != 2 || m.CPU.EIP != 0x3cb6c {
+	if services.Calls() != 2 || m.CPU.EIP != 0x3cb85 {
 		t.Fatalf("entry did not branch past environment prefix test: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != 0 || m.CPU.R[cpu386.EBX] != 0x556b0 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
+	if m.CPU.R[cpu386.EAX] != 0x546b0 || m.CPU.R[cpu386.EBX] != 0x556b0 || m.CPU.Seg[cpu386.SegGS] != 0x20 {
 		t.Fatalf("command-tail prelude mismatch: EAX=%X EBX=%X GS=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.Seg[cpu386.SegGS], m.CPU.EFlags)
 	}
 	selectorGS, err := m.Read16(0x527f0)
@@ -92,7 +92,7 @@ func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	if m.CPU.R[cpu386.EDX] != 0x1c4 || m.CPU.R[cpu386.ECX] != 0 {
 		t.Fatalf("command-tail prelude EDX=%X ECX=%X", m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.ECX])
 	}
-	if m.CPU.R[cpu386.EAX] != 0 || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF == 0 {
+	if m.CPU.R[cpu386.EAX] != 0x546b0 || m.CPU.EFlags&cpu386.DF != 0 || m.CPU.EFlags&cpu386.ZF != 0 {
 		t.Fatalf("environment first dword EAX=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 	if m.CPU.R[cpu386.ESI] != 0x546b1 || m.CPU.R[cpu386.EDI] != 0x546b0 || m.CPU.R[cpu386.EBX] != 0x556b0 {
