@@ -76,3 +76,46 @@ func (o *Oracle) Regs() Regs {
 		CS: c.Seg[cpu.CS], IP: c.IP, Flags: c.Flags,
 	}
 }
+
+// CallRegs 是呼叫前要擺好的暫存器。零值表示不動。
+type CallRegs struct {
+	AX, BX, CX, DX, SI, DI, BP uint16
+	DS, ES                     uint16
+	// Set 標出上面哪幾個要真的寫進去——**0 是合法值**，
+	// 不能拿「等於零」當「沒指定」。
+	SetAX, SetBX, SetCX, SetDX, SetSI, SetDI, SetBP, SetDS, SetES bool
+}
+
+// CallNear 把 CPU 直接擺到原版某一支 **near** 常式的入口。
+//
+// ⭐ **原版當函式庫用。** 有些畫面只有在遊戲自己決定要開的時候才會出現
+// （戰術畫面要等遭遇），而那可能是四億道指令之後。擺好參數直接叫下去，
+// 同一個畫面五分鐘就到得了。
+//
+// ⚠ **返回位址是假的。** 只推一個 near 返回位址 `ret`，常式回來時就跳到
+// 那裡，而那一跳會比原本多吃掉呼叫端堆疊上的一個字。所以這一支適合
+// 「叫下去之後就在裡面」的用途（開畫面、進迴圈），**不適合當函式呼叫**。
+//
+// ⚠ **near 不能跨段**：`addr.Seg` 必須就是常式所在的段，函式回來時
+// CS 不會變。要叫 far 的用 `FarCall`。
+func (o *Oracle) CallNear(addr Addr, ret uint16, r CallRegs) {
+	c := o.m.CPU
+	sp := c.R[cpu.SP] - 2
+	c.R[cpu.SP] = sp
+	o.m.Write16(cpu.Addr(c.Seg[cpu.SS], sp), ret)
+	set := func(dst *uint16, v uint16, ok bool) {
+		if ok {
+			*dst = v
+		}
+	}
+	set(&c.R[cpu.AX], r.AX, r.SetAX)
+	set(&c.R[cpu.BX], r.BX, r.SetBX)
+	set(&c.R[cpu.CX], r.CX, r.SetCX)
+	set(&c.R[cpu.DX], r.DX, r.SetDX)
+	set(&c.R[cpu.SI], r.SI, r.SetSI)
+	set(&c.R[cpu.DI], r.DI, r.SetDI)
+	set(&c.R[cpu.BP], r.BP, r.SetBP)
+	set(&c.Seg[cpu.DS], r.DS, r.SetDS)
+	set(&c.Seg[cpu.ES], r.ES, r.SetES)
+	c.Seg[cpu.CS], c.IP = addr.Seg, addr.Off
+}

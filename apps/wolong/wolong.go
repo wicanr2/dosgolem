@@ -576,3 +576,66 @@ func CorpsTable(o *oracle.Oracle) []Corps {
 	}
 	return out
 }
+
+// ---- 從外面開一場攻城戰 --------------------------------------------------
+
+// 攻城遭遇的外層與它的收尾（臥龍傳專案 `docs/re/09` §1、`docs/re/86` 的
+// 同一張 dump）。`sub_14ADE` 自己會：清「被擋住」位元、寫
+// `word_10D32`（據點）、`byte_10D34`（戰場編號 ＝ 據點編號）、
+// `byte_10D35`（旋轉旗標）、配 256 byte 的堆疊暫存區、
+// 用 `sub_14C72` 依**位置與勢力**挑出守方軍團，再走 `sub_14ED7`。
+//
+// ⇒ **要開一場仗，只要給它攻方軍團與據點。** 其餘它自己算。
+const (
+	idaSiegeEntry = 0x14ADE // sub_14ADE
+	idaSiegeRet   = 0x14B62 // 同一支的 retn，拿來當假返回位址
+	idaHitTest    = 0x1E453 // sub_1E453：命中測試，主迴圈每一圈叫一次
+	offCities     = 0x840   // 據點表的段內偏移，192 筆 × 32 B
+	citySize      = 32
+)
+
+// OpenSiege 直接叫原版開一場攻城戰：`attacker` 那支軍團去打 `city`。
+//
+// 守方**不必指定**——原版自己按「站在那一格而且屬於該據點的勢力」挑
+// （`sub_14C72`）。城裡沒有軍團時原版走自動判定，不會開戰術畫面
+// （`cmp bx, 4200h`）。
+//
+// ⚠ **玩家的勢力要是其中一方**，否則原版直接自動判定
+// （`sub_14E5C`／`sub_14ED7` 開頭比 `byte_10CFF`）。
+//
+// ⚠ 這是**把原版當函式庫用**：不是遊戲自己決定要打的，所以打完之後
+// 控制流會落在假返回位址上（見 `oracle.CallNear`）。用途是取樣，不是玩。
+func OpenSiege(o *oracle.Oracle, attacker, city int) error {
+	if attacker < 0 || attacker >= corpsCount {
+		return fmt.Errorf("軍團編號 %d 超出 0–%d", attacker, corpsCount-1)
+	}
+	if city < 0 || city >= 192 {
+		return fmt.Errorf("據點編號 %d 超出 0–191", city)
+	}
+	// ⚠ **要從一個已知的靜止點叫下去。** 從 `steps` 停在哪就叫哪，
+	// 有可能停在某支繪圖常式中間，那時視窗狀態不一致——實測會畫出一個
+	// 內容是雜訊的訊息框然後卡住。`sub_1E453`（命中測試）是主迴圈
+	// 每一圈都會進的地方，進到那裡就表示遊戲正閒著等輸入。
+	//
+	// ⭐ 順帶把堆疊平衡也解決了：假返回位址是 `sub_14ADE` 自己的 `retn`，
+	// 它會再彈一次 —— 彈掉的正好是 `sub_1E453` 的返回位址，
+	// 於是遊戲回到閒置迴圈，像那一圈的命中測試回來了一樣。
+	cs0 := o.Regs().CS
+	if err := o.RunUntil(oracle.At(o.IDAIn(cs0, idaHitTest)),
+		oracle.Budget(20_000_000)); err != nil {
+		return fmt.Errorf("等遊戲回到閒置迴圈：%w", err)
+	}
+	seg := o.Word(o.IDA(idaTableSeg))
+	// ⚠ **段要用程式自己現在的 CS**：常式裡滿是 `cs:byte_10CFF` 這種
+	// 絕對定址，段偏掉的話它讀到的是另一塊記憶體，而且不會報錯。
+	// 實際踩過：用正規化的段跳進去，`byte_10CFF`（玩家勢力）讀成別的值，
+	// 於是原版判定「兩邊都不是玩家」直接自動判定，戰術畫面不會開。
+	cs := o.Regs().CS
+	o.CallNear(o.IDAIn(cs, idaSiegeEntry), o.IDAIn(cs, idaSiegeRet).Off, oracle.CallRegs{
+		SI: uint16(offCorps + attacker*corpsSize), SetSI: true,
+		DI: uint16(offCities + city*citySize), SetDI: true,
+		DS: seg, SetDS: true,
+		ES: seg, SetES: true,
+	})
+	return nil
+}

@@ -180,6 +180,16 @@ func (o *Oracle) IDA(linear uint32) Addr {
 	return Addr{uint16(run >> 4), uint16(run & 0xF)}
 }
 
+// IDAIn 把 IDA 線性位址換成**指定段**底下的偏移。
+//
+// ⚠ **`IDA()` 回的是正規化的段**（`線性 >> 4`），拿它當 CS 跳過去，
+// 常式裡每一個 `cs:xxxx` 的絕對定址就全部偏掉——而那**不會報錯**，
+// 讀到的是另一塊記憶體。要跳進原版的程式碼一律用這一支，
+// 段給程式自己現在的 CS。
+func (o *Oracle) IDAIn(seg uint16, linear uint32) Addr {
+	return Addr{seg, uint16(linear - o.idaOffset - uint32(seg)*16)}
+}
+
 // ToIDA 把執行期位址換回 IDA 線性位址（除錯訊息要用）。
 func (o *Oracle) ToIDA(a Addr) uint32 { return a.Linear() + o.idaOffset }
 

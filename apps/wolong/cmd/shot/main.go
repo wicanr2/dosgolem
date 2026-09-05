@@ -19,6 +19,7 @@
 //	tile:TX,TY        把游標移到大地圖的第 (TX,TY) 格（**選據點要用這個**）
 //	celltile          印出游標現在在第幾格
 //	corps             印出軍團表（現在據點／目標據點／朝向／計時器／狀態）
+//	siege:攻方,據點   **直接叫原版開一場攻城戰**（守方由原版自己挑）
 //	runto:LIN[,N]     跑到 CS:IP 走到 IDA 線性位址 LIN（預算 N 道指令，預設 4 億）
 //	save:NAME         把目前的機器狀態記到記憶體裡的一個格子
 //	restore:NAME      倒回那個格子——**一次執行裡展開多個變體**
@@ -225,6 +226,17 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		}
 		o.Restore(st)
 		fmt.Printf("   倒回狀態「%s」（第 %d 道指令）\n", arg, o.Steps())
+		return nil
+	case "siege":
+		// `siege:攻方軍團,據點`——直接叫原版開一場攻城戰。
+		x, y, err := point(arg, false)
+		if err != nil {
+			return err
+		}
+		if err := wolong.OpenSiege(o, x, y); err != nil {
+			return err
+		}
+		fmt.Printf("   叫原版開攻城戰：軍團 %d 打據點 %d\n", x, y)
 		return nil
 	case "corps":
 		cs := wolong.CorpsTable(o)
