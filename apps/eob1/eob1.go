@@ -543,6 +543,38 @@ func ToLevel1MemorizeReturn(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1RestAfterMemorize 先替ALFA選一個待記憶法術，再由CAMP第一列完成一次正常休息。
+// 健康新隊伍的休息很短，因此用「確實離開、再回到同一CAMP畫面」驗證交易，不以固定等待冒充。
+func ToLevel1RestAfterMemorize(o *oracle.Oracle) error {
+	if err := ToLevel1MemorizeReturn(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyUp)
+	const restSelected = "79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae"
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP選中Rest Party", 0, 0, oracle.Width, oracle.Height,
+		restSelected), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP選中Rest Party：%w", err)
+	}
+	o.PressKey(oracle.KeyEnter)
+	leftCamp := false
+	var next uint64
+	returned := oracle.NewCond("LEVEL1正常休息離開畫面後返回CAMP", func(o *oracle.Oracle) bool {
+		if o.Steps() < next {
+			return false
+		}
+		next = o.Steps() + 100
+		current := fmt.Sprintf("%x", sha256.Sum256(o.Indexed()))
+		if current != restSelected {
+			leftCamp = true
+		}
+		return leftCamp && current == restSelected
+	})
+	if err := o.RunUntil(returned, oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待正常休息完成：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {

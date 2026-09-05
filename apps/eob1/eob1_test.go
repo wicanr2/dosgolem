@@ -413,6 +413,20 @@ func TestToLevel1MemorizeReturnRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1RestAfterMemorizeRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1RestAfterMemorize(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digest(o.Indexed()); got != "79e080c1a738e5ecd7d26ff379d7a126cb9ba4cee7ea998af94555b7a3d4f8ae" {
+		t.Fatalf("LEVEL1正常休息完成SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 96 {
+		t.Fatalf("LEVEL1正常休息完成port 60h讀取%d次，預期四十八鍵make／break共96次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")
