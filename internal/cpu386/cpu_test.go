@@ -376,6 +376,25 @@ func TestProtectedModeNearCALL(t *testing.T) {
 	}
 }
 
+func TestX87InitAndStoreControlWordToStack(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0xdb, 0xe3, 0xd9, 0x3c, 0x24})
+	c := New(mem)
+	c.R[ESP] = 4
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x3f, Writable: true})
+	c.FPUControl, c.FPUDepth = 0xffff, 3
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.FPUControl != 0x037f || c.FPUDepth != 0 {
+		t.Fatalf("FNINIT control=%X depth=%d", c.FPUControl, c.FPUDepth)
+	}
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x24:0x26], []byte{0x7f, 0x03}) || c.R[ESP] != 4 {
+		t.Fatalf("FNSTCW bytes=% X ESP=%X err=%v", mem[0x24:0x26], c.R[ESP], err)
+	}
+}
+
 func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
 	c := New(mem)
