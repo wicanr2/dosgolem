@@ -20,7 +20,8 @@
 //	celltile          印出游標現在在第幾格
 //	corps             印出軍團表（現在據點／目標據點／朝向／計時器／狀態）
 //	siege:攻方,據點   **直接叫原版開一場攻城戰**（守方由原版自己挑）
-//	units[:all]       印出戰場上每個兵的座標與狀態（預設只印活著的）
+//	units[:all|sum]   印出戰場上每個兵的座標與狀態；`sum` 只印每側一行摘要
+//	                  （含「與上次相比動了幾個」——要回答「什麼時候站定」）
 //	unitwatch:側,隊,位 盯那個兵的座標欄位，印出**是誰寫的**（每個位址只印前三次）
 //	wwatch:LIN:N      盯 IDA 線性位址起 N 個 byte 的寫入，印出是誰寫的
 //	unwatch           收掉寫入監看
@@ -292,6 +293,9 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		fmt.Println("   收掉寫入監看")
 		return nil
 	case "units":
+		if arg == "sum" {
+			return unitSummary(o)
+		}
 		us := wolong.Units(o, arg != "all")
 		fmt.Printf("   場上 %d 個兵（側/隊/位 座標 體力 命令 旗標）：\n", len(us))
 		for _, u := range us {
@@ -467,6 +471,49 @@ func peek(o *oracle.Oracle, arg string) error {
 		parts[i] = fmt.Sprintf("%02X", b)
 	}
 	fmt.Printf("   %s = %s\n", label, strings.Join(parts, " "))
+	return nil
+}
+
+// lastUnits 是上一次 `units:sum` 的座標，用來算「動了幾個」。
+var lastUnits map[[3]int][2]int
+
+// unitSummary 每側印一行。
+//
+// ⭐ **「什麼時候站定」要看『動了幾個』，不是看座標範圍。**
+// 範圍會在大部分人到位之後就不再變，而**最後幾個還在走**——
+// 拿範圍當判準會早收，而早收在畫面上看起來完全正常。
+func unitSummary(o *oracle.Oracle) error {
+	us := wolong.Units(o, true)
+	now := map[[3]int][2]int{}
+	for _, u := range us {
+		now[[3]int{u.Side, u.Squad, u.Slot}] = [2]int{int(u.X), int(u.Y)}
+	}
+	moved := -1
+	if lastUnits != nil {
+		moved = 0
+		for k, v := range now {
+			if p, ok := lastUnits[k]; ok && p != v {
+				moved++
+			}
+		}
+	}
+	for side := 0; side < 2; side++ {
+		xlo, xhi, ylo, yhi, n := 999, -1, 999, -1, 0
+		for _, u := range us {
+			if u.Side != side {
+				continue
+			}
+			n++
+			xlo, xhi = min(xlo, int(u.X)), max(xhi, int(u.X))
+			ylo, yhi = min(ylo, int(u.Y)), max(yhi, int(u.Y))
+		}
+		fmt.Printf("   側 %d：%2d 個，X %2d..%2d，Y %2d..%2d\n",
+			side, n, xlo, xhi, ylo, yhi)
+	}
+	if moved >= 0 {
+		fmt.Printf("   與上次相比動了 %d 個\n", moved)
+	}
+	lastUnits = now
 	return nil
 }
 
