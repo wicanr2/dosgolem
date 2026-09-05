@@ -29,6 +29,15 @@ const (
 	// 框架一配置就讀不到了。
 	IDASelector = 0x204B6
 
+	// IDAMenuHit 是**滑鼠命中判定**（`0CED:6624`，5 參數，
+	// `rich2/docs/re/141` §1，confirmed）。
+	//
+	// 攔它比從選擇器的六個參數推算幾何可靠得多——那六個要經過
+	// `+36`／`+10`／`<<4 +42` 幾層換算，而**哪一個是 x 哪一個是 y
+	// 我推錯過一次**（算出來的 y ＝ 202，超出 320×200 的畫面）。
+	// 命中判定收到的已經是換算完的 x0／x1／y0／間距／列數。
+	IDAMenuHit = 0x234F4
+
 	// IDASelectorRet 是取回傳值那一段。
 	//
 	// ⚠ **要攔 `2057F` 不是 `2057C`**：`2057C` 是 `mov ax,[bp-18h]`，
@@ -51,6 +60,12 @@ const (
 	KeyRight = "\x00\x4D"
 )
 
+// SelectorCancel 是「取消／離場」的回傳值（`rich2/docs/re/077` §2.1）。
+const SelectorCancel = 0x63
+
+// Cancelled 回報這一張選單是被取消的。
+func (s Selector) Cancelled() bool { return s.Chosen == SelectorCancel }
+
 // Selector 是一次選單的觀測。
 //
 // 六個參數的語意見 `rich2/docs/re/141` §2（confirmed）。
@@ -62,8 +77,17 @@ type Selector struct {
 	Text  int // 文字起始索引
 	Style int // 樣式／模式
 
-	Chosen int  // 玩家選了第幾列（1 起算）；0 ＝ 還沒選或沒選
+	// Chosen 是玩家選了第幾列（1 起算）。
+	//
+	// ⚠ **取消不是 0，是 `SelectorCancel`（0x63 ＝ 99）**
+	// （`rich2/docs/re/077` §2.1，confirmed，股市三個呼叫端共用）。
+	// 把 99 當成「選了第 99 列」會得到一個看起來很合理的錯誤。
+	Chosen int
 	Done   bool // 有沒有攔到回傳
+
+	// 命中判定實際收到的幾何（攔 `IDAMenuHit`）。**這是量到的不是算的。**
+	HitX0, HitX1, HitY0, HitPitch, HitRows int
+	HitSeen                                bool
 }
 
 // SelectorLog 收集整場的選單，也可以自動回答它們。
@@ -81,6 +105,10 @@ type SelectorLog struct {
 //
 // pick 回第幾列（1 起算）；回 0 表示按 ESC 退出；回負數表示不回答
 // （留給呼叫端自己處理）。
+//
+// ⚠ **自動回答只做得到「第 1 列」與「ESC」**，因為它跑在指令迴圈裡，
+// 不能點滑鼠（`Click` 會重入執行迴圈）。要選中間某一列就在迴圈外用
+// `ChooseRow`。
 //
 // ⚠ **鍵是在選擇器進入的那一刻就排進 stdin 的**，不是等它讀。
 // 所以 pick 只看得到選單的形狀（幾列、文字起始索引），
@@ -116,13 +144,37 @@ func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 		if log.pick == nil {
 			return
 		}
+		// ⚠ **這裡只排鍵，不點滑鼠。**
+		// 這是 `OnCall` 的 hook，正跑在指令迴圈裡；`Click` 內部會
+		// `RunUntil`，在 hook 裡重入執行迴圈會炸。要按列選就用
+		// `ChooseRow`，那是給呼叫端在迴圈外用的。
 		switch row := log.pick(log.cur); {
 		case row < 0: // 不回答
-		case row == 0:
-			o.Type(KeyEsc)
+		case row <= 1:
+			o.Type(KeyEnter) // 第 1 列就是游標的起點
 		default:
-			_ = ChooseRow(o, log.cur, row)
+			o.Type(KeyEsc)
 		}
+	})
+
+	o.OnCall(o.IDA(IDAMenuHit), func(o *oracle.Oracle) {
+		if log.cur == nil || log.cur.HitSeen {
+			return
+		}
+		// **參數順序是 (y0, 間距, x0, x1, 列數)。**
+		//
+		// 這是量出來的，不是從 `docs/re/141` §1 的敘述推的——那一份講的是
+		// 命中公式，沒有寫參數順序。主選單實測收到 `(147, 18, 123, 197, 3)`，
+		// 三個獨立的對照同時成立才定下這個順序：
+		// 間距 ＝ 18（文件寫死的值）、列數 ＝ 3（選擇器第 4 參數 ＋ 2）、
+		// x1 ＝ 123 ＋ 16×2 ＋ 42 ＝ 197（文件的算式）。
+		a := basic.CallArgs(o, 5)
+		log.cur.HitY0 = int(int16(a[0]))
+		log.cur.HitPitch = int(int16(a[1]))
+		log.cur.HitX0 = int(int16(a[2]))
+		log.cur.HitX1 = int(int16(a[3]))
+		log.cur.HitRows = int(int16(a[4]))
+		log.cur.HitSeen = true
 	})
 
 	o.OnCall(o.IDA(IDASelectorRet), func(o *oracle.Oracle) {
@@ -137,24 +189,109 @@ func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 	return log
 }
 
-// ChooseRow 送出「選第 row 列」的按鍵序列。
+// 選單的版面常數（`rich2/docs/re/099` §2、`docs/re/141` §1，都是 confirmed）。
 //
-// **走的是正常玩家路徑**：游標從第 1 列起算，往下按 row−1 次再按 Enter。
-// 不直接寫選擇結果——那會跳過遊戲自己的游標處理，證明不了玩家走得到
-// （`rich2/CLAUDE.md` §8）。
+//	x0 = 第1參數        y0 = 第2參數
+//	x1 = 第1參數 + 16 × 第3參數 + 42
+//	間距 = 18
 //
-// row 從 1 起算。超出範圍回錯誤而不是硬送，因為送過頭之後游標停在哪裡
-// 取決於選擇器有沒有 wrap，那還沒查。
-func ChooseRow(o *oracle.Oracle, s *Selector, row int) error {
+// ⚠ `docs/re/099` §2 的 `+36`／`+10` 是**繪製**用的（`[bp-14h]`／`[bp-16h]`），
+// 不是命中範圍。拿它們算點擊座標會偏兩列。
+//
+// 命中規則：
+//
+//	在 [x0, x1] × [y0, y0 + 間距 × 列數] 之外 → 沒中
+//	否則 列 = min((滑鼠Y − y0) / 間距 + 1, 列數)
+const (
+	menuEdgeX = 42
+	menuPitch = 18
+	menuCharW = 16
+)
+
+// RowPoint 算第 row 列的螢幕座標（1 起算）。
+//
+// **優先用命中判定實際收到的幾何**（`HitSeen`），那是量到的；
+// 攔不到才退回從選擇器的六個參數推算。
+//
+// ⚠ 推算那條路我錯過一次：把第 1／2 參數當成 x／y 再各加 36／10，
+// 算出第 3 列在 y ＝ 202——**超出 320×200 的畫面**。實測命中判定收到的
+// x0／y0 就是第 1／2 參數本身，沒有那兩個偏移（那兩個是給繪製用的）。
+func (s Selector) RowPoint(row int) (x, y int) {
+	x0, x1, y0, pitch := s.X, s.X+menuCharW*s.Width+menuEdgeX, s.Y, menuPitch
+	if s.HitSeen {
+		x0, x1, y0, pitch = s.HitX0, s.HitX1, s.HitY0, s.HitPitch
+	}
+	return (x0 + x1) / 2, y0 + pitch*(row-1) + pitch/2
+}
+
+// ChooseRow 選第 row 列（1 起算）。
+//
+// # 為什麼走滑鼠不走方向鍵
+//
+// `rich2/docs/re/100` 說方向鍵是 `CHR$(0)+CHR$(72/80/75/77)`，但**送進
+// stdin 沒有用**：實測 `00 50`、`50`、`E0 50`、`00 50 00 50` 四種編碼
+// 加上只送 Enter 的對照組，原版一律收到第 1 列
+// （`rich2/internal/parity/keytest_test.go`）。
+//
+// 嫌疑是 `StdinFill` ＝ 0：佇列空的時候餵 0 表示「沒按鍵」，
+// 而擴充鍵的前綴也是 0，遊戲分不出來。**還沒查完**，所以那條路先擱著。
+//
+// 滑鼠那條路反而是**完全指定的**：命中公式與六個參數的語意都 confirmed
+// （`docs/re/141`），而且原版執行期的滑鼠旗標實測為 1（`docs/re/106`）。
+// 所以這裡照公式算出第 row 列的座標再點下去——**仍然是正常玩家路徑**，
+// 不是直接寫選擇結果。
+func ChooseRow(o *oracle.Oracle, s *Selector, row int, opts ...oracle.ClickOpt) error {
 	if s == nil {
 		return fmt.Errorf("現在沒有選單在等輸入")
 	}
 	if row < 1 || row > s.Rows {
 		return fmt.Errorf("選第 %d 列，但這張選單只有 %d 列", row, s.Rows)
 	}
-	for i := 1; i < row; i++ {
-		o.Type(KeyDown)
+	x, y := s.RowPoint(row)
+	return o.Click(x, y, opts...)
+}
+
+// Labels 讀這張選單每一列的文字。
+//
+// 第 5 參數是**文字起始索引**（`rich2/docs/re/141` §2，confirmed），
+// 指進定長字串表 `17ECh`（`state.go` 的 `Texts`）。所以
+// 第 k 列的文字就是 `17ECh[Text + k - 1]`。
+//
+// **有了這個，回答選單就能按內容決定而不是按列號。** 「第 3 列」在不同
+// 場所是不同的東西，「存款」在哪裡都是存款——按列號寫的對拍測試，
+// 換一張選單就默默對到別的項目上。
+//
+// ⚠ 回傳的是 **Big5 位元組**，不是 UTF-8：原版文字裡混著版面控制碼，
+// 解成字串會失真（`rich2/internal/assets` 的 `TextEntry.Raw` 同一個理由）。
+// 要顯示的話呼叫端自己轉。
+//
+// ⚠ 這是**強證據不是 confirmed**：文字索引指進哪一張表，是拿主選單的
+// 三列反查對上的，還沒逐張驗過。
+func (s Selector) Labels(o *oracle.Oracle) [][]byte {
+	if s.Rows <= 0 || s.Text < 0 {
+		return nil
 	}
-	o.Type(KeyEnter)
-	return nil
+	a := Texts(o)
+	out := make([][]byte, 0, s.Rows)
+	for k := 0; k < s.Rows; k++ {
+		i := s.Text + k
+		if i < 0 || i >= TextSlots {
+			out = append(out, nil)
+			continue
+		}
+		out = append(out, trimTextSlot(a.Bytes(i)))
+	}
+	return out
+}
+
+// trimTextSlot 去掉定長欄位的尾端填充與結尾標記。
+func trimTextSlot(raw []byte) []byte {
+	end := len(raw)
+	for end > 0 && (raw[end-1] == ' ' || raw[end-1] == 0) {
+		end--
+	}
+	if end > 0 && raw[end-1] == '\r' {
+		end--
+	}
+	return raw[:end]
 }
