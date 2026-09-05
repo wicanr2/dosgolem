@@ -312,6 +312,23 @@ func TestToLevel1FirstPickupRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1FirstDropRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1FirstDrop(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "4cf790c278d6a9115094c61eebacf894d13ad12a118403ed25056c42523352d2" {
+		t.Fatalf("LEVEL1起始石塊放回視窗SHA-256=%s", got)
+	}
+	if got := digest(o.Indexed()); got != "9ce3f36cf412325f991ef4bf542361661376e840fb1fcc17436c1cb99028d9f3" {
+		t.Fatalf("LEVEL1起始石塊放回全畫面SHA-256=%s", got)
+	}
+	if got := o.PortReads()[0x60]; got != 84 {
+		t.Fatalf("LEVEL1放回後port 60h讀取%d次，預期四十二鍵make／break共84次", got)
+	}
+}
+
 func loadRealData(t *testing.T) *oracle.Oracle {
 	t.Helper()
 	exe, root := os.Getenv("EOB1_ORACLE_EXE"), os.Getenv("EOB1_ORACLE_ROOT")

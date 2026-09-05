@@ -443,6 +443,25 @@ func ToLevel1FirstPickup(o *oracle.Oracle) error {
 	return nil
 }
 
+// ToLevel1FirstDrop 將首次拾起的石塊放回原版左近場景區，再把游標移出視窗供觀測。
+func ToLevel1FirstDrop(o *oracle.Oracle) error {
+	if err := ToLevel1FirstPickup(o); err != nil {
+		return err
+	}
+	if err := o.Click(44, 110, oracle.Hover(0), oracle.Hold(200_000), oracle.Settle(1_000_000)); err != nil {
+		return fmt.Errorf("EOB1放回LEVEL1起始石塊：%w", err)
+	}
+	if err := o.Run(2_000_000); err != nil {
+		return fmt.Errorf("EOB1等待起始石塊放回：%w", err)
+	}
+	o.MoveMouse(300, 190)
+	if err := o.RunUntil(screenDigest("LEVEL1起始石塊已放回", 0, 0, 176, 120,
+		"4cf790c278d6a9115094c61eebacf894d13ad12a118403ed25056c42523352d2"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待起始石塊放回畫面：%w", err)
+	}
+	return nil
+}
+
 func screenDigest(name string, x, y, width, height int, want string) oracle.Cond {
 	var next uint64
 	return oracle.NewCond(name, func(o *oracle.Oracle) bool {
