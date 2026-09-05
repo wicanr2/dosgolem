@@ -292,13 +292,48 @@ func run(o *oracle.Oracle, step string, dosboxY bool, budget uint64,
 		o.StopWrites()
 		fmt.Println("   收掉寫入監看")
 		return nil
+	case "ticks":
+		// `ticks:N`——**以戰術節拍為單位**推進 N 拍。
+		//
+		// ⚠ 一拍不是固定指令數（畫面上的東西會拖慢它），所以
+		// 「推 20 拍」寫成 `steps:6660000` 只是估計；要跟 remake 的
+		// 幀號逐拍對齊就得讀計數器。
+		n, err := strconv.Atoi(arg)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("ticks 要正整數，收到 %q", arg)
+		}
+		before := wolong.Tick(o)
+		if err := o.RunUntil(wolong.AfterTicks(o, uint16(n)),
+			oracle.Budget(uint64(n)*4_000_000+1_000_000)); err != nil {
+			return err
+		}
+		fmt.Printf("   節拍 %d → %d\n", before, wolong.Tick(o))
+		return nil
 	case "units":
 		if arg == "sum" {
 			return unitSummary(o)
 		}
+		// `units:側/隊`——只印那一隊，走位期逐拍取樣用。
+		side, squad := -1, -1
+		if strings.Contains(arg, "/") {
+			f := strings.SplitN(arg, "/", 2)
+			side, _ = strconv.Atoi(f[0])
+			squad, _ = strconv.Atoi(f[1])
+		}
 		us := wolong.Units(o, arg != "all")
-		fmt.Printf("   場上 %d 個兵（側/隊/位 座標 體力 命令 旗標）：\n", len(us))
+		shown := 0
 		for _, u := range us {
+			if side >= 0 && (u.Side != side || u.Squad != squad) {
+				continue
+			}
+			shown++
+		}
+		fmt.Printf("   場上 %d 個兵，印 %d 個（側/隊/位 座標 體力 命令 旗標）：\n",
+			len(us), shown)
+		for _, u := range us {
+			if side >= 0 && (u.Side != side || u.Squad != squad) {
+				continue
+			}
 			fmt.Printf("     %d/%d/%d (%2d,%2d) 體%3d 令%02X→%02X 旗%02X\n",
 				u.Side, u.Squad, u.Slot, u.X, u.Y, u.Stamina,
 				u.Order, u.NewOrder, u.Flags)

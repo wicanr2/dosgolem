@@ -720,3 +720,24 @@ func UnitsReady() oracle.Cond {
 		return o.Word(o.IDA(idaUnitSeg)) != 0
 	})
 }
+
+// ---- 戰術節拍 ------------------------------------------------------------
+
+// idaTickCounter 是戰術主迴圈的節拍計數器（臥龍傳專案 `docs/re/11` §3.4）。
+// 一拍約 333,000 道 8086 指令，但那個比值隨畫面上的東西浮動——
+// 要對齊兩邊的時間軸就得讀它，不能換算指令數。
+const idaTickCounter = 0x1D318
+
+// Tick 讀現在是第幾拍。
+func Tick(o *oracle.Oracle) uint16 { return o.Word(o.IDA(idaTickCounter)) }
+
+// AfterTicks 是「節拍推進 n 拍之後」。
+//
+// ⚠ **要在呼叫的當下取基準**，不是在條件裡取——條件每道指令檢查一次，
+// 在裡面取基準等於永遠差 0 拍，一步就成立。
+func AfterTicks(o *oracle.Oracle, n uint16) oracle.Cond {
+	base := Tick(o)
+	want := base + n
+	return oracle.NewCond(fmt.Sprintf("節拍走到第 %d 拍", want),
+		func(o *oracle.Oracle) bool { return Tick(o)-base >= n })
+}
