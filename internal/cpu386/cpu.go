@@ -599,6 +599,22 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
 		}
 		c.setReg8(int((modrm>>3)&7), value)
+	case op == 0x8d:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("LEA 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[(modrm>>3)&7] = uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
 	case op == 0x8e:
 		if operand16 || segmentOverride >= 0 {
 			return fail("8E 不接受目前的 prefix")
