@@ -222,6 +222,30 @@ func TestProtectedModePushRegister(t *testing.T) {
 	}
 }
 
+func TestAddSignExtendedByteAndAndByte(t *testing.T) {
+	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
+	c := New(mem)
+	c.R[EDX] = 0x546b0
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDX] != 0x546bf {
+		t.Fatalf("ADD EDX=%X", c.R[EDX])
+	}
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDX] != 0x546b0 || c.EFlags&CF != 0 || c.EFlags&SF == 0 {
+		t.Fatalf("AND EDX=%X flags=%X", c.R[EDX], c.EFlags)
+	}
+
+	c = New(testBus{0x83, 0xc0, 0xff})
+	c.R[EAX] = 1
+	if err := c.Step(); err != nil || c.R[EAX] != 0 {
+		t.Fatalf("sign-extended ADD EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestESOverrideWordRead(t *testing.T) {
 	mem := testBus{0x66, 0x26, 0x8b, 0x0d, 0x2c, 0x00, 0x00, 0x00}
 	c := New(mem)

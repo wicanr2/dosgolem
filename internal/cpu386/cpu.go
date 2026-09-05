@@ -201,6 +201,43 @@ func (c *CPU) setLogicFlags(value uint32) {
 	}
 }
 
+func (c *CPU) setLogicFlags8(value uint8) {
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if value == 0 {
+		c.EFlags |= ZF
+	}
+	if value&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(value) {
+		c.EFlags |= PF
+	}
+}
+
+func (c *CPU) add32(left, right uint32) uint32 {
+	result := left + right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if result < left {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80000000 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(uint8(result)) {
+		c.EFlags |= PF
+	}
+	if (^(left ^ right) & (left ^ result) & 0x80000000) != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
 func (c *CPU) sub32(left, right uint32) uint32 {
 	result := left - right
 	c.EFlags &^= CF | PF | AF | ZF | SF | OF
@@ -332,6 +369,31 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		imm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		rm := int(modrm & 7)
+		switch (modrm >> 3) & 7 {
+		case 0:
+			c.R[rm] = c.add32(c.R[rm], uint32(int32(int8(imm))))
+		case 4:
+			c.R[rm] &= uint32(int32(int8(imm)))
+			c.setLogicFlags(c.R[rm])
+		default:
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x80:
+		if operand16 {
+			return fail("80 不接受 operand-size override")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
 		if modrm>>6 != 3 || (modrm>>3)&7 != 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
@@ -340,8 +402,9 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		rm := int(modrm & 7)
-		c.R[rm] &= uint32(int32(int8(imm)))
-		c.setLogicFlags(c.R[rm])
+		result := c.reg8(rm) & imm
+		c.setReg8(rm, result)
+		c.setLogicFlags8(result)
 	case op == 0xc1:
 		if operand16 {
 			return fail("16-bit C1 尚未支援")
