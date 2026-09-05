@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "game": "fd2",
+  "scenario": "title-stable",
+  "state": "near-state",
+  "executable": {
+    "path": "FD2.EXE",
+    "size": 357074,
+    "md5": "b97caf2239a27a896069d03549d96e1e",
+    "sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
+  },
+  "input_sha256": "b4abd21bd24f77f5d852a6e757b3573c353e40db20dd371e305b0228dd6b5bea",
+  "dosgolem_commit": "fde7095",
+  "remake_commit": "1178c8a0",
+  "original_capture": "title-original.png",
+  "remake_capture": "title-remake.png",
+  "comparison": {
+    "equal_pixels": 64000,
+    "total_pixels": 64000,
+    "equal_ratio": 1,
+    "mean_abs_rgb": 0
+  }
+}
