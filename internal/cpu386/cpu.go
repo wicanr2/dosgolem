@@ -810,6 +810,20 @@ func (c *CPU) Step() error {
 			} else {
 				c.sub8(c.reg8(rm), imm)
 			}
+		} else if group == 7 && modrm == 0x3d {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub8(value, imm)
 		} else if group == 7 && (modrm == 0x3e || modrm == 0x7e) {
 			addr := c.R[ESI]
 			if modrm == 0x7e {
