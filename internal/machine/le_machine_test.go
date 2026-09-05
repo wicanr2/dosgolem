@@ -204,3 +204,21 @@ func TestFD2SecondCallbackStoresX87ControlWhenProvided(t *testing.T) {
 		t.Fatalf("second callback x87 control stack=%04X cpu=%04X err=%v", control, m.CPU.FPUControl, err)
 	}
 }
+
+func TestFD2SecondCallbackX87ClassGateWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	for steps := 0; m.CPU.EIP != 0x460f6 && steps < 410; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if services.Calls() != 2 || m.CPU.EIP != 0x460f6 {
+		t.Fatalf("second callback x87 class gate not reached: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
+	}
+	if m.CPU.R[cpu386.EAX] != 0x0303 || m.CPU.R[cpu386.ESP] != 0x55694 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("second callback x87 class EAX=%X ESP=%X flags=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], m.CPU.EFlags)
+	}
+	if m.Mem[0x539c8] != 0 {
+		t.Fatalf("second callback record unexpectedly marked: %X", m.Mem[0x539c8])
+	}
+}
