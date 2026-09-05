@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
@@ -18,6 +19,18 @@ type WatcomNearHeap struct {
 type WatcomMemset struct {
 	machine *LEMachine
 	entry   uint32
+}
+
+type WatcomInitArgv struct {
+	machine        *LEMachine
+	heap           *WatcomNearHeap
+	entry          uint32
+	commandPointer uint32
+	programPointer uint32
+	internalArgc   uint32
+	internalArgv   uint32
+	publicArgc     uint32
+	publicArgv     uint32
 }
 
 func NewWatcomNearHeap(m *LEMachine, entry, capacity uint32) (*WatcomNearHeap, error) {
@@ -48,23 +61,29 @@ func (h *WatcomNearHeap) Handle(c *cpu386.CPU) (bool, error) {
 	if err != nil {
 		return true, fmt.Errorf("machine: Watcom _nmalloc 參數：%w", err)
 	}
-	result := uint32(0)
-	if size != 0 {
-		aligned64 := (uint64(size) + 3) &^ uint64(3)
-		end64 := uint64(h.next) + aligned64
-		if aligned64 <= uint64(^uint32(0)) && end64 <= uint64(h.limit) {
-			end := uint32(end64)
-			if uint64(end) > uint64(len(h.machine.Mem)) {
-				h.machine.Mem = append(h.machine.Mem, make([]byte, int(uint64(end)-uint64(len(h.machine.Mem))))...)
-			}
-			result = h.next
-			h.next = end
-		}
-	}
+	result, _ := h.allocate(size)
 	c.R[cpu386.EAX] = result
 	c.R[cpu386.ESP] += 4
 	c.EIP = ret
 	return true, nil
+}
+
+func (h *WatcomNearHeap) allocate(size uint32) (uint32, bool) {
+	if size == 0 {
+		return 0, true
+	}
+	aligned64 := (uint64(size) + 3) &^ uint64(3)
+	end64 := uint64(h.next) + aligned64
+	if aligned64 > uint64(^uint32(0)) || end64 > uint64(h.limit) {
+		return 0, false
+	}
+	end := uint32(end64)
+	if uint64(end) > uint64(len(h.machine.Mem)) {
+		h.machine.Mem = append(h.machine.Mem, make([]byte, int(uint64(end)-uint64(len(h.machine.Mem))))...)
+	}
+	result := h.next
+	h.next = end
+	return result, true
 }
 
 func (s *WatcomMemset) Handle(c *cpu386.CPU) (bool, error) {
@@ -104,6 +123,58 @@ func (s *WatcomMemset) Handle(c *cpu386.CPU) (bool, error) {
 	return true, nil
 }
 
+func (s *WatcomInitArgv) Handle(c *cpu386.CPU) (bool, error) {
+	if c.EIP != s.entry {
+		return false, nil
+	}
+	stack, ok := c.Descriptors[c.Seg[cpu386.SegSS]]
+	if !ok || stack.Base != 0 || c.R[cpu386.ESP] > stack.Limit || stack.Limit-c.R[cpu386.ESP] < 3 {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv 返回堆疊不可讀")
+	}
+	ret, err := s.machine.Read32(c.R[cpu386.ESP])
+	if err != nil {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv 返回位址：%w", err)
+	}
+	command, err := s.machine.Read32(s.commandPointer)
+	if err != nil || uint64(command) >= uint64(len(s.machine.Mem)) || s.machine.Mem[command] != 0 {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv 只支援已驗證的空 command line")
+	}
+	program, err := s.machine.Read32(s.programPointer)
+	if err != nil || uint64(program) >= uint64(len(s.machine.Mem)) {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv program pointer 無效")
+	}
+	foundNUL := false
+	for address := uint64(program); address < uint64(len(s.machine.Mem)); address++ {
+		if s.machine.Mem[address] == 0 {
+			foundNUL = true
+			break
+		}
+	}
+	if !foundNUL {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv program name 未終止")
+	}
+	base, ok := s.heap.allocate(9)
+	if !ok {
+		return true, fmt.Errorf("machine: Watcom __Init_Argv 配置失敗")
+	}
+	argv := base + 1
+	s.machine.Mem[base] = 0
+	binary.LittleEndian.PutUint32(s.machine.Mem[argv:], program)
+	binary.LittleEndian.PutUint32(s.machine.Mem[argv+4:], 0)
+	for _, output := range []struct{ address, value uint32 }{
+		{s.internalArgc, 1}, {s.internalArgv, argv}, {s.publicArgc, 1}, {s.publicArgv, argv},
+	} {
+		if uint64(output.address)+4 > uint64(len(s.machine.Mem)) {
+			return true, fmt.Errorf("machine: Watcom __Init_Argv output 0x%X 超界", output.address)
+		}
+		binary.LittleEndian.PutUint32(s.machine.Mem[output.address:], output.value)
+	}
+	c.R[cpu386.EAX] = argv
+	c.R[cpu386.ESP] += 4
+	c.EIP = ret
+	return true, nil
+}
+
 // InstallFD2WatcomRuntime 登錄固定雜湊 FD2.EXE 已證實的 Watcom runtime 入口。
 func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 	heap, err := NewWatcomNearHeap(m, 0x36d26, 1024*1024)
@@ -111,11 +182,17 @@ func InstallFD2WatcomRuntime(m *LEMachine) (*WatcomNearHeap, error) {
 		return nil, err
 	}
 	memset := &WatcomMemset{machine: m, entry: 0x375c0}
+	argv := &WatcomInitArgv{machine: m, heap: heap, entry: 0x46114, commandPointer: 0x52808,
+		programPointer: 0x5280c, internalArgc: 0x527f8, internalArgv: 0x527fc,
+		publicArgc: 0x5462c, publicArgv: 0x54628}
 	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
 		if handled, err := heap.Handle(c); handled || err != nil {
 			return handled, err
 		}
-		return memset.Handle(c)
+		if handled, err := memset.Handle(c); handled || err != nil {
+			return handled, err
+		}
+		return argv.Handle(c)
 	}
 	return heap, nil
 }
