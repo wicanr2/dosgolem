@@ -2658,6 +2658,11 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if modrm>>6 == 3 {
+				value := c.reg8(int(modrm & 7))
+				c.R[(modrm>>3)&7] = uint32(value)
+				break
+			}
 			if modrm>>6 != 0 || (modrm&7 != ESI && modrm&7 != EAX) {
 				return fail(fmt.Sprintf("0F B6 ModRM %02X 尚未支援", modrm))
 			}

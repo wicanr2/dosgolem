@@ -1442,3 +1442,19 @@ func TestFD2NormalizesOpenedFileDeviceBit(t *testing.T) {
 		t.Fatalf("isatty SETNZ steps=%d EIP=%X EAX=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2ReturnsOpenedFileIsNotTTY(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3fb2c; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("isatty return normalize: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3fb2c || m.CPU.R[cpu386.EAX] != 0 {
+		t.Fatalf("isatty return normalize steps=%d EIP=%X EAX=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX])
+	}
+}
