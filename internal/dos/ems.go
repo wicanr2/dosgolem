@@ -2,6 +2,7 @@ package dos
 
 import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
+	"sort"
 )
 
 // EMS 頁配置與映射（`int 67h` AH=41h/43h/44h/45h）。
@@ -126,4 +127,34 @@ func (d *DOS) int67(c *cpu.CPU) {
 		d.note(0x67, ah(c), al(c))
 		setAH(c, 0x84) // 未定義功能
 	}
+}
+
+// EMSPage 是一頁 EMS 的內容與身分。**搜尋記憶體時不能漏掉它**：
+// EMS 是資料倉庫，遊戲把字型、圖庫這類大東西放在裡面，只有當下映射進
+// 頁框的那幾頁會出現在 1 MB 位址空間裡。只掃主記憶體的話，
+// 「找不到」與「不存在」就分不開了。
+type EMSPage struct {
+	Handle uint16
+	Page   int
+	Data   []byte
+}
+
+// EMSPages 回目前所有 EMS 邏輯頁（含沒有映射進頁框的）。
+func (d *DOS) EMSPages() []EMSPage {
+	if d.ems == nil {
+		return nil
+	}
+	var out []EMSPage
+	for h, pages := range d.ems.pages {
+		for i, p := range pages {
+			out = append(out, EMSPage{Handle: h, Page: i, Data: p})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Handle != out[j].Handle {
+			return out[i].Handle < out[j].Handle
+		}
+		return out[i].Page < out[j].Page
+	})
+	return out
 }

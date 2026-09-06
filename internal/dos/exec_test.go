@@ -27,11 +27,11 @@ func buildChildMZ() []byte {
 	hdr := make([]byte, 32)
 	hdr[0], hdr[1] = 'M', 'Z'
 	total := len(hdr) + len(code)
-	hdr[2] = byte(total % 512)      // LastPage
-	hdr[4] = byte(total/512 + 1)    // Pages
-	hdr[8] = byte(len(hdr) / 16)    // HeaderPar
-	hdr[14], hdr[15] = 0, 0         // SS ＝ 載入段
-	hdr[16], hdr[17] = 0x00, 0x01   // SP ＝ 0x0100
+	hdr[2] = byte(total % 512)    // LastPage
+	hdr[4] = byte(total/512 + 1)  // Pages
+	hdr[8] = byte(len(hdr) / 16)  // HeaderPar
+	hdr[14], hdr[15] = 0, 0       // SS ＝ 載入段
+	hdr[16], hdr[17] = 0x00, 0x01 // SP ＝ 0x0100
 	return append(hdr, code...)
 }
 
@@ -208,5 +208,48 @@ func TestChildExitReclaimsMemory(t *testing.T) {
 	if d.curPSP != before+1 {
 		t.Errorf("第二支子程式的 PSP ＝ %04X，預期 %04X（沒有真的回收）",
 			d.curPSP, before+1)
+	}
+}
+
+// TestFileOpsRecordSeekAndRead：檔案存取要記下**偏移**，不只記檔名。
+//
+// 「這個檔是整份載入還是按需取用」決定了下一步要去搜記憶體還是看存取記錄。
+// 字型就是後者：整份 GRAPH.IMG 從來沒進過記憶體，遊戲每畫一個字才 seek
+// 過去讀 30 bytes——只記檔名的話這件事完全看不出來。
+func TestFileOpsRecordSeekAndRead(t *testing.T) {
+	m, d := newTest(t)
+	body := make([]byte, 256)
+	for i := range body {
+		body[i] = byte(i)
+	}
+	if err := os.WriteFile(filepath.Join(d.Root, "DATA.BIN"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.WriteBytes(0x50000, append([]byte("data.bin"), 0))
+	c := m.CPU
+	c.Seg[cpu.DS], c.R[cpu.DX] = 0x5000, 0
+	call(m, d, 0x21, 0x3D00)
+	if c.Flags&cpu.CF != 0 {
+		t.Fatalf("開檔失敗 AX=%04X", c.R[cpu.AX])
+	}
+	h := c.R[cpu.AX]
+
+	c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX] = h, 0, 100 // seek 到 100
+	call(m, d, 0x21, 0x4200)
+	c.R[cpu.BX], c.R[cpu.CX] = h, 16
+	c.Seg[cpu.DS], c.R[cpu.DX] = 0x6000, 0
+	call(m, d, 0x21, 0x3F00)
+
+	if len(d.FileOps) != 2 {
+		t.Fatalf("FileOps 應有 2 筆，得到 %d", len(d.FileOps))
+	}
+	if o := d.FileOps[0]; o.Fn != 0x42 || o.Pos != 100 {
+		t.Errorf("seek 記錄 = %+v，預期 AH=42 Pos=100", o)
+	}
+	if o := d.FileOps[1]; o.Fn != 0x3F || o.Pos != 100 || o.Len != 16 {
+		t.Errorf("read 記錄 = %+v，預期 AH=3F Pos=100 Len=16", o)
+	}
+	if got := m.Read8(0x60000); got != 100 {
+		t.Errorf("讀進來的第一個 byte = %d，預期 100（seek 沒生效）", got)
 	}
 }

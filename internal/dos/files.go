@@ -133,11 +133,14 @@ func (d *DOS) read(c *cpu.CPU) {
 		clearCarry(c)
 		return
 	}
+	pos, _ := h.f.Seek(0, 1)
 	buf := make([]byte, cx)
 	n, _ := h.f.Read(buf)
 	if n < 0 {
 		n = 0
 	}
+	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
+		Pos: pos, Len: n, Step: d.M.Steps})
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
 	c.R[cpu.AX] = uint16(n)
 	clearCarry(c)
@@ -231,6 +234,8 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	d.FileOps = append(d.FileOps, FileOp{Fn: 0x42, Handle: c.R[cpu.BX],
+		Name: h.name, Pos: pos, Step: d.M.Steps})
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
 	clearCarry(c)

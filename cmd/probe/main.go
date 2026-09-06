@@ -239,7 +239,7 @@ func main() {
 		// 逗號分隔多組樣式：一次跑完可以驗一整批位元組簽章。
 		for _, one := range strings.Split(*find, ",") {
 			if one = strings.TrimSpace(one); one != "" {
-				dumpFind(m, one)
+				dumpFind(m, d, one)
 			}
 		}
 	}
@@ -335,6 +335,17 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("\n設過的中斷向量（%d 次）：\n", len(d.VecSets))
 		for _, v := range d.VecSets {
 			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
+		}
+	}
+	if len(d.FileOps) > 0 {
+		fmt.Printf("\n檔案存取（%d 次）：\n", len(d.FileOps))
+		for _, o := range d.FileOps {
+			if o.Fn == 0x42 {
+				fmt.Printf("  #%d seek %s → %d (0x%X)\n", o.Step, o.Name, o.Pos, o.Pos)
+			} else {
+				fmt.Printf("  #%d read %s @%d (0x%X) %d bytes\n",
+					o.Step, o.Name, o.Pos, o.Pos, o.Len)
+			}
 		}
 	}
 	if len(d.PalOps) > 0 {
@@ -545,7 +556,7 @@ func dumpPeek(m *machine.Machine, spec string) {
 
 // dumpFind 在 1 MB 記憶體裡找一串 bytes，印出所有命中的線性位址。
 // 除錯壞指標用：retf 跳到垃圾的時候，先找垃圾值是誰放進去的。
-func dumpFind(m *machine.Machine, hexpat string) {
+func dumpFind(m *machine.Machine, d *dos.DOS, hexpat string) {
 	hexpat = strings.ReplaceAll(hexpat, " ", "")
 	if len(hexpat)%2 != 0 {
 		fmt.Println("  -find：hex 長度要是偶數")
@@ -576,6 +587,29 @@ func dumpFind(m *machine.Machine, hexpat string) {
 			if hits == 40 {
 				fmt.Println("  …（只印前 40 個）")
 				break
+			}
+		}
+	}
+	// **EMS 也要掃。** 遊戲把字型、圖庫這類大東西放在 EMS，只有當下映射
+	// 進頁框的幾頁會出現在 1 MB 位址空間裡。漏掉它的話「找不到」會被誤讀成
+	// 「不存在」——實際踩過：GRAPH.IMG 的字型在記憶體搜尋一無所獲，
+	// 因為它整份在 EMS（`~/cht/logh3/docs/re/07`）。
+	for _, pg := range d.EMSPages() {
+		for a := 0; a+len(pat) <= len(pg.Data); a++ {
+			match := true
+			for j, b := range pat {
+				if pg.Data[a+j] != b {
+					match = false
+					break
+				}
+			}
+			if match {
+				fmt.Printf("  EMS handle %d 第 %d 頁 +%04X\n", pg.Handle, pg.Page, a)
+				hits++
+				if hits >= 40 {
+					fmt.Println("  …（只印前 40 個）")
+					return
+				}
 			}
 		}
 	}

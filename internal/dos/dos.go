@@ -132,6 +132,14 @@ type DOS struct {
 	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
 	VecSets []VecSet
 
+	// FileOps 記下每一次檔案讀取與定位（AH=3Fh／AH=42h）的檔名與偏移。
+	//
+	// 回答「這個檔案是整份載入還是按需取用」——那決定了要去記憶體找資料，
+	// 還是去看它讀了哪些偏移。字型就是後者：整份 GRAPH.IMG 從來沒有進過
+	// 記憶體，遊戲每畫一個字就 seek 過去讀 30 bytes
+	// （`~/cht/logh3/docs/re/07`）。
+	FileOps []FileOp
+
 	// PalOps 記下每一次 int 10h AH=10h 的子功能與暫存器。
 	// 診斷「圖形對了但顏色全錯」用：這一支的 AL 分支語意各不相同，
 	// 接錯的話不會報錯，只會把別的東西寫進 DAC。
@@ -172,6 +180,16 @@ type VecSet struct {
 	Int      uint8
 	Seg, Off uint16
 	Step     uint64
+}
+
+// FileOp 是一次檔案讀取或定位。Fn 是 int 21h 的 AH。
+type FileOp struct {
+	Fn     uint8
+	Handle uint16
+	Name   string
+	Pos    int64 // AH=42h：定位後的位置；AH=3Fh：讀取起點
+	Len    int   // AH=3Fh：實際讀到幾 bytes
+	Step   uint64
 }
 
 // PalOp 是一次 int 10h AH=10h 呼叫。
