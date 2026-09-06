@@ -43,7 +43,8 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 已進入 `sub_43EF0` 並配置 `MDI.INI` 的 `0x118`-byte stack frame，抵達
 `0x43EF8`；其 parser `sub_3F306` 已建立第二個設定 buffer 位址，並載入
 `MDI.INI` 路徑參數，再自然進入 C runtime `__allocfp` 完成 FILE table
-上界比較，並進入開檔設定清除 FILE 模式低兩位至 `0x36ECD`。此收據只證明
+上界比較，進入開檔設定清除 FILE 模式低兩位，再由 `__open_flags` 載入
+模式字串首 byte 至 `0x36E18`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

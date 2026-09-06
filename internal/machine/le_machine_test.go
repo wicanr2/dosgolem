@@ -1087,3 +1087,21 @@ func TestFD2ClearsOpenFileModeBits(t *testing.T) {
 		t.Fatalf("open mode steps=%d EIP=%X calls=%d before=%X after=%X EBX=%X errors=%v/%v", steps, m.CPU.EIP, services.Calls(), before, after, m.CPU.R[cpu386.EBX], errRead, errAfter)
 	}
 }
+
+func TestFD2LoadsOpenModeByte(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36e15; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("open mode byte setup: step=%d EIP=%X ESI=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], err)
+		}
+	}
+	beforeESI, beforeFlags := m.CPU.R[cpu386.ESI], m.CPU.EFlags
+	want, errRead := m.Read8(beforeESI)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("open mode byte MOVZX: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x36e18 || services.Calls() != 5 || errRead != nil || m.CPU.R[cpu386.EAX] != uint32(want) || m.CPU.R[cpu386.ESI] != beforeESI || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("open mode byte steps=%d EIP=%X calls=%d EAX=%X want=%X ESI=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.ESI], m.CPU.EFlags, errRead)
+	}
+}
