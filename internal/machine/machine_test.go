@@ -236,3 +236,26 @@ func TestPITCountsDown(t *testing.T) {
 		t.Errorf("讀 8 次 PIT 只看到 %d 種值——延遲迴圈會卡住", len(seen))
 	}
 }
+
+// TestPortLogKeepsSequence 釘住埠寫入的完整序列。
+//
+// VGA 的 plane 選擇（3C4/3C5）是「先寫索引再寫值」的兩步，只留最後
+// 一次的值看不出選過哪些 plane——序列本身才是證據。
+func TestPortLogKeepsSequence(t *testing.T) {
+	m := New()
+	for _, w := range []struct {
+		p uint16
+		v uint8
+	}{{0x3C4, 0x02}, {0x3C5, 0x01}, {0x3C4, 0x02}, {0x3C5, 0x08}} {
+		m.Out8(w.p, w.v)
+	}
+	if n := len(m.PortLog); n != 4 {
+		t.Fatalf("PortLog 有 %d 筆，要 4 筆", n)
+	}
+	if m.PortLog[1].Val != 0x01 || m.PortLog[3].Val != 0x08 {
+		t.Errorf("序列被覆蓋了：%+v", m.PortLog)
+	}
+	if m.Ports[0x3C5] != 0x08 {
+		t.Errorf("Ports 該留最後一次的值，拿到 %02X", m.Ports[0x3C5])
+	}
+}
