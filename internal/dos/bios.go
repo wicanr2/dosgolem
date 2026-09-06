@@ -177,24 +177,38 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Y = c.R[cpu.DX]
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
-	case 0x0005, 0x0006: // 按下／放開的統計
+	case 0x0005, 0x0006: // 按下／放開的統計；輸入 BX ＝ 按鍵編號
+		btn := int(c.R[cpu.BX])
+		if btn > 1 {
+			btn = 1
+		}
+		m.PressQ[btn]++
 		c.R[cpu.AX] = m.Buttons
 		if fn == 0x0005 {
-			c.R[cpu.BX] = m.Press
-			m.Press = 0
+			c.R[cpu.BX] = m.Press[btn]
+			m.Press[btn] = 0
 		} else {
-			c.R[cpu.BX] = m.Release
-			m.Release = 0
+			c.R[cpu.BX] = m.Release[btn]
+			m.Release[btn] = 0
+		}
+		if c.R[cpu.BX] != 0 {
+			m.PressReads = append(m.PressReads, PressRead{Fn: fn, Button: btn,
+				Count: c.R[cpu.BX], X: m.X, Y: m.Y, Step: d.M.Steps,
+				CS: c.Seg[cpu.CS], IP: c.IP})
 		}
 		c.R[cpu.CX] = m.X * scale
 		c.R[cpu.DX] = m.Y
 
-	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+	case 0x0007, 0x0008: // 設水平／垂直範圍
+		if fn == 0x0007 {
+			m.RangeX = [2]uint16{c.R[cpu.CX], c.R[cpu.DX]}
+			m.RangeSet[0] = true
+		} else {
+			m.RangeY = [2]uint16{c.R[cpu.CX], c.R[cpu.DX]}
+			m.RangeSet[1] = true
+		}
 
-	case 0x000C: // 登錄事件 handler（`docs/spec/009` §2）
-		// **只登錄，不回呼。** 無頭執行器的滑鼠是注入式（直接改狀態），
-		// 而 GIN3PS 同時也在輪詢 AX=3——輪詢路徑已通（re/03 §1）。
-		// 等遇到「只掛 handler 不輪詢」的程式再做事件回呼。
+	case 0x000C: // 登錄事件 handler（`docs/spec/013` §2）
 		m.EventMask = c.R[cpu.CX]
 		m.EventSeg, m.EventOff = c.Seg[cpu.ES], c.R[cpu.DX]
 	default:

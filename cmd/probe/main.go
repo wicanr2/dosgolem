@@ -208,10 +208,10 @@ func main() {
 			case *clickAt:
 				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
 				d.Mouse.Buttons = 1
-				d.Mouse.Press++
+				d.Mouse.Press[0]++
 			case *clickAt + *clickHold:
 				d.Mouse.Buttons = 0
-				d.Mouse.Release++
+				d.Mouse.Release[0]++
 			}
 		}
 		for _, e := range evs {
@@ -219,10 +219,12 @@ func main() {
 			case e.at:
 				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
 				d.Mouse.Buttons = 1
-				d.Mouse.Press++
+				d.Mouse.Press[0]++
+				d.MouseEvent(dos.EvLeftDown)
 			case e.at + e.hold:
 				d.Mouse.Buttons = 0
-				d.Mouse.Release++
+				d.Mouse.Release[0]++
+				d.MouseEvent(dos.EvLeftUp)
 			}
 		}
 		ring.push(m.CPU)
@@ -397,6 +399,47 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		for _, v := range d.VecSets {
 			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
 		}
+	}
+	{
+		var n int
+		var first, last uint64
+		for _, p := range d.Mouse.Polls {
+			if p.Buttons != 0 {
+				if n == 0 {
+					first = p.Step
+				}
+				last = p.Step
+				n++
+			}
+		}
+		fmt.Printf("\nAX=3 看到按著的次數：%d（#%d–#%d）\n", n, first, last)
+	}
+	if d.Mouse.EventSeg != 0 || d.Mouse.EventOff != 0 {
+		fmt.Printf("\n事件回呼：遮罩 %04X handler %04X:%04X，送出 %d 次\n",
+			d.Mouse.EventMask, d.Mouse.EventSeg, d.Mouse.EventOff, len(d.Mouse.Events))
+		for _, e := range d.Mouse.Events {
+			fmt.Printf("  #%d 旗標 %02X 於 (%d,%d)\n", e.Step, e.Buttons, e.X, e.Y)
+		}
+	}
+	if d.Mouse.PressQ[0]+d.Mouse.PressQ[1] > 0 {
+		fmt.Printf("\n按鍵統計查詢：鍵0 ×%d 鍵1 ×%d；結束時待領 按下[%d %d] 放開[%d %d]\n",
+			d.Mouse.PressQ[0], d.Mouse.PressQ[1],
+			d.Mouse.Press[0], d.Mouse.Press[1], d.Mouse.Release[0], d.Mouse.Release[1])
+	}
+	if len(d.Mouse.PressReads) > 0 {
+		fmt.Printf("\n回報出去的按鍵統計（%d 次）：\n", len(d.Mouse.PressReads))
+		for i, p := range d.Mouse.PressReads {
+			if i >= 20 {
+				fmt.Printf("  …（還有 %d 次）\n", len(d.Mouse.PressReads)-20)
+				break
+			}
+			fmt.Printf("  #%d AX=%d 鍵%d ×%d 於 (%d,%d)  呼叫端 %04X:%04X\n",
+				p.Step, p.Fn, p.Button, p.Count, p.X, p.Y, p.CS, p.IP)
+		}
+	}
+	if d.Mouse.RangeSet[0] || d.Mouse.RangeSet[1] {
+		fmt.Printf("滑鼠座標範圍：X %v（設過 %v）  Y %v（設過 %v）\n",
+			d.Mouse.RangeX, d.Mouse.RangeSet[0], d.Mouse.RangeY, d.Mouse.RangeSet[1])
 	}
 	if len(d.Mouse.Calls) > 0 {
 		fmt.Printf("\nint 33h 各功能（%d 種）：", len(d.Mouse.Calls))

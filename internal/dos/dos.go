@@ -36,7 +36,12 @@ type Mouse struct {
 	X, Y    uint16
 	Buttons uint16
 	// Press／Release 是 AX=5／AX=6 的統計，讀走就歸零。
-	Press, Release uint16
+	// Press／Release 是**每一顆鍵**的按下／放開次數（索引 0 ＝ 左、1 ＝ 右）。
+	//
+	// ⚠ 不能只記一個總數：`AX=0005h`／`0006h` 的**輸入 BX 是按鍵編號**，
+	// 對左右鍵回同一個計數的話，左鍵的按下會被輪詢右鍵的那一次取走——
+	// 遊戲於是把它當成右鍵（多半是「取消」），畫面上什麼也不會發生。
+	Press, Release [2]uint16
 	// XScale 是水平的虛擬座標倍率。0 表示依視訊模式自動決定
 	// （320 寬 → 2、640 寬 → 1），這是預設；設非 0 就強制用那個值。
 	XScale uint16
@@ -52,10 +57,37 @@ type Mouse struct {
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
 
+	// RangeX／RangeY 是 AX=0007h／0008h 設定的座標範圍（min, max）。
+	// **收下就好會漏掉資訊**：程式用範圍宣告它期待的座標系，
+	// 兩邊對不上時游標與命中判定會整個偏移，而畫面看起來完全正常。
+	RangeX, RangeY [2]uint16
+	RangeSet       [2]bool
+
+	// PressQ 是每個按鍵被查詢的次數（不論回報 0 或非零）——
+	// 用來分辨「遊戲查的是別顆鍵」與「遊戲沒查」。
+	PressQ [2]uint64
+
+	// PressReads 記下每一次「AX=5／6 真的回報了非零次數」——**送不進去與
+	// 遊戲不理會是兩件事**，沒有這個清單就分不開。
+	PressReads []PressRead
+
 	// EventMask／EventSeg／EventOff 是 AX=000Ch 登錄的事件 handler
 	// （`docs/spec/009` §2）。只登錄，不回呼——見該節。
 	EventMask          uint16
 	EventSeg, EventOff uint16
+
+	// Events 是實際送出去的回呼（Buttons 欄位放事件旗標）。
+	Events []Poll
+}
+
+// PressRead 是一次回報出去的按鍵統計。
+type PressRead struct {
+	Fn     uint16 // 5 ＝ 按下、6 ＝ 放開
+	Button int
+	Count  uint16
+	X, Y   uint16
+	Step   uint64
+	CS, IP uint16 // 呼叫端
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -70,6 +102,10 @@ type DOS struct {
 
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
 	Root string
+
+	// cbSave／cbActive 是滑鼠事件回呼的返回狀態（見 mouseevent.go）。
+	cbSave   cbFrame
+	cbActive bool
 
 	// Now 是固定時刻，Mouse 是滑鼠狀態。
 	Now   Time
@@ -290,6 +326,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.exit(c, 0)
 	case 0x67:
 		d.int67(c)
+	case cbRetInt:
+		d.cbReturn(c)
 	default:
 		d.note(n, uint8(c.R[cpu.AX]>>8), uint8(c.R[cpu.AX]))
 		clearCarry(c)
