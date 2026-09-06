@@ -136,22 +136,64 @@ func (d *DOS) int33(c *cpu.CPU) {
 	}
 }
 
-// int16 是 BIOS 鍵盤。
+// int16 是 BIOS 鍵盤，按鍵從 `Keys` 佇列來（`docs/spec/008`）。
 //
-// ⚠ **遊戲的鍵盤輸入不走這條**——它走 `int 21h AH=3Fh` 讀 handle 0
-// （BASIC 的 `INKEY$`）。`int 16h` 全程只被呼叫 20–40 次，閒置期間完全沒動
-// （`rich2/docs/re/005`「輸入路徑」）。所以這支只要不說謊就好。
+// ⚠ **走不走這條要看是哪一支程式。** 編譯後的 MS BASIC（第一個案例
+// `rich2`）的 `INKEY$` 走 `int 21h AH=3Fh` 讀 handle 0，`int 16h` 全程
+// 只被叫 20–40 次（`rich2/docs/re/005`「輸入路徑」）；Turbo Pascal
+// （第二個案例《Pool of Radiance》）的 `KeyPressed`／`ReadKey` **整條都走
+// 這裡**——量到 `AH=01` 被叫 166 萬次（`docs/spec/008` §2）。
+//
+// 佇列空的時候回「沒有按鍵」，**不阻塞**：這一層沒有排程器，
+// 呼叫端本來就會再問一次。
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
-	case 0x00, 0x10: // 讀按鍵（阻塞）
-		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
-		c.SetFlags(c.Flags | cpu.ZF)
+	case 0x00, 0x10: // 讀按鍵（原本是阻塞的）
+		if len(d.Keys) == 0 {
+			c.R[cpu.AX] = 0
+			return
+		}
+		c.R[cpu.AX] = d.Keys[0]
+		d.Keys = d.Keys[1:]
+		d.KeysConsumed++
+	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
+		if len(d.Keys) == 0 {
+			c.SetFlags(c.Flags | cpu.ZF)
+			return
+		}
+		// 查詢**不取走**，隊首同時放進 AX——BIOS 就是這樣定的。
+		c.R[cpu.AX] = d.Keys[0]
+		c.SetFlags(c.Flags &^ cpu.ZF)
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	default:
 		d.note(0x16, ah(c), al(c))
 	}
+}
+
+// PushKey 把一個按鍵排進佇列。
+func (d *DOS) PushKey(k Key) { d.Keys = append(d.Keys, k.Word()) }
+
+// PushKeyNamed 排一個有名字的鍵（`Return`、`Space`…）。名字不認得就回 false。
+func (d *DOS) PushKeyNamed(name string) bool {
+	k, ok := KeyNamed(name)
+	if ok {
+		d.PushKey(k)
+	}
+	return ok
+}
+
+// PushText 把一段可列印文字逐字排進佇列。遇到表外的字元停下並回 false，
+// **不要跳過**——安靜地少送一個字會讓後面整串輸入錯位。
+func (d *DOS) PushText(s string) bool {
+	for _, r := range s {
+		k, ok := KeyForRune(r)
+		if !ok {
+			return false
+		}
+		d.PushKey(k)
+	}
+	return true
 }
 
 // int13 是 BIOS 磁碟服務。

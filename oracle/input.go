@@ -1,6 +1,10 @@
 package oracle
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/wicanr2/dosgolem/internal/dos"
+)
 
 // 輸入（`docs/spec/005` §4）。
 //
@@ -114,16 +118,52 @@ func (e *NoResponseError) Error() string {
 		"——不是座標不對，就是遊戲還沒準備好收這個點擊", e.X, e.Y, e.Polls)
 }
 
-// Type 把字串排進鍵盤佇列，餵給 `int 21h AH=3Fh`（BASIC 的 INKEY$）。
+// Type 把字串排進 **handle 0** 的輸入，餵給 `int 21h AH=3Fh`
+// （編譯後 MS BASIC 的 `INKEY$` 走這條，`rich2/docs/re/005`「輸入路徑」）。
 //
-// ⚠ **遊戲的鍵盤輸入不走 `int 16h`**，走讀 handle 0
-// （`rich2/docs/re/005`「輸入路徑」）。
+// ⚠ **不是每一支程式都走這條。** Turbo Pascal 的 `ReadKey` 走 BIOS 鍵盤，
+// 要用 `TypeKeys`／`SendKeys`（`docs/spec/008`）。送錯路徑的症狀是
+// 「按了完全沒反應」，與「程式當掉」在畫面上分不出來。
 func (o *Oracle) Type(s string) {
 	o.d.Stdin = append(o.d.Stdin, []byte(s)...)
 }
 
-// Pending 回還沒被讀走的鍵數。
+// Pending 回 handle 0 那條還沒被讀走的位元組數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
+
+// TypeKeys 把一段可列印文字排進 **BIOS 鍵盤**佇列（`int 16h`，
+// `docs/spec/008`）。有字元不在掃描碼表裡就整段拒絕並回錯——
+// 安靜地跳過一個字會讓後面整串輸入錯位，而那要很久以後才看得出來。
+func (o *Oracle) TypeKeys(s string) error {
+	for _, r := range s {
+		if _, ok := dos.KeyForRune(r); !ok {
+			return fmt.Errorf("鍵盤掃描碼表沒有 %q", r)
+		}
+	}
+	o.d.PushText(s)
+	return nil
+}
+
+// SendKeys 依序排幾個有名字的鍵（`Return`、`Space`、`Esc`、方向鍵…）。
+func (o *Oracle) SendKeys(names ...string) error {
+	for _, name := range names {
+		if _, ok := dos.KeyNamed(name); !ok {
+			return fmt.Errorf("不認得按鍵 %q", name)
+		}
+	}
+	for _, name := range names {
+		o.d.PushKeyNamed(name)
+	}
+	return nil
+}
+
+// KeysPending 回 BIOS 鍵盤佇列裡還沒被讀走的鍵數，
+// KeysConsumed 回程式實際讀走的鍵數。
+//
+// **兩個都要看。** 「送進去了」與「讀走了」在畫面上都是「沒反應」，
+// 只有這兩個數字分得開。
+func (o *Oracle) KeysPending() int  { return len(o.d.Keys) }
+func (o *Oracle) KeysConsumed() int { return o.d.KeysConsumed }
 
 // runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
 func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {

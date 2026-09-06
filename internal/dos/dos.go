@@ -80,6 +80,13 @@ type DOS struct {
 	Stdin     []byte
 	StdinFill uint8
 
+	// Keys 是 `int 16h` 要餵的按鍵字組佇列（`docs/spec/008`）。
+	// 高位元組掃描碼、低位元組 ASCII，與 `AH=00h` 回傳的 `AX` 同格式。
+	Keys []uint16
+	// KeysConsumed 是**程式實際讀走**的鍵數。「送進去了」與「讀走了」
+	// 是兩件事，而畫面上分不出來——兩者都是「畫面沒變」。
+	KeysConsumed int
+
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
 	//
