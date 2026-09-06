@@ -67,6 +67,10 @@ func main() {
 		"（依 BDA 目前模式選尺寸：12h ＝ 640×480、10h ＝ 640×350；spec 009）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
+	poke := flag.String("poke", "",
+		"在指定步數直接改記憶體：`<位址>:<步數>=<hex bytes>`，分號分隔。"+
+			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
+			"要某個局面就直接把它寫進去，不要靠亂數重跑")
 	vramSites := flag.Bool("vram-sites", false,
 		"統計「誰在寫視訊記憶體」，印出前 20 名 CS:IP（找繪圖常式）")
 	flag.Parse()
@@ -189,6 +193,10 @@ func main() {
 	if *vramSites {
 		m.VRAMSites = map[uint32]uint64{}
 	}
+	pokes, err := parsePokes(*poke)
+	if err != nil {
+		die(err)
+	}
 	ring := newRing(*trace)
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
@@ -230,6 +238,14 @@ func main() {
 				d.Mouse.Buttons = 0
 				d.Mouse.Release[0]++
 				d.MouseEvent(dos.EvLeftUp)
+			}
+		}
+		for _, p := range pokes {
+			if m.Steps == p.at {
+				for i, b := range p.data {
+					m.Write8(p.addr+uint32(i), b)
+				}
+				fmt.Printf("#%d 改記憶體 %s（%05X）%d bytes\n", m.Steps, p.label, p.addr, len(p.data))
 			}
 		}
 		ring.push(m.CPU)
@@ -650,14 +666,11 @@ const IDAOffset = 0xEF00
 const DGROUPSeg = 0x32F9
 
 // dumpPeek 印出指定位址的內容。
-func dumpPeek(m *machine.Machine, spec string) {
-	fmt.Println("\n記憶體：")
-	for _, item := range strings.Split(spec, ",") {
-		f := strings.Split(strings.TrimSpace(item), ":")
-		var addr uint32
-		var n int
-		var label string
-		switch {
+// parseAddr 認得四種位址寫法：`lin:<hex>:<len>`、`ds:<hex>:<len>`、
+// `<IDA hex>:<len>`、`<seg>:<off>:<len>`（軌跡印出來的就是最後這種）。
+func parseAddr(item string) (addr uint32, n int, label string, ok bool) {
+	f := strings.Split(strings.TrimSpace(item), ":")
+	switch {
 		case len(f) == 3 && f[0] == "lin":
 			// 執行期線性位址，不做任何換算。IDA 那條路是 per-binary 的
 			// （IDAOffset 是 rich2 的），別的程式要看記憶體走這條。
@@ -682,7 +695,17 @@ func dumpPeek(m *machine.Machine, spec string) {
 			n, _ = strconv.Atoi(f[2])
 			addr = uint32(seg)*16 + uint32(off)
 			label = fmt.Sprintf("%s:%s", strings.ToUpper(f[0]), strings.ToUpper(f[1]))
-		default:
+	default:
+		return 0, 0, "", false
+	}
+	return addr, n, label, true
+}
+
+func dumpPeek(m *machine.Machine, spec string) {
+	fmt.Println("\n記憶體：")
+	for _, item := range strings.Split(spec, ",") {
+		addr, n, label, ok := parseAddr(item)
+		if !ok {
 			fmt.Printf("  %s：格式看不懂\n", item)
 			continue
 		}
@@ -692,6 +715,57 @@ func dumpPeek(m *machine.Machine, spec string) {
 		}
 		fmt.Printf("  %-14s（執行期 %05X）%s\n", label, addr, strings.Join(buf, " "))
 	}
+}
+
+// pokeSpec 是一次「在第幾道指令把某段記憶體改成什麼」。
+type pokeSpec struct {
+	at    uint64
+	addr  uint32
+	data  []byte
+	label string
+}
+
+// parsePokes 解 `-poke` 的內容：`<位址>:<步數>=<hex bytes>`，分號分隔。
+//
+// **對拍要固定的是狀態，不是運氣。** 靠亂數種子或重跑到某個局面，
+// 換一版執行器就全部作廢；直接把記憶體改成要的值，收據才可重現。
+func parsePokes(spec string) ([]pokeSpec, error) {
+	var out []pokeSpec
+	for _, item := range strings.Split(spec, ";") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		lhs, hex, found := strings.Cut(item, "=")
+		if !found {
+			return nil, fmt.Errorf("-poke 的 %q 少了 `=<hex bytes>`", item)
+		}
+		i := strings.LastIndex(lhs, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("-poke 的 %q 少了步數（位址:步數=bytes）", item)
+		}
+		at, err := strconv.ParseUint(strings.TrimSpace(lhs[i+1:]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("-poke 的 %q 步數看不懂：%w", item, err)
+		}
+		// 位址部分借用 peek 的寫法，長度欄補 0（poke 的長度由 bytes 決定）。
+		addr, _, label, ok := parseAddr(lhs[:i] + ":0")
+		if !ok {
+			return nil, fmt.Errorf("-poke 的 %q 位址看不懂", item)
+		}
+		var data []byte
+		for _, b := range strings.Fields(strings.ReplaceAll(strings.TrimSpace(hex), ",", " ")) {
+			v, err := strconv.ParseUint(b, 16, 8)
+			if err != nil {
+				return nil, fmt.Errorf("-poke 的 %q 有不是 hex 的位元組 %q", item, b)
+			}
+			data = append(data, byte(v))
+		}
+		if len(data) == 0 {
+			return nil, fmt.Errorf("-poke 的 %q 沒有要寫的位元組", item)
+		}
+		out = append(out, pokeSpec{at: at, addr: addr, data: data, label: label})
+	}
+	return out, nil
 }
 
 // dumpFind 在 1 MB 記憶體裡找一串 bytes，印出所有命中的線性位址。
