@@ -2018,6 +2018,13 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if modrm == 0x14 && sib == 0x98 {
+				addr := c.R[EAX] + c.R[EBX]<<2
+				if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+					return fail(fmt.Sprintf("scaled indexed dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				break
+			}
 			scale, index, base := sib>>6, (sib>>3)&7, sib&7
 			if index == ESP || base != EBP {
 				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))

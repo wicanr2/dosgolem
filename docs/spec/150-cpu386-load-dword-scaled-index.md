@@ -29,4 +29,8 @@
 目的／base 重疊、來源與旗標不變及越界失敗；`TestFD2LoadsOpenedFileRecord`
 由固定原版 LE entry 自然執行 `0x4639D`，讀回 `table_base + handle*4`
 dword 並抵達 `0x463A0`。後續有界探針的下一阻塞移至 `0x463B6` 的
-`89 04 98`。
+`89 14 98`。
+
+勘誤（2026-09-06）：先前收據把下一阻塞誤抄為 `89 04 98`；探針錯誤訊息
+只提供 opcode 與 SIB，未提供 ModRM。後續 IDA raw bytes 證實正確指令為
+`89 14 98`，詳見 [`RE 103`](../re/103-fd2-setiomode-writes-file-record.md)。
