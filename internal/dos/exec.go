@@ -154,10 +154,15 @@ func (d *DOS) copyCmdTail(psp uint32, tailSeg, tailOff uint16) {
 // （從 PSP 起保留的段數）；非 TSR 兩者都給 false／0。
 func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 	d.lastExit = uint16(code)
-	if n := len(d.ExecLog); n > 0 {
-		d.ExecLog[n-1].Exit = code
-		d.ExecLog[n-1].TSR = tsr
-		d.ExecLog[n-1].Keep = keep
+	// 記到**目前行程**那一筆——不是最後一筆。殼結束時最後一筆是它的
+	// 子行程（早就 TSR 了），寫過去會把殼的離開碼記到 FMDRV 頭上。
+	for i := len(d.ExecLog) - 1; i >= 0; i-- {
+		if d.ExecLog[i].PSP == d.curPSP && d.ExecLog[i].Exit == 0xFF {
+			d.ExecLog[i].Exit = code
+			d.ExecLog[i].TSR = tsr
+			d.ExecLog[i].Keep = keep
+			break
+		}
 	}
 
 	if len(d.stack) > 0 {
