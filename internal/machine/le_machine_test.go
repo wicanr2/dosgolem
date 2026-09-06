@@ -965,3 +965,17 @@ func TestFD2ProgramsPITDivisor(t *testing.T) {
 		}
 	}
 }
+
+func TestFD2ChecksSavedInterruptFlag(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e889; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL saved IF: step=%d EIP=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	saved, errSaved := m.Read8(m.CPU.R[cpu386.EBP] + 5)
+	if m.CPU.EIP != 0x3e889 || services.Calls() != 5 || saved&2 != 0 || m.CPU.EFlags&cpu386.ZF == 0 || errSaved != nil {
+		t.Fatalf("AIL saved IF steps=%d EIP=%X calls=%d saved=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), saved, m.CPU.EFlags, errSaved)
+	}
+}
