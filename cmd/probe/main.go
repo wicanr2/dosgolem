@@ -11,11 +11,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -25,6 +27,9 @@ import (
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
+
+// traceFilePath 是 -trace-file 的值；report 在另一個函式裡，所以放套件層。
+var traceFilePath string
 
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
@@ -55,6 +60,7 @@ func main() {
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
+	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
 	flag.Parse()
 
 	if *exe == "" {
@@ -478,7 +484,15 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
 
-	ring.dump()
+	if traceFilePath != "" {
+		if err := ring.writeFile(traceFilePath); err != nil {
+			fmt.Fprintln(os.Stderr, "寫軌跡失敗：", err)
+		} else {
+			fmt.Printf("\n軌跡已寫到 %s（%d 道）\n", traceFilePath, min(ring.n, ring.size))
+		}
+	} else {
+		ring.dump()
+	}
 }
 
 func join(s []string) string {
@@ -502,7 +516,9 @@ type ring struct {
 }
 
 type trace struct {
-	cs, ip, ax, sp, ds, bx, si uint16
+	cs, ip                         uint16
+	ax, bx, cx, dx, si, di, bp, sp uint16
+	ds, es, ss                     uint16
 }
 
 func newRing(size uint64) *ring {
@@ -516,24 +532,48 @@ func (r *ring) push(c *cpu.CPU) {
 	if r.size == 0 {
 		return
 	}
-	r.buf[r.n%r.size] = trace{c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.SP],
-		c.Seg[cpu.DS], c.R[cpu.BX], c.R[cpu.SI]}
+	r.buf[r.n%r.size] = trace{
+		cs: c.Seg[cpu.CS], ip: c.IP,
+		ax: c.R[cpu.AX], bx: c.R[cpu.BX], cx: c.R[cpu.CX], dx: c.R[cpu.DX],
+		si: c.R[cpu.SI], di: c.R[cpu.DI], bp: c.R[cpu.BP], sp: c.R[cpu.SP],
+		ds: c.Seg[cpu.DS], es: c.Seg[cpu.ES], ss: c.Seg[cpu.SS],
+	}
 	r.n++
 }
 
-func (r *ring) dump() {
+func (r *ring) dump() { r.write(os.Stdout) }
+
+// writeFile 把軌跡寫到檔案。**長軌跡不要走 stdout**——幾十萬行印在
+// 終端機上不能搜也不能比對，寫成檔案才分析得動。
+func (r *ring) writeFile(path string) error {
+	if r.size == 0 || r.n == 0 || path == "" {
+		return nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	bw := bufio.NewWriter(f)
+	r.write(bw)
+	return bw.Flush()
+}
+
+func (r *ring) write(out io.Writer) {
 	if r.size == 0 || r.n == 0 {
 		return
 	}
-	fmt.Printf("\n最後 %d 道指令：\n", min(r.n, r.size))
+	fmt.Fprintf(out, "\n最後 %d 道指令：\n", min(r.n, r.size))
 	start := uint64(0)
 	if r.n > r.size {
 		start = r.n - r.size
 	}
 	for i := start; i < r.n; i++ {
 		t := r.buf[i%r.size]
-		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X DS=%04X BX=%04X SI=%04X\n",
-			i, t.cs, t.ip, t.ax, t.sp, t.ds, t.bx, t.si)
+		fmt.Fprintf(out, "#%d %04X:%04X AX=%04X BX=%04X CX=%04X DX=%04X "+
+			"SI=%04X DI=%04X BP=%04X SP=%04X DS=%04X ES=%04X SS=%04X\n",
+			i, t.cs, t.ip, t.ax, t.bx, t.cx, t.dx,
+			t.si, t.di, t.bp, t.sp, t.ds, t.es, t.ss)
 	}
 }
 

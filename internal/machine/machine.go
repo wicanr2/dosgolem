@@ -506,21 +506,31 @@ func (m *Machine) initVectors() {
 	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
 	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 
-	// BIOS int 08h stub。⚠ **暫存器要保存**——第一次寫的版本沒存 AX，
-	// 一次 tick 就把 DOSJP 正在用的 AX 洗掉（ AX=01FD 進中斷、0071 出來），
-	// 而中斷發生在它 CLI 保護的寫向量區段旁邊，之後整段初始化全錯。
+	// BIOS int 08h stub。⚠ **暫存器要保存，而且要在 `int 1Ch` 之後才還原。**
 	//
-	//	push ax / push es / mov ax,40h / mov es,ax /
-	//	inc word es:[6Ch] / jnz +5 / inc word es:[6Eh] /
-	//	pop es / pop ax / int 1Ch / iret
+	// IBM PC BIOS 的 TIMER_INT 順序是
+	// `push ds/ax/dx` → `DS=40h` → 推進計數 → `int 1Ch` → `pop dx/ax/ds` →
+	// `iret`。**還原在 `int 1Ch` 之後，所以 1Ch 的處理常式弄髒 DS 也沒關係**——
+	// BIOS 幫被中斷的程式把它救回來。
+	//
+	// 源平合戰的 int 1Ch 常式就是這個形狀：`cli / pusha / mov ds,2A1E …
+	// popa / sti / jmp far 舊向量`。`pusha` 不含 DS，所以它離開時 DS 是
+	// 自己的段。舊版 stub 在 `int 1Ch` **之前**就把暫存器還原掉，於是那個
+	// DS 一路漏回被中斷的位元碼直譯器：直譯器接著用錯的段抓位元碼，
+	// 跑了四百道之後查表查到範圍外，`DS` 變成 0，程式走進低位記憶體結束。
+	// 症狀離成因十九萬道指令遠，而且畫面停在正常的對話框上。
+	//
+	//	push ds / push ax / push dx / mov ax,40h / mov ds,ax /
+	//	inc word [6Ch] / jnz +4 / inc word [6Eh] /
+	//	int 1Ch / pop dx / pop ax / pop ds / iret
 	m.WriteBytes(StubSeg*16+biosTimerOff, []byte{
-		0x50, 0x06,
-		0xB8, 0x40, 0x00, 0x8E, 0xC0,
-		0x26, 0xFF, 0x06, 0x6C, 0x00,
-		0x75, 0x05,
-		0x26, 0xFF, 0x06, 0x6E, 0x00,
-		0x07, 0x58,
+		0x1E, 0x50, 0x52,
+		0xB8, 0x40, 0x00, 0x8E, 0xD8,
+		0xFF, 0x06, 0x6C, 0x00,
+		0x75, 0x04,
+		0xFF, 0x06, 0x6E, 0x00,
 		0xCD, 0x1C,
+		0x5A, 0x58, 0x1F,
 		0xCF,
 	})
 
