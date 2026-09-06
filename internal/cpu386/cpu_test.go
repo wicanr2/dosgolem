@@ -1808,6 +1808,21 @@ func TestMOVZXByteFromEAX(t *testing.T) {
 	}
 }
 
+func TestMOVZXRegisterByte(t *testing.T) {
+	flags := uint32(CF | ZF | OF)
+	c := New(testBus{0x0f, 0xb6, 0xd4})
+	c.R[EAX], c.R[EDX], c.EFlags = 0x1234a578, 0xffffffff, flags
+	if err := c.Step(); err != nil || c.R[EDX] != 0xa5 || c.R[EAX] != 0x1234a578 || c.EFlags != flags {
+		t.Fatalf("MOVZX EDX,AH EAX=%X EDX=%X flags=%X err=%v", c.R[EAX], c.R[EDX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x0f, 0xb6, 0xc0})
+	c.R[EAX], c.EFlags = 0xffffffa5, flags
+	if err := c.Step(); err != nil || c.R[EAX] != 0xa5 || c.EFlags != flags {
+		t.Fatalf("MOVZX EAX,AL EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestStoreRegister8ToBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x88, 0x45, 0xfc})
