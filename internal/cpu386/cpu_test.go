@@ -1640,6 +1640,28 @@ func TestMOVZXByteFromEAX(t *testing.T) {
 	}
 }
 
+func TestStoreRegister8ToBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x88, 0x45, 0xfc})
+	c := New(mem)
+	c.R[EBP], c.R[EAX], c.EFlags = 0x20, 0x123456a5, CF|ZF
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x1c] != 0xa5 || c.R[EBP] != 0x20 || c.R[EAX] != 0x123456a5 || c.EFlags != CF|ZF {
+		t.Fatalf("MOV byte value=%X EBP=%X EAX=%X flags=%X err=%v", mem[0x1c], c.R[EBP], c.R[EAX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x88, 0x63, 0x04})
+	c = New(mem)
+	c.R[EBX], c.R[EAX] = 0x20, 0x0000b400
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x24] != 0xb4 || c.R[EBX] != 0x20 {
+		t.Fatalf("MOV AH value=%X EBX=%X err=%v", mem[0x24], c.R[EBX], err)
+	}
+}
+
 func TestX87StartupSelfTestSequence(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	code := []byte{

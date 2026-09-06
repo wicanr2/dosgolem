@@ -2108,6 +2108,20 @@ func (c *CPU) Step() error {
 		value := c.reg8(int((modrm >> 3) & 7))
 		if modrm>>6 == 3 {
 			c.setReg8(int(modrm&7), value)
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 1 && modrm&7 != ESP {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment8(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
 			if e != nil {

@@ -1198,3 +1198,22 @@ func TestFD2ReloadsOpenModeByte(t *testing.T) {
 		t.Fatalf("reload mode steps=%d EIP=%X calls=%d EAX=%X want=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, m.CPU.EFlags, errRead)
 	}
 }
+
+func TestFD2SavesNormalizedOpenMode(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36ee7; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("save mode setup: step=%d EIP=%X EAX=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	want, flags := uint8(m.CPU.R[cpu386.EAX]), m.CPU.EFlags
+	addr := m.CPU.R[cpu386.EBP] - 4
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("save mode MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	got, errRead := m.Read8(addr)
+	if m.CPU.EIP != 0x36eea || services.Calls() != 5 || errRead != nil || got != want || m.CPU.EFlags != flags {
+		t.Fatalf("save mode steps=%d EIP=%X calls=%d got=%X want=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), got, want, m.CPU.EFlags, errRead)
+	}
+}
