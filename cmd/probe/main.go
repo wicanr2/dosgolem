@@ -68,7 +68,7 @@ func main() {
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	poke := flag.String("poke", "",
-		"在指定步數直接改記憶體：`<位址>:<步數>=<hex bytes>`，分號分隔。"+
+		"在指定步數直接改記憶體：`<位址>@<步數>=<hex bytes>`，分號分隔。"+
 			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
 			"要某個局面就直接把它寫進去，不要靠亂數重跑")
 	vramSites := flag.Bool("vram-sites", false,
@@ -670,35 +670,54 @@ const DGROUPSeg = 0x32F9
 // `<IDA hex>:<len>`、`<seg>:<off>:<len>`（軌跡印出來的就是最後這種）。
 func parseAddr(item string) (addr uint32, n int, label string, ok bool) {
 	f := strings.Split(strings.TrimSpace(item), ":")
-	switch {
-		case len(f) == 3 && f[0] == "lin":
-			// 執行期線性位址，不做任何換算。IDA 那條路是 per-binary 的
-			// （IDAOffset 是 rich2 的），別的程式要看記憶體走這條。
-			lin, _ := strconv.ParseUint(f[1], 16, 32)
-			n, _ = strconv.Atoi(f[2])
-			addr = uint32(lin)
-			label = fmt.Sprintf("lin:%s", strings.ToUpper(f[1]))
-		case len(f) == 3 && f[0] == "ds":
-			off, _ := strconv.ParseUint(f[1], 16, 16)
-			n, _ = strconv.Atoi(f[2])
-			addr = uint32(DGROUPSeg)*16 + uint32(off)
-			label = fmt.Sprintf("ds:%s", strings.ToUpper(f[1]))
-		case len(f) == 2:
-			ida, _ := strconv.ParseUint(f[0], 16, 32)
-			n, _ = strconv.Atoi(f[1])
-			addr = uint32(ida) - IDAOffset
-			label = fmt.Sprintf("IDA %s", strings.ToUpper(f[0]))
-		case len(f) == 3:
-			// 段:偏移:長度——軌跡印出來的就是這個形式，直接貼進來。
-			seg, _ := strconv.ParseUint(f[0], 16, 16)
-			off, _ := strconv.ParseUint(f[1], 16, 16)
-			n, _ = strconv.Atoi(f[2])
-			addr = uint32(seg)*16 + uint32(off)
-			label = fmt.Sprintf("%s:%s", strings.ToUpper(f[0]), strings.ToUpper(f[1]))
-	default:
-		return 0, 0, "", false
+	// **解析失敗一律回 false。** 忽略 ParseUint 的錯誤會讓打錯的位址
+	// 變成 0（或 0−IDAOffset），然後安靜地讀寫到別的地方去。
+	hex := func(s string, bits int) (uint64, bool) {
+		v, err := strconv.ParseUint(strings.TrimSpace(s), 16, bits)
+		return v, err == nil
 	}
-	return addr, n, label, true
+	dec := func(s string) (int, bool) {
+		v, err := strconv.Atoi(strings.TrimSpace(s))
+		return v, err == nil
+	}
+	switch {
+	case len(f) == 3 && f[0] == "lin":
+		// 執行期線性位址，不做任何換算。IDA 那條路是 per-binary 的
+		// （IDAOffset 是 rich2 的），別的程式要看記憶體走這條。
+		lin, ok1 := hex(f[1], 32)
+		nn, ok2 := dec(f[2])
+		if !ok1 || !ok2 {
+			return 0, 0, "", false
+		}
+		return uint32(lin), nn, fmt.Sprintf("lin:%s", strings.ToUpper(strings.TrimSpace(f[1]))), true
+	case len(f) == 3 && f[0] == "ds":
+		off, ok1 := hex(f[1], 16)
+		nn, ok2 := dec(f[2])
+		if !ok1 || !ok2 {
+			return 0, 0, "", false
+		}
+		return uint32(DGROUPSeg)*16 + uint32(off), nn,
+			fmt.Sprintf("ds:%s", strings.ToUpper(strings.TrimSpace(f[1]))), true
+	case len(f) == 2:
+		ida, ok1 := hex(f[0], 32)
+		nn, ok2 := dec(f[1])
+		if !ok1 || !ok2 {
+			return 0, 0, "", false
+		}
+		return uint32(ida) - IDAOffset, nn,
+			fmt.Sprintf("IDA %s", strings.ToUpper(strings.TrimSpace(f[0]))), true
+	case len(f) == 3:
+		// 段:偏移:長度——軌跡印出來的就是這個形式，直接貼進來。
+		seg, ok1 := hex(f[0], 16)
+		off, ok2 := hex(f[1], 16)
+		nn, ok3 := dec(f[2])
+		if !ok1 || !ok2 || !ok3 {
+			return 0, 0, "", false
+		}
+		return uint32(seg)*16 + uint32(off), nn,
+			fmt.Sprintf("%s:%s", strings.ToUpper(strings.TrimSpace(f[0])), strings.ToUpper(strings.TrimSpace(f[1]))), true
+	}
+	return 0, 0, "", false
 }
 
 func dumpPeek(m *machine.Machine, spec string) {
@@ -725,7 +744,10 @@ type pokeSpec struct {
 	label string
 }
 
-// parsePokes 解 `-poke` 的內容：`<位址>:<步數>=<hex bytes>`，分號分隔。
+// parsePokes 解 `-poke` 的內容：`<位址>@<步數>=<hex bytes>`，分號分隔。
+//
+// 步數用 `@` 分隔而不是 `:`——位址本身就有冒號，`0040:0049=07` 會被
+// 當成「IDA 位址 0040、步數 49」而不報錯，然後安靜地寫到別的地方去。
 //
 // **對拍要固定的是狀態，不是運氣。** 靠亂數種子或重跑到某個局面，
 // 換一版執行器就全部作廢；直接把記憶體改成要的值，收據才可重現。
@@ -739,16 +761,16 @@ func parsePokes(spec string) ([]pokeSpec, error) {
 		if !found {
 			return nil, fmt.Errorf("-poke 的 %q 少了 `=<hex bytes>`", item)
 		}
-		i := strings.LastIndex(lhs, ":")
-		if i < 0 {
-			return nil, fmt.Errorf("-poke 的 %q 少了步數（位址:步數=bytes）", item)
+		where, when, found := strings.Cut(lhs, "@")
+		if !found {
+			return nil, fmt.Errorf("-poke 的 %q 少了步數（位址@步數=bytes）", item)
 		}
-		at, err := strconv.ParseUint(strings.TrimSpace(lhs[i+1:]), 10, 64)
+		at, err := strconv.ParseUint(strings.TrimSpace(when), 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("-poke 的 %q 步數看不懂：%w", item, err)
 		}
 		// 位址部分借用 peek 的寫法，長度欄補 0（poke 的長度由 bytes 決定）。
-		addr, _, label, ok := parseAddr(lhs[:i] + ":0")
+		addr, _, label, ok := parseAddr(strings.TrimSpace(where) + ":0")
 		if !ok {
 			return nil, fmt.Errorf("-poke 的 %q 位址看不懂", item)
 		}
