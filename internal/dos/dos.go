@@ -140,8 +140,7 @@ type DOS struct {
 	Exited   bool
 	ExitCode uint8
 
-	handles    map[uint16]*handle
-	nextHandle uint16
+	handles map[uint16]*handle
 	freeSeg    uint16
 
 	// lastBlock 是最近一次配出去的區塊。bump 配置器裡**只有最後一塊能縮放**
@@ -199,7 +198,6 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		nextHandle:    5, // 0–4 是標準 handle
 	}
 }
 

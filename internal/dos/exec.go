@@ -18,7 +18,11 @@ import (
 type execFrame struct {
 	regs       cpu.CPU // 完整暫存器組（IP 已指在 int 21h 之後）
 	psp        uint16  // 父程式的 PSP（回來時還原 curPSP）
-	handleBase uint16  // 子程式結束時關掉 >= 這個值的 handle
+	// inherited 是 EXEC 當下開著的 handle。子程式結束時關掉不在裡面的。
+	//
+	// ⚠ 不能用「>= 某個號碼」判斷：handle 號碼會重用（真 DOS 從 JFT 挑第一個
+	// 空位），所以子程式開到的號碼可能比父程式的小。
+	inherited map[uint16]bool
 	ivt        [3][2]uint16
 }
 
@@ -78,7 +82,11 @@ func (d *DOS) exec(c *cpu.CPU) {
 	fcb1Off, fcb1Seg := d.M.Read16(pb+6), d.M.Read16(pb+8)
 	fcb2Off, fcb2Seg := d.M.Read16(pb+10), d.M.Read16(pb+12)
 
-	f := execFrame{regs: *c, psp: d.curPSP, handleBase: d.nextHandle}
+	inherited := make(map[uint16]bool, len(d.handles))
+	for h := range d.handles {
+		inherited[h] = true
+	}
+	f := execFrame{regs: *c, psp: d.curPSP, inherited: inherited}
 	for i, n := range []uint8{0x22, 0x23, 0x24} { // DOS 保管的三個向量
 		f.ivt[i][0] = d.M.Read16(uint32(n) * 4)
 		f.ivt[i][1] = d.M.Read16(uint32(n)*4 + 2)
@@ -136,7 +144,7 @@ func (d *DOS) childExit(c *cpu.CPU, code uint8) {
 	f := d.execStack[len(d.execStack)-1]
 	d.execStack = d.execStack[:len(d.execStack)-1]
 	for h, hh := range d.handles {
-		if h >= f.handleBase {
+		if !f.inherited[h] {
 			if hh.f != nil {
 				hh.f.Close()
 			}

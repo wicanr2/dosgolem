@@ -531,3 +531,63 @@ func TestLoadOverlayPlacesImage(t *testing.T) {
 			got, 0x1234+fixup, fixup)
 	}
 }
+
+// TestHandlesAreReused 釘住「handle 號碼要重用」。
+//
+// 真 DOS 從 JFT 挑第一個空位，所以「開→關→開」拿到同一個小號碼。只增不減的話
+// 開關幾十次之後號碼就爬到 20 以上，而遊戲常拿 handle 當自己那張表的索引。
+//
+// **症狀完全不像 handle 的問題。**《武士傳說》的表存著「這個 handle 上次 seek
+// 到哪」，越界之後新開的檔繼承了別人的位置，於是該發的 `AH=42h` 整個沒發——
+// 解壓器從檔案開頭讀到目錄本身，程式最後停在走不完的字典鏈裡，看起來像
+// LZW 解壓器寫錯了。
+func TestHandlesAreReused(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "A.DAT"), []byte("abcdef"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.WriteBytes(cpu.Addr(0x0900, 0), append([]byte("A.DAT"), 0))
+	open := func() uint16 {
+		m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x0900, 0
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("開檔失敗，AX=%04X", m.CPU.R[cpu.AX])
+		}
+		return m.CPU.R[cpu.AX]
+	}
+	closeH := func(h uint16) {
+		m.CPU.R[cpu.BX] = h
+		call(m, d, 0x21, 0x3E00)
+	}
+
+	first := open()
+	for i := 0; i < 40; i++ {
+		closeH(first)
+		h := open()
+		if h != first {
+			t.Fatalf("第 %d 次重開拿到 handle %d，第一次是 %d——號碼沒有重用", i, h, first)
+		}
+	}
+
+	// 同時開著的才往上長，而且滿了要說滿了。
+	var opened []uint16
+	for {
+		m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x0900, 0
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			break
+		}
+		opened = append(opened, m.CPU.R[cpu.AX])
+		if len(opened) > maxHandles {
+			t.Fatalf("開了 %d 個檔還沒滿——上限沒生效", len(opened))
+		}
+	}
+	if m.CPU.R[cpu.AX] != 4 {
+		t.Errorf("開太多檔時 AX=%04X，預期 4（too many open files）", m.CPU.R[cpu.AX])
+	}
+	for _, h := range opened {
+		if h >= maxHandles {
+			t.Errorf("配出 handle %d，超過上限 %d", h, maxHandles)
+		}
+	}
+}

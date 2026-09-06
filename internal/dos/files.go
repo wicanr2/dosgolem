@@ -88,6 +88,28 @@ func dosName(base string) string {
 	return name + "." + ext
 }
 
+// maxHandles 是一個程式同時開得起的檔案數。真 DOS 預設 20（`FILES=` 再多也
+// 一樣，那管的是系統表；程式自己的 JFT 是 20 項，要更多得用 `AH=67h`）。
+const maxHandles = 20
+
+// allocHandle 找第一個沒人用的 handle 號碼。
+//
+// ⚠ **號碼一定要重用。** 真 DOS 從 JFT 挑第一個空位，所以「開→關→開」拿到的
+// 是同一個小號碼。只增不減的話，開關幾十次之後 handle 就爬到 20 以上——
+// 而遊戲常拿 handle 當自己那張表的索引，越界之後讀到別人的欄位。
+//
+// 症狀完全不像 handle 的問題：《武士傳說》的表存著「這個 handle 上次 seek 到
+// 哪」，越界之後新開的檔繼承了別人的位置，於是**該發的 `AH=42h` 整個沒發**，
+// 解壓器從檔案開頭讀到目錄本身，最後停在走不完的字典鏈裡。
+func (d *DOS) allocHandle() uint16 {
+	for h := uint16(5); h < maxHandles; h++ {
+		if _, ok := d.handles[h]; !ok {
+			return h
+		}
+	}
+	return 0
+}
+
 // readCString 讀一個 NUL 結尾的字串。
 func (d *DOS) readCString(seg, off uint16, limit int) string {
 	addr := cpu.Addr(seg, off)
@@ -107,8 +129,12 @@ func (d *DOS) open(c *cpu.CPU) {
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
 	if isEMMDevice(name) {
-		h := d.nextHandle
-		d.nextHandle++
+		h := d.allocHandle()
+		if h == 0 {
+			c.R[cpu.AX] = 4 // Too many open files
+			setCarry(c)
+			return
+		}
 		d.handles[h] = &handle{name: name}
 		d.Opened = append(d.Opened, name)
 		c.R[cpu.AX] = h
@@ -118,6 +144,8 @@ func (d *DOS) open(c *cpu.CPU) {
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
+		d.Reads = append(d.Reads, FileOp{Kind: "open", Name: name,
+			Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 2 // File not found
 		setCarry(c)
 		return
@@ -125,15 +153,26 @@ func (d *DOS) open(c *cpu.CPU) {
 	f, err := os.Open(path)
 	if err != nil {
 		d.Missing = append(d.Missing, name)
+		d.Reads = append(d.Reads, FileOp{Kind: "open", Name: name,
+			Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 2
 		setCarry(c)
 		return
 	}
 	st, _ := f.Stat()
-	h := d.nextHandle
-	d.nextHandle++
+	h := d.allocHandle()
+	if h == 0 {
+		f.Close()
+		d.Reads = append(d.Reads, FileOp{Kind: "open", Name: name,
+			Failed: true, Step: d.M.Steps})
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
 	d.Opened = append(d.Opened, filepath.Base(path))
+	d.Reads = append(d.Reads, FileOp{Kind: "open", Name: name, Handle: h,
+		Got: int(st.Size()), Step: d.M.Steps})
 	c.R[cpu.AX] = h
 	clearCarry(c)
 }
@@ -141,10 +180,14 @@ func (d *DOS) open(c *cpu.CPU) {
 func (d *DOS) close(c *cpu.CPU) {
 	h, ok := d.handles[c.R[cpu.BX]]
 	if !ok {
+		d.Reads = append(d.Reads, FileOp{Kind: "close", Handle: c.R[cpu.BX],
+			Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 6 // Invalid handle
 		setCarry(c)
 		return
 	}
+	d.Reads = append(d.Reads, FileOp{Kind: "close", Name: h.name,
+		Handle: c.R[cpu.BX], Step: d.M.Steps})
 	if h.f != nil {
 		h.f.Close()
 	}
@@ -160,11 +203,15 @@ func (d *DOS) read(c *cpu.CPU) {
 	}
 	h, ok := d.handles[bx]
 	if !ok {
+		d.Reads = append(d.Reads, FileOp{Kind: "read", Handle: bx,
+			Want: int(cx), Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 6
 		setCarry(c)
 		return
 	}
 	if h.f == nil { // 字元裝置（EMMXXXX0）：讀回 EOF
+		d.Reads = append(d.Reads, FileOp{Kind: "read", Name: h.name, Handle: bx,
+			Want: int(cx), Step: d.M.Steps})
 		c.R[cpu.AX] = 0
 		clearCarry(c)
 		return
@@ -231,11 +278,15 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 func (d *DOS) seek(c *cpu.CPU) {
 	h, ok := d.handles[c.R[cpu.BX]]
 	if !ok {
+		d.Reads = append(d.Reads, FileOp{Kind: "seek", Handle: c.R[cpu.BX],
+			Whence: int(al(c)), Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 6
 		setCarry(c)
 		return
 	}
 	if h.f == nil { // 字元裝置不能 seek
+		d.Reads = append(d.Reads, FileOp{Kind: "seek", Name: h.name,
+			Handle: c.R[cpu.BX], Whence: int(al(c)), Failed: true, Step: d.M.Steps})
 		c.R[cpu.AX] = 1
 		setCarry(c)
 		return
@@ -291,8 +342,12 @@ func (d *DOS) write(c *cpu.CPU) {
 
 // FileOp 是一次 seek 或 read 的紀錄（診斷用，`DOS.Reads`）。
 //
-// Kind 是 "seek" 或 "read"；Name 是那個 handle 開的檔名。seek 記 Whence 與
-// 要求的位移，read 記要求的長度與實際讀到的位元組數與落點。
+// Kind 是 "open"、"close"、"seek" 或 "read"；Name 是那個 handle 開的檔名。
+// seek 記 Whence 與要求的位移，read 記要求的長度、實際讀到的位元組數與落點。
+//
+// ⚠ **失敗的呼叫也要記**（`Failed`）。原本 handle 無效就直接返回不留紀錄，
+// 於是「程式對錯的 handle seek，然後拿沒 seek 過的檔案指標去讀」這個形狀
+// 在軌跡裡看起來像**根本沒呼叫 seek**——差一步就會歸咎到程式邏輯上。
 type FileOp struct {
 	Kind   string
 	Name   string
@@ -302,5 +357,6 @@ type FileOp struct {
 	Want   int
 	Got    int
 	Into   uint32 // read 的落點（線性位址）
+	Failed bool
 	Step   uint64
 }
