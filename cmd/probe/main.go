@@ -66,6 +66,10 @@ func main() {
 	sweepSpec := flag.String("sweep", "",
 		"掃描點擊：`起始步數:每點步數:x0:y0:x1:y1:格距`。逐格點一次，"+
 			"每點前後印畫面雜湊——找互動熱點時不要用眼睛猜座標一次跑一個")
+	pokeScript := flag.String("poke", "",
+		"跑到某一步就改記憶體：`步數:線性位址=值[:值…]`（十六進位位址與值，"+
+			"逗號分隔多組）。用來直接把局面設成要對拍的樣子，"+
+			"不必靠遊戲內的隨機或一路點進去")
 	shotScript := flag.String("shots", "",
 		"在指定步數各存一張畫面：`步數:路徑` 用逗號分隔。"+
 			"色盤存成同名 .pal。一次跑要看好幾個畫面時用這個，"+
@@ -225,6 +229,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	pokes, err := parsePokes(*pokeScript)
+	if err != nil {
+		die(err)
+	}
 	shots, err := parseShots(*shotScript)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -316,6 +324,15 @@ func main() {
 		if len(keyPlan) > 0 {
 			if txt, ok := keyPlan[m.Steps]; ok {
 				d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(txt, "\\n", "\n"))...)
+			}
+		}
+		if len(pokes) > 0 {
+			if list, ok := pokes[m.Steps]; ok {
+				for _, pk := range list {
+					for i, v := range pk.vals {
+						m.Write8(pk.addr+uint32(i), v)
+					}
+				}
 			}
 		}
 		if len(shots) > 0 {
@@ -785,6 +802,55 @@ func parseSweep(spec string) (*sweepGrid, error) {
 }
 
 // parseShots 讀 `步數:路徑,步數:路徑`。
+// poke 是「跑到第 step 步就把 addr 起的位元組換成 vals」。
+//
+// 對拍要的局面直接設進去，不要靠遊戲內的隨機或一路點進去湊——
+// 那兩者都不決定性，而且慢。
+type poke struct {
+	addr uint32
+	vals []uint8
+}
+
+// parsePokes 讀 `步數:位址=值:值:…` 這種腳本（位址與值都是十六進位）。
+func parsePokes(spec string) (map[uint64][]poke, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	out := map[uint64][]poke{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		head, tail, ok := strings.Cut(part, ":")
+		if !ok {
+			return nil, fmt.Errorf("poke %q 格式不對，要 步數:位址=值", part)
+		}
+		n, err := strconv.ParseUint(head, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("poke %q 的步數不是數字：%w", part, err)
+		}
+		as, vs, ok := strings.Cut(tail, "=")
+		if !ok {
+			return nil, fmt.Errorf("poke %q 少了 =", part)
+		}
+		addr, err := strconv.ParseUint(strings.TrimSpace(as), 16, 32)
+		if err != nil {
+			return nil, fmt.Errorf("poke %q 的位址不是十六進位：%w", part, err)
+		}
+		var vals []uint8
+		for _, v := range strings.Split(vs, ":") {
+			b, err := strconv.ParseUint(strings.TrimSpace(v), 16, 8)
+			if err != nil {
+				return nil, fmt.Errorf("poke %q 的值不是十六進位位元組：%w", part, err)
+			}
+			vals = append(vals, uint8(b))
+		}
+		out[n] = append(out[n], poke{uint32(addr), vals})
+	}
+	return out, nil
+}
+
 func parseShots(spec string) (map[uint64]string, error) {
 	if spec == "" {
 		return nil, nil
