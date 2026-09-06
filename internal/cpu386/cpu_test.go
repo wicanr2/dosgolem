@@ -1675,6 +1675,18 @@ func TestStoreRegister8ToBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestStoreImmediateDwordBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc7, 0x45, 0xf8, 0xff, 0xff, 0xff, 0xff})
+	c := New(mem)
+	c.R[EBP], c.EFlags = 0x20, CF|ZF
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x18:0x1c], []byte{0xff, 0xff, 0xff, 0xff}) || c.R[EBP] != 0x20 || c.EFlags != CF|ZF {
+		t.Fatalf("MOV immediate memory=% X EBP=%X flags=%X err=%v", mem[0x18:0x1c], c.R[EBP], c.EFlags, err)
+	}
+}
+
 func TestX87StartupSelfTestSequence(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	code := []byte{
