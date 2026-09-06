@@ -143,6 +143,27 @@ func (o *Oracle) Bytes(a Addr, n int) []byte {
 	return out
 }
 
+// ---- 佈局 ----------------------------------------------------------------
+
+// SetByte／SetWord／SetBytes 直接寫原版的變數。
+//
+// 對拍要的是「同一個局面下原版怎麼決定」，所以**局面要由對拍那一方
+// 擺出來**，不能靠原版自己的亂數把局面湊出來。原版的 `RND()` 帶著
+// 自己的種子與呼叫次數，跑兩次不見得一樣，而且它一動整張盤面都會變
+// ——那樣比出來的差異分不出是「決策不同」還是「盤面不同」。
+//
+// 寫進去的位址由呼叫端負責：先用 `IDA`／`DS` 換算，寫完再讀回來確認。
+func (o *Oracle) SetByte(a Addr, v uint8)  { o.m.Write8(a.Linear(), v) }
+func (o *Oracle) SetWord(a Addr, v uint16) { o.m.Write16(a.Linear(), v) }
+
+// SetBytes 寫一段，回傳寫了幾個位元組。
+func (o *Oracle) SetBytes(a Addr, b []byte) int {
+	for i, v := range b {
+		o.m.Write8(a.Linear()+uint32(i), v)
+	}
+	return len(b)
+}
+
 // Float 讀一個 IEEE 754 單精度。**這個 binary 的浮點是 IEEE 不是 MBF**
 // ——它走自帶的 Microsoft 浮點模擬器（`INT 34h`–`3Dh`），格式是 IEEE。
 func (o *Oracle) Float(a Addr) float32 {
