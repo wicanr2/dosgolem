@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-	exe := flag.String("exe", "", "要跑的 MZ 執行檔（必填）")
+	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄")
 	steps := flag.Uint64("steps", 20_000_000, "最多執行幾道指令")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
@@ -60,7 +60,13 @@ func main() {
 	}
 
 	m := machine.New()
-	if err := m.LoadEXE(img); err != nil {
+	// 副檔名不是判準：看 MZ magic。不是 MZ 就當 .COM（無檔頭、載到 PSP+100h）。
+	if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
+		err = m.LoadEXE(img)
+	} else {
+		err = m.LoadCOM(img)
+	}
+	if err != nil {
 		die(err)
 	}
 	if *tick > 0 {

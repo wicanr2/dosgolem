@@ -98,6 +98,34 @@ func (m *Machine) LoadEXE(data []byte) error {
 	return nil
 }
 
+// LoadCOM 載入 .COM 映像：無檔頭、無重定位，整份檔案放在 PSP+100h，
+// 四個段暫存器都指向 PSP 段，IP ＝ 100h，SP 指向段頂並壓一個 0
+// （RET 回 PSP:0 的 int 20h）。
+//
+// LoadSeg ＝ PSPSeg+10h，所以「PSP+100h」與 MZ 映像的位置是同一個位址，
+// MCB 與 FreeSeg 的計算可以直接沿用。
+func (m *Machine) LoadCOM(data []byte) error {
+	if len(data) == 0 || len(data) > 0xFF00 {
+		return fmt.Errorf("machine: COM 映像大小 %d 不合法（1..65280）", len(data))
+	}
+	m.WriteBytes(LoadSeg*16, data)
+	m.ImageBase, m.ImageLen = LoadSeg*16, len(data)
+	m.FreeSeg = LoadSeg + uint16((len(data)+15)/16) + 1
+
+	m.initPSP()
+	m.initMCB()
+
+	c := m.CPU
+	c.Seg[cpu.CS] = PSPSeg
+	c.Seg[cpu.DS] = PSPSeg
+	c.Seg[cpu.ES] = PSPSeg
+	c.Seg[cpu.SS] = PSPSeg
+	c.IP = 0x100
+	c.R[cpu.SP] = 0xFFFE
+	m.Write16(cpu.Addr(PSPSeg, 0xFFFE), 0)
+	return nil
+}
+
 // initPSP 建一個夠用的 PSP。
 //
 // 「夠用」的定義是 Microsoft C runtime 啟動不炸——每一欄都有一個
