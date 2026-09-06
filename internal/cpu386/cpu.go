@@ -408,6 +408,30 @@ func (c *CPU) sub8(left, right uint8) uint8 {
 	return result
 }
 
+func (c *CPU) add8(left, right uint8) uint8 {
+	result := left + right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if result < left {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(result) {
+		c.EFlags |= PF
+	}
+	if (^(left ^ right) & (left ^ result) & 0x80) != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
 func (c *CPU) Step() error {
 	if c.StepHook != nil {
 		handled, err := c.StepHook(c)
@@ -910,6 +934,21 @@ func (c *CPU) Step() error {
 		reg := int(op - 0x48)
 		carry := c.EFlags & CF
 		c.R[reg] = c.sub32(c.R[reg], 1)
+		c.EFlags = c.EFlags&^CF | carry
+	case op == 0xfe:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("FE 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 || (modrm>>3)&7 != 0 {
+			return fail(fmt.Sprintf("FE ModRM %02X 尚未支援", modrm))
+		}
+		reg := int(modrm & 7)
+		carry := c.EFlags & CF
+		c.setReg8(reg, c.add8(c.reg8(reg), 1))
 		c.EFlags = c.EFlags&^CF | carry
 	case op >= 0x58 && op <= 0x5f:
 		if operand16 {

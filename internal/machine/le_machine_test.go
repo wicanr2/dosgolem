@@ -1768,3 +1768,23 @@ func TestFD2ScansINITrailingCharacter(t *testing.T) {
 		t.Fatalf("INI trailing steps=%d EIP=%X source=%X want=%X EAX=%X", steps, m.CPU.EIP, source, want, m.CPU.R[cpu386.EAX])
 	}
 }
+
+func TestFD2IncrementsINITrailingCharacter(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f362; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI classification setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	before := byte(m.CPU.R[cpu386.EAX])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI classification INC: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f364 || byte(m.CPU.R[cpu386.EAX]) != before+1 {
+		t.Fatalf("INI classification steps=%d EIP=%X before=%X EAX=%X", steps, m.CPU.EIP, before, m.CPU.R[cpu386.EAX])
+	}
+}
