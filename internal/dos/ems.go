@@ -116,6 +116,7 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		e.handles[id] = h
 		c.R[cpu.DX] = id
 		setAH(c, 0)
+		d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x43, Handle: id, Pages: want})
 
 	case 0x44: // Map Handle Page：AL ＝ 實體頁、BX ＝ 邏輯頁、DX ＝ handle
 		p := int(al(c))
@@ -126,6 +127,8 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		h, ok := e.handles[c.R[cpu.DX]]
 		if !ok {
 			setAH(c, 0x83) // handle 無效
+			d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x44,
+				Handle: c.R[cpu.DX], Logical: c.R[cpu.BX], Phys: uint8(p), Status: 0x83})
 			return
 		}
 		d.emsFlush(p)
@@ -136,10 +139,14 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		}
 		if int(c.R[cpu.BX]) >= len(h.pages) {
 			setAH(c, 0x8A) // 邏輯頁超範圍
+			d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x44,
+				Handle: c.R[cpu.DX], Logical: c.R[cpu.BX], Phys: uint8(p), Status: 0x8A})
 			return
 		}
 		d.emsLoad(p, c.R[cpu.DX], c.R[cpu.BX])
 		setAH(c, 0)
+		d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x44,
+			Handle: c.R[cpu.DX], Logical: c.R[cpu.BX], Phys: uint8(p)})
 
 	case 0x45: // Release Handle
 		id := c.R[cpu.DX]
@@ -155,6 +162,7 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		}
 		delete(e.handles, id)
 		setAH(c, 0)
+		d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x45, Handle: id})
 
 	case 0x46: // Get Version
 		setAL(c, 0x40) // 4.0

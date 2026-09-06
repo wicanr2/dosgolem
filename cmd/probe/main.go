@@ -53,6 +53,7 @@ func main() {
 	segLog := flag.Bool("seg-log", false, "記錄 CS 的每一次改變，報告裡印出每個段第一次執行的時間與來源")
 	dumpMem := flag.String("dump-mem", "", "跑完把一段線性記憶體寫成檔案：<lo>-<hi>:<路徑>（位址十六進位）")
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
+	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -89,6 +90,25 @@ func main() {
 		m.IRQ0Every = *tick
 	}
 	m.TraceSegs = *segLog
+	type memWrite struct {
+		addr     uint32
+		old, nw  uint8
+		step     uint64
+		cs, ip   uint16
+	}
+	var writes []memWrite
+	if *watch != "" {
+		var lo, hi uint32
+		if _, err := fmt.Sscanf(*watch, "%x-%x", &lo, &hi); err != nil {
+			die(err)
+		}
+		m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+			if len(writes) < 200 {
+				writes = append(writes, memWrite{a, old, nw, m.Steps,
+					m.CPU.Seg[cpu.CS], m.CPU.IP})
+			}
+		})
+	}
 	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
 	var vidN int
 	if *watchVideo {
@@ -164,6 +184,13 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	if *watch != "" {
+		fmt.Printf("\n監看 %s 的寫入（%d 筆）：\n", *watch, len(writes))
+		for _, w := range writes {
+			fmt.Printf("  #%-9d %05X: %02X→%02X  ip=%04X:%04X\n",
+				w.step, w.addr, w.old, w.nw, w.cs, w.ip)
+		}
+	}
 	writeMemDump(m, *dumpMem)
 	if *dumpScreen != "" {
 		w, h := m.VideoSize()
@@ -293,6 +320,27 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 				st = "成功"
 			}
 			fmt.Printf("  #%-9d AH=%02X 要 %5d 段 → %04X %s\n", a.Step, a.Fn, a.Want, a.Seg, st)
+		}
+	}
+	if len(d.EMSOps) > 0 {
+		fmt.Printf("\nEMS（%d 次，最多列 40）：\n", len(d.EMSOps))
+		for i, o := range d.EMSOps {
+			if i >= 40 {
+				break
+			}
+			switch o.Fn {
+			case 0x43:
+				fmt.Printf("  #%-9d 配置 handle=%d %d 頁\n", o.Step, o.Handle, o.Pages)
+			case 0x44:
+				st := ""
+				if o.Status != 0 {
+					st = fmt.Sprintf(" 失敗 %02X", o.Status)
+				}
+				fmt.Printf("  #%-9d 映射 handle=%d 邏輯頁 %d → 實體頁 %d%s\n",
+					o.Step, o.Handle, o.Logical, o.Phys, st)
+			case 0x45:
+				fmt.Printf("  #%-9d 釋放 handle=%d\n", o.Step, o.Handle)
+			}
 		}
 	}
 	if len(d.Reads) > 0 {

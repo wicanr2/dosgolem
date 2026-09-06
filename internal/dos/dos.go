@@ -131,6 +131,11 @@ type DOS struct {
 	// 很遠的地方（緩衝區蓋到堆疊、蓋到別人的資料）。
 	Allocs []AllocOp
 
+	// EMSOps 是每一次 EMS 的配置與映射（`docs/spec/014`）。
+	// 「這一頁什麼時候被映到哪」——資料放 EMS 的程式，內容不對的時候
+	// 只能從映射序列回推。
+	EMSOps []EMSOp
+
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
@@ -180,6 +185,17 @@ type AllocOp struct {
 	Want uint16 // 要幾段
 	Seg  uint16 // 48h：配到的段；4Ah：被縮放的區塊
 	OK   bool
+}
+
+// EMSOp 是一次 EMS 操作（`AH=43h` 配置／`44h` 映射／`45h` 釋放）。
+type EMSOp struct {
+	Step    uint64
+	Fn      uint8
+	Handle  uint16
+	Logical uint16 // 44h：邏輯頁（FFFFh ＝ 解除映射）
+	Phys    uint8  // 44h：實體頁 0–3
+	Pages   int    // 43h：配了幾頁
+	Status  uint8  // 回傳的 AH
 }
 
 // ReadOp 是一次讀檔（`AH=3Fh`）。Seg:Off 是緩衝區。
