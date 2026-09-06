@@ -28,6 +28,8 @@ type ClickOpt func(*clickCfg)
 type clickCfg struct {
 	hover, hold, settle uint64
 	watch               func(*Oracle)
+	noCursorWait        bool
+	frame               func(*Oracle) []uint8
 }
 
 // Hover 改「移到位置之後、按下之前」等多久。
@@ -40,6 +42,23 @@ func Hover(n uint64) ClickOpt { return func(c *clickCfg) { c.hover = n } }
 // 被呼叫。實測棋子走的**第一格**常常就落在這段裡：`ds:1BE` 的軌跡因此
 // 少一格，而序列其餘部分完全正確，看起來像「原版少走了一步」。
 func Watch(f func(*Oracle)) ClickOpt { return func(c *clickCfg) { c.watch = f } }
+
+// NoCursorWait 跳過「等程式設過游標位置」那一步。
+//
+// ⚠ **游標歸誰畫決定要不要等。** 有些遊戲用 `int 33h AX=4` 把游標放到自己
+// 要的位置，那時注入座標會被蓋掉，所以要先等它設完；《武士傳說》相反——
+// 它從來不叫 `AX=4`，畫面上那隻小手完全是自己畫的。對這種遊戲那個等待
+// **永遠不會成立**，`Click` 會在跑滿預算之後回「等程式設游標位置」失敗，
+// 看起來像遊戲當掉了。
+func NoCursorWait() ClickOpt { return func(c *clickCfg) { c.noCursorWait = true } }
+
+// Frame 換掉「畫面有沒有變」的取樣器（預設 `Indexed`，也就是 mode 13h 的
+// A0000）。
+//
+// ⚠ **模式不對的話取樣永遠是全 0**，於是每一次點擊都回 `NoResponseError`
+// ——看起來像每一次都點空了。Tandy 模式 09h 傳 `(*Oracle).Tandy16`，
+// CGA 模式 4 傳 `(*Oracle).CGA4`。
+func Frame(f func(*Oracle) []uint8) ClickOpt { return func(c *clickCfg) { c.frame = f } }
 
 // Hold 改按住的指令數。
 func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
@@ -58,17 +77,18 @@ func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 //  3. **回 error**：點了畫面完全沒動要說出來，不要讓呼叫端拿「畫面沒變」
 //     去猜是點錯位置還是遊戲還沒準備好。
 func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
-	cfg := clickCfg{hover: DefaultHover, hold: DefaultHold, settle: DefaultHold}
+	cfg := clickCfg{hover: DefaultHover, hold: DefaultHold, settle: DefaultHold,
+		frame: (*Oracle).Indexed}
 	for _, f := range opts {
 		f(&cfg)
 	}
-	if len(o.d.Mouse.Sets) == 0 {
+	if !cfg.noCursorWait && len(o.d.Mouse.Sets) == 0 {
 		if err := o.RunUntil(MouseSettled); err != nil {
 			return fmt.Errorf("點 (%d,%d) 之前等程式設游標位置：%w", x, y, err)
 		}
 	}
 
-	before := o.Indexed()
+	before := cfg.frame(o)
 	o.MoveMouse(x, y)
 	// ⚠ **移到位置之後要先停一下再按。**
 	//
@@ -93,7 +113,7 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
 
-	if sameBytes(before, o.Indexed()) {
+	if sameBytes(before, cfg.frame(o)) {
 		return &NoResponseError{X: x, Y: y, Polls: len(o.d.Mouse.Polls)}
 	}
 	return nil
