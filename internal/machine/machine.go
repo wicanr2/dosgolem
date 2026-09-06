@@ -117,8 +117,25 @@ type Machine struct {
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
+	// AttrPal 是屬性控制器的 16 色對映（預設 identity）。
+	// 16 色 planar 模式的色彩鏈是「4 位元色號 → AttrPal → DAC」
+	// （`docs/spec/009` §1）。
+	AttrPal [16]uint8
+
 	dacIndex uint8
 	dacPhase uint8
+
+	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
+	ModeChanges []ModeChange
+
+	// planar VRAM 狀態（`docs/spec/009`）：四個 plane、sequencer／GC
+	// 暫存器檔、latch。planar 生效與否看 BDA 的目前模式。
+	vram   [4][0x10000]uint8
+	seq    [8]uint8
+	seqIdx uint8
+	gc     [16]uint8
+	gcIdx  uint8
+	latch  [4]uint8
 
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
 	// （`docs/spec/004` §5）。
@@ -151,6 +168,11 @@ func New() *Machine {
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
 	m.CPU.Model = cpu.Model80186
+	m.seq[2] = 0x0F // map mask：四個 plane 都開（BIOS mode-set 後的常態）
+	m.gc[8] = 0xFF  // 位元遮罩：全開
+	for i := range m.AttrPal {
+		m.AttrPal[i] = uint8(i)
+	}
 	m.initBDA()
 	m.initVectors()
 	return m
@@ -158,7 +180,13 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
-func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
+func (m *Machine) Read8(a uint32) uint8 {
+	a &= 0xFFFFF
+	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
+		return m.planarRead(a - 0xA0000)
+	}
+	return m.Mem[a]
+}
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
@@ -166,6 +194,9 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		m.onWrite(a, m.Mem[a], v)
 	}
 	m.Mem[a] = v
+	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
+		m.planarWrite(a-0xA0000, v)
+	}
 }
 
 // WatchWrites 監看一段線性位址的寫入。
@@ -239,6 +270,15 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port == 0x61:
 		return 0x00
+	// sequencer／GC 讀回（spec 009）：有程式會讀回索引或資料確認。
+	case port == 0x3C4:
+		return m.seqIdx
+	case port == 0x3C5:
+		return m.seq[m.seqIdx]
+	case port == 0x3CE:
+		return m.gcIdx
+	case port == 0x3CF:
+		return m.gc[m.gcIdx]
 	}
 	return 0xFF
 }
@@ -276,6 +316,18 @@ func (m *Machine) Out8(p uint16, v uint8) {
 			m.dacPhase = 0
 			m.dacIndex++ // 索引自動前進，所以整份調色盤可以一次寫完
 		}
+	}
+
+	// sequencer／GC 索引對（`docs/spec/009` §1）。
+	switch p {
+	case 0x3C4:
+		m.seqIdx = v & 7
+	case 0x3C5:
+		m.seq[m.seqIdx] = v
+	case 0x3CE:
+		m.gcIdx = v & 0x0F
+	case 0x3CF:
+		m.gc[m.gcIdx] = v
 	}
 }
 

@@ -31,6 +31,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		clearCarry(c)
 
+	case 0x0D: // flush disk buffers：我們的寫檔根本不做（Wrote 清單），
+		// 沒有可 flush 的東西——靜默收下（`docs/spec/009` §3），不是「沒實作」。
+		clearCarry(c)
+
 	case 0x19: // 取目前磁碟機
 		// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
@@ -184,11 +188,15 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	blk := c.Seg[cpu.ES]
 	avail := uint16(machine.MemTop) - blk
 	if want > avail {
+		d.MemOps = append(d.MemOps, MemOp{Fn: 0x4A, BX: want, ES: blk,
+			AX: avail, Step: d.M.Steps})
 		c.R[cpu.BX] = avail
 		c.R[cpu.AX] = 8 // 記憶體不足
 		setCarry(c)
 		return
 	}
+	d.MemOps = append(d.MemOps, MemOp{Fn: 0x4A, BX: want, ES: blk,
+		AX: 0, Step: d.M.Steps, OK: true})
 	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
 	// curPSP 是目前最內層的程式——EXEC 進去的子程式縮的是自己
 	// （`docs/spec/007` §2）。
@@ -206,6 +214,8 @@ func (d *DOS) alloc(c *cpu.CPU) {
 	want := c.R[cpu.BX]
 	avail := uint16(machine.MemTop) - d.freeSeg
 	if want > avail {
+		d.MemOps = append(d.MemOps, MemOp{Fn: 0x48, BX: want,
+			AX: avail, Step: d.M.Steps})
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = avail
 		setCarry(c)
@@ -213,6 +223,8 @@ func (d *DOS) alloc(c *cpu.CPU) {
 	}
 	seg := d.freeSeg + 1 // +1 給假的 MCB
 	d.freeSeg = seg + want
+	d.MemOps = append(d.MemOps, MemOp{Fn: 0x48, BX: want,
+		AX: seg, Step: d.M.Steps, OK: true})
 	c.R[cpu.AX] = seg
 	clearCarry(c)
 }

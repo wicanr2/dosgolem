@@ -50,6 +50,11 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// EventMask／EventSeg／EventOff 是 AX=000Ch 登錄的事件 handler
+	// （`docs/spec/009` §2）。只登錄，不回呼——見該節。
+	EventMask          uint16
+	EventSeg, EventOff uint16
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -127,6 +132,10 @@ type DOS struct {
 	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
 	VecSets []VecSet
 
+	// MemOps 記下每一次 AH=48h／49h／4Ah 記憶體操作的輸入與結果。
+	// 除錯「模組載到沒人配置過的位址」用：先確定配置器到底發過哪些段。
+	MemOps []MemOp
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
@@ -158,6 +167,15 @@ type VecSet struct {
 	Int      uint8
 	Seg, Off uint16
 	Step     uint64
+}
+
+// MemOp 是一次記憶體配置操作（AH=48h/49h/4Ah）的記錄。
+type MemOp struct {
+	Fn     uint8
+	BX, ES uint16 // 輸入：段落數／區塊段
+	AX     uint16 // 結果：配置到的段或錯誤碼
+	Step   uint64
+	OK     bool
 }
 
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
@@ -307,3 +325,4 @@ func setBH(c *cpu.CPU, v uint8) { c.R[cpu.BX] = c.R[cpu.BX]&0x00FF | uint16(v)<<
 func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
+func bh(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX] >> 8) }

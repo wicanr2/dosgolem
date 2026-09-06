@@ -70,8 +70,35 @@ func (d *DOS) int10(c *cpu.CPU) {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
 		setAL(c, 0x1B) // 表示本服務有支援
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A, 0x10:
-		// 設游標／取游標／設頁／捲動／寫字元／調色盤：收下就好，
+	case 0x10: // 調色盤（`docs/spec/009` §1 證據：鏈內 ×37）
+		// 16 色模式的鏈是「4 位元色號 → 屬性調色盤 → DAC」。
+		switch al(c) {
+		case 0x00: // 設單一屬性調色盤暫存器：BL ＝ 索引、BH ＝ 值
+			if bl(c) < 16 {
+				d.M.AttrPal[bl(c)] = bh(c) & 0x3F
+			}
+		case 0x02: // 設整份 DAC：ES:DX → 256×3
+			addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+			for i := 0; i < 768; i++ {
+				d.M.DAC[i] = d.M.Read8(addr+uint32(i)) & 0x3F
+			}
+		case 0x10: // 設單一屬性色暫存器（另一種介面）：BL ＝ 索引、BH ＝ 值
+			if bl(c) < 16 {
+				d.M.AttrPal[bl(c)] = bh(c) & 0x3F
+			}
+		case 0x12: // 設一段 DAC：BX ＝ 起始、CX ＝ 個數、ES:DX → 資料
+			addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+			first := int(c.R[cpu.BX])
+			n := int(c.R[cpu.CX])
+			for i := 0; i < n*3 && first*3+i < 768; i++ {
+				d.M.DAC[first*3+i] = d.M.Read8(addr+uint32(i)) & 0x3F
+			}
+		default:
+			d.note(0x10, 0x10, al(c))
+		}
+
+	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
+		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
 		// 呼叫端不看回傳值。
 
 	default:
@@ -131,6 +158,13 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+
+	case 0x000C: // 登錄事件 handler（`docs/spec/009` §2）
+		// **只登錄，不回呼。** 無頭執行器的滑鼠是注入式（直接改狀態），
+		// 而 GIN3PS 同時也在輪詢 AX=3——輪詢路徑已通（re/03 §1）。
+		// 等遇到「只掛 handler 不輪詢」的程式再做事件回呼。
+		m.EventMask = c.R[cpu.CX]
+		m.EventSeg, m.EventOff = c.Seg[cpu.ES], c.R[cpu.DX]
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}

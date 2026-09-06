@@ -54,6 +54,10 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
 		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
+	dumpEGA := flag.String("dump-ega", "", "把 planar VRAM 解成 PNG 寫到這個檔"+
+		"（依 BDA 目前模式選尺寸：12h ＝ 640×480、10h ＝ 640×350；spec 009）")
+	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
+		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -66,6 +70,9 @@ func main() {
 	}
 
 	m := machine.New()
+	if *adlib {
+		m.SetAdLib(true)
+	}
 	// 副檔名不是判準：看 MZ magic。不是 MZ 就當 .COM（無檔頭、載到 PSP+100h）。
 	if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
 		err = m.LoadEXE(img)
@@ -218,6 +225,11 @@ func main() {
 		}
 		fmt.Printf("寫出 %s（A0000 raw 64 KB，planar 未解碼）\n", *dumpLinear)
 	}
+	if *dumpEGA != "" {
+		if err := writeEGA(*dumpEGA, m); err != nil {
+			die(err)
+		}
+	}
 	if *peek != "" {
 		dumpPeek(m, *peek)
 	}
@@ -267,6 +279,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX])
 	fmt.Printf("DS=%04X ES=%04X SS:SP=%04X:%04X  視訊模式 %02Xh\n",
 		c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.R[cpu.SP], m.VideoMode())
+	if len(m.ModeChanges) > 0 {
+		fmt.Printf("模式切換記錄（%d 次）：", len(m.ModeChanges))
+		for _, mc := range m.ModeChanges {
+			fmt.Printf(" #%d→%02Xh", mc.Step, mc.Mode)
+		}
+		fmt.Println()
+	}
 
 	// 主控台。**錯誤訊息走這條**，空的不代表沒事，代表沒說話。
 	fmt.Printf("\n主控台（%d bytes）：\n", len(d.Console))
@@ -307,6 +326,18 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("\n設過的中斷向量（%d 次）：\n", len(d.VecSets))
 		for _, v := range d.VecSets {
 			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
+		}
+	}
+	if len(d.MemOps) > 0 {
+		fmt.Printf("\n記憶體配置（%d 次）：\n", len(d.MemOps))
+		for _, o := range d.MemOps {
+			if o.OK {
+				fmt.Printf("  #%d AH=%02X BX=%04X ES=%04X → AX=%04X\n",
+					o.Step, o.Fn, o.BX, o.ES, o.AX)
+			} else {
+				fmt.Printf("  #%d AH=%02X BX=%04X ES=%04X → 失敗（可用 %04X）\n",
+					o.Step, o.Fn, o.BX, o.ES, o.AX)
+			}
 		}
 	}
 	if len(d.Wrote) > 0 {
@@ -399,6 +430,7 @@ type ring struct {
 
 type trace struct {
 	cs, ip, ax, sp uint16
+	ds, es, bx, si uint16
 }
 
 func newRing(size uint64) *ring {
@@ -412,7 +444,8 @@ func (r *ring) push(c *cpu.CPU) {
 	if r.size == 0 {
 		return
 	}
-	r.buf[r.n%r.size] = trace{c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.SP]}
+	r.buf[r.n%r.size] = trace{c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.SP],
+		c.Seg[cpu.DS], c.Seg[cpu.ES], c.R[cpu.BX], c.R[cpu.SI]}
 	r.n++
 }
 
@@ -427,7 +460,8 @@ func (r *ring) dump() {
 	}
 	for i := start; i < r.n; i++ {
 		t := r.buf[i%r.size]
-		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X\n", i, t.cs, t.ip, t.ax, t.sp)
+		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X DS=%04X ES=%04X BX=%04X SI=%04X\n",
+			i, t.cs, t.ip, t.ax, t.sp, t.ds, t.es, t.bx, t.si)
 	}
 }
 
@@ -539,6 +573,48 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 func die(err error) {
 	fmt.Fprintln(os.Stderr, "probe:", err)
 	os.Exit(1)
+}
+
+// writeEGA 把 planar VRAM 解成 PNG（spec 009 §1）。
+// 色號陣列（.bin）是驗收依據，PNG 只是給人看的——比照 mode 13h。
+func writeEGA(path string, m *machine.Machine) error {
+	var w, h int
+	switch m.VideoMode() {
+	case 0x12:
+		w, h = 640, 480
+	case 0x10:
+		w, h = 640, 350
+	case 0x0D:
+		w, h = 320, 200
+	case 0x0E, 0x0F, 0x11:
+		w, h = 640, 200
+	default:
+		return fmt.Errorf("模式 %02Xh 不是 planar（或還沒支援尺寸）", m.VideoMode())
+	}
+	idx := m.PlanarPixels(w, h)
+	bin := strings.TrimSuffix(path, ".png") + ".bin"
+	if err := os.WriteFile(bin, idx, 0o644); err != nil {
+		return err
+	}
+	// 16 色模式：色號 → 屬性調色盤 → DAC（spec 009 §1）。
+	dac := m.Palette()
+	p := make(color.Palette, 256)
+	for i := range p {
+		c := dac[m.AttrPal[i&15]]
+		p[i] = color.RGBA{c[0], c[1], c[2], 255}
+	}
+	img := image.NewPaletted(image.Rect(0, 0, w, h), p)
+	copy(img.Pix, idx)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return err
+	}
+	fmt.Printf("寫出 %s（%d×%d，planar 解碼）＋ %s（色號陣列）\n", path, w, h, bin)
+	return nil
 }
 
 // writeCGA 把 B8000 依 CGA mode 06h 的版面畫出來：
