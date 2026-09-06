@@ -19,6 +19,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +48,10 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	shotScript := flag.String("shots", "",
+		"在指定步數各存一張畫面：`步數:路徑` 用逗號分隔。"+
+			"色盤存成同名 .pal。一次跑要看好幾個畫面時用這個，"+
+			"不要為了看中途的畫面重跑")
 	clickScript := flag.String("clicks", "",
 		"點擊腳本：`步數:X:Y` 用逗號分隔，例如 20000000:320:240,30000000:330:212。"+
 			"按住時間用 -click-hold")
@@ -169,6 +174,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	shots, err := parseShots(*shotScript)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	ring := newRing(*trace)
 	var runErr error
@@ -212,6 +222,11 @@ func main() {
 			case c.step + *clickHold:
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
+			}
+		}
+		if len(shots) > 0 {
+			if path, ok := shots[m.Steps]; ok {
+				writeShot(m, path)
 			}
 		}
 		ring.push(m.CPU)
@@ -558,6 +573,48 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	} else {
 		ring.dump()
 	}
+}
+
+// parseShots 讀 `步數:路徑,步數:路徑`。
+func parseShots(spec string) (map[uint64]string, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	out := map[uint64]string{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		i := strings.Index(part, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("畫面腳本 %q 格式不對，要 步數:路徑", part)
+		}
+		n, err := strconv.ParseUint(part[:i], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("畫面腳本 %q 的步數不是數字：%w", part, err)
+		}
+		out[n] = part[i+1:]
+	}
+	return out, nil
+}
+
+// writeShot 把當下的畫面色號與色盤各存一份。
+func writeShot(m *machine.Machine, path string) {
+	if err := os.WriteFile(path, m.Indexed(), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "存畫面失敗：", err)
+		return
+	}
+	pal := m.Palette()
+	flat := make([]byte, 0, len(pal)*3)
+	for _, c := range pal {
+		flat = append(flat, c[0], c[1], c[2])
+	}
+	if err := os.WriteFile(strings.TrimSuffix(path, filepath.Ext(path))+".pal", flat, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "存色盤失敗：", err)
+	}
+	w, h := m.VideoSize()
+	fmt.Printf("#%d 畫面 %d×%d → %s\n", m.Steps, w, h, path)
 }
 
 // click 是點擊腳本裡的一次點擊。
