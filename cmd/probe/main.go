@@ -343,7 +343,12 @@ type clickEv struct {
 			break
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
+			// **改座標之後要送移動事件**，跟 -clicks 一樣。
+			// 遊戲的游標是靠事件回呼畫的（`docs/spec/013`）：只改座標的話，
+			// 舊位置那隻游標不會被擦掉，新位置也不會畫出來——
+			// 畫面上留著一隻停在原地的游標，看起來像「滑鼠沒動」。
 			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
+			d.MouseEvent(dos.EvMove)
 		}
 		// 點擊：按下 → 按住 clickHold 道指令 → 放開。
 		// **按住時間不能短**。遊戲輪詢 int 33h 的頻率很低，
