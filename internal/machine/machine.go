@@ -145,6 +145,12 @@ type Machine struct {
 	SegLog    []SegChange
 	SegFirst  map[uint16]SegChange
 
+	// WatchDS 不為 0 時，DS **變成**這個值的每一次都記進 DSLoads
+	// （最多 MaxSegLog 筆）。段暫存器的錯值沒有記憶體寫入可以監看，
+	// 只能盯它被載入的那一刻。
+	WatchDS uint16
+	DSLoads []SegChange
+
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
 	// 預設 DefaultIRQ0Every。**這個值影響動畫跑多快，不影響最終停下來的
@@ -403,11 +409,23 @@ const MaxSegLog = 100_000
 func (m *Machine) Step() error {
 	m.tick()
 	m.Steps++
-	if !m.TraceSegs {
+	if !m.TraceSegs && m.WatchDS == 0 {
 		return m.CPU.Step()
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
+	prevDS := m.CPU.Seg[cpu.DS]
 	err := m.CPU.Step()
+
+	if m.WatchDS != 0 && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
+		len(m.DSLoads) < MaxSegLog {
+		m.DSLoads = append(m.DSLoads, SegChange{
+			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,
+			ToSeg: m.CPU.Seg[cpu.DS], ToOff: m.CPU.R[cpu.BX],
+		})
+	}
+	if !m.TraceSegs {
+		return err
+	}
 	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg {
 		ch := SegChange{
 			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,

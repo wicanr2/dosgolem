@@ -54,6 +54,7 @@ func main() {
 	dumpMem := flag.String("dump-mem", "", "跑完把一段線性記憶體寫成檔案：<lo>-<hi>:<路徑>（位址十六進位）")
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
+	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -90,6 +91,13 @@ func main() {
 		m.IRQ0Every = *tick
 	}
 	m.TraceSegs = *segLog
+	if *watchDS != "" {
+		var v uint16
+		if _, err := fmt.Sscanf(*watchDS, "%x", &v); err != nil {
+			die(err)
+		}
+		m.WatchDS = v
+	}
 	type memWrite struct {
 		addr     uint32
 		old, nw  uint8
@@ -189,6 +197,16 @@ func main() {
 		for _, w := range writes {
 			fmt.Printf("  #%-9d %05X: %02X→%02X  ip=%04X:%04X\n",
 				w.step, w.addr, w.old, w.nw, w.cs, w.ip)
+		}
+	}
+	if len(m.DSLoads) > 0 {
+		fmt.Printf("\nDS 被設成 %04X 的時刻（%d 次，最多列 20）：\n",
+			m.WatchDS, len(m.DSLoads))
+		for i, c := range m.DSLoads {
+			if i >= 20 {
+				break
+			}
+			fmt.Printf("  #%-9d 在 %04X:%04X（BX=%04X）\n", c.Step, c.FromSeg, c.FromOff, c.ToOff)
 		}
 	}
 	writeMemDump(m, *dumpMem)
