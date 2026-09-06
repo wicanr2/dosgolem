@@ -185,10 +185,19 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
-	if blk == machine.PSPSeg && blk+want+1 > d.freeSeg {
+	// 程式調整自己的區塊之後，後面那塊才是可配置的空間。
+	//
+	// ⚠ **判準是「目前這個行程的 PSP」，不是主程式的 PSP。** 只認
+	// machine.PSPSeg 的話，EXEC 起來的子行程把自己的區塊撐大之後
+	// freeSeg 停在它的映像結尾，接下來的 AH=48h 就**把子行程自己的
+	// 記憶體再配一次出去**——配到的緩衝區蓋在它的堆疊上，讀個檔就把
+	// 返回位址換成檔案內容，然後 retf 到一個看起來很像程式碼的地方。
+	// （源平合戰的 OPEN.EXE：AH=4Ah 撐到 8340 段、擁有到 28A3h，
+	// 而 AH=48h 從 1A50h 配下去，讀 LOGO.GP 蓋掉堆疊。）
+	if blk == d.curPSP && blk+want+1 > d.freeSeg {
 		d.freeSeg = blk + want + 1
 	}
+	d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x4A, Want: want, Seg: blk, OK: true})
 	clearCarry(c)
 }
 
@@ -202,11 +211,13 @@ func (d *DOS) alloc(c *cpu.CPU) {
 	if want > avail {
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = avail
+		d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x48, Want: want})
 		setCarry(c)
 		return
 	}
 	seg := d.freeSeg + 1 // +1 給假的 MCB
 	d.freeSeg = seg + want
 	c.R[cpu.AX] = seg
+	d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x48, Want: want, Seg: seg, OK: true})
 	clearCarry(c)
 }

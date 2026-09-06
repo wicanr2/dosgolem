@@ -88,6 +88,18 @@ type PortWrite struct {
 	Step uint64
 }
 
+// SegChange 是一次 CS 的改變：far call／jmp／ret、中斷與 iret。
+//
+// **「執行流跑到不該去的地方」用 IP 的 trace 很難看出來**——ring buffer
+// 裝得下的最後幾萬道通常全在飛掉之後的那一段，而飛掉的那一跳早就滾出去了。
+// CS 的改變稀疏得多（一次跑幾百萬道也才幾千筆），整份留著就能回答
+// 「第一次以這個段執行是什麼時候、從哪裡來的」。
+type SegChange struct {
+	Step             uint64
+	FromSeg, FromOff uint16
+	ToSeg, ToOff     uint16
+}
+
 // Machine 是一台機器。用 New 造。
 type Machine struct {
 	Mem []uint8
@@ -112,6 +124,11 @@ type Machine struct {
 
 	// PortsIn 是每個埠被讀了幾次。**輪詢埠的次數會很大**，那是正常的。
 	PortsIn map[uint16]uint64
+
+	// SegLog 是 CS 的改變序列，只有 TraceSegs 打開才記。上限
+	// MaxSegLog，滿了就停止記錄（**不是 ring**——要的是最早那幾筆）。
+	TraceSegs bool
+	SegLog    []SegChange
 
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
@@ -365,10 +382,24 @@ func (m *Machine) Indexed() []uint8 {
 }
 
 // Step 執行一道指令，必要時先送 IRQ0。
+// MaxSegLog 是 SegLog 的上限。
+const MaxSegLog = 200_000
+
 func (m *Machine) Step() error {
 	m.tick()
 	m.Steps++
-	return m.CPU.Step()
+	if !m.TraceSegs {
+		return m.CPU.Step()
+	}
+	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
+	err := m.CPU.Step()
+	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg && len(m.SegLog) < MaxSegLog {
+		m.SegLog = append(m.SegLog, SegChange{
+			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,
+			ToSeg: cs, ToOff: m.CPU.IP,
+		})
+	}
+	return err
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。

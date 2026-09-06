@@ -50,6 +50,7 @@ func main() {
 	args := flag.String("args", "", "命令列尾（寫進 PSP+80h，.COM 的參數走這裡）")
 	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
+	segLog := flag.Bool("seg-log", false, "記錄 CS 的每一次改變，報告裡印出每個段第一次執行的時間與來源")
 	flag.Parse()
 
 	if *exe == "" {
@@ -85,6 +86,7 @@ func main() {
 	if *tick > 0 {
 		m.IRQ0Every = *tick
 	}
+	m.TraceSegs = *segLog
 	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
 	var vidN int
 	if *watchVideo {
@@ -265,7 +267,34 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 
+	if m.TraceSegs {
+		reportSegs(m)
+	}
 	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), join(d.Opened))
+	if len(d.Allocs) > 0 {
+		fmt.Printf("\n記憶體配置（%d 次，最多列 20）：\n", len(d.Allocs))
+		for i, a := range d.Allocs {
+			if i >= 20 {
+				break
+			}
+			st := "失敗"
+			if a.OK {
+				st = "成功"
+			}
+			fmt.Printf("  #%-9d AH=%02X 要 %5d 段 → %04X %s\n", a.Step, a.Fn, a.Want, a.Seg, st)
+		}
+	}
+	if len(d.Reads) > 0 {
+		fmt.Printf("\n讀檔（%d 次，最多列 30）：\n", len(d.Reads))
+		for i, r := range d.Reads {
+			if i >= 30 {
+				break
+			}
+			fmt.Printf("  #%-9d %-14s handle=%04X → %04X:%04X 要 %d 得 %d（線性 %05X–%05X）\n",
+				r.Step, r.Name, r.Handle, r.Seg, r.Off, r.Want, r.Got,
+				uint32(r.Seg)*16+uint32(r.Off), uint32(r.Seg)*16+uint32(r.Off)+uint32(r.Got))
+		}
+	}
 	if len(d.ExecLog) > 0 {
 		fmt.Printf("\nEXEC 紀錄（%d）：\n", len(d.ExecLog))
 		for _, e := range d.ExecLog {
@@ -504,4 +533,49 @@ func writeCGA(path string, m *machine.Machine) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
+}
+
+// reportSegs 印出每個 CS 第一次被執行的時間與來源。
+//
+// 「執行流是什麼時候跑到不該去的地方」——看這張表比翻 IP 的 trace 快，
+// 因為飛掉的那一跳通常早就滾出 ring buffer 了。
+func reportSegs(m *machine.Machine) {
+	type first struct {
+		i   int
+		c   machine.SegChange
+		n   int
+	}
+	order := []uint16{}
+	seen := map[uint16]*first{}
+	for i, c := range m.SegLog {
+		f, ok := seen[c.ToSeg]
+		if !ok {
+			f = &first{i: i, c: c}
+			seen[c.ToSeg] = f
+			order = append(order, c.ToSeg)
+		}
+		f.n++
+	}
+	fmt.Printf("\n段轉移（%d 筆，%d 個相異 CS", len(m.SegLog), len(order))
+	if len(m.SegLog) >= machine.MaxSegLog {
+		fmt.Printf("，已達上限 %d", machine.MaxSegLog)
+	}
+	fmt.Println("）：")
+	for _, seg := range order {
+		f := seen[seg]
+		fmt.Printf("  CS=%04X 首見 #%d ← %04X:%04X → %04X:%04X（共 %d 次）\n",
+			seg, f.c.Step, f.c.FromSeg, f.c.FromOff, f.c.ToSeg, f.c.ToOff, f.n)
+	}
+
+	// 序列本身：首見表說「第一次是誰跳過來的」，序列才看得出**它自己是
+	// 怎麼被叫起來的**（例如 `push seg / push off / retf` 的間接遠跳，
+	// 來源會是一個 RETF 的位址）。
+	n := len(m.SegLog)
+	if n > 400 {
+		n = 400
+	}
+	fmt.Printf("\n前 %d 筆段轉移：\n", n)
+	for _, c := range m.SegLog[:n] {
+		fmt.Printf("  #%-9d %04X:%04X → %04X:%04X\n", c.Step, c.FromSeg, c.FromOff, c.ToSeg, c.ToOff)
+	}
 }

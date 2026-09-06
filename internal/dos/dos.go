@@ -119,6 +119,18 @@ type DOS struct {
 	Opened  []string
 	Missing []string
 
+	// Reads 是每一次成功的讀檔（`AH=3Fh`），依序。
+	//
+	// **「這個檔被讀進哪裡、讀了多長」是解資料格式的起點**，也是
+	// 「緩衝區有沒有蓋到別的東西」唯一直接的證據——DOS 服務的寫入走
+	// WriteBytes，繞過 Write8，WatchWrites 看不到它。
+	Reads []ReadOp
+
+	// Allocs 是每一次記憶體配置（`AH=48h`）與縮放（`AH=4Ah`）。
+	// 「這塊緩衝區是誰給的」——配置器給錯位址時，症狀會出現在
+	// 很遠的地方（緩衝區蓋到堆疊、蓋到別人的資料）。
+	Allocs []AllocOp
+
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
@@ -145,6 +157,25 @@ type DOS struct {
 	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
 	emb     map[uint16][]byte
 	nextEMB uint16
+}
+
+// AllocOp 是一次記憶體配置或縮放。Fn 是 48h 或 4Ah。
+type AllocOp struct {
+	Step uint64
+	Fn   uint8
+	Want uint16 // 要幾段
+	Seg  uint16 // 48h：配到的段；4Ah：被縮放的區塊
+	OK   bool
+}
+
+// ReadOp 是一次讀檔（`AH=3Fh`）。Seg:Off 是緩衝區。
+type ReadOp struct {
+	Step     uint64
+	Name     string
+	Handle   uint16
+	Seg, Off uint16
+	Want     uint16
+	Got      int
 }
 
 // Write 是一次被擋下來的寫檔。

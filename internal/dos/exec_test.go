@@ -194,3 +194,48 @@ func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
 		t.Error("服務設了 CF，但堆疊框沒有")
 	}
 }
+
+// TestChildSetBlockMovesFreeSeg 釘住「子行程撐大自己的區塊之後，
+// AH=48h 不能再把那塊記憶體配出去」。
+//
+// 反面沒有任何錯誤：配到的緩衝區落在子行程的堆疊上，讀個檔就把返回位址
+// 換成檔案內容，retf 到一個看起來很像程式碼的地方，然後在資料裡一路
+// 執行下去。（源平合戰的 OPEN.EXE 就是這樣飛掉的。）
+func TestChildSetBlockMovesFreeSeg(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：AH=4Ah 把自己的區塊撐到 0x2000 段，然後 AH=48h 要 0x100 段，
+	// 把結果留在 BX，最後結束。
+	writeChild(t, d, "GROW.COM", []byte{
+		0x8C, 0xCB, // mov bx,cs      （.COM 的 CS ＝ PSP）
+		0x8E, 0xC3, // mov es,bx
+		0xBB, 0x00, 0x20, // mov bx,2000h
+		0xB4, 0x4A, 0xCD, 0x21, // mov ah,4Ah; int 21h
+		0xBB, 0x00, 0x01, // mov bx,0100h
+		0xB4, 0x48, 0xCD, 0x21, // mov ah,48h; int 21h
+		0xA3, 0x00, 0x02, // mov [0200h],ax   （把配到的段存起來）
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+	})
+	execChild(m, d, "GROW.COM")
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("EXEC 失敗，Missing=%v", d.Missing)
+	}
+	psp := d.ExecLog[len(d.ExecLog)-1].PSP
+	for i := 0; i < 200 && len(d.stack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.stack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+
+	got := m.Read16(cpu.Addr(psp, 0x200))
+	if got == 0 {
+		t.Fatal("子程式沒有配到記憶體")
+	}
+	// 子行程擁有 psp..psp+2000h；配出來的段必須在那之後。
+	if got <= psp+0x2000 {
+		t.Errorf("AH=48h 配到 %04X，落在子行程自己的區塊裡（%04X–%04X）——"+
+			"那塊記憶體正被它的堆疊用著", got, psp, psp+0x2000)
+	}
+}
