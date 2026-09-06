@@ -85,6 +85,41 @@ func TestByteTESTAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestByteTESTAtSIBDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x60))
+	copy(mem, []byte{0xf6, 0x44, 0x03, 0xff, 0x40})
+	mem[0x2f] = 0x40
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x5f, Writable: true})
+	c.R[EBX], c.R[EAX], c.EFlags = 0x20, 0x10, CF|OF|AF
+	if err := c.Step(); err != nil || c.EFlags&(CF|OF|AF|ZF) != 0 || mem[0x2f] != 0x40 {
+		t.Fatalf("nonzero TEST byte flags=%X value=%X err=%v", c.EFlags, mem[0x2f], err)
+	}
+
+	mem[0x2f] = 0
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x5f})
+	c.R[EBX], c.R[EAX] = 0x20, 0x10
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 {
+		t.Fatalf("zero TEST byte flags=%X err=%v", c.EFlags, err)
+	}
+
+	c = New(testBus{0xf6, 0x44, 0x03, 0x01, 0x40})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 4})
+	c.R[EBX], c.R[EAX] = 0x20, 0x10
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range SIB TEST byte was accepted")
+	}
+
+	c = New(testBus{0xf6, 0x44, 0x23, 0x01, 0x40})
+	if err := c.Step(); err == nil {
+		t.Fatal("unapproved SIB TEST byte was accepted")
+	}
+}
+
 func TestAbsoluteByteANDOR(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})
