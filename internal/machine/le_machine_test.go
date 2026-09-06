@@ -1837,3 +1837,28 @@ func TestFD2TrimsINITrailingCharacter(t *testing.T) {
 		t.Fatalf("INI trim steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, m.Mem[destination])
 	}
 }
+
+func TestFD2StoresINIValuePointer(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f3f0; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI value pointer setup: step=%d EIP=%X EAX=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	destination := m.CPU.R[cpu386.ESP] + 0x168
+	if uint64(destination)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("INI value pointer destination=%X 超界", destination)
+	}
+	want := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI value pointer MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	got := binary.LittleEndian.Uint32(m.Mem[destination : destination+4])
+	if m.CPU.EIP != 0x3f3f7 || got != want {
+		t.Fatalf("INI value pointer steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, got)
+	}
+}
