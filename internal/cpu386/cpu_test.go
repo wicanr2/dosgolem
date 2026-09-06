@@ -951,6 +951,33 @@ func TestIncrementBaseDword(t *testing.T) {
 	}
 }
 
+func TestIncrementRegisterByte(t *testing.T) {
+	tests := []struct {
+		name      string
+		code      byte
+		before    uint32
+		want      uint32
+		wantFlags uint32
+	}{
+		{name: "AL overflow", code: 0xc0, before: 0x1234567f, want: 0x12345680, wantFlags: CF | OF | SF | AF},
+		{name: "AH wraps", code: 0xc4, before: 0x1234ff78, want: 0x12340078, wantFlags: CF | ZF | AF | PF},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus{0xfe, test.code})
+			c.R[EAX], c.EFlags = test.before, CF
+			if err := c.Step(); err != nil || c.R[EAX] != test.want || c.EFlags&(CF|OF|SF|ZF|AF|PF) != test.wantFlags {
+				t.Fatalf("INC EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0xfe, 0x00})
+	if err := c.Step(); err == nil {
+		t.Fatal("memory FE /0 was accepted")
+	}
+}
+
 func TestPushFlags32(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	mem[0] = 0x9c
