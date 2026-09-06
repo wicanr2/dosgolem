@@ -99,6 +99,9 @@ func main() {
 		"執行到這些 `<seg>:<off>` 時記下暫存器（逗號分隔，各印前 8 次）。"+
 			"用來回答「這支繪圖常式的來源指標指到哪」——"+
 			"監看寫入只看得到目的地，看不到它從哪裡搬")
+	regsMax := flag.Int("regs-max", 20,
+		"每個 -regs-at 位址最多記幾次。逐格處理的迴圈跑幾百次，"+
+			"預設的 20 次只看得到第一個物件")
 	vramSites := flag.Bool("vram-sites", false,
 		"統計「誰在寫視訊記憶體」，印出前 20 名 CS:IP（找繪圖常式）")
 	vramAt := flag.String("vram-at", "",
@@ -406,7 +409,7 @@ type clickEv struct {
 				if seen && cur > prev && cur-prev <= 16 {
 					continue
 				}
-				if h := regHits[w]; len(h) < 20 {
+				if h := regHits[w]; len(h) < *regsMax {
 					regHits[w] = append(h, fmt.Sprintf(
 						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X DS=%04X ES=%04X SS:SP=%04X:%04X",
 						m.Steps, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
