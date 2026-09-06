@@ -296,3 +296,33 @@ type MemWrite struct {
 	IP       Addr
 	Step     uint64
 }
+
+// FileOp 是原版的一次檔案操作。
+type FileOp struct {
+	Step   uint64
+	Op     string // open／seek／read
+	Handle uint16
+	Name   string
+	Arg    int64 // seek 的位移、read 的要求量、open 的檔案大小
+	Result int64 // seek 後的位置、read 實際讀到的量
+}
+
+// TraceFiles 打開檔案操作追蹤。要在 Run 之前呼叫。
+//
+// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
+// 對拍容器格式要問的正是後者：原版 seek 到哪個位移、讀多長——
+// 那組數字就是它自己算出來的項目邊界，拿來對 remake 的解碼器
+// 比「兩條路徑算同一件事」。
+func (o *Oracle) TraceFiles() { o.d.FileTrace = []dos.FileOp{} }
+
+// FileOps 回傳目前為止的檔案操作。
+func (o *Oracle) FileOps() []FileOp {
+	out := make([]FileOp, 0, len(o.d.FileTrace))
+	for _, f := range o.d.FileTrace {
+		out = append(out, FileOp{
+			Step: f.Step, Op: f.Op, Handle: f.Handle,
+			Name: f.Name, Arg: f.Arg, Result: f.Result,
+		})
+	}
+	return out
+}

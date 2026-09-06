@@ -176,6 +176,13 @@ type DOS struct {
 	// 用途只有一個：分辨「程式自己設的 ES:BX」與「某個服務把它改壞了」。
 	// 服務回傳時動到不該動的暫存器，症狀會出現在很後面的另一個呼叫上。
 	CallTrace []CallRec
+
+	// FileTrace 記每一次檔案操作的參數與結果。
+	//
+	// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
+	// 遊戲抱怨某個項目找不到時，要分辨「它算錯位移」與「我們回錯資料」
+	// 就得看這個。
+	FileTrace []FileOp
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -381,4 +388,14 @@ type CallRec struct {
 	AH, AL       uint8
 	ESIn, BXIn   uint16
 	ESOut, BXOut uint16
+}
+
+// FileOp 是一次檔案操作。
+type FileOp struct {
+	Step   uint64
+	Op     string // open／seek／read／write／close
+	Handle uint16
+	Name   string
+	Arg    int64  // seek 的位移、read 的要求量
+	Result int64  // seek 後的位置、read 實際讀到的量；<0 表示錯誤碼
 }

@@ -86,6 +86,7 @@ func main() {
 	}
 	d := dos.New(m, *root)
 	d.CallTrace = []dos.CallRec{}
+	d.FileTrace = []dos.FileOp{}
 	if *logCalls {
 		d.Calls = map[dos.Call]int{}
 	}
@@ -323,6 +324,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
 	}
 
+	if len(d.FileTrace) > 0 {
+		fmt.Printf("\n檔案操作（%d 次）：\n", len(d.FileTrace))
+		for _, f := range d.FileTrace {
+			fmt.Printf("  #%-9d %-5s h=%d %-12s arg=%-10d → %d\n",
+				f.Step, f.Op, f.Handle, f.Name, f.Arg, f.Result)
+		}
+	}
 	fmt.Printf("\n配置器狀態：\n")
 	for _, l := range d.ArenaDump() {
 		fmt.Println("  " + l)

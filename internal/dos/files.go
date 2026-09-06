@@ -87,6 +87,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	d.nextHandle++
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
 	d.Opened = append(d.Opened, filepath.Base(path))
+	d.trace("open", h, name, st.Size(), int64(h))
 	c.R[cpu.AX] = h
 	clearCarry(c)
 }
@@ -123,6 +124,7 @@ func (d *DOS) read(c *cpu.CPU) {
 		n = 0
 	}
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
+	d.trace("read", bx, h.name, int64(cx), int64(n))
 	c.R[cpu.AX] = uint16(n)
 	clearCarry(c)
 }
@@ -190,6 +192,7 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	d.trace("seek", c.R[cpu.BX], h.name, off, pos)
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
 	clearCarry(c)
@@ -223,4 +226,13 @@ func (d *DOS) write(c *cpu.CPU) {
 	}
 	c.R[cpu.AX] = cx
 	clearCarry(c)
+}
+
+// trace 記一次檔案操作；FileTrace 是 nil 就不記。
+func (d *DOS) trace(op string, h uint16, name string, arg, result int64) {
+	if d.FileTrace == nil {
+		return
+	}
+	d.FileTrace = append(d.FileTrace, FileOp{
+		Step: d.M.Steps, Op: op, Handle: h, Name: name, Arg: arg, Result: result})
 }
