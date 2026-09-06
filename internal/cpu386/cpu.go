@@ -1902,15 +1902,16 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm != 0x03 {
+		if modrm>>6 != 0 || (modrm>>3)&7 != 0 || modrm&7 == ESP || modrm&7 == EBP {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
 		value, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if !c.writeSegment8(c.Seg[SegDS], c.R[EBX], value) {
-			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[EBX]))
+		base := modrm & 7
+		if !c.writeSegment8(c.Seg[SegDS], c.R[base], value) {
+			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
 		}
 	case op == 0xc7:
 		if operand16 || segmentOverride >= 0 || repe {

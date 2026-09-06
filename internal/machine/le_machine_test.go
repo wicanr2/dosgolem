@@ -1862,3 +1862,26 @@ func TestFD2StoresINIValuePointer(t *testing.T) {
 		t.Fatalf("INI value pointer steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, got)
 	}
 }
+
+func TestFD2SplitsINIKeyAndValue(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 7000 && m.CPU.EIP != 0x3f449; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI split setup: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	destination := m.CPU.R[cpu386.EAX]
+	if uint64(destination) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI split destination=%X 超界", destination)
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI split MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f44c || m.Mem[destination] != 0 {
+		t.Fatalf("INI split steps=%d EIP=%X destination=%X value=%X", steps, m.CPU.EIP, destination, m.Mem[destination])
+	}
+}

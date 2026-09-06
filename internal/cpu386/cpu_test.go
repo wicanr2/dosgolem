@@ -1668,6 +1668,26 @@ func TestMoveImmediateByteToDSRegisterMemory(t *testing.T) {
 	if err := c.Step(); err != nil || mem[0x24] != 2 || c.R[EBX] != 4 {
 		t.Fatalf("byte=%X EBX=%X err=%v", mem[0x24], c.R[EBX], err)
 	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc6, 0x00, 0xa5})
+	c = New(mem)
+	c.R[EAX], c.EFlags = 0x20, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x20] != 0xa5 || c.R[EAX] != 0x20 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("EAX byte=%X EAX=%X flags=%X err=%v", mem[0x20], c.R[EAX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc6, 0x01, 0xa5})
+	c = New(mem)
+	c.R[ECX] = 0x20
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x3f})
+	if err := c.Step(); err == nil || mem[0x20] != 0 {
+		t.Fatalf("read-only byte=%X err=%v", mem[0x20], err)
+	}
 }
 
 func TestESOverrideSegmentWriteUsesDescriptor(t *testing.T) {
