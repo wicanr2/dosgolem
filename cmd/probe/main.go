@@ -47,6 +47,10 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	keysAt := flag.String("keys-at", "",
+		"在指定的指令數餵鍵：<步數>:<鍵>[,<步數>:<鍵>…]。\n"+
+			"    -keys 是開場就塞進佇列，會在早期的提示就被吃光；\n"+
+			"    後面才出現的「按任意鍵」要用這個。")
 	dumpEGA := flag.String("dump-ega", "",
 		"把平面式 VRAM 存成 PNG：<寬>x<高>=<檔名>（例 640x350=t.png）。\n"+
 			"    平面資料本身不記解析度，尺寸猜錯會得到錯位但看起來像圖的東西。")
@@ -109,6 +113,10 @@ func main() {
 		moveAt = *steps / 2
 	}
 
+	pendingKeys, err := parseKeysAt(*keysAt)
+	if err != nil {
+		die(err)
+	}
 	ring := newRing(*trace)
 	var runErr error
 	var blockedFor uint64
@@ -122,6 +130,10 @@ func main() {
 			runErr = fmt.Errorf("跑出可用記憶體：CS:IP ＝ %04X:%04X（線性 %05X）",
 				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
 			break
+		}
+		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
+			d.Stdin = append(d.Stdin, pendingKeys[0].key...)
+			pendingKeys = pendingKeys[1:]
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
 			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
@@ -653,4 +665,41 @@ func doDumpEGA(m *machine.Machine, spec string) error {
 	fmt.Printf("EGA %dx%d → %s（%d/%d 個非零像素，Map Mask 曾動過＝%v）\n",
 		w, h, parts[1], nonZero, len(idx), m.EGAPlanarActive())
 	return nil
+}
+
+// timedKey 是一次定時餵鍵。
+type timedKey struct {
+	at  uint64
+	key []byte
+}
+
+// parseKeysAt 解析 `<步數>:<鍵>[,…]`，並依步數排序。
+//
+// **為什麼需要它**：`-keys` 是開場就把鍵塞進佇列，早期的提示會把它們
+// 吃光。後面才出現的「按任意鍵繼續」（智冠《三國演義》的開場插圖用
+// `int 16h AH=01` 輪詢了三百三十萬次）拿不到任何鍵，於是永遠停在那裡——
+// 從外面看是「程式還活著」。
+func parseKeysAt(spec string) ([]timedKey, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	var out []timedKey
+	for _, one := range strings.Split(spec, ",") {
+		i := strings.Index(one, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("keys-at: %q 不是 <步數>:<鍵>", one)
+		}
+		at, err := strconv.ParseUint(one[:i], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("keys-at: 步數 %q：%w", one[:i], err)
+		}
+		k := strings.ReplaceAll(one[i+1:], "\\n", "\n")
+		k = strings.ReplaceAll(k, "\\r", "\r")
+		if k == "" {
+			return nil, fmt.Errorf("keys-at: %q 沒有指定按鍵", one)
+		}
+		out = append(out, timedKey{at: at, key: []byte(k)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].at < out[j].at })
+	return out, nil
 }
