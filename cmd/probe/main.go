@@ -64,6 +64,9 @@ func main() {
 			"    -peek 只吃 IDA 線性位址，換算不到執行期搬過去的段。")
 		blockAfter := flag.Uint64("block-after", 100_000,
 		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
+	egaEvery := flag.String("ega-every", "",
+		"每 N 道指令存一張 EGA 畫面：<N>:<寬>x<高>=<檔名前綴>。\n"+
+			"    單張只看得到終點，看不出按鍵是送早了還是送晚了。")
 	memTrace := flag.Bool("mem-trace", false,
 		"逐筆記 AH=48h／49h 的要求與回應（含呼叫端 CS:IP）。\n"+
 			"    「總共佔了多少」答不出「哪一次開始偏離」——要比對配置器\n"+
@@ -129,6 +132,19 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	var shotEvery uint64
+	var shotSpec string
+	var shotN int
+	if *egaEvery != "" {
+		parts := strings.SplitN(*egaEvery, ":", 2)
+		if len(parts) != 2 {
+			die(fmt.Errorf("-ega-every 格式是 <N>:<寬>x<高>=<檔名前綴>"))
+		}
+		if _, err := fmt.Sscanf(parts[0], "%d", &shotEvery); err != nil || shotEvery == 0 {
+			die(fmt.Errorf("-ega-every 的 N 解不出來：%q", parts[0]))
+		}
+		shotSpec = parts[1]
+	}
 	if *covOut != "" {
 		m.Coverage = make([]bool, 1<<20)
 	}
@@ -145,6 +161,15 @@ func main() {
 			runErr = fmt.Errorf("跑出可用記憶體：CS:IP ＝ %04X:%04X（線性 %05X）",
 				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
 			break
+		}
+		if shotEvery > 0 && m.Steps >= uint64(shotN+1)*shotEvery {
+			shotN++
+			sp := strings.SplitN(shotSpec, "=", 2)
+			if len(sp) == 2 {
+				if err := doDumpEGA(m, fmt.Sprintf("%s=%s-%03d.png", sp[0], sp[1], shotN)); err != nil {
+					die(err)
+				}
+			}
 		}
 		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
 			feedKeys(m, d, pendingKeys[0].key)
