@@ -78,6 +78,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		c.R[cpu.DX] = 40000  // 總叢集
 		clearCarry(c)
 
+	case 0x3C:
+		d.create(c)
 	case 0x3D:
 		d.open(c)
 	case 0x3E:
@@ -86,6 +88,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.read(c)
 	case 0x40:
 		d.write(c)
+	case 0x41:
+		d.unlink(c)
 	case 0x42:
 		d.seek(c)
 

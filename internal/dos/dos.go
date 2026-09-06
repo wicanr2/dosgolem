@@ -63,7 +63,13 @@ type DOS struct {
 	M *machine.Machine
 
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
+	// **永遠不寫**（`docs/spec/009` §2.3）；容器裡它本來就是 `ro` 掛載。
 	Root string
+
+	// Scratch 是可寫的暫存層（`docs/spec/009`）。空字串＝維持「寫入只記帳
+	// 不落地」的舊行為，第一個案例不受影響。非空時 `resolve` 先找這裡，
+	// 建檔與寫檔也落在這裡。
+	Scratch string
 
 	// Now 是固定時刻，Mouse 是滑鼠狀態。
 	Now   Time

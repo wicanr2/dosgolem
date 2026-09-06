@@ -101,6 +101,17 @@ func Load(exe, root string) (*Oracle, error) {
 // Close 關掉還開著的檔。
 func (o *Oracle) Close() { o.d.Close() }
 
+// SetScratch 打開可寫的暫存層（`docs/spec/009`）：程式的存檔落在這個目錄，
+// **原版素材目錄永遠不寫**。空字串＝關掉，寫入只記帳不落地。
+//
+// 要在程式開始存檔之前設。走到建角、存檔、讀檔那類流程一定要開——
+// 不開的話寫入被吞掉，而症狀是「選單按了畫面完全沒變」，
+// 完全不指向寫檔（`docs/spec/009` §1）。
+func (o *Oracle) SetScratch(dir string) { o.d.Scratch = dir }
+
+// Wrote 回報程式想寫下去的每一次（檔名與位元組數）。
+func (o *Oracle) Wrote() []dos.Write { return o.d.Wrote }
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。

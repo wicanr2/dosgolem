@@ -44,7 +44,8 @@ type shotInfo struct {
 
 func main() {
 	exe := flag.String("exe", "", "MZ 執行檔")
-	root := flag.String("root", ".", "素材目錄")
+	root := flag.String("root", ".", "素材目錄（唯讀）")
+	scratch := flag.String("scratch", "", "可寫的暫存層；程式存檔會落在這裡（docs/spec/009）")
 	budget := flag.Uint64("budget", 60_000_000, "每一步最多跑幾道指令")
 	idle := flag.Uint64("idle", 3_000_000, "畫面連續這麼多道指令沒動就算穩定")
 	out := flag.String("out", "", "輸出目錄")
@@ -62,6 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 	d := dos.New(m, *root)
+	d.Scratch = *scratch
 	d.Install()
 
 	calls := map[string]int{}
@@ -177,6 +179,42 @@ func main() {
 		fmt.Printf("  %-18s %d\n", k, calls[k])
 	}
 	fmt.Println("開過的檔：", len(d.Opened))
+
+	// 顯示相關埠的寫入統計。**「這支程式沒用到圖形控制器」這種結論會過期**
+	// ——量的時候程式還沒畫到那一段而已，所以每一輪都重新數。
+	video := map[uint16]string{
+		0x3C4: "序列器索引", 0x3C5: "序列器資料",
+		0x3CE: "圖控索引", 0x3CF: "圖控資料",
+		0x3C0: "屬性", 0x3C2: "雜項輸出",
+		0x3D4: "CRTC 索引", 0x3D5: "CRTC 資料",
+	}
+	portCounts := map[uint16]int{}
+	portValues := map[uint16]map[uint8]int{}
+	for _, w := range m.PortLog {
+		if _, ok := video[w.Port]; !ok {
+			continue
+		}
+		portCounts[w.Port]++
+		if portValues[w.Port] == nil {
+			portValues[w.Port] = map[uint8]int{}
+		}
+		portValues[w.Port][w.Val]++
+	}
+	ports := make([]int, 0, len(portCounts))
+	for p := range portCounts {
+		ports = append(ports, int(p))
+	}
+	sort.Ints(ports)
+	fmt.Println("顯示相關埠的寫入：")
+	for _, p := range ports {
+		port := uint16(p)
+		vals := make([]int, 0, len(portValues[port]))
+		for v := range portValues[port] {
+			vals = append(vals, int(v))
+		}
+		sort.Ints(vals)
+		fmt.Printf("  %03X %-12s %d 次，值 %v\n", p, video[port], portCounts[port], vals)
+	}
 
 	if *out != "" {
 		manifest, _ := json.MarshalIndent(shots, "", "  ")

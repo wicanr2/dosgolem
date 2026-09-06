@@ -16,6 +16,8 @@ type handle struct {
 	path string
 	f    *os.File
 	size int64
+	// writable 為真時 `AH=40h` 真的寫下去（`docs/spec/009`）。
+	writable bool
 }
 
 // resolve 把遊戲組出來的路徑對到實際檔案。
@@ -26,18 +28,27 @@ type handle struct {
 //
 // **大小寫不分**：原版是 DOS，檔名全大寫；玩家的目錄可能是小寫。
 func (d *DOS) resolve(name string) string {
-	base := name
-	if i := strings.LastIndexAny(base, `\/:`); i >= 0 {
-		base = base[i+1:]
-	}
+	base := baseName(name)
 	if base == "" {
 		return ""
 	}
-	direct := filepath.Join(d.Root, base)
+	// 暫存層蓋過原版目錄（`docs/spec/009` §2.2.1）：程式存過的東西
+	// 下一次要讀得到自己寫的那一份，不是原版那一份。
+	if d.Scratch != "" {
+		if path := lookup(d.Scratch, base); path != "" {
+			return path
+		}
+	}
+	return lookup(d.Root, base)
+}
+
+// lookup 在一個目錄裡找 basename，大小寫不分。
+func lookup(dir, base string) string {
+	direct := filepath.Join(dir, base)
 	if st, err := os.Stat(direct); err == nil && !st.IsDir() {
 		return direct
 	}
-	entries, err := os.ReadDir(d.Root)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
 	}
@@ -46,10 +57,20 @@ func (d *DOS) resolve(name string) string {
 			continue
 		}
 		if strings.EqualFold(e.Name(), base) {
-			return filepath.Join(d.Root, e.Name())
+			return filepath.Join(dir, e.Name())
 		}
 	}
 	return ""
+}
+
+// baseName 取出 DOS 路徑的最後一段。遊戲會組出 `A:\<垃圾>\X.CHA`
+// 這種路徑，目錄部分對不上實際安裝（`resolve` 的註解）。
+func baseName(name string) string {
+	base := name
+	if i := strings.LastIndexAny(base, `\/:`); i >= 0 {
+		base = base[i+1:]
+	}
+	return base
 }
 
 // readCString 讀一個 NUL 結尾的字串。
@@ -66,8 +87,13 @@ func (d *DOS) readCString(seg, off uint16, limit int) string {
 	return string(out)
 }
 
+// open 是 `AH=3Dh`。存取模式在 `AL` 的低兩位：0 唯讀、1 唯寫、2 讀寫。
+//
+// 要寫而檔案只在唯讀的原版目錄裡時，**先整份複製到暫存層**再開
+// （`docs/spec/009` §2.2.3）。沒有暫存層就退回唯讀——寫入照舊只記帳。
 func (d *DOS) open(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	wantsWrite := d.Scratch != "" && al(c)&0x03 != 0
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
@@ -75,7 +101,18 @@ func (d *DOS) open(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	f, err := os.Open(path)
+	var (
+		f   *os.File
+		err error
+	)
+	if wantsWrite {
+		path, err = d.scratchCopy(name, path)
+		if err == nil {
+			f, err = os.OpenFile(path, os.O_RDWR, 0o644)
+		}
+	} else {
+		f, err = os.Open(path)
+	}
 	if err != nil {
 		d.Missing = append(d.Missing, name)
 		c.R[cpu.AX] = 2
@@ -85,9 +122,76 @@ func (d *DOS) open(c *cpu.CPU) {
 	st, _ := f.Stat()
 	h := d.nextHandle
 	d.nextHandle++
-	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
+	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(), writable: wantsWrite}
 	d.Opened = append(d.Opened, filepath.Base(path))
 	c.R[cpu.AX] = h
+	clearCarry(c)
+}
+
+// scratchCopy 保證暫存層裡有這個檔的一份可寫副本，回傳它的路徑。
+// 已經在暫存層裡的就原樣用。
+func (d *DOS) scratchCopy(name, path string) (string, error) {
+	base := baseName(name)
+	target := filepath.Join(d.Scratch, base)
+	if _, err := os.Stat(target); err == nil {
+		return target, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(d.Scratch, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// create 是 `AH=3Ch`：在暫存層建立／截斷一個檔，回可讀寫的 handle。
+//
+// 沒有暫存層時**照舊不落地**，但仍要回一個合法 handle——回失敗的話
+// 呼叫端會走錯誤路徑，而那與「存檔功能沒做」是兩種不同的行為。
+func (d *DOS) create(c *cpu.CPU) {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	base := baseName(name)
+	if d.Scratch == "" || base == "" {
+		h := d.nextHandle
+		d.nextHandle++
+		d.handles[h] = &handle{name: name}
+		c.R[cpu.AX] = h
+		clearCarry(c)
+		return
+	}
+	if err := os.MkdirAll(d.Scratch, 0o755); err != nil {
+		c.R[cpu.AX] = 3 // Path not found
+		setCarry(c)
+		return
+	}
+	path := filepath.Join(d.Scratch, base)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		c.R[cpu.AX] = 5 // Access denied
+		setCarry(c)
+		return
+	}
+	h := d.nextHandle
+	d.nextHandle++
+	d.handles[h] = &handle{name: name, path: path, f: f, writable: true}
+	c.R[cpu.AX] = h
+	clearCarry(c)
+}
+
+// unlink 是 `AH=41h`：只刪暫存層底下的，原版目錄永遠不動。
+func (d *DOS) unlink(c *cpu.CPU) {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	base := baseName(name)
+	if d.Scratch == "" || base == "" {
+		clearCarry(c)
+		return
+	}
+	os.Remove(filepath.Join(d.Scratch, base))
 	clearCarry(c)
 }
 
@@ -178,8 +282,8 @@ func (d *DOS) seek(c *cpu.CPU) {
 // 沒接的話主控台是空的——看起來像「程式什麼都沒說」，
 // 而實際上它正在印錯誤訊息（第一次跑通 CPU 之後就是這個症狀）。
 //
-// **寫檔一律不做。** 原版素材唯讀（`CLAUDE.md`），而 MVP-B 不需要存檔；
-// 真的有人寫檔要看得到，所以記一筆而不是安靜地報成功。
+// **原版目錄永遠不寫。** 有 `Scratch` 時寫進暫存層（`docs/spec/009`），
+// 沒有時只記一筆再回報成功——安靜地成功會讓「存檔壞掉」完全查不出來。
 func (d *DOS) write(c *cpu.CPU) {
 	bx, cx := c.R[cpu.BX], c.R[cpu.CX]
 	buf := make([]byte, cx)
@@ -191,10 +295,24 @@ func (d *DOS) write(c *cpu.CPU) {
 	case 1, 2: // stdout／stderr
 		d.Console = append(d.Console, buf...)
 	default:
-		if h, ok := d.handles[bx]; ok {
-			d.Wrote = append(d.Wrote, Write{Name: h.name, N: int(cx)})
-		} else {
+		h, ok := d.handles[bx]
+		if !ok {
 			d.Wrote = append(d.Wrote, Write{Name: fmt.Sprintf("handle %d", bx), N: int(cx)})
+			break
+		}
+		// `Wrote` 記的是「程式想存什麼」，寫成功也要記
+		//（`docs/spec/009` §2.4），不是失敗清單。
+		d.Wrote = append(d.Wrote, Write{Name: h.name, N: int(cx)})
+		if h.writable && h.f != nil {
+			n, err := h.f.Write(buf)
+			if err != nil {
+				c.R[cpu.AX] = 5 // Access denied
+				setCarry(c)
+				return
+			}
+			c.R[cpu.AX] = uint16(n)
+			clearCarry(c)
+			return
 		}
 	}
 	c.R[cpu.AX] = cx
