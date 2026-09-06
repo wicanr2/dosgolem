@@ -95,6 +95,13 @@ type Machine struct {
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
 	// ega 是平面式 VRAM（`docs/spec/007`）。沒有它的話四個平面的寫入
 	// 互相蓋掉，只剩最後一個——症狀不是壞掉，是「一張正常但錯的圖」。
+	// Coverage 記每一個被執行過的線性位址。nil 表示不記。
+	//
+	// **這是「哪些 byte 是程式碼」唯一直接的答案。** 打包過的執行檔
+	// 靜態反組譯是亂碼，IDA 對 raw dump 也不知道從哪裡開始；
+	// 拿執行過的位址當種子，種到的位置一定是程式碼，不是猜的。
+	Coverage []bool
+
 	ega *ega
 
 	Ports   map[uint16]uint8
@@ -342,6 +349,11 @@ func (m *Machine) Indexed() []uint8 {
 func (m *Machine) Step() error {
 	m.tick()
 	m.Steps++
+	if m.Coverage != nil {
+		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
+			m.Coverage[a] = true
+		}
+	}
 	return m.CPU.Step()
 }
 

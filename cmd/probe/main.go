@@ -11,6 +11,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
@@ -47,6 +48,10 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	covOut := flag.String("coverage", "",
+		"把執行過的線性位址寫成 JSON 區段表。\n"+
+			"    打包過的執行檔靜態反組譯是亂碼；這份清單是「哪些 byte 是程式碼」\n"+
+			"    唯一直接的答案，拿去當 IDA 的種子。")
 	keysAt := flag.String("keys-at", "",
 		"在指定的指令數餵鍵：<步數>:<鍵>[,<步數>:<鍵>…]。\n"+
 			"    -keys 是開場就塞進佇列，會在早期的提示就被吃光；\n"+
@@ -117,6 +122,9 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	if *covOut != "" {
+		m.Coverage = make([]bool, 1<<20)
+	}
 	ring := newRing(*trace)
 	var runErr error
 	var blockedFor uint64
@@ -183,6 +191,11 @@ func main() {
 	if *dumpMem != "" {
 		if err := doDumpMem(m, *dumpMem); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-mem:", err)
+		}
+	}
+	if *covOut != "" {
+		if err := writeCoverage(m, *covOut); err != nil {
+			fmt.Fprintln(os.Stderr, "coverage:", err)
 		}
 	}
 	report(m, d, ring, runErr, *steps)
@@ -702,4 +715,49 @@ func parseKeysAt(spec string) ([]timedKey, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].at < out[j].at })
 	return out, nil
+}
+
+// writeCoverage 把執行過的位址壓成連續區段寫出去。
+//
+// 區段而不是逐個位址：一段連續的程式碼會產生幾千個相鄰位址，
+// 列成區段之後種子只要每段一個起點。
+func writeCoverage(m *machine.Machine, path string) error {
+	type span struct {
+		Start string `json:"start"`
+		End   string `json:"end"`
+		Len   int    `json:"len"`
+	}
+	var spans []span
+	i := 0
+	total := 0
+	for i < len(m.Coverage) {
+		if !m.Coverage[i] {
+			i++
+			continue
+		}
+		j := i
+		for j < len(m.Coverage) && m.Coverage[j] {
+			j++
+		}
+		spans = append(spans, span{Start: fmt.Sprintf("0x%05X", i),
+			End: fmt.Sprintf("0x%05X", j), Len: j - i})
+		total += j - i
+		i = j
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(map[string]any{
+		"executed_bytes": total,
+		"span_count":     len(spans),
+		"spans":          spans,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("覆蓋率：%d 個位址被執行過，壓成 %d 段 → %s\n", total, len(spans), path)
+	return nil
 }
