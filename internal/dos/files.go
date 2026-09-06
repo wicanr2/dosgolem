@@ -83,8 +83,13 @@ func (d *DOS) open(c *cpu.CPU) {
 		return
 	}
 	st, _ := f.Stat()
-	h := d.nextHandle
-	d.nextHandle++
+	h, ok := d.allocHandle()
+	if !ok {
+		f.Close()
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
 	d.Opened = append(d.Opened, filepath.Base(path))
 	d.trace("open", h, name, st.Size(), int64(h))
@@ -235,4 +240,22 @@ func (d *DOS) trace(op string, h uint16, name string, arg, result int64) {
 	}
 	d.FileTrace = append(d.FileTrace, FileOp{
 		Step: d.M.Steps, Op: op, Handle: h, Name: name, Arg: arg, Result: result})
+}
+
+// allocHandle 給出**最小的**空號碼。
+//
+// ⚠ **關掉的號碼要放回去給下一次用。** DOS 的 handle 是 PSP 裡那張
+// job file table 的索引，關檔就把那一格標成空，下一次開檔拿的是
+// 最小的空格。只增不重用的話，一支開開關關幾十次的程式會拿到
+// 越來越大的號碼，而 MSC 的低階 I/O 拿 handle 當自己表的索引
+// （表和 JFT 一樣大）——號碼一超出範圍，`fopen` 就**開成功之後
+// 立刻把它關掉並回 NULL**。症狀是「開得好好的檔突然開不起來」，
+// 而且發生在與號碼配置毫無關聯的地方。
+func (d *DOS) allocHandle() (uint16, bool) {
+	for h := uint16(5); h < d.MaxHandles; h++ { // 0–4 是標準 handle
+		if _, taken := d.handles[h]; !taken {
+			return h, true
+		}
+	}
+	return 0, false
 }

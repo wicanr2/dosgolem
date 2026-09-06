@@ -98,8 +98,12 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 
 	case 0x67: // 設 handle 數上限
-		// 我們沒有 handle 上限，收下就好。回成功是誠實的：
-		// 程式要的是「之後開得了這麼多檔」，而那確實成立。
+		// 程式要的是「之後開得了這麼多檔」。真的照做——上限同時也是
+		// **號碼配置的邊界**（見 `allocHandle`），收下卻不改的話
+		// 程式以為自己有 40 格、實際只拿得到 20 個號碼。
+		if want := c.R[cpu.BX]; want > d.MaxHandles {
+			d.MaxHandles = want
+		}
 		clearCarry(c)
 
 	case 0x30: // 取 DOS 版本

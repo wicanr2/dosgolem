@@ -175,7 +175,14 @@ type DOS struct {
 	ExitCode uint8
 
 	handles    map[uint16]*handle
-	nextHandle uint16
+	// MaxHandles 是這個程序同時開得了幾個檔（含 0–4 的標準 handle）。
+	// DOS 的預設是 20，`AH=67h` 可以調高。
+	//
+	// ⚠ **上限不是拿來擋人的，是號碼配置的邊界。** MSC 的低階 I/O
+	// 用 handle 當索引查自己的表，表和 JFT 一樣大；handle 超出範圍時
+	// `fopen` 會**先開成功再把它關掉並回 NULL**，看起來像開檔失敗，
+	// 實際上是號碼太大。
+	MaxHandles uint16
 	freeSeg    uint16
 
 	// arena 是 [freeSeg, MemTop) 這段的區塊表，依段位址排序、首尾相接、
@@ -237,7 +244,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		nextHandle:    5, // 0–4 是標準 handle
+		MaxHandles:    20, // DOS 預設；AH=67h 可調
 	}
 }
 

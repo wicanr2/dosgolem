@@ -471,3 +471,61 @@ func TestMCBChainDoesNotClobberImage(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleNumbersAreReused 釘住「關掉的 handle 號碼要放回去」。
+//
+// DOS 的 handle 是 PSP 那張 job file table 的索引，關檔就把那格標成空，
+// 下一次開檔拿最小的空格。只增不重用的話，一支開開關關幾十次的程式
+// 會拿到越來越大的號碼——而 MSC 的低階 I/O 拿 handle 當自己表的索引，
+// 表和 JFT 一樣大。號碼一超出範圍，`fopen` 會**開成功之後立刻關掉並回
+// NULL**，症狀是「開得好好的檔突然開不起來」。
+func TestHandleNumbersAreReused(t *testing.T) {
+	m, d := newTest(t)
+	for _, n := range []string{"A.DAT", "B.DAT", "C.DAT"} {
+		if err := os.WriteFile(filepath.Join(d.Root, n), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openFile := func(name string) uint16 {
+		t.Helper()
+		d.M.WriteBytes(cpu.Addr(0x2000, 0x100), append([]byte(name), 0))
+		m.CPU.Seg[cpu.DS] = 0x2000
+		m.CPU.R[cpu.DX] = 0x100
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("開 %s 失敗，AX=%04X", name, m.CPU.R[cpu.AX])
+		}
+		return m.CPU.R[cpu.AX]
+	}
+	closeFile := func(h uint16) {
+		t.Helper()
+		m.CPU.R[cpu.BX] = h
+		call(m, d, 0x21, 0x3E00)
+	}
+
+	first := openFile("A.DAT")
+	closeFile(first)
+	if got := openFile("B.DAT"); got != first {
+		t.Fatalf("關掉 handle %d 之後再開拿到 %d——號碼沒有放回去", first, got)
+	}
+	// 佔滿到上限，第 21 個要以「開太多檔」失敗，不是拿到越界的號碼。
+	for i := uint16(0); ; i++ {
+		d.M.WriteBytes(cpu.Addr(0x2000, 0x100), append([]byte("C.DAT"), 0))
+		m.CPU.Seg[cpu.DS] = 0x2000
+		m.CPU.R[cpu.DX] = 0x100
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			if m.CPU.R[cpu.AX] != 4 {
+				t.Errorf("開太多檔應該回錯誤 4，回的是 %d", m.CPU.R[cpu.AX])
+			}
+			break
+		}
+		if h := m.CPU.R[cpu.AX]; h >= d.MaxHandles {
+			t.Fatalf("拿到 handle %d，上限是 %d——越界的號碼會讓 MSC 的表爆掉",
+				h, d.MaxHandles)
+		}
+		if i > 64 {
+			t.Fatal("開不完——上限沒有生效")
+		}
+	}
+}
