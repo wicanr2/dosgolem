@@ -124,9 +124,22 @@ func (m *Machine) initPSP() {
 	if name == "" {
 		name = `C:\PROG.EXE`
 	}
+	// 給一組最小但合法的環境字串，形狀與真 DOS 一致——真 DOS 底下
+	// 環境幾乎不可能是空的（至少有 COMSPEC）。
+	//
+	// ⚠ **這不是某個問題的修法。** 曾經拿它試智冠《三國演義》的
+	// `R6009 - not enough space for environment`，**症狀完全沒變**
+	// （指令數只因為多走訪幾個 byte 而差 244 道）。留著純粹是因為
+	// 它比空環境更接近真 DOS，不要以為它修好了什麼。
+	var blk []byte
+	blk = append(blk, []byte("COMSPEC=C:\\COMMAND.COM")...)
+	blk = append(blk, 0x00)       // 這一條的結尾
+	blk = append(blk, 0x00)       // 環境字串區的結尾（多一個 00）
+	blk = append(blk, 0x01, 0x00) // 後面跟著幾個字串
+	blk = append(blk, []byte(name)...)
+	blk = append(blk, 0x00)
 	env := uint32(EnvSeg * 16)
-	m.WriteBytes(env, append([]byte{0x00, 0x01, 0x00}, append(
-		[]byte(name), 0x00)...))
+	m.WriteBytes(env, blk)
 	m.Write16(psp+0x2C, EnvSeg)
 
 	// PSP+32h／34h 是檔案表大小與位址。

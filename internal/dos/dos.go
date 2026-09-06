@@ -346,6 +346,10 @@ type OverlayLoad struct {
 	// 參數看起來不合理時要能直接跳去反組譯那裡。
 	CallCS, CallIP uint16
 
+	// Steps 是載入發生在第幾道指令。要看「載完之後發生什麼」就靠它
+	// 把 -steps 停在正確的位置。
+	Steps uint64
+
 	// CallSite 是呼叫端 INT 指令前後的位元組（前 24、後 8）。
 	//
 	// 呼叫端常常是執行期搬到高位段的 stub，**檔案裡找不到**，

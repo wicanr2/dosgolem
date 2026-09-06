@@ -301,7 +301,7 @@ func (d *DOS) exec(c *cpu.CPU) {
 	// 看起來像「程式傳了一段機器碼當參數」，把人帶往完全錯的方向。
 	rec := OverlayLoad{Name: name, Seg: loadSeg, Reloc: relocFactor, Size: len(data),
 		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX],
-		CallCS: c.Seg[cpu.CS], CallIP: c.IP}
+		CallCS: c.Seg[cpu.CS], CallIP: c.IP, Steps: d.M.Steps}
 	// INT 指令本身 2 byte，所以 CallIP-2 是它的起點；往前再留 22 byte
 	// 看參數是怎麼備好的。
 	for i := 0; i < 32; i++ {
