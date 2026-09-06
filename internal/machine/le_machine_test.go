@@ -979,3 +979,22 @@ func TestFD2ChecksSavedInterruptFlag(t *testing.T) {
 		t.Fatalf("AIL saved IF steps=%d EIP=%X calls=%d saved=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), saved, m.CPU.EFlags, errSaved)
 	}
 }
+
+func TestFD2RestoresPITCallerFlags(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e86a; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL flags setup: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	wantFlags := m.CPU.EFlags
+	for ; steps < 5000 && m.CPU.EIP != 0x3e88f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL flags restore: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	if m.CPU.EIP != 0x3e88f || services.Calls() != 5 || m.CPU.EFlags != wantFlags {
+		t.Fatalf("AIL flags restore steps=%d EIP=%X calls=%d flags=%X want=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.EFlags, wantFlags)
+	}
+}

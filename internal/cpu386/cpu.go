@@ -994,6 +994,16 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("PUSHFD stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
 		}
 		c.R[ESP] = nextESP
+	case op == 0x9d:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("9D 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("POPFD stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += 4
+		c.EFlags = value
 	case op == 0xe8:
 		if operand16 {
 			return fail("16-bit near CALL 尚未支援")
