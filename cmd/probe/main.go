@@ -13,6 +13,7 @@ package main
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"image"
@@ -52,6 +53,10 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	clickPolls := flag.Int("click-polls", 0,
+		"改用「按住到遊戲讀了 N 次滑鼠才放開」（0 ＝ 用 -click-hold 的指令數）。"+
+			"各畫面的輪詢頻率差三個數量級——磁片提示每千萬道只問 12 次，讀檔選單問一千次——"+
+			"固定指令數的按住不是漏掉就是重複觸發幾千次")
 	vgaRows := flag.String("vga-trace-rows", "", "記錄寫進這幾列的 planar 寫入與顯示卡狀態：`起-迄`")
 	portFrom := flag.Uint64("port-log-from", 0, "印出這一段之後的 I/O 埠寫入序列（0 ＝ 不印）")
 	portTo := flag.Uint64("port-log-to", 0, "配 -port-log-from 用")
@@ -84,6 +89,13 @@ func main() {
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
+	callArgs := flag.String("call-args", "",
+		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
+			"`CS:IP:字數:起:迄`（位址十六進位，步數十進位）。"+
+			"位置取進入點（尚未 push bp），所以參數從 SS:SP+4 起算——遠呼叫的返回位址佔 4 bytes")
+	ipLog := flag.String("ip-log", "",
+		"把 [起,迄) 這段每一道指令的 CS:IP 以二進位寫出來（每筆 4 bytes，小端 CS 後 IP）：`起:迄:路徑`。"+
+			"用來對兩次只差一個輸入的執行，找出控制流第一次分岔的位置")
 	flag.Parse()
 
 	if *exe == "" {
@@ -136,22 +148,29 @@ func main() {
 		m.WatchDS, m.WatchDSOn = v, true
 	}
 	type memWrite struct {
-		addr     uint32
-		old, nw  uint8
-		step     uint64
-		cs, ip   uint16
+		addr    uint32
+		old, nw uint8
+		step    uint64
+		cs, ip  uint16
 	}
 	var writes []memWrite
+	var dropped int
 	if *watch != "" {
 		var lo, hi uint32
 		if _, err := fmt.Sscanf(*watch, "%x-%x", &lo, &hi); err != nil {
 			die(err)
 		}
+		// **保留最後 20000 筆，不是前 20000 筆。** 要找的通常是「誰最後
+		// 寫壞了它」；砍前面那版會在開機階段就填滿，之後真正的兇手一筆都不留。
 		m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+			w := memWrite{a, old, nw, m.Steps, m.CPU.Seg[cpu.CS], m.CPU.IP}
 			if len(writes) < 20000 {
-				writes = append(writes, memWrite{a, old, nw, m.Steps,
-					m.CPU.Seg[cpu.CS], m.CPU.IP})
+				writes = append(writes, w)
+				return
 			}
+			copy(writes, writes[1:])
+			writes[len(writes)-1] = w
+			dropped++
 		})
 	}
 	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
@@ -213,6 +232,24 @@ func main() {
 		os.Exit(2)
 	}
 	var lastSum string
+	pollsAtPress := 0
+	held := false
+	downIdx := -1
+
+	ca, err := parseCallArgs(*callArgs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	ipw, ipFrom, ipTo, err := openIPLog(*ipLog)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if ipw != nil {
+		defer ipw.close()
+	}
 
 	ring := newRing(*trace)
 	var runErr error
@@ -234,28 +271,34 @@ func main() {
 		// 按下與放開之間隔太近會整個被跳過（`rich2/docs/playtest/001` §5.6：
 		// DOSBox 那邊同一題要點三次才生效一次，改成按住 0.35 秒才穩）。
 		if *clickX >= 0 {
-			switch m.Steps {
-			case *clickAt:
+			switch {
+			case m.Steps == *clickAt:
 				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
 				d.Mouse.Buttons = 1
 				d.Mouse.Press++
-			case *clickAt + *clickHold:
+				pollsAtPress = len(d.Mouse.Polls)
+				held = true
+			case held && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, *clickAt):
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
+				held = false
 			}
 		}
 		// 點擊腳本：**一次跑帶著整串輸入**才走得到深處的畫面。
 		// 一次一個點擊代表每多走一步就要重跑一次，而遊戲跑到主選單
 		// 就要六千萬道指令。
-		for _, c := range clicks {
-			switch m.Steps {
-			case c.step:
+		for i, c := range clicks {
+			switch {
+			case m.Steps == c.step:
 				d.Mouse.X, d.Mouse.Y = c.x, c.y
 				d.Mouse.Buttons = c.btn
 				d.Mouse.Press++
-			case c.step + *clickHold:
+				pollsAtPress = len(d.Mouse.Polls)
+				downIdx = i
+			case downIdx == i && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, c.step):
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
+				downIdx = -1
 			}
 		}
 		if len(keyPlan) > 0 {
@@ -293,15 +336,26 @@ func main() {
 			d.Mouse.Buttons = 0
 			d.Mouse.Release++
 		}
+		if ca != nil && m.Steps >= ca.from && m.Steps < ca.to &&
+			m.CPU.Seg[cpu.CS] == ca.seg && m.CPU.IP == ca.off {
+			ca.record(m)
+		}
+		if ipw != nil && m.Steps >= ipFrom && m.Steps < ipTo {
+			ipw.push(m.CPU.Seg[cpu.CS], m.CPU.IP)
+		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
 	}
 
+	if ca != nil {
+		ca.dump()
+	}
 	report(m, d, ring, runErr, *steps)
 	if *watch != "" {
-		fmt.Printf("\n監看 %s 的寫入（%d 筆，列最後 40）：\n", *watch, len(writes))
+		fmt.Printf("\n監看 %s 的寫入（留下 %d 筆，前面丟掉 %d 筆，列最後 40）：\n",
+			*watch, len(writes), dropped)
 		if n := len(writes); n > 40 {
 			writes = writes[n-40:]
 		}
@@ -483,10 +537,15 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 	if len(d.Reads) > 0 {
-		fmt.Printf("\n讀檔（%d 次，最多列 30）：\n", len(d.Reads))
+		// **前 15 筆 ＋ 後 15 筆**：只列前面的話，開機階段就把配額用光，
+		// 而要查的通常是「最後讀了什麼」。
+		fmt.Printf("\n讀檔（%d 次，列前 15 與後 15）：\n", len(d.Reads))
 		for i, r := range d.Reads {
-			if i >= 30 {
-				break
+			if len(d.Reads) > 30 && i == 15 {
+				fmt.Printf("  …中間 %d 筆略過…\n", len(d.Reads)-30)
+			}
+			if len(d.Reads) > 30 && i >= 15 && i < len(d.Reads)-15 {
+				continue
 			}
 			fmt.Printf("  #%-9d %-14s handle=%04X → %04X:%04X 要 %d 得 %d（線性 %05X–%05X）\n",
 				r.Step, r.Name, r.Handle, r.Seg, r.Off, r.Want, r.Got,
@@ -645,6 +704,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			}
 			fmt.Printf("  #%-10d %03X ← %02X\n", w.Step, w.Port, w.Val)
 		}
+	}
+	if len(m.CPU.DivErrors) > 0 {
+		fmt.Printf("\n除以零 %d 次（位址是下一道指令）：", len(m.CPU.DivErrors))
+		for _, e := range m.CPU.DivErrors {
+			fmt.Printf(" %04X:%04X", e.CS, e.IP)
+		}
+		fmt.Println()
 	}
 	if len(m.VGATrace) > 0 {
 		fmt.Printf("\n第 %d–%d 列的前 %d 筆 planar 寫入：\n", m.VGATraceRow0, m.VGATraceRow1, len(m.VGATrace))
@@ -1042,4 +1108,120 @@ func writeMemDump(m *machine.Machine, spec string) {
 		return
 	}
 	fmt.Printf("\n記憶體 %05X–%05X 寫到 %s\n", lo, hi, spec[i+1:])
+}
+
+// ipWriter 把每一道指令的 CS:IP 寫成二進位。
+//
+// **只記 CS:IP，不記暫存器**：要回答的問題是「兩次執行的控制流在哪裡
+// 第一次分岔」，而分岔一定表現在 IP 上。三百萬道指令的完整暫存器軌跡
+// 是三百 MB 的文字，同一段 CS:IP 只有 12 MB，`cmp -l` 一秒就給出答案；
+// 拿到位置之後再用 -trace 對那一小段抓暫存器。
+type ipWriter struct {
+	f  *os.File
+	bw *bufio.Writer
+	b  [4]byte
+}
+
+func openIPLog(spec string) (*ipWriter, uint64, uint64, error) {
+	if spec == "" {
+		return nil, 0, 0, nil
+	}
+	parts := strings.SplitN(spec, ":", 3)
+	if len(parts) != 3 {
+		return nil, 0, 0, fmt.Errorf("-ip-log 要寫成 起:迄:路徑，收到 %q", spec)
+	}
+	from, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("-ip-log 的起點：%w", err)
+	}
+	to, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("-ip-log 的終點：%w", err)
+	}
+	if to <= from {
+		return nil, 0, 0, fmt.Errorf("-ip-log 的終點要大於起點")
+	}
+	f, err := os.Create(parts[2])
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return &ipWriter{f: f, bw: bufio.NewWriterSize(f, 1<<20)}, from, to, nil
+}
+
+func (w *ipWriter) push(cs, ip uint16) {
+	binary.LittleEndian.PutUint16(w.b[0:], cs)
+	binary.LittleEndian.PutUint16(w.b[2:], ip)
+	w.bw.Write(w.b[:])
+}
+
+func (w *ipWriter) close() {
+	w.bw.Flush()
+	w.f.Close()
+}
+
+// callArgLog 記錄某個進入點每一次被呼叫時堆疊上的參數。
+//
+// 用途是**把「程式在比什麼」看出來**：源平合戰的點擊判定是一支
+// `pointInRect(x, y, x0, y0, x1, y1)` 遠呼叫，光看控制流只知道「沒中」，
+// 把六個參數印出來才知道畫面上到底註冊了哪些矩形。
+type callArgLog struct {
+	seg, off uint16
+	n        int
+	from, to uint64
+	rows     []callArgRow
+}
+
+type callArgRow struct {
+	step uint64
+	w    []uint16
+}
+
+func parseCallArgs(spec string) (*callArgLog, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	var seg, off uint16
+	var n int
+	var from, to uint64
+	if _, err := fmt.Sscanf(spec, "%x:%x:%d:%d:%d", &seg, &off, &n, &from, &to); err != nil {
+		return nil, fmt.Errorf("-call-args 要寫成 CS:IP:字數:起:迄，收到 %q：%w", spec, err)
+	}
+	if n <= 0 || n > 32 {
+		return nil, fmt.Errorf("-call-args 的字數要在 1–32，收到 %d", n)
+	}
+	return &callArgLog{seg: seg, off: off, n: n, from: from, to: to}, nil
+}
+
+func (c *callArgLog) record(m *machine.Machine) {
+	sp := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP]) + 4
+	w := make([]uint16, c.n)
+	for i := range w {
+		w[i] = m.Read16(sp + uint32(i*2))
+	}
+	c.rows = append(c.rows, callArgRow{step: m.Steps, w: w})
+}
+
+func (c *callArgLog) dump() {
+	fmt.Printf("\n%04X:%04X 被呼叫 %d 次（步數 %d–%d）：\n", c.seg, c.off, len(c.rows), c.from, c.to)
+	for _, r := range c.rows {
+		s := make([]string, len(r.w))
+		for i, v := range r.w {
+			s[i] = fmt.Sprintf("%d", int16(v))
+		}
+		fmt.Printf("  #%d  %s\n", r.step, strings.Join(s, " "))
+	}
+}
+
+// releaseNow 決定按住的滑鼠鍵什麼時候放開。
+//
+// 兩種模式：`-click-polls N` 是「等遊戲真的讀了 N 次滑鼠」，
+// `-click-hold` 是固定指令數。前者才是可移植的——同一支遊戲不同畫面的
+// 輪詢頻率可以差三個數量級（源平合戰的磁片提示每千萬道問 12 次，
+// 讀檔選單每千萬道問一千次），固定指令數在一邊漏掉、在另一邊按成連點。
+func releaseNow(d *dos.DOS, clickPolls int, clickHold uint64,
+	pollsAtPress int, step, pressStep uint64) bool {
+	if clickPolls > 0 {
+		return len(d.Mouse.Polls)-pollsAtPress >= clickPolls
+	}
+	return step == pressStep+clickHold
 }

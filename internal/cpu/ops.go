@@ -701,4 +701,11 @@ func (c *CPU) doInt(n uint8) {
 //
 // **8086 推的返回位址指向下一道指令**，不是指令本身（`docs/spec/002` §4 第 3 點）
 // ——此時 IP 已經走完整道指令，所以直接走 Interrupt 就是對的。
-func (c *CPU) divideError() { c.Interrupt(0) }
+func (c *CPU) divideError() {
+	// 除以零幾乎一定是「餵進來的資料不對」，而 C runtime 只會印一句
+	// `R6003` 就走人——**現場的 CS:IP 不記下來就永遠找不回來**。
+	if len(c.DivErrors) < 32 {
+		c.DivErrors = append(c.DivErrors, DivError{CS: c.Seg[CS], IP: c.IP})
+	}
+	c.Interrupt(0)
+}

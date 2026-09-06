@@ -102,6 +102,10 @@ type CPU struct {
 	// Halted 由 HLT 設起來；外層要靠中斷把它清掉。
 	Halted bool
 
+	// DivErrors 記下每一次除以零的現場（最多 32 筆）。IP 已經走完整道
+	// 指令，所以那是**下一道**的位址。
+	DivErrors []DivError
+
 	// 前綴狀態，每道指令開頭重設。
 	segOverride int
 	repPrefix   uint8 // 0 ＝ 沒有；0xF2 ＝ REPNE；0xF3 ＝ REP／REPE
@@ -257,3 +261,7 @@ func (e *Error) Error() string {
 func (c *CPU) errf(op uint8, format string, a ...any) *Error {
 	return &Error{CS: c.opCS, IP: c.opIP, Op: op, Reason: fmt.Sprintf(format, a...)}
 }
+
+
+// DivError 是一次除以零的現場。
+type DivError struct{ CS, IP uint16 }
