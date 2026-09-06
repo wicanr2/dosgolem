@@ -35,6 +35,8 @@ func main() {
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔，"+
 		"格式 <IDA 線性位址>:<長度> 或 ds:<偏移>:<長度>")
+	find := flag.String("find", "", "跑完之後在 1 MB 記憶體裡找這串 hex bytes，"+
+		"印出所有命中的線性位址（除錯壞指標用）")
 	mouseX := flag.Int("mouse-x", -1, "滑鼠要移到的像素 X（−1 ＝ 不動）")
 	mouseY := flag.Int("mouse-y", -1, "滑鼠要移到的像素 Y")
 	mouseAt := flag.Uint64("mouse-at", 0, "第幾道指令時移動滑鼠（0 ＝ steps 的一半）")
@@ -44,10 +46,14 @@ func main() {
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
+	watch := flag.String("watch", "", "監看記憶體寫入，格式 <線性hex>-<線性hex>；"+
+		"每次寫入印出步數與 CS:IP（除錯「誰把向量改掉了」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
+	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
+		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -83,6 +89,24 @@ func main() {
 			if a > vidHi {
 				vidHi = a
 			}
+		})
+	}
+	if *watch != "" {
+		f := strings.SplitN(*watch, "-", 2)
+		lo, err1 := strconv.ParseUint(f[0], 16, 32)
+		var hi uint64
+		var err2 error
+		if len(f) == 2 {
+			hi, err2 = strconv.ParseUint(f[1], 16, 32)
+		} else {
+			hi = lo
+		}
+		if err1 != nil || err2 != nil {
+			die(fmt.Errorf("-watch 格式看不懂：%s", *watch))
+		}
+		m.WatchWrites(uint32(lo), uint32(hi), func(a uint32, old, nv uint8) {
+			fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
+				m.Steps, a, old, nv, m.CPU.Seg[cpu.CS], m.CPU.IP)
 		})
 	}
 	d := dos.New(m, *root)
@@ -187,8 +211,18 @@ func main() {
 		}
 		fmt.Printf("寫出 %s（B8000 當 640×200 mode 06h）\n", *dumpCGA)
 	}
+	if *dumpLinear != "" {
+		raw := append([]byte(nil), m.Mem[0xA0000:0xB0000]...)
+		if err := os.WriteFile(*dumpLinear, raw, 0o644); err != nil {
+			die(err)
+		}
+		fmt.Printf("寫出 %s（A0000 raw 64 KB，planar 未解碼）\n", *dumpLinear)
+	}
 	if *peek != "" {
 		dumpPeek(m, *peek)
+	}
+	if *find != "" {
+		dumpFind(m, *find)
 	}
 	if *dumpVRAM != "" {
 		if err := os.WriteFile(*dumpVRAM, m.Indexed(), 0o644); err != nil {
@@ -268,6 +302,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	if len(d.Missing) > 0 {
 		fmt.Printf("找不到的檔（%d）：%s\n", len(d.Missing), join(d.Missing))
+	}
+	if len(d.VecSets) > 0 {
+		fmt.Printf("\n設過的中斷向量（%d 次）：\n", len(d.VecSets))
+		for _, v := range d.VecSets {
+			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
+		}
 	}
 	if len(d.Wrote) > 0 {
 		fmt.Printf("被擋下來的寫檔（%d）：", len(d.Wrote))
@@ -436,6 +476,47 @@ func dumpPeek(m *machine.Machine, spec string) {
 			buf = append(buf, fmt.Sprintf("%02X", m.Read8(addr+uint32(i))))
 		}
 		fmt.Printf("  %-14s（執行期 %05X）%s\n", label, addr, strings.Join(buf, " "))
+	}
+}
+
+// dumpFind 在 1 MB 記憶體裡找一串 bytes，印出所有命中的線性位址。
+// 除錯壞指標用：retf 跳到垃圾的時候，先找垃圾值是誰放進去的。
+func dumpFind(m *machine.Machine, hexpat string) {
+	hexpat = strings.ReplaceAll(hexpat, " ", "")
+	if len(hexpat)%2 != 0 {
+		fmt.Println("  -find：hex 長度要是偶數")
+		return
+	}
+	pat := make([]byte, len(hexpat)/2)
+	for i := range pat {
+		v, err := strconv.ParseUint(hexpat[i*2:i*2+2], 16, 8)
+		if err != nil {
+			fmt.Printf("  -find：%q 不是 hex\n", hexpat)
+			return
+		}
+		pat[i] = byte(v)
+	}
+	fmt.Printf("\n搜尋 % X：\n", pat)
+	hits := 0
+	for a := 0; a+len(pat) <= len(m.Mem); a++ {
+		match := true
+		for j, b := range pat {
+			if m.Mem[a+j] != b {
+				match = false
+				break
+			}
+		}
+		if match {
+			fmt.Printf("  線性 %05X\n", a)
+			hits++
+			if hits == 40 {
+				fmt.Println("  …（只印前 40 個）")
+				break
+			}
+		}
+	}
+	if hits == 0 {
+		fmt.Println("  （沒有命中）")
 	}
 }
 

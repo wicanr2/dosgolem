@@ -8,8 +8,8 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
-// EXEC（`int 21h AX=4B00h`）、子程式回傳碼（`AH=4Dh`）、EMS 最小子集
-// （`int 67h` AH=40h／42h）與字元裝置 EMMXXXX0。
+// EXEC（`int 21h AX=4B00h`）、子程式回傳碼（`AH=4Dh`）與字元裝置
+// EMMXXXX0。EMS 頁配置與映射在 `ems.go`（`docs/spec/008`）。
 // 規格：`docs/spec/007`（READY 部分）。證據全部是 GIN3.COM 的反組譯
 // bytes 與 probe 軌跡（`~/cht/logh3/docs/re/01`）；只實作有證據的部分。
 
@@ -149,22 +149,6 @@ func (d *DOS) childExit(c *cpu.CPU, code uint8) {
 func (d *DOS) getReturnCode(c *cpu.CPU) {
 	c.R[cpu.AX] = uint16(d.lastExit)
 	clearCarry(c)
-}
-
-// int67 是 EMS 最小子集（spec §4）：只有查詢，沒有頁框映射。
-// 本機宣稱 8／8 頁——恰好滿足 launcher 的 `cmp bx,8` 探測下限。
-func (d *DOS) int67(c *cpu.CPU) {
-	switch ah(c) {
-	case 0x40: // 取狀態
-		setAH(c, 0)
-	case 0x42: // 取頁數：BX ＝ 可用、DX ＝ 總計
-		setAH(c, 0)
-		c.R[cpu.BX] = 8
-		c.R[cpu.DX] = 8
-	default:
-		d.note(0x67, ah(c), al(c))
-		setAH(c, 0x84) // 未定義功能
-	}
 }
 
 // isEMMDevice 回 basename 是不是 EMM 驅動的字元裝置名。

@@ -138,7 +138,7 @@ func TestEMSQuerySubset(t *testing.T) {
 		t.Errorf("AH=42h 要回 BX=DX=8，得到 BX=%d DX=%d",
 			m.CPU.R[cpu.BX], m.CPU.R[cpu.DX])
 	}
-	call(m, d, 0x67, 0x4400) // 映射：沒實作
+	call(m, d, 0x67, 0x4600) // 取版本：沒實作（spec 008 §6）
 	if got := uint8(m.CPU.R[cpu.AX] >> 8); got != 0x84 {
 		t.Errorf("未實作的 EMS 功能要回 AH=84h，得到 %02X", got)
 	}

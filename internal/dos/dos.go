@@ -123,6 +123,10 @@ type DOS struct {
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
 
+	// VecSets 記下每一次 `AH=25h` 設中斷向量。
+	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
+	VecSets []VecSet
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
@@ -138,12 +142,22 @@ type DOS struct {
 	curPSP    uint16
 	lastExit  uint8
 	lastTerm  uint8
+
+	// ems 是 EMS 頁池與映射狀態（`docs/spec/008`）。
+	ems *ems
 }
 
 // Write 是一次被擋下來的寫檔。
 type Write struct {
 	Name string
 	N    int
+}
+
+// VecSet 是一次 `AH=25h` 設中斷向量。
+type VecSet struct {
+	Int      uint8
+	Seg, Off uint16
+	Step     uint64
 }
 
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
@@ -166,6 +180,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
 		nextHandle:    5, // 0–4 是標準 handle
+		ems:           newEMS(),
 	}
 }
 

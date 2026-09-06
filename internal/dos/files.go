@@ -143,6 +143,26 @@ func (d *DOS) read(c *cpu.CPU) {
 	clearCarry(c)
 }
 
+// fileAttr 是 `AH=43h`。AL=00 取屬性：找到回 CX=0x20（archive 普通檔）；
+// AL=01 設屬性**不做**（素材唯讀）——記一筆再清 CF，
+// 與 Wrote 清單同一原則：看得見的假，不是安靜的假。
+func (d *DOS) fileAttr(c *cpu.CPU) {
+	if al(c) != 0x00 {
+		d.note(0x21, 0x43, al(c))
+		clearCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	if d.resolve(name) == "" && !isEMMDevice(name) {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	c.R[cpu.CX] = 0x20
+	clearCarry(c)
+}
+
 // readStdin 是 `AH=3Fh` 讀 handle 0，也就是 BASIC 的 `INKEY$`
 // （`rich2/docs/re/005`「輸入路徑」：這是唯一的鍵盤輪詢路徑，不是 `int 16h`）。
 //

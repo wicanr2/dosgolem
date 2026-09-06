@@ -57,6 +57,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 而 BASIC 的金錢運算全靠浮點。
 		d.M.Write16(uint32(al(c))*4, c.R[cpu.DX])
 		d.M.Write16(uint32(al(c))*4+2, c.Seg[cpu.DS])
+		d.VecSets = append(d.VecSets, VecSet{Int: al(c),
+			Seg: c.Seg[cpu.DS], Off: c.R[cpu.DX], Step: d.M.Steps})
 		clearCarry(c)
 
 	case 0x2A: // 取系統日期 → CX:DH:DL
@@ -101,9 +103,15 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x42:
 		d.seek(c)
 
+	case 0x43: // 檔案屬性（`docs/spec/008` §4）
+		d.fileAttr(c)
+
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
 			c.R[cpu.DX] = uint16(d.Drive)
+		} else {
+			// 其他子功能沒實作——記下來，別讓「成功」假象藏住。
+			d.note(0x21, 0x44, al(c))
 		}
 		c.R[cpu.AX] = 0
 		clearCarry(c)
