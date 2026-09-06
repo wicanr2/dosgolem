@@ -169,12 +169,16 @@ func (d *DOS) read(c *cpu.CPU) {
 		clearCarry(c)
 		return
 	}
+	at, _ := h.f.Seek(0, 1) // 讀之前的位置，記進診斷
 	buf := make([]byte, cx)
 	n, _ := h.f.Read(buf)
 	if n < 0 {
 		n = 0
 	}
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
+	into := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	d.M.WriteBytes(into, buf[:n])
+	d.Reads = append(d.Reads, FileOp{Kind: "read", Name: h.name, Handle: bx,
+		Offset: at, Want: int(cx), Got: n, Into: into, Step: d.M.Steps})
 	c.R[cpu.AX] = uint16(n)
 	clearCarry(c)
 }
@@ -242,6 +246,9 @@ func (d *DOS) seek(c *cpu.CPU) {
 		off -= 1 << 32
 	}
 	pos, err := h.f.Seek(off, int(al(c)))
+	d.Reads = append(d.Reads, FileOp{Kind: "seek", Name: h.name,
+		Handle: c.R[cpu.BX], Whence: int(al(c)), Offset: off,
+		Got: int(pos), Step: d.M.Steps})
 	if err != nil {
 		c.R[cpu.AX] = 1
 		setCarry(c)
@@ -280,4 +287,20 @@ func (d *DOS) write(c *cpu.CPU) {
 	}
 	c.R[cpu.AX] = cx
 	clearCarry(c)
+}
+
+// FileOp 是一次 seek 或 read 的紀錄（診斷用，`DOS.Reads`）。
+//
+// Kind 是 "seek" 或 "read"；Name 是那個 handle 開的檔名。seek 記 Whence 與
+// 要求的位移，read 記要求的長度與實際讀到的位元組數與落點。
+type FileOp struct {
+	Kind   string
+	Name   string
+	Handle uint16
+	Whence int
+	Offset int64
+	Want   int
+	Got    int
+	Into   uint32 // read 的落點（線性位址）
+	Step   uint64
 }

@@ -304,6 +304,15 @@ func (m *Machine) Write16(a uint32, v uint16) {
 }
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
+	// **監看也要涵蓋批次寫入。** 檔案讀取、映像載入與 EXEC 都走這一條，而那
+	// 正是「這一格是誰寫的」最常見的答案。只走 Write8 的話監看會安靜地漏掉它們
+	// ——看起來像「沒有人寫過」，實際上是整塊被蓋掉了。
+	if m.watchLo <= m.watchHi && m.onWrite != nil {
+		for i, v := range b {
+			m.Write8(a+uint32(i), v)
+		}
+		return
+	}
 	for i, v := range b {
 		m.Mem[(a+uint32(i))&0xFFFFF] = v
 	}

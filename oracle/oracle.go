@@ -298,6 +298,15 @@ func (o *Oracle) Console() string { return string(o.d.Console) }
 // **收工前看一眼。**「跑得動」與「跑得動但行為不對」的差別在這裡。
 func (o *Oracle) Unimplemented() []string { return o.d.UnimplementedReport() }
 
+// FileOp 是一次 seek 或 read（`FileOps`）。
+type FileOp = dos.FileOp
+
+// FileOps 是每一次 `AH=42h` seek 與 `AH=3Fh` 讀的參數，依序。
+//
+// **「開了哪些檔」不夠。** 遊戲把一個檔當成資料庫用時，讀對檔案卻 seek 到錯的
+// 位置，症狀是「解出來的東西是垃圾」——而 `Opened()` 那一份看起來完全正常。
+func (o *Oracle) FileOps() []FileOp { return o.d.Reads }
+
 // Missing 是開不起來的檔名，依序。
 //
 // **程式多半不檢查開檔結果**，所以少一個檔的症狀是它在很後面的地方跑進沒有映射

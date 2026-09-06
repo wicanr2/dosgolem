@@ -123,6 +123,12 @@ type DOS struct {
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
 
+	// Reads 記下每一次 `AH=42h` seek 與 `AH=3Fh` 讀的參數。
+	//
+	// **「開了哪些檔」不夠。** 遊戲把一個檔當成資料庫用時，讀對檔案卻 seek 到錯的
+	// 位置，症狀是「解出來的東西是垃圾」，而 `Opened` 那一份看起來完全正常。
+	Reads []FileOp
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
