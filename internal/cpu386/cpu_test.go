@@ -1480,6 +1480,17 @@ func TestOrALImmediate8(t *testing.T) {
 	}
 }
 
+func TestOrRegister8Immediate8(t *testing.T) {
+	c := New(testBus{0x80, 0xca, 0x40, 0x80, 0xcc, 0x80})
+	c.R[EDX], c.R[EAX], c.EFlags = 0x12345603, 0x11223344, CF|OF|AF
+	if err := c.Step(); err != nil || c.R[EDX] != 0x12345643 || c.EFlags&(CF|OF|AF|ZF|SF) != 0 {
+		t.Fatalf("OR DL EDX=%X flags=%X err=%v", c.R[EDX], c.EFlags, err)
+	}
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1122b344 || c.EFlags&SF == 0 {
+		t.Fatalf("OR AH EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestCompareRegisterAndShortJAE(t *testing.T) {
 	mem := testBus{0x3b, 0xf7, 0x73, 0x02, 0xff, 0xff, 0xfb}
 	c := New(mem)
