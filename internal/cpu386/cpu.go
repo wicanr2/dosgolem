@@ -1640,13 +1640,15 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("OR byte write %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 			c.setLogicFlags8(result)
-		} else if modrm>>6 == 3 && (group == 1 || group == 4 || group == 7) {
+		} else if modrm>>6 == 3 && (group == 0 || group == 1 || group == 4 || group == 7) {
 			imm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
 			}
 			rm := int(modrm & 7)
-			if group == 1 {
+			if group == 0 {
+				c.setReg8(rm, c.add8(c.reg8(rm), imm))
+			} else if group == 1 {
 				result := c.reg8(rm) | imm
 				c.setReg8(rm, result)
 				c.setLogicFlags8(result)

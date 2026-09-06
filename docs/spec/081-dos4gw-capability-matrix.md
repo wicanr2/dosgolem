@@ -64,8 +64,9 @@ parser 已從 `SS:[ESP+ESI+0x118]` 讀取行尾分類字元；`0x3F362` 的 AL �
 通過，行尾裁切與下一段掃描亦可繼續；
 `0x3F3F0` 已把解析後 pointer 保存到 stack slot，後續 parser 再前進約
 2500 steps；`0x3F449` 已用 NUL 切開 INI key/value；`0x3F44C` 已比較
-`[EBX]` 與註解標記 `';'`，且不修改來源。下一阻塞移至 `0x46C22`
-（opcode `80`、ModRM `C1`）。此收據只證明
+`[EBX]` 與註解標記 `';'`，且不修改來源；其後自然進入 `strnicmp`，並由
+`0x46C22`、`0x46C2F` 把 ASCII 大寫 CL／CH 加 `20h` 後比較。下一阻塞移至
+`0x46C40`（opcode `84`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

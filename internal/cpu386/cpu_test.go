@@ -226,6 +226,34 @@ func TestByteCMPAtBase(t *testing.T) {
 	}
 }
 
+func TestByteADDRegisterImmediate(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		code  []byte
+		value uint32
+		want  uint32
+		flags uint32
+	}{
+		{name: "low byte", code: []byte{0x80, 0xc1, 0x20}, value: 0x41, want: 0x61, flags: 0},
+		{name: "carry", code: []byte{0x80, 0xc3, 0x01}, value: 0xff, want: 0, flags: CF | PF | AF | ZF},
+		{name: "signed overflow", code: []byte{0x80, 0xc2, 0x01}, value: 0x7f, want: 0x80, flags: OF | AF | SF},
+		{name: "high byte", code: []byte{0x80, 0xc5, 0x20}, value: 0x00004100, want: 0x00006100, flags: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus(test.code))
+			reg := int(test.code[1] & 7)
+			base := reg
+			if reg >= 4 {
+				base = reg - 4
+			}
+			c.R[base] = test.value
+			if err := c.Step(); err != nil || c.R[base] != test.want || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("ADD register=%X flags=%X err=%v", c.R[base], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestAbsoluteByteANDOR(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})

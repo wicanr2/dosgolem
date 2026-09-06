@@ -1910,3 +1910,26 @@ func TestFD2ChecksINICommentMarker(t *testing.T) {
 		t.Fatalf("INI comment steps=%d EIP=%X source=%X value=%X EBX=%X flags=%X", steps, m.CPU.EIP, source, m.Mem[source], m.CPU.R[cpu386.EBX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2FoldsINIKeyASCIIUppercase(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 10000 && m.CPU.EIP != 0x46c22; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI key fold setup: step=%d EIP=%X ECX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], err)
+		}
+	}
+	before := m.CPU.R[cpu386.ECX]
+	if byte(before) < 'A' || byte(before) > 'Z' {
+		t.Fatalf("INI key fold precondition steps=%d EIP=%X CL=%X", steps, m.CPU.EIP, byte(before))
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI key fold ADD: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x46c25 || byte(m.CPU.R[cpu386.ECX]) != byte(before)+0x20 || m.CPU.R[cpu386.ECX]&0xffffff00 != before&0xffffff00 {
+		t.Fatalf("INI key fold steps=%d EIP=%X ECX before=%X after=%X", steps, m.CPU.EIP, before, m.CPU.R[cpu386.ECX])
+	}
+}
