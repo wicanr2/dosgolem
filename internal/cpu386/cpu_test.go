@@ -82,6 +82,27 @@ func TestCompareDwordAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestCompareDwordAtBaseDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x83, 0xbb, 0xfc, 0xff, 0xff, 0xff, 0xff})
+	copy(mem[0x20:], []byte{0xff, 0xff, 0xff, 0xff})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBX] = 0x24
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBX] != 0x24 {
+		t.Fatalf("CMP base+disp32 EBX=%X flags=%X err=%v", c.R[EBX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x83, 0xbb, 0xfc, 0xff, 0xff, 0xff, 0xff})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 6, Writable: true})
+	c.R[EBX] = 0x24
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range base+disp32 CMP was accepted")
+	}
+}
+
 func TestStoreDwordAtBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x89, 0x58, 0x04})
