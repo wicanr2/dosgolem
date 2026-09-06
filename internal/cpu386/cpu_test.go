@@ -306,6 +306,27 @@ func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
 	}
 }
 
+func TestLoadDwordFromBaseScaledIndex(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x8b, 0x04, 0xb0})
+	copy(mem[0x40:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f})
+	c.R[EAX], c.R[ESI], c.EFlags = 0x20, 8, CF|ZF|OF
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345678 || c.R[ESI] != 8 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV EAX=%X ESI=%X flags=%X err=%v", c.R[EAX], c.R[ESI], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8b, 0x04, 0xb0})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 2})
+	c.R[EAX], c.R[ESI] = 0x20, 8
+	if err := c.Step(); err == nil || c.R[EAX] != 0x20 {
+		t.Fatalf("out-of-range scaled load EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestRegisterMOV16(t *testing.T) {
 	c := New(testBus{0x66, 0x8b, 0xca})
 	c.R[ECX], c.R[EDX], c.EFlags = 0xaabbccdd, 0x11223344, CF|ZF

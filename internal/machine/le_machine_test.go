@@ -1458,3 +1458,27 @@ func TestFD2ReturnsOpenedFileIsNotTTY(t *testing.T) {
 		t.Fatalf("isatty return normalize steps=%d EIP=%X EAX=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX])
 	}
 }
+
+func TestFD2LoadsOpenedFileRecord(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x4639d; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("FILE record load setup: step=%d EIP=%X EAX=%X ESI=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESI], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EAX] + m.CPU.R[cpu386.ESI]<<2
+	if uint64(addr)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("FILE record address=%X 超界", addr)
+	}
+	want := binary.LittleEndian.Uint32(m.Mem[addr : addr+4])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("FILE record load: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x463a0 || m.CPU.R[cpu386.EAX] != want {
+		t.Fatalf("FILE record load steps=%d EIP=%X addr=%X EAX=%X want=%X", steps, m.CPU.EIP, addr, m.CPU.R[cpu386.EAX], want)
+	}
+}
