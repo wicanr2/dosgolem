@@ -241,3 +241,14 @@ func (d *DOS) int1A(c *cpu.CPU) {
 		clearCarry(c)
 	}
 }
+
+// int15 是 AT 系統服務。目前沒有任何量測到的需求（源平合戰的 OPEN.EXE
+// 叫的 `AX=5000h` 是 DOS/V 的服務，真機上由 DOSJP 的 int 15h handler
+// 提供，不是 BIOS）——所以這裡只記一筆，什麼都不做。
+//
+// 它的存在理由是 trampoline（`docs/spec/004` §2.1）：DOSJP 掛走
+// int 15h 之後 chain 回舊向量要到得了這裡。
+func (d *DOS) int15(c *cpu.CPU) {
+	d.note(0x15, ah(c), al(c))
+	clearCarry(c)
+}

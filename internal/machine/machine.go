@@ -51,6 +51,16 @@ const mouseStubOff = 0x10
 // （推進 `0040:006C` 再轉呼 `int 1Ch`，見 initVectors）。
 const biosTimerOff = 0x20
 
+// 服務型中斷的 trampoline（`docs/spec/004` §2.1）：向量指向
+// `CD Fx / CF`（陷阱向量 ＋ IRET），TSR chain 回舊向量時服務還到得了。
+const (
+	DosTrapOff   = 0x60 // int 21h → int F2h
+	VideoTrapOff = 0x64 // int 10h → int F3h
+	ATrapOff     = 0x68 // int 15h → int F4h
+	// XMSTrapOff 是 XMS driver entry（`docs/spec/011`）→ int F5h。
+	XMSTrapOff = 0x6C
+)
+
 // DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
 //
 // 真機是 18.2 Hz（55 ms）。以 DOSBox 預設的 3,000 cycles/ms 換算大約
@@ -411,6 +421,14 @@ func (m *Machine) initVectors() {
 		m.Write16(uint32(v)*4, 0)
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
+	// 服務型中斷的 trampoline（`docs/spec/004` §2.1）。
+	m.WriteBytes(StubSeg*16+DosTrapOff, []byte{0xCD, 0xF2, 0xCF})
+	m.WriteBytes(StubSeg*16+VideoTrapOff, []byte{0xCD, 0xF3, 0xCF})
+	m.WriteBytes(StubSeg*16+ATrapOff, []byte{0xCD, 0xF4, 0xCF})
+	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCF})
+	m.Write16(0x21*4, DosTrapOff)
+	m.Write16(0x10*4, VideoTrapOff)
+	m.Write16(0x15*4, ATrapOff)
 	m.Write16(0x08*4, biosTimerOff)
 	m.Write16(0x33*4, mouseStubOff)
 }

@@ -166,3 +166,31 @@ func TestExecMissingFileFailsInPlace(t *testing.T) {
 		t.Error("失敗的 EXEC 動了行程疊")
 	}
 }
+
+// TestTrampolineCarryReachesStackedFlags 釘住 fixStackedCF：
+// 走 trampoline 進來的服務，CF 要寫進堆疊上的旗標框，否則 IRET 把它蓋掉。
+// 症狀是 TSR 落腳後 EXEC 一律「失敗」，殼印 cannot execute 然後離開。
+func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
+	m, d := newTest(t)
+	// 假的中斷框：SS:SP → IP／CS／FLAGS（CF 立著）。
+	m.CPU.Seg[cpu.SS] = 0x9000
+	m.CPU.R[cpu.SP] = 0x100
+	m.Write16(cpu.Addr(0x9000, 0x100), 0)
+	m.Write16(cpu.Addr(0x9000, 0x102), 0)
+	m.Write16(cpu.Addr(0x9000, 0x104), cpu.CF)
+
+	// AH=19h（取目前磁碟）是清 CF 的服務。
+	call(m, d, 0xF2, 0x1900)
+	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF != 0 {
+		t.Errorf("堆疊框的 FLAGS=%04X，CF 還立著——IRET 會把假失敗彈回去", w)
+	}
+
+	// 反向：服務設 CF（開不存在的檔）要進堆疊框。
+	m.CPU.Seg[cpu.DS] = 0x3000
+	m.CPU.R[cpu.DX] = 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("NOPE.BIN"), 0))
+	call(m, d, 0xF2, 0x3D00)
+	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF == 0 {
+		t.Error("服務設了 CF，但堆疊框沒有")
+	}
+}

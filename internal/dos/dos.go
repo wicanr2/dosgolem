@@ -199,6 +199,15 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.Calls[Call{Int: n, AH: uint8(c.R[cpu.AX] >> 8)}]++
 	}
 	switch n {
+	case 0xF2: // int 21h 的 trampoline（`docs/spec/004` §2.1）：TSR chain 進來的
+		d.int21(c)
+		d.fixStackedCF(c)
+	case 0xF3:
+		d.int10(c)
+		d.fixStackedCF(c)
+	case 0xF4:
+		d.int15(c)
+		d.fixStackedCF(c)
 	case 0x08, 0x1C:
 		// 計時器中斷鏈上的空 stub。向量還在 StubSeg ＝ 沒人裝，
 		// 它的語意就是 IRET——**不記一筆**，否則每次 tick 都會
@@ -239,6 +248,24 @@ func (d *DOS) exit(c *cpu.CPU, code uint8) {
 // note 記一筆沒實作的呼叫。
 func (d *DOS) note(intNo, ah, al uint8) {
 	d.Unimplemented[Call{Int: intNo, AH: ah, AL: al}]++
+}
+
+// fixStackedCF 把服務結果的 CF 寫進**堆疊上的旗標框**。
+//
+// ⚠ 走 trampoline（`CD Fx / CF`）進來的時候，服務結束後 CPU 會 IRET——
+// 旗標從堆疊框彈回來，我們對 `c.Flags` 的修改整個被蓋掉。
+// 症狀是「TSR 落腳之後 EXEC 一律回 CF」：殼因此印
+// 「FMDRV.COM : cannot execute.」然後帶著 65h 離開——服務本身做對了，
+// 只有旗標到不了（源平合戰，`docs/spec/004` §2.1）。
+func (d *DOS) fixStackedCF(c *cpu.CPU) {
+	at := cpu.Addr(c.Seg[cpu.SS], c.R[cpu.SP]+4)
+	w := d.M.Read16(at)
+	if c.Flags&cpu.CF != 0 {
+		w |= cpu.CF
+	} else {
+		w &^= cpu.CF
+	}
+	d.M.Write16(at, w)
 }
 
 // UnimplementedReport 把統計排成可讀的清單，次數多的在前面。

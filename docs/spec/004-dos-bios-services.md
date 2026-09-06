@@ -43,6 +43,26 @@
 
 ## 2. `int 21h`（**READY**）
 
+### 2.1 服務入口是向量指向的 trampoline，不是只給 IntHook 攔
+
+`dos.handle` 的既有規則是「程式裝了自己的向量就放行」——但**常駐程式
+（TSR）會 chain 到舊向量**：它攔 `int 21h`、處理自己認得的功能號，
+其餘 `call far [舊向量]` 丟回給 DOS。舊向量若指到一個什麼都不做的
+`IRET` stub，**所有 DOS 服務在 TSR 落腳的瞬間全部陣亡**——而且不回錯，
+open 只是安靜地不回來（源平合戰的 DOSJP 就是這樣：它掛走 int 21h 之後
+自己的 `AH=3Dh` 開檔再也到不了 DOS，卡在讀檔迴圈，AX 還停在 3D00h）。
+
+解法：服務型中斷的向量指向 StubSeg 裡的 **trampoline**——
+`CD Fx / CF`（發一個保留向量當陷阱，回來就 IRET）。IntHook 認得
+陷阱向量並分派到真正的服務；TSR chain 回舊向量時就走到這裡。
+真機上「DOS 的 int 21h entry」就是一段這樣的位址，這不算作弊。
+
+| 服務 | 向量目標 | 陷阱向量 |
+|---|---|---|
+| `int 21h` | StubSeg:60h | `int F2h` |
+| `int 10h` | StubSeg:64h | `int F3h` |
+| `int 15h` | StubSeg:68h | `int F4h` |
+
 出處 `rich2/docs/re/005` §10／§11 與「現況」那幾節——那一輪把 `RUN.EXE`
 跑到資產全部載完（`DATA.PAK`／`PART1.PAK`／`SAVE_7.DSK`／`RICHA.RIX` 都開了），
 所以這張表是**跑出來的**，不是照手冊列的。
