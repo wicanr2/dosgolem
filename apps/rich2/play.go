@@ -253,8 +253,8 @@ type TurnResult struct {
 	PosTo    int // 走之後的格號
 	RowTo    int // 走之後的地圖座標
 	ColTo    int
-	Dice     int   // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
-	HeldJail int   // 走之前被關的剩餘天數（監獄／醫院／冬眠）
+	Dice     int // 這一步擲出的步數（兩顆骰子的和，ds:1B0h）
+	HeldJail int // 走之前被關的剩餘天數（監獄／醫院／冬眠）
 	HeldHosp int
 	HeldFroz int
 	Dirs     []int // 這一步抽到的方向序列（1..4，含被拒絕的重抽）
@@ -266,15 +266,15 @@ type TurnResult struct {
 	StepClick   uint64
 	StepMoved   uint64
 	StepStopped uint64
-	Trail    []int // Squares 與 Path 合併在同一條時間軸上（見 RollTrace）
-	OwnerTo  int   // 終點格走之前的地主（0 ＝ 無主）
-	StreetTo int   // 終點格的街道編號（0 ＝ 不是土地）
-	Levels   []int // 走之前，同街同主的每一格建物等級（算租金要用）
-	DirFrom  int   // 走之前的目前方向（ds:10DEh）
-	Cash     int32 // 走完之後的現金
-	Paid     int32 // 這一步花掉的錢（負數表示收入）
-	RND      int   // 這一步消耗的亂數次數
-	Dialog   bool  // 有沒有跳對話框（回合沒自己推進）
+	Trail       []int // Squares 與 Path 合併在同一條時間軸上（見 RollTrace）
+	OwnerTo     int   // 終點格走之前的地主（0 ＝ 無主）
+	StreetTo    int   // 終點格的街道編號（0 ＝ 不是土地）
+	Levels      []int // 走之前，同街同主的每一格建物等級（算租金要用）
+	DirFrom     int   // 走之前的目前方向（ds:10DEh）
+	Cash        int32 // 走完之後的現金
+	Paid        int32 // 這一步花掉的錢（負數表示收入）
+	RND         int   // 這一步消耗的亂數次數
+	Dialog      bool  // 有沒有跳對話框（回合沒自己推進）
 
 	// Recovered 為真表示這一步用了 ClearDialog 才走得下去。
 	//
@@ -283,8 +283,6 @@ type TurnResult struct {
 	// 看起來像領了款。對拍要跳過這種步。
 	Recovered bool
 }
-
-
 
 // ClearDialog 用 ESC 退出擋在前面的畫面。
 //

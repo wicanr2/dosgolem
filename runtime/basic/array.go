@@ -76,6 +76,15 @@ func (a *Array) Int32(idx ...int) int32 {
 		uint32(a.o.Word(oracle.Phys(at+2)))<<16)
 }
 
+// Float32 讀一格單精度浮點。
+//
+// **編譯後的 BASIC 在這裡用 IEEE 754，不是 MBF**——浮點指令被 Microsoft
+// 的浮點模擬器換成 `INT 34h`–`INT 3Dh`，那個模擬器算的是 IEEE。
+// 判準是拿已知的常數對：`ds:1B5Ah` 讀出來剛好是 `1.0`。
+func (a *Array) Float32(idx ...int) float32 {
+	return a.o.Float(oracle.Phys(a.addr(idx...)))
+}
+
 // Index 把線性位址反查成索引。
 //
 // **這是「這個動作改了哪一格」的答案**：拿快照差分出來的位址丟進來，
@@ -104,4 +113,41 @@ func (a *Array) InRange(idx ...int) bool {
 		}
 	}
 	return true
+}
+
+// Bytes 讀一格的原始位元組。
+//
+// 給**定長字串表**用：編譯後的 BASIC 把固定長度的字串陣列存成連續的
+// 位元組區塊（大富翁2 的 `17ECh` 是每格 20 bytes），沒有長度前綴也沒有
+// 結束符，尾端用空白補滿。**所以要自己 trim**，不能當 C 字串讀。
+func (a *Array) Bytes(idx ...int) []byte {
+	base := a.addr(idx...)
+	out := make([]byte, a.Width)
+	for i := range out {
+		out[i] = a.o.Byte(oracle.Phys(base + uint32(i)))
+	}
+	return out
+}
+
+// CallArgs 讀 far call **剛進入時**的參數。
+//
+// 編譯後的 BASIC **傳址**：堆疊上每個參數是一個近指標（DGROUP 偏移），
+// 不是值本身。進入點的版面是
+//
+//	[SP]    返回 IP
+//	[SP+2]  返回 CS
+//	[SP+4]  最後一個參數的指標
+//	…       （參數由左到右 push，所以堆疊上是反序）
+//	         第一個參數在最高位址
+//
+// 回傳的是**解參考之後的值**，順序與原始碼一致（第 1 個參數在 [0]）。
+//
+// ⚠ 這個版面只在 `OnCall` 的 hook 裡成立（常式還沒 push 任何東西）。
+func CallArgs(o *oracle.Oracle, n int) []uint16 {
+	out := make([]uint16, n)
+	for k := 0; k < n; k++ {
+		ptr := o.StackWord(2 + (n - 1 - k))
+		out[k] = o.Word(o.DS(ptr))
+	}
+	return out
 }

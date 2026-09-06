@@ -189,12 +189,27 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 		clearCarry(c)
 		return
 	}
-	ch := d.StdinFill
-	if len(d.Stdin) > 0 {
-		ch = d.Stdin[0]
-		d.Stdin = d.Stdin[1:]
+	// **有資料就照呼叫端要的個數給。**
+	//
+	// ⚠ 舊版不管 `want` 一律只回 1 個位元組，於是**擴充鍵永遠送不進去**：
+	// 方向鍵是 `00` ＋ 掃描碼兩個位元組，呼叫端一次要兩個的時候
+	// 只拿到那個 `00`——而 `00` 也正是佇列空的時候餵的值（＝「沒按鍵」），
+	// 所以它被當成「什麼都沒按」丟掉。症狀是**方向鍵安靜地沒有反應**，
+	// 看起來像編碼寫錯，而不是像讀取實作漏了一個參數。
+	n := int(want)
+	if n > len(d.Stdin) {
+		n = len(d.Stdin)
 	}
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), []byte{ch})
+	if n > 0 {
+		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), d.Stdin[:n])
+		d.Stdin = d.Stdin[n:]
+		c.R[cpu.AX] = uint16(n)
+		clearCarry(c)
+		return
+	}
+	// 佇列空了。**還是要回「讀到 1 個」**——回 0 等同 EOF，
+	// 主程式會還原中斷向量然後 exit。
+	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), []byte{d.StdinFill})
 	c.R[cpu.AX] = 1
 	clearCarry(c)
 }

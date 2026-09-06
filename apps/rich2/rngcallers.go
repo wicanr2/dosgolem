@@ -29,10 +29,16 @@ var RNDCallers = []RNDCaller{
 		"一步 38–62 次——擲骰動畫每一幀都真的擲（docs/re/155）"},
 	{0x11A32, "抽方向", "選方向迴圈 sub_11A1E（docs/re/014 §4c）"},
 	{0x11A87, "抽方向（回頭後重抽）", "同上，|目前方向 − 候選| == 2 時從這裡重抽"},
-	{0x2C5D0, "股市更新 1", "每輪各 20 次 ＝ 每支股票一次（rich2 的 StockCount ＝ 20）"},
-	{0x2C707, "股市更新 2", "同上，實測 19 次——有一支走了別的分支"},
-	{0x2C7EA, "股市更新 3", "同上"},
-	{0x13681, "發卡 INT(RND×100)", "docs/re/048 的牌堆／手牌交換"},
+	{StockCallerStep, "股市：動量步", "每檔必抽。(RND − 0.495) ÷ 20"},
+	{StockCallerVolEarly, "股市：利多期成交量", "相位 < 30 才走這一支"},
+	{StockCallerNudgeUp, "股市：利多期加碼", "再加一個條件：欄 0 < 欄 7"},
+	{StockCallerVolLate, "股市：利空期成交量", "相位 > 335 才走這一支"},
+	{StockCallerNudgeDn, "股市：利空期減碼", "再加一個條件：欄 0 > 欄 7"},
+	{StockCallerVolMid, "股市：平常期成交量", "多數的檔走這一支"},
+	{StockCallerFlip, "股市：動量反轉", "每檔必抽。RND > 0.85 才反轉並減半"},
+	{StockCallerFloor, "股市：撞下限推動量", "價格跌破 10 才抽"},
+	{StockCallerCeil, "股市：撞上限推動量", "價格超過欄 7 ＋ 欄 6 才抽"},
+	// 發卡那一段用區間認（見 CardDrawLo／CardDrawHi），不列單一位址。
 	{0x137B6, "新聞 INT(RND×16)+100", "docs/re/022 §6"},
 }
 
@@ -52,6 +58,9 @@ func CallerName(ida uint32) string {
 		if c.IDA == ida {
 			return c.Name
 		}
+	}
+	if ida >= CardDrawLo && ida < CardDrawHi {
+		return "發卡 INT(RND×100)"
 	}
 	if ida >= CasinoLo && ida < CasinoHi {
 		return "賭場（段內，未逐項解）"
@@ -123,8 +132,16 @@ func InWindow(calls []basic.Call, lo, hi uint64) []basic.Call {
 	return out
 }
 
-// CardDrawCaller 是發卡那一次 `RND` 的呼叫端（`rich2/docs/re/048`）。
-const CardDrawCaller = 0x13681
+// 發卡那一段的範圍（`rich2/docs/re/048`：`0x13681`–`0x137B5`，
+// 尾端接著新聞格的進入點 `0x137B6`）。
+//
+// ⚠ **用區間不是用單一位址。** `13681` 是那一段的**起點**，不是
+// `RND` 的返回位址——第一版拿它去等值比對，`DeckSlots` 回空陣列，
+// 而「回空」看起來就像「這一步沒發卡」。
+const (
+	CardDrawLo = 0x13681
+	CardDrawHi = 0x137B6
+)
 
 // DeckSlots 從一段抽取裡篩出發卡的那幾次，算成牌堆索引 `INT(RND×100)`。
 //
@@ -134,7 +151,7 @@ const CardDrawCaller = 0x13681
 func DeckSlots(o *oracle.Oracle, calls []basic.Call) []int {
 	var out []int
 	for _, c := range calls {
-		if o.ToIDA(c.Caller) != CardDrawCaller {
+		if at := o.ToIDA(c.Caller); at < CardDrawLo || at >= CardDrawHi {
 			continue
 		}
 		out = append(out, int(uint64(c.Next())*uint64(DeckSize)/basic.LCGMod))

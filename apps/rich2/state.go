@@ -66,14 +66,14 @@ func Land(o *oracle.Oracle) *basic.Array {
 // 棋盤陣列 `122Ch` 的欄位（`rich2/internal/assets/board.go`、
 // `rich2/docs/re/016` §82、`docs/re/184` §2.1）。
 const (
-	ColMapRow  = 0  // 在 36×36 地圖上的列
-	ColMapCol  = 1  // 同上，欄
-	ColKind    = 2  // 非街道格的種類 0–10
-	ColLink    = 4  // 4–7 是四個方向的鄰接
-	ColStreet  = 8  // 土地編號，0 表示不是土地
-	ColOrder   = 9  // 該格在街道內的序號
-	ColOwner   = 12 // 地主編號，0 ＝ 無主（`docs/re/184` §2.1，強證據）
-	ColLevel   = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
+	ColMapRow = 0  // 在 36×36 地圖上的列
+	ColMapCol = 1  // 同上，欄
+	ColKind   = 2  // 非街道格的種類 0–10
+	ColLink   = 4  // 4–7 是四個方向的鄰接
+	ColStreet = 8  // 土地編號，0 表示不是土地
+	ColOrder  = 9  // 該格在街道內的序號
+	ColOwner  = 12 // 地主編號，0 ＝ 無主（`docs/re/184` §2.1，強證據）
+	ColLevel  = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
 )
 
 // Owner／Street／Level 讀某一格的地主、街道編號、建物等級。
@@ -241,3 +241,40 @@ func PlayerDir(o *oracle.Oracle, player int) int {
 func Tile(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarTile))) }
 func Direction(o *oracle.Oracle) int { return int(o.Word(o.DS(VarDirection))) }
 func Turn(o *oracle.Oracle) int      { return int(o.Word(o.DS(VarPlayer))) }
+
+// 三張還沒被對拍碰過的表（`rich2/docs/playtest/054` §3.1）。
+const (
+	DescCard = 0x1426 // 每種卡片兩欄 1..36 × 0..1，2B
+	DescText = 0x17EC // 定長 20 bytes 的字串表 0..400（`.PAK` 文字）
+)
+
+// CardCount 是卡片種類數。
+const CardCount = 36
+
+// Cards 開啟卡片表：欄 0 是使用方式，欄 1 是價格。
+func Cards(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescCard,
+		[]basic.Dim{{Lo: 1, N: CardCount}, {Lo: 0, N: 2}}, 2)
+}
+
+// TextSlots 是字串表的格數。
+const TextSlots = 401
+
+// Texts 開啟定長字串表。**每格 20 bytes，尾端用空白補滿**，
+// 要自己 trim（見 `basic.Array.Bytes`）。
+func Texts(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescText,
+		[]basic.Dim{{Lo: 0, N: TextSlots}}, 20)
+}
+
+// Draw 開啟顯示層：36×36，每格要畫什麼圖磚（存檔區段 5）。
+func Draw(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescDraw,
+		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+}
+
+// Pos 開啟玩家位置層：36×36，棋子與物件疊加（存檔區段 4）。
+func Pos(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescPos,
+		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+}

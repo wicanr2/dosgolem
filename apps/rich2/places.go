@@ -22,9 +22,9 @@ import (
 // ⚠ 位址出自 `RUN_unpacked.EXE` 的筆記，但**程式碼在 `3AE58` 以下兩個檔
 // 完全一樣**（`rich2/CLAUDE.md` §4.1 第 1 條），這兩個位址都在那之下。
 const (
-	IDADispatch = 0x1351A // 分派器入口
+	IDADispatch  = 0x1351A // 分派器入口
 	IDALuckAgain = 0x13665 // 運氣格再次呼叫分派器的那一處
-	VarKind     = 0x02FA  // 分派器的輸入：格子種類，或運氣事件的動作碼
+	VarKind      = 0x02FA  // 分派器的輸入：格子種類，或運氣事件的動作碼
 )
 
 // 十一種非街道格的種類編號（`rich2/docs/re/020` §2）。
@@ -58,13 +58,13 @@ func KindName(kind int) string {
 
 // Dispatch 是分派器被呼叫的一次。
 type Dispatch struct {
-	Code   int    // ds:2FAh：落地是格子種類 0–10，運氣再分派時是事件的動作碼
-	Name   string // 種類名，動作碼沒有名字就是空字串
-	FromLuck bool // 是不是運氣格再叫的那一次（呼叫端 13665）
-	Player int    // 輪到誰（含 AI）
-	Square int    // ds:1BE
-	Cash   int32
-	Step   uint64
+	Code     int    // ds:2FAh：落地是格子種類 0–10，運氣再分派時是事件的動作碼
+	Name     string // 種類名，動作碼沒有名字就是空字串
+	FromLuck bool   // 是不是運氣格再叫的那一次（呼叫端 13665）
+	Player   int    // 輪到誰（含 AI）
+	Square   int    // ds:1BE
+	Cash     int32
+	Step     uint64
 }
 
 // DispatchLog 收集分派紀錄。
@@ -152,3 +152,124 @@ func Hand(o *oracle.Oracle, player int) []int {
 	}
 	return out
 }
+
+// ---- 事件 ----------------------------------------------------------------
+
+// DescEvent 是事件表的描述子（`rich2/docs/re/014` §58，0..159 × 0..8、2B）。
+//
+// 內容與 `DATA.PAK` 區段 4 逐位元組相同（`rich2/docs/re/022`）。
+// 160 列切成三段：0–99 命運（**加權**，32 種佔 1–5 列不等）、
+// 100–119 新聞（20 種各一列）、120–155 卡片效果（36 張各一列）。
+const DescEvent = 0x1454
+
+const (
+	EventRows = 160
+	EventCols = 9
+)
+
+// Events 開啟事件表。
+func Events(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescEvent,
+		[]basic.Dim{{Lo: 0, N: EventRows}, {Lo: 0, N: EventCols}}, 2)
+}
+
+// EventRow 讀一列事件（九個欄位）。欄 0 是動作代碼。
+func EventRow(o *oracle.Oracle, row int) []int {
+	a := Events(o)
+	out := make([]int, EventCols)
+	for c := range out {
+		out[c] = int(a.Int16(row, c))
+	}
+	return out
+}
+
+// 運氣格那一段的範圍（`rich2/docs/re/020` §2：運氣 0x13580、卡片 0x13669）。
+//
+// 運氣格抽一次 `RND` 決定事件列，然後把該列的欄 0（動作代碼）寫進
+// `ds:2FAh`、**再叫一次分派器**（`020` §4）——所以 `WatchDispatch` 會看到
+// 兩筆：先是種類 2（運氣），接著是那個動作代碼。
+const (
+	LuckLo = 0x13580
+	LuckHi = 0x13669
+)
+
+// FortuneRows 從一段抽取裡篩出運氣格的那幾次，算成事件表的列號。
+//
+// 命運那一段是 0–99（`rich2/docs/re/022` §2），所以係數是 100。
+func FortuneRows(o *oracle.Oracle, calls []basic.Call) []int {
+	var out []int
+	for _, c := range calls {
+		if at := o.ToIDA(c.Caller); at < LuckLo || at >= LuckHi {
+			continue
+		}
+		out = append(out, int(uint64(c.Next())*100/basic.LCGMod))
+	}
+	return out
+}
+
+// ---- 股市 ----------------------------------------------------------------
+
+// DescStock 是股市陣列的描述子（`rich2/docs/re/014` §53，0..19 × 0..9、4B）。
+//
+// **是浮點**（`rich2/docs/re/000-index`）。欄 2／3 是漲跌與漲幅，
+// 而「誰在寫」在那份索引裡列為未解——`RNDCallers` 的
+// `2C5D0`／`2C707`／`2C7EA` 每輪各抽 20 次（每支一次）就是那個答案的一半。
+const DescStock = 0x13F8
+
+const (
+	StockCount = 20
+	StockCols  = 10
+)
+
+// Stocks 開啟股市陣列。
+func Stocks(o *oracle.Oracle) *basic.Array {
+	return basic.NewArray(o, DescStock,
+		[]basic.Dim{{Lo: 0, N: StockCount}, {Lo: 0, N: StockCols}}, 4)
+}
+
+// StockRow 讀一支股票的十個欄位。
+func StockRow(o *oracle.Oracle, n int) []float32 {
+	a := Stocks(o)
+	out := make([]float32, StockCols)
+	for c := range out {
+		out[c] = a.Float32(n, c)
+	}
+	return out
+}
+
+// 股市更新裡的九個亂數呼叫端，全部落在副程式本體 `[0x2C510, 0x2C98E)` 之內。
+//
+// 每一檔一定抽三次（動量步、成交量、反轉判定），其餘四個是**分支才抽**：
+// 兩個是年度週期兩端的加減碼，兩個是價格撞到上下限之後推動量。
+// 所以一次更新的次數是 `60 + 分支數`，不是固定值——
+// 看到 59 或 61 都正常，看到別的才要查。
+//
+// 對應 `rich2/docs/spec/012` §7 的每一步；順序見 `StockCallerName`。
+const (
+	StockCallerStep     = 0x2C5D0 // ② 動量的隨機步
+	StockCallerVolEarly = 0x2C62A // ③ 利多期（相位 < 30）的成交量
+	StockCallerNudgeUp  = 0x2C676 // ③ 利多期加碼：欄 0 < 欄 7 才抽
+	StockCallerVolLate  = 0x2C69C // ③ 利空期（相位 > 335）的成交量
+	StockCallerNudgeDn  = 0x2C6EC // ③ 利空期減碼：欄 0 > 欄 7 才抽
+	StockCallerVolMid   = 0x2C707 // ③ 平常期的成交量
+	StockCallerFlip     = 0x2C7EA // ④ 15% 機率反轉動量
+	StockCallerFloor    = 0x2C86E // ⑤ 價格跌破 10 之後把動量往上推
+	StockCallerCeil     = 0x2C8FD // ⑤ 價格超過欄 7＋欄 6 之後把動量往下推
+)
+
+// 股市更新副程式的位址範圍（進入點到 `retf 2` 的下一個位址）。
+//
+// **歸屬用區間判，不要列舉呼叫端。** 列舉會漏掉沒觀察到的分支，
+// 而漏掉的症狀是「那一次更新少抽了幾次」——看起來像算式錯，
+// 其實是觀測沒收全（`rich2/docs/lessons.md` 那一類「安靜地錯」）。
+const (
+	StockDayLo = IDAStockDay // 0x2C510
+	StockDayHi = 0x2C98E     // `0x2C98B retf 2` 的下一個位址
+)
+
+// 舊名，保留給既有的呼叫端。
+const (
+	StockCallerA = StockCallerStep
+	StockCallerB = StockCallerVolMid
+	StockCallerC = StockCallerFlip
+)

@@ -56,6 +56,17 @@ const DefaultIRQ0Every = 165_000
 
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
+// OPLWrite 是一次 OPL2 暫存器寫入。
+//
+// **暫存器串是「樂譜」，波形是「演奏」。** 對拍暫存器串驗的是前者——
+// 那是決定性的、可以逐筆比；波形要逐樣本一致屬於既定停止線
+// （`rich2/docs/spec/049`）。
+type OPLWrite struct {
+	Reg  uint8
+	Val  uint8
+	Step uint64
+}
+
 type PortWrite struct {
 	Port uint16
 	Val  uint8
@@ -67,6 +78,19 @@ type PortWrite struct {
 type Machine struct {
 	Mem []uint8
 	CPU *cpu.CPU
+
+	// OPL 是解碼過的 OPL2 暫存器寫入序列（見 Out8）。
+	// **這是音樂 parity 的對拍對象**：兩邊的暫存器串一樣，
+	// 合成器再怎麼不同，送給晶片的指令是一樣的。
+	OPL []OPLWrite
+
+	// 寫入監看（WatchWrites）。watchLo > watchHi 表示關閉。
+	watchLo, watchHi uint32
+	onWrite          func(addr uint32, old, new uint8)
+
+	oplReg          uint8
+	oplPresent      bool
+	oplTimerRunning bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
 	Ports   map[uint16]uint8
@@ -123,6 +147,8 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
+		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
+		watchLo: 1, watchHi: 0,
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
@@ -139,7 +165,29 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
 
-func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
+func (m *Machine) Write8(a uint32, v uint8) {
+	a &= 0xFFFFF
+	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
+		m.onWrite(a, m.Mem[a], v)
+	}
+	m.Mem[a] = v
+}
+
+// WatchWrites 監看一段線性位址的寫入。
+//
+// **這是「誰寫這個位址」唯一直接的答案。** 靜態 xref 只涵蓋直接參考——
+// `mov ds:XXXXh, ax` 抓得到，`mov [si+456h], ax` 抓不到，而後者正是
+// 那些「掃不到寫入端」的變數的寫法（`rich2/CLAUDE.md` §4.1 第 4 條）。
+//
+// 只在**值真的變了**的時候通知，所以重複寫同一個值不會洗版。
+// 傳 nil 關掉監看。CPU 的每一次寫入都走 Write8，所以 16 位寫入會來兩次。
+func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8)) {
+	if fn == nil {
+		m.watchLo, m.watchHi, m.onWrite = 1, 0, nil // 空區間 ＝ 永遠不命中
+		return
+	}
+	m.watchLo, m.watchHi, m.onWrite = lo, hi, fn
+}
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
 // 有些偵測用「讀回來不是 FF」判定裝置存在，回 0 會讓它們誤判。
@@ -157,6 +205,12 @@ func (m *Machine) Write8(a uint32, v uint8) { m.Mem[a&0xFFFFF] = v }
 //
 // **這是行為模型，不是時序模型**：拿 `in` 的累計次數當時鐘，
 // 不是週期精確的（時序在 M2，`docs/spec/004` §5）。
+// SetAdLib 決定偵測時要不要讓 OPL2 存在。
+//
+// ⚠ **預設是不存在**，因為那讓開機少跑一大段。打開之後開機會慢，
+// 但音樂路徑才會真的執行、`OPL` 才會有東西。
+func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
+
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
@@ -171,8 +225,22 @@ func (m *Machine) In8(port uint16) uint8 {
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
 	case port == 0x388:
-		// OPL 狀態埠。回 0 ＝ 偵測不到 AdLib，音樂路徑會被跳過。
-		// 要觀察音樂路徑時改回 0xC0（`rich2/docs/re/011` §4）。
+		// OPL2 狀態埠。
+		//
+		// **預設回 0 ＝ 偵測不到 AdLib，整段音樂路徑會被跳過**——那讓
+		// 開機快很多，所以是預設。要對拍音樂就得讓偵測過關（`AdLib(true)`）。
+		//
+		// 過關要的不是一個定值：原版走的是標準的 AdLib 偵測序列
+		// （`rich2/docs/re/011` §4），它**先要求狀態是 0、啟動計時器之後
+		// 再要求是 0xC0**。回定值 0xC0 會在第一次檢查就被判定失敗，
+		// 回定值 0 則在第二次失敗——兩種定值都過不了，所以這裡照著
+		// 暫存器 04h 的寫入切換。
+		if !m.oplPresent {
+			return 0x00
+		}
+		if m.oplTimerRunning {
+			return 0xC0 // bit7 IRQ ＋ bit6 timer1 逾時
+		}
 		return 0x00
 	case port == 0x61:
 		return 0x00
@@ -185,6 +253,23 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
+	// 單看其中一個看不出寫了什麼。
+	switch p {
+	case 0x388:
+		m.oplReg = v
+	case 0x389:
+		if m.oplReg == 0x04 { // 計時器控制
+			switch {
+			case v&0x80 != 0: // bit7 ＝ 重置 IRQ 與狀態
+				m.oplTimerRunning = false
+			case v&0x01 != 0: // bit0 ＝ 啟動計時器 1
+				m.oplTimerRunning = true
+			}
+		}
+		m.OPL = append(m.OPL, OPLWrite{Reg: m.oplReg, Val: v, Step: m.Steps})
+	}
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。

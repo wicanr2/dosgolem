@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wicanr2/dosgolem/oracle"
 	"github.com/wicanr2/dosgolem/apps/rich2"
+	"github.com/wicanr2/dosgolem/oracle"
 )
 
 func load(t *testing.T) *oracle.Oracle {
