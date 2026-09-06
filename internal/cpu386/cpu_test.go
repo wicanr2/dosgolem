@@ -1531,6 +1531,27 @@ func TestMoveDwordFromDSIndexedMemory(t *testing.T) {
 	}
 }
 
+func TestMoveDwordFromDSBaseMemory(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x8b, 0x0b})
+	copy(mem[0x18:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f})
+	c.R[EBX], c.R[ECX], c.EFlags = 0x18, 0xa5a5a5a5, CF|ZF|OF
+	if err := c.Step(); err != nil || c.R[ECX] != 0x12345678 || c.R[EBX] != 0x18 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV ECX=%X EBX=%X flags=%X err=%v", c.R[ECX], c.R[EBX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8b, 0x0b})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 1})
+	c.R[EBX], c.R[ECX] = 0x18, 0xa5a5a5a5
+	if err := c.Step(); err == nil || c.R[ECX] != 0xa5a5a5a5 {
+		t.Fatalf("out-of-range MOV ECX=%X err=%v", c.R[ECX], err)
+	}
+}
+
 func TestMoveDwordFromDSDisp8AndORRegister(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x8b, 0x43, 0x02, 0x0b, 0xc0})

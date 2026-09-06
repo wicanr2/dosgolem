@@ -2011,10 +2011,11 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("absolute dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 			c.R[(modrm>>3)&7] = value
-		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 6 {
-			value, ok := c.readSegment32(c.Seg[SegDS], c.R[ESI])
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP {
+			base := modrm & 7
+			value, ok := c.readSegment32(c.Seg[SegDS], c.R[base])
 			if !ok {
-				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
 			}
 			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != 4 {

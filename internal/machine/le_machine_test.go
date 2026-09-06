@@ -1670,3 +1670,27 @@ func TestFD2AdvancesFilbufPointer(t *testing.T) {
 		t.Fatalf("filbuf pointer steps=%d EIP=%X before=%X after=%X", steps, m.CPU.EIP, before, after)
 	}
 }
+
+func TestFD2LoadsAdvancedFilbufPointer(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3da5a; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("filbuf load setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBX]
+	if uint64(addr)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("filbuf pointer address=%X 超界", addr)
+	}
+	want := binary.LittleEndian.Uint32(m.Mem[addr : addr+4])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("filbuf pointer MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3da5c || m.CPU.R[cpu386.EAX] != want {
+		t.Fatalf("filbuf load steps=%d EIP=%X want=%X EAX=%X", steps, m.CPU.EIP, want, m.CPU.R[cpu386.EAX])
+	}
+}
