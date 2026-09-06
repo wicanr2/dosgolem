@@ -132,9 +132,16 @@ func Steps(n uint64) Cond {
 
 // At 是「CS:IP 走到這裡」。位址通常用 o.IDA(...) 造。
 func At(a Addr) Cond {
+	// 比**線性位址**，不比 (Seg,Off)。
+	//
+	// 同一個線性位址有很多種 seg:off 寫法，而 `IDA()` 產生的是正規化版本
+	// （offset 一律 0…15）——執行期的 CS:IP 幾乎不會長成那個樣子，所以
+	// 結構相等的 `At(o.IDA(x))` **永遠不成立，而且不會報錯**，只會安靜地
+	// 跑滿上限。far call 的大模式程式（每個函式在自己的段裡）必踩。
+	want := a.Linear()
 	return Cond{
 		name:  "走到 " + a.String(),
-		ready: func(o *Oracle) bool { return o.IP() == a },
+		ready: func(o *Oracle) bool { return o.IP().Linear() == want },
 	}
 }
 

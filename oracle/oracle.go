@@ -115,7 +115,30 @@ func (a Addr) Linear() uint32 { return cpu.Addr(a.Seg, a.Off) }
 //
 // DGROUP 與堆疊同段（編譯後 BASIC 的慣例）；驗證見 `docs/spec/005` §3.1
 // ——`DS(0x1B5A)` 讀到 IEEE 754 的 1.0f。
+//
+// ⚠ **預設基底是 rich2 專用的常數**（IDA 線性 0x41E90）。換一支執行檔就要先
+// SetDGroup 或 SyncDGroupFromDS，否則讀到的是別的東西**而且不會報錯**——
+// `DS()` 沒有任何辦法察覺基底錯了。不確定的話改用 `IDA()`，那個對每一支
+// 執行檔都是從載入位置算出來的。
 func (o *Oracle) DS(off uint16) Addr { return Addr{o.dgroupSeg, off} }
+
+// DGroupSeg 回目前 `DS()` 用的基底段。
+func (o *Oracle) DGroupSeg() uint16 { return o.dgroupSeg }
+
+// SetDGroup 用 IDA 線性位址指定 DGROUP 的起點。
+//
+// 判準是**讀一個已知值**：拿內容已知的全域（版本字串、浮點常數）用 `DS()` 讀
+// 出來比對。設完不驗等於沒設。
+func (o *Oracle) SetDGroup(idaLinear uint32) {
+	o.dgroupSeg = uint16((idaLinear - o.idaOffset) / 16)
+}
+
+// SyncDGroupFromDS 把基底改成**程式現在的 `DS`**。
+//
+// 用在跑到 `main` 之後：C 的啟動碼這時已經把 DS 設成 DGROUP，抄它比從筆記換算
+// 可靠。⚠ 只在確定 DS 沒被暫時改掉時呼叫——遠指標操作、字串搬移與中斷處理常式
+// 都可能讓 DS 短暫指向別處。
+func (o *Oracle) SyncDGroupFromDS() { o.dgroupSeg = o.m.CPU.Seg[cpu.DS] }
 
 // IDA 把 rich2 筆記裡的五位線性位址轉成執行期位址。
 //
