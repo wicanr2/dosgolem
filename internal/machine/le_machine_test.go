@@ -932,3 +932,36 @@ func TestFD2ComparesAILRateThreshold(t *testing.T) {
 		t.Fatalf("AIL rate threshold steps=%d EIP=%X calls=%d argument=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), argument, m.CPU.EFlags, errArgument)
 	}
 }
+
+func TestFD2ProgramsPITControl(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e870; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL PIT control: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3e870 || services.Calls() != 5 || len(m.PortLog) != 1 || m.PortLog[0] != (LEPortWrite{Port: 0x43, Value: 0x36, Sequence: 0}) || m.Ports[0x43] != 0x36 {
+		t.Fatalf("AIL PIT control steps=%d EIP=%X calls=%d log=%+v ports=%v", steps, m.CPU.EIP, services.Calls(), m.PortLog, m.Ports)
+	}
+}
+
+func TestFD2ProgramsPITDivisor(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e882; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL PIT divisor: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	divisor, errDivisor := m.Read32(0x52bde)
+	want := []LEPortWrite{{Port: 0x43, Value: 0x36, Sequence: 0}, {Port: 0x40, Value: 0, Sequence: 1}, {Port: 0x40, Value: 0, Sequence: 2}}
+	if m.CPU.EIP != 0x3e882 || services.Calls() != 5 || divisor != 0 || errDivisor != nil || len(m.PortLog) != len(want) {
+		t.Fatalf("AIL PIT divisor steps=%d EIP=%X calls=%d divisor=%X log=%+v err=%v", steps, m.CPU.EIP, services.Calls(), divisor, m.PortLog, errDivisor)
+	}
+	for i := range want {
+		if m.PortLog[i] != want[i] {
+			t.Fatalf("AIL PIT divisor log[%d]=%+v want=%+v", i, m.PortLog[i], want[i])
+		}
+	}
+}

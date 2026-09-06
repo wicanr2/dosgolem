@@ -50,6 +50,8 @@ type CPU struct {
 	EFlags  uint32
 	Bus     Bus
 	IntHook func(*CPU, uint8) bool
+	// PortOut 回 true 表示 byte 輸出已被平台層接受；未安裝或拒絕時失敗即關閉。
+	PortOut func(port uint16, value uint8) bool
 	// StepHook 可在已登錄的執行期函式入口取代一次指令步進。
 	// 回傳 handled=false 時仍由 CPU 正常解碼，維持失敗即關閉。
 	StepHook      func(*CPU) (handled bool, err error)
@@ -1125,6 +1127,17 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
+	case op == 0xe6:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("E6 不接受目前的 prefix")
+		}
+		port, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.PortOut == nil || !c.PortOut(uint16(port), uint8(c.R[EAX])) {
+			return fail(fmt.Sprintf("OUT port %02X 未處理", port))
+		}
 	case op == 0x75:
 		if operand16 {
 			return fail("75 不接受 operand-size override")

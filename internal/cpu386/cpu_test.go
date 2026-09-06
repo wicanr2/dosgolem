@@ -861,6 +861,22 @@ func TestNearRelativeJump(t *testing.T) {
 	}
 }
 
+func TestOutputALToImmediatePort(t *testing.T) {
+	c := New(testBus{0xe6, 0x43})
+	c.R[EAX], c.EFlags = 0x12345636, CF|ZF
+	var port uint16
+	var value uint8
+	c.PortOut = func(p uint16, v uint8) bool { port, value = p, v; return true }
+	if err := c.Step(); err != nil || port != 0x43 || value != 0x36 || c.R[EAX] != 0x12345636 || c.EFlags != CF|ZF {
+		t.Fatalf("OUT port=%X value=%X EAX=%X flags=%X err=%v", port, value, c.R[EAX], c.EFlags, err)
+	}
+
+	c = New(testBus{0xe6, 0x43})
+	if err := c.Step(); err == nil {
+		t.Fatal("OUT without consumer was accepted")
+	}
+}
+
 func TestShortJumpBelow(t *testing.T) {
 	c := New(testBus{0x72, 0xfe})
 	c.EFlags = CF | ZF
