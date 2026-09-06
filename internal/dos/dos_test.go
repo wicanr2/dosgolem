@@ -366,3 +366,52 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }
+
+// TestFreeBlockReclaims 釘住 `AH=49h` 真的把記憶體收回來。
+//
+// 反面是「後面的程式配不到記憶體」，而症狀不在這裡：DOSJP 先要 286 KB
+// 讀字型、搬進 XMS、再還回來，不收的話 OPEN.EXE 的第四次 AH=48h 失敗，
+// 然後它走記憶體不足的路徑飛掉（`docs/spec/004` §1.2.2）。
+func TestFreeBlockReclaims(t *testing.T) {
+	m, d := newTest(t)
+	alloc := func(want uint16) uint16 {
+		m.CPU.R[cpu.BX] = want
+		call(m, d, 0x21, 0x4800)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("配 %d 段失敗（可用 %d）", want, m.CPU.R[cpu.BX])
+		}
+		return m.CPU.R[cpu.AX]
+	}
+	free := func(seg uint16) {
+		m.CPU.Seg[cpu.ES] = seg
+		call(m, d, 0x21, 0x4900)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("釋放 %04X 失敗", seg)
+		}
+	}
+
+	// 頂端的區塊還回來之後，水位要降回去：同樣大小的下一次配置拿到同一段。
+	a := alloc(0x1000)
+	free(a)
+	if b := alloc(0x1000); b != a {
+		t.Errorf("頂端釋放後再配拿到 %04X，要 %04X——水位沒降回去", b, a)
+	}
+
+	// 中間的洞也要能再用。
+	mid := alloc(0x200)
+	top := alloc(0x100)
+	free(mid)
+	if got := alloc(0x200); got != mid {
+		t.Errorf("中間的洞沒被再利用：拿到 %04X，要 %04X", got, mid)
+	}
+	if top == mid {
+		t.Error("頂端的區塊被蓋掉了")
+	}
+
+	// 大塊配置、釋放、再要一塊更大的——DOSJP 的形狀。
+	big := alloc(0x4000)
+	free(big)
+	if got := alloc(0x6000); got == 0 {
+		t.Error("釋放 0x4000 段之後配不到 0x6000 段")
+	}
+}

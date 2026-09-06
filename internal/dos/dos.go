@@ -147,6 +147,13 @@ type DOS struct {
 	nextHandle uint16
 	freeSeg    uint16
 
+	// blocks 是 AH=48h 配出去、還沒還回來的區塊（資料段 → 段數）；
+	// holes 是還回來、可以再配的洞。**bump 配置器不夠用**：
+	// DOSJP 先在常規記憶體要 286 KB 讀字型、搬進 XMS、再還回來，
+	// 不回收的話後面的程式就配不到記憶體了（`docs/spec/004` §1.2.2）。
+	blocks map[uint16]uint16
+	holes  []memHole
+
 	// 行程模型（`docs/spec/008` §2）：stack 是被 EXEC 暫停的父行程，
 	// curPSP 是目前行程的 PSP，lastExit 給 AH=4Dh，queue 是監督佇列。
 	stack    []procFrame
@@ -159,7 +166,10 @@ type DOS struct {
 	nextEMB uint16
 }
 
-// AllocOp 是一次記憶體配置或縮放。Fn 是 48h 或 4Ah。
+// memHole 是一塊還回來的記憶體（seg 是資料段，MCB 在 seg-1）。
+type memHole struct{ seg, size uint16 }
+
+// AllocOp 是一次記憶體配置或縮放。Fn 是 48h、49h 或 4Ah。
 type AllocOp struct {
 	Step uint64
 	Fn   uint8
@@ -211,6 +221,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.blocks = map[uint16]uint16{}
 	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }

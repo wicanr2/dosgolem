@@ -118,8 +118,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 
 	case 0x48:
 		d.alloc(c)
-	case 0x49: // 釋放記憶體：收下就好，不做回收
-		clearCarry(c)
+	case 0x49:
+		d.freeBlock(c)
 	case 0x4A:
 		d.setBlock(c)
 
@@ -197,6 +197,9 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	if blk == d.curPSP && blk+want+1 > d.freeSeg {
 		d.freeSeg = blk + want + 1
 	}
+	if _, ok := d.blocks[blk]; ok {
+		d.blocks[blk] = want
+	}
 	d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x4A, Want: want, Seg: blk, OK: true})
 	clearCarry(c)
 }
@@ -215,9 +218,56 @@ func (d *DOS) alloc(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	// 先找還回來的洞（first fit）。**不合併相鄰的洞**——目前的語料
+	// 只有「配一塊大的、用完還回來」這一種形狀，合併要等有需要再做。
+	for i, h := range d.holes {
+		if h.size < want {
+			continue
+		}
+		seg := h.seg
+		if h.size == want {
+			d.holes = append(d.holes[:i], d.holes[i+1:]...)
+		} else {
+			// 切一塊出來，剩下的仍是洞（前面留一格給假 MCB）。
+			d.holes[i] = memHole{seg: seg + want + 1, size: h.size - want - 1}
+		}
+		d.blocks[seg] = want
+		c.R[cpu.AX] = seg
+		d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x48, Want: want, Seg: seg, OK: true})
+		clearCarry(c)
+		return
+	}
+
 	seg := d.freeSeg + 1 // +1 給假的 MCB
 	d.freeSeg = seg + want
+	d.blocks[seg] = want
 	c.R[cpu.AX] = seg
 	d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x48, Want: want, Seg: seg, OK: true})
+	clearCarry(c)
+}
+
+// freeBlock 是 `AH=49h`：把 ES 指的區塊還回來。
+//
+// **不回收會讓後面的程式配不到記憶體，而症狀不在這裡**：DOSJP 先要
+// 286 KB 讀 JIS.FNT、搬進 XMS、再還回來；不收的話 OPEN.EXE 的第四次
+// AH=48h 就失敗，然後它走記憶體不足的路徑、飛到某個資料區去執行
+// （`docs/spec/004` §1.2.2）。
+func (d *DOS) freeBlock(c *cpu.CPU) {
+	seg := c.Seg[cpu.ES]
+	size, ok := d.blocks[seg]
+	if !ok {
+		// 不是我們配出去的（程式自己的 PSP 區塊、或重複釋放）：
+		// 照 DOS 的寬鬆做法收下就好，不製造假的洞。
+		d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x49, Seg: seg})
+		clearCarry(c)
+		return
+	}
+	delete(d.blocks, seg)
+	if seg+size == d.freeSeg { // 頂端：直接把水位降回去
+		d.freeSeg = seg - 1
+	} else {
+		d.holes = append(d.holes, memHole{seg: seg, size: size})
+	}
+	d.Allocs = append(d.Allocs, AllocOp{Step: d.M.Steps, Fn: 0x49, Want: size, Seg: seg, OK: true})
 	clearCarry(c)
 }
