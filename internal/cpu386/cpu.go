@@ -1989,6 +1989,9 @@ func (c *CPU) Step() error {
 			if e = c.write16(addr, uint16(source)); e != nil {
 				return fail(e.Error())
 			}
+		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
+			destination := modrm & 7
+			c.R[destination] = c.R[destination]&0xffff0000 | source&0xffff
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {

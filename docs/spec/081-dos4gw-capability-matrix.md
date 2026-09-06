@@ -50,7 +50,8 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 模式，將本地 DOS handle 初始化為失敗預設值，以受限唯讀 root 實際
 開啟固定 `MDI.INI`，將 DOS CF 正規化成有號結果，保存零擴展 handle，
 並測試、設定該 FILE record 的延遲 I/O 模式旗標；後續自然執行已進入
-`isatty`，下一阻塞移至 `0x3FB16`。此收據只證明
+`isatty` 並把已登錄 handle 搬入 BX，下一阻塞移至 `0x3FB1D` 的
+`AX=4400h` DOS IOCTL。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

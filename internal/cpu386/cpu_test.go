@@ -287,6 +287,17 @@ func TestRegisterMOV16(t *testing.T) {
 	}
 }
 
+func TestStoreRegisterMOV16(t *testing.T) {
+	c := New(testBus{0x66, 0x89, 0xc3})
+	c.R[EAX], c.R[EBX], c.EFlags = 0x11223344, 0xaabbccdd, CF|ZF|OF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EAX] != 0x11223344 || c.R[EBX] != 0xaabb3344 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV BX,AX EAX=%X EBX=%X flags=%X", c.R[EAX], c.R[EBX], c.EFlags)
+	}
+}
+
 func TestLoadRegisterFromStackDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x8b, 0x4c, 0x24, 0x04})

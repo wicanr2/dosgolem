@@ -1376,3 +1376,20 @@ func TestFD2MarksIOModeFlag(t *testing.T) {
 		t.Fatalf("I/O mode flag steps=%d EIP=%X addr=%X before=%X after=%X", steps, m.CPU.EIP, addr, before, m.Mem[addr])
 	}
 }
+
+func TestFD2MovesHandleIntoBXForIOCTL(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3fb19; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("isatty handle move: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	handle := uint16(m.CPU.R[cpu386.EBX])
+	if m.CPU.EIP != 0x3fb19 || uint16(m.CPU.R[cpu386.EAX]) != handle || !services.HasHandle(handle) {
+		t.Fatalf("isatty handle move steps=%d EIP=%X EAX=%X EBX=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], services.HasHandle(handle))
+	}
+}
