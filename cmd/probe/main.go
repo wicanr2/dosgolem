@@ -29,6 +29,8 @@ import (
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄")
+	cmdline := flag.String("cmdline", "", "命令列尾巴，寫進最外層程式的 `PSP+80h`。"+
+		"靠參數決定要做什麼的程式（例如 ENDING.EXE 要演哪一個結局）沒有它就直接結束")
 	steps := flag.Uint64("steps", 20_000_000, "最多執行幾道指令")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
@@ -68,6 +70,9 @@ func main() {
 			"回答「這個輸入到底有沒有效」——比對著幾張傾印猜快得多")
 	screenDelta := flag.Int("screen-delta", 5000,
 		"畫面變化超過幾個像素才算一次「換畫面」（配 -watch-screen）")
+	regsFrom := flag.Uint64("regs-from", 0,
+		"-regs-at 只從這個步數之後開始記。開場與主選單會把前 20 筆佔滿，"+
+			"要看後面某一次呼叫就得跳過前面")
 	keysAt := flag.String("keys-at", "",
 		"在指定步數送一個鍵：`<步數>:<鍵>`，分號分隔。與 -press 的差別是"+
 			"**每個鍵各自指定時機**——探索「哪一個鍵讓畫面動了」要用這個，"+
@@ -153,6 +158,19 @@ func main() {
 			fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
 				m.Steps, a, old, nv, m.CPU.Seg[cpu.CS], m.CPU.IP)
 		})
+	}
+	if *cmdline != "" {
+		tail := *cmdline
+		if len(tail) > 126 {
+			tail = tail[:126]
+		}
+		base := uint32(machine.PSPSeg)*16 + 0x80
+		m.Write8(base, uint8(len(tail)))
+		for i := 0; i < len(tail); i++ {
+			m.Write8(base+1+uint32(i), tail[i])
+		}
+		m.Write8(base+1+uint32(len(tail)), 0x0D)
+		fmt.Printf("命令列尾巴 %q 寫進 PSP+80h\n", tail)
 	}
 	d := dos.New(m, *root)
 	if *logCalls {
@@ -358,7 +376,7 @@ type clickEv struct {
 			}
 		}
 		for _, w := range regWatch {
-			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off {
+			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off && m.Steps >= *regsFrom {
 				c := m.CPU
 				// **只記來源基底換掉的那一次。** 同一塊圖的 16 或 20 列
 				// 是連續的位移，全部印出來只會看到同一個東西 20 遍，
@@ -366,7 +384,9 @@ type clickEv struct {
 				cur := uint32(c.Seg[cpu.DS])<<16 | uint32(c.R[cpu.SI])
 				prev, seen := regLast[w]
 				regLast[w] = cur
-				if seen && cur >= prev && cur-prev <= 16 {
+				// 只跳過「同一份來源往下走一格」的那種重複（blit 迴圈）；
+				// 位置完全相同的重複呼叫要記——那是不同的一次事件。
+				if seen && cur > prev && cur-prev <= 16 {
 					continue
 				}
 				if h := regHits[w]; len(h) < 20 {

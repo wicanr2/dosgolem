@@ -98,6 +98,23 @@ func Load(exe, root string) (*Oracle, error) {
 	return o, nil
 }
 
+// SetCmdLine 把命令列尾巴寫進最外層程式的 PSP（`PSP+80h`：長度、文字、CR）。
+//
+// EXEC 出來的子程式本來就會拿到參數，但最外層是 `Load` 直接載入的，
+// 原本沒有地方放。`ENDING.EXE` 這種「靠參數決定要演哪一個結局」的程式
+// 沒有它就只印一行字然後結束。
+func (o *Oracle) SetCmdLine(tail string) {
+	if len(tail) > 126 {
+		tail = tail[:126]
+	}
+	base := uint32(machine.PSPSeg)*16 + 0x80
+	o.m.Write8(base, uint8(len(tail)))
+	for i := 0; i < len(tail); i++ {
+		o.m.Write8(base+1+uint32(i), tail[i])
+	}
+	o.m.Write8(base+1+uint32(len(tail)), 0x0D)
+}
+
 // Close 關掉還開著的檔。
 func (o *Oracle) Close() { o.d.Close() }
 
