@@ -408,3 +408,126 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }
+
+// TestSetBlockGrowTakesTheSpace 釘住「`AH=4Ah` 擴大成功就要吃掉後面的空間」。
+//
+// 只報成功而不推進 bump 指標的話，「把記憶體配光」那個慣用法
+//
+//	迴圈： bx=1 / ah=48h / int 21h / jc 收工     ; 配 1 段
+//	       bx=0FFFFh / ah=4Ah / int 21h / jc 重試 ; 撐到最大
+//	       es:[0]=cx / cx=es / jmp 迴圈           ; 串成鏈
+//
+// **永遠不會結束**。KOL.EXE 因此一路配到自己的映像上，那句 `mov es:[0], cx`
+// 把自己的 `int 21h` 改成了 `int 19h`——症狀看起來像模擬器把記憶體寫爛了。
+func TestSetBlockGrowTakesTheSpace(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 1
+	call(m, d, 0x21, 0x4800)
+	blk := m.CPU.R[cpu.AX]
+
+	// 撐到最大：先要 0FFFFh 拿回實際可用，再要那個數字。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = blk, 0xFFFF
+	call(m, d, 0x21, 0x4A00)
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Fatal("要 0FFFFh 段竟然成功了")
+	}
+	m.CPU.Seg[cpu.ES] = blk
+	call(m, d, 0x21, 0x4A00) // BX 已經是回填的可用段數
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatal("用回填的大小再要一次還是失敗")
+	}
+
+	// 記憶體已經配光，下一次配置一定要失敗。
+	m.CPU.R[cpu.BX] = 1
+	call(m, d, 0x21, 0x4800)
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Errorf("記憶體配光之後還配得到 %04X 段——迴圈不會結束", m.CPU.R[cpu.AX])
+	}
+}
+
+// TestSetBlockShrinkReturnsTheSpace 釘住「縮小最後一塊要把空間還回去」。
+//
+// KOL.EXE 配光記憶體之後縮回四段，緊接著就要那四段；不還的話它判定記憶體
+// 不夠，以回傳碼 255 離開，主控台只有一行 `run-time error R6006`。
+func TestSetBlockShrinkReturnsTheSpace(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 1
+	call(m, d, 0x21, 0x4800)
+	blk := m.CPU.R[cpu.AX]
+
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = blk, 0xFFFF
+	call(m, d, 0x21, 0x4A00)
+	m.CPU.Seg[cpu.ES] = blk
+	grown := m.CPU.R[cpu.BX]
+	call(m, d, 0x21, 0x4A00)
+
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = blk, grown-4
+	call(m, d, 0x21, 0x4A00)
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatal("縮小失敗")
+	}
+	m.CPU.R[cpu.BX] = 2
+	call(m, d, 0x21, 0x4800)
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Error("縮回四段之後要兩段還是失敗——縮小沒有把空間還回去")
+	}
+}
+
+// TestAllocRefusesPastMemTop 釘住 `avail` 的下溢。
+//
+// 直接寫 `MemTop - seg` 的話，bump 指標越過 `MemTop` 之後 uint16 環繞成 0FFFFh，
+// 於是配置**永遠成功**——那個配光記憶體的迴圈會一路配到 0FFFFh 段再繞回低位，
+// 把整台機器的記憶體覆蓋掉。
+func TestAllocRefusesPastMemTop(t *testing.T) {
+	m, d := newTest(t)
+	d.freeSeg = uint16(machine.MemTop) + 1
+	m.CPU.R[cpu.BX] = 1
+	call(m, d, 0x21, 0x4800)
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Errorf("指標越過 MemTop 之後還配得到 %04X 段", m.CPU.R[cpu.AX])
+	}
+}
+
+// TestLoadOverlayPlacesImage 釘住 `AH=4Bh AL=03h`（載入 overlay）。
+//
+// KOL 的架構是 `KOL.EXE` 主程式 ＋ `TITLE.EXE`／`KOLTOWN.EXE` overlay：主程式
+// 自己配好記憶體、叫 DOS 把映像搬進去、再 far call 進入點。沒實作的症狀是
+// C runtime 印 `run-time error R6006 - bad format on exec` 然後以回傳碼 255
+// 離開——**看起來像 EXE 檔壞了**，而不像少了一個服務。
+func TestLoadOverlayPlacesImage(t *testing.T) {
+	m, d := newTest(t)
+
+	// 一支 48 byte 的 MZ：檔頭兩段，映像是 16 byte，位移 4 有一筆重定位項。
+	hdr := make([]byte, 32)
+	copy(hdr, "MZ")
+	put16 := func(off int, v uint16) { hdr[off], hdr[off+1] = uint8(v), uint8(v>>8) }
+	put16(2, 48)  // 最後一頁用了 48 byte
+	put16(4, 1)   // 一頁
+	put16(6, 1)   // 一筆重定位
+	put16(8, 2)   // 檔頭兩段
+	put16(24, 28) // 重定位表在 28
+	put16(28, 4)  // 項：0000:0004
+	img := append(hdr, make([]byte, 16)...)
+	img[32+4], img[32+5] = 0x34, 0x12 // 待重定位的段值 0x1234
+
+	if err := os.WriteFile(filepath.Join(d.Root, "OVL.EXE"), img, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const seg, fixup = 0x3000, 0x2500
+	pb := cpu.Addr(0x0800, 0x0010)
+	m.Write16(pb, seg)
+	m.Write16(pb+2, fixup)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0x0800, 0x0010
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x0900, 0x0000
+	m.WriteBytes(cpu.Addr(0x0900, 0), append([]byte("OVL.EXE"), 0))
+	call(m, d, 0x21, 0x4B03)
+
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("載入 overlay 失敗，AX=%04X", m.CPU.R[cpu.AX])
+	}
+	if got := m.Read16(cpu.Addr(seg, 4)); got != 0x1234+fixup {
+		t.Errorf("重定位項是 %04X，預期 %04X＝0x1234＋重定位因子 %04X",
+			got, 0x1234+fixup, fixup)
+	}
+}

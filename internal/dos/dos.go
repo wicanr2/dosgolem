@@ -129,6 +129,13 @@ type DOS struct {
 	// 位置，症狀是「解出來的東西是垃圾」，而 `Opened` 那一份看起來完全正常。
 	Reads []FileOp
 
+	// MemOps 記下每一次記憶體服務（`AH=48h`／`49h`／`4Ah`）與 EXEC 的配置。
+	//
+	// **配置器把程式自己佔的段配出去，症狀是程式碼被自己寫壞。** 那看起來像
+	// 「模擬器把記憶體寫爛了」，而實際上是 `AH=48h` 回了一個落在映像裡的段
+	// ——沒有這份紀錄就只能從被改掉的位元組往回猜。
+	MemOps []MemOp
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
@@ -137,6 +144,10 @@ type DOS struct {
 	nextHandle uint16
 	freeSeg    uint16
 
+	// lastBlock 是最近一次配出去的區塊。bump 配置器裡**只有最後一塊能縮放**
+	// ——它後面沒有別人。`AH=4Ah` 動到別塊時只報成功，不移動界線。
+	lastBlock uint16
+
 	// execStack 是 EXEC 的父程式堆疊（`docs/spec/007` §2）。
 	// curPSP 是目前最內層程式的 PSP；lastExit／lastTerm 是最近一次
 	// 子程式的回傳碼與結束方式（`AH=4Dh`）。
@@ -144,6 +155,23 @@ type DOS struct {
 	curPSP    uint16
 	lastExit  uint8
 	lastTerm  uint8
+}
+
+// MemOp 是一次記憶體服務。
+//
+// Kind 是 "alloc"（48h）、"free"（49h）、"setblock"（4Ah）或 "exec"（4Bh）。
+// Block 是呼叫端給的段（`free`／`setblock` 的 ES，`alloc` 沒有）；Want 是要求的
+// 段數；Got 是配到的段（`alloc`）；Avail 是失敗時回填的可用段數；FreeSeg 是這一
+// 次之後的 bump 指標。
+type MemOp struct {
+	Kind     string
+	Block    uint16
+	Want     uint16
+	Got      uint16
+	Avail    uint16
+	FreeSeg  uint16
+	Failed   bool
+	Step     uint64
 }
 
 // Write 是一次被擋下來的寫檔。

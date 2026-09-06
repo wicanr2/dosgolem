@@ -100,6 +100,22 @@ func MZImageParags(data []byte) (int, error) {
 	return (total - hdr + 15) / 16, nil
 }
 
+// LoadOverlay 把 MZ 映像載到指定段（`int 21h AH=4Bh AL=03h`，載入 overlay）。
+//
+// 與 EXEC 的差別：**不建立 PSP、不動 FreeSeg、不改 CPU**。overlay 是主程式的
+// 一部分，載完由主程式自己 far call 進去；記憶體是主程式先配好的。
+//
+// fixup 是呼叫端給的重定位因子（參數區 `+2`），套在重定位項上；載入段（`+0`）
+// 決定映像放哪。兩者通常相同，但規格上是分開的兩個欄位。
+func (m *Machine) LoadOverlay(data []byte, seg, fixup uint16) error {
+	image, _, err := mzImage(data, fixup)
+	if err != nil {
+		return err
+	}
+	m.WriteBytes(uint32(seg)*16, image)
+	return nil
+}
+
 // LoadEXE 把一個已經解包的 MZ 映像載進機器並把 CPU 設到進入點。
 func (m *Machine) LoadEXE(data []byte) error {
 	image, h, err := mzImage(data, LoadSeg)

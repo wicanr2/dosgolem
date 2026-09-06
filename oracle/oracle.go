@@ -298,6 +298,15 @@ func (o *Oracle) Console() string { return string(o.d.Console) }
 // **收工前看一眼。**「跑得動」與「跑得動但行為不對」的差別在這裡。
 func (o *Oracle) Unimplemented() []string { return o.d.UnimplementedReport() }
 
+// MemOp 是一次記憶體服務（`MemOps`）。
+type MemOp = dos.MemOp
+
+// MemOps 是每一次 `AH=48h`／`49h`／`4Ah` 與 EXEC 的配置紀錄，依序。
+//
+// **配置器把程式自己佔著的段配出去時，症狀是程式碼被自己寫壞。** 那看起來像
+// 模擬器把記憶體寫爛了，實際上是 `alloc` 回了落在映像裡的段。
+func (o *Oracle) MemOps() []MemOp { return o.d.MemOps }
+
 // FileOp 是一次 seek 或 read（`FileOps`）。
 type FileOp = dos.FileOp
 

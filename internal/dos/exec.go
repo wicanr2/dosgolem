@@ -2,6 +2,7 @@ package dos
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -27,6 +28,10 @@ type execFrame struct {
 // 子程式對視訊記憶體／IVT 的寫入保留，這符合真 DOS（畫面不會因程式結束
 // 而消失）。代價是子程式踩父程式空間不會被擋（spec §6，有證據再說）。
 func (d *DOS) exec(c *cpu.CPU) {
+	if al(c) == 0x03 {
+		d.loadOverlay(c)
+		return
+	}
 	if al(c) != 0x00 {
 		d.note(0x21, 0x4B, al(c))
 		c.R[cpu.AX] = 1
@@ -81,6 +86,11 @@ func (d *DOS) exec(c *cpu.CPU) {
 	d.execStack = append(d.execStack, f)
 	d.curPSP = psp
 	d.freeSeg = psp + need
+	d.lastBlock = psp
+	d.MemOps = append(d.MemOps, MemOp{Kind: "exec", Block: psp, Want: need,
+		Got: psp, FreeSeg: d.freeSeg, Step: d.M.Steps})
+	d.MemOps = append(d.MemOps, MemOp{Kind: "exec", Block: psp, Want: need,
+		Got: psp, FreeSeg: d.freeSeg, Step: d.M.Steps})
 
 	if err := d.M.LoadEXEAt(img, psp); err != nil {
 		// resolve 過的檔案解析失敗：還原堆疊，報 CF。
@@ -178,4 +188,41 @@ func isEMMDevice(name string) bool {
 		}
 	}
 	return strings.EqualFold(base, "EMMXXXX0")
+}
+
+// loadOverlay 是 `AH=4Bh AL=03h`：把一支 EXE 載進呼叫端指定的段，**不執行**。
+//
+// KOL 的架構是這樣：`KOL.EXE` 是主程式，`TITLE.EXE`／`KOLTOWN.EXE` 是 overlay
+// ——主程式自己配好記憶體、叫 DOS 把映像搬進去、再 far call 進入點。
+// 沒實作的症狀是 C runtime 印 `run-time error R6006 - bad format on exec`
+// 然後以回傳碼 255 離開，**看起來像 EXE 檔壞了**。
+//
+// 參數區 ES:BX 是兩個 word：`+0` 載入段、`+2` 重定位因子。
+func (d *DOS) loadOverlay(c *cpu.CPU) {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	path := d.resolve(name)
+	if path == "" {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2 // File not found
+		setCarry(c)
+		return
+	}
+	img, err := os.ReadFile(path)
+	if err != nil {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+	seg, fixup := d.M.Read16(pb), d.M.Read16(pb+2)
+	if err := d.M.LoadOverlay(img, seg, fixup); err != nil {
+		c.R[cpu.AX] = 11 // Invalid format
+		setCarry(c)
+		return
+	}
+	d.Opened = append(d.Opened, filepath.Base(path))
+	d.MemOps = append(d.MemOps, MemOp{Kind: "overlay", Block: seg, Got: fixup,
+		FreeSeg: d.freeSeg, Step: d.M.Steps})
+	clearCarry(c)
 }

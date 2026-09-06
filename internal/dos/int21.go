@@ -157,6 +157,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x48:
 		d.alloc(c)
 	case 0x49: // 釋放記憶體：收下就好，不做回收
+		d.MemOps = append(d.MemOps, MemOp{Kind: "free", Block: c.Seg[cpu.ES],
+			FreeSeg: d.freeSeg, Step: d.M.Steps})
 		clearCarry(c)
 	case 0x4A:
 		d.setBlock(c)
@@ -210,20 +212,52 @@ func (d *DOS) conOut(c *cpu.CPU, fn uint8) {
 func (d *DOS) setBlock(c *cpu.CPU) {
 	want := c.R[cpu.BX]
 	blk := c.Seg[cpu.ES]
-	avail := uint16(machine.MemTop) - blk
+	avail := availFrom(blk)
 	if want > avail {
 		c.R[cpu.BX] = avail
 		c.R[cpu.AX] = 8 // 記憶體不足
 		setCarry(c)
+		d.MemOps = append(d.MemOps, MemOp{Kind: "setblock", Block: blk, Want: want,
+			Avail: avail, FreeSeg: d.freeSeg, Failed: true, Step: d.M.Steps})
 		return
 	}
-	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
-	// curPSP 是目前最內層的程式——EXEC 進去的子程式縮的是自己
-	// （`docs/spec/007` §2）。
-	if blk == d.curPSP && blk+want+1 > d.freeSeg {
+	// **擴大成功就要吃掉後面的空間。** 真 DOS 動的是 MCB 鏈；bump 配置器只有
+	// 一個指標，所以把界線推到這一塊的結尾。
+	//
+	// ⚠ 只報成功而不推進指標的話，「把記憶體配光」那個慣用法
+	//
+	//	迴圈： bx=1 / ah=48h / int 21h / jc 收工     ; 配 1 段
+	//	       bx=0FFFFh / ah=4Ah / int 21h / jc 重試 ; 撐到最大
+	//	       es:[0]=cx / cx=es / jmp 迴圈           ; 串成鏈
+	//
+	// **永遠不會結束**——每一圈只吃掉 2 段，於是它一路配到程式自己的映像上，
+	// 那句 `mov es:[0], cx` 就把自己的碼寫壞了。症狀是「程式碼莫名其妙被改」，
+	// 看起來像模擬器把記憶體寫爛（KOL.EXE 的 `int 21h` 被改成 `int 19h`），
+	// 而實際上配置器只是把已經有人住的段配了出去。
+	//
+	// **縮小也要生效。** KOL.EXE 配光記憶體之後縮回四段，緊接著就要那四段；
+	// 縮小只報成功而不還空間的話，它會判定記憶體不夠而以回傳碼 255 離開。
+	//
+	// 只有最後一塊（或程式自己的 PSP）能移動界線——bump 配置器沒有 MCB 鏈，
+	// 動到中間那塊會把後面別人的空間送出去。
+	if blk == d.lastBlock || blk == d.curPSP {
 		d.freeSeg = blk + want + 1
 	}
+	d.MemOps = append(d.MemOps, MemOp{Kind: "setblock", Block: blk, Want: want,
+		Avail: avail, FreeSeg: d.freeSeg, Step: d.M.Steps})
 	clearCarry(c)
+}
+
+// availFrom 回從 seg 起還剩幾段可用。
+//
+// ⚠ **一定要夾在 0**。直接寫 `MemTop - seg` 的話，指標越過 `MemTop` 之後
+// uint16 環繞成 0FFFFh，於是配置**永遠成功**——「把記憶體配光」的迴圈因此
+// 一路配到 0FFFFh 段再繞回低位，把整台機器的記憶體覆蓋掉。
+func availFrom(seg uint16) uint16 {
+	if seg >= uint16(machine.MemTop) {
+		return 0
+	}
+	return uint16(machine.MemTop) - seg
 }
 
 // alloc 是 `AH=48h`：一個真的 bump 配置器。
@@ -232,15 +266,20 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 // （Out of memory）。
 func (d *DOS) alloc(c *cpu.CPU) {
 	want := c.R[cpu.BX]
-	avail := uint16(machine.MemTop) - d.freeSeg
+	avail := availFrom(d.freeSeg)
 	if want > avail {
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = avail
 		setCarry(c)
+		d.MemOps = append(d.MemOps, MemOp{Kind: "alloc", Want: want, Avail: avail,
+			FreeSeg: d.freeSeg, Failed: true, Step: d.M.Steps})
 		return
 	}
 	seg := d.freeSeg + 1 // +1 給假的 MCB
 	d.freeSeg = seg + want
+	d.lastBlock = seg
 	c.R[cpu.AX] = seg
 	clearCarry(c)
+	d.MemOps = append(d.MemOps, MemOp{Kind: "alloc", Want: want, Got: seg,
+		Avail: avail, FreeSeg: d.freeSeg, Step: d.M.Steps})
 }

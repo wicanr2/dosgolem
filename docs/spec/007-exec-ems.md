@@ -1,7 +1,8 @@
-# 007 — EXEC（AX=4B00h）、子程式回傳碼（AH=4Dh）、EMS 最小子集
+# 007 — EXEC（AX=4B00h）、載入 overlay（AX=4B03h）、子程式回傳碼（AH=4Dh）、EMS 最小子集
 
 日期：2026-09-06
-狀態：**READY**（§2 EXEC、§3 AH=4D、§4 EMS 查詢、§5 EMMXXXX0 裝置開啟）／
+狀態：**READY**（§2 EXEC、§2.5 載入 overlay、§3 AH=4D、§4 EMS 查詢、
+§5 EMMXXXX0 裝置開啟）／
 **DRAFT**（§6 刻意不做的部分與已知簡化）
 動機：第二個案例《銀河英雄傳說III SP》的 `GIN3.COM`（622-byte COM launcher）
 需要這四件才能原生（無 patch）EXEC 進本體 `GIN3PS.EXE`。
@@ -57,6 +58,29 @@
 - **handle 繼承**：子程式看得到父程式開著的 handle（共用同一張表——
   真 DOS 也是同一張 JFT 複製）；子程式結束時關掉它在 EXEC 之後才開的 handle。
 - 巢狀 EXEC 用堆疊自然支援（子程式再 EXEC 孫程式）。
+
+## 2.5 載入 overlay：`int 21h AX=4B03h`（READY）
+
+把一支 EXE 的映像搬進呼叫端指定的段，**不建立 PSP、不配記憶體、不執行**。
+呼叫端自己先配好空間，載完再 far call 進入點。
+
+參數區 `ES:BX` 是兩個 word：
+
+| 位移 | 意義 |
+|---:|---|
+| `+0` | 載入段（映像放哪） |
+| `+2` | 重定位因子（加在每一筆重定位項上） |
+
+兩個欄位規格上分開，實務上通常相同。
+
+- 出處：《武士傳說》的 `KOL.EXE`。它是主程式，`TITLE.EXE`／`KOLTOWN.EXE`
+  是 overlay——DOS 版遊戲在 640 KB 底下換場景的標準做法。
+- **沒實作的症狀不像少了一個服務。** Microsoft C runtime 收到 CF 之後印
+  `run-time error R6006 - bad format on exec` 再以回傳碼 255 離開，
+  看起來像那支 EXE 檔壞了。`Unimplemented()` 裡的
+  `int 21h AH=4B AL=03` 才是線索。
+- 失敗回 `AX=2`（檔案找不到）或 `AX=11`（格式不對），並設 CF。
+- 不動 `curPSP`、不動 bump 指標、不碰 handle 表——overlay 是主程式的一部分。
 
 ## 3. `int 21h AH=4Dh`：取子程式回傳碼（READY）
 
