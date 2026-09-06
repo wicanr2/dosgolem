@@ -187,6 +187,13 @@ func (o *Oracle) video() []uint8 {
 // 才不會被調色盤循環干擾（`docs/spec/005` §3.3）。
 func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 
+// IndexedEGA 是 EGA 平面模式解出來的畫面。
+//
+// `Indexed()` 給的是線性的 A0000 視窗（64,000 個位元組）；EGA 的
+// 640×350 是**四個位元平面**，要指定寬高才解得出來。拿線性那一份當畫面
+// 存圖會得到一張有規律的條紋——看起來像畫面壞掉，而不像取錯了緩衝區。
+func (o *Oracle) IndexedEGA(w, h int) []uint8 { return o.m.IndexedEGASize(w, h) }
+
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
