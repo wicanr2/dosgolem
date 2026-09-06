@@ -17,8 +17,19 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x00, 0x4C:
 		d.exit(c, al(c))
 
+	case 0x01, 0x07, 0x08:
+		d.conIn(c, fn)
+
 	case 0x02, 0x06:
 		d.conOut(c, fn)
+
+	case 0x0B: // 查有沒有按鍵：AL=FFh 有、AL=00h 沒有
+		if len(d.Stdin) == 0 {
+			setAL(c, 0x00)
+		} else {
+			setAL(c, 0xFF)
+		}
+		clearCarry(c)
 
 	case 0x09: // 輸出 $ 結尾的字串
 		addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
@@ -136,6 +147,39 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.note(0x21, fn, al(c))
 		clearCarry(c)
 	}
+}
+
+// conIn 是 `AH=01h`（有回顯）／`07h`（無回顯、不理 Ctrl-Break）／
+// `08h`（無回顯、理 Ctrl-Break）的主控台輸入。字元回在 `AL`。
+//
+// ⚠ **真 DOS 的這三個都是阻塞的**：佇列空就停在那裡等人按鍵，一道指令都不走。
+// 步進式的執行器停不下來，只能返回一個值，而**返回什麼都是在說謊**——
+// 差別只在說得多難聽：
+//
+//   - 不動 `AX`（落到 default 的舊行為）＝ 餵殘留的垃圾當按鍵。
+//     程式拿到一個沒人按過的鍵，通常不合法，於是重來一次，
+//     結果是每十幾道指令一次的緊迴圈。
+//   - 餵 `StdinFill` ＝ 假裝有人按了那個鍵。比垃圾更糟，因為它看起來像對的。
+//
+// 這裡選 `AL=0`：**0 不是任何一個可打出來的鍵**，程式會繼續等，
+// 與真 DOS 的「還沒有人按」語意最接近。空轉照樣發生，但那是誠實的空轉——
+// 同時 `KeyWaits` 會把它數出來，外面就分得出「在等鍵盤」與「在做事」。
+//
+// 要讓它往下走就餵鍵（probe 的 `-keys`、oracle 的 `SendKeys`），不是加大 `-steps`。
+func (d *DOS) conIn(c *cpu.CPU, fn uint8) {
+	if len(d.Stdin) == 0 {
+		d.KeyWaits++
+		setAL(c, 0)
+		clearCarry(c)
+		return
+	}
+	ch := d.Stdin[0]
+	d.Stdin = d.Stdin[1:]
+	setAL(c, ch)
+	if fn == 0x01 { // 只有 AH=01h 回顯
+		d.Console = append(d.Console, ch)
+	}
+	clearCarry(c)
 }
 
 // conOut 是 `AH=02h`／`AH=06h` 的主控台輸出。

@@ -289,6 +289,10 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("  %s\n", r)
 	}
 
+	if d.KeyWaits > 0 {
+		fmt.Printf("\n⚠ 佇列空時被要求讀鍵 %d 次——它在**等鍵盤**，不是在做事。\n"+
+			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
+	}
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {
 		f, l := d.Mouse.Polls[0], d.Mouse.Polls[n-1]
