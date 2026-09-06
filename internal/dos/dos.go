@@ -141,6 +141,10 @@ type DOS struct {
 	curPSP   uint16
 	lastExit uint16
 	queue    []Queued
+
+	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
+	emb     map[uint16][]byte
+	nextEMB uint16
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -208,6 +212,11 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 	case 0xF4:
 		d.int15(c)
 		d.fixStackedCF(c)
+	case 0xF5: // XMS driver entry 的 trampoline（`docs/spec/011`）
+		d.xmsCall(c)
+		d.fixStackedCF(c)
+	case 0x2F: // XMS 偵測（AH=43h）
+		d.int2F(c)
 	case 0x08, 0x1C:
 		// 計時器中斷鏈上的空 stub。向量還在 StubSeg ＝ 沒人裝，
 		// 它的語意就是 IRET——**不記一筆**，否則每次 tick 都會
