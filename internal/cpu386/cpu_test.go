@@ -1472,6 +1472,14 @@ func TestImmediateORCompareAndShortJNZ(t *testing.T) {
 	}
 }
 
+func TestOrALImmediate8(t *testing.T) {
+	c := New(testBus{0x0c, 0x03})
+	c.R[EAX], c.EFlags = 0x12345680, CF|OF|AF
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345683 || c.EFlags&(CF|OF|AF|ZF|SF) != SF {
+		t.Fatalf("OR AL EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestCompareRegisterAndShortJAE(t *testing.T) {
 	mem := testBus{0x3b, 0xf7, 0x73, 0x02, 0xff, 0xff, 0xfb}
 	c := New(mem)

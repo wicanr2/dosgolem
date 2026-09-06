@@ -1126,3 +1126,20 @@ func TestFD2BranchesPastTolowerConversion(t *testing.T) {
 		t.Fatalf("tolower JG steps=%d EIP=%X want=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, wantEIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2BuildsBaseOpenFlags(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36e45; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("base open flags setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	before := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("base open flags OR: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x36e47 || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != before|3 {
+		t.Fatalf("base open flags steps=%d EIP=%X calls=%d EAX=%X before=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], before, m.CPU.EFlags)
+	}
+}

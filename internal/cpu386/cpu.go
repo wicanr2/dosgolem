@@ -2301,6 +2301,17 @@ func (c *CPU) Step() error {
 		}
 		c.R[EAX] |= value
 		c.setLogicFlags(c.R[EAX])
+	case op == 0x0c:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("0C 不接受目前的 prefix")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		result := uint8(c.R[EAX]) | value
+		c.R[EAX] = c.R[EAX]&0xffffff00 | uint32(result)
+		c.setLogicFlags8(result)
 	case op == 0x25:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("25 不接受目前的 prefix")
