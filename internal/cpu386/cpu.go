@@ -1206,7 +1206,30 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 || (modrm>>3)&7 != 4 {
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 7 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP immediate32 dword read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.sub32(value, imm)
+			break
+		}
+		if modrm>>6 != 3 || group != 4 {
 			return fail(fmt.Sprintf("81 ModRM %02X 尚未支援", modrm))
 		}
 		value, e := c.fetch32()

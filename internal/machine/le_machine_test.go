@@ -918,3 +918,17 @@ func TestFD2CompletesAILActiveTableScan(t *testing.T) {
 		t.Fatalf("AIL active scan loop steps=%d EIP=%X calls=%d EDI=%X ECX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.ECX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2ComparesAILRateThreshold(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e8a6; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL rate threshold: step=%d EIP=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	argument, errArgument := m.Read32(m.CPU.R[cpu386.EBP] + 8)
+	if m.CPU.EIP != 0x3e8a6 || services.Calls() != 5 || argument != 0xd68d || m.CPU.EFlags&cpu386.ZF == 0 || errArgument != nil {
+		t.Fatalf("AIL rate threshold steps=%d EIP=%X calls=%d argument=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), argument, m.CPU.EFlags, errArgument)
+	}
+}
