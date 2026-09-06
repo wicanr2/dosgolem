@@ -326,3 +326,32 @@ func (o *Oracle) FileOps() []FileOp {
 	}
 	return out
 }
+
+// MemCall 是原版的一次配置器呼叫。
+type MemCall struct {
+	Step   uint64
+	Op     uint8  // 0x48 配置、0x49 釋放
+	Want   uint16 // 要幾段
+	Seg    uint16 // 給出去的段（0x49 是被釋放的段）
+	Got    uint16 // 成功時是實得段數，失敗時是回報的最大自由段數
+	OK     bool
+	CS, IP uint16
+}
+
+// TraceMem 打開配置器追蹤。要在 Run 之前呼叫。
+//
+// **「總共佔了多少」答不出「哪一次開始偏離」。** 要判斷我們的配置器
+// 是不是比真 DOS 大方，得逐筆看每一次要多少、給多少、誰要的。
+func (o *Oracle) TraceMem() { o.d.MemTrace = []dos.MemCall{} }
+
+// MemCalls 回傳目前為止的配置器呼叫。
+func (o *Oracle) MemCalls() []MemCall {
+	out := make([]MemCall, 0, len(o.d.MemTrace))
+	for _, m := range o.d.MemTrace {
+		out = append(out, MemCall{
+			Step: m.Step, Op: m.Op, Want: m.Want, Seg: m.Seg,
+			Got: m.Got, OK: m.OK, CS: m.CS, IP: m.IP,
+		})
+	}
+	return out
+}

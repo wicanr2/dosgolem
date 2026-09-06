@@ -155,10 +155,13 @@ func (d *DOS) int21(c *cpu.CPU) {
 
 	case 0x48:
 		d.alloc(c)
+		d.syncMCB()
 	case 0x49:
 		d.release(c)
+		d.syncMCB()
 	case 0x4A:
 		d.setBlock(c)
+		d.syncMCB()
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -321,19 +324,6 @@ func (d *DOS) exec(c *cpu.CPU) {
 		return
 	}
 	d.Overlays = append(d.Overlays, rec)
-
-	// 診斷開關（`DOSGOLEM_FREE_ON_OVERLAY=1`）：chain-load 時把舊程式
-	// 配置過的區塊全部標成自由。
-	//
-	// **這不是 DOS 的行為**——真 DOS 不會因為載了 overlay 就回收別人的
-	// 記憶體。它存在只為了回答一個問題：目標程式後面的失敗是
-	// 「記憶體數量不夠」還是「別的結構問題」。用完要關掉。
-	if os.Getenv("DOSGOLEM_FREE_ON_OVERLAY") == "1" {
-		for i := range d.arena {
-			d.arena[i].free = true
-		}
-		d.coalesce()
-	}
 	clearCarry(c)
 }
 
@@ -442,7 +432,8 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	d.Resizes = append(d.Resizes, ResizeCall{Seg: blk, Want: want, FreeSeg: d.freeSeg})
+	rec := ResizeCall{Seg: blk, Want: want, FreeSeg: d.freeSeg, CS: c.Seg[cpu.CS], IP: c.IP}
+	rec.Before, rec.InArena = d.blockSize(blk)
 	// 程式調整自己的 PSP 區塊之後，後面那塊才是可配置的空間。
 	//
 	// ⚠ **要跟著降，不能只升。** 第一版寫成 `if blk+want+1 > d.freeSeg`，
@@ -473,9 +464,25 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	// （PSP、映像本體）維持原本的行為：那條路是記憶體探測協定，
 	// 上面的註解記著為什麼不能一律報成功。
 	if d.arena != nil && d.resize(c, blk, want) {
+		rec.After, _ = d.blockSize(blk)
+		rec.OK = c.Flags&cpu.CF == 0
+		d.Resizes = append(d.Resizes, rec)
 		return
 	}
 	clearCarry(c)
+	rec.After, _ = d.blockSize(blk)
+	rec.OK = true
+	d.Resizes = append(d.Resizes, rec)
+}
+
+// blockSize 查 arena 裡以 seg 為資料起點的區塊有多少段。
+func (d *DOS) blockSize(seg uint16) (uint16, bool) {
+	for _, b := range d.arena {
+		if b.seg+1 == seg {
+			return b.size, true
+		}
+	}
+	return 0, false
 }
 
 // initArena 在第一次用到時把 [freeSeg, MemTop) 建成一個自由區塊。
@@ -575,11 +582,24 @@ func (d *DOS) alloc(c *cpu.CPU) {
 		}
 		c.R[cpu.AX] = d.arena[i].seg + 1
 		clearCarry(c)
+		d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
 		return
 	}
 	c.R[cpu.AX] = 8 // 記憶體不足
 	c.R[cpu.BX] = d.largestFree()
 	setCarry(c)
+	d.noteMem(c, 0x48, want, 0, d.largestFree(), false)
+}
+
+// noteMem 記一筆配置器帳。MemTrace 是 nil 就什麼都不做。
+func (d *DOS) noteMem(c *cpu.CPU, op uint8, want, seg, got uint16, ok bool) {
+	if d.MemTrace == nil {
+		return
+	}
+	d.MemTrace = append(d.MemTrace, MemCall{
+		Step: d.M.Steps, Op: op, Want: want, Seg: seg, Got: got, OK: ok,
+		CS: c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], ES: c.Seg[cpu.ES],
+	})
 }
 
 // release 是 `AH=49h`：標記為自由**並合併相鄰的自由區塊**。
@@ -593,15 +613,18 @@ func (d *DOS) release(c *cpu.CPU) {
 		if d.arena[i].seg+1 != seg {
 			continue
 		}
+		size := d.arena[i].size
 		d.arena[i].free = true
 		d.coalesce()
 		clearCarry(c)
+		d.noteMem(c, 0x49, 0, seg, size, true)
 		return
 	}
 	// 不認識的區塊：**照實回錯誤**。悄悄成功會把「釋放了不屬於自己的東西」
 	// 藏起來，而那是真 DOS 會抓的錯（AX=9，MCB 位址無效）。
 	c.R[cpu.AX] = 9
 	setCarry(c)
+	d.noteMem(c, 0x49, 0, seg, 0, false)
 }
 
 // coalesce 把相鄰的自由區塊併起來。被吃掉的那一塊連它的 MCB 段一起回收。
@@ -661,4 +684,33 @@ func (d *DOS) resize(c *cpu.CPU, seg, want uint16) bool {
 		return true
 	}
 	return false
+}
+
+// syncMCB 把配置器的區塊表發布成客體記憶體裡的 MCB 鏈。
+//
+// **配置器的狀態只活在 Go 這一側是不夠的。** DOS 程式看得到 MCB，
+// 而且會走它：智冠《三國演義》在載入下一個模組之前，從自己的 PSP
+// 沿著鏈往上加，算出「我總共構得到多少段」再拿去要記憶體
+// （`docs/spec/009` 附錄五，反組譯在 `0583:3068`）。鏈沒同步的話
+// 那個數字與事實無關，而**程式不會因此報錯**——它只是拿錯的數字
+// 去做決定，然後在很遠的地方失敗。
+//
+// 鏈的形狀：`PSPSeg−1` 是程式自己的區塊（涵蓋 PSP ＋ 映像），
+// 接著是 arena 的每一塊，最後一塊掛 `Z`。arena 相鄰無空隙
+// （每塊佔 1 段 MCB ＋ size 段資料），所以直接照順序寫就是一條合法的鏈。
+func (d *DOS) syncMCB() {
+	d.M.WriteMCB(machine.PSPSeg-1, len(d.arena) == 0, machine.PSPSeg,
+		d.freeSeg-machine.PSPSeg)
+	for i, b := range d.arena {
+		owner := uint16(machine.PSPSeg)
+		if b.free {
+			owner = 0
+		}
+		d.M.WriteMCB(b.seg, i == len(d.arena)-1, owner, b.size)
+	}
+	if len(d.arena) == 0 {
+		// 還沒配置過：可配置區整塊掛成自由的鏈尾。
+		d.M.WriteMCB(d.freeSeg, true, 0, uint16(machine.MemTop)-d.freeSeg-1)
+		d.M.WriteMCB(machine.PSPSeg-1, false, machine.PSPSeg, d.freeSeg-machine.PSPSeg)
+	}
 }

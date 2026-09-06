@@ -148,33 +148,35 @@ func (m *Machine) initPSP() {
 	m.Write16(psp+0x36, PSPSeg)
 }
 
-// initMCB 造一條最小的合法記憶體控制區塊鏈。
+// WriteMCB 在 seg 這一段寫一個記憶體控制區塊。
 //
-// ⚠ **這一段的必要性沒有獨立證明。** `rich2/docs/re/005` §4 的
-// `DOS memory-arena error` 看起來像 MCB 鏈驗證失敗，但 §10 找到的根因是
-// `int 21h AH=4Ah` 的探測語意（`docs/spec/004` §1.2）——連續三輪調 MCB
-// 佈局都無效。
+// 佈局是 DOS 的：`+0` 簽章（`M` 中間、`Z` 鏈尾）、`+1` 擁有者 PSP
+// （0 ＝ 自由）、`+3` 資料段數、`+8` 八個字元的程式名。
+// 區塊的資料從 `seg+1` 開始，下一個 MCB 在 `seg+1+size`。
+func (m *Machine) WriteMCB(seg uint16, last bool, owner, size uint16) {
+	lin := uint32(seg) * 16
+	sig := byte('M')
+	if last {
+		sig = 'Z'
+	}
+	m.Mem[lin] = sig
+	m.Write16(lin+1, owner)
+	m.Write16(lin+3, size)
+	m.WriteBytes(lin+5, []byte{0, 0, 0})
+	m.WriteBytes(lin+8, []byte("        "))
+}
+
+// initMCB 造一條合法的記憶體控制區塊鏈：程式自己的區塊 ＋ 後面全部自由。
 //
-// 這裡照樣建，理由只有一個：**它是那份實際跑通的實作留下來的**，
-// 而現在還沒有「拿掉也照跑」的收據。等 MVP-B 過了再回來拿掉試一次，
-// 過得了就刪掉這一段。
-//
-// 關鍵是鏈上要有一個「擁有者是本程式 PSP」的區塊，而且要涵蓋程式本身，
-// 所以第一個 MCB 放在 `PSPSeg − 1`，緊接著就是 PSP。
+// ⚠ **鏈要跟配置器同步，不能只在載入時建一次。** 舊版寫死兩格
+// （`PSPSeg−1` 大小 0x2000、`PSPSeg+0x2000` 一格鏈尾），之後不論配置器
+// 怎麼變都不更新。會走 MCB 鏈的程式因此看到一份與事實無關的地圖——
+// 而且那格寫死的鏈尾落在 0x2100，對大一點的映像來說是**寫進程式自己的
+// 映像裡**。智冠《三國演義》就是走這條鏈算「總共有多少段」再拿去載入
+// 下一個模組的（`docs/spec/009` 附錄五）。同步由 `dos.syncMCB` 負責。
 func (m *Machine) initMCB() {
-	const progSize = 0x2000 // 段數，足以蓋住整個程式
-
-	first := uint32((PSPSeg - 1) * 16)
-	m.Mem[first] = 'M'
-	m.Write16(first+1, PSPSeg)
-	m.Write16(first+3, progSize)
-	m.WriteBytes(first+8, []byte("        "))
-
-	last := uint32((PSPSeg + progSize) * 16)
-	m.Mem[last] = 'Z'
-	m.Write16(last+1, 0)
-	m.Write16(last+3, 0x0100)
-	m.WriteBytes(last+8, []byte("        "))
+	m.WriteMCB(PSPSeg-1, false, PSPSeg, m.FreeSeg-PSPSeg)
+	m.WriteMCB(m.FreeSeg, true, 0, MemTop-m.FreeSeg-1)
 
 	// DOS 的「list of lists」：`[BX-2]` 是第一個 MCB 的段位址。
 	m.Write16(LOLSeg*16+0x0E, PSPSeg-1)

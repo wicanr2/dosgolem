@@ -201,6 +201,9 @@ type DOS struct {
 	// 服務回傳時動到不該動的暫存器，症狀會出現在很後面的另一個呼叫上。
 	CallTrace []CallRec
 
+	// MemTrace 記每一次配置／釋放。非 nil 才記（筆數可達上萬）。
+	MemTrace []MemCall
+
 	// FileTrace 記每一次檔案操作的參數與結果。
 	//
 	// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
@@ -403,8 +406,34 @@ type OverlayLoad struct {
 	CallSite [32]byte
 }
 
+// MemCall 是一次配置器呼叫（`AH=48h` 配置／`AH=49h` 釋放）的逐筆帳。
+//
+// 存在的理由是**總量對不對答不了「哪一次開始偏離」**。原版跑到
+// `DATA5.GRP` 那一層時要 `BX=FFFF`（探測上限），拿到 122 KB 就收工；
+// 當下它自己握著約 373 KB 而整趟一次都沒釋放。要判斷是「真 DOS 底下
+// 它也拿這麼多」還是「我們給多了」，只能一筆一筆比對要求與回應。
+type MemCall struct {
+	Step   uint64
+	Op     uint8  // 0x48 配置、0x49 釋放
+	Want   uint16 // 要幾段（0x49 時無意義）
+	Seg    uint16 // 成功時給出去的段；0x49 時是 ES
+	Got    uint16 // 失敗時回報的最大自由段數
+	OK     bool
+	CS, IP uint16 // 呼叫端
+	DS, ES uint16
+}
+
 // ResizeCall 是一次 `AH=4Ah` 的紀錄。
-type ResizeCall struct{ Seg, Want, FreeSeg uint16 }
+//
+// Before／After 是這個區塊在 arena 裡調整前後的段數（`InArena` 為假時無意義）。
+// **要求的大小不等於區塊最後的大小**：程式可以一路把同一塊撐大，
+// 而只看 `AH=48h` 的要求量會漏掉這一段成長。
+type ResizeCall struct {
+	Seg, Want, FreeSeg uint16
+	Before, After      uint16
+	InArena, OK        bool
+	CS, IP             uint16
+}
 
 // CallRec 是一次 int 21h 的暫存器快照。
 type CallRec struct {

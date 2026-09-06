@@ -64,6 +64,10 @@ func main() {
 			"    -peek 只吃 IDA 線性位址，換算不到執行期搬過去的段。")
 		blockAfter := flag.Uint64("block-after", 100_000,
 		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
+	memTrace := flag.Bool("mem-trace", false,
+		"逐筆記 AH=48h／49h 的要求與回應（含呼叫端 CS:IP）。\n"+
+			"    「總共佔了多少」答不出「哪一次開始偏離」——要比對配置器\n"+
+			"    跟真 DOS 的差別只能一筆一筆看。")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	flag.Parse()
 
@@ -99,6 +103,9 @@ func main() {
 	d := dos.New(m, *root)
 	d.CallTrace = []dos.CallRec{}
 	d.FileTrace = []dos.FileOp{}
+	if *memTrace {
+		d.MemTrace = []dos.MemCall{}
+	}
 	if *logCalls {
 		d.Calls = map[dos.Call]int{}
 	}
@@ -364,6 +371,55 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 				f.Step, f.Op, f.Handle, f.Name, f.Arg, f.Result)
 		}
 	}
+	if len(d.MemTrace) > 0 {
+		var nAlloc, nFree, nFail int
+		var held int64 // 目前握在手上的段數
+		var peak int64
+		for _, m := range d.MemTrace {
+			switch {
+			case m.Op == 0x48 && m.OK:
+				nAlloc++
+				held += int64(m.Got)
+			case m.Op == 0x48:
+				nFail++
+			case m.Op == 0x49 && m.OK:
+				nFree++
+				held -= int64(m.Got)
+			default:
+				nFail++
+			}
+			if held > peak {
+				peak = held
+			}
+		}
+		fmt.Printf("\n配置器逐筆帳（AH=48h 成功 %d／失敗 %d，AH=49h %d 次；"+
+			"淨持有 %d 段 ≈ %d KB，峰值 %d KB）：\n",
+			nAlloc, nFail, nFree, held, held*16/1024, peak*16/1024)
+		for i, m := range d.MemTrace {
+			if len(d.MemTrace) > 60 && i == 30 {
+				fmt.Printf("  …中間 %d 筆略過…\n", len(d.MemTrace)-60)
+			}
+			if len(d.MemTrace) > 60 && i >= 30 && i < len(d.MemTrace)-30 {
+				continue
+			}
+			op, res := "配置", ""
+			if m.Op == 0x49 {
+				op = "釋放"
+			}
+			switch {
+			case m.Op == 0x48 && m.OK:
+				res = fmt.Sprintf("→ %04X（實得 %04X 段 ＝ %d KB）", m.Seg, m.Got, int(m.Got)*16/1024)
+			case m.Op == 0x48:
+				res = fmt.Sprintf("✗ 不足，最大自由 %04X 段 ＝ %d KB", m.Got, int(m.Got)*16/1024)
+			case m.OK:
+				res = fmt.Sprintf("ES=%04X（%04X 段）", m.Seg, m.Got)
+			default:
+				res = fmt.Sprintf("✗ ES=%04X 不是已配置的區塊", m.Seg)
+			}
+			fmt.Printf("  #%-10d %s want=%04X %-42s  呼叫端 %04X:%04X DS=%04X ES=%04X\n",
+				m.Step, op, m.Want, res, m.CS, m.IP, m.DS, m.ES)
+		}
+	}
 	fmt.Printf("\n配置器狀態：\n")
 	for _, l := range d.ArenaDump() {
 		fmt.Println("  " + l)
@@ -384,12 +440,19 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 	if len(d.Resizes) > 0 {
-		fmt.Printf("\nAH=4Ah 調整區塊（前 8 次，共 %d）：\n", len(d.Resizes))
-		for i, r := range d.Resizes {
-			if i >= 8 {
-				break
+		fmt.Printf("\nAH=4Ah 調整區塊（%d 次）：\n", len(d.Resizes))
+		for _, r := range d.Resizes {
+			where := "arena 外（PSP／映像／記憶體探測）"
+			if r.InArena {
+				where = fmt.Sprintf("arena 內 %04X→%04X 段（%+d KB）",
+					r.Before, r.After, (int(r.After)-int(r.Before))*16/1024)
 			}
-			fmt.Printf("  ES=%04X want=%04X 段  當時 freeSeg=%04X\n", r.Seg, r.Want, r.FreeSeg)
+			st := "✗"
+			if r.OK {
+				st = "✓"
+			}
+			fmt.Printf("  ES=%04X want=%04X %s %-44s freeSeg=%04X  呼叫端 %04X:%04X\n",
+				r.Seg, r.Want, st, where, r.FreeSeg, r.CS, r.IP)
 		}
 	}
 	if len(d.Overlays) > 0 {

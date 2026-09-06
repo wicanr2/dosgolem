@@ -366,3 +366,108 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
 	}
 }
+
+// TestMCBChainMirrorsArena 釘住「配置器的狀態要發布到客體記憶體」。
+//
+// DOS 程式看得到 MCB 而且會走它。鏈沒同步的話程式**不會報錯**——
+// 它只是沿著一份與事實無關的地圖算出一個數字，然後拿那個數字去做決定。
+// 智冠《三國演義》就是這樣：走鏈算「總共構得到多少段」，拿到 0x2000
+// （寫死的舊值）而不是 0x9EFF，於是判定載不下下一個模組，印完
+// 「程式載入中 請稍待」就以 255 離開。
+//
+// 這條測試走的是真正的 int 21h 分派路徑，並且照程式的走法讀鏈：
+// 從 PSP 的 MCB 開始，`+1` 是擁有者、`+3` 是段數，下一個 MCB 在
+// `seg+1+size`，簽章 `M` continue／`Z` 收尾。
+func TestMCBChainMirrorsArena(t *testing.T) {
+	m, d := newTest(t)
+
+	// 配三塊，再放掉中間那塊——鏈上就會有「自己的、自由的、自己的」。
+	var segs []uint16
+	for _, want := range []uint16{0x0100, 0x0080, 0x0040} {
+		m.CPU.R[cpu.BX] = want
+		call(m, d, 0x21, 0x4800)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("配置 %04X 段失敗", want)
+		}
+		segs = append(segs, m.CPU.R[cpu.AX])
+	}
+	m.CPU.Seg[cpu.ES] = segs[1]
+	call(m, d, 0x21, 0x4900)
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatal("釋放中間那塊失敗")
+	}
+
+	// 照程式的方式走鏈。
+	seg := uint16(machine.PSPSeg - 1)
+	var total, blocks int
+	var sawFree bool
+	for {
+		lin := uint32(seg) * 16
+		sig := m.Read8(lin)
+		owner := m.Read16(lin + 1)
+		size := m.Read16(lin + 3)
+		if sig != 'M' && sig != 'Z' {
+			t.Fatalf("第 %d 個 MCB（段 %04X）簽章是 %02X，鏈斷了——"+
+				"走鏈的程式會判定記憶體壞掉", blocks, seg, sig)
+		}
+		if owner != 0 && owner != machine.PSPSeg {
+			t.Fatalf("段 %04X 的擁有者是 %04X，不是 0 也不是 PSP", seg, owner)
+		}
+		if owner == 0 {
+			sawFree = true
+		}
+		blocks++
+		total += int(size) + 1
+		if sig == 'Z' {
+			break
+		}
+		seg += 1 + size
+		if blocks > 64 {
+			t.Fatal("鏈走不完——沒有 Z 收尾")
+		}
+	}
+	if !sawFree {
+		t.Error("鏈上一塊自由區塊都沒有，剛剛才釋放過一塊")
+	}
+	// 鏈要**反映實際配置**，不是只要合法就好：三塊都要在鏈上找得到，
+	// 大小與擁有權都要對。只檢查「鏈走得完」的話，載入時建的那條
+	// 「一塊自己的 ＋ 一塊全部自由」也照樣過關。
+	for i, want := range []uint16{0x0100, 0x0080, 0x0040} {
+		lin := uint32(segs[i]-1) * 16
+		gotSize := m.Read16(lin + 3)
+		gotOwner := m.Read16(lin + 1)
+		wantOwner := uint16(machine.PSPSeg)
+		if i == 1 {
+			wantOwner = 0 // 中間那塊已經釋放
+		}
+		if gotSize != want || gotOwner != wantOwner {
+			t.Errorf("第 %d 塊（MCB 段 %04X）鏈上寫的是 size=%04X owner=%04X，"+
+				"配置器裡是 size=%04X owner=%04X",
+				i, segs[i]-1, gotSize, gotOwner, want, wantOwner)
+		}
+	}
+	// 鏈要涵蓋 PSP 到傳統記憶體上緣：走完的段數要對得上。
+	if got, want := machine.PSPSeg-1+total, int(machine.MemTop); got != want {
+		t.Errorf("鏈的終點是 %04X，應該是 %04X（差 %d 段）", got, want, want-got)
+	}
+}
+
+// TestMCBChainDoesNotClobberImage 釘住「MCB 不准寫進程式映像」。
+//
+// 舊版把鏈尾寫死在 `PSPSeg+0x2000`。映像超過 128 KB 的程式，那八個 byte
+// 就落在自己的碼或資料中間——而且**當下什麼事都不會發生**。
+func TestMCBChainDoesNotClobberImage(t *testing.T) {
+	m, d := newTest(t)
+	const canary = 0xA5
+	for i := uint32(0); i < 16; i++ {
+		m.Write8((machine.PSPSeg+0x2000)*16+i, canary)
+	}
+	m.CPU.R[cpu.BX] = 0x0010
+	call(m, d, 0x21, 0x4800)
+	for i := uint32(0); i < 16; i++ {
+		if got := m.Read8((machine.PSPSeg+0x2000)*16 + i); got != canary {
+			t.Fatalf("段 %04X 的第 %d 個 byte 被改成 %02X——"+
+				"MCB 寫進了映像中間", machine.PSPSeg+0x2000, i, got)
+		}
+	}
+}
