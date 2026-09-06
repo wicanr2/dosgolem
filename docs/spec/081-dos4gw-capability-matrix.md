@@ -29,7 +29,8 @@ FD2 `main` 入口 `0x25BF4`。其後的增量收據已自然完成 AIL 程式／
 DPMI 鎖定，並進入 Watcom `getenv`，完成第一個 `strlen`，再經 AIL
 preference 表格的索引讀寫、共用包裝器尾端、預設表格清零，以及 AIL
 中斷設定入口的旗標保存、CLI、DS selector 保存並載回 ES，以及以
-`INT 31h/AX=0200h` 取得 timer 實模式向量至 `0x3E9B4`；此收據只證明
+`INT 31h/AX=0200h` 取得 timer 實模式向量，並以 `mov cx,dx` 打包至
+`0x3E9BA`；此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

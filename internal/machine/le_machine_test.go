@@ -799,3 +799,16 @@ func TestFD2GetsTimerRealModeVectorWhenProvided(t *testing.T) {
 		t.Fatalf("DPMI vector steps=%d EIP=%X calls=%d ECX=%X EDX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2PacksTimerRealModeVector(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e9ba; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DPMI vector pack: step=%d EIP=%X ECX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3e9ba || services.Calls() != 5 || m.CPU.R[cpu386.ECX] != 0 {
+		t.Fatalf("DPMI vector pack steps=%d EIP=%X calls=%d ECX=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX])
+	}
+}
