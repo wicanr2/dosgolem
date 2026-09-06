@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -294,6 +295,33 @@ type OPLWrite = machine.OPLWrite
 // 一組；這裡已經配好對。暫存器串是決定性的、可以逐筆比，
 // 而波形要逐樣本一致屬於既定停止線（`rich2/docs/spec/049`）。
 func (o *Oracle) OPLWrites() []OPLWrite { return o.m.OPL }
+
+// PortReads 是每個 I/O 埠被讀了幾次，次數多的在前。
+//
+// **「程式在等什麼」最直接的答案。** 卡在一個緊密迴圈時，看它輪詢哪個埠就知道
+// 它在等誰：`3DA` 是 CRT 狀態（等垂直回掃）、`60`／`64` 是鍵盤、`40`–`43` 是計時器、
+// `388` 是 OPL。輪詢次數很大是正常的，那正是「在等」的樣子。
+func (o *Oracle) PortReads() []PortCount {
+	out := make([]PortCount, 0, len(o.m.PortsIn))
+	for p, n := range o.m.PortsIn {
+		out = append(out, PortCount{Port: p, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Port < out[j].Port
+	})
+	return out
+}
+
+// PortCount 是一個埠被讀了幾次。
+type PortCount struct {
+	Port  uint16
+	Count uint64
+}
+
+func (p PortCount) String() string { return fmt.Sprintf("%03X×%d", p.Port, p.Count) }
 
 // WatchWrites 監看一段 DGROUP 偏移的寫入，回一份逐次紀錄。
 //
