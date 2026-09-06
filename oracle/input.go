@@ -143,6 +143,32 @@ func (o *Oracle) Press(s string) {
 	}
 }
 
+// PressScan 只送硬體掃描碼，不碰字元佇列。
+//
+// 自己裝 IRQ1、直接讀埠 0x60 的畫面用這個。**用 `Press` 的話字元佇列
+// 會留下一份沒人取的副本**，而那一份會把後面所有 `int 21h` 的讀取堵死
+// ——`int 16h AH=01` 只看不取，佇列的頭卡住就整條不動。
+//
+// 症狀是「按了沒反應」而不是錯誤：畫面上什麼都不會發生，
+// 而送進去的鍵在佇列裡越積越多。
+func (o *Oracle) PressScan(s string) {
+	for _, b := range []byte(s) {
+		if sc, ok := dos.ScanCode(b); ok {
+			o.m.PushKey(sc)
+		}
+	}
+}
+
+// Drain 把還沒被讀走的字元丟掉。
+//
+// 走掃描碼的畫面之後叫一次，免得字元佇列裡的殘留堵住下一個 `int 21h`
+// 的提示。回傳丟掉幾個。
+func (o *Oracle) Drain() int {
+	n := len(o.d.Stdin)
+	o.d.Stdin = o.d.Stdin[:0]
+	return n
+}
+
 // Pending 回還沒被讀走的鍵數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
 
