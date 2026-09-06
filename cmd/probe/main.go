@@ -89,7 +89,9 @@ func main() {
 	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	segLog := flag.Bool("seg-log", false, "記錄 CS 的每一次改變，報告裡印出每個段第一次執行的時間與來源")
-	dumpMem := flag.String("dump-mem", "", "跑完把一段線性記憶體寫成檔案：<lo>-<hi>:<路徑>（位址十六進位）")
+	dumpMem := flag.String("dump-mem", "",
+		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
+			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
@@ -1157,6 +1159,12 @@ func writeMemDump(m *machine.Machine, spec string) {
 	if spec == "" {
 		return
 	}
+	for _, one := range strings.Split(spec, ",") {
+		writeOneMemDump(m, one)
+	}
+}
+
+func writeOneMemDump(m *machine.Machine, spec string) {
 	i := strings.LastIndex(spec, ":")
 	if i < 0 {
 		fmt.Println("dump-mem 格式是 <lo>-<hi>:<路徑>")
