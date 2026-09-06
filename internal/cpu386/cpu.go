@@ -1578,6 +1578,42 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
+	case op == 0xd1:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("D1 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 != 3 || (group != 1 && group != 2) {
+			return fail(fmt.Sprintf("D1 ModRM %02X 尚未支援", modrm))
+		}
+		rm := int(modrm & 7)
+		value := c.R[rm]
+		var result, carry, overflow uint32
+		if group == 2 {
+			carryIn := uint32(0)
+			if c.EFlags&CF != 0 {
+				carryIn = 1
+			}
+			result = value<<1 | carryIn
+			carry = value >> 31
+			overflow = result>>31 ^ carry
+		} else {
+			result = value>>1 | value<<31
+			carry = value & 1
+			overflow = result>>31 ^ (result >> 30 & 1)
+		}
+		c.EFlags &^= CF | OF
+		if carry != 0 {
+			c.EFlags |= CF
+		}
+		if overflow&1 != 0 {
+			c.EFlags |= OF
+		}
+		c.R[rm] = result
 	case op == 0xc1:
 		if operand16 {
 			return fail("16-bit C1 尚未支援")

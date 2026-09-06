@@ -372,6 +372,41 @@ func TestRegisterSHL32(t *testing.T) {
 	}
 }
 
+func TestRegisterRCLAndROR32ByOne(t *testing.T) {
+	preserved := uint32(SF | ZF | AF | PF)
+	for _, test := range []struct {
+		name      string
+		value     uint32
+		carryIn   uint32
+		want      uint32
+		wantFlags uint32
+	}{
+		{name: "DOS success", value: 5, want: 5, wantFlags: preserved},
+		{name: "DOS error", value: 2, carryIn: CF, want: 0x80000002, wantFlags: preserved | CF | OF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus{0xd1, 0xd0, 0xd1, 0xc8})
+			c.R[EAX], c.EFlags = test.value, preserved|test.carryIn
+			if err := c.Step(); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Step(); err != nil {
+				t.Fatal(err)
+			}
+			if c.R[EAX] != test.want || c.EFlags&(SF|ZF|AF|PF|CF|OF) != test.wantFlags {
+				t.Fatalf("EAX=%X flags=%X", c.R[EAX], c.EFlags)
+			}
+		})
+	}
+
+	for _, code := range [][]byte{{0xd1, 0x10}, {0xd1, 0xe0}, {0x66, 0xd1, 0xd0}} {
+		c := New(testBus(code))
+		if err := c.Step(); err == nil {
+			t.Fatalf("未授權 D1 形狀 % X 被接受", code)
+		}
+	}
+}
+
 func TestRegisterADD32(t *testing.T) {
 	c := New(testBus{0x01, 0xc6})
 	c.R[ESI], c.R[EAX] = 3, 5
