@@ -1718,6 +1718,24 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
 			}
 			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack disp32 dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int32(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack disp32 dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride < 0 && modrm>>6 == 2 && modrm&7 != ESP {
 			delta, e := c.fetch32()
 			if e != nil {
