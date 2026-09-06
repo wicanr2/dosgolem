@@ -1236,3 +1236,21 @@ func TestFD2BuildsDOSOpenMode(t *testing.T) {
 		t.Fatalf("DOS open mode steps=%d EIP=%X calls=%d EAX=%X want=%X source=%X EBP=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, source, m.CPU.R[cpu386.EBP], errRead)
 	}
 }
+
+func TestFD2InitializesDOSOpenHandle(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3cd6a; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("open handle setup: step=%d EIP=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	base, flags := m.CPU.R[cpu386.EBP], m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("open handle init: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	got, errRead := m.Read32(base - 8)
+	if m.CPU.EIP != 0x3cd71 || services.Calls() != 5 || errRead != nil || got != 0xffffffff || m.CPU.R[cpu386.EBP] != base || m.CPU.EFlags != flags {
+		t.Fatalf("open handle steps=%d EIP=%X calls=%d got=%X EBP=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), got, m.CPU.R[cpu386.EBP], m.CPU.EFlags, errRead)
+	}
+}
