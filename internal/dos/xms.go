@@ -87,6 +87,9 @@ func (d *DOS) xmsMove(c *cpu.CPU) {
 		d.xmsWrite(dstH, dstOff+i, b)
 	}
 	c.R[cpu.AX] = 1
+	d.XMSMoves = append(d.XMSMoves, XMSMove{
+		Step: d.M.Steps, Len: n, SrcH: srcH, SrcOff: srcOff, DstH: dstH, DstOff: dstOff,
+	})
 	clearCarry(c)
 }
 

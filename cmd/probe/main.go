@@ -111,7 +111,7 @@ func main() {
 			die(err)
 		}
 		m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
-			if len(writes) < 200 {
+			if len(writes) < 20000 {
 				writes = append(writes, memWrite{a, old, nw, m.Steps,
 					m.CPU.Seg[cpu.CS], m.CPU.IP})
 			}
@@ -193,7 +193,10 @@ func main() {
 
 	report(m, d, ring, runErr, *steps)
 	if *watch != "" {
-		fmt.Printf("\n監看 %s 的寫入（%d 筆）：\n", *watch, len(writes))
+		fmt.Printf("\n監看 %s 的寫入（%d 筆，列最後 40）：\n", *watch, len(writes))
+		if n := len(writes); n > 40 {
+			writes = writes[n-40:]
+		}
 		for _, w := range writes {
 			fmt.Printf("  #%-9d %05X: %02X→%02X  ip=%04X:%04X\n",
 				w.step, w.addr, w.old, w.nw, w.cs, w.ip)
@@ -338,6 +341,16 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 				st = "成功"
 			}
 			fmt.Printf("  #%-9d AH=%02X 要 %5d 段 → %04X %s\n", a.Step, a.Fn, a.Want, a.Seg, st)
+		}
+	}
+	if len(d.XMSMoves) > 0 {
+		fmt.Printf("\nXMS move（%d 次，最多列 30）：\n", len(d.XMSMoves))
+		for i, w := range d.XMSMoves {
+			if i >= 30 {
+				break
+			}
+			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X\n",
+				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff)
 		}
 	}
 	if len(d.EMSOps) > 0 {
