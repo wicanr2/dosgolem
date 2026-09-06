@@ -47,7 +47,10 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
-	blockAfter := flag.Uint64("block-after", 100_000,
+	dumpMem := flag.String("dump-mem", "",
+		"把記憶體寫成檔：<seg>:<off>:<長度>[,...]=<檔名前綴>。\n"+
+			"    -peek 只吃 IDA 線性位址，換算不到執行期搬過去的段。")
+		blockAfter := flag.Uint64("block-after", 100_000,
 		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	flag.Parse()
@@ -154,6 +157,11 @@ func main() {
 	if blockedStop {
 		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
 			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
+	}
+	if *dumpMem != "" {
+		if err := doDumpMem(m, *dumpMem); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-mem:", err)
+		}
 	}
 	report(m, d, ring, runErr, *steps)
 	if *watchVideo {
@@ -518,4 +526,46 @@ func writeCGA(path string, m *machine.Machine) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
+}
+
+// doDumpMem 把 <seg>:<off>:<長度> 的記憶體寫成檔。
+//
+// **為什麼不用 -peek**：-peek 吃的是 IDA 線性位址，要靠映像基底換算，
+// 而執行期搬到別的段的程式碼（overlay 管理員的 thunk、載進來的 overlay）
+// **在映像裡根本不存在**，換算不到。要看它們只能直接給段:位移。
+func doDumpMem(m *machine.Machine, spec string) error {
+	parts := strings.SplitN(spec, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("格式是 <seg>:<off>:<len>[,...]=<檔名前綴>")
+	}
+	prefix := parts[1]
+	for _, one := range strings.Split(parts[0], ",") {
+		f := strings.Split(one, ":")
+		if len(f) != 3 {
+			return fmt.Errorf("%q 不是 <seg>:<off>:<len>", one)
+		}
+		seg, err := strconv.ParseUint(strings.TrimPrefix(f[0], "0x"), 16, 16)
+		if err != nil {
+			return fmt.Errorf("段 %q：%w", f[0], err)
+		}
+		off, err := strconv.ParseUint(strings.TrimPrefix(f[1], "0x"), 16, 16)
+		if err != nil {
+			return fmt.Errorf("位移 %q：%w", f[1], err)
+		}
+		n, err := strconv.Atoi(f[2])
+		if err != nil || n <= 0 {
+			return fmt.Errorf("長度 %q 不是正整數", f[2])
+		}
+		buf := make([]byte, n)
+		base := cpu.Addr(uint16(seg), uint16(off))
+		for i := range buf {
+			buf[i] = m.Read8(base + uint32(i))
+		}
+		name := fmt.Sprintf("%s-%04X_%04X.bin", prefix, seg, off)
+		if err := os.WriteFile(name, buf, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("dump %04X:%04X %d bytes → %s\n", seg, off, n, name)
+	}
+	return nil
 }
