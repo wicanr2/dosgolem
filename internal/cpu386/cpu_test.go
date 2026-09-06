@@ -2155,6 +2155,38 @@ func TestStoreRegister8ToBase(t *testing.T) {
 	}
 }
 
+func TestStoreRegister8ToSIBDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x88, 0xa4, 0xb3, 0xf0, 0xff, 0xff, 0xff})
+	c := New(mem)
+	c.R[EBX], c.R[ESI], c.R[EAX], c.EFlags = 0x20, 0x0c, 0x0000a500, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x40] != 0xa5 || c.R[EBX] != 0x20 || c.R[ESI] != 0x0c || c.EFlags != CF|ZF|OF {
+		t.Fatalf("SIB MOV AH value=%X flags=%X err=%v", mem[0x40], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x88, 0xb4, 0x34, 0x18, 0, 0, 0})
+	c = New(mem)
+	c.R[ESP], c.R[ESI], c.R[EDX] = 0x20, 0x10, 0x00005a00
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x7f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x48] != 0x5a {
+		t.Fatalf("stack SIB MOV value=%X err=%v", mem[0x48], err)
+	}
+
+	mem = testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x88, 0xb4, 0x34, 0x18, 0, 0, 0})
+	c = New(mem)
+	c.R[ESP], c.R[ESI], c.R[EDX] = 0x20, 0x10, 0x00005a00
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x7f})
+	if err := c.Step(); err == nil || mem[0x48] != 0 {
+		t.Fatalf("read-only SIB MOV value=%X err=%v", mem[0x48], err)
+	}
+}
+
 func TestStoreImmediateDwordBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xc7, 0x45, 0xf8, 0xff, 0xff, 0xff, 0xff})
