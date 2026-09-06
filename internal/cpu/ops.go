@@ -13,6 +13,7 @@ func (c *CPU) Step() error {
 	c.segOverride = noSegOverride
 	c.repPrefix = 0
 	c.lock = false
+	c.operand32 = false
 	c.opCS, c.opIP = c.Seg[CS], c.IP
 
 	for {
@@ -30,6 +31,14 @@ func (c *CPU) Step() error {
 		case 0x3E:
 			c.segOverride = DS
 			continue
+		case 0x66:
+			// operand-size 前綴只在 80386 存在（`docs/spec/012`）。
+			// 80186 及以下落進 execute：8086 把它當 76h 的別名
+			// （語料行為），80186 報「未實作」。
+			if c.Model >= Model80386 {
+				c.operand32 = true
+				continue
+			}
 		case 0xF0, 0xF1: // LOCK（F1 在 8086 是它的別名）
 			c.lock = true
 			continue
@@ -43,6 +52,9 @@ func (c *CPU) Step() error {
 
 //gocyclo:ignore
 func (c *CPU) execute(op uint8) error {
+	if c.operand32 {
+		return c.execute32(op)
+	}
 	switch {
 	// ---- 00–3F：八個 ALU 運算，每個六種定址 ----------------------------
 	case op < 0x40 && op&7 < 6 && op != 0x0F && op != 0x27 && op != 0x2F &&

@@ -160,11 +160,12 @@ func New() *Machine {
 		watchLo: 1, watchHi: 0,
 	}
 	m.CPU = cpu.New(m)
-	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
+	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
 	// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`；用 8086 的
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
+	// DOSJP.COM 另外需要 80386 的 0x66 子集（`docs/spec/012`）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
-	m.CPU.Model = cpu.Model80186
+	m.CPU.Model = cpu.Model80386
 	m.initBDA()
 	m.initVectors()
 	return m
