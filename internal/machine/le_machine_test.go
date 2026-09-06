@@ -1323,3 +1323,29 @@ func TestFD2StoresOpenedHandle(t *testing.T) {
 		t.Fatalf("DOS handle store steps=%d EIP=%X value=%X handle=%t", steps, m.CPU.EIP, value, services.HasHandle(handle))
 	}
 }
+
+func TestFD2TestsIOModeFlag(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x46375; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("I/O mode flag setup: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBX] + m.CPU.R[cpu386.EAX] + 1
+	if uint64(addr) >= uint64(len(m.Mem)) {
+		t.Fatalf("I/O mode flag address=%X 超界", addr)
+	}
+	before := m.Mem[addr]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("I/O mode flag TEST: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	wantZero := before&0x40 == 0
+	gotZero := m.CPU.EFlags&cpu386.ZF != 0
+	if m.CPU.EIP != 0x4637a || m.Mem[addr] != before || gotZero != wantZero {
+		t.Fatalf("I/O mode flag steps=%d EIP=%X addr=%X before=%X after=%X ZF=%t", steps, m.CPU.EIP, addr, before, m.Mem[addr], gotZero)
+	}
+}
