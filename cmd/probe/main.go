@@ -374,7 +374,7 @@ type clickEv struct {
 						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X DS=%04X ES=%04X SS:SP=%04X:%04X",
 						m.Steps, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
 						c.R[cpu.SI], c.R[cpu.DI], c.R[cpu.BP], c.Seg[cpu.DS], c.Seg[cpu.ES],
-						c.Seg[cpu.SS], c.R[cpu.SP]))
+						c.Seg[cpu.SS], c.R[cpu.SP])+stackDump(m, c))
 				}
 			}
 		}
@@ -855,6 +855,18 @@ const IDAOffset = 0xEF00
 const DGROUPSeg = 0x32F9
 
 // dumpPeek 印出指定位址的內容。
+// stackDump 印 [bp+0] 起的 12 個 word。**參數多半在堆疊上，不在暫存器裡**
+// ——只印暫存器的話，看得到「呼叫了誰」卻看不到「拿什麼去呼叫」。
+func stackDump(m *machine.Machine, c *cpu.CPU) string {
+	var b strings.Builder
+	b.WriteString("\n      [bp+]")
+	base := uint32(c.Seg[cpu.SS])*16 + uint32(c.R[cpu.BP])
+	for i := 0; i < 12; i++ {
+		b.WriteString(fmt.Sprintf(" %02X:%04X", i*2, m.Read16(base+uint32(i*2))))
+	}
+	return b.String()
+}
+
 // parseAddr 認得四種位址寫法：`lin:<hex>:<len>`、`ds:<hex>:<len>`、
 // `<IDA hex>:<len>`、`<seg>:<off>:<len>`（軌跡印出來的就是最後這種）。
 func parseAddr(item string) (addr uint32, n int, label string, ok bool) {
