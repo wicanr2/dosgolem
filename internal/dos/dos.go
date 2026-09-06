@@ -161,6 +161,15 @@ type DOS struct {
 	// nil 表示還沒初始化；第一次配置時用當時的 freeSeg 建起來，
 	// 這樣測試裡先設 freeSeg 再用的寫法仍然成立。
 	arena []memBlock
+
+	// Overlays 記每一次成功的 overlay 載入。
+	//
+	// **這是「程式載了哪些模組」的唯一觀測點。** overlay 沒有 PSP、
+	// 不動 CS:IP，從暫存器與開檔清單都看不出它發生過。
+	Overlays []OverlayLoad
+
+	// Resizes 記每一次 AH=4Ah，用來查「可配置區起點是怎麼被決定的」。
+	Resizes []ResizeCall
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -313,3 +322,20 @@ type memBlock struct {
 	size uint16 // 資料段數，不含 MCB
 	free bool
 }
+
+// OverlayLoad 是一次 `AH=4Bh AL=03` 的載入紀錄。
+type OverlayLoad struct {
+	Name  string
+	Seg   uint16
+	Reloc uint16
+	Size  int
+
+	// PBSeg/PBOff 是參數區塊的位置，PBRaw 是它前 8 個 byte。
+	// 載入段看起來不合理時，要能分辨「程式真的這樣要求」與
+	// 「我們讀錯了地方」——沒有這個就只能猜。
+	PBSeg, PBOff uint16
+	PBRaw        [8]byte
+}
+
+// ResizeCall 是一次 `AH=4Ah` 的紀錄。
+type ResizeCall struct{ Seg, Want, FreeSeg uint16 }

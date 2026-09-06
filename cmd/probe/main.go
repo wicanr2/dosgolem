@@ -314,6 +314,23 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
 	}
 
+	if len(d.Resizes) > 0 {
+		fmt.Printf("\nAH=4Ah 調整區塊（前 8 次，共 %d）：\n", len(d.Resizes))
+		for i, r := range d.Resizes {
+			if i >= 8 {
+				break
+			}
+			fmt.Printf("  ES=%04X want=%04X 段  當時 freeSeg=%04X\n", r.Seg, r.Want, r.FreeSeg)
+		}
+	}
+	if len(d.Overlays) > 0 {
+		fmt.Printf("\n載入的 overlay（%d）：\n", len(d.Overlays))
+		for _, o := range d.Overlays {
+			fmt.Printf("  %-14s → %04X:0  重定位加數 %04X  檔案 %d bytes\n",
+				o.Name, o.Seg, o.Reloc, o.Size)
+			fmt.Printf("      參數區塊 %04X:%04X ＝ % X\n", o.PBSeg, o.PBOff, o.PBRaw)
+		}
+	}
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {
 		f, l := d.Mouse.Polls[0], d.Mouse.Polls[n-1]

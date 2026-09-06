@@ -1,6 +1,8 @@
 package dos
 
 import (
+	"os"
+
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -14,6 +16,9 @@ import (
 func (d *DOS) int21(c *cpu.CPU) {
 	fn := ah(c)
 	switch fn {
+	case 0x4B: // EXEC
+		d.exec(c)
+
 	case 0x00, 0x4C:
 		d.exit(c, al(c))
 
@@ -246,6 +251,57 @@ func (d *DOS) fileAttr(c *cpu.CPU) {
 	clearCarry(c)
 }
 
+// exec 是 `AH=4Bh`。**只實作 `AL=03h`（載入 overlay）**。
+//
+// `AL=00h`（載入並執行子程序）需要另一套 PSP 與返回機制，目前沒有觀測到
+// 任何程式用它；照原則保持「未實作」讓 probe 繼續列出來。
+//
+// 參數區塊在 ES:BX：word 0 是載入段，word 2 是重定位加數。
+// **兩個是獨立的參數**，多數程式給相同的值但不保證。
+func (d *DOS) exec(c *cpu.CPU) {
+	if al(c) != 0x03 {
+		d.note(0x21, 0x4B, al(c))
+		clearCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	path := d.resolve(name)
+	if path == "" {
+		c.R[cpu.AX] = 2 // file not found
+		setCarry(c)
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+	loadSeg := d.M.Read16(pb)
+	relocFactor := d.M.Read16(pb + 2)
+
+	// ⚠ 參數區塊要在載入**之前**抄起來。overlay 常常就載在參數區塊
+	// 所在的那一段，載完再讀會讀到剛寫進去的映像——那會讓診斷輸出
+	// 看起來像「程式傳了一段機器碼當參數」，把人帶往完全錯的方向。
+	rec := OverlayLoad{Name: name, Seg: loadSeg, Reloc: relocFactor, Size: len(data),
+		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX]}
+	for i := 0; i < 8; i++ {
+		rec.PBRaw[i] = d.M.Read8(pb + uint32(i))
+	}
+	if err := d.M.LoadOverlay(data, loadSeg, relocFactor); err != nil {
+		// **載入失敗要說出來。** overlay 沒載進去而回成功的話，程式會
+		// far call 進一片空白，然後在幾百萬道指令之後死在一個與這裡
+		// 毫無關聯的位址上。
+		d.Console = append(d.Console, []byte("\n[dosgolem] overlay "+name+"："+err.Error()+"\n")...)
+		c.R[cpu.AX] = 8
+		setCarry(c)
+		return
+	}
+	d.Overlays = append(d.Overlays, rec)
+	clearCarry(c)
+}
+
 // setBlock 是 `AH=4Ah`，**記憶體探測**（`docs/spec/004` §1.2）。
 //
 //	56C4  bx = 0FFFFh    ; 故意要求 0FFFFh 段
@@ -267,11 +323,32 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
-	if blk == machine.PSPSeg && blk+want+1 > d.freeSeg {
+	d.Resizes = append(d.Resizes, ResizeCall{Seg: blk, Want: want, FreeSeg: d.freeSeg})
+	// 程式調整自己的 PSP 區塊之後，後面那塊才是可配置的空間。
+	//
+	// ⚠ **要跟著降，不能只升。** 第一版寫成 `if blk+want+1 > d.freeSeg`，
+	// 只在變大時更新。那讓「記憶體探測」變成單向的災難：程式先要
+	// `want=9EFFh`（能拿多少拿多少）探出上限，freeSeg 被推到 A000h
+	// ＝ 可配置區歸零；接著程式縮回它真正要的大小，freeSeg 卻留在 A000h。
+	// 之後每一次配置都失敗，而**失敗的地方離這裡很遠**——
+	// 智冠《三國演義》是在載 overlay 時拿到一個荒謬的載入段
+	// （0110h，正好蓋在自己的映像上），然後死在 overlay 自己的 C runtime。
+	//
+	// DOS 的語意是「區塊邊界移到這裡」，升降都算。
+	if blk == machine.PSPSeg {
 		d.freeSeg = blk + want + 1
-		// arena 還沒建就讓它用新的 freeSeg 建；已經建了就不動——
-		// 重建會把已配置的區塊全部丟掉。
+		// 邊界移動了，arena 的基底也要跟著移。已經配出去的區塊還在用，
+		// 不能直接丟；沒有任何存活區塊時才重建。
+		live := false
+		for _, b := range d.arena {
+			if !b.free {
+				live = true
+				break
+			}
+		}
+		if !live {
+			d.arena = nil
+		}
 	}
 	// arena 內的區塊走真正的 resize（規格 009）。不在 arena 內的
 	// （PSP、映像本體）維持原本的行為：那條路是記憶體探測協定，

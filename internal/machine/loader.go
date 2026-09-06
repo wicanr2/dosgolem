@@ -155,3 +155,61 @@ func (m *Machine) initMCB() {
 	// DOS 的「list of lists」：`[BX-2]` 是第一個 MCB 的段位址。
 	m.Write16(LOLSeg*16+0x0E, PSPSeg-1)
 }
+
+// LoadOverlay 是 `int 21h AH=4Bh AL=03`（載入 overlay）的底層。
+//
+// 與 LoadEXE 的差別是**它什麼都不設**：不建 PSP、不動 CS:IP、不碰 SS:SP。
+// overlay 是被 far call 進去的程式碼，載入器只負責把映像放到指定的段
+// 並把重定位套上 relocFactor。
+//
+// 智冠《三國演義》就是這樣把 DATA0.GRP 拉進來的——那也是為什麼那幾個
+// `.GRP` 開頭是 `MZ`：它們是程式模組，不是資料容器。
+//
+// ⚠ **relocFactor 與 loadSeg 是兩個獨立的參數。** DOS 讓呼叫端分別指定，
+// 多數程式給相同的值，但不保證。拿 loadSeg 當 relocFactor 用會在兩者
+// 不同的程式上安靜地載入一份指向錯地方的映像。
+func (m *Machine) LoadOverlay(data []byte, loadSeg, relocFactor uint16) error {
+	h, err := parseMZ(data)
+	if err != nil {
+		return err
+	}
+	hdr := int(h.HeaderPar) * 16
+	total := (int(h.Pages)-1)*512 + int(h.LastPage)
+	if h.LastPage == 0 {
+		total = int(h.Pages) * 512
+	}
+	if hdr > len(data) || total > len(data) || total <= hdr {
+		return fmt.Errorf("machine: overlay 檔頭說映像是 %d..%d，但檔案只有 %d bytes",
+			hdr, total, len(data))
+	}
+	image := append([]byte(nil), data[hdr:total]...)
+
+	applied := 0
+	for i := 0; i < int(h.Relocs); i++ {
+		p := int(h.RelocOff) + i*4
+		if p+4 > len(data) {
+			return fmt.Errorf("machine: overlay 重定位表第 %d 筆超出檔案", i)
+		}
+		off := binary.LittleEndian.Uint16(data[p:])
+		seg := binary.LittleEndian.Uint16(data[p+2:])
+		idx := int(seg)*16 + int(off)
+		if idx+2 > len(image) {
+			continue
+		}
+		v := binary.LittleEndian.Uint16(image[idx:])
+		binary.LittleEndian.PutUint16(image[idx:], v+relocFactor)
+		applied++
+	}
+	if int(h.Relocs) > 0 && applied == 0 {
+		return fmt.Errorf("machine: overlay 有 %d 筆重定位卻一筆都沒套上——映像可能被截斷",
+			h.Relocs)
+	}
+
+	end := int(loadSeg)*16 + len(image)
+	if end > MemTop*16 {
+		return fmt.Errorf("machine: overlay 載到 %04X:0 需要 %d bytes，超出傳統記憶體",
+			loadSeg, len(image))
+	}
+	m.WriteBytes(uint32(loadSeg)*16, image)
+	return nil
+}
