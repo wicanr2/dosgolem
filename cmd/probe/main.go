@@ -12,6 +12,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"image"
@@ -48,18 +49,24 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	sweepSpec := flag.String("sweep", "",
+		"掃描點擊：`起始步數:每點步數:x0:y0:x1:y1:格距`。逐格點一次，"+
+			"每點前後印畫面雜湊——找互動熱點時不要用眼睛猜座標一次跑一個")
 	shotScript := flag.String("shots", "",
 		"在指定步數各存一張畫面：`步數:路徑` 用逗號分隔。"+
 			"色盤存成同名 .pal。一次跑要看好幾個畫面時用這個，"+
 			"不要為了看中途的畫面重跑")
 	clickScript := flag.String("clicks", "",
-		"點擊腳本：`步數:X:Y` 用逗號分隔，例如 20000000:320:240,30000000:330:212。"+
+		"點擊腳本：`步數:X:Y[:鍵]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。"+
 			"按住時間用 -click-hold")
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	keysAt := flag.String("keys-at", "",
+		"在指定步數送按鍵：`步數:字串` 用逗號分隔（`\\n` 是 Enter）。"+
+			"一開始就排進佇列的按鍵，程式還沒開始輪詢就被吃掉了")
 	args := flag.String("args", "", "命令列尾（寫進 PSP+80h，.COM 的參數走這裡）")
 	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
@@ -179,6 +186,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	keyPlan, err := parseShots(*keysAt) // 同樣是 步數:字串
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	sweep, err := parseSweep(*sweepSpec)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	var lastSum string
 
 	ring := newRing(*trace)
 	var runErr error
@@ -217,17 +235,47 @@ func main() {
 			switch m.Steps {
 			case c.step:
 				d.Mouse.X, d.Mouse.Y = c.x, c.y
-				d.Mouse.Buttons = 1
+				d.Mouse.Buttons = c.btn
 				d.Mouse.Press++
 			case c.step + *clickHold:
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
 			}
 		}
+		if len(keyPlan) > 0 {
+			if txt, ok := keyPlan[m.Steps]; ok {
+				d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(txt, "\\n", "\n"))...)
+			}
+		}
 		if len(shots) > 0 {
 			if path, ok := shots[m.Steps]; ok {
 				writeShot(m, path)
 			}
+		}
+		if sweep != nil && m.Steps >= sweep.from &&
+			(m.Steps-sweep.from)%sweep.every == 0 {
+			k := int((m.Steps - sweep.from) / sweep.every)
+			sum := fmt.Sprintf("%x", sha256.Sum256(m.Indexed()))[:12]
+			if k > 0 {
+				mark := ""
+				if sum != lastSum {
+					mark = "  ← 畫面變了"
+				}
+				fmt.Printf("掃描 #%d (%d,%d) → %s%s\n",
+					k-1, sweep.pt(k-1).x, sweep.pt(k-1).y, sum, mark)
+			}
+			lastSum = sum
+			if k < sweep.n() {
+				p := sweep.pt(k)
+				d.Mouse.X, d.Mouse.Y = p.x, p.y
+				d.Mouse.Buttons = 1
+				d.Mouse.Press++
+			}
+		}
+		if sweep != nil && m.Steps >= sweep.from &&
+			(m.Steps-sweep.from)%sweep.every == sweep.every/2 {
+			d.Mouse.Buttons = 0
+			d.Mouse.Release++
 		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
@@ -575,6 +623,49 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 }
 
+// sweepSpec 是掃描點擊的設定。
+type sweepGrid struct {
+	from, every    uint64
+	x0, y0, x1, y1 uint16
+	step           uint16
+}
+
+func (g *sweepGrid) cols() int { return int((g.x1-g.x0)/g.step) + 1 }
+func (g *sweepGrid) rows() int { return int((g.y1-g.y0)/g.step) + 1 }
+func (g *sweepGrid) n() int    { return g.cols() * g.rows() }
+func (g *sweepGrid) pt(k int) struct{ x, y uint16 } {
+	return struct{ x, y uint16 }{
+		x: g.x0 + uint16(k%g.cols())*g.step,
+		y: g.y0 + uint16(k/g.cols())*g.step,
+	}
+}
+
+// parseSweep 讀 `起始步數:每點步數:x0:y0:x1:y1:格距`。
+func parseSweep(spec string) (*sweepGrid, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	f := strings.Split(spec, ":")
+	if len(f) != 7 {
+		return nil, fmt.Errorf("掃描設定 %q 要七個欄位：起始:每點:x0:y0:x1:y1:格距", spec)
+	}
+	v := make([]uint64, 7)
+	for i, x := range f {
+		n, err := strconv.ParseUint(strings.TrimSpace(x), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("掃描設定 %q 第 %d 欄不是數字：%w", spec, i+1, err)
+		}
+		v[i] = n
+	}
+	g := &sweepGrid{from: v[0], every: v[1],
+		x0: uint16(v[2]), y0: uint16(v[3]), x1: uint16(v[4]), y1: uint16(v[5]),
+		step: uint16(v[6])}
+	if g.every == 0 || g.step == 0 || g.x1 < g.x0 || g.y1 < g.y0 {
+		return nil, fmt.Errorf("掃描設定 %q 的範圍或間隔不合理", spec)
+	}
+	return g, nil
+}
+
 // parseShots 讀 `步數:路徑,步數:路徑`。
 func parseShots(spec string) (map[uint64]string, error) {
 	if spec == "" {
@@ -621,6 +712,7 @@ func writeShot(m *machine.Machine, path string) {
 type click struct {
 	step uint64
 	x, y uint16
+	btn  uint16
 }
 
 // parseClicks 讀 `步數:X:Y,步數:X:Y` 這種腳本。
@@ -635,10 +727,10 @@ func parseClicks(spec string) ([]click, error) {
 			continue
 		}
 		f := strings.Split(part, ":")
-		if len(f) != 3 {
-			return nil, fmt.Errorf("點擊腳本 %q 格式不對，要 步數:X:Y", part)
+		if len(f) != 3 && len(f) != 4 {
+			return nil, fmt.Errorf("點擊腳本 %q 格式不對，要 步數:X:Y[:鍵]", part)
 		}
-		var c click
+		c := click{btn: 1}
 		n, err := strconv.ParseUint(f[0], 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("點擊腳本 %q 的步數不是數字：%w", part, err)
@@ -650,6 +742,13 @@ func parseClicks(spec string) ([]click, error) {
 				return nil, fmt.Errorf("點擊腳本 %q 的座標不是數字：%w", part, err)
 			}
 			*dst = uint16(v)
+		}
+		if len(f) == 4 {
+			v, err := strconv.ParseUint(f[3], 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("點擊腳本 %q 的鍵不是數字：%w", part, err)
+			}
+			c.btn = uint16(v)
 		}
 		out = append(out, c)
 	}
