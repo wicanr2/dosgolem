@@ -22,4 +22,5 @@ IDA 原始函式 `__filbuf` 範圍為 `0x3DA3A..0x3DA65`。它呼叫
 
 因此 `[ebx]` 是目前 buffer pointer：原始程式先把它增加一，再由新位置前一
 byte 讀出剛補充的第一個字元並回傳；`[ebx+4]` 同時減一。本證據授權
-`FF /0` 的非 SIB、無位移基址間接 dword 遞增，不外推其他 addressing shape。
+`FF /0` 的非 SIB、無位移基址間接 dword 遞增，以及緊接的 `8B /r`
+無位移基址間接 dword 載入；不外推其他 addressing shape。
