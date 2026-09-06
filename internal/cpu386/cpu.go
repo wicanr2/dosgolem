@@ -682,6 +682,19 @@ func (c *CPU) Step() error {
 		}
 		left, right := modrm&7, (modrm>>3)&7
 		c.setLogicFlags(c.R[left] & c.R[right])
+	case op == 0x84:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("84 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("TEST byte ModRM %02X 尚未支援", modrm))
+		}
+		left, right := int(modrm&7), int((modrm>>3)&7)
+		c.setLogicFlags8(c.reg8(left) & c.reg8(right))
 	case op == 0x31:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("31 不接受目前的 prefix")

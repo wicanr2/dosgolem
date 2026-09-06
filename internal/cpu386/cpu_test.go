@@ -56,6 +56,44 @@ func TestRegisterTEST32(t *testing.T) {
 	}
 }
 
+func TestRegisterTEST8(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		code  []byte
+		left  uint32
+		right uint32
+		flags uint32
+	}{
+		{name: "low zero", code: []byte{0x84, 0xc8}, left: 0x80, right: 0x7f, flags: ZF | PF},
+		{name: "low sign", code: []byte{0x84, 0xd1}, left: 0x80, right: 0x80, flags: SF},
+		{name: "high parity", code: []byte{0x84, 0xed}, left: 0x0300, right: 0x0300, flags: PF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus(test.code))
+			leftReg, rightReg := int(test.code[1]&7), int((test.code[1]>>3)&7)
+			leftBase, rightBase := leftReg, rightReg
+			if leftBase >= 4 {
+				leftBase -= 4
+			}
+			if rightBase >= 4 {
+				rightBase -= 4
+			}
+			c.R[leftBase] = test.left
+			c.R[rightBase] = test.right
+			beforeLeft, beforeRight := c.R[leftBase], c.R[rightBase]
+			c.EFlags = CF | OF | AF
+			if err := c.Step(); err != nil || c.R[leftBase] != beforeLeft || c.R[rightBase] != beforeRight || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("TEST left=%X right=%X flags=%X err=%v", c.R[leftBase], c.R[rightBase], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x84, 0x00})
+	if err := c.Step(); err == nil {
+		t.Fatal("memory TEST byte shape was accepted")
+	}
+}
+
 func TestByteTESTAtBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xf6, 0x45, 0xfc, 0x02})

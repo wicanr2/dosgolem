@@ -1933,3 +1933,24 @@ func TestFD2FoldsINIKeyASCIIUppercase(t *testing.T) {
 		t.Fatalf("INI key fold steps=%d EIP=%X ECX before=%X after=%X", steps, m.CPU.EIP, before, m.CPU.R[cpu386.ECX])
 	}
 }
+
+func TestFD2TestsFoldedINIByteForNUL(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 10000 && m.CPU.EIP != 0x46c40; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI folded byte TEST setup: step=%d EIP=%X ECX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], err)
+		}
+	}
+	before := m.CPU.R[cpu386.ECX]
+	wantZero := byte(before>>8) == 0
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI folded byte TEST: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x46c42 || m.CPU.R[cpu386.ECX] != before || (m.CPU.EFlags&cpu386.ZF != 0) != wantZero {
+		t.Fatalf("INI folded byte TEST steps=%d EIP=%X ECX=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], m.CPU.EFlags)
+	}
+}
