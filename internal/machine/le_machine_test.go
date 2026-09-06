@@ -1284,3 +1284,20 @@ func TestFD2OpensMDIINI(t *testing.T) {
 		t.Fatalf("MDI.INI open steps=%d EIP=%X EAX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, services.HasHandle(handle))
 	}
 }
+
+func TestFD2ConsumesDOSOpenCarry(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3cd79; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DOS open carry consumer: step=%d EIP=%X EAX=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, err)
+		}
+	}
+	handle := uint16(m.CPU.R[cpu386.EAX])
+	if m.CPU.EIP != 0x3cd79 || m.CPU.R[cpu386.EAX]&0x80000000 != 0 || m.CPU.EFlags&cpu386.CF != 0 || !services.HasHandle(handle) {
+		t.Fatalf("DOS open carry steps=%d EIP=%X EAX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, services.HasHandle(handle))
+	}
+}
