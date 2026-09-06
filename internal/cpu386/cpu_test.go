@@ -514,6 +514,20 @@ func TestAndRegisterImmediate32(t *testing.T) {
 	}
 }
 
+func TestSubtractRegisterImmediate32(t *testing.T) {
+	c := New(testBus{0x81, 0xec, 0x18, 0x01, 0x00, 0x00})
+	c.R[ESP] = 0x1000
+	if err := c.Step(); err != nil || c.R[ESP] != 0xee8 || c.EFlags&CF != 0 {
+		t.Fatalf("SUB ESP=%X flags=%X err=%v", c.R[ESP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x81, 0xe8, 0x01, 0x00, 0x00, 0x00})
+	c.R[EAX] = 0
+	if err := c.Step(); err != nil || c.R[EAX] != 0xffffffff || c.EFlags&CF == 0 || c.EFlags&SF == 0 {
+		t.Fatalf("borrow SUB EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestPushAbsoluteDword(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xff, 0x35, 0x20, 0, 0, 0})

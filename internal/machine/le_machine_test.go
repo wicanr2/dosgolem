@@ -998,3 +998,20 @@ func TestFD2RestoresPITCallerFlags(t *testing.T) {
 		t.Fatalf("AIL flags restore steps=%d EIP=%X calls=%d flags=%X want=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.EFlags, wantFlags)
 	}
 }
+
+func TestFD2AllocatesMDIINIStackFrame(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x43ef2; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MDI.INI frame setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	before := m.CPU.R[cpu386.ESP]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MDI.INI frame allocation: EIP=%X ESP=%X: %v", m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+	}
+	if m.CPU.EIP != 0x43ef8 || services.Calls() != 5 || m.CPU.R[cpu386.ESP] != before-0x118 {
+		t.Fatalf("MDI.INI frame steps=%d EIP=%X calls=%d ESP=%X before=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ESP], before)
+	}
+}
