@@ -2492,6 +2492,57 @@ func TestLoadEAXFromStackBase(t *testing.T) {
 	}
 }
 
+func TestIMULEAXFromStackDisp8(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		esp      uint32
+		delta    int8
+		lhs      uint32
+		rhs      uint32
+		want     uint32
+		overflow bool
+	}{
+		{name: "positive", esp: 0x10, delta: 0x10, lhs: 7, rhs: 10, want: 70},
+		{name: "negative", esp: 0x30, delta: -0x10, lhs: ^uint32(6), rhs: 10, want: ^uint32(69)},
+		{name: "overflow", esp: 0x10, delta: 0x10, lhs: 0x40000000, rhs: 4, want: 0, overflow: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x50))
+			copy(mem, []byte{0x0f, 0xaf, 0x44, 0x24, byte(test.delta)})
+			addr := int(uint32(int64(test.esp) + int64(test.delta)))
+			binary.LittleEndian.PutUint32(mem[addr:addr+4], test.rhs)
+			c := New(mem)
+			c.R[EAX], c.R[ESP], c.EFlags = test.lhs, test.esp, ZF|SF|PF|AF|CF|OF
+			c.Seg[SegSS] = 0x17c
+			c.SetDescriptor(0x17c, Descriptor{Limit: 0x4f})
+			if err := c.Step(); err != nil {
+				t.Fatal(err)
+			}
+			wantFlags := uint32(ZF | SF | PF | AF)
+			if test.overflow {
+				wantFlags |= CF | OF
+			}
+			if c.R[EAX] != test.want || c.R[ESP] != test.esp || binary.LittleEndian.Uint32(mem[addr:addr+4]) != test.rhs || c.EFlags != wantFlags {
+				t.Fatalf("IMUL EAX=%X ESP=%X source=%X flags=%X", c.R[EAX], c.R[ESP], binary.LittleEndian.Uint32(mem[addr:addr+4]), c.EFlags)
+			}
+		})
+	}
+
+	c := New(testBus{0x0f, 0xaf, 0x44, 0x24, 4})
+	c.R[EAX], c.R[ESP], c.EFlags = 7, 1, ZF|CF|OF
+	c.Seg[SegSS] = 0x17c
+	c.SetDescriptor(0x17c, Descriptor{Limit: 4})
+	if err := c.Step(); err == nil || c.R[EAX] != 7 || c.R[ESP] != 1 || c.EFlags != ZF|CF|OF {
+		t.Fatalf("out-of-range IMUL EAX=%X ESP=%X flags=%X err=%v", c.R[EAX], c.R[ESP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x0f, 0xaf, 0x44, 0x25, 0})
+	c.R[EAX], c.R[ESP] = 7, 1
+	if err := c.Step(); err == nil || c.R[EAX] != 7 {
+		t.Fatalf("unsupported IMUL SIB EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestStoreRegister8ToBase(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x88, 0x23})
