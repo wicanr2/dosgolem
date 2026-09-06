@@ -69,3 +69,22 @@ func TestFD2StartupDOSRejectsWrongOrder(t *testing.T) {
 		t.Fatal("out-of-order DOS/4G call was accepted")
 	}
 }
+
+func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 1)))
+	s := &FD2StartupDOS{}
+	s.realModeVectors[8] = 0xf0001234
+	c.R[cpu386.EAX] = 0xaaaa0200
+	c.R[cpu386.EBX] = 0xbbbb0008
+	c.R[cpu386.ECX] = 0xcccc0000
+	c.R[cpu386.EDX] = 0xdddd0000
+	c.EFlags |= cpu386.CF
+	if !s.Handle(c, 0x31) || c.R[cpu386.ECX] != 0xccccf000 || c.R[cpu386.EDX] != 0xdddd1234 || c.EFlags&cpu386.CF != 0 || s.Calls() != 0 {
+		t.Fatalf("DPMI 0200 ECX=%X EDX=%X flags=%X calls=%d", c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags, s.Calls())
+	}
+
+	c.R[cpu386.EAX] = 0x0201
+	if s.Handle(c, 0x31) {
+		t.Fatal("unknown DPMI function was accepted")
+	}
+}
