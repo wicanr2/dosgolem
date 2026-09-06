@@ -1418,13 +1418,17 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegES], c.R[EAX]))
 			}
 			c.sub8(value, imm)
-		} else if modrm>>6 == 3 && (group == 4 || group == 7) {
+		} else if modrm>>6 == 3 && (group == 1 || group == 4 || group == 7) {
 			imm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
 			}
 			rm := int(modrm & 7)
-			if group == 4 {
+			if group == 1 {
+				result := c.reg8(rm) | imm
+				c.setReg8(rm, result)
+				c.setLogicFlags8(result)
+			} else if group == 4 {
 				result := c.reg8(rm) & imm
 				c.setReg8(rm, result)
 				c.setLogicFlags8(result)
