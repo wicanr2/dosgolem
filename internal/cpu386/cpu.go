@@ -2574,6 +2574,10 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if modrm>>6 == 3 {
+				c.R[(modrm>>3)&7] = uint32(uint16(c.R[modrm&7]))
+				break
+			}
 			if modrm>>6 != 0 || modrm&7 != 5 {
 				return fail(fmt.Sprintf("0F B7 ModRM %02X 尚未支援", modrm))
 			}
