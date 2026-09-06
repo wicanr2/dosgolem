@@ -10,8 +10,18 @@ import (
 // LEMachine 是 DOS/4GW 已完成載入後的平坦 32-bit 執行環境。
 // 它刻意不共用 real-mode Machine 的 20-bit wrap 與 IVT。
 type LEMachine struct {
-	Mem []byte
-	CPU *cpu386.CPU
+	Mem     []byte
+	CPU     *cpu386.CPU
+	Ports   map[uint16]uint8
+	PortLog []LEPortWrite
+}
+
+// LEPortWrite 是保護模式程式的一次 byte port 輸出；Sequence 只表示先後順序，
+// 不冒充硬體 cycle 或 wall-clock。
+type LEPortWrite struct {
+	Port     uint16
+	Value    uint8
+	Sequence uint64
 }
 
 func LoadLE(data []byte) (*LEMachine, error) {
@@ -46,7 +56,7 @@ func LoadLE(data []byte) (*LEMachine, error) {
 	if end > uint64(^uint(0)>>1) {
 		return nil, fmt.Errorf("machine: LE address space 太大")
 	}
-	m := &LEMachine{Mem: make([]byte, int(end))}
+	m := &LEMachine{Mem: make([]byte, int(end)), Ports: make(map[uint16]uint8)}
 	for i, object := range header.Objects {
 		start := uint64(object.RelocationBase)
 		if start > uint64(len(m.Mem)) || uint64(len(images[i])) > uint64(len(m.Mem))-start {
@@ -60,6 +70,11 @@ func LoadLE(data []byte) (*LEMachine, error) {
 		return nil, fmt.Errorf("machine: LE entry 或 stack offset 超界")
 	}
 	m.CPU = cpu386.New(m)
+	m.CPU.PortOut = func(port uint16, value uint8) bool {
+		m.Ports[port] = value
+		m.PortLog = append(m.PortLog, LEPortWrite{Port: port, Value: value, Sequence: uint64(len(m.PortLog))})
+		return true
+	}
 	m.CPU.EIP = entryObject.RelocationBase + header.EIP
 	m.CPU.R[cpu386.ESP] = stackObject.RelocationBase + header.ESP
 	return m, nil
