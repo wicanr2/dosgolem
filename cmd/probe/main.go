@@ -29,6 +29,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/internal/state"
 )
 
 // traceFilePath 是 -trace-file 的值；report 在另一個函式裡，所以放套件層。
@@ -109,28 +110,38 @@ func main() {
 	ipLog := flag.String("ip-log", "",
 		"把 [起,迄) 這段每一道指令的 CS:IP 以二進位寫出來（每筆 4 bytes，小端 CS 後 IP）：`起:迄:路徑`。"+
 			"用來對兩次只差一個輸入的執行，找出控制流第一次分岔的位置")
+	saveState := flag.String("save-state", "",
+		"跑到某一步就把整台機器存成檔案：`步數:路徑`，逗號分隔多個檢查點。"+
+			"配 -load-state 用——要觀測的畫面在幾億道指令之後時，"+
+			"存一次，之後每個實驗從那裡展開，一輪從幾分鐘變成幾秒")
+	loadState := flag.String("load-state", "",
+		"從狀態檔接著跑（-save-state 存的）。這時 -exe 不必給；"+
+			"步數從存檔當時算起，-steps／-clicks／-shots 的數字都照舊")
 	flag.Parse()
 
-	if *exe == "" {
+	if *exe == "" && *loadState == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	img, err := os.ReadFile(*exe)
-	if err != nil {
-		die(err)
-	}
 
 	m := machine.New()
-	// 副檔名不是判準：看 MZ magic。不是 MZ 就當 .COM（無檔頭、載到 PSP+100h）。
-	if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
-		err = m.LoadEXE(img)
-	} else {
-		err = m.LoadCOM(img)
+	var err error
+	if *loadState == "" {
+		img, rerr := os.ReadFile(*exe)
+		if rerr != nil {
+			die(rerr)
+		}
+		// 副檔名不是判準：看 MZ magic。不是 MZ 就當 .COM（無檔頭、載到 PSP+100h）。
+		if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
+			err = m.LoadEXE(img)
+		} else {
+			err = m.LoadCOM(img)
+		}
+		if err != nil {
+			die(err)
+		}
 	}
-	if err != nil {
-		die(err)
-	}
-	if *args != "" {
+	if *args != "" && *loadState == "" {
 		// 命令列尾：PSP+80h ＝ 長度 ＋ 內容 ＋ CR。
 		b := []byte(*args)
 		if len(b) > 126 {
@@ -214,6 +225,16 @@ func main() {
 		d.Calls = map[dos.Call]int{}
 	}
 	d.Install()
+	if *loadState != "" {
+		if err := state.Load(*loadState, m, d); err != nil {
+			die(err)
+		}
+		fmt.Printf("從 %s 接著跑（第 %d 道指令）\n", *loadState, m.Steps)
+	}
+	saves, err := parseSaveState(*saveState)
+	if err != nil {
+		die(err)
+	}
 	if *keys != "" {
 		d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(*keys, "\\n", "\n"))...)
 	}
@@ -332,6 +353,14 @@ func main() {
 		if len(keyPlan) > 0 {
 			if txt, ok := keyPlan[m.Steps]; ok {
 				d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(txt, "\\n", "\n"))...)
+			}
+		}
+		if len(saves) > 0 {
+			if path, ok := saves[m.Steps]; ok {
+				if err := state.Save(path, m, d); err != nil {
+					die(err)
+				}
+				fmt.Printf("第 %d 道指令的狀態存到 %s\n", m.Steps, path)
 			}
 		}
 		if len(pokes) > 0 {
@@ -1259,6 +1288,26 @@ type callArgRow struct {
 	retOff uint16
 	w      []uint16
 	regs   [8]uint16 // AX BX CX DX SI DI ES BP
+}
+
+// parseSaveState 解 `步數:路徑[,步數:路徑…]`。
+func parseSaveState(spec string) (map[uint64]string, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	out := map[uint64]string{}
+	for _, one := range strings.Split(spec, ",") {
+		i := strings.Index(one, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("-save-state 要寫成 步數:路徑，收到 %q", one)
+		}
+		n, err := strconv.ParseUint(strings.TrimSpace(one[:i]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("-save-state 的步數不是數字：%w", err)
+		}
+		out[n] = one[i+1:]
+	}
+	return out, nil
 }
 
 func parseCallArgs(spec string, viaBP bool) (*callArgLog, error) {
