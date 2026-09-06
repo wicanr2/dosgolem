@@ -2102,3 +2102,28 @@ func TestFD2LoadsCurrentINIInputByte(t *testing.T) {
 		t.Fatalf("INI input byte steps=%d EIP=%X EAX=%X want=%X EDI=%X EBP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], wantEAX, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags)
 	}
 }
+
+func TestFD2LoadsINIAccumulatorFromStack(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f2c1; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI accumulator setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	stack := m.CPU.R[cpu386.ESP]
+	want, err := m.Read32(stack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeESP, beforeFlags := m.CPU.R[cpu386.ESP], m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI accumulator MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f2c4 || m.CPU.R[cpu386.EAX] != want || m.CPU.R[cpu386.ESP] != beforeESP || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("INI accumulator steps=%d EIP=%X EAX=%X want=%X ESP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.ESP], m.CPU.EFlags)
+	}
+}

@@ -77,8 +77,10 @@ parser 已從 `SS:[ESP+ESI+0x118]` 讀取行尾分類字元；`0x3F362` 的 AL �
 位址；`0x3F2D1 3B 5C 24 1C` 再比較 digit-table index 與 caller 傳入的
 radix 上界；`0x3F2A5 0F B6 B3 B4 11 05 00` 再從 digit table 將候選字元
 零擴展至 ESI。`0x3F2AC 8A 04 2F` 現亦依 RE 118 從 `DS:[EDI+EBP]` 載入目前
-輸入字元到 AL，固定原版自然執行已通過。下一阻塞移至 `0x3F2C1`
-（opcode `8B`、ModRM `04`、SIB `24`）。此收據只證明
+輸入字元到 AL；`0x3F2C1 8B 04 24` 亦依 RE 119 從 `SS:[ESP]` 載入累加值。
+固定原版自然執行已通過兩者，且 2,000,000 步有界探針沒有再遇到不支援指令；
+結束時位於既有 RE 001 的 `0x3C9DE` `sti`，因此尚未指定下一個 opcode 阻塞。
+此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

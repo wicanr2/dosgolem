@@ -2083,10 +2083,18 @@ func (c *CPU) Step() error {
 			c.R[reg] = c.R[reg]&0xffff0000 | c.R[modrm&7]&0xffff
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
-		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 4 {
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 == 4 {
 			sib, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
+			}
+			if modrm == 0x04 && sib == 0x24 {
+				value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+				if !ok {
+					return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				c.R[EAX] = value
+				break
 			}
 			if sib == 0xb0 {
 				addr := c.R[EAX] + c.R[ESI]<<2
