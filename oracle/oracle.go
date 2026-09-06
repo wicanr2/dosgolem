@@ -210,6 +210,42 @@ func (o *Oracle) Console() string { return string(o.d.Console) }
 // **收工前看一眼。**「跑得動」與「跑得動但行為不對」的差別在這裡。
 func (o *Oracle) Unimplemented() []string { return o.d.UnimplementedReport() }
 
+// KeyQueueLen 是硬體鍵盤佇列裡還沒被取走的掃描碼數。
+//
+// **送了鍵沒反應時第一個要看的數字**：它大於 0 表示掃描碼還在佇列裡
+// ——不是送錯路，是沒被中斷帶進程式。
+func (o *Oracle) KeyQueueLen() int { return o.m.KeyQueueLen() }
+
+// IRQ1Delivered 是鍵盤中斷送出去幾次；IRQ1ToProgram 是其中幾次進到
+// 程式自己裝的處理常式。
+//
+// 兩者差很多就表示中斷被 BIOS 的預設常式吃掉了，程式沒看到。
+func (o *Oracle) IRQ1Delivered() int { return o.m.IRQ1Delivered() }
+func (o *Oracle) IRQ1ToProgram() int { return o.m.IRQ1ToProgram() }
+
+// KeyWaits 數「佇列空的時候被要求讀一個鍵」發生了幾次。
+//
+// **這是「它在等鍵盤」與「它在做事」的分界**：送了鍵卻沒反應時，
+// 這個數字告訴你程式到底有沒有在讀——它是 0 的話，鍵送到哪裡都沒用，
+// 因為根本沒有人在讀那條路。
+func (o *Oracle) KeyWaits() int { return o.d.KeyWaits }
+
+// KeyReads 是被讀走的鍵，附讀取方式與步數。
+func (o *Oracle) KeyReads() []KeyRead {
+	out := make([]KeyRead, 0, len(o.d.KeyReads))
+	for _, k := range o.d.KeyReads {
+		out = append(out, KeyRead{Step: k.Step, Via: k.Via, Key: k.Key})
+	}
+	return out
+}
+
+// KeyRead 是一次讀鍵。Via 說它走的是哪一條路。
+type KeyRead struct {
+	Step uint64
+	Via  string
+	Key  uint8
+}
+
 // CPU 狀態，寫診斷訊息用。
 func (o *Oracle) IP() Addr { return Addr{o.m.CPU.Seg[cpu.CS], o.m.CPU.IP} }
 
