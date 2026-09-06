@@ -30,6 +30,30 @@ import (
 // 逐點對拍才有意義（`docs/spec/001` MVP-B）。
 type Time struct{ Hour, Min, Sec, Hundredth uint8 }
 
+// clock 是 `AH=2Ch` 回報的時刻：Now 當基準，再加上 PIT tick 推出來的時間。
+//
+// ⚠ **時鐘不能是固定值。** 第一版 `AH=2Ch` 直接回 `Now`，於是任何
+// 「等 N 個百分之一秒」的迴圈都轉不出來——智冠《三國演義》的識別畫面
+// 就卡在這裡，六百一十二萬次呼叫問同一個時刻。從外面看是「程式還活著」，
+// 與「在算很久」分不開。
+//
+// 推進的依據是 **PIT tick 不是牆上的時間**：時鐘掛在指令數上，
+// 同樣的輸入永遠得到同樣的時刻，對拍才是決定性的
+// （與 `machine.tick` 的模型一致）。18.2 Hz ＝ 一個 tick 約 5.4925 個
+// 百分之一秒。
+func (d *DOS) clock() Time {
+	base := (uint64(d.Now.Hour)*3600+uint64(d.Now.Min)*60+uint64(d.Now.Sec))*100 +
+		uint64(d.Now.Hundredth)
+	// 5493/1000 ≈ 100/18.2，用整數算避免浮點進到決定性的路徑上。
+	total := (base + d.M.Ticks*5493/1000) % (24 * 3600 * 100)
+	return Time{
+		Hour:      uint8(total / 360000),
+		Min:       uint8(total / 6000 % 60),
+		Sec:       uint8(total / 100 % 60),
+		Hundredth: uint8(total % 100),
+	}
+}
+
 // Mouse 是滑鼠狀態。座標用**像素**存，回報時才乘上 XScale
 // （mode 13h 的標準驅動水平回報 0–639，`rich2/docs/re/182` §3）。
 type Mouse struct {

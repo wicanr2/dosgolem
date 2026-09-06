@@ -92,8 +92,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 
 	case 0x2C: // 取系統時間 → CH:CL:DH:DL
-		c.R[cpu.CX] = uint16(d.Now.Hour)<<8 | uint16(d.Now.Min)
-		c.R[cpu.DX] = uint16(d.Now.Sec)<<8 | uint16(d.Now.Hundredth)
+		t := d.clock()
+		c.R[cpu.CX] = uint16(t.Hour)<<8 | uint16(t.Min)
+		c.R[cpu.DX] = uint16(t.Sec)<<8 | uint16(t.Hundredth)
 		clearCarry(c)
 
 	case 0x67: // 設 handle 數上限
