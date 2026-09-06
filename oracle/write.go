@@ -18,3 +18,27 @@ func Phys(linear uint32) Addr {
 // 簽章不同會被 vet 擋下來。
 func (o *Oracle) WriteU8(a Addr, v uint8)   { o.m.Write8(a.Linear(), v) }
 func (o *Oracle) WriteU16(a Addr, v uint16) { o.m.Write16(a.Linear(), v) }
+
+// ---- 線性位址的寫入監看 ----------------------------------------------------
+
+// LinWrite 是一次對線性位址的寫入。
+type LinWrite struct {
+	Addr     uint32
+	Old, New uint8
+	IP       Addr
+	Step     uint64
+}
+
+// WatchLinear 監看一段**線性位址**的寫入（與 WatchWrites 相同，但給的是
+// 線性位址，不綁 DGROUP——給「變數不在已知資料段」的程式用，例如
+// 源平合戰的 OPEN.EXE 透過執行期算出的 ds 間接定址）。
+//
+// 回傳的 slice 會隨執行成長。兩段式用法（第一次跑取得位址、第二次跑
+// 掛監看）在決定性機器上是安全的：同一條路徑的位址每次都一樣。
+func (o *Oracle) WatchLinear(lo, hi uint32) *[]LinWrite {
+	log := &[]LinWrite{}
+	o.m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+		*log = append(*log, LinWrite{Addr: a, Old: old, New: nw, IP: o.IP(), Step: o.Steps()})
+	})
+	return log
+}

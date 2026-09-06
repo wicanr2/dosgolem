@@ -47,6 +47,8 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	args := flag.String("args", "", "命令列尾（寫進 PSP+80h，.COM 的參數走這裡）")
+	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	flag.Parse()
 
@@ -69,6 +71,17 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	if *args != "" {
+		// 命令列尾：PSP+80h ＝ 長度 ＋ 內容 ＋ CR。
+		b := []byte(*args)
+		if len(b) > 126 {
+			b = b[:126]
+		}
+		psp := uint32(machine.PSPSeg) * 16
+		m.Write8(psp+0x80, uint8(len(b)))
+		m.WriteBytes(psp+0x81, b)
+		m.Write8(psp+0x81+uint32(len(b)), 0x0D)
+	}
 	if *tick > 0 {
 		m.IRQ0Every = *tick
 	}
@@ -86,6 +99,11 @@ func main() {
 		})
 	}
 	d := dos.New(m, *root)
+	if *queue != "" {
+		for _, q := range strings.Split(*queue, ",") {
+			d.Enqueue(strings.TrimSpace(q), "")
+		}
+	}
 	if *logCalls {
 		d.Calls = map[dos.Call]int{}
 	}
@@ -248,6 +266,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 
 	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), join(d.Opened))
+	if len(d.ExecLog) > 0 {
+		fmt.Printf("\nEXEC 紀錄（%d）：\n", len(d.ExecLog))
+		for _, e := range d.ExecLog {
+			fmt.Printf("  %-14s PSP=%04X exit=%d TSR=%v keep=%04X\n",
+				e.Base, e.PSP, e.Exit, e.TSR, e.Keep)
+		}
+	}
 	if len(d.Calls) > 0 {
 		type kv struct {
 			c dos.Call
