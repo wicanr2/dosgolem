@@ -1489,6 +1489,9 @@ func (c *CPU) Step() error {
 			}
 			reg := (modrm >> 3) & 7
 			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
+			reg := (modrm >> 3) & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | c.R[modrm&7]&0xffff
 		} else if operand16 {
 			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
 		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 4 {

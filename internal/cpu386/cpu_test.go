@@ -118,6 +118,17 @@ func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
 	}
 }
 
+func TestRegisterMOV16(t *testing.T) {
+	c := New(testBus{0x66, 0x8b, 0xca})
+	c.R[ECX], c.R[EDX], c.EFlags = 0xaabbccdd, 0x11223344, CF|ZF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[ECX] != 0xaabb3344 || c.R[EDX] != 0x11223344 || c.EFlags != CF|ZF {
+		t.Fatalf("MOV CX,DX ECX=%X EDX=%X flags=%X", c.R[ECX], c.R[EDX], c.EFlags)
+	}
+}
+
 func TestLoadRegisterFromStackDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x8b, 0x4c, 0x24, 0x04})
