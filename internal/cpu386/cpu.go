@@ -2875,6 +2875,19 @@ func (c *CPU) Step() error {
 			c.sub32(c.R[EBX], value)
 			break
 		}
+		if segmentOverride < 0 && !repe && !repne && modrm == 0x50 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EAX]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP EAX disp8 read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(c.R[EDX], value)
+			break
+		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}

@@ -1626,6 +1626,44 @@ func TestCompareEBXWithEBPDisp8Dword(t *testing.T) {
 	}
 }
 
+func TestCompareEDXWithEAXDisp8Dword(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		left  uint32
+		right uint32
+		delta byte
+		addr  int
+		flags uint32
+	}{
+		{name: "equal", left: 7, right: 7, delta: 4, addr: 0x24, flags: ZF | PF},
+		{name: "negative displacement borrow", left: 0, right: 1, delta: 0xfc, addr: 0x1c, flags: CF | AF | SF | PF},
+		{name: "signed overflow", left: 0x80000000, right: 1, delta: 4, addr: 0x24, flags: OF | AF | PF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, []byte{0x3b, 0x50, test.delta})
+			binary.LittleEndian.PutUint32(mem[test.addr:test.addr+4], test.right)
+			c := New(mem)
+			c.R[EAX], c.R[EDX] = 0x20, test.left
+			c.Seg[SegDS] = 0x160
+			c.SetDescriptor(0x160, Descriptor{Limit: 0x3f})
+			before := append([]byte(nil), mem...)
+			if err := c.Step(); err != nil || c.R[EAX] != 0x20 || c.R[EDX] != test.left || !bytes.Equal(mem, before) || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("CMP EDX=%X EAX=%X right=%X flags=%X memoryChanged=%v err=%v", c.R[EDX], c.R[EAX], test.right, c.EFlags, !bytes.Equal(mem, before), err)
+			}
+		})
+	}
+
+	mem := testBus{0x3b, 0x50, 4}
+	c := New(mem)
+	c.R[EAX], c.R[EDX], c.EFlags = 0x20, 7, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 3})
+	if err := c.Step(); err == nil || c.R[EAX] != 0x20 || c.R[EDX] != 7 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("out-of-range CMP EAX=%X EDX=%X flags=%X err=%v", c.R[EAX], c.R[EDX], c.EFlags, err)
+	}
+}
+
 func TestMoveZXByteFromEBXDisp32ToESI(t *testing.T) {
 	for _, test := range []struct {
 		name  string
