@@ -94,6 +94,28 @@ func TestStoreDwordAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestStoreDwordAtBaseDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x83, 0xfc, 0xff, 0xff, 0xff})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBX], c.R[EAX] = 0x24, 0x12345678
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("base+disp32 store=% X err=%v", mem[0x20:0x24], err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x83, 0xfc, 0xff, 0xff, 0xff})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f})
+	c.R[EBX], c.R[EAX] = 0x24, 0x12345678
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x20:0x24], []byte{0, 0, 0, 0}) {
+		t.Fatalf("read-only base+disp32 store=% X err=%v", mem[0x20:0x24], err)
+	}
+}
+
 func TestStoreRegisterToStackDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x89, 0x4c, 0x24, 0xfc})
