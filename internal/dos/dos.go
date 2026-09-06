@@ -132,6 +132,11 @@ type DOS struct {
 	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
 	VecSets []VecSet
 
+	// PalOps 記下每一次 int 10h AH=10h 的子功能與暫存器。
+	// 診斷「圖形對了但顏色全錯」用：這一支的 AL 分支語意各不相同，
+	// 接錯的話不會報錯，只會把別的東西寫進 DAC。
+	PalOps []PalOp
+
 	// MemOps 記下每一次 AH=48h／49h／4Ah 記憶體操作的輸入與結果。
 	// 除錯「模組載到沒人配置過的位址」用：先確定配置器到底發過哪些段。
 	MemOps []MemOp
@@ -167,6 +172,13 @@ type VecSet struct {
 	Int      uint8
 	Seg, Off uint16
 	Step     uint64
+}
+
+// PalOp 是一次 int 10h AH=10h 呼叫。
+type PalOp struct {
+	AL             uint8
+	BX, CX, DX, ES uint16
+	Step           uint64
 }
 
 // MemOp 是一次記憶體配置操作（AH=48h/49h/4Ah）的記錄。

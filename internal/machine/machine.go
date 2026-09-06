@@ -19,11 +19,13 @@ const (
 	MCBSeg = 0x0060
 	LOLSeg = 0x0070
 
-	// StubSeg 放中斷向量的預設目標。**不是只有一個 IRET**——見 §2。
+	// StubSeg 放中斷向量的預設目標。每個向量各有一段 stub，
+	// 共佔 256×stubStride bytes（0x800–0xBFF）——見 initVectors。
 	StubSeg = 0x0080
 
-	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。
-	EnvSeg = 0x0090
+	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。內容只有二十幾 bytes，
+	// 但要留在 stub 區之後、PSP 之前。
+	EnvSeg = 0x00C0
 
 	// PSPSeg 是程式的 PSP，LoadSeg 是映像本體（PSP 佔 16 段）。
 	PSPSeg  = 0x0100
@@ -38,14 +40,11 @@ const (
 	VideoHigh  = 200
 )
 
-// mouseStubOff 是 `int 33h` 的向量指向的位移。
-//
-// `[HARD]` **那裡放的是 `90 CF`（`nop; iret`），不是 `CF`。**
-// 滑鼠偵測直接讀 `0000:00CC` 拿到段:位移，再讀**那個位址的第一個位元組**，
-// 是 `CFh` 就判定「沒有驅動」（`rich2/docs/re/182` §2）。
-// 所有向量都指到同一個 IRET 的話，遊戲從此不發 `int 33h`——
-// **而且沒有任何錯誤訊息**。
-const mouseStubOff = 0x10
+// stubStride 是每個向量的 stub 佔幾個 byte（`CD n` ＋ `CF` ＋ 對齊）。
+const stubStride = 4
+
+// StubOff 回向量 n 的 stub 在 StubSeg 內的位移。
+func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 
 // DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
 //
@@ -121,6 +120,10 @@ type Machine struct {
 	// 16 色 planar 模式的色彩鏈是「4 位元色號 → AttrPal → DAC」
 	// （`docs/spec/009` §1）。
 	AttrPal [16]uint8
+
+	// Overscan 是邊框色（屬性控制器暫存器 11h）。遊戲會讀回來存檔再還原，
+	// 沒有它的話「讀回 → 還原」那條路會拿到垃圾。
+	Overscan uint8
 
 	dacIndex uint8
 	dacPhase uint8
@@ -437,21 +440,30 @@ func (m *Machine) bumpBDATicks() {
 
 // ---- 中斷向量表 ----------------------------------------------------------
 
-// initVectors 把 256 個向量全部指到 StubSeg 的 stub。
+// initVectors 給每個向量一段自己的 stub：`int n` ＋ `iret`。
 //
-// 兩件事同時要滿足（`docs/spec/003` §2）：
+// 三件事同時要滿足（`docs/spec/003` §2、`docs/spec/011` §2）：
 //
 //  1. **每一個向量都要是合法位址。** 取到 `0000:0000` 的程式跳過去會執行
 //     到垃圾（`rich2/docs/re/005` §3.2）。
-//  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
+//  2. **第一個位元組不能是 `CFh`。** 滑鼠偵測直接讀 `0000:00CC` 拿到
+//     段:位移，再讀**那個位址的第一個位元組**，是 `CFh` 就判定
+//     「沒有驅動」（`rich2/docs/re/182` §2）。所有向量都指到同一個 IRET
+//     的話，遊戲從此不發 `int 33h`——而且沒有任何錯誤訊息。
+//     每個 stub 的第一個位元組都是 `CDh`，這條自然成立。
+//  3. **[HARD] stub 裡要真的有 `int n`，不能只是 `iret`。** 服務層掛在
+//     CPU 執行 `INT` 指令的 hook 上；程式若改用「`AH=35h` 取向量 → 直接
+//     跳過去」（C 的 `int86x` 就是這樣做的），那條路完全繞過 hook，
+//     落在 `iret` 上就是**安靜地什麼都不做**：暫存器原樣回去，沒有錯誤、
+//     沒有 unimplemented 記錄，只有畫面或資料悄悄不對
+//     （`~/cht/logh3/docs/re/06`：整份調色盤因此永遠是黑的）。
 func (m *Machine) initVectors() {
-	m.Mem[StubSeg*16] = 0xCF                // iret
-	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
-	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 	for v := 0; v < 256; v++ {
-		m.Write16(uint32(v)*4, 0)
+		off := uint32(StubSeg)*16 + uint32(v)*stubStride
+		m.Mem[off] = 0xCD // int n
+		m.Mem[off+1] = uint8(v)
+		m.Mem[off+2] = 0xCF // iret
+		m.Write16(uint32(v)*4, StubOff(uint8(v)))
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
-	m.Write16(0x33*4, mouseStubOff)
-	m.Write16(0x33*4+2, StubSeg)
 }

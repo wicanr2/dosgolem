@@ -331,6 +331,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
 		}
 	}
+	if len(d.PalOps) > 0 {
+		fmt.Printf("\nint 10h AH=10h（%d 次）：\n", len(d.PalOps))
+		for _, o := range d.PalOps {
+			fmt.Printf("  #%d AL=%02X BX=%04X CX=%04X ES:DX=%04X:%04X\n",
+				o.Step, o.AL, o.BX, o.CX, o.ES, o.DX)
+		}
+	}
 	if len(d.MemOps) > 0 {
 		fmt.Printf("\n記憶體配置（%d 次）：\n", len(d.MemOps))
 		for _, o := range d.MemOps {
