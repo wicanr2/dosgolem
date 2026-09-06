@@ -74,6 +74,10 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpPorts := flag.String("dump-ports", "",
 		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
+	adlib := flag.Bool("adlib", false,
+		"讓 OPL2 的偵測過關。\n"+
+			"    預設關著是因為偵測不過的話整段音樂路徑會被跳過，開機快很多；\n"+
+			"    要錄音樂就得開。")
 	flag.Parse()
 
 	if *exe == "" {
@@ -86,6 +90,7 @@ func main() {
 	}
 
 	m := machine.New()
+	m.SetAdLib(*adlib)
 	if err := m.LoadEXE(img); err != nil {
 		die(err)
 	}
