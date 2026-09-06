@@ -1507,3 +1507,19 @@ func TestFD2WritesOpenedFileRecord(t *testing.T) {
 		t.Fatalf("FILE record store steps=%d EIP=%X addr=%X got=%X want=%X", steps, m.CPU.EIP, addr, got, want)
 	}
 }
+
+func TestFD2EntersBoundedLineReadLoop(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x46c70; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("bounded line read gate: step=%d EIP=%X ESI=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.EFlags, err)
+		}
+	}
+	if m.CPU.EIP != 0x46c70 || m.CPU.R[cpu386.ESI] == 0 || m.CPU.EFlags&cpu386.ZF != 0 || (m.CPU.EFlags&cpu386.SF != 0) != (m.CPU.EFlags&cpu386.OF != 0) {
+		t.Fatalf("bounded line read gate steps=%d EIP=%X ESI=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.EFlags)
+	}
+}
