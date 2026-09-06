@@ -2214,3 +2214,31 @@ func TestFD2NegatesINISignMultiplier(t *testing.T) {
 		t.Fatalf("INI sign NEG steps=%d before=%X EIP=%X stored=%X registersChanged=%v flags=%X", steps, before, m.CPU.EIP, stored, m.CPU.R != beforeRegisters, m.CPU.EFlags)
 	}
 }
+
+func TestFD2ComparesLineCursorAtEOF(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 25000 && m.CPU.EIP != 0x46c91; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("line cursor CMP setup: step=%d EIP=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	if m.CPU.EIP != 0x46c91 {
+		t.Fatalf("line cursor CMP 未抵達：steps=%d EIP=%X", steps, m.CPU.EIP)
+	}
+	right, err := m.Read32(m.CPU.R[cpu386.EBP] + 0x14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRegisters := m.CPU.R
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("line cursor CMP: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	wantZF := beforeRegisters[cpu386.EBX] == right
+	if m.CPU.EIP != 0x46c94 || m.CPU.R != beforeRegisters || (m.CPU.EFlags&cpu386.ZF != 0) != wantZF {
+		t.Fatalf("line cursor CMP steps=%d EIP=%X EBX=%X right=%X registersChanged=%v flags=%X", steps, m.CPU.EIP, beforeRegisters[cpu386.EBX], right, m.CPU.R != beforeRegisters, m.CPU.EFlags)
+	}
+}
