@@ -135,6 +135,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		c.R[cpu.BX] = 0x10
 		clearCarry(c)
 
+	case 0x63: // DOS/V：DBCS 前導位元組表（`docs/spec/010` §2）
+		d.dbcs(c)
+
 	default:
 		// 原則 1：**不要動 AX**。一開始寫 AX=0 會把「設中斷向量」迴圈的
 		// 計數清掉，`AH` 變成 0 就被當成「結束程式」——程式因此提早死掉。
