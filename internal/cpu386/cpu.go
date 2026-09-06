@@ -2992,7 +2992,7 @@ func (c *CPU) Step() error {
 			c.R[(modrm>>3)&7] = uint32(value)
 			break
 		}
-		if extended == 0xb6 && !operand16 && segmentOverride < 0 && !repe {
+		if extended == 0xb6 && !operand16 && segmentOverride < 0 && !repe && !repne {
 			modrm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
@@ -3000,6 +3000,19 @@ func (c *CPU) Step() error {
 			if modrm>>6 == 3 {
 				value := c.reg8(int(modrm & 7))
 				c.R[(modrm>>3)&7] = uint32(value)
+				break
+			}
+			if modrm == 0xb3 {
+				delta, e := c.fetch32()
+				if e != nil {
+					return fail(e.Error())
+				}
+				addr := c.R[EBX] + uint32(int32(delta))
+				value, ok := c.readSegment8(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("MOVZX byte base+disp32 read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				c.R[ESI] = uint32(value)
 				break
 			}
 			if modrm>>6 != 0 || (modrm&7 != ESI && modrm&7 != EAX) {
