@@ -572,6 +572,28 @@ func TestCompareRegisterImmediate32(t *testing.T) {
 	}
 }
 
+func TestJumpGreaterShort(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		code  []byte
+		flags uint32
+		want  uint32
+	}{
+		{name: "greater", code: []byte{0x7f, 0x03}, want: 5},
+		{name: "equal", code: []byte{0x7f, 0x03}, flags: ZF, want: 2},
+		{name: "less", code: []byte{0x7f, 0x03}, flags: SF, want: 2},
+		{name: "negative", code: []byte{0x7f, 0xfe}, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(testBus(tc.code))
+			c.EFlags = tc.flags
+			if err := c.Step(); err != nil || c.EIP != tc.want || c.EFlags != tc.flags {
+				t.Fatalf("JG EIP=%X flags=%X err=%v", c.EIP, c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestSubtractRegisterImmediate32(t *testing.T) {
 	c := New(testBus{0x81, 0xec, 0x18, 0x01, 0x00, 0x00})
 	c.R[ESP] = 0x1000
