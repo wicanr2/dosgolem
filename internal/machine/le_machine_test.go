@@ -1954,3 +1954,28 @@ func TestFD2TestsFoldedINIByteForNUL(t *testing.T) {
 		t.Fatalf("INI folded byte TEST steps=%d EIP=%X ECX=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.ECX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2InitializesININumberParserState(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f270; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI number parser setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	stack := m.CPU.R[cpu386.ESP]
+	if m.CPU.R[cpu386.EDX] != 0 || uint64(stack)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("INI number parser precondition steps=%d EIP=%X ESP=%X EDX=%X", steps, m.CPU.EIP, stack, m.CPU.R[cpu386.EDX])
+	}
+	copy(m.Mem[stack:stack+4], []byte{0xaa, 0xbb, 0xcc, 0xdd})
+	beforeFlags := m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI number parser store: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f273 || m.CPU.R[cpu386.ESP] != stack || m.CPU.R[cpu386.EDX] != 0 || m.CPU.EFlags != beforeFlags || !bytes.Equal(m.Mem[stack:stack+4], []byte{0, 0, 0, 0}) {
+		t.Fatalf("INI number parser steps=%d EIP=%X ESP=%X EDX=%X flags=%X stack=% X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EDX], m.CPU.EFlags, m.Mem[stack:stack+4])
+	}
+}

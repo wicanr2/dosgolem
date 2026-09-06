@@ -458,6 +458,28 @@ func TestStoreRegisterToStackDisp8(t *testing.T) {
 	}
 }
 
+func TestStoreRegisterToStackBase(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x14, 0x24})
+	c := New(mem)
+	c.R[ESP], c.R[EDX], c.EFlags = 0x20, 0x12345678, CF|ZF|OF
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) || c.R[ESP] != 0x20 || c.R[EDX] != 0x12345678 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("stack base store=% X ESP=%X EDX=%X flags=%X err=%v", mem[0x20:0x24], c.R[ESP], c.R[EDX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x89, 0x14, 0x24})
+	c = New(mem)
+	c.R[ESP], c.R[EDX] = 0x20, 0x12345678
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x3f})
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x20:0x24], []byte{0, 0, 0, 0}) || c.R[ESP] != 0x20 || c.R[EDX] != 0x12345678 {
+		t.Fatalf("read-only stack base store=% X ESP=%X EDX=%X err=%v", mem[0x20:0x24], c.R[ESP], c.R[EDX], err)
+	}
+}
+
 func TestStoreRegisterToStackDisp32(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x89, 0x94, 0x24, 0xf0, 0xff, 0xff, 0xff})
