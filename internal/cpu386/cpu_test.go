@@ -1219,6 +1219,27 @@ func TestShortJumpBelow(t *testing.T) {
 	}
 }
 
+func TestShortJumpLessOrEqual(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flags uint32
+		want  uint32
+	}{
+		{name: "equal", flags: ZF | CF, want: 0},
+		{name: "less", flags: SF, want: 0},
+		{name: "greater", flags: CF, want: 2},
+		{name: "same signed flags", flags: SF | OF, want: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus{0x7e, 0xfe})
+			c.EFlags = test.flags
+			if err := c.Step(); err != nil || c.EIP != test.want || c.EFlags != test.flags {
+				t.Fatalf("JLE EIP=%X flags=%X err=%v", c.EIP, c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestCompareALAndJumpZero(t *testing.T) {
 	mem := testBus{0x3c, 0x7f, 0x74, 0x02, 0xfb, 0xfb, 0xfb}
 	c := New(mem)
