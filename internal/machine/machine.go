@@ -157,6 +157,16 @@ type Machine struct {
 	gcIdx  uint8
 	latch  [4]uint8
 
+	// 鍵盤：掃描碼佇列與埠 0x60 目前的值。KeyEvery 是送鍵的間隔（指令數）。
+	keyQueue []uint8
+	keyPort  uint8
+
+	// KeyIRQs 是實際送出去的鍵盤中斷數。**送不出去與遊戲不理會是兩件事**，
+	// 沒有這個數字就分不開。
+	KeyIRQs  uint64
+	nextKey  uint64
+	KeyEvery uint64
+
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
 	// （`docs/spec/004` §5）。
 	Steps uint64
@@ -369,6 +379,10 @@ func (m *Machine) In8(port uint16) uint8 {
 		// **遮罩位元要照做**：偵測序列的第一步就是 `04h←60h`（兩個都遮），
 		// 不理它的話那一步就會讀到非零而判定失敗。
 		return m.oplStatus()
+	case port == 0x60:
+		// 鍵盤資料埠。自己裝 int 09h 的程式從這裡讀掃描碼
+		// （`docs/spec/012` §1）。
+		return m.keyPort
 	case port == 0x61:
 		return 0x00
 	// sequencer／GC 讀回（spec 009）：有程式會讀回索引或資料確認。
@@ -471,8 +485,39 @@ func (m *Machine) Indexed() []uint8 {
 // Step 執行一道指令，必要時先送 IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
+	m.keyTick()
 	m.Steps++
 	return m.CPU.Step()
+}
+
+// QueueScan 把掃描碼排進鍵盤佇列。按下與放開是**兩個**碼
+// （放開是按下碼 or 0x80），兩個都要排——只送按下的話，自己寫鍵盤 ISR
+// 的程式會一直以為那個鍵還按著。
+func (m *Machine) QueueScan(codes ...uint8) {
+	m.keyQueue = append(m.keyQueue, codes...)
+}
+
+// QueueKey 排一次完整的按鍵（按下 ＋ 放開）。
+func (m *Machine) QueueKey(scan uint8) { m.QueueScan(scan, scan|0x80) }
+
+// keyTick 送鍵盤中斷（IRQ1 ＝ `int 09h`）。
+//
+// ⚠ **只走 BIOS 的 int 16h 是不夠的。** 自己裝 int 09h 的程式（本作就是）
+// 從埠 0x60 讀掃描碼，BIOS 緩衝區對它完全不存在——鍵永遠送不進去，
+// 而且沒有任何錯誤，只是遊戲看起來沒反應（`~/cht/logh3/docs/re/08`）。
+func (m *Machine) keyTick() {
+	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
+		return
+	}
+	// 與 IRQ0 同樣的理由：中斷關著的時候先留著，不要丟掉。
+	if !m.CPU.Flag(cpu.IF) || m.Read16(0x09*4+2) == StubSeg {
+		return
+	}
+	m.nextKey = m.Steps + m.KeyEvery
+	m.keyPort = m.keyQueue[0]
+	m.keyQueue = m.keyQueue[1:]
+	m.KeyIRQs++
+	m.CPU.Interrupt(0x09)
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。
@@ -558,3 +603,6 @@ func (m *Machine) initVectors() {
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
 }
+
+// SetNextKey 設定第一個掃描碼要在第幾道指令送出。
+func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }

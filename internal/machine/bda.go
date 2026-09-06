@@ -76,3 +76,18 @@ func (m *Machine) SetVideoMode(mode uint8) {
 
 // VideoMode 讀回目前模式。
 func (m *Machine) VideoMode() uint8 { return m.Mem[bdaSeg*16+0x49] }
+
+// PixelWidth 回目前模式的水平像素數。
+//
+// 滑鼠驅動的虛擬座標系固定是 640 寬，所以 320 寬的模式回報出去的 X 是
+// 像素的兩倍。**這個倍率不能寫死**：同一個執行器要同時服務 mode 13h
+// （320 寬，倍率 2）與 mode 12h（640 寬，倍率 1）的遊戲，寫死的話其中
+// 一邊的點擊會落在兩倍遠的地方——而畫面上完全看不出來，只是「點了沒反應」。
+func (m *Machine) PixelWidth() int {
+	switch m.VideoMode() {
+	case 0x04, 0x05, 0x0D, 0x13:
+		return 320
+	default:
+		return 640
+	}
+}

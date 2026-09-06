@@ -46,13 +46,20 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	clicks := flag.String("clicks", "", "多次點擊，格式 `x,y,at[,hold]`，用分號分隔。"+
+		"與 -click-x 併用時兩邊都會生效")
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
 	watch := flag.String("watch", "", "監看記憶體寫入，格式 <線性hex>-<線性hex>；"+
 		"每次寫入印出步數與 CS:IP（除錯「誰把向量改掉了」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
-	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	keys := flag.String("keys", "", "先排進 BIOS 鍵盤緩衝區的按鍵（`\\n` 是 Enter）；"+
+		"程式自己裝 int 09h 的話這條沒用，要用 -press")
+	press := flag.String("press", "", "用 IRQ1 送的按鍵，逗號分隔。"+
+		"可用名稱：up down left right enter esc space，或單一字元／16 進位掃描碼")
+	pressAt := flag.Uint64("press-at", 0, "第幾道指令開始送鍵（0 ＝ steps 的八成）")
+	pressEvery := flag.Uint64("press-every", 500_000, "每幾道指令送一個掃描碼")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
 		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
@@ -123,6 +130,21 @@ func main() {
 		d.Calls = map[dos.Call]int{}
 	}
 	d.Install()
+	if *press != "" {
+		m.KeyEvery = *pressEvery
+		at := *pressAt
+		if at == 0 {
+			at = *steps * 8 / 10
+		}
+		m.SetNextKey(at)
+		for _, k := range strings.Split(*press, ",") {
+			sc, ok := scanOf(strings.TrimSpace(k))
+			if !ok {
+				die(fmt.Errorf("看不懂的按鍵 %q", k))
+			}
+			m.QueueKey(sc)
+		}
+	}
 	if *keys != "" {
 		d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(*keys, "\\n", "\n"))...)
 	}
@@ -136,6 +158,30 @@ func main() {
 	moveAt := *mouseAt
 	if moveAt == 0 {
 		moveAt = *steps / 2
+	}
+
+	type clickEv struct {
+		x, y     int
+		at, hold uint64
+	}
+	var evs []clickEv
+	for _, one := range strings.Split(*clicks, ";") {
+		if one = strings.TrimSpace(one); one == "" {
+			continue
+		}
+		f := strings.Split(one, ",")
+		if len(f) < 3 {
+			die(fmt.Errorf("-clicks 的 %q 少了欄位，要 x,y,at[,hold]", one))
+		}
+		var e clickEv
+		e.x, _ = strconv.Atoi(strings.TrimSpace(f[0]))
+		e.y, _ = strconv.Atoi(strings.TrimSpace(f[1]))
+		e.at, _ = strconv.ParseUint(strings.TrimSpace(f[2]), 10, 64)
+		e.hold = *clickHold
+		if len(f) > 3 {
+			e.hold, _ = strconv.ParseUint(strings.TrimSpace(f[3]), 10, 64)
+		}
+		evs = append(evs, e)
 	}
 
 	ring := newRing(*trace)
@@ -164,6 +210,17 @@ func main() {
 				d.Mouse.Buttons = 1
 				d.Mouse.Press++
 			case *clickAt + *clickHold:
+				d.Mouse.Buttons = 0
+				d.Mouse.Release++
+			}
+		}
+		for _, e := range evs {
+			switch m.Steps {
+			case e.at:
+				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
+				d.Mouse.Buttons = 1
+				d.Mouse.Press++
+			case e.at + e.hold:
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
 			}
@@ -286,6 +343,10 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX])
 	fmt.Printf("DS=%04X ES=%04X SS:SP=%04X:%04X  視訊模式 %02Xh\n",
 		c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.R[cpu.SP], m.VideoMode())
+	if m.KeyIRQs > 0 || m.KeyEvery > 0 {
+		fmt.Printf("鍵盤中斷送出 %d 次（int 09h 向量 %04X:%04X）\n",
+			m.KeyIRQs, m.Read16(0x09*4+2), m.Read16(0x09*4))
+	}
 	fmt.Printf("planar write mode 使用次數：0=%d 1=%d 2=%d 3=%d\n",
 		m.WriteModeUse[0], m.WriteModeUse[1], m.WriteModeUse[2], m.WriteModeUse[3])
 	if len(m.ModeChanges) > 0 {
@@ -336,6 +397,18 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		for _, v := range d.VecSets {
 			fmt.Printf("  #%d int %02Xh ← %04X:%04X\n", v.Step, v.Int, v.Seg, v.Off)
 		}
+	}
+	if len(d.Mouse.Calls) > 0 {
+		fmt.Printf("\nint 33h 各功能（%d 種）：", len(d.Mouse.Calls))
+		fns := make([]int, 0, len(d.Mouse.Calls))
+		for f := range d.Mouse.Calls {
+			fns = append(fns, int(f))
+		}
+		sort.Ints(fns)
+		for _, f := range fns {
+			fmt.Printf(" AX=%04X×%d", f, d.Mouse.Calls[uint16(f)])
+		}
+		fmt.Println()
 	}
 	if len(d.FileOps) > 0 {
 		fmt.Printf("\n檔案存取（%d 次）：\n", len(d.FileOps))
@@ -632,6 +705,27 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
+}
+
+// scanOf 把按鍵名稱轉成 set-1 掃描碼。
+func scanOf(s string) (uint8, bool) {
+	named := map[string]uint8{
+		"up": 0x48, "down": 0x50, "left": 0x4B, "right": 0x4D,
+		"enter": 0x1C, "esc": 0x01, "space": 0x39, "tab": 0x0F,
+	}
+	if v, ok := named[strings.ToLower(s)]; ok {
+		return v, true
+	}
+	if v, err := strconv.ParseUint(s, 16, 8); err == nil && len(s) == 2 {
+		return uint8(v), true
+	}
+	if len(s) == 1 {
+		chars := "1234567890"
+		if i := strings.IndexByte(chars, s[0]); i >= 0 {
+			return uint8(0x02 + i), true
+		}
+	}
+	return 0, false
 }
 
 func die(err error) {

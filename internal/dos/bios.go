@@ -146,6 +146,11 @@ func (d *DOS) int33(c *cpu.CPU) {
 	if m.Calls != nil {
 		m.Calls[fn]++
 	}
+	// 虛擬座標倍率：沒指定就依目前的視訊模式決定。
+	scale := m.XScale
+	if scale == 0 {
+		scale = uint16(640 / d.M.PixelWidth())
+	}
 	switch fn {
 	case 0x0000: // 重設並偵測
 		c.R[cpu.AX] = 0xFFFF // 已安裝
@@ -162,12 +167,12 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Polls = append(m.Polls, Poll{X: m.X, Y: m.Y, Buttons: m.Buttons,
 			Step: d.M.Steps})
 		c.R[cpu.BX] = m.Buttons
-		c.R[cpu.CX] = m.X * m.XScale
+		c.R[cpu.CX] = m.X * scale
 		c.R[cpu.DX] = m.Y
 
 	case 0x0004: // 設位置
-		if m.XScale > 0 {
-			m.X = c.R[cpu.CX] / m.XScale
+		if scale > 0 {
+			m.X = c.R[cpu.CX] / scale
 		}
 		m.Y = c.R[cpu.DX]
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
@@ -181,7 +186,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 			c.R[cpu.BX] = m.Release
 			m.Release = 0
 		}
-		c.R[cpu.CX] = m.X * m.XScale
+		c.R[cpu.CX] = m.X * scale
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好

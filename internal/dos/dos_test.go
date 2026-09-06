@@ -218,6 +218,7 @@ func TestMouseResetReportsInstalled(t *testing.T) {
 // 這份紀錄是唯一分得出來的東西。
 func TestMousePollIsRecorded(t *testing.T) {
 	m, d := newTest(t)
+	m.SetVideoMode(0x13) // 320 寬
 	d.Mouse.X, d.Mouse.Y = 100, 50
 	call(m, d, 0x33, 0x0003)
 	if len(d.Mouse.Polls) != 1 {
@@ -225,8 +226,33 @@ func TestMousePollIsRecorded(t *testing.T) {
 	}
 	// mode 13h 的標準驅動水平回報 0–639（`rich2/docs/re/182` §3）。
 	if m.CPU.R[cpu.CX] != 200 || m.CPU.R[cpu.DX] != 50 {
-		t.Errorf("回報 (%d,%d)，預期 (200,50)：水平要乘 XScale",
+		t.Errorf("mode 13h 回報 (%d,%d)，預期 (200,50)：水平要乘 2",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestMouseScaleFollowsVideoMode：虛擬座標倍率要**跟著視訊模式走**，
+// 不能寫死。
+//
+// 驅動的虛擬座標系固定 640 寬，所以 320 寬的模式回報值是像素的兩倍、
+// 640 寬的模式是一比一。寫死成 2 的話，mode 12h 的遊戲收到的點擊會落在
+// 兩倍遠的地方——而畫面完全正常，症狀只是「點了沒反應」，
+// 看起來像遊戲卡住而不是座標錯（`~/cht/logh3/docs/re/08`）。
+func TestMouseScaleFollowsVideoMode(t *testing.T) {
+	for _, c := range []struct {
+		mode    uint8
+		x, want uint16
+	}{
+		{0x13, 100, 200}, {0x0D, 100, 200},
+		{0x12, 300, 300}, {0x10, 300, 300}, {0x03, 300, 300},
+	} {
+		m, d := newTest(t)
+		m.SetVideoMode(c.mode)
+		d.Mouse.X, d.Mouse.Y = c.x, 40
+		call(m, d, 0x33, 0x0005) // 取按下資料也回座標
+		if got := m.CPU.R[cpu.CX]; got != c.want {
+			t.Errorf("模式 %02Xh：X=%d 回報 %d，預期 %d", c.mode, c.x, got, c.want)
+		}
 	}
 }
 

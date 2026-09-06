@@ -37,7 +37,8 @@ type Mouse struct {
 	Buttons uint16
 	// Press／Release 是 AX=5／AX=6 的統計，讀走就歸零。
 	Press, Release uint16
-	// XScale 是水平的虛擬座標倍率。**2 是標準**。
+	// XScale 是水平的虛擬座標倍率。0 表示依視訊模式自動決定
+	// （320 寬 → 2、640 寬 → 1），這是預設；設非 0 就強制用那個值。
 	XScale uint16
 	// Polls 記下每一次 AX=3 回報出去的東西。**這是分辨「輸入沒送到」與
 	// 「送到了但答錯」的唯一辦法**——兩者的畫面表現一模一樣。
@@ -229,7 +230,7 @@ func New(m *machine.Machine, root string) *DOS {
 	return &DOS{
 		M: m, Root: root,
 		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
-		Mouse:         Mouse{XScale: 2, Calls: map[uint16]int{}},
+		Mouse:         Mouse{Calls: map[uint16]int{}},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
