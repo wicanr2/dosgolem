@@ -892,3 +892,29 @@ func TestFD2ScansAILActiveTableEntry(t *testing.T) {
 		t.Fatalf("AIL active scan steps=%d EIP=%X calls=%d value=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), value, m.CPU.EFlags, errValue)
 	}
 }
+
+func TestFD2ReadsAILIndexedTableEntry(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e8ec; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL indexed read: step=%d EIP=%X EDI=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3e8ec || services.Calls() != 5 || m.CPU.R[cpu386.EDI] != 0x3c || m.CPU.R[cpu386.EAX] != 0xd68d {
+		t.Fatalf("AIL indexed read steps=%d EIP=%X calls=%d EDI=%X EAX=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EAX])
+	}
+}
+
+func TestFD2CompletesAILActiveTableScan(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e8fa; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL active scan loop: step=%d EIP=%X EDI=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EDI], err)
+		}
+	}
+	if m.CPU.EIP != 0x3e8fa || services.Calls() != 5 || m.CPU.R[cpu386.EDI] != 0x40 || m.CPU.R[cpu386.ECX] != 0xd68d || m.CPU.EFlags&cpu386.CF != 0 {
+		t.Fatalf("AIL active scan loop steps=%d EIP=%X calls=%d EDI=%X ECX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.ECX], m.CPU.EFlags)
+	}
+}

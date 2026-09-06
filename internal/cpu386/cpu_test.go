@@ -185,6 +185,27 @@ func TestLoadRegisterFromStackDisp8(t *testing.T) {
 	}
 }
 
+func TestLoadRegisterFromBaseDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x8b, 0x83, 0xfc, 0xff, 0xff, 0xff})
+	copy(mem[0x20:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBX], c.R[EAX] = 0x24, 0xdeadbeef
+	if err := c.Step(); err != nil || c.R[EAX] != 0x12345678 || c.R[EBX] != 0x24 {
+		t.Fatalf("base+disp32 load EAX=%X EBX=%X err=%v", c.R[EAX], c.R[EBX], err)
+	}
+
+	c = New(testBus{0x8b, 0x83, 0xfc, 0xff, 0xff, 0xff})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 5, Writable: true})
+	c.R[EBX], c.R[EAX] = 0x24, 0xdeadbeef
+	if err := c.Step(); err == nil || c.R[EAX] != 0xdeadbeef {
+		t.Fatalf("out-of-range base+disp32 load EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestLEAStackDisp8(t *testing.T) {
 	c := New(testBus{0x8d, 0x44, 0x24, 0xfc})
 	c.R[ESP] = 0x20
@@ -816,6 +837,20 @@ func TestNearRelativeJump(t *testing.T) {
 	c := New(mem)
 	if err := c.Step(); err != nil || c.EIP != 0x15 {
 		t.Fatalf("near JMP EIP=%X err=%v", c.EIP, err)
+	}
+}
+
+func TestShortJumpBelow(t *testing.T) {
+	c := New(testBus{0x72, 0xfe})
+	c.EFlags = CF | ZF
+	if err := c.Step(); err != nil || c.EIP != 0 || c.EFlags != CF|ZF {
+		t.Fatalf("taken JB EIP=%X flags=%X err=%v", c.EIP, c.EFlags, err)
+	}
+
+	c = New(testBus{0x72, 0xfe})
+	c.EFlags = ZF
+	if err := c.Step(); err != nil || c.EIP != 2 || c.EFlags != ZF {
+		t.Fatalf("untaken JB EIP=%X flags=%X err=%v", c.EIP, c.EFlags, err)
 	}
 }
 
