@@ -1657,6 +1657,17 @@ func (c *CPU) Step() error {
 			} else {
 				c.sub8(c.reg8(rm), imm)
 			}
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP && group == 7 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			value, ok := c.readSegment8(c.Seg[SegDS], c.R[base])
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+			c.sub8(value, imm)
 		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != ESP && (group == 1 || group == 4) {
 			delta, e := c.fetch8()
 			if e != nil {

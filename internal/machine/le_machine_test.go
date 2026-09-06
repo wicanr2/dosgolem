@@ -1885,3 +1885,28 @@ func TestFD2SplitsINIKeyAndValue(t *testing.T) {
 		t.Fatalf("INI split steps=%d EIP=%X destination=%X value=%X", steps, m.CPU.EIP, destination, m.Mem[destination])
 	}
 }
+
+func TestFD2ChecksINICommentMarker(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 7000 && m.CPU.EIP != 0x3f44c; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI comment setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	source := m.CPU.R[cpu386.EBX]
+	if uint64(source) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI comment source=%X 超界", source)
+	}
+	wantZero := m.Mem[source] == ';'
+	before := m.CPU.R[cpu386.EBX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI comment CMP: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f44f || m.CPU.R[cpu386.EBX] != before || (m.CPU.EFlags&cpu386.ZF != 0) != wantZero {
+		t.Fatalf("INI comment steps=%d EIP=%X source=%X value=%X EBX=%X flags=%X", steps, m.CPU.EIP, source, m.Mem[source], m.CPU.R[cpu386.EBX], m.CPU.EFlags)
+	}
+}
