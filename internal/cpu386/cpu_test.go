@@ -120,6 +120,36 @@ func TestByteTESTAtSIBDisp8(t *testing.T) {
 	}
 }
 
+func TestByteTESTRegister(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		code []byte
+		reg  int
+		set  uint32
+		zero bool
+	}{
+		{name: "DL zero", code: []byte{0xf6, 0xc2, 0x80}, reg: EDX, set: 0xa5a5007f, zero: true},
+		{name: "AH nonzero", code: []byte{0xf6, 0xc4, 0x80}, reg: EAX, set: 0x12348000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus(test.code))
+			c.R[test.reg], c.EFlags = test.set, CF|OF|AF
+			before := c.R[test.reg]
+			if err := c.Step(); err != nil {
+				t.Fatal(err)
+			}
+			if c.R[test.reg] != before || (c.EFlags&ZF != 0) != test.zero || c.EFlags&(CF|OF|AF) != 0 {
+				t.Fatalf("register=%X flags=%X", c.R[test.reg], c.EFlags)
+			}
+		})
+	}
+
+	c := New(testBus{0xf6, 0xda})
+	if err := c.Step(); err == nil {
+		t.Fatal("unapproved F6 register group was accepted")
+	}
+}
+
 func TestAbsoluteByteANDOR(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})
