@@ -2465,6 +2465,33 @@ func TestLoadALFromEDIPlusEBP(t *testing.T) {
 	}
 }
 
+func TestLoadEAXFromStackBase(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x8b, 0x04, 0x24})
+	binary.LittleEndian.PutUint32(mem[0x20:0x24], 0x89abcdef)
+	c := New(mem)
+	c.R[EAX], c.R[ESP], c.EFlags = 0x12345678, 0x20, CF|ZF|OF
+	c.Seg[SegSS] = 0x178
+	c.SetDescriptor(0x178, Descriptor{Limit: 0x3f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x89abcdef || c.R[ESP] != 0x20 || binary.LittleEndian.Uint32(mem[0x20:0x24]) != 0x89abcdef || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV EAX EAX=%X ESP=%X stack=%X flags=%X err=%v", c.R[EAX], c.R[ESP], binary.LittleEndian.Uint32(mem[0x20:0x24]), c.EFlags, err)
+	}
+
+	c = New(testBus{0x8b, 0x04, 0x24})
+	c.R[EAX], c.R[ESP], c.EFlags = 0x12345678, 1, CF|ZF|OF
+	c.Seg[SegSS] = 0x178
+	c.SetDescriptor(0x178, Descriptor{Limit: 2})
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 || c.R[ESP] != 1 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("out-of-range MOV EAX EAX=%X ESP=%X flags=%X err=%v", c.R[EAX], c.R[ESP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8b, 0x04, 0x25})
+	c.R[EAX], c.R[ESP] = 0x12345678, 1
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("unsupported stack SIB EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestStoreRegister8ToBase(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x88, 0x23})
