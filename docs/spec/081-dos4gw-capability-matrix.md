@@ -39,7 +39,9 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 掃描，EDI=`0x40` 且抵達 `0x3E8FA`；後續 `sub_3E894` 已比較 stack
 參數與門檻 `0xD68D`，再由 `sub_3E864` 以硬體規格近似記錄 PIT 序列
 `43h:36h、40h:00h、40h:00h`，並完成保存 IF byte 的 TEST 至
-`0x3E889`，再以 `POPFD` 完整恢復 caller 旗標至 `0x3E88F`。此收據只證明
+`0x3E889`，再以 `POPFD` 完整恢復 caller 旗標；AIL 初始化鏈完成返回後，
+已進入 `sub_43EF0` 並配置 `MDI.INI` 的 `0x118`-byte stack frame，抵達
+`0x43EF8`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

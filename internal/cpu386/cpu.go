@@ -1252,6 +1252,15 @@ func (c *CPU) Step() error {
 			c.sub32(value, imm)
 			break
 		}
+		if modrm>>6 == 3 && group == 5 {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			c.R[reg] = c.sub32(c.R[reg], value)
+			break
+		}
 		if modrm>>6 != 3 || group != 4 {
 			return fail(fmt.Sprintf("81 ModRM %02X 尚未支援", modrm))
 		}
