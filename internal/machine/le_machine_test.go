@@ -1349,3 +1349,30 @@ func TestFD2TestsIOModeFlag(t *testing.T) {
 		t.Fatalf("I/O mode flag steps=%d EIP=%X addr=%X before=%X after=%X ZF=%t", steps, m.CPU.EIP, addr, before, m.Mem[addr], gotZero)
 	}
 }
+
+func TestFD2MarksIOModeFlag(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x4637d; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("I/O mode flag OR setup: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBX] + m.CPU.R[cpu386.EAX] + 1
+	if uint64(addr) >= uint64(len(m.Mem)) {
+		t.Fatalf("I/O mode flag address=%X 超界", addr)
+	}
+	before := m.Mem[addr]
+	if before&0x40 != 0 {
+		t.Fatalf("I/O mode flag 在 OR 前已設定：addr=%X value=%X", addr, before)
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("I/O mode flag OR: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x46382 || m.Mem[addr] != before|0x40 {
+		t.Fatalf("I/O mode flag steps=%d EIP=%X addr=%X before=%X after=%X", steps, m.CPU.EIP, addr, before, m.Mem[addr])
+	}
+}

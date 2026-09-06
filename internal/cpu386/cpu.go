@@ -1481,6 +1481,32 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegES], c.R[EAX]))
 			}
 			c.sub8(value, imm)
+		} else if segmentOverride < 0 && modrm == 0x4c {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x03 {
+				return fail(fmt.Sprintf("80 OR SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBX]) + int64(c.R[EAX]) + int64(int8(delta)))
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("OR byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			result := value | imm
+			if !c.writeSegment8(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("OR byte write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setLogicFlags8(result)
 		} else if modrm>>6 == 3 && (group == 1 || group == 4 || group == 7) {
 			imm, e := c.fetch8()
 			if e != nil {
