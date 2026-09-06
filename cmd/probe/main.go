@@ -71,6 +71,10 @@ func main() {
 		"在指定步數直接改記憶體：`<位址>@<步數>=<hex bytes>`，分號分隔。"+
 			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
 			"要某個局面就直接把它寫進去，不要靠亂數重跑")
+	regsAt := flag.String("regs-at", "",
+		"執行到這些 `<seg>:<off>` 時記下暫存器（逗號分隔，各印前 8 次）。"+
+			"用來回答「這支繪圖常式的來源指標指到哪」——"+
+			"監看寫入只看得到目的地，看不到它從哪裡搬")
 	vramSites := flag.Bool("vram-sites", false,
 		"統計「誰在寫視訊記憶體」，印出前 20 名 CS:IP（找繪圖常式）")
 	flag.Parse()
@@ -193,6 +197,27 @@ func main() {
 	if *vramSites {
 		m.VRAMSites = map[uint32]uint64{}
 	}
+	type regSite struct {
+		seg, off uint16
+	}
+	regHits := map[regSite][]string{}
+	var regWatch []regSite
+	for _, item := range strings.Split(*regsAt, ",") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		f := strings.Split(item, ":")
+		if len(f) != 2 {
+			die(fmt.Errorf("-regs-at 的 %q 要寫成 <seg>:<off>", item))
+		}
+		sg, err1 := strconv.ParseUint(f[0], 16, 16)
+		of, err2 := strconv.ParseUint(f[1], 16, 16)
+		if err1 != nil || err2 != nil {
+			die(fmt.Errorf("-regs-at 的 %q 不是 16 進位的 <seg>:<off>", item))
+		}
+		regWatch = append(regWatch, regSite{uint16(sg), uint16(of)})
+	}
+
 	pokes, err := parsePokes(*poke)
 	if err != nil {
 		die(err)
@@ -248,6 +273,17 @@ func main() {
 				fmt.Printf("#%d 改記憶體 %s（%05X）%d bytes\n", m.Steps, p.label, p.addr, len(p.data))
 			}
 		}
+		for _, w := range regWatch {
+			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off {
+				if h := regHits[w]; len(h) < 8 {
+					c := m.CPU
+					regHits[w] = append(h, fmt.Sprintf(
+						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X DS=%04X ES=%04X",
+						m.Steps, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
+						c.R[cpu.SI], c.R[cpu.DI], c.Seg[cpu.DS], c.Seg[cpu.ES]))
+				}
+			}
+		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
 			break
@@ -255,6 +291,13 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	for _, w := range regWatch {
+		h := regHits[regSite{w.seg, w.off}]
+		fmt.Printf("\n%04X:%04X 執行時的暫存器（前 %d 次）：\n", w.seg, w.off, len(h))
+		for _, line := range h {
+			fmt.Println("  " + line)
+		}
+	}
 	if len(m.VRAMSites) > 0 {
 		type kv struct {
 			a uint32
