@@ -2025,3 +2025,29 @@ func TestFD2AddressesCurrentININumberByte(t *testing.T) {
 		t.Fatalf("INI number address steps=%d EIP=%X EAX=%X want=%X EDI=%X EBP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags)
 	}
 }
+
+func TestFD2BoundsINIRadixDigitScan(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f2d1; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI radix bound setup: step=%d EIP=%X EBX=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	stack := m.CPU.R[cpu386.ESP]
+	bound, err := m.Read32(stack + 0x1c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeEBX := m.CPU.R[cpu386.EBX]
+	wantZero := beforeEBX == bound
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI radix bound CMP: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f2d5 || m.CPU.R[cpu386.EBX] != beforeEBX || (m.CPU.EFlags&cpu386.ZF != 0) != wantZero {
+		t.Fatalf("INI radix bound steps=%d EIP=%X EBX=%X bound=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], bound, m.CPU.EFlags)
+	}
+}

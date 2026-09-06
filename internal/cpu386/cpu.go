@@ -2778,6 +2778,26 @@ func (c *CPU) Step() error {
 			c.sub32(c.R[(modrm>>3)&7], value)
 			break
 		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 1 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("CMP stack disp8 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP stack disp8 read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(c.R[(modrm>>3)&7], value)
+			break
+		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}

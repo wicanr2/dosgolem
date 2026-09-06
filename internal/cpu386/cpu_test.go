@@ -1454,6 +1454,43 @@ func TestLEAEAXFromEDIPlusEBP(t *testing.T) {
 	}
 }
 
+func TestCompareRegisterWithStackDisp8Dword(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		left  uint32
+		right uint32
+		delta byte
+		addr  int
+		flags uint32
+	}{
+		{name: "equal", left: 7, right: 7, delta: 4, addr: 0x24, flags: ZF | PF},
+		{name: "borrow", left: 0, right: 1, delta: 0xfc, addr: 0x1c, flags: CF | AF | SF | PF},
+		{name: "signed overflow", left: 0x80000000, right: 1, delta: 4, addr: 0x24, flags: OF | AF | PF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, []byte{0x3b, 0x5c, 0x24, test.delta})
+			binary.LittleEndian.PutUint32(mem[test.addr:test.addr+4], test.right)
+			c := New(mem)
+			c.R[ESP], c.R[EBX] = 0x20, test.left
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f})
+			before := append([]byte(nil), mem[test.addr:test.addr+4]...)
+			if err := c.Step(); err != nil || c.R[ESP] != 0x20 || c.R[EBX] != test.left || !bytes.Equal(mem[test.addr:test.addr+4], before) || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("CMP EBX=%X stack=% X flags=%X err=%v", c.R[EBX], mem[test.addr:test.addr+4], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x3b, 0x5c, 0x24, 4})
+	c.R[ESP], c.R[EBX] = 0x20, 7
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 3})
+	if err := c.Step(); err == nil || c.R[ESP] != 0x20 || c.R[EBX] != 7 {
+		t.Fatalf("out-of-range CMP ESP=%X EBX=%X err=%v", c.R[ESP], c.R[EBX], err)
+	}
+}
+
 func TestPushSignExtendedByte(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	copy(mem, []byte{0x6a, 0x80})

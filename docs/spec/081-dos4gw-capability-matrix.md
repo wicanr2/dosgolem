@@ -70,7 +70,8 @@ parser 已從 `SS:[ESP+ESI+0x118]` 讀取行尾分類字元；`0x3F362` 的 AL �
 `0x3F270 89 14 24` 將零值寫入 `[SS:ESP]`，初始化第一個數值解析狀態，
 並於 `0x3F273 C7 44 24 04 01 00 00 00` 將符號乘數初始值 1 寫至
 `[SS:ESP+4]`；`0x3F27F 8D 04 2F` 再形成目前數值字元的 `EDI+EBP`
-位址。下一阻塞移至 `0x3F2D1`（opcode `3B`、ModRM `5C`）。此收據只證明
+位址；`0x3F2D1 3B 5C 24 1C` 再比較 digit-table index 與 caller 傳入的
+radix 上界。下一阻塞移至 `0x3F2A5`（opcode `0F B6`、ModRM `B3`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
