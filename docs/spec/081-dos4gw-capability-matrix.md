@@ -52,7 +52,7 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 並測試、設定該 FILE record 的延遲 I/O 模式旗標；後續自然執行已進入
 `isatty`、把已登錄 handle 搬入 BX，完成 `AX=4400h` DOS IOCTL
 regular-file 查詢、測試 DX device bit，正規化 `isatty` 回傳為 0，並從
-FILE table 讀回 handle record；下一阻塞移至 `0x463B6`。此收據只證明
+FILE table 讀回及寫回 handle record；下一阻塞移至 `0x46C6E`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

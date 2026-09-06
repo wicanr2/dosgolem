@@ -327,6 +327,28 @@ func TestLoadDwordFromBaseScaledIndex(t *testing.T) {
 	}
 }
 
+func TestStoreDwordToBaseScaledIndex(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x89, 0x14, 0x98})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f, Writable: true})
+	c.R[EAX], c.R[EBX], c.R[EDX], c.EFlags = 0x20, 8, 0x12345678, CF|ZF|OF
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x40:0x44], []byte{0x78, 0x56, 0x34, 0x12}) || c.R[EAX] != 0x20 || c.R[EBX] != 8 || c.R[EDX] != 0x12345678 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("store=% X EAX=%X EBX=%X EDX=%X flags=%X err=%v", mem[0x40:0x44], c.R[EAX], c.R[EBX], c.R[EDX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x89, 0x14, 0x98})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f})
+	c.R[EAX], c.R[EBX], c.R[EDX] = 0x20, 8, 0x12345678
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x40:0x44], []byte{0, 0, 0, 0}) {
+		t.Fatalf("read-only store=% X err=%v", mem[0x40:0x44], err)
+	}
+}
+
 func TestRegisterMOV16(t *testing.T) {
 	c := New(testBus{0x66, 0x8b, 0xca})
 	c.R[ECX], c.R[EDX], c.EFlags = 0xaabbccdd, 0x11223344, CF|ZF
