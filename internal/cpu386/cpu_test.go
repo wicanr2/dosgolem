@@ -135,6 +135,35 @@ func TestAbsoluteByteANDOR(t *testing.T) {
 	}
 }
 
+func TestByteORAtSIBDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x60))
+	copy(mem, []byte{0x80, 0x4c, 0x03, 0xff, 0x40})
+	mem[0x2f] = 0x01
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x5f, Writable: true})
+	c.R[EBX], c.R[EAX], c.EFlags = 0x20, 0x10, CF|OF|AF
+	if err := c.Step(); err != nil || mem[0x2f] != 0x41 || c.EFlags&(CF|OF|AF|ZF) != 0 {
+		t.Fatalf("OR byte=%X flags=%X err=%v", mem[0x2f], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x60))
+	copy(mem, []byte{0x80, 0x4c, 0x03, 0xff, 0x40})
+	mem[0x2f] = 1
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x5f})
+	c.R[EBX], c.R[EAX] = 0x20, 0x10
+	if err := c.Step(); err == nil || mem[0x2f] != 1 {
+		t.Fatalf("read-only OR byte=%X err=%v", mem[0x2f], err)
+	}
+
+	c = New(testBus{0x80, 0x4c, 0x23, 0x01, 0x40})
+	if err := c.Step(); err == nil {
+		t.Fatal("unapproved SIB OR byte was accepted")
+	}
+}
+
 func TestCompareDwordAtBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x83, 0x7b, 0x0c, 0})
