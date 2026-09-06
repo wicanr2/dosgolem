@@ -76,6 +76,21 @@ const (
 	ColLevel  = 15 // 建物等級 0–5（`docs/re/016` §82，confirmed）
 )
 
+// SetOwner／SetLevel 直接寫某一格的地主與建物等級。
+//
+// **佈置場面用**：要驗「別人的地、蓋了幾級、走上去該付多少」，
+// 寫進去比在遊戲裡玩出來快兩個數量級。
+//
+// ⚠ **只寫遊戲自己會產生的值**（地主 0..玩家數、等級 0..5）——
+// 寫進去的狀態不會回到原版的規則檢查。
+func SetOwner(o *oracle.Oracle, square, owner int) {
+	Board(o).SetInt16(int16(owner), square, ColOwner)
+}
+
+func SetLevel(o *oracle.Oracle, square, level int) {
+	Board(o).SetInt16(int16(level), square, ColLevel)
+}
+
 // Owner／Street／Level 讀某一格的地主、街道編號、建物等級。
 func Owner(o *oracle.Oracle, square int) int {
 	return int(Board(o).Int16(square, ColOwner))
