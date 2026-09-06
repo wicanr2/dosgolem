@@ -559,24 +559,6 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 				e.Base, e.PSP, e.Exit, e.TSR, e.Keep)
 		}
 	}
-	if len(d.Calls) > 0 {
-		type kv struct {
-			c dos.Call
-			n int
-		}
-		var list []kv
-		for k, v := range d.Calls {
-			list = append(list, kv{k, v})
-		}
-		sort.Slice(list, func(i, j int) bool { return list[i].n > list[j].n })
-		fmt.Printf("\n服務呼叫（%d 種）\n", len(list))
-		for i, e := range list {
-			if i >= 25 {
-				break
-			}
-			fmt.Printf("  int %02Xh AH=%02X  ×%d\n", e.c.Int, e.c.AH, e.n)
-		}
-	}
 	if len(d.Missing) > 0 {
 		fmt.Printf("找不到的檔（%d）：%s\n", len(d.Missing), join(d.Missing))
 	}
