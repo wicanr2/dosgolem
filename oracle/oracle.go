@@ -256,6 +256,35 @@ func (o *Oracle) CGA4() []uint8 {
 	return out
 }
 
+// Tandy16 回 Tandy／PCjr 模式 09h 的畫面，320×200 個色號（0…15）。
+//
+// 版面與 CGA 模式 4 同一個家族但**四段交錯**（CGA 是兩段）：一列 160 bytes、
+// 四個 bit 一個像素，第 y 列在 `(y%4) × 0x2000 + (y/4) × 160`。
+// 段數記錯的話畫面會變成四張交疊的梳子——**看起來像雜訊，不像「解錯了」**。
+//
+// 對 oracle 來說這個模式比 EGA 好用：視訊記憶體是線性的，不必模擬位元平面。
+func (o *Oracle) Tandy16() []uint8 {
+	const (
+		stride = 160
+		banks  = 4
+		bank   = 0x2000
+	)
+	out := make([]uint8, Width*Height)
+	for y := 0; y < Height; y++ {
+		base := uint32(y%banks)*bank + uint32(y/banks)*stride
+		row := out[y*Width:]
+		for x := 0; x < Width; x++ {
+			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/2))
+			if x%2 == 0 {
+				row[x] = b >> 4
+			} else {
+				row[x] = b & 0x0F
+			}
+		}
+	}
+	return out
+}
+
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
