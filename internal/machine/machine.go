@@ -145,6 +145,12 @@ type Machine struct {
 	// WriteModeUse 統計 planar 寫入用過哪些 write mode（診斷用）。
 	WriteModeUse [4]uint64
 
+	// VRAMSites 統計「誰在寫視訊記憶體」——key ＝ CS<<16|IP（那一道指令的
+	// 起點）。**在沒有原始碼的情況下，這是找繪圖常式最短的一條路**：
+	// 畫面上看得到的東西，一定有人把它寫進 plane。
+	// nil ＝ 不統計（有額外開銷）。
+	VRAMSites map[uint32]uint64
+
 	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
 	ModeChanges []ModeChange
 

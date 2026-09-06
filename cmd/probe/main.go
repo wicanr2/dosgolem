@@ -67,6 +67,8 @@ func main() {
 		"（依 BDA 目前模式選尺寸：12h ＝ 640×480、10h ＝ 640×350；spec 009）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
+	vramSites := flag.Bool("vram-sites", false,
+		"統計「誰在寫視訊記憶體」，印出前 20 名 CS:IP（找繪圖常式）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -184,6 +186,9 @@ func main() {
 		evs = append(evs, e)
 	}
 
+	if *vramSites {
+		m.VRAMSites = map[uint32]uint64{}
+	}
 	ring := newRing(*trace)
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
@@ -234,6 +239,25 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	if len(m.VRAMSites) > 0 {
+		type kv struct {
+			a uint32
+			n uint64
+		}
+		var list []kv
+		for k, v := range m.VRAMSites {
+			list = append(list, kv{k, v})
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].n > list[j].n })
+		fmt.Printf("\n寫視訊記憶體的指令（%d 處，前 20 名）：\n", len(list))
+		for i, e := range list {
+			if i >= 20 {
+				break
+			}
+			fmt.Printf("  %04X:%04X ×%d\n", e.a>>16, e.a&0xFFFF, e.n)
+		}
+	}
+
 	if *watchVideo {
 		if vidN == 0 {
 			fmt.Println("視訊記憶體：一次都沒寫過")

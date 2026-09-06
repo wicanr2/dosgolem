@@ -223,6 +223,10 @@ func (c *CPU) Interrupt(n uint8) {
 	c.Halted = false
 }
 
+// OpAddr 回這一道指令的起點（含前綴）。診斷用：記「誰寫的」要記指令起點，
+// 不是已經走到下一道的 CS:IP。
+func (c *CPU) OpAddr() (uint16, uint16) { return c.opCS, c.opIP }
+
 // Rewind 把 CS:IP 退回這一道指令的起點（含前綴）。
 //
 // 用途只有一個：**讓一道 `INT` 重新執行**。真實 DOS 的 `AH=3Fh` 讀 stdin

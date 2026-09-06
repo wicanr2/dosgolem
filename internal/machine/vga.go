@@ -24,6 +24,10 @@ func (m *Machine) planarWrite(off uint32, v uint8) {
 	gc := &m.gc
 	wm := gc[5] & 3
 	m.WriteModeUse[wm]++
+	if m.VRAMSites != nil {
+		cs, ip := m.CPU.OpAddr()
+		m.VRAMSites[uint32(cs)<<16|uint32(ip)]++
+	}
 	rot := func(b uint8) uint8 { // gc[3] 低 3 位：右旋
 		n := gc[3] & 7
 		return b>>n | b<<(8-n)
