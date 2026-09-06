@@ -31,8 +31,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		clearCarry(c)
 
-	case 0x19: // 取目前磁碟機
-		// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
+	case 0x19: // 取目前磁碟機// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
 		setAL(c, d.Drive)
 
@@ -64,7 +63,6 @@ func (d *DOS) int21(c *cpu.CPU) {
 		c.R[cpu.DX] = 1<<8 | 1
 		setAL(c, 5) // 星期五
 		clearCarry(c)
-
 	case 0x2C: // 取系統時間 → CH:CL:DH:DL
 		c.R[cpu.CX] = uint16(d.Now.Hour)<<8 | uint16(d.Now.Min)
 		c.R[cpu.DX] = uint16(d.Now.Sec)<<8 | uint16(d.Now.Hundredth)
@@ -124,6 +122,13 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 	case 0x4A:
 		d.setBlock(c)
+
+	case 0x31: // TSR 並結束（`docs/spec/008`）
+		d.tsr(c)
+	case 0x4B: // EXEC（`docs/spec/009`，只實作 AL=00h）
+		d.exec(c)
+	case 0x4D: // 取子行程回傳碼（`docs/spec/009` §3）
+		d.getExitCode(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg

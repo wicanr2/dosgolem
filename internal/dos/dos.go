@@ -127,9 +127,20 @@ type DOS struct {
 	Exited   bool
 	ExitCode uint8
 
+	// ExecLog 是每一次 EXEC／監督載入的紀錄（`docs/spec/009`）。
+	// **「殼鏈走到哪一跳」唯一的直接答案。**
+	ExecLog []ExecRecord
+
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+
+	// 行程模型（`docs/spec/008` §2）：stack 是被 EXEC 暫停的父行程，
+	// curPSP 是目前行程的 PSP，lastExit 給 AH=4Dh，queue 是監督佇列。
+	stack    []procFrame
+	curPSP   uint16
+	lastExit uint16
+	queue    []Queued
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -165,6 +176,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }
 
@@ -216,8 +228,7 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {
-	d.Exited, d.ExitCode = true, code
-	c.Halted = true
+	d.terminate(c, code, false, 0)
 }
 
 // note 記一筆沒實作的呼叫。

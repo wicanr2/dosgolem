@@ -101,6 +101,62 @@ func Load(exe, root string) (*Oracle, error) {
 // Close 關掉還開著的檔。
 func (o *Oracle) Close() { o.d.Close() }
 
+// ---- 程式鏈（`docs/spec/008`／`009`）--------------------------------------
+
+// LoadProgram 是 Load 的通用版：依檔頭 MZ magic 分派 COM／EXE
+// （**副檔名不是判準**，與 `cmd/probe` 一致），並把 args 寫進 PSP+80h
+// 的命令列尾（長度 ＋ 內容 ＋ CR）。
+//
+// 源平合戰的啟動鏈第一支是 DOSJP.COM（要帶 `-F:font.dat -TJ`），
+// Load 只會載 MZ，所以另開這個入口。
+func LoadProgram(exe, root, args string) (*Oracle, error) {
+	img, err := os.ReadFile(exe)
+	if err != nil {
+		return nil, err
+	}
+	m := machine.New()
+	if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
+		err = m.LoadEXE(img)
+	} else {
+		err = m.LoadCOM(img)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("載入 %s：%w", exe, err)
+	}
+	// 命令列尾（PSP+80h）。上限 126 bytes。
+	tail := []byte(args)
+	if len(tail) > 126 {
+		tail = tail[:126]
+	}
+	psp := uint32(machine.PSPSeg) * 16
+	m.Write8(psp+0x80, uint8(len(tail)))
+	m.WriteBytes(psp+0x81, tail)
+	m.Write8(psp+0x81+uint32(len(tail)), 0x0D)
+
+	d := dos.New(m, root)
+	d.Install()
+
+	o := &Oracle{m: m, d: d, onCall: map[uint32][]func(*Oracle){}}
+	o.idaOffset = 0x10000 - (uint32(machine.LoadSeg) * 16)
+	o.dgroupSeg = uint16((0x41E90 - o.idaOffset) / 16)
+	return o, nil
+}
+
+// Enqueue 排入監督佇列的一支程式：目前行程結束（或 TSR 常駐）後
+// 由服務層推出來跑（`docs/spec/009` §4）。name 照 basename 解析，
+// args 會寫進它的命令列尾。
+func (o *Oracle) Enqueue(name, args string) { o.d.Enqueue(name, args) }
+
+// ExecRecord 是一次 EXEC／監督載入的紀錄。
+type ExecRecord = dos.ExecRecord
+
+// ExecLog 回目前為止的 EXEC／監督載入紀錄——**「殼鏈走到哪一跳」
+// 唯一的直接答案**。
+func (o *Oracle) ExecLog() []ExecRecord {
+	return append([]ExecRecord(nil), o.d.ExecLog...)
+}
+
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。
