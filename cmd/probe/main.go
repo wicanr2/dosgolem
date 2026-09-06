@@ -62,7 +62,7 @@ func main() {
 	dumpMem := flag.String("dump-mem", "",
 		"把記憶體寫成檔：<seg>:<off>:<長度>[,...]=<檔名前綴>。\n"+
 			"    -peek 只吃 IDA 線性位址，換算不到執行期搬過去的段。")
-		blockAfter := flag.Uint64("block-after", 100_000,
+	blockAfter := flag.Uint64("block-after", 100_000,
 		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
 	egaEvery := flag.String("ega-every", "",
 		"每 N 道指令存一張 EGA 畫面：<N>:<寬>x<高>=<檔名前綴>。\n"+
@@ -72,6 +72,8 @@ func main() {
 			"    「總共佔了多少」答不出「哪一次開始偏離」——要比對配置器\n"+
 			"    跟真 DOS 的差別只能一筆一筆看。")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
+	dumpPorts := flag.String("dump-ports", "",
+		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
 	flag.Parse()
 
 	if *exe == "" {
@@ -269,6 +271,11 @@ func main() {
 			}
 		}
 		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+	}
+	if *dumpPorts != "" {
+		if err := writePortLog(m, *dumpPorts); err != nil {
+			die(err)
+		}
 	}
 	if *dumpCGA != "" {
 		if err := writeCGA(*dumpCGA, m); err != nil {
@@ -883,4 +890,46 @@ func feedKeys(m *machine.Machine, d *dos.DOS, keys []byte) {
 			m.PushKey(sc)
 		}
 	}
+}
+
+// writePortLog 把 I/O 寫入序列存成 TSV。
+//
+// 規格是 `<檔名>`（全部）或 `<埠>,<埠>=<檔名>`（只存那幾個埠）。
+// 埠用十六進位，例如 `388,389=opl.tsv`。
+//
+// **要序列不要最後值**：像 OPL2 這種「先選暫存器再寫值」的介面，
+// 只看每個埠最後寫進去的值什麼都看不出來。
+func writePortLog(m *machine.Machine, spec string) error {
+	want := map[uint16]bool{}
+	path := spec
+	if i := strings.LastIndex(spec, "="); i >= 0 {
+		path = spec[i+1:]
+		for _, p := range strings.Split(spec[:i], ",") {
+			var v uint64
+			if _, err := fmt.Sscanf(strings.TrimSpace(p), "%x", &v); err != nil {
+				return fmt.Errorf("-dump-ports 的埠 %q 解不出來", p)
+			}
+			want[uint16(v)] = true
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintln(f, "step\tport\tvalue"); err != nil {
+		return err
+	}
+	n := 0
+	for _, w := range m.PortLog {
+		if len(want) > 0 && !want[w.Port] {
+			continue
+		}
+		if _, err := fmt.Fprintf(f, "%d\t%03X\t%02X\n", w.Step, w.Port, w.Val); err != nil {
+			return err
+		}
+		n++
+	}
+	fmt.Printf("I/O 寫入 %d 筆 → %s\n", n, path)
+	return nil
 }
