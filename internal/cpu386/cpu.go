@@ -2224,6 +2224,22 @@ func (c *CPU) Step() error {
 			if e = c.write16(addr, uint16(source)); e != nil {
 				return fail(e.Error())
 			}
+		} else if operand16 && segmentOverride < 0 && !repe && !repne && modrm == 0x84 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack disp32 word SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[ESP] + uint32(int32(delta))
+			if !c.writeSegment16(c.Seg[SegSS], addr, uint16(source)) {
+				return fail(fmt.Sprintf("stack disp32 word write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
 		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
 			destination := modrm & 7
 			c.R[destination] = c.R[destination]&0xffff0000 | source&0xffff

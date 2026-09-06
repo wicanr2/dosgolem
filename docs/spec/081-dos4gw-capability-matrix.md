@@ -79,8 +79,10 @@ radix 上界；`0x3F2A5 0F B6 B3 B4 11 05 00` 再從 digit table 將候選字元
 零擴展至 ESI。`0x3F2AC 8A 04 2F` 現亦依 RE 118 從 `DS:[EDI+EBP]` 載入目前
 輸入字元到 AL；`0x3F2C1 8B 04 24` 亦依 RE 119 從 `SS:[ESP]` 載入累加值。
 固定原版自然執行已通過兩者；`0x3F2C4 0F AF 44 24 1C` 亦依 RE 120
-完成 `accumulator*radix` 的 signed 32 位乘法。下一阻塞移至 `0x3F4EE`
-（opcode `89`、operand-size override、ModRM `84`）。此收據只證明
+完成 `accumulator*radix` 的 signed 32 位乘法。`0x3F4EE`
+（`66 89 84 24 00 01 00 00`）亦已把 IO_ADDR 的 AX 解析結果寫入
+`SS:[ESP+0x100]`；下一阻塞移至 `0x3F289`（opcode `F7`、ModRM `5C`）。
+此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

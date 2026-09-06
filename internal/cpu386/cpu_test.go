@@ -502,6 +502,52 @@ func TestStoreRegisterToStackDisp32(t *testing.T) {
 	}
 }
 
+func TestStoreAXWordToStackDisp32(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		delta []byte
+		addr  int
+	}{
+		{name: "positive", delta: []byte{0x10, 0, 0, 0}, addr: 0x30},
+		{name: "negative", delta: []byte{0xf0, 0xff, 0xff, 0xff}, addr: 0x10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, append([]byte{0x66, 0x89, 0x84, 0x24}, test.delta...))
+			c := New(mem)
+			c.R[ESP], c.R[EAX], c.EFlags = 0x20, 0x12345678, CF|ZF|OF
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: true})
+			if err := c.Step(); err != nil || !bytes.Equal(mem[test.addr:test.addr+2], []byte{0x78, 0x56}) || c.R[ESP] != 0x20 || c.R[EAX] != 0x12345678 || c.EFlags != CF|ZF|OF {
+				t.Fatalf("stack word=% X ESP=%X EAX=%X flags=%X err=%v", mem[test.addr:test.addr+2], c.R[ESP], c.R[EAX], c.EFlags, err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		code []byte
+		mem  int
+	}{
+		{name: "read-only", code: []byte{0x66, 0x89, 0x84, 0x24, 0x10, 0, 0, 0}, mem: 0x40},
+		{name: "bounds", code: []byte{0x66, 0x89, 0x84, 0x24, 0x1f, 0, 0, 0}, mem: 0x40},
+		{name: "wrong SIB", code: []byte{0x66, 0x89, 0x84, 0x25, 0x10, 0, 0, 0}, mem: 0x40},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, test.mem))
+			copy(mem, test.code)
+			c := New(mem)
+			c.R[ESP], c.R[EAX], c.EFlags = 0x20, 0x12345678, CF|ZF|OF
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: test.name != "read-only"})
+			before := append([]byte(nil), mem...)
+			if err := c.Step(); err == nil || !bytes.Equal(mem, before) || c.R[ESP] != 0x20 || c.R[EAX] != 0x12345678 || c.EFlags != CF|ZF|OF {
+				t.Fatalf("memory changed=%v ESP=%X EAX=%X flags=%X err=%v", !bytes.Equal(mem, before), c.R[ESP], c.R[EAX], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestLoadRegisterFromAbsoluteAddress(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x8b, 0x15, 0x20, 0, 0, 0})
