@@ -23,6 +23,17 @@ type Snapshot struct {
 	nextIRQ0  uint64
 	pending   bool
 
+	// 硬體鍵盤的整份狀態。**佇列與 nextIRQ1 漏掉會讓還原之後的鍵永遠送不出去**：
+	// Restore 把 Steps 倒回過去，而 nextIRQ1 還停在未來，`keyTick` 的
+	// 「時間還沒到」於是永遠成立。症狀是第一個變體收得到鍵、後面每一個都
+	// 「按了沒反應」——看起來像那些送法不對，其實是送鍵這條路已經死了。
+	keyQueue  []KeyEvent
+	nextIRQ1  uint64
+	irq1Count int
+	irq1Own   int
+	kbdData   uint8
+	kbdPortB  uint8
+
 	ports   map[uint16]uint8
 	portsIn map[uint16]uint64
 
@@ -52,6 +63,13 @@ func (m *Machine) Snapshot() *Snapshot {
 		dac:       m.DAC,
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
+
+		keyQueue:  append([]KeyEvent(nil), m.keyQueue...),
+		nextIRQ1:  m.nextIRQ1,
+		irq1Count: m.irq1Count,
+		irq1Own:   m.irq1Own,
+		kbdData:   m.kbdData,
+		kbdPortB:  m.kbdPortB,
 	}
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
@@ -84,6 +102,10 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.PortLog = m.PortLog[:0]
 
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
+
+	m.keyQueue = append([]KeyEvent(nil), s.keyQueue...)
+	m.nextIRQ1, m.irq1Count, m.irq1Own = s.nextIRQ1, s.irq1Count, s.irq1Own
+	m.kbdData, m.kbdPortB = s.kbdData, s.kbdPortB
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

@@ -306,3 +306,66 @@ func TestEGAWriteMode1CopiesLatches(t *testing.T) {
 		t.Fatalf("搬過去讀回 %02X，應該是 AB", got)
 	}
 }
+
+// TestSnapshotKeepsTheKeyboardAlive 釘住還原之後鍵盤還送得出中斷。
+//
+// `Restore` 把 `Steps` 倒回過去。鍵盤的下一次中斷排在 `nextIRQ1`，
+// 漏掉它的話那個值會停在未來——`keyTick` 的「時間還沒到」從此永遠成立，
+// **後面每一個鍵都靜靜地留在佇列裡**。
+//
+// 症狀不是錯誤：從同一個快照展開多個變體時，第一個收得到鍵，
+// 後面每一個都「按了沒反應」，看起來像那幾種送法不對。
+func TestSnapshotKeepsTheKeyboardAlive(t *testing.T) {
+	m := New()
+	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+	m.Steps = 1_000
+	snap := m.Snapshot()
+
+	// 往前跑並送掉一個鍵：nextIRQ1 於是落在 5000 之後。
+	m.Steps = 5_000
+	m.PushKey(0x0A)
+	m.keyTick()
+	if m.IRQ1Delivered() == 0 {
+		t.Fatal("第一個鍵就沒送出去，這個測試量不到要量的東西")
+	}
+	if m.nextIRQ1 <= snap.steps {
+		t.Fatalf("nextIRQ1 是 %d，沒有落在快照（%d）之後", m.nextIRQ1, snap.steps)
+	}
+
+	m.Restore(snap)
+	before := m.IRQ1Delivered()
+	m.PushKey(0x0A)
+	m.keyTick()
+	if m.IRQ1Delivered() == before {
+		t.Fatal("還原之後鍵送不出去——nextIRQ1 還停在未來")
+	}
+}
+
+// TestSnapshotCarriesTheKeyQueue 釘住還沒送出去的鍵跟著快照走。
+//
+// 不跟著走的話，上一個變體剩下的鍵會流進下一個變體，
+// 而「對照組什麼都不送」會憑空收到一個鍵。
+func TestSnapshotCarriesTheKeyQueue(t *testing.T) {
+	m := New()
+	m.PushKey(0x1C)
+	snap := m.Snapshot()
+	if got := len(snap.keyQueue); got != 2 {
+		t.Fatalf("快照裡有 %d 個鍵盤事件，應該是 2（按下 ＋ 放開）", got)
+	}
+	m.keyQueue = nil
+	m.kbdData = 0x99
+	m.Restore(snap)
+	if got := m.KeyQueueLen(); got != 2 {
+		t.Fatalf("還原之後佇列有 %d 個事件，應該是 2", got)
+	}
+	if m.kbdData != snap.kbdData {
+		t.Errorf("埠 0x60 讀得到的值沒還原：%#02x ≠ %#02x", m.kbdData, snap.kbdData)
+	}
+
+	// 反過來也要成立：快照之後才排進去的鍵，還原時要消失。
+	m.PushKey(0x39)
+	m.Restore(snap)
+	if got := m.KeyQueueLen(); got != 2 {
+		t.Fatalf("還原沒清掉快照之後排進去的鍵：佇列有 %d 個事件", got)
+	}
+}
