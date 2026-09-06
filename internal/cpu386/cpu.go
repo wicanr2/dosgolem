@@ -2942,6 +2942,39 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if extended == 0xaf && !operand16 && segmentOverride < 0 && !repe && !repne {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm != 0x44 {
+				return fail(fmt.Sprintf("0F AF ModRM %02X 尚未支援", modrm))
+			}
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("0F AF stack SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[ESP] + uint32(int32(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("IMUL stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			product := int64(int32(c.R[EAX])) * int64(int32(value))
+			result := uint32(product)
+			c.EFlags &^= CF | OF
+			if product != int64(int32(result)) {
+				c.EFlags |= CF | OF
+			}
+			c.R[EAX] = result
+			break
+		}
 		if (extended == 0xa0 || extended == 0xa1) && !operand16 && segmentOverride < 0 && !repe {
 			if extended == 0xa0 {
 				if c.R[ESP] < 4 {

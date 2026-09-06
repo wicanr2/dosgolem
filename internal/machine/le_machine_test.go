@@ -2127,3 +2127,29 @@ func TestFD2LoadsINIAccumulatorFromStack(t *testing.T) {
 		t.Fatalf("INI accumulator steps=%d EIP=%X EAX=%X want=%X ESP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.ESP], m.CPU.EFlags)
 	}
 }
+
+func TestFD2MultipliesINIAccumulatorByRadix(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f2c4; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI radix multiply setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	stack := m.CPU.R[cpu386.ESP]
+	rhs, err := m.Read32(stack + 0x1c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeEAX, beforeESP := m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP]
+	want := uint32(int64(int32(beforeEAX)) * int64(int32(rhs)))
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI radix IMUL: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f2c9 || m.CPU.R[cpu386.EAX] != want || m.CPU.R[cpu386.ESP] != beforeESP {
+		t.Fatalf("INI radix multiply steps=%d EIP=%X EAX=%X want=%X ESP=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.ESP])
+	}
+}
