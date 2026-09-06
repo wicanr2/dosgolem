@@ -63,6 +63,19 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
 		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
+	watchScreen := flag.Uint64("watch-screen", 0,
+		"每 N 道指令算一次畫面雜湊，畫面變了就印一行。"+
+			"回答「這個輸入到底有沒有效」——比對著幾張傾印猜快得多")
+	screenDelta := flag.Int("screen-delta", 5000,
+		"畫面變化超過幾個像素才算一次「換畫面」（配 -watch-screen）")
+	keysAt := flag.String("keys-at", "",
+		"在指定步數送一個鍵：`<步數>:<鍵>`，分號分隔。與 -press 的差別是"+
+			"**每個鍵各自指定時機**——探索「哪一個鍵讓畫面動了」要用這個，"+
+			"固定間隔會讓你分不出是哪一次生效")
+	dumpAt := flag.String("dump-at", "",
+		"跑到指定步數就傾印一張畫面：`<步數>:<檔名>`，分號分隔可以給很多張。"+
+			"探索「點下去之後跑到哪個畫面」用——一次跑就看得到中間的每一格，"+
+			"不必為了每張畫面重跑一次")
 	dumpMem := flag.String("dump-mem", "",
 		"把一段記憶體原封不動寫成檔案：`<位址>:<長度>:<檔名>`（位址寫法同 -peek）。"+
 			"資料被程式改過之後長什麼樣，只有這樣看得到")
@@ -176,7 +189,11 @@ func main() {
 		moveAt = *steps / 2
 	}
 
-	type clickEv struct {
+	// moveLead 是「移動事件比按下早多少道指令」。要留給程式把新位置處理完，
+// 否則按下時它手上還是舊座標。
+const moveLead = 200_000
+
+type clickEv struct {
 		x, y     int
 		at, hold uint64
 	}
@@ -233,11 +250,57 @@ func main() {
 		regWatch = append(regWatch, regSite{uint16(sg), uint16(of)})
 	}
 
+	type keyEv struct {
+		at   uint64
+		scan uint8
+	}
+	var keyEvs []keyEv
+	for _, item := range strings.Split(*keysAt, ";") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		i := strings.Index(item, ":")
+		if i < 0 {
+			die(fmt.Errorf("-keys-at 要寫成 <步數>:<鍵>：%q", item))
+		}
+		at, err := strconv.ParseUint(strings.TrimSpace(item[:i]), 10, 64)
+		if err != nil {
+			die(fmt.Errorf("-keys-at 的步數看不懂：%q", item))
+		}
+		sc, ok := scanOf(strings.TrimSpace(item[i+1:]))
+		if !ok {
+			die(fmt.Errorf("看不懂的按鍵 %q", item[i+1:]))
+		}
+		keyEvs = append(keyEvs, keyEv{at: at, scan: sc})
+	}
+
+	type shot struct {
+		at   uint64
+		path string
+	}
+	var shots []shot
+	for _, item := range strings.Split(*dumpAt, ";") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		i := strings.Index(item, ":")
+		if i < 0 {
+			die(fmt.Errorf("-dump-at 要寫成 <步數>:<檔名>：%q", item))
+		}
+		at, err := strconv.ParseUint(strings.TrimSpace(item[:i]), 10, 64)
+		if err != nil {
+			die(fmt.Errorf("-dump-at 的步數看不懂：%q", item))
+		}
+		shots = append(shots, shot{at: at, path: item[i+1:]})
+	}
+
 	pokes, err := parsePokes(*poke)
 	if err != nil {
 		die(err)
 	}
+	var lastScreen []uint8
 	ring := newRing(*trace)
+
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// **護欄：程式碼不該跑進 A0000 以上。** 那裡是視訊記憶體與 BIOS，
@@ -269,6 +332,12 @@ func main() {
 		}
 		for _, e := range evs {
 			switch m.Steps {
+			case e.at - moveLead:
+				// **先送移動再送按下。** 只改座標不送移動事件的話，
+				// 靠回呼追游標的程式手上還是舊位置，按下就落在別的地方——
+				// 而畫面上什麼都不會發生，看起來像「點擊沒送到」。
+				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
+				d.MouseEvent(dos.EvMove)
 			case e.at:
 				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
 				d.Mouse.Buttons = 1
@@ -302,13 +371,46 @@ func main() {
 				}
 				if h := regHits[w]; len(h) < 20 {
 					regHits[w] = append(h, fmt.Sprintf(
-						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X DS=%04X ES=%04X",
+						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X DS=%04X ES=%04X SS:SP=%04X:%04X",
 						m.Steps, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
-						c.R[cpu.SI], c.R[cpu.DI], c.Seg[cpu.DS], c.Seg[cpu.ES]))
+						c.R[cpu.SI], c.R[cpu.DI], c.R[cpu.BP], c.Seg[cpu.DS], c.Seg[cpu.ES],
+						c.Seg[cpu.SS], c.R[cpu.SP]))
 				}
 			}
 		}
 
+		if *watchScreen > 0 && m.Steps%*watchScreen == 0 {
+			// **報變了多少，不要只報變沒變。** 遊戲會一直重畫閃爍的游標
+			// 與提示，每一次取樣都「變了」——那個訊號全是雜訊，
+			// 分不出畫面有沒有真的換掉。
+			cur := m.PlanarPixels(m.PixelWidth(), 480)
+			if lastScreen != nil {
+				n := 0
+				for i := range cur {
+					if cur[i] != lastScreen[i] {
+						n++
+					}
+				}
+				if n >= *screenDelta {
+					fmt.Printf("[畫面] #%d 變了 %d 個像素\n", m.Steps, n)
+				}
+			}
+			lastScreen = cur
+		}
+		for _, k := range keyEvs {
+			if m.Steps == k.at {
+				m.QueueKey(k.scan)
+				m.SetNextKey(m.Steps + 1)
+			}
+		}
+		for _, sh := range shots {
+			if m.Steps == sh.at {
+				if err := writeEGA(sh.path, m); err != nil {
+					die(err)
+				}
+				fmt.Printf("#%d 傾印畫面 → %s\n", m.Steps, sh.path)
+			}
+		}
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
 			break
