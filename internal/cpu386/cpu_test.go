@@ -927,6 +927,30 @@ func TestPushBaseDword(t *testing.T) {
 	}
 }
 
+func TestIncrementBaseDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0xff, 0x03})
+	copy(mem[0x10:], []byte{0xff, 0xff, 0xff, 0x7f})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x2f, Writable: true})
+	c.R[EBX], c.EFlags = 0x10, CF
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x10:0x14], []byte{0, 0, 0, 0x80}) || c.EFlags&CF == 0 || c.EFlags&OF == 0 || c.EFlags&SF == 0 {
+		t.Fatalf("INC value=% X flags=%X err=%v", mem[0x10:0x14], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x20))
+	copy(mem, []byte{0xff, 0x03})
+	copy(mem[0x10:], []byte{0x34, 0x12, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x1f})
+	c.R[EBX] = 0x10
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x10:0x14], []byte{0x34, 0x12, 0, 0}) {
+		t.Fatalf("read-only INC value=% X err=%v", mem[0x10:0x14], err)
+	}
+}
+
 func TestPushFlags32(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	mem[0] = 0x9c
