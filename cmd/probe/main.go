@@ -540,31 +540,18 @@ func writeCGA(path string, m *machine.Machine) error {
 // 「執行流是什麼時候跑到不該去的地方」——看這張表比翻 IP 的 trace 快，
 // 因為飛掉的那一跳通常早就滾出 ring buffer 了。
 func reportSegs(m *machine.Machine) {
-	type first struct {
-		i   int
-		c   machine.SegChange
-		n   int
+	order := make([]uint16, 0, len(m.SegFirst))
+	for seg := range m.SegFirst {
+		order = append(order, seg)
 	}
-	order := []uint16{}
-	seen := map[uint16]*first{}
-	for i, c := range m.SegLog {
-		f, ok := seen[c.ToSeg]
-		if !ok {
-			f = &first{i: i, c: c}
-			seen[c.ToSeg] = f
-			order = append(order, c.ToSeg)
-		}
-		f.n++
-	}
-	fmt.Printf("\n段轉移（%d 筆，%d 個相異 CS", len(m.SegLog), len(order))
-	if len(m.SegLog) >= machine.MaxSegLog {
-		fmt.Printf("，已達上限 %d", machine.MaxSegLog)
-	}
-	fmt.Println("）：")
+	sort.Slice(order, func(i, j int) bool {
+		return m.SegFirst[order[i]].Step < m.SegFirst[order[j]].Step
+	})
+	fmt.Printf("\n段轉移（保留最近 %d 筆，%d 個相異 CS）：\n", len(m.SegLog), len(order))
 	for _, seg := range order {
-		f := seen[seg]
-		fmt.Printf("  CS=%04X 首見 #%d ← %04X:%04X → %04X:%04X（共 %d 次）\n",
-			seg, f.c.Step, f.c.FromSeg, f.c.FromOff, f.c.ToSeg, f.c.ToOff, f.n)
+		c := m.SegFirst[seg]
+		fmt.Printf("  CS=%04X 首見 #%d ← %04X:%04X → %04X:%04X\n",
+			seg, c.Step, c.FromSeg, c.FromOff, c.ToSeg, c.ToOff)
 	}
 
 	// 序列本身：首見表說「第一次是誰跳過來的」，序列才看得出**它自己是
@@ -574,8 +561,8 @@ func reportSegs(m *machine.Machine) {
 	if n > 400 {
 		n = 400
 	}
-	fmt.Printf("\n前 %d 筆段轉移：\n", n)
-	for _, c := range m.SegLog[:n] {
+	fmt.Printf("\n最後 %d 筆段轉移：\n", n)
+	for _, c := range m.SegLog[len(m.SegLog)-n:] {
 		fmt.Printf("  #%-9d %04X:%04X → %04X:%04X\n", c.Step, c.FromSeg, c.FromOff, c.ToSeg, c.ToOff)
 	}
 }

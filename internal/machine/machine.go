@@ -125,10 +125,16 @@ type Machine struct {
 	// PortsIn 是每個埠被讀了幾次。**輪詢埠的次數會很大**，那是正常的。
 	PortsIn map[uint16]uint64
 
-	// SegLog 是 CS 的改變序列，只有 TraceSegs 打開才記。上限
-	// MaxSegLog，滿了就停止記錄（**不是 ring**——要的是最早那幾筆）。
+	// SegLog 是 CS 的改變序列（最後 MaxSegLog 筆，ring），SegFirst 是
+	// 每個段**第一次**被執行的那一筆（不設上限——段的種類就那幾個）。
+	// 只有 TraceSegs 打開才記。
+	//
+	// 兩份都要：首見表回答「這個段是誰第一次跳過去的」，序列回答
+	// 「飛掉之前那幾跳長什麼樣」。長跑時只留 ring 會把首見洗掉，
+	// 只留首見又看不到現場。
 	TraceSegs bool
 	SegLog    []SegChange
+	SegFirst  map[uint16]SegChange
 
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
@@ -382,8 +388,8 @@ func (m *Machine) Indexed() []uint8 {
 }
 
 // Step 執行一道指令，必要時先送 IRQ0。
-// MaxSegLog 是 SegLog 的上限。
-const MaxSegLog = 200_000
+// MaxSegLog 是 SegLog（ring）保留的筆數。
+const MaxSegLog = 100_000
 
 func (m *Machine) Step() error {
 	m.tick()
@@ -393,11 +399,21 @@ func (m *Machine) Step() error {
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
 	err := m.CPU.Step()
-	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg && len(m.SegLog) < MaxSegLog {
-		m.SegLog = append(m.SegLog, SegChange{
+	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg {
+		ch := SegChange{
 			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,
 			ToSeg: cs, ToOff: m.CPU.IP,
-		})
+		}
+		if m.SegFirst == nil {
+			m.SegFirst = map[uint16]SegChange{}
+		}
+		if _, seen := m.SegFirst[cs]; !seen {
+			m.SegFirst[cs] = ch
+		}
+		m.SegLog = append(m.SegLog, ch)
+		if len(m.SegLog) > 2*MaxSegLog { // 砍掉前半，留最近的 MaxSegLog 筆
+			m.SegLog = append(m.SegLog[:0], m.SegLog[MaxSegLog:]...)
+		}
 	}
 	return err
 }
