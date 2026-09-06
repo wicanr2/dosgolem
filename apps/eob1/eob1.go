@@ -795,7 +795,7 @@ func ToLevel1CampMemorizeSelected(o *oracle.Oracle) error {
 	}
 	o.PressKey(oracle.KeyDown)
 	if err := o.RunUntil(screenDigest("LEVEL1 CAMP選中Memorize Spells", 0, 0, oracle.Width, oracle.Height,
-		"67c50f4e57e89ad2ed046c4b10a9717ee8a3349f16cdfbc9b2342937c29db5a0"), oracle.Budget(5_000_000)); err != nil {
+		"8bd3e9866787810347ed38d1929b8dbb1a12683359037056f5fc369df3b2962c"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待CAMP選中Memorize Spells：%w", err)
 	}
 	return nil
@@ -810,6 +810,32 @@ func ToLevel1CampReturn(o *oracle.Oracle) error {
 	if err := o.RunUntil(screenDigest("LEVEL1 CAMP返回地城", 0, 0, 176, 120,
 		"2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待CAMP返回LEVEL1：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampExitSelected 由CAMP第一列按Up，證實選取會環繞到最後一列Exit。
+func ToLevel1CampExitSelected(o *oracle.Oracle) error {
+	if err := ToLevel1Camp(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyUp)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP選中Exit", 0, 0, oracle.Width, oracle.Height,
+		"36a8f388e9a480cdf041124127c2e4d55cec59859aaafed32ed15807a6f0565e"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP選中Exit：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1CampExitConfirmed 確認最後一列Exit，返回原本LEVEL1入口場景。
+func ToLevel1CampExitConfirmed(o *oracle.Oracle) error {
+	if err := ToLevel1CampExitSelected(o); err != nil {
+		return err
+	}
+	o.PressKey(oracle.KeyEnter)
+	if err := o.RunUntil(screenDigest("LEVEL1 CAMP Exit返回探索", 0, 0, 176, 120,
+		"2ef2c0240070bce02b59735c5266fc6163eee170ea8c135982a469f04bb2abbc"), oracle.Budget(5_000_000)); err != nil {
+		return fmt.Errorf("EOB1等待CAMP Exit返回LEVEL1：%w", err)
 	}
 	return nil
 }

@@ -494,6 +494,33 @@ func TestToLevel1CampRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1CampExitKeyboardRealData(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*oracle.Oracle) error
+		want string
+		port uint64
+	}{
+		{"selected", eob1.ToLevel1CampExitSelected, "36a8f388e9a480cdf041124127c2e4d55cec59859aaafed32ed15807a6f0565e", 86},
+		{"confirmed", eob1.ToLevel1CampExitConfirmed, "6766d6f9ae4084a3f02789c5d05261ac9e22e112ca51fd710c1a68c7e6407a96", 88},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			o := loadRealData(t)
+			defer o.Close()
+			if err := test.path(o); err != nil {
+				t.Fatal(err)
+			}
+			if got := digest(o.Indexed()); got != test.want {
+				t.Fatalf("CAMP Exit %s全畫面SHA-256=%s", test.name, got)
+			}
+			if got := o.PortReads()[0x60]; got != test.port {
+				t.Fatalf("CAMP Exit %s port 60h讀取%d次，預期%d次", test.name, got, test.port)
+			}
+		})
+	}
+}
+
 func TestToLevel1CampGameOptionsRealData(t *testing.T) {
 	tests := []struct {
 		name string
@@ -653,7 +680,7 @@ func TestToLevel1CampMemorizeSelectedRealData(t *testing.T) {
 	if err := eob1.ToLevel1CampMemorizeSelected(o); err != nil {
 		t.Fatal(err)
 	}
-	if got := digest(o.Indexed()); got != "67c50f4e57e89ad2ed046c4b10a9717ee8a3349f16cdfbc9b2342937c29db5a0" {
+	if got := digest(o.Indexed()); got != "8bd3e9866787810347ed38d1929b8dbb1a12683359037056f5fc369df3b2962c" {
 		t.Fatalf("LEVEL1 CAMP第二列SHA-256=%s", got)
 	}
 	if got := o.PortReads()[0x60]; got != 86 {
