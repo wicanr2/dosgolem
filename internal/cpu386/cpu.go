@@ -2445,6 +2445,17 @@ func (c *CPU) Step() error {
 			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
 			break
 		}
+		if modrm == 0x04 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x2f {
+				return fail(fmt.Sprintf("LEA base+index SIB %02X 尚未支援", sib))
+			}
+			c.R[EAX] = c.R[EDI] + c.R[EBP]
+			break
+		}
 		if modrm>>6 == 1 && modrm&7 == 4 {
 			sib, e := c.fetch8()
 			if e != nil {

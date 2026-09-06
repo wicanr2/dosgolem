@@ -1429,6 +1429,31 @@ func TestMoveImmediateDwordToStackSIBDisp8(t *testing.T) {
 	}
 }
 
+func TestLEAEAXFromEDIPlusEBP(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edi  uint32
+		ebp  uint32
+		want uint32
+	}{
+		{name: "sum", edi: 0x1234, ebp: 0x5678, want: 0x68ac},
+		{name: "wrap", edi: 0xffffffff, ebp: 2, want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus{0x8d, 0x04, 0x2f})
+			c.R[EAX], c.R[EDI], c.R[EBP], c.EFlags = 0xa5a5a5a5, test.edi, test.ebp, CF|ZF|OF
+			if err := c.Step(); err != nil || c.R[EAX] != test.want || c.R[EDI] != test.edi || c.R[EBP] != test.ebp || c.EFlags != CF|ZF|OF {
+				t.Fatalf("LEA EAX=%X EDI=%X EBP=%X flags=%X err=%v", c.R[EAX], c.R[EDI], c.R[EBP], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x8d, 0x04, 0x2e})
+	if err := c.Step(); err == nil {
+		t.Fatal("unapproved LEA SIB was accepted")
+	}
+}
+
 func TestPushSignExtendedByte(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	copy(mem, []byte{0x6a, 0x80})

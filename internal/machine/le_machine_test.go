@@ -2004,3 +2004,24 @@ func TestFD2InitializesININumberParserSign(t *testing.T) {
 		t.Fatalf("INI number sign steps=%d EIP=%X ESP=%X flags=%X stack=% X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.EFlags, m.Mem[stack+4:stack+8])
 	}
 }
+
+func TestFD2AddressesCurrentININumberByte(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f27f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI number address setup: step=%d EIP=%X EDI=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	want := m.CPU.R[cpu386.EDI] + m.CPU.R[cpu386.EBP]
+	beforeEDI, beforeEBP, beforeFlags := m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI number address LEA: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f282 || m.CPU.R[cpu386.EAX] != want || m.CPU.R[cpu386.EDI] != beforeEDI || m.CPU.R[cpu386.EBP] != beforeEBP || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("INI number address steps=%d EIP=%X EAX=%X want=%X EDI=%X EBP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags)
+	}
+}
