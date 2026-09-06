@@ -82,6 +82,27 @@ func TestCompareDwordAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestCompareDwordAtBaseDisp8Immediate32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x81, 0x7d, 0xfc, 0x78, 0x56, 0x34, 0x12})
+	copy(mem[0x20:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBP] = 0x24
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 || c.R[EBP] != 0x24 {
+		t.Fatalf("CMP base+disp8 imm32 EBP=%X flags=%X err=%v", c.R[EBP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x81, 0x7d, 0xfc, 0x78, 0x56, 0x34, 0x12})
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 6, Writable: true})
+	c.R[EBP] = 0x24
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range base+disp8 imm32 CMP was accepted")
+	}
+}
+
 func TestCompareDwordAtBaseDisp32(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x83, 0xbb, 0xfc, 0xff, 0xff, 0xff, 0xff})
