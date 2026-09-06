@@ -1570,7 +1570,7 @@ func (c *CPU) Step() error {
 			} else {
 				c.sub8(c.reg8(rm), imm)
 			}
-		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != ESP && group == 4 {
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != ESP && (group == 1 || group == 4) {
 			delta, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
@@ -1587,11 +1587,16 @@ func (c *CPU) Step() error {
 			}
 			value, ok := c.readSegment8(c.Seg[segment], addr)
 			if !ok {
-				return fail(fmt.Sprintf("AND byte read %04X:%08X 未處理", c.Seg[segment], addr))
+				return fail(fmt.Sprintf("logical byte read %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 			result := value & imm
+			operation := "AND"
+			if group == 1 {
+				result = value | imm
+				operation = "OR"
+			}
 			if !c.writeSegment8(c.Seg[segment], addr, result) {
-				return fail(fmt.Sprintf("AND byte write %04X:%08X 未處理", c.Seg[segment], addr))
+				return fail(fmt.Sprintf("%s byte write %04X:%08X 未處理", operation, c.Seg[segment], addr))
 			}
 			c.setLogicFlags8(result)
 		} else if group == 7 && modrm == 0x3d {

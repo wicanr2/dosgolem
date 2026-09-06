@@ -1564,3 +1564,27 @@ func TestFD2EntersFilbufForEmptyBuffer(t *testing.T) {
 		t.Fatalf("fgetc refill gate steps=%d EIP=%X flags=%X", steps, m.CPU.EIP, m.CPU.EFlags)
 	}
 }
+
+func TestFD2MarksAllocatedIOBuffer(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d97d; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("I/O buffer flag setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBX] + 0x0c
+	if uint64(addr) >= uint64(len(m.Mem)) {
+		t.Fatalf("I/O buffer flag address=%X 超界", addr)
+	}
+	before := m.Mem[addr]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("I/O buffer flag OR: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3d981 || m.Mem[addr] != before|0x08 {
+		t.Fatalf("I/O buffer flag steps=%d EIP=%X before=%X after=%X", steps, m.CPU.EIP, before, m.Mem[addr])
+	}
+}
