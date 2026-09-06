@@ -322,6 +322,21 @@ func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
 
+// ArenaDump 把配置器目前的區塊表印成一行一塊，供診斷用。
+func (d *DOS) ArenaDump() []string {
+	out := make([]string, 0, len(d.arena)+1)
+	out = append(out, fmt.Sprintf("freeSeg=%04X arena=%d 塊（nil=%v）",
+		d.freeSeg, len(d.arena), d.arena == nil))
+	for _, b := range d.arena {
+		st := "已配置"
+		if b.free {
+			st = "自由"
+		}
+		out = append(out, fmt.Sprintf("  seg=%04X size=%04X %s", b.seg, b.size, st))
+	}
+	return out
+}
+
 // memBlock 是配置器的一個區塊。seg 是假 MCB 的位置，資料從 seg+1 開始。
 type memBlock struct {
 	seg  uint16
@@ -362,6 +377,7 @@ type ResizeCall struct{ Seg, Want, FreeSeg uint16 }
 
 // CallRec 是一次 int 21h 的暫存器快照。
 type CallRec struct {
+	Step         uint64
 	AH, AL       uint8
 	ESIn, BXIn   uint16
 	ESOut, BXOut uint16

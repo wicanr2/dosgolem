@@ -323,9 +323,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
 	}
 
+	fmt.Printf("\n配置器狀態：\n")
+	for _, l := range d.ArenaDump() {
+		fmt.Println("  " + l)
+	}
 	if len(d.CallTrace) > 0 {
-		fmt.Printf("\nint 21h 的 ES:BX（最後 14 次；★ 表示服務動了 ES 或 BX）：\n")
-		from := len(d.CallTrace) - 14
+		fmt.Printf("\nint 21h 的 ES:BX（最後 20 次；★ 表示服務動了 ES 或 BX）：\n")
+		from := len(d.CallTrace) - 20
 		if from < 0 {
 			from = 0
 		}
@@ -334,8 +338,8 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			if r.ESOut != r.ESIn || r.BXOut != r.BXIn {
 				mark = "★ "
 			}
-			fmt.Printf("  %sAH=%02X AL=%02X  ES:BX %04X:%04X → %04X:%04X\n",
-				mark, r.AH, r.AL, r.ESIn, r.BXIn, r.ESOut, r.BXOut)
+			fmt.Printf("  %s#%-9d AH=%02X AL=%02X  ES:BX %04X:%04X → %04X:%04X\n",
+				mark, r.Step, r.AH, r.AL, r.ESIn, r.BXIn, r.ESOut, r.BXOut)
 		}
 	}
 	if len(d.Resizes) > 0 {

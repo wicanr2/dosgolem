@@ -16,7 +16,7 @@ import (
 func (d *DOS) int21(c *cpu.CPU) {
 	fn := ah(c)
 	if d.CallTrace != nil {
-		rec := CallRec{AH: fn, AL: al(c), ESIn: c.Seg[cpu.ES], BXIn: c.R[cpu.BX]}
+		rec := CallRec{Step: d.M.Steps, AH: fn, AL: al(c), ESIn: c.Seg[cpu.ES], BXIn: c.R[cpu.BX]}
 		defer func() {
 			rec.ESOut, rec.BXOut = c.Seg[cpu.ES], c.R[cpu.BX]
 			d.CallTrace = append(d.CallTrace, rec)
@@ -441,19 +441,7 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	//
 	// DOS 的語意是「區塊邊界移到這裡」，升降都算。
 	if blk == machine.PSPSeg {
-		d.freeSeg = blk + want + 1
-		// 邊界移動了，arena 的基底也要跟著移。已經配出去的區塊還在用，
-		// 不能直接丟；沒有任何存活區塊時才重建。
-		live := false
-		for _, b := range d.arena {
-			if !b.free {
-				live = true
-				break
-			}
-		}
-		if !live {
-			d.arena = nil
-		}
+		d.setPSPBlock(blk + want + 1)
 	}
 	// arena 內的區塊走真正的 resize（規格 009）。不在 arena 內的
 	// （PSP、映像本體）維持原本的行為：那條路是記憶體探測協定，
@@ -490,6 +478,46 @@ func (d *DOS) largestFree() uint16 {
 		}
 	}
 	return max
+}
+
+// setPSPBlock 把可配置區的起點移到 newFree，並讓 arena 跟著動。
+//
+// ⚠ **只更新 freeSeg 是不夠的。** 第一版那樣寫，程式把自己的 PSP 區塊
+// 縮小之後 freeSeg 確實降下來了，但 arena 還停在舊的基底——
+// `[newFree, 舊基底)` 這段新釋出的記憶體**從來沒有進到區塊表裡**。
+//
+// 症狀離現場很遠：智冠《三國演義》的 overlay 在解壓後要 3 個段
+// （48 bytes，環境指標陣列），arena 裡一個自由區塊都沒有，配置失敗，
+// MSC 啟動碼因此印 `R6009 - not enough space for environment` 並以 255 離開。
+// 從外面看像「overlay 壞了」，實際上是配置器少記了 190 KB。
+func (d *DOS) setPSPBlock(newFree uint16) {
+	if d.arena == nil {
+		d.freeSeg = newFree
+		return
+	}
+	base := d.arena[0].seg
+	switch {
+	case newFree < base && base-newFree >= 2:
+		// 縮小：[newFree, base) 回到可配置區。至少要 2 段才放得下
+		// 一個 MCB ＋ 一段資料。
+		d.arena = append([]memBlock{{seg: newFree, size: base - newFree - 1, free: true}},
+			d.arena...)
+		d.coalesce()
+	case newFree > base:
+		// 放大：程式要回前面那段。**只吃自由的部分**——
+		// 前端已經配出去的區塊不能收回，那會讓別人手上的指標失效。
+		for len(d.arena) > 0 && d.arena[0].free && d.arena[0].seg+1+d.arena[0].size <= newFree {
+			d.arena = d.arena[1:]
+		}
+		if len(d.arena) > 0 && d.arena[0].free && d.arena[0].seg < newFree {
+			shrink := newFree - d.arena[0].seg
+			if d.arena[0].size > shrink {
+				d.arena[0].seg = newFree
+				d.arena[0].size -= shrink
+			}
+		}
+	}
+	d.freeSeg = newFree
 }
 
 // alloc 是 `AH=48h`：首次適配。
