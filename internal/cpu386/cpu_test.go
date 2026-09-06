@@ -1396,6 +1396,39 @@ func TestMoveImmediateDwordToStackSIB(t *testing.T) {
 	}
 }
 
+func TestMoveImmediateDwordToStackSIBDisp8(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		delta byte
+		addr  int
+	}{
+		{name: "positive", delta: 4, addr: 0x24},
+		{name: "negative", delta: 0xfc, addr: 0x1c},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, []byte{0xc7, 0x44, 0x24, test.delta, 0x78, 0x56, 0x34, 0x12})
+			c := New(mem)
+			c.R[ESP], c.R[EAX], c.EFlags = 0x20, 0xa5a5a5a5, CF|ZF|OF
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: true})
+			if err := c.Step(); err != nil || !bytes.Equal(mem[test.addr:test.addr+4], []byte{0x78, 0x56, 0x34, 0x12}) || c.R[ESP] != 0x20 || c.R[EAX] != 0xa5a5a5a5 || c.EFlags != CF|ZF|OF {
+				t.Fatalf("stack disp8 store=% X ESP=%X EAX=%X flags=%X err=%v", mem[test.addr:test.addr+4], c.R[ESP], c.R[EAX], c.EFlags, err)
+			}
+		})
+	}
+
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc7, 0x44, 0x24, 4, 1, 0, 0, 0})
+	c := New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x3f})
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x24:0x28], []byte{0, 0, 0, 0}) || c.R[ESP] != 0x20 {
+		t.Fatalf("read-only stack disp8 store=% X ESP=%X err=%v", mem[0x24:0x28], c.R[ESP], err)
+	}
+}
+
 func TestPushSignExtendedByte(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	copy(mem, []byte{0x6a, 0x80})
