@@ -91,6 +91,23 @@ func (c *CPU) ReadSegment8(selector uint16, offset uint32) (uint8, bool) {
 	return c.readSegment8(selector, offset)
 }
 
+// WriteSegmentBytes 先驗證完整 descriptor 範圍，再依序寫入資料。
+func (c *CPU) WriteSegmentBytes(selector uint16, offset uint32, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	linear, ok := c.segmentLinear(selector, offset, uint32(len(data)), true)
+	if !ok {
+		return false
+	}
+	for index, value := range data {
+		if c.Bus.Write8(linear+uint32(index), value) != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
 	if selector == 0 && destination != SegCS && destination != SegSS {
 		return true

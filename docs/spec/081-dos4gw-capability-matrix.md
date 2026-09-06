@@ -54,8 +54,9 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 regular-file 查詢、測試 DX device bit，正規化 `isatty` 回傳為 0，並從
 FILE table 讀回及寫回 handle record，進入有界行讀取的 `fgetc` loop，
 遞減其緩衝計數，由 `__ioalloc` 配置與標記 buffer，再由 `__fill_buffer`
-把目前 buffer pointer 壓入 `__qread` 參數；下一阻塞移至 `__qread` 內
-`0x3D9A2` 的 `INT 21h/AH=3Fh`。此收據只證明
+把目前 buffer pointer 壓入 `__qread` 參數，並由 `INT 21h/AH=3Fh` 將固定
+`MDI.INI` 的 218 bytes 完整讀入 Watcom 緩衝；下一阻塞移至 `fgetc` 的
+`0x3DA58`（`FF 03`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

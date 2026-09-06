@@ -113,6 +113,40 @@ func (s *FD2StartupDOS) deviceInformation(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
+func (s *FD2StartupDOS) readFile(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	file, ok := s.handles[uint16(c.R[cpu386.EBX])]
+	if !ok {
+		setError(6)
+		return
+	}
+	count := int(uint16(c.R[cpu386.ECX]))
+	if count == 0 {
+		c.R[cpu386.EAX] &= 0xffff0000
+		c.EFlags &^= cpu386.CF
+		return
+	}
+	buffer := make([]byte, count)
+	n, err := file.Read(buffer)
+	if err != nil && err != io.EOF {
+		setError(5)
+		return
+	}
+	buffer = buffer[:n]
+	if !c.WriteSegmentBytes(c.Seg[cpu386.SegDS], c.R[cpu386.EDX], buffer) {
+		if n > 0 {
+			_, _ = file.Seek(-int64(n), io.SeekCurrent)
+		}
+		setError(5)
+		return
+	}
+	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(n)
+	c.EFlags &^= cpu386.CF
+}
+
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
 		if uint16(c.R[cpu386.EAX]) != 0x0200 {
@@ -147,6 +181,10 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	}
 	if function == 0x44 {
 		s.deviceInformation(c)
+		return true
+	}
+	if function == 0x3f {
+		s.readFile(c)
 		return true
 	}
 	switch s.calls {
