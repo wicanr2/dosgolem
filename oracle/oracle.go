@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -194,6 +195,34 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
+// 文字模式畫面的形狀（mode 03h：80 欄 25 列，一格「字元 ＋ 屬性」兩個 byte）。
+const (
+	TextCols = 80
+	TextRows = 25
+	textSeg  = 0xB800
+)
+
+// TextScreen 回文字模式畫面，一列一個字串（右邊的空白已經修掉）。
+//
+// **`Indexed()` 讀的是圖形記憶體（A0000）。** 程式還在文字模式時那裡當然是全黑，
+// 而「全黑」看起來就像「什麼都沒畫」——實際上畫面上可能寫滿了字。判斷載入進度
+// 或找錯誤訊息時，先看 `VideoMode()`：還是 03h 就要讀這一份，不是 `Indexed()`。
+func (o *Oracle) TextScreen() []string {
+	out := make([]string, TextRows)
+	for r := 0; r < TextRows; r++ {
+		line := make([]byte, TextCols)
+		for c := 0; c < TextCols; c++ {
+			ch := o.m.Read8(cpu.Addr(textSeg, uint16(2*(r*TextCols+c))))
+			if ch < 0x20 || ch > 0x7E {
+				ch = ' ' // 制表符與高位字元用空白代替，方便肉眼比對
+			}
+			line[c] = ch
+		}
+		out[r] = strings.TrimRight(string(line), " ")
+	}
+	return out
+}
+
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
@@ -220,6 +249,35 @@ func (o *Oracle) VideoMode() uint8 { return o.m.VideoMode() }
 
 // CPU 狀態，寫診斷訊息用。
 func (o *Oracle) IP() Addr { return Addr{o.m.CPU.Seg[cpu.CS], o.m.CPU.IP} }
+
+// Registers 是一份暫存器快照。
+type Registers struct {
+	AX, CX, DX, BX, SP, BP, SI, DI uint16
+	ES, CS, SS, DS                 uint16
+	IP, Flags                      uint16
+}
+
+func (r Registers) String() string {
+	return fmt.Sprintf(
+		"AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X SP=%04X "+
+			"CS=%04X DS=%04X ES=%04X SS=%04X IP=%04X FL=%04X",
+		r.AX, r.BX, r.CX, r.DX, r.SI, r.DI, r.BP, r.SP,
+		r.CS, r.DS, r.ES, r.SS, r.IP, r.Flags)
+}
+
+// Regs 回目前的暫存器。
+//
+// **診斷「寫到哪裡去了」的關鍵。** 一個搬移或清空迴圈寫錯地方時，錯的通常是
+// 段暫存器（`ES` 指向 0 段就會把中斷向量表清掉），而那從指令本身看不出來。
+func (o *Oracle) Regs() Registers {
+	c := o.m.CPU
+	return Registers{
+		AX: c.R[cpu.AX], CX: c.R[cpu.CX], DX: c.R[cpu.DX], BX: c.R[cpu.BX],
+		SP: c.R[cpu.SP], BP: c.R[cpu.BP], SI: c.R[cpu.SI], DI: c.R[cpu.DI],
+		ES: c.Seg[cpu.ES], CS: c.Seg[cpu.CS], SS: c.Seg[cpu.SS], DS: c.Seg[cpu.DS],
+		IP: c.IP, Flags: c.Flags,
+	}
+}
 
 // MouseActivity 回「滑鼠被輪詢幾次、其中回報按著幾次」。
 //
@@ -314,6 +372,28 @@ func (o *Oracle) PortReads() []PortCount {
 	})
 	return out
 }
+
+// PortWrites 是程式寫過的每個 I/O 埠與最後寫進去的值，埠號小的在前。
+//
+// **配合 `PortReads` 一起看。** 讀是「在等什麼」，寫是「設了什麼」——EGA／VGA
+// 直接設模式走 `3C0`–`3CF` 與 `3D4`／`3D5`，完全不經過 `int 10h`，所以
+// `VideoMode()` 會一直回 03h 而畫面其實已經是圖形模式了。
+func (o *Oracle) PortWrites() []PortValue {
+	out := make([]PortValue, 0, len(o.m.Ports))
+	for p, v := range o.m.Ports {
+		out = append(out, PortValue{Port: p, Last: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
+	return out
+}
+
+// PortValue 是一個埠與最後寫進去的值。
+type PortValue struct {
+	Port uint16
+	Last uint8
+}
+
+func (p PortValue) String() string { return fmt.Sprintf("%03X=%02X", p.Port, p.Last) }
 
 // PortCount 是一個埠被讀了幾次。
 type PortCount struct {
