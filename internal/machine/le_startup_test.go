@@ -1,10 +1,49 @@
 package machine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
+
+func TestFD2StartupDOSOpenReadOnly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "MDI.INI"), []byte("driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { provider.Close() })
+	bus := startupBus(make([]byte, 0x100))
+	copy(bus[0x20:], []byte("mdi.ini\x00"))
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x160
+	c.SetDescriptor(0x160, cpu386.Descriptor{Limit: 0xff, Writable: true})
+	s := NewFD2StartupDOS(provider)
+	t.Cleanup(func() { s.Close() })
+	c.R[cpu386.EAX], c.R[cpu386.EDX], c.EFlags = 0x3d00, 0x20, cpu386.CF
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 5 || c.EFlags&cpu386.CF != 0 || !s.HasHandle(5) {
+		t.Fatalf("open EAX=%X flags=%X handle=%t", c.R[cpu386.EAX], c.EFlags, s.HasHandle(5))
+	}
+	c.R[cpu386.EAX] = 0x3d01
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 5 || c.EFlags&cpu386.CF == 0 {
+		t.Fatalf("write mode EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+	copy(bus[0x20:], []byte("../MDI.INI\x00"))
+	c.R[cpu386.EAX] = 0x3d00
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 2 || c.EFlags&cpu386.CF == 0 || s.HasHandle(6) {
+		t.Fatalf("unsafe path EAX=%X flags=%X nextHandle=%t", c.R[cpu386.EAX], c.EFlags, s.HasHandle(6))
+	}
+	copy(bus[0x20:], []byte("MISSING.INI\x00"))
+	c.R[cpu386.EAX] = 0x3d00
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 2 || c.EFlags&cpu386.CF == 0 || s.HasHandle(6) {
+		t.Fatalf("missing path EAX=%X flags=%X nextHandle=%t", c.R[cpu386.EAX], c.EFlags, s.HasHandle(6))
+	}
+}
 
 type startupBus []byte
 
