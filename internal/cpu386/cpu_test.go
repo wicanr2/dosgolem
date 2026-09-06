@@ -195,6 +195,28 @@ func TestStoreImmediateDwordAbsolute(t *testing.T) {
 	}
 }
 
+func TestStoreImmediateDwordAtBaseDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc7, 0x83, 0xfc, 0xff, 0xff, 0xff, 0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBX] = 0x24
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x20:0x24], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("immediate base+disp32 store=% X err=%v", mem[0x20:0x24], err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xc7, 0x83, 0xfc, 0xff, 0xff, 0xff, 0x78, 0x56, 0x34, 0x12})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f})
+	c.R[EBX] = 0x24
+	if err := c.Step(); err == nil || !bytes.Equal(mem[0x20:0x24], []byte{0, 0, 0, 0}) {
+		t.Fatalf("read-only immediate base+disp32 store=% X err=%v", mem[0x20:0x24], err)
+	}
+}
+
 func TestSubtractRegisterAbsolute(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x2b, 0x05, 0x20, 0, 0, 0})
