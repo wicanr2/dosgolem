@@ -84,8 +84,9 @@ radix 上界；`0x3F2A5 0F B6 B3 B4 11 05 00` 再從 digit table 將候選字元
 `SS:[ESP+0x100]`；`0x3F289 F7 5C 24 04` 亦已在負號路徑將符號乘數
 `SS:[ESP+4]` 由 1 反轉為 `-1`；`0x46C91 3B 5D 14` 亦已在 EOF 路徑比較
 有界行讀取的目前目的游標與起始 buffer；`0x3725A 3B 50 04` 亦已在
-`fclose` 鏈結串列中比較待關閉 FILE 指標與目前節點欄位。下一阻塞移至
-`0x3CC1E` 的尚未處理 `INT 21h`。
+`fclose` 鏈結串列中比較待關閉 FILE 指標與目前節點欄位；`0x3CC1E` 的
+`INT 21h/AH=42h` 亦已完成 `MDI.INI` 定位並回傳 `DX:AX`。下一阻塞移至
+`0x3CC20` 的 SS segment override（opcode `36h`）。
 此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。

@@ -156,6 +156,66 @@ func TestFD2StartupDOSReadRejectsDestinationRange(t *testing.T) {
 	}
 }
 
+func TestFD2StartupDOSSeekFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "MDI.INI"), []byte("driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { provider.Close() })
+	bus := startupBus(make([]byte, 0x100))
+	copy(bus[0x20:], []byte("MDI.INI\x00"))
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x160
+	c.SetDescriptor(0x160, cpu386.Descriptor{Limit: 0xff})
+	s := NewFD2StartupDOS(provider)
+	t.Cleanup(func() { s.Close() })
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0x3d00, 0x20
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 5 {
+		t.Fatalf("open EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+
+	seek := func(mode uint8, offset int32) (uint32, bool) {
+		c.R[cpu386.EAX] = 0xa5a50000 | 0x4200 | uint32(mode)
+		c.R[cpu386.EBX] = 5
+		c.R[cpu386.ECX] = 0xc7c70000 | uint32(uint16(uint32(offset)>>16))
+		c.R[cpu386.EDX] = 0xb6b60000 | uint32(uint16(offset))
+		c.EFlags |= cpu386.CF
+		if !s.Handle(c, 0x21) {
+			t.Fatal("seek was not handled")
+		}
+		return uint32(uint16(c.R[cpu386.EDX]))<<16 | uint32(uint16(c.R[cpu386.EAX])), c.EFlags&cpu386.CF == 0
+	}
+	if pos, ok := seek(0, 2); !ok || pos != 2 || c.R[cpu386.EAX]>>16 != 0xa5a5 || c.R[cpu386.EDX]>>16 != 0xb6b6 {
+		t.Fatalf("start seek pos=%X ok=%t EAX=%X EDX=%X", pos, ok, c.R[cpu386.EAX], c.R[cpu386.EDX])
+	}
+	if pos, ok := seek(1, -1); !ok || pos != 1 {
+		t.Fatalf("current seek pos=%X ok=%t", pos, ok)
+	}
+	if pos, ok := seek(2, -2); !ok || pos != 5 {
+		t.Fatalf("end seek pos=%X ok=%t", pos, ok)
+	}
+	if _, ok := seek(3, 0); ok || uint16(c.R[cpu386.EAX]) != 1 {
+		t.Fatalf("invalid mode EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+	if pos, ok := seek(1, 0); !ok || pos != 5 {
+		t.Fatalf("position changed after invalid mode pos=%X ok=%t", pos, ok)
+	}
+	if _, ok := seek(0, -1); ok || uint16(c.R[cpu386.EAX]) != 1 {
+		t.Fatalf("negative position EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+	if pos, ok := seek(1, 0); !ok || pos != 5 {
+		t.Fatalf("position not restored pos=%X ok=%t", pos, ok)
+	}
+	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x4200, 6
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 6 || c.EFlags&cpu386.CF == 0 {
+		t.Fatalf("invalid handle EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+}
+
 type startupBus []byte
 
 func (b startupBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }
