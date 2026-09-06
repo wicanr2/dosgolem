@@ -1743,3 +1743,28 @@ func TestFD2LoadsNextBufferedCharacter(t *testing.T) {
 		t.Fatalf("buffer character steps=%d EIP=%X source=%X want=%X EAX=%X", steps, m.CPU.EIP, source, want, m.CPU.R[cpu386.EAX])
 	}
 }
+
+func TestFD2ScansINITrailingCharacter(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f35b; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI trailing scan setup: step=%d EIP=%X ESI=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	source := m.CPU.R[cpu386.ESP] + m.CPU.R[cpu386.ESI] + 0x118
+	if uint64(source) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI trailing source=%X 超界", source)
+	}
+	want := m.Mem[source]
+	before := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI trailing MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f362 || byte(m.CPU.R[cpu386.EAX]) != want || m.CPU.R[cpu386.EAX]&0xffffff00 != before&0xffffff00 {
+		t.Fatalf("INI trailing steps=%d EIP=%X source=%X want=%X EAX=%X", steps, m.CPU.EIP, source, want, m.CPU.R[cpu386.EAX])
+	}
+}

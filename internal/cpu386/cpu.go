@@ -2259,6 +2259,31 @@ func (c *CPU) Step() error {
 			c.setReg8(int((modrm>>3)&7), value)
 			break
 		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP {
+				return fail(fmt.Sprintf("byte SIB %02X 無 index 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[base] + c.R[index]<<scale + uint32(int32(delta))
+			segment := SegDS
+			if base == ESP || base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("SIB byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.setReg8(int((modrm>>3)&7), value)
+			break
+		}
 		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}

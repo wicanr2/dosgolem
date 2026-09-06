@@ -59,7 +59,8 @@ FILE table 讀回及寫回 handle record，進入有界行讀取的 `fgetc` loop
 遞增並讀回目前 buffer pointer，返回設定解析器；`0x46C84`（`88 03`）也已
 把首字元寫入目的 buffer；讀取第二字元時 `fgetc` 的 `0x3D9FA`
 （`8A 00`）也已通過，並完成目前行讀取返回 parser；
-下一阻塞移至 `0x3F35B`（`8A 84`）。此收據只證明
+parser 已從 `SS:[ESP+ESI+0x118]` 讀取行尾分類字元，下一阻塞移至
+`0x3F362`（`FE C0`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
