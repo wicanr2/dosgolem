@@ -786,3 +786,16 @@ func TestFD2LoadsAILDataSelectorWhenProvided(t *testing.T) {
 		t.Fatalf("AIL ES load steps=%d EIP=%X calls=%d ES=%X stored=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.Seg[cpu386.SegES], stored, errStored)
 	}
 }
+
+func TestFD2GetsTimerRealModeVectorWhenProvided(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e9b4; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DPMI vector: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3e9b4 || services.Calls() != 5 || uint16(m.CPU.R[cpu386.ECX]) != 0 || uint16(m.CPU.R[cpu386.EDX]) != 0 || m.CPU.EFlags&cpu386.CF != 0 {
+		t.Fatalf("DPMI vector steps=%d EIP=%X calls=%d ECX=%X EDX=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.EFlags)
+	}
+}
