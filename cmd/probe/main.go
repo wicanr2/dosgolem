@@ -378,8 +378,8 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			if i >= 30 {
 				break
 			}
-			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X\n",
-				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff)
+			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X  bits=%d\n",
+				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits)
 		}
 	}
 	if len(d.EMSOps) > 0 {
@@ -500,6 +500,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("\n輪詢分佈（每千萬道）：")
 		for _, k := range ks {
 			fmt.Printf(" %dM:%d", k*10, hist[uint64(k)])
+		}
+		fmt.Println()
+	}
+	if sizes := d.EMBSizes(); len(sizes) > 0 {
+		fmt.Printf("\nXMS EMB：")
+		for _, kv := range sizes {
+			fmt.Printf(" handle %d ＝ %d bytes", kv[0], kv[1])
 		}
 		fmt.Println()
 	}

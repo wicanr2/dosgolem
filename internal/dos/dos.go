@@ -209,6 +209,8 @@ type XMSMove struct {
 	Len            uint32
 	SrcH, DstH     uint16
 	SrcOff, DstOff uint32
+	// Bits 是搬過去的資料裡有幾個 1。0 表示搬了一片空白。
+	Bits int
 }
 
 // ReadOp 是一次讀檔（`AH=3Fh`）。Seg:Off 是緩衝區。

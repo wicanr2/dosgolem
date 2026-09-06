@@ -1,6 +1,8 @@
 package dos
 
 import (
+	"sort"
+
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -82,22 +84,44 @@ func (d *DOS) xmsMove(c *cpu.CPU) {
 	dstH := d.M.Read16(desc + 0x0A)
 	dstOff := uint32(d.M.Read16(desc+0x0C)) | uint32(d.M.Read16(desc+0x0E))<<16
 
+	// ⚠ **常規記憶體那一端要先算成線性位址再往前走。**
+	// handle 0 的位移欄是 far 指標（高 word 段、低 word 位移），
+	// 把位元組索引直接加上去的話，位移滿 65,536 就進位到**段 +1**
+	// ＝ 線性只前進 16 bytes，於是超過 64 KB 的部分整段讀到別的地方。
+	// 搬移照樣回報成功，前 64 KB 也照樣正確——所以症狀是
+	// 「大部分的字都對，少數幾個字畫不出來」。
+	srcBase, dstBase := srcOff, dstOff
+	if srcH == 0 {
+		srcBase = xmsLinear(srcOff)
+	}
+	if dstH == 0 {
+		dstBase = xmsLinear(dstOff)
+	}
+
+	// bits 是搬過去的位元數。**「搬移回報成功」不等於「搬到了東西」**——
+	// 來源算錯或區塊配小了都是靜靜回 0，而字圖全 0 在畫面上就是「沒這個字」。
+	bits := 0
 	for i := uint32(0); i < n; i++ {
-		b := d.xmsRead(srcH, srcOff+i)
-		d.xmsWrite(dstH, dstOff+i, b)
+		b := d.xmsRead(srcH, srcBase+i)
+		bits += popcount(b)
+		d.xmsWrite(dstH, dstBase+i, b)
 	}
 	c.R[cpu.AX] = 1
 	d.XMSMoves = append(d.XMSMoves, XMSMove{
 		Step: d.M.Steps, Len: n, SrcH: srcH, SrcOff: srcOff, DstH: dstH, DstOff: dstOff,
+		Bits: bits,
 	})
 	clearCarry(c)
 }
 
-// xmsRead 從 EMB 或常規記憶體讀一個位元組。
+// xmsLinear 把 handle 0 的 far 指標（高 word 段、低 word 位移）算成
+// 線性位址。算完才可以逐位元組往前走。
+func xmsLinear(off uint32) uint32 { return (off>>16)<<4 + off&0xFFFF }
+
+// xmsRead 從 EMB 或常規記憶體讀一個位元組。handle 0 收的是**線性位址**。
 func (d *DOS) xmsRead(h uint16, off uint32) uint8 {
 	if h == 0 {
-		// far 指標：低 word 是 offset、高 word 是 segment。
-		return d.M.Read8((off>>16<<4) + off&0xFFFF)
+		return d.M.Read8(off)
 	}
 	if blk, ok := d.emb[h]; ok && off < uint32(len(blk)) {
 		return blk[off]
@@ -105,12 +129,35 @@ func (d *DOS) xmsRead(h uint16, off uint32) uint8 {
 	return 0
 }
 
+// xmsWrite 寫一個位元組。handle 0 收的是**線性位址**。
 func (d *DOS) xmsWrite(h uint16, off uint32, v uint8) {
 	if h == 0 {
-		d.M.Write8((off>>16<<4)+off&0xFFFF, v)
+		d.M.Write8(off, v)
 		return
 	}
 	if blk, ok := d.emb[h]; ok && off < uint32(len(blk)) {
 		blk[off] = v
 	}
+}
+
+// EMBSizes 回報目前配出去的 EMB（handle 與位元組數），按 handle 排序。
+//
+// **「搬進去了」不等於「存下來了」**：`xmsWrite` 對超出區塊的位址是
+// 靜靜丟掉。區塊配小了的話，超過那個界線的資料全部讀回 0，
+// 而搬移本身回報成功。
+func (d *DOS) EMBSizes() [][2]int {
+	out := make([][2]int, 0, len(d.emb))
+	for h, b := range d.emb {
+		out = append(out, [2]int{int(h), len(b)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
+	return out
+}
+
+func popcount(b uint8) int {
+	n := 0
+	for ; b != 0; b &= b - 1 {
+		n++
+	}
+	return n
 }
