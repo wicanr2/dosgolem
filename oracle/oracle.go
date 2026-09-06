@@ -223,6 +223,39 @@ func (o *Oracle) TextScreen() []string {
 	return out
 }
 
+// CGA 模式 4 的版面（320×200，四色，兩個 bit 一個像素）。
+const (
+	cgaSeg = 0xB800
+	// cgaOddPlane 是奇數列那一半的位移。**掃描線是交錯的**：偶數列從 0 起、
+	// 奇數列從 0x2000 起，各 8000 bytes。照線性讀會得到一張梳子。
+	cgaOddPlane = 0x2000
+	cgaStride   = 80 // 320 像素 × 2 bit ÷ 8
+)
+
+// CGA4 回 CGA 模式 4 的畫面，320×200 個色號（0…3）。
+//
+// **不是 `Indexed()`。** 那一支讀的是 mode 13h 的 `A0000`；CGA 的視訊記憶體在
+// `B8000`，而且掃描線交錯——兩邊都對不上，所以 CGA 程式在 `Indexed()` 底下
+// 永遠是全黑。判斷「畫了沒」要用這一支。
+//
+// 色號是**調色盤索引**，不是 RGB：模式 4 的四色由 `3D9` 埠選盤，這一層不解釋它，
+// 比對在索引空間做（同 `Indexed()` 的理由，§3.3）。
+func (o *Oracle) CGA4() []uint8 {
+	out := make([]uint8, Width*Height)
+	for y := 0; y < Height; y++ {
+		base := uint32(y/2) * cgaStride
+		if y%2 == 1 {
+			base += cgaOddPlane
+		}
+		row := out[y*Width:]
+		for x := 0; x < Width; x++ {
+			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/4))
+			row[x] = (b >> (6 - 2*uint(x%4))) & 3
+		}
+	}
+	return out
+}
+
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
