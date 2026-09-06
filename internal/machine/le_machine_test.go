@@ -1588,3 +1588,32 @@ func TestFD2MarksAllocatedIOBuffer(t *testing.T) {
 		t.Fatalf("I/O buffer flag steps=%d EIP=%X before=%X after=%X", steps, m.CPU.EIP, before, m.Mem[addr])
 	}
 }
+
+func TestFD2PushesFillBufferPointer(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3dae1; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("fill buffer pointer setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	source := m.CPU.R[cpu386.EBX]
+	if uint64(source)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("fill buffer pointer source=%X 超界", source)
+	}
+	want := binary.LittleEndian.Uint32(m.Mem[source : source+4])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("fill buffer pointer PUSH: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	esp := m.CPU.R[cpu386.ESP]
+	if uint64(esp)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("fill buffer stack=%X 超界", esp)
+	}
+	got := binary.LittleEndian.Uint32(m.Mem[esp : esp+4])
+	if m.CPU.EIP != 0x3dae3 || got != want {
+		t.Fatalf("fill buffer pointer steps=%d EIP=%X want=%X got=%X", steps, m.CPU.EIP, want, got)
+	}
+}

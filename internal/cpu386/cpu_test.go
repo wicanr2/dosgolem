@@ -891,6 +891,42 @@ func TestPushBaseDisp8Dword(t *testing.T) {
 	}
 }
 
+func TestPushBaseDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xff, 0x33})
+	copy(mem[0x18:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBX], c.R[ESP] = 0x18, 0x40
+	if err := c.Step(); err != nil || c.R[ESP] != 0x3c || !bytes.Equal(mem[0x3c:0x40], []byte{0x78, 0x56, 0x34, 0x12}) {
+		t.Fatalf("PUSH ESP=%X stack=% X err=%v", c.R[ESP], mem[0x3c:0x40], err)
+	}
+
+	mem = testBus([]byte{0xff, 0x33})
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 1, Writable: true})
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 1, Writable: true})
+	c.R[EBX], c.R[ESP] = 0x18, 4
+	if err := c.Step(); err == nil || c.R[ESP] != 4 {
+		t.Fatalf("out-of-range PUSH ESP=%X err=%v", c.R[ESP], err)
+	}
+
+	mem = testBus(make([]byte, 0x20))
+	copy(mem, []byte{0xff, 0x33})
+	copy(mem[0x10:], []byte{0x78, 0x56, 0x34, 0x12})
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x168
+	c.SetDescriptor(0x160, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x1f})
+	c.R[EBX], c.R[ESP] = 0x10, 0x20
+	if err := c.Step(); err == nil || c.R[ESP] != 0x20 {
+		t.Fatalf("read-only stack PUSH ESP=%X err=%v", c.R[ESP], err)
+	}
+}
+
 func TestPushFlags32(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	mem[0] = 0x9c
