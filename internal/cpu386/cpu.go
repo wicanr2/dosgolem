@@ -1420,6 +1420,30 @@ func (c *CPU) Step() error {
 			} else {
 				c.sub8(c.reg8(rm), imm)
 			}
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != ESP && group == 4 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("AND byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			result := value & imm
+			if !c.writeSegment8(c.Seg[segment], addr, result) {
+				return fail(fmt.Sprintf("AND byte write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.setLogicFlags8(result)
 		} else if group == 7 && modrm == 0x3d {
 			addr, e := c.fetch32()
 			if e != nil {
