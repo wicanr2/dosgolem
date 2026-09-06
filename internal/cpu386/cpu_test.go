@@ -195,6 +195,28 @@ func TestByteORAtSIBDisp8(t *testing.T) {
 	}
 }
 
+func TestByteORAtBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x60))
+	copy(mem, []byte{0x80, 0x4b, 0xfc, 0x08})
+	mem[0x2c] = 0x40
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f, Writable: true})
+	c.R[EBX], c.EFlags = 0x30, CF|OF|AF
+	if err := c.Step(); err != nil || mem[0x2c] != 0x48 || c.EFlags&(CF|OF|AF|ZF) != 0 {
+		t.Fatalf("OR byte=%X flags=%X err=%v", mem[0x2c], c.EFlags, err)
+	}
+
+	mem[0x2c] = 0x40
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f})
+	c.R[EBX] = 0x30
+	if err := c.Step(); err == nil || mem[0x2c] != 0x40 {
+		t.Fatalf("read-only OR byte=%X err=%v", mem[0x2c], err)
+	}
+}
+
 func TestCompareDwordAtBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x83, 0x7b, 0x0c, 0})
