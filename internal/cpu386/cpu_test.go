@@ -1388,6 +1388,30 @@ func TestCompareHighByteImmediateDoesNotWriteBack(t *testing.T) {
 	}
 }
 
+func TestAndByteBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x80, 0x63, 0x0c, 0xfc})
+	mem[0x1c] = 0xff
+	c := New(mem)
+	c.R[EBX], c.EFlags = 0x10, CF|OF|AF
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x1c] != 0xfc || c.R[EBX] != 0x10 || c.EFlags&(CF|OF|AF|ZF|SF) != SF {
+		t.Fatalf("DS AND value=%X EBX=%X flags=%X err=%v", mem[0x1c], c.R[EBX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x80, 0x65, 0xfc, 0x0f})
+	mem[0x1c] = 0xf0
+	c = New(mem)
+	c.R[EBP] = 0x20
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x1c] != 0 || c.R[EBP] != 0x20 || c.EFlags&ZF == 0 {
+		t.Fatalf("SS AND value=%X EBP=%X flags=%X err=%v", mem[0x1c], c.R[EBP], c.EFlags, err)
+	}
+}
+
 func TestAddSignExtendedByteAndAndByte(t *testing.T) {
 	mem := testBus{0x83, 0xc2, 0x0f, 0x80, 0xe2, 0xf0}
 	c := New(mem)

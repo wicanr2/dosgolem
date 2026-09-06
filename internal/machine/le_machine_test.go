@@ -1068,3 +1068,22 @@ func TestFD2ComparesAllocFPTableBound(t *testing.T) {
 		t.Fatalf("allocfp bound steps=%d EIP=%X calls=%d EBX=%X flags=%X wantCF=%t wantZF=%t", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EBX], m.CPU.EFlags, wantCF, wantZF)
 	}
 }
+
+func TestFD2ClearsOpenFileModeBits(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36ec9; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("open mode setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	beforeEBX := m.CPU.R[cpu386.EBX]
+	before, errRead := m.Read8(beforeEBX + 0x0c)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("open mode AND: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	after, errAfter := m.Read8(beforeEBX + 0x0c)
+	if m.CPU.EIP != 0x36ecd || services.Calls() != 5 || errRead != nil || errAfter != nil || after != before&0xfc || m.CPU.R[cpu386.EBX] != beforeEBX {
+		t.Fatalf("open mode steps=%d EIP=%X calls=%d before=%X after=%X EBX=%X errors=%v/%v", steps, m.CPU.EIP, services.Calls(), before, after, m.CPU.R[cpu386.EBX], errRead, errAfter)
+	}
+}
