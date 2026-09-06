@@ -1940,7 +1940,7 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
 		}
 	case op == 0xc7:
-		if operand16 || segmentOverride >= 0 || repe {
+		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("C7 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -1998,6 +1998,28 @@ func (c *CPU) Step() error {
 			}
 			if !c.writeSegment32(c.Seg[segment], addr, value) {
 				return fail(fmt.Sprintf("MOV immediate base+disp32 write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			break
+		}
+		if modrm == 0x44 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("MOV immediate stack disp8 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			if !c.writeSegment32(c.Seg[SegSS], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate stack disp8 write %04X:%08X 未處理", c.Seg[SegSS], addr))
 			}
 			break
 		}

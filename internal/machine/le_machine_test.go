@@ -1979,3 +1979,28 @@ func TestFD2InitializesININumberParserState(t *testing.T) {
 		t.Fatalf("INI number parser steps=%d EIP=%X ESP=%X EDX=%X flags=%X stack=% X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EDX], m.CPU.EFlags, m.Mem[stack:stack+4])
 	}
 }
+
+func TestFD2InitializesININumberParserSign(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f273; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI number sign setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	stack := m.CPU.R[cpu386.ESP]
+	if uint64(stack)+8 > uint64(len(m.Mem)) {
+		t.Fatalf("INI number sign stack=%X 超界", stack)
+	}
+	copy(m.Mem[stack+4:stack+8], []byte{0xaa, 0xbb, 0xcc, 0xdd})
+	beforeFlags := m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI number sign store: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f27b || m.CPU.R[cpu386.ESP] != stack || m.CPU.EFlags != beforeFlags || !bytes.Equal(m.Mem[stack+4:stack+8], []byte{1, 0, 0, 0}) {
+		t.Fatalf("INI number sign steps=%d EIP=%X ESP=%X flags=%X stack=% X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.EFlags, m.Mem[stack+4:stack+8])
+	}
+}
