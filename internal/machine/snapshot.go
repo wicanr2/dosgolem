@@ -29,6 +29,11 @@ type Snapshot struct {
 	dac      [256 * 3]uint8
 	dacIndex uint8
 	dacPhase uint8
+
+	// planar 的畫面與暫存器（`docs/spec/013`）。**四個 plane 不在 mem
+	// 裡**，漏抄的話還原後畫面會是別的時間點的。
+	vga      vga
+	planarOn bool
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -52,6 +57,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		dac:       m.DAC,
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
+		vga:       *m.vga,
+		planarOn:  m.planarOn,
 	}
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
@@ -84,6 +91,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.PortLog = m.PortLog[:0]
 
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
+	*m.vga, m.planarOn = s.vga, s.planarOn
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

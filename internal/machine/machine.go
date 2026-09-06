@@ -128,6 +128,11 @@ type Machine struct {
 	nextIRQ0    uint64
 	irq0Pending bool
 
+	// vga 是 planar 模式的狀態（`docs/spec/013`）。planarOn 是
+	// 「目前模式是不是 planar」的快取，Read8／Write8 每次都要問。
+	vga      *vga
+	planarOn bool
+
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
@@ -158,6 +163,7 @@ func New() *Machine {
 		IRQ0Every: DefaultIRQ0Every,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
+		vga:     &vga{},
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
@@ -173,10 +179,24 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
-func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
+func (m *Machine) Read8(a uint32) uint8 {
+	a &= 0xFFFFF
+	// planar 模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
+	// ⚠ **讀它有副作用**：四個 latch 會被載入。
+	if m.planarOn && a >= vgaLo && a < vgaHi {
+		return m.vgaRead(a - vgaLo)
+	}
+	return m.Mem[a]
+}
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
+	if m.planarOn && a >= vgaLo && a < vgaHi {
+		// ⚠ **WatchWrites 看不到 planar 的寫入**——那些位元組不在 Mem[] 裡。
+		// 要追畫面寫入請用 PortWrites ＋ 停止點的 plane 內容。
+		m.vgaWrite(a-vgaLo, v)
+		return
+	}
 	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
 		m.onWrite(a, m.Mem[a], v)
 	}
@@ -224,6 +244,9 @@ func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
+	if v, ok := m.vgaIn(port); ok {
+		return v
+	}
 	switch {
 	case port == 0x3DA:
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
@@ -281,6 +304,9 @@ func (m *Machine) Out8(p uint16, v uint8) {
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
+	// Sequencer 與 Graphics Controller（`docs/spec/013` §3.2）。
+	m.vgaOut(p, v)
+
 	switch p {
 	case 0x3C8: // 設寫入索引
 		m.dacIndex, m.dacPhase = v, 0
@@ -324,11 +350,15 @@ func (m *Machine) WriteBytes(a uint32, b []byte) {
 	}
 }
 
-// Indexed 回傳 mode 13h 畫面的 320×200 色號陣列。
+// Indexed 回傳畫面的色號陣列：mode 13h 是 320×200，planar 模式
+// （`docs/spec/013`）是 VideoSize() 那個尺寸的 0–15 色號。
 //
 // **回的是色號不是 RGB**——對拍在色號空間做（`docs/spec/005` §3）。
 // 回傳的是複本，呼叫端改它不會動到機器。
 func (m *Machine) Indexed() []uint8 {
+	if m.planarOn {
+		return m.planarIndexed()
+	}
 	out := make([]uint8, VideoWidth*VideoHigh)
 	copy(out, m.Mem[VideoSeg*16:VideoSeg*16+len(out)])
 	return out

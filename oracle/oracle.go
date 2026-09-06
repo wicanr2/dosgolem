@@ -211,16 +211,20 @@ func (o *Oracle) Float(a Addr) float32 {
 // 只給內部的條件判斷用。`Indexed()` 會複製一份給呼叫端——
 // 那是對的，但**放進每道指令都跑的迴圈裡就是災難**：
 // 64 KB 的配置加比對乘上四千兩百萬道指令。
-func (o *Oracle) video() []uint8 {
-	base := machine.VideoSeg * 16
-	return o.m.Mem[base : base+Width*Height]
-}
+func (o *Oracle) video() []uint8 { return o.m.VideoRaw() }
 
-// Indexed 回 320×200 的色號陣列。
+// Indexed 回畫面的色號陣列。mode 13h 是 320×200（`Width`×`Height`）；
+// planar 模式（`docs/spec/013`）是 `ScreenSize()` 那個尺寸的 0–15 色號。
 //
 // **色號，不是 RGB。** rich2 的比對在色號空間做，而且逐點比對在索引空間
 // 才不會被調色盤循環干擾（`docs/spec/005` §3.3）。
 func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
+
+// ScreenSize 是目前模式的畫面尺寸。
+//
+// ⚠ **`Width`／`Height` 兩個常數是 mode 13h 的**，planar 模式下不對；
+// 會遇到 16 色模式的程式一律問這一支。
+func (o *Oracle) ScreenSize() (w, h int) { return o.m.VideoSize() }
 
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }

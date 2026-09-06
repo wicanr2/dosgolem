@@ -17,8 +17,9 @@ func (o *Oracle) WritePNG(path string) error {
 	for i := range pal {
 		p[i] = color.RGBA{pal[i][0], pal[i][1], pal[i][2], 255}
 	}
-	img := image.NewPaletted(image.Rect(0, 0, Width, Height), p)
-	copy(img.Pix, o.video())
+	w, h := o.ScreenSize()
+	img := image.NewPaletted(image.Rect(0, 0, w, h), p)
+	copy(img.Pix, o.Indexed())
 	f, err := os.Create(path)
 	if err != nil {
 		return err
