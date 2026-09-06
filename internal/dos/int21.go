@@ -31,6 +31,27 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		clearCarry(c)
 
+	case 0x08: // 不回顯讀一個字元 → AL
+		// 與 `AH=3Fh` 讀 handle 0 同一個佇列。**不能回 0**：那被當成擴充鍵的
+		// 前導碼，呼叫端會再讀一次而永遠等不到第二個 byte。
+		if len(d.Stdin) > 0 {
+			setAL(c, d.Stdin[0])
+			d.Stdin = d.Stdin[1:]
+		} else {
+			setAL(c, d.StdinFill)
+		}
+		clearCarry(c)
+
+	case 0x0B: // 檢查標準輸入狀態 → AL
+		// 0FFh ＝ 有東西可讀，00h ＝ 沒有。**輪詢迴圈靠它決定要不要讀**，
+		// 一律回「有」會讓程式一直讀到填充值，一律回「沒有」則永遠等不到按鍵。
+		if len(d.Stdin) > 0 {
+			setAL(c, 0xFF)
+		} else {
+			setAL(c, 0x00)
+		}
+		clearCarry(c)
+
 	case 0x19: // 取目前磁碟機
 		// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
@@ -116,6 +137,21 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		d.M.WriteBytes(addr, append(buf, 0))
 		c.R[cpu.AX] = 0x0100
+		clearCarry(c)
+
+	case 0x43: // 取／設檔案屬性
+		// AL=0 取、AL=1 設。EXEC 之前程式會先問一次；沒實作的話 CX 是垃圾，
+		// 而「唯讀」那一位元被誤讀就會走進錯誤路徑。
+		if al(c) == 0 {
+			name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+			if d.resolve(name) == "" {
+				d.Missing = append(d.Missing, name)
+				c.R[cpu.AX] = 2
+				setCarry(c)
+				return
+			}
+			c.R[cpu.CX] = 0x20 // archive
+		}
 		clearCarry(c)
 
 	case 0x48:
