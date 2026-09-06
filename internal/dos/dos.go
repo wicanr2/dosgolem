@@ -164,6 +164,10 @@ type DOS struct {
 	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
 	emb     map[uint16][]byte
 	nextEMB uint16
+
+	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
+	// 1 MB 空間裡的 D000h 段。
+	ems *ems
 }
 
 // memHole 是一塊還回來的記憶體（seg 是資料段，MCB 在 seg-1）。
@@ -257,6 +261,9 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 	case 0xF5: // XMS driver entry 的 trampoline（`docs/spec/011`）
 		d.xmsCall(c)
 		d.fixStackedCF(c)
+	case 0xF6: // EMS 的 trampoline（`docs/spec/014`）。**EMS 不用 CF**，
+		// 狀態在 AH，所以不呼叫 fixStackedCF。
+		d.emsCall(c)
 	case 0x2F: // XMS 偵測（AH=43h）
 		d.int2F(c)
 	case 0x08, 0x1C:

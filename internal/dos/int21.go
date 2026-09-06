@@ -135,6 +135,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		c.R[cpu.BX] = 0x10
 		clearCarry(c)
 
+	case 0x38: // 取國別資訊（`docs/spec/010`）
+		d.country(c)
+
 	case 0x63: // DOS/V：DBCS 前導位元組表（`docs/spec/010` §2）
 		d.dbcs(c)
 

@@ -25,6 +25,15 @@ const (
 	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。
 	EnvSeg = 0x0090
 
+	// EMSSeg 是 EMM 的 driver header（`docs/spec/014` §3.1）：
+	// 位移 0 是 trampoline、位移 0Ah 是簽章 `EMMXXXX0`。
+	// **偵測 EMS 的標準做法就是讀 int 67h 向量指的段、比對那 8 個位元組。**
+	EMSSeg = 0x00A0
+
+	// EMSFrameSeg 是 EMS 的 64 KB page frame。D0000–DFFFF 在 1 MB
+	// 空間裡沒有別的用途，程式對它的讀寫就是普通記憶體存取。
+	EMSFrameSeg = 0xD000
+
 	// PSPSeg 是程式的 PSP，LoadSeg 是映像本體（PSP 佔 16 段）。
 	PSPSeg  = 0x0100
 	LoadSeg = PSPSeg + 0x10
@@ -509,4 +518,10 @@ func (m *Machine) initVectors() {
 	m.Write16(0x15*4, ATrapOff)
 	m.Write16(0x08*4, biosTimerOff)
 	m.Write16(0x33*4, mouseStubOff)
+
+	// EMM 的 driver header ＋ int 67h 向量（`docs/spec/014` §3.1）。
+	m.WriteBytes(EMSSeg*16, []byte{0xCD, 0xF6, 0xCF})
+	m.WriteBytes(EMSSeg*16+0x0A, []byte("EMMXXXX0"))
+	m.Write16(0x67*4, 0)
+	m.Write16(0x67*4+2, EMSSeg)
 }

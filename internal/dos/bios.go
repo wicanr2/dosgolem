@@ -159,6 +159,8 @@ func (d *DOS) int16(c *cpu.CPU) {
 		c.R[cpu.AX] = keyWord(d.Stdin[0]) // 查看不取走
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
+	case 0x13: // DOS/V 的鍵盤擴充狀態：收下，回「沒有特殊狀態」
+		setAL(c, 0)
 	default:
 		d.note(0x16, ah(c), al(c))
 	}

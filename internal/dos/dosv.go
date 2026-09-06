@@ -10,6 +10,39 @@ import (
 // 原則是**讓原版驅動（DOSJP）自己提供 DOS/V 服務**，機器層只補
 // 「一台 DOS/V 機器本來就該有、而且 DOSJP 落腳前要問的」東西。
 
+// countryOff 是國別資訊表在 StubSeg 裡的位移（`int 21h AH=38h`）。
+const countryOff = 0x80
+
+// country 是 `int 21h AH=38h`（取國別資訊）。
+//
+// DOS/V 程式用它判斷「這是不是日文環境」——回不出來的話它會走另一條
+// 路徑，而那條路徑上什麼都不會說。表的欄位照 DOS 3.x 的版面。
+func (d *DOS) country(c *cpu.CPU) {
+	if al(c) != 0x00 {
+		d.note(0x21, 0x38, al(c))
+		setCarry(c)
+		return
+	}
+	at := uint32(machine.StubSeg)*16 + countryOff
+	tab := make([]byte, 34)
+	tab[0] = 2 // 日期格式：2 ＝ 年月日
+	copy(tab[2:], []byte{0x5C, 0x00})   // 貨幣符號（Shift-JIS 的 ¥）
+	copy(tab[7:], []byte{',', 0x00})    // 千分位
+	copy(tab[9:], []byte{'.', 0x00})    // 小數點
+	copy(tab[0x0B:], []byte{'/', 0x00}) // 日期分隔
+	copy(tab[0x0D:], []byte{':', 0x00}) // 時間分隔
+	tab[0x10] = 0                       // 小數位數
+	tab[0x11] = 1                       // 24 小時制
+	copy(tab[0x16:], []byte{',', 0x00}) // 清單分隔
+	d.M.WriteBytes(at, tab)
+
+	c.Seg[cpu.DS] = machine.StubSeg
+	c.R[cpu.DX] = countryOff
+	c.R[cpu.BX] = 81 // 國碼：日本
+	c.R[cpu.AX] = 81
+	clearCarry(c)
+}
+
 // dbcsTableOff 是 DBCS 前導位元組表在 StubSeg 裡的位移。
 // 內容：`81 9F E0 FC 00 00`（Shift-JIS 前導範圍，雙 0 結束）。
 const dbcsTableOff = 0x40
