@@ -79,21 +79,52 @@ type Region struct {
 	Colour    uint8
 }
 
+// 縣市的色號範圍。台灣地圖上每個縣市都有自己的色號，實測落在 192–206。
+const (
+	countyFirst = 192
+	countyLast  = 206
+)
+
 // FindBlank 找地圖上被留白的那一區。
 //
 // ⚠ **判準是調色盤，不是色號。**
 //
-// 台灣地圖上每個縣市都有自己的色號（實測 192–206），而**調色盤把它們全部
-// 設成同一個綠 (0,130,0)**，只有這一題要問的那一區設成白。
+// 每個縣市都有自己的色號（`countyFirst`–`countyLast`），而**調色盤把它們
+// 全部設成同一個綠 (0,130,0)**，只有這一題要問的那一區設成白。
 // 換句話說「哪一區被留白」是調色盤的狀態，不是像素的狀態——
-// 直接找色號 15（一般的白）會一個點都找不到，而且不會有錯誤訊息。
+// 直接找色號 15（一般的白）會找到畫面上的白色文字，不是縣市。
+//
+// ⚠⚠ **色號範圍這一條是必要的，不是保險。**
+//
+// 本函式原本只看「調色盤是不是白」，沒有限制色號，理由是註解裡寫的
+// 「色號 15 一個點都找不到」。**那句話只在一個已經修掉的 bug 底下成立**：
+// `int 10h AH=10h` 的 `AL=10h`（設單一 DAC）先前被接成「設屬性暫存器」，
+// 所以色號 15 的 DAC 從來沒被寫成白。`769b030`（spec 011）把 AL 分支接對
+// 之後，色號 15 變成真正的白，於是 `SolvePassword` 在**三題都答對之後**
+// 把畫面上的白色文字（實測 67 點）當成第四題的留白區，
+// 然後回報「四個顏色都不被接受」。
+//
+// **共用層變正確了，是這裡的假設過期。** 教訓寫成規則：
+// 「某個東西從來不出現」如果沒有結構上的理由，就不能當判準——
+// 它只是還沒出現。
 func FindBlank(o *oracle.Oracle) Region {
-	px, pal := o.Indexed(), o.Palette()
+	return findBlankIn(o.Indexed(), o.Palette())
+}
+
+// findBlankIn 是 FindBlank 的純函式版本，好讓判準本身有不必開模擬器的測試。
+func findBlankIn(px []uint8, pal [256][3]uint8) Region {
 	var sx, sy, n int
 	var colour uint8
 	for y := mapTop; y < mapBottom; y++ {
 		for x := mapLeft; x < mapRight; x++ {
-			c := px[y*oracle.Width+x]
+			i := y*oracle.Width + x
+			if i >= len(px) {
+				continue
+			}
+			c := px[i]
+			if c < countyFirst || c > countyLast {
+				continue
+			}
 			if pal[c][0] > 240 && pal[c][1] > 240 && pal[c][2] > 240 {
 				sx, sy, n, colour = sx+x, sy+y, n+1, c
 			}

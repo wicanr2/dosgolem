@@ -98,6 +98,22 @@ func TestOPLRegsAndClear(t *testing.T) {
 	}
 }
 
+// TestOPLSecondBankStatusPortUnchanged 0x38A **不是**狀態埠。
+//
+// 這台機器是共用的：把 0x38A 也接成狀態埠會讓「以前讀到 0xFF 的程式」
+// 改讀到 0x00。OPL3 的偵測序列讀的是基底埠 0x388，沒有序列讀 0x38A。
+func TestOPLSecondBankStatusPortUnchanged(t *testing.T) {
+	m := New()
+	m.SetAdLib(true)
+	oplOut(m, 0x04, 0x21)
+	if got := m.In8(0x388); got != 0xC0 {
+		t.Fatalf("0x388 回 %02X，要 C0", got)
+	}
+	if got := m.In8(0x38A); got != 0xFF {
+		t.Fatalf("0x38A 回 %02X，要維持預設的 FF", got)
+	}
+}
+
 // TestOPLSecondBank OPL3 的第二組走 0x38A/0x38B，與第一組分開記。
 func TestOPLSecondBank(t *testing.T) {
 	m := New()

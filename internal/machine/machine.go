@@ -342,8 +342,14 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
-	case port == 0x388 || port == 0x38A:
-		// OPL2／OPL3 狀態埠（兩組讀回同一份狀態，OPL3 也是這樣）。
+	case port == 0x388:
+		// OPL2／OPL3 狀態埠。
+		//
+		// ⚠ **只有 0x388 當狀態埠，0x38A 維持預設的 0xFF。**
+		// OPL3 的偵測序列讀的是基底埠，沒有任何已知的序列讀 0x38A；
+		// 把它也接成狀態埠會讓「以前讀到 0xFF 的程式」改讀到 0x00，
+		// 而這是一個**共用**的機器層——別的專案的偵測邏輯可能靠那個值。
+		// 0x38A／0x38B 的**寫入**照樣走 OPL3 第二組（見 Out8）。
 		//
 		// **預設回 0 ＝ 偵測不到 AdLib，整段音樂路徑會被跳過**——那讓
 		// 開機快很多，所以是預設。要對拍音樂就得讓偵測過關（`AdLib(true)`）。
