@@ -24,7 +24,7 @@ func (m *Machine) planarWrite(off uint32, v uint8) {
 	gc := &m.gc
 	wm := gc[5] & 3
 	m.WriteModeUse[wm]++
-	if m.VRAMSites != nil {
+	if m.VRAMSites != nil && (m.VRAMAt < 0 || uint32(m.VRAMAt) == off) {
 		cs, ip := m.CPU.OpAddr()
 		m.VRAMSites[uint32(cs)<<16|uint32(ip)]++
 	}

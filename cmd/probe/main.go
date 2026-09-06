@@ -63,6 +63,9 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
 		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
+	dumpMem := flag.String("dump-mem", "",
+		"把一段記憶體原封不動寫成檔案：`<位址>:<長度>:<檔名>`（位址寫法同 -peek）。"+
+			"資料被程式改過之後長什麼樣，只有這樣看得到")
 	dumpEGA := flag.String("dump-ega", "", "把 planar VRAM 解成 PNG 寫到這個檔"+
 		"（依 BDA 目前模式選尺寸：12h ＝ 640×480、10h ＝ 640×350；spec 009）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
@@ -77,6 +80,9 @@ func main() {
 			"監看寫入只看得到目的地，看不到它從哪裡搬")
 	vramSites := flag.Bool("vram-sites", false,
 		"統計「誰在寫視訊記憶體」，印出前 20 名 CS:IP（找繪圖常式）")
+	vramAt := flag.String("vram-at", "",
+		"把 -vram-sites 限定在這個 VRAM 位移（16 進位）。"+
+			"盯單一像素用——「這一點是誰畫的」比「誰畫得最多」更能定位")
 	flag.Parse()
 
 	if *exe == "" {
@@ -194,13 +200,22 @@ func main() {
 		evs = append(evs, e)
 	}
 
-	if *vramSites {
+	if *vramSites || *vramAt != "" {
 		m.VRAMSites = map[uint32]uint64{}
+		m.VRAMAt = -1
+		if *vramAt != "" {
+			v, err := strconv.ParseUint(strings.TrimPrefix(*vramAt, "0x"), 16, 32)
+			if err != nil {
+				die(fmt.Errorf("-vram-at 不是 16 進位：%w", err))
+			}
+			m.VRAMAt = int32(v)
+		}
 	}
 	type regSite struct {
 		seg, off uint16
 	}
 	regHits := map[regSite][]string{}
+	regLast := map[regSite]uint32{}
 	var regWatch []regSite
 	for _, item := range strings.Split(*regsAt, ",") {
 		if item = strings.TrimSpace(item); item == "" {
@@ -275,8 +290,17 @@ func main() {
 		}
 		for _, w := range regWatch {
 			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off {
-				if h := regHits[w]; len(h) < 8 {
-					c := m.CPU
+				c := m.CPU
+				// **只記來源基底換掉的那一次。** 同一塊圖的 16 或 20 列
+				// 是連續的位移，全部印出來只會看到同一個東西 20 遍，
+				// 而「換了一份來源」正是要找的訊號。
+				cur := uint32(c.Seg[cpu.DS])<<16 | uint32(c.R[cpu.SI])
+				prev, seen := regLast[w]
+				regLast[w] = cur
+				if seen && cur >= prev && cur-prev <= 16 {
+					continue
+				}
+				if h := regHits[w]; len(h) < 20 {
 					regHits[w] = append(h, fmt.Sprintf(
 						"#%d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X DS=%04X ES=%04X",
 						m.Steps, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
@@ -284,6 +308,7 @@ func main() {
 				}
 			}
 		}
+
 		ring.push(m.CPU)
 		if runErr = m.Step(); runErr != nil {
 			break
@@ -376,6 +401,25 @@ func main() {
 	}
 	if *peek != "" {
 		dumpPeek(m, *peek)
+	}
+	if *dumpMem != "" {
+		i := strings.LastIndex(*dumpMem, ":")
+		if i < 0 {
+			die(fmt.Errorf("-dump-mem 要寫成 <位址>:<長度>:<檔名>"))
+		}
+		spec, path := (*dumpMem)[:i], (*dumpMem)[i+1:]
+		addr, n, label, ok := parseAddr(spec)
+		if !ok || n <= 0 {
+			die(fmt.Errorf("-dump-mem 的位址或長度看不懂：%q", spec))
+		}
+		buf := make([]byte, n)
+		for k := range buf {
+			buf[k] = m.Read8(addr + uint32(k))
+		}
+		if err := os.WriteFile(path, buf, 0o644); err != nil {
+			die(err)
+		}
+		fmt.Printf("\n倒出 %s（%05X）%d bytes → %s\n", label, addr, n, path)
 	}
 	if *find != "" {
 		// 逗號分隔多組樣式：一次跑完可以驗一整批位元組簽章。

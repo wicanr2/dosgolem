@@ -151,6 +151,10 @@ type Machine struct {
 	// nil ＝ 不統計（有額外開銷）。
 	VRAMSites map[uint32]uint64
 
+	// VRAMAt 限定只統計寫到這個位移的指令（−1 ＝ 全部）。盯單一像素用：
+	// 「這一點是誰畫的」比「誰畫得最多」更能定位。
+	VRAMAt int32
+
 	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
 	ModeChanges []ModeChange
 
