@@ -582,6 +582,35 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("OR dword write %04X:%08X 未處理", c.Seg[segment], addr))
 		}
 		c.setLogicFlags(result)
+	case op == 0x0a:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("0A 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP {
+			return fail(fmt.Sprintf("0A ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("OR byte read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		destination := int((modrm >> 3) & 7)
+		result := c.reg8(destination) | value
+		c.setReg8(destination, result)
+		c.setLogicFlags8(result)
 	case op == 0x29:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("29 不接受目前的 prefix")

@@ -1515,6 +1515,19 @@ func TestOrBaseDisp8RegisterDword(t *testing.T) {
 	}
 }
 
+func TestOrRegister8BaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x0a, 0x45, 0xfc})
+	mem[0x1c] = 0x40
+	c := New(mem)
+	c.R[EBP], c.R[EAX], c.EFlags = 0x20, 3, CF|OF|AF
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x3f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x43 || mem[0x1c] != 0x40 || c.R[EBP] != 0x20 || c.EFlags&(CF|OF|AF|ZF|SF) != 0 {
+		t.Fatalf("OR AL EAX=%X source=%X EBP=%X flags=%X err=%v", c.R[EAX], mem[0x1c], c.R[EBP], c.EFlags, err)
+	}
+}
+
 func TestCompareRegisterAndShortJAE(t *testing.T) {
 	mem := testBus{0x3b, 0xf7, 0x73, 0x02, 0xff, 0xff, 0xfb}
 	c := New(mem)

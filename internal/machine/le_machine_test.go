@@ -1217,3 +1217,22 @@ func TestFD2SavesNormalizedOpenMode(t *testing.T) {
 		t.Fatalf("save mode steps=%d EIP=%X calls=%d got=%X want=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), got, want, m.CPU.EFlags, errRead)
 	}
 }
+
+func TestFD2BuildsDOSOpenMode(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3cd67; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DOS open mode setup: step=%d EIP=%X EAX=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	before, base := m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBP]
+	source, errRead := m.Read8(base + 0x1c)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("DOS open mode OR: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	want := before&0xffffff00 | uint32(uint8(before)|source)
+	if m.CPU.EIP != 0x3cd6a || services.Calls() != 5 || errRead != nil || m.CPU.R[cpu386.EAX] != want || m.CPU.R[cpu386.EBP] != base {
+		t.Fatalf("DOS open mode steps=%d EIP=%X calls=%d EAX=%X want=%X source=%X EBP=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, source, m.CPU.R[cpu386.EBP], errRead)
+	}
+}
