@@ -99,6 +99,10 @@ func main() {
 		"執行到這些 `<seg>:<off>` 時記下暫存器（逗號分隔，各印前 8 次）。"+
 			"用來回答「這支繪圖常式的來源指標指到哪」——"+
 			"監看寫入只看得到目的地，看不到它從哪裡搬")
+	vgaAt := flag.String("vga-regs-at", "",
+		"執行到這個 `<seg>:<off>` 時印出 VGA 圖形控制器／序列器／latch。"+
+			"畫面上的位元不等於 CPU 寫的位元組時（write mode、bit mask、"+
+			"set/reset），只看寫入指令看不出所以然")
 	regsMax := flag.Int("regs-max", 20,
 		"每個 -regs-at 位址最多記幾次。逐格處理的迴圈跑幾百次，"+
 			"預設的 20 次只看得到第一個物件")
@@ -280,6 +284,17 @@ type clickEv struct {
 		regWatch = append(regWatch, regSite{uint16(sg), uint16(of)})
 	}
 
+	var vgaSite *regSite
+	vgaShots := 0
+	if f := strings.Split(strings.TrimSpace(*vgaAt), ":"); len(f) == 2 {
+		sg, err1 := strconv.ParseUint(f[0], 16, 16)
+		of, err2 := strconv.ParseUint(f[1], 16, 16)
+		if err1 != nil || err2 != nil {
+			die(fmt.Errorf("-vga-regs-at 要寫成 <seg>:<off>：%q", *vgaAt))
+		}
+		vgaSite = &regSite{uint16(sg), uint16(of)}
+	}
+
 	type keyEv struct {
 		at   uint64
 		scan uint8
@@ -399,6 +414,13 @@ type clickEv struct {
 				}
 				fmt.Printf("#%d 改記憶體 %s（%05X）%d bytes\n", m.Steps, p.label, p.addr, len(p.data))
 			}
+		}
+		if vgaSite != nil && m.CPU.Seg[cpu.CS] == vgaSite.seg && m.CPU.IP == vgaSite.off &&
+			m.Steps >= *regsFrom && vgaShots < 4 {
+			gc, sq, la := m.VGAState()
+			fmt.Printf("#%d VGA @%04X:%04X  GC=%X\n           Seq=%X  latch=%X\n",
+				m.Steps, vgaSite.seg, vgaSite.off, gc[:9], sq[:5], la)
+			vgaShots++
 		}
 		for _, w := range regWatch {
 			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off && m.Steps >= *regsFrom {

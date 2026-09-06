@@ -616,3 +616,12 @@ func (m *Machine) initVectors() {
 
 // SetNextKey 設定第一個掃描碼要在第幾道指令送出。
 func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }
+
+// VGAState 回目前的圖形控制器、序列器與 latch。
+//
+// 畫面上的位元不一定等於 CPU 寫進去的位元組：write mode、bit mask、
+// set/reset 與 latch 會先改一次。查「為什麼寫 09 出來是 C3」的時候，
+// 光看寫入指令沒有用，要看那一刻硬體的狀態。
+func (m *Machine) VGAState() (gc [16]uint8, seq [8]uint8, latch [4]uint8) {
+	return m.gc, m.seq, m.latch
+}
