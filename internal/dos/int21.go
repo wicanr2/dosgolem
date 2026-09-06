@@ -320,6 +320,19 @@ func (d *DOS) exec(c *cpu.CPU) {
 		return
 	}
 	d.Overlays = append(d.Overlays, rec)
+
+	// 診斷開關（`DOSGOLEM_FREE_ON_OVERLAY=1`）：chain-load 時把舊程式
+	// 配置過的區塊全部標成自由。
+	//
+	// **這不是 DOS 的行為**——真 DOS 不會因為載了 overlay 就回收別人的
+	// 記憶體。它存在只為了回答一個問題：目標程式後面的失敗是
+	// 「記憶體數量不夠」還是「別的結構問題」。用完要關掉。
+	if os.Getenv("DOSGOLEM_FREE_ON_OVERLAY") == "1" {
+		for i := range d.arena {
+			d.arena[i].free = true
+		}
+		d.coalesce()
+	}
 	clearCarry(c)
 }
 
