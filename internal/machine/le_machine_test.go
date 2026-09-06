@@ -1788,3 +1788,28 @@ func TestFD2IncrementsINITrailingCharacter(t *testing.T) {
 		t.Fatalf("INI classification steps=%d EIP=%X before=%X EAX=%X", steps, m.CPU.EIP, before, m.CPU.R[cpu386.EAX])
 	}
 }
+
+func TestFD2TestsINICharacterClass(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f369; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI class test setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	source := m.CPU.R[cpu386.EAX] + 0x51840
+	if uint64(source) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI class table source=%X 超界", source)
+	}
+	wantZero := m.Mem[source]&2 == 0
+	before := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI class TEST: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f370 || m.CPU.R[cpu386.EAX] != before || (m.CPU.EFlags&cpu386.ZF != 0) != wantZero {
+		t.Fatalf("INI class steps=%d EIP=%X source=%X value=%X EAX=%X flags=%X", steps, m.CPU.EIP, source, m.Mem[source], m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+}
