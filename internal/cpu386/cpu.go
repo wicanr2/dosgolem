@@ -1481,6 +1481,36 @@ func (c *CPU) Step() error {
 			}
 			c.R[rm] = result
 		}
+	case op == 0xf6:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("F6 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP || (modrm>>3)&7 != 0 {
+			return fail(fmt.Sprintf("F6 ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		imm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("TEST byte read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		c.setLogicFlags8(value & imm)
 	case op == 0xc6:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("C6 不接受目前的 prefix")

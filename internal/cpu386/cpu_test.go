@@ -55,6 +55,36 @@ func TestRegisterTEST32(t *testing.T) {
 	}
 }
 
+func TestByteTESTAtBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xf6, 0x45, 0xfc, 0x02})
+	mem[0x20] = 0x02
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBP], c.EFlags = 0x24, CF|OF|AF
+	if err := c.Step(); err != nil || c.EFlags&(CF|OF|ZF) != 0 || mem[0x20] != 0x02 {
+		t.Fatalf("nonzero TEST byte flags=%X value=%X err=%v", c.EFlags, mem[0x20], err)
+	}
+
+	mem[0x20] = 0
+	c = New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x3f, Writable: true})
+	c.R[EBP] = 0x24
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 {
+		t.Fatalf("zero TEST byte flags=%X err=%v", c.EFlags, err)
+	}
+
+	c = New(testBus{0xf6, 0x45, 0xfc, 0x02})
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 3, Writable: true})
+	c.R[EBP] = 0x24
+	if err := c.Step(); err == nil {
+		t.Fatal("out-of-range TEST byte was accepted")
+	}
+}
+
 func TestAbsoluteByteANDOR(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})
