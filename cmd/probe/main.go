@@ -98,6 +98,9 @@ func main() {
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
 			"`CS:IP:字數:起:迄`（位址十六進位，步數十進位）。"+
 			"位置取進入點（尚未 push bp），所以參數從 SS:SP+4 起算——遠呼叫的返回位址佔 4 bytes")
+	argRegs := flag.Bool("arg-regs", false,
+		"配 -call-args／-frame-args：連 AX BX CX DX SI DI ES BP 一起印。"+
+			"繪圖驅動有些參數走暫存器不走堆疊")
 	frameArgs := flag.String("frame-args", "",
 		"同 -call-args，但位址在 prologue 之後：參數從 `SS:BP+6` 取。"+
 			"反組譯給的通常是函式中間那幾行，用這個不必猜進入點")
@@ -256,6 +259,9 @@ func main() {
 	ca, err := parseCallArgs(*callArgs, false)
 	if err == nil && ca == nil {
 		ca, err = parseCallArgs(*frameArgs, true)
+	}
+	if ca != nil {
+		ca.regs = *argRegs
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1233,14 +1239,18 @@ type callArgLog struct {
 	// 取，不是 `SS:SP+4`。反組譯給的位址多半是函式中間那幾行
 	// （`mov bx,[bp+06]`），比猜進入點在哪可靠。
 	viaBP bool
-	rows  []callArgRow
+	// regs：連暫存器一起印。繪圖驅動有些參數走暫存器不走堆疊
+	// （`yuan/docs/re/002`），只印堆疊會漏掉來源位址。
+	regs bool
+	rows []callArgRow
 }
 
 type callArgRow struct {
-	step     uint64
-	retSeg   uint16
-	retOff   uint16
-	w        []uint16
+	step   uint64
+	retSeg uint16
+	retOff uint16
+	w      []uint16
+	regs   [8]uint16 // AX BX CX DX SI DI ES BP
 }
 
 func parseCallArgs(spec string, viaBP bool) (*callArgLog, error) {
@@ -1259,6 +1269,13 @@ func parseCallArgs(spec string, viaBP bool) (*callArgLog, error) {
 	return &callArgLog{seg: seg, off: off, n: n, from: from, to: to, viaBP: viaBP}, nil
 }
 
+func snapRegs(m *machine.Machine) [8]uint16 {
+	return [8]uint16{
+		m.CPU.R[cpu.AX], m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX],
+		m.CPU.R[cpu.SI], m.CPU.R[cpu.DI], m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BP],
+	}
+}
+
 func (c *callArgLog) record(m *machine.Machine) {
 	if c.viaBP {
 		bp := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.BP])
@@ -1267,7 +1284,7 @@ func (c *callArgLog) record(m *machine.Machine) {
 			w[i] = m.Read16(bp + 6 + uint32(i*2))
 		}
 		c.rows = append(c.rows, callArgRow{
-			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w})
+			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w, regs: snapRegs(m)})
 		return
 	}
 	base := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP])
@@ -1279,7 +1296,8 @@ func (c *callArgLog) record(m *machine.Machine) {
 	for i := range w {
 		w[i] = m.Read16(base + 4 + uint32(i*2))
 	}
-	c.rows = append(c.rows, callArgRow{step: m.Steps, retSeg: seg, retOff: off, w: w})
+	c.rows = append(c.rows, callArgRow{
+		step: m.Steps, retSeg: seg, retOff: off, w: w, regs: snapRegs(m)})
 }
 
 func (c *callArgLog) dump() {
@@ -1289,7 +1307,12 @@ func (c *callArgLog) dump() {
 		for i, v := range r.w {
 			s[i] = fmt.Sprintf("%d", int16(v))
 		}
-		fmt.Printf("  #%d  由 %04X:%04X  %s\n", r.step, r.retSeg, r.retOff, strings.Join(s, " "))
+		reg := ""
+		if c.regs {
+			reg = fmt.Sprintf("  | AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X ES=%04X BP=%04X",
+				r.regs[0], r.regs[1], r.regs[2], r.regs[3], r.regs[4], r.regs[5], r.regs[6], r.regs[7])
+		}
+		fmt.Printf("  #%d  由 %04X:%04X  %s%s\n", r.step, r.retSeg, r.retOff, strings.Join(s, " "), reg)
 	}
 }
 
