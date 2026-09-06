@@ -33,6 +33,9 @@ import (
 // traceFilePath 是 -trace-file 的值；report 在另一個函式裡，所以放套件層。
 var traceFilePath string
 
+// portLogFrom／portLogTo 是 -port-log-from／-to 的值，report 在別的函式裡。
+var portLogFrom, portLogTo uint64
+
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄")
@@ -49,6 +52,11 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	vgaRows := flag.String("vga-trace-rows", "", "記錄寫進這幾列的 planar 寫入與顯示卡狀態：`起-迄`")
+	portFrom := flag.Uint64("port-log-from", 0, "印出這一段之後的 I/O 埠寫入序列（0 ＝ 不印）")
+	portTo := flag.Uint64("port-log-to", 0, "配 -port-log-from 用")
+	rowWrites := flag.Uint64("row-writes-from", 0,
+		"從第幾道指令開始統計 planar 的每列寫入量（0 ＝ 不統計）")
 	sweepSpec := flag.String("sweep", "",
 		"掃描點擊：`起始步數:每點步數:x0:y0:x1:y1:格距`。逐格點一次，"+
 			"每點前後印畫面雜湊——找互動熱點時不要用眼睛猜座標一次跑一個")
@@ -112,6 +120,14 @@ func main() {
 		m.IRQ0Every = *tick
 	}
 	m.TraceSegs = *segLog
+	m.RowWritesFrom = *rowWrites
+	if *vgaRows != "" {
+		if _, err := fmt.Sscanf(*vgaRows, "%d-%d", &m.VGATraceRow0, &m.VGATraceRow1); err != nil {
+			fmt.Fprintln(os.Stderr, "vga-trace-rows 格式要 起-迄：", err)
+			os.Exit(2)
+		}
+	}
+	portLogFrom, portLogTo = *portFrom, *portTo
 	if *watchDS != "" {
 		var v uint16
 		if _, err := fmt.Sscanf(*watchDS, "%x", &v); err != nil {
@@ -611,6 +627,47 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 	fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
+
+	if portLogFrom > 0 {
+		fmt.Printf("\n#%d–#%d 的埠寫入：\n", portLogFrom, portLogTo)
+		n := 0
+		for _, w := range m.PortLog {
+			if w.Step < portLogFrom || (portLogTo > 0 && w.Step > portLogTo) {
+				continue
+			}
+			// PIC 的 EOI 與計時器每個 tick 都寫，會把顯示卡的設定淹掉。
+			if w.Port < 0x3C0 || w.Port > 0x3DF {
+				continue
+			}
+			if n++; n > 400 {
+				fmt.Println("  …（超過 400 筆，只列前 400）")
+				break
+			}
+			fmt.Printf("  #%-10d %03X ← %02X\n", w.Step, w.Port, w.Val)
+		}
+	}
+	if len(m.VGATrace) > 0 {
+		fmt.Printf("\n第 %d–%d 列的前 %d 筆 planar 寫入：\n", m.VGATraceRow0, m.VGATraceRow1, len(m.VGATrace))
+		for _, t := range m.VGATrace {
+			fmt.Printf("  #%-10d %04X:%04X 列%3d off=%04X val=%02X  mode=%d map=%02X bit=%02X sr=%02X esr=%02X rot=%02X latch=%02X%02X%02X%02X\n",
+				t.Step, t.CS, t.IP, t.Row, t.Off, t.Val, t.Mode, t.MapMask, t.BitMask,
+				t.SetReset, t.EnableSR, t.Rotate, t.Latch[0], t.Latch[1], t.Latch[2], t.Latch[3])
+		}
+	}
+	if m.RowWritesFrom > 0 {
+		h, w := m.VideoSize()
+		_ = h
+		fmt.Printf("\nplanar 每列寫入量（自 #%d，每 8 列一格）：\n", m.RowWritesFrom)
+		_, rows := m.VideoSize()
+		for r := 0; r < rows; r += 8 {
+			sum := uint64(0)
+			for i := r; i < r+8 && i < rows; i++ {
+				sum += m.VideoRowWrites[i]
+			}
+			fmt.Printf("  %3d %d\n", r, sum)
+		}
+		_ = w
+	}
 
 	if traceFilePath != "" {
 		if err := ring.writeFile(traceFilePath); err != nil {

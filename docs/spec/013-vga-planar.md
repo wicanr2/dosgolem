@@ -122,3 +122,24 @@ palette 對映（§5）。`VideoSize()` 回目前的尺寸；`oracle.Width`／`H
   256 KB 以上的分頁。
 - **latch 的讀取延遲與 CPU 匯流排時序**：這是行為模型，不是週期模型
   （同 `004` §5）。
+
+## 觀測：planar 的寫入看得見
+
+`Write8` 把 `A0000–AFFFF` 的寫入轉給 planar 模型，那些位元組不在 `Mem[]`
+裡，所以 `WatchWrites` 看不到。兩個補洞的工具：
+
+- `Machine.RowWritesFrom` ＋ `VideoRowWrites[]`：從某一道指令起，統計每一列
+  被寫過幾個位元組。`cmd/probe -row-writes-from N`。
+- `Machine.VGATraceRow0/Row1` ＋ `VGATrace`：記下寫進指定幾列的**最後 40 筆**
+  寫入，連同 CS:IP、write mode、Map Mask、Bit Mask、Set/Reset 與 latch。
+  `cmd/probe -vga-trace-rows 起-迄`。
+
+**「畫面不對」要先分成三種**：程式根本沒寫、寫了但被後面蓋掉、寫了但
+顯示卡狀態讓它沒生效。只看最後的畫面分不出來，這三種的修法完全不同。
+留最後 40 筆而不是前 40 筆，是因為要知道**最後是誰寫的**。
+
+> 用法實例（源平合戰的環境設定畫面）：對話框下半部看起來沒畫，
+> 但每列寫入量顯示那些列有三千個位元組寫進去，與上半部相當——
+> 所以不是「程式沒畫」。再看 CS:IP，填色的是 GRPDRV 的
+> `035F:3B29`（一個逐列的遮罩搬移常式），而那段期間**一次 VGA 埠寫入
+> 都沒有**，整個對話框是用同一組顯示卡設定畫的。

@@ -90,6 +90,21 @@ type OPLWrite struct {
 	Step uint64
 }
 
+// VGAWrite 是一次 planar 寫入與當下的顯示卡狀態。
+type VGAWrite struct {
+	Step               uint64
+	CS, IP             uint16
+	Off                uint32
+	Row                int
+	Val                uint8
+	Mode               uint8 // GC[5] 的 write mode（低兩位）
+	MapMask            uint8 // SEQ[2]
+	BitMask            uint8 // GC[8]
+	SetReset, EnableSR uint8 // GC[0]／GC[1]
+	Rotate             uint8 // GC[3]
+	Latch              [4]uint8
+}
+
 type PortWrite struct {
 	Port uint16
 	Val  uint8
@@ -168,6 +183,17 @@ type Machine struct {
 	nextIRQ0    uint64
 	irq0Pending bool
 
+	// VGATraceRow0／Row1 圈出要記錄的畫面列，VGATrace 是前 40 筆寫入
+	// 連同當下的 VGA 狀態。**「寫進去了」與「寫進去有用」是兩件事**，
+	// 只看寫入位址分不出來。
+	VGATraceRow0, VGATraceRow1 int
+	VGATrace                   []VGAWrite
+
+	// RowWritesFrom 是開始統計 planar 寫入的指令數（0 ＝ 不統計），
+	// VideoRowWrites 是每一列被寫過幾個位元組。
+	RowWritesFrom  uint64
+	VideoRowWrites [1024]uint64
+
 	// vga 是 planar 模式的狀態（`docs/spec/013`）。planarOn 是
 	// 「目前模式是不是 planar」的快取，Read8／Write8 每次都要問。
 	vga      *vga
@@ -232,8 +258,24 @@ func (m *Machine) Read8(a uint32) uint8 {
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
 	if m.planarOn && a >= vgaLo && a < vgaHi {
-		// ⚠ **WatchWrites 看不到 planar 的寫入**——那些位元組不在 Mem[] 裡。
-		// 要追畫面寫入請用 PortWrites ＋ 停止點的 plane 內容。
+		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
+		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，
+		// 除了看結果還得看它到底有沒有寫進去。
+		if m.RowWritesFrom > 0 && m.Steps >= m.RowWritesFrom {
+			if r := int(a-vgaLo) / videoStride; r < len(m.VideoRowWrites) {
+				m.VideoRowWrites[r]++
+			}
+		}
+		// **留最後 40 筆，不是前 40 筆**：要知道畫面上最後是誰寫的，
+		// 前面那幾筆通常是被蓋掉的那一批。
+		if m.VGATraceRow1 > m.VGATraceRow0 && m.Steps >= m.RowWritesFrom {
+			if r := int(a-vgaLo) / videoStride; r >= m.VGATraceRow0 && r < m.VGATraceRow1 {
+				m.VGATrace = append(m.VGATrace, m.vgaSnap(a-vgaLo, v, r))
+				if len(m.VGATrace) > 40 {
+					m.VGATrace = m.VGATrace[1:]
+				}
+			}
+		}
 		m.vgaWrite(a-vgaLo, v)
 		return
 	}

@@ -1,5 +1,7 @@
 package machine
 
+import "github.com/wicanr2/dosgolem/internal/cpu"
+
 // VGA 的 planar 模式（`docs/spec/013`）。
 //
 // mode 13h 是「一個位元組一個像素」；EGA／VGA 的 16 色模式不是——
@@ -11,6 +13,9 @@ package machine
 const planeSize = 0x10000
 
 // vgaWindow 是 planar 模式接管的位址範圍。
+// videoStride 是 planar 模式每一列的位元組數（640 ÷ 8）。
+const videoStride = 80
+
 const (
 	vgaLo = 0xA0000
 	vgaHi = 0xB0000
@@ -252,4 +257,15 @@ func (m *Machine) VideoRaw() []uint8 {
 	}
 	base := VideoSeg * 16
 	return m.Mem[base : base+VideoWidth*VideoHigh]
+}
+
+// vgaSnap 記下一次寫入與當下的顯示卡狀態。
+func (m *Machine) vgaSnap(off uint32, v uint8, row int) VGAWrite {
+	g := m.vga
+	return VGAWrite{
+		Step: m.Steps, CS: m.CPU.Seg[cpu.CS], IP: m.CPU.IP, Off: off, Row: row, Val: v,
+		Mode: g.gc[5] & 3, MapMask: g.seq[2], BitMask: g.gc[8],
+		SetReset: g.gc[0], EnableSR: g.gc[1], Rotate: g.gc[3],
+		Latch: g.latch,
+	}
 }
