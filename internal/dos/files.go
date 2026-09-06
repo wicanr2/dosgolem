@@ -75,6 +75,9 @@ func (d *DOS) open(c *cpu.CPU) {
 		d.nextHandle++
 		d.handles[h] = &handle{name: name}
 		d.Opened = append(d.Opened, name)
+		if d.OnOpen != nil {
+			d.OnOpen(name)
+		}
 		c.R[cpu.AX] = h
 		clearCarry(c)
 		return
@@ -97,7 +100,11 @@ func (d *DOS) open(c *cpu.CPU) {
 	h := d.nextHandle
 	d.nextHandle++
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
-	d.Opened = append(d.Opened, filepath.Base(path))
+	base := filepath.Base(path)
+	d.Opened = append(d.Opened, base)
+	if d.OnOpen != nil {
+		d.OnOpen(base)
+	}
 	c.R[cpu.AX] = h
 	clearCarry(c)
 }

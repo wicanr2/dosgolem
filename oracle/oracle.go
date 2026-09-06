@@ -173,6 +173,16 @@ func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 func (o *Oracle) Steps() uint64    { return o.m.Steps }
 func (o *Oracle) Opened() []string { return o.d.Opened }
 
+// OnFileOpen 在每一次成功開檔之後叫一次（參數是檔名，不含路徑）。
+//
+// **這是「把一段執行期產物框到某個檔上」唯一的錨。**
+// 音樂對拍就是這樣用的：開機會連放好幾首而且暫存器串是接起來的，
+// 事後從序列裡找分界只能用猜的；掛在開檔那一刻，
+// `ClearOPL()` 就能框出「只有這一首」。
+//
+// 傳 nil 取消。
+func (o *Oracle) OnFileOpen(fn func(name string)) { o.d.OnOpen = fn }
+
 // Console 是程式印出來的東西（`int 21h AH=02h/06h/09h/40h` 與
 // `int 10h AH=0Eh`）。**錯誤訊息走這條**，出問題先看它。
 func (o *Oracle) Console() string { return string(o.d.Console) }
@@ -259,6 +269,26 @@ type OPLWrite = machine.OPLWrite
 // 一組；這裡已經配好對。暫存器串是決定性的、可以逐筆比，
 // 而波形要逐樣本一致屬於既定停止線（`rich2/docs/spec/049`）。
 func (o *Oracle) OPLWrites() []OPLWrite { return o.m.OPL }
+
+// OPLRegs 回某一組 OPL 暫存器的**目前狀態**（256 bytes）。
+//
+// bank 0 ＝ 0x388/0x389（OPL2 相容），1 ＝ 0x38A/0x38B（OPL3 第二組）。
+//
+// **序列與狀態問的是不同的問題**：`OPLWrites` 看得出「怎麼做的」，
+// 這一份看得出「現在是什麼」。要對「某一刻的音色」就用這一份——
+// 它不受「多寫了一次同樣的值」或「寫入順序不同」影響，
+// 那兩件事在序列上會分岔、在狀態上不會。
+func (o *Oracle) OPLRegs(bank int) [256]uint8 { return o.m.OPLRegs(bank) }
+
+// ClearOPL 清掉暫存器寫入序列，**但不動暫存器檔與計時器狀態**。
+//
+// 用來框出「只有這一段」的寫入：走到某個畫面之後清一次，
+// 之後收到的就只有那一段。
+//
+// ⚠ **不要為了「乾淨」連狀態一起清**：驅動程式開機時把一個預設音色灌進
+// 全部 18 個 operator，之後的曲子是**疊在那個狀態上**的。狀態清掉之後
+// 收到的序列會與原版的實際情況不同，而它看起來完全正常。
+func (o *Oracle) ClearOPL() { o.m.ClearOPL() }
 
 // WatchWrites 監看一段 DGROUP 偏移的寫入，回一份逐次紀錄。
 //

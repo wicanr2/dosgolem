@@ -64,6 +64,11 @@ type OPLWrite struct {
 	Reg  uint8
 	Val  uint8
 	Step uint64
+	// Bank 是 OPL3 的哪一組暫存器：0 ＝ 0x388/0x389（OPL2 相容），
+	// 1 ＝ 0x38A/0x38B（OPL3 才有的第二組）。
+	//
+	// **只有 OPL2 的程式一律是 0**，所以既有的呼叫端不必理它。
+	Bank uint8
 }
 
 type PortWrite struct {
@@ -87,9 +92,18 @@ type Machine struct {
 	watchLo, watchHi uint32
 	onWrite          func(addr uint32, old, new uint8)
 
-	oplReg          uint8
-	oplPresent      bool
-	oplTimerRunning bool
+	// OPL2／OPL3 的狀態。
+	//
+	// `oplReg` 是兩組各自的暫存器索引（0x388 與 0x38A 分開選）。
+	// `oplRegs` 是暫存器檔本身——**寫入序列與最終狀態是兩件事**：
+	// 序列看得出「怎麼做的」，狀態看得出「現在是什麼」。
+	// 對拍解碼器用前者，對拍某一刻的音色用後者。
+	oplReg     [2]uint8
+	oplRegs    [2][256]uint8
+	oplPresent bool
+	// 計時器：兩個各自有「啟動」與「遮罩」，狀態埠的 bit7 是兩者的 OR。
+	oplT1Started, oplT2Started bool
+	oplT1Masked, oplT2Masked   bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
 	Ports   map[uint16]uint8
@@ -243,6 +257,78 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 // 但音樂路徑才會真的執行、`OPL` 才會有東西。
 func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
+// OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
+const (
+	oplT1Start = 0x01 // 啟動計時器 1
+	oplT2Start = 0x02 // 啟動計時器 2
+	oplT2Mask  = 0x20 // 遮罩計時器 2 的狀態位元
+	oplT1Mask  = 0x40 // 遮罩計時器 1 的狀態位元
+	oplIRQReset = 0x80 // 重置 IRQ 與兩個逾時旗標（**此時其他位元一律忽略**）
+)
+
+// oplStatus 組出狀態埠要回的值。
+func (m *Machine) oplStatus() uint8 {
+	if !m.oplPresent {
+		return 0x00
+	}
+	var v uint8
+	if m.oplT1Started && !m.oplT1Masked {
+		v |= 0x40
+	}
+	if m.oplT2Started && !m.oplT2Masked {
+		v |= 0x20
+	}
+	if v != 0 {
+		v |= 0x80 // bit7 是兩者的 OR
+	}
+	return v
+}
+
+// oplWrite 記一次 OPL 暫存器寫入，並更新暫存器檔與計時器狀態。
+//
+// bank 0 ＝ 0x388/0x389（OPL2 相容），1 ＝ 0x38A/0x38B（OPL3 第二組）。
+func (m *Machine) oplWrite(bank int, v uint8) {
+	reg := m.oplReg[bank]
+	m.oplRegs[bank][reg] = v
+	// 計時器控制只在第一組（OPL3 的第二組沒有 02h/03h/04h）。
+	if bank == 0 && reg == 0x04 {
+		if v&oplIRQReset != 0 {
+			// **bit7 一設，其他位元就不看了**（資料表如此）。
+			// 寫成 `switch` 之外的 `if` 會讓 `04h←80h` 順便去動遮罩。
+			m.oplT1Started, m.oplT2Started = false, false
+		} else {
+			m.oplT1Masked = v&oplT1Mask != 0
+			m.oplT2Masked = v&oplT2Mask != 0
+			if v&oplT1Start != 0 {
+				m.oplT1Started = true
+			}
+			if v&oplT2Start != 0 {
+				m.oplT2Started = true
+			}
+		}
+	}
+	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)})
+}
+
+// OPLRegs 回某一組暫存器的**目前狀態**（256 bytes）。
+//
+// **寫入序列與最終狀態是兩件事**：`OPL` 那一串看得出「怎麼做的」，
+// 這一份看得出「現在是什麼」。對拍解碼器用前者，
+// 對拍某一刻的音色用後者——後者不受「多寫了一次同樣的值」影響。
+func (m *Machine) OPLRegs(bank int) [256]uint8 {
+	if bank < 0 || bank > 1 {
+		return [256]uint8{}
+	}
+	return m.oplRegs[bank]
+}
+
+// ClearOPL 清掉暫存器寫入序列，**但不動暫存器檔與計時器狀態**。
+//
+// 用來框出「只有這一段」的寫入：走到某個畫面之後清一次，
+// 接下來收到的就只有那一段的。清掉狀態的話下一段會從一台
+// 剛開機的晶片開始，那與原版的實際情況不同。
+func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
+
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
@@ -256,8 +342,8 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
-	case port == 0x388:
-		// OPL2 狀態埠。
+	case port == 0x388 || port == 0x38A:
+		// OPL2／OPL3 狀態埠（兩組讀回同一份狀態，OPL3 也是這樣）。
 		//
 		// **預設回 0 ＝ 偵測不到 AdLib，整段音樂路徑會被跳過**——那讓
 		// 開機快很多，所以是預設。要對拍音樂就得讓偵測過關（`AdLib(true)`）。
@@ -265,15 +351,18 @@ func (m *Machine) In8(port uint16) uint8 {
 		// 過關要的不是一個定值：原版走的是標準的 AdLib 偵測序列
 		// （`rich2/docs/re/011` §4），它**先要求狀態是 0、啟動計時器之後
 		// 再要求是 0xC0**。回定值 0xC0 會在第一次檢查就被判定失敗，
-		// 回定值 0 則在第二次失敗——兩種定值都過不了，所以這裡照著
-		// 暫存器 04h 的寫入切換。
-		if !m.oplPresent {
-			return 0x00
-		}
-		if m.oplTimerRunning {
-			return 0xC0 // bit7 IRQ ＋ bit6 timer1 逾時
-		}
-		return 0x00
+		// 回定值 0 則在第二次失敗——兩種定值都過不了。
+		//
+		// 這裡照 YM3812 的狀態位元組合：
+		//
+		//	bit7 = 兩個計時器的逾時旗標的 OR（IRQ）
+		//	bit6 = 計時器 1 逾時   bit5 = 計時器 2 逾時
+		//
+		// 「逾時」在這裡的模型是「啟動了而且沒有被遮罩」——這台機器沒有
+		// 真實時間，而偵測序列在啟動之後一定會先延遲再讀。
+		// **遮罩位元要照做**：偵測序列的第一步就是 `04h←60h`（兩個都遮），
+		// 不理它的話那一步就會讀到非零而判定失敗。
+		return m.oplStatus()
 	case port == 0x61:
 		return 0x00
 	// sequencer／GC 讀回（spec 009）：有程式會讀回索引或資料確認。
@@ -297,17 +386,13 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// 單看其中一個看不出寫了什麼。
 	switch p {
 	case 0x388:
-		m.oplReg = v
+		m.oplReg[0] = v
+	case 0x38A:
+		m.oplReg[1] = v
 	case 0x389:
-		if m.oplReg == 0x04 { // 計時器控制
-			switch {
-			case v&0x80 != 0: // bit7 ＝ 重置 IRQ 與狀態
-				m.oplTimerRunning = false
-			case v&0x01 != 0: // bit0 ＝ 啟動計時器 1
-				m.oplTimerRunning = true
-			}
-		}
-		m.OPL = append(m.OPL, OPLWrite{Reg: m.oplReg, Val: v, Step: m.Steps})
+		m.oplWrite(0, v)
+	case 0x38B:
+		m.oplWrite(1, v)
 	}
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
