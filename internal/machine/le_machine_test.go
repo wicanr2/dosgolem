@@ -1050,3 +1050,21 @@ func TestFD2LoadsMDIINIPathArgument(t *testing.T) {
 		t.Fatalf("MDI.INI path steps=%d EIP=%X calls=%d EDX=%X want=%X ESP=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDX], want, m.CPU.R[cpu386.ESP], m.CPU.EFlags, errRead)
 	}
 }
+
+func TestFD2ComparesAllocFPTableBound(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d84f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("allocfp bound setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	before := m.CPU.R[cpu386.EBX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("allocfp bound compare: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	wantCF, wantZF := before < 0x52a48, before == 0x52a48
+	if m.CPU.EIP != 0x3d855 || services.Calls() != 5 || m.CPU.R[cpu386.EBX] != before || (m.CPU.EFlags&cpu386.CF != 0) != wantCF || (m.CPU.EFlags&cpu386.ZF != 0) != wantZF {
+		t.Fatalf("allocfp bound steps=%d EIP=%X calls=%d EBX=%X flags=%X wantCF=%t wantZF=%t", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EBX], m.CPU.EFlags, wantCF, wantZF)
+	}
+}

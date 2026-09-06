@@ -552,6 +552,26 @@ func TestAndRegisterImmediate32(t *testing.T) {
 	}
 }
 
+func TestCompareRegisterImmediate32(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		left  uint32
+		flags uint32
+	}{
+		{name: "less", left: 0x10, flags: CF | SF},
+		{name: "equal", left: 0x20, flags: ZF},
+		{name: "greater", left: 0x30, flags: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(testBus{0x81, 0xfb, 0x20, 0x00, 0x00, 0x00})
+			c.R[EBX], c.EFlags = tc.left, OF|AF
+			if err := c.Step(); err != nil || c.R[EBX] != tc.left || c.EFlags&(CF|ZF|SF) != tc.flags {
+				t.Fatalf("CMP EBX=%X flags=%X err=%v", c.R[EBX], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestSubtractRegisterImmediate32(t *testing.T) {
 	c := New(testBus{0x81, 0xec, 0x18, 0x01, 0x00, 0x00})
 	c.R[ESP] = 0x1000
