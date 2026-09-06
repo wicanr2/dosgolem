@@ -812,3 +812,19 @@ func TestFD2PacksTimerRealModeVector(t *testing.T) {
 		t.Fatalf("DPMI vector pack steps=%d EIP=%X calls=%d ECX=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ECX])
 	}
 }
+
+func TestFD2ReplacesTimerDOSVector(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e9ef; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DOS vector replace: step=%d EIP=%X EAX=%X EBX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	oldOffset, errOffset := m.Read32(0x52bd4)
+	oldSelector, errSelector := m.Read16(0x52bd8)
+	wantVector := uint64(m.CPU.Seg[cpu386.SegCS])<<32 | 0x3e73e
+	if m.CPU.EIP != 0x3e9ef || services.Calls() != 5 || oldOffset != 0 || oldSelector != 0 || services.dosVectors[8] != wantVector || errOffset != nil || errSelector != nil {
+		t.Fatalf("DOS vector replace steps=%d EIP=%X calls=%d old=%X:%X new=%X want=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), oldSelector, oldOffset, services.dosVectors[8], wantVector, errOffset, errSelector)
+	}
+}
