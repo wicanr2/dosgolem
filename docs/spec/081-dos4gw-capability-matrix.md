@@ -51,7 +51,8 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 開啟固定 `MDI.INI`，將 DOS CF 正規化成有號結果，保存零擴展 handle，
 並測試、設定該 FILE record 的延遲 I/O 模式旗標；後續自然執行已進入
 `isatty`、把已登錄 handle 搬入 BX，完成 `AX=4400h` DOS IOCTL
-regular-file 查詢並測試 DX device bit；下一阻塞移至 `0x3FB26`。此收據只證明
+regular-file 查詢、測試 DX device bit，並以 `SETNZ` 正規化為 0；下一阻塞
+移至 `0x3FB29`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
