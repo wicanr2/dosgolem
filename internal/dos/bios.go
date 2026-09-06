@@ -84,8 +84,25 @@ func (d *DOS) int10(c *cpu.CPU) {
 // **防拷畫面只吃滑鼠**：`rich2/docs/playtest/001` §3 記著鍵盤全都無效。
 // 沒有這支的話遊戲偵測不到滑鼠，整個密碼畫面就沒有任何可用輸入——
 // 而且不會有錯誤訊息，看起來就只是「卡住」。
+// mouseXScale 是水平虛擬座標的倍率。
+//
+// int 33h 的虛擬螢幕**永遠是 640 格寬**，不管實際模式幾像素寬：
+// 320 寬的模式（13h）回報值是像素的兩倍（所以 X 永遠是偶數），
+// 640 寬的模式（12h）一比一。寫死 2 的話，640 寬的畫面上點右半邊會
+// 回報成超出畫面的座標，遊戲**判定不在任何按鈕上而安靜地什麼都不做**。
+func (d *DOS) mouseXScale() uint16 {
+	if w, _ := d.M.VideoSize(); w >= 640 {
+		return 1
+	}
+	if d.Mouse.XScale == 0 {
+		return 2
+	}
+	return d.Mouse.XScale
+}
+
 func (d *DOS) int33(c *cpu.CPU) {
 	m := &d.Mouse
+	xs := d.mouseXScale()
 	// **先把功能號存起來**：下面好幾個分支會覆寫 AX，之後再拿 AX 判斷
 	// 就是在讀自己剛寫進去的值。（同一個形狀在 CPU 的 `PUSH SP` 上踩過。）
 	fn := c.R[cpu.AX]
@@ -108,12 +125,12 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Polls = append(m.Polls, Poll{X: m.X, Y: m.Y, Buttons: m.Buttons,
 			Step: d.M.Steps})
 		c.R[cpu.BX] = m.Buttons
-		c.R[cpu.CX] = m.X * m.XScale
+		c.R[cpu.CX] = m.X * xs
 		c.R[cpu.DX] = m.Y
 
 	case 0x0004: // 設位置
-		if m.XScale > 0 {
-			m.X = c.R[cpu.CX] / m.XScale
+		if xs > 0 {
+			m.X = c.R[cpu.CX] / xs
 		}
 		m.Y = c.R[cpu.DX]
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
@@ -127,7 +144,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 			c.R[cpu.BX] = m.Release
 			m.Release = 0
 		}
-		c.R[cpu.CX] = m.X * m.XScale
+		c.R[cpu.CX] = m.X * xs
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好

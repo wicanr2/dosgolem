@@ -47,6 +47,9 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	clickScript := flag.String("clicks", "",
+		"點擊腳本：`步數:X:Y` 用逗號分隔，例如 20000000:320:240,30000000:330:212。"+
+			"按住時間用 -click-hold")
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
@@ -161,6 +164,12 @@ func main() {
 		moveAt = *steps / 2
 	}
 
+	clicks, err := parseClicks(*clickScript)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
 	ring := newRing(*trace)
 	var runErr error
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
@@ -187,6 +196,20 @@ func main() {
 				d.Mouse.Buttons = 1
 				d.Mouse.Press++
 			case *clickAt + *clickHold:
+				d.Mouse.Buttons = 0
+				d.Mouse.Release++
+			}
+		}
+		// 點擊腳本：**一次跑帶著整串輸入**才走得到深處的畫面。
+		// 一次一個點擊代表每多走一步就要重跑一次，而遊戲跑到主選單
+		// 就要六千萬道指令。
+		for _, c := range clicks {
+			switch m.Steps {
+			case c.step:
+				d.Mouse.X, d.Mouse.Y = c.x, c.y
+				d.Mouse.Buttons = 1
+				d.Mouse.Press++
+			case c.step + *clickHold:
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
 			}
@@ -445,6 +468,41 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("  %s\n", r)
 	}
 
+	// int 33h 的功能分佈。**「輪詢很多次」不代表遊戲在讀按鍵**——
+	// 只叫 AH=3 與同時叫 AH=5／6 是兩種不同的輸入模型，點不到按鈕時
+	// 要先分得出來是哪一種。
+	if len(d.Mouse.Calls) > 0 {
+		fns := make([]int, 0, len(d.Mouse.Calls))
+		for f := range d.Mouse.Calls {
+			fns = append(fns, int(f))
+		}
+		sort.Ints(fns)
+		fmt.Printf("\nint 33h 功能：")
+		for _, f := range fns {
+			fmt.Printf(" AX=%04X×%d", f, d.Mouse.Calls[uint16(f)])
+		}
+		fmt.Println()
+	}
+	// 輪詢的時間分佈。**點擊要落在遊戲真的在輪詢的視窗裡**——
+	// 它畫面重畫時可以兩千萬道指令一次都不問滑鼠，點在那段等於沒點，
+	// 而畫面看起來就只是「沒反應」。
+	if n := len(d.Mouse.Polls); n > 0 {
+		const bucket = 10_000_000
+		hist := map[uint64]int{}
+		for _, p := range d.Mouse.Polls {
+			hist[p.Step/bucket]++
+		}
+		ks := make([]int, 0, len(hist))
+		for k := range hist {
+			ks = append(ks, int(k))
+		}
+		sort.Ints(ks)
+		fmt.Printf("\n輪詢分佈（每千萬道）：")
+		for _, k := range ks {
+			fmt.Printf(" %dM:%d", k*10, hist[uint64(k)])
+		}
+		fmt.Println()
+	}
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {
 		f, l := d.Mouse.Polls[0], d.Mouse.Polls[n-1]
@@ -493,6 +551,45 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	} else {
 		ring.dump()
 	}
+}
+
+// click 是點擊腳本裡的一次點擊。
+type click struct {
+	step uint64
+	x, y uint16
+}
+
+// parseClicks 讀 `步數:X:Y,步數:X:Y` 這種腳本。
+func parseClicks(spec string) ([]click, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	var out []click
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		f := strings.Split(part, ":")
+		if len(f) != 3 {
+			return nil, fmt.Errorf("點擊腳本 %q 格式不對，要 步數:X:Y", part)
+		}
+		var c click
+		n, err := strconv.ParseUint(f[0], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("點擊腳本 %q 的步數不是數字：%w", part, err)
+		}
+		c.step = n
+		for i, dst := range []*uint16{&c.x, &c.y} {
+			v, err := strconv.ParseUint(f[i+1], 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("點擊腳本 %q 的座標不是數字：%w", part, err)
+			}
+			*dst = uint16(v)
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 func join(s []string) string {
