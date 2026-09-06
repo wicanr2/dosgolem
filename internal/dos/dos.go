@@ -112,6 +112,17 @@ type DOS struct {
 	// 該餵鍵而不是加大 `-steps`。
 	KeyWaits int
 
+	// NonBlockingKeys 關掉阻塞語意，讓 `AH=01h`／`07h`／`08h` 在佇列空時
+	// 回 `AL=0` 繼續跑（舊行為）。
+	//
+	// **零值 ＝ false ＝ 阻塞 ＝ 真 DOS 的語意**：忘記設的人得到的是對的那一邊，
+	// 不是一個安靜說謊的模型。規格 `docs/spec/008`。
+	NonBlockingKeys bool
+
+	// Blocked 表示這一步停在阻塞式輸入上（佇列空）。取到鍵時清掉。
+	// 上層可以據此停下來、餵鍵、再繼續。
+	Blocked bool
+
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
 	//

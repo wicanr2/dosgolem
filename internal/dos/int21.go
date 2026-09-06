@@ -169,10 +169,21 @@ func (d *DOS) int21(c *cpu.CPU) {
 func (d *DOS) conIn(c *cpu.CPU, fn uint8) {
 	if len(d.Stdin) == 0 {
 		d.KeyWaits++
+		if !d.NonBlockingKeys {
+			// 阻塞：把 CS:IP 退回這道 INT，讓它下一步重跑。
+			// 程式因此一道指令都不往前走，而 machine.Step 的 tick()
+			// 照常推進計時器——背景動畫會繼續播，與真 DOS 相同。
+			//
+			// ⚠ 用 c.Rewind() 不要自己算 IP−2：前綴會讓指令長度不是 2。
+			d.Blocked = true
+			c.Rewind()
+			return
+		}
 		setAL(c, 0)
 		clearCarry(c)
 		return
 	}
+	d.Blocked = false
 	ch := d.Stdin[0]
 	d.Stdin = d.Stdin[1:]
 	setAL(c, ch)

@@ -47,6 +47,8 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	blockAfter := flag.Uint64("block-after", 100_000,
+		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	flag.Parse()
 
@@ -101,6 +103,8 @@ func main() {
 
 	ring := newRing(*trace)
 	var runErr error
+	var blockedFor uint64
+	var blockedStop bool
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// **護欄：程式碼不該跑進 A0000 以上。** 那裡是視訊記憶體與 BIOS，
 		// 在我們這台上全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
@@ -133,8 +137,24 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
+		// 阻塞在鍵盤輸入時程式一道指令都不往前走（spec 008），
+		// 再跑下去只是把 INT 重跑幾百萬次。留 blockAfter 步給計時器
+		// 推背景動畫，之後就停——繼續燒預算不會有新資訊。
+		if d.Blocked {
+			blockedFor++
+			if *blockAfter > 0 && blockedFor >= *blockAfter {
+				blockedStop = true
+				break
+			}
+		} else {
+			blockedFor = 0
+		}
 	}
 
+	if blockedStop {
+		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
+			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
+	}
 	report(m, d, ring, runErr, *steps)
 	if *watchVideo {
 		if vidN == 0 {
@@ -293,6 +313,7 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("\n⚠ 佇列空時被要求讀鍵 %d 次——它在**等鍵盤**，不是在做事。\n"+
 			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
 	}
+
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {
 		f, l := d.Mouse.Polls[0], d.Mouse.Polls[n-1]
