@@ -265,6 +265,20 @@ func TestLEAStackDisp8(t *testing.T) {
 	}
 }
 
+func TestLEAStackDisp32(t *testing.T) {
+	c := New(testBus{0x8d, 0x84, 0x24, 0x08, 0x01, 0x00, 0x00})
+	c.R[ESP], c.EFlags = 0x1000, CF|ZF
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1108 || c.R[ESP] != 0x1000 || c.EFlags != CF|ZF {
+		t.Fatalf("positive LEA EAX=%X ESP=%X flags=%X err=%v", c.R[EAX], c.R[ESP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8d, 0x8c, 0x24, 0xf8, 0xff, 0xff, 0xff})
+	c.R[ESP] = 0x1000
+	if err := c.Step(); err != nil || c.R[ECX] != 0xff8 {
+		t.Fatalf("negative LEA ECX=%X err=%v", c.R[ECX], err)
+	}
+}
+
 func TestStoreRegisterIndirect(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x89, 0x10})
