@@ -1850,6 +1850,28 @@ func (c *CPU) Step() error {
 			c.setLogicFlags8(value & imm)
 			break
 		}
+		if modrm>>6 == 2 && modrm&7 != ESP && (modrm>>3)&7 == 0 {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := c.R[base] + uint32(int32(delta))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("TEST byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.setLogicFlags8(value & imm)
+			break
+		}
 		if modrm>>6 != 1 || modrm&7 == ESP || (modrm>>3)&7 != 0 {
 			return fail(fmt.Sprintf("F6 ModRM %02X 尚未支援", modrm))
 		}

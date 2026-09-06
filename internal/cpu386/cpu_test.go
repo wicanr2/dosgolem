@@ -86,6 +86,47 @@ func TestByteTESTAtBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestByteTESTAtBaseDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x60))
+	copy(mem, []byte{0xf6, 0x83, 0xf0, 0xff, 0xff, 0xff, 0x02})
+	mem[0x20] = 0x02
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f})
+	c.R[EBX], c.EFlags = 0x30, CF|OF|AF
+	if err := c.Step(); err != nil || c.R[EBX] != 0x30 || c.EFlags&(CF|OF|ZF) != 0 || mem[0x20] != 0x02 {
+		t.Fatalf("nonzero TEST EBX=%X flags=%X value=%X err=%v", c.R[EBX], c.EFlags, mem[0x20], err)
+	}
+
+	mem[0x20] = 0
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f})
+	c.R[EBX] = 0x30
+	if err := c.Step(); err != nil || c.EFlags&ZF == 0 {
+		t.Fatalf("zero TEST flags=%X err=%v", c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0xf6, 0x85, 0xfc, 0xff, 0xff, 0xff, 0x80})
+	mem[0x1c] = 0x80
+	c = New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x3f})
+	c.R[EBP] = 0x20
+	if err := c.Step(); err != nil || c.EFlags&SF == 0 {
+		t.Fatalf("SS TEST flags=%X err=%v", c.EFlags, err)
+	}
+
+	c = New(testBus{0xf6, 0x83, 0xf0, 0xff, 0xff, 0xff, 0x02})
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 6})
+	c.R[EBX] = 0x30
+	if err := c.Step(); err == nil || c.R[EBX] != 0x30 {
+		t.Fatalf("out-of-range TEST EBX=%X err=%v", c.R[EBX], err)
+	}
+}
+
 func TestByteTESTAtSIBDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x60))
 	copy(mem, []byte{0xf6, 0x44, 0x03, 0xff, 0x40})
