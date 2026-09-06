@@ -192,6 +192,40 @@ func TestByteTESTRegister(t *testing.T) {
 	}
 }
 
+func TestByteCMPAtBase(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		left  byte
+		right byte
+		flags uint32
+	}{
+		{name: "equal", left: 0x3b, right: 0x3b, flags: ZF | PF},
+		{name: "borrow", left: 0, right: 1, flags: CF | AF | SF | PF},
+		{name: "signed overflow", left: 0x80, right: 1, flags: OF | AF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x30))
+			copy(mem, []byte{0x80, 0x39, test.right})
+			mem[0x18] = test.left
+			c := New(mem)
+			c.R[ECX] = 0x18
+			c.Seg[SegDS] = 0x160
+			c.SetDescriptor(0x160, Descriptor{Limit: 0x2f})
+			if err := c.Step(); err != nil || c.R[ECX] != 0x18 || mem[0x18] != test.left || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("CMP value=%X ECX=%X flags=%X err=%v", mem[0x18], c.R[ECX], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x80, 0x39, 0x3b})
+	c.R[ECX] = 0x18
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 2})
+	if err := c.Step(); err == nil || c.R[ECX] != 0x18 {
+		t.Fatalf("out-of-range CMP ECX=%X err=%v", c.R[ECX], err)
+	}
+}
+
 func TestAbsoluteByteANDOR(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x80, 0x25, 0x20, 0, 0, 0, 0xf8, 0x80, 0x0d, 0x20, 0, 0, 0, 4})
