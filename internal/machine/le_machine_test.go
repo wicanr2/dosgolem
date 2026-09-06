@@ -2270,3 +2270,31 @@ func TestFD2ComparesFcloseStreamNode(t *testing.T) {
 		t.Fatalf("fclose stream CMP steps=%d EIP=%X EDX=%X right=%X registersChanged=%v flags=%X", steps, m.CPU.EIP, beforeRegisters[cpu386.EDX], right, m.CPU.R != beforeRegisters, m.CPU.EFlags)
 	}
 }
+
+func TestFD2SeeksMDIINI(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 25000 && m.CPU.EIP != 0x3cc1e; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DOS seek setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	if m.CPU.EIP != 0x3cc1e {
+		t.Fatalf("DOS seek 未抵達：steps=%d EIP=%X", steps, m.CPU.EIP)
+	}
+	handle := uint16(m.CPU.R[cpu386.EBX])
+	if uint8(m.CPU.R[cpu386.EAX]>>8) != 0x42 || !services.HasHandle(handle) {
+		t.Fatalf("DOS seek AH=%X handle=%d registered=%t", uint8(m.CPU.R[cpu386.EAX]>>8), handle, services.HasHandle(handle))
+	}
+	beforeEAXHigh, beforeEDXHigh := m.CPU.R[cpu386.EAX]&0xffff0000, m.CPU.R[cpu386.EDX]&0xffff0000
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("DOS seek: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	position := uint32(uint16(m.CPU.R[cpu386.EDX]))<<16 | uint32(uint16(m.CPU.R[cpu386.EAX]))
+	if m.CPU.EIP != 0x3cc20 || m.CPU.EFlags&cpu386.CF != 0 || m.CPU.R[cpu386.EAX]&0xffff0000 != beforeEAXHigh || m.CPU.R[cpu386.EDX]&0xffff0000 != beforeEDXHigh || position > 218 {
+		t.Fatalf("DOS seek steps=%d EIP=%X position=%X EAX=%X EDX=%X flags=%X", steps, m.CPU.EIP, position, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDX], m.CPU.EFlags)
+	}
+}

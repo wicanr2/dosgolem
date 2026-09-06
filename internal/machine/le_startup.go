@@ -147,6 +147,38 @@ func (s *FD2StartupDOS) readFile(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
+func (s *FD2StartupDOS) seekFile(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	file, ok := s.handles[uint16(c.R[cpu386.EBX])]
+	if !ok {
+		setError(6)
+		return
+	}
+	origin := uint8(c.R[cpu386.EAX])
+	if origin > 2 {
+		setError(1)
+		return
+	}
+	oldPosition, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		setError(1)
+		return
+	}
+	rawOffset := uint32(uint16(c.R[cpu386.ECX]))<<16 | uint32(uint16(c.R[cpu386.EDX]))
+	position, err := file.Seek(int64(int32(rawOffset)), int(origin))
+	if err != nil || position < 0 || uint64(position) > uint64(^uint32(0)) {
+		_, _ = file.Seek(oldPosition, io.SeekStart)
+		setError(1)
+		return
+	}
+	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(position)&0xffff
+	c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(position)>>16
+	c.EFlags &^= cpu386.CF
+}
+
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
 		if uint16(c.R[cpu386.EAX]) != 0x0200 {
@@ -185,6 +217,10 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	}
 	if function == 0x3f {
 		s.readFile(c)
+		return true
+	}
+	if function == 0x42 {
+		s.seekFile(c)
 		return true
 	}
 	switch s.calls {
