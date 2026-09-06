@@ -145,11 +145,13 @@ type Machine struct {
 	SegLog    []SegChange
 	SegFirst  map[uint16]SegChange
 
-	// WatchDS 不為 0 時，DS **變成**這個值的每一次都記進 DSLoads
+	// WatchDSOn 打開時，DS **變成** WatchDS 的每一次都記進 DSLoads
 	// （最多 MaxSegLog 筆）。段暫存器的錯值沒有記憶體寫入可以監看，
-	// 只能盯它被載入的那一刻。
-	WatchDS uint16
-	DSLoads []SegChange
+	// 只能盯它被載入的那一刻。**要能監看 DS＝0**，所以開關是獨立的
+	// bool，不是「值不為 0 就啟用」。
+	WatchDSOn bool
+	WatchDS   uint16
+	DSLoads   []SegChange
 
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
@@ -409,14 +411,14 @@ const MaxSegLog = 100_000
 func (m *Machine) Step() error {
 	m.tick()
 	m.Steps++
-	if !m.TraceSegs && m.WatchDS == 0 {
+	if !m.TraceSegs && !m.WatchDSOn {
 		return m.CPU.Step()
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
 	prevDS := m.CPU.Seg[cpu.DS]
 	err := m.CPU.Step()
 
-	if m.WatchDS != 0 && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
+	if m.WatchDSOn && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
 		len(m.DSLoads) < MaxSegLog {
 		m.DSLoads = append(m.DSLoads, SegChange{
 			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,

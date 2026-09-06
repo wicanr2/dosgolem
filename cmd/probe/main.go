@@ -96,7 +96,7 @@ func main() {
 		if _, err := fmt.Sscanf(*watchDS, "%x", &v); err != nil {
 			die(err)
 		}
-		m.WatchDS = v
+		m.WatchDS, m.WatchDSOn = v, true
 	}
 	type memWrite struct {
 		addr     uint32
@@ -502,7 +502,7 @@ type ring struct {
 }
 
 type trace struct {
-	cs, ip, ax, sp uint16
+	cs, ip, ax, sp, ds, bx, si uint16
 }
 
 func newRing(size uint64) *ring {
@@ -516,7 +516,8 @@ func (r *ring) push(c *cpu.CPU) {
 	if r.size == 0 {
 		return
 	}
-	r.buf[r.n%r.size] = trace{c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.SP]}
+	r.buf[r.n%r.size] = trace{c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.SP],
+		c.Seg[cpu.DS], c.R[cpu.BX], c.R[cpu.SI]}
 	r.n++
 }
 
@@ -531,7 +532,8 @@ func (r *ring) dump() {
 	}
 	for i := start; i < r.n; i++ {
 		t := r.buf[i%r.size]
-		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X\n", i, t.cs, t.ip, t.ax, t.sp)
+		fmt.Printf("  #%d %04X:%04X AX=%04X SP=%04X DS=%04X BX=%04X SI=%04X\n",
+			i, t.cs, t.ip, t.ax, t.sp, t.ds, t.bx, t.si)
 	}
 }
 
