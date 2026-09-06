@@ -580,6 +580,27 @@ func TestPushFlags32(t *testing.T) {
 	}
 }
 
+func TestPopFlags32(t *testing.T) {
+	mem := testBus(make([]byte, 0x20))
+	mem[0] = 0x9d
+	copy(mem[0x10:], []byte{0x46, 0x02, 0x00, 0x00})
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x1f, Writable: true})
+	c.R[ESP], c.EFlags = 0x10, CF|OF
+	if err := c.Step(); err != nil || c.R[ESP] != 0x14 || c.EFlags != 0x246 {
+		t.Fatalf("POPFD ESP=%X flags=%X err=%v", c.R[ESP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x9d})
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0})
+	c.R[ESP], c.EFlags = 4, 0x246
+	if err := c.Step(); err == nil || c.R[ESP] != 4 || c.EFlags != 0x246 {
+		t.Fatalf("failed POPFD ESP=%X flags=%X err=%v", c.R[ESP], c.EFlags, err)
+	}
+}
+
 func TestClearInterruptFlag(t *testing.T) {
 	c := New(testBus{0xfa})
 	c.EFlags = IF | CF | ZF
