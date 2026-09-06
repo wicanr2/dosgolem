@@ -130,6 +130,15 @@ func (c *CPU) SetFlags(v uint16) { c.Flags = (v & flagsMask) | flagsSet }
 // Flag 回報某一個旗標開著沒有。
 func (c *CPU) Flag(f uint16) bool { return c.Flags&f != 0 }
 
+// FarCall 以8086 CALL ptr16:16的堆疊契約進入far routine。
+// 給滑鼠driver等外部裝置callback使用；routine以RETF返回。
+func (c *CPU) FarCall(seg, off uint16) {
+	c.push(c.Seg[CS])
+	c.push(c.IP)
+	c.Seg[CS], c.IP = seg, off
+	c.Halted = false
+}
+
 // setFlag 設或清一個旗標。
 func (c *CPU) setFlag(f uint16, on bool) {
 	if on {

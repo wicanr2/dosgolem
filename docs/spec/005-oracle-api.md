@@ -101,7 +101,9 @@ type Cond func(*Oracle) bool
 ```go
 func (o *Oracle) MoveMouse(x, y int)
 func (o *Oracle) Click(x, y int) error       // 移動 → 按下 → 按住 → 放開
+func RightButton() ClickOpt                  // Click改送右鍵按下／放開
 func (o *Oracle) Type(s string) error        // 餵給 int 21h AH=3Fh
+func (o *Oracle) PressKey(key Key)            // 以IRQ1送Set 1 make／break掃描碼
 ```
 
 三條實測出來的紀律：
@@ -115,12 +117,21 @@ func (o *Oracle) Type(s string) error        // 餵給 int 21h AH=3Fh
 3. **`Click` 回 error**。點了沒反應要說出來，不要讓呼叫端拿「畫面沒變」
    去猜是點錯位置還是遊戲還沒準備好。
 
+`Click`預設維持左鍵。`RightButton`只改IBM／Microsoft滑鼠契約中的按鍵位元與callback事件：
+按住狀態`BX=2`，右鍵按下／放開事件分別是`0008h`／`0010h`；hover、hold、settle、畫面回應及
+失敗即關閉規則完全相同。這是平台輸入能力，不含任何EOB專用座標或語意。
+
+2026-09-07驗收：`internal/dos.TestMouseCallbackReportsRightButtonContract`釘住callback的
+`AX=0008h`／`BX=2`；EOB1真實資料測試再由`RightButton`進入角色交換並完成取消，證實公開API到
+原版consumer的垂直鏈。右鍵增量契約為CONFORMED；本文件其餘READY範圍不因此整體升格。
+
 ## 5. 攔截與狀態
 
 ```go
 func (o *Oracle) OnCall(addr Addr, fn func(*Oracle))  // 攔繪製常式讀參數
 func (o *Oracle) Save() *State
 func (o *Oracle) Restore(s *State)
+func (o *Oracle) PortReads() map[uint16]uint64        // I/O埠讀取次數的唯讀副本
 ```
 
 - `OnCall` 的價值是**把判準從像素換成參數**：原版自己傳給繪製常式的
@@ -129,6 +140,10 @@ func (o *Oracle) Restore(s *State)
   開機到防拷畫面要 4,200 萬道指令（約 2 秒）；走到棋盤還要更多。
   **從同一個狀態展開多個變體**是 `rich2` D33／D34「走到罕見畫面很貴」的解。
 - `State` 是不透明的；**不落地成檔案**（那等於散布原版的記憶體映像）。
+- `PortReads`只供定位「程式繞過DOS／BIOS，直接輪詢硬體」；回傳副本，呼叫端不可藉此修改
+  machine狀態。它證明埠被讀，不自行推導該埠語意或輸入契約。
+- `Type`與`PressKey`是不同契約：前者維持DOS標準輸入相容性；後者只供自行掛接
+  `int 09h`的程式。`PressKey`送IBM PC/AT Set 1 make碼，再送最高位為1的break碼。
 
 ## 6. 亂數
 

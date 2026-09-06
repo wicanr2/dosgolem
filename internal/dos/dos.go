@@ -12,7 +12,10 @@ package dos
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -50,6 +53,12 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// Callback是int 33h AX=0Ch註冊的事件遮罩與far routine。
+	CallbackMask     uint16
+	CallbackSeg      uint16
+	CallbackOff      uint16
+	CallbackDispatch uint64
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -94,22 +103,55 @@ type DOS struct {
 	// **「宣告成功」本身也會說謊**：該填的緩衝區沒填就是垃圾，症狀出現在
 	// 很後面而且完全不指向這裡。所以要數、要印（`docs/spec/004` §1.3）。
 	Unimplemented map[Call]int
+	// UnimplementedDetails 保留每種未實作服務第一次出現時的暫存器脈絡。
+	UnimplementedDetails []CallDetail
 
 	// Opened 是開過的檔（依序），Missing 是找不到的。兩份都是診斷用。
-	Opened  []string
-	Missing []string
+	Opened        []string
+	Missing       []string
+	MissingAccess []FileAccess
 
-	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
-	// 但安靜地報成功會讓「存檔壞掉」查不出來。
-	Wrote []Write
+	// Wrote 記下「程式想寫檔」的每一次。只有以AllowFileWrites逐檔
+	// opt-in的可寫覆蓋層才會實際落地；預設仍保護原版素材。
+	Wrote         []Write
+	writableFiles map[string]bool
 
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
 
-	handles    map[uint16]*handle
-	nextHandle uint16
-	freeSeg    uint16
+	handles map[uint16]*handle
+	freeSeg uint16
+	dtaSeg  uint16
+	dtaOff  uint16
+}
+
+// AllowFileWrites 只允許已存在於Root的指定basename實際寫入。
+// 呼叫端必須把Root指向可丟棄覆蓋層，不能指向原版來源。
+func (d *DOS) AllowFileWrites(names ...string) error {
+	validated := make([]string, 0, len(names))
+	for _, name := range names {
+		base := filepath.Base(name)
+		if base == "." || base == "" || base != name || strings.ContainsAny(name, `\/:`) {
+			return fmt.Errorf("可寫檔名必須是單一basename：%q", name)
+		}
+		path := d.resolve(base)
+		if path == "" {
+			return fmt.Errorf("可寫覆蓋層缺少檔案：%q", name)
+		}
+		st, err := os.Stat(path)
+		if err != nil || !st.Mode().IsRegular() {
+			return fmt.Errorf("可寫覆蓋層不是一般檔案：%q", name)
+		}
+		validated = append(validated, strings.ToUpper(base))
+	}
+	if d.writableFiles == nil {
+		d.writableFiles = map[string]bool{}
+	}
+	for _, base := range validated {
+		d.writableFiles[base] = true
+	}
+	return nil
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -118,9 +160,30 @@ type Write struct {
 	N    int
 }
 
+// FileAccess 是失敗開檔當下的原始路徑與執行期定位。
+type FileAccess struct {
+	Name                   string
+	CS, IP, DS, DX, SS, BP uint16
+	Callers                [8]StackFrame
+}
+
+type StackFrame struct {
+	BP, IP, CS uint16
+	Code       [16]byte
+	Args       [4]uint16
+}
+
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
 type Call struct {
 	Int, AH, AL uint8
+}
+
+type CallDetail struct {
+	Call
+	CS, IP, DS, ES         uint16
+	AX, BX, CX, DX, SI, DI uint16
+	Path                   string
+	Param                  [16]byte
 }
 
 func (c Call) String() string {
@@ -137,7 +200,8 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		nextHandle:    5, // 0–4 是標準 handle
+		dtaSeg:        machine.PSPSeg,
+		dtaOff:        0x80,
 	}
 }
 
@@ -170,6 +234,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int33(c)
 	case 0x16:
 		d.int16(c)
+	case 0x1A:
+		d.int1A(c)
 	case 0x11:
 		// 取設備清單：就是 BDA 那一格（`docs/spec/003` §1）。
 		// 不實作的話 AX 保持呼叫端傳進來的值，而顯示卡欄位是垃圾。
@@ -188,6 +254,20 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 	return true
 }
 
+// int1A 實作 BIOS 時刻服務。計時來源是 Machine 的確定性 IRQ0／BDA tick，
+// 不讀主機牆鐘；完整契約見 docs/spec/009-bios-time-of-day.md。
+func (d *DOS) int1A(c *cpu.CPU) {
+	if ah(c) != 0x00 {
+		d.noteCPU(c, 0x1A, ah(c), al(c))
+		return
+	}
+	const base = uint32(0x0040 * 16)
+	c.R[cpu.DX] = d.M.Read16(base + 0x6C)
+	c.R[cpu.CX] = d.M.Read16(base + 0x6E)
+	setAL(c, d.M.Read8(base+0x70))
+	d.M.Write8(base+0x70, 0)
+}
+
 func (d *DOS) exit(c *cpu.CPU, code uint8) {
 	d.Exited, d.ExitCode = true, code
 	c.Halted = true
@@ -196,6 +276,36 @@ func (d *DOS) exit(c *cpu.CPU, code uint8) {
 // note 記一筆沒實作的呼叫。
 func (d *DOS) note(intNo, ah, al uint8) {
 	d.Unimplemented[Call{Int: intNo, AH: ah, AL: al}]++
+}
+
+func (d *DOS) noteCPU(c *cpu.CPU, intNo, fn, sub uint8) {
+	d.note(intNo, fn, sub)
+	for _, detail := range d.UnimplementedDetails {
+		if detail.Int == intNo && detail.AH == fn && detail.AL == sub {
+			return
+		}
+	}
+	detail := CallDetail{
+		Call: Call{Int: intNo, AH: fn, AL: sub},
+		CS:   c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], ES: c.Seg[cpu.ES],
+		AX: c.R[cpu.AX], BX: c.R[cpu.BX], CX: c.R[cpu.CX], DX: c.R[cpu.DX],
+		SI: c.R[cpu.SI], DI: c.R[cpu.DI],
+	}
+	if intNo == 0x21 && fn == 0x4B {
+		pathAddr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+		for i := 0; i < 260; i++ {
+			b := d.M.Read8(pathAddr + uint32(i))
+			if b == 0 {
+				break
+			}
+			detail.Path += string([]byte{b})
+		}
+		paramAddr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+		for i := range detail.Param {
+			detail.Param[i] = d.M.Read8(paramAddr + uint32(i))
+		}
+	}
+	d.UnimplementedDetails = append(d.UnimplementedDetails, detail)
 }
 
 // UnimplementedReport 把統計排成可讀的清單，次數多的在前面。

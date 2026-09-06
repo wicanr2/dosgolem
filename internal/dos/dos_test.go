@@ -1,6 +1,8 @@
 package dos
 
 import (
+	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +10,22 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
+
+func testMZOverlay() []byte {
+	const headerSize = 32
+	body := make([]byte, 32)
+	body[0], body[1] = 0x90, 0xF4
+	out := make([]byte, headerSize+len(body))
+	out[0], out[1] = 'M', 'Z'
+	binary.LittleEndian.PutUint16(out[2:], uint16(len(out)))
+	binary.LittleEndian.PutUint16(out[4:], 1)
+	binary.LittleEndian.PutUint16(out[6:], 1)
+	binary.LittleEndian.PutUint16(out[8:], 2)
+	binary.LittleEndian.PutUint16(out[24:], 0x1C)
+	binary.LittleEndian.PutUint16(out[0x1C:], 0x10)
+	copy(out[headerSize:], body)
+	return out
+}
 
 // 這一份測試釘的全是**會安靜出錯**的規則：每一條的反面都不會報錯，
 // 只會讓 `RUN.EXE` 在很後面的地方走進錯的分支。測試名字就說症狀。
@@ -52,6 +70,44 @@ func TestSetBlockProbeMustFailFirst(t *testing.T) {
 	call(m, d, 0x21, 0x4A00)
 	if m.CPU.Flags&cpu.CF != 0 {
 		t.Fatalf("拿 DOS 自己回的 %04X 再要一次還失敗——呼叫端的 jb 會判定錯誤", avail)
+	}
+}
+
+func TestExecOverlayLoadsMZAndReturnsToCaller(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "intro.exe"), testMZOverlay(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2000, 0x20
+	m.WriteBytes(cpu.Addr(0x2000, 0x20), append([]byte(`C:\RICH2\INTRO.EXE`), 0))
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0x2100, 0x30
+	m.Write16(cpu.Addr(0x2100, 0x30), 0x3000)
+	m.Write16(cpu.Addr(0x2100, 0x32), 0x1234)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x4444, 0x5555
+	call(m, d, 0x21, 0x4B03)
+
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 {
+		t.Fatalf("覆疊載入失敗：CF=%t AX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	if got := m.Read16(0x3000*16 + 0x10); got != 0x1234 {
+		t.Fatalf("覆疊重定位結果 %04X，預期 1234", got)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x4444 || m.CPU.IP != 0x5555 {
+		t.Fatal("EXEC 覆疊載入不該替呼叫端跳入映像")
+	}
+}
+
+func TestExecOverlayRejectsMissingAndUnsupportedSubfunction(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2000, 0x20
+	m.WriteBytes(cpu.Addr(0x2000, 0x20), append([]byte("MISSING.EXE"), 0))
+	call(m, d, 0x21, 0x4B03)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 2 {
+		t.Fatalf("缺檔應回 CF=1 AX=2，得到 CF=%t AX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	call(m, d, 0x21, 0x4B00)
+	if m.CPU.Flags&cpu.CF == 0 || d.Unimplemented[Call{Int: 0x21, AH: 0x4B, AL: 0}] != 1 {
+		t.Fatal("未支援的 EXEC 子功能沒有失敗即關閉並留下診斷")
 	}
 }
 
@@ -109,6 +165,24 @@ func TestReadStdinNeverReturnsZero(t *testing.T) {
 	}
 }
 
+func TestBIOSKeyboardSharesReplayQueue(t *testing.T) {
+	m, d := newTest(t)
+	d.Stdin = []byte{'4'}
+	m.CPU.SetFlags(m.CPU.Flags | cpu.ZF)
+	call(m, d, 0x16, 0x0100)
+	if m.CPU.Flags&cpu.ZF != 0 || m.CPU.R[cpu.AX] != '4' || len(d.Stdin) != 1 {
+		t.Fatalf("BIOS查鍵結果錯誤：AX=%04X ZF=%t pending=%d", m.CPU.R[cpu.AX], m.CPU.Flags&cpu.ZF != 0, len(d.Stdin))
+	}
+	call(m, d, 0x16, 0x0000)
+	if m.CPU.R[cpu.AX] != '4' || len(d.Stdin) != 0 {
+		t.Fatalf("BIOS讀鍵結果錯誤：AX=%04X pending=%d", m.CPU.R[cpu.AX], len(d.Stdin))
+	}
+	call(m, d, 0x16, 0x0100)
+	if m.CPU.Flags&cpu.ZF == 0 {
+		t.Fatal("空鍵盤佇列查詢沒有設定ZF")
+	}
+}
+
 // TestUnimplementedLeavesAXAlone 釘住原則 1（`docs/spec/004` §1.1）。
 //
 // 沒實作的功能號寫 AX=0 會把「設中斷向量」迴圈的計數清掉，`AH` 變成 0
@@ -122,6 +196,28 @@ func TestUnimplementedLeavesAXAlone(t *testing.T) {
 	}
 	if d.Unimplemented[Call{Int: 0x21, AH: 0x5F, AL: 0x42}] != 1 {
 		t.Error("未實作的呼叫沒有記一筆——之後就分不出「跑得動」與「跑得動但錯」")
+	}
+}
+
+func TestBIOSReadTimeOfDay(t *testing.T) {
+	m, d := newTest(t)
+	const base = uint32(0x0040 * 16)
+	m.Write16(base+0x6C, 0x5678)
+	m.Write16(base+0x6E, 0x1234)
+	m.Write8(base+0x70, 1)
+
+	call(m, d, 0x1A, 0x0000)
+	if got := m.CPU.R[cpu.CX]; got != 0x1234 {
+		t.Fatalf("CX=%04X，預期1234", got)
+	}
+	if got := m.CPU.R[cpu.DX]; got != 0x5678 {
+		t.Fatalf("DX=%04X，預期5678", got)
+	}
+	if got := uint8(m.CPU.R[cpu.AX]); got != 1 {
+		t.Fatalf("AL=%02X，預期rollover 01", got)
+	}
+	if got := m.Read8(base + 0x70); got != 0 {
+		t.Fatalf("rollover讀後=%02X，預期00", got)
 	}
 }
 
@@ -154,6 +250,21 @@ func TestInt10DisplayCombinationSaysVGA(t *testing.T) {
 	}
 	if bl := uint8(m.CPU.R[cpu.BX]); bl != 0x08 {
 		t.Errorf("BL ＝ %02X，預期 08（VGA 彩色）", bl)
+	}
+}
+
+func TestInt10SetDACBlock(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x2200, 0x10
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.CX] = 2, 2
+	m.WriteBytes(cpu.Addr(0x2200, 0x10), []byte{0x3F, 0x20, 0x00, 0x01, 0x02, 0x03})
+	call(m, d, 0x10, 0x1012)
+	pal := m.Palette()
+	if pal[2] != [3]uint8{255, 130, 0} || pal[3] != [3]uint8{4, 8, 12} {
+		t.Fatalf("DAC block錯誤：色2=%v 色3=%v", pal[2], pal[3])
+	}
+	if d.Unimplemented[Call{Int: 0x10, AH: 0x10, AL: 0x12}] != 0 {
+		t.Fatal("已實作的1012h仍被列為未實作")
 	}
 }
 
@@ -227,6 +338,84 @@ func TestMousePollIsRecorded(t *testing.T) {
 	if m.CPU.R[cpu.CX] != 200 || m.CPU.R[cpu.DX] != 50 {
 		t.Errorf("回報 (%d,%d)，預期 (200,50)：水平要乘 XScale",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+func TestMouseCallbackUsesFarCallContract(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0007
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	// callback先把六個事件參數寫進DS:0100，再RETF。
+	callback := []byte{
+		0xA3, 0x00, 0x01, // mov [0100],ax
+		0x89, 0x1E, 0x02, 0x01, // mov [0102],bx
+		0x89, 0x0E, 0x04, 0x01, // mov [0104],cx
+		0x89, 0x16, 0x06, 0x01, // mov [0106],dx
+		0x89, 0x36, 0x08, 0x01, // mov [0108],si
+		0x89, 0x3E, 0x0A, 0x01, // mov [010A],di
+		0xCB,
+	}
+	m.WriteBytes(cpu.Addr(0x0900, 0x0010), callback)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0x1234
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
+	m.CPU.Seg[cpu.DS] = 0x0A00
+	m.CPU.R[cpu.AX], m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] =
+		0xA111, 0xB222, 0xC333, 0xD444
+	m.CPU.R[cpu.SI], m.CPU.R[cpu.DI], m.CPU.R[cpu.BP] = 0x5111, 0xD111, 0xB111
+	m.CPU.SetFlags(cpu.IF | cpu.DF | cpu.CF)
+	wantR, wantSeg, wantIP, wantFlags := m.CPU.R, m.CPU.Seg, m.CPU.IP, m.CPU.Flags
+	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 1
+
+	dispatched, err := d.MouseEvent(0x0002, 3, -4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dispatched {
+		t.Fatal("符合mask的左鍵按下沒有觸發callback")
+	}
+	if m.CPU.R != wantR || m.CPU.Seg != wantSeg || m.CPU.IP != wantIP || m.CPU.Flags != wantFlags {
+		t.Fatalf("callback返回後污染呼叫者狀態：R=%04X Seg=%04X IP=%04X Flags=%04X",
+			m.CPU.R, m.CPU.Seg, m.CPU.IP, m.CPU.Flags)
+	}
+	wantArgs := [6]uint16{2, 1, 200, 50, 0xFFFC, 3}
+	for i, want := range wantArgs {
+		if got := m.Read16(cpu.Addr(0x0A00, 0x0100+uint16(i*2))); got != want {
+			t.Fatalf("callback參數%d=%04X，預期%04X", i, got, want)
+		}
+	}
+}
+
+func TestMouseCallbackReportsRightButtonContract(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0018
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	m.Write8(cpu.Addr(0x0900, 0x0010), 0xCB)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0x1234
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x0100
+	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 100, 50, 2
+
+	dispatched, err := d.MouseEvent(0x0008, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dispatched {
+		t.Fatal("符合mask的右鍵按下沒有觸發callback")
+	}
+}
+
+func TestMouseCallbackHonorsMaskAndReset(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.CX] = 0x0002
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x0900, 0x0010
+	call(m, d, 0x33, 0x000C)
+	if dispatched, err := d.MouseEvent(0x0001, 1, 1); err != nil || dispatched {
+		t.Fatal("mask只有左鍵按下卻觸發移動callback")
+	}
+	call(m, d, 0x33, 0x0000)
+	if dispatched, err := d.MouseEvent(0x0002, 0, 0); err != nil || dispatched {
+		t.Fatal("reset後仍觸發callback")
 	}
 }
 
@@ -307,11 +496,160 @@ func TestOpenIgnoresPathAndCase(t *testing.T) {
 	}
 }
 
+func TestClosedFileHandleIsReused(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "data.pak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("DATA.PAK"), 0))
+	for i := 0; i < 256; i++ {
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 5 {
+			t.Fatalf("第%d次open handle=%d CF=%t，預期重用5", i, m.CPU.R[cpu.AX], m.CPU.Flags&cpu.CF != 0)
+		}
+		m.CPU.R[cpu.BX] = 5
+		call(m, d, 0x21, 0x3E00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Fatalf("第%d次close失敗", i)
+		}
+	}
+}
+
+func TestOpenFailsWhenDefaultHandleTableIsFull(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "data.pak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("DATA.PAK"), 0))
+	for h := uint16(5); h < 20; h++ {
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != h {
+			t.Fatalf("handle=%d，預期%d", m.CPU.R[cpu.AX], h)
+		}
+	}
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 4 {
+		t.Fatalf("JFT滿時CF=%t AX=%d，預期CF=1 AX=4", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+}
+
+func TestFileWritesRequireExplicitAllowlist(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allowed=%t", allowed), func(t *testing.T) {
+			m, d := newTest(t)
+			path := filepath.Join(d.Root, "save.dat")
+			if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if allowed {
+				if err := d.AllowFileWrites("SAVE.DAT"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+			m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("SAVE.DAT"), 0))
+			call(m, d, 0x21, 0x3D02)
+			h := m.CPU.R[cpu.AX]
+			m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = h, 3, 0x40
+			m.WriteBytes(cpu.Addr(0x3000, 0x40), []byte("NEW"))
+			call(m, d, 0x21, 0x4000)
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "hello"
+			if allowed {
+				want = "NEWlo"
+			}
+			if string(got) != want {
+				t.Fatalf("內容=%q，預期%q", got, want)
+			}
+		})
+	}
+	if _, d := newTest(t); d.AllowFileWrites("../save.dat") == nil {
+		t.Fatal("路徑逃逸應失敗")
+	}
+	_, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "save.dat"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AllowFileWrites("SAVE.DAT", "../bad.dat"); err == nil || len(d.writableFiles) != 0 {
+		t.Fatalf("allowlist失敗必須原子回滾：err=%v files=%v", err, d.writableFiles)
+	}
+}
+
+func TestDTASetGetAndFindFirstExactFile(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "eob.exe"), []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2200, 0x40
+	call(m, d, 0x21, 0x1A00)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0, 0
+	call(m, d, 0x21, 0x2F99)
+	if m.CPU.Seg[cpu.ES] != 0x2200 || m.CPU.R[cpu.BX] != 0x40 {
+		t.Fatalf("DTA=%04X:%04X", m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX])
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2300, 0x20
+	m.WriteBytes(cpu.Addr(0x2300, 0x20), append([]byte(`C:\RICH2\EOB.EXE`), 0))
+	m.CPU.R[cpu.CX] = 0x37
+	call(m, d, 0x21, 0x4E80)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 {
+		t.Fatalf("Find First失敗：CF=%t AX=%d", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
+	}
+	base := cpu.Addr(0x2200, 0x40)
+	if got := m.Read8(base + 0x15); got != 0x20 {
+		t.Fatalf("attribute=%02X", got)
+	}
+	if got := uint32(m.Read16(base+0x1A)) | uint32(m.Read16(base+0x1C))<<16; got != 5 {
+		t.Fatalf("size=%d", got)
+	}
+	name := make([]byte, 7)
+	for i := range name {
+		name[i] = m.Read8(base + 0x1E + uint32(i))
+	}
+	if string(name) != "EOB.EXE" {
+		t.Fatalf("name=%q", name)
+	}
+}
+
+func TestFileAttributesAndFindFirstFailClosed(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "intro.exe"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x2200, 0x20
+	m.WriteBytes(cpu.Addr(0x2200, 0x20), append([]byte("INTRO.EXE"), 0))
+	call(m, d, 0x21, 0x4300)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.CX] != 0x20 {
+		t.Fatalf("attributes CF=%t CX=%04X", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.CX])
+	}
+	call(m, d, 0x21, 0x4301)
+	if m.CPU.Flags&cpu.CF == 0 || d.Unimplemented[Call{Int: 0x21, AH: 0x43, AL: 1}] != 1 {
+		t.Fatal("未支援屬性寫入沒有失敗即關閉")
+	}
+	m.WriteBytes(cpu.Addr(0x2200, 0x20), append([]byte("MISSING.EXE"), 0))
+	dta := cpu.Addr(machine.PSPSeg, 0x80)
+	m.Write8(dta, 0xA5)
+	call(m, d, 0x21, 0x4E00)
+	if m.CPU.Flags&cpu.CF == 0 || m.CPU.R[cpu.AX] != 18 || m.Read8(dta) != 0xA5 {
+		t.Fatal("Find First缺檔契約錯誤或污染DTA")
+	}
+}
+
 // TestMissingFileIsRecorded 釘住「找不到的檔要留名字」。
 //
 // 只回 CF 的話，缺一個資產與「程式自己決定不載」看起來一樣。
 func TestMissingFileIsRecorded(t *testing.T) {
 	m, d := newTest(t)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x1234, 0x5678
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.BP] = 0x2200, 0x0100
+	m.Write16(cpu.Addr(0x2200, 0x0100), 0)
+	m.Write16(cpu.Addr(0x2200, 0x0102), 0x2222)
+	m.Write16(cpu.Addr(0x2200, 0x0104), 0x3333)
+	m.Write16(cpu.Addr(0x2200, 0x0106), 0x4444)
 	m.CPU.Seg[cpu.DS] = 0x3000
 	m.CPU.R[cpu.DX] = 0
 	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("NOPE.PAK"), 0))
@@ -321,6 +659,16 @@ func TestMissingFileIsRecorded(t *testing.T) {
 	}
 	if len(d.Missing) != 1 || d.Missing[0] != "NOPE.PAK" {
 		t.Errorf("Missing ＝ %v", d.Missing)
+	}
+	if len(d.MissingAccess) != 1 {
+		t.Fatalf("MissingAccess=%v", d.MissingAccess)
+	}
+	a := d.MissingAccess[0]
+	if a.Name != "NOPE.PAK" || a.CS != 0x1234 || a.IP != 0x5678 || a.DS != 0x3000 || a.DX != 0 || a.SS != 0x2200 || a.BP != 0x0100 {
+		t.Fatalf("MissingAccess定位=%+v", a)
+	}
+	if f := a.Callers[0]; f.BP != 0x0100 || f.IP != 0x2222 || f.CS != 0x3333 || f.Args[0] != 0x4444 {
+		t.Fatalf("MissingAccess frame=%+v", f)
 	}
 }
 

@@ -1,6 +1,8 @@
 package dos
 
 import (
+	"fmt"
+
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -70,7 +72,19 @@ func (d *DOS) int10(c *cpu.CPU) {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
 		setAL(c, 0x1B) // 表示本服務有支援
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A, 0x10:
+	case 0x10:
+		if al(c) != 0x12 {
+			d.noteCPU(c, 0x10, fn, al(c))
+			break
+		}
+		// 設一段DAC色彩暫存器：BL起始色號、CX色數、ES:DX為RGB三元組。
+		// 色值是VGA原生6-bit；交給Machine的DAC狀態機統一遮罩與遞增。
+		d.M.Out8(0x3C8, bl(c))
+		addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+		for i := uint32(0); i < uint32(c.R[cpu.CX])*3; i++ {
+			d.M.Out8(0x3C9, d.M.Read8(addr+i))
+		}
+	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
 		// 設游標／取游標／設頁／捲動／寫字元／調色盤：收下就好，
 		// 呼叫端不看回傳值。
 
@@ -97,6 +111,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.AX] = 0xFFFF // 已安裝
 		c.R[cpu.BX] = 2      // 兩個鍵
 		m.Buttons = 0
+		m.CallbackMask, m.CallbackSeg, m.CallbackOff = 0, 0, 0
 
 	case 0x0001, 0x0002: // 顯示／隱藏游標
 		// 遊戲**從來不叫 `AX=1`**（全檔 0 個呼叫端），畫面上那隻小手是
@@ -131,22 +146,81 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+	case 0x000C: // 設使用者事件callback
+		m.CallbackMask = c.R[cpu.CX]
+		m.CallbackSeg = c.Seg[cpu.ES]
+		m.CallbackOff = c.R[cpu.DX]
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}
 }
 
+// MouseEvent 依AX=0Ch註冊契約把一個已更新到Mouse狀態的事件送進far callback。
+// dx／dy是本次位移mickey；目前一個邏輯pixel視為一個mickey的決定性近似。
+func (d *DOS) MouseEvent(event uint16, dx, dy int16) (bool, error) {
+	m := &d.Mouse
+	if event&m.CallbackMask == 0 || (m.CallbackSeg == 0 && m.CallbackOff == 0) {
+		return false, nil
+	}
+	c := d.M.CPU
+	// 滑鼠driver是外部設備邊界：callback看到的是事件參數，被打斷程式的
+	// 暫存器則必須在callback返回後原樣恢復。只FarCall後立刻把控制交回
+	// 主程式，會讓入口的DX座標覆蓋主程式正在保存的值。
+	savedR, savedSeg := c.R, c.Seg
+	savedIP, savedFlags, savedHalted := c.IP, c.Flags, c.Halted
+	c.R[cpu.AX] = event
+	c.R[cpu.BX] = m.Buttons
+	c.R[cpu.CX] = m.X * m.XScale
+	c.R[cpu.DX] = m.Y
+	// Microsoft Mouse Programmer's Reference：SI=vertical、DI=horizontal mickeys。
+	c.R[cpu.SI] = uint16(dy)
+	c.R[cpu.DI] = uint16(dx)
+	c.FarCall(m.CallbackSeg, m.CallbackOff)
+	const callbackBudget = 1_000_000
+	for steps := 0; ; steps++ {
+		if c.Seg[cpu.CS] == savedSeg[cpu.CS] && c.IP == savedIP &&
+			c.R[cpu.SP] == savedR[cpu.SP] {
+			break
+		}
+		if steps >= callbackBudget {
+			c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+			c.SetFlags(savedFlags)
+			return false, fmt.Errorf("int 33h callback %04X:%04X在%d道指令內未返回",
+				m.CallbackSeg, m.CallbackOff, callbackBudget)
+		}
+		if err := d.M.Step(); err != nil {
+			c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+			c.SetFlags(savedFlags)
+			return false, fmt.Errorf("執行int 33h callback %04X:%04X: %w",
+				m.CallbackSeg, m.CallbackOff, err)
+		}
+	}
+	c.R, c.Seg, c.IP, c.Halted = savedR, savedSeg, savedIP, savedHalted
+	c.SetFlags(savedFlags)
+	m.CallbackDispatch++
+	return true, nil
+}
+
 // int16 是 BIOS 鍵盤。
 //
-// ⚠ **遊戲的鍵盤輸入不走這條**——它走 `int 21h AH=3Fh` 讀 handle 0
-// （BASIC 的 `INKEY$`）。`int 16h` 全程只被呼叫 20–40 次，閒置期間完全沒動
-// （`rich2/docs/re/005`「輸入路徑」）。所以這支只要不說謊就好。
+// Rich2 的鍵盤輸入走 `int 21h AH=3Fh`，但其他DOS程式可能使用這條；兩者共用
+// Stdin佇列，讓同一個可重播輸入來源不必知道程式採哪一種介面。
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
-		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
-		c.SetFlags(c.Flags | cpu.ZF)
+		if len(d.Stdin) == 0 {
+			c.R[cpu.AX] = 0
+			return
+		}
+		c.R[cpu.AX] = uint16(d.Stdin[0])
+		d.Stdin = d.Stdin[1:]
+	case 0x01, 0x11: // 查有沒有按鍵：不消耗佇列
+		if len(d.Stdin) == 0 {
+			c.SetFlags(c.Flags | cpu.ZF)
+			return
+		}
+		c.R[cpu.AX] = uint16(d.Stdin[0])
+		c.SetFlags(c.Flags &^ cpu.ZF)
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	default:

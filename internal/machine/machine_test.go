@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -119,6 +120,38 @@ func TestLoadEXEAppliesRelocations(t *testing.T) {
 	}
 }
 
+func TestLoadOverlayUsesSeparateRelocationFactorAndPreservesCPU(t *testing.T) {
+	m := New()
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2222, 0x3333
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x4444, 0x5555
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read16(0x3000*16 + 0x10); got != 0x1234 {
+		t.Fatalf("覆疊重定位後是 %04X，預期 1234", got)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x2222 || m.CPU.IP != 0x3333 ||
+		m.CPU.Seg[cpu.SS] != 0x4444 || m.CPU.R[cpu.SP] != 0x5555 {
+		t.Fatal("覆疊載入改動了呼叫端 CPU 狀態")
+	}
+}
+
+func TestLoadOverlayFailureDoesNotPartiallyOverwriteDestination(t *testing.T) {
+	m := New()
+	const dst = uint32(0x3000 * 16)
+	m.WriteBytes(dst, []byte{0xAA, 0xBB, 0xCC, 0xDD})
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	data[0x1C], data[0x1D] = 0xFF, 0x7F // relocation offset outside image
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err == nil {
+		t.Fatal("越界重定位竟然載入成功")
+	}
+	got := []byte{m.Read8(dst), m.Read8(dst + 1), m.Read8(dst + 2), m.Read8(dst + 3)}
+	if !bytes.Equal(got, []byte{0xAA, 0xBB, 0xCC, 0xDD}) {
+		t.Fatalf("失敗後目的區被部分改寫：% X", got)
+	}
+}
+
 // TestLoadEXERejectsTruncatedImage 釘住「映像被截斷要報錯，不要安靜載入」。
 //
 // `RUN.EXE` 是雙層打包，只剝外層的話會少掉尾端 14%——而那**不會有任何
@@ -185,6 +218,54 @@ func TestMachineIsA80186(t *testing.T) {
 	}
 	if v := m.Read16(cpu.Addr(0x0800, m.CPU.R[cpu.SP])); v != 0xFFFF {
 		t.Errorf("PUSH imm8 推的是 %04X，預期 FFFF（要符號延伸）", v)
+	}
+}
+
+func TestKeyboardIRQ1DeliversScanCodesAndHonorsIF(t *testing.T) {
+	m := New()
+	m.IRQ0Every = 0
+	// in al,60h; mov [0500h],al; iret
+	m.WriteBytes(cpu.Addr(0x0900, 0), []byte{0xE4, 0x60, 0xA2, 0x00, 0x05, 0xCF})
+	m.Write16(0x09*4, 0)
+	m.Write16(0x09*4+2, 0x0900)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0
+	m.CPU.Seg[cpu.DS] = 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x100
+	m.WriteBytes(cpu.Addr(0x0800, 0), []byte{0x90, 0x90, 0x90, 0x90})
+	m.QueueScanCodes(0x01)
+
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read8(0x500); got != 0 {
+		t.Fatalf("IF關閉時送出了掃描碼%02X", got)
+	}
+	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+	for i := 0; i < 4; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := m.Read8(0x500); got != 0x01 {
+		t.Fatalf("IRQ1處理程式讀到%02X，預期01", got)
+	}
+	if got := m.PortsIn[0x60]; got != 1 {
+		t.Fatalf("port 60h讀取%d次，預期1", got)
+	}
+}
+
+func TestKeyboardQueueSurvivesSnapshotRestore(t *testing.T) {
+	m := New()
+	m.QueueScanCodes(0x01, 0x81)
+	s := m.Snapshot()
+	m.keyQueue = nil
+	m.keyData = 0xFF
+	m.Restore(s)
+	if len(m.keyQueue) != 2 || m.keyQueue[0] != 0x01 || m.keyQueue[1] != 0x81 {
+		t.Fatalf("還原後掃描碼佇列=% X", m.keyQueue)
+	}
+	if m.keyData != 0 {
+		t.Fatalf("還原後port 60h資料=%02X，預期00", m.keyData)
 	}
 }
 

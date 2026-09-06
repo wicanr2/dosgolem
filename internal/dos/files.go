@@ -12,10 +12,11 @@ import (
 // 檔案服務：`AH=3Dh` 開、`3Eh` 關、`3Fh` 讀、`42h` seek。
 
 type handle struct {
-	name string
-	path string
-	f    *os.File
-	size int64
+	name     string
+	path     string
+	f        *os.File
+	size     int64
+	writable bool
 }
 
 // resolve 把遊戲組出來的路徑對到實際檔案。
@@ -71,24 +72,74 @@ func (d *DOS) open(c *cpu.CPU) {
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
+		d.noteMissingAccess(c, name)
 		c.R[cpu.AX] = 2 // File not found
 		setCarry(c)
 		return
 	}
-	f, err := os.Open(path)
+	writeAccess := al(c)&3 == 1 || al(c)&3 == 2
+	allowed := writeAccess && d.writableFiles[strings.ToUpper(filepath.Base(path))]
+	var f *os.File
+	var err error
+	if allowed {
+		f, err = os.OpenFile(path, os.O_RDWR, 0)
+	} else {
+		f, err = os.Open(path)
+	}
 	if err != nil {
 		d.Missing = append(d.Missing, name)
+		d.noteMissingAccess(c, name)
 		c.R[cpu.AX] = 2
 		setCarry(c)
 		return
 	}
 	st, _ := f.Stat()
-	h := d.nextHandle
-	d.nextHandle++
-	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
+	h, ok := d.nextFreeHandle()
+	if !ok {
+		_ = f.Close()
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
+	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(), writable: allowed}
 	d.Opened = append(d.Opened, filepath.Base(path))
 	c.R[cpu.AX] = h
 	clearCarry(c)
+}
+
+// nextFreeHandle 回傳PSP預設20-entry JFT中最低可用的檔案handle。
+// DOS會重用已關閉的entry；單調遞增會讓C runtime以handle索引固定表時越界。
+func (d *DOS) nextFreeHandle() (uint16, bool) {
+	for h := uint16(5); h < 20; h++ {
+		if _, used := d.handles[h]; !used {
+			return h, true
+		}
+	}
+	return 0, false
+}
+
+func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {
+	access := FileAccess{Name: name, CS: c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], DX: c.R[cpu.DX], SS: c.Seg[cpu.SS], BP: c.R[cpu.BP]}
+	bp := access.BP
+	for i := range access.Callers {
+		if bp == 0 {
+			break
+		}
+		frame := StackFrame{BP: bp, IP: d.M.Read16(cpu.Addr(access.SS, bp+2)), CS: d.M.Read16(cpu.Addr(access.SS, bp+4))}
+		for j := range frame.Code {
+			frame.Code[j] = d.M.Read8(cpu.Addr(frame.CS, frame.IP-8+uint16(j)))
+		}
+		for j := range frame.Args {
+			frame.Args[j] = d.M.Read16(cpu.Addr(access.SS, bp+6+uint16(j*2)))
+		}
+		access.Callers[i] = frame
+		next := d.M.Read16(cpu.Addr(access.SS, bp))
+		if next <= bp {
+			break
+		}
+		bp = next
+	}
+	d.MissingAccess = append(d.MissingAccess, access)
 }
 
 func (d *DOS) close(c *cpu.CPU) {
@@ -186,6 +237,54 @@ func (d *DOS) seek(c *cpu.CPU) {
 	clearCarry(c)
 }
 
+func (d *DOS) fileAttributes(c *cpu.CPU) {
+	if al(c) != 0 {
+		d.noteCPU(c, 0x21, 0x43, al(c))
+		c.R[cpu.AX] = 1
+		setCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
+	if d.resolve(name) == "" {
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	c.R[cpu.CX] = 0x20 // 一般唯讀研究輸入；DOS archive bit。
+	clearCarry(c)
+}
+
+func (d *DOS) findFirst(c *cpu.CPU) {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
+	path := d.resolve(name)
+	if path == "" {
+		c.R[cpu.AX] = 18 // No more files / no match.
+		setCarry(c)
+		return
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() || st.Size() < 0 || st.Size() > 0xFFFFFFFF {
+		c.R[cpu.AX] = 18
+		setCarry(c)
+		return
+	}
+	base := cpu.Addr(d.dtaSeg, d.dtaOff)
+	d.M.WriteBytes(base, make([]byte, 43))
+	d.M.Write8(base+0x15, 0x20)
+	d.M.Write16(base+0x16, 0)
+	d.M.Write16(base+0x18, 0)
+	size := uint32(st.Size())
+	d.M.Write16(base+0x1A, uint16(size))
+	d.M.Write16(base+0x1C, uint16(size>>16))
+	dosName := strings.ToUpper(filepath.Base(path))
+	if len(dosName) > 12 {
+		dosName = dosName[:12]
+	}
+	d.M.WriteBytes(base+0x1E, append([]byte(dosName), 0))
+	c.R[cpu.AX] = 0
+	clearCarry(c)
+}
+
 // write 是 `AH=40h`。
 //
 // ⚠ **這是程式對我們說話的主要管道**，不是 `AH=09h`。BASIC runtime 的
@@ -193,8 +292,8 @@ func (d *DOS) seek(c *cpu.CPU) {
 // 沒接的話主控台是空的——看起來像「程式什麼都沒說」，
 // 而實際上它正在印錯誤訊息（第一次跑通 CPU 之後就是這個症狀）。
 //
-// **寫檔一律不做。** 原版素材唯讀（`CLAUDE.md`），而 MVP-B 不需要存檔；
-// 真的有人寫檔要看得到，所以記一筆而不是安靜地報成功。
+// **預設寫檔一律不做。** 只有AllowFileWrites逐檔允許且以寫入模式開啟的
+// 覆蓋層handle才實際落地；其他情況維持研究輸入唯讀並記錄寫入企圖。
 func (d *DOS) write(c *cpu.CPU) {
 	bx, cx := c.R[cpu.BX], c.R[cpu.CX]
 	buf := make([]byte, cx)
@@ -208,6 +307,16 @@ func (d *DOS) write(c *cpu.CPU) {
 	default:
 		if h, ok := d.handles[bx]; ok {
 			d.Wrote = append(d.Wrote, Write{Name: h.name, N: int(cx)})
+			if h.writable {
+				n, err := h.f.Write(buf)
+				c.R[cpu.AX] = uint16(n)
+				if err != nil {
+					setCarry(c)
+					return
+				}
+				clearCarry(c)
+				return
+			}
 		} else {
 			d.Wrote = append(d.Wrote, Write{Name: fmt.Sprintf("handle %d", bx), N: int(cx)})
 		}

@@ -13,8 +13,15 @@ import "fmt"
 //
 // ⚠ **要在程式的 `AX=4` 之後叫**，否則會被它蓋掉而且畫面看起來完全正常。
 // 用 Click 的話已經幫你等了。
-func (o *Oracle) MoveMouse(x, y int) {
+func (o *Oracle) MoveMouse(x, y int) error {
+	oldX, oldY := o.d.Mouse.X, o.d.Mouse.Y
 	o.d.Mouse.X, o.d.Mouse.Y = uint16(x), uint16(y)
+	if oldX != o.d.Mouse.X || oldY != o.d.Mouse.Y {
+		if _, err := o.d.MouseEvent(1, int16(o.d.Mouse.X)-int16(oldX), int16(o.d.Mouse.Y)-int16(oldY)); err != nil {
+			return fmt.Errorf("移動滑鼠到 (%d,%d): %w", x, y, err)
+		}
+	}
+	return nil
 }
 
 // Mouse 回目前的游標座標。
@@ -28,6 +35,9 @@ type ClickOpt func(*clickCfg)
 type clickCfg struct {
 	hover, hold, settle uint64
 	watch               func(*Oracle)
+	buttons             uint16
+	pressEvent          uint16
+	releaseEvent        uint16
 }
 
 // Hover 改「移到位置之後、按下之前」等多久。
@@ -47,6 +57,15 @@ func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
 // Settle 改放開之後再跑多久（讓遊戲把回饋畫出來）。
 func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 
+// RightButton 讓Click送Microsoft滑鼠右鍵；未指定時仍是左鍵。
+func RightButton() ClickOpt {
+	return func(c *clickCfg) {
+		c.buttons = 2
+		c.pressEvent = 0x0008
+		c.releaseEvent = 0x0010
+	}
+}
+
 // Click 在某個像素座標點一下：移動 → 按下 → 按住 → 放開 → 等畫面回應。
 //
 // 三件事是實測出來的，每一件的反面都不會報錯：
@@ -58,7 +77,10 @@ func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
 //  3. **回 error**：點了畫面完全沒動要說出來，不要讓呼叫端拿「畫面沒變」
 //     去猜是點錯位置還是遊戲還沒準備好。
 func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
-	cfg := clickCfg{hover: DefaultHover, hold: DefaultHold, settle: DefaultHold}
+	cfg := clickCfg{
+		hover: DefaultHover, hold: DefaultHold, settle: DefaultHold,
+		buttons: 1, pressEvent: 0x0002, releaseEvent: 0x0004,
+	}
 	for _, f := range opts {
 		f(&cfg)
 	}
@@ -69,7 +91,9 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	}
 
 	before := o.Indexed()
-	o.MoveMouse(x, y)
+	if err := o.MoveMouse(x, y); err != nil {
+		return err
+	}
 	// ⚠ **移到位置之後要先停一下再按。**
 	//
 	// 頂端按鈕列是 hover-based：游標移過去先反白，反白之後的點擊才算數。
@@ -82,13 +106,19 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 1
+	o.d.Mouse.Buttons = cfg.buttons
 	o.d.Mouse.Press++
+	if _, err := o.d.MouseEvent(cfg.pressEvent, 0, 0); err != nil {
+		return fmt.Errorf("點 (%d,%d) 按下事件：%w", x, y, err)
+	}
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
 	o.d.Mouse.Buttons = 0
 	o.d.Mouse.Release++
+	if _, err := o.d.MouseEvent(cfg.releaseEvent, 0, 0); err != nil {
+		return fmt.Errorf("點 (%d,%d) 放開事件：%w", x, y, err)
+	}
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
@@ -124,6 +154,39 @@ func (o *Oracle) Type(s string) {
 
 // Pending 回還沒被讀走的鍵數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
+
+// Key 是IBM PC/AT鍵盤Set 1的make掃描碼。
+type Key uint8
+
+const (
+	// KeyEscape 是Esc鍵。
+	KeyEscape Key = 0x01
+	// KeyEnter 是主鍵盤Enter鍵。
+	KeyEnter Key = 0x1C
+	// KeyDown 是向下方向鍵。
+	KeyDown Key = 0x50
+	// KeyUp 是向上方向鍵；KeyPageUp是數字鍵盤右轉鍵。
+	KeyUp     Key = 0x48
+	KeyPageUp Key = 0x49
+	// 目前EOB1具名姓名fixture使用的字母鍵。
+	KeyA Key = 0x1E
+	KeyB Key = 0x30
+	KeyD Key = 0x20
+	KeyE Key = 0x12
+	KeyF Key = 0x21
+	KeyG Key = 0x22
+	KeyL Key = 0x26
+	KeyM Key = 0x32
+	KeyT Key = 0x14
+	KeyZ Key = 0x2C
+)
+
+// PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。
+// 這供自行掛接int 09h的遊戲使用；Type的既有語意維持不變。
+func (o *Oracle) PressKey(key Key) {
+	makeCode := uint8(key)
+	o.m.QueueScanCodes(makeCode, makeCode|0x80)
+}
 
 // runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
 func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {
