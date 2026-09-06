@@ -458,3 +458,23 @@ func (o *Oracle) StackWord(i int) uint16 {
 
 // AX 讀回傳值所在的暫存器。BASIC 的函式用它回傳整數。
 func (o *Oracle) AX() uint16 { return o.m.CPU.R[cpu.AX] }
+
+// BX／CX／DX／SI／DI／BP 讀通用暫存器。
+//
+// 用途是**在中途的位址上讀出程式算到一半的東西**——`OnCall` 的 hook
+// 在 `CS:IP` 走到任何位址時都會觸發，不限於函式進入點，所以
+// 「這個索引是多少」「這根指標指到哪」可以直接問，不必從結果反推。
+func (o *Oracle) BX() uint16 { return o.m.CPU.R[cpu.BX] }
+func (o *Oracle) CX() uint16 { return o.m.CPU.R[cpu.CX] }
+func (o *Oracle) DX() uint16 { return o.m.CPU.R[cpu.DX] }
+func (o *Oracle) SI() uint16 { return o.m.CPU.R[cpu.SI] }
+func (o *Oracle) DI() uint16 { return o.m.CPU.R[cpu.DI] }
+func (o *Oracle) BP() uint16 { return o.m.CPU.R[cpu.BP] }
+
+// ES 讀附加段。表的位址多半是「段來自變數、位移寫死在指令裡」，
+// 段與位移都要才算得出線性位址。
+//
+// （`DS` 這個名字已經被 `Oracle.DS(off)` 佔了——那是「用 DGROUP 的段
+// 造一個位址」，不是讀暫存器。要讀 DS 暫存器用 `DSReg`。）
+func (o *Oracle) ES() uint16    { return o.m.CPU.Seg[cpu.ES] }
+func (o *Oracle) DSReg() uint16 { return o.m.CPU.Seg[cpu.DS] }
