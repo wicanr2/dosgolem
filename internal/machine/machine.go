@@ -47,6 +47,10 @@ const (
 // **而且沒有任何錯誤訊息**。
 const mouseStubOff = 0x10
 
+// biosTimerOff 是 `int 08h` 的 BIOS 預設處理在 StubSeg 裡的位移
+// （推進 `0040:006C` 再轉呼 `int 1Ch`，見 initVectors）。
+const biosTimerOff = 0x20
+
 // DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
 //
 // 真機是 18.2 Hz（55 ms）。以 DOSBox 預設的 3,000 cycles/ms 換算大約
@@ -340,6 +344,17 @@ func (m *Machine) Step() error {
 // **這是指令數模型，不是時間模型。** 拿執行過的指令數當時鐘，
 // 好處是對拍完全決定性（同樣的輸入永遠得到同樣的畫面）；
 // 代價是動畫速度與真機不同。週期精確的時序在 M2（`docs/spec/004` §5）。
+//
+// 送法永遠是走向量表（向量 8 預設指向 StubSeg 的 BIOS stub，見
+// initVectors）：**BIOS 的預設動作（推進 0040:006C、轉呼 int 1Ch）
+// 本身就是向量指向的那段 stub 程式碼**。程式裝了自己的 int 08h 時
+// 存起來的「舊向量」就是這個 stub，它 chain 回去 BIOS 行為就還在——
+// 不 chain 的話 1Ch 與 BDA 計數停下來，那與真機一致。
+//
+// 舊版反過來做（程式裝了 08h 就不做 BIOS 的事），結果是：FMDRV.COM
+// 掛了 int 08h 之後 OPEN.EXE 掛在 int 1Ch 的動畫計數永遠不動，
+// 開場停在 GRPDRV 的重畫迴圈裡（`docs/spec/008` §4、
+// yuan/workplace/boot-20260906-02）。
 func (m *Machine) tick() {
 	if m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0 {
 		m.nextIRQ0 = m.Steps + m.IRQ0Every
@@ -352,32 +367,7 @@ func (m *Machine) tick() {
 	}
 	m.irq0Pending = false
 	m.Ticks++
-	m.bumpBDATicks()
-
-	// 程式自己裝了 `int 08h` 就跑它的。
-	if m.Read16(0x08*4+2) != StubSeg {
-		m.CPU.Interrupt(0x08)
-		return
-	}
-	// 否則做 BIOS 預設的事：更新計數之後轉呼 `int 1Ch`（那是給應用程式的
-	// 掛鉤點，只裝 `1Ch` 不裝 `08h` 的程式很多）。
-	if m.Read16(0x1C*4+2) != StubSeg {
-		m.CPU.Interrupt(0x1C)
-	}
-}
-
-// bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
-// 有些程式直接讀它算時間，不裝任何 ISR。
-func (m *Machine) bumpBDATicks() {
-	const at = 0x0040*16 + 0x6C
-	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
-	v++
-	if v >= 0x001800B0 { // 一天的 tick 數
-		v = 0
-		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
-	}
-	m.Write16(at, uint16(v))
-	m.Write16(at+2, uint16(v>>16))
+	m.CPU.Interrupt(0x08)
 }
 
 // ---- 中斷向量表 ----------------------------------------------------------
@@ -389,14 +379,32 @@ func (m *Machine) bumpBDATicks() {
 //  1. **每一個向量都要是合法位址。** 取到 `0000:0000` 的程式跳過去會執行
 //     到垃圾（`rich2/docs/re/005` §3.2）。
 //  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
+//
+// 另外 `int 08h` 指向一段真的 BIOS 預設處理（biosTimerOff）：
+// 推進 `0040:006C` 再轉呼 `int 1Ch`。程式裝自己的 int 08h 時存下的
+// 「舊向量」就是它，chain 回來 BIOS 行為就在（見 tick 的註解）。
+// 跨日重置（0040:0070）不做——24 小時才會到，對拍跑不到。
 func (m *Machine) initVectors() {
 	m.Mem[StubSeg*16] = 0xCF                // iret
 	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
 	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
+
+	// BIOS int 08h stub：
+	//	mov ax,40h / mov es,ax / inc word es:[6Ch] / jnz +3 /
+	//	inc word es:[6Eh] / int 1Ch / iret
+	m.WriteBytes(StubSeg*16+biosTimerOff, []byte{
+		0xB8, 0x40, 0x00, 0x8E, 0xC0,
+		0x26, 0xFF, 0x06, 0x6C, 0x00,
+		0x75, 0x03,
+		0x26, 0xFF, 0x06, 0x6E, 0x00,
+		0xCD, 0x1C,
+		0xCF,
+	})
+
 	for v := 0; v < 256; v++ {
 		m.Write16(uint32(v)*4, 0)
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
+	m.Write16(0x08*4, biosTimerOff)
 	m.Write16(0x33*4, mouseStubOff)
-	m.Write16(0x33*4+2, StubSeg)
 }

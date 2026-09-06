@@ -199,6 +199,11 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.Calls[Call{Int: n, AH: uint8(c.R[cpu.AX] >> 8)}]++
 	}
 	switch n {
+	case 0x08, 0x1C:
+		// 計時器中斷鏈上的空 stub。向量還在 StubSeg ＝ 沒人裝，
+		// 它的語意就是 IRET——**不記一筆**，否則每次 tick 都會
+		// 洗出一筆假的「未實作」（BIOS int 08h stub 每 tick 都
+		// 轉呼 int 1Ch，見 machine.initVectors）。
 	case 0x21:
 		d.int21(c)
 	case 0x10:
