@@ -45,6 +45,44 @@ func TestFD2StartupDOSOpenReadOnly(t *testing.T) {
 	}
 }
 
+func TestFD2StartupDOSDeviceInformation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "MDI.INI"), []byte("driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { provider.Close() })
+	bus := startupBus(make([]byte, 0x100))
+	copy(bus[0x20:], []byte("MDI.INI\x00"))
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x160
+	c.SetDescriptor(0x160, cpu386.Descriptor{Limit: 0xff})
+	s := NewFD2StartupDOS(provider)
+	t.Cleanup(func() { s.Close() })
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0x3d00, 0x20
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 5 || c.EFlags&cpu386.CF != 0 {
+		t.Fatalf("open EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.EDX], c.EFlags = 0x4400, 5, 0xa5a5ffff, cpu386.CF
+	if !s.Handle(c, 0x21) || c.R[cpu386.EDX] != 0xa5a50000 || c.EFlags&cpu386.CF != 0 {
+		t.Fatalf("device info EAX=%X EDX=%X flags=%X", c.R[cpu386.EAX], c.R[cpu386.EDX], c.EFlags)
+	}
+
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.EFlags = 0x4400, 6, 0
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 6 || c.EFlags&cpu386.CF == 0 {
+		t.Fatalf("invalid handle EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.EFlags = 0x4401, 5, 0
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 1 || c.EFlags&cpu386.CF == 0 {
+		t.Fatalf("unsupported IOCTL EAX=%X flags=%X", c.R[cpu386.EAX], c.EFlags)
+	}
+}
+
 type startupBus []byte
 
 func (b startupBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }
