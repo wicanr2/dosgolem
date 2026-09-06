@@ -93,6 +93,10 @@ type Machine struct {
 	oplTimerRunning bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
+	// ega 是平面式 VRAM（`docs/spec/007`）。沒有它的話四個平面的寫入
+	// 互相蓋掉，只剩最後一個——症狀不是壞掉，是「一張正常但錯的圖」。
+	ega *ega
+
 	Ports   map[uint16]uint8
 	PortLog []PortWrite
 
@@ -144,6 +148,7 @@ type Machine struct {
 func New() *Machine {
 	m := &Machine{
 		Mem:       make([]uint8, MemSize),
+		ega:       newEGA(),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
@@ -169,6 +174,11 @@ func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
 	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
 		m.onWrite(a, m.Mem[a], v)
+	}
+	// A0000 段照舊寫 Mem（線性檢視），**另外**分到 Map Mask 打開的平面上。
+	// 兩份都留：線性那份給「有沒有寫過」的粗判，平面那份才是真的畫面。
+	if a >= egaVRAMBase && a < egaVRAMEnd {
+		m.ega.write(a, v)
 	}
 	m.Mem[a] = v
 }
@@ -251,6 +261,10 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	if p == 0x3C4 || p == 0x3C5 {
+		m.ega.outSequencer(p, v)
+	}
 
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
 	// 單看其中一個看不出寫了什麼。

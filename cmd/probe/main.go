@@ -47,6 +47,9 @@ func main() {
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	dumpEGA := flag.String("dump-ega", "",
+		"把平面式 VRAM 存成 PNG：<寬>x<高>=<檔名>（例 640x350=t.png）。\n"+
+			"    平面資料本身不記解析度，尺寸猜錯會得到錯位但看起來像圖的東西。")
 	dumpMem := flag.String("dump-mem", "",
 		"把記憶體寫成檔：<seg>:<off>:<長度>[,...]=<檔名前綴>。\n"+
 			"    -peek 只吃 IDA 線性位址，換算不到執行期搬過去的段。")
@@ -159,6 +162,11 @@ func main() {
 	if blockedStop {
 		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
 			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
+	}
+	if *dumpEGA != "" {
+		if err := doDumpEGA(m, *dumpEGA); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-ega:", err)
+		}
 	}
 	if *dumpMem != "" {
 		if err := doDumpMem(m, *dumpMem); err != nil {
@@ -596,5 +604,53 @@ func doDumpMem(m *machine.Machine, spec string) error {
 		}
 		fmt.Printf("dump %04X:%04X %d bytes → %s\n", seg, off, n, name)
 	}
+	return nil
+}
+
+// egaPalette 是 EGA 的 16 色預設調色盤（6 位元 RGB 展開成 8 位元）。
+//
+// **這不是遊戲的調色盤**——遊戲會自己設 EGA 的 palette 暫存器。
+// 這裡用預設值只為了讓 dump 出來的圖看得懂；要對拍顏色得另外把
+// 那些暫存器的寫入攔下來。
+var egaPalette = [16][3]uint8{
+	{0, 0, 0}, {0, 0, 170}, {0, 170, 0}, {0, 170, 170},
+	{170, 0, 0}, {170, 0, 170}, {170, 85, 0}, {170, 170, 170},
+	{85, 85, 85}, {85, 85, 255}, {85, 255, 85}, {85, 255, 255},
+	{255, 85, 85}, {255, 85, 255}, {255, 255, 85}, {255, 255, 255},
+}
+
+// doDumpEGA 把平面式 VRAM 依指定尺寸組成 PNG。
+func doDumpEGA(m *machine.Machine, spec string) error {
+	parts := strings.SplitN(spec, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("格式是 <寬>x<高>=<檔名>")
+	}
+	var w, h int
+	if _, err := fmt.Sscanf(parts[0], "%dx%d", &w, &h); err != nil {
+		return fmt.Errorf("尺寸 %q 解不出來：%w", parts[0], err)
+	}
+	idx := m.IndexedEGASize(w, h)
+	if idx == nil {
+		return fmt.Errorf("%dx%d 放不進平面（寬要是 8 的倍數）", w, h)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	nonZero := 0
+	for i, v := range idx {
+		c := egaPalette[v&0x0F]
+		img.SetRGBA(i%w, i/w, color.RGBA{c[0], c[1], c[2], 255})
+		if v != 0 {
+			nonZero++
+		}
+	}
+	f, err := os.Create(parts[1])
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return err
+	}
+	fmt.Printf("EGA %dx%d → %s（%d/%d 個非零像素，Map Mask 曾動過＝%v）\n",
+		w, h, parts[1], nonZero, len(idx), m.EGAPlanarActive())
 	return nil
 }
