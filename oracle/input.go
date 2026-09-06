@@ -1,6 +1,10 @@
 package oracle
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/wicanr2/dosgolem/internal/dos"
+)
 
 // 輸入（`docs/spec/005` §4）。
 //
@@ -120,6 +124,23 @@ func (e *NoResponseError) Error() string {
 // （`rich2/docs/re/005`「輸入路徑」）。
 func (o *Oracle) Type(s string) {
 	o.d.Stdin = append(o.d.Stdin, []byte(s)...)
+}
+
+// Press 同時餵**兩條路**：DOS／BIOS 的字元佇列，與硬體鍵盤的掃描碼。
+//
+// ⚠ **只餵其中一條會得到「程式沒反應」而不是錯誤。** 同一個程式的不同
+// 階段可以走不同的路：三國演義的開機三題走 `int 21h` 讀 handle 0，
+// 載完資料之後的主選單改看掃描碼——`Type` 塞的字元從那裡開始就沒人取，
+// 而畫面上看起來只是「按了沒反應」。
+//
+// 分不出該用哪一條的時候就用 `Press`。
+func (o *Oracle) Press(s string) {
+	o.d.Stdin = append(o.d.Stdin, []byte(s)...)
+	for _, b := range []byte(s) {
+		if sc, ok := dos.ScanCode(b); ok {
+			o.m.PushKey(sc)
+		}
+	}
 }
 
 // Pending 回還沒被讀走的鍵數。
