@@ -2,6 +2,7 @@ package cpu386
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 )
@@ -692,6 +693,37 @@ func TestDecrementAbsoluteDword(t *testing.T) {
 	c.EFlags = CF | OF
 	if err := c.Step(); err == nil || !bytes.Equal(mem[0x20:0x24], []byte{1, 0, 0, 0}) || c.EFlags != CF|OF {
 		t.Fatalf("read-only DEC value=% X flags=%X err=%v", mem[0x20:0x24], c.EFlags, err)
+	}
+}
+
+func TestDecrementDwordAtBaseDisp8(t *testing.T) {
+	mem := testBus(make([]byte, 0x60))
+	copy(mem, []byte{0xff, 0x4b, 0xfc})
+	copy(mem[0x2c:], []byte{1, 0, 0, 0})
+	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f, Writable: true})
+	c.R[EBX], c.EFlags = 0x30, CF
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x2c:0x30], []byte{0, 0, 0, 0}) || c.EFlags&ZF == 0 || c.EFlags&CF == 0 {
+		t.Fatalf("DEC value=% X flags=%X err=%v", mem[0x2c:0x30], c.EFlags, err)
+	}
+
+	copy(mem[0x2c:], []byte{0, 0, 0, 0x80})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f, Writable: true})
+	c.R[EBX] = 0x30
+	if err := c.Step(); err != nil || binary.LittleEndian.Uint32(mem[0x2c:0x30]) != 0x7fffffff || c.EFlags&OF == 0 {
+		t.Fatalf("DEC overflow value=%X flags=%X err=%v", binary.LittleEndian.Uint32(mem[0x2c:0x30]), c.EFlags, err)
+	}
+
+	copy(mem[0x2c:], []byte{1, 0, 0, 0})
+	c = New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x5f})
+	c.R[EBX] = 0x30
+	if err := c.Step(); err == nil || binary.LittleEndian.Uint32(mem[0x2c:0x30]) != 1 {
+		t.Fatalf("read-only DEC value=%X err=%v", binary.LittleEndian.Uint32(mem[0x2c:0x30]), err)
 	}
 }
 

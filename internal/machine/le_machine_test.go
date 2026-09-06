@@ -1523,3 +1523,28 @@ func TestFD2EntersBoundedLineReadLoop(t *testing.T) {
 		t.Fatalf("bounded line read gate steps=%d EIP=%X ESI=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.EFlags)
 	}
 }
+
+func TestFD2DecrementsFgetcBufferCount(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d9e4; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("fgetc count setup: step=%d EIP=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBX] + 4
+	if uint64(addr)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("fgetc count address=%X 超界", addr)
+	}
+	before := binary.LittleEndian.Uint32(m.Mem[addr : addr+4])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("fgetc count DEC: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	after := binary.LittleEndian.Uint32(m.Mem[addr : addr+4])
+	if m.CPU.EIP != 0x3d9e7 || after != before-1 {
+		t.Fatalf("fgetc count steps=%d EIP=%X before=%X after=%X", steps, m.CPU.EIP, before, after)
+	}
+}
