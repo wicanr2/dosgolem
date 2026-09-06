@@ -1652,6 +1652,20 @@ func (c *CPU) Step() error {
 			if !c.writeSegment32(c.Seg[SegSS], addr, source) {
 				return fail(fmt.Sprintf("stack dword write %04X:%08X 未處理", c.Seg[SegSS], addr))
 			}
+		} else if modrm>>6 == 2 && modrm&7 != ESP && segmentOverride < 0 {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, source) {
+				return fail(fmt.Sprintf("base+disp32 dword write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
 			if e != nil {

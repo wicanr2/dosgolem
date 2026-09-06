@@ -842,3 +842,17 @@ func TestFD2EntersAILHandlerGate(t *testing.T) {
 		t.Fatalf("AIL handler gate steps=%d EIP=%X calls=%d depth=%d err=%v", steps, m.CPU.EIP, services.Calls(), depth, errDepth)
 	}
 }
+
+func TestFD2StoresAILIndexedTableEntry(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f05f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL indexed table: step=%d EIP=%X EBX=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	value, errValue := m.Read32(0x52b50)
+	if m.CPU.EIP != 0x3f05f || services.Calls() != 5 || value != 0xd68d || errValue != nil {
+		t.Fatalf("AIL indexed table steps=%d EIP=%X calls=%d value=%X err=%v", steps, m.CPU.EIP, services.Calls(), value, errValue)
+	}
+}
