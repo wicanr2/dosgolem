@@ -2076,3 +2076,29 @@ func TestFD2LoadsINIRadixDigitCandidate(t *testing.T) {
 		t.Fatalf("INI radix digit steps=%d EIP=%X ESI=%X want=%X EBX=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], want, m.CPU.R[cpu386.EBX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2LoadsCurrentINIInputByte(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 15000 && m.CPU.EIP != 0x3f2ac; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI input byte setup: step=%d EIP=%X EDI=%X EBP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EDI] + m.CPU.R[cpu386.EBP]
+	if uint64(addr) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI input byte address=%X 超界", addr)
+	}
+	want := m.Mem[addr]
+	beforeEAX, beforeEDI, beforeEBP, beforeFlags := m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI input byte MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	wantEAX := beforeEAX&0xffffff00 | uint32(want)
+	if m.CPU.EIP != 0x3f2af || m.CPU.R[cpu386.EAX] != wantEAX || m.CPU.R[cpu386.EDI] != beforeEDI || m.CPU.R[cpu386.EBP] != beforeEBP || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("INI input byte steps=%d EIP=%X EAX=%X want=%X EDI=%X EBP=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], wantEAX, m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP], m.CPU.EFlags)
+	}
+}
