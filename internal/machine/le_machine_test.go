@@ -1301,3 +1301,25 @@ func TestFD2ConsumesDOSOpenCarry(t *testing.T) {
 		t.Fatalf("DOS open carry steps=%d EIP=%X EAX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, services.HasHandle(handle))
 	}
 }
+
+func TestFD2StoresOpenedHandle(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3cd85; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DOS handle store: step=%d EIP=%X EAX=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, err)
+		}
+	}
+	addr := m.CPU.R[cpu386.EBP] - 8
+	if uint64(addr)+4 > uint64(len(m.Mem)) {
+		t.Fatalf("DOS handle store address=%X 超界", addr)
+	}
+	value := binary.LittleEndian.Uint32(m.Mem[addr : addr+4])
+	handle := uint16(value)
+	if m.CPU.EIP != 0x3cd85 || value != uint32(handle) || !services.HasHandle(handle) {
+		t.Fatalf("DOS handle store steps=%d EIP=%X value=%X handle=%t", steps, m.CPU.EIP, value, services.HasHandle(handle))
+	}
+}

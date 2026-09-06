@@ -1662,6 +1662,21 @@ func TestMOVZXAbsoluteDSWord(t *testing.T) {
 	}
 }
 
+func TestMOVZXRegisterWord(t *testing.T) {
+	flags := uint32(CF | PF | AF | ZF | SF | OF)
+	c := New(testBus{0x0f, 0xb7, 0xc3})
+	c.R[EAX], c.R[EBX], c.EFlags = 0xffffffff, 0xa5a5127f, flags
+	if err := c.Step(); err != nil || c.R[EAX] != 0x127f || c.R[EBX] != 0xa5a5127f || c.EFlags != flags {
+		t.Fatalf("MOVZX EAX=%X EBX=%X flags=%X err=%v", c.R[EAX], c.R[EBX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x0f, 0xb7, 0xc0})
+	c.R[EAX], c.EFlags = 0xffff8001, flags
+	if err := c.Step(); err != nil || c.R[EAX] != 0x8001 || c.EFlags != flags {
+		t.Fatalf("MOVZX same register EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestMOVZXByteFromESI(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x0f, 0xb6, 0x16})
