@@ -33,8 +33,9 @@ func main() {
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
-	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔，"+
-		"格式 <IDA 線性位址>:<長度> 或 ds:<偏移>:<長度>")
+	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔。格式："+
+		"<段>:<偏移>:<長度>（軌跡印的形式）、lin:<執行期線性>:<長度>、"+
+		"ds:<偏移>:<長度>，或 <IDA 線性位址>:<長度>（rich2 專用，會減 IDAOffset）")
 	find := flag.String("find", "", "跑完之後在 1 MB 記憶體裡找這串 hex bytes，"+
 		"印出所有命中的線性位址（除錯壞指標用）")
 	mouseX := flag.Int("mouse-x", -1, "滑鼠要移到的像素 X（−1 ＝ 不動）")
@@ -279,6 +280,8 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX])
 	fmt.Printf("DS=%04X ES=%04X SS:SP=%04X:%04X  視訊模式 %02Xh\n",
 		c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.R[cpu.SP], m.VideoMode())
+	fmt.Printf("planar write mode 使用次數：0=%d 1=%d 2=%d 3=%d\n",
+		m.WriteModeUse[0], m.WriteModeUse[1], m.WriteModeUse[2], m.WriteModeUse[3])
 	if len(m.ModeChanges) > 0 {
 		fmt.Printf("模式切換記錄（%d 次）：", len(m.ModeChanges))
 		for _, mc := range m.ModeChanges {
@@ -491,6 +494,13 @@ func dumpPeek(m *machine.Machine, spec string) {
 		var n int
 		var label string
 		switch {
+		case len(f) == 3 && f[0] == "lin":
+			// 執行期線性位址，不做任何換算。IDA 那條路是 per-binary 的
+			// （IDAOffset 是 rich2 的），別的程式要看記憶體走這條。
+			lin, _ := strconv.ParseUint(f[1], 16, 32)
+			n, _ = strconv.Atoi(f[2])
+			addr = uint32(lin)
+			label = fmt.Sprintf("lin:%s", strings.ToUpper(f[1]))
 		case len(f) == 3 && f[0] == "ds":
 			off, _ := strconv.ParseUint(f[1], 16, 16)
 			n, _ = strconv.Atoi(f[2])
@@ -501,6 +511,13 @@ func dumpPeek(m *machine.Machine, spec string) {
 			n, _ = strconv.Atoi(f[1])
 			addr = uint32(ida) - IDAOffset
 			label = fmt.Sprintf("IDA %s", strings.ToUpper(f[0]))
+		case len(f) == 3:
+			// 段:偏移:長度——軌跡印出來的就是這個形式，直接貼進來。
+			seg, _ := strconv.ParseUint(f[0], 16, 16)
+			off, _ := strconv.ParseUint(f[1], 16, 16)
+			n, _ = strconv.Atoi(f[2])
+			addr = uint32(seg)*16 + uint32(off)
+			label = fmt.Sprintf("%s:%s", strings.ToUpper(f[0]), strings.ToUpper(f[1]))
 		default:
 			fmt.Printf("  %s：格式看不懂\n", item)
 			continue

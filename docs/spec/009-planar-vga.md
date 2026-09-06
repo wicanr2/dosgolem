@@ -82,7 +82,8 @@
 | 項 | 狀態 | 觸發條件 |
 |---|---|---|
 | read mode 1（color compare） | 回 plane 值＋記錄 | 有程式用 |
-| write mode 3 | 照 mode 0 實作 | 有程式用 |
+| write mode 3 | **已實作**（[`010`](010-exec-memory-reclaim-and-planar-write-modes.md) §2）| — |
+| enable set/reset（gc[1]）| **已實作**（[`010`](010-exec-memory-reclaim-and-planar-write-modes.md) §3）| — |
 | CRTC（3D4/3D5）視窗位移、雙倍掃描 | 不實作（dump 假設線性 plane、原尺寸）| 畫面對拍發現位移/縮放 |
 | 模式切換清 plane | 不清 | 殘影造成對拍差異 |
 | 屬性控制器（3C0）與 16 色 palette 對映 | 不實作，DAC 直接當 256 色用 | 16 色畫面顏色錯 |

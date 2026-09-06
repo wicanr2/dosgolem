@@ -168,3 +168,45 @@ func TestEMMDeviceOpensAndCloses(t *testing.T) {
 		t.Error("關 EMMXXXX0 失敗")
 	}
 }
+
+// TestChildExitReclaimsMemory：子程式結束時，它名下的記憶體要還給系統
+// （`docs/spec/010` §1）。
+//
+// 不還的後果不會當場出現：下一支 EXEC 進來的程式只是被載得比較高，
+// 一切照跑，直到它向 DOS 要一塊大記憶體要不到為止——而那時距離
+// EXEC 已經兩千多萬道指令，看起來完全像另一件事。
+func TestChildExitReclaimsMemory(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "CHILD.EXE"), buildChildMZ(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.WriteBytes(0x50000, append([]byte("child.exe"), 0))
+
+	before := d.freeSeg
+	c := m.CPU
+	c.Seg[cpu.DS] = 0x5000
+	c.R[cpu.DX] = 0
+	c.Seg[cpu.ES] = 0x5000
+	c.R[cpu.BX] = 0x0100
+	call(m, d, 0x21, 0x4B00)
+	if d.freeSeg <= before {
+		t.Fatalf("EXEC 之後配置游標要往上走：%04X → %04X", before, d.freeSeg)
+	}
+	for i := 0; i < 100 && !d.Exited && len(d.execStack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.execStack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+	if d.freeSeg != before {
+		t.Errorf("子程式結束後配置游標 ＝ %04X，預期退回 %04X", d.freeSeg, before)
+	}
+	// 回收之後，下一支子程式要能載回同一個位置。
+	call(m, d, 0x21, 0x4B00)
+	if d.curPSP != before+1 {
+		t.Errorf("第二支子程式的 PSP ＝ %04X，預期 %04X（沒有真的回收）",
+			d.curPSP, before+1)
+	}
+}

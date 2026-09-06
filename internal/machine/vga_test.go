@@ -122,3 +122,58 @@ func TestMode13Unaffected(t *testing.T) {
 		t.Error("mode 13h 不該動到 plane")
 	}
 }
+
+// TestPlanarWriteMode3MasksWithCPUByte：write mode 3 的 CPU 位元組是
+// **遮罩**，顏色來自 set/reset（`docs/spec/010` §2）。
+//
+// 當成 mode 0 處理的話字形只會剩零星像素——而且不會報錯，只是字變醜，
+// 很容易被當成「字型解碼還沒做完」而往錯的方向查。
+func TestPlanarWriteMode3MasksWithCPUByte(t *testing.T) {
+	m := newPlanar()
+	m.seq[2] = 0x0F
+	m.gc[5] = 3    // write mode 3
+	m.gc[0] = 0x09 // set/reset：plane 0 與 3 給 1
+	m.gc[8] = 0xFF // 位元遮罩全開
+	m.Write8(0xA0000, 0xC3)
+	want := [4]uint8{0xC3, 0x00, 0x00, 0xC3}
+	for p := 0; p < 4; p++ {
+		if m.vram[p][0] != want[p] {
+			t.Errorf("plane %d ＝ %02X，預期 %02X（CPU byte 是遮罩，顏色來自 gc[0]）",
+				p, m.vram[p][0], want[p])
+		}
+	}
+}
+
+// TestPlanarWriteMode3AndsBitmaskRegister：有效遮罩是「旋轉後的 CPU
+// 位元組 AND 位元遮罩暫存器」，兩者缺一都會多畫或少畫。
+func TestPlanarWriteMode3AndsBitmaskRegister(t *testing.T) {
+	m := newPlanar()
+	m.seq[2] = 0x01
+	m.gc[5] = 3
+	m.gc[0] = 0x01 // plane 0 給 1
+	m.gc[8] = 0x0F // 只准動低 4 位
+	m.Write8(0xA0000, 0xFF)
+	if m.vram[0][0] != 0x0F {
+		t.Errorf("plane 0 ＝ %02X，預期 0F（gc[8] 沒有被 AND 進去）", m.vram[0][0])
+	}
+}
+
+// TestPlanarMode0EnableSetReset：mode 0 下 gc[1] 選中的 plane 資料
+// 來自 gc[0]，不是 CPU 位元組（`docs/spec/010` §3）。
+//
+// 沒實作等於把 gc[1] 當永遠是 0：大面積填色會整片填成錯的色號，
+// 而每一個像素本身都「有畫到」，所以看起來只是顏色怪，不像 bug。
+func TestPlanarMode0EnableSetReset(t *testing.T) {
+	m := newPlanar()
+	m.seq[2] = 0x0F
+	m.gc[5] = 0
+	m.gc[1] = 0x03 // plane 0/1 走 set/reset
+	m.gc[0] = 0x01 // plane 0 給 1、plane 1 給 0
+	m.Write8(0xA0000, 0xFF)
+	want := [4]uint8{0xFF, 0x00, 0xFF, 0xFF}
+	for p := 0; p < 4; p++ {
+		if m.vram[p][0] != want[p] {
+			t.Errorf("plane %d ＝ %02X，預期 %02X", p, m.vram[p][0], want[p])
+		}
+	}
+}

@@ -18,14 +18,17 @@ type execFrame struct {
 	regs       cpu.CPU // 完整暫存器組（IP 已指在 int 21h 之後）
 	psp        uint16  // 父程式的 PSP（回來時還原 curPSP）
 	handleBase uint16  // 子程式結束時關掉 >= 這個值的 handle
+	freeSeg    uint16  // EXEC 之前的配置游標（子程式結束時還原）
 	ivt        [3][2]uint16
 }
 
 // exec 是 `AX=4B00h`：載入並執行子程式。
 //
-// **記憶體不做快照還原**——隔離靠 bump 配置器（子程式載在父程式之上），
+// **記憶體內容不做快照還原**——隔離靠 bump 配置器（子程式載在父程式之上），
 // 子程式對視訊記憶體／IVT 的寫入保留，這符合真 DOS（畫面不會因程式結束
 // 而消失）。代價是子程式踩父程式空間不會被擋（spec §6，有證據再說）。
+// **但配置游標會在子程式結束時退回**（`docs/spec/010` §1）——那是所有權
+// 回收，不是內容還原，兩件事不一樣。
 func (d *DOS) exec(c *cpu.CPU) {
 	if al(c) != 0x00 {
 		d.note(0x21, 0x4B, al(c))
@@ -73,7 +76,7 @@ func (d *DOS) exec(c *cpu.CPU) {
 	fcb1Off, fcb1Seg := d.M.Read16(pb+6), d.M.Read16(pb+8)
 	fcb2Off, fcb2Seg := d.M.Read16(pb+10), d.M.Read16(pb+12)
 
-	f := execFrame{regs: *c, psp: d.curPSP, handleBase: d.nextHandle}
+	f := execFrame{regs: *c, psp: d.curPSP, handleBase: d.nextHandle, freeSeg: d.freeSeg}
 	for i, n := range []uint8{0x22, 0x23, 0x24} { // DOS 保管的三個向量
 		f.ivt[i][0] = d.M.Read16(uint32(n) * 4)
 		f.ivt[i][1] = d.M.Read16(uint32(n)*4 + 2)
@@ -140,6 +143,11 @@ func (d *DOS) childExit(c *cpu.CPU, code uint8) {
 	f.regs.SetFlags(f.regs.Flags &^ cpu.CF) // EXEC 成功
 	*c = f.regs
 	d.curPSP = f.psp
+	// 子程式名下的記憶體要還給系統（`docs/spec/010` §1）。真 DOS 的
+	// AH=4Ch 會釋放該 PSP 擁有的所有 MCB；bump 配置器只升不降的話，
+	// 下一支 EXEC 進來的程式會被載到不該有的高段——而且它自己完全
+	//察覺不到，只有在向 DOS 要不到記憶體時才顯現。
+	d.freeSeg = f.freeSeg
 }
 
 // getReturnCode 是 `AH=4Dh`：AL ＝ 子程式結束碼、AH ＝ 結束方式（0 ＝ 正常）。

@@ -15,12 +15,15 @@ func (m *Machine) planarVideo() bool {
 	return false
 }
 
-// planarWrite 實作 VGA GC 的寫路徑。
+// planarWrite 實作 VGA GC 的寫路徑（`docs/spec/010` §1）。
+//
+// 四種 write mode 的差別只在「每個 plane 拿到什麼資料」與「遮罩從哪來」，
+// 之後的 ALU、位元遮罩與 map mask 是共通的。
 func (m *Machine) planarWrite(off uint32, v uint8) {
 	off &= 0xFFFF
 	gc := &m.gc
 	wm := gc[5] & 3
-	mapMask := m.seq[2] & 0x0F
+	m.WriteModeUse[wm]++
 	rot := func(b uint8) uint8 { // gc[3] 低 3 位：右旋
 		n := gc[3] & 7
 		return b>>n | b<<(8-n)
@@ -37,23 +40,38 @@ func (m *Machine) planarWrite(off uint32, v uint8) {
 		}
 		return d
 	}
+	expand := func(b uint8, p int) uint8 { // 取 bit p 展成 0x00/0xFF
+		if b>>uint(p)&1 != 0 {
+			return 0xFF
+		}
+		return 0
+	}
+	// write mode 3 的位元遮罩是「旋轉後的 CPU 資料 AND 位元遮罩暫存器」，
+	// 資料則一律來自 set/reset；CPU 的 byte 在這個模式裡是遮罩不是顏色。
 	bitmask := gc[8]
+	if wm == 3 {
+		bitmask &= rot(v)
+	}
+	mapMask := m.seq[2] & 0x0F
 	for p := 0; p < 4; p++ {
 		if mapMask>>uint(p)&1 == 0 {
 			continue
 		}
 		var d uint8
 		switch wm {
-		case 1: // latch → plane
+		case 1: // latch → plane，位元遮罩與 ALU 都不參與
 			m.vram[p][off] = m.latch[p]
 			continue
 		case 2: // CPU 資料的 bit p 展開成 0x00/0xFF
-			d = 0
-			if v>>uint(p)&1 != 0 {
-				d = 0xFF
+			d = expand(v, p)
+		case 3: // 資料來自 set/reset（gc[0]），與 enable 無關
+			d = expand(gc[0], p)
+		default: // mode 0：enable set/reset（gc[1]）挑的 plane 用 gc[0]
+			if gc[1]>>uint(p)&1 != 0 {
+				d = expand(gc[0], p)
+			} else {
+				d = rot(v)
 			}
-		default: // mode 0（3 先照 0 做，spec §4）
-			d = rot(v)
 		}
 		d = alu(d, m.latch[p])
 		m.vram[p][off] = d&bitmask | m.latch[p]&^bitmask

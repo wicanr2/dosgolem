@@ -125,6 +125,9 @@ type Machine struct {
 	dacIndex uint8
 	dacPhase uint8
 
+	// WriteModeUse 統計 planar 寫入用過哪些 write mode（診斷用）。
+	WriteModeUse [4]uint64
+
 	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
 	ModeChanges []ModeChange
 
