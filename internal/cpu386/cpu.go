@@ -2474,6 +2474,27 @@ func (c *CPU) Step() error {
 			if !c.writeSegment8(c.Seg[SegDS], c.R[base], value) {
 				return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
 			}
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP {
+				return fail(fmt.Sprintf("byte SIB %02X 無 index 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[base] + c.R[index]<<scale + uint32(int32(delta))
+			segment := SegDS
+			if base == ESP || base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment8(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("SIB byte write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
 		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 1 && modrm&7 != ESP {
 			delta, e := c.fetch8()
 			if e != nil {

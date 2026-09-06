@@ -1813,3 +1813,27 @@ func TestFD2TestsINICharacterClass(t *testing.T) {
 		t.Fatalf("INI class steps=%d EIP=%X source=%X value=%X EAX=%X flags=%X", steps, m.CPU.EIP, source, m.Mem[source], m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 	}
 }
+
+func TestFD2TrimsINITrailingCharacter(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f374; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI trim setup: step=%d EIP=%X ESI=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	destination := m.CPU.R[cpu386.ESP] + m.CPU.R[cpu386.ESI] + 0x118
+	if uint64(destination) >= uint64(len(m.Mem)) {
+		t.Fatalf("INI trim destination=%X 超界", destination)
+	}
+	want := byte(m.CPU.R[cpu386.EDX] >> 8)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI trim MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f37b || m.Mem[destination] != want || want != 0 {
+		t.Fatalf("INI trim steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, m.Mem[destination])
+	}
+}
