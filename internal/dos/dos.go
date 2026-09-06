@@ -170,6 +170,12 @@ type DOS struct {
 
 	// Resizes 記每一次 AH=4Ah，用來查「可配置區起點是怎麼被決定的」。
 	Resizes []ResizeCall
+
+	// CallTrace 記每一次 int 21h 進入與離開時的 ES:BX。
+	//
+	// 用途只有一個：分辨「程式自己設的 ES:BX」與「某個服務把它改壞了」。
+	// 服務回傳時動到不該動的暫存器，症狀會出現在很後面的另一個呼叫上。
+	CallTrace []CallRec
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -349,3 +355,10 @@ type OverlayLoad struct {
 
 // ResizeCall 是一次 `AH=4Ah` 的紀錄。
 type ResizeCall struct{ Seg, Want, FreeSeg uint16 }
+
+// CallRec 是一次 int 21h 的暫存器快照。
+type CallRec struct {
+	AH, AL       uint8
+	ESIn, BXIn   uint16
+	ESOut, BXOut uint16
+}

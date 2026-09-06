@@ -15,6 +15,13 @@ import (
 
 func (d *DOS) int21(c *cpu.CPU) {
 	fn := ah(c)
+	if d.CallTrace != nil {
+		rec := CallRec{AH: fn, AL: al(c), ESIn: c.Seg[cpu.ES], BXIn: c.R[cpu.BX]}
+		defer func() {
+			rec.ESOut, rec.BXOut = c.Seg[cpu.ES], c.R[cpu.BX]
+			d.CallTrace = append(d.CallTrace, rec)
+		}()
+	}
 	switch fn {
 	case 0x4B: // EXEC
 		d.exec(c)

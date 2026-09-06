@@ -85,6 +85,7 @@ func main() {
 		})
 	}
 	d := dos.New(m, *root)
+	d.CallTrace = []dos.CallRec{}
 	if *logCalls {
 		d.Calls = map[dos.Call]int{}
 	}
@@ -322,6 +323,21 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
 	}
 
+	if len(d.CallTrace) > 0 {
+		fmt.Printf("\nint 21h 的 ES:BX（最後 14 次；★ 表示服務動了 ES 或 BX）：\n")
+		from := len(d.CallTrace) - 14
+		if from < 0 {
+			from = 0
+		}
+		for _, r := range d.CallTrace[from:] {
+			mark := "  "
+			if r.ESOut != r.ESIn || r.BXOut != r.BXIn {
+				mark = "★ "
+			}
+			fmt.Printf("  %sAH=%02X AL=%02X  ES:BX %04X:%04X → %04X:%04X\n",
+				mark, r.AH, r.AL, r.ESIn, r.BXIn, r.ESOut, r.BXOut)
+		}
+	}
 	if len(d.Resizes) > 0 {
 		fmt.Printf("\nAH=4Ah 調整區塊（前 8 次，共 %d）：\n", len(d.Resizes))
 		for i, r := range d.Resizes {
