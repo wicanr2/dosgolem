@@ -1879,6 +1879,15 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if sib == 0xb0 {
+				addr := c.R[EAX] + c.R[ESI]<<2
+				value, ok := c.readSegment32(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("scaled indexed dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				c.R[EAX] = value
+				break
+			}
 			scale, index, base := sib>>6, (sib>>3)&7, sib&7
 			if index == ESP || base != EBP {
 				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))
