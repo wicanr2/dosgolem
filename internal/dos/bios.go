@@ -149,6 +149,7 @@ func (d *DOS) int16(c *cpu.CPU) {
 			return
 		}
 		c.R[cpu.AX] = keyWord(d.Stdin[0])
+		d.noteKey("int16-AH00", d.Stdin[0])
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
 		if len(d.Stdin) == 0 {
@@ -174,6 +175,16 @@ func keyWord(b uint8) uint16 {
 		return uint16(sc)<<8 | uint16(b)
 	}
 	return uint16(b)
+}
+
+// ScanCode 回傳一個 ASCII 位元組的 set-1 掃描碼。
+//
+// 硬體鍵盤（IRQ1 ＋ 埠 0x60）送的是掃描碼不是 ASCII，所以餵鍵的一方
+// 需要這張表。查不到時回 false——**不要回 0**，0 是合法的掃描碼位置，
+// 送出去會被當成一個真的鍵。
+func ScanCode(b uint8) (uint8, bool) {
+	sc, ok := scanCode[b]
+	return sc, ok
 }
 
 // scanCode 是 IBM PC 的 set-1 掃描碼（只列我們送得出去的鍵）。
@@ -240,4 +251,9 @@ func (d *DOS) int1A(c *cpu.CPU) {
 		d.note(0x1A, ah(c), al(c))
 		clearCarry(c)
 	}
+}
+
+// noteKey 記一次按鍵被取走。
+func (d *DOS) noteKey(via string, key uint8) {
+	d.KeyReads = append(d.KeyReads, KeyRead{Step: d.M.Steps, Via: via, Key: key})
 }

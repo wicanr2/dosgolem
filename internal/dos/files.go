@@ -158,6 +158,9 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 	}
 	if n > 0 {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), d.Stdin[:n])
+		for _, ch := range d.Stdin[:n] {
+			d.noteKey("int21-3F", ch)
+		}
 		d.Stdin = d.Stdin[n:]
 		c.R[cpu.AX] = uint16(n)
 		clearCarry(c)

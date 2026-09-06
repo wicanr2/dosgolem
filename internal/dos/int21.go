@@ -1,6 +1,7 @@
 package dos
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -216,6 +217,7 @@ func (d *DOS) conIn(c *cpu.CPU, fn uint8) {
 	}
 	d.Blocked = false
 	ch := d.Stdin[0]
+	d.noteKey(fmt.Sprintf("int21-AH%02X", fn), ch)
 	d.Stdin = d.Stdin[1:]
 	setAL(c, ch)
 	if fn == 0x01 { // 只有 AH=01h 回顯

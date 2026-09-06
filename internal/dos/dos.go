@@ -211,6 +211,9 @@ type DOS struct {
 	// MemTrace 記每一次配置／釋放。非 nil 才記（筆數可達上萬）。
 	MemTrace []MemCall
 
+	// KeyReads 記每一次按鍵被取走。永遠記——筆數是按鍵數，很少。
+	KeyReads []KeyRead
+
 	// FileTrace 記每一次檔案操作的參數與結果。
 	//
 	// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
@@ -440,6 +443,18 @@ type ResizeCall struct {
 	Before, After      uint16
 	InArena, OK        bool
 	CS, IP             uint16
+}
+
+// KeyRead 是一次「把按鍵從佇列取走」的紀錄。
+//
+// 存在的理由是**餵進去的鍵不見了的時候，看不出是誰吃的**。
+// 同一個佇列有三條出口（`int 21h AH=01/07/08`、`AH=3Fh` 讀 handle 0、
+// `int 16h AH=00/10`），而「程式沒反應」既可能是沒收到、
+// 也可能是被另一條路提前取走。
+type KeyRead struct {
+	Step uint64
+	Via  string // "int21-AH08"／"int21-3F"／"int16-AH00"
+	Key  uint8
 }
 
 // CallRec 是一次 int 21h 的暫存器快照。

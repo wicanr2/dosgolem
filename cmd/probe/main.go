@@ -111,7 +111,7 @@ func main() {
 	}
 	d.Install()
 	if *keys != "" {
-		d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(*keys, "\\n", "\n"))...)
+		feedKeys(m, d, []byte(strings.ReplaceAll(*keys, "\\n", "\n")))
 	}
 
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
@@ -147,7 +147,7 @@ func main() {
 			break
 		}
 		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
-			d.Stdin = append(d.Stdin, pendingKeys[0].key...)
+			feedKeys(m, d, pendingKeys[0].key)
 			pendingKeys = pendingKeys[1:]
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
@@ -357,6 +357,27 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			break
 		}
 		fmt.Printf("  %s\n", r)
+	}
+
+	if n := m.IRQ1Delivered(); n > 0 || m.KeyQueueLen() > 0 {
+		fmt.Printf("\n硬體鍵盤：送出 IRQ1 %d 次（其中 %d 次跳進程式自己的處理常式），"+
+			"佇列還剩 %d 個事件\n  int 09h 向量 ＝ %04X:%04X（stub 段是 %04X）\n",
+			n, m.IRQ1ToProgram(), m.KeyQueueLen(),
+			m.Read16(0x09*4+2), m.Read16(0x09*4), uint16(machine.StubSeg))
+	}
+	if len(d.KeyReads) > 0 || len(d.Stdin) > 0 {
+		fmt.Printf("\n按鍵去向（取走 %d 個，佇列還剩 %d 個）：\n",
+			len(d.KeyReads), len(d.Stdin))
+		for _, k := range d.KeyReads {
+			ch := "."
+			if k.Key >= 0x20 && k.Key < 0x7F {
+				ch = string(rune(k.Key))
+			}
+			fmt.Printf("  #%-11d %-11s %02X %s\n", k.Step, k.Via, k.Key, ch)
+		}
+		if len(d.Stdin) > 0 {
+			fmt.Printf("  ⚠ 沒人取走：% X —— 送進去的鍵不等於程式收到的鍵\n", d.Stdin)
+		}
 	}
 
 	if d.KeyWaits > 0 {
@@ -823,4 +844,18 @@ func writeCoverage(m *machine.Machine, path string) error {
 	}
 	fmt.Printf("覆蓋率：%d 個位址被執行過，壓成 %d 段 → %s\n", total, len(spans), path)
 	return nil
+}
+
+// feedKeys 同時餵**兩條路**：DOS／BIOS 的字元佇列，與硬體鍵盤的掃描碼。
+//
+// ⚠ **只餵其中一條會得到「程式沒反應」而不是錯誤。** 自己裝 IRQ1
+// 處理常式、直接讀埠 0x60 的程式看不到字元佇列；用 `int 21h AH=08`
+// 的程式看不到掃描碼。哪一條才對是程式決定的，而它不會告訴你。
+func feedKeys(m *machine.Machine, d *dos.DOS, keys []byte) {
+	d.Stdin = append(d.Stdin, keys...)
+	for _, b := range keys {
+		if sc, ok := dos.ScanCode(b); ok {
+			m.PushKey(sc)
+		}
+	}
 }

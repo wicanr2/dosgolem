@@ -54,6 +54,10 @@ const mouseStubOff = 0x10
 // 同一組輸入永遠得到同一個畫面。
 const DefaultIRQ0Every = 165_000
 
+// DefaultKeyIRQEvery 是兩次鍵盤中斷的最小間隔，單位是**指令數**。
+// 取計時器間隔的一半：比一次畫面更新久，程式一定來得及把掃描碼收走。
+const DefaultKeyIRQEvery = DefaultIRQ0Every / 2
+
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
 // OPLWrite 是一次 OPL2 暫存器寫入。
@@ -116,6 +120,10 @@ type Machine struct {
 	// 畫面**——防拷畫面是靜態的，動畫播完就穩定。
 	IRQ0Every uint64
 
+	// KeyIRQEvery 是兩次鍵盤中斷之間至少隔幾道指令。
+	// 太密的話程式的 ISR 還沒把上一個掃描碼搬走就被覆蓋，而覆蓋是安靜的。
+	KeyIRQEvery uint64
+
 	// Ticks 是送出去的計時器中斷次數。
 	Ticks uint64
 
@@ -124,6 +132,14 @@ type Machine struct {
 
 	nextIRQ0    uint64
 	irq0Pending bool
+
+	// 硬體鍵盤（`keyboard.go`）。kbdData 是埠 0x60 讀得到的值。
+	keyQueue   []KeyEvent
+	nextIRQ1   uint64
+	irq1Count  int
+	irq1Own    int
+	kbdData    uint8
+	kbdPortB   uint8
 
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
@@ -158,7 +174,8 @@ func New() *Machine {
 		ega:       newEGA(),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
-		IRQ0Every: DefaultIRQ0Every,
+		IRQ0Every:   DefaultIRQ0Every,
+		KeyIRQEvery: DefaultKeyIRQEvery,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 	}
@@ -232,6 +249,20 @@ func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
 	switch {
+	case port == 0x60:
+		// 鍵盤資料埠。**沒有硬體鍵盤時這裡回 0xFF**，而 0xFF 的 bit7 是
+		// 「放開」——自己裝 IRQ1 的程式會把每一次都當成放開而忽略，
+		// 所以它照樣跑、照樣輪詢，只是永遠收不到鍵（`docs/spec/014`）。
+		return m.kbdData
+	case port == 0x61:
+		// 系統控制埠。ISR 用它 ack 鍵盤（bit7 設起再清掉）。
+		return m.kbdPortB
+	case port == 0x64:
+		// 鍵盤控制器狀態：bit0 ＝ 輸出緩衝區有資料。
+		if len(m.keyQueue) > 0 {
+			return 0x15
+		}
+		return 0x14
 	case port == 0x3DA:
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
@@ -271,6 +302,13 @@ func (m *Machine) Out8(p uint16, v uint8) {
 
 	if p == 0x3C4 || p == 0x3C5 {
 		m.ega.outSequencer(p, v)
+	}
+
+	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
+	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話
+	// 它會把一個亂數寫進去，而那個亂數的低位元管的是喇叭與 RAM 檢查。
+	if p == 0x61 {
+		m.kbdPortB = v
 	}
 
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
@@ -348,6 +386,7 @@ func (m *Machine) Indexed() []uint8 {
 // Step 執行一道指令，必要時先送 IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
+	m.keyTick()
 	m.Steps++
 	if m.Coverage != nil {
 		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
