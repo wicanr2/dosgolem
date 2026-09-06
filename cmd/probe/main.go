@@ -36,8 +36,9 @@ func main() {
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔。格式："+
 		"<段>:<偏移>:<長度>（軌跡印的形式）、lin:<執行期線性>:<長度>、"+
 		"ds:<偏移>:<長度>，或 <IDA 線性位址>:<長度>（rich2 專用，會減 IDAOffset）")
-	find := flag.String("find", "", "跑完之後在 1 MB 記憶體裡找這串 hex bytes，"+
-		"印出所有命中的線性位址（除錯壞指標用）")
+	find := flag.String("find", "", "跑完之後在 1 MB 記憶體裡找這些 hex bytes，"+
+		"逗號分隔可以一次找多組，印出所有命中的線性位址"+
+		"（除錯壞指標、或驗證位元組簽章還定位得到）")
 	mouseX := flag.Int("mouse-x", -1, "滑鼠要移到的像素 X（−1 ＝ 不動）")
 	mouseY := flag.Int("mouse-y", -1, "滑鼠要移到的像素 Y")
 	mouseAt := flag.Uint64("mouse-at", 0, "第幾道指令時移動滑鼠（0 ＝ steps 的一半）")
@@ -235,7 +236,12 @@ func main() {
 		dumpPeek(m, *peek)
 	}
 	if *find != "" {
-		dumpFind(m, *find)
+		// 逗號分隔多組樣式：一次跑完可以驗一整批位元組簽章。
+		for _, one := range strings.Split(*find, ",") {
+			if one = strings.TrimSpace(one); one != "" {
+				dumpFind(m, one)
+			}
+		}
 	}
 	if *dumpVRAM != "" {
 		if err := os.WriteFile(*dumpVRAM, m.Indexed(), 0o644); err != nil {
