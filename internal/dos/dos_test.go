@@ -307,6 +307,48 @@ func TestOpenIgnoresPathAndCase(t *testing.T) {
 	}
 }
 
+// TestOpenTruncatesToEightThree 釘住 FAT 的 8.3 截斷。
+//
+// KOL 傳 `steedpics` 進來，真 DOS 開到的是 `STEEDPIC`。不截的話這裡回「找不到檔」，
+// 而程式多半不檢查開檔結果——KOL 是一路跑進沒有映射的記憶體才停，看起來像模擬器
+// 壞了，其實只是檔名沒對上。
+func TestOpenTruncatesToEightThree(t *testing.T) {
+	for _, c := range []struct{ onDisk, asked string }{
+		{"STEEDPIC", "steedpics"},                 // 主檔名過長，沒有副檔名
+		{"LONGNAME.DAT", "longnamedata.database"}, // 兩邊都過長
+	} {
+		t.Run(c.asked, func(t *testing.T) {
+			m, d := newTest(t)
+			if err := os.WriteFile(filepath.Join(d.Root, c.onDisk), []byte("hello"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m.CPU.Seg[cpu.DS] = 0x3000
+			m.CPU.R[cpu.DX] = 0
+			m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte(c.asked), 0))
+			call(m, d, 0x21, 0x3D00)
+			if m.CPU.Flags&cpu.CF != 0 {
+				t.Fatalf("開 %q（磁碟上是 %q）失敗：AX=%d，Missing=%v",
+					c.asked, c.onDisk, m.CPU.R[cpu.AX], d.Missing)
+			}
+		})
+	}
+}
+
+// 截斷不能把「真的不存在」變成開得起來：8 個字元以內的名字原樣比對。
+func TestTruncationDoesNotInventFiles(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.WriteFile(filepath.Join(d.Root, "DATA.PAK"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.Seg[cpu.DS] = 0x3000
+	m.CPU.R[cpu.DX] = 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("DATA.PAX"), 0))
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Fatal("開 DATA.PAX 竟然開到了 DATA.PAK")
+	}
+}
+
 // TestMissingFileIsRecorded 釘住「找不到的檔要留名字」。
 //
 // 只回 CF 的話，缺一個資產與「程式自己決定不載」看起來一樣。
