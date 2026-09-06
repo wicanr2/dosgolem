@@ -1491,6 +1491,40 @@ func TestCompareRegisterWithStackDisp8Dword(t *testing.T) {
 	}
 }
 
+func TestMoveZXByteFromEBXDisp32ToESI(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		base  uint32
+		delta int32
+		addr  int
+	}{
+		{name: "positive", base: 0x10, delta: 0x10, addr: 0x20},
+		{name: "negative", base: 0x30, delta: -0x10, addr: 0x20},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x50))
+			copy(mem, []byte{0x0f, 0xb6, 0xb3})
+			binary.LittleEndian.PutUint32(mem[3:7], uint32(test.delta))
+			mem[test.addr] = 0xfe
+			c := New(mem)
+			c.R[EBX], c.R[ESI], c.EFlags = test.base, 0xa5a5a5a5, CF|ZF|OF
+			c.Seg[SegDS] = 0x160
+			c.SetDescriptor(0x160, Descriptor{Limit: 0x4f})
+			if err := c.Step(); err != nil || c.R[ESI] != 0xfe || c.R[EBX] != test.base || mem[test.addr] != 0xfe || c.EFlags != CF|ZF|OF {
+				t.Fatalf("MOVZX ESI=%X EBX=%X value=%X flags=%X err=%v", c.R[ESI], c.R[EBX], mem[test.addr], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x0f, 0xb6, 0xb3, 0x10, 0, 0, 0})
+	c.R[EBX], c.R[ESI] = 0x20, 0xa5a5a5a5
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 6})
+	if err := c.Step(); err == nil || c.R[EBX] != 0x20 || c.R[ESI] != 0xa5a5a5a5 {
+		t.Fatalf("out-of-range MOVZX ESI=%X EBX=%X err=%v", c.R[ESI], c.R[EBX], err)
+	}
+}
+
 func TestPushSignExtendedByte(t *testing.T) {
 	mem := testBus(make([]byte, 0x20))
 	copy(mem, []byte{0x6a, 0x80})
