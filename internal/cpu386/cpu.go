@@ -1452,6 +1452,26 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
+		if modrm>>6 == 2 && (modrm>>3)&7 == 0 && modrm&7 != ESP {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate base+disp32 write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			break
+		}
 		if modrm != 0x04 {
 			return fail(fmt.Sprintf("MOV immediate dword ModRM %02X 尚未支援", modrm))
 		}

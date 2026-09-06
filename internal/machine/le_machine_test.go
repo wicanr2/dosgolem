@@ -856,3 +856,25 @@ func TestFD2StoresAILIndexedTableEntry(t *testing.T) {
 		t.Fatalf("AIL indexed table steps=%d EIP=%X calls=%d value=%X err=%v", steps, m.CPU.EIP, services.Calls(), value, errValue)
 	}
 }
+
+func TestFD2ClearsAILIndexedTableEntry(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f05f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL indexed clear setup: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	for offset, value := range []byte{0xef, 0xbe, 0xed, 0xfe} {
+		if err := m.Write8(0x52b10+uint32(offset), value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("AIL indexed clear: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	value, errValue := m.Read32(0x52b10)
+	if m.CPU.EIP != 0x3f069 || services.Calls() != 5 || value != 0 || errValue != nil {
+		t.Fatalf("AIL indexed clear steps=%d EIP=%X calls=%d value=%X err=%v", steps, m.CPU.EIP, services.Calls(), value, errValue)
+	}
+}
