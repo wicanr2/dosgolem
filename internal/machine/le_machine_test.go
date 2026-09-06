@@ -1105,3 +1105,24 @@ func TestFD2LoadsOpenModeByte(t *testing.T) {
 		t.Fatalf("open mode byte steps=%d EIP=%X calls=%d EAX=%X want=%X ESI=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, m.CPU.R[cpu386.ESI], m.CPU.EFlags, errRead)
 	}
 }
+
+func TestFD2BranchesPastTolowerConversion(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d7ef; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("tolower upper bound setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	beforeEAX, beforeFlags := m.CPU.R[cpu386.EAX], m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("tolower JG: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	wantEIP := uint32(0x3d7f1)
+	if beforeFlags&cpu386.ZF == 0 && (beforeFlags&cpu386.SF != 0) == (beforeFlags&cpu386.OF != 0) {
+		wantEIP = 0x3d7f4
+	}
+	if m.CPU.EIP != wantEIP || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != beforeEAX || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("tolower JG steps=%d EIP=%X want=%X calls=%d EAX=%X flags=%X", steps, m.CPU.EIP, wantEIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+}
