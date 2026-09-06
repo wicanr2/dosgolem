@@ -2466,6 +2466,38 @@ func TestDSBaseByteRead(t *testing.T) {
 	}
 }
 
+func TestSIBDisp32ByteRead(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x8a, 0xa4, 0xb3, 0xf0, 0xff, 0xff, 0xff})
+	mem[0x40] = 0xa5
+	c := New(mem)
+	c.R[EBX], c.R[ESI], c.R[ESP], c.R[EAX], c.EFlags = 0x20, 0x0c, 0x70, 0x12345678, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1234a578 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("SIB MOV AH EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x8a, 0x84, 0x34, 0x18, 0, 0, 0})
+	mem[0x48] = 0x5a
+	c = New(mem)
+	c.R[ESP], c.R[ESI], c.R[EAX] = 0x20, 0x10, 0x12345678
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 0x7f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1234565a {
+		t.Fatalf("stack SIB MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+
+	c = New(testBus{0x8a, 0x84, 0x34, 0x18, 0, 0, 0})
+	c.R[ESP], c.R[ESI], c.R[EAX] = 0x20, 0x10, 0x12345678
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Limit: 6})
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("out-of-range SIB MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestCLDAndREPESCASB(t *testing.T) {
 	mem := testBus{0xfc, 0xf3, 0xae}
 	c := New(mem)
