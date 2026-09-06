@@ -2182,3 +2182,35 @@ func TestFD2StoresINIIOAddressWord(t *testing.T) {
 		t.Fatalf("INI IO_ADDR store steps=%d EIP=%X stored=%X want=%X registersChanged=%v flags=%X", steps, m.CPU.EIP, stored, want, m.CPU.R != beforeRegisters, m.CPU.EFlags)
 	}
 }
+
+func TestFD2NegatesINISignMultiplier(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 20000 && m.CPU.EIP != 0x3f289; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("INI sign NEG setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	if m.CPU.EIP != 0x3f289 {
+		t.Fatalf("INI sign NEG 未抵達：steps=%d EIP=%X", steps, m.CPU.EIP)
+	}
+	addr := m.CPU.R[cpu386.ESP] + 4
+	before, err := m.Read32(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRegisters := m.CPU.R
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("INI sign NEG: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	stored, err := m.Read32(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != 1 || m.CPU.EIP != 0x3f28d || stored != 0xffffffff || m.CPU.R != beforeRegisters {
+		t.Fatalf("INI sign NEG steps=%d before=%X EIP=%X stored=%X registersChanged=%v flags=%X", steps, before, m.CPU.EIP, stored, m.CPU.R != beforeRegisters, m.CPU.EFlags)
+	}
+}

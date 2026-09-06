@@ -917,6 +917,57 @@ func TestNegRegister32(t *testing.T) {
 	}
 }
 
+func TestNegStackDisp8Dword(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		delta byte
+		addr  int
+		value uint32
+		want  uint32
+		flags uint32
+	}{
+		{name: "positive displacement", delta: 4, addr: 0x24, value: 1, want: 0xffffffff, flags: CF | SF | PF | AF},
+		{name: "negative displacement", delta: 0xfc, addr: 0x1c, value: 0, want: 0, flags: ZF | PF},
+		{name: "signed minimum", delta: 4, addr: 0x24, value: 0x80000000, want: 0x80000000, flags: CF | SF | OF | PF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, []byte{0xf7, 0x5c, 0x24, test.delta})
+			binary.LittleEndian.PutUint32(mem[test.addr:], test.value)
+			c := New(mem)
+			c.R[ESP] = 0x20
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: true})
+			if err := c.Step(); err != nil || binary.LittleEndian.Uint32(mem[test.addr:]) != test.want || c.R[ESP] != 0x20 || c.EFlags&(CF|PF|AF|ZF|SF|OF) != test.flags {
+				t.Fatalf("value=%X ESP=%X flags=%X err=%v", binary.LittleEndian.Uint32(mem[test.addr:]), c.R[ESP], c.EFlags, err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name     string
+		code     []byte
+		writable bool
+	}{
+		{name: "read-only", code: []byte{0xf7, 0x5c, 0x24, 4}},
+		{name: "bounds", code: []byte{0xf7, 0x5c, 0x24, 0x1f}, writable: true},
+		{name: "wrong SIB", code: []byte{0xf7, 0x5c, 0x25, 4}, writable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, test.code)
+			c := New(mem)
+			c.R[ESP], c.EFlags = 0x20, CF|ZF|OF
+			c.Seg[SegSS] = 0x168
+			c.SetDescriptor(0x168, Descriptor{Limit: 0x3f, Writable: test.writable})
+			before := append([]byte(nil), mem...)
+			if err := c.Step(); err == nil || !bytes.Equal(mem, before) || c.R[ESP] != 0x20 || c.EFlags != CF|ZF|OF {
+				t.Fatalf("memory changed=%v ESP=%X flags=%X err=%v", !bytes.Equal(mem, before), c.R[ESP], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestNotRegister32(t *testing.T) {
 	c := New(testBus{0xf7, 0xd1})
 	c.R[ECX], c.EFlags = 0xfffffff5, CF|ZF|OF

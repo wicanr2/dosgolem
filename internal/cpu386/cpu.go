@@ -523,12 +523,36 @@ func (c *CPU) Step() error {
 		}
 		c.R[ESP] = nextESP
 	case op == 0xf7:
-		if operand16 || segmentOverride >= 0 || repe {
+		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("F7 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if modrm == 0x5c {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack NEG SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack NEG read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			result := uint32(0) - value
+			if !c.writeSegment32(c.Seg[SegSS], addr, result) {
+				return fail(fmt.Sprintf("stack NEG write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(0, value)
+			break
 		}
 		if modrm>>6 != 3 {
 			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
