@@ -2426,6 +2426,45 @@ func TestStoreRegister8ToBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestLoadALFromEDIPlusEBP(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edi  uint32
+		ebp  uint32
+		addr int
+	}{
+		{name: "sum", edi: 0x10, ebp: 0x14, addr: 0x24},
+		{name: "wrap", edi: 0xfffffff0, ebp: 0x34, addr: 0x24},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x40))
+			copy(mem, []byte{0x8a, 0x04, 0x2f})
+			mem[test.addr] = 0xa5
+			c := New(mem)
+			c.R[EAX], c.R[EDI], c.R[EBP], c.EFlags = 0x12345678, test.edi, test.ebp, CF|ZF|OF
+			c.Seg[SegDS] = 0x174
+			c.SetDescriptor(0x174, Descriptor{Limit: 0x3f})
+			if err := c.Step(); err != nil || c.R[EAX] != 0x123456a5 || c.R[EDI] != test.edi || c.R[EBP] != test.ebp || mem[test.addr] != 0xa5 || c.EFlags != CF|ZF|OF {
+				t.Fatalf("MOV AL EAX=%X EDI=%X EBP=%X source=%X flags=%X err=%v", c.R[EAX], c.R[EDI], c.R[EBP], mem[test.addr], c.EFlags, err)
+			}
+		})
+	}
+
+	c := New(testBus{0x8a, 0x04, 0x2f})
+	c.R[EAX], c.R[EDI], c.R[EBP], c.EFlags = 0x12345678, 2, 2, CF|ZF|OF
+	c.Seg[SegDS] = 0x174
+	c.SetDescriptor(0x174, Descriptor{Limit: 2})
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 || c.R[EDI] != 2 || c.R[EBP] != 2 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("out-of-range MOV AL EAX=%X EDI=%X EBP=%X flags=%X err=%v", c.R[EAX], c.R[EDI], c.R[EBP], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8a, 0x04, 0x27})
+	c.R[EAX], c.R[EDI], c.R[ESP] = 0x12345678, 1, 2
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("unsupported SIB EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestStoreRegister8ToBase(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x88, 0x23})

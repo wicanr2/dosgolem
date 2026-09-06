@@ -76,7 +76,9 @@ parser 已從 `SS:[ESP+ESI+0x118]` 讀取行尾分類字元；`0x3F362` 的 AL �
 `[SS:ESP+4]`；`0x3F27F 8D 04 2F` 再形成目前數值字元的 `EDI+EBP`
 位址；`0x3F2D1 3B 5C 24 1C` 再比較 digit-table index 與 caller 傳入的
 radix 上界；`0x3F2A5 0F B6 B3 B4 11 05 00` 再從 digit table 將候選字元
-零擴展至 ESI。下一阻塞移至 `0x3F2AC`（opcode `8A`、ModRM `04`）。此收據只證明
+零擴展至 ESI。`0x3F2AC 8A 04 2F` 現亦依 RE 118 從 `DS:[EDI+EBP]` 載入目前
+輸入字元到 AL，固定原版自然執行已通過。下一阻塞移至 `0x3F2C1`
+（opcode `8B`、ModRM `04`、SIB `24`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
