@@ -70,6 +70,7 @@ type Oracle struct {
 	dgroupSeg uint16
 
 	onCall map[uint32][]func(*Oracle)
+	stubs  map[uint32]func(*Oracle) uint32
 }
 
 // Load 載入原版執行檔。
@@ -204,6 +205,17 @@ func (o *Oracle) Console() string { return string(o.d.Console) }
 //
 // **收工前看一眼。**「跑得動」與「跑得動但行為不對」的差別在這裡。
 func (o *Oracle) Unimplemented() []string { return o.d.UnimplementedReport() }
+
+// Missing 是開不起來的檔名，依序。
+//
+// **程式多半不檢查開檔結果**，所以少一個檔的症狀是它在很後面的地方跑進沒有映射
+// 的記憶體——看起來像模擬器壞了。跑不動先看這一份。
+func (o *Oracle) Missing() []string { return o.d.Missing }
+
+// VideoMode 是目前的 BIOS 視訊模式（`int 10h AH=00h` 設的那個）。
+//
+// **載入進度的路標**：還停在 03h 就表示程式連圖形模式都還沒切進去。
+func (o *Oracle) VideoMode() uint8 { return o.m.VideoMode() }
 
 // CPU 狀態，寫診斷訊息用。
 func (o *Oracle) IP() Addr { return Addr{o.m.CPU.Seg[cpu.CS], o.m.CPU.IP} }

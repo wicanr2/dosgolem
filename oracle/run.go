@@ -97,6 +97,9 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), a)
 		}
 		o.fireCallHooks()
+		if o.fireStub() {
+			continue
+		}
 		if err := o.m.Step(); err != nil {
 			return fmt.Errorf("執行到 %s 出錯：%w", o.IP(), err)
 		}
@@ -366,6 +369,69 @@ func (o *Oracle) fireCallHooks() {
 			fn(o)
 		}
 	}
+}
+
+// ---- stub -----------------------------------------------------------------
+
+// Stub 讓走到 a 的 **far** 常式**不執行**，直接用 fn 決定回傳值（`DX:AX`）
+// 並返回呼叫端。傳 nil 取消。
+//
+// # 用途：把不決定性的東西釘死
+//
+//	o.Stub(o.IDA(randAddr), func(*oracle.Oracle) uint32 { return 12345 })
+//
+// 對拍規則時，兩邊的亂數序列**本來就不會一樣**（種子、抽取順序、抽幾次都不同），
+// 強求同步是在解錯的題目。把骰值釘成同一個常數，剩下的差異就只剩規則本身——
+// 這才是要驗的東西。
+//
+// 同一個道理適用於時鐘、輸入與任何「每次跑都不同」的來源。
+//
+// # 邊界
+//
+//   - fn 在**進入常式那一刻**被呼叫，所以 `Arg(n)` 讀得到參數。
+//   - 只支援 cdecl 的 far 常式（呼叫端清參數，被呼叫者只 `retf`）。
+//     `retf N` 那種自己清參數的會讓呼叫端的堆疊少收 N bytes。
+//   - 被 stub 掉的常式**完全沒有副作用**：它改的全域不會被改。亂數的種子因此
+//     不再前進——那正是「釘死」的意思，但別忘了它。
+//   - 一次 stub 算一道指令，預算才不會因為它永遠不推進而跑不完。
+func (o *Oracle) Stub(a Addr, fn func(*Oracle) uint32) {
+	if o.stubs == nil {
+		o.stubs = map[uint32]func(*Oracle) uint32{}
+	}
+	if fn == nil {
+		delete(o.stubs, a.Linear())
+		return
+	}
+	o.stubs[a.Linear()] = fn
+}
+
+// StubValue 是 Stub 的常數版：走到 a 就回 v。
+func (o *Oracle) StubValue(a Addr, v uint32) {
+	o.Stub(a, func(*Oracle) uint32 { return v })
+}
+
+// fireStub 回 true 表示這一輪由 stub 接手，不要再 Step。
+func (o *Oracle) fireStub() bool {
+	if len(o.stubs) == 0 {
+		return false
+	}
+	fn, ok := o.stubs[o.IP().Linear()]
+	if !ok {
+		return false
+	}
+	c := o.m.CPU
+	ss, sp := c.Seg[cpu.SS], c.R[cpu.SP]
+	// 先讀返回位址、先呼叫 fn——此時 SP 還在進入狀態，`Arg(n)` 才讀得到參數。
+	ip := o.m.Read16(cpu.Addr(ss, sp))
+	cs := o.m.Read16(cpu.Addr(ss, sp+2))
+	v := fn(o)
+
+	c.R[cpu.SP] = sp + 4
+	c.Seg[cpu.CS], c.IP = cs, ip
+	c.R[cpu.AX] = uint16(v)
+	c.R[cpu.DX] = uint16(v >> 16)
+	o.m.Steps++
+	return true
 }
 
 // Caller 回 far call 的返回位址，也就是**呼叫端的下一道指令**。

@@ -151,3 +151,58 @@ func TestCallFiresHooks(t *testing.T) {
 		t.Fatalf("hook 觸發 %d 次，期望 3", hits)
 	}
 }
+
+// Stub 讓常式不執行，直接回指定的值。
+//
+// 判準是**副作用沒有發生**：`synthConst` 自己會把 DX 設成 4321h，stub 掉之後
+// 回傳的高位必須是 stub 給的，不是常式給的。只比 AX 的話兩者分不出來。
+func TestStubReplacesRoutine(t *testing.T) {
+	o := synth(t)
+	o.StubValue(o.IDA(0x10000+synthConst), 0x00FF0042)
+	got, err := o.Call(o.IDA(0x10000 + synthConst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint32(0x00FF0042); got != want {
+		t.Fatalf("回 %#08x，期望 %#08x（常式跑掉了？）", got, want)
+	}
+
+	// 取消之後回到常式自己的值。
+	o.Stub(o.IDA(0x10000+synthConst), nil)
+	got, err = o.Call(o.IDA(0x10000 + synthConst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint32(0x4321BEEF); got != want {
+		t.Fatalf("取消 stub 之後回 %#08x，期望 %#08x", got, want)
+	}
+}
+
+// stub 裡讀得到參數——SP 版面要與常式進入的那一刻相同。
+func TestStubSeesArgs(t *testing.T) {
+	o := synth(t)
+	var seen [2]uint16
+	o.Stub(o.IDA(0x10000+synthAdd), func(p *oracle.Oracle) uint32 {
+		seen[0], seen[1] = p.Arg(0), p.Arg(1)
+		return 0
+	})
+	if _, err := o.Call(o.IDA(0x10000+synthAdd), 11, 22); err != nil {
+		t.Fatal(err)
+	}
+	if seen[0] != 11 || seen[1] != 22 {
+		t.Fatalf("stub 讀到 (%d, %d)，期望 (11, 22)", seen[0], seen[1])
+	}
+}
+
+// 被 stub 的常式在迴圈裡也不會把預算耗光——一次 stub 算一道指令。
+func TestStubCountsAsOneStep(t *testing.T) {
+	o := synth(t)
+	o.StubValue(o.IDA(0x10000+synthLoop), 1)
+	before := o.Steps()
+	if _, err := o.Call(o.IDA(0x10000 + synthLoop)); err != nil {
+		t.Fatalf("stub 掉的無窮迴圈應該立刻回來：%v", err)
+	}
+	if n := o.Steps() - before; n != 1 {
+		t.Fatalf("走了 %d 道指令，期望 1", n)
+	}
+}
