@@ -1627,6 +1627,19 @@ func TestMOVZXByteFromESI(t *testing.T) {
 	}
 }
 
+func TestMOVZXByteFromEAX(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x0f, 0xb6, 0x00})
+	mem[0x20] = 0xa5
+	c := New(mem)
+	c.R[EAX], c.EFlags = 0x20, CF|ZF
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x2f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0xa5 || c.EFlags != CF|ZF {
+		t.Fatalf("MOVZX EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+}
+
 func TestX87StartupSelfTestSequence(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	code := []byte{
