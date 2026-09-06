@@ -1617,3 +1617,31 @@ func TestFD2PushesFillBufferPointer(t *testing.T) {
 		t.Fatalf("fill buffer pointer steps=%d EIP=%X want=%X got=%X", steps, m.CPU.EIP, want, got)
 	}
 }
+
+func TestFD2ReadsMDIINIIntoFillBuffer(t *testing.T) {
+	root := os.Getenv("DOSGOLEM_FD2_ROOT")
+	if root == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	want, err := os.ReadFile(root + "/MDI.INI")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d9a2; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MDI.INI read setup: step=%d EIP=%X EAX=%X EBX=%X ECX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	destination := m.CPU.R[cpu386.EDX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MDI.INI DOS read: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if uint64(destination)+uint64(len(want)) > uint64(len(m.Mem)) {
+		t.Fatalf("MDI.INI destination=%X length=%X 超界", destination, len(want))
+	}
+	if m.CPU.EIP != 0x3d9a4 || uint16(m.CPU.R[cpu386.EAX]) != uint16(len(want)) || m.CPU.EFlags&cpu386.CF != 0 || !bytes.Equal(m.Mem[destination:destination+uint32(len(want))], want) {
+		t.Fatalf("MDI.INI read steps=%d EIP=%X AX=%X flags=%X destination=%X", steps, m.CPU.EIP, uint16(m.CPU.R[cpu386.EAX]), m.CPU.EFlags, destination)
+	}
+}
