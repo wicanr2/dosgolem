@@ -24,6 +24,17 @@ const (
 	sequencerMapMaskIndex = 0x02
 	// egaMapMaskAll 是四個平面都打開，也是重置值。
 	egaMapMaskAll = 0x0F
+
+	// 圖形控制器（埠 3CE 索引／3CF 資料）的索引。
+	gcSetReset       = 0x00
+	gcEnableSetReset = 0x01
+	gcColorCompare   = 0x02
+	gcDataRotate     = 0x03
+	gcReadMapSelect  = 0x04
+	gcMode           = 0x05
+	gcMiscellaneous  = 0x06
+	gcColorDontCare  = 0x07
+	gcBitMask        = 0x08
 )
 
 // ega 是平面式 VRAM 的狀態。
@@ -40,10 +51,32 @@ type ega struct {
 	// `int 10h AH=00`，BDA 的模式位元組一路是 03h，所以沒有比它更硬的依據
 	//（`docs/spec/007` §2.1）。
 	planarSeen bool
+
+	// 圖形控制器（`docs/spec/011` §4）。
+	gcIndex   uint8
+	setReset  uint8 // 索引 00：每個平面要填的顏色位元
+	enableSR  uint8 // 索引 01：哪些平面吃 setReset
+	dataRot   uint8 // 索引 03：bit0–2 右旋次數、bit3–4 邏輯運算
+	readMap   uint8 // 索引 04：read mode 0 讀哪一個平面
+	mode      uint8 // 索引 05：bit0–1 寫入模式、bit3 讀取模式
+	bitMask   uint8 // 索引 08：這一次寫入動得了哪幾個位元
+	dontCare  uint8 // 索引 07：read mode 1 比對時忽略哪些平面
+	colorComp uint8 // 索引 02：read mode 1 比對的顏色
+
+	// latch 是 CPU 上一次讀 VRAM 時各平面的內容。
+	//
+	// ⚠ **latch 是圖形控制器的核心，不是最佳化。** EGA 的一次寫入
+	// 只動 Bit Mask 打開的位元，其餘位元**從 latch 補回去**——所以
+	// 「讀一次再寫一次」是必要動作，不是多餘的。少了 latch，
+	// 遮罩之外的位元會被歸零，畫面上是一條一條的直線雜訊，
+	// 看起來像時序問題不像少了一個暫存器。
+	latch [egaPlanes]uint8
 }
 
 func newEGA() *ega {
-	e := &ega{mapMask: egaMapMaskAll}
+	// bitMask 的重置值是 FFh（八個位元都動得了）。**預設 0 的話畫面
+	// 一片空白**，而空白看起來像「還沒畫」不像暫存器沒初始化。
+	e := &ega{mapMask: egaMapMaskAll, bitMask: 0xFF}
 	for plane := range e.planes {
 		e.planes[plane] = make([]uint8, egaPlaneBytes)
 	}
@@ -66,14 +99,129 @@ func (e *ega) outSequencer(port uint16, value uint8) {
 	}
 }
 
-// write 把一次 A0000 段的寫入分到 Map Mask 打開的平面上。
+// outGraphics 收 `3CE`（索引）與 `3CF`（資料）。
+func (e *ega) outGraphics(port uint16, value uint8) {
+	switch port {
+	case 0x3CE:
+		e.gcIndex = value & 0x0F
+	case 0x3CF:
+		switch e.gcIndex {
+		case gcSetReset:
+			e.setReset = value & 0x0F
+		case gcEnableSetReset:
+			e.enableSR = value & 0x0F
+		case gcColorCompare:
+			e.colorComp = value & 0x0F
+		case gcDataRotate:
+			e.dataRot = value & 0x1F
+		case gcReadMapSelect:
+			e.readMap = value & 0x03
+		case gcMode:
+			e.mode = value
+			e.planarSeen = true
+		case gcColorDontCare:
+			e.dontCare = value & 0x0F
+		case gcBitMask:
+			e.bitMask = value
+			e.planarSeen = true
+		}
+	}
+}
+
+// read 是 CPU 從 A0000 段讀一個 byte。
+//
+// ⚠ **讀取有副作用**：四個平面同時被鎖進 latch，之後的寫入靠它補回
+// Bit Mask 以外的位元。把讀取當成沒有副作用的話，`read-modify-write`
+// 的那個 read 就白做了，而那正是 EGA 畫圖的標準寫法。
+func (e *ega) read(address uint32) uint8 {
+	offset := address - egaVRAMBase
+	for plane := 0; plane < egaPlanes; plane++ {
+		e.latch[plane] = e.planes[plane][offset]
+	}
+	if e.mode&0x08 == 0 { // read mode 0：直接讀選定的平面
+		return e.latch[e.readMap]
+	}
+	// read mode 1：每個位元回報「這八個像素的顏色是否等於 Color Compare」，
+	// Color Don't Care 指定哪些平面不參與比較。
+	var out uint8
+	for bit := 0; bit < 8; bit++ {
+		match := true
+		for plane := 0; plane < egaPlanes; plane++ {
+			if e.dontCare&(1<<uint(plane)) == 0 {
+				continue
+			}
+			want := e.colorComp>>uint(plane)&1 != 0
+			got := e.latch[plane]>>uint(bit)&1 != 0
+			if want != got {
+				match = false
+				break
+			}
+		}
+		if match {
+			out |= 1 << uint(bit)
+		}
+	}
+	return out
+}
+
+// write 把一次 A0000 段的寫入送進圖形控制器的資料路徑。
+//
+// 四種寫入模式（`docs/spec/011` §4）：
+//
+//	0  CPU 的值（可右旋）進資料路徑；Enable Set/Reset 打開的平面改用
+//	   Set/Reset 的顏色。之後過邏輯運算、Bit Mask，再由 Map Mask 決定寫哪些平面。
+//	1  latch 原封不動寫回去。用來做快速搬移（讀一格、寫一格）。
+//	2  CPU 值的第 n 位決定平面 n 整個 byte 是 FF 還是 00——**畫單色圖形的模式**。
+//	3  EGA 沒有，VGA 才有。這裡不實作。
 func (e *ega) write(address uint32, value uint8) {
 	offset := address - egaVRAMBase
+	mode := e.mode & 0x03
+
+	if mode == 1 {
+		for plane := 0; plane < egaPlanes; plane++ {
+			if e.mapMask&(1<<uint(plane)) == 0 {
+				continue
+			}
+			e.planes[plane][offset] = e.latch[plane]
+		}
+		return
+	}
+
+	rotated := value
+	if n := e.dataRot & 0x07; n != 0 && mode == 0 {
+		rotated = value>>n | value<<(8-n)
+	}
+	op := e.dataRot >> 3 & 0x03
+
 	for plane := 0; plane < egaPlanes; plane++ {
 		if e.mapMask&(1<<uint(plane)) == 0 {
 			continue
 		}
-		e.planes[plane][offset] = value
+		var data uint8
+		switch {
+		case mode == 2:
+			data = 0
+			if value>>uint(plane)&1 != 0 {
+				data = 0xFF
+			}
+		case e.enableSR&(1<<uint(plane)) != 0:
+			data = 0
+			if e.setReset>>uint(plane)&1 != 0 {
+				data = 0xFF
+			}
+		default:
+			data = rotated
+		}
+		switch op {
+		case 1:
+			data &= e.latch[plane]
+		case 2:
+			data |= e.latch[plane]
+		case 3:
+			data ^= e.latch[plane]
+		}
+		// Bit Mask 之外的位元從 latch 補回去。
+		e.planes[plane][offset] = data&e.bitMask | e.latch[plane]&^e.bitMask
 	}
 }
 

@@ -236,3 +236,73 @@ func TestPITCountsDown(t *testing.T) {
 		t.Errorf("讀 8 次 PIT 只看到 %d 種值——延遲迴圈會卡住", len(seen))
 	}
 }
+
+// TestEGABitMaskKeepsUntouchedBits 釘住 Bit Mask 之外的位元要從 latch 補回去。
+//
+// **少了 latch 的症狀不是壞掉，是一張有規律雜訊的圖**：遮罩外的位元被歸零，
+// 畫面上是一條一條的直線，看起來像時序問題不像少了一個暫存器。
+func TestEGABitMaskKeepsUntouchedBits(t *testing.T) {
+	m := New()
+	const at = 0xA0000
+	// 先把四個平面填成已知值（Map Mask 全開、bit mask 全開）。
+	m.Write8(at, 0xFF)
+
+	// 只開 bit0，寫 0x00：其餘七個位元應該保持 1。
+	m.Out8(0x3CE, 0x08) // Bit Mask
+	m.Out8(0x3CF, 0x01)
+	_ = m.Read8(at) // ★ 讀一次把 latch 鎖起來
+	m.Write8(at, 0x00)
+
+	m.Out8(0x3CE, 0x08)
+	m.Out8(0x3CF, 0xFF)
+	if got := m.Read8(at); got != 0xFE {
+		t.Fatalf("寫入之後讀回 %02X，應該是 FE——Bit Mask 之外的位元沒有從 latch 補回去", got)
+	}
+}
+
+// TestEGASetResetPicksColour 釘住 Set/Reset：打開的平面用 Set/Reset 的顏色，
+// 不是 CPU 寫進去的值。
+func TestEGASetResetPicksColour(t *testing.T) {
+	m := New()
+	const at = 0xA0000
+	m.Out8(0x3CE, 0x01) // Enable Set/Reset：四個平面全開
+	m.Out8(0x3CF, 0x0F)
+	m.Out8(0x3CE, 0x00) // Set/Reset：顏色 0101b ＝ 平面 0 與 2 填 1
+	m.Out8(0x3CF, 0x05)
+	_ = m.Read8(at)
+	m.Write8(at, 0x00) // CPU 的值應該被忽略
+
+	m.Out8(0x3CE, 0x01) // 關掉 Set/Reset 再讀，免得影響
+	m.Out8(0x3CF, 0x00)
+	for plane, want := range []uint8{0xFF, 0x00, 0xFF, 0x00} {
+		m.Out8(0x3CE, 0x04) // Read Map Select
+		m.Out8(0x3CF, uint8(plane))
+		if got := m.Read8(at); got != want {
+			t.Errorf("平面 %d 是 %02X，應該是 %02X——Set/Reset 沒生效", plane, got, want)
+		}
+	}
+}
+
+// TestEGAWriteMode1CopiesLatches 釘住寫入模式 1：latch 原封不動寫回去。
+// 那是搬圖形（讀一格、寫一格）的做法，CPU 寫進去的值完全不參與。
+func TestEGAWriteMode1CopiesLatches(t *testing.T) {
+	m := New()
+	const src, dst = 0xA0000, 0xA0100
+	m.Out8(0x3C4, 0x02) // Map Mask：只寫平面 1
+	m.Out8(0x3C5, 0x02)
+	m.Write8(src, 0xAB)
+	m.Out8(0x3C5, 0x0F)
+
+	m.Out8(0x3CE, 0x05) // Mode：寫入模式 1
+	m.Out8(0x3CF, 0x01)
+	_ = m.Read8(src)
+	m.Write8(dst, 0x00) // 值被忽略
+
+	m.Out8(0x3CE, 0x05)
+	m.Out8(0x3CF, 0x00)
+	m.Out8(0x3CE, 0x04)
+	m.Out8(0x3CF, 0x01) // 讀平面 1
+	if got := m.Read8(dst); got != 0xAB {
+		t.Fatalf("搬過去讀回 %02X，應該是 AB", got)
+	}
+}

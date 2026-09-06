@@ -192,7 +192,15 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
-func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
+func (m *Machine) Read8(a uint32) uint8 {
+	a &= 0xFFFFF
+	// A0000 段的讀取要走圖形控制器：它會鎖 latch，而 latch 決定
+	// 之後那次寫入的 Bit Mask 之外的位元（`docs/spec/011` §4）。
+	if a >= egaVRAMBase && a < egaVRAMEnd {
+		return m.ega.read(a)
+	}
+	return m.Mem[a]
+}
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
@@ -302,6 +310,9 @@ func (m *Machine) Out8(p uint16, v uint8) {
 
 	if p == 0x3C4 || p == 0x3C5 {
 		m.ega.outSequencer(p, v)
+	}
+	if p == 0x3CE || p == 0x3CF {
+		m.ega.outGraphics(p, v)
 	}
 
 	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
