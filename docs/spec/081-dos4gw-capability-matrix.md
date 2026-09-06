@@ -42,7 +42,8 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 `0x3E889`，再以 `POPFD` 完整恢復 caller 旗標；AIL 初始化鏈完成返回後，
 已進入 `sub_43EF0` 並配置 `MDI.INI` 的 `0x118`-byte stack frame，抵達
 `0x43EF8`；其 parser `sub_3F306` 已建立第二個設定 buffer 位址，並載入
-`MDI.INI` 路徑參數至 `0x3F343`。此收據只證明
+`MDI.INI` 路徑參數，再自然進入 C runtime `__allocfp` 並完成 FILE table
+上界比較至 `0x3D855`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
