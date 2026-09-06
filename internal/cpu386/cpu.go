@@ -1933,6 +1933,21 @@ func (c *CPU) Step() error {
 			c.R[(modrm>>3)&7] = uint32(int64(c.R[ESP]) + int64(int8(delta)))
 			break
 		}
+		if modrm>>6 == 2 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("LEA stack disp32 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.R[(modrm>>3)&7] = uint32(int64(c.R[ESP]) + int64(int32(delta)))
+			break
+		}
 		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}

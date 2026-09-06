@@ -1015,3 +1015,20 @@ func TestFD2AllocatesMDIINIStackFrame(t *testing.T) {
 		t.Fatalf("MDI.INI frame steps=%d EIP=%X calls=%d ESP=%X before=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.ESP], before)
 	}
 }
+
+func TestFD2AddressesMDIINISettingsBuffer(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f327; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MDI.INI settings buffer setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	before := m.CPU.R[cpu386.ESP]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MDI.INI settings buffer LEA: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f32e || services.Calls() != 5 || m.CPU.R[cpu386.EAX] != before+0x108 || m.CPU.R[cpu386.ESP] != before {
+		t.Fatalf("MDI.INI settings buffer steps=%d EIP=%X calls=%d EAX=%X ESP=%X before=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], before)
+	}
+}
