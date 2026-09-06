@@ -7,6 +7,10 @@ dosgolem 的 DOS/4GW 目標是讓保護模式 DOS 程式可以被程式化觀測
 重播，不是複製 DOS/4GW 載入器的實模式切換過程。每項能力只在有實際
 binary 路徑與測試收據後才能標為已驗證。
 
+公開 DOS extender／DPMI／LE loader 的交叉驗證入口固定於
+[`RE 117`](../re/117-open-watcom-dos-extender-reference.md)；該來源只減少公開契約
+的猜測，不會把未跑過的 FD2 路徑提升成已驗證。
+
 | 能力 | 目前狀態 | 證據或限制 |
 |---|---|---|
 | MZ 內嵌 LE 偵測、object 載入與已知 fixup | 部分已驗證 | [`007`](007-linear-executable-intake.md)；未列 fixup 形狀失敗即關閉 |

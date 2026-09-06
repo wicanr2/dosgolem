@@ -12,8 +12,10 @@
 
 第二個案例正在擴充 32 位 DOS/4GW 程式的決定性觀測。固定版本
 《炎龍騎士團 2》已能由真實 LE entry 經 Watcom 啟動流程自然進入
-`main`；這是啟動路徑收據，不是全遊戲已可執行的宣稱。已驗證邊界與
-待擴充能力見 [DOS/4GW 能力矩陣](docs/spec/081-dos4gw-capability-matrix.md)。
+`main`，並前進至 `MDI.INI` 設定解析與 radix digit-table；這是啟動路徑
+收據，不是全遊戲已可執行的宣稱。已驗證邊界與待擴充能力見
+[DOS/4GW 能力矩陣](docs/spec/081-dos4gw-capability-matrix.md)；公開 extender
+交叉驗證基線見 [Open Watcom v2 參考](docs/re/117-open-watcom-dos-extender-reference.md)。
 
 ## 起源：DOSBox-X 不好跟 AI agent 配合
 
