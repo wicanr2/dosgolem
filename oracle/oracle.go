@@ -488,6 +488,28 @@ func (o *Oracle) WatchWrites(lo, hi uint16) *[]MemWrite {
 	return log
 }
 
+// WatchLinear 監看**任意線性位址區間**的寫入，回一份逐次紀錄。
+//
+// `WatchWrites` 收的是 DGROUP 偏移，只涵蓋程式自己的資料段。配置來的記憶體、
+// 中斷向量表、視訊記憶體都在那之外——而「誰把這一格寫壞的」正是最常要問的問題。
+//
+// 紀錄裡的 `Off` 是**相對 lo 的位移**（區間可能超過 64 KB，所以不放絕對位址；
+// 要絕對位址就 `lo + Off`）。同一個監看一次只能有一個，後設的取代前一個。
+func (o *Oracle) WatchLinear(lo, hi uint32) *[]MemWrite {
+	log := &[]MemWrite{}
+	o.m.WatchWrites(lo, hi,
+		func(a uint32, old, nw uint8) {
+			*log = append(*log, MemWrite{
+				Off:  uint16(a - lo),
+				Old:  old,
+				New:  nw,
+				IP:   o.IP(),
+				Step: o.Steps(),
+			})
+		})
+	return log
+}
+
 // StopWatchingWrites 關掉監看。
 func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
 
