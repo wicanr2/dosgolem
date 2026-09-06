@@ -512,7 +512,11 @@ func (m *Machine) initVectors() {
 	m.WriteBytes(StubSeg*16+DosTrapOff, []byte{0xCD, 0xF2, 0xCF})
 	m.WriteBytes(StubSeg*16+VideoTrapOff, []byte{0xCD, 0xF3, 0xCF})
 	m.WriteBytes(StubSeg*16+ATrapOff, []byte{0xCD, 0xF4, 0xCF})
-	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCF})
+	// ⚠ **XMS 的 entry 是 far call，不是中斷**——結尾要 `RETF`（0CBh），
+	// 不是 `IRET`。用 IRET 的話每呼叫一次就多彈兩個位元組（呼叫端只推了
+	// CS:IP，IRET 卻連 FLAGS 一起彈），堆疊一路歪掉，最後在某個 `RETF`／
+	// `IRET` 跳進垃圾——而中間所有服務都「成功」。
+	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCB})
 	m.Write16(0x21*4, DosTrapOff)
 	m.Write16(0x10*4, VideoTrapOff)
 	m.Write16(0x15*4, ATrapOff)

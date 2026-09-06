@@ -415,3 +415,19 @@ func TestFreeBlockReclaims(t *testing.T) {
 		t.Error("釋放 0x4000 段之後配不到 0x6000 段")
 	}
 }
+
+// TestXMSEntryIsFarCallNotInterrupt 釘住 XMS driver entry 的 trampoline
+// 結尾是 RETF，不是 IRET。
+//
+// 呼叫端用 `call far` 只推 CS:IP；IRET 會連 FLAGS 一起彈，每呼叫一次
+// 堆疊歪兩個位元組。症狀出現在很後面：某個 RETF／IRET 跳進垃圾，
+// 而中間每一次 XMS 服務都「成功」。
+func TestXMSEntryIsFarCallNotInterrupt(t *testing.T) {
+	m := machine.New()
+	at := uint32(machine.StubSeg)*16 + machine.XMSTrapOff
+	got := []byte{m.Read8(at), m.Read8(at + 1), m.Read8(at + 2)}
+	want := []byte{0xCD, 0xF5, 0xCB}
+	if string(got) != string(want) {
+		t.Errorf("XMS entry ＝ % X，要 % X（CD F5 ＋ RETF）", got, want)
+	}
+}

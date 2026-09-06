@@ -52,6 +52,7 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	segLog := flag.Bool("seg-log", false, "記錄 CS 的每一次改變，報告裡印出每個段第一次執行的時間與來源")
 	dumpMem := flag.String("dump-mem", "", "跑完把一段線性記憶體寫成檔案：<lo>-<hi>:<路徑>（位址十六進位）")
+	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -164,6 +165,14 @@ func main() {
 
 	report(m, d, ring, runErr, *steps)
 	writeMemDump(m, *dumpMem)
+	if *dumpScreen != "" {
+		w, h := m.VideoSize()
+		if err := os.WriteFile(*dumpScreen, m.Indexed(), 0o644); err != nil {
+			fmt.Println("dump-screen 寫檔失敗:", err)
+		} else {
+			fmt.Printf("畫面 %d×%d 的色號寫到 %s\n", w, h, *dumpScreen)
+		}
+	}
 	if *watchVideo {
 		if vidN == 0 {
 			fmt.Println("視訊記憶體：一次都沒寫過")
