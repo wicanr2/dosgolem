@@ -68,6 +68,17 @@ func (d *DOS) readCString(seg, off uint16, limit int) string {
 
 func (d *DOS) open(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
+	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
+	if isEMMDevice(name) {
+		h := d.nextHandle
+		d.nextHandle++
+		d.handles[h] = &handle{name: name}
+		d.Opened = append(d.Opened, name)
+		c.R[cpu.AX] = h
+		clearCarry(c)
+		return
+	}
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
@@ -115,6 +126,11 @@ func (d *DOS) read(c *cpu.CPU) {
 	if !ok {
 		c.R[cpu.AX] = 6
 		setCarry(c)
+		return
+	}
+	if h.f == nil { // 字元裝置（EMMXXXX0）：讀回 EOF
+		c.R[cpu.AX] = 0
+		clearCarry(c)
 		return
 	}
 	buf := make([]byte, cx)
@@ -176,6 +192,11 @@ func (d *DOS) seek(c *cpu.CPU) {
 	h, ok := d.handles[c.R[cpu.BX]]
 	if !ok {
 		c.R[cpu.AX] = 6
+		setCarry(c)
+		return
+	}
+	if h.f == nil { // 字元裝置不能 seek
+		c.R[cpu.AX] = 1
 		setCarry(c)
 		return
 	}

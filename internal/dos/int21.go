@@ -124,6 +124,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 	case 0x4A:
 		d.setBlock(c)
+	case 0x4B:
+		d.exec(c)
+	case 0x4D:
+		d.getReturnCode(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -178,7 +182,9 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 		return
 	}
 	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
-	if blk == machine.PSPSeg && blk+want+1 > d.freeSeg {
+	// curPSP 是目前最內層的程式——EXEC 進去的子程式縮的是自己
+	// （`docs/spec/007` §2）。
+	if blk == d.curPSP && blk+want+1 > d.freeSeg {
 		d.freeSeg = blk + want + 1
 	}
 	clearCarry(c)

@@ -130,6 +130,14 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+
+	// execStack 是 EXEC 的父程式堆疊（`docs/spec/007` §2）。
+	// curPSP 是目前最內層程式的 PSP；lastExit／lastTerm 是最近一次
+	// 子程式的回傳碼與結束方式（`AH=4Dh`）。
+	execStack []execFrame
+	curPSP    uint16
+	lastExit  uint8
+	lastTerm  uint8
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -165,6 +173,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }
 
@@ -208,6 +217,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int1A(c)
 	case 0x20:
 		d.exit(c, 0)
+	case 0x67:
+		d.int67(c)
 	default:
 		d.note(n, uint8(c.R[cpu.AX]>>8), uint8(c.R[cpu.AX]))
 		clearCarry(c)
@@ -216,6 +227,12 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {
+	// EXEC 深度 > 0 時是子程式結束：回傳碼記下來，控制權還父程式
+	// （`docs/spec/007` §2），不停機。
+	if len(d.execStack) > 0 {
+		d.childExit(c, code)
+		return
+	}
 	d.Exited, d.ExitCode = true, code
 	c.Halted = true
 }

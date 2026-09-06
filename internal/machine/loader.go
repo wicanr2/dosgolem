@@ -39,11 +39,11 @@ func parseMZ(data []byte) (*mzHeader, error) {
 	}, nil
 }
 
-// LoadEXE 把一個已經解包的 MZ 映像載進機器並把 CPU 設到進入點。
-func (m *Machine) LoadEXE(data []byte) error {
+// mzImage 解出 MZ 映像並把重定位套到指定的載入段。
+func mzImage(data []byte, loadSeg uint16) ([]byte, *mzHeader, error) {
 	h, err := parseMZ(data)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	hdr := int(h.HeaderPar) * 16
 	total := (int(h.Pages)-1)*512 + int(h.LastPage)
@@ -51,7 +51,7 @@ func (m *Machine) LoadEXE(data []byte) error {
 		total = int(h.Pages) * 512
 	}
 	if hdr > len(data) || total > len(data) || total <= hdr {
-		return fmt.Errorf("machine: MZ 檔頭說映像是 %d..%d，但檔案只有 %d bytes",
+		return nil, nil, fmt.Errorf("machine: MZ 檔頭說映像是 %d..%d，但檔案只有 %d bytes",
 			hdr, total, len(data))
 	}
 	image := append([]byte(nil), data[hdr:total]...)
@@ -62,7 +62,7 @@ func (m *Machine) LoadEXE(data []byte) error {
 	for i := 0; i < int(h.Relocs); i++ {
 		p := int(h.RelocOff) + i*4
 		if p+4 > len(data) {
-			return fmt.Errorf("machine: 重定位表第 %d 筆超出檔案", i)
+			return nil, nil, fmt.Errorf("machine: 重定位表第 %d 筆超出檔案", i)
 		}
 		off := binary.LittleEndian.Uint16(data[p:])
 		seg := binary.LittleEndian.Uint16(data[p+2:])
@@ -71,14 +71,41 @@ func (m *Machine) LoadEXE(data []byte) error {
 			continue // 指到映像外，跳過；不是錯誤，舊 linker 會產生這種項
 		}
 		v := binary.LittleEndian.Uint16(image[idx:])
-		binary.LittleEndian.PutUint16(image[idx:], v+LoadSeg)
+		binary.LittleEndian.PutUint16(image[idx:], v+loadSeg)
 		applied++
 	}
 	if int(h.Relocs) > 0 && applied == 0 {
-		return fmt.Errorf("machine: 有 %d 筆重定位卻一筆都沒套上——映像可能被截斷",
+		return nil, nil, fmt.Errorf("machine: 有 %d 筆重定位卻一筆都沒套上——映像可能被截斷",
 			h.Relocs)
 	}
+	return image, h, nil
+}
 
+// MZImageParags 回 MZ 映像（不含檔頭）佔幾個段。EXEC 配置記憶體用
+// （`docs/spec/007` §2）。
+func MZImageParags(data []byte) (int, error) {
+	h, err := parseMZ(data)
+	if err != nil {
+		return 0, err
+	}
+	hdr := int(h.HeaderPar) * 16
+	total := (int(h.Pages)-1)*512 + int(h.LastPage)
+	if h.LastPage == 0 {
+		total = int(h.Pages) * 512
+	}
+	if hdr > len(data) || total > len(data) || total <= hdr {
+		return 0, fmt.Errorf("machine: MZ 檔頭說映像是 %d..%d，但檔案只有 %d bytes",
+			hdr, total, len(data))
+	}
+	return (total - hdr + 15) / 16, nil
+}
+
+// LoadEXE 把一個已經解包的 MZ 映像載進機器並把 CPU 設到進入點。
+func (m *Machine) LoadEXE(data []byte) error {
+	image, h, err := mzImage(data, LoadSeg)
+	if err != nil {
+		return err
+	}
 	m.WriteBytes(LoadSeg*16, image)
 	m.ImageBase, m.ImageLen = LoadSeg*16, len(image)
 	// 映像之後才是可配置區。BASIC runtime 會先要一大塊當堆積，
@@ -88,14 +115,53 @@ func (m *Machine) LoadEXE(data []byte) error {
 	m.initPSP()
 	m.initMCB()
 
-	c := m.CPU
-	c.Seg[cpu.CS] = LoadSeg + h.CS
-	c.IP = h.IP
-	c.Seg[cpu.SS] = LoadSeg + h.SS
-	c.R[cpu.SP] = h.SP
-	c.Seg[cpu.DS] = PSPSeg
-	c.Seg[cpu.ES] = PSPSeg
+	m.setEntry(LoadSeg, h, PSPSeg)
 	return nil
+}
+
+// LoadEXEAt 把 MZ 映像載到指定的 PSP 段（EXEC 用，`docs/spec/007` §2）。
+//
+// 與 LoadEXE 的差別：**不動 ImageBase／FreeSeg，也不重建全域 MCB 鏈**——
+// 記憶體配置是 dos 層的 bump 配置器管的。PSP 前一段補一個假 MCB
+// （擁有者 ＝ 子程式 PSP），讓子程式的 `AH=4Ah` 看得到自洽的東西。
+func (m *Machine) LoadEXEAt(data []byte, pspSeg uint16) error {
+	loadSeg := pspSeg + 0x10
+	image, h, err := mzImage(data, loadSeg)
+	if err != nil {
+		return err
+	}
+	m.WriteBytes(uint32(loadSeg)*16, image)
+	m.initPSPAt(pspSeg)
+	m.writeMCB(pspSeg, uint16((len(image)+15)/16)+0x11)
+	m.setEntry(loadSeg, h, pspSeg)
+	// EXEC 進入的通用暫存器清 0（簡化，`docs/spec/007` §6）；
+	// SS:SP 已由 setEntry 設好。
+	for i := range m.CPU.R {
+		if i != cpu.SP {
+			m.CPU.R[i] = 0
+		}
+	}
+	return nil
+}
+
+// setEntry 把 CPU 設到 MZ 的進入點。
+func (m *Machine) setEntry(loadSeg uint16, h *mzHeader, pspSeg uint16) {
+	c := m.CPU
+	c.Seg[cpu.CS] = loadSeg + h.CS
+	c.IP = h.IP
+	c.Seg[cpu.SS] = loadSeg + h.SS
+	c.R[cpu.SP] = h.SP
+	c.Seg[cpu.DS] = pspSeg
+	c.Seg[cpu.ES] = pspSeg
+}
+
+// writeMCB 在 pspSeg−1 寫一個假 MCB（擁有者 ＝ pspSeg）。
+func (m *Machine) writeMCB(pspSeg, paras uint16) {
+	mcb := uint32((pspSeg - 1) * 16)
+	m.Mem[mcb] = 'M'
+	m.Write16(mcb+1, pspSeg)
+	m.Write16(mcb+3, paras)
+	m.WriteBytes(mcb+8, []byte("        "))
 }
 
 // LoadCOM 載入 .COM 映像：無檔頭、無重定位，整份檔案放在 PSP+100h，
@@ -130,8 +196,12 @@ func (m *Machine) LoadCOM(data []byte) error {
 //
 // 「夠用」的定義是 Microsoft C runtime 啟動不炸——每一欄都有一個
 // 具體的呼叫端，不是照手冊填滿。
-func (m *Machine) initPSP() {
-	psp := uint32(PSPSeg * 16)
+func (m *Machine) initPSP() { m.initPSPAt(PSPSeg) }
+
+// initPSPAt 在指定段建 PSP。父行程欄位與環境段維持指到全域的
+// PSPSeg／EnvSeg——EXEC 的子程式因此繼承父程式的環境（`docs/spec/007` §2）。
+func (m *Machine) initPSPAt(pspSeg uint16) {
+	psp := uint32(pspSeg) * 16
 	m.WriteBytes(psp, []byte{0xCD, 0x20}) // int 20h
 	m.Write16(psp+2, MemTop)              // 記憶體上限
 
@@ -149,7 +219,7 @@ func (m *Machine) initPSP() {
 	// PSP+32h／34h 是檔案表大小與位址。
 	m.Write16(psp+0x32, 20)
 	m.Write16(psp+0x34, 0x18)
-	m.Write16(psp+0x36, PSPSeg)
+	m.Write16(psp+0x36, pspSeg)
 }
 
 // initMCB 造一條最小的合法記憶體控制區塊鏈。
