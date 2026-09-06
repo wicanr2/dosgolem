@@ -112,6 +112,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x42:
 		d.seek(c)
 
+	case 0x43: // 取／設檔案屬性
+		d.fileAttr(c)
+
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
 			c.R[cpu.DX] = uint16(d.Drive)
@@ -131,8 +134,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 
 	case 0x48:
 		d.alloc(c)
-	case 0x49: // 釋放記憶體：收下就好，不做回收
-		clearCarry(c)
+	case 0x49:
+		d.release(c)
 	case 0x4A:
 		d.setBlock(c)
 
@@ -211,6 +214,38 @@ func (d *DOS) conOut(c *cpu.CPU, fn uint8) {
 	clearCarry(c)
 }
 
+// fileAttr 是 `AH=43h`。**只實作 `AL=00h`（取屬性）**，那是目前唯一被用到的。
+//
+// 智冠《三國演義》在解壓資料之前查一次屬性；沒實作的話落到 default，
+// `CX` 是殘留值、CF 清掉看起來像成功——程式拿到一個亂七八糟的屬性字組，
+// 然後**以離開碼 255 結束**，而中途一個錯誤訊息都沒有。
+//
+// `AL=01h`（設屬性）與其他子功能故意不實作，讓 probe 繼續把它們列出來。
+// 「實作實際用到的，其餘保持可見」比「先全部填掉」好：填掉的那一刻
+// 就分不出「沒人用」與「用了但我們做錯」。
+func (d *DOS) fileAttr(c *cpu.CPU) {
+	if al(c) != 0x00 {
+		d.note(0x21, 0x43, al(c))
+		clearCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	path := d.resolve(name)
+	if path == "" {
+		// 找不到：CF=1、AX=2（file not found）。
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	// 一律回 `20h`（archive），**不回 `01h`（read-only）**。
+	//
+	// 我們把素材目錄唯讀掛載，但那是這個測試架構的性質，不是原版執行環境的。
+	// 回 read-only 會讓程式據此改變行為（例如拒絕寫存檔），
+	// 那就是把工具的實作細節洩漏進被觀測對象——量到的就不是原版了。
+	c.R[cpu.CX] = 0x20
+	clearCarry(c)
+}
+
 // setBlock 是 `AH=4Ah`，**記憶體探測**（`docs/spec/004` §1.2）。
 //
 //	56C4  bx = 0FFFFh    ; 故意要求 0FFFFh 段
@@ -235,25 +270,159 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
 	if blk == machine.PSPSeg && blk+want+1 > d.freeSeg {
 		d.freeSeg = blk + want + 1
+		// arena 還沒建就讓它用新的 freeSeg 建；已經建了就不動——
+		// 重建會把已配置的區塊全部丟掉。
+	}
+	// arena 內的區塊走真正的 resize（規格 009）。不在 arena 內的
+	// （PSP、映像本體）維持原本的行為：那條路是記憶體探測協定，
+	// 上面的註解記著為什麼不能一律報成功。
+	if d.arena != nil && d.resize(c, blk, want) {
+		return
 	}
 	clearCarry(c)
 }
 
-// alloc 是 `AH=48h`：一個真的 bump 配置器。
+// initArena 在第一次用到時把 [freeSeg, MemTop) 建成一個自由區塊。
 //
-// 第一版固定回 64 KB，`RUN.EXE` 的 BASIC runtime 因此報 Error 07
-// （Out of memory）。
-func (d *DOS) alloc(c *cpu.CPU) {
-	want := c.R[cpu.BX]
-	avail := uint16(machine.MemTop) - d.freeSeg
-	if want > avail {
-		c.R[cpu.AX] = 8
-		c.R[cpu.BX] = avail
-		setCarry(c)
+// 延後到這裡是因為 freeSeg 會被 `AH=4Ah` 的 PSP 縮小改寫——
+// 程式先縮自己的區塊，後面那塊才是可配置的。太早建會把還不屬於
+// 我們的空間算進去。
+func (d *DOS) initArena() {
+	if d.arena != nil {
 		return
 	}
-	seg := d.freeSeg + 1 // +1 給假的 MCB
-	d.freeSeg = seg + want
-	c.R[cpu.AX] = seg
-	clearCarry(c)
+	base := d.freeSeg
+	if base >= uint16(machine.MemTop) {
+		d.arena = []memBlock{}
+		return
+	}
+	d.arena = []memBlock{{seg: base, size: uint16(machine.MemTop) - base - 1, free: true}}
+}
+
+// largestFree 是目前最大的一塊自由空間（資料段數）。
+func (d *DOS) largestFree() uint16 {
+	var max uint16
+	for _, b := range d.arena {
+		if b.free && b.size > max {
+			max = b.size
+		}
+	}
+	return max
+}
+
+// alloc 是 `AH=48h`：首次適配。
+//
+// ⚠ **第一版是單向的 bump 配置器，而 `AH=49h` 是空操作。** 那組合對
+// 「配置一次就用到結束」的程式沒問題，但任何配置／釋放交替的迴圈都會
+// 單調吃光 640 KB。智冠《三國演義》的解壓階段配置 9,925 次、釋放 9,921 次，
+// 淨值只有 4 塊——在舊實作下它撞到上限然後以離開碼 255 結束，
+// **而且沒有任何錯誤訊息**（`docs/spec/009` §1）。
+func (d *DOS) alloc(c *cpu.CPU) {
+	d.initArena()
+	want := c.R[cpu.BX]
+	for i := range d.arena {
+		b := &d.arena[i]
+		if !b.free || b.size < want {
+			continue
+		}
+		// 切得出一塊有意義的剩餘（至少 1 段 MCB ＋ 1 段資料）才切，
+		// 否則整塊給出去——切出 0 段的區塊只會讓表變長。
+		if b.size >= want+2 {
+			rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
+			b.size = want
+			b.free = false
+			d.arena = append(d.arena, memBlock{})
+			copy(d.arena[i+2:], d.arena[i+1:])
+			d.arena[i+1] = rest
+		} else {
+			b.free = false
+		}
+		c.R[cpu.AX] = d.arena[i].seg + 1
+		clearCarry(c)
+		return
+	}
+	c.R[cpu.AX] = 8 // 記憶體不足
+	c.R[cpu.BX] = d.largestFree()
+	setCarry(c)
+}
+
+// release 是 `AH=49h`：標記為自由**並合併相鄰的自由區塊**。
+//
+// 合併是必要的不是優化：不合併的話九千次配置／釋放會把空間切成
+// 九千個碎片，最後一樣配不出大塊——換一種方式撞同一面牆。
+func (d *DOS) release(c *cpu.CPU) {
+	d.initArena()
+	seg := c.Seg[cpu.ES]
+	for i := range d.arena {
+		if d.arena[i].seg+1 != seg {
+			continue
+		}
+		d.arena[i].free = true
+		d.coalesce()
+		clearCarry(c)
+		return
+	}
+	// 不認識的區塊：**照實回錯誤**。悄悄成功會把「釋放了不屬於自己的東西」
+	// 藏起來，而那是真 DOS 會抓的錯（AX=9，MCB 位址無效）。
+	c.R[cpu.AX] = 9
+	setCarry(c)
+}
+
+// coalesce 把相鄰的自由區塊併起來。被吃掉的那一塊連它的 MCB 段一起回收。
+func (d *DOS) coalesce() {
+	for i := 0; i+1 < len(d.arena); {
+		if d.arena[i].free && d.arena[i+1].free {
+			d.arena[i].size += d.arena[i+1].size + 1
+			d.arena = append(d.arena[:i+1], d.arena[i+2:]...)
+			continue
+		}
+		i++
+	}
+}
+
+// resize 是 `AH=4Ah` 落在 arena 內的區塊時的處理。
+func (d *DOS) resize(c *cpu.CPU, seg, want uint16) bool {
+	for i := range d.arena {
+		b := &d.arena[i]
+		if b.seg+1 != seg {
+			continue
+		}
+		switch {
+		case want <= b.size:
+			// 縮小：後半段切出來標為自由，再與後面合併。
+			if b.size >= want+2 {
+				rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
+				b.size = want
+				d.arena = append(d.arena, memBlock{})
+				copy(d.arena[i+2:], d.arena[i+1:])
+				d.arena[i+1] = rest
+				d.coalesce()
+			}
+			clearCarry(c)
+		case i+1 < len(d.arena) && d.arena[i+1].free && b.size+1+d.arena[i+1].size >= want:
+			// 放大：吃掉後面那塊自由區塊（連它的 MCB 段）。
+			b.size += 1 + d.arena[i+1].size
+			d.arena = append(d.arena[:i+1], d.arena[i+2:]...)
+			// 吃太多就把多的再吐回去。
+			if b.size >= want+2 {
+				rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
+				b.size = want
+				d.arena = append(d.arena, memBlock{})
+				copy(d.arena[i+2:], d.arena[i+1:])
+				d.arena[i+1] = rest
+				d.coalesce()
+			}
+			clearCarry(c)
+		default:
+			max := b.size
+			if i+1 < len(d.arena) && d.arena[i+1].free {
+				max += 1 + d.arena[i+1].size
+			}
+			c.R[cpu.BX] = max
+			c.R[cpu.AX] = 8
+			setCarry(c)
+		}
+		return true
+	}
+	return false
 }

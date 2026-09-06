@@ -153,6 +153,14 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+
+	// arena 是 [freeSeg, MemTop) 這段的區塊表，依段位址排序、首尾相接、
+	// 沒有空隙。每個區塊佔 1 段的假 MCB ＋ size 段的資料，
+	// 交給程式的是 seg+1。規格 `docs/spec/009`。
+	//
+	// nil 表示還沒初始化；第一次配置時用當時的 freeSeg 建起來，
+	// 這樣測試裡先設 freeSeg 再用的寫法仍然成立。
+	arena []memBlock
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -298,3 +306,10 @@ func setBH(c *cpu.CPU, v uint8) { c.R[cpu.BX] = c.R[cpu.BX]&0x00FF | uint16(v)<<
 func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
+
+// memBlock 是配置器的一個區塊。seg 是假 MCB 的位置，資料從 seg+1 開始。
+type memBlock struct {
+	seg  uint16
+	size uint16 // 資料段數，不含 MCB
+	free bool
+}
