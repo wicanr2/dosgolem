@@ -1180,3 +1180,21 @@ func TestFD2AppliesOpenModeFlags(t *testing.T) {
 		t.Fatalf("apply open flags steps=%d EIP=%X calls=%d before=%X source=%X after=%X errors=%v/%v", steps, m.CPU.EIP, services.Calls(), before, source, after, errRead, errAfter)
 	}
 }
+
+func TestFD2ReloadsOpenModeByte(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36edb; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("reload mode setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	addr, flags := m.CPU.R[cpu386.EAX], m.CPU.EFlags
+	want, errRead := m.Read8(addr)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("reload mode MOVZX: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x36ede || services.Calls() != 5 || errRead != nil || m.CPU.R[cpu386.EAX] != uint32(want) || m.CPU.EFlags != flags {
+		t.Fatalf("reload mode steps=%d EIP=%X calls=%d EAX=%X want=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], want, m.CPU.EFlags, errRead)
+	}
+}

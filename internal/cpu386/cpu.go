@@ -2490,12 +2490,13 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if modrm>>6 != 0 || modrm&7 != ESI {
+			if modrm>>6 != 0 || (modrm&7 != ESI && modrm&7 != EAX) {
 				return fail(fmt.Sprintf("0F B6 ModRM %02X 尚未支援", modrm))
 			}
-			value, ok := c.readSegment8(c.Seg[SegDS], c.R[ESI])
+			addr := c.R[modrm&7]
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
 			if !ok {
-				return fail(fmt.Sprintf("MOVZX byte read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+				return fail(fmt.Sprintf("MOVZX byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
 			}
 			c.R[(modrm>>3)&7] = uint32(value)
 			break
