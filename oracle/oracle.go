@@ -347,6 +347,26 @@ func (o *Oracle) WatchWrites(lo, hi uint16) *[]MemWrite {
 	return log
 }
 
+// WatchWritesAt 監看一段**線性位址**的寫入，回一份逐次紀錄。
+//
+// `WatchWrites` 只認 DGROUP 偏移，而遊戲把資料表放在別的段是常態
+// ——執行期用線性位址搜出來的東西沒有 DGROUP 偏移可用。
+//
+// 回傳的紀錄裡 `Off` 是「距離 lo 幾個位元組」，不是 DGROUP 偏移。
+func (o *Oracle) WatchWritesAt(lo, hi uint32) *[]MemWrite {
+	log := &[]MemWrite{}
+	o.m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+		*log = append(*log, MemWrite{
+			Off:  uint16(a - lo),
+			Old:  old,
+			New:  nw,
+			IP:   o.IP(),
+			Step: o.Steps(),
+		})
+	})
+	return log
+}
+
 // StopWatchingWrites 關掉監看。
 func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
 
