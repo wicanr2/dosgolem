@@ -73,12 +73,32 @@ type DOS struct {
 	// **錯誤訊息走這條**，收不到就等於什麼都不知道。
 	Console []byte
 
+	// Calls 是每一種 (中斷, AH) 的呼叫次數；nil 表示不記。
+	Calls map[Call]int
+
 	// Stdin 是 `AH=3Fh` 讀 handle 0 時要餵的位元組；空的時候餵 StdinFill。
 	//
 	// ⚠ **不能回「讀到 0 個」**（等同 EOF）：主程式會當成輸入結束、
 	// 還原中斷向量然後 exit（`rich2/docs/re/005`「死點修掉了」）。
 	Stdin     []byte
 	StdinFill uint8
+
+	// StdinEmptyReadsZero 讓「佇列空」回報**讀到 0 個位元組**，
+	// 而不是餵一個 StdinFill。
+	//
+	// **為什麼需要它**：編譯後 BASIC 的 `INKEY$` 空轉是
+	// `while INKEY$ = "" : wend`（`rich2/docs/re/153` 的 `0x2CB42`：
+	// `while ds:1094h == ds:2232h`，後者是空字串）。餵一個 `00` 會讓
+	// `INKEY$` 拿到 `CHR$(0)`——**非空字串**，於是空轉立刻結束。
+	// 症狀是**所有「按任意鍵繼續」的畫面一閃而過**：畫出來了、
+	// 也真的畫對了，但幾十萬道指令之後就被下一次重繪蓋掉，
+	// 而外面用粗取樣根本看不到它存在過。
+	//
+	// ⚠ **預設 false，不要全域打開。** 主程式在別的地方會把「讀到 0 個」
+	// 當成 EOF，然後還原中斷向量並結束（那正是 StdinFill 存在的理由）。
+	// 這個開關是給「我現在就是要讓某張畫面停住」用的，
+	// 用完要關掉。
+	StdinEmptyReadsZero bool
 
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
@@ -161,6 +181,11 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 	if seg := d.M.Read16(uint32(n)*4 + 2); seg != machine.StubSeg {
 		return false // 程式自己裝了處理常式
 	}
+	// Calls 記每一種 (中斷, AH) 呼叫過幾次。**只記不改行為**——
+	// 「它到底在做什麼」在沒有畫面可看的時候只剩這個問得到。
+	if d.Calls != nil {
+		d.Calls[Call{Int: n, AH: uint8(c.R[cpu.AX] >> 8)}]++
+	}
 	switch n {
 	case 0x21:
 		d.int21(c)
@@ -179,6 +204,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		c.R[cpu.AX] = d.M.Read16(0x0040*16 + 0x13)
 	case 0x13:
 		d.int13(c)
+	case 0x1A:
+		d.int1A(c)
 	case 0x20:
 		d.exit(c, 0)
 	default:

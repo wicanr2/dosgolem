@@ -42,6 +42,12 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	watchVideo := flag.Bool("watch-video", false,
+		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
+	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
+	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
+	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	flag.Parse()
 
 	if *exe == "" {
@@ -57,8 +63,30 @@ func main() {
 	if err := m.LoadEXE(img); err != nil {
 		die(err)
 	}
+	if *tick > 0 {
+		m.IRQ0Every = *tick
+	}
+	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
+	var vidN int
+	if *watchVideo {
+		m.WatchWrites(0xA0000, 0xBFFFF, func(a uint32, old, nv uint8) {
+			vidN++
+			if a < vidLo {
+				vidLo = a
+			}
+			if a > vidHi {
+				vidHi = a
+			}
+		})
+	}
 	d := dos.New(m, *root)
+	if *logCalls {
+		d.Calls = map[dos.Call]int{}
+	}
 	d.Install()
+	if *keys != "" {
+		d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(*keys, "\\n", "\n"))...)
+	}
 
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
 	// 兩邊位置不同的話逐點比對會在兩個位置各差一整塊，而畫面看起來完全正常。
@@ -108,6 +136,51 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	if *watchVideo {
+		if vidN == 0 {
+			fmt.Println("視訊記憶體：一次都沒寫過")
+		} else {
+			fmt.Printf("視訊記憶體：寫了 %d 次，範圍 0x%05X–0x%05X\n", vidN, vidLo, vidHi)
+		}
+	}
+	if len(d.Calls) > 0 {
+		type kv struct {
+			c dos.Call
+			n int
+		}
+		var list []kv
+		for k, v := range d.Calls {
+			list = append(list, kv{k, v})
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].n > list[j].n })
+		fmt.Printf("\n服務呼叫（%d 種）\n", len(list))
+		for i, e := range list {
+			if i >= 25 {
+				break
+			}
+			fmt.Printf("  int %02Xh AH=%02X  ×%d\n", e.c.Int, e.c.AH, e.n)
+		}
+	}
+	if len(d.Missing) > 0 {
+		fmt.Printf("找不到的檔（%d）：%v\n", len(d.Missing), d.Missing)
+	}
+	// CGA／EGA 的畫面在 B8000／A0000，`-dump-vram` 只看 mode 13h 的 A0000。
+	// 這個遊戲跑在 mode 06h（CGA 640×200），所以另外報一行「那一塊有沒有東西」。
+	{
+		nz := 0
+		for a := uint32(0xB8000); a < 0xB8000+0x8000; a++ {
+			if m.Read8(a) != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+	}
+	if *dumpCGA != "" {
+		if err := writeCGA(*dumpCGA, m); err != nil {
+			die(err)
+		}
+		fmt.Printf("寫出 %s（B8000 當 640×200 mode 06h）\n", *dumpCGA)
+	}
 	if *peek != "" {
 		dumpPeek(m, *peek)
 	}
@@ -169,6 +242,24 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 
 	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), join(d.Opened))
+	if len(d.Calls) > 0 {
+		type kv struct {
+			c dos.Call
+			n int
+		}
+		var list []kv
+		for k, v := range d.Calls {
+			list = append(list, kv{k, v})
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].n > list[j].n })
+		fmt.Printf("\n服務呼叫（%d 種）\n", len(list))
+		for i, e := range list {
+			if i >= 25 {
+				break
+			}
+			fmt.Printf("  int %02Xh AH=%02X  ×%d\n", e.c.Int, e.c.AH, e.n)
+		}
+	}
 	if len(d.Missing) > 0 {
 		fmt.Printf("找不到的檔（%d）：%s\n", len(d.Missing), join(d.Missing))
 	}
@@ -361,4 +452,25 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 func die(err error) {
 	fmt.Fprintln(os.Stderr, "probe:", err)
 	os.Exit(1)
+}
+
+// writeCGA 把 B8000 依 CGA mode 06h 的版面畫出來：
+// 偶數列在 B8000、奇數列在 BA000，每列 80 bytes、每 byte 8 個像素（MSB 在左）。
+func writeCGA(path string, m *machine.Machine) error {
+	img := image.NewGray(image.Rect(0, 0, 640, 200))
+	for y := 0; y < 200; y++ {
+		base := uint32(0xB8000) + uint32(y&1)*0x2000 + uint32(y/2)*80
+		for x := 0; x < 640; x++ {
+			b := m.Read8(base + uint32(x/8))
+			if b&(0x80>>uint(x%8)) != 0 {
+				img.SetGray(x, y, color.Gray{Y: 255})
+			}
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }

@@ -39,6 +39,18 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x1A: // 設 DTA。收下就好，我們不用 FCB 那一套。
 		clearCarry(c)
 
+	case 0x1C: // 取指定磁碟機的配置資訊
+		// AL ＝ 每叢集磁區數、CX ＝ 磁區大小、DX ＝ 叢集數、DS:BX → 媒體識別碼。
+		// 給一組自洽的 1.2 MB 軟碟數字：程式拿它算「還有多少空間可以存檔」，
+		// 回 0 會被讀成「磁碟滿了」。媒體識別碼指到樁段的一個位元組。
+		setAL(c, 1)
+		c.R[cpu.CX] = 512
+		c.R[cpu.DX] = 2400
+		c.Seg[cpu.DS] = machine.StubSeg
+		c.R[cpu.BX] = 0
+		d.M.Write8(uint32(machine.StubSeg)*16, 0xF9) // 1.2 MB 軟碟
+		clearCarry(c)
+
 	case 0x25: // 設中斷向量 ← DS:DX
 		// **一定要真的寫進去。** 程式用它裝自己的 8087 模擬處理常式
 		// （`INT 34h`–`3Dh`）；不寫的話所有浮點運算都落空，

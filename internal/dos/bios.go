@@ -144,14 +144,51 @@ func (d *DOS) int33(c *cpu.CPU) {
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
-		c.R[cpu.AX] = 0
-	case 0x01, 0x11: // 查有沒有按鍵：回 ZF=1 表示沒有
-		c.SetFlags(c.Flags | cpu.ZF)
+		if len(d.Stdin) == 0 {
+			c.R[cpu.AX] = 0
+			return
+		}
+		c.R[cpu.AX] = keyWord(d.Stdin[0])
+		d.Stdin = d.Stdin[1:]
+	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
+		if len(d.Stdin) == 0 {
+			c.SetFlags(c.Flags | cpu.ZF)
+			return
+		}
+		c.SetFlags(c.Flags &^ cpu.ZF)
+		c.R[cpu.AX] = keyWord(d.Stdin[0]) // 查看不取走
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	default:
 		d.note(0x16, ah(c), al(c))
 	}
+}
+
+// keyWord 把一個 ASCII 位元組換成 BIOS 的 AX（AH ＝ 掃描碼、AL ＝ ASCII）。
+//
+// **掃描碼不能省**：只填 AL 的話，凡是用 AH 判鍵的程式都會收到 0，
+// 而 0 在很多程式裡是「延伸鍵」的前綴——那會被讀成方向鍵。
+// 表只收得下我們真的會送的鍵；沒收錄的回掃描碼 0，並在報告裡記一筆。
+func keyWord(b uint8) uint16 {
+	if sc, ok := scanCode[b]; ok {
+		return uint16(sc)<<8 | uint16(b)
+	}
+	return uint16(b)
+}
+
+// scanCode 是 IBM PC 的 set-1 掃描碼（只列我們送得出去的鍵）。
+var scanCode = map[uint8]uint8{
+	0x1B: 0x01, // ESC
+	'1': 0x02, '2': 0x03, '3': 0x04, '4': 0x05, '5': 0x06,
+	'6': 0x07, '7': 0x08, '8': 0x09, '9': 0x0A, '0': 0x0B,
+	'\r': 0x1C, '\n': 0x1C, ' ': 0x39,
+	'q': 0x10, 'w': 0x11, 'e': 0x12, 'r': 0x13, 't': 0x14,
+	'y': 0x15, 'u': 0x16, 'i': 0x17, 'o': 0x18, 'p': 0x19,
+	'a': 0x1E, 's': 0x1F, 'd': 0x20, 'f': 0x21, 'g': 0x22,
+	'h': 0x23, 'j': 0x24, 'k': 0x25, 'l': 0x26,
+	'z': 0x2C, 'x': 0x2D, 'c': 0x2E, 'v': 0x2F, 'b': 0x30,
+	'n': 0x31, 'm': 0x32,
+	'Y': 0x15, 'N': 0x31,
 }
 
 // int13 是 BIOS 磁碟服務。
@@ -172,5 +209,35 @@ func (d *DOS) int13(c *cpu.CPU) {
 		d.note(0x13, ah(c), al(c))
 		setAH(c, 0x80) // 逾時
 		setCarry(c)
+	}
+}
+
+// int1A 是 BIOS 的系統時鐘服務。
+//
+// **不實作會卡死**：程式用 `AH=00` 讀 tick 計數當延遲的依據，
+// 讀到的值一直不動就永遠等下去（`SANGOKU`／`MAIN.EXE` 開場實測，
+// 沒接之前一路輪詢 13,750 次還在原地）。
+//
+// tick 本身已經在 BDA 的 `0040:006C`（`machine.bumpBDATicks`），
+// 這裡只是把它照 BIOS 的介面交出去。
+func (d *DOS) int1A(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x00: // 取 tick 計數 → CX:DX，AL ＝ 跨日旗標
+		lo := d.M.Read16(0x0040*16 + 0x6C)
+		hi := d.M.Read16(0x0040*16 + 0x6E)
+		c.R[cpu.CX] = hi
+		c.R[cpu.DX] = lo
+		setAL(c, d.M.Read8(0x0040*16+0x70))
+		d.M.Write8(0x0040*16+0x70, 0) // 讀過就清，與真機同
+	case 0x01: // 設 tick 計數
+		d.M.Write16(0x0040*16+0x6C, c.R[cpu.DX])
+		d.M.Write16(0x0040*16+0x6E, c.R[cpu.CX])
+	case 0x02, 0x04: // 讀 RTC 的時、分、秒／年、月、日
+		// 沒有 RTC 就照「沒有時鐘」回：進位旗標立起來。
+		// 回一組編出來的時間比較危險——程式可能拿它當亂數種子。
+		setCarry(c)
+	default:
+		d.note(0x1A, ah(c), al(c))
+		clearCarry(c)
 	}
 }

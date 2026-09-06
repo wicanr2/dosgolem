@@ -156,8 +156,17 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 		clearCarry(c)
 		return
 	}
-	// 佇列空了。**還是要回「讀到 1 個」**——回 0 等同 EOF，
+	// 佇列空了。**預設還是要回「讀到 1 個」**——回 0 等同 EOF，
 	// 主程式會還原中斷向量然後 exit。
+	//
+	// 例外是 StdinEmptyReadsZero：BASIC 的 `INKEY$` 空轉要看到**空字串**
+	// 才會繼續等，餵 `00` 會讓它拿到 `CHR$(0)` 而立刻結束
+	// （見該欄位的註解）。要讓「按任意鍵繼續」的畫面停住就打開它。
+	if d.StdinEmptyReadsZero {
+		c.R[cpu.AX] = 0
+		clearCarry(c)
+		return
+	}
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), []byte{d.StdinFill})
 	c.R[cpu.AX] = 1
 	clearCarry(c)
