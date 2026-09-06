@@ -1549,6 +1549,19 @@ func TestMOVZXAbsoluteDSWord(t *testing.T) {
 	}
 }
 
+func TestMOVZXByteFromESI(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x0f, 0xb6, 0x16})
+	mem[0x20] = 0xa5
+	c := New(mem)
+	c.R[ESI], c.R[EDX], c.EFlags = 0x20, 0xffffffff, CF|ZF
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || c.R[EDX] != 0xa5 || c.R[ESI] != 0x20 || mem[0x20] != 0xa5 || c.EFlags != CF|ZF {
+		t.Fatalf("MOVZX EDX=%X ESI=%X source=%X flags=%X err=%v", c.R[EDX], c.R[ESI], mem[0x20], c.EFlags, err)
+	}
+}
+
 func TestX87StartupSelfTestSequence(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	code := []byte{
