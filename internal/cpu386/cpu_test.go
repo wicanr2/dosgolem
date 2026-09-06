@@ -1990,6 +1990,24 @@ func TestSETZRegisterByte(t *testing.T) {
 	}
 }
 
+func TestSETNZRegisterByte(t *testing.T) {
+	for _, test := range []struct {
+		flags uint32
+		want  uint8
+	}{{ZF | CF, 0}, {CF, 1}} {
+		c := New(testBus{0x0f, 0x95, 0xc0})
+		c.R[EAX], c.EFlags = 0x12345678, test.flags
+		if err := c.Step(); err != nil || c.reg8(0) != test.want || c.R[EAX]&0xffffff00 != 0x12345600 || c.EFlags != test.flags {
+			t.Fatalf("SETNZ EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+		}
+	}
+
+	c := New(testBus{0x0f, 0x95, 0x00})
+	if err := c.Step(); err == nil {
+		t.Fatal("memory SETNZ was accepted")
+	}
+}
+
 func TestLFSAbsolutePointer(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x0f, 0xb4, 0x05, 0x40, 0x00, 0x00, 0x00})

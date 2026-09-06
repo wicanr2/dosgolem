@@ -2669,16 +2669,16 @@ func (c *CPU) Step() error {
 			c.R[(modrm>>3)&7] = uint32(value)
 			break
 		}
-		if extended == 0x94 && !operand16 && segmentOverride < 0 && !repe {
+		if (extended == 0x94 || extended == 0x95) && !operand16 && segmentOverride < 0 && !repe {
 			modrm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
 			}
 			if modrm>>6 != 3 {
-				return fail(fmt.Sprintf("0F 94 ModRM %02X 尚未支援", modrm))
+				return fail(fmt.Sprintf("0F %02X ModRM %02X 尚未支援", extended, modrm))
 			}
 			value := uint8(0)
-			if c.EFlags&ZF != 0 {
+			if extended == 0x94 && c.EFlags&ZF != 0 || extended == 0x95 && c.EFlags&ZF == 0 {
 				value = 1
 			}
 			c.setReg8(int(modrm&7), value)
