@@ -1018,6 +1018,24 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if modrm>>6 == 0 && modrm&7 == EBP && group == 0 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("INC dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			result := value + 1
+			if !c.writeSegment32(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("INC dword write %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			carry := c.EFlags & CF
+			c.add32(value, 1)
+			c.EFlags = c.EFlags&^CF | carry
+			break
+		}
 		if modrm>>6 == 0 && modrm&7 == EBP && group == 1 {
 			addr, e := c.fetch32()
 			if e != nil {

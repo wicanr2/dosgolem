@@ -31,7 +31,8 @@ preference 表格的索引讀寫、共用包裝器尾端、預設表格清零，
 中斷設定入口的旗標保存、CLI、DS selector 保存並載回 ES，以及以
 `INT 31h/AX=0200h` 取得 timer 實模式向量，並以 `mov cx,dx` 打包至
 `0x3E9BA`，再保存 DOS 舊向量並把 interrupt 8 改為 `CS:0x3E73E`，抵達
-`0x3E9EF`；此收據只證明
+`0x3E9EF`；其後自然進入 `sub_3E724`，完成 `dword_52BEA` 閘門遞增至
+`0x3E72D`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

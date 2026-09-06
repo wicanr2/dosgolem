@@ -828,3 +828,17 @@ func TestFD2ReplacesTimerDOSVector(t *testing.T) {
 		t.Fatalf("DOS vector replace steps=%d EIP=%X calls=%d old=%X:%X new=%X want=%X errors=%v,%v", steps, m.CPU.EIP, services.Calls(), oldSelector, oldOffset, services.dosVectors[8], wantVector, errOffset, errSelector)
 	}
 }
+
+func TestFD2EntersAILHandlerGate(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3e72d; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("AIL handler gate: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
+		}
+	}
+	depth, errDepth := m.Read32(0x52bea)
+	if m.CPU.EIP != 0x3e72d || services.Calls() != 5 || depth != 1 || errDepth != nil {
+		t.Fatalf("AIL handler gate steps=%d EIP=%X calls=%d depth=%d err=%v", steps, m.CPU.EIP, services.Calls(), depth, errDepth)
+	}
+}
