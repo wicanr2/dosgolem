@@ -389,14 +389,20 @@ func (m *Machine) initVectors() {
 	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
 	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 
-	// BIOS int 08h stub：
-	//	mov ax,40h / mov es,ax / inc word es:[6Ch] / jnz +3 /
-	//	inc word es:[6Eh] / int 1Ch / iret
+	// BIOS int 08h stub。⚠ **暫存器要保存**——第一次寫的版本沒存 AX，
+	// 一次 tick 就把 DOSJP 正在用的 AX 洗掉（ AX=01FD 進中斷、0071 出來），
+	// 而中斷發生在它 CLI 保護的寫向量區段旁邊，之後整段初始化全錯。
+	//
+	//	push ax / push es / mov ax,40h / mov es,ax /
+	//	inc word es:[6Ch] / jnz +5 / inc word es:[6Eh] /
+	//	pop es / pop ax / int 1Ch / iret
 	m.WriteBytes(StubSeg*16+biosTimerOff, []byte{
+		0x50, 0x06,
 		0xB8, 0x40, 0x00, 0x8E, 0xC0,
 		0x26, 0xFF, 0x06, 0x6C, 0x00,
-		0x75, 0x03,
+		0x75, 0x05,
 		0x26, 0xFF, 0x06, 0x6E, 0x00,
+		0x07, 0x58,
 		0xCD, 0x1C,
 		0xCF,
 	})

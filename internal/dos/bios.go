@@ -218,7 +218,7 @@ func (d *DOS) int13(c *cpu.CPU) {
 // 讀到的值一直不動就永遠等下去（`SANGOKU`／`MAIN.EXE` 開場實測，
 // 沒接之前一路輪詢 13,750 次還在原地）。
 //
-// tick 本身已經在 BDA 的 `0040:006C`（`machine.bumpBDATicks`），
+// tick 本身已經在 BDA 的 `0040:006C`（BIOS int 08h stub 推進，見 `machine.initVectors`），
 // 這裡只是把它照 BIOS 的介面交出去。
 func (d *DOS) int1A(c *cpu.CPU) {
 	switch ah(c) {
