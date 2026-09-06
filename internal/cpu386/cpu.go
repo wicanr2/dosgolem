@@ -2206,6 +2206,12 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if sib == 0x24 && !repe && !repne {
+				if !c.writeSegment32(c.Seg[SegSS], c.R[ESP], source) {
+					return fail(fmt.Sprintf("stack base dword write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				break
+			}
 			if modrm == 0x14 && sib == 0x98 {
 				addr := c.R[EAX] + c.R[EBX]<<2
 				if !c.writeSegment32(c.Seg[SegDS], addr, source) {
