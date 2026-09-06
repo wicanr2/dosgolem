@@ -187,6 +187,10 @@ type Machine struct {
 	// 連同當下的 VGA 狀態。**「寫進去了」與「寫進去有用」是兩件事**，
 	// 只看寫入位址分不出來。
 	VGATraceRow0, VGATraceRow1 int
+	// VGATraceCol0／Col1 是位元組欄的範圍（一欄八個像素）。Col1 ＝ 0 表示
+	// 整列都要。**只圈列常常不夠**：一列上面畫的東西可能來自好幾個呼叫，
+	// 而環狀緩衝只留最後四十筆。
+	VGATraceCol0, VGATraceCol1 int
 	VGATrace                   []VGAWrite
 
 	// RowWritesFrom 是開始統計 planar 寫入的指令數（0 ＝ 不統計），
@@ -269,7 +273,10 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		// **留最後 40 筆，不是前 40 筆**：要知道畫面上最後是誰寫的，
 		// 前面那幾筆通常是被蓋掉的那一批。
 		if m.VGATraceRow1 > m.VGATraceRow0 && m.Steps >= m.RowWritesFrom {
-			if r := int(a-vgaLo) / videoStride; r >= m.VGATraceRow0 && r < m.VGATraceRow1 {
+			off := int(a - vgaLo)
+			r, c := off/videoStride, off%videoStride
+			inCol := m.VGATraceCol1 == 0 || (c >= m.VGATraceCol0 && c < m.VGATraceCol1)
+			if r >= m.VGATraceRow0 && r < m.VGATraceRow1 && inCol {
 				m.VGATrace = append(m.VGATrace, m.vgaSnap(a-vgaLo, v, r))
 				if len(m.VGATrace) > 40 {
 					m.VGATrace = m.VGATrace[1:]

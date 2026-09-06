@@ -58,6 +58,7 @@ func main() {
 			"各畫面的輪詢頻率差三個數量級——磁片提示每千萬道只問 12 次，讀檔選單問一千次——"+
 			"固定指令數的按住不是漏掉就是重複觸發幾千次")
 	vgaRows := flag.String("vga-trace-rows", "", "記錄寫進這幾列的 planar 寫入與顯示卡狀態：`起-迄`")
+	vgaCols := flag.String("vga-trace-cols", "", "配 -vga-trace-rows：只記這幾個位元組欄（一欄八像素）`起-迄`")
 	portFrom := flag.Uint64("port-log-from", 0, "印出這一段之後的 I/O 埠寫入序列（0 ＝ 不印）")
 	portTo := flag.Uint64("port-log-to", 0, "配 -port-log-from 用")
 	rowWrites := flag.Uint64("row-writes-from", 0,
@@ -134,6 +135,11 @@ func main() {
 	m.TraceSegs = *segLog
 	m.RowWritesFrom = *rowWrites
 	if *vgaRows != "" {
+		if *vgaCols != "" {
+			if _, err := fmt.Sscanf(*vgaCols, "%d-%d", &m.VGATraceCol0, &m.VGATraceCol1); err != nil {
+				die(err)
+			}
+		}
 		if _, err := fmt.Sscanf(*vgaRows, "%d-%d", &m.VGATraceRow0, &m.VGATraceRow1); err != nil {
 			fmt.Fprintln(os.Stderr, "vga-trace-rows 格式要 起-迄：", err)
 			os.Exit(2)
