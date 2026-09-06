@@ -94,6 +94,9 @@ func main() {
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
 			"`CS:IP:字數:起:迄`（位址十六進位，步數十進位）。"+
 			"位置取進入點（尚未 push bp），所以參數從 SS:SP+4 起算——遠呼叫的返回位址佔 4 bytes")
+	frameArgs := flag.String("frame-args", "",
+		"同 -call-args，但位址在 prologue 之後：參數從 `SS:BP+6` 取。"+
+			"反組譯給的通常是函式中間那幾行，用這個不必猜進入點")
 	ipLog := flag.String("ip-log", "",
 		"把 [起,迄) 這段每一道指令的 CS:IP 以二進位寫出來（每筆 4 bytes，小端 CS 後 IP）：`起:迄:路徑`。"+
 			"用來對兩次只差一個輸入的執行，找出控制流第一次分岔的位置")
@@ -242,7 +245,10 @@ func main() {
 	held := false
 	downIdx := -1
 
-	ca, err := parseCallArgs(*callArgs)
+	ca, err := parseCallArgs(*callArgs, false)
+	if err == nil && ca == nil {
+		ca, err = parseCallArgs(*frameArgs, true)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -360,10 +366,11 @@ func main() {
 	}
 	report(m, d, ring, runErr, *steps)
 	if *watch != "" {
-		fmt.Printf("\n監看 %s 的寫入（留下 %d 筆，前面丟掉 %d 筆，列最後 40）：\n",
-			*watch, len(writes), dropped)
-		if n := len(writes); n > 40 {
-			writes = writes[n-40:]
+		const showN = 200
+		fmt.Printf("\n監看 %s 的寫入（留下 %d 筆，前面丟掉 %d 筆，列最後 %d）：\n",
+			*watch, len(writes), dropped, showN)
+		if n := len(writes); n > showN {
+			writes = writes[n-showN:]
 		}
 		for _, w := range writes {
 			fmt.Printf("  #%-9d %05X: %02X→%02X  ip=%04X:%04X\n",
@@ -1156,15 +1163,21 @@ type callArgLog struct {
 	seg, off uint16
 	n        int
 	from, to uint64
-	rows     []callArgRow
+	// viaBP：位址落在 prologue 之後（`bp` 已經架好），參數要從 `SS:BP+6`
+	// 取，不是 `SS:SP+4`。反組譯給的位址多半是函式中間那幾行
+	// （`mov bx,[bp+06]`），比猜進入點在哪可靠。
+	viaBP bool
+	rows  []callArgRow
 }
 
 type callArgRow struct {
-	step uint64
-	w    []uint16
+	step     uint64
+	retSeg   uint16
+	retOff   uint16
+	w        []uint16
 }
 
-func parseCallArgs(spec string) (*callArgLog, error) {
+func parseCallArgs(spec string, viaBP bool) (*callArgLog, error) {
 	if spec == "" {
 		return nil, nil
 	}
@@ -1177,16 +1190,30 @@ func parseCallArgs(spec string) (*callArgLog, error) {
 	if n <= 0 || n > 32 {
 		return nil, fmt.Errorf("-call-args 的字數要在 1–32，收到 %d", n)
 	}
-	return &callArgLog{seg: seg, off: off, n: n, from: from, to: to}, nil
+	return &callArgLog{seg: seg, off: off, n: n, from: from, to: to, viaBP: viaBP}, nil
 }
 
 func (c *callArgLog) record(m *machine.Machine) {
-	sp := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP]) + 4
+	if c.viaBP {
+		bp := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.BP])
+		w := make([]uint16, c.n)
+		for i := range w {
+			w[i] = m.Read16(bp + 6 + uint32(i*2))
+		}
+		c.rows = append(c.rows, callArgRow{
+			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w})
+		return
+	}
+	base := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP])
+	// 遠呼叫的返回位址佔前四個位元組，參數從第五個開始；
+	// 返回位址本身就是**呼叫端是誰**，同一支被叫上千次時只有它分得出來。
+	off := m.Read16(base)
+	seg := m.Read16(base + 2)
 	w := make([]uint16, c.n)
 	for i := range w {
-		w[i] = m.Read16(sp + uint32(i*2))
+		w[i] = m.Read16(base + 4 + uint32(i*2))
 	}
-	c.rows = append(c.rows, callArgRow{step: m.Steps, w: w})
+	c.rows = append(c.rows, callArgRow{step: m.Steps, retSeg: seg, retOff: off, w: w})
 }
 
 func (c *callArgLog) dump() {
@@ -1196,7 +1223,7 @@ func (c *callArgLog) dump() {
 		for i, v := range r.w {
 			s[i] = fmt.Sprintf("%d", int16(v))
 		}
-		fmt.Printf("  #%d  %s\n", r.step, strings.Join(s, " "))
+		fmt.Printf("  #%d  由 %04X:%04X  %s\n", r.step, r.retSeg, r.retOff, strings.Join(s, " "))
 	}
 }
 

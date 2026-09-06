@@ -6,3 +6,6 @@
 # 建置產物
 /dosgolem
 /bin/
+
+# go build ./cmd/probe 掉在根目錄的執行檔
+/probe
