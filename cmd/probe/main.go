@@ -51,6 +51,7 @@ func main() {
 	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	segLog := flag.Bool("seg-log", false, "記錄 CS 的每一次改變，報告裡印出每個段第一次執行的時間與來源")
+	dumpMem := flag.String("dump-mem", "", "跑完把一段線性記憶體寫成檔案：<lo>-<hi>:<路徑>（位址十六進位）")
 	flag.Parse()
 
 	if *exe == "" {
@@ -162,6 +163,7 @@ func main() {
 	}
 
 	report(m, d, ring, runErr, *steps)
+	writeMemDump(m, *dumpMem)
 	if *watchVideo {
 		if vidN == 0 {
 			fmt.Println("視訊記憶體：一次都沒寫過")
@@ -565,4 +567,32 @@ func reportSegs(m *machine.Machine) {
 	for _, c := range m.SegLog[len(m.SegLog)-n:] {
 		fmt.Printf("  #%-9d %04X:%04X → %04X:%04X\n", c.Step, c.FromSeg, c.FromOff, c.ToSeg, c.ToOff)
 	}
+}
+
+// writeMemDump 把一段線性記憶體寫成檔案（`-dump-mem <lo>-<hi>:<路徑>`）。
+//
+// 解壓過的資料只存在記憶體裡——檔案是壓縮的、格式還沒解，而程式跑完就
+// 沒了。要對照「壓縮前後」就得把這一份留下來。
+func writeMemDump(m *machine.Machine, spec string) {
+	if spec == "" {
+		return
+	}
+	i := strings.LastIndex(spec, ":")
+	if i < 0 {
+		fmt.Println("dump-mem 格式是 <lo>-<hi>:<路徑>")
+		return
+	}
+	var lo, hi uint32
+	if _, err := fmt.Sscanf(spec[:i], "%x-%x", &lo, &hi); err != nil {
+		fmt.Println("dump-mem 位址解不開:", err)
+		return
+	}
+	if hi > uint32(len(m.Mem)) {
+		hi = uint32(len(m.Mem))
+	}
+	if err := os.WriteFile(spec[i+1:], m.Mem[lo:hi], 0o644); err != nil {
+		fmt.Println("dump-mem 寫檔失敗:", err)
+		return
+	}
+	fmt.Printf("\n記憶體 %05X–%05X 寫到 %s\n", lo, hi, spec[i+1:])
 }
