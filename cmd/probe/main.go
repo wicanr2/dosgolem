@@ -48,6 +48,9 @@ func main() {
 	clickY := flag.Int("click-y", -1, "點擊的像素 Y")
 	clickAt := flag.Uint64("click-at", 0, "第幾道指令時按下")
 	clickHold := flag.Uint64("click-hold", 2_000_000, "按住幾道指令")
+	rclicks := flag.String("rclicks", "", "多次**右鍵**點擊，格式與 -clicks 相同"+
+		"（`docs/spec/016`）。DOS 遊戲拿右鍵當取消／關閉視窗，"+
+		"少了它被蓋住的視窗一個都點不到，而症狀是畫面完全不動")
 	clicks := flag.String("clicks", "", "多次點擊，格式 `x,y,at[,hold]`，用分號分隔。"+
 		"與 -click-x 併用時兩邊都會生效")
 	watchVideo := flag.Bool("watch-video", false,
@@ -214,26 +217,32 @@ const moveLead = 200_000
 type clickEv struct {
 		x, y     int
 		at, hold uint64
+		right    bool
 	}
 	var evs []clickEv
-	for _, one := range strings.Split(*clicks, ";") {
-		if one = strings.TrimSpace(one); one == "" {
-			continue
+	parseClicks := func(spec, flagName string, right bool) {
+		for _, one := range strings.Split(spec, ";") {
+			if one = strings.TrimSpace(one); one == "" {
+				continue
+			}
+			f := strings.Split(one, ",")
+			if len(f) < 3 {
+				die(fmt.Errorf("%s 的 %q 少了欄位，要 x,y,at[,hold]", flagName, one))
+			}
+			var e clickEv
+			e.right = right
+			e.x, _ = strconv.Atoi(strings.TrimSpace(f[0]))
+			e.y, _ = strconv.Atoi(strings.TrimSpace(f[1]))
+			e.at, _ = strconv.ParseUint(strings.TrimSpace(f[2]), 10, 64)
+			e.hold = *clickHold
+			if len(f) > 3 {
+				e.hold, _ = strconv.ParseUint(strings.TrimSpace(f[3]), 10, 64)
+			}
+			evs = append(evs, e)
 		}
-		f := strings.Split(one, ",")
-		if len(f) < 3 {
-			die(fmt.Errorf("-clicks 的 %q 少了欄位，要 x,y,at[,hold]", one))
-		}
-		var e clickEv
-		e.x, _ = strconv.Atoi(strings.TrimSpace(f[0]))
-		e.y, _ = strconv.Atoi(strings.TrimSpace(f[1]))
-		e.at, _ = strconv.ParseUint(strings.TrimSpace(f[2]), 10, 64)
-		e.hold = *clickHold
-		if len(f) > 3 {
-			e.hold, _ = strconv.ParseUint(strings.TrimSpace(f[3]), 10, 64)
-		}
-		evs = append(evs, e)
 	}
+	parseClicks(*clicks, "-clicks", false)
+	parseClicks(*rclicks, "-rclicks", true)
 
 	if *vramSites || *vramAt != "" {
 		m.VRAMSites = map[uint32]uint64{}
@@ -357,14 +366,22 @@ type clickEv struct {
 				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
 				d.MouseEvent(dos.EvMove)
 			case e.at:
+				btn, down := 0, uint16(dos.EvLeftDown)
+				if e.right {
+					btn, down = 1, dos.EvRightDown
+				}
 				d.Mouse.X, d.Mouse.Y = uint16(e.x), uint16(e.y)
-				d.Mouse.Buttons = 1
-				d.Mouse.Press[0]++
-				d.MouseEvent(dos.EvLeftDown)
+				d.Mouse.Buttons |= uint16(1) << uint(btn)
+				d.Mouse.Press[btn]++
+				d.MouseEvent(down)
 			case e.at + e.hold:
-				d.Mouse.Buttons = 0
-				d.Mouse.Release[0]++
-				d.MouseEvent(dos.EvLeftUp)
+				btn, up := 0, uint16(dos.EvLeftUp)
+				if e.right {
+					btn, up = 1, dos.EvRightUp
+				}
+				d.Mouse.Buttons &^= uint16(1) << uint(btn)
+				d.Mouse.Release[btn]++
+				d.MouseEvent(up)
 			}
 		}
 		for _, p := range pokes {

@@ -32,7 +32,14 @@ type ClickOpt func(*clickCfg)
 type clickCfg struct {
 	hover, hold, settle uint64
 	watch               func(*Oracle)
+	right               bool
 }
+
+// Right 讓這一次點擊送右鍵（`docs/spec/016`）。
+//
+// DOS 遊戲普遍拿右鍵當「取消／關閉目前視窗」。少了它，被蓋住的視窗
+// 一個都點不到，而症狀是**畫面完全不動**——跟點錯位置分不出來。
+func Right() ClickOpt { return func(c *clickCfg) { c.right = true } }
 
 // Hover 改「移到位置之後、按下之前」等多久。
 func Hover(n uint64) ClickOpt { return func(c *clickCfg) { c.hover = n } }
@@ -86,15 +93,19 @@ func (o *Oracle) Click(x, y int, opts ...ClickOpt) error {
 	if err := o.runWatched(cfg.hover, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 的 hover 期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 1
-	o.d.Mouse.Press[0]++
-	o.d.MouseEvent(dos.EvLeftDown)
+	btn, down, up := 0, uint16(dos.EvLeftDown), uint16(dos.EvLeftUp)
+	if cfg.right {
+		btn, down, up = 1, dos.EvRightDown, dos.EvRightUp
+	}
+	o.d.Mouse.Buttons |= uint16(1) << uint(btn)
+	o.d.Mouse.Press[btn]++
+	o.d.MouseEvent(down)
 	if err := o.runWatched(cfg.hold, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 按住期間：%w", x, y, err)
 	}
-	o.d.Mouse.Buttons = 0
-	o.d.Mouse.Release[0]++
-	o.d.MouseEvent(dos.EvLeftUp)
+	o.d.Mouse.Buttons &^= uint16(1) << uint(btn)
+	o.d.Mouse.Release[btn]++
+	o.d.MouseEvent(up)
 	if err := o.runWatched(cfg.settle, cfg.watch); err != nil {
 		return fmt.Errorf("點 (%d,%d) 放開之後：%w", x, y, err)
 	}
