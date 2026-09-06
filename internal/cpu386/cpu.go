@@ -1178,6 +1178,22 @@ func (c *CPU) Step() error {
 			c.R[ESP] = nextESP
 			break
 		}
+		if modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP && group == 6 {
+			addr := c.R[modrm&7]
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("PUSH dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+				return fail(fmt.Sprintf("PUSH dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
 		if modrm>>6 == 0 && modrm&7 == 5 && group == 6 {
 			addr, e := c.fetch32()
 			if e != nil {
