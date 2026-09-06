@@ -399,3 +399,111 @@ func (s Selector) RowByExit(o *oracle.Oracle) int {
 	}
 	return 0
 }
+
+// 頂端按鈕列的下拉：**不走全遊戲共用的那支選擇器**。
+//
+// 一開始以為它走 `0x204B6`（`rich2/docs/re/107` §5 講的是選擇器把參數往下
+// 傳給 `#132`），實測攔不到——點「查詢」之後 `WatchSelectors` 一張都沒多。
+// 追 `ds:186h`（`rich2/docs/re/108` §2 的「列數 − 2」）才看到呼叫端：
+//
+//	1159E  call 0CED:E122   ; ＝ 0x2AFF2，#132，只畫不收輸入
+//	11631  call 0CED:263A   ; ★ ＝ 0x1F50A，十個參數，收輸入 ＋ 命中判定
+//
+// ⚠ **這個位址心算過一次，錯了**：`0x1CED0 + 0x263A` 是 `0x1F50A`，
+// 不是 `0x2F50A`。掛錯的症狀是**一次都不觸發**，而畫下拉那一支
+// （`0x2AFF2`）照樣觸發——看起來像「下拉畫出來了但沒有互動層」。
+// `rich2/CLAUDE.md` §4.1 第 2 條就寫著「far call 目標不要心算」。
+// 對得起來的旁證：`0x1F57E` 是這一支的滑鼠分支（`rich2/docs/spec/017`），
+// 而它在 `0x1F50A` 後面 116 bytes；它呼叫的 `0CED:6624` ＝ `0x234F4`
+// 正是選擇器也在用的那支命中判定。
+//
+// 幾何在呼叫端就算好了（`0x115C2`–`0x11610`）：
+//
+//	ds:18Ch = 12h(18)                        ; 間距
+//	ds:18Eh = 136Eh[按鈕] × 16 + ds:15Eh + 2Ah(42)  ; ★ x1
+//	ds:190h = 1340h[按鈕]                     ; 文字起始
+//	ds:192h = 1312h[按鈕]                     ; 列數
+//
+// `x1 = x0 + 16 × 寬 + 42` 與選擇器的命中公式**同一條**（`docs/re/141` §1），
+// 所以 `136Eh` 是**每列的全形字數**——`rich2/docs/re/108` 的表頭把它寫成
+// 「游標欄」，那一欄的語意要訂正。
+const IDATopBarMenu = 0x1F50A
+
+// TopBarMenu 是一次頂端下拉的觀測。
+type TopBarMenu struct {
+	Step             uint64
+	Rows             int // 列數（1312h[按鈕]）
+	Text             int // 文字起始（1340h[按鈕]）
+	X0, X1           int // 命中的左右界
+	Y                int // 上緣
+	Pitch            int // 列高，實測 18
+	Chosen           int // 回傳之後才有
+	Done             bool
+}
+
+// TopBarLog 收集整場的下拉。
+type TopBarLog struct {
+	All []TopBarMenu
+	cur *TopBarMenu
+}
+
+// Open 回目前有沒有一張下拉在等輸入。
+func (l *TopBarLog) Open() *TopBarMenu {
+	if l == nil {
+		return nil
+	}
+	return l.cur
+}
+
+// RowPoint 回第 row 列（1 起算）的點擊座標。
+//
+// 與選擇器同一條命中公式，所以取 x 的中線、y 取該列的中間。
+func (m TopBarMenu) RowPoint(row int) (x, y int) {
+	return (m.X0 + m.X1) / 2, m.Y + m.Pitch*(row-1) + m.Pitch/2
+}
+
+// Labels 讀每一列的文字（Big5 位元組，同 Selector.Labels）。
+func (m TopBarMenu) Labels(o *oracle.Oracle) [][]byte {
+	if m.Rows <= 0 || m.Text < 0 {
+		return nil
+	}
+	a := Texts(o)
+	out := make([][]byte, 0, m.Rows)
+	for k := 0; k < m.Rows; k++ {
+		i := m.Text + k
+		if i < 0 || i >= TextSlots {
+			out = append(out, nil)
+			continue
+		}
+		out = append(out, trimTextSlot(a.Bytes(i)))
+	}
+	return out
+}
+
+// WatchTopBar 掛上頂端下拉的攔截。**要在 Run／Click 之前叫。**
+func WatchTopBar(o *oracle.Oracle) *TopBarLog {
+	log := &TopBarLog{}
+	o.OnCall(o.IDA(IDATopBarMenu), func(o *oracle.Oracle) {
+		// ⚠ **`CallArgs` 回的是「源碼推入順序」，不是堆疊順序。**
+		// 它內部用 `StackWord(2 + (n-1-k))`，所以 `a[0]` 是**最先推**的那個。
+		// 一開始照堆疊順序對，六個欄位全部錯位——而且錯得很像真的
+		// （列數 0、x 348..−1），看起來像「參數個數猜錯」。
+		//
+		// 推入順序：17E 166 180 182 10A8 18C 15E 18E 190 192。
+		// 實測值一一對得上：`17Eh=0`（還沒選）、`166h=20`（y 的複本）、
+		// `180h=−1`（有滑鼠）、`182h=348`（查詢下拉的文字起始）、
+		// `18Ch=18`（間距）。
+		a := basic.CallArgs(o, 10)
+		log.All = append(log.All, TopBarMenu{
+			Step:  o.Steps(),
+			Y:     int(int16(a[4])), // 10A8h
+			Pitch: int(int16(a[5])), // 18Ch
+			X0:    int(int16(a[6])), // 15Eh
+			X1:    int(int16(a[7])), // 18Eh
+			Text:  int(int16(a[8])), // 190h ＝ 1340h[按鈕]
+			Rows:  int(int16(a[9])), // 192h ＝ 1312h[按鈕]
+		})
+		log.cur = &log.All[len(log.All)-1]
+	})
+	return log
+}
