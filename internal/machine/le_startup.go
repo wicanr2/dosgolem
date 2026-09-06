@@ -96,6 +96,23 @@ func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
+func (s *FD2StartupDOS) deviceInformation(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	if uint8(c.R[cpu386.EAX]) != 0 {
+		setError(1)
+		return
+	}
+	if _, ok := s.handles[uint16(c.R[cpu386.EBX])]; !ok {
+		setError(6)
+		return
+	}
+	c.R[cpu386.EDX] &= 0xffff0000
+	c.EFlags &^= cpu386.CF
+}
+
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
 		if uint16(c.R[cpu386.EAX]) != 0x0200 {
@@ -126,6 +143,10 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	}
 	if function == 0x3d {
 		s.openReadOnly(c)
+		return true
+	}
+	if function == 0x44 {
+		s.deviceInformation(c)
 		return true
 	}
 	switch s.calls {

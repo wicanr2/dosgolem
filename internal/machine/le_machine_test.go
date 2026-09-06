@@ -1393,3 +1393,20 @@ func TestFD2MovesHandleIntoBXForIOCTL(t *testing.T) {
 		t.Fatalf("isatty handle move steps=%d EIP=%X EAX=%X EBX=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], services.HasHandle(handle))
 	}
 }
+
+func TestFD2QueriesOpenedFileDeviceInformation(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3fb1f; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("isatty IOCTL: step=%d EIP=%X EAX=%X EBX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	handle := uint16(m.CPU.R[cpu386.EBX])
+	if m.CPU.EIP != 0x3fb1f || m.CPU.EFlags&cpu386.CF != 0 || uint16(m.CPU.R[cpu386.EDX])&0x80 != 0 || !services.HasHandle(handle) {
+		t.Fatalf("isatty IOCTL steps=%d EIP=%X EAX=%X EBX=%X EDX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.EDX], m.CPU.EFlags, services.HasHandle(handle))
+	}
+}
