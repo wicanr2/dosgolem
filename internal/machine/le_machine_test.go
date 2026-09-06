@@ -1548,3 +1548,19 @@ func TestFD2DecrementsFgetcBufferCount(t *testing.T) {
 		t.Fatalf("fgetc count steps=%d EIP=%X before=%X after=%X", steps, m.CPU.EIP, before, after)
 	}
 }
+
+func TestFD2EntersFilbufForEmptyBuffer(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d9ed; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("fgetc refill gate: step=%d EIP=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.EFlags, err)
+		}
+	}
+	if m.CPU.EIP != 0x3d9ed || (m.CPU.EFlags&cpu386.SF != 0) == (m.CPU.EFlags&cpu386.OF != 0) {
+		t.Fatalf("fgetc refill gate steps=%d EIP=%X flags=%X", steps, m.CPU.EIP, m.CPU.EFlags)
+	}
+}

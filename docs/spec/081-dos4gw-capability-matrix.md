@@ -53,7 +53,7 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 `isatty`、把已登錄 handle 搬入 BX，完成 `AX=4400h` DOS IOCTL
 regular-file 查詢、測試 DX device bit，正規化 `isatty` 回傳為 0，並從
 FILE table 讀回及寫回 handle record，進入有界行讀取的 `fgetc` loop，
-並遞減其緩衝計數；下一阻塞移至 `0x3D9EB`。此收據只證明
+遞減其緩衝計數並進入 `__filbuf` refill；下一阻塞移至 `0x3D97D`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
