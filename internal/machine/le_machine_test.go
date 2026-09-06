@@ -1032,3 +1032,21 @@ func TestFD2AddressesMDIINISettingsBuffer(t *testing.T) {
 		t.Fatalf("MDI.INI settings buffer steps=%d EIP=%X calls=%d EAX=%X ESP=%X before=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], before)
 	}
 }
+
+func TestFD2LoadsMDIINIPathArgument(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3f33c; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MDI.INI path setup: step=%d EIP=%X ESP=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.ESP], err)
+		}
+	}
+	beforeESP, beforeFlags := m.CPU.R[cpu386.ESP], m.CPU.EFlags
+	want, errRead := m.Read32(beforeESP + 0x184)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MDI.INI path load: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3f343 || services.Calls() != 5 || errRead != nil || m.CPU.R[cpu386.EDX] != want || m.CPU.R[cpu386.ESP] != beforeESP || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("MDI.INI path steps=%d EIP=%X calls=%d EDX=%X want=%X ESP=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDX], want, m.CPU.R[cpu386.ESP], m.CPU.EFlags, errRead)
+	}
+}

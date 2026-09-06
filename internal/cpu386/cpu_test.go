@@ -236,6 +236,30 @@ func TestLoadRegisterFromStackDisp8(t *testing.T) {
 	}
 }
 
+func TestLoadRegisterFromStackDisp32(t *testing.T) {
+	mem := testBus(make([]byte, 0x50))
+	copy(mem, []byte{0x8b, 0x94, 0x24, 0x20, 0x00, 0x00, 0x00})
+	copy(mem[0x30:], []byte{0x78, 0x56, 0x34, 0x12})
+	c := New(mem)
+	c.R[ESP], c.R[EDX], c.EFlags = 0x10, 0xdeadbeef, CF|ZF
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x4f, Writable: true})
+	if err := c.Step(); err != nil || c.R[EDX] != 0x12345678 || c.R[ESP] != 0x10 || c.EFlags != CF|ZF {
+		t.Fatalf("positive MOV EDX=%X ESP=%X flags=%X err=%v", c.R[EDX], c.R[ESP], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x8b, 0x8c, 0x24, 0xf8, 0xff, 0xff, 0xff})
+	copy(mem[0x18:], []byte{0xef, 0xcd, 0xab, 0x89})
+	c = New(mem)
+	c.R[ESP] = 0x20
+	c.Seg[SegSS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || c.R[ECX] != 0x89abcdef || c.R[ESP] != 0x20 {
+		t.Fatalf("negative MOV ECX=%X ESP=%X err=%v", c.R[ECX], c.R[ESP], err)
+	}
+}
+
 func TestLoadRegisterFromBaseDisp32(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x8b, 0x83, 0xfc, 0xff, 0xff, 0xff})
