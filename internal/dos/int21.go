@@ -75,6 +75,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.M.Write16(uint32(al(c))*4+2, c.Seg[cpu.DS])
 		clearCarry(c)
 
+	case 0x29: // 把檔名解析進 FCB
+		d.parseFilename(c)
+
 	case 0x2A: // 取系統日期 → CX:DH:DL
 		c.R[cpu.CX] = 1993
 		c.R[cpu.DX] = 1<<8 | 1
@@ -84,6 +87,11 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x2C: // 取系統時間 → CH:CL:DH:DL
 		c.R[cpu.CX] = uint16(d.Now.Hour)<<8 | uint16(d.Now.Min)
 		c.R[cpu.DX] = uint16(d.Now.Sec)<<8 | uint16(d.Now.Hundredth)
+		clearCarry(c)
+
+	case 0x67: // 設 handle 數上限
+		// 我們沒有 handle 上限，收下就好。回成功是誠實的：
+		// 程式要的是「之後開得了這麼多檔」，而那確實成立。
 		clearCarry(c)
 
 	case 0x30: // 取 DOS 版本
@@ -285,7 +293,13 @@ func (d *DOS) exec(c *cpu.CPU) {
 	// 所在的那一段，載完再讀會讀到剛寫進去的映像——那會讓診斷輸出
 	// 看起來像「程式傳了一段機器碼當參數」，把人帶往完全錯的方向。
 	rec := OverlayLoad{Name: name, Seg: loadSeg, Reloc: relocFactor, Size: len(data),
-		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX]}
+		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX],
+		CallCS: c.Seg[cpu.CS], CallIP: c.IP}
+	// INT 指令本身 2 byte，所以 CallIP-2 是它的起點；往前再留 22 byte
+	// 看參數是怎麼備好的。
+	for i := 0; i < 32; i++ {
+		rec.CallSite[i] = d.M.Read8(cpu.Addr(c.Seg[cpu.CS], c.IP-24+uint16(i)))
+	}
 	for i := 0; i < 8; i++ {
 		rec.PBRaw[i] = d.M.Read8(pb + uint32(i))
 	}
@@ -300,6 +314,90 @@ func (d *DOS) exec(c *cpu.CPU) {
 	}
 	d.Overlays = append(d.Overlays, rec)
 	clearCarry(c)
+}
+
+// parseFilename 是 `AH=29h`：把 `DS:SI` 的檔名解析進 `ES:DI` 的 FCB。
+//
+// 這一版只做**實際被用到的部分**：填磁碟機代號與 8.3 名稱、回報有沒有萬用字元、
+// 並把 `SI` 推到解析完的位置。不做的部分（`AL` 的各種控制位元、
+// 保留原有欄位）在目標程式上沒有觀測到。
+//
+// ⚠ **`SI` 一定要推進。** 呼叫端常常是「解析一個、再解析下一個」的迴圈；
+// 不動 `SI` 的話它會解析同一個名字直到天荒地老，而**沒有任何錯誤訊息**。
+func (d *DOS) parseFilename(c *cpu.CPU) {
+	src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI])
+
+	// 跳過前置空白與 tab。
+	off := uint16(0)
+	for {
+		ch := d.M.Read8(src + uint32(off))
+		if ch != ' ' && ch != '\t' {
+			break
+		}
+		off++
+	}
+
+	// 磁碟機代號：有 "X:" 就用它，否則 0（＝目前磁碟）。
+	drive := uint8(0)
+	if b := d.M.Read8(src + uint32(off) + 1); b == ':' {
+		dl := d.M.Read8(src + uint32(off))
+		if dl >= 'a' && dl <= 'z' {
+			dl -= 32
+		}
+		if dl < 'A' || dl > 'Z' {
+			setAL(c, 0xFF) // 磁碟機代號無效
+			return
+		}
+		drive = dl - 'A' + 1
+		off += 2
+	}
+	d.M.Write8(dst, drive)
+
+	// 名稱 8 格、副檔名 3 格，都用空白補齊——FCB 的版面。
+	wildcard := false
+	fill := func(at uint32, n int, stop func(uint8) bool) {
+		i := 0
+		for ; i < n; i++ {
+			ch := d.M.Read8(src + uint32(off))
+			if ch == 0 || stop(ch) {
+				break
+			}
+			if ch == '*' {
+				// 萬用字元 '*' 把剩下的格子填成 '?'。
+				for ; i < n; i++ {
+					d.M.Write8(at+uint32(i), '?')
+				}
+				wildcard = true
+				off++
+				return
+			}
+			if ch == '?' {
+				wildcard = true
+			}
+			if ch >= 'a' && ch <= 'z' {
+				ch -= 32 // FCB 一律大寫
+			}
+			d.M.Write8(at+uint32(i), ch)
+			off++
+		}
+		for ; i < n; i++ {
+			d.M.Write8(at+uint32(i), ' ')
+		}
+	}
+	fill(dst+1, 8, func(ch uint8) bool { return ch == '.' || ch == ' ' || ch == '\\' })
+	if d.M.Read8(src+uint32(off)) == '.' {
+		off++
+	}
+	fill(dst+9, 3, func(ch uint8) bool { return ch == ' ' })
+
+	// ⚠ SI 要推到解析完的位置，否則呼叫端的迴圈會原地打轉。
+	c.R[cpu.SI] += off
+	if wildcard {
+		setAL(c, 1)
+	} else {
+		setAL(c, 0)
+	}
 }
 
 // setBlock 是 `AH=4Ah`，**記憶體探測**（`docs/spec/004` §1.2）。

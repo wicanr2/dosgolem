@@ -328,7 +328,10 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		for _, o := range d.Overlays {
 			fmt.Printf("  %-14s → %04X:0  重定位加數 %04X  檔案 %d bytes\n",
 				o.Name, o.Seg, o.Reloc, o.Size)
-			fmt.Printf("      參數區塊 %04X:%04X ＝ % X\n", o.PBSeg, o.PBOff, o.PBRaw)
+			fmt.Printf("      參數區塊 %04X:%04X ＝ % X   呼叫端 %04X:%04X\n",
+				o.PBSeg, o.PBOff, o.PBRaw, o.CallCS, o.CallIP)
+			fmt.Printf("      呼叫端 %04X:%04X 前後 32 byte（INT 在 offset 22）：\n        % X\n",
+				o.CallCS, o.CallIP-24, o.CallSite)
 		}
 	}
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))

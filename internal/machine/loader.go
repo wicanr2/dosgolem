@@ -113,9 +113,20 @@ func (m *Machine) initPSP() {
 	// **PSP+2Ch 是環境區塊的段位址。** Microsoft C runtime 啟動時會去讀它
 	// （`__setenvp`），指到 0 會讓後續的 heap 初始化判定失敗。
 	// 內容是「空環境 ＋ 計數 1 ＋ 程式路徑」。
+	// 版面是「環境字串（各自 ASCIZ，最後多一個 00）＋ word 計數 ＋ 程式全路徑」。
+	// 這裡給空環境。
+	//
+	// ⚠ **程式路徑不能硬編。** 第一版寫死 `C:\RICH2\RUN.EXE`——那是
+	// 某一支程式的值放在通用層，違反 `docs/spec/006` 的分層判準
+	// （「換一支 binary 之後這段還成立嗎？」）。MSC 的啟動碼會讀這個路徑，
+	// 拿別支程式的路徑不會報錯，只會讓 argv[0] 是錯的。
+	name := m.ProgramPath
+	if name == "" {
+		name = `C:\PROG.EXE`
+	}
 	env := uint32(EnvSeg * 16)
 	m.WriteBytes(env, append([]byte{0x00, 0x01, 0x00}, append(
-		[]byte(`C:\RICH2\RUN.EXE`), 0x00)...))
+		[]byte(name), 0x00)...))
 	m.Write16(psp+0x2C, EnvSeg)
 
 	// PSP+32h／34h 是檔案表大小與位址。

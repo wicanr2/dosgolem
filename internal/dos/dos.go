@@ -335,6 +335,16 @@ type OverlayLoad struct {
 	// 「我們讀錯了地方」——沒有這個就只能猜。
 	PBSeg, PBOff uint16
 	PBRaw        [8]byte
+
+	// CallCS/CallIP 是呼叫端（INT 之後的下一道指令）。
+	// 參數看起來不合理時要能直接跳去反組譯那裡。
+	CallCS, CallIP uint16
+
+	// CallSite 是呼叫端 INT 指令前後的位元組（前 24、後 8）。
+	//
+	// 呼叫端常常是執行期搬到高位段的 stub，**檔案裡找不到**，
+	// 事後也可能被覆蓋。要看它就得在呼叫發生的當下抄。
+	CallSite [32]byte
 }
 
 // ResizeCall 是一次 `AH=4Ah` 的紀錄。

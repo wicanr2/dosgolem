@@ -128,6 +128,11 @@ type Machine struct {
 	// （`docs/spec/004` §1.2）。
 	FreeSeg uint16
 
+	// ProgramPath 是放進環境區塊的程式全路徑（DOS 形式，如 C:\GAME\X.EXE）。
+	// MSC 的啟動碼會讀它當 argv[0]。空的話用一個中性的預設值——
+	// **不要放某一支程式的路徑**，那是 per-program 的值。
+	ProgramPath string
+
 	// ImageBase／ImageLen 是載進去的映像位置與長度。
 	ImageBase uint32
 	ImageLen  int
