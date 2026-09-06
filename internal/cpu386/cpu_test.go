@@ -446,6 +446,36 @@ func TestStoreSegmentAbsoluteWord(t *testing.T) {
 	}
 }
 
+func TestStoreSegmentRegister16(t *testing.T) {
+	c := New(testBus{0x66, 0x8c, 0xc2})
+	c.Seg[SegES] = 0x1234
+	c.R[EDX], c.EFlags = 0xaabbccdd, CF|ZF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDX] != 0xaabb1234 || c.Seg[SegES] != 0x1234 || c.EFlags != CF|ZF {
+		t.Fatalf("MOV DX,ES EDX=%X ES=%X flags=%X", c.R[EDX], c.Seg[SegES], c.EFlags)
+	}
+}
+
+func TestLoadSegmentRegister16(t *testing.T) {
+	c := New(testBus{0x66, 0x8e, 0xdb})
+	c.R[EBX] = 0xaaaa0160
+	c.SegmentLoadOK = func(selector uint16, destination int) bool {
+		return selector == 0x160 && destination == SegDS
+	}
+	if err := c.Step(); err != nil || c.Seg[SegDS] != 0x160 {
+		t.Fatalf("MOV DS,BX DS=%X err=%v", c.Seg[SegDS], err)
+	}
+
+	c = New(testBus{0x66, 0x8e, 0xdb})
+	c.R[EBX] = 0x160
+	c.SegmentLoadOK = func(uint16, int) bool { return false }
+	if err := c.Step(); err == nil || c.Seg[SegDS] != 0 {
+		t.Fatalf("rejected MOV DS,BX DS=%X err=%v", c.Seg[SegDS], err)
+	}
+}
+
 func TestLoadSegmentAbsoluteWord(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x66, 0x8e, 0x05, 0x20, 0, 0, 0})

@@ -2,12 +2,13 @@ package machine
 
 import "github.com/wicanr2/dosgolem/internal/cpu386"
 
-// FD2StartupDOS 是固定雜湊 FD2.EXE 在 DOS/4GW 已載入後所需的兩個啟動服務。
+// FD2StartupDOS 是固定雜湊 FD2.EXE 在 DOS/4GW 已載入後所需的啟動服務。
 // 它不是一般 DOS 或 DOS/4GW 模擬器；未列呼叫與錯誤順序一律拒絕。
 type FD2StartupDOS struct {
 	calls           int
 	timeCalls       int
 	realModeVectors [256]uint32
+	dosVectors      [256]uint64
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
@@ -27,6 +28,20 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	}
 	if number != 0x21 {
 		return false
+	}
+	function := uint8(c.R[cpu386.EAX] >> 8)
+	vectorNumber := uint8(c.R[cpu386.EAX])
+	if function == 0x35 {
+		vector := s.dosVectors[vectorNumber]
+		c.Seg[cpu386.SegES] = uint16(vector >> 32)
+		c.R[cpu386.EBX] = uint32(vector)
+		c.EFlags &^= cpu386.CF
+		return true
+	}
+	if function == 0x25 {
+		s.dosVectors[vectorNumber] = uint64(c.Seg[cpu386.SegDS])<<32 | uint64(c.R[cpu386.EDX])
+		c.EFlags &^= cpu386.CF
+		return true
 	}
 	switch s.calls {
 	case 0:

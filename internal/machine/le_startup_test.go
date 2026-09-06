@@ -88,3 +88,30 @@ func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
 		t.Fatal("unknown DPMI function was accepted")
 	}
 }
+
+func TestFD2StartupDOSInterruptVectors(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 1)))
+	s := &FD2StartupDOS{}
+	s.realModeVectors[8] = 0xf0001234
+	c.Seg[cpu386.SegDS] = 0x160
+	c.R[cpu386.EAX] = 0xaaaa2508
+	c.R[cpu386.EDX] = 0x12345678
+	c.EFlags |= cpu386.CF
+	if !s.Handle(c, 0x21) || c.EFlags&cpu386.CF != 0 || s.Calls() != 0 {
+		t.Fatalf("DOS 2508 flags=%X calls=%d", c.EFlags, s.Calls())
+	}
+
+	c.Seg[cpu386.SegES] = 0xffff
+	c.R[cpu386.EAX] = 0xbbbb3508
+	c.R[cpu386.EBX] = 0xdeadbeef
+	c.EFlags |= cpu386.CF
+	if !s.Handle(c, 0x21) || c.Seg[cpu386.SegES] != 0x160 || c.R[cpu386.EBX] != 0x12345678 || c.EFlags&cpu386.CF != 0 || s.Calls() != 0 {
+		t.Fatalf("DOS 3508 ES=%X EBX=%X flags=%X calls=%d", c.Seg[cpu386.SegES], c.R[cpu386.EBX], c.EFlags, s.Calls())
+	}
+
+	c.R[cpu386.EAX] = 0x0200
+	c.R[cpu386.EBX] = 8
+	if !s.Handle(c, 0x31) || uint16(c.R[cpu386.ECX]) != 0xf000 || uint16(c.R[cpu386.EDX]) != 0x1234 {
+		t.Fatalf("DPMI vector was contaminated ECX=%X EDX=%X", c.R[cpu386.ECX], c.R[cpu386.EDX])
+	}
+}
