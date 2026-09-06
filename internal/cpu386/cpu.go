@@ -2250,6 +2250,15 @@ func (c *CPU) Step() error {
 			c.setReg8(int((modrm>>3)&7), c.reg8(int(modrm&7)))
 			break
 		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP {
+			base := modrm & 7
+			value, ok := c.readSegment8(c.Seg[SegDS], c.R[base])
+			if !ok {
+				return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+			c.setReg8(int((modrm>>3)&7), value)
+			break
+		}
 		if modrm>>6 != 1 || modrm&7 == 4 {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
