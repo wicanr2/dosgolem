@@ -1410,3 +1410,19 @@ func TestFD2QueriesOpenedFileDeviceInformation(t *testing.T) {
 		t.Fatalf("isatty IOCTL steps=%d EIP=%X EAX=%X EBX=%X EDX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.EDX], m.CPU.EFlags, services.HasHandle(handle))
 	}
 }
+
+func TestFD2TestsOpenedFileDeviceBit(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3fb26; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("isatty device bit: step=%d EIP=%X EDX=%X flags=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, err)
+		}
+	}
+	if m.CPU.EIP != 0x3fb26 || uint16(m.CPU.R[cpu386.EDX])&0x80 != 0 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("isatty device bit steps=%d EIP=%X EDX=%X flags=%X", steps, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags)
+	}
+}

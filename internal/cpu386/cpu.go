@@ -1680,6 +1680,14 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 == 3 && (modrm>>3)&7 == 0 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.setLogicFlags8(c.reg8(int(modrm&7)) & imm)
+			break
+		}
 		if modrm == 0x44 {
 			sib, e := c.fetch8()
 			if e != nil {
