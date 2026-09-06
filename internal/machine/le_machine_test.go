@@ -1694,3 +1694,27 @@ func TestFD2LoadsAdvancedFilbufPointer(t *testing.T) {
 		t.Fatalf("filbuf load steps=%d EIP=%X want=%X EAX=%X", steps, m.CPU.EIP, want, m.CPU.R[cpu386.EAX])
 	}
 }
+
+func TestFD2StoresLineReaderByte(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x46c84; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("line reader byte setup: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	destination := m.CPU.R[cpu386.EBX]
+	if uint64(destination) >= uint64(len(m.Mem)) {
+		t.Fatalf("line reader destination=%X 超界", destination)
+	}
+	want := byte(m.CPU.R[cpu386.EAX])
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("line reader byte MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x46c86 || m.Mem[destination] != want {
+		t.Fatalf("line reader byte steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, m.Mem[destination])
+	}
+}

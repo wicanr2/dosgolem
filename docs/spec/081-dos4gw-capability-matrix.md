@@ -56,8 +56,9 @@ FILE table 讀回及寫回 handle record，進入有界行讀取的 `fgetc` loop
 遞減其緩衝計數，由 `__ioalloc` 配置與標記 buffer，再由 `__fill_buffer`
 把目前 buffer pointer 壓入 `__qread` 參數，並由 `INT 21h/AH=3Fh` 將固定
 `MDI.INI` 的 218 bytes 完整讀入 Watcom 緩衝；`fgetc` 的 `__filbuf` 也已
-遞增並讀回目前 buffer pointer，返回設定解析器；下一阻塞移至 `0x46C84`
-（`88 03`）。此收據只證明
+遞增並讀回目前 buffer pointer，返回設定解析器；`0x46C84`（`88 03`）也已
+把首字元寫入目的 buffer。下一阻塞是讀取第二字元時
+`fgetc` 的 `0x3D9FA`（`8A 00`）。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

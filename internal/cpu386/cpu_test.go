@@ -2065,6 +2065,28 @@ func TestStoreRegister8ToBaseDisp8(t *testing.T) {
 	}
 }
 
+func TestStoreRegister8ToBase(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x88, 0x23})
+	c := New(mem)
+	c.R[EBX], c.R[EAX], c.EFlags = 0x18, 0x0000a500, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x2f, Writable: true})
+	if err := c.Step(); err != nil || mem[0x18] != 0xa5 || c.R[EBX] != 0x18 || c.R[EAX] != 0x0000a500 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV AH value=%X EBX=%X EAX=%X flags=%X err=%v", mem[0x18], c.R[EBX], c.R[EAX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x20))
+	copy(mem, []byte{0x88, 0x03})
+	c = New(mem)
+	c.R[EBX], c.R[EAX] = 0x10, 0xa5
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x1f})
+	if err := c.Step(); err == nil || mem[0x10] != 0 {
+		t.Fatalf("read-only MOV value=%X err=%v", mem[0x10], err)
+	}
+}
+
 func TestStoreImmediateDwordBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xc7, 0x45, 0xf8, 0xff, 0xff, 0xff, 0xff})
