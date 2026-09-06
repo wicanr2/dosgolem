@@ -1161,3 +1161,22 @@ func TestFD2BuildsBinaryOpenFlags(t *testing.T) {
 		t.Fatalf("binary open flags steps=%d EIP=%X calls=%d EDX=%X want=%X flags=%X", steps, m.CPU.EIP, services.Calls(), m.CPU.R[cpu386.EDX], want, m.CPU.EFlags)
 	}
 }
+
+func TestFD2AppliesOpenModeFlags(t *testing.T) {
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x36ed2; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("apply open flags setup: step=%d EIP=%X EAX=%X EBX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], err)
+		}
+	}
+	addr, source := m.CPU.R[cpu386.EBX]+0x0c, m.CPU.R[cpu386.EAX]
+	before, errRead := m.Read32(addr)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("apply open flags OR: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	after, errAfter := m.Read32(addr)
+	if m.CPU.EIP != 0x36ed5 || services.Calls() != 5 || errRead != nil || errAfter != nil || after != before|source {
+		t.Fatalf("apply open flags steps=%d EIP=%X calls=%d before=%X source=%X after=%X errors=%v/%v", steps, m.CPU.EIP, services.Calls(), before, source, after, errRead, errAfter)
+	}
+}

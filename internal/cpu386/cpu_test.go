@@ -1491,6 +1491,30 @@ func TestOrRegister8Immediate8(t *testing.T) {
 	}
 }
 
+func TestOrBaseDisp8RegisterDword(t *testing.T) {
+	mem := testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x09, 0x43, 0x0c})
+	copy(mem[0x1c:], []byte{0x00, 0x01, 0x00, 0x00})
+	c := New(mem)
+	c.R[EBX], c.R[EAX], c.EFlags = 0x10, 3, CF|OF|AF
+	c.Seg[SegDS] = 0x30
+	c.SetDescriptor(0x30, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x1c:0x20], []byte{3, 1, 0, 0}) || c.R[EBX] != 0x10 || c.R[EAX] != 3 || c.EFlags&(CF|OF|AF|ZF|SF) != 0 {
+		t.Fatalf("DS OR memory=% X EBX=%X EAX=%X flags=%X err=%v", mem[0x1c:0x20], c.R[EBX], c.R[EAX], c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x40))
+	copy(mem, []byte{0x09, 0x55, 0xfc})
+	copy(mem[0x1c:], []byte{0x00, 0x00, 0x00, 0x80})
+	c = New(mem)
+	c.R[EBP], c.R[EDX] = 0x20, 1
+	c.Seg[SegSS] = 0x38
+	c.SetDescriptor(0x38, Descriptor{Limit: 0x3f, Writable: true})
+	if err := c.Step(); err != nil || !bytes.Equal(mem[0x1c:0x20], []byte{1, 0, 0, 0x80}) || c.EFlags&SF == 0 {
+		t.Fatalf("SS OR memory=% X flags=%X err=%v", mem[0x1c:0x20], c.EFlags, err)
+	}
+}
+
 func TestCompareRegisterAndShortJAE(t *testing.T) {
 	mem := testBus{0x3b, 0xf7, 0x73, 0x02, 0xff, 0xff, 0xfb}
 	c := New(mem)

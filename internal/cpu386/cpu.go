@@ -552,6 +552,36 @@ func (c *CPU) Step() error {
 		}
 		dst, src := modrm&7, (modrm>>3)&7
 		c.sub32(c.R[dst], c.R[src])
+	case op == 0x09:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("09 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP {
+			return fail(fmt.Sprintf("09 ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment32(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("OR dword read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		result := value | c.R[(modrm>>3)&7]
+		if !c.writeSegment32(c.Seg[segment], addr, result) {
+			return fail(fmt.Sprintf("OR dword write %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		c.setLogicFlags(result)
 	case op == 0x29:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("29 不接受目前的 prefix")
