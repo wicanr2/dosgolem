@@ -1147,6 +1147,17 @@ func (c *CPU) Step() error {
 		if c.EFlags&CF == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0x72:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("72 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&CF != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0x77:
 		if operand16 {
 			return fail("77 不接受 operand-size override")
@@ -1620,6 +1631,22 @@ func (c *CPU) Step() error {
 			value, ok := c.readSegment32(c.Seg[SegSS], addr)
 			if !ok {
 				return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 2 && modrm&7 != ESP {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("base+disp32 dword read %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 			c.R[(modrm>>3)&7] = value
 		} else if segmentOverride >= 0 {
