@@ -373,6 +373,9 @@ func TestToLevel1EntranceRealData(t *testing.T) {
 	if got := o.PortReads()[0x60]; got != 84 {
 		t.Fatalf("LEVEL1入口前port 60h讀取%d次，預期四十二鍵make／break共84次", got)
 	}
+	if got := eob1.CurrentPosition(o); got != (eob1.Position{Block: 490, Direction: 0}) {
+		t.Fatalf("LEVEL1入口位置=%+v，預期格位490、朝向0", got)
+	}
 }
 
 func TestToLevel1InventoryCharacterPagesRealData(t *testing.T) {
@@ -432,6 +435,20 @@ func TestToLevel1CharacterExchangeCancelRealData(t *testing.T) {
 	}
 }
 
+func TestToLevel1FirstRightTurnRealData(t *testing.T) {
+	o := loadRealData(t)
+	defer o.Close()
+	if err := eob1.ToLevel1FirstRightTurn(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := digestRegion(o.Indexed(), 0, 0, 176, 120); got != "a35855823bdecf7b0a150b2ca9d35e650234a644871c24a97ebb8d279cb45270" {
+		t.Fatalf("LEVEL1入口右轉視窗SHA-256=%s", got)
+	}
+	if got := eob1.CurrentPosition(o); got != (eob1.Position{Block: 490, Direction: 1}) {
+		t.Fatalf("LEVEL1入口右轉後位置=%+v，預期格位490、朝向1", got)
+	}
+}
+
 func TestToLevel1FirstForwardStepRealData(t *testing.T) {
 	o := loadRealData(t)
 	defer o.Close()
@@ -443,6 +460,9 @@ func TestToLevel1FirstForwardStepRealData(t *testing.T) {
 	}
 	if got := o.PortReads()[0x60]; got != 88 {
 		t.Fatalf("LEVEL1第一步前port 60h讀取%d次，預期四十四鍵make／break共88次", got)
+	}
+	if got := eob1.CurrentPosition(o); got != (eob1.Position{Block: 491, Direction: 1}) {
+		t.Fatalf("LEVEL1右轉並前進後位置=%+v，預期格位491、朝向1", got)
 	}
 }
 

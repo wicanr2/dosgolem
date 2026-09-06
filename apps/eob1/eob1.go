@@ -12,6 +12,30 @@ import (
 // LauncherInput 是START1.EXE的正常選項：VGA、無音效、使用滑鼠。
 const LauncherInput = "44Y"
 
+// Position是原版目前隊伍所在格與朝向的唯讀觀測值。
+// 位址採IDA Pro 9.4線性位址，保留原始資料庫定位；不得用來修改原版狀態。
+type Position struct {
+	Block     uint16
+	Direction uint16
+}
+
+const (
+	currentBlockIDA     = 0x40EAA
+	currentDirectionIDA = 0x40EAC
+)
+
+// CurrentPosition讀取EOB.EXE的隊伍格位與朝向。
+//
+// EOB.EXE SHA-256:
+// c83ddeb7ec452d35fe77e5f5be425fdba3f22849fdc91d00a05a0642209d8034
+// IDA原始名稱分別是word_40EAA與word_40EAC；動態收據見套件真實資料測試。
+func CurrentPosition(o *oracle.Oracle) Position {
+	return Position{
+		Block:     o.Word(o.IDA(currentBlockIDA)),
+		Direction: o.Word(o.IDA(currentDirectionIDA)),
+	}
+}
+
 // ToWestwoodLogo 從START1.EXE冷啟動走到Westwood標誌穩定幀。
 func ToWestwoodLogo(o *oracle.Oracle) error {
 	o.Type(LauncherInput)
@@ -711,8 +735,8 @@ func ToLevel1CharacterExchangeCancel(o *oracle.Oracle) error {
 	return nil
 }
 
-// ToLevel1FirstForwardStep 從LEVEL1入口以原版鍵盤右轉，再向前走入相鄰格。
-func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
+// ToLevel1FirstRightTurn 從LEVEL1入口以原版鍵盤向右轉，停在同一格。
+func ToLevel1FirstRightTurn(o *oracle.Oracle) error {
 	if err := ToLevel1Entrance(o); err != nil {
 		return err
 	}
@@ -723,6 +747,14 @@ func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
 	if err := o.RunUntil(screenDigest("LEVEL1入口右轉", 0, 0, 176, 120,
 		"a35855823bdecf7b0a150b2ca9d35e650234a644871c24a97ebb8d279cb45270"), oracle.Budget(5_000_000)); err != nil {
 		return fmt.Errorf("EOB1等待LEVEL1右轉畫面：%w", err)
+	}
+	return nil
+}
+
+// ToLevel1FirstForwardStep 從LEVEL1入口以原版鍵盤右轉，再向前走入相鄰格。
+func ToLevel1FirstForwardStep(o *oracle.Oracle) error {
+	if err := ToLevel1FirstRightTurn(o); err != nil {
+		return err
 	}
 	o.PressKey(oracle.KeyUp)
 	if err := o.Run(2_000_000); err != nil {
