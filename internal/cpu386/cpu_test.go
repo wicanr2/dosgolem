@@ -2445,6 +2445,27 @@ func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
 	}
 }
 
+func TestDSBaseByteRead(t *testing.T) {
+	mem := testBus(make([]byte, 0x30))
+	copy(mem, []byte{0x8a, 0x23})
+	mem[0x18] = 0xa5
+	c := New(mem)
+	c.R[EBX], c.R[EAX], c.EFlags = 0x18, 0x12345678, CF|ZF|OF
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x2f})
+	if err := c.Step(); err != nil || c.R[EAX] != 0x1234a578 || c.R[EBX] != 0x18 || c.EFlags != CF|ZF|OF {
+		t.Fatalf("MOV AH EAX=%X EBX=%X flags=%X err=%v", c.R[EAX], c.R[EBX], c.EFlags, err)
+	}
+
+	c = New(testBus{0x8a, 0x03})
+	c.R[EBX], c.R[EAX] = 0x18, 0x12345678
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 1})
+	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 {
+		t.Fatalf("out-of-range MOV EAX=%X err=%v", c.R[EAX], err)
+	}
+}
+
 func TestCLDAndREPESCASB(t *testing.T) {
 	mem := testBus{0xfc, 0xf3, 0xae}
 	c := New(mem)

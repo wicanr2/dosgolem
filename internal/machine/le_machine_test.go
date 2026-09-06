@@ -1718,3 +1718,28 @@ func TestFD2StoresLineReaderByte(t *testing.T) {
 		t.Fatalf("line reader byte steps=%d EIP=%X destination=%X want=%X got=%X", steps, m.CPU.EIP, destination, want, m.Mem[destination])
 	}
 }
+
+func TestFD2LoadsNextBufferedCharacter(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, _ := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3d9fa; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("buffer character setup: step=%d EIP=%X EAX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], err)
+		}
+	}
+	source := m.CPU.R[cpu386.EAX]
+	if uint64(source) >= uint64(len(m.Mem)) {
+		t.Fatalf("buffer character source=%X 超界", source)
+	}
+	want := m.Mem[source]
+	before := m.CPU.R[cpu386.EAX]
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("buffer character MOV: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	if m.CPU.EIP != 0x3d9fc || byte(m.CPU.R[cpu386.EAX]) != want || m.CPU.R[cpu386.EAX]&0xffffff00 != before&0xffffff00 {
+		t.Fatalf("buffer character steps=%d EIP=%X source=%X want=%X EAX=%X", steps, m.CPU.EIP, source, want, m.CPU.R[cpu386.EAX])
+	}
+}

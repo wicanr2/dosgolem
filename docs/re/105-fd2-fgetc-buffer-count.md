@@ -27,5 +27,6 @@ IDA 線性位址。
 負值時呼叫 `__filbuf` 補充緩衝。相同序列在 `0x3DA0C` 處理 CR 後的下一個
 byte。因此 offset `+4` 是剩餘緩衝 byte 計數，具直接 writer 與 consumer。
 
-本證據授權 `FF /1 base+disp8` 的必要 CPU shape；`__filbuf` 與 DOS read
-仍須另立證據與規格。
+本證據授權 `FF /1 base+disp8`、`8A /r` 無位移基址間接 byte 載入，以及
+`FF /0` 無位移基址間接 dword 遞增的必要 CPU shape；`__filbuf` 與 DOS
+read 由後續獨立證據與規格閉合。
