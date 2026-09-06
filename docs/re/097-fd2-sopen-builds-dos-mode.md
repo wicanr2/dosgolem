@@ -9,8 +9,8 @@ SHA-256 `222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f`
 
 `sopen`（`0x3CD43..0x3CF03`）在 `0x3CD5A` 將開檔旗標遮罩為
 `0x83`，`0x3CD62` 載入其低 byte 至 AL。`0x3CD67` 原始位元組
-`0A 45 1C` 是 `or al,[ebp+0x1C]`；接著 `0x3CD70` 設定 `AH=3Dh`，
-`0x3CD72` 執行 `int 21h`。因此 OR 的結果是 DOS `AH=3Dh` open 的 AL
+`0A 45 1C` 是 `or al,[ebp+0x1C]`；接著 `0x3CD71` 設定 `AH=3Dh`，
+`0x3CD73` 執行 `int 21h`。因此 OR 的結果是 DOS `AH=3Dh` open 的 AL
 模式參數。direct callers 位於 `0x36F12`、`0x36F52` 與 `0x3CD39`。
 
 本切片只授權 CPU 的 `OR r8,[base+disp8]`；DOS open 的檔名、分享模式與

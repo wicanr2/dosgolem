@@ -87,6 +87,10 @@ func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
 	c.Descriptors[selector] = descriptor
 }
 
+func (c *CPU) ReadSegment8(selector uint16, offset uint32) (uint8, bool) {
+	return c.readSegment8(selector, offset)
+}
+
 func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
 	if selector == 0 && destination != SegCS && destination != SegSS {
 		return true

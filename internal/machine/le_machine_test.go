@@ -62,7 +62,17 @@ func fixedFD2Machine(t *testing.T) (*LEMachine, *FD2StartupDOS) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	services := &FD2StartupDOS{}
+	var provider *DirectoryReadOnlyFiles
+	root := os.Getenv("DOSGOLEM_FD2_ROOT")
+	if root != "" {
+		provider, err = OpenDirectoryReadOnlyFiles(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { provider.Close() })
+	}
+	services := NewFD2StartupDOS(provider)
+	t.Cleanup(func() { services.Close() })
 	m.CPU.IntHook = services.Handle
 	if _, err := InstallFD2WatcomRuntime(m); err != nil {
 		t.Fatal(err)
@@ -1252,5 +1262,25 @@ func TestFD2InitializesDOSOpenHandle(t *testing.T) {
 	got, errRead := m.Read32(base - 8)
 	if m.CPU.EIP != 0x3cd71 || services.Calls() != 5 || errRead != nil || got != 0xffffffff || m.CPU.R[cpu386.EBP] != base || m.CPU.EFlags != flags {
 		t.Fatalf("open handle steps=%d EIP=%X calls=%d got=%X EBP=%X flags=%X err=%v", steps, m.CPU.EIP, services.Calls(), got, m.CPU.R[cpu386.EBP], m.CPU.EFlags, errRead)
+	}
+}
+
+func TestFD2OpensMDIINI(t *testing.T) {
+	if os.Getenv("DOSGOLEM_FD2_ROOT") == "" {
+		t.Skip("DOSGOLEM_FD2_ROOT 未設定")
+	}
+	m, services := fixedFD2Machine(t)
+	steps := 0
+	for ; steps < 5000 && m.CPU.EIP != 0x3cd73; steps++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MDI.INI open setup: step=%d EIP=%X EAX=%X EDX=%X: %v", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDX], err)
+		}
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MDI.INI open INT 21h: EIP=%X: %v", m.CPU.EIP, err)
+	}
+	handle := uint16(m.CPU.R[cpu386.EAX])
+	if m.CPU.EIP != 0x3cd75 || m.CPU.EFlags&cpu386.CF != 0 || handle < 5 || !services.HasHandle(handle) {
+		t.Fatalf("MDI.INI open steps=%d EIP=%X EAX=%X flags=%X handle=%t", steps, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags, services.HasHandle(handle))
 	}
 }

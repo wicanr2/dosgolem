@@ -47,7 +47,8 @@ base+disp32 比較，並在最後有效項讀回 `0xD68D`；`JB` 迴圈完成 16
 模式字串首 byte，完成 `tolower` 大寫上界分支，並建立基本開檔模式旗標至
 `0x36E47`，建立 binary 模式旗標，並把解析結果套用回 FILE record 至
 `0x36ED5`，重讀並保存正規化模式首 byte，再由 `sopen` 組裝 DOS open
-模式，並將本地 DOS handle 初始化為失敗預設值至 `0x3CD71`。此收據只證明
+模式，將本地 DOS handle 初始化為失敗預設值，並以受限唯讀 root 實際
+開啟固定 `MDI.INI` 至 `0x3CD75`。此收據只證明
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 

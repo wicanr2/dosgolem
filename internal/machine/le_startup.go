@@ -1,6 +1,10 @@
 package machine
 
-import "github.com/wicanr2/dosgolem/internal/cpu386"
+import (
+	"io"
+
+	"github.com/wicanr2/dosgolem/internal/cpu386"
+)
 
 // FD2StartupDOS 是固定雜湊 FD2.EXE 在 DOS/4GW 已載入後所需的啟動服務。
 // 它不是一般 DOS 或 DOS/4GW 模擬器；未列呼叫與錯誤順序一律拒絕。
@@ -9,11 +13,88 @@ type FD2StartupDOS struct {
 	timeCalls       int
 	realModeVectors [256]uint32
 	dosVectors      [256]uint64
+	files           ReadOnlyFileProvider
+	handles         map[uint16]io.ReadSeekCloser
+	nextHandle      uint16
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
 
 func (s *FD2StartupDOS) Calls() int { return s.calls }
+
+func NewFD2StartupDOS(files ReadOnlyFileProvider) *FD2StartupDOS {
+	return &FD2StartupDOS{files: files, handles: make(map[uint16]io.ReadSeekCloser), nextHandle: 5}
+}
+
+func (s *FD2StartupDOS) HasHandle(handle uint16) bool {
+	_, ok := s.handles[handle]
+	return ok
+}
+
+func (s *FD2StartupDOS) Close() error {
+	var first error
+	for handle, file := range s.handles {
+		if err := file.Close(); err != nil && first == nil {
+			first = err
+		}
+		delete(s.handles, handle)
+	}
+	return first
+}
+
+func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	if uint8(c.R[cpu386.EAX]) != 0 || s.files == nil {
+		setError(5)
+		return
+	}
+	path := make([]byte, 0, 32)
+	terminated := false
+	for offset := uint32(0); offset < 260; offset++ {
+		if c.R[cpu386.EDX] > ^uint32(0)-offset {
+			setError(3)
+			return
+		}
+		value, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+offset)
+		if !ok {
+			setError(3)
+			return
+		}
+		if value == 0 {
+			terminated = true
+			break
+		}
+		path = append(path, value)
+	}
+	if !terminated {
+		setError(3)
+		return
+	}
+	file, err := s.files.OpenRead(string(path))
+	if err != nil {
+		setError(2)
+		return
+	}
+	if s.handles == nil {
+		s.handles = make(map[uint16]io.ReadSeekCloser)
+	}
+	if s.nextHandle < 5 {
+		s.nextHandle = 5
+	}
+	handle := s.nextHandle
+	if handle == 0xffff {
+		file.Close()
+		setError(4)
+		return
+	}
+	s.nextHandle++
+	s.handles[handle] = file
+	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(handle)
+	c.EFlags &^= cpu386.CF
+}
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
@@ -41,6 +122,10 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if function == 0x25 {
 		s.dosVectors[vectorNumber] = uint64(c.Seg[cpu386.SegDS])<<32 | uint64(c.R[cpu386.EDX])
 		c.EFlags &^= cpu386.CF
+		return true
+	}
+	if function == 0x3d {
+		s.openReadOnly(c)
 		return true
 	}
 	switch s.calls {
