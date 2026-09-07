@@ -41,6 +41,12 @@ var portLogFrom, portLogTo uint64
 // xmsFile 是 -xms-file 的目的檔（報表那一段不在 main 裡，所以放套件層）。
 var xmsFile string
 
+// readWatchOut／readWatchLog 同理：report 在另一個函式裡。
+var (
+	readWatchOut string
+	readWatchLog []string
+)
+
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄（配 -load-state 時不必再給，"+
@@ -115,6 +121,14 @@ func main() {
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	watchFile := flag.String("watch-file", "", "把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列最後 200 筆）")
 	xmsFileFlag := flag.String("xms-file", "", "把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
+	readWatch := flag.String("read-watch", "",
+		"監看一段線性位址的**讀取**：<lo>-<hi>（十六進位）。"+
+			"配 -read-watch-grain 與 -read-watch-file 用")
+	readGrain := flag.Int("read-watch-grain", 1,
+		"讀取監看的粒度：位址除以它之後**值變了才記一筆**。"+
+			"素材是一格一格排的時候，設成一格的大小就會直接印出「用了第幾格」")
+	readWatchFile := flag.String("read-watch-file", "",
+		"讀取監看的紀錄寫到這個檔（一行：步數 位址 格號 CS:IP）")
 	pokeFile := flag.String("poke-file", "",
 		"從檔案讀 -poke 的腳本（一行一筆或整串逗號分隔）。"+
 			"命令列單一參數上限 128 KB，塗整份圖形這種大量 poke 放檔案裡")
@@ -224,6 +238,28 @@ func main() {
 			dropped++
 		})
 	}
+	if *readWatch != "" {
+		var lo, hi uint32
+		if _, err := fmt.Sscanf(*readWatch, "%x-%x", &lo, &hi); err != nil {
+			die(err)
+		}
+		grain := uint32(*readGrain)
+		if grain == 0 {
+			grain = 1
+		}
+		last := ^uint32(0)
+		m.WatchReads(lo, hi, func(a uint32, v uint8) {
+			k := (a - lo) / grain
+			if k == last {
+				return
+			}
+			last = k
+			if len(readWatchLog) < 200000 {
+				readWatchLog = append(readWatchLog, fmt.Sprintf("%d %05X %d %04X:%04X",
+					m.Steps, a, k, m.CPU.Seg[cpu.CS], m.CPU.IP))
+			}
+		})
+	}
 	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
 	var vidN int
 	if *watchVideo {
@@ -285,6 +321,7 @@ func main() {
 		os.Exit(2)
 	}
 	xmsFile = *xmsFileFlag
+	readWatchOut = *readWatchFile
 	script := *pokeScript
 	if *pokeFile != "" {
 		b, err := os.ReadFile(*pokeFile)
@@ -653,6 +690,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			}
 			fmt.Printf("  #%-9d AH=%02X 要 %5d 段 → %04X %s\n", a.Step, a.Fn, a.Want, a.Seg, st)
 		}
+	}
+	if readWatchOut != "" && len(readWatchLog) > 0 {
+		if err := os.WriteFile(readWatchOut,
+			[]byte(strings.Join(readWatchLog, "\n")+"\n"), 0o644); err != nil {
+			die(err)
+		}
+		fmt.Printf("讀取監看 %d 筆寫到 %s\n", len(readWatchLog), readWatchOut)
 	}
 	if xmsFile != "" && len(d.XMSMoves) > 0 {
 		var b strings.Builder

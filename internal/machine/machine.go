@@ -136,6 +136,10 @@ type Machine struct {
 
 	// 寫入監看（WatchWrites）。watchLo > watchHi 表示關閉。
 	watchLo, watchHi uint32
+
+	// 讀取監看（WatchReads）。rWatchLo > rWatchHi 表示關閉。
+	rWatchLo, rWatchHi uint32
+	onRead             func(addr uint32, v uint8)
 	onWrite          func(addr uint32, old, new uint8)
 
 	oplReg          uint8
@@ -233,6 +237,7 @@ func New() *Machine {
 		IRQ0Every: DefaultIRQ0Every,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
+		rWatchLo: 1, rWatchHi: 0,
 		vga:     &vga{},
 	}
 	m.CPU = cpu.New(m)
@@ -255,6 +260,9 @@ func (m *Machine) Read8(a uint32) uint8 {
 	// ⚠ **讀它有副作用**：四個 latch 會被載入。
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		return m.vgaRead(a - vgaLo)
+	}
+	if m.rWatchLo <= a && a <= m.rWatchHi {
+		m.onRead(a, m.Mem[a])
 	}
 	return m.Mem[a]
 }
@@ -306,6 +314,21 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 		return
 	}
 	m.watchLo, m.watchHi, m.onWrite = lo, hi, fn
+}
+
+// WatchReads 監看一段線性位址的**讀取**。
+//
+// 寫入監看回答「誰寫這個變數」，讀取監看回答「這一次畫圖是從哪裡取的圖」
+// ——素材放在一大塊緩衝區裡的時候，這是唯一直接的答案：
+// 讀到的位移除以一格的大小就是格號，不必去猜挑格的規則。
+//
+// 傳 nil 關掉。**每一次讀都會呼叫**，量很大，回呼要自己節流。
+func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
+	if fn == nil {
+		m.rWatchLo, m.rWatchHi, m.onRead = 1, 0, nil
+		return
+	}
+	m.rWatchLo, m.rWatchHi, m.onRead = lo, hi, fn
 }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
