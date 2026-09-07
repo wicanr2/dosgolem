@@ -38,6 +38,9 @@ var traceFilePath string
 // portLogFrom／portLogTo 是 -port-log-from／-to 的值，report 在別的函式裡。
 var portLogFrom, portLogTo uint64
 
+// xmsFile 是 -xms-file 的目的檔（報表那一段不在 main 裡，所以放套件層）。
+var xmsFile string
+
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄（配 -load-state 時不必再給，"+
@@ -111,6 +114,7 @@ func main() {
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	watchFile := flag.String("watch-file", "", "把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列最後 200 筆）")
+	xmsFileFlag := flag.String("xms-file", "", "把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
 	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
 	callArgs := flag.String("call-args", "",
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
@@ -277,6 +281,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	xmsFile = *xmsFileFlag
 	pokes, err := parsePokes(*pokeScript)
 	if err != nil {
 		die(err)
@@ -630,6 +635,17 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			}
 			fmt.Printf("  #%-9d AH=%02X 要 %5d 段 → %04X %s\n", a.Step, a.Fn, a.Want, a.Seg, st)
 		}
+	}
+	if xmsFile != "" && len(d.XMSMoves) > 0 {
+		var b strings.Builder
+		for _, w := range d.XMSMoves {
+			fmt.Fprintf(&b, "%d %d %d %08X %d %08X %d\n",
+				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits)
+		}
+		if err := os.WriteFile(xmsFile, []byte(b.String()), 0o644); err != nil {
+			die(err)
+		}
+		fmt.Printf("XMS move %d 筆寫到 %s\n", len(d.XMSMoves), xmsFile)
 	}
 	if len(d.XMSMoves) > 0 {
 		fmt.Printf("\nXMS move（%d 次，最多列 30）：\n", len(d.XMSMoves))
