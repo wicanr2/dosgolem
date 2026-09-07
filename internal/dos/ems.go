@@ -363,7 +363,6 @@ func (d *DOS) EMSFlushAll() {
 	}
 }
 
-
 // emsPageMap 是 `AH=4Eh`：整份對映表的存／取。
 //
 // 表的內容是我們自己的格式（每個實體頁 4 bytes：handle ＋ 邏輯頁），
