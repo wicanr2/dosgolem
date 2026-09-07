@@ -34,7 +34,17 @@ func parseMZ(data []byte) (*mzHeader, error) {
 	}
 	u := func(off int) uint16 { return binary.LittleEndian.Uint16(data[off:]) }
 	return &mzHeader{
-		LastPage: u(2), Pages: u(4), Relocs: u(6), HeaderPar: u(8),
+		// **`e_cblp` 只有低九位有意義。** 那一格是「最後一頁用了幾個
+		// 位元組」，而一頁是 512——所以合法值是 0..511，高位的位元
+		// 是打包工具留下來的垃圾。不遮的話映像長度會算成天文數字，
+		// 而載入器只會說「檔案太短」，指向完全錯的方向。
+		//
+		// 量到的案例：智冠《三國演義》加強版的 `DATA0.GRP`
+		// （87,696 bytes）寫著 `e_cblp = 0xAA90`。遮成九位得到 144，
+		// `(172−1)×512 + 144` **正好是檔案長度**。同一批 15 個 MZ 檔
+		// 裡只有這一個越界，其餘遮不遮都一樣。
+		LastPage: u(2) & 0x1FF,
+		Pages:    u(4), Relocs: u(6), HeaderPar: u(8),
 		SS: u(14), SP: u(16), IP: u(20), CS: u(22), RelocOff: u(24),
 	}, nil
 }
