@@ -75,6 +75,9 @@ func main() {
 		"在指定步數各存一張畫面：`步數:路徑` 用逗號分隔。"+
 			"色盤存成同名 .pal。一次跑要看好幾個畫面時用這個，"+
 			"不要為了看中途的畫面重跑")
+	clickPremove := flag.Int("click-premove", 0,
+		"每一次腳本點擊先把游標移過去、等遊戲讀了幾次滑鼠才按下去（0 ＝ 移到就按）。"+
+			"有些對話框的鈕吃「游標已經在上面」這個狀態（`docs/spec/004` §4.19）")
 	clickScript := flag.String("clicks", "",
 		"點擊腳本：`步數:X:Y[:鍵]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。"+
 			"按住時間用 -click-hold")
@@ -278,6 +281,8 @@ func main() {
 	pollsAtPress := 0
 	held := false
 	downIdx := -1
+	preIdx := -1
+	var pressStep uint64
 
 	ca, err := parseCallArgs(*callArgs, false)
 	if err == nil && ca == nil {
@@ -340,11 +345,23 @@ func main() {
 			switch {
 			case m.Steps == c.step:
 				d.Mouse.X, d.Mouse.Y = c.x, c.y
+				if *clickPremove > 0 {
+					// 先移過去，等遊戲看到游標在那裡再按。
+					pollsAtPress = len(d.Mouse.Polls)
+					preIdx = i
+					break
+				}
 				d.Mouse.Buttons = c.btn
 				d.Mouse.Press++
 				pollsAtPress = len(d.Mouse.Polls)
-				downIdx = i
-			case downIdx == i && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, c.step):
+				downIdx, pressStep = i, m.Steps
+			case preIdx == i && len(d.Mouse.Polls)-pollsAtPress >= *clickPremove:
+				d.Mouse.Buttons = c.btn
+				d.Mouse.Press++
+				pollsAtPress = len(d.Mouse.Polls)
+				preIdx, downIdx = -1, i
+				pressStep = m.Steps
+			case downIdx == i && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, pressStep):
 				d.Mouse.Buttons = 0
 				d.Mouse.Release++
 				downIdx = -1

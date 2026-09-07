@@ -33,6 +33,10 @@ func main() {
 			"固定按住幾百萬道等於連點好幾下，一路穿過好幾層選單")
 	settle := flag.Uint64("settle", 6_000_000, "點完再跑幾道指令才看畫面")
 	out := flag.String("out", "", "把有變化的那幾格畫面存到這個目錄")
+	memSpec := flag.String("mem", "",
+		"每一格點完之後把一段線性記憶體寫出來：`<lo>-<hi>:<目錄>`（位址十六進位）。"+
+			"檔名是 `x_y.bin`，基準是 `base.bin`。指令的效果要看記憶體差分，"+
+			"不是看畫面")
 	only := flag.String("only", "", "只點這幾個點：`x,y;x,y…`（給了就不掃格）")
 	premove := flag.Int("premove", 0,
 		"先把游標移過去、等遊戲讀了幾次滑鼠，才按下去（0 ＝ 移到就按）。"+
@@ -53,7 +57,23 @@ func main() {
 		die(err)
 	}
 
-	base, err := run(*st, *root, -1, -1, *hold, *settle, *polls, *premove)
+	var memLo, memHi uint32
+	memDir := ""
+	if *memSpec != "" {
+		i := strings.LastIndex(*memSpec, ":")
+		if i < 0 {
+			die(fmt.Errorf("-mem 要寫成 <lo>-<hi>:<目錄>，收到 %q", *memSpec))
+		}
+		if _, err := fmt.Sscanf((*memSpec)[:i], "%x-%x", &memLo, &memHi); err != nil {
+			die(fmt.Errorf("-mem 的位址解不開：%w", err))
+		}
+		memDir = (*memSpec)[i+1:]
+		if err := os.MkdirAll(memDir, 0o755); err != nil {
+			die(err)
+		}
+	}
+
+	base, err := run(*st, *root, -1, -1, *hold, *settle, *polls, *premove, memLo, memHi, filepath.Join(memDir, "base.bin"), memDir != "")
 	if err != nil {
 		die(err)
 	}
@@ -68,7 +88,8 @@ func main() {
 	seen := map[string]string{base.sum: "沒變"}
 	n := 0
 	for _, p := range pts {
-		r, err := run(*st, *root, p.x, p.y, *hold, *settle, *polls, *premove)
+		r, err := run(*st, *root, p.x, p.y, *hold, *settle, *polls, *premove,
+			memLo, memHi, filepath.Join(memDir, fmt.Sprintf("%d_%d.bin", p.x, p.y)), memDir != "")
 		if err != nil {
 			die(err)
 		}
@@ -105,7 +126,8 @@ type shot struct {
 }
 
 // run 展開狀態、點一下、跑一段，回畫面。x < 0 表示不點（基準）。
-func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int) (*shot, error) {
+func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int,
+	memLo, memHi uint32, memPath string, wantMem bool) (*shot, error) {
 	m := machine.New()
 	d := dos.New(m, root)
 	d.Install()
@@ -146,6 +168,14 @@ func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int)
 			}
 		}
 		if err := m.Step(); err != nil {
+			return nil, err
+		}
+	}
+	if wantMem {
+		if memHi > uint32(len(m.Mem)) {
+			memHi = uint32(len(m.Mem))
+		}
+		if err := os.WriteFile(memPath, m.Mem[memLo:memHi], 0o644); err != nil {
 			return nil, err
 		}
 	}
