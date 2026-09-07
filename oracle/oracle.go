@@ -118,6 +118,61 @@ func (o *Oracle) SetCmdLine(tail string) {
 // Close 關掉還開著的檔。
 func (o *Oracle) Close() { o.d.Close() }
 
+// ---- 程式鏈（`docs/spec/008`／`009`）--------------------------------------
+
+// LoadProgram 是 Load 的通用版：依檔頭 MZ magic 分派 COM／EXE
+// （**副檔名不是判準**，與 `cmd/probe` 一致），並把 args 寫進 PSP+80h
+// 的命令列尾（長度 ＋ 內容 ＋ CR）。
+//
+// 源平合戰的啟動鏈第一支是 DOSJP.COM（要帶 `-F:font.dat -TJ`），
+// Load 只會載 MZ，所以另開這個入口。
+func LoadProgram(exe, root, args string) (*Oracle, error) {
+	img, err := os.ReadFile(exe)
+	if err != nil {
+		return nil, err
+	}
+	m := machine.New()
+	if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
+		err = m.LoadEXE(img)
+	} else {
+		err = m.LoadCOM(img)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("載入 %s：%w", exe, err)
+	}
+	// 命令列尾（PSP+80h）。上限 126 bytes。
+	tail := []byte(args)
+	if len(tail) > 126 {
+		tail = tail[:126]
+	}
+	psp := uint32(machine.PSPSeg) * 16
+	m.Write8(psp+0x80, uint8(len(tail)))
+	m.WriteBytes(psp+0x81, tail)
+	m.Write8(psp+0x81+uint32(len(tail)), 0x0D)
+
+	d := dos.New(m, root)
+	d.Install()
+
+	o := &Oracle{m: m, d: d, onCall: map[uint32][]func(*Oracle){}}
+	o.idaOffset = 0x10000 - (uint32(machine.LoadSeg) * 16)
+	o.dgroupSeg = uint16((0x41E90 - o.idaOffset) / 16)
+	return o, nil
+}
+
+// Enqueue 排入監督佇列的一支程式：目前行程結束（或 TSR 常駐）後
+// 由服務層推出來跑（`docs/spec/009` §4）。name 照 basename 解析，
+// args 會寫進它的命令列尾。
+func (o *Oracle) Enqueue(name, args string) { o.d.Enqueue(name, args) }
+
+// ExecRecord 是一次 EXEC／監督載入的紀錄。
+type ExecRecord = dos.ExecRecord
+
+// ExecLog 回目前為止的 EXEC／監督載入紀錄——**「殼鏈走到哪一跳」
+// 唯一的直接答案**。
+func (o *Oracle) ExecLog() []ExecRecord {
+	return append([]ExecRecord(nil), o.d.ExecLog...)
+}
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。
@@ -172,16 +227,20 @@ func (o *Oracle) Float(a Addr) float32 {
 // 只給內部的條件判斷用。`Indexed()` 會複製一份給呼叫端——
 // 那是對的，但**放進每道指令都跑的迴圈裡就是災難**：
 // 64 KB 的配置加比對乘上四千兩百萬道指令。
-func (o *Oracle) video() []uint8 {
-	base := machine.VideoSeg * 16
-	return o.m.Mem[base : base+Width*Height]
-}
+func (o *Oracle) video() []uint8 { return o.m.VideoRaw() }
 
-// Indexed 回 320×200 的色號陣列。
+// Indexed 回畫面的色號陣列。mode 13h 是 320×200（`Width`×`Height`）；
+// planar 模式（`docs/spec/013`）是 `ScreenSize()` 那個尺寸的 0–15 色號。
 //
 // **色號，不是 RGB。** rich2 的比對在色號空間做，而且逐點比對在索引空間
 // 才不會被調色盤循環干擾（`docs/spec/005` §3.3）。
 func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
+
+// ScreenSize 是目前模式的畫面尺寸。
+//
+// ⚠ **`Width`／`Height` 兩個常數是 mode 13h 的**，planar 模式下不對；
+// 會遇到 16 色模式的程式一律問這一支。
+func (o *Oracle) ScreenSize() (w, h int) { return o.m.VideoSize() }
 
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }

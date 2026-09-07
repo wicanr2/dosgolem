@@ -149,6 +149,10 @@ func (d *DOS) read(c *cpu.CPU) {
 	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
 		Pos: pos, Len: n, Step: d.M.Steps})
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
+	d.Reads = append(d.Reads, ReadOp{
+		Step: d.M.Steps, Name: h.name, Handle: bx,
+		Seg: c.Seg[cpu.DS], Off: c.R[cpu.DX], Want: cx, Got: n,
+	})
 	c.R[cpu.AX] = uint16(n)
 	clearCarry(c)
 }

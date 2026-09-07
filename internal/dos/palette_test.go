@@ -26,8 +26,8 @@ func TestPaletteSetSingleDACRegister(t *testing.T) {
 	if got := [3]uint8{m.DAC[15], m.DAC[16], m.DAC[17]}; got != [3]uint8{42, 21, 5} {
 		t.Errorf("DAC[5] ＝ %v，預期 [42 21 5]", got)
 	}
-	if m.AttrPal[5] != 5 {
-		t.Errorf("AttrPal[5] 被動到了（＝%d）——AL=10h 不該碰屬性調色盤", m.AttrPal[5])
+	if m.VGA.Pal(int(5)) != 5 {
+		t.Errorf("AttrPal[5] 被動到了（＝%d）——AL=10h 不該碰屬性調色盤", m.VGA.Pal(int(5)))
 	}
 }
 
@@ -78,12 +78,12 @@ func TestPaletteAttributeRegistersRoundTrip(t *testing.T) {
 	call(m, d, 0x10, 0x1002)
 
 	for i := 0; i < 16; i++ {
-		if m.AttrPal[i] != src[i] {
-			t.Fatalf("AttrPal[%d] ＝ %d，預期 %d", i, m.AttrPal[i], src[i])
+		if m.VGA.Pal(int(i)) != src[i] {
+			t.Fatalf("AttrPal[%d] ＝ %d，預期 %d", i, m.VGA.Pal(int(i)), src[i])
 		}
 	}
-	if m.Overscan != src[16] {
-		t.Errorf("overscan ＝ %d，預期 %d", m.Overscan, src[16])
+	if m.VGA.Overscan() != src[16] {
+		t.Errorf("overscan ＝ %d，預期 %d", m.VGA.Overscan(), src[16])
 	}
 	if m.DAC[0] != 9 {
 		t.Error("AL=02h 動到了 DAC——它只該碰屬性調色盤")

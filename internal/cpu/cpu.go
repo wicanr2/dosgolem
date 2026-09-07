@@ -76,6 +76,10 @@ const (
 	// 用 8086 的別名解讀會讓指令長度差一個 byte，然後整串錯位——
 	// **而且不會報錯**（`docs/spec/002` §1.1 那個方框）。
 	Model80186
+
+	// Model80386 讓 0x66 成為 operand-size 前綴（EAX 那一小套，
+	// `docs/spec/012`）。其餘與 80186 相同。DOSJP.COM 需要它。
+	Model80386
 )
 
 // CPU 是一顆 8086（或 80186，看 Model）。零值不可用，用 New。
@@ -98,10 +102,19 @@ type CPU struct {
 	// Halted 由 HLT 設起來；外層要靠中斷把它清掉。
 	Halted bool
 
+	// DivErrors 記下每一次除以零的現場（最多 32 筆）。IP 已經走完整道
+	// 指令，所以那是**下一道**的位址。
+	DivErrors []DivError
+
 	// 前綴狀態，每道指令開頭重設。
 	segOverride int
 	repPrefix   uint8 // 0 ＝ 沒有；0xF2 ＝ REPNE；0xF3 ＝ REP／REPE
 	lock        bool
+	operand32   bool // 0x66 前綴（`docs/spec/012`；只在 Model80386 有意義）
+
+	// EAXHi 是 EAX 的高 16 位元（低半就是 R[AX]）。只有 Model80386 的
+	// 0x66 指令會動它（`docs/spec/012`）。
+	EAXHi uint16
 
 	// 本道指令的起點，除法例外與中斷要用（`docs/spec/002` §4 第 3 點）。
 	opCS, opIP uint16
@@ -252,3 +265,6 @@ func (e *Error) Error() string {
 func (c *CPU) errf(op uint8, format string, a ...any) *Error {
 	return &Error{CS: c.opCS, IP: c.opIP, Op: op, Reason: fmt.Sprintf(format, a...)}
 }
+
+// DivError 是一次除以零的現場。
+type DivError struct{ CS, IP uint16 }

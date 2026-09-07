@@ -121,6 +121,7 @@ func (o *Oracle) Type(s string) error        // 餵給 int 21h AH=3Fh
 func (o *Oracle) OnCall(addr Addr, fn func(*Oracle))  // 攔繪製常式讀參數
 func (o *Oracle) Save() *State
 func (o *Oracle) Restore(s *State)
+func (o *Oracle) PortWrites() []PortWrite             // I/O 埠寫入的完整序列
 ```
 
 - `OnCall` 的價值是**把判準從像素換成參數**：原版自己傳給繪製常式的
@@ -129,6 +130,10 @@ func (o *Oracle) Restore(s *State)
   開機到防拷畫面要 4,200 萬道指令（約 2 秒）；走到棋盤還要更多。
   **從同一個狀態展開多個變體**是 `rich2` D33／D34「走到罕見畫面很貴」的解。
 - `State` 是不透明的；**不落地成檔案**（那等於散布原版的記憶體映像）。
+- `PortWrites` 的理由與 `Indexed` 相反：**顯示模式與 planar 設定只留在埠上**。
+  VGA 的 Sequencer（3C4/3C5）與 Graphics Controller（3CE/3CF）決定一次
+  A0000 的寫入落到哪幾個 plane，只看記憶體會看到四份互相覆蓋的資料，
+  看不出程式選過 plane。
 
 ## 6. 亂數
 

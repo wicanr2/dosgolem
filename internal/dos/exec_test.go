@@ -9,8 +9,236 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
-// EXEC／EMS 的測試（`docs/spec/007` §7）。子程式是臨時造的最小 MZ，
-// 不需要任何原版檔。
+// 這一份測試釘 EXEC／TSR／回傳碼（`docs/spec/008`／`009`）。
+// 每一條的反面都不會報錯：殼鏈只會安靜地斷在某一跳。
+
+// writeChild 在 Root 放一支最小的 .COM：做完自己的事之後用給定的
+// 離開碼結束（或常駐）。
+func writeChild(t *testing.T, d *DOS, name string, code []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(d.Root, name), code, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// execChild 從目前的 CPU 上下文 EXEC 一支程式。
+func execChild(m *machine.Machine, d *DOS, name string) {
+	m.CPU.Seg[cpu.DS] = 0x3000
+	m.CPU.R[cpu.DX] = 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte(name), 0))
+	// 參數區塊：環境段 0（繼承）、命令列尾 0:0（空尾）。
+	m.CPU.Seg[cpu.ES] = 0x3000
+	m.CPU.R[cpu.BX] = 0x80
+	m.Write16(cpu.Addr(0x3000, 0x80), 0)
+	m.Write16(cpu.Addr(0x3000, 0x82), 0)
+	m.Write16(cpu.Addr(0x3000, 0x84), 0)
+	call(m, d, 0x21, 0x4B00)
+}
+
+// TestExecRunsChildAndResumesParent 釘住 EXEC 的兩半：
+// 子程式真的跑起來，而且它結束之後父程式從 int 21h 的下一道接著跑。
+// 只載入不跳過去的話，殼的下一道指令（AH=4Dh）會在**父程式自己的
+// 上下文裡**空轉——看起來像「EXEC 成功了」。
+func TestExecRunsChildAndResumesParent(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：mov ax,4C2Ah; int 21h（離開碼 42）。
+	writeChild(t, d, "CHILD.COM", []byte{0xB8, 0x2A, 0x4C, 0xCD, 0x21})
+
+	// 父程式的哨兵上下文。
+	m.CPU.R[cpu.SI] = 0x1111
+	m.CPU.R[cpu.DI] = 0x2222
+	m.CPU.R[cpu.BP] = 0x3333
+	parentCS, parentIP := m.CPU.Seg[cpu.CS], m.CPU.IP
+
+	execChild(m, d, "CHILD.COM")
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("EXEC 失敗，Missing=%v", d.Missing)
+	}
+	if len(d.procStack) != 1 {
+		t.Fatalf("EXEC 之後行程疊深度 %d，預期 1", len(d.procStack))
+	}
+
+	// 跑子程式直到它結束、彈回父程式。
+	for i := 0; i < 100 && len(d.procStack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.procStack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+	if m.CPU.R[cpu.SI] != 0x1111 || m.CPU.R[cpu.DI] != 0x2222 || m.CPU.R[cpu.BP] != 0x3333 {
+		t.Errorf("父程式暫存器沒復原：SI=%04X DI=%04X BP=%04X",
+			m.CPU.R[cpu.SI], m.CPU.R[cpu.DI], m.CPU.R[cpu.BP])
+	}
+	if m.CPU.Seg[cpu.CS] != parentCS || m.CPU.IP != parentIP {
+		t.Errorf("父程式沒回到原處：%04X:%04X（原 %04X:%04X）",
+			m.CPU.Seg[cpu.CS], m.CPU.IP, parentCS, parentIP)
+	}
+	if d.Exited {
+		t.Error("子程式結束不該讓整台機器停下來")
+	}
+
+	// AH=4Dh 拿到離開碼。
+	call(m, d, 0x21, 0x4D00)
+	if ax := m.CPU.R[cpu.AX]; ax != 0x002A {
+		t.Errorf("AH=4Dh 回 AX=%04X，預期 002A", ax)
+	}
+	// 可重複讀（不清掉）。
+	call(m, d, 0x21, 0x4D00)
+	if ax := m.CPU.R[cpu.AX]; ax != 0x002A {
+		t.Errorf("AH=4Dh 第二次回 AX=%04X——清了會給出假的 0", ax)
+	}
+
+	// 非 TSR 子程式的記憶體要 LIFO 回收。
+	if d.freeSeg != 0x2000 {
+		t.Errorf("子程式結束後 freeSeg=%04X，預期回 2000", d.freeSeg)
+	}
+	if len(d.ExecLog) != 1 || d.ExecLog[0].Exit != 42 {
+		t.Errorf("ExecLog=%+v", d.ExecLog)
+	}
+}
+
+// TestTSRKeepsMemory 釘住 AH=31h：常駐區留在記憶體裡，
+// 下一支程式要落在它之上，不能覆蓋。
+func TestTSRKeepsMemory(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：mov dx,40h; mov ax,3107h; int 21h（常駐 0x40 段，碼 7）。
+	// keep 要比映像本身大才有「多留」可驗；反過來（DX 小於已佔用）時
+	// bump 配置器只能往前推不能往回收（`docs/spec/008` §2.1）。
+	writeChild(t, d, "TSR.COM", []byte{0xBA, 0x40, 0x00, 0xB8, 0x07, 0x31, 0xCD, 0x21})
+
+	execChild(m, d, "TSR.COM")
+	childPSP := d.curPSP
+	for i := 0; i < 100 && len(d.procStack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.freeSeg != childPSP+0x40 {
+		t.Errorf("TSR 之後 freeSeg=%04X，預期 %04X（PSP+40h）", d.freeSeg, childPSP+0x40)
+	}
+	call(m, d, 0x21, 0x4D00)
+	if ax := m.CPU.R[cpu.AX]; ax != 0x0007 {
+		t.Errorf("AH=4Dh 回 AX=%04X，預期 0007", ax)
+	}
+	if !d.ExecLog[0].TSR || d.ExecLog[0].Keep != 0x40 {
+		t.Errorf("ExecLog=%+v", d.ExecLog[0])
+	}
+}
+
+// TestSupervisorQueueRunsNextProgram 釘住監督佇列（`009` §4）：
+// 疊底程式結束後，佇列裡的下一支要接著跑，而不是整台停掉。
+// 沒有這條，「DOSJP 常駐 → 再跑 Genpei.com」這條鏈不存在。
+func TestSupervisorQueueRunsNextProgram(t *testing.T) {
+	m, d := newTest(t)
+	writeChild(t, d, "NEXT.COM", []byte{0xB8, 0x05, 0x4C, 0xCD, 0x21})
+	d.Enqueue("NEXT.COM", "")
+
+	// 疊底程式（行程疊是空的）以碼 0 結束。
+	call(m, d, 0x21, 0x4C00)
+	if d.Exited {
+		t.Fatal("佇列裡還有程式，不該停")
+	}
+	for i := 0; i < 100 && !d.Exited; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !d.Exited || d.ExitCode != 5 {
+		t.Errorf("Exited=%v ExitCode=%d——佇列推出來的程式沒跑到", d.Exited, d.ExitCode)
+	}
+}
+
+// TestExecMissingFileFailsInPlace 釘住「找不到檔不動行程疊」。
+// 殼連跳五支程式，其中一支缺席時必須回到殼的錯誤路徑，
+// 而不是把殼自己也吃掉。
+func TestExecMissingFileFailsInPlace(t *testing.T) {
+	m, d := newTest(t)
+	execChild(m, d, "NOPE.EXE")
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Fatal("EXEC 不存在的檔竟然成功")
+	}
+	if m.CPU.R[cpu.AX] != 2 {
+		t.Errorf("AX=%d，預期 2（File not found）", m.CPU.R[cpu.AX])
+	}
+	if len(d.procStack) != 0 {
+		t.Error("失敗的 EXEC 動了行程疊")
+	}
+}
+
+// TestTrampolineCarryReachesStackedFlags 釘住 fixStackedCF：
+// 走 trampoline 進來的服務，CF 要寫進堆疊上的旗標框，否則 IRET 把它蓋掉。
+// 症狀是 TSR 落腳後 EXEC 一律「失敗」，殼印 cannot execute 然後離開。
+func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
+	m, d := newTest(t)
+	// 假的中斷框：SS:SP → IP／CS／FLAGS（CF 立著）。
+	m.CPU.Seg[cpu.SS] = 0x9000
+	m.CPU.R[cpu.SP] = 0x100
+	m.Write16(cpu.Addr(0x9000, 0x100), 0)
+	m.Write16(cpu.Addr(0x9000, 0x102), 0)
+	m.Write16(cpu.Addr(0x9000, 0x104), cpu.CF)
+
+	// AH=19h（取目前磁碟）是清 CF 的服務。
+	call(m, d, 0xF2, 0x1900)
+	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF != 0 {
+		t.Errorf("堆疊框的 FLAGS=%04X，CF 還立著——IRET 會把假失敗彈回去", w)
+	}
+
+	// 反向：服務設 CF（開不存在的檔）要進堆疊框。
+	m.CPU.Seg[cpu.DS] = 0x3000
+	m.CPU.R[cpu.DX] = 0
+	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("NOPE.BIN"), 0))
+	call(m, d, 0xF2, 0x3D00)
+	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF == 0 {
+		t.Error("服務設了 CF，但堆疊框沒有")
+	}
+}
+
+// TestChildSetBlockMovesFreeSeg 釘住「子行程撐大自己的區塊之後，
+// AH=48h 不能再把那塊記憶體配出去」。
+//
+// 反面沒有任何錯誤：配到的緩衝區落在子行程的堆疊上，讀個檔就把返回位址
+// 換成檔案內容，retf 到一個看起來很像程式碼的地方，然後在資料裡一路
+// 執行下去。（源平合戰的 OPEN.EXE 就是這樣飛掉的。）
+func TestChildSetBlockMovesFreeSeg(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：AH=4Ah 把自己的區塊撐到 0x2000 段，然後 AH=48h 要 0x100 段，
+	// 把結果留在 BX，最後結束。
+	writeChild(t, d, "GROW.COM", []byte{
+		0x8C, 0xCB, // mov bx,cs      （.COM 的 CS ＝ PSP）
+		0x8E, 0xC3, // mov es,bx
+		0xBB, 0x00, 0x20, // mov bx,2000h
+		0xB4, 0x4A, 0xCD, 0x21, // mov ah,4Ah; int 21h
+		0xBB, 0x00, 0x01, // mov bx,0100h
+		0xB4, 0x48, 0xCD, 0x21, // mov ah,48h; int 21h
+		0xA3, 0x00, 0x02, // mov [0200h],ax   （把配到的段存起來）
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+	})
+	execChild(m, d, "GROW.COM")
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("EXEC 失敗，Missing=%v", d.Missing)
+	}
+	psp := d.ExecLog[len(d.ExecLog)-1].PSP
+	for i := 0; i < 200 && len(d.procStack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.procStack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+
+	got := m.Read16(cpu.Addr(psp, 0x200))
+	if got == 0 {
+		t.Fatal("子程式沒有配到記憶體")
+	}
+	// 子行程擁有 psp..psp+2000h；配出來的段必須在那之後。
+	if got <= psp+0x2000 {
+		t.Errorf("AH=48h 配到 %04X，落在子行程自己的區塊裡（%04X–%04X）——"+
+			"那塊記憶體正被它的堆疊用著", got, psp, psp+0x2000)
+	}
+}
 
 // buildChildMZ 造一支「印 CHILD$ 然後 exit 42」的最小 MZ。
 func buildChildMZ() []byte {
@@ -67,8 +295,8 @@ func TestExecRunsChildAndReturnsToParent(t *testing.T) {
 	c.R[cpu.CX] = 0xBEEF // 父程式暫存器，要原樣回來
 	call(m, d, 0x21, 0x4B00)
 
-	if len(d.execStack) != 1 {
-		t.Fatalf("EXEC 之後 execStack 深度要是 1，得到 %d", len(d.execStack))
+	if len(d.procStack) != 1 {
+		t.Fatalf("EXEC 之後行程疊深度要是 1，得到 %d", len(d.procStack))
 	}
 	if d.curPSP == machine.PSPSeg {
 		t.Fatal("curPSP 沒切到子程式")
@@ -79,12 +307,12 @@ func TestExecRunsChildAndReturnsToParent(t *testing.T) {
 	}
 
 	// 跑子程式直到它 exit（控制權回父程式，不停機）。
-	for i := 0; i < 100 && !d.Exited && len(d.execStack) > 0; i++ {
+	for i := 0; i < 100 && !d.Exited && len(d.procStack) > 0; i++ {
 		if err := m.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(d.execStack) != 0 {
+	if len(d.procStack) != 0 {
 		t.Fatal("子程式沒有結束")
 	}
 	if d.Exited {
@@ -121,26 +349,8 @@ func TestExecMissingFileFailsAndParentSurvives(t *testing.T) {
 		t.Errorf("找不到檔要 CF=1、AX=2，得到 CF=%v AX=%04X",
 			c.Flags&cpu.CF != 0, c.R[cpu.AX])
 	}
-	if len(d.execStack) != 0 || d.curPSP != machine.PSPSeg {
+	if len(d.procStack) != 0 || d.curPSP != machine.PSPSeg {
 		t.Error("失敗的 EXEC 動到了 exec 狀態")
-	}
-}
-
-// TestEMSQuerySubset 釘住 int 67h 的查詢子集（spec §4）。
-func TestEMSQuerySubset(t *testing.T) {
-	m, d := newTest(t)
-	call(m, d, 0x67, 0x4000)
-	if got := uint8(m.CPU.R[cpu.AX] >> 8); got != 0 {
-		t.Errorf("AH=40h 要回 AH=0，得到 %02X", got)
-	}
-	call(m, d, 0x67, 0x4200)
-	if m.CPU.R[cpu.BX] != 8 || m.CPU.R[cpu.DX] != 8 {
-		t.Errorf("AH=42h 要回 BX=DX=8，得到 BX=%d DX=%d",
-			m.CPU.R[cpu.BX], m.CPU.R[cpu.DX])
-	}
-	call(m, d, 0x67, 0x4600) // 取版本：沒實作（spec 008 §6）
-	if got := uint8(m.CPU.R[cpu.AX] >> 8); got != 0x84 {
-		t.Errorf("未實作的 EMS 功能要回 AH=84h，得到 %02X", got)
 	}
 }
 
@@ -192,12 +402,12 @@ func TestChildExitReclaimsMemory(t *testing.T) {
 	if d.freeSeg <= before {
 		t.Fatalf("EXEC 之後配置游標要往上走：%04X → %04X", before, d.freeSeg)
 	}
-	for i := 0; i < 100 && !d.Exited && len(d.execStack) > 0; i++ {
+	for i := 0; i < 100 && !d.Exited && len(d.procStack) > 0; i++ {
 		if err := m.Step(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(d.execStack) != 0 {
+	if len(d.procStack) != 0 {
 		t.Fatal("子程式沒有結束")
 	}
 	if d.freeSeg != before {

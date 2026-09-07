@@ -168,6 +168,27 @@ type DOS struct {
 	// 事後從序列裡找分界只能用猜的。掛在開檔那一刻就不必猜。
 	OnOpen func(name string)
 
+	// Reads 是每一次成功的讀檔（`AH=3Fh`），依序。
+	//
+	// **「這個檔被讀進哪裡、讀了多長」是解資料格式的起點**，也是
+	// 「緩衝區有沒有蓋到別的東西」唯一直接的證據——DOS 服務的寫入走
+	// WriteBytes，繞過 Write8，WatchWrites 看不到它。
+	Reads []ReadOp
+
+	// Allocs 是每一次記憶體配置（`AH=48h`）與縮放（`AH=4Ah`）。
+	// 「這塊緩衝區是誰給的」——配置器給錯位址時，症狀會出現在
+	// 很遠的地方（緩衝區蓋到堆疊、蓋到別人的資料）。
+	Allocs []AllocOp
+
+	// EMSOps 是每一次 EMS 的配置與映射（`docs/spec/014`）。
+	// 「這一頁什麼時候被映到哪」——資料放 EMS 的程式，內容不對的時候
+	// 只能從映射序列回推。
+	EMSOps []EMSOp
+
+	// XMSMoves 是每一次 `AH=0Bh`（move EMB）。字型從 XMS 取的程式，
+	// 「取錯位移」的症狀是**某些字畫不出來**，其餘完全正常。
+	XMSMoves []XMSMove
+
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
@@ -197,20 +218,80 @@ type DOS struct {
 	Exited   bool
 	ExitCode uint8
 
+	// ExecLog 是每一次 EXEC／監督載入的紀錄（`docs/spec/009`）。
+	// **「殼鏈走到哪一跳」唯一的直接答案。**
+	ExecLog []ExecRecord
+
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
 
-	// execStack 是 EXEC 的父程式堆疊（`docs/spec/007` §2）。
-	// curPSP 是目前最內層程式的 PSP；lastExit／lastTerm 是最近一次
-	// 子程式的回傳碼與結束方式（`AH=4Dh`）。
-	execStack []execFrame
-	curPSP    uint16
-	lastExit  uint8
-	lastTerm  uint8
+	// blocks 是 AH=48h 配出去、還沒還回來的區塊（資料段 → 段數）；
+	// holes 是還回來、可以再配的洞。**bump 配置器不夠用**：
+	// DOSJP 先在常規記憶體要 286 KB 讀字型、搬進 XMS、再還回來，
+	// 不回收的話後面的程式就配不到記憶體了（`docs/spec/004` §1.2.2）。
+	blocks map[uint16]uint16
+	holes  []memHole
 
-	// ems 是 EMS 頁池與映射狀態（`docs/spec/008`）。
+	// 行程模型（`docs/spec/008` §2、`docs/spec/009` §2）：
+	// procStack 是被 EXEC 暫停的父行程，curPSP 是目前行程的 PSP，
+	// lastExit 給 AH=4Dh，queue 是監督佇列。
+	procStack []procFrame
+	curPSP    uint16
+	lastExit  uint16
+	queue     []Queued
+
+	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
+	emb     map[uint16][]byte
+	nextEMB uint16
+
+	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
+	// 1 MB 空間裡的 D000h 段。
 	ems *ems
+}
+
+// memHole 是一塊還回來的記憶體（seg 是資料段，MCB 在 seg-1）。
+type memHole struct{ seg, size uint16 }
+
+// AllocOp 是一次記憶體配置或縮放。Fn 是 48h、49h 或 4Ah。
+type AllocOp struct {
+	Step uint64
+	Fn   uint8
+	Want uint16 // 要幾段
+	Seg  uint16 // 48h：配到的段；4Ah：被縮放的區塊
+	OK   bool
+}
+
+// EMSOp 是一次 EMS 操作（`AH=43h` 配置／`44h` 映射／`45h` 釋放）。
+type EMSOp struct {
+	Step    uint64
+	Fn      uint8
+	Handle  uint16
+	Logical uint16 // 44h：邏輯頁（FFFFh ＝ 解除映射）
+	Phys    uint8  // 44h：實體頁 0–3
+	Pages   int    // 43h：配了幾頁
+	Status  uint8  // 回傳的 AH
+}
+
+// XMSMove 是一次 XMS 的 move（`AH=0Bh`）。handle 0 表示常規記憶體，
+// 此時位移欄是 far 指標。
+type XMSMove struct {
+	Step           uint64
+	Len            uint32
+	SrcH, DstH     uint16
+	SrcOff, DstOff uint32
+	// Bits 是搬過去的資料裡有幾個 1。0 表示搬了一片空白。
+	Bits int
+}
+
+// ReadOp 是一次讀檔（`AH=3Fh`）。Seg:Off 是緩衝區。
+type ReadOp struct {
+	Step     uint64
+	Name     string
+	Handle   uint16
+	Seg, Off uint16
+	Want     uint16
+	Got      int
 }
 
 // Write 是一次被擋下來的寫檔。
@@ -280,6 +361,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.blocks = map[uint16]uint16{}
 	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }
@@ -303,6 +385,28 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.Calls[Call{Int: n, AH: uint8(c.R[cpu.AX] >> 8)}]++
 	}
 	switch n {
+	case 0xF2: // int 21h 的 trampoline（`docs/spec/004` §2.1）：TSR chain 進來的
+		d.int21(c)
+		d.fixStackedCF(c)
+	case 0xF3:
+		d.int10(c)
+		d.fixStackedCF(c)
+	case 0xF4:
+		d.int15(c)
+		d.fixStackedCF(c)
+	case 0xF5: // XMS driver entry 的 trampoline（`docs/spec/011`）
+		d.xmsCall(c)
+		d.fixStackedCF(c)
+	case 0xF6: // EMS 的 trampoline（`docs/spec/014`）。**EMS 不用 CF**，
+		// 狀態在 AH，所以不呼叫 fixStackedCF。
+		d.emsCall(c)
+	case 0x2F: // XMS 偵測（AH=43h）
+		d.int2F(c)
+	case 0x08, 0x1C:
+		// 計時器中斷鏈上的空 stub。向量還在 StubSeg ＝ 沒人裝，
+		// 它的語意就是 IRET——**不記一筆**，否則每次 tick 都會
+		// 洗出一筆假的「未實作」（BIOS int 08h stub 每 tick 都
+		// 轉呼 int 1Ch，見 machine.initVectors）。
 	case 0x21:
 		d.int21(c)
 	case 0x10:
@@ -336,19 +440,32 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {
-	// EXEC 深度 > 0 時是子程式結束：回傳碼記下來，控制權還父程式
-	// （`docs/spec/007` §2），不停機。
-	if len(d.execStack) > 0 {
-		d.childExit(c, code)
-		return
-	}
-	d.Exited, d.ExitCode = true, code
-	c.Halted = true
+	// 行程疊非空時是子程式結束：回傳碼記下來、控制權還父程式，不停機
+	// （`docs/spec/007` §2／`docs/spec/009` §2）。
+	d.terminate(c, code, false, 0)
 }
 
 // note 記一筆沒實作的呼叫。
 func (d *DOS) note(intNo, ah, al uint8) {
 	d.Unimplemented[Call{Int: intNo, AH: ah, AL: al}]++
+}
+
+// fixStackedCF 把服務結果的 CF 寫進**堆疊上的旗標框**。
+//
+// ⚠ 走 trampoline（`CD Fx / CF`）進來的時候，服務結束後 CPU 會 IRET——
+// 旗標從堆疊框彈回來，我們對 `c.Flags` 的修改整個被蓋掉。
+// 症狀是「TSR 落腳之後 EXEC 一律回 CF」：殼因此印
+// 「FMDRV.COM : cannot execute.」然後帶著 65h 離開——服務本身做對了，
+// 只有旗標到不了（源平合戰，`docs/spec/004` §2.1）。
+func (d *DOS) fixStackedCF(c *cpu.CPU) {
+	at := cpu.Addr(c.Seg[cpu.SS], c.R[cpu.SP]+4)
+	w := d.M.Read16(at)
+	if c.Flags&cpu.CF != 0 {
+		w |= cpu.CF
+	} else {
+		w &^= cpu.CF
+	}
+	d.M.Write16(at, w)
 }
 
 // UnimplementedReport 把統計排成可讀的清單，次數多的在前面。

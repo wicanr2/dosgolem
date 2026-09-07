@@ -19,13 +19,28 @@ const (
 	MCBSeg = 0x0060
 	LOLSeg = 0x0070
 
-	// StubSeg 放中斷向量的預設目標。每個向量各有一段 stub，
-	// 共佔 256×stubStride bytes（0x800–0xBFF）——見 initVectors。
+	// EMSSeg 是 EMM 的 driver header（`docs/spec/014` §3.1）：
+	// 位移 0 是 trampoline、位移 0Ah 是簽章 `EMMXXXX0`。
+	// **偵測 EMS 的標準做法就是讀 int 67h 向量指的段、比對那 8 個位元組。**
+	//
+	// ⚠ 它在 MCBSeg 之前（0x0500–0x05FF），不是原本的 0x00A0——
+	// 那一格落在 stub 區裡面。
+	EMSSeg = 0x0050
+
+	// StubSeg 放中斷向量的預設目標。
+	//
+	// 位移 0x000–0x3FF：256 個向量各一段 stub（`CD n` ＋ `CF`）。
+	// 位移 0x400–0x4FF：特殊 stub（BIOS 計時器、服務型中斷的 trampoline）。
+	// 合起來佔 0x800–0xCFF——見 initVectors。
 	StubSeg = 0x0080
 
-	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。內容只有二十幾 bytes，
+	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。內容只有幾十 bytes，
 	// 但要留在 stub 區之後、PSP 之前。
-	EnvSeg = 0x00C0
+	EnvSeg = 0x00D0
+
+	// EMSFrameSeg 是 EMS 的 64 KB page frame。D0000–DFFFF 在 1 MB
+	// 空間裡沒有別的用途，程式對它的讀寫就是普通記憶體存取。
+	EMSFrameSeg = 0xD000
 
 	// PSPSeg 是程式的 PSP，LoadSeg 是映像本體（PSP 佔 16 段）。
 	PSPSeg  = 0x0100
@@ -46,11 +61,32 @@ const stubStride = 4
 // StubOff 回向量 n 的 stub 在 StubSeg 內的位移。
 func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 
-// DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
-//
-// 真機是 18.2 Hz（55 ms）。以 DOSBox 預設的 3,000 cycles/ms 換算大約
-// 165,000 道指令，這裡取整。用指令數而不是時間，是為了讓對拍決定性——
-// 同一組輸入永遠得到同一個畫面。
+// 特殊 stub 的位移。**一定要在 per-vector stub 陣列（0x000–0x3FF）之後**
+// ——`cbRetInt` 是 0xFF，它的 stub 就落在 0x3FC。
+const (
+	specialStubBase = 0x400
+
+	// 服務型中斷的 trampoline。**號碼要與被服務的中斷不同**：
+	// 程式裝了自己的 `int 21h` 再 chain 回「舊向量」時，舊向量指的
+	// 就是這段；如果它裡面寫的是 `CD 21`，服務層的向量檢查會看到
+	// 向量已經被換掉而放行，CPU 於是又跳回程式自己的處理常式——
+	// 一個看不出來的無窮迴圈。改成 `CD F2` 就沒有這個問題，
+	// F2 的向量還指著 StubSeg。
+	DosTrapOff   = specialStubBase + 0x00 // int 21h → int F2h
+	VideoTrapOff = specialStubBase + 0x04 // int 10h → int F3h
+	ATrapOff     = specialStubBase + 0x08 // int 15h → int F4h
+	// XMSTrapOff 是 XMS driver entry（`docs/spec/011`）→ int F5h。
+	XMSTrapOff = specialStubBase + 0x0C
+
+	// biosTimerOff 是 `int 08h` 的 BIOS 預設處理：推進 `0040:006C`
+	// 再轉呼 `int 1Ch`（見 initVectors）。
+	//
+	// ⚠ **它有 24 個 byte，不是 4 個。** 排在 trampoline 之後並留一整段，
+	// 否則它會把後面的 trampoline 蓋掉——而症狀是「int 10h 的向量指到
+	// `pop dx / pop ax / pop ds`」，看起來像向量算錯，不像佈局重疊。
+	biosTimerOff = specialStubBase + 0x20
+)
+
 const DefaultIRQ0Every = 165_000
 
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
@@ -71,11 +107,38 @@ type OPLWrite struct {
 	Bank uint8
 }
 
+// VGAWrite 是一次 planar 寫入與當下的顯示卡狀態。
+type VGAWrite struct {
+	Step               uint64
+	CS, IP             uint16
+	Off                uint32
+	Row                int
+	Val                uint8
+	Mode               uint8 // GC[5] 的 write mode（低兩位）
+	MapMask            uint8 // SEQ[2]
+	BitMask            uint8 // GC[8]
+	SetReset, EnableSR uint8 // GC[0]／GC[1]
+	Rotate             uint8 // GC[3]
+	Latch              [4]uint8
+}
+
 type PortWrite struct {
 	Port uint16
 	Val  uint8
 	// Step 是發生在第幾道指令，用來對齊時序。
 	Step uint64
+}
+
+// SegChange 是一次 CS 的改變：far call／jmp／ret、中斷與 iret。
+//
+// **「執行流跑到不該去的地方」用 IP 的 trace 很難看出來**——ring buffer
+// 裝得下的最後幾萬道通常全在飛掉之後的那一段，而飛掉的那一跳早就滾出去了。
+// CS 的改變稀疏得多（一次跑幾百萬道也才幾千筆），整份留著就能回答
+// 「第一次以這個段執行是什麼時候、從哪裡來的」。
+type SegChange struct {
+	Step             uint64
+	FromSeg, FromOff uint16
+	ToSeg, ToOff     uint16
 }
 
 // Machine 是一台機器。用 New 造。
@@ -112,6 +175,25 @@ type Machine struct {
 	// PortsIn 是每個埠被讀了幾次。**輪詢埠的次數會很大**，那是正常的。
 	PortsIn map[uint16]uint64
 
+	// SegLog 是 CS 的改變序列（最後 MaxSegLog 筆，ring），SegFirst 是
+	// 每個段**第一次**被執行的那一筆（不設上限——段的種類就那幾個）。
+	// 只有 TraceSegs 打開才記。
+	//
+	// 兩份都要：首見表回答「這個段是誰第一次跳過去的」，序列回答
+	// 「飛掉之前那幾跳長什麼樣」。長跑時只留 ring 會把首見洗掉，
+	// 只留首見又看不到現場。
+	TraceSegs bool
+	SegLog    []SegChange
+	SegFirst  map[uint16]SegChange
+
+	// WatchDSOn 打開時，DS **變成** WatchDS 的每一次都記進 DSLoads
+	// （最多 MaxSegLog 筆）。段暫存器的錯值沒有記憶體寫入可以監看，
+	// 只能盯它被載入的那一刻。**要能監看 DS＝0**，所以開關是獨立的
+	// bool，不是「值不為 0 就啟用」。
+	WatchDSOn bool
+	WatchDS   uint16
+	DSLoads   []SegChange
+
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
 	// 預設 DefaultIRQ0Every。**這個值影響動畫跑多快，不影響最終停下來的
@@ -127,17 +209,29 @@ type Machine struct {
 	nextIRQ0    uint64
 	irq0Pending bool
 
+	// VGATraceRow0／Row1 圈出要記錄的畫面列，VGATrace 是前 40 筆寫入
+	// 連同當下的 VGA 狀態。**「寫進去了」與「寫進去有用」是兩件事**，
+	// 只看寫入位址分不出來。
+	VGATraceRow0, VGATraceRow1 int
+	// VGATraceCol0／Col1 是位元組欄的範圍（一欄八個像素）。Col1 ＝ 0 表示
+	// 整列都要。**只圈列常常不夠**：一列上面畫的東西可能來自好幾個呼叫，
+	// 而環狀緩衝只留最後四十筆。
+	VGATraceCol0, VGATraceCol1 int
+	VGATrace                   []VGAWrite
+
+	// RowWritesFrom 是開始統計 planar 寫入的指令數（0 ＝ 不統計），
+	// VideoRowWrites 是每一列被寫過幾個位元組。
+	RowWritesFrom  uint64
+	VideoRowWrites [1024]uint64
+
+	// VGA 是平面模式的狀態（`docs/spec/009`／`013`）：四個平面、
+	// 序列器、繪圖控制器、屬性控制器與 latch。planarOn 是
+	// 「目前模式是不是平面」的快取，Read8／Write8 每次都要問。
+	VGA      *VGA
+	planarOn bool
+
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
-
-	// AttrPal 是屬性控制器的 16 色對映（預設 identity）。
-	// 16 色 planar 模式的色彩鏈是「4 位元色號 → AttrPal → DAC」
-	// （`docs/spec/009` §1）。
-	AttrPal [16]uint8
-
-	// Overscan 是邊框色（屬性控制器暫存器 11h）。遊戲會讀回來存檔再還原，
-	// 沒有它的話「讀回 → 還原」那條路會拿到垃圾。
-	Overscan uint8
 
 	dacIndex uint8
 	dacPhase uint8
@@ -158,15 +252,6 @@ type Machine struct {
 	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
 	ModeChanges []ModeChange
 
-	// planar VRAM 狀態（`docs/spec/009`）：四個 plane、sequencer／GC
-	// 暫存器檔、latch。planar 生效與否看 BDA 的目前模式。
-	vram   [4][0x10000]uint8
-	seq    [8]uint8
-	seqIdx uint8
-	gc     [16]uint8
-	gcIdx  uint8
-	latch  [4]uint8
-
 	// 鍵盤：掃描碼佇列與埠 0x60 目前的值。KeyEvery 是送鍵的間隔（指令數）。
 	keyQueue []uint8
 	keyPort  uint8
@@ -185,6 +270,11 @@ type Machine struct {
 	// （`docs/spec/004` §1.2）。
 	FreeSeg uint16
 
+	// ProgramPath 是放進環境區塊的程式全路徑（DOS 形式，如 C:\GAME\X.EXE）。
+	// MSC 的啟動碼會讀它當 argv[0]。空的話用一個中性的預設值——
+	// **不要放某一支程式的路徑**，那是 per-program 的值。
+	ProgramPath string
+
 	// ImageBase／ImageLen 是載進去的映像位置與長度。
 	ImageBase uint32
 	ImageLen  int
@@ -201,18 +291,15 @@ func New() *Machine {
 		IRQ0Every: DefaultIRQ0Every,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
+		VGA: newVGA(),
 	}
 	m.CPU = cpu.New(m)
-	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
+	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
 	// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`；用 8086 的
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
+	// DOSJP.COM 另外需要 80386 的 0x66 子集（`docs/spec/012`）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
-	m.CPU.Model = cpu.Model80186
-	m.seq[2] = 0x0F // map mask：四個 plane 都開（BIOS mode-set 後的常態）
-	m.gc[8] = 0xFF  // 位元遮罩：全開
-	for i := range m.AttrPal {
-		m.AttrPal[i] = uint8(i)
-	}
+	m.CPU.Model = cpu.Model80386
 	m.initBDA()
 	m.initVectors()
 	return m
@@ -222,21 +309,61 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 {
 	a &= 0xFFFFF
-	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
-		return m.planarRead(a - 0xA0000)
+	// 平面模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
+	// ⚠ **讀它有副作用**：四個 latch 會被載入。
+	if m.planarOn && a >= vgaLo && a < vgaHi {
+		return m.VGA.Read(a - vgaLo)
 	}
 	return m.Mem[a]
 }
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
+	if m.planarOn && a >= vgaLo && a < vgaHi {
+		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
+		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，
+		// 除了看結果還得看它到底有沒有寫進去。
+		stride := m.planarStride()
+		if m.RowWritesFrom > 0 && m.Steps >= m.RowWritesFrom {
+			if r := int(a-vgaLo) / stride; r < len(m.VideoRowWrites) {
+				m.VideoRowWrites[r]++
+			}
+		}
+		// 用過哪些 write mode、誰在寫視訊記憶體——**畫面上看得到的東西，
+		// 一定有人把它寫進 plane**，這是沒有原始碼時找繪圖常式最短的路。
+		m.WriteModeUse[m.VGA.WriteMode()]++
+		if m.VRAMSites != nil && (m.VRAMAt < 0 || uint32(m.VRAMAt) == a-vgaLo) {
+			cs, ip := m.CPU.OpAddr()
+			m.VRAMSites[uint32(cs)<<16|uint32(ip)]++
+		}
+		// **留最後 40 筆，不是前 40 筆**：要知道畫面上最後是誰寫的，
+		// 前面那幾筆通常是被蓋掉的那一批。
+		if m.VGATraceRow1 > m.VGATraceRow0 && m.Steps >= m.RowWritesFrom {
+			off := int(a - vgaLo)
+			r, c := off/stride, off%stride
+			inCol := m.VGATraceCol1 == 0 || (c >= m.VGATraceCol0 && c < m.VGATraceCol1)
+			if r >= m.VGATraceRow0 && r < m.VGATraceRow1 && inCol {
+				m.VGATrace = append(m.VGATrace, m.vgaSnap(a-vgaLo, v, r))
+				if len(m.VGATrace) > 40 {
+					m.VGATrace = m.VGATrace[1:]
+				}
+			}
+		}
+		m.VGA.Write(a-vgaLo, v)
+		return
+	}
 	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
 		m.onWrite(a, m.Mem[a], v)
 	}
 	m.Mem[a] = v
-	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
-		m.planarWrite(a-0xA0000, v)
+}
+
+// planarStride 是平面模式每一列的位元組數（寬 ÷ 8）。
+func (m *Machine) planarStride() int {
+	if w, _ := planarSize(m.VideoMode()); w > 0 {
+		return w / 8
 	}
+	return 80
 }
 
 // WatchWrites 監看一段線性位址的寫入。
@@ -279,10 +406,10 @@ func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
 // OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
 const (
-	oplT1Start = 0x01 // 啟動計時器 1
-	oplT2Start = 0x02 // 啟動計時器 2
-	oplT2Mask  = 0x20 // 遮罩計時器 2 的狀態位元
-	oplT1Mask  = 0x40 // 遮罩計時器 1 的狀態位元
+	oplT1Start  = 0x01 // 啟動計時器 1
+	oplT2Start  = 0x02 // 啟動計時器 2
+	oplT2Mask   = 0x20 // 遮罩計時器 2 的狀態位元
+	oplT1Mask   = 0x40 // 遮罩計時器 1 的狀態位元
 	oplIRQReset = 0x80 // 重置 IRQ 與兩個逾時旗標（**此時其他位元一律忽略**）
 )
 
@@ -352,8 +479,15 @@ func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
+	if v, ok := m.VGA.In(port); ok {
+		return v
+	}
 	switch {
 	case port == 0x3DA:
+		// ⚠ **讀 3DA 會重設屬性控制器的索引／資料 flip-flop。**
+		// 程式就是用它來確保「下一次寫 3C0 是索引」；不做的話我們的
+		// 相位會與程式相反，整份調色盤錯位。
+		m.VGA.ResetACFlip()
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
 		if (m.portTicks>>4)&1 != 0 {
@@ -395,15 +529,6 @@ func (m *Machine) In8(port uint16) uint8 {
 		return m.keyPort
 	case port == 0x61:
 		return 0x00
-	// sequencer／GC 讀回（spec 009）：有程式會讀回索引或資料確認。
-	case port == 0x3C4:
-		return m.seqIdx
-	case port == 0x3C5:
-		return m.seq[m.seqIdx]
-	case port == 0x3CE:
-		return m.gcIdx
-	case port == 0x3CF:
-		return m.gc[m.gcIdx]
 	}
 	return 0xFF
 }
@@ -427,6 +552,9 @@ func (m *Machine) Out8(p uint16, v uint8) {
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
+	// 序列器、繪圖控制器與屬性控制器（`docs/spec/013` §3.2）。
+	m.VGA.Out(p, v)
+
 	switch p {
 	case 0x3C8: // 設寫入索引
 		m.dacIndex, m.dacPhase = v, 0
@@ -439,17 +567,6 @@ func (m *Machine) Out8(p uint16, v uint8) {
 		}
 	}
 
-	// sequencer／GC 索引對（`docs/spec/009` §1）。
-	switch p {
-	case 0x3C4:
-		m.seqIdx = v & 7
-	case 0x3C5:
-		m.seq[m.seqIdx] = v
-	case 0x3CE:
-		m.gcIdx = v & 0x0F
-	case 0x3CF:
-		m.gc[m.gcIdx] = v
-	}
 }
 
 // Palette 把 DAC 的 6 位元色值轉成 8 位元 RGB。
@@ -482,22 +599,62 @@ func (m *Machine) WriteBytes(a uint32, b []byte) {
 	}
 }
 
-// Indexed 回傳 mode 13h 畫面的 320×200 色號陣列。
+// Indexed 回傳畫面的色號陣列：mode 13h 是 320×200，planar 模式
+// （`docs/spec/013`）是 VideoSize() 那個尺寸的 0–15 色號。
 //
 // **回的是色號不是 RGB**——對拍在色號空間做（`docs/spec/005` §3）。
 // 回傳的是複本，呼叫端改它不會動到機器。
 func (m *Machine) Indexed() []uint8 {
+	if m.planarOn {
+		return m.planarIndexed()
+	}
 	out := make([]uint8, VideoWidth*VideoHigh)
 	copy(out, m.Mem[VideoSeg*16:VideoSeg*16+len(out)])
 	return out
 }
 
 // Step 執行一道指令，必要時先送 IRQ0。
+// MaxSegLog 是 SegLog（ring）保留的筆數。
+const MaxSegLog = 100_000
+
 func (m *Machine) Step() error {
 	m.tick()
 	m.keyTick()
 	m.Steps++
-	return m.CPU.Step()
+	if !m.TraceSegs && !m.WatchDSOn {
+		return m.CPU.Step()
+	}
+	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
+	prevDS := m.CPU.Seg[cpu.DS]
+	err := m.CPU.Step()
+
+	if m.WatchDSOn && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
+		len(m.DSLoads) < MaxSegLog {
+		m.DSLoads = append(m.DSLoads, SegChange{
+			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,
+			ToSeg: m.CPU.Seg[cpu.DS], ToOff: m.CPU.R[cpu.BX],
+		})
+	}
+	if !m.TraceSegs {
+		return err
+	}
+	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg {
+		ch := SegChange{
+			Step: m.Steps, FromSeg: fromSeg, FromOff: fromOff,
+			ToSeg: cs, ToOff: m.CPU.IP,
+		}
+		if m.SegFirst == nil {
+			m.SegFirst = map[uint16]SegChange{}
+		}
+		if _, seen := m.SegFirst[cs]; !seen {
+			m.SegFirst[cs] = ch
+		}
+		m.SegLog = append(m.SegLog, ch)
+		if len(m.SegLog) > 2*MaxSegLog { // 砍掉前半，留最近的 MaxSegLog 筆
+			m.SegLog = append(m.SegLog[:0], m.SegLog[MaxSegLog:]...)
+		}
+	}
+	return err
 }
 
 // QueueScan 把掃描碼排進鍵盤佇列。按下與放開是**兩個**碼
@@ -544,6 +701,17 @@ func (m *Machine) keyTick() {
 // **這是指令數模型，不是時間模型。** 拿執行過的指令數當時鐘，
 // 好處是對拍完全決定性（同樣的輸入永遠得到同樣的畫面）；
 // 代價是動畫速度與真機不同。週期精確的時序在 M2（`docs/spec/004` §5）。
+//
+// 送法永遠是走向量表（向量 8 預設指向 StubSeg 的 BIOS stub，見
+// initVectors）：**BIOS 的預設動作（推進 0040:006C、轉呼 int 1Ch）
+// 本身就是向量指向的那段 stub 程式碼**。程式裝了自己的 int 08h 時
+// 存起來的「舊向量」就是這個 stub，它 chain 回去 BIOS 行為就還在——
+// 不 chain 的話 1Ch 與 BDA 計數停下來，那與真機一致。
+//
+// 舊版反過來做（程式裝了 08h 就不做 BIOS 的事），結果是：FMDRV.COM
+// 掛了 int 08h 之後 OPEN.EXE 掛在 int 1Ch 的動畫計數永遠不動，
+// 開場停在 GRPDRV 的重畫迴圈裡（`docs/spec/008` §4、
+// yuan/workplace/boot-20260906-02）。
 func (m *Machine) tick() {
 	if m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0 {
 		m.nextIRQ0 = m.Steps + m.IRQ0Every
@@ -556,32 +724,7 @@ func (m *Machine) tick() {
 	}
 	m.irq0Pending = false
 	m.Ticks++
-	m.bumpBDATicks()
-
-	// 程式自己裝了 `int 08h` 就跑它的。
-	if m.Read16(0x08*4+2) != StubSeg {
-		m.CPU.Interrupt(0x08)
-		return
-	}
-	// 否則做 BIOS 預設的事：更新計數之後轉呼 `int 1Ch`（那是給應用程式的
-	// 掛鉤點，只裝 `1Ch` 不裝 `08h` 的程式很多）。
-	if m.Read16(0x1C*4+2) != StubSeg {
-		m.CPU.Interrupt(0x1C)
-	}
-}
-
-// bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
-// 有些程式直接讀它算時間，不裝任何 ISR。
-func (m *Machine) bumpBDATicks() {
-	const at = 0x0040*16 + 0x6C
-	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
-	v++
-	if v >= 0x001800B0 { // 一天的 tick 數
-		v = 0
-		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
-	}
-	m.Write16(at, uint16(v))
-	m.Write16(at+2, uint16(v>>16))
+	m.CPU.Interrupt(0x08)
 }
 
 // ---- 中斷向量表 ----------------------------------------------------------
@@ -603,6 +746,22 @@ func (m *Machine) bumpBDATicks() {
 //     落在 `iret` 上就是**安靜地什麼都不做**：暫存器原樣回去，沒有錯誤、
 //     沒有 unimplemented 記錄，只有畫面或資料悄悄不對
 //     （`~/cht/logh3/docs/re/06`：整份調色盤因此永遠是黑的）。
+//
+// 三個向量另外指到特殊 stub（`docs/spec/004` §2.1、`docs/spec/011` §2）：
+//
+//   - `int 21h`／`int 10h`／`int 15h` 指到 `CD F2`／`CD F3`／`CD F4`。
+//     **號碼要跟被服務的中斷不同**，理由見 DosTrapOff 的說明：TSR 掛了
+//     自己的 int 21h 再 chain 回舊向量時，`CD 21` 會繞回它自己。
+//   - `int 08h` 指到一段真的 BIOS 預設處理（推進 `0040:006C` 再轉呼
+//     `int 1Ch`）。程式裝自己的 int 08h 時存下的「舊向量」就是它，
+//     chain 回來 BIOS 行為就在（見 tick 的註解）。跨日重置（`0040:0070`）
+//     不做——24 小時才會到，對拍跑不到。
+//   - `int 67h` 指到 EMSSeg 的 EMM 驅動 header，那裡有 `EMMXXXX0` 簽章。
+//
+// ⚠ **其餘被服務層接手的中斷（16h／33h／13h／1Ah…）用的還是
+// `CD n` 形式的 per-vector stub。** 那些中斷上還沒觀測到「掛勾再 chain
+// 回舊向量」的程式；真的遇到就要照上面那條給它一個 trampoline 號碼。
+// **這是假說待驗，不是量到的結論。**
 func (m *Machine) initVectors() {
 	for v := 0; v < 256; v++ {
 		off := uint32(StubSeg)*16 + uint32(v)*stubStride
@@ -612,6 +771,55 @@ func (m *Machine) initVectors() {
 		m.Write16(uint32(v)*4, StubOff(uint8(v)))
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
+
+	// 服務型中斷的 trampoline。
+	m.WriteBytes(StubSeg*16+DosTrapOff, []byte{0xCD, 0xF2, 0xCF})
+	m.WriteBytes(StubSeg*16+VideoTrapOff, []byte{0xCD, 0xF3, 0xCF})
+	m.WriteBytes(StubSeg*16+ATrapOff, []byte{0xCD, 0xF4, 0xCF})
+	// ⚠ **XMS 的 entry 是 far call，不是中斷**——結尾要 `RETF`（0CBh），
+	// 不是 `IRET`。用 IRET 的話每呼叫一次就多彈兩個位元組（呼叫端只推了
+	// CS:IP，IRET 卻連 FLAGS 一起彈），堆疊一路歪掉，最後在某個 `RETF`／
+	// `IRET` 跳進垃圾——而中間所有服務都「成功」。
+	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCB})
+
+	// BIOS int 08h stub。⚠ **暫存器要保存，而且要在 `int 1Ch` 之後才還原。**
+	//
+	// IBM PC BIOS 的 TIMER_INT 順序是
+	// `push ds/ax/dx` → `DS=40h` → 推進計數 → `int 1Ch` → `pop dx/ax/ds` →
+	// `iret`。**還原在 `int 1Ch` 之後，所以 1Ch 的處理常式弄髒 DS 也沒關係**——
+	// BIOS 幫被中斷的程式把它救回來。
+	//
+	// 源平合戰的 int 1Ch 常式就是這個形狀：`cli / pusha / mov ds,2A1E …
+	// popa / sti / jmp far 舊向量`。`pusha` 不含 DS，所以它離開時 DS 是
+	// 自己的段。舊版 stub 在 `int 1Ch` **之前**就把暫存器還原掉，於是那個
+	// DS 一路漏回被中斷的位元碼直譯器：直譯器接著用錯的段抓位元碼，
+	// 跑了四百道之後查表查到範圍外，`DS` 變成 0，程式走進低位記憶體結束。
+	// 症狀離成因十九萬道指令遠，而且畫面停在正常的對話框上。
+	//
+	//	push ds / push ax / push dx / mov ax,40h / mov ds,ax /
+	//	inc word [6Ch] / jnz +4 / inc word [6Eh] /
+	//	int 1Ch / pop dx / pop ax / pop ds / iret
+	m.WriteBytes(StubSeg*16+biosTimerOff, []byte{
+		0x1E, 0x50, 0x52,
+		0xB8, 0x40, 0x00, 0x8E, 0xD8,
+		0xFF, 0x06, 0x6C, 0x00,
+		0x75, 0x04,
+		0xFF, 0x06, 0x6E, 0x00,
+		0xCD, 0x1C,
+		0x5A, 0x58, 0x1F,
+		0xCF,
+	})
+
+	m.Write16(0x21*4, DosTrapOff)
+	m.Write16(0x10*4, VideoTrapOff)
+	m.Write16(0x15*4, ATrapOff)
+	m.Write16(0x08*4, biosTimerOff)
+
+	// EMM 的 driver header ＋ int 67h 向量（`docs/spec/014` §3.1）。
+	m.WriteBytes(EMSSeg*16, []byte{0xCD, 0xF6, 0xCF})
+	m.WriteBytes(EMSSeg*16+0x0A, []byte("EMMXXXX0"))
+	m.Write16(0x67*4, 0)
+	m.Write16(0x67*4+2, EMSSeg)
 }
 
 // SetNextKey 設定第一個掃描碼要在第幾道指令送出。
@@ -623,5 +831,5 @@ func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }
 // set/reset 與 latch 會先改一次。查「為什麼寫 09 出來是 C3」的時候，
 // 光看寫入指令沒有用，要看那一刻硬體的狀態。
 func (m *Machine) VGAState() (gc [16]uint8, seq [8]uint8, latch [4]uint8) {
-	return m.gc, m.seq, m.latch
+	return m.VGA.Regs()
 }

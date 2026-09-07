@@ -113,4 +113,3 @@ func ForceDirection(o *oracle.Oracle) *DirOverride {
 	})
 	return d
 }
-

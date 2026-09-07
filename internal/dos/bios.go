@@ -81,26 +81,26 @@ func (d *DOS) int10(c *cpu.CPU) {
 		switch al(c) {
 		case 0x00: // 設單一屬性暫存器：BL ＝ 索引、BH ＝ 值
 			if bl(c) < 16 {
-				d.M.AttrPal[bl(c)] = bh(c) & 0x3F
+				d.M.VGA.SetPal(int(bl(c)), bh(c)&0x3F)
 			}
 		case 0x01: // 設 overscan：BH ＝ 值
-			d.M.Overscan = bh(c) & 0x3F
+			d.M.VGA.SetOverscan(bh(c) & 0x3F)
 		case 0x02: // 設整份屬性調色盤：ES:DX → 16 個暫存器 ＋ overscan
 			for i := 0; i < 16; i++ {
-				d.M.AttrPal[i] = d.M.Read8(addr+uint32(i)) & 0x3F
+				d.M.VGA.SetPal(i, d.M.Read8(addr+uint32(i))&0x3F)
 			}
-			d.M.Overscan = d.M.Read8(addr+16) & 0x3F
+			d.M.VGA.SetOverscan(d.M.Read8(addr+16) & 0x3F)
 		case 0x07: // 讀單一屬性暫存器：BL ＝ 索引 → BH
 			if bl(c) < 16 {
-				setBH(c, d.M.AttrPal[bl(c)])
+				setBH(c, d.M.VGA.Pal(int(bl(c))))
 			}
 		case 0x08: // 讀 overscan → BH
-			setBH(c, d.M.Overscan)
+			setBH(c, d.M.VGA.Overscan())
 		case 0x09: // 讀整份屬性調色盤 → ES:DX 的 16 ＋ 1 bytes
 			for i := 0; i < 16; i++ {
-				d.M.Write8(addr+uint32(i), d.M.AttrPal[i])
+				d.M.Write8(addr+uint32(i), d.M.VGA.Pal(i))
 			}
-			d.M.Write8(addr+16, d.M.Overscan)
+			d.M.Write8(addr+16, d.M.VGA.Overscan())
 		case 0x10: // 設**單一 DAC**：BX ＝ 索引、DH ＝ R、CH ＝ G、CL ＝ B
 			i := int(c.R[cpu.BX]) & 0xFF
 			d.M.DAC[i*3+0] = uint8(c.R[cpu.DX]>>8) & 0x3F
@@ -138,18 +138,32 @@ func (d *DOS) int10(c *cpu.CPU) {
 // **防拷畫面只吃滑鼠**：`rich2/docs/playtest/001` §3 記著鍵盤全都無效。
 // 沒有這支的話遊戲偵測不到滑鼠，整個密碼畫面就沒有任何可用輸入——
 // 而且不會有錯誤訊息，看起來就只是「卡住」。
+// mouseXScale 是水平虛擬座標的倍率。
+//
+// int 33h 的虛擬螢幕**永遠是 640 格寬**，不管實際模式幾像素寬：
+// 320 寬的模式（13h）回報值是像素的兩倍（所以 X 永遠是偶數），
+// 640 寬的模式（12h）一比一。寫死 2 的話，640 寬的畫面上點右半邊會
+// 回報成超出畫面的座標，遊戲**判定不在任何按鈕上而安靜地什麼都不做**。
+func (d *DOS) mouseXScale() uint16 {
+	// 呼叫端明講的倍率優先——XScale 存在的理由就是「我知道這一支
+	// 用的是別的座標系」。0 才依模式自動決定。
+	if d.Mouse.XScale != 0 {
+		return d.Mouse.XScale
+	}
+	if w := d.M.PixelWidth(); w > 0 {
+		return uint16(640 / w)
+	}
+	return 2
+}
+
 func (d *DOS) int33(c *cpu.CPU) {
 	m := &d.Mouse
+	xs := d.mouseXScale()
 	// **先把功能號存起來**：下面好幾個分支會覆寫 AX，之後再拿 AX 判斷
 	// 就是在讀自己剛寫進去的值。（同一個形狀在 CPU 的 `PUSH SP` 上踩過。）
 	fn := c.R[cpu.AX]
 	if m.Calls != nil {
 		m.Calls[fn]++
-	}
-	// 虛擬座標倍率：沒指定就依目前的視訊模式決定。
-	scale := m.XScale
-	if scale == 0 {
-		scale = uint16(640 / d.M.PixelWidth())
 	}
 	switch fn {
 	case 0x0000: // 重設並偵測
@@ -167,12 +181,12 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Polls = append(m.Polls, Poll{X: m.X, Y: m.Y, Buttons: m.Buttons,
 			Step: d.M.Steps})
 		c.R[cpu.BX] = m.Buttons
-		c.R[cpu.CX] = m.X * scale
+		c.R[cpu.CX] = m.X * xs
 		c.R[cpu.DX] = m.Y
 
 	case 0x0004: // 設位置
-		if scale > 0 {
-			m.X = c.R[cpu.CX] / scale
+		if xs > 0 {
+			m.X = c.R[cpu.CX] / xs
 		}
 		m.Y = c.R[cpu.DX]
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
@@ -196,7 +210,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 				Count: c.R[cpu.BX], X: m.X, Y: m.Y, Step: d.M.Steps,
 				CS: c.Seg[cpu.CS], IP: c.IP})
 		}
-		c.R[cpu.CX] = m.X * scale
+		c.R[cpu.CX] = m.X * xs
 		c.R[cpu.DX] = m.Y
 
 	case 0x0007, 0x0008: // 設水平／垂直範圍
@@ -238,6 +252,8 @@ func (d *DOS) int16(c *cpu.CPU) {
 		c.SetFlags(c.Flags &^ cpu.ZF)
 		c.R[cpu.AX] = keyWord(d.Stdin[0]) // 查看不取走
 	case 0x02, 0x12: // 取旗標狀態
+		setAL(c, 0)
+	case 0x13: // DOS/V 的鍵盤擴充狀態：收下，回「沒有特殊狀態」
 		setAL(c, 0)
 	default:
 		d.note(0x16, ah(c), al(c))
@@ -298,7 +314,7 @@ func (d *DOS) int13(c *cpu.CPU) {
 // 讀到的值一直不動就永遠等下去（`SANGOKU`／`MAIN.EXE` 開場實測，
 // 沒接之前一路輪詢 13,750 次還在原地）。
 //
-// tick 本身已經在 BDA 的 `0040:006C`（`machine.bumpBDATicks`），
+// tick 本身已經在 BDA 的 `0040:006C`（BIOS int 08h stub 推進，見 `machine.initVectors`），
 // 這裡只是把它照 BIOS 的介面交出去。
 func (d *DOS) int1A(c *cpu.CPU) {
 	switch ah(c) {
@@ -320,4 +336,15 @@ func (d *DOS) int1A(c *cpu.CPU) {
 		d.note(0x1A, ah(c), al(c))
 		clearCarry(c)
 	}
+}
+
+// int15 是 AT 系統服務。目前沒有任何量測到的需求（源平合戰的 OPEN.EXE
+// 叫的 `AX=5000h` 是 DOS/V 的服務，真機上由 DOSJP 的 int 15h handler
+// 提供，不是 BIOS）——所以這裡只記一筆，什麼都不做。
+//
+// 它的存在理由是 trampoline（`docs/spec/004` §2.1）：DOSJP 掛走
+// int 15h 之後 chain 回舊向量要到得了這裡。
+func (d *DOS) int15(c *cpu.CPU) {
+	d.note(0x15, ah(c), al(c))
+	clearCarry(c)
 }

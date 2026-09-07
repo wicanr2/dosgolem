@@ -236,3 +236,83 @@ func TestPITCountsDown(t *testing.T) {
 		t.Errorf("讀 8 次 PIT 只看到 %d 種值——延遲迴圈會卡住", len(seen))
 	}
 }
+
+// TestPortLogKeepsSequence 釘住埠寫入的完整序列。
+//
+// VGA 的 plane 選擇（3C4/3C5）是「先寫索引再寫值」的兩步，只留最後
+// 一次的值看不出選過哪些 plane——序列本身才是證據。
+func TestPortLogKeepsSequence(t *testing.T) {
+	m := New()
+	for _, w := range []struct {
+		p uint16
+		v uint8
+	}{{0x3C4, 0x02}, {0x3C5, 0x01}, {0x3C4, 0x02}, {0x3C5, 0x08}} {
+		m.Out8(w.p, w.v)
+	}
+	if n := len(m.PortLog); n != 4 {
+		t.Fatalf("PortLog 有 %d 筆，要 4 筆", n)
+	}
+	if m.PortLog[1].Val != 0x01 || m.PortLog[3].Val != 0x08 {
+		t.Errorf("序列被覆蓋了：%+v", m.PortLog)
+	}
+	if m.Ports[0x3C5] != 0x08 {
+		t.Errorf("Ports 該留最後一次的值，拿到 %02X", m.Ports[0x3C5])
+	}
+}
+
+// TestTimerStubRestoresDSAfterInt1C 釘住 BIOS 計時器 stub 的還原順序。
+//
+// IBM PC BIOS 的 TIMER_INT 是 `push ds/ax/dx` → `DS=40h` → 推進計數 →
+// **`int 1Ch`** → `pop dx/ax/ds` → `iret`。還原在 `int 1Ch` **之後**，
+// 所以 1Ch 的處理常式把 DS 弄髒也不會影響被中斷的程式。
+//
+// 這一格錯了不會有任何錯誤訊息：DS 漏回去之後，被中斷的程式接著用錯的
+// 段讀資料，看起來還是在正常執行。源平合戰的 int 1Ch 是
+// `cli / pusha / mov ds,自己的段 … popa / sti / jmp far 舊向量`——
+// `pusha` 不含 DS，所以它一定會留下自己的 DS，靠 BIOS 救。
+// 舊版 stub 在 `int 1Ch` 之前就 pop 完，遊戲的位元碼直譯器因此換了段抓
+// 位元碼，四百道之後查表出界，十九萬道之後才死在低位記憶體。
+func TestTimerStubRestoresDSAfterInt1C(t *testing.T) {
+	m := New()
+
+	// 掛一個「弄髒 DS 就走」的 int 1Ch，形狀照遊戲那支：
+	//	mov ax,1234h / mov ds,ax / iret
+	const dirty = 0x1234
+	// ⚠ **不要把測試用的碼放進 StubSeg**：那一段是向量 stub 與 BIOS
+	// 計時器常式的家，寫進去會把它們蓋掉，而症狀是「BIOS 沒做該做的事」。
+	const scratch = 0x2000
+	handler := uint16(0x0300)
+	m.WriteBytes(cpu.Addr(scratch, handler), []byte{
+		0xB8, byte(dirty & 0xFF), byte(dirty >> 8), 0x8E, 0xD8, 0xCF,
+	})
+	m.Write16(0x1C*4, handler)
+	m.Write16(0x1C*4+2, scratch)
+
+	// 被中斷的程式：DS 是別的段，跑一道 nop 就好。
+	const userDS = 0x5678
+	code := uint16(0x0400)
+	m.WriteBytes(cpu.Addr(scratch, code), []byte{0x90, 0x90, 0xF4}) // nop nop hlt
+	m.CPU.Seg[cpu.CS] = scratch
+	m.CPU.IP = code
+	m.CPU.Seg[cpu.DS] = userDS
+	m.CPU.Seg[cpu.SS] = scratch
+	m.CPU.R[cpu.SP] = 0x0200
+	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+
+	// 直接送一次計時器中斷，然後把 stub ＋ 1Ch ＋ 回來的路跑完。
+	m.CPU.Interrupt(0x08)
+	for i := 0; i < 200 && !m.CPU.Halted; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatalf("第 %d 道出錯：%v", i, err)
+		}
+	}
+
+	if got := m.CPU.Seg[cpu.DS]; got != userDS {
+		t.Errorf("中斷回來後 DS ＝ %04X，要 %04X——int 1Ch 弄髒的 DS 漏回被中斷的程式了",
+			got, userDS)
+	}
+	// BIOS 的 tick 計數還是要有推進。
+	if tick := m.Read16(0x40*16 + 0x6C); tick == 0 {
+		t.Error("0040:006C 沒有推進——stub 沒做 BIOS 該做的事")
+	}
+}

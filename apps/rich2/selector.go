@@ -437,14 +437,14 @@ const IDATopBarMenu = 0x1F50A
 
 // TopBarMenu 是一次頂端下拉的觀測。
 type TopBarMenu struct {
-	Step             uint64
-	Rows             int // 列數（1312h[按鈕]）
-	Text             int // 文字起始（1340h[按鈕]）
-	X0, X1           int // 命中的左右界
-	Y                int // 上緣
-	Pitch            int // 列高，實測 18
-	Chosen           int // 回傳之後才有
-	Done             bool
+	Step   uint64
+	Rows   int // 列數（1312h[按鈕]）
+	Text   int // 文字起始（1340h[按鈕]）
+	X0, X1 int // 命中的左右界
+	Y      int // 上緣
+	Pitch  int // 列高，實測 18
+	Chosen int // 回傳之後才有
+	Done   bool
 }
 
 // TopBarLog 收集整場的下拉。

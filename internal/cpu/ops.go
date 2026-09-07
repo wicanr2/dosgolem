@@ -13,6 +13,7 @@ func (c *CPU) Step() error {
 	c.segOverride = noSegOverride
 	c.repPrefix = 0
 	c.lock = false
+	c.operand32 = false
 	c.opCS, c.opIP = c.Seg[CS], c.IP
 
 	for {
@@ -30,6 +31,14 @@ func (c *CPU) Step() error {
 		case 0x3E:
 			c.segOverride = DS
 			continue
+		case 0x66:
+			// operand-size 前綴只在 80386 存在（`docs/spec/012`）。
+			// 80186 及以下落進 execute：8086 把它當 76h 的別名
+			// （語料行為），80186 報「未實作」。
+			if c.Model >= Model80386 {
+				c.operand32 = true
+				continue
+			}
 		case 0xF0, 0xF1: // LOCK（F1 在 8086 是它的別名）
 			c.lock = true
 			continue
@@ -43,6 +52,9 @@ func (c *CPU) Step() error {
 
 //gocyclo:ignore
 func (c *CPU) execute(op uint8) error {
+	if c.operand32 {
+		return c.execute32(op)
+	}
 	switch {
 	// ---- 00–3F：八個 ALU 運算，每個六種定址 ----------------------------
 	case op < 0x40 && op&7 < 6 && op != 0x0F && op != 0x27 && op != 0x2F &&
@@ -655,18 +667,25 @@ func (c *CPU) group45(op uint8) error {
 
 // pushOperand 推一個 r/m16 運算元。
 //
-// ⚠ **運算元是 `SP` 時要先減再讀**：8086 的 `PUSH SP` 推的是**已經減 2
-// 之後**的值，286 以上推的才是舊值（`docs/spec/002` §4 第 1 點）。
+// ⚠ **運算元是 `SP` 時，8086 與 186 以上的結果差 2**：8086 推的是
+// **已經減 2 之後**的值，186 以上推的是舊值（`docs/spec/002` §4 第 1 點）。
+// 所以這裡要看 `Model`——只有 `Model8086` 走先減再讀那一條。
 //
-// 不能寫成 `c.push(c.get16(o))`——Go 會**先算好引數**再呼叫，
+// 8086 那一條不能寫成 `c.push(c.get16(o))`——Go 會**先算好引數**再呼叫，
 // 於是推進去的是舊 SP，剛好變成 286 的行為。這個錯編譯得過、vet 過，
 // 其他七個暫存器全對，只有 `PUSH SP` 一道指令差 2。
 //
 // **同一個坑有兩條路徑**：`50`–`57`（`PUSH r16`）與 `FF /6`（`PUSH r/m16`）。
 // 修好第一條之後 `FF.6`／`FF.7` 還是紅的——所以這裡收成一支，
 // 不讓第三條路徑再踩一次。
+//
+// 為什麼機型判斷不能省：編譯器用 `sub sp, n` ＋ `push sp` 在堆疊上開暫時
+// 物件，再拿推上去的那個值當它的位址。差 2 的指標會讓那個物件整個錯開
+// 一個 word——**寫進去的第一個欄位還在，第二個欄位讀到的是舊資料**，
+// 而且不會當掉，只會算出看起來合理的錯數字（源平合戰的環境設定畫面就是
+// 這樣把 `Point` 的 y 讀成堆疊殘值；`yuan/docs/re/011`）。
 func (c *CPU) pushOperand(o operand) {
-	if o.isReg && o.reg == SP {
+	if o.isReg && o.reg == SP && c.Model == Model8086 {
 		c.R[SP] -= 2
 		c.write16(c.Seg[SS], c.R[SP], c.R[SP])
 		return
@@ -689,4 +708,11 @@ func (c *CPU) doInt(n uint8) {
 //
 // **8086 推的返回位址指向下一道指令**，不是指令本身（`docs/spec/002` §4 第 3 點）
 // ——此時 IP 已經走完整道指令，所以直接走 Interrupt 就是對的。
-func (c *CPU) divideError() { c.Interrupt(0) }
+func (c *CPU) divideError() {
+	// 除以零幾乎一定是「餵進來的資料不對」，而 C runtime 只會印一句
+	// `R6003` 就走人——**現場的 CS:IP 不記下來就永遠找不回來**。
+	if len(c.DivErrors) < 32 {
+		c.DivErrors = append(c.DivErrors, DivError{CS: c.Seg[CS], IP: c.IP})
+	}
+	c.Interrupt(0)
+}
