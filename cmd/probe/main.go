@@ -79,7 +79,7 @@ func main() {
 			"不要為了看中途的畫面重跑")
 	clickPremove := flag.Int("click-premove", 0,
 		"每一次腳本點擊先把游標移過去、等遊戲讀了幾次滑鼠才按下去（0 ＝ 移到就按）。"+
-			"有些對話框的鈕吃「游標已經在上面」這個狀態（`docs/spec/004` §4.19）")
+			"有些對話框的鈕吃「游標已經在上面」這個狀態（`docs/spec/004` §4.20）")
 	clickScript := flag.String("clicks", "",
 		"點擊腳本：`步數:X:Y[:鍵]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。"+
 			"按住時間用 -click-hold")
@@ -99,6 +99,10 @@ func main() {
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
+	dumpEMS := flag.String("dump-ems", "",
+		"跑完把每一個 EMS handle 的每一頁寫成 `<目錄>/ems-<handle>-<頁>.bin`，"+
+			"並印出頁數與 page frame 現在映著誰。page frame 只看得到此刻那四頁，"+
+			"要在整份 EMS 裡找東西得用這個")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
@@ -473,6 +477,13 @@ func main() {
 		}
 	}
 	writeMemDump(m, *dumpMem)
+	if *dumpEMS != "" {
+		if err := d.DumpEMS(*dumpEMS); err != nil {
+			fmt.Println("dump-ems:", err)
+		} else {
+			fmt.Printf("\nEMS 版面：\n%s", d.EMSLayout())
+		}
+	}
 	if *dumpScreen != "" {
 		w, h := m.VideoSize()
 		if err := os.WriteFile(*dumpScreen, m.Indexed(), 0o644); err != nil {

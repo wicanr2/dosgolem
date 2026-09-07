@@ -1,6 +1,12 @@
 package dos
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
@@ -219,4 +225,60 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		d.note(0x67, ah(c), al(c))
 		setAH(c, 0x84) // 沒有這個功能
 	}
+}
+
+// DumpEMS 把每一個 EMS handle 的每一頁寫成 `<dir>/ems-<handle>-<頁>.bin`。
+//
+// 給對拍用：原版把資料整份載進 EMS，同一個位址在不同時刻是不同的檔，
+// **只看 page frame 只看得到「此刻映著的那四頁」**。要在整份 EMS 裡找一
+// 張圖，得先把每一頁都攤出來。
+//
+// 寫檔之前先 `emsFlush` 四個實體頁，否則遊戲剛寫進 frame、還沒換頁的
+// 那一份會漏掉——而且不會有任何跡象，只是搜不到。
+func (d *DOS) DumpEMS(dir string) error {
+	e := d.emsState()
+	for p := range e.frame {
+		d.emsFlush(p)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	ids := make([]int, 0, len(e.handles))
+	for id := range e.handles {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		h := e.handles[uint16(id)]
+		for i, pg := range h.pages {
+			name := filepath.Join(dir, fmt.Sprintf("ems-%04X-%03d.bin", id, i))
+			if err := os.WriteFile(name, pg, 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// EMSLayout 回報每個 handle 有幾頁，以及四個實體頁目前映著誰。
+func (d *DOS) EMSLayout() string {
+	e := d.emsState()
+	ids := make([]int, 0, len(e.handles))
+	for id := range e.handles {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+	var b strings.Builder
+	for _, id := range ids {
+		fmt.Fprintf(&b, "  handle %04X：%d 頁\n", id, len(e.handles[uint16(id)].pages))
+	}
+	for p, m := range e.frame {
+		if m == nil {
+			fmt.Fprintf(&b, "  實體頁 %d：空\n", p)
+			continue
+		}
+		fmt.Fprintf(&b, "  實體頁 %d（%05X）：handle %04X 的第 %d 頁\n",
+			p, emsFrameAddr(p), m.h, m.page)
+	}
+	return b.String()
 }

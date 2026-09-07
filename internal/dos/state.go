@@ -62,7 +62,7 @@ type dosState struct {
 	// Root 是原版素材的目錄。**一定要存**：讀檔之後遊戲還會再開檔，
 	// 少了它 `resolve` 會拿預設的 `.` 去找，之後每一次開檔都失敗——
 	// 而且**不會有任何錯誤**，只有緩衝區裡留著填充值，
-	// 遊戲照樣把它當資料用（見 `docs/spec/004` §4.17）。
+	// 遊戲照樣把它當資料用（見 `docs/spec/004` §4.18）。
 	Root string
 
 	Handles    []handleState
