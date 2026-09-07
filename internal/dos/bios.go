@@ -239,13 +239,29 @@ func (d *DOS) int33(c *cpu.CPU) {
 	}
 }
 
-// int16 是 BIOS 鍵盤。
+// int16 是 BIOS 鍵盤，按鍵從 `Keys` 佇列來（`docs/spec/008`）。
 //
-// Rich2 的鍵盤輸入走 `int 21h AH=3Fh`，但其他DOS程式可能使用這條；兩者共用
-// Stdin佇列，讓同一個可重播輸入來源不必知道程式採哪一種介面。
+// ⚠ **走不走這條要看是哪一支程式。** 編譯後的 MS BASIC（rich2）的 `INKEY$`
+// 走 `int 21h AH=3Fh` 讀 handle 0，`int 16h` 全程只被叫 20–40 次
+// （`rich2/docs/re/005`「輸入路徑」）；Turbo Pascal（《Pool of Radiance》）的
+// `KeyPressed`／`ReadKey` **整條都走這裡**——量到 `AH=01` 被叫 166 萬次
+// （`docs/spec/008` §2）。
+//
+// 兩個來源：`Keys` 是掃描碼與 ASCII 都指定好的字組佇列（方向鍵這類沒有
+// ASCII 的鍵只能走它），`Stdin` 是與 `int 21h` 共用的位元組佇列，
+// 讓同一份可重播輸入不必知道程式採哪一種介面。**先看 Keys**。
+//
+// 佇列空的時候回「沒有按鍵」，**不阻塞**：這一層沒有排程器，
+// 呼叫端本來就會再問一次。
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
-	case 0x00, 0x10: // 讀按鍵（阻塞）
+	case 0x00, 0x10: // 讀按鍵（真 BIOS 是阻塞的）
+		if len(d.Keys) > 0 {
+			c.R[cpu.AX] = d.Keys[0]
+			d.Keys = d.Keys[1:]
+			d.KeysConsumed++
+			return
+		}
 		if len(d.Stdin) == 0 {
 			c.R[cpu.AX] = 0
 			return
@@ -254,6 +270,11 @@ func (d *DOS) int16(c *cpu.CPU) {
 		d.noteKey("int16-AH00", d.Stdin[0])
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
+		if len(d.Keys) > 0 {
+			c.SetFlags(c.Flags &^ cpu.ZF)
+			c.R[cpu.AX] = d.Keys[0] // 查看不取走
+			return
+		}
 		if len(d.Stdin) == 0 {
 			c.SetFlags(c.Flags | cpu.ZF)
 			return
@@ -304,6 +325,31 @@ var scanCode = map[uint8]uint8{
 	'z': 0x2C, 'x': 0x2D, 'c': 0x2E, 'v': 0x2F, 'b': 0x30,
 	'n': 0x31, 'm': 0x32,
 	'Y': 0x15, 'N': 0x31,
+}
+
+// PushKey 把一個按鍵排進佇列。
+func (d *DOS) PushKey(k Key) { d.Keys = append(d.Keys, k.Word()) }
+
+// PushKeyNamed 排一個有名字的鍵（`Return`、`Space`…）。名字不認得就回 false。
+func (d *DOS) PushKeyNamed(name string) bool {
+	k, ok := KeyNamed(name)
+	if ok {
+		d.PushKey(k)
+	}
+	return ok
+}
+
+// PushText 把一段可列印文字逐字排進佇列。遇到表外的字元停下並回 false，
+// **不要跳過**——安靜地少送一個字會讓後面整串輸入錯位。
+func (d *DOS) PushText(s string) bool {
+	for _, r := range s {
+		k, ok := KeyForRune(r)
+		if !ok {
+			return false
+		}
+		d.PushKey(k)
+	}
+	return true
 }
 
 // int13 是 BIOS 磁碟服務。

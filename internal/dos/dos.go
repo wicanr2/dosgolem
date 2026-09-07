@@ -143,7 +143,13 @@ type DOS struct {
 	M *machine.Machine
 
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
+	// **永遠不寫**（`docs/spec/009` §2.3）；容器裡它本來就是 `ro` 掛載。
 	Root string
+
+	// Scratch 是可寫的暫存層（`docs/spec/009`）。空字串＝維持「寫入只記帳
+	// 不落地」的舊行為。非空時 `resolve` 先找這裡，建檔與寫檔也落在這裡，
+	// **原版素材目錄永遠不寫**。
+	Scratch string
 
 	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
@@ -207,6 +213,19 @@ type DOS struct {
 	// Blocked 表示這一步停在阻塞式輸入上（佇列空）。取到鍵時清掉。
 	// 上層可以據此停下來、餵鍵、再繼續。
 	Blocked bool
+
+	// Keys 是 `int 16h` 專用的按鍵字組佇列（`docs/spec/008`）。
+	// 高位元組掃描碼、低位元組 ASCII，與 `AH=00h` 回傳的 `AX` 同格式。
+	//
+	// **與 Stdin 是兩條路，不是兩個名字。** Stdin 是位元組佇列，`int 21h`
+	// 的讀取與 `int 16h` 共用它（同一份可重播輸入餵給兩種介面）；這一條放的是
+	// 「掃描碼與 ASCII 都指定好」的鍵——方向鍵、功能鍵沒有 ASCII，
+	// 走 Stdin 表達不出來。int16 先看這一條，空了才回頭讀 Stdin。
+	Keys []uint16
+
+	// KeysConsumed 是**程式實際讀走**的鍵數。「送進去了」與「讀走了」
+	// 是兩件事，而畫面上分不出來——兩者都是「畫面沒變」。
+	KeysConsumed int
 
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。

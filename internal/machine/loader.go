@@ -173,6 +173,14 @@ func (m *Machine) setEntry(p *Program) {
 	c.Seg[cpu.CS], c.IP = p.CS, p.IP
 	c.Seg[cpu.SS], c.R[cpu.SP] = p.SS, p.SP
 	c.Seg[cpu.DS], c.Seg[cpu.ES] = p.PSPSeg, p.PSPSeg
+	// **中斷要開著。** DOS 把控制權交給程式的時候 IF 是 1；CPU reset 之後
+	// SetFlags(0) 是 0，載入器不補就沒有人會補。
+	//
+	// 症狀不指向這裡：任何「等 BIOS 時鐘跳動」的迴圈都變成死迴圈——
+	// tick() 的 IRQ0 被 `!m.CPU.Flag(cpu.IF)` 擋掉，連 0040:006C 都不會動，
+	// 看起來只是程式停在兩道指令之間。《Pool of Radiance》的 START.EXE
+	// 開場就是這個形狀（`MOV AL,ES:[DI]` / `CMP AL,ES:[DI]` / `JZ −5`）。
+	c.SetFlags(c.Flags | cpu.IF)
 }
 
 // loadEXEAt 是 MZ 載入的主體，PSP 段由呼叫端給（`docs/spec/009`）。

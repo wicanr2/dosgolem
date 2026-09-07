@@ -228,6 +228,14 @@ func (o *Oracle) ExecLog() []ExecRecord {
 // AllowFileWrites 對可丟棄Root覆蓋層逐檔開啟實際寫入；預設仍完全唯讀。
 func (o *Oracle) AllowFileWrites(names ...string) error { return o.d.AllowFileWrites(names...) }
 
+// SetScratch 打開可寫的暫存層（`docs/spec/009`）：程式的存檔落在這個目錄，
+// **原版素材目錄永遠不寫**。空字串＝關掉，寫入只記帳不落地。
+//
+// 要在程式開始存檔之前設。走到建角、存檔、讀檔那類流程一定要開——
+// 不開的話寫入被吞掉，而症狀是「選單按了畫面完全沒變」，
+// 完全不指向寫檔（`docs/spec/009` §1）。
+func (o *Oracle) SetScratch(dir string) { o.d.Scratch = dir }
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。
@@ -377,6 +385,25 @@ func (o *Oracle) Indexed() []uint8 { return o.m.Indexed() }
 // ⚠ **`Width`／`Height` 兩個常數是 mode 13h 的**，planar 模式下不對；
 // 會遇到 16 色模式的程式一律問這一支。
 func (o *Oracle) ScreenSize() (w, h int) { return o.m.VideoSize() }
+
+// IndexedEGA 回 EGA mode 0Dh 的 320×200 色號陣列（`docs/spec/007`）。
+//
+// **和 `Indexed()` 是兩種定址，不是兩種格式**：`Indexed()` 讀 A0000 起的
+// 線性 64000 bytes（mode 13h），這一支把四個位元平面組起來（mode 0Dh）。
+// 拿錯的那一支去對拍會得到**一張看起來正常但錯的圖**，不會報錯。
+func (o *Oracle) IndexedEGA() []uint8 { return o.m.IndexedEGA() }
+
+// EGAPlanarActive 回報序列器的 Map Mask 曾被寫成不是 `0Fh` 的值，也就是
+// 「這支程式在逐平面輸出」。
+//
+// **它是訊號不是事實**：《Pool of Radiance》從來沒呼叫 `int 10h AH=00`，
+// BDA 的模式位元組一路是 `03h`，所以沒有比它更硬的依據
+// （`docs/spec/007` §2.1）。要不要照它切換由呼叫端決定。
+func (o *Oracle) EGAPlanarActive() bool { return o.m.EGAPlanarActive() }
+
+// EGAPlane 回傳一個位元平面的複本（0..3），畫面不對時用來分辨是遮罩錯
+// 還是組裝錯。
+func (o *Oracle) EGAPlane(plane int) []uint8 { return o.m.EGAPlane(plane) }
 
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }

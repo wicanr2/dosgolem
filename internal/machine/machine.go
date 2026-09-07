@@ -322,6 +322,11 @@ func New() *Machine {
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
 		KeyEvery:  DefaultKeyIRQEvery,
+		// **第一次計時器中斷排在一個完整週期之後。** 零值的話
+		// `m.Steps >= m.nextIRQ0` 在第 0 步就成立，程式的第一道指令
+		// 還沒執行就先被 int 08h 打斷——載入器把 IF 打開之後，
+		// 那變成每一支程式都會遇到，而症狀是「跑幾步就跑到別的地方去」。
+		nextIRQ0: DefaultIRQ0Every,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		VGA: newVGA(),

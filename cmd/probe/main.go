@@ -975,6 +975,14 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	c := m.CPU
 	fmt.Printf("CS:IP ＝ %04X:%04X  AX=%04X BX=%04X CX=%04X DX=%04X\n",
 		c.Seg[cpu.CS], c.IP, c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX])
+	// 計時器的狀態要印。**「等 tick 的迴圈轉不出來」與「程式本來就沒事做」
+	// 從 CS:IP 看起來一模一樣**——Pool of Radiance 的開場就是停在
+	// `CMP AL, ES:[DI]` / `JZ −5`（`ES:DI` ＝ `0040:006C`，BIOS 的 tick），
+	// 而 tick 沒動的原因只有兩種：沒送中斷，或 IF 一直是 0。
+	fmt.Printf("計時器：送出 %d 次  IF=%v  int08 向量 %04X:%04X  int1C 向量 %04X:%04X\n",
+		m.Ticks, m.CPU.Flag(cpu.IF),
+		m.Read16(0x08*4+2), m.Read16(0x08*4),
+		m.Read16(0x1C*4+2), m.Read16(0x1C*4))
 	fmt.Printf("DS=%04X ES=%04X SS:SP=%04X:%04X  視訊模式 %02Xh\n",
 		c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.R[cpu.SP], m.VideoMode())
 	if m.KeyIRQs > 0 || m.KeyEvery > 0 {
