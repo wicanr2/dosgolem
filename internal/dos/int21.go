@@ -60,7 +60,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
 		setAL(c, d.Drive)
 
-	case 0x1A: // 設 DTA。收下就好，我們不用 FCB 那一套。
+	case 0x1A: // 設 DTA ← DS:DX
+		d.dtaSeg, d.dtaOff = c.Seg[cpu.DS], c.R[cpu.DX]
 		clearCarry(c)
 
 	case 0x1C: // 取指定磁碟機的配置資訊
@@ -108,6 +109,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		clearCarry(c)
 
+	case 0x2F: // 取 DTA → ES:BX
+		c.Seg[cpu.ES], c.R[cpu.BX] = d.dtaSeg, d.dtaOff
+
 	case 0x30: // 取 DOS 版本
 		c.R[cpu.AX] = 0x0005 // 5.0
 		clearCarry(c)
@@ -138,7 +142,6 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.write(c)
 	case 0x42:
 		d.seek(c)
-
 	case 0x43: // 取／設檔案屬性（`docs/spec/008` §4）
 		d.fileAttr(c)
 
@@ -183,6 +186,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 接著 `mov ds,bx / mov al,ds:80h` 就把垃圾當成命令列長度。
 		c.R[cpu.BX] = machine.PSPSeg
 		clearCarry(c)
+	case 0x4E:
+		d.findFirst(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -198,7 +203,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 	default:
 		// 原則 1：**不要動 AX**。一開始寫 AX=0 會把「設中斷向量」迴圈的
 		// 計數清掉，`AH` 變成 0 就被當成「結束程式」——程式因此提早死掉。
-		d.note(0x21, fn, al(c))
+		d.noteCPU(c, 0x21, fn, al(c))
 		clearCarry(c)
 	}
 }

@@ -212,6 +212,9 @@ func (d *DOS) loadOverlay(c *cpu.CPU, name string, loadSeg, relocFactor uint16) 
 	d.ExecLog = append(d.ExecLog, ExecRecord{
 		Name: name, Base: filepath.Base(path), PSP: loadSeg, Exit: 0xFF,
 	})
+	// AL=03h 成功時 DOS 回 AX=0。呼叫端常常是 `jc 錯誤` 之後再 `or ax,ax`，
+	// 留著 4B03h 會被讀成錯誤碼。
+	c.R[cpu.AX] = 0
 	clearCarry(c)
 }
 

@@ -46,6 +46,7 @@ func main() {
 	steps := flag.Uint64("steps", 20_000_000,
 		"跑到第幾道指令為止（**絕對步數**，配 -load-state 時要大於檢查點的步數）")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
+	typeText := flag.String("type", "", "啟動前排入DOS標準輸入的可重播位元組字串")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
 	dumpScreenPNG := flag.String("dump-screen-png", "",
 		"把平面模式（mode 0Dh–12h）的畫面存成 PNG（經屬性控制器與 DAC）。\n"+
@@ -374,6 +375,8 @@ func main() {
 	if *keys != "" {
 		feedKeys(m, d, []byte(strings.ReplaceAll(*keys, "\\n", "\n")))
 	}
+	d.Stdin = append(d.Stdin, []byte(*typeText)...)
+
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
 	// 兩邊位置不同的話逐點比對會在兩個位置各差一整塊，而畫面看起來完全正常。
 	//
@@ -1206,6 +1209,14 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			break
 		}
 		fmt.Printf("  %s\n", r)
+	}
+	for _, detail := range d.UnimplementedDetails {
+		fmt.Printf("  首次暫存器 %s @ %04X:%04X DS=%04X ES=%04X AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X\n",
+			detail.Call, detail.CS, detail.IP, detail.DS, detail.ES, detail.AX, detail.BX,
+			detail.CX, detail.DX, detail.SI, detail.DI)
+		if detail.Path != "" {
+			fmt.Printf("    路徑 %q；參數區 % X\n", detail.Path, detail.Param)
+		}
 	}
 
 	// int 33h 的功能分佈。**「輪詢很多次」不代表遊戲在讀按鍵**——

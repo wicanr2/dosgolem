@@ -126,8 +126,6 @@ func (d *DOS) int10(c *cpu.CPU) {
 
 	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
 		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
-		// 呼叫端不看回傳值。
-
 	default:
 		d.note(0x10, fn, al(c))
 	}
@@ -170,6 +168,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.AX] = 0xFFFF // 已安裝
 		c.R[cpu.BX] = 2      // 兩個鍵
 		m.Buttons = 0
+		m.Handler.Set, m.Handler.Mask = false, 0
 
 	case 0x0001, 0x0002: // 顯示／隱藏游標
 		// 遊戲**從來不叫 `AX=1`**（全檔 0 個呼叫端），畫面上那隻小手是
@@ -191,7 +190,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 		}
 		// **程式自己設的位置也要夾**，不然遊戲把游標設到範圍外之後
 		// 我們與真機就分家了。不發事件——真機的 `AX=4` 不觸發回呼。
-		m.X, m.Y = m.clamp(x, c.R[cpu.DX])
+		m.X, m.Y = m.clamp(x, c.R[cpu.DX], xs)
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
 	case 0x0005, 0x0006: // 按下／放開的統計
@@ -242,9 +241,8 @@ func (d *DOS) int33(c *cpu.CPU) {
 
 // int16 是 BIOS 鍵盤。
 //
-// ⚠ **遊戲的鍵盤輸入不走這條**——它走 `int 21h AH=3Fh` 讀 handle 0
-// （BASIC 的 `INKEY$`）。`int 16h` 全程只被呼叫 20–40 次，閒置期間完全沒動
-// （`rich2/docs/re/005`「輸入路徑」）。所以這支只要不說謊就好。
+// Rich2 的鍵盤輸入走 `int 21h AH=3Fh`，但其他DOS程式可能使用這條；兩者共用
+// Stdin佇列，讓同一個可重播輸入來源不必知道程式採哪一種介面。
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（阻塞）
@@ -255,7 +253,7 @@ func (d *DOS) int16(c *cpu.CPU) {
 		c.R[cpu.AX] = keyWord(d.Stdin[0])
 		d.noteKey("int16-AH00", d.Stdin[0])
 		d.Stdin = d.Stdin[1:]
-	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有
+	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
 		if len(d.Stdin) == 0 {
 			c.SetFlags(c.Flags | cpu.ZF)
 			return
@@ -399,11 +397,14 @@ const (
 // clamp 把像素座標夾進遊戲設的範圍。範圍沒設過就不夾。
 //
 // 範圍是**虛擬座標**，我們的 X 是像素，所以水平要先除以倍率。
-func (m *Mouse) clamp(x, y uint16) (uint16, uint16) {
+// 倍率由呼叫端算好傳進來：`Mouse.XScale` 的 0 是「依視訊模式自動決定」，
+// 直接拿它來除會在沒人明講倍率時整個不夾——320 寬的畫面上游標跑到
+// 639，而那看起來只是「游標飄出去了」。
+func (m *Mouse) clamp(x, y, xs uint16) (uint16, uint16) {
 	if m.MaxX > 0 {
 		lo, hi := m.MinX, m.MaxX
-		if m.XScale > 1 {
-			lo, hi = lo/m.XScale, hi/m.XScale
+		if xs > 1 {
+			lo, hi = lo/xs, hi/xs
 		}
 		if x < lo {
 			x = lo
@@ -429,12 +430,13 @@ func (m *Mouse) clamp(x, y uint16) (uint16, uint16) {
 // 但多發的那些會把「這一輪有沒有動過」的判斷弄髒。
 func (d *DOS) MoveMouse(x, y int) {
 	m := &d.Mouse
-	nx, ny := m.clamp(uint16(x), uint16(y))
+	nx, ny := m.clamp(uint16(x), uint16(y), d.mouseXScale())
 	if nx == m.X && ny == m.Y {
 		return
 	}
+	dx, dy := int16(nx)-int16(m.X), int16(ny)-int16(m.Y)
 	m.X, m.Y = nx, ny
-	d.fireMouseEvent(EventMove)
+	d.fireMouseEventMickeys(EventMove, dx, dy)
 }
 
 // PressMouse／ReleaseMouse 按下／放開某個鍵（0 左／1 右／2 中）。
@@ -452,7 +454,19 @@ func (d *DOS) ReleaseMouse(btn int) {
 //
 // ⚠ **是排隊不是立刻跳。** 遠呼叫只能在指令邊界插，
 // 而這一支是從外面（測試腳本、oracle）呼叫的，不在指令邊界上。
-func (d *DOS) fireMouseEvent(mask uint16) {
+func (d *DOS) fireMouseEvent(mask uint16) { d.fireMouseEventMickeys(mask, 0, 0) }
+
+// fireMouseEventMickeys 同 fireMouseEvent，但帶這一次位移的 mickey 數。
+//
+// 回呼入口的暫存器契約（Ralf Brown 的 int 33h AX=000Ch；強證據，沒有拿
+// 原版驅動對拍過）：AX ＝ 事件遮罩、BX ＝ 按鍵狀態、CX/DX ＝ 游標座標、
+// **SI ＝ 水平 mickey、DI ＝ 垂直 mickey**。SI/DI 反過來的話，只看單一
+// 軸向的程式仍然會動，游標卻沿著另一條軸漂——那看起來像靈敏度沒調好。
+//
+// **一個邏輯 pixel 當一個 mickey** 是決定性近似：真驅動的比例由 AX=000Fh
+// 設定，而我們是絕對定位，沒有可換算的來源。事件不帶位移（按鍵、外部
+// 腳本直接發）時是 0，那與真驅動「這一次沒有移動」同義。
+func (d *DOS) fireMouseEventMickeys(mask uint16, dx, dy int16) {
 	m := &d.Mouse
 	if !m.Handler.Set || m.Handler.Mask&mask == 0 {
 		return
@@ -461,8 +475,7 @@ func (d *DOS) fireMouseEvent(mask uint16) {
 	d.M.QueueCallback(machine.QueuedCall{
 		Seg: m.Handler.Seg, Off: m.Handler.Off,
 		AX: mask, BX: m.Buttons,
-		CX: m.X * m.XScale, DX: m.Y,
-		// SI／DI 是 mickey 增量。我們是絕對定位，沒有 mickey——
-		// **回 0 是誠實的**，遊戲那一支也沒讀。
+		CX: m.X * d.mouseXScale(), DX: m.Y,
+		SI: uint16(dx), DI: uint16(dy),
 	})
 }

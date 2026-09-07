@@ -12,7 +12,10 @@ package dos
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -219,10 +222,13 @@ type DOS struct {
 	// **「宣告成功」本身也會說謊**：該填的緩衝區沒填就是垃圾，症狀出現在
 	// 很後面而且完全不指向這裡。所以要數、要印（`docs/spec/004` §1.3）。
 	Unimplemented map[Call]int
+	// UnimplementedDetails 保留每種未實作服務第一次出現時的暫存器脈絡。
+	UnimplementedDetails []CallDetail
 
 	// Opened 是開過的檔（依序），Missing 是找不到的。兩份都是診斷用。
-	Opened  []string
-	Missing []string
+	Opened        []string
+	Missing       []string
+	MissingAccess []FileAccess
 
 	// OnOpen 在每一次成功開檔之後叫一次（參數是檔名，不含路徑）。
 	//
@@ -255,6 +261,9 @@ type DOS struct {
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
+	// writableFiles 是「可以真的寫下去」的檔名（大寫 basename）。
+	// 由 AllowFileWrites 逐檔 opt-in——**預設仍保護原版素材**。
+	writableFiles map[string]bool
 
 	// VecSets 記下每一次 `AH=25h` 設中斷向量。
 	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
@@ -333,6 +342,11 @@ type DOS struct {
 	// 1 MB 空間裡的 D000h 段。
 	ems *ems
 
+	// dtaSeg／dtaOff 是 Disk Transfer Area（`AH=1Ah` 設，`AH=4Eh`／`4Fh` 用）。
+	// 預設是 PSP+80h，與真 DOS 相同。
+	dtaSeg uint16
+	dtaOff uint16
+
 	// arena 是 [freeSeg, MemTop) 這段的區塊表，依段位址排序、首尾相接、
 	// 沒有空隙。每個區塊佔 1 段的假 MCB ＋ size 段的資料，
 	// 交給程式的是 seg+1。規格 `docs/spec/009`。
@@ -387,6 +401,34 @@ type ReadOp struct {
 	Got      int
 }
 
+// AllowFileWrites 只允許已存在於Root的指定basename實際寫入。
+// 呼叫端必須把Root指向可丟棄覆蓋層，不能指向原版來源。
+func (d *DOS) AllowFileWrites(names ...string) error {
+	validated := make([]string, 0, len(names))
+	for _, name := range names {
+		base := filepath.Base(name)
+		if base == "." || base == "" || base != name || strings.ContainsAny(name, `\/:`) {
+			return fmt.Errorf("可寫檔名必須是單一basename：%q", name)
+		}
+		path := d.resolve(base)
+		if path == "" {
+			return fmt.Errorf("可寫覆蓋層缺少檔案：%q", name)
+		}
+		st, err := os.Stat(path)
+		if err != nil || !st.Mode().IsRegular() {
+			return fmt.Errorf("可寫覆蓋層不是一般檔案：%q", name)
+		}
+		validated = append(validated, strings.ToUpper(base))
+	}
+	if d.writableFiles == nil {
+		d.writableFiles = map[string]bool{}
+	}
+	for _, base := range validated {
+		d.writableFiles[base] = true
+	}
+	return nil
+}
+
 // Write 是一次被擋下來的寫檔。
 type Write struct {
 	Name string
@@ -436,9 +478,30 @@ type MemOp struct {
 	OK     bool
 }
 
+// FileAccess 是失敗開檔當下的原始路徑與執行期定位。
+type FileAccess struct {
+	Name                   string
+	CS, IP, DS, DX, SS, BP uint16
+	Callers                [8]StackFrame
+}
+
+type StackFrame struct {
+	BP, IP, CS uint16
+	Code       [16]byte
+	Args       [4]uint16
+}
+
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
 type Call struct {
 	Int, AH, AL uint8
+}
+
+type CallDetail struct {
+	Call
+	CS, IP, DS, ES         uint16
+	AX, BX, CX, DX, SI, DI uint16
+	Path                   string
+	Param                  [16]byte
 }
 
 func (c Call) String() string {
@@ -459,6 +522,8 @@ func New(m *machine.Machine, root string) *DOS {
 		handles:       map[uint16]*handle{},
 		MaxHandles:    20, // DOS 預設；AH=67h 可調
 		ems:           newEMS(),
+		dtaSeg:        machine.PSPSeg,
+		dtaOff:        0x80,
 	}
 }
 
@@ -585,6 +650,40 @@ func (d *DOS) fixStackedCF(c *cpu.CPU) {
 		w &^= cpu.CF
 	}
 	d.M.Write16(at, w)
+}
+
+// noteCPU 記一筆沒實作的呼叫，**連同當下的暫存器與呼叫端**。
+//
+// 只記每一種 (中斷, AH, AL) 的第一次。光有次數答不出「它想做什麼」——
+// EXEC 那一支還要把路徑字串與參數區塊抄下來才看得出載的是哪個模組。
+func (d *DOS) noteCPU(c *cpu.CPU, intNo, fn, sub uint8) {
+	d.note(intNo, fn, sub)
+	for _, detail := range d.UnimplementedDetails {
+		if detail.Int == intNo && detail.AH == fn && detail.AL == sub {
+			return
+		}
+	}
+	detail := CallDetail{
+		Call: Call{Int: intNo, AH: fn, AL: sub},
+		CS:   c.Seg[cpu.CS], IP: c.IP, DS: c.Seg[cpu.DS], ES: c.Seg[cpu.ES],
+		AX: c.R[cpu.AX], BX: c.R[cpu.BX], CX: c.R[cpu.CX], DX: c.R[cpu.DX],
+		SI: c.R[cpu.SI], DI: c.R[cpu.DI],
+	}
+	if intNo == 0x21 && fn == 0x4B {
+		pathAddr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+		for i := 0; i < 260; i++ {
+			b := d.M.Read8(pathAddr + uint32(i))
+			if b == 0 {
+				break
+			}
+			detail.Path += string([]byte{b})
+		}
+		paramAddr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+		for i := range detail.Param {
+			detail.Param[i] = d.M.Read8(paramAddr + uint32(i))
+		}
+	}
+	d.UnimplementedDetails = append(d.UnimplementedDetails, detail)
 }
 
 // UnimplementedReport 把統計排成可讀的清單，次數多的在前面。

@@ -15,7 +15,12 @@ import (
 //
 // ⚠ **要在程式的 `AX=4` 之後叫**，否則會被它蓋掉而且畫面看起來完全正常。
 // 用 Click 的話已經幫你等了。
-func (o *Oracle) MoveMouse(x, y int) { o.d.MoveMouse(x, y) }
+// 回 error 是為了讓呼叫端能把「移動失敗」一路傳上去。目前的實作
+// （事件排進機器的回呼佇列）不會失敗，永遠回 nil。
+func (o *Oracle) MoveMouse(x, y int) error {
+	o.d.MoveMouse(x, y)
+	return nil
+}
 
 // Mouse 回目前的游標座標。
 func (o *Oracle) Mouse() (x, y int) {
@@ -29,6 +34,8 @@ type clickCfg struct {
 	hover, hold, settle uint64
 	button              int
 	watch               func(*Oracle)
+	pressEvent          uint16
+	releaseEvent        uint16
 }
 
 // Button 選要按哪一個鍵（0 左／1 右／2 中）。
@@ -58,6 +65,9 @@ func Hold(n uint64) ClickOpt { return func(c *clickCfg) { c.hold = n } }
 
 // Settle 改放開之後再跑多久（讓遊戲把回饋畫出來）。
 func Settle(n uint64) ClickOpt { return func(c *clickCfg) { c.settle = n } }
+
+// RightButton 是 Button(1)（Microsoft 滑鼠右鍵）的別名。
+func RightButton() ClickOpt { return Button(1) }
 
 // Click 在某個像素座標點一下：移動 → 按下 → 按住 → 放開 → 等畫面回應。
 //
@@ -138,6 +148,39 @@ func (o *Oracle) Type(s string) {
 
 // Pending 回還沒被讀走的鍵數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
+
+// Key 是IBM PC/AT鍵盤Set 1的make掃描碼。
+type Key uint8
+
+const (
+	// KeyEscape 是Esc鍵。
+	KeyEscape Key = 0x01
+	// KeyEnter 是主鍵盤Enter鍵。
+	KeyEnter Key = 0x1C
+	// KeyDown 是向下方向鍵。
+	KeyDown Key = 0x50
+	// KeyUp 是向上方向鍵；KeyPageUp是數字鍵盤右轉鍵。
+	KeyUp     Key = 0x48
+	KeyPageUp Key = 0x49
+	// 目前EOB1具名姓名fixture使用的字母鍵。
+	KeyA Key = 0x1E
+	KeyB Key = 0x30
+	KeyD Key = 0x20
+	KeyE Key = 0x12
+	KeyF Key = 0x21
+	KeyG Key = 0x22
+	KeyL Key = 0x26
+	KeyM Key = 0x32
+	KeyT Key = 0x14
+	KeyZ Key = 0x2C
+)
+
+// PressKey 透過硬體IRQ1送出一次按下與放開，不經DOS／BIOS輸入佇列。
+// 這供自行掛接int 09h的遊戲使用；Type的既有語意維持不變。
+func (o *Oracle) PressKey(key Key) {
+	makeCode := uint8(key)
+	o.m.QueueScanCodes(makeCode, makeCode|0x80)
+}
 
 // runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
 func (o *Oracle) runWatched(n uint64, watch func(*Oracle)) error {

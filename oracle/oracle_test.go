@@ -121,6 +121,15 @@ func TestSaveRestore(t *testing.T) {
 	}
 }
 
+func TestPortReadsReturnsCopy(t *testing.T) {
+	o := load(t)
+	reads := o.PortReads()
+	reads[0x60] = 999
+	if got := o.PortReads()[0x60]; got == 999 {
+		t.Fatal("PortReads洩漏了可修改的machine map")
+	}
+}
+
 func snap4Steps(_ *oracle.State, o *oracle.Oracle) uint64 { return o.Steps() }
 
 func sameScreen(a, b []uint8) bool {

@@ -44,6 +44,12 @@ func (m *Machine) QueueCallback(q QueuedCall) {
 // CallbackPending 回還有幾次沒送出去。
 func (m *Machine) CallbackPending() int { return len(m.cbQueue) }
 
+// CallbackActive 回「現在正有一次回呼在跑」。
+//
+// 同步派送（`dos.RunMouseEvent`）要靠它判斷回呼收工了沒：只看
+// CallbacksMade 增加的話，會在回呼**才剛進去**的那一步就以為結束了。
+func (m *Machine) CallbackActive() bool { return m.cbActive }
+
 // CallbacksMade 是已經送出去幾次。**收工前看一眼**：0 次與「遊戲不看事件」
 // 長得一模一樣。
 func (m *Machine) CallbacksMade() uint64 { return m.cbMade }
@@ -77,7 +83,7 @@ func (m *Machine) startCallback() bool {
 	return true
 }
 
-// FinishCallback 把狀態整份還原。由返回哨兵的 `int F3h` 呼叫。
+// FinishCallback 把狀態整份還原。由返回哨兵的 `int F9h` 呼叫。
 //
 // 回 false 表示「根本沒有回呼在跑」——那是個 bug 的訊號，不要吞掉。
 func (m *Machine) FinishCallback() bool {

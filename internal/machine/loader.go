@@ -241,6 +241,8 @@ func (m *Machine) LoadOverlay(data []byte, loadSeg, relocFactor uint16) error {
 func (m *Machine) initPSP() { m.initPSPAt(PSPSeg) }
 
 // initPSPAt 在指定段建一個夠用的 PSP。
+
+// initPSP 建一個夠用的 PSP。
 //
 // 「夠用」的定義是 Microsoft C runtime 啟動不炸——每一欄都有一個
 // 具體的呼叫端，不是照手冊填滿。

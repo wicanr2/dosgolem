@@ -221,6 +221,9 @@ func (o *Oracle) ExecLog() []ExecRecord {
 	return append([]ExecRecord(nil), o.d.ExecLog...)
 }
 
+// AllowFileWrites 對可丟棄Root覆蓋層逐檔開啟實際寫入；預設仍完全唯讀。
+func (o *Oracle) AllowFileWrites(names ...string) error { return o.d.AllowFileWrites(names...) }
+
 // ---- 位址 ----------------------------------------------------------------
 
 // Addr 是一個執行期位址。用 DS／IDA／At 造，不要自己填。
@@ -352,8 +355,11 @@ func (o *Oracle) ScreenSize() (w, h int) { return o.m.VideoSize() }
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64    { return o.m.Steps }
-func (o *Oracle) Opened() []string { return o.d.Opened }
+func (o *Oracle) Steps() uint64                     { return o.m.Steps }
+func (o *Oracle) Opened() []string                  { return o.d.Opened }
+func (o *Oracle) Missing() []string                 { return o.d.Missing }
+func (o *Oracle) Wrote() []dos.Write                { return o.d.Wrote }
+func (o *Oracle) MissingAccesses() []dos.FileAccess { return o.d.MissingAccess }
 
 // OnFileOpen 在每一次成功開檔之後叫一次（參數是檔名，不含路徑）。
 //
@@ -408,6 +414,16 @@ func (o *Oracle) MouseCalls() map[uint16]int {
 	out := map[uint16]int{}
 	for k, v := range o.d.Mouse.Calls {
 		out[k] = v
+	}
+	return out
+}
+
+// PortReads 回每個I/O埠被讀取的次數副本。
+// 這只供診斷直接硬體輪詢，不把埠號自行解釋成裝置語意。
+func (o *Oracle) PortReads() map[uint16]uint64 {
+	out := make(map[uint16]uint64, len(o.m.PortsIn))
+	for port, count := range o.m.PortsIn {
+		out[port] = count
 	}
 	return out
 }

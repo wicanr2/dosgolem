@@ -257,7 +257,6 @@ type Machine struct {
 	// 「目前模式是不是平面」的快取，Read8／Write8 每次都要問。
 	VGA      *VGA
 	planarOn bool
-
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
@@ -674,6 +673,7 @@ func (m *Machine) Indexed() []uint8 {
 // MaxSegLog 是 SegLog（ring）保留的筆數。
 const MaxSegLog = 100_000
 
+// Step 執行一道指令，必要時先送 IRQ1或IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
 	m.keyTick()
@@ -765,7 +765,10 @@ func (m *Machine) tick() {
 		// 當場丟掉的話那一段的 tick 全部消失。
 		m.irq0Pending = true
 	}
-	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
+	if !m.CPU.Flag(cpu.IF) {
+		return
+	}
+	if !m.irq0Pending {
 		return
 	}
 	m.irq0Pending = false
@@ -792,6 +795,24 @@ func (m *Machine) ClearPeriodicFarCall() { m.periodic.on = false }
 // PeriodicCalls 是已經發出去幾次。**收工前看一眼**：0 次表示登記沒生效，
 // 而那與「遊戲不看時鐘」長得一模一樣。
 func (m *Machine) PeriodicCalls() uint64 { return m.periodic.Calls }
+
+// QueueScanCodes 是 QueueScan 的別名（IBM PC/AT Set 1 掃描碼，
+// bit7 立著是放開）。
+func (m *Machine) QueueScanCodes(codes ...uint8) { m.QueueScan(codes...) }
+
+// bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
+// 有些程式直接讀它算時間，不裝任何 ISR。
+func (m *Machine) bumpBDATicks() {
+	const at = 0x0040*16 + 0x6C
+	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
+	v++
+	if v >= 0x001800B0 { // 一天的 tick 數
+		v = 0
+		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
+	}
+	m.Write16(at, uint16(v))
+	m.Write16(at+2, uint16(v>>16))
+}
 
 // ---- 中斷向量表 ----------------------------------------------------------
 
