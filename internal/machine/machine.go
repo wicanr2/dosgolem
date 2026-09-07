@@ -19,11 +19,13 @@ const (
 	MCBSeg = 0x0060
 	LOLSeg = 0x0070
 
-	// StubSeg 放中斷向量的預設目標。**不是只有一個 IRET**——見 §2。
+	// StubSeg 放中斷向量的預設目標。每個向量各有一段 stub，
+	// 共佔 256×stubStride bytes（0x800–0xBFF）——見 initVectors。
 	StubSeg = 0x0080
 
-	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。
-	EnvSeg = 0x0090
+	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。內容只有二十幾 bytes，
+	// 但要留在 stub 區之後、PSP 之前。
+	EnvSeg = 0x00C0
 
 	// PSPSeg 是程式的 PSP，LoadSeg 是映像本體（PSP 佔 16 段）。
 	PSPSeg  = 0x0100
@@ -38,14 +40,11 @@ const (
 	VideoHigh  = 200
 )
 
-// mouseStubOff 是 `int 33h` 的向量指向的位移。
-//
-// `[HARD]` **那裡放的是 `90 CF`（`nop; iret`），不是 `CF`。**
-// 滑鼠偵測直接讀 `0000:00CC` 拿到段:位移，再讀**那個位址的第一個位元組**，
-// 是 `CFh` 就判定「沒有驅動」（`rich2/docs/re/182` §2）。
-// 所有向量都指到同一個 IRET 的話，遊戲從此不發 `int 33h`——
-// **而且沒有任何錯誤訊息**。
-const mouseStubOff = 0x10
+// stubStride 是每個向量的 stub 佔幾個 byte（`CD n` ＋ `CF` ＋ 對齊）。
+const stubStride = 4
+
+// StubOff 回向量 n 的 stub 在 StubSeg 內的位移。
+func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 
 // DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
 //
@@ -65,6 +64,11 @@ type OPLWrite struct {
 	Reg  uint8
 	Val  uint8
 	Step uint64
+	// Bank 是 OPL3 的哪一組暫存器：0 ＝ 0x388/0x389（OPL2 相容），
+	// 1 ＝ 0x38A/0x38B（OPL3 才有的第二組）。
+	//
+	// **只有 OPL2 的程式一律是 0**，所以既有的呼叫端不必理它。
+	Bank uint8
 }
 
 type PortWrite struct {
@@ -88,9 +92,18 @@ type Machine struct {
 	watchLo, watchHi uint32
 	onWrite          func(addr uint32, old, new uint8)
 
-	oplReg          uint8
-	oplPresent      bool
-	oplTimerRunning bool
+	// OPL2／OPL3 的狀態。
+	//
+	// `oplReg` 是兩組各自的暫存器索引（0x388 與 0x38A 分開選）。
+	// `oplRegs` 是暫存器檔本身——**寫入序列與最終狀態是兩件事**：
+	// 序列看得出「怎麼做的」，狀態看得出「現在是什麼」。
+	// 對拍解碼器用前者，對拍某一刻的音色用後者。
+	oplReg     [2]uint8
+	oplRegs    [2][256]uint8
+	oplPresent bool
+	// 計時器：兩個各自有「啟動」與「遮罩」，狀態埠的 bit7 是兩者的 OR。
+	oplT1Started, oplT2Started bool
+	oplT1Masked, oplT2Masked   bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
 	Ports   map[uint16]uint8
@@ -117,8 +130,52 @@ type Machine struct {
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
+	// AttrPal 是屬性控制器的 16 色對映（預設 identity）。
+	// 16 色 planar 模式的色彩鏈是「4 位元色號 → AttrPal → DAC」
+	// （`docs/spec/009` §1）。
+	AttrPal [16]uint8
+
+	// Overscan 是邊框色（屬性控制器暫存器 11h）。遊戲會讀回來存檔再還原，
+	// 沒有它的話「讀回 → 還原」那條路會拿到垃圾。
+	Overscan uint8
+
 	dacIndex uint8
 	dacPhase uint8
+
+	// WriteModeUse 統計 planar 寫入用過哪些 write mode（診斷用）。
+	WriteModeUse [4]uint64
+
+	// VRAMSites 統計「誰在寫視訊記憶體」——key ＝ CS<<16|IP（那一道指令的
+	// 起點）。**在沒有原始碼的情況下，這是找繪圖常式最短的一條路**：
+	// 畫面上看得到的東西，一定有人把它寫進 plane。
+	// nil ＝ 不統計（有額外開銷）。
+	VRAMSites map[uint32]uint64
+
+	// VRAMAt 限定只統計寫到這個位移的指令（−1 ＝ 全部）。盯單一像素用：
+	// 「這一點是誰畫的」比「誰畫得最多」更能定位。
+	VRAMAt int32
+
+	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
+	ModeChanges []ModeChange
+
+	// planar VRAM 狀態（`docs/spec/009`）：四個 plane、sequencer／GC
+	// 暫存器檔、latch。planar 生效與否看 BDA 的目前模式。
+	vram   [4][0x10000]uint8
+	seq    [8]uint8
+	seqIdx uint8
+	gc     [16]uint8
+	gcIdx  uint8
+	latch  [4]uint8
+
+	// 鍵盤：掃描碼佇列與埠 0x60 目前的值。KeyEvery 是送鍵的間隔（指令數）。
+	keyQueue []uint8
+	keyPort  uint8
+
+	// KeyIRQs 是實際送出去的鍵盤中斷數。**送不出去與遊戲不理會是兩件事**，
+	// 沒有這個數字就分不開。
+	KeyIRQs  uint64
+	nextKey  uint64
+	KeyEvery uint64
 
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
 	// （`docs/spec/004` §5）。
@@ -151,6 +208,11 @@ func New() *Machine {
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
 	m.CPU.Model = cpu.Model80186
+	m.seq[2] = 0x0F // map mask：四個 plane 都開（BIOS mode-set 後的常態）
+	m.gc[8] = 0xFF  // 位元遮罩：全開
+	for i := range m.AttrPal {
+		m.AttrPal[i] = uint8(i)
+	}
 	m.initBDA()
 	m.initVectors()
 	return m
@@ -158,7 +220,13 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
-func (m *Machine) Read8(a uint32) uint8 { return m.Mem[a&0xFFFFF] }
+func (m *Machine) Read8(a uint32) uint8 {
+	a &= 0xFFFFF
+	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
+		return m.planarRead(a - 0xA0000)
+	}
+	return m.Mem[a]
+}
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	a &= 0xFFFFF
@@ -166,6 +234,9 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		m.onWrite(a, m.Mem[a], v)
 	}
 	m.Mem[a] = v
+	if a >= 0xA0000 && a < 0xB0000 && m.planarVideo() {
+		m.planarWrite(a-0xA0000, v)
+	}
 }
 
 // WatchWrites 監看一段線性位址的寫入。
@@ -206,6 +277,78 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 // 但音樂路徑才會真的執行、`OPL` 才會有東西。
 func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
+// OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
+const (
+	oplT1Start = 0x01 // 啟動計時器 1
+	oplT2Start = 0x02 // 啟動計時器 2
+	oplT2Mask  = 0x20 // 遮罩計時器 2 的狀態位元
+	oplT1Mask  = 0x40 // 遮罩計時器 1 的狀態位元
+	oplIRQReset = 0x80 // 重置 IRQ 與兩個逾時旗標（**此時其他位元一律忽略**）
+)
+
+// oplStatus 組出狀態埠要回的值。
+func (m *Machine) oplStatus() uint8 {
+	if !m.oplPresent {
+		return 0x00
+	}
+	var v uint8
+	if m.oplT1Started && !m.oplT1Masked {
+		v |= 0x40
+	}
+	if m.oplT2Started && !m.oplT2Masked {
+		v |= 0x20
+	}
+	if v != 0 {
+		v |= 0x80 // bit7 是兩者的 OR
+	}
+	return v
+}
+
+// oplWrite 記一次 OPL 暫存器寫入，並更新暫存器檔與計時器狀態。
+//
+// bank 0 ＝ 0x388/0x389（OPL2 相容），1 ＝ 0x38A/0x38B（OPL3 第二組）。
+func (m *Machine) oplWrite(bank int, v uint8) {
+	reg := m.oplReg[bank]
+	m.oplRegs[bank][reg] = v
+	// 計時器控制只在第一組（OPL3 的第二組沒有 02h/03h/04h）。
+	if bank == 0 && reg == 0x04 {
+		if v&oplIRQReset != 0 {
+			// **bit7 一設，其他位元就不看了**（資料表如此）。
+			// 寫成 `switch` 之外的 `if` 會讓 `04h←80h` 順便去動遮罩。
+			m.oplT1Started, m.oplT2Started = false, false
+		} else {
+			m.oplT1Masked = v&oplT1Mask != 0
+			m.oplT2Masked = v&oplT2Mask != 0
+			if v&oplT1Start != 0 {
+				m.oplT1Started = true
+			}
+			if v&oplT2Start != 0 {
+				m.oplT2Started = true
+			}
+		}
+	}
+	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)})
+}
+
+// OPLRegs 回某一組暫存器的**目前狀態**（256 bytes）。
+//
+// **寫入序列與最終狀態是兩件事**：`OPL` 那一串看得出「怎麼做的」，
+// 這一份看得出「現在是什麼」。對拍解碼器用前者，
+// 對拍某一刻的音色用後者——後者不受「多寫了一次同樣的值」影響。
+func (m *Machine) OPLRegs(bank int) [256]uint8 {
+	if bank < 0 || bank > 1 {
+		return [256]uint8{}
+	}
+	return m.oplRegs[bank]
+}
+
+// ClearOPL 清掉暫存器寫入序列，**但不動暫存器檔與計時器狀態**。
+//
+// 用來框出「只有這一段」的寫入：走到某個畫面之後清一次，
+// 接下來收到的就只有那一段的。清掉狀態的話下一段會從一台
+// 剛開機的晶片開始，那與原版的實際情況不同。
+func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
+
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
@@ -220,7 +363,13 @@ func (m *Machine) In8(port uint16) uint8 {
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
 	case port == 0x388:
-		// OPL2 狀態埠。
+		// OPL2／OPL3 狀態埠。
+		//
+		// ⚠ **只有 0x388 當狀態埠，0x38A 維持預設的 0xFF。**
+		// OPL3 的偵測序列讀的是基底埠，沒有任何已知的序列讀 0x38A；
+		// 把它也接成狀態埠會讓「以前讀到 0xFF 的程式」改讀到 0x00，
+		// 而這是一個**共用**的機器層——別的專案的偵測邏輯可能靠那個值。
+		// 0x38A／0x38B 的**寫入**照樣走 OPL3 第二組（見 Out8）。
 		//
 		// **預設回 0 ＝ 偵測不到 AdLib，整段音樂路徑會被跳過**——那讓
 		// 開機快很多，所以是預設。要對拍音樂就得讓偵測過關（`AdLib(true)`）。
@@ -228,17 +377,33 @@ func (m *Machine) In8(port uint16) uint8 {
 		// 過關要的不是一個定值：原版走的是標準的 AdLib 偵測序列
 		// （`rich2/docs/re/011` §4），它**先要求狀態是 0、啟動計時器之後
 		// 再要求是 0xC0**。回定值 0xC0 會在第一次檢查就被判定失敗，
-		// 回定值 0 則在第二次失敗——兩種定值都過不了，所以這裡照著
-		// 暫存器 04h 的寫入切換。
-		if !m.oplPresent {
-			return 0x00
-		}
-		if m.oplTimerRunning {
-			return 0xC0 // bit7 IRQ ＋ bit6 timer1 逾時
-		}
-		return 0x00
+		// 回定值 0 則在第二次失敗——兩種定值都過不了。
+		//
+		// 這裡照 YM3812 的狀態位元組合：
+		//
+		//	bit7 = 兩個計時器的逾時旗標的 OR（IRQ）
+		//	bit6 = 計時器 1 逾時   bit5 = 計時器 2 逾時
+		//
+		// 「逾時」在這裡的模型是「啟動了而且沒有被遮罩」——這台機器沒有
+		// 真實時間，而偵測序列在啟動之後一定會先延遲再讀。
+		// **遮罩位元要照做**：偵測序列的第一步就是 `04h←60h`（兩個都遮），
+		// 不理它的話那一步就會讀到非零而判定失敗。
+		return m.oplStatus()
+	case port == 0x60:
+		// 鍵盤資料埠。自己裝 int 09h 的程式從這裡讀掃描碼
+		// （`docs/spec/012` §1）。
+		return m.keyPort
 	case port == 0x61:
 		return 0x00
+	// sequencer／GC 讀回（spec 009）：有程式會讀回索引或資料確認。
+	case port == 0x3C4:
+		return m.seqIdx
+	case port == 0x3C5:
+		return m.seq[m.seqIdx]
+	case port == 0x3CE:
+		return m.gcIdx
+	case port == 0x3CF:
+		return m.gc[m.gcIdx]
 	}
 	return 0xFF
 }
@@ -251,17 +416,13 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// 單看其中一個看不出寫了什麼。
 	switch p {
 	case 0x388:
-		m.oplReg = v
+		m.oplReg[0] = v
+	case 0x38A:
+		m.oplReg[1] = v
 	case 0x389:
-		if m.oplReg == 0x04 { // 計時器控制
-			switch {
-			case v&0x80 != 0: // bit7 ＝ 重置 IRQ 與狀態
-				m.oplTimerRunning = false
-			case v&0x01 != 0: // bit0 ＝ 啟動計時器 1
-				m.oplTimerRunning = true
-			}
-		}
-		m.OPL = append(m.OPL, OPLWrite{Reg: m.oplReg, Val: v, Step: m.Steps})
+		m.oplWrite(0, v)
+	case 0x38B:
+		m.oplWrite(1, v)
 	}
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
@@ -276,6 +437,18 @@ func (m *Machine) Out8(p uint16, v uint8) {
 			m.dacPhase = 0
 			m.dacIndex++ // 索引自動前進，所以整份調色盤可以一次寫完
 		}
+	}
+
+	// sequencer／GC 索引對（`docs/spec/009` §1）。
+	switch p {
+	case 0x3C4:
+		m.seqIdx = v & 7
+	case 0x3C5:
+		m.seq[m.seqIdx] = v
+	case 0x3CE:
+		m.gcIdx = v & 0x0F
+	case 0x3CF:
+		m.gc[m.gcIdx] = v
 	}
 }
 
@@ -322,8 +495,39 @@ func (m *Machine) Indexed() []uint8 {
 // Step 執行一道指令，必要時先送 IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
+	m.keyTick()
 	m.Steps++
 	return m.CPU.Step()
+}
+
+// QueueScan 把掃描碼排進鍵盤佇列。按下與放開是**兩個**碼
+// （放開是按下碼 or 0x80），兩個都要排——只送按下的話，自己寫鍵盤 ISR
+// 的程式會一直以為那個鍵還按著。
+func (m *Machine) QueueScan(codes ...uint8) {
+	m.keyQueue = append(m.keyQueue, codes...)
+}
+
+// QueueKey 排一次完整的按鍵（按下 ＋ 放開）。
+func (m *Machine) QueueKey(scan uint8) { m.QueueScan(scan, scan|0x80) }
+
+// keyTick 送鍵盤中斷（IRQ1 ＝ `int 09h`）。
+//
+// ⚠ **只走 BIOS 的 int 16h 是不夠的。** 自己裝 int 09h 的程式（本作就是）
+// 從埠 0x60 讀掃描碼，BIOS 緩衝區對它完全不存在——鍵永遠送不進去，
+// 而且沒有任何錯誤，只是遊戲看起來沒反應（`~/cht/logh3/docs/re/08`）。
+func (m *Machine) keyTick() {
+	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
+		return
+	}
+	// 與 IRQ0 同樣的理由：中斷關著的時候先留著，不要丟掉。
+	if !m.CPU.Flag(cpu.IF) || m.Read16(0x09*4+2) == StubSeg {
+		return
+	}
+	m.nextKey = m.Steps + m.KeyEvery
+	m.keyPort = m.keyQueue[0]
+	m.keyQueue = m.keyQueue[1:]
+	m.KeyIRQs++
+	m.CPU.Interrupt(0x09)
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。
@@ -382,21 +586,42 @@ func (m *Machine) bumpBDATicks() {
 
 // ---- 中斷向量表 ----------------------------------------------------------
 
-// initVectors 把 256 個向量全部指到 StubSeg 的 stub。
+// initVectors 給每個向量一段自己的 stub：`int n` ＋ `iret`。
 //
-// 兩件事同時要滿足（`docs/spec/003` §2）：
+// 三件事同時要滿足（`docs/spec/003` §2、`docs/spec/011` §2）：
 //
 //  1. **每一個向量都要是合法位址。** 取到 `0000:0000` 的程式跳過去會執行
 //     到垃圾（`rich2/docs/re/005` §3.2）。
-//  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
+//  2. **第一個位元組不能是 `CFh`。** 滑鼠偵測直接讀 `0000:00CC` 拿到
+//     段:位移，再讀**那個位址的第一個位元組**，是 `CFh` 就判定
+//     「沒有驅動」（`rich2/docs/re/182` §2）。所有向量都指到同一個 IRET
+//     的話，遊戲從此不發 `int 33h`——而且沒有任何錯誤訊息。
+//     每個 stub 的第一個位元組都是 `CDh`，這條自然成立。
+//  3. **[HARD] stub 裡要真的有 `int n`，不能只是 `iret`。** 服務層掛在
+//     CPU 執行 `INT` 指令的 hook 上；程式若改用「`AH=35h` 取向量 → 直接
+//     跳過去」（C 的 `int86x` 就是這樣做的），那條路完全繞過 hook，
+//     落在 `iret` 上就是**安靜地什麼都不做**：暫存器原樣回去，沒有錯誤、
+//     沒有 unimplemented 記錄，只有畫面或資料悄悄不對
+//     （`~/cht/logh3/docs/re/06`：整份調色盤因此永遠是黑的）。
 func (m *Machine) initVectors() {
-	m.Mem[StubSeg*16] = 0xCF                // iret
-	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
-	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
 	for v := 0; v < 256; v++ {
-		m.Write16(uint32(v)*4, 0)
+		off := uint32(StubSeg)*16 + uint32(v)*stubStride
+		m.Mem[off] = 0xCD // int n
+		m.Mem[off+1] = uint8(v)
+		m.Mem[off+2] = 0xCF // iret
+		m.Write16(uint32(v)*4, StubOff(uint8(v)))
 		m.Write16(uint32(v)*4+2, StubSeg)
 	}
-	m.Write16(0x33*4, mouseStubOff)
-	m.Write16(0x33*4+2, StubSeg)
+}
+
+// SetNextKey 設定第一個掃描碼要在第幾道指令送出。
+func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }
+
+// VGAState 回目前的圖形控制器、序列器與 latch。
+//
+// 畫面上的位元不一定等於 CPU 寫進去的位元組：write mode、bit mask、
+// set/reset 與 latch 會先改一次。查「為什麼寫 09 出來是 C3」的時候，
+// 光看寫入指令沒有用，要看那一刻硬體的狀態。
+func (m *Machine) VGAState() (gc [16]uint8, seq [8]uint8, latch [4]uint8) {
+	return m.gc, m.seq, m.latch
 }

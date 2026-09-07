@@ -70,8 +70,62 @@ func (d *DOS) int10(c *cpu.CPU) {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
 		setAL(c, 0x1B) // 表示本服務有支援
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A, 0x10:
-		// 設游標／取游標／設頁／捲動／寫字元／調色盤：收下就好，
+	case 0x10: // 調色盤（`docs/spec/011`）
+		d.PalOps = append(d.PalOps, PalOp{AL: al(c), BX: c.R[cpu.BX],
+			CX: c.R[cpu.CX], DX: c.R[cpu.DX], ES: c.Seg[cpu.ES], Step: d.M.Steps})
+		// ⚠ 這一支的每個 AL 語意都不一樣，而且**屬性調色盤與 DAC 是兩層
+		// 不同的東西**：AL=00/01/02/07/08/09 動的是 16 色的屬性暫存器
+		// （4 位元色號 → 6 位元 DAC 索引），AL=10/12/15/17 動的才是 DAC。
+		// 接錯不會報錯，只會讓顏色安靜地變成別的東西。
+		addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+		switch al(c) {
+		case 0x00: // 設單一屬性暫存器：BL ＝ 索引、BH ＝ 值
+			if bl(c) < 16 {
+				d.M.AttrPal[bl(c)] = bh(c) & 0x3F
+			}
+		case 0x01: // 設 overscan：BH ＝ 值
+			d.M.Overscan = bh(c) & 0x3F
+		case 0x02: // 設整份屬性調色盤：ES:DX → 16 個暫存器 ＋ overscan
+			for i := 0; i < 16; i++ {
+				d.M.AttrPal[i] = d.M.Read8(addr+uint32(i)) & 0x3F
+			}
+			d.M.Overscan = d.M.Read8(addr+16) & 0x3F
+		case 0x07: // 讀單一屬性暫存器：BL ＝ 索引 → BH
+			if bl(c) < 16 {
+				setBH(c, d.M.AttrPal[bl(c)])
+			}
+		case 0x08: // 讀 overscan → BH
+			setBH(c, d.M.Overscan)
+		case 0x09: // 讀整份屬性調色盤 → ES:DX 的 16 ＋ 1 bytes
+			for i := 0; i < 16; i++ {
+				d.M.Write8(addr+uint32(i), d.M.AttrPal[i])
+			}
+			d.M.Write8(addr+16, d.M.Overscan)
+		case 0x10: // 設**單一 DAC**：BX ＝ 索引、DH ＝ R、CH ＝ G、CL ＝ B
+			i := int(c.R[cpu.BX]) & 0xFF
+			d.M.DAC[i*3+0] = uint8(c.R[cpu.DX]>>8) & 0x3F
+			d.M.DAC[i*3+1] = uint8(c.R[cpu.CX]>>8) & 0x3F
+			d.M.DAC[i*3+2] = uint8(c.R[cpu.CX]) & 0x3F
+		case 0x12: // 設一段 DAC：BX ＝ 起始、CX ＝ 個數、ES:DX → 資料
+			first, n := int(c.R[cpu.BX]), int(c.R[cpu.CX])
+			for i := 0; i < n*3 && first*3+i < 768; i++ {
+				d.M.DAC[first*3+i] = d.M.Read8(addr+uint32(i)) & 0x3F
+			}
+		case 0x15: // 讀單一 DAC：BX ＝ 索引 → DH/CH/CL
+			i := int(c.R[cpu.BX]) & 0xFF
+			c.R[cpu.DX] = c.R[cpu.DX]&0x00FF | uint16(d.M.DAC[i*3+0])<<8
+			c.R[cpu.CX] = uint16(d.M.DAC[i*3+1])<<8 | uint16(d.M.DAC[i*3+2])
+		case 0x17: // 讀一段 DAC：BX ＝ 起始、CX ＝ 個數 → ES:DX
+			first, n := int(c.R[cpu.BX]), int(c.R[cpu.CX])
+			for i := 0; i < n*3 && first*3+i < 768; i++ {
+				d.M.Write8(addr+uint32(i), d.M.DAC[first*3+i])
+			}
+		default:
+			d.note(0x10, 0x10, al(c))
+		}
+
+	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
+		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
 		// 呼叫端不看回傳值。
 
 	default:
@@ -92,6 +146,11 @@ func (d *DOS) int33(c *cpu.CPU) {
 	if m.Calls != nil {
 		m.Calls[fn]++
 	}
+	// 虛擬座標倍率：沒指定就依目前的視訊模式決定。
+	scale := m.XScale
+	if scale == 0 {
+		scale = uint16(640 / d.M.PixelWidth())
+	}
 	switch fn {
 	case 0x0000: // 重設並偵測
 		c.R[cpu.AX] = 0xFFFF // 已安裝
@@ -108,29 +167,50 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Polls = append(m.Polls, Poll{X: m.X, Y: m.Y, Buttons: m.Buttons,
 			Step: d.M.Steps})
 		c.R[cpu.BX] = m.Buttons
-		c.R[cpu.CX] = m.X * m.XScale
+		c.R[cpu.CX] = m.X * scale
 		c.R[cpu.DX] = m.Y
 
 	case 0x0004: // 設位置
-		if m.XScale > 0 {
-			m.X = c.R[cpu.CX] / m.XScale
+		if scale > 0 {
+			m.X = c.R[cpu.CX] / scale
 		}
 		m.Y = c.R[cpu.DX]
 		m.Sets = append(m.Sets, Poll{X: m.X, Y: m.Y, Step: d.M.Steps})
 
-	case 0x0005, 0x0006: // 按下／放開的統計
+	case 0x0005, 0x0006: // 按下／放開的統計；輸入 BX ＝ 按鍵編號
+		btn := int(c.R[cpu.BX])
+		if btn > 1 {
+			btn = 1
+		}
+		m.PressQ[btn]++
 		c.R[cpu.AX] = m.Buttons
 		if fn == 0x0005 {
-			c.R[cpu.BX] = m.Press
-			m.Press = 0
+			c.R[cpu.BX] = m.Press[btn]
+			m.Press[btn] = 0
 		} else {
-			c.R[cpu.BX] = m.Release
-			m.Release = 0
+			c.R[cpu.BX] = m.Release[btn]
+			m.Release[btn] = 0
 		}
-		c.R[cpu.CX] = m.X * m.XScale
+		if c.R[cpu.BX] != 0 {
+			m.PressReads = append(m.PressReads, PressRead{Fn: fn, Button: btn,
+				Count: c.R[cpu.BX], X: m.X, Y: m.Y, Step: d.M.Steps,
+				CS: c.Seg[cpu.CS], IP: c.IP})
+		}
+		c.R[cpu.CX] = m.X * scale
 		c.R[cpu.DX] = m.Y
 
-	case 0x0007, 0x0008: // 設水平／垂直範圍：收下就好
+	case 0x0007, 0x0008: // 設水平／垂直範圍
+		if fn == 0x0007 {
+			m.RangeX = [2]uint16{c.R[cpu.CX], c.R[cpu.DX]}
+			m.RangeSet[0] = true
+		} else {
+			m.RangeY = [2]uint16{c.R[cpu.CX], c.R[cpu.DX]}
+			m.RangeSet[1] = true
+		}
+
+	case 0x000C: // 登錄事件 handler（`docs/spec/013` §2）
+		m.EventMask = c.R[cpu.CX]
+		m.EventSeg, m.EventOff = c.Seg[cpu.ES], c.R[cpu.DX]
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}
@@ -179,7 +259,7 @@ func keyWord(b uint8) uint16 {
 // scanCode 是 IBM PC 的 set-1 掃描碼（只列我們送得出去的鍵）。
 var scanCode = map[uint8]uint8{
 	0x1B: 0x01, // ESC
-	'1': 0x02, '2': 0x03, '3': 0x04, '4': 0x05, '5': 0x06,
+	'1':  0x02, '2': 0x03, '3': 0x04, '4': 0x05, '5': 0x06,
 	'6': 0x07, '7': 0x08, '8': 0x09, '9': 0x0A, '0': 0x0B,
 	'\r': 0x1C, '\n': 0x1C, ' ': 0x39,
 	'q': 0x10, 'w': 0x11, 'e': 0x12, 'r': 0x13, 't': 0x14,

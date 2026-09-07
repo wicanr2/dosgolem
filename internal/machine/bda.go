@@ -56,10 +56,18 @@ func (m *Machine) initBDA() {
 	b(0x8A, 0x08) // 顯示卡組合碼：VGA 彩色
 }
 
+// ModeChange 記一次視訊模式切換（除錯「畫了但 plane 是空的」：
+// 寫入發生在模式切換之前＝BDA 還是舊模式，planar 攔截不會動作）。
+type ModeChange struct {
+	Mode uint8
+	Step uint64
+}
+
 // SetVideoMode 把目前模式記進 BDA（`0040:0049`）。
 // `int 10h AH=00h` 與 `AH=0Fh` 兩邊都讀它，所以只留這一份。
 func (m *Machine) SetVideoMode(mode uint8) {
 	m.Mem[bdaSeg*16+0x49] = mode
+	m.ModeChanges = append(m.ModeChanges, ModeChange{Mode: mode, Step: m.Steps})
 	// mode 13h 是 320×200；欄數要跟著改，`AH=0Fh` 會回它。
 	if mode == 0x13 {
 		m.Write16(bdaSeg*16+0x4A, 40)
@@ -68,3 +76,18 @@ func (m *Machine) SetVideoMode(mode uint8) {
 
 // VideoMode 讀回目前模式。
 func (m *Machine) VideoMode() uint8 { return m.Mem[bdaSeg*16+0x49] }
+
+// PixelWidth 回目前模式的水平像素數。
+//
+// 滑鼠驅動的虛擬座標系固定是 640 寬，所以 320 寬的模式回報出去的 X 是
+// 像素的兩倍。**這個倍率不能寫死**：同一個執行器要同時服務 mode 13h
+// （320 寬，倍率 2）與 mode 12h（640 寬，倍率 1）的遊戲，寫死的話其中
+// 一邊的點擊會落在兩倍遠的地方——而畫面上完全看不出來，只是「點了沒反應」。
+func (m *Machine) PixelWidth() int {
+	switch m.VideoMode() {
+	case 0x04, 0x05, 0x0D, 0x13:
+		return 320
+	default:
+		return 640
+	}
+}

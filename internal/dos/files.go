@@ -68,6 +68,20 @@ func (d *DOS) readCString(seg, off uint16, limit int) string {
 
 func (d *DOS) open(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
+	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
+	if isEMMDevice(name) {
+		h := d.nextHandle
+		d.nextHandle++
+		d.handles[h] = &handle{name: name}
+		d.Opened = append(d.Opened, name)
+		if d.OnOpen != nil {
+			d.OnOpen(name)
+		}
+		c.R[cpu.AX] = h
+		clearCarry(c)
+		return
+	}
 	path := d.resolve(name)
 	if path == "" {
 		d.Missing = append(d.Missing, name)
@@ -86,7 +100,11 @@ func (d *DOS) open(c *cpu.CPU) {
 	h := d.nextHandle
 	d.nextHandle++
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
-	d.Opened = append(d.Opened, filepath.Base(path))
+	base := filepath.Base(path)
+	d.Opened = append(d.Opened, base)
+	if d.OnOpen != nil {
+		d.OnOpen(base)
+	}
 	c.R[cpu.AX] = h
 	clearCarry(c)
 }
@@ -117,13 +135,41 @@ func (d *DOS) read(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	if h.f == nil { // 字元裝置（EMMXXXX0）：讀回 EOF
+		c.R[cpu.AX] = 0
+		clearCarry(c)
+		return
+	}
+	pos, _ := h.f.Seek(0, 1)
 	buf := make([]byte, cx)
 	n, _ := h.f.Read(buf)
 	if n < 0 {
 		n = 0
 	}
+	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
+		Pos: pos, Len: n, Step: d.M.Steps})
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
 	c.R[cpu.AX] = uint16(n)
+	clearCarry(c)
+}
+
+// fileAttr 是 `AH=43h`。AL=00 取屬性：找到回 CX=0x20（archive 普通檔）；
+// AL=01 設屬性**不做**（素材唯讀）——記一筆再清 CF，
+// 與 Wrote 清單同一原則：看得見的假，不是安靜的假。
+func (d *DOS) fileAttr(c *cpu.CPU) {
+	if al(c) != 0x00 {
+		d.note(0x21, 0x43, al(c))
+		clearCarry(c)
+		return
+	}
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	if d.resolve(name) == "" && !isEMMDevice(name) {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return
+	}
+	c.R[cpu.CX] = 0x20
 	clearCarry(c)
 }
 
@@ -179,6 +225,11 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	if h.f == nil { // 字元裝置不能 seek
+		c.R[cpu.AX] = 1
+		setCarry(c)
+		return
+	}
 	off := int64(c.R[cpu.CX])<<16 | int64(c.R[cpu.DX])
 	// CX:DX 是**有號**的：從結尾往回 seek 用負數。
 	if c.R[cpu.CX]&0x8000 != 0 {
@@ -190,6 +241,8 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
+	d.FileOps = append(d.FileOps, FileOp{Fn: 0x42, Handle: c.R[cpu.BX],
+		Name: h.name, Pos: pos, Step: d.M.Steps})
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
 	clearCarry(c)

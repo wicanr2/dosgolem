@@ -36,8 +36,14 @@ type Mouse struct {
 	X, Y    uint16
 	Buttons uint16
 	// Press／Release 是 AX=5／AX=6 的統計，讀走就歸零。
-	Press, Release uint16
-	// XScale 是水平的虛擬座標倍率。**2 是標準**。
+	// Press／Release 是**每一顆鍵**的按下／放開次數（索引 0 ＝ 左、1 ＝ 右）。
+	//
+	// ⚠ 不能只記一個總數：`AX=0005h`／`0006h` 的**輸入 BX 是按鍵編號**，
+	// 對左右鍵回同一個計數的話，左鍵的按下會被輪詢右鍵的那一次取走——
+	// 遊戲於是把它當成右鍵（多半是「取消」），畫面上什麼也不會發生。
+	Press, Release [2]uint16
+	// XScale 是水平的虛擬座標倍率。0 表示依視訊模式自動決定
+	// （320 寬 → 2、640 寬 → 1），這是預設；設非 0 就強制用那個值。
 	XScale uint16
 	// Polls 記下每一次 AX=3 回報出去的東西。**這是分辨「輸入沒送到」與
 	// 「送到了但答錯」的唯一辦法**——兩者的畫面表現一模一樣。
@@ -50,6 +56,38 @@ type Mouse struct {
 	// Calls 是每個 int 33h 功能號被叫了幾次。
 	// **診斷「點了沒反應」的第一步**：先確認遊戲到底在讀哪一支。
 	Calls map[uint16]int
+
+	// RangeX／RangeY 是 AX=0007h／0008h 設定的座標範圍（min, max）。
+	// **收下就好會漏掉資訊**：程式用範圍宣告它期待的座標系，
+	// 兩邊對不上時游標與命中判定會整個偏移，而畫面看起來完全正常。
+	RangeX, RangeY [2]uint16
+	RangeSet       [2]bool
+
+	// PressQ 是每個按鍵被查詢的次數（不論回報 0 或非零）——
+	// 用來分辨「遊戲查的是別顆鍵」與「遊戲沒查」。
+	PressQ [2]uint64
+
+	// PressReads 記下每一次「AX=5／6 真的回報了非零次數」——**送不進去與
+	// 遊戲不理會是兩件事**，沒有這個清單就分不開。
+	PressReads []PressRead
+
+	// EventMask／EventSeg／EventOff 是 AX=000Ch 登錄的事件 handler
+	// （`docs/spec/009` §2）。只登錄，不回呼——見該節。
+	EventMask          uint16
+	EventSeg, EventOff uint16
+
+	// Events 是實際送出去的回呼（Buttons 欄位放事件旗標）。
+	Events []Poll
+}
+
+// PressRead 是一次回報出去的按鍵統計。
+type PressRead struct {
+	Fn     uint16 // 5 ＝ 按下、6 ＝ 放開
+	Button int
+	Count  uint16
+	X, Y   uint16
+	Step   uint64
+	CS, IP uint16 // 呼叫端
 }
 
 // Poll 是一次 `AX=3` 的回報內容。
@@ -64,6 +102,10 @@ type DOS struct {
 
 	// Root 是原版素材的目錄（玩家自備）。**本專案不含任何原版檔案。**
 	Root string
+
+	// cbSave／cbActive 是滑鼠事件回呼的返回狀態（見 mouseevent.go）。
+	cbSave   cbFrame
+	cbActive bool
 
 	// Now 是固定時刻，Mouse 是滑鼠狀態。
 	Now   Time
@@ -119,9 +161,37 @@ type DOS struct {
 	Opened  []string
 	Missing []string
 
+	// OnOpen 在每一次成功開檔之後叫一次（參數是檔名，不含路徑）。
+	//
+	// **這是「把一段執行期產物框到某個檔上」唯一的錨。** 例：音樂對拍要
+	// 「只有這一首的暫存器串」——開機會連放好幾首而且是接起來的，
+	// 事後從序列裡找分界只能用猜的。掛在開檔那一刻就不必猜。
+	OnOpen func(name string)
+
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
+
+	// VecSets 記下每一次 `AH=25h` 設中斷向量。
+	// 除錯「中斷跳進垃圾」的第一手：向量是誰在什麼時候設成那個值的。
+	VecSets []VecSet
+
+	// FileOps 記下每一次檔案讀取與定位（AH=3Fh／AH=42h）的檔名與偏移。
+	//
+	// 回答「這個檔案是整份載入還是按需取用」——那決定了要去記憶體找資料，
+	// 還是去看它讀了哪些偏移。字型就是後者：整份 GRAPH.IMG 從來沒有進過
+	// 記憶體，遊戲每畫一個字就 seek 過去讀 30 bytes
+	// （`~/cht/logh3/docs/re/07`）。
+	FileOps []FileOp
+
+	// PalOps 記下每一次 int 10h AH=10h 的子功能與暫存器。
+	// 診斷「圖形對了但顏色全錯」用：這一支的 AL 分支語意各不相同，
+	// 接錯的話不會報錯，只會把別的東西寫進 DAC。
+	PalOps []PalOp
+
+	// MemOps 記下每一次 AH=48h／49h／4Ah 記憶體操作的輸入與結果。
+	// 除錯「模組載到沒人配置過的位址」用：先確定配置器到底發過哪些段。
+	MemOps []MemOp
 
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
@@ -130,12 +200,56 @@ type DOS struct {
 	handles    map[uint16]*handle
 	nextHandle uint16
 	freeSeg    uint16
+
+	// execStack 是 EXEC 的父程式堆疊（`docs/spec/007` §2）。
+	// curPSP 是目前最內層程式的 PSP；lastExit／lastTerm 是最近一次
+	// 子程式的回傳碼與結束方式（`AH=4Dh`）。
+	execStack []execFrame
+	curPSP    uint16
+	lastExit  uint8
+	lastTerm  uint8
+
+	// ems 是 EMS 頁池與映射狀態（`docs/spec/008`）。
+	ems *ems
 }
 
 // Write 是一次被擋下來的寫檔。
 type Write struct {
 	Name string
 	N    int
+}
+
+// VecSet 是一次 `AH=25h` 設中斷向量。
+type VecSet struct {
+	Int      uint8
+	Seg, Off uint16
+	Step     uint64
+}
+
+// FileOp 是一次檔案讀取或定位。Fn 是 int 21h 的 AH。
+type FileOp struct {
+	Fn     uint8
+	Handle uint16
+	Name   string
+	Pos    int64 // AH=42h：定位後的位置；AH=3Fh：讀取起點
+	Len    int   // AH=3Fh：實際讀到幾 bytes
+	Step   uint64
+}
+
+// PalOp 是一次 int 10h AH=10h 呼叫。
+type PalOp struct {
+	AL             uint8
+	BX, CX, DX, ES uint16
+	Step           uint64
+}
+
+// MemOp 是一次記憶體配置操作（AH=48h/49h/4Ah）的記錄。
+type MemOp struct {
+	Fn     uint8
+	BX, ES uint16 // 輸入：段落數／區塊段
+	AX     uint16 // 結果：配置到的段或錯誤碼
+	Step   uint64
+	OK     bool
 }
 
 // Call 是一次沒實作的服務呼叫：哪一個中斷、AH、AL。
@@ -152,12 +266,13 @@ func New(m *machine.Machine, root string) *DOS {
 	return &DOS{
 		M: m, Root: root,
 		Now:           Time{}, // 全 0：與原版的固定種子版對齊，見 Time 的說明
-		Mouse:         Mouse{XScale: 2, Calls: map[uint16]int{}},
+		Mouse:         Mouse{Calls: map[uint16]int{}},
 		Drive:         2, // C:，見 Drive 欄位的說明
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
 		nextHandle:    5, // 0–4 是標準 handle
+		ems:           newEMS(),
 	}
 }
 
@@ -165,6 +280,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
+	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }
 
@@ -208,6 +324,10 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int1A(c)
 	case 0x20:
 		d.exit(c, 0)
+	case 0x67:
+		d.int67(c)
+	case cbRetInt:
+		d.cbReturn(c)
 	default:
 		d.note(n, uint8(c.R[cpu.AX]>>8), uint8(c.R[cpu.AX]))
 		clearCarry(c)
@@ -216,6 +336,12 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {
+	// EXEC 深度 > 0 時是子程式結束：回傳碼記下來，控制權還父程式
+	// （`docs/spec/007` §2），不停機。
+	if len(d.execStack) > 0 {
+		d.childExit(c, code)
+		return
+	}
 	d.Exited, d.ExitCode = true, code
 	c.Halted = true
 }
@@ -275,3 +401,4 @@ func setBH(c *cpu.CPU, v uint8) { c.R[cpu.BX] = c.R[cpu.BX]&0x00FF | uint16(v)<<
 func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
+func bh(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX] >> 8) }

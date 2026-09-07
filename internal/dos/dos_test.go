@@ -179,21 +179,46 @@ func TestVideoModeIsRemembered(t *testing.T) {
 // 防拷畫面的滑鼠點擊因此只有一半有效。
 func TestMouseButtonStatsUseFunctionNumber(t *testing.T) {
 	m, d := newTest(t)
-	d.Mouse.Press, d.Mouse.Release = 3, 7
+	d.Mouse.Press = [2]uint16{3, 0}
+	d.Mouse.Release = [2]uint16{7, 0}
 
+	m.CPU.R[cpu.BX] = 0 // 問左鍵
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 3 {
 		t.Errorf("AX=5 回 BX=%d，預期 3（按下次數）", m.CPU.R[cpu.BX])
 	}
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0006)
 	if m.CPU.R[cpu.BX] != 7 {
 		t.Errorf("AX=6 回 BX=%d，預期 7（放開次數）——分支是不是讀了剛寫的 AX？",
 			m.CPU.R[cpu.BX])
 	}
 	// 讀走就歸零。
+	m.CPU.R[cpu.BX] = 0
 	call(m, d, 0x33, 0x0005)
 	if m.CPU.R[cpu.BX] != 0 {
 		t.Errorf("第二次讀按下統計回 %d，預期 0", m.CPU.R[cpu.BX])
+	}
+}
+
+// TestMouseButtonStatsPerButton：`AX=5`／`AX=6` 的**輸入 BX 是按鍵編號**，
+// 左右鍵各記各的。
+//
+// 對兩顆鍵回同一個計數的話，左鍵的按下會被輪詢右鍵的那一次取走——遊戲把它
+// 當成右鍵（多半是「取消」），畫面上什麼也不會發生，而且沒有任何錯誤徵兆。
+func TestMouseButtonStatsPerButton(t *testing.T) {
+	m, d := newTest(t)
+	d.Mouse.Press = [2]uint16{1, 0} // 只按了左鍵
+
+	m.CPU.R[cpu.BX] = 1 // 先問右鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 0 {
+		t.Fatalf("問右鍵回 BX=%d，預期 0——左鍵的按下被右鍵取走了", m.CPU.R[cpu.BX])
+	}
+	m.CPU.R[cpu.BX] = 0 // 再問左鍵
+	call(m, d, 0x33, 0x0005)
+	if m.CPU.R[cpu.BX] != 1 {
+		t.Errorf("問左鍵回 BX=%d，預期 1", m.CPU.R[cpu.BX])
 	}
 }
 
@@ -218,6 +243,7 @@ func TestMouseResetReportsInstalled(t *testing.T) {
 // 這份紀錄是唯一分得出來的東西。
 func TestMousePollIsRecorded(t *testing.T) {
 	m, d := newTest(t)
+	m.SetVideoMode(0x13) // 320 寬
 	d.Mouse.X, d.Mouse.Y = 100, 50
 	call(m, d, 0x33, 0x0003)
 	if len(d.Mouse.Polls) != 1 {
@@ -225,8 +251,33 @@ func TestMousePollIsRecorded(t *testing.T) {
 	}
 	// mode 13h 的標準驅動水平回報 0–639（`rich2/docs/re/182` §3）。
 	if m.CPU.R[cpu.CX] != 200 || m.CPU.R[cpu.DX] != 50 {
-		t.Errorf("回報 (%d,%d)，預期 (200,50)：水平要乘 XScale",
+		t.Errorf("mode 13h 回報 (%d,%d)，預期 (200,50)：水平要乘 2",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestMouseScaleFollowsVideoMode：虛擬座標倍率要**跟著視訊模式走**，
+// 不能寫死。
+//
+// 驅動的虛擬座標系固定 640 寬，所以 320 寬的模式回報值是像素的兩倍、
+// 640 寬的模式是一比一。寫死成 2 的話，mode 12h 的遊戲收到的點擊會落在
+// 兩倍遠的地方——而畫面完全正常，症狀只是「點了沒反應」，
+// 看起來像遊戲卡住而不是座標錯（`~/cht/logh3/docs/re/08`）。
+func TestMouseScaleFollowsVideoMode(t *testing.T) {
+	for _, c := range []struct {
+		mode    uint8
+		x, want uint16
+	}{
+		{0x13, 100, 200}, {0x0D, 100, 200},
+		{0x12, 300, 300}, {0x10, 300, 300}, {0x03, 300, 300},
+	} {
+		m, d := newTest(t)
+		m.SetVideoMode(c.mode)
+		d.Mouse.X, d.Mouse.Y = c.x, 40
+		call(m, d, 0x33, 0x0005) // 取按下資料也回座標
+		if got := m.CPU.R[cpu.CX]; got != c.want {
+			t.Errorf("模式 %02Xh：X=%d 回報 %d，預期 %d", c.mode, c.x, got, c.want)
+		}
 	}
 }
 
@@ -364,5 +415,61 @@ func TestClockIsZeroForSeedParity(t *testing.T) {
 	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 {
 		t.Errorf("AH=2Ch 回 CX=%04X DX=%04X，預期都是 0（與固定種子版對齊）",
 			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX])
+	}
+}
+
+// TestMouseEventCallsHandlerAndReturns 驗證事件回呼會跳進去、參數對、
+// 而且 `retf` 之後被打斷的那道指令的狀態完好。
+func TestMouseEventCallsHandlerAndReturns(t *testing.T) {
+	m, d := newTest(t)
+	c := m.CPU
+	c.Seg[cpu.SS], c.R[cpu.SP] = 0x3000, 0x0100
+
+	// 在 2000:0100 放一支 handler：只有一道 retf。
+	const hseg, hoff = 0x2000, 0x0100
+	m.Mem[hseg*16+hoff] = 0xCB
+	d.Mouse.EventMask = EvLeftDown | EvLeftUp
+	d.Mouse.EventSeg, d.Mouse.EventOff = hseg, hoff
+	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = 300, 170, 1
+	d.Mouse.XScale = 1
+
+	saveCS, saveIP, saveSP := c.Seg[cpu.CS], c.IP, c.R[cpu.SP]
+	if !d.MouseEvent(EvLeftDown) {
+		t.Fatal("回呼沒有安排")
+	}
+	if c.Seg[cpu.CS] != hseg || c.IP != hoff {
+		t.Fatalf("沒跳進 handler：%04X:%04X", c.Seg[cpu.CS], c.IP)
+	}
+	if c.R[cpu.AX] != EvLeftDown || c.R[cpu.BX] != 1 ||
+		c.R[cpu.CX] != 300 || c.R[cpu.DX] != 170 {
+		t.Fatalf("參數不對：AX=%04X BX=%04X CX=%d DX=%d",
+			c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX])
+	}
+	// retf → 哨兵 int FFh → 復原。
+	for i := 0; i < 4 && d.cbActive; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.cbActive {
+		t.Fatal("回呼沒有收尾")
+	}
+	if c.Seg[cpu.CS] != saveCS || c.IP != saveIP || c.R[cpu.SP] != saveSP {
+		t.Fatalf("狀態沒復原：%04X:%04X SP=%04X（原 %04X:%04X SP=%04X）",
+			c.Seg[cpu.CS], c.IP, c.R[cpu.SP], saveCS, saveIP, saveSP)
+	}
+}
+
+// TestMouseEventRespectsMask：遮罩沒開的事件不得打斷程式。
+func TestMouseEventRespectsMask(t *testing.T) {
+	m, d := newTest(t)
+	d.Mouse.EventMask = EvRightDown
+	d.Mouse.EventSeg, d.Mouse.EventOff = 0x2000, 0x0100
+	cs, ip := m.CPU.Seg[cpu.CS], m.CPU.IP
+	if d.MouseEvent(EvLeftDown) {
+		t.Fatal("遮罩外的事件不該回呼")
+	}
+	if m.CPU.Seg[cpu.CS] != cs || m.CPU.IP != ip {
+		t.Fatal("遮罩外的事件動到了 CS:IP")
 	}
 }

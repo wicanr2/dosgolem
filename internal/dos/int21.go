@@ -31,6 +31,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		}
 		clearCarry(c)
 
+	case 0x0D: // flush disk buffers：我們的寫檔根本不做（Wrote 清單），
+		// 沒有可 flush 的東西——靜默收下（`docs/spec/009` §3），不是「沒實作」。
+		clearCarry(c)
+
 	case 0x19: // 取目前磁碟機
 		// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
@@ -57,6 +61,8 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 而 BASIC 的金錢運算全靠浮點。
 		d.M.Write16(uint32(al(c))*4, c.R[cpu.DX])
 		d.M.Write16(uint32(al(c))*4+2, c.Seg[cpu.DS])
+		d.VecSets = append(d.VecSets, VecSet{Int: al(c),
+			Seg: c.Seg[cpu.DS], Off: c.R[cpu.DX], Step: d.M.Steps})
 		clearCarry(c)
 
 	case 0x2A: // 取系統日期 → CX:DH:DL
@@ -101,9 +107,15 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x42:
 		d.seek(c)
 
+	case 0x43: // 檔案屬性（`docs/spec/008` §4）
+		d.fileAttr(c)
+
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
 			c.R[cpu.DX] = uint16(d.Drive)
+		} else {
+			// 其他子功能沒實作——記下來，別讓「成功」假象藏住。
+			d.note(0x21, 0x44, al(c))
 		}
 		c.R[cpu.AX] = 0
 		clearCarry(c)
@@ -124,6 +136,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 	case 0x4A:
 		d.setBlock(c)
+	case 0x4B:
+		d.exec(c)
+	case 0x4D:
+		d.getReturnCode(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -172,13 +188,19 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 	blk := c.Seg[cpu.ES]
 	avail := uint16(machine.MemTop) - blk
 	if want > avail {
+		d.MemOps = append(d.MemOps, MemOp{Fn: 0x4A, BX: want, ES: blk,
+			AX: avail, Step: d.M.Steps})
 		c.R[cpu.BX] = avail
 		c.R[cpu.AX] = 8 // 記憶體不足
 		setCarry(c)
 		return
 	}
+	d.MemOps = append(d.MemOps, MemOp{Fn: 0x4A, BX: want, ES: blk,
+		AX: 0, Step: d.M.Steps, OK: true})
 	// 程式縮小自己的區塊之後，後面那塊才是可配置的空間。
-	if blk == machine.PSPSeg && blk+want+1 > d.freeSeg {
+	// curPSP 是目前最內層的程式——EXEC 進去的子程式縮的是自己
+	// （`docs/spec/007` §2）。
+	if blk == d.curPSP && blk+want+1 > d.freeSeg {
 		d.freeSeg = blk + want + 1
 	}
 	clearCarry(c)
@@ -192,6 +214,8 @@ func (d *DOS) alloc(c *cpu.CPU) {
 	want := c.R[cpu.BX]
 	avail := uint16(machine.MemTop) - d.freeSeg
 	if want > avail {
+		d.MemOps = append(d.MemOps, MemOp{Fn: 0x48, BX: want,
+			AX: avail, Step: d.M.Steps})
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = avail
 		setCarry(c)
@@ -199,6 +223,8 @@ func (d *DOS) alloc(c *cpu.CPU) {
 	}
 	seg := d.freeSeg + 1 // +1 給假的 MCB
 	d.freeSeg = seg + want
+	d.MemOps = append(d.MemOps, MemOp{Fn: 0x48, BX: want,
+		AX: seg, Step: d.M.Steps, OK: true})
 	c.R[cpu.AX] = seg
 	clearCarry(c)
 }

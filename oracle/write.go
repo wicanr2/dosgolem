@@ -18,3 +18,14 @@ func Phys(linear uint32) Addr {
 // 簽章不同會被 vet 擋下來。
 func (o *Oracle) WriteU8(a Addr, v uint8)   { o.m.Write8(a.Linear(), v) }
 func (o *Oracle) WriteU16(a Addr, v uint16) { o.m.Write16(a.Linear(), v) }
+
+// WriteBytes 直接把一段位元組寫進記憶體。
+//
+// **對拍要固定的是狀態，不是運氣。** 想要某個局面就把它寫進去，
+// 不要靠亂數種子或「重跑到那個畫面」——那種收據換一版執行器就作廢，
+// 而且失敗時分不清是 remake 錯了還是這一次抽到不同的數。
+func (o *Oracle) WriteBytes(a Addr, data []byte) {
+	for i, b := range data {
+		o.m.Write8(a.Linear()+uint32(i), b)
+	}
+}
