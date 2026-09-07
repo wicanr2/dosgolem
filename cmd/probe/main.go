@@ -110,6 +110,7 @@ func main() {
 			"要在整份 EMS 裡找東西得用這個")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入：<lo>-<hi>（十六進位）")
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
+	watchFile := flag.String("watch-file", "", "把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列最後 200 筆）")
 	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
 	callArgs := flag.String("call-args", "",
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
@@ -195,12 +196,6 @@ func main() {
 			die(err)
 		}
 		m.WatchDS, m.WatchDSOn = v, true
-	}
-	type memWrite struct {
-		addr    uint32
-		old, nw uint8
-		step    uint64
-		cs, ip  uint16
 	}
 	var writes []memWrite
 	var dropped int
@@ -460,6 +455,12 @@ func main() {
 		ca.dump()
 	}
 	report(m, d, ring, runErr, *steps)
+	if *watch != "" && *watchFile != "" {
+		if err := writeWatchLog(*watchFile, writes); err != nil {
+			die(err)
+		}
+		fmt.Printf("\n監看紀錄寫到 %s（%d 筆）\n", *watchFile, len(writes))
+	}
 	if *watch != "" {
 		const showN = 200
 		fmt.Printf("\n監看 %s 的寫入（留下 %d 筆，前面丟掉 %d 筆，列最後 %d）：\n",
@@ -1477,4 +1478,31 @@ func writeOPLLog(path string, ws []machine.OPLWrite) error {
 		fmt.Fprintf(w, "%d %02x %02x\n", o.Step, o.Reg, o.Val)
 	}
 	return nil
+}
+
+// memWrite 是 -watch 攔到的一次寫入。
+type memWrite struct {
+	addr    uint32
+	old, nw uint8
+	step    uint64
+	cs, ip  uint16
+}
+
+// writeWatchLog 把監看到的寫入全部倒進檔案，一行一筆：
+//
+//	步數 位址 舊值 新值 CS:IP
+//
+// 畫面上只列得下最後 200 筆，要對整張表的變動就得看這個檔。
+func writeWatchLog(path string, ws []memWrite) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	b := bufio.NewWriter(f)
+	for _, w := range ws {
+		fmt.Fprintf(b, "%d %05x %02x %02x %04x:%04x\n",
+			w.step, w.addr, w.old, w.nw, w.cs, w.ip)
+	}
+	return b.Flush()
 }
