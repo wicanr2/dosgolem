@@ -177,3 +177,48 @@ func TestPlanarMode0EnableSetReset(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanarReadMode1ColorCompare：read mode 1（`docs/spec/017`）。
+// 遊戲用「color don't care ＝ 0 → 讀回 0xFF」當全開的遮罩，再用
+// `and es:[di],al` 把字形寫進去；回 plane 值的話底色 plane 為 0 的格子
+// 遮罩會整個歸零，字一個像素都不畫。
+func TestPlanarReadMode1ColorCompare(t *testing.T) {
+	m := newPlanar()
+	m.vram[0][3] = 0xF0
+	m.vram[1][3] = 0xCC
+	m.vram[2][3] = 0x00
+	m.vram[3][3] = 0xFF
+	m.gc[5] = 0x08 // read mode 1
+
+	m.gc[7] = 0x00 // 哪個 plane 都不比
+	if got := m.Read8(0xA0003); got != 0xFF {
+		t.Errorf("don't care ＝ 0 時回 %02X，預期 FF", got)
+	}
+	for p := 0; p < 4; p++ {
+		if m.latch[p] != m.vram[p][3] {
+			t.Errorf("latch[%d] ＝ %02X，預期 %02X（讀取沒裝 latch）",
+				p, m.latch[p], m.vram[p][3])
+		}
+	}
+
+	m.gc[7], m.gc[2] = 0x01, 0x01 // 只比 plane 0，要它是 1
+	if got := m.Read8(0xA0003); got != 0xF0 {
+		t.Errorf("只比 plane 0（compare 1）＝ %02X，預期 F0", got)
+	}
+
+	m.gc[7], m.gc[2] = 0x01, 0x00 // 只比 plane 0，要它是 0
+	if got := m.Read8(0xA0003); got != 0x0F {
+		t.Errorf("只比 plane 0（compare 0）＝ %02X，預期 0F", got)
+	}
+
+	m.gc[7], m.gc[2] = 0x03, 0x01 // plane 0 要 1、plane 1 要 0
+	if got := m.Read8(0xA0003); got != 0x30 {
+		t.Errorf("比 plane 0/1 ＝ %02X，預期 30", got)
+	}
+
+	m.gc[5] = 0 // read mode 0 不受影響
+	m.gc[4] = 1
+	if got := m.Read8(0xA0003); got != 0xCC {
+		t.Errorf("read mode 0 ＝ %02X，預期 CC", got)
+	}
+}

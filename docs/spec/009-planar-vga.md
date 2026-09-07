@@ -49,8 +49,8 @@
     set/reset 展開——**先照 mode 0 實作並記一筆**（未見證據，§4）。
 - **讀**：任何 CPU 讀都先把四個 plane 該位址的位元組裝進 latch
   （read-modify-write 就靠它）；read mode 0（gc[5] bit3=0）回
-  gc[4] 選的 plane 的位元組。read mode 1（color compare）**不實作**，
-  回 plane 值並記一筆（§4）。
+  gc[4] 選的 plane 的位元組。read mode 1（gc[5] bit3=1，color compare）
+  依 gc[2]／gc[7] 逐位元比對（[`017`](017-planar-read-mode-1.md)）。
 - latch 初始值 0。
 
 ### probe：`-dump-ega <png>`
@@ -81,7 +81,7 @@
 
 | 項 | 狀態 | 觸發條件 |
 |---|---|---|
-| read mode 1（color compare） | 回 plane 值＋記錄 | 有程式用 |
+| read mode 1（color compare） | **已實作**（[`017`](017-planar-read-mode-1.md)）| — |
 | write mode 3 | **已實作**（[`010`](010-exec-memory-reclaim-and-planar-write-modes.md) §2）| — |
 | enable set/reset（gc[1]）| **已實作**（[`010`](010-exec-memory-reclaim-and-planar-write-modes.md) §3）| — |
 | CRTC（3D4/3D5）視窗位移、雙倍掃描 | 不實作（dump 假設線性 plane、原尺寸）| 畫面對拍發現位移/縮放 |

@@ -89,8 +89,26 @@ func (m *Machine) planarRead(off uint32) uint8 {
 		m.latch[p] = m.vram[p][off]
 	}
 	// read mode 0（gc[5] bit3 ＝ 0）：回 gc[4] 選的 plane。
-	// read mode 1（color compare）不實作，回 plane 值（spec §4）。
-	return m.vram[m.gc[4]&3][off]
+	if m.gc[5]&0x08 == 0 {
+		return m.vram[m.gc[4]&3][off]
+	}
+	// read mode 1（color compare，`docs/spec/017`）：回傳位元 i ＝ 1
+	// 代表像素 i 在所有「參與比較」的 plane 上都與 gc[2] 相符。
+	// gc[7]（color don't care）為 0 的 plane 不參與；全 0 就代表
+	// 每個像素都相符，回 0xFF——遊戲拿它當「全開的遮罩」用。
+	cc, dc := m.gc[2]&0x0F, m.gc[7]&0x0F
+	res := uint8(0xFF)
+	for p := 0; p < 4; p++ {
+		if dc>>uint(p)&1 == 0 {
+			continue
+		}
+		if cc>>uint(p)&1 != 0 {
+			res &= m.vram[p][off]
+		} else {
+			res &^= m.vram[p][off]
+		}
+	}
+	return res
 }
 
 // PlanarPixels 把四個 plane 解成 8 位元色號陣列（每像素 4 位元）。
