@@ -18,9 +18,9 @@ type FD2StartupDOS struct {
 	// 不必再抄一份（`docs/spec/184-mvp-scope-review` 批次 2）。
 	DPMI       *DPMIHost
 	dosVectors [256]uint64
-	files           ReadOnlyFileProvider
-	handles         map[uint16]io.ReadSeekCloser
-	nextHandle      uint16
+	files      ReadOnlyFileProvider
+	handles    map[uint16]io.ReadSeekCloser
+	nextHandle uint16
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
