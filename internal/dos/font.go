@@ -210,7 +210,6 @@ func (d *DOS) fontBytes(name string, off, size int) []byte {
 	return data[off : off+size]
 }
 
-
 // sysConfigOff 是 `int 15h AH=C0h` 的系統設定表在 StubSeg 裡的位移。
 //
 // ⚠ **要避開所有 stub**：每個向量的 stub 佔 0x000–0x3FF，特殊 stub 在
