@@ -355,10 +355,9 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 func (d *DOS) closeHandlesOf(psp uint16) {
 	for h, hh := range d.handles {
 		if hh.psp == psp {
-			if hh.f != nil {
-				hh.f.Close()
-			}
-			delete(d.handles, h)
+			// 走 releaseHandle：`AH=45h` 複製出來的號碼共用同一個檔案指標，
+			// 直接 Close 會把還在別人名下的那一份也關掉。
+			d.releaseHandle(h, hh)
 		}
 	}
 }

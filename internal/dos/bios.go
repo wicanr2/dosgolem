@@ -19,6 +19,31 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 記進 BDA。一直回 3 的話，程式設了 mode 13h 之後再查會以為沒設成功。
 		d.M.SetVideoMode(al(c) & 0x7F)
 
+	case 0x0C: // 寫像素：AL ＝ 色號、CX ＝ X、DX ＝ Y
+		// **有程式真的用 BIOS 畫點**（慢，但存在；標題畫面與工具程式尤其）。
+		// 不做的話畫面整片不出現，而程式一路跑到底——看起來像它沒有畫。
+		//
+		// AL 的 bit7 是 XOR 模式（CGA／EGA 的定義）。
+		d.putPixel(al(c), c.R[cpu.CX], c.R[cpu.DX])
+
+	case 0x0D: // 讀像素：CX ＝ X、DX ＝ Y → AL ＝ 色號
+		setAL(c, d.getPixel(c.R[cpu.CX], c.R[cpu.DX]))
+
+	case 0x13: // 寫字串：ES:BP ＝ 字串、CX ＝ 長度、AL ＝ 模式
+		// 模式 bit0 ＝ 寫完更新游標、bit1 ＝ 字串裡帶屬性位元組。
+		// 我們沒有真的文字游標，只把字元收進 Console——那是「程式對我們
+		// 說了什麼」的管道，漏掉的話錯誤訊息就消失了。
+		step := uint16(1)
+		if al(c)&0x02 != 0 {
+			step = 2
+		}
+		for i := uint16(0); i < c.R[cpu.CX]; i++ {
+			ch := d.M.Read8(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BP]+i*step))
+			if ch >= 0x20 || ch == '\r' || ch == '\n' {
+				d.Console = append(d.Console, ch)
+			}
+		}
+
 	case 0x0E: // TTY 輸出
 		if al(c) >= 0x20 {
 			d.Console = append(d.Console, al(c))
@@ -225,6 +250,28 @@ func (d *DOS) int33(c *cpu.CPU) {
 	case 0x0008: // 設垂直範圍
 		m.MinY, m.MaxY = c.R[cpu.CX], c.R[cpu.DX]
 
+	case 0x000B: // 讀相對位移（mickey）：CX ＝ 水平、DX ＝ 垂直
+		// **讀過歸零**——它的定義是「自從上次呼叫以來」。不歸零的話，
+		// 用相對位移轉視角的程式會一直收到同一個位移，畫面自己轉不停。
+		c.R[cpu.CX] = uint16(m.MickeyX)
+		c.R[cpu.DX] = uint16(m.MickeyY)
+		m.MickeyX, m.MickeyY = 0, 0
+
+	case 0x000A: // 設文字游標形狀：收下（我們不畫游標）
+	case 0x0009: // 設圖形游標形狀：收下
+
+	case 0x0010: // 條件式隱藏游標：收下
+
+	case 0x001A: // 設靈敏度：與 AX=0Fh 同一組，收下
+	case 0x001B: // 取靈敏度
+		c.R[cpu.BX], c.R[cpu.CX] = 8, 8 // 預設 8 mickey/8 pixel
+		c.R[cpu.DX] = 16                // 倍速門檻
+
+	case 0x0024: // 取驅動版本／型別
+		// BH:BL ＝ 版本（8.03），CH ＝ 型別（4 ＝ PS/2），CL ＝ IRQ（0 ＝ PS/2）
+		c.R[cpu.BX] = 0x0803
+		c.R[cpu.CX] = 0x0400
+
 	case 0x000C: // 設事件處理常式：ES:DX ＝ 常式、CX ＝ 事件遮罩
 		// **這一支要真的呼叫**（`docs/spec/009`）。《臥龍傳》靠它維持
 		// 畫面上那隻手：一次四千萬道指令的跑分裡 `AX=3` 只有 5 次，
@@ -296,6 +343,17 @@ func (d *DOS) int16(c *cpu.CPU) {
 		}
 		c.SetFlags(c.Flags &^ cpu.ZF)
 		c.R[cpu.AX] = keyWord(d.Stdin[0]) // 查看不取走
+	case 0x05: // 把一個鍵塞進緩衝區：CX ＝ 掃描碼<<8 | ASCII
+		// 巨集程式與自動輸入靠它把鍵餵給別人。**滿了要回 AL=1**，
+		// 回 0 的話呼叫端以為塞進去了，而那個鍵消失得無聲無息。
+		if d.M.PushBIOSKey(uint8(c.R[cpu.CX]>>8), uint8(c.R[cpu.CX])) {
+			setAL(c, 0)
+		} else {
+			setAL(c, 1)
+		}
+
+	case 0x03: // 設 typematic 速率：收下（我們沒有重複輸入的模型）
+
 	case 0x02, 0x12: // 取旗標狀態
 		setAL(c, 0)
 	case 0x13: // DOS/V 的鍵盤擴充狀態：收下，回「沒有特殊狀態」
@@ -510,6 +568,10 @@ func (d *DOS) MoveMouse(x, y int) {
 	}
 	dx, dy := int16(nx)-int16(m.X), int16(ny)-int16(m.Y)
 	m.X, m.Y = nx, ny
+	// 累加給 `AX=0Bh` 用。事件回呼那一份是「這一次事件的位移」，
+	// 這一份是「自從程式上次問以來的總和」——兩個問題不一樣。
+	m.MickeyX += dx
+	m.MickeyY += dy
 	d.fireMouseEventMickeys(EventMove, dx, dy)
 }
 
@@ -552,4 +614,41 @@ func (d *DOS) fireMouseEventMickeys(mask uint16, dx, dy int16) {
 		CX: m.X * d.mouseXScale(), DX: m.Y,
 		SI: uint16(dx), DI: uint16(dy),
 	})
+}
+
+// putPixel／getPixel 是 `int 10h AH=0Ch`／`0Dh`。
+//
+// 兩種畫面版面都要認：mode 13h 是「一個位元組一個像素」的線性緩衝區，
+// 平面模式（0Dh/0Eh/10h/12h）是四個位元平面。**拿錯版面的話寫進去的
+// 位元組會落在別的地方**，而畫面看起來只是「多了幾個雜點」。
+func (d *DOS) putPixel(color uint8, x, y uint16) {
+	w, h := d.M.VideoSize()
+	if w == 0 || int(x) >= w || int(y) >= h {
+		return
+	}
+	if pw, _ := d.M.PlanarSize(); pw != 0 {
+		// 平面模式：一個位元組管八個像素，位元 7 是最左邊那個。
+		// 走 VGA 的寫入路徑（Map Mask、位元遮罩、latch 都照規則走），
+		// 這樣程式先設過的暫存器仍然有效。
+		off := uint32(int(y)*(pw/8) + int(x)/8)
+		mask := uint8(0x80 >> (x % 8))
+		d.M.PlanarPutPixel(off, mask, color)
+		return
+	}
+	d.M.Write8(uint32(machine.VideoSeg)*16+uint32(int(y)*w+int(x)), color)
+}
+
+func (d *DOS) getPixel(x, y uint16) uint8 {
+	w, h := d.M.VideoSize()
+	if w == 0 || int(x) >= w || int(y) >= h {
+		return 0
+	}
+	if pw, ph := d.M.PlanarSize(); pw != 0 {
+		px := d.M.PlanarPixels(pw, ph)
+		if i := int(y)*pw + int(x); i < len(px) {
+			return px[i]
+		}
+		return 0
+	}
+	return d.M.Read8(uint32(machine.VideoSeg)*16 + uint32(int(y)*w+int(x)))
 }

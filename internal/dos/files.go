@@ -25,6 +25,12 @@ type handle struct {
 	psp uint16
 	// writable 為真時 `AH=40h` 真的寫下去（暫存層或 AllowFileWrites）。
 	writable bool
+	// refs 是有幾個 handle 號碼指著這一份。
+	//
+	// `AH=45h`／`46h` 複製出來的號碼**共用同一個檔案指標**（真 DOS 的 JFT
+	// 兩項指向同一個 SFT），所以關掉其中一個不能關檔——關了的話，
+	// 程式對另一個號碼讀會拿到「無效 handle」，而它剛剛才成功複製過。
+	refs int
 }
 
 // resolve 把遊戲組出來的路徑對到實際檔案。
@@ -149,7 +155,7 @@ func (d *DOS) open(c *cpu.CPU) {
 			setCarry(c)
 			return
 		}
-		d.handles[h] = &handle{name: name, psp: d.curPSP}
+		d.handles[h] = &handle{name: name, psp: d.curPSP, refs: 1}
 		d.Opened = append(d.Opened, name)
 		if d.OnOpen != nil {
 			d.OnOpen(name)
@@ -200,7 +206,7 @@ func (d *DOS) open(c *cpu.CPU) {
 		return
 	}
 	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(),
-		psp: d.curPSP, writable: allowed}
+		psp: d.curPSP, writable: allowed, refs: 1}
 	base := filepath.Base(path)
 	d.Opened = append(d.Opened, base)
 	d.trace(FileOp{Op: "open", Fn: 0x3D, Handle: h, Name: name,
@@ -271,7 +277,7 @@ func (d *DOS) create(c *cpu.CPU) {
 			setCarry(c)
 			return
 		}
-		d.handles[h] = &handle{name: name, psp: d.curPSP}
+		d.handles[h] = &handle{name: name, psp: d.curPSP, refs: 1}
 		c.R[cpu.AX] = h
 		clearCarry(c)
 		return
@@ -295,7 +301,7 @@ func (d *DOS) create(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	d.handles[h] = &handle{name: name, path: path, f: f, psp: d.curPSP, writable: true}
+	d.handles[h] = &handle{name: name, path: path, f: f, psp: d.curPSP, writable: true, refs: 1}
 	d.trace(FileOp{Op: "create", Fn: 0x3C, Handle: h, Name: name})
 	c.R[cpu.AX] = h
 	clearCarry(c)
@@ -322,11 +328,18 @@ func (d *DOS) close(c *cpu.CPU) {
 		return
 	}
 	d.trace(FileOp{Op: "close", Fn: 0x3E, Handle: c.R[cpu.BX], Name: h.name})
-	if h.f != nil {
-		h.f.Close()
-	}
-	delete(d.handles, c.R[cpu.BX])
+	d.releaseHandle(c.R[cpu.BX], h)
 	clearCarry(c)
+}
+
+// releaseHandle 放掉一個號碼；最後一個放掉的才真的關檔。
+func (d *DOS) releaseHandle(num uint16, h *handle) {
+	delete(d.handles, num)
+	h.refs--
+	if h.refs <= 0 && h.f != nil {
+		h.f.Close()
+		h.f = nil
+	}
 }
 
 func (d *DOS) read(c *cpu.CPU) {
@@ -468,37 +481,6 @@ func (d *DOS) seek(c *cpu.CPU) {
 		Name: h.name, Whence: al(c), Arg: off, Pos: pos})
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
-	clearCarry(c)
-}
-
-func (d *DOS) findFirst(c *cpu.CPU) {
-	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
-	path := d.resolve(name)
-	if path == "" {
-		c.R[cpu.AX] = 18 // No more files / no match.
-		setCarry(c)
-		return
-	}
-	st, err := os.Stat(path)
-	if err != nil || st.IsDir() || st.Size() < 0 || st.Size() > 0xFFFFFFFF {
-		c.R[cpu.AX] = 18
-		setCarry(c)
-		return
-	}
-	base := cpu.Addr(d.dtaSeg, d.dtaOff)
-	d.M.WriteBytes(base, make([]byte, 43))
-	d.M.Write8(base+0x15, 0x20)
-	d.M.Write16(base+0x16, 0)
-	d.M.Write16(base+0x18, 0)
-	size := uint32(st.Size())
-	d.M.Write16(base+0x1A, uint16(size))
-	d.M.Write16(base+0x1C, uint16(size>>16))
-	dosName := strings.ToUpper(filepath.Base(path))
-	if len(dosName) > 12 {
-		dosName = dosName[:12]
-	}
-	d.M.WriteBytes(base+0x1E, append([]byte(dosName), 0))
-	c.R[cpu.AX] = 0
 	clearCarry(c)
 }
 

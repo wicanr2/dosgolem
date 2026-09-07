@@ -73,6 +73,13 @@ type Mouse struct {
 	// PressAt／ReleaseAt 是該鍵最後一次按下／放開的座標。
 	// `AX=5`／`AX=6` 回的是**那一刻**的位置，不是現在的位置。
 	PressAt, ReleaseAt [3][2]uint16
+	// MickeyX／MickeyY 是**自從上次呼叫 `AX=0Bh` 以來**的相對位移。
+	//
+	// 絕對座標（`AX=03h`）與相對位移是兩種輸入模型，用相對位移轉視角或
+	// 拖曳地圖的程式只讀這一組；只做絕對座標的話它們收到的永遠是 0，
+	// 畫面完全不動，看起來像滑鼠沒接上。
+	MickeyX, MickeyY int16
+
 	// XScale 是水平的虛擬座標倍率。0 表示依視訊模式自動決定
 	// （320 寬 → 2、640 寬 → 1），這是預設；設非 0 就強制用那個值。
 	XScale uint16
@@ -242,6 +249,10 @@ type DOS struct {
 	Drive uint8
 	Dir   string
 
+	// SwitchChar 是 `AH=37h` 的選項字元。DOS 從 2.0 起固定是 `/`
+	// （`SWITCHAR=` 那個設定在 5.0 之後就沒有作用了）。
+	SwitchChar uint8
+
 	// Unimplemented 記下每一個沒實作的功能號被叫了幾次。
 	//
 	// **「宣告成功」本身也會說謊**：該填的緩衝區沒填就是垃圾，症狀出現在
@@ -366,6 +377,39 @@ type DOS struct {
 	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
 	// 1 MB 空間裡的 D000h 段。
 	ems *ems
+
+	// XMS 的狀態（`xms.go`）：HMA 有沒有被拿走、A20 的巢狀開關次數、
+	// EMB 的鎖定次數、UMB 的配置。
+	hmaOwned  bool
+	a20Local  int
+	embLocks  map[uint16]int
+	umbFree   uint16
+	umbBlocks map[uint16]uint16
+
+	// allocStrategy 是 `AH=58h` 設的配置策略（0 ＝ first fit、1 ＝ best fit、
+	// 2 ＝ last fit；高位元組管 UMB，我們只看低兩位），umbLink 是「UMB 有沒有
+	// 併進配置鏈」。**兩個都要真的生效**，否則 `AH=58h` 讀回來的值與
+	// `AH=48h` 實際的行為對不上，而程式是照讀回來的值決定要不要自己搬家的。
+	allocStrategy uint16
+	umbLink       bool
+
+	// tempCount 是 `AH=5Ah` 產生暫存檔名的流水號。
+	//
+	// **不用時間也不用亂數**：同一份輸入要得到同一組檔名，否則兩次執行
+	// 的檔案清單對不起來，對拍會把差異歸到別處。
+	tempCount uint16
+
+	// finds 是進行中的目錄搜尋（`AH=4Eh`／`4Fh`），編號由 DTA 帶著走。
+	// 見 `find.go`：狀態放 DTA 才容得下同時進行的兩個搜尋。
+	finds    map[uint16]*findState
+	nextFind uint16
+
+	// lastErr 是最近一次失敗的 DOS 錯誤碼，`AH=59h` 問的就是它。
+	//
+	// **要與那一次失敗一致。** 分開記兩份的話，程式問到的原因與實際
+	// 失敗的原因會對不上，而它會照著錯的原因決定下一步（重試、換檔名、
+	// 放棄），從外面看是「它處理錯誤的邏輯壞了」。
+	lastErr uint16
 
 	// dtaSeg／dtaOff 是 Disk Transfer Area（`AH=1Ah` 設，`AH=4Eh`／`4Fh` 用）。
 	// 預設是 PSP+80h，與真 DOS 相同。
@@ -569,6 +613,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Font:          DefaultFont(),
 		Sound:         map[uint8]int{},
 		Drive:         2, // C:，見 Drive 欄位的說明
+		SwitchChar:    '/',
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},

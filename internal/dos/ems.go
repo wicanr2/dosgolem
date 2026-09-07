@@ -172,6 +172,16 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		}
 		setAH(c, 0)
 
+	case 0x4E: // Get／Set Page Map（EMS 4.0）
+		// AL=00 存到 ES:DI、AL=01 從 DS:SI 取回、AL=02 兩者一起做、
+		// AL=03 回這份對映表要幾個位元組。
+		//
+		// **這是比 `47h`／`48h` 新的那一套**：中斷處理常式借用 page frame
+		// 時用它把整份對映表搬進自己的緩衝區。只做 `47h`／`48h` 的話，
+		// 用 4.0 寫法的程式會拿到 84h（沒有這個功能）然後**改走不借用
+		// page frame 的慢路徑**——行為與原版不同，而且不會報錯。
+		d.emsPageMap(c)
+
 	case 0x4B: // Get Handle Count
 		c.R[cpu.BX] = uint16(len(e.handles))
 		setAH(c, 0)
@@ -184,6 +194,17 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		}
 		c.R[cpu.BX] = uint16(len(h.pages))
 		setAH(c, 0)
+
+	case 0x50: // Map／Unmap Multiple Pages（EMS 4.0）
+		// AL=00：DS:SI 是「邏輯頁, 實體頁」的陣列；AL=01：陣列裡放的是
+		// 段位址而不是實體頁號。CX ＝ 幾組。
+		//
+		// **一次換好幾頁是原子的**：中間失敗要保持原狀，不然程式以為
+		// 換好了，實際上只換了前半——它讀到的是兩份資料拼起來的東西。
+		d.emsMapMultiple(c)
+
+	case 0x51: // Reallocate Pages：BX ＝ 新的頁數、DX ＝ handle
+		d.emsRealloc(c)
 
 	case 0x58: // Get Mappable Physical Address Array
 		// AL=00：把陣列寫到 ES:DI（每項 ＝ 段 ＋ 實體頁號）；AL=01：只回項數。
@@ -340,4 +361,144 @@ func (d *DOS) EMSFlushAll() {
 	for p := 0; p < emsPhysPages; p++ {
 		d.emsFlush(p)
 	}
+}
+
+// emsPageMap 是 `AH=4Eh`：整份對映表的存／取。
+//
+// 表的內容是我們自己的格式（每個實體頁 4 bytes：handle ＋ 邏輯頁），
+// 程式只會把它原封不動存起來再交回來——**規格明講它是 opaque 的**。
+// 唯一的要求是「取回來之後畫面上的資料要跟存的時候一樣」。
+func (d *DOS) emsPageMap(c *cpu.CPU) {
+	e := d.emsState()
+	const entry = 4
+	switch al(c) {
+	case 0x00, 0x02: // 存（02 是先存再取）
+		dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI])
+		for p := 0; p < emsPhysPages; p++ {
+			h, page := uint16(0xFFFF), uint16(0xFFFF)
+			if m := e.frame[p]; m != nil {
+				h, page = m.h, m.page
+			}
+			d.M.Write16(dst+uint32(p*entry), h)
+			d.M.Write16(dst+uint32(p*entry)+2, page)
+		}
+		if al(c) == 0x00 {
+			setAH(c, 0)
+			return
+		}
+		fallthrough
+	case 0x01: // 取回
+		src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+		// **先把現在映著的寫回去**，再照表重映——順序反了的話，
+		// 被換掉的那一頁的修改會留在 page frame 裡然後被寫進新的那一頁。
+		for p := 0; p < emsPhysPages; p++ {
+			d.emsFlush(p)
+		}
+		for p := 0; p < emsPhysPages; p++ {
+			h := d.M.Read16(src + uint32(p*entry))
+			page := d.M.Read16(src + uint32(p*entry) + 2)
+			if h == 0xFFFF {
+				e.frame[p] = nil
+				continue
+			}
+			hh, ok := e.handles[h]
+			if !ok || int(page) >= len(hh.pages) {
+				setAH(c, 0xA3) // 對映表的內容壞了
+				return
+			}
+			d.emsLoad(p, h, page)
+		}
+		setAH(c, 0)
+	case 0x03: // 問這份表要幾個位元組
+		setAL(c, emsPhysPages*entry)
+		setAH(c, 0)
+	default:
+		d.note(0x67, 0x4E, al(c))
+		setAH(c, 0x8F) // 無效的子功能
+	}
+}
+
+// emsMapMultiple 是 `AH=50h`：一次換好幾頁。
+func (d *DOS) emsMapMultiple(c *cpu.CPU) {
+	e := d.emsState()
+	h, ok := e.handles[c.R[cpu.DX]]
+	if !ok {
+		setAH(c, 0x83)
+		return
+	}
+	n := int(c.R[cpu.CX])
+	src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	type pair struct{ logical, phys uint16 }
+	list := make([]pair, 0, n)
+
+	// **先全部檢查再全部套用。** 中間失敗就回原狀：程式以為換好了、
+	// 實際只換了前半的話，它讀到的是兩份資料拼起來的東西，
+	// 而那看起來像資料檔壞了。
+	for i := 0; i < n; i++ {
+		logical := d.M.Read16(src + uint32(i*4))
+		phys := d.M.Read16(src + uint32(i*4) + 2)
+		if al(c) == 0x01 { // 陣列裡放的是段位址
+			seg := phys
+			if seg < machine.EMSFrameSeg {
+				setAH(c, 0x8B)
+				return
+			}
+			phys = (seg - machine.EMSFrameSeg) / (emsPageSize / 16)
+		}
+		if int(phys) >= emsPhysPages {
+			setAH(c, 0x8B) // 實體頁超範圍
+			return
+		}
+		if logical != 0xFFFF && int(logical) >= len(h.pages) {
+			setAH(c, 0x8A) // 邏輯頁超範圍
+			return
+		}
+		list = append(list, pair{logical, phys})
+	}
+	for _, p := range list {
+		d.emsFlush(int(p.phys))
+		if p.logical == 0xFFFF {
+			e.frame[p.phys] = nil
+			continue
+		}
+		d.emsLoad(int(p.phys), c.R[cpu.DX], p.logical)
+	}
+	setAH(c, 0)
+	d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x50,
+		Handle: c.R[cpu.DX], Pages: n})
+}
+
+// emsRealloc 是 `AH=51h`：改變一個 handle 的頁數。
+//
+// **縮小要保留前面那些頁的內容**：程式縮小之後仍然會讀它們。
+func (d *DOS) emsRealloc(c *cpu.CPU) {
+	e := d.emsState()
+	h, ok := e.handles[c.R[cpu.DX]]
+	if !ok {
+		setAH(c, 0x83)
+		return
+	}
+	want := int(c.R[cpu.BX])
+	avail := emsTotalPages - e.used() + len(h.pages)
+	if want > avail {
+		c.R[cpu.BX] = uint16(len(h.pages))
+		setAH(c, 0x88) // 現在沒有那麼多
+		return
+	}
+	// 縮小之前要把還映著、而且落在被砍掉範圍裡的實體頁先寫回並解除映射。
+	for p := 0; p < emsPhysPages; p++ {
+		if m := e.frame[p]; m != nil && m.h == c.R[cpu.DX] && int(m.page) >= want {
+			d.emsFlush(p)
+			e.frame[p] = nil
+		}
+	}
+	for len(h.pages) < want {
+		h.pages = append(h.pages, make([]byte, emsPageSize))
+	}
+	if want < len(h.pages) {
+		h.pages = h.pages[:want]
+	}
+	setAH(c, 0)
+	d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x51,
+		Handle: c.R[cpu.DX], Pages: want})
 }

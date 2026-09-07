@@ -456,6 +456,24 @@ func (m *Machine) PlanarRGB() (w, h int, rgb []uint8) {
 	return w, h, rgb
 }
 
+// PlanarPutPixel 在平面模式下畫一個點：off 是位元組位移、mask 是那一格的
+// 位元、color 是 0–15 的色號。
+//
+// **不走 VGA 的寫入路徑**：`int 10h AH=0Ch` 是 BIOS 服務，BIOS 自己會設
+// 好 Set/Reset 與位元遮罩再寫；我們直接改平面，程式先前設的繪圖控制器
+// 狀態因此不受影響——真 BIOS 也會把它設回去。走 VGA.Write 的話，
+// 程式留在暫存器裡的 write mode 或 Map Mask 會把這一點畫錯或畫不出來。
+func (m *Machine) PlanarPutPixel(off uint32, mask, color uint8) {
+	off &= PlaneSize - 1
+	for p := 0; p < 4; p++ {
+		if color&(1<<p) != 0 {
+			m.VGA.Planes[p][off] |= mask
+		} else {
+			m.VGA.Planes[p][off] &^= mask
+		}
+	}
+}
+
 // PlanarPixels 把四個平面解成色號陣列。w/h 由呼叫端依模式給。
 func (m *Machine) PlanarPixels(w, h int) []uint8 { return m.VGA.Pixels(w, h) }
 

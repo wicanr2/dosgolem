@@ -80,6 +80,43 @@ func (d *DOS) installFont() {
 // （`docs/spec/004` §2.1）：DOSJP 掛走 int 15h 之後 chain 回舊向量
 // 要到得了這裡。
 func (d *DOS) int15(c *cpu.CPU) {
+	switch ah(c) {
+	case 0x88: // 取延伸記憶體大小（KB，1 MB 之上）
+		// XMS 之前的程式問這個。**回 0 會被讀成「沒有延伸記憶體」**，
+		// 於是它連 XMS 都不問，直接把資料塞進傳統記憶體。
+		c.R[cpu.AX] = xmsTotalKB
+		clearCarry(c)
+		return
+
+	case 0x87: // 延伸記憶體區塊搬移：ES:SI ＝ GDT、CX ＝ 要搬幾個 word
+		d.int15Move(c)
+		return
+
+	case 0x86: // 等待 CX:DX 微秒
+		// 我們是指令數模型，沒有牆上的時鐘。**收下並回成功**：
+		// 回失敗的話呼叫端會改用忙等迴圈，那更慢而且一樣不準。
+		// 等待長度記進 Unimplemented 以外的地方沒有意義，所以只記一筆。
+		d.note(0x15, 0x86, 0)
+		clearCarry(c)
+		return
+
+	case 0xC0: // 取系統設定表 → ES:BX
+		// 程式拿它判機型與有沒有第二個 PIC。**指到合法位址就好**——
+		// 回 CF 的話有些程式會以為自己在 PC/XT 上而關掉 286 以上的路徑。
+		d.M.WriteBytes(uint32(machine.StubSeg)*16+sysConfigOff, []byte{
+			0x08, 0x00, // 表長度 8
+			0xFC,       // 機型：AT
+			0x01,       // 次機型
+			0x00,       // BIOS 版本
+			0x74,       // 功能：有第二個 PIC、有 RTC
+			0x00, 0x00, // 保留
+		})
+		c.Seg[cpu.ES] = machine.StubSeg
+		c.R[cpu.BX] = sysConfigOff
+		setAH(c, 0)
+		clearCarry(c)
+		return
+	}
 	if ah(c) != 0x50 || al(c) != 0x00 {
 		d.note(0x15, ah(c), al(c))
 		clearCarry(c)
@@ -171,4 +208,44 @@ func (d *DOS) fontBytes(name string, off, size int) []byte {
 		return nil
 	}
 	return data[off : off+size]
+}
+
+// sysConfigOff 是 `int 15h AH=C0h` 的系統設定表在 StubSeg 裡的位移，
+// inDOSOff 是 `int 21h AH=34h` 的 InDOS 旗標。
+//
+// ⚠ **上下兩邊都有鄰居，只避開一邊不夠。**
+// 下面是 stub：每個向量的 stub 佔 0x000–0x3FF，特殊 stub 從 0x400 起，
+// 其中 BIOS 計時器有 24 個 byte，到 0x438 為止（見 `machine.initVectors`）。
+// 上面是環境區塊：`StubSeg`（0x0080）與 `EnvSeg`（0x00D0）只差 0x50 段，
+// 也就是**位移 0x500 就是 `EnvSeg:0000`**——擺在那裡等於把 `COMSPEC=`
+// 的前 8 個 byte 蓋掉，而程式讀自己的環境時只會看到一段亂碼，
+// 不會有任何錯誤。0x440 起這一段前後都留得開。
+const (
+	sysConfigOff = 0x440
+	inDOSOff     = 0x450
+)
+
+// int15Move 是 `AH=87h`：用 GDT 描述子搬移延伸記憶體。
+//
+// GDT 在 ES:SI，六個描述子各 8 bytes；第 2 個（位移 10h）是來源、
+// 第 3 個（位移 18h）是目的。每個描述子：+0 界限、+2..+4 24 位元基底。
+// CX 是**要搬幾個 word**，不是 byte——看成 byte 的話只搬一半，
+// 而後半段留著上一次的內容，看起來像資料檔只壞了後面。
+func (d *DOS) int15Move(c *cpu.CPU) {
+	gdt := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.SI])
+	base := func(off uint32) uint32 {
+		lo := uint32(d.M.Read16(gdt + off + 2))
+		hi := uint32(d.M.Read8(gdt + off + 4))
+		return lo | hi<<16
+	}
+	src, dst := base(0x10), base(0x18)
+	n := uint32(c.R[cpu.CX]) * 2
+	for i := uint32(0); i < n; i++ {
+		d.M.Write8(dst+i, d.M.Read8(src+i))
+	}
+	setAH(c, 0) // 搬移成功
+	clearCarry(c)
+	d.XMSMoves = append(d.XMSMoves, XMSMove{
+		Step: d.M.Steps, Len: n, SrcOff: src, DstOff: dst,
+	})
 }

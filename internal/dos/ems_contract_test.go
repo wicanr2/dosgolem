@@ -185,3 +185,132 @@ func TestEMSSaveRestorePageMapMovesDataBack(t *testing.T) {
 		t.Errorf("邏輯頁 1 是 %02X，預期 22", got)
 	}
 }
+
+// `AH=4Eh` 的對映表存／取要**連資料一起回到原狀**。
+//
+// 只把表抄回去而不搬資料的話，被打斷的那一段程式繼續讀到的是中斷處理常式
+// 那一頁的內容——而且它完全不會察覺。
+func TestEMSPageMapSaveRestoreRoundTrip(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 2
+	if ah := emsCallAX(m, d, 0x4300); ah != 0 {
+		t.Fatalf("配頁回狀態 %02X", ah)
+	}
+	h := m.CPU.R[cpu.DX]
+	frame := uint32(machine.EMSFrameSeg) * 16
+
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 0, h
+	emsCallAX(m, d, 0x4400)
+	m.Write8(frame, 0x71)
+
+	// 問這份表要多大，再存到 ES:DI。
+	if ah := emsCallAX(m, d, 0x4E03); ah != 0 {
+		t.Fatalf("AH=4Eh AL=03 回狀態 %02X", ah)
+	}
+	size := uint8(m.CPU.R[cpu.AX])
+	if size == 0 {
+		t.Fatal("對映表大小回 0")
+	}
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI] = 0x2400, 0
+	if ah := emsCallAX(m, d, 0x4E00); ah != 0 {
+		t.Fatalf("存對映表回狀態 %02X", ah)
+	}
+
+	// 換成邏輯頁 1 再寫別的東西。
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 1, h
+	emsCallAX(m, d, 0x4400)
+	m.Write8(frame, 0x82)
+
+	// 取回對映表：窗裡要回到存檔當時那一頁。
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.SI] = 0x2400, 0
+	if ah := emsCallAX(m, d, 0x4E01); ah != 0 {
+		t.Fatalf("取回對映表回狀態 %02X", ah)
+	}
+	if got := m.Read8(frame); got != 0x71 {
+		t.Fatalf("取回之後窗裡是 %02X，預期 71", got)
+	}
+	// 中斷那一段寫的東西要留在它自己的邏輯頁裡。
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 1, h
+	emsCallAX(m, d, 0x4400)
+	if got := m.Read8(frame); got != 0x82 {
+		t.Errorf("邏輯頁 1 是 %02X，預期 82", got)
+	}
+}
+
+// `AH=50h` 一次換好幾頁是**原子的**：中間有一項不合法就整批不動。
+//
+// 換一半的話程式讀到的是兩份資料拼起來的東西，而那看起來像資料檔壞了。
+func TestEMSMapMultipleIsAtomic(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 2
+	emsCallAX(m, d, 0x4300)
+	h := m.CPU.R[cpu.DX]
+	frame := uint32(machine.EMSFrameSeg) * 16
+
+	// 先把實體頁 0 映到邏輯頁 0 並寫一個記號。
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 0, h
+	emsCallAX(m, d, 0x4400)
+	m.Write8(frame, 0x11)
+
+	// 一批兩項：第一項合法（邏輯 1 → 實體 0），第二項邏輯頁超範圍。
+	list := cpu.Addr(0x2500, 0)
+	m.Write16(list, 1)   // 邏輯頁 1
+	m.Write16(list+2, 0) // 實體頁 0
+	m.Write16(list+4, 9) // 邏輯頁 9：超範圍
+	m.Write16(list+6, 1)
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.SI] = 0x2500, 0
+	m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = 2, h
+	if ah := emsCallAX(m, d, 0x5000); ah != 0x8A {
+		t.Fatalf("邏輯頁超範圍回 %02X，預期 8A", ah)
+	}
+	if got := m.Read8(frame); got != 0x11 {
+		t.Errorf("失敗的一批動到了實體頁 0（現在是 %02X，預期 11）", got)
+	}
+
+	// 全部合法就要全部生效。
+	m.Write16(list+4, 1) // 邏輯頁 1 → 實體頁 1
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.SI] = 0x2500, 0
+	m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = 2, h
+	if ah := emsCallAX(m, d, 0x5000); ah != 0 {
+		t.Fatalf("合法的一批回 %02X", ah)
+	}
+}
+
+// `AH=51h` 縮放：放大要成功，縮小要**保留前面那些頁的內容**。
+func TestEMSReallocKeepsExistingPages(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 2
+	emsCallAX(m, d, 0x4300)
+	h := m.CPU.R[cpu.DX]
+	frame := uint32(machine.EMSFrameSeg) * 16
+
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 0, h
+	emsCallAX(m, d, 0x4400)
+	m.Write8(frame, 0x33)
+
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 6, h
+	if ah := emsCallAX(m, d, 0x5100); ah != 0 {
+		t.Fatalf("放大回 %02X", ah)
+	}
+	m.CPU.R[cpu.DX] = h
+	if ah := emsCallAX(m, d, 0x4C00); ah != 0 || m.CPU.R[cpu.BX] != 6 {
+		t.Fatalf("放大之後頁數是 %d（狀態 %02X），預期 6", m.CPU.R[cpu.BX], ah)
+	}
+
+	// 縮回 1 頁：邏輯頁 0 的內容要還在。
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 1, h
+	if ah := emsCallAX(m, d, 0x5100); ah != 0 {
+		t.Fatalf("縮小回 %02X", ah)
+	}
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 0, h
+	emsCallAX(m, d, 0x4400)
+	if got := m.Read8(frame); got != 0x33 {
+		t.Errorf("縮小之後邏輯頁 0 是 %02X，預期 33", got)
+	}
+
+	// 要得比整台機器有的多要失敗，而且回目前的頁數。
+	m.CPU.R[cpu.BX], m.CPU.R[cpu.DX] = 0xFFFF, h
+	if ah := emsCallAX(m, d, 0x5100); ah != 0x88 {
+		t.Errorf("要 65535 頁回 %02X，預期 88", ah)
+	}
+}

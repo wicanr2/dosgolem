@@ -17,6 +17,21 @@ import (
 // XMSTrapOff 是 XMS driver entry 在 StubSeg 裡的位移。
 const XMSTrapOff = machine.XMSTrapOff
 
+// XMS 的容量與上位記憶體的範圍。
+//
+// UMB 放在 `C000h`–`CFFFh`：`D000h` 是 EMS 的 page frame（`machine.EMSFrameSeg`），
+// 兩者重疊的話 EMS 換頁會把 UMB 裡的東西換掉，而那看起來像「常駐程式突然壞了」。
+const (
+	xmsTotalKB    = 8192
+	xmsMaxHandles = 64
+	umbStart      = 0xC000
+	umbEnd        = 0xD000
+	// xmsLockBase 是 `AH=0Ch` 合成位址的基底，挑在 16 MB 之上——
+	// 低於它的位址空間有真的東西（傳統記憶體、UMB、HMA），
+	// 撞在一起的話診斷裡會看到兩種來源指向同一個位址。
+	xmsLockBase = 0x01000000
+)
+
 // xms 是 `int 2Fh` 的 XMS 偵測（AH=43h）。
 func (d *DOS) int2F(c *cpu.CPU) {
 	if ah(c) != 0x43 {
@@ -44,12 +59,60 @@ func (d *DOS) xmsCall(c *cpu.CPU) {
 	}
 	switch ah(c) {
 	case 0x00: // Get XMS Version
-		c.R[cpu.AX] = 0x0200
-		c.R[cpu.BX] = 0
-		c.R[cpu.DX] = 0 // 無 HMA
-	case 0x08: // Query Free Extended Memory
-		c.R[cpu.AX] = 8192
-		c.R[cpu.DX] = 8192
+		// AX ＝ XMS 版本（3.0）、BX ＝ 驅動內部版本、DX ＝ **HMA 存不存在**。
+		// DX=0 的話程式連 `AH=01h` 都不會問，直接把資料放進傳統記憶體。
+		c.R[cpu.AX] = 0x0300
+		c.R[cpu.BX] = 0x0001
+		c.R[cpu.DX] = 1
+
+	case 0x01: // Request HMA：DX ＝ 要幾個 byte（TSR 用 0FFFFh 代表「整塊」）
+		// 一次只有一個擁有者。已經有人拿走了要回 91h——回成功的話兩支程式
+		// 會同時往同一段寫，而**它們都不會察覺**。
+		if d.hmaOwned {
+			d.xmsFail(c, 0x91)
+			return
+		}
+		d.hmaOwned = true
+		// **拿到 HMA 就要能定址**：A20 沒開的話 1 MB 之上環繞回 0，
+		// 程式寫進去的東西會蓋掉中斷向量表。
+		d.M.SetA20(true)
+		c.R[cpu.AX] = 1
+
+	case 0x02: // Release HMA
+		if !d.hmaOwned {
+			d.xmsFail(c, 0x93) // 沒配過
+			return
+		}
+		d.hmaOwned = false
+		c.R[cpu.AX] = 1
+
+	case 0x03, 0x05: // Global／Local Enable A20
+		d.M.SetA20(true)
+		d.a20Local++
+		c.R[cpu.AX] = 1
+
+	case 0x04, 0x06: // Global／Local Disable A20
+		// ⚠ **Local 是成對的**：巢狀開關要數次數，最後一次關掉才真的關。
+		// 直接關的話，外層那一段程式以為 A20 還開著，接著寫進 HMA 的東西
+		// 會環繞回低位記憶體——蓋掉的多半是中斷向量表。
+		if d.a20Local > 0 {
+			d.a20Local--
+		}
+		if d.a20Local == 0 && !d.hmaOwned {
+			d.M.SetA20(false)
+		}
+		c.R[cpu.AX] = 1
+
+	case 0x07: // Query A20
+		c.R[cpu.AX] = 0
+		if d.M.A20Enabled() {
+			c.R[cpu.AX] = 1
+		}
+
+	case 0x08: // Query Free Extended Memory：AX ＝ 最大區塊、DX ＝ 總量（KB）
+		free := xmsTotalKB - d.embUsedKB()
+		c.R[cpu.AX] = free
+		c.R[cpu.DX] = free
 	case 0x09: // Allocate EMB：DX ＝ KB → 回 DX ＝ handle
 		kb := uint32(c.R[cpu.DX])
 		if kb == 0 || kb > 8192 {
@@ -63,14 +126,154 @@ func (d *DOS) xmsCall(c *cpu.CPU) {
 		c.R[cpu.AX] = 1
 		c.R[cpu.DX] = h
 	case 0x0A: // Free EMB：DX ＝ handle
+		if _, ok := d.emb[c.R[cpu.DX]]; !ok {
+			d.xmsFail(c, 0xA2) // 無效的 handle
+			return
+		}
+		if d.embLocks[c.R[cpu.DX]] > 0 {
+			d.xmsFail(c, 0xAB) // 還鎖著
+			return
+		}
 		delete(d.emb, c.R[cpu.DX])
+		c.R[cpu.AX] = 1
+
+	case 0x0C: // Lock EMB：DX ＝ handle → DX:BX ＝ 32 位元線性位址
+		// **鎖定要回一個位址**，程式拿它做 DMA 或交給中斷處理常式。
+		// EMB 的內容在 Go 這一側（延伸記憶體本來就不在 1 MB 位址空間裡），
+		// 所以這裡回的是一個**合成的**位址：`xmsLockBase + handle<<20`。
+		// 它不對應真的實體記憶體，但同一個 handle 每次鎖都拿到同一個值，
+		// 而不同 handle 不重疊——那是呼叫端唯一會依賴的兩件事。
+		// **假說待驗**：真的做 DMA 的程式會把這個位址交給硬體，
+		// 而我們沒有硬體會去讀它。
+		if _, ok := d.emb[c.R[cpu.DX]]; !ok {
+			d.xmsFail(c, 0xA2)
+			return
+		}
+		if d.embLocks == nil {
+			d.embLocks = map[uint16]int{}
+		}
+		d.embLocks[c.R[cpu.DX]]++
+		addr := xmsLockBase + uint32(c.R[cpu.DX])<<20
+		c.R[cpu.DX] = uint16(addr >> 16)
+		c.R[cpu.BX] = uint16(addr)
+		c.R[cpu.AX] = 1
+
+	case 0x0D: // Unlock EMB
+		if d.embLocks[c.R[cpu.DX]] == 0 {
+			d.xmsFail(c, 0xAA) // 沒鎖著
+			return
+		}
+		d.embLocks[c.R[cpu.DX]]--
+		c.R[cpu.AX] = 1
+
+	case 0x0E: // Get EMB Handle Information：BH ＝ 鎖定次數、BL ＝ 可用 handle 數、DX ＝ KB
+		blk, ok := d.emb[c.R[cpu.DX]]
+		if !ok {
+			d.xmsFail(c, 0xA2)
+			return
+		}
+		free := xmsMaxHandles - len(d.emb)
+		if free < 0 {
+			free = 0
+		}
+		c.R[cpu.BX] = uint16(d.embLocks[c.R[cpu.DX]])<<8 | uint16(free)
+		c.R[cpu.DX] = uint16(len(blk) / 1024)
+		c.R[cpu.AX] = 1
+
+	case 0x0F: // Reallocate EMB：BX ＝ 新的 KB、DX ＝ handle
+		blk, ok := d.emb[c.R[cpu.DX]]
+		if !ok {
+			d.xmsFail(c, 0xA2)
+			return
+		}
+		if d.embLocks[c.R[cpu.DX]] > 0 {
+			d.xmsFail(c, 0xAB)
+			return
+		}
+		want := int(c.R[cpu.BX]) * 1024
+		// **內容要留著**：程式縮小之後仍然會讀前面那一段。
+		grown := make([]byte, want)
+		copy(grown, blk)
+		d.emb[c.R[cpu.DX]] = grown
+		c.R[cpu.AX] = 1
+
+	case 0x10: // Request UMB：DX ＝ 要幾個段 → BX ＝ 段、DX ＝ 實際大小
+		seg, size, ok := d.allocUMB(c.R[cpu.DX])
+		if !ok {
+			// **回實際最大的那一塊**（DX），呼叫端會照它再要一次。
+			// 回 0 的話它會判定「完全沒有 UMB」然後放棄整條路徑。
+			c.R[cpu.AX] = 0
+			c.R[cpu.DX] = size
+			setBL(c, 0xB0) // 只有比較小的 UMB
+			if size == 0 {
+				setBL(c, 0xB1) // 完全沒有 UMB
+			}
+			return
+		}
+		c.R[cpu.AX] = 1
+		c.R[cpu.BX] = seg
+		c.R[cpu.DX] = size
+
+	case 0x11: // Release UMB：DX ＝ 段
+		if !d.freeUMB(c.R[cpu.DX]) {
+			d.xmsFail(c, 0xB2) // 無效的 UMB 段
+			return
+		}
 		c.R[cpu.AX] = 1
 	case 0x0B: // Move EMB：DS:SI → 描述子
 		d.xmsMove(c)
 	default:
 		d.note(0xF5, ah(c), al(c))
-		clearCarry(c)
+		d.xmsFail(c, 0x80) // 沒有這個功能
 	}
+}
+
+// xmsFail 是 XMS 的失敗慣例：**AX=0、BL ＝ 錯誤碼**（不是 CF）。
+//
+// 用 CF 的話呼叫端不會看——XMS 的介面從頭到尾不碰 CF，而它檢查的是 AX。
+func (d *DOS) xmsFail(c *cpu.CPU, code uint8) {
+	c.R[cpu.AX] = 0
+	setBL(c, code)
+}
+
+// embUsedKB 是已經配出去的 EMB 總量（KB）。
+func (d *DOS) embUsedKB() uint16 {
+	total := 0
+	for _, b := range d.emb {
+		total += len(b) / 1024
+	}
+	return uint16(total)
+}
+
+// allocUMB 從上位記憶體切一塊（段數）。
+//
+// **不接進 MCB 鏈**：DOS 預設沒有把 UMB 連進鏈裡（`AH=58h` 的 UMB link 是關的），
+// 走鏈的程式因此看不到它們——那與真 DOS 的預設狀態一致。接進去而不同步
+// 兩邊的話，程式算出來的「可用記憶體」會包含它拿不到的段。
+func (d *DOS) allocUMB(want uint16) (seg, size uint16, ok bool) {
+	if d.umbFree == 0 {
+		d.umbFree = umbEnd - umbStart
+	}
+	if want == 0 || want > d.umbFree {
+		return 0, d.umbFree, false
+	}
+	seg = umbEnd - d.umbFree
+	d.umbFree -= want
+	if d.umbBlocks == nil {
+		d.umbBlocks = map[uint16]uint16{}
+	}
+	d.umbBlocks[seg] = want
+	return seg, want, true
+}
+
+// freeUMB 放掉一塊 UMB。**不回收位址**（與 DPMI 的線性配置同一個理由）：
+// 放掉又配到同一段的話，「誰還留著舊指標」就查不出來了。
+func (d *DOS) freeUMB(seg uint16) bool {
+	if _, ok := d.umbBlocks[seg]; !ok {
+		return false
+	}
+	delete(d.umbBlocks, seg)
+	return true
 }
 
 // xmsMove 搬移。描述子：+0 dword 長度、+4 word 來源 handle、

@@ -15,6 +15,19 @@ import (
 
 func (d *DOS) int21(c *cpu.CPU) {
 	fn := ah(c)
+	// **失敗一律留下錯誤碼給 `AH=59h`。** DOS 的慣例是「CF=1 表示 AX 是
+	// 錯誤碼」，所以在這裡收一次就涵蓋每一條失敗路徑——各支自己記的話，
+	// 漏掉的那幾支會讓程式問到更早之前那一次的原因，然後照著錯的原因
+	// 決定要重試還是放棄。
+	//
+	// `AH=59h` 自己不會落進來（它清 CF），所以問完不會把答案洗掉。
+	if fn != 0x59 {
+		defer func() {
+			if c.Flags&cpu.CF != 0 {
+				d.lastErr = c.R[cpu.AX]
+			}
+		}()
+	}
 	if d.CallTrace != nil {
 		rec := CallRec{Step: d.M.Steps, AH: fn, AL: al(c), ESIn: c.Seg[cpu.ES], BXIn: c.R[cpu.BX]}
 		defer func() {
@@ -39,6 +52,14 @@ func (d *DOS) int21(c *cpu.CPU) {
 			setAL(c, 0xFF)
 		}
 		clearCarry(c)
+
+	case 0x0A: // 緩衝輸入：DS:DX ＝ [0]最大長度 [1]實際長度 [2..]內容
+		// **格式要照 DOS 的**：位元組 0 是呼叫端填的容量（含 CR），
+		// 位元組 1 是我們填的實際字元數，內容從位元組 2 開始，結尾補 CR。
+		// 少填位元組 1 的話呼叫端讀到的長度是它自己上一次留下的值——
+		// 那多半是 0（看起來像「使用者什麼都沒輸入」）或一個過大的數字
+		// （於是它把緩衝區後面的垃圾當成輸入）。
+		d.bufferedInput(c)
 
 	case 0x09: // 輸出 $ 結尾的字串
 		addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
@@ -204,6 +225,56 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 	case 0x4E:
 		d.findFirst(c)
+	case 0x4F: // Find Next（`docs/knowledge-base/010`）
+		d.findNext(c)
+
+	case 0x39: // 建目錄
+		d.mkdir(c)
+	case 0x3A: // 刪目錄
+		d.rmdir(c)
+	case 0x3B: // 切目錄
+		d.chdir(c)
+	case 0x45: // 複製 handle
+		d.dupHandle(c)
+	case 0x46: // 強制複製 handle（dup2／重導向）
+		d.dup2Handle(c)
+	case 0x56: // 更名
+		d.renameFile(c)
+	case 0x57: // 取／設檔案日期時間
+		d.fileTime(c)
+	case 0x59: // 取延伸錯誤資訊
+		d.extendedError(c)
+	case 0x5B: // 建立新檔（已存在就失敗）
+		d.createNew(c)
+	case 0x68, 0x6A: // commit file
+		d.commitFile(c)
+
+	case 0x0C: // 清空鍵盤緩衝區再做 AL 指定的輸入
+		d.flushAndInput(c)
+
+	case 0x32: // 取磁碟參數區塊
+		d.driveParams(c)
+
+	case 0x34: // 取 InDOS 旗標位址 → ES:BX
+		d.inDOSFlag(c)
+
+	case 0x37: // 取／設選項字元
+		d.switchChar(c)
+
+	case 0x58: // 記憶體配置策略／UMB 連結
+		d.allocStrategyCall(c)
+
+	case 0x5A: // 建立唯一名稱的暫存檔
+		d.createTemp(c)
+
+	case 0x5C: // 鎖定／解鎖檔案區段
+		d.lockRegion(c)
+
+	case 0x60: // 路徑正規化
+		d.trueName(c)
+
+	case 0x6C: // 延伸開檔
+		d.extendedOpen(c)
 
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
@@ -547,11 +618,46 @@ func (d *DOS) setPSPBlock(newFree uint16) {
 func (d *DOS) alloc(c *cpu.CPU) {
 	d.initArena()
 	want := c.R[cpu.BX]
+	if i := d.pickBlock(want); i >= 0 {
+		d.splitBlock(c, i, want)
+		return
+	}
+	c.R[cpu.AX] = 8 // 記憶體不足
+	c.R[cpu.BX] = d.largestFree()
+	setCarry(c)
+	d.noteMem(c, 0x48, want, 0, d.largestFree(), false)
+}
+
+// pickBlock 依配置策略（`AH=58h`）挑一塊放得下的自由區塊，回索引；−1 ＝ 沒有。
+//
+// **策略會改變程式拿到哪一段**，而那是它看得到的：程式把段位址寫進自己的
+// 資料結構、比大小、算距離。三種都做才對得起 `AH=58h` 的回報——
+// 只做 first fit 卻回報「現在是 best fit」是說謊。
+func (d *DOS) pickBlock(want uint16) int {
+	best := -1
 	for i := range d.arena {
 		b := &d.arena[i]
 		if !b.free || b.size < want {
 			continue
 		}
+		switch d.allocStrategy & 0x03 {
+		case 1: // best fit：剩最少的那一塊
+			if best < 0 || b.size < d.arena[best].size {
+				best = i
+			}
+		case 2: // last fit：位址最高的那一塊
+			best = i
+		default: // first fit
+			return i
+		}
+	}
+	return best
+}
+
+// splitBlock 把第 i 塊切出 want 段給呼叫端。
+func (d *DOS) splitBlock(c *cpu.CPU, i int, want uint16) {
+	{
+		b := &d.arena[i]
 		// 切得出一塊有意義的剩餘（至少 1 段 MCB ＋ 1 段資料）才切，
 		// 否則整塊給出去——切出 0 段的區塊只會讓表變長。
 		if b.size >= want+2 {
@@ -564,15 +670,10 @@ func (d *DOS) alloc(c *cpu.CPU) {
 		} else {
 			b.free = false
 		}
-		c.R[cpu.AX] = d.arena[i].seg + 1
-		clearCarry(c)
-		d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
-		return
 	}
-	c.R[cpu.AX] = 8 // 記憶體不足
-	c.R[cpu.BX] = d.largestFree()
-	setCarry(c)
-	d.noteMem(c, 0x48, want, 0, d.largestFree(), false)
+	c.R[cpu.AX] = d.arena[i].seg + 1
+	clearCarry(c)
+	d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
 }
 
 // noteMem 記一筆配置器帳。MemTrace 是 nil 就什麼都不做。
