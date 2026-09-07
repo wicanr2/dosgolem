@@ -26,6 +26,8 @@ type handleState struct {
 	Path string
 	Off  int64
 	Size int64
+	// PSP 是開這個檔的行程；子行程結束時要靠它決定關哪些。
+	PSP uint16
 }
 
 type emsHandleState struct {
@@ -39,8 +41,11 @@ type emsMapState struct {
 	Page uint16
 }
 
-// holeState 是 memHole 的線上版本（memHole 的欄位不匯出，gob 看不到）。
-type holeState struct{ Seg, Size uint16 }
+// blockState 是 memBlock 的線上版本（memBlock 的欄位不匯出，gob 看不到）。
+type blockState struct {
+	Seg, Size uint16
+	Free      bool
+}
 
 type procState struct {
 	R       [8]uint16
@@ -48,12 +53,9 @@ type procState struct {
 	IP, Fl  uint16
 	PSP     uint16
 	FreeSeg uint16
-	// HandleBase 是進子行程之前的 nextHandle，IVT 是 DOS 保管的
-	// 22h/23h/24h。**這兩個漏掉不會報錯**：讀檔之後子行程結束時
-	// 會關掉編號 >= 0 的所有 handle（連父行程的一起關），
-	// 而 Ctrl-Break 向量會還原成 0。
-	HandleBase uint16
-	IVT        [3][2]uint16
+	// IVT 是 DOS 保管的 22h/23h/24h。**漏掉不會報錯**：讀檔之後
+	// 子行程結束時 Ctrl-Break 向量會被還原成 0。
+	IVT [3][2]uint16
 }
 
 type dosState struct {
@@ -71,12 +73,13 @@ type dosState struct {
 	// 遊戲照樣把它當資料用（見 `docs/spec/004` §4.17）。
 	Root string
 
-	Handles    []handleState
-	NextHandle uint16
-	FreeSeg    uint16
+	Handles []handleState
+	FreeSeg uint16
 
-	Blocks map[uint16]uint16
-	Holes  []holeState
+	// Arena 是配置器的區塊表（`docs/spec/009`）。
+	// **漏掉的話讀檔之後配置器是空的**，第一次 AH=48h 會從 freeSeg
+	// 重新切，把已經發出去的緩衝區再發一次。
+	Arena []blockState
 
 	Stack    []procState
 	CurPSP   uint16
@@ -100,8 +103,7 @@ func (d *DOS) SaveState(w io.Writer) error {
 	s := dosState{
 		Magic: dosStateMagic, Version: dosStateVersion,
 		Drive: d.Drive, Dir: d.Dir, Now: d.Now, Root: d.Root,
-		NextHandle: d.nextHandle, FreeSeg: d.freeSeg,
-		Blocks: map[uint16]uint16{},
+		FreeSeg: d.freeSeg,
 
 		CurPSP:   d.curPSP,
 		LastExit: d.lastExit,
@@ -115,25 +117,22 @@ func (d *DOS) SaveState(w io.Writer) error {
 	s.Mouse = Mouse{X: d.Mouse.X, Y: d.Mouse.Y, Buttons: d.Mouse.Buttons,
 		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale}
 
-	for _, h := range d.holes {
-		s.Holes = append(s.Holes, holeState{Seg: h.seg, Size: h.size})
+	for _, b := range d.arena {
+		s.Arena = append(s.Arena, blockState{Seg: b.seg, Size: b.size, Free: b.free})
 	}
 	for h, fh := range d.handles {
 		off, err := fh.f.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return fmt.Errorf("dos: 取不到 %s 的讀寫位置：%w", fh.name, err)
 		}
-		s.Handles = append(s.Handles, handleState{H: h, Name: fh.name, Path: fh.path, Off: off, Size: fh.size})
-	}
-	for k, v := range d.blocks {
-		s.Blocks[k] = v
+		s.Handles = append(s.Handles, handleState{H: h, Name: fh.name, Path: fh.path, Off: off, Size: fh.size, PSP: fh.psp})
 	}
 	for k, v := range d.emb {
 		s.EMB[k] = append([]byte(nil), v...)
 	}
 	for _, f := range d.procStack {
 		s.Stack = append(s.Stack, procState{R: f.r, Seg: f.seg, IP: f.ip, Fl: f.fl,
-			PSP: f.psp, FreeSeg: f.freeSeg, HandleBase: f.handleBase, IVT: f.ivt})
+			PSP: f.psp, FreeSeg: f.freeSeg, IVT: f.ivt})
 	}
 	if d.ems != nil {
 		s.EMSNext = d.ems.next
@@ -177,12 +176,12 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
-	d.nextHandle, d.freeSeg = s.NextHandle, s.FreeSeg
+	d.freeSeg = s.FreeSeg
 	d.curPSP, d.lastExit = s.CurPSP, s.LastExit
 	d.queue = append([]Queued(nil), s.Queue...)
-	d.holes = nil
-	for _, h := range s.Holes {
-		d.holes = append(d.holes, memHole{seg: h.Seg, size: h.Size})
+	d.arena = nil
+	for _, b := range s.Arena {
+		d.arena = append(d.arena, memBlock{seg: b.Seg, size: b.Size, free: b.Free})
 	}
 	d.Exited, d.ExitCode = s.Exited, s.ExitCode
 
@@ -196,11 +195,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 			f.Close()
 			return fmt.Errorf("dos: 還原時 seek 不了 %s：%w", hs.Path, err)
 		}
-		d.handles[hs.H] = &handle{name: hs.Name, path: hs.Path, f: f, size: hs.Size}
-	}
-	d.blocks = map[uint16]uint16{}
-	for k, v := range s.Blocks {
-		d.blocks[k] = v
+		d.handles[hs.H] = &handle{name: hs.Name, path: hs.Path, f: f, size: hs.Size, psp: hs.PSP}
 	}
 	d.emb = map[uint16][]byte{}
 	for k, v := range s.EMB {
@@ -210,7 +205,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 	d.procStack = nil
 	for _, f := range s.Stack {
 		d.procStack = append(d.procStack, procFrame{r: f.R, seg: f.Seg, ip: f.IP, fl: f.Fl,
-			psp: f.PSP, freeSeg: f.FreeSeg, handleBase: f.HandleBase, ivt: f.IVT})
+			psp: f.PSP, freeSeg: f.FreeSeg, ivt: f.IVT})
 	}
 	d.ems = &ems{handles: map[uint16]*emsHandle{}, next: s.EMSNext}
 	for _, e := range s.EMSHandles {

@@ -89,6 +89,10 @@ const (
 
 const DefaultIRQ0Every = 165_000
 
+// DefaultKeyIRQEvery 是兩次鍵盤中斷的最小間隔，單位是**指令數**。
+// 取計時器間隔的一半：比一次畫面更新久，程式一定來得及把掃描碼收走。
+const DefaultKeyIRQEvery = DefaultIRQ0Every / 2
+
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
 // OPLWrite 是一次 OPL2 暫存器寫入。
@@ -169,6 +173,13 @@ type Machine struct {
 	oplT1Masked, oplT2Masked   bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
+	// Coverage 記每一個被執行過的線性位址。nil 表示不記。
+	//
+	// **這是「哪些 byte 是程式碼」唯一直接的答案。** 打包過的執行檔
+	// 靜態反組譯是亂碼，IDA 對 raw dump 也不知道從哪裡開始；
+	// 拿執行過的位址當種子，種到的位置一定是程式碼，不是猜的。
+	Coverage []bool
+
 	Ports   map[uint16]uint8
 	PortLog []PortWrite
 
@@ -252,14 +263,19 @@ type Machine struct {
 	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
 	ModeChanges []ModeChange
 
-	// 鍵盤：掃描碼佇列與埠 0x60 目前的值。KeyEvery 是送鍵的間隔（指令數）。
-	keyQueue []uint8
-	keyPort  uint8
+	// 硬體鍵盤（`keyboard.go`）。kbdData 是埠 0x60 讀得到的值、
+	// kbdPortB 是埠 0x61（程式用它做鍵盤 ack）。
+	keyQueue []KeyEvent
+	kbdData  uint8
+	kbdPortB uint8
 
-	// KeyIRQs 是實際送出去的鍵盤中斷數。**送不出去與遊戲不理會是兩件事**，
-	// 沒有這個數字就分不開。
-	KeyIRQs  uint64
-	nextKey  uint64
+	// KeyIRQs 是實際送出去的鍵盤中斷數，keyStalls 是「有鍵但沒人裝
+	// int 09h」而留著沒送的次數。**送不出去與遊戲不理會是兩件事**，
+	// 沒有這兩個數字就分不開。
+	KeyIRQs   uint64
+	keyStalls uint64
+	nextKey   uint64
+	// KeyEvery 是兩次鍵盤中斷之間至少隔幾道指令。
 	KeyEvery uint64
 
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
@@ -289,6 +305,7 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
+		KeyEvery:  DefaultKeyIRQEvery,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		VGA: newVGA(),
@@ -310,7 +327,8 @@ func New() *Machine {
 func (m *Machine) Read8(a uint32) uint8 {
 	a &= 0xFFFFF
 	// 平面模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
-	// ⚠ **讀它有副作用**：四個 latch 會被載入。
+	// ⚠ **讀它有副作用**：四個 latch 會被載入，而 latch 決定之後那次
+	// 寫入在 Bit Mask 之外的位元（`docs/spec/011` §4）。
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		return m.VGA.Read(a - vgaLo)
 	}
@@ -483,6 +501,20 @@ func (m *Machine) In8(port uint16) uint8 {
 		return v
 	}
 	switch {
+	case port == 0x60:
+		// 鍵盤資料埠。**沒有硬體鍵盤時這裡回 0xFF**，而 0xFF 的 bit7 是
+		// 「放開」——自己裝 IRQ1 的程式會把每一次都當成放開而忽略，
+		// 所以它照樣跑、照樣輪詢，只是永遠收不到鍵（`docs/spec/014`）。
+		return m.kbdData
+	case port == 0x61:
+		// 系統控制埠。ISR 用它 ack 鍵盤（bit7 設起再清掉）。
+		return m.kbdPortB
+	case port == 0x64:
+		// 鍵盤控制器狀態：bit0 ＝ 輸出緩衝區有資料。
+		if len(m.keyQueue) > 0 {
+			return 0x15
+		}
+		return 0x14
 	case port == 0x3DA:
 		// ⚠ **讀 3DA 會重設屬性控制器的索引／資料 flip-flop。**
 		// 程式就是用它來確保「下一次寫 3C0 是索引」；不做的話我們的
@@ -523,12 +555,6 @@ func (m *Machine) In8(port uint16) uint8 {
 		// **遮罩位元要照做**：偵測序列的第一步就是 `04h←60h`（兩個都遮），
 		// 不理它的話那一步就會讀到非零而判定失敗。
 		return m.oplStatus()
-	case port == 0x60:
-		// 鍵盤資料埠。自己裝 int 09h 的程式從這裡讀掃描碼
-		// （`docs/spec/012` §1）。
-		return m.keyPort
-	case port == 0x61:
-		return 0x00
 	}
 	return 0xFF
 }
@@ -536,6 +562,13 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
+	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話
+	// 它會把一個亂數寫進去，而那個亂數的低位元管的是喇叭與 RAM 檢查。
+	if p == 0x61 {
+		m.kbdPortB = v
+	}
 
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
 	// 單看其中一個看不出寫了什麼。
@@ -553,7 +586,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
 	// 序列器、繪圖控制器與屬性控制器（`docs/spec/013` §3.2）。
-	m.VGA.Out(p, v)
+	if m.VGA.Out(p, v) {
+		// Map Mask 被寫成非預設值也算「進了平面模式」，見 planarActive。
+		m.planarOn = m.planarActive()
+	}
 
 	switch p {
 	case 0x3C8: // 設寫入索引
@@ -621,6 +657,11 @@ func (m *Machine) Step() error {
 	m.tick()
 	m.keyTick()
 	m.Steps++
+	if m.Coverage != nil {
+		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
+			m.Coverage[a] = true
+		}
+	}
 	if !m.TraceSegs && !m.WatchDSOn {
 		return m.CPU.Step()
 	}
@@ -655,36 +696,6 @@ func (m *Machine) Step() error {
 		}
 	}
 	return err
-}
-
-// QueueScan 把掃描碼排進鍵盤佇列。按下與放開是**兩個**碼
-// （放開是按下碼 or 0x80），兩個都要排——只送按下的話，自己寫鍵盤 ISR
-// 的程式會一直以為那個鍵還按著。
-func (m *Machine) QueueScan(codes ...uint8) {
-	m.keyQueue = append(m.keyQueue, codes...)
-}
-
-// QueueKey 排一次完整的按鍵（按下 ＋ 放開）。
-func (m *Machine) QueueKey(scan uint8) { m.QueueScan(scan, scan|0x80) }
-
-// keyTick 送鍵盤中斷（IRQ1 ＝ `int 09h`）。
-//
-// ⚠ **只走 BIOS 的 int 16h 是不夠的。** 自己裝 int 09h 的程式（本作就是）
-// 從埠 0x60 讀掃描碼，BIOS 緩衝區對它完全不存在——鍵永遠送不進去，
-// 而且沒有任何錯誤，只是遊戲看起來沒反應（`~/cht/logh3/docs/re/08`）。
-func (m *Machine) keyTick() {
-	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
-		return
-	}
-	// 與 IRQ0 同樣的理由：中斷關著的時候先留著，不要丟掉。
-	if !m.CPU.Flag(cpu.IF) || m.Read16(0x09*4+2) == StubSeg {
-		return
-	}
-	m.nextKey = m.Steps + m.KeyEvery
-	m.keyPort = m.keyQueue[0]
-	m.keyQueue = m.keyQueue[1:]
-	m.KeyIRQs++
-	m.CPU.Interrupt(0x09)
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。
@@ -821,9 +832,6 @@ func (m *Machine) initVectors() {
 	m.Write16(0x67*4, 0)
 	m.Write16(0x67*4+2, EMSSeg)
 }
-
-// SetNextKey 設定第一個掃描碼要在第幾道指令送出。
-func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }
 
 // VGAState 回目前的圖形控制器、序列器與 latch。
 //

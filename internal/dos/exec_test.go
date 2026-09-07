@@ -450,14 +450,26 @@ func TestFileOpsRecordSeekAndRead(t *testing.T) {
 	c.Seg[cpu.DS], c.R[cpu.DX] = 0x6000, 0
 	call(m, d, 0x21, 0x3F00)
 
-	if len(d.FileOps) != 2 {
-		t.Fatalf("FileOps 應有 2 筆，得到 %d", len(d.FileOps))
+	// FileOps 是完整的操作序列（開／定位／讀），不只讀寫。
+	var opened, seek, read *FileOp
+	for i := range d.FileOps {
+		switch o := &d.FileOps[i]; o.Op {
+		case "open":
+			opened = o
+		case "seek":
+			seek = o
+		case "read":
+			read = o
+		}
 	}
-	if o := d.FileOps[0]; o.Fn != 0x42 || o.Pos != 100 {
-		t.Errorf("seek 記錄 = %+v，預期 AH=42 Pos=100", o)
+	if opened == nil || opened.Fn != 0x3D || opened.Name != "data.bin" {
+		t.Errorf("open 記錄 = %+v，預期 AH=3D data.bin", opened)
 	}
-	if o := d.FileOps[1]; o.Fn != 0x3F || o.Pos != 100 || o.Len != 16 {
-		t.Errorf("read 記錄 = %+v，預期 AH=3F Pos=100 Len=16", o)
+	if seek == nil || seek.Fn != 0x42 || seek.Arg != 100 || seek.Pos != 100 {
+		t.Errorf("seek 記錄 = %+v，預期 AH=42 Arg=100 Pos=100", seek)
+	}
+	if read == nil || read.Fn != 0x3F || read.Pos != 100 || read.Len != 16 || read.Arg != 16 {
+		t.Errorf("read 記錄 = %+v，預期 AH=3F Pos=100 Len=16 Arg=16", read)
 	}
 	if got := m.Read8(0x60000); got != 100 {
 		t.Errorf("讀進來的第一個 byte = %d，預期 100（seek 沒生效）", got)

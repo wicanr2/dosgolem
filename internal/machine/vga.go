@@ -56,6 +56,15 @@ type VGA struct {
 	ac     [32]uint8
 	acIdx  uint8
 	acFlip bool
+
+	// planarSeen 記「Map Mask 曾被寫成不是 0Fh 的值」。
+	//
+	// **這是判斷用的訊號，不是模式暫存器。** 有些程式從來不呼叫
+	// `int 10h AH=00`（Pool of Radiance 就是，BDA 的模式位元組一路是
+	// 03h），直接自己設暫存器——只認 BDA 的話那種程式永遠走不到平面
+	// 路徑，四次寫入疊在同一段線性記憶體上，而畫面看起來仍是一張圖。
+	// 證據等級：**假說**（`docs/spec/007` §2.1）。
+	planarSeen bool
 }
 
 func newVGA() *VGA {
@@ -115,6 +124,7 @@ func (v *VGA) resetMode() {
 		v.ac[i] = uint8(i)
 	}
 	v.seqIdx, v.gcIdx, v.acIdx, v.acFlip = 0, 0, 0, false
+	v.planarSeen = false
 }
 
 // ---- 埠 ------------------------------------------------------------------
@@ -126,6 +136,9 @@ func (v *VGA) Out(p uint16, val uint8) bool {
 		v.seqIdx = val & 0x07
 	case 0x3C5:
 		v.seq[v.seqIdx] = val
+		if v.seqIdx == 2 && val&0x0F != 0x0F {
+			v.planarSeen = true
+		}
 	case 0x3CE:
 		v.gcIdx = val & 0x0F
 	case 0x3CF:
@@ -172,6 +185,9 @@ func (v *VGA) SeqIndex() uint8 { return v.seqIdx }
 
 // MapMask 是序列器 index 02h：哪幾個平面吃寫入。
 func (v *VGA) MapMask() uint8 { return v.seq[2] }
+
+// PlanarSeen 回報 Map Mask 曾被寫成不是 0Fh 的值。
+func (v *VGA) PlanarSeen() bool { return v.planarSeen }
 
 // WriteMode 是繪圖控制器 index 05h 的低兩位。
 func (v *VGA) WriteMode() uint8 { return v.gc[5] & 0x03 }
@@ -484,10 +500,7 @@ func (m *Machine) SequencerIndex() uint8 { return m.VGA.SeqIndex() }
 // MapMask 是序列器 index 02h。
 func (m *Machine) MapMask() uint8 { return m.VGA.MapMask() }
 
-// EGAPlanarActive 回目前是不是平面模式。
-//
-// ⚠ **判準是視訊模式，不是「程式寫過 3C4／3CE 沒有」。** 用後者的話
-// 同一支程式在切模式前後會落進不同的行為，切回去時也不會恢復。
+// EGAPlanarActive 回目前是不是平面模式。見 Machine.planarActive。
 func (m *Machine) EGAPlanarActive() bool { return m.planarOn }
 
 // EGAPlane 回第 plane 個平面的內容（直接切片，不複製）。
@@ -498,3 +511,29 @@ func (m *Machine) IndexedEGASize(w, h int) []uint8 { return m.VGA.Pixels(w, h) }
 
 // IndexedEGA 用目前模式的尺寸解畫面。
 func (m *Machine) IndexedEGA() []uint8 { return m.planarIndexed() }
+
+// planarActive 決定 `A0000` 走不走平面路徑。
+//
+// 兩條分支各自帶著一個判準，而兩個都對——對它們自己那支程式而言：
+//
+//   - **視訊模式**（wolong）：切模式前後行為要一致，切回去也要恢復。
+//     用「程式寫過 3CE 沒有」當開關會讓同一支程式在不同時間落進不同行為。
+//   - **Map Mask 訊號**（san1／pool-of-radiance）：有些程式從來不呼叫
+//     `int 10h AH=00`，直接自己設暫存器，BDA 的模式位元組一路是 03h。
+//     只認模式的話那種程式永遠走不到平面路徑。
+//
+// 合起來的判準：**模式是平面模式就是平面**；模式是 13h（程式明講要線性）
+// 就不是；其餘（含文字模式）交給 Map Mask 訊號決定。文字模式的畫面在
+// `B8000`，與 `A0000` 不衝突，所以在文字模式下承認訊號是安全的。
+//
+// ⚠ 訊號那一半是**假說**，不是量到的事實。
+func (m *Machine) planarActive() bool {
+	mode := m.VideoMode()
+	if planarMode(mode) {
+		return true
+	}
+	if mode == 0x13 {
+		return false
+	}
+	return m.VGA.planarSeen
+}

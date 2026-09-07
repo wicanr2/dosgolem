@@ -24,16 +24,11 @@ import (
 
 // procFrame 是一個被 EXEC 暫停的父行程（`docs/spec/008` §2）。
 type procFrame struct {
-	r      [8]uint16
-	seg    [4]uint16
-	ip, fl uint16
-	psp    uint16 // 父行程的 PSP（回來時還原 curPSP）
-	// handleBase 是進子行程之前的 nextHandle：子行程結束時把 >= 它的
-	// handle 全部關掉。真 DOS 的 AH=4Ch 會關掉該 PSP 名下的所有檔案，
-	// 漏關的症狀是「跑久了開不了檔」——而且錯誤碼是 04h（handle 用盡），
-	// 完全不指向這裡。
-	handleBase uint16
-	freeSeg    uint16 // 進子行程之前的配置游標
+	r       [8]uint16
+	seg     [4]uint16
+	ip, fl  uint16
+	psp     uint16 // 父行程的 PSP（回來時還原 curPSP）
+	freeSeg uint16 // 進子行程之前的配置游標
 	// ivt 是 DOS 替呼叫端保管的三個向量（22h Terminate、23h Ctrl-Break、
 	// 24h Critical Error）。子行程一定會改，不還原的話父行程的
 	// Ctrl-Break 處理常式指到已經被回收的記憶體。
@@ -135,7 +130,7 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	// 正確的接續點。
 	f := procFrame{
 		r: c.R, seg: c.Seg, ip: c.IP, fl: c.Flags,
-		psp: d.curPSP, handleBase: d.nextHandle, freeSeg: d.freeSeg,
+		psp: d.curPSP, freeSeg: d.freeSeg,
 	}
 	for i, n := range savedVectors {
 		f.ivt[i][0] = d.M.Read16(uint32(n) * 4)
@@ -178,18 +173,41 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 // loadOverlay 是 `AH=4Bh AL=03h`：把映像放到指定的段，什麼都不切。
 //
 // overlay 是被 far call 進去的程式碼，**不建 PSP、不動 CS:IP**。
-// relocation factor 與載入段是兩個獨立參數，DOS 讓呼叫端分別指定。
+// 參數區塊在 ES:BX：word 0 是載入段，word 2 是重定位加數；
+// **兩個是獨立的參數**，多數程式給相同的值但不保證。
 func (d *DOS) loadOverlay(c *cpu.CPU, name string, loadSeg, relocFactor uint16) {
 	data, path, ok := d.readProgram(c, name)
 	if !ok {
 		return
 	}
+	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+
+	// ⚠ 參數區塊要在載入**之前**抄起來。overlay 常常就載在參數區塊
+	// 所在的那一段，載完再讀會讀到剛寫進去的映像——那會讓診斷輸出
+	// 看起來像「程式傳了一段機器碼當參數」，把人帶往完全錯的方向。
+	rec := OverlayLoad{Name: name, Seg: loadSeg, Reloc: relocFactor, Size: len(data),
+		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX],
+		CallCS: c.Seg[cpu.CS], CallIP: c.IP, Steps: d.M.Steps}
+	// INT 指令本身 2 byte，所以 CallIP-2 是它的起點；往前再留 22 byte
+	// 看參數是怎麼備好的。
+	for i := 0; i < 32; i++ {
+		rec.CallSite[i] = d.M.Read8(cpu.Addr(c.Seg[cpu.CS], c.IP-24+uint16(i)))
+	}
+	for i := 0; i < 8; i++ {
+		rec.PBRaw[i] = d.M.Read8(pb + uint32(i))
+	}
+
 	if err := d.M.LoadOverlay(data, loadSeg, relocFactor); err != nil {
+		// **載入失敗要說出來。** overlay 沒載進去而回成功的話，程式會
+		// far call 進一片空白，然後在幾百萬道指令之後死在一個與這裡
+		// 毫無關聯的位址上。
+		d.Console = append(d.Console, []byte("\n[dosgolem] overlay "+name+"："+err.Error()+"\n")...)
 		d.Missing = append(d.Missing, fmt.Sprintf("%s（%v）", name, err))
 		c.R[cpu.AX] = 8
 		setCarry(c)
 		return
 	}
+	d.Overlays = append(d.Overlays, rec)
 	d.Opened = append(d.Opened, name)
 	d.ExecLog = append(d.ExecLog, ExecRecord{
 		Name: name, Base: filepath.Base(path), PSP: loadSeg, Exit: 0xFF,
@@ -273,7 +291,7 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 
 		// 子行程開的檔要關掉，DOS 保管的三個向量要還原。
 		if !tsr {
-			d.closeHandlesFrom(f.handleBase)
+			d.closeHandlesOf(d.curPSP)
 		}
 		for i, n := range savedVectors {
 			d.M.Write16(uint32(n)*4, f.ivt[i][0])
@@ -330,10 +348,10 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 	c.Halted = true
 }
 
-// closeHandlesFrom 關掉編號 >= base 的所有 handle。
-func (d *DOS) closeHandlesFrom(base uint16) {
+// closeHandlesOf 關掉某個行程名下的所有 handle（真 DOS 的 AH=4Ch）。
+func (d *DOS) closeHandlesOf(psp uint16) {
 	for h, hh := range d.handles {
-		if h >= base {
+		if hh.psp == psp {
 			if hh.f != nil {
 				hh.f.Close()
 			}

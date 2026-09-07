@@ -74,10 +74,10 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	}
 	// planar 模式的 A0000 走另一條路（`docs/spec/013`）。設模式清畫面，
 	// 真機的 BIOS 也清。
-	m.planarOn = planarMode(mode)
-	if m.planarOn {
+	if planarMode(mode) {
 		m.VGA.resetMode()
 	}
+	m.planarOn = m.planarActive()
 }
 
 // VideoMode 讀回目前模式。

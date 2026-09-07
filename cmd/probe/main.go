@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
@@ -92,8 +93,6 @@ func main() {
 		"每次寫入印出步數與 CS:IP（除錯「誰把向量改掉了」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
 	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
-	keys := flag.String("keys", "", "先排進 BIOS 鍵盤緩衝區的按鍵（`\\n` 是 Enter）；"+
-		"程式自己裝 int 09h 的話這條沒用，要用 -press")
 	press := flag.String("press", "", "用 IRQ1 送的按鍵，逗號分隔。"+
 		"可用名稱：up down left right enter esc space，或單一字元／16 進位掃描碼")
 	pressAt := flag.Uint64("press-at", 0, "第幾道指令開始送鍵（0 ＝ steps 的八成）")
@@ -109,10 +108,6 @@ func main() {
 	regsFrom := flag.Uint64("regs-from", 0,
 		"-regs-at 只從這個步數之後開始記。開場與主選單會把前 20 筆佔滿，"+
 			"要看後面某一次呼叫就得跳過前面")
-	keysAt := flag.String("keys-at", "",
-		"在指定步數送一個鍵：`<步數>:<鍵>`，分號分隔。與 -press 的差別是"+
-			"**每個鍵各自指定時機**——探索「哪一個鍵讓畫面動了」要用這個，"+
-			"固定間隔會讓你分不出是哪一次生效")
 	dumpAt := flag.String("dump-at", "",
 		"跑到指定步數就傾印一張畫面：`<步數>:<檔名>`，分號分隔可以給很多張。"+
 			"探索「點下去之後跑到哪個畫面」用——一次跑就看得到中間的每一格，"+
@@ -120,8 +115,6 @@ func main() {
 	dumpMem := flag.String("dump-mem", "",
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
-	dumpEGA := flag.String("dump-ega", "", "把 planar VRAM 解成 PNG 寫到這個檔"+
-		"（依 BDA 目前模式選尺寸：12h ＝ 640×480、10h ＝ 640×350；spec 009）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	poke := flag.String("poke", "",
@@ -144,10 +137,6 @@ func main() {
 	vramAt := flag.String("vram-at", "",
 		"把 -vram-sites 限定在這個 VRAM 位移（16 進位）。"+
 			"盯單一像素用——「這一點是誰畫的」比「誰畫得最多」更能定位")
-	stdinAt := flag.String("stdin-at", "",
-		"在指定步數把一串字餵進 stdin：`步數:字串` 用逗號分隔（`\\n` 是 Enter）。"+
-			"與 -keys-at 的差別是**這條走 DOS 的輸入服務，不是 IRQ1 掃描碼**——"+
-			"一開始就排進佇列的按鍵，程式還沒開始輪詢就被吃掉了")
 	args := flag.String("args", "", "命令列尾（寫進 PSP+80h，.COM 的參數走這裡）。"+
 		"靠參數決定要做什麼的程式（例如 ENDING.EXE 要演哪一個結局）沒有它就直接結束")
 	queue := flag.String("queue", "", "主程式結束／常駐後接著跑的程式（監督佇列，`docs/spec/009` §4），逗號分隔")
@@ -180,6 +169,35 @@ func main() {
 			"⚠ **步數一律是絕對值**：讀檔之後步數從存檔當時繼續往上加，"+
 			"-steps／-clicks／-shots／-save-state 的數字都要用絕對步數，"+
 			"給「還要跑幾道」那種預算值會一道都不跑（而且不會報錯）")
+	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	covOut := flag.String("coverage", "",
+		"把執行過的線性位址寫成 JSON 區段表。\n"+
+			"    打包過的執行檔靜態反組譯是亂碼；這份清單是「哪些 byte 是程式碼」\n"+
+			"    唯一直接的答案，拿去當 IDA 的種子。")
+	keysAt := flag.String("keys-at", "",
+		"在指定的指令數餵鍵：<步數>:<鍵>[,<步數>:<鍵>…]。\n"+
+			"    -keys 是開場就塞進佇列，會在早期的提示就被吃光；\n"+
+			"    後面才出現的「按任意鍵」要用這個。")
+	dumpEGA := flag.String("dump-ega", "",
+		"把平面式 VRAM 存成 PNG：<寬>x<高>=<檔名>（例 640x350=t.png）。\n"+
+			"    平面資料本身不記解析度，尺寸猜錯會得到錯位但看起來像圖的東西。")
+	dumpSeg := flag.String("dump-seg", "",
+		"把記憶體寫成檔：<seg>:<off>:<長度>[,...]=<檔名前綴>。\n"+
+			"    與 -dump-mem 的差別是**吃段:位移不是線性位址**——\n"+
+			"    -peek／-dump-mem 都要靠映像基底換算，而執行期搬到別的段的\n"+
+			"    程式碼（overlay 管理員的 thunk、載進來的 overlay）在映像裡\n"+
+			"    根本不存在，換算不到。")
+	blockAfter := flag.Uint64("block-after", 100_000,
+		"連續阻塞在鍵盤輸入這麼多步就停（0 ＝ 不停）。留一段是給計時器 ISR 推背景動畫用的")
+	egaEvery := flag.String("ega-every", "",
+		"每 N 道指令存一張 EGA 畫面：<N>:<寬>x<高>=<檔名前綴>。\n"+
+			"    單張只看得到終點，看不出按鍵是送早了還是送晚了。")
+	memTrace := flag.Bool("mem-trace", false,
+		"逐筆記 AH=48h／49h 的要求與回應（含呼叫端 CS:IP）。\n"+
+			"    「總共佔了多少」答不出「哪一次開始偏離」——要比對配置器\n"+
+			"    跟真 DOS 的差別只能一筆一筆看。")
+	dumpPorts := flag.String("dump-ports", "",
+		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
 	flag.Parse()
 
 	if *exe == "" && *loadState == "" {
@@ -305,6 +323,10 @@ func main() {
 			d.Enqueue(strings.TrimSpace(q), "")
 		}
 	}
+	d.CallTrace = []dos.CallRec{}
+	if *memTrace {
+		d.MemTrace = []dos.MemCall{}
+	}
 	if *logCalls {
 		d.Calls = map[dos.Call]int{}
 	}
@@ -342,7 +364,7 @@ func main() {
 		die(err)
 	}
 	if *keys != "" {
-		d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(*keys, "\\n", "\n"))...)
+		feedKeys(m, d, []byte(strings.ReplaceAll(*keys, "\\n", "\n")))
 	}
 
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
@@ -400,30 +422,6 @@ func main() {
 		vgaSite = &regSite{uint16(sg), uint16(of)}
 	}
 
-	type keyEv struct {
-		at   uint64
-		scan uint8
-	}
-	var keyEvs []keyEv
-	for _, item := range strings.Split(*keysAt, ";") {
-		if item = strings.TrimSpace(item); item == "" {
-			continue
-		}
-		i := strings.Index(item, ":")
-		if i < 0 {
-			die(fmt.Errorf("-keys-at 要寫成 <步數>:<鍵>：%q", item))
-		}
-		at, err := strconv.ParseUint(strings.TrimSpace(item[:i]), 10, 64)
-		if err != nil {
-			die(fmt.Errorf("-keys-at 的步數看不懂：%q", item))
-		}
-		sc, ok := scanOf(strings.TrimSpace(item[i+1:]))
-		if !ok {
-			die(fmt.Errorf("看不懂的按鍵 %q", item[i+1:]))
-		}
-		keyEvs = append(keyEvs, keyEv{at: at, scan: sc})
-	}
-
 	type shot struct {
 		at   uint64
 		path string
@@ -472,11 +470,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	stdinPlan, err := parseShots(*stdinAt) // 同樣是 步數:字串
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
 	sweep, err := parseSweep(*sweepSpec)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -509,10 +502,31 @@ func main() {
 	if ipw != nil {
 		defer ipw.close()
 	}
-
+	pendingKeys, err := parseKeysAt(*keysAt)
+	if err != nil {
+		die(err)
+	}
+	var shotEvery uint64
+	var shotSpec string
+	var shotN int
+	if *egaEvery != "" {
+		parts := strings.SplitN(*egaEvery, ":", 2)
+		if len(parts) != 2 {
+			die(fmt.Errorf("-ega-every 格式是 <N>:<寬>x<高>=<檔名前綴>"))
+		}
+		if _, err := fmt.Sscanf(parts[0], "%d", &shotEvery); err != nil || shotEvery == 0 {
+			die(fmt.Errorf("-ega-every 的 N 解不出來：%q", parts[0]))
+		}
+		shotSpec = parts[1]
+	}
+	if *covOut != "" {
+		m.Coverage = make([]bool, 1<<20)
+	}
 	ring := newRing(*trace)
 
 	var runErr error
+	var blockedFor uint64
+	var blockedStop bool
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// **護欄：程式碼不該跑進 A0000 以上。** 那裡是視訊記憶體與 BIOS，
 		// 在我們這台上全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
@@ -522,6 +536,19 @@ func main() {
 			runErr = fmt.Errorf("跑出可用記憶體：CS:IP ＝ %04X:%04X（線性 %05X）",
 				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
 			break
+		}
+		if shotEvery > 0 && m.Steps >= uint64(shotN+1)*shotEvery {
+			shotN++
+			sp := strings.SplitN(shotSpec, "=", 2)
+			if len(sp) == 2 {
+				if err := doDumpEGA(m, fmt.Sprintf("%s=%s-%03d.png", sp[0], sp[1], shotN)); err != nil {
+					die(err)
+				}
+			}
+		}
+		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
+			feedKeys(m, d, pendingKeys[0].key)
+			pendingKeys = pendingKeys[1:]
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
 			// **改座標之後要送移動事件**，跟 -clicks 一樣。
@@ -655,23 +682,12 @@ func main() {
 			}
 			lastScreen = cur
 		}
-		for _, k := range keyEvs {
-			if m.Steps == k.at {
-				m.QueueKey(k.scan)
-				m.SetNextKey(m.Steps + 1)
-			}
-		}
 		for _, sh := range dumpShots {
 			if m.Steps == sh.at {
 				if err := writeEGA(sh.path, m); err != nil {
 					die(err)
 				}
 				fmt.Printf("#%d 傾印畫面 → %s\n", m.Steps, sh.path)
-			}
-		}
-		if len(stdinPlan) > 0 {
-			if txt, ok := stdinPlan[m.Steps]; ok {
-				d.Stdin = append(d.Stdin, []byte(strings.ReplaceAll(txt, "\\n", "\n"))...)
 			}
 		}
 		if len(saves) > 0 {
@@ -725,10 +741,41 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
+		// 阻塞在鍵盤輸入時程式一道指令都不往前走（spec 008），
+		// 再跑下去只是把 INT 重跑幾百萬次。留 blockAfter 步給計時器
+		// 推背景動畫，之後就停——繼續燒預算不會有新資訊。
+		if d.Blocked {
+			blockedFor++
+			if *blockAfter > 0 && blockedFor >= *blockAfter {
+				blockedStop = true
+				break
+			}
+		} else {
+			blockedFor = 0
+		}
 	}
 
 	if ca != nil {
 		ca.dump()
+	}
+	if blockedStop {
+		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
+			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
+	}
+	if *dumpEGA != "" {
+		if err := doDumpEGA(m, *dumpEGA); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-ega:", err)
+		}
+	}
+	if *dumpSeg != "" {
+		if err := doDumpMem(m, *dumpSeg); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-seg:", err)
+		}
+	}
+	if *covOut != "" {
+		if err := writeCoverage(m, *covOut); err != nil {
+			fmt.Fprintln(os.Stderr, "coverage:", err)
+		}
 	}
 	report(m, d, ring, runErr, *steps)
 	for _, w := range regWatch {
@@ -825,6 +872,11 @@ func main() {
 			}
 		}
 		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+	}
+	if *dumpPorts != "" {
+		if err := writePortLog(m, *dumpPorts); err != nil {
+			die(err)
+		}
 	}
 	if *dumpCGA != "" {
 		if err := writeCGA(*dumpCGA, m); err != nil {
@@ -1192,6 +1244,135 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			fmt.Printf(" handle %d ＝ %d bytes", kv[0], kv[1])
 		}
 		fmt.Println()
+	}
+	if n := m.IRQ1Delivered(); n > 0 || m.KeyQueueLen() > 0 {
+		fmt.Printf("\n硬體鍵盤：送出 IRQ1 %d 次（其中 %d 次因為沒人裝 int 09h 而留著），"+
+			"佇列還剩 %d 個事件\n  int 09h 向量 ＝ %04X:%04X（stub 段是 %04X）\n",
+			n, m.KeyStalls(), m.KeyQueueLen(),
+			m.Read16(0x09*4+2), m.Read16(0x09*4), uint16(machine.StubSeg))
+	}
+	if len(d.KeyReads) > 0 || len(d.Stdin) > 0 {
+		fmt.Printf("\n按鍵去向（取走 %d 個，佇列還剩 %d 個）：\n",
+			len(d.KeyReads), len(d.Stdin))
+		for _, k := range d.KeyReads {
+			ch := "."
+			if k.Key >= 0x20 && k.Key < 0x7F {
+				ch = string(rune(k.Key))
+			}
+			fmt.Printf("  #%-11d %-11s %02X %s\n", k.Step, k.Via, k.Key, ch)
+		}
+		if len(d.Stdin) > 0 {
+			fmt.Printf("  ⚠ 沒人取走：% X —— 送進去的鍵不等於程式收到的鍵\n", d.Stdin)
+		}
+	}
+
+	if d.KeyWaits > 0 {
+		fmt.Printf("\n⚠ 佇列空時被要求讀鍵 %d 次——它在**等鍵盤**，不是在做事。\n"+
+			"   加大 -steps 沒有用，要用 -keys 餵鍵。\n", d.KeyWaits)
+	}
+
+	if len(d.FileOps) > 0 {
+		fmt.Printf("\n檔案操作（%d 次）：\n", len(d.FileOps))
+		for _, f := range d.FileOps {
+			fmt.Printf("  #%-9d %-5s h=%d %-12s arg=%-10d pos=%-10d len=%d\n",
+				f.Step, f.Op, f.Handle, f.Name, f.Arg, f.Pos, f.Len)
+		}
+	}
+	if len(d.MemTrace) > 0 {
+		var nAlloc, nFree, nFail int
+		var held int64 // 目前握在手上的段數
+		var peak int64
+		for _, m := range d.MemTrace {
+			switch {
+			case m.Op == 0x48 && m.OK:
+				nAlloc++
+				held += int64(m.Got)
+			case m.Op == 0x48:
+				nFail++
+			case m.Op == 0x49 && m.OK:
+				nFree++
+				held -= int64(m.Got)
+			default:
+				nFail++
+			}
+			if held > peak {
+				peak = held
+			}
+		}
+		fmt.Printf("\n配置器逐筆帳（AH=48h 成功 %d／失敗 %d，AH=49h %d 次；"+
+			"淨持有 %d 段 ≈ %d KB，峰值 %d KB）：\n",
+			nAlloc, nFail, nFree, held, held*16/1024, peak*16/1024)
+		for i, m := range d.MemTrace {
+			if len(d.MemTrace) > 60 && i == 30 {
+				fmt.Printf("  …中間 %d 筆略過…\n", len(d.MemTrace)-60)
+			}
+			if len(d.MemTrace) > 60 && i >= 30 && i < len(d.MemTrace)-30 {
+				continue
+			}
+			op, res := "配置", ""
+			if m.Op == 0x49 {
+				op = "釋放"
+			}
+			switch {
+			case m.Op == 0x48 && m.OK:
+				res = fmt.Sprintf("→ %04X（實得 %04X 段 ＝ %d KB）", m.Seg, m.Got, int(m.Got)*16/1024)
+			case m.Op == 0x48:
+				res = fmt.Sprintf("✗ 不足，最大自由 %04X 段 ＝ %d KB", m.Got, int(m.Got)*16/1024)
+			case m.OK:
+				res = fmt.Sprintf("ES=%04X（%04X 段）", m.Seg, m.Got)
+			default:
+				res = fmt.Sprintf("✗ ES=%04X 不是已配置的區塊", m.Seg)
+			}
+			fmt.Printf("  #%-10d %s want=%04X %-42s  呼叫端 %04X:%04X DS=%04X ES=%04X\n",
+				m.Step, op, m.Want, res, m.CS, m.IP, m.DS, m.ES)
+		}
+	}
+	fmt.Printf("\n配置器狀態：\n")
+	for _, l := range d.ArenaDump() {
+		fmt.Println("  " + l)
+	}
+	if len(d.CallTrace) > 0 {
+		fmt.Printf("\nint 21h 的 ES:BX（最後 20 次；★ 表示服務動了 ES 或 BX）：\n")
+		from := len(d.CallTrace) - 20
+		if from < 0 {
+			from = 0
+		}
+		for _, r := range d.CallTrace[from:] {
+			mark := "  "
+			if r.ESOut != r.ESIn || r.BXOut != r.BXIn {
+				mark = "★ "
+			}
+			fmt.Printf("  %s#%-9d AH=%02X AL=%02X  ES:BX %04X:%04X → %04X:%04X\n",
+				mark, r.Step, r.AH, r.AL, r.ESIn, r.BXIn, r.ESOut, r.BXOut)
+		}
+	}
+	if len(d.Resizes) > 0 {
+		fmt.Printf("\nAH=4Ah 調整區塊（%d 次）：\n", len(d.Resizes))
+		for _, r := range d.Resizes {
+			where := "arena 外（PSP／映像／記憶體探測）"
+			if r.InArena {
+				where = fmt.Sprintf("arena 內 %04X→%04X 段（%+d KB）",
+					r.Before, r.After, (int(r.After)-int(r.Before))*16/1024)
+			}
+			st := "✗"
+			if r.OK {
+				st = "✓"
+			}
+			fmt.Printf("  ES=%04X want=%04X %s %-44s freeSeg=%04X  呼叫端 %04X:%04X\n",
+				r.Seg, r.Want, st, where, r.FreeSeg, r.CS, r.IP)
+		}
+	}
+	if len(d.Overlays) > 0 {
+		fmt.Printf("\n載入的 overlay（%d）：\n", len(d.Overlays))
+		for _, o := range d.Overlays {
+			fmt.Printf("  %-14s → %04X:0  重定位加數 %04X  檔案 %d bytes\n",
+				o.Name, o.Seg, o.Reloc, o.Size)
+			fmt.Printf("      載入於第 %d 道指令\n", o.Steps)
+			fmt.Printf("      參數區塊 %04X:%04X ＝ % X   呼叫端 %04X:%04X\n",
+				o.PBSeg, o.PBOff, o.PBRaw, o.CallCS, o.CallIP)
+			fmt.Printf("      呼叫端 %04X:%04X 前後 32 byte（INT 在 offset 22）：\n        % X\n",
+				o.CallCS, o.CallIP-24, o.CallSite)
+		}
 	}
 	fmt.Printf("\n滑鼠輪詢 %d 次", len(d.Mouse.Polls))
 	if n := len(d.Mouse.Polls); n > 0 {
@@ -2075,4 +2256,232 @@ func releaseNow(d *dos.DOS, clickPolls int, clickHold uint64,
 		return len(d.Mouse.Polls)-pollsAtPress >= clickPolls
 	}
 	return step == pressStep+clickHold
+}
+
+// doDumpMem 把 <seg>:<off>:<長度> 的記憶體寫成檔。
+//
+// **為什麼不用 -peek**：-peek 吃的是 IDA 線性位址，要靠映像基底換算，
+// 而執行期搬到別的段的程式碼（overlay 管理員的 thunk、載進來的 overlay）
+// **在映像裡根本不存在**，換算不到。要看它們只能直接給段:位移。
+func doDumpMem(m *machine.Machine, spec string) error {
+	parts := strings.SplitN(spec, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("格式是 <seg>:<off>:<len>[,...]=<檔名前綴>")
+	}
+	prefix := parts[1]
+	for _, one := range strings.Split(parts[0], ",") {
+		f := strings.Split(one, ":")
+		if len(f) != 3 {
+			return fmt.Errorf("%q 不是 <seg>:<off>:<len>", one)
+		}
+		seg, err := strconv.ParseUint(strings.TrimPrefix(f[0], "0x"), 16, 16)
+		if err != nil {
+			return fmt.Errorf("段 %q：%w", f[0], err)
+		}
+		off, err := strconv.ParseUint(strings.TrimPrefix(f[1], "0x"), 16, 16)
+		if err != nil {
+			return fmt.Errorf("位移 %q：%w", f[1], err)
+		}
+		n, err := strconv.Atoi(f[2])
+		if err != nil || n <= 0 {
+			return fmt.Errorf("長度 %q 不是正整數", f[2])
+		}
+		buf := make([]byte, n)
+		base := cpu.Addr(uint16(seg), uint16(off))
+		for i := range buf {
+			buf[i] = m.Read8(base + uint32(i))
+		}
+		name := fmt.Sprintf("%s-%04X_%04X.bin", prefix, seg, off)
+		if err := os.WriteFile(name, buf, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("dump %04X:%04X %d bytes → %s\n", seg, off, n, name)
+	}
+	return nil
+}
+
+// egaPalette 是 EGA 的 16 色預設調色盤（6 位元 RGB 展開成 8 位元）。
+//
+// **這不是遊戲的調色盤**——遊戲會自己設 EGA 的 palette 暫存器。
+// 這裡用預設值只為了讓 dump 出來的圖看得懂；要對拍顏色得另外把
+// 那些暫存器的寫入攔下來。
+var egaPalette = [16][3]uint8{
+	{0, 0, 0}, {0, 0, 170}, {0, 170, 0}, {0, 170, 170},
+	{170, 0, 0}, {170, 0, 170}, {170, 85, 0}, {170, 170, 170},
+	{85, 85, 85}, {85, 85, 255}, {85, 255, 85}, {85, 255, 255},
+	{255, 85, 85}, {255, 85, 255}, {255, 255, 85}, {255, 255, 255},
+}
+
+// doDumpEGA 把平面式 VRAM 依指定尺寸組成 PNG。
+func doDumpEGA(m *machine.Machine, spec string) error {
+	parts := strings.SplitN(spec, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("格式是 <寬>x<高>=<檔名>")
+	}
+	var w, h int
+	if _, err := fmt.Sscanf(parts[0], "%dx%d", &w, &h); err != nil {
+		return fmt.Errorf("尺寸 %q 解不出來：%w", parts[0], err)
+	}
+	idx := m.IndexedEGASize(w, h)
+	if idx == nil {
+		return fmt.Errorf("%dx%d 放不進平面（寬要是 8 的倍數）", w, h)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	nonZero := 0
+	for i, v := range idx {
+		c := egaPalette[v&0x0F]
+		img.SetRGBA(i%w, i/w, color.RGBA{c[0], c[1], c[2], 255})
+		if v != 0 {
+			nonZero++
+		}
+	}
+	f, err := os.Create(parts[1])
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return err
+	}
+	fmt.Printf("EGA %dx%d → %s（%d/%d 個非零像素，Map Mask 曾動過＝%v）\n",
+		w, h, parts[1], nonZero, len(idx), m.EGAPlanarActive())
+	return nil
+}
+
+// timedKey 是一次定時餵鍵。
+type timedKey struct {
+	at  uint64
+	key []byte
+}
+
+// parseKeysAt 解析 `<步數>:<鍵>[,…]`，並依步數排序。
+//
+// **為什麼需要它**：`-keys` 是開場就把鍵塞進佇列，早期的提示會把它們
+// 吃光。後面才出現的「按任意鍵繼續」（智冠《三國演義》的開場插圖用
+// `int 16h AH=01` 輪詢了三百三十萬次）拿不到任何鍵，於是永遠停在那裡——
+// 從外面看是「程式還活著」。
+func parseKeysAt(spec string) ([]timedKey, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	var out []timedKey
+	for _, one := range strings.Split(spec, ",") {
+		i := strings.Index(one, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("keys-at: %q 不是 <步數>:<鍵>", one)
+		}
+		at, err := strconv.ParseUint(one[:i], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("keys-at: 步數 %q：%w", one[:i], err)
+		}
+		k := strings.ReplaceAll(one[i+1:], "\\n", "\n")
+		k = strings.ReplaceAll(k, "\\r", "\r")
+		if k == "" {
+			return nil, fmt.Errorf("keys-at: %q 沒有指定按鍵", one)
+		}
+		out = append(out, timedKey{at: at, key: []byte(k)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].at < out[j].at })
+	return out, nil
+}
+
+// writeCoverage 把執行過的位址壓成連續區段寫出去。
+//
+// 區段而不是逐個位址：一段連續的程式碼會產生幾千個相鄰位址，
+// 列成區段之後種子只要每段一個起點。
+func writeCoverage(m *machine.Machine, path string) error {
+	type span struct {
+		Start string `json:"start"`
+		End   string `json:"end"`
+		Len   int    `json:"len"`
+	}
+	var spans []span
+	i := 0
+	total := 0
+	for i < len(m.Coverage) {
+		if !m.Coverage[i] {
+			i++
+			continue
+		}
+		j := i
+		for j < len(m.Coverage) && m.Coverage[j] {
+			j++
+		}
+		spans = append(spans, span{Start: fmt.Sprintf("0x%05X", i),
+			End: fmt.Sprintf("0x%05X", j), Len: j - i})
+		total += j - i
+		i = j
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(map[string]any{
+		"executed_bytes": total,
+		"span_count":     len(spans),
+		"spans":          spans,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("覆蓋率：%d 個位址被執行過，壓成 %d 段 → %s\n", total, len(spans), path)
+	return nil
+}
+
+// feedKeys 同時餵**兩條路**：DOS／BIOS 的字元佇列，與硬體鍵盤的掃描碼。
+//
+// ⚠ **只餵其中一條會得到「程式沒反應」而不是錯誤。** 自己裝 IRQ1
+// 處理常式、直接讀埠 0x60 的程式看不到字元佇列；用 `int 21h AH=08`
+// 的程式看不到掃描碼。哪一條才對是程式決定的，而它不會告訴你。
+func feedKeys(m *machine.Machine, d *dos.DOS, keys []byte) {
+	d.Stdin = append(d.Stdin, keys...)
+	for _, b := range keys {
+		if sc, ok := dos.ScanCode(b); ok {
+			m.PushKey(sc)
+		}
+	}
+}
+
+// writePortLog 把 I/O 寫入序列存成 TSV。
+//
+// 規格是 `<檔名>`（全部）或 `<埠>,<埠>=<檔名>`（只存那幾個埠）。
+// 埠用十六進位，例如 `388,389=opl.tsv`。
+//
+// **要序列不要最後值**：像 OPL2 這種「先選暫存器再寫值」的介面，
+// 只看每個埠最後寫進去的值什麼都看不出來。
+func writePortLog(m *machine.Machine, spec string) error {
+	want := map[uint16]bool{}
+	path := spec
+	if i := strings.LastIndex(spec, "="); i >= 0 {
+		path = spec[i+1:]
+		for _, p := range strings.Split(spec[:i], ",") {
+			var v uint64
+			if _, err := fmt.Sscanf(strings.TrimSpace(p), "%x", &v); err != nil {
+				return fmt.Errorf("-dump-ports 的埠 %q 解不出來", p)
+			}
+			want[uint16(v)] = true
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintln(f, "step\tport\tvalue"); err != nil {
+		return err
+	}
+	n := 0
+	for _, w := range m.PortLog {
+		if len(want) > 0 && !want[w.Port] {
+			continue
+		}
+		if _, err := fmt.Fprintf(f, "%d\t%03X\t%02X\n", w.Step, w.Port, w.Val); err != nil {
+			return err
+		}
+		n++
+	}
+	fmt.Printf("I/O 寫入 %d 筆 → %s\n", n, path)
+	return nil
 }

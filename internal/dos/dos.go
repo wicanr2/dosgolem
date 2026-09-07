@@ -30,6 +30,30 @@ import (
 // 逐點對拍才有意義（`docs/spec/001` MVP-B）。
 type Time struct{ Hour, Min, Sec, Hundredth uint8 }
 
+// clock 是 `AH=2Ch` 回報的時刻：Now 當基準，再加上 PIT tick 推出來的時間。
+//
+// ⚠ **時鐘不能是固定值。** 第一版 `AH=2Ch` 直接回 `Now`，於是任何
+// 「等 N 個百分之一秒」的迴圈都轉不出來——智冠《三國演義》的識別畫面
+// 就卡在這裡，六百一十二萬次呼叫問同一個時刻。從外面看是「程式還活著」，
+// 與「在算很久」分不開。
+//
+// 推進的依據是 **PIT tick 不是牆上的時間**：時鐘掛在指令數上，
+// 同樣的輸入永遠得到同樣的時刻，對拍才是決定性的
+// （與 `machine.tick` 的模型一致）。18.2 Hz ＝ 一個 tick 約 5.4925 個
+// 百分之一秒。
+func (d *DOS) clock() Time {
+	base := (uint64(d.Now.Hour)*3600+uint64(d.Now.Min)*60+uint64(d.Now.Sec))*100 +
+		uint64(d.Now.Hundredth)
+	// 5493/1000 ≈ 100/18.2，用整數算避免浮點進到決定性的路徑上。
+	total := (base + d.M.Ticks*5493/1000) % (24 * 3600 * 100)
+	return Time{
+		Hour:      uint8(total / 360000),
+		Min:       uint8(total / 6000 % 60),
+		Sec:       uint8(total / 100 % 60),
+		Hundredth: uint8(total % 100),
+	}
+}
+
 // Mouse 是滑鼠狀態。座標用**像素**存，回報時才乘上 XScale
 // （mode 13h 的標準驅動水平回報 0–639，`rich2/docs/re/182` §3）。
 type Mouse struct {
@@ -142,6 +166,29 @@ type DOS struct {
 	// 用完要關掉。
 	StdinEmptyReadsZero bool
 
+	// KeyWaits 數「佇列空的時候被要求讀一個鍵」發生了幾次
+	// （`AH=01h`／`07h`／`08h`）。
+	//
+	// **為什麼要數它**：真 DOS 的這幾個功能是**阻塞**的——呼叫一次就停在
+	// 那裡等人按鍵。dosgolem 是步進式的，停不下來，只能立刻返回；
+	// 於是程式在同一個迴圈裡空轉，從外面看是「跑滿指令上限、程式還活著」，
+	// 與「跑掛了」「在算很久」長得一模一樣。
+	//
+	// 數出來就分得開了：KeyWaits 很大 ＝ **它在等鍵盤，不是在做事**，
+	// 該餵鍵而不是加大 `-steps`。
+	KeyWaits int
+
+	// NonBlockingKeys 關掉阻塞語意，讓 `AH=01h`／`07h`／`08h` 在佇列空時
+	// 回 `AL=0` 繼續跑（舊行為）。
+	//
+	// **零值 ＝ false ＝ 阻塞 ＝ 真 DOS 的語意**：忘記設的人得到的是對的那一邊，
+	// 不是一個安靜說謊的模型。規格 `docs/spec/008`。
+	NonBlockingKeys bool
+
+	// Blocked 表示這一步停在阻塞式輸入上（佇列空）。取到鍵時清掉。
+	// 上層可以據此停下來、餵鍵、再繼續。
+	Blocked bool
+
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
 	//
@@ -222,16 +269,37 @@ type DOS struct {
 	// **「殼鏈走到哪一跳」唯一的直接答案。**
 	ExecLog []ExecRecord
 
-	handles    map[uint16]*handle
-	nextHandle uint16
-	freeSeg    uint16
+	// Overlays 記每一次成功的 overlay 載入。
+	//
+	// **這是「程式載了哪些模組」的唯一觀測點。** overlay 沒有 PSP、
+	// 不動 CS:IP，從暫存器與開檔清單都看不出它發生過。
+	Overlays []OverlayLoad
 
-	// blocks 是 AH=48h 配出去、還沒還回來的區塊（資料段 → 段數）；
-	// holes 是還回來、可以再配的洞。**bump 配置器不夠用**：
-	// DOSJP 先在常規記憶體要 286 KB 讀字型、搬進 XMS、再還回來，
-	// 不回收的話後面的程式就配不到記憶體了（`docs/spec/004` §1.2.2）。
-	blocks map[uint16]uint16
-	holes  []memHole
+	// Resizes 記每一次 AH=4Ah，用來查「可配置區起點是怎麼被決定的」。
+	Resizes []ResizeCall
+
+	// CallTrace 記每一次 int 21h 進入與離開時的 ES:BX。
+	//
+	// 用途只有一個：分辨「程式自己設的 ES:BX」與「某個服務把它改壞了」。
+	// 服務回傳時動到不該動的暫存器，症狀會出現在很後面的另一個呼叫上。
+	CallTrace []CallRec
+
+	// MemTrace 記每一次配置／釋放。非 nil 才記（筆數可達上萬）。
+	MemTrace []MemCall
+
+	// KeyReads 記每一次按鍵被取走。永遠記——筆數是按鍵數，很少。
+	KeyReads []KeyRead
+
+	handles map[uint16]*handle
+	// MaxHandles 是這個程序同時開得了幾個檔（含 0–4 的標準 handle）。
+	// DOS 的預設是 20，`AH=67h` 可以調高。
+	//
+	// ⚠ **上限不是拿來擋人的，是號碼配置的邊界。** MSC 的低階 I/O
+	// 用 handle 當索引查自己的表，表和 JFT 一樣大；handle 超出範圍時
+	// `fopen` 會**先開成功再把它關掉並回 NULL**，看起來像開檔失敗，
+	// 實際上是號碼太大。
+	MaxHandles uint16
+	freeSeg    uint16
 
 	// 行程模型（`docs/spec/008` §2、`docs/spec/009` §2）：
 	// procStack 是被 EXEC 暫停的父行程，curPSP 是目前行程的 PSP，
@@ -248,10 +316,19 @@ type DOS struct {
 	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
 	// 1 MB 空間裡的 D000h 段。
 	ems *ems
-}
 
-// memHole 是一塊還回來的記憶體（seg 是資料段，MCB 在 seg-1）。
-type memHole struct{ seg, size uint16 }
+	// arena 是 [freeSeg, MemTop) 這段的區塊表，依段位址排序、首尾相接、
+	// 沒有空隙。每個區塊佔 1 段的假 MCB ＋ size 段的資料，
+	// 交給程式的是 seg+1。規格 `docs/spec/009`。
+	//
+	// **它取代了早期的「bump ＋ 洞清單」**：那一版不合併相鄰的洞，
+	// 而且不把狀態發布到客體記憶體，會走 MCB 鏈的程式因此看到一份
+	// 與事實無關的地圖。
+	//
+	// nil 表示還沒初始化；第一次配置時用當時的 freeSeg 建起來，
+	// 這樣測試裡先設 freeSeg 再用的寫法仍然成立。
+	arena []memBlock
+}
 
 // AllocOp 是一次記憶體配置或縮放。Fn 是 48h、49h 或 4Ah。
 type AllocOp struct {
@@ -307,14 +384,24 @@ type VecSet struct {
 	Step     uint64
 }
 
-// FileOp 是一次檔案讀取或定位。Fn 是 int 21h 的 AH。
+// FileOp 是一次檔案操作。
+//
+// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
+// 遊戲抱怨某個項目找不到時，要分辨「它算錯位移」與「我們回錯資料」
+// 就得看這個。
+//
+// 也回答「這個檔案是整份載入還是按需取用」——那決定了要去記憶體找資料，
+// 還是去看它讀了哪些偏移。字型就是後者：整份 GRAPH.IMG 從來沒有進過
+// 記憶體，遊戲每畫一個字就 seek 過去讀 30 bytes。
 type FileOp struct {
-	Fn     uint8
+	Step   uint64
+	Op     string // open／seek／read／write／close
+	Fn     uint8  // 對應的 int 21h AH（0 ＝ 不適用）
 	Handle uint16
 	Name   string
-	Pos    int64 // AH=42h：定位後的位置；AH=3Fh：讀取起點
-	Len    int   // AH=3Fh：實際讀到幾 bytes
-	Step   uint64
+	Arg    int64 // 呼叫端要求的量：seek 的位移、read 的 CX
+	Pos    int64 // seek：定位後的位置；read：讀取起點
+	Len    int   // read／write：實際的位元組數；<0 是錯誤碼
 }
 
 // PalOp 是一次 int 10h AH=10h 呼叫。
@@ -352,7 +439,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		nextHandle:    5, // 0–4 是標準 handle
+		MaxHandles:    20, // DOS 預設；AH=67h 可調
 		ems:           newEMS(),
 	}
 }
@@ -361,7 +448,7 @@ func New(m *machine.Machine, root string) *DOS {
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
-	d.blocks = map[uint16]uint16{}
+	d.arena = nil // 第一次配置時用當時的 freeSeg 建起來
 	d.curPSP = machine.PSPSeg
 	d.M.CPU.IntHook = d.handle
 }
@@ -519,3 +606,102 @@ func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
 func bh(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX] >> 8) }
+
+// ArenaDump 把配置器目前的區塊表印成一行一塊，供診斷用。
+func (d *DOS) ArenaDump() []string {
+	out := make([]string, 0, len(d.arena)+1)
+	out = append(out, fmt.Sprintf("freeSeg=%04X arena=%d 塊（nil=%v）",
+		d.freeSeg, len(d.arena), d.arena == nil))
+	for _, b := range d.arena {
+		st := "已配置"
+		if b.free {
+			st = "自由"
+		}
+		out = append(out, fmt.Sprintf("  seg=%04X size=%04X %s", b.seg, b.size, st))
+	}
+	return out
+}
+
+// memBlock 是配置器的一個區塊。seg 是假 MCB 的位置，資料從 seg+1 開始。
+type memBlock struct {
+	seg  uint16
+	size uint16 // 資料段數，不含 MCB
+	free bool
+}
+
+// OverlayLoad 是一次 `AH=4Bh AL=03` 的載入紀錄。
+type OverlayLoad struct {
+	Name  string
+	Seg   uint16
+	Reloc uint16
+	Size  int
+
+	// PBSeg/PBOff 是參數區塊的位置，PBRaw 是它前 8 個 byte。
+	// 載入段看起來不合理時，要能分辨「程式真的這樣要求」與
+	// 「我們讀錯了地方」——沒有這個就只能猜。
+	PBSeg, PBOff uint16
+	PBRaw        [8]byte
+
+	// CallCS/CallIP 是呼叫端（INT 之後的下一道指令）。
+	// 參數看起來不合理時要能直接跳去反組譯那裡。
+	CallCS, CallIP uint16
+
+	// Steps 是載入發生在第幾道指令。要看「載完之後發生什麼」就靠它
+	// 把 -steps 停在正確的位置。
+	Steps uint64
+
+	// CallSite 是呼叫端 INT 指令前後的位元組（前 24、後 8）。
+	//
+	// 呼叫端常常是執行期搬到高位段的 stub，**檔案裡找不到**，
+	// 事後也可能被覆蓋。要看它就得在呼叫發生的當下抄。
+	CallSite [32]byte
+}
+
+// MemCall 是一次配置器呼叫（`AH=48h` 配置／`AH=49h` 釋放）的逐筆帳。
+//
+// 存在的理由是**總量對不對答不了「哪一次開始偏離」**。原版跑到
+// `DATA5.GRP` 那一層時要 `BX=FFFF`（探測上限），拿到 122 KB 就收工；
+// 當下它自己握著約 373 KB 而整趟一次都沒釋放。要判斷是「真 DOS 底下
+// 它也拿這麼多」還是「我們給多了」，只能一筆一筆比對要求與回應。
+type MemCall struct {
+	Step   uint64
+	Op     uint8  // 0x48 配置、0x49 釋放
+	Want   uint16 // 要幾段（0x49 時無意義）
+	Seg    uint16 // 成功時給出去的段；0x49 時是 ES
+	Got    uint16 // 失敗時回報的最大自由段數
+	OK     bool
+	CS, IP uint16 // 呼叫端
+	DS, ES uint16
+}
+
+// ResizeCall 是一次 `AH=4Ah` 的紀錄。
+//
+// Before／After 是這個區塊在 arena 裡調整前後的段數（`InArena` 為假時無意義）。
+// **要求的大小不等於區塊最後的大小**：程式可以一路把同一塊撐大，
+// 而只看 `AH=48h` 的要求量會漏掉這一段成長。
+type ResizeCall struct {
+	Seg, Want, FreeSeg uint16
+	Before, After      uint16
+	InArena, OK        bool
+	CS, IP             uint16
+}
+
+// KeyRead 是一次「把按鍵從佇列取走」的紀錄。
+//
+// 存在的理由是**餵進去的鍵不見了的時候，看不出是誰吃的**。
+// 同一個佇列有三條出口（`int 21h AH=01/07/08`、`AH=3Fh` 讀 handle 0、
+// `int 16h AH=00/10`），而「程式沒反應」既可能是沒收到、
+// 也可能是被另一條路提前取走。
+type KeyRead struct {
+	Step uint64
+	Via  string // "int21-AH08"／"int21-3F"／"int16-AH00"
+	Key  uint8
+}
+
+// CallRec 是一次 int 21h 的暫存器快照。
+type CallRec struct {
+	Step         uint64
+	AH, AL       uint8
+	ESIn, BXIn   uint16
+	ESOut, BXOut uint16
+}

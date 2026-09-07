@@ -16,6 +16,13 @@ type handle struct {
 	path string
 	f    *os.File
 	size int64
+	// psp 是開這個檔的行程。**子行程結束時要關掉它名下的檔**——
+	// 真 DOS 的 AH=4Ch 就是這樣做的，漏關的症狀是「跑久了開不了檔」，
+	// 而錯誤碼是 04h（handle 用盡），完全不指向這裡。
+	//
+	// ⚠ 不能用「號碼 >= 進子行程時的下一個號碼」來判：號碼是
+	// **最小的空號**，關掉再開會拿回舊號碼，區間判準因此不成立。
+	psp uint16
 }
 
 // resolve 把遊戲組出來的路徑對到實際檔案。
@@ -71,9 +78,13 @@ func (d *DOS) open(c *cpu.CPU) {
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
 	if isEMMDevice(name) {
-		h := d.nextHandle
-		d.nextHandle++
-		d.handles[h] = &handle{name: name}
+		h, ok := d.allocHandle()
+		if !ok {
+			c.R[cpu.AX] = 4 // Too many open files
+			setCarry(c)
+			return
+		}
+		d.handles[h] = &handle{name: name, psp: d.curPSP}
 		d.Opened = append(d.Opened, name)
 		if d.OnOpen != nil {
 			d.OnOpen(name)
@@ -97,11 +108,18 @@ func (d *DOS) open(c *cpu.CPU) {
 		return
 	}
 	st, _ := f.Stat()
-	h := d.nextHandle
-	d.nextHandle++
-	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size()}
+	h, ok := d.allocHandle()
+	if !ok {
+		f.Close()
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
+	d.handles[h] = &handle{name: name, path: path, f: f, size: st.Size(), psp: d.curPSP}
 	base := filepath.Base(path)
 	d.Opened = append(d.Opened, base)
+	d.trace(FileOp{Op: "open", Fn: 0x3D, Handle: h, Name: name,
+		Arg: st.Size(), Len: int(h)})
 	if d.OnOpen != nil {
 		d.OnOpen(base)
 	}
@@ -153,6 +171,8 @@ func (d *DOS) read(c *cpu.CPU) {
 		Step: d.M.Steps, Name: h.name, Handle: bx,
 		Seg: c.Seg[cpu.DS], Off: c.R[cpu.DX], Want: cx, Got: n,
 	})
+	d.trace(FileOp{Op: "read", Fn: 0x3F, Handle: bx, Name: h.name,
+		Arg: int64(cx), Pos: pos, Len: n})
 	c.R[cpu.AX] = uint16(n)
 	clearCarry(c)
 }
@@ -201,6 +221,9 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 	}
 	if n > 0 {
 		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), d.Stdin[:n])
+		for _, ch := range d.Stdin[:n] {
+			d.noteKey("int21-3F", ch)
+		}
 		d.Stdin = d.Stdin[n:]
 		c.R[cpu.AX] = uint16(n)
 		clearCarry(c)
@@ -245,8 +268,8 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	d.FileOps = append(d.FileOps, FileOp{Fn: 0x42, Handle: c.R[cpu.BX],
-		Name: h.name, Pos: pos, Step: d.M.Steps})
+	d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX],
+		Name: h.name, Arg: off, Pos: pos})
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
 	clearCarry(c)
@@ -280,4 +303,28 @@ func (d *DOS) write(c *cpu.CPU) {
 	}
 	c.R[cpu.AX] = cx
 	clearCarry(c)
+}
+
+// trace 記一次檔案操作；FileTrace 是 nil 就不記。
+func (d *DOS) trace(op FileOp) {
+	op.Step = d.M.Steps
+	d.FileOps = append(d.FileOps, op)
+}
+
+// allocHandle 給出**最小的**空號碼。
+//
+// ⚠ **關掉的號碼要放回去給下一次用。** DOS 的 handle 是 PSP 裡那張
+// job file table 的索引，關檔就把那一格標成空，下一次開檔拿的是
+// 最小的空格。只增不重用的話，一支開開關關幾十次的程式會拿到
+// 越來越大的號碼，而 MSC 的低階 I/O 拿 handle 當自己表的索引
+// （表和 JFT 一樣大）——號碼一超出範圍，`fopen` 就**開成功之後
+// 立刻把它關掉並回 NULL**。症狀是「開得好好的檔突然開不起來」，
+// 而且發生在與號碼配置毫無關聯的地方。
+func (d *DOS) allocHandle() (uint16, bool) {
+	for h := uint16(5); h < d.MaxHandles; h++ { // 0–4 是標準 handle
+		if _, taken := d.handles[h]; !taken {
+			return h, true
+		}
+	}
+	return 0, false
 }

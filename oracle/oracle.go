@@ -402,3 +402,64 @@ type MemWrite struct {
 	IP       Addr
 	Step     uint64
 }
+
+// FileOp 是原版的一次檔案操作。
+type FileOp struct {
+	Step   uint64
+	Op     string // open／seek／read／write／close
+	Fn     uint8  // 對應的 int 21h AH
+	Handle uint16
+	Name   string
+	Arg    int64 // seek 的位移、read 的要求量、open 的檔案大小
+	Pos    int64 // seek 後的位置、read 的起點
+	Len    int   // read／write 實際的位元組數
+}
+
+// TraceFiles 過去用來打開檔案操作追蹤；**現在永遠開著**，留著只為相容。
+//
+// **開檔清單只說「開過什麼」，說不出「要求讀哪一段、拿到多少」。**
+// 對拍容器格式要問的正是後者：原版 seek 到哪個位移、讀多長——
+// 那組數字就是它自己算出來的項目邊界，拿來對 remake 的解碼器
+// 比「兩條路徑算同一件事」。
+func (o *Oracle) TraceFiles() {}
+
+// FileOps 回傳目前為止的檔案操作。
+func (o *Oracle) FileOps() []FileOp {
+	out := make([]FileOp, 0, len(o.d.FileOps))
+	for _, f := range o.d.FileOps {
+		out = append(out, FileOp{
+			Step: f.Step, Op: f.Op, Fn: f.Fn, Handle: f.Handle,
+			Name: f.Name, Arg: f.Arg, Pos: f.Pos, Len: f.Len,
+		})
+	}
+	return out
+}
+
+// MemCall 是原版的一次配置器呼叫。
+type MemCall struct {
+	Step   uint64
+	Op     uint8  // 0x48 配置、0x49 釋放
+	Want   uint16 // 要幾段
+	Seg    uint16 // 給出去的段（0x49 是被釋放的段）
+	Got    uint16 // 成功時是實得段數，失敗時是回報的最大自由段數
+	OK     bool
+	CS, IP uint16
+}
+
+// TraceMem 打開配置器追蹤。要在 Run 之前呼叫。
+//
+// **「總共佔了多少」答不出「哪一次開始偏離」。** 要判斷我們的配置器
+// 是不是比真 DOS 大方，得逐筆看每一次要多少、給多少、誰要的。
+func (o *Oracle) TraceMem() { o.d.MemTrace = []dos.MemCall{} }
+
+// MemCalls 回傳目前為止的配置器呼叫。
+func (o *Oracle) MemCalls() []MemCall {
+	out := make([]MemCall, 0, len(o.d.MemTrace))
+	for _, m := range o.d.MemTrace {
+		out = append(out, MemCall{
+			Step: m.Step, Op: m.Op, Want: m.Want, Seg: m.Seg,
+			Got: m.Got, OK: m.OK, CS: m.CS, IP: m.IP,
+		})
+	}
+	return out
+}
