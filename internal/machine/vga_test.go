@@ -508,3 +508,120 @@ func TestSnapshotKeepsPlanes(t *testing.T) {
 		t.Errorf("還原之後屬性調色盤 4 ＝ %02X，要 31", got)
 	}
 }
+
+// ---- 以下來自臥龍傳分支 ----------------------------------------------
+//
+// ⚠ **單元測試綠不代表接對了。** 這一層真正的接線點是 `Read8`／`Write8`
+// 的分支，直接呼叫 `VGA.Write()` 的測試把那個分支拿掉照樣全綠——
+// 所以其中一支特意走機器層。
+
+// setGC／setSeq 是「先寫索引再寫資料」的縮寫（直接對 VGA，不經機器層）。
+func setGC(v *VGA, idx, val uint8)  { v.Out(0x3CE, idx); v.Out(0x3CF, val) }
+func setSeq(v *VGA, idx, val uint8) { v.Out(0x3C4, idx); v.Out(0x3C5, val) }
+
+var _ = setSeq
+
+// 就會掉平面**。這一支證明測試真的在量 latch，不是在量別的東西。
+func TestWriteMode0NoLatchLosesPlanes(t *testing.T) {
+	v := newVGA()
+	for p := 0; p < 4; p++ {
+		v.Planes[p][0] = 0xFF
+	}
+	setGC(v, 5, 0)
+	setGC(v, 1, 0x0F)
+	setGC(v, 0, 0x01)
+	setGC(v, 8, 0xF0)
+
+	v.Write(0, 0xFF) // 沒有 dummy read
+
+	if v.Planes[1][0] != 0x00 {
+		t.Fatalf("平面 1 ＝ %02X，預期 00——沒載 latch 的話低 4 bit 應該被清掉，"+
+			"這一支測不到 latch 就沒有意義", v.Planes[1][0])
+	}
+}
+
+// 這一支從機器層進去：設 mode 12h、用 `Write8` 寫、用 `Planar()` 讀。
+func TestMachineRoutesPlanarMemory(t *testing.T) {
+	m := New()
+	m.SetVideoMode(0x12)
+	if w, h, px := m.Planar(); w != 640 || h != 480 || px == nil {
+		t.Fatalf("mode 12h 的畫面是 %d×%d，預期 640×480", w, h)
+	}
+	// 模式 2 ＋ 位元遮罩：把最左邊那個像素設成 12 號色。
+	m.Out8(0x3CE, 5)
+	m.Out8(0x3CF, 2)
+	m.Out8(0x3CE, 8)
+	m.Out8(0x3CF, 0x80)
+	m.Read8(VideoSeg * 16)
+	m.Write8(VideoSeg*16, 0x0C)
+
+	_, _, px := m.Planar()
+	if px[0] != 12 {
+		t.Errorf("(0,0) ＝ %d，預期 12——Write8 有沒有走進 VGA？", px[0])
+	}
+	if px[1] != 0 {
+		t.Errorf("(1,0) ＝ %d，預期 0（位元遮罩只開了最高位）", px[1])
+	}
+	// **不是平面模式就要回 nil，不是回一片全 0 的畫面。**
+	m.SetVideoMode(0x13)
+	if _, _, px := m.Planar(); px != nil {
+		t.Error("mode 13h 也回了平面畫面——那會讓「模式不對」看起來像「畫面全黑」")
+	}
+}
+
+// 看起來像「遊戲沒重畫」，不像「快照少存東西」。
+func TestPlanarSnapshotRoundTrip(t *testing.T) {
+	m := New()
+	m.SetVideoMode(0x12)
+	m.Out8(0x3CE, 5)
+	m.Out8(0x3CF, 2)
+	m.Read8(VideoSeg * 16)
+	m.Write8(VideoSeg*16, 0x0F)
+
+	snap := m.Snapshot()
+	m.Write8(VideoSeg*16, 0x00) // 塗掉
+	if _, _, px := m.Planar(); px[0] != 0 {
+		t.Fatal("塗掉之後 (0,0) 不是 0，這一支測不到還原")
+	}
+	m.Restore(snap)
+	if _, _, px := m.Planar(); px[0] != 15 {
+		t.Errorf("還原之後 (0,0) ＝ %d，預期 15", px[0])
+	}
+}
+
+// 反白列變成純黃色空白條，同一張圖上捲軸滑塊也不見了）。
+func TestWriteMode3AppliesALU(t *testing.T) {
+	v := newVGA()
+	v.Planes[0][0] = 0xF0 // 底下已經有東西
+	setGC(v, 5, 3)
+	setGC(v, 0, 0x01)    // Set/Reset ＝ 平面 0
+	setGC(v, 3, 0x03<<3) // 功能選擇 ＝ XOR
+	setGC(v, 8, 0xFF)
+
+	v.Read(0)
+	v.Write(0, 0xFF) // 位元遮罩全開
+
+	if got := v.Planes[0][0]; got != 0x0F {
+		t.Errorf("平面 0 ＝ %02X，預期 0F（FF XOR F0）——模式 3 沒套功能選擇？", got)
+	}
+}
+
+// 而畫面看起來完全正常。
+func TestSnapshotKeepsClockAndCallbacks(t *testing.T) {
+	m := New()
+	m.Write8(0x3000*16, 0xCB) // retf
+	m.SetPeriodicFarCall(0x3000, 0, 1000)
+	m.QueueCallback(QueuedCall{Seg: 0x3000, Off: 0})
+
+	snap := m.Snapshot()
+	m.ClearPeriodicFarCall()
+	m.cbQueue = nil
+
+	m.Restore(snap)
+	if !m.periodic.on {
+		t.Error("還原之後週期回呼是關的——時鐘不會走")
+	}
+	if m.CallbackPending() != 1 {
+		t.Errorf("還原之後佇列有 %d 筆，預期 1", m.CallbackPending())
+	}
+}

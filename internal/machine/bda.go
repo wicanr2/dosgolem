@@ -72,8 +72,8 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	if mode == 0x13 {
 		m.Write16(bdaSeg*16+0x4A, 40)
 	}
-	// planar 模式的 A0000 走另一條路（`docs/spec/013`）。設模式清畫面，
-	// 真機的 BIOS 也清。
+	// 平面模式的記憶體不在 Mem 裡（`docs/spec/007` §3.1／`013`）。
+	// 設模式清畫面，真機的 BIOS 也清。
 	if planarMode(mode) {
 		m.VGA.resetMode()
 	}

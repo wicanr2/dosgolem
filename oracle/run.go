@@ -131,10 +131,19 @@ func Steps(n uint64) Cond {
 }
 
 // At 是「CS:IP 走到這裡」。位址通常用 o.IDA(...) 造。
+//
+// ⚠ **比的是線性位址，不是 `段:偏移` 這一對數字。** 真實模式下同一段
+// 程式碼可以有無數種寫法（`02C5:000A` 與 `0110:1F0A` 是同一個 byte），
+// 而程式走到哪一種取決於呼叫端當時的 CS——不是我們挑的那一種。
+// 直接比結構會**安靜地永遠不成立**：條件跑滿預算才回錯，
+// 形狀與「那段程式碼真的沒被執行」一模一樣。
+// （`OnCall` 一開始就是比線性位址的，所以同一次執行裡
+// 「攔到了」與「跑不到」可以同時發生——就是這個差別造成的。）
 func At(a Addr) Cond {
+	want := a.Linear()
 	return Cond{
 		name:  "走到 " + a.String(),
-		ready: func(o *Oracle) bool { return o.IP() == a },
+		ready: func(o *Oracle) bool { return o.IP().Linear() == want },
 	}
 }
 
@@ -375,6 +384,16 @@ func (o *Oracle) Caller() Addr {
 	return Addr{cs, ip}
 }
 
+// NearCaller 回 **near** call 的返回位址（`CS:[SP]`）。
+//
+// ⚠ **near 與 far 的堆疊版面不同**，拿錯的那一支讀到的是垃圾——
+// 而垃圾看起來就是一個合法位址。16 位元真實模式的程式兩種都有，
+// 所以診斷工具要把兩種都印出來讓人自己判斷，不要挑一個安靜地猜。
+func (o *Oracle) NearCaller() Addr {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	return Addr{o.m.CPU.Seg[cpu.CS], o.m.Read16(cpu.Addr(ss, sp))}
+}
+
 // Arg 讀 far call 的第 n 個參數（n 從 0 起，最後推的是第 0 個）。
 //
 // **參數個數看 `retf N`（N/2），不是進場的 `mov bx`**
@@ -458,3 +477,33 @@ func (o *Oracle) StackWord(i int) uint16 {
 
 // AX 讀回傳值所在的暫存器。BASIC 的函式用它回傳整數。
 func (o *Oracle) AX() uint16 { return o.m.CPU.R[cpu.AX] }
+
+// ---- 記憶體寫入監看 ------------------------------------------------------
+
+// WriteHit 是一次被盯到的寫入。
+type WriteHit struct {
+	Addr uint32 // 線性位址
+	Old  uint8  // 寫進去之前的值
+	Val  uint8
+	// At 是**寫這一下的那道指令**的 IDA 線性位址。
+	At uint32
+}
+
+// OnWrite 盯一段位址的寫入，每一次都叫 fn。
+//
+// ⭐ **「誰寫了這個位址」的直接答案。** 靜態交叉參考對兩種寫法是盲的：
+// `ds:XXXX` 這種絕對定址（IDA 沒把段值傳播進來，不建 xref），
+// 以及 `ptr = &x` 之後的間接寫入。**兩支工具都回 0 的時候，
+// 要做的是換一種觀測，不是換一個假說。**
+//
+// ⚠ 位址是**線性位址**（`Addr.Linear()`），不是 IDA 位址；
+// 而 `At` 回的是 IDA 位址，因為那是拿去查筆記的那一個。
+func (o *Oracle) OnWrite(lo, hi uint32, fn func(*Oracle, WriteHit)) {
+	o.m.WatchWrites(lo, hi, func(addr uint32, old, nw uint8) {
+		cs, ip := o.m.CPU.OpAddr()
+		fn(o, WriteHit{Addr: addr, Old: old, Val: nw, At: o.ToIDA(Addr{cs, ip})})
+	})
+}
+
+// StopWrites 收掉監看。
+func (o *Oracle) StopWrites() { o.m.WatchWrites(1, 0, nil) }

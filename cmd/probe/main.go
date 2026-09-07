@@ -47,6 +47,12 @@ func main() {
 		"跑到第幾道指令為止（**絕對步數**，配 -load-state 時要大於檢查點的步數）")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
+	dumpScreenPNG := flag.String("dump-screen-png", "",
+		"把平面模式（mode 0Dh–12h）的畫面存成 PNG（經屬性控制器與 DAC）。\n"+
+			"    與 -dump-screen 的差別是**那一支存色號、這一支存看得到的顏色**。")
+	cropTop := flag.Int("crop-top", 0, "存畫面前從上面裁掉幾列")
+	cropH := flag.Int("crop-height", 0, "存畫面只留幾列（0 ＝ 全部）")
+	xscale := flag.Int("xscale", 2, "int 33h 的水平虛擬座標倍率（mode 13h ＝ 2、mode 12h ＝ 1）")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔。格式："+
 		"<段>:<偏移>:<長度>（軌跡印的形式）、lin:<執行期線性>:<長度>、"+
@@ -198,6 +204,7 @@ func main() {
 			"    跟真 DOS 的差別只能一筆一筆看。")
 	dumpPorts := flag.String("dump-ports", "",
 		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
+	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	flag.Parse()
 
 	if *exe == "" && *loadState == "" {
@@ -318,6 +325,7 @@ func main() {
 		})
 	}
 	d := dos.New(m, *root)
+	d.Mouse.XScale = uint16(*xscale)
 	if *queue != "" {
 		for _, q := range strings.Split(*queue, ",") {
 			d.Enqueue(strings.TrimSpace(q), "")
@@ -366,7 +374,6 @@ func main() {
 	if *keys != "" {
 		feedKeys(m, d, []byte(strings.ReplaceAll(*keys, "\\n", "\n")))
 	}
-
 	// **游標是畫面內容的一部分**——遊戲自己畫那隻小手（16×27）。
 	// 兩邊位置不同的話逐點比對會在兩個位置各差一整塊，而畫面看起來完全正常。
 	//
@@ -528,6 +535,18 @@ func main() {
 	var blockedFor uint64
 	var blockedStop bool
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
+		// -ega-every：每 N 道指令存一張。**單張只看得到終點**，
+		// 看不出按鍵是送早了還是送晚了。
+		if shotEvery > 0 && m.Steps >= uint64(shotN+1)*shotEvery {
+			shotN++
+			sp := strings.SplitN(shotSpec, "=", 2)
+			if len(sp) == 2 {
+				name := fmt.Sprintf("%s=%s-%03d.png", sp[0], strings.TrimSuffix(sp[1], ".png"), shotN)
+				if err := doDumpEGA(m, name); err != nil {
+					fmt.Fprintln(os.Stderr, "ega-every:", err)
+				}
+			}
+		}
 		// **護欄：程式碼不該跑進 A0000 以上。** 那裡是視訊記憶體與 BIOS，
 		// 在我們這台上全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
 		// 所以飛掉之後不會有任何錯誤——只會安靜地走完幾百萬道指令
@@ -537,14 +556,8 @@ func main() {
 				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
 			break
 		}
-		if shotEvery > 0 && m.Steps >= uint64(shotN+1)*shotEvery {
-			shotN++
-			sp := strings.SplitN(shotSpec, "=", 2)
-			if len(sp) == 2 {
-				if err := doDumpEGA(m, fmt.Sprintf("%s=%s-%03d.png", sp[0], sp[1], shotN)); err != nil {
-					die(err)
-				}
-			}
+		if *mouseX >= 0 && m.Steps == moveAt {
+			d.MoveMouse(*mouseX, *mouseY)
 		}
 		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
 			feedKeys(m, d, pendingKeys[0].key)
@@ -555,8 +568,7 @@ func main() {
 			// 遊戲的游標是靠事件回呼畫的（`docs/spec/013`）：只改座標的話，
 			// 舊位置那隻游標不會被擦掉，新位置也不會畫出來——
 			// 畫面上留著一隻停在原地的游標，看起來像「滑鼠沒動」。
-			d.Mouse.X, d.Mouse.Y = uint16(*mouseX), uint16(*mouseY)
-			d.MouseEvent(dos.EvMove)
+			d.MoveMouse(*mouseX, *mouseY)
 		}
 		// 點擊：按下 → 按住 → 放開。
 		//
@@ -569,16 +581,12 @@ func main() {
 		if *clickX >= 0 {
 			switch {
 			case m.Steps == *clickAt:
-				d.Mouse.X, d.Mouse.Y = uint16(*clickX), uint16(*clickY)
-				d.Mouse.Buttons = 1
-				d.Mouse.Press[0]++
-				d.MouseEvent(dos.EvLeftDown)
+				d.MoveMouse(*clickX, *clickY)
+				d.PressMouse(*clickBtn)
 				pollsAtPress = len(d.Mouse.Polls)
 				held = true
 			case held && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, *clickAt):
-				d.Mouse.Buttons = 0
-				d.Mouse.Release[0]++
-				d.MouseEvent(dos.EvLeftUp)
+				d.ReleaseMouse(*clickBtn)
 				held = false
 			}
 		}
@@ -591,37 +599,30 @@ func main() {
 		// 按下就落在別的地方——而畫面上什麼都不會發生，看起來像
 		// 「點擊沒送到」。
 		for i, c := range clicks {
+			// 腳本的鍵欄是 1 ＝ 左、2 ＝ 右；服務層的編號是 0／1／2。
 			btn := 0
-			down, up := uint16(dos.EvLeftDown), uint16(dos.EvLeftUp)
 			if c.btn&2 != 0 {
-				btn, down, up = 1, dos.EvRightDown, dos.EvRightUp
+				btn = 1
 			}
 			switch {
 			case m.Steps == c.step:
-				d.Mouse.X, d.Mouse.Y = c.x, c.y
-				d.MouseEvent(dos.EvMove)
+				d.MoveMouse(int(c.x), int(c.y))
 				if *clickPremove > 0 {
 					// 先移過去，等遊戲看到游標在那裡再按。
 					pollsAtPress = len(d.Mouse.Polls)
 					preIdx = i
 					break
 				}
-				d.Mouse.Buttons = c.btn
-				d.Mouse.Press[btn]++
-				d.MouseEvent(down)
+				d.PressMouse(btn)
 				pollsAtPress = len(d.Mouse.Polls)
 				downIdx, pressStep = i, m.Steps
 			case preIdx == i && len(d.Mouse.Polls)-pollsAtPress >= *clickPremove:
-				d.Mouse.Buttons = c.btn
-				d.Mouse.Press[btn]++
-				d.MouseEvent(down)
+				d.PressMouse(btn)
 				pollsAtPress = len(d.Mouse.Polls)
 				preIdx, downIdx = -1, i
 				pressStep = m.Steps
 			case downIdx == i && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, pressStep):
-				d.Mouse.Buttons = 0
-				d.Mouse.Release[btn]++
-				d.MouseEvent(up)
+				d.ReleaseMouse(btn)
 				downIdx = -1
 			}
 		}
@@ -718,17 +719,13 @@ func main() {
 			lastSum = sum
 			if k < sweep.n() {
 				p := sweep.pt(k)
-				d.Mouse.X, d.Mouse.Y = p.x, p.y
-				d.Mouse.Buttons = 1
-				d.Mouse.Press[0]++
-				d.MouseEvent(dos.EvLeftDown)
+				d.MoveMouse(int(p.x), int(p.y))
+				d.PressMouse(0)
 			}
 		}
 		if sweep != nil && m.Steps >= sweep.from &&
 			(m.Steps-sweep.from)%sweep.every == sweep.every/2 {
-			d.Mouse.Buttons = 0
-			d.Mouse.Release[0]++
-			d.MouseEvent(dos.EvLeftUp)
+			d.ReleaseMouse(0)
 		}
 		if ca != nil && m.Steps >= ca.from && m.Steps < ca.to &&
 			m.CPU.Seg[cpu.CS] == ca.seg && m.CPU.IP == ca.off {
@@ -939,6 +936,11 @@ func main() {
 		}
 		fmt.Printf("寫出 %s\n", png)
 	}
+	if *dumpScreenPNG != "" {
+		if err := writeScreen(m, *dumpScreenPNG, *cropTop, *cropH); err != nil {
+			die(err)
+		}
+	}
 	if *dumpPal != "" {
 		pal := m.Palette()
 		buf := make([]byte, 0, 768)
@@ -1108,9 +1110,9 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 		fmt.Printf("\nAX=3 看到按著的次數：%d（#%d–#%d）\n", n, first, last)
 	}
-	if d.Mouse.EventSeg != 0 || d.Mouse.EventOff != 0 {
+	if d.Mouse.Handler.Set {
 		fmt.Printf("\n事件回呼：遮罩 %04X handler %04X:%04X，送出 %d 次\n",
-			d.Mouse.EventMask, d.Mouse.EventSeg, d.Mouse.EventOff, len(d.Mouse.Events))
+			d.Mouse.Handler.Mask, d.Mouse.Handler.Seg, d.Mouse.Handler.Off, len(d.Mouse.Events))
 		for _, e := range d.Mouse.Events {
 			fmt.Printf("  #%d 旗標 %02X 於 (%d,%d)\n", e.Step, e.Buttons, e.X, e.Y)
 		}
@@ -1131,9 +1133,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 				p.Step, p.Fn, p.Button, p.Count, p.X, p.Y, p.CS, p.IP)
 		}
 	}
-	if d.Mouse.RangeSet[0] || d.Mouse.RangeSet[1] {
-		fmt.Printf("滑鼠座標範圍：X %v（設過 %v）  Y %v（設過 %v）\n",
-			d.Mouse.RangeX, d.Mouse.RangeSet[0], d.Mouse.RangeY, d.Mouse.RangeSet[1])
+	if d.Mouse.MaxX > 0 || d.Mouse.MaxY > 0 {
+		// 範圍是**虛擬座標**（`AX=7`／`AX=8` 設的）。程式用它宣告自己
+		// 期待的座標系；兩邊對不上時游標與命中判定會整個偏移，
+		// 而畫面看起來完全正常。
+		fmt.Printf("滑鼠座標範圍（虛擬）：X %d–%d  Y %d–%d\n",
+			d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY)
 	}
 	if len(d.Mouse.Calls) > 0 {
 		fmt.Printf("\nint 33h 各功能（%d 種）：", len(d.Mouse.Calls))
@@ -1382,6 +1387,22 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	fmt.Println()
 
+	// 每個 int 33h 功能號被叫了幾次。**「點了沒反應」的第一步是先確認
+	// 遊戲在讀哪一支**——讀 AX=3（即時狀態）與讀 AX=5/6（按下／放開的統計）
+	// 要餵的東西不一樣。
+	if len(d.Mouse.Calls) > 0 {
+		fns := make([]int, 0, len(d.Mouse.Calls))
+		for k := range d.Mouse.Calls {
+			fns = append(fns, int(k))
+		}
+		sort.Ints(fns)
+		fmt.Printf("int 33h 功能號：")
+		for _, k := range fns {
+			fmt.Printf(" %04X×%d", k, d.Mouse.Calls[uint16(k)])
+		}
+		fmt.Println()
+	}
+
 	if n := len(d.Mouse.Sets); n > 0 {
 		l := d.Mouse.Sets[n-1]
 		fmt.Printf("程式自己設游標位置 %d 次（最後一次 #%d 設成 (%d,%d)）\n",
@@ -1404,14 +1425,47 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	}
 	fmt.Println()
 
-	// 視訊記憶體：非零的點數。全 0 表示還沒畫任何東西。
-	nz := 0
-	for _, v := range m.Indexed() {
-		if v != 0 {
-			nz++
+	// 字型服務：**「沒畫字」與「畫了但看不見」的畫面一樣空**，
+	// 所以要先問常式被叫了幾次。
+	fmt.Printf("字型常式：全形 %d 次、半形 %d 次，讀不到字模 %d 次\n",
+		d.Font.Calls[0], d.Font.Calls[1], d.Font.Missing)
+	if len(d.Sound) > 0 {
+		cmds := make([]int, 0, len(d.Sound))
+		for k := range d.Sound {
+			cmds = append(cmds, int(k))
 		}
+		sort.Ints(cmds)
+		fmt.Printf("int 61h 音源 command：")
+		for _, k := range cmds {
+			fmt.Printf(" %02Xh×%d", k, d.Sound[uint8(k)])
+		}
+		fmt.Println()
 	}
-	fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
+	if h := d.Mouse.Handler; h.Set {
+		fmt.Printf("int 33h 事件常式 %04X:%04X（遮罩 %04X），送出 %d 次；"+
+			"座標範圍 %d–%d × %d–%d\n",
+			h.Seg, h.Off, h.Mask, d.Mouse.Events,
+			d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY)
+	}
+
+	// 視訊記憶體：非零的點數。全 0 表示還沒畫任何東西。
+	if w, h, px := m.Planar(); px != nil {
+		nz := 0
+		for _, v := range px {
+			if v != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("平面畫面 %d×%d，非零像素 %d / %d\n", w, h, nz, len(px))
+	} else {
+		nz := 0
+		for _, v := range m.Indexed() {
+			if v != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("A0000 非零像素 %d / %d\n", nz, machine.VideoWidth*machine.VideoHigh)
+	}
 
 	if portLogFrom > 0 {
 		fmt.Printf("\n#%d–#%d 的埠寫入：\n", portLogFrom, portLogTo)
@@ -1949,6 +2003,47 @@ func scanOf(s string) (uint8, bool) {
 		}
 	}
 	return 0, false
+}
+
+// writeScreen 把平面模式的畫面存成 PNG。
+//
+// ⚠ **裁切是呼叫端的事，不是機器的事。** 臥龍傳的內容是 640×400，
+// 但它跑在 640×480 的 mode 12h 上、y 原點在第 40 列
+// （`docs/spec/007` §2）。把裁切寫進機器層會讓「畫面是 480 高」
+// 這個事實消失，之後查「上面那 40 列有沒有東西」就沒得查了。
+func writeScreen(m *machine.Machine, path string, top, height int) error {
+	w, h, px := m.Planar()
+	if px == nil {
+		return fmt.Errorf("現在不是平面模式（視訊模式 %02Xh），沒有畫面可存",
+			m.VideoMode())
+	}
+	if height == 0 {
+		height = h - top
+	}
+	if top < 0 || height <= 0 || top+height > h {
+		return fmt.Errorf("裁切範圍 %d..%d 超出畫面高 %d", top, top+height, h)
+	}
+	pal := make(color.Palette, 256)
+	dac := m.Palette()
+	for i := range dac {
+		pal[i] = color.RGBA{dac[i][0], dac[i][1], dac[i][2], 255}
+	}
+	img := image.NewPaletted(image.Rect(0, 0, w, height), pal)
+	for y := 0; y < height; y++ {
+		for x := 0; x < w; x++ {
+			img.Pix[y*img.Stride+x] = m.VGA.DACIndex(px[(y+top)*w+x])
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return err
+	}
+	fmt.Printf("\n寫出 %s（%d×%d，y 偏移 %d）\n", path, w, height, top)
+	return nil
 }
 
 func die(err error) {

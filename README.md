@@ -86,6 +86,7 @@ o.Restore(snap)                       // 從同一個狀態展開下一個變體
 
 v := o.Word(o.DS(0x1BE))              // 直接讀原版的變數
 shot := o.Indexed()                   // 320×200 色號，不經過 X
+                                      // （平面模式用 o.Screen()）
 ```
 
 `o.DS(0x1BE)` 與 `o.IDA(0x25BF6)` 吃的就是 `rich2` 那邊 RE 筆記裡的位址，
@@ -131,7 +132,7 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 | **機器** `internal/cpu`／`internal/dos`／`internal/machine` | 8086 ＋ 80186、DOS 與 BIOS 服務、VGA、PIT、滑鼠 | **不用**。缺的服務就補，補完誰都受惠 |
 | **觀測** `oracle/` | `Load`／`RunUntil`／`Click`／`Save`／`Restore`／`Search`／`Indexed`／`OnCall` | **不用** |
 | **runtime** `runtime/basic/` | 編譯器與執行期的慣例：MS BASIC 的 `RND`（LCG）、陣列描述子 | **同一個編譯器就複用**；換一個（Turbo Pascal、Clipper、VB p-code）就在 `runtime/` 下新增一包 |
-| **程式** `apps/rich2/` | 那一支程式自己的位址、按鈕座標、流程 | **一定要自己寫** |
+| **程式** `apps/rich2/`／`apps/wolong/` | 那一支程式自己的位址、按鈕座標、流程 | **一定要自己寫** |
 
 第三層是接第二個程式時才看得出來的那一層，也是「下一個案例不必 fork」的關鍵。
 
@@ -161,6 +162,29 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 最後一項是最省力的一個：與其想辦法「走到卡片格」，不如攔住**分派器**，
 一路走下去，它踩到的時候自己會說。
 
+### 第二個案例實際花了多少：《臥龍傳》
+
+[`wolong_cht`](https://github.com/wicanr2/wolong_cht) 是 NEO･GETEN《臥龍傳》
+（松崗 DOS/V 中文版，1995）的 remake。那一支是 mode 12h、640×480、
+16 色四平面，與第一個案例（mode 13h 線性 256 色）完全不同。
+
+`KI.EXE` **不必改任何程式碼**就跑得動 330 萬道指令、開得了 14 個資料檔。
+要補的只有兩件機器層的事：
+
+- **VGA 16 色平面模式**（[`docs/spec/007`](docs/spec/007-vga-planar.md)）
+- **DOS/V 字型服務 `INT 15h AH=50h`**（[`docs/spec/008`](docs/spec/008-wolong-services.md)）
+
+加上 `apps/wolong/`（畫面幾何、開機流程、座標換算）約 200 行。
+結果是開機 → 選劇本 → 選君主 → 主畫面**五格畫面對 DOSBox-X 的原版擷取
+每一區都是 0 個不同像素**，整條鏈 0.99 秒（DOSBox-X 那邊同一條時間軸的
+`wait` 加起來是 146 秒）。
+
+四個「不會報錯」的坑記在
+[`docs/findings/003`](docs/findings/003-wolong-boots-and-matches.md)——
+其中兩個（`Click` 拿 mode 13h 的緩衝區判斷畫面有沒有變、
+`int 33h AX=5` 的 `BX` 是輸入）是**第一個案例結構上踩不到**的，
+接第二個程式才會浮出來。
+
 ## 現況
 
 | | 里程碑 | 狀態 |
@@ -172,6 +196,7 @@ DOSBox 那條線光容器啟動加開機就 25 秒，之後每前進一步再 2.
 | M4 | Go API（`oracle` 套件）| **可用**，[`docs/spec/005`](docs/spec/005-oracle-api.md) READY |
 | M5 | 迴歸：重跑 `rich2` 既有的 parity 收據 | 未開始 |
 | M6 | **分層**：把 runtime 與程式專屬拆開，讓第二個案例不必 fork | **做完**：`runtime/basic`／`apps/rich2`，規格 [`docs/spec/006`](docs/spec/006-layering.md) |
+| M7 | **第二個案例**：《臥龍傳》（松崗 DOS/V，1995）| **做完**：VGA 16 色平面模式（[`007`](docs/spec/007-vga-planar.md)）＋ DOS/V 字型服務（[`008`](docs/spec/008-wolong-services.md)）＋ `apps/wolong`。開機到主畫面**五格 × 五區全部 0 px**，見 [`docs/findings/003`](docs/findings/003-wolong-boots-and-matches.md) |
 
 規格在 [`docs/spec/`](docs/spec/)，標 `DRAFT` 或 `READY`；
 只有 READY 的可以動手。
