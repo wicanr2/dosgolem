@@ -40,7 +40,8 @@ var portLogFrom, portLogTo uint64
 
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
-	root := flag.String("root", ".", "原版素材目錄")
+	root := flag.String("root", ".", "原版素材目錄（配 -load-state 時不必再給，"+
+		"狀態檔裡存著；真的給了就以命令列為準）")
 	steps := flag.Uint64("steps", 20_000_000,
 		"跑到第幾道指令為止（**絕對步數**，配 -load-state 時要大於檢查點的步數）")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
@@ -238,7 +239,14 @@ func main() {
 		if err := state.Load(*loadState, m, d); err != nil {
 			die(err)
 		}
-		fmt.Printf("從 %s 接著跑（第 %d 道指令）\n", *loadState, m.Steps)
+		// 命令列真的給了 -root 才蓋掉狀態檔裡的。
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "root" {
+				d.Root = *root
+			}
+		})
+		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
+			*loadState, m.Steps, d.Root)
 	}
 	saves, err := parseSaveState(*saveState)
 	if err != nil {

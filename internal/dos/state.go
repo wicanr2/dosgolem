@@ -59,6 +59,12 @@ type dosState struct {
 	Now   Time
 	Mouse Mouse
 
+	// Root 是原版素材的目錄。**一定要存**：讀檔之後遊戲還會再開檔，
+	// 少了它 `resolve` 會拿預設的 `.` 去找，之後每一次開檔都失敗——
+	// 而且**不會有任何錯誤**，只有緩衝區裡留著填充值，
+	// 遊戲照樣把它當資料用（見 `docs/spec/004` §4.17）。
+	Root string
+
 	Handles    []handleState
 	NextHandle uint16
 	FreeSeg    uint16
@@ -87,7 +93,7 @@ type dosState struct {
 func (d *DOS) SaveState(w io.Writer) error {
 	s := dosState{
 		Magic: dosStateMagic, Version: dosStateVersion,
-		Drive: d.Drive, Dir: d.Dir, Now: d.Now,
+		Drive: d.Drive, Dir: d.Dir, Now: d.Now, Root: d.Root,
 		NextHandle: d.nextHandle, FreeSeg: d.freeSeg,
 		Blocks:   map[uint16]uint16{},
 
@@ -157,6 +163,11 @@ func (d *DOS) LoadState(r io.Reader) error {
 		h.f.Close()
 	}
 	d.Drive, d.Dir, d.Now = s.Drive, s.Dir, s.Now
+	// **舊的狀態檔沒有 Root**，那時就沿用目前這一台的設定，
+	// 不要把它清成空字串。
+	if s.Root != "" {
+		d.Root = s.Root
+	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
 	d.nextHandle, d.freeSeg = s.NextHandle, s.FreeSeg
