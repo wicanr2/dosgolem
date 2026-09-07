@@ -110,6 +110,9 @@ func main() {
 	frameArgs := flag.String("frame-args", "",
 		"同 -call-args，但位址在 prologue 之後：參數從 `SS:BP+6` 取。"+
 			"反組譯給的通常是函式中間那幾行，用這個不必猜進入點")
+	flag.StringVar(&readsOf, "reads-of", "",
+		"只列這個檔的讀檔紀錄（不分大小寫的子字串），而且**全部列出來**。"+
+			"預設只印前 15 後 15，追某一個檔的讀取版面時中間那段才是重點")
 	ipLog := flag.String("ip-log", "",
 		"把 [起,迄) 這段每一道指令的 CS:IP 以二進位寫出來（每筆 4 bytes，小端 CS 後 IP）：`起:迄:路徑`。"+
 			"用來對兩次只差一個輸入的執行，找出控制流第一次分岔的位置")
@@ -541,6 +544,9 @@ func main() {
 	}
 }
 
+// readsOf 是 -reads-of 的值；report 在另一個函式裡，用套件層變數傳。
+var readsOf string
+
 func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint64) {
 	fmt.Printf("執行 %d 道指令\n", m.Steps)
 	switch {
@@ -620,7 +626,22 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			}
 		}
 	}
-	if len(d.Reads) > 0 {
+	if len(d.Reads) > 0 && readsOf != "" {
+		want := strings.ToUpper(readsOf)
+		n := 0
+		fmt.Printf("\n讀檔（只列 %s）：\n", readsOf)
+		for _, r := range d.Reads {
+			if !strings.Contains(strings.ToUpper(r.Name), want) {
+				continue
+			}
+			n++
+			fmt.Printf("  #%-9d %-14s handle=%04X → %04X:%04X 要 %d 得 %d（線性 %05X–%05X）\n",
+				r.Step, r.Name, r.Handle, r.Seg, r.Off, r.Want, r.Got,
+				uint32(r.Seg)*16+uint32(r.Off), uint32(r.Seg)*16+uint32(r.Off)+uint32(r.Got))
+		}
+		fmt.Printf("  共 %d 筆\n", n)
+	}
+	if len(d.Reads) > 0 && readsOf == "" {
 		// **前 15 筆 ＋ 後 15 筆**：只列前面的話，開機階段就把配額用光，
 		// 而要查的通常是「最後讀了什麼」。
 		fmt.Printf("\n讀檔（%d 次，列前 15 與後 15）：\n", len(d.Reads))
