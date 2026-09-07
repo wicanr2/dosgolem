@@ -73,6 +73,13 @@ type Mouse struct {
 	// PressAt／ReleaseAt 是該鍵最後一次按下／放開的座標。
 	// `AX=5`／`AX=6` 回的是**那一刻**的位置，不是現在的位置。
 	PressAt, ReleaseAt [3][2]uint16
+	// MickeyX／MickeyY 是**自從上次呼叫 `AX=0Bh` 以來**的相對位移。
+	//
+	// 絕對座標（`AX=03h`）與相對位移是兩種輸入模型，用相對位移轉視角或
+	// 拖曳地圖的程式只讀這一組；只做絕對座標的話它們收到的永遠是 0，
+	// 畫面完全不動，看起來像滑鼠沒接上。
+	MickeyX, MickeyY int16
+
 	// XScale 是水平的虛擬座標倍率。0 表示依視訊模式自動決定
 	// （320 寬 → 2、640 寬 → 1），這是預設；設非 0 就強制用那個值。
 	XScale uint16
@@ -366,6 +373,18 @@ type DOS struct {
 	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
 	// 1 MB 空間裡的 D000h 段。
 	ems *ems
+
+	// finds 是進行中的目錄搜尋（`AH=4Eh`／`4Fh`），編號由 DTA 帶著走。
+	// 見 `find.go`：狀態放 DTA 才容得下同時進行的兩個搜尋。
+	finds    map[uint16]*findState
+	nextFind uint16
+
+	// lastErr 是最近一次失敗的 DOS 錯誤碼，`AH=59h` 問的就是它。
+	//
+	// **要與那一次失敗一致。** 分開記兩份的話，程式問到的原因與實際
+	// 失敗的原因會對不上，而它會照著錯的原因決定下一步（重試、換檔名、
+	// 放棄），從外面看是「它處理錯誤的邏輯壞了」。
+	lastErr uint16
 
 	// dtaSeg／dtaOff 是 Disk Transfer Area（`AH=1Ah` 設，`AH=4Eh`／`4Fh` 用）。
 	// 預設是 PSP+80h，與真 DOS 相同。

@@ -225,6 +225,28 @@ func (d *DOS) int33(c *cpu.CPU) {
 	case 0x0008: // 設垂直範圍
 		m.MinY, m.MaxY = c.R[cpu.CX], c.R[cpu.DX]
 
+	case 0x000B: // 讀相對位移（mickey）：CX ＝ 水平、DX ＝ 垂直
+		// **讀過歸零**——它的定義是「自從上次呼叫以來」。不歸零的話，
+		// 用相對位移轉視角的程式會一直收到同一個位移，畫面自己轉不停。
+		c.R[cpu.CX] = uint16(m.MickeyX)
+		c.R[cpu.DX] = uint16(m.MickeyY)
+		m.MickeyX, m.MickeyY = 0, 0
+
+	case 0x000A: // 設文字游標形狀：收下（我們不畫游標）
+	case 0x0009: // 設圖形游標形狀：收下
+
+	case 0x0010: // 條件式隱藏游標：收下
+
+	case 0x001A: // 設靈敏度：與 AX=0Fh 同一組，收下
+	case 0x001B: // 取靈敏度
+		c.R[cpu.BX], c.R[cpu.CX] = 8, 8 // 預設 8 mickey/8 pixel
+		c.R[cpu.DX] = 16                // 倍速門檻
+
+	case 0x0024: // 取驅動版本／型別
+		// BH:BL ＝ 版本（8.03），CH ＝ 型別（4 ＝ PS/2），CL ＝ IRQ（0 ＝ PS/2）
+		c.R[cpu.BX] = 0x0803
+		c.R[cpu.CX] = 0x0400
+
 	case 0x000C: // 設事件處理常式：ES:DX ＝ 常式、CX ＝ 事件遮罩
 		// **這一支要真的呼叫**（`docs/spec/009`）。《臥龍傳》靠它維持
 		// 畫面上那隻手：一次四千萬道指令的跑分裡 `AX=3` 只有 5 次，
@@ -510,6 +532,10 @@ func (d *DOS) MoveMouse(x, y int) {
 	}
 	dx, dy := int16(nx)-int16(m.X), int16(ny)-int16(m.Y)
 	m.X, m.Y = nx, ny
+	// 累加給 `AX=0Bh` 用。事件回呼那一份是「這一次事件的位移」，
+	// 這一份是「自從程式上次問以來的總和」——兩個問題不一樣。
+	m.MickeyX += dx
+	m.MickeyY += dy
 	d.fireMouseEventMickeys(EventMove, dx, dy)
 }
 

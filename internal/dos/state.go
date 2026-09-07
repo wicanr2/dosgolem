@@ -195,7 +195,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 			f.Close()
 			return fmt.Errorf("dos: 還原時 seek 不了 %s：%w", hs.Path, err)
 		}
-		d.handles[hs.H] = &handle{name: hs.Name, path: hs.Path, f: f, size: hs.Size, psp: hs.PSP}
+		d.handles[hs.H] = &handle{name: hs.Name, path: hs.Path, f: f, size: hs.Size, psp: hs.PSP, refs: 1}
 	}
 	d.emb = map[uint16][]byte{}
 	for k, v := range s.EMB {
