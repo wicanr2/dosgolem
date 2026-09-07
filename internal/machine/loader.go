@@ -158,7 +158,11 @@ func (m *Machine) LoadCOM(data []byte) error {
 		return err
 	}
 	m.ImageBase, m.ImageLen = LoadSeg*16, p.imageLen
-	m.FreeSeg = p.EndSeg
+	// **頂層 `.COM` 名義上擁有整個段。** 它的堆疊在段頂（SP=FFFEh），
+	// 可配置區只算到映像結尾的話，第一次 `AH=48h` 就把程式自己的堆疊
+	// 配出去——緩衝區一被寫，返回位址就變成資料，然後 `ret` 跳到一個
+	// 看起來很像程式碼的地方。
+	m.FreeSeg = PSPSeg + 0x1000
 
 	m.initMCB()
 	m.setEntry(p)
@@ -208,8 +212,13 @@ func (m *Machine) loadEXEAt(pspSeg uint16, data []byte) (*Program, error) {
 // LoadSeg ＝ PSPSeg+10h，所以「PSP+100h」與 MZ 映像的位置是同一個位址，
 // MCB 與 FreeSeg 的計算可以直接沿用。
 func (m *Machine) loadCOMAt(pspSeg uint16, data []byte) (*Program, error) {
-	if len(data) == 0 || len(data) > 0xFF00 {
-		return nil, fmt.Errorf("machine: COM 映像大小 %d 不合法（1..65280）", len(data))
+	if len(data) == 0 {
+		return nil, fmt.Errorf("machine: COM 映像是空的")
+	}
+	// 映像從段內 0100h 開始，堆疊從 FFFEh 往下長，所以放得下的上限是
+	// 0FF00h——剛好塞滿的話堆疊第一次 push 就寫進映像尾巴。
+	if len(data) > 0xFEFE {
+		return nil, fmt.Errorf("machine: COM 映像 %d bytes，塞不進一個段", len(data))
 	}
 	loadSeg := pspSeg + 0x10
 	m.WriteBytes(uint32(loadSeg)*16, data)
@@ -219,6 +228,10 @@ func (m *Machine) loadCOMAt(pspSeg uint16, data []byte) (*Program, error) {
 		PSPSeg: pspSeg,
 		CS:     pspSeg, IP: 0x100,
 		SS: pspSeg, SP: 0xFFFE,
+		// ⚠ EndSeg 只算到映像結尾，但 `.COM` 的堆疊在**段頂**（SP=FFFEh）。
+		// 中間那段因此同時是「可配置」與「子程式的堆疊」——EXEC 進來的
+		// `.COM` 子程式踩得到。頂層程式那條路由 LoadCOM 補成整段
+		// （見它的註解）；子程式這條沒有證據說 DOS 怎麼分，先不猜。
 		EndSeg:   loadSeg + uint16((len(data)+15)/16) + 1,
 		imageLen: len(data),
 	}, nil
@@ -329,3 +342,4 @@ func (m *Machine) initMCB() {
 	// DOS 的「list of lists」：`[BX-2]` 是第一個 MCB 的段位址。
 	m.Write16(LOLSeg*16+0x0E, PSPSeg-1)
 }
+

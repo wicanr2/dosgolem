@@ -256,6 +256,7 @@ func (d *DOS) int33(c *cpu.CPU) {
 func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（真 BIOS 是阻塞的）
+		d.KeyPolls++
 		if len(d.Keys) > 0 {
 			c.R[cpu.AX] = d.Keys[0]
 			d.Keys = d.Keys[1:]
@@ -270,6 +271,7 @@ func (d *DOS) int16(c *cpu.CPU) {
 		d.noteKey("int16-AH00", d.Stdin[0])
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
+		d.KeyPolls++
 		if len(d.Keys) > 0 {
 			c.SetFlags(c.Flags &^ cpu.ZF)
 			c.R[cpu.AX] = d.Keys[0] // 查看不取走

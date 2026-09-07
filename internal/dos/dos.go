@@ -227,6 +227,12 @@ type DOS struct {
 	// 是兩件事，而畫面上分不出來——兩者都是「畫面沒變」。
 	KeysConsumed int
 
+	// KeyPolls 是 `int 16h` 被問過幾次（`AH=00h`／`01h`／`10h`／`11h`）。
+	//
+	// 閒置迴圈會把它衝到幾百萬，而那正是「程式在等鍵盤」的樣子——
+	// 與「跑掛了」「在算很久」在畫面上完全一樣，只有這個數字分得開。
+	KeyPolls int
+
 	// Drive 是 `AH=19h` 的目前磁碟（0 ＝ A:、1 ＝ B:、**2 ＝ C:**），
 	// Dir 是 `AH=47h` 的目前目錄。
 	//
@@ -446,6 +452,22 @@ func (d *DOS) AllowFileWrites(names ...string) error {
 		d.writableFiles[base] = true
 	}
 	return nil
+}
+
+// TypeKeys 把一串 ASCII 排進 `int 16h` 的按鍵佇列。
+//
+// 掃描碼查得到就填（`scancode.go` 的表），查不到只填 ASCII、掃描碼留 0。
+// **兩種程式都要能跑**：只看 `AL` 的（DOS 版 p-System）不在乎掃描碼，
+// 會判 `AH` 的（Turbo Pascal 的方向鍵）沒有掃描碼就認不出鍵。
+// 要精確控制的用 PushKey／PushText。
+func (d *DOS) TypeKeys(s string) {
+	for _, r := range s {
+		if k, ok := KeyForRune(r); ok {
+			d.Keys = append(d.Keys, k.Word())
+			continue
+		}
+		d.Keys = append(d.Keys, Key{ASCII: uint8(r)}.Word())
+	}
 }
 
 // Write 是一次被擋下來的寫檔。

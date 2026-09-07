@@ -60,6 +60,18 @@ func (m *Machine) QueueScan(codes ...uint8) {
 // SetNextKey 設定第一個掃描碼要在第幾道指令送出。
 func (m *Machine) SetNextKey(step uint64) { m.nextKey = step }
 
+// KeyCodes 是還沒送出去的掃描碼（埠 0x60 上會看到的位元組，斷碼帶 bit7）。
+//
+// 給「排進去的順序對不對」這種檢查用。**不要拿它當佇列本體**：
+// 送出去的時機由 keyTick 決定（向量、IF、節流），排進去不等於送得出去。
+func (m *Machine) KeyCodes() []uint8 {
+	out := make([]uint8, len(m.keyQueue))
+	for i, e := range m.keyQueue {
+		out[i] = e.Code()
+	}
+	return out
+}
+
 // KeyQueueLen 是還沒送出去的硬體鍵盤事件數。
 func (m *Machine) KeyQueueLen() int { return len(m.keyQueue) }
 

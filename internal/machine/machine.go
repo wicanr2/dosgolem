@@ -7,7 +7,12 @@
 // 「記憶體長什麼樣」與「程式怎麼被載進去」。
 package machine
 
-import "github.com/wicanr2/dosgolem/internal/cpu"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/wicanr2/dosgolem/internal/cpu"
+)
 
 // 記憶體佈局。取值沿用 `rich2/tools/dosemu.py` 那一版——**它是實際把
 // `RUN.EXE` 跑到資產全部載完的那一份**，不是重新挑的。
@@ -50,7 +55,11 @@ const (
 	MemTop = 0x9FFF
 
 	// VideoSeg 是 mode 13h 的畫面。
-	VideoSeg   = 0xA000
+	VideoSeg = 0xA000
+
+	// TextSeg 是彩色文字模式的畫面緩衝區。走文字模式的程式把字元與屬性
+	// 交錯寫在這裡，不經過 VideoSeg。
+	TextSeg    = 0xB800
 	VideoWidth = 320
 	VideoHigh  = 200
 )
@@ -231,6 +240,15 @@ type Machine struct {
 	cbActive bool
 	cbMade   uint64
 
+	// 觀測用（probe.go）。沒設監看點時這幾個都是空的，
+	// 熱路徑只多一次長度檢查。
+	writeWatches []writeWatch
+	wordWatches  []wordWatch
+	breaks       map[int]uint32
+	nextProbe    int
+	insnCS       uint16
+	insnIP       uint16
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -394,6 +412,14 @@ func (m *Machine) Write8(a uint32, v uint8) {
 	}
 	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
 		m.onWrite(a, m.Mem[a], v)
+	}
+	if len(m.writeWatches) > 0 {
+		old := m.Mem[a]
+		m.Mem[a] = v
+		// ⚠ **值沒變也算一次寫入**（與 WatchWrites 不同）：
+		// 「誰在寫這個位址」與「這個值變了沒」是兩個問題，後者用 WatchWord。
+		m.noteWrite(a, old, v)
+		return
 	}
 	m.Mem[a] = v
 }
@@ -656,14 +682,8 @@ func (m *Machine) Write16(a uint32, v uint16) {
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
 	// **監看也要涵蓋批次寫入。** 檔案讀取、映像載入與 EXEC 都走這一條，而那
-	// 正是「這一格是誰寫的」最常見的答案。只走 Write8 的話監看會安靜地漏掉它們
-	// ——看起來像「沒有人寫過」，實際上是整塊被蓋掉了。
-	if m.watchLo <= m.watchHi && m.onWrite != nil {
-		for i, v := range b {
-			m.Write8(a+uint32(i), v)
-		}
-		return
-	}
+	// 正是「這一格是誰寫的」最常見的答案。繞過 Write8 的話監看會安靜地漏掉
+	// 它們——看起來像「沒有人寫過」，實際上是整塊被蓋掉了。
 	for i, v := range b {
 		m.Write8(a+uint32(i), v)
 	}
@@ -697,12 +717,20 @@ func (m *Machine) Step() error {
 			m.Coverage[a] = true
 		}
 	}
+	m.insnCS, m.insnIP = m.CPU.Seg[cpu.CS], m.CPU.IP
 	if !m.TraceSegs && !m.WatchDSOn {
-		return m.CPU.Step()
+		err := m.CPU.Step()
+		if len(m.wordWatches) > 0 {
+			m.pollWords()
+		}
+		return err
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
 	prevDS := m.CPU.Seg[cpu.DS]
 	err := m.CPU.Step()
+	if len(m.wordWatches) > 0 {
+		m.pollWords()
+	}
 
 	if m.WatchDSOn && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
 		len(m.DSLoads) < MaxSegLog {
@@ -930,4 +958,118 @@ func (m *Machine) initVectors() {
 // 光看寫入指令沒有用，要看那一刻硬體的狀態。
 func (m *Machine) VGAState() (gc [16]uint8, seq [8]uint8, latch [4]uint8) {
 	return m.VGA.Regs()
+}
+
+// scanSet1 是 IBM set 1 的通碼，只列本專案用得到的鍵。
+// 斷碼是通碼加 0x80，由 TypeScan 自己補。
+var scanSet1 = map[byte]uint8{
+	'1': 0x02, '2': 0x03, '3': 0x04, '4': 0x05, '5': 0x06,
+	'6': 0x07, '7': 0x08, '8': 0x09, '9': 0x0A, '0': 0x0B,
+	'-': 0x0C, '=': 0x0D, '\b': 0x0E, '\t': 0x0F,
+	'q': 0x10, 'w': 0x11, 'e': 0x12, 'r': 0x13, 't': 0x14,
+	'y': 0x15, 'u': 0x16, 'i': 0x17, 'o': 0x18, 'p': 0x19,
+	'[': 0x1A, ']': 0x1B, '\r': 0x1C, '\n': 0x1C,
+	'a': 0x1E, 's': 0x1F, 'd': 0x20, 'f': 0x21, 'g': 0x22,
+	'h': 0x23, 'j': 0x24, 'k': 0x25, 'l': 0x26, ';': 0x27,
+	'\'': 0x28, '`': 0x29, '\\': 0x2B,
+	'z': 0x2C, 'x': 0x2D, 'c': 0x2E, 'v': 0x2F, 'b': 0x30,
+	'n': 0x31, 'm': 0x32, ',': 0x33, '.': 0x34, '/': 0x35,
+	' ': 0x39, 0x1B: 0x01, // ESC
+}
+
+// TypeScan 把一串字元排進鍵盤佇列，通碼與斷碼成對。
+//
+// 大寫字母會補上 Shift 的通碼與斷碼包住它——處理常式要靠 Shift 的狀態
+// 才分得出 `f` 與 `F`。認不得的字元回錯誤，**不安靜跳過**：
+// 少送一個鍵會讓後面的輸入整串對不上，而且從結果看不出來。
+func (m *Machine) TypeScan(s string) error {
+	const shift, brk = 0x2A, 0x80
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		upper := ch >= 'A' && ch <= 'Z'
+		if upper {
+			ch += 'a' - 'A'
+		}
+		code, ok := scanSet1[ch]
+		if !ok {
+			return fmt.Errorf("machine: 沒有 %q 的掃描碼", s[i])
+		}
+		if upper {
+			m.QueueScan(shift)
+		}
+		m.QueueScan(code, code|brk)
+		if upper {
+			m.QueueScan(shift | brk)
+		}
+	}
+	return nil
+}
+
+// TextScreen 把彩色文字頁（B800）讀成一列一列的字串。
+//
+// cols 為 0 時用 BDA 記的欄數，再不合理就退回 80。
+// 非可列印的字元換成空白——文字模式的緩衝區在程式清畫面之前是垃圾，
+// 直接印出來只會蓋掉真正有內容的那幾列。
+//
+// 每一列的尾端空白會去掉，但**空白列會保留**：第幾列有東西本身是資訊。
+func (m *Machine) TextScreen(cols int) []string {
+	if cols <= 0 || cols > 132 {
+		cols = int(m.Read16(0x44A))
+	}
+	if cols <= 0 || cols > 132 {
+		cols = 80
+	}
+	rows := make([]string, 25)
+	for row := range rows {
+		line := make([]byte, cols)
+		for col := 0; col < cols; col++ {
+			ch := m.Read8(TextSeg*16 + uint32(row*cols+col)*2)
+			if ch < 0x20 || ch > 0x7E {
+				ch = ' '
+			}
+			line[col] = ch
+		}
+		rows[row] = strings.TrimRight(string(line), " ")
+	}
+	return rows
+}
+
+// SegmentBytes 讀一個段開頭的 n 個位元組。
+//
+// 差分比對常要把「原版此刻某個段的內容」整塊拿出來，與另一個來源對拍。
+// 逐 byte 呼叫 Read8 也做得到，但那會讓呼叫端自己算線性位址——
+// 而算錯的症狀是「比對出一堆差異」，不是「報錯」。
+//
+// 越界回 nil：回一段補零的東西會被當成「那裡真的是零」。
+func (m *Machine) SegmentBytes(seg uint16, n int) []byte {
+	base := uint32(seg) * 16
+	if n <= 0 || base+uint32(n) > uint32(len(m.Mem)) {
+		return nil
+	}
+	out := make([]byte, n)
+	copy(out, m.Mem[base:base+uint32(n)])
+	return out
+}
+
+// Find 掃整個位址空間，回傳 pattern 出現的每一個實體位址。
+//
+// 拿來定位「被程式自己搬進記憶體的東西」——那種東西的載入位址靜態看不出來，
+// 而挑一段不會被改寫的內容當指紋是最直接的辦法。
+//
+// pattern 是空的就回 nil：回「到處都是」比回「找不到」更難查。
+func (m *Machine) Find(pattern []byte) []uint32 {
+	if len(pattern) == 0 || len(pattern) > len(m.Mem) {
+		return nil
+	}
+	var hits []uint32
+	last := uint32(len(m.Mem) - len(pattern))
+	for a := uint32(0); a <= last; a++ {
+		if m.Mem[a] != pattern[0] {
+			continue
+		}
+		if string(m.Mem[a:a+uint32(len(pattern))]) == string(pattern) {
+			hits = append(hits, a)
+		}
+	}
+	return hits
 }
