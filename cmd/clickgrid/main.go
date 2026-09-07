@@ -34,6 +34,9 @@ func main() {
 	settle := flag.Uint64("settle", 6_000_000, "點完再跑幾道指令才看畫面")
 	out := flag.String("out", "", "把有變化的那幾格畫面存到這個目錄")
 	only := flag.String("only", "", "只點這幾個點：`x,y;x,y…`（給了就不掃格）")
+	premove := flag.Int("premove", 0,
+		"先把游標移過去、等遊戲讀了幾次滑鼠，才按下去（0 ＝ 移到就按）。"+
+			"有些對話框的鈕吃「游標已經在上面」這個狀態，瞬移過去馬上按沒有反應")
 	box := flag.Bool("box", false,
 		"改印「與基準差幾點、差在哪個矩形」，不印雜湊。"+
 			"**畫面會動的時候雜湊沒有用**（框線是跑的彩虹漸層，"+
@@ -50,7 +53,7 @@ func main() {
 		die(err)
 	}
 
-	base, err := run(*st, *root, -1, -1, *hold, *settle, *polls)
+	base, err := run(*st, *root, -1, -1, *hold, *settle, *polls, *premove)
 	if err != nil {
 		die(err)
 	}
@@ -65,7 +68,7 @@ func main() {
 	seen := map[string]string{base.sum: "沒變"}
 	n := 0
 	for _, p := range pts {
-		r, err := run(*st, *root, p.x, p.y, *hold, *settle, *polls)
+		r, err := run(*st, *root, p.x, p.y, *hold, *settle, *polls, *premove)
 		if err != nil {
 			die(err)
 		}
@@ -102,7 +105,7 @@ type shot struct {
 }
 
 // run 展開狀態、點一下、跑一段，回畫面。x < 0 表示不點（基準）。
-func run(stPath, root string, x, y int, hold, settle uint64, polls int) (*shot, error) {
+func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int) (*shot, error) {
 	m := machine.New()
 	d := dos.New(m, root)
 	d.Install()
@@ -111,15 +114,26 @@ func run(stPath, root string, x, y int, hold, settle uint64, polls int) (*shot, 
 	}
 	start := m.Steps
 	pollsAtPress := 0
-	held := false
+	held, waiting := false, false
 	if x >= 0 {
 		d.Mouse.X, d.Mouse.Y = uint16(x), uint16(y)
-		d.Mouse.Buttons = 1
-		d.Mouse.Press++
-		pollsAtPress = len(d.Mouse.Polls)
-		held = true
+		if premove > 0 {
+			waiting = true
+			pollsAtPress = len(d.Mouse.Polls)
+		} else {
+			d.Mouse.Buttons = 1
+			d.Mouse.Press++
+			pollsAtPress = len(d.Mouse.Polls)
+			held = true
+		}
 	}
 	for m.Steps < start+hold+settle && !m.CPU.Halted && !d.Exited {
+		if waiting && len(d.Mouse.Polls)-pollsAtPress >= premove {
+			d.Mouse.Buttons = 1
+			d.Mouse.Press++
+			pollsAtPress = len(d.Mouse.Polls)
+			waiting, held = false, true
+		}
 		if held {
 			done := m.Steps >= start+hold
 			if polls > 0 {
