@@ -115,6 +115,9 @@ func main() {
 	watchDS := flag.String("watch-ds", "", "記下 DS 每一次被設成這個段值的時刻（十六進位）")
 	watchFile := flag.String("watch-file", "", "把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列最後 200 筆）")
 	xmsFileFlag := flag.String("xms-file", "", "把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
+	pokeFile := flag.String("poke-file", "",
+		"從檔案讀 -poke 的腳本（一行一筆或整串逗號分隔）。"+
+			"命令列單一參數上限 128 KB，塗整份圖形這種大量 poke 放檔案裡")
 	flag.StringVar(&traceFilePath, "trace-file", "", "把 -trace 的軌跡寫到這個檔，不印在畫面上")
 	callArgs := flag.String("call-args", "",
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
@@ -282,7 +285,22 @@ func main() {
 		os.Exit(2)
 	}
 	xmsFile = *xmsFileFlag
-	pokes, err := parsePokes(*pokeScript)
+	script := *pokeScript
+	if *pokeFile != "" {
+		b, err := os.ReadFile(*pokeFile)
+		if err != nil {
+			die(err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		for i, ln := range lines {
+			lines[i] = strings.TrimSpace(ln)
+		}
+		if script != "" {
+			lines = append(lines, script)
+		}
+		script = strings.Join(lines, ",")
+	}
+	pokes, err := parsePokes(script)
 	if err != nil {
 		die(err)
 	}
