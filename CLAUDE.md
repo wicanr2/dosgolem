@@ -46,6 +46,8 @@ SingleStepTests 是**硬體產生的**，它與手冊衝突時**以它為準**�
 
 ```
 internal/cpu/      CPU 核心。不認識 DOS、不認識畫面、不認識檔案
+internal/dosfile/  DOS 檔案語意（handle 表、錯誤碼、seek／read 的號誌）。
+                   不認識暫存器寬度、不認識記憶體——16 與 32 位元兩條路共用
 internal/dos/      DOS 與 BIOS 服務
 internal/machine/  記憶體、載入器、PIT、VGA、滑鼠
 oracle/            對外的 Go API：Load／RunUntil／Click／Save／Search／OnCall
