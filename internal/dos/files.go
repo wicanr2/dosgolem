@@ -34,6 +34,11 @@ type handle struct {
 // （`rich2/docs/re/006` §5：檔名是執行期組出來的，所以靜態找不到引用）。
 //
 // **大小寫不分**：原版是 DOS，檔名全大寫；玩家的目錄可能是小寫。
+//
+// **超過 8.3 的名字會截斷**，因為 FAT 就是這樣：程式傳 `steedpics` 進來，
+// 真 DOS 開到的是 `STEEDPIC`。不截的話這裡回「找不到檔」，而程式多半不檢查
+// 開檔結果——KOL 就是一路跑進沒有映射的記憶體才停，**看起來像模擬器的 bug，
+// 其實是檔名沒對上**。
 func (d *DOS) resolve(name string) string {
 	base := name
 	if i := strings.LastIndexAny(base, `\/:`); i >= 0 {
@@ -42,6 +47,17 @@ func (d *DOS) resolve(name string) string {
 	if base == "" {
 		return ""
 	}
+	if p := d.lookup(base); p != "" {
+		return p
+	}
+	if short := dosName(base); short != base {
+		return d.lookup(short)
+	}
+	return ""
+}
+
+// lookup 在遊戲目錄裡找一個檔，先直接查再大小寫不分地掃一遍。
+func (d *DOS) lookup(base string) string {
 	direct := filepath.Join(d.Root, base)
 	if st, err := os.Stat(direct); err == nil && !st.IsDir() {
 		return direct
@@ -60,6 +76,30 @@ func (d *DOS) resolve(name string) string {
 	}
 	return ""
 }
+
+// dosName 把檔名截成 FAT 的 8.3：主檔名留前 8 個字元，副檔名留前 3 個。
+//
+// 開頭的 `.` 不當成副檔名分隔（DOS 沒有隱藏檔那套，但切出空的主檔名只會更糟）。
+func dosName(base string) string {
+	name, ext := base, ""
+	if i := strings.LastIndex(base, "."); i > 0 {
+		name, ext = base[:i], base[i+1:]
+	}
+	if len(name) > 8 {
+		name = name[:8]
+	}
+	if len(ext) > 3 {
+		ext = ext[:3]
+	}
+	if ext == "" {
+		return name
+	}
+	return name + "." + ext
+}
+
+// maxHandles 是一個程式同時開得起的檔案數。真 DOS 預設 20（`FILES=` 再多也
+// 一樣，那管的是系統表；程式自己的 JFT 是 20 項，要更多得用 `AH=67h`）。
+const maxHandles = 20
 
 // readCString 讀一個 NUL 結尾的字串。
 func (d *DOS) readCString(seg, off uint16, limit int) string {
@@ -178,10 +218,12 @@ func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {
 func (d *DOS) close(c *cpu.CPU) {
 	h, ok := d.handles[c.R[cpu.BX]]
 	if !ok {
+		d.trace(FileOp{Op: "close", Fn: 0x3E, Handle: c.R[cpu.BX], Failed: true})
 		c.R[cpu.AX] = 6 // Invalid handle
 		setCarry(c)
 		return
 	}
+	d.trace(FileOp{Op: "close", Fn: 0x3E, Handle: c.R[cpu.BX], Name: h.name})
 	if h.f != nil {
 		h.f.Close()
 	}
@@ -197,11 +239,13 @@ func (d *DOS) read(c *cpu.CPU) {
 	}
 	h, ok := d.handles[bx]
 	if !ok {
+		d.trace(FileOp{Op: "read", Fn: 0x3F, Handle: bx, Arg: int64(cx), Failed: true})
 		c.R[cpu.AX] = 6
 		setCarry(c)
 		return
 	}
 	if h.f == nil { // 字元裝置（EMMXXXX0）：讀回 EOF
+		d.trace(FileOp{Op: "read", Fn: 0x3F, Handle: bx, Name: h.name, Arg: int64(cx)})
 		c.R[cpu.AX] = 0
 		clearCarry(c)
 		return
@@ -296,11 +340,15 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 func (d *DOS) seek(c *cpu.CPU) {
 	h, ok := d.handles[c.R[cpu.BX]]
 	if !ok {
+		d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX],
+			Whence: al(c), Failed: true})
 		c.R[cpu.AX] = 6
 		setCarry(c)
 		return
 	}
 	if h.f == nil { // 字元裝置不能 seek
+		d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX], Name: h.name,
+			Whence: al(c), Failed: true})
 		c.R[cpu.AX] = 1
 		setCarry(c)
 		return
@@ -312,12 +360,14 @@ func (d *DOS) seek(c *cpu.CPU) {
 	}
 	pos, err := h.f.Seek(off, int(al(c)))
 	if err != nil {
+		d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX], Name: h.name,
+			Whence: al(c), Arg: off, Failed: true})
 		c.R[cpu.AX] = 1
 		setCarry(c)
 		return
 	}
 	d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX],
-		Name: h.name, Arg: off, Pos: pos})
+		Name: h.name, Whence: al(c), Arg: off, Pos: pos})
 	c.R[cpu.AX] = uint16(pos)
 	c.R[cpu.DX] = uint16(pos >> 16)
 	clearCarry(c)

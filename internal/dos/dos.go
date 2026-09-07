@@ -460,6 +460,13 @@ type FileOp struct {
 	Arg    int64 // 呼叫端要求的量：seek 的位移、read 的 CX
 	Pos    int64 // seek：定位後的位置；read：讀取起點
 	Len    int   // read／write：實際的位元組數；<0 是錯誤碼
+	Whence uint8 // seek 的 AL（0 起點／1 目前／2 結尾）
+	// Failed 表示這一次呼叫是失敗返回的。
+	//
+	// ⚠ **失敗的也要記。** 只記成功的話，「程式對無效 handle seek，
+	// 然後拿沒 seek 過的檔案指標去讀」在軌跡裡看起來像**根本沒呼叫過
+	// seek**——那會把人帶去查程式邏輯，而錯在 handle。
+	Failed bool
 }
 
 // PalOp 是一次 int 10h AH=10h 呼叫。
@@ -469,7 +476,11 @@ type PalOp struct {
 	Step           uint64
 }
 
-// MemOp 是一次記憶體配置操作（AH=48h/49h/4Ah）的記錄。
+// MemOp 是一次記憶體服務（`AH=48h`／`49h`／`4Ah`）的紀錄。
+//
+// **配置器把程式自己佔著的段配出去時，症狀是程式碼被自己寫壞。** 那看起來像
+// 模擬器把記憶體寫爛了，而實際上是 `AH=48h` 回了一個落在映像裡的段——
+// 沒有這份紀錄就只能從被改掉的位元組往回猜是誰寫的。
 type MemOp struct {
 	Fn     uint8
 	BX, ES uint16 // 輸入：段落數／區塊段
@@ -520,7 +531,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
-		MaxHandles:    20, // DOS 預設；AH=67h 可調
+		MaxHandles:    maxHandles, // DOS 預設 20；AH=67h 可調
 		ems:           newEMS(),
 		dtaSeg:        machine.PSPSeg,
 		dtaOff:        0x80,

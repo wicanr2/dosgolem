@@ -366,10 +366,22 @@ func (d *DOS) parseFilename(c *cpu.CPU) {
 //
 // 一律清 CF 報成功的話**第一次呼叫就掉進錯誤路徑**——那是
 // `DOS memory-arena error` 的真正根因，連續三輪調 MCB 佈局都無效。
+// availFrom 回從 seg 起還剩幾段可用。
+//
+// ⚠ **一定要夾在 0**。直接寫 `MemTop - seg` 的話，指標越過 `MemTop` 之後
+// uint16 環繞成 0FFFFh，於是探測**永遠成功**——「把記憶體配光」的迴圈因此
+// 一路配到 0FFFFh 段再繞回低位，把整台機器的記憶體覆蓋掉。
+func availFrom(seg uint16) uint16 {
+	if seg >= uint16(machine.MemTop) {
+		return 0
+	}
+	return uint16(machine.MemTop) - seg
+}
+
 func (d *DOS) setBlock(c *cpu.CPU) {
 	want := c.R[cpu.BX]
 	blk := c.Seg[cpu.ES]
-	avail := uint16(machine.MemTop) - blk
+	avail := availFrom(blk)
 	if want > avail {
 		d.MemOps = append(d.MemOps, MemOp{Fn: 0x4A, BX: want, ES: blk,
 			AX: avail, Step: d.M.Steps})

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -71,6 +72,9 @@ type Oracle struct {
 	dgroupSeg uint16
 
 	onCall map[uint32][]func(*Oracle)
+
+	// stubs 是「走到這個位址就換成我的回傳值」的替身表（`docs/spec/005` §5）。
+	stubs map[uint32]func(*Oracle) uint32
 
 	// scratch 是 screen() 的重用緩衝。**條件函式會反覆呼叫它**，
 	// 每次配置 150 KB 的話跑幾千萬道指令就慢到不能用。
@@ -238,6 +242,11 @@ func (a Addr) Linear() uint32 { return cpu.Addr(a.Seg, a.Off) }
 //
 // DGROUP 與堆疊同段（編譯後 BASIC 的慣例）；驗證見 `docs/spec/005` §3.1
 // ——`DS(0x1B5A)` 讀到 IEEE 754 的 1.0f。
+//
+// ⚠ **預設基底是 rich2 專用的常數**（IDA 線性 0x41E90）。換一支執行檔就要先
+// SetDGroup 或 SyncDGroupFromDS，否則讀到的是別的東西**而且不會報錯**——
+// `DS()` 沒有任何辦法察覺基底錯了。不確定的話改用 `IDA()`，那個對每一支
+// 執行檔都是從載入位置算出來的。
 func (o *Oracle) DS(off uint16) Addr { return Addr{o.dgroupSeg, off} }
 
 // Far 造一個明確的 段:偏移。
@@ -246,6 +255,24 @@ func (o *Oracle) DS(off uint16) Addr { return Addr{o.dgroupSeg, off} }
 // 位址得先從程式的變數讀出來（例：熱區圖的段與偏移）。
 // 名字不叫 `At` 是因為那個已經是「CS:IP 走到這裡」的停止條件。
 func Far(seg, off uint16) Addr { return Addr{seg, off} }
+
+// DGroupSeg 回目前 `DS()` 用的基底段。
+func (o *Oracle) DGroupSeg() uint16 { return o.dgroupSeg }
+
+// SetDGroup 用 IDA 線性位址指定 DGROUP 的起點。
+//
+// 判準是**讀一個已知值**：拿內容已知的全域（版本字串、浮點常數）用 `DS()` 讀
+// 出來比對。設完不驗等於沒設。
+func (o *Oracle) SetDGroup(idaLinear uint32) {
+	o.dgroupSeg = uint16((idaLinear - o.idaOffset) / 16)
+}
+
+// SyncDGroupFromDS 把基底改成**程式現在的 `DS`**。
+//
+// 用在跑到 `main` 之後：C 的啟動碼這時已經把 DS 設成 DGROUP，抄它比從筆記換算
+// 可靠。⚠ 只在確定 DS 沒被暫時改掉時呼叫——遠指標操作、字串搬移與中斷處理常式
+// 都可能讓 DS 短暫指向別處。
+func (o *Oracle) SyncDGroupFromDS() { o.dgroupSeg = o.m.CPU.Seg[cpu.DS] }
 
 // IDA 把 rich2 筆記裡的五位線性位址轉成執行期位址。
 //
@@ -354,6 +381,96 @@ func (o *Oracle) ScreenSize() (w, h int) { return o.m.VideoSize() }
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
+// 文字模式畫面的形狀（mode 03h：80 欄 25 列，一格「字元 ＋ 屬性」兩個 byte）。
+const (
+	TextCols = 80
+	TextRows = 25
+	textSeg  = 0xB800
+)
+
+// TextScreen 回文字模式畫面，一列一個字串（右邊的空白已經修掉）。
+//
+// **`Indexed()` 讀的是圖形記憶體（A0000）。** 程式還在文字模式時那裡當然是全黑，
+// 而「全黑」看起來就像「什麼都沒畫」——實際上畫面上可能寫滿了字。判斷載入進度
+// 或找錯誤訊息時，先看 `VideoMode()`：還是 03h 就要讀這一份，不是 `Indexed()`。
+func (o *Oracle) TextScreen() []string {
+	out := make([]string, TextRows)
+	for r := 0; r < TextRows; r++ {
+		line := make([]byte, TextCols)
+		for c := 0; c < TextCols; c++ {
+			ch := o.m.Read8(cpu.Addr(textSeg, uint16(2*(r*TextCols+c))))
+			if ch < 0x20 || ch > 0x7E {
+				ch = ' ' // 制表符與高位字元用空白代替，方便肉眼比對
+			}
+			line[c] = ch
+		}
+		out[r] = strings.TrimRight(string(line), " ")
+	}
+	return out
+}
+
+// CGA 模式 4 的版面（320×200，四色，兩個 bit 一個像素）。
+const (
+	cgaSeg = 0xB800
+	// cgaOddPlane 是奇數列那一半的位移。**掃描線是交錯的**：偶數列從 0 起、
+	// 奇數列從 0x2000 起，各 8000 bytes。照線性讀會得到一張梳子。
+	cgaOddPlane = 0x2000
+	cgaStride   = 80 // 320 像素 × 2 bit ÷ 8
+)
+
+// CGA4 回 CGA 模式 4 的畫面，320×200 個色號（0…3）。
+//
+// **不是 `Indexed()`。** 那一支讀的是 mode 13h 的 `A0000`；CGA 的視訊記憶體在
+// `B8000`，而且掃描線交錯——兩邊都對不上，所以 CGA 程式在 `Indexed()` 底下
+// 永遠是全黑。判斷「畫了沒」要用這一支。
+//
+// 色號是**調色盤索引**，不是 RGB：模式 4 的四色由 `3D9` 埠選盤，這一層不解釋它，
+// 比對在索引空間做（同 `Indexed()` 的理由，§3.3）。
+func (o *Oracle) CGA4() []uint8 {
+	out := make([]uint8, Width*Height)
+	for y := 0; y < Height; y++ {
+		base := uint32(y/2) * cgaStride
+		if y%2 == 1 {
+			base += cgaOddPlane
+		}
+		row := out[y*Width:]
+		for x := 0; x < Width; x++ {
+			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/4))
+			row[x] = (b >> (6 - 2*uint(x%4))) & 3
+		}
+	}
+	return out
+}
+
+// Tandy16 回 Tandy／PCjr 模式 09h 的畫面，320×200 個色號（0…15）。
+//
+// 版面與 CGA 模式 4 同一個家族但**四段交錯**（CGA 是兩段）：一列 160 bytes、
+// 四個 bit 一個像素，第 y 列在 `(y%4) × 0x2000 + (y/4) × 160`。
+// 段數記錯的話畫面會變成四張交疊的梳子——**看起來像雜訊，不像「解錯了」**。
+//
+// 對 oracle 來說這個模式比 EGA 好用：視訊記憶體是線性的，不必模擬位元平面。
+func (o *Oracle) Tandy16() []uint8 {
+	const (
+		stride = 160
+		banks  = 4
+		bank   = 0x2000
+	)
+	out := make([]uint8, Width*Height)
+	for y := 0; y < Height; y++ {
+		base := uint32(y%banks)*bank + uint32(y/banks)*stride
+		row := out[y*Width:]
+		for x := 0; x < Width; x++ {
+			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/2))
+			if x%2 == 0 {
+				row[x] = b >> 4
+			} else {
+				row[x] = b & 0x0F
+			}
+		}
+	}
+	return out
+}
+
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64                     { return o.m.Steps }
 func (o *Oracle) Opened() []string                  { return o.d.Opened }
@@ -388,6 +505,20 @@ func (o *Oracle) FontStats() (full, half, missing int) {
 //
 // **收工前看一眼。**「跑得動」與「跑得動但行為不對」的差別在這裡。
 func (o *Oracle) Unimplemented() []string { return o.d.UnimplementedReport() }
+
+// MemOp 是一次記憶體服務（`MemOps`）。
+type MemOp = dos.MemOp
+
+// MemOps 是每一次 `AH=48h`／`49h`／`4Ah` 與 EXEC 的配置紀錄，依序。
+//
+// **配置器把程式自己佔著的段配出去時，症狀是程式碼被自己寫壞。** 那看起來像
+// 模擬器把記憶體寫爛了，實際上是 `alloc` 回了落在映像裡的段。
+func (o *Oracle) MemOps() []MemOp { return o.d.MemOps }
+
+// VideoMode 是目前的 BIOS 視訊模式（`int 10h AH=00h` 設的那個）。
+//
+// **載入進度的路標**：還停在 03h 就表示程式連圖形模式都還沒切進去。
+func (o *Oracle) VideoMode() uint8 { return o.m.VideoMode() }
 
 // CPU 狀態，寫診斷訊息用。
 func (o *Oracle) IP() Addr { return Addr{o.m.CPU.Seg[cpu.CS], o.m.CPU.IP} }
@@ -520,6 +651,8 @@ func (o *Oracle) WatchWrites(lo, hi uint16) *[]MemWrite {
 	return log
 }
 
+// WatchLinear 監看**任意線性位址區間**的寫入，回一份逐次紀錄。
+//
 // StopWatchingWrites 關掉監看。
 func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
 
