@@ -99,6 +99,11 @@ func main() {
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
 	dumpScreen := flag.String("dump-screen", "", "跑完把畫面的色號寫成檔案（planar 模式是 VideoSize() 那個尺寸）")
+	adlib := flag.Bool("adlib", false,
+		"讓 AdLib 偵測過關（預設偵測不到，音樂路徑會被整段跳過）")
+	oplLog := flag.String("opl-log", "",
+		"把 OPL2（AdLib）暫存器寫入序列寫到這個檔：每行 `步數 暫存器 值`（十六進位）。"+
+			"音訊 parity 對的是這串「樂譜」，不是波形（`docs/spec/004` §6）")
 	dumpEMS := flag.String("dump-ems", "",
 		"跑完把每一個 EMS handle 的每一頁寫成 `<目錄>/ems-<handle>-<頁>.bin`，"+
 			"並印出頁數與 page frame 現在映著誰。page frame 只看得到此刻那四頁，"+
@@ -139,6 +144,7 @@ func main() {
 	}
 
 	m := machine.New()
+	m.SetAdLib(*adlib)
 	var err error
 	if *loadState == "" {
 		img, rerr := os.ReadFile(*exe)
@@ -477,6 +483,13 @@ func main() {
 		}
 	}
 	writeMemDump(m, *dumpMem)
+	if *oplLog != "" {
+		if err := writeOPLLog(*oplLog, m.OPL); err != nil {
+			fmt.Println("opl-log:", err)
+		} else {
+			fmt.Printf("\nOPL 暫存器寫入 %d 筆 → %s\n", len(m.OPL), *oplLog)
+		}
+	}
 	if *dumpEMS != "" {
 		if err := d.DumpEMS(*dumpEMS); err != nil {
 			fmt.Println("dump-ems:", err)
@@ -1445,4 +1458,23 @@ func releaseNow(d *dos.DOS, clickPolls int, clickHold uint64,
 		return len(d.Mouse.Polls)-pollsAtPress >= clickPolls
 	}
 	return step == pressStep+clickHold
+}
+
+// writeOPLLog 把 OPL2 暫存器寫入序列寫成文字檔。
+//
+// 一行一筆 `步數 暫存器 值`，全部十六進位小寫。用文字是為了**可以直接
+// diff**：remake 的播放器要對的就是這一串，逐筆相同才算同狀態。
+func writeOPLLog(path string, ws []machine.OPLWrite) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	defer w.Flush()
+	fmt.Fprintf(w, "# dosgolem OPL2 log：步數 暫存器 值\n")
+	for _, o := range ws {
+		fmt.Fprintf(w, "%d %02x %02x\n", o.Step, o.Reg, o.Val)
+	}
+	return nil
 }
