@@ -342,4 +342,3 @@ func (m *Machine) initMCB() {
 	// DOS 的「list of lists」：`[BX-2]` 是第一個 MCB 的段位址。
 	m.Write16(LOLSeg*16+0x0E, PSPSeg-1)
 }
-
