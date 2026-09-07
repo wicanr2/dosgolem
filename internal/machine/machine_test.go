@@ -2,6 +2,7 @@ package machine
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -234,5 +235,33 @@ func TestPITCountsDown(t *testing.T) {
 	}
 	if len(seen) < 4 {
 		t.Errorf("讀 8 次 PIT 只看到 %d 種值——延遲迴圈會卡住", len(seen))
+	}
+}
+
+// TestWatchSeesServiceWrites 監看要看得到服務層的寫入（規格 `018`）。
+//
+// DOS 讀檔走 WriteBytes、EMS 換頁也走 WriteBytes；那兩條繞過掛勾的話，
+// 「這張表是誰填的」會得到「沒有人寫」這種假結論。
+func TestWatchSeesServiceWrites(t *testing.T) {
+	m := New()
+	var got []string
+	m.WatchWrites(0x1000, 0x1003, func(a uint32, old, nv uint8) {
+		got = append(got, fmt.Sprintf("%X:%02X→%02X", a, old, nv))
+	})
+
+	m.WriteBytes(0x0FFE, []byte{1, 2, 3, 4, 5, 6})
+	m.Write16(0x1002, 0x0807)
+	// 值沒變就不通知。
+	m.WriteBytes(0x1000, []byte{3, 4})
+
+	want := []string{"1000:00→03", "1001:00→04", "1002:00→05", "1003:00→06",
+		"1002:05→07", "1003:06→08"}
+	if len(got) != len(want) {
+		t.Fatalf("通知 %d 次：%v，預期 %d 次：%v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("第 %d 次是 %s，預期 %s（全部：%v）", i, got[i], want[i], got)
+		}
 	}
 }

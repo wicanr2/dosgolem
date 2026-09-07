@@ -246,7 +246,8 @@ func (m *Machine) Write8(a uint32, v uint8) {
 // 那些「掃不到寫入端」的變數的寫法（`rich2/CLAUDE.md` §4.1 第 4 條）。
 //
 // 只在**值真的變了**的時候通知，所以重複寫同一個值不會洗版。
-// 傳 nil 關掉監看。CPU 的每一次寫入都走 Write8，所以 16 位寫入會來兩次。
+// 傳 nil 關掉監看。**所有寫入路徑都走 Write8**（CPU、`Write16`、
+// `WriteBytes`），所以 DOS 讀檔與 EMS 換頁也看得到；16 位寫入會來兩次。
 func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8)) {
 	if fn == nil {
 		m.watchLo, m.watchHi, m.onWrite = 1, 0, nil // 空區間 ＝ 永遠不命中
@@ -471,14 +472,21 @@ func (m *Machine) Read16(a uint32) uint16 {
 	return uint16(m.Mem[a&0xFFFFF]) | uint16(m.Mem[(a+1)&0xFFFFF])<<8
 }
 
+// Write16 寫一個 16 位元值。**走兩次 Write8**（規格 `018`）：
+// 監看與 planar 掛勾都掛在那裡，直接寫 m.Mem 會讓它們失效。
 func (m *Machine) Write16(a uint32, v uint16) {
-	m.Mem[a&0xFFFFF] = uint8(v)
-	m.Mem[(a+1)&0xFFFFF] = uint8(v >> 8)
+	m.Write8(a, uint8(v))
+	m.Write8(a+1, uint8(v>>8))
 }
 
+// WriteBytes 寫一段位元組。同樣逐位元組走 Write8（規格 `018`）。
+//
+// **DOS 的讀檔與 EMS 換頁走這裡**，繞過掛勾的話「表格是怎麼被填出來的」
+// 對監看完全隱形——那是最常見的兩條填表路徑，漏掉會得到「這個位址
+// 沒有人寫」這種假結論。
 func (m *Machine) WriteBytes(a uint32, b []byte) {
 	for i, v := range b {
-		m.Mem[(a+uint32(i))&0xFFFFF] = v
+		m.Write8(a+uint32(i), v)
 	}
 }
 
