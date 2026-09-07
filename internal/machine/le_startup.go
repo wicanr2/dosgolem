@@ -9,10 +9,15 @@ import (
 // FD2StartupDOS 是固定雜湊 FD2.EXE 在 DOS/4GW 已載入後所需的啟動服務。
 // 它不是一般 DOS 或 DOS/4GW 模擬器；未列呼叫與錯誤順序一律拒絕。
 type FD2StartupDOS struct {
-	calls           int
-	timeCalls       int
-	realModeVectors [256]uint32
-	dosVectors      [256]uint64
+	calls     int
+	timeCalls int
+	// DPMI 是**與程式無關**的 `int 31h` 主機（`dpmi.go`）。
+	//
+	// 這一支剩下的部分還是 FD2 專屬的（啟動握手、selector 值），
+	// 但 DPMI 那一層已經搬出去了——換一支 DOS/4GW 程式時它照用，
+	// 不必再抄一份（`docs/spec/184-mvp-scope-review` 批次 2）。
+	DPMI       *DPMIHost
+	dosVectors [256]uint64
 	files           ReadOnlyFileProvider
 	handles         map[uint16]io.ReadSeekCloser
 	nextHandle      uint16
@@ -23,8 +28,29 @@ var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E'
 func (s *FD2StartupDOS) Calls() int { return s.calls }
 
 func NewFD2StartupDOS(files ReadOnlyFileProvider) *FD2StartupDOS {
-	return &FD2StartupDOS{files: files, handles: make(map[uint16]io.ReadSeekCloser), nextHandle: 5}
+	return &FD2StartupDOS{
+		files:      files,
+		handles:    make(map[uint16]io.ReadSeekCloser),
+		nextHandle: 5,
+		DPMI:       NewDPMIHost(nil),
+	}
 }
+
+// dpmi 回這一支的 DPMI 主機，零值也能用（測試常常直接造 &FD2StartupDOS{}）。
+func (s *FD2StartupDOS) dpmi() *DPMIHost {
+	if s.DPMI == nil {
+		s.DPMI = NewDPMIHost(nil)
+	}
+	return s.DPMI
+}
+
+// SetRealModeVector 把實模式向量交給 DPMI 主機（`AX=0200h` 問的就是它）。
+func (s *FD2StartupDOS) SetRealModeVector(n uint8, seg, off uint16) {
+	s.dpmi().SetRealModeVector(n, seg, off)
+}
+
+// AttachMachine 讓描述子與線性記憶體那兩組 DPMI 功能可用。
+func (s *FD2StartupDOS) AttachMachine(m *LEMachine) { s.dpmi().Attach(m) }
 
 func (s *FD2StartupDOS) HasHandle(handle uint16) bool {
 	_, ok := s.handles[handle]
@@ -181,14 +207,9 @@ func (s *FD2StartupDOS) seekFile(c *cpu386.CPU) {
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
-		if uint16(c.R[cpu386.EAX]) != 0x0200 {
-			return false
-		}
-		vector := s.realModeVectors[uint8(c.R[cpu386.EBX])]
-		c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | vector>>16
-		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | vector&0xffff
-		c.EFlags &^= cpu386.CF
-		return true
+		// 整支交給通用的 DPMI 主機。沒實作的功能由它記一筆再回 false，
+		// 與這裡原本的行為一致（未列的呼叫一律拒絕）。
+		return s.dpmi().Handle(c)
 	}
 	if number != 0x21 {
 		return false

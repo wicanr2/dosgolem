@@ -283,7 +283,7 @@ func TestFD2StartupDOSRejectsWrongOrder(t *testing.T) {
 func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 1)))
 	s := &FD2StartupDOS{}
-	s.realModeVectors[8] = 0xf0001234
+	s.SetRealModeVector(8, 0xf000, 0x1234)
 	c.R[cpu386.EAX] = 0xaaaa0200
 	c.R[cpu386.EBX] = 0xbbbb0008
 	c.R[cpu386.ECX] = 0xcccc0000
@@ -293,7 +293,9 @@ func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
 		t.Fatalf("DPMI 0200 ECX=%X EDX=%X flags=%X calls=%d", c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags, s.Calls())
 	}
 
-	c.R[cpu386.EAX] = 0x0201
+	// AX=0201h（設實模式向量）現在由通用的 DPMI 主機做（`dpmi.go`）；
+	// 沒實作的那些仍然要被拒絕，改用 AX=0300h（模擬實模式中斷）驗。
+	c.R[cpu386.EAX] = 0x0300
 	if s.Handle(c, 0x31) {
 		t.Fatal("unknown DPMI function was accepted")
 	}
@@ -302,7 +304,7 @@ func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
 func TestFD2StartupDOSInterruptVectors(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 1)))
 	s := &FD2StartupDOS{}
-	s.realModeVectors[8] = 0xf0001234
+	s.SetRealModeVector(8, 0xf000, 0x1234)
 	c.Seg[cpu386.SegDS] = 0x160
 	c.R[cpu386.EAX] = 0xaaaa2508
 	c.R[cpu386.EDX] = 0x12345678
