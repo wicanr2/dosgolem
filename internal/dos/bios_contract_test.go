@@ -159,12 +159,35 @@ func TestInt15BlockMoveCountsWords(t *testing.T) {
 	}
 }
 
-// `int 15h AH=C0h` 要指到一段**合法而且看得懂**的系統設定表。
+// `int 15h AH=C0h` 要指到一段**合法而且看得懂**的系統設定表，
+// 而且那一段不能壓到鄰居。
 //
-// ⚠ 表不能擺在 stub 區：那一段是每個向量的處理常式。
+// ⚠ **上下都有鄰居。** 下面是中斷向量的 stub，上面是環境區塊——
+// `StubSeg`（0x0080）與 `EnvSeg`（0x00D0）只差 0x50 段，也就是
+// StubSeg 的位移 0x500 就是 `EnvSeg:0000`。壓到環境區塊的話，
+// 程式讀自己的環境會拿到一段亂碼，而且完全不會報錯。
 func TestInt15SystemConfigTableIsSafe(t *testing.T) {
 	m, d := newTest(t)
+	// 兩個鄰居先做記號：stub 區整段，以及環境區塊的開頭。
+	stubBefore := make([]byte, 0x440)
+	for i := range stubBefore {
+		stubBefore[i] = m.Read8(uint32(machine.StubSeg)*16 + uint32(i))
+	}
+	const envMark = `COMSPEC=C:\COMMAND.COM`
+	m.WriteBytes(uint32(machine.EnvSeg)*16, append([]byte(envMark), 0))
+
 	call(m, d, 0x15, 0xC000)
+
+	for i, want := range stubBefore {
+		if got := m.Read8(uint32(machine.StubSeg)*16 + uint32(i)); got != want {
+			t.Fatalf("設定表壓到 StubSeg 位移 %03X（%02X → %02X）", i, want, got)
+		}
+	}
+	for i := range envMark {
+		if got := m.Read8(uint32(machine.EnvSeg)*16 + uint32(i)); got != envMark[i] {
+			t.Fatalf("設定表壓到環境區塊第 %d 個位元組（%q → %02X）", i, envMark[i], got)
+		}
+	}
 	if m.CPU.Flags&cpu.CF != 0 {
 		t.Fatal("AH=C0h 回 CF——程式會以為自己在 PC/XT 上")
 	}
@@ -174,10 +197,6 @@ func TestInt15SystemConfigTableIsSafe(t *testing.T) {
 	}
 	if model := m.Read8(cpu.Addr(seg, off) + 2); model != 0xFC {
 		t.Errorf("機型碼是 %02X，預期 FC（AT）", model)
-	}
-	// 表不能蓋到任何向量的 stub（0x000–0x4FF）。
-	if off < 0x500 {
-		t.Errorf("設定表擺在 %04X，落在 stub 區裡", off)
 	}
 	// 每個向量仍然指到會回來的碼。
 	for v := 0; v < 256; v++ {

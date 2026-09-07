@@ -151,6 +151,16 @@ func (m *Machine) BIOSKeyCount() int {
 	return int((kbEnd-head)+(tail-kbStart)) / 2
 }
 
+// FlushKeys 把鍵盤緩衝區清空（頭 ＝ 尾），給 `int 21h AH=0Ch` 用。
+//
+// **要動的是指標，不是內容。** 把 0x1E–0x3D 那 32 個 byte 抹掉而不動頭尾的話，
+// 緩衝區裡還是「有」那幾筆，只是內容變成 0000——程式讀到的是一串
+// 不存在的鍵，比沒清更糟。
+func (m *Machine) FlushKeys() {
+	base := uint32(bdaSeg * 16)
+	m.Write16(base+kbHead, m.Read16(base+kbTail))
+}
+
 // PeekKey 回傳緩衝區最前面那一筆，不取走。
 func (m *Machine) PeekKey() (uint16, bool) {
 	base := uint32(bdaSeg * 16)

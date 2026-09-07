@@ -210,12 +210,20 @@ func (d *DOS) fontBytes(name string, off, size int) []byte {
 	return data[off : off+size]
 }
 
-// sysConfigOff 是 `int 15h AH=C0h` 的系統設定表在 StubSeg 裡的位移。
+// sysConfigOff 是 `int 15h AH=C0h` 的系統設定表在 StubSeg 裡的位移，
+// inDOSOff 是 `int 21h AH=34h` 的 InDOS 旗標。
 //
-// ⚠ **要避開所有 stub**：每個向量的 stub 佔 0x000–0x3FF，特殊 stub 在
-// 0x400 起（見 `machine.initVectors`）。寫進那些位址等於把中斷處理常式
-// 改掉，而症狀出現在下一次那個中斷被叫的時候。
-const sysConfigOff = 0x500
+// ⚠ **上下兩邊都有鄰居，只避開一邊不夠。**
+// 下面是 stub：每個向量的 stub 佔 0x000–0x3FF，特殊 stub 從 0x400 起，
+// 其中 BIOS 計時器有 24 個 byte，到 0x438 為止（見 `machine.initVectors`）。
+// 上面是環境區塊：`StubSeg`（0x0080）與 `EnvSeg`（0x00D0）只差 0x50 段，
+// 也就是**位移 0x500 就是 `EnvSeg:0000`**——擺在那裡等於把 `COMSPEC=`
+// 的前 8 個 byte 蓋掉，而程式讀自己的環境時只會看到一段亂碼，
+// 不會有任何錯誤。0x440 起這一段前後都留得開。
+const (
+	sysConfigOff = 0x440
+	inDOSOff     = 0x450
+)
 
 // int15Move 是 `AH=87h`：用 GDT 描述子搬移延伸記憶體。
 //

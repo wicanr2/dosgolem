@@ -249,6 +249,33 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x68, 0x6A: // commit file
 		d.commitFile(c)
 
+	case 0x0C: // 清空鍵盤緩衝區再做 AL 指定的輸入
+		d.flushAndInput(c)
+
+	case 0x32: // 取磁碟參數區塊
+		d.driveParams(c)
+
+	case 0x34: // 取 InDOS 旗標位址 → ES:BX
+		d.inDOSFlag(c)
+
+	case 0x37: // 取／設選項字元
+		d.switchChar(c)
+
+	case 0x58: // 記憶體配置策略／UMB 連結
+		d.allocStrategyCall(c)
+
+	case 0x5A: // 建立唯一名稱的暫存檔
+		d.createTemp(c)
+
+	case 0x5C: // 鎖定／解鎖檔案區段
+		d.lockRegion(c)
+
+	case 0x60: // 路徑正規化
+		d.trueName(c)
+
+	case 0x6C: // 延伸開檔
+		d.extendedOpen(c)
+
 	case 0x52: // 取 DOS 內部結構表（list of lists）→ ES:BX
 		c.Seg[cpu.ES] = machine.LOLSeg
 		c.R[cpu.BX] = 0x10
@@ -591,11 +618,46 @@ func (d *DOS) setPSPBlock(newFree uint16) {
 func (d *DOS) alloc(c *cpu.CPU) {
 	d.initArena()
 	want := c.R[cpu.BX]
+	if i := d.pickBlock(want); i >= 0 {
+		d.splitBlock(c, i, want)
+		return
+	}
+	c.R[cpu.AX] = 8 // 記憶體不足
+	c.R[cpu.BX] = d.largestFree()
+	setCarry(c)
+	d.noteMem(c, 0x48, want, 0, d.largestFree(), false)
+}
+
+// pickBlock 依配置策略（`AH=58h`）挑一塊放得下的自由區塊，回索引；−1 ＝ 沒有。
+//
+// **策略會改變程式拿到哪一段**，而那是它看得到的：程式把段位址寫進自己的
+// 資料結構、比大小、算距離。三種都做才對得起 `AH=58h` 的回報——
+// 只做 first fit 卻回報「現在是 best fit」是說謊。
+func (d *DOS) pickBlock(want uint16) int {
+	best := -1
 	for i := range d.arena {
 		b := &d.arena[i]
 		if !b.free || b.size < want {
 			continue
 		}
+		switch d.allocStrategy & 0x03 {
+		case 1: // best fit：剩最少的那一塊
+			if best < 0 || b.size < d.arena[best].size {
+				best = i
+			}
+		case 2: // last fit：位址最高的那一塊
+			best = i
+		default: // first fit
+			return i
+		}
+	}
+	return best
+}
+
+// splitBlock 把第 i 塊切出 want 段給呼叫端。
+func (d *DOS) splitBlock(c *cpu.CPU, i int, want uint16) {
+	{
+		b := &d.arena[i]
 		// 切得出一塊有意義的剩餘（至少 1 段 MCB ＋ 1 段資料）才切，
 		// 否則整塊給出去——切出 0 段的區塊只會讓表變長。
 		if b.size >= want+2 {
@@ -608,15 +670,10 @@ func (d *DOS) alloc(c *cpu.CPU) {
 		} else {
 			b.free = false
 		}
-		c.R[cpu.AX] = d.arena[i].seg + 1
-		clearCarry(c)
-		d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
-		return
 	}
-	c.R[cpu.AX] = 8 // 記憶體不足
-	c.R[cpu.BX] = d.largestFree()
-	setCarry(c)
-	d.noteMem(c, 0x48, want, 0, d.largestFree(), false)
+	c.R[cpu.AX] = d.arena[i].seg + 1
+	clearCarry(c)
+	d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
 }
 
 // noteMem 記一筆配置器帳。MemTrace 是 nil 就什麼都不做。

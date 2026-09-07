@@ -249,6 +249,10 @@ type DOS struct {
 	Drive uint8
 	Dir   string
 
+	// SwitchChar 是 `AH=37h` 的選項字元。DOS 從 2.0 起固定是 `/`
+	// （`SWITCHAR=` 那個設定在 5.0 之後就沒有作用了）。
+	SwitchChar uint8
+
 	// Unimplemented 記下每一個沒實作的功能號被叫了幾次。
 	//
 	// **「宣告成功」本身也會說謊**：該填的緩衝區沒填就是垃圾，症狀出現在
@@ -381,6 +385,19 @@ type DOS struct {
 	embLocks  map[uint16]int
 	umbFree   uint16
 	umbBlocks map[uint16]uint16
+
+	// allocStrategy 是 `AH=58h` 設的配置策略（0 ＝ first fit、1 ＝ best fit、
+	// 2 ＝ last fit；高位元組管 UMB，我們只看低兩位），umbLink 是「UMB 有沒有
+	// 併進配置鏈」。**兩個都要真的生效**，否則 `AH=58h` 讀回來的值與
+	// `AH=48h` 實際的行為對不上，而程式是照讀回來的值決定要不要自己搬家的。
+	allocStrategy uint16
+	umbLink       bool
+
+	// tempCount 是 `AH=5Ah` 產生暫存檔名的流水號。
+	//
+	// **不用時間也不用亂數**：同一份輸入要得到同一組檔名，否則兩次執行
+	// 的檔案清單對不起來，對拍會把差異歸到別處。
+	tempCount uint16
 
 	// finds 是進行中的目錄搜尋（`AH=4Eh`／`4Fh`），編號由 DTA 帶著走。
 	// 見 `find.go`：狀態放 DTA 才容得下同時進行的兩個搜尋。
@@ -596,6 +613,7 @@ func New(m *machine.Machine, root string) *DOS {
 		Font:          DefaultFont(),
 		Sound:         map[uint8]int{},
 		Drive:         2, // C:，見 Drive 欄位的說明
+		SwitchChar:    '/',
 		Dir:           "RICH2",
 		Unimplemented: map[Call]int{},
 		handles:       map[uint16]*handle{},
