@@ -1,0 +1,215 @@
+package machine
+
+import (
+	"encoding/binary"
+	"testing"
+
+	"github.com/wicanr2/dosgolem/internal/cpu386"
+)
+
+func watcomHeapFixture(t *testing.T, capacity uint32) (*LEMachine, *WatcomNearHeap) {
+	t.Helper()
+	m := &LEMachine{Mem: make([]byte, 0x100)}
+	m.CPU = cpu386.New(m)
+	m.CPU.Seg[cpu386.SegSS] = 0x160
+	m.CPU.SetDescriptor(0x160, cpu386.Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
+	m.CPU.R[cpu386.ESP] = 0x40
+	m.CPU.EIP = 0x1234
+	heap, err := NewWatcomNearHeap(m, 0x1234, capacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.CPU.StepHook = heap.Handle
+	return m, heap
+}
+
+func callWatcomHeap(t *testing.T, m *LEMachine, size, ret uint32) uint32 {
+	t.Helper()
+	m.CPU.EIP = 0x1234
+	m.CPU.R[cpu386.ESP] = 0x40
+	binary.LittleEndian.PutUint32(m.Mem[0x40:], ret)
+	binary.LittleEndian.PutUint32(m.Mem[0x44:], size)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != ret || m.CPU.R[cpu386.ESP] != 0x44 {
+		t.Fatalf("cdecl return EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+	return m.CPU.R[cpu386.EAX]
+}
+
+func TestWatcomNearHeapDeterministicAlignedWritableAllocations(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	first := callWatcomHeap(t, m, 1, 0x2000)
+	second := callWatcomHeap(t, m, 5, 0x3000)
+	if first != 0x100 || second != 0x104 || len(m.Mem) != 0x10c {
+		t.Fatalf("allocations first=%X second=%X len=%X", first, second, len(m.Mem))
+	}
+	if err := m.Write8(second+4, 0x7f); err != nil || m.Mem[second+4] != 0x7f {
+		t.Fatalf("allocated memory not writable: %v", err)
+	}
+	if got := callWatcomHeap(t, m, 8, 0x4000); got != 0 || len(m.Mem) != 0x10c {
+		t.Fatalf("exhausted allocation result=%X len=%X", got, len(m.Mem))
+	}
+}
+
+func TestWatcomNearHeapZeroAndUnregisteredEntry(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	if got := callWatcomHeap(t, m, 0, 0x2000); got != 0 || len(m.Mem) != 0x100 {
+		t.Fatalf("zero allocation result=%X len=%X", got, len(m.Mem))
+	}
+	m.CPU.EIP = 0
+	m.Mem[0] = 0xfb
+	if err := m.CPU.Step(); err != nil || m.CPU.EIP != 1 {
+		t.Fatalf("unregistered entry did not use CPU decoder: EIP=%X err=%v", m.CPU.EIP, err)
+	}
+}
+
+func TestWatcomNearHeapRejectsUnreadableStack(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	m.CPU.Descriptors = map[uint16]cpu386.Descriptor{}
+	if err := m.CPU.Step(); err == nil || m.CPU.EIP != 0x1234 {
+		t.Fatalf("unreadable stack err=%v EIP=%X", err, m.CPU.EIP)
+	}
+}
+
+func TestWatcomMemset(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomMemset{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x40
+	binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+	binary.LittleEndian.PutUint32(m.Mem[0x44:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x48:], 0x123456ab)
+	binary.LittleEndian.PutUint32(m.Mem[0x4c:], 3)
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x44 || m.CPU.R[cpu386.EAX] != 0x80 || m.Mem[0x80] != 0xab || m.Mem[0x82] != 0xab {
+		t.Fatalf("memset EIP=%X ESP=%X EAX=%X bytes=% X", m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EAX], m.Mem[0x80:0x83])
+	}
+}
+
+func TestWatcomMemsetZeroLengthAndBounds(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomMemset{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	for _, test := range []struct {
+		destination uint32
+		length      uint32
+		wantError   bool
+	}{{0xffffffff, 0, false}, {0xff, 2, true}} {
+		m.CPU.EIP, m.CPU.R[cpu386.ESP] = 0x2000, 0x40
+		binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+		binary.LittleEndian.PutUint32(m.Mem[0x44:], test.destination)
+		binary.LittleEndian.PutUint32(m.Mem[0x48:], 0)
+		binary.LittleEndian.PutUint32(m.Mem[0x4c:], test.length)
+		err := m.CPU.Step()
+		if (err != nil) != test.wantError {
+			t.Fatalf("destination=%X length=%X err=%v", test.destination, test.length, err)
+		}
+	}
+}
+
+func TestWatcomInitArgvEmptyCommandLine(t *testing.T) {
+	m, heap := watcomHeapFixture(t, 32)
+	copy(m.Mem[0x80:], []byte{0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0})
+	binary.LittleEndian.PutUint32(m.Mem[0x60:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x64:], 0x81)
+	binary.LittleEndian.PutUint32(m.Mem[0x40:], 0x3000)
+	service := &WatcomInitArgv{machine: m, heap: heap, entry: 0x2000, commandPointer: 0x60,
+		programPointer: 0x64, internalArgc: 0x68, internalArgv: 0x6c, publicArgc: 0x70, publicArgv: 0x74}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	argv := uint32(0x101)
+	for _, address := range []uint32{0x68, 0x70} {
+		if got, _ := m.Read32(address); got != 1 {
+			t.Fatalf("argc at %X=%X", address, got)
+		}
+	}
+	for _, address := range []uint32{0x6c, 0x74} {
+		if got, _ := m.Read32(address); got != argv {
+			t.Fatalf("argv at %X=%X", address, got)
+		}
+	}
+	if first, _ := m.Read32(argv); first != 0x81 || m.CPU.R[cpu386.EAX] != argv || m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x44 {
+		t.Fatalf("argv[0]=%X EAX=%X EIP=%X ESP=%X", first, m.CPU.R[cpu386.EAX], m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+}
+
+func TestWatcomInitArgvRejectsArguments(t *testing.T) {
+	m, heap := watcomHeapFixture(t, 32)
+	m.Mem[0x80] = 'x'
+	binary.LittleEndian.PutUint32(m.Mem[0x60:], 0x80)
+	binary.LittleEndian.PutUint32(m.Mem[0x64:], 0x81)
+	service := &WatcomInitArgv{machine: m, heap: heap, entry: 0x2000, commandPointer: 0x60, programPointer: 0x64}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	if err := m.CPU.Step(); err == nil {
+		t.Fatal("non-empty command line was accepted")
+	}
+}
+
+func TestWatcomInt386DPMILockLinearRegion(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x20
+	for offset, value := range []uint32{0x3000, 0x31, 0x60, 0x80} {
+		binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+	}
+	for i, value := range []uint32{0x0600, 0, 0x40, 0, 0, 0x20, 1} {
+		binary.LittleEndian.PutUint32(m.Mem[0x60+i*4:], value)
+	}
+	if err := m.CPU.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x3000 || m.CPU.R[cpu386.ESP] != 0x24 || m.CPU.R[cpu386.EAX] != 0x0600 {
+		t.Fatalf("int386 EIP=%X ESP=%X EAX=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.EAX])
+	}
+	if cflag := binary.LittleEndian.Uint32(m.Mem[0x80+24:]); cflag != 0 {
+		t.Fatalf("DPMI CFLAG=%X", cflag)
+	}
+}
+
+func TestWatcomInt386DPMIRejectsUnknownInterrupt(t *testing.T) {
+	m, _ := watcomHeapFixture(t, 16)
+	service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+	m.CPU.StepHook = service.Handle
+	m.CPU.EIP = 0x2000
+	m.CPU.R[cpu386.ESP] = 0x20
+	for offset, value := range []uint32{0x3000, 0x10, 0x60, 0x80} {
+		binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+	}
+	if err := m.CPU.Step(); err == nil || m.CPU.EIP != 0x2000 || m.CPU.R[cpu386.ESP] != 0x20 {
+		t.Fatalf("unknown int err=%v EIP=%X ESP=%X", err, m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+}
+
+func TestWatcomInt386DPMIRejectsUnknownFunctionAndRange(t *testing.T) {
+	for _, test := range []struct {
+		eax    uint32
+		start  uint32
+		length uint32
+	}{{0x0601, 0x40, 0x20}, {0x0600, 0xf0, 0x20}} {
+		m, _ := watcomHeapFixture(t, 16)
+		service := &WatcomInt386DPMI{machine: m, entry: 0x2000}
+		m.CPU.StepHook = service.Handle
+		m.CPU.EIP = 0x2000
+		m.CPU.R[cpu386.ESP] = 0x20
+		for offset, value := range []uint32{0x3000, 0x31, 0x60, 0x80} {
+			binary.LittleEndian.PutUint32(m.Mem[0x20+offset*4:], value)
+		}
+		for i, value := range []uint32{test.eax, test.start >> 16, test.start & 0xffff, 0, test.length >> 16, test.length & 0xffff, 1} {
+			binary.LittleEndian.PutUint32(m.Mem[0x60+i*4:], value)
+		}
+		if err := m.CPU.Step(); err == nil || m.CPU.EIP != 0x2000 || m.CPU.R[cpu386.ESP] != 0x20 {
+			t.Fatalf("eax=%X start=%X length=%X err=%v EIP=%X ESP=%X", test.eax, test.start, test.length, err, m.CPU.EIP, m.CPU.R[cpu386.ESP])
+		}
+	}
+}
