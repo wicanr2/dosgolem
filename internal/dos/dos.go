@@ -374,6 +374,14 @@ type DOS struct {
 	// 1 MB 空間裡的 D000h 段。
 	ems *ems
 
+	// XMS 的狀態（`xms.go`）：HMA 有沒有被拿走、A20 的巢狀開關次數、
+	// EMB 的鎖定次數、UMB 的配置。
+	hmaOwned  bool
+	a20Local  int
+	embLocks  map[uint16]int
+	umbFree   uint16
+	umbBlocks map[uint16]uint16
+
 	// finds 是進行中的目錄搜尋（`AH=4Eh`／`4Fh`），編號由 DTA 帶著走。
 	// 見 `find.go`：狀態放 DTA 才容得下同時進行的兩個搜尋。
 	finds    map[uint16]*findState

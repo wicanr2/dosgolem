@@ -240,6 +240,11 @@ type Machine struct {
 	cbActive bool
 	cbMade   uint64
 
+	// a20 是位址線 20 的閘門，hma 是 1 MB 之上那 64 KB−16 的內容。
+	// 見 A20Enabled 的說明：預設關著（8086 的環繞行為）。
+	a20 bool
+	hma [HMASize]uint8
+
 	// 觀測用（probe.go）。沒設監看點時這幾個都是空的，
 	// 熱路徑只多一次長度檢查。
 	writeWatches []writeWatch
@@ -364,7 +369,36 @@ func New() *Machine {
 
 // ---- cpu.Bus ------------------------------------------------------------
 
+// A20 是位址線 20 的閘門。
+//
+// **關著（預設）＝ 8086 的行為**：位址在 1 MB 環繞回 0，`FFFF:0010` 與
+// `0000:0000` 是同一個位元組。程式**靠這個環繞偵測 HMA 在不在**
+// （寫 0000:0000 再讀 FFFF:0010，值一樣就是沒有 A20）。
+// 開了之後 1 MB 之上的 64 KB−16 才定址得到，那就是 HMA。
+//
+// ⚠ **預設關著**：真機開機後 A20 是關的，HIMEM.SYS 載入時才打開。
+// 預設開的話，靠環繞偵測的程式會判定「有 HMA」然後把資料搬進去，
+// 而它可能根本沒要求過（XMS `AH=03h`）——那是安靜的行為差異。
+func (m *Machine) A20Enabled() bool { return m.a20 }
+
+// SetA20 開關 A20（XMS 的 `AH=03h`–`06h` 走它）。
+func (m *Machine) SetA20(on bool) { m.a20 = on }
+
+// HMASize 是 HMA 的大小：64 KB 減 16 bytes（`FFFF:0010`–`FFFF:FFFF`）。
+const HMASize = 0x10000 - 16
+
+// hmaAddr 判斷一個線性位址落不落在 HMA，並回它在 HMA 裡的位移。
+func (m *Machine) hmaAddr(a uint32) (uint32, bool) {
+	if !m.a20 || a < MemSize || a >= MemSize+HMASize {
+		return 0, false
+	}
+	return a - MemSize, true
+}
+
 func (m *Machine) Read8(a uint32) uint8 {
+	if off, ok := m.hmaAddr(a); ok {
+		return m.hma[off]
+	}
 	a &= 0xFFFFF
 	// 平面模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
 	// ⚠ **讀它有副作用**：四個 latch 會被載入，而 latch 決定之後那次
@@ -376,6 +410,10 @@ func (m *Machine) Read8(a uint32) uint8 {
 }
 
 func (m *Machine) Write8(a uint32, v uint8) {
+	if off, ok := m.hmaAddr(a); ok {
+		m.hma[off] = v
+		return
+	}
 	a &= 0xFFFFF
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
