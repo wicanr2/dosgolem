@@ -1,60 +1,62 @@
 #!/usr/bin/env bash
-# 本機 CI。**送 MR 之前這一支要全綠。**
+# 本機 CI：**收工前這一支要全綠。**
 #
 #   tools/ci.sh
-#   BASE=origin/master tools/ci.sh     # 換一個比較基準
+#   DOSGOLEM_CPUS=2 tools/ci.sh    # 這台機器上還有別人在跑時
 #
 # 全部跑在 docker 裡（走 tools/go.sh），不裝任何東西到系統環境。
 #
-# gofmt 只檢查「這個分支動過的檔案」。整個 repo 對 gofmt 並不乾淨——
-# 那是 CJK 註解對齊的既有分歧，跟這個分支無關；一次全格式化會把 MR
-# 埋進幾百行雜訊裡，反而看不到真正的改動。
+# 四步，每一步各自回報，最後一行才是結論。**跳過不等於通過**——
+# 缺語料的那一步會明講自己沒驗到什麼。
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-BASE="${BASE:-origin/master}"
 fail=0
 step() { printf '\n\033[1m=== %s\033[0m\n' "$1"; }
 bad() { echo "  ✗ $1"; fail=1; }
 
-step "gofmt（本分支動過的 .go）"
-mapfile -t changed < <(git diff --name-only --diff-filter=d "$BASE"...HEAD -- '*.go' 2>/dev/null)
-mapfile -t untracked < <(git ls-files --others --exclude-standard -- '*.go')
-# 已經刪掉的檔案不能餵給 gofmt——分支裡改過又刪掉的檔會落進 diff 清單。
-files=()
-for f in "${changed[@]}" "${untracked[@]}"; do
-  [[ -f "$f" ]] && files+=("$f")
-done
-if [[ ${#files[@]} -eq 0 ]]; then
-  echo "  （沒有動過任何 .go）"
+# ---- 1. 格式 -------------------------------------------------------------
+# 整個 repo 都要乾淨。十條分支合併的時候順手格式化過一輪，所以這裡不必
+# 再只挑「本分支動過的檔」——那個做法會在合併進 master 之後變成「零個檔案」，
+# 於是這一步永遠是綠的而且什麼都沒檢查。
+step "gofmt（整個 repo）"
+out=$(DOSGOLEM_GO_CMD=gofmt tools/go.sh -l . 2>&1)
+if [[ -n "$out" ]]; then
+  bad "沒有格式化："
+  echo "$out" | sed 's/^/      /'
 else
-  out=$(DOSGOLEM_GO_CMD=gofmt tools/go.sh -l "${files[@]}" 2>&1)
-  if [[ -n "$out" ]]; then
-    bad "沒有格式化："
-    echo "$out" | sed 's/^/      /'
-  else
-    echo "  ✓ ${#files[@]} 個檔案"
-  fi
+  echo "  ✓"
 fi
 
+# ---- 2. 靜態檢查 ---------------------------------------------------------
 step "go vet"
 tools/go.sh vet ./... && echo "  ✓" || bad "go vet 有問題"
 
-# **語料留給下一步**：`./...` 已經含 internal/cpu，不加 -short 的話同一份
-# 727 MB 語料會在這一輪跑兩次（實測各 217 s 與 224 s，一輪 CI 因此多花
-# 3.7 分鐘做同一件事）。
+# ---- 3. 單元測試（不含語料）----------------------------------------------
+# **語料留給下一步**：`./...` 已經含 internal/cpu，不加 `-short` 的話同一份
+# 727 MB 語料會在這一輪跑兩次（實測序列 182–287 秒一次），一輪 CI 平白多花
+# 三分多鐘做同一件事。
 step "go test（不含 CPU 語料）"
 tools/go.sh test -short ./... || bad "測試沒過"
 
+# ---- 4. CPU 語料 ---------------------------------------------------------
+# 判準是**全部通過**（`docs/spec/002` §5）：CPU 的錯不會報錯，只會讓上層
+# 在幾百萬道指令之後畫錯一個像素。
+#
+# 路徑要與 `internal/cpu/singlestep_test.go` 的 testDir 一致
+# （`testdata/8088/`，底下直接是 `00.json.gz`…）。看錯一層的話這一步會
+# 一直「跳過」，而跳過在輸出裡不長得像失敗——CPU 就這樣一路沒被驗過。
 step "CPU 語料（SingleStepTests）"
-# 路徑要與 internal/cpu/singlestep_test.go 的 testDir 一致（`testdata/8088/`，
-# 底下直接是 `00.json.gz`…）。看錯一層的話這一步會一直「跳過」，
-# 而跳過在輸出裡不長得像失敗——CPU 就這樣一路沒被驗過。
-if compgen -G 'testdata/8088/*.json.gz' >/dev/null; then
+corpus=(testdata/8088/*.json.gz)
+if [[ -e "${corpus[0]}" ]]; then
+  echo "  語料 ${#corpus[@]} 檔"
+  if [[ ${#corpus[@]} -lt 300 ]]; then
+    bad "語料只有 ${#corpus[@]} 檔（完整的一份是 323）——先跑 tools/fetch_cputests.sh"
+  fi
   tools/go.sh test ./internal/cpu -run TestSingleStep && echo "  ✓" || bad "語料沒全綠"
 else
   echo "  跳過：testdata/8088/ 底下沒有語料。用 tools/fetch_cputests.sh 抓。"
-  echo "  ⚠ CPU 的驗收判準是「全部通過」，跳過不等於通過。"
+  echo "  ⚠ **跳過不等於通過**：CPU 的驗收判準是「全部通過」，這一輪沒有驗到 CPU。"
 fi
 
 printf '\n'

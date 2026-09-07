@@ -9,7 +9,9 @@
 
 ## 動手前
 
-1. 讀 `docs/spec/001-scope-and-mvp.md`（範圍與 MVP）。
+1. 讀 `docs/spec/001-scope-and-mvp.md`（範圍與 MVP）與 `docs/spec/000-index.md`
+   （規格索引）。**引用規格要連號碼帶檔名**（`009-memory-allocator`，不是 `009`）
+   ——十條分支各自從 007 開始編號，同一個號碼底下有最多八份不同主題的文件。
 2. **SDD：spec 齊了才實作。只有標 `READY` 的規格可以動手。**
    反組譯／量測 → 規格 → 才寫程式。
 3. 通用規則（含硬規則、docker 邊界）在 `rich2/CLAUDE.md`，這裡不重抄。
