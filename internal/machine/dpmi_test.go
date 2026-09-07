@@ -264,3 +264,200 @@ func TestDPMIVersionIsAnswered(t *testing.T) {
 		t.Error("旗標沒有標出 32 位元主機")
 	}
 }
+
+// `AX=0100h` 配出來的東西要**同時**給得出實模式段與 selector，
+// 而且兩者指到同一段記憶體。
+//
+// 段號與 selector 指到不同地方的話，程式寫進 selector、把段號交給實模式
+// 那一邊，而那一邊讀到的是別的東西——它不會報錯，只是拿到垃圾。
+func TestDPMIDOSMemoryGivesMatchingSegmentAndSelector(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+
+	c.R[cpu386.EBX] = 4 // 4 段 ＝ 64 bytes
+	if !dpmiCall(h, c, 0x0100) {
+		t.Fatal("AX=0100h 沒實作")
+	}
+	if c.EFlags&cpu386.CF != 0 {
+		t.Fatalf("配置失敗：AX=%04X", uint16(c.R[cpu386.EAX]))
+	}
+	segment := uint16(c.R[cpu386.EAX])
+	selector := uint16(c.R[cpu386.EDX])
+	if segment == 0 || selector == 0 {
+		t.Fatalf("段號 %04X／selector %04X 有一個是 0", segment, selector)
+	}
+
+	// selector 寫得進去，而且實模式段位址讀得到同一份資料。
+	if !c.WriteSegmentBytes(selector, 0, []byte("HI")) {
+		t.Fatal("selector 寫不進去——描述子沒設好")
+	}
+	base := uint32(segment) * 16
+	if got, _ := m.Read8(base); got != 'H' {
+		t.Errorf("段位址 %05X 讀到 %02X，預期 'H'——段號與 selector 指到不同地方", base, got)
+	}
+
+	// **一定要在 1 MB 以下**：段號只有 16 位元，之上的位址表達不出來。
+	if base >= 0x100000 {
+		t.Errorf("DOS 記憶體配在 %08X，超過 1 MB", base)
+	}
+	if uint32(len(m.Mem)) < base+64 {
+		t.Errorf("記憶體只有 %d bytes，配出來的區塊沒有 backing", len(m.Mem))
+	}
+}
+
+// DOS 記憶體與線性記憶體**不能互相踩到**。
+//
+// 共用一個游標的話，程式先配一大塊線性記憶體再要 DOS 記憶體，
+// 拿到的位址會超過 1 MB——段號截斷之後指到映像頭上，寫下去就把自己的碼改了。
+func TestDPMIDOSMemoryAndLinearMemoryDoNotOverlap(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+
+	c.R[cpu386.EBX], c.R[cpu386.ECX] = 0, 0x8000 // 32 KB 線性記憶體
+	dpmiCall(h, c, 0x0501)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Fatal("配線性記憶體失敗")
+	}
+	linear := uint32(uint16(c.R[cpu386.EBX]))<<16 | uint32(uint16(c.R[cpu386.ECX]))
+	if linear < 0x100000 {
+		t.Errorf("線性記憶體配在 %08X，落在 1 MB 以下的實模式空間裡", linear)
+	}
+
+	c.R[cpu386.EBX] = 0x10
+	dpmiCall(h, c, 0x0100)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Fatal("配 DOS 記憶體失敗")
+	}
+	dosBase := uint32(uint16(c.R[cpu386.EAX])) * 16
+	if dosBase >= linear && dosBase < linear+0x8000 {
+		t.Errorf("DOS 記憶體 %08X 落在線性區塊 %08X 裡面", dosBase, linear)
+	}
+}
+
+// 配不出來的時候要回報**還剩多少**（BX），不能只說失敗。
+//
+// 不回報的話程式無從決定要降級到多小，多半就直接放棄。
+func TestDPMIDOSMemoryFailureReportsLargestAvailable(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+	c.R[cpu386.EBX] = 0xFFFF // 要 1 MB
+	c.R[cpu386.ECX] = 0
+	dpmiCall(h, c, 0x0100)
+	if c.EFlags&cpu386.CF == 0 {
+		t.Fatal("配 1 MB DOS 記憶體竟然成功")
+	}
+	if got := uint16(c.R[cpu386.EAX]); got != 0x8013 {
+		t.Errorf("錯誤碼 %04X，預期 8013", got)
+	}
+	if uint16(c.R[cpu386.EBX]) == 0xFFFF {
+		t.Error("BX 沒有被改成「還剩多少段」")
+	}
+	// 剩下的數量要真的配得出來。
+	left := uint16(c.R[cpu386.EBX])
+	if left == 0 {
+		t.Fatal("回報還剩 0 段——但這台機器什麼都還沒配")
+	}
+	c.R[cpu386.EBX] = uint32(left)
+	dpmiCall(h, c, 0x0100)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Errorf("照回報的 %d 段配還是失敗——那個數字是假的", left)
+	}
+}
+
+// 釋放之後 selector 就不認得了，而且位址不重用。
+func TestDPMIDOSMemoryFreeInvalidatesSelector(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+	c.R[cpu386.EBX] = 2
+	dpmiCall(h, c, 0x0100)
+	first := uint16(c.R[cpu386.EDX])
+	firstSeg := uint16(c.R[cpu386.EAX])
+
+	c.R[cpu386.EDX] = uint32(first)
+	dpmiCall(h, c, 0x0101)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Fatal("釋放失敗")
+	}
+	if _, ok := c.Descriptors[first]; ok {
+		t.Error("釋放之後描述子還在——舊 selector 仍然寫得進去")
+	}
+	c.R[cpu386.EDX] = uint32(first)
+	dpmiCall(h, c, 0x0101)
+	if c.EFlags&cpu386.CF == 0 {
+		t.Error("釋放同一個 selector 兩次竟然成功")
+	}
+
+	c.R[cpu386.EBX] = 2
+	dpmiCall(h, c, 0x0100)
+	if uint16(c.R[cpu386.EAX]) == firstSeg {
+		t.Error("釋放之後配到同一個段——誰還留著舊指標就查不出來了")
+	}
+}
+
+// `AX=0102h`：縮小一定成立、最後一塊可以原地長大、
+// **中間那一塊長大要失敗**（搬家會讓程式手上的段號失效）。
+func TestDPMIDOSMemoryResizeRules(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+	alloc := func(paras uint16) uint16 {
+		c.R[cpu386.EBX] = uint32(paras)
+		dpmiCall(h, c, 0x0100)
+		if c.EFlags&cpu386.CF != 0 {
+			t.Fatalf("配 %d 段失敗", paras)
+		}
+		return uint16(c.R[cpu386.EDX])
+	}
+	middle := alloc(4)
+	last := alloc(4)
+
+	// 縮小。
+	c.R[cpu386.EDX], c.R[cpu386.EBX] = uint32(middle), 2
+	dpmiCall(h, c, 0x0102)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Errorf("縮小失敗：AX=%04X", uint16(c.R[cpu386.EAX]))
+	}
+	if d := c.Descriptors[middle]; d.Limit != 2*16-1 {
+		t.Errorf("縮小之後 limit 是 %X，預期 %X", d.Limit, 2*16-1)
+	}
+
+	// 最後一塊原地長大。
+	c.R[cpu386.EDX], c.R[cpu386.EBX] = uint32(last), 8
+	dpmiCall(h, c, 0x0102)
+	if c.EFlags&cpu386.CF != 0 {
+		t.Errorf("最後一塊長大失敗：AX=%04X", uint16(c.R[cpu386.EAX]))
+	}
+	if d := c.Descriptors[last]; d.Limit != 8*16-1 {
+		t.Errorf("長大之後 limit 是 %X，預期 %X", d.Limit, 8*16-1)
+	}
+
+	// 中間那一塊長大要失敗，而且要說還剩多少。
+	c.R[cpu386.EDX], c.R[cpu386.EBX] = uint32(middle), 16
+	dpmiCall(h, c, 0x0102)
+	if c.EFlags&cpu386.CF == 0 {
+		t.Fatal("中間那一塊長大竟然成功——它的段號會失效")
+	}
+	if got := uint16(c.R[cpu386.EAX]); got != 0x8013 {
+		t.Errorf("錯誤碼 %04X，預期 8013", got)
+	}
+	if uint16(c.R[cpu386.EBX]) == 16 {
+		t.Error("BX 沒有被改成「還剩多少段」")
+	}
+}
+
+// 不存在的 selector 要被拒絕。
+func TestDPMIDOSMemoryRejectsUnknownSelector(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+	for _, fn := range []uint16{0x0101, 0x0102} {
+		c.R[cpu386.EDX], c.R[cpu386.EBX] = 0xF000, 1
+		c.EFlags &^= cpu386.CF
+		dpmiCall(h, c, fn)
+		if c.EFlags&cpu386.CF == 0 {
+			t.Errorf("AX=%04X 對不存在的 selector 竟然成功", fn)
+			continue
+		}
+		if got := uint16(c.R[cpu386.EAX]); got != 0x8022 {
+			t.Errorf("AX=%04X 回錯誤碼 %04X，預期 8022", fn, got)
+		}
+	}
+}

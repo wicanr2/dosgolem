@@ -30,9 +30,20 @@ const (
 	dpmiSelectorStep  = 8
 )
 
-// dpmiHeapBase 是線性記憶體配置（`AX=0501h`）的起點，接在映像之後。
-// 對齊到 64 KB，讓配出去的位址在傾印裡一眼看得出是誰的。
+// dpmiHeapAlign 是線性記憶體配置（`AX=0501h`）的對齊，
+// 讓配出去的位址在傾印裡一眼看得出是誰的。
 const dpmiHeapAlign = 0x10000
+
+// 位址空間切成兩半，界線在 1 MB。
+//
+// **這是為了讓「實模式段位址」這個東西存在。** `AX=0100h` 配出來的記憶體
+// 要同時給得出一個實模式段（16 位元的段號 × 16），所以它必須落在 1 MB 之內；
+// `AX=0501h` 的線性記憶體沒有這個限制，就擺在 1 MB 之上。
+//
+// 兩邊各有各的游標，**不會互相踩到**。合成一個游標的話，程式先配一大塊
+// 線性記憶體再要一塊 DOS 記憶體，就會拿到一個大於 1 MB 的位址——
+// 而段號只有 16 位元，位址被截斷之後指到映像頭上，寫下去就把自己的碼改了。
+const dosMemTop = 0x100000
 
 // DPMIBlock 是一次 `AX=0501h` 配出去的線性區塊。
 type DPMIBlock struct {
@@ -49,6 +60,17 @@ type DPMILock struct {
 	Base, Size uint32
 }
 
+// DOSBlock 是一次 `AX=0100h` 配出去的實模式（1 MB 以下）記憶體。
+//
+// 程式拿它當「把資料交給實模式那一邊」的中轉區：檔名、磁區緩衝、
+// VESA 的資訊結構都在這種區塊裡。
+type DOSBlock struct {
+	Selector uint16 // 保護模式那一邊用的 selector
+	Segment  uint16 // 實模式那一邊用的段號
+	Base     uint32 // 線性位址（＝ Segment × 16）
+	Paras    uint16 // 大小，單位是段（16 bytes）
+}
+
 // DPMIHost 是一個 LE 機器上的 DPMI 服務。用 NewDPMIHost 造。
 type DPMIHost struct {
 	m *LEMachine
@@ -56,6 +78,11 @@ type DPMIHost struct {
 	nextSel uint16
 	blocks  map[uint32]*DPMIBlock
 	brk     uint32
+
+	// DOS 記憶體（`AX=0100h`）的游標與帳本，鍵是 selector。
+	dosBrk    uint32
+	dosBlocks map[uint16]*DOSBlock
+	dosLast   uint16 // 最後配出去的那一塊，`AX=0102h` 只有它能原地長大
 
 	Locks []DPMILock
 
@@ -82,21 +109,75 @@ func NewDPMIHost(m *LEMachine) *DPMIHost {
 		base = uint32(len(m.Mem))
 		base = (base + dpmiHeapAlign - 1) &^ (dpmiHeapAlign - 1)
 	}
-	return &DPMIHost{
+	host := &DPMIHost{
 		m:             m,
 		nextSel:       dpmiFirstSelector,
 		blocks:        map[uint32]*DPMIBlock{},
+		dosBlocks:     map[uint16]*DOSBlock{},
 		brk:           base,
 		Calls:         map[uint16]int{},
 		Unimplemented: map[uint16]int{},
 	}
+	if m != nil {
+		host.setLimits(uint32(len(m.Mem)))
+	}
+	return host
 }
 
 // Attach 補上機器（見 NewDPMIHost 的 nil 情形）。
 func (h *DPMIHost) Attach(m *LEMachine) {
 	h.m = m
-	base := uint32(len(m.Mem))
-	h.brk = (base + dpmiHeapAlign - 1) &^ (dpmiHeapAlign - 1)
+	if h.dosBlocks == nil {
+		h.dosBlocks = map[uint16]*DOSBlock{}
+	}
+	h.setLimits(uint32(len(m.Mem)))
+}
+
+// setLimits 把兩個游標擺到映像之後：DOS 記憶體接著映像長，
+// 線性記憶體從 1 MB（或映像的尾端，取大的）開始。
+func (h *DPMIHost) setLimits(imageEnd uint32) {
+	h.dosBrk = (imageEnd + 15) &^ 15
+	base := (imageEnd + dpmiHeapAlign - 1) &^ (dpmiHeapAlign - 1)
+	if base < dosMemTop {
+		base = dosMemTop
+	}
+	h.brk = base
+}
+
+// DOSMemory 回目前配出去的 DOS 記憶體區塊，依位址排序（診斷用，順序要固定）。
+func (h *DPMIHost) DOSMemory() []DOSBlock {
+	out := make([]DOSBlock, 0, len(h.dosBlocks))
+	for _, b := range h.dosBlocks {
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Base < out[j].Base })
+	return out
+}
+
+// dosFreeParas 是 DOS 記憶體還剩幾段。配置失敗時 BX 要回這個數字——
+// 程式照它決定要不要降級（少載素材、換小一點的緩衝區）。
+func (h *DPMIHost) dosFreeParas() uint16 {
+	if h.dosBrk >= dosMemTop {
+		return 0
+	}
+	return uint16((dosMemTop - h.dosBrk) / 16)
+}
+
+// allocDOS 從 1 MB 以下切一塊出來，回線性位址。
+func (h *DPMIHost) allocDOS(paras uint16) (uint32, bool) {
+	size := uint32(paras) * 16
+	base := h.dosBrk
+	end := uint64(base) + uint64(size)
+	if end > uint64(dosMemTop) {
+		return 0, false
+	}
+	if end > uint64(len(h.m.Mem)) {
+		grown := make([]byte, int(end))
+		copy(grown, h.m.Mem)
+		h.m.Mem = grown
+	}
+	h.dosBrk = uint32(end)
+	return base, true
 }
 
 // SetRealModeVector 讓載入器把實模式向量表的內容交給 DPMI 主機。
@@ -215,6 +296,71 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(sel)
 		return h.ok(c)
 
+	case 0x0100: // 配置 DOS 記憶體：BX ＝ 段數 → AX ＝ 實模式段、DX ＝ selector
+		paras := uint16(c.R[cpu386.EBX])
+		if paras == 0 {
+			return h.fail(c, 0x8021)
+		}
+		base, ok := h.allocDOS(paras)
+		if !ok {
+			// **失敗要順便回報還剩多少**（BX），這是 DPMI 定的。
+			// 不回報的話程式無從決定要降級到多小，多半就直接放棄。
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(h.dosFreeParas())
+			return h.fail(c, 0x8013)
+		}
+		sel := h.AllocSelector(cpu386.Descriptor{
+			Base: base, Limit: uint32(paras)*16 - 1, Writable: true})
+		b := &DOSBlock{Selector: sel, Segment: uint16(base >> 4), Base: base, Paras: paras}
+		h.dosBlocks[sel] = b
+		h.dosLast = sel
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(b.Segment)
+		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(sel)
+		return h.ok(c)
+
+	case 0x0101: // 釋放 DOS 記憶體：DX ＝ selector
+		sel := uint16(c.R[cpu386.EDX])
+		if _, ok := h.dosBlocks[sel]; !ok {
+			return h.fail(c, 0x8022) // 無效的 selector
+		}
+		delete(h.dosBlocks, sel)
+		delete(h.m.CPU.Descriptors, sel)
+		// 位址不回收，理由同 `AX=0502h`：釋放之後再配到同一段，
+		// 「誰還留著舊指標」就查不出來了。
+		return h.ok(c)
+
+	case 0x0102: // 改變 DOS 記憶體大小：BX ＝ 新的段數、DX ＝ selector
+		sel := uint16(c.R[cpu386.EDX])
+		b, ok := h.dosBlocks[sel]
+		if !ok {
+			return h.fail(c, 0x8022)
+		}
+		paras := uint16(c.R[cpu386.EBX])
+		if paras == 0 {
+			return h.fail(c, 0x8021)
+		}
+		switch {
+		case paras <= b.Paras: // 縮小一定可以
+		case sel == h.dosLast: // 只有最後一塊能原地長大
+			extra := uint32(paras-b.Paras) * 16
+			if uint64(h.dosBrk)+uint64(extra) > uint64(dosMemTop) {
+				c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(h.dosFreeParas()+b.Paras)
+				return h.fail(c, 0x8013)
+			}
+			if _, ok := h.allocDOS(paras - b.Paras); !ok {
+				return h.fail(c, 0x8013)
+			}
+		default:
+			// 中間那一塊要長大就得搬家，而**搬家會讓程式手上的實模式段
+			// 位址失效**——它多半已經把那個段號存進自己的結構了。
+			// 照 DPMI 的慣例回失敗並說還剩多少，讓它自己決定。
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(h.dosFreeParas())
+			return h.fail(c, 0x8013)
+		}
+		b.Paras = paras
+		h.m.CPU.SetDescriptor(sel, cpu386.Descriptor{
+			Base: b.Base, Limit: uint32(paras)*16 - 1, Writable: true})
+		return h.ok(c)
+
 	case 0x0200: // 取實模式中斷向量：BL → CX:DX
 		v := h.realVec[uint8(c.R[cpu386.EBX])]
 		c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | v>>16
@@ -315,7 +461,8 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 // needsMachine 標出哪些功能要有 backing 的機器才做得到。
 func needsMachine(fn uint16) bool {
 	switch fn {
-	case 0x0000, 0x0001, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x0501, 0x0502:
+	case 0x0000, 0x0001, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x0501, 0x0502,
+		0x0100, 0x0101, 0x0102:
 		return true
 	}
 	return false
