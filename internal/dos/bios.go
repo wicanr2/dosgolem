@@ -257,6 +257,14 @@ func (d *DOS) int16(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x00, 0x10: // 讀按鍵（真 BIOS 是阻塞的）
 		d.KeyPolls++
+		// **BDA 的環形緩衝優先。** 那是 BIOS 真正的鍵盤佇列，
+		// 程式也可能繞過 int 16h 直接讀它（見 machine.PushBIOSKey）；
+		// 兩邊各留一份的話，同一個鍵會被讀兩次。
+		if v, ok := d.M.PopKey(); ok {
+			c.R[cpu.AX] = v
+			d.KeysConsumed++
+			return
+		}
 		if len(d.Keys) > 0 {
 			c.R[cpu.AX] = d.Keys[0]
 			d.Keys = d.Keys[1:]
@@ -272,6 +280,11 @@ func (d *DOS) int16(c *cpu.CPU) {
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
 		d.KeyPolls++
+		if v, ok := d.M.PeekKey(); ok {
+			c.SetFlags(c.Flags &^ cpu.ZF)
+			c.R[cpu.AX] = v
+			return
+		}
 		if len(d.Keys) > 0 {
 			c.SetFlags(c.Flags &^ cpu.ZF)
 			c.R[cpu.AX] = d.Keys[0] // 查看不取走
@@ -330,7 +343,20 @@ var scanCode = map[uint8]uint8{
 }
 
 // PushKey 把一個按鍵排進佇列。
-func (d *DOS) PushKey(k Key) { d.Keys = append(d.Keys, k.Word()) }
+//
+// **先進 BDA 的環形緩衝**：很多程式不叫 `int 16h`，直接比對 `0040:001A`
+// 與 `0040:001C` 判斷有沒有鍵（三國志的 MAIN.EXE 就是），只排進自己的
+// 佇列的話它們一道都不會動，而且表面上完全正常。環滿了（15 個）才退回
+// 自己的佇列，`int 16h` 會在環清空之後接著讀，順序不變。
+func (d *DOS) PushKey(k Key) {
+	if d.M.PushBIOSKey(k.Scan, k.ASCII) {
+		return
+	}
+	d.Keys = append(d.Keys, k.Word())
+}
+
+// KeysPending 是兩條佇列加起來還沒被讀走的鍵數。
+func (d *DOS) KeysPending() int { return d.M.BIOSKeyCount() + len(d.Keys) }
 
 // PushKeyNamed 排一個有名字的鍵（`Return`、`Space`…）。名字不認得就回 false。
 func (d *DOS) PushKeyNamed(name string) bool {

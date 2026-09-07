@@ -64,16 +64,28 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.dtaSeg, d.dtaOff = c.Seg[cpu.DS], c.R[cpu.DX]
 		clearCarry(c)
 
-	case 0x1C: // 取指定磁碟機的配置資訊
-		// AL ＝ 每叢集磁區數、CX ＝ 磁區大小、DX ＝ 叢集數、DS:BX → 媒體識別碼。
-		// 給一組自洽的 1.2 MB 軟碟數字：程式拿它算「還有多少空間可以存檔」，
-		// 回 0 會被讀成「磁碟滿了」。媒體識別碼指到樁段的一個位元組。
-		setAL(c, 1)
-		c.R[cpu.CX] = 512
-		c.R[cpu.DX] = 2400
-		c.Seg[cpu.DS] = machine.StubSeg
-		c.R[cpu.BX] = 0
-		d.M.Write8(uint32(machine.StubSeg)*16, 0xF9) // 1.2 MB 軟碟
+	case 0x1B, 0x1C: // 取（預設／指定）磁碟機的配置資訊
+		// `AL` ＝ 每叢集磁區數、`CX` ＝ 每磁區位元組、`DX` ＝ 總叢集，
+		// **`DS:BX` 要指到媒體識別位元組**。
+		//
+		// 這一項不能用「宣告成功但不動暫存器」的預設處置：呼叫端拿到的
+		// `DS:BX` 是它自己傳進來的值，讀出來的媒體位元組是垃圾，
+		// 而 `AL = 0xFF`（無效磁碟機）與任意垃圾值都可能讓它判定「沒有磁碟」
+		// 然後停在等待迴圈裡——**沒有錯誤訊息，只有 CPU 一直在跑**。
+		//
+		// 數字要自洽而且夠大：程式拿它算「還有多少空間可以存檔」，
+		// 回 0 會被讀成「磁碟滿了」。8 × 512 × 40000 ≈ 163 MB。
+		//
+		// 媒體位元組放 BDA 的程式間通訊區（`0040:00F0`，16 bytes，
+		// 我們沒有別的東西用它）。`0xF8` ＝ 固定磁碟，與 `AH=19h` 回的
+		// 預設磁碟機（C:）一致。⚠ **不要放在 StubSeg**：那一段是
+		// 每個向量的 stub，寫進去等於把 `int 00h` 的處理常式改掉。
+		const mediaAt = 0x0040*16 + 0xF0
+		d.M.Write8(mediaAt, 0xF8)
+		setAL(c, 8)         // 每叢集磁區數
+		c.R[cpu.CX] = 512   // 每磁區位元組
+		c.R[cpu.DX] = 40000 // 總叢集
+		c.Seg[cpu.DS], c.R[cpu.BX] = 0x0040, 0x00F0
 		clearCarry(c)
 
 	case 0x25: // 設中斷向量 ← DS:DX

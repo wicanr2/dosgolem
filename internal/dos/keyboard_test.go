@@ -55,29 +55,37 @@ func TestPeekDoesNotConsumeTheKey(t *testing.T) {
 			t.Fatalf("第 %d 次查詢拿到 %04X，要 1C0D", round, c.R[cpu.AX])
 		}
 	}
-	if len(d.Keys) != 1 {
-		t.Fatalf("查詢把鍵吃掉了，佇列剩 %d", len(d.Keys))
+	// 鍵可能停在 BDA 的環形緩衝或 DOS 自己的佇列裡（PushKey 先進環），
+	// 所以要問兩邊加起來的數字。
+	if d.KeysPending() != 1 {
+		t.Fatalf("查詢把鍵吃掉了，佇列剩 %d", d.KeysPending())
 	}
 	call16(c, d, 0x00)
-	if c.R[cpu.AX] != 0x1C0D || len(d.Keys) != 0 || d.KeysConsumed != 1 {
-		t.Fatalf("AX=%04X 佇列=%d 讀走=%d", c.R[cpu.AX], len(d.Keys), d.KeysConsumed)
+	if c.R[cpu.AX] != 0x1C0D || d.KeysPending() != 0 || d.KeysConsumed != 1 {
+		t.Fatalf("AX=%04X 佇列=%d 讀走=%d", c.R[cpu.AX], d.KeysPending(), d.KeysConsumed)
 	}
 }
 
 // 一整串文字照順序出來，小寫轉成大寫 ASCII 但掃描碼相同。
 func TestPushTextKeepsOrderAndScanCodes(t *testing.T) {
-	d, _ := newKeyboardDOS(t)
+	d, c := newKeyboardDOS(t)
 	if !d.PushText("Hi 42") {
 		t.Fatal("這幾個字元都該在表裡")
 	}
 	want := []uint16{0x2348, 0x1769, 0x3920, 0x0534, 0x0332}
-	if len(d.Keys) != len(want) {
-		t.Fatalf("排了 %d 個鍵，要 %d", len(d.Keys), len(want))
+	if d.KeysPending() != len(want) {
+		t.Fatalf("排了 %d 個鍵，要 %d", d.KeysPending(), len(want))
 	}
+	// 從 `int 16h` 讀回來——排進去的順序與讀出來的順序是兩件事，
+	// 而只看內部佇列的話兩條路（BDA 環、DOS 佇列）的接縫看不出來。
 	for i, w := range want {
-		if d.Keys[i] != w {
-			t.Fatalf("第 %d 個鍵是 %04X，要 %04X", i, d.Keys[i], w)
+		call16(c, d, 0x00)
+		if c.R[cpu.AX] != w {
+			t.Fatalf("第 %d 個鍵是 %04X，要 %04X", i, c.R[cpu.AX], w)
 		}
+	}
+	if d.KeysPending() != 0 {
+		t.Fatalf("讀完還剩 %d 個", d.KeysPending())
 	}
 }
 

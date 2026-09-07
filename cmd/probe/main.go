@@ -177,6 +177,12 @@ func main() {
 			"-steps／-clicks／-shots／-save-state 的數字都要用絕對步數，"+
 			"給「還要跑幾道」那種預算值會一道都不跑（而且不會報錯）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
+	biosKeys := flag.String("bios-keys", "",
+		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
+			"    -keys／-keys-at 走的是可重播的 Stdin 佇列與硬體 IRQ1；\n"+
+			"    直接比對 0040:001A／001C 判斷有沒有按鍵的程式只認這一條。")
+	biosKeyEvery := flag.Uint64("bios-key-every", 2_000_000, "兩次送鍵之間隔幾道指令")
+	biosKeyFrom := flag.Uint64("bios-key-from", 2_000_000, "第幾道指令開始送第一個鍵")
 	covOut := flag.String("coverage", "",
 		"把執行過的線性位址寫成 JSON 區段表。\n"+
 			"    打包過的執行檔靜態反組譯是亂碼；這份清單是「哪些 byte 是程式碼」\n"+
@@ -512,6 +518,10 @@ func main() {
 	if ipw != nil {
 		defer ipw.close()
 	}
+	// -bios-keys 攤成 rune，一次送一個。
+	biosRunes := []rune(strings.ReplaceAll(*biosKeys, "\\n", "\n"))
+	bki := 0
+
 	pendingKeys, err := parseKeysAt(*keysAt)
 	if err != nil {
 		die(err)
@@ -565,6 +575,15 @@ func main() {
 		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
 			feedKeys(m, d, pendingKeys[0].key)
 			pendingKeys = pendingKeys[1:]
+		}
+		// -bios-keys：**照指令數排程，不照時間**，這樣對拍才是決定性的。
+		// 而且要等緩衝區空了才送下一個——遊戲的輪詢頻率遠低於送鍵頻率，
+		// 不等的話同一格會被連續蓋掉，看起來像「只有最後一個鍵進去了」。
+		if bki < len(biosRunes) && m.Steps >= *biosKeyFrom+uint64(bki)*(*biosKeyEvery) {
+			if _, pending := m.PeekKey(); !pending {
+				d.PushKey(biosKeyOf(biosRunes[bki]))
+				bki++
+			}
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {
 			// **改座標之後要送移動事件**，跟 -clicks 一樣。
@@ -2598,4 +2617,24 @@ func writePortLog(m *machine.Machine, spec string) error {
 	}
 	fmt.Printf("I/O 寫入 %d 筆 → %s\n", n, path)
 	return nil
+}
+
+// biosKeyOf 把一個字元換成 BIOS 鍵盤緩衝區的一筆。
+//
+// 掃描碼查得到就填，查不到只填 ASCII（掃描碼 0）。**填錯比留 0 糟**：
+// 0 是「不是從鍵盤來的」慣例值，程式頂多忽略那一筆；填一個錯的掃描碼會被
+// 讀成另一個鍵，而畫面上看起來就只是「按錯了」。
+func biosKeyOf(r rune) dos.Key {
+	if k, ok := dos.KeyForRune(r); ok {
+		return k
+	}
+	switch r {
+	case '\n', '\r':
+		return dos.Key{Scan: 0x1C, ASCII: '\r'}
+	case 0x1B:
+		return dos.Key{Scan: 0x01, ASCII: 0x1B}
+	case '\b':
+		return dos.Key{Scan: 0x0E, ASCII: '\b'}
+	}
+	return dos.Key{ASCII: uint8(r)}
 }

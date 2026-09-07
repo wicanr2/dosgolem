@@ -236,7 +236,7 @@ func (o *Oracle) SendKeys(names ...string) error {
 //
 // **兩個都要看。** 「送進去了」與「讀走了」在畫面上都是「沒反應」，
 // 只有這兩個數字分得開。
-func (o *Oracle) KeysPending() int  { return len(o.d.Keys) }
+func (o *Oracle) KeysPending() int  { return o.d.KeysPending() }
 func (o *Oracle) KeysConsumed() int { return o.d.KeysConsumed }
 
 // runWatched 跑 n 道指令，每一道都先呼叫 watch。watch 為 nil 時等同 Run。
