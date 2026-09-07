@@ -41,7 +41,8 @@ var portLogFrom, portLogTo uint64
 func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄")
-	steps := flag.Uint64("steps", 20_000_000, "最多執行幾道指令")
+	steps := flag.Uint64("steps", 20_000_000,
+		"跑到第幾道指令為止（**絕對步數**，配 -load-state 時要大於檢查點的步數）")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
 	dumpVRAM := flag.String("dump-vram", "", "把 A0000 的 320×200 色號陣列寫到這個檔")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
@@ -121,8 +122,10 @@ func main() {
 			"配 -load-state 用——要觀測的畫面在幾億道指令之後時，"+
 			"存一次，之後每個實驗從那裡展開，一輪從幾分鐘變成幾秒")
 	loadState := flag.String("load-state", "",
-		"從狀態檔接著跑（-save-state 存的）。這時 -exe 不必給；"+
-			"步數從存檔當時算起，-steps／-clicks／-shots 的數字都照舊")
+		"從狀態檔接著跑（-save-state 存的）。這時 -exe 不必給。"+
+			"⚠ **步數一律是絕對值**：讀檔之後步數從存檔當時繼續往上加，"+
+			"-steps／-clicks／-shots／-save-state 的數字都要用絕對步數，"+
+			"給「還要跑幾道」那種預算值會一道都不跑（而且不會報錯）")
 	flag.Parse()
 
 	if *exe == "" && *loadState == "" {
