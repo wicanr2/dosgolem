@@ -40,8 +40,11 @@ fi
 step "go vet"
 tools/go.sh vet ./... && echo "  ✓" || bad "go vet 有問題"
 
-step "go test"
-tools/go.sh test ./... || bad "測試沒過"
+# **語料留給下一步**：`./...` 已經含 internal/cpu，不加 -short 的話同一份
+# 727 MB 語料會在這一輪跑兩次（實測各 217 s 與 224 s，一輪 CI 因此多花
+# 3.7 分鐘做同一件事）。
+step "go test（不含 CPU 語料）"
+tools/go.sh test -short ./... || bad "測試沒過"
 
 step "CPU 語料（SingleStepTests）"
 # 路徑要與 internal/cpu/singlestep_test.go 的 testDir 一致（`testdata/8088/`，

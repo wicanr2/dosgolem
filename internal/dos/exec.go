@@ -421,6 +421,12 @@ func (d *DOS) tsr(c *cpu.CPU) {
 // **可重複讀，不清掉**——清了會讓第二次讀到 0，一個看起來合理但假的值。
 func (d *DOS) getExitCode(c *cpu.CPU) {
 	c.R[cpu.AX] = d.lastExit & 0xFF
+	// **讀過就清。** DOS 的語意是「取回上一支子程式的回傳碼」，
+	// 只在子程式結束後的第一次呼叫有效（強證據：DOS 的 AH=4Dh 文件與
+	// Ralf Brown 的中斷表都這樣寫；沒有拿真機對拍過）。
+	// 不清的話，在迴圈裡輪詢的殼會對同一次結束反應好幾次——
+	// 而那看起來像它自己的狀態機有問題。
+	d.lastExit = 0
 	clearCarry(c)
 }
 

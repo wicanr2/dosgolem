@@ -84,10 +84,19 @@ func TestExecRunsChildAndResumesParent(t *testing.T) {
 	if ax := m.CPU.R[cpu.AX]; ax != 0x002A {
 		t.Errorf("AH=4Dh 回 AX=%04X，預期 002A", ax)
 	}
-	// 可重複讀（不清掉）。
+	// **讀過就清**：DOS 存回傳碼的那個 word 在這一支讀完之後歸零，
+	// 所以離開碼只取得回來一次（強證據：DOS 的 AH=4Dh 文件與 Ralf Brown
+	// 的中斷表；沒有拿真機對拍過）。在迴圈裡輪詢的殼因此不會對同一次
+	// 結束反應好幾次。
+	//
+	// 診斷不靠它：`ExecLog` 每一支都留著自己的離開碼，而且不會被清掉。
 	call(m, d, 0x21, 0x4D00)
-	if ax := m.CPU.R[cpu.AX]; ax != 0x002A {
-		t.Errorf("AH=4Dh 第二次回 AX=%04X——清了會給出假的 0", ax)
+	if ax := m.CPU.R[cpu.AX]; ax != 0 {
+		t.Errorf("AH=4Dh 第二次回 AX=%04X，預期 0（讀過已清）", ax)
+	}
+	if d.ExecLog[0].Exit != 42 {
+		t.Errorf("ExecLog 的離開碼是 %d，預期 42——清的是 4Dh 的暫存值，不是紀錄",
+			d.ExecLog[0].Exit)
 	}
 
 	// 非 TSR 子程式的記憶體要 LIFO 回收。
