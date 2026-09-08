@@ -84,6 +84,11 @@ func main() {
 		"跑到指定步數就傾印一張畫面：`<步數>:<檔名>`，分號分隔可以給很多張。"+
 			"探索「點下去之後跑到哪個畫面」用——一次跑就看得到中間的每一格，"+
 			"不必為了每張畫面重跑一次")
+	dumpMemAt := flag.String("dump-mem-at", "",
+		"跑到指定步數就把一段記憶體寫成檔案："+
+			"`<步數>:<位址>:<長度>:<檔名>`，分號分隔可以給很多次。"+
+			"與 -dump-mem 的差別是**時機**——同一次執行裡在幾個時點各倒一份，"+
+			"才分得開「這一步改了什麼」；分兩次執行去比會混進別的差異")
 	dumpMem := flag.String("dump-mem", "",
 		"把一段記憶體原封不動寫成檔案：`<位址>:<長度>:<檔名>`（位址寫法同 -peek）。"+
 			"資料被程式改過之後長什麼樣，只有這樣看得到")
@@ -339,6 +344,39 @@ type clickEv struct {
 		shots = append(shots, shot{at: at, path: item[i+1:]})
 	}
 
+	type memShot struct {
+		at    uint64
+		addr  uint32
+		n     int
+		label string
+		path  string
+	}
+	var memShots []memShot
+	for _, item := range strings.Split(*dumpMemAt, ";") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		i := strings.Index(item, ":")
+		if i < 0 {
+			die(fmt.Errorf("-dump-mem-at 要寫成 <步數>:<位址>:<長度>:<檔名>：%q", item))
+		}
+		at, err := strconv.ParseUint(strings.TrimSpace(item[:i]), 10, 64)
+		if err != nil {
+			die(fmt.Errorf("-dump-mem-at 的步數看不懂：%q", item))
+		}
+		rest := item[i+1:]
+		j := strings.LastIndex(rest, ":")
+		if j < 0 {
+			die(fmt.Errorf("-dump-mem-at 要寫成 <步數>:<位址>:<長度>:<檔名>：%q", item))
+		}
+		addr, n, label, ok := parseAddr(rest[:j])
+		if !ok || n <= 0 {
+			die(fmt.Errorf("-dump-mem-at 的位址或長度看不懂：%q", rest[:j]))
+		}
+		memShots = append(memShots, memShot{at: at, addr: addr, n: n,
+			label: label, path: rest[j+1:]})
+	}
+
 	pokes, err := parsePokes(*poke)
 	if err != nil {
 		die(err)
@@ -476,6 +514,19 @@ type clickEv struct {
 					die(err)
 				}
 				fmt.Printf("#%d 傾印畫面 → %s\n", m.Steps, sh.path)
+			}
+		}
+		for _, sh := range memShots {
+			if m.Steps == sh.at {
+				buf := make([]byte, sh.n)
+				for k := range buf {
+					buf[k] = m.Read8(sh.addr + uint32(k))
+				}
+				if err := os.WriteFile(sh.path, buf, 0o644); err != nil {
+					die(err)
+				}
+				fmt.Printf("#%d 傾印記憶體 %s（%05X）%d bytes → %s\n",
+					m.Steps, sh.label, sh.addr, sh.n, sh.path)
 			}
 		}
 		ring.push(m.CPU)
