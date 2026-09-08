@@ -668,7 +668,9 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 
-	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), join(d.Opened))
+	// **開過的檔不截斷**：「這個畫面用了哪些素材」是逆向時最常問的一句，
+	// 截在 30 個就正好把後面載進來的那些蓋掉（戰鬥畫面在第 30 個之後）。
+	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), strings.Join(d.Opened, " "))
 	if len(d.Calls) > 0 {
 		type kv struct {
 			c dos.Call
