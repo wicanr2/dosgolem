@@ -167,6 +167,11 @@ type Machine struct {
 	gcIdx  uint8
 	latch  [4]uint8
 
+	// CRTC（`3D4`／`3D5`，單色是 `3B4`／`3B5`）。目前只用到顯示起點
+	// index `0C`／`0D`——**畫面在翻頁的程式沒有它就永遠倒出第 0 頁**。
+	crtc    [32]uint8
+	crtcIdx uint8
+
 	// 鍵盤：掃描碼佇列與埠 0x60 目前的值。KeyEvery 是送鍵的間隔（指令數）。
 	keyQueue []uint8
 	keyPort  uint8
@@ -210,6 +215,10 @@ func New() *Machine {
 	m.CPU.Model = cpu.Model80186
 	m.seq[2] = 0x0F // map mask：四個 plane 都開（BIOS mode-set 後的常態）
 	m.gc[8] = 0xFF  // 位元遮罩：全開
+	// CRTC mode control：BIOS 把 16 色 planar 模式設成 0xE3，bit6 ＝ 1
+	// 表示顯示起點以 byte 計。少了這個預設值，只寫起點、不寫這個暫存器的
+	// 程式會被當成 word 模式而多乘一倍。
+	m.crtc[0x17] = 0xE3
 	for i := range m.AttrPal {
 		m.AttrPal[i] = uint8(i)
 	}
@@ -405,6 +414,10 @@ func (m *Machine) In8(port uint16) uint8 {
 		return m.gcIdx
 	case port == 0x3CF:
 		return m.gc[m.gcIdx]
+	case port == 0x3D4 || port == 0x3B4:
+		return m.crtcIdx
+	case port == 0x3D5 || port == 0x3B5:
+		return m.crtc[m.crtcIdx]
 	}
 	return 0xFF
 }
@@ -450,6 +463,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 		m.gcIdx = v & 0x0F
 	case 0x3CF:
 		m.gc[m.gcIdx] = v
+	case 0x3D4, 0x3B4:
+		m.crtcIdx = v & 0x1F
+	case 0x3D5, 0x3B5:
+		m.crtc[m.crtcIdx] = v
 	}
 }
 

@@ -222,3 +222,27 @@ func TestPlanarReadMode1ColorCompare(t *testing.T) {
 		t.Errorf("read mode 0 ＝ %02X，預期 CC", got)
 	}
 }
+
+// TestDisplayStartFollowsCRTC：畫面在翻頁的程式（`logh3` 的開頭動畫是
+// 雙緩衝）把顯示起點寫進 CRTC index 0C／0D。少了它，倒出來的永遠是
+// 第 0 頁——看起來只是「畫面對不上」，不像少了一個暫存器。
+func TestDisplayStartFollowsCRTC(t *testing.T) {
+	m := New()
+	if got := m.DisplayStart(); got != 0 {
+		t.Fatalf("開機的顯示起點應該是 0，拿到 %d", got)
+	}
+	// byte 模式（BIOS 對 16 色 planar 模式設的 0xE3）：直接用。
+	m.Out8(0x3D4, 0x0C)
+	m.Out8(0x3D5, 0x6D)
+	m.Out8(0x3D4, 0x0D)
+	m.Out8(0x3D5, 0x60)
+	if got := m.DisplayStart(); got != 0x6D60 {
+		t.Fatalf("byte 模式的起點應該是 0x6D60，拿到 0x%X", got)
+	}
+	// word 模式（mode control bit6 ＝ 0）：要乘 2。
+	m.Out8(0x3D4, 0x17)
+	m.Out8(0x3D5, 0xA3)
+	if got := m.DisplayStart(); got != 0xDAC0 {
+		t.Fatalf("word 模式的起點應該是 0xDAC0，拿到 0x%X", got)
+	}
+}

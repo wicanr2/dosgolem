@@ -115,10 +115,11 @@ func (m *Machine) planarRead(off uint32) uint8 {
 // w/h 由呼叫端依模式給（12h ＝ 640×480、10h ＝ 640×350）。
 // 假設線性 plane、無 CRTC 位移（spec §4）。
 func (m *Machine) PlanarPixels(w, h int) []uint8 {
+	start := m.DisplayStart()
 	out := make([]uint8, w*h)
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			off := uint32(y*(w/8) + x/8)
+			off := (start + uint32(y*(w/8)+x/8)) & 0xFFFF
 			bit := uint(7 - x%8)
 			var px uint8
 			for p := 0; p < 4; p++ {
@@ -128,4 +129,20 @@ func (m *Machine) PlanarPixels(w, h int) []uint8 {
 		}
 	}
 	return out
+}
+
+// DisplayStart 回 CRTC 的顯示起點，換算成 plane 內的**位元組**位移。
+//
+// CRTC index `0C`／`0D` 是起點的高／低位元組；單位由 mode control
+// （index `17`）的 bit6 決定：1 ＝ byte 模式（直接用），0 ＝ word 模式
+// （乘 2）。BIOS 把 16 色 planar 模式設成 `0xE3`，所以預設是 byte 模式。
+//
+// **沒有這個換算，畫面在翻頁的程式倒出來的永遠是第 0 頁**——而那看起來
+// 只是「畫面對不上」，不像少了一個暫存器。
+func (m *Machine) DisplayStart() uint32 {
+	start := uint32(m.crtc[0x0C])<<8 | uint32(m.crtc[0x0D])
+	if m.crtc[0x17]&0x40 == 0 {
+		start *= 2
+	}
+	return start & 0xFFFF
 }

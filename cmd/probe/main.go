@@ -1202,7 +1202,8 @@ func writeEGA(path string, m *machine.Machine) error {
 	if err := png.Encode(f, img); err != nil {
 		return err
 	}
-	fmt.Printf("寫出 %s（%d×%d，planar 解碼）＋ %s（色號陣列）\n", path, w, h, bin)
+	fmt.Printf("寫出 %s（%d×%d，planar 解碼，顯示起點 %d）＋ %s（色號陣列）\n",
+		path, w, h, m.DisplayStart(), bin)
 	return nil
 }
 
