@@ -363,12 +363,14 @@ func main() {
 	preIdx := -1
 	var pressStep uint64
 
-	ca, err := parseCallArgs(*callArgs, false)
-	if err == nil && ca == nil {
-		ca, err = parseCallArgs(*frameArgs, true)
+	cas, err := parseCallArgList(*callArgs, false)
+	if err == nil {
+		var more []*callArgLog
+		more, err = parseCallArgList(*frameArgs, true)
+		cas = append(cas, more...)
 	}
-	if ca != nil {
-		ca.regs = *argRegs
+	for _, c := range cas {
+		c.regs = *argRegs
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -498,9 +500,11 @@ func main() {
 			d.Mouse.Buttons = 0
 			d.Mouse.Release++
 		}
-		if ca != nil && m.Steps >= ca.from && m.Steps < ca.to &&
-			m.CPU.Seg[cpu.CS] == ca.seg && m.CPU.IP == ca.off {
-			ca.record(m)
+		for _, c := range cas {
+			if m.Steps >= c.from && m.Steps < c.to &&
+				m.CPU.Seg[cpu.CS] == c.seg && m.CPU.IP == c.off {
+				c.record(m)
+			}
 		}
 		if ipw != nil && m.Steps >= ipFrom && m.Steps < ipTo {
 			ipw.push(m.CPU.Seg[cpu.CS], m.CPU.IP)
@@ -511,8 +515,8 @@ func main() {
 		}
 	}
 
-	if ca != nil {
-		ca.dump()
+	for _, c := range cas {
+		c.dump()
 	}
 	report(m, d, ring, runErr, *steps)
 	if *watch != "" && *watchFile != "" {
@@ -1458,6 +1462,26 @@ func parseSaveState(spec string) (map[uint64]string, error) {
 			return nil, fmt.Errorf("-save-state 的步數不是數字：%w", err)
 		}
 		out[n] = one[i+1:]
+	}
+	return out, nil
+}
+
+// parseCallArgList 解逗號分隔的多筆 `-call-args`／`-frame-args`。
+// 一次跑要攔好幾個進入點時用這個——同一段執行只跑一次就全部拿到，
+// 不要為了第二個進入點重跑。
+func parseCallArgList(spec string, viaBP bool) ([]*callArgLog, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	var out []*callArgLog
+	for _, one := range strings.Split(spec, ",") {
+		c, err := parseCallArgs(one, viaBP)
+		if err != nil {
+			return nil, err
+		}
+		if c != nil {
+			out = append(out, c)
+		}
 	}
 	return out, nil
 }
