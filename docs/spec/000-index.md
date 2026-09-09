@@ -19,7 +19,7 @@
 | `012` | 5 | `012-cpu-386-subset.md`、`012-eob1-first-character-race.md`、`012-fd2-parity-capture.md`、`012-input-keyboard-irq-and-mouse-scale.md`、`012-mcb-chain.md` |
 | `013` | 5 | `013-eob1-first-character-class.md`、`013-fd2-load-es-selector.md`、`013-file-handles.md`、`013-mouse-event-callback.md`、`013-vga-planar.md` |
 | `014` | 5 | `014-dos4gw-flat-descriptors.md`、`014-ems.md`、`014-eob1-first-character-alignment.md`、`014-hardware-keyboard.md`、`014-poke-state-not-luck.md` |
-| `015` | 3 | `015-eob1-first-character-stats.md`、`015-fd2-store-environment-word.md`、`015-outermost-cmdline.md` |
+| `015` | 4 | `015-bytecode-observation.md`、`015-eob1-first-character-stats.md`、`015-fd2-store-environment-word.md`、`015-outermost-cmdline.md` |
 | `016` | 3 | `016-dos4gw-protected-push.md`、`016-eob1-first-character-review.md`、`016-right-mouse-button.md` |
 | `017` | 2 | `017-dos4gw-selector-load-validation.md`、`017-mouse-callback.md` |
 | `018` | 2 | `018-cpu386-command-tail-prelude.md`、`018-eob1-first-character-name.md` |
@@ -71,7 +71,7 @@
 - `015-outermost-cmdline.md`
 - `016-right-mouse-button.md`
 
-### 源平合戰（yuan-genpei）（8 份）
+### 源平合戰（yuan-genpei）（9 份）
 
 - `004-machine.md`
 - `008-tsr-resident.md`
@@ -81,6 +81,7 @@
 - `012-cpu-386-subset.md`
 - `013-vga-planar.md`
 - `014-ems.md`
+- `015-bytecode-observation.md`
 
 ### 三國演義（san1）（7 份）
 
