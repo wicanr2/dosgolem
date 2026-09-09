@@ -11,6 +11,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -76,6 +77,8 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpPorts := flag.String("dump-ports", "",
 		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
+	dumpWAV := flag.String("dump-wav", "",
+		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
 	cpuProfile := flag.String("cpuprofile", "",
 		"把 CPU 剖析結果寫到這個檔（找瓶頸用；`go tool pprof` 讀）")
 	adlib := flag.Bool("adlib", false,
@@ -303,6 +306,21 @@ func main() {
 			}
 		}
 		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+	}
+	if n := len(m.Speaker); n > 0 {
+		fmt.Printf("\nPC 喇叭：切換 %d 次，8253 通道 0 分頻值 %d（%.0f Hz）\n",
+			n, m.PITDivisor(), m.PITHz())
+		if m.IRQ0Clamped > 0 {
+			fmt.Printf("  ⚠ 中斷間隔被夾到下限 %d 次——波形的時間軸不可信\n",
+				m.IRQ0Clamped)
+		}
+	}
+	if *dumpWAV != "" {
+		if err := writeSpeakerWAV(m, *dumpWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-wav:", err)
+		} else {
+			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
+		}
 	}
 	if *dumpPorts != "" {
 		if err := writePortLog(m, *dumpPorts); err != nil {
@@ -966,4 +984,59 @@ func writePortLog(m *machine.Machine, spec string) error {
 	}
 	fmt.Printf("I/O 寫入 %d 筆 → %s\n", n, path)
 	return nil
+}
+
+// writeSpeakerWAV 把喇叭的波形寫成 WAV。
+//
+// 波形是**一個位元**：兩個位準寫成 0x20／0xE0 而不是 0x00／0xFF，
+// 滿幅的方波在多數播放器上會削波，聽起來像壞掉。
+func writeSpeakerWAV(m *machine.Machine, path string) error {
+	s := m.Speaker
+	if len(s) == 0 {
+		return fmt.Errorf("喇叭一次都沒動過——這一段沒有聲音")
+	}
+	const rate = 11025
+	sps := machine.StepsPerSecond()
+	first, last := s[0].Step, s[len(s)-1].Step
+	n := int(float64(last-first) / sps * rate)
+	if n <= 0 {
+		return fmt.Errorf("波形只有 %d 道指令長，不足一個取樣", last-first)
+	}
+	pcm := make([]uint8, n)
+	j := 0
+	for i := range pcm {
+		step := first + uint64(float64(i)/rate*sps)
+		for j+1 < len(s) && s[j+1].Step <= step {
+			j++
+		}
+		pcm[i] = 0x20
+		if s[j].Level != 0 {
+			pcm[i] = 0xE0
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var h []byte
+	put32 := func(v uint32) { h = binary.LittleEndian.AppendUint32(h, v) }
+	put16 := func(v uint16) { h = binary.LittleEndian.AppendUint16(h, v) }
+	h = append(h, "RIFF"...)
+	put32(uint32(36 + len(pcm)))
+	h = append(h, "WAVEfmt "...)
+	put32(16)
+	put16(1)
+	put16(1)
+	put32(rate)
+	put32(rate)
+	put16(1)
+	put16(8)
+	h = append(h, "data"...)
+	put32(uint32(len(pcm)))
+	if _, err := f.Write(h); err != nil {
+		return err
+	}
+	_, err = f.Write(pcm)
+	return err
 }

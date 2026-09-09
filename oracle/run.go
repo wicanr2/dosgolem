@@ -93,10 +93,15 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 		// 護欄：程式碼不該跑進 A0000 以上。那裡是視訊記憶體，在我們這台上
 		// 全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
 		// 所以飛掉之後**不會有任何錯誤**，只會安靜地跑滿上限。
-		if a := o.IP().Linear(); a >= machine.VideoSeg*16 {
-			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), a)
+		//
+		// 位址只算一次：護欄與 hook 查詢共用（`docs/spec/015` §4.3）。
+		lin := cpu.Addr(o.m.CPU.Seg[cpu.CS], o.m.CPU.IP)
+		if lin >= machine.VideoSeg*16 {
+			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), lin)
 		}
-		o.fireCallHooks()
+		if o.hookBits != nil && o.hookBits[lin>>6]&(1<<(lin&63)) != 0 {
+			o.fireCallHooksAt(lin)
+		}
 		if err := o.m.Step(); err != nil {
 			return fmt.Errorf("執行到 %s 出錯：%w", o.IP(), err)
 		}
@@ -347,17 +352,21 @@ func PasswordScreen() Cond {
 // 用途是**把判準從像素換成參數**：原版自己傳給繪製常式的座標與字串，
 // 比從畫面反推可靠（`rich2/docs/lessons.md` D34 就是像素判準誤中）。
 func (o *Oracle) OnCall(a Addr, fn func(*Oracle)) {
-	o.onCall[a.Linear()] = append(o.onCall[a.Linear()], fn)
+	lin := a.Linear()
+	o.onCall[lin] = append(o.onCall[lin], fn)
+	// 點陣圖讓執行迴圈用一次位移與一次 AND 就問得出「這個位址上有沒有
+	// hook」，不必每道指令查一次 map（`docs/spec/015` §4.3）。
+	// 1 M 個位址 ÷ 64 ＝ 16,384 個字，128 KB，只在第一次註冊時配置。
+	if o.hookBits == nil {
+		o.hookBits = make([]uint64, 1<<20/64)
+	}
+	o.hookBits[lin>>6] |= 1 << (lin & 63)
 }
 
-func (o *Oracle) fireCallHooks() {
-	if len(o.onCall) == 0 {
-		return
-	}
-	if hooks, ok := o.onCall[o.IP().Linear()]; ok {
-		for _, fn := range hooks {
-			fn(o)
-		}
+// fireCallHooksAt 在已經算好的線性位址上觸發 hook。
+func (o *Oracle) fireCallHooksAt(lin uint32) {
+	for _, fn := range o.onCall[lin] {
+		fn(o)
 	}
 }
 

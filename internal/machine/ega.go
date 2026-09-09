@@ -283,3 +283,51 @@ func (m *Machine) IndexedEGASize(w, h int) []uint8 {
 
 // IndexedEGA 是 mode 0Dh 的 320×200。
 func (m *Machine) IndexedEGA() []uint8 { return m.IndexedEGASize(VideoWidth, VideoHigh) }
+
+// egaState 是平面式 VRAM 的完整狀態，快照要用。
+//
+// ⚠ **只存 `Machine.Mem` 是不夠的。** A0000 的線性檢視與四個平面是
+// 兩份資料；還原了線性那一份、平面留著後來畫上去的東西，
+// `IndexedEGA` 解出來的畫面就是兩次執行混在一起的——**而那張圖看起來
+// 完全正常**，只是內容不對。
+type egaState struct {
+	planes    [egaPlanes][]uint8
+	index     uint8
+	mapMask   uint8
+	planarSeen bool
+	gcIndex   uint8
+	setReset  uint8
+	enableSR  uint8
+	dataRot   uint8
+	readMap   uint8
+	mode      uint8
+	bitMask   uint8
+	dontCare  uint8
+	colorComp uint8
+	latch     [egaPlanes]uint8
+}
+
+func (e *ega) snapshot() *egaState {
+	s := &egaState{
+		index: e.index, mapMask: e.mapMask, planarSeen: e.planarSeen,
+		gcIndex: e.gcIndex, setReset: e.setReset, enableSR: e.enableSR,
+		dataRot: e.dataRot, readMap: e.readMap, mode: e.mode,
+		bitMask: e.bitMask, dontCare: e.dontCare, colorComp: e.colorComp,
+		latch: e.latch,
+	}
+	for i := range e.planes {
+		s.planes[i] = append([]uint8(nil), e.planes[i]...)
+	}
+	return s
+}
+
+func (e *ega) restore(s *egaState) {
+	e.index, e.mapMask, e.planarSeen = s.index, s.mapMask, s.planarSeen
+	e.gcIndex, e.setReset, e.enableSR = s.gcIndex, s.setReset, s.enableSR
+	e.dataRot, e.readMap, e.mode = s.dataRot, s.readMap, s.mode
+	e.bitMask, e.dontCare, e.colorComp = s.bitMask, s.dontCare, s.colorComp
+	e.latch = s.latch
+	for i := range e.planes {
+		copy(e.planes[i], s.planes[i])
+	}
+}

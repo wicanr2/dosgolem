@@ -70,6 +70,9 @@ type Oracle struct {
 	dgroupSeg uint16
 
 	onCall map[uint32][]func(*Oracle)
+	// hookBits 是 onCall 的鍵在 1 MB 位址空間上的點陣圖。
+	// nil ＝ 一個 hook 都沒註冊過。
+	hookBits []uint64
 }
 
 // Load 載入原版執行檔。

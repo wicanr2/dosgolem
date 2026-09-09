@@ -130,6 +130,24 @@ type Machine struct {
 	// Ticks 是送出去的計時器中斷次數。
 	Ticks uint64
 
+	// Speaker 是 PC 喇叭資料線的變化序列（`docs/spec/016`）。
+	// 智冠《三國演義》的語音就是這條線上的一位元取樣。
+	Speaker []SpeakerSample
+
+	// IRQ0Clamped 是「算出來的 IRQ0 間隔太小、被夾到下限」發生幾次。
+	// **非零表示波形的時間軸不可信**，不能安靜地夾。
+	IRQ0Clamped int
+
+	// pit 是 8253 通道 0（`speaker.go`）。
+	pit pit
+
+	// picMask 是 8259 的 OCW1（埠 0x21）：bit0 遮蔽 IRQ0、bit1 遮蔽 IRQ1。
+	//
+	// 原版改分頻值前後各遮蔽／放行一次。不接的話，遮蔽期間送進去的中斷
+	// 會在向量與分頻值都還沒設好的時候跑進處理常式——那段碼用到還沒
+	// 初始化的變數，結果不固定。
+	picMask uint8
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -184,6 +202,9 @@ func New() *Machine {
 		rwatchLo: 1, rwatchHi: 0,
 	}
 	m.CPU = cpu.New(m)
+	// 取指令走直接索引，不走匯流排介面（`docs/spec/015` §4.2）。
+	// 讀取監看打開時 WatchReads 會把它收回去。
+	m.CPU.Code = m.Mem
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
 	// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`；用 8086 的
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
@@ -250,10 +271,15 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 // 監看資料位址才有意義。傳 nil 關掉。
 func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
 	if fn == nil {
-		m.rwatchLo, m.rwatchHi, m.onRead = 1, 0, nil
+		m.rwatchLo, m.rwatchHi, m.onRead = 1, 0, nil // 空區間 ＝ 永遠不命中
+		m.CPU.Code = m.Mem                           // 取指令可以回到快路徑
 		return
 	}
 	m.rwatchLo, m.rwatchHi, m.onRead = lo, hi, fn
+	// **取指令也算讀取。** 快路徑跳過 Read8，監看就看不到執行；
+	// 監看的用途是回答「誰碰了這個位址」，執行也是一種碰
+	//（`docs/spec/015` §4.2）。
+	m.CPU.Code = nil
 }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
@@ -305,6 +331,13 @@ func (m *Machine) In8(port uint16) uint8 {
 		return 0x00
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
+	case port == 0x21:
+		// 8259 的中斷遮罩。**一定要讀得回自己寫進去的值。**
+		// 「讀 → or 1 → 寫回」是遮蔽 IRQ0 的標準寫法（原版的語音初始化
+		// 就是這樣，`docs/spec/016` §2.1）；讀回預設的 0xFF 之後寫回去
+		// 就把**全部**中斷關掉了，包括鍵盤——之後按什麼都沒反應，
+		// 而畫面照樣在動，看起來像遊戲卡住不像中斷被關。
+		return m.picMask
 	case port == 0x388:
 		// OPL2 狀態埠。
 		//
@@ -345,6 +378,17 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// 它會把一個亂數寫進去，而那個亂數的低位元管的是喇叭與 RAM 檢查。
 	if p == 0x61 {
 		m.kbdPortB = v
+		m.outSpeaker(v)
+	}
+
+	// 8253 通道 0：分頻值決定 IRQ0 多久來一次（`docs/spec/016` §3.1）。
+	if p == 0x40 || p == 0x43 {
+		m.outPIT(p, v)
+	}
+
+	// 8259 的 OCW1。被遮蔽的中斷掛起不送，放行時補送。
+	if p == 0x21 {
+		m.picMask = v
 	}
 
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
@@ -421,8 +465,16 @@ func (m *Machine) Indexed() []uint8 {
 
 // Step 執行一道指令，必要時先送 IRQ0。
 func (m *Machine) Step() error {
-	m.tick()
-	m.keyTick()
+	// **兩個檢查都內聯在這裡**：`tick` 與 `keyTick` 絕大多數指令上
+	// 第一行就 return，而函式呼叫本身佔了執行時間的 3.8%
+	//（`docs/spec/015` §3）。把「要不要進去」提到呼叫端之後，
+	// 常見情形連呼叫都不用發。
+	if m.irq0Pending || (m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0) {
+		m.tick()
+	}
+	if len(m.keyQueue) > 0 {
+		m.keyTick()
+	}
 	m.Steps++
 	if m.Coverage != nil {
 		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
@@ -453,7 +505,7 @@ func (m *Machine) tick() {
 		// 當場丟掉的話那一段的 tick 全部消失。
 		m.irq0Pending = true
 	}
-	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
+	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) || m.picMask&0x01 != 0 {
 		return
 	}
 	m.irq0Pending = false

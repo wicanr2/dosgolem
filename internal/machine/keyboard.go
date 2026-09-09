@@ -60,8 +60,8 @@ func (m *Machine) keyTick() {
 	if m.Steps < m.nextIRQ1 {
 		return
 	}
-	if !m.CPU.Flag(cpu.IF) {
-		return // 關中斷期間先擺著，不要丟掉
+	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
+		return // 關中斷或被 8259 遮蔽期間先擺著，不要丟掉
 	}
 	ev := m.keyQueue[0]
 	m.keyQueue = m.keyQueue[1:]

@@ -40,6 +40,18 @@ type Snapshot struct {
 	dac      [256 * 3]uint8
 	dacIndex uint8
 	dacPhase uint8
+
+	// 平面式 VRAM。**線性檢視與平面是兩份資料**，只還原前者的話
+	// 畫面會是兩次執行混在一起的，而那張圖看起來完全正常（見 egaState）。
+	ega *egaState
+
+	// PC 喇叭與 8253 通道 0（`docs/spec/016`）。
+	// 分頻值不還原的話，還原之後的中斷頻率是**上一次跑到最後**的那個值。
+	speaker     []SpeakerSample
+	pit         pit
+	irq0Every   uint64
+	irq0Clamped int
+	picMask     uint8
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -70,6 +82,13 @@ func (m *Machine) Snapshot() *Snapshot {
 		irq1Own:   m.irq1Own,
 		kbdData:   m.kbdData,
 		kbdPortB:  m.kbdPortB,
+
+		ega:         m.ega.snapshot(),
+		speaker:     append([]SpeakerSample(nil), m.Speaker...),
+		pit:         m.pit,
+		irq0Every:   m.IRQ0Every,
+		irq0Clamped: m.IRQ0Clamped,
+		picMask:     m.picMask,
 	}
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
@@ -106,6 +125,11 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.keyQueue = append([]KeyEvent(nil), s.keyQueue...)
 	m.nextIRQ1, m.irq1Count, m.irq1Own = s.nextIRQ1, s.irq1Count, s.irq1Own
 	m.kbdData, m.kbdPortB = s.kbdData, s.kbdPortB
+
+	m.ega.restore(s.ega)
+	m.Speaker = append(m.Speaker[:0], s.speaker...)
+	m.pit, m.picMask = s.pit, s.picMask
+	m.IRQ0Every, m.IRQ0Clamped = s.irq0Every, s.irq0Clamped
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。
