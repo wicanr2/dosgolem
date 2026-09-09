@@ -37,6 +37,12 @@ var (
 		"把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列得下最後幾筆）")
 	obsXMSFile = flag.String("xms-file", "",
 		"把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
+	obsPollLog = flag.Int("poll-log", 0,
+		"印出遊戲**按鍵不為零時**讀到的滑鼠輪詢（最多 N 筆，0 ＝ 不印）。"+
+			"回答「這一次點擊遊戲到底看到了什麼」——"+
+			"腳本點擊沒反應時，畫面上分不出三件事："+
+			"座標送錯了、按住的期間遊戲一次都沒問、"+
+			"還是問到了但那個位置沒有東西可點")
 	obsReadWatch = flag.String("read-watch", "",
 		"監看一段線性位址的**讀取**：`<lo>-<hi>`（十六進位）。配 -read-watch-grain 與 -read-watch-file 用")
 	obsReadGrain = flag.Int("read-watch-grain", 1,
@@ -121,6 +127,7 @@ func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 		fmt.Printf("（週期時鐘 %d Hz，每 %d 個週期一次 IRQ0）", m.CPUHz, m.CycPerIRQ0())
 	}
 	fmt.Println()
+	obsReportPolls(m, d)
 	if *obsOPLLog != "" {
 		if err := obsWrite(*obsOPLLog, func(w *bufio.Writer) {
 			fmt.Fprintln(w, "# dosgolem OPL2 log：步數 暫存器 值")
@@ -182,4 +189,46 @@ func obsWrite(path string, body func(*bufio.Writer)) error {
 	w := bufio.NewWriter(f)
 	body(w)
 	return w.Flush()
+}
+
+// obsReportPolls 印出按鍵不為零的滑鼠輪詢。
+//
+// 腳本點擊「沒反應」時畫面上看不出是哪一種失敗：座標送錯、按住的期間
+// 遊戲一次都沒問（輪詢率在不同畫面差三個數量級）、或是問到了但那裡
+// 沒有可點的東西。前兩種在這份清單裡立刻分得開——沒有任何一筆就是
+// 遊戲沒看到，有筆但座標不對就是送錯了。
+func obsReportPolls(m *machine.Machine, d *dos.DOS) {
+	if *obsPollLog <= 0 {
+		return
+	}
+	// 座標倍率也要印。`int 33h AX=3` 回的 CX 是 `X × 倍率`，倍率由視訊
+	// 模式決定；倍率錯了遊戲收到的就是別的位置，而畫面上只會看到
+	// 「點了沒反應」。
+	scale := int(d.Mouse.XScale)
+	how := "-xscale 指定"
+	if scale == 0 {
+		how = "依視訊模式自動決定"
+		if w := m.PixelWidth(); w > 0 {
+			scale = 640 / w
+		} else {
+			scale = 2
+		}
+	}
+	fmt.Printf("視訊模式 %02Xh，畫面寬 %d，滑鼠水平倍率 %d（%s；回報的 CX ＝ X × 倍率）\n",
+		m.VideoMode(), m.PixelWidth(), scale, how)
+	n := 0
+	for _, p := range d.Mouse.Polls {
+		if p.Buttons == 0 {
+			continue
+		}
+		n++
+		if n <= *obsPollLog {
+			fmt.Printf("[輪詢] #%d 遊戲讀到 CX=%d DX=%d 鍵=%02X（注入的是 %d,%d）\n",
+				p.Step, int(p.X)*scale, p.Y, p.Buttons, p.X, p.Y)
+		}
+	}
+	fmt.Printf("滑鼠輪詢裡按鍵不為零的共 %d 筆（總共 %d 筆）\n", n, len(d.Mouse.Polls))
+	if n == 0 {
+		fmt.Println("  ⚠ 一筆都沒有：按住的期間遊戲沒有讀滑鼠，或按鍵根本沒送出去")
+	}
 }

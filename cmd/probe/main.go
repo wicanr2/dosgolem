@@ -53,7 +53,10 @@ func main() {
 			"    與 -dump-screen 的差別是**那一支存色號、這一支存看得到的顏色**。")
 	cropTop := flag.Int("crop-top", 0, "存畫面前從上面裁掉幾列")
 	cropH := flag.Int("crop-height", 0, "存畫面只留幾列（0 ＝ 全部）")
-	xscale := flag.Int("xscale", 2, "int 33h 的水平虛擬座標倍率（mode 13h ＝ 2、mode 12h ＝ 1）")
+	xscale := flag.Int("xscale", 0,
+		"int 33h 的水平虛擬座標倍率（0 ＝ 依視訊模式自動決定：320 寬 → 2、640 寬 → 1）。"+
+			"**寫死一個值會讓另一半的模式全錯**，而症狀是點擊落在別的地方、"+
+			"畫面完全不動——看起來像輸入沒送到")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔。格式："+
 		"<段>:<偏移>:<長度>（軌跡印的形式）、lin:<執行期線性>:<長度>、"+
