@@ -87,3 +87,26 @@ func TestArrayBoundsAreSane(t *testing.T) {
 		t.Error("玩家 7 應該在界外")
 	}
 }
+
+// TestPITDivisorIsGameProgrammed 釘住《大富翁2》自己把 PIT 設成多快。
+//
+// **這個數字不要寫死在呼叫端。** 8253／8254 的輸入時脈是硬體常數，程式寫進去
+// 的是除數；`o.TimerHz()` 是從模擬的 PIT 讀出來的，不是查表。
+// `rich2/docs/re/154` §2 的 70.187 Hz 由此獨立印證。
+func TestPITDivisorIsGameProgrammed(t *testing.T) {
+	o := load(t)
+	if err := rich2.ToBoard(o); err != nil {
+		t.Fatal(err)
+	}
+	if !o.TimerProgrammed() {
+		t.Fatal("遊戲沒有自己設過 PIT——那表示解碼沒接上，不是遊戲用預設值")
+	}
+	if got := o.TimerDivisor(); got != 17000 {
+		t.Errorf("PIT 除數 %d，預期 17000（`rich2/docs/re/154` §2）", got)
+	}
+	if hz := o.TimerHz(); hz < 70.18 || hz > 70.19 {
+		t.Errorf("PIT 頻率 %.4f Hz，預期 70.187", hz)
+	}
+	t.Logf("PIT 除數 %d → %.4f Hz；一刻 ＝ %d 道指令",
+		o.TimerDivisor(), o.TimerHz(), o.StepsPerTick())
+}

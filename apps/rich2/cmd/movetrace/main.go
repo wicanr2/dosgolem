@@ -58,6 +58,8 @@ func run(exe, root string, max int, budget uint64, answer string, poll bool) err
 	}
 	player := rich2.Turn(o)
 	from := rich2.Position(o, player)
+	fmt.Printf("PIT：除數 %d → %.4f Hz（程式設過：%v）　一刻 ＝ %d 道指令\n",
+		o.TimerDivisor(), o.TimerHz(), o.TimerProgrammed(), o.StepsPerTick())
 	fmt.Printf("起點：玩家 %d 在格 %d　方向 %d　亂數狀態 %06X\n",
 		player, from, rich2.Direction(o), rich2.RNDState(o))
 	for i := 1; i <= rich2.MaxPlayers; i++ {

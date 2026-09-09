@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
+	"math"
 	"os"
 	"testing"
 
@@ -979,6 +980,17 @@ func TestFD2ProgramsPITDivisor(t *testing.T) {
 		if m.PortLog[i] != want[i] {
 			t.Fatalf("AIL PIT divisor log[%d]=%+v want=%+v", i, m.PortLog[i], want[i])
 		}
+	}
+	// 同一份解碼器在保護模式也要成立：AIL 寫的兩個 0 在 8254 上代表 65,536，
+	// **不是「除數 0」**——那是 BIOS 的預設速度 18.2 Hz。
+	if !m.PITProgrammed() {
+		t.Error("AIL 明明寫過 43h/40h，PITProgrammed 卻回 false")
+	}
+	if got := m.PITDivisor(); got != PITDefaultDivisor {
+		t.Errorf("除數得 %d，寫 0 應解成 %d", got, PITDefaultDivisor)
+	}
+	if got := m.PITHz(); math.Abs(got-18.2065097) > 1e-6 {
+		t.Errorf("頻率得 %.7f Hz，預期 18.2065097 Hz", got)
 	}
 }
 

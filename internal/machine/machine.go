@@ -96,6 +96,12 @@ const (
 	biosTimerOff = specialStubBase + 0x20
 )
 
+// DefaultIRQ0Every 是兩次計時器中斷的間隔，單位是**指令數**。
+//
+// 對拍把它釘在這個值：rich2 的一個計時刻 ＝ 165,000 道指令。反推出來的
+// 機器速度（`StepsPerSecond`）就是所有除數的換算基準，見 `PITStepsPerTick`。
+//
+// ⚠ **改了它，動畫的節奏就改了**，所有錄好的幀序列都要重錄。
 const DefaultIRQ0Every = 165_000
 
 // DefaultVGAFrameEvery 是每幾道指令一次**垂直回掃**（＝螢幕刷新一次）。
@@ -106,9 +112,12 @@ const DefaultIRQ0Every = 165_000
 // （`src/hardware/vga_draw.cpp`：`fps = oscclock/(vtotal*htotal)`，
 // mode 13h 的標準值 `vga_fps = 70`）。
 //
-// dosgolem 的時間由**指令數**驅動，所以這裡換算成指令數：
-// 與 `DefaultIRQ0Every` 同量級，因為 rich2 把 PIT 設成 70.187 Hz
-// （`rich2/docs/re/154`），與 VGA 的 70 Hz 幾乎同頻。
+// dosgolem 的時間由**指令數**驅動，所以這裡換算成指令數。它與
+// `DefaultIRQ0Every` 同量級是**巧合**，不是恆等式：mode 13h 的回掃是
+// 70 Hz，而計時刻的頻率由程式寫進 8254 的除數決定（`PITHz`）——
+// rich2 寫 17,000 ＝ 70.187 Hz，剛好幾乎同頻；`YNSOUND.COM` 寫 4,096
+// 就是 291 Hz，兩者差四倍。要一個程式的計時刻換算成指令數，
+// 用 `PITStepsPerTick`，不要拿這個常數頂替。
 //
 // ⚠ **改了它，幀的長度就改了**，同 `IRQ0Every`。對拍要固定。
 const DefaultVGAFrameEvery = 165_000
@@ -290,6 +299,9 @@ type Machine struct {
 
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
+
+	// pit 記通道 0 的除數：程式自己寫的頻率（`PITHz`）。
+	pit pit
 
 	nextIRQ0    uint64
 	irq0Pending bool
@@ -689,6 +701,10 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
+	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。
+	m.pit.out(p, v)
 
 	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
 	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話
