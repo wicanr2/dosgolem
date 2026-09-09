@@ -18,9 +18,11 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -74,6 +76,8 @@ func main() {
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
 	dumpPorts := flag.String("dump-ports", "",
 		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
+	cpuProfile := flag.String("cpuprofile", "",
+		"把 CPU 剖析結果寫到這個檔（找瓶頸用；`go tool pprof` 讀）")
 	adlib := flag.Bool("adlib", false,
 		"讓 OPL2 的偵測過關。\n"+
 			"    預設關著是因為偵測不過的話整段音樂路徑會被跳過，開機快很多；\n"+
@@ -83,6 +87,19 @@ func main() {
 	if *exe == "" {
 		flag.Usage()
 		os.Exit(2)
+	}
+	if *cpuProfile != "" {
+		pf, err := os.Create(*cpuProfile)
+		if err != nil {
+			die(err)
+		}
+		if err := pprof.StartCPUProfile(pf); err != nil {
+			die(err)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			pf.Close()
+		}()
 	}
 	img, err := os.ReadFile(*exe)
 	if err != nil {
@@ -159,6 +176,10 @@ func main() {
 	var runErr error
 	var blockedFor uint64
 	var blockedStop bool
+	// 執行速度要量得到才調得動。**沒有這個數字的時候，「慢」是感覺**，
+	// 而感覺分不出「這一段本來就有幾十億道指令」與「執行器每道指令太貴」。
+	started := time.Now()
+	startSteps := m.Steps
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// **護欄：程式碼不該跑進 A0000 以上。** 那裡是視訊記憶體與 BIOS，
 		// 在我們這台上全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
@@ -218,6 +239,12 @@ func main() {
 		}
 	}
 
+	if ran := m.Steps - startSteps; ran > 0 {
+		el := time.Since(started)
+		fmt.Printf("\n執行 %d 道指令，耗時 %s，%.1f M 道／秒\n",
+			ran, el.Round(time.Millisecond),
+			float64(ran)/el.Seconds()/1e6)
+	}
 	if blockedStop {
 		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
 			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
@@ -545,6 +572,8 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		ports = append(ports, int(p))
 	}
 	sort.Ints(ports)
+	fmt.Printf("埠寫入紀錄 %d 筆（約 %.1f MB）\n",
+		len(m.PortLog), float64(len(m.PortLog))*16/1e6)
 	fmt.Printf("寫過的 I/O 埠（%d）：", len(ports))
 	for i, p := range ports {
 		if i == 20 {
