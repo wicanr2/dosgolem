@@ -45,6 +45,9 @@ type machineState struct {
 	IRQ0Pending bool
 	IRQ0Every   uint64
 	IRQ0Base    uint64
+	CPUHz       uint64
+	Cycles      uint64
+	NextIRQ0Cyc uint64
 	PITDiv      uint32
 	PITAccess   uint8
 	PITPhase    uint8
@@ -88,6 +91,9 @@ func (m *Machine) SaveState(w io.Writer) error {
 		IRQ0Pending: m.irq0Pending,
 		IRQ0Every:   m.IRQ0Every,
 		IRQ0Base:    m.IRQ0Base,
+		CPUHz:       m.CPUHz,
+		Cycles:      m.CPU.Cycles,
+		NextIRQ0Cyc: m.nextIRQ0Cyc,
 		PITDiv:      m.PITDiv,
 		PITAccess:   m.pitAccess,
 		PITPhase:    m.pitPhase,
@@ -151,6 +157,11 @@ func (m *Machine) LoadState(r io.Reader) error {
 	if m.pitAccess == 0 {
 		m.pitAccess = 3
 	}
+	m.CPUHz, m.CPU.Cycles, m.nextIRQ0Cyc = s.CPUHz, s.Cycles, s.NextIRQ0Cyc
+	if m.CPUHz == 0 {
+		m.CPUHz = DefaultCPUHz
+	}
+	m.recalcIRQ0()
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.Ports {

@@ -27,6 +27,10 @@ type Snapshot struct {
 	// 會退回開機頻率**，而症狀是「同一個快照展開的變體跑得比原本慢」。
 	irq0Every uint64
 	irq0Base  uint64
+	cpuHz     uint64
+	cycles    uint64
+	cycPer    uint64
+	nextCyc   uint64
 	pitDiv    uint32
 	pitAccess uint8
 	pitPhase  uint8
@@ -63,6 +67,10 @@ func (m *Machine) Snapshot() *Snapshot {
 		pending:   m.irq0Pending,
 		irq0Every: m.IRQ0Every,
 		irq0Base:  m.IRQ0Base,
+		cpuHz:     m.CPUHz,
+		cycles:    m.CPU.Cycles,
+		cycPer:    m.cycPerIRQ0,
+		nextCyc:   m.nextIRQ0Cyc,
 		pitDiv:    m.PITDiv,
 		pitAccess: m.pitAccess,
 		pitPhase:  m.pitPhase,
@@ -96,6 +104,8 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.portTicks, s.nextIRQ0, s.pending
 	m.IRQ0Every, m.IRQ0Base, m.PITDiv = s.irq0Every, s.irq0Base, s.pitDiv
 	m.pitAccess, m.pitPhase, m.pitLo = s.pitAccess, s.pitPhase, s.pitLo
+	m.CPUHz, m.CPU.Cycles = s.cpuHz, s.cycles
+	m.cycPerIRQ0, m.nextIRQ0Cyc = s.cycPer, s.nextCyc
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.ports {

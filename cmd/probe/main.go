@@ -95,7 +95,8 @@ func main() {
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
-	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
+	tick := flag.Uint64("tick", 0, "**切回舊的指令數時鐘**：每幾道指令送一次計時器中斷（0 ＝ 走 CPU 週期）")
+	cpuHz := flag.Uint64("cpuhz", 0, "模擬的 CPU 時脈（Hz）。時鐘走 CPU 週期，這個值就是「在假裝哪一台機器」（0 ＝ 預設 386DX-33）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	keysAt := flag.String("keys-at", "",
 		"在指定步數送按鍵：`步數:字串` 用逗號分隔（`\\n` 是 Enter）。"+
@@ -194,9 +195,13 @@ func main() {
 		m.WriteBytes(psp+0x81, b)
 		m.Write8(psp+0x81+uint32(len(b)), 0x0D)
 	}
+	if *cpuHz > 0 {
+		m.CPUHz = *cpuHz
+		m.RecalcIRQ0()
+	}
 	if *tick > 0 {
-		// 設的是**分頻 65536 時**的間隔；程式改 PIT 的分頻時
-		// IRQ0Every 會照比例跟著走（`machine.pitWrite`）。
+		// **切回舊模型**（指令數）。設的是分頻 65536 時的間隔；
+		// 程式改 PIT 的分頻時會照比例跟著走（`machine.pitWrite`）。
 		m.IRQ0Base = *tick
 		m.IRQ0Every = *tick * uint64(m.PITDiv) / machine.PITDefaultDivisor
 	}

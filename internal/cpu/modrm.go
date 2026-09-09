@@ -33,6 +33,8 @@ func (c *CPU) decodeModRM() modrm {
 	if mod == 3 {
 		return modrm{reg: reg, mod: mod, rm: operand{isReg: true, reg: rm}}
 	}
+	// 碰記憶體的那一種比較貴（cycles.go）。
+	c.charge(cycMem)
 
 	var off uint16
 	def := DS

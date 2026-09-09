@@ -8,25 +8,42 @@ import "testing"
 // 先低後高）之後 `out 40h,0` ＋ `out 40h,10h` ＝ 分頻 4096。
 func TestPITDivisorScalesIRQ0(t *testing.T) {
 	m := New()
-	if m.PITDiv != PITDefaultDivisor || m.IRQ0Every != DefaultIRQ0Every {
-		t.Fatalf("開機是分頻 %d、間隔 %d，量到 %d／%d",
-			PITDefaultDivisor, DefaultIRQ0Every, m.PITDiv, m.IRQ0Every)
+	if m.PITDiv != PITDefaultDivisor {
+		t.Fatalf("開機分頻是 %d，應該是 %d", m.PITDiv, PITDefaultDivisor)
 	}
+	if want := uint64(DefaultCPUHz) * PITDefaultDivisor / PITHz; m.cycPerIRQ0 != want {
+		t.Fatalf("開機間隔 %d 個週期，18.2 Hz 下應該是 %d", m.cycPerIRQ0, want)
+	}
+	boot := m.cycPerIRQ0
 	m.Out8(0x43, 0x36)
 	m.Out8(0x40, 0x00)
 	m.Out8(0x40, 0x10)
 	if m.PITDiv != 4096 {
 		t.Errorf("分頻 %d，寫進去的是 4096", m.PITDiv)
 	}
-	if want := uint64(DefaultIRQ0Every) * 4096 / 65536; m.IRQ0Every != want {
-		t.Errorf("間隔 %d，照比例應該是 %d", m.IRQ0Every, want)
+	if want := boot * 4096 / 65536; m.cycPerIRQ0 != want {
+		t.Errorf("間隔 %d 個週期，照比例應該是 %d", m.cycPerIRQ0, want)
 	}
 	// 寫 0 ＝ 65536，要回到開機頻率
 	m.Out8(0x43, 0x36)
 	m.Out8(0x40, 0x00)
 	m.Out8(0x40, 0x00)
-	if m.PITDiv != PITDefaultDivisor || m.IRQ0Every != DefaultIRQ0Every {
-		t.Errorf("寫 0 之後是分頻 %d、間隔 %d", m.PITDiv, m.IRQ0Every)
+	if m.PITDiv != PITDefaultDivisor || m.cycPerIRQ0 != boot {
+		t.Errorf("寫 0 之後是分頻 %d、間隔 %d 個週期", m.PITDiv, m.cycPerIRQ0)
+	}
+}
+
+// TestIRQ0FollowsCycles 週期模型：時鐘走 CPU 週期，不是指令數。
+// 貴的指令（`out`）要讓時鐘走得比便宜的（`nop`）快。
+func TestIRQ0FollowsCycles(t *testing.T) {
+	m := New()
+	if m.IRQ0Every != 0 {
+		t.Fatalf("預設應該走週期模型（IRQ0Every ＝ 0），量到 %d", m.IRQ0Every)
+	}
+	before := m.CPU.Cycles
+	m.Out8(0x3C4, 0x02) // 只是設埠，沒經過 CPU
+	if m.CPU.Cycles != before {
+		t.Error("直接呼叫 Out8 不該計 CPU 週期")
 	}
 }
 
@@ -67,6 +84,7 @@ func TestPITSurvivesSnapshot(t *testing.T) {
 	m.Out8(0x43, 0x36)
 	m.Out8(0x40, 0x00)
 	m.Out8(0x40, 0x10)
+	want := m.cycPerIRQ0 // 分頻 4096 時的間隔
 	snap := m.Snapshot()
 	m.Out8(0x43, 0x36)
 	m.Out8(0x40, 0x00)
@@ -75,7 +93,7 @@ func TestPITSurvivesSnapshot(t *testing.T) {
 	if m.PITDiv != 4096 {
 		t.Errorf("還原之後分頻是 %d，快照當時是 4096", m.PITDiv)
 	}
-	if want := uint64(DefaultIRQ0Every) * 4096 / 65536; m.IRQ0Every != want {
-		t.Errorf("還原之後間隔是 %d，應該是 %d", m.IRQ0Every, want)
+	if m.cycPerIRQ0 != want {
+		t.Errorf("還原之後間隔是 %d 個週期，快照當時是 %d", m.cycPerIRQ0, want)
 	}
 }

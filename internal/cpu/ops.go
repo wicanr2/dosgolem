@@ -15,21 +15,26 @@ func (c *CPU) Step() error {
 	c.lock = false
 	c.operand32 = false
 	c.opCS, c.opIP = c.Seg[CS], c.IP
+	c.charge(cycBase)
 
 	for {
 		op := c.fetch8()
 		switch op {
 		case 0x26:
 			c.segOverride = ES
+			c.charge(cycPrefix)
 			continue
 		case 0x2E:
 			c.segOverride = CS
+			c.charge(cycPrefix)
 			continue
 		case 0x36:
 			c.segOverride = SS
+			c.charge(cycPrefix)
 			continue
 		case 0x3E:
 			c.segOverride = DS
+			c.charge(cycPrefix)
 			continue
 		case 0x66:
 			// operand-size 前綴只在 80386 存在（`docs/spec/012`）。
@@ -37,13 +42,16 @@ func (c *CPU) Step() error {
 			// （語料行為），80186 報「未實作」。
 			if c.Model >= Model80386 {
 				c.operand32 = true
+				c.charge(cycPrefix)
 				continue
 			}
 		case 0xF0, 0xF1: // LOCK（F1 在 8086 是它的別名）
 			c.lock = true
+			c.charge(cycPrefix)
 			continue
 		case 0xF2, 0xF3:
 			c.repPrefix = op
+			c.charge(cycPrefix)
 			continue
 		}
 		return c.execute(op)
@@ -113,6 +121,7 @@ func (c *CPU) execute(op uint8) error {
 	case op >= 0x60 && op <= 0x7F:
 		off := int16(int8(c.fetch8()))
 		if c.cond(op & 0x0F) {
+			c.charge(cycJump)
 			c.IP = uint16(int16(c.IP) + off)
 		}
 
@@ -158,6 +167,7 @@ func (c *CPU) execute(op uint8) error {
 		// 這裡回位移欄位 0，與實機一致（測資會遮）。
 		c.R[m.reg] = m.rm.off
 	case op == 0x8E: // MOV Sreg, r/m16
+		c.charge(cycFar)
 		m := c.decodeModRM()
 		c.Seg[m.reg&3] = c.get16(m.rm)
 	case op == 0x8F: // POP r/m16
@@ -230,16 +240,20 @@ func (c *CPU) execute(op uint8) error {
 		c.leave()
 
 	case op == 0xC0 || op == 0xC2: // RET imm16（C0 是 8086 的別名）
+		c.charge(cycRet)
 		n := c.fetch16()
 		c.IP = c.pop()
 		c.R[SP] += n
 	case op == 0xC1 || op == 0xC3: // RET
+		c.charge(cycRet)
 		c.IP = c.pop()
 	case op == 0xC4: // LES r16, m
+		c.charge(cycFar)
 		m := c.decodeModRM()
 		c.R[m.reg] = c.get16(m.rm)
 		c.Seg[ES] = c.read16(m.rm.seg, m.rm.off+2)
 	case op == 0xC5: // LDS r16, m
+		c.charge(cycFar)
 		m := c.decodeModRM()
 		c.R[m.reg] = c.get16(m.rm)
 		c.Seg[DS] = c.read16(m.rm.seg, m.rm.off+2)
@@ -250,11 +264,13 @@ func (c *CPU) execute(op uint8) error {
 		m := c.decodeModRM()
 		c.set16(m.rm, c.fetch16())
 	case op == 0xC8 || op == 0xCA: // RETF imm16（C8 是別名）
+		c.charge(cycFar)
 		n := c.fetch16()
 		c.IP = c.pop()
 		c.Seg[CS] = c.pop()
 		c.R[SP] += n
 	case op == 0xC9 || op == 0xCB: // RETF
+		c.charge(cycFar)
 		c.IP = c.pop()
 		c.Seg[CS] = c.pop()
 	case op == 0xCC: // INT 3
@@ -332,39 +348,43 @@ func (c *CPU) execute(op uint8) error {
 			c.IP = uint16(int16(c.IP) + off)
 		}
 	case op == 0xE4:
-		c.setReg8(0, c.Bus.In8(uint16(c.fetch8())))
+		c.setReg8(0, c.in8(uint16(c.fetch8())))
 	case op == 0xE5:
 		p := uint16(c.fetch8())
-		c.R[AX] = uint16(c.Bus.In8(p)) | uint16(c.Bus.In8(p+1))<<8
+		c.R[AX] = uint16(c.in8(p)) | uint16(c.in8(p+1))<<8
 	case op == 0xE6:
-		c.Bus.Out8(uint16(c.fetch8()), uint8(c.R[AX]))
+		c.out8(uint16(c.fetch8()), uint8(c.R[AX]))
 	case op == 0xE7:
 		p := uint16(c.fetch8())
-		c.Bus.Out8(p, uint8(c.R[AX]))
-		c.Bus.Out8(p+1, uint8(c.R[AX]>>8))
+		c.out8(p, uint8(c.R[AX]))
+		c.out8(p+1, uint8(c.R[AX]>>8))
 	case op == 0xE8: // CALL rel16
+		c.charge(cycCall)
 		off := int16(c.fetch16())
 		c.push(c.IP)
 		c.IP = uint16(int16(c.IP) + off)
 	case op == 0xE9: // JMP rel16
+		c.charge(cycJump)
 		off := int16(c.fetch16())
 		c.IP = uint16(int16(c.IP) + off)
 	case op == 0xEA: // JMP far
+		c.charge(cycFar)
 		off := c.fetch16()
 		seg := c.fetch16()
 		c.Seg[CS], c.IP = seg, off
 	case op == 0xEB: // JMP rel8
+		c.charge(cycJump)
 		off := int16(int8(c.fetch8()))
 		c.IP = uint16(int16(c.IP) + off)
 	case op == 0xEC:
-		c.setReg8(0, c.Bus.In8(c.R[DX]))
+		c.setReg8(0, c.in8(c.R[DX]))
 	case op == 0xED:
-		c.R[AX] = uint16(c.Bus.In8(c.R[DX])) | uint16(c.Bus.In8(c.R[DX]+1))<<8
+		c.R[AX] = uint16(c.in8(c.R[DX])) | uint16(c.in8(c.R[DX]+1))<<8
 	case op == 0xEE:
-		c.Bus.Out8(c.R[DX], uint8(c.R[AX]))
+		c.out8(c.R[DX], uint8(c.R[AX]))
 	case op == 0xEF:
-		c.Bus.Out8(c.R[DX], uint8(c.R[AX]))
-		c.Bus.Out8(c.R[DX]+1, uint8(c.R[AX]>>8))
+		c.out8(c.R[DX], uint8(c.R[AX]))
+		c.out8(c.R[DX]+1, uint8(c.R[AX]>>8))
 
 	// ---- F4–FF ----------------------------------------------------------
 	case op == 0xF4: // HLT
@@ -586,8 +606,10 @@ func (c *CPU) group3(op uint8) error {
 		}
 	case 4: // MUL
 		if wide {
+			c.charge(cycMul)
 			c.mul16(c.get16(m.rm))
 		} else {
+			c.charge(cycMul)
 			c.mul8(c.get8(m.rm))
 		}
 	case 5: // IMUL
@@ -599,8 +621,10 @@ func (c *CPU) group3(op uint8) error {
 	case 6: // DIV
 		ok := false
 		if wide {
+			c.charge(cycDiv)
 			ok = c.div16(c.get16(m.rm))
 		} else {
+			c.charge(cycDiv)
 			ok = c.div8(c.get8(m.rm))
 		}
 		if !ok {

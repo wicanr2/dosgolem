@@ -118,6 +118,10 @@ type CPU struct {
 
 	// 本道指令的起點，除法例外與中斷要用（`docs/spec/002` §4 第 3 點）。
 	opCS, opIP uint16
+
+	// Cycles 是累計的週期數（近似，見 cycles.go）。時鐘走這個，
+	// 不走指令數——`machine` 的 IRQ0 由它驅動。
+	Cycles uint64
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。
@@ -213,11 +217,13 @@ func (c *CPU) dataSeg(def int) uint16 {
 }
 
 func (c *CPU) push(v uint16) {
+	c.charge(cycStack)
 	c.R[SP] -= 2
 	c.write16(c.Seg[SS], c.R[SP], v)
 }
 
 func (c *CPU) pop() uint16 {
+	c.charge(cycStack)
 	v := c.read16(c.Seg[SS], c.R[SP])
 	c.R[SP] += 2
 	return v
@@ -225,6 +231,7 @@ func (c *CPU) pop() uint16 {
 
 // Interrupt 走真正的向量表：推旗標與返回位址、清 IF／TF、跳 0000:(n*4)。
 func (c *CPU) Interrupt(n uint8) {
+	c.charge(cycInt)
 	c.push(c.Flags)
 	c.setFlag(IF, false)
 	c.setFlag(TF, false)

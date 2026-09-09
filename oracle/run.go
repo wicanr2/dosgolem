@@ -439,7 +439,12 @@ func AtTick(n uint64) Cond {
 	}
 }
 
-// TickRate 讀寫「每幾道指令送一次計時器中斷」。
+// CPUHz 讀寫模擬的 CPU 時脈；時鐘走它（`docs/spec/004` §5.1）。
+func (o *Oracle) CPUHz() uint64          { return o.m.CPUHz }
+func (o *Oracle) SetCPUHz(hz uint64)     { o.m.CPUHz = hz; o.m.RecalcIRQ0() }
+
+// TickRate 讀寫「每幾道指令送一次計時器中斷」（**舊模型**）。
+// 設成非零會切回指令數時鐘；0 ＝ 走週期。
 //
 // ⚠ **改它會改變動畫跑多快，但不改變最終停在哪裡**（`machine` 的註解）。
 // 調小可以讓動畫在較少的指令內走完，代價是與原版在真機上的節奏不同——

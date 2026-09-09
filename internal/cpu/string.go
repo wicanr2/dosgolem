@@ -47,6 +47,7 @@ func (c *CPU) stringOp(op uint8) {
 }
 
 func (c *CPU) stringOnce(op uint8, wide bool, d uint16) {
+	c.charge(cycString)
 	src := c.dataSeg(DS) // 可被段前綴覆寫
 	dst := c.Seg[ES]     // **不可覆寫**
 	switch op {

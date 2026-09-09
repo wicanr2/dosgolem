@@ -72,12 +72,24 @@ const (
 
 // DefaultIRQ0Every 是**分頻 65536 時**計時器中斷的間隔，單位是指令數。
 //
-// 真機開機的分頻就是 65536 ＝ 18.2065 Hz（55 ms）。以 DOSBox 預設的
-// 3,000 cycles/ms 換算大約 165,000 道指令，這裡取整。用指令數而不是時間，
-// 是為了讓對拍決定性——同一組輸入永遠得到同一個畫面。
-//
-// **程式改分頻的話這個間隔要跟著改**，見 `Machine.pitWrite`。
+// ⚠ **這是退路，不是預設走的路。** 現在的時鐘走 CPU 週期
+// （`DefaultCPUHz`），一道指令算一格的模型會把繪圖迴圈算得太貴——
+// 老遊戲的繪圖是「切平面（`out`）→ 讀改寫記憶體」的重複，那幾種指令
+// 在真機上貴很多。設 `IRQ0Every` 非零就切回這個舊模型。
 const DefaultIRQ0Every = 165_000
+
+// PITHz 是 8253／8254 的輸入頻率：14.31818 MHz ÷ 12。
+const PITHz = 1_193_182
+
+// DefaultCPUHz 是模擬的 CPU 時脈。**這是「我們在假裝哪一台機器」**，
+// 不是實測值。
+//
+// 選 33 MHz（386DX-33）的理由：源平合戰 1994 年的 DOS/V 目標機大約是
+// 386 後期到 486 早期。校準的判準不是主觀的——`OPEN.EXE` 的扇面每一格
+// 在程式碼裡等 50 個計時器 tick，模擬器上量到的間隔要接近它；
+// 差額就是「繪圖被算了多少時間」。量測與校準過程見
+// `docs/spec/004` §5.2。
+const DefaultCPUHz = 33_000_000
 
 // PITDefaultDivisor 是 PIT 通道 0 的開機分頻。寫 0 的意思就是它。
 const PITDefaultDivisor = 65536
@@ -177,8 +189,15 @@ type Machine struct {
 	WatchDS   uint16
 	DSLoads   []SegChange
 
-	// IRQ0Base 是**分頻 65536 時**的間隔。程式改 PIT 的分頻時，
-	// IRQ0Every 由它按比例算出來（`pitWrite`）。
+	// CPUHz 是模擬的 CPU 時脈，時鐘走它（見 DefaultCPUHz）。
+	CPUHz uint64
+
+	// cycPerIRQ0 是兩次 IRQ0 之間幾個週期：CPUHz × 分頻 / PITHz。
+	cycPerIRQ0 uint64
+	nextIRQ0Cyc uint64
+
+	// IRQ0Base 是**舊模型**（指令數）在分頻 65536 時的間隔。
+	// 程式改 PIT 的分頻時 IRQ0Every 由它按比例算出來（`pitWrite`）。
 	IRQ0Base uint64
 
 	// PITDiv 是 PIT 通道 0 現在的分頻值（1–65536）。唯讀，給報告用。
@@ -190,7 +209,8 @@ type Machine struct {
 	pitPhase  uint8
 	pitLo     uint8
 
-	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
+	// IRQ0Every 是每幾道指令送一次計時器中斷（**舊模型**）。
+	// 0 ＝ 走週期模型；負意義沒有。
 	//
 	// 預設 DefaultIRQ0Every。**這個值影響動畫跑多快，不影響最終停下來的
 	// 畫面**——防拷畫面是靜態的，動畫播完就穩定。
@@ -252,8 +272,9 @@ func New() *Machine {
 		Mem:       make([]uint8, MemSize),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
-		IRQ0Every: DefaultIRQ0Every,
+		IRQ0Every: 0, // 0 ＝ 走週期模型
 		IRQ0Base:  DefaultIRQ0Every,
+		CPUHz:     DefaultCPUHz,
 		PITDiv:    PITDefaultDivisor,
 		pitAccess: 3,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
@@ -268,6 +289,7 @@ func New() *Machine {
 	// DOSJP.COM 另外需要 80386 的 0x66 子集（`docs/spec/012`）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
 	m.CPU.Model = cpu.Model80386
+	m.recalcIRQ0()
 	m.initBDA()
 	m.initVectors()
 	return m
@@ -499,22 +521,46 @@ func (m *Machine) pitWrite(port uint16, v uint8) {
 	}
 }
 
-// setPITDiv 換分頻值，並按比例重算 IRQ0 的間隔。寫 0 的意思是 65536。
+// setPITDiv 換分頻值，並重算 IRQ0 的間隔。寫 0 的意思是 65536。
 func (m *Machine) setPITDiv(div uint32) {
 	if div == 0 {
 		div = PITDefaultDivisor
 	}
 	m.PITDiv = div
+	m.recalcIRQ0()
+}
+
+// RecalcIRQ0 是 recalcIRQ0 的對外版，改過 CPUHz 之後要叫一次。
+func (m *Machine) RecalcIRQ0() { m.recalcIRQ0() }
+
+// recalcIRQ0 依現在的分頻算出兩次 IRQ0 之間的間隔，週期與指令兩種模型
+// 各算一份。**下一次中斷要照新的間隔重排**，不要沿用舊間隔算出來的時刻。
+func (m *Machine) recalcIRQ0() {
+	hz := m.CPUHz
+	if hz == 0 {
+		hz = DefaultCPUHz
+	}
+	cyc := hz * uint64(m.PITDiv) / PITHz
+	if cyc == 0 {
+		cyc = 1
+	}
+	m.cycPerIRQ0 = cyc
+	if m.nextIRQ0Cyc > m.CPU.Cycles+cyc {
+		m.nextIRQ0Cyc = m.CPU.Cycles + cyc
+	}
+
+	if m.IRQ0Every == 0 {
+		return // 走週期模型，下面那份用不到
+	}
 	base := m.IRQ0Base
 	if base == 0 {
 		base = DefaultIRQ0Every
 	}
-	every := base * uint64(div) / PITDefaultDivisor
+	every := base * uint64(m.PITDiv) / PITDefaultDivisor
 	if every == 0 {
 		every = 1 // 分頻再小也要有間隔，否則每一道指令都送中斷
 	}
 	m.IRQ0Every = every
-	// 下一次中斷照新的間隔重排，不要沿用舊間隔算出來的時刻。
 	if m.nextIRQ0 > m.Steps+every {
 		m.nextIRQ0 = m.Steps + every
 	}
@@ -633,11 +679,19 @@ func (m *Machine) Step() error {
 // 開場停在 GRPDRV 的重畫迴圈裡（`docs/spec/008` §4、
 // yuan/workplace/boot-20260906-02）。
 func (m *Machine) tick() {
-	if m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0 {
-		m.nextIRQ0 = m.Steps + m.IRQ0Every
-		// **先掛起來，不要直接送。** 初始化期間大量 `CLI`，
-		// 當場丟掉的話那一段的 tick 全部消失。
-		m.irq0Pending = true
+	switch {
+	case m.IRQ0Every > 0: // 舊模型：指令數
+		if m.Steps >= m.nextIRQ0 {
+			m.nextIRQ0 = m.Steps + m.IRQ0Every
+			// **先掛起來，不要直接送。** 初始化期間大量 `CLI`，
+			// 當場丟掉的話那一段的 tick 全部消失。
+			m.irq0Pending = true
+		}
+	case m.cycPerIRQ0 > 0: // 週期模型
+		if m.CPU.Cycles >= m.nextIRQ0Cyc {
+			m.nextIRQ0Cyc = m.CPU.Cycles + m.cycPerIRQ0
+			m.irq0Pending = true
+		}
 	}
 	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
 		return
