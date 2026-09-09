@@ -99,3 +99,53 @@ func TestScreenFramesAreUniversal(t *testing.T) {
 		t.Errorf("OnFrame(nil) 之後又觸發了 %d 次", fired-was)
 	}
 }
+
+// TestAnimationFramesMatchSpeedTable 是 `docs/spec/187` §5 第 5 條的驗收，
+// 也是兩條獨立的路互相對帳：
+//
+//   - **位址節拍**（本測試）：`EachFrame` 掛在 `FrameWait`，數觸發次數。
+//   - **螢幕幀**（`cmd/frames` 錄影後做畫面差分）：大範圍重繪的間隔。
+//
+// 兩邊都該得到「骰數 × 每格幀數」。實測（2026-09-09，新開局、骰 8）：
+// 畫面差分得到 48 個像素幀、每格 6.0 幀、間隔 4 出現 47 次，
+// 對上 `rich2/docs/spec/059` 檔位 1 的「每格 6 幀」與
+// `rich2/docs/re/097`「新開局跑檔位 1」。
+//
+// ⚠ **移動時整個地圖區都會重繪**（`rich2/docs/re/093`：逐步移動動畫**與視窗
+// 跟隨**），所以畫面差分要看大範圍變化；小區塊的變化是別的東西
+// （買地對話框的 Yes／No 閃爍就是）。
+func TestAnimationFramesMatchSpeedTable(t *testing.T) {
+	o := load(t)
+	if err := rich2.ToBoard(o); err != nil {
+		t.Fatal(err)
+	}
+	player := rich2.Turn(o)
+	from := rich2.Position(o, player)
+
+	var frames int
+	stop := rich2.EachFrame(o, func(*oracle.Oracle) { frames++ })
+	defer stop()
+
+	if err := o.Click(rich2.BtnMoveX, rich2.BtnY); err != nil {
+		t.Fatal(err)
+	}
+	moved := oracle.NewCond("玩家位置改變", func(o *oracle.Oracle) bool {
+		return rich2.Position(o, player) != from || rich2.Turn(o) != player
+	})
+	if err := o.RunUntil(moved, oracle.Budget(150_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+
+	dice := rich2.Steps(o)
+	t.Logf("骰 %d：格 %d → %d，動畫幀 %d（每格 %.1f）",
+		dice, from, rich2.Position(o, player), frames, float64(frames)/float64(dice))
+	if dice <= 0 {
+		t.Fatal("骰數讀不到")
+	}
+	// 新開局是速度檔位 1 ＝ 每格 6 個像素幀（`rich2/docs/spec/059`）。
+	if want := dice * 6; frames != want {
+		t.Errorf("動畫幀 %d，預期 %d（骰 %d × 每格 6 幀）——"+
+			"節拍取錯了，或這一局不是檔位 1", frames, want, dice)
+	}
+}
