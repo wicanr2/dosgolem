@@ -916,7 +916,12 @@ func main() {
 	if *peek != "" {
 		dumpPeek(m, *peek)
 	}
-	if *dumpMem != "" {
+	// `-dump-mem` 有兩種寫法：`<lo>-<hi>:<檔名>`（範圍，`writeMemDump`
+	// 在上面已經處理完，可以一次給好幾段）與 `<位址>:<長度>:<檔名>`
+	// （`parseAddr` 的寫法，支援 `lin:`／`ds:`／段:位移）。
+	// **範圍那種到這裡要跳過，不能當成解析失敗**——不然檔案照樣寫出來了，
+	// 程式卻以 exit 1 結束，看起來像整趟跑壞掉。
+	if *dumpMem != "" && !strings.Contains(*dumpMem, "-") {
 		i := strings.LastIndex(*dumpMem, ":")
 		if i < 0 {
 			die(fmt.Errorf("-dump-mem 要寫成 <位址>:<長度>:<檔名>"))
