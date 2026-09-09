@@ -43,6 +43,11 @@ var (
 			"跑完印出最後 N 筆相異值（格式 `<seg>:<off>[:N]`，N 預設 40）。"+
 			"回答「剛剛那句話是哪一支腳本印的」——"+
 			"監看訊息緩衝只看得到最內層那支複製位元組的小函式，看不到誰叫它")
+	obsBCSeen = flag.String("bc-seen", "",
+		"位元碼追蹤（集合版）：`<seg>:<off>:<起>-<迄>`，在 [起,迄) 這段步數裡"+
+			"把執行到 `<seg>:<off>` 時的 `DS:SI` **全部**收成集合，跑完照第一次"+
+			"看到的順序印出來。`-bc-ring` 只留最後 N 筆，會被最內圈的緊迴圈灌滿；"+
+			"要看「這段時間有哪幾支腳本跑過」用這個")
 	obsPollLog = flag.Int("poll-log", 0,
 		"印出遊戲**按鍵不為零時**讀到的滑鼠輪詢（最多 N 筆，0 ＝ 不印）。"+
 			"回答「這一次點擊遊戲到底看到了什麼」——"+
@@ -75,6 +80,14 @@ var (
 	bcKeep       int
 	bcRing       []uint32
 	bcLast       uint32
+
+	bcSeenOn    bool
+	bcSeenSeg   uint16
+	bcSeenOff   uint16
+	bcSeenFrom  uint64
+	bcSeenTo    uint64
+	bcSeenSet   map[uint32]uint64
+	bcSeenOrder []uint32
 )
 
 // obsStep 每一道指令之前叫一次。掛鉤點四。
@@ -82,6 +95,15 @@ var (
 // **這裡要便宜。** 主迴圈一秒跑上千萬次，多一個 map 查詢就會讓
 // 十億道的觀測從一分鐘變成十分鐘。
 func obsStep(m *machine.Machine) {
+	if bcSeenOn && m.Steps >= bcSeenFrom && m.Steps < bcSeenTo {
+		if cs, ip := m.CPU.Op(); cs == bcSeenSeg && ip == bcSeenOff {
+			v := uint32(m.CPU.Seg[cpu.DS])<<16 | uint32(m.CPU.R[cpu.SI])
+			if _, ok := bcSeenSet[v]; !ok {
+				bcSeenSet[v] = m.Steps
+				bcSeenOrder = append(bcSeenOrder, v)
+			}
+		}
+	}
 	if !bcOn {
 		return
 	}
@@ -102,6 +124,23 @@ func obsStep(m *machine.Machine) {
 
 // obsSetup 在機器造好、還沒開跑之前掛上。掛鉤點一。
 func obsSetup(m *machine.Machine) {
+	if *obsBCSeen != "" {
+		f := strings.Split(*obsBCSeen, ":")
+		if len(f) != 3 {
+			die(fmt.Errorf("-bc-seen 要 <seg>:<off>:<起>-<迄>，收到 %q", *obsBCSeen))
+		}
+		seg, err1 := strconv.ParseUint(f[0], 16, 16)
+		off, err2 := strconv.ParseUint(f[1], 16, 16)
+		var from, to uint64
+		_, err3 := fmt.Sscanf(f[2], "%d-%d", &from, &to)
+		if err1 != nil || err2 != nil || err3 != nil || to <= from {
+			die(fmt.Errorf("-bc-seen 讀不出來：%q", *obsBCSeen))
+		}
+		bcSeenSeg, bcSeenOff = uint16(seg), uint16(off)
+		bcSeenFrom, bcSeenTo = from, to
+		bcSeenSet = map[uint32]uint64{}
+		bcSeenOn = true
+	}
 	if *obsBCRing != "" {
 		f := strings.Split(*obsBCRing, ":")
 		if len(f) < 2 {
@@ -186,6 +225,13 @@ func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 	}
 	fmt.Println()
 	obsReportPolls(m, d)
+	if bcSeenOn {
+		fmt.Printf("位元碼 PC（%04X:%04X，步數 %d–%d，共 %d 個相異值，照第一次看到的順序）：\n",
+			bcSeenSeg, bcSeenOff, bcSeenFrom, bcSeenTo, len(bcSeenOrder))
+		for _, v := range bcSeenOrder {
+			fmt.Printf("  %04X:%04X  #%d\n", v>>16, v&0xFFFF, bcSeenSet[v])
+		}
+	}
 	if bcOn {
 		fmt.Printf("位元碼 PC（%04X:%04X 上最後 %d 筆相異值，舊 → 新）：\n",
 			bcSeg, bcOff, len(bcRing))
