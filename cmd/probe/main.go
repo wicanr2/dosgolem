@@ -748,6 +748,7 @@ func main() {
 			ipw.push(m.CPU.Seg[cpu.CS], m.CPU.IP)
 		}
 		ring.push(m.CPU)
+		obsStep(m) // 觀測用的每一步掛鉤（observe.go）；沒開旗標時是一個比較
 		if runErr = m.Step(); runErr != nil {
 			break
 		}

@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -37,6 +38,11 @@ var (
 		"把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列得下最後幾筆）")
 	obsXMSFile = flag.String("xms-file", "",
 		"把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
+	obsBCRing = flag.String("bc-ring", "",
+		"位元碼追蹤：執行到 `<seg>:<off>` 時記下 `DS:SI`（直譯器的位元碼 PC），"+
+			"跑完印出最後 N 筆相異值（格式 `<seg>:<off>[:N]`，N 預設 40）。"+
+			"回答「剛剛那句話是哪一支腳本印的」——"+
+			"監看訊息緩衝只看得到最內層那支複製位元組的小函式，看不到誰叫它")
 	obsPollLog = flag.Int("poll-log", 0,
 		"印出遊戲**按鍵不為零時**讀到的滑鼠輪詢（最多 N 筆，0 ＝ 不印）。"+
 			"回答「這一次點擊遊戲到底看到了什麼」——"+
@@ -62,8 +68,60 @@ type obsRead struct {
 
 var obsReads []obsRead
 
+// 位元碼追蹤的狀態。`-bc-ring` 沒給時 bcOn 是 false，obsStep 只多一個比較。
+var (
+	bcOn         bool
+	bcSeg, bcOff uint16
+	bcKeep       int
+	bcRing       []uint32
+	bcLast       uint32
+)
+
+// obsStep 每一道指令之前叫一次。掛鉤點四。
+//
+// **這裡要便宜。** 主迴圈一秒跑上千萬次，多一個 map 查詢就會讓
+// 十億道的觀測從一分鐘變成十分鐘。
+func obsStep(m *machine.Machine) {
+	if !bcOn {
+		return
+	}
+	cs, ip := m.CPU.Op()
+	if cs != bcSeg || ip != bcOff {
+		return
+	}
+	v := uint32(m.CPU.Seg[cpu.DS])<<16 | uint32(m.CPU.R[cpu.SI])
+	if v == bcLast {
+		return // 同一個 PC 連續命中不記第二筆
+	}
+	bcLast = v
+	bcRing = append(bcRing, v)
+	if len(bcRing) > bcKeep {
+		bcRing = bcRing[len(bcRing)-bcKeep:]
+	}
+}
+
 // obsSetup 在機器造好、還沒開跑之前掛上。掛鉤點一。
 func obsSetup(m *machine.Machine) {
+	if *obsBCRing != "" {
+		f := strings.Split(*obsBCRing, ":")
+		if len(f) < 2 {
+			die(fmt.Errorf("-bc-ring 要 <seg>:<off>[:N]，收到 %q", *obsBCRing))
+		}
+		var seg, off uint64
+		var err1, err2 error
+		seg, err1 = strconv.ParseUint(f[0], 16, 16)
+		off, err2 = strconv.ParseUint(f[1], 16, 16)
+		if err1 != nil || err2 != nil {
+			die(fmt.Errorf("-bc-ring 的位址讀不出來：%q", *obsBCRing))
+		}
+		bcKeep = 40
+		if len(f) > 2 {
+			if n, err := strconv.Atoi(f[2]); err == nil && n > 0 {
+				bcKeep = n
+			}
+		}
+		bcSeg, bcOff, bcOn = uint16(seg), uint16(off), true
+	}
 	if *obsCPUHz > 0 {
 		m.CPUHz = *obsCPUHz
 		m.CycleClock = true
@@ -128,6 +186,13 @@ func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 	}
 	fmt.Println()
 	obsReportPolls(m, d)
+	if bcOn {
+		fmt.Printf("位元碼 PC（%04X:%04X 上最後 %d 筆相異值，舊 → 新）：\n",
+			bcSeg, bcOff, len(bcRing))
+		for _, v := range bcRing {
+			fmt.Printf("  %04X:%04X\n", v>>16, v&0xFFFF)
+		}
+	}
 	if *obsOPLLog != "" {
 		if err := obsWrite(*obsOPLLog, func(w *bufio.Writer) {
 			fmt.Fprintln(w, "# dosgolem OPL2 log：步數 暫存器 值")
