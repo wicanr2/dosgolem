@@ -43,6 +43,13 @@ func main() {
 	firstChunk := flag.Int("first-chunk", 700000000, "互動模式第一個控制邊界前的指令數（1至2000000000）")
 	waitTimeout := flag.Duration("wait-timeout", 15*time.Minute, "互動模式等待下一個 control.json 的上限")
 	cpuProfile := flag.String("cpuprofile", "", "CPU 剖析輸出路徑；只為量測用，預設關閉")
+	frameDir := flag.String("frame-dir", "", "逐幀 PNG 輸出目錄；空值不啟用")
+	frameStride := flag.Int("frame-stride", 20000, "逐幀取樣間隔（指令數）；0 表示只在 -frame-eip 取樣")
+	frameSettle := flag.Int("frame-settle", 0, "內容連續相同幾次取樣才寫出；0 表示一有變化就寫")
+	frameMax := flag.Int("frame-max", 4000, "逐幀輸出張數上限")
+	frameFrom := flag.Int("frame-from", 0, "逐幀擷取的起始指令數；之前不取樣")
+	frameTo := flag.Int("frame-to", 0, "逐幀擷取的結束指令數；0 表示不設上界")
+	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
 	flag.Parse()
 	if *cpuProfile != "" {
 		f, e := os.Create(*cpuProfile)
@@ -217,6 +224,21 @@ func main() {
 	// withFrame=false 時只寫狀態 JSON。current 一定與剛寫好的
 	// checkpoint-NNNN 同一時點，再編一次 PNG 沒有新資訊，卻是細粒度追蹤
 	// 每一步最大的一筆固定成本。
+	// readViewGlobals 只讀固定版本 FD2.EXE 的視圖全域：0x53AA9..0x53ABD 與
+	// 0x53BEF。逐幀擷取與控制邊界收據共用同一份讀法，避免兩邊漂移。
+	readViewGlobals := func() map[string]uint32 {
+		view := map[string]uint32{}
+		for key, addr := range map[string]uint32{
+			"camera_x": 0x53aa9, "camera_y": 0x53aad,
+			"cursor_x": 0x53ab1, "cursor_y": 0x53ab5,
+			"visible_x": 0x53ab9, "visible_y": 0x53abd,
+			"round": 0x53bef,
+		} {
+			v, _ := m.Read32(addr)
+			view[key] = v
+		}
+		return view
+	}
 	capture := func(label string, withFrame bool) {
 		pixels := m.Video.Indexed()
 		palette := m.Video.Palette()
@@ -251,16 +273,7 @@ func main() {
 				})
 			}
 		}
-		view := map[string]uint32{}
-		for key, addr := range map[string]uint32{
-			"camera_x": 0x53aa9, "camera_y": 0x53aad,
-			"cursor_x": 0x53ab1, "cursor_y": 0x53ab5,
-			"visible_x": 0x53ab9, "visible_y": 0x53abd,
-			"round": 0x53bef,
-		} {
-			v, _ := m.Read32(addr)
-			view[key] = v
-		}
+		view := readViewGlobals()
 		// BIOS 環形緩衝的頭尾在 0x41a／0x41c，兩者相差即尚未被遊戲取走的按鍵
 		// 數。驅動端要靠它決定「這一格該不該再送鍵」——固定速率送鍵會在遊戲
 		// 消化不及時撐爆緩衝。kbd_reads 是遊戲實際取走的鍵數，也就是有效推進
@@ -286,6 +299,111 @@ func main() {
 	}
 	dialogueArmed, dialogueIndex := false, 0
 	dialogueReceipts := []map[string]any{}
+
+	// ── 逐幀擷取 ────────────────────────────────────────────────────────
+	// mode13 沒有「換頁」這個動作：程式直接畫進 0xA0000，所以一幀的邊界要嘛
+	// 由取樣認定（內容變了就是新的一幀），要嘛由遊戲自己的繪圖進入點認定
+	// （-frame-eip）。兩者都只讀 VGA 記憶體與 EIP，不改執行語意；旗標沒給就
+	// 完全不進入這條路徑。
+	//
+	// 直接畫進畫面的程式在取樣點可能剛好畫到一半。-frame-settle 要求內容連續
+	// 相同幾次才寫出，用來過濾這種半成品；預設 0 表示不過濾，把每一個中間狀態
+	// 都留下來。
+	frameEIPValue := uint64(0)
+	if *frameEIP != "" {
+		v, e := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(*frameEIP, "0x"), "0X"), 16, 32)
+		if e != nil {
+			panic("frame-eip 不是十六進位位址")
+		}
+		frameEIPValue = v
+	}
+	if *frameDir != "" && *frameStride == 0 && frameEIPValue == 0 {
+		panic("frame-dir 需要 -frame-stride 或 -frame-eip 至少一項")
+	}
+	if *frameStride < 0 || *frameSettle < 0 || *frameMax < 1 ||
+		*frameFrom < 0 || *frameTo < 0 || (*frameTo > 0 && *frameTo <= *frameFrom) {
+		panic("逐幀參數越界")
+	}
+	frameIndex, frameNext, framePendingCount := 0, 0, 0
+	var frameLast, framePending [32]byte
+	var frameLog *os.File
+	if *frameDir != "" {
+		if e := os.MkdirAll(*frameDir, 0o700); e != nil {
+			panic(e)
+		}
+		f, e := os.OpenFile(filepath.Join(*frameDir, "frames.jsonl"),
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if e != nil {
+			panic(e)
+		}
+		frameLog = f
+		defer frameLog.Close()
+	}
+	captureFrame := func(reason string) {
+		if frameLog == nil || frameIndex >= *frameMax {
+			return
+		}
+		if steps < *frameFrom || (*frameTo > 0 && steps > *frameTo) {
+			return
+		}
+		pixels := m.Video.Indexed()
+		if len(pixels) != 64000 {
+			return
+		}
+		sum := sha256.Sum256(pixels)
+		if sum == frameLast {
+			framePendingCount = 0
+			return
+		}
+		if *frameSettle > 0 {
+			if sum != framePending {
+				framePending, framePendingCount = sum, 1
+				return
+			}
+			framePendingCount++
+			if framePendingCount <= *frameSettle {
+				return
+			}
+		}
+		palette := m.Video.Palette()
+		pal := make(color.Palette, 256)
+		for i, v := range palette {
+			pal[i] = color.RGBA{v[0], v[1], v[2], 255}
+		}
+		pic := image.NewPaletted(image.Rect(0, 0, 320, 200), pal)
+		copy(pic.Pix, pixels)
+		name := fmt.Sprintf("frame-%06d.png", frameIndex)
+		f, e := os.OpenFile(filepath.Join(*frameDir, name),
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if e != nil {
+			panic(e)
+		}
+		if e = png.Encode(f, pic); e != nil {
+			panic(e)
+		}
+		if e = f.Close(); e != nil {
+			panic(e)
+		}
+		base, _ := m.Read32(0x53a45)
+		count, _ := m.Read32(0x53beb)
+		record := map[string]any{
+			"index": frameIndex, "file": name, "step": steps, "reason": reason,
+			"eip":            fmt.Sprintf("0x%X", instructionEIP),
+			"indexed_sha256": fmt.Sprintf("%x", sum),
+			"view":           readViewGlobals(),
+			"unit_base":      base,
+			"unit_count":     count,
+			"port_3da_reads": opl.Reads[0x3da],
+			"palette_writes": opl.Writes[0x3c9],
+		}
+		d, _ := json.Marshal(record)
+		if _, e = fmt.Fprintf(frameLog, "%s\n", d); e != nil {
+			panic(e)
+		}
+		frameLast = sum
+		framePendingCount = 0
+		frameIndex++
+	}
 
 	for ; steps < *budget; steps++ {
 		if *runDir != "" && steps >= chunkEnd {
@@ -350,6 +468,15 @@ func main() {
 			timedIndex++
 		}
 		instructionEIP = m.CPU.EIP
+		if frameLog != nil {
+			if frameEIPValue != 0 && uint64(instructionEIP) == frameEIPValue {
+				captureFrame("eip")
+			}
+			if *frameStride > 0 && steps >= frameNext {
+				frameNext = steps + *frameStride
+				captureFrame("stride")
+			}
+		}
 		if *dialogueEnters > 0 || *dialogueFrames != "" {
 			if instructionEIP == 0x16c57 {
 				dialogueArmed = true
