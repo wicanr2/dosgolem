@@ -29,6 +29,19 @@ func (o *Oracle) Mouse() (x, y int) {
 	return int(o.d.Mouse.X), int(o.d.Mouse.Y)
 }
 
+// MousePollSteps 回每一次「取位置與鍵狀態」（`INT 33h AH=3`）發生在第幾道指令。
+//
+// 這是**遊戲輪詢迴圈的節拍**：等輸入的畫面每跑一圈就問一次滑鼠，所以相鄰兩筆
+// 的距離就是那個迴圈的週期。要判斷「畫面上的東西為什麼一閃一閃」時，
+// 拿它比對螢幕幀比猜快得多。
+func (o *Oracle) MousePollSteps() []uint64 {
+	out := make([]uint64, len(o.d.Mouse.Polls))
+	for i, p := range o.d.Mouse.Polls {
+		out[i] = p.Step
+	}
+	return out
+}
+
 // ClickOpt 調整一次點擊。
 type ClickOpt func(*clickCfg)
 
