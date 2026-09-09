@@ -48,6 +48,12 @@ var (
 			"把執行到 `<seg>:<off>` 時的 `DS:SI` **全部**收成集合，跑完照第一次"+
 			"看到的順序印出來。`-bc-ring` 只留最後 N 筆，會被最內圈的緊迴圈灌滿；"+
 			"要看「這段時間有哪幾支腳本跑過」用這個")
+	obsBCSub = flag.String("bc-sub", "",
+		"位元碼追蹤（副程式版）：`<seg>:<off>:<起>-<迄>[:N]`，在 [起,迄) 這段步數裡"+
+			"每次執行到 `<seg>:<off>` 就看 `BX`——直譯器跑一支位元碼副程式時，"+
+			"`BX` 是那一支的**對照表位址**（`xlat` 用的就是它），"+
+			"所以 `BX` 變了就是換了一支。輸出是換手的時間軸（最多 N 筆，預設 2000）。"+
+			"`-bc-seen` 回答「跑過哪些位元碼位址」，這個回答「那些位址屬於誰、誰叫誰」")
 	obsPollLog = flag.Int("poll-log", 0,
 		"印出遊戲**按鍵不為零時**讀到的滑鼠輪詢（最多 N 筆，0 ＝ 不印）。"+
 			"回答「這一次點擊遊戲到底看到了什麼」——"+
@@ -88,7 +94,23 @@ var (
 	bcSeenTo    uint64
 	bcSeenSet   map[uint32]uint64
 	bcSeenOrder []uint32
+
+	bcSubOn   bool
+	bcSubSeg  uint16
+	bcSubOff  uint16
+	bcSubFrom uint64
+	bcSubTo   uint64
+	bcSubKeep int
+	bcSubLast uint32
+	bcSubLog  []bcSubHit
 )
+
+// bcSubHit 是一次「換了一支位元碼副程式」。
+type bcSubHit struct {
+	step   uint64
+	ds, bx uint16 // 對照表位址：ds:bx
+	si     uint16 // 換手當下的位元碼 PC
+}
 
 // obsStep 每一道指令之前叫一次。掛鉤點四。
 //
@@ -101,6 +123,19 @@ func obsStep(m *machine.Machine) {
 			if _, ok := bcSeenSet[v]; !ok {
 				bcSeenSet[v] = m.Steps
 				bcSeenOrder = append(bcSeenOrder, v)
+			}
+		}
+	}
+	if bcSubOn && m.Steps >= bcSubFrom && m.Steps < bcSubTo {
+		if cs, ip := m.CPU.Op(); cs == bcSubSeg && ip == bcSubOff {
+			ds, bx := m.CPU.Seg[cpu.DS], m.CPU.R[cpu.BX]
+			v := uint32(ds)<<16 | uint32(bx)
+			if v != bcSubLast {
+				bcSubLast = v
+				if len(bcSubLog) < bcSubKeep {
+					bcSubLog = append(bcSubLog,
+						bcSubHit{step: m.Steps, ds: ds, bx: bx, si: m.CPU.R[cpu.SI]})
+				}
 			}
 		}
 	}
@@ -140,6 +175,28 @@ func obsSetup(m *machine.Machine) {
 		bcSeenFrom, bcSeenTo = from, to
 		bcSeenSet = map[uint32]uint64{}
 		bcSeenOn = true
+	}
+	if *obsBCSub != "" {
+		f := strings.Split(*obsBCSub, ":")
+		if len(f) != 3 && len(f) != 4 {
+			die(fmt.Errorf("-bc-sub 要 <seg>:<off>:<起>-<迄>[:N]，收到 %q", *obsBCSub))
+		}
+		seg, err1 := strconv.ParseUint(f[0], 16, 16)
+		off, err2 := strconv.ParseUint(f[1], 16, 16)
+		var from, to uint64
+		_, err3 := fmt.Sscanf(f[2], "%d-%d", &from, &to)
+		if err1 != nil || err2 != nil || err3 != nil || to <= from {
+			die(fmt.Errorf("-bc-sub 讀不出來：%q", *obsBCSub))
+		}
+		bcSubKeep = 2000
+		if len(f) == 4 {
+			if n, err := strconv.Atoi(f[3]); err == nil && n > 0 {
+				bcSubKeep = n
+			}
+		}
+		bcSubSeg, bcSubOff = uint16(seg), uint16(off)
+		bcSubFrom, bcSubTo = from, to
+		bcSubOn = true
 	}
 	if *obsBCRing != "" {
 		f := strings.Split(*obsBCRing, ":")
@@ -230,6 +287,14 @@ func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 			bcSeenSeg, bcSeenOff, bcSeenFrom, bcSeenTo, len(bcSeenOrder))
 		for _, v := range bcSeenOrder {
 			fmt.Printf("  %04X:%04X  #%d\n", v>>16, v&0xFFFF, bcSeenSet[v])
+		}
+	}
+	if bcSubOn {
+		fmt.Printf("位元碼副程式換手（%04X:%04X 上的 BX，步數 %d–%d，共 %d 筆）：\n",
+			bcSubSeg, bcSubOff, bcSubFrom, bcSubTo, len(bcSubLog))
+		for _, h := range bcSubLog {
+			fmt.Printf("  #%d  對照表 %04X:%04X  PC %04X:%04X\n",
+				h.step, h.ds, h.bx, h.ds, h.si)
 		}
 	}
 	if bcOn {
