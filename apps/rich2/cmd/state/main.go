@@ -27,7 +27,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	o, err := oracle.Load(*exe, *root)
+	o, err := rich2.Load(*exe, *root)
 	if err != nil {
 		die(err)
 	}
