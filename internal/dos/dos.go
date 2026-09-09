@@ -624,6 +624,16 @@ func New(m *machine.Machine, root string) *DOS {
 	}
 }
 
+// fromOwnStub 回報這一道 `int n` 是不是我們自己那支 stub 裡的那一道。
+//
+// stub 在 `StubSeg:StubOff(n)`，內容是 `CD n / CF`（`machine.initVectors`）。
+// 執行到那一道就表示有人跳到「裝我們的處理常式之前的舊向量」，
+// 這時該做的是**預設動作**，不是再查一次向量表。
+func fromOwnStub(c *cpu.CPU, n uint8) bool {
+	cs, ip := c.Op()
+	return cs == machine.StubSeg && ip == machine.StubOff(n)
+}
+
 // Install 把服務層掛到機器的中斷鉤子上。**要在 LoadEXE 之後叫**——
 // 它會記下映像後面的第一個可配置段。
 func (d *DOS) Install() {
@@ -643,8 +653,19 @@ func (d *DOS) Install() {
 //
 // 這條規則也順便處理了計時器（`int 08h`／`1Ch`）與 Ctrl-Break（`int 23h`）：
 // 程式裝了誰就跑誰的，不必逐個列白名單。
+//
+// ⚠ **例外：`int n` 本身就是我們那支 stub 的時候要接手**（`fromOwnStub`）。
+// 常駐程式的標準寫法是「`AH=35h` 存下舊向量 → `AH=25h` 裝自己的 →
+// 做完事之後跳回舊向量」。裝之前的舊向量就是我們的 stub，而 stub 的
+// 內容是 `int n; iret`——這時向量已經指著程式自己了，照上面那條規則
+// 放行的話 `int n` 會**再跳回程式自己的處理常式**，無限遞迴到堆疊用完。
+//
+// 症狀特別難認：畫面停在某一格，指令軌跡在 ISR 裡繞 12 道指令一圈，
+// SP 每圈掉 6 個 byte。看起來像遊戲卡住，不像向量鏈接錯。
+// 量到過（2026-09-09，源平合戰）：`OPEN.EXE` 掛 `int 1Ch` 之後，
+// 每一次計時器中斷都遞迴一層。
 func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
-	if seg := d.M.Read16(uint32(n)*4 + 2); seg != machine.StubSeg {
+	if seg := d.M.Read16(uint32(n)*4 + 2); seg != machine.StubSeg && !fromOwnStub(c, n) {
 		return false // 程式自己裝了處理常式
 	}
 	// Calls 記每一種 (中斷, AH) 呼叫過幾次。**只記不改行為**——
