@@ -70,12 +70,17 @@ const (
 	XMSTrapOff = 0x6C
 )
 
-// DefaultIRQ0Every 是計時器中斷的間隔，單位是**指令數**。
+// DefaultIRQ0Every 是**分頻 65536 時**計時器中斷的間隔，單位是指令數。
 //
-// 真機是 18.2 Hz（55 ms）。以 DOSBox 預設的 3,000 cycles/ms 換算大約
-// 165,000 道指令，這裡取整。用指令數而不是時間，是為了讓對拍決定性——
-// 同一組輸入永遠得到同一個畫面。
+// 真機開機的分頻就是 65536 ＝ 18.2065 Hz（55 ms）。以 DOSBox 預設的
+// 3,000 cycles/ms 換算大約 165,000 道指令，這裡取整。用指令數而不是時間，
+// 是為了讓對拍決定性——同一組輸入永遠得到同一個畫面。
+//
+// **程式改分頻的話這個間隔要跟著改**，見 `Machine.pitWrite`。
 const DefaultIRQ0Every = 165_000
+
+// PITDefaultDivisor 是 PIT 通道 0 的開機分頻。寫 0 的意思就是它。
+const PITDefaultDivisor = 65536
 
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
@@ -172,6 +177,19 @@ type Machine struct {
 	WatchDS   uint16
 	DSLoads   []SegChange
 
+	// IRQ0Base 是**分頻 65536 時**的間隔。程式改 PIT 的分頻時，
+	// IRQ0Every 由它按比例算出來（`pitWrite`）。
+	IRQ0Base uint64
+
+	// PITDiv 是 PIT 通道 0 現在的分頻值（1–65536）。唯讀，給報告用。
+	PITDiv uint32
+
+	// pitAccess／pitPhase／pitLo 是通道 0 分頻寫入的狀態機：
+	// 控制位元組（埠 43h）先說怎麼寫，再往埠 40h 寫一或兩個位元組。
+	pitAccess uint8
+	pitPhase  uint8
+	pitLo     uint8
+
 	// IRQ0Every 是每幾道指令送一次計時器中斷。0 ＝ 不送。
 	//
 	// 預設 DefaultIRQ0Every。**這個值影響動畫跑多快，不影響最終停下來的
@@ -235,6 +253,9 @@ func New() *Machine {
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
 		IRQ0Every: DefaultIRQ0Every,
+		IRQ0Base:  DefaultIRQ0Every,
+		PITDiv:    PITDefaultDivisor,
+		pitAccess: 3,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		rWatchLo: 1, rWatchHi: 0,
@@ -397,6 +418,11 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
 
+	// PIT（8253/8254）通道 0 的分頻。
+	if p == 0x40 || p == 0x43 {
+		m.pitWrite(p, v)
+	}
+
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
 	// 單看其中一個看不出寫了什麼。
 	switch p {
@@ -429,6 +455,68 @@ func (m *Machine) Out8(p uint16, v uint8) {
 			m.dacPhase = 0
 			m.dacIndex++ // 索引自動前進，所以整份調色盤可以一次寫完
 		}
+	}
+}
+
+// pitWrite 追蹤 PIT 通道 0 的分頻，並照比例調整 IRQ0 的間隔。
+//
+// ⚠ **不追這個的話，改過分頻的程式全部跑在錯的速度上，而且不會報錯。**
+// 常駐的音效驅動幾乎一定會把分頻調快（自己的音樂 tick 要細），再讓
+// 自己的 `int 08h` 每 N 次才鏈回 BIOS，好讓 18.2 Hz 的系統 tick 不變。
+// 只認 BIOS 的 18.2 Hz、不認分頻，等於把驅動的音樂 tick 也當成 18.2 Hz
+// ——遊戲裡任何「等 N 個驅動 tick」的迴圈就慢上一個數量級。
+//
+// 量過（源平合戰）：`FMDRV.COM` 把分頻設成 4096（291.3 Hz），開場每一幕
+// 都在等它的計數器。沒有這一段時 2 億道指令只走 268 個計數，開場一格都
+// 播不出來——而畫面停在 KOEI 標誌上，看起來像「還沒畫完」。
+//
+// 控制位元組（埠 43h）的版面：bit7–6 通道、bit5–4 存取方式
+// （0 ＝ 鎖存、1 ＝ 只寫低、2 ＝ 只寫高、3 ＝ 先低後高）、bit3–1 模式、
+// bit0 ＝ BCD。這裡只管通道 0 的分頻，模式與 BCD 不影響 IRQ0 的頻率。
+func (m *Machine) pitWrite(port uint16, v uint8) {
+	if port == 0x43 {
+		if v>>6 != 0 { // 只管通道 0
+			return
+		}
+		if a := (v >> 4) & 3; a != 0 { // 0 ＝ 鎖存，不改存取方式
+			m.pitAccess, m.pitPhase = a, 0
+		}
+		return
+	}
+	// 埠 40h：照存取方式組出分頻值。
+	switch m.pitAccess {
+	case 1: // 只寫低位元組
+		m.setPITDiv(uint32(v))
+	case 2: // 只寫高位元組
+		m.setPITDiv(uint32(v) << 8)
+	default: // 先低後高
+		if m.pitPhase == 0 {
+			m.pitLo, m.pitPhase = v, 1
+			return
+		}
+		m.pitPhase = 0
+		m.setPITDiv(uint32(m.pitLo) | uint32(v)<<8)
+	}
+}
+
+// setPITDiv 換分頻值，並按比例重算 IRQ0 的間隔。寫 0 的意思是 65536。
+func (m *Machine) setPITDiv(div uint32) {
+	if div == 0 {
+		div = PITDefaultDivisor
+	}
+	m.PITDiv = div
+	base := m.IRQ0Base
+	if base == 0 {
+		base = DefaultIRQ0Every
+	}
+	every := base * uint64(div) / PITDefaultDivisor
+	if every == 0 {
+		every = 1 // 分頻再小也要有間隔，否則每一道指令都送中斷
+	}
+	m.IRQ0Every = every
+	// 下一次中斷照新的間隔重排，不要沿用舊間隔算出來的時刻。
+	if m.nextIRQ0 > m.Steps+every {
+		m.nextIRQ0 = m.Steps + every
 	}
 }
 

@@ -23,6 +23,15 @@ type Snapshot struct {
 	nextIRQ0  uint64
 	pending   bool
 
+	// PIT 通道 0 的分頻與寫入狀態機。**漏抄的話還原之後計時器
+	// 會退回開機頻率**，而症狀是「同一個快照展開的變體跑得比原本慢」。
+	irq0Every uint64
+	irq0Base  uint64
+	pitDiv    uint32
+	pitAccess uint8
+	pitPhase  uint8
+	pitLo     uint8
+
 	ports   map[uint16]uint8
 	portsIn map[uint16]uint64
 
@@ -52,6 +61,12 @@ func (m *Machine) Snapshot() *Snapshot {
 		portTicks: m.portTicks,
 		nextIRQ0:  m.nextIRQ0,
 		pending:   m.irq0Pending,
+		irq0Every: m.IRQ0Every,
+		irq0Base:  m.IRQ0Base,
+		pitDiv:    m.PITDiv,
+		pitAccess: m.pitAccess,
+		pitPhase:  m.pitPhase,
+		pitLo:     m.pitLo,
 		ports:     map[uint16]uint8{},
 		portsIn:   map[uint16]uint64{},
 		dac:       m.DAC,
@@ -79,6 +94,8 @@ func (m *Machine) Restore(s *Snapshot) {
 
 	m.Steps, m.Ticks = s.steps, s.ticks
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.portTicks, s.nextIRQ0, s.pending
+	m.IRQ0Every, m.IRQ0Base, m.PITDiv = s.irq0Every, s.irq0Base, s.pitDiv
+	m.pitAccess, m.pitPhase, m.pitLo = s.pitAccess, s.pitPhase, s.pitLo
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.ports {

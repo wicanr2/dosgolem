@@ -195,7 +195,10 @@ func main() {
 		m.Write8(psp+0x81+uint32(len(b)), 0x0D)
 	}
 	if *tick > 0 {
-		m.IRQ0Every = *tick
+		// 設的是**分頻 65536 時**的間隔；程式改 PIT 的分頻時
+		// IRQ0Every 會照比例跟著走（`machine.pitWrite`）。
+		m.IRQ0Base = *tick
+		m.IRQ0Every = *tick * uint64(m.PITDiv) / machine.PITDefaultDivisor
 	}
 	m.TraceSegs = *segLog
 	m.RowWritesFrom = *rowWrites

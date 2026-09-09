@@ -44,6 +44,11 @@ type machineState struct {
 	NextIRQ0    uint64
 	IRQ0Pending bool
 	IRQ0Every   uint64
+	IRQ0Base    uint64
+	PITDiv      uint32
+	PITAccess   uint8
+	PITPhase    uint8
+	PITLo       uint8
 
 	Ports   map[uint16]uint8
 	PortsIn map[uint16]uint64
@@ -82,6 +87,11 @@ func (m *Machine) SaveState(w io.Writer) error {
 		NextIRQ0:    m.nextIRQ0,
 		IRQ0Pending: m.irq0Pending,
 		IRQ0Every:   m.IRQ0Every,
+		IRQ0Base:    m.IRQ0Base,
+		PITDiv:      m.PITDiv,
+		PITAccess:   m.pitAccess,
+		PITPhase:    m.pitPhase,
+		PITLo:       m.pitLo,
 		Ports:       map[uint16]uint8{},
 		PortsIn:     map[uint16]uint64{},
 		DAC:         append([]uint8(nil), m.DAC[:]...),
@@ -128,6 +138,19 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.Steps, m.Ticks = s.Steps, s.Ticks
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.PortTicks, s.NextIRQ0, s.IRQ0Pending
 	m.IRQ0Every = s.IRQ0Every
+	// 舊的狀態檔沒有這幾個欄位；讀到零值就退回開機預設，
+	// 不要讓分頻變成 0（那會讓 IRQ0 間隔算成 0）。
+	m.IRQ0Base, m.PITDiv = s.IRQ0Base, s.PITDiv
+	if m.IRQ0Base == 0 {
+		m.IRQ0Base = DefaultIRQ0Every
+	}
+	if m.PITDiv == 0 {
+		m.PITDiv = PITDefaultDivisor
+	}
+	m.pitAccess, m.pitPhase, m.pitLo = s.PITAccess, s.PITPhase, s.PITLo
+	if m.pitAccess == 0 {
+		m.pitAccess = 3
+	}
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.Ports {
