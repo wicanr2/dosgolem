@@ -50,6 +50,7 @@ func main() {
 	frameFrom := flag.Int("frame-from", 0, "逐幀擷取的起始指令數；之前不取樣")
 	frameTo := flag.Int("frame-to", 0, "逐幀擷取的結束指令數；0 表示不設上界")
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
+	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
 	flag.Parse()
 	if *cpuProfile != "" {
 		f, e := os.Create(*cpuProfile)
@@ -326,6 +327,27 @@ func main() {
 		*frameFrom < 0 || *frameTo < 0 || (*frameTo > 0 && *frameTo <= *frameFrom) {
 		panic("逐幀參數越界")
 	}
+	// eip-watch 是找繪圖路徑用的最小工具：對少數幾個位址計次，每一幀把當下的
+	// 累計值寫進收據。要回答「這一段畫面到底是誰畫的」時，逐幀畫面告訴你
+	// 「有沒有畫」，這個計數器告訴你「誰被呼叫了」。位址個數上限 16，用線性
+	// 掃描比對；沒給旗標就完全不比。
+	var eipWatchAddrs []uint32
+	var eipWatchHits []uint64
+	for _, part := range strings.Split(*eipWatch, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, e := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(part, "0x"), "0X"), 16, 32)
+		if e != nil {
+			panic("eip-watch 不是十六進位位址")
+		}
+		eipWatchAddrs = append(eipWatchAddrs, uint32(v))
+		eipWatchHits = append(eipWatchHits, 0)
+	}
+	if len(eipWatchAddrs) > 16 {
+		panic("eip-watch 位址超過 16 個")
+	}
 	frameIndex, frameNext, framePendingCount := 0, 0, 0
 	var frameLast, framePending [32]byte
 	var frameLog *os.File
@@ -397,6 +419,13 @@ func main() {
 			"unit_count":     count,
 			"port_3da_reads": opl.Reads[0x3da],
 			"palette_writes": opl.Writes[0x3c9],
+		}
+		if len(eipWatchAddrs) > 0 {
+			watch := map[string]uint64{}
+			for i, addr := range eipWatchAddrs {
+				watch[fmt.Sprintf("0x%X", addr)] = eipWatchHits[i]
+			}
+			record["eip_watch"] = watch
 		}
 		d, _ := json.Marshal(record)
 		if _, e = fmt.Fprintf(frameLog, "%s\n", d); e != nil {
@@ -470,6 +499,12 @@ func main() {
 			timedIndex++
 		}
 		instructionEIP = m.CPU.EIP
+		for i, addr := range eipWatchAddrs {
+			if instructionEIP == addr {
+				eipWatchHits[i]++
+				break
+			}
+		}
 		if frameLog != nil {
 			if frameEIPValue != 0 && uint64(instructionEIP) == frameEIPValue {
 				captureFrame("eip")
