@@ -22,12 +22,15 @@ type Snapshot struct {
 	portTicks uint64
 	nextIRQ0  uint64
 	pending   bool
+	keyQueue  []KeyEvent
+	keyData   uint8
 
 	// PIT 通道 0 的分頻與寫入狀態機。**漏抄的話還原之後計時器
 	// 會退回開機頻率**，而症狀是「同一個快照展開的變體跑得比原本慢」。
 	irq0Every uint64
 	irq0Base  uint64
 	cpuHz     uint64
+	cycClock  bool
 	cycles    uint64
 	cycPer    uint64
 	nextCyc   uint64
@@ -43,10 +46,23 @@ type Snapshot struct {
 	dacIndex uint8
 	dacPhase uint8
 
-	// planar 的畫面與暫存器（`docs/spec/013`）。**四個 plane 不在 mem
-	// 裡**，漏抄的話還原後畫面會是別的時間點的。
-	vga      vga
+	// ⚠ **平面模式的畫面不在 mem 裡。** 漏了這一段，從快照展開的機器
+	// 記憶體與 CPU 全對，畫面卻是還原之前的那一張——而那看起來像
+	// 「遊戲沒重畫」，不像「快照少存東西」。
 	planarOn bool
+	vga      *VGA
+
+	// ⚠ **回呼與週期時鐘也是狀態。** 漏了的話從快照展開的機器
+	// 「時鐘不會走」或「卡在一個永遠回不來的回呼裡」，
+	// 而記憶體與 CPU 全對——與 nextIRQ0 那個坑同一個形狀。
+	periodicOn                  bool
+	periodicSeg, periodicOff    uint16
+	periodicEvery, periodicNext uint64
+	periodicCalls               uint64
+	cbQueue                     []QueuedCall
+	cbSaved                     callbackFrame
+	cbActive                    bool
+	cbMade                      uint64
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -68,6 +84,7 @@ func (m *Machine) Snapshot() *Snapshot {
 		irq0Every: m.IRQ0Every,
 		irq0Base:  m.IRQ0Base,
 		cpuHz:     m.CPUHz,
+		cycClock:  m.CycleClock,
 		cycles:    m.CPU.Cycles,
 		cycPer:    m.cycPerIRQ0,
 		nextCyc:   m.nextIRQ0Cyc,
@@ -75,14 +92,28 @@ func (m *Machine) Snapshot() *Snapshot {
 		pitAccess: m.pitAccess,
 		pitPhase:  m.pitPhase,
 		pitLo:     m.pitLo,
+		keyQueue:  append([]KeyEvent(nil), m.keyQueue...),
+		keyData:   m.kbdData,
 		ports:     map[uint16]uint8{},
 		portsIn:   map[uint16]uint64{},
 		dac:       m.DAC,
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
-		vga:       *m.vga,
+		vga:       m.VGA.clone(),
 		planarOn:  m.planarOn,
+
+		periodicOn:    m.periodic.on,
+		periodicSeg:   m.periodic.seg,
+		periodicOff:   m.periodic.off,
+		periodicEvery: m.periodic.every,
+		periodicNext:  m.periodic.next,
+		periodicCalls: m.periodic.Calls,
+		cbQueue:       append([]QueuedCall(nil), m.cbQueue...),
+		cbSaved:       m.cbSaved,
+		cbActive:      m.cbActive,
+		cbMade:        m.cbMade,
 	}
+	s.vga = m.VGA.clone()
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
 		s.ports[k] = v
@@ -104,8 +135,9 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.portTicks, s.nextIRQ0, s.pending
 	m.IRQ0Every, m.IRQ0Base, m.PITDiv = s.irq0Every, s.irq0Base, s.pitDiv
 	m.pitAccess, m.pitPhase, m.pitLo = s.pitAccess, s.pitPhase, s.pitLo
-	m.CPUHz, m.CPU.Cycles = s.cpuHz, s.cycles
+	m.CPUHz, m.CPU.Cycles, m.CycleClock = s.cpuHz, s.cycles, s.cycClock
 	m.cycPerIRQ0, m.nextIRQ0Cyc = s.cycPer, s.nextCyc
+	m.keyQueue, m.kbdData = append(m.keyQueue[:0], s.keyQueue...), s.keyData
 
 	m.Ports = map[uint16]uint8{}
 	for k, v := range s.ports {
@@ -118,7 +150,14 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.PortLog = m.PortLog[:0]
 
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
-	*m.vga, m.planarOn = s.vga, s.planarOn
+	m.VGA.restore(s.vga)
+	m.planarOn = s.planarOn
+
+	m.periodic.on, m.periodic.seg, m.periodic.off = s.periodicOn, s.periodicSeg, s.periodicOff
+	m.periodic.every, m.periodic.next = s.periodicEvery, s.periodicNext
+	m.periodic.Calls = s.periodicCalls
+	m.cbQueue = append(m.cbQueue[:0], s.cbQueue...)
+	m.cbSaved, m.cbActive, m.cbMade = s.cbSaved, s.cbActive, s.cbMade
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

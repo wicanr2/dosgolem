@@ -25,7 +25,7 @@ func (d *DOS) country(c *cpu.CPU) {
 	}
 	at := uint32(machine.StubSeg)*16 + countryOff
 	tab := make([]byte, 34)
-	tab[0] = 2 // 日期格式：2 ＝ 年月日
+	tab[0] = 2                          // 日期格式：2 ＝ 年月日
 	copy(tab[2:], []byte{0x5C, 0x00})   // 貨幣符號（Shift-JIS 的 ¥）
 	copy(tab[7:], []byte{',', 0x00})    // 千分位
 	copy(tab[9:], []byte{'.', 0x00})    // 小數點

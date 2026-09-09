@@ -56,21 +56,128 @@ func (m *Machine) initBDA() {
 	b(0x8A, 0x08) // 顯示卡組合碼：VGA 彩色
 }
 
+// ModeChange 記一次視訊模式切換（除錯「畫了但 plane 是空的」：
+// 寫入發生在模式切換之前＝BDA 還是舊模式，planar 攔截不會動作）。
+type ModeChange struct {
+	Mode uint8
+	Step uint64
+}
+
 // SetVideoMode 把目前模式記進 BDA（`0040:0049`）。
 // `int 10h AH=00h` 與 `AH=0Fh` 兩邊都讀它，所以只留這一份。
 func (m *Machine) SetVideoMode(mode uint8) {
 	m.Mem[bdaSeg*16+0x49] = mode
+	m.ModeChanges = append(m.ModeChanges, ModeChange{Mode: mode, Step: m.Steps})
 	// mode 13h 是 320×200；欄數要跟著改，`AH=0Fh` 會回它。
 	if mode == 0x13 {
 		m.Write16(bdaSeg*16+0x4A, 40)
 	}
-	// planar 模式的 A0000 走另一條路（`docs/spec/013`）。設模式清畫面，
-	// 真機的 BIOS 也清。
-	m.planarOn = planarMode(mode)
-	if m.planarOn {
-		m.vgaReset()
+	// 平面模式的記憶體不在 Mem 裡（`docs/spec/007` §3.1／`013`）。
+	// 設模式清畫面，真機的 BIOS 也清。
+	if planarMode(mode) {
+		m.VGA.resetMode()
 	}
+	m.planarOn = m.planarActive()
 }
 
 // VideoMode 讀回目前模式。
 func (m *Machine) VideoMode() uint8 { return m.Mem[bdaSeg*16+0x49] }
+
+// PixelWidth 回目前模式的水平像素數。
+//
+// 滑鼠驅動的虛擬座標系固定是 640 寬，所以 320 寬的模式回報出去的 X 是
+// 像素的兩倍。**這個倍率不能寫死**：同一個執行器要同時服務 mode 13h
+// （320 寬，倍率 2）與 mode 12h（640 寬，倍率 1）的遊戲，寫死的話其中
+// 一邊的點擊會落在兩倍遠的地方——而畫面上完全看不出來，只是「點了沒反應」。
+func (m *Machine) PixelWidth() int {
+	switch m.VideoMode() {
+	case 0x04, 0x05, 0x0D, 0x13:
+		return 320
+	default:
+		return 640
+	}
+}
+
+// 鍵盤緩衝區（BDA `0040:001E`–`0040:003D`，16 筆 word）。
+//
+// 為什麼要真的做這個環形緩衝，而不是讓 `int 16h` 直接回一個鍵：
+// **很多程式不走 `int 16h`，直接讀 BDA 的頭尾指標判斷「有沒有按鍵」。**
+// 三國志（DOS 版）就是——`MAIN.EXE` 在 `0110:1AF6` 一帶把 `DS` 設成 `0x40`
+// 之後比對 `001A`／`001C`，兩者相等就繼續等。只補 `int 16h` 的話它一道都不會動，
+// 而且表面上完全正常（沒有未實作服務、沒有錯誤、CPU 一直在跑）。
+//
+// 頭 ＝ 下一個要讀的位置，尾 ＝ 下一個要寫的位置；頭 == 尾 表示空。
+// 尾追上頭表示滿——**留一格不用**，否則滿和空分不出來。
+
+const (
+	kbHead  = 0x1A
+	kbTail  = 0x1C
+	kbStart = 0x1E
+	kbEnd   = 0x3E
+)
+
+func (m *Machine) kbAdvance(p uint16) uint16 {
+	p += 2
+	if p >= kbEnd {
+		p = kbStart
+	}
+	return p
+}
+
+// PushBIOSKey 把一筆「掃描碼 ＋ ASCII」放進 BDA 的鍵盤緩衝區；滿了回 false。
+//
+// ⚠ 名字要與硬體佇列的 `PushKey`（IRQ1／埠 60h，keyboard.go）分開。
+// 兩條路餵的是不同的東西：這一條直接把鍵放進 BIOS 的緩衝區（程式讀 BDA
+// 或叫 `int 16h` 都拿得到），那一條送掃描碼中斷給程式自己的 `int 09h`。
+func (m *Machine) PushBIOSKey(scan, ascii uint8) bool {
+	base := uint32(bdaSeg * 16)
+	tail := m.Read16(base + kbTail)
+	next := m.kbAdvance(tail)
+	if next == m.Read16(base+kbHead) {
+		return false
+	}
+	m.Write16(base+uint32(tail), uint16(scan)<<8|uint16(ascii))
+	m.Write16(base+kbTail, next)
+	return true
+}
+
+// BIOSKeyCount 是緩衝區裡還沒被讀走的鍵數。
+func (m *Machine) BIOSKeyCount() int {
+	base := uint32(bdaSeg * 16)
+	head, tail := m.Read16(base+kbHead), m.Read16(base+kbTail)
+	if tail >= head {
+		return int(tail-head) / 2
+	}
+	return int((kbEnd-head)+(tail-kbStart)) / 2
+}
+
+// FlushKeys 把鍵盤緩衝區清空（頭 ＝ 尾），給 `int 21h AH=0Ch` 用。
+//
+// **要動的是指標，不是內容。** 把 0x1E–0x3D 那 32 個 byte 抹掉而不動頭尾的話，
+// 緩衝區裡還是「有」那幾筆，只是內容變成 0000——程式讀到的是一串
+// 不存在的鍵，比沒清更糟。
+func (m *Machine) FlushKeys() {
+	base := uint32(bdaSeg * 16)
+	m.Write16(base+kbHead, m.Read16(base+kbTail))
+}
+
+// PeekKey 回傳緩衝區最前面那一筆，不取走。
+func (m *Machine) PeekKey() (uint16, bool) {
+	base := uint32(bdaSeg * 16)
+	head := m.Read16(base + kbHead)
+	if head == m.Read16(base+kbTail) {
+		return 0, false
+	}
+	return m.Read16(base + uint32(head)), true
+}
+
+// PopKey 取走最前面那一筆。
+func (m *Machine) PopKey() (uint16, bool) {
+	v, ok := m.PeekKey()
+	if !ok {
+		return 0, false
+	}
+	base := uint32(bdaSeg * 16)
+	m.Write16(base+kbHead, m.kbAdvance(m.Read16(base+kbHead)))
+	return v, true
+}

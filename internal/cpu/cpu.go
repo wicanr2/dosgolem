@@ -243,6 +243,33 @@ func (c *CPU) Interrupt(n uint8) {
 	c.Halted = false
 }
 
+// OpAddr 回這一道指令的起點（含前綴）。診斷用：記「誰寫的」要記指令起點，
+// 不是已經走到下一道的 CS:IP。
+func (c *CPU) OpAddr() (uint16, uint16) { return c.opCS, c.opIP }
+
+// FarCall 從外面插一次遠呼叫：推 CS 與 IP，跳過去。
+//
+// **與 Interrupt 的差別是不推旗標、不清 IF**——被呼叫的是一支
+// `retf` 結尾的常式，不是 `iret` 結尾的中斷處理常式。推錯的話堆疊差兩個
+// byte，`retf` 會回到一個**看起來合法**的位址然後慢慢走歪。
+//
+// 只能在指令邊界叫（`Machine.tick` 就是那個位置）。
+func (c *CPU) FarCall(seg, off uint16) {
+	c.FarCallWithReturn(seg, off, c.Seg[CS], c.IP)
+}
+
+// FarCallWithReturn 是 FarCall 的變體：返回位址由呼叫端指定。
+//
+// 用途是**返回哨兵**——把返回位址指到一段我們認得的 stub，
+// 常式 `retf` 回到那裡時就知道「回呼跑完了」，可以把暫存器還原
+// （`docs/spec/009` §3.1）。
+func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
+	c.push(retSeg)
+	c.push(retOff)
+	c.Seg[CS], c.IP = seg, off
+	c.Halted = false
+}
+
 // Rewind 把 CS:IP 退回這一道指令的起點（含前綴）。
 //
 // 用途只有一個：**讓一道 `INT` 重新執行**。真實 DOS 的 `AH=3Fh` 讀 stdin
@@ -252,6 +279,13 @@ func (c *CPU) Interrupt(n uint8) {
 //
 // 退的是 opCS:opIP 而不是 `IP − 2`，因為前綴會讓指令長度不是 2。
 func (c *CPU) Rewind() { c.Seg[CS], c.IP = c.opCS, c.opIP }
+
+// Op 回**本道指令**的 CS:IP。
+//
+// ⚠ **不要用 `Seg[CS]:IP` 當「現在執行到哪」**——取指令會把 IP 推進，
+// 所以在指令執行到一半（例如記憶體寫入的當下）讀到的是**下一道**的位址。
+// 要回答「誰寫了這個位址」一定要用這一支。
+func (c *CPU) Op() (cs, ip uint16) { return c.opCS, c.opIP }
 
 // Error 是執行不下去時回傳的原因。CPU 自己不 panic——
 // 上層要能把「跑到沒實作的東西」與「程式自己出錯」分開記錄。
@@ -268,7 +302,6 @@ func (e *Error) Error() string {
 func (c *CPU) errf(op uint8, format string, a ...any) *Error {
 	return &Error{CS: c.opCS, IP: c.opIP, Op: op, Reason: fmt.Sprintf(format, a...)}
 }
-
 
 // DivError 是一次除以零的現場。
 type DivError struct{ CS, IP uint16 }

@@ -155,6 +155,14 @@ func (m *ssMeta) specOf(name string) (ssOpcode, bool) {
 }
 
 func TestSingleStep(t *testing.T) {
+	// `-short` 跳過整份語料。
+	//
+	// ⚠ **跳過不等於通過**（`docs/spec/002` §5：判準是「全部通過」）。
+	// 這個開關只給「迭代時想快點看到別的套件綠不綠」用；`tools/ci.sh`
+	// 把語料獨立成最後一步，那一步不帶 `-short`。
+	if testing.Short() {
+		t.Skip("-short：跳過 CPU 語料（收工前要跑完整的一輪）")
+	}
 	meta := loadMeta(t)
 	files, err := filepath.Glob(filepath.Join(testDir, "*.json.gz"))
 	if err != nil || len(files) == 0 {
@@ -172,7 +180,13 @@ func TestSingleStep(t *testing.T) {
 		if spec.Status == "fpu" {
 			continue
 		}
-		t.Run(name, func(t *testing.T) { runOpcodeFile(t, path, spec) })
+		// 每個 opcode 檔各自建自己的 CPU 與記憶體，彼此沒有共享狀態，
+		// 所以可以平行跑。**結果與順序無關**：每一筆語料都是
+		// 「擺好初始狀態 → 執行一道 → 比對」，不吃前一筆的殘留。
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			runOpcodeFile(t, path, spec)
+		})
 	}
 }
 

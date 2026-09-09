@@ -9,7 +9,9 @@
 
 ## 動手前
 
-1. 讀 `docs/spec/001-scope-and-mvp.md`（範圍與 MVP）。
+1. 讀 `docs/spec/001-scope-and-mvp.md`（範圍與 MVP）與 `docs/spec/000-index.md`
+   （規格索引）。**引用規格要連號碼帶檔名**（`009-memory-allocator`，不是 `009`）
+   ——十條分支各自從 007 開始編號，同一個號碼底下有最多八份不同主題的文件。
 2. **SDD：spec 齊了才實作。只有標 `READY` 的規格可以動手。**
    反組譯／量測 → 規格 → 才寫程式。
 3. 通用規則（含硬規則、docker 邊界）在 `rich2/CLAUDE.md`，這裡不重抄。
@@ -44,6 +46,8 @@ SingleStepTests 是**硬體產生的**，它與手冊衝突時**以它為準**�
 
 ```
 internal/cpu/      CPU 核心。不認識 DOS、不認識畫面、不認識檔案
+internal/dosfile/  DOS 檔案語意（handle 表、錯誤碼、seek／read 的號誌）。
+                   不認識暫存器寬度、不認識記憶體——16 與 32 位元兩條路共用
 internal/dos/      DOS 與 BIOS 服務
 internal/machine/  記憶體、載入器、PIT、VGA、滑鼠
 oracle/            對外的 Go API：Load／RunUntil／Click／Save／Search／OnCall

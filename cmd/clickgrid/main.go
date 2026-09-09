@@ -139,12 +139,14 @@ func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int,
 	held, waiting := false, false
 	if x >= 0 {
 		d.Mouse.X, d.Mouse.Y = uint16(x), uint16(y)
+		d.MouseEvent(dos.EvMove)
 		if premove > 0 {
 			waiting = true
 			pollsAtPress = len(d.Mouse.Polls)
 		} else {
 			d.Mouse.Buttons = 1
-			d.Mouse.Press++
+			d.Mouse.Press[0]++
+			d.MouseEvent(dos.EvLeftDown)
 			pollsAtPress = len(d.Mouse.Polls)
 			held = true
 		}
@@ -152,7 +154,8 @@ func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int,
 	for m.Steps < start+hold+settle && !m.CPU.Halted && !d.Exited {
 		if waiting && len(d.Mouse.Polls)-pollsAtPress >= premove {
 			d.Mouse.Buttons = 1
-			d.Mouse.Press++
+			d.Mouse.Press[0]++
+			d.MouseEvent(dos.EvLeftDown)
 			pollsAtPress = len(d.Mouse.Polls)
 			waiting, held = false, true
 		}
@@ -163,7 +166,8 @@ func run(stPath, root string, x, y int, hold, settle uint64, polls, premove int,
 			}
 			if done {
 				d.Mouse.Buttons = 0
-				d.Mouse.Release++
+				d.Mouse.Release[0]++
+				d.MouseEvent(dos.EvLeftUp)
 				held = false
 			}
 		}

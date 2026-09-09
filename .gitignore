@@ -9,3 +9,6 @@
 
 # go build ./cmd/probe 掉在根目錄的執行檔
 /probe
+# 對拍取樣器的預設輸出。**畫面是原版的**，不進版控。
+/shot.png
+/*.png

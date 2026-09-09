@@ -58,7 +58,7 @@ func TestSubSPThenPushSPPointsAtTheBlock(t *testing.T) {
 	if err := c.Step(); err != nil { // sub sp,4
 		t.Fatal(err)
 	}
-	block := c.R[SP] // 0x00FC，四個位元組的開頭
+	block := c.R[SP]                 // 0x00FC，四個位元組的開頭
 	if err := c.Step(); err != nil { // push sp
 		t.Fatal(err)
 	}

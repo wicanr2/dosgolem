@@ -7,7 +7,12 @@
 // 「記憶體長什麼樣」與「程式怎麼被載進去」。
 package machine
 
-import "github.com/wicanr2/dosgolem/internal/cpu"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/wicanr2/dosgolem/internal/cpu"
+)
 
 // 記憶體佈局。取值沿用 `rich2/tools/dosemu.py` 那一版——**它是實際把
 // `RUN.EXE` 跑到資產全部載完的那一份**，不是重新挑的。
@@ -19,16 +24,24 @@ const (
 	MCBSeg = 0x0060
 	LOLSeg = 0x0070
 
-	// StubSeg 放中斷向量的預設目標。**不是只有一個 IRET**——見 §2。
-	StubSeg = 0x0080
-
-	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。
-	EnvSeg = 0x0090
-
 	// EMSSeg 是 EMM 的 driver header（`docs/spec/014` §3.1）：
 	// 位移 0 是 trampoline、位移 0Ah 是簽章 `EMMXXXX0`。
 	// **偵測 EMS 的標準做法就是讀 int 67h 向量指的段、比對那 8 個位元組。**
-	EMSSeg = 0x00A0
+	//
+	// ⚠ 它在 MCBSeg 之前（0x0500–0x05FF），不是原本的 0x00A0——
+	// 那一格落在 stub 區裡面。
+	EMSSeg = 0x0050
+
+	// StubSeg 放中斷向量的預設目標。
+	//
+	// 位移 0x000–0x3FF：256 個向量各一段 stub（`CD n` ＋ `CF`）。
+	// 位移 0x400–0x4FF：特殊 stub（BIOS 計時器、服務型中斷的 trampoline）。
+	// 合起來佔 0x800–0xCFF——見 initVectors。
+	StubSeg = 0x0080
+
+	// EnvSeg 是環境區塊；`PSP+2Ch` 指向它。內容只有幾十 bytes，
+	// 但要留在 stub 區之後、PSP 之前。
+	EnvSeg = 0x00D0
 
 	// EMSFrameSeg 是 EMS 的 64 KB page frame。D0000–DFFFF 在 1 MB
 	// 空間裡沒有別的用途，程式對它的讀寫就是普通記憶體存取。
@@ -42,32 +55,45 @@ const (
 	MemTop = 0x9FFF
 
 	// VideoSeg 是 mode 13h 的畫面。
-	VideoSeg   = 0xA000
+	VideoSeg = 0xA000
+
+	// TextSeg 是彩色文字模式的畫面緩衝區。走文字模式的程式把字元與屬性
+	// 交錯寫在這裡，不經過 VideoSeg。
+	TextSeg    = 0xB800
 	VideoWidth = 320
 	VideoHigh  = 200
 )
 
-// mouseStubOff 是 `int 33h` 的向量指向的位移。
-//
-// `[HARD]` **那裡放的是 `90 CF`（`nop; iret`），不是 `CF`。**
-// 滑鼠偵測直接讀 `0000:00CC` 拿到段:位移，再讀**那個位址的第一個位元組**，
-// 是 `CFh` 就判定「沒有驅動」（`rich2/docs/re/182` §2）。
-// 所有向量都指到同一個 IRET 的話，遊戲從此不發 `int 33h`——
-// **而且沒有任何錯誤訊息**。
-const mouseStubOff = 0x10
+// stubStride 是每個向量的 stub 佔幾個 byte（`CD n` ＋ `CF` ＋ 對齊）。
+const stubStride = 4
 
-// biosTimerOff 是 `int 08h` 的 BIOS 預設處理在 StubSeg 裡的位移
-// （推進 `0040:006C` 再轉呼 `int 1Ch`，見 initVectors）。
-const biosTimerOff = 0x20
+// StubOff 回向量 n 的 stub 在 StubSeg 內的位移。
+func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 
-// 服務型中斷的 trampoline（`docs/spec/004` §2.1）：向量指向
-// `CD Fx / CF`（陷阱向量 ＋ IRET），TSR chain 回舊向量時服務還到得了。
+// 特殊 stub 的位移。**一定要在 per-vector stub 陣列（0x000–0x3FF）之後**
+// ——`cbRetInt` 是 0xFF，它的 stub 就落在 0x3FC。
 const (
-	DosTrapOff   = 0x60 // int 21h → int F2h
-	VideoTrapOff = 0x64 // int 10h → int F3h
-	ATrapOff     = 0x68 // int 15h → int F4h
+	specialStubBase = 0x400
+
+	// 服務型中斷的 trampoline。**號碼要與被服務的中斷不同**：
+	// 程式裝了自己的 `int 21h` 再 chain 回「舊向量」時，舊向量指的
+	// 就是這段；如果它裡面寫的是 `CD 21`，服務層的向量檢查會看到
+	// 向量已經被換掉而放行，CPU 於是又跳回程式自己的處理常式——
+	// 一個看不出來的無窮迴圈。改成 `CD F2` 就沒有這個問題，
+	// F2 的向量還指著 StubSeg。
+	DosTrapOff   = specialStubBase + 0x00 // int 21h → int F2h
+	VideoTrapOff = specialStubBase + 0x04 // int 10h → int F3h
+	ATrapOff     = specialStubBase + 0x08 // int 15h → int F4h
 	// XMSTrapOff 是 XMS driver entry（`docs/spec/011`）→ int F5h。
-	XMSTrapOff = 0x6C
+	XMSTrapOff = specialStubBase + 0x0C
+
+	// biosTimerOff 是 `int 08h` 的 BIOS 預設處理：推進 `0040:006C`
+	// 再轉呼 `int 1Ch`（見 initVectors）。
+	//
+	// ⚠ **它有 24 個 byte，不是 4 個。** 排在 trampoline 之後並留一整段，
+	// 否則它會把後面的 trampoline 蓋掉——而症狀是「int 10h 的向量指到
+	// `pop dx / pop ax / pop ds`」，看起來像向量算錯，不像佈局重疊。
+	biosTimerOff = specialStubBase + 0x20
 )
 
 // DefaultIRQ0Every 是**分頻 65536 時**計時器中斷的間隔，單位是指令數。
@@ -94,6 +120,10 @@ const DefaultCPUHz = 33_000_000
 // PITDefaultDivisor 是 PIT 通道 0 的開機分頻。寫 0 的意思就是它。
 const PITDefaultDivisor = 65536
 
+// DefaultKeyIRQEvery 是兩次鍵盤中斷的最小間隔，單位是**指令數**。
+// 取計時器間隔的一半：比一次畫面更新久，程式一定來得及把掃描碼收走。
+const DefaultKeyIRQEvery = DefaultIRQ0Every / 2
+
 // PortWrite 是一次埠寫入。音訊 parity 只需要這份序列，不必合成聲音
 // （`docs/spec/004` §6）。
 // OPLWrite 是一次 OPL2 暫存器寫入。
@@ -105,6 +135,11 @@ type OPLWrite struct {
 	Reg  uint8
 	Val  uint8
 	Step uint64
+	// Bank 是 OPL3 的哪一組暫存器：0 ＝ 0x388/0x389（OPL2 相容），
+	// 1 ＝ 0x38A/0x38B（OPL3 才有的第二組）。
+	//
+	// **只有 OPL2 的程式一律是 0**，所以既有的呼叫端不必理它。
+	Bank uint8
 }
 
 // VGAWrite 是一次 planar 寫入與當下的顯示卡狀態。
@@ -157,13 +192,29 @@ type Machine struct {
 	// 讀取監看（WatchReads）。rWatchLo > rWatchHi 表示關閉。
 	rWatchLo, rWatchHi uint32
 	onRead             func(addr uint32, v uint8)
-	onWrite          func(addr uint32, old, new uint8)
+	onWrite            func(addr uint32, old, new uint8)
 
-	oplReg          uint8
-	oplPresent      bool
-	oplTimerRunning bool
+	// OPL2／OPL3 的狀態。
+	//
+	// `oplReg` 是兩組各自的暫存器索引（0x388 與 0x38A 分開選）。
+	// `oplRegs` 是暫存器檔本身——**寫入序列與最終狀態是兩件事**：
+	// 序列看得出「怎麼做的」，狀態看得出「現在是什麼」。
+	// 對拍解碼器用前者，對拍某一刻的音色用後者。
+	oplReg     [2]uint8
+	oplRegs    [2][256]uint8
+	oplPresent bool
+	// 計時器：兩個各自有「啟動」與「遮罩」，狀態埠的 bit7 是兩者的 OR。
+	oplT1Started, oplT2Started bool
+	oplT1Masked, oplT2Masked   bool
 
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
+	// Coverage 記每一個被執行過的線性位址。nil 表示不記。
+	//
+	// **這是「哪些 byte 是程式碼」唯一直接的答案。** 打包過的執行檔
+	// 靜態反組譯是亂碼，IDA 對 raw dump 也不知道從哪裡開始；
+	// 拿執行過的位址當種子，種到的位置一定是程式碼，不是猜的。
+	Coverage []bool
+
 	Ports   map[uint16]uint8
 	PortLog []PortWrite
 
@@ -189,11 +240,22 @@ type Machine struct {
 	WatchDS   uint16
 	DSLoads   []SegChange
 
-	// CPUHz 是模擬的 CPU 時脈，時鐘走它（見 DefaultCPUHz）。
+	// CycleClock 打開之後計時器走 **CPU 週期**（CPUHz），不走指令數。
+	//
+	// ⚠ **預設關著。** 這是共用的模擬器，別的專案的對拍收據都建立在
+	// 指令數時鐘上；換時鐘會讓每一段動畫的相位都移位。要用的人自己開
+	// （`probe -cpuhz`）。兩種模型的量測比較見 `docs/spec/004` §5.2。
+	//
+	// **`IRQ0Every == 0` 的意思沒有變**：那是「不送計時器中斷」，
+	// 不是「改走週期」。把兩件事綁在同一個欄位上會讓
+	// `m.IRQ0Every = 0`（測試裡關計時器的慣用寫法）悄悄變成開週期時鐘。
+	CycleClock bool
+
+	// CPUHz 是模擬的 CPU 時脈，CycleClock 打開時走它（見 DefaultCPUHz）。
 	CPUHz uint64
 
 	// cycPerIRQ0 是兩次 IRQ0 之間幾個週期：CPUHz × 分頻 / PITHz。
-	cycPerIRQ0 uint64
+	cycPerIRQ0  uint64
 	nextIRQ0Cyc uint64
 
 	// IRQ0Base 是**舊模型**（指令數）在分頻 65536 時的間隔。
@@ -219,6 +281,37 @@ type Machine struct {
 	// Ticks 是送出去的計時器中斷次數。
 	Ticks uint64
 
+	// periodic 是「每 n 道指令遠呼叫一次」。真機上這種東西是別人的 TSR
+	// 掛在 PIT 上：《臥龍傳》的遊戲時鐘就是 `YNSOUND.COM` 用 291.3 Hz
+	// 的回呼推的（`docs/spec/008` §6）。**沒有它遊戲時鐘不會走**，
+	// 而畫面完全正常——只是日期永遠停在第一天。
+	periodic struct {
+		seg, off    uint16
+		every, next uint64
+		on          bool
+		Calls       uint64
+	}
+
+	// 從外面插進去的遠呼叫佇列（`internal/machine/callback.go`）。
+	cbQueue  []QueuedCall
+	cbSaved  callbackFrame
+	cbActive bool
+	cbMade   uint64
+
+	// a20 是位址線 20 的閘門，hma 是 1 MB 之上那 64 KB−16 的內容。
+	// 見 A20Enabled 的說明：預設關著（8086 的環繞行為）。
+	a20 bool
+	hma [HMASize]uint8
+
+	// 觀測用（probe.go）。沒設監看點時這幾個都是空的，
+	// 熱路徑只多一次長度檢查。
+	writeWatches []writeWatch
+	wordWatches  []wordWatch
+	breaks       map[int]uint32
+	nextProbe    int
+	insnCS       uint16
+	insnIP       uint16
+
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
@@ -240,16 +333,47 @@ type Machine struct {
 	RowWritesFrom  uint64
 	VideoRowWrites [1024]uint64
 
-	// vga 是 planar 模式的狀態（`docs/spec/013`）。planarOn 是
-	// 「目前模式是不是 planar」的快取，Read8／Write8 每次都要問。
-	vga      *vga
+	// VGA 是平面模式的狀態（`docs/spec/009`／`013`）：四個平面、
+	// 序列器、繪圖控制器、屬性控制器與 latch。planarOn 是
+	// 「目前模式是不是平面」的快取，Read8／Write8 每次都要問。
+	VGA      *VGA
 	planarOn bool
-
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
 	dacIndex uint8
 	dacPhase uint8
+
+	// WriteModeUse 統計 planar 寫入用過哪些 write mode（診斷用）。
+	WriteModeUse [4]uint64
+
+	// VRAMSites 統計「誰在寫視訊記憶體」——key ＝ CS<<16|IP（那一道指令的
+	// 起點）。**在沒有原始碼的情況下，這是找繪圖常式最短的一條路**：
+	// 畫面上看得到的東西，一定有人把它寫進 plane。
+	// nil ＝ 不統計（有額外開銷）。
+	VRAMSites map[uint32]uint64
+
+	// VRAMAt 限定只統計寫到這個位移的指令（−1 ＝ 全部）。盯單一像素用：
+	// 「這一點是誰畫的」比「誰畫得最多」更能定位。
+	VRAMAt int32
+
+	// ModeChanges 記錄每次模式切換（bda.go SetVideoMode）。
+	ModeChanges []ModeChange
+
+	// 硬體鍵盤（`keyboard.go`）。kbdData 是埠 0x60 讀得到的值、
+	// kbdPortB 是埠 0x61（程式用它做鍵盤 ack）。
+	keyQueue []KeyEvent
+	kbdData  uint8
+	kbdPortB uint8
+
+	// KeyIRQs 是實際送出去的鍵盤中斷數，keyStalls 是「有鍵但沒人裝
+	// int 09h」而留著沒送的次數。**送不出去與遊戲不理會是兩件事**，
+	// 沒有這兩個數字就分不開。
+	KeyIRQs   uint64
+	keyStalls uint64
+	nextKey   uint64
+	// KeyEvery 是兩次鍵盤中斷之間至少隔幾道指令。
+	KeyEvery uint64
 
 	// Steps 是已經執行的指令數。**不是週期數**——時序要等 M2
 	// （`docs/spec/004` §5）。
@@ -258,6 +382,11 @@ type Machine struct {
 	// FreeSeg 是映像之後第一個可配置的段。`int 21h AH=4Ah` 的探測要用它
 	// （`docs/spec/004` §1.2）。
 	FreeSeg uint16
+
+	// ProgramPath 是放進環境區塊的程式全路徑（DOS 形式，如 C:\GAME\X.EXE）。
+	// MSC 的啟動碼會讀它當 argv[0]。空的話用一個中性的預設值——
+	// **不要放某一支程式的路徑**，那是 per-program 的值。
+	ProgramPath string
 
 	// ImageBase／ImageLen 是載進去的映像位置與長度。
 	ImageBase uint32
@@ -272,15 +401,21 @@ func New() *Machine {
 		Mem:       make([]uint8, MemSize),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
-		IRQ0Every: 0, // 0 ＝ 走週期模型
+		IRQ0Every: DefaultIRQ0Every,
+		KeyEvery:  DefaultKeyIRQEvery,
 		IRQ0Base:  DefaultIRQ0Every,
 		CPUHz:     DefaultCPUHz,
 		PITDiv:    PITDefaultDivisor,
 		pitAccess: 3,
+		// **第一次計時器中斷排在一個完整週期之後。** 零值的話
+		// `m.Steps >= m.nextIRQ0` 在第 0 步就成立，程式的第一道指令
+		// 還沒執行就先被 int 08h 打斷——載入器把 IF 打開之後，
+		// 那變成每一支程式都會遇到，而症狀是「跑幾步就跑到別的地方去」。
+		nextIRQ0: DefaultIRQ0Every,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		rWatchLo: 1, rWatchHi: 0,
-		vga:     &vga{},
+		VGA: newVGA(),
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
@@ -292,17 +427,48 @@ func New() *Machine {
 	m.recalcIRQ0()
 	m.initBDA()
 	m.initVectors()
+	m.installCallbackStub()
 	return m
 }
 
 // ---- cpu.Bus ------------------------------------------------------------
 
+// A20 是位址線 20 的閘門。
+//
+// **關著（預設）＝ 8086 的行為**：位址在 1 MB 環繞回 0，`FFFF:0010` 與
+// `0000:0000` 是同一個位元組。程式**靠這個環繞偵測 HMA 在不在**
+// （寫 0000:0000 再讀 FFFF:0010，值一樣就是沒有 A20）。
+// 開了之後 1 MB 之上的 64 KB−16 才定址得到，那就是 HMA。
+//
+// ⚠ **預設關著**：真機開機後 A20 是關的，HIMEM.SYS 載入時才打開。
+// 預設開的話，靠環繞偵測的程式會判定「有 HMA」然後把資料搬進去，
+// 而它可能根本沒要求過（XMS `AH=03h`）——那是安靜的行為差異。
+func (m *Machine) A20Enabled() bool { return m.a20 }
+
+// SetA20 開關 A20（XMS 的 `AH=03h`–`06h` 走它）。
+func (m *Machine) SetA20(on bool) { m.a20 = on }
+
+// HMASize 是 HMA 的大小：64 KB 減 16 bytes（`FFFF:0010`–`FFFF:FFFF`）。
+const HMASize = 0x10000 - 16
+
+// hmaAddr 判斷一個線性位址落不落在 HMA，並回它在 HMA 裡的位移。
+func (m *Machine) hmaAddr(a uint32) (uint32, bool) {
+	if !m.a20 || a < MemSize || a >= MemSize+HMASize {
+		return 0, false
+	}
+	return a - MemSize, true
+}
+
 func (m *Machine) Read8(a uint32) uint8 {
+	if off, ok := m.hmaAddr(a); ok {
+		return m.hma[off]
+	}
 	a &= 0xFFFFF
-	// planar 模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
-	// ⚠ **讀它有副作用**：四個 latch 會被載入。
+	// 平面模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
+	// ⚠ **讀它有副作用**：四個 latch 會被載入，而 latch 決定之後那次
+	// 寫入在 Bit Mask 之外的位元（`docs/spec/011` §4）。
 	if m.planarOn && a >= vgaLo && a < vgaHi {
-		return m.vgaRead(a - vgaLo)
+		return m.VGA.Read(a - vgaLo)
 	}
 	if m.rWatchLo <= a && a <= m.rWatchHi {
 		m.onRead(a, m.Mem[a])
@@ -311,21 +477,33 @@ func (m *Machine) Read8(a uint32) uint8 {
 }
 
 func (m *Machine) Write8(a uint32, v uint8) {
+	if off, ok := m.hmaAddr(a); ok {
+		m.hma[off] = v
+		return
+	}
 	a &= 0xFFFFF
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
 		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，
 		// 除了看結果還得看它到底有沒有寫進去。
+		stride := m.planarStride()
 		if m.RowWritesFrom > 0 && m.Steps >= m.RowWritesFrom {
-			if r := int(a-vgaLo) / videoStride; r < len(m.VideoRowWrites) {
+			if r := int(a-vgaLo) / stride; r < len(m.VideoRowWrites) {
 				m.VideoRowWrites[r]++
 			}
+		}
+		// 用過哪些 write mode、誰在寫視訊記憶體——**畫面上看得到的東西，
+		// 一定有人把它寫進 plane**，這是沒有原始碼時找繪圖常式最短的路。
+		m.WriteModeUse[m.VGA.WriteMode()]++
+		if m.VRAMSites != nil && (m.VRAMAt < 0 || uint32(m.VRAMAt) == a-vgaLo) {
+			cs, ip := m.CPU.OpAddr()
+			m.VRAMSites[uint32(cs)<<16|uint32(ip)]++
 		}
 		// **留最後 40 筆，不是前 40 筆**：要知道畫面上最後是誰寫的，
 		// 前面那幾筆通常是被蓋掉的那一批。
 		if m.VGATraceRow1 > m.VGATraceRow0 && m.Steps >= m.RowWritesFrom {
 			off := int(a - vgaLo)
-			r, c := off/videoStride, off%videoStride
+			r, c := off/stride, off%stride
 			inCol := m.VGATraceCol1 == 0 || (c >= m.VGATraceCol0 && c < m.VGATraceCol1)
 			if r >= m.VGATraceRow0 && r < m.VGATraceRow1 && inCol {
 				m.VGATrace = append(m.VGATrace, m.vgaSnap(a-vgaLo, v, r))
@@ -334,13 +512,29 @@ func (m *Machine) Write8(a uint32, v uint8) {
 				}
 			}
 		}
-		m.vgaWrite(a-vgaLo, v)
+		m.VGA.Write(a-vgaLo, v)
 		return
 	}
 	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
 		m.onWrite(a, m.Mem[a], v)
 	}
+	if len(m.writeWatches) > 0 {
+		old := m.Mem[a]
+		m.Mem[a] = v
+		// ⚠ **值沒變也算一次寫入**（與 WatchWrites 不同）：
+		// 「誰在寫這個位址」與「這個值變了沒」是兩個問題，後者用 WatchWord。
+		m.noteWrite(a, old, v)
+		return
+	}
 	m.Mem[a] = v
+}
+
+// planarStride 是平面模式每一列的位元組數（寬 ÷ 8）。
+func (m *Machine) planarStride() int {
+	if w, _ := planarSize(m.VideoMode()); w > 0 {
+		return w / 8
+	}
+	return 80
 }
 
 // WatchWrites 監看一段線性位址的寫入。
@@ -396,14 +590,104 @@ func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
 // 但音樂路徑才會真的執行、`OPL` 才會有東西。
 func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
+// OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
+const (
+	oplT1Start  = 0x01 // 啟動計時器 1
+	oplT2Start  = 0x02 // 啟動計時器 2
+	oplT2Mask   = 0x20 // 遮罩計時器 2 的狀態位元
+	oplT1Mask   = 0x40 // 遮罩計時器 1 的狀態位元
+	oplIRQReset = 0x80 // 重置 IRQ 與兩個逾時旗標（**此時其他位元一律忽略**）
+)
+
+// oplStatus 組出狀態埠要回的值。
+func (m *Machine) oplStatus() uint8 {
+	if !m.oplPresent {
+		return 0x00
+	}
+	var v uint8
+	if m.oplT1Started && !m.oplT1Masked {
+		v |= 0x40
+	}
+	if m.oplT2Started && !m.oplT2Masked {
+		v |= 0x20
+	}
+	if v != 0 {
+		v |= 0x80 // bit7 是兩者的 OR
+	}
+	return v
+}
+
+// oplWrite 記一次 OPL 暫存器寫入，並更新暫存器檔與計時器狀態。
+//
+// bank 0 ＝ 0x388/0x389（OPL2 相容），1 ＝ 0x38A/0x38B（OPL3 第二組）。
+func (m *Machine) oplWrite(bank int, v uint8) {
+	reg := m.oplReg[bank]
+	m.oplRegs[bank][reg] = v
+	// 計時器控制只在第一組（OPL3 的第二組沒有 02h/03h/04h）。
+	if bank == 0 && reg == 0x04 {
+		if v&oplIRQReset != 0 {
+			// **bit7 一設，其他位元就不看了**（資料表如此）。
+			// 寫成 `switch` 之外的 `if` 會讓 `04h←80h` 順便去動遮罩。
+			m.oplT1Started, m.oplT2Started = false, false
+		} else {
+			m.oplT1Masked = v&oplT1Mask != 0
+			m.oplT2Masked = v&oplT2Mask != 0
+			if v&oplT1Start != 0 {
+				m.oplT1Started = true
+			}
+			if v&oplT2Start != 0 {
+				m.oplT2Started = true
+			}
+		}
+	}
+	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)})
+}
+
+// OPLRegs 回某一組暫存器的**目前狀態**（256 bytes）。
+//
+// **寫入序列與最終狀態是兩件事**：`OPL` 那一串看得出「怎麼做的」，
+// 這一份看得出「現在是什麼」。對拍解碼器用前者，
+// 對拍某一刻的音色用後者——後者不受「多寫了一次同樣的值」影響。
+func (m *Machine) OPLRegs(bank int) [256]uint8 {
+	if bank < 0 || bank > 1 {
+		return [256]uint8{}
+	}
+	return m.oplRegs[bank]
+}
+
+// ClearOPL 清掉暫存器寫入序列，**但不動暫存器檔與計時器狀態**。
+//
+// 用來框出「只有這一段」的寫入：走到某個畫面之後清一次，
+// 接下來收到的就只有那一段的。清掉狀態的話下一段會從一台
+// 剛開機的晶片開始，那與原版的實際情況不同。
+func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
+
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
-	if v, ok := m.vgaIn(port); ok {
+	if v, ok := m.VGA.In(port); ok {
 		return v
 	}
 	switch {
+	case port == 0x60:
+		// 鍵盤資料埠。**沒有硬體鍵盤時這裡回 0xFF**，而 0xFF 的 bit7 是
+		// 「放開」——自己裝 IRQ1 的程式會把每一次都當成放開而忽略，
+		// 所以它照樣跑、照樣輪詢，只是永遠收不到鍵（`docs/spec/014`）。
+		return m.kbdData
+	case port == 0x61:
+		// 系統控制埠。ISR 用它 ack 鍵盤（bit7 設起再清掉）。
+		return m.kbdPortB
+	case port == 0x64:
+		// 鍵盤控制器狀態：bit0 ＝ 輸出緩衝區有資料。
+		if len(m.keyQueue) > 0 {
+			return 0x15
+		}
+		return 0x14
 	case port == 0x3DA:
+		// ⚠ **讀 3DA 會重設屬性控制器的索引／資料 flip-flop。**
+		// 程式就是用它來確保「下一次寫 3C0 是索引」；不做的話我們的
+		// 相位會與程式相反，整份調色盤錯位。
+		m.VGA.ResetACFlip()
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
 		if (m.portTicks>>4)&1 != 0 {
@@ -413,7 +697,13 @@ func (m *Machine) In8(port uint16) uint8 {
 	case port >= 0x40 && port <= 0x42:
 		return uint8(-int(m.portTicks)) // PIT 是遞減計數器
 	case port == 0x388:
-		// OPL2 狀態埠。
+		// OPL2／OPL3 狀態埠。
+		//
+		// ⚠ **只有 0x388 當狀態埠，0x38A 維持預設的 0xFF。**
+		// OPL3 的偵測序列讀的是基底埠，沒有任何已知的序列讀 0x38A；
+		// 把它也接成狀態埠會讓「以前讀到 0xFF 的程式」改讀到 0x00，
+		// 而這是一個**共用**的機器層——別的專案的偵測邏輯可能靠那個值。
+		// 0x38A／0x38B 的**寫入**照樣走 OPL3 第二組（見 Out8）。
 		//
 		// **預設回 0 ＝ 偵測不到 AdLib，整段音樂路徑會被跳過**——那讓
 		// 開機快很多，所以是預設。要對拍音樂就得讓偵測過關（`AdLib(true)`）。
@@ -421,17 +711,18 @@ func (m *Machine) In8(port uint16) uint8 {
 		// 過關要的不是一個定值：原版走的是標準的 AdLib 偵測序列
 		// （`rich2/docs/re/011` §4），它**先要求狀態是 0、啟動計時器之後
 		// 再要求是 0xC0**。回定值 0xC0 會在第一次檢查就被判定失敗，
-		// 回定值 0 則在第二次失敗——兩種定值都過不了，所以這裡照著
-		// 暫存器 04h 的寫入切換。
-		if !m.oplPresent {
-			return 0x00
-		}
-		if m.oplTimerRunning {
-			return 0xC0 // bit7 IRQ ＋ bit6 timer1 逾時
-		}
-		return 0x00
-	case port == 0x61:
-		return 0x00
+		// 回定值 0 則在第二次失敗——兩種定值都過不了。
+		//
+		// 這裡照 YM3812 的狀態位元組合：
+		//
+		//	bit7 = 兩個計時器的逾時旗標的 OR（IRQ）
+		//	bit6 = 計時器 1 逾時   bit5 = 計時器 2 逾時
+		//
+		// 「逾時」在這裡的模型是「啟動了而且沒有被遮罩」——這台機器沒有
+		// 真實時間，而偵測序列在啟動之後一定會先延遲再讀。
+		// **遮罩位元要照做**：偵測序列的第一步就是 `04h←60h`（兩個都遮），
+		// 不理它的話那一步就會讀到非零而判定失敗。
+		return m.oplStatus()
 	}
 	return 0xFF
 }
@@ -439,6 +730,13 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
+	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話
+	// 它會把一個亂數寫進去，而那個亂數的低位元管的是喇叭與 RAM 檢查。
+	if p == 0x61 {
+		m.kbdPortB = v
+	}
 
 	// PIT（8253/8254）通道 0 的分頻。
 	if p == 0x40 || p == 0x43 {
@@ -449,23 +747,22 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// 單看其中一個看不出寫了什麼。
 	switch p {
 	case 0x388:
-		m.oplReg = v
+		m.oplReg[0] = v
+	case 0x38A:
+		m.oplReg[1] = v
 	case 0x389:
-		if m.oplReg == 0x04 { // 計時器控制
-			switch {
-			case v&0x80 != 0: // bit7 ＝ 重置 IRQ 與狀態
-				m.oplTimerRunning = false
-			case v&0x01 != 0: // bit0 ＝ 啟動計時器 1
-				m.oplTimerRunning = true
-			}
-		}
-		m.OPL = append(m.OPL, OPLWrite{Reg: m.oplReg, Val: v, Step: m.Steps})
+		m.oplWrite(0, v)
+	case 0x38B:
+		m.oplWrite(1, v)
 	}
 
 	// VGA DAC。**沒有它就只有色號沒有顏色**，而色號陣列自己看起來完全正常
 	// ——畫面比對會變成「圖形對了但顏色全錯」，卻查不出顏色是誰的責任。
-	// Sequencer 與 Graphics Controller（`docs/spec/013` §3.2）。
-	m.vgaOut(p, v)
+	// 序列器、繪圖控制器與屬性控制器（`docs/spec/013` §3.2）。
+	if m.VGA.Out(p, v) {
+		// Map Mask 被寫成非預設值也算「進了平面模式」，見 planarActive。
+		m.planarOn = m.planarActive()
+	}
 
 	switch p {
 	case 0x3C8: // 設寫入索引
@@ -478,6 +775,7 @@ func (m *Machine) Out8(p uint16, v uint8) {
 			m.dacIndex++ // 索引自動前進，所以整份調色盤可以一次寫完
 		}
 	}
+
 }
 
 // pitWrite 追蹤 PIT 通道 0 的分頻，並照比例調整 IRQ0 的間隔。
@@ -545,12 +843,15 @@ func (m *Machine) recalcIRQ0() {
 		cyc = 1
 	}
 	m.cycPerIRQ0 = cyc
-	if m.nextIRQ0Cyc > m.CPU.Cycles+cyc {
+	// **第一次中斷排在一個完整週期之後**，理由與 nextIRQ0 那一行相同：
+	// 零值的話 `Cycles >= nextIRQ0Cyc` 在第 0 步就成立，程式的第一道
+	// 指令還沒執行就先被 int 08h 打斷。
+	if m.nextIRQ0Cyc == 0 || m.nextIRQ0Cyc > m.CPU.Cycles+cyc {
 		m.nextIRQ0Cyc = m.CPU.Cycles + cyc
 	}
 
 	if m.IRQ0Every == 0 {
-		return // 走週期模型，下面那份用不到
+		return // 計時器關著，下面那份用不到
 	}
 	base := m.IRQ0Base
 	if base == 0 {
@@ -581,18 +882,24 @@ func (m *Machine) Palette() [256][3]uint8 {
 
 // ---- 記憶體存取的便利函式 ------------------------------------------------
 
+// ⚠ **這三支要走 Read8／Write8，不能直接碰 Mem。**
+// 平面模式下 `A0000` 之後不在 Mem 裡，直接碰的話「程式把檔案讀進 VRAM」
+// 這條路徑會安靜地寫到一塊沒人看的記憶體，畫面上什麼都不會出現。
 func (m *Machine) Read16(a uint32) uint16 {
-	return uint16(m.Mem[a&0xFFFFF]) | uint16(m.Mem[(a+1)&0xFFFFF])<<8
+	return uint16(m.Read8(a)) | uint16(m.Read8(a+1))<<8
 }
 
 func (m *Machine) Write16(a uint32, v uint16) {
-	m.Mem[a&0xFFFFF] = uint8(v)
-	m.Mem[(a+1)&0xFFFFF] = uint8(v >> 8)
+	m.Write8(a, uint8(v))
+	m.Write8(a+1, uint8(v>>8))
 }
 
 func (m *Machine) WriteBytes(a uint32, b []byte) {
+	// **監看也要涵蓋批次寫入。** 檔案讀取、映像載入與 EXEC 都走這一條，而那
+	// 正是「這一格是誰寫的」最常見的答案。繞過 Write8 的話監看會安靜地漏掉
+	// 它們——看起來像「沒有人寫過」，實際上是整塊被蓋掉了。
 	for i, v := range b {
-		m.Mem[(a+uint32(i))&0xFFFFF] = v
+		m.Write8(a+uint32(i), v)
 	}
 }
 
@@ -614,15 +921,30 @@ func (m *Machine) Indexed() []uint8 {
 // MaxSegLog 是 SegLog（ring）保留的筆數。
 const MaxSegLog = 100_000
 
+// Step 執行一道指令，必要時先送 IRQ1或IRQ0。
 func (m *Machine) Step() error {
 	m.tick()
+	m.keyTick()
 	m.Steps++
+	if m.Coverage != nil {
+		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
+			m.Coverage[a] = true
+		}
+	}
+	m.insnCS, m.insnIP = m.CPU.Seg[cpu.CS], m.CPU.IP
 	if !m.TraceSegs && !m.WatchDSOn {
-		return m.CPU.Step()
+		err := m.CPU.Step()
+		if len(m.wordWatches) > 0 {
+			m.pollWords()
+		}
+		return err
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
 	prevDS := m.CPU.Seg[cpu.DS]
 	err := m.CPU.Step()
+	if len(m.wordWatches) > 0 {
+		m.pollWords()
+	}
 
 	if m.WatchDSOn && m.CPU.Seg[cpu.DS] == m.WatchDS && prevDS != m.WatchDS &&
 		len(m.DSLoads) < MaxSegLog {
@@ -679,21 +1001,38 @@ func (m *Machine) Step() error {
 // 開場停在 GRPDRV 的重畫迴圈裡（`docs/spec/008` §4、
 // yuan/workplace/boot-20260906-02）。
 func (m *Machine) tick() {
+	// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
+	// 事件是有時序意義的，週期回呼晚一格沒差。
+	if m.startCallback() {
+		return
+	}
+	// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
+	// 遊戲的回呼，遊戲那一支自己 `cli/pushf … popf/retf`。
+	// 掛在 IF 上的話初始化期間那一大段 `cli` 會把時鐘整個吃掉。
+	if m.periodic.on && m.Steps >= m.periodic.next {
+		m.periodic.next = m.Steps + m.periodic.every
+		m.periodic.Calls++
+		m.CPU.FarCall(m.periodic.seg, m.periodic.off)
+		return
+	}
 	switch {
-	case m.IRQ0Every > 0: // 舊模型：指令數
+	case m.CycleClock: // 週期時鐘（`docs/spec/004` §5.1）
+		if m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc {
+			m.nextIRQ0Cyc = m.CPU.Cycles + m.cycPerIRQ0
+			m.irq0Pending = true
+		}
+	case m.IRQ0Every > 0: // 指令數時鐘（預設）
 		if m.Steps >= m.nextIRQ0 {
 			m.nextIRQ0 = m.Steps + m.IRQ0Every
 			// **先掛起來，不要直接送。** 初始化期間大量 `CLI`，
 			// 當場丟掉的話那一段的 tick 全部消失。
 			m.irq0Pending = true
 		}
-	case m.cycPerIRQ0 > 0: // 週期模型
-		if m.CPU.Cycles >= m.nextIRQ0Cyc {
-			m.nextIRQ0Cyc = m.CPU.Cycles + m.cycPerIRQ0
-			m.irq0Pending = true
-		}
 	}
-	if !m.irq0Pending || !m.CPU.Flag(cpu.IF) {
+	if !m.CPU.Flag(cpu.IF) {
+		return
+	}
+	if !m.irq0Pending {
 		return
 	}
 	m.irq0Pending = false
@@ -701,24 +1040,98 @@ func (m *Machine) tick() {
 	m.CPU.Interrupt(0x08)
 }
 
+// SetPeriodicFarCall 登記「每 every 道指令遠呼叫 seg:off 一次」。
+//
+// every ＝ 0 或位址是 0:0 都當成取消。
+func (m *Machine) SetPeriodicFarCall(seg, off uint16, every uint64) {
+	if every == 0 || (seg == 0 && off == 0) {
+		m.periodic.on = false
+		return
+	}
+	m.periodic.seg, m.periodic.off = seg, off
+	m.periodic.every, m.periodic.next = every, m.Steps+every
+	m.periodic.on = true
+}
+
+// ClearPeriodicFarCall 取消登記。
+func (m *Machine) ClearPeriodicFarCall() { m.periodic.on = false }
+
+// PeriodicCalls 是已經發出去幾次。**收工前看一眼**：0 次表示登記沒生效，
+// 而那與「遊戲不看時鐘」長得一模一樣。
+func (m *Machine) PeriodicCalls() uint64 { return m.periodic.Calls }
+
+// QueueScanCodes 是 QueueScan 的別名（IBM PC/AT Set 1 掃描碼，
+// bit7 立著是放開）。
+func (m *Machine) QueueScanCodes(codes ...uint8) { m.QueueScan(codes...) }
+
+// bumpBDATicks 推進 `0040:006C` 的 32 位元計數，並在跨日時設 `0040:0070`。
+// 有些程式直接讀它算時間，不裝任何 ISR。
+func (m *Machine) bumpBDATicks() {
+	const at = 0x0040*16 + 0x6C
+	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
+	v++
+	if v >= 0x001800B0 { // 一天的 tick 數
+		v = 0
+		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
+	}
+	m.Write16(at, uint16(v))
+	m.Write16(at+2, uint16(v>>16))
+}
+
 // ---- 中斷向量表 ----------------------------------------------------------
 
-// initVectors 把 256 個向量全部指到 StubSeg 的 stub。
+// initVectors 給每個向量一段自己的 stub：`int n` ＋ `iret`。
 //
-// 兩件事同時要滿足（`docs/spec/003` §2）：
+// 三件事同時要滿足（`docs/spec/003` §2、`docs/spec/011` §2）：
 //
 //  1. **每一個向量都要是合法位址。** 取到 `0000:0000` 的程式跳過去會執行
 //     到垃圾（`rich2/docs/re/005` §3.2）。
-//  2. **`int 33h` 的目標第一個位元組不能是 `CFh`。** 見 mouseStubOff。
+//  2. **第一個位元組不能是 `CFh`。** 滑鼠偵測直接讀 `0000:00CC` 拿到
+//     段:位移，再讀**那個位址的第一個位元組**，是 `CFh` 就判定
+//     「沒有驅動」（`rich2/docs/re/182` §2）。所有向量都指到同一個 IRET
+//     的話，遊戲從此不發 `int 33h`——而且沒有任何錯誤訊息。
+//     每個 stub 的第一個位元組都是 `CDh`，這條自然成立。
+//  3. **[HARD] stub 裡要真的有 `int n`，不能只是 `iret`。** 服務層掛在
+//     CPU 執行 `INT` 指令的 hook 上；程式若改用「`AH=35h` 取向量 → 直接
+//     跳過去」（C 的 `int86x` 就是這樣做的），那條路完全繞過 hook，
+//     落在 `iret` 上就是**安靜地什麼都不做**：暫存器原樣回去，沒有錯誤、
+//     沒有 unimplemented 記錄，只有畫面或資料悄悄不對
+//     （`~/cht/logh3/docs/re/06`：整份調色盤因此永遠是黑的）。
 //
-// 另外 `int 08h` 指向一段真的 BIOS 預設處理（biosTimerOff）：
-// 推進 `0040:006C` 再轉呼 `int 1Ch`。程式裝自己的 int 08h 時存下的
-// 「舊向量」就是它，chain 回來 BIOS 行為就在（見 tick 的註解）。
-// 跨日重置（0040:0070）不做——24 小時才會到，對拍跑不到。
+// 三個向量另外指到特殊 stub（`docs/spec/004` §2.1、`docs/spec/011` §2）：
+//
+//   - `int 21h`／`int 10h`／`int 15h` 指到 `CD F2`／`CD F3`／`CD F4`。
+//     **號碼要跟被服務的中斷不同**，理由見 DosTrapOff 的說明：TSR 掛了
+//     自己的 int 21h 再 chain 回舊向量時，`CD 21` 會繞回它自己。
+//   - `int 08h` 指到一段真的 BIOS 預設處理（推進 `0040:006C` 再轉呼
+//     `int 1Ch`）。程式裝自己的 int 08h 時存下的「舊向量」就是它，
+//     chain 回來 BIOS 行為就在（見 tick 的註解）。跨日重置（`0040:0070`）
+//     不做——24 小時才會到，對拍跑不到。
+//   - `int 67h` 指到 EMSSeg 的 EMM 驅動 header，那裡有 `EMMXXXX0` 簽章。
+//
+// ⚠ **其餘被服務層接手的中斷（16h／33h／13h／1Ah…）用的還是
+// `CD n` 形式的 per-vector stub。** 那些中斷上還沒觀測到「掛勾再 chain
+// 回舊向量」的程式；真的遇到就要照上面那條給它一個 trampoline 號碼。
+// **這是假說待驗，不是量到的結論。**
 func (m *Machine) initVectors() {
-	m.Mem[StubSeg*16] = 0xCF                // iret
-	m.Mem[StubSeg*16+mouseStubOff] = 0x90   // nop
-	m.Mem[StubSeg*16+mouseStubOff+1] = 0xCF // iret
+	for v := 0; v < 256; v++ {
+		off := uint32(StubSeg)*16 + uint32(v)*stubStride
+		m.Mem[off] = 0xCD // int n
+		m.Mem[off+1] = uint8(v)
+		m.Mem[off+2] = 0xCF // iret
+		m.Write16(uint32(v)*4, StubOff(uint8(v)))
+		m.Write16(uint32(v)*4+2, StubSeg)
+	}
+
+	// 服務型中斷的 trampoline。
+	m.WriteBytes(StubSeg*16+DosTrapOff, []byte{0xCD, 0xF2, 0xCF})
+	m.WriteBytes(StubSeg*16+VideoTrapOff, []byte{0xCD, 0xF3, 0xCF})
+	m.WriteBytes(StubSeg*16+ATrapOff, []byte{0xCD, 0xF4, 0xCF})
+	// ⚠ **XMS 的 entry 是 far call，不是中斷**——結尾要 `RETF`（0CBh），
+	// 不是 `IRET`。用 IRET 的話每呼叫一次就多彈兩個位元組（呼叫端只推了
+	// CS:IP，IRET 卻連 FLAGS 一起彈），堆疊一路歪掉，最後在某個 `RETF`／
+	// `IRET` 跳進垃圾——而中間所有服務都「成功」。
+	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCB})
 
 	// BIOS int 08h stub。⚠ **暫存器要保存，而且要在 `int 1Ch` 之後才還原。**
 	//
@@ -748,28 +1161,137 @@ func (m *Machine) initVectors() {
 		0xCF,
 	})
 
-	for v := 0; v < 256; v++ {
-		m.Write16(uint32(v)*4, 0)
-		m.Write16(uint32(v)*4+2, StubSeg)
-	}
-	// 服務型中斷的 trampoline（`docs/spec/004` §2.1）。
-	m.WriteBytes(StubSeg*16+DosTrapOff, []byte{0xCD, 0xF2, 0xCF})
-	m.WriteBytes(StubSeg*16+VideoTrapOff, []byte{0xCD, 0xF3, 0xCF})
-	m.WriteBytes(StubSeg*16+ATrapOff, []byte{0xCD, 0xF4, 0xCF})
-	// ⚠ **XMS 的 entry 是 far call，不是中斷**——結尾要 `RETF`（0CBh），
-	// 不是 `IRET`。用 IRET 的話每呼叫一次就多彈兩個位元組（呼叫端只推了
-	// CS:IP，IRET 卻連 FLAGS 一起彈），堆疊一路歪掉，最後在某個 `RETF`／
-	// `IRET` 跳進垃圾——而中間所有服務都「成功」。
-	m.WriteBytes(StubSeg*16+XMSTrapOff, []byte{0xCD, 0xF5, 0xCB})
 	m.Write16(0x21*4, DosTrapOff)
 	m.Write16(0x10*4, VideoTrapOff)
 	m.Write16(0x15*4, ATrapOff)
 	m.Write16(0x08*4, biosTimerOff)
-	m.Write16(0x33*4, mouseStubOff)
 
 	// EMM 的 driver header ＋ int 67h 向量（`docs/spec/014` §3.1）。
 	m.WriteBytes(EMSSeg*16, []byte{0xCD, 0xF6, 0xCF})
 	m.WriteBytes(EMSSeg*16+0x0A, []byte("EMMXXXX0"))
 	m.Write16(0x67*4, 0)
 	m.Write16(0x67*4+2, EMSSeg)
+}
+
+// VGAState 回目前的圖形控制器、序列器與 latch。
+//
+// 畫面上的位元不一定等於 CPU 寫進去的位元組：write mode、bit mask、
+// set/reset 與 latch 會先改一次。查「為什麼寫 09 出來是 C3」的時候，
+// 光看寫入指令沒有用，要看那一刻硬體的狀態。
+func (m *Machine) VGAState() (gc [16]uint8, seq [8]uint8, latch [4]uint8) {
+	return m.VGA.Regs()
+}
+
+// scanSet1 是 IBM set 1 的通碼，只列本專案用得到的鍵。
+// 斷碼是通碼加 0x80，由 TypeScan 自己補。
+var scanSet1 = map[byte]uint8{
+	'1': 0x02, '2': 0x03, '3': 0x04, '4': 0x05, '5': 0x06,
+	'6': 0x07, '7': 0x08, '8': 0x09, '9': 0x0A, '0': 0x0B,
+	'-': 0x0C, '=': 0x0D, '\b': 0x0E, '\t': 0x0F,
+	'q': 0x10, 'w': 0x11, 'e': 0x12, 'r': 0x13, 't': 0x14,
+	'y': 0x15, 'u': 0x16, 'i': 0x17, 'o': 0x18, 'p': 0x19,
+	'[': 0x1A, ']': 0x1B, '\r': 0x1C, '\n': 0x1C,
+	'a': 0x1E, 's': 0x1F, 'd': 0x20, 'f': 0x21, 'g': 0x22,
+	'h': 0x23, 'j': 0x24, 'k': 0x25, 'l': 0x26, ';': 0x27,
+	'\'': 0x28, '`': 0x29, '\\': 0x2B,
+	'z': 0x2C, 'x': 0x2D, 'c': 0x2E, 'v': 0x2F, 'b': 0x30,
+	'n': 0x31, 'm': 0x32, ',': 0x33, '.': 0x34, '/': 0x35,
+	' ': 0x39, 0x1B: 0x01, // ESC
+}
+
+// TypeScan 把一串字元排進鍵盤佇列，通碼與斷碼成對。
+//
+// 大寫字母會補上 Shift 的通碼與斷碼包住它——處理常式要靠 Shift 的狀態
+// 才分得出 `f` 與 `F`。認不得的字元回錯誤，**不安靜跳過**：
+// 少送一個鍵會讓後面的輸入整串對不上，而且從結果看不出來。
+func (m *Machine) TypeScan(s string) error {
+	const shift, brk = 0x2A, 0x80
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		upper := ch >= 'A' && ch <= 'Z'
+		if upper {
+			ch += 'a' - 'A'
+		}
+		code, ok := scanSet1[ch]
+		if !ok {
+			return fmt.Errorf("machine: 沒有 %q 的掃描碼", s[i])
+		}
+		if upper {
+			m.QueueScan(shift)
+		}
+		m.QueueScan(code, code|brk)
+		if upper {
+			m.QueueScan(shift | brk)
+		}
+	}
+	return nil
+}
+
+// TextScreen 把彩色文字頁（B800）讀成一列一列的字串。
+//
+// cols 為 0 時用 BDA 記的欄數，再不合理就退回 80。
+// 非可列印的字元換成空白——文字模式的緩衝區在程式清畫面之前是垃圾，
+// 直接印出來只會蓋掉真正有內容的那幾列。
+//
+// 每一列的尾端空白會去掉，但**空白列會保留**：第幾列有東西本身是資訊。
+func (m *Machine) TextScreen(cols int) []string {
+	if cols <= 0 || cols > 132 {
+		cols = int(m.Read16(0x44A))
+	}
+	if cols <= 0 || cols > 132 {
+		cols = 80
+	}
+	rows := make([]string, 25)
+	for row := range rows {
+		line := make([]byte, cols)
+		for col := 0; col < cols; col++ {
+			ch := m.Read8(TextSeg*16 + uint32(row*cols+col)*2)
+			if ch < 0x20 || ch > 0x7E {
+				ch = ' '
+			}
+			line[col] = ch
+		}
+		rows[row] = strings.TrimRight(string(line), " ")
+	}
+	return rows
+}
+
+// SegmentBytes 讀一個段開頭的 n 個位元組。
+//
+// 差分比對常要把「原版此刻某個段的內容」整塊拿出來，與另一個來源對拍。
+// 逐 byte 呼叫 Read8 也做得到，但那會讓呼叫端自己算線性位址——
+// 而算錯的症狀是「比對出一堆差異」，不是「報錯」。
+//
+// 越界回 nil：回一段補零的東西會被當成「那裡真的是零」。
+func (m *Machine) SegmentBytes(seg uint16, n int) []byte {
+	base := uint32(seg) * 16
+	if n <= 0 || base+uint32(n) > uint32(len(m.Mem)) {
+		return nil
+	}
+	out := make([]byte, n)
+	copy(out, m.Mem[base:base+uint32(n)])
+	return out
+}
+
+// Find 掃整個位址空間，回傳 pattern 出現的每一個實體位址。
+//
+// 拿來定位「被程式自己搬進記憶體的東西」——那種東西的載入位址靜態看不出來，
+// 而挑一段不會被改寫的內容當指紋是最直接的辦法。
+//
+// pattern 是空的就回 nil：回「到處都是」比回「找不到」更難查。
+func (m *Machine) Find(pattern []byte) []uint32 {
+	if len(pattern) == 0 || len(pattern) > len(m.Mem) {
+		return nil
+	}
+	var hits []uint32
+	last := uint32(len(m.Mem) - len(pattern))
+	for a := uint32(0); a <= last; a++ {
+		if m.Mem[a] != pattern[0] {
+			continue
+		}
+		if string(m.Mem[a:a+uint32(len(pattern))]) == string(pattern) {
+			hits = append(hits, a)
+		}
+	}
+	return hits
 }

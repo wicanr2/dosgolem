@@ -21,7 +21,7 @@ import (
 // stateMagic 認檔用；版本不合就拒絕，不要讓舊檔悄悄餵出錯的狀態。
 const (
 	stateMagic   = "DOSGOLEM-M"
-	stateVersion = 1
+	stateVersion = 2
 )
 
 // machineState 是機器狀態的線上格式。**欄位要匯出**，gob 才看得到。
@@ -46,6 +46,7 @@ type machineState struct {
 	IRQ0Every   uint64
 	IRQ0Base    uint64
 	CPUHz       uint64
+	CycleClock  bool
 	Cycles      uint64
 	NextIRQ0Cyc uint64
 	PITDiv      uint32
@@ -60,13 +61,21 @@ type machineState struct {
 	DACIndex uint8
 	DACPhase uint8
 
-	Planes   []uint8
-	Latch    [4]uint8
-	SeqIdx   uint8
-	Seq      [8]uint8
-	GCIdx    uint8
-	GC       [9]uint8
+	Planes []uint8
+	Latch  [4]uint8
+	SeqIdx uint8
+	Seq    [8]uint8
+	GCIdx  uint8
+	GC     [16]uint8
+	// 屬性控制器：調色盤暫存器、模式控制與色彩選擇。**漏掉它的話
+	// 還原之後畫面的形狀對、顏色錯**——而且看起來像是程式自己畫錯的。
+	AC       [32]uint8
+	ACIdx    uint8
+	ACFlip   bool
 	PlanarOn bool
+
+	// ProgramPath 是環境區塊裡的程式全路徑（MSC 的 argv[0]）。
+	ProgramPath string
 
 	FreeSeg   uint16
 	ImageBase uint32
@@ -92,6 +101,7 @@ func (m *Machine) SaveState(w io.Writer) error {
 		IRQ0Every:   m.IRQ0Every,
 		IRQ0Base:    m.IRQ0Base,
 		CPUHz:       m.CPUHz,
+		CycleClock:  m.CycleClock,
 		Cycles:      m.CPU.Cycles,
 		NextIRQ0Cyc: m.nextIRQ0Cyc,
 		PITDiv:      m.PITDiv,
@@ -103,13 +113,17 @@ func (m *Machine) SaveState(w io.Writer) error {
 		DAC:         append([]uint8(nil), m.DAC[:]...),
 		DACIndex:    m.dacIndex,
 		DACPhase:    m.dacPhase,
-		Planes:      append([]uint8(nil), m.vga.planes[:]...),
-		Latch:       m.vga.latch,
-		SeqIdx:      m.vga.seqIdx,
-		Seq:         m.vga.seq,
-		GCIdx:       m.vga.gcIdx,
-		GC:          m.vga.gc,
+		Planes:      append([]uint8(nil), m.VGA.Raw()...),
+		Latch:       m.VGA.latch,
+		SeqIdx:      m.VGA.seqIdx,
+		Seq:         m.VGA.seq,
+		GCIdx:       m.VGA.gcIdx,
+		GC:          m.VGA.gc,
+		AC:          m.VGA.ac,
+		ACIdx:       m.VGA.acIdx,
+		ACFlip:      m.VGA.acFlip,
 		PlanarOn:    m.planarOn,
+		ProgramPath: m.ProgramPath,
 		FreeSeg:     m.FreeSeg,
 		ImageBase:   m.ImageBase,
 		ImageLen:    m.ImageLen,
@@ -158,6 +172,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 		m.pitAccess = 3
 	}
 	m.CPUHz, m.CPU.Cycles, m.nextIRQ0Cyc = s.CPUHz, s.Cycles, s.NextIRQ0Cyc
+	m.CycleClock = s.CycleClock
 	if m.CPUHz == 0 {
 		m.CPUHz = DefaultCPUHz
 	}
@@ -175,10 +190,12 @@ func (m *Machine) LoadState(r io.Reader) error {
 
 	copy(m.DAC[:], s.DAC)
 	m.dacIndex, m.dacPhase = s.DACIndex, s.DACPhase
-	copy(m.vga.planes[:], s.Planes)
-	m.vga.latch, m.vga.seqIdx, m.vga.seq = s.Latch, s.SeqIdx, s.Seq
-	m.vga.gcIdx, m.vga.gc = s.GCIdx, s.GC
+	copy(m.VGA.Raw(), s.Planes)
+	m.VGA.latch, m.VGA.seqIdx, m.VGA.seq = s.Latch, s.SeqIdx, s.Seq
+	m.VGA.gcIdx, m.VGA.gc = s.GCIdx, s.GC
+	m.VGA.ac, m.VGA.acIdx, m.VGA.acFlip = s.AC, s.ACIdx, s.ACFlip
 	m.planarOn = s.PlanarOn
+	m.ProgramPath = s.ProgramPath
 
 	m.FreeSeg, m.ImageBase, m.ImageLen = s.FreeSeg, s.ImageBase, s.ImageLen
 	return nil

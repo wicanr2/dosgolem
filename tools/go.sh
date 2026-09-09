@@ -4,6 +4,10 @@
 #   tools/go.sh build ./...
 #   tools/go.sh test ./internal/cpu -run TestSingleStep -v
 #
+# 跑 go 以外的工具用 DOSGOLEM_GO_CMD：
+#
+#   DOSGOLEM_GO_CMD=gofmt tools/go.sh -l .
+#
 # 要跑原版執行檔時，用 DOSGOLEM_ORIG 指到玩家自己的素材目錄，
 # 它會**唯讀**掛到容器裡的 /orig：
 #
@@ -24,7 +28,7 @@ mkdir -p "$ROOT/workplace/gocache" "$ROOT/workplace/gomodcache"
 
 # docker 預設不繼承 shell 的環境；交叉編譯要靠這幾個。
 PASS=()
-for v in GOOS GOARCH CGO_ENABLED DOSGOLEM_TEST_EXE DOSGOLEM_TEST_ROOT; do
+for v in GOOS GOARCH CGO_ENABLED DOSGOLEM_TEST_EXE DOSGOLEM_TEST_ROOT DOSGOLEM_PSYS DOSGOLEM_PME; do
   [[ -n "${!v:-}" ]] && PASS+=(-e "$v=${!v}")
 done
 
@@ -32,6 +36,11 @@ done
 MOUNTS=()
 if [[ -n "${DOSGOLEM_ORIG:-}" ]]; then
   MOUNTS+=(-v "$(cd "$DOSGOLEM_ORIG" && pwd):/orig:ro")
+fi
+# 可寫的輸出目錄，格式 `主機路徑:容器路徑`。截圖要落在 repo 外面時用它——
+# **不要為了省事把整個家目錄掛進來**。
+if [[ -n "${DOSGOLEM_EXTRA_MOUNT:-}" ]]; then
+  MOUNTS+=(-v "$DOSGOLEM_EXTRA_MOUNT")
 fi
 
 exec timeout "${DOSGOLEM_TIMEOUT:-30m}" docker run --rm --network none \
@@ -43,4 +52,4 @@ exec timeout "${DOSGOLEM_TIMEOUT:-30m}" docker run --rm --network none \
   -v "$ROOT/workplace/gomodcache:/gomodcache" \
   -e GOCACHE=/gocache -e GOMODCACHE=/gomodcache \
   -e HOME=/tmp -e GOFLAGS=-mod=mod \
-  "${PASS[@]}" "${MOUNTS[@]}" -w /src "$IMAGE" go "$@"
+  "${PASS[@]}" "${MOUNTS[@]}" -w /src "$IMAGE" "${DOSGOLEM_GO_CMD:-go}" "$@"

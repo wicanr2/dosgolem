@@ -33,17 +33,41 @@ func TestPITDivisorScalesIRQ0(t *testing.T) {
 	}
 }
 
-// TestIRQ0FollowsCycles 週期模型：時鐘走 CPU 週期，不是指令數。
-// 貴的指令（`out`）要讓時鐘走得比便宜的（`nop`）快。
-func TestIRQ0FollowsCycles(t *testing.T) {
+// TestClockDefaultsToInstructions 預設仍是指令數時鐘。
+//
+// ⚠ **這條在守共用倉庫的相容性**：別的專案的對拍收據都建立在指令數
+// 時鐘上。週期時鐘要自己開（`CycleClock`／`probe -cpuhz`）。
+// 另外 `IRQ0Every = 0` 的意思是「不送計時器中斷」，不是「改走週期」——
+// 測試裡關計時器的慣用寫法就是那一行。
+func TestClockDefaultsToInstructions(t *testing.T) {
 	m := New()
-	if m.IRQ0Every != 0 {
-		t.Fatalf("預設應該走週期模型（IRQ0Every ＝ 0），量到 %d", m.IRQ0Every)
+	if m.CycleClock {
+		t.Error("預設不該打開週期時鐘")
 	}
-	before := m.CPU.Cycles
-	m.Out8(0x3C4, 0x02) // 只是設埠，沒經過 CPU
-	if m.CPU.Cycles != before {
-		t.Error("直接呼叫 Out8 不該計 CPU 週期")
+	if m.IRQ0Every != DefaultIRQ0Every {
+		t.Errorf("預設間隔 %d 道指令，應該是 %d", m.IRQ0Every, DefaultIRQ0Every)
+	}
+	// 關計時器之後，週期時鐘不該偷偷接手
+	m.IRQ0Every = 0
+	m.CPU.Cycles = 1 << 40
+	m.tick()
+	if m.irq0Pending {
+		t.Error("IRQ0Every = 0 應該是「不送」，不是「改走週期」")
+	}
+}
+
+// TestCycleClockCountsCycles 打開週期時鐘之後，時鐘走 CPU 週期。
+func TestCycleClockCountsCycles(t *testing.T) {
+	m := New()
+	m.CycleClock = true
+	m.RecalcIRQ0()
+	if m.cycPerIRQ0 == 0 {
+		t.Fatal("週期時鐘沒有間隔")
+	}
+	m.CPU.Cycles = m.cycPerIRQ0
+	m.tick()
+	if !m.irq0Pending {
+		t.Error("走到間隔了卻沒掛起中斷")
 	}
 }
 

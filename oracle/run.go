@@ -97,6 +97,9 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), a)
 		}
 		o.fireCallHooks()
+		if o.fireStub() {
+			continue
+		}
 		if err := o.m.Step(); err != nil {
 			return fmt.Errorf("執行到 %s 出錯：%w", o.IP(), err)
 		}
@@ -131,10 +134,19 @@ func Steps(n uint64) Cond {
 }
 
 // At 是「CS:IP 走到這裡」。位址通常用 o.IDA(...) 造。
+//
+// ⚠ **比的是線性位址，不是 `段:偏移` 這一對數字。** 真實模式下同一段
+// 程式碼可以有無數種寫法（`02C5:000A` 與 `0110:1F0A` 是同一個 byte），
+// 而程式走到哪一種取決於呼叫端當時的 CS——不是我們挑的那一種。
+// 直接比結構會**安靜地永遠不成立**：條件跑滿預算才回錯，
+// 形狀與「那段程式碼真的沒被執行」一模一樣。
+// （`OnCall` 一開始就是比線性位址的，所以同一次執行裡
+// 「攔到了」與「跑不到」可以同時發生——就是這個差別造成的。）
 func At(a Addr) Cond {
+	want := a.Linear()
 	return Cond{
 		name:  "走到 " + a.String(),
-		ready: func(o *Oracle) bool { return o.IP() == a },
+		ready: func(o *Oracle) bool { return o.IP().Linear() == want },
 	}
 }
 
@@ -361,6 +373,69 @@ func (o *Oracle) fireCallHooks() {
 	}
 }
 
+// ---- stub -----------------------------------------------------------------
+
+// Stub 讓走到 a 的 **far** 常式**不執行**，直接用 fn 決定回傳值（`DX:AX`）
+// 並返回呼叫端。傳 nil 取消。
+//
+// # 用途：把不決定性的東西釘死
+//
+//	o.Stub(o.IDA(randAddr), func(*oracle.Oracle) uint32 { return 12345 })
+//
+// 對拍規則時，兩邊的亂數序列**本來就不會一樣**（種子、抽取順序、抽幾次都不同），
+// 強求同步是在解錯的題目。把骰值釘成同一個常數，剩下的差異就只剩規則本身——
+// 這才是要驗的東西。
+//
+// 同一個道理適用於時鐘、輸入與任何「每次跑都不同」的來源。
+//
+// # 邊界
+//
+//   - fn 在**進入常式那一刻**被呼叫，所以 `Arg(n)` 讀得到參數。
+//   - 只支援 cdecl 的 far 常式（呼叫端清參數，被呼叫者只 `retf`）。
+//     `retf N` 那種自己清參數的會讓呼叫端的堆疊少收 N bytes。
+//   - 被 stub 掉的常式**完全沒有副作用**：它改的全域不會被改。亂數的種子因此
+//     不再前進——那正是「釘死」的意思，但別忘了它。
+//   - 一次 stub 算一道指令，預算才不會因為它永遠不推進而跑不完。
+func (o *Oracle) Stub(a Addr, fn func(*Oracle) uint32) {
+	if o.stubs == nil {
+		o.stubs = map[uint32]func(*Oracle) uint32{}
+	}
+	if fn == nil {
+		delete(o.stubs, a.Linear())
+		return
+	}
+	o.stubs[a.Linear()] = fn
+}
+
+// StubValue 是 Stub 的常數版：走到 a 就回 v。
+func (o *Oracle) StubValue(a Addr, v uint32) {
+	o.Stub(a, func(*Oracle) uint32 { return v })
+}
+
+// fireStub 回 true 表示這一輪由 stub 接手，不要再 Step。
+func (o *Oracle) fireStub() bool {
+	if len(o.stubs) == 0 {
+		return false
+	}
+	fn, ok := o.stubs[o.IP().Linear()]
+	if !ok {
+		return false
+	}
+	c := o.m.CPU
+	ss, sp := c.Seg[cpu.SS], c.R[cpu.SP]
+	// 先讀返回位址、先呼叫 fn——此時 SP 還在進入狀態，`Arg(n)` 才讀得到參數。
+	ip := o.m.Read16(cpu.Addr(ss, sp))
+	cs := o.m.Read16(cpu.Addr(ss, sp+2))
+	v := fn(o)
+
+	c.R[cpu.SP] = sp + 4
+	c.Seg[cpu.CS], c.IP = cs, ip
+	c.R[cpu.AX] = uint16(v)
+	c.R[cpu.DX] = uint16(v >> 16)
+	o.m.Steps++
+	return true
+}
+
 // Caller 回 far call 的返回位址，也就是**呼叫端的下一道指令**。
 //
 // ⚠ **只在剛進入被呼叫的常式時有效**（`OnCall` 的 hook 裡）。
@@ -373,6 +448,16 @@ func (o *Oracle) Caller() Addr {
 	ip := o.m.Read16(cpu.Addr(ss, sp))
 	cs := o.m.Read16(cpu.Addr(ss, sp+2))
 	return Addr{cs, ip}
+}
+
+// NearCaller 回 **near** call 的返回位址（`CS:[SP]`）。
+//
+// ⚠ **near 與 far 的堆疊版面不同**，拿錯的那一支讀到的是垃圾——
+// 而垃圾看起來就是一個合法位址。16 位元真實模式的程式兩種都有，
+// 所以診斷工具要把兩種都印出來讓人自己判斷，不要挑一個安靜地猜。
+func (o *Oracle) NearCaller() Addr {
+	ss, sp := o.m.CPU.Seg[cpu.SS], o.m.CPU.R[cpu.SP]
+	return Addr{o.m.CPU.Seg[cpu.CS], o.m.Read16(cpu.Addr(ss, sp))}
 }
 
 // Arg 讀 far call 的第 n 個參數（n 從 0 起，最後推的是第 0 個）。
@@ -440,8 +525,8 @@ func AtTick(n uint64) Cond {
 }
 
 // CPUHz 讀寫模擬的 CPU 時脈；時鐘走它（`docs/spec/004` §5.1）。
-func (o *Oracle) CPUHz() uint64          { return o.m.CPUHz }
-func (o *Oracle) SetCPUHz(hz uint64)     { o.m.CPUHz = hz; o.m.RecalcIRQ0() }
+func (o *Oracle) CPUHz() uint64      { return o.m.CPUHz }
+func (o *Oracle) SetCPUHz(hz uint64) { o.m.CPUHz = hz; o.m.CycleClock = true; o.m.RecalcIRQ0() }
 
 // TickRate 讀寫「每幾道指令送一次計時器中斷」（**舊模型**）。
 // 設成非零會切回指令數時鐘；0 ＝ 走週期。
@@ -463,3 +548,33 @@ func (o *Oracle) StackWord(i int) uint16 {
 
 // AX 讀回傳值所在的暫存器。BASIC 的函式用它回傳整數。
 func (o *Oracle) AX() uint16 { return o.m.CPU.R[cpu.AX] }
+
+// ---- 記憶體寫入監看 ------------------------------------------------------
+
+// WriteHit 是一次被盯到的寫入。
+type WriteHit struct {
+	Addr uint32 // 線性位址
+	Old  uint8  // 寫進去之前的值
+	Val  uint8
+	// At 是**寫這一下的那道指令**的 IDA 線性位址。
+	At uint32
+}
+
+// OnWrite 盯一段位址的寫入，每一次都叫 fn。
+//
+// ⭐ **「誰寫了這個位址」的直接答案。** 靜態交叉參考對兩種寫法是盲的：
+// `ds:XXXX` 這種絕對定址（IDA 沒把段值傳播進來，不建 xref），
+// 以及 `ptr = &x` 之後的間接寫入。**兩支工具都回 0 的時候，
+// 要做的是換一種觀測，不是換一個假說。**
+//
+// ⚠ 位址是**線性位址**（`Addr.Linear()`），不是 IDA 位址；
+// 而 `At` 回的是 IDA 位址，因為那是拿去查筆記的那一個。
+func (o *Oracle) OnWrite(lo, hi uint32, fn func(*Oracle, WriteHit)) {
+	o.m.WatchWrites(lo, hi, func(addr uint32, old, nw uint8) {
+		cs, ip := o.m.CPU.OpAddr()
+		fn(o, WriteHit{Addr: addr, Old: old, Val: nw, At: o.ToIDA(Addr{cs, ip})})
+	})
+}
+
+// StopWrites 收掉監看。
+func (o *Oracle) StopWrites() { o.m.WatchWrites(1, 0, nil) }

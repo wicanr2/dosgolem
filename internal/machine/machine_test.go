@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -119,6 +120,38 @@ func TestLoadEXEAppliesRelocations(t *testing.T) {
 	}
 }
 
+func TestLoadOverlayUsesSeparateRelocationFactorAndPreservesCPU(t *testing.T) {
+	m := New()
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2222, 0x3333
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x4444, 0x5555
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read16(0x3000*16 + 0x10); got != 0x1234 {
+		t.Fatalf("覆疊重定位後是 %04X，預期 1234", got)
+	}
+	if m.CPU.Seg[cpu.CS] != 0x2222 || m.CPU.IP != 0x3333 ||
+		m.CPU.Seg[cpu.SS] != 0x4444 || m.CPU.R[cpu.SP] != 0x5555 {
+		t.Fatal("覆疊載入改動了呼叫端 CPU 狀態")
+	}
+}
+
+func TestLoadOverlayFailureDoesNotPartiallyOverwriteDestination(t *testing.T) {
+	m := New()
+	const dst = uint32(0x3000 * 16)
+	m.WriteBytes(dst, []byte{0xAA, 0xBB, 0xCC, 0xDD})
+	data := buildMZ(t, []byte{0x90, 0xF4}, 0x10)
+	data[0x1C], data[0x1D] = 0xFF, 0x7F // relocation offset outside image
+	if err := m.LoadOverlay(data, 0x3000, 0x1234); err == nil {
+		t.Fatal("越界重定位竟然載入成功")
+	}
+	got := []byte{m.Read8(dst), m.Read8(dst + 1), m.Read8(dst + 2), m.Read8(dst + 3)}
+	if !bytes.Equal(got, []byte{0xAA, 0xBB, 0xCC, 0xDD}) {
+		t.Fatalf("失敗後目的區被部分改寫：% X", got)
+	}
+}
+
 // TestLoadEXERejectsTruncatedImage 釘住「映像被截斷要報錯，不要安靜載入」。
 //
 // `RUN.EXE` 是雙層打包，只剝外層的話會少掉尾端 14%——而那**不會有任何
@@ -185,6 +218,57 @@ func TestMachineIsA80186(t *testing.T) {
 	}
 	if v := m.Read16(cpu.Addr(0x0800, m.CPU.R[cpu.SP])); v != 0xFFFF {
 		t.Errorf("PUSH imm8 推的是 %04X，預期 FFFF（要符號延伸）", v)
+	}
+}
+
+func TestKeyboardIRQ1DeliversScanCodesAndHonorsIF(t *testing.T) {
+	m := New()
+	m.IRQ0Every = 0
+	// ⚠ 落點要挑在低位記憶體的固定配置**外面**：0000:0500 是 EMSSeg 的
+	// EMM 驅動 header（`CD F6 CF`），拿它當暫存區的話讀回來永遠是 CDh，
+	// 而測試會把那當成「送出了掃描碼」。
+	// in al,60h; mov [5000h],al; iret
+	m.WriteBytes(cpu.Addr(0x0900, 0), []byte{0xE4, 0x60, 0xA2, 0x00, 0x50, 0xCF})
+	m.Write16(0x09*4, 0)
+	m.Write16(0x09*4+2, 0x0900)
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x0800, 0
+	m.CPU.Seg[cpu.DS] = 0
+	m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP] = 0x0700, 0x100
+	m.WriteBytes(cpu.Addr(0x0800, 0), []byte{0x90, 0x90, 0x90, 0x90})
+	m.QueueScanCodes(0x01)
+
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Read8(0x5000); got != 0 {
+		t.Fatalf("IF關閉時送出了掃描碼%02X", got)
+	}
+	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+	for i := 0; i < 4; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := m.Read8(0x5000); got != 0x01 {
+		t.Fatalf("IRQ1處理程式讀到%02X，預期01", got)
+	}
+	if got := m.PortsIn[0x60]; got != 1 {
+		t.Fatalf("port 60h讀取%d次，預期1", got)
+	}
+}
+
+func TestKeyboardQueueSurvivesSnapshotRestore(t *testing.T) {
+	m := New()
+	m.QueueScanCodes(0x01, 0x81)
+	s := m.Snapshot()
+	m.keyQueue = nil
+	m.kbdData = 0xFF
+	m.Restore(s)
+	if len(m.keyQueue) != 2 || m.keyQueue[0].Code() != 0x01 || m.keyQueue[1].Code() != 0x81 {
+		t.Fatalf("還原後掃描碼佇列=%+v", m.keyQueue)
+	}
+	if m.kbdData != 0 {
+		t.Fatalf("還原後port 60h資料=%02X，預期00", m.kbdData)
 	}
 }
 
@@ -278,21 +362,24 @@ func TestTimerStubRestoresDSAfterInt1C(t *testing.T) {
 	// 掛一個「弄髒 DS 就走」的 int 1Ch，形狀照遊戲那支：
 	//	mov ax,1234h / mov ds,ax / iret
 	const dirty = 0x1234
+	// ⚠ **不要把測試用的碼放進 StubSeg**：那一段是向量 stub 與 BIOS
+	// 計時器常式的家，寫進去會把它們蓋掉，而症狀是「BIOS 沒做該做的事」。
+	const scratch = 0x2000
 	handler := uint16(0x0300)
-	m.WriteBytes(cpu.Addr(StubSeg, handler), []byte{
+	m.WriteBytes(cpu.Addr(scratch, handler), []byte{
 		0xB8, byte(dirty & 0xFF), byte(dirty >> 8), 0x8E, 0xD8, 0xCF,
 	})
 	m.Write16(0x1C*4, handler)
-	m.Write16(0x1C*4+2, StubSeg)
+	m.Write16(0x1C*4+2, scratch)
 
 	// 被中斷的程式：DS 是別的段，跑一道 nop 就好。
 	const userDS = 0x5678
 	code := uint16(0x0400)
-	m.WriteBytes(cpu.Addr(StubSeg, code), []byte{0x90, 0x90, 0xF4}) // nop nop hlt
-	m.CPU.Seg[cpu.CS] = StubSeg
+	m.WriteBytes(cpu.Addr(scratch, code), []byte{0x90, 0x90, 0xF4}) // nop nop hlt
+	m.CPU.Seg[cpu.CS] = scratch
 	m.CPU.IP = code
 	m.CPU.Seg[cpu.DS] = userDS
-	m.CPU.Seg[cpu.SS] = StubSeg
+	m.CPU.Seg[cpu.SS] = scratch
 	m.CPU.R[cpu.SP] = 0x0200
 	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
 
@@ -311,5 +398,77 @@ func TestTimerStubRestoresDSAfterInt1C(t *testing.T) {
 	// BIOS 的 tick 計數還是要有推進。
 	if tick := m.Read16(0x40*16 + 0x6C); tick == 0 {
 		t.Error("0040:006C 沒有推進——stub 沒做 BIOS 該做的事")
+	}
+}
+
+// TestEGABitMaskKeepsUntouchedBits 釘住 Bit Mask 之外的位元要從 latch 補回去。
+//
+// **少了 latch 的症狀不是壞掉，是一張有規律雜訊的圖**：遮罩外的位元被歸零，
+// 畫面上是一條一條的直線，看起來像時序問題不像少了一個暫存器。
+func TestEGABitMaskKeepsUntouchedBits(t *testing.T) {
+	m := New()
+	m.SetVideoMode(0x10) // EGA 640×350 平面模式
+	const at = 0xA0000
+	// 先把四個平面填成已知值（Map Mask 全開、bit mask 全開）。
+	m.Write8(at, 0xFF)
+
+	// 只開 bit0，寫 0x00：其餘七個位元應該保持 1。
+	m.Out8(0x3CE, 0x08) // Bit Mask
+	m.Out8(0x3CF, 0x01)
+	_ = m.Read8(at) // ★ 讀一次把 latch 鎖起來
+	m.Write8(at, 0x00)
+
+	m.Out8(0x3CE, 0x08)
+	m.Out8(0x3CF, 0xFF)
+	if got := m.Read8(at); got != 0xFE {
+		t.Fatalf("寫入之後讀回 %02X，應該是 FE——Bit Mask 之外的位元沒有從 latch 補回去", got)
+	}
+}
+
+// TestEGASetResetPicksColour 釘住 Set/Reset：打開的平面用 Set/Reset 的顏色，
+// 不是 CPU 寫進去的值。
+func TestEGASetResetPicksColour(t *testing.T) {
+	m := New()
+	m.SetVideoMode(0x10)
+	const at = 0xA0000
+	m.Out8(0x3CE, 0x01) // Enable Set/Reset：四個平面全開
+	m.Out8(0x3CF, 0x0F)
+	m.Out8(0x3CE, 0x00) // Set/Reset：顏色 0101b ＝ 平面 0 與 2 填 1
+	m.Out8(0x3CF, 0x05)
+	_ = m.Read8(at)
+	m.Write8(at, 0x00) // CPU 的值應該被忽略
+
+	m.Out8(0x3CE, 0x01) // 關掉 Set/Reset 再讀，免得影響
+	m.Out8(0x3CF, 0x00)
+	for plane, want := range []uint8{0xFF, 0x00, 0xFF, 0x00} {
+		m.Out8(0x3CE, 0x04) // Read Map Select
+		m.Out8(0x3CF, uint8(plane))
+		if got := m.Read8(at); got != want {
+			t.Errorf("平面 %d 是 %02X，應該是 %02X——Set/Reset 沒生效", plane, got, want)
+		}
+	}
+}
+
+// TestEGAWriteMode1CopiesLatches 釘住寫入模式 1：latch 原封不動寫回去。
+// 那是搬圖形（讀一格、寫一格）的做法，CPU 寫進去的值完全不參與。
+func TestEGAWriteMode1CopiesLatches(t *testing.T) {
+	m := New()
+	const src, dst = 0xA0000, 0xA0100
+	m.Out8(0x3C4, 0x02) // Map Mask：只寫平面 1
+	m.Out8(0x3C5, 0x02)
+	m.Write8(src, 0xAB)
+	m.Out8(0x3C5, 0x0F)
+
+	m.Out8(0x3CE, 0x05) // Mode：寫入模式 1
+	m.Out8(0x3CF, 0x01)
+	_ = m.Read8(src)
+	m.Write8(dst, 0x00) // 值被忽略
+
+	m.Out8(0x3CE, 0x05)
+	m.Out8(0x3CF, 0x00)
+	m.Out8(0x3CE, 0x04)
+	m.Out8(0x3CF, 0x01) // 讀平面 1
+	if got := m.Read8(dst); got != 0xAB {
+		t.Fatalf("搬過去讀回 %02X，應該是 AB", got)
 	}
 }

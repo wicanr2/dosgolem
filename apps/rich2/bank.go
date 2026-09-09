@@ -255,4 +255,3 @@ func WatchSliderInput(o *oracle.Oracle, log *BankLog) {
 //
 // `[bp-38h]` 是離開旗標，Enter 與 ESC 都把它設成 1。
 const IDASliderLoop = 0x23230
-

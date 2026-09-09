@@ -69,6 +69,18 @@ func (a *Array) Int16(idx ...int) int16 {
 	return int16(a.o.Word(oracle.Phys(a.addr(idx...))))
 }
 
+// SetInt16 寫一格 16 位元有號值。
+//
+// **這是「直接把場面佈置成想要的樣子」用的**：要驗「別人的地、蓋了三級、
+// 走上去該付多少」，把棋盤陣列的地主欄與等級欄寫進去，比在遊戲裡把它
+// 玩出來快兩個數量級（實測玩出來一輪要三十八分鐘）。
+//
+// ⚠ **寫進去的狀態不會回到原版的規則檢查。** 例如把等級寫成 9 不會被
+// 夾回 0..5，遊戲之後的行為就沒有出處了。**只寫遊戲自己會產生的值。**
+func (a *Array) SetInt16(v int16, idx ...int) {
+	a.o.WriteU16(oracle.Phys(a.addr(idx...)), uint16(v))
+}
+
 // Int32 讀一格 32 位元有號值。
 func (a *Array) Int32(idx ...int) int32 {
 	at := a.addr(idx...)

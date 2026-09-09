@@ -4,25 +4,41 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
-// EXEC（`AH=4Bh AL=00h`）、TSR（`AH=31h`）、回傳碼（`AH=4Dh`）與
-// 監督佇列。規格：`docs/spec/008`（TSR 與行程模型）、`docs/spec/009`
-// （EXEC 與程式鏈），兩份都是 READY，量測證據附在規格裡。
+// EXEC（`AH=4Bh`）、TSR（`AH=31h`）、結束（`AH=4Ch`／`int 20h`）、
+// 回傳碼（`AH=4Dh`）與監督佇列。
+//
+// 規格：`docs/spec/007`（EXEC 與 EMMXXXX0，證據是 GIN3.COM 的反組譯
+// bytes 與 probe 軌跡）、`docs/spec/008`（TSR 與行程模型）、
+// `docs/spec/009`（EXEC 與程式鏈）、`docs/spec/010`（結束時的記憶體回收）。
+//
+// **記憶體內容不做快照還原**——隔離靠 bump 配置器（子程式載在父程式之上），
+// 子程式對視訊記憶體／IVT 的寫入保留，這符合真 DOS（畫面不會因程式結束
+// 而消失）。代價是子程式踩父程式空間不會被擋。**但配置游標會在子程式
+// 結束時退回**——那是所有權回收，不是內容還原，兩件事不一樣。
 
-// procFrame 是一個被 EXEC 暫停的父行程（`008` §2）。
+// procFrame 是一個被 EXEC 暫停的父行程（`docs/spec/008` §2）。
 type procFrame struct {
-	r        [8]uint16
-	seg      [4]uint16
-	ip, fl   uint16
-	psp      uint16
-	freeSeg  uint16 // 進子行程之前的 freeSeg，回來時不必用（LIFO 回收）
+	r       [8]uint16
+	seg     [4]uint16
+	ip, fl  uint16
+	psp     uint16 // 父行程的 PSP（回來時還原 curPSP）
+	freeSeg uint16 // 進子行程之前的配置游標
+	// ivt 是 DOS 替呼叫端保管的三個向量（22h Terminate、23h Ctrl-Break、
+	// 24h Critical Error）。子行程一定會改，不還原的話父行程的
+	// Ctrl-Break 處理常式指到已經被回收的記憶體。
+	ivt [3][2]uint16
 }
 
-// Queued 是監督佇列裡的一支待跑程式（`009` §4）。
+// savedVectors 是 EXEC 前後要保管的向量號。
+var savedVectors = [3]uint8{0x22, 0x23, 0x24}
+
+// Queued 是監督佇列裡的一支待跑程式（`docs/spec/009` §4）。
 type Queued struct {
 	Name string
 	Args string
@@ -33,65 +49,93 @@ type Queued struct {
 // **「殼鏈走到哪一跳」唯一的直接答案。** 沒有它的話，MAIN.EXE 沒跑起來
 // 與「殼根本沒 EXEC 它」看起來一樣。
 type ExecRecord struct {
-	Name  string // 呼叫端給的檔名
-	Base  string // 實際開到的檔（basename）
-	PSP   uint16
-	TSR   bool   // 用 AH=31h 常駐
-	Keep  uint16 // TSR 保留的段數（DX）
-	Exit  uint8  // 離開碼；0xFF ＝ 還沒結束
+	Name string // 呼叫端給的檔名
+	Base string // 實際開到的檔（basename）
+	PSP  uint16
+	TSR  bool   // 用 AH=31h 常駐
+	Keep uint16 // TSR 保留的段數（DX）
+	Exit uint8  // 離開碼；0xFF ＝ 還沒結束
 }
 
 // Enqueue 排入一支待跑程式。行程疊空了（第一支程式結束或常駐）之後
-// 由服務層推出來跑（`009` §4）。
+// 由服務層推出來跑（`docs/spec/009` §4）。
 func (d *DOS) Enqueue(name, args string) {
 	d.queue = append(d.queue, Queued{Name: name, Args: args})
 }
 
-// exec 是 `AH=4Bh`。**只實作 AL=00h**（`009` §1）。
+// exec 是 `AH=4Bh`。AL=00h 是載入並執行，AL=03h 是載入 overlay。
 func (d *DOS) exec(c *cpu.CPU) {
-	if al(c) != 0x00 {
+	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+	switch al(c) {
+	case 0x00:
+		// 參數區 ES:BX：+0 env（0＝繼承）、+2/+4 尾巴、+6/+8 FCB1、+A/+C FCB2
+		// （bytes 證據：GIN3.COM 0215–023C）。
+		d.spawn(c, name, execParams{
+			envSeg:  d.M.Read16(pb),
+			tailOff: d.M.Read16(pb + 2),
+			tailSeg: d.M.Read16(pb + 4),
+			fcb1Off: d.M.Read16(pb + 6),
+			fcb1Seg: d.M.Read16(pb + 8),
+			fcb2Off: d.M.Read16(pb + 10),
+			fcb2Seg: d.M.Read16(pb + 12),
+		})
+	case 0x03:
+		// overlay：參數區是 +0 載入段、+2 relocation factor。
+		d.loadOverlay(c, name, d.M.Read16(pb), d.M.Read16(pb+2))
+	default:
 		d.note(0x21, 0x4B, al(c))
 		c.R[cpu.AX] = 1 // Invalid function
 		setCarry(c)
-		return
 	}
-	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
-	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
-	envSeg := d.M.Read16(pb)
-	tailOff := d.M.Read16(pb + 2)
-	tailSeg := d.M.Read16(pb + 4)
-	d.spawn(c, name, envSeg, tailSeg, tailOff)
+}
+
+// execParams 是 EXEC 參數區塊拆出來的欄位。
+type execParams struct {
+	envSeg           uint16
+	tailSeg, tailOff uint16
+	fcb1Seg, fcb1Off uint16
+	fcb2Seg, fcb2Off uint16
+}
+
+// imageParags 估算一支程式載進來要幾個段（含 PSP 與前面那格假 MCB）。
+//
+// MZ 走檔頭（準確），其他當 .COM 用檔案長度。**在動任何狀態之前算**——
+// 載到一半才發現記憶體不夠會留下半套 PSP。
+func imageParags(data []byte) uint16 {
+	if n, err := machine.MZImageParags(data); err == nil {
+		return uint16(n) + 0x11
+	}
+	return uint16((len(data)+15)/16) + 0x11
 }
 
 // spawn 載入並跳到一支子程式。失敗時設 CF 與 AX，行程疊不變。
-func (d *DOS) spawn(c *cpu.CPU, name string, envSeg, tailSeg, tailOff uint16) {
-	path := d.resolve(name)
-	if path == "" {
-		d.Missing = append(d.Missing, name)
-		c.R[cpu.AX] = 2 // File not found
-		setCarry(c)
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		d.Missing = append(d.Missing, name)
-		c.R[cpu.AX] = 2
-		setCarry(c)
+func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
+	data, path, ok := d.readProgram(c, name)
+	if !ok {
 		return
 	}
 
 	// 子行程 PSP ＝ freeSeg+1（freeSeg 那格是假 MCB，與 AH=48h 一致）。
-	need := uint16((len(data)+15)/16) + 0x10 + 1 // 上限估計；MZ 去掉檔頭會更小
 	psp := d.freeSeg + 1
-	if psp+need > machine.MemTop {
+	need := imageParags(data)
+	if avail := uint16(machine.MemTop) - d.freeSeg; need > avail {
 		c.R[cpu.AX] = 8 // 記憶體不足
+		c.R[cpu.BX] = avail
 		setCarry(c)
 		return
 	}
 
 	// 壓父行程框。此時 IP 已指到 int 21h 的下一道，存起來的就是
 	// 正確的接續點。
-	f := procFrame{r: c.R, seg: c.Seg, ip: c.IP, fl: c.Flags, psp: d.curPSP, freeSeg: d.freeSeg}
+	f := procFrame{
+		r: c.R, seg: c.Seg, ip: c.IP, fl: c.Flags,
+		psp: d.curPSP, freeSeg: d.freeSeg,
+	}
+	for i, n := range savedVectors {
+		f.ivt[i][0] = d.M.Read16(uint32(n) * 4)
+		f.ivt[i][1] = d.M.Read16(uint32(n)*4 + 2)
+	}
 
 	prog, err := d.M.LoadProgramAt(psp, data)
 	if err != nil {
@@ -100,34 +144,112 @@ func (d *DOS) spawn(c *cpu.CPU, name string, envSeg, tailSeg, tailOff uint16) {
 		setCarry(c)
 		return
 	}
-	d.stack = append(d.stack, f)
-	d.M.WriteMCB(d.freeSeg, psp, prog.EndSeg-d.freeSeg)
+	d.procStack = append(d.procStack, f)
+	d.M.WriteMCB(d.freeSeg, false, psp, prog.EndSeg-d.freeSeg)
 
-	// PSP 欄位（`009` §2.4）。
+	// PSP 欄位（`docs/spec/009` §2.4）。
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, f.psp) // 父行程 PSP
-	if envSeg == 0 {              // 繼承父行程的環境段
+	envSeg := p.envSeg
+	if envSeg == 0 { // 繼承父行程的環境段
 		envSeg = d.M.Read16(uint32(f.psp)*16 + 0x2C)
 	}
 	d.M.Write16(base+0x2C, envSeg)
-	d.copyCmdTail(base, tailSeg, tailOff)
-
-	// 切 CPU。DS=ES=子 PSP，其餘通用暫存器歸零（真 DOS 不保證它們的值，
-	// 歸零是決定性選擇；AX=0 表示驅動器代號有效）。
-	c.Seg[cpu.CS], c.IP = prog.CS, prog.IP
-	c.Seg[cpu.SS], c.R[cpu.SP] = prog.SS, prog.SP
-	c.Seg[cpu.DS], c.Seg[cpu.ES] = psp, psp
-	for i := range c.R {
-		c.R[i] = 0
+	d.copyCmdTail(base, p.tailSeg, p.tailOff)
+	// FCB 原樣各抄 16 bytes。
+	for i := uint32(0); i < 16; i++ {
+		d.M.Write8(base+0x5C+i, d.M.Read8(cpu.Addr(p.fcb1Seg, p.fcb1Off)+i))
+		d.M.Write8(base+0x6C+i, d.M.Read8(cpu.Addr(p.fcb2Seg, p.fcb2Off)+i))
 	}
-	c.R[cpu.SP] = prog.SP
 
+	d.enterProgram(c, prog)
 	d.ExecLog = append(d.ExecLog, ExecRecord{
 		Name: name, Base: filepath.Base(path), PSP: psp, Exit: 0xFF,
 	})
-	d.curPSP = psp
-	d.freeSeg = prog.EndSeg
+	d.Opened = append(d.Opened, name)
 	clearCarry(c)
+}
+
+// loadOverlay 是 `AH=4Bh AL=03h`：把映像放到指定的段，什麼都不切。
+//
+// overlay 是被 far call 進去的程式碼，**不建 PSP、不動 CS:IP**。
+// 參數區塊在 ES:BX：word 0 是載入段，word 2 是重定位加數；
+// **兩個是獨立的參數**，多數程式給相同的值但不保證。
+func (d *DOS) loadOverlay(c *cpu.CPU, name string, loadSeg, relocFactor uint16) {
+	data, path, ok := d.readProgram(c, name)
+	if !ok {
+		return
+	}
+	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+
+	// ⚠ 參數區塊要在載入**之前**抄起來。overlay 常常就載在參數區塊
+	// 所在的那一段，載完再讀會讀到剛寫進去的映像——那會讓診斷輸出
+	// 看起來像「程式傳了一段機器碼當參數」，把人帶往完全錯的方向。
+	rec := OverlayLoad{Name: name, Seg: loadSeg, Reloc: relocFactor, Size: len(data),
+		PBSeg: c.Seg[cpu.ES], PBOff: c.R[cpu.BX],
+		CallCS: c.Seg[cpu.CS], CallIP: c.IP, Steps: d.M.Steps}
+	// INT 指令本身 2 byte，所以 CallIP-2 是它的起點；往前再留 22 byte
+	// 看參數是怎麼備好的。
+	for i := 0; i < 32; i++ {
+		rec.CallSite[i] = d.M.Read8(cpu.Addr(c.Seg[cpu.CS], c.IP-24+uint16(i)))
+	}
+	for i := 0; i < 8; i++ {
+		rec.PBRaw[i] = d.M.Read8(pb + uint32(i))
+	}
+
+	if err := d.M.LoadOverlay(data, loadSeg, relocFactor); err != nil {
+		// **載入失敗要說出來。** overlay 沒載進去而回成功的話，程式會
+		// far call 進一片空白，然後在幾百萬道指令之後死在一個與這裡
+		// 毫無關聯的位址上。
+		d.Console = append(d.Console, []byte("\n[dosgolem] overlay "+name+"："+err.Error()+"\n")...)
+		d.Missing = append(d.Missing, fmt.Sprintf("%s（%v）", name, err))
+		c.R[cpu.AX] = 8
+		setCarry(c)
+		return
+	}
+	d.Overlays = append(d.Overlays, rec)
+	d.Opened = append(d.Opened, name)
+	d.ExecLog = append(d.ExecLog, ExecRecord{
+		Name: name, Base: filepath.Base(path), PSP: loadSeg, Exit: 0xFF,
+	})
+	// AL=03h 成功時 DOS 回 AX=0。呼叫端常常是 `jc 錯誤` 之後再 `or ax,ax`，
+	// 留著 4B03h 會被讀成錯誤碼。
+	c.R[cpu.AX] = 0
+	clearCarry(c)
+}
+
+// readProgram 解析檔名並讀進來。失敗時已經設好 CF 與 AX。
+func (d *DOS) readProgram(c *cpu.CPU, name string) ([]byte, string, bool) {
+	path := d.resolve(name)
+	if path == "" {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2 // File not found
+		setCarry(c)
+		return nil, "", false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		d.Missing = append(d.Missing, name)
+		c.R[cpu.AX] = 2
+		setCarry(c)
+		return nil, "", false
+	}
+	return data, path, true
+}
+
+// enterProgram 把 CPU 切到剛載好的程式。
+//
+// DS=ES=子 PSP，其餘通用暫存器歸零（真 DOS 不保證它們的值，歸零是
+// 決定性選擇；AX=0 表示驅動器代號有效）。
+func (d *DOS) enterProgram(c *cpu.CPU, prog *machine.Program) {
+	for i := range c.R {
+		c.R[i] = 0
+	}
+	c.Seg[cpu.CS], c.IP = prog.CS, prog.IP
+	c.Seg[cpu.SS], c.R[cpu.SP] = prog.SS, prog.SP
+	c.Seg[cpu.DS], c.Seg[cpu.ES] = prog.PSPSeg, prog.PSPSeg
+	d.curPSP = prog.PSPSeg
+	d.freeSeg = prog.EndSeg
 }
 
 // copyCmdTail 把 EXEC 參數區塊指的命令列尾拷進子 PSP+80h。
@@ -165,21 +287,35 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 		}
 	}
 
-	if len(d.stack) > 0 {
-		// 彈回父行程（`009` §2 的「回傳」）。
-		f := d.stack[len(d.stack)-1]
-		d.stack = d.stack[:len(d.stack)-1]
+	if len(d.procStack) > 0 {
+		// 彈回父行程（`docs/spec/009` §2 的「回傳」）。
+		f := d.procStack[len(d.procStack)-1]
+		d.procStack = d.procStack[:len(d.procStack)-1]
+
+		// 子行程開的檔要關掉，DOS 保管的三個向量要還原。
+		if !tsr {
+			d.closeHandlesOf(d.curPSP)
+		}
+		for i, n := range savedVectors {
+			d.M.Write16(uint32(n)*4, f.ivt[i][0])
+			d.M.Write16(uint32(n)*4+2, f.ivt[i][1])
+		}
+
 		c.R, c.Seg, c.IP, c.Flags = f.r, f.seg, f.ip, f.fl
 		if tsr {
 			// TSR：常駐區保留。bump 配置器沒有洞的觀念，所以
-			// **只能往前推不能往回收**（`008` §2.1）——
+			// **只能往前推不能往回收**（`docs/spec/008` §2.1）——
 			// TSR 之前 AH=48h 拿走並留在常駐程式名下的區塊跟著保留。
 			if k := d.curPSP + keep; k > d.freeSeg {
 				d.freeSeg = k
 			}
 		} else {
 			// 非 TSR：整個子行程（含它 AH=48h 拿走的）LIFO 回收。
-			d.freeSeg = d.curPSP - 1
+			// 真 DOS 的 AH=4Ch 會釋放該 PSP 擁有的所有 MCB；bump 配置器
+			// 只升不降的話，下一支 EXEC 進來的程式會被載到不該有的高段
+			// ——而且它自己完全察覺不到，只有在向 DOS 要不到記憶體時
+			// 才顯現（`docs/spec/010` §1）。
+			d.freeSeg = f.freeSeg
 		}
 		d.curPSP = f.psp
 		clearCarry(c)
@@ -196,7 +332,7 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 		d.freeSeg = d.curPSP - 1
 	}
 
-	// 監督佇列（`009` §4）：有排就跑下一支，沒有才算程式結束。
+	// 監督佇列（`docs/spec/009` §4）：有排就跑下一支，沒有才算程式結束。
 	if len(d.queue) > 0 {
 		q := d.queue[0]
 		d.queue = d.queue[1:]
@@ -215,6 +351,17 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 	c.Halted = true
 }
 
+// closeHandlesOf 關掉某個行程名下的所有 handle（真 DOS 的 AH=4Ch）。
+func (d *DOS) closeHandlesOf(psp uint16) {
+	for h, hh := range d.handles {
+		if hh.psp == psp {
+			// 走 releaseHandle：`AH=45h` 複製出來的號碼共用同一個檔案指標，
+			// 直接 Close 會把還在別人名下的那一份也關掉。
+			d.releaseHandle(h, hh)
+		}
+	}
+}
+
 // spawnQueued 從監督佇列推出一支程式當新的疊底。
 // 沒有父行程框可壓（結束時疊是空的）；命令列尾由 Args 直接給。
 func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
@@ -228,9 +375,8 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 		d.Missing = append(d.Missing, q.Name)
 		return
 	}
-	need := uint16((len(data)+15)/16) + 0x10 + 1
 	psp := d.freeSeg + 1
-	if psp+need > machine.MemTop {
+	if need := imageParags(data); psp+need > machine.MemTop {
 		d.Missing = append(d.Missing, q.Name+"（記憶體不足）")
 		return
 	}
@@ -239,11 +385,11 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 		d.Missing = append(d.Missing, fmt.Sprintf("%s（%v）", q.Name, err))
 		return
 	}
-	d.M.WriteMCB(d.freeSeg, psp, prog.EndSeg-d.freeSeg)
+	d.M.WriteMCB(d.freeSeg, false, psp, prog.EndSeg-d.freeSeg)
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, psp) // 疊底的父行程是自己
 
-	// 命令列尾：長度 ＋ 內容 ＋ CR（`009` §4）。
+	// 命令列尾：長度 ＋ 內容 ＋ CR（`docs/spec/009` §4）。
 	args := []byte(q.Args)
 	if len(args) > 126 {
 		args = args[:126]
@@ -252,30 +398,46 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 	d.M.WriteBytes(base+0x81, args)
 	d.M.Write8(base+0x81+uint32(len(args)), 0x0D)
 
-	c.Seg[cpu.CS], c.IP = prog.CS, prog.IP
-	c.Seg[cpu.SS], c.R[cpu.SP] = prog.SS, prog.SP
-	c.Seg[cpu.DS], c.Seg[cpu.ES] = psp, psp
-	for i := range c.R {
-		c.R[i] = 0
-	}
-	c.R[cpu.SP] = prog.SP
+	d.enterProgram(c, prog)
 	c.Halted = false
 
 	d.ExecLog = append(d.ExecLog, ExecRecord{
 		Name: q.Name, Base: filepath.Base(path), PSP: psp, Exit: 0xFF,
 	})
-	d.curPSP = psp
-	d.freeSeg = prog.EndSeg
 }
 
-// tsr 是 `AH=31h`：常駐並結束（`008` §3）。
+// tsr 是 `AH=31h`：常駐並結束（`docs/spec/008` §3）。
 func (d *DOS) tsr(c *cpu.CPU) {
 	d.terminate(c, al(c), true, c.R[cpu.DX])
 }
 
-// getExitCode 是 `AH=4Dh`（`009` §3）：AL ＝ 離開碼，AH ＝ 0（正常結束）。
+// getExitCode 是 `AH=4Dh`（`docs/spec/009` §3）：AL ＝ 離開碼、
+// AH ＝ 結束方式（0 ＝ 正常）。
+//
+// ⚠ **AH 一定要清 0**——GIN3.COM 拿整個 AX 比較（`or ax,ax`／`cmp ax,1`），
+// AH 留垃圾會讓「回碼 0」讀成非 0。
+//
 // **可重複讀，不清掉**——清了會讓第二次讀到 0，一個看起來合理但假的值。
 func (d *DOS) getExitCode(c *cpu.CPU) {
 	c.R[cpu.AX] = d.lastExit & 0xFF
+	// **讀過就清。** DOS 的語意是「取回上一支子程式的回傳碼」，
+	// 只在子程式結束後的第一次呼叫有效（強證據：DOS 的 AH=4Dh 文件與
+	// Ralf Brown 的中斷表都這樣寫；沒有拿真機對拍過）。
+	// 不清的話，在迴圈裡輪詢的殼會對同一次結束反應好幾次——
+	// 而那看起來像它自己的狀態機有問題。
+	d.lastExit = 0
 	clearCarry(c)
+}
+
+// isEMMDevice 回 basename 是不是 EMM 驅動的字元裝置名。
+// 開啟它成功 ＝ EMS 驅動存在（GIN3.COM 01D9–01F0 就是這樣偵測的）。
+func isEMMDevice(name string) bool {
+	base := name
+	for i := len(base) - 1; i >= 0; i-- {
+		if base[i] == '/' || base[i] == '\\' || base[i] == ':' {
+			base = base[i+1:]
+			break
+		}
+	}
+	return strings.EqualFold(base, "EMMXXXX0")
 }

@@ -1,0 +1,3215 @@
+// Package cpu386 是與既有 8086 核心隔離的 32-bit 平坦執行核心。
+// 目前依文件化切片擴充 DOS/4GW 啟動路徑；未列形狀一律失敗即關閉。
+package cpu386
+
+import (
+	"fmt"
+	"math"
+)
+
+type Bus interface {
+	Read8(addr uint32) (uint8, error)
+	Write8(addr uint32, value uint8) error
+}
+
+const (
+	EAX = iota
+	ECX
+	EDX
+	EBX
+	ESP
+	EBP
+	ESI
+	EDI
+)
+
+const (
+	SegCS = iota
+	SegDS
+	SegES
+	SegFS
+	SegGS
+	SegSS
+)
+
+const (
+	CF uint32 = 1 << 0
+	PF uint32 = 1 << 2
+	AF uint32 = 1 << 4
+	ZF uint32 = 1 << 6
+	SF uint32 = 1 << 7
+	IF uint32 = 1 << 9
+	DF uint32 = 1 << 10
+	OF uint32 = 1 << 11
+)
+
+type CPU struct {
+	R       [8]uint32
+	Seg     [6]uint16
+	EIP     uint32
+	EFlags  uint32
+	Bus     Bus
+	IntHook func(*CPU, uint8) bool
+	// PortOut 回 true 表示 byte 輸出已被平台層接受；未安裝或拒絕時失敗即關閉。
+	PortOut func(port uint16, value uint8) bool
+	// StepHook 可在已登錄的執行期函式入口取代一次指令步進。
+	// 回傳 handled=false 時仍由 CPU 正常解碼，維持失敗即關閉。
+	StepHook      func(*CPU) (handled bool, err error)
+	SegmentRead16 func(selector uint16, offset uint32) (uint16, bool)
+	SegmentRead8  func(selector uint16, offset uint32) (uint8, bool)
+	SegmentLoadOK func(selector uint16, destination int) bool
+	Descriptors   map[uint16]Descriptor
+	FPUControl    uint16
+	FPUStatus     uint16
+	FPUStack      [8]float64
+	FPUDepth      uint8
+}
+
+type Descriptor struct {
+	Base     uint32
+	Limit    uint32
+	Writable bool
+}
+
+type Error struct {
+	EIP    uint32
+	Opcode uint8
+	Reason string
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("cpu386: EIP=%08X opcode=%02X：%s", e.EIP, e.Opcode, e.Reason)
+}
+
+func New(bus Bus) *CPU { return &CPU{Bus: bus, EFlags: 2, Descriptors: make(map[uint16]Descriptor)} }
+
+func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
+	c.Descriptors[selector] = descriptor
+}
+
+func (c *CPU) ReadSegment8(selector uint16, offset uint32) (uint8, bool) {
+	return c.readSegment8(selector, offset)
+}
+
+// WriteSegmentBytes 先驗證完整 descriptor 範圍，再依序寫入資料。
+func (c *CPU) WriteSegmentBytes(selector uint16, offset uint32, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	linear, ok := c.segmentLinear(selector, offset, uint32(len(data)), true)
+	if !ok {
+		return false
+	}
+	for index, value := range data {
+		if c.Bus.Write8(linear+uint32(index), value) != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
+	if selector == 0 && destination != SegCS && destination != SegSS {
+		return true
+	}
+	if _, ok := c.Descriptors[selector]; ok {
+		return true
+	}
+	return c.SegmentLoadOK != nil && c.SegmentLoadOK(selector, destination)
+}
+
+func (c *CPU) segmentLinear(selector uint16, offset uint32, size uint32, write bool) (uint32, bool) {
+	d, ok := c.Descriptors[selector]
+	if !ok || size == 0 || (write && !d.Writable) || offset > d.Limit || size-1 > d.Limit-offset {
+		return 0, false
+	}
+	linear := uint64(d.Base) + uint64(offset)
+	if linear+uint64(size) > uint64(^uint32(0))+1 {
+		return 0, false
+	}
+	return uint32(linear), true
+}
+
+func (c *CPU) writeSegment16(selector uint16, offset uint32, value uint16) bool {
+	linear, ok := c.segmentLinear(selector, offset, 2, true)
+	if !ok || c.write16(linear, value) != nil {
+		return false
+	}
+	return true
+}
+
+func (c *CPU) readSegment8(selector uint16, offset uint32) (uint8, bool) {
+	if c.SegmentRead8 != nil {
+		if value, ok := c.SegmentRead8(selector, offset); ok {
+			return value, true
+		}
+	}
+	linear, ok := c.segmentLinear(selector, offset, 1, false)
+	if !ok {
+		return 0, false
+	}
+	value, err := c.Bus.Read8(linear)
+	return value, err == nil
+}
+
+func (c *CPU) readSegment16(selector uint16, offset uint32) (uint16, bool) {
+	if c.SegmentRead16 != nil {
+		if value, ok := c.SegmentRead16(selector, offset); ok {
+			return value, true
+		}
+	}
+	linear, ok := c.segmentLinear(selector, offset, 2, false)
+	if !ok {
+		return 0, false
+	}
+	value, err := c.read16(linear)
+	return value, err == nil
+}
+
+func (c *CPU) writeSegment8(selector uint16, offset uint32, value uint8) bool {
+	linear, ok := c.segmentLinear(selector, offset, 1, true)
+	return ok && c.Bus.Write8(linear, value) == nil
+}
+
+func (c *CPU) readSegment32(selector uint16, offset uint32) (uint32, bool) {
+	if c.SegmentRead8 != nil {
+		var value uint32
+		for i := uint32(0); i < 4; i++ {
+			part, ok := c.SegmentRead8(selector, offset+i)
+			if !ok {
+				value = 0
+				break
+			}
+			value |= uint32(part) << (8 * i)
+			if i == 3 {
+				return value, true
+			}
+		}
+	}
+	linear, ok := c.segmentLinear(selector, offset, 4, false)
+	if !ok {
+		return 0, false
+	}
+	a, err := c.read16(linear)
+	if err != nil {
+		return 0, false
+	}
+	b, err := c.read16(linear + 2)
+	return uint32(a) | uint32(b)<<16, err == nil
+}
+
+func (c *CPU) writeSegment32(selector uint16, offset uint32, value uint32) bool {
+	linear, ok := c.segmentLinear(selector, offset, 4, true)
+	if !ok || c.write32(linear, value) != nil {
+		return false
+	}
+	return true
+}
+
+func (c *CPU) fetch8() (uint8, error) {
+	v, err := c.Bus.Read8(c.EIP)
+	if err == nil {
+		c.EIP++
+	}
+	return v, err
+}
+
+func (c *CPU) fetch16() (uint16, error) {
+	a, err := c.fetch8()
+	if err != nil {
+		return 0, err
+	}
+	b, err := c.fetch8()
+	if err != nil {
+		return 0, err
+	}
+	return uint16(a) | uint16(b)<<8, nil
+}
+
+func (c *CPU) fetch32() (uint32, error) {
+	a, err := c.fetch16()
+	if err != nil {
+		return 0, err
+	}
+	b, err := c.fetch16()
+	if err != nil {
+		return 0, err
+	}
+	return uint32(a) | uint32(b)<<16, nil
+}
+
+func (c *CPU) read16(addr uint32) (uint16, error) {
+	a, err := c.Bus.Read8(addr)
+	if err != nil {
+		return 0, err
+	}
+	b, err := c.Bus.Read8(addr + 1)
+	if err != nil {
+		return 0, err
+	}
+	return uint16(a) | uint16(b)<<8, nil
+}
+
+func (c *CPU) write16(addr uint32, value uint16) error {
+	if err := c.Bus.Write8(addr, uint8(value)); err != nil {
+		return err
+	}
+	return c.Bus.Write8(addr+1, uint8(value>>8))
+}
+
+func (c *CPU) write32(addr uint32, value uint32) error {
+	if err := c.write16(addr, uint16(value)); err != nil {
+		return err
+	}
+	return c.write16(addr+2, uint16(value>>16))
+}
+
+func (c *CPU) setReg8(index int, value uint8) {
+	if index < 4 {
+		c.R[index] = c.R[index]&0xffffff00 | uint32(value)
+	} else {
+		r := index - 4
+		c.R[r] = c.R[r]&0xffff00ff | uint32(value)<<8
+	}
+}
+
+func (c *CPU) reg8(index int) uint8 {
+	if index < 4 {
+		return uint8(c.R[index])
+	}
+	return uint8(c.R[index-4] >> 8)
+}
+
+func parity(value uint8) bool {
+	value ^= value >> 4
+	value &= 0xf
+	return (0x6996>>value)&1 == 0
+}
+
+func (c *CPU) setLogicFlags(value uint32) {
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if value == 0 {
+		c.EFlags |= ZF
+	}
+	if value&0x80000000 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(uint8(value)) {
+		c.EFlags |= PF
+	}
+}
+
+func (c *CPU) setLogicFlags8(value uint8) {
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if value == 0 {
+		c.EFlags |= ZF
+	}
+	if value&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(value) {
+		c.EFlags |= PF
+	}
+}
+
+func (c *CPU) add32(left, right uint32) uint32 {
+	result := left + right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if result < left {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80000000 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(uint8(result)) {
+		c.EFlags |= PF
+	}
+	if (^(left ^ right) & (left ^ result) & 0x80000000) != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) sub32(left, right uint32) uint32 {
+	result := left - right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if left < right {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80000000 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(uint8(result)) {
+		c.EFlags |= PF
+	}
+	if ((left^right)&(left^result))&0x80000000 != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) sub16(left, right uint16) uint16 {
+	result := left - right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if left < right {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x8000 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(uint8(result)) {
+		c.EFlags |= PF
+	}
+	if ((left^right)&(left^result))&0x8000 != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) sub8(left, right uint8) uint8 {
+	result := left - right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if left < right {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(result) {
+		c.EFlags |= PF
+	}
+	if ((left^right)&(left^result))&0x80 != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) add8(left, right uint8) uint8 {
+	result := left + right
+	c.EFlags &^= CF | PF | AF | ZF | SF | OF
+	if result < left {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if result == 0 {
+		c.EFlags |= ZF
+	}
+	if result&0x80 != 0 {
+		c.EFlags |= SF
+	}
+	if parity(result) {
+		c.EFlags |= PF
+	}
+	if (^(left ^ right) & (left ^ result) & 0x80) != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
+func (c *CPU) Step() error {
+	if c.StepHook != nil {
+		handled, err := c.StepHook(c)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
+	}
+	start := c.EIP
+	op, err := c.fetch8()
+	if err != nil {
+		return &Error{start, 0, err.Error()}
+	}
+	operand16 := false
+	segmentOverride := -1
+	repe := false
+	repne := false
+	for op == 0x66 || op == 0x26 || op == 0xf2 || op == 0xf3 {
+		switch op {
+		case 0x66:
+			if operand16 {
+				return &Error{start, op, "重複 operand-size prefix"}
+			}
+			operand16 = true
+		case 0x26:
+			if segmentOverride >= 0 {
+				return &Error{start, op, "重複 segment prefix"}
+			}
+			segmentOverride = SegES
+		case 0xf3:
+			if repe || repne {
+				return &Error{start, op, "重複或衝突的 repeat prefix"}
+			}
+			repe = true
+		case 0xf2:
+			if repe || repne {
+				return &Error{start, op, "重複或衝突的 repeat prefix"}
+			}
+			repne = true
+		}
+		op, err = c.fetch8()
+		if err != nil {
+			return &Error{start, 0, err.Error()}
+		}
+	}
+	fail := func(reason string) error { return &Error{start, op, reason} }
+	if repe && op != 0xaa && op != 0xab && op != 0xae {
+		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB")
+	}
+	if repne && op != 0xae {
+		return fail("REPNE prefix 只支援 SCASB")
+	}
+	if segmentOverride >= 0 && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
+		return fail("segment override 只支援 8A／8B／8C／8E")
+	}
+	switch {
+	case op == 0x68:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("68 不接受目前的 prefix")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+			return fail(fmt.Sprintf("PUSH immediate dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x6a:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("6A 不接受目前的 prefix")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(int32(int8(value)))) {
+			return fail(fmt.Sprintf("PUSH immediate stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0xf7:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("F7 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm == 0x5c {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack NEG SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack NEG read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			result := uint32(0) - value
+			if !c.writeSegment32(c.Seg[SegSS], addr, result) {
+				return fail(fmt.Sprintf("stack NEG write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(0, value)
+			break
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
+		}
+		reg := modrm & 7
+		switch (modrm >> 3) & 7 {
+		case 2:
+			c.R[reg] = ^c.R[reg]
+		case 3:
+			c.R[reg] = c.sub32(0, c.R[reg])
+		default:
+			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x01:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("01 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ADD dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] = c.add32(c.R[dst], c.R[src])
+	case op == 0x03:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("03 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 != ESP {
+			return fail(fmt.Sprintf("03 ModRM %02X 尚未支援", modrm))
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if sib != 0x24 {
+			return fail(fmt.Sprintf("ADD stack SIB %02X 尚未支援", sib))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+		value, ok := c.readSegment32(c.Seg[SegSS], addr)
+		if !ok {
+			return fail(fmt.Sprintf("ADD stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+		}
+		reg := (modrm >> 3) & 7
+		c.R[reg] = c.add32(c.R[reg], value)
+	case op == 0x39:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("39 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("CMP dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.sub32(c.R[dst], c.R[src])
+	case op == 0x09:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("09 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP {
+			return fail(fmt.Sprintf("09 ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment32(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("OR dword read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		result := value | c.R[(modrm>>3)&7]
+		if !c.writeSegment32(c.Seg[segment], addr, result) {
+			return fail(fmt.Sprintf("OR dword write %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		c.setLogicFlags(result)
+	case op == 0x0a:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("0A 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP {
+			return fail(fmt.Sprintf("0A ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("OR byte read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		destination := int((modrm >> 3) & 7)
+		result := c.reg8(destination) | value
+		c.setReg8(destination, result)
+		c.setLogicFlags8(result)
+	case op == 0x29:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("29 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("SUB dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] = c.sub32(c.R[dst], c.R[src])
+	case op == 0x85:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("85 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("TEST dword ModRM %02X 尚未支援", modrm))
+		}
+		left, right := modrm&7, (modrm>>3)&7
+		c.setLogicFlags(c.R[left] & c.R[right])
+	case op == 0x84:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("84 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("TEST byte ModRM %02X 尚未支援", modrm))
+		}
+		left, right := int(modrm&7), int((modrm>>3)&7)
+		c.setLogicFlags8(c.reg8(left) & c.reg8(right))
+	case op == 0x31:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("31 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("XOR dword ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] ^= c.R[src]
+		c.setLogicFlags(c.R[dst])
+	case op == 0x30:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("30 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("XOR ModRM %02X 尚未支援", modrm))
+		}
+		dst := int(modrm & 7)
+		src := int((modrm >> 3) & 7)
+		result := c.reg8(dst) ^ c.reg8(src)
+		c.setReg8(dst, result)
+		c.setLogicFlags8(result)
+	case op == 0x06:
+		if operand16 {
+			return fail("16-bit PUSH ES 尚未支援")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegES])) {
+			return fail(fmt.Sprintf("PUSH ES stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x1e:
+		if operand16 {
+			return fail("16-bit PUSH DS 尚未支援")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegDS])) {
+			return fail(fmt.Sprintf("PUSH DS stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x07:
+		if operand16 {
+			return fail("16-bit POP ES 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		selector := uint16(value)
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		if !c.canLoadSegment(selector, SegES) {
+			return fail(fmt.Sprintf("ES selector %04X 未登錄", selector))
+		}
+		c.Seg[SegES] = selector
+		c.R[ESP] += 4
+	case op == 0x1f:
+		if operand16 {
+			return fail("16-bit POP DS 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		selector := uint16(value)
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		if !c.canLoadSegment(selector, SegDS) {
+			return fail(fmt.Sprintf("DS selector %04X 未登錄", selector))
+		}
+		c.Seg[SegDS] = selector
+		c.R[ESP] += 4
+	case op == 0xdb:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DB x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0xe3 {
+			return fail(fmt.Sprintf("x87 DB ModRM %02X 尚未支援", modrm))
+		}
+		c.FPUControl = 0x037f
+		c.FPUStatus = 0
+		c.FPUStack = [8]float64{}
+		c.FPUDepth = 0
+	case op == 0xde:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DE x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		switch modrm {
+		case 0xf9:
+			if c.FPUDepth < 2 {
+				return fail("FDIVP x87 stack underflow")
+			}
+			dividend, divisor := c.FPUStack[1], c.FPUStack[0]
+			if divisor == 0 {
+				c.FPUStatus |= 1 << 2
+				c.FPUStack[1] = math.Copysign(math.Inf(1), dividend*divisor)
+			} else {
+				c.FPUStack[1] = dividend / divisor
+			}
+			copy(c.FPUStack[0:], c.FPUStack[1:c.FPUDepth])
+			c.FPUDepth--
+		case 0xd9:
+			if c.FPUDepth < 2 {
+				return fail("FCOMPP x87 stack underflow")
+			}
+			left, right := c.FPUStack[0], c.FPUStack[1]
+			c.FPUStatus &^= 0x4500
+			switch {
+			case math.IsNaN(left) || math.IsNaN(right):
+				c.FPUStatus |= 0x4500
+			case left < right:
+				c.FPUStatus |= 0x0100
+			case left == right:
+				c.FPUStatus |= 0x4000
+			}
+			copy(c.FPUStack[0:], c.FPUStack[2:c.FPUDepth])
+			c.FPUDepth -= 2
+		default:
+			return fail(fmt.Sprintf("x87 DE ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0xdf:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("DF x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0xe0 {
+			return fail(fmt.Sprintf("x87 DF ModRM %02X 尚未支援", modrm))
+		}
+		c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(c.FPUStatus)
+	case op == 0xd9:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("D9 x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		switch modrm {
+		case 0xe8:
+			if c.FPUDepth >= 8 {
+				return fail("x87 stack overflow")
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = 1
+			c.FPUDepth++
+		case 0x3c:
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], c.FPUControl) {
+				return fail(fmt.Sprintf("FNSTCW stack write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+		case 0x2d:
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("FLDCW read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.FPUControl = value
+		case 0x2c:
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("FLDCW SIB %02X 尚未支援", sib))
+			}
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok {
+				return fail(fmt.Sprintf("FLDCW stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			c.FPUControl = value
+		case 0xee:
+			if c.FPUDepth >= 8 {
+				return fail("x87 stack overflow")
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = 0
+			c.FPUDepth++
+		case 0xc0:
+			if c.FPUDepth == 0 || c.FPUDepth >= 8 {
+				return fail("FLD ST(0) x87 stack unavailable")
+			}
+			value := c.FPUStack[0]
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = value
+			c.FPUDepth++
+		case 0xe0:
+			if c.FPUDepth == 0 {
+				return fail("FCHS x87 stack underflow")
+			}
+			c.FPUStack[0] = -c.FPUStack[0]
+		default:
+			return fail(fmt.Sprintf("x87 D9 ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x9b:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("WAIT 不接受目前的 prefix")
+		}
+	case op == 0x9e:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("SAHF 不接受目前的 prefix")
+		}
+		ah := uint8(c.R[EAX] >> 8)
+		c.EFlags &^= SF | ZF | AF | PF | CF
+		c.EFlags |= uint32(ah) & (SF | ZF | AF | PF | CF)
+	case op >= 0x40 && op <= 0x47:
+		if operand16 {
+			return fail("16-bit INC 尚未支援")
+		}
+		reg := int(op - 0x40)
+		carry := c.EFlags & CF
+		c.R[reg] = c.add32(c.R[reg], 1)
+		c.EFlags = c.EFlags&^CF | carry
+	case op >= 0x48 && op <= 0x4f:
+		if operand16 {
+			return fail("16-bit DEC 尚未支援")
+		}
+		reg := int(op - 0x48)
+		carry := c.EFlags & CF
+		c.R[reg] = c.sub32(c.R[reg], 1)
+		c.EFlags = c.EFlags&^CF | carry
+	case op == 0xfe:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("FE 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 || (modrm>>3)&7 != 0 {
+			return fail(fmt.Sprintf("FE ModRM %02X 尚未支援", modrm))
+		}
+		reg := int(modrm & 7)
+		carry := c.EFlags & CF
+		c.setReg8(reg, c.add8(c.reg8(reg), 1))
+		c.EFlags = c.EFlags&^CF | carry
+	case op >= 0x58 && op <= 0x5f:
+		if operand16 {
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok || c.R[ESP] > ^uint32(0)-2 {
+				return fail(fmt.Sprintf("16-bit stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			reg := op - 0x58
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+			c.R[ESP] += 2
+			break
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[op-0x58] = value
+		c.R[ESP] += 4
+	case op == 0xaa:
+		if operand16 || segmentOverride >= 0 {
+			return fail("STOSB 不接受目前的 prefix")
+		}
+		count := uint32(1)
+		if repe || repne {
+			count = c.R[ECX]
+		}
+		for count > 0 {
+			if !c.writeSegment8(c.Seg[SegES], c.R[EDI], c.reg8(0)) {
+				return fail(fmt.Sprintf("STOSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			if c.EFlags&DF != 0 {
+				c.R[EDI]--
+			} else {
+				c.R[EDI]++
+			}
+			if repe {
+				c.R[ECX]--
+				count = c.R[ECX]
+			} else {
+				break
+			}
+		}
+	case op == 0xab:
+		if operand16 || segmentOverride >= 0 {
+			return fail("STOSD 不接受目前的 prefix")
+		}
+		count := uint32(1)
+		if repe {
+			count = c.R[ECX]
+		}
+		for count > 0 {
+			if !c.writeSegment32(c.Seg[SegES], c.R[EDI], c.R[EAX]) {
+				return fail(fmt.Sprintf("STOSD write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			if c.EFlags&DF != 0 {
+				c.R[EDI] -= 4
+			} else {
+				c.R[EDI] += 4
+			}
+			if repe {
+				c.R[ECX]--
+				count = c.R[ECX]
+			} else {
+				break
+			}
+		}
+	case op == 0xa4:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("MOVSB 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment8(c.Seg[SegDS], c.R[ESI])
+		if !ok {
+			return fail(fmt.Sprintf("MOVSB read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+		}
+		if !c.writeSegment8(c.Seg[SegES], c.R[EDI], value) {
+			return fail(fmt.Sprintf("MOVSB write %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+		}
+		if c.EFlags&DF != 0 {
+			c.R[ESI]--
+			c.R[EDI]--
+		} else {
+			c.R[ESI]++
+			c.R[EDI]++
+		}
+	case op == 0xac:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("LODSB 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment8(c.Seg[SegDS], c.R[ESI])
+		if !ok {
+			return fail(fmt.Sprintf("LODSB read %04X:%08X 未處理", c.Seg[SegDS], c.R[ESI]))
+		}
+		c.setReg8(0, value)
+		if c.EFlags&DF != 0 {
+			c.R[ESI]--
+		} else {
+			c.R[ESI]++
+		}
+	case op == 0xfc:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("CLD 不接受目前的 prefix")
+		}
+		c.EFlags &^= DF
+	case op == 0xae:
+		if operand16 || segmentOverride >= 0 {
+			return fail("SCASB 不接受目前的 prefix")
+		}
+		count := uint32(1)
+		if repe {
+			count = c.R[ECX]
+		}
+		for count > 0 {
+			value, ok := c.readSegment8(c.Seg[SegES], c.R[EDI])
+			if !ok {
+				return fail(fmt.Sprintf("SCASB read %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			c.sub8(c.reg8(0), value)
+			if c.EFlags&DF != 0 {
+				c.R[EDI]--
+			} else {
+				c.R[EDI]++
+			}
+			if repe || repne {
+				c.R[ECX]--
+				count = c.R[ECX]
+				if repe && c.EFlags&ZF == 0 || repne && c.EFlags&ZF != 0 {
+					break
+				}
+			} else {
+				break
+			}
+		}
+	case op >= 0x50 && op <= 0x57:
+		if operand16 {
+			if c.R[ESP] < 2 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 2
+			if !c.writeSegment16(c.Seg[SegSS], nextESP, uint16(c.R[op-0x50])) {
+				return fail(fmt.Sprintf("16-bit stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.R[op-0x50]) {
+			return fail(fmt.Sprintf("stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x9c:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("9C 不接受目前的 prefix")
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EFlags) {
+			return fail(fmt.Sprintf("PUSHFD stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+	case op == 0x9d:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("9D 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("POPFD stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += 4
+		c.EFlags = value
+	case op == 0xe8:
+		if operand16 {
+			return fail("16-bit near CALL 尚未支援")
+		}
+		delta, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EIP) {
+			return fail(fmt.Sprintf("CALL stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
+	case op == 0xff:
+		if operand16 {
+			return fail("16-bit FF group 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 0 && modrm&7 == EBP && group == 0 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("INC dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			result := value + 1
+			if !c.writeSegment32(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("INC dword write %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			carry := c.EFlags & CF
+			c.add32(value, 1)
+			c.EFlags = c.EFlags&^CF | carry
+			break
+		}
+		if modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP && group == 0 {
+			addr := c.R[modrm&7]
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("INC dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			result := value + 1
+			if !c.writeSegment32(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("INC dword write %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			carry := c.EFlags & CF
+			c.add32(value, 1)
+			c.EFlags = c.EFlags&^CF | carry
+			break
+		}
+		if modrm>>6 == 0 && modrm&7 == EBP && group == 1 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("DEC dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			result := value - 1
+			if !c.writeSegment32(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("DEC dword write %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			carry := c.EFlags & CF
+			c.sub32(value, 1)
+			c.EFlags = c.EFlags&^CF | carry
+			break
+		}
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 1 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("DEC dword read %04X:%08X 尚未支援", c.Seg[segment], addr))
+			}
+			result := value - 1
+			if !c.writeSegment32(c.Seg[segment], addr, result) {
+				return fail(fmt.Sprintf("DEC dword write %04X:%08X 尚未支援", c.Seg[segment], addr))
+			}
+			carry := c.EFlags & CF
+			c.sub32(value, 1)
+			c.EFlags = c.EFlags&^CF | carry
+			break
+		}
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 6 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("PUSH dword read %04X:%08X 尚未支援", c.Seg[segment], addr))
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+				return fail(fmt.Sprintf("PUSH dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
+		if modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP && group == 6 {
+			addr := c.R[modrm&7]
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("PUSH dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+				return fail(fmt.Sprintf("PUSH dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
+		if modrm>>6 == 0 && modrm&7 == 5 && group == 6 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("PUSH dword read %04X:%08X 尚未支援", c.Seg[SegDS], addr))
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, value) {
+				return fail(fmt.Sprintf("PUSH dword stack write %04X:%08X 尚未支援", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
+			break
+		}
+		if modrm>>6 != 3 || group != 2 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		if c.R[ESP] < 4 {
+			return fail("ESP underflow")
+		}
+		nextESP := c.R[ESP] - 4
+		if !c.writeSegment32(c.Seg[SegSS], nextESP, c.EIP) {
+			return fail(fmt.Sprintf("indirect CALL stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+		}
+		c.R[ESP] = nextESP
+		c.EIP = c.R[modrm&7]
+	case op == 0xeb:
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+	case op == 0xe9:
+		if operand16 {
+			return fail("16-bit near JMP 尚未支援")
+		}
+		delta, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
+	case op == 0xe6:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("E6 不接受目前的 prefix")
+		}
+		port, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.PortOut == nil || !c.PortOut(uint16(port), uint8(c.R[EAX])) {
+			return fail(fmt.Sprintf("OUT port %02X 未處理", port))
+		}
+	case op == 0x75:
+		if operand16 {
+			return fail("75 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x73:
+		if operand16 {
+			return fail("73 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&CF == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x72:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("72 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&CF != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x77:
+		if operand16 {
+			return fail("77 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&(CF|ZF) == 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x7c:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("7C 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if (c.EFlags&SF != 0) != (c.EFlags&OF != 0) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x76:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("76 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&(CF|ZF) != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x7f:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("7F 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF == 0 && (c.EFlags&SF != 0) == (c.EFlags&OF != 0) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x7e:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("7E 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF != 0 || (c.EFlags&SF != 0) != (c.EFlags&OF != 0) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x7d:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("7D 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if (c.EFlags&SF != 0) == (c.EFlags&OF != 0) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0xfb:
+		c.EFlags |= IF
+	case op == 0xfa:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("FA 不接受目前的 prefix")
+		}
+		c.EFlags &^= IF
+	case op == 0x81:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("81 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 7 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP immediate32 dword read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.sub32(value, imm)
+			break
+		}
+		if modrm>>6 == 3 && group == 5 {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			c.R[reg] = c.sub32(c.R[reg], value)
+			break
+		}
+		if modrm>>6 == 3 && group == 7 {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.sub32(c.R[modrm&7], value)
+			break
+		}
+		if modrm>>6 != 3 || group != 4 {
+			return fail(fmt.Sprintf("81 ModRM %02X 尚未支援", modrm))
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		reg := modrm & 7
+		c.R[reg] &= value
+		c.setLogicFlags(c.R[reg])
+	case op == 0x83:
+		if operand16 {
+			return fail("16-bit 83 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 == 0 && modrm&7 == 5 && group == 7 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
+		if modrm>>6 == 1 && modrm&7 != ESP && group == 7 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
+		if modrm>>6 == 1 && modrm&7 == ESP && group == 7 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("CMP stack SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
+		if modrm>>6 == 2 && modrm&7 != ESP && group == 7 && segmentOverride < 0 {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP base+disp32 dword read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.sub32(value, uint32(int32(int8(imm))))
+			break
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		imm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		rm := int(modrm & 7)
+		switch group {
+		case 0:
+			c.R[rm] = c.add32(c.R[rm], uint32(int32(int8(imm))))
+		case 4:
+			c.R[rm] &= uint32(int32(int8(imm)))
+			c.setLogicFlags(c.R[rm])
+		case 5:
+			c.R[rm] = c.sub32(c.R[rm], uint32(int32(int8(imm))))
+		case 7:
+			c.sub32(c.R[rm], uint32(int32(int8(imm))))
+		default:
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x80:
+		if operand16 {
+			return fail("80 不接受 operand-size override")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if segmentOverride == SegES && group == 7 && modrm == 0x38 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegES], c.R[EAX])
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegES], c.R[EAX]))
+			}
+			c.sub8(value, imm)
+		} else if segmentOverride < 0 && modrm == 0x4c {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x03 {
+				return fail(fmt.Sprintf("80 OR SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBX]) + int64(c.R[EAX]) + int64(int8(delta)))
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("OR byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			result := value | imm
+			if !c.writeSegment8(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("OR byte write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setLogicFlags8(result)
+		} else if modrm>>6 == 3 && (group == 0 || group == 1 || group == 4 || group == 7) {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			rm := int(modrm & 7)
+			if group == 0 {
+				c.setReg8(rm, c.add8(c.reg8(rm), imm))
+			} else if group == 1 {
+				result := c.reg8(rm) | imm
+				c.setReg8(rm, result)
+				c.setLogicFlags8(result)
+			} else if group == 4 {
+				result := c.reg8(rm) & imm
+				c.setReg8(rm, result)
+				c.setLogicFlags8(result)
+			} else {
+				c.sub8(c.reg8(rm), imm)
+			}
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP && group == 7 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			value, ok := c.readSegment8(c.Seg[SegDS], c.R[base])
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+			c.sub8(value, imm)
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != ESP && (group == 1 || group == 4) {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("logical byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			result := value & imm
+			operation := "AND"
+			if group == 1 {
+				result = value | imm
+				operation = "OR"
+			}
+			if !c.writeSegment8(c.Seg[segment], addr, result) {
+				return fail(fmt.Sprintf("%s byte write %04X:%08X 未處理", operation, c.Seg[segment], addr))
+			}
+			c.setLogicFlags8(result)
+		} else if group == 7 && modrm == 0x3d {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub8(value, imm)
+		} else if modrm>>6 == 0 && modrm&7 == 5 && (group == 1 || group == 4) {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("logical byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			result := value & imm
+			if group == 1 {
+				result = value | imm
+			}
+			if !c.writeSegment8(c.Seg[SegDS], addr, result) {
+				return fail(fmt.Sprintf("logical byte write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setLogicFlags8(result)
+		} else if group == 7 && (modrm == 0x3e || modrm == 0x7e) {
+			addr := c.R[ESI]
+			if modrm == 0x7e {
+				delta, e := c.fetch8()
+				if e != nil {
+					return fail(e.Error())
+				}
+				addr = uint32(int64(addr) + int64(int8(delta)))
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub8(value, imm)
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0xd1:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("D1 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 != 3 || (group != 1 && group != 2) {
+			return fail(fmt.Sprintf("D1 ModRM %02X 尚未支援", modrm))
+		}
+		rm := int(modrm & 7)
+		value := c.R[rm]
+		var result, carry, overflow uint32
+		if group == 2 {
+			carryIn := uint32(0)
+			if c.EFlags&CF != 0 {
+				carryIn = 1
+			}
+			result = value<<1 | carryIn
+			carry = value >> 31
+			overflow = result>>31 ^ carry
+		} else {
+			result = value>>1 | value<<31
+			carry = value & 1
+			overflow = result>>31 ^ (result >> 30 & 1)
+		}
+		c.EFlags &^= CF | OF
+		if carry != 0 {
+			c.EFlags |= CF
+		}
+		if overflow&1 != 0 {
+			c.EFlags |= OF
+		}
+		c.R[rm] = result
+	case op == 0xc1:
+		if operand16 {
+			return fail("16-bit C1 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		group := (modrm >> 3) & 7
+		if modrm>>6 != 3 || (group != 4 && group != 5) {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		countByte, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		count := uint(countByte & 0x1f)
+		rm := int(modrm & 7)
+		if count != 0 {
+			value := c.R[rm]
+			result := value >> count
+			carry := value >> (count - 1) & 1
+			if group == 4 {
+				result = value << count
+				carry = value >> (32 - count) & 1
+			}
+			c.setLogicFlags(result)
+			if carry != 0 {
+				c.EFlags |= CF
+			}
+			c.R[rm] = result
+		}
+	case op == 0xf6:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("F6 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 && (modrm>>3)&7 == 0 {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.setLogicFlags8(c.reg8(int(modrm&7)) & imm)
+			break
+		}
+		if modrm == 0x44 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x03 {
+				return fail(fmt.Sprintf("F6 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBX]) + int64(c.R[EAX]) + int64(int8(delta)))
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("TEST byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setLogicFlags8(value & imm)
+			break
+		}
+		if modrm>>6 == 2 && modrm&7 != ESP && (modrm>>3)&7 == 0 {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := c.R[base] + uint32(int32(delta))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("TEST byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.setLogicFlags8(value & imm)
+			break
+		}
+		if modrm>>6 != 1 || modrm&7 == ESP || (modrm>>3)&7 != 0 {
+			return fail(fmt.Sprintf("F6 ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		imm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+		segment := SegDS
+		if base == EBP {
+			segment = SegSS
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("TEST byte read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		c.setLogicFlags8(value & imm)
+	case op == 0xc6:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C6 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 0 || (modrm>>3)&7 != 0 || modrm&7 == ESP || modrm&7 == EBP {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		base := modrm & 7
+		if !c.writeSegment8(c.Seg[SegDS], c.R[base], value) {
+			return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+		}
+	case op == 0xc7:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("C7 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm == 0x05 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if !c.writeSegment32(c.Seg[SegDS], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			break
+		}
+		if modrm>>6 == 1 && (modrm>>3)&7 == 0 && modrm&7 != ESP {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate base+disp8 write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			break
+		}
+		if modrm>>6 == 2 && (modrm>>3)&7 == 0 && modrm&7 != ESP {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate base+disp32 write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			break
+		}
+		if modrm == 0x44 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("MOV immediate stack disp8 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			if !c.writeSegment32(c.Seg[SegSS], addr, value) {
+				return fail(fmt.Sprintf("MOV immediate stack disp8 write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			break
+		}
+		if modrm != 0x04 {
+			return fail(fmt.Sprintf("MOV immediate dword ModRM %02X 尚未支援", modrm))
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		scale, index, base := sib>>6, (sib>>3)&7, sib&7
+		if scale == 0 && index == ESP && base == ESP {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if !c.writeSegment32(c.Seg[SegSS], c.R[ESP], value) {
+				return fail(fmt.Sprintf("MOV immediate dword stack write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			break
+		}
+		if scale != 0 || index == ESP || base == EBP {
+			return fail(fmt.Sprintf("MOV immediate dword SIB %02X 尚未支援", sib))
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := c.R[base] + c.R[index]
+		if !c.writeSegment32(c.Seg[SegDS], addr, value) {
+			return fail(fmt.Sprintf("MOV immediate dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+	case op == 0xc9:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C9 不接受目前的 prefix")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[EBP])
+		if !ok {
+			return fail(fmt.Sprintf("LEAVE stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[EBP]))
+		}
+		c.R[ESP] = c.R[EBP] + 4
+		c.R[EBP] = value
+	case op == 0x8b:
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if operand16 && segmentOverride == SegES && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[segmentOverride], addr)
+			if !ok {
+				return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+			}
+			reg := (modrm >> 3) & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
+			reg := (modrm >> 3) & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | c.R[modrm&7]&0xffff
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm == 0x04 && sib == 0x24 {
+				value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+				if !ok {
+					return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				c.R[EAX] = value
+				break
+			}
+			if sib == 0xb0 {
+				addr := c.R[EAX] + c.R[ESI]<<2
+				value, ok := c.readSegment32(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("scaled indexed dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				c.R[EAX] = value
+				break
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP || base != EBP {
+				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))
+			}
+			displacement, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := displacement + c.R[index]<<scale
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("absolute indexed dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("absolute dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP {
+			base := modrm & 7
+			value, ok := c.readSegment32(c.Seg[SegDS], c.R[base])
+			if !ok {
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 != 4 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+			segment := SegDS
+			if modrm&7 == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("segment dword read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 1 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack disp32 dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int32(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("stack disp32 dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride < 0 && modrm>>6 == 2 && modrm&7 != ESP {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment32(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("base+disp32 dword read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.R[(modrm>>3)&7] = value
+		} else if segmentOverride >= 0 {
+			return fail(fmt.Sprintf("segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		} else {
+			c.R[(modrm>>3)&7] = c.R[modrm&7]
+		}
+	case op == 0x89:
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		source := c.R[(modrm>>3)&7]
+		if operand16 && segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if e = c.write16(addr, uint16(source)); e != nil {
+				return fail(e.Error())
+			}
+		} else if operand16 && segmentOverride < 0 && !repe && !repne && modrm == 0x84 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack disp32 word SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[ESP] + uint32(int32(delta))
+			if !c.writeSegment16(c.Seg[SegSS], addr, uint16(source)) {
+				return fail(fmt.Sprintf("stack disp32 word write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
+			destination := modrm & 7
+			c.R[destination] = c.R[destination]&0xffff0000 | source&0xffff
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
+			c.R[modrm&7] = source
+		} else if modrm>>6 == 0 && modrm&7 == ESP && segmentOverride < 0 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib == 0x24 && !repe && !repne {
+				if !c.writeSegment32(c.Seg[SegSS], c.R[ESP], source) {
+					return fail(fmt.Sprintf("stack base dword write %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				break
+			}
+			if modrm == 0x14 && sib == 0x98 {
+				addr := c.R[EAX] + c.R[EBX]<<2
+				if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+					return fail(fmt.Sprintf("scaled indexed dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				break
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP || base != EBP {
+				return fail(fmt.Sprintf("absolute indexed dword SIB %02X 尚未支援", sib))
+			}
+			displacement, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := displacement + c.R[index]<<scale
+			if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+				return fail(fmt.Sprintf("absolute indexed dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+		} else if modrm>>6 == 1 && modrm&7 != ESP && segmentOverride < 0 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, source) {
+				return fail(fmt.Sprintf("base dword write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+		} else if modrm>>6 == 1 && modrm&7 == ESP && segmentOverride < 0 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			if !c.writeSegment32(c.Seg[SegSS], addr, source) {
+				return fail(fmt.Sprintf("stack dword write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+		} else if modrm>>6 == 2 && modrm&7 == ESP && segmentOverride < 0 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("stack disp32 dword SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[ESP] + uint32(int32(delta))
+			if !c.writeSegment32(c.Seg[SegSS], addr, source) {
+				return fail(fmt.Sprintf("stack disp32 dword write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+		} else if modrm>>6 == 2 && modrm&7 != ESP && segmentOverride < 0 {
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int32(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment32(c.Seg[segment], addr, source) {
+				return fail(fmt.Sprintf("base+disp32 dword write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if e = c.write32(addr, source); e != nil {
+				return fail(e.Error())
+			}
+		} else if modrm>>6 == 0 && modrm&7 != ESP {
+			addr := c.R[modrm&7]
+			if !c.writeSegment32(c.Seg[SegDS], addr, source) {
+				return fail(fmt.Sprintf("indirect dword write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x8c:
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		encoding := int((modrm >> 3) & 7)
+		segmentByEncoding := [...]int{SegES, SegCS, SegSS, SegDS, SegFS, SegGS}
+		if encoding >= len(segmentByEncoding) {
+			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
+		}
+		value := c.Seg[segmentByEncoding[encoding]]
+		if operand16 && segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == EBP {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if !c.writeSegment16(c.Seg[SegDS], addr, value) {
+				return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
+			reg := modrm & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+		} else if operand16 {
+			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
+			c.R[modrm&7] = uint32(value)
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if segmentOverride >= 0 {
+				if !c.writeSegment16(c.Seg[segmentOverride], addr, value) {
+					return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+				}
+			} else if e = c.write16(addr, value); e != nil {
+				return fail(e.Error())
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x8a:
+		if operand16 {
+			return fail("8A 不接受 operand-size override")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if segmentOverride < 0 && modrm>>6 == 3 {
+			c.setReg8(int((modrm>>3)&7), c.reg8(int(modrm&7)))
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm == 0x04 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x2f {
+				return fail(fmt.Sprintf("MOV AL SIB %02X 尚未支援", sib))
+			}
+			addr := c.R[EDI] + c.R[EBP]
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("MOV AL SIB byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.setReg8(0, value)
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP {
+			base := modrm & 7
+			value, ok := c.readSegment8(c.Seg[SegDS], c.R[base])
+			if !ok {
+				return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+			c.setReg8(int((modrm>>3)&7), value)
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP {
+				return fail(fmt.Sprintf("byte SIB %02X 無 index 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[base] + c.R[index]<<scale + uint32(int32(delta))
+			segment := SegDS
+			if base == ESP || base == EBP {
+				segment = SegSS
+			}
+			value, ok := c.readSegment8(c.Seg[segment], addr)
+			if !ok {
+				return fail(fmt.Sprintf("SIB byte read %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+			c.setReg8(int((modrm>>3)&7), value)
+			break
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+		segment := SegDS
+		if segmentOverride >= 0 {
+			segment = segmentOverride
+		}
+		value, ok := c.readSegment8(c.Seg[segment], addr)
+		if !ok {
+			return fail(fmt.Sprintf("segment byte read %04X:%08X 未處理", c.Seg[segment], addr))
+		}
+		c.setReg8(int((modrm>>3)&7), value)
+	case op == 0x8d:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("LEA 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 {
+			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
+			break
+		}
+		if modrm == 0x04 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x2f {
+				return fail(fmt.Sprintf("LEA base+index SIB %02X 尚未支援", sib))
+			}
+			c.R[EAX] = c.R[EDI] + c.R[EBP]
+			break
+		}
+		if modrm>>6 == 1 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("LEA stack SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.R[(modrm>>3)&7] = uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			break
+		}
+		if modrm>>6 == 2 && modrm&7 == 4 {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("LEA stack disp32 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.R[(modrm>>3)&7] = uint32(int64(c.R[ESP]) + int64(int32(delta)))
+			break
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[(modrm>>3)&7] = uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+	case op == 0x8e:
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		encoding := int((modrm >> 3) & 7)
+		segmentByEncoding := [...]int{SegES, -1, SegSS, SegDS, SegFS, SegGS}
+		if encoding >= len(segmentByEncoding) || segmentByEncoding[encoding] < 0 {
+			return fail(fmt.Sprintf("segment 編碼 %d 無效", encoding))
+		}
+		destination := segmentByEncoding[encoding]
+		var value uint16
+		if operand16 && (segmentOverride >= 0 || modrm>>6 != 3 && (modrm>>6 != 0 || modrm&7 != EBP)) {
+			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
+		} else if modrm>>6 == 3 {
+			value = uint16(c.R[modrm&7])
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if segmentOverride >= 0 {
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[segmentOverride], addr)
+				if !ok {
+					return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[segmentOverride], addr))
+				}
+			} else if operand16 {
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+			} else {
+				value, e = c.read16(addr)
+				if e != nil {
+					return fail(e.Error())
+				}
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		if !c.canLoadSegment(value, destination) {
+			return fail(fmt.Sprintf("selector %04X 不可載入", value))
+		}
+		c.Seg[destination] = value
+	case op == 0x88:
+		if operand16 {
+			return fail("88 不接受 operand-size override")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		value := c.reg8(int((modrm >> 3) & 7))
+		if modrm>>6 == 3 {
+			c.setReg8(int(modrm&7), value)
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 0 && modrm&7 != ESP && modrm&7 != EBP {
+			base := modrm & 7
+			if !c.writeSegment8(c.Seg[SegDS], c.R[base], value) {
+				return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[SegDS], c.R[base]))
+			}
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 2 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			scale, index, base := sib>>6, (sib>>3)&7, sib&7
+			if index == ESP {
+				return fail(fmt.Sprintf("byte SIB %02X 無 index 尚未支援", sib))
+			}
+			delta, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[base] + c.R[index]<<scale + uint32(int32(delta))
+			segment := SegDS
+			if base == ESP || base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment8(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("SIB byte write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+		} else if segmentOverride < 0 && !repe && !repne && modrm>>6 == 1 && modrm&7 != ESP {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			base := modrm & 7
+			addr := uint32(int64(c.R[base]) + int64(int8(delta)))
+			segment := SegDS
+			if base == EBP {
+				segment = SegSS
+			}
+			if !c.writeSegment8(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("MOV byte write %04X:%08X 未處理", c.Seg[segment], addr))
+			}
+		} else if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if e = c.Bus.Write8(addr, value); e != nil {
+				return fail(e.Error())
+			}
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x87:
+		if segmentOverride >= 0 || repe {
+			return fail("87 不接受目前的 segment/repeat prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		sib, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if operand16 {
+			if modrm != 0x04 || sib != 0x24 {
+				return fail(fmt.Sprintf("16-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
+			}
+			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])
+			if !ok || !c.writeSegment16(c.Seg[SegSS], c.R[ESP], uint16(c.R[EAX])) {
+				return fail(fmt.Sprintf("16-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(value)
+			break
+		}
+		if modrm>>6 != 1 || sib != 0x24 {
+			return fail(fmt.Sprintf("32-bit XCHG ModRM/SIB %02X/%02X 尚未支援", modrm, sib))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+		value, ok := c.readSegment32(c.Seg[SegSS], addr)
+		if !ok || !c.writeSegment32(c.Seg[SegSS], addr, c.R[(modrm>>3)&7]) {
+			return fail(fmt.Sprintf("32-bit XCHG stack %04X:%08X 未處理", c.Seg[SegSS], addr))
+		}
+		c.R[(modrm>>3)&7] = value
+	case op >= 0xb8 && op <= 0xbf:
+		reg := int(op - 0xb8)
+		if operand16 {
+			value, e := c.fetch16()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+		} else {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.R[reg] = value
+		}
+	case op == 0xa1:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("A1 不接受目前的 prefix")
+		}
+		addr, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment32(c.Seg[SegDS], addr)
+		if !ok {
+			return fail(fmt.Sprintf("MOV EAX read %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+		c.R[EAX] = value
+	case op == 0xa3:
+		addr, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if operand16 {
+			e = c.write16(addr, uint16(c.R[EAX]))
+		} else {
+			e = c.write32(addr, c.R[EAX])
+		}
+		if e != nil {
+			return fail(e.Error())
+		}
+	case op == 0xa2:
+		if operand16 {
+			return fail("A2 不接受 operand-size override")
+		}
+		addr, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if e = c.Bus.Write8(addr, c.reg8(0)); e != nil {
+			return fail(e.Error())
+		}
+	case op >= 0xb0 && op <= 0xb7:
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.setReg8(int(op-0xb0), value)
+	case op == 0x2b:
+		if operand16 {
+			return fail("16-bit 2B 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		reg, rm := (modrm>>3)&7, modrm&7
+		if modrm>>6 == 3 {
+			c.R[reg] = c.sub32(c.R[reg], c.R[rm])
+		} else if modrm>>6 == 0 && rm == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("SUB absolute read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[reg] = c.sub32(c.R[reg], value)
+		} else if modrm>>6 == 1 && rm == EBP {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("SUB stack read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.R[reg] = c.sub32(c.R[reg], value)
+		} else {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+	case op == 0x2a:
+		if operand16 || segmentOverride >= 0 {
+			return fail("2A 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := int((modrm>>3)&7), int(modrm&7)
+		c.setReg8(reg, c.sub8(c.reg8(reg), c.reg8(rm)))
+	case op == 0x3d:
+		if operand16 {
+			value, e := c.fetch16()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.sub16(uint16(c.R[EAX]), value)
+		} else {
+			value, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.sub32(c.R[EAX], value)
+		}
+	case op == 0x3b:
+		if operand16 {
+			return fail("16-bit 3B 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 0 && modrm&7 == 5 {
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP dword read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(c.R[(modrm>>3)&7], value)
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm>>6 == 1 && modrm&7 == ESP {
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("CMP stack disp8 SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP stack disp8 read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(c.R[(modrm>>3)&7], value)
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm == 0x5d {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP EBP disp8 read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			c.sub32(c.R[EBX], value)
+			break
+		}
+		if segmentOverride < 0 && !repe && !repne && modrm == 0x50 {
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EAX]) + int64(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("CMP EAX disp8 read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.sub32(c.R[EDX], value)
+			break
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := (modrm>>3)&7, modrm&7
+		c.sub32(c.R[reg], c.R[rm])
+	case op == 0x38:
+		if operand16 || segmentOverride >= 0 {
+			return fail("38 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 {
+			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
+			break
+		}
+		if modrm>>6 != 1 || modrm&7 == 4 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
+		value, ok := c.readSegment8(c.Seg[SegDS], addr)
+		if !ok {
+			return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+		}
+		c.sub8(value, c.reg8(int((modrm>>3)&7)))
+	case op == 0x0d:
+		if operand16 {
+			return fail("16-bit OR accumulator 尚未支援")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[EAX] |= value
+		c.setLogicFlags(c.R[EAX])
+	case op == 0x0c:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("0C 不接受目前的 prefix")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		result := uint8(c.R[EAX]) | value
+		c.R[EAX] = c.R[EAX]&0xffffff00 | uint32(result)
+		c.setLogicFlags8(result)
+	case op == 0x25:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("25 不接受目前的 prefix")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[EAX] &= value
+		c.setLogicFlags(c.R[EAX])
+	case op == 0x0b:
+		if operand16 {
+			return fail("16-bit 0B 尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
+		}
+		reg, rm := (modrm>>3)&7, modrm&7
+		c.R[reg] |= c.R[rm]
+		c.setLogicFlags(c.R[reg])
+	case op == 0x05:
+		if operand16 {
+			return fail("16-bit ADD accumulator 尚未支援")
+		}
+		value, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[EAX] = c.add32(c.R[EAX], value)
+	case op == 0x24:
+		if operand16 {
+			return fail("24 不接受 operand-size override")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		result := c.reg8(0) & value
+		c.setReg8(0, result)
+		c.setLogicFlags8(result)
+	case op == 0x3c:
+		if operand16 {
+			return fail("3C 不接受 operand-size override")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.sub8(uint8(c.R[EAX]), value)
+	case op == 0x74:
+		if operand16 {
+			return fail("74 不接受 operand-size override")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.EFlags&ZF != 0 {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
+	case op == 0x0f:
+		extended, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if extended == 0xaf && !operand16 && segmentOverride < 0 && !repe && !repne {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm != 0x44 {
+				return fail(fmt.Sprintf("0F AF ModRM %02X 尚未支援", modrm))
+			}
+			sib, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if sib != 0x24 {
+				return fail(fmt.Sprintf("0F AF stack SIB %02X 尚未支援", sib))
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := c.R[ESP] + uint32(int32(int8(delta)))
+			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("IMUL stack dword read %04X:%08X 未處理", c.Seg[SegSS], addr))
+			}
+			product := int64(int32(c.R[EAX])) * int64(int32(value))
+			result := uint32(product)
+			c.EFlags &^= CF | OF
+			if product != int64(int32(result)) {
+				c.EFlags |= CF | OF
+			}
+			c.R[EAX] = result
+			break
+		}
+		if (extended == 0xa0 || extended == 0xa1) && !operand16 && segmentOverride < 0 && !repe {
+			if extended == 0xa0 {
+				if c.R[ESP] < 4 {
+					return fail("ESP underflow")
+				}
+				nextESP := c.R[ESP] - 4
+				if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegFS])) {
+					return fail(fmt.Sprintf("PUSH FS stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+				}
+				c.R[ESP] = nextESP
+			} else {
+				value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+				selector := uint16(value)
+				if !ok || c.R[ESP] > ^uint32(0)-4 {
+					return fail(fmt.Sprintf("POP FS stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+				}
+				if !c.canLoadSegment(selector, SegFS) {
+					return fail(fmt.Sprintf("FS selector %04X 未登錄", selector))
+				}
+				c.Seg[SegFS] = selector
+				c.R[ESP] += 4
+			}
+			break
+		}
+		if extended == 0xb4 && !operand16 && segmentOverride < 0 && !repe {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 != 0 || modrm&7 != 5 {
+				return fail(fmt.Sprintf("0F B4 ModRM %02X 尚未支援", modrm))
+			}
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if addr > ^uint32(0)-4 {
+				return fail(fmt.Sprintf("LFS pointer address %08X 溢位", addr))
+			}
+			offset, okOffset := c.readSegment32(c.Seg[SegDS], addr)
+			selector, okSelector := c.readSegment16(c.Seg[SegDS], addr+4)
+			if !okOffset || !okSelector {
+				return fail(fmt.Sprintf("LFS pointer read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			if !c.canLoadSegment(selector, SegFS) {
+				return fail(fmt.Sprintf("LFS FS selector %04X 未登錄", selector))
+			}
+			c.R[(modrm>>3)&7] = offset
+			c.Seg[SegFS] = selector
+			break
+		}
+		if extended == 0xb7 && !operand16 && segmentOverride < 0 && !repe {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 == 3 {
+				c.R[(modrm>>3)&7] = uint32(uint16(c.R[modrm&7]))
+				break
+			}
+			if modrm>>6 != 0 || modrm&7 != 5 {
+				return fail(fmt.Sprintf("0F B7 ModRM %02X 尚未支援", modrm))
+			}
+			addr, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("MOVZX word read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = uint32(value)
+			break
+		}
+		if extended == 0xb6 && !operand16 && segmentOverride < 0 && !repe && !repne {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 == 3 {
+				value := c.reg8(int(modrm & 7))
+				c.R[(modrm>>3)&7] = uint32(value)
+				break
+			}
+			if modrm == 0xb3 {
+				delta, e := c.fetch32()
+				if e != nil {
+					return fail(e.Error())
+				}
+				addr := c.R[EBX] + uint32(int32(delta))
+				value, ok := c.readSegment8(c.Seg[SegDS], addr)
+				if !ok {
+					return fail(fmt.Sprintf("MOVZX byte base+disp32 read %04X:%08X 未處理", c.Seg[SegDS], addr))
+				}
+				c.R[ESI] = uint32(value)
+				break
+			}
+			if modrm>>6 != 0 || (modrm&7 != ESI && modrm&7 != EAX) {
+				return fail(fmt.Sprintf("0F B6 ModRM %02X 尚未支援", modrm))
+			}
+			addr := c.R[modrm&7]
+			value, ok := c.readSegment8(c.Seg[SegDS], addr)
+			if !ok {
+				return fail(fmt.Sprintf("MOVZX byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			}
+			c.R[(modrm>>3)&7] = uint32(value)
+			break
+		}
+		if (extended == 0x94 || extended == 0x95) && !operand16 && segmentOverride < 0 && !repe {
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 != 3 {
+				return fail(fmt.Sprintf("0F %02X ModRM %02X 尚未支援", extended, modrm))
+			}
+			value := uint8(0)
+			if extended == 0x94 && c.EFlags&ZF != 0 || extended == 0x95 && c.EFlags&ZF == 0 {
+				value = 1
+			}
+			c.setReg8(int(modrm&7), value)
+			break
+		}
+		if (extended != 0x84 && extended != 0x85) || operand16 {
+			return fail(fmt.Sprintf("0F %02X 尚未支援", extended))
+		}
+		delta, e := c.fetch32()
+		if e != nil {
+			return fail(e.Error())
+		}
+		shouldJump := extended == 0x84 && c.EFlags&ZF != 0 || extended == 0x85 && c.EFlags&ZF == 0
+		if shouldJump {
+			c.EIP = uint32(int64(c.EIP) + int64(int32(delta)))
+		}
+	case op == 0xcd:
+		number, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.IntHook == nil || !c.IntHook(c, number) {
+			return fail(fmt.Sprintf("INT %02X 未處理", number))
+		}
+	case op == 0xc3:
+		if operand16 {
+			return fail("16-bit near RET 尚未支援")
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		if !ok || c.R[ESP] > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("RET stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += 4
+		c.EIP = value
+	case op == 0xc2:
+		if operand16 || segmentOverride >= 0 || repe {
+			return fail("C2 不接受目前的 prefix")
+		}
+		cleanup, e := c.fetch16()
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+		increase := uint32(cleanup) + 4
+		if !ok || c.R[ESP] > ^uint32(0)-increase {
+			return fail(fmt.Sprintf("RET immediate stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+		}
+		c.R[ESP] += increase
+		c.EIP = value
+	default:
+		return fail("opcode 尚未支援")
+	}
+	return nil
+}
