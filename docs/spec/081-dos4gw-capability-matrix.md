@@ -19,7 +19,7 @@ binary 路徑與測試收據後才能標為已驗證。
 | DPMI 與 DOS/4GW API | 增量驗證 | selector／安裝檢查、`INT 31h/AX=0600h` 線性區域鎖定、`AX=0200h` 實模式向量查詢，以及 DOS `AH=35h/25h` protected-mode 向量讀寫已通過固定 FD2 路徑；其他功能失敗即關閉 |
 | Watcom C runtime 啟動 | 固定 FD2 增量驗證 | environment、near heap、`argv`、決定性 DOS 時間、`__CMain`、通用 stack probe、AIL DPMI 鎖定與 `getenv` 參數路徑已驗證 |
 | 一般 DOS 檔案、鍵盤、計時、終止服務 | 待 binary 路徑驅動 | 不從 8086 核心的實作自動推定 386 平坦模式已可用 |
-| VGA 索引畫面與輸入觀測 | 待 FD2 main 下一條垂直切片 | 目前尚無 FD2 權威畫面收據 |
+| VGA 索引畫面與輸入觀測 | dosgolem自生標題及BIOS AH10單次方向鍵 | START／LOAD與DOSBox輔助圖零像素差異；非完整同狀態或AppImage驗收 |
 | Sound Blaster／AdLib／MIDI | 未實作 | 硬體時序依公開規格近似，不以逐週期相同為目標 |
 | 分頁、例外、虛擬記憶體與 extender 自身 UI | 未實作 | 只有實際目標程式消費時才開啟規格 |
 
@@ -91,8 +91,29 @@ radix 上界；`0x3F2A5 0F B6 B3 B4 11 05 00` 再從 digit table 將候選字元
 這些已列啟動路徑，不證明一般
 DOS/4GW 程式或 FD2 遊戲畫面已可執行。
 
-## 下一個門檻
+## 初期門檻（歷史；現況由檔尾取代）
 
 從 `main` 第一條玩家可見路徑向下執行，用 IDA 先確認初始化 caller／
 consumer，再補必要的 386 指令、DOS 服務與 VGA 觀測層。當能產生固定
 雜湊、固定輸入的第一張索引畫面收據時，才將畫面能力升級。
+
+## 2026-09-08 初期更新（歷史）
+
+上文 0x3CC20 阻塞由 [185](185-cpu386-ss-word-store.md) 取代：
+SS 覆寫的兩次16位元寫入已經實作並通過 DOSBox-X 操作結果比較與真實 FD2 回歸。
+自然執行下一阻塞為第19,064步、0x37381、09 C6；遊戲畫面能力仍未提升。
+
+### 2026-09-08 批次18歷史狀態（由下段取代）
+規格186批次1–18已自然越過各停點。CPU word／REP搬移、LEA、算術與
+Watcom heap頁面／0100轉接已驗證；現停20795步3EE52的DPMI0300。
+[目前狀態與逐批證據](186-fd2-platform-gap-continuation.md)。
+仍無遊戲畫面、輸入對拍或PLAYER-E2。
+
+### 2026-09-08 目前狀態
+
+已由原版入口到達標題，START／Down後LOAD與DOSBox輔助畫面均零像素差異。
+正常START已進王宮開場，後續CPU缺口持續補齊。
+DPMI0300及受限DMA／IRQ7完成初始化；PIT預設BIOS時鐘已接通。
+保護模式音效排程、長按／釋放、第一關與AppImage仍未驗收。
+[唯一狀態與限制](186-fd2-platform-gap-continuation.md)；
+[選單驗證](../findings/2026-09-08-fd2-title-input-parity.md)。

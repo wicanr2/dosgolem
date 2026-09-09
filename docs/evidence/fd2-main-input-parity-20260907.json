@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "date": "2026-09-07",
+  "branch": "feat/fd2-input-parity-20260907",
+  "base_commit": "fd746405cf0ef9e535121e215b935b0bf59cd1de",
+  "upstream_branch": "master",
+  "status": "BLOCKED",
+  "probe": {
+    "address_space": "dosgolem relocated LE linear",
+    "cpu_eip_after_error": "0x3CC22",
+    "error": "cpu386: EIP=0003CC20 opcode=36：opcode 尚未支援",
+    "esp": "0x55338",
+    "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+    "game_screen_produced": false,
+    "main_entry_step": 1094,
+    "next_bytes": "66 36 89 07 66 36 89 57 02 D1 D0 D1 C8 85 C0 7D",
+    "normal_player_path_verified": false,
+    "original_root_read_only": true,
+    "registers": [
+      218,
+      0,
+      0,
+      327685,
+      348984,
+      348988,
+      0,
+      348984
+    ],
+    "runner": "dosgolem",
+    "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+    "schema": 1,
+    "state_injections": [],
+    "step_budget": 500000,
+    "steps_completed": 18969,
+    "stop_eip": "0x3CC20"
+  },
+  "fd2_tests": {
+    "pass": 121
+  },
+  "packages": [
+    {
+      "Package": "github.com/wicanr2/dosgolem/apps/fd2/cmd/parity",
+      "Action": "skip"
+    },
+    {
+      "Package": "github.com/wicanr2/dosgolem/apps/fd2/parity",
+      "Action": "pass"
+    },
+    {
+      "Package": "github.com/wicanr2/dosgolem/internal/machine",
+      "Action": "pass"
+    },
+    {
+      "Package": "github.com/wicanr2/dosgolem/internal/dosfile",
+      "Action": "pass"
+    },
+    {
+      "Package": "github.com/wicanr2/dosgolem/internal/cpu386",
+      "Action": "pass"
+    }
+  ],
+  "log_sha256": {
+    "baseline-tests.jsonl": "e59d3f7f677d0e459c28e161c99346d5857566e36a72522637b7cb6048c53fca",
+    "entry-probe.txt": "ae9c74f2fd699cbf60583091fb53e4c1d3e9fddcb23a418d96353c25c8a2a09e",
+    "natural-probe.json": "038acfed4fb28bb48b3600e564b3fc704591f5e7c7154c766a9a3dcd983e2a7b"
+  },
+  "probe_source_sha256": "7b03322012d4d86c118252f15fe8a0c8b8e9f52b9b4c1eec03d16d9618505e48",
+  "remake_comparison_executed": false
+}

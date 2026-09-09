@@ -1,0 +1,295 @@
+{
+  "schema": 1,
+  "input": {
+    "input": "FD2.EXE",
+    "size": 357074,
+    "md5": "b97caf2239a27a896069d03549d96e1e",
+    "sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+    "tool": "9.4",
+    "address_space": "IDA LE loader linear"
+  },
+  "source_artifacts": {
+    "workplace/fd2-input-parity-20260907/ida-pointer/inspection.json": "1288a6d74d6c7efc65de1326e5b3b35322accfbdbd8356a7ac9fadc2d5797ca7",
+    "workplace/fd2-input-parity-20260907/pointer-78.json": "8d33db7022444f59ea1b329565ef494178f71772230f36dc216ca183025b663f",
+    "workplace/fd2-input-parity-20260907/pointerprobe/main.go": "19b8d6d5c3ce94a21e5423660461596fdaae52b2330bab34f5c64b8affc987a2",
+    "workplace/fd2-input-parity-20260907/ida-pointer/probe.py": "54aa1fa106b2a86c1dcc4bee358e5eea68a5a301d615872cb1d2496fcb1a5683"
+  },
+  "functions": [
+    {
+      "start": "0x3d320",
+      "end": "0x3d42b",
+      "original_name": "__MemFree",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "名稱僅供導覽",
+      "evidence": "本次IDA原始匯出"
+    },
+    {
+      "start": "0x37426",
+      "end": "0x3744b",
+      "original_name": "_nfree",
+      "level": "confirmed",
+      "semantic": "cdecl近堆釋放入口；呼叫__MemFree後清byte_5419C",
+      "evidence": "IDA原始函式",
+      "instructions": [
+        {
+          "address": "0x37426",
+          "bytes": "53",
+          "instruction": "push    ebx",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37427",
+          "bytes": "55",
+          "instruction": "push    ebp",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37428",
+          "bytes": "89 e5",
+          "instruction": "mov     ebp, esp",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x3742a",
+          "bytes": "b8 a8 27 05 00",
+          "instruction": "mov     eax, offset dword_527A8",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x3742f",
+          "bytes": "8c da",
+          "instruction": "mov     edx, ds",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37431",
+          "bytes": "bb b0 27 05 00",
+          "instruction": "mov     ebx, offset unk_527B0",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37436",
+          "bytes": "8b 45 0c",
+          "instruction": "mov     eax, [ebp+arg_0]",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37439",
+          "bytes": "0f b7 d2",
+          "instruction": "movzx   edx, dx",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x3743c",
+          "bytes": "e8 df 5e 00 00",
+          "instruction": "call    __MemFree",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37441",
+          "bytes": "c6 05 9c 41 05 00 00",
+          "instruction": "mov     byte_5419C, 0",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37448",
+          "bytes": "5d",
+          "instruction": "pop     ebp",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x37449",
+          "bytes": "5b",
+          "instruction": "pop     ebx",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        },
+        {
+          "address": "0x3744a",
+          "bytes": "c3",
+          "instruction": "retn",
+          "semantic": "原始釋放入口指令",
+          "level": "confirmed",
+          "evidence": "IDA函式0x37426..0x3744B與本次原版入口軌跡"
+        }
+      ],
+      "callers": [
+        "0x3741c",
+        "0x3d6e1",
+        "0x4ccd1"
+      ]
+    }
+  ],
+  "metadata_read": [
+    {
+      "address": "0x3d320",
+      "bytes": "56",
+      "instruction": "push    esi",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d321",
+      "bytes": "57",
+      "instruction": "push    edi",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d322",
+      "bytes": "51",
+      "instruction": "push    ecx",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d323",
+      "bytes": "1e",
+      "instruction": "push    ds",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d324",
+      "bytes": "8e da",
+      "instruction": "mov     ds, edx",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d326",
+      "bytes": "0b c0",
+      "instruction": "or      eax, eax",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d328",
+      "bytes": "74 f1",
+      "instruction": "jz      short loc_3D31B",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d32a",
+      "bytes": "8b f0",
+      "instruction": "mov     esi, eax",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d32c",
+      "bytes": "83 ee 04",
+      "instruction": "sub     esi, 4",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d32f",
+      "bytes": "8b 06",
+      "instruction": "mov     eax, [esi]",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d331",
+      "bytes": "a8 01",
+      "instruction": "test    al, 1",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d333",
+      "bytes": "74 e6",
+      "instruction": "jz      short loc_3D31B",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d335",
+      "bytes": "24 fe",
+      "instruction": "and     al, 0FEh",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d337",
+      "bytes": "8b fe",
+      "instruction": "mov     edi, esi",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d339",
+      "bytes": "03 f8",
+      "instruction": "add     edi, eax",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    },
+    {
+      "address": "0x3d33b",
+      "bytes": "f7 07 01 00 00 00",
+      "instruction": "test    dword ptr [edi], 1",
+      "semantic": "未附加語意",
+      "level": "unknown",
+      "warning": "未作語意判定",
+      "evidence": "原始指令與IDA函式边界"
+    }
+  ],
+  "level": "confirmed",
+  "finding": "既有_nm​alloc轉接配置不生成原版heap header，原生_nfree仍從ptr-4讀header，誤讀相鄰物件資料形成越界位址；必須成對轉接"
+}

@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "date": "2026-09-08",
+  "status": "CONFORMED",
+  "spec": "185",
+  "base_commit": "fd746405cf0ef9e535121e215b935b0bf59cd1de",
+  "original_crosscheck": "fd2-dosbox-seek-20260908.json",
+  "result": {
+    "ss": "0160",
+    "dosgolem_stack_pointer": "00055338",
+    "stored_dword": "000000DA",
+    "after_stores_eip": "0003CC29",
+    "registers_segments_flags_preserved": true
+  },
+  "fd2_tests": {
+    "pass": 122
+  },
+  "next_blocker": {
+    "address_space": "dosgolem relocated LE linear",
+    "cpu_eip_after_error": "0x37383",
+    "error": "cpu386: EIP=00037381 opcode=09：09 ModRM C6 尚未支援",
+    "esp": "0x55374",
+    "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+    "game_screen_produced": false,
+    "main_entry_step": 1094,
+    "next_bytes": "09 C6 F6 43 0C 08 74 12 FF 73 08 E8 85 00 00 00",
+    "normal_player_path_verified": false,
+    "original_root_read_only": true,
+    "registers": [
+      0,
+      0,
+      16384,
+      338114,
+      349044,
+      349060,
+      0,
+      349408
+    ],
+    "runner": "dosgolem",
+    "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+    "schema": 1,
+    "state_injections": [],
+    "step_budget": 500000,
+    "steps_completed": 19064,
+    "stop_eip": "0x37381"
+  },
+  "source_sha256": {
+    "internal/cpu386/cpu.go": "8523970121619e5dceee64fdb8b962dd06b2349ba31d0af6d4121921266214ce",
+    "internal/cpu386/ss_word_store_test.go": "7e78898cc02ed83fd1ca92af65a877563c959e101ffd86baef3349a3a9070801",
+    "internal/machine/fd2_seek_store_test.go": "86a172e780ba4c0b75ee3ce592f563fc476cafa28f1ca814dafa6f8007569d18",
+    "docs/spec/185-cpu386-ss-word-store.md": "fd2974c244e9841d384b41eeaab11a246fb5289e874b884b2ee1999985ba6fd2"
+  },
+  "log_sha256": {
+    "ss-store-tests.jsonl": "4ffd9729955543cab347fd1b558055aef17393eee2754181ec37df55617da874",
+    "ss-store-final.txt": "d9171c6bc9e4cc18ae5adc039814eecf41e40e2e3697bd21dcd0773a1c6d0559",
+    "after-ss-store-probe.json": "36393e4a49a63ddde8c69f1ba1b2a9f85a65e987487a5bd4f85b8f8efef5c1ba"
+  },
+  "game_screen_parity_complete": false
+}

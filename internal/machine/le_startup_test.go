@@ -35,7 +35,7 @@ func TestFD2StartupDOSOpenReadOnly(t *testing.T) {
 	}
 	copy(bus[0x20:], []byte("../MDI.INI\x00"))
 	c.R[cpu386.EAX] = 0x3d00
-	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 2 || c.EFlags&cpu386.CF == 0 || s.HasHandle(6) {
+	if !s.Handle(c, 0x21) || uint16(c.R[cpu386.EAX]) != 5 || c.EFlags&cpu386.CF == 0 || s.HasHandle(6) {
 		t.Fatalf("unsafe path EAX=%X flags=%X nextHandle=%t", c.R[cpu386.EAX], c.EFlags, s.HasHandle(6))
 	}
 	copy(bus[0x20:], []byte("MISSING.INI\x00"))
@@ -294,8 +294,8 @@ func TestFD2StartupDPMIGetRealModeInterruptVector(t *testing.T) {
 	}
 
 	// AX=0201h（設實模式向量）現在由通用的 DPMI 主機做（`dpmi.go`）；
-	// 沒實作的那些仍然要被拒絕，改用 AX=0300h（模擬實模式中斷）驗。
-	c.R[cpu386.EAX] = 0x0300
+	// 沒實作的那些仍然要被拒絕，改用 AX=0301h（尚未支援的實模式遠呼叫）驗。
+	c.R[cpu386.EAX] = 0x0301
 	if s.Handle(c, 0x31) {
 		t.Fatal("unknown DPMI function was accepted")
 	}

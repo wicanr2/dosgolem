@@ -1,0 +1,4211 @@
+{
+  "schema": 1,
+  "date": "2026-09-08",
+  "runner": "dosgolem",
+  "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+  "address_space": "dosgolem relocated LE linear",
+  "completed_slices": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124
+  ],
+  "normal_player_path_verified": false,
+  "game_screen_produced": true,
+  "state_injections": [],
+  "runtime_adapter": "InstallFD2WatcomRuntime + FD2StartupDOS",
+  "stops": [
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3D332",
+      "error": "cpu386: EIP=0003D331 opcode=A8：opcode 尚未支援",
+      "esp": "0x55344",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "A8 01 74 E6 24 FE 8B FE 03 F8 F7 07 01 00 00 00",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        338114,
+        0,
+        352,
+        337840,
+        348996,
+        349016,
+        406804,
+        349408
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19092,
+      "stop_eip": "0x3D331"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x37443",
+      "error": "cpu386: EIP=00037441 opcode=C6：ModRM 05 尚未支援",
+      "esp": "0x55358",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "C6 05 9C 41 05 00 00 5D 5B C3 53 56 57 55 89 E5",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        338114,
+        0,
+        352,
+        337840,
+        349016,
+        349016,
+        0,
+        349408
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19100,
+      "stop_eip": "0x37441"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3D8AB",
+      "error": "cpu386: EIP=0003D8A9 opcode=3B：ModRM 58 尚未支援",
+      "esp": "0x5538C",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "3B 58 04 74 04 89 C2 EB F1 80 4B 0C 03 8B 18 89",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        406800,
+        0,
+        344492,
+        338114,
+        349068,
+        349068,
+        12,
+        349408
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19128,
+      "stop_eip": "0x3D8A9"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3F5D8",
+      "error": "cpu386: EIP=0003F5D6 opcode=A5：REP／REPE prefix 只支援 STOSB／STOSD／SCASB",
+      "esp": "0x553BC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "F3 A5 B8 01 00 00 00 81 C4 6C 01 00 00 5D 5F 5E",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        46,
+        70,
+        0,
+        1,
+        349116,
+        338114,
+        349116,
+        349528
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19199,
+      "stop_eip": "0x3F5D6"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3F5DF",
+      "error": "cpu386: EIP=0003F5DD opcode=81：81 ModRM C4 尚未支援",
+      "esp": "0x553BC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "81 C4 6C 01 00 00 5D 5F 5E C3 8B 44 24 04 8B 14",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        1,
+        0,
+        0,
+        1,
+        349116,
+        338114,
+        349396,
+        349808
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19201,
+      "stop_eip": "0x3F5DD"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3698D",
+      "error": "cpu386: EIP=0003698B opcode=FF：ModRM 15 尚未支援",
+      "esp": "0x55514",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "FF 15 58 27 05 00 83 C4 04 89 C3 EB 02 89 CB 85",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        15118,
+        0,
+        16384,
+        6,
+        349460,
+        349860,
+        345777,
+        15118
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19547,
+      "stop_eip": "0x3698B"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3CC99",
+      "error": "cpu386: EIP=0003CC96 opcode=8B：16-bit ModRM 5D 尚未支援",
+      "esp": "0x554E8",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "66 8B 5D 14 89 FA 89 F1 B4 3F CD 21 D1 D0 D1 C8",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        16449,
+        0,
+        16449,
+        410904,
+        349416,
+        349432,
+        15118,
+        410904
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19728,
+      "stop_eip": "0x3CC96"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3CCB0",
+      "error": "cpu386: EIP=0003CCAE opcode=0F：0F 8D 尚未支援",
+      "esp": "0x554E8",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "0F 8D 68 00 00 00 0F B7 45 F0 50 E8 24 96 00 00",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        15118,
+        15118,
+        410904,
+        393223,
+        349416,
+        349432,
+        15118,
+        410904
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 19738,
+      "stop_eip": "0x3CCAE"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x36D98",
+      "error": "machine: DPMI 0600h 線性區域 0x68028+0x29 無效",
+      "esp": "0x55490",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        349344,
+        0,
+        41,
+        6,
+        349328,
+        349860,
+        426024,
+        349656
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20157,
+      "stop_eip": "0x36D98"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x36D98",
+      "error": "machine: Watcom int386 未支援 DPMI AX=0100",
+      "esp": "0x5549C",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        349356,
+        0,
+        41,
+        426024,
+        349340,
+        426024,
+        410904,
+        349656
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20197,
+      "stop_eip": "0x36D98"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x373DA",
+      "error": "cpu386: EIP=000373D8 opcode=8D：ModRM 3C 尚未支援",
+      "esp": "0x554E0",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "8D 3C 0E 39 C7 76 1F 8D 77 FF 8D 3C 08 8C DA 4F",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        430080,
+        15118,
+        15120,
+        6,
+        349408,
+        349408,
+        410904,
+        430080
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20286,
+      "stop_eip": "0x373D8"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x37411",
+      "error": "cpu386: EIP=0003740F opcode=A4：REP／REPE prefix 只支援 STOSB／STOSD／SCASB／MOVSD",
+      "esp": "0x554DC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "F3 A4 07 5D 5F 5E C3 55 89 E5 FF 75 08 E8 05 00",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        430080,
+        2,
+        352,
+        6,
+        349404,
+        349408,
+        426020,
+        445196
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20298,
+      "stop_eip": "0x3740F"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3F722",
+      "error": "cpu386: EIP=0003F71F opcode=89：16-bit ModRM 48 尚未支援",
+      "esp": "0x554FC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "66 89 48 32 EB 06 41 83 F9 10 72 DD 83 F9 10 75",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        430080,
+        0,
+        430087,
+        430080,
+        349436,
+        426024,
+        410904,
+        430080
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20609,
+      "stop_eip": "0x3F71F"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3F757",
+      "error": "cpu386: EIP=0003F755 opcode=C7：C7 不接受目前的 prefix",
+      "esp": "0x554FC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "66 C7 40 30 00 00 C7 45 14 00 00 00 00 C7 45 18",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        430080,
+        0,
+        430087,
+        430080,
+        349436,
+        426024,
+        410904,
+        430080
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20614,
+      "stop_eip": "0x3F755"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3F787",
+      "error": "cpu386: EIP=0003F785 opcode=03：03 ModRM 45 尚未支援",
+      "esp": "0x554FC",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "03 45 00 50 6A 66 E8 7F 86 FF FF 83 C4 08 C7 45",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        306,
+        430080,
+        0,
+        430080,
+        349436,
+        426024,
+        410904,
+        430080
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20675,
+      "stop_eip": "0x3F785"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3EDFD",
+      "error": "cpu386: EIP=0003EDFB opcode=9C：9C 不接受目前的 prefix",
+      "esp": "0x55474",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "66 9C 66 58 66 89 45 E6 8B 45 0C 66 89 45 E2 8B",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        0,
+        0,
+        4,
+        102,
+        349300,
+        349380,
+        0,
+        349372
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20779,
+      "stop_eip": "0x3EDFB"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3EE3A",
+      "error": "cpu386: EIP=0003EE38 opcode=0F：0F BF 尚未支援",
+      "esp": "0x55474",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "0F BF 5B 32 66 89 5D D6 B8 00 03 00 00 BB 66 00",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        768,
+        0,
+        4,
+        430080,
+        349300,
+        349380,
+        0,
+        349372
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20789,
+      "stop_eip": "0x3EE38"
+    },
+    {
+      "address_space": "dosgolem relocated LE linear",
+      "cpu_eip_after_error": "0x3EE54",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "esp": "0x55474",
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+      "game_screen_produced": false,
+      "main_entry_step": 1094,
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "normal_player_path_verified": false,
+      "original_root_read_only": true,
+      "registers": [
+        768,
+        0,
+        4,
+        102,
+        349300,
+        349380,
+        0,
+        349322
+      ],
+      "runner": "dosgolem",
+      "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+      "schema": 1,
+      "state_injections": [],
+      "step_budget": 500000,
+      "steps_completed": 20795,
+      "stop_eip": "0x3EE52"
+    }
+  ],
+  "current": {
+    "address_space": "dosgolem relocated LE linear",
+    "bios_clock": {
+      "Micros": 200119163,
+      "Deliveries": 39998,
+      "Pending": false
+    },
+    "bios_profile": "existing Machine.initBDA, DOS4GW selector 0040 base 0400",
+    "bios_ticks": 39998,
+    "cpu_eip_after_error": "0x4DFCE",
+    "device_state": {
+      "MixerIndex": 130,
+      "DSPIRQPending": false,
+      "PICPending": false,
+      "PICInService": false,
+      "VirtualMicros": 119163,
+      "PICMasks": [
+        120,
+        44
+      ],
+      "DMABase": [
+        0,
+        0,
+        36864,
+        2047,
+        0,
+        0,
+        0,
+        0
+      ],
+      "DMACurrent": [
+        0,
+        0,
+        36892,
+        2019,
+        0,
+        0,
+        0,
+        0
+      ],
+      "DMAPage": [
+        0,
+        6,
+        0,
+        0
+      ],
+      "DMAMode": [
+        0,
+        88,
+        0,
+        0
+      ],
+      "DMAMask": 13,
+      "DSPTimeConstant": 211,
+      "DSPTimeConstantKnown": false
+    },
+    "dma_completions": 13,
+    "dos_file_calls": [
+      {
+        "AX_in": "3D00",
+        "AX_out": "0005",
+        "carry": false,
+        "handled": true,
+        "path": "MDI.INI"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0006",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.MDI"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0007",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.MDI"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0008",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.MDI"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000A",
+        "carry": false,
+        "handled": true,
+        "path": "DIG.INI"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000B",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.DIG"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000C",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.DIG"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000D",
+        "carry": false,
+        "handled": true,
+        "path": "SBLASTER.DIG"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000E",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "000F",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0010",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0011",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0012",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0013",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0014",
+        "carry": false,
+        "handled": true,
+        "path": "FDTXT.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0015",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0016",
+        "carry": false,
+        "handled": true,
+        "path": "FDMUS.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0017",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0018",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0019",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001A",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001B",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001C",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001D",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001E",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "001F",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0020",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0021",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0022",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0023",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0024",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0025",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0026",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0027",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0028",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0029",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002A",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002B",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002C",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002D",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002E",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "002F",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0030",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0031",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0032",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0033",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0034",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0035",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0036",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0037",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0038",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0039",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003A",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003B",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003C",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003D",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003E",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "003F",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0040",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0041",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0042",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0043",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0044",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0045",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0046",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0047",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0048",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0049",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004A",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004B",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004C",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004D",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004E",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "004F",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0050",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0051",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0052",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0053",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0054",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0055",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0056",
+        "carry": false,
+        "handled": true,
+        "path": "ANI.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0057",
+        "carry": false,
+        "handled": true,
+        "path": "FD2.SAV"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0058",
+        "carry": false,
+        "handled": true,
+        "path": "FDOTHER.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0059",
+        "carry": false,
+        "handled": true,
+        "path": "FDTXT.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005A",
+        "carry": false,
+        "handled": true,
+        "path": "FDFIELD.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005B",
+        "carry": false,
+        "handled": true,
+        "path": "FDFIELD.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005C",
+        "carry": false,
+        "handled": true,
+        "path": "FDFIELD.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005D",
+        "carry": false,
+        "handled": true,
+        "path": "FDSHAP.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005E",
+        "carry": false,
+        "handled": true,
+        "path": "FDSHAP.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "005F",
+        "carry": false,
+        "handled": true,
+        "path": "FDICON.B24"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0060",
+        "carry": false,
+        "handled": true,
+        "path": "FDICON.B24"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0061",
+        "carry": false,
+        "handled": true,
+        "path": "FDFIELD.DAT"
+      },
+      {
+        "AX_in": "3D01",
+        "AX_out": "0062",
+        "carry": false,
+        "handled": true,
+        "path": "FD2.TMP"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0063",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0064",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0065",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0066",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0067",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0068",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0069",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006A",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006B",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006C",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006D",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006E",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "006F",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0070",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0071",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0072",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0073",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0074",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0075",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0076",
+        "carry": false,
+        "handled": true,
+        "path": "FDMUS.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0077",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0078",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "0079",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "007A",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      },
+      {
+        "AX_in": "3D00",
+        "AX_out": "007B",
+        "carry": false,
+        "handled": true,
+        "path": "DATO.DAT"
+      }
+    ],
+    "dos_memory": [
+      {
+        "Selector": 256,
+        "Segment": 25422,
+        "Base": 406752,
+        "Paras": 945
+      },
+      {
+        "Selector": 264,
+        "Segment": 26623,
+        "Base": 425968,
+        "Paras": 187
+      },
+      {
+        "Selector": 272,
+        "Segment": 26810,
+        "Base": 428960,
+        "Paras": 512
+      }
+    ],
+    "dpmi_calls": {
+      "1536": 55,
+      "256": 3,
+      "512": 3,
+      "513": 2,
+      "768": 28
+    },
+    "dpmi_real_mode_last": {
+      "Interrupt": 102,
+      "Entry": "67FF:016A",
+      "Stop": "FFFF:FFF0",
+      "Steps": 2590,
+      "Returned": true,
+      "Error": "",
+      "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+    },
+    "dpmi_unimplemented": {},
+    "dsp_timing": "hardware-spec approximation: immediate reset; 1 us per real-mode instruction; rational sample rate 1000000/(256-TC), reset default 22050 Hz; no audio output",
+    "error": "step budget exhausted",
+    "esp": "0x555C8",
+    "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+    "frame": {
+      "classification": "dosgolem自身停點畫面，完整度與玩家路徑尚待驗證",
+      "path": "workplace/fd2-input-parity-20260907/opening-long.png",
+      "sha256": "8d034b061dc1558ab87c9ce5b81b996c86892915083f6e389534346f27910686"
+    },
+    "game_screen_produced": false,
+    "input_schedule": "BIOS等待邊界及明示指令時點；未注入遊戲狀態",
+    "instruction_tail": [],
+    "irq7_deliveries": 13,
+    "keyboard": {
+      "Waiting": false,
+      "Reads": 36,
+      "Enqueued": [
+        20704,
+        18656,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181,
+        7181
+      ]
+    },
+    "main_entry_step": 1094,
+    "memory_ivt": {
+      "08": "0000:0000",
+      "0F": "67FF:06F3",
+      "66": "0000:0000"
+    },
+    "next_bytes": "60 E8 ED FF FF FF 66 2B 05 00 00 06 00 66 83 F8",
+    "next_bytes_64": "60 E8 ED FF FF FF 66 2B 05 00 00 06 00 66 83 F8 02 72 4E FE 05 02 00 06 00 80 3D 02 00 06 00 10 75 07 C6 05 02 00 06 00 00 33 C0 A0 02 00 06 00 B4 03 F6 E4 8D 35 03 00 06 00 03 F0 B9 10 00 00",
+    "normal_player_path_verified": false,
+    "opl_reads": {
+      "161": 3,
+      "32": 13,
+      "33": 3,
+      "549": 15,
+      "550": 60,
+      "552": 12249,
+      "554": 9,
+      "556": 20,
+      "558": 22,
+      "986": 519
+    },
+    "opl_timing": "hardware-spec approximation: existing immediate timer detection model",
+    "opl_writes": {
+      "10": 7,
+      "11": 3,
+      "12": 3,
+      "131": 3,
+      "161": 3,
+      "2": 6,
+      "3": 6,
+      "32": 26,
+      "33": 3,
+      "548": 15,
+      "550": 6,
+      "552": 251,
+      "553": 251,
+      "556": 20,
+      "64": 6,
+      "67": 3,
+      "968": 595886,
+      "969": 1787658
+    },
+    "original_root_read_only": true,
+    "pcm_observed_bytes": 57,
+    "pic_profile": "DOSBox-X observed startup IMR 21=F8 A1=2C; mask registers and IRQ7/non-specific EOI subset",
+    "pit0": {
+      "Configured": true,
+      "Loaded": true,
+      "Reload": 5966,
+      "Generation": 3
+    },
+    "pit_timing": "hardware-spec approximation: 1 us per protected/real instruction; 1193182Hz PIT; default BIOS IRQ0 only",
+    "protected_port_routing": "strict platform dispatch; unknown output rejected",
+    "real_mode_vector_66": "67FF:016A",
+    "registers": [
+      0,
+      1114732,
+      0,
+      3309581,
+      349640,
+      3,
+      18,
+      0
+    ],
+    "runner": "dosgolem",
+    "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS",
+    "sb_profile": "SB16 DSP 4.05; base 0220; IRQ 7; DMA 1; HDMA 5; unsupported commands rejected",
+    "schema": 1,
+    "state_directory": "workplace/fd2-input-parity-20260907/state-opening-long",
+    "state_injections": [],
+    "step_budget": 200000000,
+    "steps_completed": 200000000,
+    "stop_eip": "0x4DFCD",
+    "timed_keys_delivered": [
+      {
+        "Step": 80000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 83000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 86000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 89000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 92000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 95000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 98000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 101000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 104000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 107000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 110000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 113000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 116000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 119000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 122000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 125000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 128000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 131000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 134000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 137000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 140000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 143000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 146000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 149000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 152000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 155000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 158000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 161000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 164000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 167000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 170000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 173000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 176000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 179000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 182000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 185000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 188000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 191000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 194000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 197000000,
+        "Key": 7181,
+        "Name": "enter"
+      }
+    ],
+    "timed_keys_requested": [
+      {
+        "Step": 80000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 83000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 86000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 89000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 92000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 95000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 98000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 101000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 104000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 107000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 110000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 113000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 116000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 119000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 122000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 125000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 128000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 131000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 134000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 137000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 140000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 143000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 146000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 149000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 152000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 155000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 158000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 161000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 164000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 167000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 170000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 173000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 176000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 179000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 182000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 185000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 188000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 191000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 194000000,
+        "Key": 7181,
+        "Name": "enter"
+      },
+      {
+        "Step": 197000000,
+        "Key": 7181,
+        "Name": "enter"
+      }
+    ],
+    "vga_timing": "hardware-spec approximation: existing deterministic status-read ticks",
+    "video_indexed_sha256": "c1135abf2fe8d1148551a5c64a5d3b38562c6562c5134c1470b58a0c260e5ea6",
+    "video_mode": 19,
+    "video_mode_sets": 1,
+    "video_nonzero_pixels": 60524,
+    "video_palette_writes": 1787658,
+    "waiting_for_input": false
+  },
+  "continued_stops": [
+    {
+      "slice": 19,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-19.json",
+      "sha256": "1c4860f8057d733f25651ac12fb7e61197c7574c1a0b400100459b45c1e108d5",
+      "steps_completed": 20831,
+      "stop_eip": "0x3F7B6",
+      "next_bytes": "66 83 78 2E 00 7F 09 C7 45 1C FF FF FF FF EB 74",
+      "error": "cpu386: EIP=0003F7B6 opcode=83：16-bit 83 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 110,
+        "Returned": true,
+        "Error": ""
+      }
+    },
+    {
+      "slice": 20,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-20.json",
+      "sha256": "23f449130d05171c81dc08c1c8f375a523caadbcc61780f116340ab2dc4c4599",
+      "steps_completed": 21723,
+      "stop_eip": "0x3EE70",
+      "next_bytes": "66 89 03 66 89 4B 04 66 89 53 06 66 89 73 08 66",
+      "error": "cpu386: EIP=0003EE70 opcode=89：16-bit ModRM 03 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 21,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-21.json",
+      "sha256": "212cd43c6a2461ee94dece954e676d061d2ba306dc5128e8edd5610219cf1dd4",
+      "steps_completed": 21762,
+      "stop_eip": "0x43809",
+      "next_bytes": "66 8B 44 24 2A 89 C2 31 C0 C1 E2 04 66 8B 44 24",
+      "error": "cpu386: EIP=00043809 opcode=8B：16-bit ModRM 44 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 22,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-22.json",
+      "sha256": "45dbb92b0b75ff70072c13411ccf408641907fab81a1c8bde3a63b4183cffb92",
+      "steps_completed": 21897,
+      "stop_eip": "0x43672",
+      "next_bytes": "0F 86 76 00 00 00 8B 50 0C 8B 58 0C C1 EA 10 81",
+      "error": "cpu386: EIP=00043672 opcode=0F：0F 86 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 23,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-23.json",
+      "sha256": "f73b4b287d53e944f6265415058ed0de5dc21313986ea19edcf207e2cee191cd",
+      "steps_completed": 21903,
+      "stop_eip": "0x4368A",
+      "next_bytes": "0F BF 04 24 01 D3 83 F8 01 7D 07 66 8B 03 66 89",
+      "error": "cpu386: EIP=0004368A opcode=0F：MOVSX word 形狀尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 24,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-24.json",
+      "sha256": "188a6fcf0d88f1eaa2e5b8a57a577922a8daf2ef5778419f1db4544cf089f417",
+      "steps_completed": 21907,
+      "stop_eip": "0x4369C",
+      "next_bytes": "0F BF 44 24 02 83 F8 01 7D 09 66 8B 43 02 66 89",
+      "error": "cpu386: EIP=0004369C opcode=0F：MOVSX word 形狀尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 25,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-25.json",
+      "sha256": "a208500f6127fe701df2d21e59ee7193cd508a7ddddfbc2f2d4d94505db18567",
+      "steps_completed": 21923,
+      "stop_eip": "0x436D7",
+      "next_bytes": "83 7C 04 08 01 7D 08 8B 54 03 08 89 54 04 08 83",
+      "error": "cpu386: EIP=000436D7 opcode=83：CMP stack SIB 04 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 48,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 70 02 00 00 00 69 00 00 00 69 00 00 60 02 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 26,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-26.json",
+      "sha256": "dd84ea5c6e6731c00024a20479e7ba86d5bd02ac9bc620b17de6d741dd532d35",
+      "steps_completed": 4,
+      "stop_eip": "0x3C9E4",
+      "next_bytes": "89 1D 18 28 05 00 89 1D 04 28 05 00 66 B8 24 00",
+      "error": "cpu386: EIP=0003C9E4 opcode=89：MOV dword 寫入失敗",
+      "real_mode_stop": null
+    },
+    {
+      "slice": 27,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-27.json",
+      "sha256": "46e1572a3717a2054e70f4ced9a338e5060c8dd4168b143d9d37d39f8afc9df8",
+      "steps_completed": 22031,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "6900:28B7",
+        "Steps": 95,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 0228 值 04 尚未支援",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 28,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-28.json",
+      "sha256": "6b8d804967caaf65944e4f224d2f32e790dadb8f74e0eb4af5834376a77b74a1",
+      "steps_completed": 22277,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "6900:3933",
+        "Steps": 42,
+        "Returned": false,
+        "Error": "實模式nested INT 21未註冊",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 29,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-29.json",
+      "sha256": "10e4b4e714ef0340c1dc2917c80ab78ccb8617a3b2b3c4b09c7d6d3e8df40024",
+      "steps_completed": 22328,
+      "stop_eip": "0x43B1D",
+      "next_bytes": "69 C0 D4 06 00 00 50 FF 15 58 27 05 00 83 C4 04",
+      "error": "cpu386: EIP=00043B1D opcode=69：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 30,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-30.json",
+      "sha256": "44170fe07d07e200bcc5817f8f78b8cd664e42566ef9a5dc32d1ba004bf95d6d",
+      "steps_completed": 22349,
+      "stop_eip": "0x43B87",
+      "next_bytes": "C7 44 07 04 01 00 00 00 8B 7D 18 89 2C 07 46 8B",
+      "error": "cpu386: EIP=00043B87 opcode=C7：MOV immediate stack disp8 SIB 07 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 31,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-31.json",
+      "sha256": "833db8d335ae0b64fe7b4bca4d08c77b8d3ab217605b50f20a033459818d9337",
+      "steps_completed": 22423,
+      "stop_eip": "0x43BAF",
+      "next_bytes": "C1 FA 1F F7 FE C7 85 A0 01 00 00 00 00 00 00 C7",
+      "error": "cpu386: EIP=00043BAF opcode=C1：ModRM FA 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 32,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-32.json",
+      "sha256": "7480445bb892e08c37b06c02fe77a5c18cceebbc367527fbd391f48d3db653a5",
+      "steps_completed": 22685,
+      "stop_eip": "0x3EF43",
+      "next_bytes": "87 83 94 2B 05 00 50 E8 D0 8D FF FF 58 5F 5E 5B",
+      "error": "cpu386: EIP=0003EF43 opcode=87：32-bit XCHG ModRM/SIB 83/94 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 33,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-33.json",
+      "sha256": "1a62b01a5faba5843829adedc7119ba0f5cff21e28bf363f1a7c7a61b1a924f6",
+      "steps_completed": 22721,
+      "stop_eip": "0x43CAF",
+      "next_bytes": "90 6A 00 89 FE 6A 72 66 81 CE B0 00 56 55 E8 AE",
+      "error": "cpu386: EIP=00043CAF opcode=90：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 34,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-34.json",
+      "sha256": "b800071945f1e3635e311f2883c1aabd0921fe15a1a5c7cb7ac3d4a3f855e66e",
+      "steps_completed": 22748,
+      "stop_eip": "0x4202C",
+      "next_bytes": "8A 5C 24 1C 89 8E AC 01 00 00 88 9C 02 00 01 00",
+      "error": "cpu386: EIP=0004202C opcode=8A：ModRM 5C 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 35,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-35.json",
+      "sha256": "8626c4e2d55d5e6361fe169ab6795bb409e21569ea30a49ed6ab6294268d0a25",
+      "steps_completed": 22765,
+      "stop_eip": "0x4207C",
+      "next_bytes": "FF 86 A8 01 00 00 83 C4 0C 5F 5E C3 8D 80 00 00",
+      "error": "cpu386: EIP=0004207C opcode=FF：ModRM 86 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 59,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 36,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-36.json",
+      "sha256": "46bd4b1373342c96da05684e699e622f957123c0e8a8306f64bacbd8f8a42fd5",
+      "steps_completed": 23562,
+      "stop_eip": "0x43DDB",
+      "next_bytes": "66 F7 C7 03 00 75 0E 6A 03 E8 B8 42 FF FF 83 C4",
+      "error": "cpu386: EIP=00043DDB opcode=F7：F7 不接受目前的 prefix",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 37,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-37.json",
+      "sha256": "63bc606470ebf596b4401b6d2e155ce88e4a5fba5ec88aa568fec22571b20e03",
+      "steps_completed": 23588,
+      "stop_eip": "0x3EEB3",
+      "next_bytes": "66 8E D8 8B 03 1F 8B D0 83 C2 06 8B 4D 08 E3 12",
+      "error": "cpu386: EIP=0003EEB3 opcode=8E：selector 0040 不可載入",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 38,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-38.json",
+      "sha256": "fd6019e32c14439df4b16fee35d5d689aacb2311160dde5c30764eb927c26396",
+      "steps_completed": 23594,
+      "stop_eip": "0x3EEC1",
+      "next_bytes": "E3 12 EC A9 08 00 00 00 74 F8 EC A9 08 00 00 00",
+      "error": "cpu386: EIP=0003EEC1 opcode=E3：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 39,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-39.json",
+      "sha256": "d3acf0bc2ebbc87f9acf480bd5f1ff89e88f3a831cde0887f58bf47c8a37c746",
+      "steps_completed": 23616,
+      "stop_eip": "0x3EED3",
+      "next_bytes": "E2 EE 5E 5E 5B C9 C3 53 56 56 A1 E6 2B 05 00 5E",
+      "error": "cpu386: EIP=0003EED3 opcode=E2：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 40,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-40.json",
+      "sha256": "08238b24a760fe2df6ce6e3201ee1f89c1d838c291717177f7968ec4585ab17d",
+      "steps_completed": 23826,
+      "stop_eip": "0x43DF4",
+      "next_bytes": "0F 8C B6 FE FF FF 8B 0D 34 43 05 00 51 8B 75 0C",
+      "error": "cpu386: EIP=00043DF4 opcode=0F：0F 8C 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 41,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-41.json",
+      "sha256": "16bf980dfa77c0951fdd78dc5d3f20f9dfc4462c467a9b6be2b33e32642d2ffd",
+      "steps_completed": 37545,
+      "stop_eip": "0x3F090",
+      "next_bytes": "F7 F3 50 FF 75 08 E8 AF 95 FF FF 83 C4 08 E8 7C",
+      "error": "cpu386: EIP=0003F090 opcode=F7：F7 ModRM F3 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 42,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-42.json",
+      "sha256": "4b67827ff1fac710e5ba830aafc0443e13e405989498b6bf8335fdfe583e515c",
+      "steps_completed": 37706,
+      "stop_eip": "0x3E8B5",
+      "next_bytes": "F7 E1 F7 F3 50 E8 A5 FF FF FF 83 C4 04 5F 5E 5B",
+      "error": "cpu386: EIP=0003E8B5 opcode=F7：F7 ModRM E1 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 43,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-43.json",
+      "sha256": "e1d98f91e7bd13c4a69ac2f3f5d34a250991ea9e6accabb12185e8e43adcf11b",
+      "steps_completed": 38315,
+      "stop_eip": "0x3D824",
+      "next_bytes": "66 83 CE 03 EB 45 BB 40 28 05 00 EB 1E F6 43 0C",
+      "error": "cpu386: EIP=0003D824 opcode=83：16-bit 83 形狀尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6900:0132",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2522,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 02 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00 00 00 0F 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 44,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-44.json",
+      "sha256": "5ca5f520a53d61aafb1149c29af77c434345f253c25a4e896cc9a65ed676ff74",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:0666",
+        "Steps": 56,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 0226 值 01 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 45,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-45.json",
+      "sha256": "3040144d9989eee7087b913a0301338751ea2c377d32fb170cb99d146eaa4d01",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:066A",
+        "Steps": 58,
+        "Returned": false,
+        "Error": "實模式 IN 埠 0226 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 46,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-46.json",
+      "sha256": "fde6907cbe556c262dbb8120f331a3233dd657ef20fc9fbab11e90d65c386a05",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 129,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 E1 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 47,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-47.json",
+      "sha256": "079fb26853ed67154dfa0f60bd2d68fc1ee95ba22379c4db737332631f5bd643",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:08CE",
+        "Steps": 182,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 0224 值 80 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 48,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-48.json",
+      "sha256": "1a2e45841825fa7120a1c81060f816c346f6480fc836336166b570d2af8abe1e",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:0372",
+        "Steps": 258,
+        "Returned": false,
+        "Error": "實模式 IN 埠 00A1 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 49,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-49.json",
+      "sha256": "aea68ac31ac7111e881734287edc24fceb48685c9173dc5224971efac46628e9",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:0220",
+        "Steps": 295,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 000A 值 05 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 50,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-50.json",
+      "sha256": "18097d357d9a889fadba5cb21a30d82b3a85d705336a09c889ddc7cc3090f5c5",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:028F",
+        "Steps": 328,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 0083 值 07 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 51,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-51.json",
+      "sha256": "d5c1a8926ba16d5163a12611ee26235bfe5207459081c1b772a62fe7708021ac",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 366,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 40 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 52,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-52.json",
+      "sha256": "aad1518d06563ad922efbf0867bc35bb73688a803a33954c9e8b2f583280e88d",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 420,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 14 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 53,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-53.json",
+      "sha256": "530753da10eb7eea9d73de36ca7e5aded010d87e83a2383b30e715e888c658ac",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:03F3",
+        "Steps": 661,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 0020 值 0B 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 54,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-54.json",
+      "sha256": "93946c5252b98eb9d14b953c2fa5164f7619a9ddc5c2e8d5f7c27baa7d5aac80",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:06E3",
+        "Steps": 684,
+        "Returned": false,
+        "Error": "實模式 IN 埠 0225 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 55,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-55.json",
+      "sha256": "a06ada8f2d40fe5f76828be809135391887dc497164275c9ba013733c06df61d",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 986,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 48 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 56,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-56.json",
+      "sha256": "667d3fd5a9de2d8e7b177cab10ce653787095f5bff2dafb63150065bd3cc60d5",
+      "steps_completed": 56819,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 1067,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 1C 尚未支援",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 57,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-57.json",
+      "sha256": "1f9284fb5a7a5fd1cf477abc2daf3768bac3132fc02939d06e53d8b5580fc263",
+      "steps_completed": 56887,
+      "stop_eip": "0x40C29",
+      "next_bytes": "1B C2 C1 F8 04 C7 45 28 00 00 00 00 89 C7 8D 44",
+      "error": "cpu386: EIP=00040C29 opcode=1B：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 58,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-58.json",
+      "sha256": "15efcc3e034e10b230a42069fc79eba465fbf9df9fbf8e2604fc4eca35877637",
+      "steps_completed": 57016,
+      "stop_eip": "0x40403",
+      "next_bytes": "0F 87 8E 00 00 00 2E FF 24 85 34 03 04 00 B9 01",
+      "error": "cpu386: EIP=00040403 opcode=0F：0F 87 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 59,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-59.json",
+      "sha256": "27a41b46cd832323da7c71a7c268d9d341af63a040f8eb5928d31dcbcb484970",
+      "steps_completed": 57017,
+      "stop_eip": "0x40409",
+      "next_bytes": "2E FF 24 85 34 03 04 00 B9 01 00 00 00 BF 02 00",
+      "error": "cpu386: EIP=00040409 opcode=2E：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 60,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-60.json",
+      "sha256": "6bbf6785a97aeb75456e9a00486ec52c9a934f59379a54e74ad8403f9300e80d",
+      "steps_completed": 57030,
+      "stop_eip": "0x4049F",
+      "next_bytes": "80 3C 19 00 74 05 89 5E 18 EB 08 83 C0 04 83 F8",
+      "error": "cpu386: EIP=0004049F opcode=80：ModRM 3C 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 61,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-61.json",
+      "sha256": "beeaf80cdf844016fff84ef32407dfa869289ca5ae6fd64dae575b54f17b5c59",
+      "steps_completed": 57061,
+      "stop_eip": "0x40620",
+      "next_bytes": "0F AF D0 BB E8 03 00 00 89 D0 C1 FA 1F F7 FB 8B",
+      "error": "cpu386: EIP=00040620 opcode=0F：0F AF ModRM D0 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 62,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-62.json",
+      "sha256": "2e7958b700d676e7250fcff50bd2a0b55d8dbe0efcdee13b32de75a9f62daf6c",
+      "steps_completed": 57088,
+      "stop_eip": "0x4067C",
+      "next_bytes": "81 7C 24 20 00 08 00 00 7E 1B B9 0A 00 00 00 BF",
+      "error": "cpu386: EIP=0004067C opcode=81：81 ModRM 7C 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 63,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-63.json",
+      "sha256": "03705834045bf0cc8b56867da422a2fedce1bbcbfbdb47e63ee6dab95ddcba9b",
+      "steps_completed": 57097,
+      "stop_eip": "0x406D7",
+      "next_bytes": "D1 F8 39 C1 7E D0 8B 7C 24 20 89 6E 10 39 FD 7D",
+      "error": "cpu386: EIP=000406D7 opcode=D1：D1 ModRM F8 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 64,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-64.json",
+      "sha256": "69213811f472120b3097df9fefdc23460c7e2ad2f294d55be36fcc7cce71cad8",
+      "steps_completed": 57101,
+      "stop_eip": "0x406AF",
+      "next_bytes": "2B 46 10 99 31 D0 29 D0 39 F8 7F 0E 89 C8 2B 46",
+      "error": "cpu386: EIP=000406AF opcode=2B：ModRM 46 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 65,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-65.json",
+      "sha256": "09805b892cb214486061e5b29a2f7dceb00c3ded2ad9271e24f4237e92c11f56",
+      "steps_completed": 57102,
+      "stop_eip": "0x406B2",
+      "next_bytes": "99 31 D0 29 D0 39 F8 7F 0E 89 C8 2B 46 10 89 CD",
+      "error": "cpu386: EIP=000406B2 opcode=99：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "07 00 00 00 28 2F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 3B 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 66,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-66.json",
+      "sha256": "6a86e5cf226191f1af73c010f853d7517848acceaae1fdfa9e8579e702ee5031",
+      "steps_completed": 57458,
+      "stop_eip": "0x3EE52",
+      "next_bytes": "CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B",
+      "error": "cpu386: EIP=0003EE52 opcode=CD：INT 31 未處理",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "7300:062C",
+        "Steps": 100,
+        "Returned": false,
+        "Error": "實模式 OUT 埠 022C 值 D1 尚未支援",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": ""
+      }
+    },
+    {
+      "slice": 67,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-67.json",
+      "sha256": "c6a44357ae6d290ada0c77dea30d51fb1a6109973eff6ca8805d887f95c2ba97",
+      "steps_completed": 57495,
+      "stop_eip": "0x40D1E",
+      "next_bytes": "0F AF 4D 40 8B 55 10 89 D0 C1 FA 1F F7 F9 8B 7D",
+      "error": "cpu386: EIP=00040D1E opcode=0F：0F AF ModRM 4D 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 68,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-68.json",
+      "sha256": "dad9f37e3436a100bc9e91811610d6e6e0d1ad288e248a420e34ab38424b244a",
+      "steps_completed": 57566,
+      "stop_eip": "0x36D98",
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "error": "machine: DPMI 0600h 線性區域 0x76000+0x1001 無效",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 69,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-69.json",
+      "sha256": "c8ae288eba18acc66387d26cb73de4e765ca7d56f1d706bc599856be1f62a71a",
+      "steps_completed": 58375,
+      "stop_eip": "0x49584",
+      "next_bytes": "F7 43 1C 20 00 00 00 75 1A 8B 45 0C 8B 7C 83 2C",
+      "error": "cpu386: EIP=00049584 opcode=F7：F7 ModRM 43 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 70,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-70.json",
+      "sha256": "5be01caffd7d9ae79229d3881132b0dd1e6e357612f909049759ffde10ac823e",
+      "steps_completed": 58382,
+      "stop_eip": "0x495C5",
+      "next_bytes": "FF 14 85 38 76 04 00 07 1F 5F 5E 5B C9 C3 55 8B",
+      "error": "cpu386: EIP=000495C5 opcode=FF：ModRM 14 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 71,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-71.json",
+      "sha256": "3832c817fcfde3b3fd3c1f0f42c01e79d610b2701686af18ced512f0c8e74ffa",
+      "steps_completed": 58385,
+      "stop_eip": "0x47A3D",
+      "next_bytes": "35 00 80 00 00 88 27 47 49 75 F0 C3 8B 06 83 C6",
+      "error": "cpu386: EIP=00047A3D opcode=35：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 72,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-72.json",
+      "sha256": "86d0442ab1fbf54912e543b4e547b9e46e76ce4d80b1f3c2e10e9751fd284543",
+      "steps_completed": 77269,
+      "stop_eip": "0x111DD",
+      "next_bytes": "FF 74 24 14 E8 E6 5D 02 00 83 C4 08 89 C6 85 C0",
+      "error": "cpu386: EIP=000111DD opcode=FF：ModRM 74 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 73,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-73.json",
+      "sha256": "8d755000a1acb63d88c6ba312a5247573194de6b164f071a7a9bc74a36857b5b",
+      "steps_completed": 77801,
+      "stop_eip": "0x3775A",
+      "next_bytes": "01 03 29 43 04 EB 2D 8B 43 08 89 03 C7 43 04 00",
+      "error": "cpu386: EIP=0003775A opcode=01：ADD dword ModRM 03 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 74,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-74.json",
+      "sha256": "97f9364d55f7a7ad72ca171ebac788ccd9f56aa1d9f34699a3ff0ae1a0738f1d",
+      "steps_completed": 77859,
+      "stop_eip": "0x3CBEF",
+      "next_bytes": "F2 A5 8A C8 80 E1 03 F2 A4 5F 07 89 F8 5D 5F 5E",
+      "error": "cpu386: EIP=0003CBEF opcode=A5：REPNE prefix 只支援 SCASB",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 75,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-75.json",
+      "sha256": "cbc4ee373b787fa9155ba9eb4781cc7b8581b1d709fc098ffa2880746072c6cb",
+      "steps_completed": 77878,
+      "stop_eip": "0x37103",
+      "next_bytes": "3B 03 0F 85 2C 01 00 00 85 F6 0F 84 24 01 00 00",
+      "error": "cpu386: EIP=00037103 opcode=3B：ModRM 03 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 76,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-76.json",
+      "sha256": "8c1b00c7d0564fc2afc421f4d6fea10feae6c8a07884042f101c9a5fca017de6",
+      "steps_completed": 77882,
+      "stop_eip": "0x3723C",
+      "next_bytes": "F7 75 18 C9 5F 5E 5B C3 55 89 E5 8B 55 08 A1 AC",
+      "error": "cpu386: EIP=0003723C opcode=F7：F7 ModRM 75 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 77,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-77.json",
+      "sha256": "b4f5bf4288607aee412d43f731b1054854c97199b1bc44b9ea54a2916130cedb",
+      "steps_completed": 78123,
+      "stop_eip": "0x3712E",
+      "next_bytes": "66 81 E7 00 FE 57 FF 75 14 FF 73 10 E8 51 68 00",
+      "error": "cpu386: EIP=0003712E opcode=81：81 word形狀尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 78,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-78.json",
+      "sha256": "44f693345758741eecaf84ba2b93e231eec749786d50116dddee4eab41c55484",
+      "steps_completed": 79197,
+      "stop_eip": "0x3D33B",
+      "next_bytes": "F7 07 01 00 00 00 75 1F 3B 7B 08 75 03 89 73 08",
+      "error": "cpu386: EIP=0003D33B opcode=F7：TEST dword來源越界",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "7300:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 79,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-79.json",
+      "sha256": "6f471595f749bf4103ba90108a5a67632ba7ce37db272f4d8bd7de0eade0e27d",
+      "steps_completed": 56991,
+      "stop_eip": "0x36D98",
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "error": "machine: Watcom int386 未支援 DPMI AX=0101",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6DB1:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 2433,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "06 00 00 00 58 79 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 6D 00 00 04 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "06 00 00 00 58 79 00 00 00 00 00 00 00 00 00 00 01 00 00 00 03 00 00 00 B0 6D 00 00 05 84 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 80,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-80.json",
+      "sha256": "fb90124552688f82ca616f13554eb94c01d6771a918d8fa01c15a746a816185f",
+      "steps_completed": 86746,
+      "stop_eip": "0x36D98",
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "error": "machine: Watcom int386 只支援已驗證的 INT 31h",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "6DB1:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 81,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-81.json",
+      "sha256": "6419e4f495568a9dd6d9308a10b50834a522759e443222afaf2d1f7ec0d6bea1",
+      "steps_completed": 86609,
+      "stop_eip": "0x36D98",
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "error": "machine: Watcom int386 只支援已驗證的 INT 31h",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 82,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-82.json",
+      "sha256": "5062cb45b6b1b4324688a08adfcc94688f49ac95fba7e9fc972843f0be4655bb",
+      "steps_completed": 2951,
+      "stop_eip": "0x3E86E",
+      "next_bytes": "E6 43 8B 45 08 A3 DE 2B 05 00 EB 00 E6 40 8A C4",
+      "error": "cpu386: EIP=0003E86E opcode=E6：OUT port 43 未處理",
+      "real_mode_stop": null
+    },
+    {
+      "slice": 83,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-83.json",
+      "sha256": "f9d390ad0c5a5ca881e0b0b7ad1b2c8d82b7a582c1e80a3044dc626205dc2ffc",
+      "steps_completed": 86620,
+      "stop_eip": "0x3C936",
+      "next_bytes": "69 10 6D 4E C6 41 81 C2 39 30 00 00 89 10 89 D0",
+      "error": "cpu386: EIP=0003C936 opcode=69：IMUL立即值memory尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 84,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-84.json",
+      "sha256": "e648185540f95eb90e237f7283b407f2c0cdc746fbc31c7421cebc77cf1c3894",
+      "steps_completed": 86637,
+      "stop_eip": "0x4E893",
+      "next_bytes": "33 C0 66 A1 B8 27 06 00 66 05 14 90 66 D1 C0 66",
+      "error": "cpu386: EIP=0004E893 opcode=33：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 85,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-85.json",
+      "sha256": "7c4900c59367de32ec39d1480e80b07ae0f1e11cd33d9e621f8d58511aa62a25",
+      "steps_completed": 86638,
+      "stop_eip": "0x4E895",
+      "next_bytes": "66 A1 B8 27 06 00 66 05 14 90 66 D1 C0 66 D1 C0",
+      "error": "cpu386: EIP=0004E895 opcode=A1：A1 不接受目前的 prefix",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 86,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-86.json",
+      "sha256": "0816540faae444aaff1ad5561d95ef585aa6ad61340b189c55df98d4af1d6fe5",
+      "steps_completed": 89029,
+      "stop_eip": "0x25982",
+      "next_bytes": "0F B6 05 11 1A 05 00 3B 44 24 08 0F 84 01 01 00",
+      "error": "cpu386: EIP=00025982 opcode=0F：0F B6 ModRM 05 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 87,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-87.json",
+      "sha256": "7cd0e9f55f278a33a8f83369a7c104d15b30b6519c0412e97939aa7534d38c20",
+      "steps_completed": 90358,
+      "stop_eip": "0x49645",
+      "next_bytes": "3A 0A 74 0A 0F B6 C1 0F B6 12 29 D0 EB 0A 80 38",
+      "error": "cpu386: EIP=00049645 opcode=3A：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 88,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-88.json",
+      "sha256": "fad1c1d91ca84fb0b4bc90216d4fc46d248681e683e8e62d391a22c06f684cb0",
+      "steps_completed": 90762,
+      "stop_eip": "0x44120",
+      "next_bytes": "0F 83 90 00 00 00 6A 04 68 0C 16 05 00 56 E8 FB",
+      "error": "cpu386: EIP=00044120 opcode=0F：0F 83 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 120,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 05 03 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 89,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-89.json",
+      "sha256": "dd6606a588450578cb2d3afbb546b87c548eccf92071f11b7bd686f01804afcf",
+      "steps_completed": 92343,
+      "stop_eip": "0x1F8C3",
+      "next_bytes": "C6 44 24 58 00 B9 0F 00 00 00 89 E7 BE 4E 20 05",
+      "error": "cpu386: EIP=0001F8C3 opcode=C6：ModRM 44 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 90,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-90.json",
+      "sha256": "1dd1e5b423d96291f43e111cf9ab3056837b6f59998aaf5797ca6629228378b6",
+      "steps_completed": 94766,
+      "stop_eip": "0x3779E",
+      "next_bytes": "EE 5D C3 00 00 00 50 9B D9 3C 24 9B FF 34 24 C6",
+      "error": "cpu386: EIP=0003779E opcode=EE：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 91,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-91.json",
+      "sha256": "85aca1e759f63e4acb156af9c84c040fbd92e3645c14600027d8ffea2969acd5",
+      "steps_completed": 115189,
+      "stop_eip": "0x4E646",
+      "next_bytes": "66 AD 66 A3 B4 27 06 00 66 AD 66 A3 B6 27 06 00",
+      "error": "cpu386: EIP=0004E646 opcode=AD：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 92,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-92.json",
+      "sha256": "c0e4b8ffd13d6b88e0ea9e56749f4bf948a2f1a2eba0e0448332abcd2d20183b",
+      "steps_completed": 115212,
+      "stop_eip": "0x4E696",
+      "next_bytes": "D0 E1 72 2D D0 E1 72 12 C0 E9 02 FE C1 66 2B D9",
+      "error": "cpu386: EIP=0004E696 opcode=D0：opcode 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 93,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-93.json",
+      "sha256": "eab16e7eefbf11d2e155564c4bba31fcc2d6afb98fc7f1e3b7013cb5ceda8bc0",
+      "steps_completed": 115277,
+      "stop_eip": "0x4E6ED",
+      "next_bytes": "66 FF 0D B6 27 06 00 75 96 5B 5E 5F 5D C3 66 8B",
+      "error": "cpu386: EIP=0004E6ED opcode=FF：16-bit FF group 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 94,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-94.json",
+      "sha256": "fb031198c8fe5a6e08e630804bd759416eb924d2c060cf73b05750b2ebf724ed",
+      "steps_completed": 500000,
+      "stop_eip": "0x11D66",
+      "next_bytes": "83 C4 08 43 39 FB 0F 8F AD 77 00 00 53 68 C8 03",
+      "error": "step budget exhausted",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 95,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-95.json",
+      "sha256": "536e503f62eea3239b2f2fb7a683781a76db1b6040127507da8f979ed3a5b5e6",
+      "steps_completed": 2750708,
+      "stop_eip": "0x2051B",
+      "next_bytes": "0F B7 44 24 04 50 6A 01 55 E8 49 6B 01 00 83 C4",
+      "error": "cpu386: EIP=0002051B opcode=0F：0F B7 ModRM 44 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 96,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-96.json",
+      "sha256": "a53dc180315cbbee182e27a7d1f54791ee11a4ce45e0ace40f2e245f5fb7ab68",
+      "steps_completed": 2750907,
+      "stop_eip": "0x36CB5",
+      "next_bytes": "66 C1 E0 02 0F B7 D8 FF 93 6A 27 05 00 66 FF 4D",
+      "error": "cpu386: EIP=00036CB5 opcode=C1：16-bit C1 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 97,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-97.json",
+      "sha256": "93953e5392bcba2abc3e13b106377812ea87a3cac6f4e5157ebf8ba39550d1bb",
+      "steps_completed": 2750925,
+      "stop_eip": "0x36BE0",
+      "next_bytes": "66 3B DA 74 2D 90 90 90 90 AC 8A E0 80 E4 C0 80",
+      "error": "cpu386: EIP=00036BE0 opcode=3B：CMP prefix尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 98,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-98.json",
+      "sha256": "678395659a3cf0335b9f4300f3d95f34ac1b86a0bfce0f7d7639687647ea61be",
+      "steps_completed": 2798837,
+      "stop_eip": "0x36C70",
+      "next_bytes": "F3 66 A5 D1 D1 F3 A4 8B FB 4A 75 EB C3 55 8B EC",
+      "error": "cpu386: EIP=00036C70 opcode=A5：MOVSD 不接受目前的 prefix",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 99,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-99.json",
+      "sha256": "b9f90040e91d569b9dbadfe4696b06780d63dae088c82e57dba1e1ca795039a6",
+      "steps_completed": 5000000,
+      "stop_eip": "0x37798",
+      "next_bytes": "8B 55 08 8A 45 0C EE 5D C3 00 00 00 50 9B D9 3C",
+      "error": "step budget exhausted",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 30694,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 05 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 31 7F 00 00 00 00 00 00 00 00 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 100,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-100.json",
+      "sha256": "80a46c30758b145928a300ec26f1b36b833ef4beeee1dd3f47dfa9e98b6f5e77",
+      "steps_completed": 5694028,
+      "stop_eip": "0x1FC04",
+      "next_bytes": "FE 44 24 58 83 7C 24 4C 0B 75 2B 6A 65 FF 35 65",
+      "error": "cpu386: EIP=0001FC04 opcode=FE：FE ModRM 44 尚未支援",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 339,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "10 00 00 00 54 5B 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 11 2B 00 00 01 04 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "10 00 00 00 54 5B 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 11 2B 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 101,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-101.json",
+      "sha256": "f2e0cda46a8f9f2876bfea4c27b538507ecc1c4794f902ed356881f13f835252",
+      "steps_completed": 20000000,
+      "stop_eip": "0x37798",
+      "next_bytes": "8B 55 08 8A 45 0C EE 5D C3 00 00 00 50 9B D9 3C",
+      "error": "step budget exhausted",
+      "real_mode_stop": {
+        "Interrupt": 102,
+        "Entry": "67FF:016A",
+        "Stop": "FFFF:FFF0",
+        "Steps": 339,
+        "Returned": true,
+        "Error": "",
+        "InputPacket": "10 00 00 00 54 5B 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 11 2B 00 00 01 04 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+        "OutputPacket": "10 00 00 00 54 5B 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 11 2B 00 00 01 00 00 00 07 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+      }
+    },
+    {
+      "slice": 102,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-102.json",
+      "sha256": "bfd5aeed6516a2cca9fb828cf29f846d462d71ceab0eb086fbb6ebefa490db26",
+      "steps_completed": 52263513,
+      "stop_eip": "0x4DBEA",
+      "next_bytes": "66 81 C2 14 90 66 C1 C2 03 32 C2 AA E2 F1 5F 5E",
+      "error": "cpu386: EIP=0004DBEA opcode=81：81 word形狀尚未支援"
+    },
+    {
+      "slice": 103,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-103.json",
+      "sha256": "881a0c33988a03b96839ffd530596edb271821b397983b27fa9bf23b42c67b72",
+      "steps_completed": 52473851,
+      "stop_eip": "0x36D98",
+      "next_bytes": "55 89 E5 83 EC 0C 8D 45 F4 50 E8 52 69 00 00 83",
+      "error": "machine: Watcom int386 只支援已驗證的 INT31／INT10子集"
+    },
+    {
+      "slice": 104,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-104-start.json",
+      "sha256": "f5de05c19b9f9e4fcb81682945c27f19474a418242addc298a18ba43cb344b82",
+      "steps_completed": 54919969,
+      "stop_eip": "0x4DC0C",
+      "next_bytes": "F6 E4 8B C8 83 C7 04 B0 FF 88 47 03 8A 67 02 80",
+      "error": "cpu386: EIP=0004DC0C opcode=F6：F6 ModRM E4 尚未支援"
+    },
+    {
+      "slice": 105,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-105.json",
+      "sha256": "3210189882ea40cff1ed5d930802598255652741f24ebfcadf2c466e79be9104",
+      "steps_completed": 54928572,
+      "stop_eip": "0x10A5B",
+      "next_bytes": "6B 05 E3 3B 05 00 06 8B 15 59 3A 05 00 01 D0 8D",
+      "error": "cpu386: EIP=00010A5B opcode=6B：opcode 尚未支援"
+    },
+    {
+      "slice": 106,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-106.json",
+      "sha256": "84b78395a357b876602cab9c3e050f7b55e06f524da96139a736afaba5a22be7",
+      "steps_completed": 54930436,
+      "stop_eip": "0x10CF7",
+      "next_bytes": "F6 44 07 06 40 75 DD 89 DF 2B 7C 24 24 57 E8 D8",
+      "error": "cpu386: EIP=00010CF7 opcode=F6：F6 SIB 07 尚未支援"
+    },
+    {
+      "slice": 107,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-107.json",
+      "sha256": "2ef9dc8ee57584bd524ab219c3de85602cea17c50bbad47d8e00ef3f4ec728a2",
+      "steps_completed": 54974952,
+      "stop_eip": "0x10E87",
+      "next_bytes": "66 0F B6 08 0F AF 4C 24 18 03 0C 24 66 89 4D 37",
+      "error": "cpu386: EIP=00010E87 opcode=0F：0F B6 尚未支援"
+    },
+    {
+      "slice": 108,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-108.json",
+      "sha256": "246f3f5ed6b7d522a763bca871c6edee226122b02a48c220dab0021dee537160",
+      "steps_completed": 54976432,
+      "stop_eip": "0x146CD",
+      "next_bytes": "80 08 80 C3 68 10 00 00 00 E8 FC 25 02 00 53 56",
+      "error": "cpu386: EIP=000146CD opcode=80：ModRM 08 尚未支援"
+    },
+    {
+      "slice": 109,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-109.json",
+      "sha256": "079da395dad8dc8cffe387dedcae03afba7fe6a532133e80bdaec6e14826bb71",
+      "steps_completed": 55957590,
+      "stop_eip": "0x3CE09",
+      "next_bytes": "66 83 FF 02 75 E5 8D 45 20 83 C0 04 8B 40 FC 85",
+      "error": "cpu386: EIP=0003CE09 opcode=83：16-bit 83 形狀尚未支援"
+    },
+    {
+      "slice": 110,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-110.json",
+      "sha256": "603438be6bab346fbcc978526ac34179edb51ab29ea8a1a4c5a8eb0d4bcc9975",
+      "steps_completed": 55957619,
+      "stop_eip": "0x46329",
+      "next_bytes": "66 0F BE 80 7C 37 05 00 0F BF D8 EB 0C 8B 5D 10",
+      "error": "cpu386: EIP=00046329 opcode=0F：0F BE 尚未支援"
+    },
+    {
+      "slice": 111,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-111.json",
+      "sha256": "bfdba4a9def659de22d4078660ae348e05285c0478b0b3f635f5ce7f00b75db0",
+      "steps_completed": 55957620,
+      "stop_eip": "0x46331",
+      "next_bytes": "0F BF D8 EB 0C 8B 5D 10 C1 EB 08 81 E3 FF 00 00",
+      "error": "cpu386: EIP=00046331 opcode=0F：memory operand不可為register"
+    },
+    {
+      "slice": 112,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-112.json",
+      "sha256": "0e702677b38378415fc99f5a6d97fd35f88088216bffeb6a25bfe7c9b5ec6ee8",
+      "steps_completed": 55958236,
+      "stop_eip": "0x11F0F",
+      "next_bytes": "80 35 40 3A 05 00 01 B8 6C 04 00 00 0F BF 00 A3",
+      "error": "cpu386: EIP=00011F0F opcode=80：ModRM 35 尚未支援"
+    },
+    {
+      "slice": 113,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-113.json",
+      "sha256": "dec02ce1597e1ec4f1f2315a14cc125d074dd05c2f125e797a906e0210c24ce0",
+      "steps_completed": 55958348,
+      "stop_eip": "0x4DF07",
+      "next_bytes": "0A FF 75 E7 EB 34 C0 E9 02 FE C1 2A F9 2A F9 AC",
+      "error": "cpu386: EIP=0004DF07 opcode=0A：0A ModRM FF 尚未支援"
+    },
+    {
+      "slice": 114,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-114.json",
+      "sha256": "ac4a00cd6e38b60aa5b5381be090692c0c02ad9e4bc83befc2f1f8fc03272833",
+      "steps_completed": 57303809,
+      "stop_eip": "0x4DFCD",
+      "next_bytes": "60 E8 ED FF FF FF 66 2B 05 00 00 06 00 66 83 F8",
+      "error": "cpu386: EIP=0004DFCD opcode=60：opcode 尚未支援"
+    },
+    {
+      "slice": 115,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-115.json",
+      "sha256": "d2cb5acb5958ddb59bb938b05dd7846088ec815eb8a4ea393375f9add5c1eb5f",
+      "steps_completed": 61101467,
+      "stop_eip": "0x2CA79",
+      "next_bytes": "F7 7C 24 20 85 D2 75 4A 6A 01 6A 09 EB 36 83 F8",
+      "error": "cpu386: EIP=0002CA79 opcode=F7：F7 ModRM 7C 尚未支援"
+    },
+    {
+      "slice": 116,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-116.json",
+      "sha256": "3177f882938a55c9af7116d3691a02ff500af4dffede43f1eaf3886494129101",
+      "steps_completed": 61742990,
+      "stop_eip": "0x13949",
+      "next_bytes": "FE 48 01 C6 40 04 00 FE 44 24 4C 0F B6 54 24 4C",
+      "error": "cpu386: EIP=00013949 opcode=FE：FE ModRM 48 尚未支援"
+    },
+    {
+      "slice": 117,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-117.json",
+      "sha256": "9de350e0ddb2ea8909d49dc00228fc24945f5b55aeb832c5c75ae003f36bf76f",
+      "steps_completed": 65718640,
+      "stop_eip": "0x12E7D",
+      "next_bytes": "0F BF C3 C1 E0 02 89 04 24 A1 69 3A 05 00 03 04",
+      "error": "cpu386: EIP=00012E7D opcode=0F：memory operand不可為register"
+    },
+    {
+      "slice": 118,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-118.json",
+      "sha256": "191e97bf9fc70e4413d256c2196a68791a8e553e8be2b9293a127dc3638eaa4d",
+      "steps_completed": 75423804,
+      "stop_eip": "0x4E9B6",
+      "next_bytes": "66 4A 75 EF C3 55 8B EC 60 8B 7D 08 8B 75 0C 8B",
+      "error": "cpu386: EIP=0004E9B6 opcode=4A：16-bit DEC 尚未支援"
+    },
+    {
+      "slice": 119,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-119.json",
+      "sha256": "c8267303e3cc10c64605b525d0f08c751550f7d555f9c2833e243d443d8de89f",
+      "steps_completed": 75515292,
+      "stop_eip": "0x4E8FA",
+      "next_bytes": "66 33 C0 57 66 8B CD E8 10 00 00 00 88 07 4F E2",
+      "error": "cpu386: EIP=0004E8FA opcode=33：XOR33 prefix未支援"
+    },
+    {
+      "slice": 120,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-120.json",
+      "sha256": "c15efbcb763940d408ef62577dbfc518ddfd1fb24c4aa5c5822a8374dbc81a29",
+      "steps_completed": 75515302,
+      "stop_eip": "0x4E927",
+      "next_bytes": "80 EC C1 AC C3 55 8B EC 60 8B 75 08 66 AD 66 A3",
+      "error": "cpu386: EIP=0004E927 opcode=80：ModRM EC 尚未支援"
+    },
+    {
+      "slice": 121,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-121.json",
+      "sha256": "cc2cecb2b84d7944f52e9b587c3d5315f94c0dc7603d0f9591487f7589f5503f",
+      "steps_completed": 75576955,
+      "stop_eip": "0x4EAC4",
+      "next_bytes": "86 C4 57 B1 10 66 D1 E0 73 09 88 17 88 34 3B 88",
+      "error": "cpu386: EIP=0004EAC4 opcode=86：opcode 尚未支援"
+    },
+    {
+      "slice": 122,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-122.json",
+      "sha256": "6a5b60e400c9d98b05136f161cf8d894c1b8f2e1ec460242c9f3862254a1d7e4",
+      "steps_completed": 76170037,
+      "stop_eip": "0x16D0D",
+      "next_bytes": "98 0F BF 54 24 08 29 D0 83 F8 02 7C D9 83 7C 24",
+      "error": "cpu386: EIP=00016D0D opcode=98：opcode 尚未支援"
+    },
+    {
+      "slice": 123,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-123.json",
+      "sha256": "1690c82608d5540c5bf19531094d4cca8b499f27e68ec2338453e7a852516795",
+      "steps_completed": 100000000,
+      "stop_eip": "0x36CE0",
+      "next_bytes": "8B 44 24 04 C2 04 00 C2 04 00 3B C4 73 0D 2B C4",
+      "error": "step budget exhausted"
+    },
+    {
+      "slice": 124,
+      "artifact": "workplace/fd2-input-parity-20260907/gap-124.json",
+      "sha256": "5ac9b3a6f0a5a7c6a97bc723cec74c1d499467f5b6f9837008e5ac1c292dc860",
+      "steps_completed": 100000000,
+      "stop_eip": "0x36CEC",
+      "next_bytes": "73 0D 2B C4 F7 D8 3B 05 14 28 05 00 76 01 C3 8C",
+      "error": "step budget exhausted"
+    }
+  ],
+  "test_receipts": [
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-tests.jsonl",
+      "sha256": "2f690721b77c255d7352b51c4bd68e3ef75ef01297bf53141ed83333f5a66268",
+      "scope": "批次17整體578案例通過；批次18 cpu386另通過"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-48-tests-final.jsonl",
+      "sha256": "7bd4e3149da851185080afe51446fccb6b1b9f86f043b0fa8e46344d571acf83",
+      "scope": "批次48固定原版完整回歸；批次49 machine回歸另通過",
+      "pass_events": 621,
+      "test_pass_events": 617,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-62-tests.jsonl",
+      "sha256": "1ca4bdef3484100f976e8189b384f5563d4c56473492495538cc7511561bf39d",
+      "scope": "批次62固定原版完整回歸；63–64 CPU與machine回歸另通過",
+      "pass_events": 638,
+      "test_pass_events": 634,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-70-tests.jsonl",
+      "sha256": "7aebbb5da3905250ee362b216a4bff342cfa130ef684edf64687a352598db564",
+      "scope": "批次70固定原版完整回歸",
+      "pass_events": 645,
+      "test_pass_events": 641,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-79-tests.jsonl",
+      "sha256": "bb26b4c80aaf3b8420da620eb5a5b82c546c0a06c79479e8352bcb88babf0195",
+      "scope": "固定原版完整回歸",
+      "pass_events": 655,
+      "test_pass_events": 651,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-81-tests-final.jsonl",
+      "sha256": "45b13434e11b9faf09a40ded1c93759495dfef3713a544b3b89a2b2d97a299fd",
+      "scope": "固定原版完整回歸",
+      "pass_events": 657,
+      "test_pass_events": 653,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-83-tests.jsonl",
+      "sha256": "a1d7e1b12cd6a81ce6a06fb3aa23dd7a3001ff9901f6b3aae9212c0c522c457d",
+      "scope": "固定原版完整回歸",
+      "pass_events": 660,
+      "test_pass_events": 656,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-85-tests-final.jsonl",
+      "sha256": "810f1afa9c5b3dbf7d266d1153fd667657da539c96b169f0216c41424e898dc3",
+      "scope": "固定原版完整回歸",
+      "pass_events": 663,
+      "test_pass_events": 659,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-101-tests.jsonl",
+      "sha256": "a4a56b9829d3243bd97b7a5898ecb65371146c394929d91a86815340169a7ee4",
+      "scope": "原版入口到標誌及BIOS等待退出的完整指定回歸",
+      "pass_events": 682,
+      "fail_events": 0,
+      "skip_events": 2
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/platform-gap-118-tests.jsonl",
+      "sha256": "6bfefdff7bf230b3c6971095c267c43cbe850f81d48d65ffd8959be9d6be4878",
+      "scope": "固定原版入口與平台／DOS檔案／FD2指定回歸",
+      "pass_events": 702,
+      "fail_events": 0,
+      "skip_events": 3
+    }
+  ],
+  "toolchain": "golang:1.24-bookworm；DOSBox-X 2026.07.02 SDL2 heavydebug（fd2-dosbox-x:debug-0d7b272b）",
+  "limitations": [
+    "DMA通道1、PIC IRQ7與DSP單次／auto-init受限子集；未知模式與命令拒絕",
+    "數位初始化AX8405已由dosgolem自然重生；尚未與DOSBox做完整同狀態比較",
+    "gap-26入口DS倒退已由gap-27修復；歷史收據保留",
+    "非分頁DPMI 0600沿用共用host的忽略成功契約；不增長Mem，實際CPU/DMA存取仍受backing限制",
+    "批次1–81保護模式OUT僅記錄即成功，不能證明硬體輸出；批次82起改為嚴格共用平台路由。",
+    "近堆採成對配置／釋放轉接與1MiB以上配置；不宣稱原生heap位址一致。DOS可配置區止於640KiB。",
+    "已由原版入口產生標誌、標題及王宮；選單兩張輔助像素比較通過。BIOS單次事件不代表長按／釋放或AppImage操作感。",
+    "批次95已接PIT預設BIOS IRQ0；每實／保護指令1微秒為hardware-spec approximation，未知IRQ0／INT1C handler拒絕。",
+    "DSP DMA仍僅實模式推進，保護模式音效排程與音訊輸出尚缺；不能宣稱音画同步或正常玩家完整路徑。"
+  ],
+  "auxiliary_receipts": [
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-real-mode-20260908/replay.py",
+      "sha256": "a69de4f40851aceb2fcf0b1585421c75ea6b2c997578692d71fd03173bde7f2e",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-real-mode-20260908/dosbox.conf",
+      "sha256": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-real-mode-20260908/terminal.raw",
+      "sha256": "26f38a5df8a166498077556e06c0cbad90feeb131f0c1b78c792e1cba311d832",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-real-mode-20260908/commands.json",
+      "sha256": "6de104353a9210e637d3bdeff0ac993fef85fe96be59f77c286591eb9aeb0d26",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-bios-selector-20260908/replay.py",
+      "sha256": "f7829bc80bae4155e38b22fafe92af08bcb93b104a24b286c2175db777445b97",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-bios-selector-20260908/dosbox.conf",
+      "sha256": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-bios-selector-20260908/terminal.raw",
+      "sha256": "08cbda2de196deb460e033a48b3b7ea2868f13c41e29260636c5a2e60d6f4545",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-bios-selector-20260908/commands.json",
+      "sha256": "9b456ddca3f1352c91179c42e966224c8cf4eefe83fe882018b45884adef3de7",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-pic-20260908/replay.py",
+      "sha256": "636ea138ea33ccd591dde48c7db1f80afca99c16963a6fb19f8bdcaa2491ecc2",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-pic-20260908/dosbox.conf",
+      "sha256": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-pic-20260908/terminal.raw",
+      "sha256": "85ebd22cda1c10140d354dd6cd1795366b873d1abc899e111c1a35758f9184aa",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-pic-20260908/commands.json",
+      "sha256": "6d1d79fed0ba39c58bd7734fcc79bd0e78c3fee279a20ec61fc9f10f787f9672",
+      "role": "DOSBox輔助基準，非dosgolem畫面收據"
+    }
+  ],
+  "source_sha256": {
+    "internal/cpu386/cpu.go": "0e44bdbfddde70a8b34928b1c78576615639f4edeed20a894154c07e5b7fbfec",
+    "internal/machine/le_dma_clock.go": "60d2af5915cff1fd44bd743308df551a761950219f2b2482461bc737da1a241c",
+    "internal/machine/le_dma_clock_test.go": "d888d9bf9cca315c7d3dc2a4ae35782ed7448666e10348b9f60bd4a0f371b256",
+    "internal/machine/sb_dsp.go": "dec918a6ac5cc86930251186e7959820fabf19518138e31612da672a5e97787d",
+    "internal/machine/dma8237.go": "cff4146f14715d58b9888a6594a01120d312a9a679bc4a7f2d2323ed2f4ad303",
+    "internal/machine/le_opl_ports.go": "030223c8babbfe8fd18917560c00005d5bab14292d84e82d60c686a9cf5931c1",
+    "apps/fd2/cmd/bootprobe/main.go": "091fc46214f21d5e39d96668a894fcafcc29e05a802ba38bff6928565c367ff4",
+    "internal/machine/watcom_runtime.go": "35451dead4741d2b705b353b3f4737360fa57338926bdfcafe7824a08d230e1b",
+    "internal/machine/le_video.go": "0a6c7c47bec9aac7bb352a14c773790ef54bc676c43b850a28764200f5df459c",
+    "internal/machine/le_pit.go": "e0ced6a70042fd9f08270ccdb66b1a095adef59c7dc8959d22092760dad76963",
+    "internal/machine/dpmi.go": "f0b579ae477e767c3ada50a68a123f8839c5062e6b741a2864cd1143e37805cc",
+    "internal/machine/fd2_driver_startup_test.go": "ed962ddcfe567e31b2e34de856a52dc113d76442ce5feaa27ac4a39e23587533",
+    "internal/cpu386/platform_gap_test.go": "e7fdaa9df3e730ff373023c3d49e27749072e6829be4c3fdc062bb67a00eda52",
+    "internal/machine/le_bios_clock.go": "905458fb3dc7c396f96df55afc89837c37adb43a87b6dfc6f86255ac09d95a27",
+    "internal/machine/le_bios_clock_test.go": "1a81aa2fdb10ec21cf9133b2274b0e2f847ae446d7116f5364fb8aa2dbaf1006",
+    "internal/machine/overlay_files.go": "841d53d33104d0bda25faaf6966d0d5f9925459ce6346dbbb4cc25cfc24ea9dc",
+    "internal/machine/le_bios_keyboard.go": "23b9ae43cf3ef18e4b9c53eabfd73765ca4aefe6bcb877a8adc5e2115d28733e",
+    "apps/fd2/cmd/framecompare/main.go": "a6fb7acd12fbfac5a577e65734868b54300a19ea2e693b195c199227ca8db31b"
+  },
+  "dosbox_digital_auxiliary": {
+    "classification": "auxiliary corresponding code location, not full same-state",
+    "code_location": {
+      "dosbox": "0158:001F6C29",
+      "dosgolem_LE": "00040C29"
+    },
+    "matching_registers": {
+      "EAX": "0000200F",
+      "EBX": "00000003",
+      "ECX": "00000000",
+      "EDX": "00000000",
+      "ESI": "00002000"
+    },
+    "nonmatching_scope": "配置位址、selector及完整旗標未作一致聲明；此位置不能單獨證明AX8405回傳收據",
+    "artifacts": {
+      "workplace/fd2-input-parity-20260907/dosbox-digital-20260908/dosbox.conf": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "workplace/fd2-input-parity-20260907/dosbox-digital-20260908/commands.json": "4c83cefb109628847a9d69cf4c5c56af4dc2ca307ab39a24efe1282fda220c92",
+      "workplace/fd2-input-parity-20260907/dosbox-digital-20260908/terminal.raw": "0c7794a4efe6774c242672814a985a2a6c044b257cb813b73f72fed7011e6ab2",
+      "workplace/fd2-input-parity-20260907/dosbox-digital-20260908/replay.py": "8cc91ed2eb47e0a4273db268db07b10deff942cbed1021ba28ff2bd208b9c43b",
+      "workplace/fd2-input-parity-20260907/dosbox-digital-20260908/digital-return-code.txt": "5e1b3c67e7a153e84b4c4600b1af836e21a000ab7ea547a693080c2be4ec942e"
+    }
+  },
+  "dosbox_f2_movs_auxiliary": {
+    "classification": "DOSBox輔助指令前後量測，非完整同狀態或dosgolem收據",
+    "before": "0158:001F2BEF ECX=2 ESI=20D742 EDI=19F3A8",
+    "after": "0158:001F2BF1 ECX=0 ESI=20D74A EDI=19F3B0",
+    "result": "複製8bytes，後8bytes目的不變",
+    "artifacts": {
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/destination-after.txt": "fdd441c6fef612615059a083d26b172f8d33a4dac0fa643da69d62f28619bb7c",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/dosbox.conf": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/source-before.txt": "e01c509084ec36dfe4ac8912c7a790a4882d81f87048b8e2b882101073897df8",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/commands.json": "ea2b6224c474d3a9237a93548491d5960a697c63c72e88290bbe777e0b2643df",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/terminal.raw": "94416f18f1f42407302fbd7b001ce229c36a7506f1edc0cb451f3bdbc2ffae0e",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/destination-before.txt": "2d6b2f93dd5f2f4f426d58076b2ef09142db88de31685dec578fd2406be6849a",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/replay.py": "d0504066085de4ac35bc7f2b21d91589be29de472f1f675e472a3be0308cde88",
+      "workplace/fd2-input-parity-20260907/dosbox-f2-movs-20260908/MEMDUMP.TXT": "fdd441c6fef612615059a083d26b172f8d33a4dac0fa643da69d62f28619bb7c"
+    }
+  },
+  "game_screen_scope": "dosgolem正常入口至王宮與戶外對話；三張對應畫面與DOSBox輔助圖零差異，第一頁對話1298像素差異待釐清。未驗收第一關第五回合或AppImage。",
+  "dosbox_bios_clock_auxiliary": {
+    "classification": "DOSBox輔助對應指令位置，非完整同狀態或wall-clock量測",
+    "code_location": {
+      "dosbox": "0158:001CDADD→001CDADF",
+      "dosgolem_LE": "00017ADD→00017ADF"
+    },
+    "timer_before": "0015B165",
+    "timer_after": "0015B166",
+    "EAX_before": 0,
+    "EAX_after": 1,
+    "EDX": 1,
+    "artifacts": {
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/timer-before.txt": "60f6c79b73256d49fb54e3f7e47f7e501fe204ebf55f925e2ef6282e0dfeaad1",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/dosbox.conf": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/commands.json": "72d4f6e604098773411b52ea0139cfacd6be8c775e867f56692e22a0fc777b80",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/wait-code.txt": "e93f7e0ef56a1973f396f5114ceb0b36fc8530e918494a46c76578bc001bd81c",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/terminal.raw": "e9243ca3c996d45d10e7aeb3b8ac99f7bacd4abf35c54adb7590869256963cb2",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/replay.py": "0868805a0b40a867a7874be6782c79a9cbaf6cffbde05d9d3d44967a87be6faf",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/timer-after.txt": "ba345380fa8fdbad08f0e8854b23240433a6f12406fe3a0fd7332615244b6d30",
+      "workplace/fd2-input-parity-20260907/dosbox-bios-clock-20260908/MEMDUMP.TXT": "ba345380fa8fdbad08f0e8854b23240433a6f12406fe3a0fd7332615244b6d30"
+    }
+  },
+  "opening_frames": [
+    {
+      "path": "workplace/fd2-input-parity-20260907/gap-94.png",
+      "sha256": "dd65df5690c8cd092df2dc527f11e2aa6946d04d605180574da2ca441829d3a4",
+      "receipt": "workplace/fd2-input-parity-20260907/gap-94.json",
+      "receipt_sha256": "fb031198c8fe5a6e08e630804bd759416eb924d2c060cf73b05750b2ebf724ed",
+      "classification": "dosgolem自生停點畫面，未作DOSBox同狀態比較"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/gap-94-5m.png",
+      "sha256": "529b0711f92c38f0dfd2a7db91733f93fc199f454daac55424897cca43933445",
+      "receipt": "workplace/fd2-input-parity-20260907/gap-94-5m.json",
+      "receipt_sha256": "dbc83c005f42f8f3a0c552d22c833f7b46348243de62225ab62e51c8c6ba2bda",
+      "classification": "dosgolem自生停點畫面，未作DOSBox同狀態比較"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/gap-99.png",
+      "sha256": "e0fd51834175db8aa627c0da214f49bddcf05addc388f5866d3d936df27f3d15",
+      "receipt": "workplace/fd2-input-parity-20260907/gap-99.json",
+      "receipt_sha256": "b9f90040e91d569b9dbadfe4696b06780d63dae088c82e57dba1e1ca795039a6",
+      "classification": "dosgolem自生停點畫面，未作DOSBox同狀態比較"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/gap-101.png",
+      "sha256": "750b6f191864b9591954029f0c377aebca732936cce526b0c36337d83c4c33b0",
+      "receipt": "workplace/fd2-input-parity-20260907/gap-101.json",
+      "receipt_sha256": "f2e0cda46a8f9f2876bfea4c27b538507ecc1c4794f902ed356881f13f835252",
+      "classification": "dosgolem自生停點畫面，未作DOSBox同狀態比較"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/gap-101-100m.png",
+      "sha256": "d4f1e123687afba10bce80dfb04c5ee028f223a05d34bf2db029976fede91d08",
+      "receipt": "workplace/fd2-input-parity-20260907/gap-101-100m.json",
+      "receipt_sha256": "f4325e4d51830d809e9495be26fca3d8f42f0f5603556a517ec478540e3c357b",
+      "classification": "dosgolem自生停點畫面，未作DOSBox同狀態比較"
+    }
+  ],
+  "title_input_evidence": "docs/evidence/fd2-title-input-parity-20260908.json",
+  "current_artifact": {
+    "path": "workplace/fd2-input-parity-20260907/opening-long.json",
+    "sha256": "2512514f2705a3e9fbe0f6d192b18f50d28b9ba586a6f91b2fc975eb72eef5dc"
+  },
+  "dialogue_comparisons": [
+    {
+      "path": "workplace/fd2-input-parity-20260907/dialogue-first-diff.json",
+      "sha256": "fd67b2de6ebf4227b7ebe22228124ae4bff9c1d53983e1992560e22ea64c8226",
+      "different_pixels": 1298,
+      "bounds": [
+        48,
+        22,
+        243,
+        165
+      ],
+      "classification": "DOSBox輔助對應畫面，非完整機器同狀態"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dialogue-second-diff.json",
+      "sha256": "d399fbb49b0d3cfb68b7b0942de4a71c9decaf5c55f594ceea63bcaa6a536b75",
+      "different_pixels": 0,
+      "bounds": [
+        320,
+        200,
+        -1,
+        -1
+      ],
+      "classification": "DOSBox輔助對應畫面，非完整機器同狀態"
+    }
+  ],
+  "latest_frame": {
+    "path": "workplace/fd2-input-parity-20260907/opening-long.png",
+    "sha256": "8d034b061dc1558ab87c9ce5b81b996c86892915083f6e389534346f27910686",
+    "classification": "dosgolem自行執行的戶外對話；尚未DOSBox同狀態比較"
+  }
+}

@@ -96,9 +96,10 @@ func SignedOffset(cx, dx uint16) int32 {
 // 用上面那幾支自由函式共用語意就好——政策不同的東西硬共用只會讓兩邊
 // 都變複雜。
 type Table struct {
-	files map[uint16]io.ReadSeekCloser
-	names map[uint16]string
-	next  uint16
+	files   map[uint16]io.ReadSeekCloser
+	names   map[uint16]string
+	next    uint16
+	recycle bool
 }
 
 // FirstHandle 是第一個可以配出去的號碼。0–4 是 DOS 開好的標準 handle
@@ -109,6 +110,13 @@ const FirstHandle = 5
 func NewTable() *Table {
 	return &Table{files: map[uint16]io.ReadSeekCloser{},
 		names: map[uint16]string{}, next: FirstHandle}
+}
+
+// NewReusingTable 依 DOS 開關檔行為重用最低空閒代號；不覆蓋仍開啟檔案。
+func NewReusingTable() *Table {
+	t := NewTable()
+	t.recycle = true
+	return t
 }
 
 func (t *Table) init() {
@@ -124,6 +132,16 @@ func (t *Table) init() {
 // Add 把一個開好的檔放進表裡，回 handle 與 DOS 錯誤碼。
 func (t *Table) Add(f io.ReadSeekCloser, name string) (uint16, uint16) {
 	t.init()
+	if t.recycle {
+		for h := uint32(FirstHandle); h < 0xffff; h++ {
+			if _, used := t.files[uint16(h)]; !used {
+				t.files[uint16(h)] = f
+				t.names[uint16(h)] = name
+				return uint16(h), 0
+			}
+		}
+		return 0, ErrTooManyOpen
+	}
 	if t.next == 0xFFFF {
 		return 0, ErrTooManyOpen
 	}
@@ -169,8 +187,7 @@ func (t *Table) Seek(h uint16, off int32, origin uint8) (uint32, uint16) {
 
 // Close 關掉一個 handle。
 //
-// **關過的號碼不重用**：重用的話，程式關掉之後又拿舊號碼去讀，
-// 讀到的是別人的檔——而它不會報錯。
+// NewTable 保留不重用的診斷政策；NewReusingTable 在下一次配置時重用空洞。
 func (t *Table) Close(h uint16) uint16 {
 	f, ok := t.files[h]
 	if !ok {

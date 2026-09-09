@@ -531,7 +531,6 @@ func TestStoreAXWordToStackDisp32(t *testing.T) {
 	}{
 		{name: "read-only", code: []byte{0x66, 0x89, 0x84, 0x24, 0x10, 0, 0, 0}, mem: 0x40},
 		{name: "bounds", code: []byte{0x66, 0x89, 0x84, 0x24, 0x1f, 0, 0, 0}, mem: 0x40},
-		{name: "wrong SIB", code: []byte{0x66, 0x89, 0x84, 0x25, 0x10, 0, 0, 0}, mem: 0x40},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mem := testBus(make([]byte, test.mem))
@@ -1546,8 +1545,9 @@ func TestLEAEAXFromEDIPlusEBP(t *testing.T) {
 	}
 
 	c := New(testBus{0x8d, 0x04, 0x2e})
-	if err := c.Step(); err == nil {
-		t.Fatal("unapproved LEA SIB was accepted")
+	c.R[ESI], c.R[EBP] = 3, 4
+	if err := c.Step(); err != nil || c.R[EAX] != 7 {
+		t.Fatalf("規格186新增base+index: %v", err)
 	}
 }
 
@@ -1746,8 +1746,8 @@ func TestLeave32(t *testing.T) {
 
 type testBus []byte
 
-func (b testBus) Read8(addr uint32) (uint8, error)      { return b[addr], nil }
-func (b testBus) Write8(addr uint32, value uint8) error { b[addr] = value; return nil }
+func (b testBus) Read8(addr uint32) (uint8, error)      { return boundedTestBus(b).Read8(addr) }
+func (b testBus) Write8(addr uint32, value uint8) error { return boundedTestBus(b).Write8(addr, value) }
 
 type boundedTestBus []byte
 
@@ -1775,6 +1775,8 @@ func TestFD2EntryPrefixInstructionShapes(t *testing.T) {
 		0xbb, 0x52, 0x41, 0x48, 0x50, 0x2b, 0xc0, 0xb4, 0x30, 0xcd, 0x21,
 	})
 	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x1ff, Writable: true})
 	c.R[ESP] = 0x103
 	interrupt := false
 	c.IntHook = func(cpu *CPU, number uint8) bool { interrupt = number == 0x21; return true }
@@ -2152,6 +2154,8 @@ func TestMoveWordRegisterToAbsoluteMemory(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x66, 0x89, 0x0d, 0x40, 0x00, 0x00, 0x00})
 	c := New(mem)
+	c.Seg[SegDS] = 0x160
+	c.SetDescriptor(0x160, Descriptor{Limit: 0x7f, Writable: true})
 	c.R[ECX] = 0x12340030
 	c.EFlags = 0x246
 	if err := c.Step(); err != nil {
@@ -2658,10 +2662,10 @@ func TestLoadEAXFromStackBase(t *testing.T) {
 		t.Fatalf("out-of-range MOV EAX EAX=%X ESP=%X flags=%X err=%v", c.R[EAX], c.R[ESP], c.EFlags, err)
 	}
 
-	c = New(testBus{0x8b, 0x04, 0x25})
+	c = New(boundedTestBus{0x8b, 0x04, 0x25})
 	c.R[EAX], c.R[ESP] = 0x12345678, 1
 	if err := c.Step(); err == nil || c.R[EAX] != 0x12345678 {
-		t.Fatalf("unsupported stack SIB EAX=%X err=%v", c.R[EAX], err)
+		t.Fatalf("truncated absolute SIB displacement EAX=%X err=%v", c.R[EAX], err)
 	}
 }
 

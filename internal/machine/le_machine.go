@@ -10,10 +10,12 @@ import (
 // LEMachine 是 DOS/4GW 已完成載入後的平坦 32-bit 執行環境。
 // 它刻意不共用 real-mode Machine 的 20-bit wrap 與 IVT。
 type LEMachine struct {
-	Mem     []byte
-	CPU     *cpu386.CPU
-	Ports   map[uint16]uint8
-	PortLog []LEPortWrite
+	Video    *LEVideo
+	Keyboard *LEBIOSKeyboard
+	Mem      []byte
+	CPU      *cpu386.CPU
+	Ports    map[uint16]uint8
+	PortLog  []LEPortWrite
 }
 
 // LEPortWrite 是保護模式程式的一次 byte port 輸出；Sequence 只表示先後順序，
@@ -70,6 +72,13 @@ func LoadLE(data []byte) (*LEMachine, error) {
 		return nil, fmt.Errorf("machine: LE entry 或 stack offset 超界")
 	}
 	m.CPU = cpu386.New(m)
+	// 規格008的base-0入口環境：非零selector是工具標籤，不是原版extender編號。
+	m.CPU.SetDescriptor(0x08, cpu386.Descriptor{Limit: 0xffffffff})
+	m.CPU.SetDescriptor(0x10, cpu386.Descriptor{Limit: 0xffffffff, Writable: true})
+	m.CPU.Seg[cpu386.SegCS] = 0x08
+	for _, seg := range []int{cpu386.SegDS, cpu386.SegES, cpu386.SegSS} {
+		m.CPU.Seg[seg] = 0x10
+	}
 	m.CPU.PortOut = func(port uint16, value uint8) bool {
 		m.Ports[port] = value
 		m.PortLog = append(m.PortLog, LEPortWrite{Port: port, Value: value, Sequence: uint64(len(m.PortLog))})

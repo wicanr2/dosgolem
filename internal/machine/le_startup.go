@@ -1,8 +1,11 @@
 package machine
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 
+	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 	"github.com/wicanr2/dosgolem/internal/dosfile"
 )
@@ -47,17 +50,19 @@ var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E'
 func (s *FD2StartupDOS) Calls() int { return s.calls }
 
 func NewFD2StartupDOS(files ReadOnlyFileProvider) *FD2StartupDOS {
-	return &FD2StartupDOS{
+	s := &FD2StartupDOS{
 		files: files,
-		table: dosfile.NewTable(),
+		table: dosfile.NewReusingTable(),
 		DPMI:  NewDPMIHost(nil),
 	}
+	s.DPMI.RealModeInterrupt = s.HandleRealMode
+	return s
 }
 
 // handles 回這一支的 handle 表，零值也能用（測試常常直接造 &FD2StartupDOS{}）。
 func (s *FD2StartupDOS) handles() *dosfile.Table {
 	if s.table == nil {
-		s.table = dosfile.NewTable()
+		s.table = dosfile.NewReusingTable()
 	}
 	return s.table
 }
@@ -87,7 +92,8 @@ func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
 		c.EFlags |= cpu386.CF
 	}
-	if uint8(c.R[cpu386.EAX]) != 0 || s.files == nil {
+	mode := uint8(c.R[cpu386.EAX])
+	if mode > 2 || s.files == nil {
 		setError(dosfile.ErrAccessDenied)
 		return
 	}
@@ -113,9 +119,24 @@ func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
 		setError(dosfile.ErrPathNotFound)
 		return
 	}
-	file, err := s.files.OpenRead(string(path))
+	var file io.ReadSeekCloser
+	var err error
+	if mode == 0 {
+		file, err = s.files.OpenRead(string(path))
+	} else {
+		provider, ok := s.files.(WriteFileProvider)
+		if !ok {
+			setError(dosfile.ErrAccessDenied)
+			return
+		}
+		file, err = provider.OpenWrite(string(path), mode == 2)
+	}
 	if err != nil {
-		setError(dosfile.ErrFileNotFound)
+		code := uint16(dosfile.ErrAccessDenied)
+		if errors.Is(err, fs.ErrNotExist) {
+			code = dosfile.ErrFileNotFound
+		}
+		setError(code)
 		return
 	}
 	handle, code := s.handles().Add(file, string(path))
@@ -156,7 +177,18 @@ func (s *FD2StartupDOS) readFile(c *cpu386.CPU) {
 		setError(dosfile.ErrInvalidHandle)
 		return
 	}
-	count := int(uint16(c.R[cpu386.ECX]))
+	count32 := c.R[cpu386.ECX]
+	if count32 > 64*1024*1024 || uint64(c.R[cpu386.EDX])+uint64(count32) > uint64(1)<<32 {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	if count32 > 0 {
+		if _, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+count32-1); !ok {
+			setError(dosfile.ErrAccessDenied)
+			return
+		}
+	}
+	count := int(count32)
 	buffer := make([]byte, count)
 	n, code := dosfile.Read(file, buffer)
 	if code != 0 {
@@ -173,7 +205,7 @@ func (s *FD2StartupDOS) readFile(c *cpu386.CPU) {
 		setError(dosfile.ErrAccessDenied)
 		return
 	}
-	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(n)
+	c.R[cpu386.EAX] = uint32(n)
 	c.EFlags &^= cpu386.CF
 }
 
@@ -311,8 +343,7 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 
 // closeFile 是 `AH=3Eh`。
 //
-// **關過的號碼不重用**（`dosfile.Table` 保證）：重用的話，程式關掉之後
-// 又拿舊號碼去讀，讀到的是別人的檔——而它不會報錯。
+// FD2 採 DOS 的最低空閒代號重用；關閉後至下次配置前，此代號無效。
 func (s *FD2StartupDOS) closeFile(c *cpu386.CPU) {
 	if code := s.handles().Close(uint16(c.R[cpu386.EBX])); code != 0 {
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
@@ -322,22 +353,69 @@ func (s *FD2StartupDOS) closeFile(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
-// writeFile 是 `AH=40h`：BX ＝ handle、CX ＝ 位元組數、DS:EDX ＝ 資料。
+// writeFile 是保護模式 `AH=40h`：BX ＝ handle、ECX ＝ 位元組數、DS:EDX ＝ 資料。
 //
 // ⚠ **這是保護模式程式對外面說話的主要管道**，不是 `AH=09h`。
 // Watcom 的 `printf`／`fputs` 最後都落到 handle 1 的 `AH=40h`，一次一小段。
 // 不接的話主控台是空的——看起來像「程式什麼都沒說」，
 // 而實際上它正在印錯誤訊息。
 //
-// 檔案 handle 一律回「拒絕存取」：這一層的檔案提供者是唯讀的
-// （`ReadOnlyFileProvider`）。**回成功比較危險**——程式會以為資料落地了，
-// 接著把它讀回來，然後拿到舊內容。
+// 只有可寫覆蓋層接受檔案寫入；唯讀提供者拒絕，不能假裝資料已落地。
 func (s *FD2StartupDOS) writeFile(c *cpu386.CPU) {
 	handle := uint16(c.R[cpu386.EBX])
-	count := uint32(uint16(c.R[cpu386.ECX]))
-	if handle != 1 && handle != 2 {
-		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | dosfile.ErrAccessDenied
+	count := c.R[cpu386.ECX]
+	if count > 64*1024*1024 || uint64(c.R[cpu386.EDX])+uint64(count) > uint64(1)<<32 {
+		c.R[cpu386.EAX] = dosfile.ErrAccessDenied
 		c.EFlags |= cpu386.CF
+		return
+	}
+	if handle != 1 && handle != 2 {
+		setError := func(code uint32) { c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | code; c.EFlags |= cpu386.CF }
+		file, ok := s.handles().Get(handle)
+		if !ok {
+			setError(dosfile.ErrInvalidHandle)
+			return
+		}
+		writer, ok := file.(io.Writer)
+		if !ok {
+			setError(dosfile.ErrAccessDenied)
+			return
+		}
+		if count == 0 {
+			truncate, ok := file.(interface{ Truncate(int64) error })
+			if !ok {
+				setError(dosfile.ErrAccessDenied)
+				return
+			}
+			pos, err := file.Seek(0, io.SeekCurrent)
+			if err != nil || truncate.Truncate(pos) != nil {
+				setError(dosfile.ErrAccessDenied)
+				return
+			}
+			c.R[cpu386.EAX] = 0
+			c.EFlags &^= cpu386.CF
+			return
+		}
+		buffer := make([]byte, count)
+		for i := uint32(0); i < count; i++ {
+			if c.R[cpu386.EDX] > ^uint32(0)-i {
+				setError(dosfile.ErrAccessDenied)
+				return
+			}
+			value, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+i)
+			if !ok {
+				setError(dosfile.ErrAccessDenied)
+				return
+			}
+			buffer[i] = value
+		}
+		n, err := writer.Write(buffer)
+		if err != nil {
+			setError(dosfile.ErrAccessDenied)
+			return
+		}
+		c.R[cpu386.EAX] = uint32(n)
+		c.EFlags &^= cpu386.CF
 		return
 	}
 	buffer := make([]byte, 0, count)
@@ -350,7 +428,7 @@ func (s *FD2StartupDOS) writeFile(c *cpu386.CPU) {
 		buffer = append(buffer, value)
 	}
 	s.Console = append(s.Console, buffer...)
-	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(len(buffer))
+	c.R[cpu386.EAX] = uint32(len(buffer))
 	c.EFlags &^= cpu386.CF
 }
 
@@ -367,4 +445,40 @@ func (s *FD2StartupDOS) printString(c *cpu386.CPU) {
 		s.Console = append(s.Console, value)
 	}
 	c.EFlags &^= cpu386.CF
+}
+
+// HandleRealMode只轉接已支援的DOS檔案服務，與保護模式共用檔案表。
+func (s *FD2StartupDOS) HandleRealMode(r *cpu.CPU, n uint8) bool {
+	if n != 0x21 || s.DPMI == nil || s.DPMI.m == nil {
+		return false
+	}
+	switch uint8(r.R[cpu.AX] >> 8) {
+	case 0x3d, 0x3e, 0x3f, 0x42, 0x44:
+	default:
+		return false
+	}
+	c := cpu386.New(s.DPMI.m)
+	for i, v := range r.R {
+		c.R[i] = uint32(v)
+	}
+	c.R[cpu386.EAX] |= uint32(r.EAXHi) << 16
+	c.EFlags = uint32(r.Flags)
+	for _, v := range []struct {
+		dst, src int
+		selector uint16
+	}{
+		{cpu386.SegDS, cpu.DS, 0x10}, {cpu386.SegES, cpu.ES, 0x18}, {cpu386.SegSS, cpu.SS, 0x20},
+	} {
+		c.Seg[v.dst] = v.selector
+		c.SetDescriptor(v.selector, cpu386.Descriptor{Base: uint32(r.Seg[v.src]) << 4, Limit: 0xffff, Writable: true})
+	}
+	if !s.Handle(c, n) {
+		return false
+	}
+	for i, v := range c.R {
+		r.R[i] = uint16(v)
+	}
+	r.EAXHi = uint16(c.R[cpu386.EAX] >> 16)
+	r.SetFlags(uint16(c.EFlags))
+	return true
 }

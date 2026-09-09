@@ -74,7 +74,7 @@ func fixedFD2Machine(t *testing.T) (*LEMachine, *FD2StartupDOS) {
 	services := NewFD2StartupDOS(provider)
 	t.Cleanup(func() { services.Close() })
 	m.CPU.IntHook = services.Handle
-	if _, err := InstallFD2WatcomRuntime(m); err != nil {
+	if _, err := InstallFD2WatcomRuntime(m, services.DPMI); err != nil {
 		t.Fatal(err)
 	}
 	return m, services
@@ -441,6 +441,9 @@ func TestFD2ThirdCallbackFirstAllocationReturnsWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	initialMemory := len(m.Mem)
 	wantBase := uint32((initialMemory + 3) &^ 3)
+	if wantBase < 0x100000 {
+		wantBase = 0x100000
+	}
 	for steps := 0; m.CPU.EIP != 0x4cc51 && steps < 491; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatal(err)
@@ -449,7 +452,7 @@ func TestFD2ThirdCallbackFirstAllocationReturnsWhenProvided(t *testing.T) {
 	if services.Calls() != 2 || m.CPU.EIP != 0x4cc51 {
 		t.Fatalf("first _nmalloc did not return: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != wantBase || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != int(wantBase)+4 {
+	if m.CPU.R[cpu386.EAX] != wantBase || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != (int(wantBase)+4+4095)&^4095 {
 		t.Fatalf("first _nmalloc result=%X ESP=%X memory=%X want-base=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem), wantBase)
 	}
 }
@@ -457,6 +460,9 @@ func TestFD2ThirdCallbackFirstAllocationReturnsWhenProvided(t *testing.T) {
 func TestFD2ThirdCallbackSecondAllocationReturnsWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	wantFirst := uint32((len(m.Mem) + 3) &^ 3)
+	if wantFirst < 0x100000 {
+		wantFirst = 0x100000
+	}
 	for steps := 0; m.CPU.EIP != 0x4cc70 && steps < 520; steps++ {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("second _nmalloc path: step=%d EIP=%X: %v", steps, m.CPU.EIP, err)
@@ -465,7 +471,7 @@ func TestFD2ThirdCallbackSecondAllocationReturnsWhenProvided(t *testing.T) {
 	if services.Calls() != 2 || m.CPU.EIP != 0x4cc70 {
 		t.Fatalf("second _nmalloc did not return: calls=%d EIP=%X", services.Calls(), m.CPU.EIP)
 	}
-	if m.CPU.R[cpu386.EAX] != wantFirst+4 || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != int(wantFirst)+8 {
+	if m.CPU.R[cpu386.EAX] != wantFirst+4 || m.CPU.R[cpu386.ESP] != 0x55678 || len(m.Mem) != (int(wantFirst)+8+4095)&^4095 {
 		t.Fatalf("second _nmalloc result=%X ESP=%X memory=%X", m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESP], len(m.Mem))
 	}
 }
@@ -483,8 +489,8 @@ func TestFD2ThirdCallbackEnvironmentCopyCompletesWhenProvided(t *testing.T) {
 	}
 	environmentTable, errTable := m.Read32(0x537fc)
 	environmentTail, errTail := m.Read32(0x53800)
-	terminator, errTerminator := m.Read32(0x634d8)
-	if errTable != nil || errTail != nil || errTerminator != nil || environmentTable != 0x634d8 || environmentTail != 0x634dc || terminator != 0 {
+	terminator, errTerminator := m.Read32(environmentTable)
+	if errTable != nil || errTail != nil || errTerminator != nil || environmentTable != 0x100004 || environmentTail != environmentTable+4 || terminator != 0 {
 		t.Fatalf("environment table=%X tail=%X terminator=%X errors=%v,%v,%v", environmentTable, environmentTail, terminator, errTable, errTail, errTerminator)
 	}
 }

@@ -3,6 +3,7 @@ package machine
 import (
 	"sort"
 
+	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
 
@@ -13,10 +14,9 @@ import (
 // 這裡實作的是 extender 對**客戶端程式**的公開介面，所以它與哪一支程式無關：
 // 換一支 DOS/4GW 程式，這一份照用。
 //
-// 沒有做的：分頁、例外、`AX=0300h`（模擬實模式中斷）。前兩者只有跑真的
-// extender 才需要；`0300h` 要一份 51 byte 的暫存器結構與一顆實模式 CPU，
-// 等有程式踩到再開規格——**踩到的時候會留下痕跡**（`Unimplemented`），
-// 不會安靜地走錯路。
+// 尚未實作分頁與例外。AX=0300h 已依規格186補上50-byte封包與實模式 CPU。
+// 目前只接受 CX=0、BH=0、FS/GS=0；未知中斷、硬體埠與封包形狀仍拒絕。
+// RealModeLast 保留真正底層錯誤，不能把所有0300失敗都解讀為橋接缺失。
 
 // 描述子配置的起點與間隔。
 //
@@ -34,7 +34,7 @@ const (
 // 讓配出去的位址在傾印裡一眼看得出是誰的。
 const dpmiHeapAlign = 0x10000
 
-// 位址空間切成兩半，界線在 1 MB。
+// 傳統配置止於640KiB；A0000–FFFFF保留VGA／ROM，線性配置從1MiB開始。
 //
 // **這是為了讓「實模式段位址」這個東西存在。** `AX=0100h` 配出來的記憶體
 // 要同時給得出一個實模式段（16 位元的段號 × 16），所以它必須落在 1 MB 之內；
@@ -43,7 +43,8 @@ const dpmiHeapAlign = 0x10000
 // 兩邊各有各的游標，**不會互相踩到**。合成一個游標的話，程式先配一大塊
 // 線性記憶體再要一塊 DOS 記憶體，就會拿到一個大於 1 MB 的位址——
 // 而段號只有 16 位元，位址被截斷之後指到映像頭上，寫下去就把自己的碼改了。
-const dosMemTop = 0x100000
+const dosMemTop = 0xa0000
+const dpmiLinearBase = 0x100000
 
 // DPMIBlock 是一次 `AX=0501h` 配出去的線性區塊。
 type DPMIBlock struct {
@@ -84,7 +85,12 @@ type DPMIHost struct {
 	dosBlocks map[uint16]*DOSBlock
 	dosLast   uint16 // 最後配出去的那一塊，`AX=0102h` 只有它能原地長大
 
-	Locks []DPMILock
+	Locks             []DPMILock
+	RealModeLast      *DPMIRealModeTrace
+	RealModeHistory   []*DPMIRealModeTrace
+	RealModeIO        RealModePortIO
+	RealModeInterrupt func(*cpu.CPU, uint8) bool
+	realStack         uint16
 
 	realVec [256]uint32 // 實模式向量：段<<16 | 位移
 	protVec [256]uint64 // 保護模式向量：selector<<32 | 位移
@@ -138,8 +144,8 @@ func (h *DPMIHost) Attach(m *LEMachine) {
 func (h *DPMIHost) setLimits(imageEnd uint32) {
 	h.dosBrk = (imageEnd + 15) &^ 15
 	base := (imageEnd + dpmiHeapAlign - 1) &^ (dpmiHeapAlign - 1)
-	if base < dosMemTop {
-		base = dosMemTop
+	if base < dpmiLinearBase {
+		base = dpmiLinearBase
 	}
 	h.brk = base
 }
@@ -163,7 +169,7 @@ func (h *DPMIHost) dosFreeParas() uint16 {
 	return uint16((dosMemTop - h.dosBrk) / 16)
 }
 
-// allocDOS 從 1 MB 以下切一塊出來，回線性位址。
+// allocDOS 從640KiB以下的傳統記憶體切一塊，回線性位址。
 func (h *DPMIHost) allocDOS(paras uint16) (uint32, bool) {
 	size := uint32(paras) * 16
 	base := h.dosBrk
@@ -207,6 +213,12 @@ func (h *DPMIHost) Blocks() []DPMIBlock {
 
 // AllocSelector 配一個描述子並回 selector。載入器用它擺平坦段。
 func (h *DPMIHost) AllocSelector(d cpu386.Descriptor) uint16 {
+	for {
+		if _, exists := h.m.CPU.Descriptors[h.nextSel]; !exists {
+			break
+		}
+		h.nextSel += dpmiSelectorStep
+	}
 	sel := h.nextSel
 	h.nextSel += dpmiSelectorStep
 	h.m.CPU.SetDescriptor(sel, d)
@@ -383,6 +395,16 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 			uint64(uint16(c.R[cpu386.ECX]))<<32 | uint64(c.R[cpu386.EDX])
 		return h.ok(c)
 
+	case 0x0300:
+		if err := h.simulateRealModeInterrupt(c); err != nil {
+			if h.RealModeLast == nil {
+				h.RealModeLast = &DPMIRealModeTrace{}
+			}
+			h.RealModeLast.Error = err.Error()
+			h.Unimplemented[fn]++
+			return false
+		}
+		return h.ok(c)
 	case 0x0400: // 取 DPMI 版本
 		// AX ＝ 版本（0.90）、BX ＝ 旗標（bit0 ＝ 32 位元）、
 		// CL ＝ 處理器（4 ＝ 486）、DH/DL ＝ 主／從 PIC 基底。
@@ -462,7 +484,7 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 func needsMachine(fn uint16) bool {
 	switch fn {
 	case 0x0000, 0x0001, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x0501, 0x0502,
-		0x0100, 0x0101, 0x0102:
+		0x0100, 0x0101, 0x0102, 0x0300:
 		return true
 	}
 	return false
@@ -471,6 +493,9 @@ func needsMachine(fn uint16) bool {
 // alloc 從線性配置游標切一塊出來，必要時把機器的記憶體長大。
 func (h *DPMIHost) alloc(size uint32) (uint32, bool) {
 	base := h.brk
+	if uint64(len(h.m.Mem)) > uint64(base) {
+		base = uint32((uint64(len(h.m.Mem)) + 15) &^ uint64(15))
+	}
 	end := uint64(base) + uint64(size)
 	if end > uint64(dpmiAddressLimit) {
 		return 0, false
