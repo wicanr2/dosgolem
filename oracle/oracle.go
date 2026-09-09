@@ -370,6 +370,39 @@ func (o *Oracle) WatchWritesAt(lo, hi uint32) *[]MemWrite {
 // StopWatchingWrites 關掉監看。
 func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
 
+// WatchReadsAt 監看一段**線性位址**的讀取，回一份逐次紀錄。
+//
+// 靜態掃描找不到讀取端時用這一支：掃到零筆只證明「沒有絕對定址的
+// 參考」，不證明沒有人讀——用算出來的指標取的存取在位元組層面看不見。
+//
+// `Off` 是「距離 lo 幾個位元組」。**每一次讀取都記一筆**，
+// 所以範圍要開小，而且跑完記得 `StopWatchingReads`。
+func (o *Oracle) WatchReadsAt(lo, hi uint32) *[]MemRead {
+	log := &[]MemRead{}
+	o.m.WatchReads(lo, hi, func(a uint32, v uint8) {
+		*log = append(*log, MemRead{
+			Off:  uint16(a - lo),
+			Val:  v,
+			IP:   o.IP(),
+			Step: o.Steps(),
+		})
+	})
+	return log
+}
+
+// StopWatchingReads 關掉讀取監看。
+func (o *Oracle) StopWatchingReads() { o.m.WatchReads(0, 0, nil) }
+
+// MemRead 是一次讀取。
+//
+// ⚠ **IP 是讀的那一刻的 CS:IP，也就是那道指令本身**，不是它的呼叫端。
+type MemRead struct {
+	Off  uint16
+	Val  uint8
+	IP   Addr
+	Step uint64
+}
+
 // MemWrite 是一次寫入。
 //
 // ⚠ **IP 是「寫的那一刻的 CS:IP」，也就是那道指令本身**，

@@ -90,6 +90,9 @@ type Machine struct {
 
 	// 寫入監看（WatchWrites）。watchLo > watchHi 表示關閉。
 	watchLo, watchHi uint32
+	// 讀取監看（WatchReads）。rwatchLo > rwatchHi 表示關閉。
+	rwatchLo, rwatchHi uint32
+	onRead             func(addr uint32, v uint8)
 	onWrite          func(addr uint32, old, new uint8)
 
 	oplReg          uint8
@@ -178,6 +181,7 @@ func New() *Machine {
 		KeyIRQEvery: DefaultKeyIRQEvery,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
+		rwatchLo: 1, rwatchHi: 0,
 	}
 	m.CPU = cpu.New(m)
 	// **這台機器是拿來跑 1993 年的 DOS 軟體的，不是拿來過語料的。**
@@ -194,6 +198,9 @@ func New() *Machine {
 
 func (m *Machine) Read8(a uint32) uint8 {
 	a &= 0xFFFFF
+	if m.rwatchLo <= a && a <= m.rwatchHi {
+		m.onRead(a, m.Mem[a])
+	}
 	// A0000 段的讀取要走圖形控制器：它會鎖 latch，而 latch 決定
 	// 之後那次寫入的 Bit Mask 之外的位元（`docs/spec/011` §4）。
 	if a >= egaVRAMBase && a < egaVRAMEnd {
@@ -229,6 +236,24 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 		return
 	}
 	m.watchLo, m.watchHi, m.onWrite = lo, hi, fn
+}
+
+// WatchReads 監看一段線性位址的讀取。
+//
+// **這是「誰讀這個位址」唯一直接的答案。** 靜態掃描只涵蓋絕對定址——
+// `mov ax, ds:XXXXh` 抓得到，`mov ax, [bx+si]` 抓不到，而後者正是
+// 那些「掃不到讀取端」的變數的讀法。掃到零筆時只證明「沒有絕對定址的
+// 參考」，證明不了沒有人讀。
+//
+// 與 WatchWrites 不同，**每一次讀取都會通知**（讀取沒有「值有沒有變」
+// 這回事）。指令提取也走 Read8，所以監看碼段會被自己的提取洗版——
+// 監看資料位址才有意義。傳 nil 關掉。
+func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
+	if fn == nil {
+		m.rwatchLo, m.rwatchHi, m.onRead = 1, 0, nil
+		return
+	}
+	m.rwatchLo, m.rwatchHi, m.onRead = lo, hi, fn
 }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
