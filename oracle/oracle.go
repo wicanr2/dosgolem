@@ -500,6 +500,41 @@ func (o *Oracle) Tandy16() []uint8 {
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64                     { return o.m.Steps }
+
+// Frames 是**螢幕刷新了幾次**（VGA 垂直回掃次數，`docs/spec/187`）。
+//
+// **這是通用的幀**：任何 DOS 程式都有它，不必知道那支程式在哪裡畫完一幀。
+// DOSBox 的 `VGA_VerticalTimer` 是同一個東西（`src/hardware/vga_draw.cpp`）。
+//
+// 它由指令數驅動（`Machine.VGAFrameEvery`），不是真實時間，所以是決定性的。
+func (o *Oracle) Frames() uint64 { return o.m.Frames }
+
+// OnFrame 在每一次垂直回掃時呼叫 f。nil 取消。
+//
+// **錄影要用這個**：回呼時的畫面就是這一幀要顯示的內容，
+// 逐幀存下來就是螢幕實際輸出的序列。
+//
+// ⚠ 與 `apps/rich2.EachFrame` 不是同一種幀：那一支是**動畫幀**
+// （原版一個像素幀 ≈ 4 次螢幕刷新），這一支是**螢幕幀**。
+func (o *Oracle) OnFrame(f func(*Oracle)) {
+	if f == nil {
+		o.m.SetOnFrame(nil)
+		return
+	}
+	o.m.SetOnFrame(func() { f(o) })
+}
+
+// OnTick 在每一次送出計時器中斷時呼叫 f。nil 取消。
+//
+// 回呼點在中斷送出**之前**，所以這時的畫面是上一幀畫完的結果——
+// 逐幀取畫面要的正是這個時刻。
+func (o *Oracle) OnTick(f func(*Oracle)) {
+	if f == nil {
+		o.m.SetOnTick(nil)
+		return
+	}
+	o.m.SetOnTick(func() { f(o) })
+}
 func (o *Oracle) Opened() []string                  { return o.d.Opened }
 func (o *Oracle) Missing() []string                 { return o.d.Missing }
 func (o *Oracle) Wrote() []dos.Write                { return o.d.Wrote }
