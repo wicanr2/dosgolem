@@ -170,8 +170,8 @@ func main() {
 		// 而 KeysConsumed 這個計數兩者都算一次（`docs/spec/185`）。
 		if *keytrace {
 			for _, r := range d.KeyReads[reads:] {
-				fmt.Printf("  讀走 %04X 經 %s，呼叫端 %04X:%04X\n",
-					r.Word, r.Via, r.CallerCS, r.CallerIP)
+				fmt.Printf("  讀走 %04X 經 %s，呼叫端 %04X:%04X ← %04X:%04X\n",
+					r.Word, r.Via, r.CallerCS, r.CallerIP, r.Caller2CS, r.Caller2IP)
 			}
 		}
 		save(strings.NewReplacer(":", "-", " ", "_").Replace(item), frame)

@@ -30,10 +30,23 @@ var namedKeys = map[string]Key{
 	"Down":      {0x50, 0x00},
 	"Left":      {0x4B, 0x00},
 	"Right":     {0x4D, 0x00},
-	// 數字鍵盤那一圈（NumLock 關閉時的掃描碼，ASCII 0；`docs/spec/185`）。
-	// `KP8`／`KP2`／`KP4`／`KP6` 與 `Up`／`Down`／`Left`／`Right` 同碼，
-	// 兩組都留著——腳本要表達的是意圖（「按方向鍵」還是「按數字鍵盤的 2」），
-	// 而四個角與正中央本來就沒有名字可用。
+	// 擴充鍵區 47h..53h 的**功能名**。`Up`／`Down`／`Left`／`Right` 只涵蓋
+	// 四個方向，而清單類的介面常常用 Home／End／PgUp／PgDn 上下移動——
+	// 《Pool of Radiance》的種族清單就是（`Home` 上移、`End` 下移，
+	// `Down` 一格都不動；見那邊的 spec 133）。
+	"Home":     {0x47, 0x00},
+	"End":      {0x4F, 0x00},
+	"PgUp":     {0x49, 0x00},
+	"PageUp":   {0x49, 0x00},
+	"PgDn":     {0x51, 0x00},
+	"PageDown": {0x51, 0x00},
+	"Insert":   {0x52, 0x00},
+	"Ins":      {0x52, 0x00},
+	"Delete":   {0x53, 0x00},
+	"Del":      {0x53, 0x00},
+	// 同一圈鍵的**位置名**。數字鍵盤上 `7 8 9` 在上、`1 2 3` 在下，
+	// 有些程式（含 Gold Box 的戰鬥移動）是照那個排法想的，不是照
+	// Home／End 想的。兩套都留著——腳本要表達的是意圖。
 	"KP7":   {0x47, 0x00},
 	"KP8":   {0x48, 0x00},
 	"KP9":   {0x49, 0x00},

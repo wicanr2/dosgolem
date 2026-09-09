@@ -936,6 +936,10 @@ type KeyRead struct {
 	// 別的編譯器不成立時它是垃圾，所以它是線索不是斷言。
 	CS, IP             uint16
 	CallerCS, CallerIP uint16
+	// Caller2 再往上一層（`[[BP]]+2`／`+4`）。讀鍵層與選單元件各佔一層，
+	// **決定「這個鍵要做什麼」的通常是第三層**——追 Pool 的方位鍵時，
+	// 第一層永遠是 RTL 的 `ReadKey`、第二層永遠是同一個選單元件。
+	Caller2CS, Caller2IP uint16
 }
 
 // CallRec 是一次 int 21h 的暫存器快照。

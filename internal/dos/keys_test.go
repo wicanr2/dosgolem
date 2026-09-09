@@ -127,3 +127,33 @@ func TestKeypadNamesCoverTheWholeRing(t *testing.T) {
 		t.Error("不存在的鍵名回報認得")
 	}
 }
+
+// 擴充鍵區的功能名。清單類的介面常常用 Home／End／PgUp／PgDn 上下移動，
+// 而 `Up`／`Down` 只涵蓋四個方向——Pool 的種族清單一格都不吃 `Down`。
+func TestExtendedKeyNamesCoverHomeEndAndPaging(t *testing.T) {
+	want := map[string]uint16{
+		"Home": 0x4700, "End": 0x4F00,
+		"PgUp": 0x4900, "PageUp": 0x4900,
+		"PgDn": 0x5100, "PageDown": 0x5100,
+		"Insert": 0x5200, "Ins": 0x5200,
+		"Delete": 0x5300, "Del": 0x5300,
+	}
+	for name, word := range want {
+		key, ok := KeyNamed(name)
+		if !ok {
+			t.Errorf("不認得 %s", name)
+			continue
+		}
+		if key.Word() != word {
+			t.Errorf("%s 的字組是 %04X，該是 %04X", name, key.Word(), word)
+		}
+	}
+	// 位置名與功能名指的是同一顆鍵。
+	for _, pair := range [][2]string{{"Home", "KP7"}, {"End", "KP1"}, {"PgUp", "KP9"}, {"PgDn", "KP3"}} {
+		a, _ := KeyNamed(pair[0])
+		b, _ := KeyNamed(pair[1])
+		if a.Word() != b.Word() {
+			t.Errorf("%s 與 %s 的字組不同（%04X／%04X）", pair[0], pair[1], a.Word(), b.Word())
+		}
+	}
+}
