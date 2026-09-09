@@ -44,9 +44,11 @@ func main() {
 		rich2.Turn(o), rich2.Tile(o), rich2.Direction(o))
 
 	fmt.Println("\n玩家（11A2h，1..6 × 0..59，4B，列主序）：")
-	fmt.Println("  槽    現金      存款")
+	fmt.Println("  槽    現金      存款  格號  地圖列  地圖行")
 	for i := 1; i <= rich2.MaxPlayers; i++ {
-		fmt.Printf("  %d  %9d %9d\n", i, rich2.Cash(o, i), rich2.Deposit(o, i))
+		row, col := rich2.MapCoord(o, i)
+		fmt.Printf("  %d  %9d %9d  %4d  %6d  %6d\n",
+			i, rich2.Cash(o, i), rich2.Deposit(o, i), rich2.Position(o, i), row, col)
 	}
 	fmt.Printf("  有錢的槽：%v\n", rich2.ActivePlayers(o))
 

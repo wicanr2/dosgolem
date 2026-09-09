@@ -53,7 +53,17 @@ func run(exe, root string, max int, budget uint64) error {
 	}
 	player := rich2.Turn(o)
 	from := rich2.Position(o, player)
-	fmt.Printf("起點：玩家 %d 在格 %d\n\n", player, from)
+	fmt.Printf("起點：玩家 %d 在格 %d　方向 %d　亂數狀態 %06X\n",
+		player, from, rich2.Direction(o), rich2.RNDState(o))
+	for i := 1; i <= rich2.MaxPlayers; i++ {
+		if rich2.Position(o, i) == 0 {
+			continue
+		}
+		row, col := rich2.MapCoord(o, i)
+		fmt.Printf("  玩家 %d 格 %d 地圖(列 %d, 行 %d) 現金 %d\n",
+			i, rich2.Position(o, i), row, col, rich2.Cash(o, i))
+	}
+	fmt.Println()
 	fmt.Println("像素幀  螢幕幀  格號  方向  地圖列  地圖行")
 
 	n := 0
@@ -68,6 +78,8 @@ func run(exe, root string, max int, budget uint64) error {
 	})
 	defer stop()
 
+	tr := rich2.TraceRND(o)
+	base := len(tr.Calls)
 	if err := o.Click(rich2.BtnMoveX, rich2.BtnY); err != nil {
 		return fmt.Errorf("點前進：%w", err)
 	}
@@ -78,6 +90,12 @@ func run(exe, root string, max int, budget uint64) error {
 		return fmt.Errorf("等棋子動：%w", err)
 	}
 	stop()
-	fmt.Printf("\n終點：格 %d　骰 %d\n", rich2.Position(o, player), rich2.Steps(o))
+	fmt.Printf("\n這一步消耗亂數 %d 次：\n", len(tr.Calls)-base)
+	for i, c := range tr.Calls[base:] {
+		fmt.Printf("  #%-3d %06X → %06X  RND %.9f  呼叫端 IDA %X\n",
+			i, c.State, c.Next(), c.Value(), o.ToIDA(c.Caller))
+	}
+	fmt.Printf("\n終點：格 %d　骰 %d　方向 %d　亂數狀態 %06X\n",
+		rich2.Position(o, player), rich2.Steps(o), rich2.Direction(o), rich2.RNDState(o))
 	return nil
 }
