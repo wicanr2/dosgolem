@@ -63,3 +63,67 @@ func TestInt16CountsPolls(t *testing.T) {
 		t.Errorf("KeyPolls = %d，該是 2", d.KeyPolls)
 	}
 }
+
+// `KeyReads` 要記得住方向鍵（`docs/spec/185`）。
+//
+// **只看 `Key` 這個 ASCII byte 的話，方向鍵全部長成 0**——`Up`、`Down`、
+// `Left`、`Right` 分不出來，而「鍵送進去了」與「程式吃掉了但不理它」在
+// 報表上也長得一樣。追 Pool 的方向鍵時就是卡在這裡。
+func TestKeyReadsRecordTheWholeWordAndCaller(t *testing.T) {
+	m, d := newTest(t)
+	d.PushKey(namedKeys["Down"])
+	d.PushKey(namedKeys["KP1"])
+	before := len(d.KeyReads)
+	call(m, d, 0x16, 0x0000)
+	call(m, d, 0x16, 0x0000)
+	reads := d.KeyReads[before:]
+	if len(reads) != 2 {
+		t.Fatalf("讀走兩個鍵卻記了 %d 筆", len(reads))
+	}
+	if reads[0].Word != 0x5000 {
+		t.Errorf("第一筆 Word = %04X，該是 5000（Down）", reads[0].Word)
+	}
+	if reads[1].Word != 0x4F00 {
+		t.Errorf("第二筆 Word = %04X，該是 4F00（數字鍵盤 1）", reads[1].Word)
+	}
+	for index, read := range reads {
+		if read.Key != 0 {
+			t.Errorf("第 %d 筆的 ASCII 是 %02X，方向鍵沒有 ASCII", index, read.Key)
+		}
+		if read.Via == "" {
+			t.Errorf("第 %d 筆沒有記從哪一條出口走的", index)
+		}
+	}
+}
+
+// 數字鍵盤那一圈：四個角與正中央本來沒有名字可用，而 Pool 的選單元件
+// 把主鍵盤 `1`..`9` 轉成的正是這一組掃描碼。
+func TestKeypadNamesCoverTheWholeRing(t *testing.T) {
+	want := map[string]uint16{
+		"KP7": 0x4700, "KP8": 0x4800, "KP9": 0x4900,
+		"KP4": 0x4B00, "KP5": 0x4C00, "KP6": 0x4D00,
+		"KP1": 0x4F00, "KP2": 0x5000, "KP3": 0x5100,
+		"KP0": 0x5200, "KPDot": 0x5300,
+	}
+	for name, word := range want {
+		key, ok := KeyNamed(name)
+		if !ok {
+			t.Errorf("不認得 %s", name)
+			continue
+		}
+		if key.Word() != word {
+			t.Errorf("%s 的字組是 %04X，該是 %04X", name, key.Word(), word)
+		}
+	}
+	// 方向鍵那四個與數字鍵盤同碼，兩組都要留著。
+	for _, pair := range [][2]string{{"Up", "KP8"}, {"Down", "KP2"}, {"Left", "KP4"}, {"Right", "KP6"}} {
+		a, _ := KeyNamed(pair[0])
+		b, _ := KeyNamed(pair[1])
+		if a.Word() != b.Word() {
+			t.Errorf("%s 與 %s 的字組不同（%04X／%04X）", pair[0], pair[1], a.Word(), b.Word())
+		}
+	}
+	if _, ok := KeyNamed("KP99"); ok {
+		t.Error("不存在的鍵名回報認得")
+	}
+}

@@ -48,6 +48,7 @@ func main() {
 	scratch := flag.String("scratch", "", "可寫的暫存層；程式存檔會落在這裡（docs/spec/009）")
 	budget := flag.Uint64("budget", 60_000_000, "每一步最多跑幾道指令")
 	idle := flag.Uint64("idle", 3_000_000, "畫面連續這麼多道指令沒動就算穩定")
+	keytrace := flag.Bool("keytrace", false, "每一步印出程式讀走了哪些鍵、是誰讀的")
 	out := flag.String("out", "", "輸出目錄")
 	script := flag.String("keys", "", "鍵序，逗號分隔：Return、Space、c、type:HERO、rep:18:Space")
 	flag.Parse()
@@ -156,6 +157,7 @@ func main() {
 			}
 		}
 		want := len(d.Keys)
+		reads := len(d.KeyReads)
 		fmt.Printf("送 %s（佇列 %d）\n", item, want)
 		frame, ok := settle()
 		if !ok {
@@ -163,6 +165,14 @@ func main() {
 		}
 		if d.KeysConsumed == before {
 			fmt.Printf("  ⚠ 程式一個鍵都沒讀走（佇列還有 %d）\n", len(d.Keys))
+		}
+		// 「鍵送進去了」與「程式吃掉了但不理它」在畫面上長得一樣，
+		// 而 KeysConsumed 這個計數兩者都算一次（`docs/spec/185`）。
+		if *keytrace {
+			for _, r := range d.KeyReads[reads:] {
+				fmt.Printf("  讀走 %04X 經 %s，呼叫端 %04X:%04X\n",
+					r.Word, r.Via, r.CallerCS, r.CallerIP)
+			}
 		}
 		save(strings.NewReplacer(":", "-", " ", "_").Replace(item), frame)
 	}

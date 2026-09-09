@@ -319,4 +319,6 @@
 - `181-cpu386-compare-ebx-ss-ebp-disp8.md`
 - `182-cpu386-compare-edx-ds-eax-disp8.md`
 - `183-fd2-le-dos-seek.md`
+- `184-mvp-scope-review.md`
+- `185-keyboard-trace-and-keypad-names.md`
 

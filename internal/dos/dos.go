@@ -924,6 +924,18 @@ type KeyRead struct {
 	Step uint64
 	Via  string // "int21-AH08"／"int21-3F"／"int16-AH00"
 	Key  uint8
+	// Word 是 `int 16h` 那條路的完整字組（掃描碼<<8 | ASCII）。**方向鍵這類
+	// 沒有 ASCII 的鍵只看 `Key` 會全部長成 0**，分不出是哪一個鍵。
+	// `int 21h` 那幾條沒有掃描碼，維持 0。
+	Word uint16
+	// CS:IP 是取走的當下，Caller 是**呼叫端**的返回位址，從 `SS:BP` 那一層
+	// 回溯（`docs/spec/185`）。`int` frame 只指得回 BIOS 呼叫點——每一次都
+	// 一樣，答不出「哪一個選單在讀」。
+	//
+	// **這條回溯依賴呼叫端有 `push bp; mov bp, sp`**（Turbo Pascal 一律有）；
+	// 別的編譯器不成立時它是垃圾，所以它是線索不是斷言。
+	CS, IP             uint16
+	CallerCS, CallerIP uint16
 }
 
 // CallRec 是一次 int 21h 的暫存器快照。

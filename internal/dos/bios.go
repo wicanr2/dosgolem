@@ -309,11 +309,13 @@ func (d *DOS) int16(c *cpu.CPU) {
 		// 兩邊各留一份的話，同一個鍵會被讀兩次。
 		if v, ok := d.M.PopKey(); ok {
 			c.R[cpu.AX] = v
+			d.noteKeyWord(c, "int16-AH00-bda", v)
 			d.KeysConsumed++
 			return
 		}
 		if len(d.Keys) > 0 {
 			c.R[cpu.AX] = d.Keys[0]
+			d.noteKeyWord(c, "int16-AH00-queue", d.Keys[0])
 			d.Keys = d.Keys[1:]
 			d.KeysConsumed++
 			return
@@ -323,7 +325,7 @@ func (d *DOS) int16(c *cpu.CPU) {
 			return
 		}
 		c.R[cpu.AX] = keyWord(d.Stdin[0])
-		d.noteKey("int16-AH00", d.Stdin[0])
+		d.noteKeyWord(c, "int16-AH00-stdin", keyWord(d.Stdin[0]))
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
 		d.KeyPolls++
@@ -489,9 +491,24 @@ func (d *DOS) int1A(c *cpu.CPU) {
 	}
 }
 
-// noteKey 記一次按鍵被取走。
+// noteKey 記一次按鍵被取走（`int 21h` 那幾條路，只有 ASCII）。
 func (d *DOS) noteKey(via string, key uint8) {
 	d.KeyReads = append(d.KeyReads, KeyRead{Step: d.M.Steps, Via: via, Key: key})
+}
+
+// noteKeyWord 記一次 `int 16h` 取走按鍵，連同字組與呼叫端（`docs/spec/185`）。
+//
+// 為什麼要連呼叫端：`KeysConsumed` 這個計數答不出「程式吃掉了但不理它」——
+// 那與「鍵根本沒送到」在報表上長得一樣。追《Pool of Radiance》的方向鍵時，
+// 三個鍵回溯到同一個位址、對回一顆 overlay 的一行，才看得出是哪一支在讀。
+func (d *DOS) noteKeyWord(c *cpu.CPU, via string, word uint16) {
+	ss, bp := c.Seg[cpu.SS], c.R[cpu.BP]
+	d.KeyReads = append(d.KeyReads, KeyRead{
+		Step: d.M.Steps, Via: via, Key: uint8(word), Word: word,
+		CS: c.Seg[cpu.CS], IP: c.IP,
+		CallerIP: d.M.Read16(cpu.Addr(ss, bp+2)),
+		CallerCS: d.M.Read16(cpu.Addr(ss, bp+4)),
+	})
 }
 
 // PressButton／ReleaseButton 記一次按下／放開。
