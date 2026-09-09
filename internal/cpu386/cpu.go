@@ -61,16 +61,33 @@ type CPU struct {
 	SegmentRead8  func(selector uint16, offset uint32) (uint8, bool)
 	SegmentLoadOK func(selector uint16, destination int) bool
 	Descriptors   map[uint16]Descriptor
-	FPUControl    uint16
-	FPUStatus     uint16
-	FPUStack      [8]float64
-	FPUDepth      uint8
+
+	// descCache 是 Descriptors 的唯讀快取。保護模式下每一次記憶體存取都要把
+	// selector 解析成 base／limit，`map[uint16]` 的雜湊在剖析中佔了整體執行
+	// 時間約四分之一（見 SetDescriptor 的說明）。這裡只放正向結果，
+	// SetDescriptor 一律整份失效，因此可見行為與直接查 map 完全相同。
+	descCache  [descCacheEntries]descCacheEntry
+	FPUControl uint16
+	FPUStatus  uint16
+	FPUStack   [8]float64
+	FPUDepth   uint8
 }
 
 type Descriptor struct {
 	Base     uint32
 	Limit    uint32
 	Writable bool
+}
+
+// descCacheEntries 是 selector 快取的組數，必須是 2 的冪。索引取
+// `selector>>3`（descriptor index）的低位；DOS/4GW 下同時活著的 selector
+// 只有個位數，撞號時退回 map，不影響正確性。
+const descCacheEntries = 16
+
+type descCacheEntry struct {
+	selector uint16
+	valid    bool
+	d        Descriptor
 }
 
 type Error struct {
@@ -85,8 +102,12 @@ func (e *Error) Error() string {
 
 func New(bus Bus) *CPU { return &CPU{Bus: bus, EFlags: 2, Descriptors: make(map[uint16]Descriptor)} }
 
+// SetDescriptor 是 Descriptors 的唯一寫入端（全庫只有這裡寫，其餘都是讀），
+// 因此在這裡整份清掉 descCache 就足以維持一致。descriptor 的變更相對於
+// 記憶體存取是極罕見事件，整份失效比逐項維護簡單且不易出錯。
 func (c *CPU) SetDescriptor(selector uint16, descriptor Descriptor) {
 	c.Descriptors[selector] = descriptor
+	c.descCache = [descCacheEntries]descCacheEntry{}
 }
 
 func (c *CPU) ReadSegment8(selector uint16, offset uint32) (uint8, bool) {
@@ -121,8 +142,14 @@ func (c *CPU) canLoadSegment(selector uint16, destination int) bool {
 }
 
 func (c *CPU) segmentLinear(selector uint16, offset uint32, size uint32, write bool) (uint32, bool) {
-	d, ok := c.Descriptors[selector]
-	if !ok || size == 0 || (write && !d.Writable) || offset > d.Limit || size-1 > d.Limit-offset {
+	entry := &c.descCache[(selector>>3)&(descCacheEntries-1)]
+	if !entry.valid || entry.selector != selector {
+		if !c.fillDescCache(entry, selector) {
+			return 0, false
+		}
+	}
+	d := entry.d
+	if size == 0 || (write && !d.Writable) || offset > d.Limit || size-1 > d.Limit-offset {
 		return 0, false
 	}
 	linear := uint64(d.Base) + uint64(offset)
@@ -130,6 +157,19 @@ func (c *CPU) segmentLinear(selector uint16, offset uint32, size uint32, write b
 		return 0, false
 	}
 	return uint32(linear), true
+}
+
+// fillDescCache 是 selector 解析的慢路徑：查 map 並填入快取。只快取查得到的
+// selector；查不到不留任何紀錄，之後 SetDescriptor 補上時才不會被一筆過期的
+// 否定結果擋住。獨立成函式只是為了讓 segmentLinear 的快路徑好讀；編譯器是否
+// 把它 inline 回去對產出的行為沒有差別。
+func (c *CPU) fillDescCache(entry *descCacheEntry, selector uint16) bool {
+	d, ok := c.Descriptors[selector]
+	if !ok {
+		return false
+	}
+	entry.selector, entry.d, entry.valid = selector, d, true
+	return true
 }
 
 func (c *CPU) writeSegment16(selector uint16, offset uint32, value uint16) bool {

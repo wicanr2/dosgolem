@@ -156,9 +156,13 @@ func RollTrace(o *oracle.Oracle, opts ...RollOpt) (MoveTrace, error) {
 	// `ds:1BE` 在擲骰動畫期間就會動（動畫本身在改它），這時棋子還沒走。
 	// 拿它當「動了」的判準會提早回傳，收據上就出現「5 → 5」這種
 	// 走了一步卻沒動的紀錄——而亂數確實消耗了幾十次，看起來一切正常。
+	// ⚠ **判準不要自己再算一次 `Position`。** `sample` 每道指令都算了一次
+	// 並把最新值留在 `lastPos`（它只在值變了才更新，所以永遠是最新的），
+	// 判準再算一次就是把整條「描述子 → Base → 索引 → 座標表」走兩遍。
+	// 那條鏈一次要讀七個 word，而判準每道指令評估一次。
 	moved := oracle.NewCond("玩家位置改變", func(o *oracle.Oracle) bool {
 		sample(o)
-		return Position(o, player) != tr.From || Turn(o) != player
+		return lastPos != tr.From || Turn(o) != player
 	})
 	if err := o.RunUntil(moved, oracle.Budget(cfg.budget)); err != nil {
 		tr.To, tr.Dice = Position(o, player), Steps(o)

@@ -21,6 +21,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -41,7 +42,21 @@ func main() {
 	runDir := flag.String("run-dir", "", "互動對拍目錄；空值維持與 bootprobe 相同的一次性行為")
 	firstChunk := flag.Int("first-chunk", 700000000, "互動模式第一個控制邊界前的指令數（1至2000000000）")
 	waitTimeout := flag.Duration("wait-timeout", 15*time.Minute, "互動模式等待下一個 control.json 的上限")
+	cpuProfile := flag.String("cpuprofile", "", "CPU 剖析輸出路徑；只為量測用，預設關閉")
 	flag.Parse()
+	if *cpuProfile != "" {
+		f, e := os.Create(*cpuProfile)
+		if e != nil {
+			panic(e)
+		}
+		if e = pprof.StartCPUProfile(f); e != nil {
+			panic(e)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			f.Close()
+		}()
+	}
 	if *runDir != "" {
 		info, e := os.Stat(*runDir)
 		if e != nil || !info.IsDir() {
@@ -199,14 +214,17 @@ func main() {
 	// capture 把同一時點的畫面與原始狀態一起落地。位址取自固定版本
 	// FD2.EXE：0x53A45 單位陣列基底、0x53BEB 單位數、0x53AA9..0x53ABD 視圖、
 	// 0x53BEF 回合。每筆單位保留完整 80 byte raw_hex，欄位只是導覽。
-	capture := func(label string) {
+	// withFrame=false 時只寫狀態 JSON。current 一定與剛寫好的
+	// checkpoint-NNNN 同一時點，再編一次 PNG 沒有新資訊，卻是細粒度追蹤
+	// 每一步最大的一筆固定成本。
+	capture := func(label string, withFrame bool) {
 		pixels := m.Video.Indexed()
 		palette := m.Video.Palette()
 		pal := make(color.Palette, 256)
 		for i, v := range palette {
 			pal[i] = color.RGBA{v[0], v[1], v[2], 255}
 		}
-		if len(pixels) == 64000 {
+		if withFrame && len(pixels) == 64000 {
 			pic := image.NewPaletted(image.Rect(0, 0, 320, 200), pal)
 			copy(pic.Pix, pixels)
 			f, e := os.Create(filepath.Join(*runDir, label+".png"))
@@ -259,9 +277,12 @@ func main() {
 
 	for ; steps < *budget; steps++ {
 		if *runDir != "" && steps >= chunkEnd {
-			capture(fmt.Sprintf("checkpoint-%04d", controlSeq))
-			capture("current")
+			capture(fmt.Sprintf("checkpoint-%04d", controlSeq), true)
+			capture("current", false)
 			deadline := time.Now().Add(*waitTimeout)
+			// 輪詢間隔由短往長退避。固定 100ms 會讓細粒度追蹤整段被輪詢延遲
+			// 支配：每格 10 萬指令只要約 8ms 執行，卻要等一次 100ms。
+			poll := 200 * time.Microsecond
 			for {
 				if time.Now().After(deadline) {
 					panic("有界普通輸入等待逾時")
@@ -275,7 +296,7 @@ func main() {
 				}
 				if e == nil && json.Unmarshal(d, &cmd) == nil && cmd.Seq > controlSeq {
 					if cmd.Stop {
-						capture("final")
+						capture("final", true)
 						os.Exit(0)
 					}
 					if cmd.Steps < 1 || cmd.Steps > 100000000 {
@@ -300,7 +321,10 @@ func main() {
 					f.Close()
 					break
 				}
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(poll)
+				if poll < 20*time.Millisecond {
+					poll *= 2
+				}
 			}
 		}
 		if m.CPU.EIP == 0x25bf4 && mainStep < 0 {

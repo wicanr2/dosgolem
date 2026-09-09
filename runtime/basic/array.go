@@ -31,9 +31,23 @@ type Array struct {
 // 維度與寬度要呼叫端給——描述子裡也有，但那部分的欄位語意還沒定，
 // 而 `rich2/docs/re/014` §2 已經有完整的對照表，用已知的比猜的可靠。
 func NewArray(o *oracle.Oracle, descriptor uint16, dims []Dim, width int) *Array {
+	a := Open(o, descriptor, dims, width)
+	return &a
+}
+
+// Open 與 `NewArray` 讀同一份描述子，**差別只在回傳值型別**。
+//
+// 給**逐指令取樣的熱路徑**用：`RunUntil` 的判準每道指令評估一次，
+// 判準裡開一次陣列就是一次 heap 配置——回傳指標必然逃逸。
+// 回傳值型別之後，呼叫端的局部變數留在 stack 上，那一次配置就沒有了。
+//
+// 量到的代價（2026-09-09，`TestRollAndBuy`，1.5 億道指令）：
+// `Position` 佔總時間 **48.5%**，其中 `NewArray` 23.6%、`mallocgc` 26.3%；
+// 同一顆 CPU 上不帶逐指令判準是每秒 1,870 萬道指令，帶了之後掉到 179 萬。
+func Open(o *oracle.Oracle, descriptor uint16, dims []Dim, width int) Array {
 	off := o.Word(o.DS(descriptor))
 	seg := o.Word(o.DS(descriptor + 2))
-	return &Array{o: o, Base: uint32(seg)*16 + uint32(off), Dims: dims, Width: width}
+	return Array{o: o, Base: uint32(seg)*16 + uint32(off), Dims: dims, Width: width}
 }
 
 // Size 是整個陣列的位元組數。
