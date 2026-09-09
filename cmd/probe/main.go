@@ -289,7 +289,12 @@ func main() {
 		}
 		// **保留最後 20000 筆，不是前 20000 筆。** 要找的通常是「誰最後
 		// 寫壞了它」；砍前面那版會在開機階段就填滿，之後真正的兇手一筆都不留。
+		// ⚠ **`WatchWrites` 只留一個回呼**（後註冊的蓋掉前一個），
+		// 所以列印與收集要在同一支裡做。分成兩次註冊的話，先註冊的那個
+		// 靜靜失效——症狀是 `-watch` 照印，但 `-watch-file` 永遠是空的。
 		m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+			fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
+				m.Steps, a, old, nw, m.CPU.Seg[cpu.CS], m.CPU.IP)
 			w := memWrite{a, old, nw, m.Steps, m.CPU.Seg[cpu.CS], m.CPU.IP}
 			if len(writes) < 20000 {
 				writes = append(writes, w)
@@ -311,24 +316,6 @@ func main() {
 			if a > vidHi {
 				vidHi = a
 			}
-		})
-	}
-	if *watch != "" {
-		f := strings.SplitN(*watch, "-", 2)
-		lo, err1 := strconv.ParseUint(f[0], 16, 32)
-		var hi uint64
-		var err2 error
-		if len(f) == 2 {
-			hi, err2 = strconv.ParseUint(f[1], 16, 32)
-		} else {
-			hi = lo
-		}
-		if err1 != nil || err2 != nil {
-			die(fmt.Errorf("-watch 格式看不懂：%s", *watch))
-		}
-		m.WatchWrites(uint32(lo), uint32(hi), func(a uint32, old, nv uint8) {
-			fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
-				m.Steps, a, old, nv, m.CPU.Seg[cpu.CS], m.CPU.IP)
 		})
 	}
 	obsSetup(m) // 觀測用旗標的掛鉤（observe.go）

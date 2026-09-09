@@ -114,6 +114,13 @@ func obsPokeScript(inline string) string {
 // obsReport 跑完之後落檔。掛鉤點三。`writes` 是 -watch 攔到的那一串，
 // 型別由呼叫端給（main 裡是區域型別），所以用一個小介面接。
 func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
+	// PIT 的分頻決定計時器多快。**印出來**：分頻被寫成一個小數字時，
+	// 症狀是機器淹在中斷裡出不來，而那看起來像「程式當掉」。
+	fmt.Printf("\nPIT 通道 0 分頻 %d", m.PITDiv)
+	if m.CycleClock {
+		fmt.Printf("（週期時鐘 %d Hz，每 %d 個週期一次 IRQ0）", m.CPUHz, m.CycPerIRQ0())
+	}
+	fmt.Println()
 	if *obsOPLLog != "" {
 		if err := obsWrite(*obsOPLLog, func(w *bufio.Writer) {
 			fmt.Fprintln(w, "# dosgolem OPL2 log：步數 暫存器 值")

@@ -828,6 +828,9 @@ func (m *Machine) setPITDiv(div uint32) {
 	m.recalcIRQ0()
 }
 
+// CycPerIRQ0 回兩次 IRQ0 之間幾個週期，給報告用。
+func (m *Machine) CycPerIRQ0() uint64 { return m.cycPerIRQ0 }
+
 // RecalcIRQ0 是 recalcIRQ0 的對外版，改過 CPUHz 之後要叫一次。
 func (m *Machine) RecalcIRQ0() { m.recalcIRQ0() }
 
