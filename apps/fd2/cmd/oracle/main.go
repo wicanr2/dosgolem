@@ -225,14 +225,16 @@ func main() {
 	// checkpoint-NNNN 同一時點，再編一次 PNG 沒有新資訊，卻是細粒度追蹤
 	// 每一步最大的一筆固定成本。
 	// readViewGlobals 只讀固定版本 FD2.EXE 的視圖全域：0x53AA9..0x53ABD 與
-	// 0x53BEF。逐幀擷取與控制邊界收據共用同一份讀法，避免兩邊漂移。
+	// 0x53BEF，外加 0x51A83 的 overlay selector（0x122DC 用它決定畫哪一組範圍
+	// ／游標圖示，0 表示不畫）。逐幀擷取與控制邊界收據共用同一份讀法，避免
+	// 兩邊漂移。
 	readViewGlobals := func() map[string]uint32 {
 		view := map[string]uint32{}
 		for key, addr := range map[string]uint32{
 			"camera_x": 0x53aa9, "camera_y": 0x53aad,
 			"cursor_x": 0x53ab1, "cursor_y": 0x53ab5,
 			"visible_x": 0x53ab9, "visible_y": 0x53abd,
-			"round": 0x53bef,
+			"round": 0x53bef, "overlay_selector": 0x51a83,
 		} {
 			v, _ := m.Read32(addr)
 			view[key] = v
