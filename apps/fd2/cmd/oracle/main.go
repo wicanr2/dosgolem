@@ -261,11 +261,23 @@ func main() {
 			v, _ := m.Read32(addr)
 			view[key] = v
 		}
+		// BIOS 環形緩衝的頭尾在 0x41a／0x41c，兩者相差即尚未被遊戲取走的按鍵
+		// 數。驅動端要靠它決定「這一格該不該再送鍵」——固定速率送鍵會在遊戲
+		// 消化不及時撐爆緩衝。kbd_reads 是遊戲實際取走的鍵數，也就是有效推進
+		// 次數，和送出的鍵數不是同一件事。
+		head, _ := m.Read16(0x41a)
+		tail, _ := m.Read16(0x41c)
+		pending := (int(tail) - int(head) + 32) % 32 / 2
+		reads := uint64(0)
+		if m.Keyboard != nil {
+			reads = m.Keyboard.Reads
+		}
 		d, _ := json.Marshal(map[string]any{
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
 			"state_injections": []string{}, "steps": steps,
 			"eip":         fmt.Sprintf("0x%X", m.CPU.EIP),
 			"control_seq": controlSeq, "unit_base": base,
+			"kbd_pending": pending, "kbd_reads": reads,
 			"view": view, "registers": m.CPU.R, "units": units,
 		})
 		if e := os.WriteFile(filepath.Join(*runDir, label+".json"), d, 0o600); e != nil {
