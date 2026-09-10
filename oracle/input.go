@@ -243,6 +243,15 @@ const (
 	// KeyUp 是向上方向鍵；KeyPageUp是數字鍵盤右轉鍵。
 	KeyUp     Key = 0x48
 	KeyPageUp Key = 0x49
+	// KeyLeft、KeyRight 是左右方向鍵。
+	//
+	// **有些遊戲只有一個畫面在用它們**，所以很容易被當成「用不到」而沒補。
+	// 大富翁2 就是這樣：選擇器只讀上下（`rich2/docs/re/100` §5），
+	// 左右鍵唯一的消費者是**遊樂場的小遊戲**（`rich2/docs/re/139` §2：
+	// `ds:1088h` ＝ 左、`ds:108Ch` ＝ 右，左右移動接東西的棋子）。
+	// 少了它們，那個畫面就只能「整場不操作」，對拍也就驗不到人類那一場。
+	KeyLeft  Key = 0x4B
+	KeyRight Key = 0x4D
 	// 目前EOB1具名姓名fixture使用的字母鍵。
 	KeyA Key = 0x1E
 	KeyB Key = 0x30
