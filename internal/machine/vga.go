@@ -77,7 +77,7 @@ func newVGA() *VGA {
 	for p := range v.Planes {
 		v.Planes[p] = v.mem[p*PlaneSize : (p+1)*PlaneSize]
 	}
-	v.resetMode()
+	v.resetMode(0)
 	return v
 }
 
@@ -118,7 +118,11 @@ func planarSize(mode uint8) (w, h int) {
 // **調色盤暫存器設成 identity**（0–15 → DAC 0–15）。真機的 EGA 預設值
 // 不是 identity，但被觀測的程式開機自己寫了一輪 identity 進去，
 // 兩者一致；寫成別的值會讓「程式沒寫調色盤」的情況顏色全錯。
-func (v *VGA) resetMode() {
+// resetMode 把暫存器設回 mode 的開機狀態並清畫面。
+//
+// mode ＝ 0 表示「還不知道是哪一個」（`newVGA` 的初始化），這時不設
+// offset：`Pitch` 會退回用呼叫端給的寬度推。
+func (v *VGA) resetMode(mode uint8) {
 	for i := range v.mem {
 		v.mem[i] = 0
 	}
@@ -129,11 +133,23 @@ func (v *VGA) resetMode() {
 		v.ac[i] = uint8(i)
 	}
 	v.seqIdx, v.gcIdx, v.acIdx, v.acFlip = 0, 0, 0, false
-	// CRTC：顯示起點歸零，mode control 設成 BIOS 給 16 色 planar 的
-	// 0xE3——bit6 ＝ 1，起點以**位元組**計。設模式不重設它的話，
-	// 上一個模式翻到一半的頁號會留下來。
+	// CRTC：顯示起點歸零，其餘給該模式的標準值（`docs/spec/192`）。
+	//
+	// **不給預設值的話，只設起點、不設 offset 的程式會拿到列距 0**，
+	// 整張圖變成第一列重複幾百次；而 mode control 的 bit6 若是 0，
+	// 顯示起點會被當成 word 模式而多乘一倍。
 	v.crtc, v.crtcIdx = [32]uint8{}, 0
-	v.crtc[0x17] = 0xE3
+	v.crtc[0x17] = 0xE3 // bit6 ＝ 1：起點以位元組計
+	// offset 只在**知道是哪個模式**的時候給：真機開機是文字模式，
+	// CRTC 的值由 BIOS 依模式設。不知道就留 0，`Pitch` 會退回用寬度推
+	// ——猜一個寬度的話，320 寬的模式會拿到 640 的列距而每一列錯開一倍。
+	if w, _ := planarSize(mode); w > 0 {
+		v.crtc[0x13] = uint8(w / 16) // offset 的單位是字組
+	}
+	// line compare 全 1 ＝ 永遠掃不到 ＝ 不分割。
+	v.crtc[0x18] = 0xFF
+	v.crtc[0x07] |= 0x10
+	v.crtc[0x09] |= 0x40
 	v.planarSeen = false
 }
 
@@ -370,17 +386,60 @@ func displayStart(crtc [32]uint8) uint32 {
 	return start & 0xFFFF
 }
 
+// Pitch 回一列的位元組數（CRTC offset，index `13`）。
+//
+// 單位是**字組**，所以位元組數是 `offset × 2`。BIOS 給 640 寬的模式
+// 設 40，正好是 `640/8`。
+//
+// **捲動的遊戲一定會改它**：邏輯畫面比可視畫面寬，水平捲動就是把顯示
+// 起點往右挪幾個位元組。列距不跟著走的話每一列都往同一個方向錯開固定
+// 的量，整張圖斜成平行四邊形——那看起來像解碼壞了，不像少讀了一個
+// 暫存器。
+//
+// `0` 是「還沒被設過」，不是「列距 0」：退回用模式的寬度推。
+func (v *VGA) Pitch(w int) int {
+	if v.crtc[0x13] == 0 {
+		return w / 8
+	}
+	return int(v.crtc[0x13]) * 2
+}
+
+// LineCompare 回分割畫面的掃描列（9 位元，散在三個暫存器）。
+//
+// 掃到那一列時位址計數器歸零，所以**分割線之下的位址從 0 起算、
+// 與顯示起點無關**——遊戲用它固定狀態列：上半部捲動、下半部不動。
+//
+// ⚠ **三個來源都要算**：index `18` 是低 8 位、`07` 的 bit4 是第 8 位、
+// `09` 的 bit6 是第 9 位。只讀低 8 位的症狀是「分割線出現在畫面上方
+// 某處」，看起來像分割線設錯了，不像少讀了兩個位元。
+//
+// 沒有分割時 BIOS 設全 1（`0x3FF`），也就是永遠掃不到。
+func (v *VGA) LineCompare() int {
+	lc := int(v.crtc[0x18])
+	lc |= int(v.crtc[0x07]>>4&1) << 8
+	lc |= int(v.crtc[0x09]>>6&1) << 9
+	return lc
+}
+
 // Pixels 把四個平面攤成每點一個 4 bit 色號。
 //
 // 列距是 `w/8` bytes，**起點跟著 CRTC 的顯示起點走**（`DisplayStart`）
 // ——畫面在翻頁的程式不讀它就永遠倒出第 0 頁。
 func (v *VGA) Pixels(w, h int) []uint8 {
 	out := make([]uint8, w*h)
-	pitch := w / 8
+	pitch := v.Pitch(w)
 	start := v.DisplayStart()
+	split := v.LineCompare()
+	visible := w / 8 // 一列可視多少位元組；邏輯列可能更寬
 	for y := 0; y < h; y++ {
-		for bx := 0; bx < pitch; bx++ {
-			off := (int(start) + y*pitch + bx) & (PlaneSize - 1)
+		// 掃到分割線那一列時位址計數器歸零，所以**那一列本身**就從 0
+		// 起算（`docs/spec/192` §2.2）。
+		row := int(start) + y*pitch
+		if y >= split {
+			row = (y - split) * pitch
+		}
+		for bx := 0; bx < visible; bx++ {
+			off := (row + bx) & (PlaneSize - 1)
 			b0, b1 := v.Planes[0][off], v.Planes[1][off]
 			b2, b3 := v.Planes[2][off], v.Planes[3][off]
 			base := y*w + bx*8

@@ -75,7 +75,7 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	// 平面模式的記憶體不在 Mem 裡（`docs/spec/007` §3.1／`013`）。
 	// 設模式清畫面，真機的 BIOS 也清。
 	if planarMode(mode) {
-		m.VGA.resetMode()
+		m.VGA.resetMode(mode)
 	}
 	m.planarOn = m.planarActive()
 }
