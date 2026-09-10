@@ -654,6 +654,18 @@ func (d *DOS) pickBlock(want uint16) int {
 	return best
 }
 
+// blockOwner 是「現在配置的話，這一塊算誰的」。
+//
+// `curPSP` 還是 0 的情況是有的（開機階段、測試直接呼叫配置器）。
+// 0 在 MCB 上代表「自由」，拿它當擁有者會讓 `releaseOwnedBy` 永遠找不到
+// 這一塊——**洩漏一塊不會報錯，只會在別人身上出現**（見 `memBlock.owner`）。
+func (d *DOS) blockOwner() uint16 {
+	if d.curPSP == 0 {
+		return uint16(machine.PSPSeg)
+	}
+	return d.curPSP
+}
+
 // splitBlock 把第 i 塊切出 want 段給呼叫端。
 func (d *DOS) splitBlock(c *cpu.CPU, i int, want uint16) {
 	{
@@ -664,13 +676,13 @@ func (d *DOS) splitBlock(c *cpu.CPU, i int, want uint16) {
 			rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
 			b.size = want
 			b.free = false
-			b.owner = d.curPSP
+			b.owner = d.blockOwner()
 			d.arena = append(d.arena, memBlock{})
 			copy(d.arena[i+2:], d.arena[i+1:])
 			d.arena[i+1] = rest
 		} else {
 			b.free = false
-			b.owner = d.curPSP
+			b.owner = d.blockOwner()
 		}
 	}
 	c.R[cpu.AX] = d.arena[i].seg + 1

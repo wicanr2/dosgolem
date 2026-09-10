@@ -549,8 +549,15 @@ func (o *Oracle) SetCPUHz(hz uint64) { o.m.CPUHz = hz; o.m.CycleClock = true; o.
 // ⚠ **改它會改變動畫跑多快，但不改變最終停在哪裡**（`machine` 的註解）。
 // 調小可以讓動畫在較少的指令內走完，代價是與原版在真機上的節奏不同——
 // 所以**畫面相位對拍時不要動它**，只在趕時間的探索性測試裡用。
-func (o *Oracle) TickRate() uint64         { return o.m.IRQ0Every }
-func (o *Oracle) SetTickRate(every uint64) { o.m.IRQ0Every = every }
+//
+// ⚠ **設非零同時會釘住間隔**（`machine.IRQ0Pinned`）：不釘的話，客體
+// 程式一寫 PIT 分頻，`recalcIRQ0` 就按分頻把它換掉，呼叫端設的值只在
+// 「程式還沒寫 PIT 之前」算數。設成 0 是「回到自動」，連釘住一起解除。
+func (o *Oracle) TickRate() uint64 { return o.m.IRQ0Every }
+func (o *Oracle) SetTickRate(every uint64) {
+	o.m.IRQ0Every, o.m.IRQ0Pinned = every, every != 0
+	o.m.RecalcIRQ0()
+}
 
 // StackWord 讀堆疊上的第 i 個 word（i ＝ 0 是 `SS:SP` 指的那一個）。
 //

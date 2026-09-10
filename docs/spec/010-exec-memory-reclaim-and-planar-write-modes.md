@@ -41,9 +41,39 @@ IVT 22h–24h 與暫存器，**游標留在高點**——等於子程式的記�
 - 這是單一游標的近似：真 DOS 能回收中間的洞，我們只能退回連續尾端。
   EXEC 鏈是嚴格巢狀時兩者等價，本作就是這種形狀。
 
+### 1.1 arena 時代的補充：MCB 也要跟著消失（READY，2026-09-10）
+
+上面那一節是 bump 配置器時代寫的，處理的只有 `freeSeg` 這一個游標。
+換成 arena（`009-memory-allocator`）之後多了一件事：**arena 的每一塊都會把
+一個假 MCB 標頭寫進客體記憶體**（`syncMCB`）。子程式結束時若只還游標、
+不還它的區塊，那些標頭就留在原地。
+
+留下來不是「多佔一點記憶體」而已。接手的程式向 DOS 把自己的區塊撐大蓋過
+那一段之後，標頭落在它的**程式碼或資料**中間——`'M'`（`0x4D`）、擁有者、
+大小、8 個空白的名稱欄，一共 16 個位元組，長得很像一般資料。
+
+| 事實 | 證據 | 等級 |
+|---|---|---|
+| `OPEN.EXE` 用 `AH=48h` 拿走四塊後結束 | probe 配置器逐筆帳 | confirmed |
+| `GIN3PS.EXE` 在同一個 PSP 載入，`AH=4Ah` 撐到 `0x7950` | 同上 | confirmed |
+| `375CE` 的 `83 C4 24` 變成 `83 C4 4D` | 兩版記憶體傾印對照 | confirmed |
+| `add sp,24h` → `add sp,4Dh`，每次收尾堆疊歪 41 個位元組 | 指令軌跡 | confirmed |
+
+語意：**`AH=4Ch`（與 `int 20h`）要釋放終止中的 PSP 名下所有 MCB**，
+就是真 DOS 的行為。`memBlock` 因此記 `owner`，`terminate` 的非 TSR 兩條路
+呼叫 `releaseOwnedBy(curPSP)`，釋放後合併並重新發布 MCB 鏈。
+TSR（`AH=31h`）不釋放——常駐程式的區塊本來就要留著。
+
+`curPSP` 為 0 時（開機階段、測試直接呼叫配置器）擁有者退回
+`machine.PSPSeg`：0 在 MCB 上代表「自由」，拿它當擁有者會讓
+`releaseOwnedBy` 永遠找不到那一塊。
+
 ### 驗收
 
 - 單元測試 `TestChildExitReclaimsMemory`。
+- 單元測試 `TestChildBlocksAndTheirMCBsVanishOnExit`（§1.1）：子程式
+  `AH=48h` 拿一塊後結束，arena 不得留下任何已配置的區塊。
+  **反向對照做過**：拿掉 `releaseOwnedBy` 它會指名留下來的那一塊。
 - 整合：原版 `GIN3.COM` 鏈的 `GIN3PS.EXE` PSP 從 `0x3922` 降到 `0x0339`，
   `AH=4A BX=6A07` 由失敗轉成功，本體跑過原停點（實測 6000 萬道指令仍在
   互動迴圈，滑鼠輪詢 205,509 次）。

@@ -68,7 +68,9 @@ func main() {
 	die(err)
 	m := machine.New()
 	die(m.LoadEXE(img))
-	m.IRQ0Every = *tick
+	// 明講的間隔要釘住，不然程式一寫 PIT 分頻就被重算掉
+	// （`machine.IRQ0Pinned`）。
+	m.IRQ0Every, m.IRQ0Pinned = *tick, *tick != 0
 	d := dos.New(m, *root)
 	d.Install()
 	d.Stdin = append(d.Stdin, 'y')
