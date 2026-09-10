@@ -143,8 +143,13 @@ func (v *VGA) resetMode(mode uint8) {
 	// offset 只在**知道是哪個模式**的時候給：真機開機是文字模式，
 	// CRTC 的值由 BIOS 依模式設。不知道就留 0，`Pitch` 會退回用寬度推
 	// ——猜一個寬度的話，320 寬的模式會拿到 640 的列距而每一列錯開一倍。
-	if w, _ := planarSize(mode); w > 0 {
+	if w, h := planarSize(mode); w > 0 {
 		v.crtc[0x13] = uint8(w / 16) // offset 的單位是字組
+		// display end：BIOS 設模式時會寫，程式據此知道畫面多大。
+		v.crtc[0x01] = uint8(w/8 - 1)
+		v.crtc[0x12] = uint8((h - 1) & 0xFF)
+		v.crtc[0x07] = v.crtc[0x07]&^0x42 |
+			uint8((h-1)>>8&1)<<1 | uint8((h-1)>>9&1)<<6
 	}
 	// line compare 全 1 ＝ 永遠掃不到 ＝ 不分割。
 	v.crtc[0x18] = 0xFF
@@ -386,6 +391,26 @@ func displayStart(crtc [32]uint8) uint32 {
 	return start & 0xFFFF
 }
 
+// Size 回 CRTC 說的畫面大小。**程式沒設過就回 0, 0**——那與「畫面是
+// 0×0」是兩件事，呼叫端據此決定要不要退回用模式推。
+//
+// 寬：horizontal display end（index `01`）＋ 1，單位是字元；圖形模式
+// 一個字元 8 個像素。高：vertical display end（index `12`）＋ 1，
+// 而它是 10 位元——第 8 位在 overflow（index `07`）的 bit1、
+// 第 9 位在 bit6。
+//
+// **這是「畫面多大」唯一的一手答案。** 模式編號只是 BIOS 的一個代號，
+// 直接設暫存器換解析度的程式從來不改它——那種程式在模式表上會被讀成
+// 「還在上一個模式」。
+func (v *VGA) Size() (w, h int) {
+	hde := int(v.crtc[0x01])
+	vde := int(v.crtc[0x12]) | int(v.crtc[0x07]>>1&1)<<8 | int(v.crtc[0x07]>>6&1)<<9
+	if hde == 0 || vde == 0 {
+		return 0, 0 // 還沒被設過
+	}
+	return (hde + 1) * 8, vde + 1
+}
+
 // Pitch 回一列的位元組數（CRTC offset，index `13`）。
 //
 // 單位是**字組**，所以位元組數是 `offset × 2`。BIOS 給 640 寬的模式
@@ -432,11 +457,12 @@ func (v *VGA) Pixels(w, h int) []uint8 {
 	split := v.LineCompare()
 	visible := w / 8 // 一列可視多少位元組；邏輯列可能更寬
 	for y := 0; y < h; y++ {
-		// 掃到分割線那一列時位址計數器歸零，所以**那一列本身**就從 0
-		// 起算（`docs/spec/192` §2.2）。
+		// 分割在 line compare 的**下一列**生效（`docs/spec/192` §2.2）：
+		// 垂直計數器數完第 `split` 列才歸零，所以第 `split` 列還是可捲區
+		// 的最後一列。
 		row := int(start) + y*pitch
-		if y >= split {
-			row = (y - split) * pitch
+		if y > split {
+			row = (y - split - 1) * pitch
 		}
 		for bx := 0; bx < visible; bx++ {
 			off := (row + bx) & (PlaneSize - 1)
@@ -508,6 +534,9 @@ func (v *VGA) restore(s *VGA) {
 
 // VideoSize 回目前模式的畫面尺寸。mode 13h 與文字模式回 320×200。
 func (m *Machine) VideoSize() (int, int) {
+	if w, h := m.PlanarSize(); w != 0 {
+		return w, h
+	}
 	if w, h := planarSize(m.VideoMode()); w != 0 {
 		return w, h
 	}
@@ -518,6 +547,10 @@ func (m *Machine) VideoSize() (int, int) {
 func (m *Machine) PlanarSize() (w, h int) {
 	if !m.planarOn {
 		return 0, 0
+	}
+	// CRTC 是一手答案；沒被設過才退回用模式編號推（`docs/spec/192` §2.4）。
+	if w, h := m.VGA.Size(); w > 0 {
+		return w, h
 	}
 	return planarSize(m.VideoMode())
 }
