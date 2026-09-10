@@ -113,9 +113,22 @@ func (d *DOS) SaveState(w io.Writer) error {
 		Exited:   d.Exited,
 		ExitCode: d.ExitCode,
 	}
-	// 滑鼠的座標與按鍵要留，觀測紀錄不留。
+	// 滑鼠的座標、按鍵、**事件常式與座標範圍**要留，觀測紀錄不留
+	// （`docs/spec/197`）。
+	//
+	// ⚠ **事件常式掉了的症狀是「展開之後點擊全部沒反應」，而畫面
+	// 逐像素相同。** 記憶體、CPU、開著的檔、配出去的區塊全都還原了，
+	// 唯一沒還原的東西剛好不影響畫面，只影響之後的輸入——
+	// `clickgrid` 掃出來的「這一格沒反應」與「這一區真的沒有熱區」
+	// 長得一模一樣。
+	//
+	// mickey 刻意不存：它是「自從程式上次問以來」的累計，跨行程接續時
+	// 歸零才對；存下來的話展開後第一次 `AX=0Bh` 會拿到存檔之前的位移。
 	s.Mouse = Mouse{X: d.Mouse.X, Y: d.Mouse.Y, Buttons: d.Mouse.Buttons,
-		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale}
+		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale,
+		MinX: d.Mouse.MinX, MaxX: d.Mouse.MaxX,
+		MinY: d.Mouse.MinY, MaxY: d.Mouse.MaxY}
+	s.Mouse.Handler = d.Mouse.Handler
 
 	for _, b := range d.arena {
 		s.Arena = append(s.Arena, blockState{Seg: b.seg, Size: b.size, Free: b.free})
@@ -176,6 +189,11 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
+	// 事件常式與座標範圍（`docs/spec/197`）。舊狀態檔裡是零值，
+	// 而零值就是「沒登記過、沒設過範圍」——那正是舊檔的實際情形。
+	d.Mouse.Handler = s.Mouse.Handler
+	d.Mouse.MinX, d.Mouse.MaxX = s.Mouse.MinX, s.Mouse.MaxX
+	d.Mouse.MinY, d.Mouse.MaxY = s.Mouse.MinY, s.Mouse.MaxY
 	d.freeSeg = s.FreeSeg
 	d.curPSP, d.lastExit = s.CurPSP, s.LastExit
 	d.queue = append([]Queued(nil), s.Queue...)

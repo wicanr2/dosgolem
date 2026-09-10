@@ -350,3 +350,5 @@
 - [195 — 子目錄的路徑解析](195-subdirectory-path-resolution.md)：READY。先試完整路徑再退回 basename；資料真的放在 `data\` 底下的遊戲只有這條路走得通。
 
 - [196 — 取磁碟裝置參數（int 21h AH=44h AL=0Dh CL=60h）](196-ioctl-get-device-parameters.md)：READY。回報成固定硬碟，程式才不會提示換片；BPB 與 `AH=1Bh` 同一組數字。
+
+- [197 — 滑鼠事件常式要進狀態檔](197-mouse-handler-in-saved-state.md)：READY。漏掉它的症狀是「展開之後點擊全部沒反應」，而畫面逐像素相同。

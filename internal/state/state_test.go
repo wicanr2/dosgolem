@@ -87,3 +87,42 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// 滑鼠的事件常式與座標範圍要跨存檔活下來（`docs/spec/197`）。
+//
+// **漏掉它的症狀是「展開之後點擊全部沒反應」，而畫面逐像素相同。**
+// 記憶體、CPU、開著的檔全都還原了，唯一沒還原的東西剛好不影響畫面，
+// 只影響之後的輸入——`clickgrid` 掃出來的「這一格沒反應」與
+// 「這一區真的沒有熱區」長得一模一樣。
+func TestMouseEventHandlerSurvivesSaveLoad(t *testing.T) {
+	m, d := boot(t)
+	// `AX=0Ch` 登記事件常式、`AX=07h`／`08h` 設座標範圍之後的狀態。
+	// 這裡直接設欄位：int 33h 的分派本身由 `internal/dos` 的契約測試涵蓋，
+	// 這一支要釘的是「存了讀得回來」。
+	d.Mouse.Handler.Seg, d.Mouse.Handler.Off = 0x3210, 0x0654
+	d.Mouse.Handler.Mask, d.Mouse.Handler.Set = 0x001F, true
+	d.Mouse.MaxX, d.Mouse.MaxY = 0x027F, 0x00C7
+
+	path := filepath.Join(t.TempDir(), "s.gz")
+	if err := Save(path, m, d); err != nil {
+		t.Fatal(err)
+	}
+	m2, d2 := boot(t)
+	if err := Load(path, m2, d2); err != nil {
+		t.Fatal(err)
+	}
+
+	h := d2.Mouse.Handler
+	if !h.Set || h.Seg != 0x3210 || h.Off != 0x0654 || h.Mask != 0x001F {
+		t.Errorf("事件常式沒回來：%+v", h)
+	}
+	if d2.Mouse.MaxX != 0x027F || d2.Mouse.MaxY != 0x00C7 {
+		t.Errorf("座標範圍 X≤%d Y≤%d，原本 639／199",
+			d2.Mouse.MaxX, d2.Mouse.MaxY)
+	}
+
+	// 還原之後事件真的送得出去——欄位回來了但派送路徑沒接上是另一種壞法。
+	if !d2.MouseEvent(dos.EventMove) {
+		t.Error("還原之後事件送不出去")
+	}
+}
