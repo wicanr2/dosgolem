@@ -327,6 +327,28 @@ type OPLWrite = machine.OPLWrite
 // 而波形要逐樣本一致屬於既定停止線（`rich2/docs/spec/049`）。
 func (o *Oracle) OPLWrites() []OPLWrite { return o.m.OPL }
 
+// PortWrite 是一次埠寫入。
+type PortWrite = machine.PortWrite
+
+// PortWrites 回 lo–hi（含端點）這段埠的寫入序列。
+//
+// **顯示模式只有這裡問得到。** BDA 的模式位元組是 `int 10h AH=00`
+// 才會動的，而直接寫暫存器換模式的程式一次都不呼叫它——那一格會
+// 一路停在開機值 03h，看起來像「還在文字模式」。畫面幾列高、
+// 從哪個位址開始掃描，答案在 CRTC（`3D4`／`3D5`）與序列器的寫入序列裡。
+//
+// dosgolem 不模擬 CRTC 的效果，但**每一次寫入都記著**，所以拿得到
+// 原版設了什麼。
+func (o *Oracle) PortWrites(lo, hi uint16) []PortWrite {
+	var out []PortWrite
+	for _, w := range o.m.PortLog {
+		if w.Port >= lo && w.Port <= hi {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 // WatchWrites 監看一段 DGROUP 偏移的寫入，回一份逐次紀錄。
 //
 // **這是「誰寫這個變數」唯一直接的答案。** 靜態 xref 只涵蓋直接參考
