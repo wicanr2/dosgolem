@@ -57,6 +57,15 @@ type VGA struct {
 	acIdx  uint8
 	acFlip bool
 
+	// crtc 是 CRTC（`3D4`／`3D5`，單色是 `3B4`／`3B5`）。用到的是
+	// index `0C`／`0D`（顯示起點）與 `17`（mode control）。
+	//
+	// **畫面在翻頁的程式沒有它就永遠倒出第 0 頁**——而那看起來只是
+	// 「畫面對不上」，不像少了一個暫存器。logh3 的開頭動畫是雙緩衝，
+	// 把解好的一格搬到 0 與 6D60 交替。
+	crtc    [32]uint8
+	crtcIdx uint8
+
 	// planarSeen 記「Map Mask 曾被寫成不是 0Fh 的值」。
 	//
 	// **這是判斷用的訊號，不是模式暫存器。** 有些程式從來不呼叫
@@ -124,6 +133,12 @@ func (v *VGA) resetMode() {
 		v.ac[i] = uint8(i)
 	}
 	v.seqIdx, v.gcIdx, v.acIdx, v.acFlip = 0, 0, 0, false
+	// CRTC mode control：BIOS 把 16 色 planar 模式設成 0xE3，bit6 ＝ 1
+	// 表示顯示起點以 byte 計。少了這個預設值，只寫起點、不寫這個暫存器的
+	// 程式會被當成 word 模式而多乘一倍。
+	v.crtc = [32]uint8{}
+	v.crtc[0x17] = 0xE3
+	v.crtcIdx = 0
 	v.planarSeen = false
 }
 
@@ -143,6 +158,10 @@ func (v *VGA) Out(p uint16, val uint8) bool {
 		v.gcIdx = val & 0x0F
 	case 0x3CF:
 		v.gc[v.gcIdx] = val
+	case 0x3D4, 0x3B4:
+		v.crtcIdx = val & 0x1F
+	case 0x3D5, 0x3B5:
+		v.crtc[v.crtcIdx] = val
 	case 0x3C0:
 		if v.acFlip {
 			v.ac[v.acIdx] = val
@@ -171,6 +190,10 @@ func (v *VGA) In(p uint16) (uint8, bool) {
 		return v.gc[v.gcIdx], true
 	case 0x3C1:
 		return v.ac[v.acIdx], true
+	case 0x3D4, 0x3B4:
+		return v.crtcIdx, true
+	case 0x3D5, 0x3B5:
+		return v.crtc[v.crtcIdx], true
 	}
 	return 0, false
 }
@@ -334,18 +357,30 @@ func (v *VGA) Raw() []uint8 { return v.mem }
 
 // ---- 取畫面 --------------------------------------------------------------
 
+// DisplayStart 回 CRTC 的顯示起點，換算成 plane 內的**位元組**位移。
+//
+// index `0C`／`0D` 是起點的高／低位元組；單位由 mode control（index `17`）
+// 的 bit6 決定：1 ＝ byte 模式（直接用），0 ＝ word 模式（乘 2）。
+// BIOS 把 16 色 planar 模式設成 `0xE3`，所以預設是 byte 模式。
+func (v *VGA) DisplayStart() uint32 {
+	start := uint32(v.crtc[0x0C])<<8 | uint32(v.crtc[0x0D])
+	if v.crtc[0x17]&0x40 == 0 {
+		start *= 2
+	}
+	return start
+}
+
 // Pixels 把四個平面攤成每點一個 4 bit 色號。
 //
-// 列距是 `w/8` bytes。**不讀 CRTC**——被觀測的程式不改它。
+// 列距是 `w/8` bytes，起點跟著 CRTC 走（`DisplayStart`）——**畫面在翻頁的
+// 程式少了它就永遠倒出第 0 頁**。顯示起點是 0 時輸出與從前完全相同。
 func (v *VGA) Pixels(w, h int) []uint8 {
 	out := make([]uint8, w*h)
 	pitch := w / 8
+	start := int(v.DisplayStart())
 	for y := 0; y < h; y++ {
 		for bx := 0; bx < pitch; bx++ {
-			off := y*pitch + bx
-			if off >= PlaneSize {
-				break
-			}
+			off := (start + y*pitch + bx) % PlaneSize
 			b0, b1 := v.Planes[0][off], v.Planes[1][off]
 			b2, b3 := v.Planes[2][off], v.Planes[3][off]
 			base := y*w + bx*8
@@ -397,6 +432,7 @@ func (v *VGA) clone() *VGA {
 	out := &VGA{mem: append([]uint8(nil), v.mem...)}
 	out.latch, out.seq, out.gc, out.ac = v.latch, v.seq, v.gc, v.ac
 	out.seqIdx, out.gcIdx, out.acIdx, out.acFlip = v.seqIdx, v.gcIdx, v.acIdx, v.acFlip
+	out.crtc, out.crtcIdx = v.crtc, v.crtcIdx
 	for p := range out.Planes {
 		out.Planes[p] = out.mem[p*PlaneSize : (p+1)*PlaneSize]
 	}
@@ -408,6 +444,7 @@ func (v *VGA) restore(s *VGA) {
 	copy(v.mem, s.mem)
 	v.latch, v.seq, v.gc, v.ac = s.latch, s.seq, s.gc, s.ac
 	v.seqIdx, v.gcIdx, v.acIdx, v.acFlip = s.seqIdx, s.gcIdx, s.acIdx, s.acFlip
+	v.crtc, v.crtcIdx = s.crtc, s.crtcIdx
 }
 
 // ---- 機器層的接線 --------------------------------------------------------
@@ -555,3 +592,6 @@ func (m *Machine) planarActive() bool {
 	}
 	return m.VGA.planarSeen
 }
+
+// DisplayStart 是 VGA 那一支的轉呼叫——測試與 probe 都從 Machine 問。
+func (m *Machine) DisplayStart() uint32 { return m.VGA.DisplayStart() }
