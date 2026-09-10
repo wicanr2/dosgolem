@@ -473,8 +473,7 @@ func New() *Machine {
 	}
 	m.CPU = cpu.New(m)
 	// 取指令走直接索引，不走匯流排介面（`docs/spec/015` §4.2）。
-	// 讀取監看打開時 WatchReads 會把它收回去。
-	m.CPU.Code = m.Mem
+	m.syncCodeFastPath()
 	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
 	// `RUN_full.EXE` 的主程式區有 3,345 個 80186 的 `PUSH imm`；用 8086 的
 	// 別名解讀會錯位一個 byte，然後安靜地飛掉（`docs/spec/002` §1.1）。
@@ -509,6 +508,33 @@ func (m *Machine) A20Enabled() bool { return m.a20 }
 
 // SetA20 開關 A20（XMS 的 `AH=03h`–`06h` 走它）。
 func (m *Machine) SetA20(on bool) { m.a20 = on }
+
+// syncCodeFastPath 依目前的狀態決定取指令走不走快路徑
+// （`CPU.Code`，`docs/spec/015` §4.2）。
+//
+// **快路徑跳過 `Read8`，所以 `Read8` 做的每一件事它都不做。** 判準是
+// 「這件事對取指令成不成立」：
+//
+//   - 讀取監看：成立。取指令也是讀取，快路徑會讓監看看不到執行，
+//     所以監看開著就得走慢路徑。
+//   - 平面模式的 A0000 視窗：不成立。程式碼不放在視訊記憶體裡，
+//     `CS:IP` 進到那裡本來就是飛掉了。
+//   - HMA：不成立。`cpu.Addr` 在 CPU 層就把位址遮成 20 位，
+//     `段:偏移` 這條路到不了 1 MB 之上——HMA 只有拿線性位址直接呼叫
+//     `Read8`／`Write8` 時才碰得到，取指令走不到那裡。
+//
+// ⚠ **`Read8` 再多做一件事，就回來過一次這張判準表。** 分開判斷的話
+// 遲早會漏一個，而漏掉的症狀都是「跑錯東西但不報錯」。
+func (m *Machine) syncCodeFastPath() {
+	if m.CPU == nil {
+		return
+	}
+	if m.onRead != nil {
+		m.CPU.Code = nil
+		return
+	}
+	m.CPU.Code = m.Mem
+}
 
 // HMASize 是 HMA 的大小：64 KB 減 16 bytes（`FFFF:0010`–`FFFF:FFFF`）。
 const HMASize = 0x10000 - 16
@@ -625,15 +651,14 @@ func (m *Machine) WatchWrites(lo, hi uint32, fn func(addr uint32, old, new uint8
 func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
 	if fn == nil {
 		m.rWatchLo, m.rWatchHi, m.onRead = 1, 0, nil
-		m.CPU.Code = m.Mem // 取指令可以回到快路徑
+		m.syncCodeFastPath()
 		return
 	}
 	m.rWatchLo, m.rWatchHi, m.onRead = lo, hi, fn
-	// **取指令也算讀取。** 快路徑跳過 Read8，監看就看不到執行；
-	// 監看的用途是回答「誰碰了這個位址」，執行也是一種碰
-	//（`docs/spec/015` §4.2）。指令提取也走 Read8，所以監看碼段會被
-	// 自己的提取洗版——監看資料位址才有意義。
-	m.CPU.Code = nil
+	// **取指令也算讀取。** 監看的用途是回答「誰碰了這個位址」，執行
+	// 也是一種碰。代價是監看碼段會被自己的指令提取洗版——監看資料
+	// 位址才有意義。
+	m.syncCodeFastPath()
 }
 
 // In8 回 0xFF。**空的匯流排上讀到的就是 0xFF，不是 0**——
