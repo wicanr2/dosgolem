@@ -797,6 +797,13 @@ func main() {
 		fmt.Printf("\n執行 %d 道指令，耗時 %s，%.1f M 道／秒\n",
 			ran, el.Round(time.Millisecond),
 			float64(ran)/el.Seconds()/1e6)
+		// 兩個時鐘之間的匯率（`docs/spec/191`）。**切換時鐘之前看一眼**：
+		// 這支程式的指令混合決定了走週期時鐘時遊戲內時間會慢幾倍，
+		// 而那個倍數不是常數——繪圖密集的段落是暫存器密集的兩倍多。
+		if cps := m.CyclesPerStep(); cps > 0 {
+			fmt.Printf("平均 %.2f 週期／指令；走 -cpuhz 的週期時鐘遊戲內時間慢 %.2f 倍\n",
+				cps, m.ClockSkew())
+		}
 	}
 	if blockedStop {
 		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
