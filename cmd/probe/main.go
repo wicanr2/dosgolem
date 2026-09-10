@@ -42,6 +42,9 @@ var traceFilePath string
 var portLogFrom, portLogTo uint64
 
 func main() {
+	scratchDir := flag.String("scratch-dir", "",
+		"程式寫檔（存檔）時落到這個目錄，`-root` 的原版素材保持唯讀。\n"+
+			"    不給就沿用 dos 預設：寫入被擋掉，存檔流程走不完。")
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄（配 -load-state 時不必再給，"+
 		"狀態檔裡存著；真的給了就以命令列為準）")
@@ -191,6 +194,9 @@ func main() {
 		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
 			"    -keys／-keys-at 走的是可重播的 Stdin 佇列與硬體 IRQ1；\n"+
 			"    直接比對 0040:001A／001C 判斷有沒有按鍵的程式只認這一條。")
+	biosKeyName := flag.String("bios-key-name", "",
+		"在 -bios-key-from 送一個**具名**鍵（`Left`、`Return`…，見 dos.KeyNamed）。\n"+
+			"    -bios-keys 只送得出可列印字元；方向鍵的 ASCII 是 0，走不了那條路。")
 	biosKeyEvery := flag.Uint64("bios-key-every", 2_000_000, "兩次送鍵之間隔幾道指令")
 	biosKeyFrom := flag.Uint64("bios-key-from", 2_000_000, "第幾道指令開始送第一個鍵")
 	covOut := flag.String("coverage", "",
@@ -352,6 +358,7 @@ func main() {
 	}
 	obsSetup(m) // 觀測用旗標的掛鉤（observe.go）
 	d := dos.New(m, *root)
+	d.Scratch = *scratchDir
 	d.Mouse.XScale = uint16(*xscale)
 	if *queue != "" {
 		for _, q := range strings.Split(*queue, ",") {
@@ -541,6 +548,14 @@ func main() {
 	// -bios-keys 攤成 rune，一次送一個。
 	biosRunes := []rune(strings.ReplaceAll(*biosKeys, "\\n", "\n"))
 	bki := 0
+	// 名字**開跑前就驗**。留到排程那一刻才發現拼錯的話，probe 會安靜地
+	// 跑完全程、什麼都沒送出去，而報告與「送了但遊戲不理」長得一樣。
+	biosNamedSent := false
+	if *biosKeyName != "" {
+		if _, ok := dos.KeyNamed(*biosKeyName); !ok {
+			die(fmt.Errorf("不認得的 BIOS 鍵名 %q", *biosKeyName))
+		}
+	}
 
 	pendingKeys, err := parseKeysAt(*keysAt)
 	if err != nil {
@@ -599,6 +614,10 @@ func main() {
 		if len(pendingKeys) > 0 && m.Steps >= pendingKeys[0].at {
 			feedKeys(m, d, pendingKeys[0].key)
 			pendingKeys = pendingKeys[1:]
+		}
+		if *biosKeyName != "" && !biosNamedSent && m.Steps >= *biosKeyFrom {
+			d.PushKeyNamed(*biosKeyName)
+			biosNamedSent = true
 		}
 		// -bios-keys：**照指令數排程，不照時間**，這樣對拍才是決定性的。
 		// 而且要等緩衝區空了才送下一個——遊戲的輪詢頻率遠低於送鍵頻率，

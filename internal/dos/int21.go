@@ -46,7 +46,11 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.conOut(c, fn)
 
 	case 0x0B: // 查有沒有按鍵：AL=FFh 有、AL=00h 沒有
-		if len(d.Stdin) == 0 {
+		// **BIOS 佇列也要算。** 只看 Stdin 的話，用 `-bios-keys` 或 IRQ1
+		// 送進 0040:001E 的鍵在這裡查不到——程式問「有鍵嗎」得到「沒有」，
+		// 於是它一直不呼叫 AH=08h 去讀，鍵就卡在佇列裡。症狀是遊戲對
+		// 送進去的鍵毫無反應，而佇列與 IRQ1 兩邊看起來都正常。
+		if len(d.Stdin) == 0 && d.KeysPending() == 0 {
 			setAL(c, 0x00)
 		} else {
 			setAL(c, 0xFF)
@@ -313,7 +317,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 //
 // 要讓它往下走就餵鍵（probe 的 `-keys`、oracle 的 `SendKeys`），不是加大 `-steps`。
 func (d *DOS) conIn(c *cpu.CPU, fn uint8) {
-	if len(d.Stdin) == 0 {
+	if len(d.Stdin) == 0 && d.KeysPending() == 0 {
 		d.KeyWaits++
 		if !d.NonBlockingKeys {
 			// 阻塞：把 CS:IP 退回這道 INT，讓它下一步重跑。

@@ -90,7 +90,7 @@ const (
 	// biosTimerOff 是 `int 08h` 的 BIOS 預設處理：推進 `0040:006C`
 	// 再轉呼 `int 1Ch`（見 initVectors）。
 	//
-	// ⚠ **它有 24 個 byte，不是 4 個。** 排在 trampoline 之後並留一整段，
+	// ⚠ **它有 35 個 byte，不是 4 個。** 排在 trampoline 之後並留一整段，
 	// 否則它會把後面的 trampoline 蓋掉——而症狀是「int 10h 的向量指到
 	// `pop dx / pop ax / pop ds`」，看起來像向量算錯，不像佈局重疊。
 	biosTimerOff = specialStubBase + 0x20
@@ -837,6 +837,9 @@ func (m *Machine) In8(port uint16) uint8 {
 		m.VGA.ResetACFlip()
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
+		if m.VideoMode() == 0x13 {
+			return mode13InputStatus(m.Steps, m.VGAFrameEvery)
+		}
 		if (m.portTicks>>4)&1 != 0 {
 			return 0x09
 		}
@@ -1380,6 +1383,10 @@ func (m *Machine) initVectors() {
 		0xFF, 0x06, 0x6C, 0x00,
 		0x75, 0x04,
 		0xFF, 0x06, 0x6E, 0x00,
+		// BIOS 40:40 的非零倒數；不在遊戲層強制跳過等待。
+		0x80, 0x3E, 0x40, 0x00, 0x00, // cmp byte [40h],0
+		0x74, 0x04, // je skip
+		0xFE, 0x0E, 0x40, 0x00, // dec byte [40h]
 		0xCD, 0x1C,
 		0x5A, 0x58, 0x1F,
 		0xCF,
