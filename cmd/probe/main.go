@@ -672,7 +672,8 @@ func main() {
 				d.PressMouse(*clickBtn)
 				pollsAtPress = len(d.Mouse.Polls)
 				held = true
-			case held && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, *clickAt):
+			// 單次點擊（-click-x/-click-y）沒有腳本那一欄，所以只有兩個全域值。
+			case held && releaseNow(d, holdFor(click{}, *clickPolls, *clickHold), pollsAtPress, m.Steps, *clickAt):
 				d.ReleaseMouse(*clickBtn)
 				held = false
 			}
@@ -708,7 +709,7 @@ func main() {
 				pollsAtPress = len(d.Mouse.Polls)
 				preIdx, downIdx = -1, i
 				pressStep = m.Steps
-			case downIdx == i && releaseNow(d, *clickPolls, holdOf(c, *clickHold), pollsAtPress, m.Steps, pressStep):
+			case downIdx == i && releaseNow(d, holdFor(c, *clickPolls, *clickHold), pollsAtPress, m.Steps, pressStep):
 				d.ReleaseMouse(btn)
 				downIdx = -1
 			}
@@ -1779,12 +1780,26 @@ type click struct {
 	step uint64
 	x, y uint16
 	btn  uint16
-	// hold 是這一次的按住時間（指令數）；0 ＝ 用全域的 -click-hold。
+	// hold 是這一次的按住時間（指令數）；0 ＝ 用全域的 `-click-hold`
+	// 或 `-click-polls`。
 	//
-	// ⚠ **同一段序列裡不同的按鈕常常要不同的按住時間。** 選單鈕吃短按、
-	// 拖曳或連續開窗吃長按；只有一個全域值的話，把長的套到短的那幾次
-	// 會多開一層窗、把短的套到長的那幾次會整個沒反應——兩種都不報錯，
-	// 只是收據跑出另一個畫面。
+	// ⚠ **這一欄看起來與 `docs/spec/004` §4.5 矛盾，其實不是——不要拿掉。**
+	// §4.5 說「按住長度用輪詢次數算，不是指令數」，那是給**新寫的**點擊
+	// 腳本的建議：輪詢頻率在不同畫面差三個數量級，寫死的指令數不可移植。
+	// 這一欄解的是另一個問題：**重跑既有收據**。
+	//
+	// 收據是證據不是程式碼。它記的是「當時按住了幾道指令」，那個數字與
+	// 當時跑出來的畫面綁在一起；換成輪詢次數會得到**另一個畫面**，於是
+	// 那份收據就不再是原本那份。整批換掉的唯一辦法是全部重錄，而重錄
+	// 之前得先有一個跑得動舊收據的執行器——就是這一欄存在的理由。
+	//
+	// 為什麼不能只用全域的 `-click-hold`：同一段序列裡不同的鈕常常要
+	// 不同的按住時間（選單鈕吃短按、拖曳與連續開窗吃長按）。硬挑一個值
+	// 的話，長的套到短的那幾次會多開一層窗、短的套到長的那幾次會整個
+	// 沒反應——兩種都不報錯，只是跑出另一個畫面。銀英傳III SP 有八份
+	// 收據就是這個形狀（前兩次 3,000,000 道、後面三次 300,000 道）。
+	//
+	// **新腳本請用 `-click-polls`**，這一欄留給收據。
 	hold uint64
 }
 
@@ -2522,20 +2537,37 @@ func (c *callArgLog) dump() {
 // `-click-hold` 是固定指令數。前者才是可移植的——同一支遊戲不同畫面的
 // 輪詢頻率可以差三個數量級（源平合戰的磁片提示每千萬道問 12 次，
 // 讀檔選單每千萬道問一千次），固定指令數在一邊漏掉、在另一邊按成連點。
-// holdOf 是這一次點擊要按住幾道指令：腳本裡寫了就用它，沒寫用全域值。
-func holdOf(c click, global uint64) uint64 {
-	if c.hold > 0 {
-		return c.hold
-	}
-	return global
+// holdMode 是一次點擊的放開判準：等 polls 次輪詢，或等 steps 道指令。
+type holdMode struct {
+	polls int
+	steps uint64
 }
 
-func releaseNow(d *dos.DOS, clickPolls int, clickHold uint64,
-	pollsAtPress int, step, pressStep uint64) bool {
-	if clickPolls > 0 {
-		return len(d.Mouse.Polls)-pollsAtPress >= clickPolls
+// holdFor 決定這一次點擊照誰的規矩放開。**越具體的越優先**：
+//
+//  1. 腳本第五欄寫死的指令數（`步數:X:Y::按住`）——那是某一份收據
+//     記下來的事實，全域旗標不該蓋過它。
+//  2. 全域 `-click-polls`——與畫面無關的判準，新腳本的建議做法。
+//  3. 全域 `-click-hold`——最後的退路。
+//
+// ⚠ **順序不要對調。** 把 `-click-polls` 放到第一位的話，凡是同時給了
+// 它的那一次執行，收據裡逐次寫死的按住時間就全部失效——而畫面照樣
+// 畫得出來，只是不是原本那一張。
+func holdFor(c click, clickPolls int, clickHold uint64) holdMode {
+	if c.hold > 0 {
+		return holdMode{steps: c.hold}
 	}
-	return step == pressStep+clickHold
+	if clickPolls > 0 {
+		return holdMode{polls: clickPolls}
+	}
+	return holdMode{steps: clickHold}
+}
+
+func releaseNow(d *dos.DOS, h holdMode, pollsAtPress int, step, pressStep uint64) bool {
+	if h.polls > 0 {
+		return len(d.Mouse.Polls)-pollsAtPress >= h.polls
+	}
+	return step == pressStep+h.steps
 }
 
 // doDumpMem 把 <seg>:<off>:<長度> 的記憶體寫成檔。
