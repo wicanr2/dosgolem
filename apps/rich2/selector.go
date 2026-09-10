@@ -39,6 +39,13 @@ const (
 	// 命中判定收到的已經是換算完的 x0／x1／y0／間距／列數。
 	IDAMenuHit = 0x234F4
 
+	// IDAInkey 是選單迴圈每一圈最前面那一支（`0CED:6759` ＝ 線性 `0x23629`）。
+	//
+	// **它同時做兩件事**：把滑鼠位置寫進兩個 out 參數（`rich2/docs/re/186`
+	// §4.2 稱它「更新滑鼠位置」）、把按鍵放進 `ds:1094h`（`rich2/docs/re/100`
+	// §2 稱它 `INKEY$`）。兩份筆記講的是同一支。
+	IDAInkey = 0x23629
+
 	// IDASelectorRet 是取回傳值那一段。
 	//
 	// ⚠ **要攔 `2057F` 不是 `2057C`**：`2057C` 是 `mov ax,[bp-18h]`，
@@ -96,6 +103,16 @@ type SelectorLog struct {
 	All  []Selector
 	cur  *Selector
 	pick func(*Selector) int
+	// wantRow／setsAt 是「還沒移游標」：要等原版自己的 `AX=4` 跑過
+	// （`len(MouseSets()) > setsAt`）才移，否則會被它蓋掉。
+	wantRow int
+	setsAt  int
+	// armAt 是「游標已經放到目標列，跑到這個指令數就送 Enter」。
+	//
+	// **用指令數不是圈數**：選單迴圈一圈只有一千七百道左右，而游標要被
+	// 原版讀進去、反白跟上需要的是 `oracle.DefaultHover`（兩百萬道）——
+	// 那是 `Click` 量出來的間隔，等兩圈差了六百倍。
+	armAt uint64
 }
 
 // Answer 讓接下來每一張選單一開就自動回答。
@@ -174,13 +191,52 @@ func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 			// 幾何用進場那六個參數算（`RowPoint` 在 `HitSeen` 之前就是
 			// 走這一條）：x0 ＝ 第 1 參數、y0 ＝ 第 2 參數、間距 18、
 			// x1 ＝ x0 + 16×寬 + 42。命中判定實測與這組吻合。
-			x, y := log.cur.RowPoint(row)
-			o.MoveMouse(x, y)
-			o.Type(KeyEnter)
+			//
+			// ⚠ **Enter 不在這裡送**，理由見 `IDAMouseUpdate`：這一刻選單
+			// 才剛進場，原版還沒把新的游標位置讀進去、反白仍停在上一次的
+			// 位置。同一個 hook 裡連著送 `MoveMouse` ＋ `Enter`，確定的是
+			// **上一圈的反白**——實測銀行那張選第 1 列收到取消碼 99、
+			// 股市那張選第 2 列收到 1「下一頁」
+			//（`rich2/docs/spec/084` §2a）。
+			// ⚠ **游標不能在這一刻移。** 選單一進場，原版自己會呼叫
+			// `INT 33h AX=4` 把游標設到它要的位置（多半是第 1 列），
+			// **把我們注入的位置蓋掉，而且畫面看起來完全正常**
+			//（`oracle.MoveMouse` 的註解、`Click` 的 `MouseSettled` 等的
+			// 就是這件事）。所以這裡只記下要選第幾列與當下的 `AX=4` 次數，
+			// 等它增加了再移。
+			log.wantRow = row
+			log.setsAt = len(o.MouseSets())
 		}
 	})
 
+
+
 	o.OnCall(o.IDA(IDAMenuHit), func(o *oracle.Oracle) {
+		// **回答選單的節拍。** 一圈的順序是
+		//
+		//	1F538  0CED:6759  讀滑鼠位置 ＋ 讀鍵（IDAInkey）
+		//	1F544  是 Enter？→ 用**目前的**游標回傳，跳出迴圈
+		//	1F562  是 ESC？  → 取消
+		//	1F588  0CED:6624  命中判定（這一支）
+		//	1F5A5            把命中的列寫回游標 ← 反白到這裡才動
+		//
+		// 所以 Enter 一定要在「命中判定跑完、游標寫回去」之後那一圈才送。
+		// ⚠ **等的是指令數不是圈數。** `ChooseRow`（滑鼠點擊那條路）能選中
+		// 第 2 列，而它與這裡的差別就是 `Click` 的 hover 間隔——
+		// 兩百萬道指令。選單迴圈一圈只有一千七百道，等兩圈差了六百倍，
+		// 症狀是「送了 Enter 卻選到別列」：銀行那張第 1 列收到取消碼 99、
+		// 股市那張第 2 列收到 1「下一頁」（`rich2/docs/spec/084` §2a）。
+		switch {
+		case log.wantRow > 0 && len(o.MouseSets()) > log.setsAt:
+			// 原版設完游標了，現在移過去才不會被蓋掉。
+			x, y := log.cur.RowPoint(log.wantRow)
+			o.MoveMouse(x, y)
+			log.wantRow = 0
+			log.armAt = o.Steps() + oracle.DefaultHover
+		case log.armAt > 0 && o.Steps() >= log.armAt:
+			log.armAt = 0
+			o.Type(KeyEnter)
+		}
 		if log.cur == nil || log.cur.HitSeen {
 			return
 		}
