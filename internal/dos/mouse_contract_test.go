@@ -220,3 +220,65 @@ func TestMouseResetReportsInstalledAndClearsHandler(t *testing.T) {
 		t.Error("重設之後還會呼叫舊的事件常式")
 	}
 }
+
+// `AX=0014h`（交換使用者中斷向量）設新的、回舊的，一次做完。
+//
+// **用這一支的程式一次都不叫 `AX=000Ch`**（《Dungeon Master》DOS 版
+// 4 億道指令裡 `000Ch` 0 次、`0014h` 5 次），所以只做 `000Ch` 等於完全沒做。
+// 見 `docs/spec/194`。
+func TestMouseSwapUserInterruptVectorsReturnsPrevious(t *testing.T) {
+	m, d := newTest(t)
+
+	// 沒登錄過時回 0：真驅動回它自己的預設常式，而那個位址在我們這裡
+	// 不存在——回 0 讓「把舊值裝回去」等價於停用。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x3000, 0x0100
+	m.CPU.R[cpu.CX] = 0x001F
+	call(m, d, 0x33, 0x0014)
+	if m.CPU.Seg[cpu.ES] != 0 || m.CPU.R[cpu.DX] != 0 || m.CPU.R[cpu.CX] != 0 {
+		t.Errorf("沒登錄過時回 ES:DX=%04X:%04X CX=%04X，預期全 0",
+			m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX], m.CPU.R[cpu.CX])
+	}
+	if !d.Mouse.Handler.Set || d.Mouse.Handler.Seg != 0x3000 ||
+		d.Mouse.Handler.Off != 0x0100 || d.Mouse.Handler.Mask != 0x001F {
+		t.Errorf("新的那一組沒生效：%+v", d.Mouse.Handler)
+	}
+
+	// 換第二組，回的是第一組。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x4000, 0x0200
+	m.CPU.R[cpu.CX] = 0x0008
+	call(m, d, 0x33, 0x0014)
+	if m.CPU.Seg[cpu.ES] != 0x3000 || m.CPU.R[cpu.DX] != 0x0100 ||
+		m.CPU.R[cpu.CX] != 0x001F {
+		t.Errorf("回 ES:DX=%04X:%04X CX=%04X，預期 3000:0100 CX=001F",
+			m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX], m.CPU.R[cpu.CX])
+	}
+
+	// 再換回第一組，回的是第二組——證明舊值是在覆寫之前取出來的，
+	// 不是把呼叫端剛傳進來的那一份原樣回去。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x3000, 0x0100
+	m.CPU.R[cpu.CX] = 0x001F
+	call(m, d, 0x33, 0x0014)
+	if m.CPU.Seg[cpu.ES] != 0x4000 || m.CPU.R[cpu.DX] != 0x0200 ||
+		m.CPU.R[cpu.CX] != 0x0008 {
+		t.Errorf("回 ES:DX=%04X:%04X CX=%04X，預期 4000:0200 CX=0008",
+			m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX], m.CPU.R[cpu.CX])
+	}
+}
+
+// `AX=0014h` 登錄的常式與 `AX=000Ch` 登錄的走同一條派送路徑。
+func TestMouseSwapRegisteredHandlerReceivesEvents(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = 0x3000, 0
+	m.CPU.R[cpu.CX] = 0xFFFF
+	call(m, d, 0x33, 0x0014)
+	if !d.MouseEvent(EventMove) {
+		t.Error("0014h 登錄的常式收不到事件")
+	}
+
+	// CX=0 是停用，與 000Ch 同。
+	m.CPU.R[cpu.CX] = 0
+	call(m, d, 0x33, 0x0014)
+	if d.MouseEvent(EventMove) {
+		t.Error("CX=0 之後還在派送事件")
+	}
+}

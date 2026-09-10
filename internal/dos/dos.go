@@ -855,6 +855,7 @@ func ah(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX] >> 8) }
 func al(c *cpu.CPU) uint8 { return uint8(c.R[cpu.AX]) }
 func bl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX]) }
 func bh(c *cpu.CPU) uint8 { return uint8(c.R[cpu.BX] >> 8) }
+func cl(c *cpu.CPU) uint8 { return uint8(c.R[cpu.CX]) }
 
 // ArenaDump 把配置器目前的區塊表印成一行一塊，供診斷用。
 func (d *DOS) ArenaDump() []string {

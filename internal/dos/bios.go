@@ -279,6 +279,26 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Handler.Seg, m.Handler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
 		m.Handler.Mask, m.Handler.Set = c.R[cpu.CX], true
 
+	case 0x0014: // 交換使用者中斷向量（`docs/spec/194`）
+		// 「設新的、回舊的」一次做完。**用這一支的程式一次都不叫
+		// `AX=000Ch`**——只做 `000Ch` 等於完全沒做，而症狀是
+		// 「點了沒反應」，與座標算錯、與遊戲沒讀滑鼠長得一模一樣。
+		//
+		// ⚠ 舊值要在覆寫**之前**取出來：`ES` 是輸出，
+		// 順序寫反回傳的是呼叫端剛剛傳進來的那一份。
+		oldSeg, oldOff, oldMask := m.Handler.Seg, m.Handler.Off, m.Handler.Mask
+		if !m.Handler.Set {
+			// 沒登錄過就回 0。真驅動回的是它自己的預設常式，
+			// 而那個位址在我們這裡不存在——回 0 讓「把舊值裝回去」
+			// 等價於停用，程式真的 call 進去也會停在 0000:0000，
+			// 那是看得見的失敗。
+			oldSeg, oldOff, oldMask = 0, 0, 0
+		}
+		m.Handler.Seg, m.Handler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
+		m.Handler.Mask, m.Handler.Set = c.R[cpu.CX], true
+		c.Seg[cpu.ES], c.R[cpu.DX] = oldSeg, oldOff
+		c.R[cpu.CX] = oldMask
+
 	case 0x000F: // 設 mickey/pixel 比例：收下就好
 
 	default:
@@ -455,7 +475,11 @@ func (d *DOS) int13(c *cpu.CPU) {
 	default:
 		// 讀寫磁區沒實作：**回失敗**，不要假裝成功。
 		// 假裝成功的話呼叫端會拿沒填過的緩衝區當資料用。
-		d.note(0x13, ah(c), al(c))
+		//
+		// 記脈絡（`noteCPU` 而不是 `note`）：磁區位址在 CX/DX 裡，
+		// 少了它就只知道「有人讀磁區」，答不出讀的是開機磁區、
+		// 分割表、還是某個防拷用的磁軌——三者的處置完全不同。
+		d.noteCPU(c, 0x13, ah(c), al(c))
 		setAH(c, 0x80) // 逾時
 		setCarry(c)
 	}

@@ -76,6 +76,16 @@ func (d *DOS) int21(c *cpu.CPU) {
 		// 沒有可 flush 的東西——靜默收下（`docs/spec/009` §3），不是「沒實作」。
 		clearCarry(c)
 
+	case 0x0E: // 選目前磁碟機：DL ＝ 磁碟機（0 ＝ A），AL ← 磁碟機數量
+		// 我們只有一個 Root，任何磁碟機都對到它（`docs/spec/195` §3）；
+		// 存下來是為了讓 `AH=19h` 回報得一致——遊戲把它拼進路徑之後
+		// 對不上的話，症狀出現在幾百萬道指令之後的開檔失敗。
+		//
+		// **回 3 不是 1**：回 1 遊戲會判定沒有硬碟。
+		d.Drive = uint8(c.R[cpu.DX] & 0xFF)
+		setAL(c, 3)
+		clearCarry(c)
+
 	case 0x19: // 取目前磁碟機
 		// 不實作的話 AL 是垃圾，遊戲把它拼進路徑就變成 `A:\…`，
 		// 而 open 還是會成功（我們按檔名解析），**錯誤完全不顯現**。
@@ -185,9 +195,14 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
 			c.R[cpu.DX] = uint16(d.Drive)
+		} else if al(c) == 0x0D && cl(c) == 0x60 {
+			d.deviceParameters(c)
 		} else {
 			// 其他子功能沒實作——記下來，別讓「成功」假象藏住。
-			d.note(0x21, 0x44, al(c))
+			// 記脈絡：generic IOCTL（`AL=0Dh`）的實際請求在 CH/CL 裡，
+			// 少了它只知道「有人問了 IOCTL」，答不出問的是磁碟幾何
+			// 還是媒體識別。
+			d.noteCPU(c, 0x21, 0x44, al(c))
 		}
 		c.R[cpu.AX] = 0
 		clearCarry(c)
@@ -803,4 +818,62 @@ func (d *DOS) syncMCB() {
 		d.M.WriteMCB(d.freeSeg, true, 0, uint16(machine.MemTop)-d.freeSeg-1)
 		d.M.WriteMCB(machine.PSPSeg-1, false, machine.PSPSeg, d.freeSeg-machine.PSPSeg)
 	}
+}
+
+// 假想磁碟的幾何。`AH=1Bh`／`1Ch` 與 IOCTL 取裝置參數（`AH=44h AL=0Dh
+// CL=60h`）都從這裡取值——**同一支程式兩邊都問得到的時候，答案矛盾
+// 會讓它算出來的可用空間跳動，而那種錯誤要到存檔寫一半才浮現**。
+const (
+	diskBytesPerSector  = 512
+	diskSectorsPerClust = 8
+	diskClusters        = 40000
+	diskReservedSectors = 1
+	diskFATCopies       = 2
+	diskRootEntries     = 512
+	diskMediaByte       = 0xF8 // 固定磁碟
+	diskSectorsPerTrack = 63
+	diskHeads           = 16
+	diskHiddenSectors   = 63
+	diskRootDirSectors  = diskRootEntries * 32 / diskBytesPerSector
+	diskSectorsPerFAT   = (diskClusters*2 + diskBytesPerSector - 1) / diskBytesPerSector
+	diskTotalSectors    = diskReservedSectors + diskFATCopies*diskSectorsPerFAT +
+		diskRootDirSectors + diskClusters*diskSectorsPerClust
+	diskCylinders = (diskTotalSectors + diskHiddenSectors +
+		diskSectorsPerTrack*diskHeads - 1) / (diskSectorsPerTrack * diskHeads)
+)
+
+// deviceParameters 是 generic IOCTL 的取裝置參數（`docs/spec/196`）。
+//
+// **這一支是「要不要提示換片」的判斷來源。** 回報成固定硬碟
+// （型別 05h ＋ 屬性 bit0）程式就不會問；答不出來的話它會退而求其次
+// 用 `int 13h` 直接讀開機磁區，那條路也失敗之後就停在換片提示上
+// ——《Dungeon Master》DOS 版點過 ENTER 之後正是停在那裡。
+func (d *DOS) deviceParameters(c *cpu.CPU) {
+	at := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	// 位移 0 是**輸入**（呼叫端要目前的還是預設的 BPB），不要覆寫。
+	d.M.Write8(at+1, 0x05)    // 裝置型別：固定硬碟
+	d.M.Write16(at+2, 0x0001) // 屬性：bit0 ＝ 不可移除
+	d.M.Write16(at+4, diskCylinders)
+	d.M.Write8(at+6, 0x00) // 媒體型別
+
+	bpb := at + 7
+	d.M.Write16(bpb+0, diskBytesPerSector)
+	d.M.Write8(bpb+2, diskSectorsPerClust)
+	d.M.Write16(bpb+3, diskReservedSectors)
+	d.M.Write8(bpb+5, diskFATCopies)
+	d.M.Write16(bpb+6, diskRootEntries)
+	d.M.Write16(bpb+8, 0) // 16 位元的總磁區數：超過 65535 就填 0，走下面那格
+	d.M.Write8(bpb+10, diskMediaByte)
+	d.M.Write16(bpb+11, diskSectorsPerFAT)
+	d.M.Write16(bpb+13, diskSectorsPerTrack)
+	d.M.Write16(bpb+15, diskHeads)
+	d.M.Write16(bpb+17, diskHiddenSectors&0xFFFF)
+	d.M.Write16(bpb+19, diskHiddenSectors>>16)
+	d.M.Write16(bpb+21, diskTotalSectors&0xFFFF)
+	d.M.Write16(bpb+23, diskTotalSectors>>16)
+	// bpb+25..30 是 DOS 4.0 之後才有的欄位，留 0。
+
+	d.M.Write16(at+0x26, diskSectorsPerTrack)
+	// 位移 28h 起的磁軌配置表**不填**：它只在輸入的 bit1 立起來時有意義，
+	// 而長度由呼叫端決定。沒有長度就往下寫等於猜一個長度亂寫別人的記憶體。
 }

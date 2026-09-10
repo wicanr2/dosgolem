@@ -344,3 +344,9 @@
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
+
+- [194 — 交換使用者中斷向量（int 33h AX=0014h）](194-mouse-swap-user-interrupt-vectors.md)：READY。`000Ch` 的「設新的、回舊的」版本；**用這一支的程式一次都不叫 `000Ch`**。
+
+- [195 — 子目錄的路徑解析](195-subdirectory-path-resolution.md)：READY。先試完整路徑再退回 basename；資料真的放在 `data\` 底下的遊戲只有這條路走得通。
+
+- [196 — 取磁碟裝置參數（int 21h AH=44h AL=0Dh CL=60h）](196-ioctl-get-device-parameters.md)：READY。回報成固定硬碟，程式才不會提示換片；BPB 與 `AH=1Bh` 同一組數字。

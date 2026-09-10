@@ -323,3 +323,137 @@ func TestFindFirstWritesDTAAndLeavesItAloneOnFailure(t *testing.T) {
 		t.Errorf("缺檔卻動了 DTA（%02X）", got)
 	}
 }
+
+// 資料真的放在子目錄的遊戲要走完整路徑（`docs/spec/195`）。
+//
+// 只認 basename 的失敗**看起來不像檔案問題**：遊戲不檢查開檔結果就往下跑，
+// 最後停在某個等事件的迴圈，畫面照在、指令照跑。
+func TestSubdirectoryPathsResolveCaseInsensitively(t *testing.T) {
+	m, d := newTest(t)
+	if err := os.MkdirAll(filepath.Join(d.Root, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, d, filepath.Join("data", "GRAPHICS.DAT"), "gfx")
+
+	for _, name := range []string{
+		`data\GRAPHICS.DAT`,    // 原樣
+		`DATA\graphics.dat`,    // 每一段都大小寫不分
+		`C:\data\GRAPHICS.DAT`, // 磁碟機代號丟掉
+		`\data\GRAPHICS.DAT`,   // 開頭的分隔符相對於 Root
+		`.\data\GRAPHICS.DAT`,  // `.` 略過
+	} {
+		putFileName(m, name)
+		call(m, d, 0x21, 0x3D00)
+		if m.CPU.Flags&cpu.CF != 0 {
+			t.Errorf("開 %q 失敗（AX=%d）", name, m.CPU.R[cpu.AX])
+			continue
+		}
+		m.CPU.R[cpu.BX] = m.CPU.R[cpu.AX]
+		call(m, d, 0x21, 0x3E00)
+	}
+}
+
+// `..` 讓整條路徑不合格，退回 basename——不能讓遊戲組出來的路徑走出 Root。
+func TestParentDirectoryEscapeFallsBackToBasename(t *testing.T) {
+	m, d := newTest(t)
+	writeFixture(t, d, "INSIDE.DAT", "x")
+
+	// `..` 那一段被拒，退回 basename 就在 Root 裡找到了。
+	putFileName(m, `..\INSIDE.DAT`)
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("退回 basename 之後仍然開不到（AX=%d）", m.CPU.R[cpu.AX])
+	}
+	m.CPU.R[cpu.BX] = m.CPU.R[cpu.AX]
+	call(m, d, 0x21, 0x3E00)
+
+	// Root 外面真的存在的檔不得因為 `..` 而開得到。
+	outside := filepath.Join(filepath.Dir(d.Root), "OUTSIDE.DAT")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	putFileName(m, `..\OUTSIDE.DAT`)
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF == 0 {
+		t.Error("Root 外面的檔竟然開到了")
+	}
+}
+
+// 目錄部分對不上時退回 basename——既有的多磁片版救援一個字都不能少。
+func TestUnknownDirectoryStillFallsBackToBasename(t *testing.T) {
+	m, d := newTest(t)
+	writeFixture(t, d, "DATA.PAK", "x")
+
+	putFileName(m, `A:\WHATEVER\DATA.PAK`)
+	call(m, d, 0x21, 0x3D00)
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("目錄對不上時沒退回 basename（AX=%d）", m.CPU.R[cpu.AX])
+	}
+	m.CPU.R[cpu.BX] = m.CPU.R[cpu.AX]
+	call(m, d, 0x21, 0x3E00)
+}
+
+// `AH=0Eh` 選磁碟機：存進 `d.Drive` 讓 `AH=19h` 讀得到，AL 回磁碟機數量。
+//
+// **回 1 的話遊戲會判定沒有硬碟。**
+func TestSelectDefaultDriveIsReadableBack(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.DX] = 0x0002 // C:
+	call(m, d, 0x21, 0x0E00)
+	if al := uint8(m.CPU.R[cpu.AX]); al != 3 {
+		t.Errorf("AL=%d，預期 3（A、B、C）", al)
+	}
+	call(m, d, 0x21, 0x1900)
+	if al := uint8(m.CPU.R[cpu.AX]); al != 2 {
+		t.Errorf("AH=19h 回 AL=%d，預期 2（就是剛剛選的 C:）", al)
+	}
+}
+
+// generic IOCTL 取裝置參數（`docs/spec/196`）：回報成固定硬碟，
+// 而且 BPB 要與 `AH=1Bh` 說的同一組數字。
+//
+// **這一支是「要不要提示換片」的判斷來源。** 答不出來的程式會退而
+// 用 `int 13h` 讀開機磁區，那條路再失敗就停在換片提示上。
+func TestGetDeviceParametersReportsFixedDisk(t *testing.T) {
+	m, d := newTest(t)
+	const blk = 0x0200
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x1000, blk
+	base := uint32(0x1000)*16 + blk
+	// 位移 0 是輸入，放一個看得出來的值確認我們不覆寫它。
+	m.Write8(base, 0x04)
+
+	m.CPU.R[cpu.BX] = 0x0003 // C:
+	m.CPU.R[cpu.CX] = 0x0860 // CH=08 磁碟類別、CL=60 取裝置參數
+	call(m, d, 0x21, 0x440D)
+
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("回失敗（AX=%d）", m.CPU.R[cpu.AX])
+	}
+	if got := m.Read8(base); got != 0x04 {
+		t.Errorf("位移 0（輸入）被覆寫成 %02X", got)
+	}
+	if got := m.Read8(base + 1); got != 0x05 {
+		t.Errorf("裝置型別 %02X，預期 05（固定硬碟）", got)
+	}
+	if got := m.Read16(base + 2); got&1 == 0 {
+		t.Errorf("屬性 %04X，預期 bit0 立起來（不可移除）", got)
+	}
+	if got := m.Read16(base + 4); got == 0 {
+		t.Error("磁柱數是 0")
+	}
+
+	// BPB 要與 AH=1Bh 一致：同一支程式兩邊都問得到。
+	bpb := base + 7
+	call(m, d, 0x21, 0x1B00)
+	wantSector, wantClust, wantMedia := m.CPU.R[cpu.CX], uint8(m.CPU.R[cpu.AX]),
+		m.Read8(cpu.Addr(m.CPU.Seg[cpu.DS], m.CPU.R[cpu.BX]))
+	if got := m.Read16(bpb + 0); got != wantSector {
+		t.Errorf("BPB 每磁區位元組 %d，AH=1Bh 說 %d", got, wantSector)
+	}
+	if got := m.Read8(bpb + 2); got != wantClust {
+		t.Errorf("BPB 每叢集磁區 %d，AH=1Bh 說 %d", got, wantClust)
+	}
+	if got := m.Read8(bpb + 10); got != wantMedia {
+		t.Errorf("BPB 媒體描述子 %02X，AH=1Bh 說 %02X", got, wantMedia)
+	}
+}

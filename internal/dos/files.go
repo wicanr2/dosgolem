@@ -46,6 +46,20 @@ type handle struct {
 // 開檔結果——KOL 就是一路跑進沒有映射的記憶體才停，**看起來像模擬器的 bug，
 // 其實是檔名沒對上**。
 func (d *DOS) resolve(name string) string {
+	// 先試完整路徑（`docs/spec/195`）：資料真的放在子目錄的遊戲
+	// （《Dungeon Master》的 `data\GRAPHICS.DAT`）只有這條路走得通。
+	// **順序不能顛倒**——先試 basename 的話，頂層剛好有同名檔時
+	// 會開到錯的那一份。
+	if segs := dosPathSegments(name); len(segs) > 1 {
+		if d.Scratch != "" {
+			if p := lookupPath(d.Scratch, segs); p != "" {
+				return p
+			}
+		}
+		if p := lookupPath(d.Root, segs); p != "" {
+			return p
+		}
+	}
 	base := baseName(name)
 	if base == "" {
 		return ""
@@ -58,6 +72,74 @@ func (d *DOS) resolve(name string) string {
 		}
 	}
 	return lookupDOS(d.Root, base)
+}
+
+// dosPathSegments 把 DOS 路徑拆成一段一段，回 nil 表示這條路徑不能走
+// 完整解析（`docs/spec/195` §2）。
+//
+// ⚠ **`..` 一律讓整條失敗。** 讓遊戲組出來的路徑走出 Root 等於把模擬器
+// 當檔案總管；回 nil 之後呼叫端退回 basename，那條路只在 Root 裡找。
+func dosPathSegments(name string) []string {
+	// 磁碟機代號丟掉：我們只有一個 Root，`C:` 與 `A:` 都對到它。
+	if i := strings.Index(name, ":"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.ReplaceAll(name, `\`, "/")
+	var segs []string
+	for _, s := range strings.Split(name, "/") {
+		switch s {
+		case "", ".":
+			// 開頭的分隔符與空的一段都略過：真 DOS 的絕對路徑
+			// 相對於磁碟機根目錄，而 Root 就是那個根目錄。
+		case "..":
+			return nil
+		default:
+			segs = append(segs, s)
+		}
+	}
+	return segs
+}
+
+// lookupPath 沿著 segs 逐段大小寫不分地解析。中間段必須是目錄、
+// 最後一段必須是檔案。
+//
+// **中間段不做 8.3 截斷**：截斷是 FAT 對檔名的限制，對目錄名多猜一次
+// 只會讓「找到了但是別的東西」變得可能。
+func lookupPath(dir string, segs []string) string {
+	for i, s := range segs {
+		last := i == len(segs)-1
+		next := lookupEntry(dir, s, !last)
+		if next == "" {
+			if !last {
+				return ""
+			}
+			// 最後一段照既有規則再試 8.3 截斷過的名字。
+			return lookupDOS(dir, s)
+		}
+		dir = next
+	}
+	return dir
+}
+
+// lookupEntry 在 dir 裡找一個名字，wantDir 決定要目錄還是要檔案。
+func lookupEntry(dir, name string, wantDir bool) string {
+	direct := filepath.Join(dir, name)
+	if st, err := os.Stat(direct); err == nil && st.IsDir() == wantDir {
+		return direct
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() != wantDir {
+			continue
+		}
+		if strings.EqualFold(e.Name(), name) {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return ""
 }
 
 // lookupDOS 在一個目錄裡找 basename，找不到再用 8.3 截斷過的名字找一次。
