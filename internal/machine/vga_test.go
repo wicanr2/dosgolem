@@ -344,6 +344,14 @@ func TestReadModes(t *testing.T) {
 	if got := m.Read8(0xA0000); got != 0x00 {
 		t.Errorf("color compare 1 ＝ %02X，要 00", got)
 	}
+
+	// color don't care ＝ 0：沒有平面參與比較，每個像素都算相符，回 0xFF。
+	// 遊戲拿它當「全開的遮罩」，再用 and es:[di],al 把字形寫進去；
+	// 這裡回平面值的話，底色為 0 的格子遮罩整個歸零，字一個像素都不畫。
+	gcReg(m, 7, 0x00)
+	if got := m.Read8(0xA0000); got != 0xFF {
+		t.Errorf("don't care ＝ 0 時回 %02X，要 FF（全開的遮罩）", got)
+	}
 }
 
 // TestPlanarReadLoadsLatchAndSelectsPlane：讀取要裝 latch（RMW 的前提）
