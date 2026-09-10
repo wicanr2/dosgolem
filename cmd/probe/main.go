@@ -97,8 +97,9 @@ func main() {
 		"每一次腳本點擊先把游標移過去、等遊戲讀了幾次滑鼠才按下去（0 ＝ 移到就按）。"+
 			"有些對話框的鈕吃「游標已經在上面」這個狀態（`docs/spec/004` §4.19）")
 	clickScript := flag.String("clicks", "",
-		"點擊腳本：`步數:X:Y[:鍵]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。"+
-			"按住時間用 -click-hold")
+		"點擊腳本：`步數:X:Y[:鍵[:按住]]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。\n"+
+			"    按住時間省略就用全域的 -click-hold；同一段序列裡不同的鈕\n"+
+			"    常常要不同的按住時間，這一欄就是給那種情形用的")
 	watchVideo := flag.Bool("watch-video", false,
 		"統計寫進 A0000–BFFFF 的位址範圍（回答「它到底畫在哪裡」）")
 	watch := flag.String("watch", "", "監看記憶體寫入，格式 <線性hex>-<線性hex>；"+
@@ -707,7 +708,7 @@ func main() {
 				pollsAtPress = len(d.Mouse.Polls)
 				preIdx, downIdx = -1, i
 				pressStep = m.Steps
-			case downIdx == i && releaseNow(d, *clickPolls, *clickHold, pollsAtPress, m.Steps, pressStep):
+			case downIdx == i && releaseNow(d, *clickPolls, holdOf(c, *clickHold), pollsAtPress, m.Steps, pressStep):
 				d.ReleaseMouse(btn)
 				downIdx = -1
 			}
@@ -1778,9 +1779,16 @@ type click struct {
 	step uint64
 	x, y uint16
 	btn  uint16
+	// hold 是這一次的按住時間（指令數）；0 ＝ 用全域的 -click-hold。
+	//
+	// ⚠ **同一段序列裡不同的按鈕常常要不同的按住時間。** 選單鈕吃短按、
+	// 拖曳或連續開窗吃長按；只有一個全域值的話，把長的套到短的那幾次
+	// 會多開一層窗、把短的套到長的那幾次會整個沒反應——兩種都不報錯，
+	// 只是收據跑出另一個畫面。
+	hold uint64
 }
 
-// parseClicks 讀 `步數:X:Y,步數:X:Y` 這種腳本。
+// parseClicks 讀 `步數:X:Y[:鍵[:按住]]`，逗號分隔。
 func parseClicks(spec string) ([]click, error) {
 	if spec == "" {
 		return nil, nil
@@ -1792,8 +1800,8 @@ func parseClicks(spec string) ([]click, error) {
 			continue
 		}
 		f := strings.Split(part, ":")
-		if len(f) != 3 && len(f) != 4 {
-			return nil, fmt.Errorf("點擊腳本 %q 格式不對，要 步數:X:Y[:鍵]", part)
+		if len(f) < 3 || len(f) > 5 {
+			return nil, fmt.Errorf("點擊腳本 %q 格式不對，要 步數:X:Y[:鍵[:按住]]", part)
 		}
 		c := click{btn: 1}
 		n, err := strconv.ParseUint(f[0], 10, 64)
@@ -1808,12 +1816,19 @@ func parseClicks(spec string) ([]click, error) {
 			}
 			*dst = uint16(v)
 		}
-		if len(f) == 4 {
+		if len(f) >= 4 && f[3] != "" {
 			v, err := strconv.ParseUint(f[3], 10, 16)
 			if err != nil {
 				return nil, fmt.Errorf("點擊腳本 %q 的鍵不是數字：%w", part, err)
 			}
 			c.btn = uint16(v)
+		}
+		if len(f) == 5 && f[4] != "" {
+			v, err := strconv.ParseUint(f[4], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("點擊腳本 %q 的按住時間不是數字：%w", part, err)
+			}
+			c.hold = v
 		}
 		out = append(out, c)
 	}
@@ -2507,6 +2522,14 @@ func (c *callArgLog) dump() {
 // `-click-hold` 是固定指令數。前者才是可移植的——同一支遊戲不同畫面的
 // 輪詢頻率可以差三個數量級（源平合戰的磁片提示每千萬道問 12 次，
 // 讀檔選單每千萬道問一千次），固定指令數在一邊漏掉、在另一邊按成連點。
+// holdOf 是這一次點擊要按住幾道指令：腳本裡寫了就用它，沒寫用全域值。
+func holdOf(c click, global uint64) uint64 {
+	if c.hold > 0 {
+		return c.hold
+	}
+	return global
+}
+
 func releaseNow(d *dos.DOS, clickPolls int, clickHold uint64,
 	pollsAtPress int, step, pressStep uint64) bool {
 	if clickPolls > 0 {
