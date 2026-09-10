@@ -11,9 +11,6 @@ package machine
 // 程式在等資料指標走到結尾，而指標一秒才動一格。
 
 const (
-	// pitInputHz 是 8253 的輸入頻率（1.193182 MHz）。
-	pitInputHz = 1193182
-
 	// MinIRQ0Every 是 IRQ0 間隔的下限，單位是指令數。
 	//
 	// 分頻值可以小到 1（約 1.19 MHz），照比例算會變成每兩道指令一次中斷
@@ -41,7 +38,7 @@ type SpeakerSample struct {
 // **這是模型不是量測。** 它定義「指令數怎麼換算成時間」，
 // 改 IRQ0Every 不影響它。波形要存成音檔時用得到。
 func StepsPerSecond() float64 {
-	return float64(DefaultIRQ0Every) * pitInputHz / PITDefaultDivisor
+	return float64(DefaultIRQ0Every) * PITBaseHz / PITDefaultDivisor
 }
 
 // outSpeaker 收埠 0x61 的喇叭兩個位元，只在值改變時記一筆。

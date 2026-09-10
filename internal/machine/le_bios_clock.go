@@ -51,8 +51,13 @@ func (b *LEBIOSClock) advance(m *LEMachine, p *LEOPLPorts, enabled bool) error {
 		b.credit = 0
 		b.generation = p.PIT0.Generation
 	}
-	b.credit += 1193182
-	period := uint64(reload) * 1000000
+	// 每次呼叫代表一微秒，credit 累加「一秒有幾個 PIT 計數」的定點值。
+	//
+	// 用 `315e6 / (reload × 264)` 這個分數，不用四捨五入的 1,193,182：
+	// 輸入頻率是 `315/264` MHz ＝ 1,193,181.8181…（`PITBaseHz`），
+	// 兩種寫法的比值差 1.5×10⁻⁷，長跑累積下來會偏。
+	b.credit += 315_000_000
+	period := uint64(reload) * 264 * 1_000_000
 	if b.credit >= period {
 		b.credit %= period
 		b.Pending = true

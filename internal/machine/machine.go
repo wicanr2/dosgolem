@@ -104,9 +104,6 @@ const (
 // 在真機上貴很多。設 `IRQ0Every` 非零就切回這個舊模型。
 const DefaultIRQ0Every = 165_000
 
-// PITHz 是 8253／8254 的輸入頻率：14.31818 MHz ÷ 12。
-const PITHz = 1_193_182
-
 // DefaultCPUHz 是模擬的 CPU 時脈。**這是「我們在假裝哪一台機器」**，
 // 不是實測值。
 //
@@ -269,7 +266,7 @@ type Machine struct {
 	// CPUHz 是模擬的 CPU 時脈，CycleClock 打開時走它（見 DefaultCPUHz）。
 	CPUHz uint64
 
-	// cycPerIRQ0 是兩次 IRQ0 之間幾個週期：CPUHz × 分頻 / PITHz。
+	// cycPerIRQ0 是兩次 IRQ0 之間幾個週期：CPUHz × 分頻 / PITBaseHz。
 	cycPerIRQ0  uint64
 	nextIRQ0Cyc uint64
 
@@ -954,7 +951,10 @@ func (m *Machine) recalcIRQ0() {
 	if hz == 0 {
 		hz = DefaultCPUHz
 	}
-	cyc := hz * uint64(m.PITDiv) / PITHz
+	// 輸入頻率是 `315/264` MHz（`PITBaseHz`）。這裡用分數而不是把那個
+	// 常數轉成整數：`uint64(PITBaseHz)` 會截成 1,193,181，比四捨五入的
+	// 1,193,182 少 1，兩種寫法算出來的週期數就差得出來。
+	cyc := hz * uint64(m.PITDiv) * 264 / 315_000_000
 	if cyc == 0 {
 		cyc = 1
 	}

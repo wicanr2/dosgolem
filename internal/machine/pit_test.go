@@ -11,7 +11,7 @@ func TestPITDivisorScalesIRQ0(t *testing.T) {
 	if m.PITDiv != PITDefaultDivisor {
 		t.Fatalf("開機分頻是 %d，應該是 %d", m.PITDiv, PITDefaultDivisor)
 	}
-	if want := uint64(DefaultCPUHz) * PITDefaultDivisor / PITHz; m.cycPerIRQ0 != want {
+	if want := uint64(DefaultCPUHz) * PITDefaultDivisor * 264 / 315_000_000; m.cycPerIRQ0 != want {
 		t.Fatalf("開機間隔 %d 個週期，18.2 Hz 下應該是 %d", m.cycPerIRQ0, want)
 	}
 	boot := m.cycPerIRQ0

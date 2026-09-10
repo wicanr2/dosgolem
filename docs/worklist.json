@@ -21,21 +21,6 @@
         "pattern": "還沒有裁決哪一個對",
         "note": "綁 pit.go 那段自承。裁決之後那句話會被改掉。"
       }
-    },
-    {
-      "id": "pit-input-hz-three-constants",
-      "layer": "consistency",
-      "title": "8253 的輸入頻率有三個常數",
-      "body": "machine.go 的 PITHz ＝ 1_193_182、speaker.go 的 pitInputHz ＝ 1193182（同值，四捨五入）、pit.go 的 PITBaseHz ＝ 315e6/264（精確值 1193181.8181…）。三者描述的是同一個硬體常數。\n\n差 3×10⁻⁷ 在單次換算上看不出來，但 PITHz 用在 recalcIRQ0 的週期計算（乘上 CPUHz 再除），而 PITBaseHz 用在 parityStepsPerSecond；拿兩邊的結果對拍時差額會浮出來。這是三條分支各自帶進來的，不是誰刻意要兩種精度。",
-      "acceptance": "只剩一個常數，值取精確的 315e6/264；改動前後跑一次既有測試確認沒有數值回歸。",
-      "verify": {
-        "kind": "present",
-        "paths": [
-          "internal/machine"
-        ],
-        "pattern": "pitInputHz\\s*=",
-        "note": "綁三者裡最可能被移除的那一個（speaker.go 的未匯出版本）。收斂成一個常數時它會消失。"
-      }
     }
   ],
   "resolved": [
@@ -45,6 +30,13 @@
       "date": "2026-09-10",
       "how": "位址遮罩從 CPU 移到匯流排：新增 cpu.Linear（不遮），CPU 內部六處記憶體存取原語改用它；cpu.Addr 維持遮 20 位不動，給算線性位址比對的地方用。取指令快路徑在 A20 開著時關掉（Mem[] 蓋不住 HMA），執行護欄放行 1 MB 以上。規格 docs/spec/189-a20-gate-and-hma-addressing.md。",
       "caught_by": "verify 自己開口：修好之後 machine.go 那句「到不了 1 MB 之上」的自承跟著改掉，present 就找不到 pattern 了。"
+    },
+    {
+      "id": "pit-input-hz-three-constants",
+      "title": "8253 的輸入頻率有三個常數",
+      "date": "2026-09-10",
+      "how": "四份收成一份：留 pit.go 的 PITBaseHz（精確值 315e6/264），刪掉 machine.go 的 PITHz 常數與 speaker.go 的 pitInputHz。整數運算的地方改用分數 ×264/315e6，不把 PITBaseHz 轉成整數——uint64(PITBaseHz) 會截成 1,193,181，比四捨五入的 1,193,182 少 1，兩種寫法算出來的週期數差得出來。",
+      "caught_by": "verify 開口（找不到 pitInputHz 了）。動手時發現條目只數到三份：le_bios_clock.go 的定點累加裡還硬寫著第四份 1193182，那條路（LEMachine）不經過任何常數，grep 常數名找不到它。"
     }
   ]
 }
