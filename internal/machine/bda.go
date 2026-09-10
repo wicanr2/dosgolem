@@ -76,6 +76,11 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	// 設模式清畫面，真機的 BIOS 也清。
 	if planarMode(mode) {
 		m.VGA.resetMode(mode)
+	} else {
+		// 非平面模式不清畫面，但**時序暫存器照樣要寫**：`0x3DA` 的回掃
+		// 狀態對每一種模式都有意義，而 mode 13h 正是輪詢它最兇的那一種
+		// （`docs/spec/193`）。
+		setModeTiming(&m.VGA.crtc, mode)
 	}
 	m.planarOn = m.planarActive()
 }

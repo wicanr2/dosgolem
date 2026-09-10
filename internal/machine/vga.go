@@ -57,6 +57,9 @@ type VGA struct {
 	acIdx  uint8
 	acFlip bool
 
+	// misc 是 Misc Output（`3C2`）。bit2–3 選像素時鐘（`docs/spec/193`）。
+	misc uint8
+
 	// crtc 是 CRT 控制器（`3D4`／`3D5`，單色是 `3B4`／`3B5`）。
 	// 目前只用到顯示起點 index `0C`／`0D` 與 mode control `17`。
 	crtc    [32]uint8
@@ -140,16 +143,24 @@ func (v *VGA) resetMode(mode uint8) {
 	// 顯示起點會被當成 word 模式而多乘一倍。
 	v.crtc, v.crtcIdx = [32]uint8{}, 0
 	v.crtc[0x17] = 0xE3 // bit6 ＝ 1：起點以位元組計
+	v.seq[1] = 0x01     // clocking mode：一個字元 8 個像素（圖形模式）
+	v.misc = 0xE3       // bit2–3 ＝ 0：25.175 MHz
 	// offset 只在**知道是哪個模式**的時候給：真機開機是文字模式，
 	// CRTC 的值由 BIOS 依模式設。不知道就留 0，`Pitch` 會退回用寬度推
 	// ——猜一個寬度的話，320 寬的模式會拿到 640 的列距而每一列錯開一倍。
+	// 時序暫存器：BIOS 設模式時會寫的那一組（`docs/spec/193` §2）。
+	// 少了它們 htotal 會是 5，算出來的水平頻率差二十倍。
+	setModeTiming(&v.crtc, mode)
 	if w, h := planarSize(mode); w > 0 {
 		v.crtc[0x13] = uint8(w / 16) // offset 的單位是字組
-		// display end：BIOS 設模式時會寫，程式據此知道畫面多大。
-		v.crtc[0x01] = uint8(w/8 - 1)
-		v.crtc[0x12] = uint8((h - 1) & 0xFF)
-		v.crtc[0x07] = v.crtc[0x07]&^0x42 |
-			uint8((h-1)>>8&1)<<1 | uint8((h-1)>>9&1)<<6
+		// display end：`setModeTiming` 已經給了在表上的模式；不在表上的
+		// 才從寬高推，這樣至少 `Size()` 問得到畫面多大。
+		if v.crtc[0x00] == 0 {
+			v.crtc[0x01] = uint8(w/8 - 1)
+			v.crtc[0x12] = uint8((h - 1) & 0xFF)
+			v.crtc[0x07] = v.crtc[0x07]&^0x42 |
+				uint8((h-1)>>8&1)<<1 | uint8((h-1)>>9&1)<<6
+		}
 	}
 	// line compare 全 1 ＝ 永遠掃不到 ＝ 不分割。
 	v.crtc[0x18] = 0xFF
@@ -174,6 +185,8 @@ func (v *VGA) Out(p uint16, val uint8) bool {
 		v.gcIdx = val & 0x0F
 	case 0x3CF:
 		v.gc[v.gcIdx] = val
+	case 0x3C2:
+		v.misc = val
 	case 0x3D4, 0x3B4:
 		v.crtcIdx = val & 0x1F
 	case 0x3D5, 0x3B5:
@@ -206,6 +219,8 @@ func (v *VGA) In(p uint16) (uint8, bool) {
 		return v.gc[v.gcIdx], true
 	case 0x3C1:
 		return v.ac[v.acIdx], true
+	case 0x3CC: // Misc Output 讀回來的埠與寫進去的不同
+		return v.misc, true
 	case 0x3D4, 0x3B4:
 		return v.crtcIdx, true
 	case 0x3D5, 0x3B5:
@@ -408,7 +423,11 @@ func (v *VGA) Size() (w, h int) {
 	if hde == 0 || vde == 0 {
 		return 0, 0 // 還沒被設過
 	}
-	return (hde + 1) * 8, vde + 1
+	// ⚠ **CRTC 說的是掃描線，不是像素列。** max scan line（index `09`
+	// 的 bit0–4）＋ 1 是每個字元列掃幾次——200 列的模式掃兩次，
+	// 不除的話高度會是兩倍。
+	rows := int(v.crtc[0x09]&0x1F) + 1
+	return (hde + 1) * 8, (vde + 1) / rows
 }
 
 // Pitch 回一列的位元組數（CRTC offset，index `13`）。

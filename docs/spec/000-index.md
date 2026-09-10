@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（12 份）
+### 共同基礎（master）（13 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -63,6 +63,7 @@
 - `190-irq0-calibration.md`
 - `191-two-clocks-relationship.md`
 - `192-crtc-effects.md`
+- `193-crtc-timing.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -341,3 +342,5 @@
 - [191 — 兩個時鐘的關係](191-two-clocks-relationship.md)：READY。比值隨指令混合走（3.25～7.40），不是常數；不強制對齊，改成把關係做成看得到的觀測。
 
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
+
+- [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
