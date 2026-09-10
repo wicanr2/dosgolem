@@ -292,9 +292,14 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 		f := d.procStack[len(d.procStack)-1]
 		d.procStack = d.procStack[:len(d.procStack)-1]
 
-		// 子行程開的檔要關掉，DOS 保管的三個向量要還原。
+		// 子行程開的檔要關掉，它名下的記憶體要還給 DOS，
+		// 保管的三個向量要還原。
 		if !tsr {
 			d.closeHandlesOf(d.curPSP)
+			// ⚠ **記憶體不還會讓假 MCB 標頭留在客體記憶體裡。**
+			// 接手的程式把自己的區塊撐大蓋過那一段之後，標頭就落在
+			// 它的程式碼／資料中間（見 `memBlock.owner`）。
+			d.releaseOwnedBy(d.curPSP)
 		}
 		for i, n := range savedVectors {
 			d.M.Write16(uint32(n)*4, f.ivt[i][0])
@@ -329,6 +334,7 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 			d.freeSeg = k
 		}
 	} else if d.curPSP > 0 {
+		d.releaseOwnedBy(d.curPSP)
 		d.freeSeg = d.curPSP - 1
 	}
 

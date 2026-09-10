@@ -104,7 +104,8 @@ func main() {
 	watch := flag.String("watch", "", "監看記憶體寫入，格式 <線性hex>-<線性hex>；"+
 		"每次寫入印出步數與 CS:IP（除錯「誰把向量改掉了」）")
 	logCalls := flag.Bool("log-calls", false, "統計每一種 (中斷, AH) 呼叫幾次")
-	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）")
+	tick := flag.Uint64("tick", 0, "每幾道指令送一次計時器中斷（0 ＝ 用預設）。\n"+
+		"    給了就**釘住**，不隨程式改 PIT 分頻而變——舊收據釘在固定間隔上")
 	press := flag.String("press", "", "用 IRQ1 送的按鍵，逗號分隔。"+
 		"可用名稱：up down left right enter esc space，或單一字元／16 進位掃描碼")
 	pressAt := flag.Uint64("press-at", 0, "第幾道指令開始送鍵（0 ＝ steps 的八成）")
@@ -287,7 +288,9 @@ func main() {
 		m.Write8(psp+0x81+uint32(len(b)), 0x0D)
 	}
 	if *tick > 0 {
-		m.IRQ0Every = *tick
+		// **明講的間隔要壓過 PIT 的重算。** 不釘住的話，程式一寫 PIT
+		// 分頻就把它蓋掉（`machine.IRQ0Pinned` 的註解記著症狀）。
+		m.IRQ0Every, m.IRQ0Pinned = *tick, true
 	}
 	m.TraceSegs = *segLog
 	m.RowWritesFrom = *rowWrites

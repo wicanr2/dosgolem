@@ -876,6 +876,17 @@ type memBlock struct {
 	seg  uint16
 	size uint16 // 資料段數，不含 MCB
 	free bool
+	// owner 是持有這一塊的 PSP。真 DOS 的 `AH=4Ch` 會把該 PSP 名下的
+	// MCB 全部釋放；少了這個欄位就不知道要釋放哪些。
+	//
+	// ⚠ **沒有它的代價不是「多佔一點記憶體」。** arena 的每一塊都會把
+	// 一個假 MCB 標頭寫進客體記憶體（`syncMCB`）。子行程結束後那些塊
+	// 沒被回收，接手的程式把自己的區塊撐大蓋過去，**標頭就落在它的
+	// 程式碼裡**——`'M'`（0x4D）加擁有者、大小、8 個空白，剛好是一串
+	// 看起來很像資料的位元組。症狀是某道指令的立即數被換掉
+	// （logh3：`add sp,24h` 變成 `add sp,4Dh`），堆疊從此歪掉，
+	// 幾十萬道指令之後 `retf` 進垃圾。見 logh3 `docs/re/270`。
+	owner uint16
 }
 
 // OverlayLoad 是一次 `AH=4Bh AL=03` 的載入紀錄。

@@ -277,6 +277,21 @@ type Machine struct {
 	// 程式改 PIT 的分頻時 IRQ0Every 由它按比例算出來（`pitWrite`）。
 	IRQ0Base uint64
 
+	// IRQ0Pinned ＝ IRQ0Every 由呼叫端釘死，**不隨程式改 PIT 分頻而變**。
+	//
+	// ⚠ **沒有它的話，「每 N 道指令一次中斷」這個要求會被安靜地推翻。**
+	// 程式一寫 PIT，`recalcIRQ0` 就按分頻重算 IRQ0Every；呼叫端設的值
+	// 只在程式還沒寫 PIT 之前算數。症狀不是報錯，是**同一組旗標跑出
+	// 不同的畫面**——而旗標看起來完全對得上，所以最先被懷疑的一定是
+	// 別的東西。（logh3：遊戲把分頻設成 2048，`165000×2048/65536 ≈ 5156`，
+	// 於是 `-tick 20000` 實際變成每 5,156 道一次，四倍的計時器把
+	// 星域圖的著色迴圈截短，遊戲拿著半成品往下走，最後 retf 進垃圾。
+	// 見 logh3 `docs/re/270`。）
+	//
+	// 呼叫端明講的間隔優先：**明講就是知道自己要什麼**。舊收據釘在
+	// 固定間隔上，PIT 模型是後來才有的，兩者要能並存。
+	IRQ0Pinned bool
+
 	// PITDiv 是 PIT 通道 0 現在的分頻值（1–65536）。唯讀，給報告用。
 	PITDiv uint32
 
@@ -977,6 +992,9 @@ func (m *Machine) recalcIRQ0() {
 
 	if m.IRQ0Every == 0 {
 		return // 計時器關著，下面那份用不到
+	}
+	if m.IRQ0Pinned {
+		return // 呼叫端釘死了間隔（見 IRQ0Pinned）
 	}
 	base := m.IRQ0Base
 	if base == 0 {

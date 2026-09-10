@@ -25,17 +25,18 @@ type Snapshot struct {
 
 	// PIT 通道 0 的分頻與寫入狀態機。**漏抄的話還原之後計時器
 	// 會退回開機頻率**，而症狀是「同一個快照展開的變體跑得比原本慢」。
-	irq0Every uint64
-	irq0Base  uint64
-	cpuHz     uint64
-	cycClock  bool
-	cycles    uint64
-	cycPer    uint64
-	nextCyc   uint64
-	pitDiv    uint32
-	pitAccess uint8
-	pitPhase  uint8
-	pitLo     uint8
+	irq0Every  uint64
+	irq0Base   uint64
+	irq0Pinned bool
+	cpuHz      uint64
+	cycClock   bool
+	cycles     uint64
+	cycPer     uint64
+	nextCyc    uint64
+	pitDiv     uint32
+	pitAccess  uint8
+	pitPhase   uint8
+	pitLo      uint8
 
 	// 硬體鍵盤的整份狀態。**佇列與 nextIRQ1 漏掉會讓還原之後的鍵永遠送不出去**：
 	// Restore 把 Steps 倒回過去，而 nextIRQ1 還停在未來，`keyTick` 的
@@ -87,34 +88,35 @@ func (s *Snapshot) Mem() []uint8 { return s.mem }
 // Snapshot 拍一份快照。1 MB 記憶體，約 1 毫秒。
 func (m *Machine) Snapshot() *Snapshot {
 	s := &Snapshot{
-		mem:       make([]uint8, len(m.Mem)),
-		regs:      m.CPU.R,
-		segs:      m.CPU.Seg,
-		ip:        m.CPU.IP,
-		flags:     m.CPU.Flags,
-		steps:     m.Steps,
-		ticks:     m.Ticks,
-		portTicks: m.portTicks,
-		nextIRQ0:  m.nextIRQ0,
-		pending:   m.irq0Pending,
-		irq0Every: m.IRQ0Every,
-		irq0Base:  m.IRQ0Base,
-		cpuHz:     m.CPUHz,
-		cycClock:  m.CycleClock,
-		cycles:    m.CPU.Cycles,
-		cycPer:    m.cycPerIRQ0,
-		nextCyc:   m.nextIRQ0Cyc,
-		pitDiv:    m.PITDiv,
-		pitAccess: m.pitAccess,
-		pitPhase:  m.pitPhase,
-		pitLo:     m.pitLo,
-		ports:     map[uint16]uint8{},
-		portsIn:   map[uint16]uint64{},
-		dac:       m.DAC,
-		dacIndex:  m.dacIndex,
-		dacPhase:  m.dacPhase,
-		vga:       m.VGA.clone(),
-		planarOn:  m.planarOn,
+		mem:        make([]uint8, len(m.Mem)),
+		regs:       m.CPU.R,
+		segs:       m.CPU.Seg,
+		ip:         m.CPU.IP,
+		flags:      m.CPU.Flags,
+		steps:      m.Steps,
+		ticks:      m.Ticks,
+		portTicks:  m.portTicks,
+		nextIRQ0:   m.nextIRQ0,
+		pending:    m.irq0Pending,
+		irq0Every:  m.IRQ0Every,
+		irq0Base:   m.IRQ0Base,
+		irq0Pinned: m.IRQ0Pinned,
+		cpuHz:      m.CPUHz,
+		cycClock:   m.CycleClock,
+		cycles:     m.CPU.Cycles,
+		cycPer:     m.cycPerIRQ0,
+		nextCyc:    m.nextIRQ0Cyc,
+		pitDiv:     m.PITDiv,
+		pitAccess:  m.pitAccess,
+		pitPhase:   m.pitPhase,
+		pitLo:      m.pitLo,
+		ports:      map[uint16]uint8{},
+		portsIn:    map[uint16]uint64{},
+		dac:        m.DAC,
+		dacIndex:   m.dacIndex,
+		dacPhase:   m.dacPhase,
+		vga:        m.VGA.clone(),
+		planarOn:   m.planarOn,
 
 		periodicOn:    m.periodic.on,
 		periodicSeg:   m.periodic.seg,
@@ -160,6 +162,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.Steps, m.Ticks = s.steps, s.ticks
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.portTicks, s.nextIRQ0, s.pending
 	m.IRQ0Every, m.IRQ0Base, m.PITDiv = s.irq0Every, s.irq0Base, s.pitDiv
+	m.IRQ0Pinned = s.irq0Pinned
 	m.pitAccess, m.pitPhase, m.pitLo = s.pitAccess, s.pitPhase, s.pitLo
 	m.CPUHz, m.CPU.Cycles, m.CycleClock = s.cpuHz, s.cycles, s.cycClock
 	m.cycPerIRQ0, m.nextIRQ0Cyc = s.cycPer, s.nextCyc

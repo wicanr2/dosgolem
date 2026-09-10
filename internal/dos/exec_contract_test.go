@@ -239,3 +239,41 @@ func TestSupervisorQueueRunsTheNextProgram(t *testing.T) {
 		t.Fatalf("佇列裡那一支的離開碼是 %d（Exited=%t），預期 5", d.ExitCode, d.Exited)
 	}
 }
+
+// 子程式用 `AH=48h` 拿走的區塊，在它結束時要**連同假 MCB 標頭**一起消失。
+//
+// 反面不會報錯：arena 留著那幾塊，`syncMCB` 就繼續把 `'M'`＋擁有者＋大小
+// ＋8 個空白寫進客體記憶體。接手的程式把自己的區塊撐大蓋過那一段之後，
+// 那 16 個位元組落在它的程式碼裡——某道指令的立即數被換掉，堆疊從此歪掉，
+// 幾十萬道指令之後 `retf` 進垃圾。症狀與這裡毫無關聯。
+// （logh3 `docs/re/270`：`add sp,24h` 變成 `add sp,4Dh`。）
+func TestChildBlocksAndTheirMCBsVanishOnExit(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：AH=48h 要 0x100 段，然後 AH=4Ch 結束。
+	writeChild(t, d, "C.COM", []byte{
+		0xB4, 0x48, 0xBB, 0x00, 0x01, 0xCD, 0x21, // mov ah,48; mov bx,100h; int 21h
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+	})
+	execChild(m, d, "C.COM")
+	for n := 0; n < 500 && len(d.procStack) > 0; n++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.procStack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+	for _, b := range d.arena {
+		if b.free {
+			continue
+		}
+		t.Fatalf("子程式結束後 arena 還留著已配置的 %04X（%d 段，擁有者 %04X）"+
+			"——它的假 MCB 標頭會留在客體記憶體裡", b.seg, b.size, b.owner)
+	}
+	// 標頭本身也要不見：那一段記憶體不該再有 MCB 簽章。
+	for _, b := range d.arena {
+		if sig := m.Read8(uint32(b.seg)*16) & 0xFF; b.free && sig != 'M' && sig != 'Z' {
+			t.Fatalf("自由區塊 %04X 的 MCB 簽章是 %02X，鏈斷了", b.seg, sig)
+		}
+	}
+}

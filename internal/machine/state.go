@@ -45,6 +45,7 @@ type machineState struct {
 	IRQ0Pending bool
 	IRQ0Every   uint64
 	IRQ0Base    uint64
+	IRQ0Pinned  bool
 	CPUHz       uint64
 	CycleClock  bool
 	Cycles      uint64
@@ -100,6 +101,7 @@ func (m *Machine) SaveState(w io.Writer) error {
 		IRQ0Pending: m.irq0Pending,
 		IRQ0Every:   m.IRQ0Every,
 		IRQ0Base:    m.IRQ0Base,
+		IRQ0Pinned:  m.IRQ0Pinned,
 		CPUHz:       m.CPUHz,
 		CycleClock:  m.CycleClock,
 		Cycles:      m.CPU.Cycles,
@@ -161,6 +163,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	// 舊的狀態檔沒有這幾個欄位；讀到零值就退回開機預設，
 	// 不要讓分頻變成 0（那會讓 IRQ0 間隔算成 0）。
 	m.IRQ0Base, m.PITDiv = s.IRQ0Base, s.PITDiv
+	m.IRQ0Pinned = s.IRQ0Pinned
 	if m.IRQ0Base == 0 {
 		m.IRQ0Base = DefaultIRQ0Every
 	}
