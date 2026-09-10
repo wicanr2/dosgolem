@@ -313,6 +313,16 @@ func (d *DOS) int21(c *cpu.CPU) {
 //
 // 要讓它往下走就餵鍵（probe 的 `-keys`、oracle 的 `SendKeys`），不是加大 `-steps`。
 func (d *DOS) conIn(c *cpu.CPU, fn uint8) {
+	// 196-bios-console-read-bridge：程式可能先直接查 BDA，再經 DOS 取同一個鍵。
+	if len(d.Stdin) == 0 {
+		if key, ok := d.M.PopKey(); ok {
+			d.KeysConsumed++
+			d.Stdin = append(d.Stdin, uint8(key))
+			if uint8(key) == 0 {
+				d.Stdin = append(d.Stdin, uint8(key>>8))
+			}
+		}
+	}
 	if len(d.Stdin) == 0 {
 		d.KeyWaits++
 		if !d.NonBlockingKeys {
@@ -349,9 +359,18 @@ func (d *DOS) conOut(c *cpu.CPU, fn uint8) {
 	ch := uint8(c.R[cpu.DX])
 	if fn == 0x06 && ch == 0xFF {
 		// `DL=0FFh` 是「直接主控台**輸入**」，不是輸出。
-		// 沒有按鍵時要回 ZF=1。
-		setAL(c, 0)
-		c.SetFlags(c.Flags | cpu.ZF)
+		// 195-dos-direct-console-input：有字元時消耗一個、清 ZF；空佇列才設 ZF。
+		d.Blocked = false
+		if len(d.Stdin) != 0 {
+			key := d.Stdin[0]
+			d.Stdin = d.Stdin[1:]
+			d.noteKey("int21-AH06", key)
+			setAL(c, key)
+			c.SetFlags(c.Flags &^ cpu.ZF)
+		} else {
+			setAL(c, 0)
+			c.SetFlags(c.Flags | cpu.ZF)
+		}
 		return
 	}
 	d.Console = append(d.Console, ch)

@@ -893,6 +893,8 @@ type FileOp struct {
 	Arg    int64 // seek 的位移、read 的要求量、open 的檔案大小
 	Pos    int64 // seek 後的位置、read 的起點
 	Len    int   // read／write 實際的位元組數
+	Whence uint8 // seek 的 AL：0 起點、1 目前、2 結尾
+	Failed bool  // 原始 DOS 呼叫是否失敗，不由長度推測
 }
 
 // TraceFiles 過去用來打開檔案操作追蹤；**現在永遠開著**，留著只為相容。
@@ -910,6 +912,7 @@ func (o *Oracle) FileOps() []FileOp {
 		out = append(out, FileOp{
 			Step: f.Step, Op: f.Op, Fn: f.Fn, Handle: f.Handle,
 			Name: f.Name, Arg: f.Arg, Pos: f.Pos, Len: f.Len,
+			Whence: f.Whence, Failed: f.Failed,
 		})
 	}
 	return out

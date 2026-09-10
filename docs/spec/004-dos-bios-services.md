@@ -422,3 +422,10 @@ Fmdrv.com 檔案位移 0x105B
 
 OPL2／Sound Blaster **只記錄埠寫入**，不做合成。
 `.RIX` → OGG 那條線已經在 `rich2` 做完了（`tools/rix2ogg.sh`）。
+
+### 2026-09-08：公開檔案軌跡補正（READY）
+
+既有 §1.2 要求失敗呼叫可追查。檢查目前 `dos.FileOp` 已保存 `Failed`、`Whence`，
+但 `oracle.FileOps()` 的投影遺漏兩者。公開 `oracle.FileOp` 必須逐筆原值保留這兩欄，
+包括成功／失敗及 seek 基準；不改 DOS 執行行為、不推測錯誤。證據為上述兩型別及轉接程式，
+屬已證實的介面資訊遺失。驗收：同時覆蓋成功與失敗軌跡，回傳順序及所有欄位不變。

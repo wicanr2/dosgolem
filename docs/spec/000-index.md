@@ -65,6 +65,12 @@
 - `192-crtc-effects.md`
 - `193-crtc-timing.md`
 
+### 武士傳說（Knights of Legend）（3 份）
+
+- `194-ega-bios-default-palette.md`
+- `195-dos-direct-console-input.md`
+- `196-bios-console-read-bridge.md`
+
 ### 銀河英雄傳說 3（logh3）（10 份）
 
 - `007-exec-ems.md`
@@ -344,3 +350,9 @@
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
+
+- [194 — EGA 相容模式的 BIOS 預設色盤](194-ega-bios-default-palette.md)：READY。0Dh／0Eh 設模式時 BIOS 會填一份預設色盤；少了它，程式只設模式就畫的畫面整片黑。
+
+- [195 — DOS 非阻塞直接主控台輸入](195-dos-direct-console-input.md)：READY。`AH=06h` 有字元時消耗一個並清 ZF，空佇列才設 ZF——原本永遠回「無字元」。
+
+- [196 — 預設主控台的 BIOS 讀鍵轉接](196-bios-console-read-bridge.md)：READY。程式可能先直接查 BDA 再經 DOS `AH=08h` 取同一個鍵；兩條路要看到同一個佇列。
