@@ -189,6 +189,10 @@ func cycling(i int) bool { return i >= 240 && i <= 254 }
 // ⚠ **要等調色盤淡入走完**（`rich2/docs/re/146`）。太早取畫面會拿到淡到
 // 一半的版本——顏色整片偏暗，而色號完全正確，所以逐點比對照樣可能過。
 func ToBoard(o *oracle.Oracle) error {
+	// **這一段的選單由這裡自己回答**（主選單、城市選擇），所以先把
+	// `WatchSelectors` 的自動回答停掉——兩邊都送 Enter 會把流程推過頭，
+	// 而症狀是卡死在**已經正確的棋盤畫面**上（`rich2/docs/spec/084` §2a）。
+	defer pauseMenuAuto(o)()
 	if err := ToMainMenu(o); err != nil {
 		return err
 	}
