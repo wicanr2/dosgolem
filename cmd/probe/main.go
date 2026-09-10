@@ -124,6 +124,11 @@ func main() {
 		"跑到指定步數就傾印一張畫面：`<步數>:<檔名>`，分號分隔可以給很多張。"+
 			"探索「點下去之後跑到哪個畫面」用——一次跑就看得到中間的每一格，"+
 			"不必為了每張畫面重跑一次")
+	dumpMemAtFlag := flag.String("dump-mem-at", "",
+		"跑到指定步數就把一段記憶體寫成檔案："+
+			"`<步數>:<位址>:<長度>:<檔名>`，分號分隔可以給很多次。"+
+			"與 -dump-mem 的差別是**時機**——同一次執行裡在幾個時點各倒一份，"+
+			"才分得開「這一步改了什麼」；分兩次執行去比會混進別的差異")
 	dumpMem := flag.String("dump-mem", "",
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
@@ -241,6 +246,11 @@ func main() {
 			pf.Close()
 		}()
 	}
+	memShots, shotErr := parseMemShots(*dumpMemAtFlag)
+	if shotErr != nil {
+		die(fmt.Errorf("-dump-mem-at %w", shotErr))
+	}
+
 	m := machine.New()
 	if *adlib {
 		m.SetAdLib(true)
@@ -771,6 +781,11 @@ func main() {
 			ipw.push(m.CPU.Seg[cpu.CS], m.CPU.IP)
 		}
 		ring.push(m.CPU)
+		for _, sh := range memShots {
+			if m.Steps == sh.at {
+				dumpShot(m, sh)
+			}
+		}
 		obsStep(m) // 觀測用的每一步掛鉤（observe.go）；沒開旗標時是一個比較
 		if runErr = m.Step(); runErr != nil {
 			break
@@ -1088,7 +1103,9 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	if m.TraceSegs {
 		reportSegs(m)
 	}
-	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), join(d.Opened))
+	// **開過的檔不截斷**：「這個畫面用了哪些素材」是逆向時最常問的一句，
+	// 截在 30 個就正好把後面載進來的那些蓋掉（戰鬥畫面在第 30 個之後）。
+	fmt.Printf("\n開過的檔（%d）：%s\n", len(d.Opened), strings.Join(d.Opened, " "))
 	if len(d.Allocs) > 0 {
 		fmt.Printf("\n記憶體配置（%d 次，最多列 20）：\n", len(d.Allocs))
 		for i, a := range d.Allocs {
@@ -1876,6 +1893,55 @@ func stackDump(m *machine.Machine, c *cpu.CPU) string {
 
 // parseAddr 認得四種位址寫法：`lin:<hex>:<len>`、`ds:<hex>:<len>`、
 // `<IDA hex>:<len>`、`<seg>:<off>:<len>`（軌跡印出來的就是最後這種）。
+// memShot 是「跑到第 at 步就把 addr 起的 n 個位元組寫進 path」。
+type memShot struct {
+	at    uint64
+	addr  uint32
+	n     int
+	label string
+	path  string
+}
+
+// parseMemShots 解 -dump-mem-at 的規格：`<步數>:<位址>:<長度>:<檔名>`，
+// 分號分隔可以給很多次。
+//
+// **回 error 不 die**：解析是純函式，測得到才擋得住格式的邊界情形，
+// 而這種旗標寫錯的症狀是「跑完什麼檔都沒有」，不是報錯。
+//
+// 檔名裡可以有冒號（Windows 的碟符），所以位址那一段用**最後一個**
+// 冒號切，不是第一個。
+func parseMemShots(spec string) ([]memShot, error) {
+	var out []memShot
+	for _, item := range strings.Split(spec, ";") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		i := strings.Index(item, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("要寫成 <步數>:<位址>:<長度>:<檔名>：%q", item)
+		}
+		at, err := strconv.ParseUint(strings.TrimSpace(item[:i]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("步數看不懂：%q", item)
+		}
+		rest := item[i+1:]
+		j := strings.LastIndex(rest, ":")
+		if j < 0 {
+			return nil, fmt.Errorf("要寫成 <步數>:<位址>:<長度>:<檔名>：%q", item)
+		}
+		addr, n, label, ok := parseAddr(rest[:j])
+		if !ok || n <= 0 {
+			return nil, fmt.Errorf("位址或長度看不懂：%q", rest[:j])
+		}
+		if path := rest[j+1:]; path == "" {
+			return nil, fmt.Errorf("沒有檔名：%q", item)
+		} else {
+			out = append(out, memShot{at: at, addr: addr, n: n, label: label, path: path})
+		}
+	}
+	return out, nil
+}
+
 func parseAddr(item string) (addr uint32, n int, label string, ok bool) {
 	f := strings.Split(strings.TrimSpace(item), ":")
 	// **解析失敗一律回 false。** 忽略 ParseUint 的錯誤會讓打錯的位址
@@ -2748,4 +2814,17 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 	}
 	_, err = f.Write(pcm)
 	return err
+}
+
+// dumpShot 把一次 -dump-mem-at 寫出去。
+func dumpShot(m *machine.Machine, sh memShot) {
+	buf := make([]byte, sh.n)
+	for k := range buf {
+		buf[k] = m.Read8(sh.addr + uint32(k))
+	}
+	if err := os.WriteFile(sh.path, buf, 0o644); err != nil {
+		die(err)
+	}
+	fmt.Printf("#%d 傾印記憶體 %s（%05X）%d bytes → %s\n",
+		m.Steps, sh.label, sh.addr, sh.n, sh.path)
 }
