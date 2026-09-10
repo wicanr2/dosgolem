@@ -53,7 +53,10 @@ func main() {
 			"    與 -dump-screen 的差別是**那一支存色號、這一支存看得到的顏色**。")
 	cropTop := flag.Int("crop-top", 0, "存畫面前從上面裁掉幾列")
 	cropH := flag.Int("crop-height", 0, "存畫面只留幾列（0 ＝ 全部）")
-	xscale := flag.Int("xscale", 2, "int 33h 的水平虛擬座標倍率（mode 13h ＝ 2、mode 12h ＝ 1）")
+	xscale := flag.Int("xscale", 0,
+		"int 33h 的水平虛擬座標倍率（0 ＝ 依視訊模式自動決定：320 寬 → 2、640 寬 → 1）。"+
+			"**寫死一個值會讓另一半的模式全錯**，而症狀是點擊落在別的地方、"+
+			"畫面完全不動——看起來像輸入沒送到")
 	dumpPal := flag.String("dump-palette", "", "把 256×3 的 RGB 調色盤寫到這個檔")
 	peek := flag.String("peek", "", "跑完之後印出這些位址的內容，逗號分隔。格式："+
 		"<段>:<偏移>:<長度>（軌跡印的形式）、lin:<執行期線性>:<長度>、"+
@@ -745,6 +748,7 @@ func main() {
 			ipw.push(m.CPU.Seg[cpu.CS], m.CPU.IP)
 		}
 		ring.push(m.CPU)
+		obsStep(m) // 觀測用的每一步掛鉤（observe.go）；沒開旗標時是一個比較
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
@@ -912,7 +916,12 @@ func main() {
 	if *peek != "" {
 		dumpPeek(m, *peek)
 	}
-	if *dumpMem != "" {
+	// `-dump-mem` 有兩種寫法：`<lo>-<hi>:<檔名>`（範圍，`writeMemDump`
+	// 在上面已經處理完，可以一次給好幾段）與 `<位址>:<長度>:<檔名>`
+	// （`parseAddr` 的寫法，支援 `lin:`／`ds:`／段:位移）。
+	// **範圍那種到這裡要跳過，不能當成解析失敗**——不然檔案照樣寫出來了，
+	// 程式卻以 exit 1 結束，看起來像整趟跑壞掉。
+	if *dumpMem != "" && !strings.Contains(*dumpMem, "-") {
 		i := strings.LastIndex(*dumpMem, ":")
 		if i < 0 {
 			die(fmt.Errorf("-dump-mem 要寫成 <位址>:<長度>:<檔名>"))

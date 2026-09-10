@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -37,6 +38,28 @@ var (
 		"把 -watch 留下的寫入**全部**寫到這個檔（畫面上只列得下最後幾筆）")
 	obsXMSFile = flag.String("xms-file", "",
 		"把每一次 XMS move **全部**寫到這個檔（畫面上只列 30 筆）")
+	obsBCRing = flag.String("bc-ring", "",
+		"位元碼追蹤：執行到 `<seg>:<off>` 時記下 `DS:SI`（直譯器的位元碼 PC），"+
+			"跑完印出最後 N 筆相異值（格式 `<seg>:<off>[:N]`，N 預設 40）。"+
+			"回答「剛剛那句話是哪一支腳本印的」——"+
+			"監看訊息緩衝只看得到最內層那支複製位元組的小函式，看不到誰叫它")
+	obsBCSeen = flag.String("bc-seen", "",
+		"位元碼追蹤（集合版）：`<seg>:<off>:<起>-<迄>`，在 [起,迄) 這段步數裡"+
+			"把執行到 `<seg>:<off>` 時的 `DS:SI` **全部**收成集合，跑完照第一次"+
+			"看到的順序印出來。`-bc-ring` 只留最後 N 筆，會被最內圈的緊迴圈灌滿；"+
+			"要看「這段時間有哪幾支腳本跑過」用這個")
+	obsBCSub = flag.String("bc-sub", "",
+		"位元碼追蹤（副程式版）：`<seg>:<off>:<起>-<迄>[:N]`，在 [起,迄) 這段步數裡"+
+			"每次執行到 `<seg>:<off>` 就看 `BX`——直譯器跑一支位元碼副程式時，"+
+			"`BX` 是那一支的**對照表位址**（`xlat` 用的就是它），"+
+			"所以 `BX` 變了就是換了一支。輸出是換手的時間軸（最多 N 筆，預設 2000）。"+
+			"`-bc-seen` 回答「跑過哪些位元碼位址」，這個回答「那些位址屬於誰、誰叫誰」")
+	obsPollLog = flag.Int("poll-log", 0,
+		"印出遊戲**按鍵不為零時**讀到的滑鼠輪詢（最多 N 筆，0 ＝ 不印）。"+
+			"回答「這一次點擊遊戲到底看到了什麼」——"+
+			"腳本點擊沒反應時，畫面上分不出三件事："+
+			"座標送錯了、按住的期間遊戲一次都沒問、"+
+			"還是問到了但那個位置沒有東西可點")
 	obsReadWatch = flag.String("read-watch", "",
 		"監看一段線性位址的**讀取**：`<lo>-<hi>`（十六進位）。配 -read-watch-grain 與 -read-watch-file 用")
 	obsReadGrain = flag.Int("read-watch-grain", 1,
@@ -56,8 +79,145 @@ type obsRead struct {
 
 var obsReads []obsRead
 
+// 位元碼追蹤的狀態。`-bc-ring` 沒給時 bcOn 是 false，obsStep 只多一個比較。
+var (
+	bcOn         bool
+	bcSeg, bcOff uint16
+	bcKeep       int
+	bcRing       []uint32
+	bcLast       uint32
+
+	bcSeenOn    bool
+	bcSeenSeg   uint16
+	bcSeenOff   uint16
+	bcSeenFrom  uint64
+	bcSeenTo    uint64
+	bcSeenSet   map[uint32]uint64
+	bcSeenOrder []uint32
+
+	bcSubOn   bool
+	bcSubSeg  uint16
+	bcSubOff  uint16
+	bcSubFrom uint64
+	bcSubTo   uint64
+	bcSubKeep int
+	bcSubLast uint32
+	bcSubLog  []bcSubHit
+)
+
+// bcSubHit 是一次「換了一支位元碼副程式」。
+type bcSubHit struct {
+	step   uint64
+	ds, bx uint16 // 對照表位址：ds:bx
+	si     uint16 // 換手當下的位元碼 PC
+}
+
+// obsStep 每一道指令之前叫一次。掛鉤點四。
+//
+// **這裡要便宜。** 主迴圈一秒跑上千萬次，多一個 map 查詢就會讓
+// 十億道的觀測從一分鐘變成十分鐘。
+func obsStep(m *machine.Machine) {
+	if bcSeenOn && m.Steps >= bcSeenFrom && m.Steps < bcSeenTo {
+		if cs, ip := m.CPU.Op(); cs == bcSeenSeg && ip == bcSeenOff {
+			v := uint32(m.CPU.Seg[cpu.DS])<<16 | uint32(m.CPU.R[cpu.SI])
+			if _, ok := bcSeenSet[v]; !ok {
+				bcSeenSet[v] = m.Steps
+				bcSeenOrder = append(bcSeenOrder, v)
+			}
+		}
+	}
+	if bcSubOn && m.Steps >= bcSubFrom && m.Steps < bcSubTo {
+		if cs, ip := m.CPU.Op(); cs == bcSubSeg && ip == bcSubOff {
+			ds, bx := m.CPU.Seg[cpu.DS], m.CPU.R[cpu.BX]
+			v := uint32(ds)<<16 | uint32(bx)
+			if v != bcSubLast {
+				bcSubLast = v
+				if len(bcSubLog) < bcSubKeep {
+					bcSubLog = append(bcSubLog,
+						bcSubHit{step: m.Steps, ds: ds, bx: bx, si: m.CPU.R[cpu.SI]})
+				}
+			}
+		}
+	}
+	if !bcOn {
+		return
+	}
+	cs, ip := m.CPU.Op()
+	if cs != bcSeg || ip != bcOff {
+		return
+	}
+	v := uint32(m.CPU.Seg[cpu.DS])<<16 | uint32(m.CPU.R[cpu.SI])
+	if v == bcLast {
+		return // 同一個 PC 連續命中不記第二筆
+	}
+	bcLast = v
+	bcRing = append(bcRing, v)
+	if len(bcRing) > bcKeep {
+		bcRing = bcRing[len(bcRing)-bcKeep:]
+	}
+}
+
 // obsSetup 在機器造好、還沒開跑之前掛上。掛鉤點一。
 func obsSetup(m *machine.Machine) {
+	if *obsBCSeen != "" {
+		f := strings.Split(*obsBCSeen, ":")
+		if len(f) != 3 {
+			die(fmt.Errorf("-bc-seen 要 <seg>:<off>:<起>-<迄>，收到 %q", *obsBCSeen))
+		}
+		seg, err1 := strconv.ParseUint(f[0], 16, 16)
+		off, err2 := strconv.ParseUint(f[1], 16, 16)
+		var from, to uint64
+		_, err3 := fmt.Sscanf(f[2], "%d-%d", &from, &to)
+		if err1 != nil || err2 != nil || err3 != nil || to <= from {
+			die(fmt.Errorf("-bc-seen 讀不出來：%q", *obsBCSeen))
+		}
+		bcSeenSeg, bcSeenOff = uint16(seg), uint16(off)
+		bcSeenFrom, bcSeenTo = from, to
+		bcSeenSet = map[uint32]uint64{}
+		bcSeenOn = true
+	}
+	if *obsBCSub != "" {
+		f := strings.Split(*obsBCSub, ":")
+		if len(f) != 3 && len(f) != 4 {
+			die(fmt.Errorf("-bc-sub 要 <seg>:<off>:<起>-<迄>[:N]，收到 %q", *obsBCSub))
+		}
+		seg, err1 := strconv.ParseUint(f[0], 16, 16)
+		off, err2 := strconv.ParseUint(f[1], 16, 16)
+		var from, to uint64
+		_, err3 := fmt.Sscanf(f[2], "%d-%d", &from, &to)
+		if err1 != nil || err2 != nil || err3 != nil || to <= from {
+			die(fmt.Errorf("-bc-sub 讀不出來：%q", *obsBCSub))
+		}
+		bcSubKeep = 2000
+		if len(f) == 4 {
+			if n, err := strconv.Atoi(f[3]); err == nil && n > 0 {
+				bcSubKeep = n
+			}
+		}
+		bcSubSeg, bcSubOff = uint16(seg), uint16(off)
+		bcSubFrom, bcSubTo = from, to
+		bcSubOn = true
+	}
+	if *obsBCRing != "" {
+		f := strings.Split(*obsBCRing, ":")
+		if len(f) < 2 {
+			die(fmt.Errorf("-bc-ring 要 <seg>:<off>[:N]，收到 %q", *obsBCRing))
+		}
+		var seg, off uint64
+		var err1, err2 error
+		seg, err1 = strconv.ParseUint(f[0], 16, 16)
+		off, err2 = strconv.ParseUint(f[1], 16, 16)
+		if err1 != nil || err2 != nil {
+			die(fmt.Errorf("-bc-ring 的位址讀不出來：%q", *obsBCRing))
+		}
+		bcKeep = 40
+		if len(f) > 2 {
+			if n, err := strconv.Atoi(f[2]); err == nil && n > 0 {
+				bcKeep = n
+			}
+		}
+		bcSeg, bcOff, bcOn = uint16(seg), uint16(off), true
+	}
 	if *obsCPUHz > 0 {
 		m.CPUHz = *obsCPUHz
 		m.CycleClock = true
@@ -121,6 +281,29 @@ func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 		fmt.Printf("（週期時鐘 %d Hz，每 %d 個週期一次 IRQ0）", m.CPUHz, m.CycPerIRQ0())
 	}
 	fmt.Println()
+	obsReportPolls(m, d)
+	if bcSeenOn {
+		fmt.Printf("位元碼 PC（%04X:%04X，步數 %d–%d，共 %d 個相異值，照第一次看到的順序）：\n",
+			bcSeenSeg, bcSeenOff, bcSeenFrom, bcSeenTo, len(bcSeenOrder))
+		for _, v := range bcSeenOrder {
+			fmt.Printf("  %04X:%04X  #%d\n", v>>16, v&0xFFFF, bcSeenSet[v])
+		}
+	}
+	if bcSubOn {
+		fmt.Printf("位元碼副程式換手（%04X:%04X 上的 BX，步數 %d–%d，共 %d 筆）：\n",
+			bcSubSeg, bcSubOff, bcSubFrom, bcSubTo, len(bcSubLog))
+		for _, h := range bcSubLog {
+			fmt.Printf("  #%d  對照表 %04X:%04X  PC %04X:%04X\n",
+				h.step, h.ds, h.bx, h.ds, h.si)
+		}
+	}
+	if bcOn {
+		fmt.Printf("位元碼 PC（%04X:%04X 上最後 %d 筆相異值，舊 → 新）：\n",
+			bcSeg, bcOff, len(bcRing))
+		for _, v := range bcRing {
+			fmt.Printf("  %04X:%04X\n", v>>16, v&0xFFFF)
+		}
+	}
 	if *obsOPLLog != "" {
 		if err := obsWrite(*obsOPLLog, func(w *bufio.Writer) {
 			fmt.Fprintln(w, "# dosgolem OPL2 log：步數 暫存器 值")
@@ -182,4 +365,46 @@ func obsWrite(path string, body func(*bufio.Writer)) error {
 	w := bufio.NewWriter(f)
 	body(w)
 	return w.Flush()
+}
+
+// obsReportPolls 印出按鍵不為零的滑鼠輪詢。
+//
+// 腳本點擊「沒反應」時畫面上看不出是哪一種失敗：座標送錯、按住的期間
+// 遊戲一次都沒問（輪詢率在不同畫面差三個數量級）、或是問到了但那裡
+// 沒有可點的東西。前兩種在這份清單裡立刻分得開——沒有任何一筆就是
+// 遊戲沒看到，有筆但座標不對就是送錯了。
+func obsReportPolls(m *machine.Machine, d *dos.DOS) {
+	if *obsPollLog <= 0 {
+		return
+	}
+	// 座標倍率也要印。`int 33h AX=3` 回的 CX 是 `X × 倍率`，倍率由視訊
+	// 模式決定；倍率錯了遊戲收到的就是別的位置，而畫面上只會看到
+	// 「點了沒反應」。
+	scale := int(d.Mouse.XScale)
+	how := "-xscale 指定"
+	if scale == 0 {
+		how = "依視訊模式自動決定"
+		if w := m.PixelWidth(); w > 0 {
+			scale = 640 / w
+		} else {
+			scale = 2
+		}
+	}
+	fmt.Printf("視訊模式 %02Xh，畫面寬 %d，滑鼠水平倍率 %d（%s；回報的 CX ＝ X × 倍率）\n",
+		m.VideoMode(), m.PixelWidth(), scale, how)
+	n := 0
+	for _, p := range d.Mouse.Polls {
+		if p.Buttons == 0 {
+			continue
+		}
+		n++
+		if n <= *obsPollLog {
+			fmt.Printf("[輪詢] #%d 遊戲讀到 CX=%d DX=%d 鍵=%02X（注入的是 %d,%d）\n",
+				p.Step, int(p.X)*scale, p.Y, p.Buttons, p.X, p.Y)
+		}
+	}
+	fmt.Printf("滑鼠輪詢裡按鍵不為零的共 %d 筆（總共 %d 筆）\n", n, len(d.Mouse.Polls))
+	if n == 0 {
+		fmt.Println("  ⚠ 一筆都沒有：按住的期間遊戲沒有讀滑鼠，或按鍵根本沒送出去")
+	}
 }

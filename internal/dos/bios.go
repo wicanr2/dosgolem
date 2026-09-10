@@ -507,8 +507,8 @@ func (d *DOS) noteKeyWord(c *cpu.CPU, via string, word uint16) {
 	d.KeyReads = append(d.KeyReads, KeyRead{
 		Step: d.M.Steps, Via: via, Key: uint8(word), Word: word,
 		CS: c.Seg[cpu.CS], IP: c.IP,
-		CallerIP: d.M.Read16(cpu.Addr(ss, bp+2)),
-		CallerCS: d.M.Read16(cpu.Addr(ss, bp+4)),
+		CallerIP:  d.M.Read16(cpu.Addr(ss, bp+2)),
+		CallerCS:  d.M.Read16(cpu.Addr(ss, bp+4)),
 		Caller2IP: d.M.Read16(cpu.Addr(ss, outer+2)),
 		Caller2CS: d.M.Read16(cpu.Addr(ss, outer+4)),
 	})
