@@ -500,6 +500,72 @@ func (o *Oracle) Tandy16() []uint8 {
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
 func (o *Oracle) Steps() uint64                     { return o.m.Steps }
+
+// Frames 是**螢幕刷新了幾次**（VGA 垂直回掃次數，`docs/spec/187`）。
+//
+// **這是通用的幀**：任何 DOS 程式都有它，不必知道那支程式在哪裡畫完一幀。
+// DOSBox 的 `VGA_VerticalTimer` 是同一個東西（`src/hardware/vga_draw.cpp`）。
+//
+// 它由指令數驅動（`Machine.VGAFrameEvery`），不是真實時間，所以是決定性的。
+func (o *Oracle) Frames() uint64 { return o.m.Frames }
+
+// TimerHz 回**程式自己把 PIT 設成幾 Hz**。
+//
+// 8253／8254 的輸入時脈是固定的 `machine.PITBaseHz`（1,193,181.82 Hz），
+// 程式寫進去的是除數，所以頻率 ＝ 基頻 ÷ 除數。BIOS 開機是 65,536
+// （18.2 Hz），程式要更細的時基就自己重寫——**不要把某一支遊戲的頻率
+// 寫死在呼叫端**：《大富翁2》是 17,000（70.187 Hz），《臥龍傳》的
+// `YNSOUND.COM` 是 4,096（291.3 Hz）。
+//
+// 這個值是「程式要求多快」，不是 dosgolem 的時間流速——後者由
+// `machine.IRQ0Every` 的指令數決定。要換算就配 `StepsPerTick`。
+func (o *Oracle) TimerHz() float64 { return o.m.PITHz() }
+
+// TimerDivisor 回 PIT 通道 0 目前的除數。
+func (o *Oracle) TimerDivisor() uint32 { return o.m.PITDivisor() }
+
+// TimerProgrammed 回報程式有沒有自己設過 PIT 通道 0。
+//
+// **要分得出「量到 18.2 Hz」與「沒被設過所以是預設值」**：數字一樣，
+// 但一個是結論、一個是「還沒發生」。
+func (o *Oracle) TimerProgrammed() bool { return o.m.PITProgrammed() }
+
+// StepsPerTick 回一個計時器刻等於幾道指令。
+//
+// dosgolem 的時間由指令數驅動，所以「幾刻」與「幾道指令」的換算走這裡。
+//
+// ⚠ 它回的是**機器現在跑的**間隔（`machine.IRQ0Every`），不是程式要求的
+// 那個頻率換算出來的值。兩者在《大富翁2》上相同（除數 17,000 就是
+// `DefaultIRQ0Every` 的基準），別的程式不見得——要程式要求的那個值，
+// 用 `machine.PITStepsPerTick`（`docs/spec/188-pit-divisor-decoding` §4）。
+func (o *Oracle) StepsPerTick() uint64 { return o.m.IRQ0Every }
+
+// OnFrame 在每一次垂直回掃時呼叫 f。nil 取消。
+//
+// **錄影要用這個**：回呼時的畫面就是這一幀要顯示的內容，
+// 逐幀存下來就是螢幕實際輸出的序列。
+//
+// ⚠ 與 `apps/rich2.EachFrame` 不是同一種幀：那一支是**動畫幀**
+// （原版一個像素幀 ≈ 4 次螢幕刷新），這一支是**螢幕幀**。
+func (o *Oracle) OnFrame(f func(*Oracle)) {
+	if f == nil {
+		o.m.SetOnFrame(nil)
+		return
+	}
+	o.m.SetOnFrame(func() { f(o) })
+}
+
+// OnTick 在每一次送出計時器中斷時呼叫 f。nil 取消。
+//
+// 回呼點在中斷送出**之前**，所以這時的畫面是上一幀畫完的結果——
+// 逐幀取畫面要的正是這個時刻。
+func (o *Oracle) OnTick(f func(*Oracle)) {
+	if f == nil {
+		o.m.SetOnTick(nil)
+		return
+	}
+	o.m.SetOnTick(func() { f(o) })
+}
 func (o *Oracle) Opened() []string                  { return o.d.Opened }
 func (o *Oracle) Missing() []string                 { return o.d.Missing }
 func (o *Oracle) Wrote() []dos.Write                { return o.d.Wrote }

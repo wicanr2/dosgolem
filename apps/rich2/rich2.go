@@ -3,7 +3,7 @@
 // 這些是**遊戲專屬知識**，所以不放在 oracle 核心裡——那一層是契約，要窄。
 // 這裡放「這個 binary 的哪個畫面要怎麼過」。
 //
-//	o, _ := oracle.Load(exe, root)
+//	o, _ := rich2.Load(exe, root)   // ⚠ 不是 oracle.Load，見 Load 的說明
 //	rich2.ToBoard(o)          // 冷啟動 → 防拷 → 主選單 → 棋盤
 //	shot := o.Indexed()
 //
@@ -15,6 +15,26 @@ import (
 
 	"github.com/wicanr2/dosgolem/oracle"
 )
+
+// DGROUP 是這一支的 `ds:` 線性基底（`rich2/CLAUDE.md` §4.1）。
+//
+// **編譯後的 BASIC 不把 DS 放在映像段。** IDA 從重定位表建出的 `seg040`
+// （sel `41E9`）就是 DGROUP，另由「讓 `ds:1B5Ah` 等於 1.0」獨立求解，
+// 兩者吻合。組語寫的程式（如 `apps/wolong`）才是 `ds:` ＝ `cs:`。
+//
+// ⚠ **拿錯的值不會報錯**：所有 `ds:` 相對的讀取整批偏移，讀出來是一片
+// 看起來像資料的東西。`oracle.Options.DGROUP` 的零值是通用預設
+// （映像段），所以 **rich2 一定要走 `Load`，不能用 `oracle.Load`**。
+const DGROUP = 0x41E90
+
+// Load 用 rich2 的 DGROUP 開一個 oracle。root 是原版素材目錄（玩家自備）。
+//
+// **不要直接用 `oracle.Load`**——那會拿通用預設當 DGROUP。
+// 症狀不是崩潰，是玩家金錢讀成 `1003297906`、目前玩家讀成 `7630`
+// 這種「看起來像資料」的值，而每一張資料表的對拍會整片變紅。
+func Load(exe, root string) (*oracle.Oracle, error) {
+	return oracle.LoadWith(exe, root, oracle.Options{DGROUP: DGROUP})
+}
 
 // 四個色塊的中心（`rich2/docs/re/005`「色塊的精確位置」實測）。
 const swatchX = 102

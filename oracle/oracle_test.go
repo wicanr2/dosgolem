@@ -18,7 +18,12 @@ func load(t *testing.T) *oracle.Oracle {
 	if exe == "" || root == "" {
 		t.Skip("要 DOSGOLEM_TEST_EXE 與 DOSGOLEM_TEST_ROOT（玩家自備的原版素材）")
 	}
-	o, err := oracle.Load(exe, root)
+	// ⚠ **這一組的素材是 rich2 的 `RUN_full.EXE`，編譯後的 BASIC**：
+	// DGROUP 不在映像段，要帶 `apps/rich2.DGROUP` 的值。`oracle.Load` 的
+	// 通用預設（DS ＝ 映像段）會讓每一個 `ds:` 讀取整批偏移，
+	// 而 `TestDGROUPAddressing` 就是為了抓這件事而寫的。
+	// 這裡不 import `apps/rich2`（那會讓觀測層的測試反過來依賴程式層）。
+	o, err := oracle.LoadWith(exe, root, oracle.Options{DGROUP: 0x41E90})
 	if err != nil {
 		t.Fatal(err)
 	}

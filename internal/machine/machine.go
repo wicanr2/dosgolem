@@ -117,8 +117,23 @@ const PITHz = 1_193_182
 // `docs/spec/004` §5.2。
 const DefaultCPUHz = 33_000_000
 
-// PITDefaultDivisor 是 PIT 通道 0 的開機分頻。寫 0 的意思就是它。
-const PITDefaultDivisor = 65536
+// DefaultVGAFrameEvery 是每幾道指令一次**垂直回掃**（＝螢幕刷新一次）。
+//
+// 幀是顯示硬體的事實，不是任何一支程式的知識——DOSBox 也是這樣做的：
+// `VGA_VerticalTimer` 由時序驅動，每次回掃跑一輪
+// `RENDER_StartUpdate`…`RENDER_EndUpdate`，而 fps 從 CRTC 暫存器算
+// （`src/hardware/vga_draw.cpp`：`fps = oscclock/(vtotal*htotal)`，
+// mode 13h 的標準值 `vga_fps = 70`）。
+//
+// dosgolem 的時間由**指令數**驅動，所以這裡換算成指令數。它與
+// `DefaultIRQ0Every` 同量級是**巧合**，不是恆等式：mode 13h 的回掃是
+// 70 Hz，而計時刻的頻率由程式寫進 8254 的除數決定（`PITHz`）——
+// rich2 寫 17,000 ＝ 70.187 Hz，剛好幾乎同頻；`YNSOUND.COM` 寫 4,096
+// 就是 291 Hz，兩者差四倍。要一個程式的計時刻換算成指令數，
+// 用 `PITStepsPerTick`，不要拿這個常數頂替。
+//
+// ⚠ **改了它，幀的長度就改了**，同 `IRQ0Every`。對拍要固定。
+const DefaultVGAFrameEvery = 165_000
 
 // DefaultKeyIRQEvery 是兩次鍵盤中斷的最小間隔，單位是**指令數**。
 // 取計時器間隔的一半：比一次畫面更新久，程式一定來得及把掃描碼收走。
@@ -281,6 +296,25 @@ type Machine struct {
 	// Ticks 是送出去的計時器中斷次數。
 	Ticks uint64
 
+	// VGAFrameEvery 是每幾道指令一次垂直回掃。0 ＝ 不產生幀。
+	//
+	// 預設 DefaultVGAFrameEvery。
+	VGAFrameEvery uint64
+
+	// Frames 是垂直回掃次數，也就是**螢幕刷新了幾次**。
+	//
+	// 這是通用的幀：任何 DOS 程式都有它，不必知道那支程式在哪裡畫完一幀。
+	Frames uint64
+
+	// onFrame 在每一次垂直回掃時呼叫（`docs/spec/187`）。
+	onFrame   func()
+	nextFrame uint64
+
+	// onTick 在每一次送出計時器中斷時呼叫（`docs/spec/187`）。
+	//
+	// **掛在送中斷那一點，不是每道指令輪詢**——幀時鐘自己不該變成熱點。
+	onTick func()
+
 	// periodic 是「每 n 道指令遠呼叫一次」。真機上這種東西是別人的 TSR
 	// 掛在 PIT 上：《臥龍傳》的遊戲時鐘就是 `YNSOUND.COM` 用 291.3 Hz
 	// 的回呼推的（`docs/spec/008` §6）。**沒有它遊戲時鐘不會走**，
@@ -314,6 +348,9 @@ type Machine struct {
 
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
+
+	// pit 記通道 0 的除數：程式自己寫的頻率（`PITHz`）。
+	pit pit
 
 	nextIRQ0    uint64
 	irq0Pending bool
@@ -401,7 +438,8 @@ func New() *Machine {
 		Mem:       make([]uint8, MemSize),
 		Ports:     map[uint16]uint8{},
 		PortsIn:   map[uint16]uint64{},
-		IRQ0Every: DefaultIRQ0Every,
+		IRQ0Every:     DefaultIRQ0Every,
+		VGAFrameEvery: DefaultVGAFrameEvery,
 		KeyEvery:  DefaultKeyIRQEvery,
 		IRQ0Base:  DefaultIRQ0Every,
 		CPUHz:     DefaultCPUHz,
@@ -411,7 +449,8 @@ func New() *Machine {
 		// `m.Steps >= m.nextIRQ0` 在第 0 步就成立，程式的第一道指令
 		// 還沒執行就先被 int 08h 打斷——載入器把 IF 打開之後，
 		// 那變成每一支程式都會遇到，而症狀是「跑幾步就跑到別的地方去」。
-		nextIRQ0: DefaultIRQ0Every,
+		nextIRQ0:  DefaultIRQ0Every,
+		nextFrame: DefaultVGAFrameEvery,
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		rWatchLo: 1, rWatchHi: 0,
@@ -736,6 +775,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
 
+	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
+	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。
+	m.pit.out(p, v)
+
 	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
 	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話
 	// 它會把一個亂數寫進去，而那個亂數的低位元管的是喇叭與 RAM 檢查。
@@ -1023,6 +1066,18 @@ func (m *Machine) tick() {
 		m.CPU.FarCall(m.periodic.seg, m.periodic.off)
 		return
 	}
+	// 垂直回掃 ＝ 螢幕刷新一次 ＝ 一幀。
+	//
+	// **不看 IF**：它是顯示硬體的事實，不是中斷——程式 `cli` 的時候
+	// 螢幕照樣在掃。這也是它比「程式畫完一幀的位址」通用的原因：
+	// 不必知道那支程式長什麼樣。
+	if m.VGAFrameEvery > 0 && m.Steps >= m.nextFrame {
+		m.nextFrame = m.Steps + m.VGAFrameEvery
+		m.Frames++
+		if m.onFrame != nil {
+			m.onFrame()
+		}
+	}
 	switch {
 	case m.CycleClock: // 週期時鐘（`docs/spec/004` §5.1）
 		if m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc {
@@ -1045,8 +1100,22 @@ func (m *Machine) tick() {
 	}
 	m.irq0Pending = false
 	m.Ticks++
+	if m.onTick != nil {
+		m.onTick()
+	}
 	m.CPU.Interrupt(0x08)
 }
+
+// SetOnFrame 登記「每一次垂直回掃就呼叫」（`docs/spec/187`）。nil 取消。
+//
+// 回呼時 `Frames` 已經是這一幀的編號，畫面是這一幀要顯示的內容。
+func (m *Machine) SetOnFrame(f func()) { m.onFrame = f }
+
+// SetOnTick 登記「每送出一次計時器中斷就呼叫」（`docs/spec/187` §4）。
+//
+// nil 取消。回呼在 `Ticks++` 之後、`Interrupt(0x08)` 之前執行，
+// 所以看到的 `Ticks` 已經是這一次的編號，而中斷處理常式還沒跑。
+func (m *Machine) SetOnTick(f func()) { m.onTick = f }
 
 // SetPeriodicFarCall 登記「每 every 道指令遠呼叫 seg:off 一次」。
 //

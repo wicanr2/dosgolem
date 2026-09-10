@@ -578,3 +578,14 @@ func (o *Oracle) OnWrite(lo, hi uint32, fn func(*Oracle, WriteHit)) {
 
 // StopWrites 收掉監看。
 func (o *Oracle) StopWrites() { o.m.WatchWrites(1, 0, nil) }
+
+
+// AtFrame 是「跑到第 n 次螢幕刷新」（`docs/spec/187`）。
+//
+// 畫面對拍要的是同狀態同相位；`AtTick` 給的是計時器相位，
+// 這一支給的是**顯示相位**——錄影與逐幀比對用它。
+func AtFrame(n uint64) Cond {
+	return Cond{name: fmt.Sprintf("第 %d 幀", n), ready: func(o *Oracle) bool {
+		return o.Frames() >= n
+	}}
+}

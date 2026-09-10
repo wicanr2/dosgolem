@@ -14,7 +14,7 @@ func load(t *testing.T) *oracle.Oracle {
 	if exe == "" || root == "" {
 		t.Skip("要 DOSGOLEM_TEST_EXE 與 DOSGOLEM_TEST_ROOT（玩家自備的原版素材）")
 	}
-	o, err := oracle.Load(exe, root)
+	o, err := rich2.Load(exe, root)
 	if err != nil {
 		t.Fatal(err)
 	}

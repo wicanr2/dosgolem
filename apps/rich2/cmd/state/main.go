@@ -10,6 +10,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/apps/rich2"
 	"github.com/wicanr2/dosgolem/oracle"
@@ -21,13 +23,14 @@ func main() {
 	root := flag.String("root", ".", "原版素材目錄")
 	find := flag.Int("find", 0, "順便搜尋這個 32 位元值在哪（0 ＝ 不搜）")
 	square := flag.Int("square", -1, "印出棋盤陣列 122Ch 這一格的 20 個欄位")
+	squares := flag.String("squares", "", "印出這幾格（逗號分隔）的地圖座標與出口")
 	flag.Parse()
 	if *exe == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
 
-	o, err := oracle.Load(*exe, *root)
+	o, err := rich2.Load(*exe, *root)
 	if err != nil {
 		die(err)
 	}
@@ -41,9 +44,11 @@ func main() {
 		rich2.Turn(o), rich2.Tile(o), rich2.Direction(o))
 
 	fmt.Println("\n玩家（11A2h，1..6 × 0..59，4B，列主序）：")
-	fmt.Println("  槽    現金      存款")
+	fmt.Println("  槽    現金      存款  格號  地圖列  地圖行")
 	for i := 1; i <= rich2.MaxPlayers; i++ {
-		fmt.Printf("  %d  %9d %9d\n", i, rich2.Cash(o, i), rich2.Deposit(o, i))
+		row, col := rich2.MapCoord(o, i)
+		fmt.Printf("  %d  %9d %9d  %4d  %6d  %6d\n",
+			i, rich2.Cash(o, i), rich2.Deposit(o, i), rich2.Position(o, i), row, col)
 	}
 	fmt.Printf("  有錢的槽：%v\n", rich2.ActivePlayers(o))
 
@@ -64,6 +69,23 @@ func main() {
 		}
 		fmt.Printf("  %s %-16s 基底 %05X　%d bytes（DIM 表 %d）\n",
 			mark, a.name, a.arr.Base, a.arr.Size(), a.want)
+	}
+
+	if *squares != "" {
+		bd := rich2.Board(o)
+		fmt.Println("\n122Ch 欄 0/1 ＝ 地圖列/行（`rich2/docs/re/014` §4）：")
+		fmt.Println("  格   列   行   出口 4..7")
+		for _, f := range strings.Split(*squares, ",") {
+			n, err := strconv.Atoi(strings.TrimSpace(f))
+			if err != nil {
+				die(err)
+			}
+			fmt.Printf("%5d", n)
+			for j := 0; j < 20; j++ {
+				fmt.Printf("%5d", bd.Int16(n, j))
+			}
+			fmt.Println()
+		}
 	}
 
 	if *square >= 0 {
