@@ -375,6 +375,14 @@ type Machine struct {
 	// **非零表示波形的時間軸不可信**，不能安靜地夾。
 	IRQ0Clamped int
 
+	// CRTCTiming 讓 `0x3DA` 走真的時序模型（`docs/spec/193`）。
+	//
+	// **預設關著。** 既有的對拍收據都建立在行為模型的 `in` 回傳序列上
+	// ——那個模型拿讀取次數的 bit4 翻轉，讓兩種等待迴圈都轉得出來，
+	// 但回掃的頻率由程式輪詢的快慢決定。開了之後頻率跟著 CRTC 走，
+	// 而每一份既有收據的 `in` 序列都會不同。
+	CRTCTiming bool
+
 	// picMask 是 8259 的 OCW1（埠 0x21）：bit0 遮蔽 IRQ0、bit1 遮蔽 IRQ1。
 	//
 	// 原版改分頻值前後各遮蔽／放行一次。不接的話，遮蔽期間送進去的中斷
@@ -837,6 +845,13 @@ func (m *Machine) In8(port uint16) uint8 {
 		m.VGA.ResetACFlip()
 		// bit3 ＝ 垂直回掃、bit0 ＝ 顯示中。**兩個都要會變**，
 		// 這樣不管程式等的是哪一種邊緣都轉得出來。
+		if m.CRTCTiming {
+			if v, ok := m.statusFromTiming(); ok {
+				return v
+			}
+			// 時序算不出來（暫存器還沒被設過）就退回行為模型——
+			// 回定值的話程式會死在等待迴圈裡。
+		}
 		if (m.portTicks>>4)&1 != 0 {
 			return 0x09
 		}
