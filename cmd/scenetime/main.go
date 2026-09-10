@@ -75,7 +75,7 @@ func main() {
 
 	// ---- 先讓 overlay loader 把資料段搬進記憶體 -------------------------
 	for m.Steps < *boot && !m.CPU.Halted && !d.Exited {
-		if cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP) >= machine.VideoSeg*16 {
+		if a := cpu.Linear(m.CPU.Seg[cpu.CS], m.CPU.IP); a >= machine.VideoSeg*16 && a < machine.MemSize {
 			break
 		}
 		if m.Step() != nil {
@@ -287,7 +287,7 @@ func call(m *machine.Machine, dgroup, ip uint16, args ...uint16) (uint32, uint64
 			why = ""
 			break
 		}
-		if a := cpu.Addr(c.Seg[cpu.CS], c.IP); a >= machine.VideoSeg*16 {
+		if a := cpu.Linear(c.Seg[cpu.CS], c.IP); a >= machine.VideoSeg*16 && a < machine.MemSize {
 			why = fmt.Sprintf("跑到 %04X:%04X", c.Seg[cpu.CS], c.IP)
 			break
 		}

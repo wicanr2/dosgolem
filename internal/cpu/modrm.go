@@ -81,7 +81,7 @@ func (c *CPU) get8(o operand) uint8 {
 	if o.isReg {
 		return c.reg8(o.reg)
 	}
-	return c.Bus.Read8(Addr(o.seg, o.off))
+	return c.Bus.Read8(Linear(o.seg, o.off))
 }
 
 func (c *CPU) set8(o operand, v uint8) {
@@ -89,7 +89,7 @@ func (c *CPU) set8(o operand, v uint8) {
 		c.setReg8(o.reg, v)
 		return
 	}
-	c.Bus.Write8(Addr(o.seg, o.off), v)
+	c.Bus.Write8(Linear(o.seg, o.off), v)
 }
 
 func (c *CPU) get16(o operand) uint16 {

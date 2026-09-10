@@ -204,11 +204,11 @@ func (c *CPU) execute(op uint8) error {
 
 	// ---- A0–A3：MOV 與絕對位址 ------------------------------------------
 	case op == 0xA0:
-		c.setReg8(0, c.Bus.Read8(Addr(c.dataSeg(DS), c.fetch16())))
+		c.setReg8(0, c.Bus.Read8(Linear(c.dataSeg(DS), c.fetch16())))
 	case op == 0xA1:
 		c.R[AX] = c.read16(c.dataSeg(DS), c.fetch16())
 	case op == 0xA2:
-		c.Bus.Write8(Addr(c.dataSeg(DS), c.fetch16()), uint8(c.R[AX]))
+		c.Bus.Write8(Linear(c.dataSeg(DS), c.fetch16()), uint8(c.R[AX]))
 	case op == 0xA3:
 		c.write16(c.dataSeg(DS), c.fetch16(), c.R[AX])
 
@@ -320,7 +320,7 @@ func (c *CPU) execute(op uint8) error {
 			c.setReg8(0, 0x00)
 		}
 	case op == 0xD7: // XLAT
-		c.setReg8(0, c.Bus.Read8(Addr(c.dataSeg(DS), c.R[BX]+uint16(uint8(c.R[AX])))))
+		c.setReg8(0, c.Bus.Read8(Linear(c.dataSeg(DS), c.R[BX]+uint16(uint8(c.R[AX])))))
 	case op >= 0xD8 && op <= 0xDF: // ESC：沒有共處理器時只做記憶體讀取
 		m := c.decodeModRM()
 		if !m.rm.isReg {

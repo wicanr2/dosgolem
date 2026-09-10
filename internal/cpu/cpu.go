@@ -193,11 +193,29 @@ func (c *CPU) setReg8(i int, v uint8) {
 // Addr 把 段:位移 換成 20 位元線性位址。**8086 只有 20 條位址線**，
 // 所以 FFFF:0010 會 wrap 回 0——這是真的行為，不是溢位 bug。
 func Addr(seg, off uint16) uint32 {
-	return (uint32(seg)<<4 + uint32(off)) & 0xFFFFF
+	return Linear(seg, off) & 0xFFFFF
 }
 
-func (c *CPU) read8(seg, off uint16) uint8     { return c.Bus.Read8(Addr(seg, off)) }
-func (c *CPU) write8(seg, off uint16, v uint8) { c.Bus.Write8(Addr(seg, off), v) }
+// Linear 是 `段:偏移` 算出來的位址，**不遮**。
+//
+// 最大值是 `0xFFFF×16 + 0xFFFF ＝ 0x10FFEF`——1 MB 之上還有 64 KB−17。
+// 8086 只有 20 條位址線所以那一段折回 0；286 之後多出來的第 21 條由
+// 主機板上的 A20 gate 控制，打開之後那一段就是 HMA。
+//
+// ⚠ **環繞是匯流排的事，不是 CPU 的**（`docs/spec/189`）。CPU 只負責
+// 把兩個數字加起來，看不看得見第 21 條線由 `Bus` 決定——`Machine`
+// 那邊 A20 關著就遮成 20 位，開著就把 1 MB 以上導到 HMA。遮在這裡的話
+// 等於把閘門焊死在關的位置，而症狀是「程式寫進 HMA 的東西蓋掉中斷
+// 向量表」，看起來像程式自己算錯位址。
+//
+// 存取記憶體用這一支；`Addr` 留給算「線性位址」給工具比對的地方，
+// 那些地方處理的都是 1 MB 以下的一般情況。
+func Linear(seg, off uint16) uint32 {
+	return uint32(seg)<<4 + uint32(off)
+}
+
+func (c *CPU) read8(seg, off uint16) uint8     { return c.Bus.Read8(Linear(seg, off)) }
+func (c *CPU) write8(seg, off uint16, v uint8) { c.Bus.Write8(Linear(seg, off), v) }
 
 // 16 位元存取是兩次 8 位元，而且**位移各自 wrap**：
 // 讀 DS:FFFF 的 word 會拿到 DS:FFFF 與 DS:0000，不是跨到下一段。

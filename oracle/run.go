@@ -94,13 +94,19 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 		// 全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
 		// 所以飛掉之後**不會有任何錯誤**，只會安靜地跑滿上限。
 		//
-		// 位址只算一次：護欄與 hook 查詢共用（`docs/spec/015` §4.3）。
-		lin := cpu.Addr(o.m.CPU.Seg[cpu.CS], o.m.CPU.IP)
-		if lin >= machine.VideoSeg*16 {
+		// 位址只算一次，護欄與 hook 查詢共用（`docs/spec/015` §4.3）。
+		//
+		// 護欄要看**沒遮過**的位址：1 MB 以上是 HMA，A20 開著時到得了
+		// （`docs/spec/189`），那是合法的記憶體；禁區是 A0000 到 1 MB
+		// 之間的視訊與 ROM。hook 的鍵則是遮過 20 位的（`OnCall` 註冊時
+		// 走 `Addr.Linear`），而且 `hookBits` 只有 1 MB 那麼大。
+		lin := cpu.Linear(o.m.CPU.Seg[cpu.CS], o.m.CPU.IP)
+		if lin >= machine.VideoSeg*16 && lin < machine.MemSize {
 			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), lin)
 		}
-		if o.hookBits != nil && o.hookBits[lin>>6]&(1<<(lin&63)) != 0 {
-			o.fireCallHooksAt(lin)
+		key := lin & 0xFFFFF
+		if o.hookBits != nil && o.hookBits[key>>6]&(1<<(key&63)) != 0 {
+			o.fireCallHooksAt(key)
 		}
 		if o.fireStub() {
 			continue

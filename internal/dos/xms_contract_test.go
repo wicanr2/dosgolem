@@ -280,3 +280,76 @@ func TestUnknownXMSFunctionFailsWithCode(t *testing.T) {
 		t.Error("沒實作的功能沒有記一筆")
 	}
 }
+
+// TestRequestHMAThenWriteReachesHMA 走一次程式實際會走的路：
+// 問 HMA 在不在 → 配置它 → 用 `段:偏移` 寫進去 → 讀回來。
+//
+// ⚠ **這一條沒過的時候，症狀是中斷向量表被蓋掉。** `AH=01h` 會開 A20，
+// 因為「拿到 HMA 就要能定址」；A20 對定址沒有作用的話，程式往
+// FFFF:xxxx 寫的每一個位元組都落在 0000:xxxx——蓋掉的正是 IVT，
+// 而且不會有任何錯誤（`docs/spec/189` §2 量到的就是這個）。
+func TestRequestHMAThenWriteReachesHMA(t *testing.T) {
+	m, d := newTest(t)
+
+	// 先在 IVT 那一段放一個可辨識的值，等一下要確認它沒被動到。
+	const ivtProbe = 0x10 // int 04h 的向量
+	m.Write8(ivtProbe, 0xBB)
+
+	if ax := xmsCallAH(m, d, 0x0100); ax != 1 { // Request HMA
+		t.Fatalf("Request HMA 回 AX=%04X，預期 1", ax)
+	}
+	if !m.A20Enabled() {
+		t.Fatal("配到 HMA 了但 A20 沒開——程式接下來寫的東西會落在低記憶體")
+	}
+
+	// mov es:[bx], 0x42，ES:BX ＝ FFFF:0010 → 線性 0x100000
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0xFFFF, 0x0010
+	m.WriteBytes(cpu.Addr(0x2000, 0), []byte{0x26, 0xC6, 0x07, 0x42})
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2000, 0
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 讀回來：同一組 段:偏移 要拿得到寫進去的值。
+	m.WriteBytes(cpu.Addr(0x2000, 0x10), []byte{0x26, 0x8A, 0x07}) // mov al, es:[bx]
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2000, 0x10
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := uint8(m.CPU.R[cpu.AX]); got != 0x42 {
+		t.Errorf("從 HMA 讀回 %02X，預期 42", got)
+	}
+	if got := m.Read8(ivtProbe); got != 0xBB {
+		t.Errorf("中斷向量表的 0x%02X 變成 %02X——寫進 HMA 的位元組落到 IVT 上了",
+			ivtProbe, got)
+	}
+}
+
+// TestReleaseHMAClosesA20 釘住放掉 HMA 之後 A20 跟著關。
+//
+// 不關的話，程式以為自己回到 8086 的環繞行為，而「寫 0000:0000 再讀
+// FFFF:0010」這個偵測會回報「有 A20」——接著它可能又去配一次。
+func TestReleaseHMAClosesA20(t *testing.T) {
+	m, d := newTest(t)
+	xmsCallAH(m, d, 0x0100) // Request HMA
+	xmsCallAH(m, d, 0x0200) // Release HMA
+	xmsCallAH(m, d, 0x0400) // Global Disable A20
+	if m.A20Enabled() {
+		t.Error("放掉 HMA 又關了 A20，A20 還開著")
+	}
+	// HMA 要在 A20 還開著的時候放進去：關著的話這個線性位址一樣會
+	// 環繞，寫進去的是低記憶體（這正是要釘住的行為）。
+	m.SetA20(true)
+	m.Write8(machine.MemSize+0x10, 0xAA)
+	m.SetA20(false)
+	m.Write8(0x10, 0xBB)
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.BX] = 0xFFFF, 0x0020
+	m.WriteBytes(cpu.Addr(0x2000, 0), []byte{0x26, 0x8A, 0x07})
+	m.CPU.Seg[cpu.CS], m.CPU.IP = 0x2000, 0
+	if err := m.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if got := uint8(m.CPU.R[cpu.AX]); got != 0xBB {
+		t.Errorf("A20 關著讀 FFFF:0020 ＝ %02X，預期 BB（環繞回 0x10）", got)
+	}
+}

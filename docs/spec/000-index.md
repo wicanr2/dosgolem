@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（8 份）
+### 共同基礎（master）（9 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -59,6 +59,7 @@
 - `006-layering.md`
 - `187-frame-clock.md`
 - `188-pit-divisor-decoding.md`
+- `189-a20-gate-and-hma-addressing.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -329,3 +330,5 @@
 - [185 — SS 段覆寫的16位元 MOV 記憶體寫入](185-cpu386-ss-word-store.md)：CONFORMED。
 
 - [186 — FD2平台缺口持續驗證](186-fd2-platform-gap-continuation.md)：原版標題與BIOS單次方向鍵已驗證，正常START進王宮；目前CPU缺口、音訊與輸入限制統一見186檔首。
+
+- [189 — A20 閘門與 HMA 的定址](189-a20-gate-and-hma-addressing.md)：READY。位址遮罩從 CPU 移到匯流排——`段:偏移` 到得了 1 MB 之上，A20 關著時才環繞。

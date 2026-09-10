@@ -36,20 +36,14 @@ machine.go 的 PITHz ＝ 1_193_182、speaker.go 的 pitInputHz ＝ 1193182（同
 
 **核實**：`present` ／ `pitInputHz\s*=`
 
-## correctness
+## 已解決
 
-模擬出來的行為與真機不符，程式會據此做錯決定
+核實不掃這一段——它記的是歷史，不是斷言。
 
-### 段:偏移 到不了 HMA，A20 開關對定址沒有作用
+### 段:偏移 到不了 HMA，A20 開關對定址沒有作用（2026-09-10）
 
 `hma-unreachable-by-seg-off`
 
-cpu.Addr(seg, off) 回傳前做 `& 0xFFFFF`，把位址遮成 8086 的 20 條位址線。真機上那個環繞是**匯流排**的行為：8086 只有 20 條線所以環繞，286 之後多的那條線由 A20 gate 控制，打開之後 FFFF:0010 就是線性 0x100000（HMA 的第一個位元組）。遮在 CPU 裡等於把閘門焊死在關的位置。
+位址遮罩從 CPU 移到匯流排：新增 cpu.Linear（不遮），CPU 內部六處記憶體存取原語改用它；cpu.Addr 維持遮 20 位不動，給算線性位址比對的地方用。取指令快路徑在 A20 開著時關掉（Mem[] 蓋不住 HMA），執行護欄放行 1 MB 以上。規格 docs/spec/189-a20-gate-and-hma-addressing.md。
 
-後果不是「偵測不到 A20」而已。internal/dos/xms.go 完整實作了 HMA：AH=00h 回報 DX=1（HMA 存在）、AH=01h 讓程式配置它、AH=03h–06h 開關 A20，而且那裡的註解寫著「A20 沒開的話 1 MB 之上環繞回 0，程式寫進去的東西會蓋掉中斷向量表」。實際情況是那個災難**無條件發生**：程式拿到 HMA、開了 A20，往 FFFF:xxxx 寫的每一個位元組都落在 0000:xxxx，蓋掉的正是中斷向量表。
-
-Machine.Read8／Write8 已經有 hmaAddr 分支，但它只在位址 ≥ MemSize 時才成立，而經過 cpu.Addr 的位址永遠 < MemSize，所以那條分支只有拿線性位址直接呼叫（測試、工具）時才進得去。
-
-**怎樣算做完**：A20 開著時，段:偏移 形式的讀、寫與取指令都到得了 HMA（FFFF:0010 ＝ 線性 0x100000）；A20 關著時維持 1 MB 環繞。XMS 那條路的 Request HMA → 寫入 → 讀回拿得到寫進去的值，而中斷向量表不被蓋。
-
-**核實**：`present` ／ `到不了 1 MB 之上`
+**被什麼抓到**：verify 自己開口：修好之後 machine.go 那句「到不了 1 MB 之上」的自承跟著改掉，present 就找不到 pattern 了。

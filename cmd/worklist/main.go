@@ -26,6 +26,22 @@ type Worklist struct {
 	Note   string            `json:"note"`
 	Layers map[string]string `json:"layers"`
 	Items  []Item            `json:"items"`
+
+	// Resolved 是做完的條目。**核實不掃它**——它記的是歷史，不是斷言。
+	//
+	// 放在這裡而不是刪掉，是為了讓「這一條當初錯在哪、被什麼抓到」
+	// 留在同一份檔案裡：下一次有人問「HMA 那件事處理了沒」，
+	// 答案與證據在一起，不必去翻 git log。
+	Resolved []Resolved `json:"resolved,omitempty"`
+}
+
+// Resolved 是一條已經做完的未完成項。
+type Resolved struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Date     string `json:"date"`
+	How      string `json:"how"`
+	CaughtBy string `json:"caught_by,omitempty"`
 }
 
 // Item 是一條未完成項。
@@ -167,6 +183,17 @@ func check(wl *Worklist) error {
 			return fmt.Errorf("%s：不認得的 verify kind %q", it.ID, v.Kind)
 		}
 	}
+	for _, r := range wl.Resolved {
+		switch {
+		case r.ID == "":
+			return fmt.Errorf("resolved 裡有條目沒有 id")
+		case seen[r.ID]:
+			return fmt.Errorf("%s 同時在 items 與 resolved 裡——做完了就只留一邊", r.ID)
+		case r.Date == "" || r.How == "":
+			return fmt.Errorf("%s：resolved 要寫 date 與 how", r.ID)
+		}
+		seen[r.ID] = true
+	}
 	return nil
 }
 
@@ -282,7 +309,8 @@ func verify(root string, wl *Worklist) int {
 		}
 		fmt.Printf("%-34s %-18s %s\n", it.ID, status, why)
 	}
-	fmt.Printf("\n%d 條，其中 %d 條要人判。\n", len(wl.Items), manual)
+	fmt.Printf("\n%d 條未完成（%d 條要人判），%d 條已解決。\n",
+		len(wl.Items), manual, len(wl.Resolved))
 	if stale > 0 {
 		fmt.Printf("⚠ %d 條的 verify 說東西可能已經做好了——回去看那幾條，做完的從 JSON 移走。\n", stale)
 		return 1
@@ -316,6 +344,16 @@ func render(wl *Worklist) string {
 				fmt.Fprintf(&b, " ／ `%s`", it.Verify.Pattern)
 			}
 			b.WriteString("\n")
+		}
+	}
+	if len(wl.Resolved) > 0 {
+		b.WriteString("\n## 已解決\n\n")
+		b.WriteString("核實不掃這一段——它記的是歷史，不是斷言。\n")
+		for _, r := range wl.Resolved {
+			fmt.Fprintf(&b, "\n### %s（%s）\n\n`%s`\n\n%s\n", r.Title, r.Date, r.ID, r.How)
+			if r.CaughtBy != "" {
+				fmt.Fprintf(&b, "\n**被什麼抓到**：%s\n", r.CaughtBy)
+			}
 		}
 	}
 	return b.String()

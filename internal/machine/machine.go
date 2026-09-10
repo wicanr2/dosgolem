@@ -507,7 +507,10 @@ func New() *Machine {
 func (m *Machine) A20Enabled() bool { return m.a20 }
 
 // SetA20 開關 A20（XMS 的 `AH=03h`–`06h` 走它）。
-func (m *Machine) SetA20(on bool) { m.a20 = on }
+func (m *Machine) SetA20(on bool) {
+	m.a20 = on
+	m.syncCodeFastPath()
+}
 
 // syncCodeFastPath 依目前的狀態決定取指令走不走快路徑
 // （`CPU.Code`，`docs/spec/015` §4.2）。
@@ -519,9 +522,9 @@ func (m *Machine) SetA20(on bool) { m.a20 = on }
 //     所以監看開著就得走慢路徑。
 //   - 平面模式的 A0000 視窗：不成立。程式碼不放在視訊記憶體裡，
 //     `CS:IP` 進到那裡本來就是飛掉了。
-//   - HMA：不成立。`cpu.Addr` 在 CPU 層就把位址遮成 20 位，
-//     `段:偏移` 這條路到不了 1 MB 之上——HMA 只有拿線性位址直接呼叫
-//     `Read8`／`Write8` 時才碰得到，取指令走不到那裡。
+//   - HMA：成立。A20 打開之後 `段:偏移` 到得了 1 MB 之上
+//     （`docs/spec/189`），而 HMA 不在 `Mem[]` 裡——快路徑會把那些
+//     位址讀成低記憶體的內容，執行的是另一段程式碼。
 //
 // ⚠ **`Read8` 再多做一件事，就回來過一次這張判準表。** 分開判斷的話
 // 遲早會漏一個，而漏掉的症狀都是「跑錯東西但不報錯」。
@@ -529,7 +532,7 @@ func (m *Machine) syncCodeFastPath() {
 	if m.CPU == nil {
 		return
 	}
-	if m.onRead != nil {
+	if m.onRead != nil || m.a20 {
 		m.CPU.Code = nil
 		return
 	}

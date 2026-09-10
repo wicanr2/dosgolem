@@ -538,34 +538,3 @@ func TestSnapshotCarriesTheKeyQueue(t *testing.T) {
 		t.Fatalf("還原沒清掉快照之後排進去的鍵：佇列有 %d 個事件", got)
 	}
 }
-
-// TestSegOffsetCannotReachHMA 釘住「HMA 只有線性位址碰得到」。
-//
-// `cpu.Addr` 把 `段:偏移` 遮成 20 位（8086 的 1 MB 環繞），所以不管
-// A20 開不開，走 CPU 的存取都到不了 1 MB 之上——`Read8` 的 HMA 分支
-// 只有拿線性位址直接呼叫時才會進去。
-//
-// **這條記的是現況，不是它應該如此。** 真機上 A20 打開之後
-// `FFFF:0010` 就是 HMA 的第一個位元組，程式正是靠這個差別偵測 A20；
-// 這台機器上那個偵測永遠會回報「沒有 A20」。要改的話動的是
-// `cpu.Addr`，影響面是每一次記憶體存取。
-func TestSegOffsetCannotReachHMA(t *testing.T) {
-	m := New()
-	m.SetA20(true)
-	m.Write8(MemSize, 0xB0)   // 線性位址寫得進 HMA
-	m.Write8(MemSize+1, 0x42) //
-	if got := m.Read8(MemSize + 1); got != 0x42 {
-		t.Fatalf("線性位址讀 HMA ＝ %02X，預期 42", got)
-	}
-	// 同一個位置用 段:偏移 讀，拿到的是環繞後的低記憶體。
-	m.Write8(0, 0xB0)
-	m.Write8(1, 0x99)
-	m.CPU.Seg[cpu.CS], m.CPU.IP = 0xFFFF, 0x0010
-	if err := m.Step(); err != nil {
-		t.Fatal(err)
-	}
-	if got := uint8(m.CPU.R[cpu.AX]); got != 0x99 {
-		t.Errorf("AL ＝ %02X，預期 99（環繞回低記憶體）——"+
-			"如果變成 42，表示 段:偏移 現在到得了 HMA，這條要重寫", got)
-	}
-}

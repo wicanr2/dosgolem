@@ -224,3 +224,57 @@ func TestRenderIsStable(t *testing.T) {
 		t.Error("產生的 markdown 沒寫明不要手改")
 	}
 }
+
+// TestResolvedIsNotVerified 釘住「已解決的不再被核實」。
+//
+// resolved 記的是歷史：那些 pattern 早就不在樹上了，拿去核實只會得到
+// 一整排「可能已完成」的雜訊，把真正該看的那一條淹掉。
+func TestResolvedIsNotVerified(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl, err := load(filepath.Join(root, worklistPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wl.Resolved) == 0 {
+		t.Skip("目前沒有已解決的條目")
+	}
+	ids := map[string]bool{}
+	for _, it := range wl.Items {
+		ids[it.ID] = true
+	}
+	for _, r := range wl.Resolved {
+		if ids[r.ID] {
+			t.Errorf("%s 同時在 items 與 resolved 裡", r.ID)
+		}
+	}
+	if md := render(wl); !strings.Contains(md, "已解決") {
+		t.Error("render 沒把已解決那一段列出來")
+	}
+}
+
+// TestCheckRejectsResolvedWithoutEvidence 擋掉沒寫清楚的 resolved。
+func TestCheckRejectsResolvedWithoutEvidence(t *testing.T) {
+	layers := map[string]string{"l": "測試用"}
+	for name, r := range map[string]Resolved{
+		"沒有 date": {ID: "a", How: "改好了"},
+		"沒有 how":  {ID: "a", Date: "2026-09-10"},
+		"沒有 id":   {Date: "2026-09-10", How: "改好了"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := check(&Worklist{Layers: layers, Resolved: []Resolved{r}}); err == nil {
+				t.Error("這種 resolved 應該被擋下來")
+			}
+		})
+	}
+	// 同一個 id 不能兩邊都在——那表示做完了卻沒從 items 移走。
+	if err := check(&Worklist{
+		Layers:   layers,
+		Items:    []Item{{ID: "dup", Layer: "l", Acceptance: "a", Verify: Verify{Kind: "manual", Note: "n"}}},
+		Resolved: []Resolved{{ID: "dup", Date: "2026-09-10", How: "改好了"}},
+	}); err == nil {
+		t.Error("id 同時在 items 與 resolved 應該被擋下來")
+	}
+}
