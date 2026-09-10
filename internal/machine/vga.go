@@ -57,6 +57,11 @@ type VGA struct {
 	acIdx  uint8
 	acFlip bool
 
+	// crtc 是 CRT 控制器（`3D4`／`3D5`，單色是 `3B4`／`3B5`）。
+	// 目前只用到顯示起點 index `0C`／`0D` 與 mode control `17`。
+	crtc    [32]uint8
+	crtcIdx uint8
+
 	// planarSeen 記「Map Mask 曾被寫成不是 0Fh 的值」。
 	//
 	// **這是判斷用的訊號，不是模式暫存器。** 有些程式從來不呼叫
@@ -124,6 +129,11 @@ func (v *VGA) resetMode() {
 		v.ac[i] = uint8(i)
 	}
 	v.seqIdx, v.gcIdx, v.acIdx, v.acFlip = 0, 0, 0, false
+	// CRTC：顯示起點歸零，mode control 設成 BIOS 給 16 色 planar 的
+	// 0xE3——bit6 ＝ 1，起點以**位元組**計。設模式不重設它的話，
+	// 上一個模式翻到一半的頁號會留下來。
+	v.crtc, v.crtcIdx = [32]uint8{}, 0
+	v.crtc[0x17] = 0xE3
 	v.planarSeen = false
 }
 
@@ -143,6 +153,10 @@ func (v *VGA) Out(p uint16, val uint8) bool {
 		v.gcIdx = val & 0x0F
 	case 0x3CF:
 		v.gc[v.gcIdx] = val
+	case 0x3D4, 0x3B4:
+		v.crtcIdx = val & 0x1F
+	case 0x3D5, 0x3B5:
+		v.crtc[v.crtcIdx] = val
 	case 0x3C0:
 		if v.acFlip {
 			v.ac[v.acIdx] = val
@@ -171,6 +185,10 @@ func (v *VGA) In(p uint16) (uint8, bool) {
 		return v.gc[v.gcIdx], true
 	case 0x3C1:
 		return v.ac[v.acIdx], true
+	case 0x3D4, 0x3B4:
+		return v.crtcIdx, true
+	case 0x3D5, 0x3B5:
+		return v.crtc[v.crtcIdx], true
 	}
 	return 0, false
 }
@@ -334,18 +352,35 @@ func (v *VGA) Raw() []uint8 { return v.mem }
 
 // ---- 取畫面 --------------------------------------------------------------
 
+// DisplayStart 回 CRTC 的顯示起點，換算成平面內的**位元組**位移。
+//
+// index `0C`／`0D` 是起點的高／低位元組；單位由 mode control（index
+// `17`）的 bit6 決定：1 ＝ byte 模式（直接用），0 ＝ word 模式（乘 2）。
+// BIOS 把 16 色 planar 模式設成 `0xE3`，所以預設是 byte 模式。
+//
+// ⚠ **沒有這個換算，畫面在翻頁的程式倒出來的永遠是第 0 頁**——
+// 而那看起來只是「畫面對不上」，不像少了一個暫存器。
+func (v *VGA) DisplayStart() uint32 { return displayStart(v.crtc) }
+
+func displayStart(crtc [32]uint8) uint32 {
+	start := uint32(crtc[0x0C])<<8 | uint32(crtc[0x0D])
+	if crtc[0x17]&0x40 == 0 {
+		start *= 2
+	}
+	return start & 0xFFFF
+}
+
 // Pixels 把四個平面攤成每點一個 4 bit 色號。
 //
-// 列距是 `w/8` bytes。**不讀 CRTC**——被觀測的程式不改它。
+// 列距是 `w/8` bytes，**起點跟著 CRTC 的顯示起點走**（`DisplayStart`）
+// ——畫面在翻頁的程式不讀它就永遠倒出第 0 頁。
 func (v *VGA) Pixels(w, h int) []uint8 {
 	out := make([]uint8, w*h)
 	pitch := w / 8
+	start := v.DisplayStart()
 	for y := 0; y < h; y++ {
 		for bx := 0; bx < pitch; bx++ {
-			off := y*pitch + bx
-			if off >= PlaneSize {
-				break
-			}
+			off := (int(start) + y*pitch + bx) & (PlaneSize - 1)
 			b0, b1 := v.Planes[0][off], v.Planes[1][off]
 			b2, b3 := v.Planes[2][off], v.Planes[3][off]
 			base := y*w + bx*8
@@ -476,6 +511,11 @@ func (m *Machine) PlanarPutPixel(off uint32, mask, color uint8) {
 
 // PlanarPixels 把四個平面解成色號陣列。w/h 由呼叫端依模式給。
 func (m *Machine) PlanarPixels(w, h int) []uint8 { return m.VGA.Pixels(w, h) }
+
+// DisplayStart 是 CRTC 的顯示起點（`VGA.DisplayStart`）。
+//
+// 倒畫面之前問一次：非零就表示程式在翻頁，而第 0 頁多半是上一幕。
+func (m *Machine) DisplayStart() uint32 { return m.VGA.DisplayStart() }
 
 // planarIndexed 把四個平面疊成目前模式尺寸的色號（0–15）。
 func (m *Machine) planarIndexed() []uint8 {
