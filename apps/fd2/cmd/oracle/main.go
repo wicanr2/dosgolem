@@ -11,6 +11,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,6 +33,9 @@ func main() {
 	root := flag.String("root", "/orig", "唯讀原版資料根目錄")
 	frame := flag.String("frame", "", "原生320×200停點PNG輸出（不覆寫）")
 	budget := flag.Int("steps", 500000, "有界指令數（1至2000000000）")
+	lockAllyHP := flag.Bool("lock-ally-hp", false,
+		"作弊：把我方單位的 HP 壓回歷史最高值，讓長關卡跑得完。這是修改路徑，"+
+			"收據會在 state_injections 標記，不得當成一般玩家路徑證據")
 	timedKeys := flag.String("timed-keys", "", "指令時點輸入：80000000:enter，逗號分隔且嚴格遞增")
 	keys := flag.String("keys", "", "等待邊界的BIOS按鍵序列，以逗號分隔：up,down,left,right,enter,esc")
 	state := flag.String("state", "", "獨立可寫檔案覆蓋目錄；空值維持唯讀")
@@ -229,6 +233,50 @@ func main() {
 	// 0x53BEF，外加 0x51A83 的 overlay selector（0x122DC 用它決定畫哪一組範圍
 	// ／游標圖示，0 表示不畫）。逐幀擷取與控制邊界收據共用同一份讀法，避免
 	// 兩邊漂移。
+	// 我方 HP 鎖定。用 record `+8`（identity）當 key 而不是陣列索引：增援與死亡
+	// 會讓陣列重排，索引對不回同一個單位。`+0x40` 是 HP（uint16）。
+	//
+	// 這是作弊。它讓「原版側跑得完長關卡」變成可能，代價是這一輪的收據不能用來
+	// 談傷害、存活或任何與我方 HP 有關的結論——每一份快照的 state_injections 都
+	// 會寫明注入了什麼、寫了幾次。
+	allyPeakHP := map[byte]uint16{}
+	allyHPWrites := 0
+	lockAllyHPNow := func() {
+		base, e1 := m.Read32(0x53a45)
+		count, e2 := m.Read32(0x53beb)
+		if e1 != nil || e2 != nil || count > 128 ||
+			uint64(base)+uint64(count)*80 > uint64(len(m.Mem)) {
+			return
+		}
+		for i := uint32(0); i < count; i++ {
+			r := m.Mem[base+80*i : base+80*(i+1)]
+			if r[6] != 2 { // camp 2 是我方
+				continue
+			}
+			identity := r[8]
+			hp := uint16(r[0x40]) | uint16(r[0x41])<<8
+			peak := allyPeakHP[identity]
+			if hp > peak {
+				allyPeakHP[identity] = hp
+				continue
+			}
+			if hp < peak {
+				binary.LittleEndian.PutUint16(r[0x40:], peak)
+				allyHPWrites++
+			}
+		}
+	}
+
+	injections := func() []string {
+		if !*lockAllyHP {
+			return []string{}
+		}
+		return []string{fmt.Sprintf(
+			"lock-ally-hp：我方（camp 2）record +0x40 的 HP 每 2000 指令壓回該 identity "+
+				"看過的最高值，至此已寫入 %d 次。這是修改路徑，本輪收據不得當成一般"+
+				"玩家路徑證據，也不能用來談傷害或存活。", allyHPWrites)}
+	}
+
 	readViewGlobals := func() map[string]uint32 {
 		view := map[string]uint32{}
 		for key, addr := range map[string]uint32{
@@ -318,7 +366,7 @@ func main() {
 		}
 		d, _ := json.Marshal(map[string]any{
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
-			"state_injections": []string{}, "steps": steps,
+			"state_injections": injections(), "steps": steps,
 			"eip":         fmt.Sprintf("0x%X", m.CPU.EIP),
 			"control_seq": controlSeq, "unit_base": base,
 			"kbd_pending": pending, "kbd_reads": reads,
@@ -466,6 +514,10 @@ func main() {
 	}
 
 	for ; steps < *budget; steps++ {
+		// 間隔要夠密：一次攻擊演出就可能把單位從滿血打到 0，檢查得太稀疏會來不及。
+		if *lockAllyHP && steps%2000 == 0 {
+			lockAllyHPNow()
+		}
 		if *runDir != "" && steps >= chunkEnd {
 			capture(fmt.Sprintf("checkpoint-%04d", controlSeq), true)
 			capture("current", false)
@@ -637,7 +689,7 @@ func main() {
 	if stop != nil {
 		msg = stop.Error()
 	}
-	r := map[string]any{"schema": 1, "runner": "dosgolem", "exe_sha256": hash, "steps_completed": steps, "step_budget": *budget, "main_entry_step": mainStep, "stop_eip": fmt.Sprintf("0x%X", instructionEIP), "cpu_eip_after_error": fmt.Sprintf("0x%X", m.CPU.EIP), "address_space": "dosgolem relocated LE linear", "next_bytes": raw, "error": msg, "registers": m.CPU.R, "esp": fmt.Sprintf("0x%X", m.CPU.R[cpu386.ESP]), "state_injections": []string{}, "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS", "original_root_read_only": true, "game_screen_produced": false, "normal_player_path_verified": false}
+	r := map[string]any{"schema": 1, "runner": "dosgolem", "exe_sha256": hash, "steps_completed": steps, "step_budget": *budget, "main_entry_step": mainStep, "stop_eip": fmt.Sprintf("0x%X", instructionEIP), "cpu_eip_after_error": fmt.Sprintf("0x%X", m.CPU.EIP), "address_space": "dosgolem relocated LE linear", "next_bytes": raw, "error": msg, "registers": m.CPU.R, "esp": fmt.Sprintf("0x%X", m.CPU.R[cpu386.ESP]), "state_injections": injections(), "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS", "original_root_read_only": true, "game_screen_produced": false, "normal_player_path_verified": false}
 
 	if instructionEIP == 0x36d98 {
 		stack := make([]uint32, 4)
