@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（10 份）
+### 共同基礎（master）（11 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -61,6 +61,7 @@
 - `188-pit-divisor-decoding.md`
 - `189-a20-gate-and-hma-addressing.md`
 - `190-irq0-calibration.md`
+- `191-two-clocks-relationship.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -335,3 +336,5 @@
 - [189 — A20 閘門與 HMA 的定址](189-a20-gate-and-hma-addressing.md)：READY。位址遮罩從 CPU 移到匯流排——`段:偏移` 到得了 1 MB 之上，A20 關著時才環繞。
 
 - [190 — 計時器間隔的標定](190-irq0-calibration.md)：READY。165,000 是 17,000 分頻的一刻，不是 65,536 的基準；更正 `004` §5 的公式基準。
+
+- [191 — 兩個時鐘的關係](191-two-clocks-relationship.md)：READY。比值隨指令混合走（3.25～7.40），不是常數；不強制對齊，改成把關係做成看得到的觀測。
