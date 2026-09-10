@@ -5,24 +5,7 @@
     "correctness": "模擬出來的行為與真機不符，程式會據此做錯決定",
     "consistency": "同一件事有兩份不一致的實作或常數，還沒裁決哪一份對"
   },
-  "items": [
-    {
-      "id": "steps-per-second-two-calibrations",
-      "layer": "consistency",
-      "title": "StepsPerSecond 有兩份標定，差 3.85 倍",
-      "body": "speaker.go 的 StepsPerSecond() 把 DefaultIRQ0Every 當「分頻 65,536 時的間隔」，與 machine.go 的定義和 recalcIRQ0 依 PITDefaultDivisor 縮放的做法一致，算出來約 3.0 M 指令／秒。pit.go 的 parityStepsPerSecond 把它當「rich2 那個 17,000 分頻下的間隔」，約 11.6 M。\n\n兩份都在用：前者換算喇叭波形的取樣時間（oracle/speaker.go、cmd/probe 的 -dump-wav），後者是 PITStepsPerTick 的基準、被 pit_test 釘住。2026-09-10 合併 perf/rich2-oracle-hotpath 與 san1-draw-speed-and-speech 時撞名，當時只把後者改成未匯出以避開撞名，沒有裁決。",
-      "blocked_by": "要裁決得先確定 DefaultIRQ0Every 這個常數到底標定在哪個分頻上——那要回去看當初對拍是怎麼量的。",
-      "acceptance": "只剩一份標定，另一份改成從它推導；docs/spec 寫清楚 DefaultIRQ0Every 對應哪個分頻，以及為什麼。",
-      "verify": {
-        "kind": "present",
-        "paths": [
-          "internal/machine"
-        ],
-        "pattern": "還沒有裁決哪一個對",
-        "note": "綁 pit.go 那段自承。裁決之後那句話會被改掉。"
-      }
-    }
-  ],
+  "items": [],
   "resolved": [
     {
       "id": "hma-unreachable-by-seg-off",
@@ -37,6 +20,14 @@
       "date": "2026-09-10",
       "how": "四份收成一份：留 pit.go 的 PITBaseHz（精確值 315e6/264），刪掉 machine.go 的 PITHz 常數與 speaker.go 的 pitInputHz。整數運算的地方改用分數 ×264/315e6，不把 PITBaseHz 轉成整數——uint64(PITBaseHz) 會截成 1,193,181，比四捨五入的 1,193,182 少 1，兩種寫法算出來的週期數差得出來。",
       "caught_by": "verify 開口（找不到 pitInputHz 了）。動手時發現條目只數到三份：le_bios_clock.go 的定點累加裡還硬寫著第四份 1193182，那條路（LEMachine）不經過任何常數，grep 常數名找不到它。"
+    },
+    {
+      "id": "steps-per-second-two-calibrations",
+      "title": "DefaultIRQ0Every 被當成 65,536 分頻的基準，但它是 17,000 分頻量出來的",
+      "date": "2026-09-10",
+      "how": "裁決：165,000 是 17,000 分頻（《大富翁2》）下的一刻，不是 65,536 的基準。calibrationDivisor ＝ 17000 寫進 pit.go，StepsPerSecond 與 PITStepsPerTick 同源，recalcIRQ0 的指令數時鐘改走 stepsPerTick(base, 分頻)。speaker.go 那一份標定刪掉。各分頻的間隔：17,000 → 165,000（回到 2026-09-04 對拍收據的時序）、65,536 → 636,085、4,096 → 39,755。規格 docs/spec/190-irq0-calibration.md，同時更正 004 §5 的公式基準。",
+      "caught_by": "verify 開口（找不到「還沒有裁決哪一個對」了）。裁決靠的是三條獨立推導，最硬的一條是 DefaultVGAFrameEvery：那個常數是「一次垂直回掃的指令數」，而 mode 13h 的回掃 70 Hz 是顯示硬體的事實、與 PIT 無關——165,000 × 70 ＝ 11.55 M 指令／秒，只有 17,000 那個標定對得上。",
+      "evidence_level": "強證據，非 confirmed：原版素材不在版控裡（[HARD]），沒辦法直接跑 rich2 量 IRQ0Every 當第四個確認。"
     }
   ]
 }

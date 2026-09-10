@@ -44,8 +44,10 @@ func TestClockDefaultsToInstructions(t *testing.T) {
 	if m.CycleClock {
 		t.Error("預設不該打開週期時鐘")
 	}
-	if m.IRQ0Every != DefaultIRQ0Every {
-		t.Errorf("預設間隔 %d 道指令，應該是 %d", m.IRQ0Every, DefaultIRQ0Every)
+	// 開機分頻是 65,536，而 DefaultIRQ0Every 標定在 17,000 上
+	// （`docs/spec/190`），兩者差 3.855 倍——基準問 PITStepsPerTick。
+	if boot := PITStepsPerTick(PITDefaultDivisor); m.IRQ0Every != boot {
+		t.Errorf("預設間隔 %d 道指令，應該是 %d", m.IRQ0Every, boot)
 	}
 	// 關計時器之後，週期時鐘不該偷偷接手
 	m.IRQ0Every = 0

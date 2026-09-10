@@ -180,8 +180,11 @@ func TestRealWorklistIsWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wl.Items) == 0 {
-		t.Fatal("一條都沒有——是不是路徑錯了")
+	// **空清單有兩種原因，要分得開**：路徑錯／檔案讀不到（那時 resolved
+	// 也會是空的），與真的全部做完了（resolved 裡有東西）。只檢查 items
+	// 的話，前者會被讀成後者——而那正是這份工具要防的那種安靜失效。
+	if len(wl.Items)+len(wl.Resolved) == 0 {
+		t.Fatal("items 與 resolved 都是空的——是不是路徑錯了")
 	}
 	// 每一條的 pattern 都要真的在這棵樹上有明確的落點：
 	// present 找得到、absent 找不到。**兩個方向的錯都會安靜地過去**，

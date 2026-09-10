@@ -89,37 +89,51 @@ func (m *Machine) PITProgrammed() bool { return m.pit.writes > 0 }
 // PITHz 回通道 0 目前的中斷頻率。
 func (m *Machine) PITHz() float64 { return PITBaseHz / float64(m.PITDivisor()) }
 
-// parityStepsPerSecond 是**對拍那條路**標定的機器速度，單位是指令／秒。
+// calibrationDivisor 是 `DefaultIRQ0Every` 標定在哪個分頻上。
 //
-// ⚠ 它與 machine.StepsPerSecond()（`speaker.go`）不是同一個數：那一支
-// 把 DefaultIRQ0Every 當成「分頻 65,536 時的間隔」（＝主線的定義，
-// 見 recalcIRQ0 依 PITDefaultDivisor 縮放），算出來約 3.0 M 指令／秒；
-// 這裡把它當成「rich2 那個 17,000 分頻下的間隔」，約 11.6 M。兩份標定
-// 差 3.85 倍，是兩條分支各自的模型，**還沒有裁決哪一個對**。
+// **不是 65,536。** 那個常數是 2026-09-04 拿《大富翁2》的防拷畫面對拍
+// 量出來的，而它把 8254 寫成 17,000（`docs/spec/188` §1）——量的時候
+// 模擬器還不認分頻，所以 165,000 就是「17,000 分頻下一刻幾道指令」。
 //
-// 它不是量出來的硬體規格，而是從對拍定住的 `DefaultIRQ0Every` 反推的：
-// 那個常數是「rich2 的一個計時刻 ＝ 165,000 道指令」，而 rich2 把除數設成
-// 17,000（`PITHz` ＝ 70.187 Hz），所以 165,000 × 70.187 ≈ 11.58 M 指令／秒
-// ——落在 386DX-33／486SX 的量級，與這款遊戲的年代相符。
-//
-// 有了它，**別的除數也換算得出來**：程式把除數改成別的值時，一刻該有幾道
-// 指令跟著變，而不是繼續沿用某一款遊戲的數字。
-const parityStepsPerSecond = DefaultIRQ0Every * PITBaseHz / 17000
+// ⚠ **拿 65,536 當基準會讓每一支程式的計時器都快 3.855 倍**，而且不會
+// 報錯：順序、因果、畫面內容全對，只有時間軸整體縮了。詳細的考古與
+// 三條獨立推導見 `docs/spec/190-irq0-calibration.md`。
+const calibrationDivisor = 17000
 
-// PITStepsPerTick 回「除數 d 的一個計時刻等於幾道指令」。
+// StepsPerSecond 是這台虛擬機的名目速度，單位是**指令／秒**。
 //
-// d ＝ 17,000（rich2）剛好回 `DefaultIRQ0Every`；除數愈小刻愈密，
-// 指令數等比例變少。
-func PITStepsPerTick(d uint32) uint64 {
+// **這是模型不是量測。** 它定義「指令數怎麼換算成時間」：由
+// `DefaultIRQ0Every` 與它標定的那個分頻反推——165,000 道指令是
+// 17,000 分頻（70.187 Hz）的一刻，所以每秒約 11.58 M 道，落在
+// 386DX-33／486SX 的量級，與這批遊戲的年代相符。
+//
+// 有了它，別的分頻也換算得出來（`PITStepsPerTick`），而不是繼續沿用
+// 某一款遊戲的數字。改 `IRQ0Every` 不影響它。
+func StepsPerSecond() float64 {
+	return float64(DefaultIRQ0Every) * PITBaseHz / calibrationDivisor
+}
+
+// stepsPerTick 回「一刻等於幾道指令」：base 是標定分頻下的間隔，
+// d 是現在的分頻。間隔與分頻成正比。
+//
+// 四捨五入而不是截斷：`165,000 × 65,536 / 17,000 ＝ 636,084.7`，
+// 截斷會得到 636,084，與 PITStepsPerTick 的表差 1。
+func stepsPerTick(base uint64, d uint32) uint64 {
 	if d == 0 {
 		d = PITDefaultDivisor
 	}
-	n := parityStepsPerSecond * float64(d) / PITBaseHz
+	n := float64(base) * float64(d) / calibrationDivisor
 	if n < 1 {
 		return 1
 	}
 	return uint64(n + 0.5)
 }
+
+// PITStepsPerTick 回「除數 d 的一個計時刻等於幾道指令」。
+//
+// d ＝ 17,000（《大富翁2》）回 `DefaultIRQ0Every`，因為那正是它標定的
+// 分頻；除數愈小刻愈密，指令數等比例變少。
+func PITStepsPerTick(d uint32) uint64 { return stepsPerTick(DefaultIRQ0Every, d) }
 
 // PITStepsPerTick 回**目前**這個除數的一刻等於幾道指令。
 //

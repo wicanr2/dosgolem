@@ -33,14 +33,6 @@ type SpeakerSample struct {
 	Gate uint8
 }
 
-// StepsPerSecond 是這台虛擬機的名目速度：每秒幾道指令。
-//
-// **這是模型不是量測。** 它定義「指令數怎麼換算成時間」，
-// 改 IRQ0Every 不影響它。波形要存成音檔時用得到。
-func StepsPerSecond() float64 {
-	return float64(DefaultIRQ0Every) * PITBaseHz / PITDefaultDivisor
-}
-
 // outSpeaker 收埠 0x61 的喇叭兩個位元，只在值改變時記一筆。
 func (m *Machine) outSpeaker(v uint8) {
 	level, gate := (v>>1)&1, v&1

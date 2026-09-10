@@ -147,9 +147,13 @@ func TestSnapshotKeepsItsOwnCopyOfMemory(t *testing.T) {
 func TestInterruptsStayDeterministic(t *testing.T) {
 	// 計時器中斷是靠指令數送的，不是牆上的時鐘——所以次數必須可重現。
 	// 這一條壞掉的症狀是「同一段輸入有時多跑一次中斷處理」。
+	// 步數要夠送出好幾次中斷才測得出重現性。開機分頻（65,536 ＝ 18.2 Hz）
+	// 下一刻是六十幾萬道指令，所以拿 PITStepsPerTick 算，不要寫死——
+	// 寫死的話標定一改，這一條就只送得出一次中斷而悄悄失去意義。
+	steps := int(PITStepsPerTick(PITDefaultDivisor)) * 4
 	a, b := spinner(t), spinner(t)
 	for _, m := range []*Machine{a, b} {
-		mustRun(t, m, 500_000)
+		mustRun(t, m, steps)
 	}
 	if a.Ticks != b.Ticks {
 		t.Fatalf("計時器中斷次數 %d vs %d", a.Ticks, b.Ticks)

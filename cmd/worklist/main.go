@@ -42,6 +42,10 @@ type Resolved struct {
 	Date     string `json:"date"`
 	How      string `json:"how"`
 	CaughtBy string `json:"caught_by,omitempty"`
+
+	// EvidenceLevel 是這一條的裁決有多硬：confirmed／強證據／假說／未知。
+	// **不填就是沒有人問過這件事**，而那與「確認過了」在報表上長得一樣。
+	EvidenceLevel string `json:"evidence_level,omitempty"`
 }
 
 // Item 是一條未完成項。
@@ -353,6 +357,9 @@ func render(wl *Worklist) string {
 			fmt.Fprintf(&b, "\n### %s（%s）\n\n`%s`\n\n%s\n", r.Title, r.Date, r.ID, r.How)
 			if r.CaughtBy != "" {
 				fmt.Fprintf(&b, "\n**被什麼抓到**：%s\n", r.CaughtBy)
+			}
+			if r.EvidenceLevel != "" {
+				fmt.Fprintf(&b, "\n**推論等級**：%s\n", r.EvidenceLevel)
 			}
 		}
 	}

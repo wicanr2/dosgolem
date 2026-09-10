@@ -973,7 +973,10 @@ func (m *Machine) recalcIRQ0() {
 	if base == 0 {
 		base = DefaultIRQ0Every
 	}
-	every := base * uint64(m.PITDiv) / PITDefaultDivisor
+	// **基準是 17,000，不是 65,536**（`docs/spec/190`）：IRQ0Base 是
+	// 「標定分頻下的一刻」，而那個標定量自《大富翁2》寫的 17,000。
+	// 拿 65,536 當基準的話每一支程式的計時器都快 3.855 倍，而且不報錯。
+	every := stepsPerTick(base, m.PITDiv)
 	// 分頻值可以小到 1（約 1.19 MHz），照比例算會變成每兩道指令一次中斷
 	// ——處理常式自己跑不完，機器卡死在中斷裡。**卡死看起來像當掉，
 	// 不像設定太快**，所以夾住，而且夾住要記一次。
