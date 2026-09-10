@@ -288,13 +288,42 @@ func main() {
 		if m.Keyboard != nil {
 			reads = m.Keyboard.Reads
 		}
+		// 誰在等鍵盤。快照都取在 BIOS 等待點，那時堆疊上留著這一條輸入路徑的
+		// 返回位址；把落在程式碼範圍的值收起來，就是「現在是哪一個介面在收鍵」
+		// 的可觀測特徵。驅動端需要它才分得出地圖游標、指令環、系統選單與對白——
+		// 這四種在 eip、view 與 units 上都看不出差別（overlay selector 恆為 1），
+		// 沒有這條鏈就只能猜，猜錯了會把方向鍵送進選單裡。
+		// 掃堆疊取「真正的返回位址」：只收前面五個 byte 是 `E8`（call rel32）的
+		// 值。直接收所有落在程式碼範圍的 dword 會把殘值一起帶進來，同一個介面
+		// 每次取樣的前幾項都不一樣；走 EBP 連結串則只拿得到一層——Watcom 這份
+		// 執行檔省略了 frame pointer。
+		//
+		// 這條鏈是驅動端唯一分得出 UI 模式的東西：地圖游標、指令環、目標選擇、
+		// 系統選單與對白在 eip、view 與 units 上都一樣（overlay selector 恆為 1）。
+		isCallSite := func(addr uint32) bool {
+			if addr < 5 || uint64(addr) >= uint64(len(m.Mem)) {
+				return false
+			}
+			return m.Mem[addr-5] == 0xE8
+		}
+		chain := []string{}
+		for offset := uint32(0); offset < 512 && len(chain) < 10; offset += 4 {
+			v, e := m.Read32(m.CPU.R[cpu386.ESP] + offset)
+			if e != nil {
+				break
+			}
+			if v >= 0x10000 && v < 0x60000 && isCallSite(v) {
+				chain = append(chain, fmt.Sprintf("0x%X", v))
+			}
+		}
 		d, _ := json.Marshal(map[string]any{
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
 			"state_injections": []string{}, "steps": steps,
 			"eip":         fmt.Sprintf("0x%X", m.CPU.EIP),
 			"control_seq": controlSeq, "unit_base": base,
 			"kbd_pending": pending, "kbd_reads": reads,
-			"view": view, "registers": m.CPU.R, "units": units,
+			"input_chain": chain,
+			"view":        view, "registers": m.CPU.R, "units": units,
 		})
 		if e := os.WriteFile(filepath.Join(*runDir, label+".json"), d, 0o600); e != nil {
 			panic(e)
