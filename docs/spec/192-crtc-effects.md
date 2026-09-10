@@ -58,12 +58,52 @@ control `17` 的 bit6 決定單位）。畫面解碼的其他兩個參數是寫�
 
 沒有分割時 BIOS 把它設成全 1（`0x3FF`），也就是「永遠掃不到」。
 
-**分割發生在哪一列：假說。** FreeVGA 的字面語意是「垂直計數器到達這個
-值時位址歸零」，也就是**那一列本身**就從 0 起算，這裡照它實作。DOSBox
-的 `vga_draw.cpp` 用的是 `line_compare + 1`——差一列。兩者在畫面上的
-差別是狀態列高一列或矮一列，拿原版對拍才分得出來，而目前沒有素材可以
-驗（`CLAUDE.md` 的 `[HARD]`）。改的時候動 `Pixels` 裡那個
-`y >= split` 的比較，測試會跟著開口。
+**分割在下一列生效**（`line compare + 1`），證據見 §2.3。
+
+### 2.3 分割在哪一列生效：`line compare + 1`
+
+FreeVGA 的字面描述是「垂直計數器到達這個值時位址計數器歸零」，讀起來
+像是**那一列本身**就從 0 起算。實際上差一列，而判準來自硬體的一個
+邊界行為。
+
+DOSBox 的 `src/hardware/vga_draw.cpp`：
+
+```c
+vga.draw.split_line = (vga.config.line_compare + 1) / vga.draw.render_max;
+...
+if (vga.draw.split_line == vga.draw.lines_done) VGA_ProcessSplit();
+```
+
+同一個檔案的註解說明了為什麼是 `+1`：
+
+> What is supposed to happen is that `line_compare == 0` on normal VGA
+> will cause **the first scanline to repeat twice**.
+
+**只有 `+1` 的語意產生得出這個效果**：`line_compare ＝ 0` 時第 0 列用
+顯示起點、第 1 列用位址 0，起點也是 0 的話就是同一條掃描線畫兩次。
+若是「那一列本身就歸零」，第 0 列本來就用起點，不會重複。
+
+那份註解還附了一個具體案例（Issue #40，Flash productions "monstra"
+的畫面頂端多一條白線），是這個邊界真的被遊戲踩到過的證據。
+
+推論等級：**強證據**。一手來源是 DOSBox 的實作與它解釋的硬體行為，
+而那份實作被幾千款遊戲驗證過；還不到 confirmed 是因為沒有真機或原版
+素材可以直接對拍。
+
+### 2.4 畫面多大：問 CRTC，不要問模式編號
+
+`horizontal display end`（index `01`）＋ 1 是寬度（單位是字元，圖形模式
+一個字元 8 像素）；`vertical display end`（index `12`）＋ 1 是高度，
+而它是 10 位元——第 8 位在 overflow（`07`）的 bit1、第 9 位在 bit6。
+（對照 DOSBox `vga_draw.cpp`：
+`vdend = vertical_display_end | ((overflow & 2) << 7) | ((overflow & 0x40) << 3)`。）
+
+**模式編號只是 BIOS 的一個代號。** 直接設暫存器換解析度的程式從來不改
+它——那種程式在模式表上會被讀成「還在上一個模式」，而畫面早就不是那個
+大小了。所以尺寸的一手答案在 CRTC，模式表只是 CRTC 還沒被設過時的退路。
+
+「還沒被設過」要**回 0×0**，不要回一個猜的尺寸：回猜的值，呼叫端會拿它
+當事實而不是退回模式表。
 
 ## 3. 設計
 
@@ -72,8 +112,10 @@ control `17` 的 bit6 決定單位）。畫面解碼的其他兩個參數是寫�
 - `VGA.LineCompare() int`：回三個暫存器湊出來的 9 位元值。
 - `VGA.Pixels(w, h)` 改成逐列算基底位址：分割線之上是
   `起點 + y × pitch`，之下是 `(y − 分割線) × pitch`。
+- `VGA.Size()`：從 CRTC 的 display end 算畫面大小，沒被設過回 0×0。
+  `PlanarSize`／`VideoSize` 優先問它，退回模式表。
 - `resetMode` 給該模式的標準值：offset ＝ `寬度 / 16`（word 單位）、
-  line compare ＝ `0x3FF`（不分割）。
+  display end ＝ 該模式的寬高、line compare ＝ `0x3FF`（不分割）。
 
   ⚠ **offset 只在知道模式的時候給。** 真機開機是文字模式，CRTC 的值
   由 BIOS 依模式設；`newVGA` 那次初始化還不知道模式，猜一個寬度的話
@@ -87,7 +129,6 @@ control `17` 的 bit6 決定單位）。畫面解碼的其他兩個參數是寫�
 |---|---|
 | `00`–`0B`、`10`–`16` 的時序 | 它們決定掃描的節奏，而 dosgolem 的畫面是「跑完之後解一張圖」，不是逐掃描線輸出 |
 | `0E`／`0F` 游標位置 | 圖形模式沒有硬體游標；文字模式的游標不影響對拍 |
-| `12` vertical display end | 高度目前由呼叫端依模式給（`PlanarSize`），與這裡的資訊重複 |
 | `14` bit5 的 dword 定址 | 見 §2.1 |
 
 ## 4. 驗收

@@ -63,10 +63,13 @@ func TestLineCompareSplitsTheScreen(t *testing.T) {
 	if px[1] != 1 { // (1,0) ＝ 起點那一列的第 2 個像素
 		t.Errorf("可捲區第一列 ＝ %d，預期 1（跟著顯示起點）", px[1])
 	}
-	// 分割線那一列本身就從位址 0 起算（`docs/spec/192` §2.2 的假說；
-	// DOSBox 用 line_compare+1，差一列，要原版才分得出來）。
-	if got := px[100*640]; got != 1 {
-		t.Errorf("固定區第一列 ＝ %d，預期 1（從位址 0 起算）", got)
+	// 分割在**下一列**生效（`docs/spec/192` §2.3）：第 100 列還是可捲區
+	// 的最後一列，第 101 列才從位址 0 起算。
+	if got := px[101*640]; got != 1 {
+		t.Errorf("固定區第一列（y=101）＝ %d，預期 1（從位址 0 起算）", got)
+	}
+	if got := px[100*640]; got != 0 {
+		t.Errorf("y=100 ＝ %d，預期 0——它還是可捲區的最後一列", got)
 	}
 }
 
@@ -192,5 +195,105 @@ func TestModeSetResetsScrolling(t *testing.T) {
 	}
 	if lc := m.VGA.LineCompare(); lc < 480 {
 		t.Errorf("設模式之後 line compare ＝ %d，預期是掃不到的大值", lc)
+	}
+}
+
+// TestLineCompareZeroRepeatsFirstScanline 是「分割在下一列生效」的判準
+// （`docs/spec/192` §2.3）。
+//
+// `line compare ＝ 0` 時第一條掃描線會畫兩次——這是真機的邊界行為，
+// DOSBox 的註解拿它當 `+1` 語意的理由，並附了一個踩到它的案例
+// （畫面頂端多一條白線）。
+//
+// **只有 `+1` 產生得出這個效果**：第 0 列用顯示起點、第 1 列用位址 0，
+// 起點也是 0 的話就是同一條線畫兩次。若是「那一列本身就歸零」，
+// 第 0 列本來就用起點，不會重複——所以這一條同時擋住寫回 `y >= split`。
+func TestLineCompareZeroRepeatsFirstScanline(t *testing.T) {
+	m := planar(t)
+	setLineCompare(m, 0)
+	setPlane(m, 0, 0, 0x80)  // 位址 0：第 0 列與第 1 列都會讀到它
+	setPlane(m, 0, 80, 0x80) // 列距 80：一般情況下第 1 列會讀這裡
+
+	px := m.PlanarPixels(640, 480)
+	if px[0] != 1 {
+		t.Fatalf("第 0 列 ＝ %d，預期 1", px[0])
+	}
+	if px[640] != 1 {
+		t.Errorf("第 1 列 ＝ %d，預期 1（line compare ＝ 0 時第一條線畫兩次）", px[640])
+	}
+	// 第 2 列才走到位址 80。
+	if px[2*640] != 1 {
+		t.Errorf("第 2 列 ＝ %d，預期 1（(y−split−1)×pitch ＝ 80）", px[2*640])
+	}
+}
+
+// TestFreshVGAIsSafeToQuery 是 `newVGA` 的防呆確認。
+//
+// **一台剛造好、程式還沒設過任何暫存器的機器，每一個查詢都要回得出
+// 能用的值。** 這裡的每一項回 0 都會讓畫面解碼安靜地壞掉：
+//
+//	Pitch  ＝ 0 → 每一列都讀同一個位址，整張圖是第一列重複幾百次
+//	起點單位錯 → 顯示起點多乘一倍，畫面跳到別的地方
+//	LineCompare 小 → 畫面莫名其妙從某一列開始重數
+//
+// 沒有一項會報錯——倒出來的圖看起來只是「不對」。
+func TestFreshVGAIsSafeToQuery(t *testing.T) {
+	v := newVGA()
+
+	// 列距：offset 沒被設過，要退回用呼叫端給的寬度推，不能是 0。
+	for _, w := range []int{320, 640} {
+		if got := v.Pitch(w); got != w/8 {
+			t.Errorf("Pitch(%d) ＝ %d，預期 %d", w, got, w/8)
+		}
+	}
+
+	// 顯示起點：沒設過是 0，而且單位要是位元組（mode control bit6 ＝ 1）。
+	if got := v.DisplayStart(); got != 0 {
+		t.Errorf("DisplayStart ＝ %d，預期 0", got)
+	}
+	if v.crtc[0x17]&0x40 == 0 {
+		t.Error("mode control 的 bit6 是 0——起點會被當成 word 而多乘一倍")
+	}
+
+	// 分割：要是「掃不到」的大值，否則畫面下半部會從位址 0 重數。
+	if lc := v.LineCompare(); lc < 480 {
+		t.Errorf("LineCompare ＝ %d，預期 ≥ 480", lc)
+	}
+
+	// 尺寸：**這一個要回 0**，因為 CRTC 真的還沒被設過——
+	// 回一個猜的尺寸會讓呼叫端拿它當事實，而不是退回模式表。
+	if w, h := v.Size(); w != 0 || h != 0 {
+		t.Errorf("Size ＝ %d×%d，預期 0×0（還沒被設過）", w, h)
+	}
+
+	// 解一張圖不會 panic，而且每一列都不同（列距不是 0）。
+	v.Planes[0][0] = 0x80
+	v.Planes[0][v.Pitch(640)] = 0x80
+	px := v.Pixels(640, 480)
+	if px[0] != 1 || px[640] != 1 {
+		t.Errorf("解出來的前兩列是 %d／%d，預期 1／1", px[0], px[640])
+	}
+}
+
+// TestSizeComesFromCRTCNotTheModeNumber 釘住「畫面多大問 CRTC」。
+//
+// 模式編號只是 BIOS 的一個代號。**直接設暫存器換解析度的程式從來不改
+// 它**——那種程式在模式表上會被讀成「還在上一個模式」，而畫面早就
+// 不是那個大小了。
+func TestSizeComesFromCRTCNotTheModeNumber(t *testing.T) {
+	m := planar(t)
+	m.SetVideoMode(0x12) // BIOS 說 640×480
+	if w, h := m.PlanarSize(); w != 640 || h != 480 {
+		t.Fatalf("設模式之後 %d×%d，預期 640×480", w, h)
+	}
+	// 程式自己把 CRTC 改成 640×350，模式編號不動。
+	crtcReg(m, 0x01, 640/8-1)
+	crtcReg(m, 0x12, uint8((350-1)&0xFF))
+	crtcReg(m, 0x07, m.VGA.crtc[0x07]&^0x42|uint8((350-1)>>8&1)<<1)
+	if w, h := m.PlanarSize(); w != 640 || h != 350 {
+		t.Errorf("改了 CRTC 之後 %d×%d，預期 640×350——尺寸是問模式表來的", w, h)
+	}
+	if m.VideoMode() != 0x12 {
+		t.Error("模式編號不該被動到（這正是不能拿它當尺寸依據的理由）")
 	}
 }
