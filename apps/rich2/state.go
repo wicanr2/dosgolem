@@ -51,10 +51,19 @@ func Money(o *oracle.Oracle) *basic.Array {
 		[]basic.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 60}}, 4)
 }
 
+// 熱路徑的維度表。
+//
+// `Position` 在 `RollTrace` 的判準裡**每道指令被呼叫一次**，寫成
+// `[]basic.Dim{…}` 字面量的話每次都配置一次 slice。`Array.Dims` 只被
+// `addr`／`Size`／`Index` 讀，沒有任何寫入端，所以共用同一份是安全的。
+var (
+	dimsPlayer = []basic.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 30}}
+	dimsCoord  = []basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}
+)
+
 // PlayerState 開啟玩家狀態陣列（16 位欄位，語意多數未解）。
 func PlayerState(o *oracle.Oracle) *basic.Array {
-	return basic.NewArray(o, DescPlayer,
-		[]basic.Dim{{Lo: 1, N: 6}, {Lo: 0, N: 30}}, 2)
+	return basic.NewArray(o, DescPlayer, dimsPlayer, 2)
 }
 
 // Land 開啟土地表。
@@ -135,8 +144,7 @@ func StreetLevels(o *oracle.Oracle, square int) (street int, levels []int) {
 // 原版把玩家的位置存成 36×36 地圖上的座標，格號是查這張表算出來的
 // （`rich2/docs/re/014` §3a）。
 func Coord(o *oracle.Oracle) *basic.Array {
-	return basic.NewArray(o, DescCoord,
-		[]basic.Dim{{Lo: 0, N: 36}, {Lo: 0, N: 36}}, 2)
+	return basic.NewArray(o, DescCoord, dimsCoord, 2)
 }
 
 // Board 開啟棋盤陣列。
@@ -205,19 +213,27 @@ const (
 // ⚠ **不要用 `ds:1BE`。** 那是「目前正在處理的格號」，會隨著**任何**玩家
 // 的移動而變——AI 在走的時候它也在跳。實測：人類走完停在 117，
 // 下一次輪到人類時 `ds:1BE` 讀出來是 61（那是別人的）。
+// **這一支在熱路徑上**：`RollTrace` 的判準每道指令評估一次，所以它走
+// `basic.Open`（回值型別、留在 stack）而不是 `PlayerState`／`Coord`
+// （回指標、每次一次 heap 配置）。語意與那兩支完全相同。
 func Position(o *oracle.Oracle, player int) int {
-	ps := PlayerState(o)
+	ps := basic.Open(o, DescPlayer, dimsPlayer, 2)
 	row := int(ps.Int16(player, ColRow))
 	col := int(ps.Int16(player, ColCol))
 	if row < 0 || row >= 36 || col < 0 || col >= 36 {
 		return 0
 	}
-	return int(Coord(o).Int16(row, col))
+	coord := basic.Open(o, DescCoord, dimsCoord, 2)
+	return int(coord.Int16(row, col))
 }
 
 // MapCoord 回某個玩家在 36×36 地圖上的座標。
+//
+// **也在熱路徑上**（`RollTrace` 用它判「動了沒」），所以與 `Position`
+// 一樣走 `basic.Open`——用回指標的 `PlayerState` 會讓每道指令多一次
+// heap 配置。
 func MapCoord(o *oracle.Oracle, player int) (row, col int) {
-	ps := PlayerState(o)
+	ps := basic.Open(o, DescPlayer, dimsPlayer, 2)
 	return int(ps.Int16(player, ColRow)), int(ps.Int16(player, ColCol))
 }
 

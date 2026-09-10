@@ -187,3 +187,30 @@ func TestZeroValueTableWorks(t *testing.T) {
 		t.Errorf("讀回 %q（碼 %d）", buf[:n], code)
 	}
 }
+
+func TestReusingTableKeepsLiveFilesAndReusesHoles(t *testing.T) {
+	tab := NewReusingTable()
+	live, _ := tab.Add(newFake("live"), "LIVE")
+	for i := 0; i < 300; i++ {
+		h, code := tab.Add(newFake("temp"), "TMP")
+		if code != 0 || h != 6 {
+			t.Fatalf("重用代號=%d code=%d", h, code)
+		}
+		if tab.Close(h) != 0 {
+			t.Fatal("關閉失敗")
+		}
+		if _, code := tab.Read(h, make([]byte, 1)); code != ErrInvalidHandle {
+			t.Fatal("未重開的代號仍有效")
+		}
+	}
+	if live != 5 || tab.Name(live) != "LIVE" {
+		t.Fatal("存活檔被覆蓋")
+	}
+	h, _ := tab.Add(newFake("second"), "SECOND")
+	tab.Close(live)
+	hole, _ := tab.Add(newFake("new"), "NEW")
+	if hole != 5 || h != 6 || tab.Name(h) != "SECOND" {
+		t.Fatal("未採最低空洞或覆蓋存活檔")
+	}
+	tab.CloseAll()
+}

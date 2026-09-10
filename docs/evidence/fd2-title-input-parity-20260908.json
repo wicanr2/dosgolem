@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "date": "2026-09-08",
+  "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+  "classification": "dosgolem自生標題與BIOS單次輸入；DOSBox輔助對應畫面，非完整機器同狀態",
+  "comparison_tool": "apps/fd2/cmd/framecompare/main.go",
+  "comparisons": [
+    {
+      "classification": "DOSBox輔助對應選單畫面；非完整機器同狀態",
+      "comparison_pixels": 64000,
+      "different_pixels": 0,
+      "dosbox_RGB_sha256": "eb5957077536a840050e2ee52f4a3001156f6c95814c0c2d0dd6977e5929a342",
+      "dosbox_sha256": "448a802697005919f4d4bddcf9596e0703d11e25c70a7615276bb139f7cac0fa",
+      "dosbox_window": "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/start-window.png",
+      "dosgolem_RGB_sha256": "eb5957077536a840050e2ee52f4a3001156f6c95814c0c2d0dd6977e5929a342",
+      "dosgolem_native": "workplace/fd2-input-parity-20260907/gap-103.png",
+      "dosgolem_sha256": "885edd19347628bdbe823bbf25d9de6180be59e766bdc9840a631083f44ec025",
+      "maximum_channel_delta": 0,
+      "nonuniform_scaled_pixels": 0,
+      "normalization": "DOSBox完整640x400遊戲內容：視窗y=17，2x整數顯示；只排除17列外部功能列，遊戲內容無遮罩"
+    },
+    {
+      "classification": "DOSBox輔助對應選單畫面；非完整機器同狀態",
+      "comparison_pixels": 64000,
+      "different_pixels": 0,
+      "dosbox_RGB_sha256": "83ca49cb8017db5ab71a2e9679a96a1a71657713d10b4942772eb865cb0f59d4",
+      "dosbox_sha256": "55d81dec304e6d43086bd6e67b6e461ce8c9ecd03d64a83ff7518b8ee336c5fd",
+      "dosbox_window": "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/down-window.png",
+      "dosgolem_RGB_sha256": "83ca49cb8017db5ab71a2e9679a96a1a71657713d10b4942772eb865cb0f59d4",
+      "dosgolem_native": "workplace/fd2-input-parity-20260907/gap-104-down.png",
+      "dosgolem_sha256": "29987a3bbd7eb1e2dcf9907a0db456abd1e3f3b83e8ffb4274f25a501fabbc38",
+      "maximum_channel_delta": 0,
+      "nonuniform_scaled_pixels": 0,
+      "normalization": "DOSBox完整640x400遊戲內容：視窗y=17，2x整數顯示；只排除17列外部功能列，遊戲內容無遮罩"
+    }
+  ],
+  "artifacts": {
+    "workplace/fd2-input-parity-20260907/title-start-comparison.json": "a453d223b2ba9a7d6afa370ed968cc65bc04c663f8e1fbb6b9d831229095dc7c",
+    "workplace/fd2-input-parity-20260907/title-down-comparison.json": "489c937c55a45bed9ef11b7c835e331ce72793baacf81023b01be082d9ed4cf1",
+    "workplace/fd2-input-parity-20260907/gap-103.png": "885edd19347628bdbe823bbf25d9de6180be59e766bdc9840a631083f44ec025",
+    "workplace/fd2-input-parity-20260907/gap-103.json": "881a0c33988a03b96839ffd530596edb271821b397983b27fa9bf23b42c67b72",
+    "workplace/fd2-input-parity-20260907/gap-104-down.png": "29987a3bbd7eb1e2dcf9907a0db456abd1e3f3b83e8ffb4274f25a501fabbc38",
+    "workplace/fd2-input-parity-20260907/gap-104-down.json": "3dce5016ce9526e899af69b8c589c1895f9da86e29329c9a7f17f7d362afb209",
+    "workplace/fd2-input-parity-20260907/gap-104-start.json": "f5de05c19b9f9e4fcb81682945c27f19474a418242addc298a18ba43cb344b82",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/start-window.png": "448a802697005919f4d4bddcf9596e0703d11e25c70a7615276bb139f7cac0fa",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/down-window.png": "55d81dec304e6d43086bd6e67b6e461ce8c9ecd03d64a83ff7518b8ee336c5fd",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/dosbox.conf": "5a6eecb2a1e0c4cef2fa87cab722c72b2c45b27ec408c0a43b3c8ac4d97e77c0",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/commands.json": "6353e52c8ba8cbdc5afcecfd95c2220348d83ba3fc4107b6e1e690244068a187",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/terminal.raw": "565c9e1903df94c2c0afce76325b691f2be3f11837d65d97653e397037f1b3ef",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/windows.txt": "4702cc23f2d05d6f6df9a643c044ff26fb599f344dc17dcb5a2751f3188ba4ad",
+    "workplace/fd2-input-parity-20260907/dosbox-title-v3-20260908/replay.py": "5fe3fd28b0f2b5b2518d269bc3c030930721417b90d3d6bab2ff25640c106414"
+  },
+  "invalid_attempts": [
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-title-20260908",
+      "reason": "腳本未等到目標斷點；無有效PNG"
+    },
+    {
+      "path": "workplace/fd2-input-parity-20260907/dosbox-title-v2-20260908",
+      "reason": "命中斷點但原生抓圖未輸出；不得作畫面收據"
+    }
+  ],
+  "normal_player_path_verified": false,
+  "remake_parity_verified": false
+}

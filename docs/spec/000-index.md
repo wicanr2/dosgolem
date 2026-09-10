@@ -323,3 +323,7 @@
 - `184-mvp-scope-review.md`
 - `185-keyboard-trace-and-keypad-names.md`
 
+
+- [185 — SS 段覆寫的16位元 MOV 記憶體寫入](185-cpu386-ss-word-store.md)：CONFORMED。
+
+- [186 — FD2平台缺口持續驗證](186-fd2-platform-gap-continuation.md)：原版標題與BIOS單次方向鍵已驗證，正常START進王宮；目前CPU缺口、音訊與輸入限制統一見186檔首。

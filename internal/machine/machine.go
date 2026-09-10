@@ -424,6 +424,11 @@ func New() *Machine {
 	// DOSJP.COM 另外需要 80386 的 0x66 子集（`docs/spec/012`）。
 	// 語料驗收走 `cpu.New()`，那邊維持 8086 預設。
 	m.CPU.Model = cpu.Model80386
+	// Reset 在 cpu.New 裡就跑完了，那時 Model 還是 8086，旗標被套成 8086 的
+	// 固定位元 0xF002。80386 的 reset EFLAGS 是 0x00000002，bit 15 必須是 0；
+	// 宣告成 386 之後要重新正規化一次，否則之後任何走 SetFlags 的存回
+	// （例如 callback.go 的回呼收尾）都會與存檔值不一致。
+	m.CPU.SetFlags(m.CPU.Flags)
 	m.recalcIRQ0()
 	m.initBDA()
 	m.initVectors()

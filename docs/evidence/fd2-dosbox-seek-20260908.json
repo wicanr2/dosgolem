@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "date": "2026-09-08",
+  "evidence_level": "confirmed",
+  "scope": "本次 MDI.INI 定位呼叫與相鄰兩條 store；非整段初始化或遊戲畫面一致",
+  "base_commit": "fd746405cf0ef9e535121e215b935b0bf59cd1de",
+  "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+  "mdi_ini_size": 218,
+  "mdi_ini_sha256": "d42a9f90e09585eee203db863c664d5cae763e00749325c91b028ee3bcac55d1",
+  "dosbox": {
+    "runner": "DOSBox-X 2026.07.02 SDL2",
+    "role": "dosbox-bootstrap",
+    "image": "fd2-dosbox-x:debug-0d7b272b",
+    "code_address_space": "DOSBox-X CS 0158 linear-base-zero selector",
+    "before_seek": "001F2C1E",
+    "before_store": "001F2C20",
+    "after_stores": "001F2C29",
+    "ss": "0160",
+    "ss_base": 0,
+    "edi": "0019E318",
+    "ax": 218,
+    "dx": 0,
+    "cf": 0,
+    "before_memory": "00 00 21 00",
+    "after_low_word": "DA 00 21 00",
+    "after_high_word": "DA 00 00 00"
+  },
+  "dosgolem_states": [
+    {
+      "eip": "0x3CC1E",
+      "flags": 582,
+      "registers": [
+        16897,
+        0,
+        0,
+        327685,
+        348984,
+        348988,
+        0,
+        348984
+      ],
+      "segments": [
+        0,
+        352,
+        352,
+        0,
+        32,
+        352
+      ],
+      "stack_word_bytes": "C2 28 05 00"
+    },
+    {
+      "eip": "0x3CC20",
+      "flags": 582,
+      "registers": [
+        218,
+        0,
+        0,
+        327685,
+        348984,
+        348988,
+        0,
+        348984
+      ],
+      "segments": [
+        0,
+        352,
+        352,
+        0,
+        32,
+        352
+      ],
+      "stack_word_bytes": "C2 28 05 00"
+    }
+  ],
+  "diagnosis": [
+    "prefix loop 缺少 36h",
+    "segment override 白名單未接受 89h",
+    "16-bit 89 store 未實作此兩種 SS memory 形式"
+  ],
+  "cpu_source_sha256": "ff3986067de7ae0e452cb35b166a2eaaa33718a5aab90d23af61a1cc389695a0",
+  "artifacts": {
+    "before-seek-stack.txt": "49aa86e6e84ea0b3a5550fa0d0464fc6df8042539c70a03a1bd0f619750a6bdc",
+    "LOGCPU.TXT": "0b8aec91c1b6604110de3b6d8072080d1721a1d27b6ab06d83767701b6da0217",
+    "dosbox.conf": "31e539a488faa6f53ac91ccacc1f21a1a2f056a57f7839e4b021882de9702063",
+    "commands.json": "f5f4c7fc34e272b6a86b1317af1636ee9461eb056114fa63a69a5ae6295d55c6",
+    "before-stores.txt": "49aa86e6e84ea0b3a5550fa0d0464fc6df8042539c70a03a1bd0f619750a6bdc",
+    "low-word-log.txt": "cc502ad7dd352ecc9368cb63015ff9bdfbe300353dfc1c3acc097de79d2f1897",
+    "xvfb.log": "e2861dbf17c9cb74d57668ceaa0ec8111c014cd26d10d2d0dffdf37188dac690",
+    "terminal.raw": "ef26b2427b86ad13007ec11d765e3242ec1dd32ce0853603a69640b9cc38dd6a",
+    "after-high-word.txt": "9ebac4e21aa1f99990ddf87e2210d342ccc033ce81296ed81ecde490a1fd6b7a",
+    "after-low-word.txt": "70f713a3503a002c04c2b8c0cd2e0157e0f8ca33fca5a19ae636d23677d88d8a",
+    "replay.py": "173088eeef7a14037ec4c29bfe136598f7d7c4ce3e0fb6c0f8355a614658343e",
+    "before-seek-code.txt": "48687d235b6e648be2c7615e6fc4399a31cac773be4cb4b1f6e2888366030698",
+    "MEMDUMP.TXT": "9ebac4e21aa1f99990ddf87e2210d342ccc033ce81296ed81ecde490a1fd6b7a",
+    "high-word-log.txt": "0b8aec91c1b6604110de3b6d8072080d1721a1d27b6ab06d83767701b6da0217"
+  },
+  "dosgolem_artifacts": {
+    "seekprobe.go": "b6995d199de7e426a5a95a764a59ed5c12b7103fabc57f959bc20e1ebe787743",
+    "seek-states.jsonl": "515d8f61d136b55a237d3047804cdbf521fd9b44b4f2b278b877fde17a491e12",
+    "seek-probe.json": "038acfed4fb28bb48b3600e564b3fc704591f5e7c7154c766a9a3dcd983e2a7b"
+  },
+  "runtime_changed": false,
+  "game_parity_complete": false
+}

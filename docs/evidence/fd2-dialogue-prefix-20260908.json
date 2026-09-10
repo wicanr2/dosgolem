@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-08",
+  "receipts": [
+    {
+      "batch": 125,
+      "receipt": "workplace/fd2-input-parity-20260907/dialogue-prefix-125/receipt.json",
+      "sha256": "db75436925aabd166e62448960e98502f36fe7d8e3738c45124f7aefff354368",
+      "pages": 38,
+      "error": "cpu386: EIP=000136C7 opcode=80：ModRM 64 尚未支援",
+      "steps": 145768680,
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
+    },
+    {
+      "batch": 126,
+      "receipt": "workplace/fd2-input-parity-20260907/dialogue-prefix-126/receipt.json",
+      "sha256": "3531d71e6eaff4c9b8ad4634020eef40868990184e350179bce4e5fd0321d7bf",
+      "pages": 65,
+      "error": "step budget exhausted",
+      "steps": 300000000,
+      "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
+    }
+  ],
+  "validation": {
+    "command": "go test -p1 ./internal/cpu386 ./internal/machine",
+    "log": "workplace/fd2-input-parity-20260907/gap-126-tests.log",
+    "sha256": "1d726206f676ce56408d18717a1a430cecabfd0524f23ea2e42ed0ec5e398f60"
+  },
+  "classification": "原版自行執行，等待邊界 BIOS 按鍵；不是實體鍵盤或全機器同狀態",
+  "limitation": "批次126於300000000步預算停止，65頁；未驗收第一關第五回合或音訊"
+}

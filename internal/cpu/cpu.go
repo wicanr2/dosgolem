@@ -142,7 +142,13 @@ func (c *CPU) Reset() {
 }
 
 // SetFlags 寫旗標並套上 8086 的固定位元。
-func (c *CPU) SetFlags(v uint16) { c.Flags = (v & flagsMask) | flagsSet }
+func (c *CPU) SetFlags(v uint16) {
+	if c.Model == Model80386 {
+		c.Flags = (v & 0x7fd5) | 2
+		return
+	}
+	c.Flags = (v & flagsMask) | flagsSet
+}
 
 // Flag 回報某一個旗標開著沒有。
 func (c *CPU) Flag(f uint16) bool { return c.Flags&f != 0 }

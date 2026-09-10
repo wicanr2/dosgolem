@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-08",
+  "classification": "confirmed",
+  "exe_sha256": "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f",
+  "address_space": "dosgolem relocated LE linear",
+  "error": "heap diagnostic: requested=153216 base=0x100000 next=0x1fba1c limit=0x200000 backedEnd=0x1fc000 memory=2080768 live=887856 free=[{1065544 572} {1066924 936} {1110592 596} {1483452 4096} {1515188 2824} {1536832 23564} {1969020 110240}]",
+  "stop_eip": "0x36D26",
+  "steps": 519860940,
+  "source_sha256": "75937f74ec6802d98227aa2b2d8c25d02afd70295b2785d555f0e859ca619d00",
+  "source": "fd2/work/ch01-town-parity-20260908/oracle-heap-diagnostic/original-receipt.json",
+  "consequence": "原版 0x329D8→0x36D16→0x36D26 配置失敗後未檢查空指標；0x37409 REP MOVSD 複製153216 bytes到0，覆蓋0x10B4E程式碼。",
+  "limitation": "堆積容量是執行器環境設定，不宣稱原版配置器位址／碎片／硬體容量一致。"
+}
