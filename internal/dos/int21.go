@@ -513,7 +513,12 @@ func (d *DOS) setBlock(c *cpu.CPU) {
 		// 當交叉 oracle 量一次。在那之前保留原本的寬鬆做法：
 		// 它讓目標程式走得更遠，而走得更遠才有更多可觀測的東西。
 		// 這是刻意的取捨，不是疏漏。
-		d.setPSPBlock(blk + want + 1)
+		// ⚠ `newFree` 是**下一個 MCB 的位置**（`setPSPBlock` 用
+		// `size = base - newFree - 1`，扣掉的那一段就是 MCB）。
+		// PSP 區塊的資料到 `blk+want-1`，所以下一個 MCB 在 `blk+want`。
+		// 多加一個 1 會讓可配置區少一段——症狀是「AH=48h 要 N 段回報只剩 N−1」，
+		// 而差一段會在很遠的地方才爆（見 machine.MemTop 的註解）。
+		d.setPSPBlock(blk + want)
 	}
 	// arena 內的區塊走真正的 resize（規格 009）。不在 arena 內的
 	// （PSP、映像本體）維持原本的行為：那條路是記憶體探測協定，

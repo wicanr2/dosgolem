@@ -51,8 +51,18 @@ const (
 	PSPSeg  = 0x0100
 	LoadSeg = PSPSeg + 0x10
 
-	// MemTop 是傳統記憶體上緣（640 KB）。
-	MemTop = 0x9FFF
+	// MemTop 是傳統記憶體上緣（640 KB），**不含**：可用的最後一段是 MemTop-1。
+	//
+	// ⚠ 640 KB ＝ 0xA0000 位元組 ＝ 段 0xA000，與 VideoSeg 接在一起。
+	// 寫成 0x9FFF 會讓 `availFrom` 與 `initArena` 各少算一段——症狀是
+	// 「AH=48h 要 N 段回報只剩 N−1 段」，而那個差一段會在很遠的地方才爆：
+	// 《地下城主》的 dm.exe 在 Borland spawn 裡要 3 段拿到 2 段，
+	// errno 被設成 DOS 錯誤碼 8，而 Borland 的 errno 8 剛好是 ENOEXEC，
+	// 看起來像「執行格式錯誤」。
+	//
+	// 依據：DOSBox-X 的 `DOS_AllocateMemory` 在 `block_size == *blocks` 時
+	// 整塊給出去、不另外切 MCB，所以「剛好夠」就該成功。
+	MemTop = 0xA000
 
 	// VideoSeg 是 mode 13h 的畫面。
 	VideoSeg = 0xA000

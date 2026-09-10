@@ -192,3 +192,65 @@ off-by-one：PSP 區塊從 `blk` 起算，**沒有**額外的 MCB 段要扣。�
 產生相同的可觀測結果，於是它同時證實了症狀、掩蓋了成因。
 要分辨這兩者，得問「程式**打算**做什麼」——看它呼叫失敗前讀了哪些記憶體，
 而不只看它呼叫了什麼。
+
+---
+
+## 附錄五：兩個差一段（2026-09-10，FTL《Dungeon Master》DOS 版）
+
+狀態：**READY**（已實作並驗收）
+起因：`dm.exe` 答完三個裝置選單後 `AH=4Ch` 離開碼 1，畫面停在文字模式。
+
+### 量到的
+
+`cmd/probe -exe dm.exe -type '111' -trace 120` 拍到：
+
+```
+#718425  AH=4A 要 0x9EFB 段  成功        ← 程式把自己的區塊擴張到約 651 KB
+#718440  AX=4808                        ← int 21h AH=48（配置）
+#718441  AX=4808 BX=0003                ← 只要 3 段（48 bytes）
+#718442  AX=0008 BX=0002                ← 回錯誤碼 8、最大可用剩 2 段
+#718449  進 sub_11789  AX=0008          ← Borland 的「DOS 錯誤碼轉 errno」
+#718462  SI=0008                        ← errno ← 8
+```
+
+⚠ **Borland 的 `errno 8` 是 `ENOEXEC`，而 DOS 的錯誤碼 8 是「記憶體不足」，
+兩者只是撞號。** 表面症狀看起來像「執行格式錯誤」，而被 spawn 的 `VGA`
+確實是合法 MZ（`4d5a` 開頭、`LZ91` 簽章）——如果在「errno=8 → 查 C 的 errno 表」
+就停下來，會得到一個自洽但方向全錯的結論。要追到寫入點才分得出來。
+
+### 兩個根因
+
+**一、`machine.MemTop` 是 `0x9FFF`。** 640 KB ＝ `0xA0000` 位元組 ＝ 段 `0xA000`，
+與 `VideoSeg` 接在一起。`availFrom` 與 `initArena` 都把它當「上緣（不含）」用，
+所以各少算一段。同一個 package 的 `dpmi.go` 寫的是 `dosMemTop = 0xa0000`，
+兩處對 640 KB 的表示本來就不一致。
+
+**二、`setBlock` 裡的 `setPSPBlock(blk + want + 1)` 多加了 1。**
+`setPSPBlock` 的參數是**下一個 MCB 的位置**（它用 `size = base - newFree - 1`，
+扣掉的那一段就是 MCB）。PSP 區塊的資料到 `blk+want-1`，下一個 MCB 就在
+`blk+want`。
+
+⚠ **只修其中一個沒有用。** 只改 `MemTop`，Borland 的 runtime 會跟著多要一段
+（`AH=4A` 從 `0x9EFB` 變成 `0x9EFC`），剩餘還是 2——它固定留 4 段給自己，
+所以上限往上一段，需求就往上一段。兩個一起修才有效。
+
+### 依據
+
+DOSBox-X `src/dos/dos_memory.cpp`：
+
+- `DOS_AllocateMemory`：`block_size == *blocks` 時**整塊給出去、不另外切 MCB**，
+  所以「剛好夠」就該成功。`dosgolem` 的 `splitBlock`（`b.size >= want+2` 才切）
+  語意相同，不必改。
+- `DOS_ResizeMemory`：放大時只併**緊接在後面那一個** MCB，且必須是 `MCB_FREE`
+  （`total += mcb_next.GetSize()+1`）；失敗時仍 `mcb.SetSize(total)` 調到最大、
+  `*blocks=total` 回報最大值、設 `DOSERR_INSUFFICIENT_MEMORY`。
+  這一條與附錄三的「刻意不檢查已配置區塊」有出入，但**本輪不動**——
+  附錄三記著改動會讓智冠《三國演義》更早死，而那需要另外一輪對拍。
+
+### 驗收
+
+- `tools/go.sh test ./...` 全綠（四個 app 的既有測試都沒有回歸）。
+- `dm.exe` 從「718,783 道指令後離開碼 1」變成**跑滿 3 億道指令仍存活**，
+  視訊模式從 `03h`（文字）進到 `13h`，`A0000` 有 16,647 個非零像素，
+  開過的檔一路走到 `swoosh`／`anim`／`title`／`selector`／`FIRES`。
+- `-dump-vram` 取出的畫面是《Dungeon Master》的標題（黃色 Dungeon ＋ 紅色 Master）。
