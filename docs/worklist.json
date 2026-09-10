@@ -5,7 +5,23 @@
     "correctness": "模擬出來的行為與真機不符，程式會據此做錯決定",
     "consistency": "同一件事有兩份不一致的實作或常數，還沒裁決哪一份對"
   },
-  "items": [],
+  "items": [
+    {
+      "id": "two-clocks-implied-speed-mismatch",
+      "layer": "consistency",
+      "title": "週期時鐘與指令數時鐘的隱含機器速度沒有互相推導過",
+      "body": "指令數時鐘的速度是 StepsPerSecond()（11.58 M 指令／秒，從 DefaultIRQ0Every 與它標定的 17,000 分頻反推，`docs/spec/190`）。週期時鐘是 DefaultCPUHz ＝ 33 MHz，為源平合戰的扇面校準的（`docs/spec/004` §5.2）。**兩者從來沒有對過表。**\n\n2026-09-10 量測：`determinism_test` 的 spinner 是 9.67 週期／指令，換算成 3.41 M 指令／秒——與指令數那邊差 3.4 倍。但那段程式是 `in al,0x40`／`add [mem],al`／`jmp` 的三道迴圈，每三道就有一個 14 週期的 `in`，**不代表真實程式的指令混合**，所以這個數字只能說明「兩者可能差很多」，不能拿來校準。\n\n`docs/spec/004` §5 已經寫明兩個時鐘是獨立模型、切換會讓相位移位，所以不一致本身不是錯的。但只要沒量過，就沒有人知道差多少——而切換時鐘的人會以為「只是相位移位」，實際上是整段時間軸縮放。",
+      "acceptance": "有一份有代表性的指令混合量測（跑真實程式而不是合成迴圈），據此說明兩個時鐘的隱含速度差多少、要不要讓它們對齊。結論寫進 `docs/spec/004` §5 或新規格。",
+      "verify": {
+        "kind": "present",
+        "paths": [
+          "internal/machine"
+        ],
+        "pattern": "沒有互相推導過",
+        "note": "綁 machine.go 的 DefaultCPUHz 註解裡那句自承。量過並寫進規格之後那句話會被改掉。"
+      }
+    }
+  ],
   "resolved": [
     {
       "id": "hma-unreachable-by-seg-off",
@@ -26,8 +42,8 @@
       "title": "DefaultIRQ0Every 被當成 65,536 分頻的基準，但它是 17,000 分頻量出來的",
       "date": "2026-09-10",
       "how": "裁決：165,000 是 17,000 分頻（《大富翁2》）下的一刻，不是 65,536 的基準。calibrationDivisor ＝ 17000 寫進 pit.go，StepsPerSecond 與 PITStepsPerTick 同源，recalcIRQ0 的指令數時鐘改走 stepsPerTick(base, 分頻)。speaker.go 那一份標定刪掉。各分頻的間隔：17,000 → 165,000（回到 2026-09-04 對拍收據的時序）、65,536 → 636,085、4,096 → 39,755。規格 docs/spec/190-irq0-calibration.md，同時更正 004 §5 的公式基準。",
-      "caught_by": "verify 開口（找不到「還沒有裁決哪一個對」了）。裁決靠的是三條獨立推導，最硬的一條是 DefaultVGAFrameEvery：那個常數是「一次垂直回掃的指令數」，而 mode 13h 的回掃 70 Hz 是顯示硬體的事實、與 PIT 無關——165,000 × 70 ＝ 11.55 M 指令／秒，只有 17,000 那個標定對得上。",
-      "evidence_level": "強證據，非 confirmed：原版素材不在版控裡（[HARD]），沒辦法直接跑 rich2 量 IRQ0Every 當第四個確認。"
+      "caught_by": "verify 開口（找不到「還沒有裁決哪一個對」了）。裁決的主要依據是史實：2026-09-04 量那個值的時候 IRQ0Every 是固定的（分頻跟隨是五天後才加的），而 rich2 寫 17,000——那次量的就是 17,000 分頻的一刻。佐證是 DefaultVGAFrameEvery：一次垂直回掃 165,000 道指令，而 mode 13h 的 70 Hz 是顯示硬體的事實、與 PIT 無關。",
+      "evidence_level": "強證據，非 confirmed。第一版規格另外列了兩條「支持」，事後查證都站不住，已在 docs/spec/190 §3 記明：PITStepsPerTick 那條是循環論證，CPU 週期那條實際量過方向相反且量測程式不具代表性。真正的獨立確認要等有原版的環境跑一次對拍（素材不在版控裡，[HARD]）。"
     }
   ]
 }

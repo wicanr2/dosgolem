@@ -136,9 +136,11 @@ func run(exe, root string, max int, budget uint64, answer string, poll bool) err
 					}
 				}
 				avg := sum / uint64(len(gaps))
+				// 一刻幾道指令問機器，不要寫死：那個數字隨程式寫進
+				// 8254 的除數走（`docs/spec/190`）。
 				fmt.Printf("\n等輸入的輪詢節拍：%d 次，平均 %d 道指令"+
 					"（最短 %d、最長 %d）＝ %.2f 個計時器刻\n",
-					len(gaps), avg, min, max, float64(avg)/165_000)
+					len(gaps), avg, min, max, float64(avg)/float64(o.StepsPerTick()))
 			}
 		}
 		// 細粒度取樣：每 N 道指令看一次游標那一塊，量它亮／暗各持續多久。
