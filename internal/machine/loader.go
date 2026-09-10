@@ -304,8 +304,10 @@ func (m *Machine) initPSPAt(pspSeg uint16) {
 	// （指令數只因為多走訪幾個 byte 而差 244 道）。留著純粹是因為
 	// 它比空環境更接近真 DOS，不要以為它修好了什麼。
 	var blk []byte
-	blk = append(blk, []byte(`COMSPEC=C:\COMMAND.COM`)...)
-	blk = append(blk, 0x00)       // 這一條的結尾
+	if !m.EmptyEnv {
+		blk = append(blk, []byte(`COMSPEC=C:\COMMAND.COM`)...)
+		blk = append(blk, 0x00) // 這一條的結尾
+	}
 	blk = append(blk, 0x00)       // 環境字串區的結尾（多一個 00）
 	blk = append(blk, 0x01, 0x00) // 後面跟著幾個字串
 	blk = append(blk, []byte(name)...)

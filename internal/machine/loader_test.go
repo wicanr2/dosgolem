@@ -88,3 +88,40 @@ func TestLoadCOMRejectsWhatItCannotPlace(t *testing.T) {
 		})
 	}
 }
+
+// TestEmptyEnvBothWays 釘住 `EmptyEnv` 的兩個方向。
+//
+// **兩條路徑不等價，而差別只有一個位元組。** 載入器看環境字串區的第一個
+// byte 決定要不要掃描它（`GIN3.COM` 的 `cmp byte ptr es:[0], 0`）：
+// 預設放了 `COMSPEC=` 就是 `'C'`，空環境就是 `0`。只驗其中一邊證明不了
+// 這個開關有在做事。
+func TestEmptyEnvBothWays(t *testing.T) {
+	read := func(empty bool) []byte {
+		m := New()
+		m.EmptyEnv = empty
+		m.ProgramPath = `C:\X.COM`
+		if err := m.LoadCOM([]byte{0xCB}); err != nil {
+			t.Fatal(err)
+		}
+		out := make([]byte, 32)
+		for i := range out {
+			out[i] = m.Read8(uint32(EnvSeg)*16 + uint32(i))
+		}
+		return out
+	}
+	if got := read(false); got[0] != 'C' {
+		t.Errorf("預設環境的第一個 byte ＝ %02X，應該是 COMSPEC 的 'C'", got[0])
+	}
+	// 空環境：第一個 byte 就是字串區的結尾標記，後面接「跟著幾個字串」。
+	got := read(true)
+	if got[0] != 0x00 {
+		t.Errorf("EmptyEnv 之下第一個 byte ＝ %02X，應該是 0", got[0])
+	}
+	if got[1] != 0x01 || got[2] != 0x00 {
+		t.Errorf("結尾標記之後 ＝ %02X %02X，應該是 01 00（跟著一個字串）",
+			got[1], got[2])
+	}
+	if string(got[3:11]) != `C:\X.COM` {
+		t.Errorf("程式路徑 ＝ %q，應該是 C:\\X.COM", got[3:11])
+	}
+}

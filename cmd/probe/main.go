@@ -132,6 +132,10 @@ func main() {
 	dumpMem := flag.String("dump-mem", "",
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
+	emptyEnv := flag.Bool("empty-env", false,
+		"環境字串區留空（只留結尾標記與程式路徑）。"+
+			"預設會放一條 `COMSPEC=`，那比較接近真 DOS；但 GIN3.COM 在環境非空時"+
+			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	poke := flag.String("poke", "",
@@ -250,6 +254,11 @@ func main() {
 	if *adlib {
 		m.SetAdLib(true)
 	}
+	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
+	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境
+	// 找自己的路徑（`docs/re/269`）。
+	m.ProgramPath = `C:\` + strings.ToUpper(filepath.Base(*exe))
+	m.EmptyEnv = *emptyEnv
 	var err error
 	if *loadState == "" {
 		img, rerr := os.ReadFile(*exe)

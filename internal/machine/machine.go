@@ -435,6 +435,15 @@ type Machine struct {
 	// （`docs/spec/004` §1.2）。
 	FreeSeg uint16
 
+	// EmptyEnv ＝ 環境字串區留空（只保留結尾標記與程式路徑）。
+	//
+	// 真 DOS 的環境幾乎不可能是空的，所以預設會放一條 `COMSPEC=`。
+	// 但**有些載入器的兩條路徑不等價**：`GIN3.COM` 在環境非空時會去掃描
+	// 它（`repne scasb`），走進一條會跟執行器的記憶體配置打架的路，
+	// 最後 `retf` 進垃圾（`docs/re/269`）。在那條路修好之前，
+	// 這個開關讓對拍跑得動。
+	EmptyEnv bool
+
 	// ProgramPath 是放進環境區塊的程式全路徑（DOS 形式，如 C:\GAME\X.EXE）。
 	// MSC 的啟動碼會讀它當 argv[0]。空的話用一個中性的預設值——
 	// **不要放某一支程式的路徑**，那是 per-program 的值。
