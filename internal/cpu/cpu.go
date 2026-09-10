@@ -106,6 +106,17 @@ type CPU struct {
 	// 指令，所以那是**下一道**的位址。
 	DivErrors []DivError
 
+	// Code 非 nil 時，**取指令直接索引它**，不走 `Bus.Read8`。
+	//
+	// 取指令是最頻繁的記憶體存取（每道指令 1–3 個位元組），而 `Bus`
+	// 是介面，每一次都是一次動態分派。程式碼不會放在視訊記憶體裡
+	// ——`oracle` 與 `probe` 的迴圈都把 `CS:IP ≥ A0000` 當成致命錯誤
+	// ——所以取指令不需要走圖形控制器那條路（`docs/spec/015` §4.2）。
+	//
+	// ⚠ **裝了讀取監看的時候要設成 nil**，否則取指令不會觸發監看。
+	// `machine.Machine.WatchReads` 負責這件事。長度至少 1 MB。
+	Code []uint8
+
 	// 前綴狀態，每道指令開頭重設。
 	segOverride int
 	repPrefix   uint8 // 0 ＝ 沒有；0xF2 ＝ REPNE；0xF3 ＝ REP／REPE
@@ -203,6 +214,11 @@ func (c *CPU) write16(seg, off uint16, v uint16) {
 
 // fetch8／fetch16 從 CS:IP 取指令位元組並前進 IP。
 func (c *CPU) fetch8() uint8 {
+	if c.Code != nil {
+		v := c.Code[Addr(c.Seg[CS], c.IP)]
+		c.IP++
+		return v
+	}
 	v := c.read8(c.Seg[CS], c.IP)
 	c.IP++
 	return v

@@ -182,6 +182,51 @@ func (o *Oracle) Type(s string) {
 	o.d.Stdin = append(o.d.Stdin, []byte(s)...)
 }
 
+// TypeBoth 同時餵**兩條路**：DOS／BIOS 的字元佇列，與硬體鍵盤的掃描碼。
+//
+// ⚠ 名字不叫 Press：那個名字是滑鼠的「在原地按住」（見本檔後段）。
+//
+// ⚠ **只餵其中一條會得到「程式沒反應」而不是錯誤。** 同一個程式的不同
+// 階段可以走不同的路：三國演義的開機三題走 `int 21h` 讀 handle 0，
+// 載完資料之後的主選單改看掃描碼——`Type` 塞的字元從那裡開始就沒人取，
+// 而畫面上看起來只是「按了沒反應」。
+//
+// 分不出該用哪一條的時候就用 `TypeBoth`。
+func (o *Oracle) TypeBoth(s string) {
+	o.d.Stdin = append(o.d.Stdin, []byte(s)...)
+	for _, b := range []byte(s) {
+		if sc, ok := dos.ScanCode(b); ok {
+			o.m.PushKey(sc)
+		}
+	}
+}
+
+// PressScan 只送硬體掃描碼，不碰字元佇列。
+//
+// 自己裝 IRQ1、直接讀埠 0x60 的畫面用這個。**用 `TypeBoth` 的話字元佇列
+// 會留下一份沒人取的副本**，而那一份會把後面所有 `int 21h` 的讀取堵死
+// ——`int 16h AH=01` 只看不取，佇列的頭卡住就整條不動。
+//
+// 症狀是「按了沒反應」而不是錯誤：畫面上什麼都不會發生，
+// 而送進去的鍵在佇列裡越積越多。
+func (o *Oracle) PressScan(s string) {
+	for _, b := range []byte(s) {
+		if sc, ok := dos.ScanCode(b); ok {
+			o.m.PushKey(sc)
+		}
+	}
+}
+
+// Drain 把還沒被讀走的字元丟掉。
+//
+// 走掃描碼的畫面之後叫一次，免得字元佇列裡的殘留堵住下一個 `int 21h`
+// 的提示。回傳丟掉幾個；不看數量的版本是 `ClearInput`。
+func (o *Oracle) Drain() int {
+	n := len(o.d.Stdin)
+	o.d.Stdin = o.d.Stdin[:0]
+	return n
+}
+
 // Pending 回 handle 0 那條還沒被讀走的位元組數。
 func (o *Oracle) Pending() int { return len(o.d.Stdin) }
 

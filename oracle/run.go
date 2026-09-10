@@ -93,10 +93,15 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 		// 護欄：程式碼不該跑進 A0000 以上。那裡是視訊記憶體，在我們這台上
 		// 全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
 		// 所以飛掉之後**不會有任何錯誤**，只會安靜地跑滿上限。
-		if a := o.IP().Linear(); a >= machine.VideoSeg*16 {
-			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), a)
+		//
+		// 位址只算一次：護欄與 hook 查詢共用（`docs/spec/015` §4.3）。
+		lin := cpu.Addr(o.m.CPU.Seg[cpu.CS], o.m.CPU.IP)
+		if lin >= machine.VideoSeg*16 {
+			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), lin)
 		}
-		o.fireCallHooks()
+		if o.hookBits != nil && o.hookBits[lin>>6]&(1<<(lin&63)) != 0 {
+			o.fireCallHooksAt(lin)
+		}
 		if o.fireStub() {
 			continue
 		}
@@ -359,17 +364,21 @@ func PasswordScreen() Cond {
 // 用途是**把判準從像素換成參數**：原版自己傳給繪製常式的座標與字串，
 // 比從畫面反推可靠（`rich2/docs/lessons.md` D34 就是像素判準誤中）。
 func (o *Oracle) OnCall(a Addr, fn func(*Oracle)) {
-	o.onCall[a.Linear()] = append(o.onCall[a.Linear()], fn)
+	lin := a.Linear()
+	o.onCall[lin] = append(o.onCall[lin], fn)
+	// 點陣圖讓執行迴圈用一次位移與一次 AND 就問得出「這個位址上有沒有
+	// hook」，不必每道指令查一次 map（`docs/spec/015` §4.3）。
+	// 1 M 個位址 ÷ 64 ＝ 16,384 個字，128 KB，只在第一次註冊時配置。
+	if o.hookBits == nil {
+		o.hookBits = make([]uint64, 1<<20/64)
+	}
+	o.hookBits[lin>>6] |= 1 << (lin & 63)
 }
 
-func (o *Oracle) fireCallHooks() {
-	if len(o.onCall) == 0 {
-		return
-	}
-	if hooks, ok := o.onCall[o.IP().Linear()]; ok {
-		for _, fn := range hooks {
-			fn(o)
-		}
+// fireCallHooksAt 在已經算好的線性位址上觸發 hook。
+func (o *Oracle) fireCallHooksAt(lin uint32) {
+	for _, fn := range o.onCall[lin] {
+		fn(o)
 	}
 }
 
@@ -589,3 +598,23 @@ func AtFrame(n uint64) Cond {
 		return o.Frames() >= n
 	}}
 }
+
+// BX／CX／DX／SI／DI／BP 讀通用暫存器。
+//
+// 用途是**在中途的位址上讀出程式算到一半的東西**——`OnCall` 的 hook
+// 在 `CS:IP` 走到任何位址時都會觸發，不限於函式進入點，所以
+// 「這個索引是多少」「這根指標指到哪」可以直接問，不必從結果反推。
+func (o *Oracle) BX() uint16 { return o.m.CPU.R[cpu.BX] }
+func (o *Oracle) CX() uint16 { return o.m.CPU.R[cpu.CX] }
+func (o *Oracle) DX() uint16 { return o.m.CPU.R[cpu.DX] }
+func (o *Oracle) SI() uint16 { return o.m.CPU.R[cpu.SI] }
+func (o *Oracle) DI() uint16 { return o.m.CPU.R[cpu.DI] }
+func (o *Oracle) BP() uint16 { return o.m.CPU.R[cpu.BP] }
+
+// ES 讀附加段。表的位址多半是「段來自變數、位移寫死在指令裡」，
+// 段與位移都要才算得出線性位址。
+//
+// （`DS` 這個名字已經被 `Oracle.DS(off)` 佔了——那是「用 DGROUP 的段
+// 造一個位址」，不是讀暫存器。要讀 DS 暫存器用 `DSReg`。）
+func (o *Oracle) ES() uint16    { return o.m.CPU.Seg[cpu.ES] }
+func (o *Oracle) DSReg() uint16 { return o.m.CPU.Seg[cpu.DS] }

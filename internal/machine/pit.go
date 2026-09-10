@@ -89,7 +89,13 @@ func (m *Machine) PITProgrammed() bool { return m.pit.writes > 0 }
 // PITHz 回通道 0 目前的中斷頻率。
 func (m *Machine) PITHz() float64 { return PITBaseHz / float64(m.PITDivisor()) }
 
-// StepsPerSecond 是 dosgolem 這台虛擬機的隱含速度，單位是**指令／秒**。
+// parityStepsPerSecond 是**對拍那條路**標定的機器速度，單位是指令／秒。
+//
+// ⚠ 它與 machine.StepsPerSecond()（`speaker.go`）不是同一個數：那一支
+// 把 DefaultIRQ0Every 當成「分頻 65,536 時的間隔」（＝主線的定義，
+// 見 recalcIRQ0 依 PITDefaultDivisor 縮放），算出來約 3.0 M 指令／秒；
+// 這裡把它當成「rich2 那個 17,000 分頻下的間隔」，約 11.6 M。兩份標定
+// 差 3.85 倍，是兩條分支各自的模型，**還沒有裁決哪一個對**。
 //
 // 它不是量出來的硬體規格，而是從對拍定住的 `DefaultIRQ0Every` 反推的：
 // 那個常數是「rich2 的一個計時刻 ＝ 165,000 道指令」，而 rich2 把除數設成
@@ -98,7 +104,7 @@ func (m *Machine) PITHz() float64 { return PITBaseHz / float64(m.PITDivisor()) }
 //
 // 有了它，**別的除數也換算得出來**：程式把除數改成別的值時，一刻該有幾道
 // 指令跟著變，而不是繼續沿用某一款遊戲的數字。
-const StepsPerSecond = DefaultIRQ0Every * PITBaseHz / 17000
+const parityStepsPerSecond = DefaultIRQ0Every * PITBaseHz / 17000
 
 // PITStepsPerTick 回「除數 d 的一個計時刻等於幾道指令」。
 //
@@ -108,7 +114,7 @@ func PITStepsPerTick(d uint32) uint64 {
 	if d == 0 {
 		d = PITDefaultDivisor
 	}
-	n := StepsPerSecond * float64(d) / PITBaseHz
+	n := parityStepsPerSecond * float64(d) / PITBaseHz
 	if n < 1 {
 		return 1
 	}

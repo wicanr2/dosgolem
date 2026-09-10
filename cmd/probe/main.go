@@ -23,9 +23,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -215,6 +217,10 @@ func main() {
 	dumpPorts := flag.String("dump-ports", "",
 		"把 I/O 寫入序列存成 TSV：`<檔名>` 全部，或 `<埠>,<埠>=<檔名>` 只存那幾個埠")
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
+	dumpWAV := flag.String("dump-wav", "",
+		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	cpuProfile := flag.String("cpuprofile", "",
+		"把 CPU 剖析結果寫到這個檔（找瓶頸用；`go tool pprof` 讀）")
 	flag.Parse()
 
 	if *exe == "" && *loadState == "" {
@@ -222,6 +228,19 @@ func main() {
 		os.Exit(2)
 	}
 
+	if *cpuProfile != "" {
+		pf, err := os.Create(*cpuProfile)
+		if err != nil {
+			die(err)
+		}
+		if err := pprof.StartCPUProfile(pf); err != nil {
+			die(err)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			pf.Close()
+		}()
+	}
 	m := machine.New()
 	if *adlib {
 		m.SetAdLib(true)
@@ -538,6 +557,10 @@ func main() {
 	var runErr error
 	var blockedFor uint64
 	var blockedStop bool
+	// 執行速度要量得到才調得動。**沒有這個數字的時候，「慢」是感覺**，
+	// 而感覺分不出「這一段本來就有幾十億道指令」與「執行器每道指令太貴」。
+	started := time.Now()
+	startSteps := m.Steps
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// -ega-every：每 N 道指令存一張。**單張只看得到終點**，
 		// 看不出按鍵是送早了還是送晚了。
@@ -769,6 +792,12 @@ func main() {
 	if ca != nil {
 		ca.dump()
 	}
+	if ran := m.Steps - startSteps; ran > 0 {
+		el := time.Since(started)
+		fmt.Printf("\n執行 %d 道指令，耗時 %s，%.1f M 道／秒\n",
+			ran, el.Round(time.Millisecond),
+			float64(ran)/el.Seconds()/1e6)
+	}
 	if blockedStop {
 		fmt.Printf("\n⏸ 在鍵盤輸入上連續阻塞 %d 步，提早停下（-block-after）。\n"+
 			"   阻塞時程式一道指令都不走，繼續跑只是把同一道 INT 重跑。\n", blockedFor)
@@ -889,6 +918,21 @@ func main() {
 			}
 		}
 		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+	}
+	if n := len(m.Speaker); n > 0 {
+		fmt.Printf("\nPC 喇叭：切換 %d 次，8253 通道 0 分頻值 %d（%.0f Hz）\n",
+			n, m.PITDivisor(), m.PITHz())
+		if m.IRQ0Clamped > 0 {
+			fmt.Printf("  ⚠ 中斷間隔被夾到下限 %d 次——波形的時間軸不可信\n",
+				m.IRQ0Clamped)
+		}
+	}
+	if *dumpWAV != "" {
+		if err := writeSpeakerWAV(m, *dumpWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-wav:", err)
+		} else {
+			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
+		}
 	}
 	if *dumpPorts != "" {
 		if err := writePortLog(m, *dumpPorts); err != nil {
@@ -1456,6 +1500,8 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		ports = append(ports, int(p))
 	}
 	sort.Ints(ports)
+	fmt.Printf("埠寫入紀錄 %d 筆（約 %.1f MB）\n",
+		len(m.PortLog), float64(len(m.PortLog))*16/1e6)
 	fmt.Printf("寫過的 I/O 埠（%d）：", len(ports))
 	for i, p := range ports {
 		if i == 20 {
@@ -2640,4 +2686,59 @@ func biosKeyOf(r rune) dos.Key {
 		return dos.Key{Scan: 0x0E, ASCII: '\b'}
 	}
 	return dos.Key{ASCII: uint8(r)}
+}
+
+// writeSpeakerWAV 把喇叭的波形寫成 WAV。
+//
+// 波形是**一個位元**：兩個位準寫成 0x20／0xE0 而不是 0x00／0xFF，
+// 滿幅的方波在多數播放器上會削波，聽起來像壞掉。
+func writeSpeakerWAV(m *machine.Machine, path string) error {
+	s := m.Speaker
+	if len(s) == 0 {
+		return fmt.Errorf("喇叭一次都沒動過——這一段沒有聲音")
+	}
+	const rate = 11025
+	sps := machine.StepsPerSecond()
+	first, last := s[0].Step, s[len(s)-1].Step
+	n := int(float64(last-first) / sps * rate)
+	if n <= 0 {
+		return fmt.Errorf("波形只有 %d 道指令長，不足一個取樣", last-first)
+	}
+	pcm := make([]uint8, n)
+	j := 0
+	for i := range pcm {
+		step := first + uint64(float64(i)/rate*sps)
+		for j+1 < len(s) && s[j+1].Step <= step {
+			j++
+		}
+		pcm[i] = 0x20
+		if s[j].Level != 0 {
+			pcm[i] = 0xE0
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var h []byte
+	put32 := func(v uint32) { h = binary.LittleEndian.AppendUint32(h, v) }
+	put16 := func(v uint16) { h = binary.LittleEndian.AppendUint16(h, v) }
+	h = append(h, "RIFF"...)
+	put32(uint32(36 + len(pcm)))
+	h = append(h, "WAVEfmt "...)
+	put32(16)
+	put16(1)
+	put16(1)
+	put32(rate)
+	put32(rate)
+	put16(1)
+	put16(8)
+	h = append(h, "data"...)
+	put32(uint32(len(pcm)))
+	if _, err := f.Write(h); err != nil {
+		return err
+	}
+	_, err = f.Write(pcm)
+	return err
 }

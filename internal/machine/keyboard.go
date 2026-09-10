@@ -98,8 +98,9 @@ func (m *Machine) keyTick() {
 	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
 		return
 	}
-	// 與 IRQ0 同樣的理由：中斷關著的時候先留著，不要丟掉。
-	if !m.CPU.Flag(cpu.IF) {
+	// 與 IRQ0 同樣的理由：中斷關著、或這條被 8259 遮蔽的時候先留著，
+	// 不要丟掉。
+	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
 		return
 	}
 	if m.Read16(0x09*4+2) == StubSeg {

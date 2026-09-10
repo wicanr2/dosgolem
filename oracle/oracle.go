@@ -79,6 +79,10 @@ type Oracle struct {
 	// scratch 是 screen() 的重用緩衝。**條件函式會反覆呼叫它**，
 	// 每次配置 150 KB 的話跑幾千萬道指令就慢到不能用。
 	scratch []uint8
+
+	// hookBits 是 onCall 的鍵在 1 MB 位址空間上的點陣圖。
+	// nil ＝ 一個 hook 都沒註冊過。
+	hookBits []uint64
 }
 
 // Options 是「這一支 binary 長什麼樣」。
@@ -318,6 +322,27 @@ func (o *Oracle) Bytes(a Addr, n int) []byte {
 	return out
 }
 
+// ---- 佈局 ----------------------------------------------------------------
+
+// SetByte／SetWord／SetBytes 直接寫原版的變數。
+//
+// 對拍要的是「同一個局面下原版怎麼決定」，所以**局面要由對拍那一方
+// 擺出來**，不能靠原版自己的亂數把局面湊出來。原版的 `RND()` 帶著
+// 自己的種子與呼叫次數，跑兩次不見得一樣，而且它一動整張盤面都會變
+// ——那樣比出來的差異分不出是「決策不同」還是「盤面不同」。
+//
+// 寫進去的位址由呼叫端負責：先用 `IDA`／`DS` 換算，寫完再讀回來確認。
+func (o *Oracle) SetByte(a Addr, v uint8)  { o.m.Write8(a.Linear(), v) }
+func (o *Oracle) SetWord(a Addr, v uint16) { o.m.Write16(a.Linear(), v) }
+
+// SetBytes 寫一段，回傳寫了幾個位元組。
+func (o *Oracle) SetBytes(a Addr, b []byte) int {
+	for i, v := range b {
+		o.m.Write8(a.Linear()+uint32(i), v)
+	}
+	return len(b)
+}
+
 // Float 讀一個 IEEE 754 單精度。**這個 binary 的浮點是 IEEE 不是 MBF**
 // ——它走自帶的 Microsoft 浮點模擬器（`INT 34h`–`3Dh`），格式是 IEEE。
 func (o *Oracle) Float(a Addr) float32 {
@@ -404,6 +429,15 @@ func (o *Oracle) EGAPlanarActive() bool { return o.m.EGAPlanarActive() }
 // EGAPlane 回傳一個位元平面的複本（0..3），畫面不對時用來分辨是遮罩錯
 // 還是組裝錯。
 func (o *Oracle) EGAPlane(plane int) []uint8 { return o.m.EGAPlane(plane) }
+
+// IndexedEGASize 是 EGA 平面模式解出來的畫面，寬高自己指定。
+//
+// 固定 320×200（mode 0Dh）的版本是 IndexedEGA。
+//
+// `Indexed()` 給的是線性的 A0000 視窗（64,000 個位元組）；EGA 的
+// 640×350 是**四個位元平面**，要指定寬高才解得出來。拿線性那一份當畫面
+// 存圖會得到一張有規律的條紋——看起來像畫面壞掉，而不像取錯了緩衝區。
+func (o *Oracle) IndexedEGASize(w, h int) []uint8 { return o.m.IndexedEGASize(w, h) }
 
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
@@ -613,6 +647,44 @@ func (o *Oracle) MemOps() []MemOp { return o.d.MemOps }
 // **載入進度的路標**：還停在 03h 就表示程式連圖形模式都還沒切進去。
 func (o *Oracle) VideoMode() uint8 { return o.m.VideoMode() }
 
+// KeyQueueLen 是硬體鍵盤佇列裡還沒被取走的掃描碼數。
+//
+// **送了鍵沒反應時第一個要看的數字**：它大於 0 表示掃描碼還在佇列裡
+// ——不是送錯路，是沒被中斷帶進程式。
+func (o *Oracle) KeyQueueLen() int { return o.m.KeyQueueLen() }
+
+// IRQ1Delivered 是鍵盤中斷送出去幾次，KeyStalls 是「有鍵、但程式還沒裝
+// 自己的 IRQ1 處理常式」而擱著幾次。
+//
+// **兩個要一起看。** 送出去的每一次都進得了程式（向量還指著 BIOS stub
+// 時根本不送），所以 Delivered 是 0 而 Stalls 很大，意思是鍵到得了機器、
+// 到不了程式——那要走 BIOS 那條路（`TypeKeys`），不是送更多掃描碼。
+func (o *Oracle) IRQ1Delivered() uint64 { return o.m.IRQ1Delivered() }
+func (o *Oracle) KeyStalls() uint64     { return o.m.KeyStalls() }
+
+// KeyWaits 數「佇列空的時候被要求讀一個鍵」發生了幾次。
+//
+// **這是「它在等鍵盤」與「它在做事」的分界**：送了鍵卻沒反應時，
+// 這個數字告訴你程式到底有沒有在讀——它是 0 的話，鍵送到哪裡都沒用，
+// 因為根本沒有人在讀那條路。
+func (o *Oracle) KeyWaits() int { return o.d.KeyWaits }
+
+// KeyReads 是被讀走的鍵，附讀取方式與步數。
+func (o *Oracle) KeyReads() []KeyRead {
+	out := make([]KeyRead, 0, len(o.d.KeyReads))
+	for _, k := range o.d.KeyReads {
+		out = append(out, KeyRead{Step: k.Step, Via: k.Via, Key: k.Key})
+	}
+	return out
+}
+
+// KeyRead 是一次讀鍵。Via 說它走的是哪一條路。
+type KeyRead struct {
+	Step uint64
+	Via  string
+	Key  uint8
+}
+
 // CPU 狀態，寫診斷訊息用。
 func (o *Oracle) IP() Addr { return Addr{o.m.CPU.Seg[cpu.CS], o.m.CPU.IP} }
 
@@ -744,10 +816,61 @@ func (o *Oracle) WatchWrites(lo, hi uint16) *[]MemWrite {
 	return log
 }
 
-// WatchLinear 監看**任意線性位址區間**的寫入，回一份逐次紀錄。
+// WatchWritesAt 監看一段**線性位址**的寫入，回一份逐次紀錄。
 //
+// `WatchWrites` 只認 DGROUP 偏移，而遊戲把資料表放在別的段是常態
+// ——執行期用線性位址搜出來的東西沒有 DGROUP 偏移可用。
+//
+// 回傳的紀錄裡 `Off` 是「距離 lo 幾個位元組」，不是 DGROUP 偏移。
+func (o *Oracle) WatchWritesAt(lo, hi uint32) *[]MemWrite {
+	log := &[]MemWrite{}
+	o.m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
+		*log = append(*log, MemWrite{
+			Off:  uint16(a - lo),
+			Old:  old,
+			New:  nw,
+			IP:   o.IP(),
+			Step: o.Steps(),
+		})
+	})
+	return log
+}
+
 // StopWatchingWrites 關掉監看。
 func (o *Oracle) StopWatchingWrites() { o.m.WatchWrites(0, 0, nil) }
+
+// WatchReadsAt 監看一段**線性位址**的讀取，回一份逐次紀錄。
+//
+// 靜態掃描找不到讀取端時用這一支：掃到零筆只證明「沒有絕對定址的
+// 參考」，不證明沒有人讀——用算出來的指標取的存取在位元組層面看不見。
+//
+// `Off` 是「距離 lo 幾個位元組」。**每一次讀取都記一筆**，
+// 所以範圍要開小，而且跑完記得 `StopWatchingReads`。
+func (o *Oracle) WatchReadsAt(lo, hi uint32) *[]MemRead {
+	log := &[]MemRead{}
+	o.m.WatchReads(lo, hi, func(a uint32, v uint8) {
+		*log = append(*log, MemRead{
+			Off:  uint16(a - lo),
+			Val:  v,
+			IP:   o.IP(),
+			Step: o.Steps(),
+		})
+	})
+	return log
+}
+
+// StopWatchingReads 關掉讀取監看。
+func (o *Oracle) StopWatchingReads() { o.m.WatchReads(0, 0, nil) }
+
+// MemRead 是一次讀取。
+//
+// ⚠ **IP 是讀的那一刻的 CS:IP，也就是那道指令本身**，不是它的呼叫端。
+type MemRead struct {
+	Off  uint16
+	Val  uint8
+	IP   Addr
+	Step uint64
+}
 
 // MemWrite 是一次寫入。
 //
