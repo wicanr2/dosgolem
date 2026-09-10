@@ -23,15 +23,15 @@ import (
 // frameRec 是一幀的狀態。座標與格號用來對齊 remake 的同一幀——
 // **光比 PNG 不夠**：兩邊的幀號對齊錯位時，畫面差異看起來會像繪製 bug。
 type frameRec struct {
-	Frame    int    `json:"frame"`
-	Screen   uint64 `json:"screen"` // VGA 垂直回掃次數
-	Tick     uint64 `json:"tick"`
-	Step     uint64 `json:"step"`
-	Player   int `json:"player"`
-	Square   int `json:"square"`
-	Row      int `json:"row"`
-	Col      int `json:"col"`
-	Tile     int `json:"tile"`
+	Frame  int    `json:"frame"`
+	Screen uint64 `json:"screen"` // VGA 垂直回掃次數
+	Tick   uint64 `json:"tick"`
+	Step   uint64 `json:"step"`
+	Player int    `json:"player"`
+	Square int    `json:"square"`
+	Row    int    `json:"row"`
+	Col    int    `json:"col"`
+	Tile   int    `json:"tile"`
 }
 
 func main() {
@@ -130,6 +130,6 @@ func run(exe, root, out string, maxFrames int, budget, after uint64) error {
 		"player": player, "from": from, "to": to,
 		"dice": rich2.Steps(o), "frameTicks": rich2.FrameTicks,
 		"screenFrames": o.Frames(),
-		"frames": recs,
+		"frames":       recs,
 	})
 }

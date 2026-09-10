@@ -450,16 +450,16 @@ type Machine struct {
 // **還沒有程式**——要呼叫 LoadEXE。
 func New() *Machine {
 	m := &Machine{
-		Mem:       make([]uint8, MemSize),
-		Ports:     map[uint16]uint8{},
-		PortsIn:   map[uint16]uint64{},
+		Mem:           make([]uint8, MemSize),
+		Ports:         map[uint16]uint8{},
+		PortsIn:       map[uint16]uint64{},
 		IRQ0Every:     DefaultIRQ0Every,
 		VGAFrameEvery: DefaultVGAFrameEvery,
-		KeyEvery:  DefaultKeyIRQEvery,
-		IRQ0Base:  DefaultIRQ0Every,
-		CPUHz:     DefaultCPUHz,
-		PITDiv:    PITDefaultDivisor,
-		pitAccess: 3,
+		KeyEvery:      DefaultKeyIRQEvery,
+		IRQ0Base:      DefaultIRQ0Every,
+		CPUHz:         DefaultCPUHz,
+		PITDiv:        PITDefaultDivisor,
+		pitAccess:     3,
 		// **第一次計時器中斷排在一個完整週期之後。** 零值的話
 		// `m.Steps >= m.nextIRQ0` 在第 0 步就成立，程式的第一道指令
 		// 還沒執行就先被 int 08h 打斷——載入器把 IF 打開之後，
@@ -1019,7 +1019,15 @@ func (m *Machine) Step() error {
 	// 第一行就 return，而函式呼叫本身佔了執行時間的 3.8%
 	//（`docs/spec/015` §3）。把「要不要進去」提到呼叫端之後，
 	// 常見情形連呼叫都不用發。
-	if m.irq0Pending || (m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0) {
+	//
+	// ⚠ **這個條件要涵蓋 `tick` 會做的每一件事**，不只是計時器：
+	// 排進來的回呼與週期遠呼叫跟 IRQ0 到不到期無關，漏了它們的話
+	// 回呼永遠不發——而畫面照跑，看起來像「事件沒排進去」。
+	// 在 `tick` 裡加東西，這裡要跟著加。
+	if len(m.cbQueue) > 0 || m.periodic.on ||
+		(m.VGAFrameEvery > 0 && m.Steps >= m.nextFrame) ||
+		m.irq0Pending || (m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0) ||
+		(m.CycleClock && m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc) {
 		m.tick()
 	}
 	if len(m.keyQueue) > 0 {
@@ -1100,6 +1108,11 @@ func (m *Machine) Step() error {
 // 掛了 int 08h 之後 OPEN.EXE 掛在 int 1Ch 的動畫計數永遠不動，
 // 開場停在 GRPDRV 的重畫迴圈裡（`docs/spec/008` §4、
 // yuan/workplace/boot-20260906-02）。
+// tick 是每道指令之前要做的事：回呼、週期遠呼叫、幀、計時器中斷。
+//
+// ⚠ **這裡加一件事，`Step` 的進入條件也要加**——那邊的判斷是為了讓
+// 絕大多數指令連呼叫都不用發（`docs/spec/015` §3），漏掉就等於那件事
+// 永遠不會發生。
 func (m *Machine) tick() {
 	// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
 	// 事件是有時序意義的，週期回呼晚一格沒差。

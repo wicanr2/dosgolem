@@ -83,13 +83,13 @@ func writeWAV8(w io.Writer, rate int, pcm []uint8) error {
 	h = append(h, "RIFF"...)
 	put32(uint32(36 + len(pcm)))
 	h = append(h, "WAVEfmt "...)
-	put32(16)              // fmt 區塊長度
-	put16(1)               // PCM
-	put16(1)               // 單聲道
-	put32(uint32(rate))    // 取樣率
-	put32(uint32(rate))    // 每秒位元組數 ＝ rate × 1 × 1
-	put16(1)               // 區塊對齊
-	put16(8)               // 位元深度
+	put32(16)           // fmt 區塊長度
+	put16(1)            // PCM
+	put16(1)            // 單聲道
+	put32(uint32(rate)) // 取樣率
+	put32(uint32(rate)) // 每秒位元組數 ＝ rate × 1 × 1
+	put16(1)            // 區塊對齊
+	put16(8)            // 位元深度
 	h = append(h, "data"...)
 	put32(uint32(len(pcm)))
 	if _, err := w.Write(h); err != nil {

@@ -475,7 +475,7 @@ func TestEGAWriteMode1CopiesLatches(t *testing.T) {
 
 // TestSnapshotKeepsTheKeyboardAlive 釘住還原之後鍵盤還送得出中斷。
 //
-// `Restore` 把 `Steps` 倒回過去。鍵盤的下一次中斷排在 `nextIRQ1`，
+// `Restore` 把 `Steps` 倒回過去。鍵盤的下一次中斷排在 `nextKey`，
 // 漏掉它的話那個值會停在未來——`keyTick` 的「時間還沒到」從此永遠成立，
 // **後面每一個鍵都靜靜地留在佇列裡**。
 //
@@ -484,18 +484,21 @@ func TestEGAWriteMode1CopiesLatches(t *testing.T) {
 func TestSnapshotKeepsTheKeyboardAlive(t *testing.T) {
 	m := New()
 	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+	// int 09h 還指著 BIOS stub 的時候 keyTick 不送（改記 keyStalls），
+	// 所以要先裝一支「程式自己的」處理常式，否則量不到要量的東西。
+	m.Write16(0x09*4+2, 0x2000)
 	m.Steps = 1_000
 	snap := m.Snapshot()
 
-	// 往前跑並送掉一個鍵：nextIRQ1 於是落在 5000 之後。
+	// 往前跑並送掉一個鍵：nextKey 於是落在 5000 之後。
 	m.Steps = 5_000
 	m.PushKey(0x0A)
 	m.keyTick()
 	if m.IRQ1Delivered() == 0 {
 		t.Fatal("第一個鍵就沒送出去，這個測試量不到要量的東西")
 	}
-	if m.nextIRQ1 <= snap.steps {
-		t.Fatalf("nextIRQ1 是 %d，沒有落在快照（%d）之後", m.nextIRQ1, snap.steps)
+	if m.nextKey <= snap.steps {
+		t.Fatalf("nextKey 是 %d，沒有落在快照（%d）之後", m.nextKey, snap.steps)
 	}
 
 	m.Restore(snap)
@@ -503,7 +506,7 @@ func TestSnapshotKeepsTheKeyboardAlive(t *testing.T) {
 	m.PushKey(0x0A)
 	m.keyTick()
 	if m.IRQ1Delivered() == before {
-		t.Fatal("還原之後鍵送不出去——nextIRQ1 還停在未來")
+		t.Fatal("還原之後鍵送不出去——nextKey 還停在未來")
 	}
 }
 

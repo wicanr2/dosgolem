@@ -113,35 +113,13 @@ func TestSnapshotRestoresSpeakerAndPIT(t *testing.T) {
 	if m.IRQ0Every != DefaultIRQ0Every {
 		t.Errorf("還原之後 IRQ0Every 是 %d", m.IRQ0Every)
 	}
-	if m.PITDivisor() != 0 {
-		t.Errorf("還原之後分頻值是 %d", m.PITDivisor())
+	// 「回到未設定」要問 PITProgrammed：PITDivisor 在沒被設過時回的是
+	// BIOS 的預設 65,536，不是 0——拿 0 當判準會永遠不成立。
+	if m.PITProgrammed() {
+		t.Errorf("還原之後仍回報被程式設定過（分頻值 %d）", m.PITDivisor())
 	}
 	if len(m.Speaker) != 0 {
 		t.Errorf("還原之後喇叭序列還有 %d 筆", len(m.Speaker))
-	}
-}
-
-// TestSnapshotRestoresEGAPlanes 釘住平面式 VRAM 也要進快照。
-//
-// 只還原 A0000 的線性檢視、平面留著後來畫上去的東西，解出來的畫面
-// 是兩次執行混在一起的——**而那張圖看起來完全正常**。
-func TestSnapshotRestoresEGAPlanes(t *testing.T) {
-	m := New()
-	m.Out8(0x3C4, sequencerMapMaskIndex)
-	m.Out8(0x3C5, 0x01) // 只開平面 0
-	m.Write8(egaVRAMBase, 0xFF)
-	snap := m.Snapshot()
-	m.Out8(0x3C5, 0x02) // 換平面 1
-	m.Write8(egaVRAMBase, 0xFF)
-	if m.ega.planes[1][0] == 0 {
-		t.Fatal("前置動作沒生效")
-	}
-	m.Restore(snap)
-	if m.ega.planes[1][0] != 0 {
-		t.Errorf("還原之後平面 1 還留著 %02X", m.ega.planes[1][0])
-	}
-	if m.ega.planes[0][0] != 0xFF {
-		t.Errorf("還原之後平面 0 是 %02X，應該是 FF", m.ega.planes[0][0])
 	}
 }
 

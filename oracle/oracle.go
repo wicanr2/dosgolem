@@ -533,7 +533,7 @@ func (o *Oracle) Tandy16() []uint8 {
 }
 
 // Steps 是已經執行的指令數，Opened 是開過的檔（依序）。
-func (o *Oracle) Steps() uint64                     { return o.m.Steps }
+func (o *Oracle) Steps() uint64 { return o.m.Steps }
 
 // Frames 是**螢幕刷新了幾次**（VGA 垂直回掃次數，`docs/spec/187`）。
 //
