@@ -76,6 +76,28 @@ var digitScan = map[byte]uint8{
 	'6': 0x07, '7': 0x08, '8': 0x09, '9': 0x0A, '0': 0x0B,
 }
 
+// punctScan 是主鍵區標點的 set 1 掃描碼，值取自 DOSBox-X 的
+// `KEYBOARD_AddKey1`（`src/hardware/keyboard.cpp`，scancode set 1 那一組；
+// 另外三組 AddKey2／AddKey3／AddKeyPCjr 的值不同，不能混用）。
+// 每一項的 ASCII 直接用字元本身。
+var punctScan = map[byte]uint8{
+	'-': 0x0C, '=': 0x0D,
+	'[': 0x1A, ']': 0x1B,
+	';': 0x27, '\'': 0x28, '`': 0x29,
+	'\\': 0x2B,
+	',':  0x33, '.': 0x34, '/': 0x35,
+}
+
+// shiftedPunct 是按住 Shift 之後那一層：掃描碼與未按 Shift 的同一顆鍵相同，
+// 送進 BIOS 緩衝的 ASCII 不同。表以 US 版面為準。
+var shiftedPunct = map[byte]byte{
+	'_': '-', '+': '=',
+	'{': '[', '}': ']',
+	':': ';', '"': '\'', '~': '`',
+	'|': '\\',
+	'<': ',', '>': '.', '?': '/',
+}
+
 // KeyNamed 查一個有名字的鍵。查不到就回 false——**不要回一個看起來合理的
 // 預設值**，那會讓「名字打錯」變成「原版行為不同」。
 func KeyNamed(name string) (Key, bool) {
@@ -97,6 +119,16 @@ func KeyForRune(r rune) (Key, bool) {
 	}
 	if scan, ok := digitScan[byte(r)]; ok {
 		return Key{scan, uint8(r)}, true
+	}
+	if scan, ok := punctScan[byte(r)]; ok {
+		return Key{scan, uint8(r)}, true
+	}
+	// Shift 那一層送同一顆鍵的掃描碼，ASCII 用符號本身——原版讀的是 BIOS
+	// 緩衝的 ASCII，掃描碼只在它自己查鍵位時才看。
+	if base, ok := shiftedPunct[byte(r)]; ok {
+		if scan, ok := punctScan[base]; ok {
+			return Key{scan, uint8(r)}, true
+		}
 	}
 	if r == ' ' {
 		return namedKeys["Space"], true

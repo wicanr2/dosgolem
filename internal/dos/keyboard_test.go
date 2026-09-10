@@ -109,3 +109,32 @@ func TestArrowKeysHaveNoASCII(t *testing.T) {
 		}
 	}
 }
+
+// 主鍵區標點的 set 1 掃描碼，值對 DOSBox-X 的 `KEYBOARD_AddKey1`。
+// Shift 那一層送同一顆鍵的掃描碼、不同的 ASCII。
+func TestPunctuationScanCodes(t *testing.T) {
+	for r, want := range map[rune]uint16{
+		'-': 0x0C2D, '=': 0x0D3D,
+		'[': 0x1A5B, ']': 0x1B5D,
+		';': 0x273B, '\'': 0x2827, '`': 0x2960,
+		'\\': 0x2B5C,
+		',':  0x332C, '.': 0x342E, '/': 0x352F,
+		// Shift 層：掃描碼與上面同一顆鍵相同，ASCII 換成符號本身。
+		'_': 0x0C5F, '+': 0x0D2B,
+		'{': 0x1A7B, '}': 0x1B7D,
+		':': 0x273A, '"': 0x2822, '~': 0x297E,
+		'|': 0x2B7C,
+		'<': 0x333C, '>': 0x343E, '?': 0x353F,
+	} {
+		k, ok := KeyForRune(r)
+		if !ok || k.Word() != want {
+			t.Fatalf("%q 是 %04X（ok=%v），要 %04X", r, k.Word(), ok, want)
+		}
+	}
+	// 反面對照：表外的字元仍要回 false，不能因為新增了標點就變成「什麼都認」。
+	for _, r := range []rune{'!', '@', '#', '€', '。'} {
+		if _, ok := KeyForRune(r); ok {
+			t.Fatalf("%q 不在表裡，應該回 false", r)
+		}
+	}
+}
