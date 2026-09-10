@@ -1,6 +1,7 @@
 package rich2
 
 import (
+	"sync"
 	"bytes"
 	"fmt"
 
@@ -98,6 +99,35 @@ type Selector struct {
 	HitSeen                                bool
 }
 
+// selectorLogs 記每個 Oracle 目前掛著的自動回答。
+//
+// **`ToBoard` 要在走到棋盤的期間把它停掉**：那一段的選單（主選單、城市選擇）
+// 由 `ToBoard` 自己送 Enter，兩邊都送會把流程推過頭——舊的送鍵時序下兩個
+// Enter 疊在一起剛好能過，時序修對之後就不行了，症狀是 `ToBoard` 卡死在
+// **已經正確的棋盤畫面**上（`rich2/docs/spec/084` §2a）。
+//
+// 用 map 而不是 `SelectorLog` 的欄位，是因為 `ToBoard(o)` 只拿得到 Oracle。
+var selectorLogs sync.Map // *oracle.Oracle → *SelectorLog
+
+// pauseMenuAuto 暫停這個 Oracle 上的選單自動回答，回傳恢復用的函式。
+//
+// 沒掛 `WatchSelectors` 時回一個什麼都不做的函式，呼叫端不必分兩種寫法。
+func pauseMenuAuto(o *oracle.Oracle) func() {
+	v, ok := selectorLogs.Load(o)
+	if !ok {
+		return func() {}
+	}
+	log, ok := v.(*SelectorLog)
+	if !ok || log == nil {
+		return func() {}
+	}
+	prev := log.pick
+	log.pick = nil
+	// armAt／wantRow 也要清掉：暫停之前排著的那一次不該在恢復之後才送出。
+	log.wantRow, log.armAt = 0, 0
+	return func() { log.pick = prev }
+}
+
 // SelectorLog 收集整場的選單，也可以自動回答它們。
 type SelectorLog struct {
 	All  []Selector
@@ -144,6 +174,7 @@ func (l *SelectorLog) Open() *Selector {
 // WatchSelectors 掛上攔截。**要在 Run／Click 之前叫。**
 func WatchSelectors(o *oracle.Oracle) *SelectorLog {
 	log := &SelectorLog{}
+	selectorLogs.Store(o, log)
 
 	o.OnCall(o.IDA(IDASelector), func(o *oracle.Oracle) {
 		a := basic.CallArgs(o, 6)
