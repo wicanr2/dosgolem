@@ -10,21 +10,22 @@ import (
 // 原則是**讓原版驅動（DOSJP）自己提供 DOS/V 服務**，機器層只補
 // 「一台 DOS/V 機器本來就該有、而且 DOSJP 落腳前要問的」東西。
 
-// countryOff 是國別資訊表在 StubSeg 裡的位移（`int 21h AH=38h`）。
-const countryOff = 0x80
-
 // country 是 `int 21h AH=38h`（取國別資訊）。
 //
 // DOS/V 程式用它判斷「這是不是日文環境」——回不出來的話它會走另一條
 // 路徑，而那條路徑上什麼都不會說。表的欄位照 DOS 3.x 的版面。
+//
+// 表寫進**呼叫端**的 DS:DX，DS 與 DX 不動（`docs/spec/196-country-info-caller-buffer`）。
+// 回傳指標的是 `AH=63h`，不是這一支；把 DS 換掉的話，呼叫端之後所有以 DS
+// 為基底的存取都落到別的段（TASM 就這樣以回傳碼 7 結束）。
 func (d *DOS) country(c *cpu.CPU) {
 	if al(c) != 0x00 {
 		d.note(0x21, 0x38, al(c))
 		setCarry(c)
 		return
 	}
-	at := uint32(machine.StubSeg)*16 + countryOff
-	tab := make([]byte, 34)
+	at := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	tab := make([]byte, 0x18)           // DOSBox-X 也只寫 18h bytes
 	tab[0] = 2                          // 日期格式：2 ＝ 年月日
 	copy(tab[2:], []byte{0x5C, 0x00})   // 貨幣符號（Shift-JIS 的 ¥）
 	copy(tab[7:], []byte{',', 0x00})    // 千分位
@@ -36,10 +37,8 @@ func (d *DOS) country(c *cpu.CPU) {
 	copy(tab[0x16:], []byte{',', 0x00}) // 清單分隔
 	d.M.WriteBytes(at, tab)
 
-	c.Seg[cpu.DS] = machine.StubSeg
-	c.R[cpu.DX] = countryOff
-	c.R[cpu.BX] = 81 // 國碼：日本
-	c.R[cpu.AX] = 81
+	c.R[cpu.BX] = 81                      // 國碼：日本
+	c.R[cpu.AX] = c.R[cpu.AX]&0xFF00 | 81 // AL ＝ 國碼，AH 不變
 	clearCarry(c)
 }
 

@@ -185,6 +185,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x44: // IOCTL
 		if al(c) == 0x00 { // 取裝置資訊：bit7 = 0 表示是檔案
 			c.R[cpu.DX] = uint16(d.Drive)
+			if h, ok := d.handles[c.R[cpu.BX]]; ok && h.dev != 0 {
+				c.R[cpu.DX] = h.dev // 字元裝置（`docs/spec/195-nul-device`）
+			}
 		} else {
 			// 其他子功能沒實作——記下來，別讓「成功」假象藏住。
 			d.note(0x21, 0x44, al(c))

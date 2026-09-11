@@ -344,3 +344,12 @@
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
+
+### Borland C++ 2.0 工具鏈（bcc20-toolchain）（3 份）
+
+在 dosgolem 裡跑 BCC、TASM、TLINK、TLIB（BCC 經 EXEC 叫 TASM 與 TLINK）時補上的 DOS 行為，
+依據都是 DOSBox-X 原始碼。BCC 要用 `cmd/run -cpu 8086`（它的 CPU 偵測在 386 模式會走到子集外的 `0x66`）。
+
+- [194 — EXEC：子行程的 DTA 指到它自己的 PSP:0080h](194-exec-child-dta.md)：READY。子程式的 FindFirst 不再寫進父程式的堆疊。
+- [195 — NUL 字元裝置](195-nul-device.md)：READY。開啟、讀寫、seek、IOCTL 裝置資訊照 DOSBox-X 的 `device_NUL`。
+- [196 — `AH=38h` 國別資訊寫進呼叫端的緩衝區](196-country-info-caller-buffer.md)：READY。DS:DX 不動；取代 `010-dosv` §2.1 的指標寫法。

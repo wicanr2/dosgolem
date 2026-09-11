@@ -250,6 +250,11 @@ func (d *DOS) enterProgram(c *cpu.CPU, prog *machine.Program) {
 	c.Seg[cpu.DS], c.Seg[cpu.ES] = prog.PSPSeg, prog.PSPSeg
 	d.curPSP = prog.PSPSeg
 	d.freeSeg = prog.EndSeg
+	// 新行程的 DTA 是它自己的 PSP:0080h（`docs/spec/194-exec-child-dta`）。
+	// 沿用父行程的 DTA 的話，子程式的 FindFirst 會寫進父程式的記憶體——
+	// 父程式常把 DTA 放在堆疊上，壞掉的是它回來之後的返回位址。
+	// 結束時不還原，與 DOSBox-X 的 DOS_Terminate 一致。
+	d.dtaSeg, d.dtaOff = prog.PSPSeg, 0x80
 }
 
 // copyCmdTail 把 EXEC 參數區塊指的命令列尾拷進子 PSP+80h。

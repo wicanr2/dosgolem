@@ -400,3 +400,34 @@ func TestExtendedOpenReportsActionTaken(t *testing.T) {
 		}
 	})
 }
+
+// `AH=38h AL=00h` 把國別表寫進**呼叫端**的 DS:DX，DS 與 DX 不動
+// （`docs/spec/196-country-info-caller-buffer`）。
+//
+// 反面：DS 被換掉之後，呼叫端所有以 DS 為基底的存取都落到別的段——
+// TASM 就是這樣在第 848 條指令安靜地以回傳碼 7 結束。
+func TestCountryInfoFillsCallerBuffer(t *testing.T) {
+	m, d := newTest(t)
+	const seg, off = 0x1706, 0x4E1A
+	for i := uint32(0); i < 0x22; i++ {
+		m.Write8(cpu.Addr(seg, off)+i, 0xCC)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = seg, off
+	call(m, d, 0x21, 0x3800)
+	if m.CPU.Seg[cpu.DS] != seg || m.CPU.R[cpu.DX] != off {
+		t.Fatalf("DS:DX 被改成 %04X:%04X，預期維持 %04X:%04X",
+			m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX], seg, off)
+	}
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatal("CF 沒有清除")
+	}
+	if m.CPU.R[cpu.BX] != 81 || m.CPU.R[cpu.AX]&0xFF != 81 || m.CPU.R[cpu.AX]>>8 != 0x38 {
+		t.Fatalf("AX=%04X BX=%04X，預期 AL＝BX＝81、AH 不變", m.CPU.R[cpu.AX], m.CPU.R[cpu.BX])
+	}
+	if v := m.Read8(cpu.Addr(seg, off)); v != 2 {
+		t.Fatalf("緩衝區第 0 byte（日期格式）是 %02X，預期 02——表沒寫進呼叫端緩衝區", v)
+	}
+	if v := m.Read8(cpu.Addr(seg, off) + 0x18); v != 0xCC {
+		t.Fatalf("緩衝區 +18h 被改成 %02X，預期只寫 18h bytes", v)
+	}
+}

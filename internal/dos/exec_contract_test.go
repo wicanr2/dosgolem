@@ -239,3 +239,62 @@ func TestSupervisorQueueRunsTheNextProgram(t *testing.T) {
 		t.Fatalf("佇列裡那一支的離開碼是 %d（Exited=%t），預期 5", d.ExitCode, d.Exited)
 	}
 }
+
+// 子行程的 DTA 指到它自己的 `PSP:0080h`（`docs/spec/194-exec-child-dta`）。
+//
+// 父程式常把 DTA 設在自己的區域變數上。EXEC 沿用父程式的 DTA 的話，
+// 子程式第一個 FindFirst 就把 43 bytes 寫進父程式的堆疊——子程式照樣
+// 正常結束，壞掉的是父程式回來之後的返回位址（BCC 叫 TLINK 就是這樣死的）。
+func TestExecGivesChildItsOwnDTA(t *testing.T) {
+	m, d := newTest(t)
+	// 子程式：FindFirst 找自己（一定找得到，所以一定會寫 DTA），然後結束。
+	child := []byte{
+		0xB4, 0x4E, // mov ah,4Eh
+		0x31, 0xC9, // xor cx,cx
+		0xBA, 0x0E, 0x01, // mov dx,010Eh（下面的檔名）
+		0xCD, 0x21, // int 21h
+		0xB8, 0x00, 0x4C, // mov ax,4C00h
+		0xCD, 0x21, // int 21h
+	}
+	child = append(child, []byte("F.COM\x00")...)
+	writeChild(t, d, "F.COM", child)
+
+	// 父程式的 DTA 設在自己的緩衝區（在配置游標之下，是父程式的記憶體）。
+	const parentSeg, parentOff = 0x1000, 0x0100
+	parentDTA := cpu.Addr(parentSeg, parentOff)
+	for i := uint32(0); i < 43; i++ {
+		m.Write8(parentDTA+i, 0xCC)
+	}
+	m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = parentSeg, parentOff
+	call(m, d, 0x21, 0x1A00)
+
+	execChild(m, d, "F.COM")
+	if m.CPU.Flags&cpu.CF != 0 {
+		t.Fatalf("EXEC 失敗：AX=%04X Missing=%v", m.CPU.R[cpu.AX], d.Missing)
+	}
+	childPSP := d.curPSP
+	if d.dtaSeg != childPSP || d.dtaOff != 0x80 {
+		t.Fatalf("子行程的 DTA 是 %04X:%04X，預期 %04X:0080", d.dtaSeg, d.dtaOff, childPSP)
+	}
+	for n := 0; n < 200 && len(d.procStack) > 0; n++ {
+		if err := m.Step(); err != nil {
+			t.Fatalf("跑子程式：%v", err)
+		}
+	}
+	if len(d.procStack) != 0 {
+		t.Fatal("子程式沒有結束")
+	}
+	for i := uint32(0); i < 43; i++ {
+		if v := m.Read8(parentDTA + i); v != 0xCC {
+			t.Fatalf("父程式 DTA 緩衝區 +%02X 被改成 %02X——子程式的 FindFirst 寫進了父程式的記憶體", i, v)
+		}
+	}
+	// 子程式真的寫過它自己的 DTA（正對照：FindFirst 有成功、有寫東西）。
+	got := make([]byte, 5)
+	for i := range got {
+		got[i] = m.Read8(cpu.Addr(childPSP, 0x80+0x1E) + uint32(i))
+	}
+	if name := string(got); name != "F.COM" {
+		t.Fatalf("子行程 DTA 的檔名欄是 %q，預期 F.COM——FindFirst 沒寫進子行程的 DTA", name)
+	}
+}

@@ -323,3 +323,54 @@ func TestFindFirstWritesDTAAndLeavesItAloneOnFailure(t *testing.T) {
 		t.Errorf("缺檔卻動了 DTA（%02X）", got)
 	}
 }
+
+// NUL 字元裝置（`docs/spec/195-nul-device`）：開得起來、讀到 EOF、寫入丟棄、
+// seek 成功、裝置資訊是 0084h。副檔名不影響判定。
+//
+// 反面的症狀很安靜：TASM 開 NUL 失敗就以回傳碼 7 結束，一個字都不印。
+func TestNULDeviceBehavesLikeDOS(t *testing.T) {
+	for _, name := range []string{"NUL", "nul.lst", `C:\DEV\NUL`} {
+		for _, fn := range []uint16{0x3D02, 0x3C00} {
+			m, d := newTest(t)
+			m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX] = 0x3000, 0
+			m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte(name), 0))
+			m.CPU.R[cpu.CX] = 0
+			call(m, d, 0x21, fn)
+			if m.CPU.Flags&cpu.CF != 0 {
+				t.Fatalf("%q AX=%04X：開 NUL 失敗，錯誤碼 %d", name, fn, m.CPU.R[cpu.AX])
+			}
+			h := m.CPU.R[cpu.AX]
+
+			m.CPU.R[cpu.BX] = h
+			call(m, d, 0x21, 0x4400)
+			if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.DX] != 0x0084 {
+				t.Fatalf("%q：裝置資訊 DX=%04X CF=%v，預期 0084", name, m.CPU.R[cpu.DX], m.CPU.Flags&cpu.CF != 0)
+			}
+
+			m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = h, 10, 0x100
+			call(m, d, 0x21, 0x4000)
+			if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 10 {
+				t.Fatalf("%q：寫入 AX=%d CF=%v，預期寫入 10 bytes 成功", name, m.CPU.R[cpu.AX], m.CPU.Flags&cpu.CF != 0)
+			}
+
+			m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = h, 10, 0x100
+			call(m, d, 0x21, 0x3F00)
+			if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 {
+				t.Fatalf("%q：讀取 AX=%d CF=%v，預期讀到 0 bytes 成功", name, m.CPU.R[cpu.AX], m.CPU.Flags&cpu.CF != 0)
+			}
+
+			m.CPU.R[cpu.BX], m.CPU.R[cpu.CX], m.CPU.R[cpu.DX] = h, 0, 5
+			call(m, d, 0x21, 0x4200)
+			if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX] != 0 || m.CPU.R[cpu.DX] != 0 {
+				t.Fatalf("%q：seek DX:AX=%04X:%04X CF=%v，預期 0 且成功", name,
+					m.CPU.R[cpu.DX], m.CPU.R[cpu.AX], m.CPU.Flags&cpu.CF != 0)
+			}
+
+			m.CPU.R[cpu.BX] = h
+			call(m, d, 0x21, 0x3E00)
+			if m.CPU.Flags&cpu.CF != 0 {
+				t.Fatalf("%q：關閉失敗", name)
+			}
+		}
+	}
+}

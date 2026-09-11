@@ -25,6 +25,9 @@ type handle struct {
 	psp uint16
 	// writable 為真時 `AH=40h` 真的寫下去（暫存層或 AllowFileWrites）。
 	writable bool
+	// dev 非零 ＝ 字元裝置，值就是 `AH=44h AL=00h` 回報的裝置資訊字
+	// （`docs/spec/195-nul-device`）。EMMXXXX0 維持 0，行為不變。
+	dev uint16
 	// refs 是有幾個 handle 號碼指著這一份。
 	//
 	// `AH=45h`／`46h` 複製出來的號碼**共用同一個檔案指標**（真 DOS 的 JFT
@@ -149,19 +152,11 @@ func (d *DOS) open(c *cpu.CPU) {
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
 	if isEMMDevice(name) {
-		h, ok := d.allocHandle()
-		if !ok {
-			c.R[cpu.AX] = 4 // Too many open files
-			setCarry(c)
-			return
-		}
-		d.handles[h] = &handle{name: name, psp: d.curPSP, refs: 1}
-		d.Opened = append(d.Opened, name)
-		if d.OnOpen != nil {
-			d.OnOpen(name)
-		}
-		c.R[cpu.AX] = h
-		clearCarry(c)
+		d.openDevice(c, name, 0)
+		return
+	}
+	if isNULDevice(name) {
+		d.openDevice(c, name, nulDeviceInfo)
 		return
 	}
 	path := d.resolve(name)
@@ -269,6 +264,10 @@ func (d *DOS) scratchCopy(name, path string) (string, error) {
 // 呼叫端會走錯誤路徑，而那與「存檔功能沒做」是兩種不同的行為。
 func (d *DOS) create(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	if isNULDevice(name) { // 建 NUL 也是開裝置，不落地（`docs/spec/195-nul-device`）
+		d.openDevice(c, name, nulDeviceInfo)
+		return
+	}
 	base := baseName(name)
 	if d.Scratch == "" || base == "" {
 		h, ok := d.allocHandle()
@@ -457,7 +456,13 @@ func (d *DOS) seek(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	if h.f == nil { // 字元裝置不能 seek
+	if h.f == nil && h.dev == nulDeviceInfo { // NUL 的 seek 成功、位置恆為 0
+		d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX], Name: h.name, Whence: al(c)})
+		c.R[cpu.AX], c.R[cpu.DX] = 0, 0
+		clearCarry(c)
+		return
+	}
+	if h.f == nil { // 其他字元裝置不能 seek
 		d.trace(FileOp{Op: "seek", Fn: 0x42, Handle: c.R[cpu.BX], Name: h.name,
 			Whence: al(c), Failed: true})
 		c.R[cpu.AX] = 1
@@ -551,4 +556,36 @@ func (d *DOS) allocHandle() (uint16, bool) {
 		}
 	}
 	return 0, false
+}
+
+// nulDeviceInfo 是 NUL 的裝置資訊字：bit 7 字元裝置、bit 2 NUL
+// （DOSBox-X `device_NUL::GetInformation`；`docs/spec/195-nul-device`）。
+const nulDeviceInfo = 0x0084
+
+// isNULDevice 回檔名是不是 NUL 裝置。DOS 比對裝置名時忽略目錄與副檔名，
+// 所以 `NUL`、`nul.lst`、`C:\DEV\NUL` 都是它。
+func isNULDevice(name string) bool {
+	base := baseName(name)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	return strings.EqualFold(base, "NUL")
+}
+
+// openDevice 配一個指向字元裝置的 handle（沒有底層檔案）。
+// 讀回 EOF、寫入丟棄；dev 是 `AH=44h AL=00h` 要回報的裝置資訊字。
+func (d *DOS) openDevice(c *cpu.CPU, name string, dev uint16) {
+	h, ok := d.allocHandle()
+	if !ok {
+		c.R[cpu.AX] = 4 // Too many open files
+		setCarry(c)
+		return
+	}
+	d.handles[h] = &handle{name: name, psp: d.curPSP, refs: 1, dev: dev}
+	d.Opened = append(d.Opened, name)
+	if d.OnOpen != nil {
+		d.OnOpen(name)
+	}
+	c.R[cpu.AX] = h
+	clearCarry(c)
 }
