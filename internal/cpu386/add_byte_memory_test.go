@@ -100,3 +100,75 @@ func TestADDByteMemoryFormRefusesOutOfBounds(t *testing.T) {
 		t.Fatal("越界讀取沒有保持目的暫存器與旗標")
 	}
 }
+
+// 目的是 r/m8 的那一半：00 ADD、08 OR、20 AND、28 SUB、30 XOR。FD2 第四關第 1 回合
+// 走到 0x1C2CB 的 00 就停了，而它的反方向 02 早就支援——兩邊只差結果寫回哪裡。
+func TestByteOpsWritingBackToMemory(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		op     byte
+		mem    uint8
+		reg    uint8
+		want   uint8
+		wantCF bool
+	}{
+		{"ADD", 0x00, 0x04, 0x03, 0x07, false},
+		{"ADD 進位", 0x00, 0xff, 0x02, 0x01, true},
+		{"OR", 0x08, 0xf0, 0x0f, 0xff, false},
+		{"AND", 0x20, 0xf0, 0x3c, 0x30, false},
+		{"SUB", 0x28, 0x05, 0x03, 0x02, false},
+		{"SUB 借位", 0x28, 0x01, 0x02, 0xff, true},
+		{"XOR", 0x30, 0xf0, 0xff, 0x0f, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 128))
+			copy(mem, []byte{tc.op, 0x0e}) // op [esi], cl
+			mem[70] = tc.mem
+			c := New(mem)
+			c.Seg[SegDS] = 0x28
+			// 寫回記憶體的形式要可寫段；segmentLinear 對 write 會檢查 Writable。
+			c.SetDescriptor(0x28, Descriptor{Base: 64, Limit: 31, Writable: true})
+			c.R[ESI] = 6
+			c.R[ECX] = 0x12340000 | uint32(tc.reg)
+			c.EFlags = IF
+			if err := c.Step(); err != nil {
+				t.Fatalf("%02X 記憶體形式失敗：%v", tc.op, err)
+			}
+			if mem[70] != tc.want {
+				t.Fatalf("記憶體=%02X，應為 %02X", mem[70], tc.want)
+			}
+			if c.R[ECX] != 0x12340000|uint32(tc.reg) {
+				t.Fatalf("來源暫存器被改到了：ECX=%08X", c.R[ECX])
+			}
+			if got := c.EFlags&CF != 0; got != tc.wantCF {
+				t.Fatalf("CF=%v，應為 %v（flags=%X）", got, tc.wantCF, c.EFlags)
+			}
+		})
+	}
+}
+
+func TestByteOpsWritingBackToRegister(t *testing.T) {
+	mem := testBus(make([]byte, 16))
+	copy(mem, []byte{0x00, 0xc8}) // add al, cl
+	c := New(mem)
+	c.R[EAX] = 0x00000004
+	c.R[ECX] = 0x00000003
+	c.EFlags = IF
+	if err := c.Step(); err != nil || c.R[EAX] != 0x00000007 {
+		t.Fatalf("暫存器形式：%v EAX=%08X", err, c.R[EAX])
+	}
+}
+
+// 越界寫入要失敗即關閉，不能只寫一半或靜靜跳過。
+func TestByteOpsRefuseOutOfBoundsWrite(t *testing.T) {
+	mem := testBus(make([]byte, 128))
+	copy(mem, []byte{0x00, 0x0e})
+	c := New(mem)
+	c.Seg[SegDS] = 0x28
+	c.SetDescriptor(0x28, Descriptor{Base: 64, Limit: 31, Writable: true})
+	c.R[ESI] = 64
+	c.R[ECX] = 0x00000003
+	if err := c.Step(); err == nil {
+		t.Fatal("越界寫入沒有失敗")
+	}
+}

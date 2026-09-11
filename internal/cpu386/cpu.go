@@ -1240,22 +1240,60 @@ func (c *CPU) Step() error {
 		dst, src := modrm&7, (modrm>>3)&7
 		c.R[dst] ^= c.R[src]
 		c.setLogicFlags(c.R[dst])
-	case op == 0x30:
-		if operand16 || segmentOverride >= 0 || repe {
-			return fail("30 不接受目前的 prefix")
+	case op == 0x00 || op == 0x08 || op == 0x20 || op == 0x28 || op == 0x30:
+		// 目的是 r/m8 的那一半 byte 運算：00 ADD、08 OR、20 AND、28 SUB、30 XOR。
+		// 對應的 r8, r/m8 方向（02／0A／22／2A／32）本來就在，兩邊差別只有結果寫
+		// 回哪裡。算術用 add8／sub8（它們自己設進位與溢位），邏輯運算用
+		// setLogicFlags8。
+		if operand16 || repe {
+			return fail(fmt.Sprintf("%02X 不接受目前的 prefix", op))
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("XOR ModRM %02X 尚未支援", modrm))
+		src := c.reg8(int((modrm >> 3) & 7))
+		apply := func(left, right uint8) uint8 {
+			switch op {
+			case 0x00:
+				return c.add8(left, right)
+			case 0x28:
+				return c.sub8(left, right)
+			}
+			var value uint8
+			switch op {
+			case 0x08:
+				value = left | right
+			case 0x20:
+				value = left & right
+			default:
+				value = left ^ right
+			}
+			c.setLogicFlags8(value)
+			return value
 		}
-		dst := int(modrm & 7)
-		src := int((modrm >> 3) & 7)
-		result := c.reg8(dst) ^ c.reg8(src)
-		c.setReg8(dst, result)
-		c.setLogicFlags8(result)
+		if modrm>>6 == 3 {
+			if segmentOverride >= 0 {
+				return fail(fmt.Sprintf("%02X 不接受 segment override", op))
+			}
+			dst := int(modrm & 7)
+			c.setReg8(dst, apply(c.reg8(dst), src))
+			break
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		if segmentOverride >= 0 {
+			seg = segmentOverride
+		}
+		value, ok := c.readSegment8(c.Seg[seg], addr)
+		if !ok {
+			return fail(fmt.Sprintf("byte運算讀取 %04X:%08X 未處理", c.Seg[seg], addr))
+		}
+		if !c.writeSegment8(c.Seg[seg], addr, apply(value, src)) {
+			return fail(fmt.Sprintf("byte運算寫入 %04X:%08X 未處理", c.Seg[seg], addr))
+		}
 	case op == 0x06:
 		if operand16 {
 			return fail("16-bit PUSH ES 尚未支援")
