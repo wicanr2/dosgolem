@@ -92,3 +92,36 @@ func (b *Bridge) RecruitFirstChampion() error {
 	}
 	return nil
 }
+
+// 門鈕的點擊座標（320×200 螢幕座標系）。
+//
+// 來源是原版資料：門鈕在 D1C（正前方）畫完之後，原版會把**繪製框拷進
+// 點擊框表**（remake 專案 `docs/re/66` §3），所以繪製框就是點擊框。
+// DOS 版的框是 `x 167–174`、`y 43–51`（視窗座標），
+// 地城視窗在螢幕上的原點是 `(0,33)`，所以中心落在 `(170,80)`。
+// 用 remake 的 `dmtool dungeon doorbutton` 印得出來。
+//
+// ⚠ **DOS 與 ST 的框不一樣**（ST 是 `x 160–175`，中心 `(167,81)`）：
+// 兩版的門鈕點陣圖寬度不同。拿 ST 的座標點 DOS 版**還是會落在按鈕上**，
+// 但別因此以為兩張表通用——ST 的表在 DOS 素材包裡是全零。
+//
+// ⚠ **只有正前方（D1C）的門按得到。** 其他視位畫得出按鈕但點不到，
+// 這與 remake 的 `World.PressDoorButton` 要求隊伍面向那扇門是同一回事。
+//
+// ⚠ **不是每扇門都有按鈕。** 第 2 層 25 扇裡只有 8 扇；沒有按鈕的要鑰匙
+// 或打破，點下去不會有任何反應——而「點了沒反應」與「座標錯了」在畫面上
+// 長得一模一樣。
+const (
+	DoorButtonX, DoorButtonY = 170, 80
+)
+
+// PressDoorButton 點正前方那扇門上的按鈕。
+//
+// ⚠ **呼叫前隊伍要面向那扇門。** 這一支不檢查——面前沒有門、或那扇門沒有
+// 按鈕時，原版兩種情況都不會有反應，`Click` 會回 `NoResponseError`。
+func (b *Bridge) PressDoorButton() error {
+	if err := b.click(DoorButtonX, DoorButtonY, ActGap); err != nil {
+		return fmt.Errorf("點門鈕（%d,%d）：%w", DoorButtonX, DoorButtonY, err)
+	}
+	return nil
+}

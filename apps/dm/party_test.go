@@ -268,3 +268,24 @@ func TestMoveHotzonesAreInTheButtonBlock(t *testing.T) {
 		t.Errorf("前進在 y=%d、後退在 y=%d，上下排反了", uy, dy)
 	}
 }
+
+// TestDoorButtonIsInsideTheDungeonView 守著門鈕的點擊座標落在地城視窗裡。
+//
+// 地城視窗是 `x 0–223`、`y 33–168`（remake 專案 `docs/spec/73` §5 的
+// 滑鼠對照表，指令 80）。點到視窗外面的話原版收到的是**別的指令**，
+// 而畫面上看起來只是「門沒開」。
+func TestDoorButtonIsInsideTheDungeonView(t *testing.T) {
+	if DoorButtonX < 0 || DoorButtonX > 223 {
+		t.Errorf("門鈕 x ＝ %d 不在地城視窗的 0–223 裡", DoorButtonX)
+	}
+	if DoorButtonY < 33 || DoorButtonY > 168 {
+		t.Errorf("門鈕 y ＝ %d 不在地城視窗的 33–168 裡", DoorButtonY)
+	}
+	// 框是 x 167–174、y 43–51（視窗座標），加上視窗原點 (0,33)。
+	if DoorButtonX < 167 || DoorButtonX > 174 {
+		t.Errorf("門鈕 x ＝ %d 不在 DOS 版的框 167–174 裡", DoorButtonX)
+	}
+	if DoorButtonY < 43+33 || DoorButtonY > 51+33 {
+		t.Errorf("門鈕 y ＝ %d 不在 DOS 版的框 76–84 裡", DoorButtonY)
+	}
+}
