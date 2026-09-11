@@ -352,3 +352,5 @@
 - [196 — 取磁碟裝置參數（int 21h AH=44h AL=0Dh CL=60h）](196-ioctl-get-device-parameters.md)：READY。回報成固定硬碟，程式才不會提示換片；BPB 與 `AH=1Bh` 同一組數字。
 
 - [197 — 滑鼠事件常式要進狀態檔](197-mouse-handler-in-saved-state.md)：READY。漏掉它的症狀是「展開之後點擊全部沒反應」，而畫面逐像素相同。
+
+- [198 — DM 巡檢 adapter（`apps/dm`）](198-dm-sweep-adapter.md)：DRAFT。原版側的全層巡檢介入——刻的邊界寫回生命力／食物／水、負重上限換回傳值；四個攔截點的位址由 remake 專案反組譯取得。
