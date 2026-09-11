@@ -25,7 +25,7 @@
 
 Borland C++ 2.0 的 BGI 以 `DEFAULT_FONT` 輸出文字時，字母與 `0` 用它自己內建的點陣，
 其餘字元（標點、`1`–`9`、`@`、`{|}~`，共 37 個）去讀 `F000:FA6E`。
-dosgolem 那塊記憶體全是 0，這 37 個字元畫成空白：`"Borland C++ 2.0"` 只剩 `"Borland C     O"`，
+dosgolem 那塊記憶體全是 0，這 37 個字元畫成空白：`"Borland C++ 2.0"` 只剩 `"Borland C     0"`（末尾是走內建點陣的數字 0），
 分數與等級的數字消失。`cmd/run -watch-read F0000-FFFFF` 記到 BGI 讀了 297 個位址（37 × 8＋1），
 範圍 `FFB6E`–`FFFEA`，正好是那 37 個字元的字形。
 
