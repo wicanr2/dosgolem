@@ -691,9 +691,10 @@ func (c *CPU) group45(op uint8) error {
 
 // pushOperand 推一個 r/m16 運算元。
 //
-// ⚠ **運算元是 `SP` 時，8086 與 186 以上的結果差 2**：8086 推的是
-// **已經減 2 之後**的值，186 以上推的是舊值（`docs/spec/002` §4 第 1 點）。
-// 所以這裡要看 `Model`——只有 `Model8086` 走先減再讀那一條。
+// ⚠ **運算元是 `SP` 時，286 前後的結果差 2**：8086 與 80186 推的是
+// **已經減 2 之後**的值，286 以上推的是舊值（`docs/spec/197-push-sp-80186`：
+// Intel 的 iAPX 86/88/186/188 手冊與 SDM「from the Intel 286 on」）。
+// 所以這裡要看 `Model`——`Model8086`、`Model80186` 走先減再讀那一條。
 //
 // 8086 那一條不能寫成 `c.push(c.get16(o))`——Go 會**先算好引數**再呼叫，
 // 於是推進去的是舊 SP，剛好變成 286 的行為。這個錯編譯得過、vet 過，
@@ -709,7 +710,7 @@ func (c *CPU) group45(op uint8) error {
 // 而且不會當掉，只會算出看起來合理的錯數字（源平合戰的環境設定畫面就是
 // 這樣把 `Point` 的 y 讀成堆疊殘值；`yuan/docs/re/011`）。
 func (c *CPU) pushOperand(o operand) {
-	if o.isReg && o.reg == SP && c.Model == Model8086 {
+	if o.isReg && o.reg == SP && c.Model < Model80386 {
 		c.R[SP] -= 2
 		c.write16(c.Seg[SS], c.R[SP], c.R[SP])
 		return

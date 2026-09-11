@@ -2,8 +2,8 @@ package cpu
 
 import "testing"
 
-// `PUSH SP` 是 8086 與 186 以上唯一一道結果不同的 push：
-// 8086 推「已經減 2 之後」的 SP，186 以上推舊值（`docs/spec/002` §4 第 1 點）。
+// `PUSH SP` 是 286 前後唯一一道結果不同的 push：8086 與 80186 推「已經減 2
+// 之後」的 SP，286 以上（這裡是 Model80386）推舊值（`docs/spec/197-push-sp-80186`）。
 //
 // 為什麼值得一支專門的測試：編譯器用 `sub sp, n` ＋ `push sp` 在堆疊上開
 // 暫時物件，再拿推上去的那個值當它的位址。差 2 的指標讓物件整個錯開一個
@@ -15,7 +15,7 @@ func TestPushSPByModel(t *testing.T) {
 		want  uint16 // 推進去的那個 word
 	}{
 		{"8086 推減 2 之後的值", Model8086, 0x0FFE},
-		{"186 推舊值", Model80186, 0x1000},
+		{"186 推減 2 之後的值", Model80186, 0x0FFE},
 		{"386 推舊值", Model80386, 0x1000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,7 +45,7 @@ func TestPushSPByModel(t *testing.T) {
 }
 
 // 編譯器配暫時物件的完整形狀：`sub sp,4` ＋ `push sp` 之後，推上去的那個
-// 值必須指到那四個位元組的開頭。8086 會少 2，186 以上剛好。
+// 值必須指到那四個位元組的開頭。8086／186 會少 2，286 以上剛好。
 func TestSubSPThenPushSPPointsAtTheBlock(t *testing.T) {
 	b := newTestBus()
 	c := New(b)
