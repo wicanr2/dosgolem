@@ -353,4 +353,4 @@
 
 - [197 — 滑鼠事件常式要進狀態檔](197-mouse-handler-in-saved-state.md)：READY。漏掉它的症狀是「展開之後點擊全部沒反應」，而畫面逐像素相同。
 
-- [198 — DM 巡檢 adapter（`apps/dm`）](198-dm-sweep-adapter.md)：DRAFT。原版側的全層巡檢介入——刻的邊界寫回生命力／食物／水、負重上限換回傳值；四個攔截點的位址由 remake 專案反組譯取得。
+- [198 — DM 巡檢 adapter（`apps/dm`）](198-dm-sweep-adapter.md)：READY。原版側的全層巡檢介入——刻的邊界寫回生命力／食物／水、負重上限用 `StubValue` 換成 10000；檢查點的鍵是路線步序不是遊戲刻，路線是兩側共用的 JSON。四個攔截點與隊伍座標的位址由 remake 專案反組譯取得。
