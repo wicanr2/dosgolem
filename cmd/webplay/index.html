@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dosgolem webplay</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #111; color: #ccc; font: 14px/1.5 system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; padding: 16px; }
+  #screen { image-rendering: pixelated; background: #000; max-width: 100%;
+            width: 960px; aspect-ratio: 4 / 3; outline: 1px solid #333; }
+  #screen:focus { outline: 1px solid #e8710a; }
+  #bar { margin-top: 8px; width: 960px; max-width: 100%; display: flex; gap: 16px;
+         flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+  #hint { color: #888; }
+  #console { white-space: pre-wrap; width: 960px; max-width: 100%; color: #9c9; }
+</style>
+</head>
+<body>
+<canvas id="screen" width="640" height="480" tabindex="0"></canvas>
+<div id="bar"><span id="status">連線中…</span><span id="hint">點一下畫面再按鍵；文字模式以固定 16 色顯示</span></div>
+<div id="console"></div>
+<script>
+const cv = document.getElementById('screen'), ctx = cv.getContext('2d');
+let have = '';
+
+async function pull() {
+  try {
+    const r = await fetch('/frame?have=' + have, { cache: 'no-store' });
+    if (r.status === 200) {
+      have = r.headers.get('X-Frame') || '';
+      const bmp = await createImageBitmap(await r.blob());
+      if (cv.width !== bmp.width || cv.height !== bmp.height) {
+        cv.width = bmp.width; cv.height = bmp.height;
+      }
+      ctx.drawImage(bmp, 0, 0);
+    }
+  } catch (e) { /* 伺服器重啟中，下一輪再試 */ }
+  setTimeout(pull, 30);
+}
+
+async function status() {
+  try {
+    const s = await (await fetch('/status', { cache: 'no-store' })).json();
+    let t = `模式 ${s.mode}　每秒 ${(s.ips / 1e6).toFixed(1)}M 條指令　tick ${s.ticks}`;
+    if (s.exited) t += `　程式已結束（回傳碼 ${s.exitCode}）`;
+    if (s.error) t += `　停止：${s.error}`;
+    document.getElementById('status').textContent = t;
+    document.getElementById('console').textContent = s.console || '';
+  } catch (e) {
+    document.getElementById('status').textContent = '連不到 webplay';
+  }
+  setTimeout(status, 500);
+}
+
+function send(e, down) {
+  const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Backspace'];
+  if (nav.includes(e.code)) e.preventDefault();
+  fetch('/key', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ code: e.code, key: e.key, down }) });
+}
+cv.addEventListener('keydown', e => send(e, true));
+cv.addEventListener('keyup', e => send(e, false));
+cv.addEventListener('click', () => cv.focus());
+cv.focus();
+pull();
+status();
+</script>
+</body>
+</html>
