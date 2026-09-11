@@ -1354,6 +1354,32 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		// DB /0 是 FILD m32int：讀一個 32 位元**有號**整數推上 x87 堆疊。記憶體形式
+		// 的 reg 欄位是指令延伸碼不是暫存器，所以只認 /0；其他延伸碼（/1 FISTTP、
+		// /2 FIST、/3 FISTP、/5 FLD m80、/7 FSTP m80）行為不同，猜錯會安靜地算出
+		// 錯的數字。
+		if modrm>>6 != 3 {
+			if (modrm>>3)&7 != 0 {
+				return fail(fmt.Sprintf("x87 DB /%d 記憶體形式尚未支援", (modrm>>3)&7))
+			}
+			if c.FPUDepth >= 8 {
+				return fail("FILD x87 stack overflow")
+			}
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail(fmt.Sprintf("FILD dword read %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = float64(int32(value))
+			c.FPUDepth++
+			break
+		}
 		if modrm != 0xe3 {
 			return fail(fmt.Sprintf("x87 DB ModRM %02X 尚未支援", modrm))
 		}
