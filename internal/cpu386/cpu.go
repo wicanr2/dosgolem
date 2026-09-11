@@ -1359,15 +1359,43 @@ func (c *CPU) Step() error {
 		// /2 FIST、/3 FISTP、/5 FLD m80、/7 FSTP m80）行為不同，猜錯會安靜地算出
 		// 錯的數字。
 		if modrm>>6 != 3 {
-			if (modrm>>3)&7 != 0 {
-				return fail(fmt.Sprintf("x87 DB /%d 記憶體形式尚未支援", (modrm>>3)&7))
-			}
-			if c.FPUDepth >= 8 {
-				return fail("FILD x87 stack overflow")
+			extension := (modrm >> 3) & 7
+			if extension != 0 && extension != 3 {
+				return fail(fmt.Sprintf("x87 DB /%d 記憶體形式尚未支援", extension))
 			}
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
+			}
+			if extension == 3 {
+				// FISTP m32int：依 RC 取整之後存回並彈出。Watcom 先用 FRNDINT 取整
+				// 才呼叫這裡，所以兩邊要用同一套 RC，否則會差一格。
+				if c.FPUDepth == 0 {
+					return fail("FISTP x87 stack underflow")
+				}
+				rounded := c.FPUStack[0]
+				switch (c.FPUControl >> 10) & 3 {
+				case 1:
+					rounded = math.Floor(rounded)
+				case 2:
+					rounded = math.Ceil(rounded)
+				case 3:
+					rounded = math.Trunc(rounded)
+				default:
+					rounded = math.RoundToEven(rounded)
+				}
+				if math.IsNaN(rounded) || rounded > math.MaxInt32 || rounded < math.MinInt32 {
+					return fail("FISTP 超出 32 位元整數範圍")
+				}
+				if !c.writeSegment32(c.Seg[seg], addr, uint32(int32(rounded))) {
+					return fail(fmt.Sprintf("FISTP dword write %04X:%08X 未處理", c.Seg[seg], addr))
+				}
+				copy(c.FPUStack[0:], c.FPUStack[1:c.FPUDepth])
+				c.FPUDepth--
+				break
+			}
+			if c.FPUDepth >= 8 {
+				return fail("FILD x87 stack overflow")
 			}
 			value, ok := c.readSegment32(c.Seg[seg], addr)
 			if !ok {
@@ -1387,6 +1415,42 @@ func (c *CPU) Step() error {
 		c.FPUStatus = 0
 		c.FPUStack = [8]float64{}
 		c.FPUDepth = 0
+	case op == 0xdc:
+		// DC 的記憶體形式吃 m64fp（double）。FD2 的 0x15BC3 是 /1 FMUL——`fild 8`
+		// 之後乘 [0x50144]（double 1.5）。其餘延伸碼運算不同，猜錯會安靜地算出
+		// 錯的數字，所以只認實際走到的那一個。
+		if operand16 || repe {
+			return fail("DC x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 {
+			return fail(fmt.Sprintf("x87 DC ModRM %02X 尚未支援", modrm))
+		}
+		if (modrm>>3)&7 != 1 {
+			return fail(fmt.Sprintf("x87 DC /%d 尚未支援", (modrm>>3)&7))
+		}
+		if c.FPUDepth == 0 {
+			return fail("FMUL x87 stack underflow")
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		if segmentOverride >= 0 {
+			seg = segmentOverride
+		}
+		low, ok := c.readSegment32(c.Seg[seg], addr)
+		if !ok {
+			return fail(fmt.Sprintf("FMUL qword read %04X:%08X 未處理", c.Seg[seg], addr))
+		}
+		high, ok := c.readSegment32(c.Seg[seg], addr+4)
+		if !ok {
+			return fail(fmt.Sprintf("FMUL qword read %04X:%08X 未處理", c.Seg[seg], addr+4))
+		}
+		c.FPUStack[0] *= math.Float64frombits(uint64(high)<<32 | uint64(low))
 	case op == 0xde:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("DE x87 不接受目前的 prefix")
@@ -1448,7 +1512,48 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 != 3 {
+			// /5 FLDCW m16、/7 FNSTCW m16。Watcom 的「向零截斷取整」helper
+			// （FD2 的 0x377A4）就是 FNSTCW→改 RC→FLDCW→FRNDINT→FLDCW 還原，
+			// 少了任何一個，取整方向就會變成預設的「取最近」。
+			extension := (modrm >> 3) & 7
+			if extension != 5 && extension != 7 {
+				return fail(fmt.Sprintf("x87 D9 /%d 記憶體形式尚未支援", extension))
+			}
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			if extension == 5 {
+				value, ok := c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail(fmt.Sprintf("FLDCW read %04X:%08X 未處理", c.Seg[seg], addr))
+				}
+				c.FPUControl = value
+				break
+			}
+			if !c.writeSegment16(c.Seg[seg], addr, c.FPUControl) {
+				return fail(fmt.Sprintf("FNSTCW write %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			break
+		}
 		switch modrm {
+		case 0xfc:
+			// FRNDINT 依控制字的 RC（bit 10..11）取整：00 最近偶數、01 向下、
+			// 10 向上、11 向零截斷。寫死成某一種會在別的 caller 上算錯一格。
+			if c.FPUDepth == 0 {
+				return fail("FRNDINT x87 stack underflow")
+			}
+			switch (c.FPUControl >> 10) & 3 {
+			case 1:
+				c.FPUStack[0] = math.Floor(c.FPUStack[0])
+			case 2:
+				c.FPUStack[0] = math.Ceil(c.FPUStack[0])
+			case 3:
+				c.FPUStack[0] = math.Trunc(c.FPUStack[0])
+			default:
+				c.FPUStack[0] = math.RoundToEven(c.FPUStack[0])
+			}
 		case 0xe8:
 			if c.FPUDepth >= 8 {
 				return fail("x87 stack overflow")
