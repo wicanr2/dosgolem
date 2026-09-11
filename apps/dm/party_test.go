@@ -216,3 +216,55 @@ func TestCodeSegsAreContiguous(t *testing.T) {
 			DGroupParaOffset, DSegBase)
 	}
 }
+
+// TestRoutesParse 守著兩條實跑過的路線沒有被打錯字。
+//
+// 步數是 remake 專案 `docs/verification/dosgolem-vs-dosbox-20260910.md`
+// 記下來的：走到鏡子 31 步、招募後到側面樓梯 15 步。
+func TestRoutesParse(t *testing.T) {
+	if len(MirrorRoute) != 31 {
+		t.Errorf("到鏡子的路線 %d 步，收據記的是 31", len(MirrorRoute))
+	}
+	if len(StairsRoute) != 15 {
+		t.Errorf("到樓梯的路線 %d 步，收據記的是 15", len(StairsRoute))
+	}
+	if MirrorRoute[0] != Forward || MirrorRoute[4] != TurnLeft {
+		t.Errorf("到鏡子的前五步 ＝ %v，預期 f f f f l", MirrorRoute[:5])
+	}
+	if _, err := ParseMoves("f x f"); err == nil {
+		t.Error("不認得的動作被接受了——打錯字會變成少走一步")
+	}
+	got, err := ParseMoves("f b l r sl sr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Move{Forward, Backward, TurnLeft, TurnRight, StrafeLeft, StrafeRight}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("第 %d 個解成 %s，預期 %s", i, got[i], want[i])
+		}
+	}
+}
+
+// TestMoveHotzonesAreInTheButtonBlock 守著六顆移動鈕的座標落在原版的熱區裡。
+//
+// 範圍來自 remake 專案 `docs/spec/73` §5 的滑鼠對照表（指令 1／3／2／6／5／4，
+// `x 234–318`、`y 125–167`）。⚠ 座標寫錯的症狀是「畫面沒變」，
+// 與「遊戲還沒準備好收這個點擊」長得一模一樣。
+func TestMoveHotzonesAreInTheButtonBlock(t *testing.T) {
+	seen := map[[2]int]bool{}
+	for m := TurnLeft; m <= StrafeRight; m++ {
+		x, y := m.Hot()
+		if x < 234 || x > 318 || y < 125 || y > 167 {
+			t.Errorf("%s 的座標 (%d,%d) 在按鈕區 x234–318 y125–167 之外", m, x, y)
+		}
+		if seen[[2]int{x, y}] {
+			t.Errorf("%s 的座標 (%d,%d) 與別顆鈕重複", m, x, y)
+		}
+		seen[[2]int{x, y}] = true
+	}
+	// 上下兩排：轉向與前進在上排，側移與後退在下排。
+	if uy, dy := moveHot[Forward][1], moveHot[Backward][1]; uy >= dy {
+		t.Errorf("前進在 y=%d、後退在 y=%d，上下排反了", uy, dy)
+	}
+}

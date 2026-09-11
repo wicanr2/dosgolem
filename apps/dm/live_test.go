@@ -220,3 +220,114 @@ func TestLiveReadPartyInHall(t *testing.T) {
 	t.Logf("隊伍：地圖 %d，(%d,%d) 面向 %d，GameTime %d",
 		p.MapIndex, p.X, p.Y, p.Facing, p.GameTime)
 }
+
+// hall 走完招募流程，回到「隊伍裡有一位 ELIJA」的狀態。
+//
+// ⚠ **巡檢非招募不可**：地板感應器要隊伍裡有人才會觸發
+// （`SENSOR.C:474` 的 `PartyChampionCount == 0` 就跳過）。空隊伍走過壓力板
+// 門不會開，路線走到一半就卡住——而畫面看起來只是「沒走那麼遠」。
+func hall(t *testing.T) (*dm.Bridge, *oracle.Oracle) {
+	t.Helper()
+	o := load(t)
+	if err := dm.Boot(o); err != nil {
+		t.Fatalf("開機：%v", err)
+	}
+	b, err := dm.Bind(o)
+	if err != nil {
+		t.Fatalf("Bind：%v", err)
+	}
+	if err := b.Walk(dm.MirrorRoute); err != nil {
+		t.Fatalf("走到鏡子：%v", err)
+	}
+	if err := b.RecruitFirstChampion(); err != nil {
+		t.Fatalf("招募：%v", err)
+	}
+	return b, o
+}
+
+// TestLiveRecruitReadsChampion 是 `ReadParty` 對真實資料的驗收。
+//
+// 招募之後隊伍要有**一位**勇士，名字是 `ELIJA`——那個名字在
+// remake 專案的 `hired.state` 傾印裡讀到過，兩邊是同一位。
+func TestLiveRecruitReadsChampion(t *testing.T) {
+	b, _ := hall(t)
+	p, err := b.ReadParty()
+	if err != nil {
+		t.Fatalf("ReadParty：%v", err)
+	}
+	if len(p.Champions) != 1 {
+		t.Fatalf("招募之後解出 %d 位勇士，預期 1：%+v", len(p.Champions), p.Champions)
+	}
+	c := p.Champions[0]
+	if c.Name != "ELIJA" {
+		t.Errorf("名字 ＝ %q，預期 %q", c.Name, "ELIJA")
+	}
+	if c.MaxHealth <= 0 || c.CurrentHealth <= 0 {
+		t.Errorf("生命力 ＝ %d／%d，招募完應該是滿的", c.CurrentHealth, c.MaxHealth)
+	}
+	if c.Food <= 0 || c.Water <= 0 {
+		t.Errorf("食物／水 ＝ %d／%d，招募完不該是負的", c.Food, c.Water)
+	}
+	t.Logf("%s「%s」：生命力 %d/%d，食物 %d，水 %d，負重 %d，中毒 %d",
+		c.Name, c.Title, c.CurrentHealth, c.MaxHealth, c.Food, c.Water,
+		c.Load, c.PoisonEventCount)
+}
+
+// TestLiveSweepHoldsFoodAndWater 是每刻寫回的驗收，**配反對照**。
+//
+// ⚠ 少了反對照就分不出「擋住了」與「這個情境本來就不會發生」：
+// 食物與水掉得很慢，跑幾十刻看不出變化也可能只是時間不夠。所以這裡先用
+// 關著的那一輪證明「同樣的刻數確實會掉」，開著的那一輪才有意義。
+func TestLiveSweepHoldsFoodAndWater(t *testing.T) {
+	b, o := hall(t)
+
+	// 先把食物與水壓低，讓「會不會掉」在幾十刻內就看得出來。
+	// ⚠ 壓到 −512（`0FE00h`）以下就進入挨餓，那是另一條路徑；
+	// 這裡只壓到一個明顯低於滿值、又還在正常範圍的數。
+	const pressed = 300
+	if err := b.SetFoodWater(0, pressed, pressed); err != nil {
+		t.Fatalf("壓低食物與水：%v", err)
+	}
+
+	c := b.Attach(false) // 先跑反對照：巡檢關著
+	const ticks = 60
+	if err := o.RunUntil(c.AfterTicks(ticks), oracle.Budget(dm.TickBudget(ticks))); err != nil {
+		t.Fatalf("巡檢關著跑 %d 刻：%v", ticks, err)
+	}
+	off, err := b.ReadParty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(off.Champions) != 1 {
+		t.Fatalf("反對照那一輪解出 %d 位勇士", len(off.Champions))
+	}
+	if off.Champions[0].Food >= pressed {
+		t.Fatalf("巡檢關著跑 %d 刻，食物從 %d 變成 %d——沒有下降，"+
+			"這個情境證明不了巡檢有沒有作用",
+			ticks, pressed, off.Champions[0].Food)
+	}
+
+	// 正對照：同一個機器狀態接著跑，這次開著。
+	c.SetSweep(true)
+	if err := o.RunUntil(c.AfterTicks(ticks), oracle.Budget(dm.TickBudget(ticks))); err != nil {
+		t.Fatalf("巡檢開著跑 %d 刻：%v", ticks, err)
+	}
+	on, err := b.ReadParty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := on.Champions[0]
+	if got.Food != dm.FoodWaterMaximum || got.Water != dm.FoodWaterMaximum {
+		t.Errorf("巡檢開著跑 %d 刻之後食物 ＝ %d、水 ＝ %d，預期都是 %d",
+			ticks, got.Food, got.Water, dm.FoodWaterMaximum)
+	}
+	if got.CurrentHealth != got.MaxHealth {
+		t.Errorf("生命力 ＝ %d／%d，巡檢應該每刻寫回上限",
+			got.CurrentHealth, got.MaxHealth)
+	}
+	if got.PoisonEventCount != 0 {
+		t.Errorf("中毒事件數 ＝ %d，巡檢應該清零", got.PoisonEventCount)
+	}
+	t.Logf("反對照：食物 %d → %d；巡檢開著：→ %d",
+		pressed, off.Champions[0].Food, got.Food)
+}

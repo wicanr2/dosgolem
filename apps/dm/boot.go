@@ -109,18 +109,23 @@ func Boot(o *oracle.Oracle) error {
 	return nil
 }
 
+// click 是這一支程式共用的點擊時序：不等游標（DM 全程只輪詢滑鼠 3 次，
+// `MouseSettled` 等不到）、按住 [clickHold] 道、再等 settle 道讓畫面畫完。
+func (b *Bridge) click(x, y int, settle uint64) error {
+	return b.O.Click(x, y,
+		oracle.NoCursorWait(),
+		oracle.Hold(clickHold),
+		oracle.Settle(settle),
+	)
+}
+
 // ClickMove 點一顆移動鈕。
 //
 // ⚠ **不檢查隊伍有沒有真的動**——那是呼叫端的事（路線的每一步都帶
 // `expect` 座標，`docs/spec/198` §3.4）。這裡只負責把點擊送出去。
 func (b *Bridge) ClickMove(m Move, settle uint64) error {
 	x, y := m.Hot()
-	err := b.O.Click(x, y,
-		oracle.NoCursorWait(),
-		oracle.Hold(clickHold),
-		oracle.Settle(settle),
-	)
-	if err != nil {
+	if err := b.click(x, y, settle); err != nil {
 		return fmt.Errorf("點%s（%d,%d）：%w", m, x, y, err)
 	}
 	return nil

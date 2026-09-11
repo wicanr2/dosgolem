@@ -46,9 +46,10 @@ const (
 
 // FoodWaterMaximum 是食物與水的滿值。
 //
-// 來源是 ReDMCSB（remake 的 `internal/game/champion.go`），**DOS 版未獨立驗證**
-// ——推論等級**強證據**。反面訊號有現成的：寫回之後跑幾刻再讀，
-// 值若被別處鉗掉就不會還是這個數。
+// 來源是 ReDMCSB（remake 的 `internal/game/champion.go`），**在 DOS 版驗證過**
+// ——推論等級**已確認**：把食物壓到 300、跑 60 刻確認會掉到 298，
+// 再開巡檢跑 60 刻，值回到 2048 而且沒有被別處鉗掉
+// （`TestLiveSweepHoldsFoodAndWater`）。
 //
 // 已在 DOS 版直接讀到的是**下限**那兩個：`0FE00h` ＝ −512（開始挨餓）
 // 與 `0FC00h` ＝ −1024（鉗位），與 remake 的 `FoodWaterStarving` 對得上。

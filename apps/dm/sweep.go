@@ -146,3 +146,21 @@ func (c *Clock) AfterTicks(n uint32) oracle.Cond {
 // 起步的餘量——寧可寬。⚠ `oracle.DefaultBudget`（1 億）只夠約 **39 刻**，
 // 不指定的話跑不完會回 `BudgetError`，那是錯誤不是靜默。
 func TickBudget(n uint32) uint64 { return uint64(n)*4_000_000 + 20_000_000 }
+
+// SetFoodWater 直接寫某一格勇士的食物與水。
+//
+// **只給測試與反對照用**：巡檢本身走的是 [Bridge.SweepRestore]。
+// 拿它把值壓低，「會不會掉」才在幾十刻內看得出來——原版的食物掉得很慢，
+// 不壓的話「沒掉」與「時間不夠」分不出來。
+func (b *Bridge) SetFoodWater(index, food, water int) error {
+	if index < 0 || index >= MaxChampions {
+		return fmt.Errorf("勇士編號 %d 不在 0–%d", index, MaxChampions-1)
+	}
+	base := uint16(dsChampions + index*ChampionSize)
+	if int16(b.O.Word(b.DS(base+offMaximumHealth))) <= 0 {
+		return fmt.Errorf("第 %d 格沒有勇士", index)
+	}
+	b.O.SetWord(b.DS(base+offFood), uint16(int16(food)))
+	b.O.SetWord(b.DS(base+offWater), uint16(int16(water)))
+	return nil
+}
