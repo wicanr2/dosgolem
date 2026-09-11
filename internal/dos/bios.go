@@ -18,6 +18,9 @@ func (d *DOS) int10(c *cpu.CPU) {
 	case 0x00: // 設視訊模式
 		// 記進 BDA。一直回 3 的話，程式設了 mode 13h 之後再查會以為沒設成功。
 		d.M.SetVideoMode(al(c) & 0x7F)
+		if mode := al(c) & 0x7F; mode == 0x10 || mode == 0x12 {
+			loadRGBrgbDAC(d.M.DAC[:])
+		}
 
 	case 0x0C: // 寫像素：AL ＝ 色號、CX ＝ X、DX ＝ Y
 		// **有程式真的用 BIOS 畫點**（慢，但存在；標題畫面與工具程式尤其）。
@@ -671,4 +674,24 @@ func (d *DOS) getPixel(x, y uint16) uint8 {
 		return 0
 	}
 	return d.M.Read8(uint32(machine.VideoSeg)*16 + uint32(int(y)*w+int(x)))
+}
+
+// loadRGBrgbDAC 把 DAC 第 0–63 格設成 BIOS 在 mode 10h／12h 載入的 64 色表
+// （`docs/spec/198-mode-set-default-dac`；DOSBox-X 的 text_palette）。
+//
+// 色號的 bit 0／1／2 讓 B／G／R 加 2Ah，bit 3／4／5 讓 b／g／r 加 15h。
+// BGI 之類的程式只設屬性調色盤（色號 → DAC 格），顏色本身靠這張表；
+// DAC 全 0 的話平面裡的色號全對、畫面卻整片黑。
+func loadRGBrgbDAC(dac []uint8) {
+	for i := 0; i < 64; i++ {
+		bit := func(n int, v uint8) uint8 {
+			if i&(1<<n) != 0 {
+				return v
+			}
+			return 0
+		}
+		dac[i*3+0] = bit(2, 0x2A) + bit(5, 0x15)
+		dac[i*3+1] = bit(1, 0x2A) + bit(4, 0x15)
+		dac[i*3+2] = bit(0, 0x2A) + bit(3, 0x15)
+	}
 }

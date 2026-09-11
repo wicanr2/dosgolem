@@ -9,6 +9,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"sort"
 	"strings"
@@ -34,6 +37,7 @@ func main() {
 	traceExit := flag.Int("trace-after-exit", 0, "第一個 EXEC 起來的子行程結束後，逐條印出接下來幾條指令的 CS:IP 與位元組")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入，格式 lo-hi（十六進位），每次寫入印出 CS:IP")
 	traceTail := flag.Int("trace-tail", 0, "記住最後幾條指令的 CS:IP、位元組與暫存器，收工時印出來（查程式為什麼結束）")
+	pngOut := flag.String("png", "", "收工時把目前畫面存成 PNG（平面模式與 mode 13h）")
 	loop := flag.Int("loop", 0, "收工前再跑幾條指令，統計落點看它是不是在空轉")
 	flag.Parse()
 	if *prog == "" || *root == "" {
@@ -109,6 +113,11 @@ func main() {
 		}
 	}
 	report(m, d, runErr, *loop)
+	if *pngOut != "" {
+		if err := savePNG(m, *pngOut); err != nil {
+			fmt.Println("PNG：", err)
+		}
+	}
 	for i, line := range tail {
 		fmt.Printf("tail %4d  %s\n", i-len(tail), line)
 	}
@@ -291,4 +300,47 @@ func bytesAt(m *machine.Machine, a uint32, n int) []byte {
 		b[i] = m.Read8(a + uint32(i))
 	}
 	return b
+}
+
+// savePNG 把目前畫面存成 PNG：平面模式走 PlanarRGB，mode 13h 走色號＋DAC。
+func savePNG(m *machine.Machine, path string) error {
+	w, h, rgb := m.PlanarRGB()
+	if rgb == nil {
+		if m.VideoMode() != 0x13 {
+			return fmt.Errorf("目前是 %02Xh 模式，只支援平面模式與 13h", m.VideoMode())
+		}
+		w, h = 320, 200
+		raw, pal := m.VideoRaw(), m.Palette()
+		rgb = make([]uint8, w*h*3)
+		for i := 0; i < w*h && i < len(raw); i++ {
+			c := pal[raw[i]]
+			rgb[i*3], rgb[i*3+1], rgb[i*3+2] = c[0], c[1], c[2]
+		}
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < w*h; i++ {
+		img.Set(i%w, i/w, color.RGBA{rgb[i*3], rgb[i*3+1], rgb[i*3+2], 255})
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fmt.Printf("畫面 %d×%d → %s\n", w, h, path)
+	if _, _, px := m.Planar(); px != nil {
+		hist := [16]int{}
+		for _, p := range px {
+			hist[p&15]++
+		}
+		pal := m.Palette()
+		fmt.Print("平面色號分布與對應顏色：")
+		for i, n := range hist {
+			if n > 0 {
+				c := pal[m.VGA.DACIndex(uint8(i))]
+				fmt.Printf(" %d:%d→#%02X%02X%02X", i, n, c[0], c[1], c[2])
+			}
+		}
+		fmt.Println()
+	}
+	return png.Encode(f, img)
 }

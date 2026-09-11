@@ -205,3 +205,42 @@ func TestInt15SystemConfigTableIsSafe(t *testing.T) {
 		}
 	}
 }
+
+// 切到 mode 10h／12h 時 DAC 0–63 載入 rgbRGB 表（`docs/spec/198-mode-set-default-dac`）。
+//
+// 反面的症狀：BGI 只設屬性調色盤、顏色靠 BIOS 的預設 DAC；DAC 全 0 的話，
+// 平面裡的色號全對、畫面卻整片黑。
+func TestModeSetLoadsDefaultDAC(t *testing.T) {
+	// DOSBox-X int10_modes.cpp text_palette 的代表值（格, R, G, B）。
+	want := [][4]uint8{{0x00, 0, 0, 0}, {0x06, 0x2A, 0x2A, 0}, {0x07, 0x2A, 0x2A, 0x2A},
+		{0x14, 0x2A, 0x15, 0}, {0x38, 0x15, 0x15, 0x15}, {0x3F, 0x3F, 0x3F, 0x3F}}
+	for _, mode := range []uint16{0x12, 0x10} {
+		m, d := newTest(t)
+		call(m, d, 0x10, mode)
+		for _, w := range want {
+			i := int(w[0])
+			if got := [3]uint8{m.DAC[i*3], m.DAC[i*3+1], m.DAC[i*3+2]}; got != [3]uint8{w[1], w[2], w[3]} {
+				t.Fatalf("mode %02Xh：DAC %02Xh 是 %02X，預期 %02X", mode, i, got, w[1:])
+			}
+		}
+		for i := 0; i < 64; i++ { // 整張照公式
+			b := func(bit int, v uint8) uint8 {
+				if i&(1<<bit) != 0 {
+					return v
+				}
+				return 0
+			}
+			exp := [3]uint8{b(2, 0x2A) + b(5, 0x15), b(1, 0x2A) + b(4, 0x15), b(0, 0x2A) + b(3, 0x15)}
+			if got := [3]uint8{m.DAC[i*3], m.DAC[i*3+1], m.DAC[i*3+2]}; got != exp {
+				t.Fatalf("mode %02Xh：DAC %02Xh 是 %02X，公式是 %02X", mode, i, got, exp)
+			}
+		}
+	}
+	// mode 13h 不在範圍：DAC 不被這條規則改寫。
+	m, d := newTest(t)
+	m.DAC[7*3] = 0x11
+	call(m, d, 0x10, 0x0013)
+	if m.DAC[7*3] != 0x11 {
+		t.Fatalf("mode 13h 改寫了 DAC 7：%02X", m.DAC[7*3])
+	}
+}

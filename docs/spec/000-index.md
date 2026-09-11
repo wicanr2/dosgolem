@@ -345,7 +345,7 @@
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
 
-### Borland C++ 2.0 工具鏈（bcc20-toolchain）（4 份）
+### Borland C++ 2.0 工具鏈（bcc20-toolchain）（5 份）
 
 在 dosgolem 裡跑 BCC、TASM、TLINK、TLIB（BCC 經 EXEC 叫 TASM 與 TLINK）時補上的 DOS 行為，
 依據是 DOSBox-X 原始碼與 Intel 文件。BCC 要用 `cmd/run -cpu 8086` 或 `-cpu 186`（它的 CPU 偵測在 386 模式會走到子集外的 `0x66`）。
@@ -354,3 +354,4 @@
 - [195 — NUL 字元裝置](195-nul-device.md)：READY。開啟、讀寫、seek、IOCTL 裝置資訊照 DOSBox-X 的 `device_NUL`。
 - [196 — `AH=38h` 國別資訊寫進呼叫端的緩衝區](196-country-info-caller-buffer.md)：READY。DS:DX 不動；取代 `010-dosv` §2.1 的指標寫法。
 - [197 — `PUSH SP`：80186 推新值，分界在 80286](197-push-sp-80186.md)：READY。修正 `002-cpu-8086` §4 第 1 點的分界；386 不變。
+- [198 — 切到 mode 10h／12h 時載入預設 DAC](198-mode-set-default-dac.md)：READY。BGI 的 VGA 驅動靠它上色；0Dh／0Eh／13h 與屬性調色盤不在範圍。
