@@ -360,6 +360,7 @@ func main() {
 	}
 	obsSetup(m) // 觀測用旗標的掛鉤（observe.go）
 	d := dos.New(m, *root)
+	obsSetupDOS(m, d) // 觀測用旗標的掛鉤之四（observe.go）
 	d.Mouse.XScale = uint16(*xscale)
 	if *queue != "" {
 		for _, q := range strings.Split(*queue, ",") {

@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 249 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 250 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（9 份）
+### 共同基礎（master）（10 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -60,6 +60,7 @@
 - `187-frame-clock.md`
 - `188-pit-divisor-decoding.md`
 - `189-a20-gate-and-hma-addressing.md`
+- `190-opl-vgm-dump.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -332,3 +333,5 @@
 - [186 — FD2平台缺口持續驗證](186-fd2-platform-gap-continuation.md)：原版標題與BIOS單次方向鍵已驗證，正常START進王宮；目前CPU缺口、音訊與輸入限制統一見186檔首。
 
 - [189 — A20 閘門與 HMA 的定址](189-a20-gate-and-hma-addressing.md)：READY。位址遮罩從 CPU 移到匯流排——`段:偏移` 到得了 1 MB 之上，A20 關著時才環繞。
+
+- [190 — 把 OPL 暫存器寫入倒成 VGM](190-opl-vgm-dump.md)：READY。`machine.OPL` 那一串編成標準 VGM，外部播放器離線合成；時間基準改用 `IRQ0Every × PITHz`，`-tick` 釘死間隔時不再安靜地把曲速改掉；`-vgm-clear-on-open` 用開檔那一刻把輸出框到單一曲目上。
