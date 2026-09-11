@@ -1125,18 +1125,38 @@ func (c *CPU) Step() error {
 		}
 		c.setLogicFlags(result)
 	case op == 0x22 || op == 0x02:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		// 02 = ADD r8, r/m8；22 = AND r8, r/m8。兩個都是「目的是暫存器、來源可以是
+		// 記憶體」，記憶體形式由 decodeAddress32 解位址；旗標沿用同一組 add8／
+		// setLogicFlags8，暫存器形式與記憶體形式只差在來源怎麼取。
+		if operand16 || repe || repne {
 			return fail("byte暫存器運算prefix尚未支援")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
-			return fail("byte運算記憶體形式尚未支援")
+		dst := int((modrm >> 3) & 7)
+		var b uint8
+		if modrm>>6 == 3 {
+			if segmentOverride >= 0 {
+				return fail("byte暫存器運算prefix尚未支援")
+			}
+			b = c.reg8(int(modrm & 7))
+		} else {
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			if segmentOverride >= 0 {
+				seg = segmentOverride
+			}
+			value, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail(fmt.Sprintf("byte運算讀取 %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			b = value
 		}
-		dst, src := int((modrm>>3)&7), int(modrm&7)
-		a, b := c.reg8(dst), c.reg8(src)
+		a := c.reg8(dst)
 		if op == 0x02 {
 			c.setReg8(dst, c.add8(a, b))
 		} else {
