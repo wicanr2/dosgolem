@@ -94,8 +94,11 @@ func main() {
 			"色盤存成同名 .pal。一次跑要看好幾個畫面時用這個，"+
 			"不要為了看中途的畫面重跑")
 	clickPremove := flag.Int("click-premove", 0,
-		"每一次腳本點擊先把游標移過去、等遊戲讀了幾次滑鼠才按下去（0 ＝ 移到就按）。"+
+		"每一次腳本點擊先把游標移過去、等遊戲讀了幾次滑鼠才按下去（0 ＝ 用 -click-move-lead）。"+
 			"有些對話框的鈕吃「游標已經在上面」這個狀態（`docs/spec/004` §4.19）")
+	clickMoveLead := flag.Uint64("click-move-lead", 200_000,
+		"每一次腳本點擊提早幾道指令送移動事件，按下仍落在指定的步數"+
+			"（0 ＝ 移動與按下同一道指令）。見 `docs/spec/004` §4.19")
 	clickScript := flag.String("clicks", "",
 		"點擊腳本：`步數:X:Y[:鍵[:按住]]` 用逗號分隔（鍵 1 ＝ 左、2 ＝ 右，預設 1）。\n"+
 			"    按住時間省略就用全域的 -click-hold；同一段序列裡不同的鈕\n"+
@@ -694,8 +697,10 @@ func main() {
 				btn = 1
 			}
 			switch {
-			case m.Steps == c.step:
+			case preMoveNow(c, m.Steps, *clickPremove, *clickMoveLead):
 				d.MoveMouse(int(c.x), int(c.y))
+			case m.Steps == c.step:
+				d.MoveMouse(int(c.x), int(c.y)) // 座標沒變時是 no-op
 				if *clickPremove > 0 {
 					// 先移過去，等遊戲看到游標在那裡再按。
 					pollsAtPress = len(d.Mouse.Polls)
@@ -2542,6 +2547,24 @@ func (c *callArgLog) dump() {
 type holdMode struct {
 	polls int
 	steps uint64
+}
+
+// preMoveNow 回答「這一道指令要不要為這次點擊先送移動事件」。
+//
+// ⚠ **移動要比按下早，這不是可有可無的間隔**（`docs/spec/004` §4.20.1）。
+// 真的滑鼠不可能在同一瞬間移到新位置又按下去：驅動程式一定先送一個移動
+// 事件。遊戲收到按下時手上是哪個座標、以及「游標經過那裡」帶起來的副作用
+// （懸停面板、反白、提示列），都靠這段間隔才會發生。擠在同一道指令上時
+// 遊戲照樣開得了選單、框與內容逐位元組相同，**只是那些副作用整批不見**，
+// 而畫面看起來完全正常——沒有任何一個環節會報錯。
+//
+// `-click-premove`（等遊戲讀 N 次滑鼠才按）會把按下的時間點往後移，
+// 與「按下落在腳本指定的步數」不相容，所以它一開就由它作主。
+func preMoveNow(c click, steps uint64, clickPremove int, lead uint64) bool {
+	if clickPremove > 0 || lead == 0 || lead > c.step {
+		return false
+	}
+	return steps+lead == c.step
 }
 
 // holdFor 決定這一次點擊照誰的規矩放開。**越具體的越優先**：

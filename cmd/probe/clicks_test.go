@@ -56,3 +56,37 @@ func TestHoldForPrefersTheMoreSpecific(t *testing.T) {
 		}
 	}
 }
+
+// 每一次腳本點擊都要先送一次移動事件，而且**按下仍落在腳本指定的步數**。
+//
+// ⚠ 這支測試釘的是一個會安靜消失的行為。移動與按下擠在同一道指令上時，
+// 遊戲照樣開得了選單、框與內容逐位元組相同，只是「游標經過那裡」帶起來
+// 的副作用（懸停面板、反白、狀態欄）整批不見——沒有任何一個環節會報錯。
+// 2026-09-11 踩過一次：舊版寫死的 `moveLead` 在改寫命令列時掉了，40 份
+// 收據因此重跑出另一個畫面，被當成 remake 的缺口追了一整輪
+// （`docs/spec/004` §4.20.1）。
+func TestPreMoveComesBeforeThepress(t *testing.T) {
+	c := click{step: 1_000_000, x: 10, y: 20, btn: 1}
+	const lead = 200_000
+	if !preMoveNow(c, c.step-lead, 0, lead) {
+		t.Error("提早 lead 道指令的那一步應該要送移動事件")
+	}
+	for _, steps := range []uint64{c.step - lead - 1, c.step - lead + 1, c.step} {
+		if preMoveNow(c, steps, 0, lead) {
+			t.Errorf("步數 %d 不該送移動事件", steps)
+		}
+	}
+	// -click-premove 一開就由它作主（它會把按下的時間點往後移）。
+	if preMoveNow(c, c.step-lead, 3, lead) {
+		t.Error("-click-premove 開著時不該再送提早的移動事件")
+	}
+	// lead 0 ＝ 明講「移到就按」。
+	if preMoveNow(c, c.step, 0, 0) {
+		t.Error("lead 0 時不該送提早的移動事件")
+	}
+	// 點擊早於 lead 時不能讓步數往下溢位。
+	early := click{step: 1000, x: 1, y: 2, btn: 1}
+	if preMoveNow(early, 0, 0, lead) {
+		t.Error("點擊步數小於 lead 時不該觸發")
+	}
+}
