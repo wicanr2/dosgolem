@@ -129,9 +129,11 @@ func TestX87MemoryFormsRefuseUnknownExtensions(t *testing.T) {
 		{"D9 /0 FLD m32", []byte{0xd9, 0x06}},
 		{"D9 /2 FST m32", []byte{0xd9, 0x16}},
 		{"DB /2 FIST", []byte{0xdb, 0x16}},
-		{"DC /0 FADD", []byte{0xdc, 0x06}},
-		{"DC /6 FDIV", []byte{0xdc, 0x36}},
+		{"DC /4 FSUBR", []byte{0xdc, 0x26}},
 		{"DC 暫存器形式", []byte{0xdc, 0xc1}},
+		{"DD /2 FST m64", []byte{0xdd, 0x16}},
+		{"DD 暫存器形式", []byte{0xdd, 0xc1}},
+		{"DA /0 FIADD", []byte{0xda, 0x06}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mem := testBus(make([]byte, 128))

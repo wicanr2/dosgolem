@@ -208,6 +208,26 @@ func (c *CPU) readSegment16(selector uint16, offset uint32) (uint16, bool) {
 	return value, err == nil
 }
 
+// readFloat64／writeFloat64 是 x87 記憶體形式共用的 m64fp 存取。分成兩個 dword
+// 是因為既有的 readSegment32／writeSegment32 已經處理好 selector 與界線檢查。
+func (c *CPU) readFloat64(segment int, addr uint32) (float64, bool) {
+	low, ok := c.readSegment32(c.Seg[segment], addr)
+	if !ok {
+		return 0, false
+	}
+	high, ok := c.readSegment32(c.Seg[segment], addr+4)
+	if !ok {
+		return 0, false
+	}
+	return math.Float64frombits(uint64(high)<<32 | uint64(low)), true
+}
+
+func (c *CPU) writeFloat64(segment int, addr uint32, value float64) bool {
+	bits := math.Float64bits(value)
+	return c.writeSegment32(c.Seg[segment], addr, uint32(bits)) &&
+		c.writeSegment32(c.Seg[segment], addr+4, uint32(bits>>32))
+}
+
 func (c *CPU) writeSegment8(selector uint16, offset uint32, value uint8) bool {
 	linear, ok := c.segmentLinear(selector, offset, 1, true)
 	return ok && c.Bus.Write8(linear, value) == nil
@@ -1415,6 +1435,85 @@ func (c *CPU) Step() error {
 		c.FPUStatus = 0
 		c.FPUStack = [8]float64{}
 		c.FPUDepth = 0
+	case op == 0xdd:
+		// DD 的記憶體形式：/0 FLD m64fp、/3 FSTP m64fp、/7 FNSTSW m16。FD2 全部
+		// 只用這三個（掃過整個 code 段）；其餘延伸碼與暫存器形式明確拒絕。
+		if operand16 || repe {
+			return fail("DD x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 {
+			return fail(fmt.Sprintf("x87 DD ModRM %02X 尚未支援", modrm))
+		}
+		extension := (modrm >> 3) & 7
+		if extension != 0 && extension != 3 && extension != 7 {
+			return fail(fmt.Sprintf("x87 DD /%d 尚未支援", extension))
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		if segmentOverride >= 0 {
+			seg = segmentOverride
+		}
+		switch extension {
+		case 0:
+			if c.FPUDepth >= 8 {
+				return fail("FLD x87 stack overflow")
+			}
+			value, ok := c.readFloat64(seg, addr)
+			if !ok {
+				return fail(fmt.Sprintf("FLD qword read %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = value
+			c.FPUDepth++
+		case 3:
+			if c.FPUDepth == 0 {
+				return fail("FSTP x87 stack underflow")
+			}
+			if !c.writeFloat64(seg, addr, c.FPUStack[0]) {
+				return fail(fmt.Sprintf("FSTP qword write %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			copy(c.FPUStack[0:], c.FPUStack[1:c.FPUDepth])
+			c.FPUDepth--
+		default:
+			if !c.writeSegment16(c.Seg[seg], addr, c.FPUStatus) {
+				return fail(fmt.Sprintf("FNSTSW write %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+		}
+	case op == 0xda:
+		// DA /1 FIMUL m32int：乘一個 32 位元有號整數。FD2 只用這一個。
+		if operand16 || repe {
+			return fail("DA x87 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 == 3 || (modrm>>3)&7 != 1 {
+			return fail(fmt.Sprintf("x87 DA ModRM %02X 尚未支援", modrm))
+		}
+		if c.FPUDepth == 0 {
+			return fail("FIMUL x87 stack underflow")
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		if segmentOverride >= 0 {
+			seg = segmentOverride
+		}
+		raw, ok := c.readSegment32(c.Seg[seg], addr)
+		if !ok {
+			return fail(fmt.Sprintf("FIMUL dword read %04X:%08X 未處理", c.Seg[seg], addr))
+		}
+		c.FPUStack[0] *= float64(int32(raw))
 	case op == 0xdc:
 		// DC 的記憶體形式吃 m64fp（double）。FD2 的 0x15BC3 是 /1 FMUL——`fild 8`
 		// 之後乘 [0x50144]（double 1.5）。其餘延伸碼運算不同，猜錯會安靜地算出
@@ -1429,11 +1528,12 @@ func (c *CPU) Step() error {
 		if modrm>>6 == 3 {
 			return fail(fmt.Sprintf("x87 DC ModRM %02X 尚未支援", modrm))
 		}
-		if (modrm>>3)&7 != 1 {
-			return fail(fmt.Sprintf("x87 DC /%d 尚未支援", (modrm>>3)&7))
+		extension := (modrm >> 3) & 7
+		if extension != 0 && extension != 1 && extension != 6 {
+			return fail(fmt.Sprintf("x87 DC /%d 尚未支援", extension))
 		}
 		if c.FPUDepth == 0 {
-			return fail("FMUL x87 stack underflow")
+			return fail("DC x87 stack underflow")
 		}
 		seg, addr, e := c.decodeAddress32(modrm)
 		if e != nil {
@@ -1442,15 +1542,23 @@ func (c *CPU) Step() error {
 		if segmentOverride >= 0 {
 			seg = segmentOverride
 		}
-		low, ok := c.readSegment32(c.Seg[seg], addr)
+		operand, ok := c.readFloat64(seg, addr)
 		if !ok {
-			return fail(fmt.Sprintf("FMUL qword read %04X:%08X 未處理", c.Seg[seg], addr))
+			return fail(fmt.Sprintf("DC qword read %04X:%08X 未處理", c.Seg[seg], addr))
 		}
-		high, ok := c.readSegment32(c.Seg[seg], addr+4)
-		if !ok {
-			return fail(fmt.Sprintf("FMUL qword read %04X:%08X 未處理", c.Seg[seg], addr+4))
+		switch extension {
+		case 0:
+			c.FPUStack[0] += operand
+		case 1:
+			c.FPUStack[0] *= operand
+		default:
+			if operand == 0 {
+				c.FPUStatus |= 1 << 2
+				c.FPUStack[0] = math.Copysign(math.Inf(1), c.FPUStack[0])
+			} else {
+				c.FPUStack[0] /= operand
+			}
 		}
-		c.FPUStack[0] *= math.Float64frombits(uint64(high)<<32 | uint64(low))
 	case op == 0xde:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("DE x87 不接受目前的 prefix")
@@ -1460,6 +1568,19 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		switch modrm {
+		case 0xc1, 0xc9:
+			// DE C1 = FADDP st(1), st(0)；DE C9 = FMULP。與 FDIVP 同形：算進
+			// st(1) 之後彈出 st(0)。
+			if c.FPUDepth < 2 {
+				return fail("FADDP／FMULP x87 stack underflow")
+			}
+			if modrm == 0xc1 {
+				c.FPUStack[1] += c.FPUStack[0]
+			} else {
+				c.FPUStack[1] *= c.FPUStack[0]
+			}
+			copy(c.FPUStack[0:], c.FPUStack[1:c.FPUDepth])
+			c.FPUDepth--
 		case 0xf9:
 			if c.FPUDepth < 2 {
 				return fail("FDIVP x87 stack underflow")
@@ -1538,6 +1659,31 @@ func (c *CPU) Step() error {
 			break
 		}
 		switch modrm {
+		case 0xfa:
+			if c.FPUDepth == 0 {
+				return fail("FSQRT x87 stack underflow")
+			}
+			if c.FPUStack[0] < 0 {
+				c.FPUStatus |= 1 // 無效運算
+				c.FPUStack[0] = math.NaN()
+			} else {
+				c.FPUStack[0] = math.Sqrt(c.FPUStack[0])
+			}
+		case 0xe4:
+			// FTST：拿 st(0) 和 0.0 比，只設 C3/C2/C0，不彈出。旗標佈局與 FCOMPP
+			// 相同。
+			if c.FPUDepth == 0 {
+				return fail("FTST x87 stack underflow")
+			}
+			c.FPUStatus &^= 0x4500
+			switch value := c.FPUStack[0]; {
+			case math.IsNaN(value):
+				c.FPUStatus |= 0x4500
+			case value < 0:
+				c.FPUStatus |= 0x0100
+			case value == 0:
+				c.FPUStatus |= 0x4000
+			}
 		case 0xfc:
 			// FRNDINT 依控制字的 RC（bit 10..11）取整：00 最近偶數、01 向下、
 			// 10 向上、11 向零截斷。寫死成某一種會在別的 caller 上算錯一格。
