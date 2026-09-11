@@ -38,6 +38,7 @@ func main() {
 	watch := flag.String("watch", "", "監看一段線性位址的寫入，格式 lo-hi（十六進位），每次寫入印出 CS:IP")
 	traceTail := flag.Int("trace-tail", 0, "記住最後幾條指令的 CS:IP、位元組與暫存器，收工時印出來（查程式為什麼結束）")
 	pngOut := flag.String("png", "", "收工時把目前畫面存成 PNG（平面模式與 mode 13h）")
+	watchRead := flag.String("watch-read", "", "監看一段線性位址的讀取，格式 lo-hi（十六進位）；收工時印出被讀過的位址範圍與讀取者")
 	loop := flag.Int("loop", 0, "收工前再跑幾條指令，統計落點看它是不是在空轉")
 	flag.Parse()
 	if *prog == "" || *root == "" {
@@ -85,6 +86,21 @@ func main() {
 				m.Steps, a, old, v, c.Seg[cpu.CS], c.IP, c.Seg[cpu.SS], c.R[cpu.SP], len(d.ExecLog))
 		})
 	}
+	readers := map[uint32]map[string]int{}
+	if *watchRead != "" {
+		var lo, hi uint32
+		if _, err := fmt.Sscanf(*watchRead, "%x-%x", &lo, &hi); err != nil {
+			die(fmt.Errorf("-watch-read 格式是 lo-hi：%v", err))
+		}
+		m.WatchReads(lo, hi, func(a uint32, _ uint8) {
+			c := m.CPU
+			k := fmt.Sprintf("%04X:%04X", c.Seg[cpu.CS], c.IP)
+			if readers[a] == nil {
+				readers[a] = map[string]int{}
+			}
+			readers[a][k]++
+		})
+	}
 	var runErr error
 	traced := 0
 	tail := make([]string, 0, *traceTail)
@@ -117,6 +133,24 @@ func main() {
 		if err := savePNG(m, *pngOut); err != nil {
 			fmt.Println("PNG：", err)
 		}
+	}
+	if len(readers) > 0 {
+		addrs := make([]uint32, 0, len(readers))
+		for a := range readers {
+			addrs = append(addrs, a)
+		}
+		sort.Slice(addrs, func(i, j int) bool { return addrs[i] < addrs[j] })
+		fmt.Printf("讀過 %d 個位址，%05X–%05X；讀取者：", len(addrs), addrs[0], addrs[len(addrs)-1])
+		who := map[string]int{}
+		for _, a := range addrs {
+			for k, n := range readers[a] {
+				who[k] += n
+			}
+		}
+		for k, n := range who {
+			fmt.Printf(" %s×%d", k, n)
+		}
+		fmt.Println()
 	}
 	for i, line := range tail {
 		fmt.Printf("tail %4d  %s\n", i-len(tail), line)

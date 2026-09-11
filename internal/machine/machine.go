@@ -518,6 +518,7 @@ func New() *Machine {
 	m.initBDA()
 	m.initVectors()
 	m.installCallbackStub()
+	m.initROMFont()
 	return m
 }
 
