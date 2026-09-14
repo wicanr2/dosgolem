@@ -376,7 +376,13 @@ func main() {
 		}
 		d, _ := json.Marshal(map[string]any{
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
+			"exe_sha256": hash, "address_space": "dosgolem relocated LE linear",
 			"state_injections": injections(), "steps": steps,
+			"normal_player_path_verified": false,
+			"evidence_restrictions": []string{
+				"修改路徑只可驗證節點、畫面、介面與存檔閉環",
+				"不得用於傷害、存活、戰鬥結果或 PLAYER-E2 宣稱",
+			},
 			"eip":         fmt.Sprintf("0x%X", m.CPU.EIP),
 			"control_seq": controlSeq, "unit_base": base,
 			"kbd_pending": pending, "kbd_reads": reads,
