@@ -28,6 +28,25 @@ import (
 	"time"
 )
 
+func fd2KeyNames() map[string]uint16 {
+	keys := map[string]uint16{
+		"up": 0x48e0, "down": 0x50e0, "left": 0x4be0, "right": 0x4de0,
+		"enter": 0x1c0d, "esc": 0x011b,
+	}
+	// IBM BIOS int 16h 回傳 AH=scan、AL=ASCII。Shift／Ctrl／Alt 的 F1..F10
+	// 不是「基礎 F 鍵加另一個事件」，而是三段連續的擴充 scan code；FD2 的祕密
+	// 商店 gate 正是比較這個 AH。把 chord 寫成語意名稱，控制歷程才能直接稽核。
+	for _, base := range []struct {
+		name string
+		scan uint16
+	}{{"shift", 0x54}, {"ctrl", 0x5e}, {"alt", 0x68}} {
+		for f := uint16(1); f <= 10; f++ {
+			keys[fmt.Sprintf("%s-f%d", base.name, f)] = (base.scan + f - 1) << 8
+		}
+	}
+	return keys
+}
+
 func main() {
 	exe := flag.String("exe", "/orig/FD2.EXE", "固定版本原版執行檔")
 	root := flag.String("root", "/orig", "唯讀原版資料根目錄")
@@ -172,7 +191,7 @@ func main() {
 		panic("BIOS鍵盤安裝失敗")
 	}
 	var input []uint16
-	keyNames := map[string]uint16{"up": 0x48e0, "down": 0x50e0, "left": 0x4be0, "right": 0x4de0, "enter": 0x1c0d, "esc": 0x011b}
+	keyNames := fd2KeyNames()
 	if *keys != "" {
 		for _, name := range strings.Split(*keys, ",") {
 			key, ok := keyNames[strings.TrimSpace(name)]
