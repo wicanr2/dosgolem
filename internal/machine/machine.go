@@ -218,6 +218,10 @@ type Machine struct {
 	oplReg     [2]uint8
 	oplRegs    [2][256]uint8
 	oplPresent bool
+	// soundBlasterPresent 明示標準 SB16／220h；DSP 狀態沿用已由
+	// LEOPLPorts 驗證的受限硬體契約（docs/spec/190-opl-vgm-dump §8）。
+	soundBlasterPresent bool
+	soundBlaster        SoundBlasterDSP
 	// 計時器：兩個各自有「啟動」與「遮罩」，狀態埠的 bit7 是兩者的 OR。
 	oplT1Started, oplT2Started bool
 	oplT1Masked, oplT2Masked   bool
@@ -710,6 +714,16 @@ func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
 // 但音樂路徑才會真的執行、`OPL` 才會有東西。
 func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
+// SetSoundBlaster 明示標準 SB16（基底 220h）存在。Sound Blaster 的 OPL
+// 相容介面也是實體 OPL，所以開啟時一併讓 OPL 偵測成立；關閉 SB 不會
+// 擅自關掉可能由 SetAdLib 獨立開啟的 AdLib。
+func (m *Machine) SetSoundBlaster(present bool) {
+	m.soundBlasterPresent = present
+	if present {
+		m.oplPresent = true
+	}
+}
+
 // OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
 const (
 	oplT1Start  = 0x01 // 啟動計時器 1
@@ -785,6 +799,14 @@ func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
+	if m.soundBlasterPresent {
+		if v, ok := m.soundBlaster.In8(port); ok {
+			return v
+		}
+		if alias, ok := oplAlias(port); ok {
+			port = alias
+		}
+	}
 	if v, ok := m.VGA.In(port); ok {
 		return v
 	}
@@ -857,6 +879,15 @@ func (m *Machine) In8(port uint16) uint8 {
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+
+	if m.soundBlasterPresent {
+		if m.soundBlaster.Out8(p, v) {
+			return
+		}
+		if alias, ok := oplAlias(p); ok {
+			p = alias
+		}
+	}
 
 	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
 	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。

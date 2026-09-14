@@ -143,6 +143,9 @@ func main() {
 			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
+	soundBlaster := flag.Bool("sound-blaster", false,
+		"讓 Sound Blaster 16（基底 220h，含 OPL 相容埠）偵測存在"+
+			"（預設不存在；使用 228h/229h 的 FM 音樂路徑要它才會跑）")
 	poke := flag.String("poke", "",
 		"在指定步數直接改記憶體：`<位址>@<步數>=<hex bytes>`，分號分隔。"+
 			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
@@ -258,6 +261,9 @@ func main() {
 	m := machine.New()
 	if *adlib {
 		m.SetAdLib(true)
+	}
+	if *soundBlaster {
+		m.SetSoundBlaster(true)
 	}
 	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
 	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境

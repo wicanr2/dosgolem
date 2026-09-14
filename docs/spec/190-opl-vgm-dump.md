@@ -220,3 +220,25 @@ func (o *Oracle) OPLVGM(w io.Writer, stepsPerSecond float64) (vgm.Stats, error)
 編碼器對空序列回錯誤而不是寫出一份 0 筆的 VGM——**一份合法但沒有
 音符的檔案會一路通過所有後續步驟**，最後在喇叭上變成「沒聲音」，
 而那時候已經離這裡很遠了。
+
+## 8. Sound Blaster 的 OPL 相容埠
+
+狀態：`READY`
+
+Sound Blaster 不只可由 `388h/389h` 存取 OPL；在基底 `220h` 的標準設定下，
+也可從 `220h`–`223h` 與 `228h/229h` 存取同一組相容埠。這個別名已在
+`docs/spec/186-fd2-platform-gap-continuation.md` 的批次 45 起依 Creative
+《Sound Blaster Series Hardware Programming Guide》建立 DSP 重設／版本契約，
+並由 `LEOPLPorts` 驗證；一般真實模式 `Machine` 不應另有一套互相矛盾的硬體。
+
+`Machine.SetSoundBlaster(true)` 與 `probe -sound-blaster` 明示配置
+SB16、基底 `220h`，並同時讓 OPL 存在：
+
+- `224h`–`226h`、`22Ah`、`22Ch`、`22Eh` 轉給既有 `SoundBlasterDSP`；
+- `220h`–`223h` 對映到 `388h`–`38Bh`；
+- `228h/229h` 對映到 `388h/389h`；
+- 其他掃描基底（例如 `210h`、`230h`）仍讀回空匯流排 `FFh`，不得假裝裝置存在；
+- 預設仍沒有 Sound Blaster，也不改既有 `-adlib` 收據。
+
+這是硬體規格近似（hardware-spec approximation）：足以重現 DSP 偵測與
+OPL 暫存器序列，不宣稱 DSP 微秒時序、DMA 音訊或波形逐樣本相同。

@@ -33,6 +33,36 @@ func TestOPLDetectionSequence(t *testing.T) {
 	}
 }
 
+// TestSoundBlasterDSPAndOPLAlias 把一般 Machine 的 SB16 偵測與 base+8/+9
+// 寫入綁在同一條測試；真實模式程式可以先找 DSP，之後才從別名埠送 FM。
+func TestSoundBlasterDSPAndOPLAlias(t *testing.T) {
+	m := New()
+	m.SetSoundBlaster(true)
+
+	m.Out8(0x226, 1)
+	m.Out8(0x226, 0)
+	if got := m.In8(0x22e); got != 0x80 {
+		t.Fatalf("DSP ready=%02X want=80", got)
+	}
+	if got := m.In8(0x22a); got != 0xaa {
+		t.Fatalf("DSP reset byte=%02X want=AA", got)
+	}
+
+	m.Steps = 123
+	m.Out8(0x228, 0x20)
+	m.Out8(0x229, 0x55)
+	if len(m.OPL) != 1 || m.OPL[0] != (OPLWrite{Reg: 0x20, Val: 0x55, Step: 123}) {
+		t.Fatalf("OPL alias write=%+v", m.OPL)
+	}
+
+	// 只配置 220h；掃描器在其他候選基底仍必須看到空匯流排。
+	m.Out8(0x216, 1)
+	m.Out8(0x216, 0)
+	if got := m.In8(0x21e); got != 0xff {
+		t.Fatalf("未配置的 SB base 回 %02X want=FF", got)
+	}
+}
+
 // TestOPLAdLibAbsentAlwaysZero 沒有 AdLib 時狀態永遠是 0。
 func TestOPLAdLibAbsentAlwaysZero(t *testing.T) {
 	m := New()
