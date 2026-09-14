@@ -241,6 +241,8 @@ func main() {
 	// 會寫明注入了什麼、寫了幾次。
 	allyPeakHP := map[byte]uint16{}
 	allyHPWrites := 0
+	forceEnemyClearCommands := 0
+	forceEnemyClearWrites := 0
 	lockAllyHPNow := func() {
 		base, e1 := m.Read32(0x53a45)
 		count, e2 := m.Read32(0x53beb)
@@ -268,13 +270,21 @@ func main() {
 	}
 
 	injections := func() []string {
-		if !*lockAllyHP {
-			return []string{}
+		out := []string{}
+		if *lockAllyHP {
+			out = append(out, fmt.Sprintf(
+				"lock-ally-hp：我方（camp 2）record +0x40 的 HP 每 2000 指令壓回該 identity "+
+					"看過的最高值，至此已寫入 %d 次。這是修改路徑，本輪收據不得當成一般"+
+					"玩家路徑證據，也不能用來談傷害或存活。", allyHPWrites))
 		}
-		return []string{fmt.Sprintf(
-			"lock-ally-hp：我方（camp 2）record +0x40 的 HP 每 2000 指令壓回該 identity "+
-				"看過的最高值，至此已寫入 %d 次。這是修改路徑，本輪收據不得當成一般"+
-				"玩家路徑證據，也不能用來談傷害或存活。", allyHPWrites)}
+		if forceEnemyClearCommands > 0 {
+			out = append(out, fmt.Sprintf(
+				"force-enemy-clear：控制邊界依 0x53A45 單位陣列基底與 0x53BEB 筆數，"+
+					"將 camp 0 record +0x40 HP 寫為 0；至此執行 %d 次、寫入 %d 筆。這是修改"+
+					"路徑，只能驗證戰後節點、介面與存檔閉環，不得用來談傷害、存活、戰鬥"+
+					"結果或一般玩家路徑。", forceEnemyClearCommands, forceEnemyClearWrites))
+		}
+		return out
 	}
 
 	readViewGlobals := func() map[string]uint32 {
@@ -531,10 +541,11 @@ func main() {
 				}
 				d, e := os.ReadFile(filepath.Join(*runDir, "control.json"))
 				var cmd struct {
-					Seq   int
-					Key   string
-					Steps int
-					Stop  bool
+					Seq             int
+					Key             string
+					Steps           int
+					Stop            bool
+					ForceEnemyClear bool `json:"force_enemy_clear"`
 				}
 				if e == nil && json.Unmarshal(d, &cmd) == nil && cmd.Seq > controlSeq {
 					if cmd.Stop {
@@ -543,6 +554,25 @@ func main() {
 					}
 					if cmd.Steps < 1 || cmd.Steps > 100000000 {
 						panic("互動步數越界")
+					}
+					if cmd.ForceEnemyClear {
+						base, e1 := m.Read32(0x53a45)
+						count, e2 := m.Read32(0x53beb)
+						if e1 != nil || e2 != nil || count > 128 ||
+							uint64(base)+uint64(count)*80 > uint64(len(m.Mem)) {
+							panic("force-enemy-clear：戰場單位陣列無效")
+						}
+						writes := 0
+						for i := uint32(0); i < count; i++ {
+							r := m.Mem[base+80*i : base+80*(i+1)]
+							hp := binary.LittleEndian.Uint16(r[0x40:])
+							if r[6] == 0 && hp > 0 {
+								binary.LittleEndian.PutUint16(r[0x40:], 0)
+								writes++
+							}
+						}
+						forceEnemyClearCommands++
+						forceEnemyClearWrites += writes
 					}
 					if cmd.Key != "" {
 						k, ok := keyNames[cmd.Key]
