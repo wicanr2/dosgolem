@@ -2844,7 +2844,7 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
-		if (group == 1 || group == 4 || group == 6) && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
+		if (group == 0 || group == 1 || group == 4 || group == 5 || group == 6) && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
@@ -2857,17 +2857,32 @@ func (c *CPU) Step() error {
 			if !ok {
 				return fail("OR byte來源越界")
 			}
-			result := value | imm
-			if group == 4 {
-				result = value & imm
-			}
-			if group == 6 {
-				result = value ^ imm
+			result := value
+			logical := false
+			operation := "byte immediate"
+			switch group {
+			case 0:
+				operation = "ADD byte"
+				result = c.add8(value, imm)
+			case 1:
+				operation = "OR byte"
+				result, logical = value|imm, true
+			case 4:
+				operation = "AND byte"
+				result, logical = value&imm, true
+			case 5:
+				operation = "SUB byte"
+				result = c.sub8(value, imm)
+			case 6:
+				operation = "XOR byte"
+				result, logical = value^imm, true
 			}
 			if !c.writeSegment8(c.Seg[seg], addr, result) {
-				return fail("OR byte寫入失敗")
+				return fail(operation + "寫入失敗")
 			}
-			c.setLogicFlags8(result)
+			if logical {
+				c.setLogicFlags8(result)
+			}
 			break
 		}
 		if group == 7 && modrm>>6 != 3 && (segmentOverride < 0 || segmentOverride == SegES) {

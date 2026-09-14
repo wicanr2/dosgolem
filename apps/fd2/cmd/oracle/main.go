@@ -152,11 +152,17 @@ func main() {
 	services := machine.NewFD2StartupDOS(files)
 	defer services.Close()
 	fileCalls := []map[string]any{}
+	fileHandles := map[uint16]string{}
 	m.CPU.IntHook = func(c *cpu386.CPU, n byte) bool {
 		ax := uint16(c.R[cpu386.EAX])
+		ah := uint8(ax >> 8)
 		path := ""
-		observe := n == 0x21 && (ax>>8 == 0x3d || ax>>8 == 0x3c)
-		if observe {
+		observePath := n == 0x21 && (ah == 0x3d || ah == 0x3c)
+		observeWrite := n == 0x21 && ah == 0x40 && uint16(c.R[cpu386.EBX]) > 2
+		observeClose := n == 0x21 && ah == 0x3e
+		handleIn := uint16(c.R[cpu386.EBX])
+		requestedBytes := c.R[cpu386.ECX]
+		if observePath {
 			for i := uint32(0); i < 260; i++ {
 				v, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+i)
 				if !ok || v == 0 {
@@ -166,8 +172,25 @@ func main() {
 			}
 		}
 		handled := services.Handle(c, n)
-		if observe {
-			fileCalls = append(fileCalls, map[string]any{"AX_in": fmt.Sprintf("%04X", ax), "path": path, "handled": handled, "AX_out": fmt.Sprintf("%04X", uint16(c.R[cpu386.EAX])), "carry": c.EFlags&cpu386.CF != 0})
+		carry := c.EFlags&cpu386.CF != 0
+		if observePath {
+			if handled && !carry {
+				fileHandles[uint16(c.R[cpu386.EAX])] = path
+			}
+			fileCalls = append(fileCalls, map[string]any{"op": "open", "fn": fmt.Sprintf("%02X", ah), "AX_in": fmt.Sprintf("%04X", ax), "path": path, "handled": handled, "AX_out": fmt.Sprintf("%04X", uint16(c.R[cpu386.EAX])), "carry": carry})
+		} else if observeWrite {
+			written := uint32(0)
+			if handled && !carry {
+				written = c.R[cpu386.EAX]
+			}
+			fileCalls = append(fileCalls, map[string]any{"op": "write", "fn": "40", "handle": handleIn, "path": fileHandles[handleIn], "requested_bytes": requestedBytes, "written_bytes": written, "handled": handled, "carry": carry})
+		} else if observeClose {
+			fileCalls = append(fileCalls, map[string]any{"op": "close", "fn": "3E", "handle": handleIn, "path": fileHandles[handleIn], "handled": handled, "carry": carry})
+			if handled && !carry {
+				delete(fileHandles, handleIn)
+			}
+		}
+		if observePath || observeWrite || observeClose {
 			if len(fileCalls) > 128 {
 				fileCalls = fileCalls[len(fileCalls)-128:]
 			}
@@ -405,8 +428,9 @@ func main() {
 			"eip":         fmt.Sprintf("0x%X", m.CPU.EIP),
 			"control_seq": controlSeq, "unit_base": base,
 			"kbd_pending": pending, "kbd_reads": reads,
-			"input_chain": chain,
-			"view":        view, "registers": m.CPU.R, "units": units,
+			"dos_file_calls": append([]map[string]any(nil), fileCalls...),
+			"input_chain":    chain,
+			"view":           view, "registers": m.CPU.R, "units": units,
 		})
 		if e := os.WriteFile(filepath.Join(*runDir, label+".json"), d, 0o600); e != nil {
 			panic(e)

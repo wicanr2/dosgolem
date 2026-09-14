@@ -336,6 +336,33 @@ func TestByteORAtSIBDisp8(t *testing.T) {
 	}
 }
 
+func TestByteSUBAtSIBDisp8FromFD2ShopSale(t *testing.T) {
+	// FD2.EXE 222b7d… at dosgolem relocated LE linear 0x2D42B:
+	// 80 6C 34 14 30 = SUB byte ptr [ESP+ESI+0x14],0x30.
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x80, 0x6c, 0x34, 0x14, 0x30})
+	mem[0x44] = 0x35
+	c := New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x7f, Writable: true})
+	c.R[ESP], c.R[ESI], c.EFlags = 0x20, 0x10, CF|OF|ZF
+	if err := c.Step(); err != nil || mem[0x44] != 5 || c.EIP != 5 ||
+		c.EFlags&(CF|OF|ZF|SF) != 0 {
+		t.Fatalf("SUB byte=%X EIP=%X flags=%X err=%v", mem[0x44], c.EIP, c.EFlags, err)
+	}
+
+	mem = testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x80, 0x6c, 0x34, 0x14, 0x30})
+	mem[0x44] = 0x35
+	c = New(mem)
+	c.Seg[SegSS] = 0x168
+	c.SetDescriptor(0x168, Descriptor{Base: 0, Limit: 0x7f})
+	c.R[ESP], c.R[ESI] = 0x20, 0x10
+	if err := c.Step(); err == nil || mem[0x44] != 0x35 {
+		t.Fatalf("read-only SUB byte=%X err=%v", mem[0x44], err)
+	}
+}
+
 func TestByteORAtBaseDisp8(t *testing.T) {
 	mem := testBus(make([]byte, 0x60))
 	copy(mem, []byte{0x80, 0x4b, 0xfc, 0x08})
