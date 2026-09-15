@@ -65,3 +65,39 @@ func TestOldStateWithoutRootKeepsCurrentRoot(t *testing.T) {
 		t.Errorf("素材目錄變成 %q，要維持 %q", e.Root, here)
 	}
 }
+
+// 滑鼠驅動的狀態要整份存：事件常式、座標範圍、最後按放的位置（§4.18）。
+// 漏了事件常式不會報錯——讀檔之後點擊輪詢看得到、事件常式卻一次都不叫，
+// 只從事件回呼收按鍵的遊戲（銀河英雄傳說III，spec 013）畫面一動不動。
+func TestStateKeepsMouseDriverState(t *testing.T) {
+	d := newAt(t, t.TempDir())
+	d.Mouse.Handler.Seg, d.Mouse.Handler.Off, d.Mouse.Handler.Mask = 0x36AD, 0x021D, 0x001F
+	d.Mouse.Handler.Set = true
+	d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY = 0, 0x27F, 0, 0x18F
+	d.Mouse.PressAt[0] = [2]uint16{300, 170}
+	d.Mouse.ReleaseAt[1] = [2]uint16{12, 34}
+	d.Mouse.MickeyX, d.Mouse.MickeyY = -3, 7
+	var buf bytes.Buffer
+	if err := d.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	e := newAt(t, t.TempDir())
+	if err := e.LoadState(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	if e.Mouse.Handler != d.Mouse.Handler {
+		t.Errorf("事件常式讀回來是 %+v，要 %+v", e.Mouse.Handler, d.Mouse.Handler)
+	}
+	if e.Mouse.MinX != 0 || e.Mouse.MaxX != 0x27F || e.Mouse.MinY != 0 || e.Mouse.MaxY != 0x18F {
+		t.Errorf("座標範圍讀回來是 %d–%d × %d–%d，要 0–639 × 0–399",
+			e.Mouse.MinX, e.Mouse.MaxX, e.Mouse.MinY, e.Mouse.MaxY)
+	}
+	if e.Mouse.PressAt != d.Mouse.PressAt || e.Mouse.ReleaseAt != d.Mouse.ReleaseAt {
+		t.Errorf("最後按放的座標讀回來是 %v／%v，要 %v／%v",
+			e.Mouse.PressAt, e.Mouse.ReleaseAt, d.Mouse.PressAt, d.Mouse.ReleaseAt)
+	}
+	if e.Mouse.MickeyX != -3 || e.Mouse.MickeyY != 7 {
+		t.Errorf("相對位移讀回來是 (%d,%d)，要 (-3,7)", e.Mouse.MickeyX, e.Mouse.MickeyY)
+	}
+}

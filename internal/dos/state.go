@@ -113,9 +113,16 @@ func (d *DOS) SaveState(w io.Writer) error {
 		Exited:   d.Exited,
 		ExitCode: d.ExitCode,
 	}
-	// 滑鼠的座標與按鍵要留，觀測紀錄不留。
+	// 滑鼠驅動的狀態要整份留：座標與鍵之外，`AX=000Ch` 的事件常式、
+	// `AX=7`／`AX=8` 的座標範圍、`AX=5`／`AX=6` 用的最後按放座標與
+	// `AX=0Bh` 的相對位移都是遊戲開機設好就不再設的（`docs/spec/004` §4.18）。
+	// 觀測紀錄（Polls／Sets／Calls／Events／PressQ／PressReads）不留。
 	s.Mouse = Mouse{X: d.Mouse.X, Y: d.Mouse.Y, Buttons: d.Mouse.Buttons,
-		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale}
+		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale,
+		PressAt: d.Mouse.PressAt, ReleaseAt: d.Mouse.ReleaseAt,
+		MickeyX: d.Mouse.MickeyX, MickeyY: d.Mouse.MickeyY,
+		MinX: d.Mouse.MinX, MaxX: d.Mouse.MaxX, MinY: d.Mouse.MinY, MaxY: d.Mouse.MaxY,
+		Handler: d.Mouse.Handler}
 
 	for _, b := range d.arena {
 		s.Arena = append(s.Arena, blockState{Seg: b.seg, Size: b.size, Free: b.free})
@@ -176,6 +183,11 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
+	d.Mouse.PressAt, d.Mouse.ReleaseAt = s.Mouse.PressAt, s.Mouse.ReleaseAt
+	d.Mouse.MickeyX, d.Mouse.MickeyY = s.Mouse.MickeyX, s.Mouse.MickeyY
+	d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY = s.Mouse.MinX, s.Mouse.MaxX, s.Mouse.MinY, s.Mouse.MaxY
+	// 舊檔沒有事件常式：讀進來 Set=false，與修正前相同（不會更糟）。
+	d.Mouse.Handler = s.Mouse.Handler
 	d.freeSeg = s.FreeSeg
 	d.curPSP, d.lastExit = s.CurPSP, s.LastExit
 	d.queue = append([]Queued(nil), s.Queue...)
