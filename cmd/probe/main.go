@@ -954,7 +954,8 @@ func main() {
 		if err := writeHercules(*dumpHerc, m); err != nil {
 			die(err)
 		}
-		fmt.Printf("寫出 %s（B0000 當 Hercules 720×348）\n", *dumpHerc)
+		w, h, _ := m.HerculesGeometry()
+		fmt.Printf("寫出 %s（Hercules %d×%d，幾何取自 CRTC）\n", *dumpHerc, w, h)
 	}
 	if *dumpLinear != "" {
 		raw := append([]byte(nil), m.Mem[0xA0000:0xB0000]...)
@@ -2214,11 +2215,12 @@ func writeCGA(path string, m *machine.Machine) error {
 
 // writeHercules 把 B0000 當 Hercules 圖形頁 0 畫成 720×348 的灰階 PNG。
 func writeHercules(path string, m *machine.Machine) error {
+	w, h, _ := m.HerculesGeometry()
 	px := m.Hercules()
-	img := image.NewGray(image.Rect(0, 0, machine.HerculesWidth, machine.HerculesHeight))
+	img := image.NewGray(image.Rect(0, 0, w, h))
 	for i, p := range px {
 		if p != 0 {
-			img.SetGray(i%machine.HerculesWidth, i/machine.HerculesWidth, color.Gray{Y: 255})
+			img.SetGray(i%w, i/w, color.Gray{Y: 255})
 		}
 	}
 	f, err := os.Create(path)

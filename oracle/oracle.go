@@ -442,7 +442,8 @@ func (o *Oracle) IndexedEGASize(w, h int) []uint8 { return o.m.IndexedEGASize(w,
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 
-// Hercules 回 Hercules 圖形頁 0（`B0000`）解成 720×348 的 0／1 陣列。
+// Hercules 回 Hercules 顯示中的那一頁（`B0000` 或翻頁後的 `B8000`）解成
+// `HerculesGeometry` 給的寬高的 0／1 陣列。
 //
 // **第三塊顯示記憶體。** `Indexed()`／`IndexedEGA*` 看 `A0000`，文字與
 // CGA 看 `B8000`，Hercules 在 `B0000`——選了 Hercules 的程式用前兩支
@@ -452,6 +453,10 @@ func (o *Oracle) Hercules() []uint8 { return o.m.Hercules() }
 
 // HerculesNonZero 回 `B0000` 頁 0 非零位元組的數量。0 才是「沒畫」。
 func (o *Oracle) HerculesNonZero() int { return o.m.HerculesNonZero() }
+
+// HerculesGeometry 回 `Hercules()` 的寬、高與每列位元組數——程式寫進
+// 6845 的值，沒寫就是標準的 720×348／90。
+func (o *Oracle) HerculesGeometry() (w, h, stride int) { return o.m.HerculesGeometry() }
 
 // 文字模式畫面的形狀（mode 03h：80 欄 25 列，一格「字元 ＋ 屬性」兩個 byte）。
 const (

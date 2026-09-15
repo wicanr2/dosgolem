@@ -222,6 +222,9 @@ type Machine struct {
 	oplT1Started, oplT2Started bool
 	oplT1Masked, oplT2Masked   bool
 
+	// hgc 是 Hercules 的 CRTC 與模式埠（hercules.go）。
+	hgc hgcState
+
 	// Ports 是每個埠最後一次寫進去的值；PortLog 是完整序列。
 	// Coverage 記每一個被執行過的線性位址。nil 表示不記。
 	//
@@ -842,6 +845,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 		m.kbdPortB = v
 		m.outSpeaker(v)
 	}
+
+	// Hercules 的 CRTC（3B4h 索引、3B5h 資料）與模式埠（3B8h）：
+	// 畫面幾何與顯示頁由這幾個決定（hercules.go）。
+	m.hgcOut(p, v)
 
 	// 8259 的 OCW1。被遮蔽的中斷掛起不送，放行時補送。
 	if p == 0x21 {
