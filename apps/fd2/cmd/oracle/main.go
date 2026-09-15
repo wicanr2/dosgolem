@@ -74,6 +74,8 @@ func main() {
 	frameTo := flag.Int("frame-to", 0, "逐幀擷取的結束指令數；0 表示不設上界")
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
 	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
+	eipTrace := flag.String("eip-trace", "", "逗號分隔的十六進位位址（最多16個）；每次進入時把 step、control seq、EAX/EDX/EBX/ECX/ESI/EDI/ESP 與堆疊前 8 個 dword 追加到 -run-dir 的 eip-trace.jsonl（Watcom 暫存器呼叫慣例：前四個整數引數在 EAX/EDX/EBX/ECX）")
+	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆；超過就停止記錄")
 	flag.Parse()
 	if *cpuProfile != "" {
 		f, e := os.Create(*cpuProfile)
@@ -489,6 +491,37 @@ func main() {
 	if len(eipWatchAddrs) > 16 {
 		panic("eip-watch 位址超過 16 個")
 	}
+	// eip-trace 是找「某個函式被誰、用什麼引數呼叫」用的最小工具：在進入
+	// 位址那一步把暫存器與堆疊頂端抄下來。它只讀 CPU 狀態，不改執行語意。
+	var eipTraceAddrs []uint32
+	for _, part := range strings.Split(*eipTrace, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, e := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(part, "0x"), "0X"), 16, 32)
+		if e != nil {
+			panic("eip-trace 不是十六進位位址")
+		}
+		eipTraceAddrs = append(eipTraceAddrs, uint32(v))
+	}
+	if len(eipTraceAddrs) > 16 {
+		panic("eip-trace 位址超過 16 個")
+	}
+	var eipTraceLog *os.File
+	eipTraceCount := 0
+	if len(eipTraceAddrs) > 0 {
+		if *runDir == "" {
+			panic("eip-trace 需要 -run-dir")
+		}
+		f, e := os.OpenFile(filepath.Join(*runDir, "eip-trace.jsonl"),
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if e != nil {
+			panic(e)
+		}
+		eipTraceLog = f
+		defer f.Close()
+	}
 	frameIndex, frameNext, framePendingCount := 0, 0, 0
 	var frameLast, framePending [32]byte
 	var frameLog *os.File
@@ -667,6 +700,30 @@ func main() {
 		for i, addr := range eipWatchAddrs {
 			if instructionEIP == addr {
 				eipWatchHits[i]++
+				break
+			}
+		}
+		if eipTraceLog != nil && eipTraceCount < *eipTraceMax {
+			for _, addr := range eipTraceAddrs {
+				if instructionEIP != addr {
+					continue
+				}
+				stack := make([]string, 0, 8)
+				for i := 0; i < 8; i++ {
+					v, e := m.Read32(m.CPU.R[cpu386.ESP] + uint32(i*4))
+					if e != nil {
+						break
+					}
+					stack = append(stack, fmt.Sprintf("0x%X", v))
+				}
+				// rng_word 是 0x627B8 當下的值：對拍時重製端在同一個入口對齊它。
+				rngWord, _ := m.Read16(0x627b8)
+				fmt.Fprintf(eipTraceLog,
+					`{"step":%d,"control_seq":%d,"eip":"0x%X","eax":"0x%X","edx":"0x%X","ebx":"0x%X","ecx":"0x%X","esi":"0x%X","edi":"0x%X","esp":"0x%X","rng_word":%d,"stack":[%s]}`+"\n",
+					steps, controlSeq, instructionEIP,
+					m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX],
+					m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.ESP], rngWord, strings.Join(quoteAll(stack), ","))
+				eipTraceCount++
 				break
 			}
 		}
@@ -914,4 +971,13 @@ func main() {
 	if stop != nil {
 		os.Exit(2)
 	}
+}
+
+// quoteAll 把字串逐一加上 JSON 雙引號（eip-trace 的堆疊欄位）。
+func quoteAll(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = `"` + v + `"`
+	}
+	return out
 }
