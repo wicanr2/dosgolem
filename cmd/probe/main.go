@@ -110,6 +110,7 @@ func main() {
 	pressAt := flag.Uint64("press-at", 0, "第幾道指令開始送鍵（0 ＝ steps 的八成）")
 	pressEvery := flag.Uint64("press-every", 500_000, "每幾道指令送一個掃描碼")
 	dumpCGA := flag.String("dump-cga", "", "把 B8000 當 CGA mode 06h（640×200 雙 bank）畫成 PNG")
+	dumpHerc := flag.String("dump-herc", "", "把 B0000 當 Hercules 圖形頁 0（720×348 四 bank）畫成 PNG")
 	dumpLinear := flag.String("dump-linear", "", "把 A0000 的 64 KB raw bytes 寫到這個檔"+
 		"（planar 模式的原始內容，**不是**解碼後的畫面——spec 008 §5）")
 	watchScreen := flag.Uint64("watch-screen", 0,
@@ -908,8 +909,11 @@ func main() {
 	if len(d.Missing) > 0 {
 		fmt.Printf("找不到的檔（%d）：%v\n", len(d.Missing), d.Missing)
 	}
-	// CGA／EGA 的畫面在 B8000／A0000，`-dump-vram` 只看 mode 13h 的 A0000。
-	// 這個遊戲跑在 mode 06h（CGA 640×200），所以另外報一行「那一塊有沒有東西」。
+	// 三塊顯示記憶體各報一行「有沒有東西」：`-dump-vram` 只看 mode 13h 的
+	// A0000；CGA／文字在 B8000；**Hercules 在 B0000**。少報哪一塊，選了那個
+	// 裝置的程式就會被判成「一次都沒畫」——那是假零，不是結論
+	// （softworld_san `docs/re/00`：第三輪全餵 1 選到 Hercules，probe 只看
+	// A0000 與 B8000，兩塊都與當時的設定無關）。
 	{
 		nz := 0
 		for a := uint32(0xB8000); a < 0xB8000+0x8000; a++ {
@@ -918,6 +922,7 @@ func main() {
 			}
 		}
 		fmt.Printf("B8000 非零 bytes %d / 32768\n", nz)
+		fmt.Printf("B0000 非零 bytes %d / 32768（Hercules 圖形頁 0）\n", m.HerculesNonZero())
 	}
 	if n := len(m.Speaker); n > 0 {
 		fmt.Printf("\nPC 喇叭：切換 %d 次，8253 通道 0 分頻值 %d（%.0f Hz）\n",
@@ -944,6 +949,12 @@ func main() {
 			die(err)
 		}
 		fmt.Printf("寫出 %s（B8000 當 640×200 mode 06h）\n", *dumpCGA)
+	}
+	if *dumpHerc != "" {
+		if err := writeHercules(*dumpHerc, m); err != nil {
+			die(err)
+		}
+		fmt.Printf("寫出 %s（B0000 當 Hercules 720×348）\n", *dumpHerc)
 	}
 	if *dumpLinear != "" {
 		raw := append([]byte(nil), m.Mem[0xA0000:0xB0000]...)
@@ -2191,6 +2202,23 @@ func writeCGA(path string, m *machine.Machine) error {
 			if b&(0x80>>uint(x%8)) != 0 {
 				img.SetGray(x, y, color.Gray{Y: 255})
 			}
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
+}
+
+// writeHercules 把 B0000 當 Hercules 圖形頁 0 畫成 720×348 的灰階 PNG。
+func writeHercules(path string, m *machine.Machine) error {
+	px := m.Hercules()
+	img := image.NewGray(image.Rect(0, 0, machine.HerculesWidth, machine.HerculesHeight))
+	for i, p := range px {
+		if p != 0 {
+			img.SetGray(i%machine.HerculesWidth, i/machine.HerculesWidth, color.Gray{Y: 255})
 		}
 	}
 	f, err := os.Create(path)
