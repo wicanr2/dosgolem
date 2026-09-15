@@ -336,10 +336,15 @@ func main() {
 			"cursor_x": 0x53ab1, "cursor_y": 0x53ab5,
 			"visible_x": 0x53ab9, "visible_y": 0x53abd,
 			"round": 0x53bef, "overlay_selector": 0x51a83,
+			"gold": 0x53bf3,
 		} {
 			v, _ := m.Read32(addr)
 			view[key] = v
 		}
+		// 0x627B8 是 0x4E893 亂數的唯一狀態字組（全 EXE 只有它自己讀寫；行程起始
+		// 為 0，不進存檔）。重製端要在同一個控制邊界同步這個值，命中／傷害才比得起來。
+		rng, _ := m.Read16(0x627b8)
+		view["rng_word"] = uint32(rng)
 		return view
 	}
 	capture := func(label string, withFrame bool) {
