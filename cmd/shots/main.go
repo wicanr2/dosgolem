@@ -43,6 +43,15 @@ type shotInfo struct {
 	Path    string `json:"path"`
 	// Peek 是 -peek 讀到的記憶體：鍵是 `ds:5E85` 這種標籤，值是 hex 字串。
 	Peek map[string]string `json:"peek,omitempty"`
+	// PeekTrace 是 -trace-peek 在這一步跑的期間每次值變動的快照（含步數）。
+	// 一個鍵之後可能發生好幾件事（戰鬥裡幾隻怪物依序行動），只看靜下來那一幀
+	// 分不出順序；這裡每跑一小段就讀一次，變了就記。
+	PeekTrace []peekSnapshot `json:"peek_trace,omitempty"`
+}
+
+type peekSnapshot struct {
+	Step uint64            `json:"step"`
+	Peek map[string]string `json:"peek"`
 }
 
 func main() {
@@ -60,6 +69,7 @@ func main() {
 		"結果印在 stdout，也寫進 shots.json 的 peek 欄（hex 字串）。"+
 		"**要帶一個已知值當正對照**（例如程式自己的常數表），否則 DS 抓錯時讀到的"+
 		"是別段的零，看起來跟「表是空的」一樣")
+	tracePeek := flag.String("trace-peek", "", "跟 -peek 同格式；每跑 10 萬道指令讀一次，值變了就記一筆快照進 shots.json 的 peek_trace（看戰鬥裡誰先動、動到哪）")
 	loadState := flag.String("load-state", "", "從狀態檔接著跑（`internal/state`，probe 的 -save-state 存的那種）；"+
 		"這時不再等開機那一幀，第一個鍵直接送。逐步驅動（看畫面再決定下一個鍵）靠它：每一步從上一步"+
 		"存的狀態展開，是秒級不是分鐘級")
@@ -95,6 +105,30 @@ func main() {
 	}
 
 	var shots []shotInfo
+	var trace []peekSnapshot
+	lastTrace := ""
+	traceKey := func(p map[string]string) string {
+		keys := make([]string, 0, len(p))
+		for k := range p {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out := ""
+		for _, k := range keys {
+			out += k + "=" + p[k] + ";"
+		}
+		return out
+	}
+	sample := func() {
+		if *tracePeek == "" {
+			return
+		}
+		p := peekMemory(m, *tracePeek)
+		if key := traceKey(p); key != lastTrace {
+			lastTrace = key
+			trace = append(trace, peekSnapshot{Step: m.Steps, Peek: p})
+		}
+	}
 	save := func(label string, frame []uint8) {
 		if *out == "" {
 			return
@@ -115,7 +149,9 @@ func main() {
 			}
 		}
 		sum := sha256.Sum256(frame)
-		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek)})
+		sample()
+		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek), trace})
+		trace = nil
 		fmt.Printf("  → %s：step %d 非零 %d\n", name, m.Steps, nz)
 		for k, v := range shots[len(shots)-1].Peek {
 			fmt.Printf("    %s = %s\n", k, v)
@@ -136,6 +172,7 @@ func main() {
 					return m.IndexedEGA(), false
 				}
 			}
+			sample()
 			frame := m.IndexedEGA()
 			if !same(last, frame) {
 				last, lastChange = frame, m.Steps
