@@ -4339,6 +4339,27 @@ func (c *CPU) Step() error {
 		}
 		c.R[EAX] |= value
 		c.setLogicFlags(c.R[EAX])
+	case op == 0x04 || op == 0x2c || op == 0x34:
+		// AL, imm8 的 ADD／SUB／XOR。FD2.EXE 用 capstone 線性掃 code 段只出現這三種
+		// （ADD 5 處、SUB 4 處、XOR 2 處，都沒有 prefix）；ADC／SBB 的 14／1C 沒出現，不接。
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail(fmt.Sprintf("%02X 不接受目前的 prefix", op))
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		var result uint8
+		switch op {
+		case 0x04:
+			result = c.add8(c.reg8(0), value)
+		case 0x2c:
+			result = c.sub8(c.reg8(0), value)
+		default:
+			result = c.reg8(0) ^ value
+			c.setLogicFlags8(result)
+		}
+		c.setReg8(0, result)
 	case op == 0x0c:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("0C 不接受目前的 prefix")
