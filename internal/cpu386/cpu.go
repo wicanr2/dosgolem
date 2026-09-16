@@ -604,21 +604,6 @@ func (c *CPU) Step() error {
 		av, bv := c.reg8(a), c.reg8(b)
 		c.setReg8(a, bv)
 		c.setReg8(b, av)
-	case op == 0x32:
-		if operand16 || segmentOverride >= 0 || repe || repne {
-			return fail("XOR byte prefix未支援")
-		}
-		modrm, e := c.fetch8()
-		if e != nil {
-			return fail(e.Error())
-		}
-		if modrm>>6 != 3 {
-			return fail("XOR byte僅支援暫存器")
-		}
-		dst, src := int((modrm>>3)&7), int(modrm&7)
-		v := c.reg8(dst) ^ c.reg8(src)
-		c.setReg8(dst, v)
-		c.setLogicFlags8(v)
 	case op == 0x33:
 		if operand16 && segmentOverride < 0 && !repe && !repne {
 			modrm, e := c.fetch8()
@@ -1184,42 +1169,44 @@ func (c *CPU) Step() error {
 			c.setReg8(dst, v)
 			c.setLogicFlags8(v)
 		}
-	case op == 0x0a:
-		if operand16 || segmentOverride >= 0 || repe || repne {
-			return fail("0A 不接受目前的 prefix")
+	case op == 0x0a || op == 0x32:
+		// 0A = OR r8, r/m8；32 = XOR r8, r/m8。記憶體形式交給 decodeAddress32，和
+		// 02／22／2A／3A 同一條路（FD2 0x1D7FF `or bl,[esp+edx]`：升級學指令時把
+		// record+0x1a+idx 的位元設起來，ModRM 1C 帶 SIB，舊的 mod=01 手寫分支解不到）。
+		if operand16 || repe || repne {
+			return fail("byte暫存器運算prefix尚未支援")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
+		dst := int((modrm >> 3) & 7)
+		var b uint8
 		if modrm>>6 == 3 {
-			dst, src := int((modrm>>3)&7), int(modrm&7)
-			v := c.reg8(dst) | c.reg8(src)
-			c.setReg8(dst, v)
-			c.setLogicFlags8(v)
-			break
+			if segmentOverride >= 0 {
+				return fail("byte暫存器運算prefix尚未支援")
+			}
+			b = c.reg8(int(modrm & 7))
+		} else {
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			if segmentOverride >= 0 {
+				seg = segmentOverride
+			}
+			value, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail(fmt.Sprintf("byte運算讀取 %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			b = value
 		}
-		if modrm>>6 != 1 || modrm&7 == ESP {
-			return fail(fmt.Sprintf("0A ModRM %02X 尚未支援", modrm))
+		v := c.reg8(dst) | b
+		if op == 0x32 {
+			v = c.reg8(dst) ^ b
 		}
-		delta, e := c.fetch8()
-		if e != nil {
-			return fail(e.Error())
-		}
-		base := modrm & 7
-		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
-		segment := SegDS
-		if base == EBP {
-			segment = SegSS
-		}
-		value, ok := c.readSegment8(c.Seg[segment], addr)
-		if !ok {
-			return fail(fmt.Sprintf("OR byte read %04X:%08X 未處理", c.Seg[segment], addr))
-		}
-		destination := int((modrm >> 3) & 7)
-		result := c.reg8(destination) | value
-		c.setReg8(destination, result)
-		c.setLogicFlags8(result)
+		c.setReg8(dst, v)
+		c.setLogicFlags8(v)
 	case op == 0x85:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("85 不接受目前的 prefix")
