@@ -439,6 +439,10 @@ func (o *Oracle) EGAPlane(plane int) []uint8 { return o.m.EGAPlane(plane) }
 // 存圖會得到一張有規律的條紋——看起來像畫面壞掉，而不像取錯了緩衝區。
 func (o *Oracle) IndexedEGASize(w, h int) []uint8 { return o.m.IndexedEGASize(w, h) }
 
+// IndexedEGAFrom 同 IndexedEGASize，但從每個平面的第 start 個位元組起解：
+// 程式把第二張畫面畫在第二頁（640×408 是 0x8000 起）時用它看那一頁。
+func (o *Oracle) IndexedEGAFrom(start, w, h int) []uint8 { return o.m.IndexedEGAFrom(start, w, h) }
+
 // Palette 回 256×3 的 RGB。
 func (o *Oracle) Palette() [256][3]uint8 { return o.m.Palette() }
 

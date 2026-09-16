@@ -336,13 +336,21 @@ func (v *VGA) Raw() []uint8 { return v.mem }
 
 // Pixels 把四個平面攤成每點一個 4 bit 色號。
 //
-// 列距是 `w/8` bytes。**不讀 CRTC**——被觀測的程式不改它。
-func (v *VGA) Pixels(w, h int) []uint8 {
+// 列距是 `w/8` bytes。**不讀 CRTC**——被觀測的程式不改它。要看平面裡
+// 另一頁（程式自己算頁的起點）用 PixelsFrom。
+func (v *VGA) Pixels(w, h int) []uint8 { return v.PixelsFrom(0, w, h) }
+
+// PixelsFrom 同 Pixels，但從每個平面的第 start 個位元組起解。
+//
+// 三國演義把主戰場以外的第二張畫面（郡地理誌）畫在平面的第二頁
+// （640×408 一頁 32,640 位元組，第二頁從 0x8000 起）再切顯示起點；
+// 只讀第一頁會看到主畫面沒動，而畫其實畫好了。
+func (v *VGA) PixelsFrom(start, w, h int) []uint8 {
 	out := make([]uint8, w*h)
 	pitch := w / 8
 	for y := 0; y < h; y++ {
 		for bx := 0; bx < pitch; bx++ {
-			off := y*pitch + bx
+			off := start + y*pitch + bx
 			if off >= PlaneSize {
 				break
 			}
@@ -526,6 +534,10 @@ func (m *Machine) EGAPlane(plane int) []uint8 { return m.VGA.Planes[plane&3] }
 
 // IndexedEGASize 把四個平面解成 w×h 的色號陣列。
 func (m *Machine) IndexedEGASize(w, h int) []uint8 { return m.VGA.Pixels(w, h) }
+
+// IndexedEGAFrom 同 IndexedEGASize，但從每個平面的第 start 個位元組起解
+// （看第二頁）。
+func (m *Machine) IndexedEGAFrom(start, w, h int) []uint8 { return m.VGA.PixelsFrom(start, w, h) }
 
 // IndexedEGA 用目前模式的尺寸解畫面。
 func (m *Machine) IndexedEGA() []uint8 { return m.planarIndexed() }
