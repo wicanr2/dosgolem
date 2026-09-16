@@ -31,6 +31,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/internal/state"
 )
 
 type shotInfo struct {
@@ -59,6 +60,10 @@ func main() {
 		"結果印在 stdout，也寫進 shots.json 的 peek 欄（hex 字串）。"+
 		"**要帶一個已知值當正對照**（例如程式自己的常數表），否則 DS 抓錯時讀到的"+
 		"是別段的零，看起來跟「表是空的」一樣")
+	loadState := flag.String("load-state", "", "從狀態檔接著跑（`internal/state`，probe 的 -save-state 存的那種）；"+
+		"這時不再等開機那一幀，第一個鍵直接送。逐步驅動（看畫面再決定下一個鍵）靠它：每一步從上一步"+
+		"存的狀態展開，是秒級不是分鐘級")
+	saveState := flag.String("save-state", "", "全部鍵送完、畫面靜下來之後把機器與 DOS 存到這個檔")
 	flag.Parse()
 
 	img, err := os.ReadFile(*exe)
@@ -143,12 +148,22 @@ func main() {
 		return m.IndexedEGA(), false
 	}
 
-	fmt.Println("開機到第一個穩定畫面…")
-	frame, ok := settle()
-	if !ok {
-		fmt.Println("  ⚠ 畫面沒有靜下來（用完 budget）")
+	if *loadState != "" {
+		if err := state.Load(*loadState, m, d); err != nil {
+			fmt.Println("讀狀態檔失敗：", err)
+			os.Exit(1)
+		}
+		d.Scratch = *scratch
+		fmt.Printf("從 %s 接著跑（第 %d 道指令）\n", *loadState, m.Steps)
+		save("loaded", m.IndexedEGA())
+	} else {
+		fmt.Println("開機到第一個穩定畫面…")
+		frame, ok := settle()
+		if !ok {
+			fmt.Println("  ⚠ 畫面沒有靜下來（用完 budget）")
+		}
+		save("boot", frame)
 	}
-	save("boot", frame)
 
 	for _, item := range parseScript(*script) {
 		before := d.KeysConsumed
@@ -186,6 +201,14 @@ func main() {
 			}
 		}
 		save(strings.NewReplacer(":", "-", " ", "_").Replace(item), frame)
+	}
+
+	if *saveState != "" {
+		if err := state.Save(*saveState, m, d); err != nil {
+			fmt.Println("存狀態檔失敗：", err)
+			os.Exit(1)
+		}
+		fmt.Printf("狀態存到 %s（第 %d 道指令）\n", *saveState, m.Steps)
 	}
 
 	fmt.Printf("\n跑了 %d 道指令，CS:IP=%04X:%04X，鍵讀走 %d、還剩 %d\n",
