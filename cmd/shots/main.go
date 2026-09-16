@@ -40,6 +40,8 @@ type shotInfo struct {
 	NonZero int    `json:"non_zero"`
 	Digest  string `json:"sha256"`
 	Path    string `json:"path"`
+	// Peek 是 -peek 讀到的記憶體：鍵是 `ds:5E85` 這種標籤，值是 hex 字串。
+	Peek map[string]string `json:"peek,omitempty"`
 }
 
 func main() {
@@ -51,6 +53,12 @@ func main() {
 	keytrace := flag.Bool("keytrace", false, "每一步印出程式讀走了哪些鍵、是誰讀的")
 	out := flag.String("out", "", "輸出目錄")
 	script := flag.String("keys", "", "鍵序，逗號分隔：Return、Space、c、type:HERO、rep:18:Space")
+	peek := flag.String("peek", "", "每一步畫面靜下來之後讀這些記憶體，逗號分隔："+
+		"`ds:<hex 偏移>:<長度>`（段取當下的 DS——Turbo Pascal 程式的 DS 固定是 DGROUP，"+
+		"等鍵時停在 RTL 裡也還是它）或 `<seg>:<off>:<長度>`。"+
+		"結果印在 stdout，也寫進 shots.json 的 peek 欄（hex 字串）。"+
+		"**要帶一個已知值當正對照**（例如程式自己的常數表），否則 DS 抓錯時讀到的"+
+		"是別段的零，看起來跟「表是空的」一樣")
 	flag.Parse()
 
 	img, err := os.ReadFile(*exe)
@@ -102,8 +110,11 @@ func main() {
 			}
 		}
 		sum := sha256.Sum256(frame)
-		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png"})
+		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek)})
 		fmt.Printf("  → %s：step %d 非零 %d\n", name, m.Steps, nz)
+		for k, v := range shots[len(shots)-1].Peek {
+			fmt.Printf("    %s = %s\n", k, v)
+		}
 	}
 
 	// settle 跑到畫面連續 idle 道指令沒變為止，或用完 budget。
@@ -230,6 +241,43 @@ func main() {
 		manifest, _ := json.MarshalIndent(shots, "", "  ")
 		os.WriteFile(filepath.Join(*out, "shots.json"), append(manifest, '\n'), 0o644)
 	}
+}
+
+// peekMemory 讀 -peek 指定的幾段記憶體。`ds:` 的段取當下的 DS 暫存器；
+// 格式錯的項目印一行警告後跳過，不讓一個打錯的位址把整輪跑掉。
+func peekMemory(m *machine.Machine, spec string) map[string]string {
+	if spec == "" {
+		return nil
+	}
+	out := map[string]string{}
+	for _, item := range strings.Split(spec, ",") {
+		f := strings.Split(strings.TrimSpace(item), ":")
+		if len(f) != 3 {
+			fmt.Printf("  ⚠ -peek 看不懂 %q\n", item)
+			continue
+		}
+		var seg uint64
+		var err error
+		if f[0] == "ds" {
+			seg = uint64(m.CPU.Seg[cpu.DS])
+		} else if seg, err = strconv.ParseUint(f[0], 16, 16); err != nil {
+			fmt.Printf("  ⚠ -peek 看不懂 %q\n", item)
+			continue
+		}
+		off, err1 := strconv.ParseUint(f[1], 16, 16)
+		n, err2 := strconv.Atoi(f[2])
+		if err1 != nil || err2 != nil || n < 0 {
+			fmt.Printf("  ⚠ -peek 看不懂 %q\n", item)
+			continue
+		}
+		base := uint32(seg)*16 + uint32(off)
+		buf := make([]byte, n)
+		for i := range buf {
+			buf[i] = m.Read8(base + uint32(i))
+		}
+		out[fmt.Sprintf("%s:%s", f[0], strings.ToUpper(f[1]))] = fmt.Sprintf("%04X|%x", seg, buf)
+	}
+	return out
 }
 
 // parseScript 把鍵序展開。`rep:18:Space` 是同一個鍵按 18 次。
