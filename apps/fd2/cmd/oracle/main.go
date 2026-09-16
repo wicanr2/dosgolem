@@ -287,6 +287,7 @@ func main() {
 	allyHPWrites := 0
 	forceEnemyClearCommands := 0
 	forceEnemyClearWrites := 0
+	checkpointDeferred := 0 // 步數到了但 EIP 在 memcpy 裡、被延後的指令數（收據記錄用）
 	lockAllyHPNow := func() {
 		base, e1 := m.Read32(0x53a45)
 		count, e2 := m.Read32(0x53beb)
@@ -427,6 +428,7 @@ func main() {
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
 			"exe_sha256": hash, "address_space": "dosgolem relocated LE linear",
 			"state_injections": injections(), "steps": steps,
+			"checkpoint_deferred_steps":   checkpointDeferred,
 			"normal_player_path_verified": false,
 			"evidence_restrictions": []string{
 				"修改路徑只可驗證節點、畫面、介面與存檔閉環",
@@ -615,7 +617,18 @@ func main() {
 		if *lockAllyHP && steps%2000 == 0 {
 			lockAllyHPNow()
 		}
-		if *runDir != "" && steps >= chunkEnd {
+		// checkpoint 不能落在正在寫螢幕的例程裡：0x11EB0（0x11EB0..0x11EED）用 C runtime
+		// memcpy（0x373C4..0x37415）把 312×192 的離屏視窗逐列搬到 VGA，搬到一半拍下來
+		// 的畫面上半是新一幀、下半是舊一幀（第四章 seq 892：只有最下面一隻單位停在舊的
+		// idle 相位）；回合橫幅的馬賽克 0x4E809..0x4E85A 逐塊直接寫 VGA，寫到一半就有
+		// 幾塊還是上一步的（seq 934）。步數到了而 EIP 在這幾段裡就再多走幾步，等它返回；
+		// 有上界，不會卡死。
+		if *runDir != "" && steps >= chunkEnd && steps < chunkEnd+2000000 &&
+			(m.CPU.EIP >= 0x373c4 && m.CPU.EIP < 0x37416 ||
+				m.CPU.EIP >= 0x11eb0 && m.CPU.EIP < 0x11eee ||
+				m.CPU.EIP >= 0x4e809 && m.CPU.EIP < 0x4e85b) {
+			checkpointDeferred++
+		} else if *runDir != "" && steps >= chunkEnd {
 			capture(fmt.Sprintf("checkpoint-%04d", controlSeq), true)
 			capture("current", false)
 			deadline := time.Now().Add(*waitTimeout)
