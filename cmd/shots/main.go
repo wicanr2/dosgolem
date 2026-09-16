@@ -47,6 +47,17 @@ type shotInfo struct {
 	// 一個鍵之後可能發生好幾件事（戰鬥裡幾隻怪物依序行動），只看靜下來那一幀
 	// 分不出順序；這裡每跑一小段就讀一次，變了就記。
 	PeekTrace []peekSnapshot `json:"peek_trace,omitempty"`
+	// Calls 是 -trace-call 在這一步跑的期間記到的每一次呼叫：進去時堆疊上的第一個
+	// word 參數、回來時的 AX、是誰叫的。Turbo Pascal 的 `Random(n)` 就是這個形狀。
+	Calls []callRecord `json:"calls,omitempty"`
+}
+
+type callRecord struct {
+	Step     uint64 `json:"step"`
+	Arg      uint16 `json:"arg"`
+	Result   uint16 `json:"result"`
+	CallerCS uint16 `json:"caller_cs"`
+	CallerIP uint16 `json:"caller_ip"`
 }
 
 type peekSnapshot struct {
@@ -69,6 +80,9 @@ func main() {
 		"結果印在 stdout，也寫進 shots.json 的 peek 欄（hex 字串）。"+
 		"**要帶一個已知值當正對照**（例如程式自己的常數表），否則 DS 抓錯時讀到的"+
 		"是別段的零，看起來跟「表是空的」一樣")
+	traceCall := flag.String("trace-call", "", "`<seg>:<off>`（十六進位，seg 是連結期的段，執行期加 LoadSeg）："+
+		"每次 CS:IP 走到這裡就記堆疊上的第一個 word 參數與回來時的 AX，連同呼叫端 CS:IP 寫進 shots.json 的 calls。"+
+		"拿它記 Turbo Pascal `Random(n)` 的骰流：`5BB:C94`（Pool of Radiance）")
 	tracePeek := flag.String("trace-peek", "", "跟 -peek 同格式；每跑 10 萬道指令讀一次，值變了就記一筆快照進 shots.json 的 peek_trace（看戰鬥裡誰先動、動到哪）")
 	loadState := flag.String("load-state", "", "從狀態檔接著跑（`internal/state`，probe 的 -save-state 存的那種）；"+
 		"這時不再等開機那一幀，第一個鍵直接送。逐步驅動（看畫面再決定下一個鍵）靠它：每一步從上一步"+
@@ -107,6 +121,37 @@ func main() {
 	var shots []shotInfo
 	var trace []peekSnapshot
 	lastTrace := ""
+	var traced []callRecord
+	callSeg, callOff, callOn := uint16(0), uint16(0), false
+	if *traceCall != "" {
+		f := strings.Split(*traceCall, ":")
+		seg, err1 := strconv.ParseUint(f[0], 16, 16)
+		off, err2 := strconv.ParseUint(f[1], 16, 16)
+		if len(f) != 2 || err1 != nil || err2 != nil {
+			fmt.Println("-trace-call 看不懂：", *traceCall)
+			os.Exit(2)
+		}
+		callSeg, callOff, callOn = uint16(seg)+machine.LoadSeg, uint16(off), true
+	}
+	// pending 是進去了還沒回來的那一次（`Random` 是葉子，不會巢狀）。
+	var pending *callRecord
+	retCS, retIP := uint16(0), uint16(0)
+	watchCall := func() {
+		c := m.CPU
+		if pending != nil {
+			if c.Seg[cpu.CS] == retCS && c.IP == retIP {
+				pending.Result = c.R[cpu.AX]
+				traced = append(traced, *pending)
+				pending = nil
+			}
+			return
+		}
+		if c.Seg[cpu.CS] == callSeg && c.IP == callOff {
+			ss, sp := uint32(c.Seg[cpu.SS])*16, uint32(c.R[cpu.SP])
+			retIP, retCS = m.Read16(ss+sp), m.Read16(ss+sp+2)
+			pending = &callRecord{Step: m.Steps, Arg: m.Read16(ss + sp + 4), CallerCS: retCS, CallerIP: retIP}
+		}
+	}
 	traceKey := func(p map[string]string) string {
 		keys := make([]string, 0, len(p))
 		for k := range p {
@@ -150,8 +195,9 @@ func main() {
 		}
 		sum := sha256.Sum256(frame)
 		sample()
-		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek), trace})
+		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek), trace, traced})
 		trace = nil
+		traced = nil
 		fmt.Printf("  → %s：step %d 非零 %d\n", name, m.Steps, nz)
 		for k, v := range shots[len(shots)-1].Peek {
 			fmt.Printf("    %s = %s\n", k, v)
@@ -167,6 +213,9 @@ func main() {
 		deadline := m.Steps + *budget
 		for m.Steps < deadline {
 			for i := 0; i < 100_000; i++ {
+				if callOn {
+					watchCall()
+				}
 				if err := m.Step(); err != nil {
 					fmt.Println("  停下：", err)
 					return m.IndexedEGA(), false
