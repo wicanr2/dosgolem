@@ -32,6 +32,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/internal/opl2"
 	"github.com/wicanr2/dosgolem/internal/state"
 )
 
@@ -224,6 +225,8 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	dumpOPLWAV := flag.String("dump-opl-wav", "",
+		"把 OPL2 暫存器寫入合成成 22,050 Hz 16 位元單聲道 WAV（`docs/spec/196`，近似音色）。要配 -adlib")
 	dumpToneWAV := flag.String("dump-tone-wav", "",
 		"把 PIT 通道 2 的方波（音樂、嗶聲）寫成 22,050 Hz 8 位元單聲道 WAV（`docs/spec/195`）。\n"+
 			"    -dump-wav 只收喇叭資料線（語音），走通道 2 的音樂在那裡幾乎是空的")
@@ -957,6 +960,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "dump-wav:", err)
 		} else {
 			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
+		}
+	}
+	if *dumpOPLWAV != "" {
+		if err := writeOPLWAV(m, *dumpOPLWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-opl-wav:", err)
 		}
 	}
 	if *dumpToneWAV != "" {
@@ -2827,6 +2835,35 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 	}
 	_, err = f.Write(pcm)
 	return err
+}
+
+// writeOPLWAV 把 OPL2 寫入序列合成成 WAV（`docs/spec/196`）。
+func writeOPLWAV(m *machine.Machine, path string) error {
+	const rate = 22050
+	events := make([]opl2.Event, 0, len(m.OPL))
+	for _, x := range m.OPL {
+		if x.Bank == 0 { // 只取 OPL2 相容那一組
+			events = append(events, opl2.Event{Step: x.Step, Reg: x.Reg, Val: x.Val})
+		}
+	}
+	pcm, unsupported, err := opl2.Render(events, machine.StepsPerSecond(), rate)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := opl2.WriteWAV16(f, rate, pcm); err != nil {
+		return err
+	}
+	fmt.Printf("OPL2 合成 → %s（%.1f 秒）", path, float64(len(pcm))/rate)
+	if len(unsupported) > 0 {
+		fmt.Printf("；⚠ 用到沒實作的功能：%v", unsupported)
+	}
+	fmt.Println()
+	return nil
 }
 
 // writeToneWAV 把通道 2 的方波寫成 WAV（`docs/spec/195`）。
