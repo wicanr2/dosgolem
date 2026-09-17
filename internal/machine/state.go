@@ -47,6 +47,7 @@ type machineState struct {
 	IRQ0Base    uint64
 	CPUHz       uint64
 	CycleClock  bool
+	DOSBoxCost  bool // `docs/spec/198`；舊狀態檔讀進來是 false
 	Cycles      uint64
 	NextIRQ0Cyc uint64
 	PITDiv      uint32
@@ -102,6 +103,7 @@ func (m *Machine) SaveState(w io.Writer) error {
 		IRQ0Base:    m.IRQ0Base,
 		CPUHz:       m.CPUHz,
 		CycleClock:  m.CycleClock,
+		DOSBoxCost:  m.CPU.DOSBoxCost,
 		Cycles:      m.CPU.Cycles,
 		NextIRQ0Cyc: m.nextIRQ0Cyc,
 		PITDiv:      m.PITDiv,
@@ -173,6 +175,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	}
 	m.CPUHz, m.CPU.Cycles, m.nextIRQ0Cyc = s.CPUHz, s.Cycles, s.NextIRQ0Cyc
 	m.CycleClock = s.CycleClock
+	m.CPU.DOSBoxCost = s.DOSBoxCost
 	if m.CPUHz == 0 {
 		m.CPUHz = DefaultCPUHz
 	}

@@ -52,7 +52,15 @@ const (
 // ⚠ **不要改成「先累在本道指令、Step 結束再加總」。** 計時器中斷是由外層
 // 在兩道指令之間注入的（`machine.tick` → `CPU.Interrupt`），那一次的成本
 // 不屬於任何一道指令；累在「本道」的話會被下一道 Step 的歸零吃掉。
-func (c *CPU) charge(n int) { c.Cycles += uint64(n) }
+//
+// DOSBox 計費（`docs/spec/198` §3.1）開著時這裡一律不計：只算每道指令 1 個（`Step`）
+// 與字串指令每次迭代 1 個（`stringOnce`），其他類別在 DOSBox-X normal core 裡都不扣 cycles。
+func (c *CPU) charge(n int) {
+	if c.DOSBoxCost {
+		return
+	}
+	c.Cycles += uint64(n)
+}
 
 // in8／out8 是帶計費的埠存取。**CPU 內部一律走這兩支**，
 // 直接呼叫 `c.Bus.In8` 會少算掉最貴的那一類。

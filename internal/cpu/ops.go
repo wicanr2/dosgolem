@@ -16,6 +16,9 @@ func (c *CPU) Step() error {
 	c.operand32 = false
 	c.opCS, c.opIP = c.Seg[CS], c.IP
 	c.charge(cycBase)
+	if c.DOSBoxCost {
+		c.Cycles++ // 前綴不另外扣（DOSBox-X 走 restart_opcode）
+	}
 
 	for {
 		op := c.fetch8()

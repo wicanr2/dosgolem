@@ -133,6 +133,10 @@ type CPU struct {
 	// Cycles 是累計的週期數（近似，見 cycles.go）。時鐘走這個，
 	// 不走指令數——`machine` 的 IRQ0 由它驅動。
 	Cycles uint64
+
+	// DOSBoxCost 開著時 Cycles 照 DOSBox-X normal core 累計：每道指令 1、
+	// 字串指令每次迭代 1，其他不計（`docs/spec/198` §2）。
+	DOSBoxCost bool
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。

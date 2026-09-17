@@ -225,9 +225,9 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
-	ipsSpec := flag.String("ips", "",
-		"機器速度：每秒指令數（`docs/spec/198`），或 xt（240000）、at8（750000）、at12（1510000），"+
-			"與 DOSBox-X 的機型預設 cycles 同義。載入狀態檔之後套用；不能與 -cpuhz 同時給")
+	cyclesSpec := flag.String("cycles", "",
+		"機器速度：DOSBox 相容的每毫秒 cycles（`docs/spec/198`），或 xt（240）、at8（750）、at12（1510）。"+
+			"字串指令每次迭代算一個 cycle，與 DOSBox-X normal core 相同。載入狀態檔之後套用；不能與 -cpuhz 同時給")
 	holdSpec := flag.String("hold", "",
 		"按住按鍵（`docs/spec/197`）：`<鍵>@<起點>+<長度>`，逗號分隔。鍵名同 -press；\n"+
 			"    起點與長度是指令數，或加 ms 後綴以 StepsPerSecond 換算（例 `space@86500000+2000ms`）。\n"+
@@ -420,17 +420,17 @@ func main() {
 			fmt.Printf("載入狀態後改用週期時鐘：CPUHz = %d\n", *obsCPUHz)
 		}
 	}
-	// 機器速度放在載入狀態檔之後（狀態檔會還原 IRQ0Base），而且要在解析 -hold 之前：ms 換算跟著機器速度走。
-	if *ipsSpec != "" {
+	// 機器速度放在載入狀態檔之後（狀態檔會還原時鐘設定），而且要在解析 -hold 之前：ms 換算跟著機器速度走。
+	if *cyclesSpec != "" {
 		if *obsCPUHz > 0 {
-			die(fmt.Errorf("-ips 與 -cpuhz 不能同時給：一個是指令數時鐘的速度，一個是週期時鐘"))
+			die(fmt.Errorf("-cycles 與 -cpuhz 不能同時給：兩者都是週期時鐘，計費方式不同"))
 		}
-		ips, err := parseIPS(*ipsSpec)
+		perMs, err := parseCycles(*cyclesSpec)
 		if err != nil {
 			die(err)
 		}
-		m.SetInstructionsPerSecond(ips)
-		fmt.Printf("機器速度：每秒 %.0f 道指令（IRQ0 間隔 %d 道）\n", m.InstructionsPerSecond(), m.IRQ0Every)
+		m.SetDOSBoxCycles(perMs)
+		fmt.Printf("機器速度：DOSBox 相容 %d cycles／毫秒（IRQ0 間隔 %d 個 cycle）\n", perMs, m.CycPerIRQ0())
 	}
 	// 按住按鍵也放在載入狀態檔之後：起點是絕對指令數，要以載入後的時間軸為準。
 	if *holdSpec != "" {
@@ -623,7 +623,7 @@ func main() {
 	// 執行速度要量得到才調得動。**沒有這個數字的時候，「慢」是感覺**，
 	// 而感覺分不出「這一段本來就有幾十億道指令」與「執行器每道指令太貴」。
 	started := time.Now()
-	startSteps := m.Steps
+	startSteps, startCycles := m.Steps, m.CPU.Cycles
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// -ega-every：每 N 道指令存一張。**單張只看得到終點**，
 		// 看不出按鍵是送早了還是送晚了。
@@ -868,7 +868,11 @@ func main() {
 		// 兩個時鐘之間的匯率（`docs/spec/191`）。**切換時鐘之前看一眼**：
 		// 這支程式的指令混合決定了走週期時鐘時遊戲內時間會慢幾倍，
 		// 而那個倍數不是常數——繪圖密集的段落是暫存器密集的兩倍多。
-		if cps := m.CyclesPerStep(); cps > 0 {
+		if perMs := m.DOSBoxCycles(); perMs > 0 {
+			cyc := m.CPU.Cycles - startCycles
+			fmt.Printf("本次 DOSBox 相容 cycles %d，平均 %.3f cycle／指令；以 %d cycles／毫秒換算機器時間 %.2f 秒\n",
+				cyc, float64(cyc)/float64(ran), perMs, float64(cyc)/float64(m.CPUHz))
+		} else if cps := m.CyclesPerStep(); cps > 0 {
 			fmt.Printf("平均 %.2f 週期／指令；走 -cpuhz 的週期時鐘遊戲內時間慢 %.2f 倍\n",
 				cps, m.ClockSkew())
 		}
@@ -2215,19 +2219,19 @@ type hold struct {
 	at, dur uint64
 }
 
-// parseIPS 解析 -ips：數字或 xt／at8／at12。
-func parseIPS(spec string) (uint64, error) {
+// parseCycles 解析 -cycles：每毫秒 cycles 的正整數，或 xt／at8／at12。
+func parseCycles(spec string) (uint64, error) {
 	switch strings.ToLower(strings.TrimSpace(spec)) {
 	case "xt":
-		return machine.IPSXT, nil
+		return machine.CyclesXT, nil
 	case "at8":
-		return machine.IPSAT8, nil
+		return machine.CyclesAT8, nil
 	case "at12":
-		return machine.IPSAT12, nil
+		return machine.CyclesAT12, nil
 	}
 	v, err := strconv.ParseUint(strings.TrimSpace(spec), 10, 64)
 	if err != nil || v == 0 {
-		return 0, fmt.Errorf("-ips 看不懂：%q（要正整數或 xt／at8／at12）", spec)
+		return 0, fmt.Errorf("-cycles 看不懂：%q（要正整數或 xt／at8／at12）", spec)
 	}
 	return v, nil
 }

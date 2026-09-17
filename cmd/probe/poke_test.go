@@ -47,19 +47,19 @@ func TestParseHolds(t *testing.T) {
 	}
 }
 
-func TestParseIPS(t *testing.T) {
-	for spec, want := range map[string]uint64{"xt": machine.IPSXT, "AT8": machine.IPSAT8, "at12": machine.IPSAT12, "500000": 500000} {
-		if got, err := parseIPS(spec); err != nil || got != want {
+func TestParseCycles(t *testing.T) {
+	for spec, want := range map[string]uint64{"xt": machine.CyclesXT, "AT8": machine.CyclesAT8, "at12": machine.CyclesAT12, "500": 500} {
+		if got, err := parseCycles(spec); err != nil || got != want {
 			t.Errorf("%q → %d, %v；要 %d", spec, got, err, want)
 		}
 	}
 	for _, bad := range []string{"", "0", "fast", "-1"} {
-		if _, err := parseIPS(bad); err == nil {
+		if _, err := parseCycles(bad); err == nil {
 			t.Errorf("%q 應該報錯", bad)
 		}
 	}
-	hs, err := parseHolds("space@0+1000ms", float64(machine.IPSXT))
-	if err != nil || hs[0].dur != machine.IPSXT {
-		t.Errorf("XT 速度 1000ms 解成 %+v, %v；要 %d 道指令", hs, err, machine.IPSXT)
+	hs, err := parseHolds("space@0+1000ms", float64(machine.CyclesXT*1000))
+	if err != nil || hs[0].dur != machine.CyclesXT*1000 {
+		t.Errorf("XT 速度 1000ms 解成 %+v, %v；要 %d 道指令", hs, err, machine.CyclesXT*1000)
 	}
 }
