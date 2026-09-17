@@ -103,6 +103,16 @@ func (o *Oracle) CallNear(addr Addr, ret uint16, r CallRegs) {
 	sp := c.R[cpu.SP] - 2
 	c.R[cpu.SP] = sp
 	o.m.Write16(cpu.Addr(c.Seg[cpu.SS], sp), ret)
+	o.SetRegs(r)
+	c.Seg[cpu.CS], c.IP = addr.Seg, addr.Off
+}
+
+// SetRegs 把 r 裡 Set* 為 true 的暫存器寫進 CPU，其餘（CS:IP、SS:SP、旗標）不動（`docs/spec/200`）。
+//
+// 用在 `OnCall` 的掛鉤裡：掛鉤在該位址的指令執行**之前**觸發，改動對那道指令生效。
+// 例：轉譯層在原版畫字的呼叫前把 AL 換成空白，原版照樣前進游標，只是不畫出英文。
+func (o *Oracle) SetRegs(r CallRegs) {
+	c := o.m.CPU
 	set := func(dst *uint16, v uint16, ok bool) {
 		if ok {
 			*dst = v
@@ -117,5 +127,4 @@ func (o *Oracle) CallNear(addr Addr, ret uint16, r CallRegs) {
 	set(&c.R[cpu.BP], r.BP, r.SetBP)
 	set(&c.Seg[cpu.DS], r.DS, r.SetDS)
 	set(&c.Seg[cpu.ES], r.ES, r.SetES)
-	c.Seg[cpu.CS], c.IP = addr.Seg, addr.Off
 }
