@@ -225,6 +225,9 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	scratch := flag.String("scratch", "",
+		"可寫的暫存層目錄（`docs/spec/009`）：程式存的檔落在這裡，原版目錄永遠不動。\n"+
+			"    不給的話寫檔只記帳（「被擋下來的寫檔」），遊戲自己的存檔不會真的留下來")
 	dumpOPLWAV := flag.String("dump-opl-wav", "",
 		"把 OPL2 暫存器寫入合成成 22,050 Hz 16 位元單聲道 WAV（`docs/spec/196`，近似音色）。要配 -adlib")
 	dumpToneWAV := flag.String("dump-tone-wav", "",
@@ -399,6 +402,10 @@ func main() {
 		})
 		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
 			*loadState, m.Steps, d.Root)
+	}
+	// 放在載入狀態檔之後：狀態檔不帶暫存層設定，先設的話不確定會不會被覆蓋。
+	if *scratch != "" {
+		d.Scratch = *scratch
 	}
 	saves, err := parseSaveState(*saveState)
 	if err != nil {
