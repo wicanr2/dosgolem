@@ -362,3 +362,5 @@
 - [198 — 機器速度：DOSBox 相容的 cycles](198-dosbox-cycles.md)：READY。每道指令 1、字串指令每次迭代 1（DOSBox-X normal core）；xt 240／at8 750／at12 1510；probe `-cycles`。
 - [199 — 即時執行介面](199-live-session-api.md)：READY。oracle 的 `RunCycles`、`KeyDown`／`KeyUp`（typematic）、`LoadStateFile`、串流音訊 `NewAudio`／`Render`（喇叭＋OPL2，消化後清紀錄）。
 - [200 — 在執行掛鉤裡改暫存器](200-hook-register-write.md)：READY。`SetRegs(CallRegs)` 只寫 `Set*` 為 true 的暫存器；`OnCall` 掛鉤裡改的值對接著執行的指令生效（轉譯層換字用）。
+- [201 — 逐步操作](201-step-actions.md)：READY。`ParseActions`（tap／hold／down／up／wait／type，毫秒是機器時間）、`RunActions`（分段跑、每段回呼）、`cmd/step`（載入狀態 → 動作 → 存狀態與截圖）。
+- [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：字型 `GOLEMFNT`、排版、疊字定色與指紋失效、捲動、畫字（可調字格與字模倍率）、疊字層快照、逐字迴圈換行判斷。
