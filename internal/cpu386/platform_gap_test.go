@@ -1722,6 +1722,29 @@ func TestWordMemoryDEC(t *testing.T) {
 	}
 }
 
+func TestWordMemoryINC(t *testing.T) {
+	// FD2 0x122CD：66 FF 00 = inc word ptr [eax]。
+	for _, v := range []struct {
+		a, w  uint16
+		flags uint32
+	}{{0x7fff, 0x8000, SF | OF | AF | PF}, {0xffff, 0, ZF | AF | PF}, {1, 2, 0}} {
+		for _, carry := range []uint32{0, CF} {
+			mem := testBus(make([]byte, 64))
+			copy(mem, []byte{0x66, 0xff, 0x00})
+			mem[32] = byte(v.a)
+			mem[33] = byte(v.a >> 8)
+			c := New(mem)
+			c.Seg[SegDS] = 0x160
+			c.SetDescriptor(0x160, Descriptor{Limit: 63, Writable: true})
+			c.R[EAX] = 32
+			c.EFlags = IF | carry
+			if err := c.Step(); err != nil || uint16(mem[32])|uint16(mem[33])<<8 != v.w || c.EFlags != IF|carry|v.flags {
+				t.Fatalf("word INC %#x → %#x flags %#x err %v", v.a, uint16(mem[32])|uint16(mem[33])<<8, c.EFlags, err)
+			}
+		}
+	}
+}
+
 func TestMOVZXWordStackEA(t *testing.T) {
 	mem := testBus(make([]byte, 80))
 	copy(mem, []byte{15, 0xb7, 0x44, 0x24, 4})
