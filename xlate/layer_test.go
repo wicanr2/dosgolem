@@ -263,3 +263,35 @@ func TestTransparentCells(t *testing.T) {
 		t.Errorf("透明格應該完全不畫：%v %v", at(48, 336), at(60, 350))
 	}
 }
+
+// spec 202 §3 第 7 項：凍結期間指紋不同不累計失效。
+func TestFrozenSkipsInvalidation(t *testing.T) {
+	idx := make([]uint8, 320*200)
+	rgb := make([]uint8, 3*320*200)
+	idx[112*320+9] = 11
+	for _, freeze := range []bool{true, false} {
+		s := &Stamp{X: 8, Y: 112, Cells: 2, CellW: 8, CellH: 8, State: Pending}
+		frozen := false
+		l := &Layer{Stamps: []*Stamp{s}, Frozen: func(*Stamp) bool { return frozen }}
+		l.Frame(idx, rgb)
+		changed := append([]uint8(nil), idx...)
+		changed[113*320+10] = 5
+		frozen = freeze
+		for i := 0; i < 5; i++ {
+			l.Frame(changed, rgb)
+		}
+		frozen = false
+		if freeze && len(l.Stamps) != 1 {
+			t.Error("凍結期間不該失效")
+		}
+		if !freeze && len(l.Stamps) != 0 {
+			t.Error("反向對照：不凍結時應該失效")
+		}
+		if freeze {
+			l.Frame(idx, rgb) // 解除後內容恢復
+			if len(l.Stamps) != 1 || s.State != Shown {
+				t.Error("解除凍結、內容相同時應該繼續顯示")
+			}
+		}
+	}
+}

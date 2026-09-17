@@ -50,6 +50,9 @@ type Layer struct {
 	// OnDrop 在一筆被移除時呼叫（原因：overlap、scroll、changed）。可為 nil。
 	// 不會被 Snapshot／Restore 保存——那是呼叫端接上去的 hook，不是狀態。
 	OnDrop func(s *Stamp, why string)
+	// Frozen 回 true 的疊字，這次 Frame 不定色也不檢查指紋（可為 nil，spec 202 §2.3）。
+	// 用途：原版正在搬動這一塊（例如訊息框逐步捲動、顯存複製到一半），中間狀態不能拿來判斷失效。
+	Frozen func(s *Stamp) bool
 	W, H   int
 }
 
@@ -169,6 +172,10 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 	w, h := l.width(), l.height()
 	keep := l.Stamps[:0]
 	for _, s := range l.Stamps {
+		if l.Frozen != nil && l.Frozen(s) {
+			keep = append(keep, s)
+			continue
+		}
 		switch s.State {
 		case Pending:
 			reg := s.region(indexed, w, h)
