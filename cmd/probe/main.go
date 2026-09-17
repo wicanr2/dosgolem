@@ -224,6 +224,9 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	dumpToneWAV := flag.String("dump-tone-wav", "",
+		"把 PIT 通道 2 的方波（音樂、嗶聲）寫成 22,050 Hz 8 位元單聲道 WAV（`docs/spec/195`）。\n"+
+			"    -dump-wav 只收喇叭資料線（語音），走通道 2 的音樂在那裡幾乎是空的")
 	cpuProfile := flag.String("cpuprofile", "",
 		"把 CPU 剖析結果寫到這個檔（找瓶頸用；`go tool pprof` 讀）")
 	flag.Parse()
@@ -954,6 +957,13 @@ func main() {
 			fmt.Fprintln(os.Stderr, "dump-wav:", err)
 		} else {
 			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
+		}
+	}
+	if *dumpToneWAV != "" {
+		if err := writeToneWAV(m, *dumpToneWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-tone-wav:", err)
+		} else {
+			fmt.Printf("喇叭方波 → %s（%d 個頻率變化）\n", *dumpToneWAV, len(m.ToneEvents()))
 		}
 	}
 	if *dumpPorts != "" {
@@ -2791,6 +2801,40 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 		if s[j].Level != 0 {
 			pcm[i] = 0xE0
 		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var h []byte
+	put32 := func(v uint32) { h = binary.LittleEndian.AppendUint32(h, v) }
+	put16 := func(v uint16) { h = binary.LittleEndian.AppendUint16(h, v) }
+	h = append(h, "RIFF"...)
+	put32(uint32(36 + len(pcm)))
+	h = append(h, "WAVEfmt "...)
+	put32(16)
+	put16(1)
+	put16(1)
+	put32(rate)
+	put32(rate)
+	put16(1)
+	put16(8)
+	h = append(h, "data"...)
+	put32(uint32(len(pcm)))
+	if _, err := f.Write(h); err != nil {
+		return err
+	}
+	_, err = f.Write(pcm)
+	return err
+}
+
+// writeToneWAV 把通道 2 的方波寫成 WAV（`docs/spec/195`）。
+func writeToneWAV(m *machine.Machine, path string) error {
+	const rate = 22050
+	pcm, err := m.TonePCM(rate)
+	if err != nil {
+		return err
 	}
 	f, err := os.Create(path)
 	if err != nil {

@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（14 份）
+### 共同基礎（master）（15 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -65,6 +65,7 @@
 - `192-crtc-effects.md`
 - `193-crtc-timing.md`
 - `194-ega-200-line-mode-palette-defaults.md`
+- `195-pit-channel2-tone-wav.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -347,3 +348,5 @@
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
 
 - [194 — 200 線 EGA 模式的色盤預設值](194-ega-200-line-mode-palette-defaults.md)：READY。設 mode 0Dh／0Eh 時載入 RGBI 規則的 DAC 與帶 bit 4 的屬性暫存器；少了它，只設屬性暫存器的 EGA 程式畫面整片是黑的。
+
+- [195 — PC 喇叭方波（PIT 通道 2）的 WAV 合成](195-pit-channel2-tone-wav.md)：READY。音樂與嗶聲走通道 2 方波、61h 只開關；`SpeakerWAV` 只收語音，這條路原本聽不到。`ToneEvents`／`ToneWAV`／`-dump-tone-wav`。
