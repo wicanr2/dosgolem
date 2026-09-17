@@ -42,6 +42,8 @@ type Snapshot struct {
 	// 「時間還沒到」於是永遠成立。症狀是第一個變體收得到鍵、後面每一個都
 	// 「按了沒反應」——看起來像那些送法不對，其實是送鍵這條路已經死了。
 	keyQueue  []KeyEvent
+	timedKeys []timedKey // `docs/spec/197`：同樣的理由，按住中的放開碼漏掉的話鍵會卡住
+	timedSeq  uint64
 	nextKey   uint64
 	keyIRQs   uint64
 	keyStalls uint64
@@ -128,6 +130,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		cbMade:        m.cbMade,
 
 		keyQueue:  append([]KeyEvent(nil), m.keyQueue...),
+		timedKeys: append([]timedKey(nil), m.timedKeys...),
+		timedSeq:  m.timedKeySeq,
 		nextKey:   m.nextKey,
 		keyIRQs:   m.KeyIRQs,
 		keyStalls: m.keyStalls,
@@ -185,6 +189,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.cbSaved, m.cbActive, m.cbMade = s.cbSaved, s.cbActive, s.cbMade
 
 	m.keyQueue = append([]KeyEvent(nil), s.keyQueue...)
+	m.timedKeys, m.timedKeySeq = append([]timedKey(nil), s.timedKeys...), s.timedSeq
 	m.nextKey, m.KeyIRQs, m.keyStalls = s.nextKey, s.keyIRQs, s.keyStalls
 	m.kbdData, m.kbdPortB = s.kbdData, s.kbdPortB
 

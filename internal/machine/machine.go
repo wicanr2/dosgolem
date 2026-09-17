@@ -444,8 +444,11 @@ type Machine struct {
 	// 硬體鍵盤（`keyboard.go`）。kbdData 是埠 0x60 讀得到的值、
 	// kbdPortB 是埠 0x61（程式用它做鍵盤 ack）。
 	keyQueue []KeyEvent
-	kbdData  uint8
-	kbdPortB uint8
+	// timedKeys 是定時掃描碼事件（`docs/spec/197`），依步數排序，不受 KeyEvery 節流。
+	timedKeys   []timedKey
+	timedKeySeq uint64
+	kbdData     uint8
+	kbdPortB    uint8
 
 	// KeyIRQs 是實際送出去的鍵盤中斷數，keyStalls 是「有鍵但沒人裝
 	// int 09h」而留著沒送的次數。**送不出去與遊戲不理會是兩件事**，
@@ -834,7 +837,7 @@ func (m *Machine) In8(port uint16) uint8 {
 		return m.kbdPortB
 	case port == 0x64:
 		// 鍵盤控制器狀態：bit0 ＝ 輸出緩衝區有資料。
-		if len(m.keyQueue) > 0 {
+		if len(m.keyQueue) > 0 || m.timedKeyDue() {
 			return 0x15
 		}
 		return 0x14
@@ -1130,8 +1133,11 @@ func (m *Machine) Step() error {
 		(m.CycleClock && m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc) {
 		m.tick()
 	}
-	if len(m.keyQueue) > 0 {
-		m.keyTick()
+	// 定時事件優先（`197` §3.1）：同一道指令只送一個事件。
+	if len(m.timedKeys) == 0 || !m.timedKeyTick() {
+		if len(m.keyQueue) > 0 {
+			m.keyTick()
+		}
 	}
 	m.Steps++
 	if m.Coverage != nil {

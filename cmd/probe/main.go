@@ -225,6 +225,12 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	holdSpec := flag.String("hold", "",
+		"按住按鍵（`docs/spec/197`）：`<鍵>@<起點>+<長度>`，逗號分隔。鍵名同 -press；\n"+
+			"    起點與長度是指令數，或加 ms 後綴以 StepsPerSecond 換算（例 `space@86500000+2000ms`）。\n"+
+			"    定時送出、不受 -press-every 節流")
+	holdTypematic := flag.Bool("hold-typematic", true,
+		"按住期間照 BIOS 預設（延遲 500 ms、10.9 次／秒）重複送按下碼")
 	scratch := flag.String("scratch", "",
 		"可寫的暫存層目錄（`docs/spec/009`）：程式存的檔落在這裡，原版目錄永遠不動。\n"+
 			"    不給的話寫檔只記帳（「被擋下來的寫檔」），遊戲自己的存檔不會真的留下來")
@@ -402,6 +408,17 @@ func main() {
 		})
 		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
 			*loadState, m.Steps, d.Root)
+	}
+	// 按住按鍵也放在載入狀態檔之後：起點是絕對指令數，要以載入後的時間軸為準。
+	if *holdSpec != "" {
+		holds, err := parseHolds(*holdSpec)
+		if err != nil {
+			die(err)
+		}
+		for _, h := range holds {
+			m.HoldKey(h.scan, h.at, h.dur, *holdTypematic)
+		}
+		fmt.Printf("按住按鍵 %d 組，定時事件 %d 個\n", len(holds), m.TimedKeysPending())
 	}
 	// 放在載入狀態檔之後：狀態檔不帶暫存層設定，先設的話不確定會不會被覆蓋。
 	if *scratch != "" {
@@ -2167,6 +2184,60 @@ func writePNG(path string, idx []uint8, pal [256][3]uint8) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
+}
+
+// hold 是 -hold 的一組：從 at 按住 scan，dur 道指令後放開。
+type hold struct {
+	scan    uint8
+	at, dur uint64
+}
+
+// parseHolds 解析 `<鍵>@<起點>+<長度>[,…]`；時間可加 ms 後綴。
+func parseHolds(spec string) ([]hold, error) {
+	var out []hold
+	steps := func(v string) (uint64, error) {
+		v = strings.TrimSpace(v)
+		if ms, ok := strings.CutSuffix(v, "ms"); ok {
+			f, err := strconv.ParseFloat(ms, 64)
+			if err != nil || f < 0 {
+				return 0, fmt.Errorf("毫秒數看不懂：%q", v)
+			}
+			return uint64(f / 1000 * machine.StepsPerSecond()), nil
+		}
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("指令數看不懂：%q", v)
+		}
+		return n, nil
+	}
+	for _, item := range strings.Split(spec, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		key, rest, ok := strings.Cut(item, "@")
+		start, dur, ok2 := strings.Cut(rest, "+")
+		if !ok || !ok2 {
+			return nil, fmt.Errorf("-hold 要寫成 <鍵>@<起點>+<長度>：%q", item)
+		}
+		sc, ok := scanOf(strings.TrimSpace(key))
+		if !ok {
+			return nil, fmt.Errorf("-hold 看不懂的按鍵 %q", key)
+		}
+		at, err := steps(start)
+		if err != nil {
+			return nil, err
+		}
+		d, err := steps(dur)
+		if err != nil {
+			return nil, err
+		}
+		if d == 0 {
+			return nil, fmt.Errorf("-hold 長度是 0：%q", item)
+		}
+		out = append(out, hold{scan: sc, at: at, dur: d})
+	}
+	return out, nil
 }
 
 // scanOf 把按鍵名稱轉成 set-1 掃描碼。
