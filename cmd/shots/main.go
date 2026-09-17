@@ -196,6 +196,8 @@ func main() {
 	saveState := flag.String("save-state", "", "全部鍵送完、畫面靜下來之後把機器與 DOS 存到這個檔")
 	watch := flag.String("watch", "", "`<線性hex>-<線性hex>`：監看這段位址的寫入（值變了才記），"+
 		"每一筆印出步數、位址、舊值→新值與寫入當下的 CS:IP（IP 已推過那條指令）")
+	serve := flag.Bool("serve", false, "鍵序送完之後不結束，改從 stdin 一行一道命令（見 serve.go）；"+
+		"讓外面的駕駛程式看記憶體再決定下一個鍵，不必每一步重開一次程式")
 	flag.Parse()
 
 	img, err := os.ReadFile(*exe)
@@ -401,20 +403,9 @@ func main() {
 
 	for _, item := range parseScript(*script) {
 		before := d.KeysConsumed
-		switch {
-		case strings.HasPrefix(item, "type:"):
-			text := strings.TrimPrefix(item, "type:")
-			if !d.PushText(text) {
-				fmt.Printf("鍵盤表沒有 %q 裡的某個字元\n", text)
-				os.Exit(1)
-			}
-		default:
-			if !d.PushKeyNamed(item) {
-				if !d.PushText(item) {
-					fmt.Printf("不認得按鍵 %q\n", item)
-					os.Exit(1)
-				}
-			}
+		if err := pushKey(d, item); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
 		want := len(d.Keys)
 		reads := len(d.KeyReads)
@@ -435,6 +426,15 @@ func main() {
 			}
 		}
 		save(strings.NewReplacer(":", "-", " ", "_").Replace(item), frame)
+	}
+
+	if *serve {
+		runServe(os.Stdin, m, d, settle, func() []damageRecord {
+			out := damaged
+			damaged = nil
+			return out
+		})
+		return
 	}
 
 	if *saveState != "" {
