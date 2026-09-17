@@ -345,7 +345,7 @@
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
 
-### Borland C++ 2.0 工具鏈（bcc20-toolchain）（7 份）
+### Borland C++ 2.0 工具鏈（bcc20-toolchain）（8 份）
 
 在 dosgolem 裡跑 BCC、TASM、TLINK、TLIB（BCC 經 EXEC 叫 TASM 與 TLINK）時補上的 DOS 行為，
 依據是 DOSBox-X 原始碼與 Intel 文件。BCC 要用 `cmd/run -cpu 8086` 或 `-cpu 186`（它的 CPU 偵測在 386 模式會走到子集外的 `0x66`）。
@@ -357,3 +357,4 @@
 - [198 — 切到 mode 10h／12h 時載入預設 DAC](198-mode-set-default-dac.md)：READY。BGI 的 VGA 驅動靠它上色；0Dh／0Eh／13h 與屬性調色盤不在範圍。
 - [199 — BIOS ROM 的 8×8 字型放在 F000:FA6E](199-rom-font-8x8.md)：READY。BGI 的預設字型有 37 個字元讀這裡；字形用 Public Domain 的 font8x8，與 IBM 原廠點陣不同。
 - [200 — `cmd/webplay`：在瀏覽器裡即時玩一支 DOS 程式](200-webplay.md)：READY。互動外殼，不是對拍工具；跟不上真實時間時調降 `IRQ0Base` 讓 BIOS 時鐘照常走。
+- [201 — `int 10h` 文字模式的游標、捲動與讀寫字元](201-int10-text-cursor-scroll.md)：READY。`AH=02h`／`03h` 讀寫 BDA 游標，`06h`／`07h`／`08h`／`09h`／`0Ah` 在文字模式照 DOSBox-X 動 `B800`；Borland conio 靠它定位游標。

@@ -152,8 +152,51 @@ func (d *DOS) int10(c *cpu.CPU) {
 			d.note(0x10, 0x10, al(c))
 		}
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
-		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
+	case 0x02: // 設游標：DH ＝ 列、DL ＝ 欄、BH ＝ 頁（`docs/spec/201` §1.1）
+		d.M.Write8(bdaCursor(bh(c)), uint8(c.R[cpu.DX]))
+		d.M.Write8(bdaCursor(bh(c))+1, uint8(c.R[cpu.DX]>>8))
+
+	case 0x03: // 取游標與形狀（§1.2）
+		// **Borland conio 靠這支知道游標在哪。** 回原值的話它以為游標
+		// 永遠在左上角，每一行都疊在第 1 列，而程式照常跑完。
+		c.R[cpu.DX] = uint16(d.M.Read8(bdaCursor(bh(c))+1))<<8 | uint16(d.M.Read8(bdaCursor(bh(c))))
+		c.R[cpu.CX] = d.M.Read16(bdaBase + 0x60)
+
+	case 0x06, 0x07: // 捲動視窗（§1.3）
+		if d.textMode() {
+			n := int(int8(al(c)))
+			if fn == 0x06 {
+				n = -n
+			}
+			d.scrollText(uint8(c.R[cpu.CX]>>8), uint8(c.R[cpu.CX]), uint8(c.R[cpu.DX]>>8), uint8(c.R[cpu.DX]), n, bh(c))
+		}
+
+	case 0x08: // 讀游標處的字元與屬性（§1.4）
+		if !d.textMode() {
+			d.note(0x10, fn, al(c))
+			break
+		}
+		row, col, page := d.cursorOf(bh(c))
+		c.R[cpu.AX] = d.M.Read16(d.textCell(page, row, col))
+
+	case 0x09, 0x0A: // 在游標處寫字元 CX 次，游標不前進（§1.5）
+		if !d.textMode() {
+			break
+		}
+		row, col, page := d.cursorOf(bh(c))
+		cols := int(d.M.Read16(bdaBase + 0x4A))
+		for n := c.R[cpu.CX]; n > 0; n-- {
+			at := d.textCell(page, row, col)
+			d.M.Write8(at, al(c))
+			if fn == 0x09 {
+				d.M.Write8(at+1, bl(c))
+			}
+			if col++; col == cols {
+				col, row = 0, row+1
+			}
+		}
+
+	case 0x05: // 設顯示頁：收下就好（`docs/spec/201` §1.6 不在範圍）
 	default:
 		d.note(0x10, fn, al(c))
 	}

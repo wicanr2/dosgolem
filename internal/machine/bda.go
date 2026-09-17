@@ -41,6 +41,7 @@ func (m *Machine) initBDA() {
 	b(0x49, 0x03)   // 目前視訊模式（開機是文字模式 3；SCREEN 13 之後由 int 10h 改）
 	w(0x4A, 80)     // 欄數
 	w(0x4C, 4096)   // 視訊分頁大小
+	w(0x60, 0x0607) // 游標形狀（DOSBox-X mode set 設 6–7 掃描線；`docs/spec/201`）
 	w(0x63, 0x03D4) // CRTC 基底埠（彩色）
 	b(0x65, 0x29)   // CRT 模式暫存器
 	b(0x66, 0x30)   // 調色盤暫存器
