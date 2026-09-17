@@ -83,6 +83,9 @@ type Oracle struct {
 	// hookBits 是 onCall 的鍵在 1 MB 位址空間上的點陣圖。
 	// nil ＝ 一個 hook 都沒註冊過。
 	hookBits []uint64
+
+	// held 是即時按住的鍵（`docs/spec/199` §3.3）。
+	held map[uint8]*heldKey
 }
 
 // Options 是「這一支 binary 長什麼樣」。

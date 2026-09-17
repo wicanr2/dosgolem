@@ -53,6 +53,37 @@ func (m *Machine) HoldKey(scan uint8, from, duration uint64, typematic bool) {
 	m.ScheduleKey(end, scan, true)
 }
 
+// CancelTimedKeys 移除 scan 在 afterStep 之後還沒送出的按下事件，回移除數（`199` §3.3）。
+// 即時放開按鍵時用：已經排好的 typematic 重複不能晚於放開碼送出。
+func (m *Machine) CancelTimedKeys(scan uint8, afterStep uint64) int {
+	kept := m.timedKeys[:0]
+	n := 0
+	for _, k := range m.timedKeys {
+		if k.Ev.Scan == scan && !k.Ev.Break && k.Step > afterStep {
+			n++
+			continue
+		}
+		kept = append(kept, k)
+	}
+	m.timedKeys = kept
+	return n
+}
+
+// ScheduledKey 是一個還沒送出的定時事件（唯讀檢視）。
+type ScheduledKey struct {
+	Step uint64
+	KeyEvent
+}
+
+// ScheduledKeys 回還沒送出的定時事件，依送出順序。
+func (m *Machine) ScheduledKeys() []ScheduledKey {
+	out := make([]ScheduledKey, len(m.timedKeys))
+	for i, k := range m.timedKeys {
+		out[i] = ScheduledKey{Step: k.Step, KeyEvent: k.Ev}
+	}
+	return out
+}
+
 // TimedKeysPending 是還沒送出的定時事件數。
 func (m *Machine) TimedKeysPending() int { return len(m.timedKeys) }
 

@@ -748,6 +748,9 @@ func (m *Machine) WatchReads(lo, hi uint32, fn func(addr uint32, v uint8)) {
 // 但音樂路徑才會真的執行、`OPL` 才會有東西。
 func (m *Machine) SetAdLib(present bool) { m.oplPresent = present }
 
+// AdLib 回 388h 上有沒有 OPL2。
+func (m *Machine) AdLib() bool { return m.oplPresent }
+
 // OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
 const (
 	oplT1Start  = 0x01 // 啟動計時器 1

@@ -69,6 +69,7 @@
 - `196-opl2-synth-skeleton.md`
 - `197-key-hold-and-typematic.md`
 - `198-dosbox-cycles.md`
+- `199-live-session-api.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -359,3 +360,4 @@
 - [197 — 按住按鍵：定時掃描碼事件與 typematic 重複](197-key-hold-and-typematic.md)：READY。定時事件不受 KeyEvery 節流、同一步優先於 FIFO；`HoldKey`、probe `-hold`。
 
 - [198 — 機器速度：DOSBox 相容的 cycles](198-dosbox-cycles.md)：READY。每道指令 1、字串指令每次迭代 1（DOSBox-X normal core）；xt 240／at8 750／at12 1510；probe `-cycles`。
+- [199 — 即時執行介面](199-live-session-api.md)：READY。oracle 的 `RunCycles`、`KeyDown`／`KeyUp`（typematic）、`LoadStateFile`、串流音訊 `NewAudio`／`Render`（喇叭＋OPL2，消化後清紀錄）。

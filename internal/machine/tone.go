@@ -14,56 +14,74 @@ type ToneEvent struct {
 	Hz   float64
 }
 
+// ToneDecoder 逐筆吃埠寫入，追蹤通道 2 的方波頻率（`195` §3.1）。串流音訊（`199` §3.5）與 ToneEvents 共用。
+type ToneDecoder struct {
+	rw       uint8   // 通道 2 的存取方式；BIOS 預設先低後高
+	lowNext  bool    // 先低後高時，下一個位元組是不是低位元組
+	lo       uint8   // 先低後高時暫存的低位元組
+	div      uint32  // 目前分頻值（0 ＝ 65536）
+	divSet   bool    // 分頻值被設過沒有
+	gateData bool    // 61h 的 bit0 與 bit1 都是 1
+	cur      float64 // 目前頻率；開機是靜音
+}
+
+// NewToneDecoder 造一個開機狀態（靜音、先低後高）的解碼器。
+func NewToneDecoder() *ToneDecoder { return &ToneDecoder{rw: 3, lowNext: true} }
+
+// Hz 是目前的方波頻率，0 ＝ 靜音。
+func (t *ToneDecoder) Hz() float64 { return t.cur }
+
+// Feed 吃一筆埠寫入；頻率（含靜音）因此改變時回新頻率與 true。
+func (t *ToneDecoder) Feed(w PortWrite) (float64, bool) {
+	switch w.Port {
+	case 0x43:
+		if w.Val>>6&3 != 2 {
+			return t.cur, false
+		}
+		if a := w.Val >> 4 & 3; a != 0 { // 0 ＝ 鎖存命令，不改存取方式
+			t.rw, t.lowNext = a, true
+		}
+		return t.cur, false
+	case 0x42:
+		switch t.rw {
+		case 1:
+			t.div, t.divSet = uint32(w.Val), true
+		case 2:
+			t.div, t.divSet = uint32(w.Val)<<8, true
+		default:
+			if t.lowNext {
+				t.lo, t.lowNext = w.Val, false
+				return t.cur, false
+			}
+			t.div, t.divSet, t.lowNext = uint32(t.lo)|uint32(w.Val)<<8, true, true
+		}
+	case 0x61:
+		t.gateData = w.Val&3 == 3
+	default:
+		return t.cur, false
+	}
+	hz := 0.0
+	if t.gateData && t.divSet {
+		d := t.div
+		if d == 0 {
+			d = 65536
+		}
+		hz = PITBaseHz / float64(d)
+	}
+	if hz == t.cur {
+		return hz, false
+	}
+	t.cur = hz
+	return hz, true
+}
+
 // ToneEvents 從埠寫入紀錄重建方波的變化序列（`195` §3.1）。只在頻率（含靜音）改變時記一筆。
 func (m *Machine) ToneEvents() []ToneEvent {
 	var out []ToneEvent
-	rw := uint8(3)    // 通道 2 的存取方式；BIOS 預設先低後高
-	lowNext := true   // 先低後高時，下一個位元組是不是低位元組
-	var lo uint8      // 先低後高時暫存的低位元組
-	var div uint32    // 目前分頻值（0 ＝ 65536）
-	divSet := false   // 分頻值被設過沒有
-	gateData := false // 61h 的 bit0 與 bit1 都是 1
-	cur := 0.0        // 上一筆記下的頻率；開機是靜音，從 0 起算，一開始的靜音不記
-	emit := func(step uint64) {
-		hz := 0.0
-		if gateData && divSet {
-			d := div
-			if d == 0 {
-				d = 65536
-			}
-			hz = PITBaseHz / float64(d)
-		}
-		if hz != cur {
-			out = append(out, ToneEvent{Step: step, Hz: hz})
-			cur = hz
-		}
-	}
+	dec := NewToneDecoder()
 	for _, w := range m.PortLog {
-		switch w.Port {
-		case 0x43:
-			if w.Val>>6&3 != 2 {
-				continue
-			}
-			if a := w.Val >> 4 & 3; a != 0 { // 0 ＝ 鎖存命令，不改存取方式
-				rw, lowNext = a, true
-			}
-		case 0x42:
-			switch rw {
-			case 1:
-				div, divSet = uint32(w.Val), true
-			case 2:
-				div, divSet = uint32(w.Val)<<8, true
-			default:
-				if lowNext {
-					lo, lowNext = w.Val, false
-					continue
-				}
-				div, divSet, lowNext = uint32(lo)|uint32(w.Val)<<8, true, true
-			}
-			emit(w.Step)
-		case 0x61:
-			gateData = w.Val&3 == 3
-			emit(w.Step)
+		if hz, changed := dec.Feed(w); changed {
+			out = append(out, ToneEvent{Step: w.Step, Hz: hz})
 		}
 	}
 	return out
