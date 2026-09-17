@@ -85,7 +85,7 @@ func (l *Layer) drop(s *Stamp, why string) {
 func (l *Layer) Scroll(x0, y0, x1, y1, dy int) {
 	keep := l.Stamps[:0]
 	for _, s := range l.Stamps {
-		if s.X >= x0 && s.X < x1 && s.Y >= y0 && s.Y < y1 {
+		if s.X >= x0 && s.X+s.Cells*s.CellW <= x1 && s.Y >= y0 && s.Y < y1 {
 			s.Y += dy
 			if s.Y < y0 || s.Y+s.CellH > y1 {
 				l.drop(s, "scroll")

@@ -43,7 +43,7 @@
 `type Layer struct { Stamps []*Stamp; OnDrop func(*Stamp, string); W, H int }`（W、H 是原版畫面大小，0 當 320×200）：
 
 - `Add(s)`：與 s 矩形重疊的舊疊字移除（原因 `overlap`）。
-- `Scroll(x0, y0, x1, y1, dy)`：左上角在框內的疊字 Y ＋dy；移出框的移除（`scroll`）。
+- `Scroll(x0, y0, x1, y1, dy)`：左緣與右緣都在 `[x0, x1]`、上緣在 `[y0, y1)` 的疊字 Y ＋dy；移出框的移除（`scroll`）。橫向只超出一部分的疊字（例如另一套字型、位置剛好與框重疊的區塊）不搬。
 - `Frame(indexed, rgb []uint8)`：`Pending` 的取矩形內非透明格的色號，出現最多是背景、第二多是前景（只有一種時兩者相同），RGB 取該色號在矩形內第一次出現的位置，記 FNV-1a 64 位元指紋，轉 `Shown`；
   `Shown` 的指紋連續 3 次不同就移除（`changed`），中間恢復一次就重新計數。
 - `Draw(dst []uint8, scale int, missing func(rune)) bool`：dst 是放大後 RGBA（寬 W×scale）。每筆 `Shown`：非透明格填背景色；每格的字模以前景色畫在 `(格左上 ＋ GlyphX, 格左上 ＋ GlyphY)`；
@@ -65,7 +65,7 @@
 
 ## 3. 驗收
 
-1. 從 `psychic_war_cht` 搬來的測試全部通過：排版（7 字、18 字、32 字過長、`\n`）、捲動、3 幀失效與恢復計數、定色、重疊移除、畫字與缺字回呼。
+1. 從 `psychic_war_cht` 搬來的測試全部通過：排版（7 字、18 字、32 字過長、`\n`）、捲動（右緣超出框的不搬）、3 幀失效與恢復計數、定色、重疊移除、畫字與缺字回呼。
 2. `GlyphScale` 與 `GlyphX／GlyphY`：16×15 字型、6×7 字格、scale 3、GlyphScale 1、偏移 (1,3)：字模左上點畫在格左上 ＋(1,3)；一格右緣之外不畫。
 3. `LoadFont`：寫一個 2 字的 16×15 字型再讀回，字模相同；magic 錯、長度錯回錯。
 4. `Snapshot`／`Restore` 往返後 `Draw` 出的 RGBA 逐位元組相同。

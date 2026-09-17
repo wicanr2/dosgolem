@@ -12,9 +12,10 @@ func TestScroll(t *testing.T) {
 	in := &Stamp{Key: "in", X: 8, Y: 112, Cells: 16, CellW: 8, CellH: 8}
 	top := &Stamp{Key: "top", X: 8, Y: 88, Cells: 16, CellW: 8, CellH: 8}
 	out := &Stamp{Key: "out", X: 200, Y: 112, Cells: 4, CellW: 8, CellH: 8}
-	l.Stamps = []*Stamp{in, top, out}
+	wide := &Stamp{Key: "wide", X: 100, Y: 96, Cells: 20, CellW: 6, CellH: 7} // 左上角在框內、右緣超出框：不搬
+	l.Stamps = []*Stamp{in, top, out, wide}
 	l.Scroll(8, 88, 136, 120, -2)
-	if in.Y != 110 || out.Y != 112 || len(l.Stamps) != 2 || len(dropped) != 1 || dropped[0] != "top:scroll" {
+	if in.Y != 110 || out.Y != 112 || wide.Y != 96 || len(l.Stamps) != 3 || len(dropped) != 1 || dropped[0] != "top:scroll" {
 		t.Errorf("in.Y=%d out.Y=%d 剩 %d 筆 移除 %v", in.Y, out.Y, len(l.Stamps), dropped)
 	}
 }
