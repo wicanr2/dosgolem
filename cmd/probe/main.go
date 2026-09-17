@@ -408,6 +408,14 @@ func main() {
 		})
 		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
 			*loadState, m.Steps, d.Root)
+		// 狀態檔會還原 CPUHz 與 CycleClock，把 obsSetup 先前套上的 -cpuhz 安靜地蓋掉
+		// ——症狀是「換了 CPU 速度，結果一模一樣」。命令列給了就以命令列為準。
+		if *obsCPUHz > 0 {
+			m.CPUHz = *obsCPUHz
+			m.CycleClock = true
+			m.RecalcIRQ0()
+			fmt.Printf("載入狀態後改用週期時鐘：CPUHz = %d\n", *obsCPUHz)
+		}
 	}
 	// 按住按鍵也放在載入狀態檔之後：起點是絕對指令數，要以載入後的時間軸為準。
 	if *holdSpec != "" {
