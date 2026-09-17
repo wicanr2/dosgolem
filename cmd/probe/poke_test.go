@@ -30,7 +30,7 @@ func TestParsePokes(t *testing.T) {
 }
 
 func TestParseHolds(t *testing.T) {
-	hs, err := parseHolds("space@100+2000, 39@50+1000ms")
+	hs, err := parseHolds("space@100+2000, 39@50+1000ms", machine.StepsPerSecond())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +41,25 @@ func TestParseHolds(t *testing.T) {
 		t.Errorf("第二組 %+v，長度要 %d（1000ms）", hs[1], want)
 	}
 	for _, bad := range []string{"space@100", "space+100", "nope@1+1", "space@1+0", "space@x+1"} {
-		if _, err := parseHolds(bad); err == nil {
+		if _, err := parseHolds(bad, machine.StepsPerSecond()); err == nil {
 			t.Errorf("%q 應該報錯", bad)
 		}
+	}
+}
+
+func TestParseIPS(t *testing.T) {
+	for spec, want := range map[string]uint64{"xt": machine.IPSXT, "AT8": machine.IPSAT8, "at12": machine.IPSAT12, "500000": 500000} {
+		if got, err := parseIPS(spec); err != nil || got != want {
+			t.Errorf("%q → %d, %v；要 %d", spec, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "0", "fast", "-1"} {
+		if _, err := parseIPS(bad); err == nil {
+			t.Errorf("%q 應該報錯", bad)
+		}
+	}
+	hs, err := parseHolds("space@0+1000ms", float64(machine.IPSXT))
+	if err != nil || hs[0].dur != machine.IPSXT {
+		t.Errorf("XT 速度 1000ms 解成 %+v, %v；要 %d 道指令", hs, err, machine.IPSXT)
 	}
 }

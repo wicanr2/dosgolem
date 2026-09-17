@@ -91,7 +91,7 @@ func (m *Machine) TonePCM(rate int) ([]uint8, error) {
 	if ev[len(ev)-1].Hz > 0 && m.Steps > last {
 		last = m.Steps // 最後一個音還沒關就結束了，算到最後一道指令
 	}
-	sps := StepsPerSecond()
+	sps := m.InstructionsPerSecond() // 跟著機器速度走（`198`）
 	n := int(float64(last-first) / sps * float64(rate))
 	if n <= 0 {
 		return nil, fmt.Errorf("方波只有 %d 道指令長，不足一個取樣", last-first)

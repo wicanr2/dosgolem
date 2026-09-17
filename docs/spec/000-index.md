@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（16 份）
+### 共同基礎（master）（18 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -67,6 +67,8 @@
 - `194-ega-200-line-mode-palette-defaults.md`
 - `195-pit-channel2-tone-wav.md`
 - `196-opl2-synth-skeleton.md`
+- `197-key-hold-and-typematic.md`
+- `198-instructions-per-second.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -353,3 +355,7 @@
 - [195 — PC 喇叭方波（PIT 通道 2）的 WAV 合成](195-pit-channel2-tone-wav.md)：READY。音樂與嗶聲走通道 2 方波、61h 只開關；`SpeakerWAV` 只收語音，這條路原本聽不到。`ToneEvents`／`ToneWAV`／`-dump-tone-wav`。
 
 - [196 — OPL2（YM3812）合成雛形](196-opl2-synth-skeleton.md)：READY。音高與節奏對、音色近似；節奏模式、震音／顫音、KSL 沒做但會計數。`internal/opl2`、`OPLWAV`、`-dump-opl-wav`。
+
+- [197 — 按住按鍵：定時掃描碼事件與 typematic 重複](197-key-hold-and-typematic.md)：READY。定時事件不受 KeyEvery 節流、同一步優先於 FIFO；`HoldKey`、probe `-hold`。
+
+- [198 — 機器速度：每秒指令數](198-instructions-per-second.md)：READY。`IRQ0Base` 的正式入口，對應 DOSBox cycles（xt 240,000／at8 750,000／at12 1,510,000）；probe `-ips`。

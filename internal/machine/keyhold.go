@@ -43,7 +43,7 @@ func (m *Machine) HoldKey(scan uint8, from, duration uint64, typematic bool) {
 	m.ScheduleKey(from, scan, false)
 	end := from + duration
 	if typematic {
-		sps := StepsPerSecond()
+		sps := m.InstructionsPerSecond() // 跟著機器速度走（`198`）
 		delay := uint64(TypematicDelayMS / 1000 * sps)
 		period := uint64(sps / TypematicRate)
 		for t := from + delay; period > 0 && t < end; t += period {

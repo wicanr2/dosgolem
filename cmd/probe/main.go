@@ -225,6 +225,9 @@ func main() {
 	clickBtn := flag.Int("click-button", 0, "按哪一個鍵（0 左／1 右／2 中）")
 	dumpWAV := flag.String("dump-wav", "",
 		"把 PC 喇叭的波形寫成 8 位元單聲道 WAV（語音對拍用）")
+	ipsSpec := flag.String("ips", "",
+		"機器速度：每秒指令數（`docs/spec/198`），或 xt（240000）、at8（750000）、at12（1510000），"+
+			"與 DOSBox-X 的機型預設 cycles 同義。載入狀態檔之後套用；不能與 -cpuhz 同時給")
 	holdSpec := flag.String("hold", "",
 		"按住按鍵（`docs/spec/197`）：`<鍵>@<起點>+<長度>`，逗號分隔。鍵名同 -press；\n"+
 			"    起點與長度是指令數，或加 ms 後綴以 StepsPerSecond 換算（例 `space@86500000+2000ms`）。\n"+
@@ -417,9 +420,21 @@ func main() {
 			fmt.Printf("載入狀態後改用週期時鐘：CPUHz = %d\n", *obsCPUHz)
 		}
 	}
+	// 機器速度放在載入狀態檔之後（狀態檔會還原 IRQ0Base），而且要在解析 -hold 之前：ms 換算跟著機器速度走。
+	if *ipsSpec != "" {
+		if *obsCPUHz > 0 {
+			die(fmt.Errorf("-ips 與 -cpuhz 不能同時給：一個是指令數時鐘的速度，一個是週期時鐘"))
+		}
+		ips, err := parseIPS(*ipsSpec)
+		if err != nil {
+			die(err)
+		}
+		m.SetInstructionsPerSecond(ips)
+		fmt.Printf("機器速度：每秒 %.0f 道指令（IRQ0 間隔 %d 道）\n", m.InstructionsPerSecond(), m.IRQ0Every)
+	}
 	// 按住按鍵也放在載入狀態檔之後：起點是絕對指令數，要以載入後的時間軸為準。
 	if *holdSpec != "" {
-		holds, err := parseHolds(*holdSpec)
+		holds, err := parseHolds(*holdSpec, m.InstructionsPerSecond())
 		if err != nil {
 			die(err)
 		}
@@ -2200,8 +2215,25 @@ type hold struct {
 	at, dur uint64
 }
 
-// parseHolds 解析 `<鍵>@<起點>+<長度>[,…]`；時間可加 ms 後綴。
-func parseHolds(spec string) ([]hold, error) {
+// parseIPS 解析 -ips：數字或 xt／at8／at12。
+func parseIPS(spec string) (uint64, error) {
+	switch strings.ToLower(strings.TrimSpace(spec)) {
+	case "xt":
+		return machine.IPSXT, nil
+	case "at8":
+		return machine.IPSAT8, nil
+	case "at12":
+		return machine.IPSAT12, nil
+	}
+	v, err := strconv.ParseUint(strings.TrimSpace(spec), 10, 64)
+	if err != nil || v == 0 {
+		return 0, fmt.Errorf("-ips 看不懂：%q（要正整數或 xt／at8／at12）", spec)
+	}
+	return v, nil
+}
+
+// parseHolds 解析 `<鍵>@<起點>+<長度>[,…]`；時間可加 ms 後綴，以 ips（每秒指令數）換算。
+func parseHolds(spec string, ips float64) ([]hold, error) {
 	var out []hold
 	steps := func(v string) (uint64, error) {
 		v = strings.TrimSpace(v)
@@ -2210,7 +2242,7 @@ func parseHolds(spec string) ([]hold, error) {
 			if err != nil || f < 0 {
 				return 0, fmt.Errorf("毫秒數看不懂：%q", v)
 			}
-			return uint64(f / 1000 * machine.StepsPerSecond()), nil
+			return uint64(f / 1000 * ips), nil
 		}
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
