@@ -356,6 +356,14 @@ type Machine struct {
 	a20 bool
 	hma [HMASize]uint8
 
+	// ROMWrites 是被忽略的 ROM 寫入次數，ROMWriteLog 是最前面幾筆
+	// （`bios_rom.go`、`docs/spec/191-bios-rom-tail`）。
+	ROMWrites   uint64
+	ROMWriteLog []ROMWrite
+
+	// LegacyState：最近一次 LoadState 讀的是舊版狀態檔（沒有 A20／HMA）。
+	LegacyState bool
+
 	// 觀測用（probe.go）。沒設監看點時這幾個都是空的，
 	// 熱路徑只多一次長度檢查。
 	writeWatches []writeWatch
@@ -515,6 +523,7 @@ func New() *Machine {
 	m.CPU.SetFlags(m.CPU.Flags)
 	m.recalcIRQ0()
 	m.initBDA()
+	m.initROM()
 	m.initVectors()
 	m.installCallbackStub()
 	return m
@@ -601,6 +610,10 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		return
 	}
 	a &= 0xFFFFF
+	if a >= ROMBase {
+		m.noteROMWrite(a, v)
+		return
+	}
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
 		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，

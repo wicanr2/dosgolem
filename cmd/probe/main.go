@@ -158,6 +158,9 @@ func main() {
 		"執行到這個 `<seg>:<off>` 時印出 VGA 圖形控制器／序列器／latch。"+
 			"畫面上的位元不等於 CPU 寫的位元組時（write mode、bit mask、"+
 			"set/reset），只看寫入指令看不出所以然")
+	regsSkipBlit := flag.Bool("regs-skip-blit", false,
+		"-regs-at 跳過「DS:SI 比同一個位置的上一筆只往前 1–16」的命中（blit 迴圈逐列走的那種重複）。"+
+			"⚠ 預設關：一般函式的參數指標也常常只差幾個 byte，開了會把真的呼叫一起吞掉（issue #54）")
 	regsMax := flag.Int("regs-max", 20,
 		"每個 -regs-at 位址最多記幾次。逐格處理的迴圈跑幾百次，"+
 			"預設的 20 次只看得到第一個物件")
@@ -332,8 +335,8 @@ func main() {
 	var writes []memWrite
 	var dropped int
 	if *watch != "" {
-		var lo, hi uint32
-		if _, err := fmt.Sscanf(*watch, "%x-%x", &lo, &hi); err != nil {
+		ranges, err := parseWatchRanges(*watch)
+		if err != nil {
 			die(err)
 		}
 		// **保留最後 20000 筆，不是前 20000 筆。** 要找的通常是「誰最後
@@ -341,18 +344,27 @@ func main() {
 		// ⚠ **`WatchWrites` 只留一個回呼**（後註冊的蓋掉前一個），
 		// 所以列印與收集要在同一支裡做。分成兩次註冊的話，先註冊的那個
 		// 靜靜失效——症狀是 `-watch` 照印，但 `-watch-file` 永遠是空的。
-		m.WatchWrites(lo, hi, func(a uint32, old, nw uint8) {
-			fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
-				m.Steps, a, old, nw, m.CPU.Seg[cpu.CS], m.CPU.IP)
-			w := memWrite{a, old, nw, m.Steps, m.CPU.Seg[cpu.CS], m.CPU.IP}
-			if len(writes) < 20000 {
-				writes = append(writes, w)
-				return
-			}
-			copy(writes, writes[1:])
-			writes[len(writes)-1] = w
-			dropped++
-		})
+		//
+		// 每一段各掛一個 WatchWrite（可以同時掛很多個），不走只留一個回呼的
+		// WatchWrites——後者會被 -watch-video 蓋掉。WatchWrite 連「值沒變」的
+		// 寫入也通知，-watch 的語意是「值變了」，所以在這裡濾。
+		for _, r := range ranges {
+			m.WatchWrite(r.lo, r.hi, func(_ *machine.Machine, a uint32, old, nw uint8) {
+				if old == nw {
+					return
+				}
+				fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
+					m.Steps, a, old, nw, m.CPU.Seg[cpu.CS], m.CPU.IP)
+				w := memWrite{a, old, nw, m.Steps, m.CPU.Seg[cpu.CS], m.CPU.IP}
+				if len(writes) < 20000 {
+					writes = append(writes, w)
+					return
+				}
+				copy(writes, writes[1:])
+				writes[len(writes)-1] = w
+				dropped++
+			})
+		}
 	}
 	var vidLo, vidHi uint32 = 0xFFFFFFFF, 0
 	var vidN int
@@ -411,6 +423,10 @@ func main() {
 		})
 		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
 			*loadState, m.Steps, d.Root)
+		if m.LegacyState {
+			// 舊版狀態檔沒有 A20／HMA：讀成 A20 關（`docs/spec/191-bios-rom-tail` §4）。
+			fmt.Println("⚠ 舊版狀態檔（沒有 A20／HMA）：讀成 A20 關、HMA 空；存檔時 A20 開著的話要從開機重錄")
+		}
 	}
 	saves, err := parseSaveState(*saveState)
 	if err != nil {
@@ -744,15 +760,15 @@ func main() {
 		for _, w := range regWatch {
 			if m.CPU.Seg[cpu.CS] == w.seg && m.CPU.IP == w.off && m.Steps >= *regsFrom {
 				c := m.CPU
-				// **只記來源基底換掉的那一次。** 同一塊圖的 16 或 20 列
-				// 是連續的位移，全部印出來只會看到同一個東西 20 遍，
-				// 而「換了一份來源」正是要找的訊號。
+				// -regs-skip-blit：**只記來源基底換掉的那一次。** 同一塊圖的
+				// 16 或 20 列是連續的位移，全部印出來只會看到同一個東西 20 遍。
+				// ⚠ 這個判準只對 blit 成立，所以預設關：以前寫死開著，
+				// 《銀河英雄傳說III SP》逐擊結算的函式 SI 從 0000 換到 0004，
+				// 第一擊整個不見，而報告看起來完整（issue #54）。
 				cur := uint32(c.Seg[cpu.DS])<<16 | uint32(c.R[cpu.SI])
 				prev, seen := regLast[w]
 				regLast[w] = cur
-				// 只跳過「同一份來源往下走一格」的那種重複（blit 迴圈）；
-				// 位置完全相同的重複呼叫要記——那是不同的一次事件。
-				if seen && cur > prev && cur-prev <= 16 {
+				if skipRegsHit(*regsSkipBlit, seen, prev, cur) {
 					continue
 				}
 				if h := regHits[w]; len(h) < *regsMax {

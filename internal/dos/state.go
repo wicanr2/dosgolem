@@ -15,9 +15,12 @@ import (
 // 診斷用的紀錄（`Opened`／`Reads`／`Allocs`／`EMSOps`／`ExecLog`…）
 // **不存**：它們是這一趟的觀測紀錄，不是機器狀態。
 
+// v3 加了 XMS 的 HMA 擁有權與區域 A20 計數（`docs/spec/191-bios-rom-tail` §4）；
+// v2 仍然讀，缺的兩項讀成零值（HMA 沒人拿、計數 0），與 v2 執行器讀回來相同。
 const (
-	dosStateMagic   = "DOSGOLEM-D"
-	dosStateVersion = 2
+	dosStateMagic      = "DOSGOLEM-D"
+	dosStateVersion    = 3
+	dosStateVersionMin = 2
 )
 
 type handleState struct {
@@ -88,6 +91,9 @@ type dosState struct {
 
 	EMB     map[uint16][]byte
 	NextEMB uint16
+	// HMAOwned／A20Local：v3 起才有。
+	HMAOwned bool
+	A20Local int
 
 	EMSHandles []emsHandleState
 	EMSNext    uint16
@@ -110,6 +116,8 @@ func (d *DOS) SaveState(w io.Writer) error {
 		Queue:    append([]Queued(nil), d.queue...),
 		EMB:      map[uint16][]byte{},
 		NextEMB:  d.nextEMB,
+		HMAOwned: d.hmaOwned,
+		A20Local: d.a20Local,
 		Exited:   d.Exited,
 		ExitCode: d.ExitCode,
 	}
@@ -169,7 +177,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 	if err := gob.NewDecoder(r).Decode(&s); err != nil {
 		return fmt.Errorf("dos: 讀不開狀態檔：%w", err)
 	}
-	if s.Magic != dosStateMagic || s.Version != dosStateVersion {
+	if s.Magic != dosStateMagic || s.Version < dosStateVersionMin || s.Version > dosStateVersion {
 		return fmt.Errorf("dos: 狀態檔不認得（%q v%d）", s.Magic, s.Version)
 	}
 	for _, h := range d.handles {
@@ -214,6 +222,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 		d.emb[k] = append([]byte(nil), v...)
 	}
 	d.nextEMB = s.NextEMB
+	d.hmaOwned, d.a20Local = s.HMAOwned, s.A20Local
 	d.procStack = nil
 	for _, f := range s.Stack {
 		d.procStack = append(d.procStack, procFrame{r: f.R, seg: f.Seg, ip: f.IP, fl: f.Fl,

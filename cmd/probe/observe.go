@@ -291,6 +291,14 @@ func obsPokeScript(inline string) string {
 func obsReport(m *machine.Machine, d *dos.DOS, watch func(w *bufio.Writer)) {
 	// PIT 的分頻決定計時器多快。**印出來**：分頻被寫成一個小數字時，
 	// 症狀是機器淹在中斷裡出不來，而那看起來像「程式當掉」。
+	// **寫 ROM 被忽略也要印。** 真機上是無聲的，但寫 ROM 的程式通常是指標
+	// 已經飛了——沒印的話那一段只會變成「後面某處行為怪怪的」。
+	if m.ROMWrites > 0 {
+		fmt.Printf("\n寫 ROM（F0000–FFFFF）被忽略 %d 次，最前面 %d 筆：\n", m.ROMWrites, len(m.ROMWriteLog))
+		for _, w := range m.ROMWriteLog {
+			fmt.Printf("  #%d %05X ← %02X  ip=%04X:%04X\n", w.Step, w.Addr, w.Val, w.CS, w.IP)
+		}
+	}
 	fmt.Printf("\nPIT 通道 0 分頻 %d", m.PITDiv)
 	if m.CycleClock {
 		fmt.Printf("（週期時鐘 %d Hz，每 %d 個週期一次 IRQ0）", m.CPUHz, m.CycPerIRQ0())

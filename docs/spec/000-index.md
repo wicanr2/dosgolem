@@ -335,3 +335,5 @@
 - [189 — A20 閘門與 HMA 的定址](189-a20-gate-and-hma-addressing.md)：READY。位址遮罩從 CPU 移到匯流排——`段:偏移` 到得了 1 MB 之上，A20 關著時才環繞。
 
 - [190 — 把 OPL 暫存器寫入倒成 VGM](190-opl-vgm-dump.md)：READY。`machine.OPL` 那一串編成標準 VGM，外部播放器離線合成；時間基準改用 `IRQ0Every × PITHz`，`-tick` 釘死間隔時不再安靜地把曲速改掉；`-vgm-clear-on-open` 用開檔那一刻把輸出框到單一曲目上。
+
+- [191 — BIOS ROM 尾巴、ROM 唯讀、狀態檔的 A20；`-watch` 多段與 `-regs-at` 不去重](191-bios-rom-tail.md)：READY。`FFFF0`–`FFFFF` 填 PC/AT 的重置跳躍、BIOS 日期與機型位元組，`F0000`–`FFFFF` 寫入忽略但記下來；狀態檔 v3 存 A20／HMA、仍讀 v2；`-watch` 每一段都監看、`-regs-at` 的 blit 去重改成選用。
