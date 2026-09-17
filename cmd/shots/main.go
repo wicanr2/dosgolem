@@ -88,6 +88,8 @@ func main() {
 		"這時不再等開機那一幀，第一個鍵直接送。逐步驅動（看畫面再決定下一個鍵）靠它：每一步從上一步"+
 		"存的狀態展開，是秒級不是分鐘級")
 	saveState := flag.String("save-state", "", "全部鍵送完、畫面靜下來之後把機器與 DOS 存到這個檔")
+	watch := flag.String("watch", "", "`<線性hex>-<線性hex>`：監看這段位址的寫入（值變了才記），"+
+		"每一筆印出步數、位址、舊值→新值與寫入當下的 CS:IP（IP 已推過那條指令）")
 	flag.Parse()
 
 	img, err := os.ReadFile(*exe)
@@ -241,6 +243,7 @@ func main() {
 		}
 		d.Scratch = *scratch
 		fmt.Printf("從 %s 接著跑（第 %d 道指令）\n", *loadState, m.Steps)
+		watchWrites(m, *watch)
 		save("loaded", m.IndexedEGA())
 	} else {
 		fmt.Println("開機到第一個穩定畫面…")
@@ -446,4 +449,20 @@ var ega16 = [16]color.RGBA{
 	{170, 0, 0, 255}, {170, 0, 170, 255}, {170, 85, 0, 255}, {170, 170, 170, 255},
 	{85, 85, 85, 255}, {85, 85, 255, 255}, {85, 255, 85, 255}, {85, 255, 255, 255},
 	{255, 85, 85, 255}, {255, 85, 255, 255}, {255, 255, 85, 255}, {255, 255, 255, 255},
+}
+
+// watchWrites 掛 -watch 的寫入監看。放在載入狀態之後：狀態檔會蓋掉整台機器。
+func watchWrites(m *machine.Machine, spec string) {
+	if spec == "" {
+		return
+	}
+	var lo, hi uint32
+	if _, err := fmt.Sscanf(spec, "%x-%x", &lo, &hi); err != nil {
+		fmt.Println("  ⚠ -watch 看不懂", spec, err)
+		return
+	}
+	m.WatchWrites(lo, hi, func(addr uint32, old, nw uint8) {
+		fmt.Printf("[watch] #%d %05X: %02X → %02X  ← %04X:%04X\n",
+			m.Steps, addr, old, nw, m.CPU.Seg[cpu.CS], m.CPU.IP)
+	})
 }
