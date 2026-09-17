@@ -349,6 +349,11 @@ func main() {
 		// 為 0，不進存檔）。重製端要在同一個控制邊界同步這個值，命中／傷害才比得起來。
 		rng, _ := m.Read16(0x627b8)
 		view["rng_word"] = uint32(rng)
+		// 0x539FC 是 0x11EEE 的輔助底面相位計數（raw chapter 9/24/25/28/29）：每次 BIOS
+		// tick 變化先以目前值呼叫 0x4EB90 鋪底，再加一以 16 回繞。畫面上的底面是
+		// (aux_phase-1)&15 那一次鋪的。
+		aux, _ := m.Read32(0x539fc)
+		view["aux_phase"] = aux
 		return view
 	}
 	insideScreenWriter := func() bool {
