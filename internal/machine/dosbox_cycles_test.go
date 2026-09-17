@@ -73,3 +73,31 @@ func TestTypematicFollowsMachineSpeed(t *testing.T) {
 		t.Errorf("按住 2 秒：XT 速度 %d 個事件、預設速度 %d 個，應相同", a, b)
 	}
 }
+
+// TestDOSBoxIRQ0ScheduleIsAbsolute：字串指令一步扣很多 cycles 時，IRQ0 次數仍 ＝ 總 cycles ÷ 間隔。
+//
+// 反向對照：改回「送出時刻 ＋ 間隔」的相對排程時，次數少約 28%（100 對 139）。
+func TestDOSBoxIRQ0ScheduleIsAbsolute(t *testing.T) {
+	m := New()
+	m.PITDiv = 16571
+	m.SetDOSBoxCycles(CyclesAT8)
+	per := m.CycPerIRQ0()
+	start := m.CPU.Cycles
+	ticks := 0
+	for i := 1; i <= 200_000; i++ {
+		if i%1000 == 0 {
+			m.CPU.Cycles += per * 6 / 10 // 一道長的 rep movsb
+		} else {
+			m.CPU.Cycles++
+		}
+		m.tick()
+		if m.irq0Pending {
+			ticks++
+			m.irq0Pending = false // 當成已送出
+		}
+	}
+	want := int((m.CPU.Cycles - start) / per)
+	if ticks < want-1 || ticks > want+1 {
+		t.Errorf("IRQ0 %d 次，總 cycles ÷ 間隔 ＝ %d", ticks, want)
+	}
+}

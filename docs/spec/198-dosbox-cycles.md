@@ -54,6 +54,12 @@ normal core 的扣法（`src/cpu/core_normal.cpp`、`core_normal/string.h`、`sr
 - `Machine.SetDOSBoxCycles(perMs uint64)`：開週期時鐘、`CPU.DOSBoxCost ＝ true`、`CPUHz ＝ perMs × 1000`，重算 IRQ0 間隔。
   `perMs ＝ 0` 還原：關週期時鐘、關 DOSBox 計費、`CPUHz ＝ DefaultCPUHz`。
 - `Machine.DOSBoxCycles() uint64`：目前設定（未設時 0）。
+- **IRQ0 絕對排程**：DOSBox 計費開著時，到期後下一次排在 `上一次該到的 cycles ＋ 間隔`，不是 `送出當下的 cycles ＋ 間隔`。
+  dosgolem 的 `rep` 字串指令在一步裡做完（一次 `rep movsb` 38,400 bytes ＝ 38,401 cycles，750 cycles 下 51 ms），
+  相對排程每次晚到的量會累積：《銀河超能力戰記》標題動畫期間計時器慢約 2%，音樂整段拖長（`psychic_war_cht` `docs/re/016` §2.3）。
+  DOSBox 的 PIC 事件是絕對時間，且 `rep` 在 cycle 片段邊界可被中斷。
+  中斷送達時機仍會延後到該道字串指令結束（不模擬可中斷的 `rep`，§5）；落後超過一個間隔時，掛起旗標只有一個，多的那次照舊遺失。
+  週期時鐘的舊用法（`-cpuhz`，沒開 DOSBox 計費）維持相對排程，保護既有收據（規格 `004-dos-bios-services` §5.1）。
 - 常數 `CyclesXT ＝ 240`、`CyclesAT8 ＝ 750`、`CyclesAT12 ＝ 1510`。
 - `Machine.InstructionsPerSecond() float64`：DOSBox 計費開著時回 `CPUHz`（每秒 cycles，當作每秒指令數的上限近似）；
   否則照舊 `IRQ0Base × PITBaseHz ÷ 17000`。`HoldKey` 的 typematic、`TonePCM` 的時間軸用它換算。
@@ -77,10 +83,13 @@ normal core 的扣法（`src/cpu/core_normal.cpp`、`core_normal/string.h`、`sr
 7. 反向對照：字串指令迭代不計費時，第 1 項的 `movsb`／`rep movsb` 失敗。
 8. 實機比對：《銀河超能力戰記》第一場戰鬥在 240 與 750 cycles 下的持續時間，與 DOSBox-X 同設定相差 ≤ 10%
    （在 `psychic_war_cht` 驗，結果記在該 repo 的 `docs/re/`）。
+9. IRQ0 絕對排程：每 1,000 道指令夾一次 0.6 個間隔的長字串指令，跑 20 萬道，IRQ0 次數 ＝ 總 cycles ÷ 間隔 ±1。
+   反向對照：改回相對排程時少約 28%。
 
 ## 5. 不做
 
 - I/O 延遲（§2 第 3 條）、`HLT` 讓出剩餘 cycles、中斷送達的成本。
+- `rep` 字串指令中途被中斷（DOSBox 在 cycle 片段邊界打斷）。
 - 週期時鐘 386 週期表的調整。
 - 牆上時間對齊（屬前端）。
 - `cpu386`（保護模式 LE）核心的 DOSBox 計費。

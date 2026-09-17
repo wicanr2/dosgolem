@@ -1256,7 +1256,14 @@ func (m *Machine) tick() {
 	switch {
 	case m.CycleClock: // 週期時鐘（`docs/spec/004` §5.1）
 		if m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc {
-			m.nextIRQ0Cyc = m.CPU.Cycles + m.cycPerIRQ0
+			if m.CPU.DOSBoxCost {
+				// **絕對排程**（`docs/spec/198` §3.2）：下一次排在「該到的時刻 ＋ 一個週期」，
+				// 不是「送出的時刻 ＋ 一個週期」。一整道 `rep movsb` 在一步裡扣掉幾萬個
+				// cycles，相對排程每次都晚到、誤差累積，繪圖多的畫面計時器會慢 2% 以上。
+				m.nextIRQ0Cyc += m.cycPerIRQ0
+			} else {
+				m.nextIRQ0Cyc = m.CPU.Cycles + m.cycPerIRQ0
+			}
 			m.irq0Pending = true
 		}
 	case m.IRQ0Every > 0: // 指令數時鐘（預設）
