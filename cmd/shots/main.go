@@ -50,6 +50,108 @@ type shotInfo struct {
 	// Calls 是 -trace-call 在這一步跑的期間記到的每一次呼叫：進去時堆疊上的第一個
 	// word 參數、回來時的 AX、是誰叫的。Turbo Pascal 的 `Random(n)` 就是這個形狀。
 	Calls []callRecord `json:"calls,omitempty"`
+	// Damage 是 -intercept-damage 在這一步跑的期間攔到的每一次扣血呼叫。
+	Damage []damageRecord `json:"damage,omitempty"`
+}
+
+// damageRecord 是一次被攔到的扣血呼叫：目標記錄的位址、陣營、當下 HP、原本與改過的傷害。
+type damageRecord struct {
+	Step     uint64 `json:"step"`
+	Target   string `json:"target"`
+	Side     uint8  `json:"side"`
+	InCombat bool   `json:"in_combat"`
+	HP       uint8  `json:"hp"`
+	Damage   uint8  `json:"damage"`
+	Changed  uint8  `json:"changed"`
+	CallerCS uint16 `json:"caller_cs"`
+	CallerIP uint16 `json:"caller_ip"`
+}
+
+// damageHook 是 -intercept-damage 的設定。對象是「遠呼叫、Pascal 慣例、參數依序推
+// (目標 far pointer, 傷害 byte)」的扣血入口；位址與記錄欄位全部由呼叫端給，這裡不認得任何遊戲。
+type damageHook struct {
+	seg, off       uint16 // 連結期的段（執行期加 LoadSeg）與 offset
+	hpField        uint32 // 目標記錄裡「目前 HP」那一個 byte 的位移
+	sideField      uint32 // 目標記錄裡陣營那一個 byte 的位移
+	combatAt       uint32 // DS 相對位址：這一格等於 combatValue 時才算在戰鬥中
+	combatValue    uint8
+	partySide      uint8 // 戰鬥中陣營等於它的是我方；不在戰鬥中一律當我方
+	lock, kill     bool
+	partySideKnown bool
+}
+
+// parseDamageHook 讀 `stub=010A:00AC,hp=11B,side=10E,combat=4954:5,party=0,lock,kill`（數字都是十六進位）。
+// 沒給 party 時只記錄、不改傷害——先量陣營值，再開 lock／kill。
+func parseDamageHook(spec string) (*damageHook, error) {
+	h := &damageHook{}
+	for _, part := range strings.Split(spec, ",") {
+		key, value, _ := strings.Cut(strings.TrimSpace(part), "=")
+		hex := func(text string, bits int) (uint64, error) { return strconv.ParseUint(text, 16, bits) }
+		switch key {
+		case "stub":
+			f := strings.Split(value, ":")
+			if len(f) != 2 {
+				return nil, fmt.Errorf("stub 要寫成 seg:off：%q", value)
+			}
+			seg, err1 := hex(f[0], 16)
+			off, err2 := hex(f[1], 16)
+			if err1 != nil || err2 != nil {
+				return nil, fmt.Errorf("stub 看不懂：%q", value)
+			}
+			h.seg, h.off = uint16(seg), uint16(off)
+		case "hp", "side":
+			v, err := hex(value, 16)
+			if err != nil {
+				return nil, fmt.Errorf("%s 看不懂：%q", key, value)
+			}
+			if key == "hp" {
+				h.hpField = uint32(v)
+			} else {
+				h.sideField = uint32(v)
+			}
+		case "combat":
+			f := strings.Split(value, ":")
+			if len(f) != 2 {
+				return nil, fmt.Errorf("combat 要寫成 ds位址:值：%q", value)
+			}
+			at, err1 := hex(f[0], 16)
+			v, err2 := hex(f[1], 8)
+			if err1 != nil || err2 != nil {
+				return nil, fmt.Errorf("combat 看不懂：%q", value)
+			}
+			h.combatAt, h.combatValue = uint32(at), uint8(v)
+		case "party":
+			v, err := hex(value, 8)
+			if err != nil {
+				return nil, fmt.Errorf("party 看不懂：%q", value)
+			}
+			h.partySide, h.partySideKnown = uint8(v), true
+		case "lock":
+			h.lock = true
+		case "kill":
+			h.kill = true
+		default:
+			return nil, fmt.Errorf("-intercept-damage 不認得 %q", part)
+		}
+	}
+	if h.seg == 0 && h.off == 0 {
+		return nil, fmt.Errorf("-intercept-damage 缺 stub")
+	}
+	if (h.lock || h.kill) && !h.partySideKnown {
+		return nil, fmt.Errorf("開 lock／kill 之前要先給 party（我方的陣營值）")
+	}
+	return h, nil
+}
+
+// decide 回傳改過的傷害：我方且 lock → 0；敵方且 kill 且傷害大於 0 → 目標目前 HP。
+func (h *damageHook) decide(party bool, hp, damage uint8) uint8 {
+	switch {
+	case party && h.lock:
+		return 0
+	case !party && h.kill && damage > 0 && hp > damage:
+		return hp
+	}
+	return damage
 }
 
 type callRecord struct {
@@ -80,6 +182,10 @@ func main() {
 		"結果印在 stdout，也寫進 shots.json 的 peek 欄（hex 字串）。"+
 		"**要帶一個已知值當正對照**（例如程式自己的常數表），否則 DS 抓錯時讀到的"+
 		"是別段的零，看起來跟「表是空的」一樣")
+	interceptDamage := flag.String("intercept-damage", "", "扣血入口的攔截："+
+		"`stub=<seg>:<off>,hp=<位移>,side=<位移>,combat=<ds位址>:<值>,party=<我方陣營>,lock,kill`（十六進位）。"+
+		"在遠呼叫進入 stub 的那一刻讀堆疊上的 (目標 far pointer, 傷害 byte)：lock 把我方的傷害改成 0，"+
+		"kill 把敵方的傷害改成目標目前 HP。每一次都記進 shots.json 的 damage；沒給 party 時只記不改")
 	traceCall := flag.String("trace-call", "", "`<seg>:<off>`（十六進位，seg 是連結期的段，執行期加 LoadSeg）："+
 		"每次 CS:IP 走到這裡就記堆疊上的第一個 word 參數與回來時的 AX，連同呼叫端 CS:IP 寫進 shots.json 的 calls。"+
 		"拿它記 Turbo Pascal `Random(n)` 的骰流：`5BB:C94`（Pool of Radiance）")
@@ -134,6 +240,41 @@ func main() {
 			os.Exit(2)
 		}
 		callSeg, callOff, callOn = uint16(seg)+machine.LoadSeg, uint16(off), true
+	}
+	var hook *damageHook
+	var damaged []damageRecord
+	if *interceptDamage != "" {
+		var err error
+		if hook, err = parseDamageHook(*interceptDamage); err != nil {
+			fmt.Println(err)
+			os.Exit(2)
+		}
+	}
+	intercept := func() {
+		c := m.CPU
+		if c.Seg[cpu.CS] != hook.seg+machine.LoadSeg || c.IP != hook.off {
+			return
+		}
+		ss, sp := uint32(c.Seg[cpu.SS])*16, uint32(c.R[cpu.SP])
+		retIP, retCS := m.Read16(ss+sp), m.Read16(ss+sp+2)
+		damage := m.Read8(ss + sp + 4)
+		toff, tseg := m.Read16(ss+sp+6), m.Read16(ss+sp+8)
+		record := uint32(tseg)*16 + uint32(toff)
+		inCombat := m.Read8(uint32(c.Seg[cpu.DS])*16+hook.combatAt) == hook.combatValue
+		side := m.Read8(record + hook.sideField)
+		hp := m.Read8(record + hook.hpField)
+		party := !inCombat || side == hook.partySide
+		changed := damage
+		if hook.partySideKnown {
+			changed = hook.decide(party, hp, damage)
+		}
+		if changed != damage {
+			m.Write8(ss+sp+4, changed)
+		}
+		damaged = append(damaged, damageRecord{Step: m.Steps, Target: fmt.Sprintf("%04X:%04X", tseg, toff),
+			Side: side, InCombat: inCombat, HP: hp, Damage: damage, Changed: changed, CallerCS: retCS, CallerIP: retIP})
+		fmt.Printf("[damage] #%d %04X:%04X side=%d combat=%t hp=%d damage=%d→%d ← %04X:%04X\n",
+			m.Steps, tseg, toff, side, inCombat, hp, damage, changed, retCS, retIP)
 	}
 	// pending 是進去了還沒回來的那一次（`Random` 是葉子，不會巢狀）。
 	var pending *callRecord
@@ -197,9 +338,10 @@ func main() {
 		}
 		sum := sha256.Sum256(frame)
 		sample()
-		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek), trace, traced})
+		shots = append(shots, shotInfo{len(shots), label, m.Steps, nz, fmt.Sprintf("%x", sum), name + ".png", peekMemory(m, *peek), trace, traced, damaged})
 		trace = nil
 		traced = nil
+		damaged = nil
 		fmt.Printf("  → %s：step %d 非零 %d\n", name, m.Steps, nz)
 		for k, v := range shots[len(shots)-1].Peek {
 			fmt.Printf("    %s = %s\n", k, v)
@@ -215,6 +357,9 @@ func main() {
 		deadline := m.Steps + *budget
 		for m.Steps < deadline {
 			for i := 0; i < 100_000; i++ {
+				if hook != nil {
+					intercept()
+				}
 				if callOn {
 					watchCall()
 				}
