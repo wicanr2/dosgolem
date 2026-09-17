@@ -180,6 +180,35 @@ func TestAudioToneFrequency(t *testing.T) {
 	}
 }
 
+// §4 第 5 項：步數與 cycles 不成比例時，事件依 cycles 定位。
+// 本段 750,000 cycles 裡，前 1% 的步數（7,500 步）用掉 93% 的 cycles（繪圖的字串指令），之後才開始發聲。
+// 反向對照：依步數定位時，音會從第 1% 的取樣附近開始，此項失敗。
+func TestAudioEventsPlacedByCycles(t *testing.T) {
+	o := liveOracle(t)
+	o.SetDOSBoxCycles(machine.CyclesAT8)
+	a := o.NewAudio(44100)
+	o.m.Steps += 7_500
+	o.m.CPU.Cycles += 697_500 // 93%
+	div := uint16(math.Round(machine.PITBaseHz / 440))
+	o.m.Out8(0x43, 0xB6)
+	o.m.Out8(0x42, uint8(div))
+	o.m.Out8(0x42, uint8(div>>8))
+	o.m.Out8(0x61, 0x03)
+	o.m.Steps += 742_500
+	o.m.CPU.Cycles += 52_500
+	pcm := a.Render()
+	first := -1
+	for i, v := range pcm {
+		if v != 0 {
+			first = i
+			break
+		}
+	}
+	if want := int(0.93 * 44100); first < want-50 || first > want+50 {
+		t.Errorf("第一個非零取樣在 %d，要 %d ±50（依 cycles 定位）", first, want)
+	}
+}
+
 // §4 第 5 項：OPL2 Key-On 之後有聲音、紀錄被清掉。
 func TestAudioOPL2KeyOn(t *testing.T) {
 	o := liveOracle(t)

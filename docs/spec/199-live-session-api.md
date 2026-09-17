@@ -61,7 +61,10 @@
   - 取樣數：`(cycles 差 ÷ (DOSBoxCycles() × 1000)) × rate`，小數累進到下一次，長期不漂移。沒開 DOSBox cycles 時用 `InstructionsPerSecond()` 換算步數差。
   - 喇叭：以規格 `195` §3.1 的規則增量解碼 `PortLog`，方波振幅 ±0.25、靜音 0，相位跨幀連續。
   - OPL2：增量把 `m.OPL` 的寫入送進 `opl2.Synth`，取 `Sample()`；只有 `SetAdLib(true)` 時混入。
-  - 事件的步數在本段內線性換成取樣位置（本段起點步數 → 第 0 個取樣，終點步數 → 最後一個取樣）。
+  - 事件以**寫入當下的 cycles** 定位：本段起點 cycles → 第 0 個取樣，終點 cycles → 最後一個取樣（`PortWrite`、`OPLWrite` 加 `Cycles` 欄位）。
+    沒開 DOSBox cycles 時改用步數。
+    ⚠ 不能用步數定位：字串指令讓一段時間內「步數：cycles」不均勻（繪圖多的地方一步好幾個 cycle），前端落後補跑 100 ms 一段時，
+    音符起點會偏幾十毫秒（`psychic_war_cht` `docs/re/016`：聲音層配對率 24.6%）。
   - 兩者相加後夾在 [-1, 1]，乘 32,767。
   - **消化完的 `PortLog` 與 `m.OPL` 會清掉**，長時間遊玩時記憶體不會無限成長；需要完整紀錄的工具（`-dump-ports`、`-opl-log`、`ToneEvents`）不要與 `Audio` 同時用。
 - 喇叭解碼抽成 `machine.ToneDecoder`（`Feed(PortWrite) (hz float64, changed bool)`），`ToneEvents` 改用它，結果不變。
@@ -77,7 +80,8 @@
    - 沒有聲音時，分 10 段 `Render` 的總取樣數與「總 cycles ÷ 每秒 cycles × rate」相差 ≤ 1，值全為 0；
    - 以埠寫入造 440 Hz 方波，取樣的過零頻率在 440 Hz ±1%；
    - OPL2 設一個音色並 Key-On 後有非零取樣；
-   - `Render` 後 `PortLog` 與 `m.OPL` 長度為 0（反向對照：拿掉清除時此項失敗）。
+   - `Render` 後 `PortLog` 與 `m.OPL` 長度為 0（反向對照：拿掉清除時此項失敗）；
+   - 步數與 cycles 不成比例時（本段前 1% 的步數用掉 93% 的 cycles），在該處寫入的音從第 93% 的取樣附近開始（反向對照：改用步數定位時此項失敗）。
 6. `ToneEvents` 改用 `ToneDecoder` 後，既有 `tone_test.go` 全部通過。
 7. `SaveStateFile` → `LoadStateFile` 往返：步數、CPU 暫存器、記憶體相同。
 

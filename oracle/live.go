@@ -136,9 +136,9 @@ func (o *Oracle) NewAudio(rate int) *Audio {
 // Rate 回取樣率。
 func (a *Audio) Rate() int { return a.rate }
 
-// audioEvent 是依步數合併後的喇叭或 OPL2 寫入。
+// audioEvent 是依機器時間合併後的喇叭或 OPL2 寫入；at 是 cycles（沒開 DOSBox cycles 時是步數）。
 type audioEvent struct {
-	step     uint64
+	at       uint64
 	port     *machine.PortWrite
 	reg, val uint8
 }
@@ -157,22 +157,31 @@ func (a *Audio) Render() []int16 {
 	n := int(exact)
 	a.frac = exact - float64(n)
 
+	// 事件以寫入當下的 cycles 定位（`199` §3.5）：字串指令讓「步數：cycles」在一段時間內不均勻，
+	// 用步數定位時音符起點會偏幾十毫秒。
+	byCycles := m.DOSBoxCycles() > 0
+	when := func(step, cyc uint64) uint64 {
+		if byCycles {
+			return cyc
+		}
+		return step
+	}
 	evs := make([]audioEvent, 0, len(m.PortLog)+len(m.OPL))
 	for i := range m.PortLog {
 		switch m.PortLog[i].Port {
 		case 0x42, 0x43, 0x61:
-			evs = append(evs, audioEvent{step: m.PortLog[i].Step, port: &m.PortLog[i]})
+			evs = append(evs, audioEvent{at: when(m.PortLog[i].Step, m.PortLog[i].Cycles), port: &m.PortLog[i]})
 		}
 	}
 	adlib := m.AdLib()
 	if adlib {
 		for _, w := range m.OPL {
 			if w.Bank == 0 {
-				evs = append(evs, audioEvent{step: w.Step, reg: w.Reg, val: w.Val})
+				evs = append(evs, audioEvent{at: when(w.Step, w.Cycles), reg: w.Reg, val: w.Val})
 			}
 		}
 	}
-	sort.SliceStable(evs, func(i, j int) bool { return evs[i].step < evs[j].step })
+	sort.SliceStable(evs, func(i, j int) bool { return evs[i].at < evs[j].at })
 	apply := func(e audioEvent) {
 		if e.port != nil {
 			a.tone.Feed(*e.port)
@@ -183,13 +192,13 @@ func (a *Audio) Render() []int16 {
 
 	pcm := make([]int16, n)
 	j := 0
-	span := nowStep - a.lastStep
+	from, span := when(a.lastStep, a.lastCyc), when(nowStep, nowCyc)-when(a.lastStep, a.lastCyc)
 	for i := range pcm {
-		at := a.lastStep
+		at := from
 		if n > 0 {
 			at += uint64(float64(span) * float64(i) / float64(n))
 		}
-		for ; j < len(evs) && evs[j].step <= at; j++ {
+		for ; j < len(evs) && evs[j].at <= at; j++ {
 			apply(evs[j])
 		}
 		v := 0.0

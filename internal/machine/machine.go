@@ -171,6 +171,8 @@ type OPLWrite struct {
 	Reg  uint8
 	Val  uint8
 	Step uint64
+	// Cycles 是寫入當下的累計週期數（`docs/spec/199` §3.5：串流音訊以它定位）。
+	Cycles uint64
 	// Bank 是 OPL3 的哪一組暫存器：0 ＝ 0x388/0x389（OPL2 相容），
 	// 1 ＝ 0x38A/0x38B（OPL3 才有的第二組）。
 	//
@@ -198,6 +200,8 @@ type PortWrite struct {
 	Val  uint8
 	// Step 是發生在第幾道指令，用來對齊時序。
 	Step uint64
+	// Cycles 是寫入當下的累計週期數（`docs/spec/199` §3.5：串流音訊以它定位）。
+	Cycles uint64
 }
 
 // SegChange 是一次 CS 的改變：far call／jmp／ret、中斷與 iret。
@@ -801,7 +805,7 @@ func (m *Machine) oplWrite(bank int, v uint8) {
 			}
 		}
 	}
-	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)})
+	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Cycles: m.CPU.Cycles, Bank: uint8(bank)})
 }
 
 // OPLRegs 回某一組暫存器的**目前狀態**（256 bytes）。
@@ -904,7 +908,7 @@ func (m *Machine) In8(port uint16) uint8 {
 
 func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
-	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps})
+	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps, Cycles: m.CPU.Cycles})
 
 	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
 	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。
