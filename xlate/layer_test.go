@@ -337,3 +337,24 @@ func TestFrozenSkipsInvalidation(t *testing.T) {
 		}
 	}
 }
+
+// 舊快照（misses 是單一數值）要能讀回來：那幾筆重新定色，不整個失敗。
+func TestRestoreOldSnapshot(t *testing.T) {
+	old := `{"w":320,"h":200,"stamps":[{"key":"k","x":8,"y":112,"cells":2,"cell_w":8,"cell_h":8,` +
+		`"glyph_x":0,"glyph_y":0,"glyph_scale":1,"text":"甲甲","state":2,"fg":[1,1,1],"bg":[0,0,0],` +
+		`"hash":123,"misses":2}]}`
+	l := &Layer{}
+	if err := l.Restore([]byte(old), nil); err != nil {
+		t.Fatalf("舊快照應該讀得回來：%v", err)
+	}
+	if len(l.Stamps) != 1 {
+		t.Fatalf("剩 %d 筆", len(l.Stamps))
+	}
+	idx := make([]uint8, DefaultScreenW*DefaultScreenH)
+	rgb := make([]uint8, 3*DefaultScreenW*DefaultScreenH)
+	l.Frame(idx, rgb) // 這一幀發現指紋陣列長度不對，改回 Pending
+	l.Frame(idx, rgb)
+	if l.Stamps[0].State != Shown || len(l.Stamps[0].hashes) != 2 {
+		t.Errorf("應該重新定色：state=%v hashes=%v", l.Stamps[0].State, l.Stamps[0].hashes)
+	}
+}

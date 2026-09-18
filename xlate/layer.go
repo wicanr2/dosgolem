@@ -390,8 +390,8 @@ type stampSnapshot struct {
 	State      State    `json:"state"`
 	FG         [3]uint8 `json:"fg"`
 	BG         [3]uint8 `json:"bg"`
-	Hashes     []uint64 `json:"hashes,omitempty"`
-	Misses     []int    `json:"misses,omitempty"`
+	Hashes     json.RawMessage `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
+	Misses     json.RawMessage `json:"misses,omitempty"`
 }
 
 type layerSnapshot struct {
@@ -413,10 +413,35 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, State: s.State, FG: s.FG, BG: s.BG,
-			Hashes: s.hashes, Misses: s.misses,
+			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses),
 		}
 	}
 	return json.Marshal(snap)
+}
+
+// mustJSON 把切片轉成 JSON（失敗回 nil，快照少一個欄位不影響還原）。
+func mustJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func decodeHashes(raw json.RawMessage) []uint64 {
+	var out []uint64
+	if len(raw) == 0 || json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func decodeMisses(raw json.RawMessage) []int {
+	var out []int
+	if len(raw) == 0 || json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // Restore 從 Snapshot 存的 JSON 還原疊字層。fonts 是名稱→字型的對照表——
@@ -441,7 +466,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
 			Text: []rune(ss.Text), Transparent: ss.Transp, State: ss.State, FG: ss.FG, BG: ss.BG,
-			hashes: ss.Hashes, misses: ss.Misses,
+			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses),
 		}
 	}
 	l.W, l.H = snap.W, snap.H
