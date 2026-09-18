@@ -32,22 +32,43 @@ func TestInvalidateAfterThreeFrames(t *testing.T) {
 	if s.State != Shown {
 		t.Fatal("定色後應該顯示")
 	}
-	changed := append([]uint8(nil), idx...)
-	changed[113*DefaultScreenW+10] = 5
-	l.Frame(changed, rgb)
-	l.Frame(changed, rgb)
-	if len(l.Stamps) != 1 {
-		t.Fatal("連續 2 幀不同就被移除")
+	// 只有第 0 格變：3 幀後那一格變透明，整筆還在（spec 202 §2.3）
+	one := append([]uint8(nil), idx...)
+	one[113*DefaultScreenW+10] = 5
+	l.Frame(one, rgb)
+	l.Frame(one, rgb)
+	if s.transparent(0) {
+		t.Fatal("2 幀就把格子遮掉了")
 	}
-	l.Frame(idx, rgb) // 恢復一次，重新計數
-	l.Frame(changed, rgb)
-	l.Frame(changed, rgb)
-	if len(l.Stamps) != 1 {
-		t.Fatal("恢復後又 2 幀不同就被移除")
+	l.Frame(one, rgb)
+	if !s.transparent(0) || s.transparent(1) || len(l.Stamps) != 1 {
+		t.Fatalf("第 0 格應該遮掉、第 1 格留著：%v 剩 %d 筆", s.Transparent, len(l.Stamps))
 	}
-	l.Frame(changed, rgb)
+	// 反向對照：恢復原狀時不再累計（拿一筆新的重來，改回原內容後 5 幀都不遮）
+	s2 := &Stamp{Key: "k2", X: 8, Y: 112, Cells: 2, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s2}
+	l.Frame(idx, rgb)
+	l.Frame(one, rgb)
+	l.Frame(one, rgb)
+	l.Frame(idx, rgb) // 恢復
+	for i := 0; i < 2; i++ {
+		l.Frame(one, rgb)
+	}
+	if s2.transparent(0) {
+		t.Error("恢復之後應該重新計數")
+	}
+	// 每一格都變 → 整筆移除
+	all := append([]uint8(nil), idx...)
+	for y := 112; y < 120; y++ {
+		for x := 8; x < 24; x++ {
+			all[y*DefaultScreenW+x] = 3
+		}
+	}
+	for i := 0; i < 3; i++ {
+		l.Frame(all, rgb)
+	}
 	if len(l.Stamps) != 0 {
-		t.Fatal("連續 3 幀不同應該移除")
+		t.Fatal("每一格都變應該移除")
 	}
 }
 
@@ -262,15 +283,16 @@ func TestTransparentCells(t *testing.T) {
 	if len(l.Stamps) != 1 {
 		t.Fatal("透明格變動不該讓疊字失效")
 	}
-	// 反向對照：改非透明格，3 幀後失效
+	// 反向對照：改非透明格，3 幀後那一格也被遮掉；兩格都透明就整筆移除
 	changed[115*320+10] = 9
 	for i := 0; i < 3; i++ {
 		l.Frame(changed, rgb)
 	}
 	if len(l.Stamps) != 0 {
-		t.Fatal("非透明格變動應該失效")
+		t.Fatal("唯一的非透明格變動後應該整筆移除")
 	}
-	s.State = Shown
+	s = &Stamp{X: 8, Y: 112, Cells: 2, CellW: 8, CellH: 8, Font: font, Text: []rune("甲甲"),
+		Transparent: []bool{false, true}, State: Shown}
 	s.BG, s.FG = [3]uint8{1, 1, 1}, [3]uint8{2, 2, 2}
 	l.Stamps = []*Stamp{s}
 	dst := make([]uint8, 4*960*600)
@@ -301,11 +323,11 @@ func TestFrozenSkipsInvalidation(t *testing.T) {
 			l.Frame(changed, rgb)
 		}
 		frozen = false
-		if freeze && len(l.Stamps) != 1 {
-			t.Error("凍結期間不該失效")
+		if freeze && s.transparent(0) {
+			t.Error("凍結期間不該把格子遮掉")
 		}
-		if !freeze && len(l.Stamps) != 0 {
-			t.Error("反向對照：不凍結時應該失效")
+		if !freeze && !s.transparent(0) {
+			t.Error("反向對照：不凍結時那一格應該被遮掉")
 		}
 		if freeze {
 			l.Frame(idx, rgb) // 解除後內容恢復

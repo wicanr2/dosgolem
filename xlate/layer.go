@@ -36,8 +36,8 @@ type Stamp struct {
 	FG    [3]uint8
 	BG    [3]uint8
 
-	hash   uint64 // Frame 定色時記的指紋，Shown 之後用來判斷是否還有效
-	misses int    // 連續指紋不同的次數
+	hashes []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
+	misses []int    // 每一格連續指紋不同的次數
 }
 
 // Rect 回這一筆蓋住的原版像素範圍 [x0,x1)×[y0,y1)。
@@ -84,15 +84,10 @@ func (l *Layer) Add(s *Stamp) {
 			continue
 		}
 		if old.CellW > 0 {
-			if len(old.Transparent) < old.Cells {
-				t := make([]bool, old.Cells)
-				copy(t, old.Transparent)
-				old.Transparent = t
-			}
 			for i := 0; i < old.Cells; i++ {
 				cx0 := ox0 + i*old.CellW
 				if cx0 < nx1 && nx0 < cx0+old.CellW {
-					old.Transparent[i] = true
+					old.setTransparent(i)
 				}
 			}
 		}
@@ -104,6 +99,25 @@ func (l *Layer) Add(s *Stamp) {
 		keep = append(keep, old)
 	}
 	l.Stamps = append(keep, s)
+}
+
+// cellHashes 算每一格的指紋。
+func (s *Stamp) cellHashes(indexed []uint8, w, h int) []uint64 {
+	out := make([]uint64, s.Cells)
+	for i := range out {
+		out[i] = fnv(s.cellRegion(indexed, w, h, i))
+	}
+	return out
+}
+
+// setTransparent 把第 i 格標成透明（陣列不夠長就補）。
+func (s *Stamp) setTransparent(i int) {
+	if len(s.Transparent) < s.Cells {
+		t := make([]bool, s.Cells)
+		copy(t, s.Transparent)
+		s.Transparent = t
+	}
+	s.Transparent[i] = true
 }
 
 // allTransparent 回這一筆是不是每一格都透明（沒有東西可畫）。
@@ -173,6 +187,20 @@ func (s *Stamp) transparent(i int) bool { return i >= 0 && i < len(s.Transparent
 // covered 回原版像素 (x, y) 是否在這一筆的非透明格內（x 已知在矩形內）。
 func (s *Stamp) covered(x int) bool { return !s.transparent((x - s.X) / s.CellW) }
 
+// cellRegion 取第 i 格的色號（超出畫面的部分跳過）。
+func (s *Stamp) cellRegion(indexed []uint8, w, h, i int) []uint8 {
+	x0 := s.X + i*s.CellW
+	out := make([]uint8, 0, s.CellW*s.CellH)
+	for y := s.Y; y < s.Y+s.CellH; y++ {
+		for x := x0; x < x0+s.CellW; x++ {
+			if x >= 0 && x < w && y >= 0 && y < h {
+				out = append(out, indexed[y*w+x])
+			}
+		}
+	}
+	return out
+}
+
 // region 取這一筆矩形內非透明格的色號，w、h 是畫面尺寸（超出畫面的部分跳過）。
 func (s *Stamp) region(indexed []uint8, w, h int) []uint8 {
 	x0, y0, x1, y1 := s.Rect()
@@ -226,16 +254,32 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 			reg := s.region(indexed, w, h)
 			bg, fg := Colors(reg)
 			s.BG, s.FG = pick(s, indexed, rgb, bg, w, h), pick(s, indexed, rgb, fg, w, h)
-			s.hash, s.misses, s.State = fnv(reg), 0, Shown
+			s.hashes, s.misses, s.State = s.cellHashes(indexed, w, h), make([]int, s.Cells), Shown
 		case Shown:
-			if fnv(s.region(indexed, w, h)) != s.hash {
-				s.misses++
-				if s.misses >= 3 {
-					l.drop(s, "changed")
+			// 以**格**為單位判斷失效：原版在旁邊開另一個框只蓋住這一行的一部分時，
+			// 沒被蓋到的格子照常顯示中文（spec 202 §2.3）。
+			if len(s.hashes) != s.Cells || len(s.misses) != s.Cells {
+				s.State = Pending // 舊快照或格數變了：下一幀重新定色
+				keep = append(keep, s)
+				continue
+			}
+			now := s.cellHashes(indexed, w, h)
+			for i := 0; i < s.Cells; i++ {
+				if s.transparent(i) {
 					continue
 				}
-			} else {
-				s.misses = 0
+				if now[i] != s.hashes[i] {
+					s.misses[i]++
+					if s.misses[i] >= 3 {
+						s.setTransparent(i)
+					}
+				} else {
+					s.misses[i] = 0
+				}
+			}
+			if s.allTransparent() {
+				l.drop(s, "changed")
+				continue
 			}
 		}
 		keep = append(keep, s)
@@ -346,8 +390,8 @@ type stampSnapshot struct {
 	State      State    `json:"state"`
 	FG         [3]uint8 `json:"fg"`
 	BG         [3]uint8 `json:"bg"`
-	Hash       uint64   `json:"hash"`
-	Misses     int      `json:"misses"`
+	Hashes     []uint64 `json:"hashes,omitempty"`
+	Misses     []int    `json:"misses,omitempty"`
 }
 
 type layerSnapshot struct {
@@ -369,7 +413,7 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, State: s.State, FG: s.FG, BG: s.BG,
-			Hash: s.hash, Misses: s.misses,
+			Hashes: s.hashes, Misses: s.misses,
 		}
 	}
 	return json.Marshal(snap)
@@ -397,7 +441,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
 			Text: []rune(ss.Text), Transparent: ss.Transp, State: ss.State, FG: ss.FG, BG: ss.BG,
-			hash: ss.Hash, misses: ss.Misses,
+			hashes: ss.Hashes, misses: ss.Misses,
 		}
 	}
 	l.W, l.H = snap.W, snap.H
