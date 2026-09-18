@@ -114,3 +114,31 @@ func TestWatcherSnapshotKeepsOwner(t *testing.T) {
 		t.Fatalf("還原後不該重複建立：筆數=%d made=%d", len(l2.Stamps), made)
 	}
 }
+
+// spec 203 §2.1：watcher 的疊字整筆失效，不逐格遮。
+func TestWatcherStampDropsWholeOnPartialChange(t *testing.T) {
+	idx, rgb := screen(DefaultScreenW, DefaultScreenH)
+	made := 0
+	wa := &Watcher{Key: "panel", X: 8, Y: 16, W: 16, H: 8, Want: make([]uint8, 16*8), Make: func() []*Stamp {
+		made++
+		return []*Stamp{{Key: "t", X: 8, Y: 16, Cells: 2, CellW: 8, CellH: 8, State: Pending}}
+	}}
+	l := &Layer{}
+	l.Watch(wa)
+	l.Frame(idx, rgb)
+	if made != 1 || len(l.Stamps) != 1 {
+		t.Fatalf("應該蓋上：made=%d 筆數=%d", made, len(l.Stamps))
+	}
+	changed := append([]uint8(nil), idx...)
+	changed[17*DefaultScreenW+9] = 7 // 只改第 0 格
+	for i := 0; i < 3; i++ {
+		l.Frame(changed, rgb)
+	}
+	if len(l.Stamps) != 0 {
+		t.Fatalf("watcher 的疊字應該整筆移除，剩 %d 筆（透明=%v）", len(l.Stamps), l.Stamps[0].Transparent)
+	}
+	l.Frame(idx, rgb) // 畫面回到原樣就再蓋一次
+	if made != 2 || len(l.Stamps) != 1 {
+		t.Fatalf("回到原樣應該重蓋：made=%d 筆數=%d", made, len(l.Stamps))
+	}
+}

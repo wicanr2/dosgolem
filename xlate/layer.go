@@ -79,7 +79,9 @@ func (l *Layer) Add(s *Stamp) {
 			continue
 		}
 		ox0, oy0, ox1, oy1 := old.Rect()
-		if nx0 <= ox0 && nx1 >= ox1 && ny0 <= oy0 && ny1 >= oy1 { // 整個蓋住
+		// watcher 加的疊字（Owner 非空）整筆移除，不遮格子：它的有效性由整塊區域定義，
+		// 遮一半會永遠留著半行原版英文（spec 203 §2.1）。移除之後 watcher 會在畫面回到原樣時重新蓋。
+		if old.Owner != "" || (nx0 <= ox0 && nx1 >= ox1 && ny0 <= oy0 && ny1 >= oy1) {
 			l.drop(old, "overlap")
 			continue
 		}
@@ -271,13 +273,17 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 				if now[i] != s.hashes[i] {
 					s.misses[i]++
 					if s.misses[i] >= 3 {
+						if s.Owner != "" { // watcher 的疊字整筆失效（同上）
+							s.State = Printing // 標記為要移除
+							break
+						}
 						s.setTransparent(i)
 					}
 				} else {
 					s.misses[i] = 0
 				}
 			}
-			if s.allTransparent() {
+			if s.State == Printing || s.allTransparent() {
 				l.drop(s, "changed")
 				continue
 			}
