@@ -340,7 +340,7 @@ func (s *Synth) Sample() float64 {
 		f := float64(c.fnum) * NativeRate / math.Pow(2, float64(20-int(c.block)))
 		fb := 0.0
 		if c.fb > 0 {
-			fb = (c.fbHist[0] + c.fbHist[1]) / 2 * math.Pi * math.Pow(2, float64(c.fb)-4)
+			fb = (c.fbHist[0] + c.fbHist[1]) / 2 * math.Pi * math.Pow(2, float64(c.fb)-5)
 		}
 		mo := s.output(m, c, f, fb)
 		c.fbHist[1], c.fbHist[0] = c.fbHist[0], mo
@@ -348,7 +348,7 @@ func (s *Synth) Sample() float64 {
 		if c.additive {
 			out = mo + s.output(cr, c, f, 0)
 		} else {
-			out = s.output(cr, c, f, mo*4*math.Pi)
+			out = s.output(cr, c, f, mo*8*math.Pi)
 		}
 		if (s.only < 0 || s.only == i) && s.except != i {
 			sum += out
