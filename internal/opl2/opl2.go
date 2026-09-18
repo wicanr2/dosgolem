@@ -1,7 +1,8 @@
-// Package opl2 是 YM3812（OPL2）的近似合成器雛形（`docs/spec/196`）。
+// Package opl2 是 YM3812（OPL2）的近似合成器（`docs/spec/196`）。
 //
-// 目標是**音高與節奏對**，音色是近似：包絡以 dB 線性變化、KSL／顫音／
-// 震音／節奏模式都沒做。用到沒做的功能時計數（Unsupported），不安靜忽略。
+// 音高、節奏與音色都要接近真機：ADSR、TL、KSL、震音、顫音、波形 0–3、FM 與相加、回授。
+// 波形以連續時間近似，不是逐週期複刻真機的定點運算。節奏模式沒做，用到時計數
+// （Unsupported），不安靜忽略。
 //
 // 這個套件不認識機器：呼叫端依時間順序 Write，每產生一個取樣呼叫一次 Sample。
 package opl2
@@ -66,9 +67,24 @@ const (
 	vibDeepCnt    = 14.0
 )
 
+// Feature 是可以個別關掉的合成功能（診斷用）。預設全開；關掉是為了回答
+// 「保真度的哪一項是被哪個功能推動的」——一次只改一個變因才看得出來。
+type Feature uint8
+
+const (
+	FeatKSL Feature = 1 << iota
+	FeatAM
+	FeatVIB
+	FeatExpAttack
+)
+
+// FeatureByName 把旗標名對到位元（呼叫端解析命令列用）。
+var FeatureByName = map[string]Feature{"ksl": FeatKSL, "am": FeatAM, "vib": FeatVIB, "expatk": FeatExpAttack}
+
 // Synth 是一個 OPL2 晶片的狀態。
 type Synth struct {
 	rate       float64
+	off        Feature // 關掉的功能
 	waveSelect bool
 	amDeep     bool // BDh bit 7
 	vibDeep    bool // BDh bit 6
@@ -204,8 +220,12 @@ func (s *Synth) stepEnv(o *operator, c *channel) {
 		if o.ar == 15 {
 			o.env = 0
 		} else if k := rateScale(o.ar, c, o.ksr); k > 0 {
-			tau := 2826 * k / 4 // 走完 4 個時間常數 ≈ 98%
-			o.env *= math.Exp(-dt / tau)
+			if s.on(FeatExpAttack) {
+				tau := 2826 * k / 4 // 走完 4 個時間常數 ≈ 98%
+				o.env *= math.Exp(-dt / tau)
+			} else {
+				o.env -= 96 * dt / (2826 * k) // 舊的 dB 線性起音（診斷用）
+			}
 		}
 		if o.env <= 0.05 {
 			o.env = 0
@@ -279,15 +299,18 @@ func (s *Synth) output(o *operator, c *channel, freq, mod float64) float64 {
 	if o.st == stOff {
 		return 0
 	}
-	atten := o.env + float64(o.tl)*0.75 + kslAtten(o.ksl, c.block, c.fnum)
-	if o.am {
+	atten := o.env + float64(o.tl)*0.75
+	if s.on(FeatKSL) {
+		atten += kslAtten(o.ksl, c.block, c.fnum)
+	}
+	if o.am && s.on(FeatAM) {
 		d := amShallowDB
 		if s.amDeep {
 			d = amDeepDB
 		}
 		atten += d * tri(s.lfo*amHz)
 	}
-	if o.vib {
+	if o.vib && s.on(FeatVIB) {
 		cents := vibShallowCnt
 		if s.vibDeep {
 			cents = vibDeepCnt
@@ -329,3 +352,8 @@ func (s *Synth) Sample() float64 {
 	v := sum * 0.12
 	return math.Max(-1, math.Min(1, v))
 }
+
+// Disable 關掉指定功能（診斷用，見 Feature）。
+func (s *Synth) Disable(f Feature) { s.off |= f }
+
+func (s *Synth) on(f Feature) bool { return s.off&f == 0 }

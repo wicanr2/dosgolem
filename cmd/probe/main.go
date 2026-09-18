@@ -239,6 +239,9 @@ func main() {
 			"    不給的話寫檔只記帳（「被擋下來的寫檔」），遊戲自己的存檔不會真的留下來")
 	dumpOPLWAV := flag.String("dump-opl-wav", "",
 		"把 OPL2 暫存器寫入合成成 22,050 Hz 16 位元單聲道 WAV（`docs/spec/196`，近似音色）。要配 -adlib")
+	oplDisable := flag.String("opl-disable", "",
+		"合成時關掉這幾個功能（逗號分隔：ksl、am、vib、expatk），診斷用。\n"+
+			"    一次只關一個，才看得出某個功能把保真度推往哪個方向（`docs/spec/196`）")
 	dumpToneWAV := flag.String("dump-tone-wav", "",
 		"把 PIT 通道 2 的方波（音樂、嗶聲）寫成 22,050 Hz 8 位元單聲道 WAV（`docs/spec/195`）。\n"+
 			"    -dump-wav 只收喇叭資料線（語音），走通道 2 的音樂在那裡幾乎是空的")
@@ -1014,7 +1017,7 @@ func main() {
 		}
 	}
 	if *dumpOPLWAV != "" {
-		if err := writeOPLWAV(m, *dumpOPLWAV); err != nil {
+		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-opl-wav:", err)
 		}
 	}
@@ -2960,15 +2963,27 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 }
 
 // writeOPLWAV 把 OPL2 寫入序列合成成 WAV（`docs/spec/196`）。
-func writeOPLWAV(m *machine.Machine, path string) error {
+func writeOPLWAV(m *machine.Machine, path, disable string) error {
 	const rate = 22050
+	var off opl2.Feature
+	for _, name := range strings.Split(disable, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		f, ok := opl2.FeatureByName[name]
+		if !ok {
+			return fmt.Errorf("-opl-disable 不認得 %q（可用：ksl、am、vib、expatk）", name)
+		}
+		off |= f
+	}
 	events := make([]opl2.Event, 0, len(m.OPL))
 	for _, x := range m.OPL {
 		if x.Bank == 0 { // 只取 OPL2 相容那一組
 			events = append(events, opl2.Event{Step: x.Step, Reg: x.Reg, Val: x.Val})
 		}
 	}
-	pcm, unsupported, err := opl2.Render(events, machine.StepsPerSecond(), rate)
+	pcm, unsupported, err := opl2.RenderWithout(events, machine.StepsPerSecond(), rate, off)
 	if err != nil {
 		return err
 	}
@@ -2981,6 +2996,9 @@ func writeOPLWAV(m *machine.Machine, path string) error {
 		return err
 	}
 	fmt.Printf("OPL2 合成 → %s（%.1f 秒）", path, float64(len(pcm))/rate)
+	if off != 0 {
+		fmt.Printf("；關掉 %s", disable)
+	}
 	if len(unsupported) > 0 {
 		fmt.Printf("；⚠ 用到沒實作的功能：%v", unsupported)
 	}

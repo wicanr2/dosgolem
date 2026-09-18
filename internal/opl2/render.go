@@ -16,6 +16,11 @@ type Event struct {
 // Render 依時間順序套用事件並合成（`docs/spec/196` §3.3）：從第一次 Key-On 起，到最後一筆事件後 2 秒。
 // 回 16 位元取樣與不支援功能的計數；沒有 Key-On 時回錯誤。
 func Render(events []Event, stepsPerSecond float64, rate int) ([]int16, map[string]int, error) {
+	return RenderWithout(events, stepsPerSecond, rate, 0)
+}
+
+// RenderWithout 同 Render，但關掉 off 指定的功能（診斷用，見 Feature）。
+func RenderWithout(events []Event, stepsPerSecond float64, rate int, off Feature) ([]int16, map[string]int, error) {
 	if rate <= 0 {
 		rate = 22050
 	}
@@ -30,6 +35,7 @@ func Render(events []Event, stepsPerSecond float64, rate int) ([]int16, map[stri
 		return nil, nil, fmt.Errorf("OPL2 一次 Key-On 都沒有——這一段沒有音樂")
 	}
 	s := New(rate)
+	s.Disable(off)
 	j := 0
 	for ; j < first; j++ { // Key-On 之前的設定（音色）先套上
 		s.Write(events[j].Reg, events[j].Val)
