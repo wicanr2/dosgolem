@@ -49,6 +49,7 @@
 - `Draw(dst []uint8, scale int, missing func(rune)) bool`：dst 是放大後 RGBA（寬 W×scale）。每筆 `Shown`：非透明格填背景色；每格的字模以前景色畫在 `(格左上 ＋ GlyphX, 格左上 ＋ GlyphY)`；
   字模每個點畫成 `k×k`，k 由呼叫端透過 `GlyphScale` 決定（§2.4）。字型沒有的字呼叫 `missing`；半形與全形空白不畫。
   `GlyphX`／`GlyphY` 是放大後像素（呼叫端自己乘上 scale 的比例）；超出格子寬或高的點都不畫。
+- `Stamp.Owner string`：建立這一筆的 watcher 的 Key（`203-baked-text-watchers`），一般疊字是空字串；快照要保存。
 - `Frozen func(*Stamp) bool`（可為 nil）：回 true 的疊字在這次 `Frame` 不定色、不檢查指紋、失效計數不變。原版正在逐步搬動那一塊畫面時（訊息框捲動），中間狀態不能拿來判斷失效。
 - `Snapshot() ([]byte, error)`、`Restore([]byte, fonts map[string]*Font) error`：疊字層存成 JSON（字型以 `Font.Name` 記），給逐步操作（規格 `201`）跨步保留。
   指紋與連續不同次數也一起存，否則還原後第一次 `Frame` 會誤判成畫面變了。`OnDrop` 不存（是呼叫端的 hook）。快照裡的字型名稱在 `fonts` 找不到時整批回錯。

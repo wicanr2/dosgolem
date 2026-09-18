@@ -17,6 +17,7 @@ const (
 // Font、GlyphX、GlyphY、GlyphScale 決定字模怎麼畫進放大後的格子（§2.4）。
 type Stamp struct {
 	Key   string // 呼叫端的識別（例：文本檔 key）
+	Owner string // 建立它的 watcher 的 Key（spec 203）；一般疊字是空字串
 	X, Y  int
 	Cells int
 	CellW int
@@ -54,6 +55,8 @@ type Layer struct {
 	// 用途：原版正在搬動這一塊（例如訊息框逐步捲動、顯存複製到一半），中間狀態不能拿來判斷失效。
 	Frozen func(s *Stamp) bool
 	W, H   int
+
+	watchers []*Watcher // spec 203：以畫面內容當觸發點
 }
 
 func overlap(a, b *Stamp) bool {
@@ -169,6 +172,7 @@ func pick(s *Stamp, indexed, rgb []uint8, c uint8, w, h int) [3]uint8 {
 // Frame 在機器停下來之後呼叫一次：定色、檢查失效（spec 202 §2.3）。
 // indexed 是原版色號畫面（寬 l.width()），rgb 是同一幀的 RGB。
 func (l *Layer) Frame(indexed, rgb []uint8) {
+	l.checkWatchers(indexed)
 	w, h := l.width(), l.height()
 	keep := l.Stamps[:0]
 	for _, s := range l.Stamps {
@@ -286,6 +290,7 @@ func set(dst []uint8, w, x, y int, c [3]uint8) {
 // 字型以 Font.Name 記，不重複存字模——Restore 時由呼叫端透過 fonts 參數換回指標。
 type stampSnapshot struct {
 	Key        string   `json:"key"`
+	Owner      string   `json:"owner,omitempty"`
 	X          int      `json:"x"`
 	Y          int      `json:"y"`
 	Cells      int      `json:"cells"`
@@ -320,7 +325,7 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			name = s.Font.Name
 		}
 		snap.Stamps[i] = stampSnapshot{
-			Key: s.Key, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
+			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, State: s.State, FG: s.FG, BG: s.BG,
 			Hash: s.hash, Misses: s.misses,
@@ -348,7 +353,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			font = f
 		}
 		stamps[i] = &Stamp{
-			Key: ss.Key, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
+			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
 			Text: []rune(ss.Text), Transparent: ss.Transp, State: ss.State, FG: ss.FG, BG: ss.BG,
 			hash: ss.Hash, misses: ss.Misses,
