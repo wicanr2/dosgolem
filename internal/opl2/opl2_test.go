@@ -109,3 +109,140 @@ func TestRhythmModeCounted(t *testing.T) {
 		t.Errorf("節奏模式沒被記下：%v", s.Unsupported)
 	}
 }
+
+// `196` §4 第 7 項：KSL 的連續公式與真機的 16 段整數表相差 ≤ 1.5 dB。
+// kslRefTable 是 YM3812 把 FNum 高 4 位對到「要從 Block×8 扣掉多少」的分段表（單位 0.75 dB），
+// **只在這裡當驗收的對照曲線用**，不進實作（`196` §5）。
+func TestKslMatchesChipTable(t *testing.T) {
+	kslRefTable := [16]float64{64, 32, 24, 19, 16, 12, 11, 10, 8, 6, 5, 4, 3, 2, 1, 0}
+	worst := 0.0
+	for ksl := uint8(1); ksl <= 3; ksl++ {
+		for block := uint8(0); block < 8; block++ {
+			for hi := 0; hi < 16; hi++ {
+				ref := float64(block)*8 - kslRefTable[hi]
+				if ref < 0 {
+					ref = 0
+				}
+				want := ref * 0.75 * kslScale[ksl]
+				got := kslAtten(ksl, block, uint16(hi)<<6)
+				if d := math.Abs(got - want); d > worst {
+					worst = d
+				}
+			}
+		}
+	}
+	if worst > 1.5 {
+		t.Fatalf("與真機分段表最大差 %.2f dB，要 ≤ 1.5", worst)
+	}
+	if kslAtten(0, 7, 0x3FF) != 0 {
+		t.Error("KSL 位元 0 不該衰減")
+	}
+	// 位元 1 比位元 2 強（OPL 的慣例）
+	if kslAtten(1, 7, 0x3FF) <= kslAtten(2, 7, 0x3FF) {
+		t.Error("KSL 位元 1 應該比位元 2 強")
+	}
+	// 每八度 6 dB（位元 3）
+	d := kslAtten(3, 7, 0x3FF) - kslAtten(3, 6, 0x3FF)
+	if math.Abs(d-6) > 0.01 {
+		t.Errorf("位元 3 每八度應該 6 dB，得 %.2f", d)
+	}
+}
+
+// `196` §4 第 8 項：震音讓持續音的 RMS 以約 3.7 Hz 起伏，深度位元 1 起伏更大。
+func TestTremolo(t *testing.T) {
+	swing := func(deep bool) float64 {
+		s := New(rate)
+		if deep {
+			s.Write(0xBD, 0x80)
+		}
+		pureTone(s, 0x200, 4, 0)
+		s.Write(0x23, 0xA1) // 載波：震音 ＋ 持續 ＋ MULT 1
+		x := render(s, rate)
+		w := rate / 100 // 10 ms 窗
+		var lo, hi = math.Inf(1), 0.0
+		for i := rate / 4; i+w < len(x); i += w { // 跳過起音
+			v := rms(x[i : i+w])
+			lo, hi = math.Min(lo, v), math.Max(hi, v)
+		}
+		return hi / lo
+	}
+	shallow, deep := swing(false), swing(true)
+	if shallow <= 1.02 {
+		t.Errorf("淺震音應該看得到起伏，hi/lo=%.3f", shallow)
+	}
+	if deep <= shallow {
+		t.Errorf("深震音應該起伏更大：淺 %.3f 深 %.3f", shallow, deep)
+	}
+}
+
+// `196` §4 第 9 項：顫音讓頻率週期變動。
+//
+// ⚠ 不要用「兩段的過零數不同」來驗：±7 cent 是 0.4% 的頻率變動，
+// 78 ms 裡約 30 次過零只差 0.12 次，四捨五入之後兩段一模一樣——**測不到不等於沒效果**。
+// 改看過零間距的離散程度，對小幅調變才有解析度。
+func TestVibrato(t *testing.T) {
+	jitter := func(vib bool) float64 {
+		s := New(rate)
+		pureTone(s, 0x200, 4, 0)
+		if vib {
+			s.Write(0x23, 0x61) // 載波：顫音 ＋ 持續 ＋ MULT 1
+		}
+		x := render(s, rate)[rate/4:] // 跳過起音
+		// 過零點要用線性內插：±7 cent 只讓一個週期（約 50 個取樣）差 0.2 個取樣，
+		// 取整數索引的話整個訊號都被量化雜訊蓋掉（第一版就是這樣量到「沒效果」）。
+		var zc []float64
+		for i := 1; i < len(x); i++ {
+			if x[i-1] <= 0 && x[i] > 0 {
+				zc = append(zc, float64(i-1)+x[i-1]/(x[i-1]-x[i]))
+			}
+		}
+		if len(zc) < 20 {
+			t.Fatalf("過零數太少（%d）", len(zc))
+		}
+		gaps := make([]float64, 0, len(zc)-1)
+		for i := 1; i < len(zc); i++ {
+			gaps = append(gaps, zc[i]-zc[i-1])
+		}
+		mean := 0.0
+		for _, g := range gaps {
+			mean += g
+		}
+		mean /= float64(len(gaps))
+		v := 0.0
+		for _, g := range gaps {
+			v += (g - mean) * (g - mean)
+		}
+		return math.Sqrt(v/float64(len(gaps))) / mean
+	}
+	off, on := jitter(false), jitter(true)
+	if on <= off*1.5 {
+		t.Errorf("顫音應該讓過零間距明顯抖動：關 %.5f 開 %.5f", off, on)
+	}
+}
+
+// `196` §4 第 10 項：起音是指數，前半段比後半段快（線性的話兩段一樣）。
+func TestAttackIsExponential(t *testing.T) {
+	s := New(rate)
+	pureTone(s, 0x200, 4, 0)
+	s.Write(0x63, 0x40) // 載波 AR 4（慢起音）、DR 0
+	x := render(s, rate/2)
+	env := []float64{}
+	w := rate / 500 // 2 ms 窗
+	for i := 0; i+w < len(x); i += w {
+		env = append(env, rms(x[i:i+w]))
+	}
+	peak := 0.0
+	peakAt := 0
+	for i, v := range env {
+		if v > peak {
+			peak, peakAt = v, i
+		}
+	}
+	if peakAt < 4 {
+		t.Fatalf("起音太快，量不到形狀（峰值在第 %d 窗）", peakAt)
+	}
+	half := env[peakAt/2]
+	if half <= peak/2 {
+		t.Errorf("指數起音在一半時間應該已經超過一半振幅：half=%.4f peak=%.4f", half, peak)
+	}
+}
