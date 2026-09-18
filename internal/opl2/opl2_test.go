@@ -296,3 +296,42 @@ func TestOnlyChannel(t *testing.T) {
 		t.Error("超出範圍的聲道編號應該當成全開")
 	}
 }
+
+// docs/spec/196：ExceptChannel 排除一個聲道；與 OnlyChannel 互補。
+func TestExceptChannel(t *testing.T) {
+	setup := func(s *Synth) {
+		pureTone(s, 0x200, 4, 0)
+		s.Write(0xC1, 0x01)
+		s.Write(0x21, 0x21)
+		s.Write(0x41, 0x3F)
+		s.Write(0x24, 0x21)
+		s.Write(0x44, 0x00)
+		s.Write(0x64, 0xF0)
+		s.Write(0x84, 0x0F)
+		s.Write(0xA1, 0x00)
+		s.Write(0xB1, 0x20|4<<2|2)
+	}
+	all := New(rate)
+	setup(all)
+	xa := render(all, rate/4)
+
+	ex := New(rate)
+	setup(ex)
+	ex.ExceptChannel(1)
+	xb := render(ex, rate/4)
+
+	only := New(rate)
+	setup(only)
+	only.OnlyChannel(0)
+	xc := render(only, rate/4)
+
+	// 排除聲道 1 ＝ 只留聲道 0（這個情境只有兩個聲道在響）
+	for i := range xb {
+		if xb[i] != xc[i] {
+			t.Fatalf("排除聲道 1 應該等於只留聲道 0，第 %d 個取樣 %.6f vs %.6f", i, xb[i], xc[i])
+		}
+	}
+	if rms(xb) >= rms(xa) {
+		t.Errorf("排除一個聲道應該比較小聲：全部 %.4f 排除後 %.4f", rms(xa), rms(xb))
+	}
+}

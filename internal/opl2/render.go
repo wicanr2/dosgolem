@@ -26,6 +26,11 @@ func RenderWithout(events []Event, stepsPerSecond float64, rate int, off Feature
 
 // RenderOnly 再加一個診斷維度：only >= 0 時只把那一個聲道混進輸出（見 Synth.OnlyChannel）。
 func RenderOnly(events []Event, stepsPerSecond float64, rate int, off Feature, only int) ([]int16, map[string]int, error) {
+	return RenderChannels(events, stepsPerSecond, rate, off, only, -1)
+}
+
+// RenderChannels 是最完整的一支：only >= 0 只混那個聲道，except >= 0 排除那個聲道。
+func RenderChannels(events []Event, stepsPerSecond float64, rate int, off Feature, only, except int) ([]int16, map[string]int, error) {
 	if rate <= 0 {
 		rate = 22050
 	}
@@ -42,6 +47,7 @@ func RenderOnly(events []Event, stepsPerSecond float64, rate int, off Feature, o
 	s := New(rate)
 	s.Disable(off)
 	s.OnlyChannel(only)
+	s.ExceptChannel(except)
 	j := 0
 	for ; j < first; j++ { // Key-On 之前的設定（音色）先套上
 		s.Write(events[j].Reg, events[j].Val)

@@ -92,6 +92,7 @@ type Synth struct {
 	ops        [18]operator
 	ch         [9]channel
 	only       int // >= 0 時只混這一個聲道（診斷用，見 OnlyChannel）
+	except     int // >= 0 時這一個聲道不混進輸出（見 ExceptChannel）
 
 	// Unsupported 記錄用到但沒實作的功能各幾次：rhythm、vibrato、tremolo、ksl。
 	Unsupported map[string]int
@@ -99,7 +100,7 @@ type Synth struct {
 
 // New 建一個輸出取樣率為 rate 的合成器。
 func New(rate int) *Synth {
-	s := &Synth{rate: float64(rate), Unsupported: map[string]int{}, only: -1}
+	s := &Synth{rate: float64(rate), Unsupported: map[string]int{}, only: -1, except: -1}
 	for i := range s.ops {
 		s.ops[i].env = 96
 	}
@@ -349,7 +350,7 @@ func (s *Synth) Sample() float64 {
 		} else {
 			out = s.output(cr, c, f, mo*4*math.Pi)
 		}
-		if s.only < 0 || s.only == i {
+		if (s.only < 0 || s.only == i) && s.except != i {
 			sum += out
 		}
 	}
@@ -373,4 +374,15 @@ func (s *Synth) OnlyChannel(ch int) {
 		ch = -1
 	}
 	s.only = ch
+}
+
+// ExceptChannel 讓 Sample 把第 ch 個聲道排除在輸出之外（0–8），-1 恢復全部。診斷用。
+//
+// 與 OnlyChannel 互補，而且更有用：**拿掉某一個聲道之後保真度反而上升，
+// 那個聲道就是拖累**。只留單一聲道沒辦法直接跟參照比——參照那邊是混音，拆不開。
+func (s *Synth) ExceptChannel(ch int) {
+	if ch < -1 || ch >= len(s.ch) {
+		ch = -1
+	}
+	s.except = ch
 }

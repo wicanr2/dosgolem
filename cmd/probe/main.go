@@ -242,6 +242,9 @@ func main() {
 	oplOnly := flag.Int("opl-only", -1,
 		"合成時只混這一個聲道（0–8），-1 ＝ 全部。診斷用：整曲是 9 個聲道的混音，\n"+
 			"    單一聲道錯了會被其他聲道稀釋（`docs/spec/196`）")
+	oplExcept := flag.Int("opl-except", -1,
+		"合成時排除這一個聲道（0–8），-1 ＝ 全部都混。診斷用：拿掉某個聲道之後保真度反而上升，\n"+
+			"    那個聲道就是拖累（`docs/spec/196`）")
 	oplDisable := flag.String("opl-disable", "",
 		"合成時關掉這幾個功能（逗號分隔：ksl、am、vib、expatk），診斷用。\n"+
 			"    一次只關一個，才看得出某個功能把保真度推往哪個方向（`docs/spec/196`）")
@@ -1020,7 +1023,7 @@ func main() {
 		}
 	}
 	if *dumpOPLWAV != "" {
-		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable, *oplOnly); err != nil {
+		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable, *oplOnly, *oplExcept); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-opl-wav:", err)
 		}
 	}
@@ -2966,7 +2969,7 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 }
 
 // writeOPLWAV 把 OPL2 寫入序列合成成 WAV（`docs/spec/196`）。
-func writeOPLWAV(m *machine.Machine, path, disable string, only int) error {
+func writeOPLWAV(m *machine.Machine, path, disable string, only, except int) error {
 	const rate = 22050
 	var off opl2.Feature
 	for _, name := range strings.Split(disable, ",") {
@@ -2986,7 +2989,7 @@ func writeOPLWAV(m *machine.Machine, path, disable string, only int) error {
 			events = append(events, opl2.Event{Step: x.Step, Reg: x.Reg, Val: x.Val})
 		}
 	}
-	pcm, unsupported, err := opl2.RenderOnly(events, machine.StepsPerSecond(), rate, off, only)
+	pcm, unsupported, err := opl2.RenderChannels(events, machine.StepsPerSecond(), rate, off, only, except)
 	if err != nil {
 		return err
 	}
@@ -3004,6 +3007,9 @@ func writeOPLWAV(m *machine.Machine, path, disable string, only int) error {
 	}
 	if only >= 0 {
 		fmt.Printf("；只混聲道 %d", only)
+	}
+	if except >= 0 {
+		fmt.Printf("；排除聲道 %d", except)
 	}
 	if len(unsupported) > 0 {
 		fmt.Printf("；⚠ 用到沒實作的功能：%v", unsupported)
