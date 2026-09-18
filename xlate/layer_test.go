@@ -24,7 +24,9 @@ func TestScroll(t *testing.T) {
 func TestInvalidateAfterThreeFrames(t *testing.T) {
 	idx := make([]uint8, DefaultScreenW*DefaultScreenH)
 	rgb := make([]uint8, 3*DefaultScreenW*DefaultScreenH)
+	// 兩格都要有墨跡（都是錨定格），否則第 0 格失效時整筆就會被移除（spec 202 §2.3）
 	idx[112*DefaultScreenW+9] = 11
+	idx[112*DefaultScreenW+17] = 11
 	l := &Layer{}
 	s := &Stamp{Key: "k", X: 8, Y: 112, Cells: 2, CellW: 8, CellH: 8, State: Pending}
 	l.Stamps = []*Stamp{s}
@@ -356,5 +358,69 @@ func TestRestoreOldSnapshot(t *testing.T) {
 	l.Frame(idx, rgb)
 	if l.Stamps[0].State != Shown || len(l.Stamps[0].hashes) != 2 {
 		t.Errorf("應該重新定色：state=%v hashes=%v", l.Stamps[0].State, l.Stamps[0].hashes)
+	}
+}
+
+// spec 202 §2.3 錨定格：原版把整段文字清掉之後，壓在純色背景上的格子指紋不會變，
+// 不整筆移除就會在畫面上留下孤字（實例：道具頁翻頁後留著「上」「經」）。
+func TestAnchorsGoneDropsWholeStamp(t *testing.T) {
+	const W, H = DefaultScreenW, DefaultScreenH
+	idx := make([]uint8, W*H)
+	rgb := make([]uint8, 3*W*H)
+	// 整塊底色 1（藍），原文墨跡只在第 1、2 格
+	for y := 40; y < 48; y++ {
+		for x := 16; x < 40; x++ {
+			idx[y*W+x] = 1
+		}
+	}
+	idx[42*W+25], idx[42*W+33] = 15, 15
+	var dropped []string
+	l := &Layer{OnDrop: func(s *Stamp, why string) { dropped = append(dropped, s.Key+":"+why) }}
+	s := &Stamp{Key: "上限", X: 16, Y: 40, Cells: 3, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	if !s.anchors[1] || !s.anchors[2] || s.anchors[0] {
+		t.Fatalf("錨定格應該是第 1、2 格：%v", s.anchors)
+	}
+	// 原版把整塊清成純藍：第 0 格的指紋不變（本來就是純藍），錨定格都變了
+	clean := append([]uint8(nil), idx...)
+	clean[42*W+25], clean[42*W+33] = 1, 1
+	for i := 0; i < 3; i++ {
+		l.Frame(clean, rgb)
+	}
+	if len(l.Stamps) != 0 {
+		t.Fatalf("錨定格全部失效應該整筆移除，卻剩 %d 筆（transparent=%v）", len(l.Stamps), s.Transparent)
+	}
+	if len(dropped) != 1 || dropped[0] != "上限:anchors" {
+		t.Fatalf("移除原因應該是 anchors：%v", dropped)
+	}
+	// 反向對照：只清掉一個錨定格時整筆留著（原版在旁邊開框只蓋住一部分）
+	s2 := &Stamp{Key: "半", X: 16, Y: 40, Cells: 3, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s2}
+	l.Frame(idx, rgb)
+	half := append([]uint8(nil), idx...)
+	half[42*W+33] = 1
+	for i := 0; i < 4; i++ {
+		l.Frame(half, rgb)
+	}
+	if len(l.Stamps) != 1 || !s2.transparent(2) || s2.transparent(1) {
+		t.Fatalf("只有一個錨定格失效時應該只遮那一格：剩 %d 筆 transparent=%v", len(l.Stamps), s2.Transparent)
+	}
+}
+
+// 沒有任何錨定格（整塊純色）的疊字照舊逐格判斷，不會因為「沒有錨定格」就被移除。
+func TestNoAnchorsKeepsPerCellRule(t *testing.T) {
+	const W, H = DefaultScreenW, DefaultScreenH
+	idx := make([]uint8, W*H)
+	rgb := make([]uint8, 3*W*H)
+	l := &Layer{}
+	s := &Stamp{Key: "純色", X: 8, Y: 8, Cells: 2, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	for i := 0; i < 5; i++ {
+		l.Frame(idx, rgb)
+	}
+	if len(l.Stamps) != 1 {
+		t.Fatal("畫面沒變就不該移除")
 	}
 }

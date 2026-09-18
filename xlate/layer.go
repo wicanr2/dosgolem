@@ -36,8 +36,9 @@ type Stamp struct {
 	FG    [3]uint8
 	BG    [3]uint8
 
-	hashes []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
-	misses []int    // 每一格連續指紋不同的次數
+	hashes  []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
+	misses  []int    // 每一格連續指紋不同的次數
+	anchors []bool   // 每一格定色時是否壓在原文墨跡上（spec 202 §2.3）；全部失效就整筆移除
 }
 
 // Rect 回這一筆蓋住的原版像素範圍 [x0,x1)×[y0,y1)。
@@ -110,6 +111,41 @@ func (s *Stamp) cellHashes(indexed []uint8, w, h int) []uint64 {
 		out[i] = fnv(s.cellRegion(indexed, w, h, i))
 	}
 	return out
+}
+
+// cellAnchors 算每一格是不是「錨定格」：定色時該格的原版像素不只一種色號，
+// 也就是那一格壓在原文的墨跡上（spec 202 §2.3）。中文比原文寬時多出來的格子
+// 壓在純色背景上，指紋永遠不變，不能拿來判斷原文還在不在。
+func (s *Stamp) cellAnchors(indexed []uint8, w, h int) []bool {
+	out := make([]bool, s.Cells)
+	for i := range out {
+		reg := s.cellRegion(indexed, w, h, i)
+		for _, v := range reg {
+			if v != reg[0] {
+				out[i] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// anchorsGone 回「有錨定格，而且全部都失效了」。
+func (s *Stamp) anchorsGone() bool {
+	if len(s.anchors) != s.Cells {
+		return false
+	}
+	any := false
+	for i := 0; i < s.Cells; i++ {
+		if !s.anchors[i] {
+			continue
+		}
+		any = true
+		if !s.transparent(i) {
+			return false
+		}
+	}
+	return any
 }
 
 // setTransparent 把第 i 格標成透明（陣列不夠長就補）。
@@ -257,6 +293,7 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 			bg, fg := Colors(reg)
 			s.BG, s.FG = pick(s, indexed, rgb, bg, w, h), pick(s, indexed, rgb, fg, w, h)
 			s.hashes, s.misses, s.State = s.cellHashes(indexed, w, h), make([]int, s.Cells), Shown
+			s.anchors = s.cellAnchors(indexed, w, h)
 		case Shown:
 			// 以**格**為單位判斷失效：原版在旁邊開另一個框只蓋住這一行的一部分時，
 			// 沒被蓋到的格子照常顯示中文（spec 202 §2.3）。
@@ -285,6 +322,12 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 			}
 			if s.State == Printing || s.allTransparent() {
 				l.drop(s, "changed")
+				continue
+			}
+			// 錨定格全部失效 ＝ 原版那段文字已經不在畫面上；留下的格子壓在純色背景上，
+			// 指紋永遠不變，不移除就會變成孤字（spec 202 §2.3）。
+			if s.anchorsGone() {
+				l.drop(s, "anchors")
 				continue
 			}
 		}
@@ -398,6 +441,7 @@ type stampSnapshot struct {
 	BG         [3]uint8 `json:"bg"`
 	Hashes     json.RawMessage `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
 	Misses     json.RawMessage `json:"misses,omitempty"`
+	Anchors    []bool          `json:"anchors,omitempty"` // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
 }
 
 type layerSnapshot struct {
@@ -419,7 +463,7 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, State: s.State, FG: s.FG, BG: s.BG,
-			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses),
+			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses), Anchors: s.anchors,
 		}
 	}
 	return json.Marshal(snap)
@@ -472,7 +516,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
 			Text: []rune(ss.Text), Transparent: ss.Transp, State: ss.State, FG: ss.FG, BG: ss.BG,
-			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses),
+			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses), anchors: ss.Anchors,
 		}
 	}
 	l.W, l.H = snap.W, snap.H
