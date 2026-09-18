@@ -66,13 +66,32 @@ func TestColors(t *testing.T) {
 }
 
 // spec 202 §3 第 1 項：重疊移除。
-func TestAddReplacesOverlap(t *testing.T) {
-	l := &Layer{}
-	l.Add(&Stamp{Key: "a", X: 8, Y: 112, Cells: 16, CellW: 8, CellH: 8})
-	l.Add(&Stamp{Key: "b", X: 8, Y: 104, Cells: 16, CellW: 8, CellH: 8})
-	l.Add(&Stamp{Key: "c", X: 16, Y: 112, Cells: 3, CellW: 8, CellH: 8})
-	if len(l.Stamps) != 2 || l.Stamps[0].Key != "b" || l.Stamps[1].Key != "c" {
-		t.Errorf("剩 %d 筆", len(l.Stamps))
+// spec 202 §2.3：整個被蓋住才移除；只蓋到一部分時被蓋的格子變透明，其餘照常顯示。
+func TestAddCoversOrMasks(t *testing.T) {
+	var dropped []string
+	l := &Layer{OnDrop: func(s *Stamp, why string) { dropped = append(dropped, s.Key+":"+why) }}
+	a := &Stamp{Key: "a", X: 8, Y: 112, Cells: 16, CellW: 8, CellH: 8, State: Shown}
+	l.Add(a)
+	l.Add(&Stamp{Key: "b", X: 8, Y: 104, Cells: 16, CellW: 8, CellH: 8}) // 不同列，不重疊
+	l.Add(&Stamp{Key: "c", X: 16, Y: 112, Cells: 3, CellW: 8, CellH: 8}) // 蓋住 a 的第 1–3 格
+	if len(l.Stamps) != 3 {
+		t.Fatalf("部分重疊不該移除，剩 %d 筆", len(l.Stamps))
+	}
+	for i := 0; i < 16; i++ {
+		want := i >= 1 && i <= 3
+		if a.transparent(i) != want {
+			t.Errorf("第 %d 格透明 %v，要 %v", i, a.transparent(i), want)
+		}
+	}
+	if a.State != Pending {
+		t.Error("剩下的格子要重新定色")
+	}
+	l.Add(&Stamp{Key: "d", X: 8, Y: 112, Cells: 16, CellW: 8, CellH: 8}) // 整個蓋住 a 與 c
+	if len(l.Stamps) != 2 || l.Stamps[0].Key != "b" || l.Stamps[1].Key != "d" {
+		t.Errorf("整個蓋住要移除：剩 %d 筆 %v", len(l.Stamps), dropped)
+	}
+	if len(dropped) != 2 || dropped[0] != "a:overlap" || dropped[1] != "c:overlap" {
+		t.Errorf("移除紀錄不對：%v", dropped)
 	}
 }
 

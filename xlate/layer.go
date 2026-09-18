@@ -65,17 +65,58 @@ func overlap(a, b *Stamp) bool {
 	return ax0 < bx1 && bx0 < ax1 && ay0 < by1 && by0 < ay1
 }
 
-// Add 加一筆；與它重疊的舊疊字移除（原因 overlap）。
+// Add 加一筆。舊疊字被新的**整個蓋住**才移除（原因 overlap）；
+// 只重疊一部分時，把被蓋到的那幾格標成透明（不畫、不列入指紋），其餘照常顯示（spec 202 §2.3）。
+//
+// 為什麼不整筆移除：原版會在訊息框旁邊開別的框（例如輸入檔名的面板），只蓋住訊息的右半。
+// 整筆移除的話，沒被蓋到的左半會露出原版英文。
 func (l *Layer) Add(s *Stamp) {
 	keep := l.Stamps[:0]
+	nx0, ny0, nx1, ny1 := s.Rect()
 	for _, old := range l.Stamps {
-		if overlap(old, s) {
+		if !overlap(old, s) {
+			keep = append(keep, old)
+			continue
+		}
+		ox0, oy0, ox1, oy1 := old.Rect()
+		if nx0 <= ox0 && nx1 >= ox1 && ny0 <= oy0 && ny1 >= oy1 { // 整個蓋住
 			l.drop(old, "overlap")
 			continue
 		}
+		if old.CellW > 0 {
+			if len(old.Transparent) < old.Cells {
+				t := make([]bool, old.Cells)
+				copy(t, old.Transparent)
+				old.Transparent = t
+			}
+			for i := 0; i < old.Cells; i++ {
+				cx0 := ox0 + i*old.CellW
+				if cx0 < nx1 && nx0 < cx0+old.CellW {
+					old.Transparent[i] = true
+				}
+			}
+		}
+		if old.allTransparent() {
+			l.drop(old, "overlap")
+			continue
+		}
+		old.State = Pending // 剩下的格子要重新定色與重算指紋
 		keep = append(keep, old)
 	}
 	l.Stamps = append(keep, s)
+}
+
+// allTransparent 回這一筆是不是每一格都透明（沒有東西可畫）。
+func (s *Stamp) allTransparent() bool {
+	if s.Cells <= 0 {
+		return true
+	}
+	for i := 0; i < s.Cells; i++ {
+		if !s.transparent(i) {
+			return false
+		}
+	}
+	return true
 }
 
 func (l *Layer) drop(s *Stamp, why string) {
