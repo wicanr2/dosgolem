@@ -302,6 +302,11 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 				keep = append(keep, s)
 				continue
 			}
+			if len(s.anchors) != s.Cells {
+				// 舊快照還原的疊字沒有錨定格：拿這一幀補算。原文已經被蓋掉時算出來會是空的，
+				// 那時 anchorsGone 回 false，行為退回逐格判斷（spec 202 §2.3）。
+				s.anchors = s.cellAnchors(indexed, w, h)
+			}
 			now := s.cellHashes(indexed, w, h)
 			for i := 0; i < s.Cells; i++ {
 				if s.transparent(i) {
