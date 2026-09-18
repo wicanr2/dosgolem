@@ -239,6 +239,9 @@ func main() {
 			"    不給的話寫檔只記帳（「被擋下來的寫檔」），遊戲自己的存檔不會真的留下來")
 	dumpOPLWAV := flag.String("dump-opl-wav", "",
 		"把 OPL2 暫存器寫入合成成 22,050 Hz 16 位元單聲道 WAV（`docs/spec/196`，近似音色）。要配 -adlib")
+	oplOnly := flag.Int("opl-only", -1,
+		"合成時只混這一個聲道（0–8），-1 ＝ 全部。診斷用：整曲是 9 個聲道的混音，\n"+
+			"    單一聲道錯了會被其他聲道稀釋（`docs/spec/196`）")
 	oplDisable := flag.String("opl-disable", "",
 		"合成時關掉這幾個功能（逗號分隔：ksl、am、vib、expatk），診斷用。\n"+
 			"    一次只關一個，才看得出某個功能把保真度推往哪個方向（`docs/spec/196`）")
@@ -1017,7 +1020,7 @@ func main() {
 		}
 	}
 	if *dumpOPLWAV != "" {
-		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable); err != nil {
+		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable, *oplOnly); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-opl-wav:", err)
 		}
 	}
@@ -2963,7 +2966,7 @@ func writeSpeakerWAV(m *machine.Machine, path string) error {
 }
 
 // writeOPLWAV 把 OPL2 寫入序列合成成 WAV（`docs/spec/196`）。
-func writeOPLWAV(m *machine.Machine, path, disable string) error {
+func writeOPLWAV(m *machine.Machine, path, disable string, only int) error {
 	const rate = 22050
 	var off opl2.Feature
 	for _, name := range strings.Split(disable, ",") {
@@ -2983,7 +2986,7 @@ func writeOPLWAV(m *machine.Machine, path, disable string) error {
 			events = append(events, opl2.Event{Step: x.Step, Reg: x.Reg, Val: x.Val})
 		}
 	}
-	pcm, unsupported, err := opl2.RenderWithout(events, machine.StepsPerSecond(), rate, off)
+	pcm, unsupported, err := opl2.RenderOnly(events, machine.StepsPerSecond(), rate, off, only)
 	if err != nil {
 		return err
 	}
@@ -2998,6 +3001,9 @@ func writeOPLWAV(m *machine.Machine, path, disable string) error {
 	fmt.Printf("OPL2 合成 → %s（%.1f 秒）", path, float64(len(pcm))/rate)
 	if off != 0 {
 		fmt.Printf("；關掉 %s", disable)
+	}
+	if only >= 0 {
+		fmt.Printf("；只混聲道 %d", only)
 	}
 	if len(unsupported) > 0 {
 		fmt.Printf("；⚠ 用到沒實作的功能：%v", unsupported)

@@ -21,6 +21,11 @@ func Render(events []Event, stepsPerSecond float64, rate int) ([]int16, map[stri
 
 // RenderWithout 同 Render，但關掉 off 指定的功能（診斷用，見 Feature）。
 func RenderWithout(events []Event, stepsPerSecond float64, rate int, off Feature) ([]int16, map[string]int, error) {
+	return RenderOnly(events, stepsPerSecond, rate, off, -1)
+}
+
+// RenderOnly 再加一個診斷維度：only >= 0 時只把那一個聲道混進輸出（見 Synth.OnlyChannel）。
+func RenderOnly(events []Event, stepsPerSecond float64, rate int, off Feature, only int) ([]int16, map[string]int, error) {
 	if rate <= 0 {
 		rate = 22050
 	}
@@ -36,6 +41,7 @@ func RenderWithout(events []Event, stepsPerSecond float64, rate int, off Feature
 	}
 	s := New(rate)
 	s.Disable(off)
+	s.OnlyChannel(only)
 	j := 0
 	for ; j < first; j++ { // Key-On 之前的設定（音色）先套上
 		s.Write(events[j].Reg, events[j].Val)

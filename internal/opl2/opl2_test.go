@@ -246,3 +246,53 @@ func TestAttackIsExponential(t *testing.T) {
 		t.Errorf("指數起音在一半時間應該已經超過一半振幅：half=%.4f peak=%.4f", half, peak)
 	}
 }
+
+// docs/spec/196：OnlyChannel 只影響「加不加進輸出」，不影響包絡與時間軸。
+func TestOnlyChannel(t *testing.T) {
+	setup := func(s *Synth) {
+		pureTone(s, 0x200, 4, 0) // 聲道 0
+		// 聲道 1：相加、載波出聲
+		s.Write(0xC1, 0x01)
+		s.Write(0x21, 0x21)
+		s.Write(0x41, 0x3F)
+		s.Write(0x24, 0x21)
+		s.Write(0x44, 0x00)
+		s.Write(0x64, 0xF0)
+		s.Write(0x84, 0x0F)
+		s.Write(0xA1, 0x00)
+		s.Write(0xB1, 0x20|4<<2|2)
+	}
+	all := New(rate)
+	setup(all)
+	xa := render(all, rate/4)
+
+	one := New(rate)
+	setup(one)
+	one.OnlyChannel(0)
+	xb := render(one, rate/4)
+
+	if rms(xb) >= rms(xa) {
+		t.Errorf("只留一個聲道應該比較小聲：全部 %.4f 單一 %.4f", rms(xa), rms(xb))
+	}
+	if rms(xb) == 0 {
+		t.Error("只留聲道 0 之後沒有聲音")
+	}
+	// -1 恢復全部：與從頭全開的結果相同
+	back := New(rate)
+	setup(back)
+	back.OnlyChannel(3)
+	back.OnlyChannel(-1)
+	xc := render(back, rate/4)
+	for i := range xa {
+		if xa[i] != xc[i] {
+			t.Fatalf("OnlyChannel(-1) 之後應該與全開相同，第 %d 個取樣 %.6f vs %.6f", i, xa[i], xc[i])
+		}
+	}
+	// 超出範圍當 -1
+	bad := New(rate)
+	setup(bad)
+	bad.OnlyChannel(99)
+	if rms(render(bad, rate/4)) != rms(xa) {
+		t.Error("超出範圍的聲道編號應該當成全開")
+	}
+}
