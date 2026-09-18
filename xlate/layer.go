@@ -28,13 +28,16 @@ type Stamp struct {
 	GlyphY     int
 	GlyphScale int // 0 表示 scale/3（見 §2.4，Draw 裡展開）
 
-	Text  []rune
+	Text []rune
 	// Transparent 標出不蓋的格（長度可以短於 Cells，缺的當 false）：不填背景、不畫字、不列入定色與指紋
 	// （spec 202 §2.3）。用途：原版在這幾格畫玩家輸入的字，疊字不能蓋掉，也不能因為輸入變動而失效。
 	Transparent []bool
-	State       State
-	FG    [3]uint8
-	BG    [3]uint8
+	// SwapColors 把定色的背景與前景對調（spec 202 §2.3）。用途：字比底密的區塊
+	// （字模填滿整條橫幅時，字的像素多於底），「最多的當背景」在那裡會反過來。
+	SwapColors bool
+	State      State
+	FG         [3]uint8
+	BG         [3]uint8
 
 	hashes  []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
 	misses  []int    // 每一格連續指紋不同的次數
@@ -291,6 +294,9 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 		case Pending:
 			reg := s.region(indexed, w, h)
 			bg, fg := Colors(reg)
+			if s.SwapColors {
+				bg, fg = fg, bg
+			}
 			s.BG, s.FG = pick(s, indexed, rgb, bg, w, h), pick(s, indexed, rgb, fg, w, h)
 			s.hashes, s.misses, s.State = s.cellHashes(indexed, w, h), make([]int, s.Cells), Shown
 			s.anchors = s.cellAnchors(indexed, w, h)
@@ -428,22 +434,23 @@ func set(dst []uint8, w, x, y int, c [3]uint8) {
 // stampSnapshot、layerSnapshot 是 Snapshot／Restore 的 JSON 落地格式（spec 202 §2.3）。
 // 字型以 Font.Name 記，不重複存字模——Restore 時由呼叫端透過 fonts 參數換回指標。
 type stampSnapshot struct {
-	Key        string   `json:"key"`
-	Owner      string   `json:"owner,omitempty"`
-	X          int      `json:"x"`
-	Y          int      `json:"y"`
-	Cells      int      `json:"cells"`
-	CellW      int      `json:"cell_w"`
-	CellH      int      `json:"cell_h"`
-	Font       string   `json:"font,omitempty"`
-	GlyphX     int      `json:"glyph_x"`
-	GlyphY     int      `json:"glyph_y"`
-	GlyphScale int      `json:"glyph_scale"`
-	Text       string   `json:"text"`
-	Transp     []bool   `json:"transparent,omitempty"`
-	State      State    `json:"state"`
-	FG         [3]uint8 `json:"fg"`
-	BG         [3]uint8 `json:"bg"`
+	Key        string          `json:"key"`
+	Owner      string          `json:"owner,omitempty"`
+	X          int             `json:"x"`
+	Y          int             `json:"y"`
+	Cells      int             `json:"cells"`
+	CellW      int             `json:"cell_w"`
+	CellH      int             `json:"cell_h"`
+	Font       string          `json:"font,omitempty"`
+	GlyphX     int             `json:"glyph_x"`
+	GlyphY     int             `json:"glyph_y"`
+	GlyphScale int             `json:"glyph_scale"`
+	Text       string          `json:"text"`
+	Transp     []bool          `json:"transparent,omitempty"`
+	Swap       bool            `json:"swap_colors,omitempty"`
+	State      State           `json:"state"`
+	FG         [3]uint8        `json:"fg"`
+	BG         [3]uint8        `json:"bg"`
 	Hashes     json.RawMessage `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
 	Misses     json.RawMessage `json:"misses,omitempty"`
 	Anchors    []bool          `json:"anchors,omitempty"` // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
@@ -467,7 +474,7 @@ func (l *Layer) Snapshot() ([]byte, error) {
 		snap.Stamps[i] = stampSnapshot{
 			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
-			Text: string(s.Text), Transp: s.Transparent, State: s.State, FG: s.FG, BG: s.BG,
+			Text: string(s.Text), Transp: s.Transparent, Swap: s.SwapColors, State: s.State, FG: s.FG, BG: s.BG,
 			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses), Anchors: s.anchors,
 		}
 	}
@@ -520,7 +527,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 		stamps[i] = &Stamp{
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
-			Text: []rune(ss.Text), Transparent: ss.Transp, State: ss.State, FG: ss.FG, BG: ss.BG,
+			Text: []rune(ss.Text), Transparent: ss.Transp, SwapColors: ss.Swap, State: ss.State, FG: ss.FG, BG: ss.BG,
 			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses), anchors: ss.Anchors,
 		}
 	}

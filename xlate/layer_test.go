@@ -424,3 +424,56 @@ func TestNoAnchorsKeepsPerCellRule(t *testing.T) {
 		t.Fatal("畫面沒變就不該移除")
 	}
 }
+
+// spec 202 §3 第 8 項：SwapColors——字比底密的區塊，「最多的當背景」會反過來。
+func TestSwapColors(t *testing.T) {
+	const w, h = 32, 8
+	indexed := make([]uint8, w*h)
+	rgb := make([]uint8, 3*w*h)
+	// 一塊 16×8：色號 15 佔多數（字比底密），色號 0 少數。
+	for y := 0; y < h; y++ {
+		for x := 0; x < 16; x++ {
+			c := uint8(15)
+			if x%4 == 0 {
+				c = 0
+			}
+			indexed[y*w+x] = c
+			i := 3 * (y*w + x)
+			rgb[i], rgb[i+1], rgb[i+2] = c*17, c*17, c*17
+		}
+	}
+	mk := func(swap bool) *Stamp {
+		return &Stamp{Key: "k", X: 0, Y: 0, Cells: 2, CellW: 8, CellH: 8,
+			Text: []rune("甲乙"), State: Pending, SwapColors: swap}
+	}
+	plain, swapped := mk(false), mk(true)
+	l := &Layer{W: w, H: h}
+	l.Add(plain)
+	l.Frame(indexed, rgb)
+	if plain.BG != [3]uint8{255, 255, 255} || plain.FG != [3]uint8{0, 0, 0} {
+		t.Fatalf("不互換：背景 %v 前景 %v，要白底黑字", plain.BG, plain.FG)
+	}
+	l2 := &Layer{W: w, H: h}
+	l2.Add(swapped)
+	l2.Frame(indexed, rgb)
+	if swapped.BG != plain.FG || swapped.FG != plain.BG {
+		t.Fatalf("互換：背景 %v 前景 %v，要與不互換的對調", swapped.BG, swapped.FG)
+	}
+}
+
+// spec 202 §3 第 4 項：SwapColors 要跟著快照走（還原後重新定色時仍然互換）。
+func TestSwapColorsSurvivesSnapshot(t *testing.T) {
+	l := &Layer{W: 32, H: 8}
+	l.Add(&Stamp{Key: "k", Cells: 2, CellW: 8, CellH: 8, Text: []rune("甲乙"), SwapColors: true})
+	b, err := l.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l2 Layer
+	if err := l2.Restore(b, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(l2.Stamps) != 1 || !l2.Stamps[0].SwapColors {
+		t.Fatalf("還原後 SwapColors 沒了：%+v", l2.Stamps)
+	}
+}
