@@ -31,7 +31,7 @@ type Watcher struct {
 }
 ```
 
-- `Layer.Watch(w *Watcher)` 登記；`Layer.Unwatch(key string)` 移除。
+- `Layer.Watch(w *Watcher)` 登記；`Layer.Unwatch(key string)` 移除一個；`Layer.UnwatchAll()` 全部清掉（讀檔、換場景）。
 - 每次 `Frame`：對每個「目前沒有活著的疊字」的 watcher，先比 `Probe`（預設由 `Want` 均勻取 8 點），
   全中才比整塊；整塊相同就呼叫 `Make()`，把回傳的疊字加進 `Layer`（`Add` 的重疊移除照舊）。
 - watcher 加進來的疊字帶 `Owner = watcher.Key`；疊字被移除（失效、捲動出框、被覆蓋）之後，

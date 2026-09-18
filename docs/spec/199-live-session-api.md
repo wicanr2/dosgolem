@@ -66,7 +66,8 @@
     ⚠ 不能用步數定位：字串指令讓一段時間內「步數：cycles」不均勻（繪圖多的地方一步好幾個 cycle），前端落後補跑 100 ms 一段時，
     音符起點會偏幾十毫秒（`psychic_war_cht` `docs/re/016`：聲音層配對率 24.6%）。
   - 兩者相加後夾在 [-1, 1]，乘 32,767。
-  - **消化完的 `PortLog` 與 `m.OPL` 會清掉**，長時間遊玩時記憶體不會無限成長；需要完整紀錄的工具（`-dump-ports`、`-opl-log`、`ToneEvents`）不要與 `Audio` 同時用。
+  - **時鐘倒回（載入狀態檔）時 `Render` 回 nil**：重新對時、清掉紀錄，那一段不出聲。不這樣做的話無號數相減會變成天文數字，取樣數會讓配置直接 panic。
+- **消化完的 `PortLog` 與 `m.OPL` 會清掉**，長時間遊玩時記憶體不會無限成長；需要完整紀錄的工具（`-dump-ports`、`-opl-log`、`ToneEvents`）不要與 `Audio` 同時用。
 - 喇叭解碼抽成 `machine.ToneDecoder`（`Feed(PortWrite) (hz float64, changed bool)`），`ToneEvents` 改用它，結果不變。
 
 ## 4. 驗收

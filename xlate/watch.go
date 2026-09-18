@@ -49,6 +49,9 @@ func (l *Layer) Unwatch(key string) {
 	l.watchers = keep
 }
 
+// UnwatchAll 清掉全部 watcher（讀檔、換場景時用）。
+func (l *Layer) UnwatchAll() { l.watchers = nil }
+
 // Watchers 回目前登記的數量（測試與紀錄用）。
 func (l *Layer) Watchers() int { return len(l.watchers) }
 

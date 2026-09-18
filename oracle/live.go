@@ -147,6 +147,13 @@ type audioEvent struct {
 func (a *Audio) Render() []int16 {
 	m := a.o.m
 	nowCyc, nowStep := m.CPU.Cycles, m.Steps
+	// 載入狀態檔會把時鐘倒回去（規格 199 §3.6）：無號數相減會變成天文數字，
+	// 算出來的取樣數會讓 make([]int16, n) 直接 panic。倒回就重新對時，這一段不出聲。
+	if nowCyc < a.lastCyc || nowStep < a.lastStep {
+		a.lastCyc, a.lastStep, a.frac = nowCyc, nowStep, 0
+		m.PortLog, m.OPL = m.PortLog[:0], m.OPL[:0]
+		return nil
+	}
 	var secs float64
 	if per := m.DOSBoxCycles(); per > 0 {
 		secs = float64(nowCyc-a.lastCyc) / float64(per*1000)

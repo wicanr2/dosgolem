@@ -263,3 +263,31 @@ func TestStateFileRoundTrip(t *testing.T) {
 		t.Errorf("還原後速度 %d", o.DOSBoxCycles())
 	}
 }
+
+// §4：時鐘倒回（載入狀態檔）時 Render 不 panic、回 nil，之後照常出聲。
+func TestAudioSurvivesClockRewind(t *testing.T) {
+	o := liveOracle(t)
+	o.SetDOSBoxCycles(machine.CyclesAT8)
+	a := o.NewAudio(44100)
+	if err := o.RunCycles(750_000); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.Render()); n == 0 {
+		t.Fatal("跑了 1 秒應該有取樣")
+	}
+	if err := o.RunCycles(750_000); err != nil {
+		t.Fatal(err)
+	}
+	a.Render()          // 對時到 1.5M cycles
+	o.m.CPU.Cycles /= 2 // 模擬載入狀態檔：時鐘倒回到 0.75M
+	o.m.Steps /= 2
+	if pcm := a.Render(); pcm != nil {
+		t.Fatalf("倒回的那一段應該回 nil，拿到 %d 個取樣", len(pcm))
+	}
+	if err := o.RunCycles(750_000); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.Render()); n < 40000 || n > 48000 {
+		t.Errorf("倒回之後應該照常出聲，拿到 %d 個取樣", n)
+	}
+}
