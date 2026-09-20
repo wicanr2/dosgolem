@@ -28,14 +28,41 @@ type eventJSON struct {
 	Column         uint8              `json:"column"`
 }
 
+type requestJSON struct {
+	EventKey         string `json:"event_key"`
+	TextKey          string `json:"text_key"`
+	TranslationRunes int    `json:"translation_runes"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
 	want := flag.Int("want", 0, "預期完成事件數；0 表示不檢查")
+	wantRequests := flag.Int("want-requests", 0, "預期顯示請求數；0 表示不檢查")
 	enterAt := flag.Uint64("bios-enter-at", 0, "在此絕對步數排入一個 BIOS Enter；0 表示不送")
+	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
+	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
 	flag.Parse()
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
+	}
+	if err := validateMenuCatalogFlags(*menuEvents, *menuTranslations); err != nil {
+		fail(err)
+	}
+	var catalog *buckrogers.MenuCatalog
+	if *menuEvents != "" {
+		eventsData, err := os.ReadFile(*menuEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*menuTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err = buckrogers.LoadMenuCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
 	}
 	m := machine.New()
 	d := dos.New(m, ".")
@@ -44,7 +71,7 @@ func main() {
 		fail(err)
 	}
 	start := m.Steps
-	r := &buckrogers.TextRecorder{}
+	r := buckrogers.NewMenuRequestWatcher(catalog)
 	enterSent := false
 	for m.Steps < *until && !d.Exited {
 		if *enterAt != 0 && !enterSent && m.Steps >= *enterAt {
@@ -76,8 +103,11 @@ func main() {
 		}
 	}
 	events := r.Events()
-	if r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) {
-		fail(fmt.Errorf("收據失敗：events=%d want=%d pending=%v drops=%d", len(events), *want, r.Pending(), r.Drops()))
+	requests := r.Requests()
+	if r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
+		(*wantRequests != 0 && len(requests) != *wantRequests) {
+		fail(fmt.Errorf("收據失敗：events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d",
+			len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses()))
 	}
 	out := make([]eventJSON, len(events))
 	for i, e := range events {
@@ -86,18 +116,36 @@ func main() {
 			hex.EncodeToString(e.OriginalSHA256[:]), e.Background, e.Foreground, e.Row, e.Column,
 		}
 	}
+	requestOut := make([]requestJSON, len(requests))
+	for i, request := range requests {
+		requestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
+	}
 	result := struct {
-		StateStart uint64      `json:"state_start"`
-		StoppedAt  uint64      `json:"stopped_at"`
-		BIOSInput  string      `json:"bios_input,omitempty"`
-		Events     []eventJSON `json:"events"`
+		StateStart    uint64        `json:"state_start"`
+		StoppedAt     uint64        `json:"stopped_at"`
+		BIOSInput     string        `json:"bios_input,omitempty"`
+		Events        []eventJSON   `json:"events"`
+		Requests      []requestJSON `json:"requests,omitempty"`
+		CatalogMisses *int          `json:"catalog_misses,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out}
+	if catalog != nil {
+		result.Requests = requestOut
+		misses := r.Misses()
+		result.CatalogMisses = &misses
+	}
 	if enterSent {
 		result.BIOSInput = fmt.Sprintf("Enter(scan=0x1c,ascii=0x0d,queued_at=%d)", *enterAt)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
 		fail(err)
 	}
+}
+
+func validateMenuCatalogFlags(events, translations string) error {
+	if (events == "") != (translations == "") {
+		return fmt.Errorf("menu-events 與 menu-translations 必須同時提供")
+	}
+	return nil
 }
 
 func fail(err error) {
