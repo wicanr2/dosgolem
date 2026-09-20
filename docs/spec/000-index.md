@@ -144,6 +144,10 @@
 - `008-bios-keyboard-injection.md`
 - `009-scratch-writes.md`
 
+### Buck Rogers: Countdown to Doomsday（1 份）
+
+- `007-buck-rogers-manual-event-adapter.md`
+
 ### UCSD p-System（psys）（1 份）
 
 - `007-com-loader-and-keyboard.md`
