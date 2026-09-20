@@ -30,6 +30,7 @@ import (
 type findState struct {
 	names []string // 已經排序的 basename（大寫）
 	paths []string // 對應的實際路徑
+	attrs []uint8  // 對應的 DOS 屬性（0x10 目錄、0x20 archive）
 }
 
 // dtaFindMagic 標出 DTA 的保留區是我們寫的。
@@ -41,7 +42,7 @@ const dtaFindMagic = 0xD0
 // findFirst 是 `AH=4Eh`：DS:DX ＝ 樣式（可含 `*`／`?`），CX ＝ 屬性遮罩。
 func (d *DOS) findFirst(c *cpu.CPU) {
 	pattern := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 260)
-	st := d.searchFor(pattern)
+	st := d.searchFor(pattern, uint8(c.R[cpu.CX]))
 	if len(st.names) == 0 {
 		d.Missing = append(d.Missing, pattern)
 		d.fail(c, 18) // No more files
@@ -93,11 +94,14 @@ func (d *DOS) emitFind(c *cpu.CPU, id, idx uint16) {
 	d.M.Write16(base+1, id)
 	d.M.Write16(base+3, idx+1)
 
-	d.M.Write8(base+0x15, 0x20) // archive
+	d.M.Write8(base+0x15, st.attrs[idx])
 	t, dt := dosDateTime(info)
 	d.M.Write16(base+0x16, t)
 	d.M.Write16(base+0x18, dt)
-	size := uint32(info.Size())
+	var size uint32
+	if st.attrs[idx]&0x10 == 0 {
+		size = uint32(info.Size())
+	}
 	d.M.Write16(base+0x1A, uint16(size))
 	d.M.Write16(base+0x1C, uint16(size>>16))
 	name := st.names[idx]
@@ -115,9 +119,10 @@ func (d *DOS) emitFind(c *cpu.CPU, id, idx uint16) {
 // **順序要固定**：`os.ReadDir` 已經照名字排序，我們再排一次大寫後的名字，
 // 讓「同一份輸入每次得到同一個順序」在不同檔案系統上都成立——
 // 順序不固定的話，同一支程式兩次跑會處理到不同的檔，而對拍會歸咎到別處。
-func (d *DOS) searchFor(pattern string) *findState {
+func (d *DOS) searchFor(pattern string, searchAttr uint8) *findState {
 	pat := strings.ToUpper(baseName(pattern))
 	seen := map[string]string{}
+	attrs := map[string]uint8{}
 	for _, dir := range []string{d.Root, d.Scratch} {
 		if dir == "" {
 			continue
@@ -127,7 +132,8 @@ func (d *DOS) searchFor(pattern string) *findState {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			isDir := e.IsDir()
+			if isDir && searchAttr&0x10 == 0 {
 				continue
 			}
 			up := strings.ToUpper(e.Name())
@@ -135,6 +141,10 @@ func (d *DOS) searchFor(pattern string) *findState {
 				continue
 			}
 			seen[up] = filepath.Join(dir, e.Name())
+			attrs[up] = 0x20
+			if isDir {
+				attrs[up] = 0x10
+			}
 		}
 	}
 	st := &findState{}
@@ -144,6 +154,7 @@ func (d *DOS) searchFor(pattern string) *findState {
 	sort.Strings(st.names)
 	for _, n := range st.names {
 		st.paths = append(st.paths, seen[n])
+		st.attrs = append(st.attrs, attrs[n])
 	}
 	return st
 }

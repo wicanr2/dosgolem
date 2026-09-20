@@ -348,3 +348,4 @@
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
 - [203 — 圖檔內嵌文字 watcher](203-baked-text-watchers.md)：READY。以呼叫端提供的原版色號圖塊觸發疊字，圖塊消失後自動收回。
+- [204 — FindFirst 回傳目錄項目](204-findfirst-directories.md)：READY。依 `CX` 目錄屬性遮罩列出 Root／Scratch 目錄並回傳正確 DTA 屬性。

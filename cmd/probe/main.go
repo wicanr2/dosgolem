@@ -45,6 +45,7 @@ func main() {
 	exe := flag.String("exe", "", "要跑的執行檔（必填；MZ 或 .COM，看檔頭 magic 自動判斷）")
 	root := flag.String("root", ".", "原版素材目錄（配 -load-state 時不必再給，"+
 		"狀態檔裡存著；真的給了就以命令列為準）")
+	scratch := flag.String("scratch", "", "可寫的暫存層；存檔／目錄操作只落在這裡（docs/spec/009-scratch-writes）")
 	steps := flag.Uint64("steps", 20_000_000,
 		"跑到第幾道指令為止（**絕對步數**，配 -load-state 時要大於檢查點的步數）")
 	trace := flag.Uint64("trace", 0, "最後幾道指令的軌跡（0 ＝ 不記）")
@@ -165,6 +166,9 @@ func main() {
 		"每次執行到某個 CS:IP 就把堆疊上的參數印出來："+
 			"`CS:IP:字數:起:迄`（位址十六進位，步數十進位）。"+
 			"位置取進入點（尚未 push bp），所以參數從 SS:SP+4 起算——遠呼叫的返回位址佔 4 bytes")
+	callLengthString := flag.Bool("call-length-string", false,
+		"配 -call-args：把前兩個參數當作 offset:segment，在呼叫當下保存長度前綴字串。"+
+			"長度最多 255 bytes；參數少於兩個時即中止。")
 	argRegs := flag.Bool("arg-regs", false,
 		"配 -call-args／-frame-args：連 AX BX CX DX SI DI ES BP 一起印。"+
 			"繪圖驅動有些參數走暫存器不走堆疊")
@@ -191,6 +195,9 @@ func main() {
 		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
 			"    -keys／-keys-at 走的是可重播的 Stdin 佇列與硬體 IRQ1；\n"+
 			"    直接比對 0040:001A／001C 判斷有沒有按鍵的程式只認這一條。")
+	biosKeyNames := flag.String("bios-key-names", "",
+		"逐個送進 BIOS 鍵盤緩衝區的具名鍵，以逗號分隔（例如 Down,Down,Enter）。"+
+			"可用名稱由 internal/dos/scancode.go 的 READY 表定義；名稱錯誤即中止。")
 	biosKeyEvery := flag.Uint64("bios-key-every", 2_000_000, "兩次送鍵之間隔幾道指令")
 	biosKeyFrom := flag.Uint64("bios-key-from", 2_000_000, "第幾道指令開始送第一個鍵")
 	covOut := flag.String("coverage", "",
@@ -352,6 +359,7 @@ func main() {
 	}
 	obsSetup(m) // 觀測用旗標的掛鉤（observe.go）
 	d := dos.New(m, *root)
+	d.Scratch = *scratch
 	d.Mouse.XScale = uint16(*xscale)
 	if *queue != "" {
 		for _, q := range strings.Split(*queue, ",") {
@@ -389,6 +397,9 @@ func main() {
 		flag.Visit(func(f *flag.Flag) {
 			if f.Name == "root" {
 				d.Root = *root
+			}
+			if f.Name == "scratch" {
+				d.Scratch = *scratch
 			}
 		})
 		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
@@ -524,6 +535,12 @@ func main() {
 	}
 	if ca != nil {
 		ca.regs = *argRegs
+		if *callLengthString && ca.n < 2 {
+			die(fmt.Errorf("-call-length-string 需要 -call-args 或 -frame-args 至少記錄兩個 word"))
+		}
+		ca.lengthString = *callLengthString
+	} else if *callLengthString {
+		die(fmt.Errorf("-call-length-string 必須配 -call-args 或 -frame-args"))
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -538,8 +555,12 @@ func main() {
 	if ipw != nil {
 		defer ipw.close()
 	}
-	// -bios-keys 攤成 rune，一次送一個。
-	biosRunes := []rune(strings.ReplaceAll(*biosKeys, "\\n", "\n"))
+	// -bios-keys 與 -bios-key-names 都轉成同一種 BIOS key queue，再一次送一個。
+	// 具名鍵讓方向鍵保留 scan code + ASCII 0，不必假裝成可列印 rune。
+	biosQueue, err := parseBIOSKeys(*biosKeys, *biosKeyNames)
+	if err != nil {
+		die(err)
+	}
 	bki := 0
 
 	pendingKeys, err := parseKeysAt(*keysAt)
@@ -603,9 +624,9 @@ func main() {
 		// -bios-keys：**照指令數排程，不照時間**，這樣對拍才是決定性的。
 		// 而且要等緩衝區空了才送下一個——遊戲的輪詢頻率遠低於送鍵頻率，
 		// 不等的話同一格會被連續蓋掉，看起來像「只有最後一個鍵進去了」。
-		if bki < len(biosRunes) && m.Steps >= *biosKeyFrom+uint64(bki)*(*biosKeyEvery) {
+		if bki < len(biosQueue) && m.Steps >= *biosKeyFrom+uint64(bki)*(*biosKeyEvery) {
 			if _, pending := m.PeekKey(); !pending {
-				d.PushKey(biosKeyOf(biosRunes[bki]))
+				d.PushKey(biosQueue[bki])
 				bki++
 			}
 		}
@@ -2408,7 +2429,10 @@ type callArgLog struct {
 	// regs：連暫存器一起印。繪圖驅動有些參數走暫存器不走堆疊
 	// （`yuan/docs/re/002`），只印堆疊會漏掉來源位址。
 	regs bool
-	rows []callArgRow
+	// lengthString：將前兩個 word 視為 offset:segment，並在呼叫當下快照
+	// 長度前綴字串，避免共用暫存區後續被覆寫。
+	lengthString bool
+	rows         []callArgRow
 }
 
 type callArgRow struct {
@@ -2417,6 +2441,7 @@ type callArgRow struct {
 	retOff uint16
 	w      []uint16
 	regs   [8]uint16 // AX BX CX DX SI DI ES BP
+	text   string
 }
 
 // parseSaveState 解 `步數:路徑[,步數:路徑…]`。
@@ -2470,7 +2495,8 @@ func (c *callArgLog) record(m *machine.Machine) {
 			w[i] = m.Read16(bp + 6 + uint32(i*2))
 		}
 		c.rows = append(c.rows, callArgRow{
-			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w, regs: snapRegs(m)})
+			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w,
+			regs: snapRegs(m), text: c.readLengthString(m, w)})
 		return
 	}
 	base := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP])
@@ -2483,7 +2509,21 @@ func (c *callArgLog) record(m *machine.Machine) {
 		w[i] = m.Read16(base + 4 + uint32(i*2))
 	}
 	c.rows = append(c.rows, callArgRow{
-		step: m.Steps, retSeg: seg, retOff: off, w: w, regs: snapRegs(m)})
+		step: m.Steps, retSeg: seg, retOff: off, w: w,
+		regs: snapRegs(m), text: c.readLengthString(m, w)})
+}
+
+func (c *callArgLog) readLengthString(m *machine.Machine, w []uint16) string {
+	if !c.lengthString {
+		return ""
+	}
+	base := cpu.Addr(w[1], w[0])
+	n := int(m.Read8(base))
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = m.Read8(base + 1 + uint32(i))
+	}
+	return string(b)
 }
 
 func (c *callArgLog) dump() {
@@ -2498,7 +2538,11 @@ func (c *callArgLog) dump() {
 			reg = fmt.Sprintf("  | AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X ES=%04X BP=%04X",
 				r.regs[0], r.regs[1], r.regs[2], r.regs[3], r.regs[4], r.regs[5], r.regs[6], r.regs[7])
 		}
-		fmt.Printf("  #%d  由 %04X:%04X  %s%s\n", r.step, r.retSeg, r.retOff, strings.Join(s, " "), reg)
+		str := ""
+		if c.lengthString {
+			str = fmt.Sprintf("  | string=%q", r.text)
+		}
+		fmt.Printf("  #%d  由 %04X:%04X  %s%s%s\n", r.step, r.retSeg, r.retOff, strings.Join(s, " "), reg, str)
 	}
 }
 
@@ -2762,6 +2806,28 @@ func biosKeyOf(r rune) dos.Key {
 		return dos.Key{Scan: 0x0E, ASCII: '\b'}
 	}
 	return dos.Key{ASCII: uint8(r)}
+}
+
+func parseBIOSKeys(text, names string) ([]dos.Key, error) {
+	queue := make([]dos.Key, 0, len(text))
+	for _, r := range []rune(strings.ReplaceAll(text, "\\n", "\n")) {
+		queue = append(queue, biosKeyOf(r))
+	}
+	if strings.TrimSpace(names) == "" {
+		return queue, nil
+	}
+	for _, name := range strings.Split(names, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("-bios-key-names 含空名稱")
+		}
+		key, ok := dos.KeyNamed(name)
+		if !ok {
+			return nil, fmt.Errorf("-bios-key-names 不認得 %q", name)
+		}
+		queue = append(queue, key)
+	}
+	return queue, nil
 }
 
 // writeSpeakerWAV 把喇叭的波形寫成 WAV。
