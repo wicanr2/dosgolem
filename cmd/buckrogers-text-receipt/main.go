@@ -94,8 +94,10 @@ func main() {
 	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
+	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
 	scratch := flag.String("scratch", "", "可選、已存在的 DOS 可寫暫存目錄")
 	fileOps := flag.Bool("file-ops", false, "在收據加入 content-safe 檔案操作 metadata")
+	unimplemented := flag.Bool("unimplemented", false, "在收據加入未實作 DOS／BIOS 服務統計")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
@@ -209,6 +211,9 @@ func main() {
 		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d",
 			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses()))
 	}
+	if err := saveTerminalState(*stateOut, m, d); err != nil {
+		fail(err)
+	}
 	out := make([]eventJSON, len(events))
 	for i, e := range events {
 		out[i] = eventJSON{
@@ -231,6 +236,7 @@ func main() {
 		Scratch       string        `json:"scratch,omitempty"`
 		Writes        []writeJSON   `json:"writes,omitempty"`
 		FileOps       []fileOpJSON  `json:"file_ops,omitempty"`
+		Unimplemented []string      `json:"unimplemented,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -243,6 +249,7 @@ func main() {
 				op.Arg, op.Pos, op.Len, op.Whence, op.Failed}
 		}
 	}
+	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if catalog != nil {
 		result.Requests = requestOut
 		misses := r.Misses()
@@ -265,6 +272,20 @@ func main() {
 	if err := emitReceipt(os.Stdout, *receiptOut, result); err != nil {
 		fail(err)
 	}
+}
+
+func unimplementedReport(enabled bool, d *dos.DOS) []string {
+	if !enabled {
+		return nil
+	}
+	return d.UnimplementedReport()
+}
+
+func saveTerminalState(path string, m *machine.Machine, d *dos.DOS) error {
+	if path == "" {
+		return nil
+	}
+	return state.Save(path, m, d)
 }
 
 func configureScratch(d *dos.DOS, path string) error {

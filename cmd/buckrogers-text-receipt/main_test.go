@@ -8,6 +8,7 @@ import (
 
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/internal/state"
 )
 
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
@@ -94,6 +95,50 @@ func TestConfigureScratch(t *testing.T) {
 	}
 	if err := configureScratch(d, filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Fatal("不存在的 scratch 必須失敗")
+	}
+}
+
+func TestUnimplementedReportIsOptionalAndSorted(t *testing.T) {
+	d := dos.New(machine.New(), t.TempDir())
+	d.Unimplemented[dos.Call{Int: 0x21, AH: 0x22, AL: 0x00}] = 1
+	d.Unimplemented[dos.Call{Int: 0x16, AH: 0x99, AL: 0x01}] = 3
+	if got := unimplementedReport(false, d); got != nil {
+		t.Fatalf("旗標關閉時 report = %#v，要 nil", got)
+	}
+	got := unimplementedReport(true, d)
+	want := d.UnimplementedReport()
+	if len(got) != 2 || len(want) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("report = %#v，要 %#v", got, want)
+	}
+	if empty := unimplementedReport(true, dos.New(machine.New(), t.TempDir())); len(empty) != 0 {
+		t.Fatalf("空集合 report = %#v，要空", empty)
+	}
+}
+
+func TestSaveTerminalState(t *testing.T) {
+	m := machine.New()
+	d := dos.New(m, t.TempDir())
+	d.Install()
+	m.Steps = 12345
+	m.Write8(0x23456, 0xA5)
+	if err := saveTerminalState("", m, d); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "terminal.state")
+	if err := saveTerminalState(path, m, d); err != nil {
+		t.Fatal(err)
+	}
+	m2 := machine.New()
+	d2 := dos.New(m2, t.TempDir())
+	d2.Install()
+	if err := state.Load(path, m2, d2); err != nil {
+		t.Fatal(err)
+	}
+	if m2.Steps != m.Steps || m2.Read8(0x23456) != 0xA5 {
+		t.Fatalf("回讀 state：steps=%d byte=%02X", m2.Steps, m2.Read8(0x23456))
+	}
+	if err := saveTerminalState(t.TempDir(), m, d); err == nil {
+		t.Fatal("state-out 指向目錄時必須失敗")
 	}
 }
 
