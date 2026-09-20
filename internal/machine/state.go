@@ -4,9 +4,21 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 )
+
+// PortState／PortCount 是埠統計的排序線上版本（map 編 gob 順序隨機）。
+type PortState struct {
+	Port uint16
+	Val  uint8
+}
+
+type PortCount struct {
+	Port  uint16
+	Count uint64
+}
 
 // 存檔／讀檔：把整台機器寫成檔案，下一支行程直接從那裡接著跑。
 //
@@ -54,8 +66,11 @@ type machineState struct {
 	PITPhase    uint8
 	PITLo       uint8
 
-	Ports   map[uint16]uint8
-	PortsIn map[uint16]uint64
+	// 埠寫入統計用**排序過的 slice**，不用 map——gob 編 map 的順序
+	// 隨機，兩次一模一樣的執行會存出不同 bytes，狀態檔就沒辦法
+	// 用雜湊驗決定性（`docs/spec/002` §5 的精神）。
+	Ports   []PortState
+	PortsIn []PortCount
 
 	DAC      []uint8
 	DACIndex uint8
@@ -108,8 +123,8 @@ func (m *Machine) SaveState(w io.Writer) error {
 		PITAccess:   m.pitAccess,
 		PITPhase:    m.pitPhase,
 		PITLo:       m.pitLo,
-		Ports:       map[uint16]uint8{},
-		PortsIn:     map[uint16]uint64{},
+		Ports:       nil,
+		PortsIn:     nil,
 		DAC:         append([]uint8(nil), m.DAC[:]...),
 		DACIndex:    m.dacIndex,
 		DACPhase:    m.dacPhase,
@@ -129,11 +144,13 @@ func (m *Machine) SaveState(w io.Writer) error {
 		ImageLen:    m.ImageLen,
 	}
 	for k, v := range m.Ports {
-		s.Ports[k] = v
+		s.Ports = append(s.Ports, PortState{Port: k, Val: v})
 	}
+	sort.Slice(s.Ports, func(i, j int) bool { return s.Ports[i].Port < s.Ports[j].Port })
 	for k, v := range m.PortsIn {
-		s.PortsIn[k] = v
+		s.PortsIn = append(s.PortsIn, PortCount{Port: k, Count: v})
 	}
+	sort.Slice(s.PortsIn, func(i, j int) bool { return s.PortsIn[i].Port < s.PortsIn[j].Port })
 	return gob.NewEncoder(w).Encode(&s)
 }
 
@@ -179,12 +196,12 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.recalcIRQ0()
 
 	m.Ports = map[uint16]uint8{}
-	for k, v := range s.Ports {
-		m.Ports[k] = v
+	for _, pv := range s.Ports {
+		m.Ports[pv.Port] = pv.Val
 	}
 	m.PortsIn = map[uint16]uint64{}
-	for k, v := range s.PortsIn {
-		m.PortsIn[k] = v
+	for _, pc := range s.PortsIn {
+		m.PortsIn[pc.Port] = pc.Count
 	}
 	m.PortLog = m.PortLog[:0]
 
