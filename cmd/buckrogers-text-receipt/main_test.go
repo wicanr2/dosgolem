@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/internal/dos"
+	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
@@ -70,6 +73,27 @@ func TestEmitReceiptWritesIdenticalBytes(t *testing.T) {
 func TestEmitReceiptRejectsOutputDirectory(t *testing.T) {
 	if err := emitReceipt(&bytes.Buffer{}, t.TempDir(), struct{}{}); err == nil {
 		t.Fatal("receipt-out 指向目錄時必須失敗")
+	}
+}
+
+func TestConfigureScratch(t *testing.T) {
+	d := dos.New(machine.New(), t.TempDir())
+	if err := configureScratch(d, ""); err != nil || d.Scratch != "" {
+		t.Fatalf("空 scratch = %q, %v", d.Scratch, err)
+	}
+	dir := t.TempDir()
+	if err := configureScratch(d, dir); err != nil || d.Scratch != dir {
+		t.Fatalf("scratch = %q, %v，要 %q", d.Scratch, err, dir)
+	}
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureScratch(d, file); err == nil {
+		t.Fatal("一般檔案不可作為 scratch")
+	}
+	if err := configureScratch(d, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("不存在的 scratch 必須失敗")
 	}
 }
 

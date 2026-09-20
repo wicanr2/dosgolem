@@ -1,6 +1,10 @@
 # Buck Rogers 儲存詢問與角色建立完成生命週期
 
-狀態：**CONFORMED**
+狀態：**SUPERSEDED**
+
+> 2026-09-21 勘誤：本收據命令未設定 `DOS.Scratch`。dosgolem 對沒有 scratch 的建檔／寫檔
+> 會維持 DOS 成功語意但不落地，因此 overlay manifest 相同不能證明原版沒有檔案副作用。
+> 畫面、輸入與事件證據仍保留；檔案副作用及角色名冊結論由 spec 031 重新驗證。
 
 本規格核准 `buckrogers-text-receipt` 從固定 state 經正常角色建立路徑到儲存詢問，量測字母
 `Y`、預設 `NO` 與選取 `YES` 的結果。這是診斷規格，不授權改寫存檔、角色資料或遊戲流程。
@@ -37,7 +41,7 @@
 
 - 字母 `Y`、預設 `NO` 與選取 `YES` 三條分支各從相同 state 重播兩次；每對 JSON 與
   framebuffer 逐 byte 相同，事件數依序為 298／305／305。
-- `NO` 與 `YES` 各自兩份 overlay manifest 皆逐 byte 等於 pristine manifest；兩者終點
-  framebuffer 亦逐 byte 相同，穩定停在功能選單。
+- `NO` 與 `YES` 兩者終點 framebuffer 逐 byte 相同，穩定停在功能選單。當時四份 overlay
+  manifest 相同只反映收據命令沒有設定 scratch，不再作為「零檔案副作用」證據。
 - 專案 92 項測試與真實 verifier 通過；dosgolem 正式 packages test／vet 與 Buck Rogers
   相關 race detector 全數通過。

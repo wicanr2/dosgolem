@@ -62,6 +62,24 @@ type keyJSON struct {
 	ASCII    uint8  `json:"ascii"`
 }
 
+type writeJSON struct {
+	Name string `json:"name"`
+	N    int    `json:"n"`
+}
+
+type fileOpJSON struct {
+	Step   uint64 `json:"step"`
+	Op     string `json:"op"`
+	Fn     uint8  `json:"fn"`
+	Handle uint16 `json:"handle"`
+	Name   string `json:"name"`
+	Arg    int64  `json:"arg"`
+	Pos    int64  `json:"pos"`
+	Len    int    `json:"len"`
+	Whence uint8  `json:"whence"`
+	Failed bool   `json:"failed"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -76,6 +94,8 @@ func main() {
 	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
+	scratch := flag.String("scratch", "", "可選、已存在的 DOS 可寫暫存目錄")
+	fileOps := flag.Bool("file-ops", false, "在收據加入 content-safe 檔案操作 metadata")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
@@ -146,6 +166,9 @@ func main() {
 	if err := state.Load(*statePath, m, d); err != nil {
 		fail(err)
 	}
+	if err := configureScratch(d, *scratch); err != nil {
+		fail(err)
+	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
 	nextKey := 0
@@ -205,7 +228,21 @@ func main() {
 		Requests      []requestJSON `json:"requests,omitempty"`
 		CatalogMisses *int          `json:"catalog_misses,omitempty"`
 		BIOSKeys      []keyJSON     `json:"bios_keys,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out}
+		Scratch       string        `json:"scratch,omitempty"`
+		Writes        []writeJSON   `json:"writes,omitempty"`
+		FileOps       []fileOpJSON  `json:"file_ops,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch}
+	if *fileOps {
+		result.Writes = make([]writeJSON, len(d.Wrote))
+		for i, write := range d.Wrote {
+			result.Writes[i] = writeJSON{Name: write.Name, N: write.N}
+		}
+		result.FileOps = make([]fileOpJSON, len(d.FileOps))
+		for i, op := range d.FileOps {
+			result.FileOps[i] = fileOpJSON{op.Step, op.Op, op.Fn, op.Handle, op.Name,
+				op.Arg, op.Pos, op.Len, op.Whence, op.Failed}
+		}
+	}
 	if catalog != nil {
 		result.Requests = requestOut
 		misses := r.Misses()
@@ -228,6 +265,21 @@ func main() {
 	if err := emitReceipt(os.Stdout, *receiptOut, result); err != nil {
 		fail(err)
 	}
+}
+
+func configureScratch(d *dos.DOS, path string) error {
+	if path == "" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("檢查 scratch：%w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("scratch 不是目錄：%s", path)
+	}
+	d.Scratch = path
+	return nil
 }
 
 func emitReceipt(stdout io.Writer, path string, value any) error {
