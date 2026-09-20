@@ -279,6 +279,17 @@ func (d *DOS) int33(c *cpu.CPU) {
 		m.Handler.Seg, m.Handler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
 		m.Handler.Mask, m.Handler.Set = c.R[cpu.CX], true
 
+	case 0x0014: // MS Mouse v3.0+ 交換事件處理常式（`docs/spec/194`）
+		// 儲存動作與 AX=000Ch 相同，差在**回傳舊值**：CX=舊遮罩、
+		// DX=舊位移、ES=舊段；先前沒登記時回全零（DOSBox-X
+		// `src/ints/mouse.cpp:1970` 的交換語意）。巫術7 的 VGA.DRV
+		// 用這一支註冊 UI 點擊 handler（wizardry7 docs/re/007）。
+		oldMask, oldSeg, oldOff := m.Handler.Mask, m.Handler.Seg, m.Handler.Off
+		m.Handler.Seg, m.Handler.Off = c.Seg[cpu.ES], c.R[cpu.DX]
+		m.Handler.Mask, m.Handler.Set = c.R[cpu.CX], true
+		c.R[cpu.CX], c.R[cpu.DX] = oldMask, oldOff
+		c.Seg[cpu.ES] = oldSeg
+
 	case 0x000F: // 設 mickey/pixel 比例：收下就好
 
 	default:

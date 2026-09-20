@@ -220,3 +220,44 @@ func TestMouseResetReportsInstalledAndClearsHandler(t *testing.T) {
 		t.Error("重設之後還會呼叫舊的事件常式")
 	}
 }
+
+// `AX=0014h` 是 AX=000Ch 的**交換**版：登記新常式、回傳舊值
+// （CX=舊遮罩、DX=舊位移、ES=舊段；沒登記過回全零）。
+//
+// 巫術7 的 VGA.DRV 用這一支註冊 UI 點擊 handler（`docs/spec/194`）。
+// 沒有交換回傳值的實作會讓「先問舊 handler 再掛新的」的鏈式註冊
+// 靜默斷頭——而且斷在遠離登記點的地方。
+func TestInt33AX14ExchangesHandler(t *testing.T) {
+	m, d := newTest(t)
+	const h1, h2 = 0x3000, 0x3100
+	m.WriteBytes(cpu.Addr(h1, 0x22), []byte{0xCB})
+	m.WriteBytes(cpu.Addr(h2, 0x44), []byte{0xCB})
+
+	// 第一次：沒有舊值 → 回全零，但登記要成功。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = h1, 0x22
+	m.CPU.R[cpu.CX] = EventLeftDown
+	call(m, d, 0x33, 0x0014)
+	if m.CPU.R[cpu.CX] != 0 || m.CPU.R[cpu.DX] != 0 || m.CPU.Seg[cpu.ES] != 0 {
+		t.Errorf("首次交換該回全零，得 CX=%04X DX=%04X ES=%04X",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX], m.CPU.Seg[cpu.ES])
+	}
+	if !d.MouseEvent(EventLeftDown) {
+		t.Fatal("AX=14 登記後，符合遮罩的事件沒有排進去")
+	}
+
+	// 第二次：回傳前一次的值。
+	m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DX] = h2, 0x44
+	m.CPU.R[cpu.CX] = EventMove
+	call(m, d, 0x33, 0x0014)
+	if m.CPU.R[cpu.CX] != EventLeftDown || m.CPU.R[cpu.DX] != 0x22 || m.CPU.Seg[cpu.ES] != h1 {
+		t.Errorf("交換該回前一次登記，得 CX=%04X DX=%04X ES=%04X",
+			m.CPU.R[cpu.CX], m.CPU.R[cpu.DX], m.CPU.Seg[cpu.ES])
+	}
+	// 換掉之後，舊遮罩的事件不再投遞、新遮罩的會。
+	if d.MouseEvent(EventLeftDown) {
+		t.Error("換掉之後舊遮罩的事件還在投遞")
+	}
+	if !d.MouseEvent(EventMove) {
+		t.Error("新遮罩的事件沒有投遞")
+	}
+}
