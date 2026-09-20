@@ -72,6 +72,8 @@ func main() {
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
 	genderEvents := flag.String("gender-events", "", "正式 gender-events.tsv")
 	genderTranslations := flag.String("gender-translations", "", "正式 gender.zh-TW.tsv")
+	classEvents := flag.String("class-events", "", "正式 class-events.tsv")
+	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	var genericKeys scheduledBIOSKeys
@@ -80,7 +82,8 @@ func main() {
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
 	}
-	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations); err != nil {
+	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
+		*classEvents, *classTranslations); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
@@ -113,6 +116,21 @@ func main() {
 			fail(err)
 		}
 		catalog, err := buckrogers.LoadGenderCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *classEvents != "" {
+		eventsData, err := os.ReadFile(*classEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*classTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadClassCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
@@ -246,12 +264,16 @@ func validateMenuCatalogFlags(events, translations string) error {
 	return nil
 }
 
-func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTranslations string) error {
+func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTranslations,
+	classEvents, classTranslations string) error {
 	if err := validateMenuCatalogFlags(menuEvents, menuTranslations); err != nil {
 		return err
 	}
 	if (genderEvents == "") != (genderTranslations == "") {
 		return fmt.Errorf("gender-events 與 gender-translations 必須同時提供")
+	}
+	if (classEvents == "") != (classTranslations == "") {
+		return fmt.Errorf("class-events 與 class-translations 必須同時提供")
 	}
 	return nil
 }

@@ -49,6 +49,17 @@ func TestGenderCatalogReusesExactResolver(t *testing.T) {
 	}
 }
 
+func TestClassCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadClassCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
 func TestMergeMenuCatalogsAndRejectIdentityCollision(t *testing.T) {
 	first, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
 	if err != nil {

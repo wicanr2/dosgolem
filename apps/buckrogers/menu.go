@@ -38,6 +38,12 @@ func LoadGenderCatalog(events, translations []byte) (*MenuCatalog, error) {
 	return loadExactCatalog("gender-events.tsv", "gender.zh-TW.tsv", events, translations)
 }
 
+// LoadClassCatalog validates the formal class selection TSV inputs while
+// reusing the exact same identity resolver as menu and gender events.
+func LoadClassCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("class-events.tsv", "class.zh-TW.tsv", events, translations)
+}
+
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {
