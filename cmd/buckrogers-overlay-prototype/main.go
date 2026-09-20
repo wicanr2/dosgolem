@@ -72,7 +72,7 @@ func main() {
 	eventsPath := flag.String("events", "", "menu-events.tsv")
 	rectsPath := flag.String("rects", "", "menu-text-safe-rects.tsv")
 	translationsPath := flag.String("translations", "", "menu.zh-TW.tsv")
-	screen := flag.String("screen", "", "steady 或 down")
+	screen := flag.String("screen", "", "steady、down、gender-steady、gender-down、class-steady 或 class-down")
 	scale := flag.Int("scale", 0, "2 或 3")
 	outPath := flag.String("out", "", "輸出 PNG")
 	baseOutPath := flag.String("base-out", "", "輸出未覆繪 PNG")
@@ -80,8 +80,8 @@ func main() {
 	flag.Parse()
 	if *indexedPath == "" || *palettePath == "" || *fontPath == "" || *eventsPath == "" ||
 		*rectsPath == "" || *translationsPath == "" || *outPath == "" || *baseOutPath == "" || *receiptPath == "" ||
-		(*screen != "steady" && *screen != "down") || (*scale != 2 && *scale != 3) {
-		fail(fmt.Errorf("所有路徑必填；screen=steady|down，scale=2|3"))
+		!validScreen(*screen) || (*scale != 2 && *scale != 3) {
+		fail(fmt.Errorf("所有路徑必填；screen=steady|down|gender-steady|gender-down|class-steady|class-down，scale=2|3"))
 	}
 
 	indexed := mustRead(*indexedPath)
@@ -187,10 +187,25 @@ func main() {
 }
 
 func screenEvents(screen string) []string {
-	if screen == "steady" {
+	switch screen {
+	case "steady":
 		return []string{"race.screen.prompt", "race.heading.terran", "race.option.martian", "race.option.venusian", "race.option.mercurian", "race.option.tinker", "race.option.desert_runner"}
+	case "down":
+		return []string{"race.screen.prompt", "race.selection.normal.terran", "race.selection.selected.martian", "race.option.venusian", "race.option.mercurian", "race.option.tinker", "race.option.desert_runner"}
+	case "gender-steady":
+		return []string{"gender.screen.prompt", "gender.selection.selected.male", "gender.option.female"}
+	case "gender-down":
+		return []string{"gender.screen.prompt", "gender.selection.normal.male", "gender.selection.selected.female"}
+	case "class-steady":
+		return []string{"class.screen.prompt", "class.selection.selected.rocket_jock", "class.option.warrior", "class.option.medic", "class.option.engineer", "class.option.rogue"}
+	case "class-down":
+		return []string{"class.screen.prompt", "class.selection.normal.rocket_jock", "class.selection.selected.warrior", "class.option.medic", "class.option.engineer", "class.option.rogue"}
 	}
-	return []string{"race.screen.prompt", "race.selection.normal.terran", "race.selection.selected.martian", "race.option.venusian", "race.option.mercurian", "race.option.tinker", "race.option.desert_runner"}
+	return nil
+}
+
+func validScreen(screen string) bool {
+	return len(screenEvents(screen)) != 0
 }
 
 func loadEvents(path string) map[string]menuEvent {

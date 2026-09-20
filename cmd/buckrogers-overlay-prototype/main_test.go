@@ -23,6 +23,20 @@ func TestScreenEventsUseExactSelectionVariants(t *testing.T) {
 	if got := screenEvents("down"); !reflect.DeepEqual(got, wantDown) {
 		t.Fatalf("down events = %v", got)
 	}
+	wants := map[string][]string{
+		"gender-steady": {"gender.screen.prompt", "gender.selection.selected.male", "gender.option.female"},
+		"gender-down":   {"gender.screen.prompt", "gender.selection.normal.male", "gender.selection.selected.female"},
+		"class-steady":  {"class.screen.prompt", "class.selection.selected.rocket_jock", "class.option.warrior", "class.option.medic", "class.option.engineer", "class.option.rogue"},
+		"class-down":    {"class.screen.prompt", "class.selection.normal.rocket_jock", "class.selection.selected.warrior", "class.option.medic", "class.option.engineer", "class.option.rogue"},
+	}
+	for screen, want := range wants {
+		if got := screenEvents(screen); !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s events = %v，要 %v", screen, got, want)
+		}
+	}
+	if validScreen("unknown") || screenEvents("unknown") != nil {
+		t.Fatal("未知 screen 必須拒絕")
+	}
 }
 
 func TestDecodePaletteKeepsProbeEightBitRGB(t *testing.T) {
