@@ -336,3 +336,9 @@ func (o *Oracle) MouseRange() (minX, maxX, minY, maxY int) {
 	m := &o.d.Mouse
 	return int(m.MinX), int(m.MaxX), int(m.MinY), int(m.MaxY)
 }
+
+// PressButton／ReleaseButton 是按住／放開滑鼠鍵（0 左／1 右／2 中），
+// 給**逐幀驅動的前端**用：前端每一幀自己跑機器，不能呼叫會內部跑步的
+// `Click`。一次性腳本請用 `Click`／`Tap`。
+func (o *Oracle) PressButton(n int)   { o.d.PressMouse(n) }
+func (o *Oracle) ReleaseButton(n int) { o.d.ReleaseMouse(n) }

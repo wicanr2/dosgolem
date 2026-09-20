@@ -86,6 +86,10 @@ type Oracle struct {
 // **零值就是通用預設**，只有真的與眾不同才要填。
 // 分層的判準見 `docs/spec/006`：位址屬於程式層，不該寫死在這裡。
 type Options struct {
+	// Adlib 讓 OPL2（埠 388h）偵測存在。音樂路徑要它才會跑
+	// （巫術7：不開時開機後提早走無聲路徑，wizardry7 docs/re/003）。
+	Adlib bool
+
 	// DGROUP 是 `ds:` 的 IDA 線性基底。0 表示「DS 與程式映像同段」，
 	// 也就是 IDA 線性 0x10000——大部分組語寫成的 DOS 程式都是這樣。
 	//
@@ -122,6 +126,9 @@ func LoadWith(exe, root string, opt Options) (*Oracle, error) {
 		return nil, err
 	}
 	m := machine.New()
+	if opt.Adlib {
+		m.SetAdLib(true)
+	}
 	if err := m.LoadEXE(img); err != nil {
 		return nil, fmt.Errorf("載入 %s：%w", exe, err)
 	}
