@@ -14,8 +14,8 @@ import (
 
 // Address is a 16-bit DOS runtime segment:offset address.
 type Address struct {
-	Segment uint16
-	Offset  uint16
+	Segment uint16 `json:"segment"`
+	Offset  uint16 `json:"offset"`
 }
 
 var (
