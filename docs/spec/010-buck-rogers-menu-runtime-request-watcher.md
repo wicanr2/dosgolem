@@ -13,10 +13,11 @@
 - 選單 exact identity 與 catalog：
   `docs/spec/009-buck-rogers-menu-display-request.md`。
 - 正式事件表 SHA-256：
-  `973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e`；selection 擴充
-  依 `docs/spec/012-buck-rogers-selection-variant-catalog.md`。
+  `fddbd09ae363e986a2879013e384cdfef717f46fa47786bbad0cb96ae67bfcfc`；selection 擴充
+  依 `docs/spec/012-buck-rogers-selection-variant-catalog.md`，保存／名冊功能選單擴充依
+  `docs/spec/034-buck-rogers-save-roster-join-runtime-display-requests.md`。
 - 正式翻譯表 SHA-256：
-  `ca3319830adb7b34a048b498d8d0466b38b8fb6f418e5244a3a467e77ea68077`。
+  `16db36301675ef3c528ce6b37525463ab9e222305356fca9404d8242b91fa366`。
 - 所有位址都是 DOS runtime `segment:offset`；不得當成檔案偏移或 IDA 線性位址。
 
 本 watcher 不另行解釋原文、caller 或畫面欄位。事件與 catalog 的 typed schema、唯一性、

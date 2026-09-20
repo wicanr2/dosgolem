@@ -92,6 +92,8 @@ func main() {
 	genderTranslations := flag.String("gender-translations", "", "正式 gender.zh-TW.tsv")
 	classEvents := flag.String("class-events", "", "正式 class-events.tsv")
 	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
+	rosterEvents := flag.String("roster-events", "", "正式 save-roster-join-runtime-events.tsv")
+	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -105,7 +107,7 @@ func main() {
 		fail(fmt.Errorf("state 與 until 為必填"))
 	}
 	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
-		*classEvents, *classTranslations); err != nil {
+		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
@@ -153,6 +155,21 @@ func main() {
 			fail(err)
 		}
 		catalog, err := buckrogers.LoadClassCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *rosterEvents != "" {
+		eventsData, err := os.ReadFile(*rosterEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*rosterTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadRosterCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
@@ -338,7 +355,7 @@ func validateMenuCatalogFlags(events, translations string) error {
 }
 
 func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTranslations,
-	classEvents, classTranslations string) error {
+	classEvents, classTranslations, rosterEvents, rosterTranslations string) error {
 	if err := validateMenuCatalogFlags(menuEvents, menuTranslations); err != nil {
 		return err
 	}
@@ -347,6 +364,9 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 	}
 	if (classEvents == "") != (classTranslations == "") {
 		return fmt.Errorf("class-events 與 class-translations 必須同時提供")
+	}
+	if (rosterEvents == "") != (rosterTranslations == "") {
+		return fmt.Errorf("roster-events 與 roster-translations 必須同時提供")
 	}
 	return nil
 }

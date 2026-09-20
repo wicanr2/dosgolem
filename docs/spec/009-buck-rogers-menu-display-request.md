@@ -9,10 +9,11 @@
 ## 證據與固定輸入
 
 - 事件表：`text/menu-events.tsv`，SHA-256
-  `973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e`。原九筆版本
-  `38bc0fa6…370e9` 已由 spec 012 的 selection 證據擴充為 12 個唯一 identity。
+  `fddbd09ae363e986a2879013e384cdfef717f46fa47786bbad0cb96ae67bfcfc`。原九筆版本
+  `38bc0fa6…370e9` 先由 spec 012 擴充 selection identity，再由 spec 034 的正常保存→名冊
+  證據擴充為 21 個唯一 identity。
 - 翻譯表：`text/menu.zh-TW.tsv`，SHA-256
-  `ca3319830adb7b34a048b498d8d0466b38b8fb6f418e5244a3a467e77ea68077`
+  `16db36301675ef3c528ce6b37525463ab9e222305356fca9404d8242b91fa366`
 - 執行期位址一律是 DOS `segment:offset`；`caller` 不是檔案偏移。
 - 事件由 `docs/spec/008-buck-rogers-manual-runtime-watcher.md` 的同一個
   far-return／SS／SP 完成閘門產生。只有 `PostCallStep > EntryStep` 的完整事件
@@ -68,7 +69,8 @@ original_length + original_sha256 + caller + background + foreground + row + col
 ## 驗收
 
 - 正式兩份 TSV 可通過嚴格載入，並確認固定 SHA-256。
-- 固定狀態收據的九個完整事件依序解析成九個 `DisplayRequest`。
+- 第 27 階段固定狀態收據的九個完整事件仍依序解析成九個 `DisplayRequest`；正式 catalog
+  另由 spec 034 驗證新增功能選單 identity。
 - 測試覆蓋：重複事件鍵、重複 identity、跳號、錯誤大小寫雜湊／位址、
   數值越界、缺少翻譯、孤兒翻譯、允許共用文字鍵，以及任一 identity 欄位
   不同時拒絕命中。

@@ -44,6 +44,12 @@ func LoadClassCatalog(events, translations []byte) (*MenuCatalog, error) {
 	return loadExactCatalog("class-events.tsv", "class.zh-TW.tsv", events, translations)
 }
 
+// LoadRosterCatalog validates the saved-character roster TSV inputs while
+// reusing the exact same identity resolver as the other interface catalogs.
+func LoadRosterCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("save-roster-join-runtime-events.tsv", "save-roster-join.zh-TW.tsv", events, translations)
+}
+
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {

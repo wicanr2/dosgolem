@@ -31,22 +31,26 @@ func TestAllCatalogFlagsArePaired(t *testing.T) {
 	tests := []struct {
 		menuEvents, menuTranslations, genderEvents, genderTranslations string
 		classEvents, classTranslations                                 string
+		rosterEvents, rosterTranslations                               string
 		valid                                                          bool
 	}{
-		{"", "", "", "", "", "", true},
-		{"m.tsv", "mt.tsv", "", "", "", "", true},
-		{"", "", "g.tsv", "gt.tsv", "", "", true},
-		{"m.tsv", "mt.tsv", "g.tsv", "gt.tsv", "c.tsv", "ct.tsv", true},
-		{"", "", "", "", "c.tsv", "ct.tsv", true},
-		{"m.tsv", "", "", "", "", "", false},
-		{"", "", "g.tsv", "", "", "", false},
-		{"", "", "", "gt.tsv", "", "", false},
-		{"", "", "", "", "c.tsv", "", false},
-		{"", "", "", "", "", "ct.tsv", false},
+		{"", "", "", "", "", "", "", "", true},
+		{"m.tsv", "mt.tsv", "", "", "", "", "", "", true},
+		{"", "", "g.tsv", "gt.tsv", "", "", "", "", true},
+		{"m.tsv", "mt.tsv", "g.tsv", "gt.tsv", "c.tsv", "ct.tsv", "r.tsv", "rt.tsv", true},
+		{"", "", "", "", "c.tsv", "ct.tsv", "", "", true},
+		{"", "", "", "", "", "", "r.tsv", "rt.tsv", true},
+		{"m.tsv", "", "", "", "", "", "", "", false},
+		{"", "", "g.tsv", "", "", "", "", "", false},
+		{"", "", "", "gt.tsv", "", "", "", "", false},
+		{"", "", "", "", "c.tsv", "", "", "", false},
+		{"", "", "", "", "", "ct.tsv", "", "", false},
+		{"", "", "", "", "", "", "r.tsv", "", false},
+		{"", "", "", "", "", "", "", "rt.tsv", false},
 	}
 	for _, tc := range tests {
 		got := validateCatalogFlags(tc.menuEvents, tc.menuTranslations, tc.genderEvents, tc.genderTranslations,
-			tc.classEvents, tc.classTranslations) == nil
+			tc.classEvents, tc.classTranslations, tc.rosterEvents, tc.rosterTranslations) == nil
 		if got != tc.valid {
 			t.Fatalf("flags %#v valid=%v，要 %v", tc, got, tc.valid)
 		}

@@ -60,6 +60,17 @@ func TestClassCatalogReusesExactResolver(t *testing.T) {
 	}
 }
 
+func TestRosterCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadRosterCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
 func TestMergeMenuCatalogsAndRejectIdentityCollision(t *testing.T) {
 	first, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
 	if err != nil {
@@ -127,7 +138,7 @@ func TestMenuCatalogRejectsMalformedInputs(t *testing.T) {
 	}
 }
 
-func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
+func TestFormalProjectMenuCatalog(t *testing.T) {
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
 	if root == "" {
 		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
@@ -142,11 +153,11 @@ func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
 	}
 	events, texts := read("menu-events.tsv"), read("menu.zh-TW.tsv")
 	eventsSum := sha256.Sum256(events)
-	if got := hex.EncodeToString(eventsSum[:]); got != "973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e" {
+	if got := hex.EncodeToString(eventsSum[:]); got != "fddbd09ae363e986a2879013e384cdfef717f46fa47786bbad0cb96ae67bfcfc" {
 		t.Fatalf("menu-events.tsv SHA-256 = %s", got)
 	}
 	textsSum := sha256.Sum256(texts)
-	if got := hex.EncodeToString(textsSum[:]); got != "ca3319830adb7b34a048b498d8d0466b38b8fb6f418e5244a3a467e77ea68077" {
+	if got := hex.EncodeToString(textsSum[:]); got != "16db36301675ef3c528ce6b37525463ab9e222305356fca9404d8242b91fa366" {
 		t.Fatalf("menu.zh-TW.tsv SHA-256 = %s", got)
 	}
 	c, err := LoadMenuCatalog(events, texts)
@@ -157,8 +168,8 @@ func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 12 {
-		t.Fatalf("事件數 = %d，要 12", len(rows))
+	if len(rows) != 21 {
+		t.Fatalf("事件數 = %d，要 21", len(rows))
 	}
 	for i, row := range rows {
 		h, _ := menuHash(row[4])
@@ -211,8 +222,41 @@ func TestFormalProjectGenderCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	merged, err := MergeMenuCatalogs(menu, gender)
-	if err != nil || len(gender.byIdentity) != 7 || len(merged.byIdentity) != 19 {
+	if err != nil || len(gender.byIdentity) != 7 || len(merged.byIdentity) != 28 {
 		t.Fatalf("gender=%d merged=%d err=%v", len(gender.byIdentity), len(merged.byIdentity), err)
+	}
+}
+
+func TestFormalProjectRosterCatalog(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	if root == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, "text", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	events := read("save-roster-join-runtime-events.tsv")
+	texts := read("save-roster-join.zh-TW.tsv")
+	for name, fixture := range map[string]struct {
+		data []byte
+		want string
+	}{
+		"save-roster-join-runtime-events.tsv": {events, "0f798b3246d1ba4860be6ed9b648bde8f3bdc8089f0f6b5533484ad23f8a7f89"},
+		"save-roster-join.zh-TW.tsv":          {texts, "d0adf666a27ed70f1d1dfeb9814255452d8dce1ba006fdbafef1bb7033e949a7"},
+	} {
+		sum := sha256.Sum256(fixture.data)
+		if got := hex.EncodeToString(sum[:]); got != fixture.want {
+			t.Fatalf("%s SHA-256 = %s", name, got)
+		}
+	}
+	roster, err := LoadRosterCatalog(events, texts)
+	if err != nil || len(roster.byIdentity) != 2 {
+		t.Fatalf("roster=%d err=%v", len(roster.byIdentity), err)
 	}
 }
 
