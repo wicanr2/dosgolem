@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,30 @@ func TestMenuCatalogFlagsArePaired(t *testing.T) {
 		if got := validateMenuCatalogFlags(tc.events, tc.translations) == nil; got != tc.valid {
 			t.Fatalf("events=%q translations=%q valid=%v，要 %v", tc.events, tc.translations, got, tc.valid)
 		}
+	}
+}
+
+func TestEmitReceiptWritesIdenticalBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	var stdout bytes.Buffer
+	value := struct {
+		Count int `json:"count"`
+	}{Count: 14}
+	if err := emitReceipt(&stdout, path, value); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), file) || string(file) != "{\"count\":14}\n" {
+		t.Fatalf("stdout=%q file=%q", stdout.Bytes(), file)
+	}
+}
+
+func TestEmitReceiptRejectsOutputDirectory(t *testing.T) {
+	if err := emitReceipt(&bytes.Buffer{}, t.TempDir(), struct{}{}); err == nil {
+		t.Fatal("receipt-out 指向目錄時必須失敗")
 	}
 }
 

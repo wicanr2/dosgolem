@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -70,6 +71,7 @@ func main() {
 	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
+	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
@@ -183,9 +185,26 @@ func main() {
 			fail(err)
 		}
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+	if err := emitReceipt(os.Stdout, *receiptOut, result); err != nil {
 		fail(err)
 	}
+}
+
+func emitReceipt(stdout io.Writer, path string, value any) error {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("編碼 JSON 收據：%w", err)
+	}
+	b = append(b, '\n')
+	if path != "" {
+		if err := os.WriteFile(path, b, 0o644); err != nil {
+			return fmt.Errorf("寫出 JSON 收據：%w", err)
+		}
+	}
+	if _, err := stdout.Write(b); err != nil {
+		return fmt.Errorf("寫出 stdout 收據：%w", err)
+	}
+	return nil
 }
 
 func writeIndexedScreen(path string, data []byte) error {

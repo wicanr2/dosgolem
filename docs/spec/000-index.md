@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 252 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 253 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -20,7 +20,7 @@
 | `013` | 6 | `013-buck-rogers-menu-overlay-scale-prototype.md`、`013-eob1-first-character-class.md`、`013-fd2-load-es-selector.md`、`013-file-handles.md`、`013-mouse-event-callback.md`、`013-vga-planar.md` |
 | `014` | 6 | `014-buck-rogers-selection-blink-receipt.md`、`014-dos4gw-flat-descriptors.md`、`014-ems.md`、`014-eob1-first-character-alignment.md`、`014-hardware-keyboard.md`、`014-poke-state-not-luck.md` |
 | `015` | 5 | `015-buck-rogers-menu-overlay-core.md`、`015-bytecode-observation.md`、`015-eob1-first-character-stats.md`、`015-fd2-store-environment-word.md`、`015-outermost-cmdline.md` |
-| `016` | 3 | `016-dos4gw-protected-push.md`、`016-eob1-first-character-review.md`、`016-right-mouse-button.md` |
+| `016` | 4 | `016-buck-rogers-post-race-text-receipt.md`、`016-dos4gw-protected-push.md`、`016-eob1-first-character-review.md`、`016-right-mouse-button.md` |
 | `017` | 2 | `017-dos4gw-selector-load-validation.md`、`017-mouse-callback.md` |
 | `018` | 2 | `018-cpu386-command-tail-prelude.md`、`018-eob1-first-character-name.md` |
 | `019` | 2 | `019-dos4gw-psp-command-tail.md`、`019-eob1-first-character-alfa.md` |
@@ -144,7 +144,7 @@
 - `008-bios-keyboard-injection.md`
 - `009-scratch-writes.md`
 
-### Buck Rogers: Countdown to Doomsday（9 份）
+### Buck Rogers: Countdown to Doomsday（10 份）
 
 - `007-buck-rogers-manual-event-adapter.md`
 - `008-buck-rogers-manual-runtime-watcher.md`
@@ -155,6 +155,7 @@
 - `013-buck-rogers-menu-overlay-scale-prototype.md`
 - `014-buck-rogers-selection-blink-receipt.md`
 - `015-buck-rogers-menu-overlay-core.md`
+- `016-buck-rogers-post-race-text-receipt.md`
 
 ### UCSD p-System（psys）（1 份）
 
