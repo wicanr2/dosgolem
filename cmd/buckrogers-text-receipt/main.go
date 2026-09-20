@@ -8,6 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -34,6 +37,30 @@ type requestJSON struct {
 	TranslationRunes int    `json:"translation_runes"`
 }
 
+type scheduledBIOSKey struct {
+	Step  uint64
+	Scan  uint8
+	ASCII uint8
+}
+
+type scheduledBIOSKeys []scheduledBIOSKey
+
+func (s *scheduledBIOSKeys) String() string { return "" }
+func (s *scheduledBIOSKeys) Set(value string) error {
+	key, err := parseScheduledBIOSKey(value)
+	if err != nil {
+		return err
+	}
+	*s = append(*s, key)
+	return nil
+}
+
+type keyJSON struct {
+	QueuedAt uint64 `json:"queued_at"`
+	Scan     uint8  `json:"scan"`
+	ASCII    uint8  `json:"ascii"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -42,11 +69,18 @@ func main() {
 	enterAt := flag.Uint64("bios-enter-at", 0, "在此絕對步數排入一個 BIOS Enter；0 表示不送")
 	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
+	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
+	var genericKeys scheduledBIOSKeys
+	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
 	}
 	if err := validateMenuCatalogFlags(*menuEvents, *menuTranslations); err != nil {
+		fail(err)
+	}
+	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
+	if err != nil {
 		fail(err)
 	}
 	var catalog *buckrogers.MenuCatalog
@@ -72,13 +106,14 @@ func main() {
 	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
-	enterSent := false
+	nextKey := 0
 	for m.Steps < *until && !d.Exited {
-		if *enterAt != 0 && !enterSent && m.Steps >= *enterAt {
-			if !m.PushBIOSKey(0x1C, 0x0D) {
+		for nextKey < len(keys) && m.Steps >= keys[nextKey].Step {
+			key := keys[nextKey]
+			if !m.PushBIOSKey(key.Scan, key.ASCII) {
 				fail(fmt.Errorf("BIOS 鍵盤緩衝區已滿"))
 			}
-			enterSent = true
+			nextKey++
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
@@ -104,10 +139,10 @@ func main() {
 	}
 	events := r.Events()
 	requests := r.Requests()
-	if r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
+	if nextKey != len(keys) || r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
 		(*wantRequests != 0 && len(requests) != *wantRequests) {
-		fail(fmt.Errorf("收據失敗：events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d",
-			len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses()))
+		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d",
+			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses()))
 	}
 	out := make([]eventJSON, len(events))
 	for i, e := range events {
@@ -127,18 +162,40 @@ func main() {
 		Events        []eventJSON   `json:"events"`
 		Requests      []requestJSON `json:"requests,omitempty"`
 		CatalogMisses *int          `json:"catalog_misses,omitempty"`
+		BIOSKeys      []keyJSON     `json:"bios_keys,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out}
 	if catalog != nil {
 		result.Requests = requestOut
 		misses := r.Misses()
 		result.CatalogMisses = &misses
 	}
-	if enterSent {
+	if *enterAt != 0 {
 		result.BIOSInput = fmt.Sprintf("Enter(scan=0x1c,ascii=0x0d,queued_at=%d)", *enterAt)
+	}
+	if len(genericKeys) != 0 {
+		result.BIOSKeys = make([]keyJSON, len(keys))
+		for i, key := range keys {
+			result.BIOSKeys[i] = keyJSON{key.Step, key.Scan, key.ASCII}
+		}
+	}
+	if *screenOut != "" {
+		if err := writeIndexedScreen(*screenOut, m.Indexed()); err != nil {
+			fail(err)
+		}
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
 		fail(err)
 	}
+}
+
+func writeIndexedScreen(path string, data []byte) error {
+	if len(data) != 320*200 {
+		return fmt.Errorf("indexed framebuffer 大小為 %d，要 64000", len(data))
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("寫出 indexed framebuffer：%w", err)
+	}
+	return nil
 }
 
 func validateMenuCatalogFlags(events, translations string) error {
@@ -146,6 +203,68 @@ func validateMenuCatalogFlags(events, translations string) error {
 		return fmt.Errorf("menu-events 與 menu-translations 必須同時提供")
 	}
 	return nil
+}
+
+func parseScheduledBIOSKey(value string) (scheduledBIOSKey, error) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 || !asciiDecimal(parts[0]) {
+		return scheduledBIOSKey{}, fmt.Errorf("bios-key-at 必須是 STEP:SCAN_HEX:ASCII_HEX")
+	}
+	step, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil || step == 0 {
+		return scheduledBIOSKey{}, fmt.Errorf("bios-key-at step 必須是非零 uint64")
+	}
+	scan, err := parseHexByte(parts[1])
+	if err != nil {
+		return scheduledBIOSKey{}, fmt.Errorf("bios-key-at scan：%w", err)
+	}
+	ascii, err := parseHexByte(parts[2])
+	if err != nil {
+		return scheduledBIOSKey{}, fmt.Errorf("bios-key-at ascii：%w", err)
+	}
+	return scheduledBIOSKey{step, scan, ascii}, nil
+}
+
+func mergeBIOSKeySchedule(enterAt uint64, generic []scheduledBIOSKey, until uint64) ([]scheduledBIOSKey, error) {
+	keys := append([]scheduledBIOSKey(nil), generic...)
+	if enterAt != 0 {
+		keys = append(keys, scheduledBIOSKey{enterAt, 0x1C, 0x0D})
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Step < keys[j].Step })
+	for i, key := range keys {
+		if i > 0 && keys[i-1].Step == key.Step {
+			return nil, fmt.Errorf("BIOS 鍵排程 step 重複：%d", key.Step)
+		}
+		if key.Step >= until {
+			return nil, fmt.Errorf("BIOS 鍵排程 step %d 必須早於 until %d", key.Step, until)
+		}
+	}
+	return keys, nil
+}
+
+func asciiDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := range value {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func parseHexByte(value string) (uint8, error) {
+	if len(value) != 2 {
+		return 0, fmt.Errorf("必須恰有兩位小寫十六進位")
+	}
+	for i := range value {
+		if !((value[i] >= '0' && value[i] <= '9') || (value[i] >= 'a' && value[i] <= 'f')) {
+			return 0, fmt.Errorf("必須恰有兩位小寫十六進位")
+		}
+	}
+	n, err := strconv.ParseUint(value, 16, 8)
+	return uint8(n), err
 }
 
 func fail(err error) {
