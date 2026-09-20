@@ -9,7 +9,8 @@
 ## 證據與固定輸入
 
 - 事件表：`text/menu-events.tsv`，SHA-256
-  `38bc0fa693fa5ee4bed3209548a0dc67c1270b28657f0801e42645b70fd370e9`
+  `973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e`。原九筆版本
+  `38bc0fa6…370e9` 已由 spec 012 的 selection 證據擴充為 12 個唯一 identity。
 - 翻譯表：`text/menu.zh-TW.tsv`，SHA-256
   `ca3319830adb7b34a048b498d8d0466b38b8fb6f418e5244a3a467e77ea68077`
 - 執行期位址一律是 DOS `segment:offset`；`caller` 不是檔案偏移。

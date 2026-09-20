@@ -97,7 +97,7 @@ func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
 	}
 	events, texts := read("menu-events.tsv"), read("menu.zh-TW.tsv")
 	eventsSum := sha256.Sum256(events)
-	if got := hex.EncodeToString(eventsSum[:]); got != "38bc0fa693fa5ee4bed3209548a0dc67c1270b28657f0801e42645b70fd370e9" {
+	if got := hex.EncodeToString(eventsSum[:]); got != "973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e" {
 		t.Fatalf("menu-events.tsv SHA-256 = %s", got)
 	}
 	textsSum := sha256.Sum256(texts)
@@ -112,8 +112,8 @@ func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 9 {
-		t.Fatalf("事件數 = %d，要 9", len(rows))
+	if len(rows) != 12 {
+		t.Fatalf("事件數 = %d，要 12", len(rows))
 	}
 	for i, row := range rows {
 		h, _ := menuHash(row[4])

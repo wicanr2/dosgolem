@@ -13,7 +13,8 @@
 - 選單 exact identity 與 catalog：
   `docs/spec/009-buck-rogers-menu-display-request.md`。
 - 正式事件表 SHA-256：
-  `38bc0fa693fa5ee4bed3209548a0dc67c1270b28657f0801e42645b70fd370e9`。
+  `973a6a1e247e7d9e16518a1a66266f340666d32e785f3f6f6652a890e830da2e`；selection 擴充
+  依 `docs/spec/012-buck-rogers-selection-variant-catalog.md`。
 - 正式翻譯表 SHA-256：
   `ca3319830adb7b34a048b498d8d0466b38b8fb6f418e5244a3a467e77ea68077`。
 - 所有位址都是 DOS runtime `segment:offset`；不得當成檔案偏移或 IDA 線性位址。
