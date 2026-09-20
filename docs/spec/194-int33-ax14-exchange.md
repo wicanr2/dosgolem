@@ -32,6 +32,14 @@ dosgolem 的 int33 沒有這個功能號，呼叫落進 Unimplemented
 3. 事件投遞走既有 `fireMouseEventMickeys`（`docs/spec/013-mouse-event-callback`
    的佇列回呼），本規格不動它。
 
+## 狀態持久化（2026-09-20 補）
+
+`Mouse.Handler` 原本不在 `dos.SaveState`／`LoadState` 的抄寫清單裡：
+存檔端用欄位字面值只挑六個欄位、讀檔端也只還原同六個。
+症狀：從快照展開的機器「滑鼠有裝、點擊沒反應」，畫面完全正常
+（巫術7 主選單實測）。修復：兩端補 `Handler`，並加
+`TestStateKeepsMouseEventHandler`。
+
 ## 驗收
 
 - contract test：第一次 `AX=14` 註冊後 `MouseEvent(EvLeftDown)` 回 true、

@@ -65,3 +65,27 @@ func TestOldStateWithoutRootKeepsCurrentRoot(t *testing.T) {
 		t.Errorf("素材目錄變成 %q，要維持 %q", e.Root, here)
 	}
 }
+
+// 事件 handler（AX=000Ch／0014h 登記的）要跟著狀態走。漏掉的話
+// 從快照展開的機器「滑鼠有裝、點擊沒反應」，畫面完全正常——
+// 巫術7 的主選單就是這個症狀（wizardry7 `docs/spec/194` §狀態持久化）。
+func TestStateKeepsMouseEventHandler(t *testing.T) {
+	var buf bytes.Buffer
+	d := newAt(t, t.TempDir())
+	d.PressMouse(1) // 讓 Buttons 非 0，順便確認按鍵狀態也走得通
+	d.Mouse.Handler.Seg, d.Mouse.Handler.Off = 0x740C, 0x1ED4
+	d.Mouse.Handler.Mask, d.Mouse.Handler.Set = 0x000B, true
+	if err := d.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	d2 := newAt(t, t.TempDir())
+	if err := d2.LoadState(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	h := d2.Mouse.Handler
+	if !h.Set || h.Seg != 0x740C || h.Off != 0x1ED4 || h.Mask != 0x000B {
+		t.Errorf("handler 沒還原：Set=%v Seg=%04X Off=%04X Mask=%04X",
+			h.Set, h.Seg, h.Off, h.Mask)
+	}
+}

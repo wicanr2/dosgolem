@@ -115,7 +115,11 @@ func (d *DOS) SaveState(w io.Writer) error {
 	}
 	// 滑鼠的座標與按鍵要留，觀測紀錄不留。
 	s.Mouse = Mouse{X: d.Mouse.X, Y: d.Mouse.Y, Buttons: d.Mouse.Buttons,
-		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale}
+		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale,
+		// Handler（AX=000Ch／0014h 登記的事件常式）**一定要存**：
+		// 漏掉的話從快照展開的機器「滑鼠有裝、事件不來」，
+		// 點擊類 UI 整個死掉而畫面完全正常（`docs/spec/194` §狀態持久化）。
+		Handler: d.Mouse.Handler}
 
 	for _, b := range d.arena {
 		s.Arena = append(s.Arena, blockState{Seg: b.seg, Size: b.size, Free: b.free})
@@ -176,6 +180,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
+	d.Mouse.Handler = s.Mouse.Handler
 	d.freeSeg = s.FreeSeg
 	d.curPSP, d.lastExit = s.CurPSP, s.LastExit
 	d.queue = append([]Queued(nil), s.Queue...)
