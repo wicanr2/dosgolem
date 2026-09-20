@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 255 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 256 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -23,7 +23,7 @@
 | `016` | 4 | `016-buck-rogers-post-race-text-receipt.md`、`016-dos4gw-protected-push.md`、`016-eob1-first-character-review.md`、`016-right-mouse-button.md` |
 | `017` | 3 | `017-buck-rogers-gender-selection-lifecycle.md`、`017-dos4gw-selector-load-validation.md`、`017-mouse-callback.md` |
 | `018` | 3 | `018-buck-rogers-gender-runtime-display-requests.md`、`018-cpu386-command-tail-prelude.md`、`018-eob1-first-character-name.md` |
-| `019` | 2 | `019-dos4gw-psp-command-tail.md`、`019-eob1-first-character-alfa.md` |
+| `019` | 3 | `019-buck-rogers-post-gender-text-receipt.md`、`019-dos4gw-psp-command-tail.md`、`019-eob1-first-character-alfa.md` |
 | `020` | 2 | `020-cpu386-repe-scasb.md`、`020-eob1-second-character-race.md` |
 | `021` | 2 | `021-cpu386-lea-disp8.md`、`021-eob1-second-character-review.md` |
 | `022` | 2 | `022-dos4gw-selector-swap-jz.md`、`022-eob1-second-character-beta.md` |
@@ -144,7 +144,7 @@
 - `008-bios-keyboard-injection.md`
 - `009-scratch-writes.md`
 
-### Buck Rogers: Countdown to Doomsday（12 份）
+### Buck Rogers: Countdown to Doomsday（13 份）
 
 - `007-buck-rogers-manual-event-adapter.md`
 - `008-buck-rogers-manual-runtime-watcher.md`
@@ -158,6 +158,7 @@
 - `016-buck-rogers-post-race-text-receipt.md`
 - `017-buck-rogers-gender-selection-lifecycle.md`
 - `018-buck-rogers-gender-runtime-display-requests.md`
+- `019-buck-rogers-post-gender-text-receipt.md`
 
 ### UCSD p-System（psys）（1 份）
 
