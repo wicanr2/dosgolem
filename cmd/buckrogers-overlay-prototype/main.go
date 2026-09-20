@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
@@ -99,9 +100,7 @@ func main() {
 	palette := decodePalette(paletteRaw)
 	base := scaleIndexed(indexed, palette, *scale)
 	rendered := append([]byte(nil), base...)
-	layer := &xlate.Layer{W: 320, H: 200}
-	missingSet := map[rune]bool{}
-	resultEvents := make([]eventJSON, 0, len(keys))
+	overlayEntries := make([]buckrogers.MenuOverlayEntry, 0, len(keys))
 
 	for _, key := range keys {
 		event, ok := events[key]
@@ -116,38 +115,30 @@ func main() {
 		if !ok {
 			fail(fmt.Errorf("譯文不存在：%s", event.TextKey))
 		}
-		prefixCells := (r.DrawX - r.X) / 8
-		if r.DrawX < r.X || (r.DrawX-r.X)%8 != 0 || r.DrawY != r.Y || r.Height != 8 || r.Width%8 != 0 {
-			fail(fmt.Errorf("%s 不是目前單列 8x8 格契約", key))
-		}
-		text := []rune(strings.Repeat("　", prefixCells) + translation)
-		cells := r.Width / 8
-		if cells-prefixCells != r.Capacity || len(text) > cells || r.LineCount != 1 || r.Overflow != "single-line-reject" {
-			fail(fmt.Errorf("%s 容量或 overflow 契約不符", key))
-		}
-		glyphOffset := 0
-		if *scale == 3 {
-			glyphOffset = 4
-		}
-		stamp := &xlate.Stamp{
-			Key: key, X: r.X, Y: r.Y, Cells: cells, CellW: 8, CellH: 8,
-			Font: font, GlyphX: glyphOffset, GlyphY: glyphOffset, Text: text,
-			State: xlate.Shown, BG: palette[event.Background], FG: palette[event.Foreground],
-		}
-		layer.Add(stamp)
-		ink := inkRect(stamp, *scale, missingSet)
-		clear := rectJSON{r.X * *scale, r.Y * *scale, r.Width * *scale, r.Height * *scale}
-		contained := ink.Width > 0 && ink.Height > 0 && ink.X >= clear.X && ink.Y >= clear.Y &&
-			ink.X+ink.Width <= clear.X+clear.Width && ink.Y+ink.Height <= clear.Y+clear.Height
-		resultEvents = append(resultEvents, eventJSON{
-			EventKey: key, TextKey: event.TextKey, TranslationRunes: len([]rune(translation)),
+		overlayEntries = append(overlayEntries, buckrogers.MenuOverlayEntry{
+			EventKey: key, TextKey: event.TextKey, Translation: translation,
 			Background: event.Background, Foreground: event.Foreground,
-			ClearRect: clear, DrawAnchorX: r.DrawX * *scale, DrawAnchorY: r.DrawY * *scale,
-			InkRect: ink, Contained: contained,
+			X: r.X, Y: r.Y, Width: r.Width, Height: r.Height,
+			DrawX: r.DrawX, DrawY: r.DrawY, Capacity: r.Capacity,
+			LineCount: r.LineCount, Overflow: r.Overflow,
 		})
 	}
-	if !layer.Draw(rendered, *scale, func(r rune) { missingSet[r] = true }) {
+	overlay, err := buckrogers.BuildMenuOverlay(overlayEntries, font, palette, *scale)
+	if err != nil {
+		fail(err)
+	}
+	missingSet := map[rune]bool{}
+	if !overlay.Layer.Draw(rendered, *scale, func(r rune) { missingSet[r] = true }) {
 		fail(fmt.Errorf("xlate.Draw 沒有畫出任何 stamp"))
+	}
+	resultEvents := make([]eventJSON, 0, len(overlay.Events))
+	for _, event := range overlay.Events {
+		resultEvents = append(resultEvents, eventJSON{
+			EventKey: event.EventKey, TextKey: event.TextKey, TranslationRunes: event.TranslationRunes,
+			Background: event.Background, Foreground: event.Foreground,
+			ClearRect: fromPixelRect(event.ClearRect), DrawAnchorX: event.DrawAnchorX,
+			DrawAnchorY: event.DrawAnchorY, InkRect: fromPixelRect(event.InkRect), Contained: event.Contained,
+		})
 	}
 	missing := make([]string, 0, len(missingSet))
 	for r := range missingSet {
@@ -292,52 +283,8 @@ func scaleIndexed(indexed []byte, pal [256][3]uint8, scale int) []byte {
 	return out
 }
 
-func inkRect(s *xlate.Stamp, scale int, missing map[rune]bool) rectJSON {
-	k := s.GlyphScale
-	if k == 0 {
-		k = scale / 3
-		if k < 1 {
-			k = 1
-		}
-	}
-	minX, minY, maxX, maxY := 1<<30, 1<<30, -1, -1
-	rowBytes := (s.Font.W + 7) / 8
-	for i, r := range s.Text {
-		if r == ' ' || r == '　' {
-			continue
-		}
-		g, ok := s.Font.Glyphs[r]
-		if !ok {
-			missing[r] = true
-			continue
-		}
-		for gy := 0; gy < s.Font.H; gy++ {
-			for gx := 0; gx < s.Font.W; gx++ {
-				if g[gy*rowBytes+gx/8]&(0x80>>uint(gx%8)) == 0 {
-					continue
-				}
-				x0 := (s.X+i*s.CellW)*scale + s.GlyphX + gx*k
-				y0 := s.Y*scale + s.GlyphY + gy*k
-				x1, y1 := x0+k, y0+k
-				if x0 < minX {
-					minX = x0
-				}
-				if y0 < minY {
-					minY = y0
-				}
-				if x1 > maxX {
-					maxX = x1
-				}
-				if y1 > maxY {
-					maxY = y1
-				}
-			}
-		}
-	}
-	if maxX < minX || maxY < minY {
-		return rectJSON{}
-	}
-	return rectJSON{minX, minY, maxX - minX, maxY - minY}
+func fromPixelRect(r buckrogers.PixelRect) rectJSON {
+	return rectJSON{r.X, r.Y, r.Width, r.Height}
 }
 
 func overlapping(events []eventJSON) int {
