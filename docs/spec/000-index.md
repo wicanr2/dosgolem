@@ -344,3 +344,7 @@
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
+
+- [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
+
+- [203 — 圖檔內嵌文字 watcher](203-baked-text-watchers.md)：READY。以呼叫端提供的原版色號圖塊觸發疊字，圖塊消失後自動收回。
