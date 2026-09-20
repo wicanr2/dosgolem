@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 249 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 250 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -17,7 +17,7 @@
 | `010` | 6 | `010-dosv.md`、`010-eob1-title-menu.md`、`010-exec-memory-reclaim-and-planar-write-modes.md`、`010-fd2-segment-bootstrap.md`、`010-input-verbs.md`、`010-overlay-loading.md` |
 | `011` | 5 | `011-bios-palette-and-vector-stubs.md`、`011-ega-mode10h.md`、`011-eob1-new-party-entry.md`、`011-fd2-es-environment-cell.md`、`011-xms.md` |
 | `012` | 5 | `012-cpu-386-subset.md`、`012-eob1-first-character-race.md`、`012-fd2-parity-capture.md`、`012-input-keyboard-irq-and-mouse-scale.md`、`012-mcb-chain.md` |
-| `013` | 5 | `013-eob1-first-character-class.md`、`013-fd2-load-es-selector.md`、`013-file-handles.md`、`013-mouse-event-callback.md`、`013-vga-planar.md` |
+| `013` | 6 | `013-buck-rogers-menu-overlay-scale-prototype.md`、`013-eob1-first-character-class.md`、`013-fd2-load-es-selector.md`、`013-file-handles.md`、`013-mouse-event-callback.md`、`013-vga-planar.md` |
 | `014` | 5 | `014-dos4gw-flat-descriptors.md`、`014-ems.md`、`014-eob1-first-character-alignment.md`、`014-hardware-keyboard.md`、`014-poke-state-not-luck.md` |
 | `015` | 4 | `015-bytecode-observation.md`、`015-eob1-first-character-stats.md`、`015-fd2-store-environment-word.md`、`015-outermost-cmdline.md` |
 | `016` | 3 | `016-dos4gw-protected-push.md`、`016-eob1-first-character-review.md`、`016-right-mouse-button.md` |
@@ -144,7 +144,7 @@
 - `008-bios-keyboard-injection.md`
 - `009-scratch-writes.md`
 
-### Buck Rogers: Countdown to Doomsday（6 份）
+### Buck Rogers: Countdown to Doomsday（7 份）
 
 - `007-buck-rogers-manual-event-adapter.md`
 - `008-buck-rogers-manual-runtime-watcher.md`
@@ -152,6 +152,7 @@
 - `010-buck-rogers-menu-runtime-request-watcher.md`
 - `011-buck-rogers-diagnostic-key-schedule.md`
 - `012-buck-rogers-selection-variant-catalog.md`
+- `013-buck-rogers-menu-overlay-scale-prototype.md`
 
 ### UCSD p-System（psys）（1 份）
 
