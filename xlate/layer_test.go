@@ -140,6 +140,66 @@ func TestDrawGlyph(t *testing.T) {
 	}
 }
 
+// Buck Rogers 繁中輸出需要的 2× 路徑：預設 GlyphScale 不可因 2/3 截成 0。
+// 16×16 字模應以 1:1 畫進放大後的 16×16 字格，且沿用原本的前景／背景色。
+func TestDrawGlyphAtTwoTimesScale(t *testing.T) {
+	g := make([]byte, 2*16)
+	g[0] = 0x80        // 左上角
+	g[len(g)-1] = 0x01 // 右下角
+	font := &Font{W: 16, H: 16, Glyphs: map[rune][]byte{'字': g}}
+	s := &Stamp{
+		X: 1, Y: 1, Cells: 1, CellW: 8, CellH: 8,
+		Font: font, Text: []rune("字"), State: Shown,
+		FG: [3]uint8{1, 2, 3}, BG: [3]uint8{9, 8, 7},
+	}
+	l := &Layer{W: 10, H: 10, Stamps: []*Stamp{s}}
+	W := l.W * 2
+	dst := make([]uint8, 4*W*l.H*2)
+	if !l.Draw(dst, 2, nil) {
+		t.Fatal("2× 應畫出顯示中的疊字")
+	}
+	at := func(x, y int) [4]uint8 {
+		i := 4 * (y*W + x)
+		return [4]uint8{dst[i], dst[i+1], dst[i+2], dst[i+3]}
+	}
+	if got := at(2, 2); got != [4]uint8{1, 2, 3, 255} {
+		t.Errorf("左上字模點 = %v", got)
+	}
+	if got := at(17, 17); got != [4]uint8{1, 2, 3, 255} {
+		t.Errorf("右下字模點 = %v", got)
+	}
+	if got := at(3, 2); got != [4]uint8{9, 8, 7, 255} {
+		t.Errorf("相鄰背景 = %v", got)
+	}
+}
+
+func TestDrawRejectsNonPositiveScale(t *testing.T) {
+	l := &Layer{Stamps: []*Stamp{{State: Shown}}}
+	for _, scale := range []int{0, -1, -3} {
+		dst := bytes.Repeat([]byte{0xA5}, 16)
+		before := append([]byte(nil), dst...)
+		if l.Draw(dst, scale, nil) {
+			t.Errorf("scale=%d 不應回報有繪圖", scale)
+		}
+		if !bytes.Equal(dst, before) {
+			t.Errorf("scale=%d 不應改動輸出", scale)
+		}
+	}
+}
+
+func TestDrawClipsToShortDestination(t *testing.T) {
+	g := bytes.Repeat([]byte{0xFF}, 2*16)
+	font := &Font{W: 16, H: 16, Glyphs: map[rune][]byte{'字': g}}
+	l := &Layer{W: 320, H: 200, Stamps: []*Stamp{{
+		X: 319, Y: 199, Cells: 1, CellW: 8, CellH: 8,
+		Font: font, Text: []rune("字"), State: Shown,
+		FG: [3]uint8{1, 2, 3}, BG: [3]uint8{9, 8, 7},
+	}}}
+	// 故意只給一個像素；安全邊界應截掉其餘輸出，且不得 panic。
+	dst := make([]uint8, 4)
+	l.Draw(dst, 2, nil)
+}
+
 // spec 202 §3 第 2 項：16×15 字型、6×7 字格、scale 3、GlyphScale 1、偏移 (1,3)：
 // 字模左上點畫在格左上 ＋(1,3)。
 func TestDrawGlyphOffset(t *testing.T) {

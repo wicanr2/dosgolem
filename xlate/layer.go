@@ -26,7 +26,7 @@ type Stamp struct {
 	Font       *Font
 	GlyphX     int
 	GlyphY     int
-	GlyphScale int // 0 表示 scale/3（見 §2.4，Draw 裡展開）
+	GlyphScale int // 0 表示 max(1, scale/3)（見 §2.4，Draw 裡展開）
 
 	Text []rune
 	// Transparent 標出不蓋的格（長度可以短於 Cells，缺的當 false）：不填背景、不畫字、不列入定色與指紋
@@ -347,10 +347,10 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 	l.Stamps = keep
 }
 
-// Draw 把顯示中的疊字畫進放大後的 RGBA（寬 l.width()×scale）。scale 必須是 3 的倍數。
+// Draw 把顯示中的疊字畫進放大後的 RGBA（寬 l.width()×scale）。scale 必須是正整數。
 // missing 對字型沒有的字呼叫（可為 nil）。回有沒有畫任何東西。
 func (l *Layer) Draw(dst []uint8, scale int, missing func(r rune)) bool {
-	if scale%3 != 0 {
+	if scale <= 0 {
 		return false
 	}
 	W := l.width() * scale
@@ -377,13 +377,19 @@ func (l *Layer) Draw(dst []uint8, scale int, missing func(r rune)) bool {
 }
 
 // drawGlyphs 畫 s 的字模。每格的字模以前景色畫在「格左上 ＋ (GlyphX, GlyphY)」；
-// 字模每個點畫成 k×k（k = GlyphScale，0 表示 scale/3，spec 202 §2.4）。
+// 字模每個點畫成 k×k（k = GlyphScale，0 表示 max(1, scale/3)，spec 202 §2.4）。
 // 超出格緣（寬或高）的點不畫——呼叫端保證「格寬 × scale ≥ GlyphX ＋ 字寬 × GlyphScale」，
 // 這裡的邊界檢查是最後一道防線，也同樣套用在高度方向。
 func drawGlyphs(dst []uint8, W int, s *Stamp, scale int, missing func(r rune)) {
 	k := s.GlyphScale
 	if k == 0 {
 		k = scale / 3
+		if k < 1 {
+			k = 1
+		}
+	}
+	if k < 0 {
+		return
 	}
 	rowBytes := s.Font.rowBytes()
 	cellW := s.CellW * scale
