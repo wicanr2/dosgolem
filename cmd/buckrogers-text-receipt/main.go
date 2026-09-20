@@ -70,6 +70,8 @@ func main() {
 	enterAt := flag.Uint64("bios-enter-at", 0, "在此絕對步數排入一個 BIOS Enter；0 表示不送")
 	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
+	genderEvents := flag.String("gender-events", "", "正式 gender-events.tsv")
+	genderTranslations := flag.String("gender-translations", "", "正式 gender.zh-TW.tsv")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	var genericKeys scheduledBIOSKeys
@@ -78,14 +80,14 @@ func main() {
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
 	}
-	if err := validateMenuCatalogFlags(*menuEvents, *menuTranslations); err != nil {
+	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
 	if err != nil {
 		fail(err)
 	}
-	var catalog *buckrogers.MenuCatalog
+	var catalogs []*buckrogers.MenuCatalog
 	if *menuEvents != "" {
 		eventsData, err := os.ReadFile(*menuEvents)
 		if err != nil {
@@ -95,10 +97,30 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		catalog, err = buckrogers.LoadMenuCatalog(eventsData, translationsData)
+		catalog, err := buckrogers.LoadMenuCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *genderEvents != "" {
+		eventsData, err := os.ReadFile(*genderEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*genderTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadGenderCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	catalog, err := buckrogers.MergeMenuCatalogs(catalogs...)
+	if err != nil {
+		fail(err)
 	}
 	m := machine.New()
 	d := dos.New(m, ".")
@@ -220,6 +242,16 @@ func writeIndexedScreen(path string, data []byte) error {
 func validateMenuCatalogFlags(events, translations string) error {
 	if (events == "") != (translations == "") {
 		return fmt.Errorf("menu-events 與 menu-translations 必須同時提供")
+	}
+	return nil
+}
+
+func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTranslations string) error {
+	if err := validateMenuCatalogFlags(menuEvents, menuTranslations); err != nil {
+		return err
+	}
+	if (genderEvents == "") != (genderTranslations == "") {
+		return fmt.Errorf("gender-events 與 gender-translations 必須同時提供")
 	}
 	return nil
 }

@@ -38,6 +38,40 @@ func TestMenuCatalogExactResolveAndSharedTextKey(t *testing.T) {
 	}
 }
 
+func TestGenderCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadGenderCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
+func TestMergeMenuCatalogsAndRejectIdentityCollision(t *testing.T) {
+	first, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvents := strings.ReplaceAll(menuEventFixture, "37F1:15BD", "37F1:15BE")
+	secondEvents = strings.ReplaceAll(secondEvents, "37F1:175D", "37F1:175E")
+	second, err := LoadGenderCatalog([]byte(secondEvents), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := MergeMenuCatalogs(first, second)
+	if err != nil || len(merged.byIdentity) != 4 {
+		t.Fatalf("merged=%#v err=%v", merged, err)
+	}
+	if _, err := MergeMenuCatalogs(first, first); err == nil {
+		t.Fatal("相同 identity 合併必須失敗")
+	}
+	if empty, err := MergeMenuCatalogs(nil); err != nil || empty != nil {
+		t.Fatalf("空合併 = %#v, %v", empty, err)
+	}
+}
+
 func TestMenuCatalogResolveFailsClosed(t *testing.T) {
 	c, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
 	if err != nil {
@@ -128,6 +162,46 @@ func TestFormalProjectMenuCatalogAndNineEvents(t *testing.T) {
 		if request, ok := c.Resolve(event); !ok || request.EventKey != row[0] || request.TextKey != row[2] {
 			t.Fatalf("事件 %d 解析 = %#v, %v", i+1, request, ok)
 		}
+	}
+}
+
+func TestFormalProjectGenderCatalog(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	if root == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, "text", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	events, texts := read("gender-events.tsv"), read("gender.zh-TW.tsv")
+	for name, fixture := range map[string]struct {
+		data []byte
+		want string
+	}{
+		"gender-events.tsv": {events, "a8c96c8edc393c26717a5d05bc46fc031d25a8d0c269f3fe1c6b617ee0dda297"},
+		"gender.zh-TW.tsv":  {texts, "8fd64b9a15fc94aff73a8f7d06ff100b406763b09ac562989a82344eeeac6857"},
+	} {
+		sum := sha256.Sum256(fixture.data)
+		if got := hex.EncodeToString(sum[:]); got != fixture.want {
+			t.Fatalf("%s SHA-256 = %s", name, got)
+		}
+	}
+	gender, err := LoadGenderCatalog(events, texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menu, err := LoadMenuCatalog(read("menu-events.tsv"), read("menu.zh-TW.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := MergeMenuCatalogs(menu, gender)
+	if err != nil || len(gender.byIdentity) != 7 || len(merged.byIdentity) != 19 {
+		t.Fatalf("gender=%d merged=%d err=%v", len(gender.byIdentity), len(merged.byIdentity), err)
 	}
 }
 

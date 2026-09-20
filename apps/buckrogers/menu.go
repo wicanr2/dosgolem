@@ -29,11 +29,21 @@ var menuEventHeader = []string{
 
 // LoadMenuCatalog validates both formal TSV inputs before exposing a resolver.
 func LoadMenuCatalog(events, translations []byte) (*MenuCatalog, error) {
-	eventRows, err := readTSV("menu-events.tsv", events, menuEventHeader)
+	return loadExactCatalog("menu-events.tsv", "menu.zh-TW.tsv", events, translations)
+}
+
+// LoadGenderCatalog validates the formal gender selection TSV inputs while
+// reusing the exact same identity resolver as menu events.
+func LoadGenderCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("gender-events.tsv", "gender.zh-TW.tsv", events, translations)
+}
+
+func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
+	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {
 		return nil, err
 	}
-	textRows, err := readTSV("menu.zh-TW.tsv", translations, textHeader)
+	textRows, err := readTSV(translationName, translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +51,7 @@ func LoadMenuCatalog(events, translations []byte) (*MenuCatalog, error) {
 	texts := make(map[string]string, len(textRows))
 	for _, row := range textRows {
 		if _, exists := texts[row[0]]; exists {
-			return nil, fmt.Errorf("menu.zh-TW.tsv: 重複文字鍵 %q", row[0])
+			return nil, fmt.Errorf("%s: 重複文字鍵 %q", translationName, row[0])
 		}
 		texts[row[0]] = row[1]
 	}
@@ -52,47 +62,74 @@ func LoadMenuCatalog(events, translations []byte) (*MenuCatalog, error) {
 	for i, row := range eventRows {
 		sequence, err := positiveDecimal(row[1])
 		if err != nil || sequence != i+1 {
-			return nil, fmt.Errorf("menu-events.tsv: sequence 必須從 1 連續，取得 %q", row[1])
+			return nil, fmt.Errorf("%s: sequence 必須從 1 連續，取得 %q", eventName, row[1])
 		}
 		length, err := menuByte(row[3])
 		if err != nil {
-			return nil, fmt.Errorf("menu-events.tsv: 無效 original_length %q", row[3])
+			return nil, fmt.Errorf("%s: 無效 original_length %q", eventName, row[3])
 		}
 		hash, err := menuHash(row[4])
 		if err != nil {
-			return nil, fmt.Errorf("menu-events.tsv: 無效 original_sha256 %q", row[4])
+			return nil, fmt.Errorf("%s: 無效 original_sha256 %q", eventName, row[4])
 		}
 		caller, err := menuAddress(row[5])
 		if err != nil {
-			return nil, fmt.Errorf("menu-events.tsv: 無效 caller %q", row[5])
+			return nil, fmt.Errorf("%s: 無效 caller %q", eventName, row[5])
 		}
 		values := [4]uint8{}
 		for j := range values {
 			values[j], err = menuByte(row[6+j])
 			if err != nil {
-				return nil, fmt.Errorf("menu-events.tsv: 無效畫面欄位 %q", row[6+j])
+				return nil, fmt.Errorf("%s: 無效畫面欄位 %q", eventName, row[6+j])
 			}
 		}
 		id := menuIdentity{length, hash, caller, values[0], values[1], values[2], values[3]}
 		if _, exists := byIdentity[id]; exists {
-			return nil, fmt.Errorf("menu-events.tsv: 重複事件 identity")
+			return nil, fmt.Errorf("%s: 重複事件 identity", eventName)
 		}
 		if eventKeys[row[0]] {
-			return nil, fmt.Errorf("menu-events.tsv: 重複事件鍵 %q", row[0])
+			return nil, fmt.Errorf("%s: 重複事件鍵 %q", eventName, row[0])
 		}
 		translation, exists := texts[row[2]]
 		if !exists {
-			return nil, fmt.Errorf("menu-events.tsv: 文字鍵不在 catalog %q", row[2])
+			return nil, fmt.Errorf("%s: 文字鍵不在 catalog %q", eventName, row[2])
 		}
 		eventKeys[row[0]], usedTextKeys[row[2]] = true, true
 		byIdentity[id] = catalogEntry{eventKey: row[0], textKey: row[2], translation: translation}
 	}
 	for key := range texts {
 		if !usedTextKeys[key] {
-			return nil, fmt.Errorf("menu.zh-TW.tsv: 孤兒文字鍵 %q", key)
+			return nil, fmt.Errorf("%s: 孤兒文字鍵 %q", translationName, key)
 		}
 	}
 	return &MenuCatalog{byIdentity: byIdentity}, nil
+}
+
+// MergeMenuCatalogs combines independently validated exact catalogs. Identity
+// collisions fail closed even when both entries would produce the same text.
+func MergeMenuCatalogs(catalogs ...*MenuCatalog) (*MenuCatalog, error) {
+	total := 0
+	for _, catalog := range catalogs {
+		if catalog != nil {
+			total += len(catalog.byIdentity)
+		}
+	}
+	if total == 0 {
+		return nil, nil
+	}
+	merged := &MenuCatalog{byIdentity: make(map[menuIdentity]catalogEntry, total)}
+	for _, catalog := range catalogs {
+		if catalog == nil {
+			continue
+		}
+		for id, entry := range catalog.byIdentity {
+			if _, exists := merged.byIdentity[id]; exists {
+				return nil, fmt.Errorf("catalog 合併：重複事件 identity")
+			}
+			merged.byIdentity[id] = entry
+		}
+	}
+	return merged, nil
 }
 
 // Resolve returns output-side data only for a completed, exact event identity.
