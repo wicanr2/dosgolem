@@ -384,3 +384,4 @@
 
 - [203 — 圖檔內嵌文字 watcher](203-baked-text-watchers.md)：READY。以呼叫端提供的原版色號圖塊觸發疊字，圖塊消失後自動收回。
 - [204 — FindFirst 回傳目錄項目](204-findfirst-directories.md)：READY。依 `CX` 目錄屬性遮罩列出 Root／Scratch 目錄並回傳正確 DTA 屬性。
+- [205 — Mode 13h 預設 VGA 前 16 色](205-mode13-default-vga-palette.md)：CONFORMED。切入 mode 13h 時載入 BIOS 預設前 16 格 DAC；遊戲局部改色後仍可沿用 index 15 白色。

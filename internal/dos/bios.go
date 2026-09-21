@@ -17,7 +17,11 @@ func (d *DOS) int10(c *cpu.CPU) {
 	switch fn {
 	case 0x00: // 設視訊模式
 		// 記進 BDA。一直回 3 的話，程式設了 mode 13h 之後再查會以為沒設成功。
-		d.M.SetVideoMode(al(c) & 0x7F)
+		mode := al(c) & 0x7F
+		d.M.SetVideoMode(mode)
+		if mode == 0x13 {
+			loadVGA16DAC(d.M.DAC[:])
+		}
 
 	case 0x0C: // 寫像素：AL ＝ 色號、CX ＝ X、DX ＝ Y
 		// **有程式真的用 BIOS 畫點**（慢，但存在；標題畫面與工具程式尤其）。
@@ -153,6 +157,23 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
 	default:
 		d.note(0x10, fn, al(c))
+	}
+}
+
+// loadVGA16DAC 載入 VGA BIOS 模式 13h 預設 DAC 的前 16 色。
+//
+// 這 16 格不是裝飾性的 fallback：程式可以只重設自己要改的部分，保留其餘
+// BIOS 預設值。《Buck Rogers: Countdown to Doomsday》正是只寫 0–14，讓
+// 文字前景色 15 沿用白色。來源與實際呼叫證據見 docs/spec/205。
+func loadVGA16DAC(dac []uint8) {
+	palette := [...][3]uint8{
+		{0x00, 0x00, 0x00}, {0x00, 0x00, 0x2A}, {0x00, 0x2A, 0x00}, {0x00, 0x2A, 0x2A},
+		{0x2A, 0x00, 0x00}, {0x2A, 0x00, 0x2A}, {0x2A, 0x15, 0x00}, {0x2A, 0x2A, 0x2A},
+		{0x15, 0x15, 0x15}, {0x15, 0x15, 0x3F}, {0x15, 0x3F, 0x15}, {0x15, 0x3F, 0x3F},
+		{0x3F, 0x15, 0x15}, {0x3F, 0x15, 0x3F}, {0x3F, 0x3F, 0x15}, {0x3F, 0x3F, 0x3F},
+	}
+	for i, rgb := range palette {
+		copy(dac[i*3:i*3+3], rgb[:])
 	}
 }
 
