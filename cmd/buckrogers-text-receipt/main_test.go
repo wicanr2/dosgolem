@@ -80,6 +80,28 @@ func TestNamePromptCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestValidateOverlayDrawAllowsEmptyTerminalFrame(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		active  []string
+		missing []rune
+		drew    bool
+		wantOK  bool
+	}{
+		{"有 stamp 且有繪製", []string{"prompt"}, nil, true, true},
+		{"清除後空終態", nil, nil, false, true},
+		{"有 stamp 卻未繪製", []string{"prompt"}, nil, false, false},
+		{"無 stamp 卻聲稱繪製", nil, nil, true, false},
+		{"缺字", []string{"prompt"}, []rune{'缺'}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validateOverlayDraw(tc.active, tc.missing, tc.drew) == nil; got != tc.wantOK {
+				t.Fatalf("有效性 = %v，要 %v", got, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
 	valid := []struct {
 		menuEvents, menuRects, genderEvents, genderRects   string

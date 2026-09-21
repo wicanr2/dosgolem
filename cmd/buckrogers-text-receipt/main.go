@@ -384,7 +384,7 @@ func main() {
 		OverlayActions    []requestJSON `json:"overlay_actions,omitempty"`
 		ActiveOverlayKeys []string      `json:"active_overlay_keys,omitempty"`
 		OverlayMissing    []string      `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew       bool          `json:"overlay_drew,omitempty"`
+		OverlayDrew       *bool         `json:"overlay_drew,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -406,14 +406,15 @@ func main() {
 			}
 		}
 		rgba, missingRunes, drew := presenter.Draw(m.Indexed(), m.Palette())
-		if len(missingRunes) != 0 || !drew {
-			fail(fmt.Errorf("runtime overlay draw 失敗：missing=%d drew=%v", len(missingRunes), drew))
+		activeKeys := presenter.ActiveKeys()
+		if err := validateOverlayDraw(activeKeys, missingRunes, drew); err != nil {
+			fail(err)
 		}
 		if err := os.WriteFile(*overlayOut, rgba, 0o644); err != nil {
 			fail(err)
 		}
-		result.OverlayScale, result.OverlayDrew = *overlayScale, true
-		result.ActiveOverlayKeys = presenter.ActiveKeys()
+		result.OverlayScale, result.OverlayDrew = *overlayScale, &drew
+		result.ActiveOverlayKeys = activeKeys
 		for _, action := range presenter.Actions() {
 			result.OverlayActions = append(result.OverlayActions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
 		}
@@ -529,6 +530,16 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 func validateNamePromptCatalogFlags(events, translations string) error {
 	if (events == "") != (translations == "") {
 		return fmt.Errorf("name-prompt-events 與 name-prompt-translations 必須成對提供")
+	}
+	return nil
+}
+
+func validateOverlayDraw(activeKeys []string, missingRunes []rune, drew bool) error {
+	if len(missingRunes) != 0 {
+		return fmt.Errorf("runtime overlay draw 失敗：missing=%d", len(missingRunes))
+	}
+	if drew != (len(activeKeys) != 0) {
+		return fmt.Errorf("runtime overlay draw 與 active keys 不一致：drew=%v active=%d", drew, len(activeKeys))
 	}
 	return nil
 }
