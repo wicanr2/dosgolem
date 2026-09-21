@@ -60,6 +60,7 @@ type ActionBarOverlay struct {
 	Layer             *xlate.Layer
 	EventKey, TextKey string
 	ClearRect         PixelRect
+	Background        uint8
 	RuneForegrounds   []uint8
 	TranslationRunes  int
 }
@@ -153,5 +154,5 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 		}
 	}
 	return &ActionBarOverlay{Layer: layer, EventKey: event.EventKey, TextKey: request.TextKey,
-		ClearRect: clear, RuneForegrounds: append([]uint8(nil), foregrounds...), TranslationRunes: len(runes)}, nil
+		ClearRect: clear, Background: background, RuneForegrounds: append([]uint8(nil), foregrounds...), TranslationRunes: len(runes)}, nil
 }

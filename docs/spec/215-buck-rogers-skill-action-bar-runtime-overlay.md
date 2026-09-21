@@ -60,3 +60,15 @@ normal 繁中文字色尚未確認。兩個可丟棄 prototype 已以真實 tech
   這只證明兩方案技術可行，不構成 production 選擇。
 - dosgolem 全套 test、vet 與 Buck Rogers race detector 通過。CLI／runtime presenter 尚未接線，
   因此本 spec 仍為 DRAFT。
+
+## DRAFT runtime lifecycle 收據（2026-09-21）
+
+- `RuntimeActionBarOverlay` constructor 強制 caller 注入 normal 配色，並在每次 `Frame` 完成
+  `xlate` 指紋／錨點初始化後重新套用該明示 palette；因此 `[10,10]` 不會被原版首字 15 覆寫。
+- 同 action normal／focus 以 exact rectangle 整組取代，其他 action 保留；partial clear 會將
+  不完整 multi-stamp group 全組移除，不留下半個繁中文字。
+- career↔technical exact anchor 切換及 unrelated event 清空全部 action groups；technical 的兩個
+  已證實共享 career heading 仍保留 group，與 spec 213 watcher 契約一致。
+- 兩候選、2×／3×、frame／draw、非法 clear、unanchored 與 identity drift 純核心測試通過。
+  正式 package test、排除未版控 `workplace/` probes 的 vet，以及 Buck Rogers race 通過。
+- 正式 CLI 仍未接線，normal production 配色仍待使用者確認；本 spec 保持 DRAFT。
