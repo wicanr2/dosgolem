@@ -62,6 +62,12 @@ func LoadNamePromptCatalog(events, translations []byte) (*MenuCatalog, error) {
 	return loadExactCatalog("name-prompt-events.tsv", "name-prompt.zh-TW.tsv", events, translations)
 }
 
+// LoadCareerSkillCatalog validates the static career-skill allocation screen
+// catalog. Dynamic points, bonuses and totals remain exact misses.
+func LoadCareerSkillCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("career-skill-screen-events.tsv", "career-skill-screen.zh-TW.tsv", events, translations)
+}
+
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {

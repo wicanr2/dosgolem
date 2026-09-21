@@ -80,6 +80,20 @@ func TestNamePromptCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestCareerSkillCatalogFlagsArePaired(t *testing.T) {
+	for _, tc := range []struct {
+		events, translations string
+		wantOK               bool
+	}{
+		{"", "", true}, {"events", "translations", true},
+		{"events", "", false}, {"", "translations", false},
+	} {
+		if got := validateCareerSkillCatalogFlags(tc.events, tc.translations) == nil; got != tc.wantOK {
+			t.Fatalf("events=%q translations=%q valid=%v，要 %v", tc.events, tc.translations, got, tc.wantOK)
+		}
+	}
+}
+
 func TestValidateOverlayDrawAllowsEmptyTerminalFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

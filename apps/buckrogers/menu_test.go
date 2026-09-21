@@ -93,6 +93,58 @@ func TestNamePromptCatalogReusesExactResolver(t *testing.T) {
 	}
 }
 
+func TestCareerSkillCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadCareerSkillCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
+func TestFormalProjectCareerSkillCatalog(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	if root == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, "text", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	events, texts := read("career-skill-screen-events.tsv"), read("career-skill-screen.zh-TW.tsv")
+	c, err := LoadCareerSkillCatalog(events, texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readTSV("career-skill-screen-events.tsv", events, menuEventHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 14 || len(c.byIdentity) != 14 {
+		t.Fatalf("events=%d identities=%d，要 14", len(rows), len(c.byIdentity))
+	}
+	for i, row := range rows {
+		h, _ := menuHash(row[4])
+		caller, _ := menuAddress(row[5])
+		length, _ := menuByte(row[3])
+		bg, _ := menuByte(row[6])
+		fg, _ := menuByte(row[7])
+		y, _ := menuByte(row[8])
+		x, _ := menuByte(row[9])
+		event := TextEvent{EntryStep: uint64(100 + i*2), PostCallStep: uint64(101 + i*2), Caller: caller,
+			OriginalLength: length, OriginalSHA256: h, Background: bg, Foreground: fg, Row: y, Column: x}
+		if request, ok := c.Resolve(event); !ok || request.EventKey != row[0] || request.TextKey != row[2] {
+			t.Fatalf("事件 %d 解析 = %#v, %v", i+1, request, ok)
+		}
+	}
+}
+
 func TestFormalProjectNamePromptCatalog(t *testing.T) {
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
 	if root == "" {
