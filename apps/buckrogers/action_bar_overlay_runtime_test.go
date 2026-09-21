@@ -20,29 +20,32 @@ func actionEventFor(c *ActionBarRequestCatalog, screen, key, variant string) (Ac
 	return ActionBarEvent{}, DisplayRequest{}
 }
 
-func TestRuntimeActionBarOverlayRequiresExplicitStyleAndSupportsBothCandidates(t *testing.T) {
+func TestRuntimeActionBarOverlayRequiresHotkeyPreservingStyleAtBothScales(t *testing.T) {
 	c, rects := formalActionOverlay(t)
 	if _, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, nil); err == nil {
 		t.Fatal("nil style must fail")
 	}
+	if _, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10, 10, 10, 10}}); err == nil {
+		t.Fatal("discarding the white mnemonic must fail")
+	}
+	style := HotkeyPreservingActionBarNormalStyle()
 	for _, scale := range []int{2, 3} {
-		for _, colors := range [][]uint8{{15, 10}, {10, 10}} {
-			o, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), scale, &ActionBarNormalStyle{RuneForegrounds: colors})
-			if err != nil {
-				t.Fatal(err)
-			}
-			o.ObserveAnchorEvent("career.screen.remaining_points.heading")
-			e, r := actionEventFor(c, "career", "action.add", "normal")
-			if err := o.Apply(e, r, [256][3]uint8{}); err != nil || len(o.ActiveKeys()) != 1 {
-				t.Fatalf("err=%v keys=%v", err, o.ActiveKeys())
-			}
+		o, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), scale, &style)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.ObserveAnchorEvent("career.screen.remaining_points.heading")
+		e, r := actionEventFor(c, "career", "action.add", "normal")
+		if err := o.Apply(e, r, [256][3]uint8{}); err != nil || len(o.ActiveKeys()) != 1 {
+			t.Fatalf("err=%v keys=%v", err, o.ActiveKeys())
 		}
 	}
 }
 
 func TestRuntimeActionBarOverlayAtomicallyReplacesVariantsAndPreservesOtherActions(t *testing.T) {
 	c, rects := formalActionOverlay(t)
-	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10}})
+	style := HotkeyPreservingActionBarNormalStyle()
+	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &style)
 	o.ObserveAnchorEvent("career.screen.remaining_points.heading")
 	for _, item := range [][2]string{{"action.add", "normal"}, {"action.subtract", "normal"}, {"action.add", "focus"}, {"action.add", "normal"}} {
 		e, r := actionEventFor(c, "career", item[0], item[1])
@@ -54,14 +57,15 @@ func TestRuntimeActionBarOverlayAtomicallyReplacesVariantsAndPreservesOtherActio
 	if len(keys) != 2 || keys[0] != "career.action.add.normal" || keys[1] != "career.action.subtract.normal" {
 		t.Fatalf("keys=%v", keys)
 	}
-	if len(o.layer.Stamps) != 4 {
+	if len(o.layer.Stamps) != 10 {
 		t.Fatalf("stamps=%d", len(o.layer.Stamps))
 	}
 }
 
 func TestRuntimeActionBarOverlayClearAndAnchorInvalidationAreGroupAtomic(t *testing.T) {
 	c, rects := formalActionOverlay(t)
-	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10}})
+	style := HotkeyPreservingActionBarNormalStyle()
+	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &style)
 	o.ObserveAnchorEvent("career.screen.remaining_points.heading")
 	for _, key := range []string{"action.add", "action.subtract"} {
 		e, r := actionEventFor(c, "career", key, "normal")
@@ -98,7 +102,8 @@ func TestRuntimeActionBarOverlayClearAndAnchorInvalidationAreGroupAtomic(t *test
 
 func TestRuntimeActionBarOverlayFrameDrawReappliesInjectedColors(t *testing.T) {
 	c, rects := formalActionOverlay(t)
-	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10}})
+	style := HotkeyPreservingActionBarNormalStyle()
+	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &style)
 	o.ObserveAnchorEvent("career.screen.remaining_points.heading")
 	e, r := actionEventFor(c, "career", "action.add", "normal")
 	var pal [256][3]uint8
@@ -111,9 +116,13 @@ func TestRuntimeActionBarOverlayFrameDrawReappliesInjectedColors(t *testing.T) {
 	indexed[192*320] = 15
 	indexed[192*320+1] = 10
 	o.Frame(indexed, pal)
-	for _, stamp := range o.layer.Stamps {
-		if stamp.FG != pal[10] {
-			t.Fatalf("injected all-green policy was overwritten: %v", stamp.FG)
+	for index, stamp := range o.layer.Stamps {
+		want := pal[10]
+		if index == 1 {
+			want = pal[15]
+		}
+		if stamp.FG != want {
+			t.Fatalf("快捷字母配色被覆寫 index=%d got=%v want=%v", index, stamp.FG, want)
 		}
 	}
 	rgba, missing, drew := o.Draw(indexed, pal)
@@ -129,7 +138,8 @@ func TestRuntimeActionBarOverlayFrameDrawReappliesInjectedColors(t *testing.T) {
 
 func TestRuntimeActionBarOverlayRejectsUnanchoredAndIdentityDrift(t *testing.T) {
 	c, rects := formalActionOverlay(t)
-	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10}})
+	style := HotkeyPreservingActionBarNormalStyle()
+	o, _ := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &style)
 	e, r := actionEventFor(c, "career", "action.add", "normal")
 	if err := o.Apply(e, r, [256][3]uint8{}); err == nil {
 		t.Fatal("unanchored apply must fail")

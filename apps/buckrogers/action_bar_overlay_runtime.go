@@ -47,6 +47,15 @@ func NewRuntimeActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOve
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) {
 		return nil, fmt.Errorf("buckrogers: action runtime 字型或倍率無效")
 	}
+	confirmed := HotkeyPreservingActionBarNormalStyle().RuneForegrounds
+	if len(style.RuneForegrounds) != len(confirmed) {
+		return nil, fmt.Errorf("buckrogers: action runtime 快捷字母配色長度漂移")
+	}
+	for i := range confirmed {
+		if style.RuneForegrounds[i] != confirmed[i] {
+			return nil, fmt.Errorf("buckrogers: action runtime 快捷字母配色契約漂移")
+		}
+	}
 	for id, request := range catalog.byIdentity {
 		if id.variant != "normal" {
 			continue

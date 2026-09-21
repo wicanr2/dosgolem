@@ -2,6 +2,7 @@ package buckrogers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
@@ -22,8 +23,9 @@ func LoadActionBarOverlayRects(name string, data []byte) (*MenuOverlayRects, err
 	return rects, nil
 }
 
-// ValidateActionBarOverlayCoverage requires all 16 normal/focus request identities
-// to have exact Phase 74 geometry and rejects orphan rectangles.
+// ValidateActionBarOverlayCoverage requires all 16 normal/focus request identities.
+// The three-cell Add source slot has one proven blank cell before Subtract, so
+// its presentation-only clear rectangle is explicitly widened by one cell.
 func ValidateActionBarOverlayCoverage(catalog *ActionBarRequestCatalog, rects *MenuOverlayRects) error {
 	if catalog == nil || rects == nil {
 		return fmt.Errorf("buckrogers: action overlay catalog 與安全矩形不得為空")
@@ -37,7 +39,11 @@ func ValidateActionBarOverlayCoverage(catalog *ActionBarRequestCatalog, rects *M
 		if !ok {
 			return fmt.Errorf("buckrogers: action catalog event %q 缺少安全矩形", key)
 		}
-		if r.x != int(id.x0) || r.y != int(id.y0) || r.width != int(id.x1-id.x0) ||
+		wantWidth := int(id.x1 - id.x0)
+		if strings.Contains(key, ".action.add.") {
+			wantWidth += 8
+		}
+		if r.x != int(id.x0) || r.y != int(id.y0) || r.width != wantWidth ||
 			r.height != int(id.y1-id.y0) || r.drawX != r.x || r.drawY != r.y || r.capacity != r.width/8 {
 			return fmt.Errorf("buckrogers: action rect %q 與 exact identity 不符", key)
 		}
@@ -50,10 +56,24 @@ func ValidateActionBarOverlayCoverage(catalog *ActionBarRequestCatalog, rects *M
 	return nil
 }
 
-// ActionBarNormalStyle has no default. Callers must explicitly select one
-// proven palette index for every translated rune.
+// ActionBarNormalStyle is explicit so no caller can silently discard the
+// preserved mnemonic-letter color contract.
 type ActionBarNormalStyle struct {
 	RuneForegrounds []uint8
+}
+
+// HotkeyPreservingActionBarNormalStyle implements the confirmed display rule:
+// only the Latin mnemonic is white; parentheses and Traditional Chinese are
+// rendered with the original normal-label color.
+func HotkeyPreservingActionBarNormalStyle() ActionBarNormalStyle {
+	return ActionBarNormalStyle{RuneForegrounds: []uint8{10, 15, 10, 10, 10}}
+}
+
+func actionBarRuneAdvance(r rune) int {
+	if r < 128 {
+		return 4
+	}
+	return 8
 }
 
 type ActionBarOverlay struct {
@@ -102,7 +122,11 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 	}
 	r := rects.byEvent[event.EventKey]
 	runes := []rune(request.Translation)
-	if len(runes) == 0 || len(runes) > r.capacity {
+	logicalWidth := 0
+	for _, runeValue := range runes {
+		logicalWidth += actionBarRuneAdvance(runeValue)
+	}
+	if len(runes) == 0 || logicalWidth > r.width {
 		return nil, fmt.Errorf("buckrogers: action overlay 譯文容量不符")
 	}
 	foregrounds := make([]uint8, len(runes))
@@ -125,6 +149,15 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 			}
 			foregrounds[i] = color
 		}
+		confirmed := HotkeyPreservingActionBarNormalStyle().RuneForegrounds
+		if len(foregrounds) != len(confirmed) {
+			return nil, fmt.Errorf("buckrogers: normal 快捷字母顯示契約長度不符")
+		}
+		for i := range confirmed {
+			if foregrounds[i] != confirmed[i] {
+				return nil, fmt.Errorf("buckrogers: normal 快捷字母配色契約漂移")
+			}
+		}
 	} else {
 		return nil, fmt.Errorf("buckrogers: 未知 action variant %q", event.Variant)
 	}
@@ -136,15 +169,17 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 	}
 	offset := (8*scale - 16) / 2
 	layer := &xlate.Layer{W: 320, H: 200}
-	base := &xlate.Stamp{Key: event.EventKey + "#0", X: r.x, Y: r.y, Cells: r.capacity,
-		CellW: 8, CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
+	base := &xlate.Stamp{Key: event.EventKey + "#0", X: r.x, Y: r.y, Cells: 1,
+		CellW: actionBarRuneAdvance(runes[0]), CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
 		Text: []rune{runes[0]}, State: xlate.Shown, BG: palette[background], FG: palette[foregrounds[0]]}
 	layer.Add(base)
+	drawX := r.drawX + actionBarRuneAdvance(runes[0])
 	for i := 1; i < len(runes); i++ {
-		stamp := &xlate.Stamp{Key: fmt.Sprintf("%s#%d", event.EventKey, i), X: r.drawX + i*8, Y: r.y,
-			Cells: 1, CellW: 8, CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
+		stamp := &xlate.Stamp{Key: fmt.Sprintf("%s#%d", event.EventKey, i), X: drawX, Y: r.y,
+			Cells: 1, CellW: actionBarRuneAdvance(runes[i]), CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
 			Text: []rune{runes[i]}, State: xlate.Shown, BG: palette[background], FG: palette[foregrounds[i]]}
 		layer.Add(stamp)
+		drawX += actionBarRuneAdvance(runes[i])
 	}
 	clear := PixelRect{r.x * scale, r.y * scale, r.width * scale, r.height * scale}
 	for _, stamp := range layer.Stamps {
