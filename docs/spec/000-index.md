@@ -389,3 +389,4 @@
 - [207 — Buck Rogers 姓名提示執行期繁中覆繪](207-buck-rogers-name-prompt-runtime-overlay.md)：CONFORMED。固定提示矩形止於 x=128、玩家輸入始於 x=136；明示 2×／3× 覆繪不改動動態姓名。
 - [208 — 執行期覆繪空終態輸出](208-runtime-overlay-empty-terminal-frame.md)：CONFORMED。容許已由原版清除事件失效的空終態輸出 `drew=false`，但缺字與 active-key 不一致仍失敗。
 - [209 — Buck Rogers 職業技能配置執行期繁中顯示請求](209-buck-rogers-career-skill-runtime-display-requests.md)：CONFORMED。14 個固定標題／技能 identity 產生 exact request；動態點數維持 miss。
+- [210 — Buck Rogers 職業技能配置執行期繁中覆繪](210-buck-rogers-career-skill-runtime-overlay.md)：CONFORMED。14 個 exact-width 矩形已接入明示 2×／3× overlay，選取列取代與動態欄零干擾已驗收。
