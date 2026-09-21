@@ -42,6 +42,23 @@ func actionFixture(t *testing.T) *ActionBarCatalog {
 	return c
 }
 
+func actionRequestFixture(t *testing.T) *ActionBarRequestCatalog {
+	t.Helper()
+	var events strings.Builder
+	events.WriteString(strings.Join(actionBarHeader, "\t") + "\n")
+	for _, row := range actionFixtureRows {
+		h := sha256.Sum256([]byte(row.text))
+		fmt.Fprintf(&events, "%s\t%s\t%d\t%s\t24\t%d\t%d\t192\t%d\t200\t37F1:0391\t37F1:03CE\t0\t15\t10\t37F1:0337\t15\t0\tconfirmed\tunknown\n",
+			row.screen, row.key, len(row.text), hex.EncodeToString(h[:]), row.column, row.column*8, (row.column+len(row.text))*8)
+	}
+	translations := "key\ttranslation\tsource\naction.add\t加點\truntime-interface\naction.subtract\t減點\truntime-interface\naction.prev\t上頁\truntime-interface\naction.next\t下頁\truntime-interface\naction.done\t完成\truntime-interface\n"
+	c, err := LoadActionBarRequestCatalog([]byte(events.String()), []byte(translations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func emitActionLabel(t *testing.T, w *ActionBarWatcher, row actionFixtureRow, focus bool, step *uint64) {
 	t.Helper()
 	for i, glyph := range []byte(row.text) {
@@ -190,6 +207,47 @@ func TestActionBarWatcherRejectsUnknownHashAndReturnsCopies(t *testing.T) {
 	}
 }
 
+func TestActionBarRequestWatcherResolvesCompletedExactEvents(t *testing.T) {
+	w := NewActionBarRequestWatcher(actionRequestFixture(t))
+	w.ObserveAnchorEvent("technical.screen.general_points.heading")
+	step := uint64(1)
+	for _, row := range actionFixtureRows {
+		if row.screen == "technical" {
+			emitActionLabel(t, w, row, true, &step)
+		}
+	}
+	requests := w.Requests()
+	if len(requests) != 5 || w.RequestMisses() != 0 {
+		t.Fatalf("requests=%d misses=%d", len(requests), w.RequestMisses())
+	}
+	if requests[0].TextKey != "action.add" || requests[0].Translation != "加點" {
+		t.Fatalf("request=%#v", requests[0])
+	}
+	requests[0].TextKey = "mutated"
+	if w.Requests()[0].TextKey == "mutated" {
+		t.Fatal("returned request slice must be a copy")
+	}
+}
+
+func TestActionBarRequestCatalogRejectsDrift(t *testing.T) {
+	good := "key\ttranslation\tsource\naction.add\t加點\truntime-interface\naction.subtract\t減點\truntime-interface\naction.prev\t上頁\truntime-interface\naction.next\t下頁\truntime-interface\naction.done\t完成\truntime-interface\n"
+	for _, bad := range []string{
+		strings.Replace(good, "action.done\t完成", "action.extra\t完成", 1),
+		strings.Replace(good, "runtime-interface", "manual", 1),
+		good + "action.add\t加點\truntime-interface\n",
+	} {
+		var events strings.Builder
+		events.WriteString(strings.Join(actionBarHeader, "\t") + "\n")
+		for _, row := range actionFixtureRows {
+			h := sha256.Sum256([]byte(row.text))
+			fmt.Fprintf(&events, "%s\t%s\t%d\t%s\t24\t%d\t%d\t192\t%d\t200\t37F1:0391\t37F1:03CE\t0\t15\t10\t37F1:0337\t15\t0\tconfirmed\tunknown\n", row.screen, row.key, len(row.text), hex.EncodeToString(h[:]), row.column, row.column*8, (row.column+len(row.text))*8)
+		}
+		if _, err := LoadActionBarRequestCatalog([]byte(events.String()), []byte(bad)); err == nil {
+			t.Fatal("drift must fail")
+		}
+	}
+}
+
 func TestFormalProjectActionBarCatalog(t *testing.T) {
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
 	if root == "" {
@@ -202,5 +260,13 @@ func TestFormalProjectActionBarCatalog(t *testing.T) {
 	c, err := LoadActionBarCatalog(data)
 	if err != nil || len(c.byScreen["career"]) != 3 || len(c.byScreen["technical"]) != 5 {
 		t.Fatalf("catalog=%#v err=%v", c, err)
+	}
+	translations, err := os.ReadFile(filepath.Join(root, "text", "skill-action-bar.zh-TW.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, err := LoadActionBarRequestCatalog(data, translations)
+	if err != nil || len(rc.byIdentity) != 16 {
+		t.Fatalf("request catalog identities=%d err=%v", len(rc.byIdentity), err)
 	}
 }

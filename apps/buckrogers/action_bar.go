@@ -32,6 +32,76 @@ type ActionBarCatalog struct {
 	byScreen map[string][]actionBarEntry
 }
 
+type actionRequestIdentity struct {
+	screen, eventKey, variant string
+	length                    uint8
+	hash                      [32]byte
+	row, column               uint8
+	x0, y0, x1, y1            uint8
+}
+
+// ActionBarRequestCatalog resolves only completed, exact action-bar events.
+type ActionBarRequestCatalog struct {
+	events     *ActionBarCatalog
+	byIdentity map[actionRequestIdentity]DisplayRequest
+}
+
+// LoadActionBarRequestCatalog validates event and Traditional Chinese text
+// coverage, then expands each compact event row into normal/focus identities.
+func LoadActionBarRequestCatalog(events, translations []byte) (*ActionBarRequestCatalog, error) {
+	eventCatalog, err := LoadActionBarCatalog(events)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := readTSV("skill-action-bar.zh-TW.tsv", translations, textHeader)
+	if err != nil {
+		return nil, err
+	}
+	texts := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if row[2] != "runtime-interface" {
+			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: source 漂移 for %q", row[0])
+		}
+		if _, exists := texts[row[0]]; exists {
+			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 重複文字鍵 %q", row[0])
+		}
+		texts[row[0]] = row[1]
+	}
+	c := &ActionBarRequestCatalog{events: eventCatalog, byIdentity: make(map[actionRequestIdentity]DisplayRequest, 16)}
+	used := make(map[string]bool)
+	for _, screen := range []string{"career", "technical"} {
+		for _, entry := range eventCatalog.byScreen[screen] {
+			translation, ok := texts[entry.key]
+			if !ok {
+				return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 缺少文字鍵 %q", entry.key)
+			}
+			used[entry.key] = true
+			for _, variant := range []string{"normal", "focus"} {
+				eventKey := entry.screen + "." + entry.key + "." + variant
+				id := actionRequestIdentity{entry.screen, eventKey, variant, entry.length, entry.hash,
+					entry.row, entry.column, entry.x0, entry.y0, entry.x1, entry.y1}
+				c.byIdentity[id] = DisplayRequest{EventKey: eventKey, TextKey: entry.key, Translation: translation}
+			}
+		}
+	}
+	for key := range texts {
+		if !used[key] {
+			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 孤兒文字鍵 %q", key)
+		}
+	}
+	return c, nil
+}
+
+func (c *ActionBarRequestCatalog) Resolve(event ActionBarEvent) (DisplayRequest, bool) {
+	if c == nil || event.PostCallStep <= event.EntryStep {
+		return DisplayRequest{}, false
+	}
+	id := actionRequestIdentity{event.Screen, event.EventKey, event.Variant, event.OriginalLength,
+		event.OriginalSHA256, event.Row, event.Column, event.X0, event.Y0, event.X1, event.Y1}
+	request, ok := c.byIdentity[id]
+	return request, ok
+}
+
 // LoadActionBarCatalog validates the formal project inventory.
 func LoadActionBarCatalog(data []byte) (*ActionBarCatalog, error) {
 	rows, err := readTSV("skill-action-bar-events.tsv", data, actionBarHeader)
@@ -221,13 +291,23 @@ type actionGlyphFrame struct {
 // ActionBarWatcher records only guarded glyph calls and has no input, memory,
 // VRAM, or rendering capability.
 type ActionBarWatcher struct {
-	collector actionBarCollector
-	pending   *actionGlyphFrame
-	drops     int
+	collector     actionBarCollector
+	resolver      *ActionBarRequestCatalog
+	requests      []DisplayRequest
+	requestMisses int
+	pending       *actionGlyphFrame
+	drops         int
 }
 
 func NewActionBarWatcher(catalog *ActionBarCatalog) *ActionBarWatcher {
 	return &ActionBarWatcher{collector: actionBarCollector{catalog: catalog}}
+}
+
+func NewActionBarRequestWatcher(catalog *ActionBarRequestCatalog) *ActionBarWatcher {
+	if catalog == nil {
+		return NewActionBarWatcher(nil)
+	}
+	return &ActionBarWatcher{collector: actionBarCollector{catalog: catalog.events}, resolver: catalog}
 }
 
 // ObserveAnchorEvent accepts only the two proven exact heading event keys.
@@ -287,7 +367,16 @@ func (w *ActionBarWatcher) ObserveInstruction(at Address, ss, sp uint16, step ui
 		return
 	}
 	f.call.PostCallStep = step
+	before := len(w.collector.events)
 	w.collector.observe(f.call)
+	if w.resolver != nil && len(w.collector.events) > before {
+		request, ok := w.resolver.Resolve(w.collector.events[len(w.collector.events)-1])
+		if !ok {
+			w.requestMisses++
+			return
+		}
+		w.requests = append(w.requests, request)
+	}
 }
 
 func (w *ActionBarWatcher) Events() []ActionBarEvent {
@@ -296,3 +385,7 @@ func (w *ActionBarWatcher) Events() []ActionBarEvent {
 func (w *ActionBarWatcher) Pending() bool { return w.pending != nil || w.collector.candidate != nil }
 func (w *ActionBarWatcher) Drops() int    { return w.drops + w.collector.drops }
 func (w *ActionBarWatcher) Misses() int   { return w.collector.misses }
+func (w *ActionBarWatcher) Requests() []DisplayRequest {
+	return append([]DisplayRequest(nil), w.requests...)
+}
+func (w *ActionBarWatcher) RequestMisses() int { return w.requestMisses }

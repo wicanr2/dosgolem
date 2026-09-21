@@ -393,3 +393,4 @@
 - [211 — Buck Rogers 技術技能配置執行期繁中顯示請求](211-buck-rogers-technical-skill-runtime-display-requests.md)：CONFORMED。17 個不重複 identities 與兩個共享標題已通過 base／Down 決定性收據。
 | [212](212-buck-rogers-technical-skill-runtime-overlay.md) | Buck Rogers 技術技能配置執行期繁中覆繪 | CONFORMED |
 | [213](213-buck-rogers-skill-action-bar-glyph-events.md) | Buck Rogers 技能配置底部操作列字元事件 | CONFORMED |
+| [214](214-buck-rogers-skill-action-bar-display-requests.md) | Buck Rogers 技能操作列繁中顯示請求 | CONFORMED |

@@ -111,16 +111,18 @@ func TestTechnicalSkillCatalogFlagsArePaired(t *testing.T) {
 
 func TestActionBarFlagsRequireBothSkillAnchors(t *testing.T) {
 	for _, tc := range []struct {
-		action, career, technical string
-		wantOK                    bool
+		action, translations, career, technical string
+		wantOK                                  bool
 	}{
-		{"", "", "", true},
-		{"", "career", "", true},
-		{"actions", "career", "technical", true},
-		{"actions", "", "technical", false},
-		{"actions", "career", "", false},
+		{"", "", "", "", true},
+		{"", "", "career", "", true},
+		{"actions", "", "career", "technical", true},
+		{"actions", "translations", "career", "technical", true},
+		{"", "translations", "career", "technical", false},
+		{"actions", "", "", "technical", false},
+		{"actions", "", "career", "", false},
 	} {
-		if got := validateActionBarFlags(tc.action, tc.career, tc.technical) == nil; got != tc.wantOK {
+		if got := validateActionBarFlags(tc.action, tc.translations, tc.career, tc.technical) == nil; got != tc.wantOK {
 			t.Fatalf("flags=%#v valid=%v, want %v", tc, got, tc.wantOK)
 		}
 	}

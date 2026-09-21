@@ -103,6 +103,7 @@ func main() {
 	want := flag.Int("want", 0, "預期完成事件數；0 表示不檢查")
 	wantRequests := flag.Int("want-requests", 0, "預期顯示請求數；0 表示不檢查")
 	wantActionBarEvents := flag.Int("want-action-bar-events", 0, "預期底部操作列事件數；0 表示不檢查")
+	wantActionBarRequests := flag.Int("want-action-bar-requests", 0, "預期底部操作列顯示請求數；0 表示不檢查")
 	enterAt := flag.Uint64("bios-enter-at", 0, "在此絕對步數排入一個 BIOS Enter；0 表示不送")
 	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
@@ -121,6 +122,7 @@ func main() {
 	technicalSkillEvents := flag.String("technical-skill-events", "", "正式 technical-skill-screen-events.tsv")
 	technicalSkillTranslations := flag.String("technical-skill-translations", "", "正式 technical-skill-screen.zh-TW.tsv")
 	actionBarEvents := flag.String("skill-action-bar-events", "", "正式 skill-action-bar-events.tsv")
+	actionBarTranslations := flag.String("skill-action-bar-translations", "", "正式 skill-action-bar.zh-TW.tsv")
 	careerSkillRects := flag.String("career-skill-rects", "", "正式 career-skill-screen-text-safe-rects.tsv")
 	technicalSkillRects := flag.String("technical-skill-rects", "", "正式 technical-skill-screen-text-safe-rects.tsv")
 	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
@@ -159,7 +161,7 @@ func main() {
 	if err := validateTechnicalSkillCatalogFlags(*technicalSkillEvents, *technicalSkillTranslations, *careerSkillEvents); err != nil {
 		fail(err)
 	}
-	if err := validateActionBarFlags(*actionBarEvents, *careerSkillEvents, *technicalSkillEvents); err != nil {
+	if err := validateActionBarFlags(*actionBarEvents, *actionBarTranslations, *careerSkillEvents, *technicalSkillEvents); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -303,12 +305,21 @@ func main() {
 		fail(err)
 	}
 	var actionCatalog *buckrogers.ActionBarCatalog
+	var actionRequestCatalog *buckrogers.ActionBarRequestCatalog
 	if *actionBarEvents != "" {
 		data, err := os.ReadFile(*actionBarEvents)
 		if err != nil {
 			fail(err)
 		}
-		actionCatalog, err = buckrogers.LoadActionBarCatalog(data)
+		if *actionBarTranslations == "" {
+			actionCatalog, err = buckrogers.LoadActionBarCatalog(data)
+		} else {
+			translations, readErr := os.ReadFile(*actionBarTranslations)
+			if readErr != nil {
+				fail(readErr)
+			}
+			actionRequestCatalog, err = buckrogers.LoadActionBarRequestCatalog(data, translations)
+		}
 		if err != nil {
 			fail(err)
 		}
@@ -379,6 +390,9 @@ func main() {
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
 	actionWatcher := buckrogers.NewActionBarWatcher(actionCatalog)
+	if actionRequestCatalog != nil {
+		actionWatcher = buckrogers.NewActionBarRequestWatcher(actionRequestCatalog)
+	}
 	nextKey := 0
 	for m.Steps < *until && !d.Exited {
 		for nextKey < len(keys) && m.Steps >= keys[nextKey].Step {
@@ -447,9 +461,11 @@ func main() {
 	events := r.Events()
 	requests := r.Requests()
 	actionEvents := actionWatcher.Events()
+	actionRequests := actionWatcher.Requests()
 	if nextKey != len(keys) || r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
 		(*wantRequests != 0 && len(requests) != *wantRequests) || actionWatcher.Pending() || actionWatcher.Drops() != 0 ||
-		(*wantActionBarEvents != 0 && len(actionEvents) != *wantActionBarEvents) {
+		(*wantActionBarEvents != 0 && len(actionEvents) != *wantActionBarEvents) ||
+		(*wantActionBarRequests != 0 && len(actionRequests) != *wantActionBarRequests) || actionWatcher.RequestMisses() != 0 {
 		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d action_events=%d want_action=%d action_pending=%v action_drops=%d action_misses=%d",
 			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses(),
 			len(actionEvents), *wantActionBarEvents, actionWatcher.Pending(), actionWatcher.Drops(), actionWatcher.Misses()))
@@ -476,27 +492,34 @@ func main() {
 			event.X0, event.Y0, event.X1, event.Y1,
 		}
 	}
+	actionRequestOut := make([]requestJSON, len(actionRequests))
+	for i, request := range actionRequests {
+		actionRequestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
+	}
 	result := struct {
-		StateStart        uint64               `json:"state_start"`
-		StoppedAt         uint64               `json:"stopped_at"`
-		BIOSInput         string               `json:"bios_input,omitempty"`
-		Events            []eventJSON          `json:"events"`
-		Requests          []requestJSON        `json:"requests,omitempty"`
-		CatalogMisses     *int                 `json:"catalog_misses,omitempty"`
-		BIOSKeys          []keyJSON            `json:"bios_keys,omitempty"`
-		Scratch           string               `json:"scratch,omitempty"`
-		Writes            []writeJSON          `json:"writes,omitempty"`
-		FileOps           []fileOpJSON         `json:"file_ops,omitempty"`
-		Unimplemented     []string             `json:"unimplemented,omitempty"`
-		OverlayScale      int                  `json:"overlay_scale,omitempty"`
-		OverlayActions    []requestJSON        `json:"overlay_actions,omitempty"`
-		ActiveOverlayKeys []string             `json:"active_overlay_keys,omitempty"`
-		OverlayMissing    []string             `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew       *bool                `json:"overlay_drew,omitempty"`
-		ActionBarEvents   []actionBarEventJSON `json:"action_bar_events,omitempty"`
-		ActionBarMisses   *int                 `json:"action_bar_misses,omitempty"`
-		ActionBarDrops    *int                 `json:"action_bar_drops,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut}
+		StateStart             uint64               `json:"state_start"`
+		StoppedAt              uint64               `json:"stopped_at"`
+		BIOSInput              string               `json:"bios_input,omitempty"`
+		Events                 []eventJSON          `json:"events"`
+		Requests               []requestJSON        `json:"requests,omitempty"`
+		CatalogMisses          *int                 `json:"catalog_misses,omitempty"`
+		BIOSKeys               []keyJSON            `json:"bios_keys,omitempty"`
+		Scratch                string               `json:"scratch,omitempty"`
+		Writes                 []writeJSON          `json:"writes,omitempty"`
+		FileOps                []fileOpJSON         `json:"file_ops,omitempty"`
+		Unimplemented          []string             `json:"unimplemented,omitempty"`
+		OverlayScale           int                  `json:"overlay_scale,omitempty"`
+		OverlayActions         []requestJSON        `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys      []string             `json:"active_overlay_keys,omitempty"`
+		OverlayMissing         []string             `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew            *bool                `json:"overlay_drew,omitempty"`
+		ActionBarEvents        []actionBarEventJSON `json:"action_bar_events,omitempty"`
+		ActionBarMisses        *int                 `json:"action_bar_misses,omitempty"`
+		ActionBarDrops         *int                 `json:"action_bar_drops,omitempty"`
+		ActionBarRequests      []requestJSON        `json:"action_bar_requests,omitempty"`
+		ActionBarCatalogMisses *int                 `json:"action_bar_catalog_misses,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut,
+		ActionBarRequests: actionRequestOut}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
 		for i, write := range d.Wrote {
@@ -538,6 +561,10 @@ func main() {
 	if actionCatalog != nil {
 		misses, drops := actionWatcher.Misses(), actionWatcher.Drops()
 		result.ActionBarMisses, result.ActionBarDrops = &misses, &drops
+	}
+	if actionRequestCatalog != nil {
+		misses, drops, requestMisses := actionWatcher.Misses(), actionWatcher.Drops(), actionWatcher.RequestMisses()
+		result.ActionBarMisses, result.ActionBarDrops, result.ActionBarCatalogMisses = &misses, &drops, &requestMisses
 	}
 	if *enterAt != 0 {
 		result.BIOSInput = fmt.Sprintf("Enter(scan=0x1c,ascii=0x0d,queued_at=%d)", *enterAt)
@@ -666,7 +693,10 @@ func validateTechnicalSkillCatalogFlags(events, translations, careerEvents strin
 	return nil
 }
 
-func validateActionBarFlags(events, careerEvents, technicalEvents string) error {
+func validateActionBarFlags(events, translations, careerEvents, technicalEvents string) error {
+	if translations != "" && events == "" {
+		return fmt.Errorf("skill-action-bar-translations 必須與 events 同時提供")
+	}
 	if events != "" && (careerEvents == "" || technicalEvents == "") {
 		return fmt.Errorf("skill-action-bar-events 必須同時提供 career 與 technical skill catalogs 作 exact anchors")
 	}
