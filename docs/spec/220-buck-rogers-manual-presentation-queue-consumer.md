@@ -1,6 +1,6 @@
 # 220 — Buck Rogers 手冊 presentation queue consumer
 
-狀態：**DRAFT（純核心）**  
+狀態：**CONFORMED（純核心）**
 日期：2026-09-21  
 前置：[`216-buck-rogers-manual-presentation-lifecycle.md`](216-buck-rogers-manual-presentation-lifecycle.md)、
 [`217-buck-rogers-manual-multiline-presenter-core.md`](217-buck-rogers-manual-multiline-presenter-core.md)。
