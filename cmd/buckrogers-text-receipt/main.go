@@ -95,6 +95,8 @@ func main() {
 	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
 	rosterEvents := flag.String("roster-events", "", "正式 save-roster-join-runtime-events.tsv")
 	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
+	characterSheetEvents := flag.String("character-sheet-events", "", "正式 character-sheet-events.tsv")
+	characterSheetTranslations := flag.String("character-sheet-translations", "", "正式 character-sheet.zh-TW.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
 	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
 	classRects := flag.String("class-rects", "", "正式 class-text-safe-rects.tsv")
@@ -115,7 +117,8 @@ func main() {
 		fail(fmt.Errorf("state 與 until 為必填"))
 	}
 	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
-		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations); err != nil {
+		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations,
+		*characterSheetEvents, *characterSheetTranslations); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -183,6 +186,21 @@ func main() {
 			fail(err)
 		}
 		catalog, err := buckrogers.LoadRosterCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *characterSheetEvents != "" {
+		eventsData, err := os.ReadFile(*characterSheetEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*characterSheetTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadCharacterSheetCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
@@ -440,7 +458,8 @@ func validateMenuCatalogFlags(events, translations string) error {
 }
 
 func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTranslations,
-	classEvents, classTranslations, rosterEvents, rosterTranslations string) error {
+	classEvents, classTranslations, rosterEvents, rosterTranslations,
+	characterSheetEvents, characterSheetTranslations string) error {
 	if err := validateMenuCatalogFlags(menuEvents, menuTranslations); err != nil {
 		return err
 	}
@@ -452,6 +471,9 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 	}
 	if (rosterEvents == "") != (rosterTranslations == "") {
 		return fmt.Errorf("roster-events 與 roster-translations 必須同時提供")
+	}
+	if (characterSheetEvents == "") != (characterSheetTranslations == "") {
+		return fmt.Errorf("character-sheet-events 與 character-sheet-translations 必須同時提供")
 	}
 	return nil
 }

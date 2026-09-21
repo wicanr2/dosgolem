@@ -50,6 +50,12 @@ func LoadRosterCatalog(events, translations []byte) (*MenuCatalog, error) {
 	return loadExactCatalog("save-roster-join-runtime-events.tsv", "save-roster-join.zh-TW.tsv", events, translations)
 }
 
+// LoadCharacterSheetCatalog validates the static character-sheet TSV inputs.
+// Dynamic identity, ability, skill and RNG values do not belong in this catalog.
+func LoadCharacterSheetCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("character-sheet-events.tsv", "character-sheet.zh-TW.tsv", events, translations)
+}
+
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {

@@ -71,6 +71,17 @@ func TestRosterCatalogReusesExactResolver(t *testing.T) {
 	}
 }
 
+func TestCharacterSheetCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadCharacterSheetCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
 func TestMergeMenuCatalogsAndRejectIdentityCollision(t *testing.T) {
 	first, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
 	if err != nil {
@@ -257,6 +268,25 @@ func TestFormalProjectRosterCatalog(t *testing.T) {
 	roster, err := LoadRosterCatalog(events, texts)
 	if err != nil || len(roster.byIdentity) != 2 {
 		t.Fatalf("roster=%d err=%v", len(roster.byIdentity), err)
+	}
+}
+
+func TestFormalProjectCharacterSheetCatalog(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	if root == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, "text", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	catalog, err := LoadCharacterSheetCatalog(read("character-sheet-events.tsv"), read("character-sheet.zh-TW.tsv"))
+	if err != nil || len(catalog.byIdentity) != 35 {
+		t.Fatalf("character sheet=%d err=%v", len(catalog.byIdentity), err)
 	}
 }
 

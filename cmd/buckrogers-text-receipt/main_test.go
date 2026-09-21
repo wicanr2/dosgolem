@@ -32,25 +32,30 @@ func TestAllCatalogFlagsArePaired(t *testing.T) {
 		menuEvents, menuTranslations, genderEvents, genderTranslations string
 		classEvents, classTranslations                                 string
 		rosterEvents, rosterTranslations                               string
+		characterSheetEvents, characterSheetTranslations               string
 		valid                                                          bool
 	}{
-		{"", "", "", "", "", "", "", "", true},
-		{"m.tsv", "mt.tsv", "", "", "", "", "", "", true},
-		{"", "", "g.tsv", "gt.tsv", "", "", "", "", true},
-		{"m.tsv", "mt.tsv", "g.tsv", "gt.tsv", "c.tsv", "ct.tsv", "r.tsv", "rt.tsv", true},
-		{"", "", "", "", "c.tsv", "ct.tsv", "", "", true},
-		{"", "", "", "", "", "", "r.tsv", "rt.tsv", true},
-		{"m.tsv", "", "", "", "", "", "", "", false},
-		{"", "", "g.tsv", "", "", "", "", "", false},
-		{"", "", "", "gt.tsv", "", "", "", "", false},
-		{"", "", "", "", "c.tsv", "", "", "", false},
-		{"", "", "", "", "", "ct.tsv", "", "", false},
-		{"", "", "", "", "", "", "r.tsv", "", false},
-		{"", "", "", "", "", "", "", "rt.tsv", false},
+		{"", "", "", "", "", "", "", "", "", "", true},
+		{"m.tsv", "mt.tsv", "", "", "", "", "", "", "", "", true},
+		{"", "", "g.tsv", "gt.tsv", "", "", "", "", "", "", true},
+		{"m.tsv", "mt.tsv", "g.tsv", "gt.tsv", "c.tsv", "ct.tsv", "r.tsv", "rt.tsv", "s.tsv", "st.tsv", true},
+		{"", "", "", "", "c.tsv", "ct.tsv", "", "", "", "", true},
+		{"", "", "", "", "", "", "r.tsv", "rt.tsv", "", "", true},
+		{"", "", "", "", "", "", "", "", "s.tsv", "st.tsv", true},
+		{"m.tsv", "", "", "", "", "", "", "", "", "", false},
+		{"", "", "g.tsv", "", "", "", "", "", "", "", false},
+		{"", "", "", "gt.tsv", "", "", "", "", "", "", false},
+		{"", "", "", "", "c.tsv", "", "", "", "", "", false},
+		{"", "", "", "", "", "ct.tsv", "", "", "", "", false},
+		{"", "", "", "", "", "", "r.tsv", "", "", "", false},
+		{"", "", "", "", "", "", "", "rt.tsv", "", "", false},
+		{"", "", "", "", "", "", "", "", "s.tsv", "", false},
+		{"", "", "", "", "", "", "", "", "", "st.tsv", false},
 	}
 	for _, tc := range tests {
 		got := validateCatalogFlags(tc.menuEvents, tc.menuTranslations, tc.genderEvents, tc.genderTranslations,
-			tc.classEvents, tc.classTranslations, tc.rosterEvents, tc.rosterTranslations) == nil
+			tc.classEvents, tc.classTranslations, tc.rosterEvents, tc.rosterTranslations,
+			tc.characterSheetEvents, tc.characterSheetTranslations) == nil
 		if got != tc.valid {
 			t.Fatalf("flags %#v valid=%v，要 %v", tc, got, tc.valid)
 		}
