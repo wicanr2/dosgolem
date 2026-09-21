@@ -52,7 +52,7 @@ func (s *Stamp) Rect() (x0, y0, x1, y1 int) {
 // Layer 是目前所有疊字。W、H 是原版畫面大小，0 當 320×200（spec 202 §2.3）。
 type Layer struct {
 	Stamps []*Stamp
-	// OnDrop 在一筆被移除時呼叫（原因：overlap、scroll、changed）。可為 nil。
+	// OnDrop 在一筆被移除時呼叫（原因：overlap、replace、clear、scroll、changed、anchors）。可為 nil。
 	// 不會被 Snapshot／Restore 保存——那是呼叫端接上去的 hook，不是狀態。
 	OnDrop func(s *Stamp, why string)
 	// Frozen 回 true 的疊字，這次 Frame 不定色也不檢查指紋（可為 nil，spec 202 §2.3）。
@@ -105,6 +105,21 @@ func (l *Layer) Add(s *Stamp) {
 		keep = append(keep, old)
 	}
 	l.Stamps = append(keep, s)
+}
+
+// Replace 將同一原點的舊輸出視為已被新輸出取代，其餘重疊處理與 Add 相同。
+// 這適用於同一文字輸出位置先後顯示不同長度內容的情形。
+func (l *Layer) Replace(s *Stamp) {
+	keep := l.Stamps[:0]
+	for _, old := range l.Stamps {
+		if old.X == s.X && old.Y == s.Y {
+			l.drop(old, "replace")
+			continue
+		}
+		keep = append(keep, old)
+	}
+	l.Stamps = keep
+	l.Add(s)
 }
 
 // cellHashes 算每一格的指紋。
@@ -191,6 +206,41 @@ func (l *Layer) Scroll(x0, y0, x1, y1, dy int) {
 				continue
 			}
 		}
+		keep = append(keep, s)
+	}
+	l.Stamps = keep
+}
+
+// Clear 使與原版清除矩形 [x0,x1)×[y0,y1) 相交的疊字格失效。
+// 整筆被覆蓋時移除；部分覆蓋時只將相交格轉為透明，並讓剩餘格重新定色。
+func (l *Layer) Clear(x0, y0, x1, y1 int) {
+	if x0 >= x1 || y0 >= y1 {
+		return
+	}
+	keep := l.Stamps[:0]
+	for _, s := range l.Stamps {
+		sx0, sy0, sx1, sy1 := s.Rect()
+		if x0 >= sx1 || sx0 >= x1 || y0 >= sy1 || sy0 >= y1 {
+			keep = append(keep, s)
+			continue
+		}
+		if x0 <= sx0 && x1 >= sx1 && y0 <= sy0 && y1 >= sy1 {
+			l.drop(s, "clear")
+			continue
+		}
+		if s.CellW > 0 {
+			for i := 0; i < s.Cells; i++ {
+				cx0 := sx0 + i*s.CellW
+				if cx0 < x1 && x0 < cx0+s.CellW {
+					s.setTransparent(i)
+				}
+			}
+		}
+		if s.allTransparent() {
+			l.drop(s, "clear")
+			continue
+		}
+		s.State = Pending
 		keep = append(keep, s)
 	}
 	l.Stamps = keep

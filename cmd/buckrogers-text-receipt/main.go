@@ -18,6 +18,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/internal/state"
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 type eventJSON struct {
@@ -94,6 +95,11 @@ func main() {
 	classTranslations := flag.String("class-translations", "", "正式 class.zh-TW.tsv")
 	rosterEvents := flag.String("roster-events", "", "正式 save-roster-join-runtime-events.tsv")
 	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
+	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
+	rosterRects := flag.String("roster-rects", "", "正式 save-roster-join-text-safe-rects.tsv")
+	overlayFont := flag.String("overlay-font", "", "16x16 GOLEMFNT")
+	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
+	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -108,6 +114,9 @@ func main() {
 	}
 	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
 		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations); err != nil {
+		fail(err)
+	}
+	if err := validateOverlayFlags(*menuRects, *rosterRects, *overlayFont, *overlayOut, *overlayScale); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
@@ -188,6 +197,38 @@ func main() {
 	if err := configureScratch(d, *scratch); err != nil {
 		fail(err)
 	}
+	var presenter *buckrogers.RuntimeMenuOverlay
+	if *overlayOut != "" {
+		menuRectData, err := os.ReadFile(*menuRects)
+		if err != nil {
+			fail(err)
+		}
+		rosterRectData, err := os.ReadFile(*rosterRects)
+		if err != nil {
+			fail(err)
+		}
+		menuRectCatalog, err := buckrogers.LoadMenuOverlayRects("menu-text-safe-rects.tsv", menuRectData)
+		if err != nil {
+			fail(err)
+		}
+		rosterRectCatalog, err := buckrogers.LoadMenuOverlayRects("save-roster-join-text-safe-rects.tsv", rosterRectData)
+		if err != nil {
+			fail(err)
+		}
+		rects, err := buckrogers.MergeMenuOverlayRects(menuRectCatalog, rosterRectCatalog)
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*overlayFont)
+		if err != nil {
+			fail(err)
+		}
+		presenter, err = buckrogers.NewRuntimeMenuOverlay(rects, font, *overlayScale)
+		if err != nil {
+			fail(err)
+		}
+		m.SetOnFrame(func() { presenter.Frame(m.Indexed(), m.Palette()) })
+	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
 	nextKey := 0
@@ -201,7 +242,15 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
-		if at == (buckrogers.Address{Segment: 0x0763, Offset: 0x0424}) {
+		if presenter != nil && at == (buckrogers.Address{Segment: 0x026F, Offset: 0x029C}) {
+			bottom := m.Read8(cpu.Addr(ss, sp+4))
+			right := m.Read8(cpu.Addr(ss, sp+6))
+			top := m.Read8(cpu.Addr(ss, sp+8))
+			left := m.Read8(cpu.Addr(ss, sp+10))
+			if err := presenter.ClearTextCells(bottom, right, top, left); err != nil {
+				fail(err)
+			}
+		} else if at == (buckrogers.Address{Segment: 0x0763, Offset: 0x0424}) {
 			caller := buckrogers.Address{Segment: m.Read16(cpu.Addr(ss, sp+2)), Offset: m.Read16(cpu.Addr(ss, sp))}
 			var args [6]uint16
 			for i := range args {
@@ -215,7 +264,15 @@ func main() {
 			}
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
 		} else {
+			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if presenter != nil && r.EventCount() > eventBefore && r.RequestCount() > requestBefore {
+				event, eventOK := r.LastEvent()
+				request, requestOK := r.LastRequest()
+				if !eventOK || !requestOK || presenter.Apply(event, request, m.Palette()) != nil {
+					fail(fmt.Errorf("runtime overlay apply 失敗"))
+				}
+			}
 		}
 		if err := m.Step(); err != nil {
 			fail(err)
@@ -243,17 +300,22 @@ func main() {
 		requestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
 	}
 	result := struct {
-		StateStart    uint64        `json:"state_start"`
-		StoppedAt     uint64        `json:"stopped_at"`
-		BIOSInput     string        `json:"bios_input,omitempty"`
-		Events        []eventJSON   `json:"events"`
-		Requests      []requestJSON `json:"requests,omitempty"`
-		CatalogMisses *int          `json:"catalog_misses,omitempty"`
-		BIOSKeys      []keyJSON     `json:"bios_keys,omitempty"`
-		Scratch       string        `json:"scratch,omitempty"`
-		Writes        []writeJSON   `json:"writes,omitempty"`
-		FileOps       []fileOpJSON  `json:"file_ops,omitempty"`
-		Unimplemented []string      `json:"unimplemented,omitempty"`
+		StateStart        uint64        `json:"state_start"`
+		StoppedAt         uint64        `json:"stopped_at"`
+		BIOSInput         string        `json:"bios_input,omitempty"`
+		Events            []eventJSON   `json:"events"`
+		Requests          []requestJSON `json:"requests,omitempty"`
+		CatalogMisses     *int          `json:"catalog_misses,omitempty"`
+		BIOSKeys          []keyJSON     `json:"bios_keys,omitempty"`
+		Scratch           string        `json:"scratch,omitempty"`
+		Writes            []writeJSON   `json:"writes,omitempty"`
+		FileOps           []fileOpJSON  `json:"file_ops,omitempty"`
+		Unimplemented     []string      `json:"unimplemented,omitempty"`
+		OverlayScale      int           `json:"overlay_scale,omitempty"`
+		OverlayActions    []requestJSON `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys []string      `json:"active_overlay_keys,omitempty"`
+		OverlayMissing    []string      `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew       bool          `json:"overlay_drew,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -267,6 +329,20 @@ func main() {
 		}
 	}
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
+	if presenter != nil {
+		rgba, missingRunes, drew := presenter.Draw(m.Indexed(), m.Palette())
+		if len(missingRunes) != 0 || !drew {
+			fail(fmt.Errorf("runtime overlay draw 失敗：missing=%d drew=%v", len(missingRunes), drew))
+		}
+		if err := os.WriteFile(*overlayOut, rgba, 0o644); err != nil {
+			fail(err)
+		}
+		result.OverlayScale, result.OverlayDrew = *overlayScale, true
+		result.ActiveOverlayKeys = presenter.ActiveKeys()
+		for _, action := range presenter.Actions() {
+			result.OverlayActions = append(result.OverlayActions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
+		}
+	}
 	if catalog != nil {
 		result.Requests = requestOut
 		misses := r.Misses()
@@ -367,6 +443,22 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 	}
 	if (rosterEvents == "") != (rosterTranslations == "") {
 		return fmt.Errorf("roster-events 與 roster-translations 必須同時提供")
+	}
+	return nil
+}
+
+func validateOverlayFlags(menuRects, rosterRects, font, out string, scale int) error {
+	provided := []bool{menuRects != "", rosterRects != "", font != "", out != "", scale != 0}
+	any, all := false, true
+	for _, value := range provided {
+		any = any || value
+		all = all && value
+	}
+	if any && !all {
+		return fmt.Errorf("overlay rects、font、scale 與 output 必須同時提供")
+	}
+	if all && scale != 2 && scale != 3 {
+		return fmt.Errorf("overlay-scale 必須是 2 或 3")
 	}
 	return nil
 }

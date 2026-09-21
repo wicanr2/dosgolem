@@ -118,6 +118,42 @@ func TestAddCoversOrMasks(t *testing.T) {
 	}
 }
 
+func TestClearCoversOrMasks(t *testing.T) {
+	var dropped []string
+	l := &Layer{OnDrop: func(s *Stamp, why string) { dropped = append(dropped, s.Key+":"+why) }}
+	a := &Stamp{Key: "a", X: 8, Y: 16, Cells: 4, CellW: 8, CellH: 8, State: Shown}
+	b := &Stamp{Key: "b", X: 8, Y: 32, Cells: 2, CellW: 8, CellH: 8, State: Shown}
+	l.Stamps = []*Stamp{a, b}
+	l.Clear(16, 16, 24, 24)
+	if len(l.Stamps) != 2 || !a.transparent(1) || a.transparent(0) || a.State != Pending {
+		t.Fatalf("部分清除結果錯誤：transparent=%v state=%v stamps=%d", a.Transparent, a.State, len(l.Stamps))
+	}
+	l.Clear(0, 16, 40, 24)
+	if len(l.Stamps) != 1 || l.Stamps[0] != b || len(dropped) != 1 || dropped[0] != "a:clear" {
+		t.Fatalf("完整清除結果錯誤：dropped=%v stamps=%d", dropped, len(l.Stamps))
+	}
+	l.Clear(0, 0, 0, 200)
+	if len(l.Stamps) != 1 {
+		t.Fatal("空矩形不得改動狀態")
+	}
+}
+
+func TestReplaceDropsSameOriginOnly(t *testing.T) {
+	var dropped []string
+	l := &Layer{OnDrop: func(s *Stamp, why string) { dropped = append(dropped, s.Key+":"+why) }}
+	old := &Stamp{Key: "old", X: 0, Y: 192, Cells: 21, CellW: 8, CellH: 8}
+	other := &Stamp{Key: "other", X: 184, Y: 192, Cells: 4, CellW: 8, CellH: 8}
+	l.Stamps = []*Stamp{old, other}
+	newStamp := &Stamp{Key: "new", X: 0, Y: 192, Cells: 17, CellW: 8, CellH: 8}
+	l.Replace(newStamp)
+	if len(l.Stamps) != 2 || l.Stamps[0] != other || l.Stamps[1] != newStamp {
+		t.Fatalf("取代後疊字不符預期：%v", l.Stamps)
+	}
+	if len(dropped) != 1 || dropped[0] != "old:replace" {
+		t.Fatalf("取代原因不符預期：%v", dropped)
+	}
+}
+
 // spec 202 §3 第 1 項：畫字與缺字回呼（字型換算成通用 24×24，等同原本 8 像素字格 × 放大 3 倍）。
 func TestDrawGlyph(t *testing.T) {
 	g := make([]byte, 3*24) // 24 列 × 3 bytes/列

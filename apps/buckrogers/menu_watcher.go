@@ -39,6 +39,20 @@ func (w *MenuRequestWatcher) Events() []TextEvent { return w.recorder.Events() }
 func (w *MenuRequestWatcher) Requests() []DisplayRequest {
 	return append([]DisplayRequest(nil), w.requests...)
 }
-func (w *MenuRequestWatcher) Drops() int    { return w.recorder.Drops() }
-func (w *MenuRequestWatcher) Pending() bool { return w.recorder.Pending() }
-func (w *MenuRequestWatcher) Misses() int   { return w.misses }
+func (w *MenuRequestWatcher) Drops() int        { return w.recorder.Drops() }
+func (w *MenuRequestWatcher) Pending() bool     { return w.recorder.Pending() }
+func (w *MenuRequestWatcher) Misses() int       { return w.misses }
+func (w *MenuRequestWatcher) EventCount() int   { return len(w.recorder.events) }
+func (w *MenuRequestWatcher) RequestCount() int { return len(w.requests) }
+func (w *MenuRequestWatcher) LastEvent() (TextEvent, bool) {
+	if len(w.recorder.events) == 0 {
+		return TextEvent{}, false
+	}
+	return w.recorder.events[len(w.recorder.events)-1], true
+}
+func (w *MenuRequestWatcher) LastRequest() (DisplayRequest, bool) {
+	if len(w.requests) == 0 {
+		return DisplayRequest{}, false
+	}
+	return w.requests[len(w.requests)-1], true
+}

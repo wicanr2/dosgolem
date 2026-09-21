@@ -57,6 +57,27 @@ func TestAllCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
+	valid := []struct {
+		menu, roster, font, out string
+		scale                   int
+		want                    bool
+	}{
+		{"", "", "", "", 0, true},
+		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 2, true},
+		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 3, true},
+		{"m.tsv", "", "f.bin", "o.rgba", 2, false},
+		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 1, false},
+		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 4, false},
+	}
+	for _, tc := range valid {
+		got := validateOverlayFlags(tc.menu, tc.roster, tc.font, tc.out, tc.scale) == nil
+		if got != tc.want {
+			t.Fatalf("flags=%#v valid=%v，要 %v", tc, got, tc.want)
+		}
+	}
+}
+
 func TestEmitReceiptWritesIdenticalBytes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	var stdout bytes.Buffer
