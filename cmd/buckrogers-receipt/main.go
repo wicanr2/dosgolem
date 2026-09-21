@@ -68,12 +68,30 @@ func main() {
 		TextKey          string `json:"text_key"`
 		TranslationRunes int    `json:"translation_runes"`
 	}
+	type presentationMetadata struct {
+		Step             uint64 `json:"step"`
+		Kind             string `json:"kind"`
+		Generation       uint64 `json:"generation"`
+		EventKey         string `json:"event_key,omitempty"`
+		TextKey          string `json:"text_key,omitempty"`
+		TranslationRunes int    `json:"translation_runes,omitempty"`
+	}
 	result := struct {
-		StateStart uint64                   `json:"state_start"`
-		StoppedAt  uint64                   `json:"stopped_at"`
-		Events     []buckrogers.Observation `json:"events"`
-		Request    *requestMetadata         `json:"request,omitempty"`
+		StateStart         uint64                   `json:"state_start"`
+		StoppedAt          uint64                   `json:"stopped_at"`
+		Events             []buckrogers.Observation `json:"events"`
+		PresentationEvents []presentationMetadata   `json:"presentation_events"`
+		Request            *requestMetadata         `json:"request,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: w.Observations()}
+	for _, event := range w.PresentationEvents() {
+		item := presentationMetadata{Step: event.Step, Kind: string(event.Kind), Generation: event.Generation}
+		if event.Kind == buckrogers.ManualPresentationRequest {
+			item.EventKey = event.Request.EventKey
+			item.TextKey = event.Request.TextKey
+			item.TranslationRunes = len([]rune(event.Request.Translation))
+		}
+		result.PresentationEvents = append(result.PresentationEvents, item)
+	}
 	if requests := w.Requests(); len(requests) != 0 {
 		r := requests[0]
 		result.Request = &requestMetadata{r.Generation, r.EventKey, r.TextKey, len([]rune(r.Translation))}

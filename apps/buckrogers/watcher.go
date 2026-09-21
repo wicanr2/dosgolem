@@ -16,6 +16,27 @@ type Observation struct {
 	TranslationRunes int     `json:"translation_runes,omitempty"`
 }
 
+// ManualPresentationKind identifies a lifecycle boundary suitable for an
+// output-only manual presenter. It never represents DOS input or game state.
+type ManualPresentationKind string
+
+const (
+	ManualPresentationBegin   ManualPresentationKind = "begin"
+	ManualPresentationClear   ManualPresentationKind = "clear"
+	ManualPresentationRequest ManualPresentationKind = "request"
+)
+
+// ManualPresentationEvent is an answer-free, output-side lifecycle event.
+// Request is populated only for ManualPresentationRequest and has the same
+// generation as the event. It holds values only, so callers cannot retain a
+// reference into the watcher or machine.
+type ManualPresentationEvent struct {
+	Step       uint64
+	Kind       ManualPresentationKind
+	Generation uint64
+	Request    DisplayRequest
+}
+
 type dispatchFrame struct {
 	caller     Address
 	returnTo   Address
@@ -29,12 +50,13 @@ type dispatchFrame struct {
 // Watcher observes the original output path and emits catalog-backed requests.
 // It has no input, memory-write, or rendering capability.
 type Watcher struct {
-	collector Collector
-	catalog   *Catalog
-	pending   *dispatchFrame
-	installed map[uint32]bool
-	requests  []DisplayRequest
-	events    []Observation
+	collector    Collector
+	catalog      *Catalog
+	pending      *dispatchFrame
+	installed    map[uint32]bool
+	requests     []DisplayRequest
+	events       []Observation
+	presentation []ManualPresentationEvent
 }
 
 func NewWatcher(catalog *Catalog) *Watcher {
@@ -47,6 +69,11 @@ func (w *Watcher) Requests() []DisplayRequest {
 
 func (w *Watcher) Observations() []Observation {
 	return append([]Observation(nil), w.events...)
+}
+
+// PresentationEvents returns a defensive copy of output-only lifecycle data.
+func (w *Watcher) PresentationEvents() []ManualPresentationEvent {
+	return append([]ManualPresentationEvent(nil), w.presentation...)
 }
 
 // Install binds the watcher to the proven original runtime addresses.
@@ -92,6 +119,9 @@ func (w *Watcher) ObserveDispatchEntry(caller Address, ss, sp uint16, text strin
 	if generation, ok := w.collector.BeginEntry(caller, text); ok {
 		f.generation, f.begin = generation, true
 		w.events = append(w.events, Observation{Step: step, Kind: "begin", Caller: caller})
+		w.presentation = append(w.presentation, ManualPresentationEvent{
+			Step: step, Kind: ManualPresentationBegin, Generation: generation,
+		})
 	}
 	w.pending = f
 }
@@ -138,12 +168,21 @@ func (w *Watcher) ObserveInstruction(at Address, ss, sp uint16, step uint64) {
 		Step: step, Kind: "request", Caller: f.caller, EventKey: request.EventKey,
 		TextKey: request.TextKey, TranslationRunes: len([]rune(request.Translation)),
 	})
+	w.presentation = append(w.presentation, ManualPresentationEvent{
+		Step: step, Kind: ManualPresentationRequest, Generation: request.Generation, Request: request,
+	})
 }
 
 // ObserveClear records the proven clear entry without mutating the original.
 func (w *Watcher) ObserveClear(step uint64) {
+	active, generation := w.collector.active(), w.collector.Generation()
 	w.collector.ClearEntry(manualClear)
 	w.events = append(w.events, Observation{Step: step, Kind: "clear", Caller: manualClear})
+	if active {
+		w.presentation = append(w.presentation, ManualPresentationEvent{
+			Step: step, Kind: ManualPresentationClear, Generation: generation,
+		})
+	}
 }
 
 func (a Address) linear() uint32       { return uint32(a.Segment)*16 + uint32(a.Offset) }

@@ -79,6 +79,11 @@ func (c *Collector) Generation() uint64 { return c.generation }
 // Visible returns the last completed question that has not been invalidated.
 func (c *Collector) Visible() (Question, bool) { return c.visible, c.hasVisible }
 
+// active reports whether an exact manual generation is printing or visible.
+// It is deliberately package-private: only the runtime watcher may use it to
+// classify an already-proven clear entry for presentation invalidation.
+func (c *Collector) active() bool { return c.pending != nil || c.hasVisible }
+
 // BeginEntry starts a generation only for the exact proven question prefix.
 func (c *Collector) BeginEntry(caller Address, text string) (uint64, bool) {
 	if caller != manualBegin || text != manualBeginText || c.generation == ^uint64(0) {

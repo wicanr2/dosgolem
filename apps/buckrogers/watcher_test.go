@@ -1,6 +1,31 @@
 package buckrogers
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func observeManualDispatch(w *Watcher, caller Address, text string, step uint64) {
+	w.ObserveDispatchEntry(caller, 1, 2, text, step)
+	w.ObserveInstruction(caller, 1, 2+dispatcherStackDelta, step+1)
+}
+
+func deimosManualEvents() []struct {
+	caller Address
+	text   string
+} {
+	return []struct {
+		caller Address
+		text   string
+	}{
+		{Address{0x2A33, 0x021B}, "34"},
+		{Address{0x2A33, 0x0231}, "following the heading"},
+		{Address{0x2A33, 0x027A}, "Deimos Prison"},
+		{Address{0x2A33, 0x02A5}, "what is the"},
+		{Address{0x2A33, 0x02E2}, "tenth"},
+		{Address{0x2A33, 0x0309}, "word?"},
+	}
+}
 
 func primedWatcher(t *testing.T, catalog *Catalog) (*Watcher, dispatchFrame) {
 	t.Helper()
@@ -83,5 +108,93 @@ func TestWatcherNestedFrameFailsClosed(t *testing.T) {
 	w.dropNested(10, Address{0x1234, 0x5678})
 	if w.pending != nil || len(w.requests) != 0 || w.events[0].Kind != "nested-drop" {
 		t.Fatal("巢狀 frame 必須失敗即關閉")
+	}
+}
+
+func TestManualPresentationEventShape(t *testing.T) {
+	typ := reflect.TypeOf(ManualPresentationEvent{})
+	if typ.NumField() != 4 {
+		t.Fatalf("ManualPresentationEvent 欄位數=%d，要 4", typ.NumField())
+	}
+	for i, want := range []string{"Step", "Kind", "Generation", "Request"} {
+		if typ.Field(i).Name != want {
+			t.Errorf("欄位 %d=%s，要 %s", i, typ.Field(i).Name, want)
+		}
+	}
+	if typ.Field(3).Type != reflect.TypeOf(DisplayRequest{}) {
+		t.Fatalf("Request 型別=%v，要 DisplayRequest", typ.Field(3).Type)
+	}
+}
+
+func TestWatcherPresentationLifecyclePendingClearAndVisibleClear(t *testing.T) {
+	w := NewWatcher(loadFixture(t, eventFixture, ordinalFixture(), textFixture))
+	observeManualDispatch(w, manualBegin, manualBeginText, 10)
+	for i, event := range deimosManualEvents()[:2] {
+		observeManualDispatch(w, event.caller, event.text, uint64(20+i*10))
+	}
+	w.ObserveClear(45)
+	for i, event := range deimosManualEvents()[2:] {
+		observeManualDispatch(w, event.caller, event.text, uint64(50+i*10))
+	}
+
+	got := w.PresentationEvents()
+	if len(got) != 3 {
+		t.Fatalf("lifecycle events=%#v", got)
+	}
+	if got[0].Kind != ManualPresentationBegin || got[0].Generation != 1 || got[0].Step != 10 {
+		t.Fatalf("begin=%#v", got[0])
+	}
+	if got[1].Kind != ManualPresentationClear || got[1].Generation != 1 || got[1].Step != 45 || got[1].Request != (DisplayRequest{}) {
+		t.Fatalf("pending clear=%#v", got[1])
+	}
+	if got[2].Kind != ManualPresentationRequest || got[2].Generation != 1 || got[2].Request.Generation != 1 ||
+		got[2].Request.EventKey != "manual.page34.deimos_prison.word10" || got[2].Request.TextKey != "manual.log.49.deimos_prison" {
+		t.Fatalf("request=%#v", got[2])
+	}
+	requestBefore := got[2].Request
+	got[2].Request.TextKey = "mutated"
+	if w.PresentationEvents()[2].Request != requestBefore {
+		t.Fatal("presentation request value 不得被呼叫端回寫")
+	}
+
+	w.ObserveClear(120)
+	got = w.PresentationEvents()
+	if len(got) != 4 || got[3].Kind != ManualPresentationClear || got[3].Generation != 1 || got[3].Step != 120 {
+		t.Fatalf("visible clear=%#v", got)
+	}
+}
+
+func TestWatcherPresentationLifecycleFailsClosedAndReturnsCopies(t *testing.T) {
+	w := NewWatcher(loadFixture(t, eventFixture, ordinalFixture(), textFixture))
+	w.ObserveClear(1)
+	if len(w.PresentationEvents()) != 0 {
+		t.Fatal("沒有手冊 context 的 clear 不得產生 presentation event")
+	}
+	observeManualDispatch(w, manualBegin, manualBeginText, 10)
+	for i, event := range validManualEvents {
+		observeManualDispatch(w, event.caller, event.text, uint64(20+i*10))
+	}
+	got := w.PresentationEvents()
+	if len(got) != 1 || got[0].Kind != ManualPresentationBegin {
+		t.Fatalf("catalog miss lifecycle=%#v", got)
+	}
+	got[0].Generation = 999
+	if w.PresentationEvents()[0].Generation != 1 {
+		t.Fatal("presentation queue 回傳切片不得污染 watcher")
+	}
+	w = NewWatcher(loadFixture(t, eventFixture, ordinalFixture(), textFixture))
+	observeManualDispatch(w, manualBegin, manualBeginText, 10)
+	first := deimosManualEvents()[0]
+	w.ObserveDispatchEntry(first.caller, 1, 2, first.text, 20)
+	w.ObserveInstruction(first.caller, 1, 2+dispatcherStackDelta-1, 21)
+	if got := w.PresentationEvents(); len(got) != 1 || got[0].Kind != ManualPresentationBegin {
+		t.Fatalf("guard failure lifecycle=%#v", got)
+	}
+
+	w, f := primedWatcher(t, nil)
+	w.dropNested(10, Address{0x1234, 0x5678})
+	w.ObserveInstruction(f.returnTo, f.ss, f.entrySP+dispatcherStackDelta, 11)
+	if len(w.PresentationEvents()) != 0 {
+		t.Fatal("nested 或 stale frame 不得產生 presentation event")
 	}
 }
