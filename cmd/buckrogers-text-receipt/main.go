@@ -39,6 +39,22 @@ type requestJSON struct {
 	TranslationRunes int    `json:"translation_runes"`
 }
 
+type actionBarEventJSON struct {
+	EntryStep      uint64 `json:"entry_step"`
+	PostCallStep   uint64 `json:"post_call_step"`
+	Screen         string `json:"screen"`
+	EventKey       string `json:"event_key"`
+	Variant        string `json:"variant"`
+	OriginalLength uint8  `json:"original_length"`
+	OriginalSHA256 string `json:"original_sha256"`
+	Row            uint8  `json:"row"`
+	Column         uint8  `json:"column"`
+	X0             uint8  `json:"x0"`
+	Y0             uint8  `json:"y0"`
+	X1             uint8  `json:"x1"`
+	Y1             uint8  `json:"y1"`
+}
+
 type scheduledBIOSKey struct {
 	Step  uint64
 	Scan  uint8
@@ -86,6 +102,7 @@ func main() {
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
 	want := flag.Int("want", 0, "預期完成事件數；0 表示不檢查")
 	wantRequests := flag.Int("want-requests", 0, "預期顯示請求數；0 表示不檢查")
+	wantActionBarEvents := flag.Int("want-action-bar-events", 0, "預期底部操作列事件數；0 表示不檢查")
 	enterAt := flag.Uint64("bios-enter-at", 0, "在此絕對步數排入一個 BIOS Enter；0 表示不送")
 	menuEvents := flag.String("menu-events", "", "正式 menu-events.tsv")
 	menuTranslations := flag.String("menu-translations", "", "正式 menu.zh-TW.tsv")
@@ -103,6 +120,7 @@ func main() {
 	careerSkillTranslations := flag.String("career-skill-translations", "", "正式 career-skill-screen.zh-TW.tsv")
 	technicalSkillEvents := flag.String("technical-skill-events", "", "正式 technical-skill-screen-events.tsv")
 	technicalSkillTranslations := flag.String("technical-skill-translations", "", "正式 technical-skill-screen.zh-TW.tsv")
+	actionBarEvents := flag.String("skill-action-bar-events", "", "正式 skill-action-bar-events.tsv")
 	careerSkillRects := flag.String("career-skill-rects", "", "正式 career-skill-screen-text-safe-rects.tsv")
 	technicalSkillRects := flag.String("technical-skill-rects", "", "正式 technical-skill-screen-text-safe-rects.tsv")
 	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
@@ -139,6 +157,9 @@ func main() {
 		fail(err)
 	}
 	if err := validateTechnicalSkillCatalogFlags(*technicalSkillEvents, *technicalSkillTranslations, *careerSkillEvents); err != nil {
+		fail(err)
+	}
+	if err := validateActionBarFlags(*actionBarEvents, *careerSkillEvents, *technicalSkillEvents); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -281,6 +302,17 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	var actionCatalog *buckrogers.ActionBarCatalog
+	if *actionBarEvents != "" {
+		data, err := os.ReadFile(*actionBarEvents)
+		if err != nil {
+			fail(err)
+		}
+		actionCatalog, err = buckrogers.LoadActionBarCatalog(data)
+		if err != nil {
+			fail(err)
+		}
+	}
 	m := machine.New()
 	d := dos.New(m, ".")
 	d.Install()
@@ -346,6 +378,7 @@ func main() {
 	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
+	actionWatcher := buckrogers.NewActionBarWatcher(actionCatalog)
 	nextKey := 0
 	for m.Steps < *until && !d.Exited {
 		for nextKey < len(keys) && m.Steps >= keys[nextKey].Step {
@@ -357,13 +390,17 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
-		if presenter != nil && at == (buckrogers.Address{Segment: 0x026F, Offset: 0x029C}) {
+		actionWatcher.ObserveInstruction(at, ss, sp, m.Steps)
+		if at == (buckrogers.Address{Segment: 0x026F, Offset: 0x029C}) {
 			bottom := m.Read8(cpu.Addr(ss, sp+4))
 			right := m.Read8(cpu.Addr(ss, sp+6))
 			top := m.Read8(cpu.Addr(ss, sp+8))
 			left := m.Read8(cpu.Addr(ss, sp+10))
-			if err := presenter.ClearTextCells(bottom, right, top, left); err != nil {
-				fail(err)
+			actionWatcher.ObserveClear(bottom, right, top, left)
+			if presenter != nil {
+				if err := presenter.ClearTextCells(bottom, right, top, left); err != nil {
+					fail(err)
+				}
 			}
 		} else if at == (buckrogers.Address{Segment: 0x0763, Offset: 0x0424}) {
 			caller := buckrogers.Address{Segment: m.Read16(cpu.Addr(ss, sp+2)), Offset: m.Read16(cpu.Addr(ss, sp))}
@@ -378,9 +415,23 @@ func main() {
 				original[i] = m.Read8(base + 1 + uint32(i))
 			}
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
+		} else if at == (buckrogers.Address{Segment: 0x0763, Offset: 0x026B}) {
+			caller := buckrogers.Address{Segment: m.Read16(cpu.Addr(ss, sp+2)), Offset: m.Read16(cpu.Addr(ss, sp))}
+			var args [7]uint16
+			for i := range args {
+				args[i] = m.Read16(cpu.Addr(ss, sp+4+uint16(i)*2))
+			}
+			actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 		} else {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if r.RequestCount() > requestBefore {
+				request, ok := r.LastRequest()
+				if !ok {
+					fail(fmt.Errorf("runtime request count advanced without request"))
+				}
+				actionWatcher.ObserveAnchorEvent(request.EventKey)
+			}
 			if presenter != nil && r.EventCount() > eventBefore && r.RequestCount() > requestBefore {
 				event, eventOK := r.LastEvent()
 				request, requestOK := r.LastRequest()
@@ -395,10 +446,13 @@ func main() {
 	}
 	events := r.Events()
 	requests := r.Requests()
+	actionEvents := actionWatcher.Events()
 	if nextKey != len(keys) || r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
-		(*wantRequests != 0 && len(requests) != *wantRequests) {
-		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d",
-			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses()))
+		(*wantRequests != 0 && len(requests) != *wantRequests) || actionWatcher.Pending() || actionWatcher.Drops() != 0 ||
+		(*wantActionBarEvents != 0 && len(actionEvents) != *wantActionBarEvents) {
+		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d action_events=%d want_action=%d action_pending=%v action_drops=%d action_misses=%d",
+			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses(),
+			len(actionEvents), *wantActionBarEvents, actionWatcher.Pending(), actionWatcher.Drops(), actionWatcher.Misses()))
 	}
 	if err := saveTerminalState(*stateOut, m, d); err != nil {
 		fail(err)
@@ -414,24 +468,35 @@ func main() {
 	for i, request := range requests {
 		requestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
 	}
+	actionOut := make([]actionBarEventJSON, len(actionEvents))
+	for i, event := range actionEvents {
+		actionOut[i] = actionBarEventJSON{
+			event.EntryStep, event.PostCallStep, event.Screen, event.EventKey, event.Variant,
+			event.OriginalLength, hex.EncodeToString(event.OriginalSHA256[:]), event.Row, event.Column,
+			event.X0, event.Y0, event.X1, event.Y1,
+		}
+	}
 	result := struct {
-		StateStart        uint64        `json:"state_start"`
-		StoppedAt         uint64        `json:"stopped_at"`
-		BIOSInput         string        `json:"bios_input,omitempty"`
-		Events            []eventJSON   `json:"events"`
-		Requests          []requestJSON `json:"requests,omitempty"`
-		CatalogMisses     *int          `json:"catalog_misses,omitempty"`
-		BIOSKeys          []keyJSON     `json:"bios_keys,omitempty"`
-		Scratch           string        `json:"scratch,omitempty"`
-		Writes            []writeJSON   `json:"writes,omitempty"`
-		FileOps           []fileOpJSON  `json:"file_ops,omitempty"`
-		Unimplemented     []string      `json:"unimplemented,omitempty"`
-		OverlayScale      int           `json:"overlay_scale,omitempty"`
-		OverlayActions    []requestJSON `json:"overlay_actions,omitempty"`
-		ActiveOverlayKeys []string      `json:"active_overlay_keys,omitempty"`
-		OverlayMissing    []string      `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew       *bool         `json:"overlay_drew,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch}
+		StateStart        uint64               `json:"state_start"`
+		StoppedAt         uint64               `json:"stopped_at"`
+		BIOSInput         string               `json:"bios_input,omitempty"`
+		Events            []eventJSON          `json:"events"`
+		Requests          []requestJSON        `json:"requests,omitempty"`
+		CatalogMisses     *int                 `json:"catalog_misses,omitempty"`
+		BIOSKeys          []keyJSON            `json:"bios_keys,omitempty"`
+		Scratch           string               `json:"scratch,omitempty"`
+		Writes            []writeJSON          `json:"writes,omitempty"`
+		FileOps           []fileOpJSON         `json:"file_ops,omitempty"`
+		Unimplemented     []string             `json:"unimplemented,omitempty"`
+		OverlayScale      int                  `json:"overlay_scale,omitempty"`
+		OverlayActions    []requestJSON        `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys []string             `json:"active_overlay_keys,omitempty"`
+		OverlayMissing    []string             `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew       *bool                `json:"overlay_drew,omitempty"`
+		ActionBarEvents   []actionBarEventJSON `json:"action_bar_events,omitempty"`
+		ActionBarMisses   *int                 `json:"action_bar_misses,omitempty"`
+		ActionBarDrops    *int                 `json:"action_bar_drops,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
 		for i, write := range d.Wrote {
@@ -469,6 +534,10 @@ func main() {
 		result.Requests = requestOut
 		misses := r.Misses()
 		result.CatalogMisses = &misses
+	}
+	if actionCatalog != nil {
+		misses, drops := actionWatcher.Misses(), actionWatcher.Drops()
+		result.ActionBarMisses, result.ActionBarDrops = &misses, &drops
 	}
 	if *enterAt != 0 {
 		result.BIOSInput = fmt.Sprintf("Enter(scan=0x1c,ascii=0x0d,queued_at=%d)", *enterAt)
@@ -593,6 +662,13 @@ func validateTechnicalSkillCatalogFlags(events, translations, careerEvents strin
 	}
 	if events != "" && careerEvents == "" {
 		return fmt.Errorf("technical-skill catalog 必須同時提供 career-skill catalog 以解析共享標題")
+	}
+	return nil
+}
+
+func validateActionBarFlags(events, careerEvents, technicalEvents string) error {
+	if events != "" && (careerEvents == "" || technicalEvents == "") {
+		return fmt.Errorf("skill-action-bar-events 必須同時提供 career 與 technical skill catalogs 作 exact anchors")
 	}
 	return nil
 }

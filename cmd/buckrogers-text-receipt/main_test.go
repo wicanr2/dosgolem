@@ -109,6 +109,23 @@ func TestTechnicalSkillCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestActionBarFlagsRequireBothSkillAnchors(t *testing.T) {
+	for _, tc := range []struct {
+		action, career, technical string
+		wantOK                    bool
+	}{
+		{"", "", "", true},
+		{"", "career", "", true},
+		{"actions", "career", "technical", true},
+		{"actions", "", "technical", false},
+		{"actions", "career", "", false},
+	} {
+		if got := validateActionBarFlags(tc.action, tc.career, tc.technical) == nil; got != tc.wantOK {
+			t.Fatalf("flags=%#v valid=%v, want %v", tc, got, tc.wantOK)
+		}
+	}
+}
+
 func TestValidateOverlayDrawAllowsEmptyTerminalFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
