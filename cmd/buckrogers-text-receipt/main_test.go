@@ -62,6 +62,24 @@ func TestAllCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestNamePromptCatalogFlagsArePaired(t *testing.T) {
+	for _, tc := range []struct {
+		name, events, translations string
+		wantOK                     bool
+	}{
+		{"皆省略", "", "", true},
+		{"皆提供", "events", "translations", true},
+		{"缺譯文", "events", "", false},
+		{"缺事件", "", "translations", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validateNamePromptCatalogFlags(tc.events, tc.translations) == nil; got != tc.wantOK {
+				t.Fatalf("有效性 = %v，要 %v", got, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
 	valid := []struct {
 		menuEvents, menuRects, genderEvents, genderRects   string

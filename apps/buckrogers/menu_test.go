@@ -82,6 +82,58 @@ func TestCharacterSheetCatalogReusesExactResolver(t *testing.T) {
 	}
 }
 
+func TestNamePromptCatalogReusesExactResolver(t *testing.T) {
+	c, err := LoadNamePromptCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := c.Resolve(fixtureMenuEvent(t))
+	if !ok || request.EventKey != "race.option.terran" || request.Translation != "地球人" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
+func TestFormalProjectNamePromptCatalog(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	if root == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 未設定")
+	}
+	read := func(name string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, "text", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	events, texts := read("name-prompt-events.tsv"), read("name-prompt.zh-TW.tsv")
+	c, err := LoadNamePromptCatalog(events, texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.byIdentity) != 1 {
+		t.Fatalf("事件數 = %d，要 1", len(c.byIdentity))
+	}
+	rows, err := readTSV("name-prompt-events.tsv", events, menuEventHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := rows[0]
+	h, _ := menuHash(row[4])
+	caller, _ := menuAddress(row[5])
+	length, _ := menuByte(row[3])
+	bg, _ := menuByte(row[6])
+	fg, _ := menuByte(row[7])
+	y, _ := menuByte(row[8])
+	x, _ := menuByte(row[9])
+	event := TextEvent{EntryStep: 10, PostCallStep: 20, Caller: caller,
+		OriginalLength: length, OriginalSHA256: h, Background: bg, Foreground: fg, Row: y, Column: x}
+	request, ok := c.Resolve(event)
+	if !ok || request.EventKey != "character.name.prompt" || request.TextKey != "character.name.prompt" || request.Translation != "角色姓名：" {
+		t.Fatalf("Resolve = %#v, %v", request, ok)
+	}
+}
+
 func TestMergeMenuCatalogsAndRejectIdentityCollision(t *testing.T) {
 	first, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
 	if err != nil {

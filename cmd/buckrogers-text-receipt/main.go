@@ -97,6 +97,8 @@ func main() {
 	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
 	characterSheetEvents := flag.String("character-sheet-events", "", "正式 character-sheet-events.tsv")
 	characterSheetTranslations := flag.String("character-sheet-translations", "", "正式 character-sheet.zh-TW.tsv")
+	namePromptEvents := flag.String("name-prompt-events", "", "正式 name-prompt-events.tsv")
+	namePromptTranslations := flag.String("name-prompt-translations", "", "正式 name-prompt.zh-TW.tsv")
 	characterSheetRects := flag.String("character-sheet-rects", "", "正式 character-sheet-text-safe-rects.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
 	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
@@ -121,6 +123,9 @@ func main() {
 	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
 		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations,
 		*characterSheetEvents, *characterSheetTranslations); err != nil {
+		fail(err)
+	}
+	if err := validateNamePromptCatalogFlags(*namePromptEvents, *namePromptTranslations); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -206,6 +211,21 @@ func main() {
 			fail(err)
 		}
 		catalog, err := buckrogers.LoadCharacterSheetCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *namePromptEvents != "" {
+		eventsData, err := os.ReadFile(*namePromptEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*namePromptTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadNamePromptCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
@@ -496,6 +516,13 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 	}
 	if (characterSheetEvents == "") != (characterSheetTranslations == "") {
 		return fmt.Errorf("character-sheet-events 與 character-sheet-translations 必須同時提供")
+	}
+	return nil
+}
+
+func validateNamePromptCatalogFlags(events, translations string) error {
+	if (events == "") != (translations == "") {
+		return fmt.Errorf("name-prompt-events 與 name-prompt-translations 必須成對提供")
 	}
 	return nil
 }
