@@ -104,6 +104,7 @@ func main() {
 	technicalSkillEvents := flag.String("technical-skill-events", "", "正式 technical-skill-screen-events.tsv")
 	technicalSkillTranslations := flag.String("technical-skill-translations", "", "正式 technical-skill-screen.zh-TW.tsv")
 	careerSkillRects := flag.String("career-skill-rects", "", "正式 career-skill-screen-text-safe-rects.tsv")
+	technicalSkillRects := flag.String("technical-skill-rects", "", "正式 technical-skill-screen-text-safe-rects.tsv")
 	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
 	characterSheetRects := flag.String("character-sheet-rects", "", "正式 character-sheet-text-safe-rects.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
@@ -144,6 +145,7 @@ func main() {
 		*classEvents, *classRects, *rosterEvents, *rosterRects, *characterSheetEvents, *characterSheetRects,
 		*namePromptEvents, *namePromptRects,
 		*careerSkillEvents, *careerSkillRects,
+		*technicalSkillEvents, *technicalSkillRects,
 		*overlayFont, *overlayOut, *overlayScale); err != nil {
 		fail(err)
 	}
@@ -297,6 +299,7 @@ func main() {
 			{"save-roster-join-text-safe-rects.tsv", *rosterRects},
 			{"name-prompt-text-safe-rects.tsv", *namePromptRects},
 			{"career-skill-screen-text-safe-rects.tsv", *careerSkillRects},
+			{"technical-skill-screen-text-safe-rects.tsv", *technicalSkillRects},
 		}
 		var rectCatalogs []*buckrogers.MenuOverlayRects
 		for _, input := range inputs {
@@ -608,8 +611,10 @@ func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
 	classEvents, classRects, rosterEvents, rosterRects, characterSheetEvents, characterSheetRects,
 	namePromptEvents, namePromptRects,
 	careerSkillEvents, careerSkillRects,
+	technicalSkillEvents, technicalSkillRects,
 	font, out string, scale int) error {
-	rects := []string{menuRects, genderRects, classRects, rosterRects, characterSheetRects, namePromptRects, careerSkillRects}
+	rects := []string{menuRects, genderRects, classRects, rosterRects, characterSheetRects, namePromptRects,
+		careerSkillRects, technicalSkillRects}
 	anyRect := false
 	for _, rect := range rects {
 		anyRect = anyRect || rect != ""
@@ -627,10 +632,14 @@ func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
 		{"character-sheet", characterSheetEvents, characterSheetRects},
 		{"name-prompt", namePromptEvents, namePromptRects},
 		{"career-skill", careerSkillEvents, careerSkillRects},
+		{"technical-skill", technicalSkillEvents, technicalSkillRects},
 	} {
 		if (pair[1] == "") != (pair[2] == "") {
 			return fmt.Errorf("overlay %s catalog 與 rect 必須同時提供", pair[0])
 		}
+	}
+	if technicalSkillRects != "" && careerSkillRects == "" {
+		return fmt.Errorf("overlay technical-skill rectangles 必須同時提供 career-skill rectangles 以解析共享標題")
 	}
 	if scale != 2 && scale != 3 {
 		return fmt.Errorf("overlay-scale 必須是 2 或 3")

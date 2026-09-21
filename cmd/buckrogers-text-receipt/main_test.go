@@ -138,26 +138,30 @@ func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
 		characterSheetEvents, characterSheetRects          string
 		namePromptEvents, namePromptRects                  string
 		careerSkillEvents, careerSkillRects                string
+		technicalSkillEvents, technicalSkillRects          string
 		font, out                                          string
 		scale                                              int
 		want                                               bool
 	}{
-		{"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 0, true},
-		{"m.e", "m.r", "", "", "", "", "r.e", "r.r", "", "", "", "", "", "", "f.bin", "o.rgba", 2, true},
-		{"m.e", "m.r", "g.e", "g.r", "c.e", "c.r", "", "", "s.e", "s.r", "", "", "", "", "f.bin", "o.rgba", 3, true},
-		{"", "", "", "", "", "", "", "", "s.e", "s.r", "", "", "", "", "f.bin", "o.rgba", 2, true},
-		{"", "", "", "", "", "", "", "", "", "", "n.e", "n.r", "", "", "f.bin", "o.rgba", 2, true},
-		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "k.r", "f.bin", "o.rgba", 3, true},
-		{"m.e", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"m.e", "m.r", "g.e", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"", "", "", "", "", "", "", "", "s.e", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"", "", "", "", "", "", "", "", "", "s.r", "", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"", "", "", "", "", "", "", "", "", "", "n.e", "", "", "", "f.bin", "o.rgba", 2, false},
-		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "", "f.bin", "o.rgba", 2, false},
-		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "", 2, false},
-		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 1, false},
-		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 4, false},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 0, true},
+		{"m.e", "m.r", "", "", "", "", "r.e", "r.r", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, true},
+		{"m.e", "m.r", "g.e", "g.r", "c.e", "c.r", "", "", "s.e", "s.r", "", "", "", "", "", "", "f.bin", "o.rgba", 3, true},
+		{"", "", "", "", "", "", "", "", "s.e", "s.r", "", "", "", "", "", "", "f.bin", "o.rgba", 2, true},
+		{"", "", "", "", "", "", "", "", "", "", "n.e", "n.r", "", "", "", "", "f.bin", "o.rgba", 2, true},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "k.r", "", "", "f.bin", "o.rgba", 3, true},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "k.r", "t.e", "t.r", "f.bin", "o.rgba", 2, true},
+		{"m.e", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"m.e", "m.r", "g.e", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "s.e", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "", "s.r", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "", "", "n.e", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "k.e", "k.r", "t.e", "", "f.bin", "o.rgba", 2, false},
+		{"", "", "", "", "", "", "", "", "", "", "", "", "", "", "t.e", "t.r", "f.bin", "o.rgba", 2, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "", 2, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 1, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "f.bin", "o.rgba", 4, false},
 	}
 	for _, tc := range valid {
 		got := validateOverlayFlags(tc.menuEvents, tc.menuRects, tc.genderEvents, tc.genderRects,
@@ -165,6 +169,7 @@ func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
 			tc.characterSheetEvents, tc.characterSheetRects,
 			tc.namePromptEvents, tc.namePromptRects,
 			tc.careerSkillEvents, tc.careerSkillRects,
+			tc.technicalSkillEvents, tc.technicalSkillRects,
 			tc.font, tc.out, tc.scale) == nil
 		if got != tc.want {
 			t.Fatalf("flags=%#v valid=%v，要 %v", tc, got, tc.want)

@@ -391,3 +391,4 @@
 - [209 — Buck Rogers 職業技能配置執行期繁中顯示請求](209-buck-rogers-career-skill-runtime-display-requests.md)：CONFORMED。14 個固定標題／技能 identity 產生 exact request；動態點數維持 miss。
 - [210 — Buck Rogers 職業技能配置執行期繁中覆繪](210-buck-rogers-career-skill-runtime-overlay.md)：CONFORMED。14 個 exact-width 矩形已接入明示 2×／3× overlay，選取列取代與動態欄零干擾已驗收。
 - [211 — Buck Rogers 技術技能配置執行期繁中顯示請求](211-buck-rogers-technical-skill-runtime-display-requests.md)：CONFORMED。17 個不重複 identities 與兩個共享標題已通過 base／Down 決定性收據。
+| [212](212-buck-rogers-technical-skill-runtime-overlay.md) | Buck Rogers 技術技能配置執行期繁中覆繪 | CONFORMED |
