@@ -96,6 +96,8 @@ func main() {
 	rosterEvents := flag.String("roster-events", "", "正式 save-roster-join-runtime-events.tsv")
 	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
+	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
+	classRects := flag.String("class-rects", "", "正式 class-text-safe-rects.tsv")
 	rosterRects := flag.String("roster-rects", "", "正式 save-roster-join-text-safe-rects.tsv")
 	overlayFont := flag.String("overlay-font", "", "16x16 GOLEMFNT")
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
@@ -116,7 +118,9 @@ func main() {
 		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations); err != nil {
 		fail(err)
 	}
-	if err := validateOverlayFlags(*menuRects, *rosterRects, *overlayFont, *overlayOut, *overlayScale); err != nil {
+	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
+		*classEvents, *classRects, *rosterEvents, *rosterRects,
+		*overlayFont, *overlayOut, *overlayScale); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
@@ -199,23 +203,28 @@ func main() {
 	}
 	var presenter *buckrogers.RuntimeMenuOverlay
 	if *overlayOut != "" {
-		menuRectData, err := os.ReadFile(*menuRects)
-		if err != nil {
-			fail(err)
+		inputs := []struct{ name, path string }{
+			{"menu-text-safe-rects.tsv", *menuRects},
+			{"gender-text-safe-rects.tsv", *genderRects},
+			{"class-text-safe-rects.tsv", *classRects},
+			{"save-roster-join-text-safe-rects.tsv", *rosterRects},
 		}
-		rosterRectData, err := os.ReadFile(*rosterRects)
-		if err != nil {
-			fail(err)
+		var rectCatalogs []*buckrogers.MenuOverlayRects
+		for _, input := range inputs {
+			if input.path == "" {
+				continue
+			}
+			data, err := os.ReadFile(input.path)
+			if err != nil {
+				fail(err)
+			}
+			rectCatalog, err := buckrogers.LoadMenuOverlayRects(input.name, data)
+			if err != nil {
+				fail(err)
+			}
+			rectCatalogs = append(rectCatalogs, rectCatalog)
 		}
-		menuRectCatalog, err := buckrogers.LoadMenuOverlayRects("menu-text-safe-rects.tsv", menuRectData)
-		if err != nil {
-			fail(err)
-		}
-		rosterRectCatalog, err := buckrogers.LoadMenuOverlayRects("save-roster-join-text-safe-rects.tsv", rosterRectData)
-		if err != nil {
-			fail(err)
-		}
-		rects, err := buckrogers.MergeMenuOverlayRects(menuRectCatalog, rosterRectCatalog)
+		rects, err := buckrogers.MergeMenuOverlayRects(rectCatalogs...)
 		if err != nil {
 			fail(err)
 		}
@@ -447,17 +456,29 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 	return nil
 }
 
-func validateOverlayFlags(menuRects, rosterRects, font, out string, scale int) error {
-	provided := []bool{menuRects != "", rosterRects != "", font != "", out != "", scale != 0}
-	any, all := false, true
-	for _, value := range provided {
-		any = any || value
-		all = all && value
+func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
+	classEvents, classRects, rosterEvents, rosterRects, font, out string, scale int) error {
+	rects := []string{menuRects, genderRects, classRects, rosterRects}
+	anyRect := false
+	for _, rect := range rects {
+		anyRect = anyRect || rect != ""
 	}
-	if any && !all {
-		return fmt.Errorf("overlay rects、font、scale 與 output 必須同時提供")
+	any := anyRect || font != "" || out != "" || scale != 0
+	if !any {
+		return nil
 	}
-	if all && scale != 2 && scale != 3 {
+	if !anyRect || font == "" || out == "" || scale == 0 {
+		return fmt.Errorf("overlay catalog rects、font、scale 與 output 必須同時提供")
+	}
+	for _, pair := range [][3]string{
+		{"menu", menuEvents, menuRects}, {"gender", genderEvents, genderRects},
+		{"class", classEvents, classRects}, {"roster", rosterEvents, rosterRects},
+	} {
+		if (pair[1] == "") != (pair[2] == "") {
+			return fmt.Errorf("overlay %s catalog 與 rect 必須同時提供", pair[0])
+		}
+	}
+	if scale != 2 && scale != 3 {
 		return fmt.Errorf("overlay-scale 必須是 2 或 3")
 	}
 	return nil

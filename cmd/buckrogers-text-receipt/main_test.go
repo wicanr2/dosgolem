@@ -59,19 +59,26 @@ func TestAllCatalogFlagsArePaired(t *testing.T) {
 
 func TestOverlayFlagsRequireCompleteExplicitTwoOrThreeScale(t *testing.T) {
 	valid := []struct {
-		menu, roster, font, out string
-		scale                   int
-		want                    bool
+		menuEvents, menuRects, genderEvents, genderRects   string
+		classEvents, classRects, rosterEvents, rosterRects string
+		font, out                                          string
+		scale                                              int
+		want                                               bool
 	}{
-		{"", "", "", "", 0, true},
-		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 2, true},
-		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 3, true},
-		{"m.tsv", "", "f.bin", "o.rgba", 2, false},
-		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 1, false},
-		{"m.tsv", "r.tsv", "f.bin", "o.rgba", 4, false},
+		{"", "", "", "", "", "", "", "", "", "", 0, true},
+		{"m.e", "m.r", "", "", "", "", "r.e", "r.r", "f.bin", "o.rgba", 2, true},
+		{"m.e", "m.r", "g.e", "g.r", "c.e", "c.r", "", "", "f.bin", "o.rgba", 3, true},
+		{"m.e", "", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"", "m.r", "", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"m.e", "m.r", "g.e", "", "", "", "", "", "f.bin", "o.rgba", 2, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "f.bin", "", 2, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "f.bin", "o.rgba", 1, false},
+		{"m.e", "m.r", "", "", "", "", "", "", "f.bin", "o.rgba", 4, false},
 	}
 	for _, tc := range valid {
-		got := validateOverlayFlags(tc.menu, tc.roster, tc.font, tc.out, tc.scale) == nil
+		got := validateOverlayFlags(tc.menuEvents, tc.menuRects, tc.genderEvents, tc.genderRects,
+			tc.classEvents, tc.classRects, tc.rosterEvents, tc.rosterRects,
+			tc.font, tc.out, tc.scale) == nil
 		if got != tc.want {
 			t.Fatalf("flags=%#v valid=%v，要 %v", tc, got, tc.want)
 		}
