@@ -99,6 +99,7 @@ func main() {
 	characterSheetTranslations := flag.String("character-sheet-translations", "", "正式 character-sheet.zh-TW.tsv")
 	namePromptEvents := flag.String("name-prompt-events", "", "正式 name-prompt-events.tsv")
 	namePromptTranslations := flag.String("name-prompt-translations", "", "正式 name-prompt.zh-TW.tsv")
+	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
 	characterSheetRects := flag.String("character-sheet-rects", "", "正式 character-sheet-text-safe-rects.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
 	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
@@ -130,6 +131,7 @@ func main() {
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
 		*classEvents, *classRects, *rosterEvents, *rosterRects, *characterSheetEvents, *characterSheetRects,
+		*namePromptEvents, *namePromptRects,
 		*overlayFont, *overlayOut, *overlayScale); err != nil {
 		fail(err)
 	}
@@ -251,6 +253,7 @@ func main() {
 			{"gender-text-safe-rects.tsv", *genderRects},
 			{"class-text-safe-rects.tsv", *classRects},
 			{"save-roster-join-text-safe-rects.tsv", *rosterRects},
+			{"name-prompt-text-safe-rects.tsv", *namePromptRects},
 		}
 		var rectCatalogs []*buckrogers.MenuOverlayRects
 		for _, input := range inputs {
@@ -280,6 +283,9 @@ func main() {
 		}
 		rects, err := buckrogers.MergeMenuOverlayRects(rectCatalogs...)
 		if err != nil {
+			fail(err)
+		}
+		if err := buckrogers.ValidateMenuOverlayCoverage(catalog, rects); err != nil {
 			fail(err)
 		}
 		font, err := xlate.LoadFont(*overlayFont)
@@ -529,8 +535,9 @@ func validateNamePromptCatalogFlags(events, translations string) error {
 
 func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
 	classEvents, classRects, rosterEvents, rosterRects, characterSheetEvents, characterSheetRects,
+	namePromptEvents, namePromptRects,
 	font, out string, scale int) error {
-	rects := []string{menuRects, genderRects, classRects, rosterRects, characterSheetRects}
+	rects := []string{menuRects, genderRects, classRects, rosterRects, characterSheetRects, namePromptRects}
 	anyRect := false
 	for _, rect := range rects {
 		anyRect = anyRect || rect != ""
@@ -546,6 +553,7 @@ func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
 		{"menu", menuEvents, menuRects}, {"gender", genderEvents, genderRects},
 		{"class", classEvents, classRects}, {"roster", rosterEvents, rosterRects},
 		{"character-sheet", characterSheetEvents, characterSheetRects},
+		{"name-prompt", namePromptEvents, namePromptRects},
 	} {
 		if (pair[1] == "") != (pair[2] == "") {
 			return fmt.Errorf("overlay %s catalog 與 rect 必須同時提供", pair[0])

@@ -90,6 +90,30 @@ func MergeMenuOverlayRects(catalogs ...*MenuOverlayRects) (*MenuOverlayRects, er
 	return out, nil
 }
 
+// ValidateMenuOverlayCoverage requires a bidirectional event-key match between
+// an exact text catalog and its presentation rectangles. Variants may share an
+// event key, but no request or rectangle may be orphaned.
+func ValidateMenuOverlayCoverage(catalog *MenuCatalog, rects *MenuOverlayRects) error {
+	if catalog == nil || rects == nil {
+		return fmt.Errorf("buckrogers: overlay catalog 與安全矩形不得為空")
+	}
+	events := make(map[string]bool)
+	for _, entry := range catalog.byIdentity {
+		events[entry.eventKey] = true
+	}
+	for key := range events {
+		if _, ok := rects.byEvent[key]; !ok {
+			return fmt.Errorf("buckrogers: catalog event %q 缺少安全矩形", key)
+		}
+	}
+	for key := range rects.byEvent {
+		if !events[key] {
+			return fmt.Errorf("buckrogers: 孤兒安全矩形 %q", key)
+		}
+	}
+	return nil
+}
+
 // RuntimeMenuOverlay owns only presentation state. It never writes machine VRAM.
 type RuntimeMenuOverlay struct {
 	layer   *xlate.Layer

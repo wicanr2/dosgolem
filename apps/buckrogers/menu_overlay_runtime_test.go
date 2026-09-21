@@ -2,6 +2,7 @@ package buckrogers
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,30 @@ func TestRuntimeMenuOverlayRejectsFlagsGeometryAndRects(t *testing.T) {
 	e.Column++
 	if err := o.Apply(e, DisplayRequest{EventKey: "race.option.terran", TextKey: "race.terran", Translation: "地球"}, [256][3]uint8{}); err == nil {
 		t.Fatal("runtime 幾何漂移應拒絕")
+	}
+}
+
+func TestValidateMenuOverlayCoverageRejectsMissingAndOrphanRects(t *testing.T) {
+	catalog, err := LoadMenuCatalog([]byte(menuEventFixture), []byte(menuTextFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete := "event_key\tx\ty\twidth\theight\tdraw_x\tdraw_y\tcapacity_cells\tline_count\toverflow_policy\n" +
+		"race.option.terran\t8\t24\t64\t8\t8\t24\t8\t1\tsingle-line-reject\n" +
+		"race.heading.terran\t24\t24\t48\t8\t24\t24\t6\t1\tsingle-line-reject\n"
+	rects, err := LoadMenuOverlayRects("complete.tsv", []byte(complete))
+	if err != nil || ValidateMenuOverlayCoverage(catalog, rects) != nil {
+		t.Fatalf("完整 coverage = %#v, %v", rects, err)
+	}
+	missing, _ := LoadMenuOverlayRects("missing.tsv", []byte(strings.Replace(complete,
+		"race.heading.terran\t24\t24\t48\t8\t24\t24\t6\t1\tsingle-line-reject\n", "", 1)))
+	if ValidateMenuOverlayCoverage(catalog, missing) == nil {
+		t.Fatal("缺少安全矩形必須失敗")
+	}
+	orphan, _ := LoadMenuOverlayRects("orphan.tsv", []byte(complete+
+		"orphan\t80\t24\t8\t8\t80\t24\t1\t1\tsingle-line-reject\n"))
+	if ValidateMenuOverlayCoverage(catalog, orphan) == nil {
+		t.Fatal("孤兒安全矩形必須失敗")
 	}
 }
 
