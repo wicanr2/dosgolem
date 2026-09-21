@@ -101,6 +101,8 @@ func main() {
 	namePromptTranslations := flag.String("name-prompt-translations", "", "正式 name-prompt.zh-TW.tsv")
 	careerSkillEvents := flag.String("career-skill-events", "", "正式 career-skill-screen-events.tsv")
 	careerSkillTranslations := flag.String("career-skill-translations", "", "正式 career-skill-screen.zh-TW.tsv")
+	technicalSkillEvents := flag.String("technical-skill-events", "", "正式 technical-skill-screen-events.tsv")
+	technicalSkillTranslations := flag.String("technical-skill-translations", "", "正式 technical-skill-screen.zh-TW.tsv")
 	careerSkillRects := flag.String("career-skill-rects", "", "正式 career-skill-screen-text-safe-rects.tsv")
 	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
 	characterSheetRects := flag.String("character-sheet-rects", "", "正式 character-sheet-text-safe-rects.tsv")
@@ -133,6 +135,9 @@ func main() {
 		fail(err)
 	}
 	if err := validateCareerSkillCatalogFlags(*careerSkillEvents, *careerSkillTranslations); err != nil {
+		fail(err)
+	}
+	if err := validateTechnicalSkillCatalogFlags(*technicalSkillEvents, *technicalSkillTranslations, *careerSkillEvents); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -250,6 +255,21 @@ func main() {
 			fail(err)
 		}
 		catalog, err := buckrogers.LoadCareerSkillCatalog(eventsData, translationsData)
+		if err != nil {
+			fail(err)
+		}
+		catalogs = append(catalogs, catalog)
+	}
+	if *technicalSkillEvents != "" {
+		eventsData, err := os.ReadFile(*technicalSkillEvents)
+		if err != nil {
+			fail(err)
+		}
+		translationsData, err := os.ReadFile(*technicalSkillTranslations)
+		if err != nil {
+			fail(err)
+		}
+		catalog, err := buckrogers.LoadTechnicalSkillCatalog(eventsData, translationsData)
 		if err != nil {
 			fail(err)
 		}
@@ -560,6 +580,16 @@ func validateNamePromptCatalogFlags(events, translations string) error {
 func validateCareerSkillCatalogFlags(events, translations string) error {
 	if (events == "") != (translations == "") {
 		return fmt.Errorf("career-skill-events 與 career-skill-translations 必須成對提供")
+	}
+	return nil
+}
+
+func validateTechnicalSkillCatalogFlags(events, translations, careerEvents string) error {
+	if (events == "") != (translations == "") {
+		return fmt.Errorf("technical-skill-events 與 technical-skill-translations 必須成對提供")
+	}
+	if events != "" && careerEvents == "" {
+		return fmt.Errorf("technical-skill catalog 必須同時提供 career-skill catalog 以解析共享標題")
 	}
 	return nil
 }

@@ -94,6 +94,21 @@ func TestCareerSkillCatalogFlagsArePaired(t *testing.T) {
 	}
 }
 
+func TestTechnicalSkillCatalogFlagsArePaired(t *testing.T) {
+	for _, tc := range []struct {
+		events, translations, careerEvents string
+		wantOK                             bool
+	}{
+		{"", "", "", true}, {"events", "translations", "career-events", true},
+		{"events", "translations", "", false},
+		{"events", "", "career-events", false}, {"", "translations", "career-events", false},
+	} {
+		if got := validateTechnicalSkillCatalogFlags(tc.events, tc.translations, tc.careerEvents) == nil; got != tc.wantOK {
+			t.Fatalf("events=%q translations=%q valid=%v，要 %v", tc.events, tc.translations, got, tc.wantOK)
+		}
+	}
+}
+
 func TestValidateOverlayDrawAllowsEmptyTerminalFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

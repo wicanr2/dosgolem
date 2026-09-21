@@ -68,6 +68,12 @@ func LoadCareerSkillCatalog(events, translations []byte) (*MenuCatalog, error) {
 	return loadExactCatalog("career-skill-screen-events.tsv", "career-skill-screen.zh-TW.tsv", events, translations)
 }
 
+// LoadTechnicalSkillCatalog validates the static technical-skill allocation
+// screen catalog. Dynamic points, bonuses and totals remain exact misses.
+func LoadTechnicalSkillCatalog(events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalog("technical-skill-screen-events.tsv", "technical-skill-screen.zh-TW.tsv", events, translations)
+}
+
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {
