@@ -61,3 +61,8 @@ dosgolem 或專案 Git、GitHub Issue、Release 或可散布測試語料。此�
 目前沒有可核對候選，故禁止新增 source manifest、GOLEMFNT、runtime flag 或 presenter 接線。既有
 fixture font 與舊的未追蹤子集只可維持測試／歷史輸出，不能填補此缺口。此 DRAFT 不構成法律意見，
 也不宣稱 GNU Unifont 或任何其他字型已被本專案採用。
+
+第九十二階段已在專案根目錄的 `tools/catalog_font.py` 完成 `validate-candidate` 候選審查工具：它可於
+使用者提供本機輸入後檢查 strict manifest、source／license SHA-256、既有 Unifont parser coverage 與
+本機驗證／發行未定狀態，不寫 GOLEMFNT。這只縮小未來輸入驗證的機械缺口，沒有建立 manifest instance、
+沒有 candidate source／完整授權文字，也不改變本 spec 的 DRAFT、停止線或採用／散布決策。
