@@ -334,6 +334,22 @@ func main() {
 		d.Calls = map[dos.Call]int{}
 	}
 	d.Install()
+	if *loadState != "" {
+		if err := state.Load(*loadState, m, d); err != nil {
+			die(err)
+		}
+		// 命令列真的給了 -root 才蓋掉狀態檔裡的。
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "root" {
+				d.Root = *root
+			}
+		})
+		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
+			*loadState, m.Steps, d.Root)
+	}
+	// ⚠ **-press 的排程要在 -load-state 之後**：state.Load 會整份覆蓋機器，
+	// 先設的按鍵佇列與下次送鍵時點會被清掉（巫術7 主選單實測：
+	// 鍵盤中斷送出 0 次）。從快照接著跑時按鍵才真的送得到。
 	if *press != "" {
 		m.KeyEvery = *pressEvery
 		at := *pressAt
@@ -348,19 +364,6 @@ func main() {
 			}
 			m.QueueKey(sc)
 		}
-	}
-	if *loadState != "" {
-		if err := state.Load(*loadState, m, d); err != nil {
-			die(err)
-		}
-		// 命令列真的給了 -root 才蓋掉狀態檔裡的。
-		flag.Visit(func(f *flag.Flag) {
-			if f.Name == "root" {
-				d.Root = *root
-			}
-		})
-		fmt.Printf("從 %s 接著跑（第 %d 道指令，素材目錄 %s）\n",
-			*loadState, m.Steps, d.Root)
 	}
 	saves, err := parseSaveState(*saveState)
 	if err != nil {
