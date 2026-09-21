@@ -49,3 +49,14 @@ normal 繁中文字色尚未確認。兩個可丟棄 prototype 已以真實 tech
 3. 原版 indexed framebuffer 與 control 逐 byte 相同；RGBA 差異只在核准矩形內；穩定 frame
    人工檢查無英文殘字、裁字、框線侵入或繁中 stamp 堆疊。
 4. 未選定產品預設倍率；disabled 維持 unknown；手冊版面不受本規格影響。
+
+## DRAFT 配色中立核心收據（2026-09-21）
+
+- 正式 `skill-action-bar-text-safe-rects.tsv` 已展開 16 個 normal／focus event keys；loader 與
+  coverage validator 固定 exact band、容量及雙向 coverage。
+- `BuildActionBarOverlay` 不提供 normal 預設配色；caller 必須為每個譯文 rune 明示 palette
+  10 或 15。缺少、長度不符或未證實色號皆拒絕。focus 固定使用 palette 15 底／0 字。
+- 首字 15／次字 10 與兩字 10 兩個候選均以同一核心在 2×／3× 通過 ink containment；
+  這只證明兩方案技術可行，不構成 production 選擇。
+- dosgolem 全套 test、vet 與 Buck Rogers race detector 通過。CLI／runtime presenter 尚未接線，
+  因此本 spec 仍為 DRAFT。
