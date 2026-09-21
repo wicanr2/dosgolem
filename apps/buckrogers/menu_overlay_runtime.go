@@ -18,14 +18,17 @@ type overlayRect struct {
 }
 
 // MenuOverlayRects is an immutable event-key to proven text-safe rectangle map.
-type MenuOverlayRects struct{ byEvent map[string]overlayRect }
+type MenuOverlayRects struct {
+	byEvent  map[string]overlayRect
+	extended map[string]bool
+}
 
 func LoadMenuOverlayRects(name string, data []byte) (*MenuOverlayRects, error) {
 	rows, err := readTSV(name, data, overlayRectHeader)
 	if err != nil {
 		return nil, err
 	}
-	out := &MenuOverlayRects{byEvent: make(map[string]overlayRect, len(rows))}
+	out := &MenuOverlayRects{byEvent: make(map[string]overlayRect, len(rows)), extended: map[string]bool{}}
 	for _, row := range rows {
 		if row[0] == "" {
 			return nil, fmt.Errorf("%s: event_key 不得為空", name)
@@ -50,8 +53,25 @@ func LoadMenuOverlayRects(name string, data []byte) (*MenuOverlayRects, error) {
 	return out, nil
 }
 
+// LoadCharacterSheetOverlayRects allows only the two evidence-backed label
+// rectangles whose right edge extends to (but never across) the dynamic value
+// beginning at text column 35. All other events remain exact-width.
+func LoadCharacterSheetOverlayRects(name string, data []byte) (*MenuOverlayRects, error) {
+	out, err := LoadMenuOverlayRects(name, data)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"character.sheet.label.ac", "character.sheet.label.thac0"} {
+		if _, ok := out.byEvent[key]; !ok {
+			return nil, fmt.Errorf("%s: 缺少可擴張事件 %q", name, key)
+		}
+		out.extended[key] = true
+	}
+	return out, nil
+}
+
 func MergeMenuOverlayRects(catalogs ...*MenuOverlayRects) (*MenuOverlayRects, error) {
-	out := &MenuOverlayRects{byEvent: map[string]overlayRect{}}
+	out := &MenuOverlayRects{byEvent: map[string]overlayRect{}, extended: map[string]bool{}}
 	for _, catalog := range catalogs {
 		if catalog == nil {
 			continue
@@ -61,6 +81,7 @@ func MergeMenuOverlayRects(catalogs ...*MenuOverlayRects) (*MenuOverlayRects, er
 				return nil, fmt.Errorf("安全矩形合併：重複 event_key %q", key)
 			}
 			out.byEvent[key] = rect
+			out.extended[key] = catalog.extended[key]
 		}
 	}
 	if len(out.byEvent) == 0 {
@@ -96,7 +117,12 @@ func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, pale
 	if !ok {
 		return fmt.Errorf("buckrogers: %s 沒有安全矩形", request.EventKey)
 	}
-	if r.x != int(event.Column)*8 || r.y != int(event.Row)*8 || r.width != int(event.OriginalLength)*8 || r.height != 8 {
+	exactWidth := int(event.OriginalLength) * 8
+	validWidth := r.width == exactWidth
+	if o.rects.extended[request.EventKey] {
+		validWidth = r.width >= exactWidth && r.x+r.width == 35*8
+	}
+	if r.x != int(event.Column)*8 || r.y != int(event.Row)*8 || !validWidth || r.height != 8 {
 		return fmt.Errorf("buckrogers: %s 安全矩形與 runtime event 幾何不符", request.EventKey)
 	}
 	overlay, err := BuildMenuOverlay([]MenuOverlayEntry{{
@@ -137,22 +163,29 @@ func (o *RuntimeMenuOverlay) ClearTextCells(bottom, right, top, left uint8) erro
 }
 
 func (o *RuntimeMenuOverlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune, bool) {
-	rgba := make([]byte, 320*o.scale*200*o.scale*4)
-	w := 320 * o.scale
+	rgba := ScaleIndexedRGBA(indexed, palette, o.scale)
+	missing := []rune{}
+	drew := o.layer.Draw(rgba, o.scale, func(r rune) { missing = append(missing, r) })
+	return rgba, missing, drew
+}
+
+// ScaleIndexedRGBA creates the presentation baseline used for same-frame
+// containment checks. It does not mutate the indexed framebuffer or palette.
+func ScaleIndexedRGBA(indexed []byte, palette [256][3]uint8, scale int) []byte {
+	rgba := make([]byte, 320*scale*200*scale*4)
+	w := 320 * scale
 	for y := 0; y < 200; y++ {
 		for x := 0; x < 320; x++ {
 			c := palette[indexed[y*320+x]]
-			for dy := 0; dy < o.scale; dy++ {
-				for dx := 0; dx < o.scale; dx++ {
-					i := ((y*o.scale+dy)*w + x*o.scale + dx) * 4
+			for dy := 0; dy < scale; dy++ {
+				for dx := 0; dx < scale; dx++ {
+					i := ((y*scale+dy)*w + x*scale + dx) * 4
 					rgba[i], rgba[i+1], rgba[i+2], rgba[i+3] = c[0], c[1], c[2], 255
 				}
 			}
 		}
 	}
-	missing := []rune{}
-	drew := o.layer.Draw(rgba, o.scale, func(r rune) { missing = append(missing, r) })
-	return rgba, missing, drew
+	return rgba
 }
 
 func (o *RuntimeMenuOverlay) Actions() []MenuOverlayGeometry {

@@ -177,6 +177,7 @@
 - `035-buck-rogers-scale-explicit-runtime-overlay.md`
 - `036-buck-rogers-character-runtime-overlay.md`
 - `037-buck-rogers-character-sheet-runtime-display-requests.md`
+- `038-buck-rogers-character-sheet-runtime-overlay.md`
 
 ### UCSD p-System（psys）（1 份）
 

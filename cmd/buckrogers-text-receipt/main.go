@@ -97,6 +97,7 @@ func main() {
 	rosterTranslations := flag.String("roster-translations", "", "正式 save-roster-join.zh-TW.tsv")
 	characterSheetEvents := flag.String("character-sheet-events", "", "正式 character-sheet-events.tsv")
 	characterSheetTranslations := flag.String("character-sheet-translations", "", "正式 character-sheet.zh-TW.tsv")
+	characterSheetRects := flag.String("character-sheet-rects", "", "正式 character-sheet-text-safe-rects.tsv")
 	menuRects := flag.String("menu-rects", "", "正式 menu-text-safe-rects.tsv")
 	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
 	classRects := flag.String("class-rects", "", "正式 class-text-safe-rects.tsv")
@@ -104,6 +105,7 @@ func main() {
 	overlayFont := flag.String("overlay-font", "", "16x16 GOLEMFNT")
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
+	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -122,9 +124,12 @@ func main() {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
-		*classEvents, *classRects, *rosterEvents, *rosterRects,
+		*classEvents, *classRects, *rosterEvents, *rosterRects, *characterSheetEvents, *characterSheetRects,
 		*overlayFont, *overlayOut, *overlayScale); err != nil {
 		fail(err)
+	}
+	if *baselineOut != "" && *overlayOut == "" {
+		fail(fmt.Errorf("baseline-rgba-out 只能與 overlay-rgba-out 同時提供"))
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
 	if err != nil {
@@ -237,6 +242,17 @@ func main() {
 				fail(err)
 			}
 			rectCatalog, err := buckrogers.LoadMenuOverlayRects(input.name, data)
+			if err != nil {
+				fail(err)
+			}
+			rectCatalogs = append(rectCatalogs, rectCatalog)
+		}
+		if *characterSheetRects != "" {
+			data, err := os.ReadFile(*characterSheetRects)
+			if err != nil {
+				fail(err)
+			}
+			rectCatalog, err := buckrogers.LoadCharacterSheetOverlayRects("character-sheet-text-safe-rects.tsv", data)
 			if err != nil {
 				fail(err)
 			}
@@ -357,6 +373,12 @@ func main() {
 	}
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if presenter != nil {
+		if *baselineOut != "" {
+			baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *overlayScale)
+			if err := os.WriteFile(*baselineOut, baseline, 0o644); err != nil {
+				fail(err)
+			}
+		}
 		rgba, missingRunes, drew := presenter.Draw(m.Indexed(), m.Palette())
 		if len(missingRunes) != 0 || !drew {
 			fail(fmt.Errorf("runtime overlay draw 失敗：missing=%d drew=%v", len(missingRunes), drew))
@@ -479,8 +501,9 @@ func validateCatalogFlags(menuEvents, menuTranslations, genderEvents, genderTran
 }
 
 func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
-	classEvents, classRects, rosterEvents, rosterRects, font, out string, scale int) error {
-	rects := []string{menuRects, genderRects, classRects, rosterRects}
+	classEvents, classRects, rosterEvents, rosterRects, characterSheetEvents, characterSheetRects,
+	font, out string, scale int) error {
+	rects := []string{menuRects, genderRects, classRects, rosterRects, characterSheetRects}
 	anyRect := false
 	for _, rect := range rects {
 		anyRect = anyRect || rect != ""
@@ -495,6 +518,7 @@ func validateOverlayFlags(menuEvents, menuRects, genderEvents, genderRects,
 	for _, pair := range [][3]string{
 		{"menu", menuEvents, menuRects}, {"gender", genderEvents, genderRects},
 		{"class", classEvents, classRects}, {"roster", rosterEvents, rosterRects},
+		{"character-sheet", characterSheetEvents, characterSheetRects},
 	} {
 		if (pair[1] == "") != (pair[2] == "") {
 			return fmt.Errorf("overlay %s catalog 與 rect 必須同時提供", pair[0])

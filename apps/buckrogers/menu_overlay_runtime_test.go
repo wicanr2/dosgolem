@@ -62,6 +62,33 @@ func TestMergeMenuOverlayRectsRejectsDuplicate(t *testing.T) {
 	}
 }
 
+func TestCharacterSheetOverlayRectsAllowOnlyNamedExtension(t *testing.T) {
+	data := "event_key\tx\ty\twidth\theight\tdraw_x\tdraw_y\tcapacity_cells\tline_count\toverflow_policy\n" +
+		"character.sheet.label.ac\t224\t16\t56\t8\t224\t16\t7\t1\tsingle-line-reject\n" +
+		"character.sheet.label.thac0\t200\t24\t80\t8\t200\t24\t10\t1\tsingle-line-reject\n"
+	rects, err := LoadCharacterSheetOverlayRects("character.tsv", []byte(data))
+	if err != nil || !rects.extended["character.sheet.label.ac"] || !rects.extended["character.sheet.label.thac0"] {
+		t.Fatalf("rects=%#v err=%v", rects, err)
+	}
+	o, err := NewRuntimeMenuOverlay(rects, overlayFont(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := TextEvent{EntryStep: 1, PostCallStep: 2, OriginalLength: 3, Row: 2, Column: 28}
+	request := DisplayRequest{EventKey: "character.sheet.label.ac", TextKey: "character.sheet.ac", Translation: "地球"}
+	if err := o.Apply(event, request, [256][3]uint8{}); err != nil {
+		t.Fatalf("具名安全擴張應接受：%v", err)
+	}
+	generic, _ := LoadMenuOverlayRects("generic.tsv", []byte(data))
+	genericOverlay, _ := NewRuntimeMenuOverlay(generic, overlayFont(), 2)
+	if err := genericOverlay.Apply(event, request, [256][3]uint8{}); err == nil {
+		t.Fatal("一般 catalog 不得接受擴張矩形")
+	}
+	if _, err := LoadCharacterSheetOverlayRects("missing.tsv", []byte(rectFixture)); err == nil {
+		t.Fatal("缺少具名擴張事件必須失敗")
+	}
+}
+
 func TestRuntimeMenuOverlayClearTextCells(t *testing.T) {
 	rects, _ := LoadMenuOverlayRects("rects.tsv", []byte(rectFixture))
 	o, _ := NewRuntimeMenuOverlay(rects, overlayFont(), 2)
