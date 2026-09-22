@@ -3,6 +3,7 @@ package buckrogers
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/wicanr2/dosgolem/xlate"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,48 @@ func p7(t *testing.T) (*StoryPage7Catalog, [][]byte) {
 		t.Fatal(err)
 	}
 	return c, b
+}
+func TestStoryPage7PresenterFailClosedBothScales(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		events := make([]StoryPage7Event, 6)
+		for i, r := range []rune("甲乙丙丁戊己") {
+			font.Glyphs[r] = make([]byte, 32)
+			k := fmt.Sprintf("story.page7.line.%03d", i+1)
+			text[k] = string(r)
+			events[i] = StoryPage7Event{1, 0, 0, k, uint8(17 + i), 1}
+		}
+		if _, e := NewRuntimeStoryPage7Overlay(text, &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}, scale); e == nil {
+			t.Fatal("missing glyph")
+		}
+		o, e := NewRuntimeStoryPage7Overlay(text, font, scale)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, bad := range [][]StoryPage7Event{events[:5], func() []StoryPage7Event {
+			x := append([]StoryPage7Event(nil), events...)
+			x[5].EventKey = x[4].EventKey
+			return x
+		}(), func() []StoryPage7Event { x := append([]StoryPage7Event(nil), events...); x[4].Row = 99; return x }()} {
+			if o.Apply(bad, [256][3]uint8{}) == nil {
+				t.Fatal("bad group")
+			}
+			if len(o.ActiveKeys()) != 0 {
+				t.Fatal("partial stamp")
+			}
+		}
+		if e := o.Apply(events, [256][3]uint8{}); e != nil {
+			t.Fatal(e)
+		}
+		if len(o.ActiveKeys()) != 6 {
+			t.Fatal("active")
+		}
+		o.Clear()
+		if len(o.ActiveKeys()) != 0 {
+			t.Fatal("clear")
+		}
+	}
 }
 func TestStoryPage7CatalogReady(t *testing.T) {
 	h := strings.Join(storyPage7EventHeader, "\t") + "\n"
