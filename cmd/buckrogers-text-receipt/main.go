@@ -498,6 +498,7 @@ func main() {
 	storyFillRows := flag.Uint("story-fill-rows", 5, "story-fill-trace 的列數：5（預設 rows 17..21）或 6（rows 17..22）")
 	bodyIconFramebufferTrace := flag.Bool("body-icon-framebuffer-trace", false, "逐 step 記錄與正式身體圖示安全矩形相交的 framebuffer 變化")
 	bodyIconRects := flag.String("body-icon-rects", "", "body-icon-framebuffer-trace 必須搭配的正式 body-icon-text-safe-rects.tsv")
+	bodyIconFramebufferTraceFrom := flag.Uint64("body-icon-framebuffer-trace-from", 0, "身體圖示 framebuffer 診斷建立 baseline 並開始觀測的絕對 step")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
@@ -514,8 +515,8 @@ func main() {
 	if *storyFillRows != 5 && *storyFillRows != 6 {
 		fail(fmt.Errorf("story-fill-rows 只允許 5 或 6"))
 	}
-	if *bodyIconFramebufferTrace != (*bodyIconRects != "") {
-		fail(fmt.Errorf("body-icon-framebuffer-trace 與 body-icon-rects 必須同時提供"))
+	if err := validateBodyIconTraceFlags(*bodyIconFramebufferTrace, *bodyIconRects, *bodyIconFramebufferTraceFrom, *until); err != nil {
+		fail(err)
 	}
 	var bodyRects []bodyIconRect
 	if *bodyIconFramebufferTrace {
@@ -1172,9 +1173,6 @@ func main() {
 	var storyWrite *pixelWriteJSON
 	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
 	var bodyIconBefore []byte
-	if *bodyIconFramebufferTrace {
-		bodyIconBefore = append([]byte(nil), m.Indexed()...)
-	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
 	if *storyPixelTrace {
@@ -1212,6 +1210,9 @@ func main() {
 			nextKey++
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
+		if *bodyIconFramebufferTrace && bodyIconBefore == nil && m.Steps >= *bodyIconFramebufferTraceFrom {
+			bodyIconBefore = append([]byte(nil), m.Indexed()...)
+		}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
 		if *instructionTraceFrom != 0 && *instructionTraceLimit != 0 && m.Steps >= *instructionTraceFrom && uint64(len(instructionTrace)) < *instructionTraceLimit {
 			instructionTrace = append(instructionTrace, instructionTraceJSON{m.Steps, at, m.CPU.R[cpu.AX], m.CPU.Flags, ss, sp})
@@ -1619,10 +1620,10 @@ func main() {
 		if err := m.Step(); err != nil {
 			fail(err)
 		}
-		if *bodyIconFramebufferTrace {
+		if bodyIconBefore != nil {
 			if item, changed := observeBodyIconFramebuffer(m.Steps-1, at, bodyRects, bodyIconBefore, m.Indexed()); changed {
-				if len(bodyIconFramebufferWrites) >= 4096 {
-					fail(fmt.Errorf("body-icon framebuffer trace 超過 4096 筆"))
+				if len(bodyIconFramebufferWrites) >= 65536 {
+					fail(fmt.Errorf("body-icon framebuffer trace 超過 65536 筆"))
 				}
 				bodyIconFramebufferWrites = append(bodyIconFramebufferWrites, item)
 			}
@@ -2408,6 +2409,17 @@ func loadBodyIconRects(path string) ([]bodyIconRect, error) {
 		return nil, fmt.Errorf("body icon rectangles 不完整")
 	}
 	return out, nil
+}
+
+func validateBodyIconTraceFlags(enabled bool, rects string, from, until uint64) error {
+	any := enabled || rects != "" || from != 0
+	if !any {
+		return nil
+	}
+	if !enabled || rects == "" || from == 0 || from >= until {
+		return fmt.Errorf("body-icon framebuffer trace、rects 與有效 trace-from 必須同時提供")
+	}
+	return nil
 }
 
 func observeBodyIconFramebuffer(step uint64, at buckrogers.Address, rects []bodyIconRect, before, after []byte) (bodyIconFramebufferWriteJSON, bool) {
