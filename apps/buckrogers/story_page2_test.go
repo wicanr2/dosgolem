@@ -87,3 +87,27 @@ func TestStoryPage2FailsClosedOnReturnAndDiscontinuity(t *testing.T) {
 		t.Fatal("discontinuity revived state")
 	}
 }
+
+func TestStoryPage2WatcherRejectsIdentityDriftWithoutDraw(t *testing.T) {
+	c, lines := page2Fixture(t)
+	w, _ := NewStoryPage2Watcher(c)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*StoryPage2Identity)
+	}{
+		{"caller", func(e *StoryPage2Identity) { e.Caller = Address{1, 2} }}, {"guard", func(e *StoryPage2Identity) { e.Guard = Address{3, 4} }}, {"mode", func(e *StoryPage2Identity) { e.Mode = 2 }}, {"repeat", func(e *StoryPage2Identity) { e.Repeat = 2 }}, {"style", func(e *StoryPage2Identity) { e.Foreground = 9 }}, {"order", func(e *StoryPage2Identity) { e.Row = 18 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := c.entries[0]
+			tc.mutate(&e)
+			emitPage2(w, e, lines[0][0], 1, 10)
+			if len(w.Events()) != 0 || w.Active() {
+				t.Fatal("drift emitted")
+			}
+			w.ObserveExecutionDiscontinuity()
+		})
+	}
+	if w.ObserveVideoWrite(Address{1, 2}, storyVideoSegment, 0xaa08, 304) {
+		t.Fatal("unknown write invalidated")
+	}
+}
