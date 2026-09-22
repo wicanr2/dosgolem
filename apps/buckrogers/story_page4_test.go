@@ -4,8 +4,33 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/wicanr2/dosgolem/xlate"
+	"strings"
 	"testing"
 )
+
+func TestStoryPage4FontMissAndNonREADYFailClosedAtBothScales(t *testing.T) {
+	header := strings.Join(storyPage3EventHeader, "\t") + "\n"
+	rows := make([]string, 0, len(storyPage4Approved))
+	translations := "key\ttranslation\tsource\n"
+	text := map[string]string{}
+	for i, approved := range storyPage4Approved {
+		key := fmt.Sprintf("story.page4.line.%03d", i+1)
+		rows = append(rows, fmt.Sprintf("%s\t%d\t%d\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t0\t0\tconfirmed\tDRAFT", key, i+1, approved.n, approved.h, 17+i))
+		translations += key + "\t缺\tt\n"
+		text[key] = "缺"
+	}
+	for _, scale := range []int{2, 3} {
+		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
+			font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+			if _, err := NewRuntimeStoryPage4Overlay(text, font, scale); err == nil {
+				t.Fatal("missing font glyph accepted")
+			}
+			if _, _, err := LoadStoryPage4Catalog("events", []byte(header+strings.Join(rows, "\n")+"\n"), "text", []byte(translations)); err == nil {
+				t.Fatal("DRAFT catalog accepted")
+			}
+		})
+	}
+}
 
 // READY spec 013 failure audit: every rejected low-level variation must leave
 // no partial group for a 2x/3x presenter to draw.
