@@ -153,6 +153,71 @@ type fileOpJSON struct {
 	Failed bool   `json:"failed"`
 }
 
+// clearJSON is content-free evidence for one original text-cell clear.  It is
+// emitted only when the diagnostic --clear-trace switch is requested.
+type clearJSON struct {
+	Step   uint64 `json:"step"`
+	Bottom uint8  `json:"bottom"`
+	Right  uint8  `json:"right"`
+	Top    uint8  `json:"top"`
+	Left   uint8  `json:"left"`
+}
+
+// glyphJSON records the ABI-visible metadata of a completed 0763:026B glyph
+// call. It intentionally never stores the original glyph byte stream.
+type glyphJSON struct {
+	EntryStep    uint64             `json:"entry_step"`
+	PostCallStep uint64             `json:"post_call_step"`
+	Caller       buckrogers.Address `json:"caller"`
+	Mode         uint8              `json:"mode"`
+	Repeat       uint8              `json:"repeat"`
+	Background   uint8              `json:"background"`
+	Foreground   uint8              `json:"foreground"`
+	Row          uint8              `json:"row"`
+	Column       uint8              `json:"column"`
+}
+
+type glyphFrame struct {
+	event  glyphJSON
+	ss, sp uint16
+	glyph  uint8
+}
+
+// glyphRunJSON is a content-safe contiguous glyph run. Its hash is computed
+// in-process from original bytes and the bytes are then discarded.
+type glyphRunJSON struct {
+	EntryStep      uint64             `json:"entry_step"`
+	PostCallStep   uint64             `json:"post_call_step"`
+	Caller         buckrogers.Address `json:"caller"`
+	OriginalLength uint8              `json:"original_length"`
+	OriginalSHA256 string             `json:"original_sha256"`
+	Mode           uint8              `json:"mode"`
+	Repeat         uint8              `json:"repeat"`
+	Background     uint8              `json:"background"`
+	Foreground     uint8              `json:"foreground"`
+	Row            uint8              `json:"row"`
+	Column         uint8              `json:"column"`
+}
+
+type glyphRunFrame struct {
+	event glyphJSON
+	bytes []byte
+}
+
+// pixelWriteJSON is a content-safe, first-change receipt for a caller-selected
+// indexed framebuffer rectangle. It records no original pixels.
+type pixelWriteJSON struct {
+	Step         uint64             `json:"step"`
+	Caller       buckrogers.Address `json:"caller"`
+	VideoSegment uint16             `json:"video_segment"`
+	VideoOffset  uint16             `json:"video_offset"`
+	ByteCount    uint16             `json:"byte_count"`
+	X0           uint16             `json:"x0"`
+	Y0           uint16             `json:"y0"`
+	X1           uint16             `json:"x1"`
+	Y1           uint16             `json:"y1"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -214,6 +279,10 @@ func main() {
 	scratch := flag.String("scratch", "", "可選、已存在的 DOS 可寫暫存目錄")
 	fileOps := flag.Bool("file-ops", false, "在收據加入 content-safe 檔案操作 metadata")
 	unimplemented := flag.Bool("unimplemented", false, "在收據加入未實作 DOS／BIOS 服務統計")
+	clearTrace := flag.Bool("clear-trace", false, "在收據加入 026F:029C 的 content-safe 清除矩形")
+	glyphTrace := flag.Bool("glyph-trace", false, "在收據加入 0763:026B 的 content-safe glyph 呼叫")
+	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
+	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
@@ -556,6 +625,40 @@ func main() {
 		actionWatcher = buckrogers.NewActionBarWatcher(actionCatalog)
 	}
 	nextKey := 0
+	var clears []clearJSON
+	var glyphs []glyphJSON
+	var glyphPending *glyphFrame
+	var glyphRun *glyphRunFrame
+	var glyphRuns []glyphRunJSON
+	glyphDrops := 0
+	var storyWrite *pixelWriteJSON
+	storyBefore := make([]byte, 320*40)
+	if *storyPixelTrace {
+		copy(storyBefore, m.Indexed()[17*8*320:22*8*320])
+	}
+	flushGlyphRun := func() {
+		if glyphRun == nil {
+			return
+		}
+		e := glyphRun.event
+		hash := sha256.Sum256(glyphRun.bytes)
+		glyphRuns = append(glyphRuns, glyphRunJSON{e.EntryStep, e.PostCallStep, e.Caller,
+			uint8(len(glyphRun.bytes)), hex.EncodeToString(hash[:]),
+			e.Mode, e.Repeat, e.Background, e.Foreground, e.Row, e.Column})
+		glyphRun = nil
+	}
+	observeGlyph := func(e glyphJSON, b byte) {
+		if glyphRun != nil && glyphRun.event.Caller == e.Caller && glyphRun.event.Mode == e.Mode &&
+			glyphRun.event.Repeat == e.Repeat && glyphRun.event.Background == e.Background &&
+			glyphRun.event.Foreground == e.Foreground && glyphRun.event.Row == e.Row &&
+			int(e.Column) == int(glyphRun.event.Column)+len(glyphRun.bytes) {
+			glyphRun.bytes = append(glyphRun.bytes, b)
+			glyphRun.event.PostCallStep = e.PostCallStep
+			return
+		}
+		flushGlyphRun()
+		glyphRun = &glyphRunFrame{event: e, bytes: []byte{b}}
+	}
 	for m.Steps < *until && !d.Exited {
 		for nextKey < len(keys) && m.Steps >= keys[nextKey].Step {
 			key := keys[nextKey]
@@ -566,6 +669,16 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if glyphPending != nil && at == glyphPending.event.Caller {
+			if ss == glyphPending.ss && sp == glyphPending.sp+0x12 {
+				glyphPending.event.PostCallStep = m.Steps
+				glyphs = append(glyphs, glyphPending.event)
+				observeGlyph(glyphPending.event, glyphPending.glyph)
+			} else {
+				glyphDrops++
+			}
+			glyphPending = nil
+		}
 		actionRequestBefore := 0
 		if actionWatcher != nil {
 			actionRequestBefore = len(actionWatcher.Requests())
@@ -576,6 +689,10 @@ func main() {
 			right := m.Read8(cpu.Addr(ss, sp+6))
 			top := m.Read8(cpu.Addr(ss, sp+8))
 			left := m.Read8(cpu.Addr(ss, sp+10))
+			if *clearTrace {
+				clears = append(clears, clearJSON{Step: m.Steps, Bottom: bottom, Right: right, Top: top, Left: left})
+			}
+			flushGlyphRun()
 			if actionWatcher != nil {
 				actionWatcher.ObserveClear(bottom, right, top, left)
 			}
@@ -619,6 +736,14 @@ func main() {
 			var args [7]uint16
 			for i := range args {
 				args[i] = m.Read16(cpu.Addr(ss, sp+4+uint16(i)*2))
+			}
+			if *glyphTrace && m.Steps >= *glyphTraceFrom {
+				if glyphPending != nil {
+					glyphDrops++
+				}
+				glyphPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller,
+					Mode: uint8(args[0]), Repeat: uint8(args[2]),
+					Background: uint8(args[3]), Foreground: uint8(args[4]), Row: uint8(args[5]), Column: uint8(args[6])}, ss: ss, sp: sp, glyph: uint8(args[1])}
 			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
@@ -665,10 +790,47 @@ func main() {
 				fail(err)
 			}
 		}
+		storySegment, storyOffset, storyByteCount := uint16(0), uint16(0), uint16(0)
+		if *storyPixelTrace && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
+			// 0CF4:1B3A is the observed REP STOSB instruction. Capture only
+			// destination metadata before execution: it lets a future adapter
+			// use a bounded video-write intersection instead of scanning this
+			// whole region after every instruction.
+			storySegment, storyOffset, storyByteCount = m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]
+		}
 		if err := m.Step(); err != nil {
 			fail(err)
 		}
+		if *storyPixelTrace && storyWrite == nil {
+			pixels := m.Indexed()[17*8*320 : 22*8*320]
+			x0, y0, x1, y1 := 320, 40, -1, -1
+			for i := range pixels {
+				if pixels[i] == storyBefore[i] {
+					continue
+				}
+				x, y := i%320, i/320
+				if x < x0 {
+					x0 = x
+				}
+				if x > x1 {
+					x1 = x
+				}
+				if y < y0 {
+					y0 = y
+				}
+				if y > y1 {
+					y1 = y
+				}
+			}
+			if x1 >= 0 {
+				storyWrite = &pixelWriteJSON{Step: m.Steps - 1, Caller: at,
+					VideoSegment: storySegment, VideoOffset: storyOffset, ByteCount: storyByteCount,
+					X0: uint16(x0), Y0: uint16(y0 + 17*8), X1: uint16(x1), Y1: uint16(y1 + 17*8)}
+			}
+			copy(storyBefore, pixels)
+		}
 	}
+	flushGlyphRun()
 	events := r.Events()
 	requests := r.Requests()
 	var actionEvents []buckrogers.ActionBarEvent
@@ -742,7 +904,12 @@ func main() {
 		ManualObservations     []buckrogers.Observation `json:"manual_observations,omitempty"`
 		ManualStyle            *manualStyleJSON         `json:"manual_style,omitempty"`
 		ManualOverlay          *manualOverlayJSON       `json:"manual_overlay,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut,
+		Clears                 []clearJSON              `json:"clears,omitempty"`
+		Glyphs                 []glyphJSON              `json:"glyphs,omitempty"`
+		GlyphDrops             int                      `json:"glyph_drops,omitempty"`
+		GlyphRuns              []glyphRunJSON           `json:"glyph_runs,omitempty"`
+		StoryPixelWrite        *pixelWriteJSON          `json:"story_pixel_write,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, StoryPixelWrite: storyWrite,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))

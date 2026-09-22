@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -457,5 +458,56 @@ func TestWriteIndexedScreen(t *testing.T) {
 	}
 	if err := writeIndexedScreen(path, data[:len(data)-1]); err == nil {
 		t.Fatal("短 framebuffer 應拒絕")
+	}
+}
+
+func TestStoryDiagnosticsSerializeMetadataNotOriginalBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		keys  []string
+	}{
+		{
+			name: "single glyph",
+			value: glyphJSON{EntryStep: 1, PostCallStep: 2, Caller: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF},
+				Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: 17, Column: 1},
+			keys: []string{"entry_step", "post_call_step", "caller", "mode", "repeat", "background", "foreground", "row", "column"},
+		},
+		{
+			name: "glyph run",
+			value: glyphRunJSON{EntryStep: 1, PostCallStep: 2, Caller: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF},
+				OriginalLength: 37, OriginalSHA256: "digest", Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: 17, Column: 1},
+			keys: []string{"entry_step", "post_call_step", "caller", "original_length", "original_sha256", "mode", "repeat", "background", "foreground", "row", "column"},
+		},
+		{
+			name:  "story pixel write",
+			value: pixelWriteJSON{Step: 3, Caller: buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}, VideoSegment: 0xA000, VideoOffset: 0xAB0A, ByteCount: 285, X0: 10, Y0: 137, X1: 294, Y1: 137},
+			keys:  []string{"step", "caller", "video_segment", "video_offset", "byte_count", "x0", "y0", "x1", "y1"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var object map[string]json.RawMessage
+			if err := json.Unmarshal(data, &object); err != nil {
+				t.Fatal(err)
+			}
+			if len(object) != len(tc.keys) {
+				t.Fatalf("metadata keys=%v，要 %v", object, tc.keys)
+			}
+			for _, key := range tc.keys {
+				if _, ok := object[key]; !ok {
+					t.Fatalf("缺少 metadata key %q：%s", key, data)
+				}
+			}
+			for _, forbidden := range []string{"glyph_byte", "original_bytes", "indexed", "pixels", "answer"} {
+				if _, ok := object[forbidden]; ok {
+					t.Fatalf("content-safe 診斷不得序列化 %q：%s", forbidden, data)
+				}
+			}
+		})
 	}
 }
