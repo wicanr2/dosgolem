@@ -43,11 +43,25 @@ func (o *RuntimeStoryOpeningOverlay) Apply(events []StoryOpeningEvent, p [256][3
 	if o == nil || o.active || len(events) != 5 {
 		return fmt.Errorf("buckrogers: 首屏 apply 無效")
 	}
+	generation := events[0].Generation
+	if generation == 0 {
+		return fmt.Errorf("buckrogers: 首屏 generation 無效")
+	}
+	seen := make(map[string]bool, len(events))
 	for i, e := range events {
-		s := o.text[e.EventKey]
-		if s == "" || e.Row != uint8(17+i) || e.Column != 1 {
+		key := fmt.Sprintf("story.opening.line.%03d", i+1)
+		if e.Generation != generation || e.EntryStep >= e.PostCallStep ||
+			(i > 0 && events[i-1].PostCallStep >= e.EntryStep) ||
+			seen[e.EventKey] || e.EventKey != key || o.text[key] == "" ||
+			e.Row != uint8(17+i) || e.Column != 1 {
 			return fmt.Errorf("buckrogers: 首屏 event 無效")
 		}
+		seen[e.EventKey] = true
+	}
+	// All checks finish before mutating layer.  A malformed tail event must
+	// never leave a visible prefix when the caller handles the error.
+	for _, e := range events {
+		s := o.text[e.EventKey]
 		off := manualGlyphOffset(o.scale)
 		o.layer.Add(&xlate.Stamp{Key: e.EventKey, X: 8, Y: int(e.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: []rune(s), State: xlate.Shown, BG: p[0], FG: p[10]})
 	}
