@@ -432,6 +432,14 @@ func main() {
 	storyPage4BaselineOut := flag.String("story-page4-baseline-rgba-out", "", "輸出未覆繪第 4 頁劇情 RGBA baseline")
 	storyPage4PNGOut := flag.String("story-page4-overlay-png-out", "", "輸出第 4 頁劇情覆繪 PNG")
 	storyPage4BaselinePNGOut := flag.String("story-page4-baseline-png-out", "", "輸出未覆繪第 4 頁劇情 PNG")
+	storyPage5Events := flag.String("story-page5-events", "", "正式 story-page5-events.tsv")
+	storyPage5Translations := flag.String("story-page5-translations", "", "正式 story-page5.zh-TW.tsv")
+	storyPage5Font := flag.String("story-page5-overlay-font", "", "本機 16x16 第 5 頁劇情 GOLEMFNT")
+	storyPage5Scale := flag.Int("story-page5-overlay-scale", 0, "明示第 5 頁劇情覆繪倍率 2 或 3")
+	storyPage5Out := flag.String("story-page5-overlay-rgba-out", "", "輸出第 5 頁劇情覆繪後 RGBA framebuffer")
+	storyPage5BaselineOut := flag.String("story-page5-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪第 5 頁 RGBA baseline")
+	storyPage5PNGOut := flag.String("story-page5-overlay-png-out", "", "輸出第 5 頁劇情覆繪 PNG")
+	storyPage5BaselinePNGOut := flag.String("story-page5-baseline-png-out", "", "輸出未覆繪第 5 頁劇情 PNG")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -515,6 +523,10 @@ func main() {
 	if err := validateStoryOpeningOverlayFlags(*storyPage4Events, *storyPage4Translations, *storyPage4Font,
 		*storyPage4Out, *storyPage4BaselineOut, *storyPage4PNGOut, *storyPage4BaselinePNGOut, *storyPage4Scale); err != nil {
 		fail(fmt.Errorf("第 4 頁劇情覆繪：%w", err))
+	}
+	if err := validateStoryOpeningOverlayFlags(*storyPage5Events, *storyPage5Translations, *storyPage5Font,
+		*storyPage5Out, *storyPage5BaselineOut, *storyPage5PNGOut, *storyPage5BaselinePNGOut, *storyPage5Scale); err != nil {
+		fail(fmt.Errorf("第 5 頁劇情覆繪：%w", err))
 	}
 	if *biosKeysReceipt != "" {
 		receiptKeys, err := loadBIOSKeysReceipt(*biosKeysReceipt)
@@ -785,6 +797,24 @@ func main() {
 			fail(err)
 		}
 	}
+	var storyPage5Catalog *buckrogers.StoryPage5Catalog
+	var storyPage5Presenter *buckrogers.RuntimeStoryPage5Overlay
+	if *storyPage5Events != "" {
+		var err error
+		var text map[string]string
+		storyPage5Catalog, text, err = buckrogers.LoadStoryPage5Catalog(*storyPage5Events, mustReadFile(*storyPage5Events), *storyPage5Translations, mustReadFile(*storyPage5Translations))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*storyPage5Font)
+		if err != nil {
+			fail(err)
+		}
+		storyPage5Presenter, err = buckrogers.NewRuntimeStoryPage5Overlay(text, font, *storyPage5Scale)
+		if err != nil {
+			fail(err)
+		}
+	}
 	m := machine.New()
 	d := dos.New(m, ".")
 	d.Install()
@@ -852,7 +882,7 @@ func main() {
 			fail(err)
 		}
 	}
-	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil {
+	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil {
 		m.SetOnFrame(func() {
 			if presenter != nil {
 				presenter.Frame(m.Indexed(), m.Palette())
@@ -875,6 +905,9 @@ func main() {
 			}
 			if storyPage4Presenter != nil {
 				storyPage4Presenter.Frame(m.Indexed(), m.Palette())
+			}
+			if storyPage5Presenter != nil {
+				storyPage5Presenter.Frame(m.Indexed(), m.Palette())
 			}
 		})
 	}
@@ -932,6 +965,16 @@ func main() {
 			fail(err)
 		}
 	}
+	var storyPage5Watcher *buckrogers.StoryPage5Watcher
+	var storyPage5ReturnPending *glyphFrame
+	storyPage5Generation := uint64(0)
+	if storyPage5Catalog != nil {
+		var err error
+		storyPage5Watcher, err = buckrogers.NewStoryPage5Watcher(storyPage5Catalog)
+		if err != nil {
+			fail(err)
+		}
+	}
 	// 操作列協定與純手冊收據無關。只有呼叫端明示提供正式 catalog 時才觀測；
 	// 未設定但尚在途中的操作列協定，不得拒絕另一條已選用的手冊收據。
 	// 啟用後的既有終態檢查仍維持失敗即關閉。
@@ -953,6 +996,7 @@ func main() {
 	var storyPage2Invalidations []storyPage2InvalidationJSON
 	var storyPage3Invalidations []storyPage2InvalidationJSON
 	var storyPage4Invalidations []storyPage2InvalidationJSON
+	var storyPage5Invalidations []storyPage2InvalidationJSON
 	var storyFillWrites []storyFillWriteJSON
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
@@ -1031,6 +1075,11 @@ func main() {
 		if previousValid && isVerifiedStoryOpeningReturn(previousInstruction, previousOpcode, at, ss, sp, storyPage4ReturnPending) {
 			storyPage4Watcher.ObserveVerifiedGlyphReturn(previousInstruction, previousOpcode, at, ss, sp, m.Steps)
 			storyPage4ReturnPending = nil
+		}
+		if previousValid && isVerifiedStoryOpeningReturn(previousInstruction, previousOpcode, at, ss, sp, storyPage5ReturnPending) {
+			p := storyPage5ReturnPending
+			storyPage5Watcher.ObserveVerifiedGlyphReturn(buckrogers.StoryPage5VerifiedReturn{EntryStep: p.event.EntryStep, PostCallStep: m.Steps, Caller: p.event.Caller, SS: ss, SP: sp})
+			storyPage5ReturnPending = nil
 		}
 		if glyphPending != nil && at == glyphPending.event.Caller {
 			if ss == glyphPending.ss && sp == glyphPending.sp+0x12 {
@@ -1142,6 +1191,13 @@ func main() {
 				storyPage4Watcher.ObserveGlyphEntry(buckrogers.Address{Segment: 0x0763, Offset: 0x026B}, caller, ss, sp, args, m.Steps)
 				storyPage4ReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp}
 			}
+			if storyPage5Watcher != nil {
+				if storyPage5ReturnPending != nil {
+					storyPage5Watcher.ObserveExecutionDiscontinuity()
+				}
+				storyPage5Watcher.ObserveGlyphEntry(buckrogers.Address{Segment: 0x0763, Offset: 0x026B}, caller, ss, sp, args, m.Steps)
+				storyPage5ReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp}
+			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 			}
@@ -1222,6 +1278,14 @@ func main() {
 				storyPage4Generation = 0
 			}
 		}
+		if storyPage5Watcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
+			before := storyPage5Presenter.ActiveKeys()
+			if storyPage5Watcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+				storyPage5Invalidations = append(storyPage5Invalidations, storyPage2InvalidationJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], len(before)})
+				storyPage5Presenter.Clear()
+				storyPage5Generation = 0
+			}
+		}
 		if *storyFillTrace && len(storyFillWrites) < 64 && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) &&
 			m.CPU.Seg[cpu.ES] == 0xA000 && storyFillIntersects(m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], uint32(*storyFillRows)) {
 			storyFillWrites = append(storyFillWrites, storyFillWriteJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]})
@@ -1268,6 +1332,18 @@ func main() {
 				fail(fmt.Errorf("runtime story page4 overlay apply 失敗：%w", err))
 			}
 			storyPage4Generation = storyPage4Watcher.Generation()
+		}
+		if storyPage5Watcher != nil && storyPage5Watcher.Active() && storyPage5Watcher.Generation() != storyPage5Generation {
+			events := make([]buckrogers.StoryPage5Event, 0, 5)
+			for _, e := range storyPage5Watcher.Events() {
+				if e.Generation == storyPage5Watcher.Generation() {
+					events = append(events, e)
+				}
+			}
+			if err := storyPage5Presenter.Apply(events, m.Palette()); err != nil {
+				fail(fmt.Errorf("runtime story page5 overlay apply 失敗：%w", err))
+			}
+			storyPage5Generation = storyPage5Watcher.Generation()
 		}
 		storySegment, storyOffset, storyByteCount := uint16(0), uint16(0), uint16(0)
 		if *storyPixelTrace && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
@@ -1400,6 +1476,8 @@ func main() {
 		StoryPage3Invalidations   []storyPage2InvalidationJSON   `json:"story_page3_invalidations,omitempty"`
 		StoryPage4Overlay         *storyOpeningOverlayJSON       `json:"story_page4_overlay,omitempty"`
 		StoryPage4Invalidations   []storyPage2InvalidationJSON   `json:"story_page4_invalidations,omitempty"`
+		StoryPage5Overlay         *storyOpeningOverlayJSON       `json:"story_page5_overlay,omitempty"`
+		StoryPage5Invalidations   []storyPage2InvalidationJSON   `json:"story_page5_invalidations,omitempty"`
 		Clears                    []clearJSON                    `json:"clears,omitempty"`
 		Glyphs                    []glyphJSON                    `json:"glyphs,omitempty"`
 		GlyphDrops                int                            `json:"glyph_drops,omitempty"`
@@ -1430,6 +1508,7 @@ func main() {
 	result.StoryPage2Invalidations = storyPage2Invalidations
 	result.StoryPage3Invalidations = storyPage3Invalidations
 	result.StoryPage4Invalidations = storyPage4Invalidations
+	result.StoryPage5Invalidations = storyPage5Invalidations
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if *keyTrace {
 		pending := d.KeysPending()
@@ -1595,6 +1674,27 @@ func main() {
 			item.MissingGlyphs = append(item.MissingGlyphs, string(r))
 		}
 		result.StoryPage4Overlay = item
+	}
+	if storyPage5Presenter != nil {
+		storyPage5Presenter.Frame(m.Indexed(), m.Palette())
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *storyPage5Scale)
+		rgba, missing, drew := storyPage5Presenter.Draw(m.Indexed(), m.Palette())
+		active := storyPage5Presenter.ActiveKeys()
+		if (len(active) == 0 && (drew || len(missing) != 0)) || (len(active) != 0 && (len(active) != 5 || !drew || len(missing) != 0)) {
+			fail(fmt.Errorf("第 5 頁劇情覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing)))
+		}
+		outside, inside, added := storyPage5Diff(baseline, rgba, *storyPage5Scale)
+		if outside != 0 || (len(active) != 0 && added == 0) {
+			fail(fmt.Errorf("第 5 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
+		}
+		if err := writeManualOutputs(*storyPage5Out, *storyPage5BaselineOut, *storyPage5PNGOut, *storyPage5BaselinePNGOut, rgba, baseline, *storyPage5Scale); err != nil {
+			fail(err)
+		}
+		item := &storyOpeningOverlayJSON{Scale: *storyPage5Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
+		for _, r := range missing {
+			item.MissingGlyphs = append(item.MissingGlyphs, string(r))
+		}
+		result.StoryPage5Overlay = item
 	}
 	if catalog != nil {
 		result.Requests = requestOut
@@ -1978,6 +2078,11 @@ func storyPage4Diff(baseline, overlay []byte, scale int) (outside, inside, added
 		}
 	}
 	return outside, inside, added
+}
+
+// storyPage5Diff permits only the READY five-line rectangle [8,320)x[136,176).
+func storyPage5Diff(baseline, overlay []byte, scale int) (outside, inside, added int) {
+	return storyPage3Diff(baseline, overlay, scale)
 }
 
 func writeManualOutputs(out, baselineOut, pngOut, baselinePNG string, rgba, baseline []byte, scale int) error {
