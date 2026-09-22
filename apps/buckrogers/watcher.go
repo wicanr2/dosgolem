@@ -37,6 +37,15 @@ type ManualPresentationEvent struct {
 	Request    DisplayRequest
 }
 
+// ManualTextStyle is the palette and text-cell style observed at the exact
+// original manual-question prefix. It is presentation metadata only.
+type ManualTextStyle struct {
+	Background uint8
+	Foreground uint8
+	Row        uint8
+	Column     uint8
+}
+
 type dispatchFrame struct {
 	caller     Address
 	returnTo   Address
@@ -57,6 +66,7 @@ type Watcher struct {
 	requests     []DisplayRequest
 	events       []Observation
 	presentation []ManualPresentationEvent
+	manualStyle  *ManualTextStyle
 }
 
 func NewWatcher(catalog *Catalog) *Watcher {
@@ -76,6 +86,15 @@ func (w *Watcher) PresentationEvents() []ManualPresentationEvent {
 	return append([]ManualPresentationEvent(nil), w.presentation...)
 }
 
+// ManualStyle returns the first exact manual-prefix style as a value copy.
+// It deliberately has no framebuffer sampling fallback.
+func (w *Watcher) ManualStyle() (ManualTextStyle, bool) {
+	if w == nil || w.manualStyle == nil {
+		return ManualTextStyle{}, false
+	}
+	return *w.manualStyle, true
+}
+
 // Install binds the watcher to the proven original runtime addresses.
 func (w *Watcher) Install(o *oracle.Oracle) {
 	o.OnCall(toOracle(manualDispatcher), func(o *oracle.Oracle) { w.dispatchEntry(o) })
@@ -91,7 +110,10 @@ func (w *Watcher) dispatchEntry(o *oracle.Oracle) {
 	n := int(o.Byte(lengthAt))
 	textAt := oracle.Far(lengthAt.Seg, lengthAt.Off+1)
 	text := string(o.Bytes(textAt, n))
-	w.ObserveDispatchEntry(caller, regs.SS, regs.SP, text, o.Steps())
+	w.ObserveDispatchEntryWithStyle(caller, regs.SS, regs.SP, text, ManualTextStyle{
+		Background: uint8(o.Arg(2)), Foreground: uint8(o.Arg(3)),
+		Row: uint8(o.Arg(4)), Column: uint8(o.Arg(5)),
+	}, o.Steps())
 
 	if w.pending == nil {
 		return
@@ -108,6 +130,18 @@ func (w *Watcher) dispatchEntry(o *oracle.Oracle) {
 // ObserveDispatchEntry accepts a dispatcher-entry snapshot from an in-module
 // replay tool. Production callers normally use Install.
 func (w *Watcher) ObserveDispatchEntry(caller Address, ss, sp uint16, text string, step uint64) {
+	before := w.collector.Generation()
+	w.ObserveDispatchEntryWithStyle(caller, ss, sp, text, ManualTextStyle{}, step)
+	if w.collector.Generation() != before {
+		// This compatibility entry point has no original call style. It must
+		// never make a renderer believe that palette index zero was observed.
+		w.manualStyle = nil
+	}
+}
+
+// ObserveDispatchEntryWithStyle accepts the same guarded dispatcher snapshot
+// plus the original text-call style. Only the exact manual begin may retain it.
+func (w *Watcher) ObserveDispatchEntryWithStyle(caller Address, ss, sp uint16, text string, style ManualTextStyle, step uint64) {
 	if w.pending != nil {
 		w.dropNested(step, caller)
 		return
@@ -117,6 +151,7 @@ func (w *Watcher) ObserveDispatchEntry(caller Address, ss, sp uint16, text strin
 		text: text, generation: w.collector.Generation(),
 	}
 	if generation, ok := w.collector.BeginEntry(caller, text); ok {
+		w.manualStyle = &style
 		f.generation, f.begin = generation, true
 		w.events = append(w.events, Observation{Step: step, Kind: "begin", Caller: caller})
 		w.presentation = append(w.presentation, ManualPresentationEvent{

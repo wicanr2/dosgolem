@@ -100,7 +100,21 @@ type RuntimeManualOverlay struct {
 	generation uint64
 	state      manualOverlayState
 	actions    []ManualOverlayAction
+	style      *ManualTextStyle
 }
+
+// SetStyle supplies the exact original manual-prefix palette indexes observed
+// by Watcher. The presenter never samples a synthetic framebuffer to invent a
+// foreground colour.
+func (o *RuntimeManualOverlay) SetStyle(style ManualTextStyle) error {
+	if o == nil {
+		return fmt.Errorf("buckrogers: 手冊 presenter 不得為 nil")
+	}
+	o.style = &style
+	return nil
+}
+
+func (o *RuntimeManualOverlay) HasStyle() bool { return o != nil && o.style != nil }
 
 // NewRuntimeManualOverlay validates the full catalog font coverage before any
 // request can draw. This prevents a partial paragraph from reaching RGBA.
@@ -259,9 +273,31 @@ func (o *RuntimeManualOverlay) Frame(indexed []byte, palette [256][3]uint8) {
 	if o == nil {
 		return
 	}
-	rgb := logicalRGB(indexed, palette)
-	o.background.Frame(indexed, rgb)
-	o.text.Frame(indexed, rgb)
+	if o.style == nil {
+		rgb := logicalRGB(indexed, palette)
+		o.background.Frame(indexed, rgb)
+		o.text.Frame(indexed, rgb)
+		return
+	}
+	// The proven body rectangle may already be blank when the request completes.
+	// Use the exact original prompt style captured by Watcher instead of applying
+	// Layer.Frame's majority-colour heuristic to an all-background rectangle.
+	show := func(layer *xlate.Layer, fg uint8) {
+		for _, stamp := range layer.Stamps {
+			if stamp.State != xlate.Pending && stamp.State != xlate.Shown {
+				continue
+			}
+			// Palette animation changes RGB without changing a valid original
+			// stamp. Refresh both pending and shown stamps, but never revive an
+			// invalidated state.
+			stamp.BG, stamp.FG = palette[o.style.Background], palette[fg]
+			if stamp.State == xlate.Pending {
+				stamp.State = xlate.Shown
+			}
+		}
+	}
+	show(o.background, o.style.Background)
+	show(o.text, o.style.Foreground)
 }
 
 // Draw composes the background clear layer, then the text layer, over a fresh RGBA baseline.

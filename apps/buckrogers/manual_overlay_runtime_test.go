@@ -265,3 +265,43 @@ func TestRuntimeManualOverlayFailsClosedAndCopiesActions(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeManualOverlayUsesObservedStyleWithoutFrameSampling(t *testing.T) {
+	catalog := manualOverlayCatalog("中")
+	o, err := NewRuntimeManualOverlay(loadManualOverlayLayout(t), catalog, manualOverlayFont(catalog), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SetStyle(ManualTextStyle{Background: 10, Foreground: 15, Row: 2, Column: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Apply(ManualPresentationEvent{Kind: ManualPresentationBegin, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Apply(ManualPresentationEvent{Kind: ManualPresentationRequest, Generation: 1, Request: manualOverlayRequest(catalog, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	palette, indexed := manualOverlayPaletteAndFrame()
+	// The body has deliberately no foreground index 15. Frame must still use
+	// the observed prompt style, not infer black-on-black from this rectangle.
+	for y := 72; y < 184; y++ {
+		for x := 7; x < 312; x++ {
+			indexed[y*320+x] = 10
+		}
+	}
+	o.Frame(indexed, palette)
+	if got := o.text.Stamps[0].FG; got != palette[15] {
+		t.Fatalf("FG=%v，要原版觀測 palette[15]=%v", got, palette[15])
+	}
+	if got := o.text.Stamps[0].BG; got != palette[10] {
+		t.Fatalf("BG=%v，要原版觀測 palette[10]=%v", got, palette[10])
+	}
+	palette[15] = [3]uint8{1, 2, 3}
+	o.Frame(indexed, palette)
+	if got := o.text.Stamps[0].FG; got != palette[15] {
+		t.Fatalf("調色盤更新後 FG=%v，要 %v", got, palette[15])
+	}
+	if _, missing, drew := o.Draw(indexed, palette); !drew || len(missing) != 0 {
+		t.Fatalf("drew=%v missing=%q", drew, string(missing))
+	}
+}

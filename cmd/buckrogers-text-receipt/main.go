@@ -3,10 +3,13 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"sort"
@@ -37,6 +40,35 @@ type requestJSON struct {
 	EventKey         string `json:"event_key"`
 	TextKey          string `json:"text_key"`
 	TranslationRunes int    `json:"translation_runes"`
+}
+
+type manualPresentationJSON struct {
+	Step       uint64 `json:"step"`
+	Kind       string `json:"kind"`
+	Generation uint64 `json:"generation"`
+	EventKey   string `json:"event_key,omitempty"`
+	TextKey    string `json:"text_key,omitempty"`
+	Runes      int    `json:"translation_runes,omitempty"`
+}
+
+type manualStyleJSON struct {
+	Background uint8 `json:"background"`
+	Foreground uint8 `json:"foreground"`
+	Row        uint8 `json:"row"`
+	Column     uint8 `json:"column"`
+}
+
+type manualOverlayJSON struct {
+	Scale                 int           `json:"scale"`
+	Actions               []requestJSON `json:"actions"`
+	ActiveKeys            []string      `json:"active_keys"`
+	MissingGlyphs         []string      `json:"missing_glyphs"`
+	Drew                  bool          `json:"drew"`
+	BaselineRGBA256       string        `json:"baseline_rgba_sha256"`
+	OverlayRGBA256        string        `json:"overlay_rgba_sha256"`
+	DiffOutsideClearRect  int           `json:"diff_outside_clear_rect"`
+	DiffInsideClearRect   int           `json:"diff_inside_clear_rect"`
+	AddedNonBaselinePixel int           `json:"added_nonbaseline_pixels"`
 }
 
 type actionBarEventJSON struct {
@@ -135,6 +167,16 @@ func main() {
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
 	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
+	manualEvents := flag.String("manual-events", "", "正式 manual-events.tsv")
+	manualOrdinals := flag.String("manual-ordinals", "", "正式 manual-ordinals.tsv")
+	manualTranslations := flag.String("manual-translations", "", "正式 manual.zh-TW.tsv")
+	manualLayout := flag.String("manual-layout", "", "正式 manual-overlay-layout.tsv")
+	manualFont := flag.String("manual-overlay-font", "", "本機 16x16 手冊 GOLEMFNT")
+	manualScale := flag.Int("manual-overlay-scale", 0, "明示手冊覆繪倍率 2 或 3")
+	manualOut := flag.String("manual-overlay-rgba-out", "", "輸出手冊覆繪後 RGBA framebuffer")
+	manualBaselineOut := flag.String("manual-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的手冊 RGBA baseline")
+	manualPNGOut := flag.String("manual-overlay-png-out", "", "輸出手冊覆繪 PNG")
+	manualBaselinePNGOut := flag.String("manual-baseline-png-out", "", "輸出未覆繪手冊 PNG")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -174,6 +216,10 @@ func main() {
 	}
 	if *baselineOut != "" && *overlayOut == "" {
 		fail(fmt.Errorf("baseline-rgba-out 只能與 overlay-rgba-out 同時提供"))
+	}
+	if err := validateManualOverlayFlags(*manualEvents, *manualOrdinals, *manualTranslations, *manualLayout,
+		*manualFont, *manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, *manualScale); err != nil {
+		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
 	if err != nil {
@@ -324,6 +370,27 @@ func main() {
 			fail(err)
 		}
 	}
+	var manualCatalog *buckrogers.Catalog
+	var manualPresenter *buckrogers.RuntimeManualOverlay
+	if *manualOut != "" {
+		var err error
+		manualCatalog, err = buckrogers.LoadCatalog(mustReadFile(*manualEvents), mustReadFile(*manualOrdinals), mustReadFile(*manualTranslations))
+		if err != nil {
+			fail(err)
+		}
+		layout, err := buckrogers.LoadManualOverlayLayout("manual-overlay-layout.tsv", mustReadFile(*manualLayout))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*manualFont)
+		if err != nil {
+			fail(err)
+		}
+		manualPresenter, err = buckrogers.NewRuntimeManualOverlay(layout, manualCatalog, font, *manualScale)
+		if err != nil {
+			fail(err)
+		}
+	}
 	m := machine.New()
 	d := dos.New(m, ".")
 	d.Install()
@@ -385,10 +452,31 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		m.SetOnFrame(func() { presenter.Frame(m.Indexed(), m.Palette()) })
+		m.SetOnFrame(func() {
+			presenter.Frame(m.Indexed(), m.Palette())
+			if manualPresenter != nil {
+				manualPresenter.Frame(m.Indexed(), m.Palette())
+			}
+		})
+	}
+	if manualPresenter != nil && presenter == nil {
+		m.SetOnFrame(func() { manualPresenter.Frame(m.Indexed(), m.Palette()) })
 	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
+	var manualWatcher *buckrogers.Watcher
+	var manualBridge *buckrogers.ManualPresentationBridge
+	if manualPresenter != nil {
+		manualWatcher = buckrogers.NewWatcher(manualCatalog)
+		consumer, err := buckrogers.NewManualPresentationConsumer(manualPresenter)
+		if err != nil {
+			fail(err)
+		}
+		manualBridge, err = buckrogers.NewManualPresentationBridge(manualWatcher, consumer)
+		if err != nil {
+			fail(err)
+		}
+	}
 	actionWatcher := buckrogers.NewActionBarWatcher(actionCatalog)
 	if actionRequestCatalog != nil {
 		actionWatcher = buckrogers.NewActionBarRequestWatcher(actionRequestCatalog)
@@ -411,6 +499,13 @@ func main() {
 			top := m.Read8(cpu.Addr(ss, sp+8))
 			left := m.Read8(cpu.Addr(ss, sp+10))
 			actionWatcher.ObserveClear(bottom, right, top, left)
+			if manualWatcher != nil {
+				// A proven clear can also be the guarded return instruction of
+				// an in-flight manual dispatcher call. Preserve that post-call
+				// before applying lifecycle invalidation.
+				manualWatcher.ObserveInstruction(at, ss, sp, m.Steps)
+				manualWatcher.ObserveClear(m.Steps)
+			}
 			if presenter != nil {
 				if err := presenter.ClearTextCells(bottom, right, top, left); err != nil {
 					fail(err)
@@ -429,6 +524,11 @@ func main() {
 				original[i] = m.Read8(base + 1 + uint32(i))
 			}
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
+			if manualWatcher != nil {
+				manualWatcher.ObserveDispatchEntryWithStyle(caller, ss, sp, string(original), buckrogers.ManualTextStyle{
+					Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5]),
+				}, m.Steps)
+			}
 		} else if at == (buckrogers.Address{Segment: 0x0763, Offset: 0x026B}) {
 			caller := buckrogers.Address{Segment: m.Read16(cpu.Addr(ss, sp+2)), Offset: m.Read16(cpu.Addr(ss, sp))}
 			var args [7]uint16
@@ -439,6 +539,9 @@ func main() {
 		} else {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if manualWatcher != nil {
+				manualWatcher.ObserveInstruction(at, ss, sp, m.Steps)
+			}
 			if r.RequestCount() > requestBefore {
 				request, ok := r.LastRequest()
 				if !ok {
@@ -452,6 +555,16 @@ func main() {
 				if !eventOK || !requestOK || presenter.Apply(event, request, m.Palette()) != nil {
 					fail(fmt.Errorf("runtime overlay apply 失敗"))
 				}
+			}
+		}
+		if manualBridge != nil {
+			if style, ok := manualWatcher.ManualStyle(); ok {
+				if err := manualPresenter.SetStyle(style); err != nil {
+					fail(err)
+				}
+			}
+			if _, err := manualBridge.Sync(); err != nil {
+				fail(err)
 			}
 		}
 		if err := m.Step(); err != nil {
@@ -497,29 +610,36 @@ func main() {
 		actionRequestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
 	}
 	result := struct {
-		StateStart             uint64               `json:"state_start"`
-		StoppedAt              uint64               `json:"stopped_at"`
-		BIOSInput              string               `json:"bios_input,omitempty"`
-		Events                 []eventJSON          `json:"events"`
-		Requests               []requestJSON        `json:"requests,omitempty"`
-		CatalogMisses          *int                 `json:"catalog_misses,omitempty"`
-		BIOSKeys               []keyJSON            `json:"bios_keys,omitempty"`
-		Scratch                string               `json:"scratch,omitempty"`
-		Writes                 []writeJSON          `json:"writes,omitempty"`
-		FileOps                []fileOpJSON         `json:"file_ops,omitempty"`
-		Unimplemented          []string             `json:"unimplemented,omitempty"`
-		OverlayScale           int                  `json:"overlay_scale,omitempty"`
-		OverlayActions         []requestJSON        `json:"overlay_actions,omitempty"`
-		ActiveOverlayKeys      []string             `json:"active_overlay_keys,omitempty"`
-		OverlayMissing         []string             `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew            *bool                `json:"overlay_drew,omitempty"`
-		ActionBarEvents        []actionBarEventJSON `json:"action_bar_events,omitempty"`
-		ActionBarMisses        *int                 `json:"action_bar_misses,omitempty"`
-		ActionBarDrops         *int                 `json:"action_bar_drops,omitempty"`
-		ActionBarRequests      []requestJSON        `json:"action_bar_requests,omitempty"`
-		ActionBarCatalogMisses *int                 `json:"action_bar_catalog_misses,omitempty"`
+		StateStart             uint64                   `json:"state_start"`
+		StoppedAt              uint64                   `json:"stopped_at"`
+		BIOSInput              string                   `json:"bios_input,omitempty"`
+		Events                 []eventJSON              `json:"events"`
+		Requests               []requestJSON            `json:"requests,omitempty"`
+		CatalogMisses          *int                     `json:"catalog_misses,omitempty"`
+		BIOSKeys               []keyJSON                `json:"bios_keys,omitempty"`
+		Scratch                string                   `json:"scratch,omitempty"`
+		Writes                 []writeJSON              `json:"writes,omitempty"`
+		FileOps                []fileOpJSON             `json:"file_ops,omitempty"`
+		Unimplemented          []string                 `json:"unimplemented,omitempty"`
+		OverlayScale           int                      `json:"overlay_scale,omitempty"`
+		OverlayActions         []requestJSON            `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys      []string                 `json:"active_overlay_keys,omitempty"`
+		OverlayMissing         []string                 `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew            *bool                    `json:"overlay_drew,omitempty"`
+		ActionBarEvents        []actionBarEventJSON     `json:"action_bar_events,omitempty"`
+		ActionBarMisses        *int                     `json:"action_bar_misses,omitempty"`
+		ActionBarDrops         *int                     `json:"action_bar_drops,omitempty"`
+		ActionBarRequests      []requestJSON            `json:"action_bar_requests,omitempty"`
+		ActionBarCatalogMisses *int                     `json:"action_bar_catalog_misses,omitempty"`
+		MemorySHA256           string                   `json:"memory_sha256"`
+		IndexedSHA256          string                   `json:"indexed_sha256"`
+		PaletteSHA256          string                   `json:"palette_sha256"`
+		ManualPresentation     []manualPresentationJSON `json:"manual_presentation_events,omitempty"`
+		ManualObservations     []buckrogers.Observation `json:"manual_observations,omitempty"`
+		ManualStyle            *manualStyleJSON         `json:"manual_style,omitempty"`
+		ManualOverlay          *manualOverlayJSON       `json:"manual_overlay,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut,
-		ActionBarRequests: actionRequestOut}
+		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
 		for i, write := range d.Wrote {
@@ -552,6 +672,44 @@ func main() {
 		for _, action := range presenter.Actions() {
 			result.OverlayActions = append(result.OverlayActions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
 		}
+	}
+	if manualPresenter != nil {
+		if !manualPresenter.HasStyle() {
+			fail(fmt.Errorf("手冊覆繪沒有取得原版題目樣式"))
+		}
+		manualPresenter.Frame(m.Indexed(), m.Palette())
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *manualScale)
+		rgba, missing, drew := manualPresenter.Draw(m.Indexed(), m.Palette())
+		if err := validateManualOverlayDraw(manualPresenter.ActiveKeys(), missing, drew); err != nil {
+			fail(err)
+		}
+		outside, inside, added := manualDiff(baseline, rgba, *manualScale)
+		if outside != 0 || (len(manualPresenter.ActiveKeys()) != 0 && added == 0) {
+			fail(fmt.Errorf("手冊覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
+		}
+		if err := writeManualOutputs(*manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, rgba, baseline, *manualScale); err != nil {
+			fail(err)
+		}
+		for _, event := range manualWatcher.PresentationEvents() {
+			item := manualPresentationJSON{Step: event.Step, Kind: string(event.Kind), Generation: event.Generation}
+			if event.Kind == buckrogers.ManualPresentationRequest {
+				item.EventKey, item.TextKey, item.Runes = event.Request.EventKey, event.Request.TextKey, len([]rune(event.Request.Translation))
+			}
+			result.ManualPresentation = append(result.ManualPresentation, item)
+		}
+		result.ManualObservations = manualWatcher.Observations()
+		style, _ := manualWatcher.ManualStyle()
+		result.ManualStyle = &manualStyleJSON{style.Background, style.Foreground, style.Row, style.Column}
+		manualResult := &manualOverlayJSON{Scale: *manualScale, ActiveKeys: manualPresenter.ActiveKeys(), Drew: drew,
+			BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideClearRect: outside,
+			DiffInsideClearRect: inside, AddedNonBaselinePixel: added}
+		for _, r := range missing {
+			manualResult.MissingGlyphs = append(manualResult.MissingGlyphs, string(r))
+		}
+		for _, action := range manualPresenter.Actions() {
+			manualResult.Actions = append(manualResult.Actions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
+		}
+		result.ManualOverlay = manualResult
 	}
 	if catalog != nil {
 		result.Requests = requestOut
@@ -639,6 +797,95 @@ func writeIndexedScreen(path string, data []byte) error {
 		return fmt.Errorf("寫出 indexed framebuffer：%w", err)
 	}
 	return nil
+}
+
+func mustReadFile(path string) []byte {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		fail(err)
+	}
+	return b
+}
+
+func sha256hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func flatPalette(palette [256][3]uint8) []byte {
+	out := make([]byte, 256*3)
+	for i := range palette {
+		copy(out[i*3:i*3+3], palette[i][:])
+	}
+	return out
+}
+
+func validateManualOverlayFlags(events, ordinals, translations, layout, font, out, baseline, pngOut, baselinePNG string, scale int) error {
+	any := events != "" || ordinals != "" || translations != "" || layout != "" || font != "" || out != "" || baseline != "" || pngOut != "" || baselinePNG != "" || scale != 0
+	if !any {
+		return nil
+	}
+	if events == "" || ordinals == "" || translations == "" || layout == "" || font == "" || out == "" || baseline == "" || pngOut == "" || baselinePNG == "" || (scale != 2 && scale != 3) {
+		return fmt.Errorf("手冊覆繪需要完整 catalog、layout、字型、2/3 倍 raw RGBA 與 PNG 輸出")
+	}
+	return nil
+}
+
+func validateManualOverlayDraw(active []string, missing []rune, drew bool) error {
+	if len(active) == 0 && !drew && len(missing) == 0 {
+		return nil
+	}
+	if len(active) != 14 || !drew || len(missing) != 0 {
+		return fmt.Errorf("手冊覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing))
+	}
+	return nil
+}
+
+func manualDiff(baseline, overlay []byte, scale int) (outside, inside, added int) {
+	w := 320 * scale
+	x0, x1, y0, y1 := 7*scale, 312*scale, 72*scale, 184*scale
+	for y := 0; y < 200*scale; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if string(baseline[i:i+4]) == string(overlay[i:i+4]) {
+				continue
+			}
+			if x >= x0 && x < x1 && y >= y0 && y < y1 {
+				inside++
+				added++
+			} else {
+				outside++
+			}
+		}
+	}
+	return outside, inside, added
+}
+
+func writeManualOutputs(out, baselineOut, pngOut, baselinePNG string, rgba, baseline []byte, scale int) error {
+	if err := os.WriteFile(out, rgba, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(baselineOut, baseline, 0o644); err != nil {
+		return err
+	}
+	if err := writeRGBApng(pngOut, rgba, 320*scale, 200*scale); err != nil {
+		return err
+	}
+	return writeRGBApng(baselinePNG, baseline, 320*scale, 200*scale)
+}
+
+func writeRGBApng(path string, rgba []byte, width, height int) error {
+	if len(rgba) != width*height*4 {
+		return fmt.Errorf("RGBA 長度 %d 不符 %dx%d", len(rgba), width, height)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	copy(img.Pix, rgba)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
 
 func validateMenuCatalogFlags(events, translations string) error {

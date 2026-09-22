@@ -126,6 +126,31 @@ func TestManualPresentationEventShape(t *testing.T) {
 	}
 }
 
+func TestWatcherRetainsOnlyExactBeginStyle(t *testing.T) {
+	w := NewWatcher(nil)
+	style := ManualTextStyle{Background: 0, Foreground: 10, Row: 2, Column: 3}
+	w.ObserveDispatchEntryWithStyle(manualBegin, 1, 2, manualBeginText, style, 9)
+	got, ok := w.ManualStyle()
+	if !ok || got != style {
+		t.Fatalf("style=%+v ok=%v", got, ok)
+	}
+	got.Foreground = 15
+	again, ok := w.ManualStyle()
+	if !ok || again.Foreground != 10 {
+		t.Fatalf("style 必須是 value copy：%+v", again)
+	}
+	w2 := NewWatcher(nil)
+	w2.ObserveDispatchEntryWithStyle(Address{1, 2}, 1, 2, "other", style, 1)
+	if _, ok := w2.ManualStyle(); ok {
+		t.Fatal("非精確 begin 不得產生樣式")
+	}
+	w3 := NewWatcher(nil)
+	w3.ObserveDispatchEntry(manualBegin, 1, 2, manualBeginText, 1)
+	if _, ok := w3.ManualStyle(); ok {
+		t.Fatal("未提供樣式的相容入口不得偽稱已觀測色彩")
+	}
+}
+
 func TestWatcherPresentationLifecyclePendingClearAndVisibleClear(t *testing.T) {
 	w := NewWatcher(loadFixture(t, eventFixture, ordinalFixture(), textFixture))
 	observeManualDispatch(w, manualBegin, manualBeginText, 10)
