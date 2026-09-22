@@ -85,7 +85,7 @@ func TestStoryPage5FailureMatrixNeverDraws(t *testing.T) {
 				t.Fatal(e)
 			}
 			c, lines := page5Fixture(t)
-			for _, kind := range []string{"caller", "guard", "mode", "repeat", "style", "order", "hash", "partial", "restore", "return_caller", "return_ss", "return_sp", "unknown_write"} {
+			for _, kind := range []string{"caller", "guard", "mode", "repeat", "style", "order", "hash", "partial", "restore", "return_caller", "return_ss", "return_sp", "return_step", "unknown_write"} {
 				w, _ := NewStoryPage5Watcher(c)
 				id := c.entries[0]
 				switch kind {
@@ -109,6 +109,9 @@ func TestStoryPage5FailureMatrixNeverDraws(t *testing.T) {
 						}
 						emitPage5(w, id, b, uint8(j+1), uint64(j+1))
 					}
+					if w.misses != 1 || w.Pending() {
+						t.Fatal("completed line did not reach SHA mismatch")
+					}
 				} else if strings.HasPrefix(kind, "return_") {
 					a := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
 					w.ObserveGlyphEntry(id.Guard, id.Caller, 0x2222, 0x3333, a, 1)
@@ -117,6 +120,8 @@ func TestStoryPage5FailureMatrixNeverDraws(t *testing.T) {
 						r.Caller = Address{1, 2}
 					} else if kind == "return_ss" {
 						r.SS++
+					} else if kind == "return_step" {
+						r.PostCallStep = r.EntryStep
 					} else {
 						r.SP++
 					}
@@ -138,6 +143,88 @@ func TestStoryPage5FailureMatrixNeverDraws(t *testing.T) {
 				if d || len(o.ActiveKeys()) != 0 || string(got) != string(base) {
 					t.Fatalf("%s drew", kind)
 				}
+			}
+		})
+	}
+}
+
+func TestStoryPage5UnknownWriteDoesNotClearActiveGroup(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
+			c, lines := page5Fixture(t)
+			w, _ := NewStoryPage5Watcher(c)
+			step := uint64(1)
+			for i, line := range lines {
+				for j, b := range line {
+					emitPage5(w, c.entries[i], b, uint8(j+1), step)
+					step += 2
+				}
+			}
+			if !w.Active() || len(w.Events()) != 5 {
+				t.Fatal("complete group did not activate")
+			}
+			font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+			text := map[string]string{}
+			for i, r := range []rune("甲乙丙丁戊") {
+				font.Glyphs[r] = make([]byte, 32)
+				text[fmt.Sprintf("story.page5.line.%03d", i+1)] = string(r)
+			}
+			o, err := NewRuntimeStoryPage5Overlay(text, font, scale)
+			if err != nil {
+				t.Fatal(err)
+			}
+			palette := [256][3]uint8{}
+			if err := o.Apply(w.Events(), palette); err != nil {
+				t.Fatal(err)
+			}
+			if w.ObserveVideoWrite(Address{1, 2}, storyVideoSegment, 0xaa08, 304) || !w.Active() {
+				t.Fatal("unknown instruction cleared active group")
+			}
+			if w.ObserveVideoWrite(storyFillInstruction, 0xb800, 0xaa08, 304) || !w.Active() {
+				t.Fatal("non-video segment cleared active group")
+			}
+			if w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, 0, 8) || !w.Active() {
+				t.Fatal("nonintersecting write cleared active group")
+			}
+			indexed := make([]byte, 320*200)
+			_, missing, drew := o.Draw(indexed, palette)
+			if !drew || len(missing) != 0 || len(o.ActiveKeys()) != 5 {
+				t.Fatal("unrelated write changed output-only group")
+			}
+			if !w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, 0xaa08, 304) || w.Active() {
+				t.Fatal("measured pre-write did not clear watcher")
+			}
+			o.Clear()
+			got, missing, drew := o.Draw(indexed, palette)
+			base := ScaleIndexedRGBA(indexed, palette, scale)
+			if drew || len(missing) != 0 || len(o.ActiveKeys()) != 0 || string(got) != string(base) {
+				t.Fatal("measured pre-write left stale output")
+			}
+		})
+	}
+}
+
+func TestStoryPage5FontMissAndNonREADYFailClosedAtBothScales(t *testing.T) {
+	header := strings.Join(storyPage5EventHeader, "\t") + "\n"
+	rows := make([]string, 0, len(storyPage5Approved))
+	translations := "key\ttranslation\tsource\n"
+	for i := range storyPage5Approved {
+		key := fmt.Sprintf("story.page5.line.%03d", i+1)
+		rows = append(rows, fmt.Sprintf("%s\t%d\t%d\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t0\t0\tproven\tDRAFT", key, i+1, storyPage5Approved[i].length, storyPage5Approved[i].digest, 17+i))
+		translations += key + "\t缺\tt\n"
+	}
+	for _, scale := range []int{2, 3} {
+		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
+			font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+			text := map[string]string{}
+			for i := range storyPage5Approved {
+				text[fmt.Sprintf("story.page5.line.%03d", i+1)] = "缺"
+			}
+			if _, err := NewRuntimeStoryPage5Overlay(text, font, scale); err == nil {
+				t.Fatal("missing font glyph accepted")
+			}
+			if _, _, err := LoadStoryPage5Catalog("events", []byte(header+strings.Join(rows, "\n")+"\n"), "text", []byte(translations)); err == nil {
+				t.Fatal("DRAFT catalog accepted")
 			}
 		})
 	}
