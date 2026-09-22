@@ -91,6 +91,21 @@ func TestStoryPage3FailsClosedOnReturnAndDiscontinuity(t *testing.T) {
 	}
 }
 
+func TestStoryPage3RejectsABIHighWordsBeforeNarrowing(t *testing.T) {
+	c, lines := page3Fixture(t)
+	for i := 0; i < 7; i++ {
+		w, _ := NewStoryPage3Watcher(c)
+		args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+		args[i] |= 0x100
+		w.ObserveGlyphEntry(c.entries[0].Guard, c.entries[0].Caller, 7, 9, args, 100)
+		w.ObserveVerifiedGlyphReturn(StoryPage3VerifiedReturn{EntryStep: 100, PostCallStep: 101,
+			Caller: c.entries[0].Caller, SS: 7, SP: 9 + storyGlyphStackDelta})
+		if w.Pending() || w.Active() || len(w.Events()) != 0 || w.drops != 1 {
+			t.Fatalf("ABI word %d 的高位被截斷接受", i)
+		}
+	}
+}
+
 func TestStoryPage3WatcherRejectsIdentityDriftWithoutDraw(t *testing.T) {
 	c, lines := page3Fixture(t)
 	w, _ := NewStoryPage3Watcher(c)

@@ -82,6 +82,14 @@ func (w *StoryPage3Watcher) ObserveGlyphEntry(guard, caller Address, ss, sp uint
 	if w == nil {
 		return
 	}
+	for _, word := range args {
+		if word > 0xff {
+			w.pending = nil
+			w.drop()
+			w.drops++
+			return
+		}
+	}
 	if w.pending != nil {
 		w.pending = nil
 		w.drop()
