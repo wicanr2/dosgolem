@@ -388,6 +388,14 @@ func main() {
 	storyOpeningBaselineOut := flag.String("story-opening-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的首屏劇情 RGBA baseline")
 	storyOpeningPNGOut := flag.String("story-opening-overlay-png-out", "", "輸出首屏劇情覆繪 PNG")
 	storyOpeningBaselinePNGOut := flag.String("story-opening-baseline-png-out", "", "輸出未覆繪首屏劇情 PNG")
+	storyPage2Events := flag.String("story-page2-events", "", "正式 story-page2-events.tsv")
+	storyPage2Translations := flag.String("story-page2-translations", "", "正式 story-page2.zh-TW.tsv")
+	storyPage2Font := flag.String("story-page2-overlay-font", "", "本機 16x16 第 2 頁劇情 GOLEMFNT")
+	storyPage2Scale := flag.Int("story-page2-overlay-scale", 0, "明示第 2 頁劇情覆繪倍率 2 或 3")
+	storyPage2Out := flag.String("story-page2-overlay-rgba-out", "", "輸出第 2 頁劇情覆繪後 RGBA framebuffer")
+	storyPage2BaselineOut := flag.String("story-page2-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的第 2 頁 RGBA baseline")
+	storyPage2PNGOut := flag.String("story-page2-overlay-png-out", "", "輸出第 2 頁劇情覆繪 PNG")
+	storyPage2BaselinePNGOut := flag.String("story-page2-baseline-png-out", "", "輸出未覆繪第 2 頁劇情 PNG")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -454,6 +462,10 @@ func main() {
 	if err := validateStoryOpeningOverlayFlags(*storyOpeningEvents, *storyOpeningTranslations, *storyOpeningFont,
 		*storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, *storyOpeningScale); err != nil {
 		fail(err)
+	}
+	if err := validateStoryOpeningOverlayFlags(*storyPage2Events, *storyPage2Translations, *storyPage2Font,
+		*storyPage2Out, *storyPage2BaselineOut, *storyPage2PNGOut, *storyPage2BaselinePNGOut, *storyPage2Scale); err != nil {
+		fail(fmt.Errorf("第 2 頁劇情覆繪：%w", err))
 	}
 	if *biosKeysReceipt != "" {
 		receiptKeys, err := loadBIOSKeysReceipt(*biosKeysReceipt)
@@ -670,6 +682,24 @@ func main() {
 			fail(err)
 		}
 	}
+	var storyPage2Catalog *buckrogers.StoryPage2Catalog
+	var storyPage2Presenter *buckrogers.RuntimeStoryPage2Overlay
+	if *storyPage2Events != "" {
+		var err error
+		var text map[string]string
+		storyPage2Catalog, text, err = buckrogers.LoadStoryPage2Catalog(*storyPage2Events, mustReadFile(*storyPage2Events), *storyPage2Translations, mustReadFile(*storyPage2Translations))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*storyPage2Font)
+		if err != nil {
+			fail(err)
+		}
+		storyPage2Presenter, err = buckrogers.NewRuntimeStoryPage2Overlay(text, font, *storyPage2Scale)
+		if err != nil {
+			fail(err)
+		}
+	}
 	m := machine.New()
 	d := dos.New(m, ".")
 	d.Install()
@@ -737,7 +767,7 @@ func main() {
 			fail(err)
 		}
 	}
-	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil {
+	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil {
 		m.SetOnFrame(func() {
 			if presenter != nil {
 				presenter.Frame(m.Indexed(), m.Palette())
@@ -751,6 +781,9 @@ func main() {
 			}
 			if storyOpeningPresenter != nil {
 				storyOpeningPresenter.Frame(m.Indexed(), m.Palette())
+			}
+			if storyPage2Presenter != nil {
+				storyPage2Presenter.Frame(m.Indexed(), m.Palette())
 			}
 		})
 	}
@@ -774,6 +807,16 @@ func main() {
 	if storyOpeningCatalog != nil {
 		var err error
 		storyOpeningWatcher, err = buckrogers.NewStoryOpeningWatcher(storyOpeningCatalog)
+		if err != nil {
+			fail(err)
+		}
+	}
+	var storyPage2Watcher *buckrogers.StoryPage2Watcher
+	var storyPage2ReturnPending *glyphFrame
+	storyPage2Generation := uint64(0)
+	if storyPage2Catalog != nil {
+		var err error
+		storyPage2Watcher, err = buckrogers.NewStoryPage2Watcher(storyPage2Catalog)
 		if err != nil {
 			fail(err)
 		}
@@ -859,6 +902,11 @@ func main() {
 				EntryStep: pending.event.EntryStep, PostCallStep: m.Steps, Caller: pending.event.Caller, SS: ss, SP: sp,
 			})
 			storyGlyphReturnPending = nil
+		}
+		if previousValid && isVerifiedStoryOpeningReturn(previousInstruction, previousOpcode, at, ss, sp, storyPage2ReturnPending) {
+			p := storyPage2ReturnPending
+			storyPage2Watcher.ObserveVerifiedGlyphReturn(buckrogers.StoryPage2VerifiedReturn{EntryStep: p.event.EntryStep, PostCallStep: m.Steps, Caller: p.event.Caller, SS: ss, SP: sp})
+			storyPage2ReturnPending = nil
 		}
 		if glyphPending != nil && at == glyphPending.event.Caller {
 			if ss == glyphPending.ss && sp == glyphPending.sp+0x12 {
@@ -949,6 +997,13 @@ func main() {
 				storyOpeningWatcher.ObserveGlyphEntry(buckrogers.Address{Segment: 0x0763, Offset: 0x026B}, caller, ss, sp, args, m.Steps)
 				storyGlyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp}
 			}
+			if storyPage2Watcher != nil {
+				if storyPage2ReturnPending != nil {
+					storyPage2Watcher.ObserveExecutionDiscontinuity()
+				}
+				storyPage2Watcher.ObserveGlyphEntry(buckrogers.Address{Segment: 0x0763, Offset: 0x026B}, caller, ss, sp, args, m.Steps)
+				storyPage2ReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp}
+			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 			}
@@ -1005,12 +1060,30 @@ func main() {
 				storyOpeningGeneration = 0
 			}
 		}
+		if storyPage2Watcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
+			if storyPage2Watcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+				storyPage2Presenter.Clear()
+				storyPage2Generation = 0
+			}
+		}
 		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
 			events := storyOpeningEventsForGeneration(storyOpeningWatcher.Events(), storyOpeningWatcher.Generation())
 			if err := storyOpeningPresenter.Apply(events, m.Palette()); err != nil {
 				fail(fmt.Errorf("runtime story opening overlay apply 失敗：%w", err))
 			}
 			storyOpeningGeneration = storyOpeningWatcher.Generation()
+		}
+		if storyPage2Watcher != nil && storyPage2Watcher.Active() && storyPage2Watcher.Generation() != storyPage2Generation {
+			events := make([]buckrogers.StoryPage2Event, 0, 4)
+			for _, e := range storyPage2Watcher.Events() {
+				if e.Generation == storyPage2Watcher.Generation() {
+					events = append(events, e)
+				}
+			}
+			if err := storyPage2Presenter.Apply(events, m.Palette()); err != nil {
+				fail(fmt.Errorf("runtime story page2 overlay apply 失敗：%w", err))
+			}
+			storyPage2Generation = storyPage2Watcher.Generation()
 		}
 		storySegment, storyOffset, storyByteCount := uint16(0), uint16(0), uint16(0)
 		if *storyPixelTrace && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
@@ -1259,6 +1332,22 @@ func main() {
 			storyResult.MissingGlyphs = append(storyResult.MissingGlyphs, string(r))
 		}
 		result.StoryOpeningOverlay = storyResult
+	}
+	if storyPage2Presenter != nil {
+		storyPage2Presenter.Frame(m.Indexed(), m.Palette())
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *storyPage2Scale)
+		rgba, missing, drew := storyPage2Presenter.Draw(m.Indexed(), m.Palette())
+		active := storyPage2Presenter.ActiveKeys()
+		if (len(active) == 0 && (drew || len(missing) != 0)) || (len(active) != 0 && (len(active) != 4 || !drew || len(missing) != 0)) {
+			fail(fmt.Errorf("第 2 頁劇情覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing)))
+		}
+		outside, _, added := storyPage2Diff(baseline, rgba, *storyPage2Scale)
+		if outside != 0 || (len(active) != 0 && added == 0) {
+			fail(fmt.Errorf("第 2 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
+		}
+		if err := writeManualOutputs(*storyPage2Out, *storyPage2BaselineOut, *storyPage2PNGOut, *storyPage2BaselinePNGOut, rgba, baseline, *storyPage2Scale); err != nil {
+			fail(err)
+		}
 	}
 	if catalog != nil {
 		result.Requests = requestOut
@@ -1535,6 +1624,26 @@ func manualDiff(baseline, overlay []byte, scale int) (outside, inside, added int
 				continue
 			}
 			if x >= x0 && x < x1 && y >= y0 && y < y1 {
+				inside++
+				added++
+			} else {
+				outside++
+			}
+		}
+	}
+	return outside, inside, added
+}
+
+// storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
+func storyPage2Diff(baseline, overlay []byte, scale int) (outside, inside, added int) {
+	w := 320 * scale
+	for y := 0; y < 200*scale; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if string(baseline[i:i+4]) == string(overlay[i:i+4]) {
+				continue
+			}
+			if x >= 8*scale && x < 320*scale && y >= 136*scale && y < 168*scale {
 				inside++
 				added++
 			} else {
