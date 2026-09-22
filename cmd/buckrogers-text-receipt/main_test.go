@@ -282,6 +282,8 @@ func TestStoryOpeningReturnRequiresObservedRETFEdge(t *testing.T) {
 		{"已確認 RETF 邊", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3912, pending, true},
 		{"同位址但非 RETF", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCB, 0x1841, 0x3912, pending, false},
 		{"錯誤前一指令", buckrogers.Address{Segment: 0x0763, Offset: 0x03D7}, pending.event.Caller, 0xCA, 0x1841, 0x3912, pending, false},
+		{"錯誤 return caller", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, buckrogers.Address{Segment: 0x0763, Offset: 0x0500}, 0xCA, 0x1841, 0x3912, pending, false},
+		{"錯誤 SS", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1842, 0x3912, pending, false},
 		{"錯誤 stack", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3911, pending, false},
 		{"沒有 pending", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3912, nil, false},
 	} {
