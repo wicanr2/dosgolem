@@ -87,6 +87,18 @@ type actionBarOverlayJSON struct {
 	AddedNonBaselinePixel int                  `json:"added_nonbaseline_pixels"`
 }
 
+type storyOpeningOverlayJSON struct {
+	Scale                 int      `json:"scale"`
+	ActiveKeys            []string `json:"active_keys"`
+	MissingGlyphs         []string `json:"missing_glyphs"`
+	Drew                  bool     `json:"drew"`
+	BaselineRGBA256       string   `json:"baseline_rgba_sha256"`
+	OverlayRGBA256        string   `json:"overlay_rgba_sha256"`
+	DiffOutsideStoryRect  int      `json:"diff_outside_story_rect"`
+	DiffInsideStoryRect   int      `json:"diff_inside_story_rect"`
+	AddedNonBaselinePixel int      `json:"added_nonbaseline_pixels"`
+}
+
 // actionBarStyleJSON is content-safe receipt evidence for the READY visual
 // contract: it records palette indices, never original glyph bytes.
 type actionBarStyleJSON struct {
@@ -294,6 +306,14 @@ func main() {
 	manualBaselineOut := flag.String("manual-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的手冊 RGBA baseline")
 	manualPNGOut := flag.String("manual-overlay-png-out", "", "輸出手冊覆繪 PNG")
 	manualBaselinePNGOut := flag.String("manual-baseline-png-out", "", "輸出未覆繪手冊 PNG")
+	storyOpeningEvents := flag.String("story-opening-events", "", "正式 story-opening-events.tsv")
+	storyOpeningTranslations := flag.String("story-opening-translations", "", "正式 story-opening.zh-TW.tsv")
+	storyOpeningFont := flag.String("story-opening-overlay-font", "", "本機 16x16 首屏劇情 GOLEMFNT")
+	storyOpeningScale := flag.Int("story-opening-overlay-scale", 0, "明示首屏劇情覆繪倍率 2 或 3")
+	storyOpeningOut := flag.String("story-opening-overlay-rgba-out", "", "輸出首屏劇情覆繪後 RGBA framebuffer")
+	storyOpeningBaselineOut := flag.String("story-opening-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的首屏劇情 RGBA baseline")
+	storyOpeningPNGOut := flag.String("story-opening-overlay-png-out", "", "輸出首屏劇情覆繪 PNG")
+	storyOpeningBaselinePNGOut := flag.String("story-opening-baseline-png-out", "", "輸出未覆繪首屏劇情 PNG")
 	screenOut := flag.String("screen-out", "", "成功後寫出終態 320×200 indexed framebuffer")
 	receiptOut := flag.String("receipt-out", "", "成功後另寫出與 stdout 相同的 JSON 收據")
 	stateOut := flag.String("state-out", "", "成功後保存終態 savestate（只供本機研究）")
@@ -345,6 +365,10 @@ func main() {
 	}
 	if err := validateManualOverlayFlags(*manualEvents, *manualOrdinals, *manualTranslations, *manualLayout,
 		*manualFont, *manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, *manualScale); err != nil {
+		fail(err)
+	}
+	if err := validateStoryOpeningOverlayFlags(*storyOpeningEvents, *storyOpeningTranslations, *storyOpeningFont,
+		*storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, *storyOpeningScale); err != nil {
 		fail(err)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
@@ -536,6 +560,25 @@ func main() {
 			fail(err)
 		}
 	}
+	var storyOpeningCatalog *buckrogers.StoryOpeningCatalog
+	var storyOpeningText map[string]string
+	var storyOpeningPresenter *buckrogers.RuntimeStoryOpeningOverlay
+	if *storyOpeningEvents != "" {
+		var err error
+		storyOpeningCatalog, storyOpeningText, err = buckrogers.LoadStoryOpeningCatalog(
+			*storyOpeningEvents, mustReadFile(*storyOpeningEvents), *storyOpeningTranslations, mustReadFile(*storyOpeningTranslations))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*storyOpeningFont)
+		if err != nil {
+			fail(err)
+		}
+		storyOpeningPresenter, err = buckrogers.NewRuntimeStoryOpeningOverlay(storyOpeningText, font, *storyOpeningScale)
+		if err != nil {
+			fail(err)
+		}
+	}
 	m := machine.New()
 	d := dos.New(m, ".")
 	d.Install()
@@ -598,8 +641,12 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+	}
+	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil {
 		m.SetOnFrame(func() {
-			presenter.Frame(m.Indexed(), m.Palette())
+			if presenter != nil {
+				presenter.Frame(m.Indexed(), m.Palette())
+			}
 			if actionBarPresenter != nil {
 				actionBarPresenter.Frame(m.Indexed(), m.Palette())
 			}
@@ -607,18 +654,9 @@ func main() {
 				manualFrameCallbacks++
 				manualPresenter.Frame(m.Indexed(), m.Palette())
 			}
-		})
-	}
-	if actionBarPresenter != nil && presenter == nil && manualPresenter == nil {
-		m.SetOnFrame(func() { actionBarPresenter.Frame(m.Indexed(), m.Palette()) })
-	}
-	if manualPresenter != nil && presenter == nil {
-		m.SetOnFrame(func() {
-			if actionBarPresenter != nil {
-				actionBarPresenter.Frame(m.Indexed(), m.Palette())
+			if storyOpeningPresenter != nil {
+				storyOpeningPresenter.Frame(m.Indexed(), m.Palette())
 			}
-			manualFrameCallbacks++
-			manualPresenter.Frame(m.Indexed(), m.Palette())
 		})
 	}
 	start := m.Steps
@@ -632,6 +670,14 @@ func main() {
 			fail(err)
 		}
 		manualBridge, err = buckrogers.NewManualPresentationBridge(manualWatcher, consumer)
+		if err != nil {
+			fail(err)
+		}
+	}
+	var storyOpeningWatcher *buckrogers.StoryOpeningWatcher
+	if storyOpeningCatalog != nil {
+		var err error
+		storyOpeningWatcher, err = buckrogers.NewStoryOpeningWatcher(storyOpeningCatalog)
 		if err != nil {
 			fail(err)
 		}
@@ -651,6 +697,8 @@ func main() {
 	var glyphs []glyphJSON
 	var glyphPending *glyphFrame
 	var glyphReturnPending *glyphFrame
+	var storyGlyphReturnPending *glyphFrame
+	storyOpeningGeneration := uint64(0)
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
 	var previousOpcode uint8
@@ -700,6 +748,13 @@ func main() {
 			pending := glyphReturnPending
 			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Mode, pending.event.Repeat, pending.event.Background, pending.event.Foreground, pending.event.Row, pending.event.Column, pending.event.Caller, at, ss, sp})
 			glyphReturnPending = nil
+		}
+		if previousValid && isVerifiedStoryOpeningReturn(previousInstruction, previousOpcode, at, ss, sp, storyGlyphReturnPending) {
+			pending := storyGlyphReturnPending
+			storyOpeningWatcher.ObserveVerifiedGlyphReturn(buckrogers.StoryOpeningVerifiedReturn{
+				EntryStep: pending.event.EntryStep, PostCallStep: m.Steps, Caller: pending.event.Caller, SS: ss, SP: sp,
+			})
+			storyGlyphReturnPending = nil
 		}
 		if glyphPending != nil && at == glyphPending.event.Caller {
 			if ss == glyphPending.ss && sp == glyphPending.sp+0x12 {
@@ -783,6 +838,13 @@ func main() {
 			if *glyphReturnTrace && m.Steps >= *glyphTraceFrom && caller == (buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}) {
 				glyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller, Mode: uint8(args[0]), Repeat: uint8(args[2]), Background: uint8(args[3]), Foreground: uint8(args[4]), Row: uint8(args[5]), Column: uint8(args[6])}, ss: ss, sp: sp, highWordMask: glyphWordHighMask(args)}
 			}
+			if storyOpeningWatcher != nil {
+				if storyGlyphReturnPending != nil {
+					storyOpeningWatcher.ObserveExecutionDiscontinuity()
+				}
+				storyOpeningWatcher.ObserveGlyphEntry(buckrogers.Address{Segment: 0x0763, Offset: 0x026B}, caller, ss, sp, args, m.Steps)
+				storyGlyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp}
+			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 			}
@@ -828,6 +890,18 @@ func main() {
 				fail(err)
 			}
 		}
+		if storyOpeningWatcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) &&
+			storyOpeningWatcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+			storyOpeningPresenter.Clear()
+			storyOpeningGeneration = 0
+		}
+		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
+			events := storyOpeningEventsForGeneration(storyOpeningWatcher.Events(), storyOpeningWatcher.Generation())
+			if err := storyOpeningPresenter.Apply(events, m.Palette()); err != nil {
+				fail(fmt.Errorf("runtime story opening overlay apply 失敗：%w", err))
+			}
+			storyOpeningGeneration = storyOpeningWatcher.Generation()
+		}
 		storySegment, storyOffset, storyByteCount := uint16(0), uint16(0), uint16(0)
 		if *storyPixelTrace && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
 			// 0CF4:1B3A is the observed REP STOSB instruction. Capture only
@@ -868,6 +942,9 @@ func main() {
 			}
 			copy(storyBefore, pixels)
 		}
+	}
+	if storyOpeningWatcher != nil && storyGlyphReturnPending != nil {
+		storyOpeningWatcher.ObserveExecutionDiscontinuity()
 	}
 	flushGlyphRun()
 	events := r.Events()
@@ -943,6 +1020,7 @@ func main() {
 		ManualObservations     []buckrogers.Observation `json:"manual_observations,omitempty"`
 		ManualStyle            *manualStyleJSON         `json:"manual_style,omitempty"`
 		ManualOverlay          *manualOverlayJSON       `json:"manual_overlay,omitempty"`
+		StoryOpeningOverlay    *storyOpeningOverlayJSON `json:"story_opening_overlay,omitempty"`
 		Clears                 []clearJSON              `json:"clears,omitempty"`
 		Glyphs                 []glyphJSON              `json:"glyphs,omitempty"`
 		GlyphDrops             int                      `json:"glyph_drops,omitempty"`
@@ -1022,6 +1100,29 @@ func main() {
 			manualResult.Actions = append(manualResult.Actions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
 		}
 		result.ManualOverlay = manualResult
+	}
+	if storyOpeningPresenter != nil {
+		storyOpeningPresenter.Frame(m.Indexed(), m.Palette())
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *storyOpeningScale)
+		rgba, missing, drew := storyOpeningPresenter.Draw(m.Indexed(), m.Palette())
+		active := storyOpeningPresenter.ActiveKeys()
+		if err := validateStoryOpeningOverlayDraw(active, missing, drew); err != nil {
+			fail(err)
+		}
+		outside, inside, added := storyOpeningDiff(baseline, rgba, *storyOpeningScale)
+		if outside != 0 || (len(active) != 0 && added == 0) {
+			fail(fmt.Errorf("首屏劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
+		}
+		if err := writeManualOutputs(*storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, rgba, baseline, *storyOpeningScale); err != nil {
+			fail(err)
+		}
+		storyResult := &storyOpeningOverlayJSON{Scale: *storyOpeningScale, ActiveKeys: active, Drew: drew,
+			BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside,
+			DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
+		for _, r := range missing {
+			storyResult.MissingGlyphs = append(storyResult.MissingGlyphs, string(r))
+		}
+		result.StoryOpeningOverlay = storyResult
 	}
 	if catalog != nil {
 		result.Requests = requestOut
@@ -1201,6 +1302,69 @@ func validateManualOverlayFlags(events, ordinals, translations, layout, font, ou
 		return fmt.Errorf("手冊覆繪需要完整 catalog、layout、字型、2/3 倍 raw RGBA 與 PNG 輸出")
 	}
 	return nil
+}
+
+// validateStoryOpeningOverlayFlags makes the first-screen runtime path
+// all-or-nothing.  The catalog alone is not useful without the output-only
+// presenter that makes its result observable.
+func validateStoryOpeningOverlayFlags(events, translations, font, out, baseline, pngOut, baselinePNG string, scale int) error {
+	any := events != "" || translations != "" || font != "" || out != "" || baseline != "" || pngOut != "" || baselinePNG != "" || scale != 0
+	if !any {
+		return nil
+	}
+	if events == "" || translations == "" || font == "" || out == "" || baseline == "" || pngOut == "" || baselinePNG == "" || (scale != 2 && scale != 3) {
+		return fmt.Errorf("首屏劇情覆繪需要完整 events、translations、字型、2/3 倍 raw RGBA 與 PNG 輸出")
+	}
+	return nil
+}
+
+func storyOpeningEventsForGeneration(events []buckrogers.StoryOpeningEvent, generation uint64) []buckrogers.StoryOpeningEvent {
+	filtered := make([]buckrogers.StoryOpeningEvent, 0, 5)
+	for _, event := range events {
+		if event.Generation == generation {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
+}
+
+// isVerifiedStoryOpeningReturn encodes the READY return-edge adapter gate.
+// Reaching 0763:04FF with the right stack is not enough: the immediately
+// preceding instruction must be the observed 0763:03D6 RETF imm16 (0xCA).
+func isVerifiedStoryOpeningReturn(previous buckrogers.Address, opcode uint8, at buckrogers.Address, ss, sp uint16, pending *glyphFrame) bool {
+	return pending != nil && previous == (buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}) && opcode == 0xCA &&
+		at == pending.event.Caller && ss == pending.ss && sp == pending.sp+0x12
+}
+
+func validateStoryOpeningOverlayDraw(active []string, missing []rune, drew bool) error {
+	if len(active) == 0 && !drew && len(missing) == 0 {
+		return nil
+	}
+	if len(active) != 5 || !drew || len(missing) != 0 {
+		return fmt.Errorf("首屏劇情覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing))
+	}
+	return nil
+}
+
+// storyOpeningDiff permits only the READY first-screen text rectangle
+// [8,320)x[136,176), at the explicitly requested output scale.
+func storyOpeningDiff(baseline, overlay []byte, scale int) (outside, inside, added int) {
+	w := 320 * scale
+	for y := 0; y < 200*scale; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if string(baseline[i:i+4]) == string(overlay[i:i+4]) {
+				continue
+			}
+			if x >= 8*scale && x < 320*scale && y >= 136*scale && y < 176*scale {
+				inside++
+				added++
+			} else {
+				outside++
+			}
+		}
+	}
+	return outside, inside, added
 }
 
 func validateManualOverlayDraw(active []string, missing []rune, drew bool) error {

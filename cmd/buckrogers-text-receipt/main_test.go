@@ -193,6 +193,78 @@ func TestActionBarOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
 	}
 }
 
+func TestStoryOpeningOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
+	for _, tc := range []struct {
+		name                                              string
+		events, translations, font, out, baseline, png, b string
+		scale                                             int
+		wantOK                                            bool
+	}{
+		{"全部省略", "", "", "", "", "", "", "", 0, true},
+		{"完整 2 倍", "e", "t", "f", "o", "base", "png", "basepng", 2, true},
+		{"完整 3 倍", "e", "t", "f", "o", "base", "png", "basepng", 3, true},
+		{"缺譯文", "e", "", "f", "o", "base", "png", "basepng", 2, false},
+		{"缺字型", "e", "t", "", "o", "base", "png", "basepng", 2, false},
+		{"缺 baseline", "e", "t", "f", "o", "", "png", "basepng", 2, false},
+		{"錯誤倍率", "e", "t", "f", "o", "base", "png", "basepng", 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateStoryOpeningOverlayFlags(tc.events, tc.translations, tc.font, tc.out, tc.baseline, tc.png, tc.b, tc.scale) == nil
+			if got != tc.wantOK {
+				t.Fatalf("有效性=%v，要 %v", got, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestStoryOpeningReturnRequiresObservedRETFEdge(t *testing.T) {
+	pending := &glyphFrame{event: glyphJSON{EntryStep: 10, Caller: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}}, ss: 0x1841, sp: 0x3900}
+	for _, tc := range []struct {
+		name         string
+		previous, at buckrogers.Address
+		opcode       uint8
+		ss, sp       uint16
+		pending      *glyphFrame
+		want         bool
+	}{
+		{"已確認 RETF 邊", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3912, pending, true},
+		{"同位址但非 RETF", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCB, 0x1841, 0x3912, pending, false},
+		{"錯誤前一指令", buckrogers.Address{Segment: 0x0763, Offset: 0x03D7}, pending.event.Caller, 0xCA, 0x1841, 0x3912, pending, false},
+		{"錯誤 stack", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3911, pending, false},
+		{"沒有 pending", buckrogers.Address{Segment: 0x0763, Offset: 0x03D6}, pending.event.Caller, 0xCA, 0x1841, 0x3912, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isVerifiedStoryOpeningReturn(tc.previous, tc.opcode, tc.at, tc.ss, tc.sp, tc.pending); got != tc.want {
+				t.Fatalf("return edge=%v，要 %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStoryOpeningGenerationAndSafeRectHelpers(t *testing.T) {
+	events := []buckrogers.StoryOpeningEvent{{Generation: 1, EventKey: "old"}, {Generation: 2, EventKey: "new-1"}, {Generation: 2, EventKey: "new-2"}}
+	got := storyOpeningEventsForGeneration(events, 2)
+	if len(got) != 2 || got[0].EventKey != "new-1" || got[1].EventKey != "new-2" {
+		t.Fatalf("generation events=%#v", got)
+	}
+	baseline := make([]byte, 320*2*200*2*4)
+	overlay := append([]byte(nil), baseline...)
+	inside := ((136*2)*(320*2) + 8*2) * 4
+	overlay[inside] = 1
+	outside := ((135*2)*(320*2) + 8*2) * 4
+	overlay[outside] = 1
+	out, in, added := storyOpeningDiff(baseline, overlay, 2)
+	if out != 1 || in != 1 || added != 1 {
+		t.Fatalf("diff outside=%d inside=%d added=%d", out, in, added)
+	}
+	if err := validateStoryOpeningOverlayDraw(nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateStoryOpeningOverlayDraw([]string{"one"}, nil, true); err == nil {
+		t.Fatal("不完整首屏 stamp 必須失敗即關閉")
+	}
+}
+
 func TestActionBarDiffRejectsPixelsOutsideApprovedRow24Rects(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

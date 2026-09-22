@@ -68,3 +68,16 @@ func (o *RuntimeStoryOpeningOverlay) Draw(indexed []byte, p [256][3]uint8) ([]by
 	drew := o.layer.Draw(out, o.scale, func(r rune) { miss = append(miss, r) })
 	return out, miss, drew
 }
+
+// ActiveKeys returns the current, content-safe story event keys.  It is used
+// by receipt validation; callers cannot mutate the overlay through it.
+func (o *RuntimeStoryOpeningOverlay) ActiveKeys() []string {
+	if o == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(o.layer.Stamps))
+	for _, stamp := range o.layer.Stamps {
+		keys = append(keys, stamp.Key)
+	}
+	return keys
+}
