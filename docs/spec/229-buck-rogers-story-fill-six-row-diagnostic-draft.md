@@ -7,7 +7,7 @@
 ## 缺口與範圍
 
 `223` 的 `-story-fill-trace` 固定 rows 17–21，不能證明第四頁六行安全矩形
-`[8,320)×[136,184)` 的最早 pre-execution fill。此 DRAFT 僅擴充 receipt 的讀取
+`[8,320)×[136,184)` 的最早 pre-execution fill。本規格僅擴充 receipt 的讀取
 範圍；不接 catalog、watcher、renderer、RGBA layer、遊戲規則或存檔。
 
 ## 可丟棄診斷契約
@@ -31,4 +31,4 @@ Mode 13h half-open 計算以明示常數 `5/6` 參數化。row22-only 與 row23-
 單元測試必須保持五行既有 boundary；在六行模式中 row22-only span 必命中、row23-only
 span 必不命中，且非法 rows 拒絕。固定 commit 後以既有合法第四頁 state 及一筆正常
 BIOS Enter 雙重重播，收據須逐 byte 相同；再以 Mode 13h half-open span 對完整六行
-rectangle 重算最早相交。這是 DRAFT 量測，不使第四頁 catalog 或 adapter 變 READY。
+rectangle 重算最早相交。此診斷的 READY 不使第四頁 catalog 或 adapter 變 READY。
