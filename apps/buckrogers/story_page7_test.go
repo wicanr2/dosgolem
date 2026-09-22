@@ -3,6 +3,7 @@ package buckrogers
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -17,6 +18,28 @@ func p7(t *testing.T) (*StoryPage7Catalog, [][]byte) {
 		t.Fatal(err)
 	}
 	return c, b
+}
+func TestStoryPage7CatalogReady(t *testing.T) {
+	h := strings.Join(storyPage7EventHeader, "\t") + "\n"
+	var r []string
+	text := "key\ttranslation\tsource\n"
+	for i, a := range storyPage7Approved {
+		k := fmt.Sprintf("story.page7.line.%03d", i+1)
+		r = append(r, fmt.Sprintf("%s\t%d\t%d\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t0\t0\tconfirmed\tREADY", k, i+1, a.n, a.h, 17+i))
+		text += k + "\t甲\tt\n"
+	}
+	d := []byte(h + strings.Join(r, "\n") + "\n")
+	if _, _, e := LoadStoryPage7Catalog("e", d, "t", []byte(text)); e != nil {
+		t.Fatal(e)
+	}
+	for _, v := range []string{"READY", "0763:04FF"} {
+		if _, _, e := LoadStoryPage7Catalog("e", []byte(strings.Replace(string(d), v, "bad", 1)), "t", []byte(text)); e == nil {
+			t.Fatal("drift accepted")
+		}
+	}
+	if _, _, e := LoadStoryPage7Catalog("e", d, "t", []byte(strings.Replace(text, "story.page7.line.006\t甲\tt\n", "", 1))); e == nil {
+		t.Fatal("missing translation accepted")
+	}
 }
 func emit7(w *StoryPage7Watcher, e StoryPage7Identity, b byte, col uint8, s uint64) {
 	a := [7]uint16{1, uint16(b), 1, 0, 10, uint16(17 + int(e.Sequence) - 1), uint16(col)}
