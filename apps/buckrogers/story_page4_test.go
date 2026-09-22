@@ -7,6 +7,77 @@ import (
 	"testing"
 )
 
+// READY spec 013 failure audit: every rejected low-level variation must leave
+// no partial group for a 2x/3x presenter to draw.
+func TestStoryPage4FailureAuditAllABIAndWriteBoundaries(t *testing.T) {
+	c, lines := page4SixLineFixture()
+	for word := 0; word < 7; word++ {
+		w, _ := NewStoryPage4Watcher(c)
+		a := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+		a[word] |= 0x100
+		w.ObserveGlyphEntry(storyGlyphPrimitive, Address{0x0763, 0x04ff}, 7, 9, a, 10)
+		w.ObserveVerifiedGlyphReturn(Address{0x0763, 0x03d6}, 0xca, Address{0x0763, 0x04ff}, 7, 9+storyGlyphStackDelta, 11)
+		if w.Active() || len(w.Events()) != 0 || w.p != nil || w.frame != nil || len(w.done) != 0 {
+			t.Fatalf("ABI word %d accepted", word)
+		}
+	}
+	for _, tc := range []struct {
+		name             string
+		previous, caller Address
+		opcode           byte
+		post             uint64
+	}{
+		{"return-caller", Address{0x0763, 0x03d6}, Address{1, 2}, 0xca, 11},
+		{"return-step", Address{0x0763, 0x03d6}, Address{0x0763, 0x04ff}, 0xca, 10},
+		{"predecessor", Address{1, 2}, Address{0x0763, 0x04ff}, 0xca, 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, _ := NewStoryPage4Watcher(c)
+			a := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+			w.ObserveGlyphEntry(storyGlyphPrimitive, Address{0x0763, 0x04ff}, 7, 9, a, 10)
+			w.ObserveVerifiedGlyphReturn(tc.previous, tc.opcode, tc.caller, 7, 9+storyGlyphStackDelta, tc.post)
+			if w.Active() || len(w.Events()) != 0 || w.p != nil || w.frame != nil {
+				t.Fatal("bad return retained state")
+			}
+		})
+	}
+	w, _ := NewStoryPage4Watcher(c)
+	for i, line := range lines {
+		for j, b := range line {
+			emitPage4(w, c.entries[i], b, uint8(j+1), uint64(20+i*10+j*2))
+		}
+	}
+	if !w.Active() {
+		t.Fatal("fixture did not activate")
+	}
+	if w.ObserveVideoWrite(Address{1, 2}, storyVideoSegment, 0xaa08, 304) || !w.Active() {
+		t.Fatal("unknown write cleared")
+	}
+	if w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, 0, 8) || !w.Active() {
+		t.Fatal("nonintersecting write cleared")
+	}
+	if !w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, 0xaa08, 304) || w.Active() || len(w.Events()) != 6 {
+		t.Fatal("measured write did not fail close")
+	}
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		for i, r := range []rune("甲乙丙丁戊己") {
+			font.Glyphs[r] = make([]byte, 32)
+			text[fmt.Sprintf("story.page4.line.%03d", i+1)] = string(r)
+		}
+		o, e := NewRuntimeStoryPage4Overlay(text, font, scale)
+		if e != nil {
+			t.Fatal(e)
+		}
+		base := ScaleIndexedRGBA(make([]byte, 320*200), [256][3]uint8{}, scale)
+		got, _, d := o.Draw(make([]byte, 320*200), [256][3]uint8{})
+		if d || len(o.ActiveKeys()) != 0 || string(base) != string(got) {
+			t.Fatalf("%dx rejected state drew", scale)
+		}
+	}
+}
+
 func TestStoryPage4SixLineAtomicAndSixRowClear(t *testing.T) {
 	c := &StoryPage4Catalog{}
 	lines := make([][]byte, 6)
