@@ -187,6 +187,16 @@ type keyReadJSON struct {
 	Caller2IP uint16 `json:"caller2_ip"`
 }
 
+// keyPollJSON records only the BIOS function and whether a key was available.
+// It intentionally excludes the key word and all original game content.
+type keyPollJSON struct {
+	Step      uint64 `json:"step"`
+	AH        uint8  `json:"ah"`
+	Available bool   `json:"available"`
+	CS        uint16 `json:"cs"`
+	IP        uint16 `json:"ip"`
+}
+
 // loadBIOSKeysReceipt imports only the already-content-free numeric keyboard
 // schedule from a local receipt. It avoids copying a manual answer into shell
 // history or a versioned replay script.
@@ -392,12 +402,18 @@ func main() {
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
+	stopAtSegment := flag.Uint("stop-at-segment", 0, "診斷重播在此 runtime CS 停止；須與 stop-at-offset、stop-after-step 同時提供")
+	stopAtOffset := flag.Uint("stop-at-offset", 0, "診斷重播在此 runtime IP 停止；須與 stop-at-segment、stop-after-step 同時提供")
+	stopAfterStep := flag.Uint64("stop-after-step", 0, "診斷停止點生效的最早絕對步數；0 表示停用")
 	biosKeysReceipt := flag.String("bios-keys-receipt", "", "本機私有 receipt 的 bios_keys 排程；不得加入版本控制")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
+	}
+	if (*stopAtSegment != 0 || *stopAtOffset != 0 || *stopAfterStep != 0) && (*stopAtSegment > 0xFFFF || *stopAtOffset > 0xFFFF || *stopAtSegment == 0 || *stopAtOffset == 0 || *stopAfterStep == 0) {
+		fail(fmt.Errorf("stop-at-segment、stop-at-offset、stop-after-step 必須同時為有效值"))
 	}
 	if err := validateCatalogFlags(*menuEvents, *menuTranslations, *genderEvents, *genderTranslations,
 		*classEvents, *classTranslations, *rosterEvents, *rosterTranslations,
@@ -660,6 +676,10 @@ func main() {
 	if err := state.Load(*statePath, m, d); err != nil {
 		fail(err)
 	}
+	if *keyTrace {
+		d.KeyPollTraceFrom = *instructionTraceFrom
+		d.KeyPollTraceLimit = 4096
+	}
 	if err := configureScratch(d, *scratch); err != nil {
 		fail(err)
 	}
@@ -735,6 +755,7 @@ func main() {
 		})
 	}
 	start := m.Steps
+	keyPollsStart := d.KeyPolls
 	r := buckrogers.NewMenuRequestWatcher(catalog)
 	var manualWatcher *buckrogers.Watcher
 	var manualBridge *buckrogers.ManualPresentationBridge
@@ -823,6 +844,9 @@ func main() {
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
 		if *instructionTraceFrom != 0 && *instructionTraceLimit != 0 && m.Steps >= *instructionTraceFrom && uint64(len(instructionTrace)) < *instructionTraceLimit {
 			instructionTrace = append(instructionTrace, instructionTraceJSON{m.Steps, at, m.CPU.R[cpu.AX], m.CPU.Flags, ss, sp})
+		}
+		if *stopAfterStep != 0 && m.Steps >= *stopAfterStep && at == (buckrogers.Address{Segment: uint16(*stopAtSegment), Offset: uint16(*stopAtOffset)}) {
+			break
 		}
 		if glyphReturnPending != nil && previousValid && at == glyphReturnPending.event.Caller && ss == glyphReturnPending.ss && sp == glyphReturnPending.sp+0x12 {
 			pending := glyphReturnPending
@@ -1115,7 +1139,10 @@ func main() {
 		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
 		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
+		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
+		KeyPolls                  *int                           `json:"key_polls,omitempty"`
+		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
@@ -1134,10 +1161,20 @@ func main() {
 	if *keyTrace {
 		pending := d.KeysPending()
 		result.KeysPending = &pending
+		polls := d.KeyPolls
+		pollsDelta := polls - keyPollsStart
+		result.KeyPolls = &polls
+		result.KeyPollsDelta = &pollsDelta
 		result.KeyReads = make([]keyReadJSON, len(d.KeyReads))
 		for i, read := range d.KeyReads {
 			result.KeyReads[i] = keyReadJSON{read.Step, read.Via, read.Word, read.CS, read.IP,
 				read.CallerCS, read.CallerIP, read.Caller2CS, read.Caller2IP}
+		}
+		for _, poll := range d.KeyPollsTrace {
+			if *instructionTraceFrom != 0 && poll.Step < *instructionTraceFrom {
+				continue
+			}
+			result.KeyPollTrace = append(result.KeyPollTrace, keyPollJSON{poll.Step, poll.AH, poll.Available, poll.CS, poll.IP})
 		}
 	}
 	if presenter != nil {

@@ -39,6 +39,30 @@ func TestEmptyKeyboardQueueStillReportsNothing(t *testing.T) {
 	}
 }
 
+func TestKeyPollTraceIsOptInAndBounded(t *testing.T) {
+	d, c := newKeyboardDOS(t)
+	call16(c, d, 0x01)
+	if len(d.KeyPollsTrace) != 0 {
+		t.Fatal("預設不可累積 BIOS poll trace")
+	}
+	d.KeyPollTraceFrom = 10
+	d.KeyPollTraceLimit = 2
+	d.M.Steps = 9
+	call16(c, d, 0x01)
+	d.M.Steps = 10
+	call16(c, d, 0x01)
+	d.M.Steps = 11
+	call16(c, d, 0x01)
+	d.M.Steps = 12
+	call16(c, d, 0x01)
+	if len(d.KeyPollsTrace) != 2 || d.KeyPollsTrace[0].Step != 10 || d.KeyPollsTrace[1].Step != 11 {
+		t.Fatalf("poll trace 未遵守起點與上限：%+v", d.KeyPollsTrace)
+	}
+	if d.KeyPolls != 5 {
+		t.Fatalf("診斷上限不應改原有輪詢計數：%d", d.KeyPolls)
+	}
+}
+
 // AH=01 查詢**不取走**按鍵：連查兩次要拿到同一個，之後 AH=00 才取得走。
 // 取走與不取走在畫面上完全一樣，只有這個測試分得開。
 func TestPeekDoesNotConsumeTheKey(t *testing.T) {

@@ -329,12 +329,14 @@ func (d *DOS) int16(c *cpu.CPU) {
 		// 程式也可能繞過 int 16h 直接讀它（見 machine.PushBIOSKey）；
 		// 兩邊各留一份的話，同一個鍵會被讀兩次。
 		if v, ok := d.M.PopKey(); ok {
+			d.noteKeyPoll(c, ah(c), true)
 			c.R[cpu.AX] = v
 			d.noteKeyWord(c, "int16-AH00-bda", v)
 			d.KeysConsumed++
 			return
 		}
 		if len(d.Keys) > 0 {
+			d.noteKeyPoll(c, ah(c), true)
 			c.R[cpu.AX] = d.Keys[0]
 			d.noteKeyWord(c, "int16-AH00-queue", d.Keys[0])
 			d.Keys = d.Keys[1:]
@@ -342,28 +344,34 @@ func (d *DOS) int16(c *cpu.CPU) {
 			return
 		}
 		if len(d.Stdin) == 0 {
+			d.noteKeyPoll(c, ah(c), false)
 			c.R[cpu.AX] = 0
 			return
 		}
+		d.noteKeyPoll(c, ah(c), true)
 		c.R[cpu.AX] = keyWord(d.Stdin[0])
 		d.noteKeyWord(c, "int16-AH00-stdin", keyWord(d.Stdin[0]))
 		d.Stdin = d.Stdin[1:]
 	case 0x01, 0x11: // 查有沒有按鍵：ZF=1 表示沒有，**不消耗佇列**
 		d.KeyPolls++
 		if v, ok := d.M.PeekKey(); ok {
+			d.noteKeyPoll(c, ah(c), true)
 			c.SetFlags(c.Flags &^ cpu.ZF)
 			c.R[cpu.AX] = v
 			return
 		}
 		if len(d.Keys) > 0 {
+			d.noteKeyPoll(c, ah(c), true)
 			c.SetFlags(c.Flags &^ cpu.ZF)
 			c.R[cpu.AX] = d.Keys[0] // 查看不取走
 			return
 		}
 		if len(d.Stdin) == 0 {
+			d.noteKeyPoll(c, ah(c), false)
 			c.SetFlags(c.Flags | cpu.ZF)
 			return
 		}
+		d.noteKeyPoll(c, ah(c), true)
 		c.SetFlags(c.Flags &^ cpu.ZF)
 		c.R[cpu.AX] = keyWord(d.Stdin[0]) // 查看不取走
 	case 0x05: // 把一個鍵塞進緩衝區：CX ＝ 掃描碼<<8 | ASCII
@@ -515,6 +523,13 @@ func (d *DOS) int1A(c *cpu.CPU) {
 // noteKey 記一次按鍵被取走（`int 21h` 那幾條路，只有 ASCII）。
 func (d *DOS) noteKey(via string, key uint8) {
 	d.KeyReads = append(d.KeyReads, KeyRead{Step: d.M.Steps, Via: via, Key: key})
+}
+
+func (d *DOS) noteKeyPoll(c *cpu.CPU, fn uint8, available bool) {
+	if d.KeyPollTraceLimit <= 0 || d.M.Steps < d.KeyPollTraceFrom || len(d.KeyPollsTrace) >= d.KeyPollTraceLimit {
+		return
+	}
+	d.KeyPollsTrace = append(d.KeyPollsTrace, KeyPoll{Step: d.M.Steps, AH: fn, Available: available, CS: c.Seg[cpu.CS], IP: c.IP})
 }
 
 // noteKeyWord 記一次 `int 16h` 取走按鍵，連同字組與呼叫端（`docs/spec/185`）。
