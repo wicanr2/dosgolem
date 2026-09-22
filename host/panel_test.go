@@ -86,6 +86,27 @@ func TestPanelApplyCurrentScaleStillAutoCollapses(t *testing.T) {
 	}
 }
 
+func TestPanelCancelDiscardsPendingScaleAndAutoCollapses(t *testing.T) {
+	c, err := NewPanelController(OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = mustRoute(t, c, PanelEvent{Kind: PanelEventOpen})
+	_, _ = mustRoute(t, c, PanelEvent{Kind: PanelEventSelectScale, Scale: OutputScale3})
+	state, route := mustRoute(t, c, PanelEvent{Kind: PanelEventCancel})
+	if state.Open || state.Scales != (ScaleState{ActiveScale: OutputScale2, SelectedScale: OutputScale2}) || route != (InputRoute{ConsumedByHost: true}) {
+		t.Fatalf("Cancel state=%#v route=%#v", state, route)
+	}
+	state, route = mustRoute(t, c, PanelEvent{Kind: PanelEventKeyboard})
+	if state.Open || route != (InputRoute{ForwardToDOS: true}) {
+		t.Fatalf("post-Cancel keyboard state=%#v route=%#v", state, route)
+	}
+	state, route = mustRoute(t, c, PanelEvent{Kind: PanelEventOpen})
+	if !state.Open || state.Scales != (ScaleState{ActiveScale: OutputScale2, SelectedScale: OutputScale2}) || route != (InputRoute{ConsumedByHost: true}) {
+		t.Fatalf("reopen after Cancel state=%#v route=%#v", state, route)
+	}
+}
+
 func TestPanelRejectsIllegalEventsAtomically(t *testing.T) {
 	c, err := NewPanelController(OutputScale2)
 	if err != nil {
@@ -94,6 +115,7 @@ func TestPanelRejectsIllegalEventsAtomically(t *testing.T) {
 	for _, event := range []PanelEvent{
 		{Kind: PanelEventSelectScale, Scale: OutputScale3},
 		{Kind: PanelEventApply},
+		{Kind: PanelEventCancel},
 	} {
 		before := mustPanel(t, c)
 		if _, _, err := c.Route(event); err == nil {

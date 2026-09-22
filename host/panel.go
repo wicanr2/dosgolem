@@ -10,6 +10,7 @@ const (
 	PanelEventOpen PanelEventKind = iota + 1
 	PanelEventSelectScale
 	PanelEventApply
+	PanelEventCancel
 	PanelEventKeyboard
 	PanelEventPointerHostHit
 	PanelEventPointerMiss
@@ -35,8 +36,8 @@ type PanelState struct {
 }
 
 // PanelController 實作已確認的 host 操作契約：host hit 一律消費；面板開啟時
-// 鍵盤不送 DOS；Apply 提交倍率後自動收合並讓之後的鍵盤恢復可轉送。
-// 它不處理面板關閉而未 Apply 時的選取值，因此不替未決 UX 猜測行為。
+// 鍵盤不送 DOS；Apply 提交倍率後自動收合並讓之後的鍵盤恢復可轉送；Cancel 則捨棄
+// 暫選值，重設為 active 倍率後收合。
 type PanelController struct {
 	scales *ScaleController
 	open   bool
@@ -90,6 +91,21 @@ func (c *PanelController) Route(event PanelEvent) (PanelState, InputRoute, error
 			return PanelState{}, InputRoute{}, err
 		}
 		// 使用者已確認 Apply 後必須自動收合，不論倍率是否實際改變。
+		c.open = false
+		return c.after(InputRoute{ConsumedByHost: true})
+	case PanelEventCancel:
+		if !c.open {
+			return PanelState{}, InputRoute{}, fmt.Errorf("host: 設定面板未開啟，不能 Cancel")
+		}
+		state, err := c.scales.Snapshot()
+		if err != nil {
+			return PanelState{}, InputRoute{}, err
+		}
+		// Select 在失敗時不改 ScaleController，因此只有成功重設 selected 後才收合，
+		// 以維持 Cancel 的狀態轉移原子性。
+		if _, err := c.scales.Select(state.ActiveScale); err != nil {
+			return PanelState{}, InputRoute{}, err
+		}
 		c.open = false
 		return c.after(InputRoute{ConsumedByHost: true})
 	case PanelEventKeyboard:
