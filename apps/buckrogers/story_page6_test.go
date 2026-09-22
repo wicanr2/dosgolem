@@ -99,7 +99,7 @@ func TestStoryPage6FailureMatrixNeverDraws(t *testing.T) {
 				font.Glyphs[value] = make([]byte, 32)
 				text[fmt.Sprintf("story.page6.line.%03d", i+1)] = string(value)
 			}
-			for _, kind := range []string{"caller", "guard", "style", "order", "hash", "partial", "discontinuity", "unknown", "disjoint", "step_order"} {
+			for _, kind := range []string{"caller", "guard", "mode", "repeat", "style", "order", "hash", "partial", "discontinuity", "unknown", "disjoint", "step_order"} {
 				watcher, _ := NewStoryPage6Watcher(catalog)
 				identity := catalog.entries[0]
 				switch kind {
@@ -115,6 +115,18 @@ func TestStoryPage6FailureMatrixNeverDraws(t *testing.T) {
 				if kind == "hash" {
 					emitPage6(watcher, identity, lines[0][0], 1, 1)
 					emitPage6(watcher, identity, lines[0][1]^1, 2, 3)
+					if watcher.Pending() {
+						t.Fatal("completed SHA mismatch retained a candidate")
+					}
+				} else if kind == "mode" || kind == "repeat" {
+					args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+					if kind == "mode" {
+						args[0] = 2
+					} else {
+						args[2] = 2
+					}
+					watcher.ObserveGlyphEntry(identity.Guard, identity.Caller, 0x2222, 0x3333, args, 1)
+					watcher.ObserveVerifiedGlyphReturn(Address{0x0763, 0x03d6}, 0xca, identity.Caller, 0x2222, 0x3345, 2)
 				} else if kind == "step_order" {
 					emitPage6(watcher, identity, lines[0][0], 1, 3)
 					emitPage6(watcher, identity, lines[0][1], 2, 1)
@@ -205,8 +217,54 @@ func TestStoryPage6CatalogREADYAndFontFailClosed(t *testing.T) {
 		t.Fatal("DRAFT accepted")
 	}
 	for _, scale := range []int{2, 3} {
-		if _, err := NewRuntimeStoryPage6Overlay(map[string]string{"a": "缺"}, &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}, scale); err == nil {
+		missingText := map[string]string{}
+		for i := range storyPage6Approved {
+			missingText[fmt.Sprintf("story.page6.line.%03d", i+1)] = "缺"
+		}
+		if _, err := NewRuntimeStoryPage6Overlay(missingText, &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}, scale); err == nil {
 			t.Fatal("missing glyph accepted")
+		}
+	}
+}
+
+func TestStoryPage6PresenterApplyIsAtomicAtBothScales(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		good := make([]StoryPage6Event, 6)
+		for i, value := range []rune("甲乙丙丁戊己") {
+			font.Glyphs[value] = make([]byte, 32)
+			key := fmt.Sprintf("story.page6.line.%03d", i+1)
+			text[key] = string(value)
+			good[i] = StoryPage6Event{Generation: 1, EventKey: key, Row: uint8(17 + i), Column: 1}
+		}
+		badCases := [][]StoryPage6Event{
+			func() []StoryPage6Event { out := append([]StoryPage6Event(nil), good...); out[5].Row = 99; return out }(),
+			func() []StoryPage6Event {
+				out := append([]StoryPage6Event(nil), good...)
+				out[4].Generation = 2
+				return out
+			}(),
+			func() []StoryPage6Event {
+				out := append([]StoryPage6Event(nil), good...)
+				out[5].EventKey = out[4].EventKey
+				return out
+			}(),
+		}
+		for _, bad := range badCases {
+			overlay, err := NewRuntimeStoryPage6Overlay(text, font, scale)
+			if err != nil {
+				t.Fatal(err)
+			}
+			palette := [256][3]uint8{}
+			if err := overlay.Apply(bad, palette); err == nil {
+				t.Fatal("invalid trailing event accepted")
+			}
+			base := ScaleIndexedRGBA(make([]byte, 320*200), palette, scale)
+			got, _, drew := overlay.Draw(make([]byte, 320*200), palette)
+			if drew || len(overlay.ActiveKeys()) != 0 || string(got) != string(base) {
+				t.Fatal("failed apply left partial output")
+			}
 		}
 	}
 }
