@@ -201,18 +201,28 @@ func TestBodyIconPreExecutionVideoWriteGatesOpcodeSegmentAndIntersection(t *test
 	if item, ok := bodyIconPreExecutionVideoWrite(7, at, 0xF3, 0xAA, 0xA000, 48*320+64, 1, rects); !ok || item.Step != 7 || item.VideoSegment != 0xA000 || len(item.EventKeys) != 1 {
 		t.Fatalf("合法 prewrite 未命中：%+v ok=%v", item, ok)
 	}
+	for _, offset := range []uint16{0x184D, 0x1854} {
+		store := buckrogers.Address{Segment: 0x0763, Offset: offset}
+		first, ok := bodyIconPreExecutionVideoWrite(8, store, 0xAA, 0, 0xA000, 48*320+64, 0xFFFF, rects)
+		second, ok2 := bodyIconPreExecutionVideoWrite(9, store, 0xAA, 0, 0xA000, 48*320+64, 0xFFFF, rects)
+		if !ok || !ok2 || first.ByteCount != 1 || second.ByteCount != 1 {
+			t.Fatalf("同值與否不影響 STOSB metadata：first=%+v/%v second=%+v/%v", first, ok, second, ok2)
+		}
+	}
 	for _, tc := range []struct {
 		name       string
+		at         buckrogers.Address
 		op0, op1   uint8
 		es, offset uint16
 	}{
-		{"non F3", 0x90, 0xAA, 0xA000, 48*320 + 64},
-		{"non AA", 0xF3, 0xAB, 0xA000, 48*320 + 64},
-		{"non A000", 0xF3, 0xAA, 0xB800, 48*320 + 64},
-		{"non intersecting", 0xF3, 0xAA, 0xA000, 48*320 + 63},
+		{"non F3", at, 0x90, 0xAA, 0xA000, 48*320 + 64},
+		{"non AA", at, 0xF3, 0xAB, 0xA000, 48*320 + 64},
+		{"non A000", at, 0xF3, 0xAA, 0xB800, 48*320 + 64},
+		{"non intersecting", at, 0xF3, 0xAA, 0xA000, 48*320 + 63},
+		{"unknown STOSB", buckrogers.Address{Segment: 0x0763, Offset: 0x184C}, 0xAA, 0, 0xA000, 48*320 + 64},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, ok := bodyIconPreExecutionVideoWrite(7, at, tc.op0, tc.op1, tc.es, tc.offset, 1, rects); ok {
+			if _, ok := bodyIconPreExecutionVideoWrite(7, tc.at, tc.op0, tc.op1, tc.es, tc.offset, 1, rects); ok {
 				t.Fatal("不合法 prewrite 不得輸出")
 			}
 		})

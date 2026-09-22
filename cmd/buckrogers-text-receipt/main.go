@@ -2507,14 +2507,23 @@ func bodyIconSpanIntersections(rects []bodyIconRect, offset, count uint16) []str
 }
 
 func bodyIconPreExecutionVideoWrite(step uint64, at buckrogers.Address, op0, op1 uint8, es, offset, count uint16, rects []bodyIconRect) (bodyIconVideoWriteJSON, bool) {
-	if op0 != 0xF3 || op1 != 0xAA || es != 0xA000 {
+	if es != 0xA000 {
 		return bodyIconVideoWriteJSON{}, false
 	}
-	keys := bodyIconSpanIntersections(rects, offset, count)
+	width := count
+	if op0 == 0xAA && (at == (buckrogers.Address{Segment: 0x0763, Offset: 0x184D}) || at == (buckrogers.Address{Segment: 0x0763, Offset: 0x1854})) {
+		// IDA 9.4 runtime snapshot 0763:0000 (SHA-256 436711fe...54deac6)
+		// identifies both instructions as one-byte STOSB stores. ES is set to
+		// A000 at 0763:1830..1833; DI is the exact pre-increment pixel offset.
+		width = 1
+	} else if op0 != 0xF3 || op1 != 0xAA {
+		return bodyIconVideoWriteJSON{}, false
+	}
+	keys := bodyIconSpanIntersections(rects, offset, width)
 	if len(keys) == 0 {
 		return bodyIconVideoWriteJSON{}, false
 	}
-	return bodyIconVideoWriteJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: offset, ByteCount: count, EventKeys: keys}, true
+	return bodyIconVideoWriteJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: offset, ByteCount: width, EventKeys: keys}, true
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
