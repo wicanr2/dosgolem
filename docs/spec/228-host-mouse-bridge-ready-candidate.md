@@ -136,3 +136,41 @@ ignored bridge 在真實 Ebitengine/Xvfb 重跑 2×與3×同畫布 Down→Up，�
 保持不變。兩份私有 receipt 與 SHA-256 見該文件。這只補上原型勘誤中的畫布內 Up
 呼叫順序；其餘四角、邊界、cleanup、正式 panel route 及正常玩家因果 A/B 仍缺，
 本規格維持 DRAFT。
+
+## 2026-09-23：DRAFT 純核心 router／result 補證
+
+此節只將使用者已定案的 host 所有權語意寫成可丟棄的純核心契約，並補其單元測試；
+**不**接 dosgolem production、**不**決定正式 resize／Ebitengine hit-test API、也**不**將本規格升
+READY。實體 receipt 仍以各 phase 所記錄內容為準，不能由本節的 fake mouse 取代。
+
+輸入分成 `RoutedPointer{Pointer, Target}`：`TargetCanvas`、`TargetHost`、
+`TargetOutside` 是 host 在 Left Down 當刻完成的分類。`Router` 對 `TargetHost` 的 Down 建立
+host capture；其後的 Left Up 必須依該 capture `ConsumedByHost=true`，即使面板開啟或新的版面座標
+看似落在 canvas，也不可重新 hit-test 後轉送 DOS。closed panel 的 canvas Down 則由 `Bridge`
+擁有；其後 Up／focus-loss 以既定的 DOS cleanup 優先，故可在 panel open 時唯一地觸及 DOS 並只
+Release。panel open 的任何新 pointer（含 blank miss）均為 host consume，不建立 DOS pressed state。
+
+`Result` 固定為 `{ConsumedByHost, ForwardedToDOS, Cleanup, Reason}`：`ForwardedToDOS` 只在該次事件
+實際呼叫 DOS mouse API 時為真；`Cleanup` 只表示釋放既有的 DOS left press，host capture、orphan Up、
+repeat Up 皆為假。已測的純核心格包括 2×／3×四角 Down→同畫布 Up、canvas-out／chrome／panel／
+focus 的 release-only cleanup、每個位置的 orphan／repeat Up、duplicate Down、non-left、unknown kind、
+invalid scale、negative chrome，以及 panel blank miss／host target 跨 panel-open 的 Up capture。它們均
+檢查三個 result bit、DOS 呼叫數與順序。
+
+可重現身分（僅此純核心補證）：dosgolem 本機分支
+`buck-rogers-cht-output-overlay` 在 `c0f6d76b0eb60caa72e74a619c1b981c91b340a5`，當時 worktree clean；
+ignored `workplace/phase128-mousebridge-prototype/bridge.go` SHA-256
+`e3bdf4597895cd86f9e19c1eb1abfaf045e8f3ee522ea81ddb9bcbbfc89223c8`，
+`bridge_test.go` SHA-256
+`7b24568fbeea447f785de755cadc1e407625e2234c1843dfad42b5c03799d596`。執行命令如下：
+
+```sh
+docker run --rm --network none --memory 1g --cpus 2 --pids-limit 256 \
+  -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/phase128-go-build \
+  -v /home/anr2/cht/golden_box/拯救地球:/repo:rw \
+  -w /repo/workplace/phase128-mousebridge-prototype golang:1.26.7-bookworm \
+  sh -c 'gofmt -w bridge.go bridge_test.go && go vet ./... && go test -count=1 ./... && go test -race -count=1 ./...'
+```
+
+結果：`go vet ./...`、`go test -count=1 ./...`、`go test -race -count=1 ./...` 全數通過。
+先前段落所列舊 bridge hash 保留作其所屬 phase 的歷史定位；不得誤當成本節的 source 身分。
