@@ -58,6 +58,97 @@ func TestStoryPage7PresenterFailClosedBothScales(t *testing.T) {
 		}
 	}
 }
+func TestStoryPage7WatcherFailureMatrix(t *testing.T) {
+	c, b := p7(t)
+	for _, high := range []bool{false, true} {
+		for i := 0; i < 7; i++ {
+			w, _ := NewStoryPage7Watcher(c)
+			a := [7]uint16{1, uint16(b[0][0]), 1, 0, 10, 17, 1}
+			if high {
+				a[i] |= 0x100
+			} else {
+				a[i] = (a[i] + 1) & 255
+			}
+			w.ObserveGlyphEntry(storyGlyphPrimitive, Address{0x0763, 0x04ff}, 7, 9, a, 1)
+			if !high && i == 1 {
+				w.ObserveVerifiedGlyphReturn(Address{0x0763, 0x03d6}, 0xca, Address{0x0763, 0x04ff}, 7, 9+storyGlyphStackDelta, 2)
+				emit7(w, c.entries[0], b[0][1], 2, 3)
+				if w.p != nil {
+					t.Fatal("glyph low byte hash tail")
+				}
+				continue
+			}
+			if w.f != nil {
+				t.Fatalf("ABI %v/%d", high, i)
+			}
+		}
+	}
+	for _, kind := range []string{"caller", "guard", "style", "row", "col", "previous", "opcode", "returncaller", "ss", "sp", "post"} {
+		w, _ := NewStoryPage7Watcher(c)
+		a := [7]uint16{1, 1, 1, 0, 10, 17, 1}
+		caller, guard := Address{0x0763, 0x04ff}, storyGlyphPrimitive
+		if kind == "caller" {
+			caller = Address{1, 2}
+		}
+		if kind == "guard" {
+			guard = Address{1, 2}
+		}
+		if kind == "style" {
+			a[4] = 9
+		}
+		if kind == "row" {
+			a[5] = 18
+		}
+		if kind == "col" {
+			a[6] = 2
+		}
+		w.ObserveGlyphEntry(guard, caller, 7, 9, a, 10)
+		prev := Address{0x0763, 0x03d6}
+		op := byte(0xca)
+		ret := caller
+		ss, sp, post := uint16(7), uint16(9+storyGlyphStackDelta), uint64(11)
+		if kind == "previous" {
+			prev = Address{1, 2}
+		}
+		if kind == "opcode" {
+			op = 0
+		}
+		if kind == "returncaller" {
+			ret = Address{1, 2}
+		}
+		if kind == "ss" {
+			ss++
+		}
+		if kind == "sp" {
+			sp++
+		}
+		if kind == "post" {
+			post = 10
+		}
+		w.ObserveVerifiedGlyphReturn(prev, op, ret, ss, sp, post)
+		if w.Active() || w.p != nil || len(w.Events()) != 0 {
+			t.Fatal(kind)
+		}
+	}
+	w, _ := NewStoryPage7Watcher(c)
+	emit7(w, c.entries[0], b[0][0], 1, 10)
+	emit7(w, c.entries[0], b[0][1]^1, 2, 12)
+	if w.p != nil {
+		t.Fatal("hash tail")
+	}
+	w.ObserveExecutionDiscontinuity()
+	if w.Active() || w.p != nil {
+		t.Fatal("discontinuity")
+	}
+	for _, q := range []struct {
+		at        Address
+		es, di, n uint16
+	}{{Address{1, 2}, storyVideoSegment, 0xaa08, 304}, {storyFillInstruction, 0xb800, 0xaa08, 304}, {storyFillInstruction, storyVideoSegment, 137 * 320, 8}, {storyFillInstruction, storyVideoSegment, 184*320 + 8, 1}} {
+		if w.ObserveVideoWrite(q.at, q.es, q.di, q.n) {
+			t.Fatal("write")
+		}
+	}
+}
 func TestStoryPage7CatalogReady(t *testing.T) {
 	h := strings.Join(storyPage7EventHeader, "\t") + "\n"
 	var r []string
