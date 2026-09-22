@@ -56,6 +56,35 @@ ignored Ebitengine/Xvfb normal-player receipt 必須以同一原版 state、同�
 
 phase127 僅證實實驗 API state mutation、未 Step 的 indexed 相同；不能證明玩家可見效果。
 
+## 2026-09-22 phase134 補充證據（仍為 DRAFT）
+
+ignored 的真實 Ebitengine/Xvfb 2× receipt 已新增兩個狹窄案例：accepted canvas Down 後，harness
+以既有 `PanelController` 設為 open，再由真實 chrome Up 做 cleanup；及 panel-open harness precondition
+下的真實新 Down/Up。前者只出現 `MoveMouse(100,82)`、`PressMouse(0)`、`ReleaseMouse(0)`，Up 不移動
+DOS 座標且清 button；後者零 DOS API、mouse／BIOS／IRQ／indexed hash 均不變，Up 後 50,000 Step
+仍無 indexed 差異。完整 private receipt 位於主專案 `phase134-panel-open-up-2x-v2` 與
+`phase134-panel-open-new-2x-v5`。
+
+兩例的 X11 pointer edge 都是真實 Ebitengine 事件，但 panel state 是 harness precondition，非正式
+backend host hit routing。因此它們不滿足 READY 矩陣中「panel open 的 host hit 與 miss」或 focus-loss、
+orphan/repeated Up、3×對應格；本規格維持 DRAFT。
+
+## 2026-09-22 phase135／137 補充證據（仍為 DRAFT）
+
+主專案 `docs/re/phase-135-real-ebiten-mouse-focus-loss-and-release-edges.md` 的真實 X11
+focus-loss 收據證明：2×已接受 Down 後，`ebiten.IsFocused()` 真→假時只
+`ReleaseMouse(0)`、不 `MoveMouse`，DOS button 由 1 清為 0；孤兒與重複的實體
+`mouseup` 沒有形成新的 Ebitengine public input release edge，不能冒稱 bridge
+收到該 callback。3× panel-open 前提下的新 Down/Up 零 DOS API。
+
+主專案 `docs/re/phase-137-real-host-panel-route-and-3x-cleanup.md` 又記錄 2×／3×真實
+host Open hit，及 open-panel 空白 miss：hit 由 `PanelController` 消費，miss 核心
+仍回 `ConsumedByHost=false,ForwardToDOS=false`，但 open-panel bridge 不送新事件進 DOS。
+3×已接受 Down 後再由 harness 開面板、於 chrome Up 只 Release；這不是實體 host
+hit 在 pressed 時開面板。上述案例均以 `cmd/state-compare` 核對起點相等，且沒有
+可歸因的遊戲滑鼠可見效果。四角／邊界、雙倍率每種 cleanup、正式 miss route
+與正常玩家因果 A/B 仍缺，故本規格不升 READY。
+
 ## 2026-09-22 READY 證據審查
 
 結論：**維持 DRAFT，不能升 READY。** 更正先前搜尋深度不足的誤述：phase127 的可回讀 A/B 收據
