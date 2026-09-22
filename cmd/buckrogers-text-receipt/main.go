@@ -143,6 +143,17 @@ type scheduledBIOSKey struct {
 	ASCII uint8
 }
 
+// instructionTraceJSON is deliberately bounded diagnostic metadata. It
+// contains control-flow and register state, not game bytes or screen content.
+type instructionTraceJSON struct {
+	Step  uint64             `json:"step"`
+	At    buckrogers.Address `json:"at"`
+	AX    uint16             `json:"ax"`
+	Flags uint16             `json:"flags"`
+	SS    uint16             `json:"ss"`
+	SP    uint16             `json:"sp"`
+}
+
 type scheduledBIOSKeys []scheduledBIOSKey
 
 func (s *scheduledBIOSKeys) String() string { return "" }
@@ -159,6 +170,21 @@ type keyJSON struct {
 	QueuedAt uint64 `json:"queued_at"`
 	Scan     uint8  `json:"scan"`
 	ASCII    uint8  `json:"ascii"`
+}
+
+// keyReadJSON is deliberately content-safe: it records only the input word,
+// the DOS/BIOS intake path and the original consumer's real-mode locations.
+// It never serializes displayed text, memory contents, or host input.
+type keyReadJSON struct {
+	Step      uint64 `json:"step"`
+	Via       string `json:"via"`
+	Word      uint16 `json:"word"`
+	CS        uint16 `json:"cs"`
+	IP        uint16 `json:"ip"`
+	CallerCS  uint16 `json:"caller_cs"`
+	CallerIP  uint16 `json:"caller_ip"`
+	Caller2CS uint16 `json:"caller2_cs"`
+	Caller2IP uint16 `json:"caller2_ip"`
 }
 
 // loadBIOSKeysReceipt imports only the already-content-free numeric keyboard
@@ -363,6 +389,9 @@ func main() {
 	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
 	glyphReturnTrace := flag.Bool("glyph-return-edge-trace", false, "記錄 0763:026B 的 content-safe RETF control-flow edge")
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
+	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
+	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
+	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
 	biosKeysReceipt := flag.String("bios-keys-receipt", "", "本機私有 receipt 的 bios_keys 排程；不得加入版本控制")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
@@ -754,6 +783,7 @@ func main() {
 	var glyphRuns []glyphRunJSON
 	glyphDrops := 0
 	var storyWrite *pixelWriteJSON
+	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
 	if *storyPixelTrace {
 		copy(storyBefore, m.Indexed()[17*8*320:22*8*320])
@@ -791,6 +821,9 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if *instructionTraceFrom != 0 && *instructionTraceLimit != 0 && m.Steps >= *instructionTraceFrom && uint64(len(instructionTrace)) < *instructionTraceLimit {
+			instructionTrace = append(instructionTrace, instructionTraceJSON{m.Steps, at, m.CPU.R[cpu.AX], m.CPU.Flags, ss, sp})
+		}
 		if glyphReturnPending != nil && previousValid && at == glyphReturnPending.event.Caller && ss == glyphReturnPending.ss && sp == glyphReturnPending.sp+0x12 {
 			pending := glyphReturnPending
 			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Mode, pending.event.Repeat, pending.event.Background, pending.event.Foreground, pending.event.Row, pending.event.Column, pending.event.Caller, at, ss, sp})
@@ -1081,7 +1114,10 @@ func main() {
 		GlyphRuns                 []glyphRunJSON                 `json:"glyph_runs,omitempty"`
 		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
 		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryOpeningInvalidations: storyOpeningInvalidations,
+		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
+		KeysPending               *int                           `json:"keys_pending,omitempty"`
+		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -1095,6 +1131,15 @@ func main() {
 		}
 	}
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
+	if *keyTrace {
+		pending := d.KeysPending()
+		result.KeysPending = &pending
+		result.KeyReads = make([]keyReadJSON, len(d.KeyReads))
+		for i, read := range d.KeyReads {
+			result.KeyReads[i] = keyReadJSON{read.Step, read.Via, read.Word, read.CS, read.IP,
+				read.CallerCS, read.CallerIP, read.Caller2CS, read.Caller2IP}
+		}
+	}
 	if presenter != nil {
 		if *baselineOut != "" {
 			baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *overlayScale)
