@@ -220,3 +220,45 @@ captured Up 的純核心契約或正常玩家路徑驗收。
 本節 source 基準為 dosgolem `95f2c456368e316107517c28ca188392d1357e13`；ignored
 `epoch.go` SHA-256 `fb052a423e890a1a2b79d8549006acf522c015e24c9d4cbd6f70e5d4aac14870`、
 `epoch_test.go` SHA-256 `f3d8e11ad0637136807bcb1ced266d2c620d13ca19780fc30b73e101b17fc9eb`。
+
+## 2026-09-23：DRAFT receipt provenance 修正與 phase159 停止線
+
+`mouse_receipt.go` 不再寫死舊的 `b4e1fb7…`。`physical_mouse_receipt.sh` 在每次 Docker/Xvfb
+run 開始前，以 `git -C ../dosgolem` 讀取並強制填入：`dosgolem_commit`、
+`dosgolem_mouse_code_commit`（`internal/dos/bios.go`／`mouse_contract_test.go` 的最後 code commit）、
+`dosgolem_worktree` 與 inner `runner_command`；任何一欄缺失即不產生 receipt。這讓文件／整體
+source 基準與實際 mouse API code 基準分開：前者可固定 `a69b3a4…`，後者本輪為
+`6f828360d61696e822fd206c1fbef7c72ada02b1`，不可把 docs-only commit 誤稱為 API code 修改。
+
+唯一在 worktree clean 時完成的新 provenance receipt 是
+`phase159-provenance-2x-tl/mouse-receipt.json`，SHA-256
+`52094747067e5f2f1613f5355e0f29baa4f491fae6c0085bb1260b7079707185`；其 metadata 為
+`dosgolem_commit=a69b3a4c5660a8ff8e7c46331e22b8d0b81ddc82`、
+`dosgolem_mouse_code_commit=6f828360d61696e822fd206c1fbef7c72ada02b1`、`worktree=clean`，
+inner command 為 `bash ./physical_mouse_receipt.sh geometry 2 out/phase159-provenance-2x-tl tl`。
+provenance harness 的 SHA-256：`mouse_receipt.go`
+`f5ff01bef93b98de9ee50a5f8bb8f9d2c36f2000491b28e1045a2ae63073c157`、
+`physical_mouse_receipt.sh`
+`6a7e95b43b3ea5b70ec16b87052eec99d88bd564c60bcb175a9d97a765c85fde`。
+
+phase159 嘗試重跑 2×右上時，在無 guard 的 640×436 logical surface 請求合法末內點
+`(639,36)`；Xvfb 實體 `(639,36)` 被 Ebitengine 回報為 `(640,36)`，所以 harness 依 snapshot
+契約 fail-closed（`unexpected down 640,36`）。這表示 phase158 的 public-API 停止線不只涵蓋
+exclusive right／bottom `(640,36)`／`(0,436)` 與 3×對應點，也使 literal right-side corner
+無法無 guard 重建。故剩餘四角、outside-right cleanup 的 phase159 run 不得以舊 guard receipt 或
+後續 dirty worktree receipt補稱為 a69 clean matrix；在批准替代觀測機制前停止該分支。
+
+完整 outer command 契約為：
+
+```sh
+docker run --rm --network none --memory 2g --cpus 2 --pids-limit 512 \
+  -u "$(id -u):$(id -g)" \
+  -v /home/anr2/cht/golden_box/拯救地球:/project:rw \
+  -v /home/anr2/cht/golden_box/拯救地球/workplace/original/BRcdoom:/orig:ro \
+  -w /project/workplace/phase118-game-ebiten-active-story \
+  eob-remake-go:1.26.7-ebiten2.9.9 \
+  bash ./physical_mouse_receipt.sh geometry 2 out/phase159-provenance-2x-tl tl
+```
+
+此 provenance 修正與單一 clean receipt 不足以升 READY；它只消除舊 receipt 身分不可重現的問題，
+不推翻 phase158 邊界停止線或取代正常玩家路徑 A/B。
