@@ -192,6 +192,12 @@ type glyphReturnEdgeJSON struct {
 	ReturnInstruction buckrogers.Address `json:"return_instruction"`
 	ReturnOpcode      uint8              `json:"return_opcode"`
 	HighWordMask      uint8              `json:"high_word_mask"`
+	Mode              uint8              `json:"mode"`
+	Repeat            uint8              `json:"repeat"`
+	Background        uint8              `json:"background"`
+	Foreground        uint8              `json:"foreground"`
+	Row               uint8              `json:"row"`
+	Column            uint8              `json:"column"`
 	Caller            buckrogers.Address `json:"caller"`
 	PostAddress       buckrogers.Address `json:"post_address"`
 	SS                uint16             `json:"ss"`
@@ -692,7 +698,7 @@ func main() {
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
 		if glyphReturnPending != nil && previousValid && at == glyphReturnPending.event.Caller && ss == glyphReturnPending.ss && sp == glyphReturnPending.sp+0x12 {
 			pending := glyphReturnPending
-			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Caller, at, ss, sp})
+			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Mode, pending.event.Repeat, pending.event.Background, pending.event.Foreground, pending.event.Row, pending.event.Column, pending.event.Caller, at, ss, sp})
 			glyphReturnPending = nil
 		}
 		if glyphPending != nil && at == glyphPending.event.Caller {
@@ -775,7 +781,7 @@ func main() {
 			// every unrelated glyph return would create a huge receipt without
 			// strengthening the first-screen return-edge contract.
 			if *glyphReturnTrace && m.Steps >= *glyphTraceFrom && caller == (buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}) {
-				glyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp, highWordMask: glyphWordHighMask(args)}
+				glyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller, Mode: uint8(args[0]), Repeat: uint8(args[2]), Background: uint8(args[3]), Foreground: uint8(args[4]), Row: uint8(args[5]), Column: uint8(args[6])}, ss: ss, sp: sp, highWordMask: glyphWordHighMask(args)}
 			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)

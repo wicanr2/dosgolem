@@ -487,7 +487,7 @@ func TestStoryDiagnosticsSerializeMetadataNotOriginalBytes(t *testing.T) {
 		{
 			name:  "glyph return edge",
 			value: glyphReturnEdgeJSON{EntryStep: 1, ReturnStep: 2, ReturnInstruction: buckrogers.Address{Segment: 0x0763, Offset: 0x1809}, ReturnOpcode: 0xCA, HighWordMask: 0x7f, Caller: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}, PostAddress: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}, SS: 0x1234, SP: 0x5678},
-			keys:  []string{"entry_step", "return_step", "return_instruction", "return_opcode", "high_word_mask", "caller", "post_address", "ss", "sp"},
+			keys:  []string{"entry_step", "return_step", "return_instruction", "return_opcode", "high_word_mask", "mode", "repeat", "background", "foreground", "row", "column", "caller", "post_address", "ss", "sp"},
 		},
 	}
 	for _, tc := range tests {
