@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
@@ -43,6 +44,41 @@ func TestKeyboardBridgeForwardsOnlyWhenPanelClosed(t *testing.T) {
 	}
 	if got := m.KeyCodes(); !reflect.DeepEqual(got, before) {
 		t.Fatalf("open panel queued DOS keyboard events: got %#v, before %#v", got, before)
+	}
+}
+
+func TestKeyboardBridgeBIOSDeliveryRespectsPanelFocus(t *testing.T) {
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := NewKeyboardBridgeWithBIOS(panel, m, bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := dos.Key{Scan: 0x1c, ASCII: 0x0d}
+	_, route, err := bridge.DeliverBIOSKey(key)
+	if err != nil || !route.ForwardToDOS || bios.KeysPending() != 1 {
+		t.Fatalf("closed BIOS route=%+v pending=%d err=%v", route, bios.KeysPending(), err)
+	}
+	if _, _, err := panel.Route(host.PanelEvent{Kind: host.PanelEventOpen}); err != nil {
+		t.Fatal(err)
+	}
+	before := bios.KeysPending()
+	_, route, err = bridge.DeliverBIOSKey(key)
+	if err != nil || !route.ConsumedByHost || route.ForwardToDOS || bios.KeysPending() != before {
+		t.Fatalf("open BIOS route=%+v pending=%d before=%d err=%v", route, bios.KeysPending(), before, err)
+	}
+	if _, err := NewKeyboardBridgeWithBIOS(panel, m, nil); err == nil {
+		t.Fatal("nil BIOS unexpectedly accepted")
+	}
+	other := machine.New()
+	otherDOS := dos.New(other, ".")
+	if _, err := NewKeyboardBridgeWithBIOS(panel, m, otherDOS); err == nil {
+		t.Fatal("different machine BIOS unexpectedly accepted")
 	}
 }
 

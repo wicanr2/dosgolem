@@ -44,6 +44,9 @@ func (s *MachineFrameSource) ReadPresentationFrame() (host.IndexedFrame, error)
 
 func NewKeyboardBridge(*host.PanelController, *machine.Machine) (*KeyboardBridge, error)
 func (b *KeyboardBridge) DeliverDOSScan(scan uint8) (host.PanelState, host.InputRoute, error)
+
+func NewKeyboardBridgeWithBIOS(*host.PanelController, *machine.Machine, *dos.DOS) (*KeyboardBridge, error)
+func (b *KeyboardBridge) DeliverBIOSKey(key dos.Key) (host.PanelState, host.InputRoute, error)
 ```
 
 `MachineFrameSource` 必須拒絕 nil machine，並且 fail-closed 拒絕無效尺寸或 indexed 長度與
@@ -56,6 +59,10 @@ machine。
 面板開啟時不得改鍵盤佇列；關閉時寫入的一組 make／break code 是明確、刻意的原版輸入，不是
 「零副作用」。
 
+不同原版畫面可能讀 BIOS `int 16h` 而不是 IRQ1。`DeliverBIOSKey` 因此只接受呼叫端明示的
+`dos.Key{Scan, ASCII}`，同樣先走 `PanelController`，關閉面板才 `DOS.PushKey`。它不從 scan
+猜 ASCII、不混送 IRQ1，且 constructor 必須拒絕不屬於同一 machine 的 DOS service。
+
 ## CONFORMED 純核心收據
 
 實作位於 `presentation/machine.go` 與 `presentation/keyboard.go`，測試位於同 package：
@@ -64,6 +71,8 @@ machine。
   machine VRAM 與下一張 snapshot 都不變；nil source fail-closed；
 - 關閉面板時 bridge 將 scan `0x1e` 排成 `0x1e,0x9e`；開啟面板後送 `0x30`，佇列保持不變；
   nil dependencies fail-closed。
+- 明示 BIOS `{Scan:0x1c, ASCII:0x0d}` 在關閉面板時才使 `KeysPending` 增加；面板開啟時
+  保持不變，nil／不同 machine DOS 均 fail-closed。
 
 2026-09-22 已在 Docker 以 `go test -race ./host ./presentation` 與
 `go vet ./host ./presentation` 通過。這只 CONFORM 上述純資料／鍵盤轉送核心；spec 004 仍為

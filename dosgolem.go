@@ -20,6 +20,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/internal/state"
 )
 
 // 三個核心型別。別名而不是包裝：使用端拿到的就是本體，
@@ -59,6 +60,15 @@ func New() *Machine { return machine.New() }
 
 // NewDOS 造一個服務層。root 是程式看得到的目錄。
 func NewDOS(m *Machine, root string) *DOS { return dos.New(m, root) }
+
+// SaveStateFile 保存一台 machine 與其 DOS service state 到本機檔案。
+// 它是通用 checkpoint API；不包含任何遊戲專屬資料或前端狀態。
+func SaveStateFile(path string, m *Machine, d *DOS) error { return state.Save(path, m, d) }
+
+// LoadStateFile 從 SaveStateFile 的檔案還原 machine 與 DOS service state。
+// 呼叫端必須先以 New 建立 machine、以 NewDOS 建立並 Install DOS service；
+// 前端仍須自行保證這個操作與 Machine.Step 在同一 goroutine。
+func LoadStateFile(path string, m *Machine, d *DOS) error { return state.Load(path, m, d) }
 
 // 通用暫存器索引，照 8086 的編碼順序。
 const (
