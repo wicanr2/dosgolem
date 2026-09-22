@@ -129,6 +129,41 @@ func TestActionBarFlagsRequireBothSkillAnchors(t *testing.T) {
 	}
 }
 
+func TestActionWatcherStatusOnlyParticipatesWhenConfigured(t *testing.T) {
+	if pending, drops, misses, requestMisses := actionWatcherStatus(nil); pending || drops != 0 || misses != 0 || requestMisses != 0 {
+		t.Fatalf("未啟用 action watcher 的狀態 = pending=%v drops=%d misses=%d requestMisses=%d", pending, drops, misses, requestMisses)
+	}
+	// A non-nil watcher remains part of the terminal contract; this command
+	// must not replace the fail-closed watcher with an implicit no-op when the
+	// formal action-bar catalog is enabled.
+	w := buckrogers.NewActionBarWatcher(nil)
+	if pending, drops, misses, requestMisses := actionWatcherStatus(w); pending || drops != 0 || misses != 0 || requestMisses != 0 {
+		t.Fatalf("新建 action watcher 的初始狀態 = pending=%v drops=%d misses=%d requestMisses=%d", pending, drops, misses, requestMisses)
+	}
+}
+
+func TestActionWatcherModePrefersRequestCatalog(t *testing.T) {
+	events := &buckrogers.ActionBarCatalog{}
+	requests := &buckrogers.ActionBarRequestCatalog{}
+	for _, tc := range []struct {
+		name    string
+		e       *buckrogers.ActionBarCatalog
+		request *buckrogers.ActionBarRequestCatalog
+		want    actionWatcherMode
+	}{
+		{"皆省略", nil, nil, actionWatcherDisabled},
+		{"僅事件 catalog", events, nil, actionWatcherEvent},
+		{"僅請求 catalog", nil, requests, actionWatcherRequest},
+		{"兩者同設，請求優先", events, requests, actionWatcherRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := actionWatcherModeForCatalogs(tc.e, tc.request); got != tc.want {
+				t.Fatalf("mode=%d，要 %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestActionBarOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
 	valid := []struct {
 		name                               string

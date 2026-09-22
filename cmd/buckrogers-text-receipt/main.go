@@ -545,9 +545,15 @@ func main() {
 			fail(err)
 		}
 	}
-	actionWatcher := buckrogers.NewActionBarWatcher(actionCatalog)
-	if actionRequestCatalog != nil {
+	// 操作列協定與純手冊收據無關。只有呼叫端明示提供正式 catalog 時才觀測；
+	// 未設定但尚在途中的操作列協定，不得拒絕另一條已選用的手冊收據。
+	// 啟用後的既有終態檢查仍維持失敗即關閉。
+	var actionWatcher *buckrogers.ActionBarWatcher
+	switch actionWatcherModeForCatalogs(actionCatalog, actionRequestCatalog) {
+	case actionWatcherRequest:
 		actionWatcher = buckrogers.NewActionBarRequestWatcher(actionRequestCatalog)
+	case actionWatcherEvent:
+		actionWatcher = buckrogers.NewActionBarWatcher(actionCatalog)
 	}
 	nextKey := 0
 	for m.Steps < *until && !d.Exited {
@@ -560,14 +566,19 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
-		actionRequestBefore := len(actionWatcher.Requests())
-		actionWatcher.ObserveInstruction(at, ss, sp, m.Steps)
+		actionRequestBefore := 0
+		if actionWatcher != nil {
+			actionRequestBefore = len(actionWatcher.Requests())
+			actionWatcher.ObserveInstruction(at, ss, sp, m.Steps)
+		}
 		if at == (buckrogers.Address{Segment: 0x026F, Offset: 0x029C}) {
 			bottom := m.Read8(cpu.Addr(ss, sp+4))
 			right := m.Read8(cpu.Addr(ss, sp+6))
 			top := m.Read8(cpu.Addr(ss, sp+8))
 			left := m.Read8(cpu.Addr(ss, sp+10))
-			actionWatcher.ObserveClear(bottom, right, top, left)
+			if actionWatcher != nil {
+				actionWatcher.ObserveClear(bottom, right, top, left)
+			}
 			if manualWatcher != nil {
 				// A proven clear can also be the guarded return instruction of
 				// an in-flight manual dispatcher call. Preserve that post-call
@@ -609,7 +620,9 @@ func main() {
 			for i := range args {
 				args[i] = m.Read16(cpu.Addr(ss, sp+4+uint16(i)*2))
 			}
-			actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
+			if actionWatcher != nil {
+				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
+			}
 		} else {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
@@ -621,7 +634,9 @@ func main() {
 				if !ok {
 					fail(fmt.Errorf("runtime request count advanced without request"))
 				}
-				actionWatcher.ObserveAnchorEvent(request.EventKey)
+				if actionWatcher != nil {
+					actionWatcher.ObserveAnchorEvent(request.EventKey)
+				}
 				if actionBarPresenter != nil {
 					actionBarPresenter.ObserveAnchorEvent(request.EventKey)
 				}
@@ -634,7 +649,7 @@ func main() {
 				}
 			}
 		}
-		if actionBarPresenter != nil && len(actionWatcher.Requests()) > actionRequestBefore {
+		if actionBarPresenter != nil && actionWatcher != nil && len(actionWatcher.Requests()) > actionRequestBefore {
 			events, requests := actionWatcher.Events(), actionWatcher.Requests()
 			if len(events) == 0 || len(requests) == 0 || actionBarPresenter.Apply(events[len(events)-1], requests[len(requests)-1], m.Palette()) != nil {
 				fail(fmt.Errorf("runtime action bar overlay apply 失敗"))
@@ -656,15 +671,20 @@ func main() {
 	}
 	events := r.Events()
 	requests := r.Requests()
-	actionEvents := actionWatcher.Events()
-	actionRequests := actionWatcher.Requests()
+	var actionEvents []buckrogers.ActionBarEvent
+	var actionRequests []buckrogers.DisplayRequest
+	if actionWatcher != nil {
+		actionEvents = actionWatcher.Events()
+		actionRequests = actionWatcher.Requests()
+	}
+	actionPending, actionDrops, actionMisses, actionRequestMisses := actionWatcherStatus(actionWatcher)
 	if nextKey != len(keys) || r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
-		(*wantRequests != 0 && len(requests) != *wantRequests) || actionWatcher.Pending() || actionWatcher.Drops() != 0 ||
+		(*wantRequests != 0 && len(requests) != *wantRequests) || actionPending || actionDrops != 0 ||
 		(*wantActionBarEvents != 0 && len(actionEvents) != *wantActionBarEvents) ||
-		(*wantActionBarRequests != 0 && len(actionRequests) != *wantActionBarRequests) || actionWatcher.RequestMisses() != 0 {
+		(*wantActionBarRequests != 0 && len(actionRequests) != *wantActionBarRequests) || actionRequestMisses != 0 {
 		fail(fmt.Errorf("收據失敗：keys=%d/%d events=%d want=%d requests=%d want_requests=%d pending=%v drops=%d misses=%d action_events=%d want_action=%d action_pending=%v action_drops=%d action_misses=%d",
 			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses(),
-			len(actionEvents), *wantActionBarEvents, actionWatcher.Pending(), actionWatcher.Drops(), actionWatcher.Misses()))
+			len(actionEvents), *wantActionBarEvents, actionPending, actionDrops, actionMisses))
 	}
 	if err := saveTerminalState(*stateOut, m, d); err != nil {
 		fail(err)
@@ -801,11 +821,11 @@ func main() {
 		misses := r.Misses()
 		result.CatalogMisses = &misses
 	}
-	if actionCatalog != nil {
+	if actionCatalog != nil && actionWatcher != nil {
 		misses, drops := actionWatcher.Misses(), actionWatcher.Drops()
 		result.ActionBarMisses, result.ActionBarDrops = &misses, &drops
 	}
-	if actionRequestCatalog != nil {
+	if actionRequestCatalog != nil && actionWatcher != nil {
 		misses, drops, requestMisses := actionWatcher.Misses(), actionWatcher.Drops(), actionWatcher.RequestMisses()
 		result.ActionBarMisses, result.ActionBarDrops, result.ActionBarCatalogMisses = &misses, &drops, &requestMisses
 	}
@@ -864,6 +884,35 @@ func unimplementedReport(enabled bool, d *dos.DOS) []string {
 		return nil
 	}
 	return d.UnimplementedReport()
+}
+
+type actionWatcherMode uint8
+
+const (
+	actionWatcherDisabled actionWatcherMode = iota
+	actionWatcherEvent
+	actionWatcherRequest
+)
+
+// actionWatcherModeForCatalogs 在兩份正式操作列 catalog 同時提供時，維持既有的
+// request watcher 優先順序。
+func actionWatcherModeForCatalogs(events *buckrogers.ActionBarCatalog, requests *buckrogers.ActionBarRequestCatalog) actionWatcherMode {
+	if requests != nil {
+		return actionWatcherRequest
+	}
+	if events != nil {
+		return actionWatcherEvent
+	}
+	return actionWatcherDisabled
+}
+
+// actionWatcherStatus 將省略的操作列 catalog 明確排除於本收據；已設定的
+// watcher 仍會把所有終態失敗回報給呼叫端。
+func actionWatcherStatus(w *buckrogers.ActionBarWatcher) (pending bool, drops, misses, requestMisses int) {
+	if w == nil {
+		return false, 0, 0, 0
+	}
+	return w.Pending(), w.Drops(), w.Misses(), w.RequestMisses()
 }
 
 func saveTerminalState(path string, m *machine.Machine, d *dos.DOS) error {
