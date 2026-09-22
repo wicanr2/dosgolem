@@ -292,6 +292,8 @@ type glyphFrame struct {
 // retains a glyph byte or a stack word.
 type glyphReturnEdgeJSON struct {
 	EntryStep         uint64             `json:"entry_step"`
+	EntrySS           uint16             `json:"entry_ss"`
+	EntrySP           uint16             `json:"entry_sp"`
 	ReturnStep        uint64             `json:"return_step"`
 	ReturnInstruction buckrogers.Address `json:"return_instruction"`
 	ReturnOpcode      uint8              `json:"return_opcode"`
@@ -914,7 +916,7 @@ func main() {
 		}
 		if glyphReturnPending != nil && previousValid && at == glyphReturnPending.event.Caller && ss == glyphReturnPending.ss && sp == glyphReturnPending.sp+0x12 {
 			pending := glyphReturnPending
-			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Mode, pending.event.Repeat, pending.event.Background, pending.event.Foreground, pending.event.Row, pending.event.Column, pending.event.Caller, at, ss, sp})
+			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, pending.ss, pending.sp, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Mode, pending.event.Repeat, pending.event.Background, pending.event.Foreground, pending.event.Row, pending.event.Column, pending.event.Caller, at, ss, sp})
 			glyphReturnPending = nil
 		}
 		if previousValid && isVerifiedStoryOpeningReturn(previousInstruction, previousOpcode, at, ss, sp, storyGlyphReturnPending) {
