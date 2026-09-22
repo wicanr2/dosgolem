@@ -33,7 +33,7 @@ func storyFixture(t *testing.T) (*StoryOpeningCatalog, [][]byte) {
 func emitStoryGlyph(w *StoryOpeningWatcher, entry StoryOpeningIdentity, glyph byte, column uint8, ss, sp uint16, step uint64) {
 	args := [7]uint16{uint16(entry.Mode), uint16(glyph), uint16(entry.Repeat), uint16(entry.Background), uint16(entry.Foreground), uint16(entry.Row), uint16(column)}
 	w.ObserveGlyphEntry(entry.Guard, entry.Caller, ss, sp, args, step)
-	w.ObserveInstruction(entry.Caller, ss, sp+storyGlyphStackDelta, step+1)
+	w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: step, PostCallStep: step + 1, Caller: entry.Caller, SS: ss, SP: sp + storyGlyphStackDelta})
 }
 
 func emitStoryLines(w *StoryOpeningWatcher, catalog *StoryOpeningCatalog, lines [][]byte, step uint64) {
@@ -99,7 +99,7 @@ func TestStoryOpeningWatcherRejectsDriftAndNeverLeaksPartialEvents(t *testing.T)
 	// guard 漂移不可進入 collector。
 	args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
 	w.ObserveGlyphEntry(Address{Segment: 0x0763, Offset: 0x026C}, catalog.entries[0].Caller, 1, 2, args, 10)
-	w.ObserveInstruction(catalog.entries[0].Caller, 1, 2+storyGlyphStackDelta, 11)
+	w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: 10, PostCallStep: 11, Caller: catalog.entries[0].Caller, SS: 1, SP: 2 + storyGlyphStackDelta})
 	if w.Pending() || len(w.Events()) != 0 {
 		t.Fatal("guard 漂移不可留下候選或 event")
 	}
@@ -126,9 +126,36 @@ func TestStoryOpeningWatcherRejectsDriftAndNeverLeaksPartialEvents(t *testing.T)
 
 	// SS/SP 漂移丟棄 pending。
 	w.ObserveGlyphEntry(catalog.entries[0].Guard, catalog.entries[0].Caller, 1, 2, args, 80)
-	w.ObserveInstruction(catalog.entries[0].Caller, 1, 2+storyGlyphStackDelta+1, 81)
+	w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: 80, PostCallStep: 81, Caller: catalog.entries[0].Caller, SS: 1, SP: 2 + storyGlyphStackDelta + 1})
 	if w.Pending() || w.Drops() < 2 {
 		t.Fatalf("stack 漂移必須丟棄: pending=%v drops=%d", w.Pending(), w.Drops())
+	}
+}
+
+func TestStoryOpeningWatcherRejectsHighWordsAndStalePending(t *testing.T) {
+	catalog, lines := storyFixture(t)
+	for word := range [7]uint16{} {
+		t.Run("high-word", func(t *testing.T) {
+			w, _ := NewStoryOpeningWatcher(catalog)
+			args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+			args[word] |= 0x0100
+			w.ObserveGlyphEntry(catalog.entries[0].Guard, catalog.entries[0].Caller, 1, 2, args, 10)
+			w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: 10, PostCallStep: 11, Caller: catalog.entries[0].Caller, SS: 1, SP: 2 + storyGlyphStackDelta})
+			if w.Pending() || len(w.Events()) != 0 || w.Drops() == 0 {
+				t.Fatalf("high word %d 不可被截斷接受: pending=%v events=%d drops=%d", word, w.Pending(), len(w.Events()), w.Drops())
+			}
+		})
+	}
+
+	w, _ := NewStoryOpeningWatcher(catalog)
+	args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
+	w.ObserveGlyphEntry(catalog.entries[0].Guard, catalog.entries[0].Caller, 1, 2, args, 10)
+	// 任意的 later caller visit 並不是 verified return；adapter 的不連續通知會
+	// 使舊 frame 永遠不能在晚到的同位址被提交。
+	w.ObserveExecutionDiscontinuity()
+	w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: 10, PostCallStep: 1000, Caller: catalog.entries[0].Caller, SS: 1, SP: 2 + storyGlyphStackDelta})
+	if w.Pending() || len(w.Events()) != 0 || w.Drops() == 0 {
+		t.Fatalf("stale pending 必須被不連續事件關閉: pending=%v events=%d drops=%d", w.Pending(), len(w.Events()), w.Drops())
 	}
 }
 

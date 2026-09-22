@@ -63,6 +63,15 @@ type StoryOpeningGlyphCall struct {
 	Background, Foreground, Row, Column uint8
 }
 
+// StoryOpeningVerifiedReturn is emitted only by an adapter that observed the
+// actual far-return edge for the matching entry instruction. A later visit to
+// Caller is not a return edge and must never be supplied here.
+type StoryOpeningVerifiedReturn struct {
+	EntryStep, PostCallStep uint64
+	Caller                  Address
+	SS, SP                  uint16
+}
+
 // StoryOpeningEvent is content-safe metadata for one fully matched line.
 type StoryOpeningEvent struct {
 	Generation     uint64   `json:"generation"`
@@ -109,8 +118,9 @@ func NewStoryOpeningWatcher(catalog *StoryOpeningCatalog) (*StoryOpeningWatcher,
 	return &StoryOpeningWatcher{catalog: catalog, generation: 1}, nil
 }
 
-// ObserveGlyphEntry snapshots the ABI visible call. It must be paired with a
-// later ObserveInstruction before it can influence collection.
+// ObserveGlyphEntry snapshots the seven ABI words. Every word must be an
+// exact byte value; the existing low-byte readers do not prove that a nonzero
+// high byte is harmless for this story identity.
 func (w *StoryOpeningWatcher) ObserveGlyphEntry(guard, caller Address, ss, sp uint16, args [7]uint16, step uint64) {
 	if w == nil {
 		return
@@ -120,26 +130,56 @@ func (w *StoryOpeningWatcher) ObserveGlyphEntry(guard, caller Address, ss, sp ui
 		w.dropCandidate()
 		w.drops++
 	}
+	if !storyGlyphWordsAreBytes(args) {
+		w.dropCandidate()
+		w.drops++
+		return
+	}
 	w.pending = &storyGlyphFrame{call: StoryOpeningGlyphCall{
 		EntryStep: step, Guard: guard, Caller: caller, Mode: uint8(args[0]), Glyph: uint8(args[1]), Repeat: uint8(args[2]),
 		Background: uint8(args[3]), Foreground: uint8(args[4]), Row: uint8(args[5]), Column: uint8(args[6]),
 	}, ss: ss, sp: sp}
 }
 
-// ObserveInstruction submits exactly one guarded glyph call.
-func (w *StoryOpeningWatcher) ObserveInstruction(at Address, ss, sp uint16, step uint64) {
-	if w == nil || w.pending == nil || at != w.pending.call.Caller {
+// ObserveVerifiedGlyphReturn submits exactly one glyph only after the adapter
+// has observed its actual far-return control-flow edge. It deliberately does
+// not accept a generic instruction address: a later execution at Caller with
+// the same SS/SP is insufficient proof that this pending call returned.
+func (w *StoryOpeningWatcher) ObserveVerifiedGlyphReturn(ret StoryOpeningVerifiedReturn) {
+	if w == nil || w.pending == nil || ret.Caller != w.pending.call.Caller || ret.EntryStep != w.pending.call.EntryStep {
 		return
 	}
 	f := w.pending
 	w.pending = nil
-	if ss != f.ss || sp != f.sp+storyGlyphStackDelta {
+	if ret.PostCallStep <= f.call.EntryStep || ret.SS != f.ss || ret.SP != f.sp+storyGlyphStackDelta {
 		w.dropCandidate()
 		w.drops++
 		return
 	}
-	f.call.PostCallStep = step
+	f.call.PostCallStep = ret.PostCallStep
 	w.observeGlyph(f.call)
+}
+
+// ObserveExecutionDiscontinuity must be called when the adapter can no longer
+// prove that the pending glyph frame is still executing (for example a stop,
+// state restore, or an unobserved control-flow handoff). It is deliberately
+// not a step-count timeout: no instruction budget has been measured.
+func (w *StoryOpeningWatcher) ObserveExecutionDiscontinuity() {
+	if w == nil || w.pending == nil {
+		return
+	}
+	w.pending = nil
+	w.dropCandidate()
+	w.drops++
+}
+
+func storyGlyphWordsAreBytes(args [7]uint16) bool {
+	for _, word := range args {
+		if word > 0xff {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *StoryOpeningWatcher) observeGlyph(call StoryOpeningGlyphCall) {
