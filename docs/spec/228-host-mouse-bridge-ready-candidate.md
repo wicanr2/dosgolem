@@ -29,12 +29,16 @@ pointer forwarding。
 
 Down 的序列是 Move→Press；若 Up 仍在 closed panel 的 canvas 內，則 Move→Release。若 Up
 已在 canvas 外、chrome、panel 或失焦，則只 Release、不 Move，以最後有效 DOS 座標清鍵。
-**原型勘誤（2026-09-22）**：ignored 主專案
-`workplace/phase128-mousebridge-prototype/bridge.go` 的 `Handle(Up)` 目前對所有配對 Up
-都只呼叫 `ReleaseLeft()`；它並未實作本段已定的 closed-canvas 內 `Move→Release`。
-因此該原型的 `TestTwoScaleSequences` 只能支持外部 cleanup，不得用來通過畫布內
-Down→Up 的座標／呼叫順序矩陣。READY 前須以實體事件及更新後的可丟棄核心證實
-畫布內 Up 的 Move→Release，並同時保留畫布外／panel／失焦只 Release 的例外。
+**原型勘誤與修正（2026-09-22）**：ignored 主專案
+`workplace/phase128-mousebridge-prototype/bridge.go` 原先對所有配對 Up 都只呼叫
+`ReleaseLeft()`，與 closed-canvas 內 `Move→Release` 契約不符；舊收據不能證明此格。
+可丟棄原型現已在 closed canvas Up 先 Move 再 Release，畫布外／panel／失焦仍只
+Release。`golang:1.26.7-bookworm` Docker 的 `go vet ./...`、`go test -race -count=1 ./...`
+通過雙倍率四角與邊界負例；`bridge.go` SHA-256
+`b984f77aec9edd2c774c8507a58662bdf3a054825ccca946a3852ae570d11977`，
+`bridge_test.go` SHA-256
+`f226695e1617a771184814e2868223606f7f07b1d85be4690f39c7b816bdf7ff`。
+這只補純 fake 核心，實體 Ebitengine／dosgolem 矩陣與玩家效果仍未驗；維持 DRAFT。
 現有 `MoveMouse`／`PressMouse`／`ReleaseMouse` 均為 void，沒有可檢查的 error 或 rollback；bridge
 因此只能在每個 API 呼叫後更新自身 pressed state，並以單元測試釘住呼叫順序。host hit 由 backend 分類為 host consume，
 不可誤進 bridge。
