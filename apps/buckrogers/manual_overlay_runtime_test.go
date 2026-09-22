@@ -185,6 +185,36 @@ func TestRuntimeManualOverlayBuildsFourteenRowsAndContainsRGBA(t *testing.T) {
 	}
 }
 
+func TestManualThreeXEnlargesOnlyChineseGlyphs(t *testing.T) {
+	catalog := manualOverlayCatalog("中文字A")
+	source := manualOverlayFont(catalog)
+	before := append([]byte(nil), source.Glyphs['中']...)
+	for _, scale := range []int{2, 3} {
+		o, err := NewRuntimeManualOverlay(loadManualOverlayLayout(t), catalog, source, scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if scale == 2 && (o.font != source || o.font.W != 16 || manualGlyphOffset(scale) != 0) {
+			t.Fatal("2x 必須沿用原始 16x16 字型與位置")
+		}
+		if scale == 3 {
+			if o.font == source || o.font.W != 22 || o.font.H != 22 || manualGlyphOffset(scale) != 1 {
+				t.Fatal("3x 中文須使用 22x22 衍生字型，置於 24px 字格")
+			}
+			if len(o.font.Glyphs['中']) != 66 || len(o.font.Glyphs['A']) != 66 {
+				t.Fatal("3x 衍生字模長度無效")
+			}
+			// ASCII retains a 16x16 ink box centred in the derived bitmap.
+			if o.font.Glyphs['A'][3*3+3/8] == 0 {
+				t.Fatal("ASCII 應被保留在 3x 衍生字模內")
+			}
+		}
+	}
+	if !bytes.Equal(source.Glyphs['中'], before) || source.W != 16 {
+		t.Fatal("不得修改來源字型")
+	}
+}
+
 func TestRuntimeManualOverlayRowMajorCapacityAndLifecycle(t *testing.T) {
 	layout := loadManualOverlayLayout(t)
 	catalog := manualOverlayCatalog(strings.Repeat("字", 504))
@@ -303,5 +333,22 @@ func TestRuntimeManualOverlayUsesObservedStyleWithoutFrameSampling(t *testing.T)
 	}
 	if _, missing, drew := o.Draw(indexed, palette); !drew || len(missing) != 0 {
 		t.Fatalf("drew=%v missing=%q", drew, string(missing))
+	}
+}
+
+func TestRuntimeManualOverlayFreshAfterRestoreHasNoDerivedLayer(t *testing.T) {
+	catalog := manualOverlayCatalog("中")
+	o, err := NewRuntimeManualOverlay(loadManualOverlayLayout(t), catalog, manualOverlayFont(catalog), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	palette, indexed := manualOverlayPaletteAndFrame()
+	baseline := ScaleIndexedRGBA(indexed, palette, 2)
+	rgba, missing, drew := o.Draw(indexed, palette)
+	if o.HasStyle() || drew || len(missing) != 0 || len(o.ActiveKeys()) != 0 {
+		t.Fatalf("新 restore presenter 不得保有衍生 layer: style=%v drew=%v missing=%q keys=%v", o.HasStyle(), drew, string(missing), o.ActiveKeys())
+	}
+	if !bytes.Equal(baseline, rgba) {
+		t.Fatal("新 restore presenter 必須回傳未覆繪 baseline")
 	}
 }

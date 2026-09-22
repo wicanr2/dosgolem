@@ -34,3 +34,22 @@ command 將 `Watcher → ManualPresentationBridge → ManualPresentationConsumer
 ## 已知固定 state 限制
 
 此舊 state 的 palette index 15 為黑色，故原版使用 index 15 的頁碼、標題與序數在該收據中不可見。這是原版 snapshot 的 palette 資料，不是 presenter 可以補白的區域；不得藉由硬寫白色或改 palette 修飾。應以新鮮正常玩家 state 另行驗證原始英文周邊文字。
+
+## 2026-09-22：手冊 3× 中文字距調整
+
+依使用者對實際 3× 畫面的回饋，只有手冊 presenter 的 3× 中文字模從輸入的 16×16
+在記憶體以最近鄰取樣成 22×22，置於既有 24×24 輸出字格中。ASCII 仍保持原 16×16
+墨跡並置中；2× 使用原字模與原位置，輸出逐位元不變。正式 GOLEMFNT 原檔、
+36×14 文字格、輸入與原版 framebuffer 均不改。這個放大僅作用於輸出 RGBA。
+同狀態第一題 3× 正文內變更 6591 像素、外部 0；2× RGBA SHA-256 維持
+`da3007bc54ecd0e52dd6a7f8979619808e54521ca6e176686403374dcafed5fb`。
+第二題與 restore 收據見專案 `docs/re/phase-97-manual-cjk-density.md`。
+
+## frame 與 restore 邊界
+
+正常 replay 在 `machine.SetOnFrame` callback 呼叫 `RuntimeManualOverlay.Frame`，receipt 的
+`manual_overlay.frame_callbacks` 量化實際 callback 次數；終態另以同一個原始 indexed frame／palette
+做一次 `Frame`／`Draw` 收據。沒有 begin/request 的 savestate restore 不包含任何 derived overlay
+state：新 presenter 不得復原舊段落、不得猜測 style，必須輸出原始 RGBA baseline、0 active keys、
+0 changed pixels。這個 no-residual 行為有 synthetic test；待字型產物與現行 catalog 再次對齊後，
+以真實 restore replay 補充收據。

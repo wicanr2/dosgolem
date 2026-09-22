@@ -134,6 +134,12 @@ func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font
 	if err := validateManualCatalogFont(layout, catalog, font); err != nil {
 		return nil, err
 	}
+	if scale == 3 {
+		// A 3x text cell is 24 pixels wide. Enlarge CJK ink to 22 pixels
+		// so adjacent characters read as a line, while keeping ASCII at
+		// its original 16-pixel size. This is an output-only derived font.
+		font = manualThreeXFont(font)
+	}
 	o := &RuntimeManualOverlay{layout: layout, catalog: catalog, font: font, scale: scale}
 	o.resetLayers()
 	return o, nil
@@ -261,11 +267,50 @@ func (o *RuntimeManualOverlay) build(event ManualPresentationEvent) (*xlate.Laye
 }
 
 func manualGlyphOffset(scale int) int {
+	if scale == 3 {
+		return 1 // 22-pixel glyph in a 24-pixel output cell.
+	}
 	offset := (8*scale - 16) / 2
 	if offset < 0 {
 		return 0
 	}
 	return offset
+}
+
+// manualThreeXFont changes only the output bitmap. The source GOLEMFNT and
+// the game's indexed framebuffer remain untouched. Each CJK pixel is sampled
+// with nearest-neighbour scaling from 16×16 to 22×22; ASCII stays 16×16,
+// centred in the derived 22×22 bitmap.
+func manualThreeXFont(source *xlate.Font) *xlate.Font {
+	const width = 22
+	out := &xlate.Font{W: width, H: width, Glyphs: make(map[rune][]byte, len(source.Glyphs))}
+	for character, original := range source.Glyphs {
+		bitmap := make([]byte, width*3)
+		if character <= 0xff {
+			for y := 0; y < 16; y++ {
+				for x := 0; x < 16; x++ {
+					if original[y*2+x/8]&(0x80>>uint(x%8)) != 0 {
+						setManualThreeXPixel(bitmap, x+3, y+3)
+					}
+				}
+			}
+		} else {
+			for y := 0; y < width; y++ {
+				for x := 0; x < width; x++ {
+					sx, sy := x*16/width, y*16/width
+					if original[sy*2+sx/8]&(0x80>>uint(sx%8)) != 0 {
+						setManualThreeXPixel(bitmap, x, y)
+					}
+				}
+			}
+		}
+		out.Glyphs[character] = bitmap
+	}
+	return out
+}
+
+func setManualThreeXPixel(bitmap []byte, x, y int) {
+	bitmap[y*3+x/8] |= 0x80 >> uint(x%8)
 }
 
 // Frame samples only the original indexed framebuffer and palette.

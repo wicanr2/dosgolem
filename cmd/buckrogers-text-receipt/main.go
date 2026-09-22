@@ -69,6 +69,8 @@ type manualOverlayJSON struct {
 	DiffOutsideClearRect  int           `json:"diff_outside_clear_rect"`
 	DiffInsideClearRect   int           `json:"diff_inside_clear_rect"`
 	AddedNonBaselinePixel int           `json:"added_nonbaseline_pixels"`
+	StyleObserved         bool          `json:"style_observed"`
+	FrameCallbacks        uint64        `json:"frame_callbacks"`
 }
 
 type actionBarEventJSON struct {
@@ -400,6 +402,7 @@ func main() {
 	if err := configureScratch(d, *scratch); err != nil {
 		fail(err)
 	}
+	var manualFrameCallbacks uint64
 	var presenter *buckrogers.RuntimeMenuOverlay
 	if *overlayOut != "" {
 		inputs := []struct{ name, path string }{
@@ -455,12 +458,16 @@ func main() {
 		m.SetOnFrame(func() {
 			presenter.Frame(m.Indexed(), m.Palette())
 			if manualPresenter != nil {
+				manualFrameCallbacks++
 				manualPresenter.Frame(m.Indexed(), m.Palette())
 			}
 		})
 	}
 	if manualPresenter != nil && presenter == nil {
-		m.SetOnFrame(func() { manualPresenter.Frame(m.Indexed(), m.Palette()) })
+		m.SetOnFrame(func() {
+			manualFrameCallbacks++
+			manualPresenter.Frame(m.Indexed(), m.Palette())
+		})
 	}
 	start := m.Steps
 	r := buckrogers.NewMenuRequestWatcher(catalog)
@@ -674,10 +681,10 @@ func main() {
 		}
 	}
 	if manualPresenter != nil {
-		if !manualPresenter.HasStyle() {
-			fail(fmt.Errorf("手冊覆繪沒有取得原版題目樣式"))
+		styleObserved := manualPresenter.HasStyle()
+		if styleObserved {
+			manualPresenter.Frame(m.Indexed(), m.Palette())
 		}
-		manualPresenter.Frame(m.Indexed(), m.Palette())
 		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *manualScale)
 		rgba, missing, drew := manualPresenter.Draw(m.Indexed(), m.Palette())
 		if err := validateManualOverlayDraw(manualPresenter.ActiveKeys(), missing, drew); err != nil {
@@ -698,11 +705,12 @@ func main() {
 			result.ManualPresentation = append(result.ManualPresentation, item)
 		}
 		result.ManualObservations = manualWatcher.Observations()
-		style, _ := manualWatcher.ManualStyle()
-		result.ManualStyle = &manualStyleJSON{style.Background, style.Foreground, style.Row, style.Column}
+		if style, ok := manualWatcher.ManualStyle(); ok {
+			result.ManualStyle = &manualStyleJSON{style.Background, style.Foreground, style.Row, style.Column}
+		}
 		manualResult := &manualOverlayJSON{Scale: *manualScale, ActiveKeys: manualPresenter.ActiveKeys(), Drew: drew,
 			BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideClearRect: outside,
-			DiffInsideClearRect: inside, AddedNonBaselinePixel: added}
+			DiffInsideClearRect: inside, AddedNonBaselinePixel: added, StyleObserved: styleObserved, FrameCallbacks: manualFrameCallbacks}
 		for _, r := range missing {
 			manualResult.MissingGlyphs = append(manualResult.MissingGlyphs, string(r))
 		}
