@@ -13,6 +13,33 @@ import (
 	"github.com/wicanr2/dosgolem/internal/state"
 )
 
+func TestLoadBIOSKeysReceiptAcceptsOnlyBoundedSchedule(t *testing.T) {
+	dir := t.TempDir()
+	valid := filepath.Join(dir, "receipt.json")
+	if err := os.WriteFile(valid, []byte(`{"bios_keys":[{"queued_at":10,"scan":28,"ascii":13},{"queued_at":20,"scan":0,"ascii":65}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := loadBIOSKeysReceipt(valid)
+	if err != nil || len(keys) != 2 || keys[0] != (scheduledBIOSKey{Step: 10, Scan: 28, ASCII: 13}) {
+		t.Fatalf("keys=%#v err=%v", keys, err)
+	}
+	for name, data := range map[string][]byte{
+		"malformed": []byte(`{`),
+		"missing":   []byte(`{"bios_keys":[]}`),
+		"too_many":  []byte(`{"bios_keys":[{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(dir, name+".json")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadBIOSKeysReceipt(path); err == nil {
+				t.Fatal("無效 receipt 必須失敗即關閉")
+			}
+		})
+	}
+}
+
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
 	for _, tc := range []struct {
 		events, translations string
@@ -262,6 +289,33 @@ func TestStoryOpeningGenerationAndSafeRectHelpers(t *testing.T) {
 	}
 	if err := validateStoryOpeningOverlayDraw([]string{"one"}, nil, true); err == nil {
 		t.Fatal("不完整首屏 stamp 必須失敗即關閉")
+	}
+}
+
+func TestStoryOpeningInvalidationRequiresActiveCompleteGroup(t *testing.T) {
+	at := buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}
+	keys := []string{"one", "two", "three", "four", "five"}
+	item, ok := storyOpeningInvalidation(at, 0xA000, 0xAB48, 304, 281020572, 2, keys, true)
+	if !ok || item.Step != 281020572 || item.Generation != 2 || item.ActiveKeysBefore != 5 || item.VideoOffset != 0xAB48 || item.ByteCount != 304 {
+		t.Fatalf("invalidation=%#v ok=%v", item, ok)
+	}
+	for _, tc := range []struct {
+		name string
+		at   buckrogers.Address
+		es   uint16
+		keys []string
+		hit  bool
+	}{
+		{"not active", at, 0xA000, keys, false},
+		{"partial group", at, 0xA000, keys[:4], true},
+		{"wrong fill address", buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3C}, 0xA000, keys, true},
+		{"not vram", at, 0xB800, keys, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, got := storyOpeningInvalidation(tc.at, tc.es, 1, 1, 1, 1, tc.keys, tc.hit); got {
+				t.Fatal("不完整或未證實轉場不得產生 lifecycle receipt")
+			}
+		})
 	}
 }
 

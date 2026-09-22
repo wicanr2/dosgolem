@@ -99,6 +99,20 @@ type storyOpeningOverlayJSON struct {
 	AddedNonBaselinePixel int      `json:"added_nonbaseline_pixels"`
 }
 
+// storyOpeningInvalidationJSON is a content-safe lifecycle receipt.  It never
+// includes source glyphs, player input, or video bytes: the address and the
+// pre-execution span are enough to prove that an already active first-screen
+// group was removed at the bounded READY transition edge.
+type storyOpeningInvalidationJSON struct {
+	Step             uint64             `json:"step"`
+	Instruction      buckrogers.Address `json:"instruction"`
+	VideoSegment     uint16             `json:"video_segment"`
+	VideoOffset      uint16             `json:"video_offset"`
+	ByteCount        uint16             `json:"byte_count"`
+	Generation       uint64             `json:"generation"`
+	ActiveKeysBefore int                `json:"active_keys_before"`
+}
+
 // actionBarStyleJSON is content-safe receipt evidence for the READY visual
 // contract: it records palette indices, never original glyph bytes.
 type actionBarStyleJSON struct {
@@ -145,6 +159,30 @@ type keyJSON struct {
 	QueuedAt uint64 `json:"queued_at"`
 	Scan     uint8  `json:"scan"`
 	ASCII    uint8  `json:"ascii"`
+}
+
+// loadBIOSKeysReceipt imports only the already-content-free numeric keyboard
+// schedule from a local receipt. It avoids copying a manual answer into shell
+// history or a versioned replay script.
+func loadBIOSKeysReceipt(path string) ([]scheduledBIOSKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var receipt struct {
+		BIOSKeys []keyJSON `json:"bios_keys"`
+	}
+	if err := json.Unmarshal(data, &receipt); err != nil {
+		return nil, fmt.Errorf("讀取 BIOS receipt：%w", err)
+	}
+	if len(receipt.BIOSKeys) == 0 || len(receipt.BIOSKeys) > 64 {
+		return nil, fmt.Errorf("BIOS receipt 的鍵盤排程數量無效")
+	}
+	keys := make([]scheduledBIOSKey, len(receipt.BIOSKeys))
+	for i, key := range receipt.BIOSKeys {
+		keys[i] = scheduledBIOSKey{Step: key.QueuedAt, Scan: key.Scan, ASCII: key.ASCII}
+	}
+	return keys, nil
 }
 
 type writeJSON struct {
@@ -325,6 +363,7 @@ func main() {
 	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
 	glyphReturnTrace := flag.Bool("glyph-return-edge-trace", false, "記錄 0763:026B 的 content-safe RETF control-flow edge")
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
+	biosKeysReceipt := flag.String("bios-keys-receipt", "", "本機私有 receipt 的 bios_keys 排程；不得加入版本控制")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
 	flag.Parse()
@@ -370,6 +409,13 @@ func main() {
 	if err := validateStoryOpeningOverlayFlags(*storyOpeningEvents, *storyOpeningTranslations, *storyOpeningFont,
 		*storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, *storyOpeningScale); err != nil {
 		fail(err)
+	}
+	if *biosKeysReceipt != "" {
+		receiptKeys, err := loadBIOSKeysReceipt(*biosKeysReceipt)
+		if err != nil {
+			fail(err)
+		}
+		genericKeys = append(genericKeys, receiptKeys...)
 	}
 	keys, err := mergeBIOSKeySchedule(*enterAt, genericKeys, *until)
 	if err != nil {
@@ -699,6 +745,7 @@ func main() {
 	var glyphReturnPending *glyphFrame
 	var storyGlyphReturnPending *glyphFrame
 	storyOpeningGeneration := uint64(0)
+	var storyOpeningInvalidations []storyOpeningInvalidationJSON
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
 	var previousOpcode uint8
@@ -890,10 +937,16 @@ func main() {
 				fail(err)
 			}
 		}
-		if storyOpeningWatcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) &&
-			storyOpeningWatcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
-			storyOpeningPresenter.Clear()
-			storyOpeningGeneration = 0
+		if storyOpeningWatcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
+			invalidated := storyOpeningWatcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX])
+			if item, ok := storyOpeningInvalidation(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], m.Steps,
+				storyOpeningWatcher.Generation(), storyOpeningPresenter.ActiveKeys(), invalidated); ok {
+				storyOpeningInvalidations = append(storyOpeningInvalidations, item)
+			}
+			if invalidated {
+				storyOpeningPresenter.Clear()
+				storyOpeningGeneration = 0
+			}
 		}
 		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
 			events := storyOpeningEventsForGeneration(storyOpeningWatcher.Events(), storyOpeningWatcher.Generation())
@@ -991,43 +1044,44 @@ func main() {
 		actionRequestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
 	}
 	result := struct {
-		StateStart             uint64                   `json:"state_start"`
-		StoppedAt              uint64                   `json:"stopped_at"`
-		BIOSInput              string                   `json:"bios_input,omitempty"`
-		Events                 []eventJSON              `json:"events"`
-		Requests               []requestJSON            `json:"requests,omitempty"`
-		CatalogMisses          *int                     `json:"catalog_misses,omitempty"`
-		BIOSKeys               []keyJSON                `json:"bios_keys,omitempty"`
-		Scratch                string                   `json:"scratch,omitempty"`
-		Writes                 []writeJSON              `json:"writes,omitempty"`
-		FileOps                []fileOpJSON             `json:"file_ops,omitempty"`
-		Unimplemented          []string                 `json:"unimplemented,omitempty"`
-		OverlayScale           int                      `json:"overlay_scale,omitempty"`
-		OverlayActions         []requestJSON            `json:"overlay_actions,omitempty"`
-		ActiveOverlayKeys      []string                 `json:"active_overlay_keys,omitempty"`
-		OverlayMissing         []string                 `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew            *bool                    `json:"overlay_drew,omitempty"`
-		ActionBarEvents        []actionBarEventJSON     `json:"action_bar_events,omitempty"`
-		ActionBarMisses        *int                     `json:"action_bar_misses,omitempty"`
-		ActionBarDrops         *int                     `json:"action_bar_drops,omitempty"`
-		ActionBarRequests      []requestJSON            `json:"action_bar_requests,omitempty"`
-		ActionBarCatalogMisses *int                     `json:"action_bar_catalog_misses,omitempty"`
-		ActionBarOverlay       *actionBarOverlayJSON    `json:"action_bar_overlay,omitempty"`
-		MemorySHA256           string                   `json:"memory_sha256"`
-		IndexedSHA256          string                   `json:"indexed_sha256"`
-		PaletteSHA256          string                   `json:"palette_sha256"`
-		ManualPresentation     []manualPresentationJSON `json:"manual_presentation_events,omitempty"`
-		ManualObservations     []buckrogers.Observation `json:"manual_observations,omitempty"`
-		ManualStyle            *manualStyleJSON         `json:"manual_style,omitempty"`
-		ManualOverlay          *manualOverlayJSON       `json:"manual_overlay,omitempty"`
-		StoryOpeningOverlay    *storyOpeningOverlayJSON `json:"story_opening_overlay,omitempty"`
-		Clears                 []clearJSON              `json:"clears,omitempty"`
-		Glyphs                 []glyphJSON              `json:"glyphs,omitempty"`
-		GlyphDrops             int                      `json:"glyph_drops,omitempty"`
-		GlyphRuns              []glyphRunJSON           `json:"glyph_runs,omitempty"`
-		GlyphReturnEdges       []glyphReturnEdgeJSON    `json:"glyph_return_edges,omitempty"`
-		StoryPixelWrite        *pixelWriteJSON          `json:"story_pixel_write,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite,
+		StateStart                uint64                         `json:"state_start"`
+		StoppedAt                 uint64                         `json:"stopped_at"`
+		BIOSInput                 string                         `json:"bios_input,omitempty"`
+		Events                    []eventJSON                    `json:"events"`
+		Requests                  []requestJSON                  `json:"requests,omitempty"`
+		CatalogMisses             *int                           `json:"catalog_misses,omitempty"`
+		BIOSKeys                  []keyJSON                      `json:"bios_keys,omitempty"`
+		Scratch                   string                         `json:"scratch,omitempty"`
+		Writes                    []writeJSON                    `json:"writes,omitempty"`
+		FileOps                   []fileOpJSON                   `json:"file_ops,omitempty"`
+		Unimplemented             []string                       `json:"unimplemented,omitempty"`
+		OverlayScale              int                            `json:"overlay_scale,omitempty"`
+		OverlayActions            []requestJSON                  `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys         []string                       `json:"active_overlay_keys,omitempty"`
+		OverlayMissing            []string                       `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew               *bool                          `json:"overlay_drew,omitempty"`
+		ActionBarEvents           []actionBarEventJSON           `json:"action_bar_events,omitempty"`
+		ActionBarMisses           *int                           `json:"action_bar_misses,omitempty"`
+		ActionBarDrops            *int                           `json:"action_bar_drops,omitempty"`
+		ActionBarRequests         []requestJSON                  `json:"action_bar_requests,omitempty"`
+		ActionBarCatalogMisses    *int                           `json:"action_bar_catalog_misses,omitempty"`
+		ActionBarOverlay          *actionBarOverlayJSON          `json:"action_bar_overlay,omitempty"`
+		MemorySHA256              string                         `json:"memory_sha256"`
+		IndexedSHA256             string                         `json:"indexed_sha256"`
+		PaletteSHA256             string                         `json:"palette_sha256"`
+		ManualPresentation        []manualPresentationJSON       `json:"manual_presentation_events,omitempty"`
+		ManualObservations        []buckrogers.Observation       `json:"manual_observations,omitempty"`
+		ManualStyle               *manualStyleJSON               `json:"manual_style,omitempty"`
+		ManualOverlay             *manualOverlayJSON             `json:"manual_overlay,omitempty"`
+		StoryOpeningOverlay       *storyOpeningOverlayJSON       `json:"story_opening_overlay,omitempty"`
+		StoryOpeningInvalidations []storyOpeningInvalidationJSON `json:"story_opening_invalidations,omitempty"`
+		Clears                    []clearJSON                    `json:"clears,omitempty"`
+		Glyphs                    []glyphJSON                    `json:"glyphs,omitempty"`
+		GlyphDrops                int                            `json:"glyph_drops,omitempty"`
+		GlyphRuns                 []glyphRunJSON                 `json:"glyph_runs,omitempty"`
+		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
+		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryOpeningInvalidations: storyOpeningInvalidations,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -1344,6 +1398,18 @@ func validateStoryOpeningOverlayDraw(active []string, missing []rune, drew bool)
 		return fmt.Errorf("首屏劇情覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing))
 	}
 	return nil
+}
+
+// storyOpeningInvalidation only reports a lifecycle event after both layers
+// agree: the watcher proved the READY video span and the presenter still held
+// the complete atomic five-line group.  Any partial or stale layer is not
+// silently cleared and never becomes receipt evidence.
+func storyOpeningInvalidation(at buckrogers.Address, es, di, count uint16, step, generation uint64, active []string, invalidated bool) (storyOpeningInvalidationJSON, bool) {
+	if !invalidated || at != (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) || es != 0xA000 || count == 0 || len(active) != 5 {
+		return storyOpeningInvalidationJSON{}, false
+	}
+	return storyOpeningInvalidationJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: di,
+		ByteCount: count, Generation: generation, ActiveKeysBefore: len(active)}, true
 }
 
 // storyOpeningDiff permits only the READY first-screen text rectangle
