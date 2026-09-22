@@ -159,3 +159,40 @@ func TestStoryPage5CatalogLocksREADY(t *testing.T) {
 		t.Fatal("DRAFT catalog accepted")
 	}
 }
+
+func TestStoryPage5PresenterInvalidTailMixedAndDuplicateDrawNothing(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		good := make([]StoryPage5Event, 5)
+		for i, r := range []rune("甲乙丙丁戊") {
+			font.Glyphs[r] = make([]byte, 32)
+			key := fmt.Sprintf("story.page5.line.%03d", i+1)
+			text[key] = string(r)
+			good[i] = StoryPage5Event{Generation: 1, EventKey: key, Row: uint8(17 + i), Column: 1}
+		}
+		invalid := [][]StoryPage5Event{
+			func() []StoryPage5Event { x := append([]StoryPage5Event(nil), good...); x[4].Row = 99; return x }(),
+			func() []StoryPage5Event { x := append([]StoryPage5Event(nil), good...); x[3].Generation = 2; return x }(),
+			func() []StoryPage5Event {
+				x := append([]StoryPage5Event(nil), good...)
+				x[4].EventKey = x[3].EventKey
+				return x
+			}(),
+		}
+		for _, bad := range invalid {
+			o, err := NewRuntimeStoryPage5Overlay(text, font, scale)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if o.Apply(bad, [256][3]uint8{}) == nil {
+				t.Fatal("invalid presenter input accepted")
+			}
+			base := ScaleIndexedRGBA(make([]byte, 320*200), [256][3]uint8{}, scale)
+			got, _, drew := o.Draw(make([]byte, 320*200), [256][3]uint8{})
+			if len(o.ActiveKeys()) != 0 || drew || string(got) != string(base) {
+				t.Fatal("invalid presenter left output")
+			}
+		}
+	}
+}
