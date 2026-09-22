@@ -1225,8 +1225,8 @@ func main() {
 		}
 		if bodyIconBefore != nil {
 			if item, ok := bodyIconPreExecutionVideoWrite(m.Steps, at, m.Read8(cpu.Addr(at.Segment, at.Offset)), m.Read8(cpu.Addr(at.Segment, at.Offset+1)), m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], bodyRects); ok {
-				if len(bodyIconVideoWrites) >= 4096 {
-					fail(fmt.Errorf("body-icon pre-execution video-write trace 超過 4096 筆"))
+				if len(bodyIconVideoWrites) >= 65536 {
+					fail(fmt.Errorf("body-icon pre-execution video-write trace 超過 65536 筆"))
 				}
 				bodyIconVideoWrites = append(bodyIconVideoWrites, item)
 			}
