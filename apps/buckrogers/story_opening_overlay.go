@@ -47,7 +47,11 @@ func (o *RuntimeStoryOpeningOverlay) Apply(events []StoryOpeningEvent, p [256][3
 }
 func (o *RuntimeStoryOpeningOverlay) Clear() {
 	if o != nil {
-		o.layer = &xlate.Layer{W: 320, H: 200}
+		// 保持 layer 身分穩定：host presenter 只持有這一個輸出端 layer，
+		// 並複製其 stamp。若在這裡替換 pointer，已確認的第二頁視訊寫入後
+		// presenter 會繪出過期 stamp。READY 的劇情矩形完整包含五個 stamp，
+		// 所以 Layer.Clear 可在不觸及 DOS VRAM 下移除它們。
+		o.layer.Clear(8, 136, 320, 176)
 		o.active = false
 	}
 }
@@ -80,4 +84,17 @@ func (o *RuntimeStoryOpeningOverlay) ActiveKeys() []string {
 		keys = append(keys, stamp.Key)
 	}
 	return keys
+}
+
+// PresentationLayer 回傳給 host presenter 的 active 輸出端 layer。呼叫端只能
+// 在擁有這個 overlay Apply、Clear、Frame lifecycle 的同一 goroutine 使用它；不得
+// 寫入 layer 或藉此接觸 machine／DOS state。presentation.LayerSnapshotProvider
+// 會在繪製前複製 stamp，維持這道邊界。
+//
+// 它刻意只限已 READY 的首屏劇情 overlay，不暴露原文、輸入或遊戲 state。
+func (o *RuntimeStoryOpeningOverlay) PresentationLayer() *xlate.Layer {
+	if o == nil {
+		return nil
+	}
+	return o.layer
 }
