@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 313 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 314 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -145,7 +145,7 @@
 - `008-bios-keyboard-injection.md`
 - `009-scratch-writes.md`
 
-### Buck Rogers: Countdown to Doomsday（47 份）
+### Buck Rogers: Countdown to Doomsday（49 份）
 
 - `007-buck-rogers-manual-event-adapter.md`
 - `008-buck-rogers-manual-runtime-watcher.md`
@@ -186,6 +186,8 @@
 - `221-buck-rogers-manual-watcher-snapshot-bridge.md`
 - `222-buck-rogers-manual-runtime-presentation.md`
 - `223-buck-rogers-story-content-safe-diagnostics.md`
+- `224-buck-rogers-story-opening-watcher-core.md`
+- `225-host-panel-event-routing-core.md`
 
 ### UCSD p-System（psys）（1 份）
 
