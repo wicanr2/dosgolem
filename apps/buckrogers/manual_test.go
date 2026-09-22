@@ -259,10 +259,16 @@ func TestFormalProjectCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("正式 TSV：%v", err)
 	}
+	if got := len(c.byIdentity); got != 39 {
+		t.Fatalf("正式手冊題目數 = %d，要 39", got)
+	}
 	if _, ok := c.Resolve(1, 1, Question{34, "Deimos Prison", "tenth"}); !ok {
 		t.Fatal("正式 Deimos 映射應命中")
 	}
 	if got, ok := c.Resolve(2, 2, Question{41, "Technical Skills", "second"}); !ok || got.EventKey != "manual.page41.technical_skills.word2" || got.TextKey != "manual.rules.technical_skills" {
-		t.Fatalf("正式 Technical Skills 映射 = %#v, %v；要精確第 31 題", got, ok)
+		t.Fatalf("正式 Technical Skills 映射 = %#v, %v；要精確命中", got, ok)
+	}
+	if got, ok := c.Resolve(3, 3, Question{42, "Roll.", "fourth"}); !ok || got.EventKey != "manual.page42.roll.word4" || got.TextKey != "manual.rules.roll" {
+		t.Fatalf("正式 Roll 映射 = %#v, %v；要精確第 39 題", got, ok)
 	}
 }
