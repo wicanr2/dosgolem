@@ -2,6 +2,7 @@ package buckrogers
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"github.com/wicanr2/dosgolem/xlate"
 	"strings"
@@ -25,7 +26,7 @@ func TestStoryPage7PresenterFailClosedBothScales(t *testing.T) {
 			font.Glyphs[r] = make([]byte, 32)
 			k := fmt.Sprintf("story.page7.line.%03d", i+1)
 			text[k] = string(r)
-			events[i] = StoryPage7Event{1, 0, 0, k, uint8(17 + i), 1}
+			events[i] = StoryPage7Event{1, uint64(100 + i*2), uint64(101 + i*2), k, uint8(17 + i), 1}
 		}
 		if _, e := NewRuntimeStoryPage7Overlay(text, &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}, scale); e == nil {
 			t.Fatal("missing glyph")
@@ -137,7 +138,7 @@ func TestStoryPage7WatcherFailureMatrix(t *testing.T) {
 		t.Fatal("hash tail")
 	}
 	w.ObserveExecutionDiscontinuity()
-	if w.Active() || w.p != nil {
+	if w.Active() || w.p != nil || len(w.Events()) != 0 {
 		t.Fatal("discontinuity")
 	}
 	for _, q := range []struct {
@@ -179,7 +180,7 @@ func TestStoryPage7PartialMixedDuplicateAndPresenterZeroDraw(t *testing.T) {
 			font.Glyphs[r] = make([]byte, 32)
 			k := fmt.Sprintf("story.page7.line.%03d", i+1)
 			text[k] = string(r)
-			good[i] = StoryPage7Event{1, 0, 0, k, uint8(17 + i), 1}
+			good[i] = StoryPage7Event{1, uint64(100 + i*2), uint64(101 + i*2), k, uint8(17 + i), 1}
 		}
 		o, e := NewRuntimeStoryPage7Overlay(text, font, scale)
 		if e != nil {
@@ -211,8 +212,8 @@ func TestStoryPage7CatalogReady(t *testing.T) {
 	text := "key\ttranslation\tsource\n"
 	for i, a := range storyPage7Approved {
 		k := fmt.Sprintf("story.page7.line.%03d", i+1)
-		r = append(r, fmt.Sprintf("%s\t%d\t%d\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t0\t0\tconfirmed\tREADY", k, i+1, a.n, a.h, 17+i))
-		text += k + "\t甲\tt\n"
+		r = append(r, fmt.Sprintf("%s\t%d\t%d\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t%d\t%d\tconfirmed\tREADY", k, i+1, a.n, a.h, 17+i, a.entry, a.post))
+		text += k + "\t甲\truntime-editorial\n"
 	}
 	d := []byte(h + strings.Join(r, "\n") + "\n")
 	if _, _, e := LoadStoryPage7Catalog("e", d, "t", []byte(text)); e != nil {
@@ -223,8 +224,27 @@ func TestStoryPage7CatalogReady(t *testing.T) {
 			t.Fatal("drift accepted")
 		}
 	}
-	if _, _, e := LoadStoryPage7Catalog("e", d, "t", []byte(strings.Replace(text, "story.page7.line.006\t甲\tt\n", "", 1))); e == nil {
+	if _, _, e := LoadStoryPage7Catalog("e", d, "t", []byte(strings.Replace(text, "story.page7.line.006\t甲\truntime-editorial\n", "", 1))); e == nil {
 		t.Fatal("missing translation accepted")
+	}
+	for _, drift := range []string{"331028417", "332561826", "runtime-editorial"} {
+		if _, _, e := LoadStoryPage7Catalog("e", []byte(strings.Replace(string(d), drift, "1", 1)), "t", []byte(strings.Replace(text, drift, "bad", 1))); e == nil {
+			t.Fatalf("catalog drift %q accepted", drift)
+		}
+	}
+	ids := make([]StoryPage7Identity, 6)
+	for i, a := range storyPage7Approved {
+		var h [32]byte
+		b, _ := hex.DecodeString(a.h)
+		copy(h[:], b)
+		ids[i] = StoryPage7Identity{Sequence: uint8(i + 1), OriginalLength: a.n, Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: uint8(17 + i), Column: 1, EntryStep: a.entry, PostCallStep: a.post, EventKey: fmt.Sprintf("story.page7.line.%03d", i+1), OriginalSHA256: h, Caller: Address{0x0763, 0x04ff}, Guard: storyGlyphPrimitive}
+	}
+	if _, e := NewStoryPage7Catalog(ids); e != nil {
+		t.Fatalf("公開建構子拒絕 READY catalog：%v", e)
+	}
+	ids[0].EntryStep++
+	if _, e := NewStoryPage7Catalog(ids); e == nil {
+		t.Fatal("公開建構子接受 step drift")
 	}
 }
 func emit7(w *StoryPage7Watcher, e StoryPage7Identity, b byte, col uint8, s uint64) {
@@ -253,6 +273,19 @@ func TestStoryPage7AtomicABIAndRowAwareWrite(t *testing.T) {
 	}
 	if !w.Active() || len(w.Events()) != 6 {
 		t.Fatal("atomic")
+	}
+	w.ObserveExecutionDiscontinuity()
+	if w.Active() || len(w.Events()) != 0 {
+		t.Fatal("discontinuity revived published events")
+	}
+	// Rebuild the group to audit row-aware invalidation independently.
+	w, _ = NewStoryPage7Watcher(c)
+	s = 1
+	for i, x := range b {
+		for j, v := range x {
+			emit7(w, c.entries[i], v, uint8(j+1), s)
+			s += 2
+		}
 	}
 	for _, q := range []struct{ d, n uint16 }{{137 * 320, 8}, {136 * 320, 8}, {184*320 + 8, 1}} {
 		if w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, q.d, q.n) {

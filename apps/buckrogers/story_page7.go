@@ -7,6 +7,7 @@ import (
 
 type StoryPage7Identity struct {
 	Sequence, OriginalLength, Mode, Repeat, Background, Foreground, Row, Column uint8
+	EntryStep, PostCallStep                                                     uint64
 	EventKey                                                                    string
 	OriginalSHA256                                                              [32]byte
 	Caller, Guard                                                               Address
@@ -20,7 +21,7 @@ func NewStoryPage7Catalog(es []StoryPage7Identity) (*StoryPage7Catalog, error) {
 	var c StoryPage7Catalog
 	seen := map[string]bool{}
 	for i, e := range es {
-		if e.Sequence != uint8(i+1) || e.EventKey != fmt.Sprintf("story.page7.line.%03d", i+1) || seen[e.EventKey] || e.OriginalLength != storyPage7Approved[i].n || fmt.Sprintf("%x", e.OriginalSHA256) != storyPage7Approved[i].h || e.Caller != (Address{0x0763, 0x04ff}) || e.Guard != storyGlyphPrimitive || e.Mode != 1 || e.Repeat != 1 || e.Background != 0 || e.Foreground != 10 || e.Row != uint8(17+i) || e.Column != 1 {
+		if e.Sequence != uint8(i+1) || e.EventKey != fmt.Sprintf("story.page7.line.%03d", i+1) || seen[e.EventKey] || e.OriginalLength != storyPage7Approved[i].n || fmt.Sprintf("%x", e.OriginalSHA256) != storyPage7Approved[i].h || e.EntryStep != storyPage7Approved[i].entry || e.PostCallStep != storyPage7Approved[i].post || e.Caller != (Address{0x0763, 0x04ff}) || e.Guard != storyGlyphPrimitive || e.Mode != 1 || e.Repeat != 1 || e.Background != 0 || e.Foreground != 10 || e.Row != uint8(17+i) || e.Column != 1 {
 			return nil, fmt.Errorf("buckrogers: 第 7 頁 identity %d 無效", i+1)
 		}
 		seen[e.EventKey] = true
@@ -144,6 +145,7 @@ func (w *StoryPage7Watcher) ObserveVideoWrite(at Address, es, di, count uint16) 
 	was := w.active || w.f != nil || w.p != nil || len(w.done) > 0
 	w.drop()
 	w.active = false
+	w.events = nil
 	if was {
 		w.generation++
 	}
@@ -152,6 +154,7 @@ func (w *StoryPage7Watcher) ObserveVideoWrite(at Address, es, di, count uint16) 
 func (w *StoryPage7Watcher) ObserveExecutionDiscontinuity() {
 	if w != nil {
 		w.drop()
+		w.events = nil
 		if w.active {
 			w.active = false
 			w.generation++
@@ -159,6 +162,15 @@ func (w *StoryPage7Watcher) ObserveExecutionDiscontinuity() {
 	}
 }
 func (w *StoryPage7Watcher) Events() []StoryPage7Event {
+	if w == nil {
+		return nil
+	}
 	return append([]StoryPage7Event(nil), w.events...)
 }
 func (w *StoryPage7Watcher) Active() bool { return w != nil && w.active }
+func (w *StoryPage7Watcher) Generation() uint64 {
+	if w == nil {
+		return 0
+	}
+	return w.generation
+}

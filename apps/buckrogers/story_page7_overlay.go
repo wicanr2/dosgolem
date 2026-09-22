@@ -40,7 +40,7 @@ func (o *RuntimeStoryPage7Overlay) Apply(es []StoryPage7Event, p [256][3]uint8) 
 	seen := map[string]bool{}
 	for i, e := range es {
 		k := fmt.Sprintf("story.page7.line.%03d", i+1)
-		if e.Generation != g || seen[e.EventKey] || e.EventKey != k || e.Row != uint8(17+i) || e.Column != 1 || o.text[k] == "" {
+		if e.Generation != g || e.EntryStep >= e.PostCallStep || (i > 0 && es[i-1].PostCallStep >= e.EntryStep) || seen[e.EventKey] || e.EventKey != k || e.Row != uint8(17+i) || e.Column != 1 || o.text[k] == "" {
 			return fmt.Errorf("buckrogers: 第 7 頁 event 無效")
 		}
 		seen[k] = true

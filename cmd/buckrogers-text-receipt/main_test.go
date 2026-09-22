@@ -748,3 +748,38 @@ func TestStoryPage6OverlayFlagsReceiptAndSafeRectangle(t *testing.T) {
 		t.Fatalf("第 6 頁 invalidation receipt 非 content-safe：%s, %v", encoded, err)
 	}
 }
+
+func TestStoryPage7OverlayFlagsReceiptAndSafeRectangle(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		if err := validateStoryOpeningOverlayFlags("events", "translations", "font", "out", "baseline", "png", "baseline-png", scale); err != nil {
+			t.Fatalf("完整第 7 頁 %dx 旗標被拒絕：%v", scale, err)
+		}
+	}
+	for _, missing := range [][]string{
+		{"events", "", "font", "out", "baseline", "png", "baseline-png"},
+		{"events", "translations", "", "out", "baseline", "png", "baseline-png"},
+		{"events", "translations", "font", "", "baseline", "png", "baseline-png"},
+	} {
+		if err := validateStoryOpeningOverlayFlags(missing[0], missing[1], missing[2], missing[3], missing[4], missing[5], missing[6], 2); err == nil {
+			t.Fatal("第 7 頁不完整旗標被接受")
+		}
+	}
+	for _, scale := range []int{2, 3} {
+		base := make([]byte, 320*200*scale*scale*4)
+		inside := append([]byte(nil), base...)
+		inside[((183*scale)*(320*scale)+8*scale)*4] = 1
+		outside := append([]byte(nil), base...)
+		outside[((184*scale)*(320*scale)+8*scale)*4] = 1
+		if out, in, added := storyPage7Diff(base, inside, scale); out != 0 || in != 1 || added != 1 {
+			t.Fatalf("第 7 頁 %dx 內部差異 = (%d,%d,%d)", scale, out, in, added)
+		}
+		if out, in, added := storyPage7Diff(base, outside, scale); out != 1 || in != 0 || added != 0 {
+			t.Fatalf("第 7 頁 %dx 邊界外差異 = (%d,%d,%d)", scale, out, in, added)
+		}
+	}
+	item := storyPage2InvalidationJSON{Step: 341018656, Instruction: buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}, VideoSegment: 0xA000, VideoOffset: 0xAA08, ByteCount: 304, ActiveKeysBefore: 6}
+	encoded, err := json.Marshal(item)
+	if err != nil || !bytes.Contains(encoded, []byte(`"active_keys_before":6`)) || bytes.Contains(encoded, []byte("original_bytes")) {
+		t.Fatalf("第 7 頁 invalidation receipt 非 content-safe：%s, %v", encoded, err)
+	}
+}
