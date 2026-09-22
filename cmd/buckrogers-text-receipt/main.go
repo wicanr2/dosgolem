@@ -162,6 +162,16 @@ type instructionTraceJSON struct {
 	SP    uint16             `json:"sp"`
 }
 
+// storyFillWriteJSON records only pre-execution Mode 13h fill metadata. It
+// deliberately excludes video bytes and text content.
+type storyFillWriteJSON struct {
+	Step  uint64             `json:"step"`
+	At    buckrogers.Address `json:"at"`
+	ES    uint16             `json:"es"`
+	DI    uint16             `json:"di"`
+	Count uint16             `json:"count"`
+}
+
 type scheduledBIOSKeys []scheduledBIOSKey
 
 func (s *scheduledBIOSKeys) String() string { return "" }
@@ -415,6 +425,7 @@ func main() {
 	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
 	glyphReturnTrace := flag.Bool("glyph-return-edge-trace", false, "記錄 0763:026B 的 content-safe RETF control-flow edge")
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
+	storyFillTrace := flag.Bool("story-fill-trace", false, "記錄前 64 筆與 story rows 17..21 相交的原版 pre-write fill metadata")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
@@ -848,6 +859,7 @@ func main() {
 	storyOpeningGeneration := uint64(0)
 	var storyOpeningInvalidations []storyOpeningInvalidationJSON
 	var storyPage2Invalidations []storyPage2InvalidationJSON
+	var storyFillWrites []storyFillWriteJSON
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
 	var previousOpcode uint8
@@ -1077,6 +1089,10 @@ func main() {
 				storyPage2Generation = 0
 			}
 		}
+		if *storyFillTrace && len(storyFillWrites) < 64 && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) &&
+			m.CPU.Seg[cpu.ES] == 0xA000 && storyFillIntersects(m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+			storyFillWrites = append(storyFillWrites, storyFillWriteJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]})
+		}
 		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
 			events := storyOpeningEventsForGeneration(storyOpeningWatcher.Events(), storyOpeningWatcher.Generation())
 			if err := storyOpeningPresenter.Apply(events, m.Palette()); err != nil {
@@ -1224,13 +1240,14 @@ func main() {
 		GlyphRuns                 []glyphRunJSON                 `json:"glyph_runs,omitempty"`
 		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
 		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
+		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
 		KeyPolls                  *int                           `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -1651,6 +1668,39 @@ func manualDiff(baseline, overlay []byte, scale int) (outside, inside, added int
 		}
 	}
 	return outside, inside, added
+}
+
+// storyFillIntersects checks the five-row diagnostic window used by page three.
+// The 16-bit destination is interpreted as a bounded Mode 13h byte span.
+func storyFillIntersects(di, count uint16) bool {
+	if count == 0 {
+		return false
+	}
+	start, end := uint32(di), uint32(di)+uint32(count)
+	const width, top, bottom, left, right uint32 = 320, 136, 176, 8, 320
+	if end <= top*width || start >= bottom*width {
+		return false
+	}
+	if start < top*width {
+		start = top * width
+	}
+	if end > bottom*width {
+		end = bottom * width
+	}
+	for row := start / width; row <= (end-1)/width; row++ {
+		rowStart, rowEnd := row*width, (row+1)*width
+		a, b := start, end
+		if a < rowStart {
+			a = rowStart
+		}
+		if b > rowEnd {
+			b = rowEnd
+		}
+		if a-rowStart < right && b-rowStart > left {
+			return true
+		}
+	}
+	return false
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).

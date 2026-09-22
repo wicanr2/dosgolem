@@ -40,6 +40,31 @@ func TestLoadBIOSKeysReceiptAcceptsOnlyBoundedSchedule(t *testing.T) {
 	}
 }
 
+func TestStoryFillIntersectsFiveRowSafeRect(t *testing.T) {
+	tests := []struct {
+		name  string
+		di    uint16
+		count uint16
+		want  bool
+	}{
+		{"empty", 136*320 + 8, 0, false},
+		{"before top", 136*320 - 304, 304, false},
+		{"left margin only", 136 * 320, 8, false},
+		{"first safe pixel", 136*320 + 8, 1, true},
+		{"measured first fill", 0xAA08, 304, true},
+		{"last row", 175*320 + 8, 1, true},
+		{"after bottom", 176*320 + 8, 1, false},
+		{"crosses row edge", 136*320 + 319, 2, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := storyFillIntersects(tc.di, tc.count); got != tc.want {
+				t.Fatalf("intersects(%#x,%d)=%v, want %v", tc.di, tc.count, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
 	for _, tc := range []struct {
 		events, translations string
