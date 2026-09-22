@@ -1,6 +1,9 @@
 package host
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // Canvas 描述交給 host presenter 的未縮放索引色畫布。
 // 它刻意不依賴任何特定 DOS 顯示模式或視窗後端。
@@ -10,6 +13,17 @@ type Canvas struct {
 }
 
 func (c Canvas) valid() bool { return c.Width > 0 && c.Height > 0 }
+
+func (c Canvas) pixels() (int, error) {
+	if !c.valid() {
+		return 0, fmt.Errorf("host: presentation canvas 必須有正寬高，得到 %dx%d", c.Width, c.Height)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if c.Width > maxInt/c.Height {
+		return 0, fmt.Errorf("host: presentation canvas 像素數溢位 (%dx%d)", c.Width, c.Height)
+	}
+	return c.Width * c.Height, nil
+}
 
 // IndexedFrame 是一份未縮放的畫面輸入。Palette 是值；
 // PresentationSnapshot 一律持有自己的 Indexed bytes。兩者都不讓 host
@@ -42,10 +56,23 @@ type PresentationSnapshotProvider struct {
 }
 
 func NewPresentationSnapshotProvider(source FrameSource) (*PresentationSnapshotProvider, error) {
-	if source == nil {
+	if nilFrameSource(source) {
 		return nil, fmt.Errorf("host: presentation frame source 不得為 nil")
 	}
 	return &PresentationSnapshotProvider{source: source}, nil
+}
+
+func nilFrameSource(source FrameSource) bool {
+	if source == nil {
+		return true
+	}
+	v := reflect.ValueOf(source)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // Snapshot 取得並驗證剛好一份畫面輸入，接著取得 indexed pixels 複本的擁有權。
@@ -58,10 +85,10 @@ func (p *PresentationSnapshotProvider) Snapshot() (PresentationSnapshot, error) 
 	if err != nil {
 		return PresentationSnapshot{}, fmt.Errorf("host: 讀取 presentation frame: %w", err)
 	}
-	if !frame.Canvas.valid() {
-		return PresentationSnapshot{}, fmt.Errorf("host: presentation canvas 必須有正寬高，得到 %dx%d", frame.Canvas.Width, frame.Canvas.Height)
+	want, err := frame.Canvas.pixels()
+	if err != nil {
+		return PresentationSnapshot{}, err
 	}
-	want := frame.Canvas.Width * frame.Canvas.Height
 	if len(frame.Indexed) != want {
 		return PresentationSnapshot{}, fmt.Errorf("host: presentation indexed 長度=%d，預期 %d (%dx%d)", len(frame.Indexed), want, frame.Canvas.Width, frame.Canvas.Height)
 	}
