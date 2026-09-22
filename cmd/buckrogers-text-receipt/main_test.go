@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/apps/buckrogers"
@@ -86,6 +87,65 @@ func TestStoryFillIntersectsSixRowDiagnostic(t *testing.T) {
 				t.Fatalf("intersects(%#x,%d,%d)=%v, want %v", tc.di, tc.count, rows, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadBodyIconRectsFailsClosedAndAcceptsExactCatalog(t *testing.T) {
+	valid := "screen\tevent_key\tx\ty\twidth\theight\tdraw_x\tdraw_y\tcapacity_cells\tline_count\toverflow_policy\n" +
+		"confirmation\tbody.icon.confirmation\t0\t192\t136\t8\t0\t192\t17\t1\tsingle-line-reject\n" +
+		"save_prompt\tbody.icon.save_prompt\t0\t192\t64\t8\t0\t192\t8\t1\tsingle-line-reject\n" +
+		"body_icon\tbody.icon.old.label\t64\t48\t24\t8\t64\t48\t3\t1\tsingle-line-reject\n" +
+		"body_icon\tbody.icon.old.action\t24\t80\t112\t8\t24\t80\t14\t1\tsingle-line-reject\n" +
+		"body_icon\tbody.icon.new.label\t64\t96\t24\t8\t64\t96\t3\t1\tsingle-line-reject\n" +
+		"body_icon\tbody.icon.new.action\t24\t128\t112\t8\t24\t128\t14\t1\tsingle-line-reject\n" +
+		"selection\tbody.icon.selection.instruction\t0\t192\t160\t8\t0\t192\t20\t1\tsingle-line-reject\n"
+	for name, mutate := range map[string]func(string) string{
+		"exact":          func(s string) string { return s },
+		"unknown":        func(s string) string { return strings.Replace(s, "body.icon.old.label", "body.icon.unknown", 1) },
+		"boundary drift": func(s string) string { return strings.Replace(s, "64\t48\t24\t8\t64\t48", "63\t48\t24\t8\t63\t48", 1) },
+		"missing": func(s string) string {
+			return strings.Replace(s, "selection\tbody.icon.selection.instruction\t0\t192\t160\t8\t0\t192\t20\t1\tsingle-line-reject\n", "", 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rects.tsv")
+			if err := os.WriteFile(path, []byte(mutate(valid)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			rects, err := loadBodyIconRects(path)
+			if name == "exact" {
+				if err != nil || len(rects) != 7 {
+					t.Fatalf("rects=%v err=%v", rects, err)
+				}
+			} else if err == nil {
+				t.Fatal("漂移矩形必須失敗即關閉")
+			}
+		})
+	}
+}
+
+func TestObserveBodyIconFramebufferBoundariesAndFirstIntersection(t *testing.T) {
+	rects := []bodyIconRect{{EventKey: "body.icon.old.label", X: 64, Y: 48, Width: 24, Height: 8}}
+	before, after := make([]byte, 320*200), make([]byte, 320*200)
+	after[48*320+63] = 1
+	if _, ok := observeBodyIconFramebuffer(10, buckrogers.Address{}, rects, before, after); ok {
+		t.Fatal("左 exclusive 邊界外不得命中")
+	}
+	after[48*320+64] = 2
+	item, ok := observeBodyIconFramebuffer(11, buckrogers.Address{Segment: 1, Offset: 2}, rects, before, after)
+	if !ok || item.Step != 11 || item.X0 != 64 || item.Y0 != 48 || len(item.EventKeys) != 1 {
+		t.Fatalf("item=%+v ok=%v", item, ok)
+	}
+	if _, ok := observeBodyIconFramebuffer(12, buckrogers.Address{}, rects, before, after); ok {
+		t.Fatal("未再變化不得重複命中")
+	}
+	after[55*320+87] = 3
+	if _, ok := observeBodyIconFramebuffer(13, buckrogers.Address{}, rects, before, after); !ok {
+		t.Fatal("右下內界應命中")
+	}
+	after[56*320+64] = 4
+	if _, ok := observeBodyIconFramebuffer(14, buckrogers.Address{}, rects, before, after); ok {
+		t.Fatal("下 exclusive 邊界外不得命中")
 	}
 }
 

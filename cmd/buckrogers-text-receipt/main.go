@@ -345,6 +345,25 @@ type pixelWriteJSON struct {
 	Y1           uint16             `json:"y1"`
 }
 
+type bodyIconRect struct {
+	EventKey string
+	X, Y     int
+	Width    int
+	Height   int
+}
+
+// bodyIconFramebufferWriteJSON is content-safe: it identifies the
+// pre-execution instruction and changed bounds, never the original pixels.
+type bodyIconFramebufferWriteJSON struct {
+	Step        uint64             `json:"step"`
+	Instruction buckrogers.Address `json:"instruction"`
+	EventKeys   []string           `json:"event_keys"`
+	X0          uint16             `json:"x0"`
+	Y0          uint16             `json:"y0"`
+	X1          uint16             `json:"x1"`
+	Y1          uint16             `json:"y1"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -477,6 +496,8 @@ func main() {
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
 	storyFillTrace := flag.Bool("story-fill-trace", false, "記錄前 64 筆與明示 story-fill-rows 範圍相交的原版 pre-write fill metadata")
 	storyFillRows := flag.Uint("story-fill-rows", 5, "story-fill-trace 的列數：5（預設 rows 17..21）或 6（rows 17..22）")
+	bodyIconFramebufferTrace := flag.Bool("body-icon-framebuffer-trace", false, "逐 step 記錄與正式身體圖示安全矩形相交的 framebuffer 變化")
+	bodyIconRects := flag.String("body-icon-rects", "", "body-icon-framebuffer-trace 必須搭配的正式 body-icon-text-safe-rects.tsv")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
@@ -492,6 +513,17 @@ func main() {
 	}
 	if *storyFillRows != 5 && *storyFillRows != 6 {
 		fail(fmt.Errorf("story-fill-rows 只允許 5 或 6"))
+	}
+	if *bodyIconFramebufferTrace != (*bodyIconRects != "") {
+		fail(fmt.Errorf("body-icon-framebuffer-trace 與 body-icon-rects 必須同時提供"))
+	}
+	var bodyRects []bodyIconRect
+	if *bodyIconFramebufferTrace {
+		var err error
+		bodyRects, err = loadBodyIconRects(*bodyIconRects)
+		if err != nil {
+			fail(err)
+		}
 	}
 	if (*stopAtSegment != 0 || *stopAtOffset != 0 || *stopAfterStep != 0) && (*stopAtSegment > 0xFFFF || *stopAtOffset > 0xFFFF || *stopAtSegment == 0 || *stopAtOffset == 0 || *stopAfterStep == 0) {
 		fail(fmt.Errorf("stop-at-segment、stop-at-offset、stop-after-step 必須同時為有效值"))
@@ -1138,6 +1170,11 @@ func main() {
 	var glyphRuns []glyphRunJSON
 	glyphDrops := 0
 	var storyWrite *pixelWriteJSON
+	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
+	var bodyIconBefore []byte
+	if *bodyIconFramebufferTrace {
+		bodyIconBefore = append([]byte(nil), m.Indexed()...)
+	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
 	if *storyPixelTrace {
@@ -1582,6 +1619,14 @@ func main() {
 		if err := m.Step(); err != nil {
 			fail(err)
 		}
+		if *bodyIconFramebufferTrace {
+			if item, changed := observeBodyIconFramebuffer(m.Steps-1, at, bodyRects, bodyIconBefore, m.Indexed()); changed {
+				if len(bodyIconFramebufferWrites) >= 4096 {
+					fail(fmt.Errorf("body-icon framebuffer trace 超過 4096 筆"))
+				}
+				bodyIconFramebufferWrites = append(bodyIconFramebufferWrites, item)
+			}
+		}
 		if *storyPixelTrace && storyWrite == nil {
 			pixels := m.Indexed()[17*8*320 : 22*8*320]
 			x0, y0, x1, y1 := 320, 40, -1, -1
@@ -1717,13 +1762,14 @@ func main() {
 		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
 		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
 		StoryFillRows             *uint                          `json:"story_fill_rows,omitempty"`
+		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON `json:"body_icon_framebuffer_writes,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
 		KeyPolls                  *int                           `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -2313,6 +2359,100 @@ func storyFillIntersects(di, count uint16, rows uint32) bool {
 		}
 	}
 	return false
+}
+
+func loadBodyIconRects(path string) ([]bodyIconRect, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("讀取 body icon rectangles：%w", err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 8 || lines[0] != "screen\tevent_key\tx\ty\twidth\theight\tdraw_x\tdraw_y\tcapacity_cells\tline_count\toverflow_policy" {
+		return nil, fmt.Errorf("body icon rectangles schema 或筆數不符")
+	}
+	expected := map[string]bodyIconRect{
+		"body.icon.confirmation":          {EventKey: "body.icon.confirmation", X: 0, Y: 192, Width: 136, Height: 8},
+		"body.icon.save_prompt":           {EventKey: "body.icon.save_prompt", X: 0, Y: 192, Width: 64, Height: 8},
+		"body.icon.old.label":             {EventKey: "body.icon.old.label", X: 64, Y: 48, Width: 24, Height: 8},
+		"body.icon.old.action":            {EventKey: "body.icon.old.action", X: 24, Y: 80, Width: 112, Height: 8},
+		"body.icon.new.label":             {EventKey: "body.icon.new.label", X: 64, Y: 96, Width: 24, Height: 8},
+		"body.icon.new.action":            {EventKey: "body.icon.new.action", X: 24, Y: 128, Width: 112, Height: 8},
+		"body.icon.selection.instruction": {EventKey: "body.icon.selection.instruction", X: 0, Y: 192, Width: 160, Height: 8},
+	}
+	seen := make(map[string]bool, len(expected))
+	out := make([]bodyIconRect, 0, len(expected))
+	for _, line := range lines[1:] {
+		fields := strings.Split(strings.TrimSuffix(line, "\r"), "\t")
+		if len(fields) != 11 {
+			return nil, fmt.Errorf("body icon rectangle 欄數不符")
+		}
+		key := fields[1]
+		want, ok := expected[key]
+		if !ok || seen[key] {
+			return nil, fmt.Errorf("未知或重複 body icon rectangle：%q", key)
+		}
+		values := make([]int, 8)
+		for i := range values {
+			values[i], err = strconv.Atoi(fields[i+2])
+			if err != nil {
+				return nil, fmt.Errorf("body icon rectangle 數值無效：%q", key)
+			}
+		}
+		if values[0] != want.X || values[1] != want.Y || values[2] != want.Width || values[3] != want.Height || values[4] != want.X || values[5] != want.Y || values[6] != want.Width/8 || values[7] != 1 || fields[10] != "single-line-reject" {
+			return nil, fmt.Errorf("body icon rectangle 身分或幾何漂移：%q", key)
+		}
+		seen[key] = true
+		out = append(out, want)
+	}
+	if len(seen) != len(expected) {
+		return nil, fmt.Errorf("body icon rectangles 不完整")
+	}
+	return out, nil
+}
+
+func observeBodyIconFramebuffer(step uint64, at buckrogers.Address, rects []bodyIconRect, before, after []byte) (bodyIconFramebufferWriteJSON, bool) {
+	if len(before) != 320*200 || len(after) != len(before) {
+		return bodyIconFramebufferWriteJSON{}, false
+	}
+	keys := make([]string, 0, len(rects))
+	x0, y0, x1, y1 := 320, 200, -1, -1
+	for _, rect := range rects {
+		hit := false
+		for y := rect.Y; y < rect.Y+rect.Height; y++ {
+			for x := rect.X; x < rect.X+rect.Width; x++ {
+				i := y*320 + x
+				if before[i] == after[i] {
+					continue
+				}
+				hit = true
+				if x < x0 {
+					x0 = x
+				}
+				if x > x1 {
+					x1 = x
+				}
+				if y < y0 {
+					y0 = y
+				}
+				if y > y1 {
+					y1 = y
+				}
+			}
+		}
+		if hit {
+			keys = append(keys, rect.EventKey)
+		}
+	}
+	if x1 < 0 {
+		return bodyIconFramebufferWriteJSON{}, false
+	}
+	for _, rect := range rects {
+		for y := rect.Y; y < rect.Y+rect.Height; y++ {
+			copy(before[y*320+rect.X:y*320+rect.X+rect.Width], after[y*320+rect.X:y*320+rect.X+rect.Width])
+		}
+	}
+	sort.Strings(keys)
+	return bodyIconFramebufferWriteJSON{Step: step, Instruction: at, EventKeys: keys, X0: uint16(x0), Y0: uint16(y0), X1: uint16(x1), Y1: uint16(y1)}, true
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
