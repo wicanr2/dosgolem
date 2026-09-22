@@ -262,7 +262,7 @@ func TestFormalProjectCatalog(t *testing.T) {
 	if _, ok := c.Resolve(1, 1, Question{34, "Deimos Prison", "tenth"}); !ok {
 		t.Fatal("正式 Deimos 映射應命中")
 	}
-	if _, ok := c.Resolve(2, 2, Question{41, "Technical Skills", "second"}); ok {
-		t.Fatal("未收錄的 Technical Skills 不得命中")
+	if got, ok := c.Resolve(2, 2, Question{41, "Technical Skills", "second"}); !ok || got.EventKey != "manual.page41.technical_skills.word2" || got.TextKey != "manual.rules.technical_skills" {
+		t.Fatalf("正式 Technical Skills 映射 = %#v, %v；要精確第 31 題", got, ok)
 	}
 }

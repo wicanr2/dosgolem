@@ -69,6 +69,35 @@ func TestActionBarOverlayBuildsHotkeyPreservingNormalAtBothScales(t *testing.T) 
 	}
 }
 
+func TestActionBarOverlayUses22PixelCJKOnlyAtThreeTimes(t *testing.T) {
+	c, rects := formalActionOverlay(t)
+	e, r := actionOverlayEvent(c, "normal")
+	style := HotkeyPreservingActionBarNormalStyle()
+	for _, scale := range []int{2, 3} {
+		o, err := BuildActionBarOverlay(c, rects, e, r, actionOverlayFont(), [256][3]uint8{}, scale, &style)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for index, stamp := range o.Layer.Stamps {
+			isCJK := index >= 3
+			if scale == 2 || !isCJK {
+				wantOffset := (8*scale - 16) / 2
+				if stamp.Font.W != 16 || stamp.Font.H != 16 || stamp.GlyphX != wantOffset || stamp.GlyphY != wantOffset || stamp.GlyphScale != 0 {
+					t.Fatalf("scale=%d index=%d ASCII/2x drift: %#v", scale, index, stamp)
+				}
+				continue
+			}
+			if stamp.Font.W != 22 || stamp.Font.H != 22 || stamp.GlyphX != 1 || stamp.GlyphY != 1 || stamp.GlyphScale != 1 {
+				t.Fatalf("3x CJK index=%d layout=%#v", index, stamp)
+			}
+			ink, err := menuInkRect(stamp, scale)
+			if err != nil || ink.Width > 22 || ink.Height > 22 || ink.X < stamp.X*scale || ink.Y < stamp.Y*scale || ink.X+ink.Width > (stamp.X+stamp.CellW)*scale || ink.Y+ink.Height > (stamp.Y+stamp.CellH)*scale {
+				t.Fatalf("3x CJK index=%d ink=%#v err=%v", index, ink, err)
+			}
+		}
+	}
+}
+
 func TestActionBarOverlayFocusUsesExactStyleWithoutNormalPolicy(t *testing.T) {
 	c, rects := formalActionOverlay(t)
 	e, r := actionOverlayEvent(c, "focus")

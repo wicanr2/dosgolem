@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/internal/state"
@@ -124,6 +125,89 @@ func TestActionBarFlagsRequireBothSkillAnchors(t *testing.T) {
 	} {
 		if got := validateActionBarFlags(tc.action, tc.translations, tc.career, tc.technical) == nil; got != tc.wantOK {
 			t.Fatalf("flags=%#v valid=%v, want %v", tc, got, tc.wantOK)
+		}
+	}
+}
+
+func TestActionBarOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
+	valid := []struct {
+		name                               string
+		events, translations, rects, font  string
+		out, baseline, pngOut, baselinePNG string
+		scale                              int
+		wantOK                             bool
+	}{
+		{"全部省略", "", "", "", "", "", "", "", "", 0, true},
+		{"僅 watcher catalog", "e", "t", "", "", "", "", "", "", 0, true},
+		{"完整 2 倍", "e", "t", "r", "f", "o", "b", "p", "bp", 2, true},
+		{"完整 3 倍", "e", "t", "r", "f", "o", "b", "p", "bp", 3, true},
+		{"缺矩形", "e", "t", "", "f", "o", "b", "p", "bp", 2, false},
+		{"缺字型", "e", "t", "r", "", "o", "b", "p", "bp", 2, false},
+		{"缺 baseline", "e", "t", "r", "f", "o", "", "p", "bp", 2, false},
+		{"缺 PNG", "e", "t", "r", "f", "o", "b", "", "bp", 2, false},
+		{"錯誤倍率", "e", "t", "r", "f", "o", "b", "p", "bp", 1, false},
+	}
+	for _, tc := range valid {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateActionBarOverlayFlags(tc.events, tc.translations, tc.rects, tc.font, tc.out, tc.baseline, tc.pngOut, tc.baselinePNG, tc.scale) == nil
+			if got != tc.wantOK {
+				t.Fatalf("有效性=%v，要 %v", got, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestActionBarDiffRejectsPixelsOutsideApprovedRow24Rects(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		scale, x, y int
+		outside     int
+	}{
+		{"add 空白格允許", 2, 31, 199, 0},
+		{"subtract 允許", 3, 32, 192, 0},
+		{"底框拒絕", 2, 0, 191, 1},
+		{"標籤間隙拒絕", 3, 100, 192, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseline := make([]byte, 320*tc.scale*200*tc.scale*4)
+			overlay := append([]byte(nil), baseline...)
+			i := ((tc.y*tc.scale)*(320*tc.scale) + tc.x*tc.scale) * 4
+			overlay[i] = 1
+			outside, inside, added := actionBarDiff(baseline, overlay, tc.scale)
+			if outside != tc.outside || inside != 1-tc.outside || added != inside {
+				t.Fatalf("outside=%d inside=%d added=%d", outside, inside, added)
+			}
+		})
+	}
+}
+
+func TestActionBarHotkeyStylePreservesWhiteMnemonicOnly(t *testing.T) {
+	normal := buckrogers.ActionBarOverlayAction{EventKey: "career.action.add.normal", Background: 0, RuneForegrounds: []uint8{10, 15, 10, 10, 10}}
+	focus := buckrogers.ActionBarOverlayAction{EventKey: "career.action.add.focus", Background: 15, RuneForegrounds: []uint8{0, 0, 0, 0, 0}}
+	for _, action := range []buckrogers.ActionBarOverlayAction{normal, focus} {
+		if err := validateActionBarHotkeyStyle(action); err != nil {
+			t.Fatal(err)
+		}
+	}
+	normal.RuneForegrounds[0] = 15
+	if err := validateActionBarHotkeyStyle(normal); err == nil {
+		t.Fatal("括號不可改成白色")
+	}
+	focus.EventKey = "career.action.add.disabled"
+	if err := validateActionBarHotkeyStyle(focus); err == nil {
+		t.Fatal("未證實 disabled 不可接受")
+	}
+}
+
+func TestPaletteIndicesAreContentSafeJSONNumbers(t *testing.T) {
+	got := paletteIndices([]uint8{10, 15, 10})
+	want := []int{10, 15, 10}
+	if len(got) != len(want) {
+		t.Fatalf("長度=%d，要 %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("[%d]=%d，要 %d", i, got[i], want[i])
 		}
 	}
 }

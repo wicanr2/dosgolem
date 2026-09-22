@@ -76,6 +76,40 @@ func actionBarRuneAdvance(r rune) int {
 	return 8
 }
 
+// actionBarGlyphLayout preserves the established 2× pixels and all ASCII
+// mnemonic glyphs. At 3× only CJK glyphs use a 22×22 nearest-neighbour raster
+// inside their 24×24 output cell, leaving a one-pixel inset and reducing the
+// inter-glyph gap from eight to two pixels. This remains inside spec 215's
+// logical 8-pixel-high action-bar band after scaling.
+func actionBarGlyphLayout(font *xlate.Font, r rune, scale int) (*xlate.Font, int, int, int, error) {
+	offset := (8*scale - 16) / 2
+	if scale != 3 || r < 128 {
+		return font, offset, offset, 0, nil
+	}
+	source, ok := font.Glyphs[r]
+	if !ok || len(source) != 32 {
+		return nil, 0, 0, 0, fmt.Errorf("buckrogers: action overlay 缺少有效字模 U+%04X", r)
+	}
+	return &xlate.Font{W: 22, H: 22, Glyphs: map[rune][]byte{r: scaleActionBarGlyph22(source)}}, 1, 1, 1, nil
+}
+
+// scaleActionBarGlyph22 expands a 16×16 GOLEMFNT raster to an exact 22×22
+// bitmap without changing the source font or its 2× rendering path.
+func scaleActionBarGlyph22(source []byte) []byte {
+	const sourceWidth, targetWidth = 16, 22
+	out := make([]byte, targetWidth*((targetWidth+7)/8))
+	for y := 0; y < targetWidth; y++ {
+		sy := y * sourceWidth / targetWidth
+		for x := 0; x < targetWidth; x++ {
+			sx := x * sourceWidth / targetWidth
+			if source[sy*2+sx/8]&(0x80>>uint(sx%8)) != 0 {
+				out[y*3+x/8] |= 0x80 >> uint(x%8)
+			}
+		}
+	}
+	return out
+}
+
 type ActionBarOverlay struct {
 	Layer             *xlate.Layer
 	EventKey, TextKey string
@@ -167,17 +201,29 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 			return nil, fmt.Errorf("buckrogers: action overlay 缺少有效字模 U+%04X", runeValue)
 		}
 	}
-	offset := (8*scale - 16) / 2
 	layer := &xlate.Layer{W: 320, H: 200}
-	base := &xlate.Stamp{Key: event.EventKey + "#0", X: r.x, Y: r.y, Cells: 1,
-		CellW: actionBarRuneAdvance(runes[0]), CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
-		Text: []rune{runes[0]}, State: xlate.Shown, BG: palette[background], FG: palette[foregrounds[0]]}
+	stampFor := func(index, x int) (*xlate.Stamp, error) {
+		runeValue := runes[index]
+		glyphFont, glyphX, glyphY, glyphScale, err := actionBarGlyphLayout(font, runeValue, scale)
+		if err != nil {
+			return nil, err
+		}
+		return &xlate.Stamp{Key: fmt.Sprintf("%s#%d", event.EventKey, index), X: x, Y: r.y, Cells: 1,
+			CellW: actionBarRuneAdvance(runeValue), CellH: 8, Font: glyphFont, GlyphX: glyphX, GlyphY: glyphY,
+			GlyphScale: glyphScale, Text: []rune{runeValue}, State: xlate.Shown,
+			BG: palette[background], FG: palette[foregrounds[index]]}, nil
+	}
+	base, err := stampFor(0, r.x)
+	if err != nil {
+		return nil, err
+	}
 	layer.Add(base)
 	drawX := r.drawX + actionBarRuneAdvance(runes[0])
 	for i := 1; i < len(runes); i++ {
-		stamp := &xlate.Stamp{Key: fmt.Sprintf("%s#%d", event.EventKey, i), X: drawX, Y: r.y,
-			Cells: 1, CellW: actionBarRuneAdvance(runes[i]), CellH: 8, Font: font, GlyphX: offset, GlyphY: offset,
-			Text: []rune{runes[i]}, State: xlate.Shown, BG: palette[background], FG: palette[foregrounds[i]]}
+		stamp, err := stampFor(i, drawX)
+		if err != nil {
+			return nil, err
+		}
 		layer.Add(stamp)
 		drawX += actionBarRuneAdvance(runes[i])
 	}

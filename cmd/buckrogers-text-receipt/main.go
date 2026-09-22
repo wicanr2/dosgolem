@@ -73,6 +73,28 @@ type manualOverlayJSON struct {
 	FrameCallbacks        uint64        `json:"frame_callbacks"`
 }
 
+type actionBarOverlayJSON struct {
+	Scale                 int                  `json:"scale"`
+	Actions               []requestJSON        `json:"actions"`
+	Styles                []actionBarStyleJSON `json:"styles"`
+	ActiveKeys            []string             `json:"active_keys"`
+	MissingGlyphs         []string             `json:"missing_glyphs"`
+	Drew                  bool                 `json:"drew"`
+	BaselineRGBA256       string               `json:"baseline_rgba_sha256"`
+	OverlayRGBA256        string               `json:"overlay_rgba_sha256"`
+	DiffOutsideSafeRects  int                  `json:"diff_outside_safe_rects"`
+	DiffInsideSafeRects   int                  `json:"diff_inside_safe_rects"`
+	AddedNonBaselinePixel int                  `json:"added_nonbaseline_pixels"`
+}
+
+// actionBarStyleJSON is content-safe receipt evidence for the READY visual
+// contract: it records palette indices, never original glyph bytes.
+type actionBarStyleJSON struct {
+	EventKey        string `json:"event_key"`
+	Background      uint8  `json:"background"`
+	RuneForegrounds []int  `json:"rune_foregrounds"`
+}
+
 type actionBarEventJSON struct {
 	EntryStep      uint64 `json:"entry_step"`
 	PostCallStep   uint64 `json:"post_call_step"`
@@ -157,6 +179,13 @@ func main() {
 	technicalSkillTranslations := flag.String("technical-skill-translations", "", "正式 technical-skill-screen.zh-TW.tsv")
 	actionBarEvents := flag.String("skill-action-bar-events", "", "正式 skill-action-bar-events.tsv")
 	actionBarTranslations := flag.String("skill-action-bar-translations", "", "正式 skill-action-bar.zh-TW.tsv")
+	actionBarRects := flag.String("skill-action-bar-rects", "", "正式 skill-action-bar-text-safe-rects.tsv")
+	actionBarOverlayFont := flag.String("skill-action-bar-overlay-font", "", "本機 16x16 操作列 GOLEMFNT")
+	actionBarOverlayScale := flag.Int("skill-action-bar-overlay-scale", 0, "明示操作列覆繪倍率 2 或 3")
+	actionBarOverlayOut := flag.String("skill-action-bar-overlay-rgba-out", "", "輸出操作列覆繪後 RGBA framebuffer")
+	actionBarBaselineOut := flag.String("skill-action-bar-baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的操作列 RGBA baseline")
+	actionBarPNGOut := flag.String("skill-action-bar-overlay-png-out", "", "輸出操作列覆繪 PNG")
+	actionBarBaselinePNGOut := flag.String("skill-action-bar-baseline-png-out", "", "輸出未覆繪操作列 PNG")
 	careerSkillRects := flag.String("career-skill-rects", "", "正式 career-skill-screen-text-safe-rects.tsv")
 	technicalSkillRects := flag.String("technical-skill-rects", "", "正式 technical-skill-screen-text-safe-rects.tsv")
 	namePromptRects := flag.String("name-prompt-rects", "", "正式 name-prompt-text-safe-rects.tsv")
@@ -206,6 +235,10 @@ func main() {
 		fail(err)
 	}
 	if err := validateActionBarFlags(*actionBarEvents, *actionBarTranslations, *careerSkillEvents, *technicalSkillEvents); err != nil {
+		fail(err)
+	}
+	if err := validateActionBarOverlayFlags(*actionBarEvents, *actionBarTranslations, *actionBarRects,
+		*actionBarOverlayFont, *actionBarOverlayOut, *actionBarBaselineOut, *actionBarPNGOut, *actionBarBaselinePNGOut, *actionBarOverlayScale); err != nil {
 		fail(err)
 	}
 	if err := validateOverlayFlags(*menuEvents, *menuRects, *genderEvents, *genderRects,
@@ -372,6 +405,25 @@ func main() {
 			fail(err)
 		}
 	}
+	var actionBarPresenter *buckrogers.RuntimeActionBarOverlay
+	if *actionBarOverlayOut != "" {
+		if actionRequestCatalog == nil {
+			fail(fmt.Errorf("操作列覆繪需要 action request catalog"))
+		}
+		rects, err := buckrogers.LoadActionBarOverlayRects("skill-action-bar-text-safe-rects.tsv", mustReadFile(*actionBarRects))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*actionBarOverlayFont)
+		if err != nil {
+			fail(err)
+		}
+		style := buckrogers.HotkeyPreservingActionBarNormalStyle()
+		actionBarPresenter, err = buckrogers.NewRuntimeActionBarOverlay(actionRequestCatalog, rects, font, *actionBarOverlayScale, &style)
+		if err != nil {
+			fail(err)
+		}
+	}
 	var manualCatalog *buckrogers.Catalog
 	var manualPresenter *buckrogers.RuntimeManualOverlay
 	if *manualOut != "" {
@@ -457,14 +509,23 @@ func main() {
 		}
 		m.SetOnFrame(func() {
 			presenter.Frame(m.Indexed(), m.Palette())
+			if actionBarPresenter != nil {
+				actionBarPresenter.Frame(m.Indexed(), m.Palette())
+			}
 			if manualPresenter != nil {
 				manualFrameCallbacks++
 				manualPresenter.Frame(m.Indexed(), m.Palette())
 			}
 		})
 	}
+	if actionBarPresenter != nil && presenter == nil && manualPresenter == nil {
+		m.SetOnFrame(func() { actionBarPresenter.Frame(m.Indexed(), m.Palette()) })
+	}
 	if manualPresenter != nil && presenter == nil {
 		m.SetOnFrame(func() {
+			if actionBarPresenter != nil {
+				actionBarPresenter.Frame(m.Indexed(), m.Palette())
+			}
 			manualFrameCallbacks++
 			manualPresenter.Frame(m.Indexed(), m.Palette())
 		})
@@ -499,6 +560,7 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		actionRequestBefore := len(actionWatcher.Requests())
 		actionWatcher.ObserveInstruction(at, ss, sp, m.Steps)
 		if at == (buckrogers.Address{Segment: 0x026F, Offset: 0x029C}) {
 			bottom := m.Read8(cpu.Addr(ss, sp+4))
@@ -515,6 +577,11 @@ func main() {
 			}
 			if presenter != nil {
 				if err := presenter.ClearTextCells(bottom, right, top, left); err != nil {
+					fail(err)
+				}
+			}
+			if actionBarPresenter != nil {
+				if err := actionBarPresenter.ClearTextCells(bottom, right, top, left); err != nil {
 					fail(err)
 				}
 			}
@@ -555,6 +622,9 @@ func main() {
 					fail(fmt.Errorf("runtime request count advanced without request"))
 				}
 				actionWatcher.ObserveAnchorEvent(request.EventKey)
+				if actionBarPresenter != nil {
+					actionBarPresenter.ObserveAnchorEvent(request.EventKey)
+				}
 			}
 			if presenter != nil && r.EventCount() > eventBefore && r.RequestCount() > requestBefore {
 				event, eventOK := r.LastEvent()
@@ -562,6 +632,12 @@ func main() {
 				if !eventOK || !requestOK || presenter.Apply(event, request, m.Palette()) != nil {
 					fail(fmt.Errorf("runtime overlay apply 失敗"))
 				}
+			}
+		}
+		if actionBarPresenter != nil && len(actionWatcher.Requests()) > actionRequestBefore {
+			events, requests := actionWatcher.Events(), actionWatcher.Requests()
+			if len(events) == 0 || len(requests) == 0 || actionBarPresenter.Apply(events[len(events)-1], requests[len(requests)-1], m.Palette()) != nil {
+				fail(fmt.Errorf("runtime action bar overlay apply 失敗"))
 			}
 		}
 		if manualBridge != nil {
@@ -638,6 +714,7 @@ func main() {
 		ActionBarDrops         *int                     `json:"action_bar_drops,omitempty"`
 		ActionBarRequests      []requestJSON            `json:"action_bar_requests,omitempty"`
 		ActionBarCatalogMisses *int                     `json:"action_bar_catalog_misses,omitempty"`
+		ActionBarOverlay       *actionBarOverlayJSON    `json:"action_bar_overlay,omitempty"`
 		MemorySHA256           string                   `json:"memory_sha256"`
 		IndexedSHA256          string                   `json:"indexed_sha256"`
 		PaletteSHA256          string                   `json:"palette_sha256"`
@@ -731,6 +808,37 @@ func main() {
 	if actionRequestCatalog != nil {
 		misses, drops, requestMisses := actionWatcher.Misses(), actionWatcher.Drops(), actionWatcher.RequestMisses()
 		result.ActionBarMisses, result.ActionBarDrops, result.ActionBarCatalogMisses = &misses, &drops, &requestMisses
+	}
+	if actionBarPresenter != nil {
+		actionBarPresenter.Frame(m.Indexed(), m.Palette())
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *actionBarOverlayScale)
+		rgba, missing, drew := actionBarPresenter.Draw(m.Indexed(), m.Palette())
+		if err := validateOverlayDraw(actionBarPresenter.ActiveKeys(), missing, drew); err != nil {
+			fail(err)
+		}
+		outside, inside, added := actionBarDiff(baseline, rgba, *actionBarOverlayScale)
+		if outside != 0 || (len(actionBarPresenter.ActiveKeys()) != 0 && added == 0) {
+			fail(fmt.Errorf("操作列覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
+		}
+		if err := writeManualOutputs(*actionBarOverlayOut, *actionBarBaselineOut, *actionBarPNGOut, *actionBarBaselinePNGOut, rgba, baseline, *actionBarOverlayScale); err != nil {
+			fail(err)
+		}
+		result.ActionBarOverlay = &actionBarOverlayJSON{Scale: *actionBarOverlayScale, ActiveKeys: actionBarPresenter.ActiveKeys(), Drew: drew,
+			BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideSafeRects: outside,
+			DiffInsideSafeRects: inside, AddedNonBaselinePixel: added}
+		for _, r := range missing {
+			result.ActionBarOverlay.MissingGlyphs = append(result.ActionBarOverlay.MissingGlyphs, string(r))
+		}
+		for _, action := range actionBarPresenter.Actions() {
+			if err := validateActionBarHotkeyStyle(action); err != nil {
+				fail(err)
+			}
+			result.ActionBarOverlay.Actions = append(result.ActionBarOverlay.Actions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
+			result.ActionBarOverlay.Styles = append(result.ActionBarOverlay.Styles, actionBarStyleJSON{
+				EventKey: action.EventKey, Background: action.Background,
+				RuneForegrounds: paletteIndices(action.RuneForegrounds),
+			})
+		}
 	}
 	if *enterAt != 0 {
 		result.BIOSInput = fmt.Sprintf("Enter(scan=0x1c,ascii=0x0d,queued_at=%d)", *enterAt)
@@ -956,6 +1064,91 @@ func validateActionBarFlags(events, translations, careerEvents, technicalEvents 
 		return fmt.Errorf("skill-action-bar-events 必須同時提供 career 與 technical skill catalogs 作 exact anchors")
 	}
 	return nil
+}
+
+// validateActionBarOverlayFlags keeps the runtime path all-or-nothing: an
+// action-bar renderer must have the same identity inputs as its watcher, plus
+// explicit geometry, font, scale, and paired baseline/overlay artifacts.
+func validateActionBarOverlayFlags(events, translations, rects, font, out, baseline, pngOut, baselinePNG string, scale int) error {
+	// The watcher/catalog flags are independently useful without a renderer.
+	// Only renderer-owned flags opt into this all-or-nothing artifact contract.
+	any := rects != "" || font != "" || out != "" || baseline != "" || pngOut != "" || baselinePNG != "" || scale != 0
+	if !any {
+		return nil
+	}
+	if events == "" || translations == "" || rects == "" || font == "" || out == "" || baseline == "" || pngOut == "" || baselinePNG == "" {
+		return fmt.Errorf("操作列覆繪需要完整 events、translations、矩形、字型、raw RGBA 與 PNG 輸出")
+	}
+	if scale != 2 && scale != 3 {
+		return fmt.Errorf("操作列覆繪倍率必須是 2 或 3")
+	}
+	return nil
+}
+
+// actionBarDiff accepts only the exact row-24 rectangles authorized by spec
+// 215. action.add includes its proven unused cell at x=24..32 for clearing.
+func actionBarDiff(baseline, overlay []byte, scale int) (outside, inside, added int) {
+	w := 320 * scale
+	for y := 0; y < 200*scale; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 4
+			if string(baseline[i:i+4]) == string(overlay[i:i+4]) {
+				continue
+			}
+			logicalX, logicalY := x/scale, y/scale
+			permitted := logicalY >= 192 && logicalY < 200 &&
+				((logicalX >= 0 && logicalX < 32) ||
+					(logicalX >= 32 && logicalX < 96) ||
+					(logicalX >= 104 && logicalX < 136) ||
+					(logicalX >= 144 && logicalX < 176) ||
+					(logicalX >= 184 && logicalX < 216))
+			if permitted {
+				inside++
+				added++
+			} else {
+				outside++
+			}
+		}
+	}
+	return outside, inside, added
+}
+
+func validateActionBarHotkeyStyle(action buckrogers.ActionBarOverlayAction) error {
+	if len(action.RuneForegrounds) != 5 {
+		return fmt.Errorf("操作列 %s 配色長度為 %d，要 5", action.EventKey, len(action.RuneForegrounds))
+	}
+	if strings.HasSuffix(action.EventKey, ".normal") {
+		want := buckrogers.HotkeyPreservingActionBarNormalStyle().RuneForegrounds
+		if action.Background != 0 {
+			return fmt.Errorf("操作列 normal %s 背景色為 %d，要 0", action.EventKey, action.Background)
+		}
+		for i := range want {
+			if action.RuneForegrounds[i] != want[i] {
+				return fmt.Errorf("操作列 normal %s rune %d 色號為 %d，要 %d", action.EventKey, i, action.RuneForegrounds[i], want[i])
+			}
+		}
+		return nil
+	}
+	if strings.HasSuffix(action.EventKey, ".focus") {
+		if action.Background != 15 {
+			return fmt.Errorf("操作列 focus %s 背景色為 %d，要 15", action.EventKey, action.Background)
+		}
+		for i, foreground := range action.RuneForegrounds {
+			if foreground != 0 {
+				return fmt.Errorf("操作列 focus %s rune %d 色號為 %d，要 0", action.EventKey, i, foreground)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("操作列事件沒有 normal/focus variant：%s", action.EventKey)
+}
+
+func paletteIndices(colors []uint8) []int {
+	indices := make([]int, len(colors))
+	for i, color := range colors {
+		indices[i] = int(color)
+	}
+	return indices
 }
 
 func validateOverlayDraw(activeKeys []string, missingRunes []rune, drew bool) error {
