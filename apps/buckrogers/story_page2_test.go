@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/wicanr2/dosgolem/xlate"
+	"strings"
 	"testing"
 )
 
@@ -27,24 +28,26 @@ func TestStoryPage2PresenterRejectsMixedDuplicateAndMissingGeneration(t *testing
 		f.Glyphs[r] = make([]byte, 32)
 		text[fmt.Sprintf("story.page2.line.00%d", i+1)] = string(r)
 	}
-	o, e := NewRuntimeStoryPage2Overlay(text, f, 2)
-	if e != nil {
-		t.Fatal(e)
-	}
 	good := make([]StoryPage2Event, 4)
 	for i := range good {
 		good[i] = StoryPage2Event{Generation: 1, EventKey: fmt.Sprintf("story.page2.line.00%d", i+1), Row: uint8(17 + i), Column: 1}
 	}
-	for _, bad := range [][]StoryPage2Event{append([]StoryPage2Event(nil), good[:3]...), func() []StoryPage2Event { x := append([]StoryPage2Event(nil), good...); x[3].Generation = 2; return x }(), func() []StoryPage2Event {
-		x := append([]StoryPage2Event(nil), good...)
-		x[3].EventKey = x[2].EventKey
-		return x
-	}()} {
-		if o.Apply(bad, [256][3]uint8{}) == nil {
-			t.Fatal("accepted invalid atomic generation")
+	for _, scale := range []int{2, 3} {
+		o, e := NewRuntimeStoryPage2Overlay(text, f, scale)
+		if e != nil {
+			t.Fatal(e)
 		}
-		if len(o.ActiveKeys()) != 0 {
-			t.Fatal("invalid apply drew")
+		for _, bad := range [][]StoryPage2Event{append([]StoryPage2Event(nil), good[:3]...), func() []StoryPage2Event { x := append([]StoryPage2Event(nil), good...); x[3].Generation = 2; return x }(), func() []StoryPage2Event {
+			x := append([]StoryPage2Event(nil), good...)
+			x[3].EventKey = x[2].EventKey
+			return x
+		}()} {
+			if o.Apply(bad, [256][3]uint8{}) == nil {
+				t.Fatal("accepted invalid atomic generation")
+			}
+			if len(o.ActiveKeys()) != 0 {
+				t.Fatal("invalid apply drew")
+			}
 		}
 	}
 }
@@ -134,5 +137,20 @@ func TestStoryPage2HashPartialRestoreAndFontMissFailClosed(t *testing.T) {
 	f := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
 	if _, e := NewRuntimeStoryPage2Overlay(map[string]string{"story.page2.line.001": "缺", "story.page2.line.002": "缺", "story.page2.line.003": "缺", "story.page2.line.004": "缺"}, f, 2); e == nil {
 		t.Fatal("font miss accepted")
+	}
+}
+
+func TestLoadStoryPage2CatalogRejectsNonREADYFixture(t *testing.T) {
+	header := strings.Join(storyPage2EventHeader, "\t") + "\n"
+	var rows []string
+	for i := 1; i <= 4; i++ {
+		rows = append(rows, fmt.Sprintf("story.page2.line.00%d\t%d\t1\t%s\t0763:04FF\t0763:026B\t0\t10\t%d\t1\t0\t0\tconfirmed\tDRAFT", i, i, strings.Repeat("0", 64), 16+i))
+	}
+	text := "key\ttranslation\tsource\n"
+	for i := 1; i <= 4; i++ {
+		text += fmt.Sprintf("story.page2.line.00%d\t甲\tt\n", i)
+	}
+	if _, _, e := LoadStoryPage2Catalog("events", []byte(header+strings.Join(rows, "\n")+"\n"), "text", []byte(text)); e == nil {
+		t.Fatal("DRAFT catalog accepted")
 	}
 }
