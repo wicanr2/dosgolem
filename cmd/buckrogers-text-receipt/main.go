@@ -98,6 +98,14 @@ type storyOpeningOverlayJSON struct {
 	DiffInsideStoryRect   int      `json:"diff_inside_story_rect"`
 	AddedNonBaselinePixel int      `json:"added_nonbaseline_pixels"`
 }
+type storyPage2InvalidationJSON struct {
+	Step             uint64             `json:"step"`
+	Instruction      buckrogers.Address `json:"instruction"`
+	VideoSegment     uint16             `json:"video_segment"`
+	VideoOffset      uint16             `json:"video_offset"`
+	ByteCount        uint16             `json:"byte_count"`
+	ActiveKeysBefore int                `json:"active_keys_before"`
+}
 
 // storyOpeningInvalidationJSON is a content-safe lifecycle receipt.  It never
 // includes source glyphs, player input, or video bytes: the address and the
@@ -839,6 +847,7 @@ func main() {
 	var storyGlyphReturnPending *glyphFrame
 	storyOpeningGeneration := uint64(0)
 	var storyOpeningInvalidations []storyOpeningInvalidationJSON
+	var storyPage2Invalidations []storyPage2InvalidationJSON
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
 	var previousOpcode uint8
@@ -1061,7 +1070,9 @@ func main() {
 			}
 		}
 		if storyPage2Watcher != nil && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) {
+			before := storyPage2Presenter.ActiveKeys()
 			if storyPage2Watcher.ObserveVideoWrite(at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+				storyPage2Invalidations = append(storyPage2Invalidations, storyPage2InvalidationJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], len(before)})
 				storyPage2Presenter.Clear()
 				storyPage2Generation = 0
 			}
@@ -1205,6 +1216,8 @@ func main() {
 		ManualOverlay             *manualOverlayJSON             `json:"manual_overlay,omitempty"`
 		StoryOpeningOverlay       *storyOpeningOverlayJSON       `json:"story_opening_overlay,omitempty"`
 		StoryOpeningInvalidations []storyOpeningInvalidationJSON `json:"story_opening_invalidations,omitempty"`
+		StoryPage2Overlay         *storyOpeningOverlayJSON       `json:"story_page2_overlay,omitempty"`
+		StoryPage2Invalidations   []storyPage2InvalidationJSON   `json:"story_page2_invalidations,omitempty"`
 		Clears                    []clearJSON                    `json:"clears,omitempty"`
 		Glyphs                    []glyphJSON                    `json:"glyphs,omitempty"`
 		GlyphDrops                int                            `json:"glyph_drops,omitempty"`
@@ -1230,6 +1243,7 @@ func main() {
 				op.Arg, op.Pos, op.Len, op.Whence, op.Failed}
 		}
 	}
+	result.StoryPage2Invalidations = storyPage2Invalidations
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if *keyTrace {
 		pending := d.KeysPending()
@@ -1341,13 +1355,18 @@ func main() {
 		if (len(active) == 0 && (drew || len(missing) != 0)) || (len(active) != 0 && (len(active) != 4 || !drew || len(missing) != 0)) {
 			fail(fmt.Errorf("第 2 頁劇情覆繪未完成：active=%d drew=%v missing=%d", len(active), drew, len(missing)))
 		}
-		outside, _, added := storyPage2Diff(baseline, rgba, *storyPage2Scale)
+		outside, inside, added := storyPage2Diff(baseline, rgba, *storyPage2Scale)
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 2 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
 		if err := writeManualOutputs(*storyPage2Out, *storyPage2BaselineOut, *storyPage2PNGOut, *storyPage2BaselinePNGOut, rgba, baseline, *storyPage2Scale); err != nil {
 			fail(err)
 		}
+		item := &storyOpeningOverlayJSON{Scale: *storyPage2Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
+		for _, r := range missing {
+			item.MissingGlyphs = append(item.MissingGlyphs, string(r))
+		}
+		result.StoryPage2Overlay = item
 	}
 	if catalog != nil {
 		result.Requests = requestOut
