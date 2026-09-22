@@ -195,6 +195,30 @@ func TestBodyIconSpanIntersectionsBoundariesUnknownAndNonIntersecting(t *testing
 	}
 }
 
+func TestBodyIconPreExecutionVideoWriteGatesOpcodeSegmentAndIntersection(t *testing.T) {
+	rects := []bodyIconRect{{EventKey: "known", X: 64, Y: 48, Width: 24, Height: 8}}
+	at := buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}
+	if item, ok := bodyIconPreExecutionVideoWrite(7, at, 0xF3, 0xAA, 0xA000, 48*320+64, 1, rects); !ok || item.Step != 7 || item.VideoSegment != 0xA000 || len(item.EventKeys) != 1 {
+		t.Fatalf("合法 prewrite 未命中：%+v ok=%v", item, ok)
+	}
+	for _, tc := range []struct {
+		name       string
+		op0, op1   uint8
+		es, offset uint16
+	}{
+		{"non F3", 0x90, 0xAA, 0xA000, 48*320 + 64},
+		{"non AA", 0xF3, 0xAB, 0xA000, 48*320 + 64},
+		{"non A000", 0xF3, 0xAA, 0xB800, 48*320 + 64},
+		{"non intersecting", 0xF3, 0xAA, 0xA000, 48*320 + 63},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, ok := bodyIconPreExecutionVideoWrite(7, at, tc.op0, tc.op1, tc.es, tc.offset, 1, rects); ok {
+				t.Fatal("不合法 prewrite 不得輸出")
+			}
+		})
+	}
+}
+
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
 	for _, tc := range []struct {
 		events, translations string

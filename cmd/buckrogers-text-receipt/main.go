@@ -1223,12 +1223,12 @@ func main() {
 		if *bodyIconFramebufferTrace && bodyIconBefore == nil && m.Steps >= *bodyIconFramebufferTraceFrom {
 			bodyIconBefore = append([]byte(nil), m.Indexed()...)
 		}
-		if bodyIconBefore != nil && m.Read8(cpu.Addr(at.Segment, at.Offset)) == 0xF3 && m.Read8(cpu.Addr(at.Segment, at.Offset+1)) == 0xAA && m.CPU.Seg[cpu.ES] == 0xA000 {
-			if keys := bodyIconSpanIntersections(bodyRects, m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]); len(keys) != 0 {
+		if bodyIconBefore != nil {
+			if item, ok := bodyIconPreExecutionVideoWrite(m.Steps, at, m.Read8(cpu.Addr(at.Segment, at.Offset)), m.Read8(cpu.Addr(at.Segment, at.Offset+1)), m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], bodyRects); ok {
 				if len(bodyIconVideoWrites) >= 4096 {
 					fail(fmt.Errorf("body-icon pre-execution video-write trace 超過 4096 筆"))
 				}
-				bodyIconVideoWrites = append(bodyIconVideoWrites, bodyIconVideoWriteJSON{m.Steps, at, 0xA000, m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], keys})
+				bodyIconVideoWrites = append(bodyIconVideoWrites, item)
 			}
 		}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
@@ -2504,6 +2504,17 @@ func bodyIconSpanIntersections(rects []bodyIconRect, offset, count uint16) []str
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func bodyIconPreExecutionVideoWrite(step uint64, at buckrogers.Address, op0, op1 uint8, es, offset, count uint16, rects []bodyIconRect) (bodyIconVideoWriteJSON, bool) {
+	if op0 != 0xF3 || op1 != 0xAA || es != 0xA000 {
+		return bodyIconVideoWriteJSON{}, false
+	}
+	keys := bodyIconSpanIntersections(rects, offset, count)
+	if len(keys) == 0 {
+		return bodyIconVideoWriteJSON{}, false
+	}
+	return bodyIconVideoWriteJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: offset, ByteCount: count, EventKeys: keys}, true
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
