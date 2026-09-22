@@ -169,6 +169,32 @@ func TestObserveBodyIconFramebufferBoundariesAndFirstIntersection(t *testing.T) 
 	}
 }
 
+func TestBodyIconSpanIntersectionsBoundariesUnknownAndNonIntersecting(t *testing.T) {
+	rects := []bodyIconRect{{EventKey: "known", X: 64, Y: 48, Width: 24, Height: 8}}
+	for _, tc := range []struct {
+		name          string
+		offset, count uint16
+		want          bool
+	}{
+		{"empty", 48*320 + 64, 0, false},
+		{"left exclusive", 48*320 + 63, 1, false},
+		{"first", 48*320 + 64, 1, true},
+		{"last", 55*320 + 87, 1, true},
+		{"right exclusive", 55*320 + 88, 1, false},
+		{"bottom exclusive", 56*320 + 64, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bodyIconSpanIntersections(rects, tc.offset, tc.count)
+			if (len(got) != 0) != tc.want {
+				t.Fatalf("keys=%v want hit=%v", got, tc.want)
+			}
+		})
+	}
+	if got := bodyIconSpanIntersections(nil, 48*320+64, 1); len(got) != 0 {
+		t.Fatalf("未知矩形不得命中：%v", got)
+	}
+}
+
 func TestMenuCatalogFlagsArePaired(t *testing.T) {
 	for _, tc := range []struct {
 		events, translations string

@@ -364,6 +364,15 @@ type bodyIconFramebufferWriteJSON struct {
 	Y1          uint16             `json:"y1"`
 }
 
+type bodyIconVideoWriteJSON struct {
+	Step         uint64             `json:"step"`
+	Instruction  buckrogers.Address `json:"instruction"`
+	VideoSegment uint16             `json:"video_segment"`
+	VideoOffset  uint16             `json:"video_offset"`
+	ByteCount    uint16             `json:"byte_count"`
+	EventKeys    []string           `json:"event_keys"`
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -1172,6 +1181,7 @@ func main() {
 	glyphDrops := 0
 	var storyWrite *pixelWriteJSON
 	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
+	var bodyIconVideoWrites []bodyIconVideoWriteJSON
 	var bodyIconBefore []byte
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
@@ -1212,6 +1222,14 @@ func main() {
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		if *bodyIconFramebufferTrace && bodyIconBefore == nil && m.Steps >= *bodyIconFramebufferTraceFrom {
 			bodyIconBefore = append([]byte(nil), m.Indexed()...)
+		}
+		if bodyIconBefore != nil && m.Read8(cpu.Addr(at.Segment, at.Offset)) == 0xF3 && m.Read8(cpu.Addr(at.Segment, at.Offset+1)) == 0xAA && m.CPU.Seg[cpu.ES] == 0xA000 {
+			if keys := bodyIconSpanIntersections(bodyRects, m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]); len(keys) != 0 {
+				if len(bodyIconVideoWrites) >= 4096 {
+					fail(fmt.Errorf("body-icon pre-execution video-write trace 超過 4096 筆"))
+				}
+				bodyIconVideoWrites = append(bodyIconVideoWrites, bodyIconVideoWriteJSON{m.Steps, at, 0xA000, m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], keys})
+			}
 		}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
 		if *instructionTraceFrom != 0 && *instructionTraceLimit != 0 && m.Steps >= *instructionTraceFrom && uint64(len(instructionTrace)) < *instructionTraceLimit {
@@ -1764,13 +1782,14 @@ func main() {
 		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
 		StoryFillRows             *uint                          `json:"story_fill_rows,omitempty"`
 		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON `json:"body_icon_framebuffer_writes,omitempty"`
+		BodyIconVideoWrites       []bodyIconVideoWriteJSON       `json:"body_icon_video_writes,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
 		KeyPolls                  *int                           `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconVideoWrites: bodyIconVideoWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -2465,6 +2484,26 @@ func observeBodyIconFramebuffer(step uint64, at buckrogers.Address, rects []body
 	}
 	sort.Strings(keys)
 	return bodyIconFramebufferWriteJSON{Step: step, Instruction: at, EventKeys: keys, X0: uint16(x0), Y0: uint16(y0), X1: uint16(x1), Y1: uint16(y1)}, true
+}
+
+func bodyIconSpanIntersections(rects []bodyIconRect, offset, count uint16) []string {
+	if count == 0 {
+		return nil
+	}
+	start, end := uint32(offset), uint32(offset)+uint32(count)
+	keys := make([]string, 0, len(rects))
+	for _, rect := range rects {
+		hit := false
+		for y := rect.Y; y < rect.Y+rect.Height && !hit; y++ {
+			a, b := uint32(y*320+rect.X), uint32(y*320+rect.X+rect.Width)
+			hit = start < b && end > a
+		}
+		if hit {
+			keys = append(keys, rect.EventKey)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
