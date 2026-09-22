@@ -135,8 +135,10 @@ func TestStoryPage2HashPartialRestoreAndFontMissFailClosed(t *testing.T) {
 		t.Fatal("restore revived partial")
 	}
 	f := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
-	if _, e := NewRuntimeStoryPage2Overlay(map[string]string{"story.page2.line.001": "缺", "story.page2.line.002": "缺", "story.page2.line.003": "缺", "story.page2.line.004": "缺"}, f, 2); e == nil {
-		t.Fatal("font miss accepted")
+	for _, scale := range []int{2, 3} {
+		if _, e := NewRuntimeStoryPage2Overlay(map[string]string{"story.page2.line.001": "缺", "story.page2.line.002": "缺", "story.page2.line.003": "缺", "story.page2.line.004": "缺"}, f, scale); e == nil {
+			t.Fatalf("font miss accepted at %dx", scale)
+		}
 	}
 }
 
@@ -152,5 +154,63 @@ func TestLoadStoryPage2CatalogRejectsNonREADYFixture(t *testing.T) {
 	}
 	if _, _, e := LoadStoryPage2Catalog("events", []byte(header+strings.Join(rows, "\n")+"\n"), "text", []byte(text)); e == nil {
 		t.Fatal("DRAFT catalog accepted")
+	}
+}
+
+// TestStoryPage2FailureMatrixNeverDraws integrates watcher and presenter at
+// both scales: rejected identity/partial/hash/restore inputs cannot revive a stamp.
+func TestStoryPage2FailureMatrixNeverDraws(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
+			f := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+			text := map[string]string{}
+			for i, r := range []rune("甲乙丙丁") {
+				f.Glyphs[r] = make([]byte, 32)
+				text[fmt.Sprintf("story.page2.line.00%d", i+1)] = string(r)
+			}
+			o, e := NewRuntimeStoryPage2Overlay(text, f, scale)
+			if e != nil {
+				t.Fatal(e)
+			}
+			c, lines := page2Fixture(t)
+			for _, kind := range []string{"caller", "guard", "mode", "repeat", "style", "order", "hash", "partial", "restore"} {
+				w, _ := NewStoryPage2Watcher(c)
+				e := c.entries[0]
+				if kind == "caller" {
+					e.Caller = Address{1, 2}
+				}
+				if kind == "guard" {
+					e.Guard = Address{3, 4}
+				}
+				if kind == "mode" {
+					e.Mode = 2
+				}
+				if kind == "repeat" {
+					e.Repeat = 2
+				}
+				if kind == "style" {
+					e.Foreground = 9
+				}
+				if kind == "order" {
+					e.Row = 18
+				}
+				b := lines[0][0]
+				if kind == "hash" {
+					b ^= 1
+				}
+				emitPage2(w, e, b, 1, 1)
+				if kind == "partial" || kind == "restore" {
+					w.ObserveExecutionDiscontinuity()
+				}
+				if len(w.Events()) != 0 || w.Active() || o.Apply(nil, [256][3]uint8{}) == nil {
+					t.Fatalf("%s accepted", kind)
+				}
+				base := ScaleIndexedRGBA(make([]byte, 320*200), [256][3]uint8{}, scale)
+				got, _, d := o.Draw(make([]byte, 320*200), [256][3]uint8{})
+				if d || len(o.ActiveKeys()) != 0 || string(got) != string(base) {
+					t.Fatalf("%s drew stale", kind)
+				}
+			}
+		})
 	}
 }
