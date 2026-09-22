@@ -205,6 +205,12 @@ func (w *StoryPage4Watcher) Events() []StoryPage4Event {
 	return append([]StoryPage4Event(nil), w.events...)
 }
 func (w *StoryPage4Watcher) Active() bool { return w != nil && w.active }
+func (w *StoryPage4Watcher) Generation() uint64 {
+	if w == nil {
+		return 0
+	}
+	return w.generation
+}
 
 type RuntimeStoryPage4Overlay struct {
 	layer  *xlate.Layer
@@ -249,4 +255,31 @@ func (o *RuntimeStoryPage4Overlay) Clear() {
 		o.layer.Clear(8, 136, 320, 184)
 		o.active = false
 	}
+}
+func (o *RuntimeStoryPage4Overlay) Frame(_ []byte, p [256][3]uint8) {
+	if o != nil {
+		for _, s := range o.layer.Stamps {
+			s.BG = p[0]
+			s.FG = p[10]
+		}
+	}
+}
+func (o *RuntimeStoryPage4Overlay) Draw(indexed []byte, p [256][3]uint8) ([]byte, []rune, bool) {
+	if o == nil {
+		return nil, nil, false
+	}
+	out := ScaleIndexedRGBA(indexed, p, o.scale)
+	var miss []rune
+	drew := o.layer.Draw(out, o.scale, func(r rune) { miss = append(miss, r) })
+	return out, miss, drew
+}
+func (o *RuntimeStoryPage4Overlay) ActiveKeys() []string {
+	if o == nil {
+		return nil
+	}
+	out := make([]string, 0, len(o.layer.Stamps))
+	for _, s := range o.layer.Stamps {
+		out = append(out, s.Key)
+	}
+	return out
 }
