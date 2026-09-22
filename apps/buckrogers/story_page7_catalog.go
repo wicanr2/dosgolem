@@ -44,7 +44,7 @@ func LoadStoryPage7Catalog(en string, ed []byte, tn string, td []byte) (*StoryPa
 		}
 		var h [32]byte
 		copy(h[:], b)
-		ids[i] = StoryPage7Identity{uint8(i + 1), uint8(n), key, h, Address{0x0763, 0x04ff}, storyGlyphPrimitive}
+		ids[i] = StoryPage7Identity{Sequence: uint8(i + 1), OriginalLength: uint8(n), Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: uint8(17 + i), Column: 1, EventKey: key, OriginalSHA256: h, Caller: Address{0x0763, 0x04ff}, Guard: storyGlyphPrimitive}
 	}
 	c, x := NewStoryPage7Catalog(ids)
 	return c, text, x

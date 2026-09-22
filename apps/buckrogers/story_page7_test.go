@@ -12,13 +12,9 @@ func p7(t *testing.T) (*StoryPage7Catalog, [][]byte) {
 	b := [][]byte{{1, 2}, {3, 4}, {5, 6}, {7, 8}, {9, 10}, {11, 12}}
 	e := make([]StoryPage7Identity, 6)
 	for i, x := range b {
-		e[i] = StoryPage7Identity{uint8(i + 1), uint8(len(x)), fmt.Sprintf("story.page7.line.%03d", i+1), sha256.Sum256(x), Address{0x0763, 0x04ff}, storyGlyphPrimitive}
+		e[i] = StoryPage7Identity{Sequence: uint8(i + 1), OriginalLength: uint8(len(x)), Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: uint8(17 + i), Column: 1, EventKey: fmt.Sprintf("story.page7.line.%03d", i+1), OriginalSHA256: sha256.Sum256(x), Caller: Address{0x0763, 0x04ff}, Guard: storyGlyphPrimitive}
 	}
-	c, err := NewStoryPage7Catalog(e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c, b
+	return &StoryPage7Catalog{entries: [6]StoryPage7Identity{e[0], e[1], e[2], e[3], e[4], e[5]}}, b
 }
 func TestStoryPage7PresenterFailClosedBothScales(t *testing.T) {
 	for _, scale := range []int{2, 3} {

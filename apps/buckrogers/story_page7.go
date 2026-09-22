@@ -6,10 +6,10 @@ import (
 )
 
 type StoryPage7Identity struct {
-	Sequence, OriginalLength uint8
-	EventKey                 string
-	OriginalSHA256           [32]byte
-	Caller, Guard            Address
+	Sequence, OriginalLength, Mode, Repeat, Background, Foreground, Row, Column uint8
+	EventKey                                                                    string
+	OriginalSHA256                                                              [32]byte
+	Caller, Guard                                                               Address
 }
 type StoryPage7Catalog struct{ entries [6]StoryPage7Identity }
 
@@ -20,7 +20,7 @@ func NewStoryPage7Catalog(es []StoryPage7Identity) (*StoryPage7Catalog, error) {
 	var c StoryPage7Catalog
 	seen := map[string]bool{}
 	for i, e := range es {
-		if e.Sequence != uint8(i+1) || e.EventKey == "" || seen[e.EventKey] || e.OriginalLength == 0 || e.OriginalSHA256 == ([32]byte{}) || e.Caller != (Address{0x0763, 0x04ff}) || e.Guard != storyGlyphPrimitive {
+		if e.Sequence != uint8(i+1) || e.EventKey != fmt.Sprintf("story.page7.line.%03d", i+1) || seen[e.EventKey] || e.OriginalLength != storyPage7Approved[i].n || fmt.Sprintf("%x", e.OriginalSHA256) != storyPage7Approved[i].h || e.Caller != (Address{0x0763, 0x04ff}) || e.Guard != storyGlyphPrimitive || e.Mode != 1 || e.Repeat != 1 || e.Background != 0 || e.Foreground != 10 || e.Row != uint8(17+i) || e.Column != 1 {
 			return nil, fmt.Errorf("buckrogers: 第 7 頁 identity %d 無效", i+1)
 		}
 		seen[e.EventKey] = true
