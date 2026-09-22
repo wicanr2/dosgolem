@@ -174,3 +174,49 @@ docker run --rm --network none --memory 1g --cpus 2 --pids-limit 256 \
 
 結果：`go vet ./...`、`go test -count=1 ./...`、`go test -race -count=1 ./...` 全數通過。
 先前段落所列舊 bridge hash 保留作其所屬 phase 的歷史定位；不得誤當成本節的 source 身分。
+
+## 2026-09-23：DRAFT immutable frame snapshot／epoch 補證與無 guard 停止線
+
+本節採用既定的 Ebitengine、2×預設／Apply 切 3×、以及 Down target capture；它不改 UX、
+不接 production、也不升 READY。每個 `Update` 必須建立一份不可變的
+`LayoutSnapshot{Epoch, Scale, Chrome, CanvasW, CanvasH, FrameW, FrameH, PanelOpen}`；
+同一輪的 hit-test、canvas 邊界與 DOS 座標換算只能使用該份 snapshot。它必須滿足
+`CanvasW=320*Scale`、`CanvasH=200*Scale`、`FrameW>=CanvasW`、
+`FrameH>=Chrome+CanvasH`，且 epoch 嚴格遞增。無效／過期／非單調 snapshot 一律不替換目前
+snapshot 並 fail-closed。
+
+已接受的 DOS canvas Down 記住其 Down epoch：同 epoch、closed canvas 的 Up 才可依該 snapshot
+`Move→Release`；若 Apply／resize 已換 epoch，第一個 current-epoch Up 只 `Release` 最後有效 DOS
+座標，不能用新幾何重分類或重算 Move。host Down capture 則綁定至其 Up，跨 epoch 仍 host consume；
+新 Down 一律依新 epoch 判定。純核心 `epoch_test.go` 已覆蓋 2×／3×同 epoch、2× Down→Apply3×→
+release-only、host capture 跨 epoch、以及 stale／inconsistent snapshot 的零 DOS 呼叫。
+
+純核心命令（Docker、無網路、`go vet`、一般及 race 測試皆通過）：
+
+```sh
+docker run --rm --network none --memory 1g --cpus 2 --pids-limit 256 \
+  -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/phase128-go-build \
+  -v /home/anr2/cht/golden_box/拯救地球:/repo:rw \
+  -w /repo/workplace/phase128-mousebridge-prototype golang:1.26.7-bookworm \
+  sh -c 'gofmt -w bridge.go bridge_test.go epoch.go epoch_test.go && go vet ./... && go test -count=1 ./... && go test -race -count=1 ./...'
+```
+
+無 guard 的真實 Ebitengine/Xvfb 右／下邊界停止線：以既有
+`physical_mouse_receipt.sh geometry <2|3> <right|bottom>` 移除原先 `+1 logical pixel`
+視窗／driver guard 後，四個輸出 `phase158-no-guard-{2x,3x}-{right,bottom}` 都只寫出
+`mouse-ready.json`／before state，沒有 `mouse-receipt.json`。X11 實測映射為 2× right
+`(640,36)`、bottom `(0,436)` 於 640×436 視窗外緣；3× right `(960,54)`、bottom `(0,654)`
+同樣映到固定 640×436 X11 視窗外緣。因此既有 Ebitengine public input surface 無法在**不改變
+正式 logical canvas**下觀測 exclusive right／bottom；不得以這些無 receipt 的 run 宣稱邊界通過，
+也不得恢復 guard 作正式幾何。本項在選擇另一個已批准的觀測機制前維持停止。
+
+既有真實 host 2×→Apply3× runner 仍可重跑，輸出
+`workplace/phase118-game-ebiten-active-story/out/phase158-real-apply-2x-to-3x/receipt.json`
+SHA-256 `de9419ea0494505a9fc7081765526f2705d1afd2d80d5881c4ea6070b0fefcb4`：
+`initial_scale=2`、`apply_3x_closes=true`、`physical_host_events_no_dos_writes=true`。這只證實真實
+host Apply transition 與 DOS 隔離；因不能以同一 Left press 完成 Apply，它不取代上列跨 epoch
+captured Up 的純核心契約或正常玩家路徑驗收。
+
+本節 source 基準為 dosgolem `95f2c456368e316107517c28ca188392d1357e13`；ignored
+`epoch.go` SHA-256 `fb052a423e890a1a2b79d8549006acf522c015e24c9d4cbd6f70e5d4aac14870`、
+`epoch_test.go` SHA-256 `f3d8e11ad0637136807bcb1ced266d2c620d13ca19780fc30b73e101b17fc9eb`。
