@@ -127,3 +127,12 @@ receipt 釘住，才可升 READY：
 SHA-256、machine memory SHA-256、所用 state／原版輸入 SHA-256、dosgolem commit 與完整 command。
 另需一條有界 Step 的真實 Ebitengine click receipt；若無玩家可見反應，只能記為「未觀察到」，
 不可據此宣稱 mouse 可操作。
+
+## 2026-09-22 修正後畫布內 Up 的實體補證
+
+主專案 `docs/re/phase-146-real-ebiten-inside-up-corrected.md` 以修正後的
+ignored bridge 在真實 Ebitengine/Xvfb 重跑 2×與3×同畫布 Down→Up，兩例均觀測
+`Move→Press→Move→Release`，DOS button 清除，API 邊界的 BIOS／IRQ／indexed／memory
+保持不變。兩份私有 receipt 與 SHA-256 見該文件。這只補上原型勘誤中的畫布內 Up
+呼叫順序；其餘四角、邊界、cleanup、正式 panel route 及正常玩家因果 A/B 仍缺，
+本規格維持 DRAFT。
