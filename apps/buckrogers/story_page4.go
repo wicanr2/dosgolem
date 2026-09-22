@@ -241,10 +241,14 @@ func (o *RuntimeStoryPage4Overlay) Apply(es []StoryPage4Event, p [256][3]uint8) 
 	if g == 0 {
 		return fmt.Errorf("buckrogers: 第 4 頁 generation 無效")
 	}
+	seen := map[string]bool{}
 	for i, e := range es {
-		if e.Generation != g || e.EventKey != fmt.Sprintf("story.page4.line.%03d", i+1) || e.Row != uint8(17+i) || e.Column != 1 || o.text[e.EventKey] == "" {
+		if e.Generation != g || seen[e.EventKey] || e.EventKey != fmt.Sprintf("story.page4.line.%03d", i+1) || e.Row != uint8(17+i) || e.Column != 1 || o.text[e.EventKey] == "" {
 			return fmt.Errorf("buckrogers: 第 4 頁 event 無效")
 		}
+		seen[e.EventKey] = true
+	}
+	for _, e := range es {
 		o.layer.Add(&xlate.Stamp{Key: e.EventKey, X: 8, Y: int(e.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: o.font, Text: []rune(o.text[e.EventKey]), State: xlate.Shown, BG: p[0], FG: p[10]})
 	}
 	o.active = true

@@ -3,6 +3,7 @@ package buckrogers
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/wicanr2/dosgolem/xlate"
 	"testing"
 )
 
@@ -30,6 +31,39 @@ func TestStoryPage4SixLineAtomicAndSixRowClear(t *testing.T) {
 	}
 	if !w.ObserveVideoWrite(storyFillInstruction, storyVideoSegment, 0xaa08, 304) || w.Active() {
 		t.Fatal("measured clear")
+	}
+}
+
+func TestStoryPage4PresenterAtomicFailuresDrawNothing(t *testing.T) {
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		good := make([]StoryPage4Event, 6)
+		for i := range good {
+			r := rune('甲' + i)
+			font.Glyphs[r] = make([]byte, 32)
+			key := fmt.Sprintf("story.page4.line.%03d", i+1)
+			text[key] = string(r)
+			good[i] = StoryPage4Event{Generation: 1, EventKey: key, Row: uint8(17 + i), Column: 1}
+		}
+		for _, bad := range [][]StoryPage4Event{func() []StoryPage4Event { x := append([]StoryPage4Event(nil), good...); x[5].Row = 99; return x }(), func() []StoryPage4Event { x := append([]StoryPage4Event(nil), good...); x[4].Generation = 2; return x }(), func() []StoryPage4Event {
+			x := append([]StoryPage4Event(nil), good...)
+			x[5].EventKey = x[4].EventKey
+			return x
+		}()} {
+			o, e := NewRuntimeStoryPage4Overlay(text, font, scale)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if o.Apply(bad, [256][3]uint8{}) == nil {
+				t.Fatal("invalid presenter input accepted")
+			}
+			base := ScaleIndexedRGBA(make([]byte, 320*200), [256][3]uint8{}, scale)
+			got, _, d := o.Draw(make([]byte, 320*200), [256][3]uint8{})
+			if len(o.ActiveKeys()) != 0 || d || string(got) != string(base) {
+				t.Fatal("failed apply retained pixels")
+			}
+		}
 	}
 }
 
