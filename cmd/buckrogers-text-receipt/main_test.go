@@ -755,14 +755,21 @@ func TestStoryPage7OverlayFlagsReceiptAndSafeRectangle(t *testing.T) {
 			t.Fatalf("完整第 7 頁 %dx 旗標被拒絕：%v", scale, err)
 		}
 	}
-	for _, missing := range [][]string{
-		{"events", "", "font", "out", "baseline", "png", "baseline-png"},
-		{"events", "translations", "", "out", "baseline", "png", "baseline-png"},
-		{"events", "translations", "font", "", "baseline", "png", "baseline-png"},
-	} {
+	complete := []string{"events", "translations", "font", "out", "baseline", "png", "baseline-png"}
+	for omitted := range complete {
+		missing := append([]string(nil), complete...)
+		missing[omitted] = ""
 		if err := validateStoryOpeningOverlayFlags(missing[0], missing[1], missing[2], missing[3], missing[4], missing[5], missing[6], 2); err == nil {
-			t.Fatal("第 7 頁不完整旗標被接受")
+			t.Fatalf("第 7 頁缺第 %d 個旗標被接受", omitted)
 		}
+	}
+	for _, scale := range []int{-1, 0, 1, 4} {
+		if err := validateStoryOpeningOverlayFlags(complete[0], complete[1], complete[2], complete[3], complete[4], complete[5], complete[6], scale); err == nil {
+			t.Fatalf("第 7 頁無效倍率 %d 被接受", scale)
+		}
+	}
+	if err := validateStoryOpeningOverlayFlags("", "", "", "", "", "", "", 2); err == nil {
+		t.Fatal("第 7 頁只提供倍率被接受")
 	}
 	for _, scale := range []int{2, 3} {
 		base := make([]byte, 320*200*scale*scale*4)
