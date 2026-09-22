@@ -111,3 +111,28 @@ func TestStoryPage2WatcherRejectsIdentityDriftWithoutDraw(t *testing.T) {
 		t.Fatal("unknown write invalidated")
 	}
 }
+
+func TestStoryPage2HashPartialRestoreAndFontMissFailClosed(t *testing.T) {
+	c, lines := page2Fixture(t)
+	w, _ := NewStoryPage2Watcher(c)
+	// A wrong final glyph completes a line but cannot create an event/group.
+	for j, b := range lines[0] {
+		if j == len(lines[0])-1 {
+			b ^= 0xff
+		}
+		emitPage2(w, c.entries[0], b, uint8(j+1), uint64(10+j))
+	}
+	if len(w.Events()) != 0 || w.Active() {
+		t.Fatal("hash drift emitted")
+	}
+	// Partial state and restore/discontinuity cannot revive the prior candidate.
+	emitPage2(w, c.entries[0], lines[0][0], 1, 30)
+	w.ObserveExecutionDiscontinuity()
+	if w.Pending() || w.Active() || len(w.Events()) != 0 {
+		t.Fatal("restore revived partial")
+	}
+	f := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+	if _, e := NewRuntimeStoryPage2Overlay(map[string]string{"story.page2.line.001": "缺", "story.page2.line.002": "缺", "story.page2.line.003": "缺", "story.page2.line.004": "缺"}, f, 2); e == nil {
+		t.Fatal("font miss accepted")
+	}
+}
