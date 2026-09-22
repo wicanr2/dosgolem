@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/internal/state"
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 func TestLoadBIOSKeysReceiptAcceptsOnlyBoundedSchedule(t *testing.T) {
@@ -788,5 +790,81 @@ func TestStoryPage7OverlayFlagsReceiptAndSafeRectangle(t *testing.T) {
 	encoded, err := json.Marshal(item)
 	if err != nil || !bytes.Contains(encoded, []byte(`"active_keys_before":6`)) || bytes.Contains(encoded, []byte("original_bytes")) {
 		t.Fatalf("第 7 頁 invalidation receipt 非 content-safe：%s, %v", encoded, err)
+	}
+}
+
+func TestStoryPage8OverlayFlagsReceiptAndActiveInvalidation(t *testing.T) {
+	complete := []string{"events", "translations", "font", "out", "baseline", "png", "baseline-png"}
+	for _, scale := range []int{2, 3} {
+		if err := validateStoryOpeningOverlayFlags(complete[0], complete[1], complete[2], complete[3], complete[4], complete[5], complete[6], scale); err != nil {
+			t.Fatalf("完整第 8 頁 %dx 旗標被拒絕：%v", scale, err)
+		}
+	}
+	for omitted := range complete {
+		missing := append([]string(nil), complete...)
+		missing[omitted] = ""
+		if err := validateStoryOpeningOverlayFlags(missing[0], missing[1], missing[2], missing[3], missing[4], missing[5], missing[6], 2); err == nil {
+			t.Fatalf("第 8 頁缺第 %d 個旗標被接受", omitted)
+		}
+	}
+	for _, scale := range []int{-1, 0, 1, 4} {
+		if err := validateStoryOpeningOverlayFlags(complete[0], complete[1], complete[2], complete[3], complete[4], complete[5], complete[6], scale); err == nil {
+			t.Fatalf("第 8 頁無效倍率 %d 被接受", scale)
+		}
+	}
+	if err := validateStoryOpeningOverlayFlags("", "", "", "", "", "", "", 2); err == nil {
+		t.Fatal("第 8 頁只提供倍率被接受")
+	}
+
+	for _, scale := range []int{2, 3} {
+		base := make([]byte, 320*200*scale*scale*4)
+		inside := append([]byte(nil), base...)
+		inside[((167*scale)*(320*scale)+311*scale)*4] = 1
+		right := append([]byte(nil), base...)
+		right[((136*scale)*(320*scale)+312*scale)*4] = 1
+		bottom := append([]byte(nil), base...)
+		bottom[((168*scale)*(320*scale)+8*scale)*4] = 1
+		if outside, in, added := storyPage8Diff(base, inside, scale); outside != 0 || in != 1 || added != 1 {
+			t.Fatalf("第 8 頁 %dx 內部差異=(%d,%d,%d)", scale, outside, in, added)
+		}
+		for name, candidate := range map[string][]byte{"right": right, "bottom": bottom} {
+			if outside, in, added := storyPage8Diff(base, candidate, scale); outside != 1 || in != 0 || added != 0 {
+				t.Fatalf("第 8 頁 %dx %s 界外差異=(%d,%d,%d)", scale, name, outside, in, added)
+			}
+		}
+
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := make(map[string]string, 4)
+		events := make([]buckrogers.StoryPage8Event, 4)
+		for i, r := range []rune("甲乙丙丁") {
+			font.Glyphs[r] = make([]byte, 32)
+			key := fmt.Sprintf("story.page8.line.%03d", i+1)
+			text[key] = string(r)
+			events[i] = buckrogers.StoryPage8Event{Generation: 1, EntryStep: uint64(100 + i*20), PostCallStep: uint64(110 + i*20), EventKey: key, Row: uint8(17 + i), Column: 1}
+		}
+		overlay, err := buckrogers.NewRuntimeStoryPage8Overlay(text, font, scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := overlay.Apply(events, [256][3]uint8{}); err != nil {
+			t.Fatal(err)
+		}
+		before := len(overlay.ActiveKeys())
+		if before != 4 || !buckrogers.StoryPage8VideoSpanIntersects(0xaa08, 304) {
+			t.Fatalf("前置 active/prewrite 無效：before=%d", before)
+		}
+		item := storyPage2InvalidationJSON{Step: 351154334, Instruction: buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}, VideoSegment: 0xA000, VideoOffset: 0xAA08, ByteCount: 304, ActiveKeysBefore: before}
+		encoded, err := json.Marshal(item)
+		if err != nil || !bytes.Contains(encoded, []byte(`"active_keys_before":4`)) || bytes.Contains(encoded, []byte("original_bytes")) {
+			t.Fatalf("第 8 頁 invalidation receipt 非 content-safe：%s, %v", encoded, err)
+		}
+		overlay.Clear()
+		indexed := make([]byte, 320*200)
+		palette := [256][3]uint8{}
+		baseline := buckrogers.ScaleIndexedRGBA(indexed, palette, scale)
+		got, missing, drew := overlay.Draw(indexed, palette)
+		if len(overlay.ActiveKeys()) != 0 || drew || len(missing) != 0 || !bytes.Equal(got, baseline) {
+			t.Fatalf("active→prewrite 未清除：keys=%v drew=%v missing=%q equal=%v", overlay.ActiveKeys(), drew, string(missing), bytes.Equal(got, baseline))
+		}
 	}
 }
