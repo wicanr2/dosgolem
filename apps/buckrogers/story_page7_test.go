@@ -149,6 +149,62 @@ func TestStoryPage7WatcherFailureMatrix(t *testing.T) {
 		}
 	}
 }
+func TestStoryPage7PartialMixedDuplicateAndPresenterZeroDraw(t *testing.T) {
+	c, b := p7(t)
+	w, _ := NewStoryPage7Watcher(c)
+	emit7(w, c.entries[0], b[0][0], 1, 10)
+	if w.Active() {
+		t.Fatal("partial")
+	}
+	emit7(w, c.entries[1], b[1][0], 1, 12)
+	if w.p != nil || w.Active() {
+		t.Fatal("mixed")
+	}
+	emit7(w, c.entries[0], b[0][0], 1, 20)
+	emit7(w, c.entries[0], b[0][1], 2, 22)
+	emit7(w, c.entries[0], b[0][0], 1, 24)
+	if w.Active() {
+		t.Fatal("duplicate")
+	}
+	emit7(w, c.entries[0], b[0][0], 1, 40)
+	emit7(w, c.entries[0], b[0][1], 2, 30)
+	if w.p != nil || w.Active() {
+		t.Fatal("step backward")
+	}
+	for _, scale := range []int{2, 3} {
+		font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+		text := map[string]string{}
+		good := make([]StoryPage7Event, 6)
+		for i, r := range []rune("甲乙丙丁戊己") {
+			font.Glyphs[r] = make([]byte, 32)
+			k := fmt.Sprintf("story.page7.line.%03d", i+1)
+			text[k] = string(r)
+			good[i] = StoryPage7Event{1, 0, 0, k, uint8(17 + i), 1}
+		}
+		o, e := NewRuntimeStoryPage7Overlay(text, font, scale)
+		if e != nil {
+			t.Fatal(e)
+		}
+		bad := append([]StoryPage7Event(nil), good...)
+		bad[5].EventKey = bad[4].EventKey
+		if o.Apply(bad, [256][3]uint8{}) == nil {
+			t.Fatal("bad presenter")
+		}
+		base := ScaleIndexedRGBA(make([]byte, 320*200), [256][3]uint8{}, scale)
+		got, _, d := o.Draw(make([]byte, 320*200), [256][3]uint8{})
+		if d || string(base) != string(got) || len(o.ActiveKeys()) != 0 {
+			t.Fatal("zero draw")
+		}
+		if e := o.Apply(good, [256][3]uint8{}); e != nil {
+			t.Fatal(e)
+		}
+		o.Clear()
+		got, _, d = o.Draw(make([]byte, 320*200), [256][3]uint8{})
+		if d || string(base) != string(got) || len(o.ActiveKeys()) != 0 {
+			t.Fatal("stale")
+		}
+	}
+}
 func TestStoryPage7CatalogReady(t *testing.T) {
 	h := strings.Join(storyPage7EventHeader, "\t") + "\n"
 	var r []string
