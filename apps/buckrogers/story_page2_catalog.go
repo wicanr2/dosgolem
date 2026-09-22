@@ -30,7 +30,7 @@ func LoadStoryPage2Catalog(eventsName string, eventsData []byte, textName string
 	}
 	es := make([]StoryPage2Identity, 4)
 	for i, r := range events {
-		if r[12] != "confirmed" || r[13] != "READY" || tr[r[0]] == "" {
+		if r[12] != "confirmed" || r[13] != "READY" || r[4] != "0763:04FF" || r[5] != "0763:026B" || tr[r[0]] == "" {
 			return nil, nil, fmt.Errorf("buckrogers: 第 2 頁非 READY identity")
 		}
 		n, x := strconv.Atoi(r[2])

@@ -40,11 +40,20 @@ func (o *RuntimeStoryPage2Overlay) Apply(es []StoryPage2Event, p [256][3]uint8) 
 	if o == nil || o.active || len(es) != 4 {
 		return fmt.Errorf("buckrogers: 第 2 頁 apply 無效")
 	}
+	gen := es[0].Generation
+	if gen == 0 {
+		return fmt.Errorf("buckrogers: 第 2 頁 generation 無效")
+	}
+	seen := map[string]bool{}
 	for i, e := range es {
 		s := o.text[e.EventKey]
-		if s == "" || e.Row != uint8(17+i) || e.Column != 1 {
+		if e.Generation != gen || seen[e.EventKey] || e.EventKey != "story.page2.line.00"+string(rune('1'+i)) || s == "" || e.Row != uint8(17+i) || e.Column != 1 {
 			return fmt.Errorf("buckrogers: 第 2 頁 event 無效")
 		}
+		seen[e.EventKey] = true
+	}
+	for _, e := range es {
+		s := o.text[e.EventKey]
 		off := manualGlyphOffset(o.scale)
 		o.layer.Add(&xlate.Stamp{Key: e.EventKey, X: 8, Y: int(e.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: []rune(s), State: xlate.Shown, BG: p[0], FG: p[10]})
 	}

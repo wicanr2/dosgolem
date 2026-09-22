@@ -3,6 +3,7 @@ package buckrogers
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/wicanr2/dosgolem/xlate"
 	"testing"
 )
 
@@ -18,6 +19,34 @@ func page2Fixture(t *testing.T) (*StoryPage2Catalog, [][]byte) {
 		t.Fatal(e)
 	}
 	return c, lines
+}
+func TestStoryPage2PresenterRejectsMixedDuplicateAndMissingGeneration(t *testing.T) {
+	f := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{}}
+	text := map[string]string{}
+	for i, r := range []rune("甲乙丙丁") {
+		f.Glyphs[r] = make([]byte, 32)
+		text[fmt.Sprintf("story.page2.line.00%d", i+1)] = string(r)
+	}
+	o, e := NewRuntimeStoryPage2Overlay(text, f, 2)
+	if e != nil {
+		t.Fatal(e)
+	}
+	good := make([]StoryPage2Event, 4)
+	for i := range good {
+		good[i] = StoryPage2Event{Generation: 1, EventKey: fmt.Sprintf("story.page2.line.00%d", i+1), Row: uint8(17 + i), Column: 1}
+	}
+	for _, bad := range [][]StoryPage2Event{append([]StoryPage2Event(nil), good[:3]...), func() []StoryPage2Event { x := append([]StoryPage2Event(nil), good...); x[3].Generation = 2; return x }(), func() []StoryPage2Event {
+		x := append([]StoryPage2Event(nil), good...)
+		x[3].EventKey = x[2].EventKey
+		return x
+	}()} {
+		if o.Apply(bad, [256][3]uint8{}) == nil {
+			t.Fatal("accepted invalid atomic generation")
+		}
+		if len(o.ActiveKeys()) != 0 {
+			t.Fatal("invalid apply drew")
+		}
+	}
 }
 func emitPage2(w *StoryPage2Watcher, e StoryPage2Identity, b byte, col uint8, step uint64) {
 	a := [7]uint16{1, uint16(b), 1, 0, 10, uint16(e.Row), uint16(col)}
