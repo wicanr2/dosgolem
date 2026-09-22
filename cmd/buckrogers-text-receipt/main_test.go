@@ -669,3 +669,25 @@ func TestStoryDiagnosticsSerializeMetadataNotOriginalBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestStoryPage3OverlayFlagsAndSafeRectangle(t *testing.T) {
+	if err := validateStoryOpeningOverlayFlags("events", "translations", "font", "out", "baseline", "png", "baseline-png", 3); err != nil {
+		t.Fatalf("完整第三頁旗標被拒絕：%v", err)
+	}
+	if err := validateStoryOpeningOverlayFlags("events", "", "font", "out", "baseline", "png", "baseline-png", 3); err == nil {
+		t.Fatal("不完整第三頁旗標被接受")
+	}
+	for _, scale := range []int{2, 3} {
+		base := make([]byte, 320*200*scale*scale*4)
+		inside := append([]byte(nil), base...)
+		inside[((136*scale)*(320*scale)+8*scale)*4] = 1
+		outside := append([]byte(nil), base...)
+		outside[((176*scale)*(320*scale)+8*scale)*4] = 1
+		if out, in, added := storyPage3Diff(base, inside, scale); out != 0 || in != 1 || added != 1 {
+			t.Fatalf("%dx 內部差異 = (%d,%d,%d)", scale, out, in, added)
+		}
+		if out, in, added := storyPage3Diff(base, outside, scale); out != 1 || in != 0 || added != 0 {
+			t.Fatalf("%dx 邊界外差異 = (%d,%d,%d)", scale, out, in, added)
+		}
+	}
+}
