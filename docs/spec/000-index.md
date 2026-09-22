@@ -405,3 +405,4 @@
 | [213](213-buck-rogers-skill-action-bar-glyph-events.md) | Buck Rogers 技能配置底部操作列字元事件 | CONFORMED |
 | [214](214-buck-rogers-skill-action-bar-display-requests.md) | Buck Rogers 技能操作列繁中顯示請求 | CONFORMED |
 | [215](215-buck-rogers-skill-action-bar-runtime-overlay.md) | Buck Rogers 技能操作列執行期繁中覆繪 | DRAFT |
+| [226](226-host-machine-presentation-bridge.md) | Host machine 畫面與鍵盤橋接純核心 | CONFORMED（純核心；非 host frontend） |
