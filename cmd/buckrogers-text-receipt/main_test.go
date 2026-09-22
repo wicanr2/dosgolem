@@ -484,6 +484,11 @@ func TestStoryDiagnosticsSerializeMetadataNotOriginalBytes(t *testing.T) {
 			value: pixelWriteJSON{Step: 3, Caller: buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}, VideoSegment: 0xA000, VideoOffset: 0xAB0A, ByteCount: 285, X0: 10, Y0: 137, X1: 294, Y1: 137},
 			keys:  []string{"step", "caller", "video_segment", "video_offset", "byte_count", "x0", "y0", "x1", "y1"},
 		},
+		{
+			name:  "glyph return edge",
+			value: glyphReturnEdgeJSON{EntryStep: 1, ReturnStep: 2, ReturnInstruction: buckrogers.Address{Segment: 0x0763, Offset: 0x1809}, ReturnOpcode: 0xCA, HighWordMask: 0x7f, Caller: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}, PostAddress: buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}, SS: 0x1234, SP: 0x5678},
+			keys:  []string{"entry_step", "return_step", "return_instruction", "return_opcode", "high_word_mask", "caller", "post_address", "ss", "sp"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

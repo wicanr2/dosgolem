@@ -118,9 +118,9 @@ func NewStoryOpeningWatcher(catalog *StoryOpeningCatalog) (*StoryOpeningWatcher,
 	return &StoryOpeningWatcher{catalog: catalog, generation: 1}, nil
 }
 
-// ObserveGlyphEntry snapshots the seven ABI words. Every word must be an
-// exact byte value; the existing low-byte readers do not prove that a nonzero
-// high byte is harmless for this story identity.
+// ObserveGlyphEntry snapshots the seven ABI words. The original glyph ABI
+// consumes their low bytes; high bytes are deliberately excluded from this
+// display identity.
 func (w *StoryOpeningWatcher) ObserveGlyphEntry(guard, caller Address, ss, sp uint16, args [7]uint16, step uint64) {
 	if w == nil {
 		return
@@ -129,11 +129,6 @@ func (w *StoryOpeningWatcher) ObserveGlyphEntry(guard, caller Address, ss, sp ui
 		w.pending = nil
 		w.dropCandidate()
 		w.drops++
-	}
-	if !storyGlyphWordsAreBytes(args) {
-		w.dropCandidate()
-		w.drops++
-		return
 	}
 	w.pending = &storyGlyphFrame{call: StoryOpeningGlyphCall{
 		EntryStep: step, Guard: guard, Caller: caller, Mode: uint8(args[0]), Glyph: uint8(args[1]), Repeat: uint8(args[2]),
@@ -171,15 +166,6 @@ func (w *StoryOpeningWatcher) ObserveExecutionDiscontinuity() {
 	w.pending = nil
 	w.dropCandidate()
 	w.drops++
-}
-
-func storyGlyphWordsAreBytes(args [7]uint16) bool {
-	for _, word := range args {
-		if word > 0xff {
-			return false
-		}
-	}
-	return true
 }
 
 func (w *StoryOpeningWatcher) observeGlyph(call StoryOpeningGlyphCall) {

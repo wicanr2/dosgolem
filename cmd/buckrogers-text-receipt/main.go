@@ -178,9 +178,24 @@ type glyphJSON struct {
 }
 
 type glyphFrame struct {
-	event  glyphJSON
-	ss, sp uint16
-	glyph  uint8
+	event        glyphJSON
+	ss, sp       uint16
+	glyph        uint8
+	highWordMask uint8
+}
+
+// glyphReturnEdgeJSON is content-safe control-flow evidence only; it never
+// retains a glyph byte or a stack word.
+type glyphReturnEdgeJSON struct {
+	EntryStep         uint64             `json:"entry_step"`
+	ReturnStep        uint64             `json:"return_step"`
+	ReturnInstruction buckrogers.Address `json:"return_instruction"`
+	ReturnOpcode      uint8              `json:"return_opcode"`
+	HighWordMask      uint8              `json:"high_word_mask"`
+	Caller            buckrogers.Address `json:"caller"`
+	PostAddress       buckrogers.Address `json:"post_address"`
+	SS                uint16             `json:"ss"`
+	SP                uint16             `json:"sp"`
 }
 
 // glyphRunJSON is a content-safe contiguous glyph run. Its hash is computed
@@ -282,6 +297,7 @@ func main() {
 	clearTrace := flag.Bool("clear-trace", false, "在收據加入 026F:029C 的 content-safe 清除矩形")
 	glyphTrace := flag.Bool("glyph-trace", false, "在收據加入 0763:026B 的 content-safe glyph 呼叫")
 	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
+	glyphReturnTrace := flag.Bool("glyph-return-edge-trace", false, "記錄 0763:026B 的 content-safe RETF control-flow edge")
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
 	var genericKeys scheduledBIOSKeys
 	flag.Var(&genericKeys, "bios-key-at", "可重複 STEP:SCAN_HEX:ASCII_HEX BIOS 鍵排程")
@@ -628,6 +644,11 @@ func main() {
 	var clears []clearJSON
 	var glyphs []glyphJSON
 	var glyphPending *glyphFrame
+	var glyphReturnPending *glyphFrame
+	var glyphReturnEdges []glyphReturnEdgeJSON
+	var previousInstruction buckrogers.Address
+	var previousOpcode uint8
+	previousValid := false
 	var glyphRun *glyphRunFrame
 	var glyphRuns []glyphRunJSON
 	glyphDrops := 0
@@ -669,6 +690,11 @@ func main() {
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if glyphReturnPending != nil && previousValid && at == glyphReturnPending.event.Caller && ss == glyphReturnPending.ss && sp == glyphReturnPending.sp+0x12 {
+			pending := glyphReturnPending
+			glyphReturnEdges = append(glyphReturnEdges, glyphReturnEdgeJSON{pending.event.EntryStep, m.Steps, previousInstruction, previousOpcode, pending.highWordMask, pending.event.Caller, at, ss, sp})
+			glyphReturnPending = nil
+		}
 		if glyphPending != nil && at == glyphPending.event.Caller {
 			if ss == glyphPending.ss && sp == glyphPending.sp+0x12 {
 				glyphPending.event.PostCallStep = m.Steps
@@ -745,6 +771,12 @@ func main() {
 					Mode: uint8(args[0]), Repeat: uint8(args[2]),
 					Background: uint8(args[3]), Foreground: uint8(args[4]), Row: uint8(args[5]), Column: uint8(args[6])}, ss: ss, sp: sp, glyph: uint8(args[1])}
 			}
+			// This narrow prototype only needs the five story rows; retaining
+			// every unrelated glyph return would create a huge receipt without
+			// strengthening the first-screen return-edge contract.
+			if *glyphReturnTrace && m.Steps >= *glyphTraceFrom && caller == (buckrogers.Address{Segment: 0x0763, Offset: 0x04FF}) {
+				glyphReturnPending = &glyphFrame{event: glyphJSON{EntryStep: m.Steps, Caller: caller}, ss: ss, sp: sp, highWordMask: glyphWordHighMask(args)}
+			}
 			if actionWatcher != nil {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 			}
@@ -798,6 +830,7 @@ func main() {
 			// whole region after every instruction.
 			storySegment, storyOffset, storyByteCount = m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]
 		}
+		previousInstruction, previousOpcode, previousValid = at, m.Read8(cpu.Addr(at.Segment, at.Offset)), true
 		if err := m.Step(); err != nil {
 			fail(err)
 		}
@@ -908,8 +941,9 @@ func main() {
 		Glyphs                 []glyphJSON              `json:"glyphs,omitempty"`
 		GlyphDrops             int                      `json:"glyph_drops,omitempty"`
 		GlyphRuns              []glyphRunJSON           `json:"glyph_runs,omitempty"`
+		GlyphReturnEdges       []glyphReturnEdgeJSON    `json:"glyph_return_edges,omitempty"`
 		StoryPixelWrite        *pixelWriteJSON          `json:"story_pixel_write,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, StoryPixelWrite: storyWrite,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphRuns: glyphRuns, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -1477,6 +1511,15 @@ func parseHexByte(value string) (uint8, error) {
 	}
 	n, err := strconv.ParseUint(value, 16, 8)
 	return uint8(n), err
+}
+
+func glyphWordHighMask(args [7]uint16) (mask uint8) {
+	for i, word := range args {
+		if word > 0xff {
+			mask |= 1 << uint(i)
+		}
+	}
+	return mask
 }
 
 func fail(err error) {

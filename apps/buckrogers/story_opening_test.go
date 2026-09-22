@@ -132,22 +132,22 @@ func TestStoryOpeningWatcherRejectsDriftAndNeverLeaksPartialEvents(t *testing.T)
 	}
 }
 
-func TestStoryOpeningWatcherRejectsHighWordsAndStalePending(t *testing.T) {
+func TestStoryOpeningWatcherUsesOnlyProvenLowByteABIAndClearsStalePending(t *testing.T) {
 	catalog, lines := storyFixture(t)
-	for word := range [7]uint16{} {
-		t.Run("high-word", func(t *testing.T) {
-			w, _ := NewStoryOpeningWatcher(catalog)
-			args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
-			args[word] |= 0x0100
-			w.ObserveGlyphEntry(catalog.entries[0].Guard, catalog.entries[0].Caller, 1, 2, args, 10)
-			w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: 10, PostCallStep: 11, Caller: catalog.entries[0].Caller, SS: 1, SP: 2 + storyGlyphStackDelta})
-			if w.Pending() || len(w.Events()) != 0 || w.Drops() == 0 {
-				t.Fatalf("high word %d 不可被截斷接受: pending=%v events=%d drops=%d", word, w.Pending(), len(w.Events()), w.Drops())
-			}
-		})
+	w, _ := NewStoryOpeningWatcher(catalog)
+	for i, line := range lines {
+		for j, glyph := range line {
+			args := [7]uint16{0x101, uint16(glyph) | 0x200, 0x301, 0x400, 0x50a, uint16(17+i) | 0x600, uint16(1+j) | 0x700}
+			step := uint64(10 + i*100 + j*2)
+			w.ObserveGlyphEntry(catalog.entries[i].Guard, catalog.entries[i].Caller, 1, 2, args, step)
+			w.ObserveVerifiedGlyphReturn(StoryOpeningVerifiedReturn{EntryStep: step, PostCallStep: step + 1, Caller: catalog.entries[i].Caller, SS: 1, SP: 2 + storyGlyphStackDelta})
+		}
+	}
+	if !w.Active() || len(w.Events()) != 5 {
+		t.Fatalf("高位非零但低位 exact 的 ABI 必須完成：active=%v events=%d", w.Active(), len(w.Events()))
 	}
 
-	w, _ := NewStoryOpeningWatcher(catalog)
+	w, _ = NewStoryOpeningWatcher(catalog)
 	args := [7]uint16{1, uint16(lines[0][0]), 1, 0, 10, 17, 1}
 	w.ObserveGlyphEntry(catalog.entries[0].Guard, catalog.entries[0].Caller, 1, 2, args, 10)
 	// 任意的 later caller visit 並不是 verified return；adapter 的不連續通知會

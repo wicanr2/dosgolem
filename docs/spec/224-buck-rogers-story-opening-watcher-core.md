@@ -27,9 +27,10 @@ key 唯一，雜湊、長度、caller、guard、mode/repeat、色彩與座標皆
 
 `StoryOpeningWatcher`：
 
-1. `ObserveGlyphEntry` 只保留一筆 pending glyph；重疊 entry 丟棄舊 pending。七個 ABI word 都
-   必須落在 `0x00..0xFF`；既有其他 watcher 的 low-byte 讀取不是本劇情可接受高位的證據，故任一
-   高位非零一律拒絕並丟棄 partial candidate。
+1. `ObserveGlyphEntry` 只保留一筆 pending glyph；重疊 entry 丟棄舊 pending。七個 ABI word 的
+   **低位 byte** 是原 glyph renderer 的已證實顯示輸入；高位不進 identity。首屏 content-safe
+   return-edge trace 以 `high_word_mask` 保存高位存在與否、從不保存原文，並確認低位仍命中
+   caller／mode／repeat／色彩／row／column exact identity。
 2. `ObserveVerifiedGlyphReturn` 只接受 adapter 已觀測到的實際 far-return control-flow edge，並檢查
    entry step 回參、caller、SS 與 `SP+0x12`。它不接受一般「目前執行到 caller」的通知，避免未返回
    的 pending 在較晚的同位址／同 stack shape 被誤提交。collector 只從 sequence 1 的 exact first
@@ -56,7 +57,8 @@ invalidation 後不得由第二頁文字重建、defensive copy。
 2026-09-22 已於隔離、無網路 Docker 的 `eob-remake-go:1.26.7-ebiten2.9.9` 完成：
 
 - `go test ./apps/buckrogers -run TestStoryOpening -v`：五行原子完成、七個 word 的高位拒絕、
-  verified-return entry step／guard／stack／錯序／hash fail-closed、顯式 execution discontinuity
+  verified-return entry step／guard／stack／錯序／hash fail-closed、七個 word 高位非零而低位 exact
+  仍可匹配、顯式 execution discontinuity
   不讓 stale pending 晚到提交、已證實的 `A000:AB48`／304-byte second-page span、邊界、不相交、
   第二頁 partial 文字與 defensive copy 全部通過。
 - `go test -race ./apps/buckrogers` 與 `go vet ./apps/buckrogers`：通過。

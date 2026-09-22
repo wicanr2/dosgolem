@@ -22,6 +22,8 @@ story-region framebuffer 改寫，讓 project adapter 取得可重播、content-
   成立時，輸出 caller、mode、repeat、bg／fg、row、column、entry／post-call step。glyph byte
   不可輸出。
 - `-glyph-trace-from STEP`：零值不過濾；非零時只開始追蹤不早於該絕對 step 的 entry。
+- `-glyph-return-edge-trace`：只對 `0763:04FF` caller 記錄 entry step、前一條 return instruction／opcode、
+  post address、SS:SP 與七 ABI word 的高位 mask；不輸出 glyph bytes 或 stack contents。
 - `-story-pixel-trace`：從啟動 state 的 logical rows 17–21 建立只讀 320×40 baseline，輸出第一筆
   變化的 executed instruction address、step、`REP STOSB` 前的 `ES:DI`／`CX` destination metadata
   與變化 bounding box；不輸出 pixel data。
