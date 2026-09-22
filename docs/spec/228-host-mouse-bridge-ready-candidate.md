@@ -29,6 +29,12 @@ pointer forwarding。
 
 Down 的序列是 Move→Press；若 Up 仍在 closed panel 的 canvas 內，則 Move→Release。若 Up
 已在 canvas 外、chrome、panel 或失焦，則只 Release、不 Move，以最後有效 DOS 座標清鍵。
+**原型勘誤（2026-09-22）**：ignored 主專案
+`workplace/phase128-mousebridge-prototype/bridge.go` 的 `Handle(Up)` 目前對所有配對 Up
+都只呼叫 `ReleaseLeft()`；它並未實作本段已定的 closed-canvas 內 `Move→Release`。
+因此該原型的 `TestTwoScaleSequences` 只能支持外部 cleanup，不得用來通過畫布內
+Down→Up 的座標／呼叫順序矩陣。READY 前須以實體事件及更新後的可丟棄核心證實
+畫布內 Up 的 Move→Release，並同時保留畫布外／panel／失焦只 Release 的例外。
 現有 `MoveMouse`／`PressMouse`／`ReleaseMouse` 均為 void，沒有可檢查的 error 或 rollback；bridge
 因此只能在每個 API 呼叫後更新自身 pressed state，並以單元測試釘住呼叫順序。host hit 由 backend 分類為 host consume，
 不可誤進 bridge。
