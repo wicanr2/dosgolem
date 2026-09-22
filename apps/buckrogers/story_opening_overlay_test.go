@@ -26,6 +26,9 @@ func TestRuntimeStoryOpeningOverlayAtomicAndClear(t *testing.T) {
 	if layer == nil {
 		t.Fatal("presentation layer nil")
 	}
+	if o.font.Name != "buckrogers-story-3x22" {
+		t.Fatalf("未命名 3×衍生字型 name=%q", o.font.Name)
+	}
 	if e = o.Apply(ev, [256][3]uint8{}); e != nil {
 		t.Fatal(e)
 	}

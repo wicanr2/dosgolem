@@ -19,7 +19,16 @@ func NewRuntimeStoryOpeningOverlay(text map[string]string, font *xlate.Font, sca
 		return nil, fmt.Errorf("buckrogers: 首屏 presenter 輸入無效")
 	}
 	if scale == 3 {
+		baseName := font.Name
 		font = manualThreeXFont(font)
+		// Snapshot／Restore 的 font registry 以 Name 指向字型。3× 是一份
+		// 22×22 的衍生輸出字模，不能與 2× 的 16×16 source 共用 registry
+		// key，否則 host presenter restore 時會失敗即關閉或誤畫稀疏字。
+		if baseName == "" {
+			font.Name = "buckrogers-story-3x22"
+		} else {
+			font.Name = baseName + ".3x22"
+		}
 	}
 	for _, s := range text {
 		for _, r := range s {
