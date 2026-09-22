@@ -410,26 +410,29 @@ func TestActionBarOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
 }
 
 func TestStoryOpeningOverlayFlagsRequireCompletePairedArtifacts(t *testing.T) {
-	for _, tc := range []struct {
-		name                                              string
-		events, translations, font, out, baseline, png, b string
-		scale                                             int
-		wantOK                                            bool
-	}{
-		{"全部省略", "", "", "", "", "", "", "", 0, true},
-		{"完整 2 倍", "e", "t", "f", "o", "base", "png", "basepng", 2, true},
-		{"完整 3 倍", "e", "t", "f", "o", "base", "png", "basepng", 3, true},
-		{"缺譯文", "e", "", "f", "o", "base", "png", "basepng", 2, false},
-		{"缺字型", "e", "t", "", "o", "base", "png", "basepng", 2, false},
-		{"缺 baseline", "e", "t", "f", "o", "", "png", "basepng", 2, false},
-		{"錯誤倍率", "e", "t", "f", "o", "base", "png", "basepng", 1, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := validateStoryOpeningOverlayFlags(tc.events, tc.translations, tc.font, tc.out, tc.baseline, tc.png, tc.b, tc.scale) == nil
-			if got != tc.wantOK {
-				t.Fatalf("有效性=%v，要 %v", got, tc.wantOK)
+	complete := []string{"events", "translations", "font", "out", "baseline", "png", "baseline-png"}
+	if err := validateStoryOpeningOverlayFlags("", "", "", "", "", "", "", 0); err != nil {
+		t.Fatal("全部省略應可關閉首屏覆繪")
+	}
+	for _, scale := range []int{2, 3} {
+		if err := validateStoryOpeningOverlayFlags(complete[0], complete[1], complete[2], complete[3], complete[4], complete[5], complete[6], scale); err != nil {
+			t.Fatalf("完整 %dx 旗標被拒絕: %v", scale, err)
+		}
+		for omitted := range complete {
+			missing := append([]string(nil), complete...)
+			missing[omitted] = ""
+			if err := validateStoryOpeningOverlayFlags(missing[0], missing[1], missing[2], missing[3], missing[4], missing[5], missing[6], scale); err == nil {
+				t.Fatalf("%dx 缺第 %d 個旗標被接受", scale, omitted)
 			}
-		})
+		}
+	}
+	for _, scale := range []int{-1, 0, 1, 4} {
+		if err := validateStoryOpeningOverlayFlags(complete[0], complete[1], complete[2], complete[3], complete[4], complete[5], complete[6], scale); err == nil {
+			t.Fatalf("無效倍率 %d 被接受", scale)
+		}
+	}
+	if err := validateStoryOpeningOverlayFlags("", "", "", "", "", "", "", 2); err == nil {
+		t.Fatal("僅提供倍率被接受")
 	}
 }
 
@@ -465,15 +468,17 @@ func TestStoryOpeningGenerationAndSafeRectHelpers(t *testing.T) {
 	if len(got) != 2 || got[0].EventKey != "new-1" || got[1].EventKey != "new-2" {
 		t.Fatalf("generation events=%#v", got)
 	}
-	baseline := make([]byte, 320*2*200*2*4)
-	overlay := append([]byte(nil), baseline...)
-	inside := ((136*2)*(320*2) + 8*2) * 4
-	overlay[inside] = 1
-	outside := ((135*2)*(320*2) + 8*2) * 4
-	overlay[outside] = 1
-	out, in, added := storyOpeningDiff(baseline, overlay, 2)
-	if out != 1 || in != 1 || added != 1 {
-		t.Fatalf("diff outside=%d inside=%d added=%d", out, in, added)
+	for _, scale := range []int{2, 3} {
+		baseline := make([]byte, 320*200*scale*scale*4)
+		overlay := append([]byte(nil), baseline...)
+		inside := ((136*scale)*(320*scale) + 8*scale) * 4
+		overlay[inside] = 1
+		outside := ((135*scale)*(320*scale) + 8*scale) * 4
+		overlay[outside] = 1
+		out, in, added := storyOpeningDiff(baseline, overlay, scale)
+		if out != 1 || in != 1 || added != 1 {
+			t.Fatalf("%dx diff outside=%d inside=%d added=%d", scale, out, in, added)
+		}
 	}
 	if err := validateStoryOpeningOverlayDraw(nil, nil, false); err != nil {
 		t.Fatal(err)
@@ -485,7 +490,7 @@ func TestStoryOpeningGenerationAndSafeRectHelpers(t *testing.T) {
 
 func TestStoryOpeningInvalidationRequiresActiveCompleteGroup(t *testing.T) {
 	at := buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}
-	keys := []string{"one", "two", "three", "four", "five"}
+	keys := []string{"story.opening.line.001", "story.opening.line.002", "story.opening.line.003", "story.opening.line.004", "story.opening.line.005"}
 	item, ok := storyOpeningInvalidation(at, 0xA000, 0xAB48, 304, 281020572, 2, keys, true)
 	if !ok || item.Step != 281020572 || item.Generation != 2 || item.ActiveKeysBefore != 5 || item.VideoOffset != 0xAB48 || item.ByteCount != 304 {
 		t.Fatalf("invalidation=%#v ok=%v", item, ok)
@@ -501,12 +506,17 @@ func TestStoryOpeningInvalidationRequiresActiveCompleteGroup(t *testing.T) {
 		{"partial group", at, 0xA000, keys[:4], true},
 		{"wrong fill address", buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3C}, 0xA000, keys, true},
 		{"not vram", at, 0xB800, keys, true},
+		{"duplicate key", at, 0xA000, []string{keys[0], keys[1], keys[2], keys[3], keys[3]}, true},
+		{"wrong key", at, 0xA000, []string{keys[0], keys[1], keys[2], keys[3], "story.opening.line.999"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, got := storyOpeningInvalidation(tc.at, tc.es, 1, 1, 1, 1, tc.keys, tc.hit); got {
 				t.Fatal("不完整或未證實轉場不得產生 lifecycle receipt")
 			}
 		})
+	}
+	if _, ok := storyOpeningInvalidation(at, 0xA000, 0xAB48, 304, 1, 0, keys, true); ok {
+		t.Fatal("零 generation 不得產生 lifecycle receipt")
 	}
 }
 

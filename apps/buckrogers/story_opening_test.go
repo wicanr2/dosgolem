@@ -3,6 +3,7 @@ package buckrogers
 import (
 	"crypto/sha256"
 	"encoding/csv"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ func storyFixture(t *testing.T) (*StoryOpeningCatalog, [][]byte) {
 	entries := make([]StoryOpeningIdentity, len(lines))
 	for i, line := range lines {
 		entries[i] = StoryOpeningIdentity{
-			Sequence: uint8(i + 1), EventKey: "synthetic.story." + string(rune('1'+i)),
+			Sequence: uint8(i + 1), EventKey: fmt.Sprintf("story.opening.line.%03d", i+1),
 			OriginalLength: uint8(len(line)), OriginalSHA256: sha256.Sum256(line),
 			Caller: Address{Segment: 0x0763, Offset: 0x04FF}, Guard: storyGlyphPrimitive,
 			Mode: 1, Repeat: 1, Background: 0, Foreground: 10, Row: uint8(17 + i), Column: 1,
@@ -70,7 +71,7 @@ func TestStoryOpeningWatcherCompletesAtomicallyAndInvalidates(t *testing.T) {
 	for j, glyph := range lines[0] {
 		emitStoryGlyph(w, catalog.entries[0], glyph, uint8(1+j), 0x8123, 0x1000, uint64(400+j*2))
 	}
-	if w.Active() || len(w.Events()) != 5 {
+	if w.Active() || len(w.Events()) != 0 {
 		t.Fatalf("部分第二頁文字不應重建 overlay: active=%v events=%d", w.Active(), len(w.Events()))
 	}
 }

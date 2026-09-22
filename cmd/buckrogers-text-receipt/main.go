@@ -2286,11 +2286,23 @@ func validateStoryOpeningOverlayDraw(active []string, missing []rune, drew bool)
 // the complete atomic five-line group.  Any partial or stale layer is not
 // silently cleared and never becomes receipt evidence.
 func storyOpeningInvalidation(at buckrogers.Address, es, di, count uint16, step, generation uint64, active []string, invalidated bool) (storyOpeningInvalidationJSON, bool) {
-	if !invalidated || at != (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) || es != 0xA000 || count == 0 || len(active) != 5 {
+	if !invalidated || at != (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) || es != 0xA000 || count == 0 || generation == 0 || !storyOpeningCompleteActiveKeys(active) {
 		return storyOpeningInvalidationJSON{}, false
 	}
 	return storyOpeningInvalidationJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: di,
 		ByteCount: count, Generation: generation, ActiveKeysBefore: len(active)}, true
+}
+
+func storyOpeningCompleteActiveKeys(active []string) bool {
+	if len(active) != 5 {
+		return false
+	}
+	for i, key := range active {
+		if key != fmt.Sprintf("story.opening.line.%03d", i+1) {
+			return false
+		}
+	}
+	return true
 }
 
 // storyOpeningDiff permits only the READY first-screen text rectangle

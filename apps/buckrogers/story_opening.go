@@ -41,7 +41,7 @@ func NewStoryOpeningCatalog(entries []StoryOpeningIdentity) (*StoryOpeningCatalo
 	var catalog StoryOpeningCatalog
 	seen := make(map[string]bool, len(entries))
 	for i, entry := range entries {
-		if entry.Sequence != uint8(i+1) || entry.EventKey == "" || seen[entry.EventKey] || entry.OriginalLength == 0 ||
+		if entry.Sequence != uint8(i+1) || entry.EventKey != fmt.Sprintf("story.opening.line.%03d", i+1) || seen[entry.EventKey] || entry.OriginalLength == 0 ||
 			entry.OriginalSHA256 == ([32]byte{}) || entry.Caller == (Address{}) || entry.Guard == (Address{}) ||
 			entry.Caller != (Address{Segment: 0x0763, Offset: 0x04FF}) || entry.Guard != storyGlyphPrimitive ||
 			entry.Mode != 1 || entry.Repeat != 1 || entry.Background != 0 || entry.Foreground != 10 ||
@@ -156,15 +156,22 @@ func (w *StoryOpeningWatcher) ObserveVerifiedGlyphReturn(ret StoryOpeningVerifie
 }
 
 // ObserveExecutionDiscontinuity must be called when the adapter can no longer
-// prove that the pending glyph frame is still executing (for example a stop,
-// state restore, or an unobserved control-flow handoff). It is deliberately
-// not a step-count timeout: no instruction budget has been measured.
+// prove the current execution epoch (for example a state restore or an
+// unobserved control-flow handoff). It clears both pending and active derived
+// state: a restored epoch must exact-hit all five lines before it may draw.
+// It is deliberately not a step-count timeout: no instruction budget has been
+// measured.
 func (w *StoryOpeningWatcher) ObserveExecutionDiscontinuity() {
-	if w == nil || w.pending == nil {
+	if w == nil {
 		return
 	}
 	w.pending = nil
 	w.dropCandidate()
+	w.events = nil
+	if w.active {
+		w.active = false
+		w.generation++
+	}
 	w.drops++
 }
 
@@ -249,6 +256,7 @@ func (w *StoryOpeningWatcher) ObserveVideoWrite(at Address, es, di, count uint16
 	w.pending = nil
 	w.dropCandidate()
 	w.active = false
+	w.events = nil
 	if wasActive {
 		w.generation++
 	}
