@@ -189,6 +189,7 @@
 - `221-buck-rogers-manual-watcher-snapshot-bridge.md`
 - `222-buck-rogers-manual-runtime-presentation.md`
 - `223-buck-rogers-story-content-safe-diagnostics.md`
+- `229-buck-rogers-story-fill-six-row-diagnostic-draft.md`（DRAFT；只擴充六行 content-safe trace）
 - `224-buck-rogers-story-opening-watcher-core.md`
 - `225-host-panel-event-routing-core.md`
 

@@ -58,8 +58,30 @@ func TestStoryFillIntersectsFiveRowSafeRect(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := storyFillIntersects(tc.di, tc.count); got != tc.want {
+			if got := storyFillIntersects(tc.di, tc.count, 5); got != tc.want {
 				t.Fatalf("intersects(%#x,%d)=%v, want %v", tc.di, tc.count, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStoryFillIntersectsSixRowDiagnostic(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		di, count uint16
+		want      bool
+	}{
+		{"row22 only", 176*320 + 8, 1, true},
+		{"row23 only", 184*320 + 8, 1, false},
+		{"invalid rows fail closed", 176*320 + 8, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := uint32(6)
+			if tc.name == "invalid rows fail closed" {
+				rows = 7
+			}
+			if got := storyFillIntersects(tc.di, tc.count, rows); got != tc.want {
+				t.Fatalf("intersects(%#x,%d,%d)=%v, want %v", tc.di, tc.count, rows, got, tc.want)
 			}
 		})
 	}

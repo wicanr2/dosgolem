@@ -435,7 +435,8 @@ func main() {
 	glyphTraceFrom := flag.Uint64("glyph-trace-from", 0, "glyph 追蹤的最早絕對步數；0 表示不過濾")
 	glyphReturnTrace := flag.Bool("glyph-return-edge-trace", false, "記錄 0763:026B 的 content-safe RETF control-flow edge")
 	storyPixelTrace := flag.Bool("story-pixel-trace", false, "記錄 story rows 17..21 的第一筆 indexed framebuffer 改寫")
-	storyFillTrace := flag.Bool("story-fill-trace", false, "記錄前 64 筆與 story rows 17..21 相交的原版 pre-write fill metadata")
+	storyFillTrace := flag.Bool("story-fill-trace", false, "記錄前 64 筆與明示 story-fill-rows 範圍相交的原版 pre-write fill metadata")
+	storyFillRows := flag.Uint("story-fill-rows", 5, "story-fill-trace 的列數：5（預設 rows 17..21）或 6（rows 17..22）")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
@@ -448,6 +449,9 @@ func main() {
 	flag.Parse()
 	if *statePath == "" || *until == 0 {
 		fail(fmt.Errorf("state 與 until 為必填"))
+	}
+	if *storyFillRows != 5 && *storyFillRows != 6 {
+		fail(fmt.Errorf("story-fill-rows 只允許 5 或 6"))
 	}
 	if (*stopAtSegment != 0 || *stopAtOffset != 0 || *stopAfterStep != 0) && (*stopAtSegment > 0xFFFF || *stopAtOffset > 0xFFFF || *stopAtSegment == 0 || *stopAtOffset == 0 || *stopAfterStep == 0) {
 		fail(fmt.Errorf("stop-at-segment、stop-at-offset、stop-after-step 必須同時為有效值"))
@@ -1156,7 +1160,7 @@ func main() {
 			}
 		}
 		if *storyFillTrace && len(storyFillWrites) < 64 && at == (buckrogers.Address{Segment: 0x0CF4, Offset: 0x1B3A}) &&
-			m.CPU.Seg[cpu.ES] == 0xA000 && storyFillIntersects(m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]) {
+			m.CPU.Seg[cpu.ES] == 0xA000 && storyFillIntersects(m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], uint32(*storyFillRows)) {
 			storyFillWrites = append(storyFillWrites, storyFillWriteJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]})
 		}
 		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
@@ -1278,6 +1282,11 @@ func main() {
 	for i, request := range actionRequests {
 		actionRequestOut[i] = requestJSON{request.EventKey, request.TextKey, len([]rune(request.Translation))}
 	}
+	var storyFillRowsReceipt *uint
+	if *storyFillTrace {
+		rows := *storyFillRows
+		storyFillRowsReceipt = &rows
+	}
 	result := struct {
 		StateStart                uint64                         `json:"state_start"`
 		StoppedAt                 uint64                         `json:"stopped_at"`
@@ -1321,13 +1330,14 @@ func main() {
 		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
 		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
 		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
+		StoryFillRows             *uint                          `json:"story_fill_rows,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
 		KeyPolls                  *int                           `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
@@ -1772,14 +1782,18 @@ func manualDiff(baseline, overlay []byte, scale int) (outside, inside, added int
 	return outside, inside, added
 }
 
-// storyFillIntersects checks the five-row diagnostic window used by page three.
+// storyFillIntersects checks an explicit five- or six-row diagnostic window.
 // The 16-bit destination is interpreted as a bounded Mode 13h byte span.
-func storyFillIntersects(di, count uint16) bool {
+func storyFillIntersects(di, count uint16, rows uint32) bool {
 	if count == 0 {
 		return false
 	}
+	if rows != 5 && rows != 6 {
+		return false
+	}
 	start, end := uint32(di), uint32(di)+uint32(count)
-	const width, top, bottom, left, right uint32 = 320, 136, 176, 8, 320
+	const width, top, left, right uint32 = 320, 136, 8, 320
+	bottom := top + rows*8
 	if end <= top*width || start >= bottom*width {
 		return false
 	}
