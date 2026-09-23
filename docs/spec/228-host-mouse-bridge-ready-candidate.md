@@ -1,8 +1,8 @@
 # 228：host MouseBridge READY 候選
 
-狀態：**限縮 READY**（2026-09-23 獨立審查通過）；只授權 generic `host` MouseBridge
-production implementation 與本規格列出的定向驗證。spec004 整體、正式 Ebitengine frontend、完整
-玩家滑鼠路徑與 CONFORMED 均不在本 READY 範圍。
+狀態：**限縮 CONFORMED**（2026-09-23 獨立審查通過）。這只符合 generic `host`
+MouseBridge 在本文件明列的 320×200 實體收據範圍；spec004 整體、正式 Ebitengine frontend、完整
+玩家滑鼠路徑與任何未列出的 geometry／事件，仍是 DRAFT 或未驗，不得以此升格。
 
 輸入基準：私有 `phase12-before-question.state` SHA-256=`8cbc27f568057fbf3ce2f91d407953ec94836f2b723f50b7b73e56100e859269`、
 `GAME.OVR` SHA-256=`3a4ad4856c08fe5973179f1d907feed1d870af99d08abd1cb884b316324f3cc0`、dosgolem branch
@@ -334,3 +334,68 @@ mapping、完整開機／存讀檔與其他遊戲滑鼠路徑仍在 spec004 的�
 `host`。本案的 RE、實體 X11/Ebitengine receipt、DOS 座標轉換與 READY 授權**只涵蓋 320×200**；
 其他 canvas 尺寸尚無原版或實體收據，不能由 API 的泛型形狀外推為已驗證行為。production layout 對
 縮放乘法與 chrome 加總一律先做整數上界檢查，overflow 必須拒絕且不得替換現有 epoch。
+
+## 2026-09-23：限縮 CONFORMED 生產 bridge 收據
+
+獨立審查確認 ignored `phase118-game-ebiten-active-story` harness 已直接建立
+`host.NewMouseBridge`，並以 immutable `host.MouseLayout` 呼叫 `Handle`；沒有再引用 phase128
+prototype，也沒有接進正式 frontend。harness 的資料接線只建立本案已授權的
+`Canvas{Width:320,Height:200}`，2×／3×皆從同一私有
+`phase12-before-question.state`（SHA-256
+`8cbc27f568057fbf3ce2f91d407953ec94836f2b723f50b7b73e56100e859269`）與
+`GAME.OVR`（SHA-256
+`3a4ad4856c08fe5973179f1d907feed1d870af99d08abd1cb884b316324f3cc0`）重生。receipt metadata
+記錄的 dosgolem clean code commit 是
+`1dafb0a857c42fbda7058157b7615e214a64ec64`。
+
+實體 harness source SHA-256 為：
+
+| 檔案 | SHA-256 |
+| --- | --- |
+| `workplace/phase118-game-ebiten-active-story/mouse_receipt.go` | `203d8ff92c8e6234fd433d87d3ff44e1ee6e086ea0eefdd1e18ef664401b086d` |
+| `workplace/phase118-game-ebiten-active-story/go.mod` | `5ad1de815348c0407571ff586f7b1fa0d91b5bf1b23ac07116112eb38c2ade50` |
+| `workplace/phase118-game-ebiten-active-story/physical_mouse_receipt.sh` | `fbd3ab0fa6d8931e276291e1a425b7ae70b205e5fe10a4c9bb27cbd0e9c5545d` |
+
+七份私有收據均在
+`workplace/phase179-formal-mousebridge/<case>/mouse-receipt.json`，並已以同目錄
+`sha256.txt` 逐一重算：
+
+| 範圍 | case | SHA-256 |
+| --- | --- | --- |
+| 2×同 state 兩段各 50,000 Step | `control-2x` | `1989d93c7212e794acca40544408cf5239907d9b97a9691a87cbe43fd0722732` |
+| 2×同 state canvas click | `inside-2x` | `e6c59a2bcf47f5872e7560579719cbbcd4782e25a2777a2a715bb5ca24bdcde5` |
+| 3×同 state 兩段各 50,000 Step | `control-3x` | `9b87dacd9bc8e8b539ac5fa917a7494f43434c714f85ec4adf268ab205a6dfe8` |
+| 3×同 state canvas click | `inside-3x` | `d0e7c2179b1c92ed8f390f44816eedbe492d2ba8b56ad840c3c98dc9ee3a3556` |
+| 2× accepted Down 後畫布外 Up | `outside-up-2x` | `dbe5694360b304761508bf6cb5a21d0785e13ad0db18cae89bcd334143925d93` |
+| 2× accepted Down、harness 開面板後 Up | `panel-open-up-2x` | `1a42d7c0112cadb21ddd830ee137fc63b9426d973b7cf7a746e7268508acfb07` |
+| 2× accepted Down 後實際 X11 focus loss | `focus-loss-2x` | `109afffeb17866b554d65f09ba81737ba8324d61dc0cdec400bf3766559c3c9b` |
+
+2×／3× control 的 indexed SHA-256 都維持
+`964943c39af4fe3a69655d3e39b47f2774ff6fdea684995a2ce08bd26ddd1bba`；canvas click 最終皆為
+`13fcacde4c0b693f1478a290910d87571e86d153ab0b291da2e4546487bda7f8`，並在同一 checkpoint
+由 `Move→Press→Move→Release` 產生 `(100,82)` 的 DOS mouse 狀態。三個 2× cleanup 都是
+`Move→Press→Release`，只釋放、保留最後 DOS 座標，button 最終為 0；panel case 的
+layout epoch 已變更，故正式 bridge 明確走 `epoch-changed-release`。focus case 觀測到真實
+`ebiten.IsFocused()` 真→假，才發出 cleanup。
+
+獨立審查另在唯讀 Docker 逐欄比較此七份 receipt 與 phase170／172／165 prototype 對應組：
+`api_calls`、完整 `phases`（含 steps、indexed、machine memory、mouse state）、原版 state hash、
+`GAME.OVR` hash 全部相等。這證明 production bridge 在**上述狹窄範圍**沒有改變 prototype
+已量到的 DOS 行為；它不證明整個遊戲皆可由滑鼠操作。
+
+可重跑的 outer pattern 為 Docker `--network none`、`eob-remake-go:1.26.7-ebiten2.9.9`，掛載
+專案根為 `/project`、原版目錄為唯讀 `/orig`，工作目錄
+`/project/workplace/phase118-game-ebiten-active-story`，執行：
+
+```sh
+bash ./physical_mouse_receipt.sh <control|inside|outside-up|panel-open-up|focus-loss> <2|3> \
+  /project/workplace/phase179-formal-mousebridge/<case>
+```
+
+### 限縮範圍與未驗停止線
+
+- 本限縮 CONFORMED **不**授權接通正式 Ebitengine frontend；spec004 整體仍 DRAFT。
+- cleanup 實體收據目前只有 2×；3× cleanup、其他 mouse 路徑與完整玩家試玩未由此節驗證。
+- phase158 的無 guard exclusive right／bottom 停止線維持：Ebitengine public API 在不改變正式
+  logical canvas 下不產生可用事件，不得補 guard 或把無 receipt 的邊界稱為通過。
+- `host.Canvas` 的 generic 型別不擴張本案驗證權；只有 320×200 有原版／實體證據。
