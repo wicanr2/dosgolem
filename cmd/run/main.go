@@ -21,6 +21,12 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
+// readStat 是 watch-read 結算用的計數：同一 reader 讀了幾次、頭尾步號。
+type readStat struct {
+	n           int
+	first, last uint64
+}
+
 func main() {
 	prog := flag.String("prog", "", "要跑的 .COM 或 .EXE")
 	root := flag.String("root", "", "DOS 看得到的目錄")
@@ -82,11 +88,12 @@ func main() {
 		}
 		m.WatchWrites(lo, hi, func(a uint32, old, v uint8) {
 			c := m.CPU
-			fmt.Printf("watch 步 %d  %05X: %02X→%02X  由 %04X:%04X  SS:SP=%04X:%04X  EXEC 數=%d\n",
-				m.Steps, a, old, v, c.Seg[cpu.CS], c.IP, c.Seg[cpu.SS], c.R[cpu.SP], len(d.ExecLog))
+			fmt.Printf("watch 步 %d  %05X: %02X→%02X  由 %04X:%04X  SS:SP=%04X:%04X  EXEC 數=%d  SI=%04X AX=%04X\n",
+				m.Steps, a, old, v, c.Seg[cpu.CS], c.IP, c.Seg[cpu.SS], c.R[cpu.SP], len(d.ExecLog),
+				c.R[cpu.SI], c.R[cpu.AX])
 		})
 	}
-	readers := map[uint32]map[string]int{}
+	readers := map[uint32]map[string]*readStat{}
 	if *watchRead != "" {
 		var lo, hi uint32
 		if _, err := fmt.Sscanf(*watchRead, "%x-%x", &lo, &hi); err != nil {
@@ -96,9 +103,15 @@ func main() {
 			c := m.CPU
 			k := fmt.Sprintf("%04X:%04X", c.Seg[cpu.CS], c.IP)
 			if readers[a] == nil {
-				readers[a] = map[string]int{}
+				readers[a] = map[string]*readStat{}
 			}
-			readers[a][k]++
+			st := readers[a][k]
+			if st == nil {
+				st = &readStat{first: m.Steps}
+				readers[a][k] = st
+			}
+			st.n++
+			st.last = m.Steps
 		})
 	}
 	var runErr error
@@ -108,8 +121,8 @@ func main() {
 		if *traceTail > 0 {
 			c := m.CPU
 			a := cpu.Addr(c.Seg[cpu.CS], c.IP)
-			line := fmt.Sprintf("%04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X DS=%04X ES=%04X",
-				c.Seg[cpu.CS], c.IP, bytesAt(m, a, 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
+			line := fmt.Sprintf("步 %d  %04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X DS=%04X ES=%04X",
+				m.Steps+1, c.Seg[cpu.CS], c.IP, bytesAt(m, a, 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
 				c.R[cpu.SI], c.R[cpu.DI], c.R[cpu.SP], c.Seg[cpu.DS], c.Seg[cpu.ES])
 			if len(tail) == *traceTail {
 				tail = tail[1:]
@@ -122,8 +135,8 @@ func main() {
 		if *traceExit > traced && len(d.ExecLog) > 0 && d.ExecLog[0].Exit != 0xFF {
 			c := m.CPU
 			a := cpu.Addr(c.Seg[cpu.CS], c.IP)
-			fmt.Printf("trace %4d  %04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X DS=%04X ES=%04X SS=%04X F=%04X\n",
-				traced, c.Seg[cpu.CS], c.IP, bytesAt(m, a, 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
+			fmt.Printf("trace 步%d %4d  %04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X DS=%04X ES=%04X SS=%04X F=%04X\n",
+				m.Steps, traced, c.Seg[cpu.CS], c.IP, bytesAt(m, a, 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
 				c.R[cpu.SP], c.R[cpu.BP], c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.Flags)
 			traced++
 		}
@@ -141,14 +154,25 @@ func main() {
 		}
 		sort.Slice(addrs, func(i, j int) bool { return addrs[i] < addrs[j] })
 		fmt.Printf("讀過 %d 個位址，%05X–%05X；讀取者：", len(addrs), addrs[0], addrs[len(addrs)-1])
-		who := map[string]int{}
+		who := map[string]*readStat{}
 		for _, a := range addrs {
-			for k, n := range readers[a] {
-				who[k] += n
+			for k, st := range readers[a] {
+				agg := who[k]
+				if agg == nil {
+					agg = &readStat{first: st.first, last: st.last}
+					who[k] = agg
+				}
+				agg.n += st.n
+				if st.first < agg.first {
+					agg.first = st.first
+				}
+				if st.last > agg.last {
+					agg.last = st.last
+				}
 			}
 		}
-		for k, n := range who {
-			fmt.Printf(" %s×%d", k, n)
+		for k, st := range who {
+			fmt.Printf(" %s×%d（步%d–%d)", k, st.n, st.first, st.last)
 		}
 		fmt.Println()
 	}
