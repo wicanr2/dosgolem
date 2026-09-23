@@ -36,6 +36,18 @@ type eventJSON struct {
 	Column         uint8              `json:"column"`
 }
 
+// postJoinRuntimeGate deliberately excludes row 12/17 noise while retaining
+// row 21 selected so the documented unknown variant still fails closed.
+func postJoinRuntimeGate(e buckrogers.TextEvent) bool {
+	if e.Caller.Segment != 0x37f1 || (e.Caller.Offset != 0x15bd && e.Caller.Offset != 0x175d && e.Caller.Offset != 0x1856) {
+		return false
+	}
+	if e.Row == 13 || e.Row == 14 || e.Row == 15 || e.Row == 16 || e.Row == 18 || e.Row == 19 || e.Row == 20 {
+		return true
+	}
+	return e.Caller.Offset == 0x175d && e.Row == 21
+}
+
 type requestJSON struct {
 	EventKey         string `json:"event_key"`
 	TextKey          string `json:"text_key"`
@@ -1525,7 +1537,7 @@ func main() {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
 			if postJoinWatcher != nil && r.EventCount() > eventBefore {
-				if e, ok := r.LastEvent(); ok && e.Caller.Segment == 0x37f1 && (e.Caller.Offset == 0x15bd || e.Caller.Offset == 0x175d || e.Caller.Offset == 0x1856) {
+				if e, ok := r.LastEvent(); ok && postJoinRuntimeGate(e) {
 					prior := len(postJoinWatcher.Generations())
 					if err := postJoinWatcher.ObserveReturn(e); err != nil {
 						fail(err)

@@ -43,6 +43,17 @@ func TestLoadBIOSKeysReceiptAcceptsOnlyBoundedSchedule(t *testing.T) {
 	}
 }
 
+func TestPostJoinRuntimeGateSymmetry(t *testing.T) {
+	for _, row := range []uint8{12, 17} {
+		if postJoinRuntimeGate(buckrogers.TextEvent{Caller: buckrogers.Address{Segment: 0x37f1, Offset: 0x15bd}, Row: row}) {
+			t.Fatalf("row %d must not create unmatched return", row)
+		}
+	}
+	if !postJoinRuntimeGate(buckrogers.TextEvent{Caller: buckrogers.Address{Segment: 0x37f1, Offset: 0x175d}, Row: 21}) {
+		t.Fatal("row21 selected must reach fail-closed watcher")
+	}
+}
+
 func TestStoryFillIntersectsFiveRowSafeRect(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -113,6 +113,7 @@ type PostJoinMenuWatcher struct {
 	stage, selected int
 	generation      uint64
 	active, failed  bool
+	reason          string
 	generations     []PostJoinMenuGeneration
 }
 
@@ -124,6 +125,9 @@ func NewPostJoinMenuWatcher(c *PostJoinMenuCatalog) (*PostJoinMenuWatcher, error
 }
 func (w *PostJoinMenuWatcher) ObserveEntry(e TextEvent) error {
 	if w == nil || w.failed || w.pending != nil || e.PostCallStep != 0 {
+		if w != nil && w.failed {
+			return w.fail("entry while failed: " + w.reason)
+		}
 		return w.fail("entry state invalid")
 	}
 	id := menuIdentity{e.OriginalLength, e.OriginalSHA256, e.Caller, e.Background, e.Foreground, e.Row, e.Column}
@@ -152,7 +156,13 @@ func (w *PostJoinMenuWatcher) ObserveEntry(e TextEvent) error {
 	return nil
 }
 func (w *PostJoinMenuWatcher) ObserveReturn(e TextEvent) error {
-	if w == nil || w.failed || w.pending == nil || e.PostCallStep <= e.EntryStep || *w.pending != (TextEvent{EntryStep: e.EntryStep, Caller: e.Caller, OriginalLength: e.OriginalLength, OriginalSHA256: e.OriginalSHA256, Background: e.Background, Foreground: e.Foreground, Row: e.Row, Column: e.Column}) {
+	if w != nil && w.failed {
+		return w.fail("return while failed: " + w.reason)
+	}
+	if w == nil || w.pending == nil || e.PostCallStep <= e.EntryStep || *w.pending != (TextEvent{EntryStep: e.EntryStep, Caller: e.Caller, OriginalLength: e.OriginalLength, OriginalSHA256: e.OriginalSHA256, Background: e.Background, Foreground: e.Foreground, Row: e.Row, Column: e.Column}) {
+		if w != nil && w.pending != nil {
+			return w.fail(fmt.Sprintf("return identity mismatch pending=%+v return=%+v", *w.pending, TextEvent{EntryStep: e.EntryStep, PostCallStep: e.PostCallStep, Caller: e.Caller, OriginalLength: e.OriginalLength, OriginalSHA256: e.OriginalSHA256, Background: e.Background, Foreground: e.Foreground, Row: e.Row, Column: e.Column}))
+		}
 		return w.fail("return identity mismatch")
 	}
 	w.pending = nil
@@ -184,7 +194,7 @@ func (w *PostJoinMenuWatcher) Prewrite(v machine.VideoWrite) {
 	// Any intersecting byte, even an unchanged byte, has already made the old
 	// RGBA layer unsafe. Unknown writers fail closed rather than retain pixels.
 	if v.CS != 0x0763 || v.IP != 0x184d || (w.pending == nil && !w.active) {
-		w.fail("unknown or unarmed A000 writer")
+		w.fail(fmt.Sprintf("unknown or unarmed A000 writer csip=%04X:%04X offset=%d", v.CS, v.IP, v.Offset))
 		return
 	}
 	w.active = false
@@ -208,6 +218,7 @@ func (w *PostJoinMenuWatcher) ObserveDiscontinuity() {
 		w.active = false
 		w.pending = nil
 		w.failed = true
+		w.reason = "execution discontinuity"
 	}
 }
 func (w *PostJoinMenuWatcher) rebuild() error {
@@ -221,6 +232,7 @@ func (w *PostJoinMenuWatcher) fail(s string) error {
 		w.active = false
 		w.pending = nil
 		w.failed = true
+		w.reason = s
 	}
 	return fmt.Errorf("post-join fail-closed: %s", s)
 }
