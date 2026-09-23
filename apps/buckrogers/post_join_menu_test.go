@@ -1,6 +1,7 @@
 package buckrogers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"os"
 	"path/filepath"
@@ -165,6 +166,42 @@ func TestPostJoinPresenterFailureClearsPriorGeneration(t *testing.T) {
 	_, _, d := o.Draw(make([]byte, 320*200), p)
 	if d {
 		t.Fatal("failed Apply still drew stale layer")
+	}
+}
+
+func TestPostJoinPresenterSameValuePrewriteClearsBothScales(t *testing.T) {
+	c := postJoinTestCatalog()
+	glyph := make([]byte, 32)
+	for y := 0; y < 16; y++ {
+		glyph[y*2] = 0x80
+	}
+	font := &xlate.Font{W: 16, H: 16, Glyphs: map[rune][]byte{'甲': glyph}}
+	var palette [256][3]uint8
+	palette[10] = [3]uint8{255, 255, 255}
+	indexed := make([]byte, 320*200)
+
+	for _, scale := range []int{2, 3} {
+		t.Run(string(rune('0'+scale))+"x", func(t *testing.T) {
+			o, err := NewRuntimePostJoinMenuOverlay(c, font, scale)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := o.Apply(PostJoinMenuGeneration{Generation: 7, Selected: 6}, palette); err != nil {
+				t.Fatal(err)
+			}
+			baseline := ScaleIndexedRGBA(indexed, palette, scale)
+			before, missing, drew := o.Draw(indexed, palette)
+			if len(missing) != 0 || !drew || bytes.Equal(before, baseline) {
+				t.Fatal("accepted generation did not produce visible overlay")
+			}
+			// A same-value row-20 write must clear the layer too. VideoWrite
+			// is a pre-write callback; no framebuffer diff exists yet.
+			o.Prewrite(machine.VideoWrite{CS: 0x0763, IP: 0x184d, Offset: 20*8*320 + 72, Value: 0})
+			after, missing, drew := o.Draw(indexed, palette)
+			if len(missing) != 0 || drew || len(o.ActiveKeys()) != 0 || !bytes.Equal(after, baseline) {
+				t.Fatal("same-value prewrite retained a stale post-join layer")
+			}
+		})
 	}
 }
 func TestPostJoinFixtureHashFailsClosed(t *testing.T) {
