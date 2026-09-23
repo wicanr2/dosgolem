@@ -73,6 +73,13 @@ func validateHostFont(font *xlate.Font, scale int) error {
 		if !ok || font.W <= 0 || font.H <= 0 || len(glyph) != font.H*((font.W+7)/8) {
 			return fmt.Errorf("frontend/ebiten: %d× host 字型缺少或損壞字元 %q", scale, r)
 		}
+		hasInk := false
+		for _, b := range glyph {
+			hasInk = hasInk || b != 0
+		}
+		if !hasInk {
+			return fmt.Errorf("frontend/ebiten: %d× host 字型 %q 沒有可見墨跡", scale, r)
+		}
 	}
 	for _, item := range []struct {
 		text string

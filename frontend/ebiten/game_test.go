@@ -20,6 +20,7 @@ func draftFont(w, h int) *xlate.Font {
 	glyphs := map[rune][]byte{}
 	for _, r := range "設定套用取消2×3" {
 		glyphs[r] = make([]byte, h*((w+7)/8))
+		glyphs[r][0] = 0x80
 	}
 	return &xlate.Font{Name: "draft-test", W: w, H: h, Glyphs: glyphs}
 }
@@ -201,5 +202,14 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 	mo, _ := host.NewMouseBridge(&mouseOutput{})
 	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("missing host glyphs accepted")
+	}
+	zero := draftFont(16, 16)
+	for _, glyph := range zero.Glyphs {
+		for i := range glyph {
+			glyph[i] = 0
+		}
+	}
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: zero, HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+		t.Fatal("zero-ink glyphs accepted")
 	}
 }
