@@ -1,4 +1,4 @@
-# 228：host MouseBridge READY 候選
+# 228：host MouseBridge 限縮符合性
 
 狀態：**限縮 CONFORMED**（2026-09-23 獨立審查通過）。這只符合 generic `host`
 MouseBridge 在本文件明列的 320×200 實體收據範圍；spec004 整體、正式 Ebitengine frontend、完整
@@ -6,7 +6,8 @@ MouseBridge 在本文件明列的 320×200 實體收據範圍；spec004 整體�
 
 輸入基準：私有 `phase12-before-question.state` SHA-256=`8cbc27f568057fbf3ce2f91d407953ec94836f2b723f50b7b73e56100e859269`、
 `GAME.OVR` SHA-256=`3a4ad4856c08fe5973179f1d907feed1d870af99d08abd1cb884b316324f3cc0`、dosgolem branch
-`buck-rogers-cht-output-overlay`（commit 必須在 READY 審查時填入）。工具為 Docker
+`buck-rogers-cht-output-overlay`；正式程式與實體收據基準 commit 為
+`1dafb0a857c42fbda7058157b7615e214a64ec64`，後續文件勘誤不改該基準。工具為 Docker
 `eob-remake-go:1.26.7-ebiten2.9.9`。位址／座標空間是 Ebitengine logical pixels、host canvas
 pixels、DOS mouse virtual coordinates；不宣稱遊戲 EXE callsite。原版、state、字型及畫面不得入 Git。
 
