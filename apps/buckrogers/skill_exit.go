@@ -30,6 +30,16 @@ type skillExitEntry struct {
 	id       menuIdentity
 }
 
+type skillExitCanonical struct {
+	key, sha string
+	length   uint8
+}
+
+var skillExitCanonicalByPage = map[SkillExitPage]skillExitCanonical{
+	SkillExitCareer:    {"career.skill.exit.exit_confirmation_prompt.001", "65108526a62ebc58d90c1406cce2b83133f5a8fa5221f87e6f62f40589bc07a9", 33},
+	SkillExitTechnical: {"technical.skill.exit.exit_confirmation_prompt.001", "5592b4048986b175d187438df9b7ecd154cdedc775a9ff290231d5e3863a9a9b", 34},
+}
+
 // SkillExitCatalog is immutable.  It deliberately accepts bytes from explicit
 // caller-supplied paths; the app never assumes the enclosing project's layout.
 type SkillExitCatalog struct {
@@ -43,7 +53,7 @@ func LoadSkillExitCatalog(careerEvents, technicalEvents, translations []byte) (*
 	}
 	texts := map[string]string{}
 	for _, r := range textsRows {
-		if r[0] == "" || r[1] == "" || texts[r[0]] != "" {
+		if r[0] == "" || r[1] == "" || r[2] != "runtime-interface" || texts[r[0]] != "" {
 			return nil, fmt.Errorf("skill-exit translations: duplicate/empty key")
 		}
 		texts[r[0]] = r[1]
@@ -68,11 +78,12 @@ func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage,
 		return err
 	}
 	var found *skillExitEntry
+	want := skillExitCanonicalByPage[page]
 	for _, r := range rows {
 		if r[2] != skillExitRole {
 			continue
 		}
-		if r[3] != "confirmed" || r[1] != "1" {
+		if r[0] != want.key || r[3] != "confirmed" || r[1] != "1" {
 			return fmt.Errorf("%s: exit prompt evidence/order invalid", name)
 		}
 		length, e := menuByte(r[6])
@@ -95,6 +106,9 @@ func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage,
 			}
 		}
 		id := menuIdentity{length, hash, caller, v[0], v[1], v[2], v[3]}
+		if length != want.length || r[7] != want.sha || caller != (Address{Segment: 0x37F1, Offset: 0x101E}) || v != [4]uint8{0, 13, 24, 0} {
+			return fmt.Errorf("%s: canonical identity drift", name)
+		}
 		text, ok := texts[r[0]]
 		if !ok || used[r[0]] {
 			return fmt.Errorf("%s: translation join invalid", name)
@@ -150,7 +164,7 @@ func skillExitIdentity(e TextEvent) menuIdentity {
 	return menuIdentity{e.OriginalLength, e.OriginalSHA256, e.Caller, e.Background, e.Foreground, e.Row, e.Column}
 }
 func (w *SkillExitWatcher) ObserveEntry(e TextEvent) error {
-	if w == nil || w.state != skillExitOpen || w.pending != nil {
+	if w == nil || w.state != skillExitOpen || w.pending != nil || w.active != nil {
 		return w.fail("entry state invalid")
 	}
 	if e.PostCallStep != 0 {

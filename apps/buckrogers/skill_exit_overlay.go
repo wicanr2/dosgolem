@@ -32,7 +32,7 @@ func (o *RuntimeSkillExitOverlay) Apply(g SkillExitGeneration, p [256][3]uint8) 
 	if g.Page == SkillExitTechnical {
 		width = 272
 	}
-	if len([]rune(g.Translation))*2 > width/8 {
+	if len([]rune(g.Translation)) > width/8 {
 		o.Clear()
 		return fmt.Errorf("skill-exit translation exceeds body")
 	}
@@ -42,8 +42,15 @@ func (o *RuntimeSkillExitOverlay) Apply(g SkillExitGeneration, p [256][3]uint8) 
 			return fmt.Errorf("skill-exit missing glyph U+%04X", r)
 		}
 	}
+	stamp := &xlate.Stamp{Key: g.EventKey, X: 0, Y: 192, Cells: width / 8, CellW: 8, CellH: 8, Font: o.font, GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale), Text: []rune(g.Translation), State: xlate.Shown, BG: p[0], FG: p[13]}
+	ink, err := menuInkRect(stamp, o.scale)
+	clear := PixelRect{0, 192 * o.scale, width * o.scale, 8 * o.scale}
+	if err != nil || ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
+		o.Clear()
+		return fmt.Errorf("skill-exit ink outside body")
+	}
 	o.layer = &xlate.Layer{W: 320, H: 200}
-	o.layer.Add(&xlate.Stamp{Key: g.EventKey, X: 0, Y: 192, Cells: width / 8, CellW: 8, CellH: 8, Font: o.font, GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale), Text: []rune(g.Translation), State: xlate.Shown, BG: p[0], FG: p[13]})
+	o.layer.Add(stamp)
 	o.active = &g
 	return nil
 }
