@@ -1287,10 +1287,14 @@ func main() {
 			if bodyIconPresenter != nil {
 				bodyIconPresenter.Prewrite(w)
 			}
-			if postJoinWatcher != nil {
+			// Before row13 selected returns there is no accepted generation/layer.
+			// Phase180 windows begin after that return; do not misclassify the
+			// initial screen's REP STOSB as an active-layer writer.
+			postJoinActive := postJoinWatcher != nil && postJoinWatcher.Active()
+			if postJoinActive {
 				postJoinWatcher.Prewrite(w)
 			}
-			if postJoinPresenter != nil {
+			if postJoinPresenter != nil && postJoinActive {
 				postJoinPresenter.Prewrite(w)
 			}
 		})
