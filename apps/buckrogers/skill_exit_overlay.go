@@ -108,7 +108,13 @@ func NewSkillExitOwner(c *SkillExitCatalog, font *xlate.Font, scale int) (*Skill
 	}
 	return &SkillExitOwner{w, p}, nil
 }
-func (o *SkillExitOwner) ObserveEntry(e TextEvent) error { return o.Watcher.ObserveEntry(e) }
+func (o *SkillExitOwner) ObserveEntry(e TextEvent) error {
+	if err := o.Watcher.ObserveEntry(e); err != nil {
+		o.Presenter.Clear()
+		return err
+	}
+	return nil
+}
 func (o *SkillExitOwner) ObserveReturn(e TextEvent, p [256][3]uint8) error {
 	g, err := o.Watcher.ObserveReturn(e)
 	if err != nil {
@@ -128,6 +134,10 @@ func (o *SkillExitOwner) Prewrite(v machine.VideoWrite) error {
 		return err
 	}
 	_, err = o.Presenter.Prewrite(v)
+	if err != nil {
+		o.Watcher.Fault()
+		o.Presenter.Clear()
+	}
 	return err
 }
 func (o *SkillExitOwner) Stop()          { o.Watcher.Stop(); o.Presenter.Clear() }

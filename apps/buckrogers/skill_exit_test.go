@@ -131,3 +131,33 @@ func TestSkillExitOverlayNeverTouchesTailAtTwoOrThreeX(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillExitOwnerDuplicateOrUnknownEntryClearsActiveLayer(t *testing.T) {
+	c, career, _ := skillExitFixture(t)
+	for _, mutate := range []func(*TextEvent){func(*TextEvent) {}, func(e *TextEvent) { e.OriginalLength++ }} {
+		o, err := NewSkillExitOwner(c, skillExitFont(), 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := [256][3]uint8{}
+		p[13] = [3]uint8{255, 255, 255}
+		if err := o.ObserveEntry(career); err != nil {
+			t.Fatal(err)
+		}
+		done := career
+		done.PostCallStep = 11
+		if err := o.ObserveReturn(done, p); err != nil {
+			t.Fatal(err)
+		}
+		duplicate := career
+		mutate(&duplicate)
+		if err := o.ObserveEntry(duplicate); err == nil || !o.Watcher.Failed() {
+			t.Fatal("duplicate/unknown entry must poison owner")
+		}
+		baseline := ScaleIndexedRGBA(make([]byte, 320*200), p, 2)
+		got, _, _ := o.Presenter.Draw(make([]byte, 320*200), p)
+		if !bytes.Equal(got, baseline) {
+			t.Fatal("entry failure must synchronously clear presenter")
+		}
+	}
+}
