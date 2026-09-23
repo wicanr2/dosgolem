@@ -364,15 +364,6 @@ type bodyIconFramebufferWriteJSON struct {
 	Y1          uint16             `json:"y1"`
 }
 
-type bodyIconVideoWriteJSON struct {
-	Step         uint64             `json:"step"`
-	Instruction  buckrogers.Address `json:"instruction"`
-	VideoSegment uint16             `json:"video_segment"`
-	VideoOffset  uint16             `json:"video_offset"`
-	ByteCount    uint16             `json:"byte_count"`
-	EventKeys    []string           `json:"event_keys"`
-}
-
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -508,6 +499,8 @@ func main() {
 	bodyIconFramebufferTrace := flag.Bool("body-icon-framebuffer-trace", false, "逐 step 記錄與正式身體圖示安全矩形相交的 framebuffer 變化")
 	bodyIconRects := flag.String("body-icon-rects", "", "body-icon-framebuffer-trace 必須搭配的正式 body-icon-text-safe-rects.tsv")
 	bodyIconFramebufferTraceFrom := flag.Uint64("body-icon-framebuffer-trace-from", 0, "身體圖示 framebuffer 診斷建立 baseline 並開始觀測的絕對 step")
+	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
+	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
 	instructionTraceFrom := flag.Uint64("instruction-trace-from", 0, "有界指令追蹤的最早絕對步數；0 表示停用")
 	instructionTraceLimit := flag.Uint64("instruction-trace-limit", 0, "有界指令追蹤最多記錄的指令數；0 表示停用")
@@ -525,6 +518,9 @@ func main() {
 		fail(fmt.Errorf("story-fill-rows 只允許 5 或 6"))
 	}
 	if err := validateBodyIconTraceFlags(*bodyIconFramebufferTrace, *bodyIconRects, *bodyIconFramebufferTraceFrom, *until); err != nil {
+		fail(err)
+	}
+	if err := validateBodyIconAfterSteps(*bodyIconFramebufferTrace, bodyIconPrewriteAfterSteps, *bodyIconFramebufferTraceFrom, *until); err != nil {
 		fail(err)
 	}
 	var bodyRects []bodyIconRect
@@ -1181,22 +1177,11 @@ func main() {
 	glyphDrops := 0
 	var storyWrite *pixelWriteJSON
 	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
-	var bodyIconVideoWrites []bodyIconVideoWriteJSON
+	var bodyIconA000Trace *bodyIconA000Observer
 	var bodyIconBefore []byte
 	if *bodyIconFramebufferTrace {
-		m.ObserveVideoWrites(func(w machine.VideoWrite) {
-			if w.Step < *bodyIconFramebufferTraceFrom {
-				return
-			}
-			keys := bodyIconSpanIntersections(bodyRects, uint16(w.Offset), 1)
-			if len(keys) == 0 {
-				return
-			}
-			if len(bodyIconVideoWrites) >= 65536 {
-				fail(fmt.Errorf("body-icon A000 pre-write trace 超過 65536 筆"))
-			}
-			bodyIconVideoWrites = append(bodyIconVideoWrites, bodyIconVideoWriteJSON{w.Step, buckrogers.Address{Segment: w.CS, Offset: w.IP}, 0xA000, uint16(w.Offset), 1, keys})
-		})
+		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
+		m.ObserveVideoWrites(bodyIconA000Trace.Observe)
 	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
@@ -1789,15 +1774,19 @@ func main() {
 		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
 		StoryFillRows             *uint                          `json:"story_fill_rows,omitempty"`
 		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON `json:"body_icon_framebuffer_writes,omitempty"`
-		BodyIconVideoWrites       []bodyIconVideoWriteJSON       `json:"body_icon_video_writes,omitempty"`
+		BodyIconA000Prewrite      *bodyIconA000TraceJSON         `json:"body_icon_a000_prewrite,omitempty"`
 		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                           `json:"keys_pending,omitempty"`
 		KeyPolls                  *int                           `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconVideoWrites: bodyIconVideoWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
+	if bodyIconA000Trace != nil {
+		report := bodyIconA000Trace.Report()
+		result.BodyIconA000Prewrite = &report
+	}
 	if *fileOps {
 		result.Writes = make([]writeJSON, len(d.Wrote))
 		for i, write := range d.Wrote {
@@ -2523,26 +2512,6 @@ func bodyIconSpanIntersections(rects []bodyIconRect, offset, count uint16) []str
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func bodyIconPreExecutionVideoWrite(step uint64, at buckrogers.Address, op0, op1 uint8, es, offset, count uint16, rects []bodyIconRect) (bodyIconVideoWriteJSON, bool) {
-	if es != 0xA000 {
-		return bodyIconVideoWriteJSON{}, false
-	}
-	width := count
-	if op0 == 0xAA && (at == (buckrogers.Address{Segment: 0x0763, Offset: 0x184D}) || at == (buckrogers.Address{Segment: 0x0763, Offset: 0x1854})) {
-		// IDA 9.4 runtime snapshot 0763:0000 (SHA-256 436711fe...54deac6)
-		// identifies both instructions as one-byte STOSB stores. ES is set to
-		// A000 at 0763:1830..1833; DI is the exact pre-increment pixel offset.
-		width = 1
-	} else if op0 != 0xF3 || op1 != 0xAA {
-		return bodyIconVideoWriteJSON{}, false
-	}
-	keys := bodyIconSpanIntersections(rects, offset, width)
-	if len(keys) == 0 {
-		return bodyIconVideoWriteJSON{}, false
-	}
-	return bodyIconVideoWriteJSON{Step: step, Instruction: at, VideoSegment: es, VideoOffset: offset, ByteCount: width, EventKeys: keys}, true
 }
 
 // storyPage2Diff permits only the READY page-two rectangle [8,320)x[136,168).
