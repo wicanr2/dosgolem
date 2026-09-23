@@ -64,6 +64,14 @@ const (
 	VideoHigh  = 200
 )
 
+// MemPoison 是開機時整機記憶體的填充值（除錯用：抓「讀到未初始化記憶體」）。
+//
+// 0（預設）＝跟以前一樣全零，不影響任何既有行為。非零時 New() 在
+// initBDA／initVectors 之前先整塊填上，之後的初始化（向量、BDA、字型、
+// stub）照常覆蓋自己的區域——只有「沒人寫過的地方」留著 pattern。
+// `cmd/run` 的 `-poison` 旗標設它。
+var MemPoison uint8
+
 // stubStride 是每個向量的 stub 佔幾個 byte（`CD n` ＋ `CF` ＋ 對齊）。
 const stubStride = 4
 
@@ -499,6 +507,11 @@ func New() *Machine {
 		watchLo: 1, watchHi: 0,
 		rWatchLo: 1, rWatchHi: 0,
 		VGA: newVGA(),
+	}
+	if MemPoison != 0 {
+		for i := range m.Mem {
+			m.Mem[i] = MemPoison
+		}
 	}
 	m.CPU = cpu.New(m)
 	// 取指令走直接索引，不走匯流排介面（`docs/spec/015` §4.2）。

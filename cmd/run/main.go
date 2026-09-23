@@ -43,13 +43,24 @@ func main() {
 	traceExit := flag.Int("trace-after-exit", 0, "第一個 EXEC 起來的子行程結束後，逐條印出接下來幾條指令的 CS:IP 與位元組")
 	watch := flag.String("watch", "", "監看一段線性位址的寫入，格式 lo-hi（十六進位），每次寫入印出 CS:IP")
 	traceTail := flag.Int("trace-tail", 0, "記住最後幾條指令的 CS:IP、位元組與暫存器，收工時印出來（查程式為什麼結束）")
+	traceRange := flag.String("trace-range", "", "印出指定步號區間的每條指令（格式同 trace-tail 行，含步號），格式 lo-hi（十進位，含首尾；`docs/spec/204-trace-range`）")
 	pngOut := flag.String("png", "", "收工時把目前畫面存成 PNG（平面模式與 mode 13h）")
 	watchRead := flag.String("watch-read", "", "監看一段線性位址的讀取，格式 lo-hi（十六進位）；收工時印出被讀過的位址範圍與讀取者")
+	poison := flag.String("poison", "", "開機記憶體填充值（十六進位 byte，如 CC；除錯抓未初始化讀取用，預設不填即全零）")
 	loop := flag.Int("loop", 0, "收工前再跑幾條指令，統計落點看它是不是在空轉")
 	flag.Parse()
 	if *prog == "" || *root == "" {
 		flag.Usage()
 		os.Exit(2)
+	}
+	if *poison != "" {
+		var v uint8
+		if _, err := fmt.Sscanf(*poison, "%x", &v); err != nil {
+			die(fmt.Errorf("-poison 是十六進位 byte：%v", err))
+		}
+		// 在 load()（內含 machine.New()）之前設好——填充發生在 New() 內、
+		// initBDA／initVectors 之前，之後的初始化照常覆蓋自己的區域。
+		machine.MemPoison = v
 	}
 
 	m, d, err := load(*prog, *root, *dir)
@@ -117,6 +128,17 @@ func main() {
 	var runErr error
 	traced := 0
 	tail := make([]string, 0, *traceTail)
+	var rangeLo, rangeHi uint64
+	rangeOn := false
+	if *traceRange != "" {
+		if _, err := fmt.Sscanf(*traceRange, "%d-%d", &rangeLo, &rangeHi); err != nil {
+			die(fmt.Errorf("-trace-range 格式是 lo-hi：%v", err))
+		}
+		if rangeLo > rangeHi {
+			die(fmt.Errorf("-trace-range lo 不可大於 hi"))
+		}
+		rangeOn = true
+	}
 	for m.Steps < *steps && !d.Exited {
 		if *traceTail > 0 {
 			c := m.CPU
@@ -128,6 +150,13 @@ func main() {
 				tail = tail[1:]
 			}
 			tail = append(tail, line)
+		}
+		if rangeOn && m.Steps+1 >= rangeLo && m.Steps+1 <= rangeHi {
+			c := m.CPU
+			a := cpu.Addr(c.Seg[cpu.CS], c.IP)
+			fmt.Printf("range 步 %d  %04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X DS=%04X ES=%04X SS=%04X\n",
+				m.Steps+1, c.Seg[cpu.CS], c.IP, bytesAt(m, a, 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
+				c.R[cpu.SI], c.R[cpu.DI], c.R[cpu.SP], c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS])
 		}
 		if runErr = m.Step(); runErr != nil {
 			break
