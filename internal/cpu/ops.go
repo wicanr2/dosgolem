@@ -321,10 +321,17 @@ func (c *CPU) execute(op uint8) error {
 		}
 	case op == 0xD7: // XLAT
 		c.setReg8(0, c.Bus.Read8(Linear(c.dataSeg(DS), c.R[BX]+uint16(uint8(c.R[AX])))))
-	case op >= 0xD8 && op <= 0xDF: // ESC：沒有共處理器時只做記憶體讀取
+	case op >= 0xD8 && op <= 0xDF: // ESC：探測語意見 spec 202，其餘只做記憶體讀取
 		m := c.decodeModRM()
-		if !m.rm.isReg {
-			c.get16(m.rm)
+		switch {
+		case op == 0xDB && m.mod == 3 && m.reg == 4 && m.rm.isReg && m.rm.reg == 3:
+			c.FPUCW = 0x037F // FNINIT（`DB E3`）
+		case op == 0xD9 && m.reg == 7 && !m.rm.isReg:
+			c.set16(m.rm, c.FPUCW) // FNSTCW m16（`D9 /7`）
+		default:
+			if !m.rm.isReg {
+				c.get16(m.rm)
+			}
 		}
 
 	// ---- E0–EF ----------------------------------------------------------
