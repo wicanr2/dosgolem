@@ -1,6 +1,8 @@
 # 228：host MouseBridge READY 候選
 
-狀態：DRAFT，待 READY 審查；不得接 production。
+狀態：**限縮 READY**（2026-09-23 獨立審查通過）；只授權 generic `host` MouseBridge
+production implementation 與本規格列出的定向驗證。spec004 整體、正式 Ebitengine frontend、完整
+玩家滑鼠路徑與 CONFORMED 均不在本 READY 範圍。
 
 輸入基準：私有 `phase12-before-question.state` SHA-256=`8cbc27f568057fbf3ce2f91d407953ec94836f2b723f50b7b73e56100e859269`、
 `GAME.OVR` SHA-256=`3a4ad4856c08fe5973179f1d907feed1d870af99d08abd1cb884b316324f3cc0`、dosgolem branch
@@ -321,7 +323,7 @@ canvas-coordinate Up，均只 Release、DOS 座標不變。這保留 Down epoch�
 
 ### READY 前沿
 
-本限縮 MouseBridge typed 契約仍須由不同代理人獨立回讀上述 source、pure-core failure matrix 與
-receipt provenance，才可決定是否由 DRAFT 升 READY。READY 即使通過，也只授權 generic bridge
-production implementation；正式 Linux frontend 的 Ebitengine hit-test／resize、keyboard mapping、
-完整開機／存讀檔與其他遊戲滑鼠路徑仍在 spec004 的另外範圍，不能由本節宣稱 CONFORMED。
+獨立審查已回讀 source、pure-core failure matrix 與 2×／3× control/inside receipt，並重跑
+phase128 `go vet`、一般與 race 測試。結論是此**限縮 typed 契約升 READY**。本規格現在只授權
+generic bridge production implementation；正式 Linux frontend 的 Ebitengine hit-test／resize、keyboard
+mapping、完整開機／存讀檔與其他遊戲滑鼠路徑仍在 spec004 的另外範圍，不能由本節宣稱 CONFORMED。
