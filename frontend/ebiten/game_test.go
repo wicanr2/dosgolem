@@ -1,11 +1,13 @@
 package ebiten
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/presentation"
 	"github.com/wicanr2/dosgolem/xlate"
@@ -15,6 +17,194 @@ type mouseOutput struct{ calls []string }
 
 func draftLabels() HostLabels {
 	return HostLabels{Settings: "設定", Apply: "套用", Cancel: "取消", Scale2: "2×", Scale3: "3×"}
+}
+
+func TestUpdatePausesAdvanceForPanelTurns(t *testing.T) {
+	g, out := newDraftGame(t)
+	steps := 0
+	g.advance = func() error { steps++; return nil }
+	input := frameInput{focused: true}
+	g.readInput = func() frameInput { return input }
+	update := func(want int) {
+		t.Helper()
+		if err := g.Update(); err != nil {
+			t.Fatal(err)
+		}
+		if steps != want {
+			t.Fatalf("Advance calls=%d want=%d input=%+v", steps, want, input)
+		}
+	}
+	down := func(x, y int) { input = frameInput{focused: true, down: true, downX: x, downY: y} }
+	up := func(x, y int) { input = frameInput{focused: true, up: true, upX: x, upY: y} }
+	idle := func() { input = frameInput{focused: true} }
+
+	idle()
+	update(1)
+	down(630, 8) // Open at 2×.
+	update(1)
+	up(630, 8)
+	update(1)
+	idle()
+	update(1)     // Sustained open panel.
+	down(140, 80) // Select 3×, but active remains 2×.
+	update(1)
+	up(140, 80)
+	update(1)
+	down(450, 140) // Cancel closes the panel.
+	update(1)
+	up(450, 140)
+	update(2) // First closed turn, including host-captured release.
+
+	down(630, 8)
+	update(2)
+	up(630, 8)
+	update(2)
+	down(140, 80)
+	update(2)
+	up(140, 80)
+	update(2)
+	down(300, 140) // Apply commits 3× and closes the panel.
+	update(2)
+	up(300, 140)
+	update(3)
+	state, err := g.panel.Snapshot()
+	if err != nil || state.Open || state.Scales.ActiveScale != host.OutputScale3 {
+		t.Fatalf("Apply state=%+v err=%v", state, err)
+	}
+	if len(out.calls) != 0 {
+		t.Fatalf("host panel pointer reached DOS mouse: %v", out.calls)
+	}
+}
+
+func TestUpdateKeepsPanelTransitionPauseWhenEntryAndExitAreClosed(t *testing.T) {
+	g, _ := newDraftGame(t)
+	calls := 0
+	g.advance = func() error { calls++; return nil }
+	g.readInput = func() frameInput {
+		if err := g.routePointer(host.MouseEventDown, 630, 8); err != nil {
+			t.Fatal(err)
+		}
+		if err := g.routePointer(host.MouseEventDown, 450, 140); err != nil {
+			t.Fatal(err)
+		}
+		return frameInput{focused: true}
+	}
+	if err := g.Update(); err != nil || calls != 0 {
+		t.Fatalf("closed→open→closed turn err=%v Advance calls=%d", err, calls)
+	}
+	g.readInput = func() frameInput { return frameInput{focused: true} }
+	if err := g.Update(); err != nil || calls != 1 {
+		t.Fatalf("next closed turn err=%v Advance calls=%d", err, calls)
+	}
+}
+
+func TestUpdateFailureNeverAdvancesAgain(t *testing.T) {
+	g, _ := newDraftGame(t)
+	calls := 0
+	want := errors.New("injected Advance failure")
+	g.advance = func() error { calls++; return want }
+	g.readInput = func() frameInput { return frameInput{focused: true} }
+	if err := g.Update(); !errors.Is(err, want) || calls != 1 {
+		t.Fatalf("first Update err=%v Advance calls=%d", err, calls)
+	}
+	if err := g.Update(); !errors.Is(err, want) || calls != 1 {
+		t.Fatalf("failed Update retried err=%v Advance calls=%d", err, calls)
+	}
+	bad, _ := newDraftGame(t)
+	badCalls := 0
+	bad.advance = func() error { badCalls++; return nil }
+	bad.panel = nil // Panel state/layout failure before input or Advance.
+	bad.readInput = func() frameInput { return frameInput{focused: true} }
+	if err := bad.Update(); err == nil || badCalls != 0 {
+		t.Fatalf("invalid panel err=%v Advance calls=%d", err, badCalls)
+	}
+	if err := bad.Update(); err == nil || badCalls != 0 {
+		t.Fatalf("invalid panel retried err=%v Advance calls=%d", err, badCalls)
+	}
+	route, _ := newDraftGame(t)
+	routeCalls := 0
+	route.advance = func() error { routeCalls++; return nil }
+	route.keys = nil // Inject a keyboard route failure without a DOS write.
+	route.readInput = func() frameInput { return frameInput{focused: true, keys: []ebiten.Key{ebiten.KeyEnter}} }
+	if err := route.Update(); err == nil || routeCalls != 0 {
+		t.Fatalf("keyboard route failure err=%v Advance calls=%d", err, routeCalls)
+	}
+	route.readInput = func() frameInput { return frameInput{focused: true} }
+	if err := route.Update(); err == nil || routeCalls != 0 {
+		t.Fatalf("keyboard route failure retried err=%v Advance calls=%d", err, routeCalls)
+	}
+	layout, _ := newDraftGame(t)
+	layoutCalls := 0
+	layout.advance = func() error { layoutCalls++; return nil }
+	layout.mouse = nil // Initial unchanged layout is valid; Open forces ApplyLayout failure.
+	layout.readInput = func() frameInput { return frameInput{focused: true, down: true, downX: 630, downY: 8} }
+	if err := layout.Update(); err == nil || layoutCalls != 0 {
+		t.Fatalf("post-transition layout failure err=%v Advance calls=%d", err, layoutCalls)
+	}
+	layout.readInput = func() frameInput { return frameInput{focused: true} }
+	if err := layout.Update(); err == nil || layoutCalls != 0 {
+		t.Fatalf("post-transition layout failure retried err=%v Advance calls=%d", err, layoutCalls)
+	}
+}
+
+func TestUpdateMixedHostAndDOSInputKeepsPauseGate(t *testing.T) {
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &mouseOutput{}
+	mouse, err := host.NewMouseBridge(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
+		HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(),
+		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+			return presentation.LayerPresentationSnapshot{}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	g.advance = func() error { calls++; return nil }
+	run := func(in frameInput, wantCalls, wantKeys int) {
+		t.Helper()
+		g.readInput = func() frameInput { return in }
+		if err := g.Update(); err != nil {
+			t.Fatal(err)
+		}
+		if calls != wantCalls || bios.KeysPending() != wantKeys {
+			t.Fatalf("mixed Update input=%+v Advance=%d BIOS=%d want=%d/%d", in, calls, bios.KeysPending(), wantCalls, wantKeys)
+		}
+	}
+	// Pointer is routed before keyboard in the existing Game.Update. Open and
+	// Select keep the panel open, so the same-frame key is host-consumed.
+	run(frameInput{focused: true, down: true, downX: 630, downY: 8, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 0)
+	run(frameInput{focused: true, up: true, upX: 630, upY: 8}, 0, 0)
+	run(frameInput{focused: true, down: true, downX: 140, downY: 80, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 0)
+	run(frameInput{focused: true, up: true, upX: 140, upY: 80}, 0, 0)
+	// Apply closes the panel before the keyboard route. That pre-existing
+	// ordering forwards this simultaneous key, but the DOS CPU still does not
+	// advance until the following closed Update. Full batch policy is DRAFT.
+	run(frameInput{focused: true, down: true, downX: 300, downY: 140, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 1)
+	run(frameInput{focused: true, up: true, upX: 300, upY: 140}, 1, 1)
+	if len(out.calls) != 0 {
+		t.Fatalf("host pointer reached DOS mouse: %v", out.calls)
+	}
+	// Closed-panel canvas pointer and key still follow their existing DOS
+	// routes and advance once; the pause gate must not swallow either.
+	y := g.layout.ChromeHeight + 120
+	run(frameInput{focused: true, down: true, downX: 200, downY: y, keys: []ebiten.Key{ebiten.KeyEnter}}, 2, 2)
+	if len(out.calls) != 2 || out.calls[0] != "move" || out.calls[1] != "press" {
+		t.Fatalf("closed canvas pointer route=%v", out.calls)
+	}
 }
 
 func (m *mouseOutput) MoveMouse(int, int) { m.calls = append(m.calls, "move") }

@@ -40,18 +40,43 @@ type Config struct {
 }
 
 type Game struct {
-	panel         *host.PanelController
-	keys          *presentation.KeyboardBridge
-	mouse         *host.MouseBridge
-	snapshot      Snapshot
-	advance       Advance
-	font2, font3  *xlate.Font
-	labels        HostLabels
-	epoch         uint64
-	layout        host.MouseLayout
-	rgba          []byte
-	width, height int
-	err           error
+	panel                *host.PanelController
+	keys                 *presentation.KeyboardBridge
+	mouse                *host.MouseBridge
+	snapshot             Snapshot
+	advance              Advance
+	font2, font3         *xlate.Font
+	labels               HostLabels
+	epoch                uint64
+	layout               host.MouseLayout
+	rgba                 []byte
+	width, height        int
+	err                  error
+	readInput            func() frameInput
+	panelEventThisUpdate bool
+}
+
+// frameInput is captured once per Update. Tests replace readInput so the
+// production scheduling gate can be exercised without synthetic X11 events.
+type frameInput struct {
+	down, up     bool
+	downX, downY int
+	upX, upY     int
+	focused      bool
+	keys         []ebiten.Key
+}
+
+func readFrameInput() frameInput {
+	in := frameInput{focused: ebiten.IsFocused(), keys: inpututil.AppendJustPressedKeys(nil)}
+	in.down = inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+	if in.down {
+		in.downX, in.downY = ebiten.CursorPosition()
+	}
+	in.up = inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft)
+	if in.up {
+		in.upX, in.upY = ebiten.CursorPosition()
+	}
+	return in
 }
 
 func New(cfg Config) (*Game, error) {
@@ -64,7 +89,7 @@ func New(cfg Config) (*Game, error) {
 	if err := validateHostFont(cfg.HostFont3, 3, cfg.Labels); err != nil {
 		return nil, err
 	}
-	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3, labels: cfg.Labels}
+	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3, labels: cfg.Labels, readInput: readFrameInput}
 	if err := g.refreshLayout(); err != nil {
 		return nil, err
 	}
@@ -137,34 +162,54 @@ func (g *Game) Update() error {
 		return g.err
 	}
 	if err := g.refreshLayout(); err != nil {
-		return err
+		return g.fail(err)
 	}
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
-		if err := g.routePointer(host.MouseEventDown, x, y); err != nil {
-			return err
+	before, err := g.panel.Snapshot()
+	if err != nil {
+		return g.fail(err)
+	}
+	g.panelEventThisUpdate = false
+	in := g.readInput()
+	if in.down {
+		if err := g.routePointer(host.MouseEventDown, in.downX, in.downY); err != nil {
+			return g.fail(err)
 		}
 	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
-		if err := g.routePointer(host.MouseEventUp, x, y); err != nil {
-			return err
+	if in.up {
+		if err := g.routePointer(host.MouseEventUp, in.upX, in.upY); err != nil {
+			return g.fail(err)
 		}
 	}
-	if !ebiten.IsFocused() {
+	if !in.focused {
 		g.mouse.Handle(g.layout, host.MouseEvent{Kind: host.MouseEventFocusLost})
 	}
-	for _, key := range inpututil.AppendJustPressedKeys(nil) {
+	for _, key := range in.keys {
 		if err := g.key(key); err != nil {
-			return err
+			return g.fail(err)
 		}
+	}
+	after, err := g.panel.Snapshot()
+	if err != nil {
+		return g.fail(err)
+	}
+	// A closing Apply/Cancel leaves after.Open=false; the entry state and
+	// transition flag still suppress DOS advancement in this same Update.
+	if before.Open || after.Open || g.panelEventThisUpdate {
+		return nil
 	}
 	if g.advance != nil {
 		if err := g.advance(); err != nil {
-			return err
+			return g.fail(err)
 		}
 	}
 	return nil
+}
+
+func (g *Game) fail(err error) error {
+	if g.err == nil {
+		g.err = err
+	}
+	return g.err
 }
 
 // routePointer is deliberately coordinate-injected for deterministic tests.
@@ -177,6 +222,7 @@ func (g *Game) routePointer(kind host.MouseEventKind, x, y int) error {
 			if _, _, err := g.panel.Route(event); err != nil {
 				return err
 			}
+			g.panelEventThisUpdate = true
 			return g.refreshLayout()
 		}
 	}
