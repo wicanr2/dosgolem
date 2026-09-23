@@ -112,19 +112,25 @@ func TestSkillExitOverlayNeverTouchesTailAtTwoOrThreeX(t *testing.T) {
 		p[13] = [3]uint8{255, 255, 255}
 		indexed := make([]byte, 320*200)
 		baseline := ScaleIndexedRGBA(indexed, p, scale)
-		if err := o.Apply(SkillExitGeneration{1, SkillExitTechnical, "technical.key", "甲乙丙丁"}, p); err != nil {
-			t.Fatal(err)
-		}
-		got, _, _ := o.Draw(indexed, p)
-		// technical tail is [272,320)×[192,200), and must remain byte-identical.
-		for y := 192 * scale; y < 200*scale; y++ {
-			a := (y*(320*scale) + 272*scale) * 4
-			b := (y*(320*scale) + 320*scale) * 4
-			if !bytes.Equal(got[a:b], baseline[a:b]) {
-				t.Fatalf("scale %d tail changed at y=%d", scale, y)
+		var got []byte
+		for _, tc := range []struct {
+			page  SkillExitPage
+			width int
+			key   string
+		}{{SkillExitCareer, 264, "career.key"}, {SkillExitTechnical, 272, "technical.key"}} {
+			if err := o.Apply(SkillExitGeneration{1, tc.page, tc.key, "甲乙丙丁"}, p); err != nil {
+				t.Fatal(err)
 			}
+			got, _, _ = o.Draw(indexed, p)
+			for y := 192 * scale; y < 200*scale; y++ {
+				a := (y*(320*scale) + tc.width*scale) * 4
+				b := (y*(320*scale) + 320*scale) * 4
+				if !bytes.Equal(got[a:b], baseline[a:b]) {
+					t.Fatalf("page %d scale %d tail changed at y=%d", tc.page, scale, y)
+				}
+			}
+			o.Clear()
 		}
-		o.Clear()
 		got, _, _ = o.Draw(indexed, p)
 		if !bytes.Equal(got, baseline) {
 			t.Fatalf("scale %d clear must leave zero layer", scale)
