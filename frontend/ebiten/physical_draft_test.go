@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/wicanr2/dosgolem"
 	"github.com/wicanr2/dosgolem/host"
-	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/presentation"
 	"github.com/wicanr2/dosgolem/xlate"
 	"os"
@@ -41,6 +41,9 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 			_ = f.Close()
 		}
 	}
+	// 這是 ignored、opt-in 的真實畫布 smoke；state 與原版根目錄只在
+	// 使用者本機 Docker 掛載，絕不進 Git。它刻意不接 watcher／翻譯 layer：
+	// 目標是驗證 frontend 的 Snapshot 確實呈現當下原版 320x200 畫布。
 	font2, err := xlate.LoadFont("/project/workplace/current-font/buckrogers-eten-top-pad.golemfnt")
 	if err != nil {
 		t.Fatal(err)
@@ -50,13 +53,37 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := machine.New()
+	m := dosgolem.New()
+	d := dosgolem.NewDOS(m, "/project/workplace/original/BRcdoom")
+	d.Install()
+	if err := dosgolem.LoadStateFile("/project/workplace/phase54/a-joined.state", m, d); err != nil {
+		t.Fatalf("載入私有 Buck Rogers checkpoint: %v", err)
+	}
+	frameSource, err := presentation.NewMachineFrameSource(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 空 layer 只表明本 receipt 沒有聲稱任何譯文／watcher lifecycle；
+	// LayerSnapshotProvider 仍會把 MachineFrameSource 的真實 indexed/palette
+	// 投影為 RGBA，沒有寫回原版 machine 的能力。
+	projector, err := presentation.NewLayerSnapshotProvider(frameSource, &xlate.Layer{W: 320, H: 200}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p, _ := host.NewPanelController(host.OutputScale2)
-	k, _ := presentation.NewKeyboardBridge(p, m)
-	mouseOut := &mouseOutput{}
-	mb, _ := host.NewMouseBridge(mouseOut)
+	k, err := presentation.NewKeyboardBridgeWithBIOS(p, m, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := host.NewMouseBridge(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawBefore := fmt.Sprintf("%x", sha256.Sum256(m.Indexed()))
+	keysBefore := d.KeysPending()
 	var updates, draws atomic.Int64
 	var firstG, secondG, advanceG string
+	started := time.Now()
 	snap := func(scale int) (presentation.LayerPresentationSnapshot, error) {
 		appendTrace("draw scale=" + itoa(scale) + " goid=" + gid())
 		draws.Add(1)
@@ -66,20 +93,15 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 		} else {
 			secondG = g
 		}
-		rgba := make([]byte, 320*scale*200*scale*4)
-		for i := 0; i < len(rgba); i += 4 {
-			rgba[i] = 20
-			rgba[i+1] = 40
-			rgba[i+2] = 80
-			rgba[i+3] = 255
-		}
-		return presentation.LayerPresentationSnapshot{Scale: scale, Frame: host.PresentationSnapshot{Canvas: host.Canvas{Width: 320, Height: 200}}, RGBA: rgba}, nil
+		return projector.Snapshot(scale)
 	}
 	g, err := New(Config{Panel: p, Keyboard: k, Mouse: mb, HostFont2: font2, HostFont3: font3, Labels: labels, Snapshot: snap, Advance: func() error {
 		advanceG = gid()
-		appendTrace("advance goid=" + advanceG + " calls=" + strings.Join(mouseOut.calls, ","))
+		appendTrace("advance goid=" + advanceG + " bios_pending=" + itoa(d.KeysPending()))
 		updates.Add(1)
-		if len(mouseOut.calls) >= 4 && draws.Load() > 4 {
+		// 等候真實 X11 driver 的 open→select→apply→canvas click 完成；
+		// 不以 Update 計數當 wall-clock，避免快速的空迴圈提早結束收據。
+		if time.Since(started) > 4*time.Second && draws.Load() > 4 {
 			return ebiten.Termination
 		}
 		return nil
@@ -105,8 +127,14 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 			time.Sleep(250 * time.Millisecond)
 		}
 		click(630, 8)
+		// 真實鍵盤事件：面板開啟時由 host 吃掉，不能落入 DOS BIOS queue。
+		run("xdotool", "key", "--window", wid, "Return")
+		time.Sleep(250 * time.Millisecond)
 		click(140, 80)
 		click(300, 140)
+		// Apply 收合後，原版鍵盤路由恢復；此鍵只進 BIOS queue，smoke 不 Step。
+		run("xdotool", "key", "--window", wid, "Return")
+		time.Sleep(250 * time.Millisecond)
 		time.Sleep(500 * time.Millisecond)
 		run("import", "-window", wid, filepath.Join(out, "ui-3x.png"))
 		click(300, 300)
@@ -118,13 +146,27 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 	if st.Open || st.Scales.ActiveScale != host.OutputScale3 {
 		t.Fatalf("final panel=%+v", st)
 	}
-	if got := strings.Join(mouseOut.calls, ","); got != "move,press,move,release" {
-		t.Fatalf("DOS calls %s", got)
-	}
 	if updates.Load() == 0 || draws.Load() == 0 || firstG == "" || secondG == "" || firstG != secondG || advanceG != firstG {
 		t.Fatalf("callback ordering/goroutine updates=%d draws=%d first=%q second=%q", updates.Load(), draws.Load(), firstG, secondG)
 	}
-	_ = os.WriteFile(filepath.Join(out, "receipt.txt"), []byte("physical=true\nscale=3\ncatalog_sha256="+catalogSHA+"\ndos_calls=move,press,move,release\nupdates="+itoa(int(updates.Load()))+"\ndraws="+itoa(int(draws.Load()))+"\ngoid="+firstG+"\n"), 0644)
+	if got, want := d.KeysPending(), keysBefore+1; got != want {
+		t.Fatalf("鍵盤分流錯誤：BIOS pending=%d，預期 %d（開面板 Enter 應被 host 消費，收合後 Enter 才可進 DOS）", got, want)
+	}
+	last, err := projector.Snapshot(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last.RGBA) != 960*600*4 {
+		t.Fatalf("3x original canvas RGBA length=%d", len(last.RGBA))
+	}
+	colors := map[[3]uint8]bool{}
+	for i := 0; i < len(last.RGBA); i += 4 {
+		colors[[3]uint8{last.RGBA[i], last.RGBA[i+1], last.RGBA[i+2]}] = true
+	}
+	if len(colors) < 8 {
+		t.Fatalf("真實原版畫布色彩不足，疑似空色塊：%d", len(colors))
+	}
+	_ = os.WriteFile(filepath.Join(out, "receipt.txt"), []byte("physical=true\nprototype=real-buckrogers-canvas-only\nstate=phase54/a-joined.state\nscale=3\ncatalog_sha256="+catalogSHA+"\nraw_indexed_before_host_sha256="+rawBefore+"\nraw_indexed_final_sha256="+fmt.Sprintf("%x", sha256.Sum256(m.Indexed()))+"\nrgba_3x_sha256="+fmt.Sprintf("%x", sha256.Sum256(last.RGBA))+"\ndistinct_rgb="+itoa(len(colors))+"\nkeys_pending_before="+itoa(keysBefore)+"\nkeys_pending_final="+itoa(d.KeysPending())+"\nupdates="+itoa(int(updates.Load()))+"\ndraws="+itoa(int(draws.Load()))+"\ngoid="+firstG+"\n"), 0644)
 }
 
 func loadDraftHostLabels(path string) (HostLabels, string, error) {
