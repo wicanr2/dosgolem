@@ -48,7 +48,9 @@ func TestPhysicalDraftOpenApplyCanvas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	font3 := derive22(font2)
+	// This older opt-in draft uses synthetic host glyphs for construction.
+	// Its 3× pixels are not a native ETen A receipt.
+	font3 := draftHostFont3()
 	labels, catalogSHA, err := loadDraftHostLabels("/project/text/host-ui.zh-TW.tsv")
 	if err != nil {
 		t.Fatal(err)
@@ -189,33 +191,6 @@ func loadDraftHostLabels(path string) (HostLabels, string, error) {
 		got[row[0]] = row[1]
 	}
 	return HostLabels{Settings: got["host.settings"], Apply: got["host.apply"], Cancel: got["host.cancel"], Scale2: got["host.scale2"], Scale3: got["host.scale3"]}, sha, nil
-}
-func derive22(src *xlate.Font) *xlate.Font {
-	out := &xlate.Font{Name: src.Name + ".22", W: 22, H: 22, Glyphs: map[rune][]byte{}}
-	for r, g := range src.Glyphs {
-		d := make([]byte, 22*3)
-		if r <= 0xff {
-			for y := 0; y < 16; y++ {
-				for x := 0; x < 16; x++ {
-					if g[y*2+x/8]&(0x80>>uint(x%8)) != 0 {
-						dx, dy := x+3, y+3
-						d[dy*3+dx/8] |= 0x80 >> uint(dx%8)
-					}
-				}
-			}
-		} else {
-			for y := 0; y < 22; y++ {
-				for x := 0; x < 22; x++ {
-					sx, sy := x*16/22, y*16/22
-					if g[sy*2+sx/8]&(0x80>>uint(sx%8)) != 0 {
-						d[y*3+x/8] |= 0x80 >> uint(x%8)
-					}
-				}
-			}
-		}
-		out.Glyphs[r] = d
-	}
-	return out
 }
 func run(name string, args ...string) string {
 	b, _ := exec.Command(name, args...).Output()

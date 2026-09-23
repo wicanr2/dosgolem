@@ -165,7 +165,7 @@ func TestUpdateMixedHostAndDOSInputKeepsPauseGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
-		HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(),
+		HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
 		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
 			return presentation.LayerPresentationSnapshot{}, nil
 		}})
@@ -233,7 +233,7 @@ func TestUpdateClosingPanelConsumesWholeKeyboardBatch(t *testing.T) {
 				t.Fatal(err)
 			}
 			g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
-				HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(),
+				HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
 				Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
 					return presentation.LayerPresentationSnapshot{}, nil
 				}})
@@ -280,6 +280,10 @@ func draftFont(w, h int) *xlate.Font {
 	return &xlate.Font{Name: "draft-test", W: w, H: h, Glyphs: glyphs}
 }
 
+func draftHostFont3() *HostFont3 {
+	return &HostFont3{Wide: draftFont(24, 24), ASCII: draftFont(16, 24)}
+}
+
 func newDraftGame(t *testing.T) (*Game, *mouseOutput) {
 	t.Helper()
 	m := machine.New()
@@ -296,7 +300,7 @@ func newDraftGame(t *testing.T) (*Game, *mouseOutput) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse, HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse, HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
 		return presentation.LayerPresentationSnapshot{}, nil
 	}})
 	if err != nil {
@@ -455,7 +459,7 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 	p, _ := host.NewPanelController(host.OutputScale2)
 	k, _ := presentation.NewKeyboardBridge(p, m)
 	mo, _ := host.NewMouseBridge(&mouseOutput{})
-	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftHostFont3(), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("missing host glyphs accepted")
 	}
 	zero := draftFont(16, 16)
@@ -464,10 +468,10 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 			glyph[i] = 0
 		}
 	}
-	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: zero, HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: zero, HostFont3: draftHostFont3(), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("zero-ink glyphs accepted")
 	}
-	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("empty host labels accepted")
 	}
 }

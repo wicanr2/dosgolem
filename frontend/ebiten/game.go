@@ -35,7 +35,7 @@ type Config struct {
 	Snapshot  Snapshot
 	Advance   Advance
 	HostFont2 *xlate.Font // local 2× font; bytes are never bundled here.
-	HostFont3 *xlate.Font // local 3× font; never scale up HostFont2.
+	HostFont3 *HostFont3  // local native 24-point host face; never scale up HostFont2.
 	Labels    HostLabels
 }
 
@@ -45,7 +45,8 @@ type Game struct {
 	mouse                *host.MouseBridge
 	snapshot             Snapshot
 	advance              Advance
-	font2, font3         *xlate.Font
+	font2                *xlate.Font
+	font3                *HostFont3
 	labels               HostLabels
 	epoch                uint64
 	layout               host.MouseLayout
@@ -83,10 +84,10 @@ func New(cfg Config) (*Game, error) {
 	if cfg.Panel == nil || cfg.Keyboard == nil || cfg.Mouse == nil || cfg.Snapshot == nil || cfg.HostFont2 == nil || cfg.HostFont3 == nil {
 		return nil, fmt.Errorf("frontend/ebiten: Panel、Keyboard、Mouse、Snapshot、HostFont2、HostFont3 均為必填")
 	}
-	if err := validateHostFont(cfg.HostFont2, 2, cfg.Labels); err != nil {
+	if err := validateHostFont2(cfg.HostFont2, cfg.Labels); err != nil {
 		return nil, err
 	}
-	if err := validateHostFont(cfg.HostFont3, 3, cfg.Labels); err != nil {
+	if err := validateHostFont3(cfg.HostFont3, cfg.Labels); err != nil {
 		return nil, err
 	}
 	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3, labels: cfg.Labels, readInput: readFrameInput}
@@ -96,13 +97,9 @@ func New(cfg Config) (*Game, error) {
 	return g, nil
 }
 
-func validateHostFont(font *xlate.Font, scale int, labels HostLabels) error {
-	want := 16
-	if scale == 3 {
-		want = 22
-	}
-	if font.W != want || font.H != want {
-		return fmt.Errorf("frontend/ebiten: %d× host 字型必須是 %dx%d", scale, want, want)
+func validateHostFont2(font *xlate.Font, labels HostLabels) error {
+	if font.W != 16 || font.H != 16 {
+		return fmt.Errorf("frontend/ebiten: 2× host 字型必須是 16x16")
 	}
 	for _, label := range labels.all() {
 		if label == "" {
@@ -112,22 +109,22 @@ func validateHostFont(font *xlate.Font, scale int, labels HostLabels) error {
 	for _, r := range []rune(labels.Settings + labels.Apply + labels.Cancel + labels.Scale2 + labels.Scale3) {
 		glyph, ok := font.Glyphs[r]
 		if !ok || font.W <= 0 || font.H <= 0 || len(glyph) != font.H*((font.W+7)/8) {
-			return fmt.Errorf("frontend/ebiten: %d× host 字型缺少或損壞字元 %q", scale, r)
+			return fmt.Errorf("frontend/ebiten: 2× host 字型缺少或損壞字元 %q", r)
 		}
 		hasInk := false
 		for _, b := range glyph {
 			hasInk = hasInk || b != 0
 		}
 		if !hasInk {
-			return fmt.Errorf("frontend/ebiten: %d× host 字型 %q 沒有可見墨跡", scale, r)
+			return fmt.Errorf("frontend/ebiten: 2× host 字型 %q 沒有可見墨跡", r)
 		}
 	}
 	for _, item := range []struct {
 		text string
 		w, h int
-	}{{labels.Settings, 72 * scale, 13 * scale}, {labels.Scale2, 54 * scale, 23 * scale}, {labels.Scale3, 54 * scale, 23 * scale}, {labels.Apply, 68 * scale, 24 * scale}, {labels.Cancel, 68 * scale, 24 * scale}} {
+	}{{labels.Settings, 72 * 2, 13 * 2}, {labels.Scale2, 54 * 2, 23 * 2}, {labels.Scale3, 54 * 2, 23 * 2}, {labels.Apply, 68 * 2, 24 * 2}, {labels.Cancel, 68 * 2, 24 * 2}} {
 		if len([]rune(item.text))*font.W > item.w || font.H > item.h {
-			return fmt.Errorf("frontend/ebiten: %d× host 字型不容於 %q 安全矩形", scale, item.text)
+			return fmt.Errorf("frontend/ebiten: 2× host 字型不容於 %q 安全矩形", item.text)
 		}
 	}
 	return nil
@@ -309,7 +306,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	canvas.WritePixels(s.RGBA)
 	screen.Fill(color.RGBA{16, 24, 39, 255})
 	screen.DrawImage(canvas, &ebiten.DrawImageOptions{GeoM: func() ebiten.GeoM { var m ebiten.GeoM; m.Translate(0, float64(g.layout.ChromeHeight)); return m }()})
-	g.drawChrome(screen, state)
+	if err := g.drawChrome(screen, state); err != nil {
+		g.err = err
+	}
 }
 
 func (g *Game) validateSnapshot(state host.PanelState, s presentation.LayerPresentationSnapshot) (int, int, error) {
@@ -329,7 +328,7 @@ func (g *Game) validateSnapshot(state host.PanelState, s presentation.LayerPrese
 
 func (g *Game) Layout(_, _ int) (int, int) { return g.layout.FrameWidth, g.layout.FrameHeight }
 
-func (g *Game) drawChrome(screen *ebiten.Image, state host.PanelState) {
+func (g *Game) drawChrome(screen *ebiten.Image, state host.PanelState) error {
 	fill := func(r image.Rectangle, c color.Color) {
 		i := ebiten.NewImage(r.Dx(), r.Dy())
 		i.Fill(c)
@@ -339,28 +338,31 @@ func (g *Game) drawChrome(screen *ebiten.Image, state host.PanelState) {
 	}
 	s := int(state.Scales.ActiveScale)
 	w := g.layout.FrameWidth
+	drawLabel := func(x, y int, label string) error {
+		if s == 3 {
+			return g.drawText3(screen, x, y, label, color.RGBA{255, 255, 255, 255})
+		}
+		g.drawText(screen, g.font2, x, y, label, color.RGBA{255, 255, 255, 255})
+		return nil
+	}
 	fill(image.Rect(0, 0, w, g.layout.ChromeHeight), color.RGBA{16, 24, 39, 255})
 	if !state.Open {
 		fill(image.Rect(w-76*s, 2*s, w-4*s, 15*s), color.RGBA{37, 99, 235, 255})
-		g.drawText(screen, g.fontForScale(s), w-72*s, 2*s+2, g.labels.Settings, color.RGBA{255, 255, 255, 255})
-		return
+		return drawLabel(w-72*s, 2*s+2, g.labels.Settings)
 	}
 	fill(image.Rect(8*s, 35*s, 62*s, 58*s), choose(state.Scales.SelectedScale == host.OutputScale2))
 	fill(image.Rect(68*s, 35*s, 122*s, 58*s), choose(state.Scales.SelectedScale == host.OutputScale3))
 	fill(image.Rect(145*s, 63*s, 213*s, 87*s), color.RGBA{22, 163, 74, 255})
 	fill(image.Rect(220*s, 63*s, 288*s, 87*s), color.RGBA{100, 116, 139, 255})
-	font := g.fontForScale(s)
-	g.drawText(screen, font, 12*s, 38*s, g.labels.Scale2, color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 72*s, 38*s, g.labels.Scale3, color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 150*s, 66*s, g.labels.Apply, color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 225*s, 66*s, g.labels.Cancel, color.RGBA{255, 255, 255, 255})
-}
-
-func (g *Game) fontForScale(scale int) *xlate.Font {
-	if scale == 3 {
-		return g.font3
+	for _, item := range []struct {
+		x, y int
+		text string
+	}{{12 * s, 38 * s, g.labels.Scale2}, {72 * s, 38 * s, g.labels.Scale3}, {150 * s, 66 * s, g.labels.Apply}, {225 * s, 66 * s, g.labels.Cancel}} {
+		if err := drawLabel(item.x, item.y, item.text); err != nil {
+			return err
+		}
 	}
-	return g.font2
+	return nil
 }
 func (g *Game) drawText(screen *ebiten.Image, font *xlate.Font, x, y int, text string, c color.Color) {
 	bytesPerRow := (font.W + 7) / 8
