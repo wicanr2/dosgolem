@@ -150,6 +150,9 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	// PSP 欄位（`docs/spec/009` §2.4）。
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, f.psp) // 父行程 PSP
+	// 子行程 PSP:0002 是它自己的記憶體上限（擁有塊尾端），不是全域 MemTop
+	//（真 DOS 配給子行程剛好需要的塊；見 spawn 同一修正的註解）。
+	d.M.Write16(base+0x02, prog.EndSeg)
 	envSeg := p.envSeg
 	if envSeg == 0 { // 繼承父行程的環境段
 		envSeg = d.M.Read16(uint32(f.psp)*16 + 0x2C)
@@ -393,6 +396,8 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 	d.M.WriteMCB(d.freeSeg, false, psp, prog.EndSeg-d.freeSeg)
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, psp) // 疊底的父行程是自己
+	// 子行程 PSP:0002 是它自己的記憶體上限（同上，與 spawn 一致）。
+	d.M.Write16(base+0x02, prog.EndSeg)
 
 	// 命令列尾：長度 ＋ 內容 ＋ CR（`docs/spec/009` §4）。
 	args := []byte(q.Args)
