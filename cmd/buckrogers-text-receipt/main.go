@@ -590,6 +590,16 @@ func main() {
 	skillExitOut := flag.String("skill-exit-overlay-rgba-out", "", "輸出 skill-exit 覆繪 RGBA")
 	skillExitBaselineOut := flag.String("skill-exit-baseline-rgba-out", "", "輸出 skill-exit baseline RGBA")
 	skillExitExpectActive := flag.Bool("skill-exit-expect-active", false, "要求有界 snapshot 時 skill-exit layer 仍為 active")
+	exitPromptEvents := flag.String("post-join-exit-prompt-events", "", "READY post-join-exit-prompt-events.tsv")
+	exitPromptTranslations := flag.String("post-join-exit-prompt-translations", "", "READY post-join-exit-prompt.zh-TW.tsv")
+	exitPromptFont := flag.String("post-join-exit-prompt-font", "", "本機 16x16 GOLEMFNT")
+	exitPromptScale := flag.Int("post-join-exit-prompt-scale", 0, "Exit 問句覆繪倍率：2 或 3")
+	exitPromptOut := flag.String("post-join-exit-prompt-rgba-out", "", "輸出 Exit 問句覆繪 RGBA")
+	exitPromptBaselineOut := flag.String("post-join-exit-prompt-baseline-rgba-out", "", "輸出 Exit 問句 baseline RGBA")
+	exitPromptExpectActive := flag.Bool("post-join-exit-prompt-expect-active", false, "要求有界 snapshot 時 Exit 問句 layer 為 active")
+	exitPromptExpectStopped := flag.Bool("post-join-exit-prompt-expect-stopped", false, "要求 DOS Stop 已關閉 Exit 問句 owner 且零層")
+	exitPromptLifecycleOut := flag.String("post-join-exit-prompt-lifecycle-out", "", "另寫不含原文字模的 Exit 生命週期軌跡")
+	exitPromptLifecycleCase := flag.String("post-join-exit-prompt-lifecycle-case", "", "生命週期驗證路徑：n、yy 或 stop")
 	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
 	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
@@ -637,9 +647,34 @@ func main() {
 	if (*skillExitCareerEvents != "" || *skillExitTechnicalEvents != "" || *skillExitTranslations != "" || *skillExitFont != "" || *skillExitScale != 0 || *skillExitOut != "" || *skillExitBaselineOut != "") && (*skillExitCareerEvents == "" || *skillExitTechnicalEvents == "" || *skillExitTranslations == "" || *skillExitFont == "" || (*skillExitScale != 2 && *skillExitScale != 3) || *skillExitOut == "" || *skillExitBaselineOut == "") {
 		fail(fmt.Errorf("skill-exit 覆繪必須同時提供兩份 READY events TSV、譯文、字型、倍率 2/3 與雙 RGBA 輸出"))
 	}
+	if (*exitPromptEvents != "" || *exitPromptTranslations != "" || *exitPromptFont != "" || *exitPromptScale != 0 || *exitPromptOut != "" || *exitPromptBaselineOut != "" || *exitPromptExpectActive || *exitPromptExpectStopped) && (*exitPromptEvents == "" || *exitPromptTranslations == "" || *exitPromptFont == "" || (*exitPromptScale != 2 && *exitPromptScale != 3) || *exitPromptOut == "" || *exitPromptBaselineOut == "" || (*exitPromptExpectActive && *exitPromptExpectStopped)) {
+		fail(fmt.Errorf("Exit 問句覆繪需 events、譯文、字型、倍率 2/3 與雙 RGBA 輸出"))
+	}
+	if (*exitPromptLifecycleOut == "") != (*exitPromptLifecycleCase == "") || (*exitPromptLifecycleOut != "" && *exitPromptEvents == "") {
+		fail(fmt.Errorf("Exit 生命週期軌跡需正式 owner、輸出路徑與驗證路徑"))
+	}
 	var postJoinWatcher *buckrogers.PostJoinMenuWatcher
 	var postJoinPresenter *buckrogers.RuntimePostJoinMenuOverlay
 	var skillExitOwner *buckrogers.SkillExitOwner
+	var exitPromptOwner *buckrogers.PostJoinExitPromptOwner
+	if *exitPromptEvents != "" {
+		c, err := buckrogers.LoadPostJoinExitPromptCatalog(mustReadFile(*exitPromptEvents), mustReadFile(*exitPromptTranslations))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*exitPromptFont)
+		if err != nil {
+			fail(err)
+		}
+		exitPromptOwner, err = buckrogers.NewPostJoinExitPromptOwner(c, font, *exitPromptScale)
+		if err != nil {
+			fail(err)
+		}
+	}
+	var exitPromptLifecycle *exitPromptLifecycleTrace
+	if *exitPromptLifecycleOut != "" {
+		exitPromptLifecycle = &exitPromptLifecycleTrace{Schema: "post-join-exit-prompt-lifecycle-v1", Case: *exitPromptLifecycleCase}
+	}
 	if *skillExitCareerEvents != "" {
 		c, err := buckrogers.LoadSkillExitCatalog(mustReadFile(*skillExitCareerEvents), mustReadFile(*skillExitTechnicalEvents), mustReadFile(*skillExitTranslations))
 		if err != nil {
@@ -1362,7 +1397,7 @@ func main() {
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
 	}
-	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil || skillExitOwner != nil {
+	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil || skillExitOwner != nil || exitPromptOwner != nil {
 		m.ObserveVideoWrites(func(w machine.VideoWrite) {
 			if bodyIconA000Trace != nil {
 				bodyIconA000Trace.Observe(w)
@@ -1377,6 +1412,19 @@ func main() {
 			if skillExitOwner != nil {
 				if err := skillExitOwner.Prewrite(w); err != nil {
 					fail(err)
+				}
+			}
+			if exitPromptOwner != nil {
+				before := exitPromptOwner.Watcher.Snapshot()
+				var old uint8
+				if exitPromptLifecycle != nil && w.Offset < uint32(len(m.Indexed())) {
+					old = m.Indexed()[w.Offset]
+				}
+				if err := exitPromptOwner.Prewrite(w); err != nil {
+					fail(err)
+				}
+				if exitPromptLifecycle != nil {
+					exitPromptLifecycle.prewrite(w, old, before, exitPromptOwner.Watcher.Snapshot())
 				}
 			}
 		})
@@ -1533,9 +1581,25 @@ func main() {
 				skillExitOwner.Fault()
 				fail(fmt.Errorf("skill-exit dispatcher entry dropped pending return"))
 			}
+			if exitPromptOwner != nil && exitPromptOwner.Watcher.Pending() && r.Drops() > dropBeforeEntry {
+				exitPromptOwner.Fault()
+				fail(fmt.Errorf("Exit prompt dispatcher entry dropped pending return"))
+			}
 			if skillExitOwner != nil && caller == (buckrogers.Address{Segment: 0x37F1, Offset: 0x101E}) {
 				if err := skillExitOwner.ObserveEntry(buckrogers.TextEvent{EntryStep: m.Steps, Caller: caller, OriginalLength: uint8(len(original)), OriginalSHA256: sha256.Sum256(original), Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5])}); err != nil {
 					fail(err)
+				}
+			}
+			if exitPromptOwner != nil && caller == (buckrogers.Address{Segment: 0x37F1, Offset: 0x101E}) && uint8(args[4]) == 24 && uint8(args[5]) == 0 {
+				e := buckrogers.TextEvent{EntryStep: m.Steps, Caller: caller, OriginalLength: uint8(len(original)), OriginalSHA256: sha256.Sum256(original), Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5])}
+				if exitPromptOwner.Watcher.ShouldObserveEntry(e) {
+					before := exitPromptOwner.Watcher.Snapshot()
+					if err := exitPromptOwner.ObserveEntry(e); err != nil {
+						fail(err)
+					}
+					if exitPromptLifecycle != nil && exitPromptOwner.Watcher.Snapshot().Q2Pending {
+						exitPromptLifecycle.append("q2_entry", m.Steps, before, exitPromptOwner.Watcher.Snapshot())
+					}
 				}
 			}
 			postJoinRow := uint8(args[4])
@@ -1636,6 +1700,10 @@ func main() {
 				skillExitOwner.Fault()
 				fail(fmt.Errorf("skill-exit guarded return dropped"))
 			}
+			if exitPromptOwner != nil && exitPromptOwner.Watcher.Pending() && r.Drops() > dropBefore {
+				exitPromptOwner.Fault()
+				fail(fmt.Errorf("Exit prompt guarded return dropped"))
+			}
 			if skillExitOwner != nil && skillExitOwner.Watcher.Pending() && r.EventCount() > eventBefore {
 				e, ok := r.LastEvent()
 				if !ok {
@@ -1644,6 +1712,26 @@ func main() {
 				}
 				if err := skillExitOwner.ObserveReturn(e, m.Palette()); err != nil {
 					fail(err)
+				}
+			}
+			if exitPromptOwner != nil && exitPromptOwner.Watcher.Pending() && r.EventCount() > eventBefore {
+				e, ok := r.LastEvent()
+				if !ok {
+					exitPromptOwner.Fault()
+					fail(fmt.Errorf("Exit prompt event count advanced without event"))
+				}
+				before := exitPromptOwner.Watcher.Snapshot()
+				if err := exitPromptOwner.ObserveReturn(e, m.Palette()); err != nil {
+					fail(err)
+				}
+				if exitPromptLifecycle != nil {
+					after := exitPromptOwner.Watcher.Snapshot()
+					if after.Q1Active {
+						exitPromptLifecycle.append("q1_return", e.PostCallStep, before, after)
+					}
+					if after.Q2Active {
+						exitPromptLifecycle.append("q2_return", e.PostCallStep, before, after)
+					}
 				}
 			}
 			if postJoinWatcher != nil && r.EventCount() > eventBefore {
@@ -1957,6 +2045,13 @@ func main() {
 	if skillExitOwner != nil && d.Exited {
 		skillExitOwner.Stop()
 	}
+	if exitPromptOwner != nil && d.Exited {
+		before := exitPromptOwner.Watcher.Snapshot()
+		exitPromptOwner.Stop()
+		if exitPromptLifecycle != nil {
+			exitPromptLifecycle.append("stop", m.Steps, before, exitPromptOwner.Watcher.Snapshot())
+		}
+	}
 	flushGlyphRun()
 	events := r.Events()
 	requests := r.Requests()
@@ -2031,6 +2126,9 @@ func main() {
 		Scratch                   string                            `json:"scratch,omitempty"`
 		Writes                    []writeJSON                       `json:"writes,omitempty"`
 		FileOps                   []fileOpJSON                      `json:"file_ops,omitempty"`
+		FileOpsTrackingEnabled    bool                              `json:"file_ops_tracking_enabled,omitempty"`
+		FileOpsCount              *int                              `json:"file_ops_count,omitempty"`
+		WritesCount               *int                              `json:"writes_count,omitempty"`
 		Unimplemented             []string                          `json:"unimplemented,omitempty"`
 		OverlayScale              int                               `json:"overlay_scale,omitempty"`
 		OverlayActions            []requestJSON                     `json:"overlay_actions,omitempty"`
@@ -2097,6 +2195,9 @@ func main() {
 		result.BodyIconA000Prewrite = &report
 	}
 	if *fileOps {
+		result.FileOpsTrackingEnabled = true
+		fileOpsCount, writesCount := len(d.FileOps), len(d.Wrote)
+		result.FileOpsCount, result.WritesCount = &fileOpsCount, &writesCount
 		result.Writes = make([]writeJSON, len(d.Wrote))
 		for i, write := range d.Wrote {
 			result.Writes[i] = writeJSON{Name: write.Name, N: write.N}
@@ -2181,6 +2282,30 @@ func main() {
 			fail(fmt.Errorf("skill-exit overlay: %w", err))
 		}
 		if err := os.WriteFile(*skillExitOut, rgba, 0o644); err != nil {
+			fail(err)
+		}
+	}
+	if exitPromptOwner != nil {
+		if *exitPromptExpectActive && (!exitPromptOwner.Watcher.Active() || len(exitPromptOwner.Presenter.ActiveKeys()) != 1) {
+			fail(fmt.Errorf("Exit prompt snapshot 未保持 active layer"))
+		}
+		if *exitPromptExpectStopped && (!d.Exited || !exitPromptOwner.Watcher.Closed() || exitPromptOwner.Watcher.Pending() || exitPromptOwner.Watcher.Active() || len(exitPromptOwner.Presenter.ActiveKeys()) != 0) {
+			fail(fmt.Errorf("Exit prompt DOS Stop 未到達 terminal Closed／零層"))
+		}
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *exitPromptScale)
+		if err := os.WriteFile(*exitPromptBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
+		}
+		rgba, missing, drew, err := exitPromptOwner.Presenter.Draw(m.Indexed(), m.Palette())
+		if err != nil {
+			exitPromptOwner.Fault()
+			fail(err)
+		}
+		if err := validateOverlayDraw(exitPromptOwner.Presenter.ActiveKeys(), missing, drew); err != nil {
+			exitPromptOwner.Fault()
+			fail(fmt.Errorf("Exit prompt overlay: %w", err))
+		}
+		if err := os.WriteFile(*exitPromptOut, rgba, 0o644); err != nil {
 			fail(err)
 		}
 	}
@@ -2448,6 +2573,11 @@ func main() {
 	}
 	if *screenOut != "" {
 		if err := writeIndexedScreen(*screenOut, m.Indexed()); err != nil {
+			fail(err)
+		}
+	}
+	if exitPromptLifecycle != nil {
+		if err := exitPromptLifecycle.write(*exitPromptLifecycleOut); err != nil {
 			fail(err)
 		}
 	}
