@@ -76,6 +76,12 @@ func (o *RuntimeSkillExitOverlay) Draw(indexed []byte, p [256][3]uint8) ([]byte,
 	d := o.layer.Draw(rgba, o.scale, func(r rune) { miss = append(miss, r) })
 	return rgba, miss, d
 }
+func (o *RuntimeSkillExitOverlay) ActiveKeys() []string {
+	if o == nil || o.active == nil {
+		return nil
+	}
+	return []string{o.active.EventKey}
+}
 
 // SkillExitOwner is the only lifecycle owner used by the runner.  Lifecycle
 // transitions always clear watcher and presenter together.

@@ -582,6 +582,13 @@ func main() {
 	postJoinScale := flag.Int("post-join-menu-overlay-scale", 0, "post-join 覆繪倍率：2 或 3")
 	postJoinOut := flag.String("post-join-menu-overlay-rgba-out", "", "輸出 post-join 覆繪 RGBA")
 	postJoinBaselineOut := flag.String("post-join-menu-baseline-rgba-out", "", "輸出 post-join baseline RGBA")
+	skillExitCareerEvents := flag.String("skill-exit-career-events", "", "READY career-skill-exit-events.tsv")
+	skillExitTechnicalEvents := flag.String("skill-exit-technical-events", "", "READY technical-skill-exit-events.tsv")
+	skillExitTranslations := flag.String("skill-exit-translations", "", "READY skill-exit-confirmation.zh-TW.tsv")
+	skillExitFont := flag.String("skill-exit-overlay-font", "", "本機 16x16 GOLEMFNT")
+	skillExitScale := flag.Int("skill-exit-overlay-scale", 0, "skill-exit 覆繪倍率：2 或 3")
+	skillExitOut := flag.String("skill-exit-overlay-rgba-out", "", "輸出 skill-exit 覆繪 RGBA")
+	skillExitBaselineOut := flag.String("skill-exit-baseline-rgba-out", "", "輸出 skill-exit baseline RGBA")
 	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
 	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
@@ -626,8 +633,26 @@ func main() {
 	if (*postJoinEvents != "" || *postJoinVariants != "" || *postJoinTranslations != "" || *postJoinFont != "" || *postJoinScale != 0 || *postJoinOut != "" || *postJoinBaselineOut != "") && (*postJoinEvents == "" || *postJoinVariants == "" || *postJoinTranslations == "" || *postJoinFont == "" || (*postJoinScale != 2 && *postJoinScale != 3) || *postJoinOut == "" || *postJoinBaselineOut == "") {
 		fail(fmt.Errorf("post-join 覆繪必須同時提供 READY 三 TSV、字型、倍率 2/3 與雙 RGBA 輸出"))
 	}
+	if (*skillExitCareerEvents != "" || *skillExitTechnicalEvents != "" || *skillExitTranslations != "" || *skillExitFont != "" || *skillExitScale != 0 || *skillExitOut != "" || *skillExitBaselineOut != "") && (*skillExitCareerEvents == "" || *skillExitTechnicalEvents == "" || *skillExitTranslations == "" || *skillExitFont == "" || (*skillExitScale != 2 && *skillExitScale != 3) || *skillExitOut == "" || *skillExitBaselineOut == "") {
+		fail(fmt.Errorf("skill-exit 覆繪必須同時提供兩份 READY events TSV、譯文、字型、倍率 2/3 與雙 RGBA 輸出"))
+	}
 	var postJoinWatcher *buckrogers.PostJoinMenuWatcher
 	var postJoinPresenter *buckrogers.RuntimePostJoinMenuOverlay
+	var skillExitOwner *buckrogers.SkillExitOwner
+	if *skillExitCareerEvents != "" {
+		c, err := buckrogers.LoadSkillExitCatalog(mustReadFile(*skillExitCareerEvents), mustReadFile(*skillExitTechnicalEvents), mustReadFile(*skillExitTranslations))
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*skillExitFont)
+		if err != nil {
+			fail(err)
+		}
+		skillExitOwner, err = buckrogers.NewSkillExitOwner(c, font, *skillExitScale)
+		if err != nil {
+			fail(err)
+		}
+	}
 	if *postJoinEvents != "" {
 		c, err := buckrogers.LoadPostJoinMenuCatalog(mustReadFile(*postJoinEvents), mustReadFile(*postJoinVariants), mustReadFile(*postJoinTranslations))
 		if err != nil {
@@ -1336,7 +1361,7 @@ func main() {
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
 	}
-	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil {
+	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil || skillExitOwner != nil {
 		m.ObserveVideoWrites(func(w machine.VideoWrite) {
 			if bodyIconA000Trace != nil {
 				bodyIconA000Trace.Observe(w)
@@ -1348,6 +1373,11 @@ func main() {
 			// Phase180 windows begin after that return; do not misclassify the
 			// initial screen's REP STOSB as an active-layer writer.
 			observePostJoinPrewrite(postJoinWatcher, postJoinPresenter, w, &postJoinInvalidations)
+			if skillExitOwner != nil {
+				if err := skillExitOwner.Prewrite(w); err != nil {
+					fail(err)
+				}
+			}
 		})
 	}
 	var instructionTrace []instructionTraceJSON
@@ -1496,7 +1526,17 @@ func main() {
 			for i := range original {
 				original[i] = m.Read8(base + 1 + uint32(i))
 			}
+			dropBeforeEntry := r.Drops()
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
+			if skillExitOwner != nil && skillExitOwner.Watcher.Pending() && r.Drops() > dropBeforeEntry {
+				skillExitOwner.Fault()
+				fail(fmt.Errorf("skill-exit dispatcher entry dropped pending return"))
+			}
+			if skillExitOwner != nil && caller == (buckrogers.Address{Segment: 0x37F1, Offset: 0x101E}) {
+				if err := skillExitOwner.ObserveEntry(buckrogers.TextEvent{EntryStep: m.Steps, Caller: caller, OriginalLength: uint8(len(original)), OriginalSHA256: sha256.Sum256(original), Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5])}); err != nil {
+					fail(err)
+				}
+			}
 			postJoinRow := uint8(args[4])
 			postJoinKnownRow := postJoinRow == 13 || postJoinRow == 14 || postJoinRow == 15 || postJoinRow == 16 || postJoinRow == 18 || postJoinRow == 19 || postJoinRow == 20
 			if postJoinWatcher != nil && caller.Segment == 0x37f1 && (postJoinKnownRow || (caller.Offset == 0x175d && postJoinRow == 21)) && (caller.Offset == 0x15bd || caller.Offset == 0x175d || caller.Offset == 0x1856) {
@@ -1589,8 +1629,22 @@ func main() {
 				actionWatcher.ObserveGlyphEntry(caller, ss, sp, args, m.Steps)
 			}
 		} else {
-			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
+			eventBefore, requestBefore, dropBefore := r.EventCount(), r.RequestCount(), r.Drops()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if skillExitOwner != nil && skillExitOwner.Watcher.Pending() && r.Drops() > dropBefore {
+				skillExitOwner.Fault()
+				fail(fmt.Errorf("skill-exit guarded return dropped"))
+			}
+			if skillExitOwner != nil && skillExitOwner.Watcher.Pending() && r.EventCount() > eventBefore {
+				e, ok := r.LastEvent()
+				if !ok {
+					skillExitOwner.Fault()
+					fail(fmt.Errorf("skill-exit event count advanced without event"))
+				}
+				if err := skillExitOwner.ObserveReturn(e, m.Palette()); err != nil {
+					fail(err)
+				}
+			}
 			if postJoinWatcher != nil && r.EventCount() > eventBefore {
 				if e, ok := r.LastEvent(); ok && postJoinRuntimeGate(e) {
 					prior := len(postJoinWatcher.Generations())
@@ -1899,6 +1953,9 @@ func main() {
 	if storyOpeningWatcher != nil && storyGlyphReturnPending != nil {
 		storyOpeningWatcher.ObserveExecutionDiscontinuity()
 	}
+	if skillExitOwner != nil {
+		skillExitOwner.Stop()
+	}
 	flushGlyphRun()
 	events := r.Events()
 	requests := r.Requests()
@@ -2107,6 +2164,19 @@ func main() {
 			fail(fmt.Errorf("post-join overlay: %w", err))
 		}
 		if err := os.WriteFile(*postJoinOut, rgba, 0o644); err != nil {
+			fail(err)
+		}
+	}
+	if skillExitOwner != nil {
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *skillExitScale)
+		if err := os.WriteFile(*skillExitBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
+		}
+		rgba, missing, drew := skillExitOwner.Presenter.Draw(m.Indexed(), m.Palette())
+		if err := validateOverlayDraw(skillExitOwner.Presenter.ActiveKeys(), missing, drew); err != nil {
+			fail(fmt.Errorf("skill-exit overlay: %w", err))
+		}
+		if err := os.WriteFile(*skillExitOut, rgba, 0o644); err != nil {
 			fail(err)
 		}
 	}
