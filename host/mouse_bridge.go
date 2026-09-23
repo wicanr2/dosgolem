@@ -49,7 +49,15 @@ func (s MouseLayout) valid() bool {
 	if s.Epoch == 0 || !validOutputScale(s.Scale) || s.ChromeHeight < 0 || !s.Canvas.valid() {
 		return false
 	}
-	width, height := s.Canvas.Width*int(s.Scale), s.Canvas.Height*int(s.Scale)
+	maxInt := int(^uint(0) >> 1)
+	scale := int(s.Scale)
+	if s.Canvas.Width > maxInt/scale || s.Canvas.Height > maxInt/scale {
+		return false
+	}
+	width, height := s.Canvas.Width*scale, s.Canvas.Height*scale
+	if s.ChromeHeight > maxInt-height {
+		return false
+	}
 	return s.FrameWidth >= width && s.FrameHeight >= s.ChromeHeight+height
 }
 
@@ -183,6 +191,9 @@ func (b *MouseBridge) Handle(layout MouseLayout, event MouseEvent) MouseRoute {
 
 	if b.pressed {
 		return MouseRoute{Reason: "duplicate-down-rejected"}
+	}
+	if b.hostCaptured {
+		return MouseRoute{ConsumedByHost: true, Reason: "host-captured-down-consumed"}
 	}
 	if layout.PanelOpen {
 		b.hostCaptured = true

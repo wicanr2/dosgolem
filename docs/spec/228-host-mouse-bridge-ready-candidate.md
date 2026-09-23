@@ -327,3 +327,10 @@ canvas-coordinate Up，均只 Release、DOS 座標不變。這保留 Down epoch�
 phase128 `go vet`、一般與 race 測試。結論是此**限縮 typed 契約升 READY**。本規格現在只授權
 generic bridge production implementation；正式 Linux frontend 的 Ebitengine hit-test／resize、keyboard
 mapping、完整開機／存讀檔與其他遊戲滑鼠路徑仍在 spec004 的另外範圍，不能由本節宣稱 CONFORMED。
+
+### READY 的 generic Canvas 限制
+
+正式 bridge API 以 `Canvas{Width,Height}` 表達 geometry，以免把遊戲名稱或 Buck Rogers 資料放進
+`host`。本案的 RE、實體 X11/Ebitengine receipt、DOS 座標轉換與 READY 授權**只涵蓋 320×200**；
+其他 canvas 尺寸尚無原版或實體收據，不能由 API 的泛型形狀外推為已驗證行為。production layout 對
+縮放乘法與 chrome 加總一律先做整數上界檢查，overflow 必須拒絕且不得替換現有 epoch。

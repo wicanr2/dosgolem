@@ -149,6 +149,13 @@ func TestMouseBridgePanelAndFailuresFailClosed(t *testing.T) {
 	if err := bridge.ApplyLayout(MouseLayout{Epoch: 4, Scale: OutputScale2, Canvas: Canvas{Width: 320, Height: 200}, FrameWidth: 639, FrameHeight: 436}); err == nil {
 		t.Fatal("invalid layout accepted")
 	}
+	maxInt := int(^uint(0) >> 1)
+	if err := bridge.ApplyLayout(MouseLayout{Epoch: 4, Scale: OutputScale2, Canvas: Canvas{Width: maxInt, Height: 1}, FrameWidth: maxInt, FrameHeight: 436}); err == nil {
+		t.Fatal("overflowing width accepted")
+	}
+	if err := bridge.ApplyLayout(MouseLayout{Epoch: 4, Scale: OutputScale2, ChromeHeight: 2, Canvas: Canvas{Width: 1, Height: maxInt / 2}, FrameWidth: 2, FrameHeight: maxInt}); err == nil {
+		t.Fatal("overflowing chrome plus height accepted")
+	}
 	if got, ok := bridge.Layout(); !ok || got != closed {
 		t.Fatalf("invalid layout replaced current: %+v %t", got, ok)
 	}
@@ -158,5 +165,25 @@ func TestMouseBridgePanelAndFailuresFailClosed(t *testing.T) {
 
 	if _, err := NewMouseBridge(nil); err == nil {
 		t.Fatal("nil output accepted")
+	}
+}
+
+func TestMouseBridgeHostCaptureBlocksSecondCanvasDownAcrossEpoch(t *testing.T) {
+	for _, scale := range []OutputScale{OutputScale2, OutputScale3} {
+		output := &testMouseOutput{}
+		bridge := mustMouseBridge(t, output)
+		first := mouseLayout(1, scale, false)
+		mustApplyMouse(t, bridge, first)
+		wantMouseRoute(t, bridge.Handle(first, mouseEvent(MouseEventDown, MouseTargetHost, 10, 5)), true, false, false, "host-down-consumed")
+		canvasDown := mouseEvent(MouseEventDown, MouseTargetCanvas, 100*int(scale), first.ChromeHeight+82*int(scale))
+		wantMouseRoute(t, bridge.Handle(first, canvasDown), true, false, false, "host-captured-down-consumed")
+		second := mouseLayout(2, scale, false)
+		mustApplyMouse(t, bridge, second)
+		canvasDown.Y = second.ChromeHeight + 82*int(scale)
+		wantMouseRoute(t, bridge.Handle(second, canvasDown), true, false, false, "host-captured-down-consumed")
+		wantMouseRoute(t, bridge.Handle(second, mouseEvent(MouseEventUp, MouseTargetCanvas, canvasDown.X, canvasDown.Y)), true, false, false, "host-captured-up-consumed")
+		if len(output.calls) != 0 || bridge.HostCaptured() || bridge.Pressed() {
+			t.Fatalf("%d× host capture leaked across epoch: %+v", scale, output)
+		}
 	}
 }
