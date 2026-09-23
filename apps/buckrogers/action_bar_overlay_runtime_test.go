@@ -3,6 +3,8 @@ package buckrogers
 import (
 	"bytes"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 func actionEventFor(c *ActionBarRequestCatalog, screen, key, variant string) (ActionBarEvent, DisplayRequest) {
@@ -133,6 +135,75 @@ func TestRuntimeActionBarOverlayFrameDrawReappliesInjectedColors(t *testing.T) {
 	actions[0].RuneForegrounds[0] = 99
 	if o.Actions()[0].RuneForegrounds[0] == 99 {
 		t.Fatal("actions must return deep copies")
+	}
+}
+
+func TestRuntimeActionBarOverlayClearsFullEnglishTailAtBothScales(t *testing.T) {
+	c, rects := formalActionOverlay(t)
+	style := HotkeyPreservingActionBarNormalStyle()
+	var pal [256][3]uint8
+	pal[10] = [3]uint8{0, 255, 0}
+	pal[15] = [3]uint8{255, 255, 255}
+	for _, scale := range []int{2, 3} {
+		for _, variant := range []string{"normal", "focus"} {
+			o, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), scale, &style)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o.ObserveAnchorEvent("career.screen.remaining_points.heading")
+			e, r := actionEventFor(c, "career", "action.subtract", variant)
+			indexed := bytes.Repeat([]byte{0}, 320*200)
+			tailColor, wantBG := uint8(15), pal[0]
+			if variant == "focus" {
+				indexed = bytes.Repeat([]byte{15}, 320*200)
+				tailColor, wantBG = 0, pal[15]
+			}
+			// x=80 is inside original SUBTRACT but beyond the 28-pixel translation.
+			indexed[194*320+80] = tailColor
+			indexed[194*320+100] = tailColor // outside the approved rectangle
+			if err := o.Apply(e, r, pal); err != nil {
+				t.Fatal(err)
+			}
+			o.Frame(indexed, pal)
+			rgba, missing, drew := o.Draw(indexed, pal)
+			if !drew || len(missing) != 0 {
+				t.Fatalf("scale=%d variant=%s drew=%v missing=%v", scale, variant, drew, missing)
+			}
+			for _, sample := range []struct {
+				x, y int
+				want [3]uint8
+			}{{80, 194, wantBG}, {100, 194, pal[tailColor]}} {
+				pixel := ((sample.y*scale)*320*scale + sample.x*scale) * 4
+				got := [3]uint8{rgba[pixel], rgba[pixel+1], rgba[pixel+2]}
+				if got != sample.want || rgba[pixel+3] != 0xff {
+					t.Fatalf("scale=%d variant=%s sample=%d,%d got=%v want=%v", scale, variant, sample.x, sample.y, got, sample.want)
+				}
+			}
+		}
+	}
+}
+
+func TestRuntimeActionBarOverlayRejectsPartlyShownGroup(t *testing.T) {
+	c, rects := formalActionOverlay(t)
+	style := HotkeyPreservingActionBarNormalStyle()
+	o, err := NewRuntimeActionBarOverlay(c, rects, actionOverlayFont(), 2, &style)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.ObserveAnchorEvent("career.screen.remaining_points.heading")
+	e, r := actionEventFor(c, "career", "action.subtract", "normal")
+	var pal [256][3]uint8
+	pal[15] = [3]uint8{255, 255, 255}
+	indexed := bytes.Repeat([]byte{0}, 320*200)
+	indexed[194*320+80] = 15
+	if err := o.Apply(e, r, pal); err != nil {
+		t.Fatal(err)
+	}
+	o.Frame(indexed, pal)
+	o.layer.Stamps[0].State = xlate.Pending
+	rgba, missing, drew := o.Draw(indexed, pal)
+	if drew || len(missing) != 0 || len(o.ActiveKeys()) != 0 || !bytes.Equal(rgba, ScaleIndexedRGBA(indexed, pal, 2)) {
+		t.Fatalf("partial group must fail closed: drew=%v missing=%v keys=%v", drew, missing, o.ActiveKeys())
 	}
 }
 

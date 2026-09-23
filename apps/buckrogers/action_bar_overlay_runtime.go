@@ -188,6 +188,41 @@ func (o *RuntimeActionBarOverlay) Frame(indexed []byte, palette [256][3]uint8) {
 
 func (o *RuntimeActionBarOverlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune, bool) {
 	rgba := ScaleIndexedRGBA(indexed, palette, o.scale)
+	// xlate stamps only cover the translated 28 logical pixels. The original
+	// label can be wider (Subtract occupies 64), so clear the entire proven
+	// action rectangle before drawing the mixed-width Chinese label. Otherwise
+	// its English suffix survives to the right of the translation.
+	shown := make(map[string]map[int]bool, len(o.groups))
+	for _, stamp := range o.layer.Stamps {
+		key, index, ok := actionStampGroup(stamp.Key)
+		if !ok || stamp.State != xlate.Shown {
+			continue
+		}
+		if shown[key] == nil {
+			shown[key] = map[int]bool{}
+		}
+		shown[key][index] = true
+	}
+	for key, group := range o.groups {
+		indices := shown[key]
+		complete := len(indices) == len(group.foregrounds)
+		for index := range group.foregrounds {
+			complete = complete && indices[index]
+		}
+		if !complete {
+			// A mixed Pending/Shown group must never paint only part of a label.
+			o.layer.Clear(group.x, group.y, group.x+group.width, group.y+group.height)
+			delete(o.groups, key)
+			continue
+		}
+		color := palette[group.background]
+		for y := group.y * o.scale; y < (group.y+group.height)*o.scale; y++ {
+			for x := group.x * o.scale; x < (group.x+group.width)*o.scale; x++ {
+				pixel := (y*320*o.scale + x) * 4
+				rgba[pixel], rgba[pixel+1], rgba[pixel+2], rgba[pixel+3] = color[0], color[1], color[2], 0xff
+			}
+		}
+	}
 	missing := []rune{}
 	drew := o.layer.Draw(rgba, o.scale, func(r rune) { missing = append(missing, r) })
 	return rgba, missing, drew
