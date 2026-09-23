@@ -19,6 +19,15 @@ import (
 type Snapshot func(scale int) (presentation.LayerPresentationSnapshot, error)
 type Advance func() error
 
+// HostLabels are presentation-only strings supplied by the caller's catalog.
+type HostLabels struct {
+	Settings, Apply, Cancel, Scale2, Scale3 string
+}
+
+func (l HostLabels) all() []string {
+	return []string{l.Settings, l.Apply, l.Cancel, l.Scale2, l.Scale3}
+}
+
 type Config struct {
 	Panel     *host.PanelController
 	Keyboard  *presentation.KeyboardBridge
@@ -27,6 +36,7 @@ type Config struct {
 	Advance   Advance
 	HostFont2 *xlate.Font // local 2× font; bytes are never bundled here.
 	HostFont3 *xlate.Font // local 3× font; never scale up HostFont2.
+	Labels    HostLabels
 }
 
 type Game struct {
@@ -36,6 +46,7 @@ type Game struct {
 	snapshot      Snapshot
 	advance       Advance
 	font2, font3  *xlate.Font
+	labels        HostLabels
 	epoch         uint64
 	layout        host.MouseLayout
 	rgba          []byte
@@ -47,20 +58,20 @@ func New(cfg Config) (*Game, error) {
 	if cfg.Panel == nil || cfg.Keyboard == nil || cfg.Mouse == nil || cfg.Snapshot == nil || cfg.HostFont2 == nil || cfg.HostFont3 == nil {
 		return nil, fmt.Errorf("frontend/ebiten: Panel、Keyboard、Mouse、Snapshot、HostFont2、HostFont3 均為必填")
 	}
-	if err := validateHostFont(cfg.HostFont2, 2); err != nil {
+	if err := validateHostFont(cfg.HostFont2, 2, cfg.Labels); err != nil {
 		return nil, err
 	}
-	if err := validateHostFont(cfg.HostFont3, 3); err != nil {
+	if err := validateHostFont(cfg.HostFont3, 3, cfg.Labels); err != nil {
 		return nil, err
 	}
-	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3}
+	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3, labels: cfg.Labels}
 	if err := g.refreshLayout(); err != nil {
 		return nil, err
 	}
 	return g, nil
 }
 
-func validateHostFont(font *xlate.Font, scale int) error {
+func validateHostFont(font *xlate.Font, scale int, labels HostLabels) error {
 	want := 16
 	if scale == 3 {
 		want = 22
@@ -68,7 +79,12 @@ func validateHostFont(font *xlate.Font, scale int) error {
 	if font.W != want || font.H != want {
 		return fmt.Errorf("frontend/ebiten: %d× host 字型必須是 %dx%d", scale, want, want)
 	}
-	for _, r := range "設定套用取消2×3" {
+	for _, label := range labels.all() {
+		if label == "" {
+			return fmt.Errorf("frontend/ebiten: host label 為空")
+		}
+	}
+	for _, r := range []rune(labels.Settings + labels.Apply + labels.Cancel + labels.Scale2 + labels.Scale3) {
 		glyph, ok := font.Glyphs[r]
 		if !ok || font.W <= 0 || font.H <= 0 || len(glyph) != font.H*((font.W+7)/8) {
 			return fmt.Errorf("frontend/ebiten: %d× host 字型缺少或損壞字元 %q", scale, r)
@@ -84,7 +100,7 @@ func validateHostFont(font *xlate.Font, scale int) error {
 	for _, item := range []struct {
 		text string
 		w, h int
-	}{{"設定", 72 * scale, 13 * scale}, {"2×", 54 * scale, 23 * scale}, {"3×", 54 * scale, 23 * scale}, {"套用", 68 * scale, 24 * scale}, {"取消", 68 * scale, 24 * scale}} {
+	}{{labels.Settings, 72 * scale, 13 * scale}, {labels.Scale2, 54 * scale, 23 * scale}, {labels.Scale3, 54 * scale, 23 * scale}, {labels.Apply, 68 * scale, 24 * scale}, {labels.Cancel, 68 * scale, 24 * scale}} {
 		if len([]rune(item.text))*font.W > item.w || font.H > item.h {
 			return fmt.Errorf("frontend/ebiten: %d× host 字型不容於 %q 安全矩形", scale, item.text)
 		}
@@ -110,6 +126,9 @@ func (g *Game) refreshLayout() error {
 	}
 	g.epoch++
 	g.layout = host.MouseLayout{Epoch: g.epoch, Scale: state.Scales.ActiveScale, ChromeHeight: chrome, Canvas: host.Canvas{Width: 320, Height: 200}, FrameWidth: 320 * s, FrameHeight: chrome + 200*s, PanelOpen: state.Open}
+	// Logical output pixels are the selected DOS scale, never a resize-to-fit
+	// leftover from the previous scale. This remains frontend-only state.
+	ebiten.SetWindowSize(g.layout.FrameWidth, g.layout.FrameHeight)
 	return g.mouse.ApplyLayout(g.layout)
 }
 
@@ -272,7 +291,7 @@ func (g *Game) drawChrome(screen *ebiten.Image, state host.PanelState) {
 	fill(image.Rect(0, 0, w, g.layout.ChromeHeight), color.RGBA{16, 24, 39, 255})
 	if !state.Open {
 		fill(image.Rect(w-76*s, 2*s, w-4*s, 15*s), color.RGBA{37, 99, 235, 255})
-		g.drawText(screen, g.fontForScale(s), w-72*s, 2*s+2, "設定", color.RGBA{255, 255, 255, 255})
+		g.drawText(screen, g.fontForScale(s), w-72*s, 2*s+2, g.labels.Settings, color.RGBA{255, 255, 255, 255})
 		return
 	}
 	fill(image.Rect(8*s, 35*s, 62*s, 58*s), choose(state.Scales.SelectedScale == host.OutputScale2))
@@ -280,10 +299,10 @@ func (g *Game) drawChrome(screen *ebiten.Image, state host.PanelState) {
 	fill(image.Rect(145*s, 63*s, 213*s, 87*s), color.RGBA{22, 163, 74, 255})
 	fill(image.Rect(220*s, 63*s, 288*s, 87*s), color.RGBA{100, 116, 139, 255})
 	font := g.fontForScale(s)
-	g.drawText(screen, font, 12*s, 38*s, "2×", color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 72*s, 38*s, "3×", color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 150*s, 66*s, "套用", color.RGBA{255, 255, 255, 255})
-	g.drawText(screen, font, 225*s, 66*s, "取消", color.RGBA{255, 255, 255, 255})
+	g.drawText(screen, font, 12*s, 38*s, g.labels.Scale2, color.RGBA{255, 255, 255, 255})
+	g.drawText(screen, font, 72*s, 38*s, g.labels.Scale3, color.RGBA{255, 255, 255, 255})
+	g.drawText(screen, font, 150*s, 66*s, g.labels.Apply, color.RGBA{255, 255, 255, 255})
+	g.drawText(screen, font, 225*s, 66*s, g.labels.Cancel, color.RGBA{255, 255, 255, 255})
 }
 
 func (g *Game) fontForScale(scale int) *xlate.Font {

@@ -44,3 +44,23 @@ release-only、DOS key map、host font 和 snapshot fail-closed；`host`、`pres
 
 等待獨立審查 spec 230、候選 source 與本收據；在升 READY 前不得由任何正式 command import，
 不得新增 `buckrogers-player` 或聲稱 raw framebuffer 是可玩中文版。
+
+## 2026-09-23 實體視窗與譯文注入補充（仍為 DRAFT）
+
+前端現改由呼叫端提供 `HostLabels`；畫面程式不硬編繁中，並按 2×／3× 各自驗證
+五個標籤的字形存在、非零墨跡及安全矩形。選取 Apply 後會同步更新實際視窗大小。
+可選實體測試直接讀取專案 `text/host-ui.zh-TW.tsv` 的五個 key；該 catalog SHA-256 為
+`c430f4424da2f090c4031a4079c1043fbd47dd6fa779c6eb208abcc5abf36b76`。
+
+主代理以同一離線 Docker image 與容器內有界 Xvfb 執行
+`go test -count=1 ./frontend/ebiten ./apps/buckrogers` 和 `go vet`，皆通過；實體 X11
+按鍵順序為開面板、選 3×、Apply、畫布點擊。收據為
+`workplace/phase181-ebiten-callback/out/receipt.txt`（專案本機 ignored），SHA-256
+`8d1968ad3f48c1c1e60789e4dc49e2348f7c7fac70bdac1bc53b492c9b2a1c03`；
+記錄最後倍率 3×、DOS mouse 呼叫僅 `move,press,move,release`，Update／Draw／Advance
+同 goroutine。2× 截圖 640×436，SHA-256
+`870780069e41b5f42c29eb07c252974f987f3a476504cb36fc7808d0ad313795`；
+3× 截圖 960×654，SHA-256
+`113d77d946f8bccb70d2e8d458f23c4f76cd8eb0e87be763c9d2705be7275e72`。
+截圖中只含 host 面板與測試色塊，沒有原版遊戲畫面；因此這證明實體事件及視窗倍率，
+不證明 Buck Rogers 正常玩家路徑、翻譯覆繪或正式前端已可玩。

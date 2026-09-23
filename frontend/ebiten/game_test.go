@@ -1,6 +1,7 @@
 package ebiten
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -12,13 +13,17 @@ import (
 
 type mouseOutput struct{ calls []string }
 
+func draftLabels() HostLabels {
+	return HostLabels{Settings: "設定", Apply: "套用", Cancel: "取消", Scale2: "2×", Scale3: "3×"}
+}
+
 func (m *mouseOutput) MoveMouse(int, int) { m.calls = append(m.calls, "move") }
 func (m *mouseOutput) PressMouse(int)     { m.calls = append(m.calls, "press") }
 func (m *mouseOutput) ReleaseMouse(int)   { m.calls = append(m.calls, "release") }
 
 func draftFont(w, h int) *xlate.Font {
 	glyphs := map[rune][]byte{}
-	for _, r := range "設定套用取消2×3" {
+	for _, r := range []rune(strings.Join(draftLabels().all(), "")) {
 		glyphs[r] = make([]byte, h*((w+7)/8))
 		glyphs[r][0] = 0x80
 	}
@@ -41,7 +46,7 @@ func newDraftGame(t *testing.T) (*Game, *mouseOutput) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse, HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse, HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
 		return presentation.LayerPresentationSnapshot{}, nil
 	}})
 	if err != nil {
@@ -200,7 +205,7 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 	p, _ := host.NewPanelController(host.OutputScale2)
 	k, _ := presentation.NewKeyboardBridge(p, m)
 	mo, _ := host.NewMouseBridge(&mouseOutput{})
-	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("missing host glyphs accepted")
 	}
 	zero := draftFont(16, 16)
@@ -209,7 +214,10 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 			glyph[i] = 0
 		}
 	}
-	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: zero, HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: zero, HostFont3: draftFont(22, 22), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("zero-ink glyphs accepted")
+	}
+	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
+		t.Fatal("empty host labels accepted")
 	}
 }
