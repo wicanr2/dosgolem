@@ -497,8 +497,16 @@ func main() {
 	storyFillTrace := flag.Bool("story-fill-trace", false, "記錄前 64 筆與明示 story-fill-rows 範圍相交的原版 pre-write fill metadata")
 	storyFillRows := flag.Uint("story-fill-rows", 5, "story-fill-trace 的列數：5（預設 rows 17..21）或 6（rows 17..22）")
 	bodyIconFramebufferTrace := flag.Bool("body-icon-framebuffer-trace", false, "逐 step 記錄與正式身體圖示安全矩形相交的 framebuffer 變化")
+	bodyIconA000PrewriteTrace := flag.Bool("body-icon-a000-prewrite-trace", false, "compact 觀察所有 A000 pre-write；不啟用逐 step framebuffer 診斷")
 	bodyIconRects := flag.String("body-icon-rects", "", "body-icon-framebuffer-trace 必須搭配的正式 body-icon-text-safe-rects.tsv")
 	bodyIconFramebufferTraceFrom := flag.Uint64("body-icon-framebuffer-trace-from", 0, "身體圖示 framebuffer 診斷建立 baseline 並開始觀測的絕對 step")
+	bodyIconRoute := flag.String("body-icon-route", "", "正式 body presenter 的固定路徑：move、refuse 或 confirm")
+	bodyIconEvents := flag.String("body-icon-events", "", "正式 body-icon-events.tsv")
+	bodyIconTranslations := flag.String("body-icon-translations", "", "正式 body-icon.zh-TW.tsv")
+	bodyIconOverlayFont := flag.String("body-icon-overlay-font", "", "本機 16x16 倚天 GOLEMFNT")
+	bodyIconOverlayScale := flag.Int("body-icon-overlay-scale", 0, "body icon 覆繪倍率：0=control、2 或 3")
+	bodyIconOverlayOut := flag.String("body-icon-overlay-rgba-out", "", "輸出 body icon 覆繪 RGBA")
+	bodyIconBaselineOut := flag.String("body-icon-baseline-rgba-out", "", "輸出 body icon 同 frame 未覆繪 RGBA")
 	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
 	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
@@ -517,18 +525,59 @@ func main() {
 	if *storyFillRows != 5 && *storyFillRows != 6 {
 		fail(fmt.Errorf("story-fill-rows 只允許 5 或 6"))
 	}
-	if err := validateBodyIconTraceFlags(*bodyIconFramebufferTrace, *bodyIconRects, *bodyIconFramebufferTraceFrom, *until); err != nil {
+	if !*bodyIconA000PrewriteTrace || *bodyIconFramebufferTrace {
+		if err := validateBodyIconTraceFlags(*bodyIconFramebufferTrace, *bodyIconRects, *bodyIconFramebufferTraceFrom, *until); err != nil {
+			fail(err)
+		}
+	}
+	if err := validateBodyIconA000TraceFlags(*bodyIconA000PrewriteTrace, *bodyIconRects, *bodyIconFramebufferTraceFrom, *until); err != nil {
 		fail(err)
 	}
-	if err := validateBodyIconAfterSteps(*bodyIconFramebufferTrace, bodyIconPrewriteAfterSteps, *bodyIconFramebufferTraceFrom, *until); err != nil {
+	if err := validateBodyIconAfterSteps(*bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace, bodyIconPrewriteAfterSteps, *bodyIconFramebufferTraceFrom, *until); err != nil {
 		fail(err)
+	}
+	if (*bodyIconRoute == "" && (*bodyIconEvents != "" || *bodyIconTranslations != "")) || (*bodyIconRoute != "" && (*bodyIconEvents == "" || *bodyIconTranslations == "" || *bodyIconRects == "")) {
+		fail(fmt.Errorf("body-icon-route 需要 events、translations 與安全矩形 TSV"))
+	}
+	if *bodyIconRoute != "" && *bodyIconRoute != "move" && *bodyIconRoute != "refuse" && *bodyIconRoute != "confirm" {
+		fail(fmt.Errorf("body-icon-route 僅允許 move、refuse 或 confirm"))
+	}
+	if *bodyIconOverlayScale != 0 && (*bodyIconRoute == "" || (*bodyIconOverlayScale != 2 && *bodyIconOverlayScale != 3) || *bodyIconOverlayFont == "" || *bodyIconOverlayOut == "" || *bodyIconBaselineOut == "") {
+		fail(fmt.Errorf("body icon overlay 需要 route、倍率 2/3、字型及雙 RGBA 輸出路徑"))
+	}
+	if *bodyIconOverlayScale == 0 && (*bodyIconOverlayOut != "" || *bodyIconBaselineOut != "" || *bodyIconOverlayFont != "") {
+		fail(fmt.Errorf("control 路徑不得設定 body overlay 字型或 RGBA 輸出"))
 	}
 	var bodyRects []bodyIconRect
-	if *bodyIconFramebufferTrace {
+	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		var err error
 		bodyRects, err = loadBodyIconRects(*bodyIconRects)
 		if err != nil {
 			fail(err)
+		}
+	}
+	var bodyIconCatalog *buckrogers.BodyIconCatalog
+	var bodyIconWatcher *buckrogers.BodyIconWatcher
+	var bodyIconPresenter *buckrogers.RuntimeBodyIconOverlay
+	if *bodyIconRoute != "" {
+		var err error
+		bodyIconCatalog, err = buckrogers.LoadBodyIconCatalog(mustReadFile(*bodyIconEvents), mustReadFile(*bodyIconTranslations), mustReadFile(*bodyIconRects))
+		if err != nil {
+			fail(err)
+		}
+		bodyIconWatcher, err = buckrogers.NewBodyIconWatcher(buckrogers.BodyIconRoute(*bodyIconRoute), bodyIconCatalog)
+		if err != nil {
+			fail(err)
+		}
+		if *bodyIconOverlayScale != 0 {
+			font, err := xlate.LoadFont(*bodyIconOverlayFont)
+			if err != nil {
+				fail(err)
+			}
+			bodyIconPresenter, err = buckrogers.NewRuntimeBodyIconOverlay(bodyIconCatalog, font, *bodyIconOverlayScale, buckrogers.BodyIconRoute(*bodyIconRoute))
+			if err != nil {
+				fail(err)
+			}
 		}
 	}
 	if (*stopAtSegment != 0 || *stopAtOffset != 0 || *stopAfterStep != 0) && (*stopAtSegment > 0xFFFF || *stopAtOffset > 0xFFFF || *stopAtSegment == 0 || *stopAtOffset == 0 || *stopAfterStep == 0) {
@@ -1179,9 +1228,20 @@ func main() {
 	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
 	var bodyIconA000Trace *bodyIconA000Observer
 	var bodyIconBefore []byte
-	if *bodyIconFramebufferTrace {
+	var bodyIconTransitions []buckrogers.BodyIconTransition
+	var bodyIconOverlaySamples []bodyIconOverlaySampleJSON
+	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
-		m.ObserveVideoWrites(bodyIconA000Trace.Observe)
+	}
+	if bodyIconA000Trace != nil || bodyIconPresenter != nil {
+		m.ObserveVideoWrites(func(w machine.VideoWrite) {
+			if bodyIconA000Trace != nil {
+				bodyIconA000Trace.Observe(w)
+			}
+			if bodyIconPresenter != nil {
+				bodyIconPresenter.Prewrite(w)
+			}
+		})
 	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
@@ -1417,6 +1477,31 @@ func main() {
 		} else {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if bodyIconWatcher != nil && r.EventCount() > eventBefore {
+				event, ok := r.LastEvent()
+				if !ok {
+					fail(fmt.Errorf("body icon event count advanced without event"))
+				}
+				prior := len(bodyIconWatcher.Transitions())
+				if err := bodyIconWatcher.Observe(event); err != nil {
+					fail(err)
+				}
+				transitions := bodyIconWatcher.Transitions()
+				for _, transition := range transitions[prior:] {
+					bodyIconTransitions = append(bodyIconTransitions, transition)
+					if bodyIconPresenter != nil {
+						if err := bodyIconPresenter.Apply(transition, m.Palette()); err != nil {
+							fail(fmt.Errorf("body icon runtime transition: %w", err))
+						}
+						metrics, _, _, err := inspectBodyIconOverlay(bodyIconPresenter, m.Indexed(), m.Palette())
+						if err != nil {
+							fail(err)
+						}
+						step := transition.Events[len(transition.Events)-1].PostCallStep
+						bodyIconOverlaySamples = append(bodyIconOverlaySamples, bodyIconOverlaySampleJSON{Step: step, Kind: "transition", Generation: transition.Generation, Group: transition.Group, Metrics: *metrics})
+					}
+				}
+			}
 			if manualWatcher != nil {
 				manualWatcher.ObserveInstruction(at, ss, sp, m.Steps)
 			}
@@ -1627,8 +1712,24 @@ func main() {
 			storySegment, storyOffset, storyByteCount = m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]
 		}
 		previousInstruction, previousOpcode, previousValid = at, m.Read8(cpu.Addr(at.Segment, at.Offset)), true
+		bodyIconInvalidationsBefore := 0
+		if bodyIconPresenter != nil {
+			bodyIconInvalidationsBefore = bodyIconPresenter.InvalidationCount()
+		}
 		if err := m.Step(); err != nil {
 			fail(err)
+		}
+		if bodyIconPresenter != nil && bodyIconPresenter.InvalidationCount() > bodyIconInvalidationsBefore {
+			invalidations := bodyIconPresenter.Invalidations()[bodyIconInvalidationsBefore:]
+			keys := make([]string, 0)
+			for _, item := range invalidations {
+				keys = append(keys, item.Invalidated...)
+			}
+			metrics, _, _, err := inspectBodyIconOverlay(bodyIconPresenter, m.Indexed(), m.Palette())
+			if err != nil {
+				fail(err)
+			}
+			bodyIconOverlaySamples = append(bodyIconOverlaySamples, bodyIconOverlaySampleJSON{Step: invalidations[0].Step, Kind: "postwrite-clear", Generation: bodyIconPresenter.Generation(), InvalidatedKeys: keys, Metrics: *metrics})
 		}
 		if bodyIconBefore != nil {
 			if item, changed := observeBodyIconFramebuffer(m.Steps-1, at, bodyRects, bodyIconBefore, m.Indexed()); changed {
@@ -1688,6 +1789,9 @@ func main() {
 			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses(),
 			len(actionEvents), *wantActionBarEvents, actionPending, actionDrops, actionMisses))
 	}
+	if bodyIconWatcher != nil && !bodyIconWatcher.Complete() {
+		fail(fmt.Errorf("body icon fixed-route event sequence incomplete or failed closed"))
+	}
 	if err := saveTerminalState(*stateOut, m, d); err != nil {
 		fail(err)
 	}
@@ -1719,70 +1823,85 @@ func main() {
 		rows := *storyFillRows
 		storyFillRowsReceipt = &rows
 	}
+	var bodyIconOverlay *bodyIconOverlayJSON
+	if bodyIconPresenter != nil {
+		var err error
+		bodyIconOverlay, err = makeBodyIconOverlayReceipt(bodyIconPresenter, m.Indexed(), m.Palette(), *bodyIconBaselineOut, *bodyIconOverlayOut)
+		if err != nil {
+			fail(err)
+		}
+	}
 	result := struct {
-		StateStart                uint64                         `json:"state_start"`
-		StoppedAt                 uint64                         `json:"stopped_at"`
-		BIOSInput                 string                         `json:"bios_input,omitempty"`
-		Events                    []eventJSON                    `json:"events"`
-		Requests                  []requestJSON                  `json:"requests,omitempty"`
-		CatalogMisses             *int                           `json:"catalog_misses,omitempty"`
-		BIOSKeys                  []keyJSON                      `json:"bios_keys,omitempty"`
-		Scratch                   string                         `json:"scratch,omitempty"`
-		Writes                    []writeJSON                    `json:"writes,omitempty"`
-		FileOps                   []fileOpJSON                   `json:"file_ops,omitempty"`
-		Unimplemented             []string                       `json:"unimplemented,omitempty"`
-		OverlayScale              int                            `json:"overlay_scale,omitempty"`
-		OverlayActions            []requestJSON                  `json:"overlay_actions,omitempty"`
-		ActiveOverlayKeys         []string                       `json:"active_overlay_keys,omitempty"`
-		OverlayMissing            []string                       `json:"overlay_missing_glyphs,omitempty"`
-		OverlayDrew               *bool                          `json:"overlay_drew,omitempty"`
-		ActionBarEvents           []actionBarEventJSON           `json:"action_bar_events,omitempty"`
-		ActionBarMisses           *int                           `json:"action_bar_misses,omitempty"`
-		ActionBarDrops            *int                           `json:"action_bar_drops,omitempty"`
-		ActionBarRequests         []requestJSON                  `json:"action_bar_requests,omitempty"`
-		ActionBarCatalogMisses    *int                           `json:"action_bar_catalog_misses,omitempty"`
-		ActionBarOverlay          *actionBarOverlayJSON          `json:"action_bar_overlay,omitempty"`
-		MemorySHA256              string                         `json:"memory_sha256"`
-		IndexedSHA256             string                         `json:"indexed_sha256"`
-		PaletteSHA256             string                         `json:"palette_sha256"`
-		ManualPresentation        []manualPresentationJSON       `json:"manual_presentation_events,omitempty"`
-		ManualObservations        []buckrogers.Observation       `json:"manual_observations,omitempty"`
-		ManualStyle               *manualStyleJSON               `json:"manual_style,omitempty"`
-		ManualOverlay             *manualOverlayJSON             `json:"manual_overlay,omitempty"`
-		StoryOpeningOverlay       *storyOpeningOverlayJSON       `json:"story_opening_overlay,omitempty"`
-		StoryOpeningInvalidations []storyOpeningInvalidationJSON `json:"story_opening_invalidations,omitempty"`
-		StoryPage2Overlay         *storyOpeningOverlayJSON       `json:"story_page2_overlay,omitempty"`
-		StoryPage2Invalidations   []storyPage2InvalidationJSON   `json:"story_page2_invalidations,omitempty"`
-		StoryPage3Overlay         *storyOpeningOverlayJSON       `json:"story_page3_overlay,omitempty"`
-		StoryPage3Invalidations   []storyPage2InvalidationJSON   `json:"story_page3_invalidations,omitempty"`
-		StoryPage4Overlay         *storyOpeningOverlayJSON       `json:"story_page4_overlay,omitempty"`
-		StoryPage4Invalidations   []storyPage2InvalidationJSON   `json:"story_page4_invalidations,omitempty"`
-		StoryPage5Overlay         *storyOpeningOverlayJSON       `json:"story_page5_overlay,omitempty"`
-		StoryPage5Invalidations   []storyPage2InvalidationJSON   `json:"story_page5_invalidations,omitempty"`
-		StoryPage6Overlay         *storyOpeningOverlayJSON       `json:"story_page6_overlay,omitempty"`
-		StoryPage6Invalidations   []storyPage2InvalidationJSON   `json:"story_page6_invalidations,omitempty"`
-		StoryPage7Overlay         *storyOpeningOverlayJSON       `json:"story_page7_overlay,omitempty"`
-		StoryPage7Invalidations   []storyPage2InvalidationJSON   `json:"story_page7_invalidations,omitempty"`
-		StoryPage8Overlay         *storyOpeningOverlayJSON       `json:"story_page8_overlay,omitempty"`
-		StoryPage8Invalidations   []storyPage2InvalidationJSON   `json:"story_page8_invalidations,omitempty"`
-		Clears                    []clearJSON                    `json:"clears,omitempty"`
-		Glyphs                    []glyphJSON                    `json:"glyphs,omitempty"`
-		GlyphDrops                int                            `json:"glyph_drops,omitempty"`
-		GlyphRuns                 []glyphRunJSON                 `json:"glyph_runs,omitempty"`
-		GlyphReturnEdges          []glyphReturnEdgeJSON          `json:"glyph_return_edges,omitempty"`
-		StoryPixelWrite           *pixelWriteJSON                `json:"story_pixel_write,omitempty"`
-		StoryFillWrites           []storyFillWriteJSON           `json:"story_fill_writes,omitempty"`
-		StoryFillRows             *uint                          `json:"story_fill_rows,omitempty"`
-		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON `json:"body_icon_framebuffer_writes,omitempty"`
-		BodyIconA000Prewrite      *bodyIconA000TraceJSON         `json:"body_icon_a000_prewrite,omitempty"`
-		KeyReads                  []keyReadJSON                  `json:"key_reads,omitempty"`
-		KeyPollTrace              []keyPollJSON                  `json:"key_poll_trace,omitempty"`
-		KeysPending               *int                           `json:"keys_pending,omitempty"`
-		KeyPolls                  *int                           `json:"key_polls,omitempty"`
-		KeyPollsDelta             *int                           `json:"key_polls_delta,omitempty"`
-		InstructionTrace          []instructionTraceJSON         `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+		StateStart                uint64                            `json:"state_start"`
+		StoppedAt                 uint64                            `json:"stopped_at"`
+		BIOSInput                 string                            `json:"bios_input,omitempty"`
+		Events                    []eventJSON                       `json:"events"`
+		Requests                  []requestJSON                     `json:"requests,omitempty"`
+		CatalogMisses             *int                              `json:"catalog_misses,omitempty"`
+		BIOSKeys                  []keyJSON                         `json:"bios_keys,omitempty"`
+		Scratch                   string                            `json:"scratch,omitempty"`
+		Writes                    []writeJSON                       `json:"writes,omitempty"`
+		FileOps                   []fileOpJSON                      `json:"file_ops,omitempty"`
+		Unimplemented             []string                          `json:"unimplemented,omitempty"`
+		OverlayScale              int                               `json:"overlay_scale,omitempty"`
+		OverlayActions            []requestJSON                     `json:"overlay_actions,omitempty"`
+		ActiveOverlayKeys         []string                          `json:"active_overlay_keys,omitempty"`
+		OverlayMissing            []string                          `json:"overlay_missing_glyphs,omitempty"`
+		OverlayDrew               *bool                             `json:"overlay_drew,omitempty"`
+		ActionBarEvents           []actionBarEventJSON              `json:"action_bar_events,omitempty"`
+		ActionBarMisses           *int                              `json:"action_bar_misses,omitempty"`
+		ActionBarDrops            *int                              `json:"action_bar_drops,omitempty"`
+		ActionBarRequests         []requestJSON                     `json:"action_bar_requests,omitempty"`
+		ActionBarCatalogMisses    *int                              `json:"action_bar_catalog_misses,omitempty"`
+		ActionBarOverlay          *actionBarOverlayJSON             `json:"action_bar_overlay,omitempty"`
+		MemorySHA256              string                            `json:"memory_sha256"`
+		IndexedSHA256             string                            `json:"indexed_sha256"`
+		PaletteSHA256             string                            `json:"palette_sha256"`
+		ManualPresentation        []manualPresentationJSON          `json:"manual_presentation_events,omitempty"`
+		ManualObservations        []buckrogers.Observation          `json:"manual_observations,omitempty"`
+		ManualStyle               *manualStyleJSON                  `json:"manual_style,omitempty"`
+		ManualOverlay             *manualOverlayJSON                `json:"manual_overlay,omitempty"`
+		StoryOpeningOverlay       *storyOpeningOverlayJSON          `json:"story_opening_overlay,omitempty"`
+		StoryOpeningInvalidations []storyOpeningInvalidationJSON    `json:"story_opening_invalidations,omitempty"`
+		StoryPage2Overlay         *storyOpeningOverlayJSON          `json:"story_page2_overlay,omitempty"`
+		StoryPage2Invalidations   []storyPage2InvalidationJSON      `json:"story_page2_invalidations,omitempty"`
+		StoryPage3Overlay         *storyOpeningOverlayJSON          `json:"story_page3_overlay,omitempty"`
+		StoryPage3Invalidations   []storyPage2InvalidationJSON      `json:"story_page3_invalidations,omitempty"`
+		StoryPage4Overlay         *storyOpeningOverlayJSON          `json:"story_page4_overlay,omitempty"`
+		StoryPage4Invalidations   []storyPage2InvalidationJSON      `json:"story_page4_invalidations,omitempty"`
+		StoryPage5Overlay         *storyOpeningOverlayJSON          `json:"story_page5_overlay,omitempty"`
+		StoryPage5Invalidations   []storyPage2InvalidationJSON      `json:"story_page5_invalidations,omitempty"`
+		StoryPage6Overlay         *storyOpeningOverlayJSON          `json:"story_page6_overlay,omitempty"`
+		StoryPage6Invalidations   []storyPage2InvalidationJSON      `json:"story_page6_invalidations,omitempty"`
+		StoryPage7Overlay         *storyOpeningOverlayJSON          `json:"story_page7_overlay,omitempty"`
+		StoryPage7Invalidations   []storyPage2InvalidationJSON      `json:"story_page7_invalidations,omitempty"`
+		StoryPage8Overlay         *storyOpeningOverlayJSON          `json:"story_page8_overlay,omitempty"`
+		StoryPage8Invalidations   []storyPage2InvalidationJSON      `json:"story_page8_invalidations,omitempty"`
+		Clears                    []clearJSON                       `json:"clears,omitempty"`
+		Glyphs                    []glyphJSON                       `json:"glyphs,omitempty"`
+		GlyphDrops                int                               `json:"glyph_drops,omitempty"`
+		GlyphRuns                 []glyphRunJSON                    `json:"glyph_runs,omitempty"`
+		GlyphReturnEdges          []glyphReturnEdgeJSON             `json:"glyph_return_edges,omitempty"`
+		StoryPixelWrite           *pixelWriteJSON                   `json:"story_pixel_write,omitempty"`
+		StoryFillWrites           []storyFillWriteJSON              `json:"story_fill_writes,omitempty"`
+		StoryFillRows             *uint                             `json:"story_fill_rows,omitempty"`
+		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON    `json:"body_icon_framebuffer_writes,omitempty"`
+		BodyIconA000Prewrite      *bodyIconA000TraceJSON            `json:"body_icon_a000_prewrite,omitempty"`
+		BodyIconTransitions       []buckrogers.BodyIconTransition   `json:"body_icon_transitions,omitempty"`
+		BodyIconInvalidations     []buckrogers.BodyIconInvalidation `json:"body_icon_invalidations,omitempty"`
+		BodyIconOverlay           *bodyIconOverlayJSON              `json:"body_icon_overlay,omitempty"`
+		BodyIconOverlaySamples    []bodyIconOverlaySampleJSON       `json:"body_icon_overlay_samples,omitempty"`
+		KeyReads                  []keyReadJSON                     `json:"key_reads,omitempty"`
+		KeyPollTrace              []keyPollJSON                     `json:"key_poll_trace,omitempty"`
+		KeysPending               *int                              `json:"keys_pending,omitempty"`
+		KeyPolls                  *int                              `json:"key_polls,omitempty"`
+		KeyPollsDelta             *int                              `json:"key_polls_delta,omitempty"`
+		InstructionTrace          []instructionTraceJSON            `json:"instruction_trace,omitempty"`
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconTransitions: bodyIconTransitions, BodyIconOverlay: bodyIconOverlay, BodyIconOverlaySamples: bodyIconOverlaySamples, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
+	if bodyIconPresenter != nil {
+		result.BodyIconInvalidations = bodyIconPresenter.Invalidations()
+	}
 	if bodyIconA000Trace != nil {
 		report := bodyIconA000Trace.Report()
 		result.BodyIconA000Prewrite = &report
@@ -2445,6 +2564,16 @@ func validateBodyIconTraceFlags(enabled bool, rects string, from, until uint64) 
 	}
 	if !enabled || rects == "" || from == 0 || from >= until {
 		return fmt.Errorf("body-icon framebuffer trace、rects 與有效 trace-from 必須同時提供")
+	}
+	return nil
+}
+
+func validateBodyIconA000TraceFlags(enabled bool, rects string, from, until uint64) error {
+	if !enabled {
+		return nil
+	}
+	if rects == "" || from == 0 || from >= until {
+		return fmt.Errorf("body-icon-a000-prewrite-trace requires rects and a valid trace-from interval")
 	}
 	return nil
 }

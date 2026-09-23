@@ -144,6 +144,19 @@ func TestBodyIconTraceFlagsAreAtomicAndBounded(t *testing.T) {
 	}
 }
 
+func TestBodyIconA000TraceFlagsAreBoundedWithoutFramebufferCap(t *testing.T) {
+	for _, tc := range []struct {
+		enabled     bool
+		rects       string
+		from, until uint64
+		valid       bool
+	}{{false, "", 0, 10, true}, {true, "rects.tsv", 5, 10, true}, {true, "", 5, 10, false}, {true, "rects.tsv", 0, 10, false}, {true, "rects.tsv", 10, 10, false}} {
+		if got := validateBodyIconA000TraceFlags(tc.enabled, tc.rects, tc.from, tc.until) == nil; got != tc.valid {
+			t.Fatalf("enabled=%v rects=%q from=%d until=%d got valid=%v, want %v", tc.enabled, tc.rects, tc.from, tc.until, got, tc.valid)
+		}
+	}
+}
+
 func TestObserveBodyIconFramebufferBoundariesAndFirstIntersection(t *testing.T) {
 	rects := []bodyIconRect{{EventKey: "body.icon.old.label", X: 64, Y: 48, Width: 24, Height: 8}}
 	before, after := make([]byte, 320*200), make([]byte, 320*200)
