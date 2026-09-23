@@ -184,7 +184,7 @@ func (w *PostJoinMenuWatcher) Prewrite(v machine.VideoWrite) {
 	// Any intersecting byte, even an unchanged byte, has already made the old
 	// RGBA layer unsafe. Unknown writers fail closed rather than retain pixels.
 	if v.CS != 0x0763 || v.IP != 0x184d || (w.pending == nil && !w.active) {
-		w.failed = true
+		w.fail("unknown or unarmed A000 writer")
 		return
 	}
 	w.active = false
@@ -249,6 +249,9 @@ func NewRuntimePostJoinMenuOverlay(c *PostJoinMenuCatalog, font *xlate.Font, sca
 }
 func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]uint8) error {
 	if o == nil || g.Selected < 0 || g.Selected >= 7 {
+		if o != nil {
+			o.clear()
+		}
 		return fmt.Errorf("post-join generation invalid")
 	}
 	entries := make([]MenuOverlayEntry, 0, 7)
@@ -263,6 +266,7 @@ func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]u
 			}
 		}
 		if !found {
+			o.clear()
 			return fmt.Errorf("post-join key missing")
 		}
 		bg, fg := id.background, id.foreground
@@ -273,6 +277,7 @@ func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]u
 	}
 	built, err := BuildMenuOverlay(entries, o.font, p, o.scale)
 	if err != nil {
+		o.clear()
 		return err
 	}
 	o.layer = built.Layer
@@ -281,6 +286,12 @@ func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]u
 		o.active[k] = true
 	}
 	return nil
+}
+func (o *RuntimePostJoinMenuOverlay) clear() {
+	if o != nil {
+		o.layer = &xlate.Layer{W: 320, H: 200}
+		o.active = map[string]bool{}
+	}
 }
 func (o *RuntimePostJoinMenuOverlay) Prewrite(v machine.VideoWrite) {
 	if o == nil || !postJoinIntersect(v.Offset) {
