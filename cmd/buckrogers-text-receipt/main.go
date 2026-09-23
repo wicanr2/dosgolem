@@ -569,6 +569,10 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		fontBytes := mustReadFile(*postJoinFont)
+		if fmt.Sprintf("%x", sha256.Sum256(fontBytes)) != "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174" {
+			fail(fmt.Errorf("post-join READY 字型 SHA-256 不符"))
+		}
 		font, err := xlate.LoadFont(*postJoinFont)
 		if err != nil {
 			fail(err)
@@ -1426,7 +1430,9 @@ func main() {
 				original[i] = m.Read8(base + 1 + uint32(i))
 			}
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
-			if postJoinWatcher != nil && caller.Segment == 0x37f1 && (caller.Offset == 0x15bd || caller.Offset == 0x175d || caller.Offset == 0x1856) {
+			postJoinRow := uint8(args[4])
+			postJoinKnownRow := postJoinRow == 13 || postJoinRow == 14 || postJoinRow == 15 || postJoinRow == 16 || postJoinRow == 18 || postJoinRow == 19 || postJoinRow == 20
+			if postJoinWatcher != nil && caller.Segment == 0x37f1 && (postJoinKnownRow || (caller.Offset == 0x175d && postJoinRow == 21)) && (caller.Offset == 0x15bd || caller.Offset == 0x175d || caller.Offset == 0x1856) {
 				if err := postJoinWatcher.ObserveEntry(buckrogers.TextEvent{EntryStep: m.Steps, Caller: caller, OriginalLength: uint8(len(original)), OriginalSHA256: sha256.Sum256(original), Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5])}); err != nil {
 					fail(err)
 				}
