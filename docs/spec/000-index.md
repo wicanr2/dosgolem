@@ -70,6 +70,7 @@
 - `228-host-mouse-bridge-ready-candidate.md`（DRAFT；正式滑鼠橋尚未授權實作）
 - `230-linux-ebiten-host-event-loop-draft.md`（DRAFT；候選 router 等待獨立審查，未授權 production）
 - `231-linux-ebiten-panel-pause-gate.md`（限縮 CONFORMED；面板回合的 `Advance` 呼叫閘門，非完整 session）
+- `232-linux-ebiten-panel-batch-keyboard-gate.md`（限縮 CONFORMED；面板起點開啟時同批鍵盤不因 Apply／Cancel 收合而進 DOS）
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 

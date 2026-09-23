@@ -190,20 +190,80 @@ func TestUpdateMixedHostAndDOSInputKeepsPauseGate(t *testing.T) {
 	run(frameInput{focused: true, up: true, upX: 630, upY: 8}, 0, 0)
 	run(frameInput{focused: true, down: true, downX: 140, downY: 80, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 0)
 	run(frameInput{focused: true, up: true, upX: 140, upY: 80}, 0, 0)
-	// Apply closes the panel before the keyboard route. That pre-existing
-	// ordering forwards this simultaneous key, but the DOS CPU still does not
-	// advance until the following closed Update. Full batch policy is DRAFT.
-	run(frameInput{focused: true, down: true, downX: 300, downY: 140, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 1)
-	run(frameInput{focused: true, up: true, upX: 300, upY: 140}, 1, 1)
+	// Apply closes the panel, but a key captured in the same frame still
+	// belongs to the panel rather than entering the BIOS queue.
+	run(frameInput{focused: true, down: true, downX: 300, downY: 140, keys: []ebiten.Key{ebiten.KeyEnter}}, 0, 0)
+	run(frameInput{focused: true, up: true, upX: 300, upY: 140}, 1, 0)
 	if len(out.calls) != 0 {
 		t.Fatalf("host pointer reached DOS mouse: %v", out.calls)
 	}
 	// Closed-panel canvas pointer and key still follow their existing DOS
 	// routes and advance once; the pause gate must not swallow either.
 	y := g.layout.ChromeHeight + 120
-	run(frameInput{focused: true, down: true, downX: 200, downY: y, keys: []ebiten.Key{ebiten.KeyEnter}}, 2, 2)
+	run(frameInput{focused: true, down: true, downX: 200, downY: y, keys: []ebiten.Key{ebiten.KeyEnter}}, 2, 1)
 	if len(out.calls) != 2 || out.calls[0] != "move" || out.calls[1] != "press" {
 		t.Fatalf("closed canvas pointer route=%v", out.calls)
+	}
+}
+
+func TestUpdateClosingPanelConsumesWholeKeyboardBatch(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		x         int
+		wantScale host.OutputScale
+	}{
+		{name: "Apply", x: 300, wantScale: host.OutputScale3},
+		{name: "Cancel", x: 450, wantScale: host.OutputScale2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := machine.New()
+			bios := dos.New(m, ".")
+			bios.Install()
+			panel, err := host.NewPanelController(host.OutputScale2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := &mouseOutput{}
+			mouse, err := host.NewMouseBridge(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
+				HostFont2: draftFont(16, 16), HostFont3: draftFont(22, 22), Labels: draftLabels(),
+				Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+					return presentation.LayerPresentationSnapshot{}, nil
+				}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			g.advance = func() error { calls++; return nil }
+			update := func(in frameInput) {
+				t.Helper()
+				g.readInput = func() frameInput { return in }
+				if err := g.Update(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			update(frameInput{focused: true, down: true, downX: 630, downY: 8})
+			update(frameInput{focused: true, up: true, upX: 630, upY: 8})
+			update(frameInput{focused: true, down: true, downX: 140, downY: 80})
+			update(frameInput{focused: true, up: true, upX: 140, upY: 80})
+			update(frameInput{focused: true, down: true, downX: tc.x, downY: 140,
+				keys: []ebiten.Key{ebiten.KeyEnter, ebiten.KeyA, ebiten.KeyArrowLeft}})
+			state, err := panel.Snapshot()
+			if err != nil || state.Open || state.Scales.ActiveScale != tc.wantScale || bios.KeysPending() != 0 || calls != 0 || len(out.calls) != 0 {
+				t.Fatalf("closing batch: state=%+v err=%v BIOS=%d Advance=%d mouse=%v", state, err, bios.KeysPending(), calls, out.calls)
+			}
+			update(frameInput{focused: true, up: true, upX: tc.x, upY: 140})
+			if calls != 1 || bios.KeysPending() != 0 {
+				t.Fatalf("closed resume: Advance=%d BIOS=%d", calls, bios.KeysPending())
+			}
+		})
 	}
 }
 

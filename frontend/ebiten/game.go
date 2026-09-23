@@ -183,9 +183,14 @@ func (g *Game) Update() error {
 	if !in.focused {
 		g.mouse.Handle(g.layout, host.MouseEvent{Kind: host.MouseEventFocusLost})
 	}
-	for _, key := range in.keys {
-		if err := g.key(key); err != nil {
-			return g.fail(err)
+	// The panel owns the entire keyboard batch if it was open on entry. A
+	// pointer Apply/Cancel may close it before this loop, but must not make
+	// simultaneous keys visible to DOS. A same-batch Open is host-owned too.
+	if !before.Open && !g.panelEventThisUpdate {
+		for _, key := range in.keys {
+			if err := g.key(key); err != nil {
+				return g.fail(err)
+			}
 		}
 	}
 	after, err := g.panel.Snapshot()
