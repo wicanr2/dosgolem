@@ -507,6 +507,13 @@ func main() {
 	bodyIconOverlayScale := flag.Int("body-icon-overlay-scale", 0, "body icon 覆繪倍率：0=control、2 或 3")
 	bodyIconOverlayOut := flag.String("body-icon-overlay-rgba-out", "", "輸出 body icon 覆繪 RGBA")
 	bodyIconBaselineOut := flag.String("body-icon-baseline-rgba-out", "", "輸出 body icon 同 frame 未覆繪 RGBA")
+	postJoinEvents := flag.String("post-join-menu-events", "", "READY post-join-menu-events.tsv")
+	postJoinVariants := flag.String("post-join-menu-variants", "", "READY post-join-menu-variants.tsv")
+	postJoinTranslations := flag.String("post-join-menu-translations", "", "READY post-join-menu.zh-TW.tsv")
+	postJoinFont := flag.String("post-join-menu-overlay-font", "", "READY 本機 16x16 GOLEMFNT")
+	postJoinScale := flag.Int("post-join-menu-overlay-scale", 0, "post-join 覆繪倍率：2 或 3")
+	postJoinOut := flag.String("post-join-menu-overlay-rgba-out", "", "輸出 post-join 覆繪 RGBA")
+	postJoinBaselineOut := flag.String("post-join-menu-baseline-rgba-out", "", "輸出 post-join baseline RGBA")
 	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
 	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
@@ -547,6 +554,29 @@ func main() {
 	}
 	if *bodyIconOverlayScale == 0 && (*bodyIconOverlayOut != "" || *bodyIconBaselineOut != "" || *bodyIconOverlayFont != "") {
 		fail(fmt.Errorf("control 路徑不得設定 body overlay 字型或 RGBA 輸出"))
+	}
+	if (*postJoinEvents != "" || *postJoinVariants != "" || *postJoinTranslations != "" || *postJoinFont != "" || *postJoinScale != 0 || *postJoinOut != "" || *postJoinBaselineOut != "") && (*postJoinEvents == "" || *postJoinVariants == "" || *postJoinTranslations == "" || *postJoinFont == "" || (*postJoinScale != 2 && *postJoinScale != 3) || *postJoinOut == "" || *postJoinBaselineOut == "") {
+		fail(fmt.Errorf("post-join 覆繪必須同時提供 READY 三 TSV、字型、倍率 2/3 與雙 RGBA 輸出"))
+	}
+	var postJoinWatcher *buckrogers.PostJoinMenuWatcher
+	var postJoinPresenter *buckrogers.RuntimePostJoinMenuOverlay
+	if *postJoinEvents != "" {
+		c, err := buckrogers.LoadPostJoinMenuCatalog(mustReadFile(*postJoinEvents), mustReadFile(*postJoinVariants), mustReadFile(*postJoinTranslations))
+		if err != nil {
+			fail(err)
+		}
+		postJoinWatcher, err = buckrogers.NewPostJoinMenuWatcher(c)
+		if err != nil {
+			fail(err)
+		}
+		font, err := xlate.LoadFont(*postJoinFont)
+		if err != nil {
+			fail(err)
+		}
+		postJoinPresenter, err = buckrogers.NewRuntimePostJoinMenuOverlay(c, font, *postJoinScale)
+		if err != nil {
+			fail(err)
+		}
 	}
 	var bodyRects []bodyIconRect
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
@@ -1233,13 +1263,19 @@ func main() {
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
 	}
-	if bodyIconA000Trace != nil || bodyIconPresenter != nil {
+	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil {
 		m.ObserveVideoWrites(func(w machine.VideoWrite) {
 			if bodyIconA000Trace != nil {
 				bodyIconA000Trace.Observe(w)
 			}
 			if bodyIconPresenter != nil {
 				bodyIconPresenter.Prewrite(w)
+			}
+			if postJoinWatcher != nil {
+				postJoinWatcher.Prewrite(w)
+			}
+			if postJoinPresenter != nil {
+				postJoinPresenter.Prewrite(w)
 			}
 		})
 	}
@@ -1390,6 +1426,11 @@ func main() {
 				original[i] = m.Read8(base + 1 + uint32(i))
 			}
 			r.ObserveDispatchEntry(caller, ss, sp, args, original, m.Steps)
+			if postJoinWatcher != nil && caller.Segment == 0x37f1 && (caller.Offset == 0x15bd || caller.Offset == 0x175d || caller.Offset == 0x1856) {
+				if err := postJoinWatcher.ObserveEntry(buckrogers.TextEvent{EntryStep: m.Steps, Caller: caller, OriginalLength: uint8(len(original)), OriginalSHA256: sha256.Sum256(original), Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5])}); err != nil {
+					fail(err)
+				}
+			}
 			if manualWatcher != nil {
 				manualWatcher.ObserveDispatchEntryWithStyle(caller, ss, sp, string(original), buckrogers.ManualTextStyle{
 					Background: uint8(args[2]), Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5]),
@@ -1477,6 +1518,20 @@ func main() {
 		} else {
 			eventBefore, requestBefore := r.EventCount(), r.RequestCount()
 			r.ObserveInstruction(at, ss, sp, m.Steps)
+			if postJoinWatcher != nil && r.EventCount() > eventBefore {
+				if e, ok := r.LastEvent(); ok && e.Caller.Segment == 0x37f1 && (e.Caller.Offset == 0x15bd || e.Caller.Offset == 0x175d || e.Caller.Offset == 0x1856) {
+					prior := len(postJoinWatcher.Generations())
+					if err := postJoinWatcher.ObserveReturn(e); err != nil {
+						fail(err)
+					}
+					gs := postJoinWatcher.Generations()
+					for _, g := range gs[prior:] {
+						if err := postJoinPresenter.Apply(g, m.Palette()); err != nil {
+							fail(err)
+						}
+					}
+				}
+			}
 			if bodyIconWatcher != nil && r.EventCount() > eventBefore {
 				event, ok := r.LastEvent()
 				if !ok {
@@ -1792,6 +1847,9 @@ func main() {
 	if bodyIconWatcher != nil && !bodyIconWatcher.Complete() {
 		fail(fmt.Errorf("body icon fixed-route event sequence incomplete or failed closed"))
 	}
+	if postJoinWatcher != nil && postJoinWatcher.Failed() {
+		fail(fmt.Errorf("post-join watcher failed closed"))
+	}
 	if err := saveTerminalState(*stateOut, m, d); err != nil {
 		fail(err)
 	}
@@ -1963,6 +2021,19 @@ func main() {
 		result.ActiveOverlayKeys = activeKeys
 		for _, action := range presenter.Actions() {
 			result.OverlayActions = append(result.OverlayActions, requestJSON{action.EventKey, action.TextKey, action.TranslationRunes})
+		}
+	}
+	if postJoinPresenter != nil {
+		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *postJoinScale)
+		if err := os.WriteFile(*postJoinBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
+		}
+		rgba, missing, drew := postJoinPresenter.Draw(m.Indexed(), m.Palette())
+		if err := validateOverlayDraw(postJoinPresenter.ActiveKeys(), missing, drew); err != nil {
+			fail(fmt.Errorf("post-join overlay: %w", err))
+		}
+		if err := os.WriteFile(*postJoinOut, rgba, 0o644); err != nil {
+			fail(err)
 		}
 	}
 	if manualPresenter != nil {
