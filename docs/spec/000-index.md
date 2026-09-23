@@ -68,6 +68,7 @@
 - `226-host-machine-presentation-bridge.md`
 - `227-host-active-layer-snapshot-core.md`
 - `228-host-mouse-bridge-ready-candidate.md`（DRAFT；正式滑鼠橋尚未授權實作）
+- `230-linux-ebiten-host-event-loop-draft.md`（DRAFT；候選 router 等待獨立審查，未授權 production）
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
