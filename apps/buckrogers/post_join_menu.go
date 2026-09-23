@@ -254,9 +254,6 @@ func NewRuntimePostJoinMenuOverlay(c *PostJoinMenuCatalog, font *xlate.Font, sca
 	if c == nil || font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) {
 		return nil, fmt.Errorf("post-join runtime inputs invalid")
 	}
-	if scale == 3 {
-		font = manualThreeXFont(font)
-	}
 	return &RuntimePostJoinMenuOverlay{layer: &xlate.Layer{W: 320, H: 200}, c: c, font: font, scale: scale, active: map[string]bool{}}, nil
 }
 func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]uint8) error {
