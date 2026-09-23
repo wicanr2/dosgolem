@@ -376,6 +376,62 @@ type bodyIconFramebufferWriteJSON struct {
 	Y1          uint16             `json:"y1"`
 }
 
+// postJoinInvalidationJSON is a content-safe, pre-execution receipt of the
+// post-join watcher changing from active to inactive. Presenter key counts
+// independently show whether the corresponding RGBA layer also cleared. It excludes
+// VideoWrite.Value: the value is original framebuffer content, while the
+// instruction location and offset are sufficient to verify the lifecycle.
+type postJoinInvalidationJSON struct {
+	Step                uint64             `json:"step"`
+	Instruction         buckrogers.Address `json:"instruction"`
+	Offset              uint32             `json:"offset"`
+	WriteMode           uint8              `json:"write_mode"`
+	WatcherActiveBefore bool               `json:"watcher_active_before"`
+	WatcherActiveAfter  bool               `json:"watcher_active_after"`
+	PresenterKeysBefore int                `json:"presenter_keys_before"`
+	PresenterKeysAfter  int                `json:"presenter_keys_after"`
+}
+
+type postJoinPrewriteWatcher interface {
+	Active() bool
+	Prewrite(machine.VideoWrite)
+}
+
+type postJoinPrewritePresenter interface {
+	ActiveKeys() []string
+	Prewrite(machine.VideoWrite)
+}
+
+// observePostJoinPrewrite is receipt-only glue around the existing watcher
+// and presenter. It preserves the two existing Prewrite calls in order and
+// their fail-closed behavior, adding only read-only before/after observations.
+func observePostJoinPrewrite(watcher postJoinPrewriteWatcher, presenter postJoinPrewritePresenter, write machine.VideoWrite, out *[]postJoinInvalidationJSON) {
+	if watcher == nil || !watcher.Active() {
+		return
+	}
+	keysBefore := 0
+	if presenter != nil {
+		keysBefore = len(presenter.ActiveKeys())
+	}
+	watcher.Prewrite(write)
+	if presenter != nil {
+		presenter.Prewrite(write)
+	}
+	if watcher.Active() {
+		return
+	}
+	keysAfter := 0
+	if presenter != nil {
+		keysAfter = len(presenter.ActiveKeys())
+	}
+	*out = append(*out, postJoinInvalidationJSON{
+		Step: write.Step, Instruction: buckrogers.Address{Segment: write.CS, Offset: write.IP},
+		Offset: write.Offset, WriteMode: write.WriteMode,
+		WatcherActiveBefore: true, WatcherActiveAfter: false,
+		PresenterKeysBefore: keysBefore, PresenterKeysAfter: keysAfter,
+	})
+}
+
 func main() {
 	statePath := flag.String("state", "", "既有 probe state")
 	until := flag.Uint64("until", 0, "絕對指令步數上限")
@@ -1276,6 +1332,7 @@ func main() {
 	var bodyIconBefore []byte
 	var bodyIconTransitions []buckrogers.BodyIconTransition
 	var bodyIconOverlaySamples []bodyIconOverlaySampleJSON
+	var postJoinInvalidations []postJoinInvalidationJSON
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
 	}
@@ -1290,13 +1347,7 @@ func main() {
 			// Before row13 selected returns there is no accepted generation/layer.
 			// Phase180 windows begin after that return; do not misclassify the
 			// initial screen's REP STOSB as an active-layer writer.
-			postJoinActive := postJoinWatcher != nil && postJoinWatcher.Active()
-			if postJoinActive {
-				postJoinWatcher.Prewrite(w)
-			}
-			if postJoinPresenter != nil && postJoinActive {
-				postJoinPresenter.Prewrite(w)
-			}
+			observePostJoinPrewrite(postJoinWatcher, postJoinPresenter, w, &postJoinInvalidations)
 		})
 	}
 	var instructionTrace []instructionTraceJSON
@@ -1971,6 +2022,7 @@ func main() {
 		BodyIconInvalidations     []buckrogers.BodyIconInvalidation `json:"body_icon_invalidations,omitempty"`
 		BodyIconOverlay           *bodyIconOverlayJSON              `json:"body_icon_overlay,omitempty"`
 		BodyIconOverlaySamples    []bodyIconOverlaySampleJSON       `json:"body_icon_overlay_samples,omitempty"`
+		PostJoinInvalidations     []postJoinInvalidationJSON        `json:"post_join_invalidations,omitempty"`
 		KeyReads                  []keyReadJSON                     `json:"key_reads,omitempty"`
 		KeyPollTrace              []keyPollJSON                     `json:"key_poll_trace,omitempty"`
 		KeysPending               *int                              `json:"keys_pending,omitempty"`
@@ -1978,7 +2030,7 @@ func main() {
 		KeyPollsDelta             *int                              `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON            `json:"instruction_trace,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconTransitions: bodyIconTransitions, BodyIconOverlay: bodyIconOverlay, BodyIconOverlaySamples: bodyIconOverlaySamples, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
-		ActionBarRequests: actionRequestOut, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
+		ActionBarRequests: actionRequestOut, PostJoinInvalidations: postJoinInvalidations, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if bodyIconPresenter != nil {
 		result.BodyIconInvalidations = bodyIconPresenter.Invalidations()
 	}

@@ -54,6 +54,83 @@ func TestPostJoinRuntimeGateSymmetry(t *testing.T) {
 	}
 }
 
+type postJoinReceiptWatcher struct {
+	active bool
+	retain bool
+	calls  int
+}
+
+func (w *postJoinReceiptWatcher) Active() bool { return w.active }
+func (w *postJoinReceiptWatcher) Prewrite(machine.VideoWrite) {
+	w.calls++
+	if !w.retain {
+		w.active = false
+	}
+}
+
+type postJoinReceiptPresenter struct {
+	keys   int
+	retain bool
+	calls  int
+}
+
+func (p *postJoinReceiptPresenter) ActiveKeys() []string {
+	return make([]string, p.keys)
+}
+func (p *postJoinReceiptPresenter) Prewrite(machine.VideoWrite) {
+	p.calls++
+	if !p.retain {
+		p.keys = 0
+	}
+}
+
+func TestPostJoinInvalidationReceiptIsContentSafe(t *testing.T) {
+	write := machine.VideoWrite{Step: 124700875, CS: 0x0763, IP: 0x184d, Offset: 20*8*320 + 72, Value: 0x7f, WriteMode: 3}
+	watcher := &postJoinReceiptWatcher{active: true}
+	presenter := &postJoinReceiptPresenter{keys: 7}
+	var records []postJoinInvalidationJSON
+	observePostJoinPrewrite(watcher, presenter, write, &records)
+	if len(records) != 1 {
+		t.Fatalf("records=%d, want 1", len(records))
+	}
+	b, err := json.Marshal(records[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["watcher_active_before"] != true || got["watcher_active_after"] != false || got["presenter_keys_before"] != float64(7) || got["presenter_keys_after"] != float64(0) {
+		t.Fatalf("unexpected lifecycle receipt: %s", b)
+	}
+	if _, leaked := got["value"]; leaked {
+		t.Fatalf("receipt leaked VideoWrite.Value: %s", b)
+	}
+	if got["step"] != float64(write.Step) || got["offset"] != float64(write.Offset) || got["write_mode"] != float64(write.WriteMode) {
+		t.Fatalf("receipt lost prewrite metadata: %s", b)
+	}
+	// An already inactive layer must not create a synthetic lifecycle event.
+	observePostJoinPrewrite(watcher, presenter, write, &records)
+	if len(records) != 1 {
+		t.Fatalf("inactive prewrite added a record: %#v", records)
+	}
+	if watcher.calls != 1 || presenter.calls != 1 {
+		t.Fatalf("inactive prewrite called components: watcher=%d presenter=%d", watcher.calls, presenter.calls)
+	}
+	stillActive := &postJoinReceiptWatcher{active: true, retain: true}
+	stillDrawn := &postJoinReceiptPresenter{keys: 7}
+	observePostJoinPrewrite(stillActive, stillDrawn, write, &records)
+	if stillActive.calls != 1 || stillDrawn.calls != 1 || len(records) != 1 {
+		t.Fatalf("active watcher changed Prewrite call sequence or wrote a false record: watcher=%d presenter=%d records=%d", stillActive.calls, stillDrawn.calls, len(records))
+	}
+	stalePresenter := &postJoinReceiptPresenter{keys: 7, retain: true}
+	observePostJoinPrewrite(&postJoinReceiptWatcher{active: true}, stalePresenter, write, &records)
+	if len(records) != 2 || records[1].PresenterKeysBefore != 7 || records[1].PresenterKeysAfter != 7 {
+		t.Fatalf("watcher invalidation hid presenter residue: %#v", records)
+	}
+}
+
 func TestStoryFillIntersectsFiveRowSafeRect(t *testing.T) {
 	tests := []struct {
 		name  string
