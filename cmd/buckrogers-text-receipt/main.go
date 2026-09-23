@@ -589,6 +589,7 @@ func main() {
 	skillExitScale := flag.Int("skill-exit-overlay-scale", 0, "skill-exit 覆繪倍率：2 或 3")
 	skillExitOut := flag.String("skill-exit-overlay-rgba-out", "", "輸出 skill-exit 覆繪 RGBA")
 	skillExitBaselineOut := flag.String("skill-exit-baseline-rgba-out", "", "輸出 skill-exit baseline RGBA")
+	skillExitExpectActive := flag.Bool("skill-exit-expect-active", false, "要求有界 snapshot 時 skill-exit layer 仍為 active")
 	var bodyIconPrewriteAfterSteps bodyIconTraceAfterSteps
 	flag.Var(&bodyIconPrewriteAfterSteps, "body-icon-prewrite-after-step", "重複指定需保存每個安全矩形首寫的排除 step；只摘要首筆，不保存逐 byte JSON")
 	keyTrace := flag.Bool("key-trace", false, "記錄 content-safe BIOS/DOS 鍵盤取用 metadata（不改變輸入）")
@@ -1953,7 +1954,7 @@ func main() {
 	if storyOpeningWatcher != nil && storyGlyphReturnPending != nil {
 		storyOpeningWatcher.ObserveExecutionDiscontinuity()
 	}
-	if skillExitOwner != nil {
+	if skillExitOwner != nil && d.Exited {
 		skillExitOwner.Stop()
 	}
 	flushGlyphRun()
@@ -2168,6 +2169,9 @@ func main() {
 		}
 	}
 	if skillExitOwner != nil {
+		if *skillExitExpectActive && (!skillExitOwner.Watcher.Active() || len(skillExitOwner.Presenter.ActiveKeys()) != 1) {
+			fail(fmt.Errorf("skill-exit snapshot 未保持指定 active layer"))
+		}
 		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *skillExitScale)
 		if err := os.WriteFile(*skillExitBaselineOut, baseline, 0o644); err != nil {
 			fail(err)
