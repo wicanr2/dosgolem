@@ -262,3 +262,66 @@ docker run --rm --network none --memory 2g --cpus 2 --pids-limit 512 \
 
 此 provenance 修正與單一 clean receipt 不足以升 READY；它只消除舊 receipt 身分不可重現的問題，
 不推翻 phase158 邊界停止線或取代正常玩家路徑 A/B。
+
+## 2026-09-23：phase162–172 DRAFT 補證（待獨立審查）
+
+狀態仍是 **DRAFT**。本節只追加可回讀證據與 typed prototype 修正；未把 bridge 接進
+dosgolem production，也未改變 spec004 的正式 Ebitengine hit-test／resize 取捨。
+
+所有新 receipt 的輸入仍是私有 `phase12-before-question.state` 與 `GAME.OVR`，metadata 均填
+dosgolem `ae36f540ee6097ab77c135d12d4c05c7520c315a`、`worktree=clean`、mouse API code commit、
+inner runner command、兩個輸入 SHA-256、Go 1.26.7 與 Ebitengine 2.9.9。每例都在
+`eob-remake-go:1.26.7-ebiten2.9.9` 的 `--network none` Docker/Xvfb 中從同一 state 重生；每個
+canvas click 均在 Down／Up 後各 bounded Step 50,000。
+
+### 實體矩陣
+
+| 範圍 | receipt 目錄與 SHA-256 | 已量結果 |
+| --- | --- | --- |
+| 2×／3×四個 canvas 內角 | `phase162-geometry-{2,3}x-{tl,tr,bl,br}`：`cbe9c301…`、`a1986705…`、`9b377efd…`、`e6657afd…`；`591ac4bd…`、`de3c0b55…`、`96c04a26…`、`4bcef766…` | 真實 Ebitengine Down/Up 皆為 `Move→Press→Move→Release`；DOS 點為 `(0|319,0|199)`。Xvfb 最右 physical pixel 的 exclusive 回報以 driver 注入校正取得內角；logical canvas 仍是 320×200，沒有 guard。 |
+| chrome Down | `phase163-geometry-2x-chrome`=`90094331…`、`phase164-geometry-3x-chrome`=`f000c1ea…` | 零 DOS API；3×實際 logical y=52，仍在 chrome，沒有以期望座標冒充。 |
+| accepted Down 後 cleanup | `phase165-{outside-up,panel-open-up,focus-loss}-{2,3}x`：`6e54033e…`、`bf131988…`、`e534c08a…`、`008ee997…`、`3e9dae96…`、`fe9bcb4a…`；右側另為 `phase169-outside-right-up-{2,3}x`=`c8945977…`、`22da9860…` | 每例先 `Move→Press`，cleanup 只有 `Release`，不移動最後 DOS `(100,82)`；右側實際 Up `(641,36)`／`(961,54)` 仍是 canvas 外。 |
+| panel open 新 pointer | `phase166-panel-all-2x`=`1cf7733d…`、`phase166-panel-all-3x`=`bdf9148a…` | 真實 Open hit、panel hit、blank miss 的 Down/Up 都由 host 消費，零 DOS API、零 pressed state。 |
+| orphan／repeated X11 release | `phase167-orphan-up-{2,3}x`=`f5751cab…`、`c46c109f…`；`phase167-repeated-up-{2,3}x`=`c2d941cc…`、`236fe42f…` | Ebitengine public API 未暴露孤兒或第二次 release edge；receipt 明記停止線與零 DOS API，沒有宣稱收到不存在的 callback。 |
+
+phase158 的**無 guard exclusive right/bottom 停止線維持不變**：right `(320*s,chrome)`、bottom
+`(0,chrome+200*s)` 位於真實視窗邊緣外，Ebitengine public API 沒有事件 receipt。它們不得以
+driver guard 或內角校正偽稱為已收到的 physical event；typed core 對這兩個座標仍 fail-closed。
+
+### 同 state control／click A/B
+
+control 與 inside click 都從同一 private state 起點、以相同兩段 50,000 Step 執行。2× control
+`phase170-control-2x` SHA-256 `f3caddf97f477d934929a82bf1c5b5c273b16f3133cbee5c320020206b0dc93e`，
+inside `phase170-inside-2x`=`eea7447eff473f9aad42e59271381ff1ef8043fb82c78415d2bcb10035724227`；
+3× control `phase172-control-3x`=`5d0ddb5076a99fd1a180d114d254bc01998d5b09c7c87ba9e9523fe4f0438cfd`，
+inside `phase172-inside-3x`=`e92e5d5fb79fcaf2c07074b214d5df51f4d677c728b25bf2bcf463d835c5df15`。
+
+四例的起點 indexed SHA-256 都是 `964943c39af4fe3a69655d3e39b47f2774ff6fdea684995a2ce08bd26ddd1bba`。
+兩個 control 的兩段後仍為同一 hash，mouse `(160,100)`、button 0 且零 API；兩個 click 都在
+Up 後變成 `13fcacde4c0b693f1478a290910d87571e86d153ab0b291da2e4546487bda7f8`，mouse `(100,82)`，
+呼叫是 `Move→Press→Move→Release`。因此本 checkpoint 的 indexed 差異可歸因於這次 click，
+但只證實這一條玩家 state／輸入，不能外推整個遊戲都可由滑鼠操作。
+
+### prototype 對稱性修正
+
+`Router` 在已有 accepted DOS Down 的情況下，任何 `Target != TargetCanvas` 的 Up 都固定呼叫
+`ReleaseOnly("non-canvas-target-release")`；數值座標即使仍落在 canvas 也不能再次 `Move`。
+`EpochRouter` 於 2×／3×分別驗 right `x=320*s`、bottom `y=chrome+200*s`、負 x/y Down 都回
+`canvas-target-snapshot-mismatch` 且零 DOS；另逐一驗 `TargetHost`、`TargetOutside`、未知 target 的
+canvas-coordinate Up，均只 Release、DOS 座標不變。這保留 Down epoch／host capture 的既有契約。
+
+本輪 source SHA-256：`phase128/bridge.go`=`2e2a854599a3364abc42796ab4d81dda8cf7b5023fdb3279e8250e06811a29e1`、
+`bridge_test.go`=`efa6ae1a11b334e3a9a9b5da6f3a12b1d66c1481fa3df6804c4f9cc23bc09633`、
+`epoch.go`=`fb052a423e890a1a2b79d8549006acf522c015e24c9d4cbd6f70e5d4aac14870`、
+`epoch_test.go`=`f13fb8dcba4f05a5ef189b4a67a6f8f76423df66027b4d0d2a428d6387ee773a`；
+實體 harness `mouse_receipt.go`=`bbbb2c66e0e8d6543077a65c97218606f1fc6676c93a6157da663f86cddc62bd`、
+`physical_mouse_receipt.sh`=`fbd3ab0fa6d8931e276291e1a425b7ae70b205e5fe10a4c9bb27cbd0e9c5545d`。
+在 Docker 中 `gofmt` 後，phase128 的 `go vet ./...`、`go test -count=1 ./...`、
+`go test -race -count=1 ./...` 已通過；phase118 harness 的 `go vet ./...` 已通過。
+
+### READY 前沿
+
+本限縮 MouseBridge typed 契約仍須由不同代理人獨立回讀上述 source、pure-core failure matrix 與
+receipt provenance，才可決定是否由 DRAFT 升 READY。READY 即使通過，也只授權 generic bridge
+production implementation；正式 Linux frontend 的 Ebitengine hit-test／resize、keyboard mapping、
+完整開機／存讀檔與其他遊戲滑鼠路徑仍在 spec004 的另外範圍，不能由本節宣稱 CONFORMED。
