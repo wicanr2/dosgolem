@@ -25,7 +25,14 @@ var postJoinKeys = []string{
 
 // PostJoinMenuCatalog accepts only the exact READY fixtures.  File hashes make
 // accidental edits and schema-compatible substitutions fail before execution.
-type PostJoinMenuCatalog struct{ base *MenuCatalog }
+type postJoinVariant struct {
+	key, variant string
+	identity     menuIdentity
+}
+type PostJoinMenuCatalog struct {
+	base     *MenuCatalog
+	variants map[menuIdentity]postJoinVariant
+}
 
 func postJoinFixtureHash(name, want string, data []byte) error {
 	got := fmt.Sprintf("%x", sha256.Sum256(data))
@@ -52,10 +59,35 @@ func LoadPostJoinMenuCatalog(events, variants, translations []byte) (*PostJoinMe
 		}
 		return nil, fmt.Errorf("post-join variant rows 必須恰為 21")
 	}
+	variantMap := make(map[menuIdentity]postJoinVariant, len(rows))
 	for i, r := range rows {
 		if r[0] != postJoinKeys[i/3] || r[1] != []string{"initial_normal", "normal_redraw", "selected"}[i%3] || r[9] != "phase161-cycle-exit-a-b" {
 			return nil, fmt.Errorf("post-join variant 順序或證據不符 at %d", i)
 		}
+		length, e := menuByte(r[2])
+		if e != nil {
+			return nil, fmt.Errorf("post-join variant length invalid")
+		}
+		hash, e := menuHash(r[3])
+		if e != nil {
+			return nil, fmt.Errorf("post-join variant hash invalid")
+		}
+		caller, e := menuAddress(r[4])
+		if e != nil {
+			return nil, fmt.Errorf("post-join variant caller invalid")
+		}
+		fields := [4]uint8{}
+		for j := range fields {
+			fields[j], e = menuByte(r[5+j])
+			if e != nil {
+				return nil, fmt.Errorf("post-join variant style invalid")
+			}
+		}
+		id := menuIdentity{length, hash, caller, fields[0], fields[1], fields[2], fields[3]}
+		if _, ok := variantMap[id]; ok {
+			return nil, fmt.Errorf("post-join variant identity duplicate")
+		}
+		variantMap[id] = postJoinVariant{r[0], r[1], id}
 	}
 	base, err := loadExactCatalog("post-join-menu-events.tsv", "post-join-menu.zh-TW.tsv", events, translations)
 	if err != nil {
@@ -64,7 +96,7 @@ func LoadPostJoinMenuCatalog(events, variants, translations []byte) (*PostJoinMe
 	if len(base.byIdentity) != 7 {
 		return nil, fmt.Errorf("post-join event rows 必須恰為 7")
 	}
-	return &PostJoinMenuCatalog{base: base}, nil
+	return &PostJoinMenuCatalog{base: base, variants: variantMap}, nil
 }
 
 type PostJoinMenuGeneration struct {
@@ -94,12 +126,18 @@ func (w *PostJoinMenuWatcher) ObserveEntry(e TextEvent) error {
 	if w == nil || w.failed || w.pending != nil || e.PostCallStep != 0 {
 		return w.fail("entry state invalid")
 	}
-	if _, ok := w.c.base.byIdentity[menuIdentity{e.OriginalLength, e.OriginalSHA256, e.Caller, e.Background, e.Foreground, e.Row, e.Column}]; !ok {
+	id := menuIdentity{e.OriginalLength, e.OriginalSHA256, e.Caller, e.Background, e.Foreground, e.Row, e.Column}
+	v, ok := w.c.variants[id]
+	if !ok {
 		return w.fail("unknown post-join identity")
 	}
 	expect := "initial_normal"
 	row := w.stage
-	if w.active || w.stage == 8 {
+	if w.stage == 7 {
+		expect = "selected"
+		row = 0
+	}
+	if w.stage == 8 {
 		expect = "normal_redraw"
 		row = w.selected
 	}
@@ -107,7 +145,7 @@ func (w *PostJoinMenuWatcher) ObserveEntry(e TextEvent) error {
 		expect = "selected"
 		row = w.selected + 1
 	}
-	if row < 0 || row >= 7 || e.Row != uint8([]int{13, 14, 15, 16, 18, 19, 20}[row]) || (expect == "initial_normal" && e.Caller != (Address{0x37f1, 0x15bd})) || (expect == "normal_redraw" && e.Caller != (Address{0x37f1, 0x1856})) || (expect == "selected" && e.Caller != (Address{0x37f1, 0x175d})) {
+	if row < 0 || row >= 7 || v.key != postJoinKeys[row] || v.variant != expect {
 		return w.fail("variant/generation mismatch")
 	}
 	w.pending = &e
@@ -145,7 +183,7 @@ func (w *PostJoinMenuWatcher) Prewrite(v machine.VideoWrite) {
 	}
 	// Any intersecting byte, even an unchanged byte, has already made the old
 	// RGBA layer unsafe. Unknown writers fail closed rather than retain pixels.
-	if w.pending == nil && !w.active {
+	if v.CS != 0x0763 || v.IP != 0x184d || (w.pending == nil && !w.active) {
 		w.failed = true
 		return
 	}
