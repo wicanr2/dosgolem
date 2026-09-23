@@ -425,6 +425,30 @@ func TestEGABitMaskKeepsUntouchedBits(t *testing.T) {
 	}
 }
 
+func TestVideoWriteObserverIsOptionalSeesSameValueAndRunsBeforeWrite(t *testing.T) {
+	m := New()
+	m.SetVideoMode(0x13)
+	const at = uint32(VideoSeg * 16)
+	m.Write8(at, 0x5A)
+	var got []VideoWrite
+	m.ObserveVideoWrites(func(w VideoWrite) {
+		if current := m.Mem[at]; current != 0x5A {
+			t.Fatalf("observer 不是 pre-write：current=%02X", current)
+		}
+		got = append(got, w)
+	})
+	m.Write8(at, 0x5A) // 同值 store 仍須可見。
+	m.Write8(0x90000, 0x11)
+	if len(got) != 1 || got[0].Offset != 0 || got[0].Value != 0x5A {
+		t.Fatalf("observer=%+v", got)
+	}
+	m.ObserveVideoWrites(nil)
+	m.Write8(at, 0x33)
+	if len(got) != 1 {
+		t.Fatalf("nil 未關閉 observer：%+v", got)
+	}
+}
+
 // TestEGASetResetPicksColour 釘住 Set/Reset：打開的平面用 Set/Reset 的顏色，
 // 不是 CPU 寫進去的值。
 func TestEGASetResetPicksColour(t *testing.T) {

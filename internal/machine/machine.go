@@ -229,6 +229,7 @@ type Machine struct {
 	rWatchLo, rWatchHi uint32
 	onRead             func(addr uint32, v uint8)
 	onWrite            func(addr uint32, old, new uint8)
+	onVideoWrite       func(VideoWrite)
 
 	// OPL2／OPL3 的狀態。
 	//
@@ -474,6 +475,20 @@ type Machine struct {
 	ImageLen  int
 }
 
+// VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
+// 診斷；content-safe receipt 必須自行投影，不得原樣輸出。
+type VideoWrite struct {
+	Step      uint64
+	CS, IP    uint16
+	Offset    uint32
+	Value     uint8
+	WriteMode uint8
+}
+
+// ObserveVideoWrites 掛上 A000 pre-write observer；nil 關閉。callback 在
+// VGA.Write 前呼叫，因此同值 write 也可見，且不得改變執行狀態。
+func (m *Machine) ObserveVideoWrites(fn func(VideoWrite)) { m.onVideoWrite = fn }
+
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。
 //
 // **還沒有程式**——要呼叫 LoadEXE。
@@ -632,6 +647,10 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		return
 	}
 	a &= 0xFFFFF
+	if m.onVideoWrite != nil && a >= vgaLo && a < vgaHi {
+		cs, ip := m.CPU.OpAddr()
+		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode()})
+	}
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
 		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，

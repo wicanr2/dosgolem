@@ -1183,6 +1183,21 @@ func main() {
 	var bodyIconFramebufferWrites []bodyIconFramebufferWriteJSON
 	var bodyIconVideoWrites []bodyIconVideoWriteJSON
 	var bodyIconBefore []byte
+	if *bodyIconFramebufferTrace {
+		m.ObserveVideoWrites(func(w machine.VideoWrite) {
+			if w.Step < *bodyIconFramebufferTraceFrom {
+				return
+			}
+			keys := bodyIconSpanIntersections(bodyRects, uint16(w.Offset), 1)
+			if len(keys) == 0 {
+				return
+			}
+			if len(bodyIconVideoWrites) >= 65536 {
+				fail(fmt.Errorf("body-icon A000 pre-write trace 超過 65536 筆"))
+			}
+			bodyIconVideoWrites = append(bodyIconVideoWrites, bodyIconVideoWriteJSON{w.Step, buckrogers.Address{Segment: w.CS, Offset: w.IP}, 0xA000, uint16(w.Offset), 1, keys})
+		})
+	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
 	if *storyPixelTrace {
@@ -1222,14 +1237,6 @@ func main() {
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		if *bodyIconFramebufferTrace && bodyIconBefore == nil && m.Steps >= *bodyIconFramebufferTraceFrom {
 			bodyIconBefore = append([]byte(nil), m.Indexed()...)
-		}
-		if bodyIconBefore != nil {
-			if item, ok := bodyIconPreExecutionVideoWrite(m.Steps, at, m.Read8(cpu.Addr(at.Segment, at.Offset)), m.Read8(cpu.Addr(at.Segment, at.Offset+1)), m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], bodyRects); ok {
-				if len(bodyIconVideoWrites) >= 65536 {
-					fail(fmt.Errorf("body-icon pre-execution video-write trace 超過 65536 筆"))
-				}
-				bodyIconVideoWrites = append(bodyIconVideoWrites, item)
-			}
 		}
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
 		if *instructionTraceFrom != 0 && *instructionTraceLimit != 0 && m.Steps >= *instructionTraceFrom && uint64(len(instructionTrace)) < *instructionTraceLimit {
