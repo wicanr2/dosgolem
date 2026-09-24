@@ -171,6 +171,9 @@ func TestOwnerAdvanceSyntheticCOMPreservesRawMachineErrorOverStopBudget(t *testi
 		receipt.Steps != 2 || receipt.Reason != StopReasonOriginalFault || receipt.Phase != PhaseFailed {
 		t.Fatalf("error receipt = (%+v, %v), want raw error priority and two attempts", receipt, err)
 	}
+	if status := o.Status(); !errors.Is(status.FirstFault, receipt.RawError) {
+		t.Fatalf("raw-error status = %+v, want first fault to retain RawError", status)
+	}
 	if closer.calls != 1 {
 		t.Fatalf("close calls = %d, want 1", closer.calls)
 	}
@@ -252,13 +255,16 @@ func TestOwnerDeliverPanelBatchesPauseAndQuarantineKeyboard(t *testing.T) {
 
 func TestOwnerDeliverRejectsMixedPointerBeforeAnyDOSOrEpochEffect(t *testing.T) {
 	o := startSyntheticOwner(t, []byte{0x90, 0x90})
-	start := ownerPanel(t, o)
+	view := ownerView(t, o)
+	start := view.Panel
 	pointer := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
 	receipt, err := o.Deliver(CapturedUpdate{
-		StartedPanel: start,
-		PanelEvents:  []host.PanelEvent{{Kind: host.PanelEventOpen}},
-		PointerDown:  &pointer,
-		BIOSKeys:     []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
+		StartedPanel:     start,
+		Layout:           view.Layout,
+		SourceGeneration: view.SourceGeneration,
+		PanelEvents:      []host.PanelEvent{{Kind: host.PanelEventOpen}},
+		PointerDown:      &pointer,
+		BIOSKeys:         []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
 	})
 	if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
 		o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
@@ -276,12 +282,12 @@ func TestOwnerDeliverPointerAndFocusRoutesAgainstSealedLayout(t *testing.T) {
 
 	t.Run("cross-turn canvas Down then Up", func(t *testing.T) {
 		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90, 0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
-		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down})
+		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down})
 		if err != nil || r.Epoch != 1 || r.Paused || r.DOSCallsCommitted != 2 || !o.mouse.Pressed() || o.dos.Mouse.Buttons != 1 {
 			t.Fatalf("Down Deliver = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
 		}
 		consumeRunningTurn(t, o, 1)
-		r, err = o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerUp: &up})
+		r, err = o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerUp: &up})
 		if err != nil || r.Epoch != 2 || r.DOSCallsCommitted != 2 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 {
 			t.Fatalf("Up Deliver = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
 		}
@@ -289,7 +295,7 @@ func TestOwnerDeliverPointerAndFocusRoutesAgainstSealedLayout(t *testing.T) {
 
 	t.Run("same-turn Down plus Up", func(t *testing.T) {
 		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
-		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down, PointerUp: &up})
+		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down, PointerUp: &up})
 		if err != nil || r.Epoch != 1 || r.DOSCallsCommitted != 4 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 {
 			t.Fatalf("same-turn Deliver = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
 		}
@@ -303,15 +309,15 @@ func TestOwnerDeliverPointerAndFocusRoutesAgainstSealedLayout(t *testing.T) {
 			{"outside-Up", func(o *Owner) CapturedUpdate {
 				outside := up
 				outside.Target = host.MouseTargetOutside
-				return CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerUp: &outside}
+				return CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerUp: &outside}
 			}},
 			{"focus-lost", func(o *Owner) CapturedUpdate {
-				return CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, FocusLost: true}
+				return CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, FocusLost: true}
 			}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
-				if _, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down}); err != nil {
+				if _, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down}); err != nil {
 					t.Fatal(err)
 				}
 				consumeRunningTurn(t, o, 1)
@@ -326,7 +332,7 @@ func TestOwnerDeliverPointerAndFocusRoutesAgainstSealedLayout(t *testing.T) {
 	t.Run("open panel consumes pointer without DOS", func(t *testing.T) {
 		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
 		openOwnerPanelForTest(t, o)
-		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down})
+		r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down})
 		if err != nil || r.Epoch != 1 || !r.Paused || r.DOSCallsCommitted != 0 || o.mouse.Pressed() || !o.mouse.HostCaptured() || len(o.dos.Mouse.Events) != 0 {
 			t.Fatalf("open-panel Deliver = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
 		}
@@ -338,7 +344,7 @@ func TestOwnerDeliverRejectsStalePointerLayoutBeforeDOSAction(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
 	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
 	stale := sessionLayout(2, host.OutputScale2, false)
-	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: stale, PointerDown: &down})
+	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: stale, SourceGeneration: o.generation, PointerDown: &down})
 	if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed || o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
 		t.Fatalf("stale layout Deliver = (%+v, %v), mouse=%+v steps=%d", receipt, err, o.dos.Mouse, o.machine.Steps)
 	}
@@ -346,10 +352,13 @@ func TestOwnerDeliverRejectsStalePointerLayoutBeforeDOSAction(t *testing.T) {
 
 func TestOwnerDeliverOpenAtomicallyProjectsPrivateLayout(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+	view := ownerView(t, o)
 	receipt, err := o.Deliver(CapturedUpdate{
-		StartedPanel: ownerPanel(t, o),
-		PanelEvents:  []host.PanelEvent{{Kind: host.PanelEventOpen}},
-		BIOSKeys:     []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
+		StartedPanel:     view.Panel,
+		Layout:           view.Layout,
+		SourceGeneration: view.SourceGeneration,
+		PanelEvents:      []host.PanelEvent{{Kind: host.PanelEventOpen}},
+		BIOSKeys:         []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
 	})
 	want := sessionLayout(2, host.OutputScale2, true)
 	got, hasLayout := o.mouse.Layout()
@@ -383,7 +392,7 @@ func TestOwnerDeliverRejectsExistingPanelLayoutDriftBeforePointerDOSAction(t *te
 		t.Fatal(err)
 	}
 	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
-	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down})
+	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down})
 	if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
 		o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
 		t.Fatalf("drifted panel pointer Deliver = (%+v, %v), BIOS=%d mouse=%v steps=%d",
@@ -396,7 +405,7 @@ func TestOwnerDeliverRejectsConflictingHostHitAndCanvasDownBeforeDOSAction(t *te
 		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
 		down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
 		receipt, err := o.Deliver(CapturedUpdate{
-			StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down,
+			StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down,
 			PanelEvents: []host.PanelEvent{{Kind: kind}},
 		})
 		if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
@@ -411,7 +420,7 @@ func TestOwnerDeliverHostDownOpenDoesNotTouchDOS(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
 	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 600, Y: 10, Target: host.MouseTargetHost}
 	receipt, err := o.Deliver(CapturedUpdate{
-		StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down,
+		StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down,
 		PanelEvents: []host.PanelEvent{{Kind: host.PanelEventOpen}},
 	})
 	if err != nil || receipt.Epoch != 1 || !receipt.Paused || receipt.DOSCallsCommitted != 0 ||
@@ -422,18 +431,48 @@ func TestOwnerDeliverHostDownOpenDoesNotTouchDOS(t *testing.T) {
 	}
 }
 
-func TestOwnerDeliverFocusLostReleasesPressedMouseWithStaleCapturedLayout(t *testing.T) {
+func TestOwnerDeliverFocusLostReleasesPressedMouseWithCurrentViewLayout(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
 	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
-	if _, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down}); err != nil {
+	if _, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down}); err != nil {
 		t.Fatal(err)
 	}
 	consumeRunningTurn(t, o, 1)
-	stale := sessionLayout(2, host.OutputScale2, false)
-	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: stale, FocusLost: true})
+	view := ownerView(t, o)
+	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, FocusLost: true})
 	if err != nil || receipt.Epoch != 2 || receipt.DOSCallsCommitted != 1 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 {
-		t.Fatalf("stale-layout FocusLost = (%+v, %v), mouse=%+v", receipt, err, o.dos.Mouse)
+		t.Fatalf("current-layout FocusLost = (%+v, %v), mouse=%+v", receipt, err, o.dos.Mouse)
 	}
+}
+
+func TestOwnerDeliverRejectsSplicedLayoutBeforeDOSAction(t *testing.T) {
+	t.Run("keyboard-only", func(t *testing.T) {
+		o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+		view := ownerView(t, o)
+		stale := view.Layout
+		stale.Epoch++
+		receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: stale, SourceGeneration: view.SourceGeneration, BIOSKeys: []dos.Key{{Scan: 0x1C, ASCII: 0x0D}}})
+		if err == nil || receipt.Epoch != 0 || o.epoch != 0 || o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.Status().Phase != PhaseFailed || o.closer.(*countingCloser).calls != 1 {
+			t.Fatalf("spliced keyboard layout = (%+v, %v), epoch=%d keys=%d events=%d status=%+v close=%d", receipt, err, o.epoch, o.dos.KeysPending(), len(o.dos.Mouse.Events), o.Status(), o.closer.(*countingCloser).calls)
+		}
+	})
+	t.Run("focus-lost", func(t *testing.T) {
+		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+		down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
+		view := ownerView(t, o)
+		if _, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, PointerDown: &down}); err != nil {
+			t.Fatal(err)
+		}
+		consumeRunningTurn(t, o, 1)
+		view = ownerView(t, o)
+		stale := view.Layout
+		stale.Epoch++
+		beforeEvents, beforeEpoch := len(o.dos.Mouse.Events), o.epoch
+		receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: stale, SourceGeneration: view.SourceGeneration, FocusLost: true})
+		if err == nil || receipt.Epoch != beforeEpoch || o.epoch != beforeEpoch || len(o.dos.Mouse.Events) != beforeEvents || o.Status().Phase != PhaseFailed || o.closer.(*countingCloser).calls != 1 {
+			t.Fatalf("spliced FocusLost layout = (%+v, %v), epoch=%d events=%d status=%+v close=%d", receipt, err, o.epoch, len(o.dos.Mouse.Events), o.Status(), o.closer.(*countingCloser).calls)
+		}
+	})
 }
 
 func TestOwnerDeliverProjectsPrivateLayoutAcrossOpenApplyCancel(t *testing.T) {
@@ -451,7 +490,7 @@ func TestOwnerDeliverProjectsPrivateLayoutAcrossOpenApplyCancel(t *testing.T) {
 	deliver := func(event host.PanelEvent, want host.MouseLayout) {
 		t.Helper()
 		r, err := o.Deliver(CapturedUpdate{
-			StartedPanel: ownerPanel(t, o), Layout: o.layout,
+			StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation,
 			PanelEvents: []host.PanelEvent{event}, BIOSKeys: []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
 		})
 		if err != nil || !r.Paused || r.DOSCallsCommitted != 0 || o.dos.KeysPending() != 0 {
@@ -478,7 +517,7 @@ func TestOwnerDeliverProjectsPrivateLayoutAcrossOpenApplyCancel(t *testing.T) {
 	deliver(host.PanelEvent{Kind: host.PanelEventCancel}, closedAfterCancel)
 
 	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 300, Y: closedAfterCancel.ChromeHeight + 150, Target: host.MouseTargetCanvas}
-	r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down})
+	r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &down})
 	if err != nil || r.Paused || r.DOSCallsCommitted != 2 || o.dos.Mouse.X != 100 || o.dos.Mouse.Y != 50 || !o.mouse.Pressed() {
 		t.Fatalf("post-projection canvas Down = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
 	}
@@ -488,7 +527,7 @@ func TestOwnerDeliverProjectsPrivateLayoutAcrossOpenApplyCancel(t *testing.T) {
 	deliver(host.PanelEvent{Kind: host.PanelEventOpen}, sessionLayout(6, host.OutputScale3, true))
 	beforeEvents := len(o.dos.Mouse.Events)
 	up := host.MouseEvent{Kind: host.MouseEventUp, Button: 0, X: 300, Y: o.layout.ChromeHeight + 150, Target: host.MouseTargetCanvas}
-	r, err = o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerUp: &up})
+	r, err = o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerUp: &up})
 	if err != nil || !r.Paused || r.DOSCallsCommitted != 1 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 || len(o.dos.Mouse.Events) != beforeEvents {
 		t.Fatalf("cross-layout Up = (%+v, %v), mouse=%+v events=%v", r, err, o.dos.Mouse, o.dos.Mouse.Events)
 	}
@@ -506,7 +545,7 @@ func TestOwnerDeliverReceiptCountsCommittedCallsNotUnchangedMoveEvents(t *testin
 		Target: host.MouseTargetCanvas,
 	}
 	receipt, err := o.Deliver(CapturedUpdate{
-		StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &downAtInitialPosition,
+		StartedPanel: ownerPanel(t, o), Layout: o.layout, SourceGeneration: o.generation, PointerDown: &downAtInitialPosition,
 	})
 	if err != nil || receipt.DOSCallsCommitted != 2 {
 		t.Fatalf("unchanged-position Down = (%+v, %v), want two committed calls", receipt, err)
@@ -515,6 +554,159 @@ func TestOwnerDeliverReceiptCountsCommittedCallsNotUnchangedMoveEvents(t *testin
 		o.dos.Mouse.Events[0].Buttons != dos.EvLeftDown {
 		t.Fatalf("unchanged MoveMouse must not claim a move event: mouse=%+v events=%+v", o.dos.Mouse, o.dos.Mouse.Events)
 	}
+}
+
+func TestOwnerViewOnlyReturnsCanonicalRunningValueState(t *testing.T) {
+	boot, err := New(Config{InitialScale: host.OutputScale2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := boot.View(); err == nil || got != (View{}) || boot.Status().Phase != PhaseBooting {
+		t.Fatalf("Booting View = (%+v, %v), status=%+v; want zero View without fault", got, err, boot.Status())
+	}
+	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+	got := ownerView(t, o)
+	if got.Phase != PhaseRunning || got.Panel != ownerPanel(t, o) || got.Layout != o.layout || got.Epoch != 0 || got.SourceGeneration != 1 {
+		t.Fatalf("Running View = %+v, want canonical initial value state", got)
+	}
+	o.layout.ChromeHeight++
+	if got, err := o.View(); err == nil || got != (View{}) || o.Status().Phase != PhaseFailed || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("noncanonical View = (%+v, %v), status=%+v close=%d; want zero fault", got, err, o.Status(), o.closer.(*countingCloser).calls)
+	}
+}
+
+func TestOwnerViewPanelSnapshotFaultReturnsZeroThenStatusOnly(t *testing.T) {
+	o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+	o.panel = nil // host.PanelController specifies Snapshot failure for nil.
+	got, err := o.View()
+	if err == nil || got != (View{}) || o.Status().Phase != PhaseFailed || o.Status().FirstFault == nil || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("fault View = (%+v, %v), status=%+v close=%d", got, err, o.Status(), o.closer.(*countingCloser).calls)
+	}
+	if got, err := o.View(); err == nil || got != (View{}) || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("failed repeat View = (%+v, %v), close=%d; want zero without snapshot retry", got, err, o.closer.(*countingCloser).calls)
+	}
+}
+
+func TestOwnerDeliverWithoutPrivateLayoutFailsBeforeKeyboardDOS(t *testing.T) {
+	o := newTestOwner(t, nil)
+	if err := o.machine.LoadCOM([]byte{0x90}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.startLoadedMachine(); err != nil {
+		t.Fatal(err)
+	}
+	start := ownerPanel(t, o)
+	receipt, err := o.Deliver(CapturedUpdate{
+		StartedPanel: start, Layout: host.MouseLayout{}, SourceGeneration: o.generation,
+		BIOSKeys: []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
+	})
+	if err == nil || receipt.Epoch != 0 || o.epoch != 0 || o.dos.KeysPending() != 0 || o.machine.Steps != 0 || o.Status().Phase != PhaseFailed || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("zero-layout keyboard Deliver = (%+v, %v), epoch=%d keys=%d steps=%d status=%+v close=%d", receipt, err, o.epoch, o.dos.KeysPending(), o.machine.Steps, o.Status(), o.closer.(*countingCloser).calls)
+	}
+	if got, err := o.View(); err == nil || got != (View{}) || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("failed zero-layout View = (%+v, %v), close=%d", got, err, o.closer.(*countingCloser).calls)
+	}
+}
+
+func TestOwnerViewTerminalPhasesReturnZeroAndLeaveStatusReadable(t *testing.T) {
+	stopped := startSyntheticOwnerWithLayout(t, []byte{0xB8, 0x00, 0x4C, 0xCD, 0x21}, sessionLayout(1, host.OutputScale2, false))
+	if _, err := stopped.acceptTurn(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stopped.Advance(2); err != nil || stopped.Status().Phase != PhaseStopped {
+		t.Fatalf("stop Advance = %v, status=%+v", err, stopped.Status())
+	}
+	for _, tc := range []struct {
+		name string
+		o    *Owner
+	}{
+		{"Stopped", stopped},
+		{"Failed", func() *Owner {
+			o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+			_ = o.ReportDrawFault(errors.New("draw"))
+			return o
+		}()},
+		{"Closed", func() *Owner {
+			o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+			_ = o.Close()
+			return o
+		}()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := tc.o.View(); err == nil || got != (View{}) || tc.o.Status().Phase == PhaseRunning {
+				t.Fatalf("%s View = (%+v, %v), status=%+v; want zero and Status-only", tc.name, got, err, tc.o.Status())
+			}
+		})
+	}
+}
+
+func TestOwnerViewFreshAndSameValueABATokens(t *testing.T) {
+	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+	fresh := ownerView(t, o)
+	if receipt, err := o.Deliver(CapturedUpdate{StartedPanel: fresh.Panel, Layout: fresh.Layout, SourceGeneration: fresh.SourceGeneration}); err != nil || receipt.Epoch != 1 {
+		t.Fatalf("fresh View Deliver = (%+v, %v)", receipt, err)
+	}
+	// This is a real owner View captured while the accepted turn is pending.
+	// Advance consumes only pending state, so all exported value fields except
+	// SourceGeneration remain identical afterwards.
+	beforeAdvance := ownerView(t, o)
+	consumeRunningTurn(t, o, 1)
+	now := ownerView(t, o)
+	if beforeAdvance.Panel != now.Panel || beforeAdvance.Layout != now.Layout || beforeAdvance.Epoch != now.Epoch || beforeAdvance.SourceGeneration == now.SourceGeneration {
+		t.Fatalf("Advance ABA setup before=%+v now=%+v; want same values except generation", beforeAdvance, now)
+	}
+	beforeEpoch, beforeCalls := o.epoch, len(o.dos.Mouse.Events)
+	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: beforeAdvance.Panel, Layout: beforeAdvance.Layout, SourceGeneration: beforeAdvance.SourceGeneration})
+	if err == nil || receipt.Epoch != beforeEpoch || o.epoch != beforeEpoch || len(o.dos.Mouse.Events) != beforeCalls || o.Status().Phase != PhaseFailed || o.closer.(*countingCloser).calls != 1 {
+		t.Fatalf("same-value ABA Deliver = (%+v, %v), epoch=%d events=%d status=%+v close=%d; want pre-DOS rejection and one close", receipt, err, o.epoch, len(o.dos.Mouse.Events), o.Status(), o.closer.(*countingCloser).calls)
+	}
+}
+
+func TestOwnerViewTracks2xTo3xTo2xAndAdvanceGeneration(t *testing.T) {
+	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90, 0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+	deliverPause := func(event host.PanelEvent, wantScale host.OutputScale, wantOpen bool) {
+		t.Helper()
+		view := ownerView(t, o)
+		receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, PanelEvents: []host.PanelEvent{event}})
+		if err != nil || !receipt.Paused {
+			t.Fatalf("%v Deliver = (%+v, %v)", event.Kind, receipt, err)
+		}
+		before := ownerView(t, o)
+		consumePausedTurn(t, o, receipt.Epoch)
+		after := ownerView(t, o)
+		if after.Epoch != before.Epoch || after.SourceGeneration != before.SourceGeneration+1 || after.Layout.Scale != wantScale || after.Layout.PanelOpen != wantOpen {
+			t.Fatalf("%v View after Advance = %+v, want scale=%d open=%t and consumed generation", event.Kind, after, wantScale, wantOpen)
+		}
+	}
+	deliverPause(host.PanelEvent{Kind: host.PanelEventOpen}, host.OutputScale2, true)
+	deliverPause(host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale3}, host.OutputScale2, true)
+	deliverPause(host.PanelEvent{Kind: host.PanelEventApply}, host.OutputScale3, false)
+	deliverPause(host.PanelEvent{Kind: host.PanelEventOpen}, host.OutputScale3, true)
+	deliverPause(host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale2}, host.OutputScale3, true)
+	deliverPause(host.PanelEvent{Kind: host.PanelEventApply}, host.OutputScale2, false)
+}
+
+func TestOwnerSourceGenerationOverflowRejectsBeforeDOSOrMachine(t *testing.T) {
+	t.Run("Deliver", func(t *testing.T) {
+		o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+		view := ownerView(t, o)
+		o.generation = ^uint64(0)
+		receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: ^uint64(0)})
+		if err == nil || receipt.Epoch != 0 || o.epoch != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 || o.Status().Phase != PhaseFailed {
+			t.Fatalf("overflow Deliver = (%+v, %v), epoch=%d events=%d steps=%d status=%+v", receipt, err, o.epoch, len(o.dos.Mouse.Events), o.machine.Steps, o.Status())
+		}
+	})
+	t.Run("Advance", func(t *testing.T) {
+		o := startSyntheticOwnerWithLayout(t, []byte{0x90}, sessionLayout(1, host.OutputScale2, false))
+		if _, err := o.acceptTurn(); err != nil {
+			t.Fatal(err)
+		}
+		o.generation = ^uint64(0)
+		receipt, err := o.Advance(1)
+		if err == nil || receipt.Steps != 0 || o.machine.Steps != 0 || o.Status().Phase != PhaseFailed {
+			t.Fatalf("overflow Advance = (%+v, %v), machine steps=%d status=%+v", receipt, err, o.machine.Steps, o.Status())
+		}
+	})
 }
 
 type countingCloser struct {
@@ -543,6 +735,11 @@ func newTestOwner(t *testing.T, closer resourceCloser) *Owner {
 func startSyntheticOwner(t *testing.T, code []byte) *Owner {
 	t.Helper()
 	o := newTestOwner(t, nil)
+	layout := sessionLayout(1, host.OutputScale2, false)
+	if err := o.mouse.ApplyLayout(layout); err != nil {
+		t.Fatal(err)
+	}
+	o.layout, o.layoutSet = layout, true
 	if err := o.machine.LoadCOM(code); err != nil {
 		t.Fatal(err)
 	}
@@ -603,11 +800,21 @@ func ownerPanel(t *testing.T, o *Owner) host.PanelState {
 
 func deliverOwner(t *testing.T, o *Owner, events []host.PanelEvent, keys []dos.Key) InputReceipt {
 	t.Helper()
-	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), PanelEvents: events, BIOSKeys: keys})
+	view := ownerView(t, o)
+	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, PanelEvents: events, BIOSKeys: keys})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return receipt
+}
+
+func ownerView(t *testing.T, o *Owner) View {
+	t.Helper()
+	view, err := o.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view
 }
 
 func consumePausedTurn(t *testing.T, o *Owner, epoch uint64) {

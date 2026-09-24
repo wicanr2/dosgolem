@@ -72,11 +72,15 @@ type TickReceipt struct {
 type CapturedUpdate struct {
 	StartedPanel host.PanelState
 	Layout       host.MouseLayout
-	PanelEvents  []host.PanelEvent
-	PointerDown  *host.MouseEvent
-	PointerUp    *host.MouseEvent
-	FocusLost    bool
-	BIOSKeys     []dos.Key
+	// SourceGeneration, StartedPanel, and Layout must come from one Owner.View
+	// result. Zero is never a compatibility token: accepting it would permit a
+	// same-value ABA source to bypass the sealed owner check.
+	SourceGeneration uint64
+	PanelEvents      []host.PanelEvent
+	PointerDown      *host.MouseEvent
+	PointerUp        *host.MouseEvent
+	FocusLost        bool
+	BIOSKeys         []dos.Key
 }
 
 // InputReceipt records a successfully accepted update. Epoch is an accepted
@@ -105,6 +109,17 @@ type Status struct {
 	Phase      Phase
 	FirstFault error
 	CloseError error
+}
+
+// View is the immutable routing-input snapshot of a sealed Running owner. It
+// contains neither an owned target nor a mutable bridge.  It is deliberately
+// not a presentation-pixel snapshot.
+type View struct {
+	Phase            Phase
+	Panel            host.PanelState
+	Layout           host.MouseLayout
+	Epoch            uint64
+	SourceGeneration uint64
 }
 
 // Owner privately owns the resources which must share a session lifetime.
@@ -265,6 +280,15 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 	if o.epoch == ^uint64(0) || o.generation == ^uint64(0) {
 		return deliveredPlan{}, errors.New("session: epoch 或 generation 溢位")
 	}
+	if update.SourceGeneration == 0 || update.SourceGeneration != o.generation {
+		return deliveredPlan{}, errors.New("session: CapturedUpdate 的 SourceGeneration 與 owner 不一致")
+	}
+	// Every batch's three capture values must be one View result, even when it
+	// contains no pointer. FocusLost retains MouseBridge's release exception
+	// for its event routing, but cannot use a separately stale batch layout.
+	if update.Layout != o.layout {
+		return deliveredPlan{}, errors.New("session: CapturedUpdate 的 layout 與 owner 不一致")
+	}
 	if err := o.keyboard.ValidateBIOSForPanel(o.panel); err != nil {
 		return deliveredPlan{}, err
 	}
@@ -272,26 +296,30 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 	if err != nil {
 		return deliveredPlan{}, err
 	}
+	if !o.layoutSet {
+		return deliveredPlan{}, errors.New("session: Running owner 缺少私有 layout")
+	}
+	canonical, changed, err := host.ProjectPresentationLayout(o.layout, base)
+	if err != nil || changed || canonical != o.layout {
+		if err == nil {
+			err = errors.New("session: owner 私有 layout 未按目前 panel 正規化")
+		}
+		return deliveredPlan{}, err
+	}
+	baseMouse := o.mouse.Snapshot()
+	if !baseMouse.HasCurrent || baseMouse.Current != o.layout {
+		return deliveredPlan{}, errors.New("session: owner mouse snapshot 與私有 layout 不一致")
+	}
 	if update.StartedPanel != base {
 		return deliveredPlan{}, errors.New("session: CapturedUpdate 的起點 panel 與 owner 不一致")
 	}
-	plan := deliveredPlan{owner: o, generation: o.generation, base: base, final: base, baseMouse: o.mouse.Snapshot(), layout: o.layout}
+	plan := deliveredPlan{owner: o, generation: o.generation, base: base, final: base, baseMouse: baseMouse, layout: o.layout}
 	plan.finalMouse = plan.baseMouse
-	if o.layoutSet && (o.layout.Scale != base.Scales.ActiveScale || o.layout.PanelOpen != base.Open ||
-		!plan.baseMouse.HasCurrent || plan.baseMouse.Current != o.layout) {
-		return deliveredPlan{}, errors.New("session: owner layout、mouse snapshot 與 panel 不一致")
-	}
 	hasPointer := update.PointerDown != nil || update.PointerUp != nil || update.FocusLost
 	if hasPointer {
-		if !o.layoutSet {
-			return deliveredPlan{}, errors.New("session: pointer/focus Deliver 缺少 owner 私有 layout")
-		}
 		// MouseBridge deliberately permits FocusLost to release an existing
-		// press even when its event carries an old layout. Down and Up do not
-		// have that exception: their captured layout must still be current.
-		if (update.PointerDown != nil || update.PointerUp != nil) && update.Layout != o.layout {
-			return deliveredPlan{}, errors.New("session: pointer/focus CapturedUpdate 的 layout 與 owner 不一致")
-		}
+		// press even after its internal press epoch has changed. The batch layout
+		// itself was already required above to be the current View layout.
 		if !plan.baseMouse.HasCurrent || plan.baseMouse.Current != o.layout {
 			return deliveredPlan{}, errors.New("session: owner mouse snapshot 與私有 layout 不一致")
 		}
@@ -478,19 +506,24 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	if !o.turnPending {
 		return o.frontendFaultReceipt(receipt, errors.New("session: Advance 前必須先由 Deliver 接納一個回合"))
 	}
+	if !o.turnPaused && budget == 0 {
+		return o.frontendFaultReceipt(receipt, errors.New("session: InstructionBudget 必須為正數"))
+	}
+	if o.generation == ^uint64(0) {
+		return o.frontendFaultReceipt(receipt, errors.New("session: Advance 前 SourceGeneration 溢位"))
+	}
 	o.turnPending = false
 	if o.turnPaused {
 		o.turnPaused = false
+		o.generation++
 		receipt.Phase = o.phase
 		receipt.Reason = StopReasonPanelPaused
 		return receipt, nil
 	}
-	if budget == 0 {
-		return o.frontendFaultReceipt(receipt, errors.New("session: InstructionBudget 必須為正數"))
-	}
 	if o.dos.Exited {
 		o.phase = PhaseStopped
 		o.terminalReason = StopReasonProgramStopped
+		o.generation++
 		receipt.Phase = o.phase
 		receipt.Reason = o.terminalReason
 		return receipt, nil
@@ -515,6 +548,7 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	if o.dos.Exited {
 		o.phase = PhaseStopped
 		o.terminalReason = StopReasonProgramStopped
+		o.generation++
 		receipt.Phase = o.phase
 		receipt.Reason = o.terminalReason
 		return receipt, nil
@@ -522,6 +556,7 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	switch rawStop {
 	case machine.StopBudget:
 		if receipt.Steps == uint64(budget) {
+			o.generation++
 			receipt.Phase = o.phase
 			receipt.Reason = StopReasonBudgetExhausted
 			return receipt, nil
@@ -567,6 +602,34 @@ func (o *Owner) Status() Status {
 	return Status{Phase: o.phase, FirstFault: o.firstFault, CloseError: o.closeErr}
 }
 
+// View returns a value-only input-capture source. It is valid only while the
+// owner is Running and its private layout is canonical for the current panel.
+// A snapshot/layout failure is a synchronous owner fault; the returned View is
+// always zero on error, so no stale partial source can be reused.
+func (o *Owner) View() (View, error) {
+	if o == nil {
+		return View{}, errors.New("session: Owner 不得為 nil")
+	}
+	if o.phase != PhaseRunning {
+		return View{}, fmt.Errorf("session: phase %d 不可取得 View，請讀取 Status", o.phase)
+	}
+	if !o.layoutSet {
+		return View{}, o.fail(errors.New("session: Running owner 缺少私有 layout"))
+	}
+	panel, err := o.panel.Snapshot()
+	if err != nil {
+		return View{}, o.fail(fmt.Errorf("session: 讀取 owner panel snapshot: %w", err))
+	}
+	canonical, changed, err := host.ProjectPresentationLayout(o.layout, panel)
+	if err != nil || changed || canonical != o.layout {
+		if err == nil {
+			err = errors.New("session: owner 私有 layout 未按目前 panel 正規化")
+		}
+		return View{}, o.fail(err)
+	}
+	return View{Phase: o.phase, Panel: panel, Layout: o.layout, Epoch: o.epoch, SourceGeneration: o.generation}, nil
+}
+
 // startLoadedMachine is the private half of a future boot path.  Its caller
 // must already have loaded the executable into o.machine; keeping it private
 // prevents a frontend from supplying or retaining a mutable machine target.
@@ -577,8 +640,12 @@ func (o *Owner) startLoadedMachine() error {
 	if o.phase != PhaseBooting {
 		return o.fail(errors.New("session: 只有 Booting owner 可啟動"))
 	}
+	if o.generation == ^uint64(0) {
+		return o.fail(errors.New("session: 啟動前 SourceGeneration 溢位"))
+	}
 	o.dos.Install()
 	o.phase = PhaseRunning
+	o.generation++
 	return nil
 }
 
@@ -602,12 +669,13 @@ func (o *Owner) acceptTurnWithPause(paused bool) (uint64, error) {
 	if o.turnPending {
 		return o.epoch, o.fail(errors.New("session: 前一回合尚未 Advance"))
 	}
-	if o.epoch == ^uint64(0) {
-		return o.epoch, o.fail(errors.New("session: epoch 溢位"))
+	if o.epoch == ^uint64(0) || o.generation == ^uint64(0) {
+		return o.epoch, o.fail(errors.New("session: epoch 或 SourceGeneration 溢位"))
 	}
 	o.epoch++
 	o.turnPending = true
 	o.turnPaused = paused
+	o.generation++
 	return o.epoch, nil
 }
 
