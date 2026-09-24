@@ -72,14 +72,21 @@ func (o *receiptOutputs) commit(stdout io.Writer, receipt []byte) error {
 			return absErr
 		}
 		path = filepath.Clean(path)
-		if seen[path] {
-			return fmt.Errorf("重複的收據輸出路徑：%s", path)
-		}
-		seen[path] = true
 		parent := filepath.Dir(path)
 		if info, statErr := os.Stat(parent); statErr != nil || !info.IsDir() {
 			return fmt.Errorf("收據輸出目錄無效：%s", parent)
 		}
+		// Resolve only the parent. The final component must still be checked
+		// with Lstat below so a symlink target is never followed or replaced.
+		canonicalParent, resolveErr := filepath.EvalSymlinks(parent)
+		if resolveErr != nil {
+			return fmt.Errorf("解析收據輸出目錄 %s：%w", parent, resolveErr)
+		}
+		canonicalPath := filepath.Join(canonicalParent, filepath.Base(path))
+		if seen[canonicalPath] {
+			return fmt.Errorf("重複的收據輸出路徑：%s", path)
+		}
+		seen[canonicalPath] = true
 		item := stagedReceiptOutput{path: path}
 		info, statErr := os.Lstat(path)
 		if statErr == nil {

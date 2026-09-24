@@ -209,6 +209,67 @@ func TestReceiptOutputsRejectsPathAliasWithoutChanges(t *testing.T) {
 	assertNoReceiptTemps(t, dir)
 }
 
+func TestReceiptOutputsRejectsSymlinkedParentAlias(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(realDir, "same.rgba")
+	if err := os.WriteFile(target, []byte("old bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outputs := &receiptOutputs{}
+	outputs.add(target, []byte("new baseline"))
+	outputs.add(filepath.Join(aliasDir, "same.rgba"), []byte("new overlay"))
+	var stdout bytes.Buffer
+	if err := outputs.commitReceipt(&stdout, filepath.Join(realDir, "receipt.json"), struct{}{}); err == nil {
+		t.Fatal("different symlinked parent names for one target must fail")
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "old bytes" {
+		t.Fatalf("aliased output changed existing bytes: %q, %v", got, err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("aliased output emitted stdout JSON: %q", stdout.Bytes())
+	}
+	if _, err := os.Stat(filepath.Join(realDir, "receipt.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("aliased output created JSON: %v", err)
+	}
+	assertNoReceiptTemps(t, realDir)
+}
+
+func TestReceiptOutputsRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "real.rgba")
+	if err := os.WriteFile(realFile, []byte("old bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "output.rgba")
+	if err := os.Symlink(realFile, link); err != nil {
+		t.Fatal(err)
+	}
+	outputs := &receiptOutputs{}
+	outputs.add(link, []byte("new bytes"))
+	var stdout bytes.Buffer
+	if err := outputs.commitReceipt(&stdout, filepath.Join(dir, "receipt.json"), struct{}{}); err == nil {
+		t.Fatal("symlink target must remain rejected")
+	}
+	if got, err := os.ReadFile(realFile); err != nil || string(got) != "old bytes" {
+		t.Fatalf("symlink target changed existing bytes: %q, %v", got, err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("target symlink was replaced: %v, %v", info, err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("symlink target emitted stdout JSON: %q", stdout.Bytes())
+	}
+	assertNoReceiptTemps(t, dir)
+}
+
 func assertNoReceiptTemps(t *testing.T, dir string) {
 	t.Helper()
 	entries := mustReadDir(t, dir)
