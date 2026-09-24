@@ -41,3 +41,26 @@ parent 背景迴圈跑出畫布；直接計算 `H*rowBytes` 可能溢位。
 本規格已明列 parent 必須在畫布內、字型尺寸加乘先安全驗證。
 這不推翻 14px 實體字首架構，但現有 production slice 修正前
 僅算部分實作，不能升 CONFORMED。
+
+## 5. 2026-09-25 共用核心與封存投影實作進度
+
+本機分支 `8f56d0e` 已加入 `xlate` 的可選 physical glyph、
+全層 `DrawChecked` 預檢、舊 `Draw` 零寫入拒絕、optional
+Snapshot／原子 Restore 及 canonical 字型 SHA-256；上節
+parent 畫布與字型尺寸溢位缺口已修，legacy 2× JSON／RGBA
+bytes、14px 位置、跨倍率拒絕與負例有正式定向測試。
+
+本機分支 `1e05ff6` 進一步讓 `presentation.SealedLayerGroup`
+在封存前逐一核對 physical glyph 的來源字型指標，使用呼叫者
+提供的 canonical registry 建立私有 Snapshot，不修改來源
+layer。投影前以 `ValidatePixelGlyphPlan` 驗全部私有層，並用
+`DrawChecked` 繪製；錯倍率或錯字型在讀原版影格前拒絕，
+不交付部分 RGBA。舊單層 `LayerSnapshotProvider` 明確拒絕
+physical glyph，不再靜默略過。無原版素材的雙字型 14px
+封存投影與拒絕負例、既有手冊 owner 合成測試、
+`go test -race ./presentation ./xlate` 均已通過。
+
+這只證**共用元件**已能安全承載像素字首；Buck 手冊
+immutable layout、14 行 owner 身分、正式 E1 同狀態對拍、
+部分 Clear／三幀失效的完整矩陣與 Linux 玩家 session
+仍未完成。規格維持 READY，不以局部綠燈改稱 CONFORMED。
