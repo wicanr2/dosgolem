@@ -2340,16 +2340,19 @@ func main() {
 		}
 	}
 	if presenter != nil {
+		var baseline []byte
 		if *baselineOut != "" {
-			baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *overlayScale)
-			if err := os.WriteFile(*baselineOut, baseline, 0o644); err != nil {
-				fail(err)
-			}
+			baseline = buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *overlayScale)
 		}
 		rgba, missingRunes, drew := presenter.Draw(m.Indexed(), m.Palette())
 		activeKeys := presenter.ActiveKeys()
 		if err := validateOverlayDraw(activeKeys, missingRunes, drew); err != nil {
 			fail(err)
+		}
+		if *baselineOut != "" {
+			if err := os.WriteFile(*baselineOut, baseline, 0o644); err != nil {
+				fail(err)
+			}
 		}
 		if err := os.WriteFile(*overlayOut, rgba, 0o644); err != nil {
 			fail(err)
@@ -2362,12 +2365,12 @@ func main() {
 	}
 	if postJoinPresenter != nil {
 		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *postJoinScale)
-		if err := os.WriteFile(*postJoinBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
 		rgba, missing, drew := postJoinPresenter.Draw(m.Indexed(), m.Palette())
 		if err := validateOverlayDraw(postJoinPresenter.ActiveKeys(), missing, drew); err != nil {
 			fail(fmt.Errorf("post-join overlay: %w", err))
+		}
+		if err := os.WriteFile(*postJoinBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
 		}
 		if err := os.WriteFile(*postJoinOut, rgba, 0o644); err != nil {
 			fail(err)
@@ -2378,12 +2381,12 @@ func main() {
 			fail(fmt.Errorf("skill-exit snapshot 未保持指定 active layer"))
 		}
 		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *skillExitScale)
-		if err := os.WriteFile(*skillExitBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
 		rgba, missing, drew := skillExitOwner.Presenter.Draw(m.Indexed(), m.Palette())
 		if err := validateOverlayDraw(skillExitOwner.Presenter.ActiveKeys(), missing, drew); err != nil {
 			fail(fmt.Errorf("skill-exit overlay: %w", err))
+		}
+		if err := os.WriteFile(*skillExitBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
 		}
 		if err := os.WriteFile(*skillExitOut, rgba, 0o644); err != nil {
 			fail(err)
@@ -2397,9 +2400,6 @@ func main() {
 			fail(fmt.Errorf("Exit prompt DOS Stop 未到達 terminal Closed／零層"))
 		}
 		baseline := buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *exitPromptScale)
-		if err := os.WriteFile(*exitPromptBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
 		rgba, missing, drew, err := exitPromptOwner.Presenter.Draw(m.Indexed(), m.Palette())
 		if err != nil {
 			exitPromptOwner.Fault()
@@ -2408,6 +2408,9 @@ func main() {
 		if err := validateOverlayDraw(exitPromptOwner.Presenter.ActiveKeys(), missing, drew); err != nil {
 			exitPromptOwner.Fault()
 			fail(fmt.Errorf("Exit prompt overlay: %w", err))
+		}
+		if err := os.WriteFile(*exitPromptBaselineOut, baseline, 0o644); err != nil {
+			fail(err)
 		}
 		if err := os.WriteFile(*exitPromptOut, rgba, 0o644); err != nil {
 			fail(err)
