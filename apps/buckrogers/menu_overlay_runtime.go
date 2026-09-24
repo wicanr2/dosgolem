@@ -119,6 +119,7 @@ type RuntimeMenuOverlay struct {
 	layer   *xlate.Layer
 	rects   *MenuOverlayRects
 	font    *xlate.Font
+	scoped  *scopedMenuFonts
 	scale   int
 	actions []MenuOverlayGeometry
 }
@@ -137,6 +138,15 @@ func NewRuntimeMenuOverlay(rects *MenuOverlayRects, font *xlate.Font, scale int)
 }
 
 func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, palette [256][3]uint8) error {
+	if o.scoped != nil {
+		canonical, ok := o.scoped.catalog.Resolve(event)
+		if !ok || canonical.EventKey != request.EventKey || canonical.TextKey != request.TextKey || canonical.Translation != request.Translation {
+			return fmt.Errorf("buckrogers: scoped menu request does not match canonical event")
+		}
+		if err := o.validateScopedMenuFonts(); err != nil {
+			return err
+		}
+	}
 	r, ok := o.rects.byEvent[request.EventKey]
 	if !ok {
 		return fmt.Errorf("buckrogers: %s 沒有安全矩形", request.EventKey)
@@ -149,12 +159,19 @@ func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, pale
 	if r.x != int(event.Column)*8 || r.y != int(event.Row)*8 || !validWidth || r.height != 8 {
 		return fmt.Errorf("buckrogers: %s 安全矩形與 runtime event 幾何不符", request.EventKey)
 	}
-	overlay, err := BuildMenuOverlay([]MenuOverlayEntry{{
+	entries := []MenuOverlayEntry{{
 		EventKey: request.EventKey, TextKey: request.TextKey, Translation: request.Translation,
 		Background: event.Background, Foreground: event.Foreground,
 		X: r.x, Y: r.y, Width: r.width, Height: r.height, DrawX: r.drawX, DrawY: r.drawY,
 		Capacity: r.capacity, LineCount: r.lines, Overflow: r.overflow,
-	}}, o.font, palette, o.scale)
+	}}
+	var overlay *MenuOverlay
+	var err error
+	if o.scoped != nil && o.scale == 3 && scopedThreeXMenuKeys[request.EventKey] {
+		overlay, err = buildScopedThreeXMenuOverlayValidated(entries, o.font, o.scoped.derived, palette, o.scale)
+	} else {
+		overlay, err = BuildMenuOverlay(entries, o.font, palette, o.scale)
+	}
 	if err != nil {
 		return err
 	}

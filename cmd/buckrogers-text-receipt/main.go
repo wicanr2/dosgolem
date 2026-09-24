@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -475,6 +476,7 @@ func main() {
 	rosterRects := flag.String("roster-rects", "", "正式 save-roster-join-text-safe-rects.tsv")
 	overlayFont := flag.String("overlay-font", "", "16x16 GOLEMFNT")
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
+	scopedMenu3 := flag.Bool("scoped-menu-3x", false, "明示啟用限正式 menu-only catalog 的 3x 倚天 22 點主選單覆繪")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
 	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
 	manualEvents := flag.String("manual-events", "", "正式 manual-events.tsv")
@@ -786,6 +788,10 @@ func main() {
 	if *baselineOut != "" && *overlayOut == "" {
 		fail(fmt.Errorf("baseline-rgba-out 只能與 overlay-rgba-out 同時提供"))
 	}
+	if *scopedMenu3 && (*overlayOut == "" || *overlayScale != 3 ||
+		filepath.Base(*menuEvents) != "menu-events.tsv" || filepath.Base(*menuTranslations) != "menu.zh-TW.tsv") {
+		fail(fmt.Errorf("scoped-menu-3x 只接受明示 3x 且附正式 menu-events.tsv/menu.zh-TW.tsv 的覆繪收據"))
+	}
 	if err := validateManualOverlayFlags(*manualEvents, *manualOrdinals, *manualTranslations, *manualLayout,
 		*manualFont, *manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, *manualScale); err != nil {
 		fail(err)
@@ -838,6 +844,7 @@ func main() {
 		fail(err)
 	}
 	var catalogs []*buckrogers.MenuCatalog
+	var menuOnlyCatalog *buckrogers.MenuCatalog
 	if *menuEvents != "" {
 		eventsData, err := os.ReadFile(*menuEvents)
 		if err != nil {
@@ -852,6 +859,7 @@ func main() {
 			fail(err)
 		}
 		catalogs = append(catalogs, catalog)
+		menuOnlyCatalog = catalog
 	}
 	if *genderEvents != "" {
 		eventsData, err := os.ReadFile(*genderEvents)
@@ -961,6 +969,9 @@ func main() {
 	catalog, err := buckrogers.MergeMenuCatalogs(catalogs...)
 	if err != nil {
 		fail(err)
+	}
+	if *scopedMenu3 && (menuOnlyCatalog == nil || len(catalogs) != 1) {
+		fail(fmt.Errorf("scoped-menu-3x 不接受混合其他文字 catalog"))
 	}
 	var actionCatalog *buckrogers.ActionBarCatalog
 	var actionRequestCatalog *buckrogers.ActionBarRequestCatalog
@@ -1246,11 +1257,19 @@ func main() {
 		if err := buckrogers.ValidateMenuOverlayCoverage(catalog, rects); err != nil {
 			fail(err)
 		}
-		font, err := xlate.LoadFont(*overlayFont)
-		if err != nil {
-			fail(err)
+		if *scopedMenu3 {
+			fontBytes, readErr := os.ReadFile(*overlayFont)
+			if readErr != nil {
+				fail(readErr)
+			}
+			presenter, err = buckrogers.NewScopedMenuRuntimeOverlay(rects, menuOnlyCatalog, fontBytes, *overlayScale)
+		} else {
+			font, loadErr := xlate.LoadFont(*overlayFont)
+			if loadErr != nil {
+				fail(loadErr)
+			}
+			presenter, err = buckrogers.NewRuntimeMenuOverlay(rects, font, *overlayScale)
 		}
-		presenter, err = buckrogers.NewRuntimeMenuOverlay(rects, font, *overlayScale)
 		if err != nil {
 			fail(err)
 		}
