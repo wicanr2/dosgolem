@@ -47,6 +47,7 @@ func main() {
 	pngOut := flag.String("png", "", "收工時把目前畫面存成 PNG（平面模式與 mode 13h）")
 	watchRead := flag.String("watch-read", "", "監看一段線性位址的讀取，格式 lo-hi（十六進位）；收工時印出被讀過的位址範圍與讀取者")
 	poison := flag.String("poison", "", "開機記憶體填充值（十六進位 byte，如 CC；除錯抓未初始化讀取用，預設不填即全零）")
+	noirq := flag.Bool("noirq", false, "不送計時器／鍵盤中斷（除錯抓中斷對堆疊的影響用；關掉後動畫時序不準，只看邏輯）")
 	loop := flag.Int("loop", 0, "收工前再跑幾條指令，統計落點看它是不是在空轉")
 	flag.Parse()
 	if *prog == "" || *root == "" {
@@ -68,6 +69,10 @@ func main() {
 		die(err)
 	}
 	d.Scratch = *scratch
+	if *noirq {
+		// IRQ0Every＝0 即不送計時器中斷（machine.go 的約定）；鍵盤同理。
+		m.IRQ0Every, m.KeyEvery = 0, 0
+	}
 	if *memops {
 		d.Calls = map[dos.Call]int{}
 	}
