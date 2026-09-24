@@ -219,6 +219,66 @@ func TestPixelGlyphClearAndChangedFrameDoNotLeaveGhostInk(t *testing.T) {
 	}
 }
 
+func TestPixelGlyphPartialAddMasksOnlyCoveredCell(t *testing.T) {
+	f := &Font{W: 1, H: 1, Name: "physical.add", Glyphs: map[rune][]byte{'A': {0x80}}}
+	old := &Stamp{Key: "old", X: 0, Y: 0, Cells: 3, CellW: 1, CellH: 1, PixelScale: 3, State: Shown,
+		PixelGlyphs: []PixelGlyph{
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 1, Y: 0},
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 4, Y: 0},
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 7, Y: 0},
+		}}
+	l := &Layer{W: 3, H: 1, FontRegistry: map[string]*Font{f.Name: f}}
+	l.Add(old)
+	cover := &Stamp{Key: "cover", X: 1, Y: 0, Cells: 1, CellW: 1, CellH: 1, State: Pending}
+	l.Add(cover)
+	if len(l.Stamps) != 2 || !old.transparent(1) || old.transparent(0) || old.transparent(2) || old.State != Pending {
+		t.Fatalf("partial Add did not mask only the middle physical glyph: stamps=%d transparent=%v state=%v", len(l.Stamps), old.Transparent, old.State)
+	}
+	l.Frame([]byte{0, 0, 0}, make([]byte, 9))
+	if old.State != Shown || cover.State != Shown {
+		t.Fatalf("remaining stamps were not recolored: old=%v cover=%v", old.State, cover.State)
+	}
+	old.BG, old.FG = [3]uint8{10, 20, 30}, [3]uint8{200, 210, 220}
+	cover.BG = [3]uint8{40, 50, 60}
+	dst := make([]byte, 9*3*4)
+	if drew, err := l.DrawChecked(dst, 3, nil); err != nil || !drew {
+		t.Fatalf("physical Add draw failed: drew=%v err=%v", drew, err)
+	}
+	pixel := func(x int) []byte { return dst[4*x : 4*x+4] }
+	if !bytes.Equal(pixel(1), []byte{200, 210, 220, 255}) || !bytes.Equal(pixel(7), []byte{200, 210, 220, 255}) || !bytes.Equal(pixel(4), []byte{40, 50, 60, 255}) {
+		t.Fatalf("partial Add changed surviving ink or revived covered ink: left=%v middle=%v right=%v", pixel(1), pixel(4), pixel(7))
+	}
+}
+
+func TestPixelGlyphAllAnchorsGoneDropsWholeStamp(t *testing.T) {
+	f := &Font{W: 1, H: 1, Name: "physical.anchors", Glyphs: map[rune][]byte{'A': {0x80}}}
+	var dropped []string
+	s := &Stamp{Key: "anchored", X: 0, Y: 0, Cells: 3, CellW: 2, CellH: 1, PixelScale: 3, State: Pending,
+		PixelGlyphs: []PixelGlyph{
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 1, Y: 0},
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 7, Y: 0},
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 13, Y: 0},
+		}}
+	l := &Layer{W: 6, H: 1, FontRegistry: map[string]*Font{f.Name: f}, Stamps: []*Stamp{s},
+		OnDrop: func(stamp *Stamp, why string) { dropped = append(dropped, stamp.Key+":"+why) }}
+	original := []byte{1, 1, 1, 15, 1, 15}
+	l.Frame(original, make([]byte, 6*3))
+	if s.State != Shown || len(s.anchors) != 3 || s.anchors[0] || !s.anchors[1] || !s.anchors[2] {
+		t.Fatalf("physical glyph anchor setup failed: state=%v anchors=%v", s.State, s.anchors)
+	}
+	for i := 0; i < 3; i++ {
+		l.Frame([]byte{1, 1, 1, 1, 1, 1}, make([]byte, 6*3))
+	}
+	if len(l.Stamps) != 0 || len(dropped) != 1 || dropped[0] != "anchored:anchors" {
+		t.Fatalf("lost anchors left a physical stamp: stamps=%d dropped=%v", len(l.Stamps), dropped)
+	}
+	dst := bytes.Repeat([]byte{0x5a}, 18*3*4)
+	before := append([]byte(nil), dst...)
+	if drew, err := l.DrawChecked(dst, 3, nil); err != nil || drew || !bytes.Equal(dst, before) {
+		t.Fatalf("lost anchors revived physical ink: drew=%v err=%v", drew, err)
+	}
+}
+
 func TestPixelGlyphCanonicalFontHashIgnoresMapOrderAndDetectsBytes(t *testing.T) {
 	a := physicalTestFont()
 	a.Glyphs['B'] = bytes.Repeat([]byte{0x40}, 32)

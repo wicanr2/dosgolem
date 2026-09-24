@@ -165,3 +165,37 @@ func TestSealedLayersPhysicalPreflightRejectsScaleAndUnregisteredGlyphBeforeFram
 		t.Fatalf("unregistered source pixel glyph reached callback: err=%v called=%v reads=%d", err, called, source.reads)
 	}
 }
+
+func TestSealedPhysicalGroupRejectsChangedGenerationAndEpochBeforeFrame(t *testing.T) {
+	f := &xlate.Font{Name: "sealed.identity", W: 1, H: 1, Glyphs: map[rune][]byte{'A': {0x80}}}
+	layer := &xlate.Layer{W: 2, H: 1, Stamps: []*xlate.Stamp{{
+		Key: "text", X: 0, Y: 0, Cells: 2, CellW: 1, CellH: 1, PixelScale: 3, State: xlate.Shown,
+		PixelGlyphs: []xlate.PixelGlyph{{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 1, Y: 0}},
+	}}}
+	source := &sealedCountingSource{frame: host.IndexedFrame{Canvas: host.Canvas{Width: 2, Height: 1}, Indexed: []byte{0, 0}}}
+	err := WithSealedOrderedLayers("sealed.identity", 7, 11,
+		[]ActiveLayerSlot{{Name: "text", Z: 0, Layer: layer}}, map[string]*xlate.Font{f.Name: f},
+		func(group *SealedLayerGroup) error {
+			if key, generation, epoch := group.Identity(); key != "sealed.identity" || generation != 7 || epoch != 11 {
+				return fmt.Errorf("sealed identity=%q/%d/%d", key, generation, epoch)
+			}
+			group.generation++
+			if shot, err := ProjectSealedLayers(source, group, 3, func() bool { return true }); err == nil || len(shot.RGBA) != 0 || source.reads != 0 {
+				return fmt.Errorf("changed generation reached frame: err=%v rgba=%d reads=%d", err, len(shot.RGBA), source.reads)
+			}
+			group.generation--
+			group.epoch++
+			if shot, err := ProjectSealedLayers(source, group, 3, func() bool { return true }); err == nil || len(shot.RGBA) != 0 || source.reads != 0 {
+				return fmt.Errorf("changed epoch reached frame: err=%v rgba=%d reads=%d", err, len(shot.RGBA), source.reads)
+			}
+			group.epoch--
+			shot, err := ProjectSealedLayers(source, group, 3, func() bool { return true })
+			if err != nil || !shot.Drew || source.reads != 1 {
+				return fmt.Errorf("restored identity failed projection: err=%v drew=%v reads=%d", err, shot.Drew, source.reads)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
