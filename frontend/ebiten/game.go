@@ -311,6 +311,9 @@ func mapKey(k ebiten.Key) (dos.Key, bool) {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	if g.err != nil {
+		return
+	}
 	state, err := g.panel.Snapshot()
 	if err != nil {
 		g.drawFault(err)

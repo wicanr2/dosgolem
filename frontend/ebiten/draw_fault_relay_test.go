@@ -16,12 +16,13 @@ func TestGameDrawReportsFirstFaultBeforeAnotherUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	fault := errors.New("injected snapshot fault")
-	reports, advances := 0, 0
+	reports, advances, snapshots := 0, 0, 0
 	var reported error
 	g, err := New(Config{
 		Panel: base.panel, Keyboard: base.keys, Mouse: mouse,
 		HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
 		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+			snapshots++
 			return presentation.LayerPresentationSnapshot{}, fault
 		},
 		Advance: func() error { advances++; return nil },
@@ -40,8 +41,8 @@ func TestGameDrawReportsFirstFaultBeforeAnotherUpdate(t *testing.T) {
 	}
 	g.Draw(screen)
 	g.readInput = func() frameInput { return frameInput{focused: true, keys: []ebiten.Key{ebiten.KeyEnter}} }
-	if err := g.Update(); !errors.Is(err, fault) || reports != 1 || advances != 0 {
-		t.Fatalf("faulted Game resumed or reported twice: err=%v reports=%d advances=%d", err, reports, advances)
+	if err := g.Update(); !errors.Is(err, fault) || reports != 1 || advances != 0 || snapshots != 1 {
+		t.Fatalf("faulted Game resumed or reported twice: err=%v reports=%d advances=%d snapshots=%d", err, reports, advances, snapshots)
 	}
 }
 
