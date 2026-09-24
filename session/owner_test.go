@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
 func TestOwnerStartsSealedBootingWithoutOriginalOrInstalledDOS(t *testing.T) {
@@ -111,6 +112,85 @@ func TestOwnerClosedRejectsLaterFaultWithoutRevivalOrReclose(t *testing.T) {
 	}
 }
 
+func TestOwnerAdvanceSyntheticCOMRecordsMachineDeltaAndBudgetStop(t *testing.T) {
+	o := startSyntheticOwner(t, []byte{0x90, 0x90, 0x90})
+	if epoch, err := o.acceptTurn(); err != nil || epoch != 1 {
+		t.Fatalf("acceptTurn = (%d, %v), want (1, nil)", epoch, err)
+	}
+	receipt, err := o.Advance(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Epoch != 1 || receipt.Budget != 2 ||
+		receipt.MachineStepsBefore != 0 || receipt.MachineStepsAfter != 2 || receipt.Steps != 2 ||
+		!receipt.HasRawStop || receipt.RawStop != machine.StopBudget || receipt.RawError != nil ||
+		receipt.Phase != PhaseRunning || receipt.Reason != StopReasonBudgetExhausted {
+		t.Fatalf("receipt = %+v, want epoch 1, 2-step budget receipt", receipt)
+	}
+}
+
+func TestOwnerAdvanceSyntheticCOMClassifiesDOSExitBeforeRawBudget(t *testing.T) {
+	// mov ax,4c03h / int 21h: the raw loop result is StopBudget, but DOS has
+	// already observed a normal program exit.
+	o := startSyntheticOwner(t, []byte{0xB8, 0x03, 0x4C, 0xCD, 0x21})
+	if _, err := o.acceptTurn(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := o.Advance(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.HasRawStop || receipt.RawStop != machine.StopBudget || receipt.RawError != nil ||
+		receipt.Steps != 2 || receipt.Reason != StopReasonProgramStopped || receipt.Phase != PhaseStopped {
+		t.Fatalf("exit receipt = %+v, want ProgramStopped despite raw StopBudget", receipt)
+	}
+	if !o.dos.Exited || o.dos.ExitCode != 3 {
+		t.Fatalf("DOS exit = (%t, %d), want (true, 3)", o.dos.Exited, o.dos.ExitCode)
+	}
+	again, err := o.Advance(9)
+	if err != nil || again.Steps != 0 || again.HasRawStop || again.Reason != StopReasonProgramStopped || again.Phase != PhaseStopped {
+		t.Fatalf("stopped Advance = (%+v, %v), want zero-step ProgramStopped", again, err)
+	}
+}
+
+func TestOwnerAdvanceSyntheticCOMPreservesRawMachineErrorOverStopBudget(t *testing.T) {
+	// 63h is unsupported by the default 8086 model.  Machine.Step counts the
+	// failed attempt, while RunUntil still reports raw StopBudget with an error.
+	o := startSyntheticOwner(t, []byte{0x90, 0x63})
+	closer := &countingCloser{}
+	o.closer = closer
+	if _, err := o.acceptTurn(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := o.Advance(8)
+	if err == nil || receipt.RawError == nil {
+		t.Fatalf("Advance = (%+v, %v), want raw machine error", receipt, err)
+	}
+	if !errors.Is(err, receipt.RawError) || !receipt.HasRawStop || receipt.RawStop != machine.StopBudget ||
+		receipt.Steps != 2 || receipt.Reason != StopReasonOriginalFault || receipt.Phase != PhaseFailed {
+		t.Fatalf("error receipt = (%+v, %v), want raw error priority and two attempts", receipt, err)
+	}
+	if closer.calls != 1 {
+		t.Fatalf("close calls = %d, want 1", closer.calls)
+	}
+	again, againErr := o.Advance(1)
+	if againErr == nil || again.Steps != 0 || again.Reason != StopReasonOriginalFault || again.Phase != PhaseFailed {
+		t.Fatalf("failed Advance = (%+v, %v), want zero-step latched original fault", again, againErr)
+	}
+}
+
+func TestOwnerAdvanceRejectsZeroBudgetBeforeMachineStep(t *testing.T) {
+	o := startSyntheticOwner(t, []byte{0x90})
+	if _, err := o.acceptTurn(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := o.Advance(0)
+	if err == nil || receipt.Steps != 0 || receipt.HasRawStop ||
+		receipt.Reason != StopReasonFrontendFault || receipt.Phase != PhaseFailed || o.machine.Steps != 0 {
+		t.Fatalf("zero-budget Advance = (%+v, %v), want failed pre-machine rejection", receipt, err)
+	}
+}
+
 type countingCloser struct {
 	calls int
 	err   error
@@ -131,5 +211,17 @@ func newTestOwner(t *testing.T, closer resourceCloser) *Owner {
 		closer = &countingCloser{}
 	}
 	o.closer = closer
+	return o
+}
+
+func startSyntheticOwner(t *testing.T, code []byte) *Owner {
+	t.Helper()
+	o := newTestOwner(t, nil)
+	if err := o.machine.LoadCOM(code); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.startLoadedMachine(); err != nil {
+		t.Fatal(err)
+	}
 	return o
 }

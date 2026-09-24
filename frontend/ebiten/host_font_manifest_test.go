@@ -39,7 +39,18 @@ func hostManifestFixture(t *testing.T) HostFontManifestPreflight {
 	font2Hash := writeHostFont3Fixture(t, font2Path, 16, 16, []rune{'設', '定', '套', '用', '取', '消', '2', '3', '×'})
 	font3 := hostFont3FixtureFiles(t)
 	review := manifestTestReview()
+	catalogDir := filepath.Join(dir, "text")
+	if err := os.Mkdir(catalogDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalogName := "host-ui.zh-TW.tsv"
+	catalogData := []byte("key\tzh-TW\nhost.settings\t設定\n")
+	if err := os.WriteFile(filepath.Join(catalogDir, catalogName), catalogData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := map[string]string{"filename": catalogName, "sha256": manifestTestHex(sha256.Sum256(catalogData))}
 	font2Manifest := map[string]any{
+		"catalogs":            []any{catalog},
 		"distribution_status": "local-only-not-for-distribution",
 		"format":              map[string]any{"magic": "GOLEMFNT", "width": 16, "height": 16},
 		"output_sha256":       manifestTestHex(font2Hash),
@@ -50,7 +61,8 @@ func hostManifestFixture(t *testing.T) HostFontManifestPreflight {
 		},
 	}
 	font3Manifest := map[string]any{
-		"status": "local-only-not-for-distribution",
+		"catalog": catalog,
+		"status":  "local-only-not-for-distribution",
 		"source_sha256": map[string]string{
 			"ascii": manifestTestHex(review.Font3.ASCII), "spc": manifestTestHex(review.Font3.SPC),
 			"std": manifestTestHex(review.Font3.STD), "etunpack": manifestTestHex(review.Font3.ETUNPACK),
@@ -65,6 +77,7 @@ func hostManifestFixture(t *testing.T) HostFontManifestPreflight {
 	writeManifestJSON(t, font2ManifestPath, font2Manifest)
 	writeManifestJSON(t, font3ManifestPath, font3Manifest)
 	return HostFontManifestPreflight{
+		CatalogDir:        catalogDir,
 		Font2ManifestPath: font2ManifestPath, Font2Path: font2Path,
 		Font3ManifestPath: font3ManifestPath, Font3WidePath: font3.WidePath, Font3ASCIIPath: font3.ASCIIPath,
 		Labels: draftLabels(), Review: review,
@@ -122,6 +135,19 @@ func TestLoadHostFontsFromReviewedManifestsFailsClosed(t *testing.T) {
 		{"stale-output", func(t *testing.T, in *HostFontManifestPreflight) {
 			writeHostFont3Fixture(t, in.Font3WidePath, 24, 24, []rune{'設', '定', '套', '用', '取', '消', '×', '新'})
 		}, "SHA-256 不符"},
+		{"stale-catalog", func(t *testing.T, in *HostFontManifestPreflight) {
+			if err := os.WriteFile(filepath.Join(in.CatalogDir, "host-ui.zh-TW.tsv"), []byte("new translation"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "SHA-256 已過期"},
+		{"added-catalog", func(t *testing.T, in *HostFontManifestPreflight) {
+			if err := os.WriteFile(filepath.Join(in.CatalogDir, "new.zh-TW.tsv"), []byte("new catalog"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "譯文清單與目前譯文不符"},
+		{"missing-catalog-dir", func(_ *testing.T, in *HostFontManifestPreflight) {
+			in.CatalogDir = ""
+		}, "缺少目前譯文目錄"},
 		{"unknown-json-field", func(t *testing.T, in *HostFontManifestPreflight) {
 			data, err := os.ReadFile(in.Font2ManifestPath)
 			if err != nil {
@@ -176,6 +202,7 @@ func TestLoadHostFontsFromReviewedManifestsLocal(t *testing.T) {
 		return sum
 	}
 	in := HostFontManifestPreflight{
+		CatalogDir:        get("HOST_FONT_CATALOG_DIR"),
 		Font2ManifestPath: get("HOST_FONT2_MANIFEST"),
 		Font2Path:         get("HOST_FONT2_PATH"),
 		Font3ManifestPath: get("HOST_FONT3_MANIFEST"),

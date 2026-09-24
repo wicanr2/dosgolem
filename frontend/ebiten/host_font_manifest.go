@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
@@ -43,6 +45,7 @@ type HostFontManifestReview struct {
 // are intentionally launcher supplied so this package never hardcodes a
 // private location.
 type HostFontManifestPreflight struct {
+	CatalogDir        string
 	Font2ManifestPath string
 	Font2Path         string
 	Font3ManifestPath string
@@ -134,6 +137,9 @@ func LoadHostFontsFromReviewedManifests(in HostFontManifestPreflight) (*HostFont
 	if err != nil {
 		return nil, err
 	}
+	if err := verifyCurrentCatalogs(in.CatalogDir, font2Manifest.Catalogs, font3Manifest.Catalog); err != nil {
+		return nil, err
+	}
 	font2, err := LoadHostFont2(HostFont2LocalFile{Path: in.Font2Path, SHA256: font2Hash}, in.Labels)
 	if err != nil {
 		return nil, err
@@ -146,6 +152,66 @@ func LoadHostFontsFromReviewedManifests(in HostFontManifestPreflight) (*HostFont
 		return nil, err
 	}
 	return &HostFonts{Font2: font2, Font3: font3}, nil
+}
+
+// verifyCurrentCatalogs binds both locally built fonts to the launcher's
+// current translation files. A manifest's source/output digests alone do not
+// prove that its glyph subset was rebuilt after the catalog changed.
+func verifyCurrentCatalogs(dir string, font2 []manifestCatalog, font3 manifestCatalog) error {
+	if dir == "" {
+		return fmt.Errorf("frontend/ebiten: 缺少目前譯文目錄")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("frontend/ebiten: 無法讀取目前譯文目錄：%w", err)
+	}
+	current := make(map[string][sha256.Size]byte)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".zh-TW.tsv") {
+			continue
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("frontend/ebiten: 譯文 %q 必須是一般檔案", name)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("frontend/ebiten: 無法讀取譯文 %q：%w", name, err)
+		}
+		current[name] = sha256.Sum256(data)
+	}
+	if len(font2) == 0 || len(current) != len(font2) {
+		return fmt.Errorf("frontend/ebiten: 2× 字型 manifest 的譯文清單與目前譯文不符")
+	}
+	seen := make(map[string]bool)
+	for _, catalog := range font2 {
+		if filepath.Base(catalog.Filename) != catalog.Filename || !strings.HasSuffix(catalog.Filename, ".zh-TW.tsv") || seen[catalog.Filename] {
+			return fmt.Errorf("frontend/ebiten: 2× 字型 manifest 譯文名稱無效或重複：%q", catalog.Filename)
+		}
+		seen[catalog.Filename] = true
+		if err := matchCatalogDigest(catalog, current); err != nil {
+			return err
+		}
+	}
+	if font3.Filename != "host-ui.zh-TW.tsv" {
+		return fmt.Errorf("frontend/ebiten: 3× 字型 manifest 必須指向 host-ui.zh-TW.tsv")
+	}
+	return matchCatalogDigest(font3, current)
+}
+
+func matchCatalogDigest(catalog manifestCatalog, current map[string][sha256.Size]byte) error {
+	want, ok := current[catalog.Filename]
+	if !ok {
+		return fmt.Errorf("frontend/ebiten: 字型 manifest 的譯文 %q 已不存在", catalog.Filename)
+	}
+	got, err := parseManifestHash("譯文 "+catalog.Filename, catalog.SHA256)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("frontend/ebiten: 字型 manifest 的譯文 %q SHA-256 已過期", catalog.Filename)
+	}
+	return nil
 }
 
 func readHostFont2Manifest(path string) (hostFont2Manifest, error) {
