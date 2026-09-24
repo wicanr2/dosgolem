@@ -9,6 +9,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/presentation"
 	"github.com/wicanr2/dosgolem/xlate"
@@ -182,7 +183,10 @@ func TestNativeHostFont3LocalPixels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, err := presentation.NewKeyboardBridge(panel, machine.New())
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	keys, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
 	if err != nil {
 		t.Fatal(err)
 	}

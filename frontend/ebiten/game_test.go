@@ -287,11 +287,13 @@ func draftHostFont3() *HostFont3 {
 func newDraftGame(t *testing.T) (*Game, *mouseOutput) {
 	t.Helper()
 	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
 	panel, err := host.NewPanelController(host.OutputScale2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys, err := presentation.NewKeyboardBridge(panel, m)
+	keys, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,6 +309,101 @@ func newDraftGame(t *testing.T) (*Game, *mouseOutput) {
 		t.Fatal(err)
 	}
 	return g, out
+}
+
+func TestNewRejectsKeyboardWithoutBIOSTransportBeforeLayout(t *testing.T) {
+	m := machine.New()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := presentation.NewKeyboardBridge(panel, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &mouseOutput{}
+	mouse, err := host.NewMouseBridge(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeConfig := func(p *host.PanelController) Config {
+		return Config{Panel: p, Keyboard: plain, Mouse: mouse,
+			HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
+			Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+				return presentation.LayerPresentationSnapshot{}, nil
+			}}
+	}
+	if _, err := New(makeConfig(panel)); err == nil {
+		t.Fatal("keyboard without BIOS passed Game.New")
+	}
+	bios := dos.New(m, ".")
+	bios.Install()
+	valid, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := makeConfig(panel)
+	cfg.Keyboard = valid
+	otherPanel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Panel = otherPanel
+	if _, err := New(cfg); err == nil {
+		t.Fatal("different panel passed Game.New")
+	}
+	cfg.Panel = panel
+	otherMachine := machine.New()
+	bios.M = otherMachine
+	if _, err := New(cfg); err == nil {
+		t.Fatal("changed BIOS machine passed Game.New")
+	}
+	if _, ok := mouse.Layout(); ok || len(out.calls) != 0 || m.BIOSKeyCount() != 0 || otherMachine.BIOSKeyCount() != 0 || bios.Mouse.Buttons != 0 || m.Steps != 0 || otherMachine.Steps != 0 {
+		t.Fatalf("rejected constructor wrote state: layout=%v mouse=%v keys=%d/%d buttons=%d steps=%d/%d", ok, out.calls, m.BIOSKeyCount(), otherMachine.BIOSKeyCount(), bios.Mouse.Buttons, m.Steps, otherMachine.Steps)
+	}
+}
+
+func TestUpdateRejectsChangedBIOSMachineBeforeMouseOrKey(t *testing.T) {
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &mouseOutput{}
+	mouse, err := host.NewMouseBridge(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
+		HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
+		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+			return presentation.LayerPresentationSnapshot{}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := 0
+	g.advance = func() error { steps++; return nil }
+	g.readInput = func() frameInput {
+		return frameInput{focused: true, down: true, downX: 100, downY: 100, keys: []ebiten.Key{ebiten.KeyEnter}}
+	}
+	otherMachine := machine.New()
+	bios.M = otherMachine
+	if err := g.Update(); err == nil {
+		t.Fatal("changed BIOS machine passed Update")
+	}
+	if err := g.Update(); err == nil {
+		t.Fatal("failed Update did not retain its error")
+	}
+	if len(out.calls) != 0 || mouse.Pressed() || bios.Mouse.Buttons != 0 || m.BIOSKeyCount() != 0 || otherMachine.BIOSKeyCount() != 0 || steps != 0 {
+		t.Fatalf("failed Update changed DOS/input state: mouse=%v pressed=%v buttons=%d queues=%d/%d steps=%d", out.calls, mouse.Pressed(), bios.Mouse.Buttons, m.BIOSKeyCount(), otherMachine.BIOSKeyCount(), steps)
+	}
 }
 
 func TestLayoutEpochOnlyChangesWithHostLayout(t *testing.T) {
@@ -456,8 +553,10 @@ func TestSnapshotAndFontFailClosed(t *testing.T) {
 		t.Fatal("wrong rgba accepted")
 	}
 	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
 	p, _ := host.NewPanelController(host.OutputScale2)
-	k, _ := presentation.NewKeyboardBridge(p, m)
+	k, _ := presentation.NewKeyboardBridgeWithBIOS(p, m, bios)
 	mo, _ := host.NewMouseBridge(&mouseOutput{})
 	if _, err := New(Config{Panel: p, Keyboard: k, Mouse: mo, HostFont2: &xlate.Font{W: 1, H: 1, Glyphs: map[rune][]byte{}}, HostFont3: draftHostFont3(), Labels: draftLabels(), Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) { return good, nil }}); err == nil {
 		t.Fatal("missing host glyphs accepted")

@@ -99,3 +99,104 @@ func TestKeyboardBridgeRejectsNilDependencies(t *testing.T) {
 		t.Fatal("nil bridge unexpectedly delivered a scan")
 	}
 }
+
+func TestKeyboardBridgeBIOSPreflightAndMutableMachineAlias(t *testing.T) {
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPanel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := NewKeyboardBridge(panel, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plain.ValidateBIOSForPanel(panel); err == nil {
+		t.Fatal("bridge without BIOS passed preflight")
+	}
+	bridge, err := NewKeyboardBridgeWithBIOS(panel, m, bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.ValidateBIOSForPanel(panel); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.ValidateBIOSForPanel(otherPanel); err == nil {
+		t.Fatal("different panel passed preflight")
+	}
+	if err := bridge.ValidateBIOSForPanel(nil); err == nil {
+		t.Fatal("nil panel passed preflight")
+	}
+	var nilBridge *KeyboardBridge
+	if err := nilBridge.ValidateBIOSForPanel(panel); err == nil {
+		t.Fatal("nil bridge passed preflight")
+	}
+	if err := new(KeyboardBridge).ValidateBIOSForPanel(panel); err == nil {
+		t.Fatal("zero bridge passed preflight")
+	}
+	for _, invalid := range []struct {
+		name          string
+		bridge        KeyboardBridge
+		deliverReject bool
+	}{
+		{"missing bridge panel", KeyboardBridge{machine: m, bios: bios}, true},
+		{"different bridge panel", KeyboardBridge{panel: otherPanel, machine: m, bios: bios}, false},
+		{"missing bridge machine", KeyboardBridge{panel: panel, bios: bios}, true},
+		{"missing bridge BIOS", KeyboardBridge{panel: panel, machine: m}, true},
+	} {
+		t.Run(invalid.name, func(t *testing.T) {
+			beforePanel, err := panel.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeOther, err := otherPanel.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeKeys := m.BIOSKeyCount()
+			if err := invalid.bridge.ValidateBIOSForPanel(panel); err == nil {
+				t.Fatal("invalid internal bridge passed preflight")
+			}
+			if invalid.deliverReject {
+				if _, _, err := invalid.bridge.DeliverBIOSKey(dos.Key{Scan: 0x1c, ASCII: 0x0d}); err == nil {
+					t.Fatal("invalid internal bridge delivered a key")
+				}
+			}
+			afterPanel, err := panel.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			afterOther, err := otherPanel.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(afterPanel, beforePanel) || !reflect.DeepEqual(afterOther, beforeOther) || m.BIOSKeyCount() != beforeKeys {
+				t.Fatalf("rejected bridge changed panel or BIOS queue: main=%+v→%+v other=%+v→%+v keys=%d→%d", beforePanel, afterPanel, beforeOther, afterOther, beforeKeys, m.BIOSKeyCount())
+			}
+		})
+	}
+	before, err := panel.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherMachine := machine.New()
+	bios.M = otherMachine // DOS.M is public and can change after construction.
+	if err := bridge.ValidateBIOSForPanel(panel); err == nil {
+		t.Fatal("changed BIOS machine passed preflight")
+	}
+	if _, _, err := bridge.DeliverBIOSKey(dos.Key{Scan: 0x1c, ASCII: 0x0d}); err == nil {
+		t.Fatal("changed BIOS machine accepted a key")
+	}
+	after, err := panel.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, before) || m.BIOSKeyCount() != 0 || otherMachine.BIOSKeyCount() != 0 {
+		t.Fatalf("failed delivery changed panel/queues: before=%+v after=%+v queues=%d/%d", before, after, m.BIOSKeyCount(), otherMachine.BIOSKeyCount())
+	}
+}

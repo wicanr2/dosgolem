@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 319 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -67,10 +67,11 @@
 - `219-host-scale-selection-apply-core.md`
 - `226-host-machine-presentation-bridge.md`
 - `227-host-active-layer-snapshot-core.md`
-- `228-host-mouse-bridge-ready-candidate.md`（DRAFT；正式滑鼠橋尚未授權實作）
+- `228-host-mouse-bridge-ready-candidate.md`（限縮 CONFORMED；僅已量的 320×200 實體滑鼠橋收據）
 - `230-linux-ebiten-host-event-loop-draft.md`（DRAFT；候選 router 等待獨立審查，未授權 production）
 - `231-linux-ebiten-panel-pause-gate.md`（限縮 CONFORMED；面板回合的 `Advance` 呼叫閘門，非完整 session）
 - `232-linux-ebiten-panel-batch-keyboard-gate.md`（限縮 CONFORMED；面板起點開啟時同批鍵盤不因 Apply／Cancel 收合而進 DOS）
+- `233-ebiten-bios-transport-preflight-draft.md`（限縮 CONFORMED；正式建構／回合／交付前三層檢查與負例通過，非同批原子性）
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 

@@ -84,6 +84,9 @@ func New(cfg Config) (*Game, error) {
 	if cfg.Panel == nil || cfg.Keyboard == nil || cfg.Mouse == nil || cfg.Snapshot == nil || cfg.HostFont2 == nil || cfg.HostFont3 == nil {
 		return nil, fmt.Errorf("frontend/ebiten: Panel、Keyboard、Mouse、Snapshot、HostFont2、HostFont3 均為必填")
 	}
+	if err := cfg.Keyboard.ValidateBIOSForPanel(cfg.Panel); err != nil {
+		return nil, err
+	}
 	if err := validateHostFont2(cfg.HostFont2, cfg.Labels); err != nil {
 		return nil, err
 	}
@@ -157,6 +160,9 @@ func (g *Game) refreshLayout() error {
 func (g *Game) Update() error {
 	if g.err != nil {
 		return g.err
+	}
+	if err := g.keys.ValidateBIOSForPanel(g.panel); err != nil {
+		return g.fail(err)
 	}
 	if err := g.refreshLayout(); err != nil {
 		return g.fail(err)

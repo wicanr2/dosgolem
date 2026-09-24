@@ -50,6 +50,16 @@ func NewKeyboardBridgeWithBIOS(panel *host.PanelController, m *machine.Machine, 
 	return bridge, nil
 }
 
+// ValidateBIOSForPanel is a read-only preflight for frontends that route
+// mapped keys through DeliverBIOSKey. DOS.M is public and can change after
+// construction, so callers must repeat this check before routing each batch.
+func (b *KeyboardBridge) ValidateBIOSForPanel(panel *host.PanelController) error {
+	if b == nil || panel == nil || b.panel == nil || b.panel != panel || b.machine == nil || b.bios == nil || b.bios.M != b.machine {
+		return fmt.Errorf("presentation: BIOS KeyboardBridge 的 panel、machine 或 DOS 不一致")
+	}
+	return nil
+}
+
 // DeliverDOSScan applies the panel's keyboard focus rule and queues scan only
 // after it explicitly permits DOS forwarding. The returned state and route are
 // the PanelController's receipt for this one input event.
@@ -72,8 +82,11 @@ func (b *KeyboardBridge) DeliverDOSScan(scan uint8) (host.PanelState, host.Input
 // for original-program phases proven to consume int 16h keys. It never guesses
 // an ASCII byte from scan and does not also send a hardware IRQ1 event.
 func (b *KeyboardBridge) DeliverBIOSKey(key dos.Key) (host.PanelState, host.InputRoute, error) {
-	if b == nil || b.panel == nil || b.machine == nil || b.bios == nil {
+	if b == nil {
 		return host.PanelState{}, host.InputRoute{}, fmt.Errorf("presentation: BIOS KeyboardBridge 不得為 nil")
+	}
+	if err := b.ValidateBIOSForPanel(b.panel); err != nil {
+		return host.PanelState{}, host.InputRoute{}, err
 	}
 	state, route, err := b.panel.Route(host.PanelEvent{Kind: host.PanelEventKeyboard})
 	if err != nil {

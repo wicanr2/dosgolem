@@ -1,0 +1,65 @@
+package ebiten
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/dos"
+	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/presentation"
+)
+
+// This is a DRAFT counterexample, not an acceptance test for an atomic
+// route plan. Game.Update currently commits a DOS mouse Down before it learns
+// that the later BIOS keyboard transport in the same captured batch is invalid.
+func TestDraftUpdateLateKeyboardTransportErrorLeavesDOSMouseDown(t *testing.T) {
+	m := machine.New()
+	bios := dos.New(m, ".")
+	bios.Install()
+	panel, err := host.NewPanelController(host.OutputScale2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This valid bridge intentionally has no BIOS transport. DeliverBIOSKey
+	// must return an ordinary error after the preceding pointer route.
+	keys, err := presentation.NewKeyboardBridge(panel, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mouse, err := host.NewMouseBridge(bios)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := New(Config{Panel: panel, Keyboard: keys, Mouse: mouse,
+		HostFont2: draftFont(16, 16), HostFont3: draftHostFont3(), Labels: draftLabels(),
+		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+			return presentation.LayerPresentationSnapshot{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanceCalls := 0
+	g.advance = func() error { advanceCalls++; return nil }
+	if bios.Mouse.Buttons != 0 || bios.KeysPending() != 0 || m.Steps != 0 {
+		t.Fatal("synthetic DOS baseline is not clean")
+	}
+	g.readInput = func() frameInput {
+		return frameInput{focused: true, down: true, downX: 200,
+			downY: g.layout.ChromeHeight + 120, keys: []ebiten.Key{ebiten.KeyEnter}}
+	}
+	err = g.Update()
+	if err == nil || !strings.Contains(err.Error(), "BIOS KeyboardBridge") {
+		t.Fatalf("late BIOS transport error=%v", err)
+	}
+	if !mouse.Pressed() || bios.Mouse.Buttons&1 == 0 || bios.KeysPending() != 0 || m.Steps != 0 || advanceCalls != 0 {
+		t.Fatalf("expected partial DOS mouse effect only: pressed=%v buttons=%d BIOS=%d Steps=%d Advance=%d",
+			mouse.Pressed(), bios.Mouse.Buttons, bios.KeysPending(), m.Steps, advanceCalls)
+	}
+	if retry := g.Update(); retry != err || bios.KeysPending() != 0 || m.Steps != 0 || advanceCalls != 0 {
+		t.Fatalf("error retry changed receipt: retry=%v BIOS=%d Steps=%d Advance=%d",
+			retry, bios.KeysPending(), m.Steps, advanceCalls)
+	}
+}
