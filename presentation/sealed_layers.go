@@ -143,8 +143,18 @@ func sealOrderedLayers(key string, generation, epoch uint64, slots []ActiveLayer
 			if stamp.Font != nil && (stamp.Font.Name == "" || fonts[stamp.Font.Name] != stamp.Font) {
 				return nil, fmt.Errorf("presentation: source stamp font is not exactly registered")
 			}
+			for _, glyph := range stamp.PixelGlyphs {
+				if glyph.Font == nil || glyph.Font.Name == "" || fonts[glyph.Font.Name] != glyph.Font {
+					return nil, fmt.Errorf("presentation: source pixel glyph font is not exactly registered")
+				}
+			}
 		}
-		data, err := slot.Layer.Snapshot()
+		// A caller supplies the canonical font registry to this seal operation;
+		// do not mutate its source layer merely to satisfy xlate's pixel-plan
+		// preflight. Snapshot reads the shallow layer value synchronously.
+		snapshotLayer := *slot.Layer
+		snapshotLayer.FontRegistry = fonts
+		data, err := snapshotLayer.Snapshot()
 		if err != nil {
 			return nil, fmt.Errorf("presentation: snapshot layer %q: %w", slot.Name, err)
 		}
@@ -234,6 +244,9 @@ func (g *SealedLayerGroup) preflight(scale int) ([]*xlate.Layer, error) {
 }
 
 func validateSealedStamps(layer *xlate.Layer, fonts map[string]*xlate.Font, scale int) error {
+	if err := layer.ValidatePixelGlyphPlan(scale); err != nil {
+		return fmt.Errorf("presentation: invalid sealed pixel glyph plan: %w", err)
+	}
 	for _, stamp := range layer.Stamps {
 		if stamp == nil || stamp.State != xlate.Shown || stamp.X < 0 || stamp.Y < 0 || stamp.Cells <= 0 || stamp.CellW <= 0 || stamp.CellH <= 0 || stamp.GlyphX < 0 || stamp.GlyphY < 0 || stamp.GlyphScale < 0 || len(stamp.Text) > stamp.Cells || len(stamp.Transparent) > stamp.Cells || stamp.X >= layer.W || stamp.Y >= layer.H || stamp.Cells > (layer.W-stamp.X)/stamp.CellW || stamp.CellH > layer.H-stamp.Y {
 			return fmt.Errorf("presentation: invalid sealed stamp geometry or state")
@@ -243,6 +256,9 @@ func validateSealedStamps(layer *xlate.Layer, fonts map[string]*xlate.Font, scal
 				return fmt.Errorf("presentation: text without font")
 			}
 			continue
+		}
+		if stamp.PixelScale != 0 {
+			continue // The checked physical plan validates its own font and crop.
 		}
 		font := stamp.Font
 		if font.Name == "" || fonts[font.Name] != font {
@@ -301,7 +317,11 @@ func ProjectSealedLayers(source host.FrameSource, group *SealedLayerGroup, scale
 	missing := []rune{}
 	drew := false
 	for _, layer := range copies {
-		if layer.Draw(rgba, scale, func(r rune) { missing = append(missing, r) }) {
+		layerDrew, err := layer.DrawChecked(rgba, scale, func(r rune) { missing = append(missing, r) })
+		if err != nil {
+			return LayerPresentationSnapshot{}, fmt.Errorf("presentation: checked sealed draw: %w", err)
+		}
+		if layerDrew {
 			drew = true
 		}
 	}

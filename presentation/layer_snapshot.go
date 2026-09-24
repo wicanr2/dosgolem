@@ -69,6 +69,14 @@ func (p *LayerSnapshotProvider) Snapshot(scale int) (LayerPresentationSnapshot, 
 	if scale <= 0 {
 		return LayerPresentationSnapshot{}, fmt.Errorf("presentation: 輸出倍率必須為正數，得到 %d", scale)
 	}
+	// This legacy single-layer provider draws with xlate.Draw. Physical
+	// glyphs require a checked, sealed projection; reject before reading a
+	// frame rather than silently returning the untranslated baseline.
+	for _, stamp := range p.layer.Stamps {
+		if stamp != nil && (stamp.PixelScale != 0 || len(stamp.PixelGlyphs) != 0) {
+			return LayerPresentationSnapshot{}, fmt.Errorf("presentation: physical glyph requires checked sealed projection")
+		}
+	}
 	frame, err := p.frames.Snapshot()
 	if err != nil {
 		return LayerPresentationSnapshot{}, err

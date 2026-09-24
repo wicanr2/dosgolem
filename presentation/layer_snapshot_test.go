@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/wicanr2/dosgolem/host"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/xlate"
 )
@@ -95,6 +96,23 @@ func TestLayerSnapshotFailsClosedForUnregisteredOrMismatchedLayer(t *testing.T) 
 	}
 	if _, err := NewLayerSnapshotProvider(source, nil, nil); err == nil {
 		t.Fatal("nil layer unexpectedly accepted")
+	}
+}
+
+func TestLayerSnapshotRejectsPhysicalGlyphBeforeFrameRead(t *testing.T) {
+	font := &xlate.Font{Name: "physical", W: 1, H: 1, Glyphs: map[rune][]byte{'A': {0x80}}}
+	layer := &xlate.Layer{W: 2, H: 1, Stamps: []*xlate.Stamp{{
+		X: 0, Y: 0, Cells: 2, CellW: 1, CellH: 1, State: xlate.Shown,
+		PixelScale: 3, PixelGlyphs: []xlate.PixelGlyph{{Rune: 'A', Font: font, SrcW: 1, SrcH: 1}},
+	}}}
+	source := &sealedCountingSource{frame: host.IndexedFrame{Canvas: host.Canvas{Width: 2, Height: 1}, Indexed: []byte{0, 0}}}
+	provider, err := NewLayerSnapshotProvider(source, layer, map[string]*xlate.Font{font.Name: font})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := provider.Snapshot(3)
+	if err == nil || source.reads != 0 || len(shot.RGBA) != 0 {
+		t.Fatalf("legacy projection silently accepted physical glyph: err=%v reads=%d rgba=%d", err, source.reads, len(shot.RGBA))
 	}
 }
 
