@@ -29,14 +29,17 @@ func (l HostLabels) all() []string {
 }
 
 type Config struct {
-	Panel     *host.PanelController
-	Keyboard  *presentation.KeyboardBridge
-	Mouse     *host.MouseBridge
-	Snapshot  Snapshot
-	Advance   Advance
-	HostFont2 *xlate.Font // local 2× font; bytes are never bundled here.
-	HostFont3 *HostFont3  // local native 24-point host face; never scale up HostFont2.
-	Labels    HostLabels
+	Panel    *host.PanelController
+	Keyboard *presentation.KeyboardBridge
+	Mouse    *host.MouseBridge
+	Snapshot Snapshot
+	Advance  Advance
+	// OnDrawFault synchronously reports the first inspectable Draw failure to
+	// a caller-owned session. It does not make this open Config a sealed owner.
+	OnDrawFault func(error)
+	HostFont2   *xlate.Font // local 2× font; bytes are never bundled here.
+	HostFont3   *HostFont3  // local native 24-point host face; never scale up HostFont2.
+	Labels      HostLabels
 }
 
 type Game struct {
@@ -45,6 +48,7 @@ type Game struct {
 	mouse                *host.MouseBridge
 	snapshot             Snapshot
 	advance              Advance
+	onDrawFault          func(error)
 	font2                *xlate.Font
 	font3                *HostFont3
 	labels               HostLabels
@@ -96,9 +100,10 @@ func New(cfg Config) (*Game, error) {
 	// The caller owns the local font inputs. Pin the validated bytes for this
 	// Game so a later change to either source map cannot alter host chrome.
 	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance,
-		font2:  cloneHostFont(cfg.HostFont2),
-		font3:  &HostFont3{Wide: cloneHostFont(cfg.HostFont3.Wide), ASCII: cloneHostFont(cfg.HostFont3.ASCII)},
-		labels: cfg.Labels, readInput: readFrameInput}
+		onDrawFault: cfg.OnDrawFault,
+		font2:       cloneHostFont(cfg.HostFont2),
+		font3:       &HostFont3{Wide: cloneHostFont(cfg.HostFont3.Wide), ASCII: cloneHostFont(cfg.HostFont3.ASCII)},
+		labels:      cfg.Labels, readInput: readFrameInput}
 	if err := g.refreshLayout(); err != nil {
 		return nil, err
 	}
@@ -308,17 +313,17 @@ func mapKey(k ebiten.Key) (dos.Key, bool) {
 func (g *Game) Draw(screen *ebiten.Image) {
 	state, err := g.panel.Snapshot()
 	if err != nil {
-		g.err = err
+		g.drawFault(err)
 		return
 	}
 	s, err := g.snapshot(int(state.Scales.ActiveScale))
 	if err != nil {
-		g.err = err
+		g.drawFault(err)
 		return
 	}
 	w, h, err := g.validateSnapshot(state, s)
 	if err != nil {
-		g.err = err
+		g.drawFault(err)
 		return
 	}
 	canvas := ebiten.NewImage(w, h)
@@ -326,7 +331,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{16, 24, 39, 255})
 	screen.DrawImage(canvas, &ebiten.DrawImageOptions{GeoM: func() ebiten.GeoM { var m ebiten.GeoM; m.Translate(0, float64(g.layout.ChromeHeight)); return m }()})
 	if err := g.drawChrome(screen, state); err != nil {
-		g.err = err
+		g.drawFault(err)
+	}
+}
+
+func (g *Game) drawFault(err error) {
+	if err == nil || g.err != nil {
+		return
+	}
+	g.err = err
+	if g.onDrawFault != nil {
+		g.onDrawFault(err)
 	}
 }
 
