@@ -93,11 +93,24 @@ func New(cfg Config) (*Game, error) {
 	if err := validateHostFont3(cfg.HostFont3, cfg.Labels); err != nil {
 		return nil, err
 	}
-	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance, font2: cfg.HostFont2, font3: cfg.HostFont3, labels: cfg.Labels, readInput: readFrameInput}
+	// The caller owns the local font inputs. Pin the validated bytes for this
+	// Game so a later change to either source map cannot alter host chrome.
+	g := &Game{panel: cfg.Panel, keys: cfg.Keyboard, mouse: cfg.Mouse, snapshot: cfg.Snapshot, advance: cfg.Advance,
+		font2:  cloneHostFont(cfg.HostFont2),
+		font3:  &HostFont3{Wide: cloneHostFont(cfg.HostFont3.Wide), ASCII: cloneHostFont(cfg.HostFont3.ASCII)},
+		labels: cfg.Labels, readInput: readFrameInput}
 	if err := g.refreshLayout(); err != nil {
 		return nil, err
 	}
 	return g, nil
+}
+
+func cloneHostFont(source *xlate.Font) *xlate.Font {
+	font := &xlate.Font{Name: source.Name, W: source.W, H: source.H, Glyphs: make(map[rune][]byte, len(source.Glyphs))}
+	for r, glyph := range source.Glyphs {
+		font.Glyphs[r] = append([]byte(nil), glyph...)
+	}
+	return font
 }
 
 func validateHostFont2(font *xlate.Font, labels HostLabels) error {

@@ -1,6 +1,7 @@
 package ebiten
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"strings"
@@ -12,6 +13,40 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/presentation"
 )
+
+func TestNativeHostFontsGameNewPinsValidatedGlyphs(t *testing.T) {
+	base, _ := newDraftGame(t)
+	mouse, err := host.NewMouseBridge(&mouseOutput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	font2 := draftFont(16, 16)
+	font3 := draftHostFont3()
+	g, err := New(Config{Panel: base.panel, Keyboard: base.keys, Mouse: mouse,
+		HostFont2: font2, HostFont3: font3, Labels: draftLabels(),
+		Snapshot: func(int) (presentation.LayerPresentationSnapshot, error) {
+			return presentation.LayerPresentationSnapshot{}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := append([]byte(nil), g.font2.Glyphs['2']...)
+	wide := append([]byte(nil), g.font3.Wide.Glyphs['設']...)
+	ascii := append([]byte(nil), g.font3.ASCII.Glyphs['2']...)
+	font2.Glyphs['2'][0] ^= 0xff
+	font3.Wide.Glyphs['設'][0] ^= 0xff
+	font3.ASCII.Glyphs['2'][0] ^= 0xff
+	delete(font3.Wide.Glyphs, '定')
+	font3.Wide.W = 22
+	if g.font2 == font2 || g.font3 == font3 || g.font3.Wide == font3.Wide || g.font3.ASCII == font3.ASCII ||
+		!bytes.Equal(g.font2.Glyphs['2'], two) || !bytes.Equal(g.font3.Wide.Glyphs['設'], wide) ||
+		!bytes.Equal(g.font3.ASCII.Glyphs['2'], ascii) || g.font3.Wide.W != 24 {
+		t.Fatal("Game.New did not pin the validated 2× and native 3× host font bytes")
+	}
+	if _, _, err := measureHostText3(g.font3, image.Pt(744, 8), draftLabels().Settings); err != nil {
+		t.Fatalf("source mutation changed the active 3× host label: %v", err)
+	}
+}
 
 func TestNativeHostFont3MeasuresFiveSafeLabels(t *testing.T) {
 	face := draftHostFont3()
