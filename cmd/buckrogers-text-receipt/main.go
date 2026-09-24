@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -2177,9 +2178,7 @@ func main() {
 	if postJoinWatcher != nil && postJoinWatcher.Failed() {
 		fail(fmt.Errorf("post-join watcher failed closed"))
 	}
-	if err := saveTerminalState(*stateOut, m, d); err != nil {
-		fail(err)
-	}
+	outputs := &receiptOutputs{}
 	out := make([]eventJSON, len(events))
 	for i, e := range events {
 		out[i] = eventJSON{
@@ -2349,14 +2348,8 @@ func main() {
 		if err := validateOverlayDraw(activeKeys, missingRunes, drew); err != nil {
 			fail(err)
 		}
-		if *baselineOut != "" {
-			if err := os.WriteFile(*baselineOut, baseline, 0o644); err != nil {
-				fail(err)
-			}
-		}
-		if err := os.WriteFile(*overlayOut, rgba, 0o644); err != nil {
-			fail(err)
-		}
+		outputs.add(*baselineOut, baseline)
+		outputs.add(*overlayOut, rgba)
 		result.OverlayScale, result.OverlayDrew = *overlayScale, &drew
 		result.ActiveOverlayKeys = activeKeys
 		for _, action := range presenter.Actions() {
@@ -2369,12 +2362,8 @@ func main() {
 		if err := validateOverlayDraw(postJoinPresenter.ActiveKeys(), missing, drew); err != nil {
 			fail(fmt.Errorf("post-join overlay: %w", err))
 		}
-		if err := os.WriteFile(*postJoinBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
-		if err := os.WriteFile(*postJoinOut, rgba, 0o644); err != nil {
-			fail(err)
-		}
+		outputs.add(*postJoinBaselineOut, baseline)
+		outputs.add(*postJoinOut, rgba)
 	}
 	if skillExitOwner != nil {
 		if *skillExitExpectActive && (!skillExitOwner.Watcher.Active() || len(skillExitOwner.Presenter.ActiveKeys()) != 1) {
@@ -2385,12 +2374,8 @@ func main() {
 		if err := validateOverlayDraw(skillExitOwner.Presenter.ActiveKeys(), missing, drew); err != nil {
 			fail(fmt.Errorf("skill-exit overlay: %w", err))
 		}
-		if err := os.WriteFile(*skillExitBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
-		if err := os.WriteFile(*skillExitOut, rgba, 0o644); err != nil {
-			fail(err)
-		}
+		outputs.add(*skillExitBaselineOut, baseline)
+		outputs.add(*skillExitOut, rgba)
 	}
 	if exitPromptOwner != nil {
 		if *exitPromptExpectActive && (!exitPromptOwner.Watcher.Active() || len(exitPromptOwner.Presenter.ActiveKeys()) != 1) {
@@ -2409,12 +2394,8 @@ func main() {
 			exitPromptOwner.Fault()
 			fail(fmt.Errorf("Exit prompt overlay: %w", err))
 		}
-		if err := os.WriteFile(*exitPromptBaselineOut, baseline, 0o644); err != nil {
-			fail(err)
-		}
-		if err := os.WriteFile(*exitPromptOut, rgba, 0o644); err != nil {
-			fail(err)
-		}
+		outputs.add(*exitPromptBaselineOut, baseline)
+		outputs.add(*exitPromptOut, rgba)
 	}
 	if manualPresenter != nil {
 		styleObserved := manualPresenter.HasStyle()
@@ -2430,7 +2411,7 @@ func main() {
 		if outside != 0 || (len(manualPresenter.ActiveKeys()) != 0 && added == 0) {
 			fail(fmt.Errorf("手冊覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, rgba, baseline, *manualScale); err != nil {
+		if err := queueRGBAOutputs(outputs, *manualOut, *manualBaselineOut, *manualPNGOut, *manualBaselinePNGOut, rgba, baseline, *manualScale); err != nil {
 			fail(err)
 		}
 		for _, event := range manualWatcher.PresentationEvents() {
@@ -2467,7 +2448,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("首屏劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, rgba, baseline, *storyOpeningScale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyOpeningOut, *storyOpeningBaselineOut, *storyOpeningPNGOut, *storyOpeningBaselinePNGOut, rgba, baseline, *storyOpeningScale); err != nil {
 			fail(err)
 		}
 		storyResult := &storyOpeningOverlayJSON{Scale: *storyOpeningScale, ActiveKeys: active, Drew: drew,
@@ -2490,7 +2471,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 2 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage2Out, *storyPage2BaselineOut, *storyPage2PNGOut, *storyPage2BaselinePNGOut, rgba, baseline, *storyPage2Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage2Out, *storyPage2BaselineOut, *storyPage2PNGOut, *storyPage2BaselinePNGOut, rgba, baseline, *storyPage2Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage2Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2511,7 +2492,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 3 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage3Out, *storyPage3BaselineOut, *storyPage3PNGOut, *storyPage3BaselinePNGOut, rgba, baseline, *storyPage3Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage3Out, *storyPage3BaselineOut, *storyPage3PNGOut, *storyPage3BaselinePNGOut, rgba, baseline, *storyPage3Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage3Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2532,7 +2513,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 4 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage4Out, *storyPage4BaselineOut, *storyPage4PNGOut, *storyPage4BaselinePNGOut, rgba, baseline, *storyPage4Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage4Out, *storyPage4BaselineOut, *storyPage4PNGOut, *storyPage4BaselinePNGOut, rgba, baseline, *storyPage4Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage4Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2553,7 +2534,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 5 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage5Out, *storyPage5BaselineOut, *storyPage5PNGOut, *storyPage5BaselinePNGOut, rgba, baseline, *storyPage5Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage5Out, *storyPage5BaselineOut, *storyPage5PNGOut, *storyPage5BaselinePNGOut, rgba, baseline, *storyPage5Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage5Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2574,7 +2555,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 6 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage6Out, *storyPage6BaselineOut, *storyPage6PNGOut, *storyPage6BaselinePNGOut, rgba, baseline, *storyPage6Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage6Out, *storyPage6BaselineOut, *storyPage6PNGOut, *storyPage6BaselinePNGOut, rgba, baseline, *storyPage6Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage6Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2595,7 +2576,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 7 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage7Out, *storyPage7BaselineOut, *storyPage7PNGOut, *storyPage7BaselinePNGOut, rgba, baseline, *storyPage7Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage7Out, *storyPage7BaselineOut, *storyPage7PNGOut, *storyPage7BaselinePNGOut, rgba, baseline, *storyPage7Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage7Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2616,7 +2597,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 8 頁劇情覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage8Out, *storyPage8BaselineOut, *storyPage8PNGOut, *storyPage8BaselinePNGOut, rgba, baseline, *storyPage8Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage8Out, *storyPage8BaselineOut, *storyPage8PNGOut, *storyPage8BaselinePNGOut, rgba, baseline, *storyPage8Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage8Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2637,7 +2618,7 @@ func main() {
 		if outside != 0 || (len(active) != 0 && added == 0) {
 			fail(fmt.Errorf("第 9 頁劇情覆繪幾何失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*storyPage9Out, *storyPage9BaselineOut, *storyPage9PNGOut, *storyPage9BaselinePNGOut, rgba, baseline, *storyPage9Scale); err != nil {
+		if err := queueRGBAOutputs(outputs, *storyPage9Out, *storyPage9BaselineOut, *storyPage9PNGOut, *storyPage9BaselinePNGOut, rgba, baseline, *storyPage9Scale); err != nil {
 			fail(err)
 		}
 		item := &storyOpeningOverlayJSON{Scale: *storyPage9Scale, ActiveKeys: active, Drew: drew, BaselineRGBA256: sha256hex(baseline), OverlayRGBA256: sha256hex(rgba), DiffOutsideStoryRect: outside, DiffInsideStoryRect: inside, AddedNonBaselinePixel: added}
@@ -2670,7 +2651,7 @@ func main() {
 		if outside != 0 || (len(actionBarPresenter.ActiveKeys()) != 0 && added == 0) {
 			fail(fmt.Errorf("操作列覆繪幾何或字模驗證失敗：outside=%d added=%d", outside, added))
 		}
-		if err := writeManualOutputs(*actionBarOverlayOut, *actionBarBaselineOut, *actionBarPNGOut, *actionBarBaselinePNGOut, rgba, baseline, *actionBarOverlayScale); err != nil {
+		if err := queueRGBAOutputs(outputs, *actionBarOverlayOut, *actionBarBaselineOut, *actionBarPNGOut, *actionBarBaselinePNGOut, rgba, baseline, *actionBarOverlayScale); err != nil {
 			fail(err)
 		}
 		result.ActionBarOverlay = &actionBarOverlayJSON{Scale: *actionBarOverlayScale, ActiveKeys: actionBarPresenter.ActiveKeys(), Drew: drew,
@@ -2700,16 +2681,18 @@ func main() {
 		}
 	}
 	if *screenOut != "" {
-		if err := writeIndexedScreen(*screenOut, m.Indexed()); err != nil {
+		if err := queueIndexedScreen(outputs, *screenOut, m.Indexed()); err != nil {
 			fail(err)
 		}
 	}
 	if exitPromptLifecycle != nil {
-		if err := exitPromptLifecycle.write(*exitPromptLifecycleOut); err != nil {
+		if err := exitPromptLifecycle.validate(); err != nil {
 			fail(err)
 		}
+		outputs.addGenerated(*exitPromptLifecycleOut, exitPromptLifecycle.write)
 	}
-	if err := emitReceipt(os.Stdout, *receiptOut, result); err != nil {
+	outputs.addGenerated(*stateOut, func(path string) error { return saveTerminalState(path, m, d) })
+	if err := outputs.commitReceipt(os.Stdout, *receiptOut, result); err != nil {
 		fail(err)
 	}
 }
@@ -2773,29 +2756,14 @@ func configureScratch(d *dos.DOS, path string) error {
 }
 
 func emitReceipt(stdout io.Writer, path string, value any) error {
-	b, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("編碼 JSON 收據：%w", err)
-	}
-	b = append(b, '\n')
-	if path != "" {
-		if err := os.WriteFile(path, b, 0o644); err != nil {
-			return fmt.Errorf("寫出 JSON 收據：%w", err)
-		}
-	}
-	if _, err := stdout.Write(b); err != nil {
-		return fmt.Errorf("寫出 stdout 收據：%w", err)
-	}
-	return nil
+	return (&receiptOutputs{}).commitReceipt(stdout, path, value)
 }
 
-func writeIndexedScreen(path string, data []byte) error {
+func queueIndexedScreen(outputs *receiptOutputs, path string, data []byte) error {
 	if len(data) != 320*200 {
 		return fmt.Errorf("indexed framebuffer 大小為 %d，要 64000", len(data))
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("寫出 indexed framebuffer：%w", err)
-	}
+	outputs.add(path, data)
 	return nil
 }
 
@@ -3237,31 +3205,46 @@ func storyPage9Diff(baseline, overlay []byte, scale int) (outside, inside, added
 	return
 }
 
-func writeManualOutputs(out, baselineOut, pngOut, baselinePNG string, rgba, baseline []byte, scale int) error {
-	if err := os.WriteFile(out, rgba, 0o644); err != nil {
-		return err
+func queueRGBAOutputs(outputs *receiptOutputs, out, baselineOut, pngOut, baselinePNG string, rgba, baseline []byte, scale int) error {
+	if scale != 2 && scale != 3 {
+		return fmt.Errorf("RGBA 輸出倍率無效：%d", scale)
 	}
-	if err := os.WriteFile(baselineOut, baseline, 0o644); err != nil {
-		return err
+	if len(rgba) != 320*scale*200*scale*4 || len(baseline) != len(rgba) {
+		return fmt.Errorf("RGBA 輸出大小無效：overlay=%d baseline=%d", len(rgba), len(baseline))
 	}
-	if err := writeRGBApng(pngOut, rgba, 320*scale, 200*scale); err != nil {
-		return err
+	var overlayPNG, basePNG []byte
+	if pngOut != "" {
+		var err error
+		overlayPNG, err = encodeRGBApng(rgba, 320*scale, 200*scale)
+		if err != nil {
+			return err
+		}
 	}
-	return writeRGBApng(baselinePNG, baseline, 320*scale, 200*scale)
+	if baselinePNG != "" {
+		var err error
+		basePNG, err = encodeRGBApng(baseline, 320*scale, 200*scale)
+		if err != nil {
+			return err
+		}
+	}
+	outputs.add(out, rgba)
+	outputs.add(baselineOut, baseline)
+	outputs.add(pngOut, overlayPNG)
+	outputs.add(baselinePNG, basePNG)
+	return nil
 }
 
-func writeRGBApng(path string, rgba []byte, width, height int) error {
+func encodeRGBApng(rgba []byte, width, height int) ([]byte, error) {
 	if len(rgba) != width*height*4 {
-		return fmt.Errorf("RGBA 長度 %d 不符 %dx%d", len(rgba), width, height)
+		return nil, fmt.Errorf("RGBA 長度 %d 不符 %dx%d", len(rgba), width, height)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	copy(img.Pix, rgba)
-	f, err := os.Create(path)
-	if err != nil {
-		return err
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return nil, err
 	}
-	defer f.Close()
-	return png.Encode(f, img)
+	return out.Bytes(), nil
 }
 
 func validateMenuCatalogFlags(events, translations string) error {

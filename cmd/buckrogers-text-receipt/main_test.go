@@ -839,18 +839,22 @@ func TestMergeBIOSKeySchedule(t *testing.T) {
 	}
 }
 
-func TestWriteIndexedScreen(t *testing.T) {
+func TestQueueIndexedScreen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "screen.bin")
 	data := make([]byte, 320*200)
 	data[12345] = 0x0F
-	if err := writeIndexedScreen(path, data); err != nil {
+	outputs := &receiptOutputs{}
+	if err := queueIndexedScreen(outputs, path, data); err != nil {
+		t.Fatal(err)
+	}
+	if err := outputs.commitReceipt(&bytes.Buffer{}, "", struct{}{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || len(got) != len(data) || got[12345] != 0x0F {
 		t.Fatalf("screen len=%d err=%v", len(got), err)
 	}
-	if err := writeIndexedScreen(path, data[:len(data)-1]); err == nil {
+	if err := queueIndexedScreen(&receiptOutputs{}, path, data[:len(data)-1]); err == nil {
 		t.Fatal("短 framebuffer 應拒絕")
 	}
 }
