@@ -64,10 +64,39 @@ type TickReceipt struct {
 	Reason             StopReason
 }
 
-// Config contains presentation-only construction choices.  In particular it
-// does not accept an existing machine, DOS, panel, or bridge.
+// CapturedUpdate is the value-only input captured for one future frontend
+// update. This controlled slice accepts already-classified panel events,
+// pointer events, and explicitly mapped BIOS keys. Panel transitions that
+// require a new mouse layout fail before commit until the owner has a private
+// layout-projection contract.
+type CapturedUpdate struct {
+	StartedPanel host.PanelState
+	Layout       host.MouseLayout
+	PanelEvents  []host.PanelEvent
+	PointerDown  *host.MouseEvent
+	PointerUp    *host.MouseEvent
+	FocusLost    bool
+	BIOSKeys     []dos.Key
+}
+
+// InputReceipt records a successfully accepted update. Epoch is an accepted
+// batch ordinal, not a DOS step count. A paused panel batch still has one.
+type InputReceipt struct {
+	Epoch       uint64
+	Phase       Phase
+	HostChanged bool
+	// DOSCallsCommitted counts committed MouseOutput and BIOS key calls, not
+	// DOS mouse callbacks/events. In particular, a committed MoveMouse call
+	// whose coordinate is unchanged intentionally produces no DOS move event.
+	DOSCallsCommitted uint64
+	Paused            bool
+}
+
+// Config contains value-only host construction choices. In particular it does
+// not accept an existing machine, DOS, panel, or bridge.
 type Config struct {
-	InitialScale host.OutputScale
+	InitialScale  host.OutputScale
+	InitialLayout host.MouseLayout
 }
 
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
@@ -91,6 +120,11 @@ type Owner struct {
 	phase          Phase
 	epoch          uint64
 	turnPending    bool
+	turnPaused     bool
+	generation     uint64
+	committing     bool
+	layout         host.MouseLayout
+	layoutSet      bool
 	terminalReason StopReason
 	firstFault     error
 	closeErr       error
@@ -101,6 +135,9 @@ type Owner struct {
 // original executable nor accepts one; later boot work must remain within this
 // owner rather than exposing these resources.
 func New(cfg Config) (*Owner, error) {
+	if cfg.InitialLayout.Epoch == 0 && cfg.InitialLayout != (host.MouseLayout{}) {
+		return nil, errors.New("session: InitialLayout 非零時必須有 layout epoch")
+	}
 	panel, err := host.NewPanelController(cfg.InitialScale)
 	if err != nil {
 		return nil, err
@@ -120,6 +157,18 @@ func New(cfg Config) (*Owner, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.InitialLayout.Epoch != 0 {
+		state, err := panel.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+		if cfg.InitialLayout.Scale != state.Scales.ActiveScale || cfg.InitialLayout.PanelOpen != state.Open {
+			return nil, errors.New("session: InitialLayout 與初始 panel 狀態不一致")
+		}
+		if err := mouse.ApplyLayout(cfg.InitialLayout); err != nil {
+			return nil, err
+		}
+	}
 	keyboard, err := presentation.NewKeyboardBridgeWithBIOS(panel, m, d)
 	if err != nil {
 		return nil, err
@@ -127,6 +176,9 @@ func New(cfg Config) (*Owner, error) {
 	o, err := newOwner(m, d, panel, mouse, keyboard, dosCloser{dos: d})
 	if err != nil {
 		return nil, err
+	}
+	if cfg.InitialLayout.Epoch != 0 {
+		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
 	keepDOS = true
 	return o, nil
@@ -145,6 +197,228 @@ func (o *Owner) ReportDrawFault(err error) error {
 		o.terminalReason = StopReasonFrontendFault
 	}
 	return o.fail(err)
+}
+
+// Deliver accepts one value-only update through a pure prepare and exclusive
+// commit.  It deliberately does not accept mutable bridges or a machine from
+// its caller.  Pointer/focus transport uses the owner-private captured layout;
+// a pointer batch that also changes panel layout remains fail-closed until an
+// approved owner-private layout-projection contract exists.
+func (o *Owner) Deliver(update CapturedUpdate) (InputReceipt, error) {
+	if o == nil {
+		return InputReceipt{Phase: PhaseFailed}, errors.New("session: Owner 不得為 nil")
+	}
+	receipt := InputReceipt{Epoch: o.epoch, Phase: o.phase}
+	if o.committing {
+		return o.frontendFaultInputReceipt(receipt, errors.New("session: Commit 期間不得重入 Deliver"))
+	}
+	if o.phase != PhaseRunning {
+		if o.phase == PhaseStopped || o.phase == PhaseClosed {
+			return receipt, fmt.Errorf("session: phase %d 不可接納新回合", o.phase)
+		}
+		return o.frontendFaultInputReceipt(receipt, errors.New("session: 非 Running owner 不可 Deliver"))
+	}
+	if o.turnPending {
+		return o.frontendFaultInputReceipt(receipt, errors.New("session: 前一回合尚未 Advance"))
+	}
+	plan, err := o.prepare(update)
+	if err != nil {
+		return o.frontendFaultInputReceipt(receipt, err)
+	}
+	return o.commit(plan)
+}
+
+type deliveredPlan struct {
+	owner       *Owner
+	generation  uint64
+	base, final host.PanelState
+	baseMouse   host.MouseBridgeSnapshot
+	finalMouse  host.MouseBridgeSnapshot
+	layout      host.MouseLayout
+	panelEvents []host.PanelEvent
+	mouseEvents []preparedMouseEvent
+	biosKeys    []dos.Key
+	hostChanged bool
+	paused      bool
+}
+
+type preparedMouseEvent struct {
+	event       host.MouseEvent
+	route       host.MouseRoute
+	next        host.MouseBridgeSnapshot
+	actionCount uint8
+}
+
+// prepare performs no Route, Handle, ApplyLayout, DeliverBIOSKey, DOS write,
+// or machine step.  It only consumes immutable snapshots and pure planners.
+func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
+	if o.epoch == ^uint64(0) || o.generation == ^uint64(0) {
+		return deliveredPlan{}, errors.New("session: epoch 或 generation 溢位")
+	}
+	if err := o.keyboard.ValidateBIOSForPanel(o.panel); err != nil {
+		return deliveredPlan{}, err
+	}
+	base, err := o.panel.Snapshot()
+	if err != nil {
+		return deliveredPlan{}, err
+	}
+	if update.StartedPanel != base {
+		return deliveredPlan{}, errors.New("session: CapturedUpdate 的起點 panel 與 owner 不一致")
+	}
+	plan := deliveredPlan{owner: o, generation: o.generation, base: base, final: base, baseMouse: o.mouse.Snapshot(), layout: o.layout}
+	plan.finalMouse = plan.baseMouse
+	if o.layoutSet && (o.layout.Scale != base.Scales.ActiveScale || o.layout.PanelOpen != base.Open ||
+		!plan.baseMouse.HasCurrent || plan.baseMouse.Current != o.layout) {
+		return deliveredPlan{}, errors.New("session: owner layout、mouse snapshot 與 panel 不一致")
+	}
+	hasPointer := update.PointerDown != nil || update.PointerUp != nil || update.FocusLost
+	if hasPointer {
+		if !o.layoutSet {
+			return deliveredPlan{}, errors.New("session: pointer/focus Deliver 缺少 owner 私有 layout")
+		}
+		// MouseBridge deliberately permits FocusLost to release an existing
+		// press even when its event carries an old layout. Down and Up do not
+		// have that exception: their captured layout must still be current.
+		if (update.PointerDown != nil || update.PointerUp != nil) && update.Layout != o.layout {
+			return deliveredPlan{}, errors.New("session: pointer/focus CapturedUpdate 的 layout 與 owner 不一致")
+		}
+		if !plan.baseMouse.HasCurrent || plan.baseMouse.Current != o.layout {
+			return deliveredPlan{}, errors.New("session: owner mouse snapshot 與私有 layout 不一致")
+		}
+		if update.PointerDown != nil {
+			if update.PointerDown.Kind != host.MouseEventDown {
+				return deliveredPlan{}, errors.New("session: PointerDown 必須是 MouseEventDown")
+			}
+			if err := planMouseEvent(&plan, update.Layout, *update.PointerDown); err != nil {
+				return deliveredPlan{}, err
+			}
+		}
+		if update.PointerUp != nil {
+			if update.PointerUp.Kind != host.MouseEventUp {
+				return deliveredPlan{}, errors.New("session: PointerUp 必須是 MouseEventUp")
+			}
+			if err := planMouseEvent(&plan, update.Layout, *update.PointerUp); err != nil {
+				return deliveredPlan{}, err
+			}
+		}
+		if update.FocusLost {
+			if err := planMouseEvent(&plan, update.Layout, host.MouseEvent{Kind: host.MouseEventFocusLost}); err != nil {
+				return deliveredPlan{}, err
+			}
+		}
+	}
+	if update.PointerDown != nil && update.PointerDown.Target == host.MouseTargetCanvas {
+		for _, event := range update.PanelEvents {
+			if event.Kind == host.PanelEventPointerHostHit {
+				return deliveredPlan{}, errors.New("session: 同批 pointer host-hit 與 canvas Down 分類矛盾")
+			}
+		}
+	}
+	for _, event := range update.PanelEvents {
+		next, route, err := host.PlanPanelRoute(plan.final, event)
+		if err != nil {
+			return deliveredPlan{}, err
+		}
+		if route.ForwardToDOS {
+			return deliveredPlan{}, errors.New("session: PanelEventKeyboard 必須以 BIOSKeys 明示交付")
+		}
+		plan.final = next
+		plan.panelEvents = append(plan.panelEvents, event)
+		plan.hostChanged = plan.hostChanged || route.ConsumedByHost
+	}
+	if o.layoutSet && (plan.base.Open != plan.final.Open || plan.base.Scales.ActiveScale != plan.final.Scales.ActiveScale) {
+		return deliveredPlan{}, errors.New("session: panel layout transition 尚缺 owner 私有 projection")
+	}
+	plan.paused = plan.base.Open || plan.final.Open || plan.hostChanged
+	if !plan.paused {
+		plan.biosKeys = append(plan.biosKeys, update.BIOSKeys...)
+	}
+	return plan, nil
+}
+
+func planMouseEvent(plan *deliveredPlan, layout host.MouseLayout, event host.MouseEvent) error {
+	if event.Target != host.MouseTargetCanvas && event.Target != host.MouseTargetHost && event.Target != host.MouseTargetOutside && event.Kind != host.MouseEventFocusLost {
+		return errors.New("session: pointer target 未分類")
+	}
+	next, err := host.PlanMouseRoute(plan.finalMouse, layout, event)
+	if err != nil {
+		return err
+	}
+	switch next.Route.Reason {
+	case "stale-layout-epoch-rejected", "unknown-event-rejected", "non-left-rejected", "nil-bridge-rejected":
+		return fmt.Errorf("session: pointer route 在 commit 前拒絕：%s", next.Route.Reason)
+	}
+	plan.mouseEvents = append(plan.mouseEvents, preparedMouseEvent{event: event, route: next.Route, next: next.Next, actionCount: next.ActionCount})
+	plan.finalMouse = next.Next
+	return nil
+}
+
+// commit rechecks every source before its first output. The owner never leaks
+// panel, bridge, DOS, or machine mutators; after this check it executes only
+// prevalidated mouse actions and explicit BIOS key pushes.
+func (o *Owner) commit(plan deliveredPlan) (InputReceipt, error) {
+	receipt := InputReceipt{Epoch: o.epoch, Phase: o.phase}
+	if plan.owner != o || plan.generation != o.generation || o.committing {
+		return o.frontendFaultInputReceipt(receipt, errors.New("session: stale 或重入的 Deliver plan"))
+	}
+	current, err := o.panel.Snapshot()
+	if err != nil || current != plan.base || o.mouse.Snapshot() != plan.baseMouse || (o.layoutSet && o.layout != plan.layout) {
+		if err == nil {
+			err = errors.New("session: Deliver plan 的 panel source 已漂移")
+		}
+		return o.frontendFaultInputReceipt(receipt, err)
+	}
+	if err := o.keyboard.ValidateBIOSForPanel(o.panel); err != nil {
+		return o.frontendFaultInputReceipt(receipt, err)
+	}
+	o.committing = true
+	defer func() { o.committing = false }()
+	for _, prepared := range plan.mouseEvents {
+		route := o.mouse.Handle(plan.layout, prepared.event)
+		if route != prepared.route || o.mouse.Snapshot() != prepared.next {
+			panic("session: prevalidated mouse commit 發生不可能的分歧")
+		}
+	}
+	expected := plan.base
+	for _, event := range plan.panelEvents {
+		var planErr error
+		expected, _, planErr = host.PlanPanelRoute(expected, event)
+		if planErr != nil {
+			return o.frontendFaultInputReceipt(receipt, planErr)
+		}
+		state, route, err := o.panel.Route(event)
+		if err != nil || route.ForwardToDOS || state != expected {
+			if err == nil {
+				err = errors.New("session: 預檢的 panel commit 發生分歧")
+			}
+			return o.frontendFaultInputReceipt(receipt, err)
+		}
+	}
+	final, err := o.panel.Snapshot()
+	if err != nil || final != plan.final {
+		if err == nil {
+			err = errors.New("session: panel commit 結果與純 plan 不一致")
+		}
+		return o.frontendFaultInputReceipt(receipt, err)
+	}
+	for _, key := range plan.biosKeys {
+		o.dos.PushKey(key)
+	}
+	o.epoch++
+	o.generation++
+	o.turnPending = true
+	o.turnPaused = plan.paused
+	keyCalls := uint64(len(plan.biosKeys))
+	return InputReceipt{Epoch: o.epoch, Phase: o.phase, HostChanged: plan.hostChanged,
+		DOSCallsCommitted: keyCalls + mouseActionCount(plan.mouseEvents), Paused: plan.paused}, nil
+}
+
+func mouseActionCount(events []preparedMouseEvent) uint64 {
+	var count uint64
+	for _, prepared := range events {
+		count += uint64(prepared.actionCount)
+	}
+	return count
 }
 
 // Advance consumes the one privately accepted running turn and returns an
@@ -178,6 +452,12 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 		return o.frontendFaultReceipt(receipt, errors.New("session: Advance 前必須先由 Deliver 接納一個回合"))
 	}
 	o.turnPending = false
+	if o.turnPaused {
+		o.turnPaused = false
+		receipt.Phase = o.phase
+		receipt.Reason = StopReasonPanelPaused
+		return receipt, nil
+	}
 	if budget == 0 {
 		return o.frontendFaultReceipt(receipt, errors.New("session: InstructionBudget 必須為正數"))
 	}
@@ -279,6 +559,10 @@ func (o *Owner) startLoadedMachine() error {
 // no made-up input routing: the future Deliver method must call it only after
 // the complete captured-update prepare/commit operation succeeds.
 func (o *Owner) acceptTurn() (uint64, error) {
+	return o.acceptTurnWithPause(false)
+}
+
+func (o *Owner) acceptTurnWithPause(paused bool) (uint64, error) {
 	if o == nil {
 		return 0, errors.New("session: Owner 不得為 nil")
 	}
@@ -296,7 +580,15 @@ func (o *Owner) acceptTurn() (uint64, error) {
 	}
 	o.epoch++
 	o.turnPending = true
+	o.turnPaused = paused
 	return o.epoch, nil
+}
+
+func (o *Owner) frontendFaultInputReceipt(receipt InputReceipt, cause error) (InputReceipt, error) {
+	o.terminalReason = StopReasonFrontendFault
+	err := o.fail(cause)
+	receipt.Phase = o.phase
+	return receipt, err
 }
 
 func (o *Owner) frontendFaultReceipt(receipt TickReceipt, cause error) (TickReceipt, error) {
