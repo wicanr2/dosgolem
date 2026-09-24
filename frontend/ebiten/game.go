@@ -262,13 +262,20 @@ func (g *Game) routePointer(kind host.MouseEventKind, x, y int) error {
 }
 
 func (g *Game) hostHit(x, y int) (host.PanelEvent, bool) {
-	s := int(g.layout.Scale)
-	w := g.layout.FrameWidth
+	return panelHit(g.layout, x, y)
+}
+
+// panelHit is the value-only hit test shared by the existing open Game and a
+// future sealed-session frontend. It must classify an output-space point
+// before any DOS coordinate conversion or mouse write.
+func panelHit(layout host.MouseLayout, x, y int) (host.PanelEvent, bool) {
+	s := int(layout.Scale)
+	w := layout.FrameWidth
 	in := func(x0, y0, x1, y1 int) bool { return x >= x0 && x < x1 && y >= y0 && y < y1 }
-	if in(w-76*s, 2*s, w-4*s, 15*s) && !g.layout.PanelOpen {
+	if in(w-76*s, 2*s, w-4*s, 15*s) && !layout.PanelOpen {
 		return host.PanelEvent{Kind: host.PanelEventOpen}, true
 	}
-	if !g.layout.PanelOpen {
+	if !layout.PanelOpen {
 		return host.PanelEvent{}, false
 	}
 	switch {

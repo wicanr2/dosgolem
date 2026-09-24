@@ -2,6 +2,7 @@ package ebiten
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -432,6 +433,49 @@ func TestLayoutEpochOnlyChangesWithHostLayout(t *testing.T) {
 	}
 	if g.layout.Epoch != first.Epoch+1 || !g.layout.PanelOpen {
 		t.Fatalf("open layout=%+v first=%+v", g.layout, first)
+	}
+}
+
+func TestPanelHitUsesTheSameOutputSpaceRectanglesAtBothScales(t *testing.T) {
+	for _, scale := range []host.OutputScale{host.OutputScale2, host.OutputScale3} {
+		s := int(scale)
+		closed := host.MouseLayout{Scale: scale, FrameWidth: 320 * s}
+		open := closed
+		open.PanelOpen = true
+		cases := []struct {
+			name   string
+			layout host.MouseLayout
+			x0, y0 int
+			x1, y1 int
+			want   host.PanelEvent
+		}{
+			{"Settings", closed, 244 * s, 2 * s, 316 * s, 15 * s, host.PanelEvent{Kind: host.PanelEventOpen}},
+			{"2×", open, 8 * s, 35 * s, 62 * s, 58 * s, host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale2}},
+			{"3×", open, 68 * s, 35 * s, 122 * s, 58 * s, host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale3}},
+			{"Apply", open, 145 * s, 63 * s, 213 * s, 87 * s, host.PanelEvent{Kind: host.PanelEventApply}},
+			{"Cancel", open, 220 * s, 63 * s, 288 * s, 87 * s, host.PanelEvent{Kind: host.PanelEventCancel}},
+		}
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%dx/%s", s, tc.name), func(t *testing.T) {
+				for _, point := range [][2]int{{tc.x0, tc.y0}, {tc.x1 - 1, tc.y1 - 1}} {
+					got, hit := panelHit(tc.layout, point[0], point[1])
+					if !hit || got != tc.want {
+						t.Fatalf("point %v = (%+v, %v), want %+v", point, got, hit, tc.want)
+					}
+				}
+				for _, point := range [][2]int{{tc.x1, tc.y0}, {tc.x0, tc.y1}} {
+					if got, hit := panelHit(tc.layout, point[0], point[1]); hit {
+						t.Fatalf("exclusive edge %v unexpectedly hit %+v", point, got)
+					}
+				}
+			})
+		}
+		if got, hit := panelHit(open, 300*s, 100*s); hit {
+			t.Fatalf("%d× open-panel blank area hit %+v", s, got)
+		}
+		if got, hit := panelHit(closed, 8*s, 35*s); hit {
+			t.Fatalf("%d× closed-panel option area hit %+v", s, got)
+		}
 	}
 }
 
