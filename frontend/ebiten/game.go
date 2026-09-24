@@ -52,7 +52,6 @@ type Game struct {
 	font2                *xlate.Font
 	font3                *HostFont3
 	labels               HostLabels
-	epoch                uint64
 	layout               host.MouseLayout
 	rgba                 []byte
 	width, height        int
@@ -156,19 +155,14 @@ func (g *Game) refreshLayout() error {
 	if err != nil {
 		return err
 	}
-	s := int(state.Scales.ActiveScale)
-	if s != 2 && s != 3 {
-		return fmt.Errorf("frontend/ebiten: unsupported scale %d", s)
+	next, changed, err := host.ProjectPresentationLayout(g.layout, state)
+	if err != nil {
+		return err
 	}
-	chrome := 18 * s
-	if state.Open {
-		chrome = 92 * s
-	}
-	if g.layout.Epoch != 0 && g.layout.Scale == state.Scales.ActiveScale && g.layout.PanelOpen == state.Open {
+	if !changed {
 		return nil
 	}
-	g.epoch++
-	g.layout = host.MouseLayout{Epoch: g.epoch, Scale: state.Scales.ActiveScale, ChromeHeight: chrome, Canvas: host.Canvas{Width: 320, Height: 200}, FrameWidth: 320 * s, FrameHeight: chrome + 200*s, PanelOpen: state.Open}
+	g.layout = next
 	// Logical output pixels are the selected DOS scale, never a resize-to-fit
 	// leftover from the previous scale. This remains frontend-only state.
 	ebiten.SetWindowSize(g.layout.FrameWidth, g.layout.FrameHeight)
