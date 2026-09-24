@@ -1,6 +1,9 @@
 package host
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 type testMouseOutput struct {
 	x, y    int
@@ -186,4 +189,108 @@ func TestMouseBridgeHostCaptureBlocksSecondCanvasDownAcrossEpoch(t *testing.T) {
 			t.Fatalf("%d× host capture leaked across epoch: %+v", scale, output)
 		}
 	}
+}
+
+func TestMouseBridgeSnapshotIncludesPressedEpochAndDoesNotRoute(t *testing.T) {
+	output := &testMouseOutput{}
+	bridge := mustMouseBridge(t, output)
+	if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{}) {
+		t.Fatalf("new bridge snapshot=%+v", got)
+	}
+	first := mouseLayout(1, OutputScale2, false)
+	mustApplyMouse(t, bridge, first)
+	if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{Current: first, HasCurrent: true}) {
+		t.Fatalf("layout snapshot=%+v", got)
+	}
+	before := len(output.calls)
+	copy := bridge.Snapshot()
+	copy.Current.Canvas.Width = 1
+	copy.Current.Epoch = 99
+	copy.Pressed = true
+	copy.PressedEpoch = 99
+	copy.HostCaptured = true
+	if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{Current: first, HasCurrent: true}) || len(output.calls) != before {
+		t.Fatalf("mutated snapshot changed bridge or output: %+v calls=%v", got, output.calls)
+	}
+	wantMouseRoute(t, bridge.Handle(first, mouseEvent(MouseEventDown, MouseTargetCanvas, 200, 100)), false, true, false, "canvas-down-forwarded")
+	pressed := MouseBridgeSnapshot{Current: first, HasCurrent: true, Pressed: true, PressedEpoch: 1}
+	if got := bridge.Snapshot(); got != pressed || len(output.calls) != before+2 {
+		t.Fatalf("accepted Down snapshot=%+v calls=%v", got, output.calls)
+	}
+	second := mouseLayout(2, OutputScale2, true)
+	mustApplyMouse(t, bridge, second)
+	pressed.Current = second
+	if got := bridge.Snapshot(); got != pressed || len(output.calls) != before+2 {
+		t.Fatalf("cross-epoch snapshot=%+v calls=%v", got, output.calls)
+	}
+	wantMouseRoute(t, bridge.Handle(second, mouseEvent(MouseEventUp, MouseTargetCanvas, 200, 100)), false, true, true, "epoch-changed-release")
+	if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{Current: second, HasCurrent: true}) ||
+		!reflect.DeepEqual(output.calls, []string{"move", "down", "up"}) {
+		t.Fatalf("cross-epoch release snapshot=%+v calls=%v", got, output.calls)
+	}
+	// A fresh press followed by focus loss clears the press epoch without
+	// relying on a current-layout Up, and Snapshot itself adds no output.
+	closed := mouseLayout(3, OutputScale2, false)
+	mustApplyMouse(t, bridge, closed)
+	wantMouseRoute(t, bridge.Handle(closed, mouseEvent(MouseEventDown, MouseTargetCanvas, 200, 100)), false, true, false, "canvas-down-forwarded")
+	if got := bridge.Snapshot(); !got.Pressed || got.PressedEpoch != 3 {
+		t.Fatalf("new press epoch=%+v", got)
+	}
+	wantMouseRoute(t, bridge.Handle(closed, MouseEvent{Kind: MouseEventFocusLost}), false, true, true, "focus-lost-release")
+	if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{Current: closed, HasCurrent: true}) ||
+		!reflect.DeepEqual(output.calls, []string{"move", "down", "up", "move", "down", "up"}) {
+		t.Fatalf("focus release snapshot=%+v calls=%v", got, output.calls)
+	}
+}
+
+func TestMouseBridgeSnapshotHostCaptureAndNil(t *testing.T) {
+	var nilBridge *MouseBridge
+	if got := nilBridge.Snapshot(); got != (MouseBridgeSnapshot{}) {
+		t.Fatalf("nil bridge snapshot=%+v", got)
+	}
+	for _, cleanup := range []MouseEventKind{MouseEventUp, MouseEventFocusLost} {
+		output := &testMouseOutput{}
+		bridge := mustMouseBridge(t, output)
+		first := mouseLayout(1, OutputScale3, false)
+		second := mouseLayout(2, OutputScale3, true)
+		mustApplyMouse(t, bridge, first)
+		wantMouseRoute(t, bridge.Handle(first, mouseEvent(MouseEventDown, MouseTargetHost, 10, 5)), true, false, false, "host-down-consumed")
+		want := MouseBridgeSnapshot{Current: first, HasCurrent: true, HostCaptured: true}
+		if got := bridge.Snapshot(); got != want || len(output.calls) != 0 {
+			t.Fatalf("host capture snapshot=%+v calls=%v", got, output.calls)
+		}
+		mustApplyMouse(t, bridge, second)
+		want.Current = second
+		if got := bridge.Snapshot(); got != want {
+			t.Fatalf("host capture across epoch snapshot=%+v", got)
+		}
+		event := mouseEvent(cleanup, MouseTargetCanvas, 300, 150)
+		if cleanup == MouseEventUp {
+			wantMouseRoute(t, bridge.Handle(second, event), true, false, false, "host-captured-up-consumed")
+		} else {
+			wantMouseRoute(t, bridge.Handle(second, event), false, false, false, "unmatched-up-rejected")
+		}
+		if got := bridge.Snapshot(); got != (MouseBridgeSnapshot{Current: second, HasCurrent: true}) || len(output.calls) != 0 {
+			t.Fatalf("host cleanup kind=%d snapshot=%+v calls=%v", cleanup, got, output.calls)
+		}
+	}
+}
+
+func TestMouseBridgeSnapshotContainsOnlyValueFields(t *testing.T) {
+	var check func(reflect.Type)
+	check = func(typ reflect.Type) {
+		t.Helper()
+		switch typ.Kind() {
+		case reflect.Struct:
+			for i := 0; i < typ.NumField(); i++ {
+				check(typ.Field(i).Type)
+			}
+		case reflect.Array:
+			check(typ.Elem())
+		case reflect.Ptr, reflect.UnsafePointer, reflect.Interface, reflect.Map,
+			reflect.Slice, reflect.Chan, reflect.Func:
+			t.Fatalf("snapshot leaks reference capability: %s", typ)
+		}
+	}
+	check(reflect.TypeOf(MouseBridgeSnapshot{}))
 }

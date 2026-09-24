@@ -83,6 +83,18 @@ type MouseRoute struct {
 	Reason         string
 }
 
+// MouseBridgeSnapshot is a value copy of one bridge's routing state. It
+// includes the epoch of an accepted DOS press, which callers cannot recover
+// from the current layout after ApplyLayout. It contains no output capability
+// or mutable pointer. Like Handle, Snapshot is used on the owning goroutine.
+type MouseBridgeSnapshot struct {
+	Current      MouseLayout
+	HasCurrent   bool
+	Pressed      bool
+	PressedEpoch uint64
+	HostCaptured bool
+}
+
 // MouseBridge owns one generic DOS left-button lifecycle. It is deliberately
 // independent of Ebitengine, PanelController, games and dosgolem.Machine.
 type MouseBridge struct {
@@ -143,6 +155,21 @@ func (b *MouseBridge) Pressed() bool {
 
 func (b *MouseBridge) HostCaptured() bool {
 	return b != nil && b.hostCaptured
+}
+
+// Snapshot reads the complete routing state in one call without changing it
+// or touching MouseOutput. A nil bridge returns the zero-value snapshot.
+func (b *MouseBridge) Snapshot() MouseBridgeSnapshot {
+	if b == nil {
+		return MouseBridgeSnapshot{}
+	}
+	return MouseBridgeSnapshot{
+		Current:      b.current,
+		HasCurrent:   b.hasCurrent,
+		Pressed:      b.pressed,
+		PressedEpoch: b.pressedEpoch,
+		HostCaptured: b.hostCaptured,
+	}
 }
 
 // Handle processes an event against exactly the supplied current layout.
