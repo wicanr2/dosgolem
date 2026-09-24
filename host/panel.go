@@ -65,65 +65,17 @@ func (c *PanelController) Snapshot() (PanelState, error) {
 // Route 套用一個已分類 host event 並回傳其消費／轉送結果。所有 host hit 與面板
 // 開啟時的鍵盤都保證 ForwardToDOS=false；未知或時序不合法事件不改狀態。
 func (c *PanelController) Route(event PanelEvent) (PanelState, InputRoute, error) {
-	if c == nil || c.scales == nil {
-		return PanelState{}, InputRoute{}, fmt.Errorf("host: PanelController 不得為 nil")
-	}
-	switch event.Kind {
-	case PanelEventOpen:
-		if c.open {
-			return PanelState{}, InputRoute{}, fmt.Errorf("host: 設定面板已開啟")
-		}
-		c.open = true
-		return c.after(InputRoute{ConsumedByHost: true})
-	case PanelEventSelectScale:
-		if !c.open {
-			return PanelState{}, InputRoute{}, fmt.Errorf("host: 設定面板未開啟，不能選擇倍率")
-		}
-		if _, err := c.scales.Select(event.Scale); err != nil {
-			return PanelState{}, InputRoute{}, err
-		}
-		return c.after(InputRoute{ConsumedByHost: true})
-	case PanelEventApply:
-		if !c.open {
-			return PanelState{}, InputRoute{}, fmt.Errorf("host: 設定面板未開啟，不能 Apply")
-		}
-		if _, _, err := c.scales.Apply(); err != nil {
-			return PanelState{}, InputRoute{}, err
-		}
-		// 使用者已確認 Apply 後必須自動收合，不論倍率是否實際改變。
-		c.open = false
-		return c.after(InputRoute{ConsumedByHost: true})
-	case PanelEventCancel:
-		if !c.open {
-			return PanelState{}, InputRoute{}, fmt.Errorf("host: 設定面板未開啟，不能 Cancel")
-		}
-		state, err := c.scales.Snapshot()
-		if err != nil {
-			return PanelState{}, InputRoute{}, err
-		}
-		// Select 在失敗時不改 ScaleController，因此只有成功重設 selected 後才收合，
-		// 以維持 Cancel 的狀態轉移原子性。
-		if _, err := c.scales.Select(state.ActiveScale); err != nil {
-			return PanelState{}, InputRoute{}, err
-		}
-		c.open = false
-		return c.after(InputRoute{ConsumedByHost: true})
-	case PanelEventKeyboard:
-		if c.open {
-			return c.after(InputRoute{ConsumedByHost: true})
-		}
-		return c.after(InputRoute{ForwardToDOS: true})
-	case PanelEventPointerHostHit:
-		return c.after(InputRoute{ConsumedByHost: true})
-	case PanelEventPointerMiss:
-		// 未命中 pointer event 的 DOS mouse 轉送仍是 backend 的未決工作；不猜測。
-		return c.after(InputRoute{})
-	default:
-		return PanelState{}, InputRoute{}, fmt.Errorf("host: 未知面板事件 %d", event.Kind)
-	}
-}
-
-func (c *PanelController) after(route InputRoute) (PanelState, InputRoute, error) {
 	state, err := c.Snapshot()
-	return state, route, err
+	if err != nil {
+		return PanelState{}, InputRoute{}, err
+	}
+	next, route, err := PlanPanelRoute(state, event)
+	if err != nil {
+		return PanelState{}, InputRoute{}, err
+	}
+	// The value-only plan has already validated the whole transition. Nothing
+	// reaches DOS here; the controller commits its own two private fields only.
+	c.scales.state = next.Scales
+	c.open = next.Open
+	return next, route, nil
 }
