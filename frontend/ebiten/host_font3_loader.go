@@ -24,11 +24,11 @@ type HostFont3LocalFiles struct {
 // must be 16×24. labels are validated here as well as by Game.New, so a
 // launcher fails before creating a frontend when a required glyph is absent.
 func LoadHostFont3(files HostFont3LocalFiles, labels HostLabels) (*HostFont3, error) {
-	wide, err := loadLockedHostFont3File("Wide", files.WidePath, files.WideSHA256)
+	wide, err := loadLockedHostFontFile("3× host", "Wide", files.WidePath, files.WideSHA256)
 	if err != nil {
 		return nil, err
 	}
-	ascii, err := loadLockedHostFont3File("ASCII", files.ASCIIPath, files.ASCIISHA256)
+	ascii, err := loadLockedHostFontFile("3× host", "ASCII", files.ASCIIPath, files.ASCIISHA256)
 	if err != nil {
 		return nil, err
 	}
@@ -39,23 +39,23 @@ func LoadHostFont3(files HostFont3LocalFiles, labels HostLabels) (*HostFont3, er
 	return font, nil
 }
 
-func loadLockedHostFont3File(role, path string, want [sha256.Size]byte) (*xlate.Font, error) {
+func loadLockedHostFontFile(kind, role, path string, want [sha256.Size]byte) (*xlate.Font, error) {
 	if path == "" {
-		return nil, fmt.Errorf("frontend/ebiten: 3× host %s 字型路徑不得為空", role)
+		return nil, fmt.Errorf("frontend/ebiten: %s %s 字型路徑不得為空", kind, role)
 	}
 	if want == ([sha256.Size]byte{}) {
-		return nil, fmt.Errorf("frontend/ebiten: 3× host %s 字型必須指定 SHA-256", role)
+		return nil, fmt.Errorf("frontend/ebiten: %s %s 字型必須指定 SHA-256", kind, role)
 	}
 	before, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("frontend/ebiten: 無法讀取 3× host %s 字型：%w", role, err)
+		return nil, fmt.Errorf("frontend/ebiten: 無法讀取 %s %s 字型：%w", kind, role, err)
 	}
 	if sha256.Sum256(before) != want {
-		return nil, fmt.Errorf("frontend/ebiten: 3× host %s 字型 SHA-256 不符", role)
+		return nil, fmt.Errorf("frontend/ebiten: %s %s 字型 SHA-256 不符", kind, role)
 	}
 	font, err := xlate.ParseFont(before)
 	if err != nil {
-		return nil, fmt.Errorf("frontend/ebiten: 無法載入 3× host %s 字型：%w", role, err)
+		return nil, fmt.Errorf("frontend/ebiten: 無法載入 %s %s 字型：%w", kind, role, err)
 	}
 	return font, nil
 }
