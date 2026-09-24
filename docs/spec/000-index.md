@@ -415,3 +415,4 @@
 | [215](215-buck-rogers-skill-action-bar-runtime-overlay.md) | Buck Rogers 技能操作列執行期繁中覆繪 | DRAFT |
 | [226](226-host-machine-presentation-bridge.md) | Host machine 畫面與鍵盤橋接純核心 | CONFORMED（純核心；非 host frontend） |
 | [227](227-host-active-layer-snapshot-core.md) | Host active xlate layer 不可變快照純核心 | CONFORMED（純核心；非 host frontend） |
+| [234](234-xlate-physical-pixel-glyph-plan.md) | 共用疊字層實體像素字首計畫 | READY（僅共用 API；未實作） |
