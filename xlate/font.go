@@ -1,9 +1,11 @@
 package xlate
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"os"
+	"slices"
 )
 
 // golemFontMagic 是 GOLEMFNT 字型檔的檔頭識別字串（spec 202 §2.1）。
@@ -25,6 +27,48 @@ type Font struct {
 
 // rowBytes 回這個字型一列字模佔幾個 byte。
 func (f *Font) rowBytes() int { return (f.W + 7) / 8 }
+
+// canonicalFontSHA256 is the stable identity used by physical-pixel snapshots.
+// It deliberately hashes parsed glyph semantics, not a GOLEMFNT source file.
+func canonicalFontSHA256(f *Font) ([32]byte, error) {
+	var zero [32]byte
+	if f == nil || f.W <= 0 || f.H <= 0 || uint64(f.W) > uint64(^uint32(0)) || uint64(f.H) > uint64(^uint32(0)) {
+		return zero, fmt.Errorf("xlate: invalid font dimensions")
+	}
+	rb := f.rowBytes()
+	if rb <= 0 || f.H > int(^uint(0)>>1)/rb {
+		return zero, fmt.Errorf("xlate: invalid font bitmap dimensions")
+	}
+	want := f.H * rb
+	keys := make([]rune, 0, len(f.Glyphs))
+	for r, bitmap := range f.Glyphs {
+		if uint64(r) > uint64(^uint32(0)) || len(bitmap) != want {
+			return zero, fmt.Errorf("xlate: malformed font glyph U+%04X", r)
+		}
+		keys = append(keys, r)
+	}
+	slices.Sort(keys)
+	h := sha256.New()
+	h.Write([]byte("xlate-font-v1\x00"))
+	var u32 [4]byte
+	var u64 [8]byte
+	binary.LittleEndian.PutUint32(u32[:], uint32(f.W))
+	h.Write(u32[:])
+	binary.LittleEndian.PutUint32(u32[:], uint32(f.H))
+	h.Write(u32[:])
+	binary.LittleEndian.PutUint64(u64[:], uint64(len(keys)))
+	h.Write(u64[:])
+	for _, r := range keys {
+		binary.LittleEndian.PutUint32(u32[:], uint32(r))
+		h.Write(u32[:])
+		bitmap := f.Glyphs[r]
+		binary.LittleEndian.PutUint64(u64[:], uint64(len(bitmap)))
+		h.Write(u64[:])
+		h.Write(bitmap)
+	}
+	copy(zero[:], h.Sum(nil))
+	return zero, nil
+}
 
 // ParseFont 解析一份已在呼叫端取得的 GOLEMFNT 位元組。
 //

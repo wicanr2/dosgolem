@@ -1,6 +1,11 @@
 package xlate
 
-import "encoding/json"
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math"
+)
 
 // State 是一筆疊字的狀態（spec 202 §2.3）。
 type State int
@@ -29,6 +34,10 @@ type Stamp struct {
 	GlyphScale int // 0 表示 max(1, scale/3)（見 §2.4，Draw 裡展開）
 
 	Text []rune
+	// PixelScale and PixelGlyphs opt into the physical-pixel path (spec 234).
+	// Their X/Y are final RGBA coordinates and their source crop is 1:1.
+	PixelScale  int
+	PixelGlyphs []PixelGlyph
 	// Transparent 標出不蓋的格（長度可以短於 Cells，缺的當 false）：不填背景、不畫字、不列入定色與指紋
 	// （spec 202 §2.3）。用途：原版在這幾格畫玩家輸入的字，疊字不能蓋掉，也不能因為輸入變動而失效。
 	Transparent []bool
@@ -42,6 +51,15 @@ type Stamp struct {
 	hashes  []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
 	misses  []int    // 每一格連續指紋不同的次數
 	anchors []bool   // 每一格定色時是否壓在原文墨跡上（spec 202 §2.3）；全部失效就整筆移除
+}
+
+// PixelGlyph is one cropped, physical-pixel glyph in a Stamp plan.
+type PixelGlyph struct {
+	Rune       rune
+	Font       *Font
+	SrcX, SrcY int
+	SrcW, SrcH int
+	X, Y       int
 }
 
 // Rect 回這一筆蓋住的原版像素範圍 [x0,x1)×[y0,y1)。
@@ -59,6 +77,9 @@ type Layer struct {
 	// 用途：原版正在搬動這一塊（例如訊息框逐步捲動、顯存複製到一半），中間狀態不能拿來判斷失效。
 	Frozen func(s *Stamp) bool
 	W, H   int
+	// FontRegistry binds physical plans to a named, pointer-identical font.
+	// It is runtime wiring and is intentionally not serialized.
+	FontRegistry map[string]*Font
 
 	watchers []*Watcher // spec 203：以畫面內容當觸發點
 }
@@ -397,9 +418,128 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 	l.Stamps = keep
 }
 
+func checkedMul(a, b int) (int, bool) {
+	if a < 0 || b < 0 || (a != 0 && b > math.MaxInt/a) {
+		return 0, false
+	}
+	return a * b, true
+}
+
+func checkedAdd(a, b int) (int, bool) {
+	if (b > 0 && a > math.MaxInt-b) || (b < 0 && a < math.MinInt-b) {
+		return 0, false
+	}
+	return a + b, true
+}
+
+func checkedFontBitmapLen(f *Font) (int, error) {
+	if f == nil || f.W <= 0 || f.H <= 0 {
+		return 0, fmt.Errorf("xlate: invalid physical font dimensions")
+	}
+	widthPlus, ok := checkedAdd(f.W, 7)
+	if !ok {
+		return 0, fmt.Errorf("xlate: physical font row overflow")
+	}
+	returnValue, ok := checkedMul(f.H, widthPlus/8)
+	if !ok {
+		return 0, fmt.Errorf("xlate: physical font bitmap overflow")
+	}
+	return returnValue, nil
+}
+
+func (l *Layer) validatePhysicalStamp(s *Stamp, scale int, registry map[string]*Font) error {
+	if (s.PixelScale == 0) != (len(s.PixelGlyphs) == 0) {
+		return fmt.Errorf("xlate: incomplete physical glyph plan")
+	}
+	if s.PixelScale == 0 {
+		return nil
+	}
+	if scale <= 0 || s.PixelScale != scale || len(s.Text) != 0 {
+		return fmt.Errorf("xlate: invalid physical glyph scale or mixed text")
+	}
+	if s.Cells <= 0 || s.CellW <= 0 || s.CellH <= 0 {
+		return fmt.Errorf("xlate: invalid physical stamp rect")
+	}
+	x1, ok := checkedMul(s.Cells, s.CellW)
+	if !ok {
+		return fmt.Errorf("xlate: physical stamp rect overflow")
+	}
+	if s.X > math.MaxInt-x1 || s.Y > math.MaxInt-s.CellH {
+		return fmt.Errorf("xlate: physical stamp rect overflow")
+	}
+	rx0, ry0, rx1, ry1 := s.X, s.Y, s.X+x1, s.Y+s.CellH
+	if rx0 < 0 || ry0 < 0 || rx1 > l.width() || ry1 > l.height() {
+		return fmt.Errorf("xlate: physical stamp outside layer canvas")
+	}
+	px0, ok := checkedMul(rx0, scale)
+	if !ok {
+		return fmt.Errorf("xlate: physical coordinate overflow")
+	}
+	py0, ok := checkedMul(ry0, scale)
+	if !ok {
+		return fmt.Errorf("xlate: physical coordinate overflow")
+	}
+	px1, ok := checkedMul(rx1, scale)
+	if !ok {
+		return fmt.Errorf("xlate: physical coordinate overflow")
+	}
+	py1, ok := checkedMul(ry1, scale)
+	if !ok {
+		return fmt.Errorf("xlate: physical coordinate overflow")
+	}
+	for _, g := range s.PixelGlyphs {
+		if g.Font == nil || g.Font.Name == "" || registry == nil || registry[g.Font.Name] != g.Font {
+			return fmt.Errorf("xlate: physical glyph font is not registry-bound")
+		}
+		if g.SrcW <= 0 || g.SrcH <= 0 || g.SrcX < 0 || g.SrcY < 0 || g.SrcX > math.MaxInt-g.SrcW || g.SrcY > math.MaxInt-g.SrcH || g.SrcX+g.SrcW > g.Font.W || g.SrcY+g.SrcH > g.Font.H {
+			return fmt.Errorf("xlate: invalid physical glyph crop")
+		}
+		bitmapLen, err := checkedFontBitmapLen(g.Font)
+		if err != nil {
+			return err
+		}
+		bitmap, exists := g.Font.Glyphs[g.Rune]
+		if !exists || len(bitmap) != bitmapLen {
+			return fmt.Errorf("xlate: missing or malformed physical glyph U+%04X", g.Rune)
+		}
+		if g.X < px0 || g.Y < py0 || g.X > math.MaxInt-g.SrcW || g.Y > math.MaxInt-g.SrcH || g.X+g.SrcW > px1 || g.Y+g.SrcH > py1 {
+			return fmt.Errorf("xlate: physical glyph outside stamp rect")
+		}
+	}
+	return nil
+}
+
+// ValidatePixelGlyphPlan preflights every physical stamp before any draw.
+func (l *Layer) ValidatePixelGlyphPlan(scale int) error {
+	if scale <= 0 {
+		return fmt.Errorf("xlate: non-positive scale")
+	}
+	for _, s := range l.Stamps {
+		if s == nil {
+			return fmt.Errorf("xlate: nil stamp")
+		}
+		if err := l.validatePhysicalStamp(s, scale, l.FontRegistry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *Layer) hasPhysicalStamp() bool {
+	for _, s := range l.Stamps {
+		if s != nil && (s.PixelScale != 0 || len(s.PixelGlyphs) != 0) {
+			return true
+		}
+	}
+	return false
+}
+
 // Draw 把顯示中的疊字畫進放大後的 RGBA（寬 l.width()×scale）。scale 必須是正整數。
 // missing 對字型沒有的字呼叫（可為 nil）。回有沒有畫任何東西。
 func (l *Layer) Draw(dst []uint8, scale int, missing func(r rune)) bool {
+	if l.hasPhysicalStamp() {
+		return false
+	}
 	if scale <= 0 {
 		return false
 	}
@@ -424,6 +564,68 @@ func (l *Layer) Draw(dst []uint8, scale int, missing func(r rune)) bool {
 		drawGlyphs(dst, W, s, scale, missing)
 	}
 	return drew
+}
+
+// DrawChecked validates the whole physical plan before touching dst.
+func (l *Layer) DrawChecked(dst []byte, scale int, missing func(rune)) (bool, error) {
+	if err := l.ValidatePixelGlyphPlan(scale); err != nil {
+		return false, err
+	}
+	w, ok := checkedMul(l.width(), scale)
+	if !ok {
+		return false, fmt.Errorf("xlate: destination width overflow")
+	}
+	h, ok := checkedMul(l.height(), scale)
+	if !ok {
+		return false, fmt.Errorf("xlate: destination height overflow")
+	}
+	n, ok := checkedMul(w, h)
+	if !ok || n > math.MaxInt/4 || len(dst) < n*4 {
+		return false, fmt.Errorf("xlate: destination too small")
+	}
+	if !l.hasPhysicalStamp() {
+		return l.Draw(dst, scale, missing), nil
+	}
+	drew := false
+	for _, s := range l.Stamps {
+		if s.State != Shown {
+			continue
+		}
+		drew = true
+		x0, y0, x1, y1 := s.Rect()
+		for y := y0 * scale; y < y1*scale; y++ {
+			for x := x0 * scale; x < x1*scale; x++ {
+				if s.covered(x / scale) {
+					set(dst, w, x, y, s.BG)
+				}
+			}
+		}
+		if s.PixelScale != 0 {
+			drawPhysicalGlyphs(dst, w, s, scale)
+		} else if s.Font != nil {
+			drawGlyphs(dst, w, s, scale, missing)
+		}
+	}
+	return drew, nil
+}
+
+func drawPhysicalGlyphs(dst []byte, w int, s *Stamp, scale int) {
+	for _, g := range s.PixelGlyphs {
+		bitmap := g.Font.Glyphs[g.Rune]
+		rb := g.Font.rowBytes()
+		for sy := 0; sy < g.SrcH; sy++ {
+			for sx := 0; sx < g.SrcW; sx++ {
+				if bitmap[(g.SrcY+sy)*rb+(g.SrcX+sx)/8]&(0x80>>uint((g.SrcX+sx)%8)) == 0 {
+					continue
+				}
+				x, y := g.X+sx, g.Y+sy
+				logicalX := x / scale
+				if s.covered(logicalX) {
+					set(dst, w, x, y, s.FG)
+				}
+			}
+		}
+	}
 }
 
 // drawGlyphs 畫 s 的字模。每格的字模以前景色畫在「格左上 ＋ (GlyphX, GlyphY)」；
@@ -490,26 +692,36 @@ func set(dst []uint8, w, x, y int, c [3]uint8) {
 // stampSnapshot、layerSnapshot 是 Snapshot／Restore 的 JSON 落地格式（spec 202 §2.3）。
 // 字型以 Font.Name 記，不重複存字模——Restore 時由呼叫端透過 fonts 參數換回指標。
 type stampSnapshot struct {
-	Key        string          `json:"key"`
-	Owner      string          `json:"owner,omitempty"`
-	X          int             `json:"x"`
-	Y          int             `json:"y"`
-	Cells      int             `json:"cells"`
-	CellW      int             `json:"cell_w"`
-	CellH      int             `json:"cell_h"`
-	Font       string          `json:"font,omitempty"`
-	GlyphX     int             `json:"glyph_x"`
-	GlyphY     int             `json:"glyph_y"`
-	GlyphScale int             `json:"glyph_scale"`
-	Text       string          `json:"text"`
-	Transp     []bool          `json:"transparent,omitempty"`
-	Swap       bool            `json:"swap_colors,omitempty"`
-	State      State           `json:"state"`
-	FG         [3]uint8        `json:"fg"`
-	BG         [3]uint8        `json:"bg"`
-	Hashes     json.RawMessage `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
-	Misses     json.RawMessage `json:"misses,omitempty"`
-	Anchors    []bool          `json:"anchors,omitempty"` // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
+	Key         string               `json:"key"`
+	Owner       string               `json:"owner,omitempty"`
+	X           int                  `json:"x"`
+	Y           int                  `json:"y"`
+	Cells       int                  `json:"cells"`
+	CellW       int                  `json:"cell_w"`
+	CellH       int                  `json:"cell_h"`
+	Font        string               `json:"font,omitempty"`
+	GlyphX      int                  `json:"glyph_x"`
+	GlyphY      int                  `json:"glyph_y"`
+	GlyphScale  int                  `json:"glyph_scale"`
+	Text        string               `json:"text"`
+	Transp      []bool               `json:"transparent,omitempty"`
+	Swap        bool                 `json:"swap_colors,omitempty"`
+	State       State                `json:"state"`
+	FG          [3]uint8             `json:"fg"`
+	BG          [3]uint8             `json:"bg"`
+	Hashes      json.RawMessage      `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
+	Misses      json.RawMessage      `json:"misses,omitempty"`
+	Anchors     []bool               `json:"anchors,omitempty"` // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
+	PixelScale  int                  `json:"pixel_scale,omitempty"`
+	PixelGlyphs []pixelGlyphSnapshot `json:"pixel_glyphs,omitempty"`
+}
+
+type pixelGlyphSnapshot struct {
+	Rune                   rune   `json:"rune"`
+	Font                   string `json:"font"`
+	FontSHA256             string `json:"font_sha256"`
+	SrcX, SrcY, SrcW, SrcH int
+	X, Y                   int
 }
 
 type layerSnapshot struct {
@@ -523,6 +735,14 @@ type layerSnapshot struct {
 func (l *Layer) Snapshot() ([]byte, error) {
 	snap := layerSnapshot{W: l.W, H: l.H, Stamps: make([]stampSnapshot, len(l.Stamps))}
 	for i, s := range l.Stamps {
+		if s == nil {
+			return nil, fmt.Errorf("xlate: nil stamp")
+		}
+		if s.PixelScale != 0 || len(s.PixelGlyphs) != 0 {
+			if err := l.validatePhysicalStamp(s, s.PixelScale, l.FontRegistry); err != nil {
+				return nil, err
+			}
+		}
 		name := ""
 		if s.Font != nil {
 			name = s.Font.Name
@@ -532,6 +752,16 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, Swap: s.SwapColors, State: s.State, FG: s.FG, BG: s.BG,
 			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses), Anchors: s.anchors,
+		}
+		if s.PixelScale != 0 {
+			snap.Stamps[i].PixelScale = s.PixelScale
+			for _, g := range s.PixelGlyphs {
+				h, err := canonicalFontSHA256(g.Font)
+				if err != nil {
+					return nil, err
+				}
+				snap.Stamps[i].PixelGlyphs = append(snap.Stamps[i].PixelGlyphs, pixelGlyphSnapshot{Rune: g.Rune, Font: g.Font.Name, FontSHA256: hex.EncodeToString(h[:]), SrcX: g.SrcX, SrcY: g.SrcY, SrcW: g.SrcW, SrcH: g.SrcH, X: g.X, Y: g.Y})
+			}
 		}
 	}
 	return json.Marshal(snap)
@@ -580,15 +810,36 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			}
 			font = f
 		}
-		stamps[i] = &Stamp{
+		s := &Stamp{
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
-			Text: []rune(ss.Text), Transparent: ss.Transp, SwapColors: ss.Swap, State: ss.State, FG: ss.FG, BG: ss.BG,
+			Text: []rune(ss.Text), PixelScale: ss.PixelScale, Transparent: ss.Transp, SwapColors: ss.Swap, State: ss.State, FG: ss.FG, BG: ss.BG,
 			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses), anchors: ss.Anchors,
 		}
+		for _, pg := range ss.PixelGlyphs {
+			f, ok := fonts[pg.Font]
+			if !ok {
+				return &fontNotFoundError{name: pg.Font}
+			}
+			h, err := canonicalFontSHA256(f)
+			if err != nil {
+				return err
+			}
+			if pg.FontSHA256 == "" || pg.FontSHA256 != hex.EncodeToString(h[:]) {
+				return fmt.Errorf("xlate: physical glyph font hash mismatch for %s", pg.Font)
+			}
+			s.PixelGlyphs = append(s.PixelGlyphs, PixelGlyph{Rune: pg.Rune, Font: f, SrcX: pg.SrcX, SrcY: pg.SrcY, SrcW: pg.SrcW, SrcH: pg.SrcH, X: pg.X, Y: pg.Y})
+		}
+		if s.PixelScale != 0 || len(s.PixelGlyphs) != 0 {
+			if err := (&Layer{FontRegistry: fonts}).validatePhysicalStamp(s, s.PixelScale, fonts); err != nil {
+				return err
+			}
+		}
+		stamps[i] = s
 	}
 	l.W, l.H = snap.W, snap.H
 	l.Stamps = stamps
+	l.FontRegistry = fonts
 	return nil
 }
 
