@@ -1,7 +1,6 @@
 package ebiten
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -54,16 +53,9 @@ func loadLockedHostFont3File(role, path string, want [sha256.Size]byte) (*xlate.
 	if sha256.Sum256(before) != want {
 		return nil, fmt.Errorf("frontend/ebiten: 3× host %s 字型 SHA-256 不符", role)
 	}
-	font, err := xlate.LoadFont(path)
+	font, err := xlate.ParseFont(before)
 	if err != nil {
 		return nil, fmt.Errorf("frontend/ebiten: 無法載入 3× host %s 字型：%w", role, err)
-	}
-	after, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("frontend/ebiten: 載入後無法讀取 3× host %s 字型：%w", role, err)
-	}
-	if !bytes.Equal(before, after) || sha256.Sum256(after) != want {
-		return nil, fmt.Errorf("frontend/ebiten: 載入期間 3× host %s 字型已變更", role)
 	}
 	return font, nil
 }

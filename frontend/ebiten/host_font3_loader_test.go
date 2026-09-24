@@ -3,6 +3,7 @@ package ebiten
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,5 +77,36 @@ func TestLoadHostFont3RejectsUntrustedOrNonNativeInputs(t *testing.T) {
 				t.Fatalf("err=%v want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// This optional local-only check never supplies a path, hash, or font byte in
+// source control. It is enabled only by a launcher that explicitly provides
+// both native subset paths and their already-reviewed SHA-256 values.
+func TestLoadHostFont3LocalLockedSubsets(t *testing.T) {
+	widePath, asciiPath := os.Getenv("HOST_FONT3_WIDE"), os.Getenv("HOST_FONT3_ASCII")
+	wideHash, asciiHash := os.Getenv("HOST_FONT3_WIDE_SHA256"), os.Getenv("HOST_FONT3_ASCII_SHA256")
+	if widePath == "" || asciiPath == "" || wideHash == "" || asciiHash == "" {
+		t.Skip("local native host font subsets and SHA-256 values not supplied")
+	}
+	decode := func(name, value string) [sha256.Size]byte {
+		t.Helper()
+		decoded, err := hex.DecodeString(value)
+		if err != nil || len(decoded) != sha256.Size {
+			t.Fatalf("%s is not a SHA-256 hex value: %q", name, value)
+		}
+		var sum [sha256.Size]byte
+		copy(sum[:], decoded)
+		return sum
+	}
+	font, err := LoadHostFont3(HostFont3LocalFiles{
+		WidePath: widePath, WideSHA256: decode("HOST_FONT3_WIDE_SHA256", wideHash),
+		ASCIIPath: asciiPath, ASCIISHA256: decode("HOST_FONT3_ASCII_SHA256", asciiHash),
+	}, draftLabels())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if font.Wide.W != 24 || font.Wide.H != 24 || font.ASCII.W != 16 || font.ASCII.H != 24 {
+		t.Fatalf("local subset dimensions: wide=%dx%d ascii=%dx%d", font.Wide.W, font.Wide.H, font.ASCII.W, font.ASCII.H)
 	}
 }

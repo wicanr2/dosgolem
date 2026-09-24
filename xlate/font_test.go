@@ -101,3 +101,37 @@ func TestLoadFontMissingFile(t *testing.T) {
 		t.Error("檔案不存在應該回錯")
 	}
 }
+
+func TestParseFontUsesLockedBytesAfterPathChanges(t *testing.T) {
+	valid := buildGolemFont(t, 8, 8, []struct {
+		cp     rune
+		source byte
+		glyph  []byte
+	}{{'甲', 0, []byte{0x80, 0, 0, 0, 0, 0, 0, 0}}})
+	path := filepath.Join(t.TempDir(), "font.bin")
+	if err := os.WriteFile(path, valid, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("replaced"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	font, err := ParseFont(locked)
+	if err != nil || font.W != 8 || font.H != 8 || !bytes.Equal(font.Glyphs['甲'], []byte{0x80, 0, 0, 0, 0, 0, 0, 0}) {
+		t.Fatalf("ParseFont did not use the locked bytes: font=%+v err=%v", font, err)
+	}
+}
+
+func TestParseFontRejectsTruncatedHugeCountBeforeAllocation(t *testing.T) {
+	data := make([]byte, golemFontHeaderLen)
+	copy(data, golemFontMagic)
+	binary.LittleEndian.PutUint16(data[8:10], 16)
+	binary.LittleEndian.PutUint16(data[10:12], 16)
+	binary.LittleEndian.PutUint32(data[12:16], ^uint32(0))
+	if _, err := ParseFont(data); err == nil {
+		t.Fatal("截斷的大 count 字型不應配置 map 或成功解析")
+	}
+}
