@@ -62,5 +62,8 @@ physical glyph，不再靜默略過。無原版素材的雙字型 14px
 
 這只證**共用元件**已能安全承載像素字首；Buck 手冊
 immutable layout、14 行 owner 身分、正式 E1 同狀態對拍、
-部分 Clear／三幀失效的完整矩陣與 Linux 玩家 session
-仍未完成。規格維持 READY，不以局部綠燈改稱 CONFORMED。
+生命週期完整矩陣與 Linux 玩家 session 仍未完成。另由本機
+`5fe9707` 的無原版素材測試證實：實體 glyph 在部分 Clear 後
+透明格不再著墨，原版格連續三幀變動後整筆移除且無殘字；
+這尚未涵蓋部分 Add／錨定格與真實手冊 owner。規格維持 READY，
+不以局部綠燈改稱 CONFORMED。
