@@ -78,6 +78,12 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 	for _, f := range opts {
 		f(&cfg)
 	}
+	// docs/spec/005-oracle-api.md §3.2: the budget is an instruction limit.
+	// A wrapped deadline would silently report BudgetError before attempting
+	// even one instruction, which is not an exhausted budget.
+	if cfg.budget > ^uint64(0)-o.m.Steps {
+		return fmt.Errorf("oracle: 指令預算溢位：目前步數 %d、預算 %d", o.m.Steps, cfg.budget)
+	}
 	deadline := o.m.Steps + cfg.budget
 
 	for o.m.Steps < deadline {

@@ -13,6 +13,7 @@ package session
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -242,17 +243,17 @@ func TestDraftOwnerOracleReceiptMatrix(t *testing.T) {
 		// not be mistaken for authority to infer StopBudget from the budget.
 	})
 
-	t.Run("deadline addition overflow returns BudgetError without one attempt", func(t *testing.T) {
+	t.Run("deadline addition overflow is rejected before one attempt", func(t *testing.T) {
 		owner := draftReceiptOwner(t, []byte{0x90})
 		defer owner.Close()
 		o := draftReceiptOracle(t, owner)
 		owner.machine.Steps = 1
 		err := o.RunUntil(oracle.NewCond("DRAFT always false", func(*oracle.Oracle) bool { return false }), oracle.Budget(^uint64(0)))
-		if !draftReceiptIsBudgetError(err) || o.Steps() != 1 || owner.machine.Steps != 1 {
-			t.Fatalf("overflow receipt: err=%v steps=%d/%d, want BudgetError and no attempt", err, o.Steps(), owner.machine.Steps)
+		if err == nil || draftReceiptIsBudgetError(err) || !strings.Contains(err.Error(), "預算溢位") || o.Steps() != 1 || owner.machine.Steps != 1 {
+			t.Fatalf("overflow receipt: err=%v steps=%d/%d, want explicit overflow and no attempt", err, o.Steps(), owner.machine.Steps)
 		}
-		// A sealed Owner must reject this budget (or specify a safe maximum)
-		// before delegating.  Oracle's error alone is indistinguishable from a
-		// genuine exhausted budget to a caller that omits the step delta.
+		// A sealed Owner must still reject this budget (or specify a safe maximum)
+		// before delegating; Oracle now fails explicitly rather than producing a
+		// false exhausted-budget receipt.  This does not define TickReceipt.
 	})
 }
