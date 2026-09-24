@@ -344,22 +344,34 @@ func TestOwnerDeliverRejectsStalePointerLayoutBeforeDOSAction(t *testing.T) {
 	}
 }
 
-func TestOwnerDeliverRejectsPanelTransitionBeforeItCanStalePrivateLayout(t *testing.T) {
+func TestOwnerDeliverOpenAtomicallyProjectsPrivateLayout(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
-	start := ownerPanel(t, o)
-	beforeMouse := o.mouse.Snapshot()
 	receipt, err := o.Deliver(CapturedUpdate{
-		StartedPanel: start,
+		StartedPanel: ownerPanel(t, o),
 		PanelEvents:  []host.PanelEvent{{Kind: host.PanelEventOpen}},
 		BIOSKeys:     []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
 	})
-	if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
-		o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
-		t.Fatalf("Open without layout projection = (%+v, %v), BIOS=%d mouse=%v steps=%d",
-			receipt, err, o.dos.KeysPending(), o.dos.Mouse.Events, o.machine.Steps)
+	want := sessionLayout(2, host.OutputScale2, true)
+	got, hasLayout := o.mouse.Layout()
+	if err != nil || receipt.Epoch != 1 || receipt.Phase != PhaseRunning || !receipt.HostChanged || !receipt.Paused || receipt.DOSCallsCommitted != 0 ||
+		o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 || o.layout != want || !hasLayout || got != want {
+		t.Fatalf("Open with private layout projection = (%+v, %v), BIOS=%d mouse=%+v layout=%+v",
+			receipt, err, o.dos.KeysPending(), o.dos.Mouse, o.layout)
 	}
-	if after := ownerPanel(t, o); after != start || o.mouse.Snapshot() != beforeMouse || o.layout.PanelOpen {
-		t.Fatalf("rejected Open left stale state: panel=%+v mouse=%+v layout=%+v", after, o.mouse.Snapshot(), o.layout)
+	if after := ownerPanel(t, o); !after.Open || after.Scales.ActiveScale != host.OutputScale2 {
+		t.Fatalf("Open panel = %+v, want open 2×", after)
+	}
+}
+
+func TestOwnerNewRejectsNoncanonicalInitialPresentationLayout(t *testing.T) {
+	wrong := host.MouseLayout{
+		Epoch: 1, Scale: host.OutputScale2, Canvas: host.Canvas{Width: 320, Height: 200},
+		FrameWidth: 640, FrameHeight: 400, ChromeHeight: 0,
+	}
+	o, err := New(Config{InitialScale: host.OutputScale2, InitialLayout: wrong})
+	if err == nil {
+		o.Close()
+		t.Fatal("noncanonical 2× layout accepted even though it would misroute canvas input")
 	}
 }
 
@@ -380,16 +392,33 @@ func TestOwnerDeliverRejectsExistingPanelLayoutDriftBeforePointerDOSAction(t *te
 }
 
 func TestOwnerDeliverRejectsConflictingHostHitAndCanvasDownBeforeDOSAction(t *testing.T) {
+	for _, kind := range []host.PanelEventKind{host.PanelEventPointerHostHit, host.PanelEventOpen} {
+		o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+		down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
+		receipt, err := o.Deliver(CapturedUpdate{
+			StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down,
+			PanelEvents: []host.PanelEvent{{Kind: kind}},
+		})
+		if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
+			o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
+			t.Fatalf("conflicting %v Deliver = (%+v, %v), BIOS=%d mouse=%v steps=%d",
+				kind, receipt, err, o.dos.KeysPending(), o.dos.Mouse.Events, o.machine.Steps)
+		}
+	}
+}
+
+func TestOwnerDeliverHostDownOpenDoesNotTouchDOS(t *testing.T) {
 	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
-	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 200, Y: 100, Target: host.MouseTargetCanvas}
+	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 600, Y: 10, Target: host.MouseTargetHost}
 	receipt, err := o.Deliver(CapturedUpdate{
 		StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down,
-		PanelEvents: []host.PanelEvent{{Kind: host.PanelEventPointerHostHit}},
+		PanelEvents: []host.PanelEvent{{Kind: host.PanelEventOpen}},
 	})
-	if err == nil || receipt.Epoch != 0 || receipt.Phase != PhaseFailed ||
-		o.dos.KeysPending() != 0 || len(o.dos.Mouse.Events) != 0 || o.machine.Steps != 0 {
-		t.Fatalf("conflicting host hit Deliver = (%+v, %v), BIOS=%d mouse=%v steps=%d",
-			receipt, err, o.dos.KeysPending(), o.dos.Mouse.Events, o.machine.Steps)
+	if err != nil || receipt.Epoch != 1 || !receipt.Paused || receipt.DOSCallsCommitted != 0 ||
+		!ownerPanel(t, o).Open || o.layout != sessionLayout(2, host.OutputScale2, true) ||
+		len(o.dos.Mouse.Events) != 0 || o.dos.Mouse.Buttons != 0 || o.machine.Steps != 0 {
+		t.Fatalf("host Down+Open = (%+v, %v), panel=%+v layout=%+v mouse=%+v",
+			receipt, err, ownerPanel(t, o), o.layout, o.dos.Mouse)
 	}
 }
 
@@ -404,6 +433,64 @@ func TestOwnerDeliverFocusLostReleasesPressedMouseWithStaleCapturedLayout(t *tes
 	receipt, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: stale, FocusLost: true})
 	if err != nil || receipt.Epoch != 2 || receipt.DOSCallsCommitted != 1 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 {
 		t.Fatalf("stale-layout FocusLost = (%+v, %v), mouse=%+v", receipt, err, o.dos.Mouse)
+	}
+}
+
+func TestOwnerDeliverProjectsPrivateLayoutAcrossOpenApplyCancel(t *testing.T) {
+	o := startSyntheticOwnerWithLayout(t, []byte{0x90, 0x90, 0x90, 0x90, 0x90}, sessionLayout(1, host.OutputScale2, false))
+	assertLayout := func(want host.MouseLayout) {
+		t.Helper()
+		if o.layout != want {
+			t.Fatalf("owner layout = %+v, want %+v", o.layout, want)
+		}
+		got, ok := o.mouse.Layout()
+		if !ok || got != want {
+			t.Fatalf("mouse layout = (%+v, %t), want %+v", got, ok, want)
+		}
+	}
+	deliver := func(event host.PanelEvent, want host.MouseLayout) {
+		t.Helper()
+		r, err := o.Deliver(CapturedUpdate{
+			StartedPanel: ownerPanel(t, o), Layout: o.layout,
+			PanelEvents: []host.PanelEvent{event}, BIOSKeys: []dos.Key{{Scan: 0x1C, ASCII: 0x0D}},
+		})
+		if err != nil || !r.Paused || r.DOSCallsCommitted != 0 || o.dos.KeysPending() != 0 {
+			t.Fatalf("%v Deliver = (%+v, %v), BIOS=%d", event.Kind, r, err, o.dos.KeysPending())
+		}
+		assertLayout(want)
+		consumePausedTurn(t, o, r.Epoch)
+	}
+
+	opened2 := sessionLayout(2, host.OutputScale2, true)
+	deliver(host.PanelEvent{Kind: host.PanelEventOpen}, opened2)
+	// Selection changes only pending scale; refreshLayout deliberately leaves
+	// the active open geometry and its epoch intact.
+	deliver(host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale3}, opened2)
+	closed3 := sessionLayout(3, host.OutputScale3, false)
+	deliver(host.PanelEvent{Kind: host.PanelEventApply}, closed3)
+
+	opened3 := sessionLayout(4, host.OutputScale3, true)
+	deliver(host.PanelEvent{Kind: host.PanelEventOpen}, opened3)
+	deliver(host.PanelEvent{Kind: host.PanelEventSelectScale, Scale: host.OutputScale2}, opened3)
+	// Cancel discards the selected 2× value: active 3× is retained, while the
+	// closed chrome and a strictly newer private layout are applied together.
+	closedAfterCancel := sessionLayout(5, host.OutputScale3, false)
+	deliver(host.PanelEvent{Kind: host.PanelEventCancel}, closedAfterCancel)
+
+	down := host.MouseEvent{Kind: host.MouseEventDown, Button: 0, X: 300, Y: closedAfterCancel.ChromeHeight + 150, Target: host.MouseTargetCanvas}
+	r, err := o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerDown: &down})
+	if err != nil || r.Paused || r.DOSCallsCommitted != 2 || o.dos.Mouse.X != 100 || o.dos.Mouse.Y != 50 || !o.mouse.Pressed() {
+		t.Fatalf("post-projection canvas Down = (%+v, %v), mouse=%+v", r, err, o.dos.Mouse)
+	}
+	consumeRunningTurn(t, o, r.Epoch)
+	// A press accepted before an Open transition must release without a stale
+	// coordinate move when the new layout epoch is used.
+	deliver(host.PanelEvent{Kind: host.PanelEventOpen}, sessionLayout(6, host.OutputScale3, true))
+	beforeEvents := len(o.dos.Mouse.Events)
+	up := host.MouseEvent{Kind: host.MouseEventUp, Button: 0, X: 300, Y: o.layout.ChromeHeight + 150, Target: host.MouseTargetCanvas}
+	r, err = o.Deliver(CapturedUpdate{StartedPanel: ownerPanel(t, o), Layout: o.layout, PointerUp: &up})
+	if err != nil || !r.Paused || r.DOSCallsCommitted != 1 || o.mouse.Pressed() || o.dos.Mouse.Buttons != 0 || len(o.dos.Mouse.Events) != beforeEvents {
+		t.Fatalf("cross-layout Up = (%+v, %v), mouse=%+v events=%v", r, err, o.dos.Mouse, o.dos.Mouse.Events)
 	}
 }
 

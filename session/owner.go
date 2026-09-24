@@ -165,6 +165,9 @@ func New(cfg Config) (*Owner, error) {
 		if cfg.InitialLayout.Scale != state.Scales.ActiveScale || cfg.InitialLayout.PanelOpen != state.Open {
 			return nil, errors.New("session: InitialLayout 與初始 panel 狀態不一致")
 		}
+		if _, changed, err := host.ProjectPresentationLayout(cfg.InitialLayout, state); err != nil || changed {
+			return nil, errors.New("session: InitialLayout 與正式呈現幾何不一致")
+		}
 		if err := mouse.ApplyLayout(cfg.InitialLayout); err != nil {
 			return nil, err
 		}
@@ -202,8 +205,8 @@ func (o *Owner) ReportDrawFault(err error) error {
 // Deliver accepts one value-only update through a pure prepare and exclusive
 // commit.  It deliberately does not accept mutable bridges or a machine from
 // its caller.  Pointer/focus transport uses the owner-private captured layout;
-// a pointer batch that also changes panel layout remains fail-closed until an
-// approved owner-private layout-projection contract exists.
+// prevalidated panel transitions then project and install their next private
+// layout after the batch's pointer/focus portion has committed.
 func (o *Owner) Deliver(update CapturedUpdate) (InputReceipt, error) {
 	if o == nil {
 		return InputReceipt{Phase: PhaseFailed}, errors.New("session: Owner 不得為 nil")
@@ -235,11 +238,18 @@ type deliveredPlan struct {
 	baseMouse   host.MouseBridgeSnapshot
 	finalMouse  host.MouseBridgeSnapshot
 	layout      host.MouseLayout
-	panelEvents []host.PanelEvent
+	panelEvents []preparedPanelEvent
 	mouseEvents []preparedMouseEvent
 	biosKeys    []dos.Key
 	hostChanged bool
 	paused      bool
+}
+
+type preparedPanelEvent struct {
+	event         host.PanelEvent
+	final         host.PanelState
+	layout        host.MouseLayout
+	layoutChanged bool
 }
 
 type preparedMouseEvent struct {
@@ -307,13 +317,10 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 			}
 		}
 	}
-	if update.PointerDown != nil && update.PointerDown.Target == host.MouseTargetCanvas {
-		for _, event := range update.PanelEvents {
-			if event.Kind == host.PanelEventPointerHostHit {
-				return deliveredPlan{}, errors.New("session: 同批 pointer host-hit 與 canvas Down 分類矛盾")
-			}
-		}
+	if update.PointerDown != nil && update.PointerDown.Target != host.MouseTargetHost && len(update.PanelEvents) != 0 {
+		return deliveredPlan{}, errors.New("session: 同批 panel route 與非 host Down 分類矛盾")
 	}
+	projectedLayout := plan.layout
 	for _, event := range update.PanelEvents {
 		next, route, err := host.PlanPanelRoute(plan.final, event)
 		if err != nil {
@@ -322,12 +329,28 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 		if route.ForwardToDOS {
 			return deliveredPlan{}, errors.New("session: PanelEventKeyboard 必須以 BIOSKeys 明示交付")
 		}
+		layout, layoutChanged := projectedLayout, false
+		if o.layoutSet {
+			layout, layoutChanged, err = host.ProjectPresentationLayout(projectedLayout, next)
+			if err != nil {
+				return deliveredPlan{}, err
+			}
+		}
 		plan.final = next
-		plan.panelEvents = append(plan.panelEvents, event)
+		plan.panelEvents = append(plan.panelEvents, preparedPanelEvent{
+			event: event, final: next, layout: layout, layoutChanged: layoutChanged,
+		})
+		if layoutChanged {
+			projectedLayout = layout
+		}
 		plan.hostChanged = plan.hostChanged || route.ConsumedByHost
 	}
-	if o.layoutSet && (plan.base.Open != plan.final.Open || plan.base.Scales.ActiveScale != plan.final.Scales.ActiveScale) {
-		return deliveredPlan{}, errors.New("session: panel layout transition 尚缺 owner 私有 projection")
+	if o.layoutSet && projectedLayout != plan.layout {
+		// A sealed owner always applies this value in commit after the matching
+		// prevalidated panel route. It is intentionally private: callers only
+		// bring the captured layout for their pointer event.
+		plan.finalMouse.Current = projectedLayout
+		plan.finalMouse.HasCurrent = true
 	}
 	plan.paused = plan.base.Open || plan.final.Open || plan.hostChanged
 	if !plan.paused {
@@ -379,19 +402,20 @@ func (o *Owner) commit(plan deliveredPlan) (InputReceipt, error) {
 			panic("session: prevalidated mouse commit 發生不可能的分歧")
 		}
 	}
-	expected := plan.base
-	for _, event := range plan.panelEvents {
-		var planErr error
-		expected, _, planErr = host.PlanPanelRoute(expected, event)
-		if planErr != nil {
-			return o.frontendFaultInputReceipt(receipt, planErr)
-		}
-		state, route, err := o.panel.Route(event)
-		if err != nil || route.ForwardToDOS || state != expected {
+	for _, prepared := range plan.panelEvents {
+		state, route, err := o.panel.Route(prepared.event)
+		if err != nil || route.ForwardToDOS || state != prepared.final {
 			if err == nil {
 				err = errors.New("session: 預檢的 panel commit 發生分歧")
 			}
 			return o.frontendFaultInputReceipt(receipt, err)
+		}
+		if prepared.layoutChanged {
+			if err := o.mouse.ApplyLayout(prepared.layout); err != nil {
+				panic("session: 預檢的 layout commit 發生不可能的分歧: " + err.Error())
+			}
+			o.layout = prepared.layout
+			o.layoutSet = true
 		}
 	}
 	final, err := o.panel.Snapshot()
@@ -400,6 +424,9 @@ func (o *Owner) commit(plan deliveredPlan) (InputReceipt, error) {
 			err = errors.New("session: panel commit 結果與純 plan 不一致")
 		}
 		return o.frontendFaultInputReceipt(receipt, err)
+	}
+	if o.mouse.Snapshot() != plan.finalMouse || (o.layoutSet && o.layout != plan.finalMouse.Current) {
+		panic("session: 預檢的 mouse/layout commit 發生不可能的分歧")
 	}
 	for _, key := range plan.biosKeys {
 		o.dos.PushKey(key)
