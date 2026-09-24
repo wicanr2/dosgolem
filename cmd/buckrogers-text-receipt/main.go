@@ -112,6 +112,11 @@ type storyOpeningOverlayJSON struct {
 	DiffInsideStoryRect   int      `json:"diff_inside_story_rect"`
 	AddedNonBaselinePixel int      `json:"added_nonbaseline_pixels"`
 }
+type storyPage9StopJSON struct {
+	Step         uint64 `json:"step"`
+	ActiveBefore int    `json:"active_before"`
+	ActiveAfter  int    `json:"active_after"`
+}
 type storyPage2InvalidationJSON struct {
 	Step             uint64             `json:"step"`
 	Instruction      buckrogers.Address `json:"instruction"`
@@ -1451,6 +1456,7 @@ func main() {
 	var storyPage7Invalidations []storyPage2InvalidationJSON
 	var storyPage8Invalidations []storyPage2InvalidationJSON
 	var storyPage9Invalidations []storyPage2InvalidationJSON
+	var storyPage9Stop *storyPage9StopJSON
 	var storyFillWrites []storyFillWriteJSON
 	var glyphReturnEdges []glyphReturnEdgeJSON
 	var previousInstruction buckrogers.Address
@@ -2144,6 +2150,11 @@ func main() {
 	if storyOpeningWatcher != nil && storyGlyphReturnPending != nil {
 		storyOpeningWatcher.ObserveExecutionDiscontinuity()
 	}
+	if storyPage9Owner != nil && d.Exited {
+		before := len(storyPage9Presenter.ActiveKeys())
+		storyPage9Owner.Stop()
+		storyPage9Stop = &storyPage9StopJSON{Step: m.Steps, ActiveBefore: before, ActiveAfter: len(storyPage9Presenter.ActiveKeys())}
+	}
 	if skillExitOwner != nil && d.Exited {
 		skillExitOwner.Stop()
 	}
@@ -2265,6 +2276,7 @@ func main() {
 		StoryPage8Overlay         *storyOpeningOverlayJSON          `json:"story_page8_overlay,omitempty"`
 		StoryPage8Invalidations   []storyPage2InvalidationJSON      `json:"story_page8_invalidations,omitempty"`
 		StoryPage9Overlay         *storyOpeningOverlayJSON          `json:"story_page9_overlay,omitempty"`
+		StoryPage9Stop            *storyPage9StopJSON                 `json:"story_page9_stop,omitempty"`
 		StoryPage9Invalidations   []storyPage2InvalidationJSON      `json:"story_page9_invalidations,omitempty"`
 		Clears                    []clearJSON                       `json:"clears,omitempty"`
 		Glyphs                    []glyphJSON                       `json:"glyphs,omitempty"`
@@ -2318,6 +2330,7 @@ func main() {
 	result.StoryPage7Invalidations = storyPage7Invalidations
 	result.StoryPage8Invalidations = storyPage8Invalidations
 	result.StoryPage9Invalidations = storyPage9Invalidations
+	result.StoryPage9Stop = storyPage9Stop
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if *keyTrace {
 		pending := d.KeysPending()
