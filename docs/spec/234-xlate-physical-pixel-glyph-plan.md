@@ -67,3 +67,10 @@ immutable layout、14 行 owner 身分、正式 E1 同狀態對拍、
 透明格不再著墨，原版格連續三幀變動後整筆移除且無殘字；
 這尚未涵蓋部分 Add／錨定格與真實手冊 owner。規格維持 READY，
 不以局部綠燈改稱 CONFORMED。
+
+本機 `2702c56` 再補正式合成回歸：physical glyph 的部分
+`Add` 僅遮中間邏輯格、錨定格全部失效時整筆清除且無殘字，
+sealed group 的 generation／epoch 被改動時在讀影格前拒絕。
+主代理獨立重跑 `go test -race ./xlate ./presentation -count=1`
+通過。這仍不代替正式手冊 adapter 的 39 段 plan、實際字型
+及原版同狀態收據，規格維持 READY。
