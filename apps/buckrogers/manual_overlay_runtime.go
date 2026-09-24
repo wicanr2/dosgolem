@@ -101,6 +101,10 @@ type RuntimeManualOverlay struct {
 	state      manualOverlayState
 	actions    []ManualOverlayAction
 	style      *ManualTextStyle
+	// Only ManualSnapshotOwner sets e1Base. Direct overlay users retain the
+	// established fixed-grid 3× presentation until they explicitly opt in.
+	e1Base *xlate.Font
+	e1Plan *ManualE1Plan
 }
 
 // SetStyle supplies the exact original manual-prefix palette indexes observed
@@ -200,6 +204,7 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 			return fmt.Errorf("buckrogers: 手冊 begin generation 無效")
 		}
 		o.generation, o.state = event.Generation, manualOverlayPending
+		o.e1Plan = nil
 		o.resetLayers()
 		return nil
 	case ManualPresentationClear:
@@ -210,6 +215,7 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 		case manualOverlayPending:
 			return nil
 		case manualOverlayVisible:
+			o.e1Plan = nil
 			o.resetLayers()
 			o.state = manualOverlayCleared
 			return nil
@@ -226,11 +232,24 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 			!o.catalog.containsManualRequest(event.Request) {
 			return fmt.Errorf("buckrogers: 手冊 request 不符合正式 catalog")
 		}
-		background, text, err := o.build(event)
+		var background, text *xlate.Layer
+		var plan *ManualE1Plan
+		var err error
+		if o.scale == 3 && o.e1Base != nil {
+			plan, err = BuildManualE1Plan(o.layout, o.catalog, event.Request, o.e1Base, o.font)
+			if err == nil {
+				text, err = plan.TextLayer(o.e1Base, o.font)
+			}
+			if err == nil {
+				background = o.buildBackground()
+			}
+		} else {
+			background, text, err = o.build(event)
+		}
 		if err != nil {
 			return err
 		}
-		o.background, o.text, o.state = background, text, manualOverlayVisible
+		o.background, o.text, o.e1Plan, o.state = background, text, plan, manualOverlayVisible
 		o.actions = append(o.actions, ManualOverlayAction{
 			Generation: event.Generation, EventKey: event.Request.EventKey, TextKey: event.Request.TextKey,
 			TranslationRunes: len([]rune(event.Request.Translation)),
@@ -248,14 +267,10 @@ func (o *RuntimeManualOverlay) build(event ManualPresentationEvent) (*xlate.Laye
 	if err != nil {
 		return nil, nil, err
 	}
-	background := &xlate.Layer{W: 320, H: 200}
+	background := o.buildBackground()
 	text := &xlate.Layer{W: 320, H: 200}
 	for row := 0; row < o.layout.rows; row++ {
 		y := o.layout.clearY + row*(o.layout.lineHeight+o.layout.gap)
-		background.Add(&xlate.Stamp{
-			Key: fmt.Sprintf("manual.background.%d", row), X: o.layout.clearX, Y: y,
-			Cells: 1, CellW: o.layout.clearWidth, CellH: o.layout.lineHeight, State: xlate.Pending,
-		})
 		text.Add(&xlate.Stamp{
 			Key: fmt.Sprintf("manual.%d.%s.%02d", event.Generation, event.Request.TextKey, row),
 			X:   o.layout.textX, Y: y, Cells: o.layout.columns, CellW: 8, CellH: o.layout.lineHeight,
@@ -264,6 +279,18 @@ func (o *RuntimeManualOverlay) build(event ManualPresentationEvent) (*xlate.Laye
 		})
 	}
 	return background, text, nil
+}
+
+func (o *RuntimeManualOverlay) buildBackground() *xlate.Layer {
+	background := &xlate.Layer{W: 320, H: 200}
+	for row := 0; row < o.layout.rows; row++ {
+		y := o.layout.clearY + row*(o.layout.lineHeight+o.layout.gap)
+		background.Add(&xlate.Stamp{
+			Key: fmt.Sprintf("manual.background.%d", row), X: o.layout.clearX, Y: y,
+			Cells: 1, CellW: o.layout.clearWidth, CellH: o.layout.lineHeight, State: xlate.Pending,
+		})
+	}
+	return background
 }
 
 func manualGlyphOffset(scale int) int {
@@ -353,6 +380,13 @@ func (o *RuntimeManualOverlay) Draw(indexed []byte, palette [256][3]uint8) ([]by
 	rgba := ScaleIndexedRGBA(indexed, palette, o.scale)
 	missing := []rune{}
 	background := o.background.Draw(rgba, o.scale, func(r rune) { missing = append(missing, r) })
+	if o.e1Plan != nil {
+		text, err := o.text.DrawChecked(rgba, o.scale, func(r rune) { missing = append(missing, r) })
+		if err != nil {
+			return nil, nil, false
+		}
+		return rgba, missing, background || text
+	}
 	text := o.text.Draw(rgba, o.scale, func(r rune) { missing = append(missing, r) })
 	return rgba, missing, background || text
 }

@@ -2,6 +2,7 @@ package buckrogers
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 
@@ -30,6 +31,125 @@ func newManualSnapshotOwnerFixture(t *testing.T, scale int) (*ManualSnapshotOwne
 	return owner, events, host.IndexedFrame{Canvas: host.Canvas{Width: 320, Height: 200}, Indexed: indexed, Palette: palette}
 }
 
+func TestManualSnapshotOwnerE1TwoFontsAndFailClosedLifecycle(t *testing.T) {
+	text := "RAM繁中"
+	catalog := manualOverlayCatalog(text)
+	base, _ := manualE1SyntheticFonts(text)
+	newOwner := func(t *testing.T) (*ManualSnapshotOwner, []ManualPresentationEvent, host.IndexedFrame) {
+		t.Helper()
+		owner, err := NewManualSnapshotOwner(loadManualOverlayLayout(t), catalog, base, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		events := []ManualPresentationEvent{
+			{Kind: ManualPresentationBegin, Generation: 7},
+			{Kind: ManualPresentationRequest, Generation: 7, Request: manualOverlayRequest(catalog, 7)},
+		}
+		if n, err := owner.Consume(events); err != nil || n != 2 {
+			t.Fatalf("E1 consume=%d err=%v", n, err)
+		}
+		palette, indexed := manualOverlayPaletteAndFrame()
+		return owner, events, host.IndexedFrame{Canvas: host.Canvas{Width: 320, Height: 200}, Indexed: indexed, Palette: palette}
+	}
+	owner, events, frame := newOwner(t)
+	glyphs := owner.overlay.text.Stamps[0].PixelGlyphs
+	if len(glyphs) != len([]rune(text)) || glyphs[0].Font != owner.base || glyphs[1].Font != owner.base ||
+		glyphs[2].Font != owner.base || glyphs[3].Font != owner.overlay.font {
+		t.Fatalf("E1 two-font glyph route changed: %#v", glyphs)
+	}
+	ticket, err := owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shot, err := owner.Snapshot(ticket, 3); err != nil || !shot.Drew || len(shot.RGBA) == 0 {
+		t.Fatalf("E1 sealed two-font projection failed: err=%v", err)
+	}
+	if shot, err := owner.Snapshot(ticket, 2); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("E1 cross-scale ticket accepted: err=%v", err)
+	}
+	owner.overlay.e1Plan.lines[0].tokens[0].glyphs[0].x++
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("changed E1 plan accepted: err=%v", err)
+	}
+	owner.overlay.e1Plan.lines[0].tokens[0].glyphs[0].x--
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("repaired E1 plan revived failed ticket: err=%v", err)
+	}
+
+	owner, _, frame = newOwner(t)
+	ticket, err = owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.base.Glyphs['R'][0] ^= 0xff
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("changed base font accepted: err=%v", err)
+	}
+	owner.base.Glyphs['R'][0] ^= 0xff
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("repaired E1 font revived failed ticket: err=%v", err)
+	}
+
+	owner, _, frame = newOwner(t)
+	ticket, err = owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.overlay.e1Base = nil
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("missing E1 base binding accepted: err=%v", err)
+	}
+	owner.overlay.e1Base = owner.base
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("restored E1 binding revived failed ticket: err=%v", err)
+	}
+
+	owner, events, frame = newOwner(t)
+	ticket, err = owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.SetStyle(ManualTextStyle{Background: 10, Foreground: 15}); err != nil {
+		t.Fatal(err)
+	}
+	if owner.overlay.e1Plan != nil {
+		t.Fatal("SetStyle left the prior E1 plan visible")
+	}
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("pre-SetStyle ticket accepted: err=%v", err)
+	}
+	events = append(events, ManualPresentationEvent{Kind: ManualPresentationBegin, Generation: 8})
+	request := manualOverlayRequest(catalog, 8)
+	events = append(events, ManualPresentationEvent{Kind: ManualPresentationRequest, Generation: 8, Request: request})
+	if n, err := owner.Consume(events); err != nil || n != 2 {
+		t.Fatalf("new E1 generation after SetStyle failed: consumed=%d err=%v", n, err)
+	}
+	if shot, err := owner.Snapshot(ticket, 3); err == nil || len(shot.RGBA) != 0 {
+		t.Fatalf("new request revived older ticket: err=%v", err)
+	}
+	if _, err := owner.PrepareFrame(frame); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManualSnapshotOwnerTwoXGoldenBytes(t *testing.T) {
+	owner, _, frame := newManualSnapshotOwnerFixture(t, 2)
+	ticket, err := owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := owner.Snapshot(ticket, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%x", ticket.layersHash); got != "ac0039f0c06a31aeb212c6f7128f5cb5d3eca732d1c7ff6d3f9d1c88c8c78b45" {
+		t.Fatalf("2× layer Snapshot bytes changed: %s", got)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(shot.RGBA)); got != "0f53dae055734ba39d6677dedfda25d4d23c061c8c21c60b933f54256f108b6a" {
+		t.Fatalf("2× RGBA bytes changed: %s", got)
+	}
+}
+
 func TestManualSnapshotOwnerComposesSealed2x3x(t *testing.T) {
 	for _, scale := range []int{2, 3} {
 		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
@@ -38,8 +158,22 @@ func TestManualSnapshotOwnerComposesSealed2x3x(t *testing.T) {
 			if scale == 3 {
 				wantName = manualDerivedFontIdentity
 			}
-			if got := owner.overlay.text.Stamps[0].Font.Name; got != wantName {
-				t.Fatalf("font name before stamp Snapshot=%q want %q", got, wantName)
+			if scale == 2 {
+				if got := owner.overlay.text.Stamps[0].Font.Name; got != wantName {
+					t.Fatalf("font name before stamp Snapshot=%q want %q", got, wantName)
+				}
+			} else {
+				stamp := owner.overlay.text.Stamps[0]
+				if stamp.Font != nil || len(stamp.Text) != 0 || stamp.PixelScale != 3 || len(stamp.PixelGlyphs) == 0 ||
+					owner.overlay.e1Plan == nil || len(owner.overlay.text.Stamps) != 14 ||
+					owner.overlay.e1Plan.baseName != manualBaseFontIdentity || owner.overlay.e1Plan.derivedName != wantName {
+					t.Fatal("E1 physical stamp or two-font plan identity missing")
+				}
+				for _, glyph := range stamp.PixelGlyphs {
+					if glyph.Font != owner.overlay.font || glyph.Font.Name != wantName {
+						t.Fatalf("E1 CJK glyph does not use sealed derived font: %#v", glyph)
+					}
+				}
 			}
 			ticket, err := owner.PrepareFrame(frame)
 			if err != nil {
@@ -111,11 +245,19 @@ func TestManualSnapshotOwnerRejectsInvalidSourceAndStaleTicket(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if shot, err := owner.Snapshot(newTicket, scale); err != nil || len(shot.RGBA) == 0 {
+				t.Fatalf("latest frame ticket rejected before stale attempt: err=%v rgba=%d", err, len(shot.RGBA))
+			}
 			if shot, err := owner.Snapshot(ticket, scale); err == nil || len(shot.RGBA) != 0 {
 				t.Fatalf("previous frame ticket accepted: err=%v rgba=%d", err, len(shot.RGBA))
 			}
-			if shot, err := owner.Snapshot(newTicket, scale); err != nil || len(shot.RGBA) == 0 {
-				t.Fatalf("latest frame ticket rejected: err=%v rgba=%d", err, len(shot.RGBA))
+			shot, err := owner.Snapshot(newTicket, scale)
+			if scale == 3 {
+				if err == nil || len(shot.RGBA) != 0 {
+					t.Fatalf("failed E1 Snapshot did not retire current ticket: err=%v rgba=%d", err, len(shot.RGBA))
+				}
+			} else if err != nil || len(shot.RGBA) == 0 {
+				t.Fatalf("2× latest frame ticket changed after stale attempt: err=%v rgba=%d", err, len(shot.RGBA))
 			}
 
 			owner, _, frame = newManualSnapshotOwnerFixture(t, scale)

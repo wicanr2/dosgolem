@@ -35,6 +35,8 @@ type ManualSnapshotOwner struct {
 	consumer *ManualPresentationConsumer
 	base     *xlate.Font
 	fontHash [sha256.Size]byte
+	baseHash [sha256.Size]byte
+	e1       bool
 	epoch    uint64
 	active   bool
 	prepared bool
@@ -74,11 +76,18 @@ func NewManualSnapshotOwner(layout *ManualOverlayLayout, catalog *Catalog, verif
 	if err != nil {
 		return nil, err
 	}
+	baseFingerprint, err := presentation.FontFingerprint(base)
+	if err != nil {
+		return nil, err
+	}
+	if scale == 3 {
+		overlay.e1Base = base
+	}
 	consumer, err := NewManualPresentationConsumer(overlay)
 	if err != nil {
 		return nil, err
 	}
-	return &ManualSnapshotOwner{overlay: overlay, consumer: consumer, base: base, fontHash: fingerprint, epoch: 1, active: true}, nil
+	return &ManualSnapshotOwner{overlay: overlay, consumer: consumer, base: base, fontHash: fingerprint, baseHash: baseFingerprint, e1: scale == 3, epoch: 1, active: true}, nil
 }
 
 // SetStyle passes through only the original watcher-observed palette indexes.
@@ -88,6 +97,11 @@ func (o *ManualSnapshotOwner) SetStyle(style ManualTextStyle) error {
 	}
 	if err := o.overlay.SetStyle(style); err != nil {
 		return err
+	}
+	if o.overlay.e1Plan != nil {
+		o.overlay.e1Plan = nil
+		o.overlay.resetLayers()
+		o.overlay.state = manualOverlayCleared
 	}
 	o.bumpEpoch()
 	return nil
@@ -160,6 +174,9 @@ func (o *ManualSnapshotOwner) validateSourceLayers() error {
 	if matches != 1 {
 		return fmt.Errorf("buckrogers: manual action does not identify one catalog entry")
 	}
+	if o.e1 {
+		return o.validateE1SourceLayers(action, translation)
+	}
 	rows, err := manualRows(translation, o.overlay.layout.columns, o.overlay.layout.rows)
 	if err != nil {
 		return err
@@ -187,6 +204,56 @@ func (o *ManualSnapshotOwner) validateSourceLayers() error {
 		return fmt.Errorf("buckrogers: manual font differs from session identity")
 	}
 	return nil
+}
+
+func (o *ManualSnapshotOwner) validateE1SourceLayers(action ManualOverlayAction, translation string) error {
+	plan := o.overlay.e1Plan
+	if plan == nil || plan.generation != action.Generation || plan.eventKey != action.EventKey ||
+		plan.textKey != action.TextKey || plan.translation != translation || plan.digest != plan.hash() ||
+		o.overlay.e1Base != o.base || o.overlay.font == o.base {
+		return fmt.Errorf("buckrogers: E1 plan identity differs from visible manual group")
+	}
+	baseHash, err := presentation.FontFingerprint(o.base)
+	if err != nil || baseHash != o.baseHash || baseHash != plan.baseSeal {
+		return fmt.Errorf("buckrogers: E1 base font changed")
+	}
+	derivedHash, err := presentation.FontFingerprint(o.overlay.font)
+	if err != nil || derivedHash != o.fontHash || derivedHash != plan.derivedSeal {
+		return fmt.Errorf("buckrogers: E1 derived font changed")
+	}
+	expected, err := plan.TextLayer(o.base, o.overlay.font)
+	if err != nil {
+		return err
+	}
+	if len(expected.Stamps) != len(o.overlay.text.Stamps) || len(o.overlay.text.FontRegistry) != 2 ||
+		o.overlay.text.FontRegistry[o.base.Name] != o.base || o.overlay.text.FontRegistry[o.overlay.font.Name] != o.overlay.font {
+		return fmt.Errorf("buckrogers: E1 text registry or row count changed")
+	}
+	for row := range expected.Stamps {
+		background, actual, want := o.overlay.background.Stamps[row], o.overlay.text.Stamps[row], expected.Stamps[row]
+		if background == nil || actual == nil {
+			return fmt.Errorf("buckrogers: nil E1 manual stamp")
+		}
+		y := o.overlay.layout.clearY + row*(o.overlay.layout.lineHeight+o.overlay.layout.gap)
+		if background.Key != fmt.Sprintf("manual.background.%d", row) || background.X != o.overlay.layout.clearX || background.Y != y ||
+			background.Cells != 1 || background.CellW != o.overlay.layout.clearWidth || background.CellH != o.overlay.layout.lineHeight ||
+			background.Font != nil || len(background.Text) != 0 || background.Owner != "" || len(background.Transparent) != 0 ||
+			background.SwapColors || background.GlyphX != 0 || background.GlyphY != 0 || background.GlyphScale != 0 ||
+			background.PixelScale != 0 || len(background.PixelGlyphs) != 0 ||
+			actual.Key != want.Key || actual.X != want.X || actual.Y != want.Y || actual.Cells != want.Cells ||
+			actual.CellW != want.CellW || actual.CellH != want.CellH || actual.PixelScale != want.PixelScale ||
+			actual.Font != nil || len(actual.Text) != 0 || actual.Owner != "" || len(actual.Transparent) != 0 ||
+			actual.SwapColors || actual.GlyphX != 0 || actual.GlyphY != 0 || actual.GlyphScale != 0 ||
+			len(actual.PixelGlyphs) != len(want.PixelGlyphs) {
+			return fmt.Errorf("buckrogers: E1 row %d geometry changed", row)
+		}
+		for index, glyph := range actual.PixelGlyphs {
+			if glyph != want.PixelGlyphs[index] {
+				return fmt.Errorf("buckrogers: E1 row %d glyph changed", row)
+			}
+		}
+	}
+	return o.overlay.text.ValidatePixelGlyphPlan(3)
 }
 
 func digestManualFrame(frame host.IndexedFrame) [sha256.Size]byte {
@@ -267,6 +334,16 @@ func (s manualTicketSource) ReadPresentationFrame() (host.IndexedFrame, error) {
 // Snapshot atomically projects the prepared frozen frame. It does not run
 // Layer.Frame or step the machine, and returns no partial RGBA on any failure.
 func (o *ManualSnapshotOwner) Snapshot(ticket ManualFrameTicket, scale int) (presentation.LayerPresentationSnapshot, error) {
+	result, err := o.snapshot(ticket, scale)
+	if err != nil && o != nil && o.active && o.e1 {
+		// A failed E1 projection consumes the current frame lease. Repairing a
+		// mutable source after failure cannot resurrect its old ticket.
+		o.bumpEpoch()
+	}
+	return result, err
+}
+
+func (o *ManualSnapshotOwner) snapshot(ticket ManualFrameTicket, scale int) (presentation.LayerPresentationSnapshot, error) {
 	if o == nil || !o.active || !o.prepared || o.overlay == nil || scale != o.overlay.scale || ticket.owner != o ||
 		ticket.generation == 0 || ticket.generation != o.overlay.generation || ticket.epoch != o.epoch ||
 		ticket.frame.Canvas != (host.Canvas{Width: 320, Height: 200}) || len(ticket.frame.Indexed) != 320*200 ||
@@ -281,16 +358,28 @@ func (o *ManualSnapshotOwner) Snapshot(ticket ManualFrameTicket, scale int) (pre
 		return presentation.LayerPresentationSnapshot{}, fmt.Errorf("buckrogers: manual layers changed after Frame")
 	}
 	var result presentation.LayerPresentationSnapshot
+	fonts := map[string]*xlate.Font{o.overlay.font.Name: o.overlay.font}
+	if o.e1 {
+		fonts[o.base.Name] = o.base
+	}
 	err = presentation.WithSealedOrderedLayers(manualSnapshotGroupKey, ticket.generation, ticket.epoch,
 		[]presentation.ActiveLayerSlot{
 			{Name: "background", Z: 0, Layer: o.overlay.background},
 			{Name: "text", Z: 1, Layer: o.overlay.text},
-		}, map[string]*xlate.Font{o.overlay.font.Name: o.overlay.font}, func(group *presentation.SealedLayerGroup) error {
+		}, fonts, func(group *presentation.SealedLayerGroup) error {
 			if fingerprint, ok := group.FontHash(o.overlay.font.Name); !ok || fingerprint != o.fontHash {
 				return fmt.Errorf("buckrogers: sealed manual font identity mismatch")
 			}
+			if o.e1 {
+				if fingerprint, ok := group.FontHash(o.base.Name); !ok || fingerprint != o.baseHash {
+					return fmt.Errorf("buckrogers: sealed E1 base font identity mismatch")
+				}
+			}
 			valid := func() bool {
 				currentLayersHash, err := digestManualLayers(o.overlay)
+				if o.e1 && o.validateSourceLayers() != nil {
+					return false
+				}
 				return o.active && o.prepared && o.overlay.state == manualOverlayVisible &&
 					o.overlay.generation == ticket.generation && o.epoch == ticket.epoch && ticket.digest == digestManualFrame(ticket.frame) &&
 					err == nil && currentLayersHash == ticket.layersHash
