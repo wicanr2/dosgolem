@@ -179,6 +179,46 @@ func TestPixelGlyphLegacyDrawRejectsWithoutWrites(t *testing.T) {
 	}
 }
 
+func TestPixelGlyphClearAndChangedFrameDoNotLeaveGhostInk(t *testing.T) {
+	f := &Font{W: 1, H: 1, Name: "physical.lifecycle", Glyphs: map[rune][]byte{'A': {0x80}}}
+	s := &Stamp{
+		X: 0, Y: 0, Cells: 2, CellW: 1, CellH: 1, PixelScale: 3, State: Pending,
+		PixelGlyphs: []PixelGlyph{
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 1, Y: 0},
+			{Rune: 'A', Font: f, SrcW: 1, SrcH: 1, X: 4, Y: 0},
+		},
+	}
+	l := &Layer{W: 2, H: 1, FontRegistry: map[string]*Font{f.Name: f}, Stamps: []*Stamp{s}}
+	rgb := []byte{0, 0, 0, 255, 255, 255}
+	l.Frame([]byte{0, 1}, rgb)
+	if s.State != Shown {
+		t.Fatal("physical stamp did not enter shown state")
+	}
+	dst := bytes.Repeat([]byte{0x5a}, 6*3*4)
+	if drew, err := l.DrawChecked(dst, 3, nil); err != nil || !drew || dst[4*(0*6+1)] == 0x5a || dst[4*(0*6+4)] == 0x5a {
+		t.Fatalf("initial physical glyphs missing: drew=%v err=%v", drew, err)
+	}
+	l.Clear(1, 0, 2, 1)
+	if len(l.Stamps) != 1 || !s.transparent(1) || s.State != Pending {
+		t.Fatal("partial clear did not invalidate the second logical cell")
+	}
+	l.Frame([]byte{0, 1}, rgb)
+	dst = bytes.Repeat([]byte{0x5a}, len(dst))
+	if drew, err := l.DrawChecked(dst, 3, nil); err != nil || !drew || dst[4*(0*6+1)] == 0x5a || dst[4*(0*6+4)] != 0x5a {
+		t.Fatalf("partially cleared glyph left ink: drew=%v err=%v", drew, err)
+	}
+	for i := 0; i < 3; i++ {
+		l.Frame([]byte{1, 1}, rgb)
+	}
+	if len(l.Stamps) != 0 {
+		t.Fatal("changed source cell left a physical stamp behind")
+	}
+	dst = bytes.Repeat([]byte{0x5a}, len(dst))
+	if drew, err := l.DrawChecked(dst, 3, nil); err != nil || drew || !bytes.Equal(dst, bytes.Repeat([]byte{0x5a}, len(dst))) {
+		t.Fatalf("dropped physical stamp left ghost ink: drew=%v err=%v", drew, err)
+	}
+}
+
 func TestPixelGlyphCanonicalFontHashIgnoresMapOrderAndDetectsBytes(t *testing.T) {
 	a := physicalTestFont()
 	a.Glyphs['B'] = bytes.Repeat([]byte{0x40}, 32)
