@@ -1,6 +1,8 @@
 package machine
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -142,6 +144,73 @@ func TestRunUntilReportsWhyItStopped(t *testing.T) {
 	why, _ = m.RunUntil(func(*Machine) bool { return false }, 3)
 	if why != StopBudget {
 		t.Fatalf("預算用完卻回 %v", why)
+	}
+}
+
+func TestRunUntilObservedMatchesRunUntilAndObservesEachAttemptInOrder(t *testing.T) {
+	// The final 63h is unsupported by the default 8086 model.  Both runners
+	// must retain RunUntil's raw StopBudget + error shape and attempted-step
+	// count; the observed run additionally sees each CS:IP before that attempt.
+	code := []byte{0x90, 0x90, 0x63}
+	plain := tinyProgram(t, code...)
+	plainStop, plainErr := plain.RunUntil(nil, 8)
+	if plainErr == nil {
+		t.Fatal("plain RunUntil unexpectedly accepted unsupported opcode")
+	}
+	nilObserved := tinyProgram(t, code...)
+	nilStop, nilErr := nilObserved.RunUntilObserved(nil, 8, nil)
+	if nilErr == nil {
+		t.Fatal("nil-observer RunUntil unexpectedly accepted unsupported opcode")
+	}
+
+	observed := tinyProgram(t, code...)
+	var got []uint16
+	observedStop, observedErr := observed.RunUntilObserved(nil, 8, func(m *Machine) error {
+		got = append(got, m.CPU.IP)
+		return nil
+	})
+	if observedErr == nil {
+		t.Fatal("observed RunUntil unexpectedly accepted unsupported opcode")
+	}
+	if plainStop != observedStop || plainStop != StopBudget || plain.Steps != observed.Steps || plain.Steps != 3 ||
+		plainErr.Error() != observedErr.Error() {
+		t.Fatalf("plain = (stop=%v, steps=%d, err=%v), observed = (stop=%v, steps=%d, err=%v)",
+			plainStop, plain.Steps, plainErr, observedStop, observed.Steps, observedErr)
+	}
+	if plainStop != nilStop || plain.Steps != nilObserved.Steps || plainErr.Error() != nilErr.Error() {
+		t.Fatalf("plain = (stop=%v, steps=%d, err=%v), nil observer = (stop=%v, steps=%d, err=%v)",
+			plainStop, plain.Steps, plainErr, nilStop, nilObserved.Steps, nilErr)
+	}
+	if want := []uint16{0x100, 0x101, 0x102}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("pre-step IP sequence = %04X, want %04X", got, want)
+	}
+}
+
+func TestRunUntilObservedDoesNotObserveAStoppedIteration(t *testing.T) {
+	m := tinyProgram(t, 0x90, 0x90, 0x90)
+	var got []uint16
+	why, err := m.RunUntilObserved(func(mm *Machine) bool { return mm.CPU.IP == 0x102 }, 8, func(mm *Machine) error {
+		got = append(got, mm.CPU.IP)
+		return nil
+	})
+	if err != nil || why != StopPredicate || m.Steps != 2 {
+		t.Fatalf("RunUntilObserved = (stop=%v, steps=%d, err=%v), want predicate after two steps", why, m.Steps, err)
+	}
+	if want := []uint16{0x100, 0x101}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("pre-step IP sequence = %04X, want %04X", got, want)
+	}
+}
+
+func TestRunUntilObservedReturnsObserverErrorBeforeStepping(t *testing.T) {
+	m := tinyProgram(t, 0x90)
+	fault := errors.New("synthetic observer fault")
+	calls := 0
+	why, err := m.RunUntilObserved(nil, 4, func(*Machine) error {
+		calls++
+		return fault
+	})
+	if why != StopBudget || !errors.Is(err, fault) || calls != 1 || m.Steps != 0 {
+		t.Fatalf("RunUntilObserved = (stop=%v, steps=%d, calls=%d, err=%v), want StopBudget, zero steps, one fault", why, m.Steps, calls, err)
 	}
 }
 

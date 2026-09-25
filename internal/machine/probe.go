@@ -117,6 +117,13 @@ func (s Stop) String() string {
 	return fmt.Sprintf("Stop(%d)", uint8(s))
 }
 
+// PreStepObserver is called at the current CS:IP immediately before a Step
+// attempt.  It is a DRAFT generic observation seam: callers may inspect the
+// machine but must not assume an oracle, a game-specific address map, or a
+// frontend-owned lifetime.  Returning an error prevents that Step attempt and
+// is returned with StopBudget, matching RunUntil's existing error shape.
+type PreStepObserver func(*Machine) error
+
 // RunUntil 一直跑，直到條件成立、走到中斷點、或用完 budget 條指令。
 //
 // stop 可以是 nil（只看中斷點）。條件與中斷點都在**執行每一條之前**檢查，
@@ -131,6 +138,40 @@ func (m *Machine) RunUntil(stop func(*Machine) bool, budget uint64) (Stop, error
 		}
 		if i > 0 && stop != nil && stop(m) {
 			return StopPredicate, nil
+		}
+		if err := m.Step(); err != nil {
+			return StopBudget, err
+		}
+	}
+	if stop != nil && stop(m) {
+		return StopPredicate, nil
+	}
+	return StopBudget, nil
+}
+
+// RunUntilObserved is RunUntil with a DRAFT pre-step observation seam.
+//
+// The observer is called after the same breakpoint/predicate checks that can
+// stop this iteration and immediately before each Step attempt.  This gives a
+// sealed future owner the same pre-instruction observation point as
+// oracle.OnCall without importing oracle or changing RunUntil's visible
+// behavior.  A nil observer is equivalent to RunUntil for stop/error/step
+// behavior.  It does not install an observer, route input, or expose any
+// owner resource to a frontend.
+func (m *Machine) RunUntilObserved(stop func(*Machine) bool, budget uint64, observe PreStepObserver) (Stop, error) {
+	for i := uint64(0); i < budget; i++ {
+		if i > 0 || len(m.breaks) == 0 {
+			if m.atBreak() {
+				return StopBreakpoint, nil
+			}
+		}
+		if i > 0 && stop != nil && stop(m) {
+			return StopPredicate, nil
+		}
+		if observe != nil {
+			if err := observe(m); err != nil {
+				return StopBudget, err
+			}
 		}
 		if err := m.Step(); err != nil {
 			return StopBudget, err
