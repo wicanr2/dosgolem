@@ -369,6 +369,9 @@ type DOS struct {
 	curPSP    uint16
 	lastExit  uint16
 	queue     []Queued
+	// queuedSeg 是監督佇列推出來的程式的 arena MCB 段（0＝舊路徑，不用回收）。
+	// 疊底退出（非 TSR）時釋放它；常駐則留著（欄位歸零，塊照留）。
+	queuedSeg uint16
 
 	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
 	emb     map[uint16][]byte

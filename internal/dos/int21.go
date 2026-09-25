@@ -657,26 +657,32 @@ func (d *DOS) pickBlock(want uint16) int {
 	return best
 }
 
+// carveBlock 切出 arena[i] 的前 want 段（seg+1 慣例），標已用，回傳 guest 段。
+//
+// want 的單位是資料段（不含 MCB），與 pickBlock 一致。呼叫端自己回報／記帳
+// （AH=48h 走 splitBlock；EXEC 落子走 placeChild，不記 AllocOp）。
+func (d *DOS) carveBlock(i int, want uint16) uint16 {
+	b := &d.arena[i]
+	seg := b.seg
+	if b.size >= want+2 {
+		rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
+		b.size = want
+		b.free = false
+		d.arena = append(d.arena, memBlock{})
+		copy(d.arena[i+2:], d.arena[i+1:])
+		d.arena[i+1] = rest
+	} else {
+		b.free = false
+	}
+	return seg + 1
+}
+
 // splitBlock 把第 i 塊切出 want 段給呼叫端。
 func (d *DOS) splitBlock(c *cpu.CPU, i int, want uint16) {
-	{
-		b := &d.arena[i]
-		// 切得出一塊有意義的剩餘（至少 1 段 MCB ＋ 1 段資料）才切，
-		// 否則整塊給出去——切出 0 段的區塊只會讓表變長。
-		if b.size >= want+2 {
-			rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
-			b.size = want
-			b.free = false
-			d.arena = append(d.arena, memBlock{})
-			copy(d.arena[i+2:], d.arena[i+1:])
-			d.arena[i+1] = rest
-		} else {
-			b.free = false
-		}
-	}
-	c.R[cpu.AX] = d.arena[i].seg + 1
+	seg1 := d.carveBlock(i, want)
+	c.R[cpu.AX] = seg1
 	clearCarry(c)
-	d.noteMem(c, 0x48, want, d.arena[i].seg+1, d.arena[i].size, true)
+	d.noteMem(c, 0x48, want, seg1, d.arena[i].size, true)
 }
 
 // noteMem 記一筆配置器帳。MemTrace 是 nil 就什麼都不做。
@@ -724,6 +730,19 @@ func (d *DOS) coalesce() {
 			continue
 		}
 		i++
+	}
+}
+
+// freeArenaSeg 釋放 MCB 段為 seg 的 arena 區塊（EXEC 落子的回收用）。
+//
+// 找不到（不該發生）就略過不報錯——回收路徑不該因為記帳問題擋住行程退出。
+func (d *DOS) freeArenaSeg(seg uint16) {
+	for i := range d.arena {
+		if d.arena[i].seg == seg {
+			d.arena[i].free = true
+			d.coalesce()
+			return
+		}
 	}
 }
 

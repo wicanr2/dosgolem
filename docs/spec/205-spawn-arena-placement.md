@@ -35,3 +35,15 @@ EXEC 前零釋放 → 父堆 `0x25D7／0x2958` 全活 → 子映像（`0x25E7–
 
 - 改配置策略（`AH=58h`）、MCB 客方發布、TSR 常駐語意：不動。
 - WCC／WCG 側：不動（錯在 dosgolem 主體，不在客體程式）。
+
+## 5. 實作（2026-09-25）
+
+照 §1 落地（`spawn`／`spawnQueued`＋`placeChild`／`carveBlock`／
+`freeArenaSeg`＋退出回收＋`freeSeg` 只升不降），測試
+`TestSpawnDoesNotOverlapLiveArena` 紅轉綠，全套件綠。
+chained `WCC EMPTY.C／HELLO.C／FLOAT.C` 在 dosrun 下全乾淨
+（回傳碼 0，`Code size: 11／21／17`）——E142 結案。
+
+附帶發現（非本規格範圍）：WCG 乾淨退出碼是 255（`pop` 回傳值慣用法），
+與 `ExecRecord.Exit` 的 `0xFF＝還沒結束` 哨兵撞碼——記錄正確、顯示混淆，
+`memops` 會把乾淨退出的子印成 `exit=FF`。另案處理。
