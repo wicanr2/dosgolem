@@ -123,8 +123,9 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.parseFilename(c)
 
 	case 0x2A: // 取系統日期 → CX:DH:DL
-		c.R[cpu.CX] = 1993
-		c.R[cpu.DX] = 1<<8 | 1
+		y, mo, day := virtualDate()
+		c.R[cpu.CX] = uint16(y)
+		c.R[cpu.DX] = uint16(mo)<<8 | uint16(day)
 		setAL(c, 5) // 星期五
 		clearCarry(c)
 	case 0x2C: // 取系統時間 → CH:CL:DH:DL

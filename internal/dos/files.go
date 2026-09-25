@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 )
@@ -246,10 +247,12 @@ func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {
 // 已經在暫存層裡的就原樣用。
 func (d *DOS) scratchCopy(name, path string) (string, error) {
 	base := baseName(name)
-	target := filepath.Join(d.Scratch, base)
-	if _, err := os.Stat(target); err == nil {
-		return target, nil
+	// DOS 檔名不分大小寫：暫存層已有同名不同大小寫的檔就用它，
+	// 不再多造一份（`docs/spec/237` §2.3）。
+	if existing := lookupDOS(d.Scratch, base); existing != "" {
+		return existing, nil
 	}
+	target := filepath.Join(d.Scratch, base)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -260,7 +263,26 @@ func (d *DOS) scratchCopy(name, path string) (string, error) {
 	if err := os.WriteFile(target, data, 0o644); err != nil {
 		return "", err
 	}
+	d.stampScratch(target)
 	return target, nil
+}
+
+// virtualDate 是 `AH=2Ah` 回報的系統日期。檔案時間也用它，兩者才一致。
+func virtualDate() (year int, month time.Month, day int) { return 1993, time.January, 1 }
+
+// stampScratch 把暫存層檔案的主機 mtime 設成虛擬時刻（`docs/spec/237` §2.1）。
+//
+// ⚠ **不能留主機時間。** `AH=4Eh／4Fh／57h` 把 mtime 交給程式，程式把它存進
+// 記憶體；留主機時間的話，同一個 state、同一組按鍵，隔幾秒重跑記憶體就不同。
+// 秒數取偶數，對齊 DOS 的 2 秒解析度。
+func (d *DOS) stampScratch(path string) {
+	if d.Scratch == "" || path == "" || !strings.HasPrefix(path, d.Scratch) {
+		return
+	}
+	y, mo, day := virtualDate()
+	t := d.clock()
+	at := time.Date(y, mo, day, int(t.Hour), int(t.Min), int(t.Sec)&^1, 0, time.Local)
+	_ = os.Chtimes(path, at, at)
 }
 
 // create 是 `AH=3Ch`：在暫存層建立／截斷一個檔，回可讀寫的 handle。
@@ -288,12 +310,16 @@ func (d *DOS) create(c *cpu.CPU) {
 		return
 	}
 	path := filepath.Join(d.Scratch, base)
+	if existing := lookupDOS(d.Scratch, base); existing != "" {
+		path = existing // 大小寫不同的既有檔：截斷它，不另建（`docs/spec/237` §2.3）
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		c.R[cpu.AX] = 5 // Access denied
 		setCarry(c)
 		return
 	}
+	d.stampScratch(path)
 	h, ok := d.allocHandle()
 	if !ok {
 		f.Close()
@@ -520,6 +546,7 @@ func (d *DOS) write(c *cpu.CPU) {
 				setCarry(c)
 				return
 			}
+			d.stampScratch(h.path)
 			c.R[cpu.AX] = uint16(n)
 			clearCarry(c)
 			return

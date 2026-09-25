@@ -206,6 +206,7 @@ func (d *DOS) renameFile(c *cpu.CPU) {
 			d.fail(c, 5)
 			return
 		}
+		d.stampScratch(dst)
 		d.trace(FileOp{Op: "rename", Fn: 0x56, Name: oldName, Arg: int64(len(data))})
 		clearCarry(c)
 		return
