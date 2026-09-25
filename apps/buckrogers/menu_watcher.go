@@ -17,6 +17,9 @@ func (w *MenuRequestWatcher) ObserveDispatchEntry(caller Address, ss, sp uint16,
 	w.recorder.ObserveDispatchEntry(caller, ss, sp, args, original, step)
 }
 
+// RegisterAffix forwards an affix shape to the underlying text recorder.
+func (w *MenuRequestWatcher) RegisterAffix(s AffixShape) error { return w.recorder.RegisterAffix(s) }
+
 func (w *MenuRequestWatcher) ObserveInstruction(at Address, ss, sp uint16, step uint64) {
 	before := len(w.recorder.events)
 	w.recorder.ObserveInstruction(at, ss, sp, step)

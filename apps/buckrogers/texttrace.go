@@ -1,6 +1,9 @@
 package buckrogers
 
-import "crypto/sha256"
+import (
+	"crypto/sha256"
+	"fmt"
+)
 
 // TextEvent is answer-free, content-free metadata for one completed original
 // dispatcher call. Original bytes are represented only by length and SHA-256.
@@ -14,6 +17,25 @@ type TextEvent struct {
 	Foreground     uint8    `json:"foreground"`
 	Row            uint8    `json:"row"`
 	Column         uint8    `json:"column"`
+	// Affix is set only for callers registered with RegisterAffix. It keeps
+	// the hashes of a fixed prefix and suffix plus the variable slot length;
+	// the slot bytes (a player-entered name) are never retained.
+	Affix *TextAffix `json:"affix,omitempty"`
+}
+
+// TextAffix is the content-safe view of a prefix + variable slot + suffix call.
+type TextAffix struct {
+	PrefixSHA256 [32]byte `json:"prefix_sha256"`
+	SuffixSHA256 [32]byte `json:"suffix_sha256"`
+	SlotLength   uint8    `json:"slot_length"`
+}
+
+// AffixShape registers one caller whose string is a fixed-length prefix, a
+// variable slot of at least one byte, and a fixed-length suffix.
+type AffixShape struct {
+	Caller       Address
+	PrefixLength int
+	SuffixLength int
 }
 
 type textFrame struct {
@@ -28,6 +50,23 @@ type TextRecorder struct {
 	pending *textFrame
 	events  []TextEvent
 	drops   int
+	affixes map[Address]AffixShape
+}
+
+// RegisterAffix enables affix hashing for one caller. Registering the same
+// caller twice or an empty prefix/suffix is rejected.
+func (r *TextRecorder) RegisterAffix(s AffixShape) error {
+	if s.PrefixLength <= 0 || s.SuffixLength <= 0 || s.PrefixLength+s.SuffixLength >= 255 {
+		return fmt.Errorf("affix shape invalid")
+	}
+	if r.affixes == nil {
+		r.affixes = map[Address]AffixShape{}
+	}
+	if _, ok := r.affixes[s.Caller]; ok {
+		return fmt.Errorf("affix caller registered twice")
+	}
+	r.affixes[s.Caller] = s
+	return nil
 }
 
 // ObserveDispatchEntry starts one frame. args are the six raw 16-bit words
@@ -45,6 +84,13 @@ func (r *TextRecorder) ObserveDispatchEntry(caller Address, ss, sp uint16, args 
 			Foreground: uint8(args[3]), Row: uint8(args[4]), Column: uint8(args[5]),
 		},
 		ss: ss, entrySP: sp,
+	}
+	if shape, ok := r.affixes[caller]; ok && len(original) > shape.PrefixLength+shape.SuffixLength {
+		r.pending.event.Affix = &TextAffix{
+			PrefixSHA256: sha256.Sum256(original[:shape.PrefixLength]),
+			SuffixSHA256: sha256.Sum256(original[len(original)-shape.SuffixLength:]),
+			SlotLength:   uint8(len(original) - shape.PrefixLength - shape.SuffixLength),
+		}
 	}
 }
 

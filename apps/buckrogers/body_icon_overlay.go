@@ -24,19 +24,75 @@ type BodyIconIdentity struct {
 	DrawX, DrawY, Capacity int
 }
 
-type BodyIconCatalog struct{ byKey map[string]BodyIconIdentity }
+// BodyIconAffix is the variable-length save prompt identity (spec 025): a
+// fixed prefix, the player-entered name, and a fixed suffix. Only the prefix
+// and suffix are translated; the name cells keep the original ink.
+type BodyIconAffix struct {
+	EventKey                   string
+	Caller                     Address
+	BG, FG, Row, Column        uint8
+	PrefixLength, SuffixLength int
+	PrefixSHA256, SuffixSHA256 [32]byte
+	SlotMin, SlotMax           int
+	PrefixText, SuffixText     string
+	PrefixRect                 PixelRect
+}
 
-var bodyIconKeys = []string{"body.icon.confirmation", "body.icon.save_prompt", "body.icon.old.label", "body.icon.old.action", "body.icon.new.label", "body.icon.new.action", "body.icon.selection.instruction"}
+type BodyIconCatalog struct {
+	byKey map[string]BodyIconIdentity
+	save  BodyIconAffix
+}
+
+const (
+	bodySaveKey       = "body.icon.save_prompt"
+	bodySavePrefixKey = "body.icon.save_prompt.prefix"
+	bodySaveSuffixKey = "body.icon.save_prompt.suffix"
+)
+
+var bodyIconKeys = []string{"body.icon.confirmation", bodySaveKey, "body.icon.old.label", "body.icon.old.action", "body.icon.new.label", "body.icon.new.action", "body.icon.selection.instruction"}
+var bodyIconExactKeys = []string{"body.icon.confirmation", "body.icon.old.label", "body.icon.old.action", "body.icon.new.label", "body.icon.new.action", "body.icon.selection.instruction"}
 var bodyInitialKeys = []string{"body.icon.old.label", "body.icon.old.action", "body.icon.new.label", "body.icon.new.action", "body.icon.selection.instruction"}
 
-// LoadBodyIconCatalog joins the formal events, translation, and safe-rect TSVs.
-func LoadBodyIconCatalog(events, translations, rects []byte) (*BodyIconCatalog, error) {
+func parseBodyCaller(v string) (Address, error) {
+	parts := strings.Split(v, ":")
+	if len(parts) != 2 {
+		return Address{}, fmt.Errorf("body icon caller invalid")
+	}
+	cs, e1 := strconv.ParseUint(parts[0], 16, 16)
+	ip, e2 := strconv.ParseUint(parts[1], 16, 16)
+	if e1 != nil || e2 != nil {
+		return Address{}, fmt.Errorf("body icon caller invalid")
+	}
+	return Address{uint16(cs), uint16(ip)}, nil
+}
+
+func parseBodySHA(v string) ([32]byte, error) {
+	var sha [32]byte
+	hash, err := hex.DecodeString(v)
+	if err != nil || len(hash) != 32 {
+		return sha, fmt.Errorf("body icon hash invalid")
+	}
+	copy(sha[:], hash)
+	return sha, nil
+}
+
+// LoadBodyIconCatalog joins the formal events, affix, translation, and
+// safe-rect TSVs. The save prompt is an affix identity (spec 025); the other
+// six rows are exact identities (spec 009).
+func LoadBodyIconCatalog(events, affixes, translations, rects []byte) (*BodyIconCatalog, error) {
 	rows, err := readTSV("body-icon-events.tsv", events, []string{"event_key", "sequence", "text_key", "original_length", "original_sha256", "caller", "background", "foreground", "row", "column"})
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) != len(bodyIconKeys) {
-		return nil, fmt.Errorf("body icon event catalog requires exactly %d rows", len(bodyIconKeys))
+	if len(rows) != len(bodyIconExactKeys) {
+		return nil, fmt.Errorf("body icon event catalog requires exactly %d rows", len(bodyIconExactKeys))
+	}
+	affixRows, err := readTSV("body-icon-affixes.tsv", affixes, []string{"event_key", "caller", "background", "foreground", "row", "column", "prefix_length", "prefix_sha256", "suffix_length", "suffix_sha256", "slot_min", "slot_max"})
+	if err != nil {
+		return nil, err
+	}
+	if len(affixRows) != 1 || affixRows[0][0] != bodySaveKey {
+		return nil, fmt.Errorf("body icon affix catalog requires exactly the save prompt row")
 	}
 	texts, err := readTSV("body-icon.zh-TW.tsv", translations, []string{"key", "translation", "source"})
 	if err != nil {
@@ -74,7 +130,7 @@ func LoadBodyIconCatalog(events, translations, rects []byte) (*BodyIconCatalog, 
 	}
 	out := &BodyIconCatalog{byKey: make(map[string]BodyIconIdentity, len(rows))}
 	for i, row := range rows {
-		if row[0] != bodyIconKeys[i] || len(rows) != len(bodyIconKeys) {
+		if row[0] != bodyIconExactKeys[i] {
 			return nil, fmt.Errorf("body icon event order/coverage invalid at %q", row[0])
 		}
 		sequence, sequenceErr := strconv.Atoi(row[1])
@@ -85,20 +141,13 @@ func LoadBodyIconCatalog(events, translations, rects []byte) (*BodyIconCatalog, 
 		if e != nil {
 			return nil, fmt.Errorf("body icon length invalid")
 		}
-		hash, e := hex.DecodeString(row[4])
-		if e != nil || len(hash) != 32 {
-			return nil, fmt.Errorf("body icon hash invalid")
+		sha, e := parseBodySHA(row[4])
+		if e != nil {
+			return nil, e
 		}
-		var sha [32]byte
-		copy(sha[:], hash)
-		parts := strings.Split(row[5], ":")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("body icon caller invalid")
-		}
-		cs, e1 := strconv.ParseUint(parts[0], 16, 16)
-		ip, e2 := strconv.ParseUint(parts[1], 16, 16)
-		if e1 != nil || e2 != nil {
-			return nil, fmt.Errorf("body icon caller invalid")
+		caller, e := parseBodyCaller(row[5])
+		if e != nil {
+			return nil, e
 		}
 		nums := [4]uint64{}
 		for j, col := range []int{6, 7, 8, 9} {
@@ -113,12 +162,54 @@ func LoadBodyIconCatalog(events, translations, rects []byte) (*BodyIconCatalog, 
 		if text == "" || !hasRect || !hasDraw || rect.Width != int(length)*8 || rect.X != int(nums[3])*8 || rect.Y != int(nums[2])*8 || draw[2] != int(length) {
 			return nil, fmt.Errorf("body icon TSV join invalid for %q", row[0])
 		}
-		out.byKey[row[0]] = BodyIconIdentity{EventKey: row[0], Caller: Address{uint16(cs), uint16(ip)}, Length: uint8(length), SHA256: sha, BG: uint8(nums[0]), FG: uint8(nums[1]), Row: uint8(nums[2]), Column: uint8(nums[3]), TextKey: row[2], Translation: text, Rect: rect, DrawX: draw[0], DrawY: draw[1], Capacity: draw[2]}
+		out.byKey[row[0]] = BodyIconIdentity{EventKey: row[0], Caller: caller, Length: uint8(length), SHA256: sha, BG: uint8(nums[0]), FG: uint8(nums[1]), Row: uint8(nums[2]), Column: uint8(nums[3]), TextKey: row[2], Translation: text, Rect: rect, DrawX: draw[0], DrawY: draw[1], Capacity: draw[2]}
 	}
-	if len(textByKey) != len(bodyIconKeys) || len(rectByKey) != len(bodyIconKeys) {
+	a := affixRows[0]
+	caller, err := parseBodyCaller(a[1])
+	if err != nil {
+		return nil, err
+	}
+	ints := [8]int{}
+	for j, col := range []int{2, 3, 4, 5, 6, 8, 10, 11} {
+		ints[j], err = strconv.Atoi(a[col])
+		if err != nil || ints[j] < 0 || ints[j] > 255 {
+			return nil, fmt.Errorf("body icon affix number invalid")
+		}
+	}
+	prefixSHA, err := parseBodySHA(a[7])
+	if err != nil {
+		return nil, err
+	}
+	suffixSHA, err := parseBodySHA(a[9])
+	if err != nil {
+		return nil, err
+	}
+	save := BodyIconAffix{EventKey: bodySaveKey, Caller: caller, BG: uint8(ints[0]), FG: uint8(ints[1]), Row: uint8(ints[2]), Column: uint8(ints[3]),
+		PrefixLength: ints[4], SuffixLength: ints[5], PrefixSHA256: prefixSHA, SuffixSHA256: suffixSHA, SlotMin: ints[6], SlotMax: ints[7],
+		PrefixText: textByKey[bodySavePrefixKey], SuffixText: textByKey[bodySaveSuffixKey]}
+	prefixRect, hasPrefix := rectByKey[bodySavePrefixKey]
+	prefixDraw := drawByKey[bodySavePrefixKey]
+	if save.PrefixLength <= 0 || save.SuffixLength <= 0 || save.SlotMin < 1 || save.SlotMax < save.SlotMin ||
+		int(save.Column)+save.PrefixLength+save.SlotMax+save.SuffixLength > 40 || save.PrefixText == "" || save.SuffixText == "" || !hasPrefix ||
+		prefixRect.X != int(save.Column)*8 || prefixRect.Y != int(save.Row)*8 || prefixRect.Width != save.PrefixLength*8 || prefixDraw[2] != save.PrefixLength {
+		return nil, fmt.Errorf("body icon save prompt affix join invalid")
+	}
+	save.PrefixRect = prefixRect
+	out.save = save
+	if len(textByKey) != len(bodyIconExactKeys)+2 || len(rectByKey) != len(bodyIconExactKeys)+1 {
 		return nil, fmt.Errorf("body icon catalog has orphan rows")
 	}
 	return out, nil
+}
+
+// SaveAffixShape is the recorder registration required by the save prompt.
+func (c *BodyIconCatalog) SaveAffixShape() AffixShape {
+	return AffixShape{Caller: c.save.Caller, PrefixLength: c.save.PrefixLength, SuffixLength: c.save.SuffixLength}
+}
+
+// saveSuffixRect is the suffix rectangle for a name of n bytes.
+func (c *BodyIconCatalog) saveSuffixRect(n int) PixelRect {
+	return PixelRect{(int(c.save.Column) + c.save.PrefixLength + n) * 8, int(c.save.Row) * 8, c.save.SuffixLength * 8, 8}
 }
 
 type BodyIconRoute string
@@ -135,6 +226,8 @@ type BodyIconEvent struct {
 	EventKey     string `json:"event_key"`
 	EntryStep    uint64 `json:"entry_step"`
 	PostCallStep uint64 `json:"post_call_step"`
+	// SlotLength is the save prompt name length; zero for exact identities.
+	SlotLength uint8 `json:"slot_length,omitempty"`
 }
 type BodyIconTransition struct {
 	Generation uint64          `json:"generation"`
@@ -164,7 +257,7 @@ func (w *BodyIconWatcher) Observe(e TextEvent) error {
 	if w == nil || w.failed {
 		return fmt.Errorf("body icon watcher failed closed")
 	}
-	key, matched := w.catalog.Match(e)
+	key, slot, matched := w.catalog.matchEvent(e)
 	if !matched && !w.started {
 		for _, id := range w.catalog.byKey {
 			if e.Caller == id.Caller && e.Caller != (Address{Segment: 0x37f1, Offset: 0x101e}) {
@@ -193,7 +286,7 @@ func (w *BodyIconWatcher) Observe(e TextEvent) error {
 	}
 	w.generation = generation
 	group := bodyIconEventGroup(w.route, w.next)
-	item := BodyIconEvent{Generation: w.generation, Group: group, EventKey: key, EntryStep: e.EntryStep, PostCallStep: e.PostCallStep}
+	item := BodyIconEvent{Generation: w.generation, Group: group, EventKey: key, EntryStep: e.EntryStep, PostCallStep: e.PostCallStep, SlotLength: slot}
 	w.events = append(w.events, item)
 	w.next++
 	if w.groupComplete(seq, w.next) {
@@ -238,15 +331,31 @@ func bodyIconEventGroup(route BodyIconRoute, index int) string {
 	return ""
 }
 func (c *BodyIconCatalog) Match(e TextEvent) (string, bool) {
+	key, _, ok := c.matchEvent(e)
+	return key, ok
+}
+
+// matchEvent tries the six exact identities first and only then the save
+// prompt affix (spec 025 order). Prefix and suffix must both match.
+func (c *BodyIconCatalog) matchEvent(e TextEvent) (string, uint8, bool) {
 	if c == nil {
-		return "", false
+		return "", 0, false
 	}
 	for key, id := range c.byKey {
 		if e.Caller == id.Caller && e.OriginalLength == id.Length && e.OriginalSHA256 == id.SHA256 && e.Background == id.BG && e.Foreground == id.FG && e.Row == id.Row && e.Column == id.Column {
-			return key, true
+			return key, 0, true
 		}
 	}
-	return "", false
+	a := c.save
+	if e.Affix == nil || e.Caller != a.Caller || e.Background != a.BG || e.Foreground != a.FG || e.Row != a.Row || e.Column != a.Column {
+		return "", 0, false
+	}
+	n := int(e.Affix.SlotLength)
+	if n < a.SlotMin || n > a.SlotMax || int(e.OriginalLength) != a.PrefixLength+n+a.SuffixLength ||
+		e.Affix.PrefixSHA256 != a.PrefixSHA256 || e.Affix.SuffixSHA256 != a.SuffixSHA256 {
+		return "", 0, false
+	}
+	return bodySaveKey, uint8(n), true
 }
 func (w *BodyIconWatcher) sequence() []string {
 	switch w.route {
@@ -336,6 +445,7 @@ type RuntimeBodyIconOverlay struct {
 	route         BodyIconRoute
 	transition    int
 	active        map[string]bool
+	rects         map[string]PixelRect
 	generation    uint64
 	invalidations []BodyIconInvalidation
 }
@@ -347,18 +457,26 @@ func NewRuntimeBodyIconOverlay(c *BodyIconCatalog, font *xlate.Font, scale int, 
 	if scale == 3 {
 		font = manualThreeXFont(font)
 	}
+	type textCap struct {
+		text     string
+		capacity int
+	}
+	checks := []textCap{{c.save.PrefixText, c.save.PrefixLength}, {c.save.SuffixText, c.save.SuffixLength}}
 	for _, id := range c.byKey {
-		if len([]rune(id.Translation)) > id.Capacity {
+		checks = append(checks, textCap{id.Translation, id.Capacity})
+	}
+	for _, check := range checks {
+		if check.text == "" || len([]rune(check.text)) > check.capacity {
 			return nil, fmt.Errorf("body icon translation exceeds safe capacity")
 		}
-		for _, r := range id.Translation {
+		for _, r := range check.text {
 			g, ok := font.Glyphs[r]
 			if !ok || len(g) != font.H*((font.W+7)/8) {
 				return nil, fmt.Errorf("body icon missing glyph U+%04X", r)
 			}
 		}
 	}
-	return &RuntimeBodyIconOverlay{layer: &xlate.Layer{W: 320, H: 200}, catalog: c, font: font, scale: scale, route: route, active: map[string]bool{}}, nil
+	return &RuntimeBodyIconOverlay{layer: &xlate.Layer{W: 320, H: 200}, catalog: c, font: font, scale: scale, route: route, active: map[string]bool{}, rects: map[string]PixelRect{}}, nil
 }
 func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uint8) error {
 	if o == nil {
@@ -373,31 +491,59 @@ func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uin
 			return fmt.Errorf("body icon key/generation/ordering mismatch")
 		}
 	}
-	if t.Group != "selection-redraw" {
-		o.layer = &xlate.Layer{W: 320, H: 200}
-		o.active = map[string]bool{}
+	type planned struct {
+		key    string
+		rect   PixelRect
+		text   string
+		bg, fg uint8
 	}
+	plan := make([]planned, 0, len(t.Events)+1)
 	for _, e := range t.Events {
-		id, ok := o.catalog.byKey[e.EventKey]
 		validGroup := t.Group == "body-selection" && (bodyIconGroup(e.EventKey) == "body_icon" || bodyIconGroup(e.EventKey) == "selection") || t.Group == "selection-redraw" && bodyIconGroup(e.EventKey) == "selection" || t.Group == bodyIconGroup(e.EventKey)
-		if !ok || e.Generation != t.Generation || !validGroup {
+		if e.Generation != t.Generation || !validGroup {
 			return fmt.Errorf("body icon transition key/generation mismatch")
 		}
-		if t.Group == "selection-redraw" && e.EventKey == "body.icon.selection.instruction" && len(o.active) > 0 { /* retain body labels across the proven movement redraw */
+		if e.EventKey == bodySaveKey {
+			a := o.catalog.save
+			n := int(e.SlotLength)
+			if n < a.SlotMin || n > a.SlotMax {
+				return fmt.Errorf("body icon save prompt slot length invalid")
+			}
+			plan = append(plan, planned{bodySavePrefixKey, a.PrefixRect, a.PrefixText, a.BG, a.FG}, planned{bodySaveSuffixKey, o.catalog.saveSuffixRect(n), a.SuffixText, a.BG, a.FG})
+			continue
 		}
-		o.active[e.EventKey] = true
-		stamp := &xlate.Stamp{Key: id.EventKey, X: id.Rect.X, Y: id.Rect.Y, Cells: id.Rect.Width / 8, CellW: 8, CellH: 8, Font: o.font,
+		id, ok := o.catalog.byKey[e.EventKey]
+		if !ok || e.SlotLength != 0 {
+			return fmt.Errorf("body icon transition key/generation mismatch")
+		}
+		plan = append(plan, planned{id.EventKey, id.Rect, id.Translation, id.BG, id.FG})
+	}
+	stamps := make([]*xlate.Stamp, len(plan))
+	for i, p := range plan {
+		stamp := &xlate.Stamp{Key: p.key, X: p.rect.X, Y: p.rect.Y, Cells: p.rect.Width / 8, CellW: 8, CellH: 8, Font: o.font,
 			GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale), GlyphScale: 1,
-			Text: []rune(id.Translation), State: xlate.Shown, BG: palette[id.BG], FG: palette[id.FG]}
+			Text: []rune(p.text), State: xlate.Shown, BG: palette[p.bg], FG: palette[p.fg]}
 		ink, err := menuInkRect(stamp, o.scale)
 		if err != nil {
 			return err
 		}
-		clear := PixelRect{id.Rect.X * o.scale, id.Rect.Y * o.scale, id.Rect.Width * o.scale, id.Rect.Height * o.scale}
+		clear := PixelRect{p.rect.X * o.scale, p.rect.Y * o.scale, p.rect.Width * o.scale, p.rect.Height * o.scale}
 		if ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
 			return fmt.Errorf("body icon ink outside safe rectangle")
 		}
-		o.layer.Add(stamp)
+		stamps[i] = stamp
+	}
+	// Everything is validated before the layer changes, so a rejected
+	// transition leaves the previous generation intact.
+	if t.Group != "selection-redraw" {
+		o.layer = &xlate.Layer{W: 320, H: 200}
+		o.active = map[string]bool{}
+		o.rects = map[string]PixelRect{}
+	}
+	for i, p := range plan {
+		o.active[p.key] = true
+		o.rects[p.key] = p.rect
+		o.layer.Add(stamps[i])
 	}
 	o.generation = t.Generation
 	o.transition++
@@ -444,12 +590,25 @@ func (o *RuntimeBodyIconOverlay) Prewrite(w machine.VideoWrite) {
 	if w.Offset > 0xffff {
 		keyList = o.ActiveKeys()
 	} else {
+		hitSave := false
 		for key := range o.active {
-			id := o.catalog.byKey[key]
-			x0, y0, x1, y1 := id.Rect.X, id.Rect.Y, id.Rect.X+id.Rect.Width, id.Rect.Y+id.Rect.Height
+			r := o.rects[key]
 			off := int(w.Offset)
-			if off%320 >= x0 && off%320 < x1 && off/320 >= y0 && off/320 < y1 {
+			if off%320 >= r.X && off%320 < r.X+r.Width && off/320 >= r.Y && off/320 < r.Y+r.Height {
+				if key == bodySavePrefixKey || key == bodySaveSuffixKey {
+					hitSave = true
+					continue
+				}
 				keyList = append(keyList, key)
+			}
+		}
+		// The prefix and suffix stamps belong to one prompt: either hit
+		// invalidates both (spec 025).
+		if hitSave {
+			for _, key := range []string{bodySavePrefixKey, bodySaveSuffixKey} {
+				if o.active[key] {
+					keyList = append(keyList, key)
+				}
 			}
 		}
 	}
@@ -458,9 +617,10 @@ func (o *RuntimeBodyIconOverlay) Prewrite(w machine.VideoWrite) {
 		return
 	} // Any writer, including unknown or same-value writes, invalidates atomically before the write.
 	for _, key := range keyList {
-		id := o.catalog.byKey[key]
-		o.layer.Clear(id.Rect.X, id.Rect.Y, id.Rect.X+id.Rect.Width, id.Rect.Y+id.Rect.Height)
+		r := o.rects[key]
+		o.layer.Clear(r.X, r.Y, r.X+r.Width, r.Y+r.Height)
 		delete(o.active, key)
+		delete(o.rects, key)
 	}
 	reason := "a000-prewrite-intersection"
 	if w.Offset > 0xffff {
@@ -507,8 +667,7 @@ func (o *RuntimeBodyIconOverlay) SafeRects() []PixelRect {
 	keys := o.ActiveKeys()
 	out := make([]PixelRect, 0, len(keys))
 	for _, key := range keys {
-		id := o.catalog.byKey[key]
-		r := id.Rect
+		r := o.rects[key]
 		out = append(out, PixelRect{r.X * o.scale, r.Y * o.scale, r.Width * o.scale, r.Height * o.scale})
 	}
 	return out

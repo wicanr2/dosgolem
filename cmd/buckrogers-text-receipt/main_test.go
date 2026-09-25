@@ -181,7 +181,7 @@ func TestStoryFillIntersectsSixRowDiagnostic(t *testing.T) {
 func TestLoadBodyIconRectsFailsClosedAndAcceptsExactCatalog(t *testing.T) {
 	valid := "screen\tevent_key\tx\ty\twidth\theight\tdraw_x\tdraw_y\tcapacity_cells\tline_count\toverflow_policy\n" +
 		"confirmation\tbody.icon.confirmation\t0\t192\t136\t8\t0\t192\t17\t1\tsingle-line-reject\n" +
-		"save_prompt\tbody.icon.save_prompt\t0\t192\t64\t8\t0\t192\t8\t1\tsingle-line-reject\n" +
+		"save_prompt\tbody.icon.save_prompt.prefix\t0\t192\t40\t8\t0\t192\t5\t1\tsingle-line-reject\n" +
 		"body_icon\tbody.icon.old.label\t64\t48\t24\t8\t64\t48\t3\t1\tsingle-line-reject\n" +
 		"body_icon\tbody.icon.old.action\t24\t80\t112\t8\t24\t80\t14\t1\tsingle-line-reject\n" +
 		"body_icon\tbody.icon.new.label\t64\t96\t24\t8\t64\t96\t3\t1\tsingle-line-reject\n" +

@@ -587,6 +587,7 @@ func main() {
 	bodyIconRoute := flag.String("body-icon-route", "", "正式 body presenter 的固定路徑：move、refuse 或 confirm")
 	bodyIconEvents := flag.String("body-icon-events", "", "正式 body-icon-events.tsv")
 	bodyIconTranslations := flag.String("body-icon-translations", "", "正式 body-icon.zh-TW.tsv")
+	bodyIconAffixes := flag.String("body-icon-affixes", "", "正式 body-icon-affixes.tsv（儲存詢問名字前後綴，規格 025）")
 	bodyIconOverlayFont := flag.String("body-icon-overlay-font", "", "本機 16x16 倚天 GOLEMFNT")
 	bodyIconOverlayScale := flag.Int("body-icon-overlay-scale", 0, "body icon 覆繪倍率：0=control、2 或 3")
 	bodyIconOverlayOut := flag.String("body-icon-overlay-rgba-out", "", "輸出 body icon 覆繪 RGBA")
@@ -645,8 +646,8 @@ func main() {
 	if err := validateBodyIconAfterSteps(*bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace, bodyIconPrewriteAfterSteps, *bodyIconFramebufferTraceFrom, *until); err != nil {
 		fail(err)
 	}
-	if (*bodyIconRoute == "" && (*bodyIconEvents != "" || *bodyIconTranslations != "")) || (*bodyIconRoute != "" && (*bodyIconEvents == "" || *bodyIconTranslations == "" || *bodyIconRects == "")) {
-		fail(fmt.Errorf("body-icon-route 需要 events、translations 與安全矩形 TSV"))
+	if (*bodyIconRoute == "" && (*bodyIconEvents != "" || *bodyIconTranslations != "")) || (*bodyIconRoute != "" && (*bodyIconEvents == "" || *bodyIconTranslations == "" || *bodyIconRects == "" || *bodyIconAffixes == "")) {
+		fail(fmt.Errorf("body-icon-route 需要 events、affixes、translations 與安全矩形 TSV"))
 	}
 	if *bodyIconRoute != "" && *bodyIconRoute != "move" && *bodyIconRoute != "refuse" && *bodyIconRoute != "confirm" {
 		fail(fmt.Errorf("body-icon-route 僅允許 move、refuse 或 confirm"))
@@ -740,7 +741,7 @@ func main() {
 	var bodyIconPresenter *buckrogers.RuntimeBodyIconOverlay
 	if *bodyIconRoute != "" {
 		var err error
-		bodyIconCatalog, err = buckrogers.LoadBodyIconCatalog(mustReadFile(*bodyIconEvents), mustReadFile(*bodyIconTranslations), mustReadFile(*bodyIconRects))
+		bodyIconCatalog, err = buckrogers.LoadBodyIconCatalog(mustReadFile(*bodyIconEvents), mustReadFile(*bodyIconAffixes), mustReadFile(*bodyIconTranslations), mustReadFile(*bodyIconRects))
 		if err != nil {
 			fail(err)
 		}
@@ -1324,6 +1325,11 @@ func main() {
 	start := m.Steps
 	keyPollsStart := d.KeyPolls
 	r := buckrogers.NewMenuRequestWatcher(catalog)
+	if bodyIconCatalog != nil {
+		if err := r.RegisterAffix(bodyIconCatalog.SaveAffixShape()); err != nil {
+			fail(err)
+		}
+	}
 	var manualWatcher *buckrogers.Watcher
 	var manualBridge *buckrogers.ManualPresentationBridge
 	if manualPresenter != nil {
@@ -2276,7 +2282,7 @@ func main() {
 		StoryPage8Overlay         *storyOpeningOverlayJSON          `json:"story_page8_overlay,omitempty"`
 		StoryPage8Invalidations   []storyPage2InvalidationJSON      `json:"story_page8_invalidations,omitempty"`
 		StoryPage9Overlay         *storyOpeningOverlayJSON          `json:"story_page9_overlay,omitempty"`
-		StoryPage9Stop            *storyPage9StopJSON                 `json:"story_page9_stop,omitempty"`
+		StoryPage9Stop            *storyPage9StopJSON               `json:"story_page9_stop,omitempty"`
 		StoryPage9Invalidations   []storyPage2InvalidationJSON      `json:"story_page9_invalidations,omitempty"`
 		Clears                    []clearJSON                       `json:"clears,omitempty"`
 		Glyphs                    []glyphJSON                       `json:"glyphs,omitempty"`
@@ -2977,7 +2983,7 @@ func loadBodyIconRects(path string) ([]bodyIconRect, error) {
 	}
 	expected := map[string]bodyIconRect{
 		"body.icon.confirmation":          {EventKey: "body.icon.confirmation", X: 0, Y: 192, Width: 136, Height: 8},
-		"body.icon.save_prompt":           {EventKey: "body.icon.save_prompt", X: 0, Y: 192, Width: 64, Height: 8},
+		"body.icon.save_prompt.prefix":    {EventKey: "body.icon.save_prompt.prefix", X: 0, Y: 192, Width: 40, Height: 8},
 		"body.icon.old.label":             {EventKey: "body.icon.old.label", X: 64, Y: 48, Width: 24, Height: 8},
 		"body.icon.old.action":            {EventKey: "body.icon.old.action", X: 24, Y: 80, Width: 112, Height: 8},
 		"body.icon.new.label":             {EventKey: "body.icon.new.label", X: 64, Y: 96, Width: 24, Height: 8},

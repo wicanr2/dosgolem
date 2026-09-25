@@ -492,7 +492,7 @@ func TestFormalPhase27ReceiptResolvesNineRequests(t *testing.T) {
 			t.Fatalf("事件 %d 雜湊：%v", i+1, err)
 		}
 		event := TextEvent{raw.EntryStep, raw.PostCallStep, raw.Caller, raw.OriginalLength, h,
-			raw.Background, raw.Foreground, raw.Row, raw.Column}
+			raw.Background, raw.Foreground, raw.Row, raw.Column, nil}
 		request, ok := c.Resolve(event)
 		if !ok {
 			t.Fatalf("收據事件 %d 未解析", i+1)
