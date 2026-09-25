@@ -372,3 +372,30 @@ func TestBodyIconSavePromptStampsSkipNameCells(t *testing.T) {
 		}
 	}
 }
+
+func TestBodyIconConfirmHandsOffAfterSavePrompt(t *testing.T) {
+	c := bodyTestCatalog()
+	w := confirmToSavePrompt(t, c, "BUCK")
+	before := w.Transitions()
+	menu := TextEvent{EntryStep: 2000, PostCallStep: 2001, Caller: Address{0x37f1, 0x15bd}, OriginalLength: 20, Row: 12, Column: 9, Foreground: 10}
+	for i := 0; i < 3; i++ {
+		if err := w.Observe(menu); err != nil || w.Failed() {
+			t.Fatal("confirm route did not hand off")
+		}
+	}
+	if w.PostRouteEvents() != 3 || len(w.Transitions()) != len(before) || len(w.events) != 7 {
+		t.Fatalf("handoff grew state: post=%d transitions=%d events=%d", w.PostRouteEvents(), len(w.Transitions()), len(w.events))
+	}
+	// Other routes keep failing closed after completion.
+	m, _ := NewBodyIconWatcher(BodyIconMove, c)
+	observeBodyKeys(t, m, c, append(append([]string{}, bodyInitialKeys...), "body.icon.selection.instruction"))
+	if err := m.Observe(menu); err == nil || !m.Failed() {
+		t.Fatal("move route accepted a post-route event")
+	}
+	// An incomplete confirm route still fails closed.
+	p, _ := NewBodyIconWatcher(BodyIconConfirm, c)
+	observeBodyKeys(t, p, c, bodyInitialKeys)
+	if err := p.Observe(bodyTestEvent(c, "body.icon.old.label", 500)); err == nil || !p.Failed() {
+		t.Fatal("incomplete confirm route accepted an out-of-route event")
+	}
+}

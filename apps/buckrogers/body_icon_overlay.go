@@ -245,6 +245,7 @@ type BodyIconWatcher struct {
 	events          []BodyIconEvent
 	transitions     []BodyIconTransition
 	failed, started bool
+	postRoute       int
 }
 
 func NewBodyIconWatcher(route BodyIconRoute, catalog *BodyIconCatalog) (*BodyIconWatcher, error) {
@@ -256,6 +257,13 @@ func NewBodyIconWatcher(route BodyIconRoute, catalog *BodyIconCatalog) (*BodyIco
 func (w *BodyIconWatcher) Observe(e TextEvent) error {
 	if w == nil || w.failed {
 		return fmt.Errorf("body icon watcher failed closed")
+	}
+	// Spec 026: once the confirm route has reached the save prompt, later
+	// screens (the main menu) are handed off. They are only counted; stamps
+	// stay until an A000 write invalidates them.
+	if w.route == BodyIconConfirm && w.Complete() {
+		w.postRoute++
+		return nil
 	}
 	key, slot, matched := w.catalog.matchEvent(e)
 	if !matched && !w.started {
@@ -428,6 +436,14 @@ func (w *BodyIconWatcher) Complete() bool {
 	return w != nil && !w.failed && w.next == len(w.sequence())
 }
 func (w *BodyIconWatcher) Failed() bool { return w == nil || w.failed }
+
+// PostRouteEvents counts events received after the confirm route handed off.
+func (w *BodyIconWatcher) PostRouteEvents() int {
+	if w == nil {
+		return 0
+	}
+	return w.postRoute
+}
 
 type BodyIconInvalidation struct {
 	Step        uint64   `json:"step"`

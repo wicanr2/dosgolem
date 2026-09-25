@@ -2189,6 +2189,11 @@ func main() {
 			nextKey, len(keys), len(events), *want, len(requests), *wantRequests, r.Pending(), r.Drops(), r.Misses(),
 			len(actionEvents), *wantActionBarEvents, actionPending, actionDrops, actionMisses))
 	}
+	var bodyIconPostRoute *int
+	if bodyIconWatcher != nil {
+		n := bodyIconWatcher.PostRouteEvents()
+		bodyIconPostRoute = &n
+	}
 	if bodyIconWatcher != nil && !bodyIconWatcher.Complete() {
 		fail(fmt.Errorf("body icon fixed-route event sequence incomplete or failed closed"))
 	}
@@ -2295,6 +2300,7 @@ func main() {
 		BodyIconFramebufferWrites []bodyIconFramebufferWriteJSON    `json:"body_icon_framebuffer_writes,omitempty"`
 		BodyIconA000Prewrite      *bodyIconA000TraceJSON            `json:"body_icon_a000_prewrite,omitempty"`
 		BodyIconTransitions       []buckrogers.BodyIconTransition   `json:"body_icon_transitions,omitempty"`
+		BodyIconPostRouteEvents   *int                              `json:"body_icon_post_route_events,omitempty"`
 		BodyIconInvalidations     []buckrogers.BodyIconInvalidation `json:"body_icon_invalidations,omitempty"`
 		BodyIconOverlay           *bodyIconOverlayJSON              `json:"body_icon_overlay,omitempty"`
 		BodyIconOverlaySamples    []bodyIconOverlaySampleJSON       `json:"body_icon_overlay_samples,omitempty"`
@@ -2305,7 +2311,7 @@ func main() {
 		KeyPolls                  *int                              `json:"key_polls,omitempty"`
 		KeyPollsDelta             *int                              `json:"key_polls_delta,omitempty"`
 		InstructionTrace          []instructionTraceJSON            `json:"instruction_trace,omitempty"`
-	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconTransitions: bodyIconTransitions, BodyIconOverlay: bodyIconOverlay, BodyIconOverlaySamples: bodyIconOverlaySamples, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
+	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconTransitions: bodyIconTransitions, BodyIconPostRouteEvents: bodyIconPostRoute, BodyIconOverlay: bodyIconOverlay, BodyIconOverlaySamples: bodyIconOverlaySamples, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, PostJoinInvalidations: postJoinInvalidations, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
 	if bodyIconPresenter != nil {
 		result.BodyIconInvalidations = bodyIconPresenter.Invalidations()
