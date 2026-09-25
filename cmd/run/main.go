@@ -166,7 +166,7 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
-		if *traceExit > traced && len(d.ExecLog) > 0 && d.ExecLog[0].Exit != 0xFF {
+		if *traceExit > traced && len(d.ExecLog) > 0 && d.ExecLog[0].Ended {
 			c := m.CPU
 			a := cpu.Addr(c.Seg[cpu.CS], c.IP)
 			fmt.Printf("trace 步%d %4d  %04X:%04X  % X  AX=%04X BX=%04X CX=%04X DX=%04X SP=%04X BP=%04X DS=%04X ES=%04X SS=%04X F=%04X\n",
@@ -382,7 +382,11 @@ func reportMem(d *dos.DOS) {
 	}
 	fmt.Println("EXEC：")
 	for _, e := range d.ExecLog {
-		fmt.Printf("   %s（%s）PSP=%04X exit=%02X\n", e.Name, e.Base, e.PSP, e.Exit)
+		mark := ""
+		if !e.Ended {
+			mark = " 未結束"
+		}
+		fmt.Printf("   %s（%s）PSP=%04X exit=%02X%s\n", e.Name, e.Base, e.PSP, e.Exit, mark)
 	}
 }
 

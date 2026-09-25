@@ -57,7 +57,11 @@ type ExecRecord struct {
 	PSP  uint16
 	TSR  bool   // 用 AH=31h 常駐
 	Keep uint16 // TSR 保留的段數（DX）
-	Exit uint8  // 離開碼；0xFF ＝ 還沒結束
+	Exit uint8  // 離開碼
+	// Ended 為真才是真的結束了。Exit 不能當哨兵——WCG 乾淨退出碼就是
+	// 255（`pop` 回傳值慣用法），`0xFF` 同時是碼與「還沒結束」
+	//（spec-206；`retro-runtime-study-private#47`）。
+	Ended bool
 }
 
 // Enqueue 排入一支待跑程式。行程疊空了（第一支程式結束或常駐）之後
@@ -327,8 +331,9 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 	// 記到**目前行程**那一筆——不是最後一筆。殼結束時最後一筆是它的
 	// 子行程（早就 TSR 了），寫過去會把殼的離開碼記到 FMDRV 頭上。
 	for i := len(d.ExecLog) - 1; i >= 0; i-- {
-		if d.ExecLog[i].PSP == d.curPSP && d.ExecLog[i].Exit == 0xFF {
+		if d.ExecLog[i].PSP == d.curPSP && !d.ExecLog[i].Ended {
 			d.ExecLog[i].Exit = code
+			d.ExecLog[i].Ended = true
 			d.ExecLog[i].TSR = tsr
 			d.ExecLog[i].Keep = keep
 			break

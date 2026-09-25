@@ -1184,8 +1184,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	if len(d.ExecLog) > 0 {
 		fmt.Printf("\nEXEC 紀錄（%d）：\n", len(d.ExecLog))
 		for _, e := range d.ExecLog {
-			fmt.Printf("  %-14s PSP=%04X exit=%d TSR=%v keep=%04X\n",
-				e.Base, e.PSP, e.Exit, e.TSR, e.Keep)
+			mark := ""
+			if !e.Ended {
+				mark = " 未結束"
+			}
+			fmt.Printf("  %-14s PSP=%04X exit=%d%s TSR=%v keep=%04X\n",
+				e.Base, e.PSP, e.Exit, mark, e.TSR, e.Keep)
 		}
 	}
 	if len(d.Missing) > 0 {
