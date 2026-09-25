@@ -2,6 +2,7 @@ package bootroot
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -369,4 +370,53 @@ func TestRemoveCreatedDepthFirst(t *testing.T) {
 	if _, err := os.Lstat(scratch); !os.IsNotExist(err) {
 		t.Fatal("created root not removed")
 	}
+}
+
+// TestColdBootOriginalGameThroughSealedPath is the original acceptance for
+// specs 235+236: from the real read-only tree, through Prepare and
+// session.BootOriginal, to a Running owner with zero steps.
+// No checkpoints, no teleports.  Live stepping needs a Deliver-accepted
+// turn and belongs to later slices.  Requires BUCK_COLD_BOOT_ORIGINAL
+// to point at the local original tree.
+func TestColdBootOriginalGameThroughSealedPath(t *testing.T) {
+	original := os.Getenv("BUCK_COLD_BOOT_ORIGINAL")
+	if original == "" {
+		t.Skip("real original tree not provided")
+	}
+	const startEXE = "58a34a38b1db455202d2d30daa82915982d7d905932b46bdc7371cb466226cf1"
+	raw, err := hex.DecodeString(startEXE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want [32]byte
+	copy(want[:], raw)
+	out, err := Prepare(BootRootInput{
+		OriginalRoot: original,
+		SaveRoot:     filepath.Join(t.TempDir(), "save"),
+		Required:     []RequiredFile{{Name: "START.EXE", SHA256: want}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.ReadFile(filepath.Join(out.SaveRoot, "START.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := sessionNew(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := owner.BootOriginal(session.BootInput{EXE: exe, ExpectedEXESHA256: want, SaveRoot: out.SaveRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Phase != session.PhaseRunning || receipt.EXESHA256 != want {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+	if got := owner.Status(); got.Phase != session.PhaseRunning {
+		t.Fatalf("status = %+v", got)
+	}
+	// Boot itself must not step.  Live stepping needs a Deliver-accepted
+	// turn (layout + generation), which belongs to turn-contract slices,
+	// not to boot acceptance.
 }

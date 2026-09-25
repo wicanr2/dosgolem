@@ -107,3 +107,14 @@ IO 錯（至少驗新建內容被清掉且回錯）：全部回錯，Verified �
   真實 EXE）。
 - 本規格升 READY 不授權 launcher、owner 接線、存讀檔或視窗；那些仍是
   Buck #16 的後續切片。
+
+## 2026-09-25 原版驗收（235＋236 鏈）
+
+`bootroot_test.go` 的 `TestColdBootOriginalGameThroughSealedPath`
+（缺 `BUCK_COLD_BOOT_ORIGINAL` 時乾淨 skip）以真實唯讀原版樹
+（`START.EXE` SHA-256 `58a34a38…466226cf1`，與既有收據一致）走
+`Prepare`→從 save 重讀 EXE→`session.BootOriginal`，收到 Running
+receipt（`EXESHA256`＋`Status` 雙斷言），全鏈零 checkpoint。
+Docker 無網路 `-race` 通過，獨立審查判可接受為原版驗收收據；
+原版只讀、寫入僅 `t.TempDir`。Live stepping 需 Deliver 接納回合，
+屬後續回合切片，不在本收據。
