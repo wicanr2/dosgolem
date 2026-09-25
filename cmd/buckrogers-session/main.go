@@ -18,6 +18,7 @@ import (
 
 	"github.com/wicanr2/dosgolem/bootroot"
 	"github.com/wicanr2/dosgolem/host"
+	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/session"
 )
 
@@ -28,6 +29,8 @@ type turnReceipt struct {
 	Reason            uint8  `json:"reason"`
 	Phase             uint8  `json:"phase"`
 	DOSCallsCommitted uint64 `json:"dos_calls_committed"`
+	KeysPendingBefore int    `json:"keys_pending_before"`
+	KeysPendingAfter  int    `json:"keys_pending_after"`
 }
 
 func die(err error) {
@@ -43,6 +46,7 @@ func main() {
 	scale := flag.Uint("scale", 2, "起始倍率（2 或 3）")
 	turns := flag.Uint("turns", 3, "無輸入回合數")
 	steps := flag.Uint64("steps", 1000000, "每回合 instruction budget")
+	keys := flag.String("keys", "", "每回合投遞的 BIOS 鍵（單字元，如空白鍵填 \" \"；空字串為無輸入）")
 	flag.Parse()
 	if *original == "" || *save == "" || *exe == "" || *exeSHA == "" {
 		flag.Usage()
@@ -95,12 +99,23 @@ func main() {
 		die(fmt.Errorf("開機未進入 Running: %+v", receipt))
 	}
 	encoder := json.NewEncoder(os.Stdout)
+	var biosKeys []dos.Key
+	if *keys != "" {
+		for _, r := range *keys {
+			key, ok := dos.KeyForRune(r)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "buckrogers-session: 字元 %q 無 BIOS 鍵映射\n", r)
+				os.Exit(2)
+			}
+			biosKeys = append(biosKeys, key)
+		}
+	}
 	for turn := 1; turn <= int(*turns); turn++ {
 		view, err := owner.View()
 		if err != nil {
 			die(err)
 		}
-		delivered, err := owner.Deliver(session.CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration})
+		delivered, err := owner.Deliver(session.CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, BIOSKeys: biosKeys})
 		if err != nil {
 			die(err)
 		}
@@ -112,6 +127,7 @@ func main() {
 			Turn: turn, Epoch: tick.Epoch, Steps: tick.Steps,
 			Reason: uint8(tick.Reason), Phase: uint8(tick.Phase),
 			DOSCallsCommitted: delivered.DOSCallsCommitted,
+			KeysPendingBefore: tick.KeysPendingBefore, KeysPendingAfter: tick.KeysPendingAfter,
 		}); err != nil {
 			die(err)
 		}
