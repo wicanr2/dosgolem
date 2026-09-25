@@ -51,12 +51,18 @@ const (
 // delta, not a count of successfully executed instructions.  RawStop and
 // RawError are deliberately retained for audit: in particular, RunUntil may
 // return StopBudget together with a non-nil error.
+// KeysPendingBefore/After bracket DOS keyboard-queue depth around the turn:
+// early rejections report the unchanged snapshot, the stepping path reports
+// the post-step depth, so input-consumption evidence never needs a second
+// machine read.
 type TickReceipt struct {
 	Epoch              uint64
 	Budget             InstructionBudget
 	MachineStepsBefore uint64
 	MachineStepsAfter  uint64
 	Steps              uint64
+	KeysPendingBefore  int
+	KeysPendingAfter   int
 	RawStop            machine.Stop
 	HasRawStop         bool
 	RawError           error
@@ -487,6 +493,8 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 		return TickReceipt{Reason: StopReasonFrontendFault}, errors.New("session: Owner 不得為 nil")
 	}
 	receipt := TickReceipt{Epoch: o.epoch, Budget: budget, Phase: o.phase, Reason: o.terminalReason}
+	receipt.KeysPendingBefore = o.dos.KeysPending()
+	receipt.KeysPendingAfter = receipt.KeysPendingBefore
 	switch o.phase {
 	case PhaseStopped:
 		receipt.Reason = StopReasonProgramStopped
@@ -535,6 +543,7 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	receipt.RawStop = rawStop
 	receipt.RawError = rawErr
 	receipt.MachineStepsAfter = o.machine.Steps
+	receipt.KeysPendingAfter = o.dos.KeysPending()
 	if receipt.MachineStepsAfter < receipt.MachineStepsBefore {
 		return o.originalFaultReceipt(receipt, errors.New("session: Machine.Steps 不得倒退"))
 	}
