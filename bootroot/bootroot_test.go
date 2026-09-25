@@ -420,3 +420,64 @@ func TestColdBootOriginalGameThroughSealedPath(t *testing.T) {
 	// turn (layout + generation), which belongs to turn-contract slices,
 	// not to boot acceptance.
 }
+
+// TestColdBootLiveTurnThroughSealedPath extends the cold-boot acceptance
+// with one sealed live turn on the real game: New with the canonical
+// closed 2x layout, BootOriginal, View, an empty Deliver batch, then a
+// bounded Advance.  No checkpoints.  Requires BUCK_COLD_BOOT_ORIGINAL.
+func TestColdBootLiveTurnThroughSealedPath(t *testing.T) {
+	original := os.Getenv("BUCK_COLD_BOOT_ORIGINAL")
+	if original == "" {
+		t.Skip("real original tree not provided")
+	}
+	const startEXE = "58a34a38b1db455202d2d30daa82915982d7d905932b46bdc7371cb466226cf1"
+	raw, err := hex.DecodeString(startEXE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want [32]byte
+	copy(want[:], raw)
+	out, err := Prepare(BootRootInput{
+		OriginalRoot: original,
+		SaveRoot:     filepath.Join(t.TempDir(), "save"),
+		Required:     []RequiredFile{{Name: "START.EXE", SHA256: want}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.ReadFile(filepath.Join(out.SaveRoot, "START.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := host.MouseLayout{Epoch: 1, Scale: host.OutputScale2, ChromeHeight: 36,
+		Canvas: host.Canvas{Width: 320, Height: 200}, FrameWidth: 640, FrameHeight: 436}
+	owner, err := session.New(session.Config{InitialScale: host.OutputScale2, InitialLayout: layout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.BootOriginal(session.BootInput{EXE: exe, ExpectedEXESHA256: want, SaveRoot: out.SaveRoot}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := owner.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivered, err := owner.Deliver(session.CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivered.DOSCallsCommitted != 0 || delivered.Paused {
+		t.Fatalf("empty batch receipt = %+v", delivered)
+	}
+	const budget = session.InstructionBudget(1000000)
+	tick, err := owner.Advance(budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tick.Phase != session.PhaseRunning || tick.Steps != uint64(budget) || tick.Reason != session.StopReasonBudgetExhausted {
+		t.Fatalf("live tick = %+v", tick)
+	}
+	if got := owner.Status(); got.Phase != session.PhaseRunning || got.FirstFault != nil {
+		t.Fatalf("status = %+v", got)
+	}
+}
