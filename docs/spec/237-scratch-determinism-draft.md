@@ -1,6 +1,6 @@
 # 237 — 暫存層決定性：檔案時間與大小寫
 
-狀態：**READY**（2026-09-26 獨立審查後修訂）
+狀態：**CONFORMED**（2026-09-26；驗收見 Buck `docs/re/phase-249-*`）
 日期：2026-09-26
 前置：[`009-scratch-writes`](009-scratch-writes.md)
 
