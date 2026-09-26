@@ -424,10 +424,18 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		r.storyDirty = true
 	}
 	if r.storyDirty || r.storyPending != nil || at == glyphEntry {
-		// Generations can only advance after a glyph entry/return or a
-		// clear write; skip the per-family check on every other step.
-		palette := v.Palette()
+		// Generations can only advance after a glyph entry/return, a clear
+		// write or a page-9 pre-write; only then check, and read the palette
+		// only for a family that actually has a new generation.
+		var palette [256][3]uint8
+		read := false
 		for _, f := range r.stories {
+			if !f.needsApply() {
+				continue
+			}
+			if !read {
+				palette, read = v.Palette(), true
+			}
 			if err := f.apply(palette); err != nil {
 				r.resets[f.name()]++
 				f.clear()

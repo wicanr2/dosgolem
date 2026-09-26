@@ -21,6 +21,8 @@ type storyFamily interface {
 	clearWrite(at Address, es, di, cx uint16) bool
 	prewrite(w machine.VideoWrite)
 	apply(palette [256][3]uint8) error
+	// needsApply reports a new active generation, without reading the palette.
+	needsApply() bool
 	frame(indexed []byte, palette [256][3]uint8)
 	draw(i int, indexed []byte, palette [256][3]uint8) ([]byte, []rune, bool)
 	clear()
@@ -265,6 +267,7 @@ func (f *storyOpeningLive) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyOpeningLive) prewrite(machine.VideoWrite) {}
+func (f *storyOpeningLive) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyOpeningLive) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -326,6 +329,7 @@ func (f *storyPage2Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage2Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage2Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage2Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -385,6 +389,7 @@ func (f *storyPage3Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage3Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage3Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage3Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -444,6 +449,7 @@ func (f *storyPage5Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage5Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage5Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage5Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -505,6 +511,7 @@ func (f *storyPage4Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage4Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage4Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage4Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -564,6 +571,7 @@ func (f *storyPage6Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage6Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage6Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage6Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -623,6 +631,7 @@ func (f *storyPage7Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage7Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage7Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage7Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -682,6 +691,7 @@ func (f *storyPage8Live) clearWrite(at Address, es, di, cx uint16) bool {
 	return false
 }
 func (f *storyPage8Live) prewrite(machine.VideoWrite) {}
+func (f *storyPage8Live) needsApply() bool            { return f.w.Active() && f.w.Generation() != f.gen }
 func (f *storyPage8Live) apply(p [256][3]uint8) error {
 	if !f.w.Active() || f.w.Generation() == f.gen {
 		return nil
@@ -749,6 +759,15 @@ func (f *storyPage9Live) prewrite(w machine.VideoWrite) {
 			f.gen[i] = 0
 		}
 	}
+}
+func (f *storyPage9Live) needsApply() bool {
+	for i := range liveScales {
+		w := f.owner[i].Watcher
+		if w.Active() && w.Generation() != f.gen[i] {
+			return true
+		}
+	}
+	return false
 }
 func (f *storyPage9Live) apply(p [256][3]uint8) error {
 	for i := range liveScales {
