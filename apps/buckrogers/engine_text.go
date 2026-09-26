@@ -33,6 +33,7 @@ type EngineTextCatalog struct {
 	itemLens  []int
 	phrase    map[engineID]string // whole item name -> Chinese
 	templates map[string]string   // signature -> Chinese with {0}..{n}
+	monster   map[engineID]string // monster name -> Chinese
 }
 
 func loadHashRows(name string, data []byte) (map[engineID]string, []int, error) {
@@ -89,10 +90,11 @@ type EngineTextFiles struct {
 	ItemEvents, ItemText         []byte
 	PhraseEvents, PhraseText     []byte
 	TemplateEvents, TemplateText []byte
+	MonsterEvents, MonsterText   []byte
 }
 
 func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
-	c := &EngineTextCatalog{phrase: map[engineID]string{}, templates: map[string]string{}}
+	c := &EngineTextCatalog{phrase: map[engineID]string{}, templates: map[string]string{}, monster: map[engineID]string{}}
 	var err error
 	if c.frag, c.fragLens, err = loadHashRows("engine-fragment-events.tsv", f.FragmentEvents); err != nil {
 		return nil, err
@@ -125,6 +127,21 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		for id, k := range ids {
 			if t := text[k]; t != "" {
 				c.phrase[id] = t
+			}
+		}
+	}
+	if f.MonsterEvents != nil {
+		ids, _, err := loadHashRows("monster-name-events.tsv", f.MonsterEvents)
+		if err != nil {
+			return nil, err
+		}
+		text, err := loadTextRows("monster-name.zh-TW.tsv", f.MonsterText, keys(ids))
+		if err != nil {
+			return nil, err
+		}
+		for id, k := range ids {
+			if t := text[k]; t != "" {
+				c.monster[id] = t
 			}
 		}
 	}
@@ -331,6 +348,77 @@ func (c *EngineTextCatalog) itemChinese(t string) (string, bool) {
 	return b.String(), true
 }
 
+// monsterSlot translates a plain slot that is exactly a monster name,
+// keeping its surrounding spaces and trailing punctuation.
+func (c *EngineTextCatalog) monsterSlot(t string) (string, bool) {
+	core := strings.TrimSpace(t)
+	lead := t[:strings.Index(t, core)]
+	trail := t[len(lead)+len(core):]
+	punct := ""
+	for len(core) > 0 && strings.ContainsRune(".,!?", rune(core[len(core)-1])) {
+		punct = core[len(core)-1:] + punct
+		core = core[:len(core)-1]
+	}
+	if core == "" {
+		return "", false
+	}
+	z, ok := c.monster[engineIDOf(core)]
+	if !ok {
+		return "", false
+	}
+	if punct == "." {
+		punct = "。"
+	}
+	return lead + z + punct + trail, true
+}
+
+// matchTemplate finds a template whose signature equals the parts, where a
+// '*' element matches any part.  It returns the indexes of the parts the
+// template's {0}.. placeholders refer to: every element that is not a
+// fragment key ('_', 'I' or '*').
+func (c *EngineTextCatalog) matchTemplate(parts []EnginePart) (string, []int, bool) {
+	sig := strings.Split(EngineSignature(parts), "|")
+	patterns := make([]string, 0, len(c.templates))
+	for p := range c.templates {
+		patterns = append(patterns, p)
+	}
+	// Exact signatures before wildcard ones, then lexical: deterministic.
+	sort.Slice(patterns, func(i, j int) bool {
+		wi, wj := strings.Contains(patterns[i], "*"), strings.Contains(patterns[j], "*")
+		if wi != wj {
+			return !wi
+		}
+		return patterns[i] < patterns[j]
+	})
+	for _, pattern := range patterns {
+		t := c.templates[pattern]
+		pat := strings.Split(pattern, "|")
+		if len(pat) != len(sig) {
+			continue
+		}
+		var slots []int
+		ok := true
+		for i, e := range pat {
+			switch {
+			case e == "*" || e == "_" || e == "I":
+				if e != "*" && e != sig[i] {
+					ok = false
+				}
+				slots = append(slots, i)
+			case e != sig[i]:
+				ok = false
+			}
+			if !ok {
+				break
+			}
+		}
+		if ok {
+			return t, slots, true
+		}
+	}
+	return "", nil, false
+}
+
 func engineAlnum(c byte) bool { return engineAlpha(c) || c >= '0' && c <= '9' }
 
 // Translate returns the Chinese for s, or false (spec 029 §2.4).
@@ -338,46 +426,44 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	if c == nil || s == "" {
 		return "", false
 	}
+	if z, ok := c.monsterSlot(s); ok {
+		return z, true
+	}
 	parts := c.Decompose(s)
 	hasFixed := false
-	for _, p := range parts {
-		if p.Kind != '_' {
-			hasFixed = true
-		}
-	}
-	if !hasFixed {
-		return "", false
-	}
 	zh := make([]string, len(parts))
 	for i, p := range parts {
 		switch p.Kind {
 		case 'F':
+			hasFixed = true
 			z := c.fragText[p.Key]
 			if z == "" {
-				if _, tmpl := c.templates[EngineSignature(parts)]; !tmpl {
+				if _, _, tmpl := c.matchTemplate(parts); !tmpl {
 					return "", false
 				}
 			}
 			zh[i] = z
 		case 'I':
+			hasFixed = true
 			z, ok := c.itemChinese(p.Text)
 			if !ok {
 				return "", false
 			}
 			zh[i] = z
 		default:
-			zh[i] = p.Text
-		}
-	}
-	if t, ok := c.templates[EngineSignature(parts)]; ok {
-		var slots []string
-		for i, p := range parts {
-			if p.Kind != 'F' {
-				slots = append(slots, strings.TrimSpace(zh[i]))
+			if z, ok := c.monsterSlot(p.Text); ok {
+				zh[i] = z
+			} else {
+				zh[i] = p.Text
 			}
 		}
+	}
+	if !hasFixed {
+		return "", false
+	}
+	if t, slots, ok := c.matchTemplate(parts); ok {
 		for i, v := range slots {
-			t = strings.ReplaceAll(t, "{"+strconv.Itoa(i)+"}", v)
+			t = strings.ReplaceAll(t, "{"+strconv.Itoa(i)+"}", strings.TrimSpace(zh[v]))
 		}
 		return t, true
 	}
@@ -385,10 +471,10 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	for i, p := range parts {
 		z := zh[i]
 		if p.Kind == 'F' {
-			if strings.HasPrefix(p.Text, " ") && i > 0 && parts[i-1].Kind == '_' && len(parts[i-1].Text) > 0 && engineAlnum(parts[i-1].Text[len(parts[i-1].Text)-1]) {
+			if strings.HasPrefix(p.Text, " ") && i > 0 && parts[i-1].Kind == '_' && len(zh[i-1]) > 0 && engineAlnum(zh[i-1][len(zh[i-1])-1]) {
 				z = " " + z
 			}
-			if strings.HasSuffix(p.Text, " ") && i+1 < len(parts) && parts[i+1].Kind == '_' && len(parts[i+1].Text) > 0 && engineAlnum(parts[i+1].Text[0]) {
+			if strings.HasSuffix(p.Text, " ") && i+1 < len(parts) && parts[i+1].Kind == '_' && len(zh[i+1]) > 0 && engineAlnum(zh[i+1][0]) {
 				z += " "
 			}
 		}

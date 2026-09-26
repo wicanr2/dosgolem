@@ -331,6 +331,8 @@ func loadEngineText(textDir string) (*EngineTextCatalog, error) {
 		{&f.PhraseText, "item-phrase.zh-TW.tsv", false},
 		{&f.TemplateEvents, "engine-template-events.tsv", false},
 		{&f.TemplateText, "engine-template.zh-TW.tsv", false},
+		{&f.MonsterEvents, "monster-name-events.tsv", false},
+		{&f.MonsterText, "monster-name.zh-TW.tsv", false},
 	} {
 		if *x.dst, err = read(x.name, x.req); err != nil {
 			return nil, err
