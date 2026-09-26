@@ -60,6 +60,7 @@ func main() {
 	dump := flag.String("dump", "", "結束時傾印記憶體 SEG:OFF:LEN（hex）到 -out.bin")
 	stateOut := flag.String("state-out", "", "結束時存 savestate（只供本機研究）")
 	finalShot := flag.String("final-shot", "", "結束時存 PNG")
+	ipEvery := flag.Uint64("ip-every", 0, "每隔多少步記一筆 CS:IP 與 AX（I 列）；0 表示不記")
 	memOut := flag.String("mem-out", "", "結束時傾印 1MB 實模式記憶體（含原版資料，只放 ignored 目錄）")
 	var ks keys
 	flag.Var(&ks, "key", "STEP:SCAN_HEX:ASCII_HEX，可重複")
@@ -135,6 +136,9 @@ func main() {
 		}
 		cs, ip := m.CPU.Seg[cpu.CS], m.CPU.IP
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if *ipEvery != 0 && m.Steps%*ipEvery == 0 {
+			fmt.Fprintf(w, "I\t%d\t%04X:%04X\t%04X\n", m.Steps, cs, ip, m.CPU.R[cpu.AX])
+		}
 		if hret[0] != 0 && cs == hret[0] && ip == hret[1] && ss == hret[2] && sp == hret[3] {
 			fmt.Fprintf(w, "R\t%d\t%04X:%04X\n", m.Steps, cs, ip)
 			hret = [4]uint16{}
