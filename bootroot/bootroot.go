@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -173,6 +174,14 @@ func checkRequiredFile(root string, req RequiredFile) error {
 // returns created paths leaf-first for best-effort cleanup.
 func copyTree(original, save string) ([]string, error) {
 	var created []string
+	// DOS 經 FindFirst／AH=57h 把檔案時間交給程式；複製品必須帶來源的 mtime，
+	// 否則程式記憶體隨複製當下的主機時間變動（docs/spec/237 §2.5）。
+	// 目錄的 mtime 會被之後建立的子項改掉，所以整棵樹複製完再回填。
+	type dirTime struct {
+		path string
+		mod  time.Time
+	}
+	var dirs []dirTime
 	err := filepath.WalkDir(original, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -200,6 +209,7 @@ func copyTree(original, save string) ([]string, error) {
 			if err := os.Chmod(target, 0o700); err != nil {
 				return err
 			}
+			dirs = append(dirs, dirTime{target, info.ModTime()})
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -221,6 +231,9 @@ func copyTree(original, save string) ([]string, error) {
 		if err := os.Chmod(target, 0o600); err != nil {
 			return err
 		}
+		if err := os.Chtimes(target, info.ModTime(), info.ModTime()); err != nil {
+			return err
+		}
 		back, err := os.ReadFile(target)
 		if err != nil {
 			return err
@@ -232,6 +245,11 @@ func copyTree(original, save string) ([]string, error) {
 	})
 	if err != nil {
 		return created, err
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if err := os.Chtimes(dirs[i].path, dirs[i].mod, dirs[i].mod); err != nil {
+			return created, err
+		}
 	}
 	return created, nil
 }

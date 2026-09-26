@@ -45,6 +45,10 @@ DOS 檔名不分大小寫，一個名字只能對應一個檔。
 3. **大小寫**：`scratchCopy` 與 `create` 先用 `lookupDOS(d.Scratch, base)`
    找既有檔；找到就用它的實際路徑，找不到才用程式給的名字建立。
 4. `Scratch` 為空時行為完全不變。
+5. **補充（2026-09-26）**：`bootroot.Prepare` 把原版樹複製成存檔樹時，檔案與目錄
+   都保留來源 mtime（目錄在整棵樹複製完後回填）。sealed session 的 DOS `Root`
+   就是這棵存檔樹；不保留的話，同一組按鍵的冷開機，記憶體雜湊隨複製當下的主機
+   時間變動（Buck `docs/re/phase-251-*`）。
 
 ## 3. 不做什麼
 

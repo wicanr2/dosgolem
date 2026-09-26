@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wicanr2/dosgolem/host"
 	"github.com/wicanr2/dosgolem/session"
@@ -479,5 +480,37 @@ func TestColdBootLiveTurnThroughSealedPath(t *testing.T) {
 	}
 	if got := owner.Status(); got.Phase != session.PhaseRunning || got.FirstFault != nil {
 		t.Fatalf("status = %+v", got)
+	}
+}
+
+// 複製品保留來源 mtime（docs/spec/237 §2.5）：檔案與目錄都一樣。
+func TestCopyTreePreservesModTime(t *testing.T) {
+	src, dst := t.TempDir(), filepath.Join(t.TempDir(), "save")
+	if err := os.Mkdir(filepath.Join(src, "SUB"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "SUB", "A.DAT"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Date(1990, 6, 1, 12, 34, 56, 0, time.UTC)
+	for _, p := range []string{filepath.Join(src, "SUB", "A.DAT"), filepath.Join(src, "SUB")} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := copyTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"SUB/A.DAT", "SUB"} {
+		info, err := os.Stat(filepath.Join(dst, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(old) {
+			t.Fatalf("%s mtime=%v，要 %v", rel, info.ModTime(), old)
+		}
 	}
 }
