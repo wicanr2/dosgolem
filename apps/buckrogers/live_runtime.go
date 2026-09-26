@@ -64,6 +64,10 @@ type LiveRuntime struct {
 	engDispPres [2]*HMenuOverlay
 	engDispGen  uint64
 
+	// logbook is the spec-030 panel; nil without text/logbook.zh-TW.tsv.
+	logbook     *LogbookWatcher
+	logbookPres [2]*LogbookOverlay
+
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
 	exitCatalog  *PostJoinExitPromptCatalog
@@ -206,6 +210,9 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 	} else if eng != nil {
 		r.ecl.SetEngine(eng)
 		if err := r.loadEngineDispatch(textDir, eng); err != nil {
+			return err
+		}
+		if err := r.loadLogbook(textDir, eng); err != nil {
 			return err
 		}
 	}
@@ -365,6 +372,41 @@ func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog)
 	return nil
 }
 
+func (r *LiveRuntime) loadLogbook(textDir string, eng *EngineTextCatalog) error {
+	b, err := os.ReadFile(filepath.Join(textDir, "logbook.zh-TW.tsv"))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	c, err := LoadLogbookCatalog(b)
+	if err != nil {
+		return err
+	}
+	r.logbook = NewLogbookWatcher(c, eng)
+	for i, scale := range liveScales {
+		if r.logbookPres[i], err = NewLogbookOverlay(r.font, scale); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LogbookTurn flips the logbook panel from the host; false means the key
+// was not taken (no panel open) and belongs to the game.
+func (r *LiveRuntime) LogbookTurn(delta int) bool { return r.logbook.Turn(delta) }
+
+func (r *LiveRuntime) syncLogbook(palette [256][3]uint8) {
+	if r.logbook == nil {
+		return
+	}
+	for i := range liveScales {
+		if miss := r.logbookPres[i].Sync(r.logbook, palette); len(miss) != 0 {
+			r.resets["logbook"]++
+		}
+	}
+}
+
 func (r *LiveRuntime) syncEngineDispatch(palette [256][3]uint8) {
 	if r.engDisp == nil {
 		return
@@ -400,6 +442,9 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 			orig[i] = v.Read8(base + 1 + uint32(i))
 		}
 		ds := v.DS()
+		if r.logbook != nil {
+			r.logbook.ObserveEntry(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)))
+		}
 		r.ecl.ObserveEntry(EclTextEntry{
 			Step: v.Steps(), SS: ss, SP: sp, Return: Address{Segment: arg(2), Offset: arg(0)}, Original: orig,
 			Clear: uint8(arg(8)) != 0, Background: uint8(arg(10)), Foreground: uint8(arg(12)),
@@ -794,6 +839,9 @@ func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
 	if r.engDisp != nil {
 		r.engDisp.ObserveVideoWrite(w.Offset)
 	}
+	if r.logbook != nil {
+		r.logbook.ObserveVideoWrite(w.CS, w.IP, w.Offset)
+	}
 	for i := range liveScales {
 		r.bodyPres[i].Prewrite(w)
 	}
@@ -831,6 +879,7 @@ func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	r.syncEclText(palette)
 	r.syncHMenu(palette)
 	r.syncEngineDispatch(palette)
+	r.syncLogbook(palette)
 	r.indexed, r.palette, r.hasFrame = indexed, palette, true
 	r.frameSeen++
 }
@@ -857,6 +906,7 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	r.syncEclText(palette)
 	r.syncHMenu(palette)
 	r.syncEngineDispatch(palette)
+	r.syncLogbook(palette)
 	i := 0
 	if scale == 3 {
 		i = 1
@@ -947,6 +997,13 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	}
 	if r.engDisp != nil && r.engDispPres[i].Active() && !r.rowsTouched(out, scale, r.engDisp.Page()) {
 		rgba, missing := r.engDispPres[i].Draw(r.indexed, r.palette)
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	// The logbook panel is drawn last: it sits over everything while open.
+	if r.logbook != nil && r.logbookPres[i].Active() {
+		rgba, missing := r.logbookPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}

@@ -85,6 +85,11 @@ func (g *game) hostKeys() []dos.Key {
 			g.scale = 5 - g.scale // 2 ↔ 3
 			continue
 		}
+		// An open logbook panel (Buck spec 030) takes PgDn/PgUp; otherwise
+		// they go to the game as usual.
+		if k == ebiten.KeyPageDown && g.live.LogbookTurn(1) || k == ebiten.KeyPageUp && g.live.LogbookTurn(-1) {
+			continue
+		}
 		if name, ok := namedKeys[k]; ok {
 			if key, found := dos.KeyNamed(name); found {
 				keys = append(keys, key)
