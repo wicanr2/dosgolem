@@ -141,7 +141,8 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		o.machine.ObserveVideoWrites(nil)
 		o.machine.SetOnFrame(nil)
 	}()
-	observe := func(m *machine.Machine) (err error) {
+	inObserver := false
+	observe := func(m *machine.Machine) error {
 		// The receipt runner stops as soon as the program exits; without this
 		// check the CPU would keep stepping undefined memory after exit.
 		if o.dos.Exited {
@@ -157,20 +158,32 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		}
 		o.viewToken++
 		o.viewOpen = true
-		defer func() {
-			o.viewOpen = false
-			if r := recover(); r != nil {
-				observerErr = fmt.Errorf("session: 觀測器 BeforeStep panic：%v", r)
-				err = observerErr
-			}
-		}()
-		if e := o.observer.BeforeStep(StepView{o: o, token: o.viewToken}); e != nil {
+		inObserver = true
+		e := o.observer.BeforeStep(StepView{o: o, token: o.viewToken})
+		inObserver = false
+		o.viewOpen = false
+		if e != nil {
 			observerErr = fmt.Errorf("session: 觀測器 BeforeStep：%w", e)
 			return observerErr
 		}
 		return nil
 	}
-	stop, rawErr = o.machine.RunUntilObserved(nil, budget, observe)
+	// A BeforeStep panic happens before that instruction's Step, so unwinding
+	// the whole loop here leaves the machine exactly where it was.  Recovering
+	// once around the loop instead of once per step keeps the hot path cheap.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if !inObserver {
+					panic(r) // not the observer's panic: never reclassify it
+				}
+				o.viewOpen = false
+				observerErr = fmt.Errorf("session: 觀測器 BeforeStep panic：%v", r)
+				stop, rawErr = machine.StopBudget, observerErr
+			}
+		}()
+		stop, rawErr = o.machine.RunUntilObserved(nil, budget, observe)
+	}()
 	if errors.Is(rawErr, errProgramExited) {
 		// Advance classifies the exited DOS as ProgramStopped.
 		rawErr = nil

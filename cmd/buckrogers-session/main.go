@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 
@@ -56,7 +57,18 @@ func main() {
 	script := flag.String("script", "", "指定回合送鍵：`回合:鍵[,回合:鍵…]`，鍵為具名鍵（Space、Enter、Down…）或單一字元")
 	rgbaOut := flag.String("rgba-out", "", "結束時輸出最後一格合成 RGBA（需 -text-dir）")
 	rgbaScale := flag.Uint("rgba-scale", 2, "rgba-out 的倍率（2 或 3）")
+	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔（找瓶頸用）")
 	flag.Parse()
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			die(err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			die(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 	if *original == "" || *save == "" || *exe == "" || *exeSHA == "" {
 		flag.Usage()
 		os.Exit(2)
@@ -107,7 +119,7 @@ func main() {
 		if err != nil {
 			die(err)
 		}
-		observer = liveObserver{live}
+		observer = newLiveObserver(live)
 	}
 	scheduled, err := parseScript(*script)
 	if err != nil {
@@ -193,10 +205,21 @@ func main() {
 }
 
 // liveObserver adapts the Buck live runtime to the sealed session observer.
-type liveObserver struct{ r *buckrogers.LiveRuntime }
+// The cursor avoids boxing a fresh StepView into an interface every step.
+type liveObserver struct {
+	r      *buckrogers.LiveRuntime
+	cursor *buckrogers.StepCursor[session.StepView]
+}
 
-func (o liveObserver) BeforeStep(v session.StepView) error { return o.r.BeforeStep(v) }
-func (o liveObserver) VideoWrite(w machine.VideoWrite)     { o.r.VideoWrite(w) }
+func newLiveObserver(r *buckrogers.LiveRuntime) liveObserver {
+	return liveObserver{r: r, cursor: &buckrogers.StepCursor[session.StepView]{}}
+}
+
+func (o liveObserver) BeforeStep(v session.StepView) error {
+	o.cursor.Set(v)
+	return o.r.BeforeStep(o.cursor)
+}
+func (o liveObserver) VideoWrite(w machine.VideoWrite) { o.r.VideoWrite(w) }
 func (o liveObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	o.r.Frame(indexed, palette)
 }

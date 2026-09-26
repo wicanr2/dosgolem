@@ -65,6 +65,11 @@ func (r *LiveMenuRuntime) BeforeStep(v StepReader) error {
 		return r.fault
 	}
 	at := Address{Segment: v.CS(), Offset: v.IP()}
+	// Fast path: nothing but a clear, a dispatcher entry, or the return of an
+	// in-flight dispatcher frame can change the menu family.
+	if at != clearCells && at != dispatchEntry && !r.watcher.Pending() {
+		return nil
+	}
 	ss, sp := v.SS(), v.SP()
 	switch at {
 	case clearCells:
