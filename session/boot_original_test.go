@@ -189,3 +189,51 @@ func TestBootOriginalHashMatchesLoadedImage(t *testing.T) {
 		}
 	}
 }
+
+// saveWriterMZ 建檔 SAVE.TST、寫入 "BUCK"、關檔、結束。程式碼從檔案位移 32 起，
+// CS:IP＝0:0 相對載入段。
+func saveWriterMZ(t *testing.T) []byte {
+	t.Helper()
+	out := minimalBootMZ(t)
+	code := []byte{
+		0x0E, 0x1F, // push cs / pop ds
+		0xB4, 0x3C, 0x31, 0xC9, 0xBA, 0x20, 0x00, 0xCD, 0x21, // create DS:0020
+		0x89, 0xC3, // mov bx,ax
+		0xB4, 0x40, 0xB9, 0x04, 0x00, 0xBA, 0x29, 0x00, 0xCD, 0x21, // write 4 bytes DS:0029
+		0xB4, 0x3E, 0xCD, 0x21, // close
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // exit
+	}
+	copy(out[32:], code)
+	copy(out[32+0x20:], "SAVE.TST\x00")
+	copy(out[32+0x29:], "BUCK")
+	return out
+}
+
+// sealed session 的遊戲寫檔要落在存檔根（規格 235 補充）。
+func TestBootOriginalWritesLandInSaveRoot(t *testing.T) {
+	exe := saveWriterMZ(t)
+	save := t.TempDir()
+	layout := sessionLayout(1, host.OutputScale2, false)
+	o, err := New(Config{InitialScale: host.OutputScale2, InitialLayout: layout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.BootOriginal(BootInput{EXE: exe, ExpectedEXESHA256: sha256.Sum256(exe), SaveRoot: save}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := o.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Deliver(CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := o.Advance(1000)
+	if err != nil || r.Reason != StopReasonProgramStopped {
+		t.Fatalf("%+v %v", r, err)
+	}
+	got, err := os.ReadFile(filepath.Join(save, "SAVE.TST"))
+	if err != nil || string(got) != "BUCK" {
+		t.Fatalf("存檔根內容 %q err=%v", got, err)
+	}
+}

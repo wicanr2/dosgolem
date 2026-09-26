@@ -102,3 +102,12 @@ SaveRoot 不可寫（含 NUL 路徑）、LoadEXE 壞 bytes、成功後再開機�
   以最小可載入 EXE fixture 或延至原版驗收，審查時決定）。
 - 本規格升 READY 不授權 observer 安裝、多層聚合、存讀檔或 Linux 視窗；
   那些仍是 Buck #16／#18 的 DRAFT。
+
+## 補充（2026-09-26）：存檔根同時是 Scratch
+
+`BootOriginal` 原本只把 `DOS.Root` 設成存檔根。依 [`009-scratch-writes`](009-scratch-writes.md)，
+`Scratch` 為空時遊戲寫檔只記帳、不落地，玩家在 sealed session 存檔不會寫入
+（Buck `docs/re/phase-251-*` 發現）。存檔根已由本規格驗證為可寫、非 symlink 的目錄，
+而且是 `bootroot.Prepare` 分離複製的樹，原版樹不受影響；因此 `BootOriginal` 同時把
+`DOS.Scratch` 設成存檔根。合成測試 `TestBootOriginalWritesLandInSaveRoot` 以 MZ 程式
+建檔、寫入、關檔，確認內容落在存檔根。

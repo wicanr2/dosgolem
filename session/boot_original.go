@@ -73,6 +73,9 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 		return BootReceipt{}, errors.New("session: EXE SHA-256 不符")
 	}
 	o.dos.Root = input.SaveRoot
+	// 存檔根本身就是已驗證可寫的複製樹；設成 Scratch，遊戲寫檔才會真的落地
+	// （dosgolem 規格 009：Scratch 為空時寫入只記帳）。見規格 235 補充。
+	o.dos.Scratch = input.SaveRoot
 	if err := o.machine.LoadEXE(exe); err != nil {
 		return BootReceipt{}, o.fail(fmt.Errorf("session: 載入 EXE: %w", err))
 	}
