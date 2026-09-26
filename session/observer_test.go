@@ -97,6 +97,11 @@ func TestObserverSeesEveryStepAndChangesNothing(t *testing.T) {
 	if machineDigest(withObs) != machineDigest(bare) || withObs.machine.Steps != bare.machine.Steps {
 		t.Fatal("觀測器改變了 machine 狀態")
 	}
+	da, errA := withObs.Digest()
+	db, errB := bare.Digest()
+	if errA != nil || errB != nil || da != db {
+		t.Fatalf("Digest 不同：%v %v", errA, errB)
+	}
 	if uint64(len(obs.ips)) != withObs.machine.Steps {
 		t.Fatalf("BeforeStep %d 次，實際 %d 步", len(obs.ips), withObs.machine.Steps)
 	}
