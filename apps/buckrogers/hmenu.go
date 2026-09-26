@@ -88,9 +88,14 @@ type HMenuCell struct {
 	BG, FG uint8
 }
 
-type HMenuPage struct {
+type HMenuRow struct {
 	Row, Col uint8
 	Cells    []HMenuCell // from Col to column 39
+}
+
+// HMenuPage holds one row per original row the menu used ('@' breaks).
+type HMenuPage struct {
+	Rows []HMenuRow
 }
 
 type HMenuStats struct{ Hits, Misses, Overflows, Invalidations, Reentries int }
@@ -148,42 +153,54 @@ func (w *HMenuWatcher) ObserveEntry(e HMenuEntry) {
 
 func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 	n := len(e.Text)
-	if n == 0 || len(e.Items) == 0 || e.Row > 24 || e.Col > 39 || strings.IndexByte(string(e.Text), '@') >= 0 {
+	if n == 0 || len(e.Items) == 0 || e.Col > 39 {
 		return nil, "shape"
 	}
-	var cells []HMenuCell
+	breaks := strings.Count(string(e.Text), "@")
+	if int(e.Row)+breaks > 24 {
+		return nil, "shape"
+	}
+	rows := make([][]HMenuCell, breaks+1)
 	for i, r := range e.Items {
 		if r[0] < 1 || r[1] < r[0] || int(r[1]) > n {
 			return nil, "shape"
 		}
-		item := strings.TrimSpace(string(e.Text[r[0]-1 : r[1]]))
-		t, ok := w.catalog.lookup(item)
+		raw := string(e.Text[r[0]-1 : r[1]])
+		if strings.Contains(raw, "@") {
+			return nil, "shape"
+		}
+		t, ok := w.catalog.lookup(strings.TrimSpace(raw))
 		if !ok {
 			return nil, "miss"
 		}
-		if i > 0 {
-			cells = append(cells, HMenuCell{' ', 0, e.Normal})
+		line := strings.Count(string(e.Text[:r[0]-1]), "@")
+		if len(rows[line]) > 0 {
+			rows[line] = append(rows[line], HMenuCell{' ', 0, e.Normal})
 		}
 		sel := uint8(i+1) == e.Selected && e.Hot != 0
 		for _, ch := range t {
 			switch {
 			case sel:
-				cells = append(cells, HMenuCell{ch, e.Hot, 0})
+				rows[line] = append(rows[line], HMenuCell{ch, e.Hot, 0})
 			case ch < 0x80 && (ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9'):
-				cells = append(cells, HMenuCell{ch, 0, e.Hot})
+				rows[line] = append(rows[line], HMenuCell{ch, 0, e.Hot})
 			default:
-				cells = append(cells, HMenuCell{ch, 0, e.Normal})
+				rows[line] = append(rows[line], HMenuCell{ch, 0, e.Normal})
 			}
 		}
 	}
 	width := 40 - int(e.Col)
-	if len(cells) > width {
-		return nil, "overflow"
+	page := &HMenuPage{}
+	for i, cells := range rows {
+		if len(cells) > width {
+			return nil, "overflow"
+		}
+		for len(cells) < width {
+			cells = append(cells, HMenuCell{' ', 0, e.Normal})
+		}
+		page.Rows = append(page.Rows, HMenuRow{Row: e.Row + uint8(i), Col: e.Col, Cells: cells})
 	}
-	for len(cells) < width {
-		cells = append(cells, HMenuCell{' ', 0, e.Normal})
-	}
-	return &HMenuPage{Row: e.Row, Col: e.Col, Cells: cells}, ""
+	return page, ""
 }
 
 func (w *HMenuWatcher) ObserveInstruction(at Address, ss, sp uint16) {
@@ -197,8 +214,11 @@ func (w *HMenuWatcher) ObserveVideoWrite(offset uint32) {
 		return
 	}
 	x, y := offset%320, offset/320
-	if y/8 == uint32(w.page.Row) && x >= uint32(w.page.Col)*8 {
-		w.invalidate()
+	for _, r := range w.page.Rows {
+		if y/8 == uint32(r.Row) && x >= uint32(r.Col)*8 {
+			w.invalidate()
+			return
+		}
 	}
 }
 

@@ -32,10 +32,11 @@ func hmenuEntry(text string, sel uint8, items ...[2]uint8) HMenuEntry {
 func TestHMenuBuildColorsAndLifecycle(t *testing.T) {
 	w := NewHMenuWatcher(hmenuFixture(t, "Move", "移動(M)", "Area", "區域(A)", "Look", ""))
 	w.ObserveEntry(hmenuEntry("Move Area", 2, [2]uint8{1, 4}, [2]uint8{6, 9}))
-	p := w.Page()
-	if p == nil || len(p.Cells) != 40 {
-		t.Fatalf("page: %+v", p)
+	pg := w.Page()
+	if pg == nil || len(pg.Rows) != 1 || len(pg.Rows[0].Cells) != 40 {
+		t.Fatalf("page: %+v", pg)
 	}
+	p := pg.Rows[0]
 	// 移動(M): M is hot (fg 15); item 2 selected: inverse (bg 15, fg 0).
 	if c := p.Cells[3]; c.Rune != 'M' || c.FG != 15 || c.BG != 0 {
 		t.Fatalf("hotkey cell %+v", c)
@@ -75,8 +76,15 @@ func TestHMenuBuildColorsAndLifecycle(t *testing.T) {
 	w.ObserveInstruction(Address{0x37F1, 0x0ACF}, 0x1841, 0x3000+hmenuReturnDelta)
 	w.ObserveEntry(hmenuEntry("Mo@e", 1, [2]uint8{1, 4}))
 	if w.Page() != nil {
-		t.Fatal("@ drew")
+		t.Fatal("item spanning @ drew")
 	}
+	two := hmenuEntry("Move@Area", 1, [2]uint8{1, 4}, [2]uint8{6, 9})
+	two.Row = 23
+	w.ObserveEntry(two)
+	if pg := w.Page(); pg == nil || len(pg.Rows) != 2 || pg.Rows[1].Row != 24 || pg.Rows[1].Cells[0].Rune != '區' {
+		t.Fatalf("two-row menu: %+v", w.Page())
+	}
+	w.ObserveInstruction(Address{0x37F1, 0x0ACF}, 0x1841, 0x3000+hmenuReturnDelta)
 	e := hmenuEntry("Move", 1, [2]uint8{1, 4})
 	e.Col = 36
 	w.ObserveEntry(e)

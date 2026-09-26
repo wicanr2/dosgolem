@@ -14,6 +14,7 @@ type HMenuOverlay struct {
 	scale int
 	gen   uint64
 	page  *HMenuPage
+	cells []HMenuCell // parallel to layer.Stamps
 }
 
 func NewHMenuOverlay(font *xlate.Font, scale int) (*HMenuOverlay, error) {
@@ -40,9 +41,11 @@ func (o *HMenuOverlay) Sync(p *HMenuPage, gen uint64, palette [256][3]uint8) []r
 		return nil
 	}
 	var miss []rune
-	for _, c := range p.Cells {
-		if _, ok := o.font.Glyphs[c.Rune]; !ok && c.Rune != ' ' {
-			miss = append(miss, c.Rune)
+	for _, r := range p.Rows {
+		for _, c := range r.Cells {
+			if _, ok := o.font.Glyphs[c.Rune]; !ok && c.Rune != ' ' {
+				miss = append(miss, c.Rune)
+			}
 		}
 	}
 	if len(miss) != 0 {
@@ -50,12 +53,16 @@ func (o *HMenuOverlay) Sync(p *HMenuPage, gen uint64, palette [256][3]uint8) []r
 	}
 	o.page = p
 	off := manualGlyphOffset(o.scale)
-	for i, c := range p.Cells {
-		o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
-			Key: fmt.Sprintf("hmenu.%d", i), X: (int(p.Col) + i) * 8, Y: int(p.Row) * 8,
-			Cells: 1, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1,
-			Text: []rune{c.Rune}, State: xlate.Shown, BG: palette[c.BG], FG: palette[c.FG],
-		})
+	o.cells = o.cells[:0]
+	for _, r := range p.Rows {
+		for i, c := range r.Cells {
+			o.cells = append(o.cells, c)
+			o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
+				Key: fmt.Sprintf("hmenu.%d.%d", r.Row, i), X: (int(r.Col) + i) * 8, Y: int(r.Row) * 8,
+				Cells: 1, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1,
+				Text: []rune{c.Rune}, State: xlate.Shown, BG: palette[c.BG], FG: palette[c.FG],
+			})
+		}
 	}
 	return nil
 }
@@ -65,7 +72,7 @@ func (o *HMenuOverlay) Frame(palette [256][3]uint8) {
 		return
 	}
 	for i, s := range o.layer.Stamps {
-		c := o.page.Cells[i]
+		c := o.cells[i]
 		s.BG, s.FG = palette[c.BG], palette[c.FG]
 	}
 }
