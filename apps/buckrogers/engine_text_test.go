@@ -198,9 +198,24 @@ func TestEngineTableRowKeepsLastColumn(t *testing.T) {
 	if !ok || len([]rune(zh)) != len(in) || !strings.HasPrefix(zh, "雷射手槍 (10) ") || !strings.HasSuffix(zh, " 335") {
 		t.Fatalf("table row: %q %v", zh, ok)
 	}
-	// A front that cannot be translated falls back to English.
+	// A front that cannot be translated, and no whole-string fragment: English.
 	if _, ok := c.Translate("Jetpack                           1000"); ok {
 		t.Fatal("untranslated front accepted")
+	}
+	// Front alone unknown but the whole row is one fragment: whole-string translation.
+	whole, err := LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: engineTSV("frag", "Pooled funds:           0"),
+		FragmentText:   engineZh("frag", "Pooled funds:           0", "共同資金：         0"),
+		ItemEvents:     engineTSV("item", "Bolt", "Gun"),
+		ItemText:       engineZh("item", "Bolt", "爆能", "Gun", "槍"),
+		MonsterEvents:  engineTSV("monster", "NEO WARRIOR"),
+		MonsterText:    engineZh("monster", "NEO WARRIOR", "NEO 戰士"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if zh, ok := whole.Translate("Pooled funds:           0"); !ok || zh != "共同資金：         0" {
+		t.Fatalf("whole-string fallback: %q %v", zh, ok)
 	}
 	// A last column with letters is not a table row: normal rules apply.
 	if engineTableRow.MatchString("Bolt Gun  AC") || !engineTableRow.MatchString("Pooled funds:           0") ||
@@ -318,5 +333,114 @@ func TestEngineDispatchEclPrompt(t *testing.T) {
 	w.ObserveEntry(caller, 1, 0x100, Address{0x216E, 0x1023}, [6]uint16{0, 0, 13, 0, 24, 0}, []byte("WHO SHOOTS? "))
 	if p := w.Page(); p == nil || p.Rows[0].Row != 24 || p.Rows[0].Cells[0].Rune != '誰' {
 		t.Fatalf("dispatcher page: %+v", p)
+	}
+}
+
+func wrapFixture(t *testing.T) *EngineDispatchWatcher {
+	t.Helper()
+	full := "  No injuries were successfully treated."
+	c, err := LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: engineTSV("frag", full),
+		FragmentText:   engineZh("frag", full, "沒有人的傷勢獲得成功治療。"),
+		ItemEvents:     engineTSV("item", "Bolt", "Gun"),
+		ItemText:       engineZh("item", "Bolt", "爆能", "Gun", "槍"),
+		MonsterEvents:  engineTSV("monster", "NEO WARRIOR"),
+		MonsterText:    engineZh("monster", "NEO WARRIOR", "NEO 戰士"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewEngineDispatchWatcher(c, map[CodeKey]bool{{Segment: 0x0763, Offset: 0x1282}: true})
+}
+
+// spec 029 §2.10：換行拆開的片段拼回後畫兩列。
+func TestEngineDispatchWrappedFragment(t *testing.T) {
+	caller := CodeKey{Segment: 0x0763, Offset: 0x1282}
+	ret := Address{0x0763, 0x1282}
+	ret2 := func(w *EngineDispatchWatcher) { w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta) }
+	s1, s2 := []byte("  No injuries were successfully"), []byte("treated.")
+
+	w := wrapFixture(t)
+	w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 3, 1}, s1)
+	ret2(w)
+	if w.Page() != nil {
+		t.Fatal("first half drawn before the second arrived")
+	}
+	w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, s2)
+	p := w.Page()
+	if p == nil || len(p.Rows) != 2 || p.Rows[0].Row != 3 || p.Rows[1].Row != 4 {
+		t.Fatalf("two rows expected: %+v", p)
+	}
+	first, second := "", ""
+	for _, c := range p.Rows[0].Cells {
+		first += string(c.Rune)
+	}
+	for _, c := range p.Rows[1].Cells {
+		second += string(c.Rune)
+	}
+	if strings.TrimRight(first, " ") != "沒有人的傷勢獲得成功治療。" || strings.TrimSpace(second) != "" {
+		t.Fatalf("whole sentence fits the first row: %q | %q", first, second)
+	}
+
+	// Not the next row, another caller, an entry in between, a write to S1's row: nothing.
+	for name, f := range map[string]func(w *EngineDispatchWatcher){
+		"row gap": func(w *EngineDispatchWatcher) {
+			w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 5, 1}, s2)
+		},
+		"other caller": func(w *EngineDispatchWatcher) {
+			w.allow[CodeKey{Segment: 0x0763, Offset: 0x0C42}] = true
+			w.ObserveEntry(CodeKey{Segment: 0x0763, Offset: 0x0C42}, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, s2)
+		},
+		"entry between": func(w *EngineDispatchWatcher) {
+			w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 10, 1}, []byte("zzz"))
+			ret2(w)
+			w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, s2)
+		},
+		"write on S1 row": func(w *EngineDispatchWatcher) {
+			w.ObserveVideoWrite(3*8*320 + 2*8)
+			w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, s2)
+		},
+	} {
+		w := wrapFixture(t)
+		w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 3, 1}, s1)
+		ret2(w)
+		f(w)
+		if w.Page() != nil {
+			t.Errorf("%s: drew %+v", name, w.Page())
+		}
+	}
+}
+
+// spec 029 §2.10：前段放滿後才放後段；後段放不下退回英文。
+func TestEngineDispatchWrappedSplitFillsFirstRow(t *testing.T) {
+	full := "ab cd"
+	c, err := LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: engineTSV("frag", full, "ab cdx"),
+		FragmentText:   engineZh("frag", full, "一二三四", "ab cdx", "一二三四五六七八"),
+		ItemEvents:     engineTSV("item", "Bolt", "Gun"),
+		ItemText:       engineZh("item", "Bolt", "爆能", "Gun", "槍"),
+		MonsterEvents:  engineTSV("monster", "NEO WARRIOR"),
+		MonsterText:    engineZh("monster", "NEO WARRIOR", "NEO 戰士"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller := CodeKey{Segment: 0x0763, Offset: 0x1282}
+	ret := Address{0x0763, 0x1282}
+	w := NewEngineDispatchWatcher(c, map[CodeKey]bool{caller: true})
+	w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 3, 1}, []byte("ab"))
+	w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
+	w.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, []byte("cd"))
+	p := w.Page()
+	if p == nil || string(p.Rows[0].Cells[0].Rune)+string(p.Rows[0].Cells[1].Rune) != "一二" ||
+		string(p.Rows[1].Cells[0].Rune)+string(p.Rows[1].Cells[1].Rune) != "三四" {
+		t.Fatalf("fill first row then second: %+v", p)
+	}
+	w2 := NewEngineDispatchWatcher(c, map[CodeKey]bool{caller: true})
+	w2.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 3, 1}, []byte("ab"))
+	w2.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
+	w2.ObserveEntry(caller, 1, 0x100, ret, [6]uint16{0, 0, 0, 13, 4, 1}, []byte("cdx"))
+	if w2.Page() != nil {
+		t.Fatal("second row overflow must fall back to English")
 	}
 }

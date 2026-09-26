@@ -437,7 +437,11 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	if m := engineTableRow.FindStringSubmatch(s); m != nil {
 		front, ok := c.translateLine(m[1])
 		n, last := len([]rune(s)), len(m[3])
-		if !ok || len([]rune(front))+1+last > n {
+		if !ok {
+			// §2.6 修訂：前段單獨查不到時，片段可能是含空白的整串。
+			return c.translateLine(s)
+		}
+		if len([]rune(front))+1+last > n {
 			return "", false
 		}
 		return front + strings.Repeat(" ", n-len([]rune(front))-last) + m[3], true
@@ -472,6 +476,19 @@ func (c *EngineTextCatalog) LoadCoordinateText(data []byte) error {
 // engineTableRow: text, two or more spaces, and a last column of digits
 // and , / ( ) %.
 var engineTableRow = regexp.MustCompile(`^(.*[^ ])( {2,})([0-9,/()%]*[0-9][0-9,/()%]*)$`)
+
+// wholeFragment looks the whole string up as one fragment (spec 029 §2.10).
+func (c *EngineTextCatalog) wholeFragment(s string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	k, ok := c.frag[engineIDOf(s)]
+	if !ok {
+		return "", false
+	}
+	z := c.fragText[strings.TrimSuffix(k, ".uc")]
+	return z, z != ""
+}
 
 func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 	if z, ok := c.monsterSlot(s); ok {
