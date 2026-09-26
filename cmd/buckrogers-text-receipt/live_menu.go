@@ -18,6 +18,9 @@ func (r machineReader) CS() uint16             { return r.m.CPU.Seg[cpu.CS] }
 func (r machineReader) IP() uint16             { return r.m.CPU.IP }
 func (r machineReader) SS() uint16             { return r.m.CPU.Seg[cpu.SS] }
 func (r machineReader) SP() uint16             { return r.m.CPU.R[cpu.SP] }
+func (r machineReader) ES() uint16             { return r.m.CPU.Seg[cpu.ES] }
+func (r machineReader) DI() uint16             { return r.m.CPU.R[cpu.DI] }
+func (r machineReader) CX() uint16             { return r.m.CPU.R[cpu.CX] }
 func (r machineReader) Read8(a uint32) uint8   { return r.m.Peek8(a) }
 func (r machineReader) Read16(a uint32) uint16 { return r.m.Peek16(a) }
 func (r machineReader) Palette() [256][3]uint8 { return r.m.Palette() }

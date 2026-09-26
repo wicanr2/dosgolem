@@ -484,7 +484,7 @@ func main() {
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	scopedMenu3 := flag.Bool("scoped-menu-3x", false, "明示啟用限正式 menu-only catalog 的 3x 倚天 22 點主選單覆繪")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
-	postJoinFontUnpinned := flag.Bool("post-join-font-unpinned", false, "診斷對照用：加入後選單不鎖定 READY 字型 SHA，改由 presenter 檢查字模覆蓋")
+	postJoinFontUnpinned := flag.Bool("font-unpinned", false, "診斷對照用：加入後選單與第 9 頁不鎖定 READY 字型 SHA，改由 presenter 檢查字模覆蓋")
 	liveTextDir := flag.String("live-text-dir", "", "並行驅動完整 LiveRuntime 的 catalog 目錄（對照用）")
 	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
 	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
@@ -1199,7 +1199,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		if got := sha256hex(mustReadFile(*storyPage9Font)); got != "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174" {
+		if got := sha256hex(mustReadFile(*storyPage9Font)); !*postJoinFontUnpinned && got != "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174" {
 			fail(fmt.Errorf("第 9 頁字型版本未驗證：%s", got))
 		}
 		font, err := xlate.LoadFont(*storyPage9Font)
@@ -2442,7 +2442,7 @@ func main() {
 		outputs.add(*postJoinOut, rgba)
 	}
 	if liveAll != nil && *liveOut != "" {
-		rgba, ok, err := liveAll.Compose(*liveScale)
+		rgba, ok, err := liveAll.ComposeWith(m.Indexed(), m.Palette(), *liveScale)
 		if err != nil || !ok {
 			fail(fmt.Errorf("live runtime compose：ok=%v err=%v", ok, err))
 		}

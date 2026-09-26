@@ -32,6 +32,14 @@ type LiveRuntime struct {
 	postPres [2]*RuntimePostJoinMenuOverlay
 	action   *ActionBarWatcher
 	actPres  [2]*RuntimeActionBarOverlay
+	stories  []storyFamily
+
+	// storyPending is the shared in-flight 0763:026B glyph call; prev* is
+	// the instruction before the current one, recorded while it is set.
+	storyPending *storyFrame
+	prevAt       Address
+	prevOp       byte
+	storyDirty   bool
 
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
@@ -88,6 +96,9 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		return nil, err
 	}
 	if err := r.resetAction(); err != nil {
+		return nil, err
+	}
+	if r.stories, err = storyPages(textDir, font); err != nil {
 		return nil, err
 	}
 	for i := range liveScales {
@@ -178,9 +189,23 @@ func postJoinEntryRow(caller Address, row uint8) bool {
 
 var glyphEntry = Address{Segment: 0x0763, Offset: 0x026B}
 
+type storyFrame struct {
+	entryStep uint64
+	caller    Address
+	ss, sp    uint16
+}
+
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	at := Address{Segment: v.CS(), Offset: v.IP()}
+	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && at == p.caller {
+		if ss, sp := v.SS(), v.SP(); ss == p.ss && sp == p.sp+storyReturnStackDelta {
+			for _, f := range r.stories {
+				f.verifiedReturn(p.entryStep, p.caller, r.prevAt, r.prevOp, ss, sp, v.Steps())
+			}
+			r.storyPending = nil
+		}
+	}
 	actionRequests := -1
 	if r.action.Pending() {
 		actionRequests = len(r.action.requests)
@@ -314,7 +339,37 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		for i := range args {
 			args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
 		}
-		r.action.ObserveGlyphEntry(caller, ss, sp, args, v.Steps())
+		steps := v.Steps()
+		for _, f := range r.stories {
+			if r.storyPending != nil {
+				f.discontinuity()
+			}
+			f.glyphEntry(caller, ss, sp, args, steps)
+		}
+		r.storyPending = &storyFrame{entryStep: steps, caller: caller, ss: ss, sp: sp}
+		r.action.ObserveGlyphEntry(caller, ss, sp, args, steps)
+	}
+	if at == storyClearWrite {
+		es, di, cx := v.ES(), v.DI(), v.CX()
+		for _, f := range r.stories {
+			f.clearWrite(at, es, di, cx)
+		}
+		r.storyDirty = true
+	}
+	if r.storyDirty || r.storyPending != nil || at == glyphEntry {
+		// Generations can only advance after a glyph entry/return or a
+		// clear write; skip the per-family check on every other step.
+		palette := v.Palette()
+		for _, f := range r.stories {
+			if err := f.apply(palette); err != nil {
+				r.resets[f.name()]++
+				f.clear()
+			}
+		}
+		r.storyDirty = r.storyPending != nil
+	}
+	if r.storyPending != nil {
+		r.prevAt, r.prevOp = at, v.Read8(linear(at.Segment, at.Offset))
 	}
 	if actionRequests >= 0 && len(r.action.requests) > actionRequests {
 		events := r.action.collector.events
@@ -342,6 +397,10 @@ func postJoinRuntimeGate(e TextEvent) bool { return postJoinEntryRow(e.Caller, e
 // VideoWrite forwards an A000 pre-write to every family that invalidates on
 // writes, in the runner's order.
 func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
+	for _, f := range r.stories {
+		f.prewrite(w)
+	}
+	r.storyDirty = true
 	if r.postJoin.Active() {
 		r.postJoin.Prewrite(w)
 		for i := range liveScales {
@@ -360,6 +419,9 @@ func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
 
 func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	r.menu.Frame(indexed, palette)
+	for _, f := range r.stories {
+		f.frame(indexed, palette)
+	}
 	for i := range liveScales {
 		r.actPres[i].Frame(indexed, palette)
 	}
@@ -375,6 +437,15 @@ func (r *LiveRuntime) Compose(scale int) ([]byte, bool, error) {
 	if !r.hasFrame {
 		return nil, false, nil
 	}
+	return r.ComposeWith(r.indexed, r.palette, scale)
+}
+
+// ComposeWith composes the overlay onto a caller-supplied frame instead of
+// the last retrace; the receipt runner uses it to compare at an exact step.
+func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale int) ([]byte, bool, error) {
+	saveIndexed, savePalette := r.indexed, r.palette
+	r.indexed, r.palette = indexed, palette
+	defer func() { r.indexed, r.palette = saveIndexed, savePalette }()
 	i := 0
 	if scale == 3 {
 		i = 1
@@ -416,6 +487,13 @@ func (r *LiveRuntime) Compose(scale int) ([]byte, bool, error) {
 		}
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
+		}
+	}
+	for _, f := range r.stories {
+		if rgba, missing, active := f.draw(i, r.indexed, r.palette); active {
+			if err := layer(rgba, missing); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	if len(r.actPres[i].ActiveKeys()) != 0 {

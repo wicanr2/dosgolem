@@ -13,6 +13,9 @@ func (c *StepCursor[T]) CS() uint16             { return c.cur.CS() }
 func (c *StepCursor[T]) IP() uint16             { return c.cur.IP() }
 func (c *StepCursor[T]) SS() uint16             { return c.cur.SS() }
 func (c *StepCursor[T]) SP() uint16             { return c.cur.SP() }
+func (c *StepCursor[T]) ES() uint16             { return c.cur.ES() }
+func (c *StepCursor[T]) DI() uint16             { return c.cur.DI() }
+func (c *StepCursor[T]) CX() uint16             { return c.cur.CX() }
 func (c *StepCursor[T]) Read8(a uint32) uint8   { return c.cur.Read8(a) }
 func (c *StepCursor[T]) Read16(a uint32) uint16 { return c.cur.Read16(a) }
 func (c *StepCursor[T]) Palette() [256][3]uint8 { return c.cur.Palette() }
