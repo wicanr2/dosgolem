@@ -189,12 +189,17 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	}
 	outside := e.CursorCol < e.Left || e.CursorCol > e.Right || e.CursorRow < e.Top || e.CursorRow > e.Bottom
 	p := w.page
-	fresh := e.Clear || outside || p == nil ||
-		p.Left != e.Left || p.Top != e.Top || p.Right != e.Right || p.Bottom != e.Bottom
+	sameWindow := p != nil && p.Left == e.Left && p.Right == e.Right && p.Bottom == e.Bottom
+	fresh := e.Clear || outside || !sameWindow
 	var row, col, first uint8
-	if fresh {
+	switch {
+	case e.Clear || outside:
 		row, col, first = e.Top, e.Left, e.Top
-	} else {
+	case !sameWindow:
+		// A continuation after text we did not translate: start where the
+		// original will print and never mask the English above it.
+		row, col, first = e.CursorRow, e.CursorCol, e.CursorRow
+	default:
 		row, col, first = w.endRow, w.endCol, p.Top
 		if e.CursorCol == e.Left && col != e.Left {
 			row, col = row+1, e.Left

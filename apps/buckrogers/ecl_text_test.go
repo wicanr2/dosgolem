@@ -118,3 +118,13 @@ func TestLayoutEclTextKeepsLatinAndPunctuation(t *testing.T) {
 		t.Fatalf("closing punctuation led a line: %q", lines)
 	}
 }
+
+func TestEclTextContinuationAfterUntranslatedKeepsEnglishAbove(t *testing.T) {
+	w := NewEclTextWatcher(eclFixture(t, "A B", "", "C D", "丙丁"))
+	w.ObserveEntry(eclEntry("A B", true, 1, 17))
+	w.ObserveEntry(eclEntry("C D", false, 1, 21))
+	p := w.Page()
+	if p == nil || p.Top != 21 || p.Lines[0].Row != 21 || p.Lines[0].Col != 1 {
+		t.Fatalf("continuation after miss must start at the original cursor: %+v", p)
+	}
+}
