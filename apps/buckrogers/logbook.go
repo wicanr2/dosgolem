@@ -30,6 +30,34 @@ type LogbookEntry struct {
 
 type LogbookCatalog struct {
 	entries map[int]LogbookEntry
+	// Panel title and page-row templates; {0} and {1} are filled in.
+	titleFmt, pageFmt string
+}
+
+// LoadLogbookPanelText reads text/logbook-panel.zh-TW.tsv (keys
+// logbook.panel.title with {0}=entry number, {1}=title; logbook.panel.page
+// with {0}=page, {1}=pages).
+func (c *LogbookCatalog) LoadLogbookPanelText(data []byte) error {
+	rows, err := readTSV("logbook-panel.zh-TW.tsv", data, []string{"key", "translation", "source"})
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		ok := strings.Contains(r[1], "{0}") && strings.Contains(r[1], "{1}")
+		switch {
+		case r[0] == "logbook.panel.title" && ok:
+			c.titleFmt = r[1]
+		case r[0] == "logbook.panel.page" && ok:
+			c.pageFmt = r[1]
+		default:
+			return fmt.Errorf("buckrogers: 手札面板列 %s 無效", r[0])
+		}
+	}
+	return nil
+}
+
+func fillLogbook(f string, a, b string) string {
+	return strings.NewReplacer("{0}", a, "{1}", b).Replace(f)
 }
 
 // LayoutLogbook splits a body (paragraphs separated by the two characters
@@ -84,7 +112,7 @@ func LoadLogbookCatalog(data []byte) (*LogbookCatalog, error) {
 			bodies[n] = r[1]
 		}
 	}
-	c := &LogbookCatalog{entries: map[int]LogbookEntry{}}
+	c := &LogbookCatalog{entries: map[int]LogbookEntry{}, titleFmt: "{0}: {1}", pageFmt: "{0}/{1}"}
 	for n, b := range bodies {
 		pages, err := LayoutLogbook(b)
 		if err != nil {
@@ -103,6 +131,7 @@ type LogbookWatcher struct {
 	open    int // entry number, 0 = closed
 	page    int
 	window  [4]uint8 // left, top, right, bottom of the text window
+	colors  [2]uint8 // background, foreground of the call that opened it
 	tlBy    map[[2]uint16]bool
 	gen     uint64
 	Stats   struct{ Opens, Closes int }
@@ -128,6 +157,12 @@ func (w *LogbookWatcher) close() {
 
 // ObserveEntry runs at every 0763:056C entry (spec 030 §3.2, §3.3-1).
 func (w *LogbookWatcher) ObserveEntry(original []byte, left, top, right, bottom uint8) {
+	w.ObserveEntryColors(original, left, top, right, bottom, 0, 10)
+}
+
+// ObserveEntryColors is ObserveEntry with the call's colours; the panel
+// uses them because the palette differs between screens.
+func (w *LogbookWatcher) ObserveEntryColors(original []byte, left, top, right, bottom, bg, fg uint8) {
 	if w == nil {
 		return
 	}
@@ -147,6 +182,7 @@ func (w *LogbookWatcher) ObserveEntry(original []byte, left, top, right, bottom 
 	}
 	w.open, w.page = n, 0
 	w.window = [4]uint8{left, top, right, bottom}
+	w.colors = [2]uint8{bg, fg}
 	w.gen++
 	w.Stats.Opens++
 }
@@ -222,13 +258,12 @@ func (o *LogbookOverlay) Sync(w *LogbookWatcher, palette [256][3]uint8) []rune {
 		return nil
 	}
 	e := w.catalog.entries[n]
-	rows := map[int]string{logbookTop: fmt.Sprintf("手札第 %d 則：%s", n, e.Title)}
+	rows := map[int]string{logbookTop: fillLogbook(w.catalog.titleFmt, strconv.Itoa(n), e.Title)}
 	for i, l := range e.Pages[page] {
 		rows[logbookFirstBody+i] = l
 	}
 	if len(e.Pages) > 1 {
-		rows[logbookPageRow] = fmt.Sprintf("第 %d／%d 頁　PgDn／PgUp 翻頁", page+1, len(e.Pages))
-		rows[logbookPageRow] = strings.ReplaceAll(rows[logbookPageRow], "　", " ")
+		rows[logbookPageRow] = fillLogbook(w.catalog.pageFmt, strconv.Itoa(page+1), strconv.Itoa(len(e.Pages)))
 	}
 	var miss []rune
 	off := manualGlyphOffset(o.scale)
@@ -242,20 +277,22 @@ func (o *LogbookOverlay) Sync(w *LogbookWatcher, palette [256][3]uint8) []rune {
 		for len(text) < logbookCols+2 {
 			text = append(text, ' ')
 		}
-		fg := palette[10]
-		if r == logbookTop {
-			fg = palette[15]
-		}
+		fg := palette[w.colors[1]]
 		o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
 			Key: fmt.Sprintf("logbook.%d", r), X: logbookLeft * 8, Y: r * 8, Cells: logbookCols + 2, CellW: 8, CellH: 8,
 			Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: text[:logbookCols+2], State: xlate.Shown,
-			BG: palette[0], FG: fg,
+			BG: palette[w.colors[0]], FG: fg,
 		})
 	}
 	if len(miss) != 0 {
 		o.layer.Stamps = nil
 	}
 	return miss
+}
+
+// Rect is the panel rectangle in logical pixels.
+func (o *LogbookOverlay) Rect() (x0, y0, x1, y1 int) {
+	return logbookLeft * 8, logbookTop * 8, (logbookLeft + logbookCols + 2) * 8, (logbookPageRow + 1) * 8
 }
 
 func (o *LogbookOverlay) Active() bool { return o != nil && len(o.layer.Stamps) != 0 }

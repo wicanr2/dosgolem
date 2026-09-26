@@ -50,3 +50,25 @@ func TestLogbookLayoutAndPanel(t *testing.T) {
 		t.Fatal("missing entry opened")
 	}
 }
+
+func TestLogbookPanelTextTemplates(t *testing.T) {
+	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.41\t正文。\tecl-batch-editorial\nlogbook.41.title\t指揮官\tecl-batch-editorial\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadLogbookPanelText([]byte("key\ttranslation\tsource\nlogbook.panel.title\t手札第 {0} 則：{1}\truntime-interface\nlogbook.panel.page\t第 {0}／{1} 頁\truntime-interface\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := fillLogbook(c.titleFmt, "41", "指揮官"); got != "手札第 41 則：指揮官" {
+		t.Fatalf("title %q", got)
+	}
+	if err := c.LoadLogbookPanelText([]byte("key\ttranslation\tsource\nlogbook.panel.title\t沒有佔位\tx\n")); err == nil {
+		t.Fatal("template without placeholders accepted")
+	}
+	// The original prints the number without padding (ECL1:17 receipt).
+	w := NewLogbookWatcher(c, nil)
+	w.ObserveEntry([]byte(" and you record HIS SPEECH as logbook entry 41."), 1, 17, 38, 22)
+	if n, _ := w.Open(); n != 41 {
+		t.Fatalf("open %d", n)
+	}
+}

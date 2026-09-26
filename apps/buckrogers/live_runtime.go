@@ -394,6 +394,13 @@ func (r *LiveRuntime) loadLogbook(textDir string, eng *EngineTextCatalog) error 
 	if err != nil {
 		return err
 	}
+	if pb, err := os.ReadFile(filepath.Join(textDir, "logbook-panel.zh-TW.tsv")); err == nil {
+		if err := c.LoadLogbookPanelText(pb); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	r.logbook = NewLogbookWatcher(c, eng)
 	for i, scale := range liveScales {
 		if r.logbookPres[i], err = NewLogbookOverlay(r.font, scale); err != nil {
@@ -454,7 +461,7 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 		}
 		ds := v.DS()
 		if r.logbook != nil {
-			r.logbook.ObserveEntry(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)))
+			r.logbook.ObserveEntryColors(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)), uint8(arg(10)), uint8(arg(12)))
 		}
 		r.ecl.ObserveEntry(EclTextEntry{
 			Step: v.Steps(), SS: ss, SP: sp, Return: Address{Segment: arg(2), Offset: arg(0)}, Original: orig,
@@ -1013,10 +1020,17 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 		}
 	}
 	// The logbook panel is drawn last: it sits over everything while open.
+	// It is opaque: pixels other families changed inside its rectangle must
+	// not show through, so the rectangle is copied whole.
 	if r.logbook != nil && r.logbookPres[i].Active() {
 		rgba, missing := r.logbookPres[i].Draw(r.indexed, r.palette)
-		if err := layer(rgba, missing); err != nil {
-			return nil, false, err
+		if len(missing) != 0 {
+			return nil, false, errors.New("buckrogers: live runtime 缺字")
+		}
+		x0, y0, x1, y1 := r.logbookPres[i].Rect()
+		w := 320 * scale
+		for y := y0 * scale; y < y1*scale; y++ {
+			copy(out[4*(y*w+x0*scale):4*(y*w+x1*scale)], rgba[4*(y*w+x0*scale):4*(y*w+x1*scale)])
 		}
 	}
 	return out, true, nil
