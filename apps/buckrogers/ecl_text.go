@@ -123,6 +123,7 @@ type EclTextPage struct {
 // EclTextWatcher implements spec 027 §3.2–§3.5.
 type EclTextWatcher struct {
 	catalog *EclTextCatalog
+	engine  *EngineTextCatalog // spec 029 fallback; nil disables
 	page    *EclTextPage
 	endRow  uint8 // Chinese cursor after the last presentation
 	endCol  uint8
@@ -137,6 +138,9 @@ type EclTextStats struct{ Hits, Misses, Overflows, Invalidations, Reentries int 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
 	return &EclTextWatcher{catalog: c, gen: 1}
 }
+
+// SetEngine installs the spec-029 fallback for strings the ECL catalog misses.
+func (w *EclTextWatcher) SetEngine(c *EngineTextCatalog) { w.engine = c }
 
 // Page returns the active presentation or nil.
 func (w *EclTextWatcher) Page() *EclTextPage {
@@ -182,6 +186,11 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		return
 	}
 	key, text, ok := w.catalog.Lookup(e.Original)
+	if !ok && w.engine != nil {
+		if text, ok = w.engine.Translate(string(e.Original)); ok {
+			key = "engine"
+		}
+	}
 	if !ok {
 		w.Stats.Misses++
 		w.invalidate()

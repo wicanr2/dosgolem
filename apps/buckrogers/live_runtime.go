@@ -196,6 +196,11 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 	}
 	r.ecl = NewEclTextWatcher(c)
 	r.eclGen = r.ecl.Generation()
+	if eng, err := loadEngineText(textDir); err != nil {
+		return err
+	} else if eng != nil {
+		r.ecl.SetEngine(eng)
+	}
 	for i, scale := range liveScales {
 		if r.eclPres[i], err = NewEclTextOverlay(r.font, scale); err != nil {
 			return err
@@ -279,6 +284,44 @@ func (r *LiveRuntime) syncHMenu(palette [256][3]uint8) {
 	for i := range liveScales {
 		r.hmenuPres[i].Frame(palette)
 	}
+}
+
+// loadEngineText loads the spec-029 catalogs when the fragment catalog
+// exists; missing translation files mean nothing is translated yet.
+func loadEngineText(textDir string) (*EngineTextCatalog, error) {
+	read := func(name string, required bool) ([]byte, error) {
+		b, err := os.ReadFile(filepath.Join(textDir, name))
+		if os.IsNotExist(err) && !required {
+			return nil, nil
+		}
+		return b, err
+	}
+	fe, err := os.ReadFile(filepath.Join(textDir, "engine-fragment-events.tsv"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var f EngineTextFiles
+	f.FragmentEvents = fe
+	for _, x := range []struct {
+		dst  *[]byte
+		name string
+		req  bool
+	}{
+		{&f.FragmentText, "engine-fragment.zh-TW.tsv", false},
+		{&f.ItemEvents, "item-word-events.tsv", true},
+		{&f.ItemText, "item-word.zh-TW.tsv", false},
+		{&f.PhraseEvents, "item-phrase-events.tsv", false},
+		{&f.PhraseText, "item-phrase.zh-TW.tsv", false},
+		{&f.TemplateEvents, "engine-template-events.tsv", false},
+		{&f.TemplateText, "engine-template.zh-TW.tsv", false},
+	} {
+		if *x.dst, err = read(x.name, x.req); err != nil {
+			return nil, err
+		}
+	}
+	return LoadEngineTextCatalog(f)
 }
 
 // observeEclText handles the text-window printer entry and its return.

@@ -60,6 +60,7 @@ func main() {
 	dump := flag.String("dump", "", "結束時傾印記憶體 SEG:OFF:LEN（hex）到 -out.bin")
 	stateOut := flag.String("state-out", "", "結束時存 savestate（只供本機研究）")
 	finalShot := flag.String("final-shot", "", "結束時存 PNG")
+	memOut := flag.String("mem-out", "", "結束時傾印 1MB 實模式記憶體（含原版資料，只放 ignored 目錄）")
 	var ks keys
 	flag.Var(&ks, "key", "STEP:SCAN_HEX:ASCII_HEX，可重複")
 	flag.Parse()
@@ -224,6 +225,14 @@ func main() {
 		}
 	}
 	flush()
+	if *memOut != "" {
+		b := make([]byte, 0x100000)
+		for i := range b {
+			b[i] = m.Read8(uint32(i))
+		}
+		os.WriteFile(*memOut, b, 0o644)
+		fmt.Fprintf(w, "DS\t%04X\n", m.CPU.Seg[cpu.DS])
+	}
 	if *dump != "" {
 		var seg, off, n uint32
 		fmt.Sscanf(*dump, "%x:%x:%x", &seg, &off, &n)
