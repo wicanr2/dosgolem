@@ -52,6 +52,8 @@ func TestEngineDecomposeAndTranslate(t *testing.T) {
 		{"Bolt Gun (100)", "I|_", "爆能槍 (100)"},
 		{"Heavy Body Armor", "I", "重型護甲"},
 		{"AC", "F", "防禦"},
+		// The slot already carries the space after the fragment: no second space.
+		{"Hitting for  2 points of damage", "F|_|F|F", "造成 2 點傷害"},
 	}
 	for _, tc := range cases {
 		parts := c.Decompose(tc.in)
