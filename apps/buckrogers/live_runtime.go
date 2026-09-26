@@ -345,7 +345,18 @@ func loadEngineText(textDir string) (*EngineTextCatalog, error) {
 			return nil, err
 		}
 	}
-	return LoadEngineTextCatalog(f)
+	c, err := LoadEngineTextCatalog(f)
+	if err != nil {
+		return nil, err
+	}
+	if cb, err := read("coordinate-line.zh-TW.tsv", false); err != nil {
+		return nil, err
+	} else if cb != nil {
+		if err := c.LoadCoordinateText(cb); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog) error {

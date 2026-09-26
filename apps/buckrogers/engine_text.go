@@ -25,6 +25,7 @@ type engineID struct {
 func engineIDOf(s string) engineID { return engineID{len(s), sha256.Sum256([]byte(s))} }
 
 type EngineTextCatalog struct {
+	coordDir  map[byte]string     // spec 029 §2.8: N/E/S/W -> one Chinese character
 	frag      map[engineID]string // fragment id -> key
 	fragText  map[string]string   // key -> Chinese
 	fragLens  []int
@@ -426,6 +427,12 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	if c == nil || s == "" {
 		return "", false
 	}
+	// Spec 029 §2.8: the exploration coordinate line swaps only the compass
+	// letter; any caller, since the format is unmistakable.
+	if c.coordDir != nil && engineCoordLine.MatchString(s) {
+		i := strings.IndexByte(s, ' ') + 1
+		return s[:i] + c.coordDir[s[i]] + s[i+1:], true
+	}
 	// Spec 029 §2.6: a table row keeps its last column where it was.
 	if m := engineTableRow.FindStringSubmatch(s); m != nil {
 		front, ok := c.translateLine(m[1])
@@ -436,6 +443,30 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 		return front + strings.Repeat(" ", n-len([]rune(front))-last) + m[3], true
 	}
 	return c.translateLine(s)
+}
+
+var engineCoordLine = regexp.MustCompile(`^[0-9]{1,2},[0-9]{1,2} [NESW] [0-9]{2}:[0-9]{2}$`)
+
+// LoadCoordinateText reads text/coordinate-line.zh-TW.tsv: all four
+// compass keys, each translated to exactly one character.
+func (c *EngineTextCatalog) LoadCoordinateText(data []byte) error {
+	rows, err := readTSV("coordinate-line.zh-TW.tsv", data, []string{"key", "translation", "source"})
+	if err != nil {
+		return err
+	}
+	dir := map[byte]string{}
+	for _, r := range rows {
+		k := strings.TrimPrefix(r[0], "coord.dir.")
+		if len(k) != 1 || !strings.Contains("NESW", k) || len([]rune(r[1])) != 1 {
+			return fmt.Errorf("buckrogers: 座標列譯文 %s 無效", r[0])
+		}
+		dir[k[0]] = r[1]
+	}
+	if len(dir) != 4 {
+		return fmt.Errorf("buckrogers: 座標列譯文需有 N、E、S、W 四個方位")
+	}
+	c.coordDir = dir
+	return nil
 }
 
 // engineTableRow: text, two or more spaces, and a last column of digits

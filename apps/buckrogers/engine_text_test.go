@@ -268,3 +268,32 @@ func TestUntouchedRowsJudgesOwnCells(t *testing.T) {
 		t.Fatalf("keep %+v", keep)
 	}
 }
+
+func TestEngineCoordinateLine(t *testing.T) {
+	c := engineFixture(t)
+	good := "key\ttranslation\tsource\ncoord.dir.N\t北\tx\ncoord.dir.E\t東\tx\ncoord.dir.S\t南\tx\ncoord.dir.W\t西\tx\n"
+	if err := c.LoadCoordinateText([]byte(good)); err != nil {
+		t.Fatal(err)
+	}
+	for in, want := range map[string]string{"15,10 E 01:02": "15,10 東 01:02", "0,7 S 00:26": "0,7 南 00:26", "24,20 W 01:02": "24,20 西 01:02", "5,5 N 00:01": "5,5 北 00:01"} {
+		if zh, ok := c.Translate(in); !ok || zh != want {
+			t.Errorf("%q: %q %v", in, zh, ok)
+		}
+	}
+	for _, in := range []string{"150,10 E 01:02", "15,10 E", "15,10 e 01:02", "15,10  E 01:02"} {
+		if zh, ok := c.Translate(in); ok && strings.ContainsAny(zh, "北東南西") {
+			t.Errorf("%q wrongly treated as a coordinate line: %q", in, zh)
+		}
+	}
+	if engineTableRow.MatchString("15,10 E 01:02") {
+		t.Error("coordinate line matches the table-row rule")
+	}
+	for _, bad := range []string{
+		"key\ttranslation\tsource\ncoord.dir.N\t北\tx\ncoord.dir.E\t東\tx\ncoord.dir.S\t南\tx\n",
+		strings.Replace(good, "西", "西方", 1),
+	} {
+		if err := engineFixture(t).LoadCoordinateText([]byte(bad)); err == nil {
+			t.Errorf("bad coordinate text accepted: %q", bad)
+		}
+	}
+}
