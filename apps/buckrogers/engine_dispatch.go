@@ -19,6 +19,7 @@ type EngineDispatchLine struct {
 type EngineDispatchWatcher struct {
 	catalog *EngineTextCatalog
 	allow   map[Address]bool
+	names   map[Address]bool // callers where only exact monster names are drawn
 	lines   []EngineDispatchLine
 	inCall  bool
 	callRet Address
@@ -50,8 +51,13 @@ func LoadEngineDispatchCallers(data []byte, owned map[Address]bool) (map[Address
 }
 
 func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[Address]bool) *EngineDispatchWatcher {
-	return &EngineDispatchWatcher{catalog: c, allow: allow, gen: 1}
+	return &EngineDispatchWatcher{catalog: c, allow: allow, names: map[Address]bool{}, gen: 1}
 }
+
+// SetNameCallers installs callers shared with other families: there only a
+// string that is exactly a monster name is drawn (other families claim
+// strings by exact hash, so a monster name is never theirs).
+func (w *EngineDispatchWatcher) SetNameCallers(names map[Address]bool) { w.names = names }
 
 func (w *EngineDispatchWatcher) Lines() []EngineDispatchLine { return w.lines }
 func (w *EngineDispatchWatcher) Generation() uint64          { return w.gen }
@@ -78,9 +84,10 @@ func overlapsLine(l EngineDispatchLine, row, c0, c1 int) bool {
 
 // ObserveEntry handles a dispatcher entry (args as read by the menu family).
 func (w *EngineDispatchWatcher) ObserveEntry(caller Address, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
-	if w == nil || !w.allow[caller] {
+	if w == nil || !w.allow[caller] && !w.names[caller] {
 		return
 	}
+	nameOnly := !w.allow[caller]
 	row, col, n := int(uint8(args[4])), int(uint8(args[5])), len(original)
 	if n == 0 || row > 24 || col+n > 40 {
 		return
@@ -88,7 +95,13 @@ func (w *EngineDispatchWatcher) ObserveEntry(caller Address, ss, sp uint16, ret 
 	// The original repaints these cells: any older line there is stale.
 	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, row, col, col+n) })
 	w.inCall, w.callRet, w.callSS, w.callSP = true, ret, ss, sp
-	zh, ok := w.catalog.Translate(string(original))
+	var zh string
+	var ok bool
+	if nameOnly {
+		zh, ok = w.catalog.monsterSlot(string(original))
+	} else {
+		zh, ok = w.catalog.Translate(string(original))
+	}
 	if !ok || len([]rune(zh)) > n {
 		w.Stats.Misses++
 		return

@@ -365,6 +365,15 @@ func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog)
 		return err
 	}
 	r.engDisp = NewEngineDispatchWatcher(eng, allow)
+	if nb, err := os.ReadFile(filepath.Join(textDir, "engine-dispatch-name-callers.tsv")); err == nil {
+		names, err := LoadEngineDispatchCallers(nb, nil)
+		if err != nil {
+			return err
+		}
+		r.engDisp.SetNameCallers(names)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	r.engDispGen = r.engDisp.Generation()
 	for i, scale := range liveScales {
 		if r.engDispPres[i], err = NewHMenuOverlay(r.font, scale); err != nil {

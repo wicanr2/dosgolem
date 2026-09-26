@@ -103,14 +103,28 @@ func TestEngineDispatchAllowListAndLifecycle(t *testing.T) {
 	if p == nil || p.Rows[0].Row != 3 || p.Rows[0].Col != 30 || string(p.Rows[0].Cells[0].Rune) != "防" {
 		t.Fatalf("%+v", p)
 	}
+	w.SetNameCallers(map[Address]bool{{0x37F1, 0x235A}: true})
+	nameCaller := Address{0x37F1, 0x235A}
+	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 7, 23}, []byte("FLAVIUS"))
+	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
+	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 8, 23}, []byte("AC"))
+	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
+	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 9, 23}, []byte("TERRINE WARRIOR"))
+	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
+	if p := w.Page(); p == nil || len(p.Rows) != 2 || p.Rows[1].Row != 9 {
+		t.Fatalf("name-only caller: %+v", p)
+	}
+	w.ObserveEntry(ret, 1, 0x100, ret, args, []byte("AC"))
 	w.ObserveVideoWrite(3*8*320 + 30*8)
 	if w.Page() == nil {
 		t.Fatal("in-call write dropped line")
 	}
 	w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
 	w.ObserveVideoWrite(3*8*320 + 31*8)
-	if w.Page() != nil {
-		t.Fatal("post-call write kept line")
+	for _, r := range w.Page().Rows {
+		if r.Row == 3 {
+			t.Fatal("post-call write kept line")
+		}
 	}
 }
 
