@@ -107,6 +107,9 @@ type InputReceipt struct {
 type Config struct {
 	InitialScale  host.OutputScale
 	InitialLayout host.MouseLayout
+	// Observer is installed privately before the first instruction and
+	// cannot be replaced (docs/spec/238).  nil keeps the bare RunUntil path.
+	Observer StepObserver
 }
 
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
@@ -150,6 +153,11 @@ type Owner struct {
 	firstFault     error
 	closeErr       error
 	closed         bool
+
+	observer   StepObserver
+	viewToken  uint64
+	viewOpen   bool
+	viewMisuse bool
 }
 
 // New creates a new sealed, synthetic-ready owner.  It neither loads an
@@ -204,6 +212,7 @@ func New(cfg Config) (*Owner, error) {
 	if cfg.InitialLayout.Epoch != 0 {
 		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
+	o.observer = cfg.Observer
 	keepDOS = true
 	return o, nil
 }
@@ -538,7 +547,13 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	}
 
 	receipt.MachineStepsBefore = o.machine.Steps
-	rawStop, rawErr := o.machine.RunUntil(nil, uint64(budget))
+	var rawStop machine.Stop
+	var rawErr, observerErr error
+	if o.observer != nil {
+		rawStop, rawErr, observerErr = o.runObserved(uint64(budget))
+	} else {
+		rawStop, rawErr = o.machine.RunUntil(nil, uint64(budget))
+	}
 	receipt.HasRawStop = true
 	receipt.RawStop = rawStop
 	receipt.RawError = rawErr
@@ -550,6 +565,9 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	receipt.Steps = receipt.MachineStepsAfter - receipt.MachineStepsBefore
 	if receipt.Steps > uint64(budget) {
 		return o.originalFaultReceipt(receipt, errors.New("session: Machine.Steps 差分超過 InstructionBudget"))
+	}
+	if observerErr != nil {
+		return o.observerFaultReceipt(receipt, observerErr)
 	}
 	if rawErr != nil {
 		return o.originalFaultReceipt(receipt, rawErr)
@@ -697,6 +715,14 @@ func (o *Owner) frontendFaultInputReceipt(receipt InputReceipt, cause error) (In
 
 func (o *Owner) frontendFaultReceipt(receipt TickReceipt, cause error) (TickReceipt, error) {
 	o.terminalReason = StopReasonFrontendFault
+	err := o.fail(cause)
+	receipt.Phase = o.phase
+	receipt.Reason = o.terminalReason
+	return receipt, err
+}
+
+func (o *Owner) observerFaultReceipt(receipt TickReceipt, cause error) (TickReceipt, error) {
+	o.terminalReason = StopReasonObserverFault
 	err := o.fail(cause)
 	receipt.Phase = o.phase
 	receipt.Reason = o.terminalReason
