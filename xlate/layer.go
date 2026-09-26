@@ -51,6 +51,7 @@ type Stamp struct {
 	hashes  []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
 	misses  []int    // 每一格連續指紋不同的次數
 	anchors []bool   // 每一格定色時是否壓在原文墨跡上（spec 202 §2.3）；全部失效就整筆移除
+	changed []bool   // 每一格是否因指紋改變而透明（spec 239 §2.1）；其餘透明格視為覆蓋
 }
 
 // PixelGlyph is one cropped, physical-pixel glyph in a Stamp plan.
@@ -70,7 +71,7 @@ func (s *Stamp) Rect() (x0, y0, x1, y1 int) {
 // Layer 是目前所有疊字。W、H 是原版畫面大小，0 當 320×200（spec 202 §2.3）。
 type Layer struct {
 	Stamps []*Stamp
-	// OnDrop 在一筆被移除時呼叫（原因：overlap、replace、clear、scroll、changed、anchors）。可為 nil。
+	// OnDrop 在一筆被移除時呼叫（原因：overlap、replace、clear、scroll、changed、anchors、rewrite）。可為 nil。
 	// 不會被 Snapshot／Restore 保存——那是呼叫端接上去的 hook，不是狀態。
 	OnDrop func(s *Stamp, why string)
 	// Frozen 回 true 的疊字，這次 Frame 不定色也不檢查指紋（可為 nil，spec 202 §2.3）。
@@ -185,6 +186,59 @@ func (s *Stamp) anchorsGone() bool {
 		}
 	}
 	return any
+}
+
+// markChanged 記下第 i 格是因指紋改變而透明（spec 239 §2.1）。
+func (s *Stamp) markChanged(i int) {
+	if len(s.changed) < s.Cells {
+		c := make([]bool, s.Cells)
+		copy(c, s.changed)
+		s.changed = c
+	}
+	s.changed[i] = true
+}
+
+// rewritten 實作 spec 239 §2.2。fresh 是本次 Frame 新因指紋改變而透明的錨定格。
+func (s *Stamp) rewritten(fresh []int) bool {
+	if len(fresh) == 0 || len(s.anchors) != s.Cells {
+		return false
+	}
+	inC := map[int]bool{}
+	for _, i := range fresh {
+		inC[i] = true
+	}
+	var anchors []int // 錨定格的位置，由左到右
+	for i := 0; i < s.Cells; i++ {
+		if s.anchors[i] {
+			anchors = append(anchors, i)
+		}
+	}
+	valid := 0
+	for _, i := range anchors {
+		if !s.transparent(i) {
+			valid++
+		}
+	}
+	// 條件 2：仍有效的錨定格不超過 2 格，且本幀新失效的至少是它的兩倍。
+	if valid <= 2 && len(fresh) >= 2*valid {
+		return true
+	}
+	// 條件 1：長度不超過 2 的有效段，左右鄰錨定格都屬於 C。
+	for k := 0; k < len(anchors); {
+		if s.transparent(anchors[k]) {
+			k++
+			continue
+		}
+		j := k
+		for j < len(anchors) && !s.transparent(anchors[j]) {
+			j++
+		}
+		if j-k <= 2 && k > 0 && j < len(anchors) && inC[anchors[k-1]] && inC[anchors[j]] {
+			return true
+		}
+		k = j
+	}
+	return false
 }
 
 // setTransparent 把第 i 格標成透明（陣列不夠長就補）。
@@ -385,6 +439,7 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 				s.anchors = s.cellAnchors(indexed, w, h)
 			}
 			now := s.cellHashes(indexed, w, h)
+			var fresh []int // 本次新因指紋改變而透明的錨定格（spec 239 §2.2 的 C）
 			for i := 0; i < s.Cells; i++ {
 				if s.transparent(i) {
 					continue
@@ -397,6 +452,10 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 							break
 						}
 						s.setTransparent(i)
+						s.markChanged(i)
+						if i < len(s.anchors) && s.anchors[i] {
+							fresh = append(fresh, i)
+						}
 					}
 				} else {
 					s.misses[i] = 0
@@ -410,6 +469,11 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 			// 指紋永遠不變，不移除就會變成孤字（spec 202 §2.3）。
 			if s.anchorsGone() {
 				l.drop(s, "anchors")
+				continue
+			}
+			// 原版在同一位置改印另一串時，同字巧合的一兩格指紋不變（spec 239）。
+			if s.rewritten(fresh) {
+				l.drop(s, "rewrite")
 				continue
 			}
 		}
@@ -711,7 +775,8 @@ type stampSnapshot struct {
 	BG          [3]uint8             `json:"bg"`
 	Hashes      json.RawMessage      `json:"hashes,omitempty"` // 舊快照是單一數值：讀不成陣列就重新定色
 	Misses      json.RawMessage      `json:"misses,omitempty"`
-	Anchors     []bool               `json:"anchors,omitempty"` // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
+	Anchors     []bool               `json:"anchors,omitempty"`             // 舊快照沒有：還原後當「沒有錨定格」，照舊逐格判斷
+	Changed     []bool               `json:"changed_transparent,omitempty"` // 舊快照沒有：透明格都當覆蓋（spec 239）
 	PixelScale  int                  `json:"pixel_scale,omitempty"`
 	PixelGlyphs []pixelGlyphSnapshot `json:"pixel_glyphs,omitempty"`
 }
@@ -751,7 +816,7 @@ func (l *Layer) Snapshot() ([]byte, error) {
 			Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y, Cells: s.Cells, CellW: s.CellW, CellH: s.CellH,
 			Font: name, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
 			Text: string(s.Text), Transp: s.Transparent, Swap: s.SwapColors, State: s.State, FG: s.FG, BG: s.BG,
-			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses), Anchors: s.anchors,
+			Hashes: mustJSON(s.hashes), Misses: mustJSON(s.misses), Anchors: s.anchors, Changed: s.changed,
 		}
 		if s.PixelScale != 0 {
 			snap.Stamps[i].PixelScale = s.PixelScale
@@ -814,7 +879,7 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 			Key: ss.Key, Owner: ss.Owner, X: ss.X, Y: ss.Y, Cells: ss.Cells, CellW: ss.CellW, CellH: ss.CellH,
 			Font: font, GlyphX: ss.GlyphX, GlyphY: ss.GlyphY, GlyphScale: ss.GlyphScale,
 			Text: []rune(ss.Text), PixelScale: ss.PixelScale, Transparent: ss.Transp, SwapColors: ss.Swap, State: ss.State, FG: ss.FG, BG: ss.BG,
-			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses), anchors: ss.Anchors,
+			hashes: decodeHashes(ss.Hashes), misses: decodeMisses(ss.Misses), anchors: ss.Anchors, changed: ss.Changed,
 		}
 		for _, pg := range ss.PixelGlyphs {
 			f, ok := fonts[pg.Font]

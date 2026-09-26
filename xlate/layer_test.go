@@ -573,3 +573,158 @@ func TestSwapColorsSurvivesSnapshot(t *testing.T) {
 		t.Fatalf("還原後 SwapColors 沒了：%+v", l2.Stamps)
 	}
 }
+
+// rowScreen draws one 8×8 cell per letter on a plain background: the ink
+// pixel's position depends only on the letter, so equal letters in the same
+// cell give equal fingerprints (spec 239 §1). A space leaves the cell plain.
+func rowScreen(text string) ([]uint8, []uint8) {
+	const W, H = DefaultScreenW, DefaultScreenH
+	idx := make([]uint8, W*H)
+	for y := 40; y < 48; y++ {
+		for x := 16; x < 16+8*len(text); x++ {
+			idx[y*W+x] = 1
+		}
+	}
+	for i, c := range text {
+		if c == ' ' {
+			continue
+		}
+		idx[(40+int(c)%7)*W+16+i*8+int(c)%8] = 15
+		idx[(41+int(c)%5)*W+16+i*8+(int(c)/8)%8] = 15
+	}
+	return idx, make([]uint8, 3*W*H)
+}
+
+func frames(l *Layer, idx, rgb []uint8, n int) {
+	for i := 0; i < n; i++ {
+		l.Frame(idx, rgb)
+	}
+}
+
+// spec 239 §4-1：改寫（中間一格同字、行首同字、行尾同字、剩 2 格而新失效格很遠）整筆移除。
+func TestRewriteDropsStamp(t *testing.T) {
+	cases := []struct{ before, after string }{
+		{"CHOOSE A FUNCTION", "PICK CHARACTER XYZ"[:17]}, // 第 8 格同為 A
+		{"ABCDEFGHIJ", "AXYZWVUTSR"},                     // 行首同字
+		{"ABCDEFGHIJ", "XYZWVUTSRJ"},                     // 行尾同字
+		{"ABCDEFGHIJ", "AXYZWVUTSJ"},                     // 剩兩格（頭尾）
+	}
+	for _, c := range cases {
+		idx, rgb := rowScreen(c.before)
+		var dropped []string
+		l := &Layer{OnDrop: func(s *Stamp, why string) { dropped = append(dropped, why) }}
+		s := &Stamp{Key: c.before, X: 16, Y: 40, Cells: len(c.before), CellW: 8, CellH: 8, State: Pending}
+		l.Stamps = []*Stamp{s}
+		l.Frame(idx, rgb)
+		after, _ := rowScreen(c.after)
+		frames(l, after, rgb, 4)
+		if len(l.Stamps) != 0 || len(dropped) != 1 || dropped[0] != "rewrite" {
+			t.Errorf("%q→%q：應以 rewrite 移除，剩 %d 筆 dropped=%v", c.before, c.after, len(l.Stamps), dropped)
+		}
+	}
+}
+
+// spec 239 §4-1：另一個框（Clear）蓋住一段，從左、從右、中間：不移除，未蓋到的格照常顯示。
+func TestCoverDoesNotTriggerRewrite(t *testing.T) {
+	for _, span := range [][2]int{{0, 7}, {3, 10}, {2, 8}} {
+		idx, rgb := rowScreen("ABCDEFGHIJ")
+		l := &Layer{}
+		s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+		l.Stamps = []*Stamp{s}
+		l.Frame(idx, rgb)
+		l.Clear(16+span[0]*8, 40, 16+span[1]*8, 48)
+		covered := append([]uint8(nil), idx...)
+		for y := 40; y < 48; y++ {
+			for x := 16 + span[0]*8; x < 16+span[1]*8; x++ {
+				covered[y*DefaultScreenW+x] = 2
+			}
+		}
+		frames(l, covered, rgb, 5)
+		if len(l.Stamps) != 1 {
+			t.Errorf("Clear %v 不應移除", span)
+			continue
+		}
+		for i := 0; i < 10; i++ {
+			if in := i >= span[0] && i < span[1]; in != s.transparent(i) {
+				t.Errorf("Clear %v：第 %d 格透明=%v", span, i, s.transparent(i))
+			}
+		}
+	}
+}
+
+// spec 239 §4-1：指紋改變造成右半整段失效、左半有效超過 2 格：不移除。
+func TestChangedBlockKeepsStamp(t *testing.T) {
+	idx, rgb := rowScreen("ABCDEFGHIJ")
+	l := &Layer{}
+	s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	after, _ := rowScreen("ABCDEVWXYZ")
+	frames(l, after, rgb, 4)
+	if len(l.Stamps) != 1 || !s.transparent(7) || s.transparent(2) {
+		t.Fatalf("右半失效應只遮右半：剩 %d 筆 transparent=%v", len(l.Stamps), s.Transparent)
+	}
+}
+
+// spec 239 §4-1：逐格在不同幀失效時不提早移除（先失效的格不算本幀的 C）。
+func TestStaggeredChangesDoNotDropEarly(t *testing.T) {
+	idx, rgb := rowScreen("ABCDEFGHIJ")
+	l := &Layer{}
+	s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	// 先改左邊 0–3，四幀後它們已透明；再改 5–9（第 4 格 E 同字留著）。
+	step1, _ := rowScreen("WXYZEFGHIJ")
+	frames(l, step1, rgb, 4)
+	if len(l.Stamps) != 1 {
+		t.Fatal("左段先失效時不應移除")
+	}
+	step2, _ := rowScreen("WXYZEVUTSR")
+	l.Frame(step2, rgb)
+	l.Frame(step2, rgb)
+	if len(l.Stamps) != 1 {
+		t.Fatal("右段未滿 3 次前不應移除")
+	}
+	l.Frame(step2, rgb)
+	// 第三幀：5–9 本幀新失效；剩下的有效錨定格只有第 4 格，≤2 → 移除。
+	if len(l.Stamps) != 0 {
+		t.Fatalf("最後一批失效那幀應移除：transparent=%v", s.Transparent)
+	}
+}
+
+// spec 239 §4-1：快照保存透明原因；舊快照（沒有欄位）當覆蓋。
+func TestSnapshotKeepsChangedReason(t *testing.T) {
+	idx, rgb := rowScreen("ABCDEFGHIJ")
+	l := &Layer{}
+	s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	after, _ := rowScreen("ABCDEVWXYZ")
+	frames(l, after, rgb, 4)
+	b, err := l.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r Layer
+	if err := r.Restore(b, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Stamps) != 1 || len(r.Stamps[0].changed) != 10 || !r.Stamps[0].changed[7] || r.Stamps[0].changed[2] {
+		t.Fatalf("透明原因沒有保存：%+v", r.Stamps[0].changed)
+	}
+}
+
+// spec 239 §2.3 已知限制：只有 2 個錨定格時，整段改寫而邊界同字與局部變化在格數上
+// 無法區分；為了不誤傷 202 的局部遮蓋，預期**不移除**。這不是新 bug。
+func TestShortStampEdgeCoincidenceIsKnownLimit(t *testing.T) {
+	idx, rgb := rowScreen("AB")
+	l := &Layer{}
+	s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 2, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	after, _ := rowScreen("AX")
+	frames(l, after, rgb, 4)
+	if len(l.Stamps) != 1 || !s.transparent(1) || s.transparent(0) {
+		t.Fatalf("已知限制：應保留並只遮第 1 格：剩 %d 筆 transparent=%v", len(l.Stamps), s.Transparent)
+	}
+}
