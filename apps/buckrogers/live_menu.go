@@ -57,60 +57,109 @@ func NewLiveMenuRuntime(catalog *MenuCatalog, rects *MenuOverlayRects, font *xla
 	return r, nil
 }
 
+// StepObservation is what one instruction meant to the shared dispatcher
+// recorder.  Other families consume it instead of decoding the stack again.
+type StepObservation struct {
+	At       Address
+	SS, SP   uint16
+	Kind     ObservationKind
+	Clear    [4]uint8 // bottom, right, top, left for ObservedClear
+	Caller   Address  // ObservedEntry
+	Args     [6]uint16
+	Original []byte
+	// For ObservedOther: whether the recorder completed or dropped a frame.
+	NewEvent   bool
+	Event      TextEvent
+	NewRequest bool
+	Request    DisplayRequest
+	Dropped    bool
+}
+
+type ObservationKind uint8
+
+const (
+	ObservedNothing ObservationKind = iota // fast path: no dispatcher work
+	ObservedClear
+	ObservedEntry
+	ObservedOther
+)
+
 // BeforeStep mirrors the receipt runner's per-instruction menu logic: a
 // proven clear call, a dispatcher entry, or otherwise a possible guarded
 // return that completes an event.
 func (r *LiveMenuRuntime) BeforeStep(v StepReader) error {
+	_, err := r.Observe(v)
+	return err
+}
+
+// Observe is BeforeStep that also reports what the step meant.
+func (r *LiveMenuRuntime) Observe(v StepReader) (StepObservation, error) {
 	if r.fault != nil {
-		return r.fault
+		return StepObservation{}, r.fault
 	}
 	at := Address{Segment: v.CS(), Offset: v.IP()}
 	// Fast path: nothing but a clear, a dispatcher entry, or the return of an
 	// in-flight dispatcher frame can change the menu family.
 	if at != clearCells && at != dispatchEntry && !r.watcher.Pending() {
-		return nil
+		return StepObservation{At: at}, nil
 	}
 	ss, sp := v.SS(), v.SP()
+	obs := StepObservation{At: at, SS: ss, SP: sp}
 	switch at {
 	case clearCells:
+		obs.Kind = ObservedClear
 		bottom, right := v.Read8(linear(ss, sp+4)), v.Read8(linear(ss, sp+6))
 		top, left := v.Read8(linear(ss, sp+8)), v.Read8(linear(ss, sp+10))
+		obs.Clear = [4]uint8{bottom, right, top, left}
 		for _, scale := range []int{2, 3} {
 			if err := r.presenters[scale].ClearTextCells(bottom, right, top, left); err != nil {
-				return r.failWith(err)
+				return obs, r.failWith(err)
 			}
 		}
 	case dispatchEntry:
-		caller := Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
-		var args [6]uint16
-		for i := range args {
-			args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
+		obs.Kind = ObservedEntry
+		obs.Caller = Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
+		for i := range obs.Args {
+			obs.Args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
 		}
-		base := linear(args[1], args[0])
-		original := make([]byte, v.Read8(base))
-		for i := range original {
-			original[i] = v.Read8(base + 1 + uint32(i))
+		base := linear(obs.Args[1], obs.Args[0])
+		obs.Original = make([]byte, v.Read8(base))
+		for i := range obs.Original {
+			obs.Original[i] = v.Read8(base + 1 + uint32(i))
 		}
-		r.watcher.ObserveDispatchEntry(caller, ss, sp, args, original, v.Steps())
+		drops := r.watcher.Drops()
+		r.watcher.ObserveDispatchEntry(obs.Caller, ss, sp, obs.Args, obs.Original, v.Steps())
+		obs.Dropped = r.watcher.Drops() > drops
 	default:
-		events, requests := r.watcher.EventCount(), r.watcher.RequestCount()
+		obs.Kind = ObservedOther
+		events, requests, drops := r.watcher.EventCount(), r.watcher.RequestCount(), r.watcher.Drops()
 		r.watcher.ObserveInstruction(at, ss, sp, v.Steps())
-		if r.watcher.EventCount() > events && r.watcher.RequestCount() > requests {
-			event, eventOK := r.watcher.LastEvent()
-			request, requestOK := r.watcher.LastRequest()
-			if !eventOK || !requestOK {
-				return r.failWith(errors.New("buckrogers: live menu request 計數前進但沒有內容"))
-			}
+		obs.Dropped = r.watcher.Drops() > drops
+		if r.watcher.EventCount() > events {
+			obs.Event, obs.NewEvent = r.watcher.LastEvent()
+		}
+		if r.watcher.RequestCount() > requests {
+			obs.Request, obs.NewRequest = r.watcher.LastRequest()
+		}
+		if obs.NewEvent && obs.NewRequest {
 			palette := v.Palette()
 			for _, scale := range []int{2, 3} {
-				if err := r.presenters[scale].Apply(event, request, palette); err != nil {
-					return r.failWith(fmt.Errorf("buckrogers: live menu %d× apply：%w", scale, err))
+				if err := r.presenters[scale].Apply(obs.Event, obs.Request, palette); err != nil {
+					return obs, r.failWith(fmt.Errorf("buckrogers: live menu %d× apply：%w", scale, err))
 				}
 			}
+		} else if r.watcher.EventCount() > events && !obs.NewEvent {
+			return obs, r.failWith(errors.New("buckrogers: live menu 事件計數前進但沒有內容"))
 		}
 	}
-	return nil
+	return obs, nil
 }
+
+// Pending reports an in-flight dispatcher frame.
+func (r *LiveMenuRuntime) Pending() bool { return r.watcher.Pending() }
+
+// RegisterAffix forwards an affix shape to the shared recorder.
+func (r *LiveMenuRuntime) RegisterAffix(s AffixShape) error { return r.watcher.RegisterAffix(s) }
 
 // Frame forwards one vertical retrace to every presenter.
 func (r *LiveMenuRuntime) Frame(indexed []byte, palette [256][3]uint8) {

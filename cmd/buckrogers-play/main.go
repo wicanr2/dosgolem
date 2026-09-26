@@ -210,11 +210,7 @@ func main() {
 	if err != nil {
 		die(err)
 	}
-	menu, err := buckrogers.LoadLiveMenuRuntime(*textDir, *fontPath)
-	if err != nil {
-		die(err)
-	}
-	live, err := buckrogers.NewLiveRuntime(menu)
+	live, err := buckrogers.LoadLiveRuntime(*textDir, *fontPath)
 	if err != nil {
 		die(err)
 	}

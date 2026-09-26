@@ -484,6 +484,10 @@ func main() {
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	scopedMenu3 := flag.Bool("scoped-menu-3x", false, "明示啟用限正式 menu-only catalog 的 3x 倚天 22 點主選單覆繪")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
+	postJoinFontUnpinned := flag.Bool("post-join-font-unpinned", false, "診斷對照用：加入後選單不鎖定 READY 字型 SHA，改由 presenter 檢查字模覆蓋")
+	liveTextDir := flag.String("live-text-dir", "", "並行驅動完整 LiveRuntime 的 catalog 目錄（對照用）")
+	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
+	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
 	liveMenuOut := flag.String("live-menu-rgba-out", "", "並行驅動 LiveMenuRuntime，輸出其 overlay-scale RGBA（與 overlay-rgba-out 對照用）")
 	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
 	manualEvents := flag.String("manual-events", "", "正式 manual-events.tsv")
@@ -717,7 +721,7 @@ func main() {
 			fail(err)
 		}
 		fontBytes := mustReadFile(*postJoinFont)
-		if fmt.Sprintf("%x", sha256.Sum256(fontBytes)) != "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174" {
+		if !*postJoinFontUnpinned && fmt.Sprintf("%x", sha256.Sum256(fontBytes)) != "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174" {
 			fail(fmt.Errorf("post-join READY 字型 SHA-256 不符"))
 		}
 		font, err := xlate.LoadFont(*postJoinFont)
@@ -1293,13 +1297,23 @@ func main() {
 			fail(liveErr)
 		}
 	}
-	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil || storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
+	var liveAll *buckrogers.LiveRuntime
+	if *liveTextDir != "" {
+		var liveErr error
+		if liveAll, liveErr = buckrogers.LoadLiveRuntime(*liveTextDir, *overlayFont); liveErr != nil {
+			fail(liveErr)
+		}
+	}
+	if liveAll != nil || presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil || storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
 		m.SetOnFrame(func() {
 			if presenter != nil {
 				presenter.Frame(m.Indexed(), m.Palette())
 			}
 			if liveMenu != nil {
 				liveMenu.Frame(m.Indexed(), m.Palette())
+			}
+			if liveAll != nil {
+				liveAll.Frame(m.Indexed(), m.Palette())
 			}
 			if actionBarPresenter != nil {
 				actionBarPresenter.Frame(m.Indexed(), m.Palette())
@@ -1496,8 +1510,11 @@ func main() {
 	if *bodyIconFramebufferTrace || *bodyIconA000PrewriteTrace {
 		bodyIconA000Trace = newBodyIconA000Observer(bodyRects, *bodyIconFramebufferTraceFrom, *until, bodyIconPrewriteAfterSteps)
 	}
-	if bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil || skillExitOwner != nil || exitPromptOwner != nil || storyPage9Watcher != nil {
+	if liveAll != nil || bodyIconA000Trace != nil || bodyIconPresenter != nil || postJoinWatcher != nil || postJoinPresenter != nil || skillExitOwner != nil || exitPromptOwner != nil || storyPage9Watcher != nil {
 		m.ObserveVideoWrites(func(w machine.VideoWrite) {
+			if liveAll != nil {
+				liveAll.VideoWrite(w)
+			}
 			if storyPage9Watcher != nil {
 				before := len(storyPage9Presenter.ActiveKeys())
 				if storyPage9Owner.Prewrite(w) {
@@ -1575,6 +1592,11 @@ func main() {
 		}
 		if liveMenu != nil {
 			if err := liveMenu.BeforeStep(machineReader{m}); err != nil {
+				fail(err)
+			}
+		}
+		if liveAll != nil {
+			if err := liveAll.BeforeStep(machineReader{m}); err != nil {
 				fail(err)
 			}
 		}
@@ -2418,6 +2440,15 @@ func main() {
 		}
 		outputs.add(*postJoinBaselineOut, baseline)
 		outputs.add(*postJoinOut, rgba)
+	}
+	if liveAll != nil && *liveOut != "" {
+		rgba, ok, err := liveAll.Compose(*liveScale)
+		if err != nil || !ok {
+			fail(fmt.Errorf("live runtime compose：ok=%v err=%v", ok, err))
+		}
+		if err := os.WriteFile(*liveOut, rgba, 0o600); err != nil {
+			fail(err)
+		}
 	}
 	if skillExitOwner != nil {
 		if *skillExitExpectActive && (!skillExitOwner.Watcher.Active() || len(skillExitOwner.Presenter.ActiveKeys()) != 1) {

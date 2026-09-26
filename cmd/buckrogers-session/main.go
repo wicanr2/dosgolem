@@ -111,11 +111,7 @@ func main() {
 	var live *buckrogers.LiveRuntime
 	var observer session.StepObserver
 	if *textDir != "" {
-		menu, err := buckrogers.LoadLiveMenuRuntime(*textDir, *fontPath)
-		if err != nil {
-			die(err)
-		}
-		live, err = buckrogers.NewLiveRuntime(menu)
+		live, err = buckrogers.LoadLiveRuntime(*textDir, *fontPath)
 		if err != nil {
 			die(err)
 		}
