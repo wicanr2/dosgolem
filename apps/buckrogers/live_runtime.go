@@ -59,6 +59,11 @@ type LiveRuntime struct {
 	hmenuPres [2]*HMenuOverlay
 	hmenuGen  uint64
 
+	// engDisp is the spec-029 dispatcher path; nil without allow list.
+	engDisp     *EngineDispatchWatcher
+	engDispPres [2]*HMenuOverlay
+	engDispGen  uint64
+
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
 	exitCatalog  *PostJoinExitPromptCatalog
@@ -200,6 +205,9 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 		return err
 	} else if eng != nil {
 		r.ecl.SetEngine(eng)
+		if err := r.loadEngineDispatch(textDir, eng); err != nil {
+			return err
+		}
 	}
 	for i, scale := range liveScales {
 		if r.eclPres[i], err = NewEclTextOverlay(r.font, scale); err != nil {
@@ -322,6 +330,63 @@ func loadEngineText(textDir string) (*EngineTextCatalog, error) {
 		}
 	}
 	return LoadEngineTextCatalog(f)
+}
+
+func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog) error {
+	allowData, err := os.ReadFile(filepath.Join(textDir, "engine-dispatch-callers.tsv"))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	names, err := filepath.Glob(filepath.Join(textDir, "*-events.tsv"))
+	if err != nil {
+		return err
+	}
+	files := map[string][]byte{}
+	for _, n := range names {
+		b, err := os.ReadFile(n)
+		if err != nil {
+			return err
+		}
+		files[filepath.Base(n)] = b
+	}
+	allow, err := LoadEngineDispatchCallers(allowData, OwnedCallers(files))
+	if err != nil {
+		return err
+	}
+	r.engDisp = NewEngineDispatchWatcher(eng, allow)
+	r.engDispGen = r.engDisp.Generation()
+	for i, scale := range liveScales {
+		if r.engDispPres[i], err = NewHMenuOverlay(r.font, scale); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *LiveRuntime) syncEngineDispatch(palette [256][3]uint8) {
+	if r.engDisp == nil {
+		return
+	}
+	if g := r.engDisp.Generation(); g != r.engDispGen {
+		p := r.engDisp.Page()
+		for i := range liveScales {
+			if miss := r.engDispPres[i].Sync(p, g, palette); len(miss) != 0 {
+				r.resets["engine-dispatch"]++
+				r.engDisp.ObserveDiscontinuity()
+				g = r.engDisp.Generation()
+				for j := range liveScales {
+					r.engDispPres[j].Sync(nil, g, palette)
+				}
+				break
+			}
+		}
+		r.engDispGen = g
+	}
+	for i := range liveScales {
+		r.engDispPres[i].Frame(palette)
+	}
 }
 
 // observeEclText handles the text-window printer entry and its return.
@@ -461,6 +526,9 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	if r.hmenu != nil && (at == hmenuPrinter || r.hmenu.InCall()) {
 		r.observeHMenu(v, at)
 	}
+	if r.engDisp.InCall() {
+		r.engDisp.ObserveInstruction(at, v.SS(), v.SP())
+	}
 	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && at == p.caller {
 		if ss, sp := v.SS(), v.SP(); ss == p.ss && sp == p.sp+storyReturnStackDelta {
 			for _, f := range r.stories {
@@ -480,6 +548,9 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		// possible without losing the other families' frames, so this stays
 		// fatal (it has never been observed on a normal path).
 		return err
+	}
+	if obs.Kind == ObservedEntry && r.engDisp != nil {
+		r.engDisp.ObserveEntry(obs.Caller, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original)
 	}
 	switch obs.Kind {
 	case ObservedClear:
@@ -720,6 +791,9 @@ func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
 	if r.hmenu != nil {
 		r.hmenu.ObserveVideoWrite(w.Offset)
 	}
+	if r.engDisp != nil {
+		r.engDisp.ObserveVideoWrite(w.Offset)
+	}
 	for i := range liveScales {
 		r.bodyPres[i].Prewrite(w)
 	}
@@ -756,6 +830,7 @@ func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	}
 	r.syncEclText(palette)
 	r.syncHMenu(palette)
+	r.syncEngineDispatch(palette)
 	r.indexed, r.palette, r.hasFrame = indexed, palette, true
 	r.frameSeen++
 }
@@ -781,6 +856,7 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	// happened after the last retrace before drawing.
 	r.syncEclText(palette)
 	r.syncHMenu(palette)
+	r.syncEngineDispatch(palette)
 	i := 0
 	if scale == 3 {
 		i = 1
@@ -869,6 +945,12 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 			return nil, false, err
 		}
 	}
+	if r.engDisp != nil && r.engDispPres[i].Active() && !r.rowsTouched(out, scale, r.engDisp.Page()) {
+		rgba, missing := r.engDispPres[i].Draw(r.indexed, r.palette)
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
 	return out, true, nil
 }
 
@@ -883,6 +965,9 @@ func (r *LiveRuntime) DebugSummary() string {
 	}
 	if r.hmenu != nil {
 		s += fmt.Sprintf(" hmenu=%+v", r.hmenu.Stats)
+	}
+	if r.engDisp != nil {
+		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
 	}
 	return s
 }

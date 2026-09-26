@@ -73,3 +73,35 @@ func TestEngineDecomposeAndTranslate(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineDispatchAllowListAndLifecycle(t *testing.T) {
+	c := engineFixture(t)
+	if _, err := LoadEngineDispatchCallers([]byte("caller\tnote\n37F1:101E\tx\n"), map[Address]bool{{0x37F1, 0x101E}: true}); err == nil {
+		t.Fatal("owned caller accepted")
+	}
+	allow, err := LoadEngineDispatchCallers([]byte("caller\tnote\n1FEB:0560\tAC\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewEngineDispatchWatcher(c, allow)
+	ret := Address{0x1FEB, 0x0560}
+	args := [6]uint16{0, 0, 0, 5, 3, 30}
+	w.ObserveEntry(Address{0x1FEB, 0x0999}, 1, 0x100, Address{0x1FEB, 0x0999}, args, []byte("AC"))
+	if w.Page() != nil {
+		t.Fatal("caller outside allow list drew")
+	}
+	w.ObserveEntry(ret, 1, 0x100, ret, args, []byte("AC"))
+	p := w.Page()
+	if p == nil || p.Rows[0].Row != 3 || p.Rows[0].Col != 30 || string(p.Rows[0].Cells[0].Rune) != "防" {
+		t.Fatalf("%+v", p)
+	}
+	w.ObserveVideoWrite(3*8*320 + 30*8)
+	if w.Page() == nil {
+		t.Fatal("in-call write dropped line")
+	}
+	w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
+	w.ObserveVideoWrite(3*8*320 + 31*8)
+	if w.Page() != nil {
+		t.Fatal("post-call write kept line")
+	}
+}
