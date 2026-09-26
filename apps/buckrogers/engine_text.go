@@ -338,7 +338,7 @@ func (c *EngineTextCatalog) itemChinese(t string) (string, bool) {
 		if u == 0 {
 			return "", false
 		}
-		z := c.itemText[c.item[engineIDOf(t[q:q+u])]]
+		z := c.itemText[strings.TrimSuffix(c.item[engineIDOf(t[q:q+u])], ".uc")]
 		if z == "" {
 			return "", false
 		}
@@ -436,7 +436,7 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 		switch p.Kind {
 		case 'F':
 			hasFixed = true
-			z := c.fragText[p.Key]
+			z := c.fragText[strings.TrimSuffix(p.Key, ".uc")]
 			if z == "" {
 				if _, _, tmpl := c.matchTemplate(parts); !tmpl {
 					return "", false

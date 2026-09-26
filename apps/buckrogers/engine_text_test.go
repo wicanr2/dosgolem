@@ -71,6 +71,17 @@ func TestEngineDecomposeAndTranslate(t *testing.T) {
 			t.Errorf("%q: %q %v want %q", tc.in, zh, ok, tc.zh)
 		}
 	}
+	// Upper-case variants share the base translation (".uc" keys).
+	up, err := LoadEngineTextFiles(t, "Attacks", "攻擊")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if zh, ok := up.Translate("ATTACKS"); !ok || zh != "攻擊" {
+		t.Errorf("upper-case fragment: %q %v", zh, ok)
+	}
+	if zh, ok := up.Translate("LASER PISTOL (250)"); !ok || zh != "雷射手槍 (250)" {
+		t.Errorf("upper-case item: %q %v", zh, ok)
+	}
 	// Untranslated fragment, all-caps names, and a lone common item word.
 	if zh, ok := c.Translate("TERRINE WARRIOR"); !ok || zh != "特林戰士" {
 		t.Errorf("monster name: %q %v", zh, ok)
@@ -150,4 +161,31 @@ func TestEngineTemplateWildcard(t *testing.T) {
 			t.Errorf("%q -> %q %v, want %q", in, got, ok, want)
 		}
 	}
+}
+
+// LoadEngineTextFiles builds a catalog with one fragment and upper-case
+// variants the way tools/engine_fragments.py writes them.
+func LoadEngineTextFiles(t *testing.T, frag, zh string) (*EngineTextCatalog, error) {
+	t.Helper()
+	fh := sha256.Sum256([]byte(frag))
+	key := fmt.Sprintf("frag.%x", fh[:6])
+	uh := sha256.Sum256([]byte(strings.ToUpper(frag)))
+	ev := fmt.Sprintf("event_key\toriginal_length\toriginal_sha256\n%s\t%d\t%x\n%s.uc\t%d\t%x\n", key, len(frag), fh, key, len(frag), uh)
+	var items strings.Builder
+	items.WriteString("event_key\toriginal_length\toriginal_sha256\n")
+	var itemZh strings.Builder
+	itemZh.WriteString("key\ttranslation\tsource\n")
+	for w, z := range map[string]string{"Laser": "雷射", "Pistol": "手槍"} {
+		h := sha256.Sum256([]byte(w))
+		k := fmt.Sprintf("item.%x", h[:6])
+		u := sha256.Sum256([]byte(strings.ToUpper(w)))
+		fmt.Fprintf(&items, "%s\t%d\t%x\n%s.uc\t%d\t%x\n", k, len(w), h, k, len(w), u)
+		fmt.Fprintf(&itemZh, "%s\t%s\tx\n", k, z)
+	}
+	return LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: []byte(ev),
+		FragmentText:   []byte(fmt.Sprintf("key\ttranslation\tsource\n%s\t%s\tx\n", key, zh)),
+		ItemEvents:     []byte(items.String()),
+		ItemText:       []byte(itemZh.String()),
+	})
 }

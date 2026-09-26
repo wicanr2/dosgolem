@@ -474,7 +474,7 @@ func (r *LiveRuntime) syncEclText(palette [256][3]uint8) {
 		return
 	}
 	if g := r.ecl.Generation(); g != r.eclGen {
-		p := r.ecl.Page()
+		p := r.ecl.Pages()
 		for i := range liveScales {
 			if miss := r.eclPres[i].Sync(p, g, palette); len(miss) != 0 {
 				r.resets["ecl-text"]++

@@ -110,30 +110,50 @@ type EclTextLine struct {
 	Text     []rune
 }
 
-// EclTextPage is the window's current presentation: the mask rectangle
-// (in 8×8 cells, inclusive) and the rows drawn inside it.
+// EclTextPage is one window's presentation: the mask rectangle (in 8×8
+// cells, inclusive) and the rows drawn inside it.
 type EclTextPage struct {
 	Generation               uint64
 	Left, Top, Right, Bottom uint8
 	Background, Foreground   uint8
 	Lines                    []EclTextLine
 	Keys                     []string
+	Gone                     uint32 // rows removed by later original writes (bit = row)
+	endRow, endCol           uint8  // Chinese cursor after the last string
 }
 
-// EclTextWatcher implements spec 027 §3.2–§3.5.
+// Shows reports whether the page still masks the given row.
+func (p *EclTextPage) Shows(row uint8) bool { return p.Gone&(1<<row) == 0 }
+
+func (p *EclTextPage) live() bool {
+	for _, l := range p.Lines {
+		if p.Shows(l.Row) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *EclTextPage) sameWindow(e EclTextEntry) bool {
+	return p.Left == e.Left && p.Right == e.Right && p.Bottom == e.Bottom
+}
+
+func (p *EclTextPage) intersects(l, t, r, b uint8) bool {
+	return p.Left <= r && l <= p.Right && p.Top <= b && t <= p.Bottom
+}
+
+// EclTextWatcher implements spec 027 §3.2–§3.7: one page per text window.
 type EclTextWatcher struct {
 	catalog *EclTextCatalog
 	engine  *EngineTextCatalog // spec 029 fallback; nil disables
-	page    *EclTextPage
-	endRow  uint8 // Chinese cursor after the last presentation
-	endCol  uint8
+	pages   []*EclTextPage
 	inCall  bool
 	call    EclTextEntry
 	gen     uint64
 	Stats   EclTextStats
 }
 
-type EclTextStats struct{ Hits, Misses, Overflows, Invalidations, Reentries int }
+type EclTextStats struct{ Hits, Misses, Overflows, Invalidations, Reentries, Passthrough int }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
 	return &EclTextWatcher{catalog: c, gen: 1}
@@ -142,12 +162,20 @@ func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
 // SetEngine installs the spec-029 fallback for strings the ECL catalog misses.
 func (w *EclTextWatcher) SetEngine(c *EngineTextCatalog) { w.engine = c }
 
-// Page returns the active presentation or nil.
-func (w *EclTextWatcher) Page() *EclTextPage {
+// Pages returns the active presentations.
+func (w *EclTextWatcher) Pages() []*EclTextPage {
 	if w == nil {
 		return nil
 	}
-	return w.page
+	return w.pages
+}
+
+// Page returns the first active presentation (tests and single-window use).
+func (w *EclTextWatcher) Page() *EclTextPage {
+	if w == nil || len(w.pages) == 0 {
+		return nil
+	}
+	return w.pages[0]
 }
 
 func (w *EclTextWatcher) Generation() uint64 {
@@ -160,13 +188,60 @@ func (w *EclTextWatcher) Generation() uint64 {
 // InCall reports whether a hit call is still in flight (for the fast path).
 func (w *EclTextWatcher) InCall() bool { return w != nil && w.inCall }
 
-func (w *EclTextWatcher) invalidate() {
-	if w.page != nil {
-		w.page = nil
+func (w *EclTextWatcher) drop(keep func(*EclTextPage) bool) {
+	n := 0
+	for _, p := range w.pages {
+		if keep(p) {
+			w.pages[n] = p
+			n++
+		}
+	}
+	if n != len(w.pages) {
+		w.pages = w.pages[:n]
 		w.gen++
 		w.Stats.Invalidations++
 	}
+}
+
+// removeRows implements the row-level invalidation of §3.7: rows of other
+// pages inside [t,b] whose columns meet [l,r] stop masking.
+func (w *EclTextWatcher) removeRows(l, t, r, b uint8, except *EclTextPage) {
+	changed := false
+	n := 0
+	for _, p := range w.pages {
+		if p != except && p.intersects(l, t, r, b) {
+			for row := max(t, p.Top); row <= min(b, p.Bottom); row++ {
+				if p.Shows(row) {
+					p.Gone |= 1 << row
+					changed = true
+				}
+			}
+			if !p.live() {
+				continue
+			}
+		}
+		w.pages[n] = p
+		n++
+	}
+	if changed || n != len(w.pages) {
+		w.pages = w.pages[:n]
+		w.gen++
+		w.Stats.Invalidations++
+	}
+}
+
+func (w *EclTextWatcher) invalidate() {
+	w.drop(func(*EclTextPage) bool { return false })
 	w.inCall = false
+}
+
+func (w *EclTextWatcher) window(e EclTextEntry) (int, *EclTextPage) {
+	for i, p := range w.pages {
+		if p.sameWindow(e) {
+			return i, p
+		}
+	}
+	return -1, nil
 }
 
 // ObserveEntry handles CS:IP = 0763:056C.
@@ -185,6 +260,17 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		w.invalidate()
 		return
 	}
+	outside := e.CursorCol < e.Left || e.CursorCol > e.Right || e.CursorRow < e.Top || e.CursorRow > e.Bottom
+	fresh := e.Clear || outside
+	idx, p := w.window(e)
+	if fresh {
+		// The original clears this window: rows it overlaps are stale.
+		if p != nil {
+			w.drop(func(q *EclTextPage) bool { return q != p })
+		}
+		w.removeRows(e.Left, e.Top, e.Right, e.Bottom, nil)
+		idx, p = w.window(e)
+	}
 	key, text, ok := w.catalog.Lookup(e.Original)
 	if !ok && w.engine != nil {
 		if text, ok = w.engine.Translate(string(e.Original)); ok {
@@ -193,28 +279,27 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	}
 	if !ok {
 		w.Stats.Misses++
-		w.invalidate()
-		return
+		if p == nil {
+			// Nothing of ours in this window: the original shows as is.
+			return
+		}
+		// §3.7: a continuation we cannot translate joins the page verbatim.
+		text, key = string(e.Original), "passthrough"
+		w.Stats.Passthrough++
 	}
-	outside := e.CursorCol < e.Left || e.CursorCol > e.Right || e.CursorRow < e.Top || e.CursorRow > e.Bottom
-	p := w.page
-	sameWindow := p != nil && p.Left == e.Left && p.Right == e.Right && p.Bottom == e.Bottom
-	fresh := e.Clear || outside || !sameWindow
 	var row, col, first uint8
 	switch {
-	case e.Clear || outside:
+	case fresh:
 		row, col, first = e.Top, e.Left, e.Top
-	case !sameWindow:
+	case p == nil:
 		// A continuation after text we did not translate: start where the
 		// original will print and never mask the English above it.
 		row, col, first = e.CursorRow, e.CursorCol, e.CursorRow
 	default:
-		row, col, first = w.endRow, w.endCol, p.Top
+		row, col, first = p.endRow, p.endCol, p.Top
 		if e.CursorCol == e.Left && col != e.Left {
 			row, col = row+1, e.Left
 		}
-		// The English continuation starts at the original cursor; the mask
-		// must reach it even when the Chinese sits higher.
 		if e.CursorRow < first {
 			first = e.CursorRow
 		}
@@ -222,21 +307,28 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	lines, endRow, endCol, fits := layoutEclText([]rune(text), row, col, e.Left, e.Right, e.Bottom)
 	if !fits {
 		w.Stats.Overflows++
-		w.invalidate()
+		if p != nil {
+			w.drop(func(q *EclTextPage) bool { return q != p })
+		}
 		return
 	}
 	next := &EclTextPage{Left: e.Left, Top: first, Right: e.Right, Bottom: e.Bottom,
-		Background: e.Background, Foreground: e.Foreground}
-	if !fresh {
+		Background: e.Background, Foreground: e.Foreground, endRow: endRow, endCol: endCol}
+	if p != nil {
 		next.Lines = append(next.Lines, p.Lines...)
 		next.Keys = append(next.Keys, p.Keys...)
+		// Rows this call prints on mask again.
+		next.Gone = p.Gone &^ (^uint32(0) << min(row, e.CursorRow))
 	}
 	next.Lines = append(next.Lines, lines...)
 	next.Keys = append(next.Keys, key)
 	w.gen++
 	next.Generation = w.gen
-	w.page = next
-	w.endRow, w.endCol = endRow, endCol
+	if idx >= 0 {
+		w.pages[idx] = next
+	} else {
+		w.pages = append(w.pages, next)
+	}
 	w.inCall = true
 	w.call = e
 	w.Stats.Hits++
@@ -252,16 +344,13 @@ func (w *EclTextWatcher) ObserveInstruction(at Address, ss, sp uint16) {
 	}
 }
 
-// ObserveVideoWrite applies §3.5 rule 3 to one A000 byte offset.
+// ObserveVideoWrite applies §3.5 rule 3 per page.
 func (w *EclTextWatcher) ObserveVideoWrite(offset uint32) {
-	if w == nil || w.page == nil || w.inCall || offset >= 320*200 {
+	if w == nil || len(w.pages) == 0 || w.inCall || offset >= 320*200 {
 		return
 	}
-	x, y := offset%320, offset/320
-	p := w.page
-	if x >= uint32(p.Left)*8 && x < (uint32(p.Right)+1)*8 && y >= uint32(p.Top)*8 && y < (uint32(p.Bottom)+1)*8 {
-		w.invalidate()
-	}
+	col, row := uint8(offset%320/8), uint8(offset/320/8)
+	w.removeRows(col, row, col, row, nil)
 }
 
 // ObserveDiscontinuity handles restore / observer fault.
