@@ -33,6 +33,12 @@ type LiveRuntime struct {
 	action   *ActionBarWatcher
 	actPres  [2]*RuntimeActionBarOverlay
 	stories  []storyFamily
+	manual   *Watcher
+	manPres  [2]*RuntimeManualOverlay
+	manSync  [2]*ManualPresentationBridge
+	manSeen  int
+	manStyle ManualTextStyle
+	manHas   bool
 
 	// storyPending is the shared in-flight 0763:026B glyph call; prev* is
 	// the instruction before the current one, recorded while it is set.
@@ -72,6 +78,7 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		"post-join-exit-prompt-events.tsv", "post-join-exit-prompt.zh-TW.tsv",
 		"post-join-menu-events.tsv", "post-join-menu-variants.tsv", "post-join-menu.zh-TW.tsv",
 		"skill-action-bar-events.tsv", "skill-action-bar.zh-TW.tsv", "skill-action-bar-text-safe-rects.tsv",
+		"manual-events.tsv", "manual-ordinals.tsv", "manual.zh-TW.tsv", "manual-overlay-layout.tsv",
 	} {
 		b, err := os.ReadFile(filepath.Join(textDir, name))
 		if err != nil {
@@ -100,6 +107,27 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 	}
 	if r.stories, err = storyPages(textDir, font); err != nil {
 		return nil, err
+	}
+	manualCatalog, err := LoadCatalog(files["manual-events.tsv"], files["manual-ordinals.tsv"], files["manual.zh-TW.tsv"])
+	if err != nil {
+		return nil, err
+	}
+	manualLayout, err := LoadManualOverlayLayout("manual-overlay-layout.tsv", files["manual-overlay-layout.tsv"])
+	if err != nil {
+		return nil, err
+	}
+	r.manual = NewWatcher(manualCatalog)
+	for i, scale := range liveScales {
+		if r.manPres[i], err = NewRuntimeManualOverlay(manualLayout, manualCatalog, font, scale); err != nil {
+			return nil, err
+		}
+		consumer, err := NewManualPresentationConsumer(r.manPres[i])
+		if err != nil {
+			return nil, err
+		}
+		if r.manSync[i], err = NewManualPresentationBridge(r.manual, consumer); err != nil {
+			return nil, err
+		}
 	}
 	for i := range liveScales {
 		if err := r.resetSkill(i); err != nil {
@@ -220,6 +248,10 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	}
 	switch obs.Kind {
 	case ObservedClear:
+		// A proven clear can also be the guarded return of an in-flight manual
+		// call: keep that post-call before applying the clear (runner order).
+		r.manual.ObserveInstruction(at, obs.SS, obs.SP, v.Steps())
+		r.manual.ObserveClear(v.Steps())
 		c := obs.Clear
 		r.action.ObserveClear(c[0], c[1], c[2], c[3])
 		for i := range liveScales {
@@ -265,6 +297,9 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 				}
 			}
 		}
+		r.manual.ObserveDispatchEntryWithStyle(obs.Caller, obs.SS, obs.SP, string(obs.Original), ManualTextStyle{
+			Background: uint8(obs.Args[2]), Foreground: uint8(obs.Args[3]), Row: uint8(obs.Args[4]), Column: uint8(obs.Args[5]),
+		}, steps)
 		if postJoinEntryRow(obs.Caller, uint8(obs.Args[4])) {
 			if err := r.postJoin.ObserveEntry(textEvent(steps, obs.Caller, obs.Args, obs.Original)); err != nil {
 				if err := r.recover("post-join", r.resetPostJoin); err != nil {
@@ -332,6 +367,12 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 			}
 		}
 	}
+	if obs.Kind == ObservedOther || (obs.Kind == ObservedNothing && r.manual.pending != nil) {
+		r.manual.ObserveInstruction(at, v.SS(), v.SP(), v.Steps())
+	}
+	if err := r.syncManual(); err != nil {
+		return err
+	}
 	if at == glyphEntry {
 		ss, sp := v.SS(), v.SP()
 		caller := Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
@@ -384,6 +425,29 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	return nil
 }
 
+// syncManual forwards new manual presentation events and style changes to
+// both scales, only when something changed (the runner does it every step).
+func (r *LiveRuntime) syncManual() error {
+	if style, ok := r.manual.ManualStyle(); ok && (!r.manHas || style != r.manStyle) {
+		for i := range liveScales {
+			if err := r.manPres[i].SetStyle(style); err != nil {
+				r.resets["manual"]++
+				return nil
+			}
+		}
+		r.manStyle, r.manHas = style, true
+	}
+	if n := len(r.manual.presentation); n != r.manSeen {
+		r.manSeen = n
+		for i := range liveScales {
+			if _, err := r.manSync[i].Sync(); err != nil {
+				r.resets["manual"]++
+			}
+		}
+	}
+	return nil
+}
+
 // yieldMenu lets the newest family writer win: the original just drew these
 // rectangles, so any menu stamp there is already stale.
 func (r *LiveRuntime) yieldMenu(rects []PixelRect) {
@@ -421,6 +485,9 @@ func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	r.menu.Frame(indexed, palette)
 	for _, f := range r.stories {
 		f.frame(indexed, palette)
+	}
+	for i := range liveScales {
+		r.manPres[i].Frame(indexed, palette)
 	}
 	for i := range liveScales {
 		r.actPres[i].Frame(indexed, palette)
@@ -485,6 +552,12 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 		if err != nil {
 			return nil, false, err
 		}
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	if len(r.manPres[i].ActiveKeys()) != 0 {
+		rgba, missing, _ := r.manPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}
