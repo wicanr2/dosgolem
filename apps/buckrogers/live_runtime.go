@@ -30,11 +30,15 @@ type LiveRuntime struct {
 	exit     [2]*PostJoinExitPromptOwner
 	postJoin *PostJoinMenuWatcher
 	postPres [2]*RuntimePostJoinMenuOverlay
+	action   *ActionBarWatcher
+	actPres  [2]*RuntimeActionBarOverlay
 
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
 	exitCatalog  *PostJoinExitPromptCatalog
 	postCatalog  *PostJoinMenuCatalog
+	actCatalog   *ActionBarRequestCatalog
+	actRects     *MenuOverlayRects
 
 	indexed   []byte
 	palette   [256][3]uint8
@@ -59,6 +63,7 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		"career-skill-exit-events.tsv", "technical-skill-exit-events.tsv", "skill-exit-confirmation.zh-TW.tsv",
 		"post-join-exit-prompt-events.tsv", "post-join-exit-prompt.zh-TW.tsv",
 		"post-join-menu-events.tsv", "post-join-menu-variants.tsv", "post-join-menu.zh-TW.tsv",
+		"skill-action-bar-events.tsv", "skill-action-bar.zh-TW.tsv", "skill-action-bar-text-safe-rects.tsv",
 	} {
 		b, err := os.ReadFile(filepath.Join(textDir, name))
 		if err != nil {
@@ -74,6 +79,15 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		return nil, err
 	}
 	if r.postCatalog, err = LoadPostJoinMenuCatalog(files["post-join-menu-events.tsv"], files["post-join-menu-variants.tsv"], files["post-join-menu.zh-TW.tsv"]); err != nil {
+		return nil, err
+	}
+	if r.actCatalog, err = LoadActionBarRequestCatalog(files["skill-action-bar-events.tsv"], files["skill-action-bar.zh-TW.tsv"]); err != nil {
+		return nil, err
+	}
+	if r.actRects, err = LoadActionBarOverlayRects("skill-action-bar-text-safe-rects.tsv", files["skill-action-bar-text-safe-rects.tsv"]); err != nil {
+		return nil, err
+	}
+	if err := r.resetAction(); err != nil {
 		return nil, err
 	}
 	for i := range liveScales {
@@ -121,6 +135,20 @@ func (r *LiveRuntime) resetPostJoin() error {
 	return nil
 }
 
+func (r *LiveRuntime) resetAction() error {
+	var pres [2]*RuntimeActionBarOverlay
+	for i, scale := range liveScales {
+		style := HotkeyPreservingActionBarNormalStyle()
+		p, err := NewRuntimeActionBarOverlay(r.actCatalog, r.actRects, r.font, scale, &style)
+		if err != nil {
+			return err
+		}
+		pres[i] = p
+	}
+	r.action, r.actPres = NewActionBarRequestWatcher(r.actCatalog), pres
+	return nil
+}
+
 // recover rebuilds a family after an error.  A rebuild failure is a
 // programming error in catalog loading and is returned.
 func (r *LiveRuntime) recover(family string, rebuild func() error) error {
@@ -148,8 +176,16 @@ func postJoinEntryRow(caller Address, row uint8) bool {
 		(caller.Offset == 0x15bd || caller.Offset == 0x175d || caller.Offset == 0x1856)
 }
 
+var glyphEntry = Address{Segment: 0x0763, Offset: 0x026B}
+
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
+	at := Address{Segment: v.CS(), Offset: v.IP()}
+	actionRequests := -1
+	if r.action.Pending() {
+		actionRequests = len(r.action.requests)
+		r.action.ObserveInstruction(at, v.SS(), v.SP(), v.Steps())
+	}
 	obs, err := r.menu.Observe(v)
 	if err != nil {
 		// The menu family owns the shared recorder; rebuilding it is not
@@ -158,6 +194,17 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		return err
 	}
 	switch obs.Kind {
+	case ObservedClear:
+		c := obs.Clear
+		r.action.ObserveClear(c[0], c[1], c[2], c[3])
+		for i := range liveScales {
+			if err := r.actPres[i].ClearTextCells(c[0], c[1], c[2], c[3]); err != nil {
+				if err := r.recover("action-bar", r.resetAction); err != nil {
+					return err
+				}
+				break
+			}
+		}
 	case ObservedEntry:
 		steps := v.Steps()
 		for i := range liveScales {
@@ -201,6 +248,12 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 			}
 		}
 	case ObservedOther:
+		if obs.NewRequest {
+			r.action.ObserveAnchorEvent(obs.Request.EventKey)
+			for i := range liveScales {
+				r.actPres[i].ObserveAnchorEvent(obs.Request.EventKey)
+			}
+		}
 		palette := [256][3]uint8{}
 		if obs.NewEvent {
 			palette = v.Palette()
@@ -254,6 +307,25 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 			}
 		}
 	}
+	if at == glyphEntry {
+		ss, sp := v.SS(), v.SP()
+		caller := Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
+		var args [7]uint16
+		for i := range args {
+			args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
+		}
+		r.action.ObserveGlyphEntry(caller, ss, sp, args, v.Steps())
+	}
+	if actionRequests >= 0 && len(r.action.requests) > actionRequests {
+		events := r.action.collector.events
+		request := r.action.requests[len(r.action.requests)-1]
+		palette := v.Palette()
+		for i := range liveScales {
+			if err := r.actPres[i].Apply(events[len(events)-1], request, palette); err != nil {
+				return r.recover("action-bar", r.resetAction)
+			}
+		}
+	}
 	return nil
 }
 
@@ -288,6 +360,9 @@ func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
 
 func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	r.menu.Frame(indexed, palette)
+	for i := range liveScales {
+		r.actPres[i].Frame(indexed, palette)
+	}
 	r.indexed, r.palette, r.hasFrame = indexed, palette, true
 	r.frameSeen++
 }
@@ -339,6 +414,12 @@ func (r *LiveRuntime) Compose(scale int) ([]byte, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	if len(r.actPres[i].ActiveKeys()) != 0 {
+		rgba, missing, _ := r.actPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}
