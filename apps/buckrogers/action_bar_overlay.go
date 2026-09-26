@@ -66,7 +66,7 @@ type ActionBarNormalStyle struct {
 // only the Latin mnemonic is white; parentheses and Traditional Chinese are
 // rendered with the original normal-label color.
 func HotkeyPreservingActionBarNormalStyle() ActionBarNormalStyle {
-	return ActionBarNormalStyle{RuneForegrounds: []uint8{10, 15, 10, 10, 10}}
+	return ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10, 10, 15, 10}}
 }
 
 func actionBarRuneAdvance(r rune) int {

@@ -612,7 +612,7 @@ func TestActionBarDiffRejectsPixelsOutsideApprovedRow24Rects(t *testing.T) {
 }
 
 func TestActionBarHotkeyStylePreservesWhiteMnemonicOnly(t *testing.T) {
-	normal := buckrogers.ActionBarOverlayAction{EventKey: "career.action.add.normal", Background: 0, RuneForegrounds: []uint8{10, 15, 10, 10, 10}}
+	normal := buckrogers.ActionBarOverlayAction{EventKey: "career.action.add.normal", Background: 0, RuneForegrounds: []uint8{10, 10, 10, 15, 10}}
 	focus := buckrogers.ActionBarOverlayAction{EventKey: "career.action.add.focus", Background: 15, RuneForegrounds: []uint8{0, 0, 0, 0, 0}}
 	for _, action := range []buckrogers.ActionBarOverlayAction{normal, focus} {
 		if err := validateActionBarHotkeyStyle(action); err != nil {
