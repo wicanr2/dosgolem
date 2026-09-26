@@ -60,6 +60,8 @@ func main() {
 	dump := flag.String("dump", "", "結束時傾印記憶體 SEG:OFF:LEN（hex）到 -out.bin")
 	stateOut := flag.String("state-out", "", "結束時存 savestate（只供本機研究）")
 	finalShot := flag.String("final-shot", "", "結束時存 PNG")
+	scratch := flag.String("scratch", "", "可寫暫存層目錄（dosgolem 規格 009／204）；遊戲存檔會寫在這裡，只放 ignored 目錄")
+	intLog := flag.Bool("int-log", false, "記錄每個 INT 指令的位置、中斷號與 AX（N 列，同位置同 AX 只記首次與次數）")
 	ipEvery := flag.Uint64("ip-every", 0, "每隔多少步記一筆 CS:IP 與 AX（I 列）；0 表示不記")
 	memOut := flag.String("mem-out", "", "結束時傾印 1MB 實模式記憶體（含原版資料，只放 ignored 目錄）")
 	var ks keys
@@ -75,6 +77,13 @@ func main() {
 	if err := state.Load(*statePath, m, d); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if *scratch != "" {
+		if info, err := os.Stat(*scratch); err != nil || !info.IsDir() {
+			fmt.Fprintln(os.Stderr, "scratch 必須是既有目錄：", *scratch)
+			os.Exit(2)
+		}
+		d.Scratch = *scratch
 	}
 	f, err := os.Create(*out)
 	if err != nil {
@@ -119,6 +128,12 @@ func main() {
 	if *shotEvery != 0 {
 		nextShot = (m.Steps / *shotEvery + 1) * *shotEvery
 	}
+	intSeen := map[string]int{}
+	defer func() {
+		for k, c := range intSeen {
+			fmt.Fprintf(w, "NC\t%d\t%s\n", c, k)
+		}
+	}()
 	for m.Steps < *until && !d.Exited {
 		for nextKey < len(ks) && m.Steps >= ks[nextKey].step {
 			m.PushBIOSKey(ks[nextKey].scan, ks[nextKey].ascii)
@@ -136,6 +151,31 @@ func main() {
 		}
 		cs, ip := m.CPU.Seg[cpu.CS], m.CPU.IP
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if *intLog {
+			lin := cpu.Addr(cs, ip)
+			if op := m.Read8(lin); op == 0xCD || op == 0xCC {
+				n := uint8(3)
+				if op == 0xCD {
+					n = m.Read8(lin + 1)
+				}
+				k := fmt.Sprintf("%04X:%04X\t%02X\t%04X", cs, ip, n, m.CPU.R[cpu.AX])
+				if n == 0x21 {
+					var b []byte
+					for i := uint32(0); i < 40; i++ {
+						ch := m.Read8(cpu.Addr(m.CPU.Seg[cpu.DS], m.CPU.R[cpu.DX]) + i)
+						if ch == 0 {
+							break
+						}
+						b = append(b, ch)
+					}
+					k += fmt.Sprintf("\tCX=%04X\t%q", m.CPU.R[cpu.CX], b)
+				}
+				if intSeen[k] == 0 {
+					fmt.Fprintf(w, "N\t%d\t%s\n", m.Steps, k)
+				}
+				intSeen[k]++
+			}
+		}
 		if *ipEvery != 0 && m.Steps%*ipEvery == 0 {
 			fmt.Fprintf(w, "I\t%d\t%04X:%04X\t%04X\n", m.Steps, cs, ip, m.CPU.R[cpu.AX])
 		}
