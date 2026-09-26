@@ -186,6 +186,24 @@ func main() {
 			fmt.Fprintf(w, "W\t%d\t%04X:%04X\tflag=%d\ta=%d,%d\tL%d T%d R%d B%d\tcur=%d,%d\t%s\n", m.Steps, m.Read16(cpu.Addr(ss, sp+2)), m.Read16(cpu.Addr(ss, sp)),
 				uint8(a[2]), uint8(a[3]), uint8(a[4]), uint8(a[8]), uint8(a[7]), uint8(a[6]), uint8(a[5]),
 				m.Read8(cpu.Addr(ds, 0x5f3e)), m.Read8(cpu.Addr(ds, 0x5f3f)), b)
+		case cs == 0x37F1 && ip == 0x0243:
+			flush()
+			pb, sel := m.Read16(cpu.Addr(ss, sp+4)), m.Read16(cpu.Addr(ss, sp+6))
+			at := func(off int) uint32 { return cpu.Addr(ss, uint16(int(pb)+off)) }
+			n := int(m.Read8(at(-0x213)))
+			b := make([]byte, n)
+			for i := range b {
+				c := m.Read8(at(-0x200 + 1 + i))
+				if c < 0x20 || c >= 0x7f {
+					c = '~'
+				}
+				b[i] = c
+			}
+			var tab []string
+			for i := 0; i < 12; i++ {
+				tab = append(tab, fmt.Sprintf("%d-%d", m.Read8(at(-0x23e+2*i)), m.Read8(at(-0x23d+2*i))))
+			}
+			fmt.Fprintf(w, "H\t%d\tsel=%d\trow=%d\tcol=%d\tlen0=%d\t%s\t|%s|\n", m.Steps, sel, m.Read8(at(-0x24a)), m.Read8(at(-0x214)), m.Read8(at(-0x200)), strings.Join(tab, ","), b)
 		case cs == 0x026F && ip == 0x029C:
 			flush()
 			var a [6]uint16

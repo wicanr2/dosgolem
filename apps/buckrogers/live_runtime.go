@@ -54,6 +54,11 @@ type LiveRuntime struct {
 	eclPres [2]*EclTextOverlay
 	eclGen  uint64
 
+	// hmenu is the spec-028 horizontal-menu family; nil without catalog.
+	hmenu     *HMenuWatcher
+	hmenuPres [2]*HMenuOverlay
+	hmenuGen  uint64
+
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
 	exitCatalog  *PostJoinExitPromptCatalog
@@ -164,6 +169,9 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 	if err := r.loadEclText(textDir); err != nil {
 		return nil, err
 	}
+	if err := r.loadHMenu(textDir); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
@@ -194,6 +202,83 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 		}
 	}
 	return nil
+}
+
+func (r *LiveRuntime) loadHMenu(textDir string) error {
+	events, err := os.ReadFile(filepath.Join(textDir, "hmenu-item-events.tsv"))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	tr, err := os.ReadFile(filepath.Join(textDir, "hmenu.zh-TW.tsv"))
+	if os.IsNotExist(err) {
+		tr = []byte("key\ttranslation\tsource\n")
+	} else if err != nil {
+		return err
+	}
+	c, err := LoadHMenuCatalog(events, tr)
+	if err != nil {
+		return err
+	}
+	r.hmenu = NewHMenuWatcher(c)
+	r.hmenuGen = r.hmenu.Generation()
+	for i, scale := range liveScales {
+		if r.hmenuPres[i], err = NewHMenuOverlay(r.font, scale); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// observeHMenu reads the 37F1:0243 parent frame (spec 028 §2).
+func (r *LiveRuntime) observeHMenu(v StepReader, at Address) {
+	ss, sp := v.SS(), v.SP()
+	if at != hmenuPrinter {
+		r.hmenu.ObserveInstruction(at, ss, sp)
+		return
+	}
+	pb := v.Read16(linear(ss, sp+4))
+	byteAt := func(off int) uint8 { return v.Read8(linear(ss, uint16(int(pb)+off))) }
+	text := make([]byte, byteAt(-0x213))
+	for i := range text {
+		text[i] = byteAt(-0x200 + 1 + i)
+	}
+	items := make([][2]uint8, byteAt(-0x23D))
+	for i := range items {
+		items[i] = [2]uint8{byteAt(-0x23E + 2*(i+1)), byteAt(-0x23D + 2*(i+1))}
+	}
+	ds := v.DS()
+	r.hmenu.ObserveEntry(HMenuEntry{
+		SS: ss, SP: sp, Return: Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))},
+		Text: text, Row: byteAt(-0x24A), Col: byteAt(-0x214), Items: items,
+		Selected: uint8(v.Read16(linear(ss, sp+6))),
+		Normal:   v.Read8(linear(ds, 0x6B46)), Hot: v.Read8(linear(ds, 0x6B47)),
+	})
+}
+
+func (r *LiveRuntime) syncHMenu(palette [256][3]uint8) {
+	if r.hmenu == nil {
+		return
+	}
+	if g := r.hmenu.Generation(); g != r.hmenuGen {
+		p := r.hmenu.Page()
+		for i := range liveScales {
+			if miss := r.hmenuPres[i].Sync(p, g, palette); len(miss) != 0 {
+				r.resets["hmenu"]++
+				r.hmenu.ObserveDiscontinuity()
+				g = r.hmenu.Generation()
+				for j := range liveScales {
+					r.hmenuPres[j].Sync(nil, g, palette)
+				}
+				break
+			}
+		}
+		r.hmenuGen = g
+	}
+	for i := range liveScales {
+		r.hmenuPres[i].Frame(palette)
+	}
 }
 
 // observeEclText handles the text-window printer entry and its return.
@@ -329,6 +414,9 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	at := Address{Segment: v.CS(), Offset: v.IP()}
 	if r.ecl != nil && (at == eclTextPrinter || r.ecl.InCall()) {
 		r.observeEclText(v, at)
+	}
+	if r.hmenu != nil && (at == hmenuPrinter || r.hmenu.InCall()) {
+		r.observeHMenu(v, at)
 	}
 	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && at == p.caller {
 		if ss, sp := v.SS(), v.SP(); ss == p.ss && sp == p.sp+storyReturnStackDelta {
@@ -586,6 +674,9 @@ func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
 	if r.ecl != nil {
 		r.ecl.ObserveVideoWrite(w.Offset)
 	}
+	if r.hmenu != nil {
+		r.hmenu.ObserveVideoWrite(w.Offset)
+	}
 	for i := range liveScales {
 		r.bodyPres[i].Prewrite(w)
 	}
@@ -621,6 +712,7 @@ func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 		r.actPres[i].Frame(indexed, palette)
 	}
 	r.syncEclText(palette)
+	r.syncHMenu(palette)
 	r.indexed, r.palette, r.hasFrame = indexed, palette, true
 	r.frameSeen++
 }
@@ -712,6 +804,12 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	}
 	if len(r.postPres[i].ActiveKeys()) != 0 {
 		rgba, missing, _ := r.postPres[i].Draw(r.indexed, r.palette)
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	if r.hmenu != nil && r.hmenuPres[i].Active() {
+		rgba, missing := r.hmenuPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}
