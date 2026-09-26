@@ -17,6 +17,7 @@ type StepReader interface {
 	IP() uint16
 	SS() uint16
 	SP() uint16
+	DS() uint16
 	ES() uint16
 	DI() uint16
 	CX() uint16

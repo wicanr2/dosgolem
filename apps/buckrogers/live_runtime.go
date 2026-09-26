@@ -49,6 +49,11 @@ type LiveRuntime struct {
 	prevOp       byte
 	storyDirty   bool
 
+	// ecl is the spec-027 generic text-window family; nil without catalog.
+	ecl     *EclTextWatcher
+	eclPres [2]*EclTextOverlay
+	eclGen  uint64
+
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
 	exitCatalog  *PostJoinExitPromptCatalog
@@ -156,7 +161,87 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 	if err := r.resetPostJoin(); err != nil {
 		return nil, err
 	}
+	if err := r.loadEclText(textDir); err != nil {
+		return nil, err
+	}
 	return r, nil
+}
+
+// loadEclText wires the spec-027 family when the catalog exists; a missing
+// translation file means nothing is translated yet.
+func (r *LiveRuntime) loadEclText(textDir string) error {
+	events, err := os.ReadFile(filepath.Join(textDir, "ecl-text-events.tsv"))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	tr, err := os.ReadFile(filepath.Join(textDir, "ecl-text.zh-TW.tsv"))
+	if os.IsNotExist(err) {
+		tr = []byte("key\ttranslation\tsource\n")
+	} else if err != nil {
+		return err
+	}
+	c, err := LoadEclTextCatalog(events, tr)
+	if err != nil {
+		return err
+	}
+	r.ecl = NewEclTextWatcher(c)
+	r.eclGen = r.ecl.Generation()
+	for i, scale := range liveScales {
+		if r.eclPres[i], err = NewEclTextOverlay(r.font, scale); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// observeEclText handles the text-window printer entry and its return.
+func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
+	if at == eclTextPrinter {
+		ss, sp := v.SS(), v.SP()
+		arg := func(i uint16) uint16 { return v.Read16(linear(ss, sp+i)) }
+		base := linear(arg(6), arg(4))
+		orig := make([]byte, v.Read8(base))
+		for i := range orig {
+			orig[i] = v.Read8(base + 1 + uint32(i))
+		}
+		ds := v.DS()
+		r.ecl.ObserveEntry(EclTextEntry{
+			Step: v.Steps(), SS: ss, SP: sp, Return: Address{Segment: arg(2), Offset: arg(0)}, Original: orig,
+			Clear: uint8(arg(8)) != 0, Background: uint8(arg(10)), Foreground: uint8(arg(12)),
+			Bottom: uint8(arg(14)), Right: uint8(arg(16)), Top: uint8(arg(18)), Left: uint8(arg(20)),
+			CursorCol: v.Read8(linear(ds, 0x5F3E)), CursorRow: v.Read8(linear(ds, 0x5F3F)),
+		})
+		return
+	}
+	r.ecl.ObserveInstruction(at, v.SS(), v.SP())
+}
+
+// syncEclText rebuilds both presenters after a generation change.  A page
+// the font cannot draw is dropped like an overflow (the original shows).
+func (r *LiveRuntime) syncEclText(palette [256][3]uint8) {
+	if r.ecl == nil {
+		return
+	}
+	if g := r.ecl.Generation(); g != r.eclGen {
+		p := r.ecl.Page()
+		for i := range liveScales {
+			if miss := r.eclPres[i].Sync(p, g, palette); len(miss) != 0 {
+				r.resets["ecl-text"]++
+				r.ecl.ObserveDiscontinuity()
+				g = r.ecl.Generation()
+				for j := range liveScales {
+					r.eclPres[j].Sync(nil, g, palette)
+				}
+				break
+			}
+		}
+		r.eclGen = g
+	}
+	for i := range liveScales {
+		r.eclPres[i].Frame(palette)
+	}
 }
 
 func (r *LiveRuntime) resetSkill(i int) error {
@@ -242,6 +327,9 @@ type storyFrame struct {
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	at := Address{Segment: v.CS(), Offset: v.IP()}
+	if r.ecl != nil && (at == eclTextPrinter || r.ecl.InCall()) {
+		r.observeEclText(v, at)
+	}
 	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && at == p.caller {
 		if ss, sp := v.SS(), v.SP(); ss == p.ss && sp == p.sp+storyReturnStackDelta {
 			for _, f := range r.stories {
@@ -495,6 +583,9 @@ func postJoinRuntimeGate(e TextEvent) bool { return postJoinEntryRow(e.Caller, e
 // VideoWrite forwards an A000 pre-write to every family that invalidates on
 // writes, in the runner's order.
 func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
+	if r.ecl != nil {
+		r.ecl.ObserveVideoWrite(w.Offset)
+	}
 	for i := range liveScales {
 		r.bodyPres[i].Prewrite(w)
 	}
@@ -529,6 +620,7 @@ func (r *LiveRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	for i := range liveScales {
 		r.actPres[i].Frame(indexed, palette)
 	}
+	r.syncEclText(palette)
 	r.indexed, r.palette, r.hasFrame = indexed, palette, true
 	r.frameSeen++
 }
@@ -620,6 +712,12 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	}
 	if len(r.postPres[i].ActiveKeys()) != 0 {
 		rgba, missing, _ := r.postPres[i].Draw(r.indexed, r.palette)
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	if r.ecl != nil && r.eclPres[i].Active() {
+		rgba, missing := r.eclPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}

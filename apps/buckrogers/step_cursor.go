@@ -13,6 +13,7 @@ func (c *StepCursor[T]) CS() uint16             { return c.cur.CS() }
 func (c *StepCursor[T]) IP() uint16             { return c.cur.IP() }
 func (c *StepCursor[T]) SS() uint16             { return c.cur.SS() }
 func (c *StepCursor[T]) SP() uint16             { return c.cur.SP() }
+func (c *StepCursor[T]) DS() uint16             { return c.cur.DS() }
 func (c *StepCursor[T]) ES() uint16             { return c.cur.ES() }
 func (c *StepCursor[T]) DI() uint16             { return c.cur.DI() }
 func (c *StepCursor[T]) CX() uint16             { return c.cur.CX() }
