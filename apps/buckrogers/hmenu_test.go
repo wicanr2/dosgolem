@@ -92,3 +92,14 @@ func TestHMenuBuildColorsAndLifecycle(t *testing.T) {
 		t.Fatal("overflow drew")
 	}
 }
+
+func TestHMenuStartsAtFirstItemColumn(t *testing.T) {
+	w := NewHMenuWatcher(hmenuFixture(t, "Yes", "是(Y)", "No", "否(N)"))
+	e := hmenuEntry("   Yes No", 1, [2]uint8{4, 6}, [2]uint8{8, 9})
+	e.Col = 10
+	w.ObserveEntry(e)
+	p := w.Page()
+	if p == nil || p.Rows[0].Col != 13 || p.Rows[0].Cells[0].Rune != '是' || len(p.Rows[0].Cells) != 27 {
+		t.Fatalf("%+v", p)
+	}
+}

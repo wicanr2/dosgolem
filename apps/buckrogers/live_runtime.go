@@ -734,6 +734,10 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	saveIndexed, savePalette := r.indexed, r.palette
 	r.indexed, r.palette = indexed, palette
 	defer func() { r.indexed, r.palette = saveIndexed, savePalette }()
+	// Generic families rebuild lazily; catch up with invalidations that
+	// happened after the last retrace before drawing.
+	r.syncEclText(palette)
+	r.syncHMenu(palette)
 	i := 0
 	if scale == 3 {
 		i = 1
@@ -808,14 +812,16 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 			return nil, false, err
 		}
 	}
-	if r.hmenu != nil && r.hmenuPres[i].Active() {
-		rgba, missing := r.hmenuPres[i].Draw(r.indexed, r.palette)
+	if r.ecl != nil && r.eclPres[i].Active() {
+		rgba, missing := r.eclPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}
 	}
-	if r.ecl != nil && r.eclPres[i].Active() {
-		rgba, missing := r.eclPres[i].Draw(r.indexed, r.palette)
+	// Spec 028: families with their own reviewed catalogs own their rows; the
+	// generic menu family draws only rows nobody else changed.
+	if r.hmenu != nil && r.hmenuPres[i].Active() && !r.rowsTouched(out, scale, r.hmenu.Page()) {
+		rgba, missing := r.hmenuPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}
@@ -836,4 +842,25 @@ func (r *LiveRuntime) DebugSummary() string {
 		s += fmt.Sprintf(" hmenu=%+v", r.hmenu.Stats)
 	}
 	return s
+}
+
+// rowsTouched reports whether out already differs from the plain scaled
+// frame on any text row the menu page uses.
+func (r *LiveRuntime) rowsTouched(out []byte, scale int, p *HMenuPage) bool {
+	if p == nil {
+		return false
+	}
+	w := 320 * scale
+	for _, row := range p.Rows {
+		for y := int(row.Row) * 8; y < int(row.Row)*8+8; y++ {
+			for x := 0; x < 320; x++ {
+				c := r.palette[r.indexed[y*320+x]]
+				o := ((y*scale)*w + x*scale) * 4
+				if out[o] != c[0] || out[o+1] != c[1] || out[o+2] != c[2] {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

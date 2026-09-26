@@ -167,6 +167,16 @@ func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 		return nil, "shape"
 	}
 	rows := make([][]HMenuCell, breaks+1)
+	// Original column of character index c (1-based): the row restarts at
+	// the start column after each '@'.
+	startCol := make([]int, breaks+1)
+	for i := range startCol {
+		startCol[i] = -1
+	}
+	colOf := func(c int) int {
+		last := strings.LastIndexByte(string(e.Text[:c-1]), '@')
+		return int(e.Col) + (c - 1) - (last + 1)
+	}
 	for i, r := range e.Items {
 		if r[0] < 1 || r[1] < r[0] || int(r[1]) > n {
 			return nil, "shape"
@@ -180,6 +190,9 @@ func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 			return nil, "miss"
 		}
 		line := strings.Count(string(e.Text[:r[0]-1]), "@")
+		if startCol[line] < 0 {
+			startCol[line] = colOf(int(r[0]))
+		}
 		if len(rows[line]) > 0 {
 			rows[line] = append(rows[line], HMenuCell{' ', 0, e.Normal})
 		}
@@ -195,16 +208,19 @@ func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 			}
 		}
 	}
-	width := 40 - int(e.Col)
 	page := &HMenuPage{}
 	for i, cells := range rows {
-		if len(cells) > width {
+		if startCol[i] < 0 {
+			continue
+		}
+		width := 40 - startCol[i]
+		if width <= 0 || len(cells) > width {
 			return nil, "overflow"
 		}
 		for len(cells) < width {
 			cells = append(cells, HMenuCell{' ', 0, e.Normal})
 		}
-		page.Rows = append(page.Rows, HMenuRow{Row: e.Row + uint8(i), Col: e.Col, Cells: cells})
+		page.Rows = append(page.Rows, HMenuRow{Row: e.Row + uint8(i), Col: uint8(startCol[i]), Cells: cells})
 	}
 	return page, ""
 }
