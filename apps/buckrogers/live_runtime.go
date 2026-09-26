@@ -68,6 +68,8 @@ type LiveRuntime struct {
 	logbook     *LogbookWatcher
 	logbookPres [2]*LogbookOverlay
 	ovl         OverlayUnits // spec 032
+	norm        LegacyNormaliser
+	normFrame   uint64
 	// Spec 031: original Latin glyphs for the generic families.
 	asciiFound bool
 	asciiTry   uint64 // frame of the last search + 1 (0 = never)
@@ -379,6 +381,17 @@ func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	if sb, err := os.ReadFile(filepath.Join(textDir, "engine-dispatch-shared-callers.tsv")); err == nil {
+		shared, err := LoadEngineDispatchCallers(sb, nil)
+		if err != nil {
+			return err
+		}
+		if err := r.engDisp.SetSharedCallers(shared, OwnedCallers(files)); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	r.engDispGen = r.engDisp.Generation()
 	for i, scale := range liveScales {
 		if r.engDispPres[i], err = NewHMenuOverlay(r.font, scale); err != nil {
@@ -639,6 +652,14 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		return err
 	}
 	at := Address{Segment: v.CS(), Offset: v.IP()}
+	// Spec 033: rebuild the legacy normaliser each retrace and at every
+	// dispatcher / ECL printer entry; older families get a normalised copy.
+	if r.normFrame != r.frameSeen+1 || at == dispatchEntry || at == eclTextPrinter {
+		r.norm.Rebuild(&r.ovl, v)
+		r.normFrame = r.frameSeen + 1
+		r.menu.Norm = &r.norm
+	}
+	legacyAt := r.norm.Addr(at)
 	if r.ecl != nil && (at == eclTextPrinter || r.ecl.InCall()) {
 		r.observeEclText(v, at)
 	}
@@ -648,7 +669,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	if r.engDisp.InCall() {
 		r.engDisp.ObserveInstruction(at, v.SS(), v.SP())
 	}
-	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && at == p.caller {
+	if p := r.storyPending; p != nil && r.prevAt == storyGlyphReturnSite && r.prevOp == 0xCA && legacyAt == p.caller {
 		if ss, sp := v.SS(), v.SP(); ss == p.ss && sp == p.sp+storyReturnStackDelta {
 			for _, f := range r.stories {
 				f.verifiedReturn(p.entryStep, p.caller, r.prevAt, r.prevOp, ss, sp, v.Steps())
@@ -659,7 +680,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	actionRequests := -1
 	if r.action.Pending() {
 		actionRequests = len(r.action.requests)
-		r.action.ObserveInstruction(at, v.SS(), v.SP(), v.Steps())
+		r.action.ObserveInstruction(legacyAt, v.SS(), v.SP(), v.Steps())
 	}
 	obs, err := r.menu.Observe(v)
 	if err != nil {
@@ -675,7 +696,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	case ObservedClear:
 		// A proven clear can also be the guarded return of an in-flight manual
 		// call: keep that post-call before applying the clear (runner order).
-		r.manual.ObserveInstruction(at, obs.SS, obs.SP, v.Steps())
+		r.manual.ObserveInstruction(legacyAt, obs.SS, obs.SP, v.Steps())
 		r.manual.ObserveClear(v.Steps())
 		c := obs.Clear
 		r.action.ObserveClear(c[0], c[1], c[2], c[3])
@@ -701,8 +722,8 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 				}
 			}
 		}
-		if obs.Caller == dispatchPrompt {
-			e := textEvent(steps, obs.Caller, obs.Args, obs.Original)
+		if obs.LegacyCaller == dispatchPrompt {
+			e := textEvent(steps, obs.LegacyCaller, obs.Args, obs.Original)
 			for i := range liveScales {
 				if err := r.skill[i].ObserveEntry(e); err != nil {
 					if err := r.recover("skill-exit", func() error { return r.resetSkill(i) }); err != nil {
@@ -722,11 +743,11 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 				}
 			}
 		}
-		r.manual.ObserveDispatchEntryWithStyle(obs.Caller, obs.SS, obs.SP, string(obs.Original), ManualTextStyle{
+		r.manual.ObserveDispatchEntryWithStyle(obs.LegacyCaller, obs.SS, obs.SP, string(obs.Original), ManualTextStyle{
 			Background: uint8(obs.Args[2]), Foreground: uint8(obs.Args[3]), Row: uint8(obs.Args[4]), Column: uint8(obs.Args[5]),
 		}, steps)
-		if postJoinEntryRow(obs.Caller, uint8(obs.Args[4])) {
-			if err := r.postJoin.ObserveEntry(textEvent(steps, obs.Caller, obs.Args, obs.Original)); err != nil {
+		if postJoinEntryRow(obs.LegacyCaller, uint8(obs.Args[4])) {
+			if err := r.postJoin.ObserveEntry(textEvent(steps, obs.LegacyCaller, obs.Args, obs.Original)); err != nil {
 				if err := r.recover("post-join", r.resetPostJoin); err != nil {
 					return err
 				}
@@ -803,14 +824,14 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		}
 	}
 	if obs.Kind == ObservedOther || (obs.Kind == ObservedNothing && r.manual.pending != nil) {
-		r.manual.ObserveInstruction(at, v.SS(), v.SP(), v.Steps())
+		r.manual.ObserveInstruction(legacyAt, v.SS(), v.SP(), v.Steps())
 	}
 	if err := r.syncManual(); err != nil {
 		return err
 	}
 	if at == glyphEntry {
 		ss, sp := v.SS(), v.SP()
-		caller := Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
+		caller := r.norm.Addr(Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))})
 		var args [7]uint16
 		for i := range args {
 			args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
@@ -1069,10 +1090,26 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 			return nil, false, err
 		}
 	}
-	if r.engDisp != nil && r.engDispPres[i].Active() && !r.rowsTouched(out, scale, r.engDisp.Page()) {
-		rgba, missing := r.engDispPres[i].Draw(r.indexed, r.palette)
-		if err := layer(rgba, missing); err != nil {
-			return nil, false, err
+	// Spec 029 §2.6.1: engine lines yield row by row, judged only on the
+	// row's own cells; any pixel another family changed there counts.
+	if r.engDisp != nil && r.engDispPres[i].Active() {
+		if keep := r.untouchedRows(out, scale, r.engDisp.Page()); len(keep) != 0 {
+			rgba, missing := r.engDispPres[i].Draw(r.indexed, r.palette)
+			if len(missing) != 0 {
+				return nil, false, errors.New("buckrogers: live runtime 缺字")
+			}
+			w := 320 * scale
+			for _, row := range keep {
+				for y := int(row.Row) * 8 * scale; y < (int(row.Row)+1)*8*scale; y++ {
+					for x := int(row.Col) * 8 * scale; x < (int(row.Col)+len(row.Cells))*8*scale && x < w; x++ {
+						o := 4 * (y*w + x)
+						c := r.palette[r.indexed[(y/scale)*320+x/scale]]
+						if rgba[o] != c[0] || rgba[o+1] != c[1] || rgba[o+2] != c[2] {
+							copy(out[o:o+4], rgba[o:o+4])
+						}
+					}
+				}
+			}
 		}
 	}
 	// The logbook panel is drawn last: it sits over everything while open.
@@ -1108,6 +1145,33 @@ func (r *LiveRuntime) DebugSummary() string {
 		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
 	}
 	return s
+}
+
+// untouchedRows returns the page rows whose own cells still show the plain
+// original frame in out (spec 029 §2.6.1).
+func (r *LiveRuntime) untouchedRows(out []byte, scale int, p *HMenuPage) []HMenuRow {
+	if p == nil {
+		return nil
+	}
+	w := 320 * scale
+	var keep []HMenuRow
+	for _, row := range p.Rows {
+		touched := false
+		for y := int(row.Row) * 8 * scale; y < (int(row.Row)+1)*8*scale && !touched; y++ {
+			for x := int(row.Col) * 8 * scale; x < (int(row.Col)+len(row.Cells))*8*scale && x < w; x++ {
+				c := r.palette[r.indexed[(y/scale)*320+x/scale]]
+				o := (y*w + x) * 4
+				if out[o] != c[0] || out[o+1] != c[1] || out[o+2] != c[2] {
+					touched = true
+					break
+				}
+			}
+		}
+		if !touched {
+			keep = append(keep, row)
+		}
+	}
+	return keep
 }
 
 // rowsTouched reports whether out already differs from the plain scaled

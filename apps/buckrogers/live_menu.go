@@ -39,6 +39,7 @@ type LiveMenuRuntime struct {
 	watcher    *MenuRequestWatcher
 	presenters map[int]*RuntimeMenuOverlay
 	fault      error
+	Norm       *LegacyNormaliser // spec 033; nil = identity
 }
 
 // NewLiveMenuRuntime builds the runtime from an already merged catalog and
@@ -64,13 +65,15 @@ func NewLiveMenuRuntime(catalog *MenuCatalog, rects *MenuOverlayRects, font *xla
 // StepObservation is what one instruction meant to the shared dispatcher
 // recorder.  Other families consume it instead of decoding the stack again.
 type StepObservation struct {
-	At       Address
-	SS, SP   uint16
-	Kind     ObservationKind
-	Clear    [4]uint8 // bottom, right, top, left for ObservedClear
-	Caller   Address  // ObservedEntry
-	Args     [6]uint16
-	Original []byte
+	At     Address
+	SS, SP uint16
+	Kind   ObservationKind
+	Clear  [4]uint8 // bottom, right, top, left for ObservedClear
+	Caller Address  // ObservedEntry (runtime address)
+	// LegacyCaller is Caller normalised for the older families (spec 033).
+	LegacyCaller Address
+	Args         [6]uint16
+	Original     []byte
 	// For ObservedOther: whether the recorder completed or dropped a frame.
 	NewEvent   bool
 	Event      TextEvent
@@ -123,6 +126,7 @@ func (r *LiveMenuRuntime) Observe(v StepReader) (StepObservation, error) {
 	case dispatchEntry:
 		obs.Kind = ObservedEntry
 		obs.Caller = Address{Segment: v.Read16(linear(ss, sp+2)), Offset: v.Read16(linear(ss, sp))}
+		obs.LegacyCaller = r.Norm.Addr(obs.Caller)
 		for i := range obs.Args {
 			obs.Args[i] = v.Read16(linear(ss, sp+4+uint16(i)*2))
 		}
@@ -132,12 +136,12 @@ func (r *LiveMenuRuntime) Observe(v StepReader) (StepObservation, error) {
 			obs.Original[i] = v.Read8(base + 1 + uint32(i))
 		}
 		drops := r.watcher.Drops()
-		r.watcher.ObserveDispatchEntry(obs.Caller, ss, sp, obs.Args, obs.Original, v.Steps())
+		r.watcher.ObserveDispatchEntry(obs.LegacyCaller, ss, sp, obs.Args, obs.Original, v.Steps())
 		obs.Dropped = r.watcher.Drops() > drops
 	default:
 		obs.Kind = ObservedOther
 		events, requests, drops := r.watcher.EventCount(), r.watcher.RequestCount(), r.watcher.Drops()
-		r.watcher.ObserveInstruction(at, ss, sp, v.Steps())
+		r.watcher.ObserveInstruction(r.Norm.Addr(at), ss, sp, v.Steps())
 		obs.Dropped = r.watcher.Drops() > drops
 		if r.watcher.EventCount() > events {
 			obs.Event, obs.NewEvent = r.watcher.LastEvent()

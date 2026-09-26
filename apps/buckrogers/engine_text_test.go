@@ -190,3 +190,81 @@ func LoadEngineTextFiles(t *testing.T, frag, zh string) (*EngineTextCatalog, err
 		ItemText:       []byte(itemZh.String()),
 	})
 }
+
+func TestEngineTableRowKeepsLastColumn(t *testing.T) {
+	c := engineFixture(t)
+	in := "Laser Pistol (10)                  335"
+	zh, ok := c.Translate(in)
+	if !ok || len([]rune(zh)) != len(in) || !strings.HasPrefix(zh, "雷射手槍 (10) ") || !strings.HasSuffix(zh, " 335") {
+		t.Fatalf("table row: %q %v", zh, ok)
+	}
+	// A front that cannot be translated falls back to English.
+	if _, ok := c.Translate("Jetpack                           1000"); ok {
+		t.Fatal("untranslated front accepted")
+	}
+	// A last column with letters is not a table row: normal rules apply.
+	if engineTableRow.MatchString("Bolt Gun  AC") || !engineTableRow.MatchString("Pooled funds:           0") ||
+		!engineTableRow.MatchString("Gun  1,000") || engineTableRow.MatchString("Gun 12") {
+		t.Fatal("table row detection")
+	}
+	// No room for the Chinese front plus one space: English.
+	long, err := LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: engineTSV("frag", "Wait"),
+		FragmentText:   engineZh("frag", "Wait", "請稍候片刻再來"),
+		ItemEvents:     engineTSV("item", "Bolt", "Gun"),
+		ItemText:       engineZh("item", "Bolt", "爆能", "Gun", "槍"),
+		MonsterEvents:  engineTSV("monster", "NEO WARRIOR"),
+		MonsterText:    engineZh("monster", "NEO WARRIOR", "NEO 戰士"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if zh, ok := long.Translate("Wait  9"); ok {
+		t.Fatalf("front does not fit but drew %q", zh)
+	}
+}
+
+func TestEngineDispatchSharedCallers(t *testing.T) {
+	c := engineFixture(t)
+	w := NewEngineDispatchWatcher(c, map[CodeKey]bool{})
+	shared := CodeKey{Unit: 0x2BA60, Offset: 0x15BD}
+	owned := map[CodeKey]bool{shared: true}
+	if err := w.SetSharedCallers(map[CodeKey]bool{{Segment: 0x0763, Offset: 1}: true}, owned); err == nil {
+		t.Fatal("shared caller not owned by an older family accepted")
+	}
+	w.SetNameCallers(map[CodeKey]bool{shared: true})
+	if err := w.SetSharedCallers(map[CodeKey]bool{shared: true}, owned); err == nil {
+		t.Fatal("shared caller overlapping the name list accepted")
+	}
+	w.SetNameCallers(map[CodeKey]bool{})
+	if err := w.SetSharedCallers(map[CodeKey]bool{shared: true}, owned); err != nil {
+		t.Fatal(err)
+	}
+	w.ObserveEntry(shared, 1, 0x100, Address{0x216E, 0x15C2}, [6]uint16{0, 0, 0, 10, 2, 1}, []byte("Laser Pistol (10)"))
+	if p := w.Page(); p == nil || p.Rows[0].Row != 2 {
+		t.Fatalf("shared caller not drawn: %+v", p)
+	}
+}
+
+func TestUntouchedRowsJudgesOwnCells(t *testing.T) {
+	r := &LiveRuntime{indexed: make([]byte, 320*200)}
+	r.palette[0] = [3]uint8{0, 0, 0}
+	out := ScaleIndexedRGBA(r.indexed, r.palette, 2)
+	p := &HMenuPage{Rows: []HMenuRow{
+		{Row: 11, Col: 16, Cells: make([]HMenuCell, 12)},
+		{Row: 12, Col: 16, Cells: make([]HMenuCell, 12)},
+		{Row: 13, Col: 16, Cells: make([]HMenuCell, 12)},
+	}}
+	w := 640
+	paint := func(row, col int, c byte) { // one pixel inside the cell, 2×
+		o := 4 * ((row*8*2+3)*w + col*8*2 + 3)
+		out[o], out[o+1], out[o+2] = c, c, c
+	}
+	paint(11, 2, 200)  // another family's label on row 11, outside our cells
+	paint(12, 20, 200) // another family's text inside our cells on row 12
+	paint(13, 18, 1)   // only a background colour change still counts
+	keep := r.untouchedRows(out, 2, p)
+	if len(keep) != 1 || keep[0].Row != 11 {
+		t.Fatalf("keep %+v", keep)
+	}
+}

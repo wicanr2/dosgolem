@@ -20,6 +20,7 @@ type EngineDispatchWatcher struct {
 	catalog *EngineTextCatalog
 	allow   map[CodeKey]bool
 	names   map[CodeKey]bool // callers where only exact monster names are drawn
+	shared  map[CodeKey]bool // spec 029 §2.5: callers shared with older families
 	lines   []EngineDispatchLine
 	inCall  bool
 	callRet Address
@@ -59,6 +60,22 @@ func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[CodeKey]bool) *Eng
 // strings by exact hash, so a monster name is never theirs).
 func (w *EngineDispatchWatcher) SetNameCallers(names map[CodeKey]bool) { w.names = names }
 
+// SetSharedCallers installs spec 029 §2.5 callers: each must be owned by an
+// older family and absent from the other lists. Overlap with the older
+// family is settled at compose time (§2.6.1).
+func (w *EngineDispatchWatcher) SetSharedCallers(shared, owned map[CodeKey]bool) error {
+	for k := range shared {
+		if !owned[k] {
+			return fmt.Errorf("buckrogers: 共用呼叫端 %s 不屬既有家族", k)
+		}
+		if w.allow[k] || w.names[k] {
+			return fmt.Errorf("buckrogers: 共用呼叫端 %s 與其他清單重疊", k)
+		}
+	}
+	w.shared = shared
+	return nil
+}
+
 func (w *EngineDispatchWatcher) Lines() []EngineDispatchLine { return w.lines }
 func (w *EngineDispatchWatcher) Generation() uint64          { return w.gen }
 func (w *EngineDispatchWatcher) InCall() bool                { return w != nil && w.inCall }
@@ -84,10 +101,10 @@ func overlapsLine(l EngineDispatchLine, row, c0, c1 int) bool {
 
 // ObserveEntry handles a dispatcher entry (args as read by the menu family).
 func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
-	if w == nil || !w.allow[caller] && !w.names[caller] {
+	if w == nil || !w.allow[caller] && !w.names[caller] && !w.shared[caller] {
 		return
 	}
-	nameOnly := !w.allow[caller]
+	nameOnly := !w.allow[caller] && w.names[caller]
 	row, col, n := int(uint8(args[4])), int(uint8(args[5])), len(original)
 	if n == 0 || row > 24 || col+n > 40 {
 		return

@@ -426,6 +426,23 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	if c == nil || s == "" {
 		return "", false
 	}
+	// Spec 029 §2.6: a table row keeps its last column where it was.
+	if m := engineTableRow.FindStringSubmatch(s); m != nil {
+		front, ok := c.translateLine(m[1])
+		n, last := len([]rune(s)), len(m[3])
+		if !ok || len([]rune(front))+1+last > n {
+			return "", false
+		}
+		return front + strings.Repeat(" ", n-len([]rune(front))-last) + m[3], true
+	}
+	return c.translateLine(s)
+}
+
+// engineTableRow: text, two or more spaces, and a last column of digits
+// and , / ( ) %.
+var engineTableRow = regexp.MustCompile(`^(.*[^ ])( {2,})([0-9,/()%]*[0-9][0-9,/()%]*)$`)
+
+func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 	if z, ok := c.monsterSlot(s); ok {
 		return z, true
 	}

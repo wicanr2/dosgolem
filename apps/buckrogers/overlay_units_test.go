@@ -81,3 +81,40 @@ func TestCodeKeyParseAndLegacy(t *testing.T) {
 		t.Error("owned overlay caller accepted")
 	}
 }
+
+func TestLegacyNormaliser(t *testing.T) {
+	m := make(fakeMem, 1<<20)
+	putStub(m, 0x21F, 0x2BA60, 0x24F1, 0x37F1) // character-creation segment
+	putStub(m, 0x206, 0x27BBE, 0x37CE, 0x1C41) // not where it was recorded
+	putStub(m, 0x1C2, 0x1B6E8, 0x1227, 0x3881) // unit without a legacy segment
+	var o OverlayUnits
+	var n LegacyNormaliser
+	n.Rebuild(&o, m)
+	if a := n.Addr(Address{0x37F1, 0x15BD}); a != (Address{0x37F1, 0x15BD}) {
+		t.Fatalf("identity in character creation: %v", a)
+	}
+	if a := n.Addr(Address{0x1C41, 0x0388}); a != (Address{0x1FEB, 0x0388}) {
+		t.Fatalf("27BBE at 1C41 must read as its recorded 1FEB: %v", a)
+	}
+	if a := n.Addr(Address{0x3881, 0x007C}); a.Segment != legacyNoMatch {
+		t.Fatalf("unit without legacy segment: %v", a)
+	}
+	if a := n.Addr(Address{0x0763, 0x0424}); a != (Address{0x0763, 0x0424}) {
+		t.Fatalf("main image changed: %v", a)
+	}
+	// The unit moves; the old segment returns to identity.
+	binary.LittleEndian.PutUint16(m[0x21F0+ovrLoadSegField:], 0x216E)
+	n.Rebuild(&o, m)
+	if a := n.Addr(Address{0x216E, 0x15BD}); a != (Address{0x37F1, 0x15BD}) {
+		t.Fatalf("moved unit: %v", a)
+	}
+	if a := n.Addr(Address{0x37F1, 0x15BD}); a != (Address{0x37F1, 0x15BD}) {
+		t.Fatalf("vacated segment: %v", a)
+	}
+	// Two units on one segment: no match.
+	binary.LittleEndian.PutUint16(m[0x2060+ovrLoadSegField:], 0x216E)
+	n.Rebuild(&o, m)
+	if a := n.Addr(Address{0x216E, 0x15BD}); a.Segment != legacyNoMatch {
+		t.Fatalf("ambiguous segment: %v", a)
+	}
+}

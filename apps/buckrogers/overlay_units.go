@@ -47,7 +47,7 @@ func ParseCodeKey(s string) (CodeKey, error) {
 // identical in three checkpoints).
 var legacyUnitSegments = map[uint16]uint32{
 	0x37F1: 0x2BA60, 0x2368: 0x21832, 0x2684: 0x24CDF, 0x1C41: 0x1799A, 0x1FEB: 0x27BBE,
-	0x2807: 0x081D9, 0x2E13: 0x00904,
+	0x2807: 0x081D9, 0x2E13: 0x00904, 0x2A33: 0x07DA5,
 }
 
 // LegacyCodeKey interprets an address recorded by an older family.
@@ -139,4 +139,82 @@ func (o *OverlayUnits) Key(m MemReader, a Address) CodeKey {
 		o.Ambiguous++
 	}
 	return CodeKey{Segment: a.Segment, Offset: a.Offset}
+}
+
+// loadedUnit is one unit currently in memory.
+type loadedUnit struct {
+	unit uint32
+	seg  uint16
+}
+
+// Loaded lists the units currently loaded (spec 033 §2.1).
+func (o *OverlayUnits) Loaded(m MemReader) []loadedUnit {
+	if !o.scanned {
+		o.scan(m)
+	}
+	var out []loadedUnit
+	for i := 0; i < len(o.stubs); i++ {
+		s := o.stubs[i]
+		if unit, ok := isOvrStub(m, uint32(s.seg)); !ok || unit != s.unit {
+			o.scan(m)
+			i, out = -1, out[:0]
+			continue
+		}
+		if ls := m.Read16(uint32(s.seg)<<4 + ovrLoadSegField); ls != 0 {
+			out = append(out, loadedUnit{s.unit, ls})
+		}
+	}
+	return out
+}
+
+// legacyNoMatch is a segment no older family's address uses.
+const legacyNoMatch = 0xFFFF
+
+// LegacyNormaliser maps runtime segments to the segments at which the older
+// families recorded the same overlay code (spec 033). It is a plain array
+// lookup between rebuilds; only entries set by the last rebuild differ from
+// the identity.
+type LegacyNormaliser struct {
+	tab    [1 << 16]uint16
+	set    [1 << 16]bool
+	dirty  []uint16
+	Builds int
+}
+
+var unitLegacySegment = func() map[uint32]uint16 {
+	m := map[uint32]uint16{}
+	for seg, unit := range legacyUnitSegments {
+		m[unit] = seg
+	}
+	return m
+}()
+
+// Rebuild recomputes the table from the current load segments.
+func (n *LegacyNormaliser) Rebuild(o *OverlayUnits, m MemReader) {
+	for _, s := range n.dirty {
+		n.set[s] = false
+	}
+	n.dirty = n.dirty[:0]
+	count := map[uint16]int{}
+	units := o.Loaded(m)
+	for _, u := range units {
+		count[u.seg]++
+	}
+	for _, u := range units {
+		v := uint16(legacyNoMatch)
+		if l, ok := unitLegacySegment[u.unit]; ok && count[u.seg] == 1 {
+			v = l
+		}
+		n.tab[u.seg], n.set[u.seg] = v, true
+		n.dirty = append(n.dirty, u.seg)
+	}
+	n.Builds++
+}
+
+// Addr normalises one address; segments no unit occupies are unchanged.
+func (n *LegacyNormaliser) Addr(a Address) Address {
+	if n != nil && n.set[a.Segment] {
+		a.Segment = n.tab[a.Segment]
+	}
+	return a
 }
