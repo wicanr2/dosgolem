@@ -484,6 +484,7 @@ func main() {
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	scopedMenu3 := flag.Bool("scoped-menu-3x", false, "明示啟用限正式 menu-only catalog 的 3x 倚天 22 點主選單覆繪")
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
+	liveMenuOut := flag.String("live-menu-rgba-out", "", "並行驅動 LiveMenuRuntime，輸出其 overlay-scale RGBA（與 overlay-rgba-out 對照用）")
 	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
 	manualEvents := flag.String("manual-events", "", "正式 manual-events.tsv")
 	manualOrdinals := flag.String("manual-ordinals", "", "正式 manual-ordinals.tsv")
@@ -1281,10 +1282,24 @@ func main() {
 			fail(err)
 		}
 	}
+	var liveMenu *buckrogers.LiveMenuRuntime
+	if *liveMenuOut != "" {
+		if presenter == nil || *scopedMenu3 {
+			fail(fmt.Errorf("live-menu-rgba-out 需要一般選單 overlay（overlay-rgba-out，且不可與 scoped-menu-3x 併用）"))
+		}
+		var liveErr error
+		liveMenu, liveErr = newLiveMenuFromFlags(catalog, *overlayFont, liveMenuRectInputs(*menuRects, *genderRects, *classRects, *rosterRects, *namePromptRects, *careerSkillRects, *technicalSkillRects), *characterSheetRects)
+		if liveErr != nil {
+			fail(liveErr)
+		}
+	}
 	if presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil || storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
 		m.SetOnFrame(func() {
 			if presenter != nil {
 				presenter.Frame(m.Indexed(), m.Palette())
+			}
+			if liveMenu != nil {
+				liveMenu.Frame(m.Indexed(), m.Palette())
 			}
 			if actionBarPresenter != nil {
 				actionBarPresenter.Frame(m.Indexed(), m.Palette())
@@ -1557,6 +1572,11 @@ func main() {
 				fail(fmt.Errorf("BIOS 鍵盤緩衝區已滿"))
 			}
 			nextKey++
+		}
+		if liveMenu != nil {
+			if err := liveMenu.BeforeStep(machineReader{m}); err != nil {
+				fail(err)
+			}
 		}
 		at := buckrogers.Address{Segment: m.CPU.Seg[cpu.CS], Offset: m.CPU.IP}
 		if *bodyIconFramebufferTrace && bodyIconBefore == nil && m.Steps >= *bodyIconFramebufferTraceFrom {
@@ -2369,6 +2389,15 @@ func main() {
 			baseline = buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *overlayScale)
 		}
 		rgba, missingRunes, drew := presenter.Draw(m.Indexed(), m.Palette())
+		if liveMenu != nil {
+			liveRGBA, _, _, err := liveMenu.Draw(m.Indexed(), m.Palette(), *overlayScale)
+			if err != nil {
+				fail(err)
+			}
+			if err := os.WriteFile(*liveMenuOut, liveRGBA, 0o600); err != nil {
+				fail(err)
+			}
+		}
 		activeKeys := presenter.ActiveKeys()
 		if err := validateOverlayDraw(activeKeys, missingRunes, drew); err != nil {
 			fail(err)
