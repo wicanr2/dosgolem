@@ -825,3 +825,15 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 
 // Frames counts retraces observed so far.
 func (r *LiveRuntime) Frames() uint64 { return r.frameSeen }
+
+// DebugSummary reports family counters for diagnostics (no original text).
+func (r *LiveRuntime) DebugSummary() string {
+	s := fmt.Sprintf("resets=%v", r.Resets())
+	if r.ecl != nil {
+		s += fmt.Sprintf(" ecl=%+v", r.ecl.Stats)
+	}
+	if r.hmenu != nil {
+		s += fmt.Sprintf(" hmenu=%+v", r.hmenu.Stats)
+	}
+	return s
+}

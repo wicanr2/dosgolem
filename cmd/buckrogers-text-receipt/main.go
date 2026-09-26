@@ -2223,6 +2223,9 @@ func main() {
 		actionRequests = actionWatcher.Requests()
 	}
 	actionPending, actionDrops, actionMisses, actionRequestMisses := actionWatcherStatus(actionWatcher)
+	if liveAll != nil {
+		fmt.Fprintln(os.Stderr, "live:", liveAll.DebugSummary())
+	}
 	if nextKey != len(keys) || r.Pending() || r.Drops() != 0 || (*want != 0 && len(events) != *want) ||
 		(*wantRequests != 0 && len(requests) != *wantRequests) || actionPending || actionDrops != 0 ||
 		(*wantActionBarEvents != 0 && len(actionEvents) != *wantActionBarEvents) ||

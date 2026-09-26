@@ -110,6 +110,7 @@ func main() {
 		flush()
 		burstAt, burstFirst, burstLo, burstHi, burstStep, burstN = [2]uint16{v.CS, v.IP}, v.Offset, v.Offset, v.Offset, v.Step, 1
 	})
+	var hret [4]uint16
 	nextKey := 0
 	nextEnter := *enterFrom
 	nextShot := uint64(0)
@@ -133,6 +134,10 @@ func main() {
 		}
 		cs, ip := m.CPU.Seg[cpu.CS], m.CPU.IP
 		ss, sp := m.CPU.Seg[cpu.SS], m.CPU.R[cpu.SP]
+		if hret[0] != 0 && cs == hret[0] && ip == hret[1] && ss == hret[2] && sp == hret[3] {
+			fmt.Fprintf(w, "R\t%d\t%04X:%04X\n", m.Steps, cs, ip)
+			hret = [4]uint16{}
+		}
 		switch {
 		case cs == 0x0763 && ip == 0x026B:
 			flush()
@@ -189,6 +194,7 @@ func main() {
 		case cs == 0x37F1 && ip == 0x0243:
 			flush()
 			pb, sel := m.Read16(cpu.Addr(ss, sp+4)), m.Read16(cpu.Addr(ss, sp+6))
+			hret = [4]uint16{m.Read16(cpu.Addr(ss, sp+2)), m.Read16(cpu.Addr(ss, sp)), ss, sp + 8}
 			at := func(off int) uint32 { return cpu.Addr(ss, uint16(int(pb)+off)) }
 			n := int(m.Read8(at(-0x213)))
 			b := make([]byte, n)

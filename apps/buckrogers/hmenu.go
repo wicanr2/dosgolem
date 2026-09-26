@@ -98,7 +98,12 @@ type HMenuPage struct {
 	Rows []HMenuRow
 }
 
-type HMenuStats struct{ Hits, Misses, Overflows, Invalidations, Reentries int }
+type HMenuStats struct {
+	Hits, Misses, Overflows, Invalidations, Reentries int
+	LastInvalidOffset                                 uint32
+	Returns                                           int
+	LastEntrySP, LastReturnSP                         uint16
+}
 
 type HMenuWatcher struct {
 	catalog *HMenuCatalog
@@ -146,6 +151,7 @@ func (w *HMenuWatcher) ObserveEntry(e HMenuEntry) {
 	}
 	w.page = page
 	w.gen++
+	w.Stats.LastEntrySP = e.SP
 	w.inCall = true
 	w.call = e
 	w.Stats.Hits++
@@ -206,6 +212,8 @@ func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 func (w *HMenuWatcher) ObserveInstruction(at Address, ss, sp uint16) {
 	if w != nil && w.inCall && at == w.call.Return && ss == w.call.SS && sp == w.call.SP+hmenuReturnDelta {
 		w.inCall = false
+		w.Stats.Returns++
+		w.Stats.LastReturnSP = sp
 	}
 }
 
@@ -216,6 +224,7 @@ func (w *HMenuWatcher) ObserveVideoWrite(offset uint32) {
 	x, y := offset%320, offset/320
 	for _, r := range w.page.Rows {
 		if y/8 == uint32(r.Row) && x >= uint32(r.Col)*8 {
+			w.Stats.LastInvalidOffset = offset
 			w.invalidate()
 			return
 		}
