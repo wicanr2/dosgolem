@@ -103,3 +103,16 @@ func TestHMenuStartsAtFirstItemColumn(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestHMenuLookupFallsBackToCapitals(t *testing.T) {
+	c := hmenuFixture(t, "ORDER FOOD", "點餐(O)", "Wait", "等待(W)")
+	if z, ok := c.lookup("Order food"); !ok || z != "點餐(O)" {
+		t.Fatalf("mixed-case ECL item: %q %v", z, ok)
+	}
+	if _, ok := c.lookup("wAIT"); ok {
+		t.Fatal("capitals fallback must not lower-case catalog keys")
+	}
+	if _, ok := c.lookup("TALK"); ok {
+		t.Fatal("missing item hit")
+	}
+}

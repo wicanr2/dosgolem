@@ -13,8 +13,8 @@ import (
 // up on its own and the line is rebuilt in Chinese only when every item
 // has a translation.
 var (
-	hmenuPrinter            = Address{Segment: 0x37F1, Offset: 0x0243}
-	hmenuReturnDelta uint16 = 4 + 4 // RETF 4
+	hmenuPrinter            = CodeKey{Unit: 0x2BA60, Offset: 0x0243} // spec 032
+	hmenuReturnDelta uint16 = 4 + 4                                  // RETF 4
 )
 
 type HMenuCatalog struct {
@@ -65,7 +65,15 @@ func (c *HMenuCatalog) lookup(item string) (string, bool) {
 	}
 	k, ok := c.byID[eclTextID{uint8(len(item)), sha256.Sum256([]byte(item))}]
 	if !ok {
-		return "", false
+		// ECL menus keep items in capitals and the engine prints them with
+		// only the first letter capitalised ("ORDER FOOD" -> "Order food").
+		up := strings.ToUpper(item)
+		if up == item {
+			return "", false
+		}
+		if k, ok = c.byID[eclTextID{uint8(len(up)), sha256.Sum256([]byte(up))}]; !ok {
+			return "", false
+		}
 	}
 	t, ok := c.text[k]
 	return t, ok

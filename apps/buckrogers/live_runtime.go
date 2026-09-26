@@ -67,6 +67,11 @@ type LiveRuntime struct {
 	// logbook is the spec-030 panel; nil without text/logbook.zh-TW.tsv.
 	logbook     *LogbookWatcher
 	logbookPres [2]*LogbookOverlay
+	ovl         OverlayUnits // spec 032
+	// Spec 031: original Latin glyphs for the generic families.
+	asciiFound bool
+	asciiTry   uint64 // frame of the last search + 1 (0 = never)
+	asciiScans int
 
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
@@ -254,7 +259,7 @@ func (r *LiveRuntime) loadHMenu(textDir string) error {
 // observeHMenu reads the 37F1:0243 parent frame (spec 028 §2).
 func (r *LiveRuntime) observeHMenu(v StepReader, at Address) {
 	ss, sp := v.SS(), v.SP()
-	if at != hmenuPrinter {
+	if at.Offset != hmenuPrinter.Offset || r.ovl.Key(v, at) != hmenuPrinter {
 		r.hmenu.ObserveInstruction(at, ss, sp)
 		return
 	}
@@ -580,13 +585,64 @@ type storyFrame struct {
 	ss, sp    uint16
 }
 
+// genericActive reports whether a spec 027–030 family has content to draw.
+func (r *LiveRuntime) genericActive() bool {
+	return r.ecl != nil && len(r.ecl.Pages()) != 0 || r.hmenu != nil && r.hmenu.Page() != nil ||
+		r.engDisp != nil && len(r.engDisp.Lines()) != 0 || r.logbook != nil && r.logbook.open != 0
+}
+
+// findOriginalASCII implements spec 031 §3.1: search when a generic family
+// first needs it, at most once per 60 frames, and rebuild its presenters.
+func (r *LiveRuntime) findOriginalASCII(v StepReader) error {
+	if r.asciiFound || r.asciiTry != 0 && r.frameSeen < r.asciiTry-1+60 || !r.genericActive() {
+		return nil
+	}
+	r.asciiTry = r.frameSeen + 1
+	r.asciiScans++
+	table, ok := FindOriginalASCII(v, origASCIIScanLimit)
+	if !ok {
+		return nil
+	}
+	r.asciiFound = true
+	font := OriginalASCIIFont(r.font, table)
+	for i, scale := range liveScales {
+		var err error
+		if r.ecl != nil {
+			if r.eclPres[i], err = NewEclTextOverlay(font, scale); err != nil {
+				return err
+			}
+		}
+		if r.hmenu != nil {
+			if r.hmenuPres[i], err = NewHMenuOverlay(font, scale); err != nil {
+				return err
+			}
+		}
+		if r.engDisp != nil {
+			if r.engDispPres[i], err = NewHMenuOverlay(font, scale); err != nil {
+				return err
+			}
+		}
+		if r.logbook != nil {
+			if r.logbookPres[i], err = NewLogbookOverlay(font, scale); err != nil {
+				return err
+			}
+		}
+	}
+	// New presenters start empty: force every generic family to re-sync.
+	r.eclGen, r.hmenuGen, r.engDispGen = 0, 0, 0
+	return nil
+}
+
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
+	if err := r.findOriginalASCII(v); err != nil {
+		return err
+	}
 	at := Address{Segment: v.CS(), Offset: v.IP()}
 	if r.ecl != nil && (at == eclTextPrinter || r.ecl.InCall()) {
 		r.observeEclText(v, at)
 	}
-	if r.hmenu != nil && (at == hmenuPrinter || r.hmenu.InCall()) {
+	if r.hmenu != nil && (at.Offset == hmenuPrinter.Offset || r.hmenu.InCall()) {
 		r.observeHMenu(v, at)
 	}
 	if r.engDisp.InCall() {
@@ -613,7 +669,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		return err
 	}
 	if obs.Kind == ObservedEntry && r.engDisp != nil {
-		r.engDisp.ObserveEntry(obs.Caller, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original)
+		r.engDisp.ObserveEntry(r.ovl.Key(v, obs.Caller), obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original)
 	}
 	switch obs.Kind {
 	case ObservedClear:
@@ -1041,7 +1097,7 @@ func (r *LiveRuntime) Frames() uint64 { return r.frameSeen }
 
 // DebugSummary reports family counters for diagnostics (no original text).
 func (r *LiveRuntime) DebugSummary() string {
-	s := fmt.Sprintf("resets=%v", r.Resets())
+	s := fmt.Sprintf("resets=%v orig-ascii=%v/%d ovl-scans=%d ovl-ambiguous=%d", r.Resets(), r.asciiFound, r.asciiScans, r.ovl.Scans, r.ovl.Ambiguous)
 	if r.ecl != nil {
 		s += fmt.Sprintf(" ecl=%+v", r.ecl.Stats)
 	}

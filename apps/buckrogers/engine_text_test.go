@@ -95,7 +95,7 @@ func TestEngineDecomposeAndTranslate(t *testing.T) {
 
 func TestEngineDispatchAllowListAndLifecycle(t *testing.T) {
 	c := engineFixture(t)
-	if _, err := LoadEngineDispatchCallers([]byte("caller\tnote\n37F1:101E\tx\n"), map[Address]bool{{0x37F1, 0x101E}: true}); err == nil {
+	if _, err := LoadEngineDispatchCallers([]byte("caller\tnote\nOVR:2BA60:101E\tx\n"), map[CodeKey]bool{{Unit: 0x2BA60, Offset: 0x101E}: true}); err == nil {
 		t.Fatal("owned caller accepted")
 	}
 	allow, err := LoadEngineDispatchCallers([]byte("caller\tnote\n1FEB:0560\tAC\n"), nil)
@@ -105,27 +105,28 @@ func TestEngineDispatchAllowListAndLifecycle(t *testing.T) {
 	w := NewEngineDispatchWatcher(c, allow)
 	ret := Address{0x1FEB, 0x0560}
 	args := [6]uint16{0, 0, 0, 5, 3, 30}
-	w.ObserveEntry(Address{0x1FEB, 0x0999}, 1, 0x100, Address{0x1FEB, 0x0999}, args, []byte("AC"))
+	w.ObserveEntry(CodeKey{Segment: 0x1FEB, Offset: 0x0999}, 1, 0x100, Address{0x1FEB, 0x0999}, args, []byte("AC"))
 	if w.Page() != nil {
 		t.Fatal("caller outside allow list drew")
 	}
-	w.ObserveEntry(ret, 1, 0x100, ret, args, []byte("AC"))
+	w.ObserveEntry(CodeKey{Segment: 0x1FEB, Offset: 0x0560}, 1, 0x100, ret, args, []byte("AC"))
 	p := w.Page()
 	if p == nil || p.Rows[0].Row != 3 || p.Rows[0].Col != 30 || string(p.Rows[0].Cells[0].Rune) != "防" {
 		t.Fatalf("%+v", p)
 	}
-	w.SetNameCallers(map[Address]bool{{0x37F1, 0x235A}: true})
+	w.SetNameCallers(map[CodeKey]bool{{Unit: 0x2BA60, Offset: 0x235A}: true})
+	nameKey := CodeKey{Unit: 0x2BA60, Offset: 0x235A}
 	nameCaller := Address{0x37F1, 0x235A}
-	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 7, 23}, []byte("FLAVIUS"))
+	w.ObserveEntry(nameKey, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 7, 23}, []byte("FLAVIUS"))
 	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
-	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 8, 23}, []byte("AC"))
+	w.ObserveEntry(nameKey, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 8, 23}, []byte("AC"))
 	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
-	w.ObserveEntry(nameCaller, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 9, 23}, []byte("TERRINE WARRIOR"))
+	w.ObserveEntry(nameKey, 1, 0x100, nameCaller, [6]uint16{0, 0, 0, 5, 9, 23}, []byte("TERRINE WARRIOR"))
 	w.ObserveInstruction(nameCaller, 1, 0x100+engineDispatchReturnDelta)
 	if p := w.Page(); p == nil || len(p.Rows) != 2 || p.Rows[1].Row != 9 {
 		t.Fatalf("name-only caller: %+v", p)
 	}
-	w.ObserveEntry(ret, 1, 0x100, ret, args, []byte("AC"))
+	w.ObserveEntry(CodeKey{Segment: 0x1FEB, Offset: 0x0560}, 1, 0x100, ret, args, []byte("AC"))
 	w.ObserveVideoWrite(3*8*320 + 30*8)
 	if w.Page() == nil {
 		t.Fatal("in-call write dropped line")

@@ -18,8 +18,8 @@ type EngineDispatchLine struct {
 
 type EngineDispatchWatcher struct {
 	catalog *EngineTextCatalog
-	allow   map[Address]bool
-	names   map[Address]bool // callers where only exact monster names are drawn
+	allow   map[CodeKey]bool
+	names   map[CodeKey]bool // callers where only exact monster names are drawn
 	lines   []EngineDispatchLine
 	inCall  bool
 	callRet Address
@@ -31,16 +31,16 @@ type EngineDispatchWatcher struct {
 
 // LoadEngineDispatchCallers parses text/engine-dispatch-callers.tsv and
 // rejects any caller an existing family already owns.
-func LoadEngineDispatchCallers(data []byte, owned map[Address]bool) (map[Address]bool, error) {
+func LoadEngineDispatchCallers(data []byte, owned map[CodeKey]bool) (map[CodeKey]bool, error) {
 	rows, err := readTSV("engine-dispatch-callers.tsv", data, []string{"caller", "note"})
 	if err != nil {
 		return nil, err
 	}
-	out := map[Address]bool{}
+	out := map[CodeKey]bool{}
 	for _, r := range rows {
-		var a Address
-		if _, err := fmt.Sscanf(r[0], "%04X:%04X", &a.Segment, &a.Offset); err != nil {
-			return nil, fmt.Errorf("buckrogers: 呼叫端 %q 無效", r[0])
+		a, err := ParseCodeKey(r[0])
+		if err != nil {
+			return nil, err
 		}
 		if owned[a] {
 			return nil, fmt.Errorf("buckrogers: 呼叫端 %s 已屬既有家族", r[0])
@@ -50,14 +50,14 @@ func LoadEngineDispatchCallers(data []byte, owned map[Address]bool) (map[Address
 	return out, nil
 }
 
-func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[Address]bool) *EngineDispatchWatcher {
-	return &EngineDispatchWatcher{catalog: c, allow: allow, names: map[Address]bool{}, gen: 1}
+func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[CodeKey]bool) *EngineDispatchWatcher {
+	return &EngineDispatchWatcher{catalog: c, allow: allow, names: map[CodeKey]bool{}, gen: 1}
 }
 
 // SetNameCallers installs callers shared with other families: there only a
 // string that is exactly a monster name is drawn (other families claim
 // strings by exact hash, so a monster name is never theirs).
-func (w *EngineDispatchWatcher) SetNameCallers(names map[Address]bool) { w.names = names }
+func (w *EngineDispatchWatcher) SetNameCallers(names map[CodeKey]bool) { w.names = names }
 
 func (w *EngineDispatchWatcher) Lines() []EngineDispatchLine { return w.lines }
 func (w *EngineDispatchWatcher) Generation() uint64          { return w.gen }
@@ -83,7 +83,7 @@ func overlapsLine(l EngineDispatchLine, row, c0, c1 int) bool {
 }
 
 // ObserveEntry handles a dispatcher entry (args as read by the menu family).
-func (w *EngineDispatchWatcher) ObserveEntry(caller Address, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
+func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
 	if w == nil || !w.allow[caller] && !w.names[caller] {
 		return
 	}
@@ -156,9 +156,10 @@ func (w *EngineDispatchWatcher) Page() *HMenuPage {
 var engineCallerRE = regexp.MustCompile(`\b([0-9A-F]{4}):([0-9A-F]{4})\b`)
 
 // OwnedCallers collects every segment:offset that appears in an existing
-// family's events file, so the allow list cannot claim them.
-func OwnedCallers(files map[string][]byte) map[Address]bool {
-	out := map[Address]bool{}
+// family's events file, so the allow list cannot claim them. Overlay
+// segments are read as the units loaded there in character creation.
+func OwnedCallers(files map[string][]byte) map[CodeKey]bool {
+	out := map[CodeKey]bool{}
 	for name, b := range files {
 		if strings.HasPrefix(name, "engine-") || strings.HasPrefix(name, "ecl-") || strings.HasPrefix(name, "hmenu") || strings.HasPrefix(name, "item-") {
 			continue
@@ -166,7 +167,7 @@ func OwnedCallers(files map[string][]byte) map[Address]bool {
 		for _, m := range engineCallerRE.FindAllStringSubmatch(string(b), -1) {
 			var a Address
 			fmt.Sscanf(m[1]+":"+m[2], "%04X:%04X", &a.Segment, &a.Offset)
-			out[a] = true
+			out[LegacyCodeKey(a)] = true
 		}
 	}
 	return out
