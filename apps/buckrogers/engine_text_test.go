@@ -297,3 +297,26 @@ func TestEngineCoordinateLine(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineDispatchEclPrompt(t *testing.T) {
+	w := NewEngineDispatchWatcher(engineFixture(t), map[CodeKey]bool{})
+	if _, ok := w.eclPrompt([]byte("WHO SHOOTS? ")); ok {
+		t.Fatal("no ECL catalog: step must be skipped")
+	}
+	w.SetEclCatalog(eclFixture(t, "WHO SHOOTS?", "誰開槍？", "LONG ONE", "這是一段非常長而且放不下的譯文"))
+	if zh, ok := w.eclPrompt([]byte("WHO SHOOTS? ")); !ok || zh != "誰開槍？ " {
+		t.Fatalf("trailing space: %q %v", zh, ok)
+	}
+	for _, in := range []string{"WHO SHOOTS?", " WHO SHOOTS? ", "who shoots? ", "LONG ONE "} {
+		if zh, ok := w.eclPrompt([]byte(in)); ok {
+			t.Errorf("%q matched: %q", in, zh)
+		}
+	}
+	// Through the watcher: an allowed caller whose string §2.4 cannot translate.
+	caller := CodeKey{Unit: 0x2BA60, Offset: 0x101E}
+	w.allow[caller] = true
+	w.ObserveEntry(caller, 1, 0x100, Address{0x216E, 0x1023}, [6]uint16{0, 0, 13, 0, 24, 0}, []byte("WHO SHOOTS? "))
+	if p := w.Page(); p == nil || p.Rows[0].Row != 24 || p.Rows[0].Cells[0].Rune != '誰' {
+		t.Fatalf("dispatcher page: %+v", p)
+	}
+}

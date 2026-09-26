@@ -1,6 +1,7 @@
 package buckrogers
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -21,6 +22,7 @@ type EngineDispatchWatcher struct {
 	allow   map[CodeKey]bool
 	names   map[CodeKey]bool // callers where only exact monster names are drawn
 	shared  map[CodeKey]bool // spec 029 §2.5: callers shared with older families
+	ecl     *EclTextCatalog  // spec 029 §2.9; nil skips the step
 	lines   []EngineDispatchLine
 	inCall  bool
 	callRet Address
@@ -59,6 +61,30 @@ func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[CodeKey]bool) *Eng
 // string that is exactly a monster name is drawn (other families claim
 // strings by exact hash, so a monster name is never theirs).
 func (w *EngineDispatchWatcher) SetNameCallers(names map[CodeKey]bool) { w.names = names }
+
+// SetEclCatalog gives the watcher the spec 027 catalog for §2.9.
+func (w *EngineDispatchWatcher) SetEclCatalog(c *EclTextCatalog) { w.ecl = c }
+
+// eclPrompt implements spec 029 §2.9: an ECL string printed through the
+// dispatcher with trailing 0x20 spaces.
+func (w *EngineDispatchWatcher) eclPrompt(original []byte) (string, bool) {
+	if w.ecl == nil {
+		return "", false
+	}
+	body := bytes.TrimRight(original, " ")
+	if len(body) == len(original) || len(body) == 0 {
+		return "", false
+	}
+	_, zh, ok := w.ecl.Lookup(body)
+	if !ok {
+		return "", false
+	}
+	zh += strings.Repeat(" ", len(original)-len(body))
+	if len([]rune(zh)) > len(original) {
+		return "", false
+	}
+	return zh, true
+}
 
 // SetSharedCallers installs spec 029 §2.5 callers: each must be owned by an
 // older family and absent from the other lists. Overlap with the older
@@ -118,6 +144,9 @@ func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret 
 		zh, ok = w.catalog.monsterSlot(string(original))
 	} else {
 		zh, ok = w.catalog.Translate(string(original))
+	}
+	if !ok && !nameOnly {
+		zh, ok = w.eclPrompt(original)
 	}
 	if !ok || len([]rune(zh)) > n {
 		w.Stats.Misses++

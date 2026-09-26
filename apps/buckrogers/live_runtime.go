@@ -219,6 +219,9 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 		if err := r.loadEngineDispatch(textDir, eng); err != nil {
 			return err
 		}
+		if r.engDisp != nil {
+			r.engDisp.SetEclCatalog(c)
+		}
 		if err := r.loadLogbook(textDir, eng); err != nil {
 			return err
 		}
