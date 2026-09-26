@@ -33,6 +33,8 @@ type LiveRuntime struct {
 	action   *ActionBarWatcher
 	actPres  [2]*RuntimeActionBarOverlay
 	stories  []storyFamily
+	body     *LiveBodyIconWatcher
+	bodyPres [2]*RuntimeBodyIconOverlay
 	manual   *Watcher
 	manPres  [2]*RuntimeManualOverlay
 	manSync  [2]*ManualPresentationBridge
@@ -79,6 +81,7 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		"post-join-menu-events.tsv", "post-join-menu-variants.tsv", "post-join-menu.zh-TW.tsv",
 		"skill-action-bar-events.tsv", "skill-action-bar.zh-TW.tsv", "skill-action-bar-text-safe-rects.tsv",
 		"manual-events.tsv", "manual-ordinals.tsv", "manual.zh-TW.tsv", "manual-overlay-layout.tsv",
+		"body-icon-events.tsv", "body-icon-affixes.tsv", "body-icon.zh-TW.tsv", "body-icon-text-safe-rects.tsv",
 	} {
 		b, err := os.ReadFile(filepath.Join(textDir, name))
 		if err != nil {
@@ -107,6 +110,19 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 	}
 	if r.stories, err = storyPages(textDir, font); err != nil {
 		return nil, err
+	}
+	bodyCatalog, err := LoadBodyIconCatalog(files["body-icon-events.tsv"], files["body-icon-affixes.tsv"], files["body-icon.zh-TW.tsv"], files["body-icon-text-safe-rects.tsv"])
+	if err != nil {
+		return nil, err
+	}
+	if err := menu.RegisterAffix(bodyCatalog.SaveAffixShape()); err != nil {
+		return nil, err
+	}
+	r.body = NewLiveBodyIconWatcher(bodyCatalog)
+	for i, scale := range liveScales {
+		if r.bodyPres[i], err = NewRuntimeBodyIconOverlay(bodyCatalog, font, scale, BodyIconLive); err != nil {
+			return nil, err
+		}
 	}
 	manualCatalog, err := LoadCatalog(files["manual-events.tsv"], files["manual-ordinals.tsv"], files["manual.zh-TW.tsv"])
 	if err != nil {
@@ -352,6 +368,16 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 				}
 			}
 		}
+		if obs.NewEvent {
+			for _, t := range r.body.Observe(obs.Event) {
+				for i := range liveScales {
+					if err := r.bodyPres[i].Apply(t, palette); err != nil {
+						r.resets["body-icon"]++
+					}
+				}
+				r.yieldMenu(r.bodyPres[0].SafeLogicalRects())
+			}
+		}
 		if obs.NewEvent && postJoinRuntimeGate(obs.Event) {
 			prior := len(r.postJoin.Generations())
 			if err := r.postJoin.ObserveReturn(obs.Event); err != nil {
@@ -461,6 +487,9 @@ func postJoinRuntimeGate(e TextEvent) bool { return postJoinEntryRow(e.Caller, e
 // VideoWrite forwards an A000 pre-write to every family that invalidates on
 // writes, in the runner's order.
 func (r *LiveRuntime) VideoWrite(w machine.VideoWrite) {
+	for i := range liveScales {
+		r.bodyPres[i].Prewrite(w)
+	}
 	for _, f := range r.stories {
 		f.prewrite(w)
 	}
@@ -552,6 +581,12 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 		if err != nil {
 			return nil, false, err
 		}
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
+	if len(r.bodyPres[i].ActiveKeys()) != 0 {
+		rgba, missing, _ := r.bodyPres[i].Draw(r.indexed, r.palette)
 		if err := layer(rgba, missing); err != nil {
 			return nil, false, err
 		}

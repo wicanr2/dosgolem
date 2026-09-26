@@ -218,6 +218,9 @@ const (
 	BodyIconMove    BodyIconRoute = "move"
 	BodyIconRefuse  BodyIconRoute = "refuse"
 	BodyIconConfirm BodyIconRoute = "confirm"
+	// BodyIconLive accepts any order of proven transitions for a live
+	// session, where the player's choice is not known in advance.
+	BodyIconLive BodyIconRoute = "live"
 )
 
 type BodyIconEvent struct {
@@ -467,7 +470,7 @@ type RuntimeBodyIconOverlay struct {
 }
 
 func NewRuntimeBodyIconOverlay(c *BodyIconCatalog, font *xlate.Font, scale int, route BodyIconRoute) (*RuntimeBodyIconOverlay, error) {
-	if c == nil || font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) || (route != BodyIconMove && route != BodyIconRefuse && route != BodyIconConfirm) {
+	if c == nil || font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) || (route != BodyIconMove && route != BodyIconRefuse && route != BodyIconConfirm && route != BodyIconLive) {
 		return nil, fmt.Errorf("body icon runtime inputs invalid")
 	}
 	if scale == 3 {
@@ -499,6 +502,11 @@ func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uin
 		return fmt.Errorf("body icon transition invalid")
 	}
 	expectedGen, expectedGroup, expectedKeys, ok := expectedBodyIconTransition(o.route, o.transition)
+	if o.route == BodyIconLive {
+		expectedGen, expectedGroup = t.Generation, t.Group
+		expectedKeys, ok = liveBodyIconKeys(t.Group)
+		ok = ok && t.Generation > o.generation
+	}
 	if !ok || t.Generation != expectedGen || t.Group != expectedGroup || len(t.Events) != len(expectedKeys) {
 		return fmt.Errorf("body icon partial, mixed, or out-of-order transition")
 	}

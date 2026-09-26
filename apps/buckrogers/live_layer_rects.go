@@ -30,3 +30,12 @@ func (r *LiveMenuRuntime) ClearRect(rect PixelRect) {
 		r.presenters[scale].layer.Clear(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
 	}
 }
+
+// SafeLogicalRects lists the body-icon stamps in logical 320×200 pixels.
+func (o *RuntimeBodyIconOverlay) SafeLogicalRects() []PixelRect {
+	out := make([]PixelRect, 0, len(o.rects))
+	for _, k := range o.ActiveKeys() {
+		out = append(out, o.rects[k])
+	}
+	return out
+}
