@@ -115,6 +115,7 @@ type EclTextLine struct {
 type EclTextPage struct {
 	Generation               uint64
 	Left, Top, Right, Bottom uint8
+	TopCol                   uint8 // first masked column of the Top row (spec 027 §3.4)
 	Background, Foreground   uint8
 	Lines                    []EclTextLine
 	Keys                     []string
@@ -211,6 +212,10 @@ func (w *EclTextWatcher) removeRows(l, t, r, b uint8, except *EclTextPage) {
 	for _, p := range w.pages {
 		if p != except && p.intersects(l, t, r, b) {
 			for row := max(t, p.Top); row <= min(b, p.Bottom); row++ {
+				// The Top row masks only [TopCol, Right] (§3.7 revision).
+				if row == p.Top && r < p.TopCol {
+					continue
+				}
 				if p.Shows(row) {
 					p.Gone |= 1 << row
 					changed = true
@@ -272,12 +277,6 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		idx, p = w.window(e)
 	}
 	key, text, ok := w.catalog.Lookup(e.Original)
-	if ok && !fresh && p == nil && eclShortPiece(e.Original) {
-		// Spec 027 §3.1 (2026-09-27): a short piece with no page of ours
-		// before it would mask the same row from the left edge, hiding the
-		// untranslated name or English in front of it.
-		key, text, ok = "", "", false
-	}
 	if !ok && w.engine != nil {
 		if text, ok = w.engine.Translate(string(e.Original)); ok {
 			key = "engine"
@@ -293,21 +292,22 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		text, key = string(e.Original), "passthrough"
 		w.Stats.Passthrough++
 	}
-	var row, col, first uint8
+	var row, col, first, topCol uint8
 	switch {
 	case fresh:
-		row, col, first = e.Top, e.Left, e.Top
+		row, col, first, topCol = e.Top, e.Left, e.Top, e.Left
 	case p == nil:
 		// A continuation after text we did not translate: start where the
-		// original will print and never mask the English above it.
-		row, col, first = e.CursorRow, e.CursorCol, e.CursorRow
+		// original will print and never mask the English above it, nor the
+		// name or English left of the cursor on its row (§3.4 start column).
+		row, col, first, topCol = e.CursorRow, e.CursorCol, e.CursorRow, e.CursorCol
 	default:
-		row, col, first = p.endRow, p.endCol, p.Top
+		row, col, first, topCol = p.endRow, p.endCol, p.Top, p.TopCol
 		if e.CursorCol == e.Left && col != e.Left {
 			row, col = row+1, e.Left
 		}
 		if e.CursorRow < first {
-			first = e.CursorRow
+			first, topCol = e.CursorRow, e.Left
 		}
 	}
 	lines, endRow, endCol, fits := layoutEclText([]rune(text), row, col, e.Left, e.Right, e.Bottom)
@@ -318,7 +318,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		}
 		return
 	}
-	next := &EclTextPage{Left: e.Left, Top: first, Right: e.Right, Bottom: e.Bottom,
+	next := &EclTextPage{Left: e.Left, Top: first, Right: e.Right, Bottom: e.Bottom, TopCol: topCol,
 		Background: e.Background, Foreground: e.Foreground, endRow: endRow, endCol: endCol}
 	if p != nil {
 		next.Lines = append(next.Lines, p.Lines...)
@@ -427,9 +427,3 @@ func isEclClosing(r rune) bool {
 	return strings.ContainsRune("，。！？：；、」）……》』,.!?:;)", r)
 }
 
-// eclShortPiece reports whether a catalog string is a spec 027 §3.1 tier-2
-// piece: after trimming spaces it has no space or is at most 3 bytes long.
-func eclShortPiece(b []byte) bool {
-	v := strings.TrimSpace(string(b))
-	return len(v) <= 3 || !strings.Contains(v, " ")
-}

@@ -190,18 +190,9 @@ func TestEclTextContinuationAfterUntranslatedKeepsEnglishAbove(t *testing.T) {
 	}
 }
 
-// Spec 027 §3.1 (2026-09-27): tier-2 short pieces.
+// Spec 027 §3.1 (2026-09-27): tier-2 short pieces join a Chinese page.
 func TestEclTextShortPieces(t *testing.T) {
 	ret := func(w *EclTextWatcher) { w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta) }
-	for _, v := range []struct {
-		s     string
-		short bool
-	}{{" ATTACKS.", true}, {"BELOW", true}, {"A B", true}, {"HIM", true}, {"GO TO X", false}, {" THE END. ", false}} {
-		if eclShortPiece([]byte(v.s)) != v.short {
-			t.Errorf("%q short=%v", v.s, !v.short)
-		}
-	}
-	// After a Chinese page the piece joins it on the same row.
 	w := NewEclTextWatcher(eclFixture(t, "FROM THE ", "來自", "BELOW", "下方"))
 	w.ObserveEntry(eclEntry("FROM THE ", true, 1, 17))
 	ret(w)
@@ -209,25 +200,98 @@ func TestEclTextShortPieces(t *testing.T) {
 	ret(w)
 	p := w.Page()
 	if p == nil || len(p.Lines) != 2 || p.Lines[1].Row != 17 || p.Lines[1].Col != 3 || p.endCol != 5 {
-		t.Fatalf("piece after page: %+v end=%d", p, p.endCol)
-	}
-	// With no page of ours (the name before it was not translated) the
-	// piece shows the original and masks nothing.
-	w = NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。", "GO TO THE BRIDGE", "前往艦橋"))
-	w.ObserveEntry(eclEntry("CELESTE", true, 1, 17))
-	w.ObserveEntry(eclEntry(" ATTACKS.", false, 8, 17))
-	if w.Page() != nil || w.Stats.Misses != 2 {
-		t.Fatalf("short piece without page drew: %+v misses=%d", w.Page(), w.Stats.Misses)
-	}
-	// A long string in the same situation keeps the old behaviour.
-	w.ObserveEntry(eclEntry("GO TO THE BRIDGE", false, 17, 17))
-	if p := w.Page(); p == nil || p.Lines[0].Col != 17 {
-		t.Fatalf("long string without page: %+v", p)
+		t.Fatalf("piece after page: %+v", p)
 	}
 	// A fresh page (clear flag) takes a short piece normally.
 	w = NewEclTextWatcher(eclFixture(t, "LAUNCH...", "發射……"))
 	w.ObserveEntry(eclEntry("LAUNCH...", true, 5, 17))
-	if p := w.Page(); p == nil || string(p.Lines[0].Text) != "發射……" {
+	if p := w.Page(); p == nil || string(p.Lines[0].Text) != "發射……" || p.TopCol != 1 {
 		t.Fatalf("fresh short piece: %+v", p)
+	}
+}
+
+// Spec 027 §3.4 start column (Issue #26).
+func TestEclTextStartColumn(t *testing.T) {
+	ret := func(w *EclTextWatcher) { w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta) }
+	// No page, cursor mid-row after an untranslated name: the page starts at
+	// the cursor column and the name cells stay unmasked.
+	w := NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。", "AND THEN IT GOES ON AND ON AND ON", "然後一直一直一直一直一直一直一直一直一直一直一直一直一直一直一直一直繼續下去"))
+	w.ObserveEntry(eclEntry("CELESTE", true, 1, 17))
+	w.ObserveEntry(eclEntry(" ATTACKS.", false, 8, 17))
+	ret(w)
+	p := w.Page()
+	if p == nil || p.Top != 17 || p.TopCol != 8 || p.Lines[0].Col != 8 {
+		t.Fatalf("no-page short piece: %+v", p)
+	}
+	// Writes left of the start column leave the page; to its right remove the row.
+	w.ObserveVideoWrite(17*8*320 + 7*8)
+	if w.Page() == nil || !w.Page().Shows(17) {
+		t.Fatal("write left of start column removed row")
+	}
+	// A continuation keeps the start column and wraps to full rows below.
+	w.ObserveEntry(eclEntry("AND THEN IT GOES ON AND ON AND ON", false, 17, 17))
+	ret(w)
+	p = w.Page()
+	if p.TopCol != 8 || p.Lines[len(p.Lines)-1].Row != 18 || p.Lines[len(p.Lines)-1].Col != 1 {
+		t.Fatalf("continuation: %+v", p)
+	}
+	w.ObserveVideoWrite(17*8*320 + 20*8)
+	if w.Page() == nil || w.Page().Shows(17) || !w.Page().Shows(18) {
+		t.Fatal("write right of start column kept row 17")
+	}
+	// After the Top row is removed, a continuation re-masks with the old start column.
+	w.ObserveEntry(eclEntry(" ATTACKS.", false, 30, 18))
+	ret(w)
+	if p := w.Page(); p.TopCol != 8 || !p.Shows(18) {
+		t.Fatalf("re-mask start column: %+v", p)
+	}
+	// A continuation above the page's Top resets the start column.
+	tall := func(s string, clear bool, col, row uint8) EclTextEntry {
+		e := eclEntry(s, clear, col, row)
+		e.Top = 15
+		return e
+	}
+	w = NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。"))
+	w.ObserveEntry(tall("NAME", true, 1, 15))
+	w.ObserveEntry(tall(" ATTACKS.", false, 8, 17))
+	ret(w)
+	w.ObserveEntry(tall(" ATTACKS.", false, 5, 16))
+	if p := w.Page(); p == nil || p.Top != 16 || p.TopCol != 1 {
+		t.Fatalf("upward continuation: %+v", p)
+	}
+	// A short piece after untranslated English mid-row: mixed text, accepted.
+	w = NewEclTextWatcher(eclFixture(t, "SLIP IN FROM ", "", "BELOW", "下方"))
+	w.ObserveEntry(eclEntry("SLIP IN FROM ", true, 1, 17))
+	w.ObserveEntry(eclEntry("BELOW", false, 14, 17))
+	if p := w.Page(); p == nil || p.TopCol != 14 {
+		t.Fatalf("piece after English: %+v", p)
+	}
+	// Cursor in the right column: one character fits there, the rest wraps to full rows.
+	w = NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。"))
+	w.ObserveEntry(eclEntry("NAME", true, 1, 17))
+	w.ObserveEntry(eclEntry(" ATTACKS.", false, 38, 17))
+	if p := w.Page(); p == nil || p.TopCol != 38 || p.Top != 17 || p.Lines[0].Row != 17 || p.Lines[1].Row != 18 || p.Lines[1].Col != 1 {
+		t.Fatalf("right-column cursor: %+v", p)
+	}
+}
+
+// A new page in another window removes only rows its columns meet on the
+// Top row's masked range.
+func TestEclTextStartColumnOtherWindow(t *testing.T) {
+	w := NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。", "SIDE TEXT", "旁白"))
+	w.ObserveEntry(eclEntry("CELESTE", true, 1, 17))
+	w.ObserveEntry(eclEntry(" ATTACKS.", false, 20, 17))
+	w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta)
+	side := eclEntry("SIDE TEXT", true, 1, 17)
+	side.Left, side.Right, side.Top, side.Bottom = 1, 10, 17, 17
+	w.ObserveEntry(side)
+	var main *EclTextPage
+	for _, p := range w.Pages() {
+		if p.Right == 38 {
+			main = p
+		}
+	}
+	if main == nil || !main.Shows(17) {
+		t.Fatalf("side window left of start column removed the row: %+v", w.Pages())
 	}
 }

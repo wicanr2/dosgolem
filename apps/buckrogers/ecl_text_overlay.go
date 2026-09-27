@@ -52,22 +52,26 @@ func (o *EclTextOverlay) Sync(pages []*EclTextPage, gen uint64, palette [256][3]
 	}
 	off := manualGlyphOffset(o.scale)
 	for pi, p := range pages {
-		cells := int(p.Right) - int(p.Left) + 1
 		for row := p.Top; row <= p.Bottom; row++ {
 			if !p.Shows(row) {
 				continue
 			}
+			start := p.Left
+			if row == p.Top {
+				start = p.TopCol
+			}
+			cells := int(p.Right) - int(start) + 1
 			text := make([]rune, cells)
 			for i := range text {
 				text[i] = ' '
 			}
 			for _, l := range p.Lines {
 				if l.Row == row {
-					copy(text[int(l.Col)-int(p.Left):], l.Text)
+					copy(text[int(l.Col)-int(start):], l.Text)
 				}
 			}
 			o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
-				Key: fmt.Sprintf("ecl.%d.row.%d", pi, row), X: int(p.Left) * 8, Y: int(row) * 8,
+				Key: fmt.Sprintf("ecl.%d.row.%d", pi, row), X: int(start) * 8, Y: int(row) * 8,
 				Cells: cells, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1,
 				Text: text, State: xlate.Shown, BG: palette[p.Background], FG: palette[p.Foreground],
 			})
