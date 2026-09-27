@@ -59,7 +59,8 @@ dosgolem 已模擬 OPL 暫存器與計時器、PIT 與喇叭資料線，但沒�
 
 ### 3.3 session：選用觀測介面
 
-- 新增選用介面 `AudioObserver { OPLWrite(machine.OPLWrite); SpeakerSample(machine.SpeakerSample) }`。
+- 新增選用介面 `AudioObserver { OPLWrite(machine.OPLWrite); SpeakerSample(machine.SpeakerSample); PITChannel2(machine.PIT2Change) }`。
+  第三個方法把 §3.2 的通道 2 事件轉交前端，喇叭方波的頻率要靠它；轉交規則與前兩者相同。
   `StepObserver`、`StepView` 不變。
 - 依規格 238 §2.3／§2.5：只在 `runObserved` 內安裝、回合結束一律解除；callback 內 panic 走 `videoPanic`
   同一個鎖存成 `ObserverFault`；`Config.Observer` 為 nil 或未實作 `AudioObserver` 時不轉交。

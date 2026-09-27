@@ -189,6 +189,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.kbdData, m.kbdPortB = s.kbdData, s.kbdPortB
 
 	m.Speaker = append(m.Speaker[:0], s.speaker...)
+	m.syncSpeakerLast()
 	m.pit, m.picMask = s.pit, s.picMask
 	m.IRQ0Clamped = s.irq0Clamped
 }

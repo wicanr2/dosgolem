@@ -36,14 +36,31 @@ type SpeakerSample struct {
 // outSpeaker 收埠 0x61 的喇叭兩個位元，只在值改變時記一筆。
 func (m *Machine) outSpeaker(v uint8) {
 	level, gate := (v>>1)&1, v&1
-	if n := len(m.Speaker); n > 0 {
-		last := m.Speaker[n-1]
-		if last.Level == level && last.Gate == gate {
+	// 「值有沒有變」看獨立欄位，不看序列最後一筆：觀測器掛上時序列不再追加
+	// （`docs/spec/240` §3.2）。
+	if m.speakerValid {
+		if m.speakerLast == [2]uint8{level, gate} {
 			return
 		}
 	} else if level == 0 && gate == 0 {
 		// 開頭的靜音不用記——它是重置值，不是動作。
 		return
 	}
-	m.Speaker = append(m.Speaker, SpeakerSample{Step: m.Steps, Level: level, Gate: gate})
+	m.speakerLast, m.speakerValid = [2]uint8{level, gate}, true
+	sample := SpeakerSample{Step: m.Steps, Level: level, Gate: gate}
+	if m.onSpeaker != nil {
+		m.onSpeaker(sample)
+		return
+	}
+	m.Speaker = append(m.Speaker, sample)
+}
+
+// syncSpeakerLast 在序列被整份換掉（快照還原）後，從序列最後一筆重算去重依據。
+func (m *Machine) syncSpeakerLast() {
+	if n := len(m.Speaker); n > 0 {
+		last := m.Speaker[n-1]
+		m.speakerLast, m.speakerValid = [2]uint8{last.Level, last.Gate}, true
+		return
+	}
+	m.speakerLast, m.speakerValid = [2]uint8{}, false
 }

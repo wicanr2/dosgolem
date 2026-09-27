@@ -110,6 +110,9 @@ type Config struct {
 	// Observer is installed privately before the first instruction and
 	// cannot be replaced (docs/spec/238).  nil keeps the bare RunUntil path.
 	Observer StepObserver
+	// AdLib makes the OPL2 present before the first instruction
+	// (docs/spec/240 §3.1).  Off and on are independent baselines.
+	AdLib bool
 }
 
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
@@ -213,6 +216,10 @@ func New(cfg Config) (*Owner, error) {
 		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
 	o.observer = cfg.Observer
+	if cfg.AdLib {
+		m.SetAdLib(true)
+		o.muteAudio()
+	}
 	keepDOS = true
 	return o, nil
 }

@@ -15,6 +15,8 @@ type StateDigest struct {
 	IndexedSHA256 [32]byte
 	PaletteSHA256 [32]byte
 	DOSExited     bool
+	// AdLib tells receipts taken with the OPL2 present apart (docs/spec/240).
+	AdLib bool
 }
 
 // Digest fingerprints the machine between turns.  It is refused while a turn
@@ -30,7 +32,7 @@ func (o *Owner) Digest() (StateDigest, error) {
 		return StateDigest{}, errors.New("session: 回合進行中不可取摘要")
 	}
 	m := o.machine
-	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited}
+	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited, AdLib: m.AdLibPresent()}
 	d.MemorySHA256 = sha256.Sum256(m.Mem[:])
 	cpu := make([]byte, 0, 2*(len(m.CPU.R)+len(m.CPU.Seg)+2))
 	for _, v := range m.CPU.R {

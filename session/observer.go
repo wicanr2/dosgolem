@@ -19,6 +19,25 @@ type StepObserver interface {
 	Frame(indexed []byte, palette [256][3]uint8)
 }
 
+// AudioObserver is an optional extension of StepObserver (docs/spec/240
+// §3.3).  It is only called inside a turn; callbacks collect value-type
+// writes with their step and must not synthesise inside Step.
+type AudioObserver interface {
+	OPLWrite(w machine.OPLWrite)
+	SpeakerSample(s machine.SpeakerSample)
+	// PITChannel2 carries the speaker square-wave divisor on the same step
+	// timeline as SpeakerSample (§3.2).
+	PITChannel2(c machine.PIT2Change)
+}
+
+// muteAudio keeps m.OPL/m.Speaker from growing while AdLib is on and no
+// AudioObserver is forwarding (§3.1): the empty collectors drop every write.
+func (o *Owner) muteAudio() {
+	o.machine.ObserveOPLWrites(func(machine.OPLWrite) {})
+	o.machine.ObserveSpeaker(func(machine.SpeakerSample) {})
+	o.machine.ObservePITChannel2(nil)
+}
+
 // StepView is valid only inside the BeforeStep call it was passed to.  A
 // retained view reads zero and makes the next BeforeStep an ObserverFault.
 type StepView struct {
@@ -137,9 +156,32 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		}()
 		o.observer.Frame(o.machine.Indexed(), o.machine.Palette())
 	})
+	if ao, ok := o.observer.(AudioObserver); ok {
+		guard := func(name string, f func()) {
+			if videoPanic != nil {
+				return
+			}
+			defer func() {
+				if r := recover(); r != nil {
+					videoPanic = fmt.Errorf("session: 觀測器 %s panic：%v", name, r)
+				}
+			}()
+			f()
+		}
+		o.machine.ObserveOPLWrites(func(w machine.OPLWrite) { guard("OPLWrite", func() { ao.OPLWrite(w) }) })
+		o.machine.ObserveSpeaker(func(s machine.SpeakerSample) { guard("SpeakerSample", func() { ao.SpeakerSample(s) }) })
+		o.machine.ObservePITChannel2(func(c machine.PIT2Change) { guard("PITChannel2", func() { ao.PITChannel2(c) }) })
+	}
 	defer func() {
 		o.machine.ObserveVideoWrites(nil)
 		o.machine.SetOnFrame(nil)
+		if o.machine.AdLibPresent() {
+			o.muteAudio()
+		} else {
+			o.machine.ObserveOPLWrites(nil)
+			o.machine.ObserveSpeaker(nil)
+			o.machine.ObservePITChannel2(nil)
+		}
 	}()
 	inObserver := false
 	observe := func(m *machine.Machine) error {

@@ -231,6 +231,14 @@ type Machine struct {
 	onWrite            func(addr uint32, old, new uint8)
 	onVideoWrite       func(VideoWrite)
 
+	// 音訊觀測（`docs/spec/240`）。掛上時 OPL／Speaker 序列不再追加。
+	onOPL        func(OPLWrite)
+	onSpeaker    func(SpeakerSample)
+	onPIT2       func(PIT2Change)
+	pit2         pit2
+	speakerLast  [2]uint8 // level, gate
+	speakerValid bool
+
 	// OPL2／OPL3 的狀態。
 	//
 	// `oplReg` 是兩組各自的暫存器索引（0x388 與 0x38A 分開選）。
@@ -814,7 +822,12 @@ func (m *Machine) oplWrite(bank int, v uint8) {
 			}
 		}
 	}
-	m.OPL = append(m.OPL, OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)})
+	w := OPLWrite{Reg: reg, Val: v, Step: m.Steps, Bank: uint8(bank)}
+	if m.onOPL != nil {
+		m.onOPL(w)
+		return
+	}
+	m.OPL = append(m.OPL, w)
 }
 
 // OPLRegs 回某一組暫存器的**目前狀態**（256 bytes）。
@@ -939,6 +952,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// PIT（8253/8254）通道 0 的分頻。
 	if p == 0x40 || p == 0x43 {
 		m.pitWrite(p, v)
+	}
+	// 通道 2（喇叭方波，`docs/spec/240`）。
+	if p == 0x42 || p == 0x43 {
+		m.pit2Write(p, v)
 	}
 
 	// OPL2：0x388 選暫存器、0x389 寫值。**兩個埠是一組**，
