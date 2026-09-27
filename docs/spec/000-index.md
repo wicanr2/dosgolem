@@ -417,4 +417,4 @@
 | [227](227-host-active-layer-snapshot-core.md) | Host active xlate layer 不可變快照純核心 | CONFORMED（純核心；非 host frontend） |
 | [234](234-xlate-physical-pixel-glyph-plan.md) | 共用疊字層實體像素字首計畫 | READY（僅共用 API；未實作） |
 | [239](239-xlate-rewrite-detection-draft.md) | 疊字層的改寫偵測（同位置改印時的巧合同字） | CONFORMED（xlate；其他分支合入前自行回歸） |
-| [240](240-opl-audio-output-draft.md) | OPL（AdLib）音訊輸出 | DRAFT |
+| [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
