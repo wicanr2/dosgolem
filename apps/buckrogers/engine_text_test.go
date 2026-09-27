@@ -444,3 +444,43 @@ func TestEngineDispatchWrappedSplitFillsFirstRow(t *testing.T) {
 		t.Fatal("second row overflow must fall back to English")
 	}
 }
+
+// Spec 029 §2.1 (2026-09-27): the explicitly listed short fragment "'s"
+// is used only when the whole string equals it. The signatures below are
+// the Python reference decomposer's output for the same vectors.
+func TestEngineExplicitShortFragment(t *testing.T) {
+	frags := []string{"'s", "'s weapon is reloaded", "Gear"}
+	c, err := LoadEngineTextCatalog(EngineTextFiles{
+		FragmentEvents: engineTSV("frag", frags...),
+		FragmentText:   engineZh("frag", "'s", "的", "'s weapon is reloaded", "的武器已重新裝填", "Gear", "裝備"),
+		ItemEvents:     engineTSV("item", "Bolt"),
+		ItemText:       engineZh("item", "Bolt", "爆能"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(s string) string { h := sha256.Sum256([]byte(s)); return fmt.Sprintf("frag.%x", h[:6]) }
+	for _, v := range []struct{ in, sig string }{
+		{"'s", key("'s")},
+		{"CELESTE's", "_"},
+		{"CELESTE's Gear", "_|" + key("Gear")},
+		{"'s weapon is reloaded", key("'s weapon is reloaded")},
+		{"'S", "_"},
+	} {
+		if got := EngineSignature(c.Decompose(v.in)); got != v.sig {
+			t.Errorf("%q signature %q, want %q", v.in, got, v.sig)
+		}
+	}
+	if z, ok := c.Translate("'s"); !ok || z != "的" {
+		t.Fatalf("'s -> %q %v", z, ok)
+	}
+	if z, ok := c.Translate("'s weapon is reloaded"); !ok || z != "的武器已重新裝填" {
+		t.Fatalf("long fragment -> %q %v", z, ok)
+	}
+	if z, ok := c.Translate("'S"); ok {
+		t.Fatalf("'S translated to %q", z)
+	}
+	if z, _ := c.Translate("CELESTE's Gear"); strings.Contains(z, "的") {
+		t.Fatalf("'s cut out of a name: %q", z)
+	}
+}
