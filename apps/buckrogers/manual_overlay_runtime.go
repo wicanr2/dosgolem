@@ -391,6 +391,19 @@ func (o *RuntimeManualOverlay) Draw(indexed []byte, palette [256][3]uint8) ([]by
 	return rgba, missing, background || text
 }
 
+// VisibleRequest reports the current request only while the paragraph is
+// Visible (spec 034 §3.3); actions keep old entries after Clear.
+func (o *RuntimeManualOverlay) VisibleRequest() (uint64, string, bool) {
+	if o == nil || o.state != manualOverlayVisible || len(o.actions) == 0 {
+		return 0, "", false
+	}
+	a := o.actions[len(o.actions)-1]
+	if a.Generation != o.generation {
+		return 0, "", false
+	}
+	return a.Generation, a.EventKey, true
+}
+
 func (o *RuntimeManualOverlay) ActiveGeneration() uint64 {
 	if o == nil {
 		return 0

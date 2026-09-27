@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/xlate"
@@ -37,6 +38,13 @@ type LiveRuntime struct {
 	bodyPres [2]*RuntimeBodyIconOverlay
 	manual   *Watcher
 	manPres  [2]*RuntimeManualOverlay
+	// Spec 034: optional local English keyword rows.
+	manCatalog *Catalog
+	manEng     *ManualEnglish
+	manEngPres [2]manualEnglishPresenter
+	manEngOff  string
+	textDir    string
+	started    bool
 	manSync  [2]*ManualPresentationBridge
 	manSeen  int
 	manStyle ManualTextStyle
@@ -159,6 +167,7 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		return nil, err
 	}
 	r.manual = NewWatcher(manualCatalog)
+	r.manCatalog, r.textDir = manualCatalog, textDir
 	for i, scale := range liveScales {
 		if r.manPres[i], err = NewRuntimeManualOverlay(manualLayout, manualCatalog, font, scale); err != nil {
 			return nil, err
@@ -668,6 +677,7 @@ func (r *LiveRuntime) findOriginalASCII(v StepReader) error {
 
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
+	r.started = true
 	if err := r.findOriginalASCII(v); err != nil {
 		return err
 	}
@@ -1081,6 +1091,14 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 			return nil, false, err
 		}
 	}
+	if r.manEng != nil && r.manEngPres[i].sync(r.manEng, r.manPres[i], r.palette) {
+		rgba := ScaleIndexedRGBA(r.indexed, r.palette, scale)
+		missing := []rune{}
+		r.manEngPres[i].layer.Draw(rgba, scale, func(ch rune) { missing = append(missing, ch) })
+		if err := layer(rgba, missing); err != nil {
+			return nil, false, err
+		}
+	}
 	for _, f := range r.stories {
 		if rgba, missing, active := f.draw(i, r.indexed, r.palette); active {
 			if err := layer(rgba, missing); err != nil {
@@ -1168,7 +1186,43 @@ func (r *LiveRuntime) DebugSummary() string {
 	if r.engDisp != nil {
 		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
 	}
+	switch {
+	case r.manEng != nil:
+		s += fmt.Sprintf(" 英文列=on(%d)", r.manEng.Len())
+	case r.manEngOff != "":
+		s += " 英文列=off(" + r.manEngOff + ")"
+	}
 	return s
+}
+
+// SetManualEnglish loads the local spec-034 excerpt. It must be called before
+// the first step. A file-level problem turns the feature off with a reason
+// code and is not an error for the caller.
+func (r *LiveRuntime) SetManualEnglish(path string) error {
+	if r.started {
+		return errors.New("buckrogers: 英文列必須在第一個 step 之前設定")
+	}
+	if path == "" || r.manCatalog == nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		r.manEngOff = "read"
+		return nil
+	}
+	panel, err := os.ReadFile(filepath.Join(r.textDir, "manual-english-panel.zh-TW.tsv"))
+	if err != nil {
+		r.manEngOff = "panel"
+		return nil
+	}
+	fonts := []*xlate.Font{r.manPres[0].font, r.manPres[1].font}
+	m, err := LoadManualEnglish(data, r.manCatalog, panel, fonts)
+	if err != nil {
+		r.manEngOff = strings.TrimPrefix(err.Error(), "manual-english: ")
+		return nil
+	}
+	r.manEng = m
+	return nil
 }
 
 // untouchedRows returns the page rows whose own cells still show the plain

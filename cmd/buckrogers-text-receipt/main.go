@@ -486,6 +486,7 @@ func main() {
 	overlayOut := flag.String("overlay-rgba-out", "", "輸出倍率後 RGBA framebuffer")
 	postJoinFontUnpinned := flag.Bool("font-unpinned", false, "診斷對照用：加入後選單與第 9 頁不鎖定 READY 字型 SHA，改由 presenter 檢查字模覆蓋")
 	liveTextDir := flag.String("live-text-dir", "", "並行驅動完整 LiveRuntime 的 catalog 目錄（對照用）")
+	liveManualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；只接 -live-text-dir 路徑）")
 	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
 	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
 	liveMenuOut := flag.String("live-menu-rgba-out", "", "並行驅動 LiveMenuRuntime，輸出其 overlay-scale RGBA（與 overlay-rgba-out 對照用）")
@@ -1301,6 +1302,9 @@ func main() {
 	if *liveTextDir != "" {
 		var liveErr error
 		if liveAll, liveErr = buckrogers.LoadLiveRuntime(*liveTextDir, *overlayFont); liveErr != nil {
+			fail(liveErr)
+		}
+		if liveErr = liveAll.SetManualEnglish(*liveManualEnglish); liveErr != nil {
 			fail(liveErr)
 		}
 	}

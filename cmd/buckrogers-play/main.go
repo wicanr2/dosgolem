@@ -185,6 +185,7 @@ func main() {
 	exeSHA := flag.String("exe-sha256", "", "開機執行檔 SHA-256（hex）")
 	textDir := flag.String("text-dir", "", "繁中 catalog 目錄")
 	fontPath := flag.String("font", "", "本機 16×16 倚天 GOLEMFNT")
+	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
 	frames := flag.Int("frames", 0, "自動模式：跑這麼多畫格後結束（0＝互動）")
 	script := flag.String("script", "", "自動模式送鍵：`畫格:鍵[,…]`")
@@ -217,6 +218,9 @@ func main() {
 	}
 	live, err := buckrogers.LoadLiveRuntime(*textDir, *fontPath)
 	if err != nil {
+		die(err)
+	}
+	if err := live.SetManualEnglish(*manualEnglish); err != nil {
 		die(err)
 	}
 	out, err := bootroot.Prepare(bootroot.BootRootInput{OriginalRoot: *original, SaveRoot: *save,
