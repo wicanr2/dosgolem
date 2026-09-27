@@ -8,12 +8,12 @@
 package session
 
 import (
+	"github.com/wicanr2/dosgolem/internal/fsaccess"
+
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
-
-	"golang.org/x/sys/unix"
 )
 
 // maxBootEXESize is a corrupt-input guard, not a version assertion.
@@ -64,7 +64,7 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 	if !info.IsDir() {
 		return BootReceipt{}, errors.New("session: save root 不是目錄")
 	}
-	if err := unix.Access(input.SaveRoot, unix.W_OK|unix.X_OK); err != nil {
+	if err := fsaccess.Writable(input.SaveRoot); err != nil {
 		return BootReceipt{}, fmt.Errorf("session: save root 不可寫: %v", err)
 	}
 	exe := append([]byte(nil), input.EXE...)

@@ -325,18 +325,15 @@ func (g *game) Draw(screen *ebiten.Image) {
 
 func (g *game) Layout(_, _ int) (int, int) { return 320 * g.scale, 200 * g.scale }
 
-func die(err error) {
-	fmt.Fprintln(os.Stderr, "buckrogers-play:", err)
-	os.Exit(1)
-}
+func die(err error) { fatal(err) }
 
 func main() {
-	original := flag.String("original", "", "唯讀原版樹目錄")
-	save := flag.String("save", "", "可寫存檔目錄（須不存在或為空）")
+	original := flag.String("original", "", "唯讀原版目錄（預設找發行包旁的 original）")
+	save := flag.String("save", "", "開發模式：可寫存檔目錄（須不存在或為空，每次重新複製）；不給則用使用者資料目錄")
 	exe := flag.String("exe", "START.EXE", "開機執行檔名")
-	exeSHA := flag.String("exe-sha256", "", "開機執行檔 SHA-256（hex）")
+	exeSHA := flag.String("exe-sha256", requiredOriginals[0].sha, "開機執行檔 SHA-256（hex）")
 	textDir := flag.String("text-dir", "", "繁中 catalog 目錄")
-	fontPath := flag.String("font", "", "本機 16×16 倚天 GOLEMFNT")
+	fontPath := flag.String("font", "", "16×16 GOLEMFNT（預設為發行包的 font/buckrogers-unifont.golemfnt）")
 	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
 	frames := flag.Int("frames", 0, "自動模式：跑這麼多畫格後結束（0＝互動）")
@@ -349,7 +346,7 @@ func main() {
 	version := flag.Bool("version", false, "顯示版本與第三方元件授權")
 	flag.Parse()
 	if *version {
-		fmt.Print(versionText)
+		fmt.Print(versionString() + versionText)
 		return
 	}
 	if *cpuProfile != "" {
@@ -362,9 +359,26 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	if *original == "" || *save == "" || *exeSHA == "" || *textDir == "" || *fontPath == "" || (*scale != 2 && *scale != 3) {
+	if *scale != 2 && *scale != 3 {
 		flag.Usage()
 		os.Exit(2)
+	}
+	data, err := userDataDir()
+	if err != nil {
+		die(err)
+	}
+	if *save == "" {
+		logDir = data
+	}
+	if *textDir == "" {
+		if *textDir, err = resourcePath("text"); err != nil {
+			die(err)
+		}
+	}
+	if *fontPath == "" {
+		if *fontPath, err = resourcePath(filepath.Join("font", "buckrogers-unifont.golemfnt")); err != nil {
+			die(err)
+		}
 	}
 	sum, err := hex.DecodeString(*exeSHA)
 	if err != nil || len(sum) != 32 {
@@ -383,12 +397,21 @@ func main() {
 	if err := live.SetManualEnglish(*manualEnglish); err != nil {
 		die(err)
 	}
-	out, err := bootroot.Prepare(bootroot.BootRootInput{OriginalRoot: *original, SaveRoot: *save,
-		Required: []bootroot.RequiredFile{{Name: *exe, SHA256: want}}})
-	if err != nil {
+	var saveRoot, exeName string
+	if *save != "" {
+		if *original == "" {
+			die(errors.New("開發模式（-save）須同時給 -original"))
+		}
+		out, err := bootroot.Prepare(bootroot.BootRootInput{OriginalRoot: *original, SaveRoot: *save,
+			Required: []bootroot.RequiredFile{{Name: *exe, SHA256: want}}})
+		if err != nil {
+			die(err)
+		}
+		saveRoot, exeName = out.SaveRoot, *exe
+	} else if saveRoot, exeName, err = prepareGame(*original, data); err != nil {
 		die(err)
 	}
-	exeBytes, err := os.ReadFile(filepath.Join(out.SaveRoot, *exe))
+	exeBytes, err := os.ReadFile(filepath.Join(saveRoot, exeName))
 	if err != nil {
 		die(err)
 	}
@@ -401,12 +424,13 @@ func main() {
 		die(err)
 	}
 	defer owner.Close()
-	if _, err := owner.BootOriginal(session.BootInput{EXE: exeBytes, ExpectedEXESHA256: want, SaveRoot: out.SaveRoot}); err != nil {
+	if _, err := owner.BootOriginal(session.BootInput{EXE: exeBytes, ExpectedEXESHA256: want, SaveRoot: saveRoot}); err != nil {
 		die(err)
 	}
+	clearErrorLog()
 	dir := *shotDir
 	if dir == "" {
-		dir = filepath.Join(filepath.Dir(filepath.Clean(out.SaveRoot)), "screenshots")
+		dir = filepath.Join(filepath.Dir(filepath.Clean(saveRoot)), "screenshots")
 	}
 	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir,
 		mix: mix, wavPath: *wavPath, focused: true}

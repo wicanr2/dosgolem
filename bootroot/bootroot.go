@@ -5,6 +5,8 @@
 package bootroot
 
 import (
+	"github.com/wicanr2/dosgolem/internal/fsaccess"
+
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -13,8 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // maxRequiredFileSize guards against corrupt trees, not versions.
@@ -123,7 +123,7 @@ func Prepare(input BootRootInput) (BootRootOutput, error) {
 	if os.SameFile(originalRootInfo, saveInfo) {
 		return BootRootOutput{}, errors.New("bootroot: save 不可等同 original")
 	}
-	if err := unix.Access(save, unix.W_OK|unix.X_OK); err != nil {
+	if err := fsaccess.Writable(save); err != nil {
 		return BootRootOutput{}, fmt.Errorf("bootroot: save 不可寫: %v", err)
 	}
 	entries, err := os.ReadDir(save)
