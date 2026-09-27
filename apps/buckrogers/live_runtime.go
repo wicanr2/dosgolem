@@ -1204,12 +1204,14 @@ func (r *LiveRuntime) rowsTouched(out []byte, scale int, p *HMenuPage) bool {
 	if p == nil {
 		return false
 	}
+	// Spec 028 §3.4 (2026-09-27): only the family's own mask cells count,
+	// every output pixel (no sampling), from the row's first item column.
 	w := 320 * scale
 	for _, row := range p.Rows {
-		for y := int(row.Row) * 8; y < int(row.Row)*8+8; y++ {
-			for x := 0; x < 320; x++ {
-				c := r.palette[r.indexed[y*320+x]]
-				o := ((y*scale)*w + x*scale) * 4
+		for oy := int(row.Row) * 8 * scale; oy < (int(row.Row)*8+8)*scale; oy++ {
+			for ox := int(row.Col) * 8 * scale; ox < w; ox++ {
+				c := r.palette[r.indexed[(oy/scale)*320+ox/scale]]
+				o := (oy*w + ox) * 4
 				if out[o] != c[0] || out[o+1] != c[1] || out[o+2] != c[2] {
 					return true
 				}
