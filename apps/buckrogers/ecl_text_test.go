@@ -181,11 +181,53 @@ func TestLayoutEclTextKeepsLatinAndPunctuation(t *testing.T) {
 }
 
 func TestEclTextContinuationAfterUntranslatedKeepsEnglishAbove(t *testing.T) {
-	w := NewEclTextWatcher(eclFixture(t, "A B", "", "C D", "丙丁"))
+	w := NewEclTextWatcher(eclFixture(t, "A B", "", "CC DD", "丙丁"))
 	w.ObserveEntry(eclEntry("A B", true, 1, 17))
-	w.ObserveEntry(eclEntry("C D", false, 1, 21))
+	w.ObserveEntry(eclEntry("CC DD", false, 1, 21))
 	p := w.Page()
 	if p == nil || p.Top != 21 || p.Lines[0].Row != 21 || p.Lines[0].Col != 1 {
 		t.Fatalf("continuation after miss must start at the original cursor: %+v", p)
+	}
+}
+
+// Spec 027 §3.1 (2026-09-27): tier-2 short pieces.
+func TestEclTextShortPieces(t *testing.T) {
+	ret := func(w *EclTextWatcher) { w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta) }
+	for _, v := range []struct {
+		s     string
+		short bool
+	}{{" ATTACKS.", true}, {"BELOW", true}, {"A B", true}, {"HIM", true}, {"GO TO X", false}, {" THE END. ", false}} {
+		if eclShortPiece([]byte(v.s)) != v.short {
+			t.Errorf("%q short=%v", v.s, !v.short)
+		}
+	}
+	// After a Chinese page the piece joins it on the same row.
+	w := NewEclTextWatcher(eclFixture(t, "FROM THE ", "來自", "BELOW", "下方"))
+	w.ObserveEntry(eclEntry("FROM THE ", true, 1, 17))
+	ret(w)
+	w.ObserveEntry(eclEntry("BELOW", false, 10, 17))
+	ret(w)
+	p := w.Page()
+	if p == nil || len(p.Lines) != 2 || p.Lines[1].Row != 17 || p.Lines[1].Col != 3 || p.endCol != 5 {
+		t.Fatalf("piece after page: %+v end=%d", p, p.endCol)
+	}
+	// With no page of ours (the name before it was not translated) the
+	// piece shows the original and masks nothing.
+	w = NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。", "GO TO THE BRIDGE", "前往艦橋"))
+	w.ObserveEntry(eclEntry("CELESTE", true, 1, 17))
+	w.ObserveEntry(eclEntry(" ATTACKS.", false, 8, 17))
+	if w.Page() != nil || w.Stats.Misses != 2 {
+		t.Fatalf("short piece without page drew: %+v misses=%d", w.Page(), w.Stats.Misses)
+	}
+	// A long string in the same situation keeps the old behaviour.
+	w.ObserveEntry(eclEntry("GO TO THE BRIDGE", false, 17, 17))
+	if p := w.Page(); p == nil || p.Lines[0].Col != 17 {
+		t.Fatalf("long string without page: %+v", p)
+	}
+	// A fresh page (clear flag) takes a short piece normally.
+	w = NewEclTextWatcher(eclFixture(t, "LAUNCH...", "發射……"))
+	w.ObserveEntry(eclEntry("LAUNCH...", true, 5, 17))
+	if p := w.Page(); p == nil || string(p.Lines[0].Text) != "發射……" {
+		t.Fatalf("fresh short piece: %+v", p)
 	}
 }

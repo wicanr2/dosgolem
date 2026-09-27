@@ -272,6 +272,12 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		idx, p = w.window(e)
 	}
 	key, text, ok := w.catalog.Lookup(e.Original)
+	if ok && !fresh && p == nil && eclShortPiece(e.Original) {
+		// Spec 027 §3.1 (2026-09-27): a short piece with no page of ours
+		// before it would mask the same row from the left edge, hiding the
+		// untranslated name or English in front of it.
+		key, text, ok = "", "", false
+	}
 	if !ok && w.engine != nil {
 		if text, ok = w.engine.Translate(string(e.Original)); ok {
 			key = "engine"
@@ -419,4 +425,11 @@ func isEclLatin(r rune) bool {
 
 func isEclClosing(r rune) bool {
 	return strings.ContainsRune("，。！？：；、」）……》』,.!?:;)", r)
+}
+
+// eclShortPiece reports whether a catalog string is a spec 027 §3.1 tier-2
+// piece: after trimming spaces it has no space or is at most 3 bytes long.
+func eclShortPiece(b []byte) bool {
+	v := strings.TrimSpace(string(b))
+	return len(v) <= 3 || !strings.Contains(v, " ")
 }
