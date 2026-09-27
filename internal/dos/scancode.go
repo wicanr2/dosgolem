@@ -58,6 +58,36 @@ var namedKeys = map[string]Key{
 	"KP3":   {0x51, 0x00},
 	"KP0":   {0x52, 0x00},
 	"KPDot": {0x53, 0x00},
+	// 功能鍵 F1–F10（set 1 掃描碼 3Bh–44h，ASCII 0；IBM PC/AT 技術參考）。
+	// `docs/spec/241` 為玩家前端加入：這一組是標準 BIOS 字組，不是猜的。
+	"F1": {0x3B, 0x00}, "F2": {0x3C, 0x00}, "F3": {0x3D, 0x00}, "F4": {0x3E, 0x00},
+	"F5": {0x3F, 0x00}, "F6": {0x40, 0x00}, "F7": {0x41, 0x00}, "F8": {0x42, 0x00},
+	"F9": {0x43, 0x00}, "F10": {0x44, 0x00},
+}
+
+// KeyCtrl 回 Ctrl＋字母的 BIOS 字組：字母掃描碼、ASCII 為字母碼 & 1Fh。
+// 只接受 A–Z（大小寫皆可）。⚠ `int 16h AH=02h` 的旗標仍回 0（`docs/spec/008`）。
+func KeyCtrl(letter byte) (Key, bool) {
+	if letter >= 'a' && letter <= 'z' {
+		letter -= 'a' - 'A'
+	}
+	scan, ok := letterScan[letter]
+	if !ok {
+		return Key{}, false
+	}
+	return Key{scan, letter & 0x1F}, true
+}
+
+// KeyAlt 回 Alt＋字母的 BIOS 字組：字母掃描碼、ASCII 0。只接受 A–Z。
+func KeyAlt(letter byte) (Key, bool) {
+	if letter >= 'a' && letter <= 'z' {
+		letter -= 'a' - 'A'
+	}
+	scan, ok := letterScan[letter]
+	if !ok {
+		return Key{}, false
+	}
+	return Key{scan, 0}, true
 }
 
 // letterScan 是 A..Z 的 set 1 掃描碼，照鍵盤的三列排。

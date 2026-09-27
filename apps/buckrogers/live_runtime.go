@@ -26,6 +26,7 @@ var dispatchPrompt = Address{Segment: 0x37F1, Offset: 0x101E}
 // lost track.  A family that errors is cleared (the original English shows)
 // and rebuilt from its catalog, and the reset is counted.
 type LiveRuntime struct {
+	help     []string // 前端說明頁（spec 241）
 	menu     *LiveMenuRuntime
 	skill    [2]*SkillExitOwner
 	exit     [2]*PostJoinExitPromptOwner
@@ -45,10 +46,10 @@ type LiveRuntime struct {
 	manEngOff  string
 	textDir    string
 	started    bool
-	manSync  [2]*ManualPresentationBridge
-	manSeen  int
-	manStyle ManualTextStyle
-	manHas   bool
+	manSync    [2]*ManualPresentationBridge
+	manSeen    int
+	manStyle   ManualTextStyle
+	manHas     bool
 
 	// storyPending is the shared in-flight 0763:026B glyph call; prev* is
 	// the instruction before the current one, recorded while it is set.
@@ -140,6 +141,9 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 		return nil, err
 	}
 	if err := r.resetAction(); err != nil {
+		return nil, err
+	}
+	if r.help, err = LoadHelp(textDir, font); err != nil {
 		return nil, err
 	}
 	if r.stories, err = storyPages(textDir, font); err != nil {

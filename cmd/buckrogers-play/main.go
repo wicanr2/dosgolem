@@ -13,11 +13,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -28,7 +28,6 @@ import (
 	"github.com/wicanr2/dosgolem/audio/mixer"
 	"github.com/wicanr2/dosgolem/bootroot"
 	"github.com/wicanr2/dosgolem/host"
-	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/session"
 )
@@ -75,13 +74,25 @@ func (o liveObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	o.r.Frame(indexed, palette)
 }
 
-// namedKeys maps host keys that produce no input character to BIOS keys.
+// namedKeys maps host keys to the names used by input.go (spec 241).
 var namedKeys = map[ebiten.Key]string{
 	ebiten.KeyEnter: "Enter", ebiten.KeyNumpadEnter: "Enter", ebiten.KeyEscape: "Escape",
 	ebiten.KeyBackspace: "Backspace", ebiten.KeyTab: "Tab",
 	ebiten.KeyArrowUp: "Up", ebiten.KeyArrowDown: "Down", ebiten.KeyArrowLeft: "Left", ebiten.KeyArrowRight: "Right",
 	ebiten.KeyHome: "Home", ebiten.KeyEnd: "End", ebiten.KeyPageUp: "PgUp", ebiten.KeyPageDown: "PgDn",
 	ebiten.KeyInsert: "Insert", ebiten.KeyDelete: "Delete",
+	ebiten.KeyNumpad0: "KP0", ebiten.KeyNumpad1: "KP1", ebiten.KeyNumpad2: "KP2", ebiten.KeyNumpad3: "KP3",
+	ebiten.KeyNumpad4: "KP4", ebiten.KeyNumpad5: "KP5", ebiten.KeyNumpad6: "KP6", ebiten.KeyNumpad7: "KP7",
+	ebiten.KeyNumpad8: "KP8", ebiten.KeyNumpad9: "KP9", ebiten.KeyNumpadDecimal: "KPDot",
+	ebiten.KeyF1: "F1", ebiten.KeyF2: "F2", ebiten.KeyF3: "F3", ebiten.KeyF4: "F4", ebiten.KeyF5: "F5",
+	ebiten.KeyF6: "F6", ebiten.KeyF7: "F7", ebiten.KeyF8: "F8", ebiten.KeyF9: "F9", ebiten.KeyF10: "F10",
+	ebiten.KeyF11: "F11", ebiten.KeyF12: "F12",
+}
+
+func init() {
+	for k := ebiten.KeyA; k <= ebiten.KeyZ; k++ {
+		namedKeys[k] = string(rune('A' + (k - ebiten.KeyA)))
+	}
 }
 
 type game struct {
@@ -90,9 +101,16 @@ type game struct {
 	scale   int
 	frame   int
 	frames  int // >0: stop after this many frames (automated runs)
-	script  map[int][]dos.Key
+	script  map[int][]scriptAction
 	shot    string
+	shotDir string
 	lastErr error
+
+	help     bool
+	pressing bool // 左鍵的按下已送出、尚未放開
+	focused  bool
+	muted    bool
+	player   *audio.Player
 
 	mix     *mixer.Mixer
 	ring    *mixer.Ring // nil：沒有播放裝置（自動模式）
@@ -117,40 +135,132 @@ func (g *game) renderAudio(tick session.TickReceipt) {
 	}
 }
 
-func (g *game) hostKeys() []dos.Key {
-	var keys []dos.Key
-	for _, r := range ebiten.AppendInputChars(nil) {
-		if k, ok := dos.KeyForRune(r); ok {
-			keys = append(keys, k)
+// hostInput reads this frame's keyboard and mouse (interactive mode only).
+func (g *game) hostInput(u *session.CapturedUpdate) []hostAction {
+	in := frameInput{Chars: ebiten.AppendInputChars(nil), Held: map[string]int{},
+		Ctrl: ebiten.IsKeyPressed(ebiten.KeyControl), Alt: ebiten.IsKeyPressed(ebiten.KeyAlt)}
+	for k, name := range namedKeys {
+		if d := inpututil.KeyPressDuration(k); d > 0 && (in.Held[name] == 0 || d < in.Held[name]) {
+			in.Held[name] = d
 		}
 	}
-	for _, k := range inpututil.AppendJustPressedKeys(nil) {
-		if k == ebiten.KeyF2 {
+	keys, acts := mapKeys(in, g.help, g.live.LogbookTurn)
+	u.BIOSKeys = append(u.BIOSKeys, keys...)
+	if g.help {
+		return acts
+	}
+	cx, cy := ebiten.CursorPosition()
+	dx, dy := dosPoint(cx, cy, g.scale)
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && !g.pressing {
+		if ev := mouseEvent(host.MouseEventDown, dx, dy); ev.Target == host.MouseTargetCanvas {
+			u.PointerDown, g.pressing = &ev, true
+		}
+	}
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && g.pressing {
+		ev := mouseEvent(host.MouseEventUp, dx, dy)
+		u.PointerUp, g.pressing = &ev, false
+	}
+	focused := ebiten.IsFocused()
+	if g.focused && !focused && g.pressing {
+		u.FocusLost, g.pressing = true, false
+	}
+	g.focused = focused
+	return acts
+}
+
+// scriptInput applies this frame's automated actions (spec 241 §3.4).
+func (g *game) scriptInput(u *session.CapturedUpdate) []hostAction {
+	var acts []hostAction
+	for _, a := range g.script[g.frame] {
+		switch {
+		case a.help:
+			acts = append(acts, actHelp)
+		case g.help:
+			// 說明頁開啟時不送輸入。
+		case a.key != nil:
+			u.BIOSKeys = append(u.BIOSKeys, *a.key)
+		case a.blur:
+			u.FocusLost, g.pressing = true, false
+		case a.mouse == host.MouseEventDown:
+			ev := mouseEvent(host.MouseEventDown, a.x, a.y)
+			u.PointerDown, g.pressing = &ev, true
+		case a.mouse == host.MouseEventUp:
+			ev := mouseEvent(host.MouseEventUp, a.x, a.y)
+			u.PointerUp, g.pressing = &ev, false
+		}
+	}
+	return acts
+}
+
+func (g *game) apply(acts []hostAction) {
+	for _, a := range acts {
+		switch a {
+		case actHelp:
+			g.help = !g.help
+		case actScale:
 			g.scale = 5 - g.scale // 2 ↔ 3
-			continue
+			if !ebiten.IsFullscreen() {
+				ebiten.SetWindowSize(320*g.scale, 200*g.scale)
+			}
+		case actMute:
+			g.muted = !g.muted
+			if g.player != nil {
+				g.player.SetVolume(map[bool]float64{true: 0, false: 1}[g.muted])
+			}
+		case actFullscreen:
+			ebiten.SetFullscreen(!ebiten.IsFullscreen())
+		case actShot:
+			g.screenshot()
 		}
-		// An open logbook panel (Buck spec 030) takes PgDn/PgUp; otherwise
-		// they go to the game as usual.
-		if k == ebiten.KeyPageDown && g.live.LogbookTurn(1) || k == ebiten.KeyPageUp && g.live.LogbookTurn(-1) {
-			continue
-		}
-		if name, ok := namedKeys[k]; ok {
-			if key, found := dos.KeyNamed(name); found {
-				keys = append(keys, key)
+	}
+}
+
+// screenshot writes the composed frame as PNG; failure only shows in the title.
+func (g *game) screenshot() {
+	rgba, ok, err := g.live.Compose(g.scale)
+	if err == nil && ok {
+		w, h := 320*g.scale, 200*g.scale
+		img := &image.NRGBA{Pix: append([]byte(nil), rgba...), Stride: 4 * w, Rect: image.Rect(0, 0, w, h)}
+		now := time.Now()
+		name := fmt.Sprintf("buckrogers-%s-%03d.png", now.Format("20060102-150405"), now.Nanosecond()/1e6)
+		if err = os.MkdirAll(g.shotDir, 0o755); err == nil {
+			var f *os.File
+			if f, err = os.Create(filepath.Join(g.shotDir, name)); err == nil {
+				err = png.Encode(f, img)
+				if cerr := f.Close(); err == nil {
+					err = cerr
+				}
 			}
 		}
 	}
-	return keys
+	if err != nil || !ok {
+		ebiten.SetWindowTitle(windowTitle + "（截圖失敗）")
+		return
+	}
+	ebiten.SetWindowTitle(windowTitle)
 }
+
+const windowTitle = "拯救地球（繁中）"
 
 func (g *game) Update() error {
 	g.frame++
-	keys := append(g.hostKeys(), g.script[g.frame]...)
+	var u session.CapturedUpdate
+	acts := g.scriptInput(&u)
+	if g.frames == 0 {
+		acts = append(acts, g.hostInput(&u)...)
+	}
+	wasHelp := g.help
+	g.apply(acts)
+	if wasHelp || g.help {
+		// 說明頁：View、Deliver、Advance 三者一起跳過（spec 241 §3.3）。
+		return g.finishFrame()
+	}
 	view, err := g.owner.View()
 	if err != nil {
 		return err
 	}
-	if _, err := g.owner.Deliver(session.CapturedUpdate{StartedPanel: view.Panel, Layout: view.Layout, SourceGeneration: view.SourceGeneration, BIOSKeys: keys}); err != nil {
+	u.StartedPanel, u.Layout, u.SourceGeneration = view.Panel, view.Layout, view.SourceGeneration
+	if _, err := g.owner.Deliver(u); err != nil {
 		return err
 	}
 	tick, err := g.owner.Advance(session.InstructionBudget(stepsPerHostFrame))
@@ -161,29 +271,49 @@ func (g *game) Update() error {
 	if tick.Phase == session.PhaseStopped {
 		return ebiten.Termination
 	}
-	if g.frames > 0 && g.frame >= g.frames {
-		if g.shot != "" {
-			rgba, ok, err := g.live.Compose(g.scale)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return errors.New("尚無畫格可截圖")
-			}
-			if err := os.WriteFile(g.shot, rgba, 0o600); err != nil {
-				return err
-			}
-		}
-		return ebiten.Termination
+	return g.finishFrame()
+}
+
+// composed returns the frame to show: the live overlay, plus the help page
+// when it is open.
+func (g *game) composed() ([]byte, bool, error) {
+	rgba, ok, err := g.live.Compose(g.scale)
+	if err != nil || !ok || !g.help {
+		return rgba, ok, err
 	}
-	return nil
+	out := append([]byte(nil), rgba...)
+	buckrogers.DrawHelp(out, g.scale, g.live.Font(), g.live.HelpLines())
+	return out, true, nil
+}
+
+// finishFrame ends automated runs after -frames, writing -shot.
+func (g *game) finishFrame() error {
+	if g.frames == 0 || g.frame < g.frames {
+		return nil
+	}
+	if g.shot != "" {
+		rgba, ok, err := g.composed()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errors.New("尚無畫格可截圖")
+		}
+		if err := os.WriteFile(g.shot, rgba, 0o600); err != nil {
+			return err
+		}
+	}
+	if d, err := g.owner.Digest(); err == nil {
+		fmt.Fprintf(os.Stderr, "buckrogers-play: steps=%d phase=%v\n", d.Steps, g.owner.Status().Phase)
+	}
+	return ebiten.Termination
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
 	// Recomposed every frame: the overlay layer changes state on retraces
 	// (pending stamps become shown, anchors expire) even when the pixels do
 	// not, so a pixel-keyed cache could show a stale overlay.
-	rgba, ok, err := g.live.Compose(g.scale)
+	rgba, ok, err := g.composed()
 	if err != nil {
 		g.lastErr = err
 		return
@@ -200,29 +330,6 @@ func die(err error) {
 	os.Exit(1)
 }
 
-func parseScript(s string) (map[int][]dos.Key, error) {
-	out := map[int][]dos.Key{}
-	if s == "" {
-		return out, nil
-	}
-	for _, item := range strings.Split(s, ",") {
-		frameText, name, ok := strings.Cut(item, ":")
-		frame, err := strconv.Atoi(frameText)
-		if !ok || err != nil || frame < 1 {
-			return nil, fmt.Errorf("script 項目 %q 須為 畫格:鍵", item)
-		}
-		key, found := dos.KeyNamed(name)
-		if !found && len([]rune(name)) == 1 {
-			key, found = dos.KeyForRune([]rune(name)[0])
-		}
-		if !found {
-			return nil, fmt.Errorf("script 鍵 %q 無 BIOS 對映", name)
-		}
-		out[frame] = append(out[frame], key)
-	}
-	return out, nil
-}
-
 func main() {
 	original := flag.String("original", "", "唯讀原版樹目錄")
 	save := flag.String("save", "", "可寫存檔目錄（須不存在或為空）")
@@ -233,8 +340,9 @@ func main() {
 	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
 	frames := flag.Int("frames", 0, "自動模式：跑這麼多畫格後結束（0＝互動）")
-	script := flag.String("script", "", "自動模式送鍵：`畫格:鍵[,…]`")
+	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help）")
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
+	shotDir := flag.String("shot-dir", "", "F12 截圖目錄（預設為存檔目錄上一層的 screenshots）")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
 	adlib := flag.Bool("adlib", true, "模擬 AdLib（規格 240；關閉則原版只用 PC 喇叭）")
 	wavPath := flag.String("wav", "", "自動模式：把合成的音訊寫成 WAV")
@@ -296,7 +404,12 @@ func main() {
 	if _, err := owner.BootOriginal(session.BootInput{EXE: exeBytes, ExpectedEXESHA256: want, SaveRoot: out.SaveRoot}); err != nil {
 		die(err)
 	}
-	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, mix: mix, wavPath: *wavPath}
+	dir := *shotDir
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(filepath.Clean(out.SaveRoot)), "screenshots")
+	}
+	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir,
+		mix: mix, wavPath: *wavPath, focused: true}
 	if *frames == 0 {
 		// 播放只在互動模式：自動模式常在沒有音效裝置的容器裡跑。
 		g.ring = mixer.NewRing(200)
@@ -306,8 +419,10 @@ func main() {
 		}
 		player.SetBufferSize(50 * time.Millisecond)
 		player.Play()
+		g.player = player
 	}
-	ebiten.SetWindowTitle("拯救地球（繁中）")
+	ebiten.SetWindowTitle(windowTitle)
+	ebiten.SetWindowSize(320*g.scale, 200*g.scale)
 	ebiten.SetTPS(60)
 	if err := ebiten.RunGame(g); err != nil {
 		die(err)
