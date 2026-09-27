@@ -133,6 +133,8 @@ type LogbookWatcher struct {
 	window  [4]uint8 // left, top, right, bottom of the text window
 	colors  [2]uint8 // background, foreground of the call that opened it
 	tlBy    map[[2]uint16]bool
+	kbHead  uint16 // BDA keyboard head when the panel opened (spec 030 §3.3-4)
+	kbArmed bool
 	gen     uint64
 	Stats   struct{ Opens, Closes int }
 }
@@ -153,6 +155,29 @@ func (w *LogbookWatcher) close() {
 		w.Stats.Closes++
 	}
 	w.tlBy = nil
+	w.kbArmed = false
+}
+
+// BDAKeyHead is the linear address of the BIOS keyboard buffer head.
+const BDAKeyHead = 0x41A
+
+// ArmKeyHead records the keyboard buffer head read at the step the panel
+// opened (spec 030 §3.3-4). It does nothing while the panel is closed.
+func (w *LogbookWatcher) ArmKeyHead(head uint16) {
+	if w == nil || w.open == 0 {
+		return
+	}
+	w.kbHead, w.kbArmed = head, true
+}
+
+// ObserveKeyHead closes the panel once the game has taken a key from the
+// buffer: the head differs from the one recorded at open. Inequality, not
+// order, because the head wraps inside the ring.
+func (w *LogbookWatcher) ObserveKeyHead(head uint16) {
+	if w == nil || w.open == 0 || !w.kbArmed || head == w.kbHead {
+		return
+	}
+	w.close()
 }
 
 // ObserveEntry runs at every 0763:056C entry (spec 030 §3.2, §3.3-1).

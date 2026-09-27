@@ -453,6 +453,11 @@ func (r *LiveRuntime) syncLogbook(palette [256][3]uint8) {
 	for i := range liveScales {
 		if miss := r.logbookPres[i].Sync(r.logbook, palette); len(miss) != 0 {
 			r.resets["logbook"]++
+			r.logbook.ObserveDiscontinuity()
+			for j := range liveScales {
+				r.logbookPres[j].Sync(r.logbook, palette)
+			}
+			break
 		}
 	}
 }
@@ -494,6 +499,7 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 		ds := v.DS()
 		if r.logbook != nil {
 			r.logbook.ObserveEntryColors(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)), uint8(arg(10)), uint8(arg(12)))
+			r.logbook.ArmKeyHead(v.Read16(BDAKeyHead))
 		}
 		r.ecl.ObserveEntry(EclTextEntry{
 			Step: v.Steps(), SS: ss, SP: sp, Return: Address{Segment: arg(2), Offset: arg(0)}, Original: orig,
@@ -674,6 +680,10 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		r.menu.Norm = &r.norm
 	}
 	legacyAt := r.norm.Addr(at)
+	// Spec 030 §3.3-4: compare before a 056C entry reopens and re-arms.
+	if r.logbook != nil {
+		r.logbook.ObserveKeyHead(v.Read16(BDAKeyHead))
+	}
 	if r.ecl != nil && (at == eclTextPrinter || r.ecl.InCall()) {
 		r.observeEclText(v, at)
 	}
