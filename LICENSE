@@ -47,7 +47,11 @@ the English translation below is provided for convenience only）。
       範圍內依本條款授權；譯文是原版文字的衍生著作，使用譯文重現遊戲仍以
       自備原版為前提。
   (d) 本儲存庫或發行包中含有的第三方元件（例如 Go 標準程式庫；測試語料 SingleStepTests/8088 依其自身授權，不隨本儲存庫散布）依各自的授權條款提供，不受本條款拘束；其授權聲明
-      隨同散布。
+      隨同散布。`audio/nukedopl`（Nuked OPL3 的 Go 移植）屬此類元件，依 GNU Lesser
+      General Public License 2.1 或更新版授權，全文見 `audio/nukedopl/COPYING.LGPL`。
+      例外：對連結此元件的可執行檔，任何接受者得為自用修改本作品，並得為除錯
+      此類修改而進行逆向工程（LGPL-2.1 第 6 條的要求）；這項許可不受本條款第 6 條
+      (a) 及第 3 條的非商業前提拘束。
 
 第 3 條　非商業授權
 
@@ -204,7 +208,14 @@ separate agreement with the copyright holder.
    (d) Third-party components in this repository or its packages (for example
        the Go standard library; the SingleStepTests/8088 test corpus is under its own licence and is not redistributed with this repository)
        are provided under their own licenses, which are distributed with them,
-       and are not governed by this license.
+       and are not governed by this license. `audio/nukedopl` (a Go port of
+       Nuked OPL3) is such a component, licensed under the GNU Lesser General
+       Public License 2.1 or later; see `audio/nukedopl/COPYING.LGPL`.
+       Exception: for any executable linked with that component, every
+       recipient may modify this work for their own use and reverse engineer
+       it for debugging such modifications (as LGPL-2.1 Section 6 requires);
+       this permission is not subject to Section 6(a) or the non-commercial
+       condition of Section 3.
 
 3. NON-COMMERCIAL GRANT. Subject to Section 5, anyone may, free of charge and
    without prior permission:

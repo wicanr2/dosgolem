@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -17,11 +18,14 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/wicanr2/dosgolem/apps/buckrogers"
+	"github.com/wicanr2/dosgolem/audio/mixer"
 	"github.com/wicanr2/dosgolem/bootroot"
 	"github.com/wicanr2/dosgolem/host"
 	"github.com/wicanr2/dosgolem/internal/dos"
@@ -38,10 +42,28 @@ const stepsPerHostFrame = machine.DefaultVGAFrameEvery * 70 / 60
 type liveObserver struct {
 	r      *buckrogers.LiveRuntime
 	cursor *buckrogers.StepCursor[session.StepView]
+	mix    *mixer.Mixer // nil：不收音訊
 }
 
-func newLiveObserver(r *buckrogers.LiveRuntime) liveObserver {
-	return liveObserver{r: r, cursor: &buckrogers.StepCursor[session.StepView]{}}
+func newLiveObserver(r *buckrogers.LiveRuntime, mix *mixer.Mixer) liveObserver {
+	return liveObserver{r: r, cursor: &buckrogers.StepCursor[session.StepView]{}, mix: mix}
+}
+
+// The audio methods make liveObserver a session.AudioObserver (spec 240).
+func (o liveObserver) OPLWrite(w machine.OPLWrite) {
+	if o.mix != nil {
+		o.mix.OPLWrite(w)
+	}
+}
+func (o liveObserver) SpeakerSample(s machine.SpeakerSample) {
+	if o.mix != nil {
+		o.mix.SpeakerSample(s)
+	}
+}
+func (o liveObserver) PITChannel2(c machine.PIT2Change) {
+	if o.mix != nil {
+		o.mix.PITChannel2(c)
+	}
 }
 
 func (o liveObserver) BeforeStep(v session.StepView) error {
@@ -71,6 +93,28 @@ type game struct {
 	script  map[int][]dos.Key
 	shot    string
 	lastErr error
+
+	mix     *mixer.Mixer
+	ring    *mixer.Ring // nil：沒有播放裝置（自動模式）
+	samples []float32
+	wav     []int16 // 自動模式 -wav 收集的樣本
+	wavPath string
+}
+
+// renderAudio synthesises this turn's steps (spec 240 §3.5).
+func (g *game) renderAudio(tick session.TickReceipt) {
+	if g.mix == nil {
+		return
+	}
+	g.samples = g.mix.Render(g.samples[:0], tick.MachineStepsBefore, tick.MachineStepsAfter)
+	if g.ring != nil {
+		g.ring.Push(g.samples)
+	}
+	if g.wavPath != "" {
+		for _, v := range g.samples {
+			g.wav = append(g.wav, int16(v*32767))
+		}
+	}
 }
 
 func (g *game) hostKeys() []dos.Key {
@@ -113,6 +157,7 @@ func (g *game) Update() error {
 	if err != nil {
 		return err
 	}
+	g.renderAudio(tick)
 	if tick.Phase == session.PhaseStopped {
 		return ebiten.Termination
 	}
@@ -191,7 +236,14 @@ func main() {
 	script := flag.String("script", "", "自動模式送鍵：`畫格:鍵[,…]`")
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
+	adlib := flag.Bool("adlib", true, "模擬 AdLib（規格 240；關閉則原版只用 PC 喇叭）")
+	wavPath := flag.String("wav", "", "自動模式：把合成的音訊寫成 WAV")
+	version := flag.Bool("version", false, "顯示版本與第三方元件授權")
 	flag.Parse()
+	if *version {
+		fmt.Print(versionText)
+		return
+	}
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
 		if err != nil {
@@ -235,7 +287,8 @@ func main() {
 	s := host.OutputScale2
 	layout := host.MouseLayout{Epoch: 1, Scale: s, ChromeHeight: 18 * int(s), Canvas: host.Canvas{Width: 320, Height: 200},
 		FrameWidth: 320 * int(s), FrameHeight: 18*int(s) + 200*int(s)}
-	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, Observer: newLiveObserver(live)})
+	mix := mixer.New(stepsPerHostFrame * 60)
+	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, AdLib: *adlib, Observer: newLiveObserver(live, mix)})
 	if err != nil {
 		die(err)
 	}
@@ -243,7 +296,17 @@ func main() {
 	if _, err := owner.BootOriginal(session.BootInput{EXE: exeBytes, ExpectedEXESHA256: want, SaveRoot: out.SaveRoot}); err != nil {
 		die(err)
 	}
-	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot}
+	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, mix: mix, wavPath: *wavPath}
+	if *frames == 0 {
+		// 播放只在互動模式：自動模式常在沒有音效裝置的容器裡跑。
+		g.ring = mixer.NewRing(200)
+		player, err := audio.NewContext(mixer.SampleRate).NewPlayerF32(g.ring)
+		if err != nil {
+			die(err)
+		}
+		player.SetBufferSize(50 * time.Millisecond)
+		player.Play()
+	}
 	ebiten.SetWindowTitle("拯救地球（繁中）")
 	ebiten.SetTPS(60)
 	if err := ebiten.RunGame(g); err != nil {
@@ -252,4 +315,31 @@ func main() {
 	if g.lastErr != nil {
 		die(g.lastErr)
 	}
+	if g.wavPath != "" {
+		if err := os.WriteFile(g.wavPath, wavBytes(g.wav), 0o600); err != nil {
+			die(err)
+		}
+	}
+}
+
+// wavBytes wraps 48 kHz stereo int16 samples in a RIFF/WAVE header.
+func wavBytes(pcm []int16) []byte {
+	data := len(pcm) * 2
+	b := make([]byte, 0, 44+data)
+	b = append(b, "RIFF"...)
+	b = binary.LittleEndian.AppendUint32(b, uint32(36+data))
+	b = append(b, "WAVEfmt "...)
+	b = binary.LittleEndian.AppendUint32(b, 16)
+	b = binary.LittleEndian.AppendUint16(b, 1) // PCM
+	b = binary.LittleEndian.AppendUint16(b, 2)
+	b = binary.LittleEndian.AppendUint32(b, mixer.SampleRate)
+	b = binary.LittleEndian.AppendUint32(b, mixer.SampleRate*4)
+	b = binary.LittleEndian.AppendUint16(b, 4)
+	b = binary.LittleEndian.AppendUint16(b, 16)
+	b = append(b, "data"...)
+	b = binary.LittleEndian.AppendUint32(b, uint32(data))
+	for _, v := range pcm {
+		b = binary.LittleEndian.AppendUint16(b, uint16(v))
+	}
+	return b
 }
