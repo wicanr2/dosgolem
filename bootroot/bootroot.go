@@ -86,6 +86,10 @@ func Prepare(input BootRootInput) (BootRootOutput, error) {
 	}
 	createdRoot := false
 	for _, pair := range [][2]string{{original, save}, {save, original}} {
+		// 不同磁碟機（Windows 的 C: 與 D:）不可能互為巢狀；filepath.Rel 對它們回錯誤。
+		if !strings.EqualFold(filepath.VolumeName(pair[0]), filepath.VolumeName(pair[1])) {
+			continue
+		}
 		rel, err := filepath.Rel(pair[0], pair[1])
 		if err != nil {
 			return BootRootOutput{}, fmt.Errorf("bootroot: 路徑比較: %v", err)
