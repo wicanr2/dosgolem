@@ -66,23 +66,64 @@ func LoadHelp(textDir string, font *xlate.Font) ([]string, error) {
 // 先把整個畫面壓暗，再逐行畫字。
 func DrawHelp(rgba []byte, scale int, font *xlate.Font, lines []string) {
 	for i := 0; i+3 < len(rgba); i += 4 {
-		rgba[i], rgba[i+1], rgba[i+2] = rgba[i]/5, rgba[i+1]/5, rgba[i+2]/5
+		rgba[i], rgba[i+1], rgba[i+2] = rgba[i]/8, rgba[i+1]/8, rgba[i+2]/8
 	}
 	off := (8*scale - font.W) / 2
 	if off < 0 {
 		off = 0
 	}
+	asciiLeft := asciiInkLeft(font)
 	layer := &xlate.Layer{W: 320, H: 200}
 	for i, l := range lines {
-		text := []rune(l)
-		layer.Add(&xlate.Stamp{
-			Key: fmt.Sprintf("help.%d", i), X: helpX, Y: helpY + i*helpPitch,
-			Cells: len(text), CellW: 8, CellH: 8, Font: font, GlyphX: off, GlyphY: off,
-			GlyphScale: 1, Text: text, State: xlate.Shown,
-			FG: [3]uint8{0xF0, 0xE8, 0x90}, BG: [3]uint8{0x10, 0x10, 0x18},
-		})
+		// 連續的 ASCII 用半格（4 邏輯像素），其餘一字一格（8 邏輯像素）。
+		x := helpX
+		runes := []rune(l)
+		for j := 0; j < len(runes); {
+			ascii := runes[j] < 0x80
+			k := j
+			for k < len(runes) && (runes[k] < 0x80) == ascii {
+				k++
+			}
+			cellW, gx := 8, off
+			if ascii {
+				cellW, gx = 4, (4*scale-8)/2-asciiLeft
+			}
+			text := runes[j:k]
+			layer.Add(&xlate.Stamp{
+				Key: fmt.Sprintf("help.%d.%d", i, j), X: x, Y: helpY + i*helpPitch,
+				Cells: len(text), CellW: cellW, CellH: 8, Font: font, GlyphX: gx, GlyphY: off,
+				GlyphScale: 1, Text: text, State: xlate.Shown,
+				FG: [3]uint8{0xF0, 0xE8, 0x90}, BG: [3]uint8{0x10, 0x10, 0x18},
+			})
+			x += cellW * len(text)
+			j = k
+		}
 	}
 	layer.Draw(rgba, scale, nil)
+}
+
+// asciiInkLeft 回英數字模最左邊有墨的欄（倚天置中、Unifont 靠左），
+// 讓半格的 ASCII 對齊格子。
+func asciiInkLeft(font *xlate.Font) int {
+	left := font.W
+	rb := (font.W + 7) / 8
+	for r := rune('0'); r <= 'z'; r++ {
+		g, ok := font.Glyphs[r]
+		if !ok {
+			continue
+		}
+		for y := 0; y < font.H; y++ {
+			for x := 0; x < left; x++ {
+				if g[y*rb+x/8]&(0x80>>uint(x%8)) != 0 {
+					left = x
+				}
+			}
+		}
+	}
+	if left == font.W {
+		return 0
+	}
+	return left
 }
 
 // HelpLines 回說明頁的行；Font 回覆繪用的字型。
