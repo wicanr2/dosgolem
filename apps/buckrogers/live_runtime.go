@@ -720,7 +720,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		actionRequests = len(r.action.requests)
 		r.action.ObserveInstruction(legacyAt, v.SS(), v.SP(), v.Steps())
 	}
-	obs, err := r.menu.Observe(v)
+	obs, err := r.menu.observeRef(v, at)
 	if err != nil {
 		// The menu family owns the shared recorder; rebuilding it is not
 		// possible without losing the other families' frames, so this stays

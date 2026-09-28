@@ -36,6 +36,8 @@ var (
 // runner, packaged for a live session.  It keeps one presenter per output
 // scale so the host can switch 2×／3× without replaying the game.
 type LiveMenuRuntime struct {
+	scratch      StepObservation // observeRef 的重複使用結構
+	scratchDirty bool
 	watcher    *MenuRequestWatcher
 	presenters map[int]*RuntimeMenuOverlay
 	fault      error
@@ -110,6 +112,31 @@ func (r *LiveMenuRuntime) Observe(v StepReader) (StepObservation, error) {
 	if at != clearCells && at != dispatchEntry && !r.watcher.Pending() {
 		return StepObservation{At: at}, nil
 	}
+	return r.observeSlow(v, at)
+}
+
+// observeRef is Observe without returning the 216-byte observation by value
+// on every instruction: the fast path only updates At in a reused struct whose
+// other fields are already zero. The result is valid until the next call.
+func (r *LiveMenuRuntime) observeRef(v StepReader, at Address) (*StepObservation, error) {
+	o := &r.scratch
+	if r.fault != nil {
+		*o, r.scratchDirty = StepObservation{}, false
+		return o, r.fault
+	}
+	if at != clearCells && at != dispatchEntry && !r.watcher.Pending() {
+		if r.scratchDirty {
+			*o, r.scratchDirty = StepObservation{}, false
+		}
+		o.At = at
+		return o, nil
+	}
+	val, err := r.observeSlow(v, at)
+	*o, r.scratchDirty = val, true
+	return o, err
+}
+
+func (r *LiveMenuRuntime) observeSlow(v StepReader, at Address) (StepObservation, error) {
 	ss, sp := v.SS(), v.SP()
 	obs := StepObservation{At: at, SS: ss, SP: sp}
 	switch at {
