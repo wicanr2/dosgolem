@@ -311,6 +311,7 @@ func (g *game) finishFrame() error {
 	}
 	if d, err := g.owner.Digest(); err == nil {
 		fmt.Fprintf(os.Stderr, "buckrogers-play: steps=%d phase=%v clock=%d irq0_clamped=%d\n", d.Steps, g.owner.Status().Phase, d.ClockPercent, d.IRQ0Clamped)
+		fmt.Fprintln(os.Stderr, "buckrogers-play:", g.live.DebugSummary())
 	}
 	return ebiten.Termination
 }

@@ -1193,6 +1193,13 @@ func (r *LiveRuntime) DebugSummary() string {
 	switch {
 	case r.manEng != nil:
 		s += fmt.Sprintf(" 英文列=on(%d)", r.manEng.Len())
+		if n := len(r.manEng.Excluded); n > 0 {
+			reasons := map[string]int{}
+			for _, why := range r.manEng.Excluded {
+				reasons[why]++
+			}
+			s += fmt.Sprintf(" 英文列排除=%v", reasons)
+		}
 	case r.manEngOff != "":
 		s += " 英文列=off(" + r.manEngOff + ")"
 	}
