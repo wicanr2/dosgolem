@@ -409,6 +409,12 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	if *manualEnglish == "" {
+		// 本機自用完整版附手冊英文摘錄（Buck repo 規格 035 §1.1、規格 034），有就預設開啟；一般版沒有。
+		if p, e := resourcePath(filepath.Join("local", "manual-english.tsv")); e == nil {
+			*manualEnglish = p
+		}
+	}
 	if err := live.SetManualEnglish(*manualEnglish); err != nil {
 		die(err)
 	}
