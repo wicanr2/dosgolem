@@ -20,6 +20,10 @@ const pitHz = 1193182
 // speakerAmp 是喇叭相對滿刻度的振幅。
 const speakerAmp = 0.2
 
+// speakerLowpass 是一階低通的係數：1-exp(-2π·6000/48000)，截止約 6 kHz。
+// 純方波直接輸出高頻刺耳；實體喇叭本身就會衰減高頻。
+const speakerLowpass = 0.5447
+
 type eventKind uint8
 
 const (
@@ -50,6 +54,7 @@ type Mixer struct {
 	divisor    uint32
 	phase      float64 // 方波相位，單位為週期
 	dcX, dcY   float64 // 喇叭的隔直濾波狀態
+	lp         float64 // 喇叭的一階低通狀態（近似喇叭紙盆的高頻衰減）
 
 	opl [2]int16
 }
@@ -126,7 +131,8 @@ func (m *Mixer) speaker() float64 {
 	} else if m.data != 0 {
 		level = 1
 	}
-	x := level * speakerAmp
+	m.lp += speakerLowpass * (level*speakerAmp - m.lp)
+	x := m.lp
 	y := x - m.dcX + 0.995*m.dcY
 	m.dcX, m.dcY = x, y
 	return y

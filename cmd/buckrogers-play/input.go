@@ -155,6 +155,7 @@ type scriptAction struct {
 	x, y  int
 	blur  bool
 	help  bool
+	scale bool // 前端 F2：切換 2 倍／3 倍
 }
 
 // parseScript 解析 `畫格:動作[,…]`（§3.4）。
@@ -174,6 +175,8 @@ func parseScript(s string) (map[int][]scriptAction, error) {
 		switch {
 		case name == "help":
 			out[frame] = append(out[frame], scriptAction{help: true})
+		case name == "scale":
+			out[frame] = append(out[frame], scriptAction{scale: true})
 		case name == "blur":
 			out[frame] = append(out[frame], scriptAction{blur: true})
 		case strings.HasPrefix(name, "click@"), strings.HasPrefix(name, "press@"), strings.HasPrefix(name, "release@"):

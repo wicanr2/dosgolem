@@ -118,7 +118,7 @@ func TestMouseMapping(t *testing.T) {
 }
 
 func TestParseScript(t *testing.T) {
-	s, err := parseScript("5:F4,6:Ctrl+C,7:Alt+x,10:click@100;50,30:press@1;2,31:release@400;2,32:blur,40:help,41:Enter")
+	s, err := parseScript("5:F4,6:Ctrl+C,7:Alt+x,10:click@100;50,30:press@1;2,31:release@400;2,32:blur,40:help,41:Enter,42:scale")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +127,9 @@ func TestParseScript(t *testing.T) {
 	}
 	if s[31][0].mouse != host.MouseEventUp || s[31][0].x != 400 || !s[32][0].blur || !s[40][0].help {
 		t.Fatal("press/release/blur/help")
+	}
+	if !s[42][0].scale {
+		t.Fatal("scale")
 	}
 	if s[5][0].key.Word() != 0x3E00 || s[6][0].key.Word() != 0x2E03 || s[7][0].key.Word() != 0x2D00 {
 		t.Fatal("鍵")

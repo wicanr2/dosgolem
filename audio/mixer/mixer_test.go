@@ -142,9 +142,39 @@ func TestRingBounds(t *testing.T) {
 	if u, _ := r.Stats(); u != 1 {
 		t.Fatalf("不足次數 %d", u)
 	}
-	r.Push([]float32{0.5, -0.5})
-	r.Read(p[:8])
-	if math.Float32frombits(binary.LittleEndian.Uint32(p)) != 0.5 || math.Float32frombits(binary.LittleEndian.Uint32(p[4:])) != -0.5 {
-		t.Fatal("樣本值不對")
+	// 回到預填狀態：不足門檻（50 ms＝2400 框）時輸出靜音。
+	r.Push(ones(1000))
+	r.Read(p[:8*100])
+	if f32(p, 0) != 0 {
+		t.Fatal("未達預填門檻卻輸出樣本")
+	}
+	// 達門檻後開始播放，開頭淡入、之後為原值。
+	r.Push(ones(2000))
+	r.Read(p[:8*200])
+	if f32(p, 0) != 0 || f32(p, 2*(fadeFrames+5)) != 1 {
+		t.Fatalf("淡入 %v %v", f32(p, 0), f32(p, 2*(fadeFrames+5)))
+	}
+	// 斷流：手上的樣本淡出到接近 0，其後補 0，並記一次不足。
+	u0, _ := r.Stats()
+	left := r.Buffered()
+	r.Read(p[:8*(left+50)])
+	if u, _ := r.Stats(); u != u0+1 {
+		t.Fatal("斷流未記錄")
+	}
+	if last := f32(p, 2*(left-1)); last > 0.05 {
+		t.Fatalf("斷流前未淡出 %v", last)
+	}
+	if f32(p, 2*(left+10)) != 0 {
+		t.Fatal("斷流後應為靜音")
 	}
 }
+
+func ones(frames int) []float32 {
+	s := make([]float32, 2*frames)
+	for i := range s {
+		s[i] = 1
+	}
+	return s
+}
+
+func f32(p []byte, i int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(p[4*i:])) }

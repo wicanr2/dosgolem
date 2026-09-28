@@ -175,6 +175,8 @@ func (g *game) scriptInput(u *session.CapturedUpdate) []hostAction {
 		switch {
 		case a.help:
 			acts = append(acts, actHelp)
+		case a.scale:
+			acts = append(acts, actScale)
 		case g.help:
 			// 說明頁開啟時不送輸入。
 		case a.key != nil:
@@ -318,7 +320,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 		g.lastErr = err
 		return
 	}
-	if ok {
+	// F2 切換倍率後，這一格的 screen 可能仍是舊尺寸（Layout 下一格才生效）；
+	// 尺寸不合就略過這一格，不把新尺寸的像素寫進舊畫面。
+	if b := screen.Bounds(); ok && len(rgba) == 4*b.Dx()*b.Dy() {
 		screen.WritePixels(rgba)
 	}
 }
@@ -337,7 +341,7 @@ func main() {
 	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
 	frames := flag.Int("frames", 0, "自動模式：跑這麼多畫格後結束（0＝互動）")
-	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help）")
+	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help、scale）")
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
 	shotDir := flag.String("shot-dir", "", "F12 截圖目錄（預設為存檔目錄上一層的 screenshots）")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
@@ -448,8 +452,16 @@ func main() {
 	ebiten.SetWindowTitle(windowTitle)
 	ebiten.SetWindowSize(320*g.scale, 200*g.scale)
 	ebiten.SetTPS(60)
+	started := time.Now()
 	if err := ebiten.RunGame(g); err != nil {
 		die(err)
+	}
+	if g.ring != nil {
+		// 回報用：實際畫格率與播放斷流次數（規格 240 §3.5）。
+		wall := time.Since(started).Seconds()
+		u, d := g.ring.Stats()
+		fmt.Fprintf(os.Stderr, "buckrogers-play: frames=%d wall=%.1fs fps=%.1f audio_underruns=%d audio_dropped_frames=%d\n",
+			g.frame, wall, float64(g.frame)/wall, u, d)
 	}
 	if g.lastErr != nil {
 		die(g.lastErr)
