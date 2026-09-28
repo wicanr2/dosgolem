@@ -172,7 +172,10 @@ func originalCandidates(flagDir, data string) []string {
 	if flagDir != "" {
 		return []string{flagDir}
 	}
-	return []string{filepath.Join(packageDir(), "original"), filepath.Join(data, "original")}
+	d := exeDir()
+	// 發行包旁 → 發行包內（本機自用的 -with-data 變體；AppImage 內或 .app 的 Resources）→ 使用者資料目錄。
+	return []string{filepath.Join(packageDir(), "original"), filepath.Join(d, "original"),
+		filepath.Join(d, "..", "Resources", "original"), filepath.Join(data, "original")}
 }
 
 // prepareGame 回可開機的遊戲樹與 START.EXE 的實際檔名（§3.2）。
