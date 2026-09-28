@@ -462,6 +462,8 @@ type Machine struct {
 	KeyIRQs   uint64
 	keyStalls uint64
 	nextKey   uint64
+	// clockPct 是時脈比例（`docs/spec/242`）；0 表示未設定（100）。
+	clockPct int
 	// KeyEvery 是兩次鍵盤中斷之間至少隔幾道指令。
 	KeyEvery uint64
 

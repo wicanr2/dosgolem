@@ -91,7 +91,7 @@ func (m *Machine) ScanLine() (line int, ok bool) {
 	if t.LineHz <= 0 || t.VTotal <= 0 {
 		return 0, false
 	}
-	perLine := StepsPerSecond() / t.LineHz
+	perLine := m.StepsPerSecondScaled() / t.LineHz
 	if perLine < 1 {
 		return 0, false
 	}

@@ -41,12 +41,15 @@ type Snapshot struct {
 	// Restore 把 Steps 倒回過去，而 nextIRQ1 還停在未來，`keyTick` 的
 	// 「時間還沒到」於是永遠成立。症狀是第一個變體收得到鍵、後面每一個都
 	// 「按了沒反應」——看起來像那些送法不對，其實是送鍵這條路已經死了。
-	keyQueue  []KeyEvent
-	nextKey   uint64
-	keyIRQs   uint64
-	keyStalls uint64
-	kbdData   uint8
-	kbdPortB  uint8
+	keyQueue []KeyEvent
+	nextKey  uint64
+	// 回掃與鍵盤間隔、時脈比例（`docs/spec/242`）。
+	vgaEvery, nextFrame, keyEvery uint64
+	clockPct                      int
+	keyIRQs                       uint64
+	keyStalls                     uint64
+	kbdData                       uint8
+	kbdPortB                      uint8
 
 	ports   map[uint16]uint8
 	portsIn map[uint16]uint64
@@ -127,8 +130,9 @@ func (m *Machine) Snapshot() *Snapshot {
 		cbActive:      m.cbActive,
 		cbMade:        m.cbMade,
 
-		keyQueue:  append([]KeyEvent(nil), m.keyQueue...),
-		nextKey:   m.nextKey,
+		keyQueue: append([]KeyEvent(nil), m.keyQueue...),
+		nextKey:  m.nextKey,
+		vgaEvery: m.VGAFrameEvery, nextFrame: m.nextFrame, keyEvery: m.KeyEvery, clockPct: m.clockPct,
 		keyIRQs:   m.KeyIRQs,
 		keyStalls: m.keyStalls,
 		kbdData:   m.kbdData,
@@ -186,6 +190,7 @@ func (m *Machine) Restore(s *Snapshot) {
 
 	m.keyQueue = append([]KeyEvent(nil), s.keyQueue...)
 	m.nextKey, m.KeyIRQs, m.keyStalls = s.nextKey, s.keyIRQs, s.keyStalls
+	m.VGAFrameEvery, m.nextFrame, m.KeyEvery, m.clockPct = s.vgaEvery, s.nextFrame, s.keyEvery, s.clockPct
 	m.kbdData, m.kbdPortB = s.kbdData, s.kbdPortB
 
 	m.Speaker = append(m.Speaker[:0], s.speaker...)

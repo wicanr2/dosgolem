@@ -17,6 +17,10 @@ type StateDigest struct {
 	DOSExited     bool
 	// AdLib tells receipts taken with the OPL2 present apart (docs/spec/240).
 	AdLib bool
+	// ClockPercent 是機器時脈比例（docs/spec/242）。
+	ClockPercent int
+	// IRQ0Clamped 是計時器間隔被下限夾住的次數（docs/spec/242 §4）。
+	IRQ0Clamped int
 }
 
 // Digest fingerprints the machine between turns.  It is refused while a turn
@@ -32,7 +36,7 @@ func (o *Owner) Digest() (StateDigest, error) {
 		return StateDigest{}, errors.New("session: 回合進行中不可取摘要")
 	}
 	m := o.machine
-	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited, AdLib: m.AdLibPresent()}
+	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited, AdLib: m.AdLibPresent(), ClockPercent: m.ClockPercent(), IRQ0Clamped: m.IRQ0Clamped}
 	d.MemorySHA256 = sha256.Sum256(m.Mem[:])
 	cpu := make([]byte, 0, 2*(len(m.CPU.R)+len(m.CPU.Seg)+2))
 	for _, v := range m.CPU.R {

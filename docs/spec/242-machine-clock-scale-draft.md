@@ -36,8 +36,9 @@ dosgolem 的時間由指令數驅動：計時器中斷、VGA 回掃、鍵盤中�
 - 快照與存檔：`Snapshot` 與 `SaveState` 都補存 `VGAFrameEvery`、`nextFrame`、`KeyEvery`、`ClockPercent`
   （`SaveState` 另補 `nextKey`）。**還原時存檔決定時脈**：整組時鐘欄位照存檔覆寫，不經過 `SetClockPercent`，
   不保留還原前機器的比例。`ClockPercent` 缺席（0，242 之前的存檔）即視為 100 的存檔：`IRQ0Base`、`PITDiv`、
-  `IRQ0Every`、`nextIRQ0` 照檔案（既有欄位本來就存著 100% 的值）；缺席的 `VGAFrameEvery`、`KeyEvery` 設為
-  `DefaultVGAFrameEvery`、`DefaultKeyIRQEvery`；缺席的 `nextFrame`、`nextKey` 維持還原當下的值（既有行為，
+  `IRQ0Every`、`nextIRQ0` 照檔案（既有欄位本來就存著 100% 的值）；缺席的 `VGAFrameEvery`、`KeyEvery`：還原前機器縮放過（比例≠100）
+  則設為 `DefaultVGAFrameEvery`、`DefaultKeyIRQEvery`，否則保留當下值（實作時發現 `cmd/probe` 在載入前自訂 `KeyEvery`，
+  一律設回預設會改變既有行為）；缺席的 `nextFrame`、`nextKey` 維持還原當下的值（既有行為，
   既有工具都是新建機器後才還原，當下值即 100% 預設）。後果是還原後第一步 `Steps >= nextFrame` 立即成立，多一次
   提早的回掃後自行對齊，`nextKey` 則讓第一個排隊鍵不必等冷卻；這是現有所有「載入舊存檔再往下跑」收據的一部分，
   改掉會改變 p=100 的收據，本規格刻意不改。新格式存檔存有這兩個欄位，不受影響。`LoadState` 現有「`IRQ0Base` 為 0 時用 `DefaultIRQ0Every`」
@@ -51,7 +52,7 @@ dosgolem 的時間由指令數驅動：計時器中斷、VGA 回掃、鍵盤中�
 
 ### 2.3 buckrogers-play
 
-- 旗標 `-clock`（百分比 10–100，預設 100；發行版預設依 §4.4 決定）。非法值在開機前 `die`，不夾限。
+- 旗標 `-clock`（百分比 10–100）。預設 50：使用者回報 100 偏慢；本機量測 p=100 約 27 fps、p=50 約 58 fps（§5）。非法值在開機前 `die`，不夾限。
 - `stepsPerHostFrame` 改為執行期值：`ScaleSteps(DefaultVGAFrameEvery, clock) × 70 / 60`；它同時給 `Advance` 的預算與
   `mixer.New(stepsPerHostFrame × 60)`，音畫同一時基。同一個百分比放進 `session.Config.ClockPercent`。
 - 遊戲執行中不能改時脈；改設定要重新啟動。
@@ -75,3 +76,9 @@ dosgolem 的時間由指令數驅動：計時器中斷、VGA 回掃、鍵盤中�
    截圖逐位元組相同（遊戲時間節奏不變）、`IRQ0Clamped == 0`；每畫格的 CPU 時間（`-cpuprofile` 總樣本 ÷ 畫格數）
    p=50 約為 p=100 的 50%，容忍 ±15%（CPU 模擬之外的固定成本不隨比例縮）。
 4. 實機：使用者以選定時脈遊玩，回報速度與音樂節拍；發行版預設值依回報決定。
+
+## 5. 量測（2026-09-28）
+
+- Buck 冷開機到功能選單（1250 畫格、同一按鍵排程，Docker＋Xvfb、2 核）：p=100 為 240,625,000 步、CPU 樣本 44.18 秒、
+  實耗 47.0 秒（約 27 fps）；p=50 為 120,312,500 步、CPU 樣本 17.57 秒（p=100 的 40%）、實耗 21.4 秒（約 58 fps）。
+  兩者截圖逐位元組相同，`IRQ0Clamped` 皆為 0；p=100 截圖與既有參照相同。

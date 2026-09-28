@@ -113,6 +113,8 @@ type Config struct {
 	// AdLib makes the OPL2 present before the first instruction
 	// (docs/spec/240 §3.1).  Off and on are independent baselines.
 	AdLib bool
+	// ClockPercent 是機器時脈比例 10–100（docs/spec/242）；0 視為 100。
+	ClockPercent int
 }
 
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
@@ -219,6 +221,11 @@ func New(cfg Config) (*Owner, error) {
 	if cfg.AdLib {
 		m.SetAdLib(true)
 		o.muteAudio()
+	}
+	if cfg.ClockPercent != 0 {
+		if err := m.SetClockPercent(cfg.ClockPercent); err != nil {
+			return nil, err
+		}
 	}
 	keepDOS = true
 	return o, nil

@@ -33,8 +33,11 @@ import (
 )
 
 // stepsPerHostFrame keeps the original pace: one VGA retrace is
-// machine.DefaultVGAFrameEvery steps at 70 Hz, and the host runs at 60 Hz.
-const stepsPerHostFrame = machine.DefaultVGAFrameEvery * 70 / 60
+// VGAFrameEvery steps at 70 Hz, and the host runs at 60 Hz.  With a clock
+// percentage (docs/spec/242) both scale by the same machine.ScaleSteps.
+func stepsPerHostFrame(clock int) uint64 {
+	return machine.ScaleSteps(machine.DefaultVGAFrameEvery, clock) * 70 / 60
+}
 
 // liveObserver adapts the Buck live runtime to the sealed session observer.
 // The cursor avoids boxing a fresh StepView into an interface every step.
@@ -112,6 +115,7 @@ type game struct {
 	muted    bool
 	player   *audio.Player
 
+	budget  uint64 // 每主機畫格的指令數（spec 242）
 	mix     *mixer.Mixer
 	ring    *mixer.Ring // nil：沒有播放裝置（自動模式）
 	samples []float32
@@ -265,7 +269,7 @@ func (g *game) Update() error {
 	if _, err := g.owner.Deliver(u); err != nil {
 		return err
 	}
-	tick, err := g.owner.Advance(session.InstructionBudget(stepsPerHostFrame))
+	tick, err := g.owner.Advance(session.InstructionBudget(g.budget))
 	if err != nil {
 		return err
 	}
@@ -306,7 +310,7 @@ func (g *game) finishFrame() error {
 		}
 	}
 	if d, err := g.owner.Digest(); err == nil {
-		fmt.Fprintf(os.Stderr, "buckrogers-play: steps=%d phase=%v\n", d.Steps, g.owner.Status().Phase)
+		fmt.Fprintf(os.Stderr, "buckrogers-play: steps=%d phase=%v clock=%d irq0_clamped=%d\n", d.Steps, g.owner.Status().Phase, d.ClockPercent, d.IRQ0Clamped)
 	}
 	return ebiten.Termination
 }
@@ -345,6 +349,7 @@ func main() {
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
 	shotDir := flag.String("shot-dir", "", "F12 截圖目錄（預設為存檔目錄上一層的 screenshots）")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
+	clock := flag.Int("clock", 50, "機器時脈比例 10–100（規格 242；主機跑不動時調低，遊戲時間仍對齊實際時間）")
 	adlib := flag.Bool("adlib", true, "模擬 AdLib（規格 240；關閉則原版只用 PC 喇叭）")
 	wavPath := flag.String("wav", "", "自動模式：把合成的音訊寫成 WAV")
 	version := flag.Bool("version", false, "顯示版本與第三方元件授權")
@@ -362,6 +367,9 @@ func main() {
 			die(err)
 		}
 		defer pprof.StopCPUProfile()
+	}
+	if *clock < 10 || *clock > 100 {
+		die(fmt.Errorf("-clock 須在 10–100，得 %d", *clock))
 	}
 	if *scale != 2 && *scale != 3 {
 		flag.Usage()
@@ -425,8 +433,9 @@ func main() {
 	s := host.OutputScale2
 	layout := host.MouseLayout{Epoch: 1, Scale: s, ChromeHeight: 18 * int(s), Canvas: host.Canvas{Width: 320, Height: 200},
 		FrameWidth: 320 * int(s), FrameHeight: 18*int(s) + 200*int(s)}
-	mix := mixer.New(stepsPerHostFrame * 60)
-	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, AdLib: *adlib, Observer: newLiveObserver(live, mix)})
+	budget := stepsPerHostFrame(*clock)
+	mix := mixer.New(budget * 60)
+	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, AdLib: *adlib, ClockPercent: *clock, Observer: newLiveObserver(live, mix)})
 	if err != nil {
 		die(err)
 	}
@@ -439,7 +448,7 @@ func main() {
 	if dir == "" {
 		dir = filepath.Join(filepath.Dir(filepath.Clean(saveRoot)), "screenshots")
 	}
-	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir,
+	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir, budget: budget,
 		mix: mix, wavPath: *wavPath, focused: true}
 	if *frames == 0 {
 		// 播放只在互動模式：自動模式常在沒有音效裝置的容器裡跑。
