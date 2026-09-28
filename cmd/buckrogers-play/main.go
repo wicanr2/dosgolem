@@ -380,7 +380,10 @@ func main() {
 		}
 	}
 	if *fontPath == "" {
-		if *fontPath, err = resourcePath(filepath.Join("font", "buckrogers-unifont.golemfnt")); err != nil {
+		// 本機自用完整版另附倚天字型（Buck repo 規格 035 §1.1），有就優先用；一般版只有 Unifont。
+		if p, e := resourcePath(filepath.Join("font", "buckrogers-eten-top-pad.golemfnt")); e == nil {
+			*fontPath = p
+		} else if *fontPath, err = resourcePath(filepath.Join("font", "buckrogers-unifont.golemfnt")); err != nil {
 			die(err)
 		}
 	}
