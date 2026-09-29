@@ -248,9 +248,9 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 		var plan *ManualE1Plan
 		var err error
 		if o.scale == 3 && o.e1Base != nil {
-			plan, err = BuildManualE1Plan(o.layout, o.catalog, event.Request, o.e1Base, o.font)
+			plan, err = BuildManualE1Plan(o.layout, o.catalog, event.Request, o.e1Base, o.font, o.half)
 			if err == nil {
-				text, err = plan.TextLayer(o.e1Base, o.font)
+				text, err = plan.TextLayer(o.e1Base, o.font, o.half)
 			}
 			if err == nil {
 				background = o.buildBackground()

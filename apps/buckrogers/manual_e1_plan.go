@@ -19,7 +19,11 @@ const (
 	manualE1PixelTextTop   = 216
 	manualE1PixelLineH     = 24
 	manualE1PixelCJK       = 24
-	manualE1PixelSpace     = 8
+	// Spec 039 §3.4: half-width characters use the 12×24 half font, one
+	// 12-pixel advance each; an interior space is also 12 pixels.
+	manualE1PixelSpace   = 12
+	manualE1PixelLatin   = 12
+	manualE1LayoutDomain = "buckrogers-manual-e1-layout-v2\x00"
 )
 
 // The token and line rules below are the approved 3× E1 rules from spec 005.
@@ -195,7 +199,7 @@ func manualE1PlanASCIIWordWidth(runes []rune, advance int) (int, error) {
 			return 0, fmt.Errorf("manualE1 plan: unsupported identifier rune U+%04X", r)
 		}
 	}
-	return 16 + (len(runes)-1)*advance, nil
+	return len(runes) * advance, nil
 }
 
 func manualE1PlanMeasure(runes []rune, derived *xlate.Font, advance int) (manualE1PlanToken, error) {
@@ -219,7 +223,7 @@ func manualE1PlanMeasure(runes []rune, derived *xlate.Font, advance int) (manual
 		switch runes[i] {
 		case ' ':
 			token.width += manualE1PixelSpace
-		case '（', '）', '(', ')':
+		case '（', '）':
 			width, err := manualE1PlanNarrowGlyphAdvance(derived, runes[i])
 			if err != nil {
 				return manualE1PlanToken{}, err
@@ -228,6 +232,10 @@ func manualE1PlanMeasure(runes []rune, derived *xlate.Font, advance int) (manual
 		default:
 			if manualE1ASCIIConnector(runes[i]) || runes[i] == '%' {
 				return manualE1PlanToken{}, fmt.Errorf("buckrogers: E1 connector U+%04X is outside an identifier", runes[i])
+			}
+			if isHalfwidth(runes[i]) {
+				token.width += advance // spec 039: half-width punctuation and ( )
+				break
 			}
 			token.width += manualE1PixelCJK
 		}
@@ -452,7 +460,7 @@ func manualE1PlanValidateTokenPixels(lines []manualE1PlanLine, source *xlate.Fon
 					if !ok {
 						return 0, fmt.Errorf("manualE1 plan: missing ASCII glyph U+%04X", r)
 					}
-					minX, _, maxX, _, hasInk := manualE1InkBounds(glyph, 16, 16)
+					minX, _, maxX, _, hasInk := manualE1InkBounds(glyph, source.W, source.H)
 					if !hasInk {
 						return 0, fmt.Errorf("manualE1 plan: empty ASCII glyph U+%04X", r)
 					}
@@ -465,7 +473,7 @@ func manualE1PlanValidateTokenPixels(lines []manualE1PlanLine, source *xlate.Fon
 						return 0, fmt.Errorf("manualE1 plan: glyph U+%04X escapes token pixel range", r)
 					}
 					if previousMax >= left {
-						return 0, fmt.Errorf("manualE1 plan: 14px cross-run ink collision in token %q", string(placed.token.runes))
+						return 0, fmt.Errorf("manualE1 plan: cross-run ink collision in token %q", string(placed.token.runes))
 					}
 					previousMax = right
 				}
@@ -478,13 +486,13 @@ func manualE1PlanValidateTokenPixels(lines []manualE1PlanLine, source *xlate.Fon
 // ManualE1Plan is an output-only, privately held value plan. Its slices are
 // copied from the tokenizer and never exposed to callers.
 type ManualE1Plan struct {
-	generation                     uint64
-	eventKey, textKey, translation string
-	runeCount                      int
-	baseName, derivedName          string
-	baseSeal, derivedSeal          [sha256.Size]byte
-	lines                          [manualE1Rows]manualE1SealedLine
-	digest                         [sha256.Size]byte
+	generation                      uint64
+	eventKey, textKey, translation  string
+	runeCount                       int
+	baseName, derivedName, halfName string
+	baseSeal, derivedSeal, halfSeal [sha256.Size]byte
+	lines                           [manualE1Rows]manualE1SealedLine
+	digest                          [sha256.Size]byte
 }
 
 type manualE1SealedLine struct {
@@ -508,9 +516,17 @@ type manualE1Glyph struct {
 	x, y                   int
 }
 
+// manualE1ValidHalf checks the spec 039 §3.2 12×24 half font of an E1 plan.
+func manualE1ValidHalf(base, derived, half *xlate.Font) bool {
+	return half != nil && half.W == 12 && half.H == 24 && half.Name != "" &&
+		half.Name != base.Name && half.Name != derived.Name
+}
+
 // BuildManualE1Plan accepts one exact catalog request and the already verified
-// session fonts. It does not modify either font or any existing presenter.
-func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request DisplayRequest, base, derived *xlate.Font) (*ManualE1Plan, error) {
+// session fonts: the 16×16 base, its 22-point derivation for full-width
+// characters and (spec 039 §3.4) its 12×24 half font for U+0021–U+007E.  It
+// does not modify any font or any existing presenter.
+func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request DisplayRequest, base, derived, half *xlate.Font) (*ManualE1Plan, error) {
 	if !layout.confirmed() || request.Generation == 0 || request.EventKey == "" || request.TextKey == "" ||
 		request.Translation == "" || !utf8.ValidString(request.Translation) ||
 		catalog == nil || !catalog.containsManualRequest(request) {
@@ -520,6 +536,13 @@ func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request Di
 		base.Name == "" || derived.Name == "" || base.Name == derived.Name {
 		return nil, fmt.Errorf("buckrogers: E1 requires distinct named 16x16 and 22x22 fonts")
 	}
+	if !manualE1ValidHalf(base, derived, half) {
+		return nil, fmt.Errorf("buckrogers: E1 requires a distinct named 12x24 half font")
+	}
+	halfSeal, err := presentation.FontFingerprint(half)
+	if err != nil {
+		return nil, err
+	}
 	baseSeal, err := presentation.FontFingerprint(base)
 	if err != nil {
 		return nil, err
@@ -528,17 +551,18 @@ func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request Di
 	if err != nil {
 		return nil, err
 	}
-	lines, err := manualE1PlanLines(request.Translation, derived, 14)
+	lines, err := manualE1PlanLines(request.Translation, derived, manualE1PixelLatin)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := manualE1PlanValidateTokenPixels(lines, base, 14); err != nil {
+	if _, err := manualE1PlanValidateTokenPixels(lines, half, manualE1PixelLatin); err != nil {
 		return nil, err
 	}
 	plan := &ManualE1Plan{
 		generation: request.Generation, eventKey: request.EventKey, textKey: request.TextKey,
 		translation: request.Translation, runeCount: utf8.RuneCountInString(request.Translation),
-		baseName: base.Name, derivedName: derived.Name, baseSeal: baseSeal, derivedSeal: derivedSeal,
+		baseName: base.Name, derivedName: derived.Name, halfName: half.Name,
+		baseSeal: baseSeal, derivedSeal: derivedSeal, halfSeal: halfSeal,
 	}
 	for row := range plan.lines {
 		plan.lines[row].row, plan.lines[row].y = row, manualE1PixelTextTop+row*manualE1PixelLineH
@@ -560,15 +584,16 @@ func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request Di
 				if manualE1ASCIIAlnum(r) {
 					end := manualE1PlanWordEnd(runes, i)
 					word := runes[i:end]
-					width, err := manualE1PlanASCIIWordWidth(word, 14)
+					width, err := manualE1PlanASCIIWordWidth(word, manualE1PixelLatin)
 					if err != nil {
 						return nil, err
 					}
 					for n, ascii := range word {
-						if _, ok := base.Glyphs[ascii]; !ok {
+						if g, ok := half.Glyphs[ascii]; !ok || len(g) != 48 {
 							return nil, fmt.Errorf("buckrogers: missing E1 ASCII glyph U+%04X", ascii)
 						}
-						token.glyphs = append(token.glyphs, manualE1Glyph{r: ascii, role: "base16", name: base.Name, seal: baseSeal, srcW: 16, srcH: 16, x: cursor + n*14, y: sealed.y + 4})
+						token.glyphs = append(token.glyphs, manualE1Glyph{r: ascii, role: "ascii-half", name: half.Name, seal: halfSeal,
+							srcW: 12, srcH: 24, x: cursor + n*manualE1PixelLatin, y: sealed.y})
 					}
 					cursor += width
 					i = end
@@ -581,12 +606,24 @@ func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request Di
 					i++
 					continue
 				}
+				if isHalfwidth(r) {
+					// Spec 039 §3.4: half-width punctuation and ( ) use the
+					// 12×24 half font at sealed.y+0.
+					if g, ok := half.Glyphs[r]; !ok || len(g) != 48 {
+						return nil, fmt.Errorf("buckrogers: missing E1 half glyph U+%04X", r)
+					}
+					token.glyphs = append(token.glyphs, manualE1Glyph{r: r, role: "ascii-half", name: half.Name, seal: halfSeal,
+						srcW: 12, srcH: 24, x: cursor, y: sealed.y})
+					cursor += manualE1PixelLatin
+					i++
+					continue
+				}
 				glyph, ok := derived.Glyphs[r]
 				if !ok || len(glyph) != 22*3 {
 					return nil, fmt.Errorf("buckrogers: missing E1 derived glyph U+%04X", r)
 				}
 				advance, srcX, srcY, srcW, srcH, x, y := 24, 0, 0, 22, 22, cursor+1, sealed.y+1
-				if r == '（' || r == '）' || r == '(' || r == ')' {
+				if r == '（' || r == '）' {
 					minX, minY, maxX, maxY, ink := manualE1InkBounds(glyph, 22, 22)
 					if !ink || maxX-minX+1+4 > 20 {
 						return nil, fmt.Errorf("buckrogers: E1 parenthesis U+%04X exceeds safe advance", r)
@@ -613,7 +650,7 @@ func BuildManualE1Plan(layout *ManualOverlayLayout, catalog *Catalog, request Di
 		return nil, fmt.Errorf("buckrogers: E1 source span incomplete")
 	}
 	plan.digest = plan.hash()
-	if _, err := plan.TextLayer(base, derived); err != nil {
+	if _, err := plan.TextLayer(base, derived, half); err != nil {
 		return nil, err
 	}
 	return plan, nil
@@ -632,8 +669,8 @@ func manualE1String(h hash.Hash, value string) {
 
 func (p *ManualE1Plan) hash() [sha256.Size]byte {
 	h := sha256.New()
-	_, _ = h.Write([]byte("buckrogers-manual-e1-layout-v1\x00"))
-	for _, v := range []int{3, 14, 21, 216, 915, 336, 48, 216, 864, 336, manualE1Rows} {
+	_, _ = h.Write([]byte(manualE1LayoutDomain))
+	for _, v := range []int{3, manualE1PixelLatin, 21, 216, 915, 336, 48, 216, 864, 336, manualE1Rows} {
 		manualE1U32(h, v)
 	}
 	for _, line := range p.lines {
@@ -671,6 +708,8 @@ func (p *ManualE1Plan) hash() [sha256.Size]byte {
 	_, _ = h.Write(p.baseSeal[:])
 	manualE1String(h, p.derivedName)
 	_, _ = h.Write(p.derivedSeal[:])
+	manualE1String(h, p.halfName)
+	_, _ = h.Write(p.halfSeal[:])
 	var out [sha256.Size]byte
 	copy(out[:], h.Sum(nil))
 	return out
@@ -678,11 +717,16 @@ func (p *ManualE1Plan) hash() [sha256.Size]byte {
 
 // TextLayer creates an independent 14-row text layer after rechecking the
 // plan's source, hash, font identity, and every physical glyph boundary.
-func (p *ManualE1Plan) TextLayer(base, derived *xlate.Font) (*xlate.Layer, error) {
+func (p *ManualE1Plan) TextLayer(base, derived, half *xlate.Font) (*xlate.Layer, error) {
 	if p == nil || p.generation == 0 || p.eventKey == "" || p.textKey == "" || p.translation == "" ||
 		p.runeCount != utf8.RuneCountInString(p.translation) || p.digest != p.hash() ||
-		base == nil || derived == nil || base.Name != p.baseName || derived.Name != p.derivedName || base.Name == derived.Name {
+		base == nil || derived == nil || base.Name != p.baseName || derived.Name != p.derivedName || base.Name == derived.Name ||
+		!manualE1ValidHalf(base, derived, half) || half.Name != p.halfName {
 		return nil, fmt.Errorf("buckrogers: invalid or changed E1 plan")
+	}
+	halfSeal, err := presentation.FontFingerprint(half)
+	if err != nil || halfSeal != p.halfSeal {
+		return nil, fmt.Errorf("buckrogers: E1 half font identity mismatch")
 	}
 	baseSeal, err := presentation.FontFingerprint(base)
 	if err != nil || baseSeal != p.baseSeal {
@@ -692,7 +736,9 @@ func (p *ManualE1Plan) TextLayer(base, derived *xlate.Font) (*xlate.Layer, error
 	if err != nil || derivedSeal != p.derivedSeal {
 		return nil, fmt.Errorf("buckrogers: E1 derived font identity mismatch")
 	}
-	fonts := map[string]*xlate.Font{base.Name: base, derived.Name: derived}
+	// Spec 039 §3.4: the registry holds three fonts (base 16×16, derived
+	// 22-point, half 12×24).
+	fonts := map[string]*xlate.Font{base.Name: base, derived.Name: derived, half.Name: half}
 	layer := &xlate.Layer{W: 320, H: 200, FontRegistry: fonts}
 	var source strings.Builder
 	nextSource := 0
@@ -713,13 +759,13 @@ func (p *ManualE1Plan) TextLayer(base, derived *xlate.Font) (*xlate.Layer, error
 			source.WriteString(string(token.runes))
 			for _, glyph := range token.glyphs {
 				font := fonts[glyph.name]
-				if font == nil || glyph.role == "base16" && font != base || glyph.role == "derived22" && font != derived ||
-					glyph.role != "base16" && glyph.role != "derived22" {
+				if font == nil || glyph.role == "ascii-half" && font != half || glyph.role == "derived22" && font != derived ||
+					glyph.role != "ascii-half" && glyph.role != "derived22" {
 					return nil, fmt.Errorf("buckrogers: E1 glyph font role mismatch")
 				}
 				seal := p.derivedSeal
-				if font == base {
-					seal = p.baseSeal
+				if font == half {
+					seal = p.halfSeal
 				}
 				if glyph.seal != seal || glyph.x < token.x || glyph.x+glyph.srcW > token.x+token.advance {
 					return nil, fmt.Errorf("buckrogers: E1 glyph seal or token bounds mismatch")

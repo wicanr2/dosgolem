@@ -13,7 +13,7 @@ import (
 // boundary contract for the first-question paragraph: every occurrence of
 // RAM, Deimos and Stockade stays inside a single sealed token (never split
 // across a line break) and every consecutive ASCII letter pair advances
-// exactly 14 physical pixels.
+// exactly 12 physical pixels (spec 039 §3.4 half-width E1).
 func TestManualE1PlanDeimosPrisonEnglishTokens(t *testing.T) {
 	project := os.Getenv("BUCK_OWNER_PROJECT")
 	if project == "" {
@@ -49,7 +49,7 @@ func TestManualE1PlanDeimosPrisonEnglishTokens(t *testing.T) {
 	}
 	plan, err := BuildManualE1Plan(loadManualOverlayLayout(t), catalog,
 		DisplayRequest{Generation: 1, EventKey: eventKey, TextKey: "manual.log.49.deimos_prison", Translation: translation},
-		base, derived)
+		base, derived, halfFontsOf(base).X3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,8 +100,8 @@ func TestManualE1PlanDeimosPrisonEnglishTokens(t *testing.T) {
 			var prevLetter bool
 			for _, glyph := range token.glyphs {
 				letter := glyph.r < 128 && manualE1ASCIIAlpha(glyph.r)
-				if letter && prevLetter && glyph.x-prevX != 14 {
-					t.Fatalf("row %d token %q: %q advances %dpx, want 14px", row, string(token.runes), string(glyph.r), glyph.x-prevX)
+				if letter && prevLetter && glyph.x-prevX != 12 {
+					t.Fatalf("row %d token %q: %q advances %dpx, want 12px", row, string(token.runes), string(glyph.r), glyph.x-prevX)
 				}
 				prevX, prevLetter = glyph.x, letter
 			}

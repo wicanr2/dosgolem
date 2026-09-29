@@ -36,8 +36,8 @@ type ManualSnapshotOwner struct {
 	base     *xlate.Font
 	fontHash [sha256.Size]byte
 	baseHash [sha256.Size]byte
-	// half is the spec 039 §3.2 8×16 half font of the 2× owner, registered
-	// beside the base font (nil for the 3× E1 owner).
+	// half is the spec 039 §3.2 half font (8×16 at 2×, 12×24 for the 3× E1
+	// owner), registered beside the base (and E1 derived) font.
 	half     *xlate.Font
 	halfHash [sha256.Size]byte
 	e1       bool
@@ -88,15 +88,13 @@ func NewManualSnapshotOwner(layout *ManualOverlayLayout, catalog *Catalog, verif
 		overlay.e1Base = base
 	}
 	owner := &ManualSnapshotOwner{base: base, fontHash: fingerprint, baseHash: baseFingerprint, e1: scale == 3, epoch: 1, active: true}
-	if scale == 2 {
-		if overlay.half == nil || overlay.half.Name == "" || overlay.half.Name == overlay.font.Name {
-			return nil, fmt.Errorf("buckrogers: manual owner requires a named 8x16 half font")
-		}
-		if owner.halfHash, err = presentation.FontFingerprint(overlay.half); err != nil {
-			return nil, err
-		}
-		owner.half = overlay.half
+	if overlay.half == nil || overlay.half.Name == "" || overlay.half.Name == overlay.font.Name || overlay.half.Name == base.Name {
+		return nil, fmt.Errorf("buckrogers: manual owner requires a named half font")
 	}
+	if owner.halfHash, err = presentation.FontFingerprint(overlay.half); err != nil {
+		return nil, err
+	}
+	owner.half = overlay.half
 	consumer, err := NewManualPresentationConsumer(overlay)
 	if err != nil {
 		return nil, err
@@ -273,12 +271,21 @@ func (o *ManualSnapshotOwner) validateE1SourceLayers(action ManualOverlayAction,
 	if err != nil || derivedHash != o.fontHash || derivedHash != plan.derivedSeal {
 		return fmt.Errorf("buckrogers: E1 derived font changed")
 	}
-	expected, err := plan.TextLayer(o.base, o.overlay.font)
+	if o.half == nil || o.overlay.half != o.half {
+		return fmt.Errorf("buckrogers: E1 half font binding changed")
+	}
+	halfHash, err := presentation.FontFingerprint(o.half)
+	if err != nil || halfHash != o.halfHash || halfHash != plan.halfSeal {
+		return fmt.Errorf("buckrogers: E1 half font changed")
+	}
+	expected, err := plan.TextLayer(o.base, o.overlay.font, o.half)
 	if err != nil {
 		return err
 	}
-	if len(expected.Stamps) != len(o.overlay.text.Stamps) || len(o.overlay.text.FontRegistry) != 2 ||
-		o.overlay.text.FontRegistry[o.base.Name] != o.base || o.overlay.text.FontRegistry[o.overlay.font.Name] != o.overlay.font {
+	// Spec 039 §3.4: three fonts (base, 22-point, 12×24 half).
+	if len(expected.Stamps) != len(o.overlay.text.Stamps) || len(o.overlay.text.FontRegistry) != 3 ||
+		o.overlay.text.FontRegistry[o.base.Name] != o.base || o.overlay.text.FontRegistry[o.overlay.font.Name] != o.overlay.font ||
+		o.overlay.text.FontRegistry[o.half.Name] != o.half {
 		return fmt.Errorf("buckrogers: E1 text registry or row count changed")
 	}
 	for row := range expected.Stamps {
@@ -410,11 +417,9 @@ func (o *ManualSnapshotOwner) snapshot(ticket ManualFrameTicket, scale int) (pre
 		return presentation.LayerPresentationSnapshot{}, fmt.Errorf("buckrogers: manual layers changed after Frame")
 	}
 	var result presentation.LayerPresentationSnapshot
-	fonts := map[string]*xlate.Font{o.overlay.font.Name: o.overlay.font}
+	fonts := map[string]*xlate.Font{o.overlay.font.Name: o.overlay.font, o.half.Name: o.half}
 	if o.e1 {
 		fonts[o.base.Name] = o.base
-	} else {
-		fonts[o.half.Name] = o.half
 	}
 	err = presentation.WithSealedOrderedLayers(manualSnapshotGroupKey, ticket.generation, ticket.epoch,
 		[]presentation.ActiveLayerSlot{
@@ -428,7 +433,8 @@ func (o *ManualSnapshotOwner) snapshot(ticket ManualFrameTicket, scale int) (pre
 				if fingerprint, ok := group.FontHash(o.base.Name); !ok || fingerprint != o.baseHash {
 					return fmt.Errorf("buckrogers: sealed E1 base font identity mismatch")
 				}
-			} else if fingerprint, ok := group.FontHash(o.half.Name); !ok || fingerprint != o.halfHash {
+			}
+			if fingerprint, ok := group.FontHash(o.half.Name); !ok || fingerprint != o.halfHash {
 				return fmt.Errorf("buckrogers: sealed manual half font identity mismatch")
 			}
 			valid := func() bool {

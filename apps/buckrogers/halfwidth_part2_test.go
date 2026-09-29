@@ -622,3 +622,140 @@ func TestHalfPart2ManualOwnerSealAcceptsHalfSegments(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// E1 (spec 039 §3.4): U+0021–U+007E use the 12×24 half font, 12-pixel
+// advance, at sealed.y+0; interior space 12; full-width （ ） unchanged.
+func TestHalfPart2E1HalfGlyphs(t *testing.T) {
+	text := "甲(AB) C,D（乙）"
+	catalog := manualOverlayCatalog(text)
+	base, derived := manualE1SyntheticFonts(text)
+	half := halfFontsOf(base).X3
+	if half == nil || half.W != 12 || half.H != 24 {
+		t.Fatal("synthetic half font")
+	}
+	request := manualOverlayRequest(catalog, 4)
+	plan, err := BuildManualE1Plan(loadManualOverlayLayout(t), catalog, request, base, derived, half)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type placed struct {
+		r    rune
+		role string
+		x, y int
+		w, h int
+	}
+	var got []placed
+	line := plan.lines[0]
+	for _, token := range line.tokens {
+		for _, g := range token.glyphs {
+			got = append(got, placed{g.r, g.role, g.x, g.y, g.srcW, g.srcH})
+		}
+	}
+	x0, y0 := manualE1PixelTextLeft, line.y
+	// 甲 24 | ( A B ) 12 each | space 12 | C , D 12 each | （ narrow 乙 24 ）narrow
+	want := []struct {
+		r    rune
+		x    int
+		half bool
+	}{{'甲', 0, false}, {'(', 24, true}, {'A', 36, true}, {'B', 48, true}, {')', 60, true},
+		{'C', 84, true}, {',', 96, true}, {'D', 108, true}}
+	if len(got) != 11 {
+		t.Fatalf("glyphs=%d %+v", len(got), got)
+	}
+	for i, w := range want {
+		g := got[i]
+		if g.r != w.r {
+			t.Fatalf("glyph %d rune %q want %q", i, g.r, w.r)
+		}
+		if w.half {
+			if g.role != "ascii-half" || g.x != x0+w.x || g.y != y0 || g.w != 12 || g.h != 24 {
+				t.Fatalf("half glyph %q: %+v", w.r, g)
+			}
+		} else if g.role != "derived22" || g.x != x0+w.x+1 || g.y != y0+1 {
+			t.Fatalf("full glyph %q: %+v", w.r, g)
+		}
+	}
+	if got[8].r != '（' || got[8].role != "derived22" || got[10].r != '）' || got[10].role != "derived22" {
+		t.Fatalf("full-width parentheses changed: %+v", got[8:])
+	}
+	layer, err := plan.TextLayer(base, derived, half)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layer.FontRegistry) != 3 || layer.FontRegistry[half.Name] != half || layer.FontRegistry[base.Name] != base {
+		t.Fatalf("registry %v", layer.FontRegistry)
+	}
+	if err := layer.ValidatePixelGlyphPlan(3); err != nil {
+		t.Fatalf("12x24 glyphs escape the 24-pixel row: %v", err)
+	}
+	if !strings.Contains(manualE1LayoutDomain, "v2") {
+		t.Fatal("plan version not bumped")
+	}
+	// Fail closed: missing half font, wrong size, missing half glyph,
+	// foreign half font with the same name.
+	wrong := &xlate.Font{Name: half.Name, W: 8, H: 16, Glyphs: half.Glyphs}
+	for _, bad := range []*xlate.Font{nil, wrong} {
+		if p, err := BuildManualE1Plan(loadManualOverlayLayout(t), catalog, request, base, derived, bad); err == nil || p != nil {
+			t.Fatal("bad half font accepted")
+		}
+	}
+	missing := &xlate.Font{Name: half.Name, W: 12, H: 24, Glyphs: map[rune][]byte{}}
+	for r, g := range half.Glyphs {
+		if r != ',' {
+			missing.Glyphs[r] = g
+		}
+	}
+	if p, err := BuildManualE1Plan(loadManualOverlayLayout(t), catalog, request, base, derived, missing); err == nil || p != nil {
+		t.Fatal("missing half glyph accepted")
+	}
+	foreign := &xlate.Font{Name: half.Name, W: 12, H: 24, Glyphs: map[rune][]byte{}}
+	for r, g := range half.Glyphs {
+		foreign.Glyphs[r] = append([]byte(nil), g...)
+	}
+	foreign.Glyphs['A'][0] ^= 0x80
+	if l, err := plan.TextLayer(base, derived, foreign); err == nil || l != nil {
+		t.Fatal("foreign half font accepted by TextLayer")
+	}
+}
+
+func TestHalfPart2E1OwnerHalfSeal(t *testing.T) {
+	text := "RAM繁中(A)"
+	catalog := manualOverlayCatalog(text)
+	base, _ := manualE1SyntheticFonts(text)
+	owner, err := NewManualSnapshotOwner(loadManualOverlayLayout(t), catalog, base, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.half == nil || owner.half.W != 12 || owner.half.Name != manualBaseFontIdentity+".half12x24" {
+		t.Fatalf("E1 owner half %+v", owner.half)
+	}
+	if n, err := owner.Consume([]ManualPresentationEvent{{Kind: ManualPresentationBegin, Generation: 2},
+		{Kind: ManualPresentationRequest, Generation: 2, Request: manualOverlayRequest(catalog, 2)}}); err != nil || n != 2 {
+		t.Fatalf("consume=%d err=%v", n, err)
+	}
+	palette, indexed := manualOverlayPaletteAndFrame()
+	frame := host.IndexedFrame{Canvas: host.Canvas{Width: 320, Height: 200}, Indexed: indexed, Palette: palette}
+	ticket, err := owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shot, err := owner.Snapshot(ticket, 3); err != nil || !shot.Drew {
+		t.Fatalf("E1 three-font seal: %v", err)
+	}
+	ticket, err = owner.PrepareFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.half.Glyphs['R'][0] ^= 0x80
+	if _, err := owner.Snapshot(ticket, 3); err == nil {
+		t.Fatal("half font drift accepted")
+	}
+	owner.half.Glyphs['R'][0] ^= 0x80
+	if _, err := owner.PrepareFrame(frame); err != nil {
+		t.Fatalf("repaired half font rejected: %v", err)
+	}
+	delete(owner.overlay.text.FontRegistry, owner.half.Name)
+	if _, err := owner.PrepareFrame(frame); err == nil {
+		t.Fatal("two-font registry accepted")
+	}
+}

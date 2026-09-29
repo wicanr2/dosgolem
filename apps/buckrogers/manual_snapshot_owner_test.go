@@ -53,9 +53,12 @@ func TestManualSnapshotOwnerE1TwoFontsAndFailClosedLifecycle(t *testing.T) {
 	}
 	owner, events, frame := newOwner(t)
 	glyphs := owner.overlay.text.Stamps[0].PixelGlyphs
-	if len(glyphs) != len([]rune(text)) || glyphs[0].Font != owner.base || glyphs[1].Font != owner.base ||
-		glyphs[2].Font != owner.base || glyphs[3].Font != owner.overlay.font {
-		t.Fatalf("E1 two-font glyph route changed: %#v", glyphs)
+	// Spec 039 §3.4: ASCII glyphs use the 12×24 half font (role ascii-half);
+	// the registry holds three fonts.
+	if len(glyphs) != len([]rune(text)) || glyphs[0].Font != owner.half || glyphs[1].Font != owner.half ||
+		glyphs[2].Font != owner.half || glyphs[3].Font != owner.overlay.font || owner.half.W != 12 || owner.half.H != 24 ||
+		len(owner.overlay.text.FontRegistry) != 3 || owner.overlay.text.FontRegistry[owner.base.Name] != owner.base {
+		t.Fatalf("E1 glyph route changed: %#v", glyphs)
 	}
 	ticket, err := owner.PrepareFrame(frame)
 	if err != nil {
