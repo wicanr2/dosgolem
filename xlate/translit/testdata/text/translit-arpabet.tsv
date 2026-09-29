@@ -1,0 +1,79 @@
+arpabet	kind	table_key	note
+AA	vowel	ɑː æ ʌ	美式 [ɑ]；對到拼寫 o 時改用 AA_O（英式 [ɒ]）
+AA_O	vowel	ɒ ɔː / oʊ o əʊ	AA 對到拼寫字母 o（Robert、Tom）；英式讀 [ɒ]
+AE	vowel	ɑː æ ʌ	[æ]
+AH	vowel	ɑː æ ʌ	重讀 AH1／AH2 為 [ʌ]
+AH0	vowel	ɜː ə	非重讀 AH0 為 [ə]
+AO	vowel	ɒ ɔː / oʊ o əʊ	[ɔː]
+AW	vowel	aʊ	[aʊ]
+AY	vowel	aɪ	[aɪ]
+EH	vowel	e	[e]
+ER	vowel	ɜː ə	[ɜː]／[ə]
+EY	vowel	eɪ	[eɪ]
+IH	vowel	iː ɪ (j)	[ɪ]
+IY	vowel	iː ɪ (j)	[iː]
+OW	vowel	ɒ ɔː / oʊ o əʊ	[oʊ]／[əʊ]
+OY	vowel	ɒ ɔː / oʊ o əʊ	[ɔɪ] 的前半；後半另補單獨 [ɪ]（伊）
+UH	vowel	uː ʊ	[ʊ]
+UW	vowel	uː ʊ	[uː]
+YUW	vowel	juː jʊ	Y 後接 UW／UH 合為 [juː]
+B	consonant	b	
+P	consonant	p	
+D	consonant	d	
+T	consonant	t	
+G	consonant	g	
+K	consonant	k	
+V	consonant	v	
+W	consonant	w	
+F	consonant	f	
+Z	consonant	z dz	
+DZ	consonant	z dz	詞尾 D Z 合讀 [dz]
+TS	consonant	ts	詞尾 T S 合讀 [ts]
+S	consonant	s ð θ	
+DH	consonant	s ð θ	[ð]
+TH	consonant	s ð θ	[θ]
+ZH	consonant	ʒ	
+SH	consonant	ʃ	
+JH	consonant	ʤ	
+CH	consonant	ʧ	
+HH	consonant	h	
+M	consonant	m	
+N	consonant	n	
+NG	consonant	n	單獨的 [ŋ] 沒有專欄，按 [n]（恩）
+L	consonant	l	
+R	consonant	ɹ	
+Y	consonant	j	
+GW	consonant	ɡʷ	G 後接 W 且其後為元音
+KW	consonant	kʷ	K 後接 W 且其後為元音
+HW	consonant	hʷ	HH 後接 W 且其後為元音
+AE N	nasal	æn ʌn an æŋ	[æn]
+AE NG	nasal	æn ʌn an æŋ	[æŋ]
+AH N	nasal	æn ʌn an æŋ	重讀 [ʌn]
+AH NG	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	重讀 [ʌŋ]
+AA N	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	[ɑːn]／[ɒn]
+AA NG	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	[ɒŋ]
+AO N	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	[ɔːn]
+AO NG	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	[ɒŋ]
+AW N	nasal	ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	[aʊn]
+EH N	nasal	en eŋ ɜːn ən əŋ	[en]
+EH NG	nasal	en eŋ ɜːn ən əŋ	[eŋ]
+ER N	nasal	en eŋ ɜːn ən əŋ	[ɜːn]
+AH0 N	nasal	en eŋ ɜːn ən əŋ	非重讀 [ən]
+AH0 NG	nasal	en eŋ ɜːn ən əŋ	非重讀 [əŋ]
+IH0 N	nasal	en eŋ ɜːn ən əŋ	非重讀 -in／-en 在英式多弱化為 [ən]（O'Brien、Aiken）
+IH N	nasal	ɪn iːn ɪən jən	重讀 [ɪn]
+IY N	nasal	ɪn iːn ɪən jən	[iːn]
+IH NG	nasal	ɪŋ	[ɪŋ]
+IY NG	nasal	ɪŋ	[iŋ] 近 [ɪŋ]
+UW N	nasal	uːn ʊn oʊn	[uːn]
+UH N	nasal	uːn ʊn oʊn	[ʊn]
+OW N	nasal	uːn ʊn oʊn	[oʊn]
+UW NG	nasal	ʊŋ	[uŋ] 近 [ʊŋ]
+UH NG	nasal	ʊŋ	[ʊŋ]
+OW NG	nasal	ʊŋ	[oŋ] 近 [ʊŋ]
+a	letter	ɑː æ ʌ	附註規則 9：非重讀元音按拼寫字母 a 譯
+e	letter	e	附註規則 9：字母 e
+i	letter	iː ɪ (j)	附註規則 9：字母 i
+y	letter	iː ɪ (j)	附註規則 9：字母 y 作元音
+o	letter	ɒ ɔː / oʊ o əʊ	附註規則 9：字母 o
+u	letter	uː ʊ	附註規則 9：字母 u

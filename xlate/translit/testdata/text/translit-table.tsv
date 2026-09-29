@@ -1,0 +1,444 @@
+vowel_row	consonant	zh	zh_female	zh_initial	note
+單獨輔音	b	布			
+單獨輔音	p	普			
+單獨輔音	d	德			tr_dr
+單獨輔音	t	特			tr_dr
+單獨輔音	g	格			
+單獨輔音	k	克			
+單獨輔音	v	夫		弗	pre
+單獨輔音	w	夫		弗	pre
+單獨輔音	f	夫		弗	pre
+單獨輔音	z dz	茲			voiced
+單獨輔音	ts	茨			voiced
+單獨輔音	s ð θ	斯	絲		female,voiced
+單獨輔音	ʒ	日			
+單獨輔音	ʃ	什			
+單獨輔音	ʤ	奇			
+單獨輔音	ʧ	奇			
+單獨輔音	h	赫			
+單獨輔音	m	姆			mb_mp
+單獨輔音	n	恩			
+單獨輔音	l	爾			
+單獨輔音	ɹ	爾			tr_dr
+單獨輔音	j	伊			
+單獨輔音	ɡʷ	古			
+單獨輔音	kʷ	庫			
+單獨輔音	hʷ	胡			
+ɑː æ ʌ	無輔音	阿			
+ɑː æ ʌ	b	巴			
+ɑː æ ʌ	p	帕			
+ɑː æ ʌ	d	達			tr_dr
+ɑː æ ʌ	t	塔			tr_dr
+ɑː æ ʌ	g	加			
+ɑː æ ʌ	k	卡			
+ɑː æ ʌ	v	瓦	娃		female
+ɑː æ ʌ	w	瓦	娃		female
+ɑː æ ʌ	f	法	娃		female
+ɑː æ ʌ	z dz	扎			voiced
+ɑː æ ʌ	ts	察			voiced
+ɑː æ ʌ	s ð θ	薩	莎		female,voiced
+ɑː æ ʌ	ʒ	扎			
+ɑː æ ʌ	ʃ	沙	莎		female
+ɑː æ ʌ	ʤ	賈			
+ɑː æ ʌ	ʧ	查			
+ɑː æ ʌ	h	哈			
+ɑː æ ʌ	m	馬	瑪		female,mb_mp
+ɑː æ ʌ	n	納	娜		female
+ɑː æ ʌ	l	拉			
+ɑː æ ʌ	ɹ	拉			tr_dr
+ɑː æ ʌ	j	亞	婭		female
+ɑː æ ʌ	ɡʷ	瓜			
+ɑː æ ʌ	kʷ	夸			
+ɑː æ ʌ	hʷ	華			
+e	無輔音	埃			ai-
+e	b	貝			ai-
+e	p	佩			ai-
+e	d	德			ai-,tr_dr
+e	t	特			ai-,tr_dr
+e	g	蓋			ai-
+e	k	凱			ai-
+e	v	韋			ai-
+e	w	韋			ai-
+e	f	費			ai-
+e	z dz	澤			ai-,voiced
+e	ts	策			ai-,voiced
+e	s ð θ	塞			ai-,voiced
+e	ʒ	熱			ai-
+e	ʃ	謝			ai-
+e	ʤ	傑			ai-
+e	ʧ	切			ai-
+e	h	赫			ai-
+e	m	梅			ai-,mb_mp
+e	n	內			ai-
+e	l	萊			ai-
+e	ɹ	雷	蕾		female,ai-,tr_dr
+e	j	耶			ai-
+e	ɡʷ	圭			ai-
+e	kʷ	奎			ai-
+e	hʷ	惠			ai-
+eɪ	無輔音	埃			ai-
+eɪ	b	貝			ai-
+eɪ	p	佩			ai-
+eɪ	d	德			ai-,tr_dr
+eɪ	t	泰			ai-,tr_dr
+eɪ	g	蓋			ai-
+eɪ	k	凱			ai-
+eɪ	v	韋			ai-
+eɪ	w	韋			ai-
+eɪ	f	費			ai-
+eɪ	z dz	澤			ai-,voiced
+eɪ	ts	策			ai-,voiced
+eɪ	s ð θ	塞			ai-,voiced
+eɪ	ʒ	熱			ai-
+eɪ	ʃ	謝			ai-
+eɪ	ʤ	傑			ai-
+eɪ	ʧ	切			ai-
+eɪ	h	黑			ai-
+eɪ	m	梅			ai-,mb_mp
+eɪ	n	內			ai-
+eɪ	l	萊			ai-
+eɪ	ɹ	雷	蕾		female,ai-,tr_dr
+eɪ	j	耶			ai-
+eɪ	ɡʷ	圭			ai-
+eɪ	kʷ	奎			ai-
+eɪ	hʷ	惠			ai-
+ɜː ə	無輔音	厄			-r,a-,-ia,unstressed
+ɜː ə	b	伯			a-,-ia,unstressed
+ɜː ə	p	珀			a-,-ia,unstressed
+ɜː ə	d	德			a-,-ia,unstressed,tr_dr
+ɜː ə	t	特			a-,-ia,unstressed,tr_dr
+ɜː ə	g	格			a-,-ia,unstressed
+ɜː ə	k	克			a-,-ia,unstressed
+ɜː ə	v	弗			a-,-ia,unstressed
+ɜː ə	w	沃			a-,-ia,unstressed
+ɜː ə	f	弗			a-,-ia,unstressed
+ɜː ə	z dz	澤			a-,-ia,unstressed,voiced
+ɜː ə	ts	策			a-,-ia,unstressed,voiced
+ɜː ə	s ð θ	瑟			a-,-ia,unstressed,voiced
+ɜː ə	ʒ	熱			a-,-ia,unstressed
+ɜː ə	ʃ	舍			a-,-ia,unstressed
+ɜː ə	ʤ	哲			a-,-ia,unstressed
+ɜː ə	ʧ	徹			a-,-ia,unstressed
+ɜː ə	h	赫			a-,-ia,unstressed
+ɜː ə	m	默			a-,-ia,unstressed,mb_mp
+ɜː ə	n	納	娜		female,a-,-ia,unstressed
+ɜː ə	l	勒			a-,-ia,unstressed
+ɜː ə	ɹ	勒			a-,-ia,unstressed,tr_dr
+ɜː ə	j	耶			a-,-ia,unstressed
+ɜː ə	ɡʷ	果			a-,-ia,unstressed
+ɜː ə	kʷ	闊			a-,-ia,unstressed
+ɜː ə	hʷ	霍			a-,-ia,unstressed
+iː ɪ (j)	無輔音	伊			
+iː ɪ (j)	b	比			
+iː ɪ (j)	p	皮			
+iː ɪ (j)	d	迪			tr_dr
+iː ɪ (j)	t	蒂			tr_dr
+iː ɪ (j)	g	吉			
+iː ɪ (j)	k	基			
+iː ɪ (j)	v	維			
+iː ɪ (j)	w	威			
+iː ɪ (j)	f	菲			
+iː ɪ (j)	z dz	齊			voiced
+iː ɪ (j)	ts	齊			voiced
+iː ɪ (j)	s ð θ	西			voiced
+iː ɪ (j)	ʒ	日			
+iː ɪ (j)	ʃ	希			
+iː ɪ (j)	ʤ	吉			
+iː ɪ (j)	ʧ	奇			
+iː ɪ (j)	h	希			
+iː ɪ (j)	m	米			mb_mp
+iː ɪ (j)	n	尼	妮		female
+iː ɪ (j)	l	利	莉		female
+iː ɪ (j)	ɹ	里	麗		female,tr_dr
+iː ɪ (j)	j	伊			
+iː ɪ (j)	ɡʷ	圭			
+iː ɪ (j)	kʷ	奎			
+iː ɪ (j)	hʷ	惠			
+ɒ ɔː / oʊ o əʊ	無輔音	奧			
+ɒ ɔː / oʊ o əʊ	b	博			
+ɒ ɔː / oʊ o əʊ	p	波			
+ɒ ɔː / oʊ o əʊ	d	多			tr_dr
+ɒ ɔː / oʊ o əʊ	t	托			tr_dr
+ɒ ɔː / oʊ o əʊ	g	戈			
+ɒ ɔː / oʊ o əʊ	k	科			
+ɒ ɔː / oʊ o əʊ	v	沃			
+ɒ ɔː / oʊ o əʊ	w	沃			
+ɒ ɔː / oʊ o əʊ	f	福			
+ɒ ɔː / oʊ o əʊ	z dz	佐			voiced
+ɒ ɔː / oʊ o əʊ	ts	措			voiced
+ɒ ɔː / oʊ o əʊ	s ð θ	索			voiced
+ɒ ɔː / oʊ o əʊ	ʒ	若			
+ɒ ɔː / oʊ o əʊ	ʃ	肖			
+ɒ ɔː / oʊ o əʊ	ʤ	喬			
+ɒ ɔː / oʊ o əʊ	ʧ	喬			
+ɒ ɔː / oʊ o əʊ	h	霍			
+ɒ ɔː / oʊ o əʊ	m	莫			mb_mp
+ɒ ɔː / oʊ o əʊ	n	諾			
+ɒ ɔː / oʊ o əʊ	l	洛			
+ɒ ɔː / oʊ o əʊ	ɹ	羅	蘿		female,tr_dr
+ɒ ɔː / oʊ o əʊ	j	約			
+ɒ ɔː / oʊ o əʊ	ɡʷ	果			
+ɒ ɔː / oʊ o əʊ	kʷ	闊			
+ɒ ɔː / oʊ o əʊ	hʷ	霍			
+uː ʊ	無輔音	烏			
+uː ʊ	b	布			
+uː ʊ	p	普			
+uː ʊ	d	杜			tr_dr
+uː ʊ	t	圖			tr_dr
+uː ʊ	g	古			
+uː ʊ	k	庫			
+uː ʊ	v	武			
+uː ʊ	w	伍			
+uː ʊ	f	富			
+uː ʊ	z dz	祖			voiced
+uː ʊ	ts	楚			voiced
+uː ʊ	s ð θ	蘇			voiced
+uː ʊ	ʒ	茹			
+uː ʊ	ʃ	舒			
+uː ʊ	ʤ	朱			
+uː ʊ	ʧ	楚			
+uː ʊ	h	胡			
+uː ʊ	m	穆			mb_mp
+uː ʊ	n	努			
+uː ʊ	l	盧			
+uː ʊ	ɹ	魯			tr_dr
+uː ʊ	j	尤			
+uː ʊ	kʷ	庫			
+juː jʊ	無輔音	尤			
+juː jʊ	b	比尤			
+juː jʊ	p	皮尤			
+juː jʊ	d	迪尤			tr_dr
+juː jʊ	t	蒂尤			tr_dr
+juː jʊ	g	久			
+juː jʊ	k	丘			
+juː jʊ	v	維尤			
+juː jʊ	w	威尤			
+juː jʊ	f	菲尤			
+juː jʊ	z dz	久			voiced
+juː jʊ	ts	丘			voiced
+juː jʊ	s ð θ	休			voiced
+juː jʊ	ʃ	休			
+juː jʊ	ʤ	久			
+juː jʊ	ʧ	丘			
+juː jʊ	h	休			
+juː jʊ	m	繆			mb_mp
+juː jʊ	n	紐			
+juː jʊ	l	柳			
+juː jʊ	ɹ	留			tr_dr
+aɪ	無輔音	艾			
+aɪ	b	拜			
+aɪ	p	派			
+aɪ	d	代			tr_dr
+aɪ	t	泰			tr_dr
+aɪ	g	蓋			
+aɪ	k	凱			
+aɪ	v	韋			
+aɪ	w	懷			
+aɪ	f	法			
+aɪ	z dz	宰			voiced
+aɪ	ts	蔡			voiced
+aɪ	s ð θ	賽			voiced
+aɪ	ʃ	夏			
+aɪ	ʤ	賈			
+aɪ	ʧ	柴			
+aɪ	h	海			
+aɪ	m	邁			mb_mp
+aɪ	n	奈			
+aɪ	l	萊			
+aɪ	ɹ	賴			tr_dr
+aɪ	j	耶			
+aɪ	ɡʷ	瓜伊			
+aɪ	kʷ	夸			
+aɪ	hʷ	懷			
+aʊ	無輔音	奧			
+aʊ	b	鮑			
+aʊ	p	保			
+aʊ	d	道			tr_dr
+aʊ	t	陶			tr_dr
+aʊ	g	高			
+aʊ	k	考			
+aʊ	v	沃			
+aʊ	w	沃			
+aʊ	f	福			
+aʊ	z dz	藻			voiced
+aʊ	ts	曹			voiced
+aʊ	s ð θ	紹			voiced
+aʊ	ʃ	紹			
+aʊ	ʤ	焦			
+aʊ	ʧ	喬			
+aʊ	h	豪			
+aʊ	m	毛			mb_mp
+aʊ	n	瑙			
+aʊ	l	勞			
+aʊ	ɹ	勞			tr_dr
+aʊ	j	堯			
+aʊ	kʷ	闊			
+æn ʌn an æŋ	無輔音	安			
+æn ʌn an æŋ	b	班			
+æn ʌn an æŋ	p	潘			
+æn ʌn an æŋ	d	丹			tr_dr
+æn ʌn an æŋ	t	坦			tr_dr
+æn ʌn an æŋ	g	甘			
+æn ʌn an æŋ	k	坎			
+æn ʌn an æŋ	v	萬			
+æn ʌn an æŋ	w	萬			
+æn ʌn an æŋ	f	凡			
+æn ʌn an æŋ	z dz	贊			voiced
+æn ʌn an æŋ	ts	燦			voiced
+æn ʌn an æŋ	s ð θ	桑			voiced
+æn ʌn an æŋ	ʃ	尚			
+æn ʌn an æŋ	ʤ	詹			
+æn ʌn an æŋ	ʧ	錢			
+æn ʌn an æŋ	h	漢			
+æn ʌn an æŋ	m	曼			mb_mp
+æn ʌn an æŋ	n	南			
+æn ʌn an æŋ	l	蘭			
+æn ʌn an æŋ	ɹ	蘭			tr_dr
+æn ʌn an æŋ	j	揚			
+æn ʌn an æŋ	ɡʷ	關			
+æn ʌn an æŋ	kʷ	寬			
+æn ʌn an æŋ	hʷ	環			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	無輔音	昂			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	b	邦			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	p	龐			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	d	當			tr_dr
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	t	唐			tr_dr
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	g	岡			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	k	康			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	v	旺			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	w	旺			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	f	方			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	z dz	藏			voiced
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ts	倉			voiced
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	s ð θ	桑			voiced
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ʒ	讓			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ʃ	尚			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ʤ	章			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ʧ	昌			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	h	杭			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	m	芒			mb_mp
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	n	南			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	l	朗			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ɹ	朗			tr_dr
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	j	揚			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	ɡʷ	光			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	kʷ	匡			
+ɑːn aʊn ʌŋ ɔːn ɒn ɒŋ	hʷ	黃			
+en eŋ ɜːn ən əŋ	無輔音	恩			
+en eŋ ɜːn ən əŋ	b	本			
+en eŋ ɜːn ən əŋ	p	彭			
+en eŋ ɜːn ən əŋ	d	登			tr_dr
+en eŋ ɜːn ən əŋ	t	滕			tr_dr
+en eŋ ɜːn ən əŋ	g	根			
+en eŋ ɜːn ən əŋ	k	肯			
+en eŋ ɜːn ən əŋ	v	文			
+en eŋ ɜːn ən əŋ	w	文			
+en eŋ ɜːn ən əŋ	f	芬			
+en eŋ ɜːn ən əŋ	z dz	曾			voiced
+en eŋ ɜːn ən əŋ	ts	岑			voiced
+en eŋ ɜːn ən əŋ	s ð θ	森			voiced
+en eŋ ɜːn ən əŋ	ʒ	任			
+en eŋ ɜːn ən əŋ	ʃ	申			
+en eŋ ɜːn ən əŋ	ʤ	真			
+en eŋ ɜːn ən əŋ	ʧ	琴			
+en eŋ ɜːn ən əŋ	h	亨			
+en eŋ ɜːn ən əŋ	m	門			mb_mp
+en eŋ ɜːn ən əŋ	n	嫩			
+en eŋ ɜːn ən əŋ	l	倫			
+en eŋ ɜːn ən əŋ	ɹ	倫			tr_dr
+en eŋ ɜːn ən əŋ	j	延			
+en eŋ ɜːn ən əŋ	ɡʷ	古恩			
+en eŋ ɜːn ən əŋ	kʷ	昆			
+ɪn iːn ɪən jən	無輔音	因			
+ɪn iːn ɪən jən	b	賓			
+ɪn iːn ɪən jən	p	平			
+ɪn iːn ɪən jən	d	丁			tr_dr
+ɪn iːn ɪən jən	t	廷			tr_dr
+ɪn iːn ɪən jən	g	金			
+ɪn iːn ɪən jən	k	金			
+ɪn iːn ɪən jən	v	溫			
+ɪn iːn ɪən jən	w	溫			
+ɪn iːn ɪən jən	f	芬			
+ɪn iːn ɪən jən	z dz	津			voiced
+ɪn iːn ɪən jən	ts	欣			voiced
+ɪn iːn ɪən jən	s ð θ	辛			voiced
+ɪn iːn ɪən jən	ʃ	欣			
+ɪn iːn ɪən jən	ʤ	金			
+ɪn iːn ɪən jən	ʧ	欽			
+ɪn iːn ɪən jən	h	欣			
+ɪn iːn ɪən jən	m	明			mb_mp
+ɪn iːn ɪən jən	n	寧			
+ɪn iːn ɪən jən	l	林	琳		female
+ɪn iːn ɪən jən	ɹ	林	琳		female,tr_dr
+ɪn iːn ɪən jən	j	因			
+ɪn iːn ɪən jən	ɡʷ	古因			
+ɪn iːn ɪən jən	kʷ	昆			
+ɪŋ	無輔音	英			
+ɪŋ	b	賓			
+ɪŋ	p	平			
+ɪŋ	d	丁			tr_dr
+ɪŋ	t	廷			tr_dr
+ɪŋ	g	京			
+ɪŋ	k	金			
+ɪŋ	v	溫			
+ɪŋ	w	溫			
+ɪŋ	f	芬			
+ɪŋ	z dz	京			voiced
+ɪŋ	ts	青			voiced
+ɪŋ	s ð θ	辛			voiced
+ɪŋ	ʃ	興			
+ɪŋ	ʤ	京			
+ɪŋ	ʧ	青			
+ɪŋ	h	興			
+ɪŋ	m	明			mb_mp
+ɪŋ	n	寧			
+ɪŋ	l	林	琳		female
+ɪŋ	ɹ	林	琳		female,tr_dr
+ɪŋ	j	英			
+ɪŋ	ɡʷ	古英			
+uːn ʊn oʊn	無輔音	溫			
+uːn ʊn oʊn	b	本			
+uːn ʊn oʊn	p	蓬			
+uːn ʊn oʊn	d	敦			tr_dr
+uːn ʊn oʊn	t	通			tr_dr
+uːn ʊn oʊn	g	貢			
+uːn ʊn oʊn	k	昆			
+uːn ʊn oʊn	v	文			
+uːn ʊn oʊn	w	文			
+uːn ʊn oʊn	f	豐			
+uːn ʊn oʊn	z dz	尊			voiced
+uːn ʊn oʊn	ts	聰			voiced
+uːn ʊn oʊn	s ð θ	孫			voiced
+uːn ʊn oʊn	ʃ	順			
+uːn ʊn oʊn	ʤ	準			
+uːn ʊn oʊn	ʧ	春			
+uːn ʊn oʊn	h	洪			
+uːn ʊn oʊn	m	蒙			mb_mp
+uːn ʊn oʊn	n	農			
+uːn ʊn oʊn	l	倫			
+uːn ʊn oʊn	ɹ	倫			tr_dr
+uːn ʊn oʊn	j	雲			
+ʊŋ	無輔音	翁			
+ʊŋ	b	邦			
+ʊŋ	p	蓬			
+ʊŋ	d	東			tr_dr
+ʊŋ	t	通			tr_dr
+ʊŋ	g	貢			
+ʊŋ	k	孔			
+ʊŋ	v	翁			
+ʊŋ	w	翁			
+ʊŋ	f	豐			
+ʊŋ	z dz	宗			voiced
+ʊŋ	ts	聰			voiced
+ʊŋ	s ð θ	松			voiced
+ʊŋ	ʒ	容			
+ʊŋ	ʃ	雄			
+ʊŋ	ʤ	瓊			
+ʊŋ	ʧ	瓊			
+ʊŋ	h	洪			
+ʊŋ	m	蒙			mb_mp
+ʊŋ	n	農			
+ʊŋ	l	隆			
+ʊŋ	ɹ	龍			tr_dr
+ʊŋ	j	永			
+ʊŋ	hʷ	洪			
