@@ -18,6 +18,10 @@ const (
 	origASCIIScanLimit = 0x100000
 )
 
+// OrigASCIIScanLimit is the search range (linear 0–0xFFFFF) shared by the
+// live runtime and the receipt runner (spec 031 §3.1, §3.4).
+const OrigASCIIScanLimit = origASCIIScanLimit
+
 // origASCIIIndex maps a character to its glyph index in the original table
 // (phase-264 §3), or -1 when the table has no glyph for it.
 func origASCIIIndex(r rune) int {

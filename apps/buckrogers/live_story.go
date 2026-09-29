@@ -26,6 +26,9 @@ type storyFamily interface {
 	frame(indexed []byte, palette [256][3]uint8)
 	draw(i int, indexed []byte, palette [256][3]uint8) ([]byte, []rune, bool)
 	clear()
+	// setFont 是規格 031 §3.4 的換字型：base 為 16×16 的 `.orig-ascii` 基底，
+	// 各倍率 presenter 依自己的規則衍生；不換 presenter、不改 generation。
+	setFont(base *xlate.Font) error
 }
 
 var (
@@ -803,4 +806,48 @@ func (f *storyPage9Live) clear() {
 		f.owner[i].Presenter.Clear()
 		f.gen[i] = 0
 	}
+}
+
+// --- spec 031 §3.4: switch every scale presenter to the derived font ------
+
+// storySetFonts calls SetFont on each scale presenter and reports the first
+// error; a failed presenter keeps its previous font.
+func storySetFonts(base *xlate.Font, set ...func(*xlate.Font) error) error {
+	var first error
+	for _, f := range set {
+		if err := f(base); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (f *storyOpeningLive) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage2Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage3Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage4Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage5Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage6Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage7Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+func (f *storyPage8Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.pres[0].SetFont, f.pres[1].SetFont)
+}
+
+// Page 9: only the owner's Presenter changes font; watcher and owner stay.
+func (f *storyPage9Live) setFont(b *xlate.Font) error {
+	return storySetFonts(b, f.owner[0].Presenter.SetFont, f.owner[1].Presenter.SetFont)
 }

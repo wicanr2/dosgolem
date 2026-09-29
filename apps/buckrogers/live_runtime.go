@@ -86,10 +86,15 @@ type LiveRuntime struct {
 	ovl         OverlayUnits // spec 032
 	norm        LegacyNormaliser
 	normFrame   uint64
-	// Spec 031: original Latin glyphs for the generic families.
+	// Spec 031: original Latin glyphs for the generic families and, since
+	// §3.4, the story page families.
 	asciiFound bool
 	asciiTry   uint64 // frame of the last search + 1 (0 = never)
 	asciiScans int
+	asciiStep  uint64 // step at which the table was acquired (0 = not yet)
+	// asciiStoryErrs counts story families whose SetFont failed (they keep
+	// the previous font); diagnostic only, never a reset.
+	asciiStoryErrs int
 
 	font         *xlate.Font
 	skillCatalog *SkillExitCatalog
@@ -665,20 +670,33 @@ func (r *LiveRuntime) genericActive() bool {
 		r.engDisp != nil && len(r.engDisp.Lines()) != 0 || r.logbook != nil && r.logbook.open != 0
 }
 
-// findOriginalASCII implements spec 031 §3.1: search when a generic family
-// first needs it, at most once per 60 frames, and rebuild its presenters.
-func (r *LiveRuntime) findOriginalASCII(v StepReader) error {
-	if r.asciiFound || r.asciiTry != 0 && r.frameSeen < r.asciiTry-1+60 || !r.genericActive() {
+// origASCIIFinder is the table search used by LiveRuntime; tests swap it
+// for a synthetic-hash search.  Production always uses FindOriginalASCII.
+var origASCIIFinder = FindOriginalASCII
+
+// findOriginalASCII implements spec 031 §3.1 and §3.4: search when a generic
+// family has content or (story=true) a story family needs apply, at most once
+// per 60 frames.  On success the generic presenters are rebuilt (§3.1) and
+// every story family switches font in place (§3.4).  A miss keeps the
+// original font and never aborts.
+func (r *LiveRuntime) findOriginalASCII(v StepReader, story bool) error {
+	if r.asciiFound || r.asciiTry != 0 && r.frameSeen < r.asciiTry-1+60 || !story && !r.genericActive() {
 		return nil
 	}
 	r.asciiTry = r.frameSeen + 1
 	r.asciiScans++
-	table, ok := FindOriginalASCII(v, origASCIIScanLimit)
+	table, ok := origASCIIFinder(v, origASCIIScanLimit)
 	if !ok {
 		return nil
 	}
 	r.asciiFound = true
+	r.asciiStep = v.Steps()
 	font := OriginalASCIIFont(r.font, table)
+	for _, f := range r.stories {
+		if err := f.setFont(font); err != nil {
+			r.asciiStoryErrs++
+		}
+	}
 	for i, scale := range liveScales {
 		var err error
 		if r.ecl != nil {
@@ -707,10 +725,41 @@ func (r *LiveRuntime) findOriginalASCII(v StepReader) error {
 	return nil
 }
 
+// applyStories applies every story family with a new generation.  Spec 031
+// §3.4: before the apply loop, a story family that needs apply may trigger
+// the shared original-glyph search (same throttle as the generic path).
+func (r *LiveRuntime) applyStories(v StepReader) error {
+	if !r.asciiFound {
+		for _, f := range r.stories {
+			if f.needsApply() {
+				if err := r.findOriginalASCII(v, true); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+	var palette [256][3]uint8
+	read := false
+	for _, f := range r.stories {
+		if !f.needsApply() {
+			continue
+		}
+		if !read {
+			palette, read = v.Palette(), true
+		}
+		if err := f.apply(palette); err != nil {
+			r.resets[f.name()]++
+			f.clear()
+		}
+	}
+	return nil
+}
+
 // BeforeStep dispatches one instruction in the receipt runner's order.
 func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	r.started = true
-	if err := r.findOriginalASCII(v); err != nil {
+	if err := r.findOriginalASCII(v, false); err != nil {
 		return err
 	}
 	at := Address{Segment: v.CS(), Offset: v.IP()}
@@ -928,19 +977,8 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		// Generations can only advance after a glyph entry/return, a clear
 		// write or a page-9 pre-write; only then check, and read the palette
 		// only for a family that actually has a new generation.
-		var palette [256][3]uint8
-		read := false
-		for _, f := range r.stories {
-			if !f.needsApply() {
-				continue
-			}
-			if !read {
-				palette, read = v.Palette(), true
-			}
-			if err := f.apply(palette); err != nil {
-				r.resets[f.name()]++
-				f.clear()
-			}
+		if err := r.applyStories(v); err != nil {
+			return err
 		}
 		r.storyDirty = r.storyPending != nil
 	}
@@ -1218,7 +1256,10 @@ func (r *LiveRuntime) Frames() uint64 { return r.frameSeen }
 // DebugSummary reports family counters for diagnostics (no original text;
 // the spec-038 party list shows the player-entered names).
 func (r *LiveRuntime) DebugSummary() string {
-	s := fmt.Sprintf("resets=%v orig-ascii=%v/%d ovl-scans=%d ovl-ambiguous=%d", r.Resets(), r.asciiFound, r.asciiScans, r.ovl.Scans, r.ovl.Ambiguous)
+	s := fmt.Sprintf("resets=%v orig-ascii=%v/%d orig-ascii-step=%d ovl-scans=%d ovl-ambiguous=%d", r.Resets(), r.asciiFound, r.asciiScans, r.asciiStep, r.ovl.Scans, r.ovl.Ambiguous)
+	if r.asciiStoryErrs != 0 {
+		s += fmt.Sprintf(" orig-ascii-story-errs=%d", r.asciiStoryErrs)
+	}
 	if r.ecl != nil {
 		s += fmt.Sprintf(" ecl=%+v", r.ecl.Stats)
 	}

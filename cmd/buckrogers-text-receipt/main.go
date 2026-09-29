@@ -1049,6 +1049,7 @@ func main() {
 	var storyOpeningCatalog *buckrogers.StoryOpeningCatalog
 	var storyOpeningText map[string]string
 	var storyOpeningPresenter *buckrogers.RuntimeStoryOpeningOverlay
+	var storyOpeningBaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyOpeningEvents != "" {
 		var err error
 		storyOpeningCatalog, storyOpeningText, err = buckrogers.LoadStoryOpeningCatalog(
@@ -1060,6 +1061,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyOpeningBaseFont = font
 		storyOpeningPresenter, err = buckrogers.NewRuntimeStoryOpeningOverlay(storyOpeningText, font, *storyOpeningScale)
 		if err != nil {
 			fail(err)
@@ -1067,6 +1069,7 @@ func main() {
 	}
 	var storyPage2Catalog *buckrogers.StoryPage2Catalog
 	var storyPage2Presenter *buckrogers.RuntimeStoryPage2Overlay
+	var storyPage2BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage2Events != "" {
 		var err error
 		var text map[string]string
@@ -1078,6 +1081,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage2BaseFont = font
 		storyPage2Presenter, err = buckrogers.NewRuntimeStoryPage2Overlay(text, font, *storyPage2Scale)
 		if err != nil {
 			fail(err)
@@ -1085,6 +1089,7 @@ func main() {
 	}
 	var storyPage3Catalog *buckrogers.StoryPage3Catalog
 	var storyPage3Presenter *buckrogers.RuntimeStoryPage3Overlay
+	var storyPage3BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage3Events != "" {
 		var err error
 		var text map[string]string
@@ -1096,6 +1101,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage3BaseFont = font
 		storyPage3Presenter, err = buckrogers.NewRuntimeStoryPage3Overlay(text, font, *storyPage3Scale)
 		if err != nil {
 			fail(err)
@@ -1103,6 +1109,7 @@ func main() {
 	}
 	var storyPage4Catalog *buckrogers.StoryPage4Catalog
 	var storyPage4Presenter *buckrogers.RuntimeStoryPage4Overlay
+	var storyPage4BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage4Events != "" {
 		var err error
 		var text map[string]string
@@ -1114,6 +1121,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage4BaseFont = font
 		storyPage4Presenter, err = buckrogers.NewRuntimeStoryPage4Overlay(text, font, *storyPage4Scale)
 		if err != nil {
 			fail(err)
@@ -1121,6 +1129,7 @@ func main() {
 	}
 	var storyPage5Catalog *buckrogers.StoryPage5Catalog
 	var storyPage5Presenter *buckrogers.RuntimeStoryPage5Overlay
+	var storyPage5BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage5Events != "" {
 		var err error
 		var text map[string]string
@@ -1132,6 +1141,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage5BaseFont = font
 		storyPage5Presenter, err = buckrogers.NewRuntimeStoryPage5Overlay(text, font, *storyPage5Scale)
 		if err != nil {
 			fail(err)
@@ -1139,6 +1149,7 @@ func main() {
 	}
 	var storyPage6Catalog *buckrogers.StoryPage6Catalog
 	var storyPage6Presenter *buckrogers.RuntimeStoryPage6Overlay
+	var storyPage6BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage6Events != "" {
 		var err error
 		var text map[string]string
@@ -1150,6 +1161,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage6BaseFont = font
 		storyPage6Presenter, err = buckrogers.NewRuntimeStoryPage6Overlay(text, font, *storyPage6Scale)
 		if err != nil {
 			fail(err)
@@ -1157,6 +1169,7 @@ func main() {
 	}
 	var storyPage7Catalog *buckrogers.StoryPage7Catalog
 	var storyPage7Presenter *buckrogers.RuntimeStoryPage7Overlay
+	var storyPage7BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage7Events != "" {
 		var err error
 		var text map[string]string
@@ -1168,6 +1181,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage7BaseFont = font
 		storyPage7Presenter, err = buckrogers.NewRuntimeStoryPage7Overlay(text, font, *storyPage7Scale)
 		if err != nil {
 			fail(err)
@@ -1175,6 +1189,7 @@ func main() {
 	}
 	var storyPage8Catalog *buckrogers.StoryPage8Catalog
 	var storyPage8Presenter *buckrogers.RuntimeStoryPage8Overlay
+	var storyPage8BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage8Events != "" {
 		var err error
 		var text map[string]string
@@ -1186,6 +1201,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage8BaseFont = font
 		storyPage8Presenter, err = buckrogers.NewRuntimeStoryPage8Overlay(text, font, *storyPage8Scale)
 		if err != nil {
 			fail(err)
@@ -1193,6 +1209,7 @@ func main() {
 	}
 	var storyPage9Catalog *buckrogers.StoryPage9Catalog
 	var storyPage9Presenter *buckrogers.RuntimeStoryPage9Overlay
+	var storyPage9BaseFont *xlate.Font // 規格 031 §3.4：本頁自己的 16×16 底字型
 	if *storyPage9Events != "" {
 		var err error
 		var text map[string]string
@@ -1207,6 +1224,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		storyPage9BaseFont = font
 		storyPage9Presenter, err = buckrogers.NewRuntimeStoryPage9Overlay(text, font, *storyPage9Scale)
 		if err != nil {
 			fail(err)
@@ -1298,6 +1316,8 @@ func main() {
 			fail(liveErr)
 		}
 	}
+	// 規格 031 §3.4：legacy 劇情路徑自己的原版字形取得狀態（與 LiveRuntime 分開計數）。
+	storyASCII := &storyASCIIState{}
 	var liveAll *buckrogers.LiveRuntime
 	if *liveTextDir != "" {
 		var liveErr error
@@ -1310,6 +1330,7 @@ func main() {
 	}
 	if liveAll != nil || presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil || storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
 		m.SetOnFrame(func() {
+			storyASCII.frames++
 			if presenter != nil {
 				presenter.Frame(m.Indexed(), m.Palette())
 			}
@@ -2033,6 +2054,44 @@ func main() {
 			m.CPU.Seg[cpu.ES] == 0xA000 && storyFillIntersects(m.CPU.R[cpu.DI], m.CPU.R[cpu.CX], uint32(*storyFillRows)) {
 			storyFillWrites = append(storyFillWrites, storyFillWriteJSON{m.Steps, at, m.CPU.Seg[cpu.ES], m.CPU.R[cpu.DI], m.CPU.R[cpu.CX]})
 		}
+		// 規格 031 §3.4：在劇情 apply 判斷之前，任一頁需要 apply 時以同一搜尋函式
+		// 讀同一台模擬器；自己的回掃計數套 60 格節流；取得失敗沿用原字型、不 fail。
+		if !storyASCII.Found && (storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration ||
+			storyPage2Watcher != nil && storyPage2Watcher.Active() && storyPage2Watcher.Generation() != storyPage2Generation ||
+			storyPage3Watcher != nil && storyPage3Watcher.Active() && storyPage3Watcher.Generation() != storyPage3Generation ||
+			storyPage4Watcher != nil && storyPage4Watcher.Active() && storyPage4Watcher.Generation() != storyPage4Generation ||
+			storyPage5Watcher != nil && storyPage5Watcher.Active() && storyPage5Watcher.Generation() != storyPage5Generation ||
+			storyPage6Watcher != nil && storyPage6Watcher.Active() && storyPage6Watcher.Generation() != storyPage6Generation ||
+			storyPage7Watcher != nil && storyPage7Watcher.Active() && storyPage7Watcher.Generation() != storyPage7Generation ||
+			storyPage8Watcher != nil && storyPage8Watcher.Active() && storyPage8Watcher.Generation() != storyPage8Generation ||
+			storyPage9Watcher != nil && storyPage9Watcher.Active() && storyPage9Watcher.Generation() != storyPage9Generation) {
+			if table, ok := storyASCII.search(machineReader{m}, m.Steps); ok {
+				// 第 9 頁：storyPage9Presenter 與 storyPage9Owner.Presenter 是同一物件。
+				for _, p := range []struct {
+					base *xlate.Font
+					set  func(*xlate.Font) error
+				}{
+					{storyOpeningBaseFont, storyOpeningPresenter.SetFont},
+					{storyPage2BaseFont, storyPage2Presenter.SetFont},
+					{storyPage3BaseFont, storyPage3Presenter.SetFont},
+					{storyPage4BaseFont, storyPage4Presenter.SetFont},
+					{storyPage5BaseFont, storyPage5Presenter.SetFont},
+					{storyPage6BaseFont, storyPage6Presenter.SetFont},
+					{storyPage7BaseFont, storyPage7Presenter.SetFont},
+					{storyPage8BaseFont, storyPage8Presenter.SetFont},
+					{storyPage9BaseFont, storyPage9Presenter.SetFont},
+				} {
+					if p.base == nil {
+						continue
+					}
+					if err := p.set(buckrogers.OriginalASCIIFont(p.base, table)); err != nil {
+						storyASCII.SetFontErrors++
+					} else {
+						storyASCII.Presenters++
+					}
+				}
+			}
+		}
 		if storyOpeningWatcher != nil && storyOpeningWatcher.Active() && storyOpeningWatcher.Generation() != storyOpeningGeneration {
 			events := storyOpeningEventsForGeneration(storyOpeningWatcher.Events(), storyOpeningWatcher.Generation())
 			if err := storyOpeningPresenter.Apply(events, m.Palette()); err != nil {
@@ -2338,6 +2397,7 @@ func main() {
 		StoryPage9Overlay         *storyOpeningOverlayJSON          `json:"story_page9_overlay,omitempty"`
 		StoryPage9Stop            *storyPage9StopJSON               `json:"story_page9_stop,omitempty"`
 		StoryPage9Invalidations   []storyPage2InvalidationJSON      `json:"story_page9_invalidations,omitempty"`
+		StoryOrigASCII            *storyASCIIState                  `json:"story_orig_ascii,omitempty"`
 		Clears                    []clearJSON                       `json:"clears,omitempty"`
 		Glyphs                    []glyphJSON                       `json:"glyphs,omitempty"`
 		GlyphDrops                int                               `json:"glyph_drops,omitempty"`
@@ -2392,6 +2452,10 @@ func main() {
 	result.StoryPage8Invalidations = storyPage8Invalidations
 	result.StoryPage9Invalidations = storyPage9Invalidations
 	result.StoryPage9Stop = storyPage9Stop
+	if storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil ||
+		storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
+		result.StoryOrigASCII = storyASCII
+	}
 	result.Unimplemented = unimplementedReport(*unimplemented, d)
 	if *keyTrace {
 		pending := d.KeysPending()
