@@ -32,6 +32,9 @@ type EngineDispatchWatcher struct {
 	callSP  uint16
 	gen     uint64
 	Stats   struct{ Hits, Misses, Invalidations int }
+	// PartyStats counts spec 038 §3.4 lines wider than the original name
+	// and lines stepped down to Chinese only (diagnostics).
+	PartyStats struct{ Extended, ChineseOnly int }
 }
 
 // LoadEngineDispatchCallers parses text/engine-dispatch-callers.tsv and
@@ -70,7 +73,10 @@ func (w *EngineDispatchWatcher) SetPlayerNames(p *PlayerNames) { w.players = p }
 // NeedsParty reports whether an entry from caller uses the party snapshot
 // (spec 038 §3.1: only name-related dispatcher entries take one).
 func (w *EngineDispatchWatcher) NeedsParty(caller CodeKey) bool {
-	return w != nil && caller == partyNameCaller && w.names[caller] && !w.allow[caller]
+	if w == nil || w.allow[caller] {
+		return false
+	}
+	return caller == partyNameCaller && w.names[caller] || partyPanelOnly(caller)
 }
 
 // SetEclCatalog gives the watcher the spec 027 catalog for §2.9.
@@ -146,37 +152,129 @@ type wrapPending struct {
 
 // ObserveEntry handles a dispatcher entry (args as read by the menu family).
 func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
-	w.ObserveEntryParty(caller, ss, sp, ret, args, original, nil)
+	w.ObserveEntryParty(caller, ss, sp, ret, args, original, nil, nil)
 }
 
-// partyName implements spec 038 §3.2–§3.3 for the name caller 235A: the
-// string pointer args[1]:args[0] must be one of the first N party records
-// and the string must equal that record's name.  handled=false means the
-// pointer is not a member (monster record or elsewhere): keep the current
-// monster-name lookup.
-func (w *EngineDispatchWatcher) partyName(caller CodeKey, args [6]uint16, original []byte, party *PartySnapshot) (zh string, ok, handled bool) {
-	if caller != partyNameCaller || party == nil {
-		return "", false, false
+// partyDecision is the spec-038 outcome for one dispatcher entry.
+type partyDecision struct {
+	handled bool   // a party member: never the monster-name lookup
+	text    []rune // nil keeps the original (English)
+	width   int    // cells the overlay covers (≥ the original length)
+	chinese bool   // §3.4 stepped down to Chinese only
+}
+
+// partyName implements spec 038 §3.2–§3.4 for the name callers 235A, 21DE
+// and 0388: the string pointer args[1]:args[0] must be one of the first N
+// party records and the string must equal that record's name.
+// handled=false means the pointer is not a member (monster record or
+// elsewhere): 235A keeps the current monster-name lookup, 21DE/0388 draw
+// nothing.  video reads A000 for the extension-cell check (nil: the check
+// fails).
+func (w *EngineDispatchWatcher) partyName(caller CodeKey, args [6]uint16, original []byte, party *PartySnapshot, video MemReader) partyDecision {
+	if caller != partyNameCaller && !partyPanelOnly(caller) || party == nil {
+		return partyDecision{}
 	}
 	m := party.MemberAt(args[1], args[0])
 	if m == nil || m.Name != string(original) {
-		return "", false, false
+		return partyDecision{}
 	}
-	switch uint8(args[5]) {
-	case battleNameColumn:
-		zh, ok = w.players.Chinese(m.Name, m.Gender)
-		return zh, ok, true
-	case 1, 8, 17:
-		// Same caller in the party column, sheet and item titles: a member's
-		// name is never looked up as a monster name; it stays English.
-		return "", false, true
+	d := partyDecision{handled: true}
+	row, col, n := int(uint8(args[4])), int(uint8(args[5])), len(original)
+	if col == battleNameColumn && caller == partyNameCaller {
+		// §3.3: Chinese only, inside the original cells.
+		if zh, ok := w.players.Chinese(m.Name, m.Gender); ok && len([]rune(zh)) <= n {
+			d.text, d.width = []rune(zh), n
+		}
+		return d
 	}
-	return "", false, false
+	scr, ok := partyPanelAt(row, col)
+	if !ok {
+		return d // other columns/rows (item title, training page): English
+	}
+	zh, ok := w.players.Chinese(m.Name, m.Gender)
+	if !ok {
+		return d
+	}
+	avail := scr.last - col + 1
+	cn := []rune(zh)
+	var cands [][]rune
+	if scr.full {
+		cands = append(cands, []rune(zh+"("+string(original)+")"))
+	}
+	cands = append(cands, cn)
+	extOK := true
+	for i, c := range cands {
+		l := len(c)
+		if l > avail {
+			continue
+		}
+		if l > n {
+			if !extOK {
+				continue // §3.4: after a failed check only the original cells
+			}
+			if !extensionClear(video, row, col+n, col+l, uint8(args[2])) {
+				extOK = false
+				continue
+			}
+		}
+		d.text, d.width = c, max(l, n)
+		d.chinese = scr.full && i == len(cands)-1
+		return d
+	}
+	return d
+}
+
+// Spec 038 §3.4: the two callers that only ever draw party members.  They
+// are program constants, not rows of engine-dispatch-name-callers.tsv
+// (that file means "not a member: look up a monster name").
+var (
+	partySelectedCaller = CodeKey{Unit: 0x2BA60, Offset: 0x21DE}
+	partyCursorCaller   = CodeKey{Unit: 0x27BBE, Offset: 0x0388}
+)
+
+func partyPanelOnly(caller CodeKey) bool {
+	return caller == partySelectedCaller || caller == partyCursorCaller
+}
+
+// partyScreen is one row of the spec 038 §3.4 table: last is the last
+// background cell usable by the overlay; full selects 中文(英文).
+type partyScreen struct {
+	last int
+	full bool
+}
+
+// partyPanelAt maps a start column and row to the §3.4 table.
+func partyPanelAt(row, col int) (partyScreen, bool) {
+	switch {
+	case col == 17 && row >= 4 && row <= 9: // exploration party column
+		return partyScreen{last: 33}, true
+	case col == 1 && row >= 4 && row <= 9: // full-width party table, Pick Character
+		return partyScreen{last: 33, full: true}, true
+	case col == 8 && row == 1: // character sheet title
+		return partyScreen{last: 27, full: true}, true
+	}
+	return partyScreen{}, false
+}
+
+// extensionClear reports whether cells [c0, c1) of text row row are all
+// background bg in A000 (mode 13h, 320 bytes a line).
+func extensionClear(video MemReader, row, c0, c1 int, bg uint8) bool {
+	if video == nil || c1 > 40 || row > 24 {
+		return false
+	}
+	for y := row * 8; y < row*8+8; y++ {
+		for x := c0 * 8; x < c1*8; x++ {
+			if video.Read8(0xA0000+uint32(y*320+x)) != bg {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ObserveEntryParty is ObserveEntry with the spec-038 party snapshot taken
-// at this entry (nil: no snapshot).
-func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte, party *PartySnapshot) {
+// at this entry (nil: no snapshot) and A000 for the §3.4 extension check.
+func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte, party *PartySnapshot, video MemReader) {
 	if w == nil {
 		return
 	}
@@ -184,25 +282,50 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 	// next row may use it.
 	pend := w.pending
 	w.pending = nil
-	if !w.allow[caller] && !w.names[caller] && !w.shared[caller] {
+	panelOnly := partyPanelOnly(caller) && !w.allow[caller] && !w.names[caller] && !w.shared[caller]
+	if !w.allow[caller] && !w.names[caller] && !w.shared[caller] && !panelOnly {
 		return
 	}
-	nameOnly := !w.allow[caller] && w.names[caller]
+	nameOnly := !w.allow[caller] && w.names[caller] || panelOnly
 	row, col, n := int(uint8(args[4])), int(uint8(args[5])), len(original)
 	if n == 0 || row > 24 || col+n > 40 {
 		return
 	}
+	var d partyDecision
+	if nameOnly {
+		d = w.partyName(caller, args, original, party, video)
+		if panelOnly && d.text == nil {
+			// §3.4: 21DE/0388 draw only members in the table; the original
+			// writes of this call invalidate any overlay there as before.
+			return
+		}
+	}
+	width := max(n, d.width)
 	// The original repaints these cells: any older line there is stale.
-	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, row, col, col+n) })
+	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, row, col, col+width) })
 	w.inCall, w.callRet, w.callSS, w.callSP = true, ret, ss, sp
 	var zh string
 	var ok bool
-	if nameOnly {
-		var handled bool
-		if zh, ok, handled = w.partyName(caller, args, original, party); !handled {
-			zh, ok = w.catalog.monsterSlot(string(original))
+	switch {
+	case d.handled:
+		if d.text != nil {
+			w.lines = append(w.lines, EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(width),
+				BG: uint8(args[2]), FG: uint8(args[3]), Text: padRunes(d.text, width)})
+			w.gen++
+			w.Stats.Hits++
+			if d.width > n {
+				w.PartyStats.Extended++
+			}
+			if d.chinese {
+				w.PartyStats.ChineseOnly++
+			}
+		} else {
+			w.Stats.Misses++
 		}
-	} else {
+		return
+	case nameOnly:
+		zh, ok = w.catalog.monsterSlot(string(original))
+	default:
 		zh, ok = w.catalog.Translate(string(original))
 	}
 	if !ok && !nameOnly {
@@ -223,14 +346,18 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 		w.Stats.Misses++
 		return
 	}
-	text := []rune(zh)
-	for len(text) < n {
-		text = append(text, ' ')
-	}
 	w.lines = append(w.lines, EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n),
-		BG: uint8(args[2]), FG: uint8(args[3]), Text: text})
+		BG: uint8(args[2]), FG: uint8(args[3]), Text: padRunes([]rune(zh), n)})
 	w.gen++
 	w.Stats.Hits++
+}
+
+func padRunes(t []rune, n int) []rune {
+	t = append([]rune(nil), t...)
+	for len(t) < n {
+		t = append(t, ' ')
+	}
+	return t
 }
 
 // joinWrapped implements spec 029 §2.10 rule 2: S1+" "+S2 or S1+S2 is one

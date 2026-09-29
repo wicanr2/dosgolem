@@ -210,7 +210,7 @@ func drawn(w *EngineDispatchWatcher, row uint8) (string, bool) {
 
 func battleEntry(w *EngineDispatchWatcher, rec partyRec, row, col uint8, s string, party *PartySnapshot) {
 	ret := Address{0x37F1, 0x235A}
-	w.ObserveEntryParty(partyNameCaller, 1, 0x100, ret, nameArgs(rec, row, col), []byte(s), party)
+	w.ObserveEntryParty(partyNameCaller, 1, 0x100, ret, nameArgs(rec, row, col), []byte(s), party, nil)
 	w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
 }
 
@@ -295,21 +295,23 @@ func TestBattleColumnPlayerNames(t *testing.T) {
 
 func TestBattleColumnCondition(t *testing.T) {
 	party, _ := ReadPartySnapshot(partyMem(2, recFlavius, recBuck), testDS)
-	// The same member string: col 23 draws, cols 1/8/17 keep English.
+	// The same member string: col 23 draws; cols 1/8/17 on a row outside
+	// the spec 038 §3.4 table (row 2 here) keep English.
 	for _, col := range []uint8{23, 1, 8, 17} {
 		w := battleWatcher(t)
-		battleEntry(w, recBuck, 4, col, "BUCK", party)
-		_, ok := drawn(w, 4)
+		battleEntry(w, recBuck, 2, col, "BUCK", party)
+		_, ok := drawn(w, 2)
 		if ok != (col == 23) {
 			t.Errorf("col %d drawn=%v", col, ok)
 		}
 	}
-	// Col 17 with a player named like a monster: English, not the monster.
+	// Col 17 with a player named like a monster: never the monster (§3.4
+	// draws the member's own Chinese there).
 	named := partyRec{seg: 0x5747, off: 2, name: "NEO WARRIOR"}
 	p2, _ := ReadPartySnapshot(partyMem(1, named), testDS)
 	w := battleWatcher(t)
 	battleEntry(w, named, 5, 17, "NEO WARRIOR", p2)
-	if _, ok := drawn(w, 5); ok {
+	if got, ok := drawn(w, 5); ok && got[:len("NEO 戰士")] == "NEO 戰士" {
 		t.Error("col 17 member drawn as monster")
 	}
 	// Col 17 with a monster record (not a member): monster lookup as before.
@@ -319,15 +321,17 @@ func TestBattleColumnCondition(t *testing.T) {
 	if got, _ := drawn(w, 6); got[:len("NEO 戰士")] != "NEO 戰士" {
 		t.Errorf("col 17 monster: %q", got)
 	}
-	// Other callers never use the snapshot.
+	// 21DE never draws in the combat column (not in the §3.4 table).
 	w = battleWatcher(t)
-	w.SetNameCallers(map[CodeKey]bool{partyNameCaller: true, {Unit: 0x2BA60, Offset: 0x21DE}: true})
-	w.ObserveEntryParty(CodeKey{Unit: 0x2BA60, Offset: 0x21DE}, 1, 0x100, Address{0x37F1, 0x21DE}, nameArgs(recBuck, 4, 23), []byte("BUCK"), party)
+	w.ObserveEntryParty(partySelectedCaller, 1, 0x100, Address{0x37F1, 0x21DE}, nameArgs(recBuck, 4, 23), []byte("BUCK"), party, nil)
 	if _, ok := drawn(w, 4); ok {
-		t.Error("other caller drew a player name")
+		t.Error("21DE drew a player name at col 23")
 	}
-	if w.NeedsParty(CodeKey{Unit: 0x2BA60, Offset: 0x21DE}) || !battleWatcher(t).NeedsParty(partyNameCaller) {
+	if !w.NeedsParty(partySelectedCaller) || !w.NeedsParty(partyCursorCaller) || !battleWatcher(t).NeedsParty(partyNameCaller) {
 		t.Error("NeedsParty")
+	}
+	if w.NeedsParty(CodeKey{Unit: 0x2BA60, Offset: 0x2391}) {
+		t.Error("NeedsParty other caller")
 	}
 	// Empty string is never a player name.
 	w = battleWatcher(t)

@@ -810,7 +810,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		if r.engDisp.NeedsParty(key) {
 			party = r.party.refresh(v, v.DS())
 		}
-		r.engDisp.ObserveEntryParty(key, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original, party)
+		r.engDisp.ObserveEntryParty(key, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original, party, v)
 	}
 	switch obs.Kind {
 	case ObservedClear:
@@ -1268,6 +1268,9 @@ func (r *LiveRuntime) DebugSummary() string {
 	}
 	if r.engDisp != nil {
 		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
+		if ps := r.engDisp.PartyStats; ps.Extended != 0 || ps.ChineseOnly != 0 {
+			s += fmt.Sprintf(" party-panel=%+v", ps)
+		}
 	}
 	// Spec 038 §5.3: the latest accepted party snapshot (player names).
 	s += " party={" + r.party.summary() + "}"
