@@ -23,6 +23,7 @@ type EngineDispatchWatcher struct {
 	names   map[CodeKey]bool // callers where only exact monster names are drawn
 	shared  map[CodeKey]bool // spec 029 §2.5: callers shared with older families
 	ecl     *EclTextCatalog  // spec 029 §2.9; nil skips the step
+	players *PlayerNames     // spec 038 §3.3 combat name column; nil keeps English
 	pending *wrapPending     // spec 029 §2.10: first half of a wrapped fragment
 	lines   []EngineDispatchLine
 	inCall  bool
@@ -62,6 +63,15 @@ func NewEngineDispatchWatcher(c *EngineTextCatalog, allow map[CodeKey]bool) *Eng
 // string that is exactly a monster name is drawn (other families claim
 // strings by exact hash, so a monster name is never theirs).
 func (w *EngineDispatchWatcher) SetNameCallers(names map[CodeKey]bool) { w.names = names }
+
+// SetPlayerNames installs the spec-038 resolver for the combat name column.
+func (w *EngineDispatchWatcher) SetPlayerNames(p *PlayerNames) { w.players = p }
+
+// NeedsParty reports whether an entry from caller uses the party snapshot
+// (spec 038 §3.1: only name-related dispatcher entries take one).
+func (w *EngineDispatchWatcher) NeedsParty(caller CodeKey) bool {
+	return w != nil && caller == partyNameCaller && w.names[caller] && !w.allow[caller]
+}
 
 // SetEclCatalog gives the watcher the spec 027 catalog for §2.9.
 func (w *EngineDispatchWatcher) SetEclCatalog(c *EclTextCatalog) { w.ecl = c }
@@ -136,6 +146,37 @@ type wrapPending struct {
 
 // ObserveEntry handles a dispatcher entry (args as read by the menu family).
 func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte) {
+	w.ObserveEntryParty(caller, ss, sp, ret, args, original, nil)
+}
+
+// partyName implements spec 038 §3.2–§3.3 for the name caller 235A: the
+// string pointer args[1]:args[0] must be one of the first N party records
+// and the string must equal that record's name.  handled=false means the
+// pointer is not a member (monster record or elsewhere): keep the current
+// monster-name lookup.
+func (w *EngineDispatchWatcher) partyName(caller CodeKey, args [6]uint16, original []byte, party *PartySnapshot) (zh string, ok, handled bool) {
+	if caller != partyNameCaller || party == nil {
+		return "", false, false
+	}
+	m := party.MemberAt(args[1], args[0])
+	if m == nil || m.Name != string(original) {
+		return "", false, false
+	}
+	switch uint8(args[5]) {
+	case battleNameColumn:
+		zh, ok = w.players.Chinese(m.Name, m.Gender)
+		return zh, ok, true
+	case 1, 8, 17:
+		// Same caller in the party column, sheet and item titles: a member's
+		// name is never looked up as a monster name; it stays English.
+		return "", false, true
+	}
+	return "", false, false
+}
+
+// ObserveEntryParty is ObserveEntry with the spec-038 party snapshot taken
+// at this entry (nil: no snapshot).
+func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16, ret Address, args [6]uint16, original []byte, party *PartySnapshot) {
 	if w == nil {
 		return
 	}
@@ -157,7 +198,10 @@ func (w *EngineDispatchWatcher) ObserveEntry(caller CodeKey, ss, sp uint16, ret 
 	var zh string
 	var ok bool
 	if nameOnly {
-		zh, ok = w.catalog.monsterSlot(string(original))
+		var handled bool
+		if zh, ok, handled = w.partyName(caller, args, original, party); !handled {
+			zh, ok = w.catalog.monsterSlot(string(original))
+		}
 	} else {
 		zh, ok = w.catalog.Translate(string(original))
 	}

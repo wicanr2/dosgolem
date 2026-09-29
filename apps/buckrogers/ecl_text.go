@@ -102,6 +102,9 @@ type EclTextEntry struct {
 	Background, Foreground   uint8
 	Left, Top, Right, Bottom uint8
 	CursorCol, CursorRow     uint8
+	// Player is the spec-038 context read at the entry; nil disables the
+	// player-name check for this call.
+	Player *EclPlayerContext
 }
 
 // EclTextLine is one laid-out row of Chinese inside the window.
@@ -148,6 +151,7 @@ type EclTextWatcher struct {
 	catalog *EclTextCatalog
 	engine  *EngineTextCatalog // spec 029 fallback; nil disables
 	names   *NameGlossary      // spec 036 annotation; nil disables
+	players *PlayerNames       // spec 038 player names; nil disables
 	pages   []*EclTextPage
 	inCall  bool
 	call    EclTextEntry
@@ -161,6 +165,9 @@ type EclTextStats struct {
 	// "first occurrence only" or "none" to fit.  Counted apart from
 	// Overflows (the whole window falls back to English).
 	NameFirstOnly, NameUnannotated int
+	// Spec 038 §3.3: player-name calls drawn as 中文(英文), stepped down to
+	// Chinese only, or stepped down to the original English.
+	PlayerNames, PlayerNameChineseOnly, PlayerNameEnglish int
 }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
@@ -170,6 +177,9 @@ func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
 // SetNames installs the spec-036 glossary; only ECL catalog hits are
 // annotated (engine translations and passthrough are narrow families).
 func (w *EclTextWatcher) SetNames(g *NameGlossary) { w.names = g }
+
+// SetPlayerNames installs the spec-038 resolver for player names.
+func (w *EclTextWatcher) SetPlayerNames(p *PlayerNames) { w.players = p }
 
 // SetEngine installs the spec-029 fallback for strings the ECL catalog misses.
 func (w *EclTextWatcher) SetEngine(c *EngineTextCatalog) { w.engine = c }
@@ -287,10 +297,34 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		w.removeRows(e.Left, e.Top, e.Right, e.Bottom, nil)
 		idx, p = w.window(e)
 	}
-	key, text, ok := w.catalog.Lookup(e.Original)
-	if !ok && w.engine != nil {
-		if text, ok = w.engine.Translate(string(e.Original)); ok {
-			key = "engine"
+	// Spec 038 §3.2: a player name goes before the 027 catalog and 029.
+	var player []AnnotatedText
+	isPlayer := false
+	if w.players != nil {
+		if m, hit := eclPlayerName(e.Player, e.Original); hit {
+			isPlayer = true
+			if zh, ok := w.players.Chinese(m.Name, m.Gender); ok {
+				full := []rune(zh + "(" + string(e.Original) + ")")
+				cn := []rune(zh)
+				player = []AnnotatedText{
+					{Tier: NameTierAll, Text: full, Units: []NameUnit{{0, len(full)}}},
+					{Tier: NameTierNone, Text: cn, Units: []NameUnit{{0, len(cn)}}},
+				}
+			}
+		}
+	}
+	var (
+		key, text string
+		ok        bool
+	)
+	if isPlayer {
+		key, ok = "player-name", len(player) != 0
+	} else {
+		key, text, ok = w.catalog.Lookup(e.Original)
+		if !ok && w.engine != nil {
+			if text, ok = w.engine.Translate(string(e.Original)); ok {
+				key = "engine"
+			}
 		}
 	}
 	if !ok {
@@ -321,31 +355,59 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			first, topCol = e.CursorRow, e.Left
 		}
 	}
-	variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
-	if key != "engine" && key != "passthrough" && w.names != nil {
-		variants = w.names.Variants(text, key, NameCaseUpper)
-	}
-	// Every tier starts from the same cursor and continuation state; the
-	// layout is pure, so a failed try changes nothing (spec 036 §3.3).
 	var (
 		lines          []EclTextLine
 		endRow, endCol uint8
 		fits           bool
-		tier           NameTier
 	)
-	for i, v := range variants {
-		if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
-			if i > 0 {
-				tier = v.Tier
+	if key == "player-name" {
+		// Spec 038 §3.3: 中文(英文) → Chinese only → the original English
+		// through the existing passthrough.  Every try starts from the same
+		// cursor and continuation state.
+		chosen := -1
+		for i, v := range player {
+			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
+				chosen = i
+				break
 			}
-			break
 		}
-	}
-	switch tier {
-	case NameTierFirst:
-		w.Stats.NameFirstOnly++
-	case NameTierNone:
-		w.Stats.NameUnannotated++
+		switch chosen {
+		case 0:
+			w.Stats.PlayerNames++
+		case 1:
+			w.Stats.PlayerNames++
+			w.Stats.PlayerNameChineseOnly++
+		default:
+			w.Stats.PlayerNameEnglish++
+			if p == nil {
+				return
+			}
+			text, key = string(e.Original), "passthrough"
+			w.Stats.Passthrough++
+			lines, endRow, endCol, fits = layoutEclText([]rune(text), row, col, e.Left, e.Right, e.Bottom)
+		}
+	} else {
+		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
+		if key != "engine" && key != "passthrough" && w.names != nil {
+			variants = w.names.Variants(text, key, NameCaseUpper)
+		}
+		// Every tier starts from the same cursor and continuation state; the
+		// layout is pure, so a failed try changes nothing (spec 036 §3.3).
+		var tier NameTier
+		for i, v := range variants {
+			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
+				if i > 0 {
+					tier = v.Tier
+				}
+				break
+			}
+		}
+		switch tier {
+		case NameTierFirst:
+			w.Stats.NameFirstOnly++
+		case NameTierNone:
+			w.Stats.NameUnannotated++
+		}
 	}
 	if !fits {
 		w.Stats.Overflows++

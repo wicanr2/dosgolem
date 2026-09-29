@@ -10,6 +10,7 @@ import (
 
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/xlate"
+	"github.com/wicanr2/dosgolem/xlate/translit"
 )
 
 // liveScales are the output scales every live family renders at.
@@ -72,6 +73,12 @@ type LiveRuntime struct {
 	engDisp     *EngineDispatchWatcher
 	engDispPres [2]*HMenuOverlay
 	engDispGen  uint64
+
+	// Spec 038: party snapshot (taken only at the name hooks) and the
+	// player-name resolver; players is nil when translit data is missing.
+	party      partyTracker
+	players    *PlayerNames
+	playersOff string
 
 	// logbook is the spec-030 panel; nil without text/logbook.zh-TW.tsv.
 	logbook     *LogbookWatcher
@@ -229,6 +236,14 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 	}
 	r.ecl = NewEclTextWatcher(c)
 	r.ecl.SetNames(names)
+	// Spec 038: without the transliterator data the player-name display is
+	// off (names stay English); the runtime still starts.
+	if tr, err := translit.Load(textDir); err != nil {
+		r.playersOff = err.Error()
+	} else {
+		r.players = NewPlayerNames(tr, names)
+		r.ecl.SetPlayerNames(r.players)
+	}
 	r.eclGen = r.ecl.Generation()
 	if eng, err := loadEngineText(textDir); err != nil {
 		return err
@@ -239,6 +254,7 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 		}
 		if r.engDisp != nil {
 			r.engDisp.SetEclCatalog(c)
+			r.engDisp.SetPlayerNames(r.players)
 		}
 		if err := r.loadLogbook(textDir, eng, names); err != nil {
 			return err
@@ -515,12 +531,19 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 			orig[i] = v.Read8(base + 1 + uint32(i))
 		}
 		ds := v.DS()
+		ret := Address{Segment: arg(2), Offset: arg(0)}
+		// Spec 038 §3.1–§3.2: only the ECL printer callers take a snapshot
+		// and read the operand table, with the DS of this entry.
+		var player *EclPlayerContext
+		if caller := r.ovl.Key(v, ret); caller == eclNameCallerB79 || caller == eclNameCallerB4A {
+			player = readEclPlayerContext(v, ds, caller, r.party.refresh(v, ds))
+		}
 		if r.logbook != nil {
 			r.logbook.ObserveEntryColors(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)), uint8(arg(10)), uint8(arg(12)))
 			r.logbook.ArmKeyHead(v.Read16(BDAKeyHead))
 		}
 		r.ecl.ObserveEntry(EclTextEntry{
-			Step: v.Steps(), SS: ss, SP: sp, Return: Address{Segment: arg(2), Offset: arg(0)}, Original: orig,
+			Step: v.Steps(), SS: ss, SP: sp, Return: ret, Original: orig, Player: player,
 			Clear: uint8(arg(8)) != 0, Background: uint8(arg(10)), Foreground: uint8(arg(12)),
 			Bottom: uint8(arg(14)), Right: uint8(arg(16)), Top: uint8(arg(18)), Left: uint8(arg(20)),
 			CursorCol: v.Read8(linear(ds, 0x5F3E)), CursorRow: v.Read8(linear(ds, 0x5F3F)),
@@ -733,7 +756,12 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		return err
 	}
 	if obs.Kind == ObservedEntry && r.engDisp != nil {
-		r.engDisp.ObserveEntry(r.ovl.Key(v, obs.Caller), obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original)
+		key := r.ovl.Key(v, obs.Caller)
+		var party *PartySnapshot
+		if r.engDisp.NeedsParty(key) {
+			party = r.party.refresh(v, v.DS())
+		}
+		r.engDisp.ObserveEntryParty(key, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original, party)
 	}
 	switch obs.Kind {
 	case ObservedClear:
@@ -1180,10 +1208,15 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 	return out, true, nil
 }
 
+// PartyNames lists the latest accepted party snapshot as NAME/M|F|?
+// (spec 038 §5.3); empty before the first accepted snapshot.
+func (r *LiveRuntime) PartyNames() []string { return r.party.last.Names() }
+
 // Frames counts retraces observed so far.
 func (r *LiveRuntime) Frames() uint64 { return r.frameSeen }
 
-// DebugSummary reports family counters for diagnostics (no original text).
+// DebugSummary reports family counters for diagnostics (no original text;
+// the spec-038 party list shows the player-entered names).
 func (r *LiveRuntime) DebugSummary() string {
 	s := fmt.Sprintf("resets=%v orig-ascii=%v/%d ovl-scans=%d ovl-ambiguous=%d", r.Resets(), r.asciiFound, r.asciiScans, r.ovl.Scans, r.ovl.Ambiguous)
 	if r.ecl != nil {
@@ -1194,6 +1227,11 @@ func (r *LiveRuntime) DebugSummary() string {
 	}
 	if r.engDisp != nil {
 		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
+	}
+	// Spec 038 §5.3: the latest accepted party snapshot (player names).
+	s += " party={" + r.party.summary() + "}"
+	if r.playersOff != "" {
+		s += " 玩家名=off(" + r.playersOff + ")"
 	}
 	switch {
 	case r.manEng != nil:

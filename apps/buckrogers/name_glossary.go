@@ -287,3 +287,17 @@ func (g *NameGlossary) Variants(text, key string, c NameCase) []AnnotatedText {
 	}
 	return out
 }
+
+// ChineseFor returns the chinese of the row whose `english` is exactly name
+// (spec 038 §3.2: a player named like a glossary person uses its name).
+func (g *NameGlossary) ChineseFor(name string) (string, bool) {
+	if g == nil {
+		return "", false
+	}
+	for _, e := range g.names {
+		if e.English == name {
+			return e.Chinese, true
+		}
+	}
+	return "", false
+}
