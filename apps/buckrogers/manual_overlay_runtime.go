@@ -105,6 +105,12 @@ type RuntimeManualOverlay struct {
 	// established fixed-grid 3× presentation until they explicitly opt in.
 	e1Base *xlate.Font
 	e1Plan *ManualE1Plan
+	// half is the spec 039 §3.2 half font derived from the 16×16 base
+	// (8×16 at 2×, 12×24 at 3×); nil when the derivation failed.
+	half *xlate.Font
+	// groups applies spec 039 §3.3's row-group rule to the text rows when
+	// no watcher style is set (Layer.Frame fingerprints decide validity).
+	groups rowGroupSet
 }
 
 // SetStyle supplies the exact original manual-prefix palette indexes observed
@@ -135,7 +141,8 @@ func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font
 	if scale != 2 && scale != 3 {
 		return nil, fmt.Errorf("buckrogers: 手冊 presenter 倍率必須明示為 2 或 3")
 	}
-	if err := validateManualCatalogFont(layout, catalog, font); err != nil {
+	half := halfFontsOf(font).For(scale)
+	if err := validateManualCatalogFont(layout, catalog, font, half); err != nil {
 		return nil, err
 	}
 	if scale == 3 {
@@ -144,15 +151,22 @@ func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font
 		// its original 16-pixel size. This is an output-only derived font.
 		font = manualThreeXFont(font)
 	}
-	o := &RuntimeManualOverlay{layout: layout, catalog: catalog, font: font, scale: scale}
+	o := &RuntimeManualOverlay{layout: layout, catalog: catalog, font: font, half: half, scale: scale}
 	o.resetLayers()
 	return o, nil
 }
 
-func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, font *xlate.Font) error {
+// validateManualCatalogFont checks every translation before any request can
+// draw.  Spec 039 §3.4: the capacity criterion is "at most 14 rows after the
+// unit layout"; half-width characters need the half font and U+0020／U+3000
+// need no glyph.
+func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, font, half *xlate.Font) error {
 	required := make(map[rune]bool)
 	for _, entry := range catalog.byIdentity {
-		if entry.translation == "" || !utf8.ValidString(entry.translation) || len([]rune(entry.translation)) > layout.capacity {
+		if entry.translation == "" || !utf8.ValidString(entry.translation) {
+			return fmt.Errorf("buckrogers: 手冊 catalog 有無效譯文")
+		}
+		if _, err := manualRows(entry.translation, layout.columns, layout.rows); err != nil {
 			return fmt.Errorf("buckrogers: 手冊 catalog 有無效譯文")
 		}
 		for _, r := range entry.translation {
@@ -167,11 +181,9 @@ func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, fo
 		runes = append(runes, r)
 	}
 	sort.Slice(runes, func(i, j int) bool { return runes[i] < runes[j] })
-	for _, r := range runes {
-		glyph, ok := font.Glyphs[r]
-		if !ok || len(glyph) != 32 {
-			return fmt.Errorf("buckrogers: 手冊字型缺少有效字模 U+%04X", r)
-		}
+	fonts := segmentFonts{Full: font, Half: half}
+	if miss := fonts.missingRunes(runes); len(miss) != 0 {
+		return fmt.Errorf("buckrogers: 手冊字型缺少有效字模 U+%04X", miss[0])
 	}
 	return nil
 }
@@ -191,6 +203,7 @@ func (c *Catalog) containsManualRequest(request DisplayRequest) bool {
 func (o *RuntimeManualOverlay) resetLayers() {
 	o.background = &xlate.Layer{W: 320, H: 200}
 	o.text = &xlate.Layer{W: 320, H: 200}
+	o.groups.reset()
 }
 
 // Apply consumes only the CONFORMED manual presentation lifecycle values.
@@ -228,8 +241,7 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 			return fmt.Errorf("buckrogers: 手冊 request generation 或狀態無效")
 		}
 		if event.Request.EventKey == "" || event.Request.TextKey == "" || event.Request.Translation == "" ||
-			!utf8.ValidString(event.Request.Translation) || len([]rune(event.Request.Translation)) > o.layout.capacity ||
-			!o.catalog.containsManualRequest(event.Request) {
+			!utf8.ValidString(event.Request.Translation) || !o.catalog.containsManualRequest(event.Request) {
 			return fmt.Errorf("buckrogers: 手冊 request 不符合正式 catalog")
 		}
 		var background, text *xlate.Layer
@@ -250,6 +262,10 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 			return err
 		}
 		o.background, o.text, o.e1Plan, o.state = background, text, plan, manualOverlayVisible
+		o.groups.reset()
+		if plan == nil {
+			o.registerRowGroups()
+		}
 		o.actions = append(o.actions, ManualOverlayAction{
 			Generation: event.Generation, EventKey: event.Request.EventKey, TextKey: event.Request.TextKey,
 			TranslationRunes: len([]rune(event.Request.Translation)),
@@ -263,22 +279,69 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 }
 
 func (o *RuntimeManualOverlay) build(event ManualPresentationEvent) (*xlate.Layer, *xlate.Layer, error) {
-	rows, err := manualRows(event.Request.Translation, o.layout.columns, o.layout.rows)
+	text, err := o.textStamps(event.Generation, event.Request.TextKey, event.Request.Translation)
 	if err != nil {
 		return nil, nil, err
 	}
-	background := o.buildBackground()
-	text := &xlate.Layer{W: 320, H: 200}
+	layer := &xlate.Layer{W: 320, H: 200}
+	for _, stamp := range text {
+		layer.Add(stamp)
+	}
+	return o.buildBackground(), layer, nil
+}
+
+// manualRowKey is the original row key of text row `row`.
+func manualRowKey(generation uint64, textKey string, row int) string {
+	return fmt.Sprintf("manual.%d.%s.%02d", generation, textKey, row)
+}
+
+// manualRowUnits is the width of one manual text row in half units.
+func (o *RuntimeManualOverlay) manualRowUnits() int { return 2 * o.layout.columns }
+
+// segmentFonts is how the fixed-grid manual draws its two width classes.
+func (o *RuntimeManualOverlay) segmentFonts() segmentFonts {
+	off := manualGlyphOffset(o.scale)
+	return segmentFonts{Full: o.font, FullX: off, FullY: off, Half: o.half}
+}
+
+// textStamps lays out one translation (spec 039 §3.4): 72 units per row,
+// every row padded to 72 units and split into segments, so each row keeps
+// at least one stamp (an empty row is one segment of 36 U+3000).
+func (o *RuntimeManualOverlay) textStamps(generation uint64, textKey, translation string) ([]*xlate.Stamp, error) {
+	rows, err := manualRows(translation, o.layout.columns, o.layout.rows)
+	if err != nil {
+		return nil, err
+	}
+	fonts := o.segmentFonts()
+	var out []*xlate.Stamp
 	for row := 0; row < o.layout.rows; row++ {
 		y := o.layout.clearY + row*(o.layout.lineHeight+o.layout.gap)
-		text.Add(&xlate.Stamp{
-			Key: fmt.Sprintf("manual.%d.%s.%02d", event.Generation, event.Request.TextKey, row),
-			X:   o.layout.textX, Y: y, Cells: o.layout.columns, CellW: 8, CellH: o.layout.lineHeight,
-			Font: o.font, GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale),
-			Text: []rune(rows[row]), State: xlate.Pending,
-		})
+		padded := padUnits([]rune(rows[row]), o.manualRowUnits())
+		for _, s := range fonts.segmentStamps(manualRowKey(generation, textKey, row), o.layout.textX, y, padded, nil,
+			func(int) ([3]uint8, [3]uint8) { return [3]uint8{}, [3]uint8{} }) {
+			s.CellH, s.State = o.layout.lineHeight, xlate.Pending
+			out = append(out, s)
+		}
 	}
-	return background, text, nil
+	return out, nil
+}
+
+// registerRowGroups makes every text row a spec 039 §3.3 group.
+func (o *RuntimeManualOverlay) registerRowGroups() {
+	counts := map[string]int{}
+	var order []string
+	for _, s := range o.text.Stamps {
+		k := rowKeyOf(s.Key)
+		if counts[k] == 0 {
+			order = append(order, k)
+		}
+		counts[k]++
+	}
+	for _, k := range order {
+		segs := segmentsOf(o.text, k)
+		x0, y0, _, y1 := segs[0].Rect()
+		o.groups.add(k, x0, y0, x0+o.layout.columns*8, y1, counts[k])
+	}
 }
 
 func (o *RuntimeManualOverlay) buildBackground() *xlate.Layer {
@@ -348,7 +411,13 @@ func (o *RuntimeManualOverlay) Frame(indexed []byte, palette [256][3]uint8) {
 	if o.style == nil {
 		rgb := logicalRGB(indexed, palette)
 		o.background.Frame(indexed, rgb)
-		o.text.Frame(indexed, rgb)
+		if o.e1Plan != nil {
+			o.text.Frame(indexed, rgb)
+			return
+		}
+		// Spec 039 §3.3: segments of one row share the row's colours and
+		// fail together.
+		o.groups.frame(o.text, indexed, palette)
 		return
 	}
 	// The proven body rectangle may already be blank when the request completes.
@@ -415,9 +484,9 @@ func (o *RuntimeManualOverlay) ActiveKeys() []string {
 	if o == nil {
 		return nil
 	}
-	keys := make([]string, len(o.text.Stamps))
-	for i, stamp := range o.text.Stamps {
-		keys[i] = stamp.Key
+	keys := dedupRowKeys(o.text.Stamps)
+	if keys == nil {
+		keys = []string{}
 	}
 	return keys
 }
@@ -429,21 +498,27 @@ func (o *RuntimeManualOverlay) Actions() []ManualOverlayAction {
 	return append([]ManualOverlayAction(nil), o.actions...)
 }
 
+// manualRows lays text out row-major in rows of columns cells, that is
+// 2×columns half units (spec 039 §3.4): a full-width character that does not
+// fit moves whole to the next row.  More than `rows` rows is rejected.
 func manualRows(text string, columns, rows int) ([]string, error) {
-	if text == "" || !utf8.ValidString(text) || columns <= 0 || rows <= 0 || len([]rune(text)) > columns*rows {
+	if text == "" || !utf8.ValidString(text) || columns <= 0 || rows <= 0 {
 		return nil, fmt.Errorf("buckrogers: 手冊 row-major 文字無效")
 	}
 	runes := []rune(text)
 	out := make([]string, rows)
-	for row := range out {
-		start, end := row*columns, (row+1)*columns
-		if start >= len(runes) {
-			break
+	row, used, start := 0, 0, 0
+	for i, r := range runes {
+		u := runeUnits(r)
+		if used+u > 2*columns {
+			out[row] = string(runes[start:i])
+			row, used, start = row+1, 0, i
+			if row >= rows {
+				return nil, fmt.Errorf("buckrogers: 手冊 row-major 文字無效")
+			}
 		}
-		if end > len(runes) {
-			end = len(runes)
-		}
-		out[row] = string(runes[start:end])
+		used += u
 	}
+	out[row] = string(runes[start:])
 	return out, nil
 }

@@ -15,7 +15,7 @@ func manualE1SyntheticFonts(text string) (*xlate.Font, *xlate.Font) {
 	for _, r := range text {
 		glyph := make([]byte, 32)
 		if manualE1ASCIIAlnum(r) || manualE1ASCIIConnector(r) || r == '%' || r == '（' || r == '）' || r == '(' || r == ')' {
-			glyph[0] = 0x80
+			glyph[0] = 0x08 // spec 039 §3.2: half-width ink stays in columns 4–11.
 		} else {
 			for i := range glyph {
 				glyph[i] = 0xff

@@ -27,7 +27,7 @@ func (o *RuntimePostJoinMenuOverlay) LayerRects() []PixelRect       { return lay
 // notices on its next frame-hash check.
 func (r *LiveMenuRuntime) ClearRect(rect PixelRect) {
 	for _, scale := range []int{2, 3} {
-		r.presenters[scale].layer.Clear(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
+		r.presenters[scale].clearRect(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
 	}
 }
 

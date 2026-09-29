@@ -122,6 +122,8 @@ type RuntimeMenuOverlay struct {
 	scoped  *scopedMenuFonts
 	scale   int
 	actions []MenuOverlayGeometry
+	// groups applies spec 039 §3.3's row-group rule to the segment stamps.
+	groups rowGroupSet
 }
 
 func NewRuntimeMenuOverlay(rects *MenuOverlayRects, font *xlate.Font, scale int) (*RuntimeMenuOverlay, error) {
@@ -175,9 +177,16 @@ func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, pale
 	if err != nil {
 		return err
 	}
-	stamp := overlay.Layer.Stamps[0]
-	stamp.State = xlate.Pending
-	o.layer.Replace(stamp)
+	// Spec 039 §3.4: clear the whole safe rectangle before adding, so no
+	// segment of an earlier, longer output survives beside the new one.
+	o.layer.Clear(r.x, r.y, r.x+r.width, r.y+r.height)
+	o.groups.reconcile(o.layer, nil)
+	for _, stamp := range overlay.Layer.Stamps {
+		stamp.State = xlate.Pending
+		o.layer.Add(stamp)
+	}
+	o.groups.add(request.EventKey, r.x, r.y, r.x+r.width, r.y+r.height, len(overlay.Layer.Stamps))
+	o.groups.reconcile(o.layer, nil) // checkpoint after Add (§3.3)
 	o.actions = append(o.actions, overlay.Events[0])
 	return nil
 }
@@ -191,7 +200,7 @@ func logicalRGB(indexed []byte, palette [256][3]uint8) []byte {
 }
 
 func (o *RuntimeMenuOverlay) Frame(indexed []byte, palette [256][3]uint8) {
-	o.layer.Frame(indexed, logicalRGB(indexed, palette))
+	o.groups.frame(o.layer, indexed, palette)
 }
 
 // ClearTextCells 套用 026F:029C 已證實的包含端點文字格清除參數。
@@ -199,8 +208,15 @@ func (o *RuntimeMenuOverlay) ClearTextCells(bottom, right, top, left uint8) erro
 	if bottom < top || right < left || bottom >= 25 || right >= 40 {
 		return fmt.Errorf("buckrogers: 清除矩形無效 bottom=%d right=%d top=%d left=%d", bottom, right, top, left)
 	}
-	o.layer.Clear(int(left)*8, int(top)*8, (int(right)+1)*8, (int(bottom)+1)*8)
+	o.clearRect(int(left)*8, int(top)*8, (int(right)+1)*8, (int(bottom)+1)*8)
 	return nil
+}
+
+// clearRect is every Clear entry of the presenter: Layer.Clear followed by
+// the row-group rule (spec 039 §3.3).
+func (o *RuntimeMenuOverlay) clearRect(x0, y0, x1, y1 int) {
+	o.layer.Clear(x0, y0, x1, y1)
+	o.groups.reconcile(o.layer, nil)
 }
 
 func (o *RuntimeMenuOverlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune, bool) {
@@ -233,10 +249,11 @@ func (o *RuntimeMenuOverlay) Actions() []MenuOverlayGeometry {
 	return append([]MenuOverlayGeometry(nil), o.actions...)
 }
 
+// ActiveKeys lists the original row keys once each (spec 039 §3.3).
 func (o *RuntimeMenuOverlay) ActiveKeys() []string {
-	out := make([]string, len(o.layer.Stamps))
-	for i, stamp := range o.layer.Stamps {
-		out[i] = stamp.Key
+	out := dedupRowKeys(o.layer.Stamps)
+	if out == nil {
+		out = []string{}
 	}
 	return out
 }

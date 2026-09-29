@@ -14,6 +14,9 @@ import (
 const (
 	menuThreeXFontName = "buckrogers.menu.eten22.v1"
 	menuBaseFontName   = "buckrogers.menu.eten16.v1"
+	// menuHalfFontName is the spec 039 §3.2 12×24 half font derived from
+	// the SHA-verified 16×16 base.
+	menuHalfFontName   = menuBaseFontName + ".half12x24"
 	menuFontSourceSHA  = "150c93afaa10f1f09f146c9b67ba6fdca35aa5d13d1b6f965cfdedb33a8a5174"
 	menuSealedGroupKey = "buckrogers.menu.scoped.v1"
 )
@@ -69,10 +72,42 @@ func validateScopedMenuFontPair(base, derived *xlate.Font) error {
 	return nil
 }
 
+// validateScopedMenuHalfFont checks the spec 039 §3.4 half font of the
+// scoped runtime: 12×24, named after the base, one glyph per half-width
+// character of the base and byte-equal to the versioned derivation.  It has
+// no 22×22 restriction.
+func validateScopedMenuHalfFont(base, half *xlate.Font) error {
+	if base == nil || half == nil || half.W != 12 || half.H != 24 {
+		return fmt.Errorf("buckrogers: scoped menu requires a 12x24 half font")
+	}
+	expected := DeriveHalfFonts(base)
+	if expected.Err != nil {
+		return expected.Err
+	}
+	if half.Name == "" || half.Name != expected.X3.Name {
+		return fmt.Errorf("buckrogers: scoped menu half font name differs")
+	}
+	if len(expected.X3.Glyphs) != len(half.Glyphs) {
+		return fmt.Errorf("buckrogers: scoped menu half font coverage differs")
+	}
+	for r, glyph := range expected.X3.Glyphs {
+		if got, ok := half.Glyphs[r]; !ok || len(got) != 48 || !bytes.Equal(got, glyph) {
+			return fmt.Errorf("buckrogers: half glyph U+%04X differs from derivation", r)
+		}
+	}
+	return nil
+}
+
 // BuildScopedThreeXMenuOverlay is the opt-in, whole-batch 3x menu builder.
-// The existing 16px BuildMenuOverlay API and all its callers are unchanged.
+// The existing 16px BuildMenuOverlay API and all its callers are unchanged;
+// half-width segments (spec 039) use the 12×24 half font of the same base.
 func BuildScopedThreeXMenuOverlay(entries []MenuOverlayEntry, base, derived *xlate.Font, palette [256][3]uint8, scale int) (*MenuOverlay, error) {
 	if err := validateScopedMenuFontPair(base, derived); err != nil {
+		return nil, err
+	}
+	if h := halfFontsOf(base); h.Err != nil {
+		return nil, h.Err
+	} else if err := validateScopedMenuHalfFont(base, h.X3); err != nil {
 		return nil, err
 	}
 	return buildScopedThreeXMenuOverlayValidated(entries, base, derived, palette, scale)
@@ -96,16 +131,31 @@ func buildScopedThreeXMenuOverlayValidated(entries []MenuOverlayEntry, base, der
 	if err != nil {
 		return nil, err
 	}
-	for i, stamp := range overlay.Layer.Stamps {
-		stamp.Font, stamp.GlyphX, stamp.GlyphY, stamp.GlyphScale = derived, 1, 1, 1
-		ink, err := menuInkRect(stamp, scale)
+	// Spec 039 §3.4: switch fonts per segment.  Full segments take the
+	// 22-point derived font; half segments keep the 12×24 half font that
+	// BuildMenuOverlay derived from the same base pointer.
+	half := halfFontsOf(base).X3
+	byEvent := map[string][]*xlate.Stamp{}
+	for _, stamp := range overlay.Layer.Stamps {
+		if stamp.CellW == halfUnitPx {
+			if half == nil || stamp.Font != half {
+				return nil, fmt.Errorf("buckrogers: %s half segment lacks the 12x24 half font", stamp.Key)
+			}
+		} else {
+			stamp.Font, stamp.GlyphX, stamp.GlyphY, stamp.GlyphScale = derived, 1, 1, 1
+		}
+		k := rowKeyOf(stamp.Key)
+		byEvent[k] = append(byEvent[k], stamp)
+	}
+	for i := range overlay.Events {
+		ink, err := menuInkRectAll(byEvent[overlay.Events[i].EventKey], scale)
 		if err != nil {
-			return nil, fmt.Errorf("buckrogers: %s: %w", stamp.Key, err)
+			return nil, fmt.Errorf("buckrogers: %s: %w", overlay.Events[i].EventKey, err)
 		}
 		clear := overlay.Events[i].ClearRect
 		if ink.Width <= 0 || ink.Height <= 0 || ink.X < clear.X || ink.Y < clear.Y ||
 			ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
-			return nil, fmt.Errorf("buckrogers: %s 22px ink escapes safe rectangle", stamp.Key)
+			return nil, fmt.Errorf("buckrogers: %s 22px ink escapes safe rectangle", overlay.Events[i].EventKey)
 		}
 		overlay.Events[i].InkRect = ink
 	}
@@ -119,6 +169,8 @@ type scopedMenuFonts struct {
 	baseHash    [sha256.Size]byte
 	derivedHash [sha256.Size]byte
 	derived     *xlate.Font
+	halfHash    [sha256.Size]byte
+	half        *xlate.Font
 	registry    map[string]*xlate.Font
 }
 
@@ -150,8 +202,9 @@ func NewScopedMenuRuntimeOverlay(rects *MenuOverlayRects, catalog *MenuCatalog, 
 }
 
 func newScopedMenuRuntimeOverlay(rects *MenuOverlayRects, catalog *MenuCatalog, sourceGOLEMFNT []byte, scale int, expected [sha256.Size]byte) (*RuntimeMenuOverlay, error) {
-	if scale != 2 && scale != 3 {
-		return nil, fmt.Errorf("buckrogers: scoped menu scale must be 2 or 3")
+	// Spec 039 §3.4: the scoped runtime only accepts 3×.
+	if scale != 3 {
+		return nil, fmt.Errorf("buckrogers: scoped menu scale must be 3")
 	}
 	if err := validateScopedMenuCatalog(catalog, rects); err != nil {
 		return nil, err
@@ -181,13 +234,25 @@ func newScopedMenuRuntimeOverlay(rects *MenuOverlayRects, catalog *MenuCatalog, 
 	if err != nil {
 		return nil, err
 	}
+	halves := halfFontsOf(base)
+	if halves.Err != nil {
+		return nil, halves.Err
+	}
+	half := halves.X3
+	if err := validateScopedMenuHalfFont(base, half); err != nil {
+		return nil, err
+	}
+	halfHash, err := presentation.FontFingerprint(half)
+	if err != nil {
+		return nil, err
+	}
 	overlay, err := NewRuntimeMenuOverlay(rects, base, scale)
 	if err != nil {
 		return nil, err
 	}
 	overlay.scoped = &scopedMenuFonts{catalog: catalog, source: source, sourceHash: expected,
-		baseHash: baseHash, derivedHash: derivedHash, derived: derived,
-		registry: map[string]*xlate.Font{menuBaseFontName: base, menuThreeXFontName: derived}}
+		baseHash: baseHash, derivedHash: derivedHash, derived: derived, halfHash: halfHash, half: half,
+		registry: map[string]*xlate.Font{menuBaseFontName: base, menuThreeXFontName: derived, menuHalfFontName: half}}
 	return overlay, nil
 }
 
@@ -230,10 +295,11 @@ func decodeScopedMenuFont(data []byte) (*xlate.Font, error) {
 }
 
 func (o *RuntimeMenuOverlay) validateScopedMenuFonts() error {
-	if o == nil || o.scoped == nil || o.font == nil || o.scoped.derived == nil ||
-		o.font.Name != menuBaseFontName || o.scoped.derived.Name != menuThreeXFontName ||
-		len(o.scoped.registry) != 2 ||
+	if o == nil || o.scoped == nil || o.font == nil || o.scoped.derived == nil || o.scoped.half == nil ||
+		o.font.Name != menuBaseFontName || o.scoped.derived.Name != menuThreeXFontName || o.scoped.half.Name != menuHalfFontName ||
+		len(o.scoped.registry) != 3 ||
 		o.scoped.registry[menuBaseFontName] != o.font || o.scoped.registry[menuThreeXFontName] != o.scoped.derived ||
+		o.scoped.registry[menuHalfFontName] != o.scoped.half || halfFontsOf(o.font).X3 != o.scoped.half ||
 		sha256.Sum256(o.scoped.source) != o.scoped.sourceHash {
 		return fmt.Errorf("buckrogers: scoped menu source or registry changed")
 	}
@@ -244,6 +310,10 @@ func (o *RuntimeMenuOverlay) validateScopedMenuFonts() error {
 	derivedHash, err := presentation.FontFingerprint(o.scoped.derived)
 	if err != nil || derivedHash != o.scoped.derivedHash {
 		return fmt.Errorf("buckrogers: scoped menu derived font fingerprint changed")
+	}
+	halfHash, err := presentation.FontFingerprint(o.scoped.half)
+	if err != nil || halfHash != o.scoped.halfHash {
+		return fmt.Errorf("buckrogers: scoped menu half font fingerprint changed")
 	}
 	return nil
 }
@@ -267,11 +337,24 @@ func (o *RuntimeMenuOverlay) sealScopedMenuLayer(layer *xlate.Layer) error {
 		if stamp == nil || stamp.Font == nil {
 			return fmt.Errorf("buckrogers: scoped menu has nil stamp or font")
 		}
-		want := o.font
-		if o.scale == 3 && scopedThreeXMenuKeys[stamp.Key] {
-			want = o.scoped.derived
-		} else if !scopedRaceMenuKeys[stamp.Key] && !scopedThreeXMenuKeys[stamp.Key] {
+		// Spec 039 §3.3: key checks use the original row key.
+		key := rowKeyOf(stamp.Key)
+		if !scopedRaceMenuKeys[key] && !scopedThreeXMenuKeys[key] {
 			return fmt.Errorf("buckrogers: scoped menu has unknown active key %q", stamp.Key)
+		}
+		// Full segments use the 22-point font on the ten scoped keys (the
+		// base otherwise); half segments always use the half font.
+		var want *xlate.Font
+		switch stamp.CellW {
+		case 8:
+			want = o.font
+			if o.scale == 3 && scopedThreeXMenuKeys[key] {
+				want = o.scoped.derived
+			}
+		case halfUnitPx:
+			want = o.scoped.half
+		default:
+			return fmt.Errorf("buckrogers: scoped menu stamp %q has cell width %d", stamp.Key, stamp.CellW)
 		}
 		if stamp.Font != want {
 			return fmt.Errorf("buckrogers: scoped menu stamp %q uses wrong font", stamp.Key)
@@ -280,7 +363,7 @@ func (o *RuntimeMenuOverlay) sealScopedMenuLayer(layer *xlate.Layer) error {
 	return presentation.WithSealedOrderedLayers(menuSealedGroupKey, 1, 1,
 		[]presentation.ActiveLayerSlot{{Name: "menu", Z: 1, Layer: layer}}, o.scoped.registry,
 		func(group *presentation.SealedLayerGroup) error {
-			for name, want := range map[string][sha256.Size]byte{menuBaseFontName: o.scoped.baseHash, menuThreeXFontName: o.scoped.derivedHash} {
+			for name, want := range map[string][sha256.Size]byte{menuBaseFontName: o.scoped.baseHash, menuThreeXFontName: o.scoped.derivedHash, menuHalfFontName: o.scoped.halfHash} {
 				got, ok := group.FontHash(name)
 				if !ok || got != want {
 					return fmt.Errorf("buckrogers: sealed menu font %q fingerprint changed", name)
@@ -314,5 +397,6 @@ func (o *RuntimeMenuOverlay) RestoreScopedLayer(data []byte) error {
 		return err
 	}
 	o.layer = restored
+	o.groups.rebuild(restored)
 	return nil
 }

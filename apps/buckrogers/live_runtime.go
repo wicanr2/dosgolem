@@ -113,11 +113,11 @@ type LiveRuntime struct {
 // LoadLiveRuntime builds every live family from a Buck Rogers text directory
 // and a local 16×16 GOLEMFNT.
 func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
-	menu, err := LoadLiveMenuRuntime(textDir, fontPath)
+	font, err := xlate.LoadFont(fontPath)
 	if err != nil {
 		return nil, err
 	}
-	font, err := xlate.LoadFont(fontPath)
+	menu, err := loadLiveMenuRuntimeFont(textDir, font)
 	if err != nil {
 		return nil, err
 	}
@@ -1287,7 +1287,8 @@ func (r *LiveRuntime) SetManualEnglish(path string) error {
 		r.manEngOff = "panel"
 		return nil
 	}
-	fonts := []*xlate.Font{r.manPres[0].font, r.manPres[1].font}
+	// Spec 039: half-width characters are drawn with each scale's half font.
+	fonts := []*xlate.Font{r.manPres[0].font, r.manPres[1].font, r.manPres[0].half, r.manPres[1].half}
 	m, err := LoadManualEnglish(data, r.manCatalog, panel, fonts)
 	if err != nil {
 		r.manEngOff = strings.TrimPrefix(err.Error(), "manual-english: ")

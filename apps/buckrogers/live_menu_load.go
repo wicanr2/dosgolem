@@ -28,6 +28,17 @@ var liveMenuSources = []struct {
 // LoadLiveMenuRuntime builds the menu family from a Buck Rogers text
 // directory and a local 16×16 GOLEMFNT.  Every formal file must be present.
 func LoadLiveMenuRuntime(textDir, fontPath string) (*LiveMenuRuntime, error) {
+	font, err := xlate.LoadFont(fontPath)
+	if err != nil {
+		return nil, err
+	}
+	return loadLiveMenuRuntimeFont(textDir, font)
+}
+
+// loadLiveMenuRuntimeFont is LoadLiveMenuRuntime with an already loaded
+// font, so the live runtime can share one font pointer, and with it one
+// half-font derivation, across every family (spec 039 §3.3).
+func loadLiveMenuRuntimeFont(textDir string, font *xlate.Font) (*LiveMenuRuntime, error) {
 	read := func(name string) ([]byte, error) {
 		b, err := os.ReadFile(filepath.Join(textDir, name))
 		if err != nil {
@@ -71,10 +82,6 @@ func LoadLiveMenuRuntime(textDir, fontPath string) (*LiveMenuRuntime, error) {
 		return nil, err
 	}
 	merged, err := MergeMenuOverlayRects(rects...)
-	if err != nil {
-		return nil, err
-	}
-	font, err := xlate.LoadFont(fontPath)
 	if err != nil {
 		return nil, err
 	}

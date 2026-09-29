@@ -142,7 +142,9 @@ func TestManualSnapshotOwnerTwoXGoldenBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", ticket.layersHash); got != "ac0039f0c06a31aeb212c6f7128f5cb5d3eca732d1c7ff6d3f9d1c88c8c78b45" {
+	// Spec 039: segment keys ("#0") and U+3000 padding change the layer
+	// Snapshot bytes; the RGBA below is unchanged.
+	if got := fmt.Sprintf("%x", ticket.layersHash); got != "793ce48925b70627382a485843a9552c80244e7b744dcb35370f1405b77b130e" {
 		t.Fatalf("2× layer Snapshot bytes changed: %s", got)
 	}
 	if got := fmt.Sprintf("%x", sha256.Sum256(shot.RGBA)); got != "0f53dae055734ba39d6677dedfda25d4d23c061c8c21c60b933f54256f108b6a" {

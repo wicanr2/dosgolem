@@ -1,6 +1,7 @@
 package buckrogers
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -53,6 +54,10 @@ func BuildMenuOverlay(entries []MenuOverlayEntry, font *xlate.Font, palette [256
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("buckrogers: 功能選單覆繪不得是空批次")
 	}
+	// Spec 039 §3.2: half-width characters use the session's half font
+	// derived from this 16×16 base (nil when the derivation failed; every
+	// half character is then missing).
+	half := halfFontsOf(font).For(scale)
 
 	layer := &xlate.Layer{W: 320, H: 200}
 	events := make([]MenuOverlayGeometry, 0, len(entries))
@@ -74,28 +79,20 @@ func BuildMenuOverlay(entries []MenuOverlayEntry, font *xlate.Font, palette [256
 		prefix := (entry.DrawX - entry.X) / 8
 		cells := entry.Width / 8
 		translation := []rune(entry.Translation)
-		if entry.Capacity < 0 || cells-prefix != entry.Capacity || prefix+len(translation) > cells {
+		// Spec 039 §3.1: capacity is counted in half units (two per cell).
+		if entry.Capacity < 0 || cells-prefix != entry.Capacity || 2*prefix+textUnits(translation) > 2*cells {
 			return nil, fmt.Errorf("buckrogers: %s 容量不符", entry.EventKey)
 		}
-		for _, r := range translation {
-			glyph, ok := font.Glyphs[r]
-			if !ok || len(glyph) != 32 {
-				return nil, fmt.Errorf("buckrogers: %s 缺少有效字模 U+%04X", entry.EventKey, r)
-			}
+		fonts := menuSegmentFonts(font, half, scale)
+		if miss := fonts.missingRunes(translation); len(miss) != 0 {
+			return nil, fmt.Errorf("buckrogers: %s 缺少有效字模 U+%04X", entry.EventKey, miss[0])
 		}
-
-		offset := (8*scale - 16) / 2
-		if offset < 0 {
-			offset = 0
-		}
-		stamp := &xlate.Stamp{
-			Key: entry.EventKey, X: entry.X, Y: entry.Y, Cells: cells, CellW: 8, CellH: 8,
-			Font: font, GlyphX: offset, GlyphY: offset,
-			Text:  append([]rune(strings.Repeat("　", prefix)), translation...),
-			State: xlate.Shown, BG: palette[entry.Background], FG: palette[entry.Foreground],
-		}
+		text := padUnits(append([]rune(strings.Repeat("　", prefix)), translation...), 2*cells)
+		bg, fg := palette[entry.Background], palette[entry.Foreground]
+		stamps := fonts.segmentStamps(entry.EventKey, entry.X, entry.Y, text, nil,
+			func(int) ([3]uint8, [3]uint8) { return bg, fg })
 		clear := PixelRect{entry.X * scale, entry.Y * scale, entry.Width * scale, entry.Height * scale}
-		ink, err := menuInkRect(stamp, scale)
+		ink, err := menuInkRectAll(stamps, scale)
 		if err != nil {
 			return nil, fmt.Errorf("buckrogers: %s: %w", entry.EventKey, err)
 		}
@@ -115,11 +112,57 @@ func BuildMenuOverlay(entries []MenuOverlayEntry, font *xlate.Font, palette [256
 				return nil, fmt.Errorf("buckrogers: %s 的安全矩形與 %s 重疊", entry.EventKey, prior.EventKey)
 			}
 		}
-		layer.Add(stamp)
+		for _, stamp := range stamps {
+			layer.Add(stamp)
+		}
 		events = append(events, geometry)
 	}
 	return &MenuOverlay{Layer: layer, Events: events}, nil
 }
+
+// menuGlyphOffset is the legacy full-cell glyph offset of the menu family.
+func menuGlyphOffset(scale int) int {
+	offset := (8*scale - 16) / 2
+	if offset < 0 {
+		offset = 0
+	}
+	return offset
+}
+
+// menuSegmentFonts is how the menu family draws its two width classes
+// (spec 039 §3.3): full cells keep the legacy offset and GlyphScale 0.
+func menuSegmentFonts(font, half *xlate.Font, scale int) segmentFonts {
+	off := menuGlyphOffset(scale)
+	return segmentFonts{Full: font, FullX: off, FullY: off, Half: half}
+}
+
+// menuInkRectAll is menuInkRect over the segments of one row.
+func menuInkRectAll(stamps []*xlate.Stamp, scale int) (PixelRect, error) {
+	var out PixelRect
+	found := false
+	for _, s := range stamps {
+		ink, err := menuInkRect(s, scale)
+		if err != nil {
+			if err == errNoInk {
+				continue
+			}
+			return PixelRect{}, err
+		}
+		if !found {
+			out, found = ink, true
+			continue
+		}
+		x1, y1 := max(out.X+out.Width, ink.X+ink.Width), max(out.Y+out.Height, ink.Y+ink.Height)
+		out.X, out.Y = min(out.X, ink.X), min(out.Y, ink.Y)
+		out.Width, out.Height = x1-out.X, y1-out.Y
+	}
+	if !found {
+		return PixelRect{}, errNoInk
+	}
+	return out, nil
+}
+
+var errNoInk = errors.New("譯文沒有可見字模墨跡")
 
 func menuInkRect(stamp *xlate.Stamp, scale int) (PixelRect, error) {
 	k := stamp.GlyphScale
@@ -163,7 +206,7 @@ func menuInkRect(stamp *xlate.Stamp, scale int) (PixelRect, error) {
 		}
 	}
 	if maxX < minX || maxY < minY {
-		return PixelRect{}, fmt.Errorf("譯文沒有可見字模墨跡")
+		return PixelRect{}, errNoInk
 	}
 	return PixelRect{minX, minY, maxX - minX, maxY - minY}, nil
 }

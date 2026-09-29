@@ -69,6 +69,9 @@ func scopedSyntheticGOLEMFNT() []byte {
 		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(r))
 		for j := 0; j < 32; j++ {
 			data[offset+5+j] = 0xff
+			if r < 0x80 { // spec 039 §3.2: half-width ink stays in columns 4–11.
+				data[offset+5+j] = [2]byte{0x0f, 0xf0}[j%2]
+			}
 		}
 	}
 	return data
@@ -323,7 +326,11 @@ func TestScopedMenuRuntimeFormalLocalCatalogIfAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scale := range []int{2, 3} {
+	// Spec 039 §3.4: the scoped runtime only accepts 3×.
+	if _, err := NewScopedMenuRuntimeOverlay(rects, catalog, inputs[3], 2); err == nil {
+		t.Fatal("scoped runtime accepted 2x")
+	}
+	for _, scale := range []int{3} {
 		o, err := NewScopedMenuRuntimeOverlay(rects, catalog, inputs[3], scale)
 		if err != nil {
 			t.Fatal(err)
@@ -341,22 +348,23 @@ func TestScopedMenuRuntimeFormalLocalCatalogIfAvailable(t *testing.T) {
 			if err := o.Apply(event, request, [256][3]uint8{}); err != nil {
 				t.Fatalf("%dx %s: %v", scale, entry.eventKey, err)
 			}
-			var active *xlate.Stamp
+			var segs []*xlate.Stamp
 			for _, stamp := range o.layer.Stamps {
-				if stamp.Key == entry.eventKey {
-					active = stamp
-					break
+				if rowKeyOf(stamp.Key) == entry.eventKey {
+					segs = append(segs, stamp)
 				}
 			}
-			if active == nil {
+			if len(segs) == 0 {
 				t.Fatalf("%dx %s missing stamp", scale, entry.eventKey)
 			}
 			want := o.font
 			if scale == 3 && scopedThreeXMenuKeys[entry.eventKey] {
 				want, enlarged = o.scoped.derived, enlarged+1
 			}
-			if active.Font != want {
-				t.Fatalf("%dx %s routed to wrong font", scale, entry.eventKey)
+			for _, seg := range segs {
+				if seg.CellW == halfUnitPx && seg.Font != o.scoped.half || seg.CellW == 8 && seg.Font != want {
+					t.Fatalf("%dx %s routed to wrong font", scale, entry.eventKey)
+				}
 			}
 			count++
 		}

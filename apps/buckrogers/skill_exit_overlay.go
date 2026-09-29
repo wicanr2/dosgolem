@@ -11,6 +11,7 @@ import (
 type RuntimeSkillExitOverlay struct {
 	layer  *xlate.Layer
 	font   *xlate.Font
+	half   *xlate.Font // spec 039 §3.2; nil when the derivation failed
 	scale  int
 	active *SkillExitGeneration
 }
@@ -19,7 +20,8 @@ func NewRuntimeSkillExitOverlay(font *xlate.Font, scale int) (*RuntimeSkillExitO
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) {
 		return nil, fmt.Errorf("skill-exit presenter inputs invalid")
 	}
-	return &RuntimeSkillExitOverlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, scale: scale}, nil
+	return &RuntimeSkillExitOverlay{layer: &xlate.Layer{W: 320, H: 200}, font: font,
+		half: halfFontsOf(font).For(scale), scale: scale}, nil
 }
 func (o *RuntimeSkillExitOverlay) Apply(g SkillExitGeneration, p [256][3]uint8) error {
 	if o == nil || g.Generation == 0 || g.Translation == "" {
@@ -32,25 +34,29 @@ func (o *RuntimeSkillExitOverlay) Apply(g SkillExitGeneration, p [256][3]uint8) 
 	if g.Page == SkillExitTechnical {
 		width = 272
 	}
-	if len([]rune(g.Translation)) > width/8 {
+	// Spec 039 §3.1: capacity in half units, two per original cell.
+	translation := []rune(g.Translation)
+	if textUnits(translation) > 2*(width/8) {
 		o.Clear()
 		return fmt.Errorf("skill-exit translation exceeds body")
 	}
-	for _, r := range g.Translation {
-		if glyph, ok := o.font.Glyphs[r]; !ok || len(glyph) != 32 {
-			o.Clear()
-			return fmt.Errorf("skill-exit missing glyph U+%04X", r)
-		}
+	fonts := segmentFonts{Full: o.font, FullX: manualGlyphOffset(o.scale), FullY: manualGlyphOffset(o.scale), Half: o.half}
+	if miss := fonts.missingRunes(translation); len(miss) != 0 {
+		o.Clear()
+		return fmt.Errorf("skill-exit missing glyph U+%04X", miss[0])
 	}
-	stamp := &xlate.Stamp{Key: g.EventKey, X: 0, Y: 192, Cells: width / 8, CellW: 8, CellH: 8, Font: o.font, GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale), Text: []rune(g.Translation), State: xlate.Shown, BG: p[0], FG: p[13]}
-	ink, err := menuInkRect(stamp, o.scale)
+	stamps := fonts.segmentStamps(g.EventKey, 0, 192, padUnits(translation, 2*(width/8)), nil,
+		func(int) ([3]uint8, [3]uint8) { return p[0], p[13] })
+	ink, err := menuInkRectAll(stamps, o.scale)
 	clear := PixelRect{0, 192 * o.scale, width * o.scale, 8 * o.scale}
 	if err != nil || ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
 		o.Clear()
 		return fmt.Errorf("skill-exit ink outside body")
 	}
 	o.layer = &xlate.Layer{W: 320, H: 200}
-	o.layer.Add(stamp)
+	for _, stamp := range stamps {
+		o.layer.Add(stamp)
+	}
 	o.active = &g
 	return nil
 }

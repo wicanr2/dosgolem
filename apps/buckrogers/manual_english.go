@@ -53,8 +53,11 @@ func manualEnglishTemplates(data []byte) (long, short string, err error) {
 }
 
 // manualEnglishLayout places the keyword row(s) below a paragraph of k rows
-// (spec 034 §3.4). It returns false when even the short form does not fit.
+// (spec 034 §3.4).  Spec 039 §3.4: widths are half units, 72 per row; words
+// are separated by one half-width space and each bracket of 「WORD」 takes
+// two units.  It returns false when even the short form does not fit.
 func manualEnglishLayout(k int, words []string, long, short string) ([]manualEnglishRow, bool) {
+	const width = 2 * manualEnglishColumns
 	n := len(words)
 	last := "「" + words[n-1] + "」"
 	first := k + 1
@@ -64,10 +67,10 @@ func manualEnglishLayout(k int, words []string, long, short string) ([]manualEng
 	units := append(append([]string{}, words[:n-1]...), last)
 	var lines [][]rune
 	cur := []rune(strings.Replace(long, "{0}", strconv.Itoa(n), 1))
-	fits := len(cur) <= manualEnglishColumns
+	fits := textUnits(cur) <= width
 	for _, u := range units {
 		ur := []rune(u)
-		if len(ur) > manualEnglishColumns {
+		if textUnits(ur) > width {
 			fits = false
 			break
 		}
@@ -75,7 +78,7 @@ func manualEnglishLayout(k int, words []string, long, short string) ([]manualEng
 		if len(cur) == 0 {
 			gap = 0
 		}
-		if len(cur)+gap+len(ur) > manualEnglishColumns {
+		if textUnits(cur)+gap+textUnits(ur) > width {
 			lines = append(lines, cur)
 			cur, gap = nil, 0
 		}
@@ -93,10 +96,34 @@ func manualEnglishLayout(k int, words []string, long, short string) ([]manualEng
 		return out, true
 	}
 	s := []rune(strings.Replace(short, "{0}", strconv.Itoa(n), 1) + last)
-	if len(s) > manualEnglishColumns {
+	if textUnits(s) > width {
 		return nil, false
 	}
 	return []manualEnglishRow{{row: first, text: s}}, true
+}
+
+// manualEnglishCovered reports whether fonts draw every rune of plan.
+// U+0020／U+3000 need no glyph.  A font narrower than 16 pixels is a spec
+// 039 half font and is checked against half-width runes only; the others
+// are checked against every rune.
+func manualEnglishCovered(plan []manualEnglishRow, fonts []*xlate.Font) bool {
+	for _, f := range fonts {
+		if f == nil {
+			return false
+		}
+		halfOnly := f.W < 16
+		for _, pr := range plan {
+			for _, ch := range pr.text {
+				if isBlankRune(ch) || halfOnly && !isHalfwidth(ch) {
+					continue
+				}
+				if _, ok := f.Glyphs[ch]; !ok {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 func printableASCII(s string) bool {
@@ -186,17 +213,7 @@ func LoadManualEnglish(data []byte, catalog *Catalog, panel []byte, fonts []*xla
 			m.Excluded[key] = "layout"
 			continue
 		}
-		covered := true
-		for _, f := range fonts {
-			for _, pr := range plan {
-				for _, ch := range pr.text {
-					if _, ok := f.Glyphs[ch]; !ok && ch != ' ' {
-						covered = false
-					}
-				}
-			}
-		}
-		if !covered {
+		if !manualEnglishCovered(plan, fonts) {
 			m.Excluded[key] = "font"
 			continue
 		}
@@ -231,18 +248,16 @@ func (p *manualEnglishPresenter) sync(m *ManualEnglish, man *RuntimeManualOverla
 	if p.layer == nil || gen != p.gen || key != p.key {
 		p.layer, p.gen, p.key = &xlate.Layer{W: 320, H: 200}, gen, key
 		lay := man.layout
+		fonts := man.segmentFonts()
 		for i, r := range plan {
-			text := make([]rune, lay.columns)
-			for j := range text {
-				text[j] = ' '
+			// Spec 039 §3.3: pad to 72 units and draw as segments.
+			text := padUnits(r.text, 2*lay.columns)
+			for _, s := range fonts.segmentStamps(fmt.Sprintf("manual.english.%d.%d", gen, i), lay.textX,
+				lay.clearY+r.row*(lay.lineHeight+lay.gap), text, nil,
+				func(int) ([3]uint8, [3]uint8) { return [3]uint8{}, [3]uint8{} }) {
+				s.CellH = lay.lineHeight
+				p.layer.Add(s)
 			}
-			copy(text, r.text)
-			p.layer.Add(&xlate.Stamp{
-				Key: fmt.Sprintf("manual.english.%d.%d", gen, i),
-				X:   lay.textX, Y: lay.clearY + r.row*(lay.lineHeight+lay.gap), Cells: lay.columns, CellW: 8, CellH: lay.lineHeight,
-				Font: man.font, GlyphX: manualGlyphOffset(man.scale), GlyphY: manualGlyphOffset(man.scale),
-				Text: text, State: xlate.Shown,
-			})
 		}
 	}
 	for _, s := range p.layer.Stamps {

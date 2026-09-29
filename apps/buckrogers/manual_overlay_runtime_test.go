@@ -25,6 +25,9 @@ func manualOverlayFont(catalog *Catalog) *xlate.Font {
 	for _, entry := range catalog.byIdentity {
 		for _, r := range entry.translation {
 			glyphs[r] = append([]byte(nil), glyph...)
+			if isHalfwidth(r) { // spec 039 §3.2: half-width ink stays in columns 4–11.
+				glyphs[r] = bytes.Repeat([]byte{0x0f, 0xf0}, 16)
+			}
 		}
 	}
 	return &xlate.Font{W: 16, H: 16, Glyphs: glyphs}

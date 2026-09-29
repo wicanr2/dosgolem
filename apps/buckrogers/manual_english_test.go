@@ -98,8 +98,8 @@ func TestManualEnglishLayout(t *testing.T) {
 		t.Fatalf("wrap: %+v", rows)
 	}
 	for _, r := range rows {
-		if len(r.text) > 36 {
-			t.Fatalf("row too wide: %d", len(r.text))
+		if textUnits(r.text) > 72 {
+			t.Fatalf("row too wide: %d units", textUnits(r.text))
 		}
 	}
 	if last := string(rows[len(rows)-1].text); !strings.HasSuffix(last, "「FFFFFFFF」") {
@@ -131,8 +131,13 @@ func TestManualEnglishFollowsVisibleRequest(t *testing.T) {
 		t.Fatal("drew without style")
 	}
 	man.style = &ManualTextStyle{Background: 0, Foreground: 10}
-	if !p.sync(m, man, pal) || len(p.layer.Stamps) != 1 || p.layer.Stamps[0].Y != 72+8*2 {
+	if !p.sync(m, man, pal) || len(dedupRowKeys(p.layer.Stamps)) != 1 {
 		t.Fatalf("visible: %+v", p.layer)
+	}
+	for _, s := range p.layer.Stamps {
+		if s.Y != 72+8*2 {
+			t.Fatalf("visible row y=%d", s.Y)
+		}
 	}
 	for _, s := range p.layer.Stamps {
 		if strings.Contains(s.Key, "CC") || strings.Contains(s.Key, "Aa") {

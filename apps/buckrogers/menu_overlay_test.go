@@ -46,7 +46,8 @@ func TestBuildMenuOverlayTwoAndThreeScale(t *testing.T) {
 			event.DrawAnchorX != 24*scale || !event.Contained {
 			t.Fatalf("幾何不符：%#v", event)
 		}
-		if string(stamp.Text[:2]) != "　　" || string(stamp.Text[2:]) != "地球" {
+		// Spec 039 §3.1: the row is padded with U+3000 to the full rectangle.
+		if string(stamp.Text[:2]) != "　　" || string(stamp.Text[2:4]) != "地球" || string(stamp.Text[4:]) != "　　　　" {
 			t.Fatalf("prefix／譯文不符：%q", string(stamp.Text))
 		}
 		buf := make([]byte, 320*scale*200*scale*4)

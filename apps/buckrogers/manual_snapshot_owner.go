@@ -36,6 +36,10 @@ type ManualSnapshotOwner struct {
 	base     *xlate.Font
 	fontHash [sha256.Size]byte
 	baseHash [sha256.Size]byte
+	// half is the spec 039 §3.2 8×16 half font of the 2× owner, registered
+	// beside the base font (nil for the 3× E1 owner).
+	half     *xlate.Font
+	halfHash [sha256.Size]byte
 	e1       bool
 	epoch    uint64
 	active   bool
@@ -83,11 +87,22 @@ func NewManualSnapshotOwner(layout *ManualOverlayLayout, catalog *Catalog, verif
 	if scale == 3 {
 		overlay.e1Base = base
 	}
+	owner := &ManualSnapshotOwner{base: base, fontHash: fingerprint, baseHash: baseFingerprint, e1: scale == 3, epoch: 1, active: true}
+	if scale == 2 {
+		if overlay.half == nil || overlay.half.Name == "" || overlay.half.Name == overlay.font.Name {
+			return nil, fmt.Errorf("buckrogers: manual owner requires a named 8x16 half font")
+		}
+		if owner.halfHash, err = presentation.FontFingerprint(overlay.half); err != nil {
+			return nil, err
+		}
+		owner.half = overlay.half
+	}
 	consumer, err := NewManualPresentationConsumer(overlay)
 	if err != nil {
 		return nil, err
 	}
-	return &ManualSnapshotOwner{overlay: overlay, consumer: consumer, base: base, fontHash: fingerprint, baseHash: baseFingerprint, e1: scale == 3, epoch: 1, active: true}, nil
+	owner.overlay, owner.consumer = overlay, consumer
+	return owner, nil
 }
 
 // SetStyle passes through only the original watcher-observed palette indexes.
@@ -153,7 +168,7 @@ func (o *ManualSnapshotOwner) validateSourceLayers() error {
 		o.overlay.background.W != 320 || o.overlay.background.H != 200 || o.overlay.text.W != 320 || o.overlay.text.H != 200 {
 		return fmt.Errorf("buckrogers: manual group is not visible and complete")
 	}
-	if len(o.overlay.background.Stamps) != o.overlay.layout.rows || len(o.overlay.text.Stamps) != o.overlay.layout.rows {
+	if len(o.overlay.background.Stamps) != o.overlay.layout.rows || len(o.overlay.text.Stamps) < o.overlay.layout.rows {
 		return fmt.Errorf("buckrogers: manual group requires all fourteen rows")
 	}
 	if len(o.overlay.actions) == 0 {
@@ -177,31 +192,68 @@ func (o *ManualSnapshotOwner) validateSourceLayers() error {
 	if o.e1 {
 		return o.validateE1SourceLayers(action, translation)
 	}
-	rows, err := manualRows(translation, o.overlay.layout.columns, o.overlay.layout.rows)
+	// Spec 039 §3.4: every row is one or more segments.  Per row key the
+	// segments' units sum to 72, CellW is 4 or 8 and the font belongs to
+	// the registry (base or half); the whole text layer must equal the
+	// deterministic layout of the accepted translation.
+	expected, err := o.overlay.textStamps(action.Generation, action.TextKey, translation)
 	if err != nil {
 		return err
 	}
+	if len(expected) != len(o.overlay.text.Stamps) {
+		return fmt.Errorf("buckrogers: manual segment count changed")
+	}
+	units := map[string]int{}
+	for i, text := range o.overlay.text.Stamps {
+		want := expected[i]
+		if text == nil {
+			return fmt.Errorf("buckrogers: nil manual source stamp before Snapshot")
+		}
+		if text.CellW != 4 && text.CellW != 8 || text.Font == nil || text.Font.Name == "" ||
+			!(text.Font == o.overlay.font || o.half != nil && text.Font == o.half) {
+			return fmt.Errorf("buckrogers: manual segment %d cell width or font outside registry", i)
+		}
+		if text.Key != want.Key || string(text.Text) != string(want.Text) || text.Owner != "" || len(text.Transparent) != 0 ||
+			text.SwapColors || text.GlyphScale != want.GlyphScale || text.X != want.X || text.Y != want.Y ||
+			text.Cells != want.Cells || text.CellW != want.CellW || text.CellH != o.overlay.layout.lineHeight ||
+			text.Font != want.Font || text.GlyphX != want.GlyphX || text.GlyphY != want.GlyphY {
+			return fmt.Errorf("buckrogers: manual segment %d geometry or font changed", i)
+		}
+		u := text.Cells
+		if text.CellW == 8 {
+			u *= 2
+		}
+		units[rowKeyOf(text.Key)] += u
+	}
 	for row := 0; row < o.overlay.layout.rows; row++ {
-		background, text := o.overlay.background.Stamps[row], o.overlay.text.Stamps[row]
-		if background == nil || text == nil {
+		background := o.overlay.background.Stamps[row]
+		if background == nil {
 			return fmt.Errorf("buckrogers: nil manual source stamp before Snapshot")
 		}
 		y := o.overlay.layout.clearY + row*(o.overlay.layout.lineHeight+o.overlay.layout.gap)
 		if background.Key != fmt.Sprintf("manual.background.%d", row) || background.X != o.overlay.layout.clearX || background.Y != y ||
 			background.Cells != 1 || background.CellW != o.overlay.layout.clearWidth || background.CellH != o.overlay.layout.lineHeight ||
 			background.Font != nil || len(background.Text) != 0 || background.Owner != "" || len(background.Transparent) != 0 ||
-			background.SwapColors || background.GlyphX != 0 || background.GlyphY != 0 || background.GlyphScale != 0 ||
-			text.Key != fmt.Sprintf("manual.%d.%s.%02d", action.Generation, action.TextKey, row) ||
-			string(text.Text) != rows[row] || text.Owner != "" || len(text.Transparent) != 0 || text.SwapColors || text.GlyphScale != 0 ||
-			text.X != o.overlay.layout.textX || text.Y != y || text.Cells != o.overlay.layout.columns || text.CellW != 8 ||
-			text.CellH != o.overlay.layout.lineHeight || text.Font == nil || text.Font != o.overlay.font || text.Font.Name == "" ||
-			text.GlyphX != manualGlyphOffset(o.overlay.scale) || text.GlyphY != manualGlyphOffset(o.overlay.scale) {
+			background.SwapColors || background.GlyphX != 0 || background.GlyphY != 0 || background.GlyphScale != 0 {
 			return fmt.Errorf("buckrogers: manual row %d geometry or font changed", row)
 		}
+		if units[manualRowKey(action.Generation, action.TextKey, row)] != o.overlay.manualRowUnits() {
+			return fmt.Errorf("buckrogers: manual row %d units differ from 72", row)
+		}
+	}
+	if len(units) != o.overlay.layout.rows {
+		return fmt.Errorf("buckrogers: manual row keys changed")
 	}
 	fingerprint, err := presentation.FontFingerprint(o.overlay.font)
 	if err != nil || fingerprint != o.fontHash {
 		return fmt.Errorf("buckrogers: manual font differs from session identity")
+	}
+	if o.half == nil || o.overlay.half != o.half {
+		return fmt.Errorf("buckrogers: manual half font differs from session identity")
+	}
+	halfHash, err := presentation.FontFingerprint(o.half)
+	if err != nil || halfHash != o.halfHash {
+		return fmt.Errorf("buckrogers: manual half font differs from session identity")
 	}
 	return nil
 }
@@ -361,6 +413,8 @@ func (o *ManualSnapshotOwner) snapshot(ticket ManualFrameTicket, scale int) (pre
 	fonts := map[string]*xlate.Font{o.overlay.font.Name: o.overlay.font}
 	if o.e1 {
 		fonts[o.base.Name] = o.base
+	} else {
+		fonts[o.half.Name] = o.half
 	}
 	err = presentation.WithSealedOrderedLayers(manualSnapshotGroupKey, ticket.generation, ticket.epoch,
 		[]presentation.ActiveLayerSlot{
@@ -374,6 +428,8 @@ func (o *ManualSnapshotOwner) snapshot(ticket ManualFrameTicket, scale int) (pre
 				if fingerprint, ok := group.FontHash(o.base.Name); !ok || fingerprint != o.baseHash {
 					return fmt.Errorf("buckrogers: sealed E1 base font identity mismatch")
 				}
+			} else if fingerprint, ok := group.FontHash(o.half.Name); !ok || fingerprint != o.halfHash {
+				return fmt.Errorf("buckrogers: sealed manual half font identity mismatch")
 			}
 			valid := func() bool {
 				currentLayersHash, err := digestManualLayers(o.overlay)
