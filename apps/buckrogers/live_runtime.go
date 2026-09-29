@@ -223,7 +223,12 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 	if err != nil {
 		return err
 	}
+	names, err := loadNameGlossary(textDir)
+	if err != nil {
+		return err
+	}
 	r.ecl = NewEclTextWatcher(c)
+	r.ecl.SetNames(names)
 	r.eclGen = r.ecl.Generation()
 	if eng, err := loadEngineText(textDir); err != nil {
 		return err
@@ -235,7 +240,7 @@ func (r *LiveRuntime) loadEclText(textDir string) error {
 		if r.engDisp != nil {
 			r.engDisp.SetEclCatalog(c)
 		}
-		if err := r.loadLogbook(textDir, eng); err != nil {
+		if err := r.loadLogbook(textDir, eng, names); err != nil {
 			return err
 		}
 	}
@@ -428,14 +433,14 @@ func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog)
 	return nil
 }
 
-func (r *LiveRuntime) loadLogbook(textDir string, eng *EngineTextCatalog) error {
+func (r *LiveRuntime) loadLogbook(textDir string, eng *EngineTextCatalog, names *NameGlossary) error {
 	b, err := os.ReadFile(filepath.Join(textDir, "logbook.zh-TW.tsv"))
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	c, err := LoadLogbookCatalog(b)
+	c, err := LoadLogbookCatalog(b, names)
 	if err != nil {
 		return err
 	}

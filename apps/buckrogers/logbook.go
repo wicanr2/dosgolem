@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
@@ -26,7 +27,13 @@ const (
 type LogbookEntry struct {
 	Title string
 	Pages [][]string // pages of body lines
+	// Spec 036 §3.3: the annotation tier chosen for the body and the title.
+	BodyTier, TitleTier NameTier
+	titles              []AnnotatedText // title tiers, re-chosen when the template changes
 }
+
+// logbookTitleCells is the width of the title row (spec 036 §3.3).
+const logbookTitleCells = logbookCols + 2
 
 type LogbookCatalog struct {
 	entries map[int]LogbookEntry
@@ -53,6 +60,25 @@ func (c *LogbookCatalog) LoadLogbookPanelText(data []byte) error {
 			return fmt.Errorf("buckrogers: 手札面板列 %s 無效", r[0])
 		}
 	}
+	return c.chooseTitles()
+}
+
+// chooseTitles picks, per entry, the first title tier whose whole row fits
+// in 38 cells; an entry whose unannotated title is still too wide fails.
+func (c *LogbookCatalog) chooseTitles() error {
+	for n, e := range c.entries {
+		ok := false
+		for _, v := range e.titles {
+			if len([]rune(fillLogbook(c.titleFmt, strconv.Itoa(n), string(v.Text)))) <= logbookTitleCells {
+				e.Title, e.TitleTier, ok = string(v.Text), v.Tier, true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("buckrogers: 手札第 %d 則標題超過 %d 格", n, logbookTitleCells)
+		}
+		c.entries[n] = e
+	}
 	return nil
 }
 
@@ -63,13 +89,36 @@ func fillLogbook(f string, a, b string) string {
 // LayoutLogbook splits a body (paragraphs separated by the two characters
 // `\n`) into pages of 19 lines × 36 cells with the spec-027 wrap rules.
 func LayoutLogbook(body string) ([][]string, error) {
+	return layoutLogbookUnits([]rune(body), nil)
+}
+
+// layoutLogbookUnits is LayoutLogbook for an annotated body: units never
+// cross a paragraph break, and each stays one token (spec 036 §3.3).
+func layoutLogbookUnits(body []rune, units []NameUnit) ([][]string, error) {
 	var lines []string
-	for _, para := range strings.Split(body, `\n`) {
-		para = strings.TrimSpace(para)
-		if para == "" {
+	for start := 0; start <= len(body); {
+		end := start
+		for end < len(body) && !(body[end] == '\\' && end+1 < len(body) && body[end+1] == 'n') {
+			end++
+		}
+		a, b := start, end
+		for a < b && isLogbookSpace(body[a]) {
+			a++
+		}
+		for b > a && isLogbookSpace(body[b-1]) {
+			b--
+		}
+		start = end + 2
+		if a == b {
 			continue
 		}
-		ls, _, _, ok := layoutEclText([]rune(para), 0, 0, 0, logbookCols-1, 255)
+		var us []NameUnit
+		for _, u := range units {
+			if u.Start >= a && u.End <= b {
+				us = append(us, NameUnit{u.Start - a, u.End - a})
+			}
+		}
+		ls, _, _, ok := layoutEclTextUnits(body[a:b], us, 0, 0, 0, logbookCols-1, 255)
 		if !ok {
 			return nil, fmt.Errorf("buckrogers: 手札段落無法排版")
 		}
@@ -92,7 +141,12 @@ func LayoutLogbook(body string) ([][]string, error) {
 	return pages, nil
 }
 
-func LoadLogbookCatalog(data []byte) (*LogbookCatalog, error) {
+func isLogbookSpace(r rune) bool { return unicode.IsSpace(r) }
+
+// LoadLogbookCatalog reads text/logbook.zh-TW.tsv.  With a glossary it lays
+// out the three annotation tiers of spec 036 §3.3 once and keeps the first
+// that fits in three pages; nothing is re-laid out at run time.
+func LoadLogbookCatalog(data []byte, names *NameGlossary) (*LogbookCatalog, error) {
 	rows, err := readTSV("logbook.zh-TW.tsv", data, []string{"key", "translation", "source"})
 	if err != nil {
 		return nil, err
@@ -114,11 +168,28 @@ func LoadLogbookCatalog(data []byte) (*LogbookCatalog, error) {
 	}
 	c := &LogbookCatalog{entries: map[int]LogbookEntry{}, titleFmt: "{0}: {1}", pageFmt: "{0}/{1}"}
 	for n, b := range bodies {
-		pages, err := LayoutLogbook(b)
+		key := "logbook." + strconv.Itoa(n)
+		var pages [][]string
+		var tier NameTier
+		for _, v := range names.Variants(b, key, NameCaseMixed) {
+			if pages, err = layoutLogbookUnits(v.Text, v.Units); err == nil {
+				tier = v.Tier
+				break
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("第 %d 則：%w", n, err)
 		}
-		c.entries[n] = LogbookEntry{Title: titles[n], Pages: pages}
+		e := LogbookEntry{Title: titles[n], Pages: pages, BodyTier: tier}
+		if titles[n] != "" {
+			e.titles = names.Variants(titles[n], key+".title", NameCaseMixed)
+		} else {
+			e.titles = []AnnotatedText{{Tier: NameTierNone}}
+		}
+		c.entries[n] = e
+	}
+	if err := c.chooseTitles(); err != nil {
+		return nil, err
 	}
 	return c, nil
 }
@@ -258,6 +329,10 @@ type LogbookOverlay struct {
 	font  *xlate.Font
 	scale int
 	gen   uint64
+	// TitleErrors counts titles wider than the 38-cell row (spec 036 §3.3
+	// guard); load-time selection should make this impossible.
+	TitleErrors int
+	LastError   string
 }
 
 func NewLogbookOverlay(font *xlate.Font, scale int) (*LogbookOverlay, error) {
@@ -299,13 +374,20 @@ func (o *LogbookOverlay) Sync(w *LogbookWatcher, palette [256][3]uint8) []rune {
 				miss = append(miss, ch)
 			}
 		}
-		for len(text) < logbookCols+2 {
+		cells := logbookCols + 2
+		if len(text) > cells {
+			// Never cut a title silently: record it and draw it whole.
+			o.TitleErrors++
+			o.LastError = fmt.Sprintf("手札第 %d 則第 %d 列 %d 格超過 %d 格", n, r, len(text), cells)
+			cells = len(text)
+		}
+		for len(text) < cells {
 			text = append(text, ' ')
 		}
 		fg := palette[w.colors[1]]
 		o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
-			Key: fmt.Sprintf("logbook.%d", r), X: logbookLeft * 8, Y: r * 8, Cells: logbookCols + 2, CellW: 8, CellH: 8,
-			Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: text[:logbookCols+2], State: xlate.Shown,
+			Key: fmt.Sprintf("logbook.%d", r), X: logbookLeft * 8, Y: r * 8, Cells: cells, CellW: 8, CellH: 8,
+			Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: text, State: xlate.Shown,
 			BG: palette[w.colors[0]], FG: fg,
 		})
 	}

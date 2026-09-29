@@ -147,6 +147,7 @@ func (p *EclTextPage) intersects(l, t, r, b uint8) bool {
 type EclTextWatcher struct {
 	catalog *EclTextCatalog
 	engine  *EngineTextCatalog // spec 029 fallback; nil disables
+	names   *NameGlossary      // spec 036 annotation; nil disables
 	pages   []*EclTextPage
 	inCall  bool
 	call    EclTextEntry
@@ -154,11 +155,21 @@ type EclTextWatcher struct {
 	Stats   EclTextStats
 }
 
-type EclTextStats struct{ Hits, Misses, Overflows, Invalidations, Reentries, Passthrough int }
+type EclTextStats struct {
+	Hits, Misses, Overflows, Invalidations, Reentries, Passthrough int
+	// Spec 036 §3.3: hits whose name annotation had to step down to
+	// "first occurrence only" or "none" to fit.  Counted apart from
+	// Overflows (the whole window falls back to English).
+	NameFirstOnly, NameUnannotated int
+}
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
 	return &EclTextWatcher{catalog: c, gen: 1}
 }
+
+// SetNames installs the spec-036 glossary; only ECL catalog hits are
+// annotated (engine translations and passthrough are narrow families).
+func (w *EclTextWatcher) SetNames(g *NameGlossary) { w.names = g }
 
 // SetEngine installs the spec-029 fallback for strings the ECL catalog misses.
 func (w *EclTextWatcher) SetEngine(c *EngineTextCatalog) { w.engine = c }
@@ -310,7 +321,32 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			first, topCol = e.CursorRow, e.Left
 		}
 	}
-	lines, endRow, endCol, fits := layoutEclText([]rune(text), row, col, e.Left, e.Right, e.Bottom)
+	variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
+	if key != "engine" && key != "passthrough" && w.names != nil {
+		variants = w.names.Variants(text, key, NameCaseUpper)
+	}
+	// Every tier starts from the same cursor and continuation state; the
+	// layout is pure, so a failed try changes nothing (spec 036 §3.3).
+	var (
+		lines          []EclTextLine
+		endRow, endCol uint8
+		fits           bool
+		tier           NameTier
+	)
+	for i, v := range variants {
+		if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
+			if i > 0 {
+				tier = v.Tier
+			}
+			break
+		}
+	}
+	switch tier {
+	case NameTierFirst:
+		w.Stats.NameFirstOnly++
+	case NameTierNone:
+		w.Stats.NameUnannotated++
+	}
 	if !fits {
 		w.Stats.Overflows++
 		if p != nil {
@@ -369,8 +405,42 @@ func (w *EclTextWatcher) ObserveDiscontinuity() {
 // layoutEclText places text from (row,col) inside [left,right]×[..bottom].
 // Latin/digit runs stay together; closing punctuation never starts a line.
 func layoutEclText(text []rune, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
+	return layoutEclTextUnits(text, nil, row, col, left, right, bottom)
+}
+
+// layoutEclTextUnits is layoutEclText where each unit (a spec-036 name
+// annotation, sorted and disjoint) is one unbreakable token; a unit wider
+// than the line breaks only at the spaces of its English part.
+func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
+	width := int(right) - int(left) + 1
 	var tokens [][]rune
-	for i := 0; i < len(text); {
+	for i, u := 0, 0; i < len(text); {
+		for u < len(units) && units[u].End <= i {
+			u++
+		}
+		if u < len(units) && units[u].Start == i {
+			j := units[u].End
+			for j < len(text) && isEclClosing(text[j]) {
+				j++
+			}
+			tok := text[i:j]
+			if len(tok) <= width {
+				tokens = append(tokens, tok)
+			} else {
+				// Break before each space inside the unit; the space leads
+				// the next piece and is dropped at a line start.
+				from := 0
+				for k := 1; k < units[u].End-i; k++ {
+					if tok[k] == ' ' {
+						tokens = append(tokens, tok[from:k])
+						from = k
+					}
+				}
+				tokens = append(tokens, tok[from:])
+			}
+			i = j
+			continue
+		}
 		j := i + 1
 		if isEclLatin(text[i]) {
 			for j < len(text) && isEclLatin(text[j]) {
@@ -381,10 +451,13 @@ func layoutEclText(text []rune, row, col, left, right, bottom uint8) ([]EclTextL
 		for j < len(text) && isEclClosing(text[j]) {
 			j++
 		}
+		// Never run into the next unit.
+		if u < len(units) && j > units[u].Start {
+			j = max(units[u].Start, i+1)
+		}
 		tokens = append(tokens, text[i:j])
 		i = j
 	}
-	width := int(right) - int(left) + 1
 	var lines []EclTextLine
 	cur := EclTextLine{Row: row, Col: col}
 	used := int(col) - int(left)
@@ -426,4 +499,3 @@ func isEclLatin(r rune) bool {
 func isEclClosing(r rune) bool {
 	return strings.ContainsRune("，。！？：；、」）……》』,.!?:;)", r)
 }
-

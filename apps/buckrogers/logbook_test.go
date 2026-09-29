@@ -9,14 +9,14 @@ import (
 
 func TestLogbookLayoutAndPanel(t *testing.T) {
 	long := strings.Repeat("字", 36*19) + `\n` + "第二頁。"
-	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t" + long + "\tecl-batch-editorial\nlogbook.5.title\t警報\tecl-batch-editorial\n"))
+	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t"+long+"\tecl-batch-editorial\nlogbook.5.title\t警報\tecl-batch-editorial\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := len(c.entries[5].Pages); got != 2 {
 		t.Fatalf("pages %d", got)
 	}
-	if _, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.6\t" + strings.Repeat("字", 36*19*3+1) + "\tx\n")); err == nil {
+	if _, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.6\t"+strings.Repeat("字", 36*19*3+1)+"\tx\n"), nil); err == nil {
 		t.Fatal("4-page entry accepted")
 	}
 	w := NewLogbookWatcher(c, nil)
@@ -54,7 +54,7 @@ func TestLogbookLayoutAndPanel(t *testing.T) {
 }
 
 func TestLogbookPanelTextTemplates(t *testing.T) {
-	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.41\t正文。\tecl-batch-editorial\nlogbook.41.title\t指揮官\tecl-batch-editorial\n"))
+	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.41\t正文。\tecl-batch-editorial\nlogbook.41.title\t指揮官\tecl-batch-editorial\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestLogbookPanelTextTemplates(t *testing.T) {
 
 // Spec 030 §3.3-4: the panel closes once the BIOS keyboard head moves.
 func TestLogbookClosesOnKeyTaken(t *testing.T) {
-	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t正文。\tx\nlogbook.6\t正文。\tx\n"))
+	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t正文。\tx\nlogbook.6\t正文。\tx\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestLogbookClosesOnKeyTaken(t *testing.T) {
 
 // Spec 030 §3.3-3: a presenter that cannot draw closes the panel once.
 func TestLogbookSyncMissClosesPanel(t *testing.T) {
-	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t正文。\tx\n"))
+	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t正文。\tx\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
