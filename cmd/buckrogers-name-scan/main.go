@@ -93,7 +93,7 @@ func run(textDir, outDir string) error {
 		return err
 	}
 	lt := create(outDir, "logbook-tiers.tsv", "entry", "names", "pages_all", "pages_first", "pages_none", "body_tier",
-		"title_names", "title_cells_all", "title_cells_first", "title_cells_none", "title_tier", "title_cells")
+		"title_names", "title_units_all", "title_units_first", "title_units_none", "title_tier", "title_units")
 	defer lt.close()
 	count := map[string]int{}
 	for _, n := range lb.LogbookEntries() {
@@ -120,11 +120,11 @@ func run(textDir, outDir string) error {
 		var cells [3]string
 		for i, tier := range []buckrogers.NameTier{buckrogers.NameTierAll, buckrogers.NameTierFirst, buckrogers.NameTierNone} {
 			a := g.Annotate(title, key+".title", buckrogers.NameCaseMixed, tier)
-			cells[i] = strconv.Itoa(len([]rune(lb.TitleRow(n, string(a.Text)))))
+			cells[i] = strconv.Itoa(buckrogers.TextUnits(lb.TitleRow(n, string(a.Text))))
 		}
 		lt.row(strconv.Itoa(n), strings.Join(en, ";"), pages[0], pages[1], pages[2], e.BodyTier.String(),
 			strings.Join(ten, ";"), cells[0], cells[1], cells[2], e.TitleTier.String(),
-			strconv.Itoa(len([]rune(lb.TitleRow(n, e.Title)))))
+			strconv.Itoa(buckrogers.TextUnits(lb.TitleRow(n, e.Title))))
 		count["logbook.body."+e.BodyTier.String()]++
 		count["logbook.title."+e.TitleTier.String()]++
 		if len(en) > 0 {

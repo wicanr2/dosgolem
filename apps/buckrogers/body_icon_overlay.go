@@ -459,7 +459,7 @@ type BodyIconInvalidation struct {
 type RuntimeBodyIconOverlay struct {
 	layer         *xlate.Layer
 	catalog       *BodyIconCatalog
-	font          *xlate.Font
+	fonts         segmentFonts
 	scale         int
 	route         BodyIconRoute
 	transition    int
@@ -473,9 +473,11 @@ func NewRuntimeBodyIconOverlay(c *BodyIconCatalog, font *xlate.Font, scale int, 
 	if c == nil || font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) || (route != BodyIconMove && route != BodyIconRefuse && route != BodyIconConfirm && route != BodyIconLive) {
 		return nil, fmt.Errorf("body icon runtime inputs invalid")
 	}
+	base := font
 	if scale == 3 {
 		font = manualThreeXFont(font)
 	}
+	fonts := familyFonts(base, font, scale)
 	type textCap struct {
 		text     string
 		capacity int
@@ -485,17 +487,15 @@ func NewRuntimeBodyIconOverlay(c *BodyIconCatalog, font *xlate.Font, scale int, 
 		checks = append(checks, textCap{id.Translation, id.Capacity})
 	}
 	for _, check := range checks {
-		if check.text == "" || len([]rune(check.text)) > check.capacity {
+		// Spec 039 §3.4: capacity is capacity cells × 2 half units.
+		if check.text == "" || stringUnits(check.text) > 2*check.capacity {
 			return nil, fmt.Errorf("body icon translation exceeds safe capacity")
 		}
-		for _, r := range check.text {
-			g, ok := font.Glyphs[r]
-			if !ok || len(g) != font.H*((font.W+7)/8) {
-				return nil, fmt.Errorf("body icon missing glyph U+%04X", r)
-			}
+		if miss := fonts.missingRunes([]rune(check.text)); len(miss) != 0 {
+			return nil, fmt.Errorf("body icon missing glyph U+%04X", miss[0])
 		}
 	}
-	return &RuntimeBodyIconOverlay{layer: &xlate.Layer{W: 320, H: 200}, catalog: c, font: font, scale: scale, route: route, active: map[string]bool{}, rects: map[string]PixelRect{}}, nil
+	return &RuntimeBodyIconOverlay{layer: &xlate.Layer{W: 320, H: 200}, catalog: c, fonts: fonts, scale: scale, route: route, active: map[string]bool{}, rects: map[string]PixelRect{}}, nil
 }
 func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uint8) error {
 	if o == nil {
@@ -542,20 +542,35 @@ func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uin
 		}
 		plan = append(plan, planned{id.EventKey, id.Rect, id.Translation, id.BG, id.FG})
 	}
-	stamps := make([]*xlate.Stamp, len(plan))
+	stamps := make([][]*xlate.Stamp, len(plan))
 	for i, p := range plan {
-		stamp := &xlate.Stamp{Key: p.key, X: p.rect.X, Y: p.rect.Y, Cells: p.rect.Width / 8, CellW: 8, CellH: 8, Font: o.font,
-			GlyphX: manualGlyphOffset(o.scale), GlyphY: manualGlyphOffset(o.scale), GlyphScale: 1,
-			Text: []rune(p.text), State: xlate.Shown, BG: palette[p.bg], FG: palette[p.fg]}
-		ink, err := menuInkRect(stamp, o.scale)
-		if err != nil {
-			return err
-		}
+		// Spec 039 §3.3: one stamp per width segment, padded to the rect.
+		bg, fg := palette[p.bg], palette[p.fg]
+		segs := o.fonts.segmentStamps(p.key, p.rect.X, p.rect.Y, padUnits([]rune(p.text), 2*(p.rect.Width/8)), nil,
+			func(int) ([3]uint8, [3]uint8) { return bg, fg })
 		clear := PixelRect{p.rect.X * o.scale, p.rect.Y * o.scale, p.rect.Width * o.scale, p.rect.Height * o.scale}
-		if ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
-			return fmt.Errorf("body icon ink outside safe rectangle")
+		inked := false
+		for _, stamp := range segs {
+			blank := true
+			for _, r := range stamp.Text {
+				blank = blank && isBlankRune(r)
+			}
+			if blank {
+				continue
+			}
+			ink, err := menuInkRect(stamp, o.scale)
+			if err != nil {
+				return err
+			}
+			inked = true
+			if ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
+				return fmt.Errorf("body icon ink outside safe rectangle")
+			}
 		}
-		stamps[i] = stamp
+		if !inked {
+			return fmt.Errorf("body icon translation has no visible ink")
+		}
+		stamps[i] = segs
 	}
 	// Everything is validated before the layer changes, so a rejected
 	// transition leaves the previous generation intact.
@@ -567,7 +582,9 @@ func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uin
 	for i, p := range plan {
 		o.active[p.key] = true
 		o.rects[p.key] = p.rect
-		o.layer.Add(stamps[i])
+		for _, stamp := range stamps[i] {
+			o.layer.Add(stamp)
+		}
 	}
 	o.generation = t.Generation
 	o.transition++

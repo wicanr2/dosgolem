@@ -131,19 +131,19 @@ func TestLayoutKeepsNameUnitTogether(t *testing.T) {
 		t.Fatal("paren produced a unit")
 	}
 	a = g.Annotate("一二三四五巴克說。", "ecl.1", NameCaseUpper, NameTierAll)
-	// Width 10: "一二三四五巴克(BUCK)" is 13 cells; without units the break
-	// would fall inside the annotation.
-	lines, _, _, ok := layoutEclTextUnits(a.Text, a.Units, 0, 0, 0, 9, 9)
+	// Width 19 half units (spec 039): "一二三四五巴克(BUCK)" is 20 units;
+	// without units the break would fall inside the annotation.
+	lines, _, _, ok := layoutEclTextUnits(a.Text, a.Units, 0, 0, 0, 18, 9)
 	if !ok || len(lines) != 2 || string(lines[0].Text) != "一二三四五" || string(lines[1].Text) != "巴克(BUCK)說。" {
 		t.Fatalf("unit split: %+v", lines)
 	}
-	plain, _, _, _ := layoutEclText(a.Text, 0, 0, 0, 9, 9)
+	plain, _, _, _ := layoutEclText(a.Text, 0, 0, 0, 18, 9)
 	if string(plain[0].Text) == "一二三四五" {
 		t.Fatal("control: plain layout should have broken inside the annotation")
 	}
 	// A unit wider than the line breaks only at English spaces.
 	a = g.Annotate("亞歷山大•威廉到了。", "logbook.1", NameCaseMixed, NameTierAll)
-	lines, _, _, ok = layoutEclTextUnits(a.Text, a.Units, 0, 0, 0, 19, 9)
+	lines, _, _, ok = layoutEclTextUnits(a.Text, a.Units, 0, 0, 0, 25, 9) // 26 units; the unit is 33
 	if !ok || len(lines) != 2 || string(lines[0].Text) != "亞歷山大•威廉(Alexander" || string(lines[1].Text) != "Williams)到了。" {
 		t.Fatalf("wide unit: %+v", lines)
 	}
@@ -178,16 +178,17 @@ func TestEclNameTiersFallback(t *testing.T) {
 		t.Fatalf("first-only: %+v", w.Stats)
 	}
 	fa := names.Annotate("巴克說巴克好巴克。", "ecl.t.00", NameCaseUpper, NameTierFirst)
-	want, er, ec, _ := layoutEclTextUnits(fa.Text, fa.Units, 17, 1, 1, 10, 18)
+	want, er, ec, _ := layoutEclTextUnits(fa.Text, fa.Units, 17, 2, 2, 21, 18) // cells 1–10 in half units
 	if len(p.Lines) != len(want) || p.endRow != er || p.endCol != ec {
 		t.Fatalf("first-only layout %+v", p)
 	}
 
 	// Continuation: the retries start from the page's end state, and the
-	// page keeps its top, start column and earlier lines.  Window 10×3.
+	// page keeps its top, start column and earlier lines.  Window 7×3
+	// (14 half units a row, spec 039).
 	tall := func(s string, clear bool, col, row uint8) EclTextEntry {
 		e := entry(s, clear, col, row)
-		e.Bottom = 19
+		e.Right, e.Bottom = 7, 19
 		return e
 	}
 	w = NewEclTextWatcher(eclFixture(t, "OK", "好，", "WILMA TALKS", "威瑪說威瑪好。"))
@@ -201,7 +202,7 @@ func TestEclNameTiersFallback(t *testing.T) {
 		t.Fatalf("continuation: %+v %+v", p, w.Stats)
 	}
 	if string(p.Lines[0].Text) != "好，" || string(p.Lines[1].Text) != "威瑪(WILMA)說" || p.Lines[1].Row != 18 ||
-		string(p.Lines[2].Text) != "威瑪好。" || p.endRow != 19 || p.endCol != 5 {
+		string(p.Lines[2].Text) != "威瑪好。" || p.endRow != 19 || p.endCol != 10 {
 		t.Fatalf("continuation lines %+v end %d,%d", p.Lines, p.endRow, p.endCol)
 	}
 
@@ -241,9 +242,10 @@ func TestLogbookNameTiers(t *testing.T) {
 	// fourth page; first-only fits.
 	body := strings.Repeat("巴克", 300) + strings.Repeat("字", 2052-600-10)
 	panel := "key\ttranslation\tsource\nlogbook.panel.title\t手札第 {0} 則：{1}\tx\nlogbook.panel.page\t第 {0}／{1} 頁\tx\n"
-	// Title "吉爾伯特與亞歷山大•威廉" + prefix "手札第 9 則：" (8): tier all is 43 cells,
-	// first-only the same, none 20 — chosen independently of the body.
-	data := "key\ttranslation\tsource\nlogbook.9\t" + body + "\tx\nlogbook.9.title\t吉爾伯特與亞歷山大•威廉\tx\n" +
+	// Spec 039 half units.  Title "吉爾伯特與亞歷山大•威廉與吉爾伯特與吉爾伯特" +
+	// prefix "手札第 9 則：" (13): tier all is 103, first-only 85, none 56 of 76
+	// — chosen independently of the body.
+	data := "key\ttranslation\tsource\nlogbook.9\t" + body + "\tx\nlogbook.9.title\t吉爾伯特與亞歷山大•威廉與吉爾伯特與吉爾伯特\tx\n" +
 		"logbook.10\t巴克與威瑪。\tx\nlogbook.10.title\t巴克\tx\n"
 	c, err := LoadLogbookCatalog([]byte(data), names)
 	if err != nil {
@@ -256,7 +258,7 @@ func TestLogbookNameTiers(t *testing.T) {
 	if e.BodyTier != NameTierFirst || len(e.Pages) != 3 || !strings.HasPrefix(e.Pages[0][0], "巴克(Buck)巴克巴克") {
 		t.Fatalf("body tier %v pages %d", e.BodyTier, len(e.Pages))
 	}
-	if e.TitleTier != NameTierNone || e.Title != "吉爾伯特與亞歷山大•威廉" {
+	if e.TitleTier != NameTierNone || e.Title != "吉爾伯特與亞歷山大•威廉與吉爾伯特與吉爾伯特" {
 		t.Fatalf("title %v %q", e.TitleTier, e.Title)
 	}
 	e = c.entries[10]
@@ -267,12 +269,12 @@ func TestLogbookNameTiers(t *testing.T) {
 	if _, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.9\t正文。\tx\nlogbook.9.title\t"+strings.Repeat("長", 40)+"\tx\n"), names); err == nil {
 		t.Fatal("over-wide title accepted")
 	}
-	c2, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.9\t正文。\tx\nlogbook.9.title\t"+strings.Repeat("長", 31)+"\tx\n"), names)
+	c2, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.9\t正文。\tx\nlogbook.9.title\t"+strings.Repeat("長", 32)+"\tx\n"), names)
 	if err != nil {
-		t.Fatal(err) // "9: " + 31 = 34 with the default template
+		t.Fatal(err) // "9: " + 32×2 = 67 units with the default template
 	}
 	if err := c2.LoadLogbookPanelText([]byte(panel)); err == nil {
-		t.Fatal("title over 38 cells after the panel template accepted") // 8 + 31 = 39
+		t.Fatal("title over 76 units after the panel template accepted") // 13 + 64 = 77
 	}
 }
 
@@ -299,9 +301,16 @@ func TestLogbookOverlayTitleGuard(t *testing.T) {
 	if o.TitleErrors != 1 || o.LastError == "" {
 		t.Fatalf("guard %d %q", o.TitleErrors, o.LastError)
 	}
-	s := o.layer.Stamps[0]
-	if s.Cells != len(s.Text) || string(s.Text) != "5: "+strings.Repeat("長", 40) {
-		t.Fatalf("title truncated: %d %q", s.Cells, string(s.Text))
+	// Spec 039: the title row is drawn as width segments; together they
+	// hold the whole title, padded to an even unit.
+	var text []rune
+	for _, s := range o.layer.Stamps {
+		if rowKeyOf(s.Key) == "logbook.2" {
+			text = append(text, s.Text...)
+		}
+	}
+	if string(text) != "5: "+strings.Repeat("長", 40)+" " || textUnits(text) != 84 {
+		t.Fatalf("title truncated: %d %q", textUnits(text), string(text))
 	}
 }
 

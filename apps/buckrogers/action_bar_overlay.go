@@ -69,21 +69,27 @@ func HotkeyPreservingActionBarNormalStyle() ActionBarNormalStyle {
 	return ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10, 10, 15, 10}}
 }
 
-func actionBarRuneAdvance(r rune) int {
-	if r < 128 {
-		return 4
-	}
-	return 8
-}
+func actionBarRuneAdvance(r rune) int { return runeUnits(r) * halfUnitPx }
 
-// actionBarGlyphLayout preserves the established 2× pixels and all ASCII
-// mnemonic glyphs. At 3× only CJK glyphs use a 22×22 nearest-neighbour raster
-// inside their 24×24 output cell, leaving a one-pixel inset and reducing the
-// inter-glyph gap from eight to two pixels. This remains inside spec 215's
-// logical 8-pixel-high action-bar band after scaling.
+// actionBarGlyphLayout places one glyph.  Spec 039 §3.3: half-width runes
+// (the mnemonic and its parentheses) use the session half font (8×16 at 2×,
+// 12×24 at 3×) at offset 0, filling their half cell.  CJK keeps the
+// established 2× pixels, and at 3× a 22×22 nearest-neighbour raster inside
+// its 24×24 output cell, leaving a one-pixel inset.  This remains inside
+// spec 215's logical 8-pixel-high action-bar band after scaling.
 func actionBarGlyphLayout(font *xlate.Font, r rune, scale int) (*xlate.Font, int, int, int, error) {
+	if isHalfwidth(r) {
+		half := halfFontsOf(font).For(scale)
+		if half == nil {
+			return nil, 0, 0, 0, fmt.Errorf("buckrogers: action overlay 半形字型無效：%v", halfFontsOf(font).Err)
+		}
+		if g, ok := half.Glyphs[r]; !ok || len(g) != half.H*((half.W+7)/8) {
+			return nil, 0, 0, 0, fmt.Errorf("buckrogers: action overlay 缺少有效半形字模 U+%04X", r)
+		}
+		return half, 0, 0, 1, nil
+	}
 	offset := (8*scale - 16) / 2
-	if scale != 3 || r < 128 {
+	if scale != 3 {
 		return font, offset, offset, 0, nil
 	}
 	source, ok := font.Glyphs[r]
@@ -196,6 +202,9 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 		return nil, fmt.Errorf("buckrogers: 未知 action variant %q", event.Variant)
 	}
 	for _, runeValue := range runes {
+		if isHalfwidth(runeValue) {
+			continue // checked against the half font in actionBarGlyphLayout
+		}
 		glyph, found := font.Glyphs[runeValue]
 		if !found || len(glyph) != 32 {
 			return nil, fmt.Errorf("buckrogers: action overlay 缺少有效字模 U+%04X", runeValue)

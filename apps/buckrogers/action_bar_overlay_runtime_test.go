@@ -118,11 +118,14 @@ func TestRuntimeActionBarOverlayFrameDrawReappliesInjectedColors(t *testing.T) {
 	indexed[192*320] = 15
 	indexed[192*320+1] = 10
 	o.Frame(indexed, pal)
-	for index, stamp := range o.layer.Stamps {
-		want := pal[10]
-		if index == 1 {
-			want = pal[15]
+	// 依 stamp key 的 rune 序號比對確認的配色（「加點(A)」的 A 是第 3 個 rune）；
+	// 舊版以 layer 順序的第 1 筆為快捷字母，與正式譯文不符（BUCKROGERS_CHT_ROOT 設定時即失敗）。
+	for _, stamp := range o.layer.Stamps {
+		_, index, ok := actionStampGroup(stamp.Key)
+		if !ok {
+			t.Fatalf("key %q", stamp.Key)
 		}
+		want := pal[style.RuneForegrounds[index]]
 		if stamp.FG != want {
 			t.Fatalf("快捷字母配色被覆寫 index=%d got=%v want=%v", index, stamp.FG, want)
 		}

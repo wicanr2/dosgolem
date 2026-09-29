@@ -28,9 +28,10 @@ func (c *EclTextCatalog) Keys() []string {
 func (c *EclTextCatalog) Text(key string) string { return c.text[key] }
 
 // LayoutEclAnnotated lays one tier out in a window from (row, col) and
-// reports the rows used and whether it fits.
+// reports the rows used and whether it fits.  Columns are 8×8 cells; the
+// layout itself runs in half units (spec 039 §3.4).
 func LayoutEclAnnotated(a AnnotatedText, row, col, left, right, bottom uint8) (int, bool) {
-	lines, _, _, ok := layoutEclTextUnits(a.Text, a.Units, row, col, left, right, bottom)
+	lines, _, _, ok := layoutEclTextUnits(a.Text, a.Units, row, eclUnitLeft(col), eclUnitLeft(left), eclUnitRight(right), bottom)
 	return len(lines), ok
 }
 
@@ -57,8 +58,11 @@ func (c *LogbookCatalog) TitleRow(n int, title string) string {
 	return fillLogbook(c.titleFmt, strconv.Itoa(n), title)
 }
 
-// LogbookTitleCells is the title row width limit.
-const LogbookTitleCells = logbookTitleCells
+// LogbookTitleUnits is the title row width limit in half units.
+const LogbookTitleUnits = logbookTitleUnits
+
+// TextUnits is the spec 039 width of s in half units.
+func TextUnits(s string) int { return stringUnits(s) }
 
 // ReadCatalogRows reads a key/translation/source catalog into key → text.
 func ReadCatalogRows(name string, data []byte) (map[string]string, error) {

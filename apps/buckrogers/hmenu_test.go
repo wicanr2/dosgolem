@@ -33,7 +33,8 @@ func TestHMenuBuildColorsAndLifecycle(t *testing.T) {
 	w := NewHMenuWatcher(hmenuFixture(t, "Move", "移動(M)", "Area", "區域(A)", "Look", ""))
 	w.ObserveEntry(hmenuEntry("Move Area", 2, [2]uint8{1, 4}, [2]uint8{6, 9}))
 	pg := w.Page()
-	if pg == nil || len(pg.Rows) != 1 || len(pg.Rows[0].Cells) != 40 {
+	// Spec 039 §3.4: the row holds 2×40 half units.
+	if pg == nil || len(pg.Rows) != 1 || pg.Rows[0].Units() != 80 {
 		t.Fatalf("page: %+v", pg)
 	}
 	p := pg.Rows[0]
@@ -85,8 +86,9 @@ func TestHMenuBuildColorsAndLifecycle(t *testing.T) {
 		t.Fatalf("two-row menu: %+v", w.Page())
 	}
 	w.ObserveInstruction(Address{0x37F1, 0x0ACF}, 0x1841, 0x3000+hmenuReturnDelta)
+	// 「移動(M)」is 7 half units; from column 37 only 6 remain.
 	e := hmenuEntry("Move", 1, [2]uint8{1, 4})
-	e.Col = 36
+	e.Col = 37
 	w.ObserveEntry(e)
 	if w.Page() != nil || w.Stats.Overflows != 1 {
 		t.Fatal("overflow drew")
@@ -99,7 +101,7 @@ func TestHMenuStartsAtFirstItemColumn(t *testing.T) {
 	e.Col = 10
 	w.ObserveEntry(e)
 	p := w.Page()
-	if p == nil || p.Rows[0].Col != 13 || p.Rows[0].Cells[0].Rune != '是' || len(p.Rows[0].Cells) != 27 {
+	if p == nil || p.Rows[0].Col != 13 || p.Rows[0].Cells[0].Rune != '是' || p.Rows[0].Units() != 54 {
 		t.Fatalf("%+v", p)
 	}
 }

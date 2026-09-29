@@ -225,9 +225,11 @@ func TestBattleColumnPlayerNames(t *testing.T) {
 	battleEntry(w, recBuck, 12, 23, "BUCK", party)
 	battleEntry(w, recMon1, 15, 23, "TERRINE WARRIOR", party)
 	battleEntry(w, recMon2, 16, 23, "TERRINE WARRIOR", party)
+	// Spec 039 §3.1: the Chinese is padded to 2×(original length) half units.
+	pad := func(s string, n int) string { return string(padUnits([]rune(s), 2*n)) }
 	for row, want := range map[uint8]string{
-		1: "弗拉維烏斯  ", 10: "塞萊絲特   ", 12: "巴克  ", // member: Chinese only, in the original cells
-		15: "特林戰士" + "           ", 16: "特林戰士" + "           ", // monsters (same name twice): monster table
+		1: pad("弗拉維烏斯", 7), 10: pad("塞萊絲特", 7), 12: pad("巴克", 4), // member: Chinese only, in the original cells
+		15: pad("特林戰士", 15), 16: pad("特林戰士", 15), // monsters (same name twice): monster table
 	} {
 		if got, ok := drawn(w, row); !ok || got != want {
 			t.Errorf("row %d: %q want %q", row, got, want)
@@ -254,24 +256,24 @@ func TestBattleColumnPlayerNames(t *testing.T) {
 	p2, _ := ReadPartySnapshot(partyMem(1, named), testDS)
 	w = battleWatcher(t)
 	battleEntry(w, named, 1, 23, "TERRINE WARRIOR", p2)
-	if got, _ := drawn(w, 1); got != "特林•沃里爾         " {
+	if got, _ := drawn(w, 1); got != pad("特林•沃里爾", 15) {
 		t.Errorf("member named like a monster at col 23: %q", got)
 	}
-	// Chinese longer than the name (one cell per rune, • counts): English.
+	// Chinese longer than the name (spec 039 half units: • is one): English.
 	w = battleWatcher(t)
 	nicole := partyRec{seg: 0x5747, off: 2, name: "HIM"}
 	p3, _ := ReadPartySnapshot(partyMem(1, nicole), testDS)
-	battleEntry(w, nicole, 1, 23, "HIM", p3) // 希姆 = 2 ≤ 3: drawn
-	if got, _ := drawn(w, 1); got != "希姆 " {
+	battleEntry(w, nicole, 1, 23, "HIM", p3) // 希姆 = 4 ≤ 6 units: drawn
+	if got, _ := drawn(w, 1); got != pad("希姆", 3) {
 		t.Errorf("fits: %q", got)
 	}
 	short := partyRec{seg: 0x5747, off: 2, name: "PORT"}
 	p4, _ := ReadPartySnapshot(partyMem(1, short), testDS)
 	w = battleWatcher(t)
 	w.SetPlayerNames(NewPlayerNames(fakeTranslit{"PORT": "波特蘭德"}, nil))
-	battleEntry(w, short, 1, 23, "PORT", p4) // 4 ≤ 4
+	battleEntry(w, short, 1, 23, "PORT", p4) // 8 ≤ 8 units
 	w.SetPlayerNames(NewPlayerNames(fakeTranslit{"PORT": "波特•蘭德"}, nil))
-	battleEntry(w, short, 2, 23, "PORT", p4) // 5 > 4
+	battleEntry(w, short, 2, 23, "PORT", p4) // 9 > 8 units
 	if _, ok := drawn(w, 1); !ok {
 		t.Error("4 cells in 4 not drawn")
 	}
@@ -471,20 +473,22 @@ func TestEclPlayerNameContinuationAndFallback(t *testing.T) {
 		t.Fatalf("in sentence: %+v", p)
 	}
 
-	// Three tiers in a narrow window (10 columns × 1 row).
+	// Three tiers in a narrow window (9 columns × 1 row = 18 half units,
+	// spec 039).
 	narrow := func(s string, clear bool, col uint8) EclTextEntry {
 		e := eclPlayerEntry(s, clear, col, 17, ctx)
-		e.Left, e.Right, e.Top, e.Bottom = 1, 10, 17, 17
+		e.Left, e.Right, e.Top, e.Bottom = 1, 9, 17, 17
 		return e
 	}
-	// 弗拉維烏斯(FLAVIUS) = 14 > 10 → 弗拉維烏斯 (5).
+	// 弗拉維烏斯(FLAVIUS) = 19 units > 18 → 弗拉維烏斯 (10).
 	w = eclPlayerWatcher(t)
 	w.ObserveEntry(narrow("FLAVIUS", true, 1))
 	if got := lastLine(w.Page()); got != "弗拉維烏斯" || w.Stats.PlayerNameChineseOnly != 1 || w.Stats.PlayerNames != 1 {
 		t.Fatalf("chinese only: %q %+v", got, w.Stats)
 	}
-	// Continuation at column 7 on a page: Chinese (5) does not fit in 4 of
-	// one row either → the English passthrough (which does not fit → overflow).
+	// Continuation after 一二三四五六 (12 units) on a page: Chinese (10) does not
+	// fit in the 6 units left either → the English passthrough (7, which does
+	// not fit → overflow).
 	w = eclPlayerWatcher(t, "ABCDEF", "一二三四五六")
 	e = narrow("ABCDEF", true, 1)
 	e.Player = nil
@@ -495,7 +499,7 @@ func TestEclPlayerNameContinuationAndFallback(t *testing.T) {
 		t.Fatalf("english fallback overflow: %+v", w.Stats)
 	}
 	// English fits where Chinese does not (short Latin name, long Chinese):
-	// after 一二 there are 8 cells, 塞… needs 9, CELESTE 7.
+	// after 一二 there are 14 units, 塞… needs 18, CELESTE 7.
 	w = eclPlayerWatcher(t, "AB", "一二")
 	w.SetPlayerNames(NewPlayerNames(fakeTranslit{"CELESTE": "塞萊絲特塞萊絲特塞"}, nil))
 	e = narrow("AB", true, 1)
@@ -510,7 +514,7 @@ func TestEclPlayerNameContinuationAndFallback(t *testing.T) {
 	}
 	// Fresh page, nothing fits: the original English shows (no page).
 	w = eclPlayerWatcher(t)
-	w.SetPlayerNames(NewPlayerNames(fakeTranslit{"CELESTE": "塞萊絲特塞萊絲特塞萊絲"}, nil)) // 11 cells
+	w.SetPlayerNames(NewPlayerNames(fakeTranslit{"CELESTE": "塞萊絲特塞萊絲特塞萊絲"}, nil)) // 22 units
 	w.ObserveEntry(narrow("CELESTE", true, 1))
 	if w.Page() != nil || w.Stats.PlayerNameEnglish != 1 {
 		t.Fatalf("fresh english: %+v", w.Stats)

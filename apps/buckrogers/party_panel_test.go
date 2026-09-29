@@ -38,8 +38,9 @@ func lineAt(w *EngineDispatchWatcher, row uint8) (EngineDispatchLine, bool) {
 	return EngineDispatchLine{}, false
 }
 
+// pad is s padded to n cells (2n half units, spec 039 §3.1).
 func pad(s string, n int) string {
-	return s + strings.Repeat(" ", n-len([]rune(s)))
+	return string(padUnits([]rune(s), 2*n))
 }
 
 func TestPartyPanelTable(t *testing.T) {
@@ -48,20 +49,22 @@ func TestPartyPanelTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Spec 039: 弗拉維烏斯(FLAVIUS) is 19 half units = 10 cells.
 	cases := []struct {
 		row, col uint8
 		want     string // "" = not drawn
+		width    int
 	}{
-		{4, 17, pad("弗拉維烏斯", 7)},          // party column: Chinese only
-		{9, 17, pad("弗拉維烏斯", 7)},          // last table row
-		{4, 1, "弗拉維烏斯(FLAVIUS)"},         // full-width table
-		{9, 1, "弗拉維烏斯(FLAVIUS)"},         //
-		{1, 8, "弗拉維烏斯(FLAVIUS)"},         // character sheet title
-		{3, 17, ""}, {10, 17, ""}, {3, 1, ""}, // rows outside the table
-		{1, 1, ""},                            // item page title (then 2391 's)
-		{2, 8, ""},                            // sheet column on another row
-		{4, 4, ""},                            // training confirm page column 4
-		{4, 2, ""},                            //
+		{4, 17, "弗拉維烏斯", 7},                            // party column: Chinese only
+		{9, 17, "弗拉維烏斯", 7},                            // last table row
+		{4, 1, "弗拉維烏斯(FLAVIUS)", 10},                   // full-width table
+		{9, 1, "弗拉維烏斯(FLAVIUS)", 10},                   //
+		{1, 8, "弗拉維烏斯(FLAVIUS)", 10},                   // character sheet title
+		{3, 17, "", 0}, {10, 17, "", 0}, {3, 1, "", 0}, // rows outside the table
+		{1, 1, "", 0}, // item page title (then 2391 's)
+		{2, 8, "", 0}, // sheet column on another row
+		{4, 4, "", 0}, // training confirm page column 4
+		{4, 2, "", 0}, //
 	}
 	for _, caller := range partyPanelCallers {
 		for _, c := range cases {
@@ -74,7 +77,7 @@ func TestPartyPanelTable(t *testing.T) {
 				}
 				continue
 			}
-			if !ok || string(l.Text) != c.want || int(l.Width) != len([]rune(c.want)) || l.Col != c.col {
+			if !ok || string(l.Text) != pad(c.want, c.width) || int(l.Width) != c.width || l.Col != c.col {
 				t.Errorf("%v r%d c%d: %+v want %q", caller, c.row, c.col, l, c.want)
 			}
 		}
@@ -145,9 +148,9 @@ func TestPartyPanelShortPadsOriginalCells(t *testing.T) {
 	if !ok || l.Width != 13 || string(l.Text) != pad("妮可", 13) || l.BG != 0 || l.FG != 12 {
 		t.Fatalf("short: %+v", l)
 	}
-	// The padding cells are drawn with the call's background.
+	// The padding cells (U+3000, spec 039 §3.1) are drawn with the call's background.
 	p := w.Page()
-	if len(p.Rows[0].Cells) != 13 || p.Rows[0].Cells[12].BG != 0 || p.Rows[0].Cells[12].Rune != ' ' {
+	if p.Rows[0].Units() != 26 || p.Rows[0].Cells[12].BG != 0 || p.Rows[0].Cells[12].Rune != '　' {
 		t.Fatalf("cells: %+v", p.Rows[0].Cells)
 	}
 }
@@ -157,21 +160,25 @@ func TestPartyPanelBoundaries(t *testing.T) {
 		name, zh string
 		row, col uint8
 		want     string // "" = English
+		width    int    // cells covered
 	}
 	n15 := "ABCDEFGHIJKLMNO"
+	// Spec 039 §3.4: available cells × 2 half units; the line covers
+	// ⌈units/2⌉ cells (at least the original length).
 	cases := []tc{
-		// Party column (17 cells, col 17–33): Chinese only.
-		{"AB", strings.Repeat("甲", 17), 4, 17, strings.Repeat("甲", 17)},
-		{"AB", strings.Repeat("甲", 18), 4, 17, ""},
-		// Full-width table (33 cells, col 1–33).
-		{n15, strings.Repeat("甲", 16), 5, 1, strings.Repeat("甲", 16) + "(" + n15 + ")"}, // 33
-		{n15, strings.Repeat("甲", 17), 5, 1, strings.Repeat("甲", 17)},                  // 34 → Chinese only
-		{"AB", strings.Repeat("甲", 34), 5, 1, ""},                                       // neither fits
-		// Character sheet title (20 cells, col 8–27).
-		{"ABCDEFGHIJKL", strings.Repeat("甲", 6), 1, 8, strings.Repeat("甲", 6) + "(ABCDEFGHIJKL)"}, // 20
-		{"ABCDEFGHIJKL", strings.Repeat("甲", 7), 1, 8, strings.Repeat("甲", 7) + "     "},          // 21 → Chinese only, padded to 12
-		{"AB", strings.Repeat("甲", 20), 1, 8, strings.Repeat("甲", 20)},                            // Chinese only = 20
-		{"AB", strings.Repeat("甲", 21), 1, 8, ""},
+		// Party column (17 cells = 34 units, col 17–33): Chinese only.
+		{"AB", strings.Repeat("甲", 17), 4, 17, strings.Repeat("甲", 17), 17},
+		{"AB", strings.Repeat("甲", 18), 4, 17, "", 0},
+		// Full-width table (33 cells = 66 units, col 1–33).
+		{n15, strings.Repeat("甲", 24), 5, 1, strings.Repeat("甲", 24) + "(" + n15 + ")", 33}, // 65 units
+		{n15, strings.Repeat("甲", 25), 5, 1, strings.Repeat("甲", 25), 25},                   // 67 → Chinese only
+		{"AB", strings.Repeat("甲", 34), 5, 1, "", 0},                                        // neither fits
+		// Character sheet title (20 cells = 40 units, col 8–27).
+		{"ABCDEFGHIJKL", strings.Repeat("甲", 13), 1, 8, strings.Repeat("甲", 13) + "(ABCDEFGHIJKL)", 20}, // 40
+		{"ABCDEFGHIJKL", strings.Repeat("甲", 14), 1, 8, strings.Repeat("甲", 14), 14},                    // 42 → Chinese only
+		{"ABCDEFGHIJKL", strings.Repeat("甲", 5), 1, 8, strings.Repeat("甲", 5) + "(ABCDEFGHIJKL)", 12},   // 24 = original
+		{"AB", strings.Repeat("甲", 20), 1, 8, strings.Repeat("甲", 20), 20},                              // Chinese only = 40
+		{"AB", strings.Repeat("甲", 21), 1, 8, "", 0},
 	}
 	for _, c := range cases {
 		rec := partyRec{seg: 0x5747, off: 2, name: c.name}
@@ -186,7 +193,7 @@ func TestPartyPanelBoundaries(t *testing.T) {
 			}
 			continue
 		}
-		if !ok || string(l.Text) != c.want || int(l.Width) != len([]rune(c.want)) {
+		if !ok || string(l.Text) != pad(c.want, c.width) || int(l.Width) != c.width {
 			t.Errorf("%s/%d r%d c%d: %q want %q", c.name, len([]rune(c.zh)), c.row, c.col, string(l.Text), c.want)
 		}
 	}
@@ -200,10 +207,10 @@ func TestPartyPanelExtensionEntryCheck(t *testing.T) {
 		m[0xA0000+uint32((row*8+3)*320+col*8+5)] = 7
 		return m
 	}
-	// Sheet: full needs cells 15–21 background; one dirty pixel at col 18
-	// steps down to Chinese only (5 ≤ 7 original cells).
+	// Sheet: full (19 half units = 10 cells) needs cells 15–17 background;
+	// one dirty pixel at col 16 steps down to Chinese only (10 ≤ 14 units).
 	w := panelWatcher(t, nil)
-	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, dirty(1, 18))
+	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, dirty(1, 16))
 	if l, _ := lineAt(w, 1); string(l.Text) != pad("弗拉維烏斯", 7) || l.Width != 7 {
 		t.Errorf("dirty extension: %+v", l)
 	}
@@ -212,8 +219,8 @@ func TestPartyPanelExtensionEntryCheck(t *testing.T) {
 	}
 	// A dirty pixel outside the cells the display needs does not matter.
 	w = panelWatcher(t, nil)
-	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, dirty(1, 22))
-	if l, _ := lineAt(w, 1); string(l.Text) != "弗拉維烏斯(FLAVIUS)" {
+	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, dirty(1, 18))
+	if l, _ := lineAt(w, 1); string(l.Text) != pad("弗拉維烏斯(FLAVIUS)", 10) {
 		t.Errorf("clean needed cells: %+v", l)
 	}
 	// No A000 reader: the check fails.
@@ -229,7 +236,7 @@ func TestPartyPanelExtensionEntryCheck(t *testing.T) {
 	m2[0xA0000+uint32((4*8)*320+19*8)] = 1 // col 19 on row 4 (party column)
 	w = panelWatcher(t, fakeTranslit{"AB": "甲乙丙"})
 	panelEntry(w, partyNameCaller, short, 4, 17, 11, "AB", p2, m2)
-	panelEntry(w, partyNameCaller, short, 4, 1, 13, "AB", p2, m2) // full needs 1–7, col 3 clean? row 4 col 19 only
+	panelEntry(w, partyNameCaller, short, 4, 1, 13, "AB", p2, m2) // full (10 units) needs cells 3–5; dirty only at col 19
 	if l, ok := lineAt(w, 4); !ok || l.Col != 1 || string(l.Text) != "甲乙丙(AB)" {
 		t.Errorf("full-width with far dirty cell: %+v", l)
 	}
@@ -295,14 +302,14 @@ func TestPartyPanelExtensionInvalidation(t *testing.T) {
 	party, _ := ReadPartySnapshot(mem, testDS)
 	at := func(row, col int) uint32 { return uint32((row*8+2)*320 + col*8 + 1) }
 	w := panelWatcher(t, nil)
-	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, mem) // cols 8–21
+	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, mem) // cols 8–17 (spec 039)
 	// Writes during the call do not count; after the call a write in the
-	// extension cells (col 21) removes the line, a write at col 22 does not.
-	w.ObserveVideoWrite(at(1, 22))
+	// extension cells (col 17) removes the line, a write at col 18 does not.
+	w.ObserveVideoWrite(at(1, 18))
 	if len(w.Lines()) != 1 {
 		t.Fatal("write outside the line removed it")
 	}
-	w.ObserveVideoWrite(at(1, 21))
+	w.ObserveVideoWrite(at(1, 17))
 	if len(w.Lines()) != 0 {
 		t.Fatal("write in the extension cells kept the line")
 	}
@@ -310,7 +317,7 @@ func TestPartyPanelExtensionInvalidation(t *testing.T) {
 	// cells only overlap the extension also drops it.
 	panelEntry(w, partyNameCaller, recFlavius, 1, 8, 11, "FLAVIUS", party, mem)
 	w.ObserveEntryParty(CodeKey{Unit: 0x2BA60, Offset: 0x235A}, 1, 0x100, Address{0x1C41, 0x235A},
-		[6]uint16{0x10, 0x3F00, 0, 11, 1, 20}, []byte("X"), party, mem)
+		[6]uint16{0x10, 0x3F00, 0, 11, 1, 16}, []byte("X"), party, mem)
 	if _, ok := lineAt(w, 1); ok {
 		t.Fatal("entry over the extension kept the line")
 	}

@@ -99,6 +99,56 @@ type HMenuCell struct {
 type HMenuRow struct {
 	Row, Col uint8
 	Cells    []HMenuCell // from Col to column 39
+	// Pos is each cell's offset from Col in half units (spec 039 §3.3); a
+	// nil Pos means every cell is one full cell (older callers).
+	Pos []int
+}
+
+// UnitPos is the half-unit offset of cell i from Col.
+func (r HMenuRow) UnitPos(i int) int {
+	if r.Pos != nil {
+		return r.Pos[i]
+	}
+	return 2 * i
+}
+
+// Units is the row width in half units.
+func (r HMenuRow) Units() int {
+	if len(r.Cells) == 0 {
+		return 0
+	}
+	if r.Pos == nil {
+		return 2 * len(r.Cells)
+	}
+	last := len(r.Cells) - 1
+	return r.Pos[last] + runeUnits(r.Cells[last].Rune)
+}
+
+// WidthCells is the number of 8×8 cells the row covers.
+func (r HMenuRow) WidthCells() int { return cellsForUnits(r.Units()) }
+
+// newHMenuRow fills Pos from the cells' widths.
+func newHMenuRow(row, col uint8, cells []HMenuCell) HMenuRow {
+	pos := make([]int, len(cells))
+	u := 0
+	for i, c := range cells {
+		pos[i] = u
+		u += runeUnits(c.Rune)
+	}
+	return HMenuRow{Row: row, Col: col, Cells: cells, Pos: pos}
+}
+
+// padHMenuCells pads cells to target half units with spec 039 §3.1
+// padding in the given colors.
+func padHMenuCells(cells []HMenuCell, target int, bg, fg uint8) []HMenuCell {
+	u := 0
+	for _, c := range cells {
+		u += runeUnits(c.Rune)
+	}
+	for _, r := range appendPadding(nil, u, target) {
+		cells = append(cells, HMenuCell{r, bg, fg})
+	}
+	return cells
 }
 
 // HMenuPage holds one row per original row the menu used ('@' breaks).
@@ -221,14 +271,18 @@ func (w *HMenuWatcher) build(e HMenuEntry) (*HMenuPage, string) {
 		if startCol[i] < 0 {
 			continue
 		}
-		width := 40 - startCol[i]
-		if width <= 0 || len(cells) > width {
+		// Spec 039 §3.4: the row holds 2×(40−start column) half units; the
+		// item separator is one unit.
+		width := 2 * (40 - startCol[i])
+		u := 0
+		for _, c := range cells {
+			u += runeUnits(c.Rune)
+		}
+		if width <= 0 || u > width {
 			return nil, "overflow"
 		}
-		for len(cells) < width {
-			cells = append(cells, HMenuCell{' ', 0, e.Normal})
-		}
-		page.Rows = append(page.Rows, HMenuRow{Row: e.Row + uint8(i), Col: uint8(startCol[i]), Cells: cells})
+		cells = padHMenuCells(cells, width, 0, e.Normal)
+		page.Rows = append(page.Rows, newHMenuRow(e.Row+uint8(i), uint8(startCol[i]), cells))
 	}
 	return page, ""
 }

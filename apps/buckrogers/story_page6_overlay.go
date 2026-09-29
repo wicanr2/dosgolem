@@ -13,12 +13,14 @@ type RuntimeStoryPage6Overlay struct {
 	text   map[string]string
 	scale  int
 	active bool
+	half   *xlate.Font // spec 039 half font (8×16 at 2×, 12×24 at 3×)
 }
 
 func NewRuntimeStoryPage6Overlay(text map[string]string, font *xlate.Font, scale int) (*RuntimeStoryPage6Overlay, error) {
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) || len(text) != 6 {
 		return nil, fmt.Errorf("buckrogers: 第 6 頁 presenter 輸入無效")
 	}
+	half := halfFontsOf(font).For(scale)
 	if scale == 3 {
 		base := font.Name
 		font = manualThreeXFont(font)
@@ -35,7 +37,10 @@ func NewRuntimeStoryPage6Overlay(text map[string]string, font *xlate.Font, scale
 			}
 		}
 	}
-	return &RuntimeStoryPage6Overlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, text: text, scale: scale}, nil
+	if err := storyTextCheck(text, segmentFonts{Full: font, Half: half}, 78); err != nil {
+		return nil, fmt.Errorf("buckrogers: 第 6 頁：%w", err)
+	}
+	return &RuntimeStoryPage6Overlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, text: text, scale: scale, half: half}, nil
 }
 func (overlay *RuntimeStoryPage6Overlay) Apply(events []StoryPage6Event, palette [256][3]uint8) error {
 	if overlay == nil || overlay.active || len(events) != 6 {
@@ -53,8 +58,9 @@ func (overlay *RuntimeStoryPage6Overlay) Apply(events []StoryPage6Event, palette
 		seen[event.EventKey] = true
 	}
 	for _, event := range events {
-		offset := manualGlyphOffset(overlay.scale)
-		overlay.layer.Add(&xlate.Stamp{Key: event.EventKey, X: 8, Y: int(event.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: overlay.font, GlyphX: offset, GlyphY: offset, GlyphScale: 1, Text: []rune(overlay.text[event.EventKey]), State: xlate.Shown, BG: palette[0], FG: palette[10]})
+		for _, stamp := range storyRowStamps(event.EventKey, 8, int(event.Row)*8, 39, []rune(overlay.text[event.EventKey]), overlay.storyFonts(), palette[0], palette[10]) {
+			overlay.layer.Add(stamp)
+		}
 	}
 	overlay.active = true
 	return nil
@@ -86,15 +92,22 @@ func (overlay *RuntimeStoryPage6Overlay) ActiveKeys() []string {
 	if overlay == nil {
 		return nil
 	}
-	out := make([]string, 0, len(overlay.layer.Stamps))
-	for _, stamp := range overlay.layer.Stamps {
-		out = append(out, stamp.Key)
-	}
-	return out
+	return dedupRowKeys(overlay.layer.Stamps)
 }
 func (overlay *RuntimeStoryPage6Overlay) PresentationLayer() *xlate.Layer {
 	if overlay == nil {
 		return nil
 	}
 	return overlay.layer
+}
+
+// storyFonts returns the spec 039 segment fonts of this presenter.
+func (overlay *RuntimeStoryPage6Overlay) storyFonts() segmentFonts {
+	off := manualGlyphOffset(overlay.scale)
+	return segmentFonts{Full: overlay.font, FullX: off, FullY: off, FullGlyphScale: 1, Half: overlay.half}
+}
+
+// storyFontsPlain is storyFonts for full cells drawn without an offset.
+func (overlay *RuntimeStoryPage6Overlay) storyFontsPlain() segmentFonts {
+	return segmentFonts{Full: overlay.font, Half: overlay.half}
 }

@@ -674,54 +674,22 @@ func (r *LiveRuntime) genericActive() bool {
 // for a synthetic-hash search.  Production always uses FindOriginalASCII.
 var origASCIIFinder = FindOriginalASCII
 
-// findOriginalASCII implements spec 031 §3.1 and §3.4: search when a generic
-// family has content or (story=true) a story family needs apply, at most once
-// per 60 frames.  On success the generic presenters are rebuilt (§3.1) and
-// every story family switches font in place (§3.4).  A miss keeps the
-// original font and never aborts.
+// findOriginalASCII keeps the spec 031 §3.1 table search (same trigger and
+// 60-frame throttle) for diagnostics only.  Spec 039 §3.6: the original
+// glyphs are no longer used by any overlay family (half-width characters
+// use the half font derived from the unmodified base font), so a hit no
+// longer rebuilds presenters or switches the story fonts.
 func (r *LiveRuntime) findOriginalASCII(v StepReader, story bool) error {
 	if r.asciiFound || r.asciiTry != 0 && r.frameSeen < r.asciiTry-1+60 || !story && !r.genericActive() {
 		return nil
 	}
 	r.asciiTry = r.frameSeen + 1
 	r.asciiScans++
-	table, ok := origASCIIFinder(v, origASCIIScanLimit)
-	if !ok {
+	if _, ok := origASCIIFinder(v, origASCIIScanLimit); !ok {
 		return nil
 	}
 	r.asciiFound = true
 	r.asciiStep = v.Steps()
-	font := OriginalASCIIFont(r.font, table)
-	for _, f := range r.stories {
-		if err := f.setFont(font); err != nil {
-			r.asciiStoryErrs++
-		}
-	}
-	for i, scale := range liveScales {
-		var err error
-		if r.ecl != nil {
-			if r.eclPres[i], err = NewEclTextOverlay(font, scale); err != nil {
-				return err
-			}
-		}
-		if r.hmenu != nil {
-			if r.hmenuPres[i], err = NewHMenuOverlay(font, scale); err != nil {
-				return err
-			}
-		}
-		if r.engDisp != nil {
-			if r.engDispPres[i], err = NewHMenuOverlay(font, scale); err != nil {
-				return err
-			}
-		}
-		if r.logbook != nil {
-			if r.logbookPres[i], err = NewLogbookOverlay(font, scale); err != nil {
-				return err
-			}
-		}
-	}
-	// New presenters start empty: force every generic family to re-sync.
-	r.eclGen, r.hmenuGen, r.engDispGen = 0, 0, 0
 	return nil
 }
 
@@ -1217,8 +1185,9 @@ func (r *LiveRuntime) ComposeWith(indexed []byte, palette [256][3]uint8, scale i
 			}
 			w := 320 * scale
 			for _, row := range keep {
+				// Spec 039 §3.5: the overlay's own cells (incl. 038 extension).
 				for y := int(row.Row) * 8 * scale; y < (int(row.Row)+1)*8*scale; y++ {
-					for x := int(row.Col) * 8 * scale; x < (int(row.Col)+len(row.Cells))*8*scale && x < w; x++ {
+					for x := int(row.Col) * 8 * scale; x < (int(row.Col)+row.WidthCells())*8*scale && x < w; x++ {
 						o := 4 * (y*w + x)
 						c := r.palette[r.indexed[(y/scale)*320+x/scale]]
 						if rgba[o] != c[0] || rgba[o+1] != c[1] || rgba[o+2] != c[2] {
@@ -1257,6 +1226,11 @@ func (r *LiveRuntime) Frames() uint64 { return r.frameSeen }
 // the spec-038 party list shows the player-entered names).
 func (r *LiveRuntime) DebugSummary() string {
 	s := fmt.Sprintf("resets=%v orig-ascii=%v/%d orig-ascii-step=%d ovl-scans=%d ovl-ambiguous=%d", r.Resets(), r.asciiFound, r.asciiScans, r.asciiStep, r.ovl.Scans, r.ovl.Ambiguous)
+	// Spec 039 §3.2: a base font that fails the half-width ink check leaves
+	// the half fonts empty; half characters then count as missing.
+	if h := halfFontsOf(r.font); h.Err != nil {
+		s += " half-font-error=" + h.Err.Error()
+	}
 	if r.asciiStoryErrs != 0 {
 		s += fmt.Sprintf(" orig-ascii-story-errs=%d", r.asciiStoryErrs)
 	}
@@ -1334,7 +1308,7 @@ func (r *LiveRuntime) untouchedRows(out []byte, scale int, p *HMenuPage) []HMenu
 	for _, row := range p.Rows {
 		touched := false
 		for y := int(row.Row) * 8 * scale; y < (int(row.Row)+1)*8*scale && !touched; y++ {
-			for x := int(row.Col) * 8 * scale; x < (int(row.Col)+len(row.Cells))*8*scale && x < w; x++ {
+			for x := int(row.Col) * 8 * scale; x < (int(row.Col)+row.WidthCells())*8*scale && x < w; x++ {
 				c := r.palette[r.indexed[(y/scale)*320+x/scale]]
 				o := (y*w + x) * 4
 				if out[o] != c[0] || out[o+1] != c[1] || out[o+2] != c[2] {

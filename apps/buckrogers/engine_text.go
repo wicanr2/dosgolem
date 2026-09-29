@@ -436,15 +436,20 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 	// Spec 029 §2.6: a table row keeps its last column where it was.
 	if m := engineTableRow.FindStringSubmatch(s); m != nil {
 		front, ok := c.translateLine(m[1])
-		n, last := len([]rune(s)), len(m[3])
+		// Spec 039 §3.4: the row is len(s)×2 half units; the last column
+		// (original digits, half width) is right-aligned to the original
+		// right edge, at least one unit after the Chinese, and the gap is
+		// §3.1 padding.
+		total, last := 2*len(s), len(m[3])
 		if !ok {
 			// §2.6 修訂：前段單獨查不到時，片段可能是含空白的整串。
 			return c.translateLine(s)
 		}
-		if len([]rune(front))+1+last > n {
+		f := stringUnits(front)
+		if f+1+last > total {
 			return "", false
 		}
-		return front + strings.Repeat(" ", n-len([]rune(front))-last) + m[3], true
+		return string(appendPadding([]rune(front), f, total-last)) + m[3], true
 	}
 	return c.translateLine(s)
 }

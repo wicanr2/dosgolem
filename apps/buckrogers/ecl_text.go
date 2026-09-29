@@ -107,7 +107,8 @@ type EclTextEntry struct {
 	Player *EclPlayerContext
 }
 
-// EclTextLine is one laid-out row of Chinese inside the window.
+// EclTextLine is one laid-out row of Chinese inside the window; Col is the
+// first half-unit column (spec 039 §3.4: unit = 4 logical pixels).
 type EclTextLine struct {
 	Row, Col uint8
 	Text     []rune
@@ -123,7 +124,7 @@ type EclTextPage struct {
 	Lines                    []EclTextLine
 	Keys                     []string
 	Gone                     uint32 // rows removed by later original writes (bit = row)
-	endRow, endCol           uint8  // Chinese cursor after the last string
+	endRow, endCol           uint8  // Chinese cursor after the last string (endCol in half units)
 }
 
 // Shows reports whether the page still masks the given row.
@@ -340,16 +341,16 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	var row, col, first, topCol uint8
 	switch {
 	case fresh:
-		row, col, first, topCol = e.Top, e.Left, e.Top, e.Left
+		row, col, first, topCol = e.Top, eclUnitLeft(e.Left), e.Top, e.Left
 	case p == nil:
 		// A continuation after text we did not translate: start where the
 		// original will print and never mask the English above it, nor the
 		// name or English left of the cursor on its row (§3.4 start column).
-		row, col, first, topCol = e.CursorRow, e.CursorCol, e.CursorRow, e.CursorCol
+		row, col, first, topCol = e.CursorRow, eclUnitLeft(e.CursorCol), e.CursorRow, e.CursorCol
 	default:
 		row, col, first, topCol = p.endRow, p.endCol, p.Top, p.TopCol
-		if e.CursorCol == e.Left && col != e.Left {
-			row, col = row+1, e.Left
+		if e.CursorCol == e.Left && col != eclUnitLeft(e.Left) {
+			row, col = row+1, eclUnitLeft(e.Left)
 		}
 		if e.CursorRow < first {
 			first, topCol = e.CursorRow, e.Left
@@ -366,7 +367,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// cursor and continuation state.
 		chosen := -1
 		for i, v := range player {
-			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
+			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
 				chosen = i
 				break
 			}
@@ -384,7 +385,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			}
 			text, key = string(e.Original), "passthrough"
 			w.Stats.Passthrough++
-			lines, endRow, endCol, fits = layoutEclText([]rune(text), row, col, e.Left, e.Right, e.Bottom)
+			lines, endRow, endCol, fits = layoutEclText([]rune(text), row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
 		}
 	} else {
 		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
@@ -395,7 +396,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// layout is pure, so a failed try changes nothing (spec 036 §3.3).
 		var tier NameTier
 		for i, v := range variants {
-			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, e.Left, e.Right, e.Bottom); fits {
+			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
 				if i > 0 {
 					tier = v.Tier
 				}
@@ -466,6 +467,8 @@ func (w *EclTextWatcher) ObserveDiscontinuity() {
 
 // layoutEclText places text from (row,col) inside [left,right]×[..bottom].
 // Latin/digit runs stay together; closing punctuation never starts a line.
+// Columns are half units (spec 039 §3.4): left and right are inclusive unit
+// columns, and the returned lines and end column are in units.
 func layoutEclText(text []rune, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
 	return layoutEclTextUnits(text, nil, row, col, left, right, bottom)
 }
@@ -486,7 +489,7 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 				j++
 			}
 			tok := text[i:j]
-			if len(tok) <= width {
+			if textUnits(tok) <= width {
 				tokens = append(tokens, tok)
 			} else {
 				// Break before each space inside the unit; the space leads
@@ -524,7 +527,7 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 	cur := EclTextLine{Row: row, Col: col}
 	used := int(col) - int(left)
 	for _, t := range tokens {
-		if used+len(t) > width && used > 0 {
+		if used+textUnits(t) > width && used > 0 {
 			for len(cur.Text) > 0 && cur.Text[len(cur.Text)-1] == ' ' {
 				cur.Text = cur.Text[:len(cur.Text)-1]
 			}
@@ -538,11 +541,11 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 				t = t[1:]
 			}
 		}
-		if row > bottom || len(t) > width {
+		if row > bottom || textUnits(t) > width {
 			return nil, 0, 0, false
 		}
 		cur.Text = append(cur.Text, t...)
-		used += len(t)
+		used += textUnits(t)
 	}
 	if len(cur.Text) > 0 {
 		lines = append(lines, cur)
@@ -553,6 +556,11 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 	}
 	return lines, row, end, true
 }
+
+// eclUnitLeft and eclUnitRight convert an inclusive window column range in
+// 8×8 cells to inclusive half-unit columns (spec 039 §3.4).
+func eclUnitLeft(c uint8) uint8  { return c * 2 }
+func eclUnitRight(c uint8) uint8 { return c*2 + 1 }
 
 func isEclLatin(r rune) bool {
 	return r < 0x80 && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '\'' || r == '-')

@@ -70,7 +70,7 @@ func TestEclTextHitReturnAndInvalidation(t *testing.T) {
 	w.ObserveEntry(eclEntry("UNKNOWN", false, 12, 17))
 	p = w.Page()
 	if p == nil || w.Stats.Misses != 1 || w.Stats.Passthrough != 1 || len(p.Lines) != 2 ||
-		string(p.Lines[1].Text) != "UNKNOWN" || p.Lines[1].Row != 17 || p.Lines[1].Col != 5 {
+		string(p.Lines[1].Text) != "UNKNOWN" || p.Lines[1].Row != 17 || p.Lines[1].Col != 10 { // spec 039: half units
 		t.Fatalf("passthrough: %+v", p)
 	}
 	// An untranslated fresh window is left alone.
@@ -139,13 +139,13 @@ func TestEclTextContinuationAndReentry(t *testing.T) {
 	w.ObserveEntry(eclEntry("C D", false, 1, 21))
 	ret()
 	p := w.Page()
-	if len(p.Lines) != 2 || p.Lines[1].Row != 18 || p.Lines[1].Col != 1 || p.Top != 17 {
+	if len(p.Lines) != 2 || p.Lines[1].Row != 18 || p.Lines[1].Col != 2 || p.Top != 17 { // spec 039: half units
 		t.Fatalf("left-column continuation: %+v", p.Lines)
 	}
 	// Mid-line cursor: Chinese continues on the same row.
 	w.ObserveEntry(eclEntry("E F", false, 9, 21))
 	p = w.Page()
-	if len(p.Lines) != 3 || p.Lines[2].Row != 18 || p.Lines[2].Col != 3 {
+	if len(p.Lines) != 3 || p.Lines[2].Row != 18 || p.Lines[2].Col != 6 {
 		t.Fatalf("mid-line continuation: %+v", p.Lines)
 	}
 	w.ObserveEntry(eclEntry("A B", true, 1, 17))
@@ -170,11 +170,12 @@ func TestEclTextOverflowAndBadWindow(t *testing.T) {
 }
 
 func TestLayoutEclTextKeepsLatinAndPunctuation(t *testing.T) {
-	lines, _, _, ok := layoutEclText([]rune("一二三 NEO。四"), 17, 1, 1, 5, 22)
+	// Spec 039: columns are half units; units 2–11 are cells 1–5.
+	lines, _, _, ok := layoutEclText([]rune("一二三 NEO。四"), 17, 2, 2, 11, 22)
 	if !ok || len(lines) != 2 || string(lines[1].Text) != "NEO。四" || string(lines[0].Text) != "一二三" {
 		t.Fatalf("%q", lines)
 	}
-	lines, _, _, ok = layoutEclText([]rune("一二三四五。"), 17, 1, 1, 5, 22)
+	lines, _, _, ok = layoutEclText([]rune("一二三四五。"), 17, 2, 2, 11, 22)
 	if !ok || string(lines[1].Text) != "五。" {
 		t.Fatalf("closing punctuation led a line: %q", lines)
 	}
@@ -185,21 +186,23 @@ func TestEclTextContinuationAfterUntranslatedKeepsEnglishAbove(t *testing.T) {
 	w.ObserveEntry(eclEntry("A B", true, 1, 17))
 	w.ObserveEntry(eclEntry("CC DD", false, 1, 21))
 	p := w.Page()
-	if p == nil || p.Top != 21 || p.Lines[0].Row != 21 || p.Lines[0].Col != 1 {
+	if p == nil || p.Top != 21 || p.Lines[0].Row != 21 || p.Lines[0].Col != 2 {
 		t.Fatalf("continuation after miss must start at the original cursor: %+v", p)
 	}
 }
 
 // Spec 027 §3.1 (2026-09-27): tier-2 short pieces join a Chinese page.
 func TestEclTextShortPieces(t *testing.T) {
-	ret := func(w *EclTextWatcher) { w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta) }
+	ret := func(w *EclTextWatcher) {
+		w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta)
+	}
 	w := NewEclTextWatcher(eclFixture(t, "FROM THE ", "來自", "BELOW", "下方"))
 	w.ObserveEntry(eclEntry("FROM THE ", true, 1, 17))
 	ret(w)
 	w.ObserveEntry(eclEntry("BELOW", false, 10, 17))
 	ret(w)
 	p := w.Page()
-	if p == nil || len(p.Lines) != 2 || p.Lines[1].Row != 17 || p.Lines[1].Col != 3 || p.endCol != 5 {
+	if p == nil || len(p.Lines) != 2 || p.Lines[1].Row != 17 || p.Lines[1].Col != 6 || p.endCol != 10 {
 		t.Fatalf("piece after page: %+v", p)
 	}
 	// A fresh page (clear flag) takes a short piece normally.
@@ -212,7 +215,9 @@ func TestEclTextShortPieces(t *testing.T) {
 
 // Spec 027 §3.4 start column (Issue #26).
 func TestEclTextStartColumn(t *testing.T) {
-	ret := func(w *EclTextWatcher) { w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta) }
+	ret := func(w *EclTextWatcher) {
+		w.ObserveInstruction(Address{0x2E13, 0x0B79}, 0x1841, 0x3D00+eclTextReturnDelta)
+	}
 	// No page, cursor mid-row after an untranslated name: the page starts at
 	// the cursor column and the name cells stay unmasked.
 	w := NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。", "AND THEN IT GOES ON AND ON AND ON", "然後一直一直一直一直一直一直一直一直一直一直一直一直一直一直一直一直繼續下去"))
@@ -220,7 +225,7 @@ func TestEclTextStartColumn(t *testing.T) {
 	w.ObserveEntry(eclEntry(" ATTACKS.", false, 8, 17))
 	ret(w)
 	p := w.Page()
-	if p == nil || p.Top != 17 || p.TopCol != 8 || p.Lines[0].Col != 8 {
+	if p == nil || p.Top != 17 || p.TopCol != 8 || p.Lines[0].Col != 16 {
 		t.Fatalf("no-page short piece: %+v", p)
 	}
 	// Writes left of the start column leave the page; to its right remove the row.
@@ -232,7 +237,7 @@ func TestEclTextStartColumn(t *testing.T) {
 	w.ObserveEntry(eclEntry("AND THEN IT GOES ON AND ON AND ON", false, 17, 17))
 	ret(w)
 	p = w.Page()
-	if p.TopCol != 8 || p.Lines[len(p.Lines)-1].Row != 18 || p.Lines[len(p.Lines)-1].Col != 1 {
+	if p.TopCol != 8 || p.Lines[len(p.Lines)-1].Row != 18 || p.Lines[len(p.Lines)-1].Col != 2 {
 		t.Fatalf("continuation: %+v", p)
 	}
 	w.ObserveVideoWrite(17*8*320 + 20*8)
@@ -270,7 +275,7 @@ func TestEclTextStartColumn(t *testing.T) {
 	w = NewEclTextWatcher(eclFixture(t, " ATTACKS.", "發動攻擊。"))
 	w.ObserveEntry(eclEntry("NAME", true, 1, 17))
 	w.ObserveEntry(eclEntry(" ATTACKS.", false, 38, 17))
-	if p := w.Page(); p == nil || p.TopCol != 38 || p.Top != 17 || p.Lines[0].Row != 17 || p.Lines[1].Row != 18 || p.Lines[1].Col != 1 {
+	if p := w.Page(); p == nil || p.TopCol != 38 || p.Top != 17 || p.Lines[0].Row != 17 || p.Lines[1].Row != 18 || p.Lines[1].Col != 2 {
 		t.Fatalf("right-column cursor: %+v", p)
 	}
 }

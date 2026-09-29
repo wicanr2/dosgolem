@@ -12,12 +12,14 @@ type RuntimeStoryOpeningOverlay struct {
 	text   map[string]string
 	scale  int
 	active bool
+	half   *xlate.Font // spec 039 half font (8×16 at 2×, 12×24 at 3×)
 }
 
 func NewRuntimeStoryOpeningOverlay(text map[string]string, font *xlate.Font, scale int) (*RuntimeStoryOpeningOverlay, error) {
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) || len(text) != 5 {
 		return nil, fmt.Errorf("buckrogers: 首屏 presenter 輸入無效")
 	}
+	half := halfFontsOf(font).For(scale)
 	if scale == 3 {
 		baseName := font.Name
 		font = manualThreeXFont(font)
@@ -37,7 +39,10 @@ func NewRuntimeStoryOpeningOverlay(text map[string]string, font *xlate.Font, sca
 			}
 		}
 	}
-	return &RuntimeStoryOpeningOverlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, text: text, scale: scale}, nil
+	if err := storyTextCheck(text, segmentFonts{Full: font, Half: half}, 78); err != nil {
+		return nil, fmt.Errorf("buckrogers: 首屏：%w", err)
+	}
+	return &RuntimeStoryOpeningOverlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, text: text, scale: scale, half: half}, nil
 }
 func (o *RuntimeStoryOpeningOverlay) Apply(events []StoryOpeningEvent, p [256][3]uint8) error {
 	if o == nil || o.active || len(events) != 5 {
@@ -62,8 +67,9 @@ func (o *RuntimeStoryOpeningOverlay) Apply(events []StoryOpeningEvent, p [256][3
 	// never leave a visible prefix when the caller handles the error.
 	for _, e := range events {
 		s := o.text[e.EventKey]
-		off := manualGlyphOffset(o.scale)
-		o.layer.Add(&xlate.Stamp{Key: e.EventKey, X: 8, Y: int(e.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: []rune(s), State: xlate.Shown, BG: p[0], FG: p[10]})
+		for _, stamp := range storyRowStamps(e.EventKey, 8, int(e.Row)*8, 39, []rune(s), o.storyFonts(), p[0], p[10]) {
+			o.layer.Add(stamp)
+		}
 	}
 	o.active = true
 	return nil
@@ -102,11 +108,7 @@ func (o *RuntimeStoryOpeningOverlay) ActiveKeys() []string {
 	if o == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(o.layer.Stamps))
-	for _, stamp := range o.layer.Stamps {
-		keys = append(keys, stamp.Key)
-	}
-	return keys
+	return dedupRowKeys(o.layer.Stamps)
 }
 
 // PresentationLayer 回傳給 host presenter 的 active 輸出端 layer。呼叫端只能
@@ -120,4 +122,15 @@ func (o *RuntimeStoryOpeningOverlay) PresentationLayer() *xlate.Layer {
 		return nil
 	}
 	return o.layer
+}
+
+// storyFonts returns the spec 039 segment fonts of this presenter.
+func (o *RuntimeStoryOpeningOverlay) storyFonts() segmentFonts {
+	off := manualGlyphOffset(o.scale)
+	return segmentFonts{Full: o.font, FullX: off, FullY: off, FullGlyphScale: 1, Half: o.half}
+}
+
+// storyFontsPlain is storyFonts for full cells drawn without an offset.
+func (o *RuntimeStoryOpeningOverlay) storyFontsPlain() segmentFonts {
+	return segmentFonts{Full: o.font, Half: o.half}
 }

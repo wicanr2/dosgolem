@@ -13,6 +13,7 @@ type storyASCIIState struct {
 	// Step 是取得成功的 step（未取得為 0）。
 	Step uint64 `json:"step,omitempty"`
 	// Presenters 是成功換字型的劇情 presenter 數；SetFontErrors 是失敗而沿用原字型的數。
+	// 規格 039 §3.6 起不再換字型，兩者恆為 0（欄位保留供舊收據比對）。
 	Presenters    int `json:"presenters,omitempty"`
 	SetFontErrors int `json:"set_font_errors,omitempty"`
 

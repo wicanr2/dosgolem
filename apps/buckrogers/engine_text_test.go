@@ -195,7 +195,8 @@ func TestEngineTableRowKeepsLastColumn(t *testing.T) {
 	c := engineFixture(t)
 	in := "Laser Pistol (10)                  335"
 	zh, ok := c.Translate(in)
-	if !ok || len([]rune(zh)) != len(in) || !strings.HasPrefix(zh, "雷射手槍 (10) ") || !strings.HasSuffix(zh, " 335") {
+	// Spec 039 §3.4: the row is len(in)×2 half units, the last column right-aligned.
+	if !ok || stringUnits(zh) != 2*len(in) || !strings.HasPrefix(zh, "雷射手槍 (10) ") || !strings.HasSuffix(zh, " 335") {
 		t.Fatalf("table row: %q %v", zh, ok)
 	}
 	// A front that cannot be translated, and no whole-string fragment: English.
@@ -378,7 +379,7 @@ func TestEngineDispatchWrappedFragment(t *testing.T) {
 	for _, c := range p.Rows[1].Cells {
 		second += string(c.Rune)
 	}
-	if strings.TrimRight(first, " ") != "沒有人的傷勢獲得成功治療。" || strings.TrimSpace(second) != "" {
+	if strings.TrimRight(first, " 　") != "沒有人的傷勢獲得成功治療。" || strings.Trim(second, " 　") != "" {
 		t.Fatalf("whole sentence fits the first row: %q | %q", first, second)
 	}
 

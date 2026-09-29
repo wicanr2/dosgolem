@@ -22,6 +22,10 @@ func storyFontBase() *xlate.Font {
 		g := make([]byte, 32)
 		for i := range g {
 			g[i] = byte(r) ^ byte(i*7) | 0x18
+			// 規格 039 §3.2：半形字墨跡只在第 4–11 欄。
+			if isHalfwidth(r) {
+				g[i] &= [2]byte{0x0F, 0xF0}[i%2]
+			}
 		}
 		f.Glyphs[r] = g
 	}
@@ -202,9 +206,10 @@ func storyPresentersUT() []storyPresenterUT {
 	}
 }
 
-// §5.4：SetFont 後 layer 指標、stamp 數不變，stamp 改用新字型，Draw 等同以新字型建構並
-// Apply 的 presenter；3× 依各頁既有規則衍生（第 4 頁不衍生）。
-func TestStorySetFontKeepsLayerAndDrawsNewFont(t *testing.T) {
+// 規格 039 §3.6（取代 031 §3.4）：劇情家族的半形字一律用底字型衍生的半形字型。
+// SetFont 只換全形段字型：layer 指標、stamp 數與身分不變，半形段仍指向建構時的
+// 半形字型；以 `.orig-ascii` 字型呼叫時畫面不變（原版字形不再進入畫面）。
+func TestStorySetFontKeepsHalfSegments(t *testing.T) {
 	base := storyFontBase()
 	orig := OriginalASCIIFont(base, syntheticTable())
 	for _, ut := range storyPresentersUT() {
@@ -218,59 +223,31 @@ func TestStorySetFontKeepsLayerAndDrawsNewFont(t *testing.T) {
 			if err := ut.apply(p); err != nil {
 				t.Fatalf("%s apply: %v", name, err)
 			}
-			// 取得前：presenter 用原字型（ASCII 為底字型字模）。
 			before := ut.draw(p)
-			wantBefore := ut.font(p).Glyphs['A']
-			if scale == 2 || ut.page == "page4" {
-				if !bytes.Equal(wantBefore, base.Glyphs['A']) {
-					t.Fatalf("%s: 取得前字型不是底字型", name)
-				}
-			}
 			layer := ut.layer(p)
 			stamps := append([]*xlate.Stamp(nil), layer.Stamps...)
+			half := HalfFontsOf(base).For(scale)
+			if half == nil || len(dedupRowKeys(stamps)) != ut.lines {
+				t.Fatalf("%s: 半形字型 %v 或列數 %d", name, half, len(dedupRowKeys(stamps)))
+			}
 			if err := ut.set(p, orig); err != nil {
 				t.Fatalf("%s SetFont: %v", name, err)
 			}
-			if ut.layer(p) != layer || len(layer.Stamps) != len(stamps) || len(stamps) != ut.lines {
+			if ut.layer(p) != layer || len(layer.Stamps) != len(stamps) {
 				t.Fatalf("%s: layer 或 stamp 數改變", name)
 			}
 			nf := ut.font(p)
 			for i, s := range layer.Stamps {
-				if s != stamps[i] || s.Font != nf {
+				want := nf
+				if s.CellW == halfUnitPx {
+					want = half
+				}
+				if s != stamps[i] || s.Font != want {
 					t.Fatalf("%s: stamp %d 身分或字型不對", name, i)
 				}
 			}
-			// 各頁倍率規則。
-			switch {
-			case scale == 2 || ut.page == "page4":
-				if nf.W != 16 || !bytes.Equal(nf.Glyphs['A'], orig.Glyphs['A']) || !bytes.Equal(nf.Glyphs['中'], base.Glyphs['中']) {
-					t.Fatalf("%s: 16×16 字型不是 .orig-ascii 基底", name)
-				}
-			default:
-				want := manualThreeXFont(orig)
-				if nf.W != 22 || !bytes.Equal(nf.Glyphs['A'], want.Glyphs['A']) || !bytes.Equal(nf.Glyphs['中'], want.Glyphs['中']) {
-					t.Fatalf("%s: 3× 衍生不符既有規則", name)
-				}
-			}
-			if scale == 3 && strings.Contains("opening page2 page3 page5 page6", ut.page) && !strings.HasPrefix(nf.Name, "synthetic.orig-ascii.") {
-				t.Fatalf("%s: 3× 名稱 %q 未沿用既有規則", name, nf.Name)
-			}
-			after := ut.draw(p)
-			fresh, err := ut.build(text, orig, scale)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := ut.apply(fresh); err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(after, ut.draw(fresh)) {
-				t.Fatalf("%s: SetFont 後 Draw 與新字型 presenter 不同", name)
-			}
-			if bytes.Equal(before, after) {
-				t.Fatalf("%s: SetFont 後畫面沒有改變", name)
-			}
-			if name := ut.font(fresh).Name; name != nf.Name {
-				t.Fatalf("%s: 名稱 %q 與建構子 %q 不同", ut.page, nf.Name, name)
+			if !bytes.Equal(before, ut.draw(p)) {
+				t.Fatalf("%s: 原版字形進入畫面", name)
 			}
 		}
 	}
@@ -496,8 +473,9 @@ func assertStoryFontsDerived(t *testing.T, fams []storyFamily, derived bool) {
 	}
 }
 
-// §5.4：通用路徑先取得時，劇情家族也換字型；取得前用原字型。
-func TestLiveGenericAcquisitionSwitchesStoryFonts(t *testing.T) {
+// 規格 039 §3.6（取代 031 §3.1／§3.4 的換字型）：通用路徑取得原版字形表後，
+// 搜尋與計數照舊，但劇情家族與通用家族都不換字型、不重建 presenter。
+func TestLiveGenericAcquisitionKeepsFonts(t *testing.T) {
 	withSyntheticFinder(t)
 	base := storyFontBase()
 	c, err := LoadLogbookCatalog([]byte("key\ttranslation\tsource\nlogbook.5\t正文。\tx\n"), nil)
@@ -515,14 +493,14 @@ func TestLiveGenericAcquisitionSwitchesStoryFonts(t *testing.T) {
 	if !r.asciiFound || r.asciiScans != 1 || r.asciiStep != 4242 || r.asciiStoryErrs != 0 {
 		t.Fatalf("found=%v scans=%d step=%d errs=%d", r.asciiFound, r.asciiScans, r.asciiStep, r.asciiStoryErrs)
 	}
-	assertStoryFontsDerived(t, fams, true)
+	assertStoryFontsDerived(t, fams, false)
 	for _, n := range storyFontNames(t, fams) {
-		if n != "" && !strings.HasPrefix(n, "synthetic.orig-ascii") {
+		if strings.Contains(n, "orig-ascii") {
 			t.Fatalf("字型名稱 %q", n)
 		}
 	}
-	if r.logbookPres[0] == nil || !strings.HasPrefix(r.logbookPres[0].font.Name, "synthetic.orig-ascii") {
-		t.Fatal("通用家族未依 §3.1 重建")
+	if r.logbookPres[0] != nil {
+		t.Fatal("取得字形表後不應重建通用家族 presenter")
 	}
 	if !strings.Contains(r.DebugSummary(), "orig-ascii=true/1 orig-ascii-step=4242") {
 		t.Fatalf("summary: %s", r.DebugSummary())
@@ -579,10 +557,11 @@ func TestLiveStoryNeedsApplyTriggersSearchBeforeApply(t *testing.T) {
 	if !r.asciiFound || r.asciiScans != 1 || r.asciiStep != 4242 {
 		t.Fatalf("found=%v scans=%d step=%d", r.asciiFound, r.asciiScans, r.asciiStep)
 	}
-	if strings.Join(fake.calls, ",") != "setFont,apply" {
+	// 規格 039 §3.6：取得後不再呼叫 setFont。
+	if strings.Join(fake.calls, ",") != "apply" {
 		t.Fatalf("順序 %v", fake.calls)
 	}
-	assertStoryFontsDerived(t, fams[:len(fams)-1], true)
+	assertStoryFontsDerived(t, fams[:len(fams)-1], false)
 	// 取得後不再搜尋。
 	fake.want = true
 	if err := r.applyStories(v); err != nil || r.asciiScans != 1 {
@@ -626,7 +605,7 @@ func TestLiveStoryAcquisitionMissKeepsFont(t *testing.T) {
 	if !r.asciiFound || r.asciiScans != 2 || len(r.resets) != 0 {
 		t.Fatalf("after 60 frames: found=%v scans=%d resets=%v", r.asciiFound, r.asciiScans, r.resets)
 	}
-	assertStoryFontsDerived(t, fams[:len(fams)-1], true)
+	assertStoryFontsDerived(t, fams[:len(fams)-1], false)
 	if !strings.Contains(r.DebugSummary(), "orig-ascii=true/2 orig-ascii-step=4242") {
 		t.Fatalf("summary: %s", r.DebugSummary())
 	}

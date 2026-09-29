@@ -15,7 +15,7 @@ import (
 // sending the player to the manual.
 
 const (
-	logbookCols      = 36
+	logbookCols      = 36 // body cells; spec 039: 72 half units a line
 	logbookBodyRows  = 19
 	logbookMaxPages  = 3
 	logbookTop       = 2 // text row of the title (y = 16)
@@ -32,8 +32,14 @@ type LogbookEntry struct {
 	titles              []AnnotatedText // title tiers, re-chosen when the template changes
 }
 
-// logbookTitleCells is the width of the title row (spec 036 §3.3).
-const logbookTitleCells = logbookCols + 2
+// logbookTitleCells is the width of the title row (spec 036 §3.3);
+// logbookTitleUnits and logbookBodyUnits are the spec 039 limits in half
+// units.
+const (
+	logbookTitleCells = logbookCols + 2
+	logbookTitleUnits = 2 * logbookTitleCells
+	logbookBodyUnits  = 2 * logbookCols
+)
 
 type LogbookCatalog struct {
 	entries map[int]LogbookEntry
@@ -64,18 +70,19 @@ func (c *LogbookCatalog) LoadLogbookPanelText(data []byte) error {
 }
 
 // chooseTitles picks, per entry, the first title tier whose whole row fits
-// in 38 cells; an entry whose unannotated title is still too wide fails.
+// in 76 half units (38 cells, spec 039 §3.4); an entry whose unannotated
+// title is still too wide fails.
 func (c *LogbookCatalog) chooseTitles() error {
 	for n, e := range c.entries {
 		ok := false
 		for _, v := range e.titles {
-			if len([]rune(fillLogbook(c.titleFmt, strconv.Itoa(n), string(v.Text)))) <= logbookTitleCells {
+			if stringUnits(fillLogbook(c.titleFmt, strconv.Itoa(n), string(v.Text))) <= logbookTitleUnits {
 				e.Title, e.TitleTier, ok = string(v.Text), v.Tier, true
 				break
 			}
 		}
 		if !ok {
-			return fmt.Errorf("buckrogers: 手札第 %d 則標題超過 %d 格", n, logbookTitleCells)
+			return fmt.Errorf("buckrogers: 手札第 %d 則標題超過 %d 單位", n, logbookTitleUnits)
 		}
 		c.entries[n] = e
 	}
@@ -87,7 +94,8 @@ func fillLogbook(f string, a, b string) string {
 }
 
 // LayoutLogbook splits a body (paragraphs separated by the two characters
-// `\n`) into pages of 19 lines × 36 cells with the spec-027 wrap rules.
+// `\n`) into pages of 19 lines × 72 half units (spec 039 §3.4) with the
+// spec-027 wrap rules.
 func LayoutLogbook(body string) ([][]string, error) {
 	return layoutLogbookUnits([]rune(body), nil)
 }
@@ -118,7 +126,7 @@ func layoutLogbookUnits(body []rune, units []NameUnit) ([][]string, error) {
 				us = append(us, NameUnit{u.Start - a, u.End - a})
 			}
 		}
-		ls, _, _, ok := layoutEclTextUnits(body[a:b], us, 0, 0, 0, logbookCols-1, 255)
+		ls, _, _, ok := layoutEclTextUnits(body[a:b], us, 0, 0, 0, logbookBodyUnits-1, 255)
 		if !ok {
 			return nil, fmt.Errorf("buckrogers: 手札段落無法排版")
 		}
@@ -326,7 +334,7 @@ func (w *LogbookWatcher) Turn(delta int) bool {
 // LogbookOverlay draws the panel at one scale.
 type LogbookOverlay struct {
 	layer *xlate.Layer
-	font  *xlate.Font
+	fonts segmentFonts
 	scale int
 	gen   uint64
 	// TitleErrors counts titles wider than the 38-cell row (spec 036 §3.3
@@ -339,12 +347,12 @@ func NewLogbookOverlay(font *xlate.Font, scale int) (*LogbookOverlay, error) {
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) {
 		return nil, fmt.Errorf("buckrogers: 手札 presenter 輸入無效")
 	}
+	full := font
 	if scale == 3 {
-		base := font.Name
-		font = manualThreeXFont(font)
-		font.Name = base + ".logbook.3x22"
+		full = manualThreeXFont(font)
+		full.Name = font.Name + ".logbook.3x22"
 	}
-	return &LogbookOverlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, scale: scale}, nil
+	return &LogbookOverlay{layer: &xlate.Layer{W: 320, H: 200}, fonts: familyFonts(font, full, scale), scale: scale}, nil
 }
 
 func (o *LogbookOverlay) Sync(w *LogbookWatcher, palette [256][3]uint8) []rune {
@@ -366,30 +374,19 @@ func (o *LogbookOverlay) Sync(w *LogbookWatcher, palette [256][3]uint8) []rune {
 		rows[logbookPageRow] = fillLogbook(w.catalog.pageFmt, strconv.Itoa(page+1), strconv.Itoa(len(e.Pages)))
 	}
 	var miss []rune
-	off := manualGlyphOffset(o.scale)
+	bg, fg := palette[w.colors[0]], palette[w.colors[1]]
 	for r := logbookTop; r <= logbookPageRow; r++ {
 		text := []rune(rows[r])
-		for _, ch := range text {
-			if _, ok := o.font.Glyphs[ch]; !ok && ch != ' ' {
-				miss = append(miss, ch)
-			}
-		}
-		cells := logbookCols + 2
-		if len(text) > cells {
+		miss = append(miss, o.fonts.missingRunes(text)...)
+		units := logbookTitleUnits
+		if u := textUnits(text); u > units {
 			// Never cut a title silently: record it and draw it whole.
 			o.TitleErrors++
-			o.LastError = fmt.Sprintf("手札第 %d 則第 %d 列 %d 格超過 %d 格", n, r, len(text), cells)
-			cells = len(text)
+			o.LastError = fmt.Sprintf("手札第 %d 則第 %d 列 %d 單位超過 %d 單位", n, r, u, units)
+			units = u + u%2
 		}
-		for len(text) < cells {
-			text = append(text, ' ')
-		}
-		fg := palette[w.colors[1]]
-		o.layer.Stamps = append(o.layer.Stamps, &xlate.Stamp{
-			Key: fmt.Sprintf("logbook.%d", r), X: logbookLeft * 8, Y: r * 8, Cells: cells, CellW: 8, CellH: 8,
-			Font: o.font, GlyphX: off, GlyphY: off, GlyphScale: 1, Text: text, State: xlate.Shown,
-			BG: palette[w.colors[0]], FG: fg,
-		})
+		o.layer.Stamps = append(o.layer.Stamps, o.fonts.segmentStamps(fmt.Sprintf("logbook.%d", r), logbookLeft*8, r*8,
+			padUnits(text, units), nil, func(int) ([3]uint8, [3]uint8) { return bg, fg })...)
 	}
 	if len(miss) != 0 {
 		o.layer.Stamps = nil

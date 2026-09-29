@@ -11,6 +11,9 @@ import (
 // translated with the engine catalog and drawn in the original cells.
 var engineDispatchReturnDelta uint16 = 4 + 0x0C // RETF 0Ch
 
+// EngineDispatchLine is one dispatcher string drawn in the original cells.
+// Width is in 8×8 cells; Text is padded to 2×Width half units (spec 039
+// §3.1, §3.4).
 type EngineDispatchLine struct {
 	Row, Col, Width uint8
 	BG, FG          uint8
@@ -97,7 +100,8 @@ func (w *EngineDispatchWatcher) eclPrompt(original []byte) (string, bool) {
 		return "", false
 	}
 	zh += strings.Repeat(" ", len(original)-len(body))
-	if len([]rune(zh)) > len(original) {
+	// Spec 039 §3.4: half units against the original length × 2.
+	if stringUnits(zh) > 2*len(original) {
 		return "", false
 	}
 	return zh, true
@@ -181,8 +185,8 @@ func (w *EngineDispatchWatcher) partyName(caller CodeKey, args [6]uint16, origin
 	d := partyDecision{handled: true}
 	row, col, n := int(uint8(args[4])), int(uint8(args[5])), len(original)
 	if col == battleNameColumn && caller == partyNameCaller {
-		// §3.3: Chinese only, inside the original cells.
-		if zh, ok := w.players.Chinese(m.Name, m.Gender); ok && len([]rune(zh)) <= n {
+		// §3.3: Chinese only, inside the original cells (spec 039: units).
+		if zh, ok := w.players.Chinese(m.Name, m.Gender); ok && stringUnits(zh) <= 2*n {
 			d.text, d.width = []rune(zh), n
 		}
 		return d
@@ -204,10 +208,12 @@ func (w *EngineDispatchWatcher) partyName(caller CodeKey, args [6]uint16, origin
 	cands = append(cands, cn)
 	extOK := true
 	for i, c := range cands {
-		l := len(c)
-		if l > avail {
+		// Spec 039 §3.4: the candidate fits in ≤ avail×2 half units and
+		// covers ⌈units/2⌉ cells.
+		if textUnits(c) > 2*avail {
 			continue
 		}
+		l := cellsForUnits(textUnits(c))
 		if l > n {
 			if !extOK {
 				continue // §3.4: after a failed check only the original cells
@@ -310,7 +316,7 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 	case d.handled:
 		if d.text != nil {
 			w.lines = append(w.lines, EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(width),
-				BG: uint8(args[2]), FG: uint8(args[3]), Text: padRunes(d.text, width)})
+				BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits(d.text, 2*width)})
 			w.gen++
 			w.Stats.Hits++
 			if d.width > n {
@@ -342,22 +348,16 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 		w.pending = &wrapPending{s1: append([]byte(nil), original...), row: row, col: col,
 			bg: uint8(args[2]), fg: uint8(args[3]), caller: caller}
 	}
-	if !ok || len([]rune(zh)) > n {
+	// Spec 039 §3.4: the Chinese takes at most the original length × 2 half
+	// units; Width = max(n, ⌈units/2⌉) = n on this path.
+	if !ok || stringUnits(zh) > 2*n {
 		w.Stats.Misses++
 		return
 	}
 	w.lines = append(w.lines, EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n),
-		BG: uint8(args[2]), FG: uint8(args[3]), Text: padRunes([]rune(zh), n)})
+		BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits([]rune(zh), 2*n)})
 	w.gen++
 	w.Stats.Hits++
-}
-
-func padRunes(t []rune, n int) []rune {
-	t = append([]rune(nil), t...)
-	for len(t) < n {
-		t = append(t, ' ')
-	}
-	return t
 }
 
 // joinWrapped implements spec 029 §2.10 rule 2: S1+" "+S2 or S1+S2 is one
@@ -375,20 +375,16 @@ func (w *EngineDispatchWatcher) joinWrapped(p *wrapPending, row, col int, args [
 	}
 	r := []rune(zh)
 	n1, n2 := len(p.s1), len(s2)
-	k := min(len(r), n1) // 前段盡量放滿（spec 029 §2.10 修訂）
-	if k > n1 || len(r)-k > n2 {
+	// 前段盡量放滿（spec 029 §2.10 修訂）：spec 039 以 2×len(S1) 半形單位計，
+	// 放不下的全形字整字移到後段。
+	k := fitUnits(r, 2*n1)
+	if textUnits(r[k:]) > 2*n2 {
 		return false
-	}
-	pad := func(t []rune, n int) []rune {
-		for len(t) < n {
-			t = append(t, ' ')
-		}
-		return t
 	}
 	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, p.row, p.col, p.col+n1) })
 	w.lines = append(w.lines,
-		EngineDispatchLine{Row: uint8(p.row), Col: uint8(p.col), Width: uint8(n1), BG: p.bg, FG: p.fg, Text: pad(append([]rune(nil), r[:k]...), n1)},
-		EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n2), BG: uint8(args[2]), FG: uint8(args[3]), Text: pad(append([]rune(nil), r[k:]...), n2)})
+		EngineDispatchLine{Row: uint8(p.row), Col: uint8(p.col), Width: uint8(n1), BG: p.bg, FG: p.fg, Text: padUnits(r[:k], 2*n1)},
+		EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n2), BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits(r[k:], 2*n2)})
 	return true
 }
 
@@ -424,11 +420,11 @@ func (w *EngineDispatchWatcher) Page() *HMenuPage {
 	}
 	p := &HMenuPage{}
 	for _, l := range w.lines {
-		row := HMenuRow{Row: l.Row, Col: l.Col}
+		var cells []HMenuCell
 		for _, r := range l.Text {
-			row.Cells = append(row.Cells, HMenuCell{Rune: r, BG: l.BG, FG: l.FG})
+			cells = append(cells, HMenuCell{Rune: r, BG: l.BG, FG: l.FG})
 		}
-		p.Rows = append(p.Rows, row)
+		p.Rows = append(p.Rows, newHMenuRow(l.Row, l.Col, cells))
 	}
 	return p
 }

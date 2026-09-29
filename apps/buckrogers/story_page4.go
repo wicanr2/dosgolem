@@ -218,12 +218,14 @@ type RuntimeStoryPage4Overlay struct {
 	text   map[string]string
 	scale  int
 	active bool
+	half   *xlate.Font // spec 039 half font (8×16 at 2×, 12×24 at 3×)
 }
 
 func NewRuntimeStoryPage4Overlay(t map[string]string, f *xlate.Font, scale int) (*RuntimeStoryPage4Overlay, error) {
 	if f == nil || f.W != 16 || f.H != 16 || (scale != 2 && scale != 3) || len(t) != 6 {
 		return nil, fmt.Errorf("buckrogers: 第 4 頁 presenter 輸入無效")
 	}
+	half := halfFontsOf(f).For(scale)
 	for _, s := range t {
 		for _, r := range s {
 			if g, ok := f.Glyphs[r]; !ok || len(g) != 32 {
@@ -231,7 +233,10 @@ func NewRuntimeStoryPage4Overlay(t map[string]string, f *xlate.Font, scale int) 
 			}
 		}
 	}
-	return &RuntimeStoryPage4Overlay{&xlate.Layer{W: 320, H: 200}, f, t, scale, false}, nil
+	if err := storyTextCheck(t, segmentFonts{Full: f, Half: half}, 78); err != nil {
+		return nil, fmt.Errorf("buckrogers: 第 4 頁：%w", err)
+	}
+	return &RuntimeStoryPage4Overlay{&xlate.Layer{W: 320, H: 200}, f, t, scale, false, half}, nil
 }
 func (o *RuntimeStoryPage4Overlay) Apply(es []StoryPage4Event, p [256][3]uint8) error {
 	if o == nil || o.active || len(es) != 6 {
@@ -249,7 +254,9 @@ func (o *RuntimeStoryPage4Overlay) Apply(es []StoryPage4Event, p [256][3]uint8) 
 		seen[e.EventKey] = true
 	}
 	for _, e := range es {
-		o.layer.Add(&xlate.Stamp{Key: e.EventKey, X: 8, Y: int(e.Row) * 8, Cells: 39, CellW: 8, CellH: 8, Font: o.font, Text: []rune(o.text[e.EventKey]), State: xlate.Shown, BG: p[0], FG: p[10]})
+		for _, stamp := range storyRowStamps(e.EventKey, 8, int(e.Row)*8, 39, []rune(o.text[e.EventKey]), o.storyFontsPlain(), p[0], p[10]) {
+			o.layer.Add(stamp)
+		}
 	}
 	o.active = true
 	return nil
@@ -281,9 +288,16 @@ func (o *RuntimeStoryPage4Overlay) ActiveKeys() []string {
 	if o == nil {
 		return nil
 	}
-	out := make([]string, 0, len(o.layer.Stamps))
-	for _, s := range o.layer.Stamps {
-		out = append(out, s.Key)
-	}
-	return out
+	return dedupRowKeys(o.layer.Stamps)
+}
+
+// storyFonts returns the spec 039 segment fonts of this presenter.
+func (o *RuntimeStoryPage4Overlay) storyFonts() segmentFonts {
+	off := manualGlyphOffset(o.scale)
+	return segmentFonts{Full: o.font, FullX: off, FullY: off, FullGlyphScale: 1, Half: o.half}
+}
+
+// storyFontsPlain is storyFonts for full cells drawn without an offset.
+func (o *RuntimeStoryPage4Overlay) storyFontsPlain() segmentFonts {
+	return segmentFonts{Full: o.font, Half: o.half}
 }
