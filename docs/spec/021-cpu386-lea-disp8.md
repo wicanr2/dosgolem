@@ -13,3 +13,5 @@ register-direct 支援，核對 `ESI=0x80`、`EDI=0x546B0`、`EBX=0x28`。
 
 2026-09-06 cpu386 單元測試與固定雜湊 FD2 整合測試通過；執行抵達
 `0x3CAF2`。
+
+後續範圍擴充（2026-10-01）：本規格當時的「segment override 維持失敗即關閉」只描述原有支援形狀；[224-cpu386-lea-segment-prefix](224-cpu386-lea-segment-prefix.md) 依固定 MOO2 原檔的 CS 前綴樣本與 Intel 契約，另行開放 `LEA` 單一段前綴並忽略其段基址。本規格的無前綴 disp8 收據與原始證據仍成立。

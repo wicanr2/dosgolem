@@ -300,6 +300,50 @@ func TestMOO2OrALAHCheckpointWhenProvided(t *testing.T) {
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 OR AL,AH 通過，下一 EIP=%X", step, m.CPU.EIP)
 }
 
+// 原檔的 LEA 檢查點使用合成 PSP／環境；進入暫存器與 DOSBox-X 不同。
+func TestMOO2CSLEACheckpointWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(nil)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	const checkpoint = 0x15c1df // dosgolem 重定位 LE 線性位址
+	step := 0
+	for ; step < 6500 && m.CPU.EIP != checkpoint; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("LEA 檢查點前第 %d 步：%v", step, err)
+		}
+	}
+	if step != 5806 || m.CPU.EIP != checkpoint || m.CPU.R[cpu386.ESI] != 0x99 ||
+		m.CPU.R[cpu386.EAX] != 0x33 || m.CPU.EFlags != 0x16 || services.Calls() != 7 {
+		t.Fatalf("合成環境 LEA 前態不符：step=%d EIP=%X EAX=%X ESI=%X flags=%X calls=%d", step, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.ESI], m.CPU.EFlags, services.Calls())
+	}
+	beforeR, beforeSeg, beforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("CS 前綴 LEA 執行失敗：%v", err)
+	}
+	wantR := beforeR
+	wantR[cpu386.EAX] = 0x15c31b // 合成環境的 ESI 99h + 重定位 disp32 15C282h
+	if m.CPU.EIP != checkpoint+7 || m.CPU.R != wantR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("CS 前綴 LEA 後態不符：EIP=%X R=%X Seg=%X flags=%X", m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 LEA EAX=%X，下一 EIP=%X", step, m.CPU.R[cpu386.EAX], m.CPU.EIP)
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {

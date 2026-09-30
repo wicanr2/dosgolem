@@ -552,14 +552,14 @@ func (c *CPU) Step() error {
 	if repne && op != 0xae && op != 0xa4 && op != 0xa5 {
 		return fail("F2 prefix 只支援 SCASB／MOVSB／MOVSD")
 	}
-	if segmentOverride == SegSS && (op != 0x89 || !operand16 || repe || repne) {
-		return fail("SS override 只支援 16-bit MOV memory store")
+	if segmentOverride == SegSS && op != 0x8d && (op != 0x89 || !operand16 || repe || repne) {
+		return fail("SS override 只支援 16-bit MOV memory store／LEA")
 	}
-	if segmentOverride == SegCS && op != 0xff && op != 0x8a {
-		return fail("CS override 只支援間接 JMP／MOV byte load")
+	if segmentOverride == SegCS && op != 0xff && op != 0x8a && op != 0x8d {
+		return fail("CS override 只支援間接 JMP／MOV byte load／LEA")
 	}
-	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
-		return fail("segment override 只支援 8A／8B／8C／8E")
+	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8d && op != 0x8e {
+		return fail("segment override 的此指令形狀尚未支援")
 	}
 	switch {
 	case op == 0xf8 || op == 0xf9:
@@ -3701,7 +3701,7 @@ func (c *CPU) Step() error {
 		}
 		c.setReg8(int((modrm>>3)&7), value)
 	case op == 0x8d:
-		if operand16 || segmentOverride >= 0 || repe {
+		if operand16 || repe || repne {
 			return fail("LEA 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()

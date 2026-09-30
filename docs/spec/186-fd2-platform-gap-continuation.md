@@ -98,6 +98,7 @@ LEA依Intel規格計算base+index*scale+disp，不讀memory／descriptor、不�
 補齊32位元ModRM/SIB、無base、無index及有號disp8／disp32，32位溢位自然截斷。
 發現既有mod3錯誤呼叫sub8，依非法LEA编码改為拒絕，保留此勘誤。
 不開放16位元／segment prefix。合成無descriptor、wrap、SIB特例及非法mod3測試。
+後續範圍擴充（2026-10-01）：本批次的 segment prefix 拒絕是當時支援範圍；[224-cpu386-lea-segment-prefix](224-cpu386-lea-segment-prefix.md) 另依固定 MOO2 原檔的 CS 前綴樣本與 Intel 契約開放 `LEA` 單一段前綴，不改本批次 FD2 無前綴樣本的結論。
 
 ## 批次13：CONFORMED — REP MOVSB
 gap-12停3740F / F3 A4，ECX=2，是15118-byte搬移最後2 bytes。

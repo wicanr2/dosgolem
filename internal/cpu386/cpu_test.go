@@ -3464,6 +3464,36 @@ func TestLEARegisterSignedDisp8DoesNotReadMemory(t *testing.T) {
 	}
 }
 
+func TestLEASegmentPrefixOnlyChangesInstructionLength(t *testing.T) {
+	for _, prefix := range []byte{0x2e, 0x3e, 0x26, 0x36} {
+		// 目的位址遠超過 testBus；LEA 若讀取記憶體或段描述子便會失敗。
+		code := testBus{prefix, 0x8d, 0x86, 0x82, 0xc2, 0x15, 0x00}
+		c := New(code)
+		c.R[EAX], c.R[ESI], c.R[EBX] = 0x33, 0x99, 0x12345678
+		c.Seg[SegCS], c.Seg[SegDS], c.Seg[SegES], c.Seg[SegSS] = 0x180, 0x188, 0xfff8, 0xfff0
+		c.EFlags = 0x16
+		if err := c.Step(); err != nil || c.EIP != uint32(len(code)) || c.R[EAX] != 0x15c31b ||
+			c.R[ESI] != 0x99 || c.R[EBX] != 0x12345678 || c.EFlags != 0x16 {
+			t.Fatalf("LEA 前綴 %02X EIP=%X EAX=%X ESI=%X EBX=%X flags=%X err=%v", prefix, c.EIP, c.R[EAX], c.R[ESI], c.R[EBX], c.EFlags, err)
+		}
+	}
+	c := New(testBus{0x2e, 0x8d, 0x46, 0xff}) // LEA EAX,[ESI-1]
+	c.R[ESI], c.EFlags = 0, 0x246
+	if err := c.Step(); err != nil || c.R[EAX] != 0xffffffff || c.EFlags != 0x246 {
+		t.Fatalf("負位移／溢位 LEA EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+	}
+	for _, code := range [][]byte{
+		{0x2e, 0x8d, 0xc0}, {0x66, 0x2e, 0x8d, 0x46, 0xff},
+		{0x2e, 0x3e, 0x8d, 0x46, 0xff}, {0xf3, 0x2e, 0x8d, 0x46, 0xff},
+		{0x2e, 0x8d, 0x86, 0x82},
+	} {
+		c := New(testBus(code))
+		if err := c.Step(); err == nil {
+			t.Fatalf("未授權 LEA 形狀 % X 被接受", code)
+		}
+	}
+}
+
 func TestBufferFinalizeInstructions(t *testing.T) {
 	mem := testBus(make([]byte, 0x100))
 	copy(mem, []byte{0x2a, 0xc0, 0xaa, 0x5e, 0x4f})

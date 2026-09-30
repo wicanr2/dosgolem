@@ -375,3 +375,4 @@
 - [221 — ES 覆寫的 byte 記憶體來源 MOV](221-cpu386-mov-r8-es-memory.md)：CONFORMED。`26 8A 1E` 原版同次 LOG 已擷取；合成診斷至 `0x14822D`。
 - [222 — 32 位暫存器 ROR 立即數 8](222-cpu386-ror-r32-imm8.md)：CONFORMED。原版零輸入 LOG 與 dosgolem 原檔整合測試通過；合成診斷至 `0x14701B`。
 - [223 — 8 位元暫存器目的的 OR r/m8,r8](223-cpu386-or-rm8-register.md)：CONFORMED。原版 `08 E0` 的 AH 零輸入 LOG 與 dosgolem 原檔整合測試通過；合成診斷至 `0x15C1DF`。
+- [224 — LEA 的段前綴不參與有效位址](224-cpu386-lea-segment-prefix.md)：CONFORMED。原版 `2E 8D 86` 與 dosgolem 各自狀態的 CPU 收據通過；合成診斷至 `0x15C1E7`，兩側暫存器尚不同。
