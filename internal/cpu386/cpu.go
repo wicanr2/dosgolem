@@ -3777,6 +3777,12 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {
 			value = uint16(c.R[modrm&7])
+		} else if !operand16 && segmentOverride < 0 && modrm == 0x03 {
+			var ok bool
+			value, ok = c.readSegment16(c.Seg[SegDS], c.R[EBX])
+			if !ok {
+				return fail(fmt.Sprintf("segment word read %04X:%08X 未處理", c.Seg[SegDS], c.R[EBX]))
+			}
 		} else if modrm>>6 == 0 && modrm&7 == 5 {
 			addr, e := c.fetch32()
 			if e != nil {

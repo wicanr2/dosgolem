@@ -2063,7 +2063,7 @@ func TestMoveRegisterToSegmentNarrowForm(t *testing.T) {
 		t.Fatalf("ES=%04X EIP=%d EFLAGS=%08X", c.Seg[SegES], c.EIP, c.EFlags)
 	}
 
-	for _, code := range [][]byte{{0x8e, 0xcb}, {0x8e, 0x03}} { // CS destination; memory source
+	for _, code := range [][]byte{{0x8e, 0xcb}, {0x8e, 0x04}} { // CS destination; unsupported SIB source
 		c = New(testBus(code))
 		if err := c.Step(); err == nil {
 			t.Fatalf("unsupported 8E form % X was accepted", code)

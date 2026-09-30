@@ -344,6 +344,54 @@ func TestMOO2CSLEACheckpointWhenProvided(t *testing.T) {
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 LEA EAX=%X，下一 EIP=%X", step, m.CPU.R[cpu386.EAX], m.CPU.EIP)
 }
 
+// TestMOO2MoveESFromDSEBXCheckpointWhenProvided 只驗證合成環境下的原檔啟動指令。
+func TestMOO2MoveESFromDSEBXCheckpointWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(nil)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	const checkpoint = 0x15c1e7 // dosgolem 重定位 LE 線性位址
+	step := 0
+	for ; step < 6500 && m.CPU.EIP != checkpoint; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MOV ES 檢查點前第 %d 步：%v", step, err)
+		}
+	}
+	if step != 5808 || m.CPU.EIP != checkpoint || services.Calls() != 7 {
+		t.Fatalf("MOV ES 停點不符：step=%d EIP=%X calls=%d", step, m.CPU.EIP, services.Calls())
+	}
+	selector, err := m.Read16(m.CPU.R[cpu386.EBX])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector != 0x188 || m.CPU.Seg[cpu386.SegDS] != 0x188 || m.CPU.Seg[cpu386.SegES] != 0x188 {
+		t.Fatalf("合成來源 selector=%X DS=%X ES=%X", selector, m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
+	}
+	beforeR, beforeFlags := m.CPU.R, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MOV ES 單步失敗：%v", err)
+	}
+	if m.CPU.EIP != checkpoint+2 || m.CPU.Seg[cpu386.SegES] != selector || m.CPU.R != beforeR || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("MOV ES 後態：EIP=%X ES=%X flags=%X", m.CPU.EIP, m.CPU.Seg[cpu386.SegES], m.CPU.EFlags)
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 MOV ES 來源=%X，下一 EIP=%X", step, selector, m.CPU.EIP)
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {

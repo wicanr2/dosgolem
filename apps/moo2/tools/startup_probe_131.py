@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -28,6 +28,7 @@ capture_enter = sys.argv[1:] == ['--enter']
 capture_cmp_word = sys.argv[1:] == ['--cmp-word']
 capture_cmp_byte = sys.argv[1:] == ['--cmp-byte']
 capture_lea_cs = sys.argv[1:] == ['--lea-cs']
+capture_startup_value = sys.argv[1:] == ['--startup-value']
 capture_or_al_ah = sys.argv[1:] == ['--or-al-ah']
 capture_ror_imm8 = sys.argv[1:] == ['--ror-imm8']
 capture_es_byte_load = sys.argv[1:] == ['--es-byte-load']
@@ -41,7 +42,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -386,6 +387,31 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             records['lea_cs_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['lea_cs_log_before'] = lines[0]
             records['lea_cs_log_after'] = lines[1]
+        if capture_startup_value:
+            cmd('BPDEL *')
+            cmd('BP 0180:00348105')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EAX ESI DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '348105']), None)
+            if not match:
+                raise RuntimeError('MOO2 啟動值候選斷點未命中: ' + repr(snapshots))
+            records['startup_value_ev_candidate'] = match
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 80', 8)
+            if not log.is_file():
+                raise RuntimeError('MOO2 啟動值 LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 128 or not lines[0].startswith('0180:00348105'):
+                raise RuntimeError('MOO2 啟動值 LOG 指令序列不符: ' + repr(lines[:2]))
+            first_lea = next((line for line in lines if line.startswith('0180:003801DF')), None)
+            if not first_lea or ' EAX:00000033 ' not in first_lea or ' ESI:00000099 ' not in first_lea:
+                raise RuntimeError('MOO2 第一次 LEA 輸入不符: ' + repr(first_lea))
+            (root / 'startup-value-logcpu.txt').write_bytes(log_bytes)
+            records['startup_value_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            records['startup_value_first_lea'] = first_lea
         if capture_or_al_ah:
             cmd('BPDEL *')
             cmd('BP 0180:0036B01B')
