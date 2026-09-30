@@ -50,10 +50,13 @@ func DefaultFont() Font {
 	return Font{Full: "END_S13.DAT", Half: "END_S14.DAT", FullBytes: 30, HalfBytes: 15}
 }
 
-// 字型 stub 在 StubSeg 裡的位移。**不能與 mouseStubOff 撞**。
+// 字型 stub 在 StubSeg 裡的位移。**要落在 specialStubBase（0x400）之後**：
+// 0x000–0x3FF 是每個向量的預設 stub（`CD n / CF`）。舊值 0x20／0x24 正好蓋掉
+// 向量 8、9 的 stub，程式 chain 回舊 INT 9 時跑到 `retf`，每按一個鍵堆疊少 2 byte
+// （`docs/spec/194-stubseg-font-collision-and-program-path` §1）。
 const (
-	fontFullOff = 0x20
-	fontHalfOff = 0x24
+	fontFullOff = 0x410
+	fontHalfOff = 0x414
 )
 
 // 字型 stub 用的中斷號。真機沒有這兩支，所以不會與遊戲搶。

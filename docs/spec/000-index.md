@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（13 份）
+### 共同基礎（master）（14 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -64,6 +64,7 @@
 - `191-two-clocks-relationship.md`
 - `192-crtc-effects.md`
 - `193-crtc-timing.md`
+- `194-stubseg-font-collision-and-program-path.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -344,3 +345,4 @@
 - [192 — CRTC 的效果](192-crtc-effects.md)：READY。列距（offset）與分割畫面（line compare）；少了它們畫面會斜成平行四邊形或狀態列跟著捲走。
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
+- [194 — StubSeg 字型 stub 撞號與程式路徑](194-stubseg-font-collision-and-program-path.md)：READY。字型 stub 從 0x20／0x24 移到 0x410／0x414，不再蓋掉向量 8、9 的預設 stub；`oracle.Options.ProgramPath` 與 `probe -program-path` 可指定 argv[0]。

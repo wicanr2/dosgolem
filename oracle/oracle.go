@@ -109,6 +109,12 @@ type Options struct {
 	// 檔名與封裝內的資料檔對不上（那邊的 `docs/re/29` §6 至今未裁決），
 	// 換個檔名跑一次就是一個可執行的實驗。
 	FontFull, FontHalf string
+
+	// ProgramPath 是環境區塊尾端的程式全路徑（argv[0]，DOS 形式如 `C:\START.EXE`）。
+	// 空字串沿用機器的中性預設 `C:\PROG.EXE`。Borland overlay 管理員用它重開
+	// 自己讀 overlay，名字不對就開檔失敗
+	// （`docs/spec/194-stubseg-font-collision-and-program-path` §2）。
+	ProgramPath string
 }
 
 // Load 載入原版執行檔。
@@ -126,6 +132,7 @@ func LoadWith(exe, root string, opt Options) (*Oracle, error) {
 		return nil, err
 	}
 	m := machine.New()
+	m.ProgramPath = opt.ProgramPath // 要在 LoadEXE 之前：環境區塊在載入時寫
 	if err := m.LoadEXE(img); err != nil {
 		return nil, fmt.Errorf("載入 %s：%w", exe, err)
 	}

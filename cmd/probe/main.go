@@ -132,6 +132,9 @@ func main() {
 	dumpMem := flag.String("dump-mem", "",
 		"跑完把幾段線性記憶體各寫成一個檔：`<lo>-<hi>:<路徑>`（位址十六進位），"+
 			"逗號分隔多段。一次跑要挖好幾塊緩衝區時用這個，不要為了第二塊重跑")
+	programPath := flag.String("program-path", "",
+		"環境區塊裡的程式全路徑（argv[0]，如 `C:\\START.EXE`）；空字串用中性預設。"+
+			"用 argv[0] 重開自己讀 overlay 的程式要給對（`docs/spec/194`）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	poke := flag.String("poke", "",
@@ -252,6 +255,7 @@ func main() {
 	}
 
 	m := machine.New()
+	m.ProgramPath = *programPath
 	if *adlib {
 		m.SetAdLib(true)
 	}
