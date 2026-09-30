@@ -49,6 +49,51 @@ func TestCMPByteMemoryDestinationNoWriteback(t *testing.T) {
 	}
 }
 
+func TestCMPWordMemoryImmediateUsesSegmentAndPreservesInput(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x66, 0x81, 0x3d, 0x10, 0, 0, 0, 0x82, 0}) // CMP word DS:[10h],0082h
+	c := New(mem)
+	c.Seg[SegDS] = 0x188
+	c.SetDescriptor(0x188, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.R[EAX], c.EFlags = 0x12345678, 0x202
+	beforeR, beforeSeg := c.R, c.Seg
+	if err := c.Step(); err != nil || c.EIP != 9 || c.EFlags != 0x297 ||
+		c.R != beforeR || c.Seg != beforeSeg || mem[0x30] != 0 || mem[0x31] != 0 {
+		t.Fatalf("原版零值比較：EIP=%X flags=%X R=%X source=% X err=%v",
+			c.EIP, c.EFlags, c.R, mem[0x30:0x32], err)
+	}
+	mem[0x30] = 0x82
+	c.EIP, c.EFlags = 0, 0x202
+	if err := c.Step(); err != nil || c.EFlags != 0x246 || mem[0x30] != 0x82 {
+		t.Fatalf("相等比較：flags=%X source=%X err=%v", c.EFlags, mem[0x30], err)
+	}
+	mem[0x31] = 1
+	c.EIP, c.EFlags = 0, 0x202
+	if err := c.Step(); err != nil || c.EFlags&CF != 0 || c.EFlags&ZF != 0 ||
+		mem[0x30] != 0x82 || mem[0x31] != 1 {
+		t.Fatalf("大於立即數的比較：flags=%X source=% X err=%v", c.EFlags, mem[0x30:0x32], err)
+	}
+	copy(mem, []byte{0x66, 0x81, 0x7d, 0x00, 0x82, 0x00}) // CMP word SS:[EBP],0082h
+	mem[0x50], mem[0x51] = 0x82, 0
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x188, 0x190
+	c.SetDescriptor(0x188, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.SetDescriptor(0x190, Descriptor{Base: 0x40, Limit: 0x3f})
+	c.R[EBP], c.EFlags = 0x10, 0x202
+	if err := c.Step(); err != nil || c.EFlags != 0x246 || c.EIP != 6 {
+		t.Fatalf("EBP 應讀 SS：flags=%X EIP=%X err=%v", c.EFlags, c.EIP, err)
+	}
+	c.EIP, c.R[EBP], c.EFlags = 0, 0x3f, 0x203
+	if err := c.Step(); err == nil || c.EFlags != 0x203 {
+		t.Fatalf("word 來源越界須保留旗標：flags=%X err=%v", c.EFlags, err)
+	}
+	truncated := New(testBus{0x66, 0x81, 0x3d, 0x10, 0, 0, 0, 0x82})
+	truncated.EFlags = 0x203
+	if err := truncated.Step(); err == nil || truncated.EFlags != 0x203 {
+		t.Fatalf("截短立即數須拒絕：flags=%X err=%v", truncated.EFlags, err)
+	}
+}
+
 func TestCMPByteMemoryDestinationSegmentAndFailure(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x38, 0x55, 0x00}) // CMP [EBP],DL

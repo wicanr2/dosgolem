@@ -2233,6 +2233,22 @@ func (c *CPU) Step() error {
 		}
 		group := (modrm >> 3) & 7
 		if operand16 {
+			if modrm>>6 != 3 && group == 7 {
+				seg, addr, e := c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				imm, e := c.fetch16()
+				if e != nil {
+					return fail(e.Error())
+				}
+				value, ok := c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("CMP word來源越界")
+				}
+				c.sub16(value, imm)
+				break
+			}
 			if modrm>>6 != 3 || (group != 0 && group != 1 && group != 4) {
 				return fail("81 word形狀尚未支援")
 			}

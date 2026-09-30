@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
@@ -591,6 +593,67 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 			m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, services.videoMode, services.videoModeSet)
 	}
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 10h/AX=0003h 返回 EIP=%X", step, m.CPU.EIP)
+}
+
+func TestMOO2EmptyMOXSETCompareCheckpointWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	root := t.TempDir()
+	fixture := filepath.Join(root, "MOX.SET")
+	if err := os.WriteFile(fixture, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Date(1996, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(fixture, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { provider.Close() })
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(provider)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	const stop = 0x100cf // dosgolem 重定位 LE 線性位址
+	step := 0
+	for ; step < 6800 && m.CPU.EIP != stop && !services.Exited; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("空 MOX.SET 比較前第 %d 步：%v", step, err)
+		}
+	}
+	value, err := m.Read16(0x191cbe)
+	if err != nil || step != 6504 || m.CPU.EIP != stop || value != 0 ||
+		m.CPU.Seg[cpu386.SegDS] != 0x188 || m.CPU.EFlags != 0x202 || services.Exited {
+		t.Fatalf("空 MOX.SET 比較前態：step=%d EIP=%X source=%X flags=%X exited=%v err=%v",
+			step, m.CPU.EIP, value, m.CPU.EFlags, services.Exited, err)
+	}
+	beforeR, beforeSeg := m.CPU.R, m.CPU.Seg
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("空 MOX.SET 比較單步失敗：%v", err)
+	}
+	value, err = m.Read16(0x191cbe)
+	if err != nil || m.CPU.EIP != stop+9 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg ||
+		m.CPU.EFlags != 0x297 || value != 0 {
+		t.Fatalf("空 MOX.SET 比較後態：EIP=%X R=%X Seg=%X flags=%X source=%X err=%v",
+			m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, value, err)
+	}
+	t.Logf("固定原檔、合成 PSP／環境、明示空 MOX.SET：第 %d 步 CMP word 0,0082h 後 EIP=%X flags=%X",
+		step, m.CPU.EIP, m.CPU.EFlags)
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {

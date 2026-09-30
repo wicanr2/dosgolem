@@ -1,16 +1,22 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: moo2-probe <original-exe>")
+	emptyFixture := len(os.Args) == 3 && os.Args[2] == "--empty-mox-set"
+	fileFixture := len(os.Args) == 4 && os.Args[2] == "--mox-set"
+	gameDirectory := len(os.Args) == 4 && os.Args[2] == "--game-dir"
+	if len(os.Args) != 2 && !emptyFixture && !fileFixture && !gameDirectory {
+		fmt.Fprintln(os.Stderr, "usage: moo2-probe <original-exe> [--empty-mox-set | --mox-set <local-file> | --game-dir <local-directory>]")
 		os.Exit(2)
 	}
 	b, err := os.ReadFile(os.Args[1])
@@ -27,7 +33,60 @@ func main() {
 		fmt.Printf("load_error=%v\n", err)
 		os.Exit(1)
 	}
-	services := machine.NewMOO2StartupDOS(nil)
+	var files machine.ReadOnlyFileProvider
+	if gameDirectory {
+		provider, err := machine.OpenDirectoryReadOnlyFiles(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+		defer provider.Close()
+		files = provider
+		info, err := os.Stat(filepath.Join(os.Args[3], "MOX.SET"))
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+			panic("遊戲資料目錄須有小於 1 MiB 的一般 MOX.SET 檔案")
+		}
+		data, err := os.ReadFile(filepath.Join(os.Args[3], "MOX.SET"))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("game_dir_mox_set size=%d sha256=%x mtime_utc=%s\n",
+			len(data), sha256.Sum256(data), info.ModTime().UTC().Format(time.RFC3339))
+	} else if emptyFixture || fileFixture {
+		var fixtureData []byte
+		stamp := time.Date(1996, 1, 1, 0, 0, 0, 0, time.UTC)
+		if fileFixture {
+			info, err := os.Stat(os.Args[3])
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				panic("MOX.SET 輸入須是小於 1 MiB 的一般檔案")
+			}
+			fixtureData, err = os.ReadFile(os.Args[3])
+			if err != nil {
+				panic(err)
+			}
+			stamp = info.ModTime().UTC()
+		}
+		root, err := os.MkdirTemp("", "moo2-mox-set-")
+		if err != nil {
+			panic(err)
+		}
+		defer os.RemoveAll(root)
+		path := filepath.Join(root, "MOX.SET")
+		if err := os.WriteFile(path, fixtureData, 0o600); err != nil {
+			panic(err)
+		}
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			panic(err)
+		}
+		provider, err := machine.OpenDirectoryReadOnlyFiles(root)
+		if err != nil {
+			panic(err)
+		}
+		defer provider.Close()
+		files = provider
+		fmt.Printf("controlled_fixture=MOX.SET size=%d sha256=%x mtime_utc=%s\n",
+			len(fixtureData), sha256.Sum256(fixtureData), stamp.Format(time.RFC3339))
+	}
+	services := machine.NewMOO2StartupDOS(files)
 	services.AttachMachine(m)
 	m.CPU.IntHook = services.Handle
 	fmt.Printf("diagnostic_only_moo2_adapter=true; startup_returns_from_dosbox_x_auxiliary=true; synthetic_environment=true\n")
@@ -40,8 +99,14 @@ func main() {
 		eip, esp, esi, eax uint32
 	}
 	ring := make([]sample, 0, 32)
-	for i := 0; i < 200000; i++ {
-		if i >= 5500 {
+	const maxSteps = 1000000
+	for i := 0; i < maxSteps; i++ {
+		if m.CPU.EIP == 0x100cf {
+			value, err := m.Read16(0x191cbe)
+			fmt.Printf("empty_mox_cmp step=%d eip=0x%X ds=0x%X source_linear=0x191CBE source_word=0x%X read_error=%v flags=0x%X\n",
+				i, m.CPU.EIP, m.CPU.Seg[cpu386.SegDS], value, err, m.CPU.EFlags)
+		}
+		if i >= 5500 && (i < 20000 || i%10000 == 0) {
 			if i == 5500 || m.CPU.R[cpu386.ESI] != ring[len(ring)-1].esi || m.CPU.R[cpu386.EAX] != ring[len(ring)-1].eax {
 				fmt.Printf("change step=%d eip=0x%X esi=0x%X eax=0x%X bytes=% X\n", i, m.CPU.EIP, m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EAX], m.Mem[m.CPU.EIP:m.CPU.EIP+8])
 			}
@@ -79,5 +144,5 @@ func main() {
 			return
 		}
 	}
-	fmt.Printf("step_limit=200000 eip=0x%X unique_sites=%d\n", m.CPU.EIP, len(seen))
+	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
 }
