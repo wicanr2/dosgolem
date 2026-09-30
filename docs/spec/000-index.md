@@ -373,3 +373,4 @@
 - [219 — 受保護模式 DOS 的精確檔名首次搜尋](219-protected-dos-findfirst-exact.md)：CONFORMED。缺檔與固定空檔兩種原版輔助收據；合成診斷至 `0x148224`。
 - [220 — 無前綴 byte 記憶體目的 CMP](220-cpu386-cmp-rm8-register.md)：CONFORMED。`38 10` 原版同次 LOG 已擷取；合成診斷至 `0x146903`。
 - [221 — ES 覆寫的 byte 記憶體來源 MOV](221-cpu386-mov-r8-es-memory.md)：CONFORMED。`26 8A 1E` 原版同次 LOG 已擷取；合成診斷至 `0x14822D`。
+- [222 — 32 位暫存器 ROR 立即數 8](222-cpu386-ror-r32-imm8.md)：CONFORMED。原版零輸入 LOG 與 dosgolem 原檔整合測試通過；合成診斷至 `0x14701B`。

@@ -863,6 +863,35 @@ func TestRegisterRCLAndROR32ByOne(t *testing.T) {
 	}
 }
 
+func TestRegisterROR32ByImmediateEight(t *testing.T) {
+	for _, test := range []struct {
+		name                          string
+		value, flags, want, wantFlags uint32
+	}{
+		{name: "原版零輸入", value: 0, flags: IF | PF | OF | CF, want: 0, wantFlags: IF | PF | OF},
+		{name: "非零且移出一", value: 0x12345681, flags: IF | ZF | SF | AF | PF | OF, want: 0x81123456, wantFlags: IF | ZF | SF | AF | PF | OF | CF},
+		{name: "非零且移出零", value: 0x1234567e, flags: IF | CF, want: 0x7e123456, wantFlags: IF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus{0xc1, 0xca, 0x08})
+			c.R[EDX], c.EFlags = test.value, test.flags
+			if err := c.Step(); err != nil || c.EIP != 3 || c.R[EDX] != test.want || c.EFlags != test.wantFlags {
+				t.Fatalf("ROR EIP=%X EDX=%X flags=%X err=%v", c.EIP, c.R[EDX], c.EFlags, err)
+			}
+		})
+	}
+	for _, code := range [][]byte{
+		{0xc1, 0xca, 0x07}, {0xc1, 0x0a, 0x08}, {0xc1, 0xca},
+		{0x66, 0xc1, 0xca, 0x08}, {0x26, 0xc1, 0xca, 0x08},
+		{0xf3, 0xc1, 0xca, 0x08},
+	} {
+		c := New(testBus(code))
+		if err := c.Step(); err == nil {
+			t.Fatalf("未授權 C1 ROR 形狀 % X 被接受", code)
+		}
+	}
+}
+
 func TestRegisterADD32(t *testing.T) {
 	c := New(testBus{0x01, 0xc6})
 	c.R[ESI], c.R[EAX] = 3, 5

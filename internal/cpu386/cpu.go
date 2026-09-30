@@ -3034,6 +3034,24 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if op == 0xc1 && group == 1 {
+			if segmentOverride >= 0 || repe || repne || modrm>>6 != 3 {
+				return fail("C1 ROR 只接受無前綴 32 位暫存器")
+			}
+			count, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if count != 8 {
+				return fail("C1 ROR 僅支援立即數 08h")
+			}
+			rm := int(modrm & 7)
+			value := c.R[rm]
+			result := value>>8 | value<<24
+			c.R[rm] = result
+			c.EFlags = c.EFlags&^CF | result>>31&1
+			break
+		}
 		if modrm>>6 != 3 || (group != 4 && group != 5 && group != 7) {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
