@@ -19,16 +19,18 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
+capture_low_entry = sys.argv[1:] == ['--low-entry']
+capture_enter = sys.argv[1:] == ['--enter']
 capture_xchg = sys.argv[1:] == ['--xchg']
 capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -181,6 +183,76 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             records['sbb_word_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['sbb_word_log_before'] = lines[0]
             records['sbb_word_log_after'] = lines[1]
+        if capture_low_entry:
+            cmd('BPDEL *')
+            cmd('BP 0180:00362F5C')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '362f5c']), None)
+            if not match:
+                raise RuntimeError('MOO2 低位址跳轉前斷點未命中: ' + repr(snapshots))
+            records['low_entry_ev_before'] = match
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 20', 7)
+            if not log.is_file():
+                raise RuntimeError('MOO2 低位址跳轉 LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if not lines or not lines[0].startswith('0180:00362F5C'):
+                raise RuntimeError('MOO2 低位址跳轉 LOG 起點不符: ' + repr(lines[:2]))
+            (root / 'low-entry-logcpu.txt').write_bytes(log_bytes)
+            records['low_entry_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            records['low_entry_log_count'] = len(lines)
+            records['low_entry_log_first'] = lines[0]
+            records['low_entry_log_last'] = lines[-1]
+        if capture_enter:
+            cmd('BPDEL *')
+            cmd('BP 0180:0023405B')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EBP ESP SS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '23405b']), None)
+            if not match or len(match) != 6:
+                raise RuntimeError('MOO2 C8 前斷點未命中: ' + repr(snapshots))
+            esp, ss = int(match[3], 16), int(match[4], 16)
+            if esp < 4:
+                raise RuntimeError('MOO2 ENTER 堆疊不足')
+            frame = esp - 4
+            records['enter_before'] = match
+            records['enter_frame_address'] = {'segment': f'{ss:04X}', 'offset': f'{frame:08X}'}
+            dump = pathlib.Path('MEMDUMP.BIN')
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ss:04X}:{frame:08X} 4', 1)
+            if not dump.is_file() or dump.stat().st_size != 4:
+                raise RuntimeError('MOO2 ENTER 前堆疊擷取失敗')
+            before = dump.read_bytes()
+            (root / 'enter-stack-before.bin').write_bytes(before)
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV CS EIP EBP ESP SS EFLAGS', 0.8))
+            after_match = next((value for value in snapshots if value[:2] == ['180', '23405f']), None)
+            if not after_match:
+                raise RuntimeError('MOO2 ENTER 後未到下一指令: ' + repr(snapshots))
+            records['enter_after'] = after_match
+            if not log.is_file():
+                raise RuntimeError('MOO2 ENTER LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:0023405B') or not lines[1].startswith('0180:0023405F'):
+                raise RuntimeError('MOO2 ENTER 同次 LOG 指令序列不符: ' + repr(lines))
+            (root / 'enter-logcpu.txt').write_bytes(log_bytes)
+            records['enter_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ss:04X}:{frame:08X} 4', 1)
+            if not dump.is_file() or dump.stat().st_size != 4:
+                raise RuntimeError('MOO2 ENTER 後堆疊擷取失敗')
+            after = dump.read_bytes()
+            (root / 'enter-stack-after.bin').write_bytes(after)
+            records['enter_stack_before_hex'] = before.hex()
+            records['enter_stack_after_hex'] = after.hex()
         if capture_xchg:
             for name, location in [('xchg_before', '37571d'), ('xchg_after', '37571f')]:
                 cmd('BPDEL *')

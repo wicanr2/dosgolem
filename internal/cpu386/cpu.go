@@ -3147,6 +3147,38 @@ func (c *CPU) Step() error {
 				return fail("C7 dword寫入失敗")
 			}
 		}
+	case op == 0xc8:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("ENTER prefix 尚未支援")
+		}
+		allocSize, e := c.fetch16()
+		if e != nil {
+			return fail(e.Error())
+		}
+		nestingLevel, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if nestingLevel != 0 {
+			return fail("ENTER 巢狀層級尚未支援")
+		}
+		if c.R[ESP] < uint32(allocSize)+4 {
+			return fail("ENTER ESP 下溢")
+		}
+		frame := c.R[ESP] - 4
+		finalESP := frame - uint32(allocSize)
+		_, ok := c.segmentLinear(c.Seg[SegSS], frame, 4, true)
+		if !ok {
+			return fail("ENTER 舊 EBP 堆疊位置不可寫")
+		}
+		_, ok = c.segmentLinear(c.Seg[SegSS], finalESP, 1, true)
+		if !ok {
+			return fail("ENTER 最終 ESP 不在可寫堆疊")
+		}
+		if !c.writeSegment32(c.Seg[SegSS], frame, c.R[EBP]) {
+			return fail("ENTER 舊 EBP 寫入失敗")
+		}
+		c.R[EBP], c.R[ESP] = frame, finalESP
 	case op == 0xc9:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("C9 不接受目前的 prefix")
