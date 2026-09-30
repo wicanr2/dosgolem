@@ -29,11 +29,12 @@ const (
 	actMute
 	actFullscreen
 	actShot
+	actLang // Buck 規格 040 §3.4：F4 切到下一個已啟用語言
 )
 
-// hostKeysReserved 是前端保留的鍵（§3.3）。
+// hostKeysReserved 是前端保留的鍵（§3.3；F4 依 Buck 規格 040 §3.4、phase-294 改為前端保留）。
 var hostKeysReserved = map[string]hostAction{
-	"F1": actHelp, "F2": actScale, "F3": actMute, "F11": actFullscreen, "F12": actShot,
+	"F1": actHelp, "F2": actScale, "F3": actMute, "F4": actLang, "F11": actFullscreen, "F12": actShot,
 }
 
 // frameInput 是一個畫格的主機鍵盤狀態。Held 的值是按住的格數（剛按下為 1）。
@@ -156,6 +157,7 @@ type scriptAction struct {
 	blur  bool
 	help  bool
 	scale bool // 前端 F2：切換 2 倍／3 倍
+	lang  bool // 前端 F4：切換語言（Buck 規格 040 §3.4；腳本鍵名 F4 仍送 BIOS）
 }
 
 // parseScript 解析 `畫格:動作[,…]`（§3.4）。
@@ -177,6 +179,8 @@ func parseScript(s string) (map[int][]scriptAction, error) {
 			out[frame] = append(out[frame], scriptAction{help: true})
 		case name == "scale":
 			out[frame] = append(out[frame], scriptAction{scale: true})
+		case name == "lang":
+			out[frame] = append(out[frame], scriptAction{lang: true})
 		case name == "blur":
 			out[frame] = append(out[frame], scriptAction{blur: true})
 		case strings.HasPrefix(name, "click@"), strings.HasPrefix(name, "press@"), strings.HasPrefix(name, "release@"):

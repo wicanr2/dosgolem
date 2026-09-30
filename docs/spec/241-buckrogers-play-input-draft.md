@@ -76,14 +76,15 @@
 | F1 | 開關說明頁 |
 | F2 | 2× ↔ 3×（現有） |
 | F3 | 靜音開關（規格 240 的播放音量 0／1；不影響機器；控制點是 `game` 持有的 `audio.Player`） |
+| F4 | 語言切換（Buck repo 規格 040；原版不使用 F4 的證據見 Buck repo phase-294） |
 | F11 | 全螢幕開關（`ebiten.SetFullscreen`） |
 | F12 | 截圖：把目前合成畫面存成 PNG |
 
-- 衝突時前端優先：F1–F3、F11、F12 一律不送進原版；PgUp／PgDn 維持 Buck 規格 030 的規則。
+- 衝突時前端優先：F1–F4、F11、F12 一律不送進原版；PgUp／PgDn 維持 Buck 規格 030 的規則。
 - 說明頁：開啟時暫停。暫停的畫格 **`owner.View`、`Deliver`、`Advance` 三者一起跳過**（session 規定 `Deliver` 之後
   必須 `Advance` 才能再 `Deliver`，只跳過一邊會變成前端故障）；音訊不產生樣本（播放端補 0）。畫面為目前合成畫面上覆一層半透明底與說明文字；
   關閉後恢復。說明文字列出上表、遊戲鍵說明（方向鍵與數字鍵盤、Enter、Esc、字母快捷鍵）、
-  滑鼠只用左鍵，以及「F1–F3、F11、F12 由前端使用，不會送進遊戲」。
+  滑鼠只用左鍵，以及「F1–F4、F11、F12 由前端使用，不會送進遊戲」。
 - 說明頁文字屬玩家可見譯文：放在 Buck repo 的 `text/host-ui.zh-TW.tsv`（新 key，`source` 欄為
   `frontend-help`），字型子集照常由正式譯文重建。`LoadLiveRuntime` 讀取並驗證所有字元有字模；
   缺字即載入失敗。

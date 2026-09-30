@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/bootroot"
 )
 
@@ -69,6 +70,36 @@ func userDataDir() (string, error) {
 		}
 		return filepath.Join(home, ".local", "share", "buckrogers-cht"), nil
 	}
+}
+
+// zhTWFont 找 zh-TW 字型（Buck repo 規格 040 §3.4）：本機自用完整版附的倚天字型
+// （規格 035 §1.1）有就優先用，維持現行；其次是規格 040 的 buckrogers-zh-TW，
+// 最後是目前發行包的 Unifont 檔名。
+func zhTWFont() (string, error) {
+	var err error
+	for _, name := range []string{"buckrogers-eten-top-pad.golemfnt", filepath.Base(buckrogers.LangFontPath("", buckrogers.LangZhTW)), "buckrogers-unifont.golemfnt"} {
+		var p string
+		if p, err = resourcePath(filepath.Join("font", name)); err == nil {
+			return p, nil
+		}
+	}
+	return "", err
+}
+
+// liveOptions 載入 zh-TW 與 F4 循環的其他語言；語言的字型是發行包的
+// font/buckrogers-<lang>.golemfnt，沒有就讓該語言停用（原因列在說明頁）。
+func liveOptions(textDir, fontPath string) buckrogers.LiveOptions {
+	o := buckrogers.LiveOptions{TextDir: textDir, FontPath: fontPath, LangFonts: map[string]string{}}
+	for _, c := range buckrogers.LangCycle {
+		if c == buckrogers.LangZhTW || c == buckrogers.LangEn {
+			continue
+		}
+		o.Langs = append(o.Langs, c)
+		if p, err := resourcePath(buckrogers.LangFontPath("", c)); err == nil {
+			o.LangFonts[c] = p
+		}
+	}
+	return o
 }
 
 func exeDir() string {
@@ -265,7 +296,7 @@ func fatal(err error) {
 		if path != "" {
 			text += "\n\n錯誤紀錄：" + path
 		}
-		messageBox("拯救地球（繁中）", text)
+		messageBox(windowTitle, text)
 	}
 	os.Exit(1)
 }

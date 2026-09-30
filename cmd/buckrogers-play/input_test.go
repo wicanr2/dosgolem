@@ -74,13 +74,37 @@ func TestCtrlAltLetters(t *testing.T) {
 }
 
 func TestReservedAndHelp(t *testing.T) {
-	keys, acts := mapKeys(frameInput{Held: map[string]int{"F1": 1, "F4": 1, "F12": 5}}, false, nil)
-	if !eq(words(keys), []uint16{0x3E00}) || len(acts) != 1 || acts[0] != actHelp {
+	keys, acts := mapKeys(frameInput{Held: map[string]int{"F1": 1, "F5": 1, "F12": 5}}, false, nil)
+	if !eq(words(keys), []uint16{0x3F00}) || len(acts) != 1 || acts[0] != actHelp {
 		t.Fatalf("%04X %v", words(keys), acts)
 	}
 	keys, acts = mapKeys(frameInput{Chars: []rune{'a'}, Held: map[string]int{"F1": 1, "Enter": 1}}, true, nil)
 	if len(keys) != 0 || len(acts) != 1 {
 		t.Fatalf("說明頁開啟仍送鍵 %v %v", keys, acts)
+	}
+}
+
+// Buck 規格 040 §3.4：互動按 F4 只產生語言動作、不產生 BIOS 鍵；按住不連發；
+// 說明頁開啟時仍可切換。
+func TestF4IsLanguageAction(t *testing.T) {
+	keys, acts := mapKeys(frameInput{Held: map[string]int{"F4": 1}}, false, nil)
+	if len(keys) != 0 || len(acts) != 1 || acts[0] != actLang {
+		t.Fatalf("F4 %04X %v", words(keys), acts)
+	}
+	for _, d := range []int{2, 31, 37} {
+		keys, acts = mapKeys(frameInput{Held: map[string]int{"F4": d}}, false, nil)
+		if len(keys) != 0 || len(acts) != 0 {
+			t.Fatalf("F4 按住 %d 格 %04X %v", d, words(keys), acts)
+		}
+	}
+	keys, acts = mapKeys(frameInput{Held: map[string]int{"F4": 1}}, true, nil)
+	if len(keys) != 0 || len(acts) != 1 || acts[0] != actLang {
+		t.Fatalf("說明頁 F4 %04X %v", words(keys), acts)
+	}
+	// F5–F10 照原版送出。
+	keys, _ = mapKeys(frameInput{Held: map[string]int{"F5": 1, "F10": 1}}, false, nil)
+	if !eq(words(keys), []uint16{0x4400, 0x3F00}) {
+		t.Fatalf("F5 F10 %04X", words(keys))
 	}
 }
 
@@ -131,10 +155,18 @@ func TestParseScript(t *testing.T) {
 	if !s[42][0].scale {
 		t.Fatal("scale")
 	}
+	// 腳本鍵名 F4 直接送 BIOS；lang 才是前端語言動作。
+	if s[5][0].lang {
+		t.Fatal("F4 不應是 lang")
+	}
+	l, err := parseScript("3:lang,3:Enter,9:lang")
+	if err != nil || len(l[3]) != 2 || !l[3][0].lang || l[3][0].key != nil || l[3][1].key == nil || !l[9][0].lang {
+		t.Fatalf("lang %+v %v", l, err)
+	}
 	if s[5][0].key.Word() != 0x3E00 || s[6][0].key.Word() != 0x2E03 || s[7][0].key.Word() != 0x2D00 {
 		t.Fatal("鍵")
 	}
-	for _, bad := range []string{"1:click@400;1", "1:click@1,2", "1:click@1;1,3:click@2;2", "1:Ctrl+1", "0:Enter", "1:Nope"} {
+	for _, bad := range []string{"1:click@400;1", "1:click@1,2", "1:click@1;1,3:click@2;2", "1:Ctrl+1", "0:Enter", "1:Nope", "1:Lang", "1:lang@1"} {
 		if _, err := parseScript(bad); err == nil {
 			t.Fatalf("%q 應失敗", bad)
 		}

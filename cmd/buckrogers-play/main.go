@@ -8,6 +8,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -45,10 +47,18 @@ type liveObserver struct {
 	r      *buckrogers.LiveRuntime
 	cursor *buckrogers.StepCursor[session.StepView]
 	mix    *mixer.Mixer // nil：不收音訊
+	last   *lastFrame   // nil：不留原版畫格（互動模式）
 }
 
-func newLiveObserver(r *buckrogers.LiveRuntime, mix *mixer.Mixer) liveObserver {
-	return liveObserver{r: r, cursor: &buckrogers.StepCursor[session.StepView]{}, mix: mix}
+// lastFrame 是最後一個 retrace 的原版畫格，自動模式結束時用來核對
+// 英文模式的合成等於原版（Buck 規格 040 §3.4）。
+type lastFrame struct {
+	indexed []byte
+	palette [256][3]uint8
+}
+
+func newLiveObserver(r *buckrogers.LiveRuntime, mix *mixer.Mixer, last *lastFrame) liveObserver {
+	return liveObserver{r: r, cursor: &buckrogers.StepCursor[session.StepView]{}, mix: mix, last: last}
 }
 
 // The audio methods make liveObserver a session.AudioObserver (spec 240).
@@ -74,6 +84,10 @@ func (o liveObserver) BeforeStep(v session.StepView) error {
 }
 func (o liveObserver) VideoWrite(w machine.VideoWrite) { o.r.VideoWrite(w) }
 func (o liveObserver) Frame(indexed []byte, palette [256][3]uint8) {
+	if o.last != nil {
+		o.last.indexed = append(o.last.indexed[:0], indexed...)
+		o.last.palette = palette
+	}
 	o.r.Frame(indexed, palette)
 }
 
@@ -114,6 +128,10 @@ type game struct {
 	focused  bool
 	muted    bool
 	player   *audio.Player
+
+	ui       langUI       // 說明頁的語言列（Buck 規格 040 §3.4）
+	settings langSettings // 互動模式的設定檔；自動與開發模式不讀不寫
+	last     *lastFrame   // 自動模式：最後一個原版畫格
 
 	budget  uint64 // 每主機畫格的指令數（spec 242）
 	mix     *mixer.Mixer
@@ -181,6 +199,8 @@ func (g *game) scriptInput(u *session.CapturedUpdate) []hostAction {
 			acts = append(acts, actHelp)
 		case a.scale:
 			acts = append(acts, actScale)
+		case a.lang:
+			acts = append(acts, actLang)
 		case g.help:
 			// 說明頁開啟時不送輸入。
 		case a.key != nil:
@@ -217,6 +237,8 @@ func (g *game) apply(acts []hostAction) {
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		case actShot:
 			g.screenshot()
+		case actLang:
+			g.nextLanguage()
 		}
 	}
 }
@@ -246,7 +268,24 @@ func (g *game) screenshot() {
 	ebiten.SetWindowTitle(windowTitle)
 }
 
-const windowTitle = "拯救地球（繁中）"
+// nextLanguage 切到 F4 循環的下一個已啟用語言（Buck 規格 040 §3.4）：只換合成用的
+// 語言，原版看不到。互動模式寫入設定檔，失敗只記在 stderr。
+func (g *game) nextLanguage() {
+	next := g.live.NextLanguage()
+	if err := g.live.SetLanguage(next); err != nil {
+		fmt.Fprintln(os.Stderr, "buckrogers-play:", err)
+		return
+	}
+	if g.frames > 0 {
+		fmt.Fprintf(os.Stderr, "buckrogers-play: frame=%d lang=%s\n", g.frame, next)
+	}
+	if err := g.settings.write(next); err != nil {
+		fmt.Fprintln(os.Stderr, "buckrogers-play: 寫入設定檔失敗：", err)
+	}
+}
+
+// windowTitle 不標語言；目前語言顯示在說明頁（Buck 規格 040 §3.4）。
+const windowTitle = "拯救地球"
 
 func (g *game) Update() error {
 	g.frame++
@@ -288,7 +327,8 @@ func (g *game) composed() ([]byte, bool, error) {
 		return rgba, ok, err
 	}
 	out := append([]byte(nil), rgba...)
-	buckrogers.DrawHelp(out, g.scale, g.live.Font(), g.live.HelpLines())
+	lines := g.ui.helpLines(g.live.HelpLines(), g.live.Language(), g.live.Languages())
+	buckrogers.DrawHelp(out, g.scale, g.live.Font(), lines)
 	return out, true, nil
 }
 
@@ -311,9 +351,28 @@ func (g *game) finishFrame() error {
 	}
 	if d, err := g.owner.Digest(); err == nil {
 		fmt.Fprintf(os.Stderr, "buckrogers-play: steps=%d phase=%v clock=%d irq0_clamped=%d\n", d.Steps, g.owner.Status().Phase, d.ClockPercent, d.IRQ0Clamped)
+		// Buck 規格 040 §5.4：同腳本插不插 lang，這兩個雜湊都要相同。
+		fmt.Fprintf(os.Stderr, "buckrogers-play: memory_sha256=%x cpu_sha256=%x indexed_sha256=%x palette_sha256=%x\n",
+			d.MemorySHA256, d.CPUSHA256, d.IndexedSHA256, d.PaletteSHA256)
 		fmt.Fprintln(os.Stderr, "buckrogers-play:", g.live.DebugSummary())
 	}
+	g.reportCompose()
 	return ebiten.Termination
+}
+
+// reportCompose 印出目前語言的合成（不含說明頁）與原版放大畫面的雜湊；
+// 英文模式兩者須相同（Buck 規格 040 §3.4）。
+func (g *game) reportCompose() {
+	if g.last == nil || g.last.indexed == nil {
+		return
+	}
+	rgba, ok, err := g.live.Compose(g.scale)
+	if err != nil || !ok {
+		return
+	}
+	orig := buckrogers.ScaleIndexedRGBA(g.last.indexed, g.last.palette, g.scale)
+	c, o := sha256.Sum256(rgba), sha256.Sum256(orig)
+	fmt.Fprintf(os.Stderr, "buckrogers-play: lang=%s compose_sha256=%x original_sha256=%x same=%v\n", g.live.Language(), c, o, c == o)
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
@@ -341,12 +400,13 @@ func main() {
 	save := flag.String("save", "", "開發模式：可寫存檔目錄（須不存在或為空，每次重新複製）；不給則用使用者資料目錄")
 	exe := flag.String("exe", "START.EXE", "開機執行檔名")
 	exeSHA := flag.String("exe-sha256", requiredOriginals[0].sha, "開機執行檔 SHA-256（hex）")
-	textDir := flag.String("text-dir", "", "繁中 catalog 目錄")
-	fontPath := flag.String("font", "", "16×16 GOLEMFNT（預設為發行包的 font/buckrogers-unifont.golemfnt）")
+	textDir := flag.String("text-dir", "", "譯文 catalog 目錄")
+	fontPath := flag.String("font", "", "繁體中文（zh-TW）16×16 GOLEMFNT，只覆寫 zh-TW（預設依序找發行包的 font/buckrogers-eten-top-pad、buckrogers-zh-TW、buckrogers-unifont .golemfnt）")
+	langFlag := flag.String("lang", "", "起始語言（zh-TW、zh-CN、en、ja、ko；優先於設定檔，不寫入設定檔）")
 	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
 	frames := flag.Int("frames", 0, "自動模式：跑這麼多畫格後結束（0＝互動）")
-	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help、scale）")
+	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help、scale、lang）")
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
 	shotDir := flag.String("shot-dir", "", "F12 截圖目錄（預設為存檔目錄上一層的 screenshots）")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
@@ -376,6 +436,12 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+	if *langFlag != "" && !frontendKnownLang(*langFlag) {
+		// Buck 規格 040 §3.4：不認得的代碼是用法錯誤。
+		fmt.Fprintf(os.Stderr, "buckrogers-play: -lang 不認得的語言代碼 %q（可用：%s）\n", *langFlag, strings.Join(buckrogers.LangCycle, "、"))
+		flag.Usage()
+		os.Exit(2)
+	}
 	data, err := userDataDir()
 	if err != nil {
 		die(err)
@@ -389,12 +455,14 @@ func main() {
 		}
 	}
 	if *fontPath == "" {
-		// 本機自用完整版另附倚天字型（Buck repo 規格 035 §1.1），有就優先用；一般版只有 Unifont。
-		if p, e := resourcePath(filepath.Join("font", "buckrogers-eten-top-pad.golemfnt")); e == nil {
-			*fontPath = p
-		} else if *fontPath, err = resourcePath(filepath.Join("font", "buckrogers-unifont.golemfnt")); err != nil {
+		if *fontPath, err = zhTWFont(); err != nil {
 			die(err)
 		}
+	}
+	settings := newLangSettings(*frames, *save, data)
+	saved, err := settings.read()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "buckrogers-play: 讀取設定檔失敗（改用預設）：", err)
 	}
 	sum, err := hex.DecodeString(*exeSHA)
 	if err != nil || len(sum) != 32 {
@@ -406,10 +474,32 @@ func main() {
 	if err != nil {
 		die(err)
 	}
-	live, err := buckrogers.LoadLiveRuntime(*textDir, *fontPath)
+	live, err := buckrogers.LoadLiveRuntimeOptions(liveOptions(*textDir, *fontPath))
 	if err != nil {
 		die(err)
 	}
+	ui, warn, err := loadLangUI(*textDir, live.Font())
+	if err != nil {
+		die(err)
+	}
+	for _, w := range warn {
+		fmt.Fprintln(os.Stderr, "buckrogers-play:", w)
+	}
+	cur, err := startLang(*langFlag, saved, func(code string) bool {
+		for _, l := range live.Languages() {
+			if l.Code == code {
+				return l.Enabled
+			}
+		}
+		return false
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "buckrogers-play:", err)
+	}
+	if err := live.SetLanguage(cur); err != nil {
+		die(err)
+	}
+	fmt.Fprintf(os.Stderr, "buckrogers-play: 起始語言 %s（-lang %q，設定檔 %q）\n", cur, *langFlag, saved)
 	if *manualEnglish == "" {
 		// 本機自用完整版附手冊英文摘錄（Buck repo 規格 035 §1.1、規格 034），有就預設開啟；一般版沒有。
 		if p, e := resourcePath(filepath.Join("local", "manual-english.tsv")); e == nil {
@@ -442,7 +532,11 @@ func main() {
 		FrameWidth: 320 * int(s), FrameHeight: 18*int(s) + 200*int(s)}
 	budget := stepsPerHostFrame(*clock)
 	mix := mixer.New(budget * 60)
-	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, AdLib: *adlib, ClockPercent: *clock, Observer: newLiveObserver(live, mix)})
+	var last *lastFrame
+	if *frames > 0 {
+		last = &lastFrame{}
+	}
+	owner, err := session.New(session.Config{InitialScale: s, InitialLayout: layout, AdLib: *adlib, ClockPercent: *clock, Observer: newLiveObserver(live, mix, last)})
 	if err != nil {
 		die(err)
 	}
@@ -456,7 +550,7 @@ func main() {
 		dir = filepath.Join(filepath.Dir(filepath.Clean(saveRoot)), "screenshots")
 	}
 	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir, budget: budget,
-		mix: mix, wavPath: *wavPath, focused: true}
+		mix: mix, wavPath: *wavPath, focused: true, ui: ui, settings: settings, last: last}
 	if *frames == 0 {
 		// 播放只在互動模式：自動模式常在沒有音效裝置的容器裡跑。
 		g.ring = mixer.NewRing(200)
@@ -475,12 +569,14 @@ func main() {
 	if err := ebiten.RunGame(g); err != nil {
 		die(err)
 	}
+	wall := time.Since(started).Seconds()
 	if g.ring != nil {
 		// 回報用：實際畫格率與播放斷流次數（規格 240 §3.5）。
-		wall := time.Since(started).Seconds()
 		u, d := g.ring.Stats()
 		fmt.Fprintf(os.Stderr, "buckrogers-play: frames=%d wall=%.1fs fps=%.1f audio_underruns=%d audio_dropped_frames=%d\n",
 			g.frame, wall, float64(g.frame)/wall, u, d)
+	} else {
+		fmt.Fprintf(os.Stderr, "buckrogers-play: frames=%d wall=%.1fs fps=%.1f\n", g.frame, wall, float64(g.frame)/wall)
 	}
 	if g.lastErr != nil {
 		die(g.lastErr)
