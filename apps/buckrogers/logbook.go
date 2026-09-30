@@ -51,7 +51,12 @@ type LogbookCatalog struct {
 // logbook.panel.title with {0}=entry number, {1}=title; logbook.panel.page
 // with {0}=page, {1}=pages).
 func (c *LogbookCatalog) LoadLogbookPanelText(data []byte) error {
-	rows, err := readTSV("logbook-panel.zh-TW.tsv", data, []string{"key", "translation", "source"})
+	return c.LoadLogbookPanelTextLang(data, LangZhTW)
+}
+
+// LoadLogbookPanelTextLang reads text/logbook-panel.<lang>.tsv (spec 040).
+func (c *LogbookCatalog) LoadLogbookPanelTextLang(data []byte, lang string) error {
+	rows, err := readLangTSV(LangFile("logbook-panel", lang), data, []string{"key", "translation", "source"}, lang)
 	if err != nil {
 		return err
 	}
@@ -155,7 +160,12 @@ func isLogbookSpace(r rune) bool { return unicode.IsSpace(r) }
 // out the three annotation tiers of spec 036 §3.3 once and keeps the first
 // that fits in three pages; nothing is re-laid out at run time.
 func LoadLogbookCatalog(data []byte, names *NameGlossary) (*LogbookCatalog, error) {
-	rows, err := readTSV("logbook.zh-TW.tsv", data, []string{"key", "translation", "source"})
+	return LoadLogbookCatalogLang(data, names, LangZhTW)
+}
+
+// LoadLogbookCatalogLang reads text/logbook.<lang>.tsv (spec 040 §3.1).
+func LoadLogbookCatalogLang(data []byte, names *NameGlossary, lang string) (*LogbookCatalog, error) {
+	rows, err := readLangTSV(LangFile("logbook", lang), data, []string{"key", "translation", "source"}, lang)
 	if err != nil {
 		return nil, err
 	}

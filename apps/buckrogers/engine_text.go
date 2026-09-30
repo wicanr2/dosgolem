@@ -68,11 +68,15 @@ func loadHashRows(name string, data []byte) (map[engineID]string, []int, error) 
 }
 
 func loadTextRows(name string, data []byte, keys map[string]bool) (map[string]string, error) {
+	return loadTextRowsLang(name, data, keys, LangZhTW)
+}
+
+func loadTextRowsLang(name string, data []byte, keys map[string]bool, lang string) (map[string]string, error) {
 	out := map[string]string{}
 	if data == nil {
 		return out, nil
 	}
-	rows, err := readTSV(name, data, []string{"key", "translation", "source"})
+	rows, err := readLangTSV(name, data, []string{"key", "translation", "source"}, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +91,8 @@ func loadTextRows(name string, data []byte, keys map[string]bool) (map[string]st
 
 // EngineTextFiles holds the raw catalog files; nil optional files are empty.
 type EngineTextFiles struct {
+	// Lang names the text files (spec 040 §3.1); empty means zh-TW.
+	Lang                         string
 	FragmentEvents, FragmentText []byte
 	ItemEvents, ItemText         []byte
 	PhraseEvents, PhraseText     []byte
@@ -110,10 +116,10 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		}
 		return out
 	}
-	if c.fragText, err = loadTextRows("engine-fragment.zh-TW.tsv", f.FragmentText, keys(c.frag)); err != nil {
+	if c.fragText, err = loadTextRowsLang(LangFile("engine-fragment", f.lang()), f.FragmentText, keys(c.frag), f.lang()); err != nil {
 		return nil, err
 	}
-	if c.itemText, err = loadTextRows("item-word.zh-TW.tsv", f.ItemText, keys(c.item)); err != nil {
+	if c.itemText, err = loadTextRowsLang(LangFile("item-word", f.lang()), f.ItemText, keys(c.item), f.lang()); err != nil {
 		return nil, err
 	}
 	if f.PhraseEvents != nil {
@@ -121,7 +127,7 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		if err != nil {
 			return nil, err
 		}
-		text, err := loadTextRows("item-phrase.zh-TW.tsv", f.PhraseText, keys(ids))
+		text, err := loadTextRowsLang(LangFile("item-phrase", f.lang()), f.PhraseText, keys(ids), f.lang())
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +142,7 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		if err != nil {
 			return nil, err
 		}
-		text, err := loadTextRows("monster-name.zh-TW.tsv", f.MonsterText, keys(ids))
+		text, err := loadTextRowsLang(LangFile("monster-name", f.lang()), f.MonsterText, keys(ids), f.lang())
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +161,7 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		for _, r := range rows {
 			sigOf[r[0]] = r[1]
 		}
-		text, err := loadTextRows("engine-template.zh-TW.tsv", f.TemplateText, nil)
+		text, err := loadTextRowsLang(LangFile("engine-template", f.lang()), f.TemplateText, nil, f.lang())
 		if err != nil {
 			return nil, err
 		}
@@ -459,7 +465,12 @@ var engineCoordLine = regexp.MustCompile(`^[0-9]{1,2},[0-9]{1,2} [NESW] [0-9]{2}
 // LoadCoordinateText reads text/coordinate-line.zh-TW.tsv: all four
 // compass keys, each translated to exactly one character.
 func (c *EngineTextCatalog) LoadCoordinateText(data []byte) error {
-	rows, err := readTSV("coordinate-line.zh-TW.tsv", data, []string{"key", "translation", "source"})
+	return c.LoadCoordinateTextLang(data, LangZhTW)
+}
+
+// LoadCoordinateTextLang reads text/coordinate-line.<lang>.tsv (spec 040).
+func (c *EngineTextCatalog) LoadCoordinateTextLang(data []byte, lang string) error {
+	rows, err := readLangTSV(LangFile("coordinate-line", lang), data, []string{"key", "translation", "source"}, lang)
 	if err != nil {
 		return err
 	}
@@ -551,4 +562,11 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 		b.WriteString(z)
 	}
 	return b.String(), true
+}
+
+func (f EngineTextFiles) lang() string {
+	if f.Lang == "" {
+		return LangZhTW
+	}
+	return f.Lang
 }

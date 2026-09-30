@@ -140,6 +140,27 @@ func LoadNameGlossary(glossary, exclude []byte) (*NameGlossary, error) {
 // loadNameGlossary reads the two files from a text directory; a missing
 // glossary disables annotation.
 func loadNameGlossary(textDir string) (*NameGlossary, error) {
+	return loadNameGlossaryLang(textDir, textDir, LangZhTW)
+}
+
+// loadNameGlossaryLang is the spec 040 §3.1 per-language glossary.  zh-TW
+// keeps text/name-glossary.tsv; the name forms of other languages are
+// defined by their own specs (041–045) as name-glossary.<lang>.tsv in the
+// language directory, and without that file annotation is off.
+func loadNameGlossaryLang(textDir, langDir, lang string) (*NameGlossary, error) {
+	if lang != LangZhTW {
+		gb, err := os.ReadFile(filepath.Join(langDir, LangFile("name-glossary", lang)))
+		if os.IsNotExist(err) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		eb, err := os.ReadFile(filepath.Join(textDir, "name-glossary-exclude.tsv"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		return LoadNameGlossary(gb, eb)
+	}
 	gb, err := os.ReadFile(filepath.Join(textDir, "name-glossary.tsv"))
 	if os.IsNotExist(err) {
 		return nil, nil

@@ -75,11 +75,25 @@ func LoadTechnicalSkillCatalog(events, translations []byte) (*MenuCatalog, error
 }
 
 func loadExactCatalog(eventName, translationName string, events, translations []byte) (*MenuCatalog, error) {
+	return loadExactCatalogLang(eventName, translationName, events, translations, false)
+}
+
+// loadExactCatalogLang with allowMissing is the spec 040 §3.1 load of a
+// non-reference language: rows may be missing (their translation is empty),
+// orphan and duplicate keys still fail.
+func loadExactCatalogLang(eventName, translationName string, events, translations []byte, allowMissing bool) (*MenuCatalog, error) {
 	eventRows, err := readTSV(eventName, events, menuEventHeader)
 	if err != nil {
 		return nil, err
 	}
-	textRows, err := readTSV(translationName, translations, textHeader)
+	read := readTSV
+	if allowMissing {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	textRows, err := read(translationName, translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +141,7 @@ func loadExactCatalog(eventName, translationName string, events, translations []
 			return nil, fmt.Errorf("%s: 重複事件鍵 %q", eventName, row[0])
 		}
 		translation, exists := texts[row[2]]
-		if !exists {
+		if !exists && !allowMissing {
 			return nil, fmt.Errorf("%s: 文字鍵不在 catalog %q", eventName, row[2])
 		}
 		eventKeys[row[0]], usedTextKeys[row[2]] = true, true
@@ -229,4 +243,39 @@ func menuAddress(s string) (Address, error) {
 		return Address{}, err
 	}
 	return Address{uint16(segment), uint16(offset)}, nil
+}
+
+// identityOnly returns a copy that resolves the same identities but carries
+// no translation (spec 040 §3.1: the shared watcher only outputs keys).
+func (c *MenuCatalog) identityOnly() *MenuCatalog {
+	if c == nil {
+		return nil
+	}
+	out := &MenuCatalog{byIdentity: make(map[menuIdentity]catalogEntry, len(c.byIdentity))}
+	for id, e := range c.byIdentity {
+		out.byIdentity[id] = catalogEntry{eventKey: e.eventKey, textKey: e.textKey}
+	}
+	return out
+}
+
+// textKeys lists the text keys the catalog's events use.
+func (c *MenuCatalog) textKeys() map[string]bool {
+	out := map[string]bool{}
+	if c != nil {
+		for _, e := range c.byIdentity {
+			out[e.textKey] = true
+		}
+	}
+	return out
+}
+
+// texts maps each text key to its translation.
+func (c *MenuCatalog) texts() map[string]string {
+	out := map[string]string{}
+	if c != nil {
+		for _, e := range c.byIdentity {
+			out[e.textKey] = e.translation
+		}
+	}
+	return out
 }

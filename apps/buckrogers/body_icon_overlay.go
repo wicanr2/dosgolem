@@ -80,6 +80,13 @@ func parseBodySHA(v string) ([32]byte, error) {
 // safe-rect TSVs. The save prompt is an affix identity (spec 025); the other
 // six rows are exact identities (spec 009).
 func LoadBodyIconCatalog(events, affixes, translations, rects []byte) (*BodyIconCatalog, error) {
+	return LoadBodyIconCatalogLang(events, affixes, translations, rects, LangZhTW)
+}
+
+// LoadBodyIconCatalogLang is spec 040 §3.1: zh-TW translates every key;
+// another language may leave keys out (empty texts) but adds no orphans.
+func LoadBodyIconCatalogLang(events, affixes, translations, rects []byte, lang string) (*BodyIconCatalog, error) {
+	strict := lang == LangZhTW
 	rows, err := readTSV("body-icon-events.tsv", events, []string{"event_key", "sequence", "text_key", "original_length", "original_sha256", "caller", "background", "foreground", "row", "column"})
 	if err != nil {
 		return nil, err
@@ -94,7 +101,14 @@ func LoadBodyIconCatalog(events, affixes, translations, rects []byte) (*BodyIcon
 	if len(affixRows) != 1 || affixRows[0][0] != bodySaveKey {
 		return nil, fmt.Errorf("body icon affix catalog requires exactly the save prompt row")
 	}
-	texts, err := readTSV("body-icon.zh-TW.tsv", translations, []string{"key", "translation", "source"})
+	read := readTSV
+	if !strict {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	texts, err := read(LangFile("body-icon", lang), translations, []string{"key", "translation", "source"})
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +173,7 @@ func LoadBodyIconCatalog(events, affixes, translations, rects []byte) (*BodyIcon
 		text := textByKey[row[2]]
 		rect, hasRect := rectByKey[row[0]]
 		draw, hasDraw := drawByKey[row[0]]
-		if text == "" || !hasRect || !hasDraw || rect.Width != int(length)*8 || rect.X != int(nums[3])*8 || rect.Y != int(nums[2])*8 || draw[2] != int(length) {
+		if text == "" && strict || !hasRect || !hasDraw || rect.Width != int(length)*8 || rect.X != int(nums[3])*8 || rect.Y != int(nums[2])*8 || draw[2] != int(length) {
 			return nil, fmt.Errorf("body icon TSV join invalid for %q", row[0])
 		}
 		out.byKey[row[0]] = BodyIconIdentity{EventKey: row[0], Caller: caller, Length: uint8(length), SHA256: sha, BG: uint8(nums[0]), FG: uint8(nums[1]), Row: uint8(nums[2]), Column: uint8(nums[3]), TextKey: row[2], Translation: text, Rect: rect, DrawX: draw[0], DrawY: draw[1], Capacity: draw[2]}
@@ -190,14 +204,25 @@ func LoadBodyIconCatalog(events, affixes, translations, rects []byte) (*BodyIcon
 	prefixRect, hasPrefix := rectByKey[bodySavePrefixKey]
 	prefixDraw := drawByKey[bodySavePrefixKey]
 	if save.PrefixLength <= 0 || save.SuffixLength <= 0 || save.SlotMin < 1 || save.SlotMax < save.SlotMin ||
-		int(save.Column)+save.PrefixLength+save.SlotMax+save.SuffixLength > 40 || save.PrefixText == "" || save.SuffixText == "" || !hasPrefix ||
+		int(save.Column)+save.PrefixLength+save.SlotMax+save.SuffixLength > 40 || strict && (save.PrefixText == "" || save.SuffixText == "") || !hasPrefix ||
 		prefixRect.X != int(save.Column)*8 || prefixRect.Y != int(save.Row)*8 || prefixRect.Width != save.PrefixLength*8 || prefixDraw[2] != save.PrefixLength {
 		return nil, fmt.Errorf("body icon save prompt affix join invalid")
 	}
 	save.PrefixRect = prefixRect
 	out.save = save
-	if len(textByKey) != len(bodyIconExactKeys)+2 || len(rectByKey) != len(bodyIconExactKeys)+1 {
+	if strict && len(textByKey) != len(bodyIconExactKeys)+2 || len(rectByKey) != len(bodyIconExactKeys)+1 {
 		return nil, fmt.Errorf("body icon catalog has orphan rows")
+	}
+	if !strict {
+		known := map[string]bool{bodySavePrefixKey: true, bodySaveSuffixKey: true}
+		for _, id := range out.byKey {
+			known[id.TextKey] = true
+		}
+		for k := range textByKey {
+			if !known[k] {
+				return nil, fmt.Errorf("%s: 孤兒文字鍵 %q", LangFile("body-icon", lang), k)
+			}
+		}
 	}
 	return out, nil
 }
@@ -457,6 +482,11 @@ type BodyIconInvalidation struct {
 	Invalidated []string `json:"invalidated_keys"`
 }
 type RuntimeBodyIconOverlay struct {
+	// missing are the safe rectangles of the last transition this language
+	// does not fully translate (spec 040 §3.2 yield rectangles).
+	missing []PixelRect
+	// Missing counts untranslated transitions (the original English shows).
+	Missing       int
 	layer         *xlate.Layer
 	catalog       *BodyIconCatalog
 	fonts         segmentFonts
@@ -487,6 +517,9 @@ func NewRuntimeBodyIconOverlay(c *BodyIconCatalog, font *xlate.Font, scale int, 
 		checks = append(checks, textCap{id.Translation, id.Capacity})
 	}
 	for _, check := range checks {
+		if check.text == "" && route == BodyIconLive {
+			continue // spec 040: untranslated in this language
+		}
 		// Spec 039 §3.4: capacity is capacity cells × 2 half units.
 		if check.text == "" || stringUnits(check.text) > 2*check.capacity {
 			return nil, fmt.Errorf("body icon translation exceeds safe capacity")
@@ -542,33 +575,34 @@ func (o *RuntimeBodyIconOverlay) Apply(t BodyIconTransition, palette [256][3]uin
 		}
 		plan = append(plan, planned{id.EventKey, id.Rect, id.Translation, id.BG, id.FG})
 	}
+	o.missing = nil
+	for _, p := range plan {
+		if p.text != "" {
+			continue
+		}
+		// Spec 040 §3.2: a request is one unit; any untranslated part
+		// leaves the whole request to the original English.
+		if t.Group != "selection-redraw" {
+			o.layer = &xlate.Layer{W: 320, H: 200}
+			o.active = map[string]bool{}
+			o.rects = map[string]PixelRect{}
+		}
+		for _, q := range plan {
+			o.layer.Clear(q.rect.X, q.rect.Y, q.rect.X+q.rect.Width, q.rect.Y+q.rect.Height)
+			delete(o.active, q.key)
+			delete(o.rects, q.key)
+			o.missing = append(o.missing, q.rect)
+		}
+		o.generation = t.Generation
+		o.transition++
+		o.Missing++
+		return nil
+	}
 	stamps := make([][]*xlate.Stamp, len(plan))
 	for i, p := range plan {
-		// Spec 039 §3.3: one stamp per width segment, padded to the rect.
-		bg, fg := palette[p.bg], palette[p.fg]
-		segs := o.fonts.segmentStamps(p.key, p.rect.X, p.rect.Y, padUnits([]rune(p.text), 2*(p.rect.Width/8)), nil,
-			func(int) ([3]uint8, [3]uint8) { return bg, fg })
-		clear := PixelRect{p.rect.X * o.scale, p.rect.Y * o.scale, p.rect.Width * o.scale, p.rect.Height * o.scale}
-		inked := false
-		for _, stamp := range segs {
-			blank := true
-			for _, r := range stamp.Text {
-				blank = blank && isBlankRune(r)
-			}
-			if blank {
-				continue
-			}
-			ink, err := menuInkRect(stamp, o.scale)
-			if err != nil {
-				return err
-			}
-			inked = true
-			if ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
-				return fmt.Errorf("body icon ink outside safe rectangle")
-			}
-		}
-		if !inked {
-			return fmt.Errorf("body icon translation has no visible ink")
+		segs, err := o.stampText(p.key, p.rect, p.text, palette[p.bg], palette[p.fg])
+		if err != nil {
+			return err
 		}
 		stamps[i] = segs
 	}
@@ -718,4 +752,63 @@ func (o *RuntimeBodyIconOverlay) Scale() int {
 		return 0
 	}
 	return o.scale
+}
+
+// stampText lays one body-icon text into its rectangle and checks its ink.
+func (o *RuntimeBodyIconOverlay) stampText(key string, rect PixelRect, text string, bg, fg [3]uint8) ([]*xlate.Stamp, error) {
+	// Spec 039 §3.3: one stamp per width segment, padded to the rect.
+	segs := o.fonts.segmentStamps(key, rect.X, rect.Y, padUnits([]rune(text), 2*(rect.Width/8)), nil,
+		func(int) ([3]uint8, [3]uint8) { return bg, fg })
+	clear := PixelRect{rect.X * o.scale, rect.Y * o.scale, rect.Width * o.scale, rect.Height * o.scale}
+	inked := false
+	for _, stamp := range segs {
+		blank := true
+		for _, r := range stamp.Text {
+			blank = blank && isBlankRune(r)
+		}
+		if blank {
+			continue
+		}
+		ink, err := menuInkRect(stamp, o.scale)
+		if err != nil {
+			return nil, err
+		}
+		inked = true
+		if ink.X < clear.X || ink.Y < clear.Y || ink.X+ink.Width > clear.X+clear.Width || ink.Y+ink.Height > clear.Y+clear.Height {
+			return nil, fmt.Errorf("body icon ink outside safe rectangle")
+		}
+	}
+	if !inked {
+		return nil, fmt.Errorf("body icon translation has no visible ink")
+	}
+	return segs, nil
+}
+
+// validateAll prebuilds every translated body-icon text (spec 040 §3.3),
+// the save suffix at every allowed name length.
+func (o *RuntimeBodyIconOverlay) validateAll() error {
+	var zero [3]uint8
+	a := o.catalog.save
+	if a.PrefixText != "" {
+		if _, err := o.stampText(bodySavePrefixKey, a.PrefixRect, a.PrefixText, zero, zero); err != nil {
+			return fmt.Errorf("%s（%d×）：%w", bodySavePrefixKey, o.scale, err)
+		}
+	}
+	if a.SuffixText != "" {
+		for n := a.SlotMin; n <= a.SlotMax; n++ {
+			if _, err := o.stampText(bodySaveSuffixKey, o.catalog.saveSuffixRect(n), a.SuffixText, zero, zero); err != nil {
+				return fmt.Errorf("%s（%d×）：%w", bodySaveSuffixKey, o.scale, err)
+			}
+		}
+	}
+	for _, key := range bodyIconExactKeys {
+		id := o.catalog.byKey[key]
+		if id.Translation == "" {
+			continue
+		}
+		if _, err := o.stampText(key, id.Rect, id.Translation, zero, zero); err != nil {
+			return fmt.Errorf("%s（%d×）：%w", key, o.scale, err)
+		}
+	}
+	return nil
 }

@@ -101,7 +101,16 @@ func (o *RuntimeSkillExitOverlay) ActiveKeys() []string {
 type SkillExitOwner struct {
 	Watcher   *SkillExitWatcher
 	Presenter *RuntimeSkillExitOverlay
+	// missing is the original body band of a question this language does
+	// not translate (spec 040 §3.2); nil when the presenter drew it.
+	missing *PixelRect
+	// Missing counts untranslated questions (the original English shows).
+	Missing int
 }
+
+// MissingRect is the row-24 clear band of the last untranslated question
+// (spec 040 §3.2 yield rectangle), or nil.
+func (o *SkillExitOwner) MissingRect() *PixelRect { return o.missing }
 
 func NewSkillExitOwner(c *SkillExitCatalog, font *xlate.Font, scale int) (*SkillExitOwner, error) {
 	w, e := NewSkillExitWatcher(c)
@@ -112,7 +121,7 @@ func NewSkillExitOwner(c *SkillExitCatalog, font *xlate.Font, scale int) (*Skill
 	if e != nil {
 		return nil, e
 	}
-	return &SkillExitOwner{w, p}, nil
+	return &SkillExitOwner{Watcher: w, Presenter: p}, nil
 }
 func (o *SkillExitOwner) ObserveEntry(e TextEvent) error {
 	if err := o.Watcher.ObserveEntry(e); err != nil {
@@ -122,10 +131,19 @@ func (o *SkillExitOwner) ObserveEntry(e TextEvent) error {
 	return nil
 }
 func (o *SkillExitOwner) ObserveReturn(e TextEvent, p [256][3]uint8) error {
+	o.missing = nil
 	g, err := o.Watcher.ObserveReturn(e)
 	if err != nil {
 		o.Presenter.Clear()
 		return err
+	}
+	if g.Translation == "" {
+		// Spec 040 §3.2: untranslated — clear, keep the watcher, no error.
+		lo, hi := skillExitBody(g.Page)
+		o.missing = &PixelRect{0, 192, int(hi - lo), 8}
+		o.Missing++
+		o.Presenter.Clear()
+		return nil
 	}
 	if err = o.Presenter.Apply(g, p); err != nil {
 		o.Watcher.Fault()

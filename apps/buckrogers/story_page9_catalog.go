@@ -10,7 +10,13 @@ const storyPage9ApprovedHash = "39a751ca9f384a77491b1e4399c0a72afb8b1ef146a77db2
 const storyPage9TranslationTSVHash = "baf9ba8b56757261ba1e022e69c2df34c971c5679b593c83a694c0b4b809cb2e"
 
 func LoadStoryPage9Catalog(eventName string, eventData []byte, translationName string, translationData []byte) (*StoryPage9Catalog, map[string]string, error) {
-	if fmt.Sprintf("%x", sha256.Sum256(translationData)) != storyPage9TranslationTSVHash {
+	return LoadStoryPage9CatalogLang(eventName, eventData, translationName, translationData, LangZhTW)
+}
+
+// LoadStoryPage9CatalogLang pins the reviewed zh-TW text by hash; another
+// language (spec 040) is checked by the same structure, without the pin.
+func LoadStoryPage9CatalogLang(eventName string, eventData []byte, translationName string, translationData []byte, lang string) (*StoryPage9Catalog, map[string]string, error) {
+	if lang == LangZhTW && fmt.Sprintf("%x", sha256.Sum256(translationData)) != storyPage9TranslationTSVHash {
 		return nil, nil, fmt.Errorf("buckrogers: 第 9 頁譯文版本未驗證")
 	}
 	events, err := readTSV(eventName, eventData, storyPage8EventHeader)

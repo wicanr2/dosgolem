@@ -89,6 +89,13 @@ func NewLiveMenuRuntime(catalog *MenuCatalog, rects *MenuOverlayRects, font *xla
 	return r, nil
 }
 
+// newLiveMenuRecorder is the shared recorder of spec 040 §3.2–§3.3: it
+// owns the dispatcher watcher only.  Language lanes own the presenters, so a
+// presenter failure can never fault the recorder.  catalog is identity-only.
+func newLiveMenuRecorder(catalog *MenuCatalog, headers *HeaderColumns) *LiveMenuRuntime {
+	return &LiveMenuRuntime{watcher: NewMenuRequestWatcher(catalog), presenters: map[int]*RuntimeMenuOverlay{}, headers: headers}
+}
+
 // StepObservation is what one instruction meant to the shared dispatcher
 // recorder.  Other families consume it instead of decoding the stack again.
 type StepObservation struct {
@@ -171,8 +178,10 @@ func (r *LiveMenuRuntime) observeSlow(v StepReader, at Address) (StepObservation
 		top, left := v.Read8(linear(ss, sp+8)), v.Read8(linear(ss, sp+10))
 		obs.Clear = [4]uint8{bottom, right, top, left}
 		for _, scale := range []int{2, 3} {
-			if err := r.presenters[scale].ClearTextCells(bottom, right, top, left); err != nil {
-				return obs, r.failWith(err)
+			if p := r.presenters[scale]; p != nil {
+				if err := p.ClearTextCells(bottom, right, top, left); err != nil {
+					return obs, r.failWith(err)
+				}
 			}
 		}
 	case dispatchEntry:
@@ -201,11 +210,13 @@ func (r *LiveMenuRuntime) observeSlow(v StepReader, at Address) (StepObservation
 		if r.watcher.RequestCount() > requests {
 			obs.Request, obs.NewRequest = r.watcher.LastRequest()
 		}
-		if obs.NewEvent && obs.NewRequest {
+		if obs.NewEvent && obs.NewRequest && len(r.presenters) != 0 {
 			palette := v.Palette()
 			for _, scale := range []int{2, 3} {
-				if err := r.presenters[scale].Apply(obs.Event, obs.Request, palette); err != nil {
-					return obs, r.failWith(fmt.Errorf("buckrogers: live menu %d× apply：%w", scale, err))
+				if p := r.presenters[scale]; p != nil {
+					if err := p.Apply(obs.Event, obs.Request, palette); err != nil {
+						return obs, r.failWith(fmt.Errorf("buckrogers: live menu %d× apply：%w", scale, err))
+					}
 				}
 			}
 		} else if r.watcher.EventCount() > events && !obs.NewEvent {
@@ -224,7 +235,9 @@ func (r *LiveMenuRuntime) RegisterAffix(s AffixShape) error { return r.watcher.R
 // Frame forwards one vertical retrace to every presenter.
 func (r *LiveMenuRuntime) Frame(indexed []byte, palette [256][3]uint8) {
 	for _, scale := range []int{2, 3} {
-		r.presenters[scale].Frame(indexed, palette)
+		if p := r.presenters[scale]; p != nil {
+			p.Frame(indexed, palette)
+		}
 	}
 }
 

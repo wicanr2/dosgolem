@@ -122,7 +122,16 @@ func (o *RuntimePostJoinExitPromptOverlay) ActiveKeys() []string {
 type PostJoinExitPromptOwner struct {
 	Watcher   *PostJoinExitPromptWatcher
 	Presenter *RuntimePostJoinExitPromptOverlay
+	// missing is the original cell range of a body this language does not
+	// translate (spec 040 §3.2, from Row／Column／OriginalLength); nil when
+	// the presenter drew it.
+	missing *PixelRect
+	// Missing counts untranslated bodies (the original English shows).
+	Missing int
 }
+
+// MissingRect is the original cell range of the last untranslated body, or nil.
+func (o *PostJoinExitPromptOwner) MissingRect() *PixelRect { return o.missing }
 
 func NewPostJoinExitPromptOwner(c *PostJoinExitPromptCatalog, font *xlate.Font, scale int) (*PostJoinExitPromptOwner, error) {
 	w, e := NewPostJoinExitPromptWatcher(c)
@@ -133,7 +142,7 @@ func NewPostJoinExitPromptOwner(c *PostJoinExitPromptCatalog, font *xlate.Font, 
 	if e != nil {
 		return nil, e
 	}
-	return &PostJoinExitPromptOwner{w, p}, nil
+	return &PostJoinExitPromptOwner{Watcher: w, Presenter: p}, nil
 }
 func (o *PostJoinExitPromptOwner) ObserveEntry(e TextEvent) error {
 	if err := o.Watcher.ObserveEntry(e); err != nil {
@@ -143,10 +152,18 @@ func (o *PostJoinExitPromptOwner) ObserveEntry(e TextEvent) error {
 	return nil
 }
 func (o *PostJoinExitPromptOwner) ObserveReturn(e TextEvent, p [256][3]uint8) error {
+	o.missing = nil
 	g, err := o.Watcher.ObserveReturn(e)
 	if err != nil {
 		o.Presenter.Clear()
 		return err
+	}
+	if g.Translation == "" {
+		// Spec 040 §3.2: untranslated — clear, keep the watcher, no error.
+		o.missing = &PixelRect{int(e.Column) * 8, int(e.Row) * 8, int(e.OriginalLength) * 8, 8}
+		o.Missing++
+		o.Presenter.Clear()
+		return nil
 	}
 	if err = o.Presenter.Apply(g, p); err != nil {
 		o.Fault()

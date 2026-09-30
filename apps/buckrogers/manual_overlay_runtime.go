@@ -111,6 +111,9 @@ type RuntimeManualOverlay struct {
 	// groups applies spec 039 §3.3's row-group rule to the text rows when
 	// no watcher style is set (Layer.Frame fingerprints decide validity).
 	groups rowGroupSet
+	// Missing counts paragraphs this language does not translate (spec 040
+	// §3.2: the original shows and the lifecycle continues).
+	Missing int
 }
 
 // SetStyle supplies the exact original manual-prefix palette indexes observed
@@ -129,6 +132,16 @@ func (o *RuntimeManualOverlay) HasStyle() bool { return o != nil && o.style != n
 // NewRuntimeManualOverlay validates the full catalog font coverage before any
 // request can draw. This prevents a partial paragraph from reaching RGBA.
 func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font *xlate.Font, scale int) (*RuntimeManualOverlay, error) {
+	return newRuntimeManualOverlay(layout, catalog, font, scale, false)
+}
+
+// NewRuntimeManualOverlayLang is a spec 040 language lane presenter: a
+// catalog of another language may leave paragraphs untranslated.
+func NewRuntimeManualOverlayLang(layout *ManualOverlayLayout, catalog *Catalog, font *xlate.Font, scale int, lang string) (*RuntimeManualOverlay, error) {
+	return newRuntimeManualOverlay(layout, catalog, font, scale, lang != LangZhTW)
+}
+
+func newRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font *xlate.Font, scale int, allowMissing bool) (*RuntimeManualOverlay, error) {
 	if !layout.confirmed() {
 		return nil, fmt.Errorf("buckrogers: 手冊 layout 無效或未確認")
 	}
@@ -142,7 +155,7 @@ func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font
 		return nil, fmt.Errorf("buckrogers: 手冊 presenter 倍率必須明示為 2 或 3")
 	}
 	half := halfFontsOf(font).For(scale)
-	if err := validateManualCatalogFont(layout, catalog, font, half); err != nil {
+	if err := validateManualCatalogFont(layout, catalog, font, half, allowMissing); err != nil {
 		return nil, err
 	}
 	if scale == 3 {
@@ -160,9 +173,12 @@ func NewRuntimeManualOverlay(layout *ManualOverlayLayout, catalog *Catalog, font
 // draw.  Spec 039 §3.4: the capacity criterion is "at most 14 rows after the
 // unit layout"; half-width characters need the half font and U+0020／U+3000
 // need no glyph.
-func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, font, half *xlate.Font) error {
+func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, font, half *xlate.Font, allowMissing bool) error {
 	required := make(map[rune]bool)
 	for _, entry := range catalog.byIdentity {
+		if entry.translation == "" && allowMissing {
+			continue
+		}
 		if entry.translation == "" || !utf8.ValidString(entry.translation) {
 			return fmt.Errorf("buckrogers: 手冊 catalog 有無效譯文")
 		}
@@ -174,6 +190,9 @@ func validateManualCatalogFont(layout *ManualOverlayLayout, catalog *Catalog, fo
 		}
 	}
 	if len(required) == 0 {
+		if allowMissing {
+			return nil
+		}
 		return fmt.Errorf("buckrogers: 手冊 catalog 沒有字型需求")
 	}
 	runes := make([]rune, 0, len(required))
@@ -240,10 +259,25 @@ func (o *RuntimeManualOverlay) Apply(event ManualPresentationEvent) error {
 			o.state != manualOverlayPending {
 			return fmt.Errorf("buckrogers: 手冊 request generation 或狀態無效")
 		}
-		if event.Request.EventKey == "" || event.Request.TextKey == "" || event.Request.Translation == "" ||
-			!utf8.ValidString(event.Request.Translation) || !o.catalog.containsManualRequest(event.Request) {
+		// Spec 040 §3.1: the presenter looks its own text up by key; the
+		// request's translation (if any) is not trusted or compared.
+		para, known := o.catalog.translationFor(event.Request.EventKey, event.Request.TextKey)
+		if event.Request.EventKey == "" || event.Request.TextKey == "" || !known {
 			return fmt.Errorf("buckrogers: 手冊 request 不符合正式 catalog")
 		}
+		if para == "" {
+			// Untranslated in this language: clear and accept the event, so
+			// the consumer never retries it; the original shows.
+			o.e1Plan = nil
+			o.resetLayers()
+			o.state = manualOverlayVisible
+			o.Missing++
+			return nil
+		}
+		if !utf8.ValidString(para) {
+			return fmt.Errorf("buckrogers: 手冊 request 不符合正式 catalog")
+		}
+		event.Request.Translation = para
 		var background, text *xlate.Layer
 		var plan *ManualE1Plan
 		var err error

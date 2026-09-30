@@ -236,3 +236,54 @@ func (h *HeaderColumns) dispatcherColumns(c *EngineTextCatalog, original string)
 	cols, ok := h.dispatcher[strings.TrimSuffix(k, ".uc")]
 	return cols, ok
 }
+
+// forLane is the white list one non-reference language uses (spec 040
+// §3.3): a row whose translation is missing or does not anchor falls back
+// to the general layout for that language only; the language stays on.
+func (h *HeaderColumns) forLane(menu *MenuCatalog, texts map[string]string, eng *EngineTextCatalog) *HeaderColumns {
+	if h == nil {
+		return nil
+	}
+	out := &HeaderColumns{menu: map[string][]int{}, dispatcher: map[string][]int{}}
+	for key, cols := range h.menu {
+		ok := false
+		if menu != nil {
+			for id, e := range menu.byIdentity {
+				if e.eventKey != key {
+					continue
+				}
+				t := texts[e.textKey]
+				if _, err := anchorColumns([]rune(t), cols, 2*int(id.length)); t == "" || err != nil {
+					ok = false
+					break
+				}
+				ok = true
+			}
+		}
+		if ok {
+			out.menu[key] = cols
+		}
+	}
+	if eng != nil {
+		for key, cols := range h.dispatcher {
+			zh := eng.fragText[key]
+			if zh == "" {
+				continue
+			}
+			ok := true
+			for id, k := range eng.frag {
+				if k != key && k != key+".uc" {
+					continue
+				}
+				if _, err := anchorColumns([]rune(zh), cols, 2*id.n); err != nil {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				out.dispatcher[key] = cols
+			}
+		}
+	}
+	return out
+}

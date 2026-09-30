@@ -485,7 +485,7 @@ func TestLiveGenericAcquisitionKeepsFonts(t *testing.T) {
 	w := NewLogbookWatcher(c, nil)
 	w.open = 5
 	fams := storyLiveFamiliesUT(t, base)
-	r := &LiveRuntime{resets: map[string]int{}, font: base, logbook: w, stories: fams}
+	r := &LiveRuntime{resets: map[string]int{}, font: base, lanes: []*liveLane{{lang: LangZhTW, font: base, logbook: w, stories: fams, resets: map[string]int{}}}}
 	assertStoryFontsDerived(t, fams, false)
 	if err := r.findOriginalASCII(syntheticMemory(true), false); err != nil {
 		t.Fatal(err)
@@ -499,7 +499,7 @@ func TestLiveGenericAcquisitionKeepsFonts(t *testing.T) {
 			t.Fatalf("字型名稱 %q", n)
 		}
 	}
-	if r.logbookPres[0] != nil {
+	if r.lanes[0].logbookPres[0] != nil {
 		t.Fatal("取得字形表後不應重建通用家族 presenter")
 	}
 	if !strings.Contains(r.DebugSummary(), "orig-ascii=true/1 orig-ascii-step=4242") {
@@ -541,7 +541,7 @@ func TestLiveStoryNeedsApplyTriggersSearchBeforeApply(t *testing.T) {
 	base := storyFontBase()
 	fake := &fakeStoryFamily{}
 	fams := append(storyLiveFamiliesUT(t, base), fake)
-	r := &LiveRuntime{resets: map[string]int{}, font: base, stories: fams}
+	r := &LiveRuntime{resets: map[string]int{}, font: base, lanes: []*liveLane{{lang: LangZhTW, font: base, stories: fams, resets: map[string]int{}}}}
 	v := syntheticMemory(true)
 	// 通用家族沒有內容、劇情也不需要 apply：不搜尋。
 	if err := r.findOriginalASCII(v, false); err != nil || r.asciiScans != 0 {
@@ -575,12 +575,12 @@ func TestLiveStoryAcquisitionMissKeepsFont(t *testing.T) {
 	base := storyFontBase()
 	fake := &fakeStoryFamily{want: true}
 	fams := append(storyLiveFamiliesUT(t, base), fake)
-	r := &LiveRuntime{resets: map[string]int{}, font: base, stories: fams}
+	r := &LiveRuntime{resets: map[string]int{}, font: base, lanes: []*liveLane{{lang: LangZhTW, font: base, stories: fams, resets: map[string]int{}}}}
 	v := syntheticMemory(false)
 	if err := r.applyStories(v); err != nil {
 		t.Fatal(err)
 	}
-	if r.asciiFound || r.asciiScans != 1 || r.asciiStep != 0 || len(r.resets) != 0 {
+	if r.asciiFound || r.asciiScans != 1 || r.asciiStep != 0 || len(r.Resets()) != 0 {
 		t.Fatalf("found=%v scans=%d step=%d resets=%v", r.asciiFound, r.asciiScans, r.asciiStep, r.resets)
 	}
 	if strings.Join(fake.calls, ",") != "apply" {
@@ -602,7 +602,7 @@ func TestLiveStoryAcquisitionMissKeepsFont(t *testing.T) {
 	if err := r.applyStories(syntheticMemory(true)); err != nil {
 		t.Fatal(err)
 	}
-	if !r.asciiFound || r.asciiScans != 2 || len(r.resets) != 0 {
+	if !r.asciiFound || r.asciiScans != 2 || len(r.Resets()) != 0 {
 		t.Fatalf("after 60 frames: found=%v scans=%d resets=%v", r.asciiFound, r.asciiScans, r.resets)
 	}
 	assertStoryFontsDerived(t, fams[:len(fams)-1], false)

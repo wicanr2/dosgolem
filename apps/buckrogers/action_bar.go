@@ -49,21 +49,36 @@ type ActionBarRequestCatalog struct {
 // LoadActionBarRequestCatalog validates event and Traditional Chinese text
 // coverage, then expands each compact event row into normal/focus identities.
 func LoadActionBarRequestCatalog(events, translations []byte) (*ActionBarRequestCatalog, error) {
+	return LoadActionBarRequestCatalogLang(events, translations, LangZhTW)
+}
+
+// LoadActionBarRequestCatalogLang is spec 040 §3.1: zh-TW must translate
+// every key; another language may leave keys out (their requests carry an
+// empty translation and show the original English).
+func LoadActionBarRequestCatalogLang(events, translations []byte, lang string) (*ActionBarRequestCatalog, error) {
 	eventCatalog, err := LoadActionBarCatalog(events)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := readTSV("skill-action-bar.zh-TW.tsv", translations, textHeader)
+	name := LangFile("skill-action-bar", lang)
+	read := readTSV
+	if lang != LangZhTW {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	rows, err := read(name, translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
 	texts := make(map[string]string, len(rows))
 	for _, row := range rows {
 		if row[2] != "runtime-interface" {
-			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: source 漂移 for %q", row[0])
+			return nil, fmt.Errorf("%s: source 漂移 for %q", name, row[0])
 		}
 		if _, exists := texts[row[0]]; exists {
-			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 重複文字鍵 %q", row[0])
+			return nil, fmt.Errorf("%s: 重複文字鍵 %q", name, row[0])
 		}
 		texts[row[0]] = row[1]
 	}
@@ -72,10 +87,10 @@ func LoadActionBarRequestCatalog(events, translations []byte) (*ActionBarRequest
 	for _, screen := range []string{"career", "technical"} {
 		for _, entry := range eventCatalog.byScreen[screen] {
 			translation, ok := texts[entry.key]
-			if !ok {
-				return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 缺少文字鍵 %q", entry.key)
+			if !ok && lang == LangZhTW {
+				return nil, fmt.Errorf("%s: 缺少文字鍵 %q", name, entry.key)
 			}
-			used[entry.key] = true
+			used[entry.key] = ok
 			for _, variant := range []string{"normal", "focus"} {
 				eventKey := entry.screen + "." + entry.key + "." + variant
 				id := actionRequestIdentity{entry.screen, eventKey, variant, entry.length, entry.hash,
@@ -86,10 +101,37 @@ func LoadActionBarRequestCatalog(events, translations []byte) (*ActionBarRequest
 	}
 	for key := range texts {
 		if !used[key] {
-			return nil, fmt.Errorf("skill-action-bar.zh-TW.tsv: 孤兒文字鍵 %q", key)
+			return nil, fmt.Errorf("%s: 孤兒文字鍵 %q", name, key)
 		}
 	}
 	return c, nil
+}
+
+// identityOnly resolves the same identities without translations (spec
+// 040 §3.1: the shared watcher outputs keys only).
+func (c *ActionBarRequestCatalog) identityOnly() *ActionBarRequestCatalog {
+	if c == nil {
+		return nil
+	}
+	out := &ActionBarRequestCatalog{events: c.events, byIdentity: make(map[actionRequestIdentity]DisplayRequest, len(c.byIdentity))}
+	for id, r := range c.byIdentity {
+		r.Translation = ""
+		out.byIdentity[id] = r
+	}
+	return out
+}
+
+// textFor is the translation of one action key ("" when untranslated).
+func (c *ActionBarRequestCatalog) textFor(key string) string {
+	if c == nil {
+		return ""
+	}
+	for _, r := range c.byIdentity {
+		if r.TextKey == key {
+			return r.Translation
+		}
+	}
+	return ""
 }
 
 func (c *ActionBarRequestCatalog) Resolve(event ActionBarEvent) (DisplayRequest, bool) {

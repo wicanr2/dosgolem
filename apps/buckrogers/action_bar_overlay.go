@@ -64,9 +64,53 @@ type ActionBarNormalStyle struct {
 
 // HotkeyPreservingActionBarNormalStyle implements the confirmed display rule:
 // only the Latin mnemonic is white; parentheses and Traditional Chinese are
-// rendered with the original normal-label color.
+// rendered with the original normal-label color.  It is the zh-TW result of
+// DeriveActionBarNormalStyle (spec 040 §3.1) for the five-rune labels.
 func HotkeyPreservingActionBarNormalStyle() ActionBarNormalStyle {
 	return ActionBarNormalStyle{RuneForegrounds: []uint8{10, 10, 10, 15, 10}}
+}
+
+// actionBarHotkey finds the one half-width "(X)" of a label (X an ASCII
+// letter or digit) and returns X and its rune index.
+func actionBarHotkey(runes []rune) (rune, int, error) {
+	var letter rune
+	at, n := -1, 0
+	for i := 0; i+2 < len(runes); i++ {
+		x := runes[i+1]
+		if runes[i] == '(' && runes[i+2] == ')' && (x >= 'A' && x <= 'Z' || x >= 'a' && x <= 'z' || x >= '0' && x <= '9') {
+			letter, at = x, i+1
+			n++
+		}
+	}
+	if n != 1 {
+		return 0, -1, fmt.Errorf("須恰有一個半形括號熱鍵 (X)，得 %d 個", n)
+	}
+	return letter, at, nil
+}
+
+// DeriveActionBarNormalStyle is spec 040 §3.1: a label must hold exactly one
+// half-width "(X)" whose letter equals the zh-TW label's; the letter takes
+// the events' first colour (normal_first_fg) and every other rune the rest
+// colour (normal_rest_fg).
+func DeriveActionBarNormalStyle(translation, reference string, firstFG, restFG uint8) (ActionBarNormalStyle, error) {
+	runes := []rune(translation)
+	letter, at, err := actionBarHotkey(runes)
+	if err != nil {
+		return ActionBarNormalStyle{}, err
+	}
+	want, _, err := actionBarHotkey([]rune(reference))
+	if err != nil {
+		return ActionBarNormalStyle{}, fmt.Errorf("zh-TW 參考譯文：%w", err)
+	}
+	if letter != want {
+		return ActionBarNormalStyle{}, fmt.Errorf("熱鍵字母 %c 與 zh-TW 的 %c 不同", letter, want)
+	}
+	out := make([]uint8, len(runes))
+	for i := range out {
+		out[i] = restFG
+	}
+	out[at] = firstFG
+	return ActionBarNormalStyle{RuneForegrounds: out}, nil
 }
 
 func actionBarRuneAdvance(r rune) int { return runeUnits(r) * halfUnitPx }
@@ -144,9 +188,11 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 	scale int, normal *ActionBarNormalStyle) (*ActionBarOverlay, error) {
 
 	want, ok := catalog.Resolve(event)
-	if !ok || want != request {
+	if !ok || want.EventKey != request.EventKey || want.TextKey != request.TextKey || want.Generation != request.Generation {
 		return nil, fmt.Errorf("buckrogers: action overlay request 與 exact event 不符")
 	}
+	// Spec 040 §3.1: the text comes from the presenter's own catalog, by key.
+	request.Translation = want.Translation
 	if err := ValidateActionBarOverlayCoverage(catalog, rects); err != nil {
 		return nil, err
 	}
@@ -189,14 +235,15 @@ func BuildActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayR
 			}
 			foregrounds[i] = color
 		}
-		confirmed := HotkeyPreservingActionBarNormalStyle().RuneForegrounds
-		if len(foregrounds) != len(confirmed) {
-			return nil, fmt.Errorf("buckrogers: normal 快捷字母顯示契約長度不符")
+		// Spec 040 §3.1: the colouring must be the one derived from the
+		// label's own "(X)" (no length pin; the letter check against zh-TW
+		// happens where the lane derives its styles).
+		derived, err := DeriveActionBarNormalStyle(request.Translation, request.Translation, entry.normalFirstFG, entry.normalRestFG)
+		if err != nil {
+			return nil, fmt.Errorf("buckrogers: normal 快捷字母：%w", err)
 		}
-		for i := range confirmed {
-			if foregrounds[i] != confirmed[i] {
-				return nil, fmt.Errorf("buckrogers: normal 快捷字母配色契約漂移")
-			}
+		if !equalUint8s(derived.RuneForegrounds, foregrounds) {
+			return nil, fmt.Errorf("buckrogers: normal 快捷字母配色與推導不符")
 		}
 	} else {
 		return nil, fmt.Errorf("buckrogers: 未知 action variant %q", event.Variant)

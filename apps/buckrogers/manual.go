@@ -219,6 +219,15 @@ var (
 
 // LoadCatalog validates all inputs before returning a usable resolver.
 func LoadCatalog(events, ordinals, translations []byte) (*Catalog, error) {
+	return LoadCatalogLang(events, ordinals, translations, LangZhTW)
+}
+
+// LoadCatalogLang is spec 040 §3.1: zh-TW translates every question;
+// another language may leave paragraphs out (empty translation: the
+// original shows) but adds no orphan keys.
+func LoadCatalogLang(events, ordinals, translations []byte, lang string) (*Catalog, error) {
+	name := LangFile("manual", lang)
+	strict := lang == LangZhTW
 	ordinalRows, err := readTSV("manual-ordinals.tsv", ordinals, ordinalHeader)
 	if err != nil {
 		return nil, err
@@ -227,7 +236,14 @@ func LoadCatalog(events, ordinals, translations []byte) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	textRows, err := readTSV("manual.zh-TW.tsv", translations, textHeader)
+	read := readTSV
+	if !strict {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	textRows, err := read(name, translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +276,7 @@ func LoadCatalog(events, ordinals, translations []byte) (*Catalog, error) {
 	texts := make(map[string]string, len(textRows))
 	for _, row := range textRows {
 		if _, exists := texts[row[0]]; exists {
-			return nil, fmt.Errorf("manual.zh-TW.tsv: 重複文字鍵 %q", row[0])
+			return nil, fmt.Errorf("%s: 重複文字鍵 %q", name, row[0])
 		}
 		texts[row[0]] = row[1]
 	}
@@ -294,7 +310,7 @@ func LoadCatalog(events, ordinals, translations []byte) (*Catalog, error) {
 			return nil, fmt.Errorf("manual-events.tsv: 重複事件文字鍵 %q", row[5])
 		}
 		translation, exists := texts[row[5]]
-		if !exists {
+		if !exists && strict {
 			return nil, fmt.Errorf("manual-events.tsv: 文字鍵不在 catalog %q", row[5])
 		}
 		eventKeys[row[0]], usedTextKeys[row[5]] = true, true
@@ -302,10 +318,36 @@ func LoadCatalog(events, ordinals, translations []byte) (*Catalog, error) {
 	}
 	for key := range texts {
 		if !usedTextKeys[key] {
-			return nil, fmt.Errorf("manual.zh-TW.tsv: 孤兒文字鍵 %q", key)
+			return nil, fmt.Errorf("%s: 孤兒文字鍵 %q", name, key)
 		}
 	}
 	return &Catalog{ordinals: words, byIdentity: byIdentity}, nil
+}
+
+// identityOnly resolves the same questions without translations (spec 040
+// §3.1: the shared watcher outputs the text key only).
+func (c *Catalog) identityOnly() *Catalog {
+	if c == nil {
+		return nil
+	}
+	out := &Catalog{ordinals: c.ordinals, byIdentity: make(map[identity]catalogEntry, len(c.byIdentity))}
+	for id, e := range c.byIdentity {
+		out.byIdentity[id] = catalogEntry{eventKey: e.eventKey, textKey: e.textKey}
+	}
+	return out
+}
+
+// translationFor looks a paragraph up by its keys ("" when untranslated).
+func (c *Catalog) translationFor(eventKey, textKey string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	for _, e := range c.byIdentity {
+		if e.eventKey == eventKey && e.textKey == textKey {
+			return e.translation, true
+		}
+	}
+	return "", false
 }
 
 // Resolve returns a request only for an exact identity in the current generation.

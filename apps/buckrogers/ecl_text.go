@@ -34,6 +34,11 @@ type EclTextCatalog struct {
 // LoadEclTextCatalog reads text/ecl-text-events.tsv and
 // text/ecl-text.zh-TW.tsv.  Translation keys must exist in the events file.
 func LoadEclTextCatalog(events, translations []byte) (*EclTextCatalog, error) {
+	return LoadEclTextCatalogLang(events, translations, LangZhTW)
+}
+
+// LoadEclTextCatalogLang reads text/ecl-text.<lang>.tsv (spec 040 §3.1).
+func LoadEclTextCatalogLang(events, translations []byte, lang string) (*EclTextCatalog, error) {
 	c := &EclTextCatalog{byID: map[eclTextID]string{}, text: map[string]string{}}
 	rows, err := readTSV("ecl-text-events.tsv", events, []string{"event_key", "original_length", "original_sha256", "sources"})
 	if err != nil {
@@ -58,13 +63,14 @@ func LoadEclTextCatalog(events, translations []byte) (*EclTextCatalog, error) {
 		keys[r[0]] = true
 		c.byID[id] = r[0]
 	}
-	rows, err = readTSV("ecl-text.zh-TW.tsv", translations, []string{"key", "translation", "source"})
+	name := LangFile("ecl-text", lang)
+	rows, err = readLangTSV(name, translations, []string{"key", "translation", "source"}, lang)
 	if err != nil {
-		return nil, fmt.Errorf("buckrogers: ecl-text.zh-TW：%w", err)
+		return nil, fmt.Errorf("buckrogers: ecl-text.%s：%w", lang, err)
 	}
 	for _, r := range rows {
 		if !keys[r[0]] || r[1] == "" || c.text[r[0]] != "" {
-			return nil, fmt.Errorf("buckrogers: ecl-text.zh-TW 列 %s 無效", r[0])
+			return nil, fmt.Errorf("buckrogers: ecl-text.%s 列 %s 無效", lang, r[0])
 		}
 		c.text[r[0]] = r[1]
 	}

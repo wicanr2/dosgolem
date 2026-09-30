@@ -43,14 +43,36 @@ func postJoinFixtureHash(name, want string, data []byte) error {
 }
 
 func LoadPostJoinMenuCatalog(events, variants, translations []byte) (*PostJoinMenuCatalog, error) {
+	return LoadPostJoinMenuCatalogLang(events, variants, translations, LangZhTW)
+}
+
+// LoadPostJoinMenuCatalogLang is spec 040 §3.1: zh-TW keeps its constant
+// hash pin; another language is not pinned and has either no rows (the
+// whole menu shows the original English) or exactly the seven rows.
+func LoadPostJoinMenuCatalogLang(events, variants, translations []byte, lang string) (*PostJoinMenuCatalog, error) {
 	if err := postJoinFixtureHash("post-join-menu-events.tsv", postJoinEventsSHA, events); err != nil {
 		return nil, err
 	}
 	if err := postJoinFixtureHash("post-join-menu-variants.tsv", postJoinVariantsSHA, variants); err != nil {
 		return nil, err
 	}
-	if err := postJoinFixtureHash("post-join-menu.zh-TW.tsv", postJoinTextSHA, translations); err != nil {
-		return nil, err
+	name := LangFile("post-join-menu", lang)
+	allowEmpty := lang != LangZhTW
+	if !allowEmpty {
+		if err := postJoinFixtureHash(name, postJoinTextSHA, translations); err != nil {
+			return nil, err
+		}
+	} else {
+		if translations == nil {
+			translations = headerOnly()
+		}
+		rows, err := readTSVAllowEmpty(name, translations, textHeader)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) != 0 && len(rows) != 7 {
+			return nil, fmt.Errorf("%s: 必須是 0 列或恰好 7 列，得 %d", name, len(rows))
+		}
 	}
 	rows, err := readTSV("post-join-menu-variants.tsv", variants, []string{"event_key", "variant", "original_length", "original_sha256", "caller", "background", "foreground", "row", "column", "evidence"})
 	if err != nil || len(rows) != 21 {
@@ -89,7 +111,7 @@ func LoadPostJoinMenuCatalog(events, variants, translations []byte) (*PostJoinMe
 		}
 		variantMap[id] = postJoinVariant{r[0], r[1], id}
 	}
-	base, err := loadExactCatalog("post-join-menu-events.tsv", "post-join-menu.zh-TW.tsv", events, translations)
+	base, err := loadExactCatalogLang("post-join-menu-events.tsv", name, events, translations, allowEmpty)
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +270,28 @@ type RuntimePostJoinMenuOverlay struct {
 	font   *xlate.Font
 	scale  int
 	active map[string]bool
+	// missing (spec 040 §3.2): the language lacks the seven rows, so the
+	// last generation drew nothing; Missing counts such generations.
+	missing bool
+	Missing int
+}
+
+// MissingRects are the seven original item cell ranges when the last
+// generation was untranslated (the spec 040 yield rectangles), else nil.
+func (o *RuntimePostJoinMenuOverlay) MissingRects() []PixelRect {
+	if o == nil || !o.missing {
+		return nil
+	}
+	var out []PixelRect
+	for _, k := range postJoinKeys {
+		for id, e := range o.c.base.byIdentity {
+			if e.eventKey == k {
+				out = append(out, PixelRect{int(id.column) * 8, int(id.row) * 8, int(id.length) * 8, 8})
+				break
+			}
+		}
+	}
+	return out
 }
 
 func NewRuntimePostJoinMenuOverlay(c *PostJoinMenuCatalog, font *xlate.Font, scale int) (*RuntimePostJoinMenuOverlay, error) {
@@ -262,6 +306,17 @@ func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]u
 			o.clear()
 		}
 		return fmt.Errorf("post-join generation invalid")
+	}
+	o.missing = false
+	for _, e := range o.c.base.byIdentity {
+		if e.translation == "" {
+			// Spec 040 §3.2: the seven items are one unit; any missing
+			// row leaves the whole menu to the original English.
+			o.clear()
+			o.missing = true
+			o.Missing++
+			return nil
+		}
 	}
 	entries := make([]MenuOverlayEntry, 0, 7)
 	for i, k := range postJoinKeys {

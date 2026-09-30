@@ -141,7 +141,7 @@ func TestLogbookSyncMissClosesPanel(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := NewLogbookWatcher(c, nil)
-	r := &LiveRuntime{resets: map[string]int{}, logbook: w}
+	r := &liveLane{lang: LangZhTW, resets: map[string]int{}, logbook: w}
 	font := &xlate.Font{W: 16, H: 16, Name: "empty", Glyphs: map[rune][]byte{}}
 	for i, s := range liveScales {
 		if r.logbookPres[i], err = NewLogbookOverlay(font, s); err != nil {

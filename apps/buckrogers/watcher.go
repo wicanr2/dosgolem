@@ -59,8 +59,11 @@ type dispatchFrame struct {
 // Watcher observes the original output path and emits catalog-backed requests.
 // It has no input, memory-write, or rendering capability.
 type Watcher struct {
-	collector    Collector
-	catalog      *Catalog
+	collector Collector
+	catalog   *Catalog
+	// runes supplies the receipts' translation_runes by text key (spec 040
+	// §3.1: the zh-TW catalog); the catalog itself when not set apart.
+	runes        *Catalog
 	pending      *dispatchFrame
 	installed    map[uint32]bool
 	requests     []DisplayRequest
@@ -70,7 +73,13 @@ type Watcher struct {
 }
 
 func NewWatcher(catalog *Catalog) *Watcher {
-	return &Watcher{catalog: catalog, installed: make(map[uint32]bool)}
+	return &Watcher{catalog: catalog, runes: catalog, installed: make(map[uint32]bool)}
+}
+
+// newSharedWatcher is the spec 040 shared manual watcher: identity only,
+// with the zh-TW catalog filling translation_runes by text key.
+func newSharedWatcher(reference *Catalog) *Watcher {
+	return &Watcher{catalog: reference.identityOnly(), runes: reference, installed: make(map[uint32]bool)}
 }
 
 func (w *Watcher) Requests() []DisplayRequest {
@@ -199,9 +208,14 @@ func (w *Watcher) ObserveInstruction(at Address, ss, sp uint16, step uint64) {
 		return
 	}
 	w.requests = append(w.requests, request)
+	runes := w.runes
+	if runes == nil {
+		runes = w.catalog
+	}
+	text, _ := runes.translationFor(request.EventKey, request.TextKey)
 	w.events = append(w.events, Observation{
 		Step: step, Kind: "request", Caller: f.caller, EventKey: request.EventKey,
-		TextKey: request.TextKey, TranslationRunes: len([]rune(request.Translation)),
+		TextKey: request.TextKey, TranslationRunes: len([]rune(text)),
 	})
 	w.presentation = append(w.presentation, ManualPresentationEvent{
 		Step: step, Kind: ManualPresentationRequest, Generation: request.Generation, Request: request,

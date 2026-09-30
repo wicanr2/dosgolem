@@ -262,7 +262,7 @@ func TestHeaderColumnsLiveLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := r.menu.HeaderColumns()
-	if !equalInts(h.MenuColumns("career.screen.columns.heading"), []int{2, 8, 14}) || !h.HasDispatcher() || r.engDisp.headers != h {
+	if !equalInts(h.MenuColumns("career.screen.columns.heading"), []int{2, 8, 14}) || !h.HasDispatcher() || r.lanes[0].engDisp.headers != h {
 		t.Fatal("formal list not installed")
 	}
 	dir := t.TempDir()

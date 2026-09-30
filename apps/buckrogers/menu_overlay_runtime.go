@@ -126,7 +126,16 @@ type RuntimeMenuOverlay struct {
 	groups rowGroupSet
 	// headers is the spec 039 §3.4 欄名列 white list (nil: none).
 	headers *HeaderColumns
+	// texts is the spec 040 lane text (text key → translation).  When set,
+	// Apply looks the translation up by the request's text key and a
+	// missing key clears the rectangle (the original English shows).
+	texts map[string]string
+	// Missing counts requests the lane has no translation for.
+	Missing int
 }
+
+// SetTexts makes the presenter a spec 040 language lane presenter.
+func (o *RuntimeMenuOverlay) SetTexts(texts map[string]string) { o.texts = texts }
 
 // SetHeaderColumns installs the header white list; the caller has already
 // run its load check (HeaderColumns.ValidateMenu).
@@ -167,8 +176,20 @@ func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, pale
 	if r.x != int(event.Column)*8 || r.y != int(event.Row)*8 || !validWidth || r.height != 8 {
 		return fmt.Errorf("buckrogers: %s 安全矩形與 runtime event 幾何不符", request.EventKey)
 	}
+	translation := request.Translation
+	if o.texts != nil {
+		t, ok := o.texts[request.TextKey]
+		if !ok || t == "" {
+			// Spec 040 §3.2: a row this language lacks shows the original;
+			// the presenter still clears whatever it drew there before.
+			o.Missing++
+			o.clearRect(r.x, r.y, r.x+r.width, r.y+r.height)
+			return nil
+		}
+		translation = t
+	}
 	entries := []MenuOverlayEntry{{
-		EventKey: request.EventKey, TextKey: request.TextKey, Translation: request.Translation,
+		EventKey: request.EventKey, TextKey: request.TextKey, Translation: translation,
 		Background: event.Background, Foreground: event.Foreground,
 		X: r.x, Y: r.y, Width: r.width, Height: r.height, DrawX: r.drawX, DrawY: r.drawY,
 		Capacity: r.capacity, LineCount: r.lines, Overflow: r.overflow,

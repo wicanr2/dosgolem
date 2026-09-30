@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -490,6 +491,13 @@ func main() {
 	liveManualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；只接 -live-text-dir 路徑）")
 	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
 	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
+	// 規格 040 §5.3：多語通道的切換收據。
+	liveLang := flag.String("lang", "", "LiveRuntime 起始語言（zh-TW、en；zz 需 -test-lang-dir）；給了就在收據輸出 CPU 雜湊")
+	liveLangSwitch := flag.String("lang-switch", "", "在絕對步數切換 LiveRuntime 語言：`步數:代碼[,步數:代碼…]`")
+	composeEveryRetrace := flag.Bool("compose-every-retrace", false, "每個 retrace 都對目前語言合成（貼近前端）")
+	testLangDir := flag.String("test-lang-dir", "", "測試專用假語言 zz 的 <family>.zz.tsv 目錄（前端不提供）")
+	testLangFont := flag.String("test-lang-font", "", "zz 的 16×16 字型（預設同 -overlay-font）")
+	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
 	liveMenuOut := flag.String("live-menu-rgba-out", "", "並行驅動 LiveMenuRuntime，輸出其 overlay-scale RGBA（與 overlay-rgba-out 對照用）")
 	baselineOut := flag.String("baseline-rgba-out", "", "輸出同 frame／palette、未覆繪的倍率後 RGBA baseline")
 	manualEvents := flag.String("manual-events", "", "正式 manual-events.tsv")
@@ -1321,15 +1329,62 @@ func main() {
 	// 規格 031 §3.4：legacy 劇情路徑自己的原版字形取得狀態（與 LiveRuntime 分開計數）。
 	storyASCII := &storyASCIIState{}
 	var liveAll *buckrogers.LiveRuntime
+	var liveLoadMillis int64
+	langSwitches, langErr := parseLangSwitches(*liveLangSwitch)
+	if langErr != nil {
+		fail(langErr)
+	}
+	langFlags := *liveLang != "" || len(langSwitches) != 0 || *composeEveryRetrace || *testLangDir != ""
+	if langFlags && *liveTextDir == "" {
+		fail(fmt.Errorf("lang、lang-switch、compose-every-retrace、test-lang-dir 需要 -live-text-dir"))
+	}
+	if *liveLang != "" && !buckrogers.KnownLang(*liveLang) {
+		fail(fmt.Errorf("不認得的語言代碼 %q", *liveLang))
+	}
 	if *liveTextDir != "" {
 		var liveErr error
-		if liveAll, liveErr = buckrogers.LoadLiveRuntime(*liveTextDir, *overlayFont); liveErr != nil {
+		opts := buckrogers.LiveOptions{TextDir: *liveTextDir, FontPath: *overlayFont}
+		if *testLangDir != "" {
+			font := *testLangFont
+			if font == "" {
+				font = *overlayFont
+			}
+			opts.Langs = []string{buckrogers.LangTest}
+			opts.LangDirs = map[string]string{buckrogers.LangTest: *testLangDir}
+			opts.LangFonts = map[string]string{buckrogers.LangTest: font}
+		}
+		loadStart := time.Now()
+		if liveAll, liveErr = buckrogers.LoadLiveRuntimeOptions(opts); liveErr != nil {
 			fail(liveErr)
+		}
+		liveLoadMillis = time.Since(loadStart).Milliseconds()
+		if *testLangDir != "" {
+			if _, _, ok := liveAll.LaneResets(buckrogers.LangTest); !ok {
+				fail(fmt.Errorf("測試語言 zz 未啟用（見 stderr 的停用原因）"))
+			}
 		}
 		if liveErr = liveAll.SetManualEnglish(*liveManualEnglish); liveErr != nil {
 			fail(liveErr)
 		}
+		if *liveLang != "" {
+			if liveErr = liveAll.SetLanguage(*liveLang); liveErr != nil {
+				fail(liveErr)
+			}
+		}
+		for _, sw := range langSwitches {
+			if !buckrogers.KnownLang(sw.code) {
+				fail(fmt.Errorf("lang-switch：不認得的語言代碼 %q", sw.code))
+			}
+		}
 	}
+	if *cpuProfile != "" {
+		stop, err := startCPUProfile(*cpuProfile)
+		if err != nil {
+			fail(err)
+		}
+		defer stop()
+	}
+	nextLangSwitch := 0
 	if liveAll != nil || presenter != nil || actionBarPresenter != nil || manualPresenter != nil || storyOpeningPresenter != nil || storyPage2Presenter != nil || storyPage3Presenter != nil || storyPage4Presenter != nil || storyPage5Presenter != nil || storyPage6Presenter != nil || storyPage7Presenter != nil || storyPage8Presenter != nil || storyPage9Presenter != nil {
 		m.SetOnFrame(func() {
 			storyASCII.frames++
@@ -1341,6 +1396,11 @@ func main() {
 			}
 			if liveAll != nil {
 				liveAll.Frame(m.Indexed(), m.Palette())
+				if *composeEveryRetrace {
+					if _, _, err := liveAll.Compose(*liveScale); err != nil {
+						fail(fmt.Errorf("live runtime compose（retrace）：%w", err))
+					}
+				}
 			}
 			if actionBarPresenter != nil {
 				actionBarPresenter.Frame(m.Indexed(), m.Palette())
@@ -1623,6 +1683,12 @@ func main() {
 			}
 		}
 		if liveAll != nil {
+			for nextLangSwitch < len(langSwitches) && m.Steps >= langSwitches[nextLangSwitch].step {
+				if err := liveAll.SetLanguage(langSwitches[nextLangSwitch].code); err != nil {
+					fail(err)
+				}
+				nextLangSwitch++
+			}
 			if err := liveAll.BeforeStep(machineReader{m}); err != nil {
 				fail(err)
 			}
@@ -2351,6 +2417,11 @@ func main() {
 		ActionBarCatalogMisses    *int                              `json:"action_bar_catalog_misses,omitempty"`
 		ActionBarOverlay          *actionBarOverlayJSON             `json:"action_bar_overlay,omitempty"`
 		MemorySHA256              string                            `json:"memory_sha256"`
+		CPUSHA256                 string                            `json:"cpu_sha256,omitempty"`
+		LiveLanguage              string                            `json:"live_language,omitempty"`
+		LiveLangSwitches          []string                          `json:"live_lang_switches,omitempty"`
+		LiveFrames                uint64                            `json:"live_frames,omitempty"`
+		LiveLoadMillis            int64                             `json:"live_load_ms,omitempty"`
 		IndexedSHA256             string                            `json:"indexed_sha256"`
 		PaletteSHA256             string                            `json:"palette_sha256"`
 		ManualPresentation        []manualPresentationJSON          `json:"manual_presentation_events,omitempty"`
@@ -2401,6 +2472,19 @@ func main() {
 		InstructionTrace          []instructionTraceJSON            `json:"instruction_trace,omitempty"`
 	}{StateStart: start, StoppedAt: m.Steps, Events: out, Scratch: *scratch, ActionBarEvents: actionOut, Clears: clears, Glyphs: glyphs, GlyphDrops: glyphDrops, GlyphReturnEdges: glyphReturnEdges, StoryPixelWrite: storyWrite, StoryFillWrites: storyFillWrites, StoryFillRows: storyFillRowsReceipt, BodyIconFramebufferWrites: bodyIconFramebufferWrites, BodyIconTransitions: bodyIconTransitions, BodyIconPostRouteEvents: bodyIconPostRoute, BodyIconOverlay: bodyIconOverlay, BodyIconOverlaySamples: bodyIconOverlaySamples, StoryOpeningInvalidations: storyOpeningInvalidations, InstructionTrace: instructionTrace,
 		ActionBarRequests: actionRequestOut, PostJoinInvalidations: postJoinInvalidations, MemorySHA256: sha256hex(m.Mem), IndexedSHA256: sha256hex(m.Indexed()), PaletteSHA256: sha256hex(flatPalette(m.Palette()))}
+	if langFlags {
+		// 規格 040 §5.4：與 session.StateDigest 相同的 CPU 雜湊；只在多語旗標下輸出，
+		// 既有收據逐位元組不變。
+		result.CPUSHA256 = cpuDigestHex(m)
+		result.LiveLanguage = liveAll.Language()
+		result.LiveFrames, result.LiveLoadMillis = liveAll.Frames(), liveLoadMillis
+		if nextLangSwitch != len(langSwitches) {
+			fail(fmt.Errorf("lang-switch 有 %d 筆未在停止前套用", len(langSwitches)-nextLangSwitch))
+		}
+		for _, sw := range langSwitches {
+			result.LiveLangSwitches = append(result.LiveLangSwitches, fmt.Sprintf("%d:%s", sw.step, sw.code))
+		}
+	}
 	if bodyIconPresenter != nil {
 		result.BodyIconInvalidations = bodyIconPresenter.Invalidations()
 	}

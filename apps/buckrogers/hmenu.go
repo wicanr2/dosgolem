@@ -23,6 +23,11 @@ type HMenuCatalog struct {
 }
 
 func LoadHMenuCatalog(events, translations []byte) (*HMenuCatalog, error) {
+	return LoadHMenuCatalogLang(events, translations, LangZhTW)
+}
+
+// LoadHMenuCatalogLang reads text/hmenu.<lang>.tsv (spec 040 §3.1).
+func LoadHMenuCatalogLang(events, translations []byte, lang string) (*HMenuCatalog, error) {
 	c := &HMenuCatalog{byID: map[eclTextID]string{}, text: map[string]string{}}
 	rows, err := readTSV("hmenu-item-events.tsv", events, []string{"event_key", "original_length", "original_sha256"})
 	if err != nil {
@@ -46,7 +51,7 @@ func LoadHMenuCatalog(events, translations []byte) (*HMenuCatalog, error) {
 	for _, k := range c.byID {
 		keys[k] = true
 	}
-	rows, err = readTSV("hmenu.zh-TW.tsv", translations, []string{"key", "translation", "source"})
+	rows, err = readLangTSV(LangFile("hmenu", lang), translations, []string{"key", "translation", "source"}, lang)
 	if err != nil {
 		return nil, err
 	}

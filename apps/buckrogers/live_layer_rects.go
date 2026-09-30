@@ -27,7 +27,9 @@ func (o *RuntimePostJoinMenuOverlay) LayerRects() []PixelRect       { return lay
 // notices on its next frame-hash check.
 func (r *LiveMenuRuntime) ClearRect(rect PixelRect) {
 	for _, scale := range []int{2, 3} {
-		r.presenters[scale].clearRect(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
+		if p := r.presenters[scale]; p != nil {
+			p.clearRect(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
+		}
 	}
 }
 
@@ -39,3 +41,7 @@ func (o *RuntimeBodyIconOverlay) SafeLogicalRects() []PixelRect {
 	}
 	return out
 }
+
+// MissingRects are the safe rectangles of the last untranslated body-icon
+// request (spec 040 §3.2 yield rectangles), or nil.
+func (o *RuntimeBodyIconOverlay) MissingRects() []PixelRect { return o.missing }

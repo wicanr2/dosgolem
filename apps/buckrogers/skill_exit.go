@@ -47,7 +47,22 @@ type SkillExitCatalog struct {
 }
 
 func LoadSkillExitCatalog(careerEvents, technicalEvents, translations []byte) (*SkillExitCatalog, error) {
-	textsRows, err := readTSV("skill-exit-confirmation.zh-TW.tsv", translations, textHeader)
+	return LoadSkillExitCatalogLang(careerEvents, technicalEvents, translations, LangZhTW)
+}
+
+// LoadSkillExitCatalogLang is spec 040 §3.1: zh-TW must translate both
+// questions; another language may leave either out (it then shows the
+// original English) but may not add orphan keys.
+func LoadSkillExitCatalogLang(careerEvents, technicalEvents, translations []byte, lang string) (*SkillExitCatalog, error) {
+	name := LangFile("skill-exit-confirmation", lang)
+	read := readTSV
+	if lang != LangZhTW {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	textsRows, err := read(name, translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +75,11 @@ func LoadSkillExitCatalog(careerEvents, technicalEvents, translations []byte) (*
 	}
 	out := &SkillExitCatalog{byIdentity: map[menuIdentity]skillExitEntry{}}
 	used := map[string]bool{}
-	if err := out.addPage("career-skill-exit-events.tsv", careerEvents, SkillExitCareer, texts, used); err != nil {
+	missing := lang != LangZhTW
+	if err := out.addPage("career-skill-exit-events.tsv", careerEvents, SkillExitCareer, texts, used, missing); err != nil {
 		return nil, err
 	}
-	if err := out.addPage("technical-skill-exit-events.tsv", technicalEvents, SkillExitTechnical, texts, used); err != nil {
+	if err := out.addPage("technical-skill-exit-events.tsv", technicalEvents, SkillExitTechnical, texts, used, missing); err != nil {
 		return nil, err
 	}
 	if len(out.byIdentity) != 2 || len(used) != len(texts) {
@@ -72,7 +88,7 @@ func LoadSkillExitCatalog(careerEvents, technicalEvents, translations []byte) (*
 	return out, nil
 }
 
-func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage, texts map[string]string, used map[string]bool) error {
+func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage, texts map[string]string, used map[string]bool, allowMissing bool) error {
 	rows, err := readTSV(name, data, skillExitEventHeader)
 	if err != nil {
 		return err
@@ -110,7 +126,7 @@ func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage,
 			return fmt.Errorf("%s: canonical identity drift", name)
 		}
 		text, ok := texts[r[0]]
-		if !ok || used[r[0]] {
+		if (!ok && !allowMissing) || used[r[0]] {
 			return fmt.Errorf("%s: translation join invalid", name)
 		}
 		if found != nil {
@@ -125,7 +141,9 @@ func (c *SkillExitCatalog) addPage(name string, data []byte, page SkillExitPage,
 		return fmt.Errorf("skill-exit catalog: duplicate identity")
 	}
 	c.byIdentity[found.id] = *found
-	used[found.textKey] = true
+	if found.text != "" {
+		used[found.textKey] = true
+	}
 	return nil
 }
 

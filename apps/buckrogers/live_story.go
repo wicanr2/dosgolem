@@ -40,25 +40,50 @@ const storyReturnStackDelta = 0x12
 
 // storyPages loads every story family from the text directory.
 func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
-	read := func(name string) ([]byte, error) {
-		b, err := os.ReadFile(filepath.Join(textDir, name))
+	return storyPagesLang(textDir, textDir, LangZhTW, font)
+}
+
+// errStoryPageSkipped marks a page a non-reference language does not fully
+// translate: spec 040 §3.2 shows the whole page in the original.
+var errStoryPageSkipped = fmt.Errorf("buckrogers: 劇情頁未完整翻譯")
+
+// storyPagesLang loads the story families of one language: events from
+// textDir, <page>.<lang>.tsv from langDir.  zh-TW needs every page; another
+// language gets only the pages whose every line is translated.
+func storyPagesLang(textDir, langDir, lang string, font *xlate.Font) ([]storyFamily, error) {
+	read := func(dir, name string) ([]byte, error) {
+		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("buckrogers: 讀取 %s：%w", name, err)
 		}
 		return b, nil
 	}
 	pair := func(prefix string) (string, []byte, string, []byte, error) {
-		en, tn := prefix+"-events.tsv", prefix+".zh-TW.tsv"
-		ed, err := read(en)
+		en, tn := prefix+"-events.tsv", LangFile(prefix, lang)
+		ed, err := read(textDir, en)
 		if err != nil {
 			return "", nil, "", nil, err
 		}
-		td, err := read(tn)
-		return en, ed, tn, td, err
+		if lang == LangZhTW {
+			td, err := read(langDir, tn)
+			return en, ed, tn, td, err
+		}
+		td, err := readLangFile(langDir, prefix, lang)
+		if err != nil {
+			return "", nil, "", nil, err
+		}
+		if err := storyPageComplete(en, ed, tn, td); err != nil {
+			return "", nil, "", nil, err
+		}
+		return en, ed, tn, td, nil
 	}
+	skip := func(err error) bool { return err == errStoryPageSkipped }
 	var out []storyFamily
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-opening")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -77,8 +102,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page2")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -97,8 +125,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page3")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -117,8 +148,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page4")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -137,8 +171,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page5")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -157,8 +194,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page6")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -177,8 +217,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page7")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -197,8 +240,11 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page8")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -217,12 +263,15 @@ func storyPages(textDir string, font *xlate.Font) ([]storyFamily, error) {
 		}
 		out = append(out, f)
 	}
-	{
+	for once := true; once; once = false {
 		en, ed, tn, td, err := pair("story-page9")
+		if skip(err) {
+			break
+		}
 		if err != nil {
 			return nil, err
 		}
-		c, text, err := LoadStoryPage9Catalog(en, ed, tn, td)
+		c, text, err := LoadStoryPage9CatalogLang(en, ed, tn, td, lang)
 		if err != nil {
 			return nil, err
 		}
@@ -850,4 +899,25 @@ func (f *storyPage8Live) setFont(b *xlate.Font) error {
 // Page 9: only the owner's Presenter changes font; watcher and owner stay.
 func (f *storyPage9Live) setFont(b *xlate.Font) error {
 	return storySetFonts(b, f.owner[0].Presenter.SetFont, f.owner[1].Presenter.SetFont)
+}
+
+// storyPageComplete checks a non-reference story file (spec 040 §3.2): no
+// orphan or duplicate keys (an error, the language is invalid); any line
+// missing — or no file — skips the whole page (errStoryPageSkipped).
+func storyPageComplete(eventName string, events []byte, textName string, texts []byte) error {
+	if texts == nil {
+		return errStoryPageSkipped
+	}
+	keys, err := firstColumnKeys(eventName, events)
+	if err != nil {
+		return err
+	}
+	got, err := langTexts(textName, texts, keys)
+	if err != nil {
+		return err
+	}
+	if len(got) != len(keys) {
+		return errStoryPageSkipped
+	}
+	return nil
 }

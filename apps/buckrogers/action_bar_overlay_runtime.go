@@ -26,20 +26,54 @@ type runtimeActionGroup struct {
 // mandatory and never defaulted by the constructor.
 type RuntimeActionBarOverlay struct {
 	catalog *ActionBarRequestCatalog
+	ref     *ActionBarRequestCatalog // zh-TW hotkey reference
 	rects   *MenuOverlayRects
 	font    *xlate.Font
 	scale   int
-	style   ActionBarNormalStyle
+	// styles is the spec 040 §3.1 normal colouring of each translated key,
+	// derived from its "(X)"; a key without one is untranslated here.
+	styles  map[string]ActionBarNormalStyle
 	layer   *xlate.Layer
 	screen  string
 	groups  map[string]runtimeActionGroup
 	actions []ActionBarOverlayAction
+	// Missing counts requests this language does not translate.
+	Missing int
 }
 
+// NewRuntimeActionBarOverlay is the zh-TW presenter: the catalog is its own
+// hotkey reference.  A supplied style must equal the derived colouring of
+// every label of its length (the explicit-style contract of spec 215).
 func NewRuntimeActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOverlayRects,
 	font *xlate.Font, scale int, style *ActionBarNormalStyle) (*RuntimeActionBarOverlay, error) {
 	if catalog == nil || rects == nil || style == nil {
 		return nil, fmt.Errorf("buckrogers: action runtime 缺少 catalog、矩形或明示 normal 配色")
+	}
+	o, err := NewRuntimeActionBarOverlayLang(catalog, catalog, rects, font, scale, true)
+	if err != nil {
+		return nil, err
+	}
+	for key, derived := range o.styles {
+		if len(derived.RuneForegrounds) != len(style.RuneForegrounds) {
+			continue
+		}
+		for i := range derived.RuneForegrounds {
+			if derived.RuneForegrounds[i] != style.RuneForegrounds[i] {
+				return nil, fmt.Errorf("buckrogers: action runtime %s 的明示配色與熱鍵推導不符", key)
+			}
+		}
+	}
+	return o, nil
+}
+
+// NewRuntimeActionBarOverlayLang builds a language lane presenter (spec 040
+// §3.1): each label's normal colouring is derived against the zh-TW
+// reference.  strict (zh-TW) fails on a label without a valid "(X)";
+// otherwise that label is untranslated in this language.
+func NewRuntimeActionBarOverlayLang(catalog, reference *ActionBarRequestCatalog, rects *MenuOverlayRects,
+	font *xlate.Font, scale int, strict bool) (*RuntimeActionBarOverlay, error) {
+	if catalog == nil || reference == nil || rects == nil {
+		return nil, fmt.Errorf("buckrogers: action runtime 缺少 catalog、參考 catalog 或矩形")
 	}
 	if err := ValidateActionBarOverlayCoverage(catalog, rects); err != nil {
 		return nil, err
@@ -47,36 +81,66 @@ func NewRuntimeActionBarOverlay(catalog *ActionBarRequestCatalog, rects *MenuOve
 	if font == nil || font.W != 16 || font.H != 16 || (scale != 2 && scale != 3) {
 		return nil, fmt.Errorf("buckrogers: action runtime 字型或倍率無效")
 	}
-	confirmed := HotkeyPreservingActionBarNormalStyle().RuneForegrounds
-	if len(style.RuneForegrounds) != len(confirmed) {
-		return nil, fmt.Errorf("buckrogers: action runtime 快捷字母配色長度漂移")
-	}
-	for i := range confirmed {
-		if style.RuneForegrounds[i] != confirmed[i] {
-			return nil, fmt.Errorf("buckrogers: action runtime 快捷字母配色契約漂移")
-		}
-	}
+	styles := map[string]ActionBarNormalStyle{}
 	for id, request := range catalog.byIdentity {
-		if id.variant != "normal" {
+		if id.variant != "normal" || request.Translation == "" {
 			continue
-		}
-		runes := []rune(request.Translation)
-		if len(style.RuneForegrounds) != len(runes) {
-			return nil, fmt.Errorf("buckrogers: normal 配色數量與譯文不符")
 		}
 		entry, ok := catalog.entryFor(ActionBarEvent{Screen: id.screen, EventKey: id.eventKey, Variant: id.variant})
 		if !ok {
 			return nil, fmt.Errorf("buckrogers: normal 配色找不到事件來源")
 		}
-		for _, color := range style.RuneForegrounds {
-			if color != entry.normalFirstFG && color != entry.normalRestFG {
-				return nil, fmt.Errorf("buckrogers: normal 配色含未證實色號 %d", color)
+		style, err := DeriveActionBarNormalStyle(request.Translation, reference.textFor(request.TextKey), entry.normalFirstFG, entry.normalRestFG)
+		if err != nil {
+			if strict {
+				return nil, fmt.Errorf("buckrogers: action %s：%w", request.TextKey, err)
 			}
+			continue
+		}
+		if prior, ok := styles[request.TextKey]; ok && !equalUint8s(prior.RuneForegrounds, style.RuneForegrounds) {
+			return nil, fmt.Errorf("buckrogers: action %s 在兩個畫面推導出不同配色", request.TextKey)
+		}
+		styles[request.TextKey] = style
+	}
+	return &RuntimeActionBarOverlay{catalog: catalog, ref: reference, rects: rects, font: font, scale: scale, styles: styles,
+		layer: &xlate.Layer{W: 320, H: 200}, groups: map[string]runtimeActionGroup{}}, nil
+}
+
+func (o *RuntimeActionBarOverlay) reference() *ActionBarRequestCatalog { return o.ref }
+
+func equalUint8s(a, b []uint8) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
-	return &RuntimeActionBarOverlay{catalog: catalog, rects: rects, font: font, scale: scale,
-		style: ActionBarNormalStyle{RuneForegrounds: append([]uint8(nil), style.RuneForegrounds...)},
-		layer: &xlate.Layer{W: 320, H: 200}, groups: map[string]runtimeActionGroup{}}, nil
+	return true
+}
+
+// validateActionLane prebuilds every translated label (spec 040 §3.3).
+func (o *RuntimeActionBarOverlay) validateAll() error {
+	for id, request := range o.catalog.byIdentity {
+		if request.Translation == "" {
+			continue
+		}
+		var style *ActionBarNormalStyle
+		if id.variant == "normal" {
+			st, ok := o.styles[request.TextKey]
+			if !ok {
+				continue // untranslated in this language
+			}
+			style = &st
+		}
+		event := ActionBarEvent{EntryStep: 1, PostCallStep: 2, Screen: id.screen, EventKey: id.eventKey, Variant: id.variant,
+			OriginalLength: id.length, OriginalSHA256: id.hash, Row: id.row, Column: id.column, X0: id.x0, Y0: id.y0, X1: id.x1, Y1: id.y1}
+		if _, err := BuildActionBarOverlay(o.catalog, o.rects, event, request, o.font, [256][3]uint8{}, o.scale, style); err != nil {
+			return fmt.Errorf("buckrogers: action %s（%d×）：%w", id.eventKey, o.scale, err)
+		}
+	}
+	return nil
 }
 
 func (o *RuntimeActionBarOverlay) clearAll() {
@@ -117,15 +181,31 @@ func (o *RuntimeActionBarOverlay) Apply(event ActionBarEvent, request DisplayReq
 	if o.screen == "" || event.Screen != o.screen {
 		return fmt.Errorf("buckrogers: action runtime event 沒有 exact screen anchor")
 	}
-	var style *ActionBarNormalStyle
-	if event.Variant == "normal" {
-		style = &o.style
+	want, ok := o.catalog.Resolve(event)
+	if !ok || want.EventKey != request.EventKey || want.TextKey != request.TextKey {
+		return fmt.Errorf("buckrogers: action overlay request 與 exact event 不符")
 	}
-	built, err := BuildActionBarOverlay(o.catalog, o.rects, event, request, o.font, palette, o.scale, style)
+	r := o.rects.byEvent[event.EventKey]
+	var style *ActionBarNormalStyle
+	missing := want.Translation == ""
+	if event.Variant == "normal" && !missing {
+		st, ok := o.styles[want.TextKey]
+		missing = !ok
+		style = &st
+	}
+	if missing {
+		// Spec 040 §3.2: this language lacks the label; clear what the
+		// presenter drew there and let the original English show.
+		o.Missing++
+		o.layer.Clear(r.x, r.y, r.x+r.width, r.y+r.height)
+		delete(o.groups, event.EventKey)
+		o.reconcileGroups()
+		return nil
+	}
+	built, err := BuildActionBarOverlay(o.catalog, o.rects, event, want, o.font, palette, o.scale, style)
 	if err != nil {
 		return err
 	}
-	r := o.rects.byEvent[event.EventKey]
 	o.layer.Clear(r.x, r.y, r.x+r.width, r.y+r.height)
 	o.reconcileGroups()
 	for _, stamp := range built.Layer.Stamps {

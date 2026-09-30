@@ -32,7 +32,20 @@ type PostJoinExitPromptCatalog struct {
 // LoadPostJoinExitPromptCatalog accepts only the two reviewed exact identities.
 // The TSV text is presentation data and never flows into the DOS machine.
 func LoadPostJoinExitPromptCatalog(events, translations []byte) (*PostJoinExitPromptCatalog, error) {
-	tr, err := readTSV("post-join-exit-prompt.zh-TW.tsv", translations, textHeader)
+	return LoadPostJoinExitPromptCatalogLang(events, translations, LangZhTW)
+}
+
+// LoadPostJoinExitPromptCatalogLang is spec 040 §3.1: zh-TW translates both
+// bodies; another language may leave either out (the original shows).
+func LoadPostJoinExitPromptCatalogLang(events, translations []byte, lang string) (*PostJoinExitPromptCatalog, error) {
+	read := readTSV
+	if lang != LangZhTW {
+		read = readTSVAllowEmpty
+		if translations == nil {
+			translations = headerOnly()
+		}
+	}
+	tr, err := read(LangFile("post-join-exit-prompt", lang), translations, textHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +61,7 @@ func LoadPostJoinExitPromptCatalog(events, translations []byte) (*PostJoinExitPr
 		}
 		texts[r[0]] = r[1]
 	}
-	if len(texts) != 2 {
+	if len(texts) != 2 && lang == LangZhTW {
 		return nil, fmt.Errorf("Exit prompt translations incomplete")
 	}
 	rows, err := readTSV("post-join-exit-prompt-events.tsv", events, skillExitEventHeader)
