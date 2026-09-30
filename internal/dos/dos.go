@@ -684,8 +684,10 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int15(c)
 		d.fixStackedCF(c)
 	case 0xF5: // XMS driver entry 的 trampoline（`docs/spec/011`）
+		// **不呼叫 fixStackedCF。** entry 是 far call，堆疊上只有 CS:IP，
+		// SP+4 是呼叫端自己的資料；XMS 也不用 CF 回報結果
+		// （`docs/spec/195-xms-entry-must-not-touch-caller-stack`）。
 		d.xmsCall(c)
-		d.fixStackedCF(c)
 	case 0xF6: // EMS 的 trampoline（`docs/spec/014`）。**EMS 不用 CF**，
 		// 狀態在 AH，所以不呼叫 fixStackedCF。
 		d.emsCall(c)

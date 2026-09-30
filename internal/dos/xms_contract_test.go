@@ -353,3 +353,23 @@ func TestReleaseHMAClosesA20(t *testing.T) {
 		t.Errorf("A20 關著讀 FFFF:0020 ＝ %02X，預期 BB（環繞回 0x10）", got)
 	}
 }
+
+// TestXMSEntryLeavesCallerStackAlone 釘住 `docs/spec/195-xms-entry-must-not-touch-caller-stack`：
+// entry 是 far call，SP+4 是呼叫端 push 的資料。舊版把 CF 寫進它的 bit 0，
+// EOB2 的 overlay 管理員因此把 ES=2C57 pop 成 2C56，卸載時寫錯位置。
+func TestXMSEntryLeavesCallerStackAlone(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.Seg[cpu.SS] = 0x3000
+	m.CPU.R[cpu.SP] = 0x0100
+	base := cpu.Addr(0x3000, 0x0100)
+	m.Write16(base, 0x1234)   // 回傳 IP
+	m.Write16(base+2, 0x5678) // 回傳 CS
+	m.Write16(base+4, 0x2C57) // 呼叫端 push 的 ES（bit 0 為 1）
+	m.CPU.Flags &^= cpu.CF
+	xmsCallAH(m, d, 0x0000) // 取版本：成功，CF 不動
+	m.CPU.R[cpu.DX] = 0xFFFF
+	xmsCallAH(m, d, 0x0A00) // 釋放不存在的 handle：失敗
+	if got := m.Read16(base + 4); got != 0x2C57 {
+		t.Fatalf("呼叫端堆疊 SP+4 被改成 %04X，應保持 2C57", got)
+	}
+}

@@ -49,7 +49,7 @@
 
 ## 依案例分組
 
-### 共同基礎（master）（14 份）
+### 共同基礎（master）（15 份）
 
 - `001-scope-and-mvp.md`
 - `002-cpu-8086.md`
@@ -65,6 +65,7 @@
 - `192-crtc-effects.md`
 - `193-crtc-timing.md`
 - `194-stubseg-font-collision-and-program-path.md`
+- `195-xms-entry-must-not-touch-caller-stack.md`
 
 ### 銀河英雄傳說 3（logh3）（10 份）
 
@@ -346,3 +347,4 @@
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
 - [194 — StubSeg 字型 stub 撞號與程式路徑](194-stubseg-font-collision-and-program-path.md)：READY。字型 stub 從 0x20／0x24 移到 0x410／0x414，不再蓋掉向量 8、9 的預設 stub；`oracle.Options.ProgramPath` 與 `probe -program-path` 可指定 argv[0]。
+- [195 — XMS entry 不能改呼叫端的堆疊](195-xms-entry-must-not-touch-caller-stack.md)：READY。XMS entry 是 far call，`fixStackedCF` 改到呼叫端的資料；EOB2 overlay 管理員因此寫錯 stub，片頭記憶體不足。
