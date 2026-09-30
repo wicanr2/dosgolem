@@ -19,13 +19,14 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--xchg'], ['--cmc'], ['--and']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg|--cmc|--and]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg|--cmc|--and|--or-memory]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_xchg = sys.argv[1:] == ['--xchg']
 capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
-mode = 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+capture_or_memory = sys.argv[1:] == ['--or-memory']
+mode = 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -197,6 +198,52 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 raise RuntimeError('21 C8 同次 LOG 指令序列不符: ' + repr(lines))
             records['and_log_before'] = lines[0]
             records['and_log_after'] = lines[1]
+        if capture_or_memory:
+            cmd('BPDEL *')
+            cmd('BP 0180:00375648')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP ESI DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '375648']), None)
+            if not match or len(match) != 5:
+                raise RuntimeError('MOO2 83 0E 01 前斷點未命中: ' + repr(snapshots))
+            esi, ds = int(match[2], 16), int(match[3], 16)
+            records['or_memory_address'] = {'segment': f'{ds:04X}', 'offset': f'{esi:08X}'}
+            dump = pathlib.Path('MEMDUMP.BIN')
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ds:04X}:{esi:08X} 4', 1)
+            if not dump.is_file() or dump.stat().st_size != 4:
+                raise RuntimeError('MOO2 83 0E 01 前記憶體擷取失敗')
+            before = dump.read_bytes()
+            (root / 'or-memory-before.bin').write_bytes(before)
+            cmd('BPDEL *')
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV CS EIP ESI DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '37564b']), None)
+            if not match:
+                raise RuntimeError('MOO2 83 0E 01 連續 LOG 後未到下一指令: ' + repr(snapshots))
+            log = pathlib.Path('LOGCPU.TXT')
+            if not log.is_file():
+                raise RuntimeError('MOO2 83 0E 01 LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:00375648') or not lines[1].startswith('0180:0037564B'):
+                raise RuntimeError('MOO2 83 0E 01 同次 LOG 指令序列不符: ' + repr(lines))
+            logged_esi = re.search(r' ESI:([0-9A-F]{8}) ', lines[0])
+            logged_ds = re.search(r' DS:([0-9A-F]{4}) ', lines[0])
+            if not logged_esi or not logged_ds or int(logged_esi.group(1), 16) != esi or int(logged_ds.group(1), 16) != ds:
+                raise RuntimeError('MOO2 83 0E 01 EV 地址與 LOG 不一致')
+            (root / 'or-memory-logcpu.txt').write_bytes(log_bytes)
+            records['or_memory_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            records['or_memory_log_before'] = lines[0]
+            records['or_memory_log_after'] = lines[1]
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ds:04X}:{esi:08X} 4', 1)
+            if not dump.is_file() or dump.stat().st_size != 4:
+                raise RuntimeError('MOO2 83 0E 01 後記憶體擷取失敗')
+            after = dump.read_bytes()
+            (root / 'or-memory-after.bin').write_bytes(after)
+            records['or_memory_before_hex'] = before.hex()
+            records['or_memory_after_hex'] = after.hex()
         (root / (mode + 'registers.json' if mode else 'startup-registers.json')).write_text(json.dumps(records, indent=2))
     finally:
         (root / (mode + 'commands.json')).write_text(json.dumps(commands, indent=2))

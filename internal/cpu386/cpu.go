@@ -2312,6 +2312,26 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if group == 1 && modrm>>6 != 3 && !operand16 && segmentOverride < 0 && !repe && !repne {
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail("OR dword來源讀取失敗")
+			}
+			result := value | uint32(int32(int8(imm)))
+			if !c.writeSegment32(c.Seg[seg], addr, result) {
+				return fail("OR dword目的寫入失敗")
+			}
+			c.setLogicFlags(result)
+			break
+		}
 
 		if modrm>>6 != 3 && group == 5 && !operand16 && segmentOverride < 0 && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
