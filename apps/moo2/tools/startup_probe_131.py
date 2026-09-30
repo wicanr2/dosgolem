@@ -19,11 +19,13 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--xchg']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--xchg'], ['--cmc'], ['--and']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg|--cmc|--and]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_xchg = sys.argv[1:] == ['--xchg']
-mode = 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+capture_cmc = sys.argv[1:] == ['--cmc']
+capture_and = sys.argv[1:] == ['--and']
+mode = 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -158,6 +160,43 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if not match:
                     raise RuntimeError('MOO2 87 FA 斷點未命中: ' + name + ' ' + repr(snapshots))
                 records[name] = match
+        if capture_cmc:
+            for name, location in [('cmc_before', '3755ca'), ('cmc_after', '3755cb')]:
+                cmd('BPDEL *')
+                cmd('BP 0180:00' + location.upper())
+                cmd('RUN', 8)
+                snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+                match = next((value for value in snapshots if value[:2] == ['180', location]), None)
+                if not match:
+                    raise RuntimeError('MOO2 F5 斷點未命中: ' + name + ' ' + repr(snapshots))
+                records[name] = match
+        if capture_and:
+            cmd('BPDEL *')
+            cmd('BP 0180:003755CD')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '3755cd']), None)
+            if not match:
+                raise RuntimeError('MOO2 21 C8 前斷點未命中: ' + repr(snapshots))
+            records['and_ev_before_address'] = match[:2]
+            cmd('BPDEL *')
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '3755cf']), None)
+            if not match:
+                raise RuntimeError('MOO2 21 C8 連續 LOG 後未到下一指令: ' + repr(snapshots))
+            records['and_ev_after_address'] = match[:2]
+            log = pathlib.Path('LOGCPU.TXT')
+            if not log.is_file():
+                raise RuntimeError('DOSBox-X LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            (root / 'and-logcpu.txt').write_bytes(log_bytes)
+            records['and_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:003755CD  and  eax,ecx') or not lines[1].startswith('0180:003755CF  add  eax,edx'):
+                raise RuntimeError('21 C8 同次 LOG 指令序列不符: ' + repr(lines))
+            records['and_log_before'] = lines[0]
+            records['and_log_after'] = lines[1]
         (root / (mode + 'registers.json' if mode else 'startup-registers.json')).write_text(json.dumps(records, indent=2))
     finally:
         (root / (mode + 'commands.json')).write_text(json.dumps(commands, indent=2))

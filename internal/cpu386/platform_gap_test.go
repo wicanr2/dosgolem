@@ -19,6 +19,35 @@ func TestRegisterOR32(t *testing.T) {
 	}
 }
 
+func TestANDRM32RegisterDirectionAndFlags(t *testing.T) {
+	for _, tc := range []struct {
+		eax, ecx, wantEAX, wantFlags uint32
+	}{
+		{0x80, 0xffffffff, 0x80, 0x202},
+		{0xa0, 0x0f, 0, 0x246},
+		{0x80000000, 0xffffffff, 0x80000000, 0x286},
+	} {
+		c := New(testBus{0x21, 0xc8})
+		c.R[EAX], c.R[ECX], c.EFlags = tc.eax, tc.ecx, 0x297
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+		if c.R[EAX] != tc.wantEAX || c.R[ECX] != tc.ecx || c.EFlags != tc.wantFlags || c.EIP != 2 {
+			t.Fatalf("AND EAX=%08X ECX=%08X flags=%X EIP=%X", c.R[EAX], c.R[ECX], c.EFlags, c.EIP)
+		}
+	}
+}
+
+func TestANDRM32RegisterUnsupportedFormsFailClosed(t *testing.T) {
+	for _, code := range []testBus{{0x66, 0x21, 0xc8}, {0x21, 0x08}} {
+		c := New(code)
+		c.R[EAX], c.R[ECX], c.EFlags = 0x80, 0xff, 0x297
+		if err := c.Step(); err == nil || c.R[EAX] != 0x80 || c.R[ECX] != 0xff || c.EFlags != 0x297 {
+			t.Fatalf("未支援 AND 形狀未拒絕或改變狀態: % X err=%v", code, err)
+		}
+	}
+}
+
 func TestRegisterORWordPreservesHighHalfAndBranchFlags(t *testing.T) {
 	for _, tc := range []struct {
 		dx, cx, wantDX, flags uint32

@@ -571,6 +571,11 @@ func (c *CPU) Step() error {
 		} else {
 			c.EFlags |= CF
 		}
+	case op == 0xf5:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("CMC前綴未支援")
+		}
+		c.EFlags ^= CF
 
 	case op == 0x86:
 		if operand16 || segmentOverride >= 0 || repe || repne {
@@ -1197,6 +1202,20 @@ func (c *CPU) Step() error {
 		result := c.reg8(destination) | value
 		c.setReg8(destination, result)
 		c.setLogicFlags8(result)
+	case op == 0x21:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("AND r/m32,r32 前綴尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail("AND r/m32,r32 記憶體形式尚未支援")
+		}
+		dst, src := modrm&7, (modrm>>3)&7
+		c.R[dst] &= c.R[src]
+		c.setLogicFlags(c.R[dst])
 	case op == 0x85:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("85 不接受目前的 prefix")
