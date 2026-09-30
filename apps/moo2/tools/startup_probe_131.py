@@ -19,21 +19,23 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--test-word'], ['--dta'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--test-word|--dta|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
 capture_enter = sys.argv[1:] == ['--enter']
 capture_cmp_word = sys.argv[1:] == ['--cmp-word']
 capture_test_word = sys.argv[1:] == ['--test-word']
-capture_dta = sys.argv[1:] == ['--dta']
+capture_dta = sys.argv[1:] in (['--dta'], ['--dta-find'], ['--dta-find-present'])
+capture_dta_find = sys.argv[1:] in (['--dta-find'], ['--dta-find-present'])
+capture_dta_find_present = sys.argv[1:] == ['--dta-find-present']
 capture_xchg = sys.argv[1:] == ['--xchg']
 capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -54,6 +56,16 @@ records = {
     'address_space': 'DOSBox-X CS:EIP',
     'register_order': 'CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS',
 }
+if capture_dta_find_present:
+    fixture = pathlib.Path('/tmp/game/MOX.SET')
+    if not fixture.is_file() or fixture.stat().st_size != 0:
+        raise RuntimeError('MOO2 成功分支要求明示的空 MOX.SET 合成輸入')
+    if int(fixture.stat().st_mtime) != 820454400:
+        raise RuntimeError('MOO2 空 MOX.SET 的修改時間必須固定為 1996-01-01 00:00:00 UTC')
+    records['controlled_fixture'] = {
+        'name': 'MOX.SET', 'size': 0, 'sha256': hashlib.sha256(b'').hexdigest(),
+        'mtime_epoch_seconds': 820454400,
+    }
 if capture_xchg:
     records['xchg_register_order'] = 'CS EIP EAX EBX ECX EDX EDI DS ES FS GS SS ESP EFLAGS'
 
@@ -345,6 +357,67 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             if not after_match:
                 raise RuntimeError('MOO2 AH=1Ah 返回位址未命中: ' + repr(snapshots))
             records['dta_after'] = after_match
+            if capture_dta_find:
+                dta_seg, dta_off = int(match[6], 16), int(match[5], 16)
+                records['dta_address'] = {'segment': f'{dta_seg:04X}', 'offset': f'{dta_off:08X}'}
+                cmd('BPDEL *')
+                cmd('BPINT 21 4E')
+                found = None
+                for _ in range(12):
+                    cmd('RUN', 6)
+                    snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES SS ESP EFLAGS', 0.8))
+                    found = next((value for value in snapshots if value[0] == '180' and int(value[2], 16) >> 8 & 0xff == 0x4e), None)
+                    if found:
+                        break
+                if not found:
+                    raise RuntimeError('MOO2 AH=4Eh 首次搜尋未命中: ' + repr(snapshots))
+                records['find_first_before'] = found
+                dump = pathlib.Path('MEMDUMP.BIN')
+                pattern_seg, pattern_off = int(found[7], 16), int(found[5], 16)
+                records['find_first_pattern_address'] = {'segment': f'{pattern_seg:04X}', 'offset': f'{pattern_off:08X}'}
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {pattern_seg:04X}:{pattern_off:08X} 80', 1)
+                if not dump.is_file() or dump.stat().st_size != 128:
+                    raise RuntimeError('MOO2 AH=4Eh 搜尋字串擷取失敗')
+                pattern = dump.read_bytes().split(b'\x00', 1)[0]
+                if len(pattern) == 128:
+                    raise RuntimeError('MOO2 AH=4Eh 搜尋字串超出 128 bytes')
+                (root / (mode + 'pattern.bin')).write_bytes(pattern + b'\x00')
+                records['find_first_pattern_hex'] = pattern.hex()
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {dta_seg:04X}:{dta_off:08X} 2B', 1)
+                if not dump.is_file() or dump.stat().st_size != 43:
+                    raise RuntimeError('MOO2 AH=4Eh 前 DTA 擷取失敗')
+                before = dump.read_bytes()
+                (root / (mode + 'before.bin')).write_bytes(before)
+                cmd('BPDEL *')
+                return_eip = int(found[1], 16) + 2
+                cmd(f'BP 0180:{return_eip:08X}')
+                cmd('RUN', 6)
+                snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES SS ESP EFLAGS', 0.8))
+                after_find = next((value for value in snapshots if value[:2] == ['180', f'{return_eip:x}']), None)
+                if not after_find:
+                    raise RuntimeError('MOO2 AH=4Eh 返回位址未命中: ' + repr(snapshots))
+                records['find_first_after'] = after_find
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {dta_seg:04X}:{dta_off:08X} 2B', 1)
+                if not dump.is_file() or dump.stat().st_size != 43:
+                    raise RuntimeError('MOO2 AH=4Eh 後 DTA 擷取失敗')
+                after = dump.read_bytes()
+                (root / (mode + 'after.bin')).write_bytes(after)
+                records['dta_changed'] = before != after
+                log = pathlib.Path('LOGCPU.TXT')
+                log.unlink(missing_ok=True)
+                cmd('BPDEL *')
+                cmd('LOG 24', 6)
+                if not log.is_file():
+                    raise RuntimeError('MOO2 AH=4Eh 返回後 LOGCPU.TXT 未產生')
+                log_bytes = log.read_bytes()
+                lines = log_bytes.decode('latin1').splitlines()
+                if not lines or not lines[0].startswith(f'0180:{return_eip:08X}'):
+                    raise RuntimeError('MOO2 AH=4Eh 返回後指令起點不符: ' + repr(lines[:2]))
+                (root / (mode + 'next-logcpu.txt')).write_bytes(log_bytes)
+                records['find_first_next_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
         if capture_xchg:
             for name, location in [('xchg_before', '37571d'), ('xchg_after', '37571f')]:
                 cmd('BPDEL *')

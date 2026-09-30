@@ -1,12 +1,110 @@
 package machine
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
+
+func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
+	root := t.TempDir()
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { provider.Close() })
+	bus := startupBus(make([]byte, 0x200))
+	copy(bus[0x20:], "MOX.SET\x00")
+	for i := 0x80; i < 0x80+43; i++ {
+		bus[i] = 0xa5
+	}
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x188
+	c.SetDescriptor(0x188, cpu386.Descriptor{Limit: 0x1ff, Writable: true})
+	s := NewMOO2StartupDOS(provider)
+	c.R[cpu386.EAX], c.R[cpu386.EDX], c.EFlags = 0x381a99, 0x80, 0x246
+	if !s.Handle(c, 0x21) {
+		t.Fatal("Set DTA")
+	}
+	c.R[cpu386.EAX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 0x384e99, 0, 0x20
+	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x12 || c.EFlags != 0x247 || c.R[cpu386.EDX] != 0x20 ||
+		!bytes.Equal(bus[0x80:0x8c], []byte{2, 'M', 'O', 'X', 0, 0, 0, 0, 0, 'S', 'E', 'T'}) ||
+		!bytes.Equal(bus[0x8c:0x80+43], bytes.Repeat([]byte{0xa5}, 31)) {
+		t.Fatalf("缺檔收據：EAX=%X flags=%X DTA=% X", c.R[cpu386.EAX], c.EFlags, bus[0x80:0x80+43])
+	}
+	path := filepath.Join(root, "MOX.SET")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Date(1996, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	c.R[cpu386.EAX], c.EFlags = 0x384e99, 0x246
+	if !s.Handle(c, 0x21) || c.R[cpu386.EAX] != 0x380000 || c.EFlags != 0x246 ||
+		bus[0x80+0x15] != 0x20 || binary.LittleEndian.Uint16(bus[0x80+0x16:]) != 0 ||
+		binary.LittleEndian.Uint16(bus[0x80+0x18:]) != 0x2021 ||
+		binary.LittleEndian.Uint32(bus[0x80+0x1a:]) != 0 ||
+		string(bus[0x80+0x1e:0x80+0x26]) != "MOX.SET\x00" {
+		t.Fatalf("存在收據：EAX=%X flags=%X DTA=% X", c.R[cpu386.EAX], c.EFlags, bus[0x80:0x80+43])
+	}
+}
+
+func TestProtectedDOSFindFirstRejectsUnsupportedAndInvalidDTA(t *testing.T) {
+	bus := startupBus(make([]byte, 0x100))
+	copy(bus[0x20:], "MO*.SET\x00")
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x188
+	c.SetDescriptor(0x188, cpu386.Descriptor{Limit: 0xff, Writable: true})
+	s := NewMOO2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0x4e00, 0x20
+	if s.Handle(c, 0x21) {
+		t.Fatal("未設定 DTA 竟接受 FindFirst")
+	}
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0x1a00, 0xf0
+	s.Handle(c, 0x21)
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0x4e00, 0x20
+	if s.Handle(c, 0x21) {
+		t.Fatal("萬用字元竟被接受")
+	}
+	copy(bus[0x20:], "MOX.SET\x00")
+	if s.Handle(c, 0x21) {
+		t.Fatal("DTA 越界竟被接受")
+	}
+	if c.R[cpu386.EAX] != 0x4e00 || c.EFlags&cpu386.CF != 0 {
+		t.Fatal("失敗即關閉時改動暫存器")
+	}
+}
+
+func TestProtectedDOSSetDTAKeepsFullPointerAndMachineState(t *testing.T) {
+	bus := startupBus(make([]byte, 0x100))
+	before := append([]byte(nil), bus...)
+	c := cpu386.New(bus)
+	c.Seg[cpu386.SegDS] = 0x188
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.EDX], c.EFlags =
+		0x00381a99, 0x003c3828, 0x003c3828, 0x246
+	s := NewMOO2StartupDOS(nil)
+	if !s.Handle(c, 0x21) || s.dtaSelector != 0x188 || s.dtaOffset != 0x003c3828 ||
+		c.R[cpu386.EAX] != 0x00381a99 || c.R[cpu386.EBX] != 0x003c3828 ||
+		c.R[cpu386.EDX] != 0x003c3828 || c.EFlags != 0x246 || !bytes.Equal(bus, before) {
+		t.Fatalf("AH=1Ah 指標或狀態：DS=%X offset=%X EAX=%X EDX=%X flags=%X",
+			s.dtaSelector, s.dtaOffset, c.R[cpu386.EAX], c.R[cpu386.EDX], c.EFlags)
+	}
+	c.Seg[cpu386.SegDS] = 0x160
+	c.R[cpu386.EDX] = 0x00123456
+	if s.dtaSelector != 0x188 || s.dtaOffset != 0x003c3828 {
+		t.Fatal("變更呼叫端 DS／EDX 後，既存 DTA 指標被改動")
+	}
+	c.R[cpu386.EAX] = 0x1a00
+	if !s.Handle(c, 0x21) || s.dtaSelector != 0x160 || s.dtaOffset != 0x00123456 {
+		t.Fatalf("第二次 AH=1Ah 未替換指標：DS=%X offset=%X", s.dtaSelector, s.dtaOffset)
+	}
+}
 
 func TestFD2StartupDOSOpenReadOnly(t *testing.T) {
 	root := t.TempDir()

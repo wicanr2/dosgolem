@@ -1,9 +1,11 @@
 package machine
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/cpu386"
@@ -43,10 +45,13 @@ type FD2StartupDOS struct {
 	// 這一支剩下的部分還是 FD2 專屬的（啟動握手、selector 值），
 	// 但 DPMI 那一層已經搬出去了——換一支 DOS/4GW 程式時它照用，
 	// 不必再抄一份（`docs/spec/184-mvp-scope-review` 批次 2）。
-	DPMI       *DPMIHost
-	dosVectors [256]uint64
-	files      ReadOnlyFileProvider
-	table      *dosfile.Table
+	DPMI        *DPMIHost
+	dosVectors  [256]uint64
+	dtaSelector uint16
+	dtaOffset   uint32
+	dtaSet      bool
+	files       ReadOnlyFileProvider
+	table       *dosfile.Table
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
@@ -246,6 +251,130 @@ func (s *FD2StartupDOS) seekFile(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
+// exactDOSName 接受這個已驗證切片所需的單一 8.3 檔名；其他 DOS 搜尋樣式留待另證。
+func exactDOSName(name string) (base, ext string, ok bool) {
+	if len(name) == 0 || len(name) > 12 || strings.Count(name, ".") > 1 {
+		return "", "", false
+	}
+	parts := strings.Split(name, ".")
+	if len(parts[0]) == 0 || len(parts[0]) > 8 || len(parts) == 2 && (len(parts[1]) == 0 || len(parts[1]) > 3) {
+		return "", "", false
+	}
+	for _, part := range parts {
+		for i := 0; i < len(part); i++ {
+			ch := part[i]
+			if ch >= 'a' && ch <= 'z' {
+				continue
+			}
+			if ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-' {
+				continue
+			}
+			return "", "", false
+		}
+	}
+	base = strings.ToUpper(parts[0])
+	if len(parts) == 2 {
+		ext = strings.ToUpper(parts[1])
+	}
+	return base, ext, true
+}
+
+func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
+	if !s.dtaSet || c.R[cpu386.ECX]&0xffff != 0 {
+		return false
+	}
+	name := make([]byte, 0, 12)
+	terminated := false
+	for i := uint32(0); i < 13; i++ {
+		if c.R[cpu386.EDX] > ^uint32(0)-i {
+			return false
+		}
+		ch, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+i)
+		if !ok {
+			return false
+		}
+		if ch == 0 {
+			terminated = true
+			break
+		}
+		name = append(name, ch)
+	}
+	base, ext, ok := exactDOSName(string(name))
+	if !terminated || !ok {
+		return false
+	}
+	var dta [43]byte
+	for i := range dta {
+		if s.dtaOffset > ^uint32(0)-uint32(i) {
+			return false
+		}
+		value, readable := c.ReadSegment8(s.dtaSelector, s.dtaOffset+uint32(i))
+		if !readable {
+			return false
+		}
+		dta[i] = value
+	}
+	dta[0] = 2 // 此啟動環境的 C:。
+	for i := 1; i < 12; i++ {
+		dta[i] = 0
+	}
+	copy(dta[1:9], base)
+	copy(dta[9:12], ext)
+
+	var file io.ReadSeekCloser
+	var err error
+	if s.files != nil {
+		file, err = s.files.OpenRead(string(name))
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if s.files != nil && file == nil && err == nil {
+		return false
+	}
+	if file != nil {
+		defer file.Close()
+		statFile, hasStat := file.(interface{ Stat() (fs.FileInfo, error) })
+		if !hasStat {
+			return false
+		}
+		info, statErr := statFile.Stat()
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > 0xffffffff {
+			return false
+		}
+		stamp := info.ModTime().UTC()
+		year := stamp.Year()
+		if year < 1980 {
+			year = 1980
+		} else if year > 2107 {
+			year = 2107
+		}
+		dta[0x15] = 0x20
+		binary.LittleEndian.PutUint16(dta[0x16:], uint16(stamp.Hour()<<11|stamp.Minute()<<5|stamp.Second()/2))
+		binary.LittleEndian.PutUint16(dta[0x18:], uint16((year-1980)<<9|int(stamp.Month())<<5|stamp.Day()))
+		binary.LittleEndian.PutUint32(dta[0x1a:], uint32(info.Size()))
+		for i := 0x1e; i < len(dta); i++ {
+			dta[i] = 0
+		}
+		copy(dta[0x1e:], base)
+		if ext != "" {
+			dta[0x1e+len(base)] = '.'
+			copy(dta[0x1f+len(base):], ext)
+		}
+	}
+	if !c.WriteSegmentBytes(s.dtaSelector, s.dtaOffset, dta[:]) {
+		return false
+	}
+	if file == nil {
+		c.R[cpu386.EAX] = 0x12 // 此原版缺檔收據返回完整 EAX=12h。
+		c.EFlags |= cpu386.CF
+	} else {
+		c.R[cpu386.EAX] &= 0xffff0000
+		c.EFlags &^= cpu386.CF
+	}
+	return true
+}
+
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x31 {
 		// 整支交給通用的 DPMI 主機。沒實作的功能由它記一筆再回 false，
@@ -257,6 +386,16 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	}
 	function := uint8(c.R[cpu386.EAX] >> 8)
 	vectorNumber := uint8(c.R[cpu386.EAX])
+	if function == 0x1a {
+		// DOS DTA 只保存呼叫當下的指標；後續搜尋服務才讀寫該記憶體。
+		s.dtaSelector = c.Seg[cpu386.SegDS]
+		s.dtaOffset = c.R[cpu386.EDX]
+		s.dtaSet = true
+		return true
+	}
+	if function == 0x4e {
+		return s.findFirstExact(c)
+	}
 	if function == 0x35 {
 		vector := s.dosVectors[vectorNumber]
 		c.Seg[cpu386.SegES] = uint16(vector >> 32)
