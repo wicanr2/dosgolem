@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -30,6 +30,7 @@ capture_cmp_byte = sys.argv[1:] == ['--cmp-byte']
 capture_lea_cs = sys.argv[1:] == ['--lea-cs']
 capture_startup_value = sys.argv[1:] == ['--startup-value']
 capture_mouse_query = sys.argv[1:] == ['--mouse-query']
+capture_es_store = sys.argv[1:] == ['--es-store']
 capture_or_al_ah = sys.argv[1:] == ['--or-al-ah']
 capture_ror_imm8 = sys.argv[1:] == ['--ror-imm8']
 capture_es_byte_load = sys.argv[1:] == ['--es-byte-load']
@@ -43,7 +44,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -388,7 +389,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             records['lea_cs_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['lea_cs_log_before'] = lines[0]
             records['lea_cs_log_after'] = lines[1]
-        if capture_startup_value or capture_mouse_query:
+        if capture_startup_value or capture_mouse_query or capture_es_store:
             cmd('BPDEL *')
             cmd('BP 0180:00348105')
             cmd('RUN', 8)
@@ -413,7 +414,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             (root / (mode + 'logcpu.txt')).write_bytes(log_bytes)
             records['startup_value_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['startup_value_first_lea'] = first_lea
-            if capture_mouse_query:
+            if capture_mouse_query or capture_es_store:
                 mouse_call = next((line for line in lines if line.startswith('0180:0038031B')), None)
                 if not mouse_call or ' EAX:00000003 ' not in mouse_call:
                     raise RuntimeError('MOO2 滑鼠位置查詢輸入不符: ' + repr(mouse_call))
@@ -425,17 +426,54 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if not match:
                     raise RuntimeError('MOO2 滑鼠查詢返回斷點未命中: ' + repr(snapshots))
                 records['mouse_query_after'] = match
-                cmd('BPDEL *')
-                log.unlink(missing_ok=True)
-                cmd('LOG 20', 6)
-                if not log.is_file():
-                    raise RuntimeError('MOO2 滑鼠查詢後續 LOGCPU.TXT 未產生')
-                return_log = log.read_bytes()
-                return_lines = return_log.decode('latin1').splitlines()
-                if len(return_lines) != 32 or not return_lines[0].startswith('0180:0038031D'):
-                    raise RuntimeError('MOO2 滑鼠查詢後續指令序列不符: ' + repr(return_lines[:2]))
-                (root / 'mouse-query-return-logcpu.txt').write_bytes(return_log)
-                records['mouse_query_return_log_sha256'] = hashlib.sha256(return_log).hexdigest()
+                if capture_mouse_query:
+                    cmd('BPDEL *')
+                    log.unlink(missing_ok=True)
+                    cmd('LOG 20', 6)
+                    if not log.is_file():
+                        raise RuntimeError('MOO2 滑鼠查詢後續 LOGCPU.TXT 未產生')
+                    return_log = log.read_bytes()
+                    return_lines = return_log.decode('latin1').splitlines()
+                    if len(return_lines) != 32 or not return_lines[0].startswith('0180:0038031D'):
+                        raise RuntimeError('MOO2 滑鼠查詢後續指令序列不符: ' + repr(return_lines[:2]))
+                    (root / 'mouse-query-return-logcpu.txt').write_bytes(return_log)
+                    records['mouse_query_return_log_sha256'] = hashlib.sha256(return_log).hexdigest()
+                if capture_es_store:
+                    cmd('BPDEL *')
+                    cmd('BP 0180:003801D6')
+                    cmd('RUN', 8)
+                    snapshots = registers(cmd('EV CS EIP EBX ES DS EFLAGS', 0.8))
+                    match = next((value for value in snapshots if value[:2] == ['180', '3801d6']), None)
+                    if not match or len(match) != 6:
+                        raise RuntimeError('MOO2 ES store 斷點未命中: ' + repr(snapshots))
+                    records['es_store_ev_candidate'] = match
+                    ebx, ds = int(match[2], 16), int(match[4], 16)
+                    dump = pathlib.Path('MEMDUMP.BIN')
+                    dump.unlink(missing_ok=True)
+                    cmd(f'MEMDUMPBIN {ds:04X}:{ebx:08X} 2', 1)
+                    if not dump.is_file() or dump.stat().st_size != 2:
+                        raise RuntimeError('MOO2 ES store 前記憶體擷取失敗')
+                    before = dump.read_bytes()
+                    (root / 'es-store-before.bin').write_bytes(before)
+                    cmd('BPDEL *')
+                    log.unlink(missing_ok=True)
+                    cmd('LOG 2', 6)
+                    if not log.is_file():
+                        raise RuntimeError('MOO2 ES store LOGCPU.TXT 未產生')
+                    store_log = log.read_bytes()
+                    store_lines = store_log.decode('latin1').splitlines()
+                    if len(store_lines) != 2 or not store_lines[0].startswith('0180:003801D6') or not store_lines[1].startswith('0180:003801D9'):
+                        raise RuntimeError('MOO2 ES store 指令序列不符: ' + repr(store_lines))
+                    (root / 'es-store-logcpu.txt').write_bytes(store_log)
+                    dump.unlink(missing_ok=True)
+                    cmd(f'MEMDUMPBIN {ds:04X}:{ebx:08X} 2', 1)
+                    if not dump.is_file() or dump.stat().st_size != 2:
+                        raise RuntimeError('MOO2 ES store 後記憶體擷取失敗')
+                    after = dump.read_bytes()
+                    (root / 'es-store-after.bin').write_bytes(after)
+                    records['es_store_before_hex'] = before.hex()
+                    records['es_store_after_hex'] = after.hex()
+                    records['es_store_log_sha256'] = hashlib.sha256(store_log).hexdigest()
         if capture_or_al_ah:
             cmd('BPDEL *')
             cmd('BP 0180:0036B01B')

@@ -379,3 +379,4 @@
 - [225 — DS:[EBX] 的 word 載入 ES](225-cpu386-mov-es-ds-ebx.md)：CONFORMED。固定原檔第 5808 步越過 `8E 03`，合成診斷至 `INT 33h`；不宣稱滑鼠服務或玩家路徑完成。
 - [226 — MOO2 保護模式滑鼠位置查詢](226-moo2-protected-mouse-query.md)：CONFORMED。固定原檔 `AX=3` 回傳與 record 消費端通過；合成診斷至 `8F 47 14`，尚無 GUI 玩家對拍。
 - [227 — POP dword 至 DS:[EDI+disp8]](227-cpu386-pop-edi-disp8.md)：CONFORMED。固定原檔越過 `8F 47 14`，合成診斷至 `66 8C 03`；原版非零來源未獨立擷取。
+- [228 — 將 ES 的 word 寫入 DS:[EBX]](228-cpu386-mov-es-to-ds-ebx-word.md)：CONFORMED。原版同次 LOG 與前後記憶體、固定原檔整合測試已核對；非相等搬移依 CPU 契約及合成測試，下一停點為 `INT 33h/AX=21h`。

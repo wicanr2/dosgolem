@@ -3597,7 +3597,11 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
-		if operand16 && modrm>>6 == 0 && modrm&7 == EBP {
+		if operand16 && segmentOverride < 0 && modrm == 0x03 {
+			if !c.writeSegment16(c.Seg[SegDS], c.R[EBX], value) {
+				return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[SegDS], c.R[EBX]))
+			}
+		} else if operand16 && modrm>>6 == 0 && modrm&7 == EBP {
 			addr, e := c.fetch32()
 			if e != nil {
 				return fail(e.Error())

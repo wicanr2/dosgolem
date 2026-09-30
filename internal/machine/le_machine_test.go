@@ -428,6 +428,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 	if err := m.CPU.Step(); err != nil {
 		t.Fatalf("滑鼠查詢單步失敗：%v", err)
 	}
+	step++
 	wantR := beforeR
 	wantR[cpu386.ECX], wantR[cpu386.EDX] = 320, 100
 	if m.CPU.EIP != checkpoint+2 || m.CPU.R != wantR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags {
@@ -438,6 +439,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("滑鼠回傳消費端第 %d 步：%v", consumed, err)
 		}
+		step++
 	}
 	if m.CPU.EIP != consumerStop {
 		t.Fatalf("滑鼠回傳未走到 record 消費端：EIP=%X", m.CPU.EIP)
@@ -456,6 +458,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 	if err := m.CPU.Step(); err != nil {
 		t.Fatalf("滑鼠 record 尾端 POP 失敗：%v", err)
 	}
+	step++
 	stored, err := m.Read32(beforeR[cpu386.EDI] + 0x14)
 	wantR = beforeR
 	wantR[cpu386.ESP] += 4
@@ -465,6 +468,30 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 			stored, stackValue, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.EFlags, err)
 	}
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=3 回傳 BX=0 CX=320 DX=100，record POP 後 EIP=%X", step, m.CPU.EIP)
+	const storeStop = 0x15c1d6 // dosgolem 重定位 LE 線性位址
+	for m.CPU.EIP != storeStop && step < 6500 {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("MOV [EBX],ES 前第 %d 步：%v", step, err)
+		}
+		step++
+	}
+	if step != 5838 || m.CPU.EIP != storeStop || m.CPU.Seg[cpu386.SegDS] != 0x188 || m.CPU.Seg[cpu386.SegES] != 0x188 {
+		t.Fatalf("MOV [EBX],ES 前態：step=%d EIP=%X DS=%X ES=%X", step, m.CPU.EIP, m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegES])
+	}
+	before, err := m.Read16(m.CPU.R[cpu386.EBX])
+	if err != nil || before != 0x188 {
+		t.Fatalf("MOV [EBX],ES 前目的=%X err=%v", before, err)
+	}
+	beforeR, beforeSeg, beforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("MOV [EBX],ES 單步失敗：%v", err)
+	}
+	after, err := m.Read16(beforeR[cpu386.EBX])
+	if err != nil || after != 0x188 || m.CPU.EIP != storeStop+3 ||
+		m.CPU.R != beforeR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("MOV [EBX],ES 後態：step=%d value=%X EIP=%X flags=%X err=%v", step, after, m.CPU.EIP, m.CPU.EFlags, err)
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 MOV [EBX],ES=%X，下一 EIP=%X", step, after, m.CPU.EIP)
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
