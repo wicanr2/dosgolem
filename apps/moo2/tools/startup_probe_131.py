@@ -19,9 +19,11 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--xchg']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg]')
 capture_sbb = sys.argv[1:] == ['--sbb']
+capture_xchg = sys.argv[1:] == ['--xchg']
+mode = 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -42,6 +44,8 @@ records = {
     'address_space': 'DOSBox-X CS:EIP',
     'register_order': 'CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS',
 }
+if capture_xchg:
+    records['xchg_register_order'] = 'CS EIP EAX EBX ECX EDX EDI DS ES FS GS SS ESP EFLAGS'
 
 def drain(seconds):
     deadline = time.monotonic() + seconds
@@ -67,7 +71,7 @@ def registers(data):
     matches = re.findall(r"EV of '[^']+' is:\s*([0-9a-f ]+)", clean)
     return [match.split() for match in matches]
 
-with (root / ('sbb-terminal.raw' if capture_sbb else 'terminal.raw')).open('wb') as output:
+with (root / (mode + 'terminal.raw')).open('wb') as output:
     try:
         drain(3)
         cmd('BPINT 21 30')
@@ -144,9 +148,19 @@ with (root / ('sbb-terminal.raw' if capture_sbb else 'terminal.raw')).open('wb')
             if not match:
                 raise RuntimeError('MOO2 19 C0 後斷點未命中: ' + repr(snapshots))
             records['sbb_after'] = match
-        (root / ('sbb-registers.json' if capture_sbb else 'startup-registers.json')).write_text(json.dumps(records, indent=2))
+        if capture_xchg:
+            for name, location in [('xchg_before', '37571d'), ('xchg_after', '37571f')]:
+                cmd('BPDEL *')
+                cmd('BP 0180:00' + location.upper())
+                cmd('RUN', 8)
+                snapshots = registers(cmd('EV ' + records['xchg_register_order'], 0.8))
+                match = next((value for value in snapshots if value[:2] == ['180', location]), None)
+                if not match:
+                    raise RuntimeError('MOO2 87 FA 斷點未命中: ' + name + ' ' + repr(snapshots))
+                records[name] = match
+        (root / (mode + 'registers.json' if mode else 'startup-registers.json')).write_text(json.dumps(records, indent=2))
     finally:
-        (root / ('sbb-commands.json' if capture_sbb else 'commands.json')).write_text(json.dumps(commands, indent=2))
+        (root / (mode + 'commands.json')).write_text(json.dumps(commands, indent=2))
         proc.terminate()
         try:
             proc.wait(timeout=5)

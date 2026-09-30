@@ -3759,6 +3759,14 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 == 3 {
+			if operand16 {
+				return fail("XCHG word register尚未支援")
+			}
+			reg, rm := (modrm>>3)&7, modrm&7
+			c.R[reg], c.R[rm] = c.R[rm], c.R[reg]
+			break
+		}
 		seg, addr, e := c.decodeAddress32(modrm)
 		if e != nil {
 			return fail(e.Error())

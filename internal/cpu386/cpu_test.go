@@ -2826,6 +2826,30 @@ func TestXchgRegisterStackDisp8(t *testing.T) {
 	}
 }
 
+func TestXchgRegisterRegister32(t *testing.T) {
+	mem := testBus{0x87, 0xfa, 0x90}
+	c := New(mem)
+	c.R[EDX], c.R[EDI] = 0x12345678, 0xaabbccdd
+	c.EFlags = 0x216
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.R[EDX] != 0xaabbccdd || c.R[EDI] != 0x12345678 || c.EFlags != 0x216 || c.EIP != 2 {
+		t.Fatalf("XCHG EDX=%08X EDI=%08X flags=%X EIP=%X", c.R[EDX], c.R[EDI], c.EFlags, c.EIP)
+	}
+	if !bytes.Equal(mem, testBus{0x87, 0xfa, 0x90}) {
+		t.Fatal("XCHG register改變記憶體")
+	}
+}
+
+func TestXchgWordRegisterFailsClosed(t *testing.T) {
+	c := New(testBus{0x66, 0x87, 0xfa})
+	c.R[EDX], c.R[EDI], c.EFlags = 1, 2, 0x216
+	if err := c.Step(); err == nil || c.R[EDX] != 1 || c.R[EDI] != 2 || c.EFlags != 0x216 {
+		t.Fatalf("未支援的 word XCHG 未拒絕或改變狀態: %v", err)
+	}
+}
+
 func TestReturnImmediate32(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0xc2, 0x04, 0x00})
