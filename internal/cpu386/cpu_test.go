@@ -94,6 +94,45 @@ func TestCMPWordMemoryImmediateUsesSegmentAndPreservesInput(t *testing.T) {
 	}
 }
 
+func TestTESTWordMemoryImmediateUsesSegmentAndPreservesInput(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x66, 0xf7, 0x05, 0x10, 0, 0, 0, 0xf0, 0xff}) // TEST word DS:[10h],FFF0h
+	mem[0x30], mem[0x31] = 0xff, 0xff
+	c := New(mem)
+	c.Seg[SegDS] = 0x188
+	c.SetDescriptor(0x188, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.R[EAX], c.EFlags = 0x12345678, IF|CF|OF|AF
+	beforeR, beforeSeg := c.R, c.Seg
+	if err := c.Step(); err != nil || c.EIP != 9 || c.EFlags != IF|SF|PF ||
+		c.R != beforeR || c.Seg != beforeSeg || mem[0x30] != 0xff || mem[0x31] != 0xff {
+		t.Fatalf("非零記憶體：EIP=%X flags=%X R=%X source=% X err=%v", c.EIP, c.EFlags, c.R, mem[0x30:0x32], err)
+	}
+	mem[0x30], mem[0x31] = 0x0f, 0
+	c.EIP, c.EFlags = 0, IF|CF
+	if err := c.Step(); err != nil || c.EFlags != IF|ZF|PF || mem[0x30] != 0x0f {
+		t.Fatalf("遮罩為零：flags=%X source=% X err=%v", c.EFlags, mem[0x30:0x32], err)
+	}
+	copy(mem, []byte{0x66, 0xf7, 0x45, 0x00, 0xf0, 0xff}) // TEST word SS:[EBP],FFF0h
+	mem[0x50], mem[0x51] = 0xff, 0xff
+	c = New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x188, 0x190
+	c.SetDescriptor(0x188, Descriptor{Base: 0x20, Limit: 0x3f})
+	c.SetDescriptor(0x190, Descriptor{Base: 0x40, Limit: 0x3f})
+	c.R[EBP], c.EFlags = 0x10, IF
+	if err := c.Step(); err != nil || c.EFlags != IF|SF|PF || c.EIP != 6 {
+		t.Fatalf("EBP 應讀 SS：flags=%X EIP=%X err=%v", c.EFlags, c.EIP, err)
+	}
+	c.EIP, c.R[EBP], c.EFlags = 0, 0x3f, IF|CF
+	if err := c.Step(); err == nil || c.EFlags != IF|CF {
+		t.Fatalf("word 來源越界須保留旗標：flags=%X err=%v", c.EFlags, err)
+	}
+	truncated := New(testBus{0x66, 0xf7, 0x05, 0x10, 0, 0, 0, 0xf0})
+	truncated.EFlags = IF | CF
+	if err := truncated.Step(); err == nil || truncated.EFlags != IF|CF {
+		t.Fatalf("截短立即數須拒絕：flags=%X err=%v", truncated.EFlags, err)
+	}
+}
+
 func TestCMPByteMemoryDestinationSegmentAndFailure(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x38, 0x55, 0x00}) // CMP [EBP],DL

@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -33,6 +33,7 @@ capture_mouse_query = sys.argv[1:] == ['--mouse-query']
 capture_mouse_function_21 = sys.argv[1:] == ['--mouse-function-21']
 capture_mouse_function_1a = sys.argv[1:] == ['--mouse-function-1a']
 capture_video_mode_03 = sys.argv[1:] == ['--video-mode-03']
+capture_full_data_test_word = sys.argv[1:] == ['--full-data-test-word']
 capture_es_store = sys.argv[1:] == ['--es-store']
 capture_or_al_ah = sys.argv[1:] == ['--or-al-ah']
 capture_ror_imm8 = sys.argv[1:] == ['--ror-imm8']
@@ -51,7 +52,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -82,6 +83,11 @@ if capture_dta_find_present:
         'name': 'MOX.SET', 'size': 0, 'sha256': hashlib.sha256(b'').hexdigest(),
         'mtime_epoch_seconds': 820454400,
     }
+if capture_full_data_test_word:
+    fixture = pathlib.Path('/tmp/game/MOX.SET')
+    if not fixture.is_file() or hashlib.sha256(fixture.read_bytes()).hexdigest() != 'bfd6855a41760b31156b96114b5b33c88f442ab8f8aae020c1740b3b486a3a80':
+        raise RuntimeError('MOO2 完整資料對拍要求固定正版 MOX.SET')
+    records['controlled_fixture'] = {'name': 'MOX.SET', 'size': fixture.stat().st_size, 'sha256': hashlib.sha256(fixture.read_bytes()).hexdigest()}
 if capture_xchg:
     records['xchg_register_order'] = 'CS EIP EAX EBX ECX EDX EDI DS ES FS GS SS ESP EFLAGS'
 
@@ -169,6 +175,41 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
         if not match:
             raise RuntimeError('MOO2 zero-base branch breakpoint not reached: ' + repr(snapshots))
         records['dpmi_zero_base_branch'] = match
+        if capture_full_data_test_word:
+            cmd('BPDEL *')
+            cmd('BP 0180:00375A21')
+            cmd('BPINT 21 4C')
+            cmd('RUN', 12)
+            shot = root / 'full-data-test-word-screen.png'
+            capture = subprocess.run(
+                ['import', '-display', os.environ['DISPLAY'], '-window', 'root', str(shot)],
+                capture_output=True, timeout=15, check=False,
+            )
+            records['full_data_screen'] = {
+                'file': shot.name,
+                'capture_returncode': capture.returncode,
+                'sha256': hashlib.sha256(shot.read_bytes()).hexdigest() if shot.is_file() else None,
+            }
+            snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES SS ESP EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '375a21']), None)
+            if not match:
+                records['full_data_test_word_status'] = '有界執行未命中，不能推定原版未執行此指令'
+                (root / 'full-data-test-word-registers.json').write_text(json.dumps(records, indent=2))
+                raise RuntimeError('MOO2 完整資料 TEST word 停點未命中；可能先行退出: ' + repr(snapshots))
+            records['full_data_test_word_before'] = match
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 2', 6)
+            if not log.is_file():
+                raise RuntimeError('MOO2 TEST word 同次 LOG 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:00375A21') or not lines[1].startswith('0180:00375A2A'):
+                raise RuntimeError('MOO2 TEST word 連續指令序列不符: ' + repr(lines))
+            (root / 'full-data-test-word-logcpu.txt').write_bytes(log_bytes)
+            records['full_data_test_word_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            records['full_data_test_word_source'] = '尚未用同次指令 bytes 確認重定位來源位址'
         if capture_sbb:
             cmd('BPDEL *')
             cmd('BP 0180:003759EF')

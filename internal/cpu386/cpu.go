@@ -952,14 +952,30 @@ func (c *CPU) Step() error {
 		}
 
 		if operand16 {
-			if modrm>>6 != 3 || (modrm>>3)&7 != 0 {
+			if (modrm>>3)&7 != 0 {
 				return fail("F7 word形狀尚未支援")
+			}
+			seg, addr := SegDS, uint32(0)
+			if modrm>>6 != 3 {
+				var err error
+				seg, addr, err = c.decodeAddress32(modrm)
+				if err != nil {
+					return fail(err.Error())
+				}
 			}
 			imm, e := c.fetch16()
 			if e != nil {
 				return fail(e.Error())
 			}
-			c.setLogicFlags16(uint16(c.R[modrm&7]) & imm)
+			value := uint16(c.R[modrm&7])
+			if modrm>>6 != 3 {
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("TEST word來源越界")
+				}
+			}
+			c.setLogicFlags16(value & imm)
 			break
 		}
 		if modrm>>6 != 3 && (modrm>>3)&7 == 0 {
