@@ -508,14 +508,14 @@ func (c *CPU) Step() error {
 	segmentOverride := -1
 	repe := false
 	repne := false
-	for op == 0x66 || op == 0x26 || op == 0x2e || op == 0x36 || op == 0xf2 || op == 0xf3 {
+	for op == 0x66 || op == 0x26 || op == 0x2e || op == 0x36 || op == 0x3e || op == 0xf2 || op == 0xf3 {
 		switch op {
 		case 0x66:
 			if operand16 {
 				return &Error{start, op, "重複 operand-size prefix"}
 			}
 			operand16 = true
-		case 0x26, 0x2e, 0x36:
+		case 0x26, 0x2e, 0x36, 0x3e:
 			if segmentOverride >= 0 {
 				return &Error{start, op, "重複 segment prefix"}
 			}
@@ -525,6 +525,9 @@ func (c *CPU) Step() error {
 			}
 			if op == 0x36 {
 				segmentOverride = SegSS
+			}
+			if op == 0x3e {
+				segmentOverride = SegDS
 			}
 		case 0xf3:
 			if repe || repne {
@@ -555,7 +558,7 @@ func (c *CPU) Step() error {
 	if segmentOverride == SegCS && op != 0xff && op != 0x8a {
 		return fail("CS override 只支援間接 JMP／MOV byte load")
 	}
-	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
+	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op == 0xba) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
@@ -3424,13 +3427,17 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
-		if operand16 && segmentOverride < 0 && modrm>>6 == 0 && modrm&7 == EBP {
+		if operand16 && modrm>>6 == 0 && modrm&7 == EBP {
 			addr, e := c.fetch32()
 			if e != nil {
 				return fail(e.Error())
 			}
-			if !c.writeSegment16(c.Seg[SegDS], addr, value) {
-				return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[SegDS], addr))
+			segment := SegDS
+			if segmentOverride >= 0 {
+				segment = segmentOverride
+			}
+			if !c.writeSegment16(c.Seg[segment], addr, value) {
+				return fail(fmt.Sprintf("segment word write %04X:%08X 未處理", c.Seg[segment], addr))
 			}
 		} else if operand16 && segmentOverride < 0 && modrm>>6 == 3 {
 			reg := modrm & 7

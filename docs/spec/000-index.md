@@ -350,3 +350,4 @@
 - [196 — MOO2 入口的 16 位元絕對位址比較](196-cpu386-moo2-word-cmp-absolute.md)：CONFORMED，僅限通用 `66 3B 15` 指令形狀；它不是 MOO2 真入口，見 197。
 - [197 — 內嵌 MZ 的 LE 資料頁基址](197-bound-mz-le-file-base.md)：CONFORMED。MOO2 第二層 MZ `0x26654` 的 LE 資料頁偏移加上該層基址，真入口恢復 `EB 76 WATCOM`。
 - [198 — MOO2 啟動鏈的 16 位暫存器 OR](198-cpu386-or-word-register.md)：CONFORMED。只補 `66 09 /r`、`mod=11` 的低 16 位 OR 與旗標；FD2 服務層測跑只作診斷。
+- [199 — MOO2 啟動鏈的段覆寫指令形狀](199-cpu386-moo2-segment-prefixes.md)：CONFORMED。補 ES 覆寫的絕對位址 segment word store，以及無記憶體運算元的 `3E BA`；FD2 服務層測跑只作診斷。

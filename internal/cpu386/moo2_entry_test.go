@@ -2,6 +2,17 @@ package cpu386
 
 import "testing"
 
+func TestDSOverrideBeforeMOVEDXImmediate(t *testing.T) {
+	c := New(testBus{0x3e, 0xba, 0x50, 0xa1, 0x1c, 0x00})
+	c.R[EDX], c.EFlags = 0xdeadbeef, IF|CF
+	if err := c.Step(); err != nil {
+		t.Fatal(err)
+	}
+	if c.EIP != 6 || c.R[EDX] != 0x1ca150 || c.EFlags != IF|CF {
+		t.Fatalf("DS 覆寫不應改變立即數 MOV：EIP=%X EDX=%X flags=%X", c.EIP, c.R[EDX], c.EFlags)
+	}
+}
+
 func TestWordCMPAbsoluteFromMOO2Entry(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
