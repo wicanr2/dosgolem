@@ -28,6 +28,7 @@ type EngineDispatchWatcher struct {
 	ecl     *EclTextCatalog  // spec 029 §2.9; nil skips the step
 	players *PlayerNames     // spec 038 §3.3 combat name column; nil keeps English
 	pending *wrapPending     // spec 029 §2.10: first half of a wrapped fragment
+	layout  *LayoutProfile   // spec 042 §3.4: kinsoku for the two-row split; nil is the default
 	lines   []EngineDispatchLine
 	inCall  bool
 	callRet Address
@@ -43,6 +44,13 @@ type EngineDispatchWatcher struct {
 	// starts differ from the list (laid out by the general path).
 	headers     *HeaderColumns
 	HeaderStats struct{ Anchored, Mismatches int }
+}
+
+// SetLayout installs the spec 042 §3.4 layout profile (nil: default rules).
+func (w *EngineDispatchWatcher) SetLayout(p *LayoutProfile) {
+	if w != nil {
+		w.layout = p
+	}
 }
 
 // SetHeaderColumns installs the header white list after its load check
@@ -418,7 +426,7 @@ func (w *EngineDispatchWatcher) joinWrapped(p *wrapPending, row, col int, args [
 	n1, n2 := len(p.s1), len(s2)
 	// 前段盡量放滿（spec 029 §2.10 修訂）：spec 039 以 2×len(S1) 半形單位計，
 	// 放不下的全形字整字移到後段。
-	k := fitUnits(r, 2*n1)
+	k := w.layout.adjustBreak(r, fitUnits(r, 2*n1))
 	if textUnits(r[k:]) > 2*n2 {
 		return false
 	}

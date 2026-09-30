@@ -159,6 +159,7 @@ type EclTextWatcher struct {
 	engine  *EngineTextCatalog // spec 029 fallback; nil disables
 	names   *NameGlossary      // spec 036 annotation; nil disables
 	players *PlayerNames       // spec 038 player names; nil disables
+	layout  *LayoutProfile     // spec 042 §3.4 line-breaking rules; nil is the default
 	pages   []*EclTextPage
 	inCall  bool
 	call    EclTextEntry
@@ -373,7 +374,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// cursor and continuation state.
 		chosen := -1
 		for i, v := range player {
-			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
+			if lines, endRow, endCol, fits = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
 				chosen = i
 				break
 			}
@@ -391,7 +392,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			}
 			text, key = string(e.Original), "passthrough"
 			w.Stats.Passthrough++
-			lines, endRow, endCol, fits = layoutEclText([]rune(text), row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
+			lines, endRow, endCol, fits = layoutEclTextP(w.layout, []rune(text), nil, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
 		}
 	} else {
 		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
@@ -402,7 +403,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// layout is pure, so a failed try changes nothing (spec 036 §3.3).
 		var tier NameTier
 		for i, v := range variants {
-			if lines, endRow, endCol, fits = layoutEclTextUnits(v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
+			if lines, endRow, endCol, fits = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
 				if i > 0 {
 					tier = v.Tier
 				}
@@ -464,6 +465,13 @@ func (w *EclTextWatcher) ObserveVideoWrite(offset uint32) {
 	w.removeRows(col, row, col, row, nil)
 }
 
+// SetLayout installs the spec 042 §3.4 layout profile (nil: default rules).
+func (w *EclTextWatcher) SetLayout(p *LayoutProfile) {
+	if w != nil {
+		w.layout = p
+	}
+}
+
 // ObserveDiscontinuity handles restore / observer fault.
 func (w *EclTextWatcher) ObserveDiscontinuity() {
 	if w != nil {
@@ -483,6 +491,12 @@ func layoutEclText(text []rune, row, col, left, right, bottom uint8) ([]EclTextL
 // annotation, sorted and disjoint) is one unbreakable token; a unit wider
 // than the line breaks only at the spaces of its English part.
 func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
+	return layoutEclTextP(nil, text, units, row, col, left, right, bottom)
+}
+
+// layoutEclTextP is layoutEclTextUnits with a per-language layout profile
+// (spec 042 §3.4); a nil profile is the pre-042 behaviour.
+func layoutEclTextP(prof *LayoutProfile, text []rune, units []NameUnit, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
 	width := int(right) - int(left) + 1
 	var tokens [][]rune
 	for i, u := 0, 0; i < len(text); {
@@ -491,7 +505,7 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 		}
 		if u < len(units) && units[u].Start == i {
 			j := units[u].End
-			for j < len(text) && isEclClosing(text[j]) {
+			for j < len(text) && prof.closing(text[j]) {
 				j++
 			}
 			tok := text[i:j]
@@ -519,7 +533,7 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 			}
 		}
 		// Attach trailing closing punctuation to the token before it.
-		for j < len(text) && isEclClosing(text[j]) {
+		for j < len(text) && prof.closing(text[j]) {
 			j++
 		}
 		// Never run into the next unit.
@@ -529,6 +543,7 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 		tokens = append(tokens, text[i:j])
 		i = j
 	}
+	tokens = prof.joinOpening(tokens, width)
 	var lines []EclTextLine
 	cur := EclTextLine{Row: row, Col: col}
 	used := int(col) - int(left)

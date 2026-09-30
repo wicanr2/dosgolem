@@ -108,6 +108,12 @@ func LayoutLogbook(body string) ([][]string, error) {
 // layoutLogbookUnits is LayoutLogbook for an annotated body: units never
 // cross a paragraph break, and each stays one token (spec 036 §3.3).
 func layoutLogbookUnits(body []rune, units []NameUnit) ([][]string, error) {
+	return layoutLogbookUnitsP(nil, body, units)
+}
+
+// layoutLogbookUnitsP is layoutLogbookUnits with a per-language layout
+// profile (spec 042 §3.4).
+func layoutLogbookUnitsP(prof *LayoutProfile, body []rune, units []NameUnit) ([][]string, error) {
 	var lines []string
 	for start := 0; start <= len(body); {
 		end := start
@@ -131,7 +137,7 @@ func layoutLogbookUnits(body []rune, units []NameUnit) ([][]string, error) {
 				us = append(us, NameUnit{u.Start - a, u.End - a})
 			}
 		}
-		ls, _, _, ok := layoutEclTextUnits(body[a:b], us, 0, 0, 0, logbookBodyUnits-1, 255)
+		ls, _, _, ok := layoutEclTextP(prof, body[a:b], us, 0, 0, 0, logbookBodyUnits-1, 255)
 		if !ok {
 			return nil, fmt.Errorf("buckrogers: 手札段落無法排版")
 		}
@@ -190,7 +196,7 @@ func LoadLogbookCatalogLang(data []byte, names *NameGlossary, lang string) (*Log
 		var pages [][]string
 		var tier NameTier
 		for _, v := range names.Variants(b, key, NameCaseMixed) {
-			if pages, err = layoutLogbookUnits(v.Text, v.Units); err == nil {
+			if pages, err = layoutLogbookUnitsP(LayoutFor(lang), v.Text, v.Units); err == nil {
 				tier = v.Tier
 				break
 			}

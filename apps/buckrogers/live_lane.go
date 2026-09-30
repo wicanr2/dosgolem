@@ -671,6 +671,7 @@ func (l *liveLane) loadEclText(headers *HeaderColumns) error {
 	l.names = names
 	l.ecl = NewEclTextWatcher(c)
 	l.ecl.SetNames(names)
+	l.ecl.SetLayout(LayoutFor(l.lang))
 	// Spec 038: without the transliterator data the player-name display is
 	// off (names stay English); the runtime still starts.  Spec 040 §3.1:
 	// the transliterators of other languages come with their own specs;
@@ -827,6 +828,7 @@ func (l *liveLane) loadEngineDispatch(eng *EngineTextCatalog, headers *HeaderCol
 		return err
 	}
 	l.engDisp = NewEngineDispatchWatcher(eng, allow)
+	l.engDisp.SetLayout(LayoutFor(l.lang))
 	h := headers
 	if l.lang != LangZhTW {
 		h = headers.forLane(nil, nil, eng)
