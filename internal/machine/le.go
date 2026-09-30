@@ -80,6 +80,14 @@ func InspectLE(data []byte) (*LEHeader, error) {
 		return nil, fmt.Errorf("machine: 不是含 e_lfanew 的 MZ 執行檔")
 	}
 	off := binary.LittleEndian.Uint32(data[0x3c:0x40])
+	return InspectLEAt(data, off)
+}
+
+// InspectLEAt 只採呼叫者明示的檔案偏移，不搜尋可能碰巧出現的 LE 字串。
+func InspectLEAt(data []byte, off uint32) (*LEHeader, error) {
+	if len(data) < 0x40 || data[0] != 'M' || data[1] != 'Z' {
+		return nil, fmt.Errorf("machine: 不是含 e_lfanew 的 MZ 執行檔")
+	}
 	if off > uint32(len(data)) || uint64(off)+0xb0 > uint64(len(data)) {
 		return nil, fmt.Errorf("machine: LE 標頭偏移 0x%X 超出 %d-byte 檔案", off, len(data))
 	}

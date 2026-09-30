@@ -37,6 +37,25 @@ func leFixture() []byte {
 	return b
 }
 
+func TestInspectLEAtUsesExplicitOffsetWithoutChangingInput(t *testing.T) {
+	b := leFixture()
+	binary.LittleEndian.PutUint32(b[0x3c:], 0x9b40000)
+	before := append([]byte(nil), b...)
+	if _, err := InspectLE(b); err == nil {
+		t.Fatal("超界 e_lfanew 不得由預設入口接受")
+	}
+	h, err := InspectLEAt(b, 0x80)
+	if err != nil || h.Offset != 0x80 || len(h.Objects) != 1 {
+		t.Fatalf("明示 LE 偏移失敗：header=%+v err=%v", h, err)
+	}
+	if _, err := InspectLEAt(b, 0x81); err == nil {
+		t.Fatal("錯誤偏移不得自動搜尋其他 LE 簽章")
+	}
+	if string(before) != string(b) {
+		t.Fatal("解析器修改了原始輸入")
+	}
+}
+
 func TestParseLEFixupVariants(t *testing.T) {
 	tests := []struct {
 		name  string

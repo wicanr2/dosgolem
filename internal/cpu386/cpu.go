@@ -3927,6 +3927,18 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			if modrm>>6 == 0 && modrm&7 == 5 {
+				addr, e := c.fetch32()
+				if e != nil {
+					return fail(e.Error())
+				}
+				value, ok := c.readSegment16(c.Seg[SegDS], addr)
+				if !ok {
+					return fail("word CMP絕對位址讀取失敗")
+				}
+				c.sub16(uint16(c.R[(modrm>>3)&7]), value)
+				break
+			}
 			if modrm>>6 != 3 {
 				return fail("word CMP僅支援暫存器")
 			}

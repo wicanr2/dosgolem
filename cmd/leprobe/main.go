@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -13,6 +14,7 @@ import (
 
 func main() {
 	exe := flag.String("exe", "", "要檢查的 MZ／LE 執行檔（必填）")
+	offset := flag.String("offset", "", "明示 LE 標頭的檔案偏移（預設使用 MZ e_lfanew）")
 	executeEntryPrefix := flag.Bool("execute-entry-prefix", false, "從 LE entry 執行至固定雜湊 FD2 的 main 入口")
 	flag.Parse()
 	if *exe == "" {
@@ -23,9 +25,21 @@ func main() {
 	if err != nil {
 		die(err)
 	}
-	h, err := machine.InspectLE(b)
+	var h *machine.LEHeader
+	if *offset == "" {
+		h, err = machine.InspectLE(b)
+	} else {
+		var parsed uint64
+		parsed, err = strconv.ParseUint(*offset, 0, 32)
+		if err == nil {
+			h, err = machine.InspectLEAt(b, uint32(parsed))
+		}
+	}
 	if err != nil {
 		die(err)
+	}
+	if *offset != "" {
+		fmt.Printf("header_offset_source=explicit offset=0x%X\n", h.Offset)
 	}
 	fmt.Printf("format=LE header_offset=0x%X cpu=%d os=%d pages=%d page_size=0x%X objects=%d\n", h.Offset, h.CPUType, h.OSType, h.ModulePages, h.PageSize, h.ObjectCount)
 	fmt.Printf("entry=object:%d+0x%X stack=object:%d+0x%X execution_support=partial\n", h.EIPObject, h.EIP, h.ESPObject, h.ESP)
@@ -69,6 +83,9 @@ func main() {
 		fmt.Printf("object[%d] virtual_size=0x%X relocation_base=0x%X flags=0x%X page_index=%d page_count=%d reserved=0x%X image_bytes=%d relocation_preview_sha256=%x\n", i+1, o.VirtualSize, o.RelocationBase, o.Flags, o.PageTableIndex, o.PageCount, o.Reserved, len(image), sha256.Sum256(relocated[i]))
 	}
 	if *executeEntryPrefix {
+		if *offset != "" {
+			die(fmt.Errorf("FD2 專用 entry prefix 不接受明示 offset"))
+		}
 		executePrefix(b)
 	}
 }

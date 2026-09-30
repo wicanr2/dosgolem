@@ -35,6 +35,19 @@ func LoadLE(data []byte) (*LEMachine, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadLEHeader(data, header)
+}
+
+// LoadLEAt 以明示的檔案偏移載入 LE；原始檔案 bytes 保持不變。
+func LoadLEAt(data []byte, off uint32) (*LEMachine, error) {
+	header, err := InspectLEAt(data, off)
+	if err != nil {
+		return nil, err
+	}
+	return loadLEHeader(data, header)
+}
+
+func loadLEHeader(data []byte, header *LEHeader) (*LEMachine, error) {
 	images, err := header.RelocatedObjectImages(data)
 	if err != nil {
 		return nil, err

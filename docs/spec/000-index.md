@@ -346,3 +346,5 @@
 
 - [193 — 時序暫存器](193-crtc-timing.md)：READY。從 CRTC 算掃描位置，`3DA` 回報真的回掃狀態；**預設不啟用**，既有對拍收據建立在行為模型上。
 - [194 — StubSeg 字型 stub 撞號與程式路徑](194-stubseg-font-collision-and-program-path.md)：READY。字型 stub 從 0x20／0x24 移到 0x410／0x414，不再蓋掉向量 8、9 的預設 stub；`oracle.Options.ProgramPath` 與 `probe -program-path` 可指定 argv[0]。
+- [195 — 明示偏移的 LE 載入探針](195-moo2-explicit-le-offset.md)：CONFORMED。MOO2 DOS/4GW 外殼的 LE 位於 `0x292E4`；以明示且驗證的偏移解析，不掃描或改寫原版。
+- [196 — MOO2 入口的 16 位元絕對位址比較](196-cpu386-moo2-word-cmp-absolute.md)：CONFORMED。`66 3B 15` 的 DS 絕對 word 比較及旗標，不擴大到其他未驗證形狀。

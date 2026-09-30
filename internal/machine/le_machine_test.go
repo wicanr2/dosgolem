@@ -26,6 +26,24 @@ func TestLoadLESynthetic(t *testing.T) {
 	}
 }
 
+func TestLoadLEAtWithLegacyMZHeader(t *testing.T) {
+	b := leFixture()
+	h := b[0x80:]
+	binary.LittleEndian.PutUint32(h[0x20:], 1)
+	binary.LittleEndian.PutUint32(h[0x24:], 0x1800)
+	binary.LittleEndian.PutUint32(b[0x3c:], 0x9b40000)
+	m, err := LoadLEAt(b, 0x80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x11234 || m.CPU.R[cpu386.ESP] != 0x11800 {
+		t.Fatalf("入口狀態錯誤：EIP=%X ESP=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP])
+	}
+	if got := binary.LittleEndian.Uint32(b[0x3c:]); got != 0x9b40000 {
+		t.Fatalf("原始 MZ 標頭被改寫：%X", got)
+	}
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {
