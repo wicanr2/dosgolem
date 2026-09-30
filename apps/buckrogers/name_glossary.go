@@ -93,6 +93,14 @@ func readPlainTSV(name string, data []byte, header []string) ([][]string, error)
 // LoadNameGlossary reads the glossary and the exclusion list (nil or empty
 // exclusion data means no exclusions).
 func LoadNameGlossary(glossary, exclude []byte) (*NameGlossary, error) {
+	return loadNameGlossaryBytes(glossary, exclude, false)
+}
+
+// loadNameGlossaryBytes is LoadNameGlossary where allowSpace lets a name hold
+// single internal ASCII spaces (Korean writes a foreign given name and
+// surname apart, Buck repo spec 043 §3.8).  A leading, trailing or repeated
+// space and any parenthesis stay errors in every language.
+func loadNameGlossaryBytes(glossary, exclude []byte, allowSpace bool) (*NameGlossary, error) {
 	rows, err := readPlainTSV("name-glossary.tsv", glossary, nameGlossaryHeader)
 	if err != nil {
 		return nil, fmt.Errorf("buckrogers: %w", err)
@@ -110,8 +118,10 @@ func LoadNameGlossary(glossary, exclude []byte) (*NameGlossary, error) {
 			return nil, fmt.Errorf("buckrogers: name-glossary.tsv:%d kind 無效", i+2)
 		case seenEn[e.English] || seenZh[e.Chinese]:
 			return nil, fmt.Errorf("buckrogers: name-glossary.tsv:%d 重複", i+2)
-		case strings.ContainsAny(e.Chinese, " ()（）"):
+		case strings.ContainsAny(e.Chinese, "()（）") || !allowSpace && strings.Contains(e.Chinese, " "):
 			return nil, fmt.Errorf("buckrogers: name-glossary.tsv:%d chinese 含空白或括號", i+2)
+		case allowSpace && (strings.HasPrefix(e.Chinese, " ") || strings.HasSuffix(e.Chinese, " ") || strings.Contains(e.Chinese, "  ")):
+			return nil, fmt.Errorf("buckrogers: name-glossary.tsv:%d chinese 的空白只能是單一內部空白", i+2)
 		}
 		seenEn[e.English], seenZh[e.Chinese] = true, true
 		e.chinese = []rune(e.Chinese)
@@ -161,7 +171,7 @@ func loadNameGlossaryLang(textDir, langDir, lang string) (*NameGlossary, error) 
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
-		return LoadNameGlossary(gb, eb)
+		return loadNameGlossaryBytes(gb, eb, lang == LangKo)
 	}
 	gb, err := os.ReadFile(filepath.Join(textDir, "name-glossary.tsv"))
 	if os.IsNotExist(err) {

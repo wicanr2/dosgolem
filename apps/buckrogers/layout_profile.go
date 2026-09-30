@@ -7,10 +7,18 @@ package buckrogers
 // (small kana, the long-vowel mark, iteration marks, the middle dot,
 // closing brackets, the em dash of a "——" pair) and opening brackets that
 // never end a line.
+//
+// Buck repo spec 043 §3.4 adds word-level wrapping for Korean: with word
+// set, a maximal run of non-space characters is one token, a name unit and
+// the particle glued to it merge when they fit a line, and a line or a
+// whole call that cannot be laid out that way falls back to the character
+// level of this file's earlier profiles.
 
 type LayoutProfile struct {
-	noLineStart map[rune]bool // never start a line; attach to the token before
-	noLineEnd   map[rune]bool // never end a line; join the token after
+	noLineStart map[rune]bool  // never start a line; attach to the token before
+	noLineEnd   map[rune]bool  // never end a line; join the token after
+	word        bool           // word-level tokens (spec 043 §3.4)
+	chars       *LayoutProfile // the same profile at character level (set with word)
 }
 
 func newLayoutProfile(noStart, noEnd string) *LayoutProfile {
@@ -31,13 +39,39 @@ var layoutJa = newLayoutProfile(
 	"ぁぃぅぇぉっゃゅょゎゕゖ"+"ァィゥェォッャュョヮヵヶ"+"ーゝゞヽヾ々〻・"+"】〕］｝〉〙〗’”．—",
 	"「『（【〔［｛〈《‘“")
 
+// layoutKoChars is the Korean profile at character level: only the opening
+// quotation marks never end a line (spec 043 §3.4).  The closing set of
+// isEclClosing already covers the ASCII punctuation and 」 』 that Korean
+// text uses.
+var layoutKoChars = newLayoutProfile("", "「『")
+
+// layoutKo is the Korean word-level profile; the fallbacks use layoutKoChars.
+var layoutKo = func() *LayoutProfile {
+	p := newLayoutProfile("", "「『")
+	p.word = true
+	p.chars = layoutKoChars
+	return p
+}()
+
 // LayoutFor returns the layout profile of a language; nil means the
 // default rules.
 func LayoutFor(lang string) *LayoutProfile {
-	if lang == LangJa {
+	switch lang {
+	case LangJa:
 		return layoutJa
+	case LangKo:
+		return layoutKo
 	}
 	return nil
+}
+
+// charLevel is the profile the word-level fallbacks use: the same rules
+// with character tokens.  A profile without word level is its own fallback.
+func (p *LayoutProfile) charLevel() *LayoutProfile {
+	if p == nil || !p.word || p.chars == nil {
+		return p
+	}
+	return p.chars
 }
 
 // closing reports whether r never starts a line.
@@ -82,4 +116,42 @@ func (p *LayoutProfile) adjustBreak(r []rune, k int) int {
 		k--
 	}
 	return k
+}
+
+// splitSearch is how far back (in half units, as a fraction of the first
+// row's n1 cells) splitRows looks for a space when the split falls inside a
+// word (spec 043 §3.4).
+func splitSearch(n1 int) int { return n1 / 2 }
+
+// splitRows divides the Chinese or translated text r of a fragment that the
+// original broke over two rows of n1 and n2 cells (spec 029 §2.10).  ok is
+// false when the second part does not fit its row.  A profile without word
+// level (nil, ja, zh-CN) keeps the pre-043 rule exactly: break at the last
+// character that fits, then adjustBreak.  With word level a break inside a
+// word moves back to the nearest space within splitSearch units and the
+// space itself is shown on neither row; a break that falls on a space drops
+// that space.  If the moved split leaves the second part too wide the
+// original split stays.
+func (p *LayoutProfile) splitRows(r []rune, n1, n2 int) (first, second []rune, ok bool) {
+	k := p.adjustBreak(r, fitUnits(r, 2*n1))
+	if p == nil || !p.word || k <= 0 || k >= len(r) {
+		return r[:k], r[k:], textUnits(r[k:]) <= 2*n2
+	}
+	switch {
+	case r[k] == ' ':
+		rest := r[k+1:]
+		return r[:k], rest, textUnits(rest) <= 2*n2
+	case r[k-1] == ' ':
+		return r[:k], r[k:], textUnits(r[k:]) <= 2*n2
+	}
+	depth := splitSearch(n1)
+	for s := k - 1; s >= 0 && textUnits(r[s:k]) <= depth; s-- {
+		if r[s] == ' ' {
+			if rest := r[s+1:]; textUnits(rest) <= 2*n2 {
+				return r[:s], rest, true
+			}
+			break
+		}
+	}
+	return r[:k], r[k:], textUnits(r[k:]) <= 2*n2
 }

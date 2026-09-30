@@ -426,14 +426,14 @@ func (w *EngineDispatchWatcher) joinWrapped(p *wrapPending, row, col int, args [
 	n1, n2 := len(p.s1), len(s2)
 	// 前段盡量放滿（spec 029 §2.10 修訂）：spec 039 以 2×len(S1) 半形單位計，
 	// 放不下的全形字整字移到後段。
-	k := w.layout.adjustBreak(r, fitUnits(r, 2*n1))
-	if textUnits(r[k:]) > 2*n2 {
+	first, second, fits := w.layout.splitRows(r, n1, n2)
+	if !fits {
 		return false
 	}
 	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, p.row, p.col, p.col+n1) })
 	w.lines = append(w.lines,
-		EngineDispatchLine{Row: uint8(p.row), Col: uint8(p.col), Width: uint8(n1), BG: p.bg, FG: p.fg, Text: padUnits(r[:k], 2*n1)},
-		EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n2), BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits(r[k:], 2*n2)})
+		EngineDispatchLine{Row: uint8(p.row), Col: uint8(p.col), Width: uint8(n1), BG: p.bg, FG: p.fg, Text: padUnits(first, 2*n1)},
+		EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n2), BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits(second, 2*n2)})
 	return true
 }
 

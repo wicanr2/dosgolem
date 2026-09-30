@@ -29,6 +29,9 @@ const (
 	// LangJa is Japanese (Buck repo spec 042): machine-assisted translation
 	// from the English original; its layout profile adds kinsoku.
 	LangJa = "ja"
+	// LangKo is Korean (Buck repo spec 043): machine-assisted translation
+	// from the English original; its layout profile wraps at word level.
+	LangKo = "ko"
 	// LangTest is the test-only fake language of spec 040 §5.3.  It never
 	// appears in the F4 cycle or a release.
 	LangTest = "zz"

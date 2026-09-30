@@ -495,11 +495,31 @@ func layoutEclTextUnits(text []rune, units []NameUnit, row, col, left, right, bo
 }
 
 // layoutEclTextP is layoutEclTextUnits with a per-language layout profile
-// (spec 042 §3.4); a nil profile is the pre-042 behaviour.
+// (spec 042 §3.4); a nil profile is the pre-042 behaviour.  A word-level
+// profile (spec 043 §3.4) lays the call out by words first and, when that
+// does not fit, the whole call again at character level, so a window that
+// fits at character level never turns into the English original.
 func layoutEclTextP(prof *LayoutProfile, text []rune, units []NameUnit, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
+	if prof != nil && prof.word {
+		if lines, endRow, endCol, ok := layoutEclTextTokens(prof, true, text, units, row, col, left, right, bottom); ok {
+			return lines, endRow, endCol, true
+		}
+		prof = prof.charLevel()
+	}
+	return layoutEclTextTokens(prof, false, text, units, row, col, left, right, bottom)
+}
+
+// layoutEclTextTokens is the layout itself; word chooses the word-level
+// tokenization of spec 043 §3.4 over the character-level one.
+func layoutEclTextTokens(prof *LayoutProfile, word bool, text []rune, units []NameUnit, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
 	width := int(right) - int(left) + 1
 	var tokens [][]rune
-	for i, u := 0, 0; i < len(text); {
+	if word {
+		tokens = eclWordTokens(prof, text, units, width)
+	}
+	// The character-level loop below is the pre-043 code, unchanged; it is
+	// skipped when the tokens above were built by words.
+	for i, u := 0, 0; !word && i < len(text); {
 		for u < len(units) && units[u].End <= i {
 			u++
 		}
@@ -576,6 +596,90 @@ func layoutEclTextP(prof *LayoutProfile, text []rune, units []NameUnit, row, col
 		return nil, 0, 0, false
 	}
 	return lines, row, end, true
+}
+
+// eclWordTokens is the spec 043 §3.4 tokenization: every space is a token of
+// its own; a maximal run of other characters up to the next name unit is one
+// word; a name unit together with the run glued to it (a particle) is one
+// token when that fits a line.  A word wider than a line is cut into the
+// character tokens of the pre-043 rules, so nothing wider than a line
+// fails unless a single character is.
+func eclWordTokens(prof *LayoutProfile, text []rune, units []NameUnit, width int) [][]rune {
+	var tokens [][]rune
+	for i, u := 0, 0; i < len(text); {
+		for u < len(units) && units[u].End <= i {
+			u++
+		}
+		if u < len(units) && units[u].Start == i {
+			end := units[u].End
+			stop := len(text)
+			if u+1 < len(units) {
+				stop = units[u+1].Start
+			}
+			j := end
+			for j < stop && text[j] != ' ' {
+				j++
+			}
+			if textUnits(text[i:j]) <= width {
+				tokens = append(tokens, text[i:j])
+				i = j
+				continue
+			}
+			j = end
+			for j < len(text) && prof.closing(text[j]) {
+				j++
+			}
+			tok := text[i:j]
+			if textUnits(tok) <= width {
+				tokens = append(tokens, tok)
+			} else {
+				from := 0
+				for k := 1; k < end-i; k++ {
+					if tok[k] == ' ' {
+						tokens = append(tokens, tok[from:k])
+						from = k
+					}
+				}
+				tokens = append(tokens, tok[from:])
+			}
+			i = j
+			continue
+		}
+		if text[i] == ' ' {
+			tokens = append(tokens, text[i:i+1])
+			i++
+			continue
+		}
+		next := len(text)
+		if u < len(units) {
+			// A closing-punctuation run may end inside the next unit (the
+			// pre-043 loop has the same quirk); always advance one rune.
+			next = max(units[u].Start, i+1)
+		}
+		j := i
+		for j < next && text[j] != ' ' {
+			j++
+		}
+		if textUnits(text[i:j]) <= width {
+			tokens = append(tokens, text[i:j])
+		} else {
+			for k := i; k < j; {
+				m := k + 1
+				if isEclLatin(text[k]) {
+					for m < j && isEclLatin(text[m]) {
+						m++
+					}
+				}
+				for m < j && prof.closing(text[m]) {
+					m++
+				}
+				tokens = append(tokens, text[k:m])
+				k = m
+			}
+		}
+		i = j
+	}
+	return tokens
 }
 
 // eclUnitLeft and eclUnitRight convert an inclusive window column range in

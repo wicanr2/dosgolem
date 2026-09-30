@@ -114,6 +114,24 @@ func layoutLogbookUnits(body []rune, units []NameUnit) ([][]string, error) {
 // layoutLogbookUnitsP is layoutLogbookUnits with a per-language layout
 // profile (spec 042 §3.4).
 func layoutLogbookUnitsP(prof *LayoutProfile, body []rune, units []NameUnit) ([][]string, error) {
+	pages, err := layoutLogbookPages(prof, body, units)
+	if err == nil && prof != nil && prof.word && len(pages) > logbookMaxPages {
+		// Spec 043 §3.4 (iii): word-level wrapping can need more lines than
+		// character level; retry the whole entry at character level.
+		pages, err = layoutLogbookPages(prof.charLevel(), body, units)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(pages) == 0 || len(pages) > logbookMaxPages {
+		return nil, fmt.Errorf("buckrogers: 手札頁數 %d 超出範圍", len(pages))
+	}
+	return pages, nil
+}
+
+// layoutLogbookPages lays the paragraphs out with prof; it does not check
+// the page count.
+func layoutLogbookPages(prof *LayoutProfile, body []rune, units []NameUnit) ([][]string, error) {
 	var lines []string
 	for start := 0; start <= len(body); {
 		end := start
@@ -153,9 +171,6 @@ func layoutLogbookUnitsP(prof *LayoutProfile, body []rune, units []NameUnit) ([]
 		}
 		pages = append(pages, lines[:n])
 		lines = lines[n:]
-	}
-	if len(pages) == 0 || len(pages) > logbookMaxPages {
-		return nil, fmt.Errorf("buckrogers: 手札頁數 %d 超出範圍", len(pages))
 	}
 	return pages, nil
 }

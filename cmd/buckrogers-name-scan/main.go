@@ -18,8 +18,9 @@ import (
 func main() {
 	text := flag.String("text", "", "Buck repo 的 text/ 目錄")
 	out := flag.String("out", "", "輸出目錄")
+	lang := flag.String("lang", buckrogers.LangZhTW, "語言碼（text/<family>.<lang>.tsv 與 name-glossary.<lang>.tsv）")
 	flag.Parse()
-	if err := run(*text, *out); err != nil {
+	if err := run(*text, *out, *lang); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -67,11 +68,14 @@ func names(g *buckrogers.NameGlossary, s, key string) (en []string, paren []stri
 	return
 }
 
-func run(textDir, outDir string) error {
+func run(textDir, outDir, lang string) error {
 	if textDir == "" || outDir == "" {
 		return fmt.Errorf("需要 -text 與 -out")
 	}
-	g, err := buckrogers.LoadNameGlossaryDir(textDir)
+	if lang != buckrogers.LangZhTW && !buckrogers.KnownLang(lang) {
+		return fmt.Errorf("未知語言 %q", lang)
+	}
+	g, err := buckrogers.LoadNameGlossaryDirLang(textDir, lang)
 	if err != nil || g == nil {
 		return fmt.Errorf("譯名表：%v", err)
 	}
@@ -81,14 +85,14 @@ func run(textDir, outDir string) error {
 	defer paren.close()
 
 	// 手札
-	lb, err := buckrogers.LoadLogbookCatalog(read(textDir, "logbook.zh-TW.tsv"), g)
+	lb, err := buckrogers.LoadLogbookCatalogLang(read(textDir, buckrogers.LangFile("logbook", lang)), g, lang)
 	if err != nil {
 		return err
 	}
-	if err := lb.LoadLogbookPanelText(read(textDir, "logbook-panel.zh-TW.tsv")); err != nil {
+	if err := lb.LoadLogbookPanelTextLang(read(textDir, buckrogers.LangFile("logbook-panel", lang)), lang); err != nil {
 		return err
 	}
-	raw, err := buckrogers.ReadCatalogRows("logbook.zh-TW.tsv", read(textDir, "logbook.zh-TW.tsv"))
+	raw, err := buckrogers.ReadCatalogRows(buckrogers.LangFile("logbook", lang), read(textDir, buckrogers.LangFile("logbook", lang)))
 	if err != nil {
 		return err
 	}
@@ -106,7 +110,7 @@ func run(textDir, outDir string) error {
 		}
 		var pages [3]string
 		for i, tier := range []buckrogers.NameTier{buckrogers.NameTierAll, buckrogers.NameTierFirst, buckrogers.NameTierNone} {
-			p, err := buckrogers.LayoutLogbookAnnotated(g.Annotate(body, key, buckrogers.NameCaseMixed, tier))
+			p, err := buckrogers.LayoutLogbookAnnotatedLang(lang, g.Annotate(body, key, buckrogers.NameCaseMixed, tier))
 			if err != nil {
 				pages[i] = ">3"
 			} else {
@@ -137,7 +141,7 @@ func run(textDir, outDir string) error {
 
 	// ECL：以 phase-255 的標準敘事窗（左 1、頂 17、右 38、底 22，新頁）估段別；
 	// 實際視窗是執行期參數，此表只是預估。
-	ecl, err := buckrogers.LoadEclTextCatalog(read(textDir, "ecl-text-events.tsv"), read(textDir, "ecl-text.zh-TW.tsv"))
+	ecl, err := buckrogers.LoadEclTextCatalogLang(read(textDir, "ecl-text-events.tsv"), read(textDir, buckrogers.LangFile("ecl-text", lang)), lang)
 	if err != nil {
 		return err
 	}
@@ -155,7 +159,7 @@ func run(textDir, outDir string) error {
 		var rows [3]string
 		tier := "overflow"
 		for i, t := range []buckrogers.NameTier{buckrogers.NameTierAll, buckrogers.NameTierFirst, buckrogers.NameTierNone} {
-			n, ok := buckrogers.LayoutEclAnnotated(g.Annotate(s, key, buckrogers.NameCaseUpper, t), 17, 1, 1, 38, 22)
+			n, ok := buckrogers.LayoutEclAnnotatedLang(lang, g.Annotate(s, key, buckrogers.NameCaseUpper, t), 17, 1, 1, 38, 22)
 			if ok {
 				rows[i] = strconv.Itoa(n)
 				if tier == "overflow" {
