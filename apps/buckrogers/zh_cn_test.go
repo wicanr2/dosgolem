@@ -199,7 +199,7 @@ func TestZhCNMapMissingOnlyDisablesPlayerNames(t *testing.T) {
 }
 
 // Spec 041 §5.4: the rows that grow in zh-CN (「呎→英尺」 twice,
-// 「新檔名→新文件名」, 「執行檔→可执行文件」) stay within the cells of the
+// 「新檔名→新文件名」, 「執行檔→可执行文件」, 「吋→英寸」) stay within the cells of the
 // English they replace (2 half units per original character), so a
 // horizontal-menu row cannot get wider than the English row it overlays;
 // the hmenu item is also laid out at the right-most column the English
@@ -228,8 +228,9 @@ func TestZhCNWidenedRowsFitEnglishCells(t *testing.T) {
 	for fam, keys := range map[string][]string{
 		"engine-fragment": {"frag.2260006382e7", "frag.5250b5de07b3", "frag.4844cec572c9"},
 		"hmenu":           {"hmenu.a5add1365529"},
+		"ecl-text":        {"ecl.6.97.04086"}, // 吋→英寸（規格 041 修訂）
 	} {
-		events := read(map[string]string{"engine-fragment": "engine-fragment-events.tsv", "hmenu": "hmenu-item-events.tsv"}[fam])
+		events := read(map[string]string{"engine-fragment": "engine-fragment-events.tsv", "hmenu": "hmenu-item-events.tsv", "ecl-text": "ecl-text-events.tsv"}[fam])
 		tw, cn := read(LangFile(fam, LangZhTW)), read(LangFile(fam, LangZhCN))
 		for _, k := range keys {
 			var orig int
