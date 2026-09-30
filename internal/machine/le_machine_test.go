@@ -259,6 +259,47 @@ func TestMOO2RORImmediateEightCheckpointWhenProvided(t *testing.T) {
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 ROR 零輸入通過，下一 EIP=%X", step, m.CPU.EIP)
 }
 
+// 固定原檔的 OR AL,AH 收據只核對本次 AH=0 的啟動樣本。
+func TestMOO2OrALAHCheckpointWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(nil)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	const checkpoint = 0x14701b // dosgolem 重定位 LE 線性位址
+	step := 0
+	for ; step < 6000 && m.CPU.EIP != checkpoint; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("OR 檢查點前第 %d 步：%v", step, err)
+		}
+	}
+	if step != 5529 || m.CPU.EIP != checkpoint || m.CPU.R[cpu386.EAX] != 1 || m.CPU.EFlags != 0x202 {
+		t.Fatalf("原版 AH 零輸入檢查點不符：step=%d EIP=%X EAX=%X flags=%X", step, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.EFlags)
+	}
+	beforeR, beforeSeg := m.CPU.R, m.CPU.Seg
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("OR AL,AH 執行失敗：%v", err)
+	}
+	if m.CPU.EIP != checkpoint+2 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != 0x202 {
+		t.Fatalf("OR AH 零輸入後狀態不符：EIP=%X R=%X Seg=%X flags=%X", m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 OR AL,AH 通過，下一 EIP=%X", step, m.CPU.EIP)
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {

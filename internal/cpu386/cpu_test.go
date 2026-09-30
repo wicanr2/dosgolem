@@ -2473,6 +2473,39 @@ func TestOrRegister8Immediate8(t *testing.T) {
 	}
 }
 
+func TestOrRegister8DestinationFromRegister8(t *testing.T) {
+	for _, test := range []struct {
+		name                                 string
+		code                                 []byte
+		eax, ecx, edx                        uint32
+		flags                                uint32
+		wantEAX, wantECX, wantEDX, wantFlags uint32
+	}{
+		{name: "原版 AL 與零 AH", code: []byte{0x08, 0xe0}, eax: 1, flags: 0x202, wantEAX: 1, wantFlags: 0x202},
+		{name: "同一 EAX 的高低位元組", code: []byte{0x08, 0xe0}, eax: 0xaabb8205, flags: IF | CF | OF | AF | ZF, wantEAX: 0xaabb8287, wantFlags: IF | SF | PF},
+		{name: "不同暫存器且 ZF 轉 SF", code: []byte{0x08, 0xd1}, ecx: 0x12340010, edx: 0x87650080, flags: IF | ZF | CF, wantECX: 0x12340090, wantEDX: 0x87650080, wantFlags: IF | SF | PF},
+		{name: "零結果", code: []byte{0x08, 0xe0}, flags: IF | CF | OF | AF | SF, wantFlags: IF | ZF | PF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := New(testBus(test.code))
+			c.R[EAX], c.R[ECX], c.R[EDX], c.EFlags = test.eax, test.ecx, test.edx, test.flags
+			if err := c.Step(); err != nil || c.EIP != 2 || c.R[EAX] != test.wantEAX ||
+				c.R[ECX] != test.wantECX || c.R[EDX] != test.wantEDX || c.EFlags != test.wantFlags {
+				t.Fatalf("OR EIP=%X EAX=%X ECX=%X EDX=%X flags=%X err=%v", c.EIP, c.R[EAX], c.R[ECX], c.R[EDX], c.EFlags, err)
+			}
+		})
+	}
+	for _, code := range [][]byte{
+		{0x08}, {0x08, 0x20}, {0x66, 0x08, 0xe0},
+		{0x26, 0x08, 0xe0}, {0xf3, 0x08, 0xe0},
+	} {
+		c := New(testBus(code))
+		if err := c.Step(); err == nil {
+			t.Fatalf("未授權 08 形狀 % X 被接受", code)
+		}
+	}
+}
+
 func TestOrBaseDisp8RegisterDword(t *testing.T) {
 	mem := testBus(make([]byte, 0x40))
 	copy(mem, []byte{0x09, 0x43, 0x0c})
