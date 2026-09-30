@@ -23,6 +23,9 @@ type MenuOverlayEntry struct {
 	DrawX, DrawY                   int
 	Capacity, LineCount            int
 	Overflow                       string
+	// Columns (spec 039 §3.4 欄名列) are the header anchor cells relative to
+	// DrawX; nil lays the translation out as one run.
+	Columns []int
 }
 
 // MenuOverlayGeometry is content-safe receipt metadata for one built stamp.
@@ -88,6 +91,13 @@ func BuildMenuOverlay(entries []MenuOverlayEntry, font *xlate.Font, palette [256
 			return nil, fmt.Errorf("buckrogers: %s 缺少有效字模 U+%04X", entry.EventKey, miss[0])
 		}
 		text := padUnits(append([]rune(strings.Repeat("　", prefix)), translation...), 2*cells)
+		if len(entry.Columns) != 0 {
+			body, err := anchorColumns(translation, entry.Columns, 2*(cells-prefix))
+			if err != nil {
+				return nil, fmt.Errorf("buckrogers: %s 欄名列：%w", entry.EventKey, err)
+			}
+			text = append([]rune(strings.Repeat("　", prefix)), body...)
+		}
 		bg, fg := palette[entry.Background], palette[entry.Foreground]
 		stamps := fonts.segmentStamps(entry.EventKey, entry.X, entry.Y, text, nil,
 			func(int) ([3]uint8, [3]uint8) { return bg, fg })

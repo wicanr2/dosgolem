@@ -282,7 +282,7 @@ func (o *RuntimePostJoinMenuOverlay) Apply(g PostJoinMenuGeneration, p [256][3]u
 		if i == g.Selected {
 			bg, fg = 15, 0
 		}
-		entries = append(entries, MenuOverlayEntry{k, e.textKey, e.translation, bg, fg, int(id.column) * 8, int(id.row) * 8, int(id.length) * 8, 8, int(id.column) * 8, int(id.row) * 8, int(id.length), 1, "single-line-reject"})
+		entries = append(entries, MenuOverlayEntry{k, e.textKey, e.translation, bg, fg, int(id.column) * 8, int(id.row) * 8, int(id.length) * 8, 8, int(id.column) * 8, int(id.row) * 8, int(id.length), 1, "single-line-reject", nil})
 	}
 	built, err := BuildMenuOverlay(entries, o.font, p, o.scale)
 	if err != nil {

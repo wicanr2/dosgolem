@@ -38,6 +38,43 @@ type EngineDispatchWatcher struct {
 	// PartyStats counts spec 038 §3.4 lines wider than the original name
 	// and lines stepped down to Chinese only (diagnostics).
 	PartyStats struct{ Extended, ChineseOnly int }
+	// headers is the spec 039 §3.4 欄名列 white list (nil: none);
+	// HeaderStats counts anchored lines and lines whose original column
+	// starts differ from the list (laid out by the general path).
+	headers     *HeaderColumns
+	HeaderStats struct{ Anchored, Mismatches int }
+}
+
+// SetHeaderColumns installs the header white list after its load check
+// against the engine catalog.
+func (w *EngineDispatchWatcher) SetHeaderColumns(h *HeaderColumns) error {
+	if err := h.ValidateDispatcher(w.catalog); err != nil {
+		return err
+	}
+	w.headers = h
+	return nil
+}
+
+// headerText is the spec 039 §3.4 欄名列 layout of a general-path hit: a
+// listed fragment whose original column starts (from the original bytes)
+// equal the list is anchored; otherwise ok is false and the caller keeps
+// the general layout.
+func (w *EngineDispatchWatcher) headerText(original []byte, zh string, n int) ([]rune, bool) {
+	cols, listed := w.headers.dispatcherColumns(w.catalog, string(original))
+	if !listed {
+		return nil, false
+	}
+	if !equalInts(tokenStarts(original), cols) {
+		w.HeaderStats.Mismatches++
+		return nil, false
+	}
+	out, err := anchorColumns([]rune(zh), cols, 2*n)
+	if err != nil {
+		w.HeaderStats.Mismatches++
+		return nil, false
+	}
+	w.HeaderStats.Anchored++
+	return out, true
 }
 
 // LoadEngineDispatchCallers parses text/engine-dispatch-callers.tsv and
@@ -354,8 +391,12 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 		w.Stats.Misses++
 		return
 	}
+	text := padUnits([]rune(zh), 2*n)
+	if a, ok := w.headerText(original, zh, n); ok {
+		text = a
+	}
 	w.lines = append(w.lines, EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n),
-		BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits([]rune(zh), 2*n)})
+		BG: uint8(args[2]), FG: uint8(args[3]), Text: text})
 	w.gen++
 	w.Stats.Hits++
 }

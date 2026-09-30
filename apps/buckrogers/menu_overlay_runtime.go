@@ -124,7 +124,13 @@ type RuntimeMenuOverlay struct {
 	actions []MenuOverlayGeometry
 	// groups applies spec 039 §3.3's row-group rule to the segment stamps.
 	groups rowGroupSet
+	// headers is the spec 039 §3.4 欄名列 white list (nil: none).
+	headers *HeaderColumns
 }
+
+// SetHeaderColumns installs the header white list; the caller has already
+// run its load check (HeaderColumns.ValidateMenu).
+func (o *RuntimeMenuOverlay) SetHeaderColumns(h *HeaderColumns) { o.headers = h }
 
 func NewRuntimeMenuOverlay(rects *MenuOverlayRects, font *xlate.Font, scale int) (*RuntimeMenuOverlay, error) {
 	if rects == nil || len(rects.byEvent) == 0 {
@@ -166,6 +172,7 @@ func (o *RuntimeMenuOverlay) Apply(event TextEvent, request DisplayRequest, pale
 		Background: event.Background, Foreground: event.Foreground,
 		X: r.x, Y: r.y, Width: r.width, Height: r.height, DrawX: r.drawX, DrawY: r.drawY,
 		Capacity: r.capacity, LineCount: r.lines, Overflow: r.overflow,
+		Columns: o.headers.MenuColumns(request.EventKey),
 	}}
 	var overlay *MenuOverlay
 	var err error

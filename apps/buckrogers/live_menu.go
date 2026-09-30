@@ -42,6 +42,31 @@ type LiveMenuRuntime struct {
 	presenters map[int]*RuntimeMenuOverlay
 	fault      error
 	Norm       *LegacyNormaliser // spec 033; nil = identity
+
+	// headers is the spec 039 §3.4 欄名列 white list (nil: none).
+	headers *HeaderColumns
+}
+
+// SetHeaderColumns installs the spec 039 §3.4 header white list on every
+// presenter after checking it against the menu catalog (load check: a
+// failure is returned, never skipped at run time).
+func (r *LiveMenuRuntime) SetHeaderColumns(h *HeaderColumns) error {
+	if err := h.ValidateMenu(r.watcher.catalog); err != nil {
+		return err
+	}
+	r.headers = h
+	for _, p := range r.presenters {
+		p.SetHeaderColumns(h)
+	}
+	return nil
+}
+
+// HeaderColumns returns the installed header white list (nil: none).
+func (r *LiveMenuRuntime) HeaderColumns() *HeaderColumns {
+	if r == nil {
+		return nil
+	}
+	return r.headers
 }
 
 // NewLiveMenuRuntime builds the runtime from an already merged catalog and

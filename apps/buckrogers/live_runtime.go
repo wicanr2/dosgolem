@@ -213,6 +213,11 @@ func LoadLiveRuntime(textDir, fontPath string) (*LiveRuntime, error) {
 	if err := r.loadHMenu(textDir); err != nil {
 		return nil, err
 	}
+	// Spec 039 §3.4 欄名列: dispatcher rows are checked against the engine
+	// catalog when the dispatcher loads; without it they cannot be.
+	if menu.HeaderColumns().HasDispatcher() && r.engDisp == nil {
+		return nil, fmt.Errorf("buckrogers: %s 有 dispatcher 列，但引擎 dispatcher 未載入", HeaderColumnsFile)
+	}
 	return r, nil
 }
 
@@ -425,6 +430,9 @@ func (r *LiveRuntime) loadEngineDispatch(textDir string, eng *EngineTextCatalog)
 		return err
 	}
 	r.engDisp = NewEngineDispatchWatcher(eng, allow)
+	if err := r.engDisp.SetHeaderColumns(r.menu.HeaderColumns()); err != nil {
+		return err
+	}
 	if nb, err := os.ReadFile(filepath.Join(textDir, "engine-dispatch-name-callers.tsv")); err == nil {
 		names, err := LoadEngineDispatchCallers(nb, nil)
 		if err != nil {
@@ -1244,6 +1252,9 @@ func (r *LiveRuntime) DebugSummary() string {
 		s += fmt.Sprintf(" engine-dispatch=%+v", r.engDisp.Stats)
 		if ps := r.engDisp.PartyStats; ps.Extended != 0 || ps.ChineseOnly != 0 {
 			s += fmt.Sprintf(" party-panel=%+v", ps)
+		}
+		if hs := r.engDisp.HeaderStats; hs.Anchored != 0 || hs.Mismatches != 0 {
+			s += fmt.Sprintf(" header-columns=%+v", hs)
 		}
 	}
 	// Spec 038 §5.3: the latest accepted party snapshot (player names).

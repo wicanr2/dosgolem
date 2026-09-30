@@ -85,5 +85,24 @@ func loadLiveMenuRuntimeFont(textDir string, font *xlate.Font) (*LiveMenuRuntime
 	if err != nil {
 		return nil, err
 	}
-	return NewLiveMenuRuntime(catalog, merged, font)
+	r, err := NewLiveMenuRuntime(catalog, merged, font)
+	if err != nil {
+		return nil, err
+	}
+	// Spec 039 §3.4 欄名列: the white list is optional (absent: no header
+	// is anchored); a present list must pass the load check.
+	data, err := os.ReadFile(filepath.Join(textDir, HeaderColumnsFile))
+	if os.IsNotExist(err) {
+		return r, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("buckrogers: 讀取 %s：%w", HeaderColumnsFile, err)
+	}
+	h, err := LoadHeaderColumns(HeaderColumnsFile, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.SetHeaderColumns(h); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

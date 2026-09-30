@@ -480,6 +480,7 @@ func main() {
 	genderRects := flag.String("gender-rects", "", "正式 gender-text-safe-rects.tsv")
 	classRects := flag.String("class-rects", "", "正式 class-text-safe-rects.tsv")
 	rosterRects := flag.String("roster-rects", "", "正式 save-roster-join-text-safe-rects.tsv")
+	headerColumns := flag.String("header-columns", "", "規格 039 §3.4 欄名列白名單 header-columns.tsv（一般選單 overlay 與 live-menu；空白＝不錨定）")
 	overlayFont := flag.String("overlay-font", "", "16x16 GOLEMFNT")
 	overlayScale := flag.Int("overlay-scale", 0, "明示覆繪倍率 2 或 3")
 	scopedMenu3 := flag.Bool("scoped-menu-3x", false, "明示啟用限正式 menu-only catalog 的 3x 倚天 22 點主選單覆繪")
@@ -1286,6 +1287,16 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		if *headerColumns != "" {
+			if *scopedMenu3 {
+				fail(fmt.Errorf("header-columns 不可與 scoped-menu-3x 併用"))
+			}
+			h, err := loadHeaderColumnsFlag(*headerColumns, catalog)
+			if err != nil {
+				fail(err)
+			}
+			presenter.SetHeaderColumns(h)
+		}
 	}
 	var liveMenu *buckrogers.LiveMenuRuntime
 	if *liveMenuOut != "" {
@@ -1296,6 +1307,15 @@ func main() {
 		liveMenu, liveErr = newLiveMenuFromFlags(catalog, *overlayFont, liveMenuRectInputs(*menuRects, *genderRects, *classRects, *rosterRects, *namePromptRects, *careerSkillRects, *technicalSkillRects), *characterSheetRects)
 		if liveErr != nil {
 			fail(liveErr)
+		}
+		if *headerColumns != "" {
+			h, err := loadHeaderColumnsFlag(*headerColumns, catalog)
+			if err != nil {
+				fail(err)
+			}
+			if err := liveMenu.SetHeaderColumns(h); err != nil {
+				fail(err)
+			}
 		}
 	}
 	// 規格 031 §3.4：legacy 劇情路徑自己的原版字形取得狀態（與 LiveRuntime 分開計數）。
@@ -3633,4 +3653,21 @@ func glyphWordHighMask(args [7]uint16) (mask uint8) {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+// loadHeaderColumnsFlag reads the -header-columns white list and runs its
+// menu load check against the runner's merged menu catalog.
+func loadHeaderColumnsFlag(path string, catalog *buckrogers.MenuCatalog) (*buckrogers.HeaderColumns, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := buckrogers.LoadHeaderColumns(buckrogers.HeaderColumnsFile, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.ValidateMenu(catalog); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
