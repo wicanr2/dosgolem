@@ -2,6 +2,32 @@ package cpu386
 
 import "testing"
 
+func TestMOO2StartupByteSUBRegister(t *testing.T) {
+	for _, tc := range []struct {
+		code      []byte
+		eax, ebx  uint32
+		wantEAX   uint32
+		wantFlags uint32
+	}{
+		{[]byte{0x28, 0xc0}, 0x1234567f, 0, 0x12345600, ZF | PF},
+		{[]byte{0x28, 0xd8}, 0x12345601, 2, 0x123456ff, CF | SF | PF | AF},
+	} {
+		c := New(testBus(tc.code))
+		c.R[EAX], c.R[EBX] = tc.eax, tc.ebx
+		c.EFlags = IF | CF | ZF | OF
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+		if c.R[EAX] != tc.wantEAX || c.EFlags&(CF|ZF|SF|PF|AF|OF) != tc.wantFlags || c.EFlags&IF == 0 || c.EIP != 2 {
+			t.Fatalf("SUB byte 暫存器結果錯誤：EAX=%X flags=%X EIP=%X", c.R[EAX], c.EFlags, c.EIP)
+		}
+	}
+	c := New(testBus{0x28, 0x00})
+	if err := c.Step(); err == nil {
+		t.Fatal("尚未支援的 SUB byte memory 形狀必須拒絕")
+	}
+}
+
 func TestDSOverrideBeforeMOVEDXImmediate(t *testing.T) {
 	c := New(testBus{0x3e, 0xba, 0x50, 0xa1, 0x1c, 0x00})
 	c.R[EDX], c.EFlags = 0xdeadbeef, IF|CF

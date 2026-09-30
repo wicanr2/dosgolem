@@ -26,6 +26,7 @@ type FD2StartupDOS struct {
 	timeCalls int
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
+	moo2Profile bool
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
 	//
@@ -51,13 +52,14 @@ type FD2StartupDOS struct {
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
 var minimalMOO2Environment = []byte{0, 0, 1, 0, 'O', 'R', 'I', 'O', 'N', '2', '.', 'E', 'X', 'E', 0}
 
-// MOO2StartupDOS 是暫定的平台服務設定；DOS/4G 的 selector 與回傳值
-// 仍沿用 FD2 測試設定，並非 MOO2 原版對拍收據。
+// MOO2StartupDOS 的兩次啟動回傳以固定 1.31 DOSBox-X 輔助收據為基線；
+// PSP／環境讀取仍是明示的合成輸入，不是完整原版對拍收據。
 type MOO2StartupDOS struct{ *FD2StartupDOS }
 
 func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	s := NewFD2StartupDOS(files)
 	s.environment = minimalMOO2Environment
+	s.moo2Profile = true
 	return &MOO2StartupDOS{s}
 }
 
@@ -318,11 +320,15 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		if uint8(c.R[cpu386.EAX]>>8) != 0x30 || c.R[cpu386.EBX] != 0x50484152 {
 			return false
 		}
-		c.Seg[cpu386.SegDS] = 0x0160
+		dataSelector := uint16(0x0160)
+		if s.moo2Profile {
+			dataSelector = 0x0188
+		}
+		c.Seg[cpu386.SegDS] = dataSelector
 		c.Seg[cpu386.SegES] = 0x0028
 		c.Seg[cpu386.SegGS] = 0x0020
-		c.Seg[cpu386.SegSS] = 0x0160
-		c.SetDescriptor(0x0160, cpu386.Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
+		c.Seg[cpu386.SegSS] = dataSelector
+		c.SetDescriptor(dataSelector, cpu386.Descriptor{Base: 0, Limit: 0xffffffff, Writable: true})
 		c.SegmentLoadOK = func(selector uint16, destination int) bool {
 			return selector == 0x0028 && (destination == cpu386.SegDS || destination == cpu386.SegES) ||
 				selector == 0x0030 && (destination == cpu386.SegDS || destination == cpu386.SegES || destination == cpu386.SegFS)
@@ -343,13 +349,22 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			}
 			return 0, false
 		}
-		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606
+		if s.moo2Profile {
+			// MOO2 1.31：固定 DOSBox-X 的 0180:00333FB7 返回收據。
+			c.R[cpu386.EAX] = 0x00000005
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | 0xff00
+		} else {
+			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0x1606
+		}
 	case 1:
 		if uint16(c.R[cpu386.EAX]) != 0xff00 || uint16(c.R[cpu386.EDX]) != 0x0078 {
 			return false
 		}
 		c.R[cpu386.EAX] = 0x4734ffff
 		c.Seg[cpu386.SegGS] = 0x0020
+		if s.moo2Profile {
+			c.EFlags &^= cpu386.CF
+		}
 	default:
 		if uint8(c.R[cpu386.EAX]>>8) != 0x2c {
 			return false

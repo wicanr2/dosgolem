@@ -3896,6 +3896,19 @@ func (c *CPU) Step() error {
 			}
 			c.R[reg] = c.sub32(c.R[reg], value)
 		}
+	case op == 0x28:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("28 不接受目前的 prefix")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail(fmt.Sprintf("SUB byte ModRM %02X 尚未支援", modrm))
+		}
+		dst, src := int(modrm&7), int((modrm>>3)&7)
+		c.setReg8(dst, c.sub8(c.reg8(dst), c.reg8(src)))
 	case op == 0x2a:
 		if operand16 || segmentOverride >= 0 {
 			return fail("2A 不接受目前的 prefix")

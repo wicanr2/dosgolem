@@ -274,8 +274,12 @@ func TestMOO2ProvisionalStartupEnvironment(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 1)))
 	s := NewMOO2StartupDOS(nil)
 	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x3000, 0x50484152
+	c.EFlags = 0x246
 	if !s.Handle(c, 0x21) || s.Calls() != 1 {
 		t.Fatal("MOO2 DOS 版本查詢未通過暫定服務入口")
+	}
+	if c.R[cpu386.EAX] != 5 || c.R[cpu386.EBX] != 0x5048ff00 || c.Seg[cpu386.SegDS] != 0x188 || c.Seg[cpu386.SegSS] != 0x188 || c.Seg[cpu386.SegES] != 0x28 || c.Seg[cpu386.SegGS] != 0x20 || c.EFlags != 0x246 {
+		t.Fatalf("MOO2 固定輔助基準返回不符：EAX=%X EBX=%X DS=%X ES=%X GS=%X SS=%X", c.R[cpu386.EAX], c.R[cpu386.EBX], c.Seg[cpu386.SegDS], c.Seg[cpu386.SegES], c.Seg[cpu386.SegGS], c.Seg[cpu386.SegSS])
 	}
 	for offset, want := range minimalMOO2Environment {
 		got, ok := c.SegmentRead8(0x30, uint32(offset))
@@ -287,7 +291,8 @@ func TestMOO2ProvisionalStartupEnvironment(t *testing.T) {
 		t.Fatal("MOO2 environment 超出界限仍可讀")
 	}
 	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0xff00, 0x78
-	if !s.Handle(c, 0x21) || s.Calls() != 2 {
+	c.EFlags |= cpu386.CF
+	if !s.Handle(c, 0x21) || s.Calls() != 2 || c.R[cpu386.EAX] != 0x4734ffff || c.Seg[cpu386.SegDS] != 0x188 || c.Seg[cpu386.SegGS] != 0x20 || c.EFlags&cpu386.CF != 0 {
 		t.Fatal("MOO2 DOS/4G 私有查詢未通過暫定服務入口")
 	}
 }
