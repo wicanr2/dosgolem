@@ -13,8 +13,9 @@ import (
 // FD2StartupDOS 是保護模式（DOS/4GW 已載入）底下的 DOS 服務層。
 //
 // 名字裡的 FD2 現在只涵蓋**啟動握手**那一段：`calls` 計數器加 `PHAR` 判斷、
-// 寫死的四個 selector、`AX=FF00h` 的 DOS/4G 私有呼叫。那一段是那一支
-// 執行檔的形狀，換一支就不成立（`docs/spec/184-mvp-scope-review` 批次 4）。
+// 寫死的四個 selector、`AX=FF00h` 的 DOS/4G 私有呼叫。這些回傳與 selector
+// 只在 FD2 路徑驗過；MOO2 暫定入口會明示沿用此平台近似，不把它當原版
+// MOO2 服務證據（`docs/spec/184-mvp-scope-review` 批次 4、規格 200）。
 //
 // 其餘的部分**與程式無關**：`int 31h` 全部交給 `DPMIHost`（`dpmi.go`），
 // 檔案語意共用 `internal/dosfile`（與 16 位元那條同一份），
@@ -23,6 +24,8 @@ import (
 type FD2StartupDOS struct {
 	calls     int
 	timeCalls int
+	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
+	environment []byte
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
 	//
@@ -46,8 +49,26 @@ type FD2StartupDOS struct {
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
+var minimalMOO2Environment = []byte{0, 0, 1, 0, 'O', 'R', 'I', 'O', 'N', '2', '.', 'E', 'X', 'E', 0}
+
+// MOO2StartupDOS 是暫定的平台服務設定；DOS/4G 的 selector 與回傳值
+// 仍沿用 FD2 測試設定，並非 MOO2 原版對拍收據。
+type MOO2StartupDOS struct{ *FD2StartupDOS }
+
+func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
+	s := NewFD2StartupDOS(files)
+	s.environment = minimalMOO2Environment
+	return &MOO2StartupDOS{s}
+}
 
 func (s *FD2StartupDOS) Calls() int { return s.calls }
+
+func (s *FD2StartupDOS) startupEnvironment() []byte {
+	if s.environment != nil {
+		return s.environment
+	}
+	return minimalFD2Environment
+}
 
 func NewFD2StartupDOS(files ReadOnlyFileProvider) *FD2StartupDOS {
 	s := &FD2StartupDOS{
@@ -307,11 +328,12 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 				selector == 0x0030 && (destination == cpu386.SegDS || destination == cpu386.SegES || destination == cpu386.SegFS)
 		}
 		c.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+			environment := s.startupEnvironment()
 			if selector == 0x0028 && offset == 0x0080 {
 				return 0, true
 			}
-			if selector == 0x0030 && uint64(offset) < uint64(len(minimalFD2Environment)) {
-				return minimalFD2Environment[offset], true
+			if selector == 0x0030 && uint64(offset) < uint64(len(environment)) {
+				return environment[offset], true
 			}
 			return 0, false
 		}

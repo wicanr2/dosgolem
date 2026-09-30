@@ -270,6 +270,28 @@ func TestFD2StartupDOS(t *testing.T) {
 	}
 }
 
+func TestMOO2ProvisionalStartupEnvironment(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 1)))
+	s := NewMOO2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x3000, 0x50484152
+	if !s.Handle(c, 0x21) || s.Calls() != 1 {
+		t.Fatal("MOO2 DOS 版本查詢未通過暫定服務入口")
+	}
+	for offset, want := range minimalMOO2Environment {
+		got, ok := c.SegmentRead8(0x30, uint32(offset))
+		if !ok || got != want {
+			t.Fatalf("MOO2 environment[%d]=%X ok=%v want=%X", offset, got, ok, want)
+		}
+	}
+	if _, ok := c.SegmentRead8(0x30, uint32(len(minimalMOO2Environment))); ok {
+		t.Fatal("MOO2 environment 超出界限仍可讀")
+	}
+	c.R[cpu386.EAX], c.R[cpu386.EDX] = 0xff00, 0x78
+	if !s.Handle(c, 0x21) || s.Calls() != 2 {
+		t.Fatal("MOO2 DOS/4G 私有查詢未通過暫定服務入口")
+	}
+}
+
 func TestFD2StartupDOSRejectsWrongOrder(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 1)))
 	s := &FD2StartupDOS{}
