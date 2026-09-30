@@ -161,6 +161,63 @@ func TestMOO2AttachedDPMIBaseProbeWhenProvided(t *testing.T) {
 	}
 }
 
+// 此測試釘住合成 PSP／環境的原檔啟動檢查點；原版 LOG 只作有限指令基準，
+// 不代表環境位址、正常玩家路徑或玩法狀態與原版一致。
+func TestMOO2ESByteLoadCheckpointWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(nil)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	const checkpoint = 0x146903 // dosgolem 重定位 LE 線性位址
+	step := 0
+	for ; step < 6000 && m.CPU.EIP != checkpoint; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("檢查點前第 %d 步：%v", step, err)
+		}
+	}
+	if m.CPU.EIP != checkpoint || step != 4944 {
+		t.Fatalf("未在預期步數抵達 ES byte 載入檢查點：step=%d EIP=%X", step, m.CPU.EIP)
+	}
+	c := m.CPU
+	esi := c.R[cpu386.ESI]
+	if esi >= uint32(len(m.Mem)) {
+		t.Fatalf("來源位址超出載入映像：ESI=%X", esi)
+	}
+	if c.R[cpu386.EAX] != 0 || c.R[cpu386.EBX] != ^uint32(0) ||
+		c.R[cpu386.ECX] != 0x188 || c.R[cpu386.EDX] != esi ||
+		c.R[cpu386.EDI] != ^uint32(0) || c.R[cpu386.EBP] != 4 ||
+		esi-c.R[cpu386.ESP] != 0x34 || c.EFlags != 0x246 ||
+		c.Seg[cpu386.SegDS] != 0x188 || c.Seg[cpu386.SegES] != 0x188 ||
+		c.Seg[cpu386.SegSS] != 0x188 || m.Mem[esi] != 0x30 || services.Calls() != 7 {
+		t.Fatalf("合成啟動檢查點狀態不符：step=%d R=%X Seg=%X flags=%X source=%02X calls=%d", step, c.R, c.Seg, c.EFlags, m.Mem[esi], services.Calls())
+	}
+	beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+	if err := c.Step(); err != nil {
+		t.Fatalf("ES byte 載入失敗：%v", err)
+	}
+	wantR := beforeR
+	wantR[cpu386.EBX] = 0xffffff30
+	if c.EIP != checkpoint+3 || c.R != wantR || c.Seg != beforeSeg || c.EFlags != beforeFlags || m.Mem[esi] != 0x30 {
+		t.Fatalf("ES byte 載入後狀態不符：EIP=%X R=%X Seg=%X flags=%X source=%02X", c.EIP, c.R, c.Seg, c.EFlags, m.Mem[esi])
+	}
+	t.Logf("固定 1.31 原檔、合成環境：step=%d，重定位 LE 線性 EIP=%X，ESI=%X，ESP=%X，來源=30h；下一 EIP=%X", step, checkpoint, esi, beforeR[cpu386.ESP], c.EIP)
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {

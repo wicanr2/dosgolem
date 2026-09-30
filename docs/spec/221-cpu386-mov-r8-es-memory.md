@@ -7,7 +7,9 @@
 
 固定 MOO2 1.31 `ORION2.EXE` SHA-256 `4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f`。dosgolem 使用合成 PSP／環境及已綁定 DPMI 的固定真檔診斷，在第 4944 步、**重定位 LE 線性位址** `0x146903` 遇到 `26 8A 1E 42 84`；前 3 bytes 為待處理指令 `26 8A 1E`，後面的 `42` 是另一條指令。這只是工具缺口，不是正常玩家路徑收據。
 
-DOSBox-X 2026.07.02 SDL2 heavy debugger 映像 `fd2-dosbox-x:debug-0d7b272b`，image ID `sha256:659e8abbf93646f59a1586341769bd4b8f3cd1c707859d7a5de4c56e4672b582`。以相同雜湊原檔在 **DOSBox-X CS:EIP** `0180:0036A903 → 0180:0036A906` 的同次 `LOG 2` 得到 `mov bl,es:[esi] → inc edx`。原版執行前 EBX=`0000000Fh`、ESI=`003EBA74h`、ES=DS=`0188h`、EFLAGS=`0246h`；ES:`003EBA74h` 的 byte 為 `30h`。執行後 EBX=`FFFFFF30h`，ESI、ES、DS、EFLAGS 與來源 byte 不變。版控 `apps/moo2/tools/startup_probe_131.py --es-byte-load` 可重生私有收據：`es-byte-load-registers.json` SHA-256 `8312772e1b0de3fff25a493cbdd99847ee2b9a8b97d62b24b5ed22061b428511`，`es-byte-load-logcpu.txt` SHA-256 `f751a6bc439f1380b3eaa5adeccb196d6e18e4f0a2000dc2398bec340aed9837`，前後來源 byte 檔 SHA-256 均為 `5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9`。原檔與完整收據只留未版控工作區。
+DOSBox-X 2026.07.02 SDL2 heavy debugger 映像 `fd2-dosbox-x:debug-0d7b272b`，image ID `sha256:659e8abbf93646f59a1586341769bd4b8f3cd1c707859d7a5de4c56e4672b582`。以相同雜湊原檔在 **DOSBox-X CS:EIP** `0180:0036A903 → 0180:0036A906` 的同次 `LOG 2` 得到 `mov bl,es:[esi] → inc edx`；LOG 首行 EBX=`FFFFFFFFh`、ESI=EDX=`003EBA74h`、ES=DS=SS=`0188h`、ESP=`003EBA40h`、EFLAGS=`0246h`，來源 ES:`003EBA74h` 為 `30h`；下一行 EBX=`FFFFFF30h`，來源與旗標不變。版控 `apps/moo2/tools/startup_probe_131.py --es-byte-load` 可重生私有收據：修訂後 `es-byte-load-registers.json` SHA-256 `3d3fd5422f193a9a0e1246ffb682d473383351302f71cfcfd1c30cb10d4930f5`，`es-byte-load-logcpu.txt` SHA-256 `f751a6bc439f1380b3eaa5adeccb196d6e18e4f0a2000dc2398bec340aed9837`，前後來源 byte 檔 SHA-256 均為 `5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9`。原檔與完整收據只留未版控工作區。
+
+**證據勘誤**：初版把候選 `EV` 前斷點的 EBX=`0000000Fh` 與 `LOG 2` 下一行 EBX=`FFFFFF30h` 當成同一次指令的前後態；8 位元 `MOV` 不可能造成這種高 24 位變化。同一映像另用 `--es-byte-load-ev` 重跑前後斷點，仍分別顯示 `0Fh` 與 `FFFFFF30h`（私有 `es-byte-load-ev-registers.json` SHA-256 `e33ff4052f0202d66a23959fc1f0221c9a6d5cd27fc514f3f5f74a6f29680606`）。`EV` 候選前態與 LOG 首行不能證明是同一次動態執行；原因未定，不把它們拼成收據。修訂後的探針明示這項衝突，指令樣本只採同次 LOG 的連續兩行。
 
 ## 擬議通用 CPU 契約
 
@@ -17,9 +19,9 @@ DOSBox-X 2026.07.02 SDL2 heavy debugger 映像 `fd2-dosbox-x:debug-0d7b272b`，i
 
 ## 審查與驗收
 
-審查原版同次 `LOG`、EV、來源前後擷取及位址基準，確認原版只支持 `26 8A 1E` 這個實際樣本；其餘記憶體 ModRM 形狀來自 Intel 契約與既有共用解碼器，不標成原版實測。驗收需有 ES/DS 不同基址、EBP 預設 SS 被 ES 覆寫、SIB、低 byte／高 byte register、來源不寫回、旗標不變、非法前綴、無效 selector、越界及截短輸入測試。固定真檔診斷須越過第 4944 步並記錄下一停點；`go test -buildvcs=false ./internal/cpu386 ./internal/machine -count=1` 與固定原檔輸入的全套測試須通過。
+審查原版同次 `LOG`、僅供候選定位的 EV、來源前後擷取及位址基準，確認原版只支持 `26 8A 1E` 這個實際樣本；其餘記憶體 ModRM 形狀來自 Intel 契約與既有共用解碼器，不標成原版實測。驗收需有 ES/DS 不同基址、EBP 預設 SS 被 ES 覆寫、SIB、低 byte／高 byte register、來源不寫回、旗標不變、非法前綴、無效 selector、越界及截短輸入測試。固定真檔診斷須越過第 4944 步並記錄下一停點；`go test -buildvcs=false ./internal/cpu386 ./internal/machine -count=1` 與固定原檔輸入的全套測試須通過。
 
-READY 審查結論：`LOG 2` 首行、前後 EV、單一 byte 前後檔共同支持 `BL←30h`，且 EFLAGS 與來源未變；`0x146903` 和 `0036A903` 明確屬於不同工具的位址空間，不以數值相減代替原版證據。ES=DS 的原版樣本不足以單獨證明段覆寫，故把這項通用處理器契約限定為手冊加合成異段測試；合成 PSP／環境不支持任何正常玩家路徑宣稱。這些限制不阻礙有限的 CPU 工具切片，准予按上述形狀實作。
+READY 審查結論經上述勘誤限縮：同次 `LOG 2` 的連續兩行與來源 byte 支持 `BL←30h`，EFLAGS 與來源未變；候選 EV 前態不可與 LOG 後態配對。`0x146903` 和 `0036A903` 明確屬於不同工具的位址空間，不以數值相減代替原版證據。ES=DS 的原版樣本不足以單獨證明段覆寫，故把這項通用處理器契約限定為手冊加合成異段測試；合成 PSP／環境不支持任何正常玩家路徑宣稱。這些限制不阻礙有限的 CPU 工具切片。
 
 此規格只為原版觀測工具補通用 CPU 能力，不改 remake 的玩法、資料、UI 或存檔。合成 PSP／環境與原版不同，完成此切片也不構成玩家路徑或同狀態對拍。
 
@@ -27,4 +29,8 @@ READY 審查結論：`LOG 2` 首行、前後 EV、單一 byte 前後檔共同支
 
 `internal/cpu386/cpu.go` 的既有 `8A` 記憶體來源分支納入 ES 覆寫，仍由 `decodeAddress32` 取得 32 位有效位址，覆寫段後以 `readSegment8` 讀取。合成測試使用不同 DS／SS／ES 基址驗證原版 `26 8A 1E`、EBP 與 SIB 的預設 SS 覆寫、高位 byte 暫存器、來源與旗標不變，以及無效 selector、段越界、截短 ModRM／SIB／位移、repeat 與暫存器來源拒絕。既有 ES 位移測試仍通過。
 
-`golang:1.24-bookworm` 無網路容器內，以 SHA-256 核對後從原版 1.31 ZIP 暫時擷取 EXE，執行 `go test -buildvcs=false ./internal/cpu386 ./internal/machine -count=1` 及 `DOSGOLEM_MOO2_EXE=/tmp/ORION2.EXE go test -buildvcs=false ./... -count=1`，均通過。固定真檔但合成 PSP／環境的 `workplace/moo2-probe` 從第 4944 步前進至第 5392 步；下一個未支援形狀為 **dosgolem 重定位 LE 線性位址** `0x14822D` 的 `C1 CA 08`，報告中的 CPU EIP 已先吃掉 opcode／ModRM 而顯示 `0x14822F`。私有 `workplace/moo2-probe-221.txt` SHA-256 `7f1d74911be0ea3b1ebf4cf16e02661cefc54b1d3bcfda41eabbbf4923b3ebc1`，最終全套測試輸出 `workplace/full-test-221.txt` SHA-256 `1babab5727e97dfbb7db6d396ded1c4b3c7fc3479ae3d4aa82d5e176a23e5a99`；兩者不入 Git。新 `C1` 停點尚未獲原版獨立核對，不能當作玩家流程或玩法同狀態收據。
+後續新增 `internal/machine/TestMOO2ESByteLoadCheckpointWhenProvided`：缺原檔即 skip；固定 SHA-256 的 1.31 真檔在合成 PSP／環境與已綁定 DPMI 下，自 LE entry 執行至第 4944 步，檢查 **dosgolem 重定位 LE 線性位址** `0x146903` 的來源 `30h`、EBX=`FFFFFFFFh`、ESI−ESP=`34h`、EFLAGS=`0246h`，單步後只將 EBX 改為 `FFFFFF30h`。原版同次 LOG 的 ESI=`003EBA74h`、ESP=`003EBA40h`；dosgolem 的 ESI=`001CDA94h`、ESP=`001CDA60h`，兩個指標在此檢查點各差 `0021DFE0h`，其餘所列值相符。這是**已證實的有限啟動指令對照**，不是原版環境等價、正常玩家路徑或玩法對拍。
+
+`golang:1.24-bookworm` 無網路容器內，以 SHA-256 核對後從原版 1.31 ZIP 暫時擷取 EXE，執行 `go test -buildvcs=false ./internal/cpu386 ./internal/machine -count=1` 及 `DOSGOLEM_MOO2_EXE=/tmp/ORION2.EXE go test -buildvcs=false ./... -count=1`，均通過。固定真檔但合成 PSP／環境的 `workplace/moo2-probe` 從第 4944 步前進至第 5392 步；下一個未支援形狀為 **dosgolem 重定位 LE 線性位址** `0x14822D` 的 `C1 CA 08`，報告中的 CPU EIP 已先吃掉 opcode／ModRM 而顯示 `0x14822F`。私有 `workplace/moo2-probe-221.txt` SHA-256 `7f1d74911be0ea3b1ebf4cf16e02661cefc54b1d3bcfda41eabbbf4923b3ebc1`，當時的全套測試輸出 `workplace/full-test-221.txt` SHA-256 `1babab5727e97dfbb7db6d396ded1c4b3c7fc3479ae3d4aa82d5e176a23e5a99`；兩者不入 Git。新 `C1` 停點尚未獲原版獨立核對，不能當作玩家流程或玩法同狀態收據。
+
+加入固定原檔檢查點測試及取樣勘誤後，再以同一原檔環境重跑 `go test -buildvcs=false ./... -count=1` 全通過；私有 `workplace/full-test-222.txt` SHA-256 `c3f703ceca457a2303656286d89a443f7737f09c5a9b8ba623accd26cf8fd9ba`。上述較早的 `full-test-221.txt` 是新增整合測試之前的歷史收據。

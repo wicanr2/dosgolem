@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--es-byte-load'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--es-byte-load|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -28,6 +28,7 @@ capture_enter = sys.argv[1:] == ['--enter']
 capture_cmp_word = sys.argv[1:] == ['--cmp-word']
 capture_cmp_byte = sys.argv[1:] == ['--cmp-byte']
 capture_es_byte_load = sys.argv[1:] == ['--es-byte-load']
+capture_es_byte_load_ev = sys.argv[1:] == ['--es-byte-load-ev']
 capture_test_word = sys.argv[1:] == ['--test-word']
 capture_dta = sys.argv[1:] in (['--dta'], ['--dta-find'], ['--dta-find-present'])
 capture_dta_find = sys.argv[1:] in (['--dta-find'], ['--dta-find-present'])
@@ -37,7 +38,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -368,7 +369,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             if not match or len(match) != 7:
                 raise RuntimeError('MOO2 ES byte 載入候選前斷點未命中: ' + repr(snapshots))
             esi, es = int(match[3], 16), int(match[4], 16)
-            records['es_byte_load_before'] = match
+            records['es_byte_load_ev_candidate_before'] = match
             records['es_byte_load_memory_address'] = {'segment': f'{es:04X}', 'offset': f'{esi:08X}'}
             dump = pathlib.Path('MEMDUMP.BIN')
             dump.unlink(missing_ok=True)
@@ -385,13 +386,21 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             after_match = next((value for value in snapshots if value[:2] == ['180', '36a906']), None)
             if not after_match:
                 raise RuntimeError('MOO2 ES byte 載入後未到下一指令: ' + repr(snapshots))
-            records['es_byte_load_after'] = after_match
+            records['es_byte_load_ev_after_log'] = after_match
             if not log.is_file():
                 raise RuntimeError('MOO2 ES byte 載入 LOGCPU.TXT 未產生')
             log_bytes = log.read_bytes()
             lines = log_bytes.decode('latin1').splitlines()
             if len(lines) != 2 or not lines[0].startswith('0180:0036A903') or not lines[1].startswith('0180:0036A906'):
                 raise RuntimeError('MOO2 ES byte 載入同次 LOG 指令序列不符: ' + repr(lines))
+            before_ebx = re.search(r' EBX:([0-9A-F]{8}) ', lines[0])
+            after_ebx = re.search(r' EBX:([0-9A-F]{8}) ', lines[1])
+            if not before_ebx or not after_ebx:
+                raise RuntimeError('MOO2 ES byte LOG 暫存器欄缺失')
+            records['es_byte_load_log_before_ebx'] = before_ebx.group(1)
+            records['es_byte_load_log_after_ebx'] = after_ebx.group(1)
+            records['es_byte_load_ev_log_before_ebx_conflict'] = int(match[2], 16) != int(before_ebx.group(1), 16)
+            records['es_byte_load_sampling_limit'] = '候選 EV 前斷點與 LOG 首行 EBX 不同；不得將兩者串成同一次指令的前後態。'
             (root / 'es-byte-load-logcpu.txt').write_bytes(log_bytes)
             records['es_byte_load_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             dump.unlink(missing_ok=True)
@@ -402,6 +411,23 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             (root / 'es-byte-load-after.bin').write_bytes(after)
             records['es_byte_load_memory_before_hex'] = before.hex()
             records['es_byte_load_memory_after_hex'] = after.hex()
+        if capture_es_byte_load_ev:
+            cmd('BPDEL *')
+            cmd('BP 0180:0036A903')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EBX ESI ES DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '36a903']), None)
+            if not match or len(match) != 7:
+                raise RuntimeError('MOO2 ES byte 載入 EV 前斷點未命中: ' + repr(snapshots))
+            records['es_byte_load_ev_before'] = match
+            cmd('BPDEL *')
+            cmd('BP 0180:0036A906')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EBX ESI ES DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '36a906']), None)
+            if not match or len(match) != 7:
+                raise RuntimeError('MOO2 ES byte 載入 EV 後斷點未命中: ' + repr(snapshots))
+            records['es_byte_load_ev_after'] = match
         if capture_test_word:
             cmd('BPDEL *')
             cmd('BP 0180:0034A570')
