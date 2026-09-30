@@ -2388,6 +2388,17 @@ func (c *CPU) Step() error {
 			c.setLogicFlags16(v)
 			break
 		}
+		if operand16 && modrm>>6 == 3 && group == 4 && segmentOverride < 0 && !repe && !repne {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			v := uint16(c.R[reg]) & uint16(int16(int8(imm)))
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(v)
+			c.setLogicFlags16(v)
+			break
+		}
 
 		if operand16 {
 			if segmentOverride >= 0 || repe || repne || group != 7 || modrm>>6 != 1 || modrm&7 == ESP {

@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 273 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 274 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -358,3 +358,4 @@
 - [204 — 暫存器立即數 MOV 前的 DS 前綴](204-cpu386-ds-prefix-register-immediate.md)：CONFORMED。`3E B8..BF` 不含記憶體運算元，前綴不改立即數或旗標。
 - [205 — ES 覆寫的 byte 暫存器／記憶體比較](205-cpu386-es-byte-compare-register-memory.md)：CONFORMED。`26 3A /r` 從 ES 讀取來源 byte，依既有 `sub8` 更新旗標。
 - [206 — 32 位堆疊的 PUSH GS](206-cpu386-push-gs.md)：CONFORMED，僅限所列 32 位堆疊形狀；合成環境診斷抵達下一個通用 CPU 缺口。
+- [207 — 16 位暫存器與符號延伸立即數 AND](207-cpu386-and-word-register-immediate.md)：CONFORMED。`66 83 /4` 的暫存器形狀；合成環境診斷抵達未支援的 DOS `AH=4Ah`。
