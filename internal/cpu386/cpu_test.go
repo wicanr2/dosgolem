@@ -3211,6 +3211,76 @@ func TestESRelativeByteReadWithSignedDisp8(t *testing.T) {
 	}
 }
 
+func TestESByteReadUsesOverrideForAddress32Memory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		code     []byte
+		setBase  func(*CPU)
+		wantAddr uint32
+		wantReg  uint32
+		reg      int
+	}{
+		{"原版形狀 ES:ESI 到 BL", []byte{0x26, 0x8a, 0x1e}, func(c *CPU) { c.R[ESI] = 0x10 }, 0x50, 0xffffff30, EBX},
+		{"EBP 預設 SS 被 ES 覆寫", []byte{0x26, 0x8a, 0x5d, 0x00}, func(c *CPU) { c.R[EBP] = 0x10 }, 0x50, 0xffffff30, EBX},
+		{"SIB ESP 預設 SS 被 ES 覆寫", []byte{0x26, 0x8a, 0x1c, 0x24}, func(c *CPU) { c.R[ESP] = 0x10 }, 0x50, 0xffffff30, EBX},
+		{"高位 byte 暫存器 AH", []byte{0x26, 0x8a, 0x26}, func(c *CPU) { c.R[ESI] = 0x10 }, 0x50, 0x12343078, EAX},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := testBus(make([]byte, 0x80))
+			copy(mem, tc.code)
+			mem[0x10], mem[0x30], mem[0x50] = 0x99, 0x77, 0x30
+			c := New(mem)
+			c.Seg[SegDS], c.Seg[SegSS], c.Seg[SegES] = 0x160, 0x168, 0x170
+			c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x1f})
+			c.SetDescriptor(0x168, Descriptor{Base: 0x00, Limit: 0x1f})
+			c.SetDescriptor(0x170, Descriptor{Base: 0x40, Limit: 0x1f})
+			c.R[EBX], c.R[EAX], c.EFlags = 0xffffff0f, 0x12345678, 0x246
+			tc.setBase(c)
+			if err := c.Step(); err != nil {
+				t.Fatal(err)
+			}
+			if c.R[tc.reg] != tc.wantReg || c.EIP != uint32(len(tc.code)) || c.EFlags != 0x246 || mem[tc.wantAddr] != 0x30 {
+				t.Fatalf("reg=%08X EIP=%X flags=%X source=%02X", c.R[tc.reg], c.EIP, c.EFlags, mem[tc.wantAddr])
+			}
+			if mem[0x10] != 0x99 || mem[0x30] != 0x77 {
+				t.Fatalf("非 ES 來源遭改動：SS=%02X DS=%02X", mem[0x10], mem[0x30])
+			}
+		})
+	}
+}
+
+func TestESByteReadRejectsInvalidInputsWithoutChangingData(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		code     []byte
+		esLimit  uint32
+		register bool
+	}{
+		{"無效 ES selector", []byte{0x26, 0x8a, 0x1e}, 0x1f, false},
+		{"ES 段越界", []byte{0x26, 0x8a, 0x1e}, 0x0f, true},
+		{"ModRM 截短", []byte{0x26, 0x8a}, 0x1f, true},
+		{"SIB 截短", []byte{0x26, 0x8a, 0x1c}, 0x1f, true},
+		{"位移截短", []byte{0x26, 0x8a, 0x5d}, 0x1f, true},
+		{"重複前綴", []byte{0xf3, 0x26, 0x8a, 0x1e}, 0x1f, true},
+		{"重複段覆寫", []byte{0x26, 0x26, 0x8a, 0x1e}, 0x1f, true},
+		{"不支援的 operand-size 前綴", []byte{0x66, 0x26, 0x8a, 0x1e}, 0x1f, true},
+		{"暫存器來源帶段覆寫", []byte{0x26, 0x8a, 0xdb}, 0x1f, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := testBus(append([]byte(nil), tc.code...))
+			c := New(mem)
+			c.R[ESI], c.R[EBP], c.R[EBX], c.EFlags = 0x10, 0x10, 0xffffff0f, 0x246
+			c.Seg[SegES] = 0x170
+			if tc.register {
+				c.SetDescriptor(0x170, Descriptor{Limit: tc.esLimit})
+			}
+			if err := c.Step(); err == nil || c.R[EBX] != 0xffffff0f || c.EFlags != 0x246 {
+				t.Fatalf("失敗應保留資料與旗標：EBX=%08X flags=%X err=%v", c.R[EBX], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestDSBaseByteRead(t *testing.T) {
 	mem := testBus(make([]byte, 0x30))
 	copy(mem, []byte{0x8a, 0x23})

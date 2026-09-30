@@ -372,3 +372,4 @@
 - [218 — 受保護模式 DOS 設定 DTA 指標](218-protected-dos-set-dta.md)：CONFORMED。原版 `AH=1Ah` 返回與下一次 `AH=4Eh` 已擷取；合成診斷至 `0x139A59`。
 - [219 — 受保護模式 DOS 的精確檔名首次搜尋](219-protected-dos-findfirst-exact.md)：CONFORMED。缺檔與固定空檔兩種原版輔助收據；合成診斷至 `0x148224`。
 - [220 — 無前綴 byte 記憶體目的 CMP](220-cpu386-cmp-rm8-register.md)：CONFORMED。`38 10` 原版同次 LOG 已擷取；合成診斷至 `0x146903`。
+- [221 — ES 覆寫的 byte 記憶體來源 MOV](221-cpu386-mov-r8-es-memory.md)：CONFORMED。`26 8A 1E` 原版同次 LOG 已擷取；合成診斷至 `0x14822D`。

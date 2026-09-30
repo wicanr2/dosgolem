@@ -3581,13 +3581,13 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
-		if (segmentOverride < 0 || segmentOverride == SegCS) && modrm>>6 != 3 {
+		if (segmentOverride < 0 || segmentOverride == SegCS || segmentOverride == SegES) && modrm>>6 != 3 {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
 			}
-			if segmentOverride == SegCS {
-				seg = SegCS
+			if segmentOverride >= 0 {
+				seg = segmentOverride
 			}
 			v, ok := c.readSegment8(c.Seg[seg], addr)
 			if !ok {
