@@ -29,6 +29,10 @@ type FD2StartupDOS struct {
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
 	moo2Profile bool
+	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3 查詢使用。
+	mouseQueryEnabled bool
+	mouseX, mouseY    uint16
+	mouseButtons      uint16
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
 	//
@@ -65,7 +69,14 @@ func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	s := NewFD2StartupDOS(files)
 	s.environment = minimalMOO2Environment
 	s.moo2Profile = true
+	s.mouseQueryEnabled = true
+	s.mouseX, s.mouseY = 320, 100
 	return &MOO2StartupDOS{s}
+}
+
+// SetMouseState 設定下一次保護模式滑鼠查詢要回報的受控輸入。
+func (s *MOO2StartupDOS) SetMouseState(x, y, buttons uint16) {
+	s.mouseX, s.mouseY, s.mouseButtons = x, y, buttons
 }
 
 func (s *FD2StartupDOS) Calls() int { return s.calls }
@@ -376,6 +387,15 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 }
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
+	if number == 0x33 {
+		if !s.mouseQueryEnabled || uint16(c.R[cpu386.EAX]) != 3 {
+			return false
+		}
+		c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseButtons)
+		c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseX)
+		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseY)
+		return true
+	}
 	if number == 0x31 {
 		// 整支交給通用的 DPMI 主機。沒實作的功能由它記一筆再回 false，
 		// 與這裡原本的行為一致（未列的呼叫一律拒絕）。

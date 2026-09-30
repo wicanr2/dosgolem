@@ -1589,6 +1589,31 @@ func (c *CPU) Step() error {
 			c.setReg8(reg, c.add8(c.reg8(reg), 1))
 		}
 		c.EFlags = c.EFlags&^CF | carry
+	case op == 0x8f:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("8F POP 只支援無前綴 32 位來源")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm != 0x47 {
+			return fail(fmt.Sprintf("8F ModRM %02X 尚未支援", modrm))
+		}
+		disp, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		stack := c.R[ESP]
+		value, ok := c.readSegment32(c.Seg[SegSS], stack)
+		if !ok || stack > ^uint32(0)-4 {
+			return fail(fmt.Sprintf("POP stack read %04X:%08X 未處理", c.Seg[SegSS], stack))
+		}
+		dest := c.R[EDI] + uint32(int32(int8(disp)))
+		if !c.writeSegment32(c.Seg[SegDS], dest, value) {
+			return fail(fmt.Sprintf("POP memory write %04X:%08X 未處理", c.Seg[SegDS], dest))
+		}
+		c.R[ESP] = stack + 4
 	case op >= 0x58 && op <= 0x5f:
 		if operand16 {
 			value, ok := c.readSegment16(c.Seg[SegSS], c.R[ESP])

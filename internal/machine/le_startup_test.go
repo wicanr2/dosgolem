@@ -11,6 +11,35 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
 
+func TestMOO2ProtectedMouseQueryUsesControlledState(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	s := NewMOO2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags =
+		0xabcd0003, 0x1111ffff, 0x2222ffff, 0x3333ffff, 0x216
+	if !s.Handle(c, 0x33) || c.R[cpu386.EAX] != 0xabcd0003 || c.R[cpu386.EBX] != 0x11110000 ||
+		c.R[cpu386.ECX] != 0x22220140 || c.R[cpu386.EDX] != 0x33330064 || c.EFlags != 0x216 {
+		t.Fatalf("MOO2 滑鼠初態回傳：EAX=%X EBX=%X ECX=%X EDX=%X flags=%X",
+			c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags)
+	}
+	s.SetMouseState(417, 122, 2)
+	if !s.Handle(c, 0x33) || c.R[cpu386.EBX] != 0x11110002 ||
+		c.R[cpu386.ECX] != 0x222201a1 || c.R[cpu386.EDX] != 0x3333007a || c.EFlags != 0x216 {
+		t.Fatalf("MOO2 受控滑鼠回傳：EBX=%X ECX=%X EDX=%X flags=%X",
+			c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags)
+	}
+	c.R[cpu386.EAX] = 4
+	before := c.R
+	if s.Handle(c, 0x33) || c.R != before {
+		t.Fatal("未列的滑鼠功能應失敗即關閉")
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	c.R[cpu386.EAX] = 3
+	before = c.R
+	if fd2.Handle(c, 0x33) || c.R != before {
+		t.Fatal("通用 FD2 啟動設定不得啟用 MOO2 滑鼠預設")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)
