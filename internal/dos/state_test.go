@@ -65,3 +65,33 @@ func TestOldStateWithoutRootKeepsCurrentRoot(t *testing.T) {
 		t.Errorf("素材目錄變成 %q，要維持 %q", e.Root, here)
 	}
 }
+
+// 狀態檔要留住 `AX=000Ch` 的事件常式與座標範圍（`docs/spec/196-mouse-handler-survives-state-file`）。
+// 遊戲只在開機登記一次事件常式；讀檔後少了它，注入的輸入不會呼叫常式，
+// 靠常式畫游標的遊戲看起來像滑鼠沒接上。
+func TestStateKeepsMouseHandlerAndRange(t *testing.T) {
+	d := newAt(t, t.TempDir())
+	d.Mouse.Handler.Seg, d.Mouse.Handler.Off = 0x1234, 0x0056
+	d.Mouse.Handler.Mask, d.Mouse.Handler.Set = 0x1F, true
+	d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY = 1, 0x27F, 2, 0x18F
+	d.Mouse.PressAt[0] = [2]uint16{10, 20}
+	d.Mouse.ReleaseAt[1] = [2]uint16{30, 40}
+	var buf bytes.Buffer
+	if err := d.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	e := newAt(t, t.TempDir())
+	if err := e.LoadState(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	if e.Mouse.Handler != d.Mouse.Handler {
+		t.Errorf("事件常式 %+v，要 %+v", e.Mouse.Handler, d.Mouse.Handler)
+	}
+	if e.Mouse.MinX != 1 || e.Mouse.MaxX != 0x27F || e.Mouse.MinY != 2 || e.Mouse.MaxY != 0x18F {
+		t.Errorf("範圍 %d-%d × %d-%d 沒還原", e.Mouse.MinX, e.Mouse.MaxX, e.Mouse.MinY, e.Mouse.MaxY)
+	}
+	if e.Mouse.PressAt != d.Mouse.PressAt || e.Mouse.ReleaseAt != d.Mouse.ReleaseAt {
+		t.Errorf("按放位置 %v／%v 沒還原", e.Mouse.PressAt, e.Mouse.ReleaseAt)
+	}
+}

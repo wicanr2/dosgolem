@@ -58,6 +58,17 @@ type procState struct {
 	IVT [3][2]uint16
 }
 
+// mouseExtra 是狀態檔裡滑鼠的設定部分（事件常式、範圍、最後按放位置）。
+// 另開一個型別是因為 Mouse 本身帶著不存的觀測紀錄。
+type mouseExtra struct {
+	Handler struct {
+		Seg, Off, Mask uint16
+		Set            bool
+	}
+	PressAt, ReleaseAt     [3][2]uint16
+	MinX, MaxX, MinY, MaxY uint16
+}
+
 type dosState struct {
 	Magic   string
 	Version int
@@ -66,6 +77,10 @@ type dosState struct {
 	Dir   string
 	Now   Time
 	Mouse Mouse
+	// MouseExtra 是 Mouse 以外要留的滑鼠設定（`docs/spec/196-mouse-handler-survives-state-file`）。
+	// **漏掉 Handler 的話讀檔之後注入的輸入不會呼叫事件常式**，
+	// 靠它畫游標的遊戲看起來像滑鼠沒接上。舊檔讀進來是零值。
+	MouseExtra mouseExtra
 
 	// Root 是原版素材的目錄。**一定要存**：讀檔之後遊戲還會再開檔，
 	// 少了它 `resolve` 會拿預設的 `.` 去找，之後每一次開檔都失敗——
@@ -116,6 +131,8 @@ func (d *DOS) SaveState(w io.Writer) error {
 	// 滑鼠的座標與按鍵要留，觀測紀錄不留。
 	s.Mouse = Mouse{X: d.Mouse.X, Y: d.Mouse.Y, Buttons: d.Mouse.Buttons,
 		Press: d.Mouse.Press, Release: d.Mouse.Release, XScale: d.Mouse.XScale}
+	s.MouseExtra = mouseExtra{Handler: d.Mouse.Handler, PressAt: d.Mouse.PressAt, ReleaseAt: d.Mouse.ReleaseAt,
+		MinX: d.Mouse.MinX, MaxX: d.Mouse.MaxX, MinY: d.Mouse.MinY, MaxY: d.Mouse.MaxY}
 
 	for _, b := range d.arena {
 		s.Arena = append(s.Arena, blockState{Seg: b.seg, Size: b.size, Free: b.free})
@@ -176,6 +193,9 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	d.Mouse.X, d.Mouse.Y, d.Mouse.Buttons = s.Mouse.X, s.Mouse.Y, s.Mouse.Buttons
 	d.Mouse.Press, d.Mouse.Release, d.Mouse.XScale = s.Mouse.Press, s.Mouse.Release, s.Mouse.XScale
+	x := s.MouseExtra
+	d.Mouse.Handler, d.Mouse.PressAt, d.Mouse.ReleaseAt = x.Handler, x.PressAt, x.ReleaseAt
+	d.Mouse.MinX, d.Mouse.MaxX, d.Mouse.MinY, d.Mouse.MaxY = x.MinX, x.MaxX, x.MinY, x.MaxY
 	d.freeSeg = s.FreeSeg
 	d.curPSP, d.lastExit = s.CurPSP, s.LastExit
 	d.queue = append([]Queued(nil), s.Queue...)
