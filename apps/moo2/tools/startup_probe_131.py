@@ -1,4 +1,4 @@
-"""重播固定 MOO2 1.31 的 DOSBox-X 輔助啟動服務快照。
+"""重播固定 MOO2 1.31 的 DOSBox-X 輔助啟動與 DPMI 快照。
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
@@ -16,8 +16,12 @@ import fcntl
 import struct
 import time
 import re
+import sys
 
 root = pathlib.Path('/shots')
+if sys.argv[1:] not in ([], ['--sbb']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb]')
+capture_sbb = sys.argv[1:] == ['--sbb']
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -63,7 +67,7 @@ def registers(data):
     matches = re.findall(r"EV of '[^']+' is:\s*([0-9a-f ]+)", clean)
     return [match.split() for match in matches]
 
-with (root / 'terminal.raw').open('wb') as output:
+with (root / ('sbb-terminal.raw' if capture_sbb else 'terminal.raw')).open('wb') as output:
     try:
         drain(3)
         cmd('BPINT 21 30')
@@ -107,9 +111,42 @@ with (root / 'terminal.raw').open('wb') as output:
         if not match:
             raise RuntimeError('MOO2 AX=FF00h return breakpoint not reached: ' + repr(snapshots))
         records['dos4g_after'] = match
-        (root / 'startup-registers.json').write_text(json.dumps(records, indent=2))
+        cmd('BPDEL *')
+        cmd('BP 0180:00334072')
+        cmd('RUN', 6)
+        snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS', 0.8))
+        match = next((value for value in snapshots if value[:2] == ['180', '334072']), None)
+        if not match:
+            raise RuntimeError('MOO2 DPMI AX=0006h return breakpoint not reached: ' + repr(snapshots))
+        records['dpmi_base_after'] = match
+        cmd('BPDEL *')
+        cmd('BP 0180:00334079')
+        cmd('RUN', 6)
+        snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS', 0.8))
+        match = next((value for value in snapshots if value[:2] == ['180', '334079']), None)
+        if not match:
+            raise RuntimeError('MOO2 zero-base branch breakpoint not reached: ' + repr(snapshots))
+        records['dpmi_zero_base_branch'] = match
+        if capture_sbb:
+            cmd('BPDEL *')
+            cmd('BP 0180:003759EF')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '3759ef']), None)
+            if not match:
+                raise RuntimeError('MOO2 19 C0 前斷點未命中: ' + repr(snapshots))
+            records['sbb_before'] = match
+            cmd('BPDEL *')
+            cmd('BP 0180:003759F1')
+            cmd('RUN', 5)
+            snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES FS GS SS ESP EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '3759f1']), None)
+            if not match:
+                raise RuntimeError('MOO2 19 C0 後斷點未命中: ' + repr(snapshots))
+            records['sbb_after'] = match
+        (root / ('sbb-registers.json' if capture_sbb else 'startup-registers.json')).write_text(json.dumps(records, indent=2))
     finally:
-        (root / 'commands.json').write_text(json.dumps(commands, indent=2))
+        (root / ('sbb-commands.json' if capture_sbb else 'commands.json')).write_text(json.dumps(commands, indent=2))
         proc.terminate()
         try:
             proc.wait(timeout=5)

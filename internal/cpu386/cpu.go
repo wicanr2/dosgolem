@@ -709,7 +709,7 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.setLogicFlags(c.R[EAX] & value)
-	case op == 0x1b:
+	case op == 0x19 || op == 0x1b:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("SBB prefix尚未支援")
 		}
@@ -720,8 +720,12 @@ func (c *CPU) Step() error {
 		if modrm>>6 != 3 {
 			return fail("SBB記憶體形狀尚未支援")
 		}
-		dst := modrm >> 3 & 7
-		left, right := c.R[dst], c.R[modrm&7]
+		// 19 /r 的目的在 r/m、1B /r 的目的在 reg（規格 208）。
+		dst, src := modrm>>3&7, modrm&7
+		if op == 0x19 {
+			dst, src = src, dst
+		}
+		left, right := c.R[dst], c.R[src]
 		carry := c.EFlags & CF
 		result := c.sub32(left, right+carry)
 		c.EFlags &^= CF | AF | OF

@@ -352,10 +352,11 @@
 - [198 — MOO2 啟動鏈的 16 位暫存器 OR](198-cpu386-or-word-register.md)：CONFORMED。只補 `66 09 /r`、`mod=11` 的低 16 位 OR 與旗標；FD2 服務層測跑只作診斷。
 - [199 — MOO2 啟動鏈的段覆寫指令形狀](199-cpu386-moo2-segment-prefixes.md)：CONFORMED。補 ES 覆寫的絕對位址 segment word store，以及無記憶體運算元的 `3E BA`；FD2 服務層測跑只作診斷。
 - [200 — MOO2 暫定保護模式 DOS 服務入口](200-moo2-provisional-protected-dos.md)：CONFORMED，僅限合成環境與獨立入口；原先借用的 FD2 回傳已由 201 訂正。
-- [201 — MOO2 1.31 的 DOS/4G 啟動回傳](201-moo2-dos4g-startup-returns.md)：CONFORMED，僅限固定 DOSBox-X 輔助基準的兩次服務；PSP／環境與正式玩家路徑仍未知。
+- [201 — MOO2 1.31 的 DOS/4G 啟動回傳](201-moo2-dos4g-startup-returns.md)：CONFORMED，固定 DOSBox-X 輔助基準另涵蓋 DPMI `AX=0006h` 的零基底分支；PSP／環境與正式玩家路徑仍未知。
 - [202 — MOO2 啟動鏈的 8 位暫存器 SUB](202-cpu386-moo2-sub-byte-register.md)：CONFORMED，僅限 `28 /r` 的暫存器形狀；合成環境診斷至下個通用段載入缺口。
 - [203 — MOO2 啟動鏈的 ES 覆寫段載入](203-cpu386-es-word-segment-load.md)：CONFORMED。`26 66 8E 1D` 的 16 位 selector 絕對位址讀取，保留載入與段界限檢查。
 - [204 — 暫存器立即數 MOV 前的 DS 前綴](204-cpu386-ds-prefix-register-immediate.md)：CONFORMED。`3E B8..BF` 不含記憶體運算元，前綴不改立即數或旗標。
 - [205 — ES 覆寫的 byte 暫存器／記憶體比較](205-cpu386-es-byte-compare-register-memory.md)：CONFORMED。`26 3A /r` 從 ES 讀取來源 byte，依既有 `sub8` 更新旗標。
 - [206 — 32 位堆疊的 PUSH GS](206-cpu386-push-gs.md)：CONFORMED，僅限所列 32 位堆疊形狀；合成環境診斷抵達下一個通用 CPU 缺口。
-- [207 — 16 位暫存器與符號延伸立即數 AND](207-cpu386-and-word-register-immediate.md)：CONFORMED。`66 83 /4` 的暫存器形狀；合成環境診斷抵達未支援的 DOS `AH=4Ah`。
+- [207 — 16 位暫存器與符號延伸立即數 AND](207-cpu386-and-word-register-immediate.md)：CONFORMED。`66 83 /4` 的暫存器形狀；舊 `AH=4Ah` 停點已勘誤為未綁定 DPMI 的診斷錯誤。
+- [208 — 保護模式 SBB r/m32,r32 的暫存器形狀](208-cpu386-sbb-rm32-register.md)：CONFORMED。固定原版命中 `19 C0`；通用暫存器形狀越過此處，下一停點為 `87 FA`。

@@ -113,6 +113,54 @@ func TestMOO2EmbeddedMZEntryWhenProvided(t *testing.T) {
 	}
 }
 
+// 固定 1.31 原檔的 DPMI AX=0006h 返回由 DOSBox-X 輔助快照核對；這只驗證
+// 合成啟動探針正確綁定通用 DPMI 主機，不代表已到玩家畫面或完成玩法對拍。
+func TestMOO2AttachedDPMIBaseProbeWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha131 {
+		t.Skipf("本測試只適用 1.31 固定原檔，實際 SHA-256=%s", got)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := NewMOO2StartupDOS(nil)
+	services.AttachMachine(m)
+	m.CPU.IntHook = services.Handle
+	for step := 0; step < 200 && m.CPU.EIP != 0x110072; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("DPMI AX=0006h 返回前第 %d 步：%v", step, err)
+		}
+	}
+	if m.CPU.EIP != 0x110072 || services.Calls() != 2 ||
+		uint16(m.CPU.R[cpu386.EAX]) != 0x0006 ||
+		uint16(m.CPU.R[cpu386.ECX]) != 0 || uint16(m.CPU.R[cpu386.EDX]) != 0 ||
+		m.CPU.EFlags&cpu386.CF != 0 {
+		t.Fatalf("DPMI 返回與固定 DOSBox-X 輔助快照不符：EIP=%X AX=%X CX=%X DX=%X flags=%X DOS calls=%d",
+			m.CPU.EIP, uint16(m.CPU.R[cpu386.EAX]), uint16(m.CPU.R[cpu386.ECX]),
+			uint16(m.CPU.R[cpu386.EDX]), m.CPU.EFlags, services.Calls())
+	}
+	for step := 0; step < 12 && m.CPU.EIP != 0x110079; step++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("零基底分支前第 %d 步：%v", step, err)
+		}
+	}
+	if m.CPU.EIP != 0x110079 || m.CPU.EFlags&cpu386.ZF == 0 {
+		t.Fatalf("零基底分支前狀態不符：EIP=%X flags=%X", m.CPU.EIP, m.CPU.EFlags)
+	}
+	if err := m.CPU.Step(); err != nil || m.CPU.EIP != 0x11007d {
+		t.Fatalf("零基底分支應跳到 0x11007D：EIP=%X err=%v", m.CPU.EIP, err)
+	}
+}
+
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
 	m, services := fixedFD2Machine(t)
 	if m.CPU.EIP != 0x3c964 || m.CPU.R[cpu386.ESP] != 0x556b0 {

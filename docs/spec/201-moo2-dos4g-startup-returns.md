@@ -21,3 +21,11 @@ DOSBox-X 使用 `CS:EIP`（**不是** dosgolem 的 LE 線性位址）。先以 `
 ## 實作與驗收
 
 `NewMOO2StartupDOS` 只在前兩次明列呼叫套用固定 1.31 回傳；FD2 零值及 `NewFD2StartupDOS` 保持原有測試值。合成測試釘住兩次服務的暫存器、selector、CF 與環境越界；`go test ./internal/machine ./internal/cpu386` 通過。固定 1.31 原檔透過 dosgolem 此入口仍於第 65 步、dosgolem LE 線性位址 `0x1100FA` 停在未支援 `28 C0`，`EDX` 低 word 隨 `DS=0188` 修正；此步數只供工具診斷，**不是**正式 MOO2 玩家路徑對拍。未實作的 DOS 呼叫仍失敗即關閉。
+
+## 同日後續：DPMI 主機綁定與零基底分支
+
+版本化 [`startup_probe_131.py`](../../apps/moo2/tools/startup_probe_131.py) 現於兩次啟動返回後，另在 DOSBox-X **CS:EIP** `0180:00334072` 與 `0180:00334079` 擷取 DPMI `AX=0006h` 返回及零基底分支。固定 1.31 原版的前者為 `EAX=47340006`、`EBX=50480188`、`ECX=EDX=0`、`EFLAGS=0202`；後者為 `EAX=47340001`、`ECX=EDX=0`、`EFLAGS=0246`（ZF 設定）。新六快照 `startup-registers.json` SHA-256 `a334e483d86396c9d026b14c0c580bdae7de46f555cfd6b6914ef68217018562`，私有原始終端在 MOO2 專案的 `workplace/dosbox-moo2-dpmi/`；舊四快照 SHA-256 仍是歷史收據，不覆蓋。
+
+同一腳本的 `--sbb` 模式在六快照後擷取原版 `19 C0` 前後兩點，另存 `sbb-registers.json`；重生方式、雜湊及 CPU 切片見 [208](208-cpu386-sbb-rm32-register.md)。預設六快照輸出保持原檔名與雜湊。
+
+MOO2 私有診斷探針先前只設定 `m.CPU.IntHook = services.Handle`，漏掉 `services.AttachMachine(m)`；因此 `AX=0006h` 在合成 DPMI 主機失敗，並引出不屬原版正常路徑的 `AH=4Ah` 停點。現在固定原檔測試 `TestMOO2AttachedDPMIBaseProbeWhenProvided` 要求綁定後的 `AX=0006h` 返回 `CX:DX=0`、CF 清除、`0x110079` 的 ZF 分支跳至 `0x11007D`。這個修正只排除工具設定錯誤，完整原版 PSP／環境仍未重建，正式玩家對拍仍未開始。
