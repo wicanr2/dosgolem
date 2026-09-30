@@ -88,13 +88,22 @@ func zhTWFont() (string, error) {
 
 // liveOptions 載入 zh-TW 與 F4 循環的其他語言；語言的字型是發行包的
 // font/buckrogers-<lang>.golemfnt，沒有就讓該語言停用（原因列在說明頁）。
-func liveOptions(textDir, fontPath string) buckrogers.LiveOptions {
+// langFontDir 非空時改在該目錄找 buckrogers-<lang>.golemfnt（本機的
+// workplace/lang-fonts，Buck repo 規格 041 §3.7），找不到同樣讓該語言停用。
+func liveOptions(textDir, fontPath, langFontDir string) buckrogers.LiveOptions {
 	o := buckrogers.LiveOptions{TextDir: textDir, FontPath: fontPath, LangFonts: map[string]string{}}
 	for _, c := range buckrogers.LangCycle {
 		if c == buckrogers.LangZhTW || c == buckrogers.LangEn {
 			continue
 		}
 		o.Langs = append(o.Langs, c)
+		if langFontDir != "" {
+			p := filepath.Join(langFontDir, filepath.Base(buckrogers.LangFontPath("", c)))
+			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+				o.LangFonts[c] = p
+			}
+			continue
+		}
 		if p, err := resourcePath(buckrogers.LangFontPath("", c)); err == nil {
 			o.LangFonts[c] = p
 		}

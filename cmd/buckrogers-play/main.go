@@ -402,6 +402,7 @@ func main() {
 	exeSHA := flag.String("exe-sha256", requiredOriginals[0].sha, "開機執行檔 SHA-256（hex）")
 	textDir := flag.String("text-dir", "", "譯文 catalog 目錄")
 	fontPath := flag.String("font", "", "繁體中文（zh-TW）16×16 GOLEMFNT，只覆寫 zh-TW（預設依序找發行包的 font/buckrogers-eten-top-pad、buckrogers-zh-TW、buckrogers-unifont .golemfnt）")
+	langFonts := flag.String("lang-fonts", "", "非 zh-TW 語言的字型目錄（內含 buckrogers-<代碼>.golemfnt；本機用 workplace/lang-fonts，Buck repo 規格 041 §3.7）；不給則找發行包的 font/")
 	langFlag := flag.String("lang", "", "起始語言（zh-TW、zh-CN、en、ja、ko；優先於設定檔，不寫入設定檔）")
 	manualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；不給則關閉）")
 	scale := flag.Int("scale", 2, "起始倍率（2 或 3；F2 切換）")
@@ -474,7 +475,7 @@ func main() {
 	if err != nil {
 		die(err)
 	}
-	live, err := buckrogers.LoadLiveRuntimeOptions(liveOptions(*textDir, *fontPath))
+	live, err := buckrogers.LoadLiveRuntimeOptions(liveOptions(*textDir, *fontPath, *langFonts))
 	if err != nil {
 		die(err)
 	}
