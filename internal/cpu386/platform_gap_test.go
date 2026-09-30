@@ -927,7 +927,7 @@ func TestSBBRM32RegisterDirectionAndCarry(t *testing.T) {
 		t.Fatalf("19 D0 方向不符：EIP=%X EAX=%X EDX=%X flags=%X err=%v", c.EIP, c.R[EAX], c.R[EDX], c.EFlags, err)
 	}
 
-	for _, code := range []testBus{{0x19, 0x00}, {0x66, 0x19, 0xc0}} {
+	for _, code := range []testBus{{0x19, 0x00}, {0x66, 0x1b, 0xc0}} {
 		c = New(code)
 		c.R[EAX], c.EFlags = 7, IF|CF
 		if err := c.Step(); err == nil || c.R[EAX] != 7 || c.EFlags != IF|CF {

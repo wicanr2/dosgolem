@@ -19,15 +19,16 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
+capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_xchg = sys.argv[1:] == ['--xchg']
 capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -152,6 +153,34 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             if not match:
                 raise RuntimeError('MOO2 19 C0 後斷點未命中: ' + repr(snapshots))
             records['sbb_after'] = match
+        if capture_sbb_word:
+            cmd('BPDEL *')
+            cmd('BP 0180:00377E84')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '377e84']), None)
+            if not match:
+                raise RuntimeError('MOO2 66 19 C0 前斷點未命中: ' + repr(snapshots))
+            records['sbb_word_ev_before_address'] = match[:2]
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV ' + records['register_order'], 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '377e87']), None)
+            if not match:
+                raise RuntimeError('MOO2 66 19 C0 連續 LOG 後未到下一指令: ' + repr(snapshots))
+            records['sbb_word_ev_after_address'] = match[:2]
+            if not log.is_file():
+                raise RuntimeError('MOO2 66 19 C0 LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:00377E84') or not lines[1].startswith('0180:00377E87'):
+                raise RuntimeError('MOO2 66 19 C0 同次 LOG 指令序列不符: ' + repr(lines))
+            (root / 'sbb-word-logcpu.txt').write_bytes(log_bytes)
+            records['sbb_word_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            records['sbb_word_log_before'] = lines[0]
+            records['sbb_word_log_after'] = lines[1]
         if capture_xchg:
             for name, location in [('xchg_before', '37571d'), ('xchg_after', '37571f')]:
                 cmd('BPDEL *')

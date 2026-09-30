@@ -715,7 +715,7 @@ func (c *CPU) Step() error {
 		}
 		c.setLogicFlags(c.R[EAX] & value)
 	case op == 0x19 || op == 0x1b:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if (operand16 && op != 0x19) || segmentOverride >= 0 || repe || repne {
 			return fail("SBB prefix尚未支援")
 		}
 		modrm, e := c.fetch8()
@@ -729,6 +729,24 @@ func (c *CPU) Step() error {
 		dst, src := modrm>>3&7, modrm&7
 		if op == 0x19 {
 			dst, src = src, dst
+		}
+		if operand16 {
+			// 66 19 /r 只寫回目的暫存器低 16 位（規格 214）。
+			left, right := uint16(c.R[dst]), uint16(c.R[src])
+			carry := uint16(c.EFlags & CF)
+			result := c.sub16(left, right+carry)
+			c.EFlags &^= CF | AF | OF
+			if uint32(left) < uint32(right)+uint32(carry) {
+				c.EFlags |= CF
+			}
+			if (left^right^result)&0x10 != 0 {
+				c.EFlags |= AF
+			}
+			if ((left^right)&(left^result))&0x8000 != 0 {
+				c.EFlags |= OF
+			}
+			c.R[dst] = c.R[dst]&0xffff0000 | uint32(result)
+			break
 		}
 		left, right := c.R[dst], c.R[src]
 		carry := c.EFlags & CF
