@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 287 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 288 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -370,4 +370,5 @@
 - [216 — 16 位暫存器與 32 位位址記憶體 CMP](216-cpu386-cmp-word-register-memory.md)：CONFORMED。原版同次 LOG 核對 SS 記憶體與旗標；合成診斷至 `0x126570` 的 `66 A9 89 CF` 停點。
 - [217 — 16 位累加器的 TEST 立即數](217-cpu386-test-ax-imm16.md)：CONFORMED。原版同次 LOG 核對 `66 A9 89 CF` 的 EAX 與旗標；合成診斷至 `0x139A53` 的 DOS 服務停點。
 - [218 — 受保護模式 DOS 設定 DTA 指標](218-protected-dos-set-dta.md)：CONFORMED。原版 `AH=1Ah` 返回與下一次 `AH=4Eh` 已擷取；合成診斷至 `0x139A59`。
-- [219 — 受保護模式 DOS 的精確檔名首次搜尋](219-protected-dos-findfirst-exact.md)：DRAFT。缺檔與固定空檔兩種原版輔助收據；待證據審查。
+- [219 — 受保護模式 DOS 的精確檔名首次搜尋](219-protected-dos-findfirst-exact.md)：CONFORMED。缺檔與固定空檔兩種原版輔助收據；合成診斷至 `0x148224`。
+- [220 — 無前綴 byte 記憶體目的 CMP](220-cpu386-cmp-rm8-register.md)：CONFORMED。`38 10` 原版同次 LOG 已擷取；合成診斷至 `0x146903`。

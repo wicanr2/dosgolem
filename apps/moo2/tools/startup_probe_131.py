@@ -19,13 +19,14 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
 capture_enter = sys.argv[1:] == ['--enter']
 capture_cmp_word = sys.argv[1:] == ['--cmp-word']
+capture_cmp_byte = sys.argv[1:] == ['--cmp-byte']
 capture_test_word = sys.argv[1:] == ['--test-word']
 capture_dta = sys.argv[1:] in (['--dta'], ['--dta-find'], ['--dta-find-present'])
 capture_dta_find = sys.argv[1:] in (['--dta-find'], ['--dta-find-present'])
@@ -35,7 +36,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -314,6 +315,49 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             (root / 'cmp-word-after.bin').write_bytes(after)
             records['cmp_word_memory_before_hex'] = before.hex()
             records['cmp_word_memory_after_hex'] = after.hex()
+        if capture_cmp_byte:
+            cmd('BPDEL *')
+            cmd('BP 0180:0036C224')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EAX EDX DS EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '36c224']), None)
+            if not match or len(match) != 6:
+                raise RuntimeError('MOO2 38 10 候選前斷點未命中: ' + repr(snapshots))
+            eax, ds = int(match[2], 16), int(match[4], 16)
+            records['cmp_byte_before'] = match
+            records['cmp_byte_memory_address'] = {'segment': f'{ds:04X}', 'offset': f'{eax:08X}'}
+            dump = pathlib.Path('MEMDUMP.BIN')
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ds:04X}:{eax:08X} 1', 1)
+            if not dump.is_file() or dump.stat().st_size != 1:
+                raise RuntimeError('MOO2 CMP byte 前記憶體擷取失敗')
+            before = dump.read_bytes()
+            (root / 'cmp-byte-before.bin').write_bytes(before)
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV CS EIP EAX EDX DS EFLAGS', 0.8))
+            after_match = next((value for value in snapshots if value[:2] == ['180', '36c226']), None)
+            if not after_match:
+                raise RuntimeError('MOO2 CMP byte 後未到下一指令: ' + repr(snapshots))
+            records['cmp_byte_after'] = after_match
+            if not log.is_file():
+                raise RuntimeError('MOO2 CMP byte LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:0036C224') or not lines[1].startswith('0180:0036C226'):
+                raise RuntimeError('MOO2 CMP byte 同次 LOG 指令序列不符: ' + repr(lines))
+            (root / 'cmp-byte-logcpu.txt').write_bytes(log_bytes)
+            records['cmp_byte_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+            dump.unlink(missing_ok=True)
+            cmd(f'MEMDUMPBIN {ds:04X}:{eax:08X} 1', 1)
+            if not dump.is_file() or dump.stat().st_size != 1:
+                raise RuntimeError('MOO2 CMP byte 後記憶體擷取失敗')
+            after = dump.read_bytes()
+            (root / 'cmp-byte-after.bin').write_bytes(after)
+            records['cmp_byte_memory_before_hex'] = before.hex()
+            records['cmp_byte_memory_after_hex'] = after.hex()
         if capture_test_word:
             cmd('BPDEL *')
             cmd('BP 0180:0034A570')

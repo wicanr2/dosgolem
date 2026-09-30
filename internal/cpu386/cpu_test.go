@@ -31,6 +31,61 @@ func TestStepHookHandledUnhandledAndError(t *testing.T) {
 	}
 }
 
+func TestCMPByteMemoryDestinationNoWriteback(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x38, 0x10}) // CMP [EAX],DL
+	c := New(mem)
+	c.Seg[SegDS] = 0x188
+	c.SetDescriptor(0x188, Descriptor{Limit: 0x7f})
+	c.R[EAX], c.R[EDX], c.EFlags = 0x30, 0, IF|CF|AF|OF
+	if err := c.Step(); err != nil || c.EIP != 2 || c.R[EAX] != 0x30 || c.R[EDX] != 0 ||
+		c.EFlags != IF|ZF|PF || mem[0x30] != 0 {
+		t.Fatalf("原版零差形狀 EIP=%X EAX=%X EDX=%X flags=%X byte=%X err=%v", c.EIP, c.R[EAX], c.R[EDX], c.EFlags, mem[0x30], err)
+	}
+	mem[0x30] = 0x80
+	c.EIP, c.R[EDX], c.EFlags = 0, 1, IF
+	if err := c.Step(); err != nil || c.EFlags != IF|OF|AF || mem[0x30] != 0x80 || c.R[EDX] != 1 {
+		t.Fatalf("記憶體減暫存器方向 flags=%X byte=%X EDX=%X err=%v", c.EFlags, mem[0x30], c.R[EDX], err)
+	}
+}
+
+func TestCMPByteMemoryDestinationSegmentAndFailure(t *testing.T) {
+	mem := testBus(make([]byte, 0x80))
+	copy(mem, []byte{0x38, 0x55, 0x00}) // CMP [EBP],DL
+	mem[0x30], mem[0x50] = 9, 1
+	c := New(mem)
+	c.Seg[SegDS], c.Seg[SegSS] = 0x160, 0x188
+	c.SetDescriptor(0x160, Descriptor{Base: 0x20, Limit: 0x1f})
+	c.SetDescriptor(0x188, Descriptor{Base: 0x40, Limit: 0x1f})
+	c.R[EBP], c.R[EDX], c.EFlags = 0x10, 1, IF|CF
+	if err := c.Step(); err != nil || c.EFlags != IF|ZF|PF || mem[0x30] != 9 || mem[0x50] != 1 {
+		t.Fatalf("EBP 應讀 SS flags=%X DS=%X SS=%X err=%v", c.EFlags, mem[0x30], mem[0x50], err)
+	}
+	c.EIP, c.R[EBP], c.EFlags = 0, 0x20, IF|CF
+	if err := c.Step(); err == nil || c.EFlags != IF|CF || mem[0x50] != 1 {
+		t.Fatalf("SS 越界未拒絕 flags=%X err=%v", c.EFlags, err)
+	}
+	copy(mem, []byte{0x38, 0x14, 0x24}) // CMP [ESP],DL；SIB 的 ESP 基底也選 SS。
+	c.EIP, c.R[ESP], c.EFlags = 0, 0x10, IF|CF
+	if err := c.Step(); err != nil || c.EFlags != IF|ZF|PF || mem[0x50] != 1 {
+		t.Fatalf("SIB ESP 應讀 SS flags=%X err=%v", c.EFlags, err)
+	}
+	truncated := New(testBus{0x38, 0x55})
+	truncated.EFlags = IF | CF
+	if err := truncated.Step(); err == nil || truncated.EFlags != IF|CF {
+		t.Fatalf("截短 disp8 未拒絕 flags=%X err=%v", truncated.EFlags, err)
+	}
+	truncatedSIB := New(testBus{0x38, 0x14})
+	truncatedSIB.EFlags = IF | CF
+	if err := truncatedSIB.Step(); err == nil || truncatedSIB.EFlags != IF|CF {
+		t.Fatalf("截短 SIB 未拒絕 flags=%X err=%v", truncatedSIB.EFlags, err)
+	}
+	prefixed := New(testBus{0xf3, 0x38, 0x10})
+	if err := prefixed.Step(); err == nil {
+		t.Fatal("repeat prefix 未拒絕")
+	}
+}
+
 func TestRegisterTEST32(t *testing.T) {
 	c := New(testBus{0x85, 0xc0})
 	c.R[EAX] = 0x80000000

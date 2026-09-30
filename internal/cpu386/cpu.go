@@ -4114,7 +4114,7 @@ func (c *CPU) Step() error {
 		c.sub32(c.R[modrm>>3&7], src)
 
 	case op == 0x38:
-		if operand16 || segmentOverride >= 0 {
+		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("38 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -4125,17 +4125,13 @@ func (c *CPU) Step() error {
 			c.sub8(c.reg8(int(modrm&7)), c.reg8(int((modrm>>3)&7)))
 			break
 		}
-		if modrm>>6 != 1 || modrm&7 == 4 {
-			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
-		}
-		delta, e := c.fetch8()
+		seg, addr, e := c.decodeAddress32(modrm)
 		if e != nil {
 			return fail(e.Error())
 		}
-		addr := uint32(int64(c.R[modrm&7]) + int64(int8(delta)))
-		value, ok := c.readSegment8(c.Seg[SegDS], addr)
+		value, ok := c.readSegment8(c.Seg[seg], addr)
 		if !ok {
-			return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[SegDS], addr))
+			return fail(fmt.Sprintf("CMP byte read %04X:%08X 未處理", c.Seg[seg], addr))
 		}
 		c.sub8(value, c.reg8(int((modrm>>3)&7)))
 	case op == 0x0d:
