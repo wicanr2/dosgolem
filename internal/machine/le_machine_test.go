@@ -548,6 +548,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 	if err := m.CPU.Step(); err != nil {
 		t.Fatalf("滑鼠敏感度設定單步失敗：%v", err)
 	}
+	step++
 	if m.CPU.EIP != resetStop+2 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags ||
 		services.mouseSensitivityX != 0 || services.mouseSensitivityY != 0 || services.mouseDoubleSpeed != 0 {
 		t.Fatalf("滑鼠敏感度設定後態：EIP=%X R=%X flags=%X raw=%d,%d,%d", m.CPU.EIP, m.CPU.R,
@@ -557,6 +558,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("滑鼠敏感度 record 消費端第 %d 步：%v", consumed, err)
 		}
+		step++
 	}
 	if m.CPU.EIP != resetConsumerStop {
 		t.Fatalf("滑鼠敏感度 record 消費端未抵達：EIP=%X", m.CPU.EIP)
@@ -568,6 +570,27 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		}
 	}
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=1Ah 保留暫存器，record 前四欄已讀回", step)
+	const videoStop = 0x15c2b2 // dosgolem 重定位 LE 線性位址；模式 03h
+	for m.CPU.EIP != videoStop && step < 6500 {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("視訊模式設定前第 %d 步：%v", step, err)
+		}
+		step++
+	}
+	if step != 6256 || m.CPU.EIP != videoStop || m.CPU.R[cpu386.EAX] != 3 || services.videoModeSet {
+		t.Fatalf("視訊模式設定前態：step=%d EIP=%X EAX=%X set=%v", step, m.CPU.EIP,
+			m.CPU.R[cpu386.EAX], services.videoModeSet)
+	}
+	beforeR, beforeSeg, beforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("視訊模式設定單步失敗：%v", err)
+	}
+	if m.CPU.EIP != videoStop+2 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg ||
+		m.CPU.EFlags != beforeFlags || !services.videoModeSet || services.videoMode != 3 {
+		t.Fatalf("視訊模式設定後態：EIP=%X R=%X Seg=%X flags=%X mode=%d set=%v",
+			m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, services.videoMode, services.videoModeSet)
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 10h/AX=0003h 返回 EIP=%X", step, m.CPU.EIP)
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {

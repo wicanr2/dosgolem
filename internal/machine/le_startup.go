@@ -29,6 +29,9 @@ type FD2StartupDOS struct {
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
 	moo2Profile bool
+	// MOO2 固定啟動診斷只記錄已設定的模式；不代表 BDA 或實際畫面。
+	videoModeSet bool
+	videoMode    uint8
 	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／1Ah／21h 使用。
 	mouseQueryEnabled bool
 	mouseX, mouseY    uint16
@@ -392,6 +395,13 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 }
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
+	if number == 0x10 {
+		if !s.moo2Profile || c.R[cpu386.EAX] != 3 {
+			return false
+		}
+		s.videoMode, s.videoModeSet = 3, true
+		return true
+	}
 	if number == 0x33 {
 		if !s.mouseQueryEnabled {
 			return false

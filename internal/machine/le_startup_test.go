@@ -97,6 +97,30 @@ func TestMOO2ProtectedMouseZeroSensitivity(t *testing.T) {
 	}
 }
 
+func TestMOO2ProtectedVideoMode03(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	s := NewMOO2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags =
+		3, 0x01800188, 0x01880188, 0x00200000, 0x216
+	beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+	if !s.Handle(c, 0x10) || c.R != beforeR || c.Seg != beforeSeg || c.EFlags != beforeFlags ||
+		!s.videoModeSet || s.videoMode != 3 {
+		t.Fatalf("MOO2 模式 03h 啟動返回：R=%X Seg=%X flags=%X mode=%d set=%v",
+			c.R, c.Seg, c.EFlags, s.videoMode, s.videoModeSet)
+	}
+	c.R[cpu386.EAX] = 0x13
+	beforeR = c.R
+	if s.Handle(c, 0x10) || c.R != beforeR || s.videoMode != 3 {
+		t.Fatal("未審查的視訊模式須拒絕且保留既有設定")
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	c.R[cpu386.EAX] = 3
+	beforeR = c.R
+	if fd2.Handle(c, 0x10) || c.R != beforeR {
+		t.Fatal("一般 FD2 啟動設定不得接受 MOO2 視訊模式近似")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)
