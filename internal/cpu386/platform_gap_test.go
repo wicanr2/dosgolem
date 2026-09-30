@@ -19,6 +19,30 @@ func TestRegisterOR32(t *testing.T) {
 	}
 }
 
+func TestRegisterORWordPreservesHighHalfAndBranchFlags(t *testing.T) {
+	for _, tc := range []struct {
+		dx, cx, wantDX, flags uint32
+	}{
+		{0xabcd0000, 0x12340000, 0xabcd0000, ZF | PF},
+		{0xabcd0001, 0x12340002, 0xabcd0003, PF},
+		{0xabcd0000, 0x12348000, 0xabcd8000, SF | PF},
+	} {
+		c := New(testBus{0x66, 0x09, 0xca, 0x74, 0x02})
+		c.R[EDX], c.R[ECX] = tc.dx, tc.cx
+		c.EFlags = CF | OF | IF | DF
+		if err := c.Step(); err != nil {
+			t.Fatal(err)
+		}
+		if c.R[EDX] != tc.wantDX || c.R[ECX] != tc.cx || c.EFlags != tc.flags|IF|DF || c.EIP != 3 {
+			t.Fatalf("OR DX,CX 結果：EDX=%08X ECX=%08X flags=%X EIP=%X", c.R[EDX], c.R[ECX], c.EFlags, c.EIP)
+		}
+	}
+	c := New(testBus{0x66, 0x09, 0x0a})
+	if err := c.Step(); err == nil {
+		t.Fatal("未驗證的 16 位記憶體 OR 形狀被接受")
+	}
+}
+
 func TestALImmediateLogic(t *testing.T) {
 	for _, op := range []byte{0xa8, 0x24} {
 		c := New(testBus{op, 1})

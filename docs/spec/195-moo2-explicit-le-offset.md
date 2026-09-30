@@ -1,6 +1,6 @@
 # 195 — 明示偏移的 LE 載入探針
 
-狀態：**CONFORMED**（唯讀解析與載入入口；不宣稱 MOO2 已能執行）
+狀態：**CONFORMED**（明示 LE 標頭解析及零基址載入；MOO2 真入口見 197）
 日期：2026-09-30
 
 ## 證據與範圍
@@ -19,3 +19,7 @@ MOO2 1.31 `ORION2.EXE` SHA-256 為 `4e11be14217b4aafa1839f333bf5eba037f98b0c44e9
 合成 fixture 將 `e_lfanew` 設為超界，明示有效 LE offset 應成功，預設入口與錯誤 offset 應失敗；`LoadLEAt` 不改原 bytes，映像與有效預設入口一致。真檔只在本機唯讀掛載，核對 SHA-256 後執行 `leprobe -offset 0x292E4`。相關測試與探針通過後才標 `CONFORMED`。
 
 驗收結果：`go test ./internal/machine ./cmd/leprobe` 通過；未改動的 MOO2 原版直接解析出 2 objects、365 pages、51,363 筆 fixup，與合成標頭探針完全一致。`LoadLEAt` 可建立入口 `0x10FF18`、堆疊 `0x1CDCD0` 的機器。這只符合本規格的載入範圍。
+
+## 2026-09-30 勘誤
+
+MOO2 在原檔 `0x26654` 還有內嵌 MZ，資料頁偏移相對該 MZ；本規格的 `LoadLEAt` 以原檔零點載入了錯誤頁面。前述 `0x10FF18` 只有 LE 標頭入口**數值**正確，入口**內容**及 object 雜湊不得再當原版執行收據。明示 LE 標頭解析及 fixup 表盤點仍成立；正確資料頁基址、真入口 bytes 與重跑結果見 [197](197-bound-mz-le-file-base.md)。

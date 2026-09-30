@@ -9,6 +9,7 @@ import (
 // 它只供能力盤點；成功解析不代表 Machine 已能執行保護模式程式。
 type LEHeader struct {
 	Offset            uint32
+	MZBase            uint32
 	ByteOrder         uint8
 	WordOrder         uint8
 	FormatLevel       uint32
@@ -88,6 +89,27 @@ func InspectLEAt(data []byte, off uint32) (*LEHeader, error) {
 	if len(data) < 0x40 || data[0] != 'M' || data[1] != 'Z' {
 		return nil, fmt.Errorf("machine: 不是含 e_lfanew 的 MZ 執行檔")
 	}
+	return inspectLEHeader(data, off)
+}
+
+// InspectLEInMZ 依明示的內嵌 MZ 基址解析 LE；資料頁偏移也相對該 MZ。
+func InspectLEInMZ(data []byte, mzBase uint32) (*LEHeader, error) {
+	if mzBase == 0 || uint64(mzBase)+0x40 > uint64(len(data)) || data[mzBase] != 'M' || data[mzBase+1] != 'Z' {
+		return nil, fmt.Errorf("machine: 內嵌 MZ 基址 0x%X 無效", mzBase)
+	}
+	off := uint64(mzBase) + uint64(binary.LittleEndian.Uint32(data[mzBase+0x3c:]))
+	if off > uint64(^uint32(0)) || off+0xb0 > uint64(len(data)) {
+		return nil, fmt.Errorf("machine: 內嵌 MZ 的 LE 標頭超界（MZ=0x%X）", mzBase)
+	}
+	h, err := inspectLEHeader(data, uint32(off))
+	if err != nil {
+		return nil, err
+	}
+	h.MZBase = mzBase
+	return h, nil
+}
+
+func inspectLEHeader(data []byte, off uint32) (*LEHeader, error) {
 	if off > uint32(len(data)) || uint64(off)+0xb0 > uint64(len(data)) {
 		return nil, fmt.Errorf("machine: LE 標頭偏移 0x%X 超出 %d-byte 檔案", off, len(data))
 	}
@@ -336,7 +358,7 @@ func (h *LEHeader) ObjectImage(data []byte, index uint32) ([]byte, error) {
 		if page.Number == h.ModulePages && h.LastPageSize != 0 {
 			n = uint64(h.LastPageSize)
 		}
-		src := uint64(h.DataPagesOffset) + uint64(page.Number-1)*uint64(h.PageSize)
+		src := uint64(h.MZBase) + uint64(h.DataPagesOffset) + uint64(page.Number-1)*uint64(h.PageSize)
 		if src > uint64(len(data)) || n > uint64(len(data))-src {
 			return nil, fmt.Errorf("machine: LE page %d 資料超出檔案", page.Number)
 		}

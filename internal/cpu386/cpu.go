@@ -1089,12 +1089,22 @@ func (c *CPU) Step() error {
 		dst, src := modrm&7, (modrm>>3)&7
 		c.sub32(c.R[dst], c.R[src])
 	case op == 0x09:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if segmentOverride >= 0 || repe || repne {
 			return fail("09 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if operand16 {
+			if modrm>>6 != 3 {
+				return fail(fmt.Sprintf("OR word ModRM %02X 尚未支援", modrm))
+			}
+			dst, src := modrm&7, (modrm>>3)&7
+			result := uint16(c.R[dst]) | uint16(c.R[src])
+			c.R[dst] = c.R[dst]&0xffff0000 | uint32(result)
+			c.setLogicFlags16(result)
+			break
 		}
 		if modrm>>6 == 3 {
 			dst, src := modrm&7, (modrm>>3)&7

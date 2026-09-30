@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -41,6 +42,74 @@ func TestLoadLEAtWithLegacyMZHeader(t *testing.T) {
 	}
 	if got := binary.LittleEndian.Uint32(b[0x3c:]); got != 0x9b40000 {
 		t.Fatalf("原始 MZ 標頭被改寫：%X", got)
+	}
+}
+
+func TestLoadLEInEmbeddedMZUsesModuleBaseForPages(t *testing.T) {
+	standalone := leFixture()
+	b := make([]byte, 0x40+len(standalone))
+	copy(b[0x40:], standalone)
+	hdr := b[0x40+0x80:]
+	binary.LittleEndian.PutUint32(hdr[0x20:], 1)
+	binary.LittleEndian.PutUint32(hdr[0x24:], 0x1800)
+	before := append([]byte(nil), b...)
+	h, err := InspectLEInMZ(b, 0x40)
+	if err != nil || h.MZBase != 0x40 || h.Offset != 0xc0 {
+		t.Fatalf("內嵌 MZ 解析錯誤：header=%+v err=%v", h, err)
+	}
+	image, err := h.ObjectImage(b, 1)
+	if err != nil || len(image) < 4 || !bytes.Equal(image[:4], []byte{1, 2, 3, 4}) {
+		t.Fatalf("內嵌 MZ 資料頁錯誤：image length=%d err=%v", len(image), err)
+	}
+	m, err := LoadLEInMZ(b, 0x40)
+	if err != nil || m.CPU.EIP != 0x11234 || m.CPU.R[cpu386.ESP] != 0x11800 {
+		t.Fatalf("內嵌 MZ 載入錯誤：machine=%+v err=%v", m, err)
+	}
+	if !bytes.Equal(b, before) {
+		t.Fatal("解析器改動原始輸入")
+	}
+	for _, base := range []uint32{0, 0x41, ^uint32(0)} {
+		if _, err := InspectLEInMZ(b, base); err == nil {
+			t.Fatalf("無效內嵌 MZ 基址 0x%X 應拒絕", base)
+		}
+	}
+	binary.LittleEndian.PutUint32(b[0x40+0x3c:], ^uint32(0))
+	if _, err := InspectLEInMZ(b, 0x40); err == nil {
+		t.Fatal("超界 e_lfanew 應拒絕")
+	}
+}
+
+func TestMOO2EmbeddedMZEntryWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha1996 = "7ae2ac2e5904ca330009af2827279d889906b0b9b7a8854c38eb707a56e955b5"
+	const sha131 = "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f"
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != sha1996 && got != sha131 {
+		t.Fatalf("MOO2 EXE SHA-256 不符：%s", got)
+	}
+	h, err := InspectLEInMZ(b, 0x26654)
+	wantPages := uint32(0x6f000)
+	if fmt.Sprintf("%x", sha256.Sum256(b)) == sha1996 {
+		wantPages = 0x6f040
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Offset != 0x292e4 || h.DataPagesOffset != wantPages {
+		t.Fatalf("MOO2 內嵌 MZ／LE 欄位錯誤：offset=0x%X data_pages=0x%X", h.Offset, h.DataPagesOffset)
+	}
+	m, err := LoadLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Mem[m.CPU.EIP : m.CPU.EIP+8]; !bytes.Equal(got, []byte{'\xeb', '\x76', 'W', 'A', 'T', 'C', 'O', 'M'}) {
+		t.Fatalf("MOO2 真正 LE 入口 bytes=% X", got)
 	}
 }
 

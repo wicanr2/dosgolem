@@ -47,6 +47,15 @@ func LoadLEAt(data []byte, off uint32) (*LEMachine, error) {
 	return loadLEHeader(data, header)
 }
 
+// LoadLEInMZ 以明示內嵌 MZ 的 LE 標頭及資料頁基址載入映像。
+func LoadLEInMZ(data []byte, mzBase uint32) (*LEMachine, error) {
+	header, err := InspectLEInMZ(data, mzBase)
+	if err != nil {
+		return nil, err
+	}
+	return loadLEHeader(data, header)
+}
+
 func loadLEHeader(data []byte, header *LEHeader) (*LEMachine, error) {
 	images, err := header.RelocatedObjectImages(data)
 	if err != nil {
