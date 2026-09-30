@@ -244,6 +244,9 @@ func TestFD2StartupDOS(t *testing.T) {
 	if !c.SegmentLoadOK(0x30, cpu386.SegDS) || !c.SegmentLoadOK(0x30, cpu386.SegES) || !c.SegmentLoadOK(0x30, cpu386.SegFS) || c.SegmentLoadOK(0x30, cpu386.SegSS) {
 		t.Fatal("environment selector load destinations mismatch")
 	}
+	if c.SegmentLoadOK(0x20, cpu386.SegGS) {
+		t.Fatal("FD2 profile unexpectedly accepts MOO2 GS selector")
+	}
 	for offset, want := range minimalFD2Environment {
 		if got, ok := c.SegmentRead8(0x30, uint32(offset)); !ok || got != want {
 			t.Fatalf("environment[%d]=%X ok=%v want %X", offset, got, ok, want)
@@ -280,6 +283,9 @@ func TestMOO2ProvisionalStartupEnvironment(t *testing.T) {
 	}
 	if c.R[cpu386.EAX] != 5 || c.R[cpu386.EBX] != 0x5048ff00 || c.Seg[cpu386.SegDS] != 0x188 || c.Seg[cpu386.SegSS] != 0x188 || c.Seg[cpu386.SegES] != 0x28 || c.Seg[cpu386.SegGS] != 0x20 || c.EFlags != 0x246 {
 		t.Fatalf("MOO2 固定輔助基準返回不符：EAX=%X EBX=%X DS=%X ES=%X GS=%X SS=%X", c.R[cpu386.EAX], c.R[cpu386.EBX], c.Seg[cpu386.SegDS], c.Seg[cpu386.SegES], c.Seg[cpu386.SegGS], c.Seg[cpu386.SegSS])
+	}
+	if !c.SegmentLoadOK(0x20, cpu386.SegGS) || c.SegmentLoadOK(0x20, cpu386.SegDS) || c.SegmentLoadOK(0x20, cpu386.SegFS) {
+		t.Fatal("MOO2 GS=0020h 載入許可超出原版觀測範圍")
 	}
 	for offset, want := range minimalMOO2Environment {
 		got, ok := c.SegmentRead8(0x30, uint32(offset))

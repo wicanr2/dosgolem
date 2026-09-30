@@ -4385,6 +4385,22 @@ func (c *CPU) Step() error {
 			c.R[ESP] = nextESP
 			break
 		}
+		if extended == 0xa9 && !operand16 && segmentOverride < 0 && !repe && !repne {
+			if c.R[ESP] > ^uint32(0)-4 {
+				return fail("POP GS ESP overflow")
+			}
+			value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+			if !ok {
+				return fail(fmt.Sprintf("POP GS stack read %04X:%08X 未處理", c.Seg[SegSS], c.R[ESP]))
+			}
+			selector := uint16(value)
+			if !c.canLoadSegment(selector, SegGS) {
+				return fail(fmt.Sprintf("GS selector %04X 未登錄", selector))
+			}
+			c.Seg[SegGS] = selector
+			c.R[ESP] += 4
+			break
+		}
 		if extended == 0xb4 && !operand16 && segmentOverride < 0 && !repe {
 			modrm, e := c.fetch8()
 			if e != nil {
