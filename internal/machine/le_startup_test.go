@@ -40,6 +40,30 @@ func TestMOO2ProtectedMouseQueryUsesControlledState(t *testing.T) {
 	}
 }
 
+func TestMOO2ProtectedMouseSoftwareReset(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	s := NewMOO2StartupDOS(nil)
+	s.SetMouseState(417, 122, 2)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags =
+		0xabcd0021, 0x11110000, 0x22220005, 0x33330006, 0x216
+	beforeSeg := c.Seg
+	if !s.Handle(c, 0x33) || c.R[cpu386.EAX] != 0xabcdffff || c.R[cpu386.EBX] != 0x11110003 ||
+		c.R[cpu386.ECX] != 0x22220005 || c.R[cpu386.EDX] != 0x33330006 || c.EFlags != 0x216 || c.Seg != beforeSeg {
+		t.Fatalf("MOO2 滑鼠軟體重設返回：R=%X flags=%X Seg=%X", c.R, c.EFlags, c.Seg)
+	}
+	c.R[cpu386.EAX] = 0xabcd0003
+	if !s.Handle(c, 0x33) || c.R[cpu386.EBX] != 0x11110000 ||
+		c.R[cpu386.ECX] != 0x22220140 || c.R[cpu386.EDX] != 0x33330064 {
+		t.Fatalf("MOO2 軟體重設後位置／按鍵：R=%X", c.R)
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	c.R[cpu386.EAX] = 0x21
+	beforeR := c.R
+	if fd2.Handle(c, 0x33) || c.R != beforeR {
+		t.Fatal("一般 FD2 啟動設定不得接受 MOO2 專用重設")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)

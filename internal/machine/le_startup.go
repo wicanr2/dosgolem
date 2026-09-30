@@ -29,7 +29,7 @@ type FD2StartupDOS struct {
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
 	moo2Profile bool
-	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3 查詢使用。
+	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／21h 使用。
 	mouseQueryEnabled bool
 	mouseX, mouseY    uint16
 	mouseButtons      uint16
@@ -61,6 +61,8 @@ type FD2StartupDOS struct {
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
 var minimalMOO2Environment = []byte{0, 0, 1, 0, 'O', 'R', 'I', 'O', 'N', '2', '.', 'E', 'X', 'E', 0}
 
+const moo2MouseCenterX, moo2MouseCenterY = 320, 100
+
 // MOO2StartupDOS 的兩次啟動回傳以固定 1.31 DOSBox-X 輔助收據為基線；
 // PSP／環境讀取仍是明示的合成輸入，不是完整原版對拍收據。
 type MOO2StartupDOS struct{ *FD2StartupDOS }
@@ -70,7 +72,7 @@ func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	s.environment = minimalMOO2Environment
 	s.moo2Profile = true
 	s.mouseQueryEnabled = true
-	s.mouseX, s.mouseY = 320, 100
+	s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
 	return &MOO2StartupDOS{s}
 }
 
@@ -388,13 +390,25 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x33 {
-		if !s.mouseQueryEnabled || uint16(c.R[cpu386.EAX]) != 3 {
+		if !s.mouseQueryEnabled {
 			return false
 		}
-		c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseButtons)
-		c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseX)
-		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseY)
-		return true
+		switch uint16(c.R[cpu386.EAX]) {
+		case 3:
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseButtons)
+			c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseX)
+			c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseY)
+			return true
+		case 0x21:
+			// 規格 229：僅固定 MOO2 啟動基準的三按鍵與受控中心座標。
+			s.mouseButtons = 0
+			s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
+			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0xffff
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | 3
+			return true
+		default:
+			return false
+		}
 	}
 	if number == 0x31 {
 		// 整支交給通用的 DPMI 主機。沒實作的功能由它記一筆再回 false，

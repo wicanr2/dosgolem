@@ -492,6 +492,43 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		t.Fatalf("MOV [EBX],ES 後態：step=%d value=%X EIP=%X flags=%X err=%v", step, after, m.CPU.EIP, m.CPU.EFlags, err)
 	}
 	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 MOV [EBX],ES=%X，下一 EIP=%X", step, after, m.CPU.EIP)
+	step++
+	const resetStop = 0x15c31b // dosgolem 重定位 LE 線性位址；同一包裝函式第二次呼叫
+	for m.CPU.EIP != resetStop && step < 6500 {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("滑鼠重設前第 %d 步：%v", step, err)
+		}
+		step++
+	}
+	if step != 6007 || m.CPU.EIP != resetStop || m.CPU.R[cpu386.EAX] != 0x21 ||
+		m.CPU.R[cpu386.EBX] != 0 || m.CPU.R[cpu386.ECX] != 0 || m.CPU.R[cpu386.EDX] != 0 {
+		t.Fatalf("滑鼠重設前態：step=%d EIP=%X R=%X", step, m.CPU.EIP, m.CPU.R)
+	}
+	beforeR, beforeSeg, beforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("滑鼠重設單步失敗：%v", err)
+	}
+	wantR = beforeR
+	wantR[cpu386.EAX], wantR[cpu386.EBX] = 0xffff, 3
+	if m.CPU.EIP != resetStop+2 || m.CPU.R != wantR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags {
+		t.Fatalf("滑鼠重設後態：EIP=%X R=%X flags=%X", m.CPU.EIP, m.CPU.R, m.CPU.EFlags)
+	}
+	const resetConsumerStop = 0x15c1c6
+	for consumed := 0; m.CPU.EIP != resetConsumerStop && consumed < 16; consumed++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("滑鼠重設 record 消費端第 %d 步：%v", consumed, err)
+		}
+	}
+	if m.CPU.EIP != resetConsumerStop {
+		t.Fatalf("滑鼠重設 record 消費端未抵達：EIP=%X", m.CPU.EIP)
+	}
+	for offset, want := range map[uint32]uint32{0: 0xffff, 4: 3, 8: 0, 12: 0} {
+		got, err := m.Read32(m.CPU.R[cpu386.EDI] + offset)
+		if err != nil || got != want {
+			t.Fatalf("滑鼠重設 record +%X=%X want=%X err=%v", offset, got, want, err)
+		}
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=21h 回 AX=FFFFh、BX=3，record 前四欄已讀回", step)
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {
