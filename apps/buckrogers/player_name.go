@@ -172,6 +172,69 @@ type nameTransliterator interface {
 	Transliterate(name string, gender translit.Gender) (string, translit.Tier, bool)
 }
 
+// Buck repo spec 041 §3.6: the zh-CN player name is the zh-TW
+// transliteration converted character by character through
+// text/translit-zh-CN-map.tsv.  '-' and '•' pass through; any other
+// character outside the map makes the name stay English (like a failed
+// transliteration).
+type charMapTransliterator struct {
+	inner nameTransliterator
+	chars map[rune]rune
+}
+
+func (c *charMapTransliterator) Transliterate(name string, g translit.Gender) (string, translit.Tier, bool) {
+	zh, tier, ok := c.inner.Transliterate(name, g)
+	if !ok || zh == "" {
+		return "", translit.TierNone, false
+	}
+	out := make([]rune, 0, len(zh))
+	for _, r := range zh {
+		if r == '-' || r == '•' {
+			out = append(out, r)
+			continue
+		}
+		cn, hit := c.chars[r]
+		if !hit {
+			return "", translit.TierNone, false
+		}
+		out = append(out, cn)
+	}
+	return string(out), tier, true
+}
+
+var translitMapHeader = []string{"tw", "cn"}
+
+// TranslitMapFile is the character map of a language (spec 041 §3.6).
+func TranslitMapFile(lang string) string { return "translit-" + lang + "-map.tsv" }
+
+// LoadTranslitCharMap reads a `tw`/`cn` map: single characters, one to one.
+func LoadTranslitCharMap(name string, data []byte) (map[rune]rune, error) {
+	rows, err := readPlainTSV(name, data, translitMapHeader)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[rune]rune, len(rows))
+	seen := make(map[rune]bool, len(rows))
+	for i, r := range rows {
+		tw, cn := []rune(r[0]), []rune(r[1])
+		if len(tw) != 1 || len(cn) != 1 {
+			return nil, fmt.Errorf("%s:%d: tw、cn 必須各是單一字元", name, i+2)
+		}
+		if _, dup := m[tw[0]]; dup {
+			return nil, fmt.Errorf("%s:%d: tw 重複", name, i+2)
+		}
+		if seen[cn[0]] {
+			return nil, fmt.Errorf("%s:%d: cn 碰撞（不是一對一）", name, i+2)
+		}
+		m[tw[0]] = cn[0]
+		seen[cn[0]] = true
+	}
+	if len(m) == 0 {
+		return nil, fmt.Errorf("%s: 沒有資料列", name)
+	}
+	return m, nil
+}
+
 type playerNameKey struct {
 	name   string
 	gender translit.Gender

@@ -22,6 +22,10 @@ const (
 	LangZhTW = "zh-TW"
 	// LangEn is the original English: no overlay at all (spec 040 §3.4).
 	LangEn = "en"
+	// LangZhCN is Simplified Chinese (Buck repo spec 041): its files are
+	// generated from zh-TW by OpenCC and its player names are the zh-TW
+	// transliteration mapped character by character.
+	LangZhCN = "zh-CN"
 	// LangTest is the test-only fake language of spec 040 §5.3.  It never
 	// appears in the F4 cycle or a release.
 	LangTest = "zz"

@@ -6,13 +6,107 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/wicanr2/dosgolem/apps/buckrogers"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
+
+// langPathFlag is a repeatable `代碼=路徑` flag (Buck repo spec 041 §3.9).
+type langPathFlag map[string]string
+
+func (f langPathFlag) String() string {
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + "=" + f[k]
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f langPathFlag) Set(v string) error {
+	code, path, ok := strings.Cut(v, "=")
+	if !ok || code == "" || path == "" {
+		return fmt.Errorf("需要 `代碼=路徑`：%q", v)
+	}
+	if !buckrogers.KnownLang(code) {
+		return fmt.Errorf("不認得的語言代碼 %q", code)
+	}
+	if _, dup := f[code]; dup {
+		return fmt.Errorf("語言 %s 重複指定", code)
+	}
+	f[code] = path
+	return nil
+}
+
+// receiptLangs decides which extra lanes the receipt loads (spec 041 §3.9):
+// every language named by -lang, -lang-switch, -lang-dir or -lang-font,
+// except zh-TW (always loaded) and en (no lane).  A language's directory
+// defaults to -live-text-dir; its font to -lang-font, else
+// <font-root>/font/buckrogers-<lang>.golemfnt when that file exists (root
+// defaults to the parent of -live-text-dir), and for the test language zz
+// to the zh-TW overlay font as before.
+func receiptLangs(textDir, fontRoot, overlayFont, start string, switches []string, dirs, fonts langPathFlag) ([]string, map[string]string, map[string]string) {
+	if fontRoot == "" {
+		fontRoot = filepath.Dir(filepath.Clean(textDir))
+	}
+	want := map[string]bool{}
+	add := func(code string) {
+		if code != "" && code != buckrogers.LangZhTW && code != buckrogers.LangEn {
+			want[code] = true
+		}
+	}
+	add(start)
+	for _, c := range switches {
+		add(c)
+	}
+	for c := range dirs {
+		add(c)
+	}
+	for c := range fonts {
+		add(c)
+	}
+	var langs []string
+	for _, c := range append(append([]string{}, buckrogers.LangCycle...), buckrogers.LangTest) {
+		if want[c] {
+			langs = append(langs, c)
+		}
+	}
+	if len(langs) == 0 {
+		return nil, nil, nil
+	}
+	outDirs, outFonts := map[string]string{}, map[string]string{}
+	for _, c := range langs {
+		outDirs[c] = textDir
+		if d, ok := dirs[c]; ok {
+			outDirs[c] = d
+		}
+		switch {
+		case fonts[c] != "":
+			outFonts[c] = fonts[c]
+		case c == buckrogers.LangTest:
+			outFonts[c] = overlayFont
+		default:
+			if p := buckrogers.LangFontPath(fontRoot, c); fileExists(p) {
+				outFonts[c] = p
+			}
+		}
+	}
+	return langs, outDirs, outFonts
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
+}
 
 // langSwitch is one -lang-switch entry (spec 040 §5.3).
 type langSwitch struct {

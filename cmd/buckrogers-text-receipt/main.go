@@ -492,7 +492,13 @@ func main() {
 	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
 	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
 	// 規格 040 §5.3：多語通道的切換收據。
-	liveLang := flag.String("lang", "", "LiveRuntime 起始語言（zh-TW、en；zz 需 -test-lang-dir）；給了就在收據輸出 CPU 雜湊")
+	liveLang := flag.String("lang", "", "LiveRuntime 起始語言（zh-TW、zh-CN、en…；zz 需 -test-lang-dir 或 -lang-dir zz=…）；給了就在收據輸出 CPU 雜湊")
+	// Buck repo 規格 041 §3.9：任意語言的目錄與字型（取代只收 zz 的測試旗標；zz 仍可用）。
+	langDirs := langPathFlag{}
+	langFonts := langPathFlag{}
+	flag.Var(langDirs, "lang-dir", "語言檔目錄 `代碼=目錄`（可重複；未指定的語言用 -live-text-dir）")
+	flag.Var(langFonts, "lang-font", "語言字型 `代碼=路徑`（可重複；未指定時載入 <font-root>/font/buckrogers-<代碼>.golemfnt，存在時）")
+	fontRoot := flag.String("font-root", "", "語言字型的 repo 根目錄（預設 -live-text-dir 的上一層）")
 	liveLangSwitch := flag.String("lang-switch", "", "在絕對步數切換 LiveRuntime 語言：`步數:代碼[,步數:代碼…]`")
 	composeEveryRetrace := flag.Bool("compose-every-retrace", false, "每個 retrace 都對目前語言合成（貼近前端）")
 	testLangDir := flag.String("test-lang-dir", "", "測試專用假語言 zz 的 <family>.zz.tsv 目錄（前端不提供）")
@@ -1334,9 +1340,9 @@ func main() {
 	if langErr != nil {
 		fail(langErr)
 	}
-	langFlags := *liveLang != "" || len(langSwitches) != 0 || *composeEveryRetrace || *testLangDir != ""
+	langFlags := *liveLang != "" || len(langSwitches) != 0 || *composeEveryRetrace || *testLangDir != "" || len(langDirs) != 0 || len(langFonts) != 0
 	if langFlags && *liveTextDir == "" {
-		fail(fmt.Errorf("lang、lang-switch、compose-every-retrace、test-lang-dir 需要 -live-text-dir"))
+		fail(fmt.Errorf("lang、lang-switch、compose-every-retrace、test-lang-dir、lang-dir、lang-font 需要 -live-text-dir"))
 	}
 	if *liveLang != "" && !buckrogers.KnownLang(*liveLang) {
 		fail(fmt.Errorf("不認得的語言代碼 %q", *liveLang))
@@ -1345,22 +1351,24 @@ func main() {
 		var liveErr error
 		opts := buckrogers.LiveOptions{TextDir: *liveTextDir, FontPath: *overlayFont}
 		if *testLangDir != "" {
-			font := *testLangFont
-			if font == "" {
-				font = *overlayFont
+			langDirs[buckrogers.LangTest] = *testLangDir
+			if *testLangFont != "" {
+				langFonts[buckrogers.LangTest] = *testLangFont
 			}
-			opts.Langs = []string{buckrogers.LangTest}
-			opts.LangDirs = map[string]string{buckrogers.LangTest: *testLangDir}
-			opts.LangFonts = map[string]string{buckrogers.LangTest: font}
 		}
+		var switchCodes []string
+		for _, sw := range langSwitches {
+			switchCodes = append(switchCodes, sw.code)
+		}
+		opts.Langs, opts.LangDirs, opts.LangFonts = receiptLangs(*liveTextDir, *fontRoot, *overlayFont, *liveLang, switchCodes, langDirs, langFonts)
 		loadStart := time.Now()
 		if liveAll, liveErr = buckrogers.LoadLiveRuntimeOptions(opts); liveErr != nil {
 			fail(liveErr)
 		}
 		liveLoadMillis = time.Since(loadStart).Milliseconds()
-		if *testLangDir != "" {
-			if _, _, ok := liveAll.LaneResets(buckrogers.LangTest); !ok {
-				fail(fmt.Errorf("測試語言 zz 未啟用（見 stderr 的停用原因）"))
+		for _, code := range opts.Langs {
+			if _, _, ok := liveAll.LaneResets(code); !ok {
+				fail(fmt.Errorf("語言 %s 未啟用（見 stderr 的停用原因）", code))
 			}
 		}
 		if liveErr = liveAll.SetManualEnglish(*liveManualEnglish); liveErr != nil {

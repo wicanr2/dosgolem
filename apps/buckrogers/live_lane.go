@@ -673,14 +673,31 @@ func (l *liveLane) loadEclText(headers *HeaderColumns) error {
 	l.ecl.SetNames(names)
 	// Spec 038: without the transliterator data the player-name display is
 	// off (names stay English); the runtime still starts.  Spec 040 §3.1:
-	// the transliterators of other languages come with their own specs.
-	if l.lang != LangZhTW {
+	// the transliterators of other languages come with their own specs;
+	// spec 041 §3.6: zh-CN wraps the zh-TW transliterator with the shared
+	// character map, and a map that fails to load only turns zh-CN player
+	// names off.
+	switch l.lang {
+	case LangZhTW:
+		if tr, err := translit.Load(l.textDir); err != nil {
+			l.playersOff = err.Error()
+		} else {
+			l.players = NewPlayerNames(tr, names)
+			l.ecl.SetPlayerNames(l.players)
+		}
+	case LangZhCN:
+		if tr, err := translit.Load(l.textDir); err != nil {
+			l.playersOff = err.Error()
+		} else if b, err := os.ReadFile(filepath.Join(l.textDir, TranslitMapFile(l.lang))); err != nil {
+			l.playersOff = "translit-map: " + err.Error()
+		} else if m, err := LoadTranslitCharMap(TranslitMapFile(l.lang), b); err != nil {
+			l.playersOff = "translit-map: " + err.Error()
+		} else {
+			l.players = NewPlayerNames(&charMapTransliterator{inner: tr, chars: m}, names)
+			l.ecl.SetPlayerNames(l.players)
+		}
+	default:
 		l.playersOff = "no-transliterator"
-	} else if tr, err := translit.Load(l.textDir); err != nil {
-		l.playersOff = err.Error()
-	} else {
-		l.players = NewPlayerNames(tr, names)
-		l.ecl.SetPlayerNames(l.players)
 	}
 	l.eclGen = l.ecl.Generation()
 	if eng, err := loadEngineTextLang(l.textDir, l.langDir, l.lang); err != nil {
