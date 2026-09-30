@@ -558,7 +558,7 @@ func (c *CPU) Step() error {
 	if segmentOverride == SegCS && op != 0xff && op != 0x8a {
 		return fail("CS override 只支援間接 JMP／MOV byte load")
 	}
-	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op == 0xba) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
+	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8e {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
@@ -3628,7 +3628,7 @@ func (c *CPU) Step() error {
 			break
 		}
 
-		if operand16 && (segmentOverride >= 0 || modrm>>6 != 3 && (modrm>>6 != 0 || modrm&7 != EBP)) {
+		if operand16 && modrm>>6 != 3 && (modrm>>6 != 0 || modrm&7 != EBP) {
 			return fail(fmt.Sprintf("16-bit segment ModRM %02X 尚未支援", modrm))
 		} else if modrm>>6 == 3 {
 			value = uint16(c.R[modrm&7])
@@ -4128,7 +4128,7 @@ func (c *CPU) Step() error {
 		c.setReg8(0, result)
 		c.setLogicFlags8(result)
 	case op == 0x3a:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if operand16 || segmentOverride >= 0 && segmentOverride != SegES || repe || repne {
 			return fail("CMP byte prefix未支援")
 		}
 		modrm, e := c.fetch8()
@@ -4137,11 +4137,17 @@ func (c *CPU) Step() error {
 		}
 		var value uint8
 		if modrm>>6 == 3 {
+			if segmentOverride == SegES {
+				return fail("ES CMP byte 只支援記憶體來源")
+			}
 			value = c.reg8(int(modrm & 7))
 		} else {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
+			}
+			if segmentOverride == SegES {
+				seg = SegES
 			}
 			var ok bool
 			value, ok = c.readSegment8(c.Seg[seg], addr)
@@ -4304,6 +4310,17 @@ func (c *CPU) Step() error {
 				c.Seg[SegFS] = selector
 				c.R[ESP] += 4
 			}
+			break
+		}
+		if extended == 0xa8 && !operand16 && segmentOverride < 0 && !repe && !repne {
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegGS])) {
+				return fail(fmt.Sprintf("PUSH GS stack write %04X:%08X 未處理", c.Seg[SegSS], nextESP))
+			}
+			c.R[ESP] = nextESP
 			break
 		}
 		if extended == 0xb4 && !operand16 && segmentOverride < 0 && !repe {

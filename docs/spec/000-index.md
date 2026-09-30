@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 249 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+目前有 273 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -354,3 +354,7 @@
 - [200 — MOO2 暫定保護模式 DOS 服務入口](200-moo2-provisional-protected-dos.md)：CONFORMED，僅限合成環境與獨立入口；原先借用的 FD2 回傳已由 201 訂正。
 - [201 — MOO2 1.31 的 DOS/4G 啟動回傳](201-moo2-dos4g-startup-returns.md)：CONFORMED，僅限固定 DOSBox-X 輔助基準的兩次服務；PSP／環境與正式玩家路徑仍未知。
 - [202 — MOO2 啟動鏈的 8 位暫存器 SUB](202-cpu386-moo2-sub-byte-register.md)：CONFORMED，僅限 `28 /r` 的暫存器形狀；合成環境診斷至下個通用段載入缺口。
+- [203 — MOO2 啟動鏈的 ES 覆寫段載入](203-cpu386-es-word-segment-load.md)：CONFORMED。`26 66 8E 1D` 的 16 位 selector 絕對位址讀取，保留載入與段界限檢查。
+- [204 — 暫存器立即數 MOV 前的 DS 前綴](204-cpu386-ds-prefix-register-immediate.md)：CONFORMED。`3E B8..BF` 不含記憶體運算元，前綴不改立即數或旗標。
+- [205 — ES 覆寫的 byte 暫存器／記憶體比較](205-cpu386-es-byte-compare-register-memory.md)：CONFORMED。`26 3A /r` 從 ES 讀取來源 byte，依既有 `sub8` 更新旗標。
+- [206 — 32 位堆疊的 PUSH GS](206-cpu386-push-gs.md)：CONFORMED，僅限所列 32 位堆疊形狀；合成環境診斷抵達下一個通用 CPU 缺口。

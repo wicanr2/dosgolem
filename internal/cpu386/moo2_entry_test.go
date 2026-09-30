@@ -39,6 +39,19 @@ func TestDSOverrideBeforeMOVEDXImmediate(t *testing.T) {
 	}
 }
 
+func TestDSOverrideBeforeMOVECXImmediate(t *testing.T) {
+	c := New(testBus{0x3e, 0xb9, 0x50, 0x21, 0x1c, 0x00})
+	c.R[ECX], c.R[EDX], c.EFlags = 0xdeadbeef, 0x12345678, IF|CF
+	if err := c.Step(); err != nil || c.EIP != 6 || c.R[ECX] != 0x1c2150 || c.R[EDX] != 0x12345678 || c.EFlags != IF|CF {
+		t.Fatalf("DS 覆寫不應影響 ECX 立即數 MOV：EIP=%X ECX=%X EDX=%X flags=%X err=%v", c.EIP, c.R[ECX], c.R[EDX], c.EFlags, err)
+	}
+	c = New(testBus{0x66, 0x3e, 0xb9, 0x34, 0x12})
+	c.R[ECX], c.EFlags = 0xabcd0000, IF|CF
+	if err := c.Step(); err != nil || c.EIP != 5 || c.R[ECX] != 0xabcd1234 || c.EFlags != IF|CF {
+		t.Fatalf("16 位立即數仍須保留 ECX 高位：EIP=%X ECX=%X flags=%X err=%v", c.EIP, c.R[ECX], c.EFlags, err)
+	}
+}
+
 func TestWordCMPAbsoluteFromMOO2Entry(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
