@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -31,6 +31,7 @@ capture_lea_cs = sys.argv[1:] == ['--lea-cs']
 capture_startup_value = sys.argv[1:] == ['--startup-value']
 capture_mouse_query = sys.argv[1:] == ['--mouse-query']
 capture_mouse_function_21 = sys.argv[1:] == ['--mouse-function-21']
+capture_mouse_function_1a = sys.argv[1:] == ['--mouse-function-1a']
 capture_es_store = sys.argv[1:] == ['--es-store']
 capture_or_al_ah = sys.argv[1:] == ['--or-al-ah']
 capture_ror_imm8 = sys.argv[1:] == ['--ror-imm8']
@@ -45,7 +46,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -390,7 +391,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             records['lea_cs_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['lea_cs_log_before'] = lines[0]
             records['lea_cs_log_after'] = lines[1]
-        if capture_startup_value or capture_mouse_query or capture_mouse_function_21 or capture_es_store:
+        if capture_startup_value or capture_mouse_query or capture_mouse_function_21 or capture_mouse_function_1a or capture_es_store:
             cmd('BPDEL *')
             cmd('BP 0180:00348105')
             cmd('RUN', 8)
@@ -415,7 +416,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             (root / (mode + 'logcpu.txt')).write_bytes(log_bytes)
             records['startup_value_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
             records['startup_value_first_lea'] = first_lea
-            if capture_mouse_query or capture_mouse_function_21 or capture_es_store:
+            if capture_mouse_query or capture_mouse_function_21 or capture_mouse_function_1a or capture_es_store:
                 mouse_call = next((line for line in lines if line.startswith('0180:0038031B')), None)
                 if not mouse_call or ' EAX:00000003 ' not in mouse_call:
                     raise RuntimeError('MOO2 滑鼠位置查詢輸入不符: ' + repr(mouse_call))
@@ -427,7 +428,8 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if not match:
                     raise RuntimeError('MOO2 滑鼠查詢返回斷點未命中: ' + repr(snapshots))
                 records['mouse_query_after'] = match
-                if capture_mouse_function_21:
+                if capture_mouse_function_21 or capture_mouse_function_1a:
+                    prior_prefix = 'mouse-function-1a-prior-21-' if capture_mouse_function_1a else 'mouse-function-21-'
                     cmd('BPDEL *')
                     cmd('BP 0180:0038031B')
                     cmd('RUN', 8)
@@ -445,7 +447,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                     return_lines = return_log.decode('latin1').splitlines()
                     if len(return_lines) != 512 or not return_lines[0].startswith('0180:0038031B') or ' EAX:00000021 ' not in return_lines[0]:
                         raise RuntimeError('MOO2 第二次滑鼠連續指令起點不符: ' + repr(return_lines[:2]))
-                    (root / 'mouse-function-21-call-logcpu.txt').write_bytes(return_log)
+                    (root / (prior_prefix + 'call-logcpu.txt')).write_bytes(return_log)
                     records['mouse_function_21_call_log_sha256'] = hashlib.sha256(return_log).hexdigest()
                     cmd('BP 0180:0038031D')
                     cmd('RUN', 8)
@@ -459,8 +461,41 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                     if len(return_lines) != 32 or not return_lines[0].startswith('0180:0038031D'):
                         raise RuntimeError('MOO2 第二次滑鼠返回指令序列不符: ' + repr(return_lines[:2]))
                     records['mouse_function_21_return_log_line'] = return_lines[0]
-                    (root / 'mouse-function-21-return-logcpu.txt').write_bytes(return_log)
+                    (root / (prior_prefix + 'return-logcpu.txt')).write_bytes(return_log)
                     records['mouse_function_21_return_log_sha256'] = hashlib.sha256(return_log).hexdigest()
+                    if capture_mouse_function_1a:
+                        cmd('BP 0180:0038031B')
+                        cmd('RUN', 8)
+                        snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS', 0.8))
+                        match = next((value for value in snapshots if value[:2] == ['180', '38031b'] and int(value[2], 16) & 0xffff == 0x1a), None)
+                        if not match:
+                            raise RuntimeError('MOO2 第三次滑鼠呼叫 AX=1Ah 未命中: ' + repr(snapshots))
+                        records['mouse_function_1a_ev_candidate'] = match
+                        cmd('BPDEL *')
+                        log.unlink(missing_ok=True)
+                        cmd('LOG 200', 12)
+                        if not log.is_file():
+                            raise RuntimeError('MOO2 AX=1Ah 連續 LOGCPU.TXT 未產生')
+                        call_log = log.read_bytes()
+                        call_lines = call_log.decode('latin1').splitlines()
+                        if len(call_lines) != 512 or not call_lines[0].startswith('0180:0038031B') or ' EAX:0000001A ' not in call_lines[0]:
+                            raise RuntimeError('MOO2 AX=1Ah 連續指令起點不符: ' + repr(call_lines[:2]))
+                        (root / 'mouse-function-1a-call-logcpu.txt').write_bytes(call_log)
+                        records['mouse_function_1a_call_log_sha256'] = hashlib.sha256(call_log).hexdigest()
+                        cmd('BP 0180:0038031D')
+                        cmd('RUN', 8)
+                        cmd('BPDEL *')
+                        log.unlink(missing_ok=True)
+                        cmd('LOG 20', 6)
+                        if not log.is_file():
+                            raise RuntimeError('MOO2 AX=1Ah 返回 LOGCPU.TXT 未產生')
+                        return_log = log.read_bytes()
+                        return_lines = return_log.decode('latin1').splitlines()
+                        if len(return_lines) != 32 or not return_lines[0].startswith('0180:0038031D'):
+                            raise RuntimeError('MOO2 AX=1Ah 返回指令序列不符: ' + repr(return_lines[:2]))
+                        records['mouse_function_1a_return_log_line'] = return_lines[0]
+                        (root / 'mouse-function-1a-return-logcpu.txt').write_bytes(return_log)
+                        records['mouse_function_1a_return_log_sha256'] = hashlib.sha256(return_log).hexdigest()
                 if capture_mouse_query:
                     cmd('BPDEL *')
                     log.unlink(missing_ok=True)

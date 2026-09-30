@@ -504,10 +504,12 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		m.CPU.R[cpu386.EBX] != 0 || m.CPU.R[cpu386.ECX] != 0 || m.CPU.R[cpu386.EDX] != 0 {
 		t.Fatalf("滑鼠重設前態：step=%d EIP=%X R=%X", step, m.CPU.EIP, m.CPU.R)
 	}
+	resetStep := step
 	beforeR, beforeSeg, beforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
 	if err := m.CPU.Step(); err != nil {
 		t.Fatalf("滑鼠重設單步失敗：%v", err)
 	}
+	step++
 	wantR = beforeR
 	wantR[cpu386.EAX], wantR[cpu386.EBX] = 0xffff, 3
 	if m.CPU.EIP != resetStop+2 || m.CPU.R != wantR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags {
@@ -518,6 +520,7 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 		if err := m.CPU.Step(); err != nil {
 			t.Fatalf("滑鼠重設 record 消費端第 %d 步：%v", consumed, err)
 		}
+		step++
 	}
 	if m.CPU.EIP != resetConsumerStop {
 		t.Fatalf("滑鼠重設 record 消費端未抵達：EIP=%X", m.CPU.EIP)
@@ -528,7 +531,43 @@ func TestMOO2MouseQueryCheckpointWhenProvided(t *testing.T) {
 			t.Fatalf("滑鼠重設 record +%X=%X want=%X err=%v", offset, got, want, err)
 		}
 	}
-	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=21h 回 AX=FFFFh、BX=3，record 前四欄已讀回", step)
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=21h 回 AX=FFFFh、BX=3，record 前四欄已讀回", resetStep)
+	for m.CPU.EIP != resetStop && step < 6600 {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("滑鼠敏感度設定前第 %d 步：%v", step, err)
+		}
+		step++
+	}
+	if step != 6126 || m.CPU.EIP != resetStop || m.CPU.R[cpu386.EAX] != 0x1a ||
+		m.CPU.R[cpu386.EBX] != 0 || m.CPU.R[cpu386.ECX] != 0 || m.CPU.R[cpu386.EDX] != 0 ||
+		services.mouseSensitivityX != 50 || services.mouseSensitivityY != 50 || services.mouseDoubleSpeed != 50 {
+		t.Fatalf("滑鼠敏感度設定前態：step=%d EIP=%X R=%X raw=%d,%d,%d", step, m.CPU.EIP, m.CPU.R,
+			services.mouseSensitivityX, services.mouseSensitivityY, services.mouseDoubleSpeed)
+	}
+	beforeR, beforeSeg, beforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+	if err := m.CPU.Step(); err != nil {
+		t.Fatalf("滑鼠敏感度設定單步失敗：%v", err)
+	}
+	if m.CPU.EIP != resetStop+2 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != beforeFlags ||
+		services.mouseSensitivityX != 0 || services.mouseSensitivityY != 0 || services.mouseDoubleSpeed != 0 {
+		t.Fatalf("滑鼠敏感度設定後態：EIP=%X R=%X flags=%X raw=%d,%d,%d", m.CPU.EIP, m.CPU.R,
+			m.CPU.EFlags, services.mouseSensitivityX, services.mouseSensitivityY, services.mouseDoubleSpeed)
+	}
+	for consumed := 0; m.CPU.EIP != resetConsumerStop && consumed < 16; consumed++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatalf("滑鼠敏感度 record 消費端第 %d 步：%v", consumed, err)
+		}
+	}
+	if m.CPU.EIP != resetConsumerStop {
+		t.Fatalf("滑鼠敏感度 record 消費端未抵達：EIP=%X", m.CPU.EIP)
+	}
+	for offset, want := range map[uint32]uint32{0: 0x1a, 4: 0, 8: 0, 12: 0} {
+		got, err := m.Read32(m.CPU.R[cpu386.EDI] + offset)
+		if err != nil || got != want {
+			t.Fatalf("滑鼠敏感度 record +%X=%X want=%X err=%v", offset, got, want, err)
+		}
+	}
+	t.Logf("固定 1.31 原檔、合成環境：第 %d 步 INT 33h/AX=1Ah 保留暫存器，record 前四欄已讀回", step)
 }
 
 func TestFD2EntryPrefixWhenProvided(t *testing.T) {

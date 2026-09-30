@@ -64,6 +64,39 @@ func TestMOO2ProtectedMouseSoftwareReset(t *testing.T) {
 	}
 }
 
+func TestMOO2ProtectedMouseZeroSensitivity(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	s := NewMOO2StartupDOS(nil)
+	if s.mouseSensitivityX != 50 || s.mouseSensitivityY != 50 || s.mouseDoubleSpeed != 50 {
+		t.Fatalf("MOO2 受控敏感度初態=%d,%d,%d", s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed)
+	}
+	s.SetMouseState(417, 122, 2)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags =
+		0xabcd001a, 0x11110000, 0x22220000, 0x33330000, 0x212
+	beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+	if !s.Handle(c, 0x33) || c.R != beforeR || c.Seg != beforeSeg || c.EFlags != beforeFlags ||
+		s.mouseSensitivityX != 0 || s.mouseSensitivityY != 0 || s.mouseDoubleSpeed != 0 {
+		t.Fatalf("MOO2 零敏感度設定：R=%X flags=%X raw=%d,%d,%d", c.R, c.EFlags,
+			s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed)
+	}
+	c.R[cpu386.EAX] = 3
+	if !s.Handle(c, 0x33) || c.R[cpu386.EBX] != 0x11110002 ||
+		c.R[cpu386.ECX] != 0x222201a1 || c.R[cpu386.EDX] != 0x3333007a {
+		t.Fatalf("敏感度設定不應改受控位置與按鍵：R=%X", c.R)
+	}
+	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x1a, 0x11110001
+	beforeR = c.R
+	if s.Handle(c, 0x33) || c.R != beforeR || s.mouseSensitivityX != 0 {
+		t.Fatal("非零敏感度輸入須拒絕且保留狀態")
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	c.R[cpu386.EBX] = 0
+	beforeR = c.R
+	if fd2.Handle(c, 0x33) || c.R != beforeR {
+		t.Fatal("一般 FD2 啟動設定不得接受 MOO2 專用敏感度設定")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)

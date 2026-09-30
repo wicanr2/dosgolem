@@ -381,3 +381,4 @@
 - [227 — POP dword 至 DS:[EDI+disp8]](227-cpu386-pop-edi-disp8.md)：CONFORMED。固定原檔越過 `8F 47 14`，合成診斷至 `66 8C 03`；原版非零來源未獨立擷取。
 - [228 — 將 ES 的 word 寫入 DS:[EBX]](228-cpu386-mov-es-to-ds-ebx-word.md)：CONFORMED。原版同次 LOG 與前後記憶體、固定原檔整合測試已核對；非相等搬移依 CPU 契約及合成測試，下一停點為 `INT 33h/AX=21h`。
 - [229 — MOO2 保護模式滑鼠軟體重設](229-moo2-protected-mouse-software-reset.md)：CONFORMED。固定原版同次呼叫與返回、caller 消費端及 dosgolem 原檔整合測試通過；內部滑鼠狀態依 DOSBox-X 契約標示近似，下一停點為 `INT 33h/AX=1Ah`。
+- [230 — MOO2 保護模式滑鼠零敏感度設定](230-moo2-protected-mouse-zero-sensitivity.md)：CONFORMED。固定原版同次入口／返回、caller record 及 dosgolem 原檔整合測試通過；下一停點為 `INT 10h`，移動係數仍未建模。

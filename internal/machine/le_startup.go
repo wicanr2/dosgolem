@@ -29,10 +29,12 @@ type FD2StartupDOS struct {
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
 	moo2Profile bool
-	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／21h 使用。
+	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／1Ah／21h 使用。
 	mouseQueryEnabled bool
 	mouseX, mouseY    uint16
 	mouseButtons      uint16
+	// AX=1Ah 的 raw 設定；零值不改未建模的移動速度（規格 230）。
+	mouseSensitivityX, mouseSensitivityY, mouseDoubleSpeed uint16
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
 	//
@@ -73,6 +75,7 @@ func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	s.moo2Profile = true
 	s.mouseQueryEnabled = true
 	s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
+	s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 50, 50, 50
 	return &MOO2StartupDOS{s}
 }
 
@@ -398,6 +401,12 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseButtons)
 			c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseX)
 			c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseY)
+			return true
+		case 0x1a:
+			if uint16(c.R[cpu386.EBX]) != 0 || uint16(c.R[cpu386.ECX]) != 0 || uint16(c.R[cpu386.EDX]) != 0 {
+				return false
+			}
+			s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 0, 0, 0
 			return true
 		case 0x21:
 			// 規格 229：僅固定 MOO2 啟動基準的三按鍵與受控中心座標。
