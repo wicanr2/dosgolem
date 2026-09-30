@@ -141,6 +141,8 @@ func main() {
 		if services.Exited {
 			fmt.Printf("dos_exit step=%d code=%d after_eip=0x%X console=%q\n",
 				i, services.ExitCode, m.CPU.EIP, services.Console)
+			fmt.Printf("dos_exit_memory image_bytes=%d dpmi_calls=%v dpmi_unimplemented=%v dos_blocks=%v linear_blocks=%v\n",
+				len(m.Mem), services.DPMI.Calls, services.DPMI.Unimplemented, services.DPMI.DOSMemory(), services.DPMI.Blocks())
 			return
 		}
 	}

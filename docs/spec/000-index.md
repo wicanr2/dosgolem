@@ -384,4 +384,4 @@
 - [230 — MOO2 保護模式滑鼠零敏感度設定](230-moo2-protected-mouse-zero-sensitivity.md)：CONFORMED。固定原版同次入口／返回、caller record 及 dosgolem 原檔整合測試通過；下一停點為 `INT 10h`，移動係數仍未建模。
 - [231 — MOO2 保護模式視訊模式 03h 啟動呼叫](231-moo2-protected-video-mode-03.md)：CONFORMED。固定原版與 dosgolem 的受限模式呼叫已核對；合成環境後續因缺 `MOX.SET` 以代碼 1 結束。
 - [232 — 16 位元記憶體與立即數比較](232-cpu386-cmp-rm16-imm16.md)：CONFORMED。空 `MOX.SET` 的原版 LOG、dosgolem 固定原檔與合成測試通過；完整本機資料下一停點是 `66 F7 /0`。
-- [233 — 16 位元記憶體與立即數 TEST](233-cpu386-test-rm16-imm16.md)：CONFORMED。CPU 測試與正版資料診斷已越過第 288215 步；原版同狀態斷點仍未命中，下一自然結果是合成環境的記憶體不足退出。
+- [233 — 16 位元記憶體與立即數 TEST](233-cpu386-test-rm16-imm16.md)：CONFORMED。CPU 測試與正版資料診斷已越過第 288215 步；原版同狀態斷點仍未命中。合成記憶體退出已定位至 DOS 低位游標與線性配置不重用，需另立規格。

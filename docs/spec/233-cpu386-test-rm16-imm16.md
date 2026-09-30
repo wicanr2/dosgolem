@@ -21,3 +21,5 @@
 ## CONFORMED 收據
 
 `internal/cpu386/cpu.go` 已在既有 `F7 /0` word 分支支援記憶體來源；合成測試涵蓋上列輸入與失敗邊界。`DOSGOLEM_MOO2_EXE=/tmp/ORION2.EXE go test -buildvcs=false ./... -count=1` 全通過。以相同正版根層 417 檔案自行重生的 dosgolem 探針，已越過第 288215 步，最後於第 295276 步透過 DOS 退出服務，以代碼 1 回報 `Insufficient Memory!`、要求 8192 bytes、DOS space remaining 0 bytes；私有 `workplace/moo2-probe-233-full-game.txt` SHA-256 `c75e200fda4251e97752600df06c84c14d2fbc27eb232afcd50f60936d79e744`。這是合成環境的記憶體／服務阻塞，不是原版記憶體需求或玩法結果已被證實。下一步先比較 DOS 記憶體服務的玩家可見邊界與環境設定，不從退出訊息推導原版固定記憶體配置。
+
+後續只讀稽核在同一路徑的退出點記錄：初始 LE 映像 1,891,536 bytes；DPMI `0100h` 2 次、`0501h` 126 次、`0502h` 122 次；沒有未實作 DPMI 呼叫，退出時線性記憶體長 66,285,568 bytes、只有兩個仍在配置的線性區塊。私有 `workplace/moo2-probe-memory-audit.txt` SHA-256 `05a3295912c263601e75dcf1933fd6ad14022edebd9e3a072e4d6f47be165d`。程式碼已證實 `setLimits` 把 DOS 游標設為 LE 映像尾端，這大於 640 KiB 上限，故兩次 `0100h` 在此合成環境無法成功；`0502h` 刪除區塊帳本而 `0501h` 的線性游標單調增加，64 MiB 上限附近亦未回收空間。這些是執行器內部事實，原版可見記憶體策略與實際分配地址仍未知；後續須以獨立記憶體規格處理，不在 CPU 規格內猜補。
