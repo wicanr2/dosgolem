@@ -706,8 +706,16 @@ func (c *CPU) Step() error {
 		}
 		c.setReg8(EAX, value)
 	case op == 0xa9:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if segmentOverride >= 0 || repe || repne {
 			return fail("TEST EAX prefix 尚未支援")
+		}
+		if operand16 {
+			value, e := c.fetch16()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.setLogicFlags16(uint16(c.R[EAX]) & value)
+			break
 		}
 		value, e := c.fetch32()
 		if e != nil {

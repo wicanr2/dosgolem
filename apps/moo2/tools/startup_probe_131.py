@@ -19,19 +19,21 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--test-word'], ['--dta'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--test-word|--dta|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
 capture_enter = sys.argv[1:] == ['--enter']
 capture_cmp_word = sys.argv[1:] == ['--cmp-word']
+capture_test_word = sys.argv[1:] == ['--test-word']
+capture_dta = sys.argv[1:] == ['--dta']
 capture_xchg = sys.argv[1:] == ['--xchg']
 capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -300,6 +302,49 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             (root / 'cmp-word-after.bin').write_bytes(after)
             records['cmp_word_memory_before_hex'] = before.hex()
             records['cmp_word_memory_after_hex'] = after.hex()
+        if capture_test_word:
+            cmd('BPDEL *')
+            cmd('BP 0180:0034A570')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV CS EIP EAX EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '34a570']), None)
+            if not match or len(match) != 4:
+                raise RuntimeError('MOO2 66 A9 89 CF 候選前斷點未命中: ' + repr(snapshots))
+            records['test_word_before'] = match
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 2', 6)
+            snapshots = registers(cmd('EV CS EIP EAX EFLAGS', 0.8))
+            after_match = next((value for value in snapshots if value[:2] == ['180', '34a574']), None)
+            if not after_match:
+                raise RuntimeError('MOO2 66 A9 89 CF 連續 LOG 後未到下一指令: ' + repr(snapshots))
+            records['test_word_after'] = after_match
+            if not log.is_file():
+                raise RuntimeError('MOO2 TEST LOGCPU.TXT 未產生')
+            log_bytes = log.read_bytes()
+            lines = log_bytes.decode('latin1').splitlines()
+            if len(lines) != 2 or not lines[0].startswith('0180:0034A570') or not lines[1].startswith('0180:0034A574'):
+                raise RuntimeError('MOO2 TEST 同次 LOG 指令序列不符: ' + repr(lines))
+            (root / 'test-word-logcpu.txt').write_bytes(log_bytes)
+            records['test_word_log_sha256'] = hashlib.sha256(log_bytes).hexdigest()
+        if capture_dta:
+            cmd('BPDEL *')
+            cmd('BP 0180:0035DA53')
+            cmd('RUN', 10)
+            snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES SS ESP EFLAGS', 0.8))
+            match = next((value for value in snapshots if value[:2] == ['180', '35da53']), None)
+            if not match:
+                raise RuntimeError('MOO2 AH=1Ah 候選呼叫位址未命中: ' + repr(snapshots))
+            records['dta_before'] = match
+            cmd('BPDEL *')
+            cmd('BP 0180:0035DA55')
+            cmd('RUN', 6)
+            snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX DS ES SS ESP EFLAGS', 0.8))
+            after_match = next((value for value in snapshots if value[:2] == ['180', '35da55']), None)
+            if not after_match:
+                raise RuntimeError('MOO2 AH=1Ah 返回位址未命中: ' + repr(snapshots))
+            records['dta_after'] = after_match
         if capture_xchg:
             for name, location in [('xchg_before', '37571d'), ('xchg_after', '37571f')]:
                 cmd('BPDEL *')
