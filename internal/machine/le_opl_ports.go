@@ -109,6 +109,9 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 		if port == 0x20 && !p.picReadISR[0] && p.BIOSClock != nil && p.BIOSClock.Pending {
 			v |= 1
 		}
+		if port == 0x20 && p.picReadISR[0] && p.BIOSClock != nil && p.BIOSClock.InService {
+			v |= 1
+		}
 		p.record(port, v, false)
 		return v, true
 	}
@@ -180,7 +183,11 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 	}
 
 	if port == 0x20 && v == 0x20 {
-		p.picInService = false
+		if p.BIOSClock != nil && p.BIOSClock.InService {
+			p.BIOSClock.InService = false
+		} else {
+			p.picInService = false
+		}
 		p.record(port, v, true)
 		return true
 	}

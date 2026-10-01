@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -113,6 +114,18 @@ func main() {
 	var dtaOffset uint32
 	dtaSet := false
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number == 0x21 && (uint8(c.R[cpu386.EAX]>>8) == 0x25 || uint8(c.R[cpu386.EAX]>>8) == 0x35) {
+			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+			handled := services.Handle(c, number)
+			fmt.Printf("dos_vector_service eip=0x%X input=%X input_seg=%X input_flags=0x%X handled=%t output=%X output_seg=%X output_flags=0x%X\n", c.EIP-2, beforeR, beforeSeg, beforeFlags, handled, c.R, c.Seg, c.EFlags)
+			return handled
+		}
+		if number == 0x31 && uint16(c.R[cpu386.EAX]) >= 0x200 && uint16(c.R[cpu386.EAX]) <= 0x205 {
+			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+			handled := services.Handle(c, number)
+			fmt.Printf("dpmi_vector_service eip=0x%X input=%X input_seg=%X input_flags=0x%X handled=%t output=%X output_seg=%X output_flags=0x%X\n", c.EIP-2, beforeR, beforeSeg, beforeFlags, handled, c.R, c.Seg, c.EFlags)
+			return handled
+		}
 		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x1a {
 			selector, offset := c.Seg[cpu386.SegDS], c.R[cpu386.EDX]
 			handled := services.Handle(c, number)
@@ -185,7 +198,11 @@ func main() {
 	fmt.Printf("loaded=true entry=0x%X esp=0x%X bytes=%d\n", m.CPU.EIP, m.CPU.R[cpu386.ESP], len(m.Mem))
 	fmt.Printf("entry_bytes=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+16])
 	fmt.Printf("entry_window=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+80])
+	mouseEventInjected := false
 	dumpVBE := func() {
+		fmt.Printf("controlled_mouse_event_requested=%t injected=%t\n", os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1", mouseEventInjected)
+		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+		fmt.Printf("protected_irq0 active=%t failed=%t started=%d completed=%d\n", irqActive, irqFailed, irqStarted, irqCompleted)
 		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
 			seg8, off8 := services.DPMI.RealModeVector(8)
 			seg1c, off1c := services.DPMI.RealModeVector(0x1c)
@@ -226,7 +243,6 @@ func main() {
 		eip, esp, esi, eax uint32
 	}
 	ring := make([]sample, 0, 32)
-	mouseEventInjected := false
 	for i := 0; i < maxSteps; i++ {
 		mouseEventRequested := os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || (os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1" && mousePositionSet)
 		if mouseEventRequested && !mouseEventInjected && m.CPU.EFlags&cpu386.IF != 0 {
@@ -309,6 +325,10 @@ func main() {
 			fmt.Printf("sign_branch_input step=%d eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
 		}
 		if err := m.CPU.Step(); err != nil {
+			var instructionError *cpu386.Error
+			if errors.As(err, &instructionError) && uint64(instructionError.EIP)+16 <= uint64(len(m.Mem)) {
+				fmt.Printf("guest_cpu_stop address_space=dosgolem_high_le eip=0x%X bytes=% X\n", instructionError.EIP, m.Mem[instructionError.EIP:instructionError.EIP+16])
+			}
 			mask, pending, active, started, completed := services.MouseCallbackState()
 			fmt.Printf("mouse_callback mask=%X pending=%d active=%t started=%d completed=%d\n", mask, pending, active, started, completed)
 			fmt.Printf("step_error step=%d eip=0x%X eax=0x%X ebx=0x%X ecx=0x%X edx=0x%X es=0x%X ds=0x%X ss=0x%X flags=0x%X dos_calls=%d error=%v\n", i, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.Seg[cpu386.SegES], m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS], m.CPU.EFlags, services.Calls(), err)

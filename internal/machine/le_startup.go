@@ -63,13 +63,14 @@ type FD2StartupDOS struct {
 	// 這一支剩下的部分還是 FD2 專屬的（啟動握手、selector 值），
 	// 但 DPMI 那一層已經搬出去了——換一支 DOS/4GW 程式時它照用，
 	// 不必再抄一份（`docs/spec/184-mvp-scope-review` 批次 2）。
-	DPMI        *DPMIHost
-	dosVectors  [256]uint64
-	dtaSelector uint16
-	dtaOffset   uint32
-	dtaSet      bool
-	files       ReadOnlyFileProvider
-	table       *dosfile.Table
+	DPMI          *DPMIHost
+	dosVectors    [256]uint64
+	protectedIRQ0 *leProtectedIRQ0
+	dtaSelector   uint16
+	dtaOffset     uint32
+	dtaSet        bool
+	files         ReadOnlyFileProvider
+	table         *dosfile.Table
 }
 
 var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E', 0}
@@ -131,6 +132,7 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 		return errors.New("MOO2 BIOS 時鐘安裝失敗")
 	}
 	s.FD2StartupDOS.AttachMachine(m)
+	s.protectedIRQ0 = installLEProtectedIRQ0(m, s.FD2StartupDOS, ports)
 	s.mouseCallback = installLEMouseCallback(m, s.DPMI)
 	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
 	s.DPMI.RealModeIO = ports
@@ -595,14 +597,42 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		return s.findFirstExact(c)
 	}
 	if function == 0x35 {
+		if s.protectedIRQ0 != nil && s.protectedIRQ0.m.CPU != c {
+			return false
+		}
 		vector := s.dosVectors[vectorNumber]
+		if s.protectedIRQ0 != nil && vector == 0 {
+			var ok bool
+			vector, ok = s.protectedIRQ0.defaultVector(vectorNumber)
+			if !ok {
+				return false
+			}
+			s.dosVectors[vectorNumber] = vector
+		}
+		if s.protectedIRQ0 != nil {
+			if !s.protectedIRQ0.validTarget(c, vector) {
+				return false
+			}
+			if s.protectedIRQ0.isDefault(vector, vectorNumber) {
+				if _, ok := s.protectedIRQ0.defaultVector(vectorNumber); !ok {
+					return false
+				}
+			}
+		}
 		c.Seg[cpu386.SegES] = uint16(vector >> 32)
 		c.R[cpu386.EBX] = uint32(vector)
 		c.EFlags &^= cpu386.CF
 		return true
 	}
 	if function == 0x25 {
-		s.dosVectors[vectorNumber] = uint64(c.Seg[cpu386.SegDS])<<32 | uint64(c.R[cpu386.EDX])
+		if s.protectedIRQ0 != nil && s.protectedIRQ0.m.CPU != c {
+			return false
+		}
+		vector := uint64(c.Seg[cpu386.SegDS])<<32 | uint64(c.R[cpu386.EDX])
+		if s.protectedIRQ0 != nil && !s.protectedIRQ0.validTarget(c, vector) {
+			return false
+		}
+		s.dosVectors[vectorNumber] = vector
 		c.EFlags &^= cpu386.CF
 		return true
 	}

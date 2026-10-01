@@ -137,6 +137,10 @@ func (s *MOO2StartupDOS) MouseCallbackState() (mask uint16, pending int, active 
 }
 
 func (d *leMouseCallbackDispatcher) step(c *cpu386.CPU) (bool, error) {
+	if ports, ok := d.dpmi.RealModeIO.(*LEOPLPorts); ok && ports.BIOSClock != nil &&
+		ports.BIOSClock.protectedIRQ0 != nil && ports.BIOSClock.protectedIRQ0.active {
+		return false, nil
+	}
 	if d.active {
 		op, err := c.Bus.Read8(c.EIP)
 		if err != nil || op != 0xcb {

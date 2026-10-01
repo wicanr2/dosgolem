@@ -56,3 +56,9 @@ Go 1.24.13 固定原版全套 `DOSGOLEM_MOO2_EXE=/tmp/game/ORION2.EXE GOMAXPROCS
 三張 PNG 都保持已檢視黑圖 SHA-256 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`，Active=true、Bank=2、StartY=0、BankSets=441、Writes=4046164、DisplaySets=6；索引 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`、RGB `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`，不重做相同圖像的目視驗收。
 
 276 限定 PIT 模式 2／3 的合法設定與共享週期近似 CONFORMED；原版模式 2 的三筆寫入已自行重生，時鐘測試不代表原版逐週期一致。255 仍 READY；主選單、正常玩家操作、音效、受控亂數及 Go remake 玩法同狀態未完成。下一最小行動只讀核對 DOS 向量服務 `INT 21h/AH=25h／35h` 的實際參數與平台保存／派送接線，既有 s.dosVectors 與實模式 IVT 為不同儲存；尚未證實 08h 已安裝於該表。公開 IRQ 契約足夠即停止，不反組譯 driver／ISR／busy-wait、不追實機時鐘。
+
+## DOS08h 派送接線與擷取護欄後續
+
+DOS08h 派送缺口已由規格 277 接線（原版返回仍未閉合），見 [277-moo2-dos4gw-protected-irq0.md](277-moo2-dos4gw-protected-irq0.md)。只讀向量證據與公開 DOS/4GW 契約支持受限橋接；現行自然路徑已進原版處理器，却在高位 LE 0x244D9A 的 CS 記憶體比較拒絕，不再以 50M 未派送的等待作為目前前沿。276 的限定 PIT 設定／共享週期近似 CONFORMED 保持；277 READY、255 READY。
+
+277 也訂正上一轮誤落 CMP 分支的返回護欄，并以既有真實收據驗證；本项實際 PIT 消费端仍在 0180:0036DAFB，原始收據不失效。具體失败原因、原始索引及證明集中于 277，不改歷史來源。

@@ -113,7 +113,7 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 			}
 		}
 	}
-	if p.picPending && !p.picInService && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
+	if p.picPending && !p.picInService && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
 		if len(m.Mem) < 64 {
 			return fmt.Errorf("IRQ7 IVT不可讀")
 		}

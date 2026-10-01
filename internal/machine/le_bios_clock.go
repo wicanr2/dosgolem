@@ -8,11 +8,21 @@ import (
 
 // LEBIOSClock 為預設BIOS計時服務；指令時間為明示近似，不是實機週期。
 type LEBIOSClock struct {
-	Micros     uint64
-	Deliveries uint64
-	Pending    bool
-	credit     uint64
-	generation uint64
+	Micros        uint64
+	Deliveries    uint64
+	Pending       bool
+	InService     bool
+	protectedIRQ0 *leProtectedIRQ0
+	credit        uint64
+	generation    uint64
+}
+
+// String 排除橋接器的主機指標，讓只讀診斷不混入每次執行不同的位址。
+func (b *LEBIOSClock) String() string {
+	if b == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("&{Micros:%d Deliveries:%d Pending:%t InService:%t credit:%d generation:%d}", b.Micros, b.Deliveries, b.Pending, b.InService, b.credit, b.generation)
 }
 
 func InstallLEBIOSClock(m *LEMachine, p *LEOPLPorts) bool {
@@ -33,6 +43,9 @@ func InstallLEBIOSClock(m *LEMachine, p *LEOPLPorts) bool {
 	return true
 }
 func (b *LEBIOSClock) advance(m *LEMachine, p *LEOPLPorts, enabled bool) error {
+	if b.protectedIRQ0 != nil && b.protectedIRQ0.failed {
+		return fmt.Errorf("IRQ0 橋接已失敗，不可繼續計時")
+	}
 	if len(m.Mem) < 0x471 {
 		return fmt.Errorf("BIOS時鐘資料區不可讀寫")
 	}
@@ -65,12 +78,26 @@ func (b *LEBIOSClock) advance(m *LEMachine, p *LEOPLPorts, enabled bool) error {
 	return b.deliver(m, p, enabled)
 }
 func (b *LEBIOSClock) deliver(m *LEMachine, p *LEOPLPorts, enabled bool) error {
-	if !b.Pending || !enabled || p.picMasks[0]&1 != 0 {
+	if !b.Pending || !enabled || p.picMasks[0]&1 != 0 || b.InService || b.protectedIRQ0 != nil && b.protectedIRQ0.active {
 		return nil
 	}
 	for _, n := range []int{8, 0x1c} {
 		if binary.LittleEndian.Uint32(m.Mem[n*4:]) != 0 {
 			return fmt.Errorf("BIOS時鐘尚不支援客製INT%02X", n)
+		}
+	}
+	if b.protectedIRQ0 != nil {
+		vector := b.protectedIRQ0.s.dosVectors[0x1c]
+		if vector != 0 && !b.protectedIRQ0.isDefault(vector, 0x1c) {
+			return fmt.Errorf("BIOS時鐘尚不支援保護模式客製INT1C")
+		}
+		if b.protectedIRQ0.isDefault(vector, 0x1c) {
+			if _, ok := b.protectedIRQ0.defaultVector(0x1c); !ok {
+				return fmt.Errorf("BIOS時鐘預設INT1C已污染或不可讀")
+			}
+		}
+		if handled, err := b.protectedIRQ0.dispatch(); handled || err != nil {
+			return err
 		}
 	}
 	value := binary.LittleEndian.Uint32(m.Mem[0x46c:]) + 1

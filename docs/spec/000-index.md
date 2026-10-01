@@ -426,5 +426,6 @@
 - [272 — 16 位元記憶體的遞增](272-cpu386-inc-word-memory.md)：CONFORMED。word 記憶體 INC、CF／五旗標與下一 A1 已驗；自然路徑顯示 Simtex 標誌；短 JS 停點已由規格 273 接通，仍未進入主選單。
 - [273 — 短距離負號與非負號分支](273-cpu386-short-sign-branches.md)：CONFORMED。JS／JNS 的完整條件／位移／保持狀態及有限原版分支已驗；步數上限擷取已修正，word XOR 停點已由規格 274 接通，仍未進入主選單。
 - [274 — 16 位元暫存器間的 XOR](274-cpu386-xor-word-register.md)：CONFORMED（有限 CPU／下一段載入）。原版 word XOR 高半部／定義旗標與 MOV ES 消費、全套及兩條自然路徑已驗；VTD 空入口停點已由規格 275 接通。
-- [275 — MOO2 未安裝 VTD 的裝置入口查詢](275-moo2-protected-vtd-entry-query.md)：CONFORMED（限定未安裝 VTD 的平台查詢）。完整返回保持、原版 record 保存／讀取及兩條自然路徑已驗；下一停點為 OUT 43h/AL=34h。
-- [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED。公開控制字／非法重載邊界具備，待固定原版參數與有限消費。
+- [275 — MOO2 未安裝 VTD 的裝置入口查詢](275-moo2-protected-vtd-entry-query.md)：CONFORMED（限定未安裝 VTD 的平台查詢）。完整返回保持、原版 record 保存／讀取及兩條自然路徑已驗；PIT 模式 2 停點已由規格 276 接通。
+- [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED（限定設定與週期近似）。原版三筆寫入、共享 CPU／時鐘與兩條自然收據已驗；DOS08h 派送缺口已由規格 277 接線；原版處理器返回仍未閉合。
+- [277 — MOO2 DOS/4GW 保護模式向量與 IRQ0 派送](277-moo2-dos4gw-protected-irq0.md)：READY。有限原版非空向量、私有返回框架與自然等待退出已錨定；受限橋接平台已驗，原版自然進 IRQ0 後停 CS 記憶體比較，返回仍未閉合。
