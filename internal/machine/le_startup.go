@@ -36,7 +36,7 @@ type FD2StartupDOS struct {
 	vbeModeSet bool
 	vbeMode    uint16
 	vbeVideo   *moo2VBEVideo
-	// VBE 顯示起點只記錄已觀測的 MOO2 零座標呼叫，不代表 VRAM 畫面。
+	// 未啟用時只記零座標；附掛顯存的有效起點消費見規格 266。
 	vbeStartSet          bool
 	vbeStartX, vbeStartY uint16
 	// 只供已明示 MOO2 啟動設定的受控滑鼠平台服務使用。
@@ -479,10 +479,18 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			if s.vbeVideo != nil {
 				s.vbeVideo.active = false
 			}
+			s.vbeStartSet = false
 			return true
 		case 0x4f05:
 			return s.vbeVideo.control(c)
 		case 0x4f07:
+			if s.vbeVideo != nil && s.vbeVideo.active {
+				if !s.vbeVideo.displayStart(c) {
+					return false
+				}
+				s.vbeStartX, s.vbeStartY, s.vbeStartSet = 0, s.vbeVideo.startY, true
+				return true
+			}
 			if c.R[cpu386.EBX] != 0 || c.R[cpu386.ECX] != 0 || c.R[cpu386.EDX] != 0 {
 				return false
 			}
@@ -494,6 +502,7 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 				return false
 			}
 			s.vbeMode, s.vbeModeSet = 0x0101, true
+			s.vbeStartX, s.vbeStartY, s.vbeStartSet = 0, 0, true
 			if s.vbeVideo != nil {
 				s.vbeVideo.setMode()
 			}

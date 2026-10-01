@@ -11,9 +11,11 @@ type moo2VBEVideo struct {
 	ports                                                   *LEOPLPorts
 	active                                                  bool
 	bank                                                    uint16
+	startY                                                  uint16
 	base, granularity, window, stride, width, height, pages uint32
 	framebuffer                                             []byte
 	bankSets, writes                                        uint64
+	displaySets                                             uint64
 }
 
 func newMOO2VBEVideo(ports *LEOPLPorts) *moo2VBEVideo {
@@ -27,7 +29,7 @@ func newMOO2VBEVideo(ports *LEOPLPorts) *moo2VBEVideo {
 
 func (v *moo2VBEVideo) setMode() {
 	clear(v.framebuffer[:v.stride*v.height*v.pages])
-	v.active, v.bank = true, 0
+	v.active, v.bank, v.startY = true, 0, 0
 	v.ports.device.dacMask = 0xff
 }
 
@@ -60,11 +62,36 @@ func (v *moo2VBEVideo) control(c *cpu386.CPU) bool {
 	return true
 }
 
+// displayStart 依規格 266 消費固定垂直起點，不改目前寫入視窗。
+func (v *moo2VBEVideo) displayStart(c *cpu386.CPU) bool {
+	if v == nil || !v.active {
+		return false
+	}
+	switch c.R[cpu386.EBX] {
+	case 0:
+		y := uint64(c.R[cpu386.EDX])
+		if c.R[cpu386.ECX] != 0 || y > 0xffff || (y+uint64(v.height))*uint64(v.stride) > uint64(len(v.framebuffer)) {
+			return false
+		}
+		v.startY = uint16(y)
+		v.displaySets++
+	case 1:
+		c.R[cpu386.ECX] &= 0xffff0000
+		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(v.startY)
+	default:
+		return false
+	}
+	c.R[cpu386.EAX] = 0x4f
+	return true
+}
+
 // MOO2VBEState 是診斷快照，不暴露可寫的顯存指標。
 type MOO2VBEState struct {
 	Active           bool
 	Bank             uint16
+	StartY           uint16
 	BankSets, Writes uint64
+	DisplaySets      uint64
 }
 
 func (m *LEMachine) VBEState() MOO2VBEState {
@@ -72,16 +99,17 @@ func (m *LEMachine) VBEState() MOO2VBEState {
 		return MOO2VBEState{}
 	}
 	v := m.vbeVideo
-	return MOO2VBEState{v.active, v.bank, v.bankSets, v.writes}
+	return MOO2VBEState{Active: v.active, Bank: v.bank, StartY: v.startY, BankSets: v.bankSets, Writes: v.writes, DisplaySets: v.displaySets}
 }
 
-// VBEIndexed 回固定模式零顯示起點的索引快照；不是 RAM 的 A0000 切片。
+// VBEIndexed 回固定模式有效起點的索引快照；不是 RAM 的 A0000 切片。
 func (m *LEMachine) VBEIndexed() []byte {
 	v := m.vbeVideo
 	if v == nil || !v.active {
 		return nil
 	}
-	return append([]byte(nil), v.framebuffer[:v.stride*v.height]...)
+	start := uint32(v.startY) * v.stride
+	return append([]byte(nil), v.framebuffer[start:start+v.stride*v.height]...)
 }
 
 // VBERGB 沿既有 DAC／像素遮罩查色，未建模回掃或 S3 類比時序。

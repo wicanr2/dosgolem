@@ -46,4 +46,6 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 
 兩份 gzip SHA-256 `d3fd50d6a07c913cacca03a827ef2d4558abd33a0743e9234f89cda46f4d32fd`／`13a24e91b05a4e7addbff28701ca9b3079acf9e80c7800a719eebea8ea9be558`；診斷零起點 307,200 byte 索引 SHA-256 均為 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`。這是尚未切到已寫影像的零頁，不能當作正常玩家畫面或跨執行器逐像素收據。沒有新增完整 LE 序列化。
 
-限定視窗、共享映射與消費端 CONFORMED；hardware-spec approximation、原版整段平台差異、SAR 的 AF、DIV 的 ZF、DTA 保留區差異仍明示。規格 255 仍 READY，正常玩家畫面、音效、受控亂數與 Go remake 玩法同狀態未完成。下一最小行動是依公開 VBE `4F07h` 核對非零起點返回與顯存圖像消費，不深入硬體 driver。
+限定視窗、共享映射與消費端 CONFORMED；hardware-spec approximation、原版整段平台差異、SAR 的 AF、DIV 的 ZF、DTA 保留區差異仍明示。規格 255 仍 READY，正常玩家畫面、音效、受控亂數與 Go remake 玩法同狀態未完成。
+
+**非零顯示停點已由規格 266 接通**：[266-moo2-vbe-display-start.md](266-moo2-vbe-display-start.md) 保留此處歷史 `0x228CA7`／`4F07h` 定位，延伸有效起點及顯存圖像消費；未把本規格的零頁快照重登錄成新畫面。

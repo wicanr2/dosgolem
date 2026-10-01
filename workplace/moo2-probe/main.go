@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"time"
@@ -144,6 +146,12 @@ func main() {
 			fmt.Printf("vbe_window eip=0x%X input=%X handled=%t output=%X state=%+v\n", c.EIP-2, beforeR, handled, c.R, m.VBEState())
 			return handled
 		}
+		if number == 0x10 && c.R[cpu386.EAX] == 0x4f07 {
+			beforeR := c.R
+			handled := services.Handle(c, number)
+			fmt.Printf("vbe_display_start eip=0x%X input=%X handled=%t output=%X state=%+v\n", c.EIP-2, beforeR, handled, c.R, m.VBEState())
+			return handled
+		}
 		if number == 0x33 {
 			beforeR, beforeFlags := c.R, c.EFlags
 			handled := services.Handle(c, number)
@@ -223,6 +231,26 @@ func main() {
 			fmt.Printf("dpmi_real_mode_last=%+v dpmi_unimplemented=%v\n", services.DPMI.RealModeLast, services.DPMI.Unimplemented)
 			pixels := m.VBEIndexed()
 			fmt.Printf("vbe_video state=%+v indexed_bytes=%d indexed_sha256=%x\n", m.VBEState(), len(pixels), sha256.Sum256(pixels))
+			if path := os.Getenv("DOSGOLEM_MOO2_VBE_PNG"); path != "" && len(pixels) == 640*480 {
+				rgb := m.VBERGB()
+				out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
+				for pixel := range pixels {
+					copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
+					out.Pix[pixel*4+3] = 255
+				}
+				file, err := os.Create(path)
+				if err != nil {
+					panic(err)
+				}
+				encodeErr, closeErr := png.Encode(file, out), file.Close()
+				if encodeErr != nil {
+					panic(encodeErr)
+				}
+				if closeErr != nil {
+					panic(closeErr)
+				}
+				fmt.Printf("vbe_png path=%s rgb_sha256=%x\n", path, sha256.Sum256(rgb))
+			}
 			fmt.Printf("stop_bytes=% X\n", m.Mem[ring[len(ring)-1].eip:ring[len(ring)-1].eip+16])
 			for _, s := range ring {
 				fmt.Printf("tail step=%d eip=0x%X esp=0x%X esi=0x%X eax=0x%X\n", s.step, s.eip, s.esp, s.esi, s.eax)

@@ -4,6 +4,8 @@
 日期：2026-10-01
 範圍：隔離 dosgolem 的 `NewMOO2StartupDOS` 設定、保護模式直接 `INT 10h/AX=4F07h`，僅固定原檔首筆 `BL=0、CX=0、DX=0`。不實作通用平移、垂直同步、掃描線或畫面呈現。
 
+**非零起點已由規格 266 接通**：[266-moo2-vbe-display-start.md](266-moo2-vbe-display-start.md) 延伸已附掛且啟用模式 0101h 的垂直起點、讀回與索引／RGB 消費。以下是歷史全零返回收據；未啟用／未附掛仍保留其精確全零邊界，不能從此歷史返回宣稱像素對拍。
+
 ## RE／平台證據
 
 - **已證實，固定原版輔助執行**：官方 1.31 `ORION2.EXE` SHA-256 `4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f`、正版 ZIP 根層 417 檔與 `MOX.SET` SHA-256 `bfd6855a41760b31156b96114b5b33c88f442ab8f8aae020c1740b3b486a3a80`；DOSBox-X 2026.07.02 SDL2 heavy debugger 映像 ID `sha256:659e8abbf93646f59a1586341769bd4b8f3cd1c707859d7a5de4c56e4672b582`。版控 `apps/moo2/tools/startup_probe_131.py --video-display-4f07` 於 **DOSBox-X CS:EIP** `0180:003802B2 → 0180:003802B4` 擷取 `EAX=4F07h、EBX=ECX=EDX=0`；返回 `EAX=004Fh`，其他暫存器、段及 EFLAGS=`0216h` 保持。私有 `workplace/dosbox-moo2/video-display-4f07-registers.json` SHA-256 `427b0a884df5aff6f2d6d6b53d2ab0febb4c1816b0500416122d351d72b252e5`，終端 SHA-256 `81f95858fc83c004d2ea71f86588ecae6a69bc17e71c9511f9bc55ce61b8aea9`。
