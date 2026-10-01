@@ -46,3 +46,5 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 兩條 gzip SHA-256 `5c0c42d06340369d93f6abb2240106e4dd7dfb63192ba4fca7b38ec4d7dbb208`／`21f0880d38e18710824bb46166692500fec7775c0b51b620520b5bbccd66ca16`。VBE Active=true、Bank=2、StartY=0、BankSets=441、Writes=4046164、DisplaySets=6，索引 SHA-256 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`、RGB `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`、兩 PNG 均 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`，與先前已檢視黑圖逐位元相同，不重做目視驗收。完整原檔、終端、gzip 與 PNG 均只留本機。
 
 CPU 與原版有限指令／消費樣本、全套及兩条自然路徑已驗，274 限定 CONFORMED；255 仍 READY。AF 的清除為模型近似，工具初始布局不同，未宣稱硬體全旗標、完整時間／同狀態、主選單、正常玩家輸入、音效、受控亂數或 Go remake 玩法已完成。下一步只查公開 INT 2Fh/AX=1684h 邊界與實際 caller 參數／返回／消費，不深入平台、runtime 或圖形 helper。
+
+後續回填：VTD 空入口停點已由規格 275 接通，見 [275-moo2-protected-vtd-entry-query.md](275-moo2-protected-vtd-entry-query.md)。上述 INT 2F 拒絕與下一步是本規格當時的歷史收據；現行停點以後續規格與自然收據為準，不重開 word XOR。
