@@ -429,3 +429,4 @@
 - [275 — MOO2 未安裝 VTD 的裝置入口查詢](275-moo2-protected-vtd-entry-query.md)：CONFORMED（限定未安裝 VTD 的平台查詢）。完整返回保持、原版 record 保存／讀取及兩條自然路徑已驗；PIT 模式 2 停點已由規格 276 接通。
 - [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED（限定設定與週期近似）。原版三筆寫入、共享 CPU／時鐘與兩條自然收據已驗；DOS08h 派送缺口已由規格 277 接線；原版處理器返回仍未閉合。
 - [277 — MOO2 DOS/4GW 保護模式向量與 IRQ0 派送](277-moo2-dos4gw-protected-irq0.md)：READY。有限原版非空向量、私有返回框架與自然等待退出已錨定；受限橋接平台已驗，原版自然進 IRQ0 後停 CS 記憶體比較，返回仍未閉合。
+- [278 — CS 記憶體目的與帶符號 imm8 的比較](278-cpu386-cs-memory-cmp-imm8.md)：CONFORMED（有限 CPU 比較）。原版有限樣本與全部 CPU／固定 EXE 回歸通過，自然 IRQ 越過比較後停 CS word MOV ES；原版返回仍未閉合。

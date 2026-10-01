@@ -555,10 +555,10 @@ func (c *CPU) Step() error {
 	if segmentOverride == SegSS && op != 0x8d && (op != 0x89 || !operand16 || repe || repne) {
 		return fail("SS override 只支援 16-bit MOV memory store／LEA")
 	}
-	if segmentOverride == SegCS && op != 0xff && op != 0x8a && op != 0x8d && op != 0x8e {
-		return fail("CS override 只支援間接 JMP／MOV byte load／LEA／絕對 DS word 載入")
+	if segmentOverride == SegCS && op != 0x83 && op != 0xff && op != 0x8a && op != 0x8d && op != 0x8e {
+		return fail("CS override 只支援記憶體 CMP imm8／間接 JMP／MOV byte load／LEA／絕對 DS word 載入")
 	}
-	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8d && op != 0x8e {
+	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && (op == 0xff || op == 0x83)) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8d && op != 0x8e {
 		return fail("segment override 的此指令形狀尚未支援")
 	}
 	switch {
@@ -2503,6 +2503,10 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		// 規格 278：CS 僅准許記憶體 CMP，避免落入舊群組回退。
+		if segmentOverride == SegCS && (group != 7 || modrm>>6 == 3) {
+			return fail("CS 83 僅支援記憶體 CMP")
+		}
 		if group == 1 && modrm>>6 == 3 && !operand16 {
 			if segmentOverride >= 0 || repe || repne {
 				return fail("OR dword暫存器前綴尚未支援")
@@ -2612,10 +2616,13 @@ func (c *CPU) Step() error {
 			break
 		}
 
-		if group == 7 && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
+		if group == 7 && modrm>>6 != 3 && (segmentOverride < 0 || segmentOverride == SegCS) && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
+			}
+			if segmentOverride == SegCS {
+				seg = SegCS
 			}
 			imm, e := c.fetch8()
 			if e != nil {

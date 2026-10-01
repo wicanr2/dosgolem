@@ -60,3 +60,7 @@ READY 後新增 `le_protected_irq0.go`，共用 PIT 在兩 CPU 模式轉送有�
 本輪單步 INT 的首次返回擷取實際停在 DOS/4GW 核心 `0080:00000084`，不當服務返回；改遊戲下一指令斷點後成功。失敗終端 SHA-256 `cf6ae41238e5a2b8e837723b8350dda09a6e29f21ec4869afe442c0a10de6043` 留本機。候選差值與服務返回腳本問題均已分類、保留失敗後同映像乾淨重跑；沒有為此追核心內部。新時鐘診斷排除主機指標，避免把每次配置位址混入重播收據。
 
 最新平台測試（含 IRQ7 優先與穩定診斷）命令為 GOMAXPROCS=2 go test ./internal/machine -run 'Test(ProtectedIRQ0|LEMouseCallback|BIOSClock|PIT0)' -count=1 -v；本機 workplace/moo2-277-platform-tests.txt SHA-256 5f87e0db5676d44e348a359c64a07da0972cac7a887340f308544ba9706d867b。
+
+## 規格 278 的標準 CPU 後續
+
+CS 記憶體比較停點已由規格 278 接通，見 [278-cpu386-cs-memory-cmp-imm8.md](278-cpu386-cs-memory-cmp-imm8.md)。上述 0x244D9A 停止是 277 批次歷史；278 已用公開 CPU 契約及入口有限原版資料／完整旗標審查，READY 後實作，CPU 套件全部通過。此處沒有把 CPU 比較通過當成完整 IRQ0 返回；現行自然前沿由 278 的收據記錄，277 保持 READY，直到實際返回與等待鏈閉合。
