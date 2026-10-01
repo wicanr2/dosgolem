@@ -1,5 +1,7 @@
 # 219 — 受保護模式 DOS 的精確檔名首次搜尋
 
+後續延伸：[261-moo2-dos-findfirst-current-directory.md](261-moo2-dos-findfirst-current-directory.md) 只在 MOO2 設定接通單一目前目錄前綴。本規格的原始無前綴切片與收據保留，完整 DTA 保留區不宣稱逐位元對齊。
+
 狀態：**CONFORMED**（僅精確 8.3／CX=0 的合成環境切片）
 日期：2026-10-01
 

@@ -97,7 +97,47 @@ func main() {
 	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	mousePositionSet := false
+	var dtaSelector uint16
+	var dtaOffset uint32
+	dtaSet := false
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x1a {
+			selector, offset := c.Seg[cpu386.SegDS], c.R[cpu386.EDX]
+			handled := services.Handle(c, number)
+			if handled {
+				dtaSelector, dtaOffset, dtaSet = selector, offset, true
+			}
+			fmt.Printf("find_dta eip=0x%X selector=0x%X offset=0x%X handled=%t\n", c.EIP-2, selector, offset, handled)
+			return handled
+		}
+		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x4e {
+			pattern := make([]byte, 0, 128)
+			readOK := true
+			for i := uint32(0); i < 128; i++ {
+				if c.R[cpu386.EDX] > ^uint32(0)-i {
+					readOK = false
+					break
+				}
+				ch, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+i)
+				if !ok {
+					readOK = false
+					break
+				}
+				pattern = append(pattern, ch)
+				if ch == 0 {
+					break
+				}
+			}
+			dta := make([]byte, 0, 43)
+			for i := uint32(0); dtaSet && i < 43 && dtaOffset <= ^uint32(0)-i; i++ {
+				ch, ok := c.ReadSegment8(dtaSelector, dtaOffset+i)
+				if !ok {
+					break
+				}
+				dta = append(dta, ch)
+			}
+			fmt.Printf("find_request eip=0x%X r=%X seg=%X flags=0x%X pattern_hex=%X read_ok=%t dta_set=%t dta_selector=0x%X dta_offset=0x%X dta_hex=%X\n", c.EIP-2, c.R, c.Seg, c.EFlags, pattern, readOK, dtaSet, dtaSelector, dtaOffset, dta)
+		}
 		if number == 0x33 {
 			beforeR, beforeFlags := c.R, c.EFlags
 			handled := services.Handle(c, number)

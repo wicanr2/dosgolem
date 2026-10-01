@@ -411,4 +411,5 @@
 - [257 — MOO2 保護模式滑鼠座標設定](257-moo2-protected-mouse-position-setting.md)：CONFORMED。受控位置狀態及兩條原檔路徑已驗；下一自然停點為 `INT 2Fh/AX=160Ah`。
 - [258 — MOO2 在 DOS 環境查詢 Windows 版本](258-moo2-windows-version-absence.md)：CONFORMED。未安裝 Windows 的限定查詢已驗；兩條原檔路徑下一停點為 `INT 31h/AX=0500h`。
 - [259 — DPMI 可用記憶體資訊](259-dpmi-free-memory-information.md)：CONFORMED。配置器一致資訊與兩條原檔路徑已驗；下一停點為記憶體移位 `C1 7D F4 04`。
-- [260 — 堆疊 dword 的立即數算術右移](260-cpu386-sar-stack-dword-immediate.md)：CONFORMED。值及定義旗標已核對，AF 差異明示；兩條原檔路徑下一停點為 DOS `AH=4Eh` 的當前查詢輸入。
+- [260 — 堆疊 dword 的立即數算術右移](260-cpu386-sar-stack-dword-immediate.md)：CONFORMED。值及定義旗標已核對，AF 差異明示；當時的搜尋停點已由規格 261 接通。
+- [261 — MOO2 DOS 搜尋的目前目錄前綴](261-moo2-dos-findfirst-current-directory.md)：CONFORMED。原版目前目錄查詢與缺檔返回已核對，DTA 保留區差異明示；兩條原檔自然路徑下一停點為 `66 85 C0`。

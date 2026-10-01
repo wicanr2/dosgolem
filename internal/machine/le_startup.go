@@ -356,9 +356,14 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 	if !s.dtaSet || c.R[cpu386.ECX]&0xffff != 0 {
 		return false
 	}
-	name := make([]byte, 0, 12)
+	maximum := uint32(12)
+	if s.moo2Profile {
+		// 規格 261：只多容許一次目前目錄前綴，提供者仍只接單一檔名。
+		maximum += 2
+	}
+	name := make([]byte, 0, maximum)
 	terminated := false
-	for i := uint32(0); i < 13; i++ {
+	for i := uint32(0); i <= maximum; i++ {
 		if c.R[cpu386.EDX] > ^uint32(0)-i {
 			return false
 		}
@@ -372,7 +377,11 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 		}
 		name = append(name, ch)
 	}
-	base, ext, ok := exactDOSName(string(name))
+	lookupName := string(name)
+	if s.moo2Profile {
+		lookupName = strings.TrimPrefix(lookupName, ".\\")
+	}
+	base, ext, ok := exactDOSName(lookupName)
 	if !terminated || !ok {
 		return false
 	}
@@ -397,7 +406,7 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 	var file io.ReadSeekCloser
 	var err error
 	if s.files != nil {
-		file, err = s.files.OpenRead(string(name))
+		file, err = s.files.OpenRead(lookupName)
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false

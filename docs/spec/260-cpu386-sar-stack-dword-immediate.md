@@ -35,3 +35,5 @@ READY 審查：公開 CPU 規格足以描述此固定 ModRM 的行為，原檔 b
 無事件原檔第 6,725,897 步、設定後受控事件第 6,725,932 步，均停於 **dosgolem 高位 LE 線性** `0x229A59` 的 `CD 21`，EAX=`002B4E38h`（AH=`4Eh`）、ECX=`0`、DS:EDX=`0188:002BDB38`。這是現有受限檔案查詢在當前輸入拒絕，不宣稱所有 `4Eh` 都未支援。受控路徑回呼 started=1／completed=1。無事件診斷 SHA-256 `66b324e1fce7d3e260d550eeb7e8c16b7058528074ec3bb7130ed7fdab94eac7`、事件診斷 SHA-256 `dda9b0d9cc2b663a8bef3c4cf6735f19e7c8327c187df6864175d7eb97593732`。
 
 Python 語法、規格索引、正常解析回填與刪除舊標記必拒絕通過。仍無正常玩家畫面、音效、受控亂數或 Go remake 玩法同狀態收據，規格 255 維持 READY。下一最小行動為擷取 `4Eh` 搜尋輸入、DTA 狀態與原版返回，依公開 DOS 契約補受限平台支援，不追檔案 helper 內部。
+
+**目前目錄前綴已由規格 261 接通**：[261-moo2-dos-findfirst-current-directory.md](261-moo2-dos-findfirst-current-directory.md) 已核對拒絕輸入為 `.\simtex.lbx`、原版返回 `12h`／CF=1，明示 DTA 保留區差異。原有停點收據保留；兩條新自生停點與限定驗收見後續規格，不把舊搜尋停點當作現況。

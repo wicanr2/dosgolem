@@ -30,6 +30,21 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_find_current_directory_resolution(spec_dir):
+    """目前目錄搜尋證據與規格 260 的舊停點須保持回填關係。"""
+    current = (spec_dir / '261-moo2-dos-findfirst-current-directory.md').read_text()
+    older = (spec_dir / '260-cpu386-sar-stack-dword-immediate.md').read_text()
+    required = ('0180:0035DA59', '0x229A59', '2E 5C 73 69 6D 74 65 78 2E 6C 62 78 00', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('目前目錄搜尋規格缺固定原始定位或可實作狀態')
+    if '目前目錄前綴已由規格 261 接通' not in older or '261-moo2-dos-findfirst-current-directory.md' not in older:
+        raise RuntimeError('目前目錄搜尋舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-find-current-directory-spec-backlinks']:
+    validate_find_current_directory_resolution(spec_dir)
+    print('目前目錄搜尋原始定位與後續回填通過')
+    raise SystemExit(0)
+
 def validate_sar_stack_resolution(spec_dir):
     """固定 1.31 映像的 CPU 停點須回填到規格 259。"""
     current = (spec_dir / '260-cpu386-sar-stack-dword-immediate.md').read_text()
@@ -66,6 +81,7 @@ if sys.argv[1:] == ['--check-mouse-spec-backlinks']:
     raise SystemExit(0)
 
 root = pathlib.Path('/shots')
+capture_find_current_directory = sys.argv[1:] == ['--find-current-directory']
 capture_sar_stack_memory = sys.argv[1:] == ['--sar-stack-memory']
 capture_free_memory = sys.argv[1:] == ['--free-memory']
 capture_windows_version = sys.argv[1:] == ['--windows-version']
@@ -82,8 +98,8 @@ capture_mouse_vertical_range = sys.argv[1:] == ['--mouse-vertical-range']
 capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity or capture_mouse_set_sensitivity or capture_mouse_horizontal_range or capture_mouse_vertical_range or capture_mouse_callback or capture_mouse_set_position
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
-if not (capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if not (capture_find_current_directory or capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -123,6 +139,8 @@ capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
 mode = 'add-al-imm8-' if capture_add_al_imm8 else 'video-mode-4f02-' if capture_video_mode_4f02 else 'real-video-4f01-' if capture_real_video_4f01 else 'video-display-4f07-' if capture_video_display_4f07 else 'real-video-0300-' if capture_real_video_0300 else 'dos-memory-0100-' if capture_dos_memory_0100 else 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
+if capture_find_current_directory:
+    mode = 'find-current-directory-'
 if capture_sar_stack_memory:
     mode = 'sar-stack-memory-'
 if capture_free_memory:
@@ -176,7 +194,7 @@ if capture_dta_find_present:
         'name': 'MOX.SET', 'size': 0, 'sha256': hashlib.sha256(b'').hexdigest(),
         'mtime_epoch_seconds': 820454400,
     }
-if capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_full_data_test_word or capture_dos_memory_0100 or capture_real_video_0300 or capture_real_video_4f01 or capture_video_display_4f07 or capture_video_mode_4f02 or capture_add_al_imm8 or capture_or_register_imm8 or capture_xor_register_imm32 or capture_mouse_reset or capture_mouse_sequence:
+if capture_find_current_directory or capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_full_data_test_word or capture_dos_memory_0100 or capture_real_video_0300 or capture_real_video_4f01 or capture_video_display_4f07 or capture_video_mode_4f02 or capture_add_al_imm8 or capture_or_register_imm8 or capture_xor_register_imm32 or capture_mouse_reset or capture_mouse_sequence:
     fixture = pathlib.Path('/tmp/game/MOX.SET')
     if not fixture.is_file() or hashlib.sha256(fixture.read_bytes()).hexdigest() != 'bfd6855a41760b31156b96114b5b33c88f442ab8f8aae020c1740b3b486a3a80':
         raise RuntimeError('MOO2 完整資料對拍要求固定正版 MOX.SET')
@@ -268,6 +286,75 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
         if not match:
             raise RuntimeError('MOO2 zero-base branch breakpoint not reached: ' + repr(snapshots))
         records['dpmi_zero_base_branch'] = match
+        if capture_find_current_directory:
+            order = 'CS EIP EAX EBX ECX EDX ESI EDI EBP DS ES FS GS SS ESP EFLAGS'
+            records['find_current_directory_register_order'] = order
+            records['find_current_directory_events'] = []
+            dump = pathlib.Path('MEMDUMP.BIN')
+            def memory(address, count):
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {address} {count:X}', 1)
+                if not dump.is_file() or dump.stat().st_size != count:
+                    raise RuntimeError('DOS 搜尋記憶體擷取長度不符：' + address)
+                return dump.read_bytes()
+            matched = False
+            for _ in range(12):
+                cmd('BPDEL *')
+                cmd('BPINT 21 1A')
+                cmd('RUN', 8)
+                snapshots = registers(cmd('EV ' + order, 0.8))
+                dta_call = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == ['180', '35da53'] and (int(v[2],16)>>8)&255 == 0x1a), None)
+                if not dta_call:
+                    raise RuntimeError('目前目錄搜尋 DTA 設定未命中：' + repr(snapshots))
+                destination = f'{int(dta_call[9],16):04X}:{int(dta_call[5],16):08X}'
+                cmd('BPDEL *')
+                cmd('BP 0180:0035DA59')
+                cmd('RUN', 6)
+                snapshots = registers(cmd('EV ' + order, 0.8))
+                call = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == ['180', '35da59'] and (int(v[2],16)>>8)&255 == 0x4e), None)
+                if not call:
+                    raise RuntimeError('目前目錄搜尋入口未命中：' + repr(snapshots))
+                pattern_address = f'{int(call[9],16):04X}:{int(call[5],16):08X}'
+                raw_pattern = memory(pattern_address, 128)
+                pattern = raw_pattern.split(b'\0', 1)[0]
+                if len(pattern) == 128:
+                    raise RuntimeError('搜尋字串缺結尾')
+                event = {'dta_call': dta_call, 'call': call, 'pattern_address': pattern_address,
+                         'pattern_hex': pattern.hex(), 'dta_address': destination,
+                         'dta_before_hex': memory(destination, 43).hex()}
+                records['find_current_directory_events'].append(event)
+                if pattern == b'.\\simtex.lbx':
+                    raw_code = memory('0180:0035DA59', 16)
+                    if raw_code != bytes.fromhex('cd 21 e8 ac 65 01 00 89 da e8 21 00 00 00 59 c3'):
+                        raise RuntimeError('目前目錄搜尋原始 bytes 不符')
+                    records['find_current_directory_bytes_hex'] = raw_code.hex()
+                cmd('BPDEL *')
+                cmd('BP 0180:0035DA5B')
+                cmd('RUN', 6)
+                snapshots = registers(cmd('EV ' + order, 0.8))
+                returned = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == ['180', '35da5b']), None)
+                if not returned:
+                    raise RuntimeError('目前目錄搜尋返回未命中')
+                event['return'] = returned
+                event['dta_after_hex'] = memory(destination, 43).hex()
+                if pattern == b'.\\simtex.lbx':
+                    cmd('BPDEL *')
+                    log = pathlib.Path('LOGCPU.TXT')
+                    log.unlink(missing_ok=True)
+                    cmd('LOG 40', 7)
+                    if not log.is_file():
+                        raise RuntimeError('目前目錄搜尋 caller 紀錄未產生')
+                    data = log.read_bytes()
+                    lines = data.decode('latin1').splitlines()
+                    if len(lines) != 64 or not lines[0].startswith('0180:0035DA5B'):
+                        raise RuntimeError('目前目錄搜尋 caller 序列不符')
+                    records['find_current_directory_caller_lines'] = lines
+                    records['find_current_directory_caller_log_sha256'] = hashlib.sha256(data).hexdigest()
+                    (root / 'find-current-directory-caller-logcpu.txt').write_bytes(data)
+                    matched = True
+                    break
+            if not matched:
+                raise RuntimeError('有界搜尋未命中目前目錄前綴')
         if capture_windows_version:
             order = 'CS EIP EAX EBX ECX EDX ESI EDI EBP DS ES FS GS SS ESP EFLAGS'
             records['windows_version_register_order'] = order
