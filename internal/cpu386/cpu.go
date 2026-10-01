@@ -3241,6 +3241,21 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
+		if modrm>>6 == 3 && (modrm>>3)&7 == 6 {
+			// 先捕捉除數，AL／AH 也可能是來源；規格 264。
+			divisor := uint16(c.reg8(int(modrm & 7)))
+			dividend := uint16(c.R[EAX])
+			if divisor == 0 {
+				return fail("DIV byte 除以零")
+			}
+			quotient := dividend / divisor
+			if quotient > 0xff {
+				return fail("DIV byte 商溢位")
+			}
+			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(quotient) | uint32(dividend%divisor)<<8
+			// 算術旗標未定義，沿既有 DIV 保留策略，不宣稱硬體相等。
+			break
+		}
 		if modrm>>6 == 3 && (modrm>>3)&7 == 0 {
 			imm, e := c.fetch8()
 			if e != nil {
@@ -3250,7 +3265,7 @@ func (c *CPU) Step() error {
 			break
 		}
 		if modrm>>6 == 3 || (modrm>>3)&7 != 0 {
-			return fail("F6記憶體形狀未支援")
+			return fail(fmt.Sprintf("F6 ModRM %02X 形狀未支援", modrm))
 		}
 		seg, addr, e := c.decodeAddress32(modrm)
 		if e != nil {

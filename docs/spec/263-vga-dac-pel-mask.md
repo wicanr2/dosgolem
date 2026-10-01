@@ -48,4 +48,4 @@ Go 1.24.13，映像 `golang:1.24-bookworm` ID=`sha256:1a6d4452c65dea36aac2e2d606
 
 兩份診斷 `workplace/moo2-probe-263-full-game.txt.gz`／`workplace/moo2-probe-263-mouse-event.txt.gz` 的 SHA-256 分別 `a5836830e9c15f632e22f7a110de950604f7cea87b8d3076c693d3d892ef86ba`／`9adbbef63c5fa11f133f1f16c9785a0d5a4efc5d755b4cc94b8e2b3da4cb8df3`。Python 語法、索引、既有回填與新護欄正常／刪除舊標記／刪除原始定位必拒絕通過。本規格只在標準遮罩的硬體規格近似範圍 CONFORMED，255 仍 READY；MOO2 正常畫面、音效、亂數與 Go remake 玩法同狀態仍未驗證。
 
-下一最小行動：核對公開 CPU byte DIV 契約、既有 F6／暫存器解碼與固定原版使用點，審查窄規格後接通並重跑。停止於足以通過啟動的平台證據，不反組譯顯示 driver 內部。
+後續解析：**byte DIV 停點已由規格 264 接通**，見 [264-cpu386-div-byte-register.md](264-cpu386-div-byte-register.md) 的原始定位、公開 CPU 契約與未定義旗標差異。上述 `0x222CCB` 為本規格完成時的歷史收據；目前自然路徑及未知邊界以規格 264 與專案活表為準，不反組譯顯示 driver 內部。
