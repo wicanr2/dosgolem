@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // Buck repo spec 042 §5.4 / spec 043 §5.4: replay the narrative-window (W)
@@ -292,7 +294,11 @@ func TestReplayPhase257Windows(t *testing.T) {
 			shown                     string
 		}
 		msgs := map[[4]uint8]*message{}
+		missing := map[rune]int{}
 		flush := func(k [4]uint8) {
+			if m := msgs[k]; m != nil {
+				missingGlyphs(l.font, missing, m.shown)
+			}
 			if m := msgs[k]; m != nil && pages != nil && m.calls > 0 {
 				fmt.Fprintf(pages, "page\t%s\t%s\t%d\tL%d T%d R%d B%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", l.lang, m.file, m.step,
 					k[0], k[1], k[2], k[3], m.calls, m.hits, m.misses, m.over, m.orig.String(), m.shown, strings.Join(m.callTexts, "\x1f"))
@@ -392,6 +398,7 @@ func TestReplayPhase257Windows(t *testing.T) {
 			}
 		}
 		flushAll()
+		reportMissing(t, l.lang, "ECL 畫面", missing)
 		t.Logf("%s ECL：呼叫 %d、命中 %d、未命中 %d、溢出 %d、passthrough %d、加註降段 first %d／none %d", l.lang, st.calls, st.hit, st.miss, st.over, st.pass, st.first, st.none)
 		var keys []string
 		for k, n := range perWindow {
@@ -524,6 +531,7 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 		if w == nil {
 			continue
 		}
+		engMissing := map[rune]int{}
 		byOffset := map[uint16][]CodeKey{}
 		for k := range w.allow {
 			byOffset[k.Offset] = append(byOffset[k.Offset], k)
@@ -564,6 +572,11 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 				continue
 			}
 			ret := Address{Segment: 0x1000, Offset: 0x10}
+			if w.catalog != nil {
+				if zh, ok := w.catalog.Translate(d.text); ok {
+					missingGlyphs(l.font, engMissing, zh)
+				}
+			}
 			if engOut != nil && w.catalog != nil {
 				zh, ok, units, front, tableFail := engineGate(w.catalog, d.text)
 				gate := "-"
@@ -581,6 +594,7 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 			}
 			fed++
 		}
+		reportMissing(t, l.lang, "引擎片段", engMissing)
 		var ok, nofit, nofrag int
 		var oks, nofits []string
 		for _, j := range joins {
@@ -623,4 +637,34 @@ func engineGate(c *EngineTextCatalog, s string) (zh string, ok bool, units, fron
 		}
 	}
 	return
+}
+
+// missingGlyphs counts the characters of the texts the lane font cannot draw
+// (spec 046 §3.5: a synthesized output must never ask for a glyph the font
+// does not have; compose would skip the whole layer).
+func missingGlyphs(f *xlate.Font, into map[rune]int, texts ...string) {
+	if f == nil {
+		return
+	}
+	for _, t := range texts {
+		for _, r := range t {
+			// U+3000 is the §3.1 padding of a table row: drawn as blank, no glyph.
+			if _, ok := f.Glyphs[r]; !ok && r != '\u3000' {
+				into[r]++
+			}
+		}
+	}
+}
+
+func reportMissing(t *testing.T, lang string, where string, miss map[rune]int) {
+	t.Helper()
+	var rs []string
+	for r, n := range miss {
+		rs = append(rs, fmt.Sprintf("U+%04X×%d", r, n))
+	}
+	sort.Strings(rs)
+	t.Logf("%s %s 缺字 %d 種：%s", lang, where, len(miss), strings.Join(rs, " "))
+	if (lang == LangKo || lang == LangJa) && len(miss) > 0 {
+		t.Errorf("%s %s 有 %d 種缺字（規格 046 §3.5 要求 0）", lang, where, len(miss))
+	}
 }

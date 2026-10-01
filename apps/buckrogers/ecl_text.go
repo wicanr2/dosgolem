@@ -131,6 +131,11 @@ type EclTextPage struct {
 	Keys                     []string
 	Gone                     uint32 // rows removed by later original writes (bit = row)
 	endRow, endCol           uint8  // Chinese cursor after the last string (endCol in half units)
+	// Spec 046 §3.4 (word-level profile only): the last character drawn, and
+	// whether the last call ended with a space of the original that the
+	// drawn text does not have (the next call starts with that space).
+	lastRune  rune
+	owedSpace bool
 }
 
 // Shows reports whether the page still masks the given row.
@@ -367,6 +372,18 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			first, topCol = e.CursorRow, e.Left
 		}
 	}
+	// Spec 046 §3.4 (Korean, the word-level profile): a call that continues
+	// text on the screen starts with a space when the original does (or the
+	// call before it ended with one), unless the call starts at the left edge
+	// of a row (the layout keeps a space there as an indent).
+	spaceNeeded, prevRune := false, rune('A')
+	if w.layout != nil && w.layout.word && !fresh && col != eclUnitLeft(e.Left) {
+		owed := false
+		if p != nil {
+			prevRune, owed = p.lastRune, p.owedSpace
+		}
+		spaceNeeded = (len(e.Original) > 0 && e.Original[0] == ' ' || owed) && prevRune != 0 && prevRune != ' '
+	}
 	var (
 		lines          []EclTextLine
 		endRow, endCol uint8
@@ -399,20 +416,36 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			lines, endRow, endCol, fits = layoutEclTextP(w.layout, []rune(text), nil, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
 		}
 	} else {
-		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(text)}}
-		if key != "engine" && key != "passthrough" && w.names != nil {
-			variants = w.names.Variants(text, key, NameCaseUpper)
-		}
 		// Every tier starts from the same cursor and continuation state; the
 		// layout is pure, so a failed try changes nothing (spec 036 §3.3).
-		var tier NameTier
-		for i, v := range variants {
-			if lines, endRow, endCol, fits = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
-				if i > 0 {
-					tier = v.Tier
-				}
-				break
+		attempt := func(txt string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier) {
+			variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(txt)}}
+			if key != "engine" && key != "passthrough" && w.names != nil {
+				variants = w.names.Variants(txt, key, NameCaseUpper)
 			}
+			for i, v := range variants {
+				if ls, er, ec, ok = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
+					if i > 0 {
+						tier = v.Tier
+					}
+					return
+				}
+			}
+			return
+		}
+		var tier NameTier
+		spaced := spaceNeeded && text != "" && text[0] != ' ' && !koGlue(prevRune, text)
+		if spaced {
+			// Spec 046 §3.4 (5): the space is never the reason a window turns
+			// into English; without it the text is tried again.
+			lines, endRow, endCol, fits, tier = attempt(" " + text)
+			if !fits {
+				if lines, endRow, endCol, fits, tier = attempt(text); fits {
+					w.Stats.SpaceDropped++
+				}
+			}
+		} else {
+			lines, endRow, endCol, fits, tier = attempt(text)
 		}
 		switch tier {
 		case NameTierFirst:
@@ -438,6 +471,18 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	}
 	next.Lines = append(next.Lines, lines...)
 	next.Keys = append(next.Keys, key)
+	if w.layout != nil && w.layout.word {
+		// Spec 046 §3.4: a call that drew nothing (empty original or only
+		// spaces dropped by the layout) keeps the state of the page before.
+		if p != nil {
+			next.lastRune, next.owedSpace = p.lastRune, p.owedSpace
+		}
+		if n := len(lines); n > 0 && len(lines[n-1].Text) > 0 && len(e.Original) > 0 {
+			last := lines[n-1].Text[len(lines[n-1].Text)-1]
+			next.lastRune = last
+			next.owedSpace = e.Original[len(e.Original)-1] == ' ' && last != ' '
+		}
+	}
 	w.gen++
 	next.Generation = w.gen
 	if idx >= 0 {

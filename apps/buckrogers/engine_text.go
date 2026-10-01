@@ -35,6 +35,7 @@ type EngineTextCatalog struct {
 	phrase    map[engineID]string // whole item name -> Chinese
 	templates map[string]string   // signature -> Chinese with {0}..{n}
 	monster   map[engineID]string // monster name -> Chinese
+	lang      string              // spec 046: the language of the texts (ko and ja join pieces differently)
 }
 
 func loadHashRows(name string, data []byte) (map[engineID]string, []int, error) {
@@ -101,7 +102,7 @@ type EngineTextFiles struct {
 }
 
 func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
-	c := &EngineTextCatalog{phrase: map[engineID]string{}, templates: map[string]string{}, monster: map[engineID]string{}}
+	c := &EngineTextCatalog{phrase: map[engineID]string{}, templates: map[string]string{}, monster: map[engineID]string{}, lang: f.lang()}
 	var err error
 	if c.frag, c.fragLens, err = loadHashRows("engine-fragment-events.tsv", f.FragmentEvents); err != nil {
 		return nil, err
@@ -167,6 +168,9 @@ func LoadEngineTextCatalog(f EngineTextFiles) (*EngineTextCatalog, error) {
 		}
 		for k, t := range text {
 			if sig, ok := sigOf[k]; ok {
+				if (c.lang == LangKo || c.lang == LangJa) && !templateRefsUnique(t) {
+					return nil, fmt.Errorf("engine-template：範本 %s 重複引用同一欄位（規格 046 §3.3）", k)
+				}
 				c.templates[sig] = t
 			}
 		}
@@ -373,7 +377,8 @@ func (c *EngineTextCatalog) monsterSlot(t string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if punct == "." {
+	// Spec 046 §3.7: the Korean font has no U+3002, keep the ASCII period.
+	if punct == "." && c.lang != LangKo {
 		punct = "。"
 	}
 	return lead + z + punct + trail, true
@@ -543,10 +548,21 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 		return "", false
 	}
 	if t, slots, ok := c.matchTemplate(parts); ok {
+		if c.lang == LangKo || c.lang == LangJa {
+			return fillTemplateKoJa(c.lang, t, slots, parts, zh), true
+		}
 		for i, v := range slots {
 			t = strings.ReplaceAll(t, "{"+strconv.Itoa(i)+"}", strings.TrimSpace(zh[v]))
 		}
 		return t, true
+	}
+	// Spec 046 §3.2: Korean and Japanese join the pieces by their own rules;
+	// every other language keeps the loop below.
+	switch c.lang {
+	case LangKo:
+		return joinKo(parts, zh), true
+	case LangJa:
+		return joinJa(parts, zh), true
 	}
 	var b strings.Builder
 	for i, p := range parts {
