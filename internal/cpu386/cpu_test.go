@@ -72,6 +72,108 @@ func TestADDALImmediateOriginalShapeAndFlags(t *testing.T) {
 	}
 }
 
+func TestORRegisterImmediate32OriginalAndBoundaryFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		left             uint32
+		imm              byte
+		flags, wantFlags uint32
+		want             uint32
+	}{
+		{"原版與 dosgolem 停點", 0, 0x10, 0x246, 0x202, 0x10},
+		{"高位保留", 0xaabbcc00, 0x10, IF | CF | OF | AF | ZF | PF, IF | SF, 0xaabbcc10},
+		{"負立即數符號擴展", 0x12345678, 0x80, IF | CF | OF | ZF | PF, IF | SF, 0xfffffff8},
+		{"全一與偶同位", 0, 0xff, IF | CF | OF | AF | ZF, IF | SF | PF, 0xffffffff},
+		{"零與偶同位", 0, 0, IF | CF | OF | AF | SF, IF | ZF | PF, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := testBus{0x83, 0xc8, tc.imm}
+			beforeMem := append([]byte(nil), mem...)
+			c := New(mem)
+			c.R[EAX], c.R[EBX], c.EFlags = tc.left, 0x87654321, tc.flags
+			beforeSeg := c.Seg
+			if err := c.Step(); err != nil || c.EIP != 3 || c.R[EAX] != tc.want || c.R[EBX] != 0x87654321 || c.EFlags != tc.wantFlags || c.Seg != beforeSeg || !bytes.Equal(mem, beforeMem) {
+				t.Fatalf("OR EAX=%X flags=%X EIP=%X err=%v", c.R[EAX], c.EFlags, c.EIP, err)
+			}
+		})
+	}
+	for reg := 0; reg < 8; reg++ {
+		c := New(testBus{0x83, 0xc8 | byte(reg), 1})
+		for i := range c.R {
+			c.R[i] = 0x11220000 + uint32(i)*0x100
+		}
+		want := c.R
+		want[reg] |= 1
+		c.EFlags = IF | CF | OF | AF | ZF | PF | SF
+		if err := c.Step(); err != nil || c.R != want || c.EFlags != IF || c.EIP != 3 {
+			t.Fatalf("OR 目的暫存器=%d registers=%X flags=%X err=%v", reg, c.R, c.EFlags, err)
+		}
+	}
+	for _, code := range [][]byte{
+		{0x83, 0xc8}, {0x26, 0x83, 0xc8, 0x10}, {0xf3, 0x83, 0xc8, 0x10}, {0xf2, 0x83, 0xc8, 0x10},
+	} {
+		c := New(testBus(code))
+		c.R[EAX], c.EFlags = 0x12345678, IF|CF
+		before := c.R
+		if err := c.Step(); err == nil || c.R != before || c.EFlags != IF|CF {
+			t.Fatalf("未知或截短 OR % X 被接受：EAX=%X flags=%X err=%v", code, c.R[EAX], c.EFlags, err)
+		}
+	}
+}
+
+func TestXORRegisterImmediate32OriginalAndBoundaryFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		left, imm, want, flags uint32
+	}{
+		{"原版 EFLAGS 與續段 LOG", 0, 0x8000, 0x8000, IF | PF},
+		{"完整立即數高位", 0x12345678, 0xaabbccdd, 0xb88f9aa5, IF | SF | PF},
+		{"零結果", 0x87654321, 0x87654321, 0, IF | ZF | PF},
+		{"低 byte 奇同位", 0, 0x80000001, 0x80000001, IF | SF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := testBus{0x81, 0xf2, 0, 0, 0, 0}
+			binary.LittleEndian.PutUint32(mem[2:], tc.imm)
+			beforeMem := append([]byte(nil), mem...)
+			c := New(mem)
+			c.R[EDX], c.R[EAX], c.EFlags = tc.left, 0x8000, IF|CF|OF|AF|ZF|SF|PF
+			beforeR, beforeSeg := c.R, c.Seg
+			beforeR[EDX] = tc.want
+			if err := c.Step(); err != nil || c.EIP != 6 || c.R != beforeR || c.Seg != beforeSeg || c.EFlags != tc.flags || !bytes.Equal(mem, beforeMem) {
+				t.Fatalf("XOR EDX=%X flags=%X EIP=%X err=%v", c.R[EDX], c.EFlags, c.EIP, err)
+			}
+		})
+	}
+	for reg := 0; reg < 8; reg++ {
+		c := New(testBus{0x81, 0xf0 | byte(reg), 1, 0, 0, 0})
+		for i := range c.R {
+			c.R[i] = 0x11220000 + uint32(i)*0x100
+		}
+		want := c.R
+		want[reg] ^= 1
+		c.EFlags = IF | CF | OF | AF | ZF | SF | PF
+		if err := c.Step(); err != nil || c.R != want || c.EFlags != IF || c.EIP != 6 {
+			t.Fatalf("XOR 目的暫存器=%d R=%X flags=%X err=%v", reg, c.R, c.EFlags, err)
+		}
+	}
+	codes := [][]byte{
+		{0x66, 0x81, 0xf2, 0, 0x80}, {0x26, 0x81, 0xf2, 0, 0x80, 0, 0},
+		{0xf3, 0x81, 0xf2, 0, 0x80, 0, 0}, {0xf2, 0x81, 0xf2, 0, 0x80, 0, 0},
+		{0x81, 0x32, 0, 0x80, 0, 0},
+	}
+	for n := 1; n < 6; n++ {
+		codes = append(codes, []byte{0x81, 0xf2, 0, 0x80, 0, 0}[:n])
+	}
+	for _, code := range codes {
+		c := New(testBus(code))
+		c.R[EDX], c.EFlags = 0x12345678, IF|CF
+		before := c.R
+		if err := c.Step(); err == nil || c.R != before || c.EFlags != IF|CF {
+			t.Fatalf("未知或截短 XOR % X 被接受：EDX=%X flags=%X err=%v", code, c.R[EDX], c.EFlags, err)
+		}
+	}
+}
+
 func TestCMPByteMemoryDestinationNoWriteback(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x38, 0x10}) // CMP [EAX],DL

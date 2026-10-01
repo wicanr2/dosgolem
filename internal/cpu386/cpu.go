@@ -2296,6 +2296,16 @@ func (c *CPU) Step() error {
 			break
 		}
 
+		if modrm>>6 == 3 && group == 6 {
+			imm, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			c.R[reg] ^= imm
+			c.setLogicFlags(c.R[reg])
+			break
+		}
 		if modrm>>6 != 3 && (group == 5 || group == 0) {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
@@ -2419,6 +2429,19 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if group == 1 && modrm>>6 == 3 && !operand16 {
+			if segmentOverride >= 0 || repe || repne {
+				return fail("OR dword暫存器前綴尚未支援")
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			c.R[reg] |= uint32(int32(int8(imm)))
+			c.setLogicFlags(c.R[reg])
+			break
+		}
 		if group == 1 && modrm>>6 != 3 && !operand16 && segmentOverride < 0 && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {

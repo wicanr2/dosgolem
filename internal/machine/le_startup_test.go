@@ -215,6 +215,40 @@ func TestMOO2AttachMachineSharesProtectedAndRealModePorts(t *testing.T) {
 	}
 }
 
+func TestMOO2AttachMachineAdvancesBIOSClockAndPreservesHook(t *testing.T) {
+	m := &LEMachine{Mem: make([]byte, 0x120000)}
+	m.CPU = cpu386.New(m)
+	calls := 0
+	m.CPU.StepHook = func(*cpu386.CPU) (bool, error) { calls++; return true, nil }
+	s := NewMOO2StartupDOS(nil)
+	if err := s.AttachMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := s.DPMI.RealModeIO.(*LEOPLPorts)
+	if !ok || p.BIOSClock == nil {
+		t.Fatal("MOO2 未接既有 BIOS 時鐘")
+	}
+	m.CPU.EFlags = 0x202
+	beforeR, beforeSeg := m.CPU.R, m.CPU.Seg
+	for i := 0; i < 54925; i++ {
+		if err := m.CPU.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if binary.LittleEndian.Uint32(m.Mem[0x46c:]) != 0 {
+		t.Fatal("tick 過早")
+	}
+	if err := m.CPU.Step(); err != nil || calls != 54926 || p.BIOSClock.Micros != 54926 ||
+		binary.LittleEndian.Uint32(m.Mem[0x46c:]) != 1 || m.CPU.R != beforeR || m.CPU.Seg != beforeSeg || m.CPU.EFlags != 0x202 {
+		t.Fatalf("MOO2 時鐘／hook：calls=%d micros=%d flags=%X err=%v", calls, p.BIOSClock.Micros, m.CPU.EFlags, err)
+	}
+	binary.LittleEndian.PutUint32(m.Mem[8*4:], 0x1234)
+	p.BIOSClock.Pending = true
+	if err := m.CPU.Step(); err == nil || calls != 54926 || m.CPU.R != beforeR || m.CPU.EFlags != 0x202 {
+		t.Fatalf("客製 IRQ0 未拒絕：calls=%d err=%v", calls, err)
+	}
+}
+
 func TestMOO2AttachMachineRejectsBIOSOverlap(t *testing.T) {
 	m := &LEMachine{Mem: make([]byte, 0x120000)}
 	m.CPU = cpu386.New(m)

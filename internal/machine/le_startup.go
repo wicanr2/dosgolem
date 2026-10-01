@@ -95,8 +95,11 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 	if err := InstallDOS4GWBIOSData(m); err != nil {
 		return err
 	}
-	s.FD2StartupDOS.AttachMachine(m)
 	ports := NewLEOPLPorts()
+	if !InstallLEBIOSClock(m, ports) {
+		return errors.New("MOO2 BIOS 時鐘安裝失敗")
+	}
+	s.FD2StartupDOS.AttachMachine(m)
 	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
 	s.DPMI.RealModeIO = ports
 	return nil

@@ -399,3 +399,6 @@
 - [245 — MOO2 SB16 `B0h` 單次 16 位元 DMA](245-sb16-b0-single-cycle-probe.md)：CONFORMED。原檔自然越過 `B0 30 00 00`；音訊完成時間僅為硬體規格近似，無波形或聽感對拍。
 - [246 — MOO2 啟動時安裝 BIOS 資料區](246-moo2-bios-data-attach.md)：CONFORMED。重用既有 DOS/4GW BDA 安裝契約，原檔越過誤讀 `0006h`，下一停點為 DSP `0225h`。
 - [247 — SB16 左右數位語音音量混音器暫存器](247-sb16-voice-volume-mixer.md)：CONFORMED。原檔越過索引 `32h` 讀取，實模式返回；下一停點為高位 LE 線性 `0x25221E` 的 `83 C8 10`。
+- [248 — 32 位元暫存器 OR 符號擴展立即數](248-cpu386-or-register-imm8.md)：CONFORMED。原版同次 raw bytes、EAX 與旗標已核對；dosgolem 自生下一停點為 `81 F2 00 80 00 00`。
+- [249 — 32 位元暫存器 XOR 完整立即數](249-cpu386-xor-register-imm32.md)：CONFORMED。原版 raw bytes、EDX 與實際 EFLAGS 已核對；全套測試通過，尾端 BIOS tick 等待由規格 250 接線解決。
+- [250 — MOO2 啟動時安裝既有 BIOS 時鐘](250-moo2-bios-clock-attach.md)：CONFORMED。原檔自然離開 `046Ch` 等待；下一停點為 `INT 33h/AX=0000h`，無正常玩家畫面。
