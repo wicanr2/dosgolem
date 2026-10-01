@@ -18,8 +18,9 @@ var moo2VBEModes = [...]uint16{
 }
 
 const (
-	moo2VBEModeList = 0xc0100
-	moo2VBEOEMName  = 0xc016c
+	moo2VBETotalMemoryBlocks = 32
+	moo2VBEModeList          = 0xc0100
+	moo2VBEOEMName           = 0xc016c
 )
 
 // 固定 DOSBox-X 輔助環境對 0101h 的模式資訊；尾端保留呼叫者原值。
@@ -75,7 +76,7 @@ func moo2VBEControllerInfo(h *DPMIHost, interrupt uint8, packet *[50]byte) (bool
 	binary.LittleEndian.PutUint32(header[6:], 0xc000016c)
 	binary.LittleEndian.PutUint32(header[10:], 1)
 	binary.LittleEndian.PutUint32(header[14:], 0xc0000100)
-	binary.LittleEndian.PutUint16(header[18:], 32)
+	binary.LittleEndian.PutUint16(header[18:], moo2VBETotalMemoryBlocks)
 	for i, mode := range moo2VBEModes {
 		binary.LittleEndian.PutUint16(h.m.Mem[moo2VBEModeList+i*2:], mode)
 	}

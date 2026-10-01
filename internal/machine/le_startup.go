@@ -32,9 +32,10 @@ type FD2StartupDOS struct {
 	// MOO2 固定啟動診斷只記錄已設定的模式；不代表 BDA 或實際畫面。
 	videoModeSet bool
 	videoMode    uint8
-	// 固定 0101h 模式僅記錄受限服務狀態，不代表 VRAM 或畫面。
+	// 固定 0101h 模式；未附掛時只記狀態，顯存延伸見規格 265。
 	vbeModeSet bool
 	vbeMode    uint16
+	vbeVideo   *moo2VBEVideo
 	// VBE 顯示起點只記錄已觀測的 MOO2 零座標呼叫，不代表 VRAM 畫面。
 	vbeStartSet          bool
 	vbeStartX, vbeStartY uint16
@@ -133,6 +134,11 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 	s.mouseCallback = installLEMouseCallback(m, s.DPMI)
 	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
 	s.DPMI.RealModeIO = ports
+	s.vbeVideo = newMOO2VBEVideo(ports)
+	m.vbeVideo = s.vbeVideo
+	if s.vbeModeSet && s.vbeMode == 0x0101 {
+		s.vbeVideo.setMode()
+	}
 	return nil
 }
 
@@ -469,7 +475,13 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		switch c.R[cpu386.EAX] {
 		case 3:
 			s.videoMode, s.videoModeSet = 3, true
+			s.vbeModeSet = false
+			if s.vbeVideo != nil {
+				s.vbeVideo.active = false
+			}
 			return true
+		case 0x4f05:
+			return s.vbeVideo.control(c)
 		case 0x4f07:
 			if c.R[cpu386.EBX] != 0 || c.R[cpu386.ECX] != 0 || c.R[cpu386.EDX] != 0 {
 				return false
@@ -482,6 +494,9 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 				return false
 			}
 			s.vbeMode, s.vbeModeSet = 0x0101, true
+			if s.vbeVideo != nil {
+				s.vbeVideo.setMode()
+			}
 			c.R[cpu386.EAX] = 0x4f
 			return true
 		default:

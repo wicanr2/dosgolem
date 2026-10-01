@@ -10,6 +10,7 @@ import (
 // LEMachine 是 DOS/4GW 已完成載入後的平坦 32-bit 執行環境。
 // 它刻意不共用 real-mode Machine 的 20-bit wrap 與 IVT。
 type LEMachine struct {
+	vbeVideo *moo2VBEVideo
 	Video    *LEVideo
 	Keyboard *LEBIOSKeyboard
 	Mem      []byte
@@ -159,6 +160,9 @@ func (m *LEMachine) Read8(addr uint32) (uint8, error) {
 	if uint64(addr) >= uint64(len(m.Mem)) {
 		return 0, fmt.Errorf("machine: LE read 0x%X 超界", addr)
 	}
+	if m.vbeVideo.contains(addr) {
+		return m.vbeVideo.framebuffer[m.vbeVideo.offset(addr)], nil
+	}
 	return m.Mem[addr], nil
 }
 
@@ -166,7 +170,12 @@ func (m *LEMachine) Write8(addr uint32, value uint8) error {
 	if uint64(addr) >= uint64(len(m.Mem)) {
 		return fmt.Errorf("machine: LE write 0x%X 超界", addr)
 	}
-	m.Mem[addr] = value
+	if m.vbeVideo.contains(addr) {
+		m.vbeVideo.framebuffer[m.vbeVideo.offset(addr)] = value
+		m.vbeVideo.writes++
+	} else {
+		m.Mem[addr] = value
+	}
 	return nil
 }
 
@@ -174,12 +183,31 @@ func (m *LEMachine) Read16(addr uint32) (uint16, error) {
 	if uint64(addr)+2 > uint64(len(m.Mem)) {
 		return 0, fmt.Errorf("machine: LE read16 0x%X 超界", addr)
 	}
+	if m.vbeVideo != nil && m.vbeVideo.active && uint64(addr) < uint64(m.vbeVideo.base)+uint64(m.vbeVideo.window) && uint64(addr)+2 > uint64(m.vbeVideo.base) {
+		a, err := m.Read8(addr)
+		if err != nil {
+			return 0, err
+		}
+		b, err := m.Read8(addr + 1)
+		return uint16(a) | uint16(b)<<8, err
+	}
 	return binary.LittleEndian.Uint16(m.Mem[addr:]), nil
 }
 
 func (m *LEMachine) Read32(addr uint32) (uint32, error) {
 	if uint64(addr)+4 > uint64(len(m.Mem)) {
 		return 0, fmt.Errorf("machine: LE read32 0x%X 超界", addr)
+	}
+	if m.vbeVideo != nil && m.vbeVideo.active && uint64(addr) < uint64(m.vbeVideo.base)+uint64(m.vbeVideo.window) && uint64(addr)+4 > uint64(m.vbeVideo.base) {
+		var value uint32
+		for i := uint32(0); i < 4; i++ {
+			b, err := m.Read8(addr + i)
+			if err != nil {
+				return 0, err
+			}
+			value |= uint32(b) << (i * 8)
+		}
+		return value, nil
 	}
 	return binary.LittleEndian.Uint32(m.Mem[addr:]), nil
 }

@@ -48,4 +48,4 @@ Go 1.24.13、映像 `golang:1.24-bookworm` ID=`sha256:1a6d4452c65dea36aac2e2d606
 
 `DOSGOLEM_MOO2_SEPARATE_DOS=1 go run -buildvcs=false ./workplace/moo2-probe /tmp/game/ORION2.EXE --game-dir /tmp/game` 及增加 `DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION=1` 的正式診斷自行重生，兩份 gzip SHA-256 `1ba0ba7a2b7ee444757fd7e737ecd8a1d93501d1c5bb94150472cc3e83580500`／`fd6e7ba30851994f24da214fbdd147cb5bde144d092322a967c486dcc3371a45`。Python 語法、索引、既有及新增回填護欄正常／缺定位／缺舊標記必拒絕通過。規格 264 僅在商餘、資料保持與第一個消費範圍 CONFORMED；未定義旗標、缺完整除法例外及跨執行器平台配置差異明示。255 仍 READY，正常玩家畫面／音效／亂數及 Go remake 玩法同狀態未完成。
 
-下一最小行動：核對公開 VBE `4F05h` 視窗控制契約、固定原版使用點與既有模式資訊／顯存模型；保存實際 bank 設定及消費端，不能只返回成功或把工具啟動切片算成玩法完成。
+**VBE 視窗停點已由規格 265 接通**：[265-moo2-vbe-window-control.md](265-moo2-vbe-window-control.md) 保留上述原始定位，延伸 CPU／DPMI 顯存映射、區段保存及索引／RGB 消費。兩條自然路徑已切換 5–9 並寫入 307,200 bytes，下一停點為非零顯示起點 `4F07h`。原有 DIV 旗標差異與正常玩家驗證限制仍保留。

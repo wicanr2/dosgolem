@@ -36,7 +36,11 @@ func (b *dpmiRealBus) Read8(a uint32) uint8 {
 		}
 		return 0
 	}
-	return b.m.Mem[a]
+	v, err := b.m.Read8(a)
+	if err != nil && b.err == nil {
+		b.err = err
+	}
+	return v
 }
 func (b *dpmiRealBus) Write8(a uint32, v uint8) {
 	if uint64(a) >= uint64(len(b.m.Mem)) {
@@ -46,7 +50,7 @@ func (b *dpmiRealBus) Write8(a uint32, v uint8) {
 		return
 	}
 	if b.err == nil {
-		b.m.Mem[a] = v
+		b.err = b.m.Write8(a, v)
 	}
 }
 func (b *dpmiRealBus) In8(port uint16) uint8 {
