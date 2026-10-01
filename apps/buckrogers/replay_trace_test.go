@@ -31,7 +31,7 @@ func TestReplayTraceRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"ecl\t281020237\tko\t1\t17\t38\t22\t18\t3\t1\t3\tba7816bf8f01\tecl.1.16.00260\t1\t0\t0\t1\t1\t0\t1",
+		"ecl\t281020237\tko\t1\t17\t38\t22\t18\t3\t1\t3\tba7816bf8f01\tecl.1.16.00260\t1\t0\t0\t1\t1\t0\t1\t0",
 		"hmenu\t42\tja\t24\t11\t6\t2\t0\t0\t1",
 		"eng\t43\tzh-CN\t0763:1282\t8\t1\t0\t\"treated.\"\t16",
 		"join\t44\tko\t31\t8\tnofit",

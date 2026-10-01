@@ -176,6 +176,10 @@ type EclTextStats struct {
 	// Spec 038 §3.3: player-name calls drawn as 中文(英文), stepped down to
 	// Chinese only, or stepped down to the original English.
 	PlayerNames, PlayerNameChineseOnly, PlayerNameEnglish int
+	// Spec 046 §3.4: calls whose inserted call-start space had to be left
+	// out for the text to fit (the layout with the space failed, the one
+	// without succeeded).
+	SpaceDropped int
 }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {

@@ -252,7 +252,7 @@ func TestReplayPhase257Windows(t *testing.T) {
 		defer f.Close()
 		pages = bufio.NewWriter(f)
 		defer pages.Flush()
-		fmt.Fprintln(pages, "kind\tlang\tfile\tstep\twindow\tcalls\thits\tmisses\toverflows\toriginal\tshown")
+		fmt.Fprintln(pages, "kind\tlang\tfile\tstep\twindow\tcalls\thits\tmisses\toverflows\toriginal\tshown\tcalls_orig")
 	}
 	windows := map[[4]uint8]int{}
 	for _, w := range ws {
@@ -288,13 +288,14 @@ func TestReplayPhase257Windows(t *testing.T) {
 			step                      uint64
 			calls, hits, misses, over int
 			orig                      strings.Builder
+			callTexts                 []string
 			shown                     string
 		}
 		msgs := map[[4]uint8]*message{}
 		flush := func(k [4]uint8) {
 			if m := msgs[k]; m != nil && pages != nil && m.calls > 0 {
-				fmt.Fprintf(pages, "page\t%s\t%s\t%d\tL%d T%d R%d B%d\t%d\t%d\t%d\t%d\t%s\t%s\n", l.lang, m.file, m.step,
-					k[0], k[1], k[2], k[3], m.calls, m.hits, m.misses, m.over, m.orig.String(), m.shown)
+				fmt.Fprintf(pages, "page\t%s\t%s\t%d\tL%d T%d R%d B%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", l.lang, m.file, m.step,
+					k[0], k[1], k[2], k[3], m.calls, m.hits, m.misses, m.over, m.orig.String(), m.shown, strings.Join(m.callTexts, "\x1f"))
 			}
 			delete(msgs, k)
 		}
@@ -344,6 +345,7 @@ func TestReplayPhase257Windows(t *testing.T) {
 				msgs[wk] = m
 			}
 			m.calls++
+			m.callTexts = append(m.callTexts, w.text)
 			m.hits += a.Hits - before.Hits
 			m.misses += a.Misses - before.Misses
 			m.over += a.Overflows - before.Overflows
@@ -504,6 +506,19 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, ds, _ := parseTraceDir(t, dir)
+	// BUCKROGERS_TRACE_ENGINE: the engine result of every dispatcher call
+	// the replay feeds, with the two width gates (spec 046 §3.5).
+	var engOut *bufio.Writer
+	if p := os.Getenv("BUCKROGERS_TRACE_ENGINE"); p != "" {
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		engOut = bufio.NewWriter(f)
+		defer engOut.Flush()
+		fmt.Fprintln(engOut, "kind\tlang\tcaller\toriginal\tok\ttranslation\tunits\tgate2n\tfrontUnits\ttableGateFail")
+	}
 	for _, l := range r.lanes {
 		w := l.engDisp
 		if w == nil {
@@ -549,6 +564,17 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 				continue
 			}
 			ret := Address{Segment: 0x1000, Offset: 0x10}
+			if engOut != nil && w.catalog != nil {
+				zh, ok, units, front, tableFail := engineGate(w.catalog, d.text)
+				gate := "-"
+				if ok {
+					gate = "pass"
+					if units > 2*len(d.text) {
+						gate = "fail"
+					}
+				}
+				fmt.Fprintf(engOut, "eng\t%s\t%s\t%q\t%v\t%q\t%d\t%s\t%d\t%v\n", l.lang, d.caller, d.text, ok, zh, units, gate, front, tableFail)
+			}
 			w.ObserveEntryParty(keys[0], 1, 0x100, ret, [6]uint16{0, 0, d.bg, d.fg, d.row, d.col}, []byte(d.text), nil, nil)
 			if w.inCall {
 				w.ObserveInstruction(ret, 1, 0x100+engineDispatchReturnDelta)
@@ -578,4 +604,23 @@ func TestReplayPhase257EngineDispatch(t *testing.T) {
 			t.Logf("%s 拆後放不下：%s", l.lang, strings.Join(nofits, "；"))
 		}
 	}
+}
+
+// engineGate is the engine result of an original string with the numbers the
+// two width gates look at: the translation width (the generic path draws it
+// only when it is at most 2×len(original)), and for a table row the width of
+// the front column (029 §2.6: front+1+last must fit the row).
+func engineGate(c *EngineTextCatalog, s string) (zh string, ok bool, units, front int, tableFail bool) {
+	zh, ok = c.Translate(s)
+	units, front = -1, -1
+	if ok {
+		units = stringUnits(zh)
+	}
+	if m := engineTableRow.FindStringSubmatch(s); m != nil {
+		if fz, fok := c.translateLine(m[1]); fok {
+			front = stringUnits(fz)
+			tableFail = front+1+len(m[3]) > 2*len(s)
+		}
+	}
+	return
 }
