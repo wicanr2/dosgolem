@@ -15,7 +15,7 @@ import (
 const (
 	postJoinEventsSHA   = "92ebceaf691807118392d2e284660c14694e34281a64b8b14bc5e9dcfd160ec1"
 	postJoinVariantsSHA = "8e81644e94213bd99e9f91c75e21e10e277f498a16257556516302da4e448eb5"
-	postJoinTextSHA     = "0c2ed04b6d5942b01b41670b38ce6d11fe8af798c04cf3fb54354474f6202eb3"
+	postJoinTextSHA     = "5fb0cb9ba62b08e764215eee294efcecafd473e63de564c6f8a074c40c8f7f3a"
 )
 
 var postJoinKeys = []string{
