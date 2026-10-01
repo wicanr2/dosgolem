@@ -18,14 +18,35 @@ import time
 import re
 import sys
 
+def validate_mouse_sensitivity_resolution(spec_dir):
+    """規格 254 的原始定位與規格 230 解析回填必須同時存在。"""
+    current = (spec_dir / '254-moo2-protected-mouse-sensitivity-settings.md').read_text()
+    older = (spec_dir / '230-moo2-protected-mouse-zero-sensitivity.md').read_text()
+    required = ('0180:0038031B', '001Ah', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('滑鼠敏感度新規格缺原始定位或可實作狀態')
+    if '非零拒絕邊界已由規格 254 取代' not in older or '254-moo2-protected-mouse-sensitivity-settings.md' not in older:
+        raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
+
+spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+if sys.argv[1:] == ['--check-mouse-spec-backlinks']:
+    validate_mouse_sensitivity_resolution(spec_dir)
+    print('滑鼠規格原始定位與勘誤回填通過')
+    raise SystemExit(0)
+
 root = pathlib.Path('/shots')
 capture_mouse_sequence = sys.argv[1:] == ['--mouse-sequence']
 capture_mouse_sensitivity = sys.argv[1:] == ['--mouse-sensitivity']
-capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity
+capture_mouse_set_sensitivity = sys.argv[1:] == ['--mouse-set-sensitivity']
+if capture_mouse_set_sensitivity:
+    validate_mouse_sensitivity_resolution(spec_dir)
+capture_mouse_horizontal_range = sys.argv[1:] == ['--mouse-horizontal-range']
+capture_mouse_vertical_range = sys.argv[1:] == ['--mouse-vertical-range']
+capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity or capture_mouse_set_sensitivity or capture_mouse_horizontal_range or capture_mouse_vertical_range
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
 if not (capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -69,6 +90,12 @@ if capture_mouse_sequence:
     mode = 'mouse-sequence-'
 if capture_mouse_reset:
     mode = 'mouse-sensitivity-' if capture_mouse_sensitivity else 'mouse-reset-'
+    if capture_mouse_set_sensitivity:
+        mode = 'mouse-set-sensitivity-'
+    if capture_mouse_horizontal_range:
+        mode = 'mouse-horizontal-range-'
+    if capture_mouse_vertical_range:
+        mode = 'mouse-vertical-range-'
 if capture_or_register_imm8:
     mode = 'or-register-imm8-'
 if capture_xor_register_imm32:
@@ -227,6 +254,12 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
         if capture_mouse_reset:
             function = 0x1b if capture_mouse_sensitivity else 0
             record_key = 'mouse_sensitivity' if capture_mouse_sensitivity else 'mouse_reset'
+            if capture_mouse_set_sensitivity:
+                function, record_key = 0x1a, 'mouse_set_sensitivity'
+            if capture_mouse_horizontal_range:
+                function, record_key = 7, 'mouse_horizontal_range'
+            if capture_mouse_vertical_range:
+                function, record_key = 8, 'mouse_vertical_range'
             records[record_key + '_register_order'] = 'CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS'
             cmd('BPDEL *')
             cmd(f'BPINT 33 00 {function:02X}')

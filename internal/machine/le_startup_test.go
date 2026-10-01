@@ -139,6 +139,99 @@ func TestMOO2MouseSensitivityQueryStateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMOO2MouseCoordinateRanges(t *testing.T) {
+	cases := []struct {
+		name              string
+		a, b, start, want int16
+		inputs, outputs   []int16
+	}{
+		{"水平原版", 0, 1278, 1500, 1278, []int16{-1, 0, 1278, 1279}, []int16{0, 0, 1278, 1278}},
+		{"垂直原版", 0, 479, -1, 0, []int16{-1, 0, 479, 480}, []int16{0, 0, 479, 479}},
+		{"反序", 800, 100, 320, 320, []int16{99, 100, 799, 800, 801}, []int16{100, 100, 799, 800, 800}},
+		{"負值", -10, -40, 10, -10, []int16{-41, -40, -25, -10, -9}, []int16{-40, -40, -25, -10, -10}},
+		{"跨零", -20, 20, -30, -20, []int16{-21, 0, 21}, []int16{-20, 0, 20}},
+		{"零寬", 15, 15, 320, 15, []int16{14, 15, 16}, []int16{15, 15, 15}},
+		{"有號極值", 32767, -32768, -32768, -32768, []int16{-32768, 0, 32767}, []int16{-32768, 0, 32767}},
+	}
+	for _, function := range []uint16{7, 8} {
+		for _, tc := range cases {
+			t.Run(tc.name+string(rune('0'+function)), func(t *testing.T) {
+				c := cpu386.New(startupBus(make([]byte, 8)))
+				s := NewMOO2StartupDOS(nil)
+				s.SetMouseState(uint16(tc.start), uint16(tc.start), 2)
+				c.R = [8]uint32{0xabcd0000 | uint32(function), 0x11220000 | uint32(uint16(tc.a)), 0x22330000 | uint32(uint16(tc.b)), 0x33440055, 0x100004, 0x100005, 0x100006, 0x100007}
+				c.EFlags = 0x16
+				before, segments := c.R, c.Seg
+				if !s.Handle(c, 0x33) || c.R != before || c.Seg != segments || c.EFlags != 0x16 || s.mouseButtons != 2 || s.mouseSensitivityX != 50 || s.mouseSensitivityY != 50 || s.mouseDoubleSpeed != 50 {
+					t.Fatalf("範圍設定改動不應改的欄位：R=%X flags=%X", c.R, c.EFlags)
+				}
+				check := func(axisWant, otherWant int16) {
+					t.Helper()
+					c.R[cpu386.EAX] = 3
+					if !s.Handle(c, 0x33) || uint16(c.R[cpu386.EBX]) != 2 {
+						t.Fatal("位置查詢失敗或改按鍵")
+					}
+					axis, other := int16(c.R[cpu386.ECX]), int16(c.R[cpu386.EDX])
+					if function == 8 {
+						axis, other = other, axis
+					}
+					if axis != axisWant || other != otherWant {
+						t.Fatalf("axis=%d other=%d，預期 %d/%d", axis, other, axisWant, otherWant)
+					}
+				}
+				check(tc.want, tc.start)
+				for i, input := range tc.inputs {
+					s.SetMouseState(uint16(input), uint16(input), 2)
+					check(tc.outputs[i], input)
+				}
+			})
+		}
+	}
+	for _, function := range []uint16{7, 8} {
+		c := cpu386.New(startupBus(make([]byte, 8)))
+		c.R[cpu386.EAX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags = uint32(function), 0, 1278, 0x16
+		before := c.R
+		if NewFD2StartupDOS(nil).Handle(c, 0x33) || c.R != before || c.EFlags != 0x16 {
+			t.Fatal("一般 FD2 不得接受範圍設定")
+		}
+	}
+}
+
+func TestMOO2MouseCoordinateRangeResetAndAxisIsolation(t *testing.T) {
+	for _, function := range []uint16{0, 0x21} {
+		c := cpu386.New(startupBus(make([]byte, 8)))
+		s := NewMOO2StartupDOS(nil)
+		c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x4f02, 0x101
+		if !s.Handle(c, 0x10) {
+			t.Fatal("VBE 模式設定")
+		}
+		c.R[cpu386.EAX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 7, 0, 1278
+		if !s.Handle(c, 0x33) {
+			t.Fatal("水平範圍設定")
+		}
+		c.R[cpu386.EAX], c.R[cpu386.EDX] = 8, 479
+		if !s.Handle(c, 0x33) {
+			t.Fatal("垂直範圍設定")
+		}
+		s.SetMouseState(1300, 500, 2)
+		if s.mouseX != 1278 || s.mouseY != 479 {
+			t.Fatal("兩軸範圍未共同限制注入")
+		}
+		c.R[cpu386.EAX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 7, 100, 200
+		if !s.Handle(c, 0x33) || s.mouseX != 200 || s.mouseY != 479 {
+			t.Fatal("修改水平範圍影響垂直狀態")
+		}
+		c.R[cpu386.EAX] = uint32(function)
+		if !s.Handle(c, 0x33) || s.mouseRangeX.set || s.mouseRangeY.set || s.mouseX != 320 || s.mouseY != 240 || s.mouseButtons != 0 {
+			t.Fatal("重設未清自訂範圍或未回模式中心")
+		}
+		s.SetMouseState(417, 122, 2)
+		if s.mouseX != 417 || s.mouseY != 122 {
+			t.Fatal("重設後仍套舊自訂範圍")
+		}
+	}
+}
+
 func TestMOO2ProtectedMouseZeroSensitivity(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 8)))
 	s := NewMOO2StartupDOS(nil)
@@ -159,16 +252,70 @@ func TestMOO2ProtectedMouseZeroSensitivity(t *testing.T) {
 		c.R[cpu386.ECX] != 0x222201a1 || c.R[cpu386.EDX] != 0x3333007a {
 		t.Fatalf("敏感度設定不應改受控位置與按鍵：R=%X", c.R)
 	}
-	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x1a, 0x11110001
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 0x1a, 0x11110001, 0x22220000, 0x33330000
 	beforeR = c.R
-	if s.Handle(c, 0x33) || c.R != beforeR || s.mouseSensitivityX != 0 {
-		t.Fatal("非零敏感度輸入須拒絕且保留狀態")
+	if !s.Handle(c, 0x33) || c.R != beforeR || s.mouseSensitivityX != 1 || s.mouseSensitivityY != 0 || s.mouseDoubleSpeed != 0 {
+		t.Fatal("規格 254：非零敏感度設定須接受且保留暫存器")
 	}
 	fd2 := NewFD2StartupDOS(nil)
 	c.R[cpu386.EBX] = 0
 	beforeR = c.R
 	if fd2.Handle(c, 0x33) || c.R != beforeR {
 		t.Fatal("一般 FD2 啟動設定不得接受 MOO2 專用敏感度設定")
+	}
+}
+
+func TestMOO2MouseSensitivitySettingLimitsAndState(t *testing.T) {
+	cases := []struct{ input, want [3]uint16 }{
+		{[3]uint16{100, 100, 479}, [3]uint16{100, 100, 100}},
+		{[3]uint16{0, 0, 0}, [3]uint16{0, 0, 0}},
+		{[3]uint16{0, 51, 99}, [3]uint16{0, 51, 99}},
+		{[3]uint16{99, 100, 101}, [3]uint16{99, 100, 100}},
+		{[3]uint16{101, 65535, 0}, [3]uint16{100, 100, 0}},
+		{[3]uint16{50, 50, 50}, [3]uint16{50, 50, 50}},
+	}
+	for _, tc := range cases {
+		c := cpu386.New(startupBus(make([]byte, 8)))
+		s := NewMOO2StartupDOS(nil)
+		for _, axis := range []uint32{7, 8} {
+			c.R[cpu386.EAX], c.R[cpu386.ECX], c.R[cpu386.EDX] = axis, 100, 500
+			if !s.Handle(c, 0x33) {
+				t.Fatal("範圍設定")
+			}
+		}
+		s.SetMouseState(417, 122, 2)
+		rangeX, rangeY := s.mouseRangeX, s.mouseRangeY
+		c.R = [8]uint32{0xabcd001a, 0x22330000 | uint32(tc.input[1]), 0x33440000 | uint32(tc.input[2]), 0x11220000 | uint32(tc.input[0]), 0x100004, 0x100005, 0x100006, 0x100007}
+		c.EFlags = 0x16
+		before, segments := c.R, c.Seg
+		for repeat := 0; repeat < 2; repeat++ {
+			if !s.Handle(c, 0x33) || c.R != before || c.Seg != segments || c.EFlags != 0x16 || s.mouseRangeX != rangeX || s.mouseRangeY != rangeY || s.mouseX != 417 || s.mouseY != 122 || s.mouseButtons != 2 {
+				t.Fatalf("敏感度設定有不應發生的副作用：input=%v R=%X", tc.input, c.R)
+			}
+		}
+		c.R[cpu386.EAX] = 0xabcd001b
+		want := before
+		want[cpu386.EAX] = 0xabcd001b
+		for i, reg := range []int{cpu386.EBX, cpu386.ECX, cpu386.EDX} {
+			want[reg] = want[reg]&0xffff0000 | uint32(tc.want[i])
+		}
+		if !s.Handle(c, 0x33) || c.R != want || c.Seg != segments || c.EFlags != 0x16 {
+			t.Fatalf("敏感度讀回：input=%v R=%X，預期 %X", tc.input, c.R, want)
+		}
+		for _, reset := range []uint32{0, 0x21} {
+			c.R[cpu386.EAX] = reset
+			if !s.Handle(c, 0x33) {
+				t.Fatal("重設")
+			}
+			c.R[cpu386.EAX] = 0xabcd001b
+			if !s.Handle(c, 0x33) || c.R != want || c.Seg != segments || c.EFlags != 0x16 {
+				t.Fatalf("重設不應改敏感度：input=%v reset=%X R=%X", tc.input, reset, c.R)
+			}
+		}
+		c.R = before
+		if NewFD2StartupDOS(nil).Handle(c, 0x33) || c.R != before || c.EFlags != 0x16 {
+			t.Fatal("一般 FD2 不得接受設定")
+		}
 	}
 }
 

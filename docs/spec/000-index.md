@@ -381,7 +381,7 @@
 - [227 — POP dword 至 DS:[EDI+disp8]](227-cpu386-pop-edi-disp8.md)：CONFORMED。固定原檔越過 `8F 47 14`，合成診斷至 `66 8C 03`；原版非零來源未獨立擷取。
 - [228 — 將 ES 的 word 寫入 DS:[EBX]](228-cpu386-mov-es-to-ds-ebx-word.md)：CONFORMED。原版同次 LOG 與前後記憶體、固定原檔整合測試已核對；非相等搬移依 CPU 契約及合成測試，下一停點為 `INT 33h/AX=21h`。
 - [229 — MOO2 保護模式滑鼠軟體重設](229-moo2-protected-mouse-software-reset.md)：CONFORMED。固定原版同次呼叫與返回、caller 消費端及 dosgolem 原檔整合測試通過；內部滑鼠狀態依 DOSBox-X 契約標示近似，下一停點為 `INT 33h/AX=1Ah`。
-- [230 — MOO2 保護模式滑鼠零敏感度設定](230-moo2-protected-mouse-zero-sensitivity.md)：CONFORMED。固定原版同次入口／返回、caller record 及 dosgolem 原檔整合測試通過；下一停點為 `INT 10h`，移動係數仍未建模。
+- [230 — MOO2 保護模式滑鼠零敏感度設定](230-moo2-protected-mouse-zero-sensitivity.md)：CONFORMED（歷史零值切片）。原版同次樣本及整合測試有效；非零拒絕邊界已由 [254-moo2-protected-mouse-sensitivity-settings.md](254-moo2-protected-mouse-sensitivity-settings.md) 取代，移動係數仍未建模。
 - [231 — MOO2 保護模式視訊模式 03h 啟動呼叫](231-moo2-protected-video-mode-03.md)：CONFORMED。固定原版與 dosgolem 的受限模式呼叫已核對；合成環境後續因缺 `MOX.SET` 以代碼 1 結束。
 - [232 — 16 位元記憶體與立即數比較](232-cpu386-cmp-rm16-imm16.md)：CONFORMED。空 `MOX.SET` 的原版 LOG、dosgolem 固定原檔與合成測試通過；完整本機資料下一停點是 `66 F7 /0`。
 - [233 — 16 位元記憶體與立即數 TEST](233-cpu386-test-rm16-imm16.md)：CONFORMED。CPU 測試與正版資料診斷已越過第 288215 步；原版同狀態斷點仍未命中。合成記憶體退出已定位至 DOS 低位游標與線性配置不重用，需另立規格。
@@ -404,3 +404,5 @@
 - [250 — MOO2 啟動時安裝既有 BIOS 時鐘](250-moo2-bios-clock-attach.md)：CONFORMED。原檔自然離開 `046Ch` 等待；下一停點為 `INT 33h/AX=0000h`，無正常玩家畫面。
 - [251 — MOO2 保護模式滑鼠驅動重設](251-moo2-protected-mouse-driver-reset.md)：CONFORMED。原版返回與 record 消費端已核對；自然越過重設，下一筆服務為 `AX=001Bh`。
 - [252 — MOO2 保護模式滑鼠敏感度查詢](252-moo2-protected-mouse-sensitivity-query.md)：CONFORMED。正式兩側前兩筆序列與三個 50 返回已核對；自然下一停點為水平範圍設定 `AX=0007h`。
+- [253 — MOO2 保護模式滑鼠座標範圍](253-moo2-protected-mouse-coordinate-ranges.md)：CONFORMED。兩軸範圍與受控輸入已驗；自然下一停點為非零敏感度設定 `AX=001Ah`。
+- [254 — MOO2 保護模式滑鼠非零敏感度設定](254-moo2-protected-mouse-sensitivity-settings.md)：CONFORMED。設定／查詢按平台契約驗收，規格 230 非零拒絕邊界已回填；自然下一停點為回呼設定 `AX=000Ch`，移動速度仍未知。

@@ -38,11 +38,12 @@ type FD2StartupDOS struct {
 	// VBE 顯示起點只記錄已觀測的 MOO2 零座標呼叫，不代表 VRAM 畫面。
 	vbeStartSet          bool
 	vbeStartX, vbeStartY uint16
-	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／1Ah／21h 使用。
-	mouseQueryEnabled bool
-	mouseX, mouseY    uint16
-	mouseButtons      uint16
-	// AX=1Ah 的 raw 設定；零值不改未建模的移動速度（規格 230）。
+	// 只供已明示 MOO2 啟動設定的受控滑鼠平台服務使用。
+	mouseQueryEnabled        bool
+	mouseX, mouseY           uint16
+	mouseButtons             uint16
+	mouseRangeX, mouseRangeY mouseCoordinateRange
+	// 規格 230／254 的裁切設定值；不改未建模的實體移動速度。
 	mouseSensitivityX, mouseSensitivityY, mouseDoubleSpeed uint16
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
@@ -73,6 +74,34 @@ var minimalFD2Environment = []byte{0, 0, 1, 0, 'F', 'D', '2', '.', 'E', 'X', 'E'
 var minimalMOO2Environment = []byte{0, 0, 1, 0, 'O', 'R', 'I', 'O', 'N', '2', '.', 'E', 'X', 'E', 0}
 
 const moo2MouseCenterX, moo2MouseCenterY = 320, 100
+
+// 規格 253：有號 16 位包含端點的受控範圍，不建模主機游標比例與粒度。
+type mouseCoordinateRange struct {
+	set              bool
+	minimum, maximum int16
+}
+
+func newMouseCoordinateRange(a, b uint16) mouseCoordinateRange {
+	lower, upper := int16(a), int16(b)
+	if lower > upper {
+		lower, upper = upper, lower
+	}
+	return mouseCoordinateRange{set: true, minimum: lower, maximum: upper}
+}
+
+func (r mouseCoordinateRange) constrain(raw uint16) uint16 {
+	if !r.set {
+		return raw
+	}
+	value := int16(raw)
+	if value < r.minimum {
+		return uint16(r.minimum)
+	}
+	if value > r.maximum {
+		return uint16(r.maximum)
+	}
+	return raw
+}
 
 // MOO2StartupDOS 的兩次啟動回傳以固定 1.31 DOSBox-X 輔助收據為基線；
 // PSP／環境讀取仍是明示的合成輸入，不是完整原版對拍收據。
@@ -107,7 +136,7 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 
 // SetMouseState 設定下一次保護模式滑鼠查詢要回報的受控輸入。
 func (s *MOO2StartupDOS) SetMouseState(x, y, buttons uint16) {
-	s.mouseX, s.mouseY, s.mouseButtons = x, y, buttons
+	s.mouseX, s.mouseY, s.mouseButtons = s.mouseRangeX.constrain(x), s.mouseRangeY.constrain(y), buttons
 }
 
 func (s *FD2StartupDOS) Calls() int { return s.calls }
@@ -449,16 +478,23 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			return false
 		}
 		switch uint16(c.R[cpu386.EAX]) {
+		case 7, 8:
+			bounds := newMouseCoordinateRange(uint16(c.R[cpu386.ECX]), uint16(c.R[cpu386.EDX]))
+			if uint16(c.R[cpu386.EAX]) == 7 {
+				s.mouseRangeX, s.mouseX = bounds, bounds.constrain(s.mouseX)
+			} else {
+				s.mouseRangeY, s.mouseY = bounds, bounds.constrain(s.mouseY)
+			}
+			return true
 		case 3:
 			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseButtons)
 			c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseX)
 			c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseY)
 			return true
 		case 0x1a:
-			if uint16(c.R[cpu386.EBX]) != 0 || uint16(c.R[cpu386.ECX]) != 0 || uint16(c.R[cpu386.EDX]) != 0 {
-				return false
-			}
-			s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 0, 0, 0
+			s.mouseSensitivityX = min(uint16(c.R[cpu386.EBX]), 100)
+			s.mouseSensitivityY = min(uint16(c.R[cpu386.ECX]), 100)
+			s.mouseDoubleSpeed = min(uint16(c.R[cpu386.EDX]), 100)
 			return true
 		case 0x1b:
 			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseSensitivityX)
@@ -467,6 +503,7 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			return true
 		case 0, 0x21:
 			// 規格 229／251：三按鍵返回；受控座標依目前模式中心近似。
+			s.mouseRangeX, s.mouseRangeY = mouseCoordinateRange{}, mouseCoordinateRange{}
 			s.mouseButtons = 0
 			s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
 			if s.vbeModeSet && s.vbeMode == 0x0101 {
