@@ -32,6 +32,9 @@ type FD2StartupDOS struct {
 	// MOO2 固定啟動診斷只記錄已設定的模式；不代表 BDA 或實際畫面。
 	videoModeSet bool
 	videoMode    uint8
+	// 固定 0101h 模式僅記錄受限服務狀態，不代表 VRAM 或畫面。
+	vbeModeSet bool
+	vbeMode    uint16
 	// VBE 顯示起點只記錄已觀測的 MOO2 零座標呼叫，不代表 VRAM 畫面。
 	vbeStartSet          bool
 	vbeStartX, vbeStartY uint16
@@ -412,6 +415,13 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 				return false
 			}
 			s.vbeStartX, s.vbeStartY, s.vbeStartSet = 0, 0, true
+			c.R[cpu386.EAX] = 0x4f
+			return true
+		case 0x4f02:
+			if c.R[cpu386.EBX] != 0x0101 || c.R[cpu386.ECX] != 0 || c.R[cpu386.EDX] != 0 {
+				return false
+			}
+			s.vbeMode, s.vbeModeSet = 0x0101, true
 			c.R[cpu386.EAX] = 0x4f
 			return true
 		default:

@@ -151,6 +151,36 @@ func TestMOO2ProtectedVBEZeroDisplayStart(t *testing.T) {
 	}
 }
 
+func TestMOO2ProtectedVBEMode0101(t *testing.T) {
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	s := NewMOO2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags =
+		0x4f02, 0x0101, 0, 0, 0x216
+	beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+	if !s.Handle(c, 0x10) || c.R[cpu386.EAX] != 0x4f || c.Seg != beforeSeg || c.EFlags != beforeFlags ||
+		!s.vbeModeSet || s.vbeMode != 0x0101 {
+		t.Fatalf("MOO2 4F02h 模式 0101h 返回錯誤：R=%X Seg=%X flags=%X mode=%04X set=%t",
+			c.R, c.Seg, c.EFlags, s.vbeMode, s.vbeModeSet)
+	}
+	beforeR[cpu386.EAX] = 0x4f
+	if c.R != beforeR {
+		t.Fatal("4F02h 改動非目的暫存器")
+	}
+	for _, regs := range [][4]uint32{{0x14f02, 0x101, 0, 0}, {0x4f02, 0x100, 0, 0}, {0x4f02, 0x10101, 0, 0}, {0x4f02, 0x101, 1, 0}, {0x4f02, 0x101, 0, 1}} {
+		c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX] = regs[0], regs[1], regs[2], regs[3]
+		beforeR = c.R
+		if s.Handle(c, 0x10) || c.R != beforeR || !s.vbeModeSet || s.vbeMode != 0x0101 {
+			t.Fatalf("未知 4F02h 形狀須拒絕：R=%X", c.R)
+		}
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 0x4f02, 0x0101, 0, 0
+	beforeR = c.R
+	if fd2.Handle(c, 0x10) || c.R != beforeR {
+		t.Fatal("一般 FD2 設定不得接受 MOO2 4F02h")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)

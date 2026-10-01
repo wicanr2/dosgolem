@@ -390,3 +390,4 @@
 - [236 — MOO2 實模式 VBE 控制器資訊呼叫](236-moo2-real-mode-vbe-controller-info.md)：CONFORMED。受限 BIOS callback、緩衝與拒絕測試通過；原檔自行前進至直接保護模式 `INT 10h/AX=4F07h`。
 - [237 — MOO2 VBE 顯示起點歸零](237-moo2-vbe-zero-display-start.md)：CONFORMED。原版 `4F07h` 零座標返回、caller 記錄及 dosgolem 自生越過受限視訊服務；畫面輸出另驗。
 - [238 — MOO2 查詢 VBE 模式 0101h](238-moo2-vbe-mode-0101-info.md)：CONFORMED。原版兩次 `4F00h` 後的 `4F01h` 固定模式與 256 位元組緩衝已核對；dosgolem 自生下一停點為直接 `INT 10h/AX=4F02h`。
+- [239 — MOO2 設定 VBE 模式 0101h](239-moo2-vbe-set-mode-0101.md)：CONFORMED。原版直接 `4F02h` 的返回與 caller 已擷取；dosgolem 自生前進至第 1,151,730 步的 opcode `04h` 停點，無畫面對拍。
