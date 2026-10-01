@@ -555,8 +555,8 @@ func (c *CPU) Step() error {
 	if segmentOverride == SegSS && op != 0x8d && (op != 0x89 || !operand16 || repe || repne) {
 		return fail("SS override 只支援 16-bit MOV memory store／LEA")
 	}
-	if segmentOverride == SegCS && op != 0xff && op != 0x8a && op != 0x8d {
-		return fail("CS override 只支援間接 JMP／MOV byte load／LEA")
+	if segmentOverride == SegCS && op != 0xff && op != 0x8a && op != 0x8d && op != 0x8e {
+		return fail("CS override 只支援間接 JMP／MOV byte load／LEA／絕對 DS word 載入")
 	}
 	if segmentOverride >= 0 && !(segmentOverride == SegSS && op == 0x89) && !(segmentOverride == SegCS && op == 0xff) && !(segmentOverride == SegES && op == 0x0f) && !(segmentOverride == SegDS && op >= 0xb8 && op <= 0xbf) && !(segmentOverride == SegES && op == 0x3a) && op != 0x80 && op != 0x8a && op != 0x8b && op != 0x8c && op != 0x8d && op != 0x8e {
 		return fail("segment override 的此指令形狀尚未支援")
@@ -3842,6 +3842,10 @@ func (c *CPU) Step() error {
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		// 規格 256：CS word 來源只開放已驗的 66 2E 8E 1D disp32。
+		if segmentOverride == SegCS && (!operand16 || modrm != 0x1d || repe || repne) {
+			return fail("CS 段載入只支援 16 位元絕對來源至 DS")
 		}
 		encoding := int((modrm >> 3) & 7)
 		segmentByEncoding := [...]int{SegES, -1, SegSS, SegDS, SegFS, SegGS}

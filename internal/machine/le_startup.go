@@ -45,6 +45,7 @@ type FD2StartupDOS struct {
 	mouseRangeX, mouseRangeY mouseCoordinateRange
 	// 規格 230／254 的裁切設定值；不改未建模的實體移動速度。
 	mouseSensitivityX, mouseSensitivityY, mouseDoubleSpeed uint16
+	mouseCallback                                          *leMouseCallbackDispatcher
 
 	// Console 收 `AH=40h`（handle 1／2）、`AH=09h`、`AH=02h` 的輸出。
 	//
@@ -129,6 +130,7 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 		return errors.New("MOO2 BIOS 時鐘安裝失敗")
 	}
 	s.FD2StartupDOS.AttachMachine(m)
+	s.mouseCallback = installLEMouseCallback(m, s.DPMI)
 	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
 	s.DPMI.RealModeIO = ports
 	return nil
@@ -478,6 +480,13 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			return false
 		}
 		switch uint16(c.R[cpu386.EAX]) {
+		case 4:
+			// 規格 257：程式設定座標不製造一般輸入事件。
+			s.mouseX = s.mouseRangeX.constrain(uint16(c.R[cpu386.ECX]))
+			s.mouseY = s.mouseRangeY.constrain(uint16(c.R[cpu386.EDX]))
+			return true
+		case 0x0c:
+			return s.mouseCallback.register(c)
 		case 7, 8:
 			bounds := newMouseCoordinateRange(uint16(c.R[cpu386.ECX]), uint16(c.R[cpu386.EDX]))
 			if uint16(c.R[cpu386.EAX]) == 7 {
@@ -502,6 +511,7 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseDoubleSpeed)
 			return true
 		case 0, 0x21:
+			s.mouseCallback.reset()
 			// 規格 229／251：三按鍵返回；受控座標依目前模式中心近似。
 			s.mouseRangeX, s.mouseRangeY = mouseCoordinateRange{}, mouseCoordinateRange{}
 			s.mouseButtons = 0

@@ -406,3 +406,6 @@
 - [252 — MOO2 保護模式滑鼠敏感度查詢](252-moo2-protected-mouse-sensitivity-query.md)：CONFORMED。正式兩側前兩筆序列與三個 50 返回已核對；自然下一停點為水平範圍設定 `AX=0007h`。
 - [253 — MOO2 保護模式滑鼠座標範圍](253-moo2-protected-mouse-coordinate-ranges.md)：CONFORMED。兩軸範圍與受控輸入已驗；自然下一停點為非零敏感度設定 `AX=001Ah`。
 - [254 — MOO2 保護模式滑鼠非零敏感度設定](254-moo2-protected-mouse-sensitivity-settings.md)：CONFORMED。設定／查詢按平台契約驗收，規格 230 非零拒絕邊界已回填；自然下一停點為回呼設定 `AX=000Ch`，移動速度仍未知。
+- [255 — MOO2 保護模式滑鼠回呼](255-moo2-protected-mouse-callback.md)：READY。受控派送、狀態恢復及原檔早期遠返回已驗；完整座標／游標消費支線同狀態仍待驗。
+- [256 — 從 CS 絕對位址載入 DS](256-cpu386-cs-absolute-ds-load.md)：CONFORMED。窄指令與原檔回呼自然越過停點已驗。
+- [257 — MOO2 保護模式滑鼠座標設定](257-moo2-protected-mouse-position-setting.md)：CONFORMED。受控位置狀態及兩條原檔路徑已驗；下一自然停點為 `INT 2Fh/AX=160Ah`。

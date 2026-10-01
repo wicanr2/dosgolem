@@ -27,7 +27,7 @@ func TestMOO2ProtectedMouseQueryUsesControlledState(t *testing.T) {
 		t.Fatalf("MOO2 受控滑鼠回傳：EBX=%X ECX=%X EDX=%X flags=%X",
 			c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX], c.EFlags)
 	}
-	c.R[cpu386.EAX] = 4
+	c.R[cpu386.EAX] = 5
 	before := c.R
 	if s.Handle(c, 0x33) || c.R != before {
 		t.Fatal("未列的滑鼠功能應失敗即關閉")

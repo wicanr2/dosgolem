@@ -96,10 +96,14 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
+	mousePositionSet := false
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
 		if number == 0x33 {
 			beforeR, beforeFlags := c.R, c.EFlags
 			handled := services.Handle(c, number)
+			if handled && uint16(beforeR[cpu386.EAX]) == 4 {
+				mousePositionSet = true
+			}
 			fmt.Printf("mouse_service eip=0x%X input=%X input_flags=0x%X handled=%t output=%X output_flags=0x%X\n", c.EIP-2, beforeR, beforeFlags, handled, c.R, c.EFlags)
 			return handled
 		}
@@ -124,7 +128,19 @@ func main() {
 	}
 	ring := make([]sample, 0, 32)
 	const maxSteps = 8000000
+	mouseEventInjected := false
 	for i := 0; i < maxSteps; i++ {
+		mouseEventRequested := os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || (os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1" && mousePositionSet)
+		if mouseEventRequested && !mouseEventInjected && m.CPU.EFlags&cpu386.IF != 0 {
+			mask, _, _, _, _ := services.MouseCallbackState()
+			if mask != 0 {
+				if err := services.InjectMouseEvent(657, 189, 0, 0, 0); err != nil {
+					panic(err)
+				}
+				fmt.Printf("controlled_mouse_event step=%d x=657 y=189 buttons=0 delta=0/0\n", i)
+				mouseEventInjected = true
+			}
+		}
 		if m.CPU.EIP == 0x100cf {
 			value, err := m.Read16(0x191cbe)
 			fmt.Printf("empty_mox_cmp step=%d eip=0x%X ds=0x%X source_linear=0x191CBE source_word=0x%X read_error=%v flags=0x%X\n",
@@ -155,6 +171,8 @@ func main() {
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
 		if err := m.CPU.Step(); err != nil {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("mouse_callback mask=%X pending=%d active=%t started=%d completed=%d\n", mask, pending, active, started, completed)
 			fmt.Printf("step_error step=%d eip=0x%X eax=0x%X ebx=0x%X ecx=0x%X edx=0x%X es=0x%X ds=0x%X ss=0x%X flags=0x%X dos_calls=%d error=%v\n", i, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.Seg[cpu386.SegES], m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS], m.CPU.EFlags, services.Calls(), err)
 			fmt.Printf("dpmi_real_mode_last=%+v dpmi_unimplemented=%v\n", services.DPMI.RealModeLast, services.DPMI.Unimplemented)
 			fmt.Printf("stop_bytes=% X\n", m.Mem[ring[len(ring)-1].eip:ring[len(ring)-1].eip+16])

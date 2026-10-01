@@ -17,6 +17,7 @@ import struct
 import time
 import re
 import sys
+import threading
 
 def validate_mouse_sensitivity_resolution(spec_dir):
     """規格 254 的原始定位與規格 230 解析回填必須同時存在。"""
@@ -38,15 +39,18 @@ root = pathlib.Path('/shots')
 capture_mouse_sequence = sys.argv[1:] == ['--mouse-sequence']
 capture_mouse_sensitivity = sys.argv[1:] == ['--mouse-sensitivity']
 capture_mouse_set_sensitivity = sys.argv[1:] == ['--mouse-set-sensitivity']
+capture_mouse_set_position = sys.argv[1:] == ['--mouse-set-position']
+capture_mouse_callback_event = sys.argv[1:] == ['--mouse-callback-event']
+capture_mouse_callback = sys.argv[1:] == ['--mouse-callback'] or capture_mouse_callback_event
 if capture_mouse_set_sensitivity:
     validate_mouse_sensitivity_resolution(spec_dir)
 capture_mouse_horizontal_range = sys.argv[1:] == ['--mouse-horizontal-range']
 capture_mouse_vertical_range = sys.argv[1:] == ['--mouse-vertical-range']
-capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity or capture_mouse_set_sensitivity or capture_mouse_horizontal_range or capture_mouse_vertical_range
+capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity or capture_mouse_set_sensitivity or capture_mouse_horizontal_range or capture_mouse_vertical_range or capture_mouse_callback or capture_mouse_set_position
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
 if not (capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -92,6 +96,10 @@ if capture_mouse_reset:
     mode = 'mouse-sensitivity-' if capture_mouse_sensitivity else 'mouse-reset-'
     if capture_mouse_set_sensitivity:
         mode = 'mouse-set-sensitivity-'
+    if capture_mouse_set_position:
+        mode = 'mouse-set-position-'
+    if capture_mouse_callback:
+        mode = 'mouse-callback-event-' if capture_mouse_callback_event else 'mouse-callback-'
     if capture_mouse_horizontal_range:
         mode = 'mouse-horizontal-range-'
     if capture_mouse_vertical_range:
@@ -256,6 +264,10 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             record_key = 'mouse_sensitivity' if capture_mouse_sensitivity else 'mouse_reset'
             if capture_mouse_set_sensitivity:
                 function, record_key = 0x1a, 'mouse_set_sensitivity'
+            if capture_mouse_set_position:
+                function, record_key = 4, 'mouse_set_position'
+            if capture_mouse_callback:
+                function, record_key = 0x0c, 'mouse_callback'
             if capture_mouse_horizontal_range:
                 function, record_key = 7, 'mouse_horizontal_range'
             if capture_mouse_vertical_range:
@@ -279,6 +291,16 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             if not dump.is_file() or dump.read_bytes() != bytes.fromhex('cd 33 c3'):
                 raise RuntimeError('MOO2 滑鼠服務原始指令不符')
             records[record_key + '_bytes_hex'] = dump.read_bytes().hex()
+            if capture_mouse_callback:
+                callback_selector, callback_offset = int(call[9], 16), int(call[5], 16)
+                records['mouse_callback_target'] = {'address_space': 'DOSBox-X ES:EDX', 'selector': callback_selector, 'offset': callback_offset}
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {callback_selector:04X}:{callback_offset:08X} 40', 1)
+                if not dump.is_file() or dump.stat().st_size != 64:
+                    raise RuntimeError('MOO2 滑鼠回呼入口擷取失敗')
+                callback_bytes = dump.read_bytes()
+                records['mouse_callback_target_sha256'] = hashlib.sha256(callback_bytes).hexdigest()
+                (root / (mode + 'target.bin')).write_bytes(callback_bytes)
             cmd('BPDEL *')
             cmd('BP 0180:0038031D')
             cmd('RUN', 8)
@@ -300,6 +322,71 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             records[record_key + '_caller_log_sha256'] = hashlib.sha256(data).hexdigest()
             records[record_key + '_caller_lines'] = lines
             (root / (mode + 'caller-logcpu.txt')).write_bytes(data)
+            if capture_mouse_callback_event:
+                # 只送一般 X11 輸入，不改原版指令、狀態或回呼參數。
+                command = ['xdotool', 'search', '--onlyvisible', '--class', 'dosbox']
+                found = subprocess.run(command, check=True, capture_output=True, text=True, timeout=5)
+                windows = found.stdout.split()
+                if len(windows) != 1:
+                    raise RuntimeError('MOO2 滑鼠事件要求唯一 DOSBox-X 視窗: ' + repr(windows))
+                records['mouse_callback_input_window'] = windows[0]
+                subprocess.run(['xdotool', 'windowfocus', windows[0]], check=True, timeout=5)
+                cmd('BPDEL *')
+                cmd(f'BP {callback_selector:04X}:{callback_offset:08X}')
+                input_errors = []
+                def inject_move():
+                    try:
+                        time.sleep(1)
+                        subprocess.run(['xdotool', 'mousemove_relative', '--', '8', '6'], check=True, timeout=5)
+                    except Exception as error:
+                        input_errors.append(repr(error))
+                worker = threading.Thread(target=inject_move)
+                worker.start()
+                cmd('RUN', 12)
+                worker.join(timeout=8)
+                if worker.is_alive() or input_errors:
+                    raise RuntimeError('MOO2 滑鼠輸入送出失敗: ' + repr(input_errors))
+                records['mouse_callback_input'] = {'method': 'X11 xdotool mousemove_relative', 'relative_x': 8, 'relative_y': 6}
+                snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS', 0.8))
+                entered = next((v for v in reversed(snapshots) if len(v) == 13 and int(v[0],16) == callback_selector and int(v[1],16) == callback_offset), None)
+                if not entered:
+                    raise RuntimeError('MOO2 一般移動後回呼入口未命中: ' + repr(snapshots))
+                records['mouse_callback_event_entry'] = entered
+                dump.unlink(missing_ok=True)
+                cmd(f'MEMDUMPBIN {int(entered[10],16):04X}:{int(entered[11],16):08X} 40', 1)
+                if not dump.is_file() or dump.stat().st_size != 64:
+                    raise RuntimeError('MOO2 回呼堆疊擷取失敗')
+                stack = dump.read_bytes()
+                records['mouse_callback_event_stack_hex'] = stack.hex()
+                (root / 'mouse-callback-event-stack.bin').write_bytes(stack)
+                cmd('BPDEL *')
+                log.unlink(missing_ok=True)
+                cmd('LOG 100', 10)
+                if not log.is_file():
+                    raise RuntimeError('MOO2 回呼執行紀錄未產生')
+                data = log.read_bytes()
+                records['mouse_callback_event_log_sha256'] = hashlib.sha256(data).hexdigest()
+                (root / 'mouse-callback-event-logcpu.txt').write_bytes(data)
+                cmd('BP 0180:003477EC')
+                cmd('RUN', 12)
+                snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS', 0.8))
+                ending = next((v for v in reversed(snapshots) if len(v) == 13 and v[:2] == ['180', '3477ec']), None)
+                if not ending:
+                    raise RuntimeError('MOO2 回呼收尾入口未命中: ' + repr(snapshots))
+                records['mouse_callback_event_ending'] = ending
+                dump.unlink(missing_ok=True)
+                cmd('MEMDUMPBIN 0180:003477EC 20', 1)
+                if not dump.is_file() or dump.stat().st_size != 32:
+                    raise RuntimeError('MOO2 回呼收尾指令擷取失敗')
+                records['mouse_callback_event_ending_bytes_hex'] = dump.read_bytes().hex()
+                cmd('BPDEL *')
+                log.unlink(missing_ok=True)
+                cmd('LOG 20', 7)
+                if not log.is_file():
+                    raise RuntimeError('MOO2 回呼返回紀錄未產生')
+                data = log.read_bytes()
+                records['mouse_callback_event_return_log_sha256'] = hashlib.sha256(data).hexdigest()
+                (root / 'mouse-callback-event-return-logcpu.txt').write_bytes(data)
         if capture_or_register_imm8 or capture_xor_register_imm32:
             offset = 0x38621e if capture_or_register_imm8 else 0x384722
             expected_bytes = bytes.fromhex('83 c8 10' if capture_or_register_imm8 else '81 f2 00 80 00 00')
