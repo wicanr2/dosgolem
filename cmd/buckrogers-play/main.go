@@ -121,6 +121,7 @@ type game struct {
 	script  map[int][]scriptAction
 	shot    string
 	shotDir string
+	dump    *frameDumper // 自動模式 -frame-dir（Buck 規格 049）；nil＝關閉
 	lastErr error
 
 	help     bool
@@ -334,6 +335,11 @@ func (g *game) composed() ([]byte, bool, error) {
 
 // finishFrame ends automated runs after -frames, writing -shot.
 func (g *game) finishFrame() error {
+	if g.dump != nil {
+		if err := g.dump.maybeWrite(g.frame, g.scale, g.composed); err != nil {
+			return err
+		}
+	}
 	if g.frames == 0 || g.frame < g.frames {
 		return nil
 	}
@@ -410,6 +416,8 @@ func main() {
 	script := flag.String("script", "", "自動模式腳本：`畫格:動作[,…]`（鍵名、Ctrl+X、Alt+X、click@x;y、press@x;y、release@x;y、blur、help、scale、lang）")
 	shot := flag.String("shot", "", "自動模式結束時輸出合成 RGBA")
 	shotDir := flag.String("shot-dir", "", "F12 截圖目錄（預設為存檔目錄上一層的 screenshots）")
+	frameDir := flag.String("frame-dir", "", "自動模式：每隔 -frame-every 格把合成畫格寫成 DIR/frame-<畫格>.png（須搭配 -frames；目錄須不存在或為空；腳本不可含 scale；Buck 規格 049）")
+	frameEvery := flag.Int("frame-every", frameEveryUnset, "-frame-dir 的間隔畫格數，1–60（預設 2，約 30 fps）")
 	cpuProfile := flag.String("cpuprofile", "", "把 CPU 剖析寫到這個檔")
 	clock := flag.Int("clock", 50, "機器時脈比例 10–100（規格 242；主機跑不動時調低，遊戲時間仍對齊實際時間）")
 	adlib := flag.Bool("adlib", true, "模擬 AdLib（規格 240；關閉則原版只用 PC 喇叭）")
@@ -474,6 +482,18 @@ func main() {
 	keys, err := parseScript(*script)
 	if err != nil {
 		die(err)
+	}
+	dumpEvery, err := checkFrameDump(*frames, *frameDir, *frameEvery, keys)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "buckrogers-play:", err)
+		flag.Usage()
+		os.Exit(2)
+	}
+	var dump *frameDumper
+	if *frameDir != "" {
+		if dump, err = newFrameDumper(*frameDir, dumpEvery); err != nil {
+			die(err)
+		}
 	}
 	live, err := buckrogers.LoadLiveRuntimeOptions(liveOptions(*textDir, *fontPath, *langFonts))
 	if err != nil {
@@ -550,7 +570,7 @@ func main() {
 	if dir == "" {
 		dir = filepath.Join(filepath.Dir(filepath.Clean(saveRoot)), "screenshots")
 	}
-	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir, budget: budget,
+	g := &game{owner: owner, live: live, scale: *scale, frames: *frames, script: keys, shot: *shot, shotDir: dir, dump: dump, budget: budget,
 		mix: mix, wavPath: *wavPath, focused: true, ui: ui, settings: settings, last: last}
 	if *frames == 0 {
 		// 播放只在互動模式：自動模式常在沒有音效裝置的容器裡跑。
@@ -581,6 +601,9 @@ func main() {
 	}
 	if g.lastErr != nil {
 		die(g.lastErr)
+	}
+	if g.dump != nil {
+		fmt.Fprintln(os.Stderr, g.dump.summary())
 	}
 	if g.wavPath != "" {
 		if err := os.WriteFile(g.wavPath, wavBytes(g.wav), 0o600); err != nil {
