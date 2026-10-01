@@ -30,7 +30,7 @@ Intel 已定義立即值帶符號延伸、word 環繞、算術旗標與高半部
 
 ## 實作與驗收
 
-`internal/cpu386/cpu.go` 在 READY 後加入 word `83 /0` 暫存器分支，沿用 `add16`，完整讀立即值後才寫目的低半部。`add_word_register_immediate_test.go` 覆蓋八目的、16 個邊界值與全部 256 個 imm8，以 無號進位、有號範圍與 半位元組（nibble）進位獨立計算旗標；另驗原始碼／資料哨兵、高半部、段與非算術旗標保持、截短／前綴／記憶體／未知 group 拒絕、既有 dword ADD 與 word SUB／CMP／OR／AND、原版架構樣本及第一個 CMP／JL。原版樣本 ADD EFLAGS=`202h`，CMP EFLAGS=`287h`，JL 選至相對窗口 `+1Fh`（DOSBox-X `0180:00368B2F`）。
+`internal/cpu386/cpu.go` 在 READY 後加入 word `83 /0` 暫存器分支，沿用 `add16`，完整讀立即值後才寫目的低半部。`add_word_register_immediate_test.go` 覆蓋八目的、16 個邊界值與全部 256 個 imm8，以 無號進位、有號範圍與 半位元組（nibble）進位獨立計算旗標；另驗原始碼／資料哨兵、高半部、段與非算術旗標保持、截短／前綴／記憶體／未知 group 拒絕、既有 dword ADD 與 word SUB／CMP／OR／AND、原版架構樣本及第一個 CMP／JL。原版樣本 ADD EFLAGS=`202h`，CMP EFLAGS=`287h`；同一架構樣本的 dosgolem JL 測試選至相對窗口 `+1Fh`（對應 DOSBox-X 候選 `0180:00368B2F`，原版當次 LOG 2 尚未執行 JL）。
 
 Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac`，`go test -p 2 -buildvcs=false ./internal/cpu386 -count=1` 通過，私有 CPU 測試輸出 SHA-256 `ed4bf0766d93be14ad0b08dba6abe6d95902783cba3534ef0a51b287bf2d4623`。加入原版樣本後，`DOSGOLEM_MOO2_EXE=/tmp/game/ORION2.EXE GOMAXPROCS=2 go test -p 2 -buildvcs=false ./... -count=1` 全套通過，`workplace/full-test-267.txt` SHA-256 `251f0d83baf901593ff0ec2ec8e9cbe75b8c143df7cb19cc7afdf849fcac26a9`。
 
@@ -46,3 +46,8 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 ## 後續停點解析回填
 
 **word IMUL 停點已由規格 268 接通**：[268-cpu386-imul-word-register.md](268-cpu386-imul-word-register.md) 已依公開 CPU 契約與同次輔助樣本審查 READY。保留本檔原始停點與收據，不重寫歷史；268 自然重跑結果為下一個現況入口。限定有號 word 暫存器乘法，不表示其他 F7 形狀、未定義旗標或正常玩家路徑已完成。
+
+
+## 分支證據範圍勘誤
+
+270 的 LOG 1／LOG 2 實驗確認，LOG 2 直接保存第一個指令執行後、第二個指令執行前的狀態。本檔原版 LOG 的 CMP 已執行、JL 尚未執行；先前把 `0180:00368B2F` 寫成原版實際分支結果超出了收據。該 target 是 Intel 條件與相同架構的 dosgolem 測試所支持，原版動態分支後定位未擷取；已修正現行敘述，不重開已驗 CPU ADD／旗標與第一個 CMP。保留原 JSON／LOG 雜湊與原始位址供回查。

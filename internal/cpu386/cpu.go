@@ -1161,7 +1161,7 @@ func (c *CPU) Step() error {
 		}
 		c.R[EAX] = c.R[EAX]&0xffffff00 | uint32(c.add8(uint8(c.R[EAX]), imm))
 	case op == 0x39:
-		if operand16 || segmentOverride >= 0 || repe {
+		if segmentOverride >= 0 || repe {
 			return fail("39 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -1169,10 +1169,32 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("CMP dword ModRM %02X 尚未支援", modrm))
+			seg, addr, err := c.decodeAddress32(modrm)
+			if err != nil {
+				return fail(err.Error())
+			}
+			if operand16 {
+				value, ok := c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("CMP word 目的讀取失敗")
+				}
+				c.sub16(value, uint16(c.R[(modrm>>3)&7]))
+				break
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail("CMP dword 目的讀取失敗")
+			}
+			// 39 的目的在記憶體；先完整讀取，再只發布比較旗標。
+			c.sub32(value, c.R[(modrm>>3)&7])
+			break
 		}
 		dst, src := modrm&7, (modrm>>3)&7
-		c.sub32(c.R[dst], c.R[src])
+		if operand16 {
+			c.sub16(uint16(c.R[dst]), uint16(c.R[src]))
+		} else {
+			c.sub32(c.R[dst], c.R[src])
+		}
 	case op == 0x09:
 		if segmentOverride >= 0 || repe || repne {
 			return fail("09 不接受目前的 prefix")

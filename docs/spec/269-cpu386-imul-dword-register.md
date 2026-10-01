@@ -45,3 +45,8 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 Active=true、Bank=7、StartY=512、BankSets=6、Writes=307200、DisplaySets=1。有效索引 SHA-256 仍 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`，RGB 仍 `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`。另設 `DOSGOLEM_MOO2_VBE_PNG` 產生 `workplace/moo2-vbe-269-full-game.png`／`moo2-vbe-269-mouse-event.png`，PNG SHA-256 均 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`；與已檢視黑圖相同，不重做目視檢查。
 
 269 僅在 dword 暫存器有號完整積、CF／OF 與首個 XOR 消費範圍 CONFORMED。未定義 ZF 差異、其他平台布局、DIV 旗標／例外、SAR 的 AF、DTA 保留區仍明示。255 仍 READY；正常玩家畫面、音效、受控亂數與 Go remake 玩法同狀態仍未完成。CPU 支援不計入玩法矩陣分母。
+
+
+## 後續停點解析回填
+
+**記憶體 CMP 停點已由規格 270 接通**：[270-cpu386-cmp-memory-register.md](270-cpu386-cmp-memory-register.md) 已依 Intel 契約、兩側目的值與原版完整旗標／實際 JGE 分支審查 READY。保留 269 的原始停點與收據；270 的自然重跑結果是下一現況入口。絕對資料位址、未定義乘法旗標與正常玩家路徑限制不因這項 CPU 延伸升格。
