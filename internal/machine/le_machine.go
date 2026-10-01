@@ -13,9 +13,12 @@ type LEMachine struct {
 	Video    *LEVideo
 	Keyboard *LEBIOSKeyboard
 	Mem      []byte
-	CPU      *cpu386.CPU
-	Ports    map[uint16]uint8
-	PortLog  []LEPortWrite
+	// DOSArenaBase 非零時，DPMI 的實模式區塊從這個低位址配置。
+	// 只由明示高位重定位的 LE 載入入口設定。
+	DOSArenaBase uint32
+	CPU          *cpu386.CPU
+	Ports        map[uint16]uint8
+	PortLog      []LEPortWrite
 
 	// pit 解讀通道 0 的重載，與 real-mode Machine 共用同一份解碼器
 	// （`pit.go`）：保護模式的遊戲一樣是寫 `0x43`／`0x40`。
@@ -54,6 +57,42 @@ func LoadLEInMZ(data []byte, mzBase uint32) (*LEMachine, error) {
 		return nil, err
 	}
 	return loadLEHeader(data, header)
+}
+
+// LoadLEInMZWithDOSArena 將 LE 物件整體重定位至 1 MiB 以上，
+// 讓低位 DOS 段記憶體與平坦保護模式映像在同一 Mem 中並存。
+// 原始檔案、一般 LoadLEInMZ 入口與其位址不變。
+func LoadLEInMZWithDOSArena(data []byte, mzBase uint32) (*LEMachine, error) {
+	header, err := InspectLEInMZ(data, mzBase)
+	if err != nil {
+		return nil, err
+	}
+	if len(header.Objects) == 0 {
+		return nil, fmt.Errorf("machine: LE 無物件，不能配置 DOS arena")
+	}
+	lowest := header.Objects[0].RelocationBase
+	for _, object := range header.Objects[1:] {
+		if object.RelocationBase < lowest {
+			lowest = object.RelocationBase
+		}
+	}
+	var shift uint32
+	if lowest < dpmiLinearBase {
+		shift = dpmiLinearBase - lowest
+	}
+	for i := range header.Objects {
+		base := uint64(header.Objects[i].RelocationBase) + uint64(shift)
+		if base > uint64(^uint32(0)) {
+			return nil, fmt.Errorf("machine: LE object %d 高位重定位溢位", i+1)
+		}
+		header.Objects[i].RelocationBase = uint32(base)
+	}
+	m, err := loadLEHeader(data, header)
+	if err != nil {
+		return nil, err
+	}
+	m.DOSArenaBase = 0x10000
+	return m, nil
 }
 
 func loadLEHeader(data []byte, header *LEHeader) (*LEMachine, error) {

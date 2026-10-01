@@ -81,6 +81,62 @@ func TestLoadLEInEmbeddedMZUsesModuleBaseForPages(t *testing.T) {
 	}
 }
 
+func TestLEHighRelocationKeepsDOSArenaSeparate(t *testing.T) {
+	standalone := leFixture()
+	b := make([]byte, 0x40+len(standalone))
+	copy(b[0x40:], standalone)
+	hdr := b[0x40+0x80:]
+	binary.LittleEndian.PutUint32(hdr[0x20:], 1)
+	binary.LittleEndian.PutUint32(hdr[0x24:], 0x1800)
+	before := append([]byte(nil), b...)
+	m, err := LoadLEInMZWithDOSArena(b, 0x40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CPU.EIP != 0x101234 || m.CPU.R[cpu386.ESP] != 0x101800 || m.DOSArenaBase != 0x10000 {
+		t.Fatalf("高位 LE／DOS arena 錯誤：EIP=%X ESP=%X DOS=%X", m.CPU.EIP, m.CPU.R[cpu386.ESP], m.DOSArenaBase)
+	}
+	if !bytes.Equal(before, b) || !bytes.Equal(m.Mem[0x100000:0x100004], []byte{1, 2, 3, 4}) {
+		t.Fatal("高位載入改動原檔或遺失 LE 頁資料")
+	}
+	original, err := LoadLEInMZ(b, 0x40)
+	if err != nil || original.CPU.EIP != 0x11234 || original.DOSArenaBase != 0 {
+		t.Fatalf("原載入入口受影響：machine=%+v err=%v", original, err)
+	}
+	host := NewDPMIHost(m)
+	entry := append([]byte(nil), m.Mem[0x100000:0x100004]...)
+	for _, paras := range []uint32{513, 176} {
+		m.CPU.R[cpu386.EBX] = paras
+		dpmiCall(host, m.CPU, 0x0100)
+		if m.CPU.EFlags&cpu386.CF != 0 {
+			t.Fatalf("DOS %d 段配置失敗：AX=%X BX=%X", paras, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX])
+		}
+		base := uint32(uint16(m.CPU.R[cpu386.EAX])) * 16
+		selector := uint16(m.CPU.R[cpu386.EDX])
+		if base < 0x10000 || base+paras*16 > dosMemTop || !m.CPU.WriteSegmentBytes(selector, 0, []byte("HI")) {
+			t.Fatalf("DOS 區塊不可安全寫入：base=%X selector=%X", base, selector)
+		}
+		if m.Mem[base] != 'H' || m.Mem[base+1] != 'I' {
+			t.Fatal("實模式段與 selector 指向不同資料")
+		}
+		bus := &dpmiRealBus{m: m}
+		if bus.Read8(base) != 'H' {
+			t.Fatal("實模式 bus 無法讀取 selector 寫入值")
+		}
+		bus.Write8(base+1, '!')
+		if value, ok := m.CPU.ReadSegment8(selector, 1); !ok || value != '!' {
+			t.Fatal("selector 無法讀回實模式 bus 寫入值")
+		}
+	}
+	if !bytes.Equal(entry, m.Mem[0x100000:0x100004]) {
+		t.Fatal("DOS 配置覆蓋 LE 影像")
+	}
+	binary.LittleEndian.PutUint32(hdr[0x44:], 0)
+	if _, err := LoadLEInMZWithDOSArena(b, 0x40); err == nil {
+		t.Fatal("零物件 LE 應拒絕")
+	}
+}
+
 func TestMOO2EmbeddedMZEntryWhenProvided(t *testing.T) {
 	path := os.Getenv("DOSGOLEM_MOO2_EXE")
 	if path == "" {
@@ -112,6 +168,66 @@ func TestMOO2EmbeddedMZEntryWhenProvided(t *testing.T) {
 	}
 	if got := m.Mem[m.CPU.EIP : m.CPU.EIP+8]; !bytes.Equal(got, []byte{'\xeb', '\x76', 'W', 'A', 'T', 'C', 'O', 'M'}) {
 		t.Fatalf("MOO2 真正 LE 入口 bytes=% X", got)
+	}
+}
+
+func TestMOO2HighRelocationFixupsWhenProvided(t *testing.T) {
+	path := os.Getenv("DOSGOLEM_MOO2_EXE")
+	if path == "" {
+		t.Skip("DOSGOLEM_MOO2_EXE 未設定")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(b)); got != "4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f" {
+		t.Skipf("僅核對固定 1.31 EXE，實際 SHA-256=%s", got)
+	}
+	h, err := InspectLEInMZ(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldImages, err := h.RelocatedObjectImages(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadLEInMZWithDOSArena(b, 0x26654)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const shift = 0xf0000
+	if m.CPU.EIP != 0x1fff18 || m.DOSArenaBase != 0x10000 {
+		t.Fatalf("MOO2 高位載入入口／DOS arena 錯誤：EIP=%X DOS=%X", m.CPU.EIP, m.DOSArenaBase)
+	}
+	checked := 0
+	for page, fixups := range h.Fixups {
+		logicalPage := uint32(page + 1)
+		for _, f := range fixups {
+			for i, object := range h.Objects {
+				if object.PageTableIndex == 0 || logicalPage < object.PageTableIndex || logicalPage-object.PageTableIndex >= object.PageCount {
+					continue
+				}
+				position := int64(logicalPage-object.PageTableIndex)*int64(h.PageSize) + int64(f.SourceOffsets[0])
+				oldValue := binary.LittleEndian.Uint32(oldImages[i][position:])
+				newValue := binary.LittleEndian.Uint32(m.Mem[uint32(int64(object.RelocationBase)+position+shift):])
+				if uint64(newValue) != uint64(oldValue)+shift {
+					t.Fatalf("fixup page=%d object=%d offset=%X: old=%X new=%X", page+1, i+1, position, oldValue, newValue)
+				}
+				checked++
+				break
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("MOO2 原檔沒有可核對的 LE fixup")
+	}
+	if len(h.Objects) > 1 {
+		altered := append([]byte(nil), b...)
+		objectTable := int(h.Offset + h.ObjectTableOff)
+		binary.LittleEndian.PutUint32(altered[objectTable+24+4:], ^uint32(0))
+		if _, err := LoadLEInMZWithDOSArena(altered, 0x26654); err == nil {
+			t.Fatal("高位重定位溢位應拒絕")
+		}
 	}
 }
 

@@ -145,10 +145,13 @@ func (h *DPMIHost) Attach(m *LEMachine) {
 	h.setLimits(uint32(len(m.Mem)))
 }
 
-// setLimits 把兩個游標擺到映像之後：DOS 記憶體接著映像長，
+// setLimits 預設把 DOS 游標放在映像後；明示高位 LE 載入則使用低位 DOS arena。
 // 線性記憶體從 1 MB（或映像的尾端，取大的）開始。
 func (h *DPMIHost) setLimits(imageEnd uint32) {
 	h.dosBrk = (imageEnd + 15) &^ 15
+	if h.m != nil && h.m.DOSArenaBase != 0 {
+		h.dosBrk = h.m.DOSArenaBase
+	}
 	base := (imageEnd + dpmiHeapAlign - 1) &^ (dpmiHeapAlign - 1)
 	if base < dpmiLinearBase {
 		base = dpmiLinearBase

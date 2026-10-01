@@ -28,7 +28,12 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("header mz_base=0x%X offset=0x%X module_flags=0x%X data_pages_offset=0x%X data_pages_file_offset=0x%X entry_object=%d entry_offset=0x%X\n", h.MZBase, h.Offset, h.ModuleFlags, h.DataPagesOffset, h.MZBase+h.DataPagesOffset, h.EIPObject, h.EIP)
-	m, err := machine.LoadLEInMZ(b, 0x26654)
+	var m *machine.LEMachine
+	if os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") == "1" {
+		m, err = machine.LoadLEInMZWithDOSArena(b, 0x26654)
+	} else {
+		m, err = machine.LoadLEInMZ(b, 0x26654)
+	}
 	if err != nil {
 		fmt.Printf("load_error=%v\n", err)
 		os.Exit(1)
@@ -88,6 +93,7 @@ func main() {
 	}
 	services := machine.NewMOO2StartupDOS(files)
 	services.AttachMachine(m)
+	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
 		if number != 0x31 || uint16(c.R[cpu386.EAX]) != 0x0100 {
 			return services.Handle(c, number)
@@ -142,6 +148,7 @@ func main() {
 		}
 		if err := m.CPU.Step(); err != nil {
 			fmt.Printf("step_error step=%d eip=0x%X eax=0x%X ebx=0x%X ecx=0x%X edx=0x%X es=0x%X ds=0x%X ss=0x%X flags=0x%X dos_calls=%d error=%v\n", i, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.Seg[cpu386.SegES], m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS], m.CPU.EFlags, services.Calls(), err)
+			fmt.Printf("dpmi_real_mode_last=%+v dpmi_unimplemented=%v\n", services.DPMI.RealModeLast, services.DPMI.Unimplemented)
 			fmt.Printf("stop_bytes=% X\n", m.Mem[ring[len(ring)-1].eip:ring[len(ring)-1].eip+16])
 			for _, s := range ring {
 				fmt.Printf("tail step=%d eip=0x%X esp=0x%X esi=0x%X eax=0x%X\n", s.step, s.eip, s.esp, s.esi, s.eax)
