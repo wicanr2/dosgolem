@@ -29,6 +29,7 @@ type eclTextID struct {
 type EclTextCatalog struct {
 	byID map[eclTextID]string
 	text map[string]string
+	lang string // spec 047 §3.1: set at load, "" counts as zh-TW
 }
 
 // LoadEclTextCatalog reads text/ecl-text-events.tsv and
@@ -39,7 +40,10 @@ func LoadEclTextCatalog(events, translations []byte) (*EclTextCatalog, error) {
 
 // LoadEclTextCatalogLang reads text/ecl-text.<lang>.tsv (spec 040 §3.1).
 func LoadEclTextCatalogLang(events, translations []byte, lang string) (*EclTextCatalog, error) {
-	c := &EclTextCatalog{byID: map[eclTextID]string{}, text: map[string]string{}}
+	if lang == "" {
+		lang = LangZhTW
+	}
+	c := &EclTextCatalog{byID: map[eclTextID]string{}, text: map[string]string{}, lang: lang}
 	rows, err := readTSV("ecl-text-events.tsv", events, []string{"event_key", "original_length", "original_sha256", "sources"})
 	if err != nil {
 		return nil, fmt.Errorf("buckrogers: ecl-text-events：%w", err)
@@ -75,6 +79,13 @@ func LoadEclTextCatalogLang(events, translations []byte, lang string) (*EclTextC
 		c.text[r[0]] = r[1]
 	}
 	return c, nil
+}
+
+// fullStop reports whether the language draws a sentence-final period the
+// original prints as a call of its own as the full-width 。 (spec 047 §3.1).
+// Korean keeps the ASCII period; the test language zz is the control.
+func (c *EclTextCatalog) fullStop() bool {
+	return c != nil && (c.lang == LangZhTW || c.lang == LangZhCN || c.lang == LangJa)
 }
 
 // Lookup returns the key and translation for an exact original string.
@@ -185,6 +196,11 @@ type EclTextStats struct {
 	// out for the text to fit (the layout with the space failed, the one
 	// without succeeded).
 	SpaceDropped int
+	// Spec 047 §3.2: calls that are a lone period (the original prints the
+	// period of "DECK 5." as a call of its own) and were taken for the
+	// full-width 。, and those among them that had to stay the original
+	// period because 。 did not fit on the row.
+	FullStop, FullStopDropped int
 }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
@@ -354,6 +370,12 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		text, key = string(e.Original), "passthrough"
 		w.Stats.Passthrough++
 	}
+	// Spec 047 §3.2: the period the original prints as a call of its own
+	// (exactly "." or ". ") that joins a page of ours is drawn full-width
+	// for the languages whose translations end their sentences with 。.
+	// A player-name call that fell through to passthrough is not one.
+	fullStop := key == "passthrough" && !isPlayer && w.catalog.fullStop() &&
+		(string(e.Original) == "." || string(e.Original) == ". ")
 	var row, col, first, topCol uint8
 	switch {
 	case fresh:
@@ -434,18 +456,34 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			return
 		}
 		var tier NameTier
-		spaced := spaceNeeded && text != "" && text[0] != ' ' && !koGlue(prevRune, text)
-		if spaced {
-			// Spec 046 §3.4 (5): the space is never the reason a window turns
-			// into English; without it the text is tried again.
-			lines, endRow, endCol, fits, tier = attempt(" " + text)
-			if !fits {
-				if lines, endRow, endCol, fits, tier = attempt(text); fits {
-					w.Stats.SpaceDropped++
-				}
+		done := false
+		if fullStop {
+			// Spec 047 §3.2: 。 is two units wide.  The layout moves a lone
+			// two-unit character to the next row when one unit is left
+			// instead of failing, and a full stop never starts a row, so
+			// "does not fit" is a failed layout or an end row other than
+			// the start row; the original text is then laid out as before.
+			w.Stats.FullStop++
+			if ls, er, ec, ok, tr := attempt("。"); ok && er == row {
+				lines, endRow, endCol, fits, tier, done = ls, er, ec, true, tr, true
+			} else {
+				w.Stats.FullStopDropped++
 			}
-		} else {
-			lines, endRow, endCol, fits, tier = attempt(text)
+		}
+		if !done {
+			spaced := spaceNeeded && text != "" && text[0] != ' ' && !koGlue(prevRune, text)
+			if spaced {
+				// Spec 046 §3.4 (5): the space is never the reason a window turns
+				// into English; without it the text is tried again.
+				lines, endRow, endCol, fits, tier = attempt(" " + text)
+				if !fits {
+					if lines, endRow, endCol, fits, tier = attempt(text); fits {
+						w.Stats.SpaceDropped++
+					}
+				}
+			} else {
+				lines, endRow, endCol, fits, tier = attempt(text)
+			}
 		}
 		switch tier {
 		case NameTierFirst:

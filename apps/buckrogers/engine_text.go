@@ -551,6 +551,9 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 		if c.lang == LangKo || c.lang == LangJa {
 			return fillTemplateKoJa(c.lang, t, slots, parts, zh), true
 		}
+		if c.lang == LangZhTW || c.lang == LangZhCN {
+			return fillTemplateZh(t, slots, parts, zh), true
+		}
 		for i, v := range slots {
 			t = strings.ReplaceAll(t, "{"+strconv.Itoa(i)+"}", strings.TrimSpace(zh[v]))
 		}

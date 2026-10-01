@@ -18,7 +18,7 @@ import (
 //
 // Rows (tab separated; the first column is the kind):
 //
-//	ecl   step lang left top right bottom cursorRow cursorCol clear origLen sha12 key dHits dMisses dOverflows dPassthrough dFirstOnly dUnannotated dPlayer dSpaceDropped
+//	ecl   step lang left top right bottom cursorRow cursorCol clear origLen sha12 key dHits dMisses dOverflows dPassthrough dFirstOnly dUnannotated dPlayer dSpaceDropped dFullStop dFullStopDropped
 //	hmenu step lang row col textLen items dHits dMisses dOverflows
 //	eng   step lang caller origLen dHits dMisses original zhUnits   (zhUnits: width of the catalog translation, -1 without one)
 //	join  step lang n1 n2 result      (result: ok, nofit, nofragment)
@@ -64,14 +64,14 @@ func (t *ReplayTrace) ecl(lang string, e EclTextEntry, key string, before, after
 	if e.Clear {
 		clear = 1
 	}
-	t.row("ecl\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
+	t.row("ecl\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
 		e.Step, lang, e.Left, e.Top, e.Right, e.Bottom, e.CursorRow, e.CursorCol, clear, len(e.Original),
 		hex.EncodeToString(sum[:6]), key,
 		after.Hits-before.Hits, after.Misses-before.Misses, after.Overflows-before.Overflows,
 		after.Passthrough-before.Passthrough, after.NameFirstOnly-before.NameFirstOnly,
 		after.NameUnannotated-before.NameUnannotated,
 		(after.PlayerNames+after.PlayerNameChineseOnly+after.PlayerNameEnglish)-(before.PlayerNames+before.PlayerNameChineseOnly+before.PlayerNameEnglish),
-		after.SpaceDropped-before.SpaceDropped)
+		after.SpaceDropped-before.SpaceDropped, after.FullStop-before.FullStop, after.FullStopDropped-before.FullStopDropped)
 }
 
 func (t *ReplayTrace) hmenu(lang string, step uint64, e HMenuEntry, before, after HMenuStats) {

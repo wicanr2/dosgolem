@@ -21,7 +21,7 @@ func TestReplayTraceRows(t *testing.T) {
 	tr := NewReplayTrace(&buf)
 	e := EclTextEntry{Step: 281020237, Original: []byte("abc"), Clear: true, Left: 1, Top: 17, Right: 38, Bottom: 22, CursorCol: 3, CursorRow: 18}
 	tr.ecl("ko", e, "ecl.1.16.00260", EclTextStats{Hits: 4, Misses: 2, Overflows: 1, PlayerNames: 1},
-		EclTextStats{Hits: 5, Misses: 2, Overflows: 1, Passthrough: 1, NameFirstOnly: 1, PlayerNames: 1, PlayerNameEnglish: 1})
+		EclTextStats{Hits: 5, Misses: 2, Overflows: 1, Passthrough: 1, NameFirstOnly: 1, PlayerNames: 1, PlayerNameEnglish: 1, FullStop: 2, FullStopDropped: 1})
 	tr.hmenu("ja", 42, HMenuEntry{Row: 24, Col: 11, Text: []byte("Yes No"), Items: [][2]uint8{{1, 3}, {5, 6}}},
 		HMenuStats{Hits: 1}, HMenuStats{Hits: 1, Overflows: 1})
 	tr.eng("zh-CN", 43, CodeKey{Segment: 0x0763, Offset: 0x1282}, []byte("treated."), 16, 1, 0)
@@ -31,7 +31,7 @@ func TestReplayTraceRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"ecl\t281020237\tko\t1\t17\t38\t22\t18\t3\t1\t3\tba7816bf8f01\tecl.1.16.00260\t1\t0\t0\t1\t1\t0\t1\t0",
+		"ecl\t281020237\tko\t1\t17\t38\t22\t18\t3\t1\t3\tba7816bf8f01\tecl.1.16.00260\t1\t0\t0\t1\t1\t0\t1\t0\t2\t1",
 		"hmenu\t42\tja\t24\t11\t6\t2\t0\t0\t1",
 		"eng\t43\tzh-CN\t0763:1282\t8\t1\t0\t\"treated.\"\t16",
 		"join\t44\tko\t31\t8\tnofit",

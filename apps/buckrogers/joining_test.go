@@ -198,10 +198,10 @@ func TestTemplateFieldPeriod(t *testing.T) {
 	zh := joiningCatalog(t, LangZhTW, frags, map[string]string{"tpl.logbook": "，已記入手札，編號 {1}", "tpl.antidote": "對{0}使用解毒劑"})
 	type tc struct{ in, ko, ja, zh string }
 	for _, c := range []tc{
-		{" and you record IT as logbook entry 38.", ", 일지 항목 38번으로 기록한다.", "、日誌38番に記録した。", "，已記入手札，編號 38."},
+		{" and you record IT as logbook entry 38.", ", 일지 항목 38번으로 기록한다.", "、日誌38番に記録した。", "，已記入手札，編號 38。"},
 		{" and you record IT as logbook entry 38", ", 일지 항목 38번으로 기록한다", "、日誌38番に記録した", "，已記入手札，編號 38"},
 		{" and you record IT as logbook entry NO.", ", 일지 항목 NO.번으로 기록한다", "、日誌NO.番に記録した", "，已記入手札，編號 NO."},
-		{"Use antidote on 5.", "5에게 해독제 사용.", "5に解毒剤を使う。", "對5.使用解毒劑"},
+		{"Use antidote on 5.", "5에게 해독제 사용.", "5に解毒剤を使う。", "對5使用解毒劑。"},
 		{"Use antidote on FLAVIUS", "FLAVIUS에게 해독제 사용", "FLAVIUSに解毒剤を使う", "對FLAVIUS使用解毒劑"},
 		{"Needs 5 points in 2.", "2.에 5점이 필요하다", "2.は5点必要だ", ""},
 	} {
@@ -213,7 +213,7 @@ func TestTemplateFieldPeriod(t *testing.T) {
 		}
 		if c.zh != "" {
 			if got, _ := zh.Translate(c.in); got != c.zh {
-				t.Errorf("zh-TW %q → %q，應為 %q（現行路徑不變）", c.in, got, c.zh)
+				t.Errorf("zh-TW %q → %q，應為 %q（規格 047 §3.3）", c.in, got, c.zh)
 			}
 		}
 	}
@@ -289,10 +289,13 @@ func TestMonsterSlotPeriod(t *testing.T) {
 	}
 }
 
-// Every language without a rule of its own gives the answers of the code
+// The test language has no rule of its own and gives the answers of the code
 // before spec 046 (frozen copy, digest from the real function at cc242ea).
+// zh-TW and zh-CN follow the pre-046 code except for the template field of
+// spec 047 §3.3 (engine_zh047_test.go); ja and ko have their own frozen copy
+// (engine_freeze046_test.go).
 func TestEngineJoinUnchangedForOtherLanguages(t *testing.T) {
-	for _, lang := range []string{"", LangZhTW, LangZhCN, LangTest} {
+	for _, lang := range []string{LangTest} {
 		c := engineFreezeCatalog(t, lang)
 		if got := engineFreezeDigest(c, func(c *EngineTextCatalog, s string) (string, bool) { return c.translateLine(s) }); got != engineFreezeWant {
 			t.Errorf("lang=%q：translateLine 摘要 %s，應為 %s", lang, got, engineFreezeWant)

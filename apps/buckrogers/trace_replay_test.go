@@ -714,7 +714,7 @@ func reportMissing(t *testing.T, lang string, where string, miss map[rune]int) {
 	}
 	sort.Strings(rs)
 	t.Logf("%s %s 缺字 %d 種：%s", lang, where, len(miss), strings.Join(rs, " "))
-	if (lang == LangKo || lang == LangJa) && len(miss) > 0 {
-		t.Errorf("%s %s 有 %d 種缺字（規格 046 §3.5 要求 0）", lang, where, len(miss))
+	if len(miss) > 0 {
+		t.Errorf("%s %s 有 %d 種缺字（規格 046 §3.5、047 §3.6 要求 0）", lang, where, len(miss))
 	}
 }

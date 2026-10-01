@@ -2,6 +2,7 @@ package buckrogers
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -219,4 +220,26 @@ func fillTemplateKoJa(lang, t string, slots []int, parts []EnginePart, zh []stri
 		out += add
 	}
 	return out
+}
+
+// fillTemplateZh is the zh-TW and zh-CN template fill (the per-slot
+// replacement of the code before spec 047) with one addition (spec 047 §3.3):
+// a slot value that comes from a plain slot and is digits plus one period
+// ("38.") loses the period when its placeholder is in the template, wherever
+// that is; when one did, the sentence ends with 。 unless it already ends
+// with a terminator.  Without such a slot the result is the pre-047 one.
+func fillTemplateZh(t string, slots []int, parts []EnginePart, zh []string) string {
+	stripped := false
+	for i, v := range slots {
+		val := strings.TrimSpace(zh[v])
+		ph := "{" + strconv.Itoa(i) + "}"
+		if parts[v].Kind == '_' && digitsDot.MatchString(val) && strings.Contains(t, ph) {
+			val, stripped = strings.TrimSuffix(val, "."), true
+		}
+		t = strings.ReplaceAll(t, ph, val)
+	}
+	if stripped && !strings.ContainsRune("。！？」』…", lastRuneOf(t)) {
+		t += "。"
+	}
+	return t
 }
