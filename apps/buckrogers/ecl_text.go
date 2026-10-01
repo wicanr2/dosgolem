@@ -88,6 +88,24 @@ func (c *EclTextCatalog) fullStop() bool {
 	return c != nil && (c.lang == LangZhTW || c.lang == LangZhCN || c.lang == LangJa)
 }
 
+// zhDeckSpace reports whether the language puts a space between 甲板 and the
+// number the original prints as a call of its own (spec 048 §3.1): zh-TW and
+// zh-CN (the loader has already turned "" into zh-TW).
+func (c *EclTextCatalog) zhDeckSpace() bool {
+	return c != nil && (c.lang == LangZhTW || c.lang == LangZhCN)
+}
+
+// zhDeckDigitCall implements conditions 3 to 5 of spec 048 §3.2 for a
+// continuing call: the text starts with an ASCII digit, the call does not
+// start at the left edge of the window and the last row drawn on the page
+// ends with 甲板.
+func zhDeckDigitCall(p *EclTextPage, text string, col, left uint8) bool {
+	if p == nil || text == "" || text[0] < '0' || text[0] > '9' || col == left || len(p.Lines) == 0 {
+		return false
+	}
+	return strings.HasSuffix(string(p.Lines[len(p.Lines)-1].Text), "甲板")
+}
+
 // Lookup returns the key and translation for an exact original string.
 func (c *EclTextCatalog) Lookup(original []byte) (key, text string, ok bool) {
 	if c == nil || len(original) == 0 || len(original) > 255 {
@@ -471,7 +489,8 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		}
 		if !done {
 			spaced := spaceNeeded && text != "" && text[0] != ' ' && !koGlue(prevRune, text)
-			if spaced {
+			switch {
+			case spaced:
 				// Spec 046 §3.4 (5): the space is never the reason a window turns
 				// into English; without it the text is tried again.
 				lines, endRow, endCol, fits, tier = attempt(" " + text)
@@ -480,7 +499,19 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 						w.Stats.SpaceDropped++
 					}
 				}
-			} else {
+			case !isPlayer && !fresh && w.catalog.zhDeckSpace() && zhDeckDigitCall(p, text, col, eclUnitLeft(e.Left)):
+				// Spec 048: a number right after a deck prompt (甲板) gets a
+				// space.  The result counts only when the first row drawn is
+				// the start row and begins with the space; a space that pushes
+				// the number to the next row is dropped, as is one that does
+				// not fit.
+				lines, endRow, endCol, fits, tier = attempt(" " + text)
+				if !fits || len(lines) == 0 || lines[0].Row != row || len(lines[0].Text) == 0 || lines[0].Text[0] != ' ' {
+					if lines, endRow, endCol, fits, tier = attempt(text); fits {
+						w.Stats.SpaceDropped++
+					}
+				}
+			default:
 				lines, endRow, endCol, fits, tier = attempt(text)
 			}
 		}

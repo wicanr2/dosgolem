@@ -68,8 +68,13 @@ func TestEclFullStopLoneCall(t *testing.T) {
 		ctl := fsRun(t, LangTest, 1, 38, 22, pairs, steps)
 		for _, lang := range []string{LangZhTW, LangZhCN, LangJa, ""} {
 			w := fsRun(t, lang, 1, 38, 22, pairs, steps)
-			if got := rowText(w.Page(), 17); got != "甲板5。" {
-				t.Errorf("%q %q：%q，應為 甲板5。", lang, period, got)
+			// Spec 048: zh-TW and zh-CN put a space between 甲板 and the number; ja does not.
+			want := "甲板 5。"
+			if lang == LangJa {
+				want = "甲板5。"
+			}
+			if got := rowText(w.Page(), 17); got != want {
+				t.Errorf("%q %q：%q，應為 %s", lang, period, got, want)
 			}
 			if w.Stats.FullStop != 1 || w.Stats.FullStopDropped != 0 {
 				t.Errorf("%q %q：Stats %+v", lang, period, w.Stats)
@@ -189,8 +194,14 @@ func TestEclFullStopGate(t *testing.T) {
 		ctl := fsRun(t, LangTest, 1, 38, 22, pairs, steps)
 		for _, lang := range []string{LangZhTW, LangZhCN, LangJa, LangKo} {
 			w := fsRun(t, lang, 1, 38, 22, pairs, steps)
-			if got, want := fsLines(w), fsLines(ctl); got != want {
-				t.Errorf("序列 %d %s：%q，應與對照 %q 相同", i, lang, got, want)
+			want := fsLines(ctl)
+			if i == 0 && (lang == LangZhTW || lang == LangZhCN) {
+				// Spec 048: `5.` after a deck prompt is a number call; the space goes in
+				// front of it, the period is not a lone one and stays as it is.
+				want = "r17.2:甲板|r17.6: 5.|"
+			}
+			if got := fsLines(w); got != want {
+				t.Errorf("序列 %d %s：%q，應為 %q", i, lang, got, want)
 			}
 			if w.Stats != ctl.Stats {
 				t.Errorf("序列 %d %s：Stats %+v 與對照 %+v 不同", i, lang, w.Stats, ctl.Stats)
