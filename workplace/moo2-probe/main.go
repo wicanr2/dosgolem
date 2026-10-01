@@ -186,6 +186,17 @@ func main() {
 	fmt.Printf("entry_bytes=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+16])
 	fmt.Printf("entry_window=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+80])
 	dumpVBE := func() {
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+			seg8, off8 := services.DPMI.RealModeVector(8)
+			seg1c, off1c := services.DPMI.RealModeVector(0x1c)
+			input := make([]byte, 4)
+			readable := true
+			for j := uint32(0); j < 4; j++ {
+				value, ok := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], 0x271148+j)
+				input[j], readable = value, readable && ok
+			}
+			fmt.Printf("platform_clock_state pit=%+v clock=%+v dpmi_rm08=%04X:%04X dpmi_rm1c=%04X:%04X absolute_ivt08=% X absolute_ivt1c=% X wait_ds=0x%X wait_offset=0x271148 wait_bytes=% X readable=%t\n", ports.PIT0, ports.BIOSClock, seg8, off8, seg1c, off1c, m.Mem[0x20:0x24], m.Mem[0x70:0x74], m.CPU.Seg[cpu386.SegDS], input, readable)
+		}
 		pixels := m.VBEIndexed()
 		fmt.Printf("vbe_video state=%+v indexed_bytes=%d indexed_sha256=%x\n", m.VBEState(), len(pixels), sha256.Sum256(pixels))
 		if path := os.Getenv("DOSGOLEM_MOO2_VBE_PNG"); path != "" && len(pixels) == 640*480 {
@@ -275,12 +286,18 @@ func main() {
 				i, m.CPU.EIP, m.CPU.Seg[cpu386.SegDS], destination, uint16(low)|uint16(high)<<8, lowOK && highOK, m.CPU.R[cpu386.EAX], m.CPU.EFlags)
 		}
 		if len(ring) == cap(ring) {
-			ring = ring[1:]
+			copy(ring, ring[1:])
+			ring = ring[:len(ring)-1]
 		}
 		ring = append(ring, sample{i, m.CPU.EIP, m.CPU.R[cpu386.ESP], m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EAX]})
 		if i < 24 {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
+		}
+		if (m.CPU.EIP == 0x239ae8 || m.CPU.EIP == 0x239aea || m.CPU.EIP == 0x239af0 || m.CPU.EIP == 0x239af6) && seen[m.CPU.EIP] <= 3 {
+			if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+				fmt.Printf("pit_mode2_state step=%d eip=0x%X r=%X seg=%X flags=0x%X pit=%+v clock=%+v\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.PIT0, ports.BIOSClock)
+			}
 		}
 		if (m.CPU.EIP == 0x239a47 || m.CPU.EIP == 0x239a49) && seen[m.CPU.EIP] <= 3 {
 			fmt.Printf("vtd_entry_state step=%d eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)

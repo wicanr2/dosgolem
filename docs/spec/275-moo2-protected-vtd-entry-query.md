@@ -54,3 +54,7 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 gzip SHA-256 `53e73b6fd668062d43eaa21292f1ea4b248c565ad405d4dc4b79fdbb41c526f4`／`0a116f56852f469c095ac08c7ca9ba78a77cb5de8bbf3421c55fe8f66631c554`。VBE Active=true、Bank=2、StartY=0、BankSets=441、Writes=4046164、DisplaySets=6，索引 SHA-256 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`、RGB `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`，兩 PNG 均 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`；與先前已檢視黑圖逐位元相同，不重做目視驗收。
 
 275 限定為未安裝 VTD 的平台查詢 CONFORMED；255 仍 READY。主選單、正常玩家輸入、音效、受控亂數、Go remake 玩法同狀態仍未完成，不能因空入口返回而宣稱 Windows／VTD／硬體時間已建模。下一步依公開硬體契約只核對 43h／34h 呼叫及既有共享平台埠的缺口；不逆向 timer driver、ISR 或 busy-wait，不追逐週期硬體時鐘。
+
+## 後續平台接通
+
+PIT 模式 2 停點已由規格 276 接通，見 [276-pit0-mode2-shared-clock.md](276-pit0-mode2-shared-clock.md)。保留本次 OUT 43h 的原始停點與收據；正式後續停點以 276 重生收據為準，不把平台設定提升為玩法或硬體時鐘對拍。

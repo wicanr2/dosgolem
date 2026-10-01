@@ -4,7 +4,7 @@ import "testing"
 
 func TestPIT0Mode3Configuration(t *testing.T) {
 	p := LEPIT0{}
-	if p.Out8(0x40, 1) || p.Out8(0x43, 0x34) {
+	if p.Out8(0x40, 1) || p.Out8(0x43, 0x35) {
 		t.Fatal("未知或未設定")
 	}
 	if !p.Out8(0x43, 0x36) || !p.Out8(0x40, 0x34) || p.Loaded || !p.Out8(0x40, 0x12) || p.Reload != 0x1234 || !p.Loaded {

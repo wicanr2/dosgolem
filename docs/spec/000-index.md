@@ -427,3 +427,4 @@
 - [273 — 短距離負號與非負號分支](273-cpu386-short-sign-branches.md)：CONFORMED。JS／JNS 的完整條件／位移／保持狀態及有限原版分支已驗；步數上限擷取已修正，word XOR 停點已由規格 274 接通，仍未進入主選單。
 - [274 — 16 位元暫存器間的 XOR](274-cpu386-xor-word-register.md)：CONFORMED（有限 CPU／下一段載入）。原版 word XOR 高半部／定義旗標與 MOV ES 消費、全套及兩條自然路徑已驗；VTD 空入口停點已由規格 275 接通。
 - [275 — MOO2 未安裝 VTD 的裝置入口查詢](275-moo2-protected-vtd-entry-query.md)：CONFORMED（限定未安裝 VTD 的平台查詢）。完整返回保持、原版 record 保存／讀取及兩條自然路徑已驗；下一停點為 OUT 43h/AL=34h。
+- [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED。公開控制字／非法重載邊界具備，待固定原版參數與有限消費。
