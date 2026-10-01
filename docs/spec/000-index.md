@@ -418,4 +418,6 @@
 - [264 — byte 暫存器的無號除法](264-cpu386-div-byte-register.md)：CONFORMED。商餘、別名保存與第一個 OUT 已驗，未定義旗標／例外近似明示；當時的 VBE 視窗停點已由規格 265 接通。
 - [265 — MOO2 VBE 顯存視窗控制](265-moo2-vbe-window-control.md)：CONFORMED（硬體規格近似）。原版固定使用點、共享顯存映射與消費端已驗，兩條自然路徑實際切換 5–9 並寫入；當時非零顯示停點已由規格 266 接通。
 - [266 — MOO2 非零 VBE 顯示起點](266-moo2-vbe-display-start.md)：CONFORMED（硬體規格近似）。原版同次返回與起點消費已驗，當時 word ADD 停點已由規格 267 接通；當次黑圖不代表正常玩家畫面。
-- [267 — 16 位元暫存器的帶符號立即值加法](267-cpu386-add-word-register-immediate.md)：CONFORMED。八目的、立即值／旗標與原版 CMP／JL 消費已驗；兩條自然路徑下一停點為 word IMUL。
+- [267 — 16 位元暫存器的帶符號立即值加法](267-cpu386-add-word-register-immediate.md)：CONFORMED。八目的、立即值／旗標與原版 CMP／JL 消費已驗；word IMUL 停點已由規格 268 接通。
+- [268 — 單運算元的 16 位元有號暫存器乘法](268-cpu386-imul-word-register.md)：CONFORMED，word 有號乘積／CF／OF 與 A3 消費已驗；未定義 ZF 差異明示，dword IMUL 停點已由規格 269 接通。
+- [269 — 單運算元的 32 位元有號暫存器乘法](269-cpu386-imul-dword-register.md)：CONFORMED，dword 完整有號積／CF／OF 與 XOR 消費已驗；兩條自然路徑下一停點為 CMP 記憶體形狀，黑圖仍非正常玩家畫面。

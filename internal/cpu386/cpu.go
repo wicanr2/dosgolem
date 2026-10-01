@@ -875,6 +875,28 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if operand16 && modrm>>6 == 3 && (modrm>>3)&7 == 5 {
+			// 先取得兩來源，再發布 DX:AX，避免 AX／DX 別名污染。
+			product := int32(int16(uint16(c.R[EAX]))) * int32(int16(uint16(c.R[modrm&7])))
+			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(uint16(product))
+			c.R[EDX] = c.R[EDX]&0xffff0000 | uint32(uint16(uint32(product)>>16))
+			// 未定義 SF／ZF／AF／PF 沿用 word MUL 的保存近似。
+			c.EFlags &^= CF | OF
+			if product < -32768 || product > 32767 {
+				c.EFlags |= CF | OF
+			}
+			break
+		}
+		if !operand16 && modrm>>6 == 3 && (modrm>>3)&7 == 5 {
+			// 先讀兩來源，將完整有號乘積發布至 EDX:EAX。
+			product := int64(int32(c.R[EAX])) * int64(int32(c.R[modrm&7]))
+			c.R[EAX], c.R[EDX] = uint32(product), uint32(uint64(product)>>32)
+			c.EFlags &^= CF | OF
+			if product < -2147483648 || product > 2147483647 {
+				c.EFlags |= CF | OF
+			}
+			break
+		}
 		if operand16 && modrm>>6 == 3 && (modrm>>3)&7 == 4 {
 			product := uint32(uint16(c.R[EAX])) * uint32(uint16(c.R[modrm&7]))
 			c.R[EAX] = c.R[EAX]&0xffff0000 | product&0xffff

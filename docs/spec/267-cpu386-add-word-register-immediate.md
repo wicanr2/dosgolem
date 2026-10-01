@@ -41,3 +41,8 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 解析回填不可變鍵：固定 EXE 雜湊＋DOSBox-X `0180:00368B10`／dosgolem 高位 LE `0x234B10`＋`66 83 C3 18`。266 必須保留「word ADD 停點已由規格 267 接通」及本檔連結，`--check-add-word-register-spec-backlinks` 自動核對；缺定位或舊標記必拒絕。Python 語法、Go 格式、索引、全部既有回填函式與正負護欄通過。
 
 267 僅在 word 暫存器帶符號立即值加法、定義旗標與第一個消費端 CONFORMED；其他平台、SAR 的 AF、DIV 的 ZF／除法例外、DTA 保留區差異仍保留。255 仍 READY，正常玩家畫面、音效、受控亂數及 Go remake 玩法同狀態未完成。
+
+
+## 後續停點解析回填
+
+**word IMUL 停點已由規格 268 接通**：[268-cpu386-imul-word-register.md](268-cpu386-imul-word-register.md) 已依公開 CPU 契約與同次輔助樣本審查 READY。保留本檔原始停點與收據，不重寫歷史；268 自然重跑結果為下一個現況入口。限定有號 word 暫存器乘法，不表示其他 F7 形狀、未定義旗標或正常玩家路徑已完成。
