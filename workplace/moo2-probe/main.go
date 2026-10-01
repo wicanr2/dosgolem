@@ -88,7 +88,17 @@ func main() {
 	}
 	services := machine.NewMOO2StartupDOS(files)
 	services.AttachMachine(m)
-	m.CPU.IntHook = services.Handle
+	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number != 0x31 || uint16(c.R[cpu386.EAX]) != 0x0100 {
+			return services.Handle(c, number)
+		}
+		beforeEIP, requested := c.EIP, uint16(c.R[cpu386.EBX])
+		handled := services.Handle(c, number)
+		fmt.Printf("dpmi_dos_alloc eip=0x%X requested_paras=%d handled=%t ax=0x%X bx=0x%X dx=0x%X cf=%t\n",
+			beforeEIP, requested, handled, uint16(c.R[cpu386.EAX]), uint16(c.R[cpu386.EBX]),
+			uint16(c.R[cpu386.EDX]), c.EFlags&cpu386.CF != 0)
+		return handled
+	}
 	fmt.Printf("diagnostic_only_moo2_adapter=true; startup_returns_from_dosbox_x_auxiliary=true; synthetic_environment=true\n")
 	fmt.Printf("loaded=true entry=0x%X esp=0x%X bytes=%d\n", m.CPU.EIP, m.CPU.R[cpu386.ESP], len(m.Mem))
 	fmt.Printf("entry_bytes=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+16])
@@ -99,7 +109,7 @@ func main() {
 		eip, esp, esi, eax uint32
 	}
 	ring := make([]sample, 0, 32)
-	const maxSteps = 1000000
+	const maxSteps = 8000000
 	for i := 0; i < maxSteps; i++ {
 		if m.CPU.EIP == 0x100cf {
 			value, err := m.Read16(0x191cbe)
@@ -147,4 +157,6 @@ func main() {
 		}
 	}
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
+	fmt.Printf("step_limit_memory image_bytes=%d dpmi_calls=%v dpmi_unimplemented=%v dos_blocks=%v linear_blocks=%v\n",
+		len(m.Mem), services.DPMI.Calls, services.DPMI.Unimplemented, services.DPMI.DOSMemory(), services.DPMI.Blocks())
 }

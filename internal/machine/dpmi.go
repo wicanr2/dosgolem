@@ -53,6 +53,10 @@ type DPMIBlock struct {
 	Size   uint32
 }
 
+type dpmiFreeBlock struct {
+	Base, Size uint32
+}
+
 // DPMILock 是一次 `AX=0600h` 鎖定的線性區間。
 //
 // 鎖定對我們沒有實際作用（沒有分頁），但**要記下來**：程式鎖了才做 DMA
@@ -76,9 +80,11 @@ type DOSBlock struct {
 type DPMIHost struct {
 	m *LEMachine
 
-	nextSel uint16
-	blocks  map[uint32]*DPMIBlock
-	brk     uint32
+	nextSel    uint16
+	blocks     map[uint32]*DPMIBlock
+	brk        uint32
+	free       []dpmiFreeBlock
+	nextHandle uint32
 
 	// DOS 記憶體（`AX=0100h`）的游標與帳本，鍵是 selector。
 	dosBrk    uint32
@@ -419,12 +425,16 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 		if size == 0 {
 			return h.fail(c, 0x8021)
 		}
+		if h.nextHandle == ^uint32(0) {
+			return h.fail(c, 0x8016)
+		}
 		base, ok := h.alloc(size)
 		if !ok {
 			return h.fail(c, 0x8013) // 實體記憶體不足
 		}
-		b := &DPMIBlock{Handle: base, Base: base, Size: size}
-		h.blocks[base] = b
+		h.nextHandle++
+		b := &DPMIBlock{Handle: h.nextHandle, Base: base, Size: size}
+		h.blocks[b.Handle] = b
 		c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | base>>16
 		c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | base&0xffff
 		c.R[cpu386.ESI] = c.R[cpu386.ESI]&0xffff0000 | b.Handle>>16
@@ -433,12 +443,12 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 
 	case 0x0502: // 釋放線性記憶體：SI:DI ＝ handle
 		handle := uint32(uint16(c.R[cpu386.ESI]))<<16 | uint32(uint16(c.R[cpu386.EDI]))
-		if _, ok := h.blocks[handle]; !ok {
+		block, ok := h.blocks[handle]
+		if !ok {
 			return h.fail(c, 0x8023) // 無效的 handle
 		}
-		// **不回收位址空間**：釋放之後再配到同一段，會讓「誰還留著舊指標」
-		// 這個問題查不出來。位址單調遞增是刻意的取捨（診斷 > 空間）。
 		delete(h.blocks, handle)
+		h.releaseLinear(block)
 		return h.ok(c)
 
 	case 0x0600, 0x0601: // 鎖定／解鎖線性區域：BX:CX ＝ 位址、SI:DI ＝ 長度
@@ -490,13 +500,31 @@ func needsMachine(fn uint16) bool {
 	return false
 }
 
-// alloc 從線性配置游標切一塊出來，必要時把機器的記憶體長大。
+// alloc 優先重用已釋放線性區間；找不到才從游標切新區間。
 func (h *DPMIHost) alloc(size uint32) (uint32, bool) {
+	span := (uint64(size) + 15) &^ uint64(15)
+	if span > dpmiAddressLimit {
+		return 0, false
+	}
+	for i, block := range h.free {
+		if uint64(block.Size) < span {
+			continue
+		}
+		base := block.Base
+		if uint64(block.Size) == span {
+			h.free = append(h.free[:i], h.free[i+1:]...)
+		} else {
+			h.free[i].Base += uint32(span)
+			h.free[i].Size -= uint32(span)
+		}
+		clear(h.m.Mem[base : base+uint32(span)])
+		return base, true
+	}
 	base := h.brk
 	if uint64(len(h.m.Mem)) > uint64(base) {
 		base = uint32((uint64(len(h.m.Mem)) + 15) &^ uint64(15))
 	}
-	end := uint64(base) + uint64(size)
+	end := uint64(base) + span
 	if end > uint64(dpmiAddressLimit) {
 		return 0, false
 	}
@@ -506,8 +534,23 @@ func (h *DPMIHost) alloc(size uint32) (uint32, bool) {
 		h.m.Mem = grown
 	}
 	// 下一塊對齊到 16 bytes：程式常常假設配出來的東西至少對齊到 paragraph。
-	h.brk = uint32((end + 15) &^ 15)
+	h.brk = uint32(end)
 	return base, true
+}
+
+func (h *DPMIHost) releaseLinear(block *DPMIBlock) {
+	span := uint32((uint64(block.Size) + 15) &^ uint64(15))
+	h.free = append(h.free, dpmiFreeBlock{Base: block.Base, Size: span})
+	sort.Slice(h.free, func(i, j int) bool { return h.free[i].Base < h.free[j].Base })
+	merged := h.free[:0]
+	for _, current := range h.free {
+		if len(merged) > 0 && merged[len(merged)-1].Base+merged[len(merged)-1].Size == current.Base {
+			merged[len(merged)-1].Size += current.Size
+		} else {
+			merged = append(merged, current)
+		}
+	}
+	h.free = merged
 }
 
 // dpmiAddressLimit 是我們願意長到多大（64 MB）。

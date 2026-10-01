@@ -154,10 +154,51 @@ func TestDPMIAllocatedBlocksAreUsableAndDisjoint(t *testing.T) {
 		t.Error("釋放同一個 handle 兩次竟然成功")
 	}
 
-	// 位址單調遞增：釋放過的不重用，這樣「誰還留著舊指標」才查得出來。
-	cAddr, _ := alloc(0x10)
-	if cAddr <= b {
-		t.Errorf("釋放之後配到 %08X，回頭用了舊位址", cAddr)
+	// 釋放的地址可重用，但控制代號不可重用；重新配置要清除舊內容。
+	cAddr, hc := alloc(0x10)
+	if cAddr != a || hc == ha || m.Mem[cAddr] != 0 {
+		t.Errorf("重用結果 address=%08X handle=%08X old=%08X byte=%02X", cAddr, hc, ha, m.Mem[cAddr])
+	}
+	c.R[cpu386.ESI], c.R[cpu386.EDI] = ha>>16, ha&0xffff
+	dpmiCall(h, c, 0x0502)
+	if c.EFlags&cpu386.CF == 0 || uint16(c.R[cpu386.EAX]) != 0x8023 {
+		t.Errorf("重用地址後舊控制代號仍有效：flags=%X AX=%X", c.EFlags, c.R[cpu386.EAX])
+	}
+	if got, _ := m.Read8(b); got != 0 {
+		t.Errorf("重用第一區塊污染第二活區塊：%02X", got)
+	}
+}
+
+func TestDPMILinearFreeBlocksCoalesceForLargerAllocation(t *testing.T) {
+	m, h := newDPMITest(t)
+	c := m.CPU
+	alloc := func(size uint32) (uint32, uint32) {
+		c.R[cpu386.EBX], c.R[cpu386.ECX] = size>>16, size&0xffff
+		dpmiCall(h, c, 0x0501)
+		if c.EFlags&cpu386.CF != 0 {
+			t.Fatalf("配置 %d bytes 失敗：AX=%X", size, c.R[cpu386.EAX])
+		}
+		return uint32(uint16(c.R[cpu386.EBX]))<<16 | uint32(uint16(c.R[cpu386.ECX])),
+			uint32(uint16(c.R[cpu386.ESI]))<<16 | uint32(uint16(c.R[cpu386.EDI]))
+	}
+	free := func(handle uint32) {
+		c.R[cpu386.ESI], c.R[cpu386.EDI] = handle>>16, handle&0xffff
+		dpmiCall(h, c, 0x0502)
+		if c.EFlags&cpu386.CF != 0 {
+			t.Fatalf("釋放 %X 失敗：AX=%X", handle, c.R[cpu386.EAX])
+		}
+	}
+	a, ha := alloc(0x100)
+	b, hb := alloc(0x100)
+	third, _ := alloc(0x100)
+	if b != a+0x100 || third != b+0x100 {
+		t.Fatalf("初始區塊不相鄰：%X %X %X", a, b, third)
+	}
+	free(hb)
+	free(ha)
+	merged, hm := alloc(0x180)
+	if merged != a || hm == ha || hm == hb || len(h.Blocks()) != 2 {
+		t.Errorf("合併後配置 address=%X handle=%X blocks=%v", merged, hm, h.Blocks())
 	}
 }
 

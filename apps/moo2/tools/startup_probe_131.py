@@ -19,8 +19,8 @@ import re
 import sys
 
 root = pathlib.Path('/shots')
-if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_low_entry = sys.argv[1:] == ['--low-entry']
@@ -34,6 +34,7 @@ capture_mouse_function_21 = sys.argv[1:] == ['--mouse-function-21']
 capture_mouse_function_1a = sys.argv[1:] == ['--mouse-function-1a']
 capture_video_mode_03 = sys.argv[1:] == ['--video-mode-03']
 capture_full_data_test_word = sys.argv[1:] == ['--full-data-test-word']
+capture_dos_memory_0100 = sys.argv[1:] == ['--dos-memory-0100']
 capture_es_store = sys.argv[1:] == ['--es-store']
 capture_or_al_ah = sys.argv[1:] == ['--or-al-ah']
 capture_ror_imm8 = sys.argv[1:] == ['--ror-imm8']
@@ -52,7 +53,7 @@ capture_cmc = sys.argv[1:] == ['--cmc']
 capture_and = sys.argv[1:] == ['--and']
 capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
-mode = 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
+mode = 'dos-memory-0100-' if capture_dos_memory_0100 else 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 expected_sha256 = '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f'
 actual_sha256 = hashlib.sha256(exe.read_bytes()).hexdigest()
@@ -83,7 +84,7 @@ if capture_dta_find_present:
         'name': 'MOX.SET', 'size': 0, 'sha256': hashlib.sha256(b'').hexdigest(),
         'mtime_epoch_seconds': 820454400,
     }
-if capture_full_data_test_word:
+if capture_full_data_test_word or capture_dos_memory_0100:
     fixture = pathlib.Path('/tmp/game/MOX.SET')
     if not fixture.is_file() or hashlib.sha256(fixture.read_bytes()).hexdigest() != 'bfd6855a41760b31156b96114b5b33c88f442ab8f8aae020c1740b3b486a3a80':
         raise RuntimeError('MOO2 完整資料對拍要求固定正版 MOX.SET')
@@ -175,6 +176,32 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
         if not match:
             raise RuntimeError('MOO2 zero-base branch breakpoint not reached: ' + repr(snapshots))
         records['dpmi_zero_base_branch'] = match
+        if capture_dos_memory_0100:
+            records['dos_memory_0100_events'] = []
+            cmd('BPDEL *')
+            for _ in range(2):
+                cmd('BPINT 31 01 00')
+                cmd('RUN', 12)
+                snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS', 0.8))
+                call = next((value for value in reversed(snapshots) if len(value) == 13 and int(value[2], 16) & 0xffff == 0x0100), None)
+                if not call:
+                    records['dos_memory_0100_status'] = '有界執行未命中或 EV 無回應'
+                    (root / 'dos-memory-0100-registers.json').write_text(json.dumps(records, indent=2))
+                    raise RuntimeError('MOO2 原版 DPMI 0100h 入口未取得: ' + repr(snapshots))
+                event = {'call': call, 'address_space': 'DOSBox-X CS:EIP'}
+                records['dos_memory_0100_events'].append(event)
+                cmd('BPDEL *')
+                cs, next_eip = int(call[0], 16), int(call[1], 16) + 2
+                cmd(f'BP {cs:04X}:{next_eip:08X}')
+                cmd('RUN', 8)
+                snapshots = registers(cmd('EV CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS', 0.8))
+                returned = next((value for value in reversed(snapshots) if len(value) == 13 and int(value[0], 16) == cs and int(value[1], 16) == next_eip), None)
+                if not returned:
+                    records['dos_memory_0100_status'] = '返回斷點未命中或 EV 無回應'
+                    (root / 'dos-memory-0100-registers.json').write_text(json.dumps(records, indent=2))
+                    raise RuntimeError('MOO2 原版 DPMI 0100h 返回未取得: ' + repr(snapshots))
+                event['return'] = returned
+                cmd('BPDEL *')
         if capture_full_data_test_word:
             cmd('BPDEL *')
             cmd('BP 0180:00375A21')
