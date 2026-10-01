@@ -2510,6 +2510,18 @@ func (c *CPU) Step() error {
 			break
 		}
 
+		// 規格 267：word ADD 暫存器與帶符號 imm8；保留目的高半部。
+		if operand16 && modrm>>6 == 3 && group == 0 && segmentOverride < 0 && !repe && !repne {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			v := c.add16(uint16(c.R[reg]), uint16(int16(int8(imm))))
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(v)
+			break
+		}
+
 		if operand16 && modrm>>6 == 3 && group == 5 && segmentOverride < 0 && !repe && !repne {
 			imm, e := c.fetch8()
 			if e != nil {

@@ -42,4 +42,6 @@ Go 1.24.13，映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 
 解析回填不可變鍵：固定 EXE 雜湊＋DOSBox-X `0180:0035CCA7`／dosgolem 高位 LE `0x228CA7`＋`CD 10 61 FC C3`／`4F07h`。237 保留「非零起點已由規格 266 接通」，265 保留「非零顯示停點已由規格 266 接通」及本檔連結；`--check-vbe-display-start-spec-backlinks` 自動核對。上一輪索引的 265「原版使用點待核對」已被其實際收據推翻，本輪只修索引，不重開已完成項。
 
-僅在有限起點、服務返回與兩條像素消費路徑 CONFORMED；hardware-spec approximation、平台布局與既有未定義旗標／DTA／例外差異保留。255 仍 READY，原版正常玩家畫面、音效、受控亂數及 Go remake 玩法同狀態未完成。下一最小行動是依公開 CPU ADD 契約核對 `66 83 C3 18`、旗標、暫存器別名保存及固定原版使用點；不追 runtime／圖形 helper 內部。
+僅在有限起點、服務返回與兩條像素消費路徑 CONFORMED；hardware-spec approximation、平台布局與既有未定義旗標／DTA／例外差異保留。255 仍 READY，原版正常玩家畫面、音效、受控亂數及 Go remake 玩法同狀態未完成。
+
+**word ADD 停點已由規格 267 接通**：[267-cpu386-add-word-register-immediate.md](267-cpu386-add-word-register-immediate.md) 保留 `0x234B10`／`66 83 C3 18` 的固定定位，接 word 暫存器帶符號立即值、旗標與高半部保存。舊黑圖仍是本規格歷史收據，不因 CPU 解碼延伸而升格。
