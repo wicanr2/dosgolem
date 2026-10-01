@@ -46,3 +46,7 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 Active=true、Bank=7、StartY=512、BankSets=6、Writes=307200、DisplaySets=1。有效索引 SHA-256 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`、RGB `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`；另設 `DOSGOLEM_MOO2_VBE_PNG` 產生兩份 `workplace/moo2-vbe-271-*.png`，SHA-256 均 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`，與已檢視黑圖逐位元相同。
 
 271 僅在 word 目的比較、完整旗標與第一個 JL 分支 CONFORMED；255 仍 READY，正常玩家畫面、音效、受控亂數與 Go remake 玩法同狀態未完成。IMUL 未定義 ZF 保存差異、DIV 旗標／例外、SAR 的 AF、DTA 保留區與平台布局限制仍保留；CPU 支援不計入玩法矩陣分母。
+
+## 後續停點解析回填
+
+word INC 停點已由規格 272 接通：[272-cpu386-inc-word-memory.md](272-cpu386-inc-word-memory.md) 將固定 EXE 的高位 LE `0x21CA3D`／DOSBox-X CS:EIP `0180:00350A3D`／`66 FF 40 04` 接到公開 word INC 契約與原版 0→1、CF 保存／完整旗標及下一 A1 消費樣本。此回填只解開該停點，255 及正常玩家路徑的未知仍保留；實作與自然重跑的驗收狀態以 272 為準。

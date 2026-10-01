@@ -1956,8 +1956,9 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if (modrm>>3)&7 != 1 || modrm>>6 == 3 {
-				return fail("word FF僅支援記憶體DEC")
+			group := (modrm >> 3) & 7
+			if (group != 0 && group != 1) || modrm>>6 == 3 {
+				return fail("word FF僅支援記憶體INC/DEC")
 			}
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
@@ -1965,13 +1966,21 @@ func (c *CPU) Step() error {
 			}
 			value, ok := c.readSegment16(c.Seg[seg], addr)
 			if !ok {
-				return fail("word DEC來源越界")
+				return fail("word INC/DEC來源越界")
 			}
-			if !c.writeSegment16(c.Seg[seg], addr, value-1) {
-				return fail("word DEC寫入失敗")
+			result := value + 1
+			if group == 1 {
+				result = value - 1
+			}
+			if !c.writeSegment16(c.Seg[seg], addr, result) {
+				return fail("word INC/DEC寫入失敗")
 			}
 			carry := c.EFlags & CF
-			c.sub16(value, 1)
+			if group == 0 {
+				c.add16(value, 1)
+			} else {
+				c.sub16(value, 1)
+			}
 			c.EFlags = c.EFlags&^CF | carry
 			break
 		}

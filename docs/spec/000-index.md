@@ -422,4 +422,5 @@
 - [268 — 單運算元的 16 位元有號暫存器乘法](268-cpu386-imul-word-register.md)：CONFORMED，word 有號乘積／CF／OF 與 A3 消費已驗；未定義 ZF 差異明示，dword IMUL 停點已由規格 269 接通。
 - [269 — 單運算元的 32 位元有號暫存器乘法](269-cpu386-imul-dword-register.md)：CONFORMED，dword 完整有號積／CF／OF 與 XOR 消費已驗；記憶體 CMP 停點已由規格 270 接通，黑圖仍非正常玩家畫面。
 - [270 — 32 位元記憶體目的與暫存器的比較](270-cpu386-cmp-memory-register.md)：CONFORMED，dword 記憶體目的、六旗標與實際 JGE 不取分支已驗；word CMP 停點已由規格 271 接通。
-- [271 — 16 位元目的與暫存器的比較](271-cpu386-cmp-word-destination.md)：CONFORMED，word 目的、寬度／六旗標與實際 JL 不取分支已驗；兩條自然路徑下一停點為 word INC，黑圖仍非正常玩家畫面。
+- [271 — 16 位元目的與暫存器的比較](271-cpu386-cmp-word-destination.md)：CONFORMED，word 目的、寬度／六旗標與實際 JL 不取分支已驗；word INC 停點已由規格 272 接通；當次黑圖不代表正常玩家畫面。
+- [272 — 16 位元記憶體的遞增](272-cpu386-inc-word-memory.md)：CONFORMED。word 記憶體 INC、CF／五旗標與下一 A1 已驗；自然路徑顯示 Simtex 標誌，下一停點為短 JS，仍未進入主選單。
