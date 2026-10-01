@@ -92,7 +92,9 @@ func main() {
 			len(fixtureData), sha256.Sum256(fixtureData), stamp.Format(time.RFC3339))
 	}
 	services := machine.NewMOO2StartupDOS(files)
-	services.AttachMachine(m)
+	if err := services.AttachMachine(m); err != nil {
+		panic(err)
+	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
 		if number != 0x31 || uint16(c.R[cpu386.EAX]) != 0x0100 {

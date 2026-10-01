@@ -1,6 +1,6 @@
 package machine
 
-// DMA8237 僅實作第一控制器的程式設定介面；不冒充已執行資料傳輸。
+// DMA8237 保存單一控制器的程式設定狀態；不冒充已執行資料傳輸。
 type DMA8237 struct {
 	Page      [4]uint8
 	PageKnown [4]bool

@@ -394,3 +394,7 @@
 - [240 — 以立即數加到 AL](240-cpu386-add-al-immediate.md)：CONFORMED。`04 20` 原版同指令形狀的暫存器／旗標與 dosgolem 自生越過停點均已核對；下一停點為 `INT 66h` 底層 DSP 埠。
 - [241 — MOO2 保護／實模式共用平台埠](241-moo2-shared-platform-ports.md)：CONFORMED。原檔 `INT 66h` 越過 DSP 重設埠；正式共用接線後仍在第二 DMA 埠 `00D4h` 拒絕，尚非音訊或畫面對拍。
 - [242 — 第二組 DMA 控制器單通道遮罩](242-secondary-dma-single-mask.md)：CONFORMED。原檔越過 `D4h/05h`，實模式下一停點為 `D8h/00h`；限平台遮罩狀態，尚非音訊或畫面對拍。
+- [243 — 第二組 DMA 控制器暫存器程式設定](243-secondary-dma-register-programming.md)：CONFORMED。原檔越過 `D8h/00h`；第二控制器獨立暫存器已測試，下一停點為頁埠 `8Bh`。
+- [244 — PC AT 第二組 DMA 頁暫存器](244-secondary-dma-page-registers.md)：CONFORMED。原檔越過 `8Bh/00h`，下一停點為 DSP `022Ch/B0h`；尚非 16 位元音效或畫面對拍。
+- [245 — MOO2 SB16 `B0h` 單次 16 位元 DMA](245-sb16-b0-single-cycle-probe.md)：CONFORMED。原檔自然越過 `B0 30 00 00`；音訊完成時間僅為硬體規格近似，無波形或聽感對拍。
+- [246 — MOO2 啟動時安裝 BIOS 資料區](246-moo2-bios-data-attach.md)：CONFORMED。重用既有 DOS/4GW BDA 安裝契約，原檔越過誤讀 `0006h`，下一停點為 DSP `0225h`。

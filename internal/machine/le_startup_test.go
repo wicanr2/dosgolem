@@ -185,7 +185,12 @@ func TestMOO2AttachMachineSharesProtectedAndRealModePorts(t *testing.T) {
 	m := &LEMachine{Mem: make([]byte, 0x120000), Ports: map[uint16]uint8{}}
 	m.CPU = cpu386.New(m)
 	s := NewMOO2StartupDOS(nil)
-	s.AttachMachine(m)
+	if err := s.AttachMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Mem[0x463] != 0xd4 || m.Mem[0x464] != 0x03 {
+		t.Fatal("MOO2 啟動沒有初始化彩色 CRTC 基底埠")
+	}
 	if m.CPU.PortIn == nil || m.CPU.PortOut == nil || s.DPMI.RealModeIO == nil {
 		t.Fatal("MOO2 兩種模式未連至平台埠")
 	}
@@ -198,7 +203,7 @@ func TestMOO2AttachMachineSharesProtectedAndRealModePorts(t *testing.T) {
 	if !m.CPU.PortOut(0x0d4, 1) || !s.DPMI.RealModeIO.Out8(0x0d4, 5) {
 		t.Fatal("跨模式第二 DMA 控制器遮罩寫入失敗")
 	}
-	if m.CPU.PortOut(0x0d6, 5) || s.DPMI.RealModeIO.Out8(0x0d6, 5) {
+	if m.CPU.PortOut(0x0d2, 5) || s.DPMI.RealModeIO.Out8(0x0d2, 5) {
 		t.Fatal("未知第二 DMA 控制器埠被放行")
 	}
 	fd2 := NewFD2StartupDOS(nil)
@@ -207,6 +212,19 @@ func TestMOO2AttachMachineSharesProtectedAndRealModePorts(t *testing.T) {
 	fd2.AttachMachine(other)
 	if other.CPU.PortIn != nil || other.CPU.PortOut != nil || fd2.DPMI.RealModeIO != nil {
 		t.Fatal("一般 FD2 設定被 MOO2 專用接線改動")
+	}
+}
+
+func TestMOO2AttachMachineRejectsBIOSOverlap(t *testing.T) {
+	m := &LEMachine{Mem: make([]byte, 0x120000)}
+	m.CPU = cpu386.New(m)
+	m.Mem[0x463] = 0xff
+	s := NewMOO2StartupDOS(nil)
+	if err := s.AttachMachine(m); err == nil {
+		t.Fatal("既有 BIOS 資料被覆寫")
+	}
+	if m.Mem[0x463] != 0xff || m.CPU.PortIn != nil || s.DPMI.RealModeIO != nil {
+		t.Fatal("安裝失敗仍修改了原有狀態")
 	}
 }
 

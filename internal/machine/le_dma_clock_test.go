@@ -25,6 +25,79 @@ func dmaIRQFixture(t *testing.T) (*LEOPLPorts, *LEMachine, *cpu.CPU) {
 	}
 	return p, m, c
 }
+
+func dma16IRQFixture(t *testing.T) (*LEOPLPorts, *LEMachine, *cpu.CPU) {
+	t.Helper()
+	p := NewLEOPLPorts()
+	m := &LEMachine{Mem: make([]byte, 1024)}
+	m.Mem[0x3d] = 1
+	m.Mem[0x100] = 0xcf
+	m.Mem[0x200], m.Mem[0x201] = 0x34, 0x12
+	c := cpu.New(&Machine{Mem: m.Mem})
+	c.Model = cpu.Model80386
+	c.IP = 0x10
+	c.R[cpu.SP] = 0x300
+	c.SetFlags(cpu.IF | 2)
+	for _, w := range [][2]uint16{
+		{0x226, 1}, {0x226, 0}, {0x21, 0x78}, {0xd4, 5}, {0xd8, 0},
+		{0xc4, 0}, {0xc4, 1}, {0xc6, 1}, {0xc6, 0}, {0x8b, 0}, {0xd6, 0x49}, {0xd4, 1},
+		{0x22c, 0xb0}, {0x22c, 0x30}, {0x22c, 0}, {0x22c, 0},
+	} {
+		if !p.Out8(w[0], byte(w[1])) {
+			t.Fatalf("16位元DMA設定埠 %X 值 %X 拒絕", w[0], w[1])
+		}
+	}
+	return p, m, c
+}
+
+func TestSB16B0SingleWordCompletionAndIRQ(t *testing.T) {
+	p, m, c := dma16IRQFixture(t)
+	for i := 0; i < 22; i++ {
+		if err := p.AdvanceRealMode(c, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if p.DMA16Completions != 0 || p.IRQ7Deliveries != 0 || len(p.PCM16) != 0 {
+		t.Fatal("16位元DMA過早完成")
+	}
+	if err := p.AdvanceRealMode(c, m); err != nil {
+		t.Fatal(err)
+	}
+	if p.DMA16Completions != 1 || p.IRQ7Deliveries != 1 || c.IP != 0x100 ||
+		p.secondaryDMA.Current[2] != 0x101 || p.secondaryDMA.Current[3] != 0 || p.secondaryDMA.Mask&2 != 0 ||
+		len(p.PCM16) != 2 || p.PCM16[0] != 0x34 || p.PCM16[1] != 0x12 || !p.dsp.IRQ16Pending {
+		t.Fatalf("B0完成狀態錯誤：state=%+v pcm=% X", p.State(), p.PCM16)
+	}
+	p.In8(0x22f)
+	p.Out8(0x20, 0x20)
+	if err := c.Step(); err != nil || c.IP != 0x10 || p.dsp.IRQ16Pending {
+		t.Fatalf("16位元IRQ確認／IRET失敗：err=%v ip=%X", err, c.IP)
+	}
+}
+
+func TestSB16B0RejectsUnconfiguredAndResetCancels(t *testing.T) {
+	p := NewLEOPLPorts()
+	p.Out8(0x226, 1)
+	p.Out8(0x226, 0)
+	for _, v := range []byte{0xb0, 0x30, 0} {
+		if !p.Out8(0x22c, v) {
+			t.Fatal("B0 前三筆遭拒絕")
+		}
+	}
+	if p.Out8(0x22c, 0) || p.dma16Active || p.dsp.IRQ16Pending {
+		t.Fatal("未設定的16位元DMA被放行")
+	}
+	p, m, c := dma16IRQFixture(t)
+	p.Out8(0x226, 1)
+	for i := 0; i < 100; i++ {
+		if err := p.AdvanceRealMode(c, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if p.dma16Active || p.DMA16Completions != 0 || p.IRQ7Deliveries != 0 || p.dsp.IRQ16Pending {
+		t.Fatal("DSP reset未取消16位元DMA或IRQ")
+	}
+}
 func TestDMACompletionUsesOriginalIVT(t *testing.T) {
 	p, m, c := dmaIRQFixture(t)
 	for i := 0; i < 179; i++ {

@@ -11,17 +11,22 @@ type LEOPLPorts struct {
 	device           *Machine
 	virtualMicros    uint64
 	dmaActive        bool
+	dma16Active      bool
+	dma16WordsLeft   uint32
+	sample16Credit   uint64
 	dmaLeft          uint32
 	picPending       bool
 	picInService     bool
 	picReadISR       [2]bool
 	DMACompletions   uint64
+	DMA16Completions uint64
 	IRQ7Deliveries   uint64
 	PCM              []byte
+	PCM16            []byte
 	dsp              SoundBlasterDSP
 	picMasks         [2]byte
 	dma              *DMA8237
-	secondaryDMAMask byte
+	secondaryDMA     *DMA8237
 	Log              []LEOPLPortEvent
 	Reads            map[uint16]uint64
 	Writes           map[uint16]uint64
@@ -35,10 +40,17 @@ type LEOPLPortEvent struct {
 func NewLEOPLPorts() *LEOPLPorts {
 	m := New()
 	m.SetAdLib(true)
-	p := &LEOPLPorts{device: m, dma: NewDMA8237(), secondaryDMAMask: 0x0f, picMasks: [2]byte{0xf8, 0x2c}, Reads: map[uint16]uint64{}, Writes: map[uint16]uint64{}}
+	p := &LEOPLPorts{device: m, dma: NewDMA8237(), secondaryDMA: NewDMA8237(), picMasks: [2]byte{0xf8, 0x2c}, Reads: map[uint16]uint64{}, Writes: map[uint16]uint64{}}
 	p.dsp.StartDMA = p.startDSPDMA
+	p.dsp.Start16DMA = p.startDSP16DMA
 	p.dsp.StartAutoDMA = func(n uint32) bool { return p.startDMA(n, true) }
-	p.dsp.CancelDMA = func() { p.dmaActive = false; p.dmaLeft = 0; p.picPending = false }
+	p.dsp.CancelDMA = func() {
+		p.dmaActive = false
+		p.dmaLeft = 0
+		p.dma16Active = false
+		p.dma16WordsLeft = 0
+		p.picPending = false
+	}
 	return p
 }
 func oplAlias(p uint16) (uint16, bool) {
@@ -62,6 +74,32 @@ func (p *LEOPLPorts) record(port uint16, v uint8, write bool) {
 		p.Log = append(p.Log, LEOPLPortEvent{port, v, write})
 	}
 }
+
+func secondaryDMARegister(port uint16) (uint16, bool) {
+	if port >= 0xc0 && port <= 0xce && port&1 == 0 {
+		return (port - 0xc0) >> 1, true
+	}
+	switch port {
+	case 0xd4, 0xd6, 0xd8, 0xda, 0xdc, 0xde:
+		return (port - 0xc0) >> 1, true
+	}
+	return 0, false
+}
+
+func secondaryDMAPageChannel(port uint16) (int, bool) {
+	switch port {
+	case 0x8f:
+		return 0, true // PC DMA 通道 4
+	case 0x8b:
+		return 1, true // PC DMA 通道 5
+	case 0x89:
+		return 2, true // PC DMA 通道 6
+	case 0x8a:
+		return 3, true // PC DMA 通道 7
+	}
+	return 0, false
+}
+
 func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 	if port == 0x20 || port == 0xa0 {
 		v := byte(0)
@@ -75,6 +113,21 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 		return v, true
 	}
 
+	if ch, ok := secondaryDMAPageChannel(port); ok {
+		if !p.secondaryDMA.PageKnown[ch] {
+			return 0, false
+		}
+		v := p.secondaryDMA.Page[ch]
+		p.record(port, v, false)
+		return v, true
+	}
+	if reg, ok := secondaryDMARegister(port); ok && reg <= 7 {
+		if v, known := p.secondaryDMA.In8(reg); known {
+			p.record(port, v, false)
+			return v, true
+		}
+		return 0, false
+	}
 	if v, ok := p.dma.In8(port); ok {
 		p.record(port, v, false)
 		return v, true
@@ -135,16 +188,18 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 		p.record(port, v, true)
 		return true
 	}
-	if port == 0xd4 {
-		// 第二 8237A 的單通道遮罩；不代表 16 位元 DMA 傳輸已實作。
-		bit := byte(1) << (v & 3)
-		if v&4 != 0 {
-			p.secondaryDMAMask |= bit
-		} else {
-			p.secondaryDMAMask &^= bit
-		}
+	if ch, ok := secondaryDMAPageChannel(port); ok {
+		p.secondaryDMA.Page[ch] = v
+		p.secondaryDMA.PageKnown[ch] = true
 		p.record(port, v, true)
 		return true
+	}
+	if reg, ok := secondaryDMARegister(port); ok {
+		if p.secondaryDMA.Out8(reg, v) {
+			p.record(port, v, true)
+			return true
+		}
+		return false
 	}
 	if port == 0x21 || port == 0xa1 {
 		i := 0
@@ -171,20 +226,32 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 
 // LEDeviceState 是初始化與傳輸除錯的唯值快照，不暴露內部可寫指標。
 type LEDeviceState struct {
-	MixerIndex               byte
-	DSPIRQPending            bool
-	PICPending, PICInService bool
-	VirtualMicros            uint64
-	PICMasks                 [2]byte
-	DMABase, DMACurrent      [8]uint16
-	DMAPage                  [4]byte
-	DMAMode                  [4]byte
-	DMAMask                  byte
-	SecondaryDMAMask         byte
-	DSPTimeConstant          byte
-	DSPTimeConstantKnown     bool
+	MixerIndex                            byte
+	DSPIRQPending                         bool
+	DSPIRQ16Pending                       bool
+	PICPending, PICInService              bool
+	VirtualMicros                         uint64
+	PICMasks                              [2]byte
+	DMABase, DMACurrent                   [8]uint16
+	DMAPage                               [4]byte
+	DMAMode                               [4]byte
+	DMAMask                               byte
+	SecondaryDMABase, SecondaryDMACurrent [8]uint16
+	SecondaryDMAPage                      [4]byte
+	SecondaryDMAMode                      [4]byte
+	SecondaryDMAMask                      byte
+	DMA16Active                           bool
+	DSPTimeConstant                       byte
+	DSPTimeConstantKnown                  bool
 }
 
 func (p *LEOPLPorts) State() LEDeviceState {
-	return LEDeviceState{p.dsp.mixerIndex, p.dsp.IRQPending, p.picPending, p.picInService, p.virtualMicros, p.picMasks, p.dma.Base, p.dma.Current, p.dma.Page, p.dma.Mode, p.dma.Mask, p.secondaryDMAMask, p.dsp.TimeConstant, p.dsp.TimeConstantKnown}
+	return LEDeviceState{
+		MixerIndex: p.dsp.mixerIndex, DSPIRQPending: p.dsp.IRQPending, DSPIRQ16Pending: p.dsp.IRQ16Pending,
+		PICPending: p.picPending, PICInService: p.picInService, VirtualMicros: p.virtualMicros, PICMasks: p.picMasks,
+		DMABase: p.dma.Base, DMACurrent: p.dma.Current, DMAPage: p.dma.Page, DMAMode: p.dma.Mode, DMAMask: p.dma.Mask,
+		SecondaryDMABase: p.secondaryDMA.Base, SecondaryDMACurrent: p.secondaryDMA.Current,
+		SecondaryDMAPage: p.secondaryDMA.Page, SecondaryDMAMode: p.secondaryDMA.Mode, SecondaryDMAMask: p.secondaryDMA.Mask,
+		DMA16Active: p.dma16Active, DSPTimeConstant: p.dsp.TimeConstant, DSPTimeConstantKnown: p.dsp.TimeConstantKnown,
+	}
 }

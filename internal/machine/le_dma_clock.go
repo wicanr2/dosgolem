@@ -6,13 +6,27 @@ import (
 )
 
 func (p *LEOPLPorts) startDSPDMA(n uint32) bool { return p.startDMA(n, false) }
+
+func (p *LEOPLPorts) startDSP16DMA(words uint32) bool {
+	d := p.secondaryDMA
+	if words != 1 || p.dmaActive || p.dma16Active || p.dsp.RateNumerator == 0 || p.dsp.RateDenominator == 0 ||
+		d.Mask&2 != 0 || d.Mode[1] != 0x48 || d.Known[2] != 3 || d.Known[3] != 3 ||
+		!d.PageKnown[1] || d.Page[1] != 0 || words > uint32(d.Current[3])+1 {
+		return false
+	}
+	p.dma16Active = true
+	p.dma16WordsLeft = words
+	p.sample16Credit = 0
+	return true
+}
+
 func (p *LEOPLPorts) startDMA(n uint32, auto bool) bool {
 	d := p.dma
 	mode := byte(0x48)
 	if auto {
 		mode = 0x58
 	}
-	if p.dmaActive || p.dsp.RateNumerator == 0 || p.dsp.RateDenominator == 0 || d.Mask&2 != 0 || d.Mode[1] != mode ||
+	if p.dmaActive || p.dma16Active || p.dsp.RateNumerator == 0 || p.dsp.RateDenominator == 0 || d.Mask&2 != 0 || d.Mode[1] != mode ||
 		d.Known[2] != 3 || d.Known[3] != 3 || !d.PageKnown[1] || n == 0 || n > uint32(d.Current[3])+1 {
 		return false
 	}
@@ -67,6 +81,36 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 				p.picPending = true
 			}
 			p.dsp.IRQPending = true
+		}
+	}
+	if p.dma16Active && p.secondaryDMA.Mask&2 == 0 {
+		// 立體聲每個 16 位元 word 約佔半個取樣週期；僅為規格近似。
+		p.sample16Credit += 2 * p.dsp.RateNumerator
+		if p.sample16Credit >= 1000000*p.dsp.RateDenominator {
+			p.sample16Credit -= 1000000 * p.dsp.RateDenominator
+			d := p.secondaryDMA
+			a := uint32(d.Page[1]&0xfe)<<16 | uint32(d.Current[2])<<1
+			if uint64(a)+1 >= uint64(len(m.Mem)) {
+				return fmt.Errorf("16位元DMA讀取超界 %06X", a)
+			}
+			if len(p.PCM16) < 65536 {
+				p.PCM16 = append(p.PCM16, m.Mem[a], m.Mem[a+1])
+			}
+			d.Current[2]++
+			terminal := d.Current[3] == 0
+			d.Current[3]--
+			if terminal {
+				d.Mask |= 2
+			}
+			p.dma16WordsLeft--
+			if p.dma16WordsLeft == 0 {
+				p.dma16Active = false
+				p.DMA16Completions++
+				if !p.dsp.IRQ16Pending {
+					p.picPending = true
+				}
+				p.dsp.IRQ16Pending = true
+			}
 		}
 	}
 	if p.picPending && !p.picInService && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {

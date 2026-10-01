@@ -5,14 +5,17 @@ type SoundBlasterDSP struct {
 	SpeakerOn                      bool
 	RateNumerator, RateDenominator uint64
 	StartAutoDMA                   func(uint32) bool
+	Start16DMA                     func(uint32) bool
 	BlockSize                      uint32
 	BlockSizeKnown                 bool
 	pending                        uint8
 	lengthLow                      byte
 	lengthHighNext                 bool
+	b0Step                         uint8
 	StartDMA                       func(uint32) bool
 	CancelDMA                      func()
 	IRQPending                     bool
+	IRQ16Pending                   bool
 	TimeConstant                   uint8
 	TimeConstantKnown              bool
 	reset                          bool
@@ -27,10 +30,14 @@ func (s *SoundBlasterDSP) In8(port uint16) (uint8, bool) {
 	case 0x225:
 		switch s.mixerIndex {
 		case 0x82:
+			v := byte(0)
 			if s.IRQPending {
-				return 1, true
+				v |= 1
 			}
-			return 0, true
+			if s.IRQ16Pending {
+				v |= 2
+			}
+			return v, true
 		case 0x80:
 			return 4, true
 		case 0x81:
@@ -44,6 +51,9 @@ func (s *SoundBlasterDSP) In8(port uint16) (uint8, bool) {
 		if len(s.reply) > 0 {
 			return 0x80, true
 		}
+		return 0, true
+	case 0x22f:
+		s.IRQ16Pending = false
 		return 0, true
 	case 0x22a:
 		if len(s.reply) == 0 {
@@ -66,6 +76,35 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		return true
 	}
 	if port == 0x22c && !s.reset {
+		if s.pending == 0xb0 {
+			switch s.b0Step {
+			case 0:
+				if v != 0x30 {
+					return false
+				}
+				s.b0Step = 1
+				return true
+			case 1:
+				if v != 0 {
+					return false
+				}
+				s.b0Step = 2
+				return true
+			case 2:
+				if v != 0 || s.Start16DMA == nil || !s.Start16DMA(1) {
+					return false
+				}
+				s.pending = 0
+				s.b0Step = 0
+				return true
+			}
+			return false
+		}
+		if s.pending == 0 && v == 0xb0 {
+			s.pending = v
+			s.b0Step = 0
+			return true
+		}
 		if s.pending == 0x41 {
 			if !s.lengthHighNext {
 				s.lengthLow = v
@@ -152,7 +191,9 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		s.SpeakerOn = false
 		s.pending = 0
 		s.lengthHighNext = false
+		s.b0Step = 0
 		s.IRQPending = false
+		s.IRQ16Pending = false
 		if s.CancelDMA != nil {
 			s.CancelDMA()
 		}
