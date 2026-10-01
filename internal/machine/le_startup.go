@@ -460,10 +460,18 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			}
 			s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 0, 0, 0
 			return true
-		case 0x21:
-			// 規格 229：僅固定 MOO2 啟動基準的三按鍵與受控中心座標。
+		case 0x1b:
+			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | uint32(s.mouseSensitivityX)
+			c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(s.mouseSensitivityY)
+			c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | uint32(s.mouseDoubleSpeed)
+			return true
+		case 0, 0x21:
+			// 規格 229／251：三按鍵返回；受控座標依目前模式中心近似。
 			s.mouseButtons = 0
 			s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
+			if s.vbeModeSet && s.vbeMode == 0x0101 {
+				s.mouseY = 240
+			}
 			c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | 0xffff
 			c.R[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | 3
 			return true

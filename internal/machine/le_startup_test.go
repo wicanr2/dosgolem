@@ -64,6 +64,81 @@ func TestMOO2ProtectedMouseSoftwareReset(t *testing.T) {
 	}
 }
 
+func TestMOO2MouseResetRespectsVideoModeAndPreservesRegisters(t *testing.T) {
+	for _, function := range []uint16{0, 0x21} {
+		for _, video := range []bool{false, true} {
+			c := cpu386.New(startupBus(make([]byte, 8)))
+			s := NewMOO2StartupDOS(nil)
+			wantY := uint32(100)
+			if video {
+				c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x4f02, 0x0101
+				if !s.Handle(c, 0x10) {
+					t.Fatal("VBE 模式設定失敗")
+				}
+				wantY = 240
+			}
+			s.SetMouseState(417, 122, 2)
+			s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 0, 0, 0
+			c.R = [8]uint32{0xabcd0000 | uint32(function), 0x12340000, 0x22330005, 0x33440006, 0x11000004, 0x55000005, 0x66000006, 0x77000007}
+			c.EFlags = 0x16
+			want, beforeSeg := c.R, c.Seg
+			want[cpu386.EAX] = 0xabcdffff
+			want[cpu386.EBX] = c.R[cpu386.EBX]&0xffff0000 | 3
+			if !s.Handle(c, 0x33) || c.R != want || c.Seg != beforeSeg || c.EFlags != 0x16 || s.mouseSensitivityX != 0 || s.mouseSensitivityY != 0 || s.mouseDoubleSpeed != 0 {
+				t.Fatalf("重設功能=%X video=%t R=%X flags=%X", function, video, c.R, c.EFlags)
+			}
+			c.R[cpu386.EAX] = 3
+			if !s.Handle(c, 0x33) || uint16(c.R[cpu386.EBX]) != 0 || uint16(c.R[cpu386.ECX]) != 320 || uint16(c.R[cpu386.EDX]) != uint16(wantY) {
+				t.Fatalf("重設後查詢：video=%t R=%X", video, c.R)
+			}
+		}
+	}
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	c.EFlags = 0x16
+	before := c.R
+	if NewFD2StartupDOS(nil).Handle(c, 0x33) || c.R != before || c.EFlags != 0x16 {
+		t.Fatal("一般 FD2 不得接受重設")
+	}
+}
+
+func TestMOO2MouseSensitivityQueryStateRoundTrip(t *testing.T) {
+	for _, zero := range []bool{false, true} {
+		for _, reset := range []uint16{0, 0x21} {
+			c := cpu386.New(startupBus(make([]byte, 8)))
+			s := NewMOO2StartupDOS(nil)
+			value := uint32(50)
+			if zero {
+				c.R[cpu386.EAX] = 0x1a
+				if !s.Handle(c, 0x33) {
+					t.Fatal("零敏感度 setter")
+				}
+				value = 0
+			}
+			c.R[cpu386.EAX] = uint32(reset)
+			if !s.Handle(c, 0x33) {
+				t.Fatal("滑鼠重設")
+			}
+			c.R = [8]uint32{0xabcd001b, 0x11220007, 0x22330008, 0x33440009, 0x100004, 0x100005, 0x100006, 0x100007}
+			c.EFlags = 0x12
+			want, beforeSeg := c.R, c.Seg
+			for _, reg := range []int{cpu386.EBX, cpu386.ECX, cpu386.EDX} {
+				want[reg] = want[reg]&0xffff0000 | value
+			}
+			for i := 0; i < 2; i++ {
+				if !s.Handle(c, 0x33) || c.R != want || c.Seg != beforeSeg || c.EFlags != 0x12 || uint32(s.mouseSensitivityX) != value || uint32(s.mouseSensitivityY) != value || uint32(s.mouseDoubleSpeed) != value {
+					t.Fatalf("敏感度查詢 zero=%t reset=%X R=%X flags=%X", zero, reset, c.R, c.EFlags)
+				}
+			}
+		}
+	}
+	c := cpu386.New(startupBus(make([]byte, 8)))
+	c.R[cpu386.EAX], c.EFlags = 0x1b, 0x12
+	before := c.R
+	if NewFD2StartupDOS(nil).Handle(c, 0x33) || c.R != before || c.EFlags != 0x12 {
+		t.Fatal("一般 FD2 不得接受敏感度查詢")
+	}
+}
+
 func TestMOO2ProtectedMouseZeroSensitivity(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 8)))
 	s := NewMOO2StartupDOS(nil)

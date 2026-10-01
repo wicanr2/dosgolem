@@ -402,3 +402,5 @@
 - [248 — 32 位元暫存器 OR 符號擴展立即數](248-cpu386-or-register-imm8.md)：CONFORMED。原版同次 raw bytes、EAX 與旗標已核對；dosgolem 自生下一停點為 `81 F2 00 80 00 00`。
 - [249 — 32 位元暫存器 XOR 完整立即數](249-cpu386-xor-register-imm32.md)：CONFORMED。原版 raw bytes、EDX 與實際 EFLAGS 已核對；全套測試通過，尾端 BIOS tick 等待由規格 250 接線解決。
 - [250 — MOO2 啟動時安裝既有 BIOS 時鐘](250-moo2-bios-clock-attach.md)：CONFORMED。原檔自然離開 `046Ch` 等待；下一停點為 `INT 33h/AX=0000h`，無正常玩家畫面。
+- [251 — MOO2 保護模式滑鼠驅動重設](251-moo2-protected-mouse-driver-reset.md)：CONFORMED。原版返回與 record 消費端已核對；自然越過重設，下一筆服務為 `AX=001Bh`。
+- [252 — MOO2 保護模式滑鼠敏感度查詢](252-moo2-protected-mouse-sensitivity-query.md)：CONFORMED。正式兩側前兩筆序列與三個 50 返回已核對；自然下一停點為水平範圍設定 `AX=0007h`。

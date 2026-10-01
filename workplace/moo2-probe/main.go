@@ -97,6 +97,12 @@ func main() {
 	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number == 0x33 {
+			beforeR, beforeFlags := c.R, c.EFlags
+			handled := services.Handle(c, number)
+			fmt.Printf("mouse_service eip=0x%X input=%X input_flags=0x%X handled=%t output=%X output_flags=0x%X\n", c.EIP-2, beforeR, beforeFlags, handled, c.R, c.EFlags)
+			return handled
+		}
 		if number != 0x31 || uint16(c.R[cpu386.EAX]) != 0x0100 {
 			return services.Handle(c, number)
 		}
