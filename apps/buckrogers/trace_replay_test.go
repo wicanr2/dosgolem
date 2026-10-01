@@ -352,7 +352,7 @@ func TestReplayPhase257Windows(t *testing.T) {
 				var rows []string
 				for _, ln := range p.Lines {
 					if p.Shows(ln.Row) {
-						rows = append(rows, string(ln.Text))
+						rows = append(rows, fmt.Sprintf("r%d.%d:%s", ln.Row, ln.Col, string(ln.Text)))
 					}
 				}
 				m.shown = strings.Join(rows, " | ")
@@ -413,6 +413,9 @@ func TestReplayPhase257Windows(t *testing.T) {
 			continue
 		}
 		var calls, hit, miss, over int
+		slackHist := map[int]int{}
+		minSlack := 1 << 30
+		var rowsMeasured int
 		prevFile := ""
 		for _, h := range hs {
 			if h.lossy {
@@ -428,6 +431,31 @@ func TestReplayPhase257Windows(t *testing.T) {
 				l.hmenu.ObserveInstruction(h.e.Return, h.e.SS, h.e.SP+hmenuReturnDelta)
 			}
 			a := l.hmenu.Stats
+			if a.Hits > before.Hits {
+				// Half units left on each row of the menu (spec 039 §3.4:
+				// the row holds 2×(40−start column), the item gap is one unit).
+				used, start := map[int]int{}, map[int]int{}
+				for i, r := range h.e.Items {
+					line := strings.Count(string(h.e.Text[:r[0]-1]), "@")
+					t, _ := l.hmenu.catalog.lookup(strings.TrimSpace(string(h.e.Text[r[0]-1 : r[1]])))
+					if _, ok := start[line]; !ok {
+						last := strings.LastIndexByte(string(h.e.Text[:r[0]-1]), '@')
+						start[line] = int(h.e.Col) + int(r[0]-1) - (last + 1)
+					}
+					if i > 0 && used[line] > 0 {
+						used[line]++
+					}
+					for _, ch := range t {
+						used[line] += runeUnits(ch)
+					}
+				}
+				for line, u := range used {
+					slack := 2*(40-start[line]) - u
+					slackHist[slack]++
+					minSlack = min(minSlack, slack)
+					rowsMeasured++
+				}
+			}
 			calls++
 			hit += a.Hits - before.Hits
 			miss += a.Misses - before.Misses
@@ -441,7 +469,21 @@ func TestReplayPhase257Windows(t *testing.T) {
 				fmt.Fprintf(report, "H\t%s\t%s\t0\t%x\t0\t0\t0\t0\t%d,%d\t%d\t%s\n", l.lang, h.file, sum[:6], h.e.Col, h.e.Row, len(h.e.Text), outcome)
 			}
 		}
-		t.Logf("%s 水平選單：呼叫 %d、命中 %d、未命中 %d、溢出 %d", l.lang, calls, hit, miss, over)
+		var buckets [4]int // slack <2, 2-5, 6-11, >=12 half units
+		for sl, n := range slackHist {
+			switch {
+			case sl < 2:
+				buckets[0] += n
+			case sl < 6:
+				buckets[1] += n
+			case sl < 12:
+				buckets[2] += n
+			default:
+				buckets[3] += n
+			}
+		}
+		t.Logf("%s 水平選單：呼叫 %d、命中 %d、未命中 %d、溢出 %d；餘量（半形單位）最小 %d，列數 %d：<2 %d、2–5 %d、6–11 %d、≥12 %d",
+			l.lang, calls, hit, miss, over, minSlack, rowsMeasured, buckets[0], buckets[1], buckets[2], buckets[3])
 	}
 }
 
