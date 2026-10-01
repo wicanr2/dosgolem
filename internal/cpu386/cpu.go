@@ -1283,7 +1283,7 @@ func (c *CPU) Step() error {
 		c.R[dst] &= c.R[src]
 		c.setLogicFlags(c.R[dst])
 	case op == 0x85:
-		if operand16 || segmentOverride >= 0 || repe {
+		if segmentOverride >= 0 || repe || (operand16 && repne) {
 			return fail("85 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -1294,7 +1294,11 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("TEST dword ModRM %02X 尚未支援", modrm))
 		}
 		left, right := modrm&7, (modrm>>3)&7
-		c.setLogicFlags(c.R[left] & c.R[right])
+		if operand16 {
+			c.setLogicFlags16(uint16(c.R[left]) & uint16(c.R[right]))
+		} else {
+			c.setLogicFlags(c.R[left] & c.R[right])
+		}
 	case op == 0x84:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("84 不接受目前的 prefix")

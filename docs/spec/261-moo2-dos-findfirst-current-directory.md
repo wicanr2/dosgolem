@@ -33,3 +33,5 @@ READY 審查：公開目錄前綴契約與原版固定字串／返回已足以�
 解析回填：不可變鍵為固定 EXE 雜湊＋dosgolem 高位 LE `0x229A59`／DOSBox-X `0180:0035DA59`＋搜尋原始 bytes。規格 260 保存「目前目錄前綴已由規格 261 接通」及本檔連結，`startup_probe_131.py --check-find-current-directory-spec-backlinks` 核對定位與狀態，缺少舊標記必拒絕。規格 219 保留舊限定範圍，另連到本延伸規格。
 
 仍無正常玩家畫面、音效、受控亂數及 Go remake 玩法同狀態收據；規格 255 維持 READY。下一最小行動是依公開 CPU 契約核對 `66 85 C0` 的位元寬度與定義旗標，不展開 runtime helper 內部。
+
+**word TEST 停點已由規格 262 接通**：[262-cpu386-test-word-register.md](262-cpu386-test-word-register.md) 已核對公開寬度／旗標及原版同次樣本，兩條自生路徑越過舊停點；原始搜尋與 TEST 收據仍保留。新停點及限定驗收見後續規格，不以舊停點代替現況。
