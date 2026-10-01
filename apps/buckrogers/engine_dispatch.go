@@ -29,13 +29,16 @@ type EngineDispatchWatcher struct {
 	players *PlayerNames     // spec 038 §3.3 combat name column; nil keeps English
 	pending *wrapPending     // spec 029 §2.10: first half of a wrapped fragment
 	layout  *LayoutProfile   // spec 042 §3.4: kinsoku for the two-row split; nil is the default
-	lines   []EngineDispatchLine
-	inCall  bool
-	callRet Address
-	callSS  uint16
-	callSP  uint16
-	gen     uint64
-	Stats   struct{ Hits, Misses, Invalidations int }
+	// joinTrace, when set, is told the outcome of every wrapped-fragment
+	// join (replay record, spec 042 §5.4); it never changes the result.
+	joinTrace func(n1, n2 int, result string)
+	lines     []EngineDispatchLine
+	inCall    bool
+	callRet   Address
+	callSS    uint16
+	callSP    uint16
+	gen       uint64
+	Stats     struct{ Hits, Misses, Invalidations int }
 	// PartyStats counts spec 038 §3.4 lines wider than the original name
 	// and lines stepped down to Chinese only (diagnostics).
 	PartyStats struct{ Extended, ChineseOnly int }
@@ -44,6 +47,13 @@ type EngineDispatchWatcher struct {
 	// starts differ from the list (laid out by the general path).
 	headers     *HeaderColumns
 	HeaderStats struct{ Anchored, Mismatches int }
+}
+
+// SetJoinTrace installs the replay record of wrapped-fragment joins.
+func (w *EngineDispatchWatcher) SetJoinTrace(f func(n1, n2 int, result string)) {
+	if w != nil {
+		w.joinTrace = f
+	}
 }
 
 // SetLayout installs the spec 042 §3.4 layout profile (nil: default rules).
@@ -419,22 +429,31 @@ func (w *EngineDispatchWatcher) joinWrapped(p *wrapPending, row, col int, args [
 			break
 		}
 	}
+	n1, n2 := len(p.s1), len(s2)
 	if !ok {
+		w.traceJoin(n1, n2, "nofragment")
 		return false
 	}
 	r := []rune(zh)
-	n1, n2 := len(p.s1), len(s2)
 	// 前段盡量放滿（spec 029 §2.10 修訂）：spec 039 以 2×len(S1) 半形單位計，
 	// 放不下的全形字整字移到後段。
 	first, second, fits := w.layout.splitRows(r, n1, n2)
 	if !fits {
+		w.traceJoin(n1, n2, "nofit")
 		return false
 	}
+	w.traceJoin(n1, n2, "ok")
 	w.drop(func(l EngineDispatchLine) bool { return !overlapsLine(l, p.row, p.col, p.col+n1) })
 	w.lines = append(w.lines,
 		EngineDispatchLine{Row: uint8(p.row), Col: uint8(p.col), Width: uint8(n1), BG: p.bg, FG: p.fg, Text: padUnits(first, 2*n1)},
 		EngineDispatchLine{Row: uint8(row), Col: uint8(col), Width: uint8(n2), BG: uint8(args[2]), FG: uint8(args[3]), Text: padUnits(second, 2*n2)})
 	return true
+}
+
+func (w *EngineDispatchWatcher) traceJoin(n1, n2 int, result string) {
+	if w.joinTrace != nil {
+		w.joinTrace(n1, n2, result)
+	}
 }
 
 func (w *EngineDispatchWatcher) ObserveInstruction(at Address, ss, sp uint16) {

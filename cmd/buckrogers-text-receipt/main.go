@@ -499,6 +499,7 @@ func main() {
 	flag.Var(langDirs, "lang-dir", "語言檔目錄 `代碼=目錄`（可重複；未指定的語言用 -live-text-dir）")
 	flag.Var(langFonts, "lang-font", "語言字型 `代碼=路徑`（可重複；未指定時載入 <font-root>/font/buckrogers-<代碼>.golemfnt，存在時）")
 	fontRoot := flag.String("font-root", "", "語言字型的 repo 根目錄（預設 -live-text-dir 的上一層）")
+	liveTraceOut := flag.String("live-trace-out", "", "重播紀錄：每次文字視窗呼叫與每個語言通道一列 TSV（規格 042 §5.4；需 -live-text-dir；載入多個語言就同時記錄各語言的結果）")
 	liveLangSwitch := flag.String("lang-switch", "", "在絕對步數切換 LiveRuntime 語言：`步數:代碼[,步數:代碼…]`")
 	composeEveryRetrace := flag.Bool("compose-every-retrace", false, "每個 retrace 都對目前語言合成（貼近前端）")
 	testLangDir := flag.String("test-lang-dir", "", "測試專用假語言 zz 的 <family>.zz.tsv 目錄（前端不提供）")
@@ -1335,6 +1336,8 @@ func main() {
 	// 規格 031 §3.4：legacy 劇情路徑自己的原版字形取得狀態（與 LiveRuntime 分開計數）。
 	storyASCII := &storyASCIIState{}
 	var liveAll *buckrogers.LiveRuntime
+	var liveTrace *buckrogers.ReplayTrace
+	var liveTraceFile *os.File
 	var liveLoadMillis int64
 	langSwitches, langErr := parseLangSwitches(*liveLangSwitch)
 	if langErr != nil {
@@ -1373,6 +1376,15 @@ func main() {
 		}
 		if liveErr = liveAll.SetManualEnglish(*liveManualEnglish); liveErr != nil {
 			fail(liveErr)
+		}
+		if *liveTraceOut != "" {
+			f, err := os.Create(*liveTraceOut)
+			if err != nil {
+				fail(err)
+			}
+			liveTrace = buckrogers.NewReplayTrace(f)
+			liveTraceFile = f
+			liveAll.SetTrace(liveTrace)
 		}
 		if *liveLang != "" {
 			if liveErr = liveAll.SetLanguage(*liveLang); liveErr != nil {
@@ -2339,6 +2351,14 @@ func main() {
 		actionRequests = actionWatcher.Requests()
 	}
 	actionPending, actionDrops, actionMisses, actionRequestMisses := actionWatcherStatus(actionWatcher)
+	if liveTrace != nil {
+		if err := liveTrace.Flush(); err != nil {
+			fail(err)
+		}
+		if err := liveTraceFile.Close(); err != nil {
+			fail(err)
+		}
+	}
 	if liveAll != nil {
 		fmt.Fprintln(os.Stderr, "live:", liveAll.DebugSummary())
 	}

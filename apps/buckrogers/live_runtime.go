@@ -55,6 +55,7 @@ type LiveRuntime struct {
 	manEngOff  string
 	textDir    string
 	started    bool
+	trace      *ReplayTrace      // opt-in replay record; nil records nothing
 	files      map[string][]byte // shared A-family files
 
 	// storyPending is the shared in-flight 0763:026B glyph call; prev* is
@@ -568,8 +569,14 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 		if r.lanes[0].engDisp.NeedsParty(key) {
 			party = r.party.refresh(v, v.DS())
 		}
+		r.trace.setStep(v.Steps())
 		for _, l := range r.lanes {
+			h0, m0 := engineStatsOf(l.engDisp)
 			l.engDisp.ObserveEntryParty(key, obs.SS, obs.SP, obs.Caller, obs.Args, obs.Original, party, v)
+			if r.trace != nil {
+				h1, m1 := engineStatsOf(l.engDisp)
+				r.trace.eng(l.lang, v.Steps(), key, obs.Original, engineUnits(l.engDisp, obs.Original), h1-h0, m1-m0)
+			}
 		}
 	}
 	switch obs.Kind {
@@ -746,7 +753,12 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 				l.logbook.ObserveEntryColors(orig, uint8(arg(20)), uint8(arg(18)), uint8(arg(16)), uint8(arg(14)), uint8(arg(10)), uint8(arg(12)))
 				l.logbook.ArmKeyHead(head)
 			}
+			before := eclStatsOf(l.ecl)
 			l.ecl.ObserveEntry(e)
+			if r.trace != nil && l.ecl != nil {
+				key, _, _ := l.ecl.catalog.Lookup(e.Original)
+				r.trace.ecl(l.lang, e, key, before, l.ecl.Stats)
+			}
 		}
 		return
 	}
@@ -803,7 +815,11 @@ func (r *LiveRuntime) observeHMenu(v StepReader, at Address) {
 		Normal:   v.Read8(linear(ds, 0x6B46)), Hot: v.Read8(linear(ds, 0x6B47)),
 	}
 	for _, l := range r.lanes {
+		before := hmenuStatsOf(l.hmenu)
 		l.hmenu.ObserveEntry(e)
+		if r.trace != nil {
+			r.trace.hmenu(l.lang, v.Steps(), e, before, hmenuStatsOf(l.hmenu))
+		}
 	}
 }
 
