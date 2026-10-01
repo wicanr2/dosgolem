@@ -134,6 +134,39 @@ func TestSBMixerHardwareConfig(t *testing.T) {
 	}
 }
 
+func TestSB16VoiceVolumeMixerRegisters(t *testing.T) {
+	var s SoundBlasterDSP
+	read := func(index, want byte) {
+		t.Helper()
+		if !s.Out8(0x224, index) {
+			t.Fatal("混音器索引寫入遭拒")
+		}
+		if got, ok := s.In8(0x225); !ok || got != want {
+			t.Fatalf("索引 %02X 讀值 %02X ok=%t，預期 %02X", index, got, ok, want)
+		}
+	}
+	read(0x32, 0xc0)
+	read(0x33, 0xc0)
+	s.Out8(0x224, 0x32)
+	if !s.Out8(0x225, 0xa7) {
+		t.Fatal("左聲道音量寫入遭拒")
+	}
+	read(0x32, 0xa0)
+	read(0x33, 0xc0)
+	s.Out8(0x224, 0x33)
+	if !s.Out8(0x225, 0x1f) {
+		t.Fatal("右聲道音量寫入遭拒")
+	}
+	s.Out8(0x226, 1)
+	s.Out8(0x226, 0)
+	read(0x32, 0xa0)
+	read(0x33, 0x18)
+	s.Out8(0x224, 0x31)
+	if _, ok := s.In8(0x225); ok || s.Out8(0x225, 0xff) {
+		t.Fatal("未知混音器索引被放行")
+	}
+}
+
 func TestDSPTimeConstantParameter(t *testing.T) {
 	var s SoundBlasterDSP
 	s.Out8(0x22c, 0x40)

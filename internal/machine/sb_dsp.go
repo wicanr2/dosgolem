@@ -20,6 +20,8 @@ type SoundBlasterDSP struct {
 	TimeConstantKnown              bool
 	reset                          bool
 	mixerIndex                     uint8
+	voiceVolume                    [2]byte
+	voiceVolumeKnown               [2]bool
 	reply                          []byte
 }
 
@@ -29,6 +31,12 @@ func (s *SoundBlasterDSP) In8(port uint16) (uint8, bool) {
 		return s.mixerIndex, true
 	case 0x225:
 		switch s.mixerIndex {
+		case 0x32, 0x33:
+			channel := s.mixerIndex - 0x32
+			if !s.voiceVolumeKnown[channel] {
+				return 0xc0, true
+			}
+			return s.voiceVolume[channel], true
 		case 0x82:
 			v := byte(0)
 			if s.IRQPending {
@@ -73,6 +81,12 @@ func (s *SoundBlasterDSP) In8(port uint16) (uint8, bool) {
 func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 	if port == 0x224 {
 		s.mixerIndex = v
+		return true
+	}
+	if port == 0x225 && (s.mixerIndex == 0x32 || s.mixerIndex == 0x33) {
+		channel := s.mixerIndex - 0x32
+		s.voiceVolume[channel] = v & 0xf8
+		s.voiceVolumeKnown[channel] = true
 		return true
 	}
 	if port == 0x22c && !s.reset {

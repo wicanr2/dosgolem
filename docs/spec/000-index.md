@@ -398,3 +398,4 @@
 - [244 — PC AT 第二組 DMA 頁暫存器](244-secondary-dma-page-registers.md)：CONFORMED。原檔越過 `8Bh/00h`，下一停點為 DSP `022Ch/B0h`；尚非 16 位元音效或畫面對拍。
 - [245 — MOO2 SB16 `B0h` 單次 16 位元 DMA](245-sb16-b0-single-cycle-probe.md)：CONFORMED。原檔自然越過 `B0 30 00 00`；音訊完成時間僅為硬體規格近似，無波形或聽感對拍。
 - [246 — MOO2 啟動時安裝 BIOS 資料區](246-moo2-bios-data-attach.md)：CONFORMED。重用既有 DOS/4GW BDA 安裝契約，原檔越過誤讀 `0006h`，下一停點為 DSP `0225h`。
+- [247 — SB16 左右數位語音音量混音器暫存器](247-sb16-voice-volume-mixer.md)：CONFORMED。原檔越過索引 `32h` 讀取，實模式返回；下一停點為高位 LE 線性 `0x25221E` 的 `83 C8 10`。
