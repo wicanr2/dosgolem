@@ -346,8 +346,8 @@ func jaPost(s Syl, tr *tracer) string {
 				tr.add("J6.a")
 			}
 		} else if !s.stressed() && (s.Nuc.Sym == "AH" || s.Nuc.Sym == "IH") {
-			if len(s.Post) == 1 && (p0 == "K" || p0 == "P" || p0 == "T" || p0 == "D") ||
-				len(s.Post) == 2 && p0 == "K" && s.Post[1].Sym == "S" {
+			switch p0 {
+			case "K", "P", "T", "D", "TS", "DZ":
 				gem = true
 				tr.add("J6.b")
 			}

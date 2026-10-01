@@ -133,6 +133,11 @@ func koNucleus(s Syl, onset string, last bool, tr *tracer) (v, second int) {
 			if last && len(s.Post) == 0 {
 				return vA, -1
 			}
+			if s.FromER {
+				// Marie 마리, Maria 마리아: the a of an ER that F1 rewrote as AH
+				tr.add("K2.AH.er")
+				return vA, -1
+			}
 		}
 		return vEO, -1
 	case "AO", "OW":
@@ -445,7 +450,7 @@ func koStandalone(h *hangul, c, next string, afterShort bool, letters string, wo
 // koRules lists the rule ids of the Korean back end.
 func koRules() []string {
 	r := []string{
-		"K1.SH", "K2.AA.o", "K2.AH.0", "K2.AH.son", "K2.IY", "K2.EH", "K2.AE", "K2.AA", "K2.AH", "K2.AO", "K2.UW", "K2.ER", "K2.EY", "K2.AWAYOY",
+		"K1.SH", "K2.AA.o", "K2.AH.0", "K2.AH.son", "K2.AH.er", "K2.IY", "K2.EH", "K2.AE", "K2.AA", "K2.AH", "K2.AO", "K2.UW", "K2.ER", "K2.EY", "K2.AWAYOY",
 		"K2.Y", "K2.W", "K2.Y.end", "K2.W.end", "K2.R.alone",
 		"K3.UW", "K3.AH0", "K3.y", "K4.eo", "K4.drop", "K5",
 		"K6.coda", "K6.eu", "K7.SH", "K7.CH", "K7.JH", "K7.TS", "K7.DZ", "K7.Z", "K7.Z.s", "K7.HH", "K7.eu",

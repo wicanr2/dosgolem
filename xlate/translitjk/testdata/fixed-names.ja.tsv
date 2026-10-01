@@ -1,61 +1,61 @@
 name	expected	tier	rules	review
-ROARKE	ローク	cmudict	J1.AO,J2.RL,J4.K,J5.long,J9	pending
-CELESTE	セレスト	cmudict	J1.AH,J1.AH.0,J1.EH,J2.RL,J2.S,J4.S,J4.T,J9	pending
-FLAVIUS	フラビウス	dict	J9	pending
-JANELLE	ジャネル	dict	J9	pending
-PIERRE	ピエール	dict	J9	pending
-NICOLE STEELE	ニコール・スティール	cmudict	J1.IY,J2.T,J4.L,J4.S,J9	pending
-ALEXANDER	アレクサンダー	dict	J9	pending
-JENNIFER	ジェニファー	dict	J9	pending
-MICHAEL	マイケル	dict	J9	pending
-WILLIAM	ウィリアム	dict	J9	pending
-BUCK	バック	cmudict	J1.AH,J2.B,J4.K,J6.a,J9	pending
-WILMA	ウィルマ	cmudict	J1.AH,J1.AH.0,J1.IH,J2.M,J2.W,J4.L,J9	pending
-PORT	ポート	cmudict	J1.AO,J2.P,J4.T,J5.long,J9	pending
-EXIT	エグジット	cmudict	J1.EH,J1.IH,J2.Z,J4.G,J4.T,J6.b,J9	pending
-BARNEY	バーニー	cmudict	J1.AA,J1.IY,J2.B,J2.N,J5.long,J9	pending
-BOBBY	ボビー	cmudict	J1.AA,J1.AA.o,J1.IY,J2.B,J9	pending
-ATHA	アサ	cmudict	J1.AE,J1.AH,J1.AH.0,J2.TH,J9	pending
-GARRITY	ギャリティ	cmudict	J1.AE.KG,J1.EH,J1.EH.a,J1.IH,J1.IY,J1.IY.TD,J2.G,J2.RL,J2.T,J9	pending
-MILO	マイロ	cmudict	J1.AWAYOY,J1.OW,J1.OW.0,J2.M,J2.RL,J9	pending
-GILBERT	ギルバート	cmudict	J1.ER,J1.IH,J2.B,J2.G,J4.L,J4.T,J9	pending
-BEOWULF	ベイオウルフ	cmudict	J1.AH,J1.AH.0,J1.EY,J1.UH,J2.B,J2.W,J4.F,J4.L,J9	pending
-DEERING	ディリング	cmudict	J1.IH,J2.D,J2.RL,J4.NG,J9	pending
-CARLOS	カーロス	cmudict	J1.AA,J1.OW,J1.OW.0,J2.K,J2.RL,J4.S,J5.long,J9	pending
-PHILLIPS	フィリプス	cmudict	J1.IH,J2.F,J2.RL,J4.P,J4.S,J9	pending
-BRAGA	ブラガ	cmudict	J1.AA,J1.AH,J1.AH.0,J2.G,J2.RL,J4.B,J9	pending
-JASON	ジェイソン	cmudict	J1.AH,J1.AH.0,J1.EY,J2.JHZH,J2.S,J4.N,J9	pending
-MAX	マックス	cmudict	J1.AE,J2.M,J4.K,J4.S,J6.a,J9	pending
-POWELL	パウエル	cmudict	J1.AH,J1.AH.0,J1.AWAYOY,J2.P,J4.L,J9	pending
-CARLTON	カールトン	cmudict	J1.AA,J1.AH,J1.AH.0,J2.K,J2.T,J4.L,J4.N,J5.long,J9	pending
-SEVERN	セバーン	cmudict	J1.EH,J1.ER,J2.S,J2.V,J4.N,J9	pending
-ZANE	ゼイン	cmudict	J1.EY,J2.Z,J4.N,J9	pending
-WILLIAMS	ウィリアムズ	cmudict	J1.AH,J1.AH.0,J1.IH,J2.W,J3.AH0,J4.M,J4.Z,J9	pending
-SAND	サンド	cmudict	J1.AE,J2.S,J4.D,J4.N,J9	pending
-JIM	ジム	cmudict	J1.IH,J2.JHZH,J4.M,J9	pending
-ROGERS	ロジャーズ	cmudict	J1.AA,J1.AA.o,J1.ER,J2.JHZH,J2.RL,J4.Z,J9	pending
-LEANDER	リアンダー	cmudict	J1.AE,J1.ER,J1.IY,J2.D,J2.RL,J4.N,J7.nolong,J9	pending
-CONCHITEZ	コーンチテズ	spelling	J1.AO,J1.EH,J1.IH,J2.CH,J2.K,J2.T,J4.N,J4.Z,J9	pending
-DUPARE	ダパー	spelling	J1.AA,J1.AH,J2.D,J2.P,J5.long,J9	pending
-GAVILAN	ギャビラン	spelling	J1.AE,J1.AE.KG,J1.IH,J2.G,J2.RL,J2.V,J4.N,J9	pending
-HOLZERHEIN	ホールザーヘイン	spelling	J1.AO,J1.ER,J1.EY,J2.HH,J2.Z,J4.L,J4.N,J9	pending
-RIOJA	リオージャ	spelling	J1.AE,J1.AO,J1.IH,J2.JHZH,J2.RL,J9	pending
-ROBENO	ローベノー	spelling	J1.AO,J1.EH,J2.B,J2.N,J2.RL,J9	pending
-TURABIAN	タラビアン	spelling	J1.AE,J1.AH,J1.IH,J2.B,J2.RL,J2.T,J4.N,J9	pending
-TUSKON	タスコーン	spelling	J1.AH,J1.AO,J2.K,J2.T,J4.N,J4.S,J9	pending
-VILNIKOV	ビルニコーブ	spelling	J1.AO,J1.IH,J2.K,J2.N,J2.V,J4.L,J4.V,J9	pending
-BRELDA	ブレルダ	spelling	J1.AE,J1.EH,J2.D,J2.RL,J4.B,J4.L,J9	pending
-KORVANTH	コーバンス	spelling	J1.AE,J1.AO,J2.K,J2.V,J4.N,J4.TH,J5.long,J9	pending
-VELDORAN	ベルドーラン	spelling	J1.AE,J1.AO,J1.EH,J2.D,J2.RL,J2.V,J4.L,J4.N,J9	pending
-Z		none		pending
-A 1.?		none		pending
-R2D2		none		pending
-O'BRIEN	オブライエン	cmudict	J1.AWAYOY,J1.IH,J1.IH.letter,J1.OW,J1.OW.0,J2.RL,J4.B,J4.N,J9	pending
-MARY-JANE	メアリー・ジェーン	dict	J9	pending
-MARY-J		none		pending
-MARY-		none		pending
-WILHELMINA-ROSE	ウィルヘルミーナ・ローズ	cmudict	J1.AA,J1.EH,J1.IH,J1.IY,J2.HH,J2.M,J2.N,J2.W,J4.L,J9	pending
-ANNE  MARIE	アン・マリー	cmudict	J1.AH,J1.AH.0,J1.IY,J2.M,J2.RL,J9	pending
-ANNE MARIE SMITH	アン・マリー・スミス	cmudict	J1.AH,J1.AH.0,J1.IH,J1.IY,J2.M,J2.RL,J4.S,J4.TH,J9	pending
-HH		none		pending
-HM		none		pending
+ROARKE	ローク	cmudict	J1.AO,J2.RL,J4.K,J5.long,J9	ok:agentA,agentB
+CELESTE	セレスト	cmudict	J1.AH,J1.AH.0,J1.EH,J2.RL,J2.S,J4.S,J4.T,J9	ok:agentA,agentB
+FLAVIUS	フラビウス	dict	J9	ok:agentA,agentB
+JANELLE	ジャネル	dict	J9	ok:agentA,agentB
+PIERRE	ピエール	dict	J9	ok:agentA,agentB
+NICOLE STEELE	ニコール・スティール	cmudict	J1.IY,J2.T,J4.L,J4.S,J9	ok:agentA,agentB
+ALEXANDER	アレクサンダー	dict	J9	ok:agentA,agentB
+JENNIFER	ジェニファー	dict	J9	ok:agentA,agentB
+MICHAEL	マイケル	dict	J9	ok:agentA,agentB
+WILLIAM	ウィリアム	dict	J9	ok:agentA,agentB
+BUCK	バック	cmudict	J1.AH,J2.B,J4.K,J6.a,J9	ok:agentA,agentB
+WILMA	ウィルマ	cmudict	J1.AH,J1.AH.0,J1.IH,J2.M,J2.W,J4.L,J9	ok:agentA,agentB
+PORT	ポート	cmudict	J1.AO,J2.P,J4.T,J5.long,J9	ok:agentA,agentB
+EXIT	エグジット	cmudict	J1.EH,J1.IH,J2.Z,J4.G,J4.T,J6.b,J9	ok:agentA,agentB
+BARNEY	バーニー	cmudict	J1.AA,J1.IY,J2.B,J2.N,J5.long,J9	ok:agentA,agentB
+BOBBY	ボビー	cmudict	J1.AA,J1.AA.o,J1.IY,J2.B,J9	ok:agentA,agentB
+ATHA	アサ	cmudict	J1.AE,J1.AH,J1.AH.0,J2.TH,J9	ok:agentA,agentB
+GARRITY	ギャリティ	cmudict	J1.AE.KG,J1.EH,J1.EH.a,J1.IH,J1.IY,J1.IY.TD,J2.G,J2.RL,J2.T,J9	ok:agentA,agentB
+MILO	マイロ	cmudict	J1.AWAYOY,J1.OW,J1.OW.0,J2.M,J2.RL,J9	ok:agentA,agentB
+GILBERT	ギルバート	cmudict	J1.ER,J1.IH,J2.B,J2.G,J4.L,J4.T,J9	ok:agentA,agentB
+BEOWULF	ベイオウルフ	cmudict	J1.AH,J1.AH.0,J1.EY,J1.UH,J2.B,J2.W,J4.F,J4.L,J9	ok:agentA,agentB
+DEERING	ディリング	cmudict	J1.IH,J2.D,J2.RL,J4.NG,J9	ok:agentA,agentB
+CARLOS	カーロス	cmudict	J1.AA,J1.OW,J1.OW.0,J2.K,J2.RL,J4.S,J5.long,J9	ok:agentA,agentB
+PHILLIPS	フィリップス	cmudict	J1.IH,J2.F,J2.RL,J4.P,J4.S,J6.b,J9	ok:agentA,agentB
+BRAGA	ブラガ	cmudict	J1.AA,J1.AH,J1.AH.0,J2.G,J2.RL,J4.B,J9	ok:agentA,agentB
+JASON	ジェイソン	cmudict	J1.AH,J1.AH.0,J1.EY,J2.JHZH,J2.S,J4.N,J9	ok:agentA,agentB
+MAX	マックス	cmudict	J1.AE,J2.M,J4.K,J4.S,J6.a,J9	ok:agentA,agentB
+POWELL	パウエル	cmudict	J1.AH,J1.AH.0,J1.AWAYOY,J2.P,J4.L,J9	ok:agentA,agentB
+CARLTON	カールトン	cmudict	J1.AA,J1.AH,J1.AH.0,J2.K,J2.T,J4.L,J4.N,J5.long,J9	ok:agentA,agentB
+SEVERN	セバーン	cmudict	J1.EH,J1.ER,J2.S,J2.V,J4.N,J9	ok:agentA,agentB
+ZANE	ゼイン	cmudict	J1.EY,J2.Z,J4.N,J9	ok:agentA,agentB
+WILLIAMS	ウィリアムズ	cmudict	J1.AH,J1.AH.0,J1.IH,J2.W,J3.AH0,J4.M,J4.Z,J9	ok:agentA,agentB
+SAND	サンド	cmudict	J1.AE,J2.S,J4.D,J4.N,J9	ok:agentA,agentB
+JIM	ジム	cmudict	J1.IH,J2.JHZH,J4.M,J9	ok:agentA,agentB
+ROGERS	ロジャーズ	cmudict	J1.AA,J1.AA.o,J1.ER,J2.JHZH,J2.RL,J4.Z,J9	ok:agentA,agentB
+LEANDER	リアンダー	cmudict	J1.AE,J1.ER,J1.IY,J2.D,J2.RL,J4.N,J7.nolong,J9	ok:agentA,agentB
+CONCHITEZ	コーンチテズ	spelling	J1.AO,J1.EH,J1.IH,J2.CH,J2.K,J2.T,J4.N,J4.Z,J9	ok:agentA,agentB
+DUPARE	ダパー	spelling	J1.AA,J1.AH,J2.D,J2.P,J5.long,J9	ok:agentA,agentB
+GAVILAN	ギャビラン	spelling	J1.AE,J1.AE.KG,J1.IH,J2.G,J2.RL,J2.V,J4.N,J9	ok:agentA,agentB
+HOLZERHEIN	ホールザーヘイン	spelling	J1.AO,J1.ER,J1.EY,J2.HH,J2.Z,J4.L,J4.N,J9	ok:agentA,agentB
+RIOJA	リオージャ	spelling	J1.AE,J1.AO,J1.IH,J2.JHZH,J2.RL,J9	ok:agentA,agentB
+ROBENO	ローベノー	spelling	J1.AO,J1.EH,J2.B,J2.N,J2.RL,J9	ok:agentA,agentB
+TURABIAN	タラビアン	spelling	J1.AE,J1.AH,J1.IH,J2.B,J2.RL,J2.T,J4.N,J9	ok:agentA,agentB
+TUSKON	タスコーン	spelling	J1.AH,J1.AO,J2.K,J2.T,J4.N,J4.S,J9	ok:agentA,agentB
+VILNIKOV	ビルニコーブ	spelling	J1.AO,J1.IH,J2.K,J2.N,J2.V,J4.L,J4.V,J9	ok:agentA,agentB
+BRELDA	ブレルダ	spelling	J1.AE,J1.EH,J2.D,J2.RL,J4.B,J4.L,J9	ok:agentA,agentB
+KORVANTH	コーバンス	spelling	J1.AE,J1.AO,J2.K,J2.V,J4.N,J4.TH,J5.long,J9	ok:agentA,agentB
+VELDORAN	ベルドーラン	spelling	J1.AE,J1.AO,J1.EH,J2.D,J2.RL,J2.V,J4.L,J4.N,J9	ok:agentA,agentB
+Z		none		ok:agentA,agentB
+A 1.?		none		ok:agentA,agentB
+R2D2		none		ok:agentA,agentB
+O'BRIEN	オブライエン	cmudict	J1.AWAYOY,J1.IH,J1.IH.letter,J1.OW,J1.OW.0,J2.RL,J4.B,J4.N,J9	ok:agentA,agentB
+MARY-JANE	メアリー・ジェーン	dict	J9	ok:agentA,agentB
+MARY-J		none		ok:agentA,agentB
+MARY-		none		ok:agentA,agentB
+WILHELMINA-ROSE	ウィルヘルミーナ・ローズ	cmudict	J1.AA,J1.EH,J1.IH,J1.IY,J2.HH,J2.M,J2.N,J2.W,J4.L,J9	ok:agentA,agentB
+ANNE  MARIE	アン・マリー	cmudict	J1.AH,J1.AH.0,J1.IY,J2.M,J2.RL,J9	ok:agentA,agentB
+ANNE MARIE SMITH	アン・マリー・スミス	cmudict	J1.AH,J1.AH.0,J1.IH,J1.IY,J2.M,J2.RL,J4.S,J4.TH,J9	ok:agentA,agentB
+HH		none		ok:agentA,agentB
+HM		none		ok:agentA,agentB

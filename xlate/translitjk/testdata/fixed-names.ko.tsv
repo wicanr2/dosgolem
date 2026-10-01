@@ -1,58 +1,58 @@
 name	expected	tier	rules	review
-ROARKE	로크	cmudict	K1.LR,K10,K2.AO,K4.drop,K6.eu	pending
-CELESTE	설레스트	cmudict	K1.LR,K1.S,K10,K2.AH,K2.AH.0,K2.EH,K5,K6.eu,K7.eu	pending
-FLAVIUS	플라비우스	dict	K10	pending
-JANELLE	저넬	dict	K10	pending
-PIERRE	피에르	dict	K10	pending
-NICOLE STEELE	니콜 스틸	cmudict	K1.T,K10,K2.IY,K7.eu,K8.coda	pending
-ALEXANDER	알렉산더	dict	K10	pending
-JENNIFER	제니퍼	dict	K10	pending
-MICHAEL	마이클	dict	K10	pending
-WILLIAM	윌리엄	dict	K10	pending
-BUCK	벅	cmudict	K1.B,K10,K2.AH,K6.coda	pending
-WILMA	윌마	cmudict	K1.M,K10,K2.AH,K2.AH.0,K2.W,K8.coda	pending
-PORT	포트	cmudict	K1.P,K10,K2.AO,K4.drop,K6.eu	pending
-EXIT	에그짓	cmudict	K1.Z,K10,K2.EH,K2.IY,K6.coda,K7.eu	pending
-BARNEY	바니	cmudict	K1.B,K1.N,K10,K2.AA,K2.IY,K4.drop	pending
-DEERING	디링	cmudict	K1.D,K1.LR,K10,K2.IY,K8.coda	pending
-PHILLIPS	필립스	cmudict	K1.F,K1.LR,K10,K2.IY,K5,K6.coda,K7.eu	pending
-BRAGA	브라가	cmudict	K1.G,K1.LR,K10,K2.AA,K2.AH,K2.AH.0,K7.eu	pending
-JASON	제이슨	cmudict	K1.JHZH,K1.S,K10,K2.AH,K2.AH.0,K2.AH.son,K2.EY,K8.coda	pending
-CARLOS	칼로스	cmudict	K1.K,K1.LR,K10,K2.AA,K2.AO,K4.drop,K5,K7.eu	pending
-MAX	맥스	cmudict	K1.M,K10,K2.AE,K6.coda,K7.eu	pending
-POWELL	파우얼	cmudict	K1.P,K10,K2.AH,K2.AH.0,K2.AWAYOY,K8.coda	pending
-CARLTON	칼턴	cmudict	K1.K,K1.T,K10,K2.AA,K2.AH,K2.AH.0,K4.drop,K8.coda	pending
-ATHA	애사	cmudict	K1.TH,K10,K2.AE,K2.AH,K2.AH.0	pending
-SEVERN	세번	cmudict	K1.S,K1.V,K10,K2.EH,K2.ER,K8.coda	pending
-ZANE	제인	cmudict	K1.Z,K10,K2.EY,K8.coda	pending
-BOBBY	보비	cmudict	K1.B,K10,K2.AA,K2.AA.o,K2.IY	pending
-MILO	마일로	cmudict	K1.LR,K1.M,K10,K2.AO,K2.AWAYOY,K5	pending
-GARRITY	게리티	cmudict	K1.G,K1.LR,K1.T,K10,K2.EH,K2.IY	pending
-GILBERT	길버트	cmudict	K1.B,K1.G,K10,K2.ER,K2.IY,K6.eu,K8.coda	pending
-BEOWULF	베이어울프	cmudict	K1.B,K10,K2.AH,K2.AH.0,K2.EY,K2.W,K7.eu,K8.coda	pending
-WILLIAMS	윌리엄스	cmudict	K10,K2.W,K3.AH0,K5,K7.Z.s,K8.coda	pending
-ROGERS	로저스	cmudict	K1.JHZH,K1.LR,K10,K2.AA,K2.AA.o,K2.ER,K7.Z.s	pending
-CONCHITEZ	콘치테즈	spelling	K1.CH,K1.K,K1.T,K10,K2.AO,K2.EH,K2.IY,K7.Z,K8.coda	pending
-DUPARE	더파	spelling	K1.D,K1.P,K10,K2.AA,K2.AH,K4.drop	pending
-GAVILAN	개빌랜	spelling	K1.G,K1.LR,K1.V,K10,K2.AE,K2.IY,K5,K8.coda	pending
-HOLZERHEIN	홀저헤인	spelling	K1.HH,K1.Z,K10,K2.AO,K2.ER,K2.EY,K8.coda	pending
-RIOJA	리오재	spelling	K1.JHZH,K1.LR,K10,K2.AE,K2.AO,K2.IY	pending
-ROBENO	로베노	spelling	K1.B,K1.LR,K1.N,K10,K2.AO,K2.EH	pending
-TURABIAN	터래비앤	spelling	K1.B,K1.LR,K1.T,K10,K2.AE,K2.AH,K2.IY,K8.coda	pending
-TUSKON	터스콘	spelling	K1.K,K1.T,K10,K2.AH,K2.AO,K7.eu,K8.coda	pending
-VILNIKOV	빌니코브	spelling	K1.K,K1.N,K1.V,K10,K2.AO,K2.IY,K7.eu,K8.coda	pending
-BRELDA	브렐대	spelling	K1.D,K1.LR,K10,K2.AE,K2.EH,K7.eu,K8.coda	pending
-KORVANTH	코밴스	spelling	K1.K,K1.V,K10,K2.AE,K2.AO,K4.drop,K7.eu,K8.coda	pending
-VELDORAN	벨도랜	spelling	K1.D,K1.LR,K1.V,K10,K2.AE,K2.AO,K2.EH,K8.coda	pending
-Z		none		pending
-A 1.?		none		pending
-R2D2		none		pending
-O'BRIEN	오브라이인	cmudict	K1.LR,K10,K2.AO,K2.AWAYOY,K2.IY,K7.eu,K8.coda	pending
-MARY-JANE	메리-제인	dict	K10	pending
-MARY-J		none		pending
-MARY-		none		pending
-WILHELMINA-ROSE	윌헬미나-로즈	cmudict	K1.HH,K1.M,K1.N,K10,K2.AA,K2.EH,K2.IY,K2.W,K8.coda	pending
-ANNE  MARIE	앤 머리	cmudict	K1.LR,K1.M,K10,K2.AH,K2.AH.0,K2.IY	pending
-ANNE MARIE SMITH	앤 머리 스미스	cmudict	K1.LR,K1.M,K10,K2.AH,K2.AH.0,K2.IY,K7.eu	pending
-HH		none		pending
-HM		none		pending
+ROARKE	로크	cmudict	K1.LR,K10,K2.AO,K4.drop,K6.eu	ok:agentA,agentB
+CELESTE	설레스트	cmudict	K1.LR,K1.S,K10,K2.AH,K2.AH.0,K2.EH,K5,K6.eu,K7.eu	ok:agentA,agentB
+FLAVIUS	플라비우스	dict	K10	ok:agentA,agentB
+JANELLE	저넬	dict	K10	ok:agentA,agentB
+PIERRE	피에르	dict	K10	ok:agentA,agentB
+NICOLE STEELE	니콜 스틸	cmudict	K1.T,K10,K2.IY,K7.eu,K8.coda	ok:agentA,agentB
+ALEXANDER	알렉산더	dict	K10	ok:agentA,agentB
+JENNIFER	제니퍼	dict	K10	ok:agentA,agentB
+MICHAEL	마이클	dict	K10	ok:agentA,agentB
+WILLIAM	윌리엄	dict	K10	ok:agentA,agentB
+BUCK	벅	cmudict	K1.B,K10,K2.AH,K6.coda	ok:agentA,agentB
+WILMA	윌마	cmudict	K1.M,K10,K2.AH,K2.AH.0,K2.W,K8.coda	ok:agentA,agentB
+PORT	포트	cmudict	K1.P,K10,K2.AO,K4.drop,K6.eu	ok:agentA,agentB
+EXIT	에그짓	cmudict	K1.Z,K10,K2.EH,K2.IY,K6.coda,K7.eu	ok:agentA,agentB
+BARNEY	바니	cmudict	K1.B,K1.N,K10,K2.AA,K2.IY,K4.drop	ok:agentA,agentB
+DEERING	디링	cmudict	K1.D,K1.LR,K10,K2.IY,K8.coda	ok:agentA,agentB
+PHILLIPS	필립스	cmudict	K1.F,K1.LR,K10,K2.IY,K5,K6.coda,K7.eu	ok:agentA,agentB
+BRAGA	브라가	cmudict	K1.G,K1.LR,K10,K2.AA,K2.AH,K2.AH.0,K7.eu	ok:agentA,agentB
+JASON	제이슨	cmudict	K1.JHZH,K1.S,K10,K2.AH,K2.AH.0,K2.AH.son,K2.EY,K8.coda	ok:agentA,agentB
+CARLOS	칼로스	cmudict	K1.K,K1.LR,K10,K2.AA,K2.AO,K4.drop,K5,K7.eu	ok:agentA,agentB
+MAX	맥스	cmudict	K1.M,K10,K2.AE,K6.coda,K7.eu	ok:agentA,agentB
+POWELL	파우얼	cmudict	K1.P,K10,K2.AH,K2.AH.0,K2.AWAYOY,K8.coda	ok:agentA,agentB
+CARLTON	칼턴	cmudict	K1.K,K1.T,K10,K2.AA,K2.AH,K2.AH.0,K4.drop,K8.coda	ok:agentA,agentB
+ATHA	애사	cmudict	K1.TH,K10,K2.AE,K2.AH,K2.AH.0	ok:agentA,agentB
+SEVERN	세번	cmudict	K1.S,K1.V,K10,K2.EH,K2.ER,K8.coda	ok:agentA,agentB
+ZANE	제인	cmudict	K1.Z,K10,K2.EY,K8.coda	ok:agentA,agentB
+BOBBY	보비	cmudict	K1.B,K10,K2.AA,K2.AA.o,K2.IY	ok:agentA,agentB
+MILO	마일로	cmudict	K1.LR,K1.M,K10,K2.AO,K2.AWAYOY,K5	ok:agentA,agentB
+GARRITY	게리티	cmudict	K1.G,K1.LR,K1.T,K10,K2.EH,K2.IY	ok:agentA,agentB
+GILBERT	길버트	cmudict	K1.B,K1.G,K10,K2.ER,K2.IY,K6.eu,K8.coda	ok:agentA,agentB
+BEOWULF	베이어울프	cmudict	K1.B,K10,K2.AH,K2.AH.0,K2.EY,K2.W,K7.eu,K8.coda	ok:agentA,agentB
+WILLIAMS	윌리엄스	cmudict	K10,K2.W,K3.AH0,K5,K7.Z.s,K8.coda	ok:agentA,agentB
+ROGERS	로저스	cmudict	K1.JHZH,K1.LR,K10,K2.AA,K2.AA.o,K2.ER,K7.Z.s	ok:agentA,agentB
+CONCHITEZ	콘치테즈	spelling	K1.CH,K1.K,K1.T,K10,K2.AO,K2.EH,K2.IY,K7.Z,K8.coda	ok:agentA,agentB
+DUPARE	더파	spelling	K1.D,K1.P,K10,K2.AA,K2.AH,K4.drop	ok:agentA,agentB
+GAVILAN	개빌랜	spelling	K1.G,K1.LR,K1.V,K10,K2.AE,K2.IY,K5,K8.coda	ok:agentA,agentB
+HOLZERHEIN	홀저헤인	spelling	K1.HH,K1.Z,K10,K2.AO,K2.ER,K2.EY,K8.coda	ok:agentA,agentB
+RIOJA	리오재	spelling	K1.JHZH,K1.LR,K10,K2.AE,K2.AO,K2.IY	ok:agentA,agentB
+ROBENO	로베노	spelling	K1.B,K1.LR,K1.N,K10,K2.AO,K2.EH	ok:agentA,agentB
+TURABIAN	터래비앤	spelling	K1.B,K1.LR,K1.T,K10,K2.AE,K2.AH,K2.IY,K8.coda	ok:agentA,agentB
+TUSKON	터스콘	spelling	K1.K,K1.T,K10,K2.AH,K2.AO,K7.eu,K8.coda	ok:agentA,agentB
+VILNIKOV	빌니코브	spelling	K1.K,K1.N,K1.V,K10,K2.AO,K2.IY,K7.eu,K8.coda	ok:agentA,agentB
+BRELDA	브렐대	spelling	K1.D,K1.LR,K10,K2.AE,K2.EH,K7.eu,K8.coda	ok:agentA,agentB
+KORVANTH	코밴스	spelling	K1.K,K1.V,K10,K2.AE,K2.AO,K4.drop,K7.eu,K8.coda	ok:agentA,agentB
+VELDORAN	벨도랜	spelling	K1.D,K1.LR,K1.V,K10,K2.AE,K2.AO,K2.EH,K8.coda	ok:agentA,agentB
+Z		none		ok:agentA,agentB
+A 1.?		none		ok:agentA,agentB
+R2D2		none		ok:agentA,agentB
+O'BRIEN	오브라이인	cmudict	K1.LR,K10,K2.AO,K2.AWAYOY,K2.IY,K7.eu,K8.coda	ok:agentA,agentB
+MARY-JANE	메리-제인	dict	K10	ok:agentA,agentB
+MARY-J		none		ok:agentA,agentB
+MARY-		none		ok:agentA,agentB
+WILHELMINA-ROSE	윌헬미나-로즈	cmudict	K1.HH,K1.M,K1.N,K10,K2.AA,K2.EH,K2.IY,K2.W,K8.coda	ok:agentA,agentB
+ANNE  MARIE	앤 마리	cmudict	K1.LR,K1.M,K10,K2.AH,K2.AH.0,K2.AH.er,K2.IY	ok:agentA,agentB
+ANNE MARIE SMITH	앤 마리 스미스	cmudict	K1.LR,K1.M,K10,K2.AH,K2.AH.0,K2.AH.er,K2.IY,K7.eu	ok:agentA,agentB
+HH		none		ok:agentA,agentB
+HM		none		ok:agentA,agentB

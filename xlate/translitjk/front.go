@@ -27,13 +27,14 @@ type Cons struct {
 // Syl is one syllable: the vowel nucleus with the single consonant in front
 // of it.
 type Syl struct {
-	Pre   []Cons         // stand-alone consonants before Onset
-	Onset string         // consonant right before the vowel ("" none; never NG)
-	Pal   bool           // Onset is followed by Y and then the vowel (C+Y+V)
-	Nuc   translit.Phone // the vowel
-	Group string         // the letters the vowel is spelled with ("" unknown)
-	R     bool           // an R after the vowel (before a consonant or the end) is absorbed
-	Post  []Cons         // last syllable only: the final cluster
+	Pre    []Cons         // stand-alone consonants before Onset
+	Onset  string         // consonant right before the vowel ("" none; never NG)
+	Pal    bool           // Onset is followed by Y and then the vowel (C+Y+V)
+	Nuc    translit.Phone // the vowel
+	Group  string         // the letters the vowel is spelled with ("" unknown)
+	FromER bool           // an unstressed ER before a stressed vowel that F1 rewrote as AH (Marie, Maria)
+	R      bool           // an R after the vowel (before a consonant or the end) is absorbed
+	Post   []Cons         // last syllable only: the final cluster
 }
 
 // letterOf is the letter of the vowel group the back ends read: the last
@@ -74,6 +75,7 @@ func Syllabify(phones []translit.Phone, letters string) ([]Syl, bool) {
 	type item struct {
 		p     translit.Phone
 		group string
+		er    bool
 	}
 	var items []item
 	vi := 0
@@ -85,13 +87,16 @@ func Syllabify(phones []translit.Phone, letters string) ([]Syl, bool) {
 			}
 			vi++
 		}
-		items = append(items, item{x, g})
+		items = append(items, item{p: x, group: g})
 		// F1: ER before a vowel keeps its r as the head of the next syllable.
 		if x.Sym == "ER" && i+1 < len(phones) && phones[i+1].Vowel {
 			if x.Stress == 0 {
 				items[len(items)-1].p.Sym = "AH"
+				// Marie, Maria: the vowel after the r is stressed (before an
+				// unstressed one, Barbara and Margaret, the ER stays a schwa)
+				items[len(items)-1].er = phones[i+1].Stress >= 1
 			}
-			items = append(items, item{translit.Phone{Sym: "R", Stress: -1}, ""})
+			items = append(items, item{p: translit.Phone{Sym: "R", Stress: -1}})
 		}
 	}
 	// F6: a final T S or D Z reads as one sound.
@@ -100,9 +105,9 @@ func Syllabify(phones []translit.Phone, letters string) ([]Syl, bool) {
 		if !a.Vowel && !b.Vowel {
 			switch {
 			case a.Sym == "T" && b.Sym == "S":
-				items = append(items[:n-2], item{translit.Phone{Sym: "TS", Stress: -1}, ""})
+				items = append(items[:n-2], item{p: translit.Phone{Sym: "TS", Stress: -1}})
 			case a.Sym == "D" && b.Sym == "Z":
-				items = append(items[:n-2], item{translit.Phone{Sym: "DZ", Stress: -1}, ""})
+				items = append(items[:n-2], item{p: translit.Phone{Sym: "DZ", Stress: -1}})
 			}
 		}
 	}
@@ -124,7 +129,7 @@ func Syllabify(phones []translit.Phone, letters string) ([]Syl, bool) {
 			pend = append(pend, Cons{Sym: it.p.Sym})
 			continue
 		}
-		s := Syl{Nuc: it.p, Group: it.group}
+		s := Syl{Nuc: it.p, Group: it.group, FromER: it.er}
 		pos := PosMedial
 		if len(syls) == 0 {
 			pos = PosInitial
