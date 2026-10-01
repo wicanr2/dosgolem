@@ -2199,6 +2199,17 @@ func (c *CPU) Step() error {
 		if c.PortOut == nil || !c.PortOut(uint16(port), uint8(c.R[EAX])) {
 			return fail(fmt.Sprintf("OUT port %02X 未處理", port))
 		}
+	case op == 0x78 || op == 0x79:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("短符號分支不接受目前的前綴")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if (c.EFlags&SF != 0) == (op == 0x78) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0x75:
 		if operand16 {
 			return fail("75 不接受 operand-size override")

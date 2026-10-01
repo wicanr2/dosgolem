@@ -43,3 +43,7 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 Active=true、Bank=2、StartY=0、BankSets=17、Writes=921600、DisplaySets=2。有效索引 SHA-256 `7de0420d874f91251343b50c1d39944115b806e92f80aa0f77f3687ef8ec3e48`、RGB `4c6ae38e1537960ec75f35b60574a1a11ad54b06737ef2ad8c5e16fbd26a8244`；兩份 `workplace/moo2-vbe-272-*.png` SHA-256 皆 `dd4c21dd11e57ec86ef759182fd3ebadd6b53870b54de1ef192e2553820286db`。PNG 已實際檢視：640×480 白底黑色 Simtex 啟動標誌，首次可辨識圖像，已非前次黑圖；尚未進入主選單或可操作玩家畫面，不宣稱最終畫面對拍。
 
 272 僅在 word 記憶體 INC、定義旗標與下一 A1 範圍 CONFORMED；255 仍 READY，主選單、音效、受控亂數與 Go remake 玩法同狀態未完成。部分匯流排寫入、IMUL 未定義 ZF、DIV 旗標／例外、SAR 的 AF、DTA 保留區與平台布局限制仍明示。下一步依公開 Jcc 契約核對短 JS、實際 SF 與第一個分支；DOSBox-X 候選 CS:EIP `0180:003502D6` 尚是地址假說，不追 helper 內部。
+
+## 後續停點解析回填
+
+短 JS 停點已由規格 273 接通：[273-cpu386-short-sign-branches.md](273-cpu386-short-sign-branches.md) 連接固定 EXE 的高位 LE `0x21C2D6`／DOSBox-X CS:EIP `0180:003502D6`／`78 06`，公開 JS／JNS 契約及原版 SF=0 的實際不取／取分支。兩工具初始 EAX／ECX 不同，未宣稱時間或完整狀態一致；本規格的 INC 結論與 255 的未知仍保持，後續實作驗收以 273 為準。

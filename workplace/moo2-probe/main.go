@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
@@ -20,6 +21,15 @@ func main() {
 	if len(os.Args) != 2 && !emptyFixture && !fileFixture && !gameDirectory {
 		fmt.Fprintln(os.Stderr, "usage: moo2-probe <original-exe> [--empty-mox-set | --mox-set <local-file> | --game-dir <local-directory>]")
 		os.Exit(2)
+	}
+	maxSteps := 8000000
+	if setting := os.Getenv("DOSGOLEM_MOO2_MAX_STEPS"); setting != "" {
+		value, parseErr := strconv.Atoi(setting)
+		if parseErr != nil || value < 1 || value > 50000000 {
+			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 50000000 的十進位整數")
+			os.Exit(2)
+		}
+		maxSteps = value
 	}
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
@@ -175,13 +185,36 @@ func main() {
 	fmt.Printf("loaded=true entry=0x%X esp=0x%X bytes=%d\n", m.CPU.EIP, m.CPU.R[cpu386.ESP], len(m.Mem))
 	fmt.Printf("entry_bytes=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+16])
 	fmt.Printf("entry_window=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+80])
+	dumpVBE := func() {
+		pixels := m.VBEIndexed()
+		fmt.Printf("vbe_video state=%+v indexed_bytes=%d indexed_sha256=%x\n", m.VBEState(), len(pixels), sha256.Sum256(pixels))
+		if path := os.Getenv("DOSGOLEM_MOO2_VBE_PNG"); path != "" && len(pixels) == 640*480 {
+			rgb := m.VBERGB()
+			out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
+			for pixel := range pixels {
+				copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
+				out.Pix[pixel*4+3] = 255
+			}
+			file, err := os.Create(path)
+			if err != nil {
+				panic(err)
+			}
+			encodeErr, closeErr := png.Encode(file, out), file.Close()
+			if encodeErr != nil {
+				panic(encodeErr)
+			}
+			if closeErr != nil {
+				panic(closeErr)
+			}
+			fmt.Printf("vbe_png path=%s rgb_sha256=%x\n", path, sha256.Sum256(rgb))
+		}
+	}
 	seen := map[uint32]int{}
 	type sample struct {
 		step               int
 		eip, esp, esi, eax uint32
 	}
 	ring := make([]sample, 0, 32)
-	const maxSteps = 8000000
 	mouseEventInjected := false
 	for i := 0; i < maxSteps; i++ {
 		mouseEventRequested := os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || (os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1" && mousePositionSet)
@@ -249,38 +282,24 @@ func main() {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
+		if (m.CPU.EIP == 0x21c2d6 || m.CPU.EIP == 0x21c2da) && seen[m.CPU.EIP] <= 3 {
+			fmt.Printf("sign_branch_input step=%d eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+		}
 		if err := m.CPU.Step(); err != nil {
 			mask, pending, active, started, completed := services.MouseCallbackState()
 			fmt.Printf("mouse_callback mask=%X pending=%d active=%t started=%d completed=%d\n", mask, pending, active, started, completed)
 			fmt.Printf("step_error step=%d eip=0x%X eax=0x%X ebx=0x%X ecx=0x%X edx=0x%X es=0x%X ds=0x%X ss=0x%X flags=0x%X dos_calls=%d error=%v\n", i, m.CPU.EIP, m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX], m.CPU.R[cpu386.EDX], m.CPU.Seg[cpu386.SegES], m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS], m.CPU.EFlags, services.Calls(), err)
 			fmt.Printf("dpmi_real_mode_last=%+v dpmi_unimplemented=%v\n", services.DPMI.RealModeLast, services.DPMI.Unimplemented)
-			pixels := m.VBEIndexed()
-			fmt.Printf("vbe_video state=%+v indexed_bytes=%d indexed_sha256=%x\n", m.VBEState(), len(pixels), sha256.Sum256(pixels))
-			if path := os.Getenv("DOSGOLEM_MOO2_VBE_PNG"); path != "" && len(pixels) == 640*480 {
-				rgb := m.VBERGB()
-				out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
-				for pixel := range pixels {
-					copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
-					out.Pix[pixel*4+3] = 255
-				}
-				file, err := os.Create(path)
-				if err != nil {
-					panic(err)
-				}
-				encodeErr, closeErr := png.Encode(file, out), file.Close()
-				if encodeErr != nil {
-					panic(encodeErr)
-				}
-				if closeErr != nil {
-					panic(closeErr)
-				}
-				fmt.Printf("vbe_png path=%s rgb_sha256=%x\n", path, sha256.Sum256(rgb))
-			}
+			dumpVBE()
 			fmt.Printf("stop_bytes=% X\n", m.Mem[ring[len(ring)-1].eip:ring[len(ring)-1].eip+16])
 			for _, s := range ring {
 				fmt.Printf("tail step=%d eip=0x%X esp=0x%X esi=0x%X eax=0x%X\n", s.step, s.eip, s.esp, s.esi, s.eax)
 			}
 			return
+		}
+		branchEIP := ring[len(ring)-1].eip
+		if (branchEIP == 0x21c2d6 || branchEIP == 0x21c2da) && seen[branchEIP] <= 3 {
+			fmt.Printf("sign_branch_result step=%d input_eip=0x%X after_eip=0x%X r=%X seg=%X flags=0x%X\n", i, branchEIP, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
 		}
 		if services.Exited {
 			fmt.Printf("dos_exit step=%d code=%d after_eip=0x%X console=%q\n",
@@ -297,4 +316,5 @@ func main() {
 	}
 	fmt.Printf("step_limit_memory image_bytes=%d dpmi_calls=%v dpmi_unimplemented=%v dos_blocks=%v linear_blocks=%v\n",
 		len(m.Mem), services.DPMI.Calls, services.DPMI.Unimplemented, services.DPMI.DOSMemory(), services.DPMI.Blocks())
+	dumpVBE()
 }
