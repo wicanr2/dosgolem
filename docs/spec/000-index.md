@@ -410,3 +410,4 @@
 - [256 — 從 CS 絕對位址載入 DS](256-cpu386-cs-absolute-ds-load.md)：CONFORMED。窄指令與原檔回呼自然越過停點已驗。
 - [257 — MOO2 保護模式滑鼠座標設定](257-moo2-protected-mouse-position-setting.md)：CONFORMED。受控位置狀態及兩條原檔路徑已驗；下一自然停點為 `INT 2Fh/AX=160Ah`。
 - [258 — MOO2 在 DOS 環境查詢 Windows 版本](258-moo2-windows-version-absence.md)：CONFORMED。未安裝 Windows 的限定查詢已驗；兩條原檔路徑下一停點為 `INT 31h/AX=0500h`。
+- [259 — DPMI 可用記憶體資訊](259-dpmi-free-memory-information.md)：CONFORMED。配置器一致資訊與兩條原檔路徑已驗；下一停點為記憶體移位 `C1 7D F4 04`。

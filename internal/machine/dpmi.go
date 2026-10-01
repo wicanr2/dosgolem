@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"encoding/binary"
 	"sort"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -425,6 +426,9 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 		c.R[cpu386.EDX] = c.R[cpu386.EDX]&0xffff0000 | 0x0870
 		return h.ok(c)
 
+	case 0x0500: // 規格 259：只回報現有配置器能兌現的容量，分頁欄位保持未知。
+		return h.freeMemoryInformation(c)
+
 	case 0x0501: // 配置線性記憶體：BX:CX ＝ 大小 → BX:CX ＝ 線性位址、SI:DI ＝ handle
 		size := uint32(uint16(c.R[cpu386.EBX]))<<16 | uint32(uint16(c.R[cpu386.ECX]))
 		if size == 0 {
@@ -498,7 +502,7 @@ func (h *DPMIHost) Handle(c *cpu386.CPU) bool {
 // needsMachine 標出哪些功能要有 backing 的機器才做得到。
 func needsMachine(fn uint16) bool {
 	switch fn {
-	case 0x0000, 0x0001, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x0501, 0x0502,
+	case 0x0000, 0x0001, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x0500, 0x0501, 0x0502,
 		0x0100, 0x0101, 0x0102, 0x0300:
 		return true
 	}
@@ -563,6 +567,37 @@ func (h *DPMIHost) releaseLinear(block *DPMIBlock) {
 // **要有上限**：程式配置失敗時會走「記憶體不足」那條路（少載素材、降音質），
 // 那是我們要能觀測的行為；沒有上限的話一個算錯大小的配置會直接把主機吃光。
 const dpmiAddressLimit = 64 << 20
+
+func (h *DPMIHost) freeMemoryInformation(c *cpu386.CPU) bool {
+	d, ok := c.Descriptors[c.Seg[cpu386.SegES]]
+	offset := uint64(c.R[cpu386.EDI])
+	start := uint64(d.Base) + offset
+	// 先驗整份 buffer 及 backing，拒絕時不能留下前半份輸出。
+	if !ok || !d.Writable || c.Bus != h.m || offset+48 > uint64(d.Limit)+1 ||
+		start+48 > uint64(^uint32(0))+1 || start+48 > uint64(len(h.m.Mem)) {
+		return false
+	}
+	base := (uint64(len(h.m.Mem)) + 15) &^ uint64(15)
+	if uint64(h.brk) > base {
+		base = uint64(h.brk)
+	}
+	var largest uint32
+	if base < dpmiAddressLimit {
+		largest = uint32(dpmiAddressLimit - base)
+	}
+	for _, block := range h.free {
+		if block.Size > largest {
+			largest = block.Size
+		}
+	}
+	var info [48]byte
+	for i := range info {
+		info[i] = 0xff
+	}
+	binary.LittleEndian.PutUint32(info[:4], largest)
+	copy(h.m.Mem[start:start+48], info[:])
+	return h.ok(c)
+}
 
 func (h *DPMIHost) ok(c *cpu386.CPU) bool {
 	c.EFlags &^= cpu386.CF

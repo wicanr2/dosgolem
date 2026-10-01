@@ -21,6 +21,8 @@ DRAFT 審查結果：原版返回、caller 分支與成熟模擬器公開平台�
 
 ## CONFORMED 收據
 
+後續回填：0500h 平台契約已由規格 259 補齊，最新驗收見 [259-dpmi-free-memory-information.md](259-dpmi-free-memory-information.md)。下列步數／拒絕是本規格當時的歷史收據；不再代表加入 259 後的停點。玩家畫面與規格 255 的未知邊界維持獨立。
+
 限定查詢與其他設定／未知功能拒絕測試通過。固定 EXE 全套 `go test -buildvcs=false ./... -count=1` 通過，私有 `workplace/full-test-258.txt` SHA-256 `1a7ddbe2c287b573ea39b942b954bf9a69ec5a95e7c1842b060c6edd0241196c`。首次容器命令因巢狀 shell 引號在啟動前被拒絕，修正 heredoc 引號後同一映像乾淨重跑，沒有產品失敗。測試初稿以陣列順序配置暫存器時把 ECX 填成 ESI 的值，收尾改為具名索引以符合捕獲初態，另以 `GOMAXPROCS=2 go test -p 2 -buildvcs=false ./internal/machine -run TestMOO2WindowsVersionAbsentPreservesState -count=1` 通過；首次單項重跑因程序上限不足失敗，限制平行度後解決。不影響已跑的兩條原檔輸入。收尾診斷改逐行串流讀取，避免整份解壓至記憶體造成容器超限；Python 語法與兩筆停點核對通過。
 
 兩條原檔路徑自行越過 Windows 版本查詢，無事件第 6,217,167 步、設定後受控事件第 6,217,202 步停於 **dosgolem 高位 LE 線性** `0x24C315` 的 `CD 31`，AX=`0500h`，屬下一個未支援的平台查詢。無事件診斷 `workplace/moo2-probe-258-full-game.txt.gz` SHA-256 `3522de797c533648583a633a451530536bdc43a6b945edadd5ee76a7341f31d1`，受控事件診斷 SHA-256 `9fd435c4c06ca6ee936bebfdee48efb0a6eeca360ccc328bee44e642e2303743`。事件路徑仍須核對完整座標／游標 consumer；規格 255 不因越過此查詢升格。沒有正常玩家畫面或玩法同狀態完成收據。

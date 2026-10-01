@@ -1,10 +1,117 @@
 package machine
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
+
+func TestDPMIFreeMemoryInformationStateAndAllocation(t *testing.T) {
+	m, h := newDPMITest(t)
+	m.Mem = bytes.Repeat([]byte{0xa5}, 0x30000)
+	h.setLimits(uint32(len(m.Mem)))
+	c := m.CPU
+	c.SetDescriptor(0x188, cpu386.Descriptor{Base: 0x8000, Limit: 0x1ffff, Writable: true})
+	c.Seg[cpu386.SegES] = 0x188
+	const offset = 0x10004
+	const start = 0x8000 + offset
+	query := func(want uint32) {
+		t.Helper()
+		c.R[cpu386.EAX], c.R[cpu386.EDI] = 0xabcd0500, offset
+		c.EFlags = 0x647
+		r, seg, ip := c.R, c.Seg, c.EIP
+		brk, handles, free := h.brk, len(h.blocks), append([]dpmiFreeBlock(nil), h.free...)
+		if !h.Handle(c) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != 0x646 {
+			t.Fatal("記憶體查詢破壞輸入架構或未清 CF")
+		}
+		if binary.LittleEndian.Uint32(m.Mem[start:]) != want || !bytes.Equal(m.Mem[start+4:start+48], bytes.Repeat([]byte{0xff}, 44)) || m.Mem[start-1] != 0xa5 || m.Mem[start+48] != 0xa5 {
+			t.Fatalf("48-byte 回報與鄰接哨兵不符，最大區塊=%X，預期=%X", binary.LittleEndian.Uint32(m.Mem[start:]), want)
+		}
+		if h.brk != brk || len(h.blocks) != handles || len(h.free) != len(free) {
+			t.Fatal("查詢改變配置帳本")
+		}
+		for i := range free {
+			if h.free[i] != free[i] {
+				t.Fatal("查詢改變釋放區間")
+			}
+		}
+	}
+	allocate := func(size uint32) uint32 {
+		t.Helper()
+		c.R[cpu386.EBX], c.R[cpu386.ECX] = size>>16, size&0xffff
+		if !dpmiCall(h, c, 0x0501) || c.EFlags&cpu386.CF != 0 {
+			t.Fatal("依回報容量配置失敗")
+		}
+		return uint32(uint16(c.R[cpu386.ESI]))<<16 | uint32(uint16(c.R[cpu386.EDI]))
+	}
+	release := func(handle uint32) {
+		t.Helper()
+		c.R[cpu386.ESI], c.R[cpu386.EDI] = handle>>16, handle&0xffff
+		if !dpmiCall(h, c, 0x0502) || c.EFlags&cpu386.CF != 0 {
+			t.Fatal("釋放失敗")
+		}
+	}
+	query(dpmiAddressLimit - dpmiLinearBase)
+	first := allocate(0x9000)
+	second := allocate(0x4000)
+	query(dpmiAddressLimit - dpmiLinearBase - 0xd000)
+	allocate(dpmiAddressLimit - dpmiLinearBase - 0xd000)
+	query(0)
+	release(first)
+	query(0x9000)
+	allocate(0x9000)
+	query(0)
+	release(second)
+	query(0x4000)
+	allocate(0x4000)
+	query(0)
+	c.R[cpu386.EAX] = 0x050b
+	if h.Handle(c) {
+		t.Fatal("未知記憶體服務被查詢功能吞掉")
+	}
+}
+
+func TestDPMIFreeMemoryInformationRejectsInvalidBufferAtomically(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		d       cpu386.Descriptor
+		offset  uint32
+		missing bool
+	}{
+		{"未知描述子", cpu386.Descriptor{}, 0, true},
+		{"唯讀", cpu386.Descriptor{Limit: 0xfff}, 0, false},
+		{"描述子越界", cpu386.Descriptor{Limit: 46, Writable: true}, 0, false},
+		{"backing 越界", cpu386.Descriptor{Base: 0xff0, Limit: 0xff, Writable: true}, 0, false},
+		{"offset 溢位", cpu386.Descriptor{Limit: 0xffffffff, Writable: true}, 0xfffffff0, false},
+		{"線性位址溢位", cpu386.Descriptor{Base: 0xfffffff0, Limit: 0xff, Writable: true}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, h := newDPMITest(t)
+			c := m.CPU
+			for i := range m.Mem {
+				m.Mem[i] = 0xa5
+			}
+			if !tc.missing {
+				c.SetDescriptor(0x188, tc.d)
+			}
+			c.Seg[cpu386.SegES] = 0x188
+			c.R[cpu386.EAX], c.R[cpu386.EDI], c.EFlags = 0xaaaa0500, tc.offset, 0x647
+			r, seg, ip, flags, before := c.R, c.Seg, c.EIP, c.EFlags, append([]byte(nil), m.Mem...)
+			if h.Handle(c) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != flags || !bytes.Equal(m.Mem, before) {
+				t.Fatal("錯誤 buffer 未原子拒絕")
+			}
+		})
+	}
+	m, h := newDPMITest(t)
+	c := cpu386.New(startupBus(make([]byte, 0x1000)))
+	c.SetDescriptor(0x188, cpu386.Descriptor{Limit: 0xfff, Writable: true})
+	c.Seg[cpu386.SegES], c.R[cpu386.EAX] = 0x188, 0x0500
+	if h.Handle(c) || !bytes.Equal(m.Mem, make([]byte, 0x1000)) {
+		t.Fatal("不同機器的 backing 被接受")
+	}
+}
 
 // DPMI 主機的契約測試。期望值照 DPMI 1.0 規格自己列——**DOSBox-X 抄不到**，
 // 它沒有這一層（見 `docs/knowledge-base/030-protected-mode-and-dos4gw.md`）。
