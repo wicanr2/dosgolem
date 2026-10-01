@@ -52,9 +52,9 @@ func TestJaLaneOnFormalText(t *testing.T) {
 		t.Errorf("ja resets=%v skips=%v ok=%v", resets, skips, ok)
 	}
 	l := r.lanes[r.laneIndex(LangJa)]
-	// Spec 042 §3.8: without the ja transliterator (spec 044) the player names are English.
-	if l.players != nil || l.playersOff != "no-transliterator" {
-		t.Errorf("ja 玩家名應停用（no-transliterator）：players=%v off=%q", l.players != nil, l.playersOff)
+	// Spec 044: the ja player names are on (translit_jk_lane_test.go has the negatives).
+	if l.players == nil || l.playersOff != "" {
+		t.Errorf("ja 玩家名應啟用：players=%v off=%q", l.players != nil, l.playersOff)
 	}
 	if l.ecl == nil || l.ecl.layout != layoutJa {
 		t.Error("ja 的 ECL watcher 應使用日文排版設定")

@@ -8,6 +8,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/xlate"
 	"github.com/wicanr2/dosgolem/xlate/translit"
+	"github.com/wicanr2/dosgolem/xlate/translitjk"
 )
 
 // liveLane is one language of spec 040 §3.2: the presenters of every A
@@ -697,6 +698,18 @@ func (l *liveLane) loadEclText(headers *HeaderColumns) error {
 			l.players = NewPlayerNames(&charMapTransliterator{inner: tr, chars: m}, names)
 			l.ecl.SetPlayerNames(l.players)
 		}
+	case LangJa, LangKo:
+		// Specs 044, 045: the katakana and Hangul transliterator.  A font
+		// that lacks a character the rules can emit turns the player names
+		// off at load time instead of drawing a hole in a name.
+		if tr, err := translitjk.Load(l.textDir, l.lang); err != nil {
+			l.playersOff = "translit-" + l.lang + ": " + err.Error()
+		} else if missing := fontLacksRunes(l.font, tr.Allowed()); len(missing) > 0 {
+			l.playersOff = fmt.Sprintf("translit-font: 缺 U+%04X 等 %d 字", missing[0], len(missing))
+		} else {
+			l.players = NewPlayerNames(tr, names)
+			l.ecl.SetPlayerNames(l.players)
+		}
 	default:
 		l.playersOff = "no-transliterator"
 	}
@@ -1102,4 +1115,15 @@ func (l *liveLane) compose(r *LiveRuntime, i, scale int) ([]byte, error) {
 // loadEngineText is loadEngineTextLang for the zh-TW reference.
 func loadEngineText(textDir string) (*EngineTextCatalog, error) {
 	return loadEngineTextLang(textDir, textDir, LangZhTW)
+}
+
+// fontLacksRunes lists the runes (ascending, as given) the font has no glyph for.
+func fontLacksRunes(f *xlate.Font, runes []rune) []rune {
+	var out []rune
+	for _, r := range runes {
+		if _, ok := f.Glyphs[r]; !ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }

@@ -62,9 +62,9 @@ func TestKoLaneOnFormalText(t *testing.T) {
 	if resets, skips, ok := r.LaneResets(LangKo); !ok || len(resets) != 0 || len(skips) != 0 {
 		t.Errorf("ko resets=%v skips=%v ok=%v", resets, skips, ok)
 	}
-	// Spec 043 §3.8: without the ko transliterator (spec 045) the player names are English.
-	if l.players != nil || l.playersOff != "no-transliterator" {
-		t.Errorf("ko 玩家名應停用（no-transliterator）：players=%v off=%q", l.players != nil, l.playersOff)
+	// Spec 045: the ko player names are on (translit_jk_lane_test.go has the negatives).
+	if l.players == nil || l.playersOff != "" {
+		t.Errorf("ko 玩家名應啟用：players=%v off=%q", l.players != nil, l.playersOff)
 	}
 	if l.names == nil {
 		t.Error("ko 的名字表未載入")

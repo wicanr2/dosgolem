@@ -414,18 +414,15 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	if key == "player-name" {
 		// Spec 038 §3.3: 中文(英文) → Chinese only → the original English
 		// through the existing passthrough.  Every try starts from the same
-		// cursor and continuation state.
-		chosen := -1
-		for i, v := range player {
-			if lines, endRow, endCol, fits = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); fits {
-				chosen = i
-				break
-			}
-		}
-		switch chosen {
-		case 0:
+		// cursor and continuation state.  Spec 045 §3.4: when the call owes
+		// a space (spaceNeeded, Korean only) each tier is tried with the
+		// space first.
+		c := layoutPlayerName(w.layout, player, e.Original, spaceNeeded, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
+		lines, endRow, endCol, fits = c.lines, c.endRow, c.endCol, c.fits
+		switch c.kind {
+		case playerFull:
 			w.Stats.PlayerNames++
-		case 1:
+		case playerChineseOnly:
 			w.Stats.PlayerNames++
 			w.Stats.PlayerNameChineseOnly++
 		default:
@@ -435,7 +432,9 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			}
 			text, key = string(e.Original), "passthrough"
 			w.Stats.Passthrough++
-			lines, endRow, endCol, fits = layoutEclTextP(w.layout, []rune(text), nil, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
+		}
+		if fits && spaceNeeded && !c.spaced {
+			w.Stats.SpaceDropped++
 		}
 	} else {
 		// Every tier starts from the same cursor and continuation state; the
@@ -531,6 +530,64 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	w.inCall = true
 	w.call = e
 	w.Stats.Hits++
+}
+
+// Outcomes of layoutPlayerName.
+const (
+	playerFull        = iota // 中文(英文)
+	playerChineseOnly        // 中文
+	playerEnglish            // the original English, through the passthrough
+)
+
+// playerLayout is the layout chosen for a player-name call.
+type playerLayout struct {
+	kind           int
+	spaced         bool // the text starts with the space of spec 045 §3.4
+	lines          []EclTextLine
+	endRow, endCol uint8
+	fits           bool
+}
+
+// layoutPlayerName picks the first tier of a player-name call that fits
+// (spec 038 §3.3).  With space set (the call continues text and owes a
+// space, spec 045 §3.4) the order is: full with space, Chinese only with
+// space, full, Chinese only, English with space, English; without it the
+// first two (and the English with space) are not tried, which is the order
+// spec 038 had before.  The space is a token of its own: it is not inside a
+// name unit, so the units shift by one.  When nothing fits, the result is
+// the last try (the plain English text) with fits false.
+func layoutPlayerName(prof *LayoutProfile, player []AnnotatedText, original []byte, space bool, row, col, left, right, bottom uint8) playerLayout {
+	spaced := func(v AnnotatedText) AnnotatedText {
+		out := AnnotatedText{Tier: v.Tier, Text: append([]rune{' '}, v.Text...)}
+		for _, u := range v.Units {
+			out.Units = append(out.Units, NameUnit{u.Start + 1, u.End + 1})
+		}
+		return out
+	}
+	try := func(kind int, hasSpace bool, text []rune, units []NameUnit) (playerLayout, bool) {
+		ls, er, ec, ok := layoutEclTextP(prof, text, units, row, col, left, right, bottom)
+		return playerLayout{kind: kind, spaced: hasSpace, lines: ls, endRow: er, endCol: ec, fits: ok}, ok
+	}
+	if space {
+		for i, v := range player {
+			sv := spaced(v)
+			if c, ok := try(i, true, sv.Text, sv.Units); ok {
+				return c
+			}
+		}
+	}
+	for i, v := range player {
+		if c, ok := try(i, false, v.Text, v.Units); ok {
+			return c
+		}
+	}
+	if space {
+		if c, ok := try(playerEnglish, true, append([]rune{' '}, []rune(string(original))...), nil); ok {
+			return c
+		}
+	}
+	c, _ := try(playerEnglish, false, []rune(string(original)), nil)
+	return c
 }
 
 // ObserveInstruction closes a hit call at its verified far return.
