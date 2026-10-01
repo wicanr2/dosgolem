@@ -59,3 +59,7 @@ Go 1.24.13、映像 ID `sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890
 私有 `workplace/moo2-probe-273-50m-full-game.txt.gz`／`workplace/moo2-probe-273-50m-mouse-event.txt.gz` SHA-256 `5994ce355565faaefe780bac97836cce37dc9ad98f4564d7eb192f7752734a09`／`1dda8342da159dd5720e6d9f8eb81b5fdf02ade47250ff9a8b728d6f907bb48a`。Active=true、Bank=2、StartY=0、BankSets=441、Writes=4046164、DisplaySets=6；索引 SHA-256 `7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf`、RGB `0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366`；兩 PNG SHA-256 均 `1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622`，與先前已檢視黑圖逐位元相同。此前 Simtex／MicroProse 啟動圖像成立，當前停點仍是黑圖；不以啟動標誌宣稱主選單或最終畫面對拍。
 
 273 僅在短 JS／JNS 的定義條件、保持狀態及有限原版分支範圍 CONFORMED；255 仍 READY，主選單、玩家操作、音效、受控亂數與 Go remake 玩法同狀態未完成。下一步依公開 XOR 契約核對 word 暫存器、實際 DI 初值／高半部、旗標與下一 MOV ES 消費；DOSBox-X 候選 **CS:EIP** `0180:0036DA42` 尚是地址假說。AF 未定義、近／短分支例外模型、IMUL 未定義 ZF、DIV／SAR、DTA 保留區與平台布局限制明示，不追 INT 2F 平台內部或 helper 內部。
+
+## 後續停點解析回填
+
+word XOR 停點已由規格 274 接通：[274-cpu386-xor-word-register.md](274-cpu386-xor-word-register.md) 連接固定 EXE 的高位 LE `0x239A42`／DOSBox-X CS:EIP `0180:0036DA42`／`66 31 FF`，公開 word XOR 契約、原版高半部保持／定義旗標與下一 MOV ES 的 null selector。AF 未定義與資料布局差異保持，後續驗收狀態以 274 為準，不重開 JS／JNS 或宣稱整體玩家路徑完成。

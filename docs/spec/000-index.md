@@ -424,4 +424,5 @@
 - [270 — 32 位元記憶體目的與暫存器的比較](270-cpu386-cmp-memory-register.md)：CONFORMED，dword 記憶體目的、六旗標與實際 JGE 不取分支已驗；word CMP 停點已由規格 271 接通。
 - [271 — 16 位元目的與暫存器的比較](271-cpu386-cmp-word-destination.md)：CONFORMED，word 目的、寬度／六旗標與實際 JL 不取分支已驗；word INC 停點已由規格 272 接通；當次黑圖不代表正常玩家畫面。
 - [272 — 16 位元記憶體的遞增](272-cpu386-inc-word-memory.md)：CONFORMED。word 記憶體 INC、CF／五旗標與下一 A1 已驗；自然路徑顯示 Simtex 標誌；短 JS 停點已由規格 273 接通，仍未進入主選單。
-- [273 — 短距離負號與非負號分支](273-cpu386-short-sign-branches.md)：CONFORMED。JS／JNS 的完整條件／位移／保持狀態及有限原版分支已驗；步數上限擷取已修正，兩條自然路徑至 20.1M 的 word XOR，仍未進入主選單。
+- [273 — 短距離負號與非負號分支](273-cpu386-short-sign-branches.md)：CONFORMED。JS／JNS 的完整條件／位移／保持狀態及有限原版分支已驗；步數上限擷取已修正，word XOR 停點已由規格 274 接通，仍未進入主選單。
+- [274 — 16 位元暫存器間的 XOR](274-cpu386-xor-word-register.md)：CONFORMED（有限 CPU／下一段載入）。原版 word XOR 高半部／定義旗標與 MOV ES 消費、全套及兩條自然路徑已驗；下一停點為 INT 2Fh/AX=1684h。

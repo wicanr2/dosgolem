@@ -1357,7 +1357,7 @@ func (c *CPU) Step() error {
 		left, right := int(modrm&7), int((modrm>>3)&7)
 		c.setLogicFlags8(c.reg8(left) & c.reg8(right))
 	case op == 0x31:
-		if operand16 || segmentOverride >= 0 || repe {
+		if segmentOverride >= 0 || repe {
 			return fail("31 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
@@ -1365,11 +1365,17 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("XOR dword ModRM %02X 尚未支援", modrm))
+			return fail(fmt.Sprintf("XOR 暫存器 ModRM %02X 尚未支援", modrm))
 		}
 		dst, src := modrm&7, (modrm>>3)&7
-		c.R[dst] ^= c.R[src]
-		c.setLogicFlags(c.R[dst])
+		if operand16 {
+			result := uint16(c.R[dst]) ^ uint16(c.R[src])
+			c.R[dst] = c.R[dst]&0xffff0000 | uint32(result)
+			c.setLogicFlags16(result)
+		} else {
+			c.R[dst] ^= c.R[src]
+			c.setLogicFlags(c.R[dst])
+		}
 	case op == 0x30:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("30 不接受目前的 prefix")
