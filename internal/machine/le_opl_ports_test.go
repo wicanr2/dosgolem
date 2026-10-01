@@ -2,6 +2,28 @@ package machine
 
 import "testing"
 
+func TestLESecondaryDMASingleMask(t *testing.T) {
+	p := NewLEOPLPorts()
+	if got := p.State().SecondaryDMAMask; got != 0x0f {
+		t.Fatalf("第二 DMA 初始遮罩=%02X", got)
+	}
+	if !p.Out8(0xd4, 1) || p.State().SecondaryDMAMask != 0x0d {
+		t.Fatal("D4h 清除相對通道 1 遮罩失敗")
+	}
+	if !p.Out8(0xd4, 5) || p.State().SecondaryDMAMask != 0x0f {
+		t.Fatal("D4h/05h 設置相對通道 1 遮罩失敗")
+	}
+	if !p.Out8(0xd4, 0x83) || p.State().SecondaryDMAMask != 0x07 {
+		t.Fatal("D4h 高位應忽略，相對通道 3 應獨立")
+	}
+	if p.State().DMAMask != 0x0f || p.Writes[0xd4] != 3 {
+		t.Fatal("第二 DMA 遮罩污染第一控制器，或未記錄輸出")
+	}
+	if _, ok := p.In8(0xd4); ok || p.Out8(0xd6, 5) {
+		t.Fatal("未實作的第二 DMA 讀取／其他埠應拒絕")
+	}
+}
+
 func TestLEOPLAliasesAndDetection(t *testing.T) {
 	p := NewLEOPLPorts()
 	write := func(reg, v uint8) {

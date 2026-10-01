@@ -31,6 +31,47 @@ func TestStepHookHandledUnhandledAndError(t *testing.T) {
 	}
 }
 
+func TestADDALImmediateOriginalShapeAndFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		left, imm uint8
+		high      uint32
+		flags     uint32
+		wantAL    uint8
+		wantFlags uint32
+	}{
+		{"original DOSBox-X sample", 0x50, 0x20, 0x003e4100, 0x297, 0x70, 0x202},
+		{"dosgolem stop", 0x44, 0x20, 0x002b4400, 0x293, 0x64, 0x202},
+		{"carry", 0xf0, 0x20, 0xabcd1200, IF | OF | SF, 0x10, IF | CF},
+		{"signed overflow", 0x7f, 0x01, 0xabcd1200, IF | CF, 0x80, IF | SF | OF | AF},
+		{"zero and parity", 0xff, 0x01, 0xabcd1200, IF, 0, IF | CF | AF | ZF | PF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(testBus{0x04, tc.imm})
+			c.R[EAX], c.R[EBX], c.EFlags = tc.high|uint32(tc.left), 0x88776655, tc.flags
+			beforeSeg := c.Seg
+			if err := c.Step(); err != nil || c.EIP != 2 || c.R[EAX] != tc.high|uint32(tc.wantAL) ||
+				c.R[EBX] != 0x88776655 || c.EFlags != tc.wantFlags || c.Seg != beforeSeg {
+				t.Fatalf("ADD AL,imm8 EIP=%X EAX=%X EBX=%X flags=%X err=%v", c.EIP, c.R[EAX], c.R[EBX], c.EFlags, err)
+			}
+		})
+	}
+	for name, bytes := range map[string][]byte{
+		"truncated":      {0x04},
+		"operand prefix": {0x66, 0x04, 0x20},
+		"segment prefix": {0x2e, 0x04, 0x20},
+		"repeat prefix":  {0xf3, 0x04, 0x20},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := New(testBus(bytes))
+			c.R[EAX], c.EFlags = 0x12345650, IF|CF
+			if err := c.Step(); err == nil || c.R[EAX] != 0x12345650 || c.EFlags != IF|CF {
+				t.Fatalf("未知或截短 ADD AL,imm8 須拒絕且不寫回：EAX=%X flags=%X err=%v", c.R[EAX], c.EFlags, err)
+			}
+		})
+	}
+}
+
 func TestCMPByteMemoryDestinationNoWriteback(t *testing.T) {
 	mem := testBus(make([]byte, 0x80))
 	copy(mem, []byte{0x38, 0x10}) // CMP [EAX],DL

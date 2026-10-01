@@ -3,27 +3,28 @@ package machine
 // LEOPLPorts 沿用既有 OPL／VGA 狀態，並轉接受限 DSP；未知埠明確拒絕。
 // 計時器為既有偵測近似，不代表真實時間或音訊波形。
 type LEOPLPorts struct {
-	PIT0           LEPIT0
-	BIOSClock      *LEBIOSClock
-	dmaAuto        bool
-	dmaBlockSize   uint32
-	sampleCredit   uint64
-	device         *Machine
-	virtualMicros  uint64
-	dmaActive      bool
-	dmaLeft        uint32
-	picPending     bool
-	picInService   bool
-	picReadISR     [2]bool
-	DMACompletions uint64
-	IRQ7Deliveries uint64
-	PCM            []byte
-	dsp            SoundBlasterDSP
-	picMasks       [2]byte
-	dma            *DMA8237
-	Log            []LEOPLPortEvent
-	Reads          map[uint16]uint64
-	Writes         map[uint16]uint64
+	PIT0             LEPIT0
+	BIOSClock        *LEBIOSClock
+	dmaAuto          bool
+	dmaBlockSize     uint32
+	sampleCredit     uint64
+	device           *Machine
+	virtualMicros    uint64
+	dmaActive        bool
+	dmaLeft          uint32
+	picPending       bool
+	picInService     bool
+	picReadISR       [2]bool
+	DMACompletions   uint64
+	IRQ7Deliveries   uint64
+	PCM              []byte
+	dsp              SoundBlasterDSP
+	picMasks         [2]byte
+	dma              *DMA8237
+	secondaryDMAMask byte
+	Log              []LEOPLPortEvent
+	Reads            map[uint16]uint64
+	Writes           map[uint16]uint64
 }
 type LEOPLPortEvent struct {
 	Port  uint16
@@ -34,7 +35,7 @@ type LEOPLPortEvent struct {
 func NewLEOPLPorts() *LEOPLPorts {
 	m := New()
 	m.SetAdLib(true)
-	p := &LEOPLPorts{device: m, dma: NewDMA8237(), picMasks: [2]byte{0xf8, 0x2c}, Reads: map[uint16]uint64{}, Writes: map[uint16]uint64{}}
+	p := &LEOPLPorts{device: m, dma: NewDMA8237(), secondaryDMAMask: 0x0f, picMasks: [2]byte{0xf8, 0x2c}, Reads: map[uint16]uint64{}, Writes: map[uint16]uint64{}}
 	p.dsp.StartDMA = p.startDSPDMA
 	p.dsp.StartAutoDMA = func(n uint32) bool { return p.startDMA(n, true) }
 	p.dsp.CancelDMA = func() { p.dmaActive = false; p.dmaLeft = 0; p.picPending = false }
@@ -134,6 +135,17 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 		p.record(port, v, true)
 		return true
 	}
+	if port == 0xd4 {
+		// 第二 8237A 的單通道遮罩；不代表 16 位元 DMA 傳輸已實作。
+		bit := byte(1) << (v & 3)
+		if v&4 != 0 {
+			p.secondaryDMAMask |= bit
+		} else {
+			p.secondaryDMAMask &^= bit
+		}
+		p.record(port, v, true)
+		return true
+	}
 	if port == 0x21 || port == 0xa1 {
 		i := 0
 		if port == 0xa1 {
@@ -168,10 +180,11 @@ type LEDeviceState struct {
 	DMAPage                  [4]byte
 	DMAMode                  [4]byte
 	DMAMask                  byte
+	SecondaryDMAMask         byte
 	DSPTimeConstant          byte
 	DSPTimeConstantKnown     bool
 }
 
 func (p *LEOPLPorts) State() LEDeviceState {
-	return LEDeviceState{p.dsp.mixerIndex, p.dsp.IRQPending, p.picPending, p.picInService, p.virtualMicros, p.picMasks, p.dma.Base, p.dma.Current, p.dma.Page, p.dma.Mode, p.dma.Mask, p.dsp.TimeConstant, p.dsp.TimeConstantKnown}
+	return LEDeviceState{p.dsp.mixerIndex, p.dsp.IRQPending, p.picPending, p.picInService, p.virtualMicros, p.picMasks, p.dma.Base, p.dma.Current, p.dma.Page, p.dma.Mode, p.dma.Mask, p.secondaryDMAMask, p.dsp.TimeConstant, p.dsp.TimeConstantKnown}
 }

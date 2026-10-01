@@ -5,7 +5,7 @@
 
 ## 引用規格時要連號碼帶檔名
 
-目前有 288 份規格，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
+規格數以目錄現況為準，而編號**不是唯一鍵**：十條分支各自從 007 開始編，
 合併之後同一個號碼底下有好幾份不同主題的文件。
 
 | 號碼 | 底下有幾份 | 檔名 |
@@ -386,8 +386,11 @@
 - [232 — 16 位元記憶體與立即數比較](232-cpu386-cmp-rm16-imm16.md)：CONFORMED。空 `MOX.SET` 的原版 LOG、dosgolem 固定原檔與合成測試通過；完整本機資料下一停點是 `66 F7 /0`。
 - [233 — 16 位元記憶體與立即數 TEST](233-cpu386-test-rm16-imm16.md)：CONFORMED。CPU 測試與正版資料診斷已越過第 288215 步；原版同狀態斷點仍未命中。合成記憶體退出已定位至 DOS 低位游標與線性配置不重用，需另立規格。
 - [234 — DPMI 線性區塊釋放與重用](234-dpmi-linear-block-reuse.md)：CONFORMED。首次適配與控制代號測試、固定原檔全套測試通過；完整資料走至第 3,947,961 步，低位 DOS 配置仍失敗，尚無玩家路徑對拍。
-- [235 — LE 映像與 DOS 低位記憶體隔離](235-le-image-and-dos-arena-separation.md)：READY。固定原檔 fixup、DOS 雙模式存取及首次 513 段落配置通過；未註冊的實模式 `INT 10h` 阻止第二筆原檔配置驗收。
+- [235 — LE 映像與 DOS 低位記憶體隔離](235-le-image-and-dos-arena-separation.md)：CONFORMED，限明示高位 LE 映射。固定原檔及正版資料自然完成 513／176 段落兩筆配置；段號不與 DOSBox-X 逐值比較，無玩家畫面對拍。
 - [236 — MOO2 實模式 VBE 控制器資訊呼叫](236-moo2-real-mode-vbe-controller-info.md)：CONFORMED。受限 BIOS callback、緩衝與拒絕測試通過；原檔自行前進至直接保護模式 `INT 10h/AX=4F07h`。
 - [237 — MOO2 VBE 顯示起點歸零](237-moo2-vbe-zero-display-start.md)：CONFORMED。原版 `4F07h` 零座標返回、caller 記錄及 dosgolem 自生越過受限視訊服務；畫面輸出另驗。
 - [238 — MOO2 查詢 VBE 模式 0101h](238-moo2-vbe-mode-0101-info.md)：CONFORMED。原版兩次 `4F00h` 後的 `4F01h` 固定模式與 256 位元組緩衝已核對；dosgolem 自生下一停點為直接 `INT 10h/AX=4F02h`。
 - [239 — MOO2 設定 VBE 模式 0101h](239-moo2-vbe-set-mode-0101.md)：CONFORMED。原版直接 `4F02h` 的返回與 caller 已擷取；dosgolem 自生前進至第 1,151,730 步的 opcode `04h` 停點，無畫面對拍。
+- [240 — 以立即數加到 AL](240-cpu386-add-al-immediate.md)：CONFORMED。`04 20` 原版同指令形狀的暫存器／旗標與 dosgolem 自生越過停點均已核對；下一停點為 `INT 66h` 底層 DSP 埠。
+- [241 — MOO2 保護／實模式共用平台埠](241-moo2-shared-platform-ports.md)：CONFORMED。原檔 `INT 66h` 越過 DSP 重設埠；正式共用接線後仍在第二 DMA 埠 `00D4h` 拒絕，尚非音訊或畫面對拍。
+- [242 — 第二組 DMA 控制器單通道遮罩](242-secondary-dma-single-mask.md)：CONFORMED。原檔越過 `D4h/05h`，實模式下一停點為 `D8h/00h`；限平台遮罩狀態，尚非音訊或畫面對拍。

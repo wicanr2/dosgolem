@@ -181,6 +181,35 @@ func TestMOO2ProtectedVBEMode0101(t *testing.T) {
 	}
 }
 
+func TestMOO2AttachMachineSharesProtectedAndRealModePorts(t *testing.T) {
+	m := &LEMachine{Mem: make([]byte, 0x120000), Ports: map[uint16]uint8{}}
+	m.CPU = cpu386.New(m)
+	s := NewMOO2StartupDOS(nil)
+	s.AttachMachine(m)
+	if m.CPU.PortIn == nil || m.CPU.PortOut == nil || s.DPMI.RealModeIO == nil {
+		t.Fatal("MOO2 兩種模式未連至平台埠")
+	}
+	if !m.CPU.PortOut(0x226, 1) || !s.DPMI.RealModeIO.Out8(0x226, 0) {
+		t.Fatal("跨模式 DSP 重設寫入失敗")
+	}
+	if value, ok := m.CPU.PortIn(0x22a); !ok || value != 0xaa {
+		t.Fatalf("保護模式讀不到實模式 DSP 重設回覆：%02X ok=%t", value, ok)
+	}
+	if !m.CPU.PortOut(0x0d4, 1) || !s.DPMI.RealModeIO.Out8(0x0d4, 5) {
+		t.Fatal("跨模式第二 DMA 控制器遮罩寫入失敗")
+	}
+	if m.CPU.PortOut(0x0d6, 5) || s.DPMI.RealModeIO.Out8(0x0d6, 5) {
+		t.Fatal("未知第二 DMA 控制器埠被放行")
+	}
+	fd2 := NewFD2StartupDOS(nil)
+	other := &LEMachine{Mem: make([]byte, 8)}
+	other.CPU = cpu386.New(other)
+	fd2.AttachMachine(other)
+	if other.CPU.PortIn != nil || other.CPU.PortOut != nil || fd2.DPMI.RealModeIO != nil {
+		t.Fatal("一般 FD2 設定被 MOO2 專用接線改動")
+	}
+}
+
 func TestProtectedDOSFindFirstExactMissingAndPresent(t *testing.T) {
 	root := t.TempDir()
 	provider, err := OpenDirectoryReadOnlyFiles(root)

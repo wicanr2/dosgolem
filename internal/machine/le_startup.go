@@ -89,6 +89,15 @@ func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	return &MOO2StartupDOS{s}
 }
 
+// MOO2 的兩種 CPU 模式使用同一份已存在的受限 DSP／OPL／DMA 埠狀態。
+// 這只接線平台模型；未知埠仍由裝置自行拒絕。
+func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) {
+	s.FD2StartupDOS.AttachMachine(m)
+	ports := NewLEOPLPorts()
+	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
+	s.DPMI.RealModeIO = ports
+}
+
 // SetMouseState 設定下一次保護模式滑鼠查詢要回報的受控輸入。
 func (s *MOO2StartupDOS) SetMouseState(x, y, buttons uint16) {
 	s.mouseX, s.mouseY, s.mouseButtons = x, y, buttons

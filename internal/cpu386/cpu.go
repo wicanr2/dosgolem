@@ -1129,6 +1129,15 @@ func (c *CPU) Step() error {
 		}
 		dst := (modrm >> 3) & 7
 		c.R[dst] = c.add32(c.R[dst], value)
+	case op == 0x04:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("ADD AL,imm8 尚未支援前綴形狀")
+		}
+		imm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.R[EAX] = c.R[EAX]&0xffffff00 | uint32(c.add8(uint8(c.R[EAX]), imm))
 	case op == 0x39:
 		if operand16 || segmentOverride >= 0 || repe {
 			return fail("39 不接受目前的 prefix")
