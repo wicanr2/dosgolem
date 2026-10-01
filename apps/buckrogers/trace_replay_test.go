@@ -28,6 +28,8 @@ import (
 // set) and BUCKROGERS_TRACE_DIR (the phase257 cp/ directory).  The test
 // skips with its reason without them.  BUCKROGERS_TRACE_REPORT names an
 // output TSV with every call that did not hit in some language.
+// BUCKROGERS_TRACE_ECL and BUCKROGERS_TRACE_TRANSLATE name output TSVs for the
+// per-call `ecl` rows and the engine translations (Buck repo spec 047 §3.6).
 
 type traceW struct {
 	file  string
@@ -256,6 +258,50 @@ func TestReplayPhase257Windows(t *testing.T) {
 		defer pages.Flush()
 		fmt.Fprintln(pages, "kind\tlang\tfile\tstep\twindow\tcalls\thits\tmisses\toverflows\toriginal\tshown\tcalls_orig")
 	}
+	// BUCKROGERS_TRACE_ECL: one `ecl` row per call and language, the same
+	// columns as -live-trace-out (Buck repo spec 047 §3.6 (5)).  The rows are
+	// read from the watchers' counters, so recording changes nothing.
+	var eclTrace *ReplayTrace
+	if p := os.Getenv("BUCKROGERS_TRACE_ECL"); p != "" {
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		eclTrace = NewReplayTrace(f)
+		defer eclTrace.Flush()
+	}
+	// BUCKROGERS_TRACE_TRANSLATE: the engine translation (Translate) of every
+	// distinct original of the W records, per language, as the baseline of
+	// the engine-level differential of a later spec.
+	if p := os.Getenv("BUCKROGERS_TRACE_TRANSLATE"); p != "" {
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		tw := bufio.NewWriter(f)
+		defer tw.Flush()
+		fmt.Fprintln(tw, "lang\toriginal\tok\ttranslation")
+		seen := map[string]bool{}
+		var originals []string
+		for _, w := range ws {
+			if !w.lossy && !seen[w.text] {
+				seen[w.text] = true
+				originals = append(originals, w.text)
+			}
+		}
+		sort.Strings(originals)
+		for _, l := range r.lanes {
+			if l.ecl == nil || l.ecl.engine == nil {
+				continue
+			}
+			for _, o := range originals {
+				z, ok := l.ecl.engine.Translate(o)
+				fmt.Fprintf(tw, "%s\t%q\t%v\t%q\n", l.lang, o, ok, z)
+			}
+		}
+	}
 	windows := map[[4]uint8]int{}
 	for _, w := range ws {
 		windows[[4]uint8{w.e.Left, w.e.Top, w.e.Right, w.e.Bottom}]++
@@ -345,6 +391,10 @@ func TestReplayPhase257Windows(t *testing.T) {
 				l.ecl.ObserveInstruction(w.e.Return, w.e.SS, w.e.SP+eclTextReturnDelta)
 			}
 			a := l.ecl.Stats
+			if eclTrace != nil {
+				key, _, _ := l.ecl.catalog.Lookup(w.e.Original)
+				eclTrace.ecl(l.lang, w.e, key, before, a)
+			}
 			m := msgs[wk]
 			if m == nil {
 				m = &message{file: w.file, step: w.e.Step}
