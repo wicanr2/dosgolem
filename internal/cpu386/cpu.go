@@ -3138,6 +3138,44 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if op == 0xc1 && modrm == 0x7d {
+			// 規格 260：SAR dword SS:[EBP+disp8],imm8；不擴張其他記憶體形狀。
+			if segmentOverride >= 0 || repe || repne {
+				return fail("C1 堆疊 SAR 不接受目前的 prefix")
+			}
+			delta, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			countByte, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			addr := uint32(int64(c.R[EBP]) + int64(int8(delta)))
+			selector := c.Seg[SegSS]
+			if _, ok := c.segmentLinear(selector, addr, 4, true); !ok {
+				return fail("C1 堆疊 SAR 目的範圍不可寫")
+			}
+			value, ok := c.readSegment32(selector, addr)
+			if !ok {
+				return fail("C1 堆疊 SAR 操作數無法讀取")
+			}
+			count := uint(countByte & 31)
+			if count == 0 {
+				break
+			}
+			result := uint32(int32(value) >> count)
+			if !c.writeSegment32(selector, addr, result) {
+				return fail("C1 堆疊 SAR 操作數無法寫入")
+			}
+			oldOF := c.EFlags & OF
+			c.setLogicFlags(result)
+			c.EFlags |= value >> (count - 1) & 1
+			if count > 1 {
+				c.EFlags |= oldOF
+			}
+			break
+		}
 		if op == 0xc1 && group == 1 {
 			if segmentOverride >= 0 || repe || repne || modrm>>6 != 3 {
 				return fail("C1 ROR 只接受無前綴 32 位暫存器")

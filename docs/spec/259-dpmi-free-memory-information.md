@@ -28,6 +28,8 @@ READY 審查：原版同次返回符合公開 48-byte 契約，當前容量檢�
 
 ## CONFORMED 收據
 
+後續回填：堆疊 SAR 停點已由規格 260 接通，最新 CPU 驗收見 [260-cpu386-sar-stack-dword-immediate.md](260-cpu386-sar-stack-dword-immediate.md)。下列原始拒絕／步數保留為歷史收據；DPMI 本規格的容量近似及玩家未知邊界不受此回填影響。
+
 上述 buffer 與配置／釋放／重用、耗盡測試通過。一次性 `golang:1.24-bookworm`、Go 1.24.13，`DOSGOLEM_MOO2_EXE=/tmp/game/ORION2.EXE GOMAXPROCS=2 go test -p 2 -buildvcs=false ./... -count=1` 全套通過。最終私有 `workplace/full-test-259.txt` SHA-256 `4f556544b654a81516bd019606d95945855e71aa6f1eae55d44c7563b421fc6d`。首次測試初稿用了既有 `Descriptor` 沒有的 `Default32` 欄位而編譯失敗；刪除多餘欄位後同映像、同輸入乾淨重跑，保留 `full-test-259-first.txt`。
 
 原檔無事件路徑第 6,713,034 步、設定後受控事件路徑第 6,713,069 步，均在 **dosgolem 高位 LE 線性** `0x200E5A` 的 `C1 7D F4 04` 明確拒絕（`ModRM 7D 尚未支援`）。受控路徑回呼 started=1／completed=1。無事件私有診斷 SHA-256 `e6ce6f569119d6ef82e0b319c6ff98c65acc80c8b17ae2a25f9ded0c5f2596a9`、事件診斷 SHA-256 `7b6bedae196683e1f67dc0af1f2356cadde7e593ea54e92f95bfdce75ae645b7`。兩條路徑自行越過 `0500h`，沒有以原版容量常數造假通過。

@@ -15,7 +15,7 @@ func TestMOO2WindowsVersionAbsentPreservesState(t *testing.T) {
 	mem := []byte{0xcd, 0x2f, 0x83, 0xf8, 0}
 	c := cpu386.New(startupBus(mem))
 	c.R = [8]uint32{cpu386.EAX: 0xabcd160a, cpu386.EDX: 0x1608a, cpu386.ESP: 0x3ebbac, cpu386.EBP: 0x3ebc06, cpu386.ESI: 0x3e0151, cpu386.EDI: 0x3a2090}
-	c.Seg = [6]uint16{0x188, 0x180, 0x188, 0x188, 0, 0x20}
+	c.Seg = [6]uint16{cpu386.SegCS: 0x180, cpu386.SegDS: 0x188, cpu386.SegES: 0x188, cpu386.SegGS: 0x20, cpu386.SegSS: 0x188}
 	c.EIP, c.EFlags = 0x21788a, 0x246
 	r, seg, ip, flags := c.R, c.Seg, c.EIP, c.EFlags
 	before := append([]byte(nil), mem...)

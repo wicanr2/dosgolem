@@ -21,6 +21,8 @@ DRAFT 審查結果：原版返回、caller 分支與成熟模擬器公開平台�
 
 ## CONFORMED 收據
 
+測試夾具勘誤（規格 260 驗收時發現）：最初段暫存器陣列用了外部記錄的排列，與 CPU 內部索引不同；查詢保持測試仍綠，但不能把該輸入說成原版段狀態。現改用具名索引還原 CS=`180h`、DS／ES／SS=`188h`、FS=`0`、GS=`20h`，由規格 260 的最終全套重跑核對。服務程式與當時兩條自然原檔收據不變；下列歷史輸出保留。
+
 後續回填：0500h 平台契約已由規格 259 補齊，最新驗收見 [259-dpmi-free-memory-information.md](259-dpmi-free-memory-information.md)。下列步數／拒絕是本規格當時的歷史收據；不再代表加入 259 後的停點。玩家畫面與規格 255 的未知邊界維持獨立。
 
 限定查詢與其他設定／未知功能拒絕測試通過。固定 EXE 全套 `go test -buildvcs=false ./... -count=1` 通過，私有 `workplace/full-test-258.txt` SHA-256 `1a7ddbe2c287b573ea39b942b954bf9a69ec5a95e7c1842b060c6edd0241196c`。首次容器命令因巢狀 shell 引號在啟動前被拒絕，修正 heredoc 引號後同一映像乾淨重跑，沒有產品失敗。測試初稿以陣列順序配置暫存器時把 ECX 填成 ESI 的值，收尾改為具名索引以符合捕獲初態，另以 `GOMAXPROCS=2 go test -p 2 -buildvcs=false ./internal/machine -run TestMOO2WindowsVersionAbsentPreservesState -count=1` 通過；首次單項重跑因程序上限不足失敗，限制平行度後解決。不影響已跑的兩條原檔輸入。收尾診斷改逐行串流讀取，避免整份解壓至記憶體造成容器超限；Python 語法與兩筆停點核對通過。
