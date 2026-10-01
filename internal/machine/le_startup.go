@@ -449,6 +449,10 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 }
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
+	if number == 0x2f {
+		// 規格 258：明示 DOS 環境未安裝 Windows，查詢未被接管時保持架構狀態。
+		return s.moo2Profile && uint16(c.R[cpu386.EAX]) == 0x160a
+	}
 	if number == 0x10 {
 		if !s.moo2Profile {
 			return false

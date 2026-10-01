@@ -36,6 +36,7 @@ if sys.argv[1:] == ['--check-mouse-spec-backlinks']:
     raise SystemExit(0)
 
 root = pathlib.Path('/shots')
+capture_windows_version = sys.argv[1:] == ['--windows-version']
 capture_mouse_sequence = sys.argv[1:] == ['--mouse-sequence']
 capture_mouse_sensitivity = sys.argv[1:] == ['--mouse-sensitivity']
 capture_mouse_set_sensitivity = sys.argv[1:] == ['--mouse-set-sensitivity']
@@ -49,8 +50,8 @@ capture_mouse_vertical_range = sys.argv[1:] == ['--mouse-vertical-range']
 capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensitivity or capture_mouse_set_sensitivity or capture_mouse_horizontal_range or capture_mouse_vertical_range or capture_mouse_callback or capture_mouse_set_position
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
-if not (capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+if not (capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
+    raise SystemExit('usage: startup_probe_131.py [--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -90,6 +91,8 @@ capture_or_memory = sys.argv[1:] == ['--or-memory']
 capture_pop_gs = sys.argv[1:] == ['--pop-gs']
 mode = 'add-al-imm8-' if capture_add_al_imm8 else 'video-mode-4f02-' if capture_video_mode_4f02 else 'real-video-4f01-' if capture_real_video_4f01 else 'video-display-4f07-' if capture_video_display_4f07 else 'real-video-0300-' if capture_real_video_0300 else 'dos-memory-0100-' if capture_dos_memory_0100 else 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
+if capture_windows_version:
+    mode = 'windows-version-'
 if capture_mouse_sequence:
     mode = 'mouse-sequence-'
 if capture_mouse_reset:
@@ -137,7 +140,7 @@ if capture_dta_find_present:
         'name': 'MOX.SET', 'size': 0, 'sha256': hashlib.sha256(b'').hexdigest(),
         'mtime_epoch_seconds': 820454400,
     }
-if capture_full_data_test_word or capture_dos_memory_0100 or capture_real_video_0300 or capture_real_video_4f01 or capture_video_display_4f07 or capture_video_mode_4f02 or capture_add_al_imm8 or capture_or_register_imm8 or capture_xor_register_imm32 or capture_mouse_reset or capture_mouse_sequence:
+if capture_windows_version or capture_full_data_test_word or capture_dos_memory_0100 or capture_real_video_0300 or capture_real_video_4f01 or capture_video_display_4f07 or capture_video_mode_4f02 or capture_add_al_imm8 or capture_or_register_imm8 or capture_xor_register_imm32 or capture_mouse_reset or capture_mouse_sequence:
     fixture = pathlib.Path('/tmp/game/MOX.SET')
     if not fixture.is_file() or hashlib.sha256(fixture.read_bytes()).hexdigest() != 'bfd6855a41760b31156b96114b5b33c88f442ab8f8aae020c1740b3b486a3a80':
         raise RuntimeError('MOO2 完整資料對拍要求固定正版 MOX.SET')
@@ -229,6 +232,48 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
         if not match:
             raise RuntimeError('MOO2 zero-base branch breakpoint not reached: ' + repr(snapshots))
         records['dpmi_zero_base_branch'] = match
+        if capture_windows_version:
+            order = 'CS EIP EAX EBX ECX EDX ESI EDI EBP DS ES FS GS SS ESP EFLAGS'
+            records['windows_version_register_order'] = order
+            cmd('BPDEL *')
+            cmd('BPINT 2F 16 0A')
+            call = None
+            for _ in range(6):
+                cmd('RUN', 12)
+                snapshots = registers(cmd('EV ' + order, 0.8))
+                call = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == ['180', '34b888'] and int(v[2],16) & 0xffff == 0x160a), None)
+                if call:
+                    break
+            if not call:
+                raise RuntimeError('MOO2 Windows 版本查詢入口未命中: ' + repr(snapshots))
+            records['windows_version_call'] = call
+            dump = pathlib.Path('MEMDUMP.BIN')
+            dump.unlink(missing_ok=True)
+            cmd('MEMDUMPBIN 0180:0034B888 10', 1)
+            if not dump.is_file() or dump.stat().st_size != 16 or not dump.read_bytes().startswith(bytes.fromhex('cd 2f 83 f8 00 75 0d')):
+                raise RuntimeError('MOO2 Windows 版本查詢原始指令不符')
+            records['windows_version_bytes_hex'] = dump.read_bytes().hex()
+            cmd('BPDEL *')
+            cmd('BP 0180:0034B88A')
+            cmd('RUN', 8)
+            snapshots = registers(cmd('EV ' + order, 0.8))
+            returned = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == ['180', '34b88a']), None)
+            if not returned:
+                raise RuntimeError('MOO2 Windows 版本查詢返回未命中: ' + repr(snapshots))
+            records['windows_version_return'] = returned
+            cmd('BPDEL *')
+            log = pathlib.Path('LOGCPU.TXT')
+            log.unlink(missing_ok=True)
+            cmd('LOG 40', 7)
+            if not log.is_file():
+                raise RuntimeError('MOO2 Windows 版本查詢 caller 紀錄未產生')
+            data = log.read_bytes()
+            lines = data.decode('latin1').splitlines()
+            if len(lines) != 64 or not lines[0].startswith('0180:0034B88A'):
+                raise RuntimeError('MOO2 Windows 版本查詢 caller 序列不符')
+            records['windows_version_caller_log_sha256'] = hashlib.sha256(data).hexdigest()
+            records['windows_version_caller_lines'] = lines
+            (root / 'windows-version-caller-logcpu.txt').write_bytes(data)
         if capture_mouse_sequence:
             records['mouse_sequence_register_order'] = 'CS EIP EAX EBX ECX EDX ESI EDI DS ES SS ESP EFLAGS'
             records['mouse_sequence'] = []

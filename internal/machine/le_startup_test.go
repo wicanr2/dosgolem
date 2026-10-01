@@ -11,6 +11,32 @@ import (
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
 
+func TestMOO2WindowsVersionAbsentPreservesState(t *testing.T) {
+	mem := []byte{0xcd, 0x2f, 0x83, 0xf8, 0}
+	c := cpu386.New(startupBus(mem))
+	c.R = [8]uint32{cpu386.EAX: 0xabcd160a, cpu386.EDX: 0x1608a, cpu386.ESP: 0x3ebbac, cpu386.EBP: 0x3ebc06, cpu386.ESI: 0x3e0151, cpu386.EDI: 0x3a2090}
+	c.Seg = [6]uint16{0x188, 0x180, 0x188, 0x188, 0, 0x20}
+	c.EIP, c.EFlags = 0x21788a, 0x246
+	r, seg, ip, flags := c.R, c.Seg, c.EIP, c.EFlags
+	before := append([]byte(nil), mem...)
+	s := NewMOO2StartupDOS(nil)
+	for i := 0; i < 2; i++ {
+		if !s.Handle(c, 0x2f) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != flags || !bytes.Equal(mem, before) || s.Calls() != 0 {
+			t.Fatal("未安裝 Windows 的限定查詢改變輸入狀態")
+		}
+	}
+	if NewFD2StartupDOS(nil).Handle(c, 0x2f) {
+		t.Fatal("Windows 查詢許可擴張到其他程式設定")
+	}
+	for _, ax := range []uint32{0x1600, 0x160b, 0x1680, 0xffff} {
+		c.R[cpu386.EAX] = ax
+		r = c.R
+		if s.Handle(c, 0x2f) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != flags || !bytes.Equal(mem, before) {
+			t.Fatalf("未知多工服務 %04X 未保持拒絕邊界", ax)
+		}
+	}
+}
+
 func TestMOO2ProtectedMouseQueryUsesControlledState(t *testing.T) {
 	c := cpu386.New(startupBus(make([]byte, 8)))
 	s := NewMOO2StartupDOS(nil)
