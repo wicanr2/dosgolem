@@ -214,11 +214,22 @@ func readTSV(path string, header []string) ([][]string, error) {
 }
 
 func (t *Transliterator) loadCMU(path string) error {
-	f, err := os.Open(path)
+	m, err := SharedCMU(path)
 	if err != nil {
 		return err
 	}
+	t.cmu = m
+	return nil
+}
+
+// parseCMU 解析 CMU 發音詞典檔，每個詞只取第一個讀音。
+func parseCMU(path string) (map[string][]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
 	defer f.Close()
+	cmu := map[string][]string{}
 	br := bufio.NewReader(f)
 	for {
 		line, err := br.ReadString('\n')
@@ -229,8 +240,8 @@ func (t *Transliterator) loadCMU(path string) error {
 			fs := strings.Fields(line)
 			// 只取第一個讀音：word(2)、word(3)… 是其他讀音。
 			if len(fs) >= 2 && !strings.Contains(fs[0], "(") {
-				if _, dup := t.cmu[fs[0]]; !dup {
-					t.cmu[fs[0]] = fs[1:]
+				if _, dup := cmu[fs[0]]; !dup {
+					cmu[fs[0]] = fs[1:]
 				}
 			}
 		}
@@ -238,13 +249,13 @@ func (t *Transliterator) loadCMU(path string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
-	if len(t.cmu) == 0 {
-		return fmt.Errorf("%s: 沒有任何詞條", path)
+	if len(cmu) == 0 {
+		return nil, fmt.Errorf("%s: 沒有任何詞條", path)
 	}
-	return nil
+	return cmu, nil
 }
 
 // Transliterate 把 name 音譯成繁體中文。字與字以 Separator 連接；tier 是各字來源的最低等級。
