@@ -21,3 +21,7 @@ READY 審查：原版同次 word 來源、DS 前後值與不變旗標已取得�
 ## CONFORMED 收據
 
 上述指令測試與固定 EXE 全套回歸通過，私有 `workplace/full-test-256.txt` SHA-256 `9860d86ce52134078bb35dca6254e433845197a2803109bb1f2a758e61c8f057`。原檔受控回呼自生越過 `0x2001E4` 並完成一次遠返回，隨後第 1,546,522 步停於座標設定 `INT 33h/AX=4`；私有 `workplace/moo2-probe-256-mouse-event.txt.gz` SHA-256 `2cc16391476f390116582129013b28f784cb0a4c48ced8a530399e454fc98510`。只驗窄指令契約，不外推回呼所有 consumer 或玩家路徑。
+
+## ES 目的的後續範圍
+
+本規格仍限定已驗的 DS 形狀；後續 CS 絕對 word 的 ES 形狀由規格 279 擴充，見 [279-cpu386-cs-absolute-es-load.md](279-cpu386-cs-absolute-es-load.md)。原版有限 word 來源與完整保持狀態已審查後 READY 才實作；不把新增 ES 範圍回寫為當時已驗。未核准的 SS／FS／GS／CS 與非絕對形狀保持拒絕，完整保護模式權限模型仍未建立。

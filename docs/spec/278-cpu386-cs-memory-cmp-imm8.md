@@ -37,3 +37,7 @@ Go 1.24.13 與規格 277 的映像；GOMAXPROCS=2 go test -buildvcs=false ./inte
 兩條自然排程按 277 命令重跑，PNG／gzip 名稱改 278。均在外層第 1,160,098 步、內層高位 LE 0x244DBA 停止，bytes 66 2E 8E 05 06 1A 27 00 FF 05 FE 19 27 00 8C 15；原因是既有 CS word 段載入只允許 DS，當前目標是 ES。已越過 0x244D9A 比較；不是返回或等待閉合。內層解碼 EIP=244DBEh，完整上下文恢復至外層 0x234341；IRQ started=1／completed=0，Micros=1160110、Deliveries=21、InService=true，PIT 模式 3／Reload=19887。DS:00271148 四 bytes 仍零。
 
 自然 gzip SHA-256 26582e61ecf36a808d296f4122ee51a3af9666b033c272cc7b3d116bfae190f4／73435ec83d414aef7d1c5d5e14f981113e75645a4f76a86e7c3a2244c0095a5f。事件條件 requested=true／injected=false，仍不可當兩條玩家分支驗收。VBE Writes=0，PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622 與已檢視黑圖相同。277／255 仍 READY；下一步只補公開標準 MOV ES 的段載入契約，再黑箱自然重跑，禁止解 ISR、driver／busy-wait 或注入等待值。
+
+## ES 停點後續
+
+CS word MOV ES 停點已由規格 279 接通，見 [279-cpu386-cs-absolute-es-load.md](279-cpu386-cs-absolute-es-load.md)。上述 0x244DBA 停點為本批歷史；原版完整返回與等待／玩家路徑另驗，不能用一條段載入通過取代。
