@@ -66,6 +66,7 @@ type ModeChange struct {
 // SetVideoMode 把目前模式記進 BDA（`0040:0049`）。
 // `int 10h AH=00h` 與 `AH=0Fh` 兩邊都讀它，所以只留這一份。
 func (m *Machine) SetVideoMode(mode uint8) {
+	m.dacMask = 0xff // IBM VGA 模式初始化契約，見規格 263。
 	m.Mem[bdaSeg*16+0x49] = mode
 	m.ModeChanges = append(m.ModeChanges, ModeChange{Mode: mode, Step: m.Steps})
 	// mode 13h 是 320×200；欄數要跟著改，`AH=0Fh` 會回它。

@@ -25,6 +25,7 @@ func (v *LEVideo) Handle(c *cpu386.CPU) bool {
 	v.machine.Mem[0x449] = 0x13
 	v.machine.Mem[0x44a] = 40
 	v.machine.Mem[0x44b] = 0
+	v.ports.device.dacMask = 0xff
 	v.Mode = 0x13
 	v.ModeSets++
 	return true

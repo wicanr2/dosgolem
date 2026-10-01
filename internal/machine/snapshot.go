@@ -52,6 +52,7 @@ type Snapshot struct {
 	portsIn map[uint16]uint64
 
 	dac      [256 * 3]uint8
+	dacMask  uint8
 	dacIndex uint8
 	dacPhase uint8
 
@@ -111,6 +112,7 @@ func (m *Machine) Snapshot() *Snapshot {
 		ports:     map[uint16]uint8{},
 		portsIn:   map[uint16]uint64{},
 		dac:       m.DAC,
+		dacMask:   m.dacMask,
 		dacIndex:  m.dacIndex,
 		dacPhase:  m.dacPhase,
 		vga:       m.VGA.clone(),
@@ -175,6 +177,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.PortLog = m.PortLog[:0]
 
 	m.DAC, m.dacIndex, m.dacPhase = s.dac, s.dacIndex, s.dacPhase
+	m.dacMask = s.dacMask
 	m.VGA.restore(s.vga)
 	m.planarOn = s.planarOn
 

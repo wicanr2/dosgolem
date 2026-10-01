@@ -422,6 +422,7 @@ type Machine struct {
 	// DAC 是 VGA 調色盤，256×3 個 6 位元色值（`docs/formats/001` 的格式）。
 	DAC [256 * 3]uint8
 
+	dacMask  uint8 // 標準 VGA 像素遮罩，見規格 263。
 	dacIndex uint8
 	dacPhase uint8
 
@@ -480,6 +481,7 @@ type Machine struct {
 func New() *Machine {
 	m := &Machine{
 		Mem:           make([]uint8, MemSize),
+		dacMask:       0xff,
 		Ports:         map[uint16]uint8{},
 		PortsIn:       map[uint16]uint64{},
 		IRQ0Every:     DefaultIRQ0Every,
@@ -824,6 +826,8 @@ func (m *Machine) In8(port uint16) uint8 {
 		return v
 	}
 	switch {
+	case port == 0x3C6:
+		return m.dacMask
 	case port == 0x60:
 		// 鍵盤資料埠。**沒有硬體鍵盤時這裡回 0xFF**，而 0xFF 的 bit7 是
 		// 「放開」——自己裝 IRQ1 的程式會把每一次都當成放開而忽略，
@@ -944,6 +948,8 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	}
 
 	switch p {
+	case 0x3C6: // 遮罩查色索引，不改原始色值或 RGB 寫入相位。
+		m.dacMask = v
 	case 0x3C8: // 設寫入索引
 		m.dacIndex, m.dacPhase = v, 0
 	case 0x3C9: // 連寫三次 ＝ R、G、B（各 6 位元）
@@ -1059,12 +1065,12 @@ func (m *Machine) recalcIRQ0() {
 	}
 }
 
-// Palette 把 DAC 的 6 位元色值轉成 8 位元 RGB。
+// Palette 先以像素遮罩選 DAC 色號，再把 6 位元色值轉成 8 位元 RGB。
 func (m *Machine) Palette() [256][3]uint8 {
 	var out [256][3]uint8
 	for i := 0; i < 256; i++ {
 		for ch := 0; ch < 3; ch++ {
-			v := m.DAC[i*3+ch]
+			v := m.DAC[(i&int(m.dacMask))*3+ch]
 			// 6 → 8 位元用「高位補到低位」，不是乘 255/63 四捨五入。
 			out[i][ch] = v<<2 | v>>4
 		}

@@ -413,4 +413,5 @@
 - [259 — DPMI 可用記憶體資訊](259-dpmi-free-memory-information.md)：CONFORMED。配置器一致資訊與兩條原檔路徑已驗；下一停點為記憶體移位 `C1 7D F4 04`。
 - [260 — 堆疊 dword 的立即數算術右移](260-cpu386-sar-stack-dword-immediate.md)：CONFORMED。值及定義旗標已核對，AF 差異明示；當時的搜尋停點已由規格 261 接通。
 - [261 — MOO2 DOS 搜尋的目前目錄前綴](261-moo2-dos-findfirst-current-directory.md)：CONFORMED。原版缺檔返回已核對，DTA 保留區差異明示；當時的 TEST 停點已由規格 262 接通。
-- [262 — 16 位元暫存器間的 TEST](262-cpu386-test-word-register.md)：CONFORMED。暫存器配對、定義旗標與原版第一個分支已核對；兩條原檔自然路徑下一停點為 VGA 埠 `03C6h`。
+- [262 — 16 位元暫存器間的 TEST](262-cpu386-test-word-register.md)：CONFORMED。暫存器配對、定義旗標與原版第一個分支已核對；當時 VGA 埠停點已由規格 263 接通。
+- [263 — VGA DAC 像素遮罩](263-vga-dac-pel-mask.md)：CONFORMED。標準遮罩的硬體規格近似、色彩消費端及兩種保存路徑已驗；兩條原檔自然路徑下一停點為 `F6 F3`。

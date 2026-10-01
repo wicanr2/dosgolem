@@ -145,7 +145,7 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 		p.record(port, v, false)
 		return v, true
 	}
-	if port == 0x3da {
+	if port == 0x3da || port == 0x3c6 {
 		v := p.device.In8(port)
 		p.record(port, v, false)
 		return v, true
@@ -163,7 +163,7 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 		p.record(port, v, true)
 		return true
 	}
-	if port == 0x3c8 || port == 0x3c9 {
+	if port == 0x3c6 || port == 0x3c8 || port == 0x3c9 {
 		p.device.Out8(port, v)
 		p.record(port, v, true)
 		return true

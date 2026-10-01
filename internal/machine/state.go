@@ -57,9 +57,11 @@ type machineState struct {
 	Ports   map[uint16]uint8
 	PortsIn map[uint16]uint64
 
-	DAC      []uint8
-	DACIndex uint8
-	DACPhase uint8
+	DAC            []uint8
+	DACMaskPresent bool // 舊 v2 缺此欄位；遮罩 0 本身是合法值。
+	DACMask        uint8
+	DACIndex       uint8
+	DACPhase       uint8
 
 	Planes []uint8
 	Latch  [4]uint8
@@ -86,47 +88,49 @@ type machineState struct {
 func (m *Machine) SaveState(w io.Writer) error {
 	s := machineState{
 		Magic: stateMagic, Version: stateVersion,
-		Mem:         append([]uint8(nil), m.Mem...),
-		R:           m.CPU.R,
-		Seg:         m.CPU.Seg,
-		IP:          m.CPU.IP,
-		Flags:       m.CPU.Flags,
-		Halted:      m.CPU.Halted,
-		Model:       int(m.CPU.Model),
-		Steps:       m.Steps,
-		Ticks:       m.Ticks,
-		PortTicks:   m.portTicks,
-		NextIRQ0:    m.nextIRQ0,
-		IRQ0Pending: m.irq0Pending,
-		IRQ0Every:   m.IRQ0Every,
-		IRQ0Base:    m.IRQ0Base,
-		CPUHz:       m.CPUHz,
-		CycleClock:  m.CycleClock,
-		Cycles:      m.CPU.Cycles,
-		NextIRQ0Cyc: m.nextIRQ0Cyc,
-		PITDiv:      m.PITDiv,
-		PITAccess:   m.pitAccess,
-		PITPhase:    m.pitPhase,
-		PITLo:       m.pitLo,
-		Ports:       map[uint16]uint8{},
-		PortsIn:     map[uint16]uint64{},
-		DAC:         append([]uint8(nil), m.DAC[:]...),
-		DACIndex:    m.dacIndex,
-		DACPhase:    m.dacPhase,
-		Planes:      append([]uint8(nil), m.VGA.Raw()...),
-		Latch:       m.VGA.latch,
-		SeqIdx:      m.VGA.seqIdx,
-		Seq:         m.VGA.seq,
-		GCIdx:       m.VGA.gcIdx,
-		GC:          m.VGA.gc,
-		AC:          m.VGA.ac,
-		ACIdx:       m.VGA.acIdx,
-		ACFlip:      m.VGA.acFlip,
-		PlanarOn:    m.planarOn,
-		ProgramPath: m.ProgramPath,
-		FreeSeg:     m.FreeSeg,
-		ImageBase:   m.ImageBase,
-		ImageLen:    m.ImageLen,
+		Mem:            append([]uint8(nil), m.Mem...),
+		R:              m.CPU.R,
+		Seg:            m.CPU.Seg,
+		IP:             m.CPU.IP,
+		Flags:          m.CPU.Flags,
+		Halted:         m.CPU.Halted,
+		Model:          int(m.CPU.Model),
+		Steps:          m.Steps,
+		Ticks:          m.Ticks,
+		PortTicks:      m.portTicks,
+		NextIRQ0:       m.nextIRQ0,
+		IRQ0Pending:    m.irq0Pending,
+		IRQ0Every:      m.IRQ0Every,
+		IRQ0Base:       m.IRQ0Base,
+		CPUHz:          m.CPUHz,
+		CycleClock:     m.CycleClock,
+		Cycles:         m.CPU.Cycles,
+		NextIRQ0Cyc:    m.nextIRQ0Cyc,
+		PITDiv:         m.PITDiv,
+		PITAccess:      m.pitAccess,
+		PITPhase:       m.pitPhase,
+		PITLo:          m.pitLo,
+		Ports:          map[uint16]uint8{},
+		PortsIn:        map[uint16]uint64{},
+		DAC:            append([]uint8(nil), m.DAC[:]...),
+		DACMaskPresent: true,
+		DACMask:        m.dacMask,
+		DACIndex:       m.dacIndex,
+		DACPhase:       m.dacPhase,
+		Planes:         append([]uint8(nil), m.VGA.Raw()...),
+		Latch:          m.VGA.latch,
+		SeqIdx:         m.VGA.seqIdx,
+		Seq:            m.VGA.seq,
+		GCIdx:          m.VGA.gcIdx,
+		GC:             m.VGA.gc,
+		AC:             m.VGA.ac,
+		ACIdx:          m.VGA.acIdx,
+		ACFlip:         m.VGA.acFlip,
+		PlanarOn:       m.planarOn,
+		ProgramPath:    m.ProgramPath,
+		FreeSeg:        m.FreeSeg,
+		ImageBase:      m.ImageBase,
+		ImageLen:       m.ImageLen,
 	}
 	for k, v := range m.Ports {
 		s.Ports[k] = v
@@ -190,6 +194,10 @@ func (m *Machine) LoadState(r io.Reader) error {
 
 	copy(m.DAC[:], s.DAC)
 	m.dacIndex, m.dacPhase = s.DACIndex, s.DACPhase
+	m.dacMask = 0xff
+	if s.DACMaskPresent {
+		m.dacMask = s.DACMask
+	}
 	copy(m.VGA.Raw(), s.Planes)
 	m.VGA.latch, m.VGA.seqIdx, m.VGA.seq = s.Latch, s.SeqIdx, s.Seq
 	m.VGA.gcIdx, m.VGA.gc = s.GCIdx, s.GC
