@@ -4,8 +4,10 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wicanr2/dosgolem/xlate/translit"
 	"github.com/wicanr2/dosgolem/xlate/translitjk"
@@ -205,4 +207,41 @@ func hex4(r rune) string {
 	const digits = "0123456789abcdef"
 	s := []byte{digits[(r>>12)&15], digits[(r>>8)&15], digits[(r>>4)&15], digits[r&15]}
 	return string(s)
+}
+
+// Spec 044 §5 point 6: the load time and heap of LoadLiveRuntimeOptions with
+// the zh-TW lane alone and with the four languages.  Recorded, not gated.
+func TestJkLoadCostRecord(t *testing.T) {
+	root := os.Getenv("BUCKROGERS_CHT_ROOT")
+	fonts := map[string]string{
+		LangZhTW: os.Getenv("BUCKROGERS_ZHTW_FONT"), LangZhCN: os.Getenv("BUCKROGERS_ZHCN_FONT"),
+		LangJa: os.Getenv("BUCKROGERS_JA_FONT"), LangKo: os.Getenv("BUCKROGERS_KO_FONT"),
+	}
+	for lang, f := range fonts {
+		if root == "" || f == "" {
+			t.Skipf("BUCKROGERS_CHT_ROOT 或 %s 的字型環境變數未設定：載入成本未記錄", lang)
+		}
+	}
+	text := filepath.Join(root, "text")
+	measure := func(label string, langs []string) {
+		runtime.GC()
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		start := time.Now()
+		opts := LiveOptions{TextDir: text, FontPath: fonts[LangZhTW], Langs: langs, LangFonts: map[string]string{}}
+		for _, l := range langs {
+			opts.LangFonts[l] = fonts[l]
+		}
+		r, err := LoadLiveRuntimeOptions(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := time.Since(start)
+		runtime.GC()
+		runtime.ReadMemStats(&after)
+		t.Logf("%s：載入 %v，HeapAlloc %d -> %d bytes（%+d）", label, d.Round(time.Millisecond), before.HeapAlloc, after.HeapAlloc, int64(after.HeapAlloc)-int64(before.HeapAlloc))
+		runtime.KeepAlive(r)
+	}
+	measure("zh-TW 單語", nil)
+	measure("四語", []string{LangZhCN, LangJa, LangKo})
 }
