@@ -32,6 +32,9 @@ type FD2StartupDOS struct {
 	// MOO2 固定啟動診斷只記錄已設定的模式；不代表 BDA 或實際畫面。
 	videoModeSet bool
 	videoMode    uint8
+	// VBE 顯示起點只記錄已觀測的 MOO2 零座標呼叫，不代表 VRAM 畫面。
+	vbeStartSet          bool
+	vbeStartX, vbeStartY uint16
 	// 只供已明示 MOO2 啟動設定的受控 INT 33h/AX=3／1Ah／21h 使用。
 	mouseQueryEnabled bool
 	mouseX, mouseY    uint16
@@ -79,6 +82,7 @@ func NewMOO2StartupDOS(files ReadOnlyFileProvider) *MOO2StartupDOS {
 	s.mouseQueryEnabled = true
 	s.mouseX, s.mouseY = moo2MouseCenterX, moo2MouseCenterY
 	s.mouseSensitivityX, s.mouseSensitivityY, s.mouseDoubleSpeed = 50, 50, 50
+	s.DPMI.RealModeBIOS = moo2VBEControllerInfo
 	return &MOO2StartupDOS{s}
 }
 
@@ -396,11 +400,23 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 
 func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 	if number == 0x10 {
-		if !s.moo2Profile || c.R[cpu386.EAX] != 3 {
+		if !s.moo2Profile {
 			return false
 		}
-		s.videoMode, s.videoModeSet = 3, true
-		return true
+		switch c.R[cpu386.EAX] {
+		case 3:
+			s.videoMode, s.videoModeSet = 3, true
+			return true
+		case 0x4f07:
+			if c.R[cpu386.EBX] != 0 || c.R[cpu386.ECX] != 0 || c.R[cpu386.EDX] != 0 {
+				return false
+			}
+			s.vbeStartX, s.vbeStartY, s.vbeStartSet = 0, 0, true
+			c.R[cpu386.EAX] = 0x4f
+			return true
+		default:
+			return false
+		}
 	}
 	if number == 0x33 {
 		if !s.mouseQueryEnabled {

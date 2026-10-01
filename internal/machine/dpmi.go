@@ -96,7 +96,9 @@ type DPMIHost struct {
 	RealModeHistory   []*DPMIRealModeTrace
 	RealModeIO        RealModePortIO
 	RealModeInterrupt func(*cpu.CPU, uint8) bool
-	realStack         uint16
+	// RealModeBIOS 只由明示平台設定使用，在 0300h 封包驗證後處理受限 BIOS 契約。
+	RealModeBIOS func(*DPMIHost, uint8, *[50]byte) (bool, error)
+	realStack    uint16
 
 	realVec [256]uint32 // 實模式向量：段<<16 | 位移
 	protVec [256]uint64 // 保護模式向量：selector<<32 | 位移

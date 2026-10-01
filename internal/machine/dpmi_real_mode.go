@@ -98,6 +98,22 @@ func (h *DPMIHost) simulateRealModeInterrupt(c *cpu386.CPU) error {
 	if word(38) != 0 || word(40) != 0 {
 		return fmt.Errorf("DPMI0300 FS／GS尚未支援")
 	}
+	if h.RealModeBIOS != nil {
+		biosAX := word(28)
+		handled, err := h.RealModeBIOS(h, tr.Interrupt, &packet)
+		if handled {
+			if err != nil {
+				return err
+			}
+			if !c.WriteSegmentBytes(c.Seg[cpu386.SegES], c.R[cpu386.EDI], packet[:]) {
+				return fmt.Errorf("DPMI0300 BIOS 輸出封包失敗")
+			}
+			tr.Entry = fmt.Sprintf("MOO2 VBE %04X 平台服務", biosAX)
+			tr.OutputPacket = fmt.Sprintf("% X", packet[:])
+			tr.Returned = true
+			return nil
+		}
+	}
 	seg, off := h.RealModeVector(tr.Interrupt)
 	tr.Entry = fmt.Sprintf("%04X:%04X", seg, off)
 	if seg == 0 && off == 0 {
