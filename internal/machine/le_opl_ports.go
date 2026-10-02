@@ -13,6 +13,7 @@ type LEOPLPorts struct {
 	device                        *Machine
 	virtualMicros                 uint64
 	dmaActive                     bool
+	dma8Paused                    bool
 	dma16Active                   bool
 	dma16WordsLeft                uint32
 	sample16Credit                uint64
@@ -25,6 +26,9 @@ type LEOPLPorts struct {
 	IRQ7Deliveries                uint64
 	IRQ7Passdowns                 uint64
 	IRQ7Returns                   uint64
+	DMA8PauseCommands             uint64
+	DMA8ResumeCommands            uint64
+	DMA8ControlLast               *LEDMA8ControlTrace
 	IRQ7Last                      *LERealIRQ7Trace
 	realIRQ7                      *leRealIRQ7
 	PCM                           []byte
@@ -51,7 +55,9 @@ func NewLEOPLPorts() *LEOPLPorts {
 	p.dsp.Start16DMA = p.startDSP16DMA
 	p.dsp.StartAutoDMA = func(n uint32) bool { return p.startDMA(n, true) }
 	p.dsp.StartSB16AutoDMA = p.startSB16AutoDMA
+	p.dsp.ControlDMA8 = p.controlDMA8
 	p.dsp.CancelDMA = func() {
+		p.dma8Paused = false
 		p.dmaActive = false
 		p.dmaLeft = 0
 		p.dmaStereo, p.dmaSigned, p.dmaFIFO = false, false, false
@@ -310,6 +316,7 @@ type LEDeviceState struct {
 	DMAKnown                              [8]uint8
 	DMAPageKnown                          [4]bool
 	DMAActive, DMAAuto                    bool
+	DMA8Paused                            bool
 	DMABytesLeft, DMABlockSize            uint32
 	DMACompletions, DMA16Completions      uint64
 	PCMBytes                              int
@@ -329,10 +336,36 @@ func (p *LEOPLPorts) State() LEDeviceState {
 		DMA16Active: p.dma16Active, DSPTimeConstant: p.dsp.TimeConstant, DSPTimeConstantKnown: p.dsp.TimeConstantKnown,
 		DSPRateNumerator: p.dsp.RateNumerator, DSPRateDenominator: p.dsp.RateDenominator,
 		DMAKnown: p.dma.Known, DMAPageKnown: p.dma.PageKnown,
-		DMAActive: p.dmaActive, DMAAuto: p.dmaAuto, DMABytesLeft: p.dmaLeft, DMABlockSize: p.dmaBlockSize,
+		DMA8Paused: p.dma8Paused,
+		DMAActive:  p.dmaActive, DMAAuto: p.dmaAuto, DMABytesLeft: p.dmaLeft, DMABlockSize: p.dmaBlockSize,
 		DMACompletions: p.DMACompletions, DMA16Completions: p.DMA16Completions, PCMBytes: len(p.PCM),
 		DMA8Stereo: p.dmaStereo, DMA8Signed: p.dmaSigned, DMA8FIFO: p.dmaFIFO,
 		DSPAuto8Command: p.dsp.Auto8Command, DSPAuto8Commands: p.dsp.Auto8Commands,
 		DMA8SampleCredit: p.sampleCredit,
 	}
+}
+
+// LEDMA8ControlTrace 保存最近一次成功控制的值快照，不暴露可寫裝置指標。
+type LEDMA8ControlTrace struct {
+	Command       byte
+	Before, After LEDeviceState
+}
+
+// controlDMA8 依規格309只控制active8傳輸；idle契約未知，明確拒絕。
+// 暫停保留分數信用與來源／IRQ，並非取消或退出auto-init。
+func (p *LEOPLPorts) controlDMA8(paused bool) bool {
+	if !p.dmaActive {
+		return false
+	}
+	before := p.State()
+	p.dma8Paused = paused
+	command := byte(0xd4)
+	if paused {
+		command = 0xd0
+		p.DMA8PauseCommands++
+	} else {
+		p.DMA8ResumeCommands++
+	}
+	p.DMA8ControlLast = &LEDMA8ControlTrace{Command: command, Before: before, After: p.State()}
+	return true
 }

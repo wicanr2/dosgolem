@@ -18,6 +18,7 @@ type SoundBlasterDSP struct {
 	c6Step, c6Mode                 uint8
 	StartDMA                       func(uint32) bool
 	CancelDMA                      func()
+	ControlDMA8                    func(paused bool) bool
 	IRQPending                     bool
 	IRQ16Pending                   bool
 	TimeConstant                   uint8
@@ -176,6 +177,9 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		}
 		if s.pending == 0 {
 			switch v {
+			case 0xd0, 0xd4:
+				// 規格309：參數由上方解析，只對完整命令控制傳輸。
+				return s.ControlDMA8 != nil && s.ControlDMA8(v == 0xd0)
 			case 0xd1, 0xd3:
 				s.SpeakerOn = v == 0xd1
 				return true

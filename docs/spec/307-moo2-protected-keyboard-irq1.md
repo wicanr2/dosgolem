@@ -80,3 +80,7 @@ GOMAXPROCS=2 GOCACHE=/tmp/go-cache go test -p 2 -buildvcs=false ./internal/machi
 ## 解析回填
 
 不可變鍵：固定1.31 EXE雜湊＋高位LE0x239833的AH2509＋8:21C4D8。303、305、306追加「正常Esc IRQ1已由規格 307 接線」與本檔連結；較早未知限定回到當時，其他鍵、等待欄位、255／299自然OF=1、人耳／主選單／玩家流程仍未知。入口apps/moo2/tools/startup_probe_131.py --check-hardware-keyboard-spec-backlinks，缺實際向量／輸入排程／讀取EOI返回／caller正常續行／兩收據／平台近似及舊標記即拒絕。
+
+## D0暫停與D4恢復後續
+
+D0 DMA暫停停點已由規格 309 接通，見[309-sb16-pause-resume-dma8.md](309-sb16-pause-resume-dma8.md)。2026-10-03同一48M正常Esc兩排程真正D0／102步原版IRQ7返回、450096µs暫停來源保持與後續D4／INT66成功caller均已驗；較早D0缺件為當時基線，現行停高位LE0x240A32的DOS AH2Ah。分數時間是平台近似，完整鍵盤／主選單／玩家路徑與其他原有邊界不擴張。

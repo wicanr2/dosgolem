@@ -50,6 +50,31 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
+
+def validate_dma8_control_resolution(spec_dir):
+    """309正常D0／D4與原版返回須回填較早DSP未知。"""
+    current=(spec_dir/'309-sb16-pause-resume-dma8.md').read_text()
+    required=('0x217AD8','1201:05DA','OUT022C=D0','1201:0682',
+              '102步','450096µs','461100','58507105',
+              '0x217ADF','0x2454B0','0x2454E7','0x240A32',
+              'hardware-spec approximation','idle','主選單',
+              'a33b5da6a93a996cd1cf6653455c39605fc4aaad9e539cf0cefcfce5d6abe28a',
+              '07a99506c2c6789cabf3ada4d365431cf977aa37e5509114302bd28708faf25e',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('DMA8控制缺原始定位／D0保持／真正IRQ7返回／D4 caller／收據與限定範圍')
+    for number in (303,305,306,307):
+        names=list(spec_dir.glob(str(number)+'-*.md'))
+        if len(names)!=1:raise RuntimeError('DMA8控制舊規格不唯一')
+        text=names[0].read_text()
+        if 'D0 DMA暫停停點已由規格 309 接通' not in text or '309-sb16-pause-resume-dma8.md' not in text:
+            raise RuntimeError('DMA8控制舊未知缺原始返回回填')
+
+if sys.argv[1:]==['--check-dma8-control-spec-backlinks']:
+    validate_dma8_control_resolution(spec_dir)
+    print('D0／D4／原版返回與舊DSP邊界回填通過')
+    raise SystemExit(0)
+
 def validate_hardware_keyboard_resolution(spec_dir):
     """307正常controller輸入與原版IRQ1／caller須回填。"""
     current=(spec_dir/'307-moo2-protected-keyboard-irq1.md').read_text()

@@ -75,3 +75,7 @@ CPU及三份平台來源與302保持相同雜湊。唯讀probe已由兩次自然
 [305-moo2-irq7-real-mode-passdown.md](305-moo2-irq7-real-mode-passdown.md)以固定1.31 EXE、實際IVT1201:0682／實模式線性0x12692及公開DOS/4GW契約閉合14次原版73步、EOI／22E／IRET；兩自然PCM29175及兩時計44647204已驗。較早IRQ7未派送／返回的記錄屬該舊基線，現行限定轉送依305。平台寄存器映射與1µs時鐘是近似，人耳、完整音訊、鍵盤IRQ1、主選單／正常玩家路徑與整款remake仍未知；其他CPU／255／299邊界保持。
 
 正常Esc IRQ1已由規格 307 接線：[307](307-moo2-protected-keyboard-irq1.md)驗證正常controller的01／81、97／77步返回與原caller續行；完整鍵盤、主選單／玩家路徑仍未知，後續OUT022C=D0平台缺件另列。
+
+## D0暫停與D4恢復後續
+
+D0 DMA暫停停點已由規格 309 接通，見[309-sb16-pause-resume-dma8.md](309-sb16-pause-resume-dma8.md)。2026-10-03同一48M正常Esc兩排程真正D0／102步原版IRQ7返回、450096µs暫停來源保持與後續D4／INT66成功caller均已驗；較早D0缺件為當時基線，現行停高位LE0x240A32的DOS AH2Ah。分數時間是平台近似，完整鍵盤／主選單／玩家路徑與其他原有邊界不擴張。

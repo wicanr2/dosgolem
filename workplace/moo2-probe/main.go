@@ -335,6 +335,8 @@ func main() {
 	}
 	ring := make([]sample, 0, 32)
 	irq7FirstPrinted := false
+	var dma8ControlsPrinted uint64
+	dma8ConsumerSteps := 0
 	keyboardRequested := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000") == "1"
 	keyboardQueued := false
 	var keyboardPrinted uint64
@@ -559,7 +561,28 @@ func main() {
 			keyboardQueued = true
 			fmt.Printf("hardware_keyboard_input outer_step=%d scan=01/81 source=controller_queue eip=%X r=%X seg=%X flags=%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
 		}
+		observeDMA8Consumer := dma8ConsumerSteps > 0
+		var dma8BeforeR [8]uint32
+		var dma8BeforeSeg [6]uint16
+		var dma8BeforeEIP, dma8BeforeFlags uint32
+		var dma8InstructionBytes [16]byte
+		if observeDMA8Consumer {
+			dma8BeforeR, dma8BeforeSeg, dma8BeforeEIP, dma8BeforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+			copy(dma8InstructionBytes[:], m.Mem[dma8BeforeEIP:dma8BeforeEIP+16])
+		}
 		stepErr := m.CPU.Step()
+		if observeDMA8Consumer {
+			dma8ConsumerSteps--
+			fmt.Printf("dma8_control_caller outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, dma8BeforeEIP, m.CPU.EIP, dma8BeforeR, m.CPU.R, dma8BeforeSeg, m.CPU.Seg, dma8BeforeFlags, m.CPU.EFlags, dma8InstructionBytes, stepErr)
+		}
+
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && ports.DMA8PauseCommands+ports.DMA8ResumeCommands != dma8ControlsPrinted {
+			dma8ControlsPrinted = ports.DMA8PauseCommands + ports.DMA8ResumeCommands
+			dma8ConsumerSteps = 3
+			fmt.Printf("dma8_control_return outer_step=%d pause_commands=%d resume_commands=%d after_eip=%X r=%X seg=%X flags=%X last=%+v error=%v\n", i, ports.DMA8PauseCommands, ports.DMA8ResumeCommands, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.DMA8ControlLast, stepErr)
+			dumpPlatform("dma8_control_return", i)
+		}
+
 		if _, _, _, _, _, _, started, completed, last := services.HardwareIRQ1State(); last != nil && started != keyboardPrinted {
 			keyboardPrinted = started
 			fmt.Printf("hardware_keyboard_return outer_step=%d started=%d completed=%d after_eip=%X r=%X seg=%X flags=%X last=%+v raw_2a42ac=%X error=%v\n", i, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, last, m.Mem[0x2a42ac:0x2a42ec], stepErr)

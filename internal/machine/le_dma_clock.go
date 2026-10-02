@@ -46,6 +46,7 @@ func (p *LEOPLPorts) startDMA(n uint32, auto bool) bool {
 		d.Known[2] != 3 || d.Known[3] != 3 || !d.PageKnown[1] || n == 0 || n > uint32(d.Current[3])+1 {
 		return false
 	}
+	p.dma8Paused = false
 	p.dmaActive = true
 	p.dmaLeft = n
 	p.dmaBlockSize = n
@@ -104,7 +105,7 @@ func (p *LEOPLPorts) deliverIRQ7Real(c *cpu.CPU, m *LEMachine) error {
 
 // advanceDMA 只推進取樣與來源狀態，時鐘由兩模式入口各加一次。
 func (p *LEOPLPorts) advanceDMA(m *LEMachine) error {
-	if p.dmaActive && p.dma.Mask&2 == 0 {
+	if p.dmaActive && !p.dma8Paused && p.dma.Mask&2 == 0 {
 		multiplier := uint64(1)
 		// 41h的rate是每channel；40h TimeConstant已包含channels，勿重複乘2。
 		if p.dmaStereo && !p.dsp.TimeConstantKnown {
@@ -112,7 +113,7 @@ func (p *LEOPLPorts) advanceDMA(m *LEMachine) error {
 		}
 		p.sampleCredit += multiplier * p.dsp.RateNumerator
 	}
-	if p.dmaActive && p.sampleCredit >= 1000000*p.dsp.RateDenominator && p.dma.Mask&2 == 0 {
+	if p.dmaActive && !p.dma8Paused && p.sampleCredit >= 1000000*p.dsp.RateDenominator && p.dma.Mask&2 == 0 {
 		p.sampleCredit -= 1000000 * p.dsp.RateDenominator
 		d := p.dma
 		a := uint32(d.Page[1])<<16 | uint32(d.Current[2])

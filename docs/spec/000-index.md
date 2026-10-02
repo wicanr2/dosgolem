@@ -479,6 +479,8 @@
 
 - [306：AL 與立即 byte 的 XOR](306-cpu386-xor-al-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然三組AL／旗標、RET及MOV ESI,EAX消費已驗；50M無拒絕、386次IRQ7返回與星空片段，正常Esc IRQ1由307接線，完整鍵盤／玩家流程仍未知。
 
-- [307：MOO2 硬體鍵盤與保護模式 IRQ1](307-moo2-protected-keyboard-irq1.md)：CONFORMED。限定正常controller Esc 01／81、97／77步原版IRQ1返回及caller續行；後續D0音訊平台命令拒絕，完整鍵盤／主選單仍未知。
+- [307：MOO2 硬體鍵盤與保護模式 IRQ1](307-moo2-protected-keyboard-irq1.md)：CONFORMED。限定正常controller Esc 01／81、97／77步原版IRQ1返回及caller續行；後續D0／D4由309接線，完整鍵盤／主選單仍未知。
 
 - [308：dword 指標的間接遠呼叫](308-cpu386-call-far-indirect-absolute.md)：CONFORMED。裸FF 1D真實六byte指標／8byte寫回與CB消費、全套與兩自然診斷已驗；完整CPU權限／gate未建模。
+
+- [309：DSP 8 位元 DMA 暫停與恢復](309-sb16-pause-resume-dma8.md)：CONFORMED。正常Esc後真正D0／102步原版IRQ7返回、450096µs暫停來源保持與D4／成功caller／全套已驗；idle／硬體時序／人耳及完整玩家路徑仍未知。
