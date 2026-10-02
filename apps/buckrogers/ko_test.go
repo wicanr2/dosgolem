@@ -367,6 +367,11 @@ func TestKoNameMatchesAgreeWithZhTW(t *testing.T) {
 		if strings.HasPrefix(base, "name-glossary") {
 			continue
 		}
+		// 手冊段落不經名字表：zh-TW 印刷本保留英文 Scot.dos，Go Matches 認的是中文譯名；
+		// 手冊的人物一致性由 tools/name_glossary.py lint 檢查（含 old 形）。
+		if base == "manual.ko.tsv" {
+			continue
+		}
 		zhFile := strings.Replace(f, ".ko.tsv", ".zh-TW.tsv", 1)
 		kb, err1 := os.ReadFile(f)
 		zb, err2 := os.ReadFile(zhFile)
