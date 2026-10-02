@@ -4359,6 +4359,14 @@ func (c *CPU) Step() error {
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("NOP prefix尚未支援")
 		}
+	case op >= 0x91 && op <= 0x97:
+		if !operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("XCHG AX短編碼僅支援word暫存器")
+		}
+		reg := op - 0x90
+		a, b := uint16(c.R[EAX]), uint16(c.R[reg])
+		c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(b)
+		c.R[reg] = c.R[reg]&0xffff0000 | uint32(a)
 	case op == 0x87:
 		if segmentOverride >= 0 || repe || repne {
 			return fail("XCHG prefix尚未支援")

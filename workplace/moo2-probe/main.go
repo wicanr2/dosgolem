@@ -273,6 +273,7 @@ func main() {
 	shlSeen := map[uint32]int{}
 	adcSeen := map[uint32]int{}
 	wordXorSeen := map[uint32]int{}
+	wordXchgSeen := map[uint32]int{}
 	previousStepHook := m.CPU.StepHook
 	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
 		if (c.EIP == 0x2520b7 || c.EIP == 0x2520b9 || c.EIP == 0x2520bb || c.EIP == 0x2520c5 || c.EIP == 0x2520c7 || c.EIP == 0x2520c9 || c.EIP == 0x2520cb || c.EIP == 0x2520d0 || c.EIP == 0x2520d6) && shlSeen[c.EIP] < 3 {
@@ -289,6 +290,11 @@ func main() {
 			wordXorSeen[c.EIP]++
 			active, failed, started, completed := services.IRQ0State()
 			fmt.Printf("word_xor_imm_state outer_step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X irq0_active=%t irq0_failed=%t irq0_started=%d irq0_completed=%d stack_destination_bytes=%X bytes=% X\n", loopStep, c.EIP, c.R, c.Seg, c.EFlags, active, failed, started, completed, m.Mem[0x2723f8:0x272400], m.Mem[c.EIP:c.EIP+64])
+		}
+		if (c.EIP == 0x256171 || c.EIP == 0x256173 || c.EIP == 0x256176) && wordXchgSeen[c.EIP] < 3 {
+			wordXchgSeen[c.EIP]++
+			active, failed, started, completed := services.IRQ0State()
+			fmt.Printf("word_xchg_state outer_step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X irq0_active=%t irq0_failed=%t irq0_started=%d irq0_completed=%d bytes=% X\n", loopStep, c.EIP, c.R, c.Seg, c.EFlags, active, failed, started, completed, m.Mem[c.EIP:c.EIP+64])
 		}
 		if previousStepHook != nil {
 			return previousStepHook(c)

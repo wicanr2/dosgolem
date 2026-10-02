@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-xchg-ax-word-spec-backlinks 只驗證 word XCHG及完整ROR消費回填，不啟動DOSBox-X。
 --check-xor-word-immediate-spec-backlinks 只驗證 word XOR與原版堆疊消費回填，不啟動DOSBox-X。
 --check-adc-dword-register-spec-backlinks 只驗證 dword ADC真實消費回填，不啟動DOSBox-X。
 --check-shl-dword-one-spec-backlinks 只驗證 dword 單位SHL回填，不啟動DOSBox-X。
@@ -62,6 +63,36 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_xchg_ax_word_resolution(spec_dir):
+    """302 的兩高word／全部旗標保持及真正ROR消費須回填舊停點。"""
+    current = (spec_dir / '302-cpu386-xchg-ax-word-register.md').read_text()
+    required = ('0x256171', '66 93', '完整EAX=0A0A0A0Ah', '完整EBX=2E0A0A2Eh',
+                'ROR完整EBX=2E2E0A0Ah', 'flags206h', '全部旗標保持',
+                'step_limit=50000000 eip=0x22FCD2', 'started7789／completed7789',
+                '72e5ee4954b0b4616e32b3b3844b6ee8836b210c0746cd4b8a20c0b9b5113326',
+                'fe3472fa0d7766a761b3b5f7cc5fab8cc22a296a16d0e947e3a093a62826be87',
+                'ae21d6b88b831f10addae20471effd45d0ce0e163de3d9067d0840829f4f44e9',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('word XCHG缺定位／兩高word與全部旗標保持／真正ROR消費或上限收據')
+    for name in ('293-cpu386-xor-dword-register-imm8.md',
+                 '294-cpu386-bsf-dword-register.md',
+                 '295-cpu386-or-dword-memory-register.md',
+                 '296-sb16-c6-auto-init-dma.md',
+                 '297-cpu386-ror-dword-register-imm8.md',
+                 '298-cpu386-shl-dword-register-one.md',
+                 '299-cpu386-c1-dword-single-shift-overflow.md',
+                 '300-cpu386-adc-dword-register.md',
+                 '301-cpu386-xor-word-register-imm8.md'):
+        older = (spec_dir / name).read_text()
+        if 'word XCHG停點已由規格 302 接通' not in older or '302-cpu386-xchg-ax-word-register.md' not in older:
+            raise RuntimeError('word XCHG舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-xchg-ax-word-spec-backlinks']:
+    validate_xchg_ax_word_resolution(spec_dir)
+    print('word XCHG／完整ROR消費與50M上限及舊停點回填通過')
     raise SystemExit(0)
 
 def validate_xor_word_immediate_resolution(spec_dir):
