@@ -546,8 +546,8 @@ func (c *CPU) Step() error {
 		}
 	}
 	fail := func(reason string) error { return &Error{start, op, reason} }
-	if repe && op != 0xaa && op != 0xab && op != 0xae && op != 0xa5 && op != 0xa4 {
-		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB／MOVSD／MOVSB")
+	if repe && op != 0xaa && op != 0xab && op != 0xae && op != 0xaf && op != 0xa5 && op != 0xa4 {
+		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB／SCASD／MOVSD／MOVSB")
 	}
 	if repne && op != 0xae && op != 0xa4 && op != 0xa5 {
 		return fail("F2 prefix 只支援 SCASB／MOVSB／MOVSD")
@@ -1894,6 +1894,30 @@ func (c *CPU) Step() error {
 			return fail("CLD 不接受目前的 prefix")
 		}
 		c.EFlags &^= DF
+	case op == 0xaf:
+		// 規格 292：只接 F3 AF，初始 ZF 不限制第一次比較。
+		if !repe || repne || operand16 || segmentOverride >= 0 {
+			return fail("SCASD 僅支援32位 F3 AF")
+		}
+		initialFlags := c.EFlags
+		for c.R[ECX] != 0 {
+			value, ok := c.readSegment32(c.Seg[SegES], c.R[EDI])
+			if !ok {
+				// 掃描失敗恢復初始旗標，保留已成功元素的 ECX／EDI。
+				c.EFlags = initialFlags
+				return fail(fmt.Sprintf("SCASD read %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+			}
+			c.sub32(c.R[EAX], value)
+			if c.EFlags&DF != 0 {
+				c.R[EDI] -= 4
+			} else {
+				c.R[EDI] += 4
+			}
+			c.R[ECX]--
+			if c.EFlags&ZF == 0 {
+				break
+			}
+		}
 	case op == 0xae:
 		if operand16 || segmentOverride >= 0 {
 			return fail("SCASB 不接受目前的 prefix")

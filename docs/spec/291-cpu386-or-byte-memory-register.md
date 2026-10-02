@@ -50,3 +50,7 @@ GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu386 -count=1 -v 全部通過�
 IRQ0 started=completed=5675、active=false／failed=false，等待 DS:00271148=F1 0F 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false，Micros=41492921／Deliveries=5695／Pending=false／InService=false。事件條件已注入；255 完整座標／游標仍 READY，主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
 
 自然 gzip SHA-256 f3668c23c7c88587088a792fde27e0d982f93240e74883713500d91c148c6dc5／834d501e25dc3159120740655d123f9687bc87961fbd1ccaac7993246a8f413e。兩 PNG 同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。原版素材與完整終端／記憶體／gzip／PNG 留本機，不進公開版控。
+
+## 後續停點回填
+
+2026-10-02：REPE SCASD 停點已由規格 292 接通，見 [292-cpu386-repe-scasd.md](292-cpu386-repe-scasd.md)。完整原始 R／段／8192 bytes掃描資料，公開比較／計數／方向與六旗標審查 READY 後實作；全部 CPU／固定EXE與兩自然掃描59次、SUB EDI,4／MOV EAX,[EDI] 的完整消費已驗。下一缺件是0x25489C的83 F0 FF，主選單／正常玩家路徑與整款 remake 尚未驗收。

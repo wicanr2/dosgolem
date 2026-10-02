@@ -57,6 +57,21 @@ if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     print('PIT latch 原始定位／契約與後續回填通過')
     raise SystemExit(0)
 
+def validate_repe_scasd_resolution(spec_dir):
+    """292 的掃描／六旗標／真實讀取消費，須和 291 停點回填並存。"""
+    current = (spec_dir / '292-cpu386-repe-scasd.md').read_text()
+    required = ('0x25488F', 'F3 AF', '0x254891', '完整 ECX=7C5h', 'EDI=6BBD4Ch', 'flags=206h', '0x254894', '0x254896', 'FFFFFBFFh', '六算術旗標全部定義', '單次 Step', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('REPE SCASD 缺完整原始初態／後態／六旗標／模型邊界或可實作狀態')
+    older = (spec_dir / '291-cpu386-or-byte-memory-register.md').read_text()
+    if 'REPE SCASD 停點已由規格 292 接通' not in older or '292-cpu386-repe-scasd.md' not in older:
+        raise RuntimeError('REPE SCASD 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-repe-scasd-spec-backlinks']:
+    validate_repe_scasd_resolution(spec_dir)
+    print('REPE SCASD 完整初態／六旗標／真實讀取與後續回填通過')
+    raise SystemExit(0)
+
 def validate_or_byte_memory_resolution(spec_dir):
     """291 的 byte 寫回／AF 邊界，須和 290 的 consumer 缺件回填並存。"""
     current = (spec_dir / '291-cpu386-or-byte-memory-register.md').read_text()

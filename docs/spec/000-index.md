@@ -447,4 +447,6 @@
 
 - [290：以 CL 計數左移 byte 暫存器](290-cpu386-shl-byte-register-cl.md)：CONFORMED。八 byte 目的／全部 CL 及別名／定義旗標已驗，未定義近似明示；291 已閉合真實 OR consumer。
 
-- [291：記憶體 byte 目的與暫存器的 OR](291-cpu386-or-byte-memory-register.md)：CONFORMED。全部 CPU／固定 EXE 與三組自然 SHL→OR→ADD 完整資料鏈通過；AF 清除為工具近似，下一停點 REPE SCASD。
+- [291：記憶體 byte 目的與暫存器的 OR](291-cpu386-or-byte-memory-register.md)：CONFORMED。全部 CPU／固定 EXE 與三組自然 SHL→OR→ADD 完整資料鏈通過；AF 清除為工具近似，REPE SCASD 後續停點由292接通。
+
+- [292：REPE 掃描 dword 與 EAX 比較](292-cpu386-repe-scasd.md)：CONFORMED。全部 CPU／固定 EXE 與兩自然掃描59次／SUB／MOV 完整資料鏈通過；六旗標全定義，IRQ／Error 模型界限明示，下一停點83／6的 XOR imm8。

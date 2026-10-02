@@ -310,6 +310,31 @@ func main() {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
+		if (m.CPU.EIP == 0x25488f || m.CPU.EIP == 0x254891 || m.CPU.EIP == 0x254894 || m.CPU.EIP == 0x254896) && seen[m.CPU.EIP] <= 3 {
+			addr := m.CPU.R[cpu386.EDI]
+			var value uint32
+			readable := true
+			for j := uint32(0); j < 4; j++ {
+				part, ok := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegES], addr+j)
+				value |= uint32(part) << (8 * j)
+				readable = readable && ok
+			}
+			fmt.Printf("scasd_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X operand_es_offset=0x%X dword=%08X readable=%t\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, addr, value, readable)
+			if m.CPU.EIP == 0x25488f {
+				count := m.CPU.R[cpu386.ECX]
+				if count > 2048 {
+					count = 2048
+				}
+				data := make([]byte, 0, count*4)
+				complete := true
+				for j := uint32(0); j < count*4; j++ {
+					part, ok := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegES], addr+j)
+					data = append(data, part)
+					complete = complete && ok
+				}
+				fmt.Printf("scasd_memory step=%d es=0x%X offset=0x%X dwords=%d readable=%t hex=%X\n", i, m.CPU.Seg[cpu386.SegES], addr, count, complete, data)
+			}
+		}
 		if (m.CPU.EIP == 0x254a04 || m.CPU.EIP == 0x254a06 || m.CPU.EIP == 0x254a09 || m.CPU.EIP == 0x254a0c) && seen[m.CPU.EIP] <= 3 {
 			addr := m.CPU.R[cpu386.EDI] + m.CPU.R[cpu386.EDX]
 			value, readable := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], addr)
