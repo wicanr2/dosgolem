@@ -75,8 +75,14 @@ func main() {
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
 	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
 	eipTrace := flag.String("eip-trace", "", "逗號分隔的十六進位位址（最多16個）；每次進入時把 step、control seq、EAX/EDX/EBX/ECX/ESI/EDI/ESP 與堆疊前 8 個 dword 追加到 -run-dir 的 eip-trace.jsonl（Watcom 暫存器呼叫慣例：前四個整數引數在 EAX/EDX/EBX/ECX）")
-	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆；超過就停止記錄")
+	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆（1至200000）；超過就停止記錄")
+	eipTraceFrom := flag.Int("eip-trace-from", 0, "唯讀 EIP 追蹤起始指令數；含首尾")
+	eipTraceTo := flag.Int("eip-trace-to", 0, "唯讀 EIP 追蹤終止指令數；0 表示不設上界")
 	flag.Parse()
+	traceWindow := eipTraceWindow{*eipTraceFrom, *eipTraceTo, *eipTraceMax}
+	if !traceWindow.valid() {
+		panic("eip-trace 範圍或筆數越界")
+	}
 	if *cpuProfile != "" {
 		f, e := os.Create(*cpuProfile)
 		if e != nil {
@@ -745,7 +751,7 @@ func main() {
 				break
 			}
 		}
-		if eipTraceLog != nil && eipTraceCount < *eipTraceMax {
+		if eipTraceLog != nil && traceWindow.allows(steps, eipTraceCount) {
 			for _, addr := range eipTraceAddrs {
 				if instructionEIP != addr {
 					continue
@@ -899,6 +905,11 @@ func main() {
 		}
 	}
 	r["heap_capacity_bytes"] = uint32(*heapMiB) * 1024 * 1024
+	r["eip_trace_window"] = map[string]any{
+		"from_step": traceWindow.from, "to_step": traceWindow.to,
+		"max_entries": traceWindow.max, "entries": eipTraceCount,
+		"addresses": eipTraceAddrs,
+	}
 	r["instruction_tail"] = tail
 	r["state_directory"] = *state
 	r["dos_file_calls"] = fileCalls
@@ -1022,4 +1033,15 @@ func quoteAll(values []string) []string {
 		out[i] = `"` + v + `"`
 	}
 	return out
+}
+
+// eipTraceWindow 只限制唯讀記錄；見 docs/spec/012-fd2-parity-capture.md §7。
+type eipTraceWindow struct{ from, to, max int }
+
+func (w eipTraceWindow) valid() bool {
+	return w.from >= 0 && w.to >= 0 && (w.to == 0 || w.to >= w.from) && w.max >= 1 && w.max <= 200000
+}
+
+func (w eipTraceWindow) allows(step, entries int) bool {
+	return step >= w.from && (w.to == 0 || step <= w.to) && entries < w.max
 }
