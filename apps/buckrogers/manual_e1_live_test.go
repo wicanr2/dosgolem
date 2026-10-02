@@ -27,13 +27,18 @@ func manualE1LiveCatalog(texts ...string) *Catalog {
 
 // manualE1LiveLane builds a zh-TW lane with only the manual family.
 func manualE1LiveLane(t *testing.T, catalog *Catalog, base *xlate.Font) *liveLane {
+	return manualE1LiveLaneLang(t, LangZhTW, catalog, base)
+}
+
+// manualE1LiveLaneLang is manualE1LiveLane for any language (spec 055).
+func manualE1LiveLaneLang(t *testing.T, lang string, catalog *Catalog, base *xlate.Font) *liveLane {
 	t.Helper()
-	l := &liveLane{lang: LangZhTW, font: base, manCatalog: catalog,
+	l := &liveLane{lang: lang, font: base, manCatalog: catalog,
 		resets: map[string]int{}, rebuilds: map[string]int{}, skips: map[string]int{}}
 	layout := loadManualOverlayLayout(t)
 	w := NewWatcher(catalog)
 	for i, scale := range liveScales {
-		p, err := NewRuntimeManualOverlayLang(layout, catalog, base, scale, LangZhTW)
+		p, err := NewRuntimeManualOverlayLang(layout, catalog, base, scale, lang)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +71,7 @@ func manualE1LiveTexts() []string {
 	}
 }
 
-func TestManualE1LivePreflightEnablesOnlyZhTW3x(t *testing.T) {
+func TestManualE1LivePreflightEnablesZhTWZhCNJaKo3x(t *testing.T) {
 	texts := manualE1LiveTexts()
 	catalog := manualE1LiveCatalog(texts...)
 	base, _ := manualE1SyntheticFonts(strings.Join(texts, ""))
@@ -82,18 +87,25 @@ func TestManualE1LivePreflightEnablesOnlyZhTW3x(t *testing.T) {
 	if len(l.manE1Rows) != len(texts) {
 		t.Errorf("rows=%v", l.manE1Rows)
 	}
-	// Other languages never get E1 (spec 053 §3.1).
-	for _, lang := range []string{LangZhCN, LangJa, LangKo, LangTest} {
-		o := &liveLane{lang: lang, font: base, manCatalog: catalog}
-		layout := loadManualOverlayLayout(t)
-		p, err := NewRuntimeManualOverlayLang(layout, catalog, base, 3, lang)
-		if err != nil {
-			t.Fatal(err)
+	// Spec 055 §3.2: zh-CN, ja and ko take E1 at 3× on their own fonts; the test
+	// language never does, and no language does at 2×.
+	for _, lang := range []string{LangZhTW, LangZhCN, LangJa, LangKo, LangTest} {
+		o := manualE1LiveLaneLang(t, lang, catalog, base)
+		want := lang != LangTest
+		for i, scale := range liveScales {
+			if on := o.manPres[i].e1Base != nil; on != (want && scale == 3) {
+				t.Errorf("%s %d×：e1Base=%v", lang, scale, on)
+			}
 		}
-		o.manPres[1] = p
-		o.setupManualE1(1)
-		if p.e1Base != nil || o.manE1 != "" {
+		if want && (o.manE1 != manualE1On || len(o.manE1Rows) != len(texts)) {
+			t.Errorf("%s：status=%q rows=%v", lang, o.manE1, o.manE1Rows)
+		}
+		if !want && o.manE1 != "" {
 			t.Errorf("%s 不得啟用 E1：status=%q", lang, o.manE1)
+		}
+		// Only zh-TW has the keyword rows (spec 055 §3.3).
+		if got := o.manualE1Active(); got != (lang == LangZhTW) {
+			t.Errorf("%s：manualE1Active=%v", lang, got)
 		}
 	}
 }
@@ -162,12 +174,17 @@ func TestManualE1LivePreflightFailureKeepsFixedCells(t *testing.T) {
 	texts := []string{strings.Join(words, " "), "繁中。"}
 	catalog := manualE1LiveCatalog(texts...)
 	base, _ := manualE1SyntheticFonts(strings.Join(texts, ""))
-	l := manualE1LiveLane(t, catalog, base)
-	if l.manPres[1].e1Base != nil || l.manE1 != "off(preflight:1)" {
-		t.Fatalf("status=%q e1Base=%v", l.manE1, l.manPres[1].e1Base != nil)
-	}
-	if l.manPres[1] == nil || l.manPres[0].e1Base != nil {
-		t.Fatal("固定格 presenter 應照常建立")
+	for _, lang := range []string{LangZhTW, LangZhCN, LangJa, LangKo} {
+		l := manualE1LiveLaneLang(t, lang, catalog, base)
+		if l.manPres[1].e1Base != nil || l.manE1 != "off(preflight:1)" {
+			t.Fatalf("%s：status=%q e1Base=%v", lang, l.manE1, l.manPres[1].e1Base != nil)
+		}
+		if l.manPres[1] == nil || l.manPres[0].e1Base != nil {
+			t.Fatalf("%s：固定格 presenter 應照常建立", lang)
+		}
+		if got := l.e1Summary(); got != " manual-e1=off(preflight:1)" {
+			t.Errorf("%s：e1Summary=%q", lang, got)
+		}
 	}
 }
 
@@ -196,10 +213,16 @@ func TestManualE1LiveKeywordCoexistence(t *testing.T) {
 }
 
 func TestManualE1LiveRuntimeFallback(t *testing.T) {
+	for _, lang := range []string{LangZhTW, LangZhCN, LangJa, LangKo} {
+		t.Run(lang, func(t *testing.T) { manualE1LiveRuntimeFallback(t, lang) })
+	}
+}
+
+func manualE1LiveRuntimeFallback(t *testing.T, lang string) {
 	texts := manualE1LiveTexts()
 	catalog := manualE1LiveCatalog(texts...)
 	base, _ := manualE1SyntheticFonts(strings.Join(texts, ""))
-	l := manualE1LiveLane(t, catalog, base)
+	l := manualE1LiveLaneLang(t, lang, catalog, base)
 	w := l.manSync[1].watcher
 	var entry catalogEntry
 	for _, e := range catalog.byIdentity {
@@ -223,7 +246,7 @@ func TestManualE1LiveRuntimeFallback(t *testing.T) {
 
 	// A failure that is not E1's: both attempts fail, E1 stays as it was and
 	// the reset is counted once (no retry loop).
-	l2 := manualE1LiveLane(t, catalog, base)
+	l2 := manualE1LiveLaneLang(t, lang, catalog, base)
 	w2 := l2.manSync[1].watcher
 	w2.presentation = append(w2.presentation,
 		ManualPresentationEvent{Kind: ManualPresentationBegin, Generation: 1},
@@ -536,5 +559,32 @@ func TestManualE1LiveFormalScaleAlternation(t *testing.T) {
 	t.Logf("E1 與固定格：相同 %d、不同 %d", same, differing)
 	if differing == 0 {
 		t.Error("至少一題的 E1 應與固定格不同")
+	}
+}
+
+// A lane that does not translate a paragraph (the catalog entry is empty,
+// spec 040): the preflight skips it, E1 stays on for the others, and showing
+// the empty one counts Missing instead of failing (spec 055 §5.1).
+func TestManualE1LiveEmptyTranslationIsSkipped(t *testing.T) {
+	texts := []string{"繁中 ALPHA 與 BETA 並列。", ""}
+	catalog := manualE1LiveCatalog(texts...)
+	base, _ := manualE1SyntheticFonts(texts[0])
+	for _, lang := range []string{LangZhCN, LangJa, LangKo} {
+		l := manualE1LiveLaneLang(t, lang, catalog, base)
+		if l.manE1 != manualE1On || len(l.manE1Rows) != 1 {
+			t.Fatalf("%s：status=%q rows=%v", lang, l.manE1, l.manE1Rows)
+		}
+		var empty catalogEntry
+		for _, e := range catalog.byIdentity {
+			if e.translation == "" {
+				empty = e
+			}
+		}
+		w := l.manSync[1].watcher
+		manualE1LiveEvents(w, 1, empty)
+		l.syncManual(ManualTextStyle{}, false, len(w.presentation))
+		if l.manPres[1].Missing != 1 || l.resets["manual"] != 0 || l.manE1 != manualE1On {
+			t.Errorf("%s：Missing=%d resets=%v status=%q", lang, l.manPres[1].Missing, l.resets, l.manE1)
+		}
 	}
 }

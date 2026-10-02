@@ -6,16 +6,16 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// Buck repo spec 053: the 3× zh-TW lane presenter of the live runtime uses
-// the E1 plan (English words are never split at a line end).  E1 stays off
-// for every other language and for 2×.
+// Buck repo specs 053 and 055: the 3× presenter of the zh-TW, zh-CN, ja and ko
+// lanes of the live runtime uses the E1 plan (English words are never split at
+// a line end).  E1 stays off for the test language, for English and for 2×.
 //
-// Status strings of the zh-TW lane (DebugSummary, no text, no keys):
+// Status strings of a lane (DebugSummary, no text, no keys):
 //
 //	on
 //	off(preflight:M)  M paragraphs failed the preflight
-//	off(keyword:N)    N questions whose E1 paragraph is longer than the
-//	                  fixed-cell one, so the keyword row of spec 034 could
+//	off(keyword:N)    zh-TW only: N questions whose E1 paragraph is longer than
+//	                  the fixed-cell one, so the keyword row of spec 034 could
 //	                  overlap it
 //	off(runtime)      a request failed under E1 and the fixed cells took over
 const (
@@ -76,9 +76,27 @@ func (o *RuntimeManualOverlay) enableManualE1(base *xlate.Font) (rows map[string
 	return rows, 0
 }
 
-// setupManualE1 enables E1 on the zh-TW lane's 3× presenter (spec 053 §3.1).
+// manualE1Lang reports whether the language's lane may use E1 (spec 055 §3.2).
+func manualE1Lang(lang string) bool {
+	switch lang {
+	case LangZhTW, LangZhCN, LangJa, LangKo:
+		return true
+	}
+	return false
+}
+
+// e1Summary is the lane's DebugSummary field (empty when E1 was never tried).
+func (l *liveLane) e1Summary() string {
+	if l.manE1 == "" {
+		return ""
+	}
+	return " manual-e1=" + l.manE1
+}
+
+// setupManualE1 enables E1 on the lane's 3× presenter (spec 053 §3.1, spec 055
+// §3.2): each lane builds its plans with its own font and catalog.
 func (l *liveLane) setupManualE1(i int) {
-	if l.lang != LangZhTW || liveScales[i] != 3 {
+	if !manualE1Lang(l.lang) || liveScales[i] != 3 {
 		return
 	}
 	rows, failed := l.manPres[i].enableManualE1(l.font)

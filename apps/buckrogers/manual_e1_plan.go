@@ -145,6 +145,22 @@ func manualE1PlanTerminalPunctuation(r rune) bool {
 	return false
 }
 
+// manualE1PlanASCIITerminalAt reports whether the ASCII punctuation at runes[i],
+// outside an identifier, is terminal punctuation (Buck repo spec 055 §3.1): the
+// sentence punctuation . , : ! ? always, and the slash when the rune before it
+// is not an ASCII letter or digit.  A terminal folds into the token before it;
+// the caller refuses it at the start of a paragraph and after a space.  Every
+// other ASCII connector outside an identifier stays an error.
+func manualE1PlanASCIITerminalAt(runes []rune, i int) bool {
+	switch runes[i] {
+	case '.', ',', ':', '!', '?':
+		return true
+	case '/':
+		return i > 0 && !manualE1ASCIIAlnum(runes[i-1])
+	}
+	return false
+}
+
 func manualE1PlanFindPair(runes []rune, start int) (int, error) {
 	want, ok := manualE1PlanPairClose(runes[start])
 	if !ok {
@@ -230,7 +246,9 @@ func manualE1PlanMeasure(runes []rune, derived *xlate.Font, advance int) (manual
 			}
 			token.width += width
 		default:
-			if manualE1ASCIIConnector(runes[i]) || runes[i] == '%' {
+			// Spec 055 §3.1: . and / are measured as half-width punctuation here;
+			// whether they are allowed at all is decided by manualE1PlanTokens.
+			if manualE1ASCIIConnector(runes[i]) && runes[i] != '.' && runes[i] != '/' || runes[i] == '%' {
 				return manualE1PlanToken{}, fmt.Errorf("buckrogers: E1 connector U+%04X is outside an identifier", runes[i])
 			}
 			if isHalfwidth(runes[i]) {
@@ -279,7 +297,9 @@ func manualE1PlanShortBracketIdentifier(runes []rune) bool {
 	if want, ok := manualE1PlanPairClose(runes[0]); !ok || runes[len(runes)-1] != want {
 		return false
 	}
-	return manualE1PlanWordEnd(runes[1:len(runes)-1], 0) == len(runes)-2
+	// Spec 055 §3.1: the name inside the brackets starts with a letter or digit
+	// (WordEnd would otherwise take a leading connector as part of it).
+	return manualE1ASCIIAlnum(runes[1]) && manualE1PlanWordEnd(runes[1:len(runes)-1], 0) == len(runes)-2
 }
 
 // manualE1PlanTokens makes bracket pairs and ASCII identifiers atomic. Terminal
@@ -339,14 +359,18 @@ func manualE1PlanTokens(text string, derived *xlate.Font, advance int) ([]manual
 			end := manualE1PlanWordEnd(runes, i)
 			segment, kind, i = runes[i:end], "identifier", end
 		} else {
-			if manualE1ASCIIConnector(runes[i]) || runes[i] == '%' {
+			asciiTerminal := manualE1PlanASCIITerminalAt(runes, i)
+			if !asciiTerminal && (manualE1ASCIIConnector(runes[i]) || runes[i] == '%') {
 				return nil, fmt.Errorf("buckrogers: E1 connector U+%04X is outside an identifier", runes[i])
 			}
 			segment, i = runes[i:i+1], i+1
 			if segment[0] == ' ' {
 				kind = "space"
-			} else if manualE1PlanTerminalPunctuation(segment[0]) {
+			} else if asciiTerminal || manualE1PlanTerminalPunctuation(segment[0]) {
 				kind = "terminal"
+				if asciiTerminal && (len(tokens) == 0 || tokens[len(tokens)-1].kind == "space") {
+					return nil, fmt.Errorf("manualE1 plan: ASCII terminal punctuation U+%04X after a space or at the start of a paragraph", segment[0])
+				}
 			}
 		}
 		token, err := manualE1PlanMeasure(segment, derived, advance)

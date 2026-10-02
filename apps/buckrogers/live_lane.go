@@ -42,8 +42,9 @@ type liveLane struct {
 	manSeen      int
 	manStyle     ManualTextStyle
 	manHas       bool
-	// manE1 is the spec 053 status of the zh-TW lane's 3× presenter (empty on
-	// other lanes); manE1Rows is the rows each paragraph uses under E1.
+	// manE1 is the spec 053 status of the lane's 3× presenter (empty where E1
+	// is not tried); manE1Rows is the rows each paragraph uses under E1, read
+	// only by the zh-TW lane's keyword-row check (spec 055 §3.2).
 	manE1     string
 	manE1Rows map[string]int
 	stories   []storyFamily
@@ -547,9 +548,10 @@ func (l *liveLane) syncManual(style ManualTextStyle, ok bool, n int) {
 		l.manSeen = n
 		for i := range liveScales {
 			if _, err := l.manSync[i].Sync(); err != nil {
-				// Spec 053 §3.1: a request that fails under E1 is shown with the
-				// fixed cells instead; a second failure is counted as before.
-				if l.lang == LangZhTW && l.manPres[i].e1Base != nil && l.manualE1Fallback(i) {
+				// Spec 053 §3.1, spec 055 §3.4: a request that fails under E1 is
+				// shown with the fixed cells instead; a second failure is counted
+				// as before.
+				if l.manPres[i].e1Base != nil && l.manualE1Fallback(i) {
 					continue
 				}
 				l.resets["manual"]++

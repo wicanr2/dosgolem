@@ -43,9 +43,17 @@ func TestPackagedLanes(t *testing.T) {
 	if len(r.off) != 0 {
 		t.Fatalf("語言停用：%v", r.off)
 	}
-	// Spec 053 §5.5: the zh-TW 3× presenter of the packaged runtime draws E1.
-	if sum := r.DebugSummary(); !strings.Contains(sum, " manual-e1=on") {
-		t.Fatalf("zh-TW 手冊 E1 未啟用：%s", sum)
+	// Spec 053 §5.5, spec 055 §5.1: the 3× presenter of every packaged lane draws
+	// E1.  The blocks are cut at " lane[" (they hold {…} of their own); zh-TW is
+	// the top-level field, in front of the first block.
+	blocks := strings.Split(r.DebugSummary(), " lane[")
+	if !strings.Contains(blocks[0], " manual-e1=on") {
+		t.Fatalf("zh-TW 手冊 E1 未啟用：%s", blocks[0])
+	}
+	for _, b := range blocks[1:] {
+		if !strings.Contains(b, " manual-e1=on") {
+			t.Fatalf("通道區塊的手冊 E1 未啟用：%.80s", b)
+		}
 	}
 	for _, l := range langs {
 		if err := r.SetLanguage(l); err != nil {
@@ -61,9 +69,9 @@ func TestPackagedLanes(t *testing.T) {
 			continue
 		}
 		lane := r.lanes[i]
-		for _, p := range lane.manPres {
-			if (l != LangZhTW) && p.e1Base != nil {
-				t.Errorf("%s：只有 zh-TW 可以啟用手冊 E1", l)
+		for i, p := range lane.manPres {
+			if on := p.e1Base != nil; on != (liveScales[i] == 3) {
+				t.Errorf("%s %d×：手冊 E1 e1Base=%v", l, liveScales[i], on)
 			}
 		}
 		if lane.players == nil {

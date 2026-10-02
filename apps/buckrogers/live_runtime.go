@@ -1019,7 +1019,7 @@ func (r *LiveRuntime) DebugSummary() string {
 	}
 	s += l0.counters()
 	for _, l := range r.lanes[1:] {
-		s += " lane[" + l.lang + "]={resets=" + fmt.Sprint(l.resets) + l.halfFontError() + l.counters() + l.stats()
+		s += " lane[" + l.lang + "]={resets=" + fmt.Sprint(l.resets) + l.halfFontError() + l.e1Summary() + l.counters() + l.stats()
 		if l.playersOff != "" {
 			s += " 玩家名=off(" + l.playersOff + ")"
 		}
@@ -1129,7 +1129,8 @@ func (r *LiveRuntime) rowsTouched(out []byte, scale int, p *HMenuPage) bool {
 }
 
 // ManualVisibleKey is the event key of the manual question the zh-TW lane's
-// 3× presenter shows now (receipts only; the key carries no manual text).
+// 3× presenter shows now (receipts only; the key carries no manual text).  Every
+// lane consumes the same manual event stream, so the key is the same for all.
 func (r *LiveRuntime) ManualVisibleKey() (string, bool) {
 	if r == nil || len(r.lanes) == 0 {
 		return "", false
