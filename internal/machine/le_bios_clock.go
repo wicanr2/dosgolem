@@ -32,7 +32,7 @@ func InstallLEBIOSClock(m *LEMachine, p *LEOPLPorts) bool {
 	p.BIOSClock = &LEBIOSClock{}
 	previous := m.CPU.StepHook
 	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
-		if err := p.BIOSClock.advance(m, p, c.EFlags&cpu386.IF != 0); err != nil {
+		if err := p.AdvanceProtectedMode(c, m); err != nil {
 			return true, err
 		}
 		if previous != nil {

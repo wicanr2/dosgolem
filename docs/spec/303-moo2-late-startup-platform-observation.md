@@ -64,3 +64,8 @@ DMAActive／Auto／Stereo／FIFO為true，22050/1 rate、block2048、sampleCredi
 CPU及三份平台來源與302保持相同雜湊。唯讀probe已由兩次自然編譯／執行與完整收據獨立比較驗證，不重跑未變的CPU全套。indexed／RGB雜湊保持302值，PNG同已檢視星空片段，主選單仍未見。收據、原始記憶體與PNG不公開；公開自製觀測程式、契約與有限文字證據。
 
 下一步先以公開Sound Blaster／PIC契約及原版IRQ7向量呼叫邊界，審查保護模式與實模式共用裝置時間、避免重複推進及派送錯誤的窄平台規格。達READY才修改平台服務；本檔不證明等待解決、鍵盤正常消費、主選單、連續PCM、人耳或整款remake已完成。
+
+
+## 共用裝置時間後續
+
+保護模式裝置時計缺口由規格 304 接線，見[304-le-shared-device-clock.md](304-le-shared-device-clock.md)。2026-10-03兩自然首block真正PCM2048個80h／兩時計44032078已驗；第42356668步以absolute IVT1201:0682停在未建模的保護模式IRQ7，pending保留。只解時間到首block，IRQ7轉送／連續PCM、人耳及正常玩家路徑仍未知，其他原有證據與限制保持。

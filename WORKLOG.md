@@ -437,3 +437,23 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 嘗試以既有moo2-ebiten讀官方本機手冊，pdftotext與三個PDF解析模組皆未安裝；只分類為工具環境缺件，未啟動主機分析、未另建映像或猜按鍵。它不阻塞此次唯讀觀測。原版素材、完整終端／記憶體／gzip／PNG留本機，只推送自製觀測與文字證據。下一步先審查公開DMA／PIC時間與IRQ7呼叫邊界的窄平台契約，READY後實作，不深入driver／ISR／busy-wait或改玩法。
 
 303兩次自然／完整收據／五來源雜湊／原版AH2509核對通過；既有45個回填函式／36個缺證據負例／CLI與新索引、DRAFT、繁體字及UID核對通過。工具無root-owned／誤建.md目錄、git diff --check通過，來源／輸出UID:GID1000:1000；本批一次性容器已退出移除，Go映像及moo2名稱清查皆空，未清理其他專案或映像。沿用github隔離分支推送授權，不推本機origin。
+
+
+## 2026-10-02：共用裝置時間與保護模式IRQ7邊界
+
+開工主庫4e77399672e4e5988e8081ece62e5572c2e27ba2／工具90b9f4acb3c7e55829973c51a39fe12cb2129df3乾淨。前輪303唯讀觀測／收據已推送，屬實際進展。路由命中平台規格優先、dosgolem、規格閘門與文件職責，載入入口，沿用逆向重製技能；主庫玩法RE閘門不變。初讀猜錯規格入口檔名後按路由實際retro-remake-spec-gated-workflow.md補讀，未當產品失敗。
+
+304同次DRAFT與索引，重核303兩自然完整收據／五來源雜湊及原版C6返回，以Creative取樣率／block／中斷與Intel／Open Watcom模式框架公開契約審查READY後，才接兩CPU模式裝置時間。既有1µs近似／實模式順序保持，把DMA取樣拆成共用advanceDMA，InstallLEBIOSClock每保護步亦前進裝置。CPU及啟動來源不改；IF／PIC只阻擋派送，未建模保護模式IRQ7保留pending／CPU現場及原始三種向量明確停止，不用實模式框架猜轉送，不丟中斷跑過等待。探針只加失敗值快照。
+
+新增測試交錯兩真實CPU指令，按總步數／rate／channels整除獨立核對取樣及兩時鐘、四mode／三rate、40h已含channels、DMA遮罩／reset／來源超界、16位單word與IRQ0巢狀指令。IF／PIC／in-service／IRQ0互斥及首次IRQ7停止的完整CPU／FPU／堆疊保持亦驗。首次機器測試因自製fixture漏設實模式CS=0，讀到重置段外、IP多前進一byte而失敗；核對cpu.Reset與實模式匯流排後只修測試初態，另驗bus.err，平台來源未改。失敗收據留本機，同映像／命令乾淨重跑機器層通過，SHA-256 bff247d74ad4200f631ebd7edcccfebed4f72a47f325b7359396fc2a2d6d7c0e；首輪失敗d54dfd73fd85f02a1da16cffa7406cd4f56651bff389c745fa0432e6f5fd4a14。
+
+固定官方EXE全套首次通過，全部CPU亦通過；full-test-304.txt SHA-256 163b0f2bfa8e8ad2b6efe1f831c7ab35173e1682f82dbf134f4b9fe63c1c79c2。既有45個回填函式／36項缺證據負例／CLI保持。新原版自然收據仍執行中，不預先宣稱DMA首block或等待閉合。Go映像清查見其他FD2 oracle容器，確認掛載另專案後保留，未停止或刪除它。
+
+
+2026-10-03自然驗證完成：兩次在第42356668步、高位LE0x257FC9首次待派送保護模式IRQ7明確停止，兩時計44032078，C6返回43985659後46419µs。由原信用926100及44100 byte/s獨立整除驗2048 samples、餘數4000；首DSP block完成1／DMA current4800h、count7FFh、block重載2048。首次只有PCM長度，補有限唯讀SHA／prefix及實際IRQ入口16bytes後同命令重生，完整收據只新增兩列／mtime／DTA時間日期四bytes，平台／CPU未改、不重跑未變測試。實際PCM2048個80h雜湊88ed1a04cb43fe65827d1cd9ef6d24a736108730b1ce6315d4d3ca79b6a0d140與已保存原版buffer一致，不當人耳驗收。
+
+absolute IVT0F1201:0682／實模式線性0x12692、DPMI實模式0F與DOS保護模式0F零，入口16bytes保留；只保存定位，不追ISR內部。DSP／PIC pending=true、IRQ7Deliveries仍1，沒有假稱成功派送；IRQ0 started6176／completed6176、failed=false，主選單未見。PNG同較早黑圖，首次IRQ7在星空畫面之前停止；302／303的星空與50M只屬先前未推音訊時計基線。兩自然新gzip ec4abf4f565e6cf1ea3ec1b210e414b459d00a6ac8e80da0307e3c323dcb3de0／d89716bc0d1482670ea1eb5cf1709475ef31bbeff0930cb86af34ef407369fda，來源／失敗與有效收據雜湊／命令集中304。
+
+十一份較早音訊邊界與索引同次回填，全部46個回填函式／80項缺證據負例／兩個CLI及完整自然時間／原始PCM／向量／pending核對通過。新增規格校對抓到兩個混用字後修正文件，同命令重跑通過，不改驗證期望或平台來源。CPU／啟動來源保持，來源／輸出UID:GID1000:1000，工具無root-owned／誤建.md目錄及git diff --check通過。304保持READY，時間到首block已驗，真正IRQ7轉送／返回仍未知；下一步只依公開DOS/4GW與實際IVT補窄派送契約，不跳指令、不修改等待值，不深入driver／ISR／busy-wait或改主庫玩法。完整原版素材、終端／記憶體／gzip／PNG留本機，只公開自製來源、測試與有限文字證據。
+
+本輪測試及兩批自然重播的有界一次性容器均已退出移除，moo2名稱清查空；Go映像清查僅見已確認另一FD2專案的confident_williams，保留未操作。未清理其他專案或映像。沿用github隔離分支推送授權，不推本機origin。

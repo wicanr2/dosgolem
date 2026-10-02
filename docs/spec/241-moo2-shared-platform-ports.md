@@ -26,3 +26,8 @@
 - `internal/machine/le_startup.go` 的 `MOO2StartupDOS.AttachMachine` 把同一 `LEOPLPorts` 接到保護模式 CPU 與 DPMI 實模式埠，既有 FD2 設定保持原樣。`internal/machine/le_startup_test.go` 驗證跨模式 DSP 重設回覆 `AAh`、未知 `00D4h` 埠拒絕及一般 FD2 不被接線。
 - 含官方 1.31 EXE 的全套 `go test -buildvcs=false ./... -count=1` 通過；私有 `workplace/full-test-241.txt` SHA-256 `06c75ae6fa9adec96d5b6153f731499bea5cdc3b9fb46abe6ae3153fb0a6894a`。
 - 不開原型旗標、相同正版資料及明示高位 LE 載入，自原檔入口自然重跑；原 DSP `0226h` 停點前進，`INT 66h` 的實模式第 299 步停在 `OUT 00D4h,05h`。私有 `workplace/moo2-probe-241-full-game.txt` SHA-256 `7338276b9565381915d397c6bdebdfc3d26aafa11e56b22e4396a63744f0faf9`。後續第二 DMA 控制器服務仍未知，本規格不把它填為成功；目前沒有音效輸出或正常玩家畫面驗收。
+
+
+## 共用裝置時間後續
+
+保護模式裝置時計缺口由規格 304 接線，見[304-le-shared-device-clock.md](304-le-shared-device-clock.md)。2026-10-03兩自然首block真正PCM2048個80h／兩時計44032078已驗；第42356668步以absolute IVT1201:0682停在未建模的保護模式IRQ7，pending保留。只解時間到首block，IRQ7轉送／連續PCM、人耳及正常玩家路徑仍未知，其他原有證據與限制保持。

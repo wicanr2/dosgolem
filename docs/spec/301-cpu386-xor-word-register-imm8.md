@@ -74,3 +74,8 @@ C6實模式333步成功返回／來源收據保持，保護模式連續PCM／IRQ
 CPU契約鍵：cpu386 66 83／/6／mod11／word暫存器／符號延伸imm8；原版停點鍵：固定EXE雜湊＋高位LE0x24678C＋66 83 F7 01。293–300保存「word XOR立即數停點已由規格 301 接通」與本檔連結，293的word前綴拒絕只由本規格窄形狀接通；原有其他CPU／平台證據不擴張。驗證入口 apps/moo2/tools/startup_probe_131.py --check-xor-word-immediate-spec-backlinks；缺定位／五旗標／AF模型／兩個真正stack dword寫入／IRQ0返回或任一舊標記須拒絕。主庫玩法RE閘門不變，原版素材及完整終端／記憶體／gzip／PNG留本機。
 
 word XCHG停點已由規格 302 接通，見 [302-cpu386-xchg-ax-word-register.md](302-cpu386-xchg-ax-word-register.md)。兩自然三組完整word交換／兩高16位與全部旗標保持、下一ROR EBX,8完整消費已驗，持續到50M上限且IRQ0 started7789／completed7789／failed=false。畫面已見星空片段，仍未驗主選單／正常玩家路徑；原有其他CPU／平台與299原版自然OF=1限制保持。
+
+
+## 共用裝置時間後續
+
+保護模式裝置時計缺口由規格 304 接線，見[304-le-shared-device-clock.md](304-le-shared-device-clock.md)。2026-10-03兩自然首block真正PCM2048個80h／兩時計44032078已驗；第42356668步以absolute IVT1201:0682停在未建模的保護模式IRQ7，pending保留。只解時間到首block，IRQ7轉送／連續PCM、人耳及正常玩家路徑仍未知，其他原有證據與限制保持。

@@ -3,6 +3,7 @@ package machine
 import (
 	"fmt"
 	"github.com/wicanr2/dosgolem/internal/cpu"
+	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
 
 func (p *LEOPLPorts) startDSPDMA(n uint32) bool { return p.startDMA(n, false) }
@@ -62,6 +63,31 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 			return err
 		}
 	}
+	if err := p.advanceDMA(m); err != nil {
+		return err
+	}
+	if p.picPending && !p.picInService && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
+		if len(m.Mem) < 64 {
+			return fmt.Errorf("IRQ7 IVT不可讀")
+		}
+		v, _ := m.Read32(0x0f * 4)
+		a := uint32(uint16(v>>16))*16 + uint32(uint16(v))
+		if v == 0 || uint64(a) >= uint64(len(m.Mem)) {
+			return fmt.Errorf("IRQ7尚未安裝有效IVT")
+		}
+		if c.R[cpu.SP] < 6 || uint64(c.Seg[cpu.SS])*16+uint64(c.R[cpu.SP]) > uint64(len(m.Mem)) {
+			return fmt.Errorf("IRQ7 stack不可寫")
+		}
+		p.picPending = false
+		p.picInService = true
+		p.IRQ7Deliveries++
+		c.Interrupt(0x0f)
+	}
+	return nil
+}
+
+// advanceDMA 只推進取樣與來源狀態，時鐘由兩模式入口各加一次。
+func (p *LEOPLPorts) advanceDMA(m *LEMachine) error {
 	if p.dmaActive && p.dma.Mask&2 == 0 {
 		multiplier := uint64(1)
 		// 41h的rate是每channel；40h TimeConstant已包含channels，勿重複乘2。
@@ -134,22 +160,32 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 			}
 		}
 	}
-	if p.picPending && !p.picInService && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
-		if len(m.Mem) < 64 {
-			return fmt.Errorf("IRQ7 IVT不可讀")
-		}
-		v, _ := m.Read32(0x0f * 4)
-		a := uint32(uint16(v>>16))*16 + uint32(uint16(v))
-		if v == 0 || uint64(a) >= uint64(len(m.Mem)) {
-			return fmt.Errorf("IRQ7尚未安裝有效IVT")
-		}
-		if c.R[cpu.SP] < 6 || uint64(c.Seg[cpu.SS])*16+uint64(c.R[cpu.SP]) > uint64(len(m.Mem)) {
-			return fmt.Errorf("IRQ7 stack不可寫")
-		}
-		p.picPending = false
-		p.picInService = true
-		p.IRQ7Deliveries++
-		c.Interrupt(0x0f)
-	}
 	return nil
+}
+
+// AdvanceProtectedMode 沿規格304共用1微秒近似；未知IRQ7保留現場並明確停止。
+func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
+	p.virtualMicros++
+	if err := p.BIOSClock.advance(m, p, c.EFlags&cpu386.IF != 0); err != nil {
+		return err
+	}
+	if err := p.advanceDMA(m); err != nil {
+		return err
+	}
+	clock := p.BIOSClock
+	if !p.picPending || p.picInService || clock.InService || p.picMasks[0]&0x80 != 0 || c.EFlags&cpu386.IF == 0 ||
+		clock.protectedIRQ0 != nil && clock.protectedIRQ0.active {
+		return nil
+	}
+	ivt, err := m.Read32(0x0f * 4)
+	if err != nil {
+		return fmt.Errorf("IRQ7 IVT不可讀")
+	}
+	var vector uint64
+	var seg, off uint16
+	if d := clock.protectedIRQ0; d != nil {
+		vector = d.s.dosVectors[0x0f]
+		seg, off = d.s.DPMI.RealModeVector(0x0f)
+	}
+	return fmt.Errorf("IRQ7 保護模式派送尚未建模：absolute_ivt0f=%08X dpmi_rm0f=%04X:%04X dos_pm0f=%04X:%08X", ivt, seg, off, uint16(vector>>32), uint32(vector))
 }

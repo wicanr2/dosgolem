@@ -74,3 +74,8 @@ CPU契約鍵：cpu386 66 91–97／AX與word暫存器／兩高16位與全部旗�
 ## 後續平台觀測
 
 2026-10-02的 [303-moo2-late-startup-platform-observation.md](303-moo2-late-startup-platform-observation.md) 已保存兩自然各11筆有限唯讀快照；原有CPU／平台來源、完整終態、XCHG／ROR與圖像收據保持。已證實保護模式未推進音訊時計，正常鍵盤入口尚未接通；等待因果仍未知，本檔的CPU限定CONFORMED及其他限制保持。
+
+
+## 共用裝置時間後續
+
+保護模式裝置時計缺口由規格 304 接線，見[304-le-shared-device-clock.md](304-le-shared-device-clock.md)。2026-10-03兩自然首block真正PCM2048個80h／兩時計44032078已驗；第42356668步以absolute IVT1201:0682停在未建模的保護模式IRQ7，pending保留。只解時間到首block，IRQ7轉送／連續PCM、人耳及正常玩家路徑仍未知，其他原有證據與限制保持。

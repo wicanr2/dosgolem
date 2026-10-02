@@ -528,6 +528,16 @@ func main() {
 			fmt.Printf("or_dword_memory_consumer step=%d address_space=dosgolem_high_le input_eip=0x%X after_eip=0x%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=0x%X after_flags=0x%X destination_linear=0x%X dword_bytes=%X instruction_bytes=%X error=%v\n", i, readEIP, m.CPU.EIP, readR, m.CPU.R, readSeg, m.CPU.Seg, readFlags, m.CPU.EFlags, orReads.linear, m.Mem[orReads.linear:orReads.linear+4], m.Mem[readEIP:readEIP+16], stepErr)
 		}
 		if err := stepErr; err != nil {
+			dumpPlatform("stop", i)
+			if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+				fmt.Printf("protected_dma_pcm bytes=%d sha256=%x prefix=%X\n", len(ports.PCM), sha256.Sum256(ports.PCM), ports.PCM[:min(16, len(ports.PCM))])
+				if vector, readErr := m.Read32(0x0f * 4); readErr == nil && vector != 0 {
+					address := uint32(uint16(vector>>16))*16 + uint32(uint16(vector))
+					if uint64(address)+16 <= uint64(len(m.Mem)) {
+						fmt.Printf("irq7_real_entry address_space=dosgolem_real_mode_linear vector=%08X linear=0x%X bytes=%X\n", vector, address, m.Mem[address:address+16])
+					}
+				}
+			}
 			var instructionError *cpu386.Error
 			if errors.As(err, &instructionError) && uint64(instructionError.EIP)+16 <= uint64(len(m.Mem)) {
 				fmt.Printf("guest_cpu_stop address_space=dosgolem_high_le eip=0x%X bytes=% X\n", instructionError.EIP, m.Mem[instructionError.EIP:instructionError.EIP+16])

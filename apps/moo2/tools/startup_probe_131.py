@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-shared-device-clock-spec-backlinks 只驗證共用DMA時計及首block／IRQ7邊界回填，不啟動DOSBox-X。
 --check-xchg-ax-word-spec-backlinks 只驗證 word XCHG及完整ROR消費回填，不啟動DOSBox-X。
 --check-xor-word-immediate-spec-backlinks 只驗證 word XOR與原版堆疊消費回填，不啟動DOSBox-X。
 --check-adc-dword-register-spec-backlinks 只驗證 dword ADC真實消費回填，不啟動DOSBox-X。
@@ -46,6 +47,33 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_shared_device_clock_resolution(spec_dir):
+    """304共用時計、真正首block與未完成IRQ7邊界須同步回填。"""
+    current = (spec_dir / '304-le-shared-device-clock.md').read_text()
+    required = ('0x2454AE', 'C6 20 FF 07', '43985659', '44032078',
+                '46419×44100', 'DMACompletions1／PCMBytes2048', 'DMA8SampleCredit4000',
+                '88ed1a04cb43fe65827d1cd9ef6d24a736108730b1ce6315d4d3ca79b6a0d140',
+                '1201:0682', '0x12692', 'DOS保護模式0F=0000:00000000',
+                'DSPIRQPending／PICPending=true', 'IRQ7Deliveries仍1',
+                '不重跑未變平台／CPU測試', '保護模式IRQ7派送、連續PCM及人耳仍未知',
+                'ec4abf4f565e6cf1ea3ec1b210e414b459d00a6ac8e80da0307e3c323dcb3de0',
+                'd89716bc0d1482670ea1eb5cf1709475ef31bbeff0930cb86af34ef407369fda',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('共用裝置時間缺原版定位／首block／真正PCM／pending／未知邊界或可實作狀態')
+    for number in (241, 293, 294, 295, 296, 297, 298, 300, 301, 302, 303):
+        names = list(spec_dir.glob(str(number) + '-*.md'))
+        if len(names) != 1:
+            raise RuntimeError('共用時計舊規格缺檔或定位不唯一')
+        older = names[0].read_text()
+        if '保護模式裝置時計缺口由規格 304 接線' not in older or '304-le-shared-device-clock.md' not in older:
+            raise RuntimeError('共用時計較早音訊邊界缺回填')
+
+if sys.argv[1:] == ['--check-shared-device-clock-spec-backlinks']:
+    validate_shared_device_clock_resolution(spec_dir)
+    print('共用裝置時間／真正首block／IRQ7邊界與十一份舊規格回填通過')
+    raise SystemExit(0)
+
 def validate_pit_count_latch_resolution(spec_dir):
     """282 的計數契約與原有未知讀取／鎖存停點回填必須並存。"""
     current = (spec_dir / '282-pit0-mode2-count-latch.md').read_text()
