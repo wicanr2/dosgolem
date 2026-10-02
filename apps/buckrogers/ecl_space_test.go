@@ -164,7 +164,7 @@ func equalLines(a, b []EclTextLine) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Row != b[i].Row || a[i].Col != b[i].Col || string(a[i].Text) != string(b[i].Text) {
+		if a[i].Row != b[i].Row || a[i].Col != b[i].Col || a[i].Shrink != b[i].Shrink || string(a[i].Text) != string(b[i].Text) {
 			return false
 		}
 	}
