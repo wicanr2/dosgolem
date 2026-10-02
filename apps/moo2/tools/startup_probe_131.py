@@ -52,6 +52,31 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_cmp_word_imm16_resolution(spec_dir):
+    """313原始CMP與兩方向JL消費須回填全部較早相同停點。"""
+    current=(spec_dir/'313-cpu386-cmp-word-register-imm16.md').read_text()
+    required=('0x14E3DE','66 81 F9 D4 00','0x14E3E3','0F 8C 45 FF FF FF',
+              '0x14E32E','0x14E3E9','48919460','48919797','48992578',
+              'CF1／PF1／AF1／ZF0／SF1／OF0','CF0／PF1／AF0／ZF1／SF0／OF0',
+              'flags293h→297h','flags293h→246h','SS0188:002BDBA4',
+              'total=212 sample_groups=3 boundary212_observed=true',
+              'mouse_started=0','mouse_started=1','0x24C31B','AX0014h','61027457',
+              '9ecb69d4db8d3e563ecf0437aa6c94ef20bf81cae8616054f3fcb50429380785',
+              '024cb32aacccb303f6b58054e277c5a14e989ca79d426f8a25ef02790c40f895',
+              '1d9d785ac3189d58aab71527bb80f8335655a4d024e28e72b395f6926241e958',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('word CMP iw缺原始來源／六旗標／兩方向JL／完整窗口與正式收據')
+    for name in ('309-sb16-pause-resume-dma8.md','310-moo2-dos-calendar-date.md','311-cpu386-sub-word-register-imm16.md','312-cpu386-add-word-memory-source.md'):
+        older=(spec_dir/name).read_text()
+        if 'word CMP完整立即值停點已由規格 313 接通' not in older or '313-cpu386-cmp-word-register-imm16.md' not in older:
+            raise RuntimeError('word CMP iw較早拒絕缺回填')
+
+if sys.argv[1:]==['--check-cmp-word-imm16-spec-backlinks']:
+    validate_cmp_word_imm16_resolution(spec_dir)
+    print('word CMP iw／六旗標／JL兩方向與較早四文件回填通過')
+    raise SystemExit(0)
+
 def validate_add_word_memory_source_resolution(spec_dir):
     """312真正word來源／寫回與較早相同停點必須一起保存。"""
     current=(spec_dir/'312-cpu386-add-word-memory-source.md').read_text()

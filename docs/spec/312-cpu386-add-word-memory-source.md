@@ -68,3 +68,7 @@ CPU SHA-256 0604f00fae843fc162ce970cef7479ca4d733d0c3f4a66a5fc412030d5c628b7；i
 word ADD記憶體來源停點已由規格 312 接通。309-sb16-pause-resume-dma8.md、310-moo2-dos-calendar-date.md與311-cpu386-sub-word-register-imm16.md中0x210C7E同一固定EXE鍵的未知須同次追加此勘誤與本檔連結；歷史拒絕收據仍保留。不擴張309音訊、310日期或311其他word SUB語意。驗證入口apps/moo2/tools/startup_probe_131.py --check-add-word-memory-source-spec-backlinks，缺原始bytes／來源／flags／真正寫回／受控滑鼠0與1／收據／任一舊文件回填即拒絕。
 
 同次54個回填函式與31個新增移除定位／狀態／正式收據／較早標記／連結負例、312 CLI全通過。工具來源與三組正式收據保持；所有新檔與收據UID:GID1000:1000，工具root-owned／異形.md目錄自檢空，本輪有界容器已退出移除。
+
+## 2026-10-03 CMP完整立即值停點勘誤
+
+word CMP完整立即值停點已由規格 313 接通，見[313-cpu386-cmp-word-register-imm16.md](313-cpu386-cmp-word-register-imm16.md)。固定EXE／高位LE0x14E3DE的六旗標與後續JL兩方向、兩正常外層212到訪已驗。原拒絕收據保留；新停點0x24C31B的INT33／AX0014h滑鼠服務，已見原版標題背景，主選單按鈕未見，其他CPU／日期／音訊／玩家路徑範圍未擴張。

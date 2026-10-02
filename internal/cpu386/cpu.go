@@ -2514,7 +2514,7 @@ func (c *CPU) Step() error {
 				c.sub16(value, imm)
 				break
 			}
-			if modrm>>6 != 3 || (group != 0 && group != 1 && group != 4 && group != 5) {
+			if modrm>>6 != 3 || (group != 0 && group != 1 && group != 4 && group != 5 && group != 7) {
 				return fail("81 word形狀尚未支援")
 			}
 			imm, e := c.fetch16()
@@ -2522,6 +2522,11 @@ func (c *CPU) Step() error {
 				return fail(e.Error())
 			}
 			reg := modrm & 7
+			if group == 7 {
+				// 規格313：完整iw的word CMP只改六旗標，不寫回來源。
+				c.sub16(uint16(c.R[reg]), imm)
+				break
+			}
 			if group == 0 {
 				v := c.add16(uint16(c.R[reg]), imm)
 				c.R[reg] = c.R[reg]&0xffff0000 | uint32(v)

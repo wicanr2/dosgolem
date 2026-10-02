@@ -490,3 +490,5 @@
 - [311：word SUB 完整立即值](311-cpu386-sub-word-register-imm16.md)：CONFORMED。八目的／全word／六旗標／全套與兩正常各兩筆SUB、MOV／SHL／word MOV及兩次堆疊寫回已驗；memory與完整CPU未擴張。
 
 - [312：word ADD 的記憶體來源](312-cpu386-add-word-memory-source.md)：CONFORMED。word記憶體來源／獨立六旗標／全部測試與兩正常ADD、真正兩byte寫回及四caller已驗；已見Loading畫面，主選單未知。
+
+- [313：word CMP 完整立即值](313-cpu386-cmp-word-register-imm16.md)：CONFORMED。八來源／全word／全套、兩正常三組CMP旗標及JL跳轉／不跳轉已驗；已見標題背景，AX0014h與主選單未知。

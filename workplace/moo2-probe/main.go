@@ -137,6 +137,12 @@ func main() {
 	loopStep := 0
 	calendarConsumerSteps := 0
 	wordAddMemorySeen, wordAddMemorySteps := 0, 0
+	cmpWordSamples, cmpWordSteps, cmpWordTotal := 0, 0, 0
+	cmpWordBoundarySeen := false
+	defer func() {
+		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
+	}()
+
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
 		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x2a {
 			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
@@ -630,7 +636,40 @@ func main() {
 				wordAddBeforeMemory[j], wordAddReadable = b, wordAddReadable && ok
 			}
 		}
+		if m.CPU.EIP == 0x14e3de {
+			cmpWordTotal++
+			if cmpWordSamples < 2 || (!cmpWordBoundarySeen && uint16(m.CPU.R[cpu386.ECX]) == 212) {
+				cmpWordSamples++
+				if uint16(m.CPU.R[cpu386.ECX]) == 212 {
+					cmpWordBoundarySeen = true
+				}
+				cmpWordSteps = 2
+			}
+		}
+		var cmpWordBeforeR [8]uint32
+		var cmpWordBeforeSeg [6]uint16
+		var cmpWordBeforeEIP, cmpWordBeforeFlags uint32
+		var cmpWordBytes [16]byte
+		var cmpWordStackBefore, cmpWordStackAfter [32]byte
+		cmpWordStackReadable := true
+		if cmpWordSteps > 0 {
+			cmpWordBeforeR, cmpWordBeforeSeg, cmpWordBeforeEIP, cmpWordBeforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+			copy(cmpWordBytes[:], m.Mem[cmpWordBeforeEIP:cmpWordBeforeEIP+16])
+			for j := range cmpWordStackBefore {
+				b, ok := m.CPU.ReadSegment8(cmpWordBeforeSeg[cpu386.SegSS], cmpWordBeforeR[cpu386.ESP]+uint32(j))
+				cmpWordStackBefore[j], cmpWordStackReadable = b, cmpWordStackReadable && ok
+			}
+		}
 		stepErr := m.CPU.Step()
+		if cmpWordSteps > 0 {
+			cmpWordSteps--
+			for j := range cmpWordStackAfter {
+				b, ok := m.CPU.ReadSegment8(cmpWordBeforeSeg[cpu386.SegSS], cmpWordBeforeR[cpu386.ESP]+uint32(j))
+				cmpWordStackAfter[j], cmpWordStackReadable = b, cmpWordStackReadable && ok
+			}
+			fmt.Printf("cmp_word_immediate_observation outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X error=%v\n", i, cmpWordBeforeEIP, m.CPU.EIP, cmpWordBeforeR, m.CPU.R, cmpWordBeforeSeg, m.CPU.Seg, cmpWordBeforeFlags, m.CPU.EFlags, cmpWordBytes, cmpWordBeforeSeg[cpu386.SegSS], cmpWordBeforeR[cpu386.ESP], cmpWordStackReadable, cmpWordStackBefore, cmpWordStackAfter, stepErr)
+		}
+
 		if wordAddMemorySteps > 0 {
 			wordAddMemorySteps--
 			for j := range wordAddAfterMemory {

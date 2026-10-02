@@ -52,3 +52,7 @@ word SUB完整立即值停點已由規格 311 接通。310必須保留此標記�
 ## 2026-10-03 ADD來源停點勘誤
 
 word ADD記憶體來源停點已由規格 312 接通，見[312-cpu386-add-word-memory-source.md](312-cpu386-add-word-memory-source.md)。同一固定EXE／高位LE0x210C7E，來源0002h＋AX000Fh、flags216h及真正DS0188:0029BEA2兩byte寫回已驗。原拒絕收據保留；兩明示日期正常流程現在停0x14E3DE word CMP完整立即值，已見原版Loading畫面，其他日期／時間／RNG、音訊、玩家流程與本規格範圍未擴張。
+
+## 2026-10-03 CMP完整立即值停點勘誤
+
+word CMP完整立即值停點已由規格 313 接通，見[313-cpu386-cmp-word-register-imm16.md](313-cpu386-cmp-word-register-imm16.md)。固定EXE／高位LE0x14E3DE的六旗標與後續JL兩方向、兩正常外層212到訪已驗。原拒絕收據保留；新停點0x24C31B的INT33／AX0014h滑鼠服務，已見原版標題背景，主選單按鈕未見，其他CPU／日期／音訊／玩家路徑範圍未擴張。
