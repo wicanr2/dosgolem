@@ -48,3 +48,8 @@ Go 1.24.13／映像 sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540c
 兩條第 20,634,818 步停 **dosgolem 高位 LE 線性** 0x239B3A，bytes E6 43 EB 00 E4 40 88 C4 E4 40 86 C4 25 FF FF 00；EAX=0、OUT 43h 控制字 00h 尚未處理。此為標準 PIT 通道 0 計數鎖存的平台缺口，不是 IRQ0 返回失敗。CS=8、DS／ES／SS=188h、flags=246h；PIT Mode=2／Reload=5966／Generation=5、Micros=21092406、Deliveries=1615、Pending=false／InService=false。下一最小行動依公開 PIT count latch 契約建立窄規格；不拆遊戲 timer driver／ISR／busy-wait，不追硬體 wall-clock。
 
 自然 gzip SHA-256 13d30875d8eb0f90c126705fdf996d560fe24ba627410d3bd12cad50adee0346／6a2373334cbd427b62d1415ec8eefae8cf7c8943b22492d61a3e0b711eb828b1。VBE BankSets=441／Writes=4046164／DisplaySets=6，最終 indexed SHA-256 7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf、RGB 0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366、兩 PNG 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622 與已檢視黑圖相同，不重做目視。主選單／正常玩家操作、音效、受控亂數及 Go remake 玩法同狀態仍未完成，255 保持 READY。原版完整資料／終端／gzip／PNG 只留本機，公開庫只存自製工具與文字證據。
+
+
+## 規格 282／283 的計數讀取後續
+
+計數鎖存停點已由規格 282 接通，見 [282-pit0-mode2-count-latch.md](282-pit0-mode2-count-latch.md)；其後 E4 CPU 缺件由 [283-cpu386-in-al-imm8.md](283-cpu386-in-al-imm8.md) 接通。上述 OUT 43h←00h 為 281 歷史前沿，現行原版已自然完成凍結低高讀取，再停標準 byte 記憶體 SUB，完整收據與定位只在 283。281／277 的受限返回與模式 2 等待完成範圍不變，255 READY；不外推硬體週期／主選單／正常玩家路徑。

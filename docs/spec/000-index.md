@@ -432,4 +432,6 @@
 - [278 — CS 記憶體目的與帶符號 imm8 的比較](278-cpu386-cs-memory-cmp-imm8.md)：CONFORMED（有限 CPU 比較）。原版樣本與全部 CPU／固定 EXE 回歸通過；後續返回／等待範圍見 277／281。
 - [279 — 從 CS 絕對 word 位址載入 ES](279-cpu386-cs-absolute-es-load.md)：CONFORMED（限定 CPU／既有 selector 模型）。有限原版與全部 CPU／固定 EXE 回歸通過；後續 CB／結束鏈見 280／281。
 - [280 — 32 位元同權限遠返回 CB](280-cpu386-far-ret32.md)：CONFORMED（限定同權限 CPU 返回）。有限原版框架及回歸通過；預設核心鏈停點已由 281 接通。
-- [281 — MOO2 保護模式 IRQ0 的預設結束鏈](281-moo2-protected-irq0-end-chain.md)：CONFORMED（受限預設入口／BIOS tick／EOI）。原版邊界與平台全套通過，1,595 次自然返回及模式 2 等待閉合；下一 PIT count latch，主選單未驗。
+- [281 — MOO2 保護模式 IRQ0 的預設結束鏈](281-moo2-protected-irq0-end-chain.md)：CONFORMED（受限預設入口／BIOS tick／EOI）。1,595 次自然返回及模式 2 等待閉合；PIT 鎖存停點已由 282／283 接通，玩家路徑未驗。
+- [282 — PIT 通道 0 模式 2 的計數鎖存](282-pit0-mode2-count-latch.md)：CONFORMED（受限模式 2 latch／低高讀取）。共享時鐘／凍結與拒絕測試通過；283 已讓原版自然消費兩次 IN，硬體時序仍近似。
+- [283 — 從立即埠編號輸入 byte 至 AL](283-cpu386-in-al-imm8.md)：CONFORMED（裸 E4／明示平台 I/O）。全部 CPU／固定 EXE 回歸及兩個自然排程已驗，讀取凍結 PIT count 後停 byte 記憶體 SUB，主選單未驗。

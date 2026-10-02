@@ -30,6 +30,40 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_pit_count_latch_resolution(spec_dir):
+    """282 的計數契約與原有未知讀取／鎖存停點回填必須並存。"""
+    current = (spec_dir / '282-pit0-mode2-count-latch.md').read_text()
+    required = ('0x239B3A', 'E6 43 EB 00 E4 40', '5966', '264×1000000', '5681', '1631h', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('PIT latch 缺原始定位／計數契約或可實作狀態')
+    for name, marker in (
+        ('281-moo2-protected-irq0-end-chain.md', '計數鎖存停點已由規格 282 接通'),
+        ('276-pit0-mode2-shared-clock.md', '模式 2 計數鎖存由規格 282 擴充'),
+    ):
+        older = (spec_dir / name).read_text()
+        if marker not in older or '282-pit0-mode2-count-latch.md' not in older:
+            raise RuntimeError('PIT 舊停點／拒絕範圍缺後續回填')
+
+if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
+    validate_pit_count_latch_resolution(spec_dir)
+    print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_in_al_immediate_resolution(spec_dir):
+    """283 的 byte 立即埠語意與 282 的 CPU 停點回填必須並存。"""
+    current = (spec_dir / '283-cpu386-in-al-imm8.md').read_text()
+    required = ('0x239B3E', '0x239B42', 'E4 40 88 C4 E4 40', '補零', 'AL=31h', 'AL=16h', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('E4 缺原始定位／兩次讀取或可實作狀態')
+    older = (spec_dir / '282-pit0-mode2-count-latch.md').read_text()
+    if '立即埠輸入缺件已由規格 283 接通' not in older or '283-cpu386-in-al-imm8.md' not in older:
+        raise RuntimeError('E4 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-in-al-immediate-spec-backlinks']:
+    validate_in_al_immediate_resolution(spec_dir)
+    print('E4 原始定位／兩次讀取與後續回填通過')
+    raise SystemExit(0)
+
 def validate_irq0_end_chain_resolution(spec_dir):
     """281 的原始框架與平台收據、舊結束鏈停點回填必須並存。"""
     current = (spec_dir / '281-moo2-protected-irq0-end-chain.md').read_text()
@@ -448,7 +482,7 @@ capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensiti
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
 if not (capture_dos_timer_vector or capture_pit_mode2 or capture_vtd_entry or capture_xor_word_register or capture_short_sign_branches or capture_inc_word_memory or capture_cmp_word_destination or capture_cmp_memory_register or capture_imul_dword_register or capture_imul_word_register or capture_add_word_register or capture_vbe_display_start or capture_vbe_window_control or capture_div_byte_register or capture_vga_pel_mask or capture_test_word_register or capture_find_current_directory or capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--irq0-end-chain|--check-irq0-end-chain-spec-backlinks|--check-far-ret-spec-backlinks|--far-ret|--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+    raise SystemExit('usage: startup_probe_131.py [--check-pit-count-latch-spec-backlinks|--check-in-al-immediate-spec-backlinks|--irq0-end-chain|--check-irq0-end-chain-spec-backlinks|--check-far-ret-spec-backlinks|--far-ret|--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']

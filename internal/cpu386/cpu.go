@@ -692,6 +692,23 @@ func (c *CPU) Step() error {
 		if c.R[ECX] == 0 {
 			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
 		}
+	case op == 0xe4:
+		// 規格 283：立即埠編號補零，平台成功才提交 AL；其他 I/O 形狀不變。
+		if operand16 || segmentOverride >= 0 || repe || repne || c.EFlags&(1<<17) != 0 {
+			return fail("IN immediate 前綴或 VM 尚未支援")
+		}
+		port, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if c.PortIn == nil {
+			return fail("IN 未安裝平台輸入")
+		}
+		value, ok := c.PortIn(uint16(port))
+		if !ok {
+			return fail(fmt.Sprintf("IN port %04X 未處理", port))
+		}
+		c.setReg8(EAX, value)
 	case op == 0xec:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("IN prefix 尚未支援")

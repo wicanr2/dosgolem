@@ -101,6 +101,13 @@ func secondaryDMAPageChannel(port uint16) (int, bool) {
 }
 
 func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
+	if port == 0x40 {
+		v, ok := p.PIT0.readLatchedMode2()
+		if ok {
+			p.record(port, v, false)
+		}
+		return v, ok
+	}
 	if port == 0x20 || port == 0xa0 {
 		v := byte(0)
 		if port == 0x20 && (p.picReadISR[0] && p.picInService || !p.picReadISR[0] && p.picPending) {
@@ -162,6 +169,13 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 	return v, true
 }
 func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
+	if port == 0x43 && v == 0 {
+		if !p.PIT0.latchMode2(p.BIOSClock) {
+			return false
+		}
+		p.record(port, v, true)
+		return true
+	}
 	if p.PIT0.Out8(port, v) {
 		p.record(port, v, true)
 		return true
