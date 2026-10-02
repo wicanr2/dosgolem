@@ -30,6 +30,24 @@ func (p *DirectoryReadOnlyFiles) Close() error {
 	return p.root.Close()
 }
 
+// 規格323：只提供根目錄候選，實際開啟仍由OpenRead檢查。
+func (p *DirectoryReadOnlyFiles) ListReadOnlyNames() ([]string, error) {
+	if p == nil || p.root == nil {
+		return nil, fs.ErrPermission
+	}
+	entries, err := fs.ReadDir(p.root.FS(), ".")
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
+}
+
 func (p *DirectoryReadOnlyFiles) OpenRead(name string) (io.ReadSeekCloser, error) {
 	if p == nil || p.root == nil || name == "" || name == "." || name == ".." ||
 		strings.ContainsAny(name, "/\\:") {

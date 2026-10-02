@@ -504,3 +504,11 @@
 - [318：NEW GAME正常點擊](318-moo2-new-game-normal-click.md)：CONFORMED。兩真正CB／完整R、六段、flags恢復；模式關閉基線保持，設定畫面與按鍵consumer未驗。
 
 - [319：NEW GAME按鍵消費觀測](319-moo2-new-game-button-consumer.md)：CONFORMED。限定兩CB後word0100／0000與318全部列保持；讀取覆蓋無正對照，consumer仍未知。
+
+- [320：讀取掛勾正對照](320-moo2-button-read-hook-control.md)：CONFORMED。兩原版word MOV讀500／229座標，掛勾匹配／319全部列保持；後續事件消費見321，320原始限定收據保留。
+
+- [321：主選單滑鼠事件消費](321-moo2-menu-mouse-event-consumer.md)：CONFORMED。7正常讀取／28續行／2CB window，放開後讀取並清事件；320其他列與終圖保持，設定畫面仍未知。
+
+- [322：44M Esc正常續行](322-moo2-earlier-escape-new-game-continuation.md)：CONFORMED。八CLI／兩44M正常流程，真實save?.gam搜尋在47995790拒絕；保持46M獨立基線，設定畫面未知。
+
+- [323：DOS問號首次搜尋](323-moo2-dos-findfirst-question-pattern.md)：CONFORMED。真實save?.gam缺檔／EAX12h／CF與12步消費通過，兩原版流程及固定EXE完整測試通過；新00 C3停點，設定畫面未知。

@@ -20,6 +20,8 @@
 
 ## 正式收據與觀測邊界
 
+讀取掛勾正對照已由[320-moo2-button-read-hook-control.md](320-moo2-button-read-hook-control.md)補證：兩真正word MOV讀500／229座標、掛勾匹配；活動callback原始213D61／213D71其實讀取2A121A，319刻意排除此支線。主選單轉事件後consumer仍未知。以下保留319限定寫後收據與當時未有正對照的邊界。
+
 59回填函式、32缺定位／原始收據／正對照未知／狀態／回填負例與--check-menu-click-spec-backlinks通過。三新規格及所有修改來源／收據1000:1000；工具root-owned與異形.md目錄空。21:35:20 UTC本輪有界容器已退出移除，唯一剩餘Go容器掛載為fd2，保留未操作。沒有修改CPU／平台，沒有發布素材或宣稱remake完成。
 
 Go1.24.13既有固定映像，600s／2GiB／2CPU／128pids／UID1000／network none，417根檔乾淨重建，與318完全相同輸入／初態。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe後執行原版，沒有新輸入或提高cap。

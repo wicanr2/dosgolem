@@ -391,9 +391,17 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 	if s.moo2Profile {
 		lookupName = strings.TrimPrefix(lookupName, ".\\")
 	}
-	base, ext, ok := exactDOSName(lookupName)
+	question := s.moo2Profile && strings.ContainsRune(lookupName, '?')
+	validationName := lookupName
+	if question {
+		validationName = strings.ReplaceAll(lookupName, "?", "A")
+	}
+	base, ext, ok := exactDOSName(validationName)
 	if !terminated || !ok {
 		return false
+	}
+	if question {
+		base, ext, _ = strings.Cut(strings.ToUpper(lookupName), ".")
 	}
 	var dta [43]byte
 	for i := range dta {
@@ -415,7 +423,17 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 
 	var file io.ReadSeekCloser
 	var err error
-	if s.files != nil {
+	resultBase, resultExt := base, ext
+	if question {
+		lookupName, err = firstQuestionDOSName(s.files, base, ext)
+		if err == nil {
+			resultBase, resultExt, ok = exactDOSName(lookupName)
+			if !ok {
+				return false
+			}
+		}
+	}
+	if s.files != nil && err == nil {
 		file, err = s.files.OpenRead(lookupName)
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -448,10 +466,10 @@ func (s *FD2StartupDOS) findFirstExact(c *cpu386.CPU) bool {
 		for i := 0x1e; i < len(dta); i++ {
 			dta[i] = 0
 		}
-		copy(dta[0x1e:], base)
-		if ext != "" {
-			dta[0x1e+len(base)] = '.'
-			copy(dta[0x1f+len(base):], ext)
+		copy(dta[0x1e:], resultBase)
+		if resultExt != "" {
+			dta[0x1e+len(resultBase)] = '.'
+			copy(dta[0x1f+len(resultBase):], resultExt)
 		}
 	}
 	if !c.WriteSegmentBytes(s.dtaSelector, s.dtaOffset, dta[:]) {

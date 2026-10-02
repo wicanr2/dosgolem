@@ -9,7 +9,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wicanr2/dosgolem/internal/cpu386"
@@ -61,8 +63,8 @@ func main() {
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
 	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
-	if newGameClick && (!keyboardRequested || keyboardStep != 46000000 || maxSteps != 50000000 || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
-		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求46M Esc、1996-01-01、50M cap且無早期滑鼠事件")
+	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || maxSteps != 50000000 || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc、1996-01-01、50M cap且無早期滑鼠事件")
 		os.Exit(2)
 	}
 	b, err := os.ReadFile(os.Args[1])
@@ -169,6 +171,7 @@ func main() {
 	var phaseLastDisplay uint64
 	phasePrefix := os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX")
 	menuDisplay40Seen := false
+	findQuestionConsumerSteps := 0
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -263,6 +266,21 @@ func main() {
 				dta = append(dta, ch)
 			}
 			fmt.Printf("find_request eip=0x%X r=%X seg=%X flags=0x%X pattern_hex=%X read_ok=%t dta_set=%t dta_selector=0x%X dta_offset=0x%X dta_hex=%X\n", c.EIP-2, c.R, c.Seg, c.EFlags, pattern, readOK, dtaSet, dtaSelector, dtaOffset, dta)
+			if readOK && strings.ContainsRune(string(pattern), '?') {
+				beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+				handled := services.Handle(c, number)
+				var afterDTA []byte
+				desc, known := c.Descriptors[dtaSelector]
+				linear := uint64(desc.Base) + uint64(dtaOffset)
+				if known && dtaSet && uint64(dtaOffset)+43 <= uint64(desc.Limit)+1 && linear+43 <= uint64(len(m.Mem)) {
+					afterDTA = append([]byte(nil), m.Mem[linear:linear+43]...)
+				}
+				fmt.Printf("find_question_result outer_step=%d address_space=dosgolem_high_le callsite=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X before_dta=%X after_dta=%X handled=%t\n", loopStep, c.EIP-2, beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, dta, afterDTA, handled)
+				if handled {
+					findQuestionConsumerSteps = 12
+				}
+				return handled
+			}
 		}
 		if number == 0x10 && c.R[cpu386.EAX] == 0x4f05 {
 			beforeR := c.R
@@ -467,22 +485,55 @@ func main() {
 	buttonReadMatched := false
 	var buttonReadWidth uint32
 	var buttonReadWord [2]byte
+	var buttonRequests [3][2]uint64
+	var buttonPositiveCounts [3]int
+	var buttonHook8, buttonHook16 uintptr
+	buttonPositivePending := false
+	var buttonPositiveWidth, buttonPositiveOffset uint32
+	var buttonPositiveSelector uint16
+	var buttonPositiveLinear uint64
+	var buttonPositiveBytes [2]byte
+	var eventReadSelector uint16
+	var eventReadOffset uint32
+	var eventReadLinear uint64
+	var eventReadWindow [16]byte
+	var eventReadCounter [4]byte
+	eventConsumerBudget, eventConsumerSamples := 0, 0
 	observeButtonRequest := func(selector uint16, offset, width uint32) {
-		if !buttonReadStepActive || !newGamePressed || buttonReadSamples >= 32 {
+		if !buttonReadStepActive || !newGamePressed {
 			return
 		}
 		descriptor, known := m.CPU.Descriptors[selector]
 		_, _, callbackActive, _, _ := services.MouseCallbackState()
+		callbackIndex := 0
+		if callbackActive {
+			callbackIndex = 1
+		}
+		buttonRequests[width][callbackIndex]++
 		linear := uint64(descriptor.Base) + uint64(offset)
-		if known && !callbackActive && uint64(offset)+uint64(width) <= uint64(descriptor.Limit)+1 && linear <= 0x2a121b && linear+uint64(width) > 0x2a121a {
+		valid := known && uint64(offset)+uint64(width) <= uint64(descriptor.Limit)+1 && linear+uint64(width) <= uint64(len(m.Mem))
+		if valid && !callbackActive && buttonPositiveCounts[width] < 2 && !buttonPositivePending {
+			buttonPositivePending, buttonPositiveWidth = true, width
+			buttonPositiveSelector, buttonPositiveOffset, buttonPositiveLinear = selector, offset, linear
+			buttonPositiveBytes = [2]byte{}
+			copy(buttonPositiveBytes[:width], m.Mem[linear:linear+uint64(width)])
+		}
+		eventTarget := linear <= 0x2a1229 && linear+uint64(width) > 0x2a121a || linear <= 0x2a11ef && linear+uint64(width) > 0x2a11ec
+		if valid && !callbackActive && buttonReadSamples < 32 && eventTarget {
 			buttonReadMatched, buttonReadWidth = true, width
 			copy(buttonReadWord[:], m.Mem[0x2a121a:0x2a121c])
+			eventReadSelector, eventReadOffset, eventReadLinear = selector, offset, linear
+			copy(eventReadWindow[:], m.Mem[0x2a121a:0x2a122a])
+			copy(eventReadCounter[:], m.Mem[0x2a11ec:0x2a11f0])
 		}
 	}
 	defer func() {
 		if newGameClick {
 			mask, pending, active, started, completed := services.MouseCallbackState()
 			fmt.Printf("new_game_mouse_terminal pressed=%t released=%t samples=%d mask=%X pending=%d active=%t started=%d completed=%d\n", newGamePressed, newGameReleased, newGameCallbackSamples, mask, pending, active, started, completed)
+			hook8Matches := m.CPU.SegmentRead8 != nil && reflect.ValueOf(m.CPU.SegmentRead8).Pointer() == buttonHook8
+			hook16Matches := m.CPU.SegmentRead16 != nil && reflect.ValueOf(m.CPU.SegmentRead16).Pointer() == buttonHook16
+			fmt.Printf("new_game_button_read_control normal8=%d callback8=%d normal16=%d callback16=%d positives8=%d positives16=%d target_samples=%d hook_code_matches=%t/%t\n", buttonRequests[1][0], buttonRequests[1][1], buttonRequests[2][0], buttonRequests[2][1], buttonPositiveCounts[1], buttonPositiveCounts[2], buttonReadSamples, hook8Matches, hook16Matches)
 		}
 	}()
 	for i := 0; i < maxSteps; i++ {
@@ -525,6 +576,7 @@ func main() {
 							observeButtonRequest(selector, offset, 2)
 							return value, ok
 						}
+						buttonHook8, buttonHook16 = reflect.ValueOf(m.CPU.SegmentRead8).Pointer(), reflect.ValueOf(m.CPU.SegmentRead16).Pointer()
 					} else {
 						newGameReleased = true
 					}
@@ -837,18 +889,36 @@ func main() {
 		var clickBeforeSeg [6]uint16
 		var clickBeforeEIP, clickBeforeFlags uint32
 		var clickBytes [16]byte
-		if observeClick || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		observeEventConsumer := newGameClick && eventConsumerBudget > 0 && eventConsumerSamples < 32
+		observeFindQuestion := findQuestionConsumerSteps > 0
+		if observeClick || observeEventConsumer || observeFindQuestion || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
 		}
 		buttonReadStepActive = newGameClick
 		buttonReadMatched = false
+		buttonPositivePending = false
 		stepErr := m.CPU.Step()
 		buttonReadStepActive = false
+		if observeFindQuestion {
+			findQuestionConsumerSteps--
+			fmt.Printf("find_question_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, stepErr)
+		}
+		if buttonPositivePending {
+			buttonPositiveCounts[buttonPositiveWidth]++
+			fmt.Printf("new_game_button_read_positive outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X width=%d selector=%X offset=%X linear=%X input_bytes=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, buttonPositiveWidth, buttonPositiveSelector, buttonPositiveOffset, buttonPositiveLinear, buttonPositiveBytes[:buttonPositiveWidth], clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, stepErr)
+		}
 		if buttonReadMatched {
 			buttonReadSamples++
 			fmt.Printf("new_game_button_read outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X width=%d buttons_word=%X released=%t before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, buttonReadWidth, buttonReadWord, newGameReleased, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, stepErr)
+			fmt.Printf("new_game_event_read outer_step=%d selector=%X offset=%X linear=%X width=%d before_2a121a=%X after_2a121a=%X before_2a11ec=%X after_2a11ec=%X\n", i, eventReadSelector, eventReadOffset, eventReadLinear, buttonReadWidth, eventReadWindow, m.Mem[0x2a121a:0x2a122a], eventReadCounter, m.Mem[0x2a11ec:0x2a11f0])
+			eventConsumerBudget = 4
+		}
+		if observeEventConsumer {
+			eventConsumerSamples++
+			eventConsumerBudget--
+			fmt.Printf("new_game_event_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X raw_2a121a=%X raw_2a11ec=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, m.Mem[0x2a121a:0x2a122a], m.Mem[0x2a11ec:0x2a11f0], stepErr)
 		}
 		if observeClick {
 			newGameCallbackSamples++
@@ -856,6 +926,7 @@ func main() {
 			fmt.Printf("new_game_mouse_callback outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X before_started=%d before_completed=%d mask=%X pending=%d active=%t started=%d completed=%d error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, clickStarted, clickCompleted, mask, pending, active, started, completed, stepErr)
 			if completed != clickCompleted {
 				fmt.Printf("new_game_button_callback_return outer_step=%d completed=%d buttons_word=%X\n", i, completed, m.Mem[0x2a121a:0x2a121c])
+				fmt.Printf("new_game_event_callback_return outer_step=%d completed=%d raw_2a121a=%X raw_2a11ec=%X\n", i, completed, m.Mem[0x2a121a:0x2a122a], m.Mem[0x2a11ec:0x2a11f0])
 			}
 		}
 		if mouseExchangeObserve {

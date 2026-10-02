@@ -26,3 +26,5 @@
 ## 實作與有限驗收
 
 `internal/machine/le_startup.go` 接入受限 `AH=4Eh`；`le_startup_test.go` 以非零舊結果欄驗證缺檔時保留，並以修改時間固定的空 `MOX.SET` 核對成功 DTA。`go test -buildvcs=false ./internal/machine -count=1`、固定原檔輸入的 `go test -buildvcs=false ./... -count=1` 均通過。已綁定 DPMI 的合成 PSP／環境診斷從第 4066 步進至第 4168 步，在 **dosgolem 重定位 LE 線性位址** `0x148224`、bytes `38 10 A8 03` 的 `CMP r/m8,r8` 不支援處停下。這個步數只證明工具跨過目前服務邊界，沒有原版與 remake 的同狀態玩法收據。`CONFORMED` 僅適用上述受限路徑，不涵蓋實際遊戲資料目錄、任意 DOS 檔名或時區。
+
+後續問號搜尋由[323-moo2-dos-findfirst-question-pattern.md](323-moo2-dos-findfirst-question-pattern.md)延伸。原始限定收據保留；其他萬用字元、FindNext與完整DTA保留區不新增對齊聲明。

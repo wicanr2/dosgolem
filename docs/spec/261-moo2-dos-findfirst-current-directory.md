@@ -35,3 +35,5 @@ READY 審查：公開目錄前綴契約與原版固定字串／返回已足以�
 仍無正常玩家畫面、音效、受控亂數及 Go remake 玩法同狀態收據；規格 255 維持 READY。下一最小行動是依公開 CPU 契約核對 `66 85 C0` 的位元寬度與定義旗標，不展開 runtime helper 內部。
 
 **word TEST 停點已由規格 262 接通**：[262-cpu386-test-word-register.md](262-cpu386-test-word-register.md) 已核對公開寬度／旗標及原版同次樣本，兩條自生路徑越過舊停點；原始搜尋與 TEST 收據仍保留。新停點及限定驗收見後續規格，不以舊停點代替現況。
+
+後續問號搜尋由[323-moo2-dos-findfirst-question-pattern.md](323-moo2-dos-findfirst-question-pattern.md)延伸。原始限定收據保留；其他萬用字元、FindNext與完整DTA保留區不新增對齊聲明。

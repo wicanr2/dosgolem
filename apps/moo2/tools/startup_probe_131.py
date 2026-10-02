@@ -51,6 +51,34 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_menu_event_find_resolution(spec_dir):
+    """320正對照、321事件消費與322／323搜尋邊界同時回填。"""
+    required_by_file = {
+        '320-moo2-button-read-hook-control.md': ('49882543', '234AC5', '2A3A38', '49882546', '234AD5', '2A3A36', '103537', '11288', '88d0b595b250003fd11e4c1f311a23abac74cbe2605f80ebd7f4078cbb6b298c', '321-moo2-menu-mouse-event-consumer.md'),
+        '321-moo2-menu-mouse-event-consumer.md': ('213C60', '213C69', '49895677', '0100F401E50001000100010000000100', '0000F401E50001000100010000000100', '7讀／7前後window／28續行／2CB window', 'cf8392ef4e849c3ec268a6742fe46ee6d843850e56298d3afffafeaa7bf7e30e', '322-moo2-earlier-escape-new-game-continuation.md'),
+        '322-moo2-earlier-escape-new-game-continuation.md': ('47850591', '47850592', '47851578', '47995790', '229A59', 'save?.gam', '295828', '3285597c857f30c6e542cef70ee0a8568e4725e05f2de0c8d7ed90bcbc9ff7fb', '323-moo2-dos-findfirst-question-pattern.md'),
+        '323-moo2-dos-findfirst-question-pattern.md': ('47995790', '229A59', '261692', 'save?.gam', 'SAVE10.GAM', '208000', 'platform-spec approximation', 'FindNext', '設定畫面仍未知', '完整測試通過', '12個caller步')
+    }
+    index = (spec_dir / '000-index.md').read_text()
+    for name, required in required_by_file.items():
+        current = (spec_dir / name).read_text()
+        if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M) or name not in index:
+            raise RuntimeError('事件或搜尋證據缺定位／收據／索引／限定狀態：' + name)
+    older_by_file = {
+        '319-moo2-new-game-button-consumer.md': '320-moo2-button-read-hook-control.md',
+        '219-protected-dos-findfirst-exact.md': '323-moo2-dos-findfirst-question-pattern.md',
+        '261-moo2-dos-findfirst-current-directory.md': '323-moo2-dos-findfirst-question-pattern.md'
+    }
+    for name, backlink in older_by_file.items():
+        if backlink not in (spec_dir / name).read_text():
+            raise RuntimeError('早期按鍵或搜尋邊界缺後續回填：' + name)
+
+if sys.argv[1:] == ['--check-menu-event-find-spec-backlinks']:
+    validate_menu_event_find_resolution(spec_dir)
+    print('讀取正對照／原版事件消費／問號搜尋限定回填通過')
+    raise SystemExit(0)
+
+
 
 def validate_menu_click_resolution(spec_dir):
     """317時點／318真正CB／319寫後須同時保留未知consumer。"""
