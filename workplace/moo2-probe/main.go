@@ -310,6 +310,14 @@ func main() {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
+		if (m.CPU.EIP == 0x25489c || m.CPU.EIP == 0x25489f || m.CPU.EIP == 0x2548a2) && seen[m.CPU.EIP] <= 3 {
+			fmt.Printf("xor_dword_imm8_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+		}
+		if (m.CPU.EIP == 0x2548a2 || m.CPU.EIP == 0x2548a5 || m.CPU.EIP == 0x2548a7 || m.CPU.EIP == 0x2548ae) && seen[m.CPU.EIP] <= 3 {
+			low, lowOK := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], 0x2726d0)
+			high, highOK := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], 0x2726d1)
+			fmt.Printf("bsf_dword_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X stored_ds_offset=0x2726D0 word=%04X readable=%t\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, uint16(low)|uint16(high)<<8, lowOK && highOK)
+		}
 		if (m.CPU.EIP == 0x25488f || m.CPU.EIP == 0x254891 || m.CPU.EIP == 0x254894 || m.CPU.EIP == 0x254896) && seen[m.CPU.EIP] <= 3 {
 			addr := m.CPU.R[cpu386.EDI]
 			var value uint32

@@ -449,4 +449,8 @@
 
 - [291：記憶體 byte 目的與暫存器的 OR](291-cpu386-or-byte-memory-register.md)：CONFORMED。全部 CPU／固定 EXE 與三組自然 SHL→OR→ADD 完整資料鏈通過；AF 清除為工具近似，REPE SCASD 後續停點由292接通。
 
-- [292：REPE 掃描 dword 與 EAX 比較](292-cpu386-repe-scasd.md)：CONFORMED。全部 CPU／固定 EXE 與兩自然掃描59次／SUB／MOV 完整資料鏈通過；六旗標全定義，IRQ／Error 模型界限明示，下一停點83／6的 XOR imm8。
+- [292：REPE 掃描 dword 與 EAX 比較](292-cpu386-repe-scasd.md)：CONFORMED。全部 CPU／固定 EXE 與兩自然掃描59次／SUB／MOV 完整資料鏈通過；六旗標全定義，IRQ／Error 模型界限明示，XOR／imm8後續停點由293接通。
+
+- [293：dword 暫存器與符號延伸 imm8 的 XOR](293-cpu386-xor-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然符號延伸後態已驗，AF清除近似明示；294閉合真實BSF consumer。
+
+- [294：dword 暫存器的向前位元掃描](294-cpu386-bsf-dword-register.md)：CONFORMED。全部CPU／固定EXE與兩自然XOR→BSF→ADD→word MOV完整資料鏈通過；ZF定義與未定義模型分開驗，下一停點09記憶體dword OR。

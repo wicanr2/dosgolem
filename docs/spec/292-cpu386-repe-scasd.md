@@ -48,3 +48,7 @@ GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu386 -count=1 -v 全部通過�
 兩條 IRQ0 started=completed=5675、active=false／failed=false，等待 DS:00271148=F1 0F 00 00；PIT Mode=2／Reload=5966／Generation=5，Micros=41492925／Deliveries=5695／Pending=false／InService=false。受控事件條件已注入；255 完整座標／游標仍 READY，主選單／正常玩家路徑、音效／受控亂數及整款 remake 未完成。
 
 自然 gzip SHA-256 8985ec08936482ab06857d488af15171bd12743b5ca16504b6984b917d76b9c6／3f0d8a42a931b65f6c4175b1d4eba59cf2e56b87137562d91f2ec9f7dc440251。兩 PNG 同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。單次 Step／內部IRQ、硬體時計與 Error／restart 模型界限仍照前節，未以掃描通過宣稱硬體逐週期或玩法 parity。原版素材與完整終端／記憶體／gzip／PNG 留本機，不進公開版控。
+
+## 後續停點回填
+
+2026-10-02：dword XOR／imm8 停點已由規格 293 接通，見 [293-cpu386-xor-dword-register-imm8.md](293-cpu386-xor-dword-register-imm8.md)。完整唯讀初態與公開符號延伸／五旗標及AF未定義模型審查READY後實作。BSF缺件時293保持READY，直到294完成原版XOR→BSF→ADD→word MOV真實資料消費後才一併限定CONFORMED；下一停點0x23C36B的記憶體dword OR。

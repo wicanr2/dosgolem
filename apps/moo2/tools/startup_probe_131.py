@@ -57,6 +57,36 @@ if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     print('PIT latch 原始定位／契約與後續回填通過')
     raise SystemExit(0)
 
+def validate_bsf_dword_resolution(spec_dir):
+    """294 的完整BSF來源／索引／定義ZF與真實儲存，須回填293缺件。"""
+    current = (spec_dir / '294-cpu386-bsf-dword-register.md').read_text()
+    required = ('0x2548A2', '0F BC D0', '完整 EDX=Ah', '0x2548A5', '0x2548A7', '0x2548AE', 'DS:002726D0 word=074Ah', '五個未定義旗標保留', '工具模型', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('BSF缺完整來源／索引／真實消費／未定義邊界或可實作狀態')
+    older = (spec_dir / '293-cpu386-xor-dword-register-imm8.md').read_text()
+    if 'BSF 停點已由規格 294 接通' not in older or '294-cpu386-bsf-dword-register.md' not in older:
+        raise RuntimeError('BSF舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-bsf-dword-spec-backlinks']:
+    validate_bsf_dword_resolution(spec_dir)
+    print('BSF完整來源／索引／定義ZF／儲存與後續回填通過')
+    raise SystemExit(0)
+
+def validate_xor_dword_immediate_resolution(spec_dir):
+    """293 的完整符號延伸XOR／AF邊界，須回填292的停點。"""
+    current = (spec_dir / '293-cpu386-xor-dword-register-imm8.md').read_text()
+    required = ('0x25489C', '83 F0 FF', '0x25489F', '完整 EAX=400h', 'flags=206h', '0x2548A2', 'AF未定義', '工具近似', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('XOR dword缺完整初態／後態／AF邊界或可實作狀態')
+    older = (spec_dir / '292-cpu386-repe-scasd.md').read_text()
+    if 'dword XOR／imm8 停點已由規格 293 接通' not in older or '293-cpu386-xor-dword-register-imm8.md' not in older:
+        raise RuntimeError('XOR dword舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-xor-dword-imm8-spec-backlinks']:
+    validate_xor_dword_immediate_resolution(spec_dir)
+    print('XOR dword完整初態／符號延伸／AF與後續回填通過')
+    raise SystemExit(0)
+
 def validate_repe_scasd_resolution(spec_dir):
     """292 的掃描／六旗標／真實讀取消費，須和 291 停點回填並存。"""
     current = (spec_dir / '292-cpu386-repe-scasd.md').read_text()

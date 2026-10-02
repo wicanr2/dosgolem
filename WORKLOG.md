@@ -297,3 +297,17 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 精確命令、原始定位／bytes、輸入／來源與全部收據雜湊集中於規格292；291舊停點、索引與回填護欄同步維護。單次Step不含內部IRQ，硬體時鐘與Error／restart為明示工具模型，沒有逐週期聲明。原版素材及完整終端／記憶體／gzip／PNG留本機，只有自製來源／測試／有限探針與文字證據公開。提交前核對回填、繁體字／UID、權利輸入與Docker清理；沿用github隔離分支推送授權，不推本機origin。
 
 全部35個回填函式、新四項缺證據負例與 python3 apps/moo2/tools/startup_probe_131.py --check-repe-scasd-spec-backlinks 通過；兩排程完整 SCASD→SUB→MOV 資料鏈、索引／語法／繁體字／UID／無誤建目錄及 git diff --check 通過。docker ps -a 的映像與專案名稱分開核對，本批一次性 Go 容器已退出移除，未清理其他專案或映像。
+
+## 2026-10-02：dword XOR 與 BSF 的原版資料鏈
+
+主庫aa598d09ff9d0394d4e0f2b0bf5485ebe3e30cf3／工具e914184166c2397dba5041617793a58e42f2f927乾淨。上一輪已提交推送SCASD與真實資料鏈，屬實際進展。沿用平台規格優先／規格閘門、dosgolem、文件職責與回填路由、逆向重製技能，主庫玩法RE閘門保持關閉。
+
+293同次DRAFT＋索引，未改CPU的完整R／段與公開XOR符號延伸／定義五旗標及AF清除近似審查READY後實作。首次CPU失敗是新附帶ADD回歸把低四位進位的AF預期算錯，修正207h且CPU未改，同映像／命令乾淨重跑全部通過，失敗收據保留。全部CPU與固定官方EXE全套、兩自然XOR後態通過，但BSF缺件，293保持READY。
+
+294同次DRAFT＋索引，以兩份未改BSF的完整原版初態與正式Intel SDM的ZF／未定義目的和旗標邊界審查READY後實作。只接裸32位暫存器來源／目的，來源目的別名安全；五未定義旗標與零來源目的保留是工具模型。全部CPU／固定EXE全套及兩自然XOR→SHL→BSF→ADD→word MOV完整鏈通過，293／294才一併限定CONFORMED。原版把索引Ah消費成EDI=74Ah並存到DS:002726D0，第41,223,220步轉停0x23C36B的09記憶體dword OR；IRQ0 completed=5936、等待值4342，主選單／正常玩家路徑及整款remake未完成。
+
+80386 BSF網頁轉錄的ZF文字與偽碼矛盾，以正式SDM2A核對；只有ZF可稱定義旗標。首次C1文字搜尋假設獨立case未命中，改實際C1／D1共同分支；image inspect缺Entrypoint欄位改讀實際Config後沿用同映像，沒有重建工具鏈。一次編輯呼叫的JS字串語法錯誤未執行，以完整原始字串修正；這些均為工具／讀取問題，沒有退回主機工作負載。
+
+精確命令、固定輸入／來源、原始定位／bytes、測試與兩自然收據SHA集中於293／294；292／293停點與索引／回填護欄同次維護。原始ZIP／patch／EXE雜湊已重查一致；原版素材與完整終端／記憶體／gzip／PNG留本機，公開只有自製來源／測試／有限診斷與文字證據。沿用github隔離分支推送授權，不推本機origin。
+
+全部37個回填函式、293／294各四項缺證據負例及 --check-xor-dword-imm8-spec-backlinks／--check-bsf-dword-spec-backlinks 兩CLI通過；兩自然完整資料鏈、索引／語法／繁體字／UID／無誤建目錄與git diff --check通過。docker ps -a的Go映像與moo2名稱分開核對，本批一次性容器已退出移除，未清理其他專案／映像。

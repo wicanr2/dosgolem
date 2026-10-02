@@ -2571,6 +2571,20 @@ func (c *CPU) Step() error {
 		if segmentOverride == SegCS && (group != 7 || modrm>>6 == 3) {
 			return fail("CS 83 僅支援記憶體 CMP")
 		}
+		if group == 6 && modrm>>6 == 3 && !operand16 {
+			// 規格293：裸dword暫存器XOR，imm8符號延伸，AF清除只屬工具近似。
+			if segmentOverride >= 0 || repe || repne {
+				return fail("XOR dword暫存器前綴尚未支援")
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			rm := modrm & 7
+			c.R[rm] ^= uint32(int32(int8(imm)))
+			c.setLogicFlags(c.R[rm])
+			break
+		}
 		if group == 1 && modrm>>6 == 3 && !operand16 {
 			if segmentOverride >= 0 || repe || repne {
 				return fail("OR dword暫存器前綴尚未支援")
@@ -4732,6 +4746,33 @@ func (c *CPU) Step() error {
 		extended, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if extended == 0xbc {
+			if operand16 || segmentOverride >= 0 || repe || repne {
+				return fail("BSF dword暫存器不接受前綴")
+			}
+			modrm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			if modrm>>6 != 3 {
+				return fail("BSF dword只支援暫存器來源")
+			}
+			// 規格294：先保存來源，避免來源目的別名改變掃描資料。
+			value := c.R[modrm&7]
+			if value == 0 {
+				c.EFlags |= ZF
+				// 零來源的目的、五未定義旗標保留，只屬工具模型。
+				break
+			}
+			index := uint32(0)
+			for value&1 == 0 {
+				value >>= 1
+				index++
+			}
+			c.R[modrm>>3&7] = index
+			c.EFlags &^= ZF
+			break
 		}
 		if segmentOverride == SegES {
 			if extended != 0xb6 || operand16 || repe || repne {
