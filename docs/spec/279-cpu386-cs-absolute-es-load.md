@@ -39,3 +39,7 @@ Go 1.24.13 與規格 277 映像，GOMAXPROCS=2 go test -buildvcs=false ./interna
 PIT 模式 3／Reload=14916／Generation=3，Micros=1233786、Deliveries=26、InService=false；DS:00271148 仍四 bytes 零，完整模式 2 等待未閉合，所以 277 仍 READY。事件條件 requested=true／injected=false；不能算兩條玩家輸入分支驗收。兩份自然 gzip SHA-256 f32bf14adca2a5053edcfe93854fe7e4919d57c2f0823d276a4da7e3dcb9ee3a／19163a9a44954cfa04054eba31f3e69682ac21a6143ee3073516f3075e702163。VBE Writes=0；PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622 同已檢視黑圖，不再做重複目視。
 
 下一步只按公開 CPU RET 契約建立標準 CB 的有界輸入／返回驗證，再讓原版自然重跑。不解 ISR、timer driver／busy-wait，不猜寫等待值；主選單／玩家路徑、音效、受控亂數與 Go remake 玩法同狀態未完成。
+
+## 規格 280 的遠返回後續
+
+CB 遠返回停點已由規格 280 接通，見 [280-cpu386-far-ret32.md](280-cpu386-far-ret32.md)。上節 0x244E9C 拒絕是 279 的歷史；280 以公開 RET 與有限原版框架審查後實作，CPU／固定 EXE 全套通過，兩個自然排程都返回合成 0108:00326008，ESP 增加 8。現行停在 277 預設核心鏈未建模護欄，仍只完成五次最外層返回，等待來源零；不能把本項 ES 或 CB 通過升格為完整 IRQ／玩家路徑閉合。

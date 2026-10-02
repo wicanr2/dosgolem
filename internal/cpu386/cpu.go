@@ -4848,6 +4848,46 @@ func (c *CPU) Step() error {
 		if c.IntHook == nil || !c.IntHook(c, number) {
 			return fail(fmt.Sprintf("INT %02X 未處理", number))
 		}
+	case op == 0xcb:
+		// 規格 280：只處理平坦、已知 selector 的同權限 32 位遠返回。
+		if operand16 || segmentOverride >= 0 || repe || repne || c.EFlags&(1<<17) != 0 {
+			return fail("CB 不接受目前的前綴或虛擬 8086 模式")
+		}
+		currentCS, known := c.Descriptors[c.Seg[SegCS]]
+		if c.Seg[SegCS]&^uint16(3) == 0 || !known || currentCS.Base != 0 {
+			return fail("CB 目前 CS 不是已知平坦 selector")
+		}
+		sp := c.R[ESP]
+		if sp > ^uint32(0)-8 {
+			return fail("CB 堆疊指標增量溢位")
+		}
+		// 80386 只讀必要的前三個 word；selector slot 的高 word 跳過。
+		linear, ok := c.segmentLinear(c.Seg[SegSS], sp, 6, false)
+		if !ok {
+			return fail("CB 堆疊來源越界或未知")
+		}
+		low, err := c.read16(linear)
+		if err != nil {
+			return fail(err.Error())
+		}
+		high, err := c.read16(linear + 2)
+		if err != nil {
+			return fail(err.Error())
+		}
+		selector, err := c.read16(linear + 4)
+		if err != nil {
+			return fail(err.Error())
+		}
+		target := uint32(low) | uint32(high)<<16
+		descriptor, known := c.Descriptors[selector]
+		if selector&^uint16(3) == 0 || !known || descriptor.Base != 0 || selector&3 != c.Seg[SegCS]&3 || target > descriptor.Limit {
+			return fail("CB 返回 selector／權限／目標超出受限模型")
+		}
+		if _, err := c.Bus.Read8(target); err != nil {
+			return fail(err.Error())
+		}
+		// 全部檢查完成才提交；不呼叫段 resolver，也不修改返回框架。
+		c.R[ESP], c.Seg[SegCS], c.EIP = sp+8, selector, target
 	case op == 0xc3:
 		if operand16 {
 			return fail("16-bit near RET 尚未支援")

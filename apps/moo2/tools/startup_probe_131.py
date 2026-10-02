@@ -30,6 +30,25 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_far_ret_resolution(spec_dir):
+    """280 的原始框架與 279／277 的後續停點回填必須並存。"""
+    current = (spec_dir / '280-cpu386-far-ret32.md').read_text()
+    required = ('0180:00378E9C', '0x244E9C', '49 0D 00 00 80 00 00 00', '0080:00000D49', '0108:00326008', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('CB 規格缺原始定位／框架或可實作狀態')
+    for name, marker in (
+        ('279-cpu386-cs-absolute-es-load.md', 'CB 遠返回停點已由規格 280 接通'),
+        ('277-moo2-dos4gw-protected-irq0.md', 'CB 缺件已由規格 280 接通，預設核心鏈仍未建模'),
+    ):
+        older = (spec_dir / name).read_text()
+        if marker not in older or '280-cpu386-far-ret32.md' not in older:
+            raise RuntimeError('CB 舊停點／返回範圍缺後續回填')
+
+if sys.argv[1:] == ['--check-far-ret-spec-backlinks']:
+    validate_far_ret_resolution(spec_dir)
+    print('CB 原始框架與後續回填通過')
+    raise SystemExit(0)
+
 def validate_cs_es_load_resolution(spec_dir):
     """279 的 ES 定位與 278／256 的範圍回填必須並存。"""
     current = (spec_dir / '279-cpu386-cs-absolute-es-load.md').read_text()
@@ -360,9 +379,10 @@ if sys.argv[1:] == ['--check-mouse-spec-backlinks']:
     raise SystemExit(0)
 
 root = pathlib.Path('/shots')
+capture_far_ret = sys.argv[1:] == ['--far-ret']
 capture_cs_word_es_load = sys.argv[1:] == ['--cs-word-es-load']
 capture_cs_memory_cmp = capture_cs_word_es_load or sys.argv[1:] == ['--cs-memory-cmp']
-capture_dos_timer_vector = capture_cs_memory_cmp or sys.argv[1:] == ['--dos-timer-vector']
+capture_dos_timer_vector = capture_far_ret or capture_cs_memory_cmp or sys.argv[1:] == ['--dos-timer-vector']
 capture_pit_mode2 = sys.argv[1:] == ['--pit-mode2']
 capture_vtd_entry = sys.argv[1:] == ['--vtd-entry']
 capture_xor_word_register = sys.argv[1:] == ['--xor-word-register']
@@ -396,7 +416,7 @@ capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensiti
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
 if not (capture_dos_timer_vector or capture_pit_mode2 or capture_vtd_entry or capture_xor_word_register or capture_short_sign_branches or capture_inc_word_memory or capture_cmp_word_destination or capture_cmp_memory_register or capture_imul_dword_register or capture_imul_word_register or capture_add_word_register or capture_vbe_display_start or capture_vbe_window_control or capture_div_byte_register or capture_vga_pel_mask or capture_test_word_register or capture_find_current_directory or capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+    raise SystemExit('usage: startup_probe_131.py [--check-far-ret-spec-backlinks|--far-ret|--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -437,7 +457,7 @@ capture_pop_gs = sys.argv[1:] == ['--pop-gs']
 mode = 'add-al-imm8-' if capture_add_al_imm8 else 'video-mode-4f02-' if capture_video_mode_4f02 else 'real-video-4f01-' if capture_real_video_4f01 else 'video-display-4f07-' if capture_video_display_4f07 else 'real-video-0300-' if capture_real_video_0300 else 'dos-memory-0100-' if capture_dos_memory_0100 else 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 if capture_dos_timer_vector:
-    mode = 'cs-word-es-load-' if capture_cs_word_es_load else 'cs-memory-cmp-' if capture_cs_memory_cmp else 'dos-timer-vector-'
+    mode = 'far-ret-' if capture_far_ret else 'cs-word-es-load-' if capture_cs_word_es_load else 'cs-memory-cmp-' if capture_cs_memory_cmp else 'dos-timer-vector-'
 if capture_pit_mode2:
     mode = 'pit-mode2-'
 if capture_vtd_entry:
@@ -1000,7 +1020,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:' + before):
                     raise RuntimeError('MOO2 向量有限服務起點不符')
                 data = log.read_bytes()
-                (root / ((mode if capture_cs_memory_cmp else '') + name + '-logcpu.txt')).write_bytes(data)
+                (root / ((mode if capture_far_ret or capture_cs_memory_cmp else '') + name + '-logcpu.txt')).write_bytes(data)
                 records[name + '_log_sha256'] = hashlib.sha256(data).hexdigest()
                 timer_run_to(name + '_after', after)
             get = timer_run_to('timer_get_before', '0037901B')
@@ -1011,51 +1031,80 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
             if int(setting[2], 16) & 0xffff != 0x2508 or setting[9] != '180' or setting[5] != '378d9a' or timer_memory('timer_set_bytes', '0180', '00379048', 24)[:2] != bytes.fromhex('cd 21'):
                 raise RuntimeError('MOO2 AH=2508h 呼叫形狀不符')
             timer_one('timer-set', '00379048', '0037904A')
-            timer_run_to('timer_mode2_before', '0036DAE8')
-            timer_memory('timer_wait_source_before', '0188', '0039F148', 4)
-            cmd('BPDEL *')
-            log = pathlib.Path('LOGCPU.TXT'); log.unlink(missing_ok=True)
-            cmd('LOG 8', 5)
-            if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:0036DAE8'):
-                raise RuntimeError('MOO2 模式 2 呼叫序列未擷取')
-            data = log.read_bytes(); (root / ((mode if capture_cs_memory_cmp else '') + 'timer-mode2-logcpu.txt')).write_bytes(data)
-            records['timer_mode2_log_sha256'] = hashlib.sha256(data).hexdigest()
-            timer_snapshot('timer_mode2_after', '36daf6')
-            entry = timer_run_to('timer_irq_entry', '00378D9A')
-            timer_memory('timer_irq_entry_bytes', '0180', '00378D9A', 16)
-            timer_memory('timer_irq_stack', entry[13].zfill(4), entry[14].zfill(8), 24)
-            timer_memory('timer_wait_source_at_irq', '0188', '0039F148', 4)
-            if capture_cs_memory_cmp:
-                if records['timer_irq_entry_bytes'][:16] != '2e833dfef9390000':
-                    raise RuntimeError('CS CMP 原始位元組不符')
-                timer_memory('cs_cmp_before_bytes', '0180', '0039F9FE', 4)
+            if capture_far_ret:
+                before = timer_run_to('far_ret_before', '00378E9C')
+                if timer_memory('far_ret_instruction_bytes', '0180', '00378E9C', 1) != bytes([0xcb]):
+                    raise RuntimeError('CB 遠返回候選原始位元組不符')
+                ss, esp = int(before[13], 16), int(before[14], 16)
+                frame = timer_memory('far_ret_frame_before', format(ss, '04X'), format(esp, '08X'), 8)
+                target_ip, selector_slot = struct.unpack('<II', frame)
+                target_cs = selector_slot & 0xffff
+                if target_cs & 3 != int(before[0], 16) & 3:
+                    raise RuntimeError('CB 樣本不是同權限返回')
+                records['far_ret_target'] = {'cs': target_cs, 'eip': target_ip, 'selector_slot': selector_slot}
                 cmd('BPDEL *')
                 log = pathlib.Path('LOGCPU.TXT'); log.unlink(missing_ok=True)
                 cmd('LOG 2', 5)
-                if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378D9A'):
-                    raise RuntimeError('CS CMP 有限單指令起點不符')
+                if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378E9C'):
+                    raise RuntimeError('CB 有限單指令起點不符')
                 data = log.read_bytes()
-                (root / ('cs-word-es-load-cmp-logcpu.txt' if capture_cs_word_es_load else 'cs-memory-cmp-logcpu.txt')).write_bytes(data)
-                records['cs_cmp_log_sha256'] = hashlib.sha256(data).hexdigest()
-                timer_snapshot('cs_cmp_after', '378da2')
-                timer_memory('cs_cmp_after_bytes', '0180', '0039F9FE', 4)
-            if capture_cs_word_es_load:
-                timer_run_to('cs_es_before', '00378DBA')
-                if timer_memory('cs_es_instruction_bytes', '0180', '00378DBA', 8) != bytes.fromhex('66 2e 8e 05 06 fa 39 00'):
-                    raise RuntimeError('CS word ES 載入原始位元組不符')
-                timer_memory('cs_es_source_before', '0180', '0039FA06', 4)
+                (root / 'far-ret-logcpu.txt').write_bytes(data)
+                records['far_ret_log_sha256'] = hashlib.sha256(data).hexdigest()
+                snapshots = registers(cmd('EV ' + order, 0.8))
+                returned = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == [format(target_cs, 'x'), format(target_ip, 'x')]), None)
+                if not returned or int(returned[14], 16) != esp + 8:
+                    raise RuntimeError('CB 返回位置或堆疊消費不符：' + repr(snapshots))
+                if returned[2:14] != before[2:14] or returned[15] != before[15]:
+                    raise RuntimeError('CB 改變了其他暫存器／段或旗標')
+                records['far_ret_after'] = returned
+                if timer_memory('far_ret_frame_after', format(ss, '04X'), format(esp, '08X'), 8) != frame:
+                    raise RuntimeError('CB 改寫了原始返回框架')
+            else:
+                timer_run_to('timer_mode2_before', '0036DAE8')
+                timer_memory('timer_wait_source_before', '0188', '0039F148', 4)
                 cmd('BPDEL *')
                 log = pathlib.Path('LOGCPU.TXT'); log.unlink(missing_ok=True)
-                cmd('LOG 2', 5)
-                if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378DBA'):
-                    raise RuntimeError('CS word ES 載入有限起點不符')
-                data = log.read_bytes()
-                (root / 'cs-word-es-load-logcpu.txt').write_bytes(data)
-                records['cs_es_log_sha256'] = hashlib.sha256(data).hexdigest()
-                timer_snapshot('cs_es_after', '378dc2')
-                timer_memory('cs_es_source_after', '0180', '0039FA06', 4)
-            timer_run_to('timer_wait_exit', '0036DB0B')
-            timer_memory('timer_wait_source_after', '0188', '0039F148', 4)
+                cmd('LOG 8', 5)
+                if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:0036DAE8'):
+                    raise RuntimeError('MOO2 模式 2 呼叫序列未擷取')
+                data = log.read_bytes(); (root / ((mode if capture_cs_memory_cmp else '') + 'timer-mode2-logcpu.txt')).write_bytes(data)
+                records['timer_mode2_log_sha256'] = hashlib.sha256(data).hexdigest()
+                timer_snapshot('timer_mode2_after', '36daf6')
+                entry = timer_run_to('timer_irq_entry', '00378D9A')
+                timer_memory('timer_irq_entry_bytes', '0180', '00378D9A', 16)
+                timer_memory('timer_irq_stack', entry[13].zfill(4), entry[14].zfill(8), 24)
+                timer_memory('timer_wait_source_at_irq', '0188', '0039F148', 4)
+                if capture_cs_memory_cmp:
+                    if records['timer_irq_entry_bytes'][:16] != '2e833dfef9390000':
+                        raise RuntimeError('CS CMP 原始位元組不符')
+                    timer_memory('cs_cmp_before_bytes', '0180', '0039F9FE', 4)
+                    cmd('BPDEL *')
+                    log = pathlib.Path('LOGCPU.TXT'); log.unlink(missing_ok=True)
+                    cmd('LOG 2', 5)
+                    if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378D9A'):
+                        raise RuntimeError('CS CMP 有限單指令起點不符')
+                    data = log.read_bytes()
+                    (root / ('cs-word-es-load-cmp-logcpu.txt' if capture_cs_word_es_load else 'cs-memory-cmp-logcpu.txt')).write_bytes(data)
+                    records['cs_cmp_log_sha256'] = hashlib.sha256(data).hexdigest()
+                    timer_snapshot('cs_cmp_after', '378da2')
+                    timer_memory('cs_cmp_after_bytes', '0180', '0039F9FE', 4)
+                if capture_cs_word_es_load:
+                    timer_run_to('cs_es_before', '00378DBA')
+                    if timer_memory('cs_es_instruction_bytes', '0180', '00378DBA', 8) != bytes.fromhex('66 2e 8e 05 06 fa 39 00'):
+                        raise RuntimeError('CS word ES 載入原始位元組不符')
+                    timer_memory('cs_es_source_before', '0180', '0039FA06', 4)
+                    cmd('BPDEL *')
+                    log = pathlib.Path('LOGCPU.TXT'); log.unlink(missing_ok=True)
+                    cmd('LOG 2', 5)
+                    if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378DBA'):
+                        raise RuntimeError('CS word ES 載入有限起點不符')
+                    data = log.read_bytes()
+                    (root / 'cs-word-es-load-logcpu.txt').write_bytes(data)
+                    records['cs_es_log_sha256'] = hashlib.sha256(data).hexdigest()
+                    timer_snapshot('cs_es_after', '378dc2')
+                    timer_memory('cs_es_source_after', '0180', '0039FA06', 4)
+                timer_run_to('timer_wait_exit', '0036DB0B')
+                timer_memory('timer_wait_source_after', '0188', '0039F148', 4)
         if capture_pit_mode2:
             order = 'CS EIP EAX EBX ECX EDX ESI EDI EBP DS ES FS GS SS ESP EFLAGS'
             records['pit_mode2_order'] = order
