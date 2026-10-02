@@ -58,3 +58,5 @@
 ## 解析回填
 
 不可變鍵：固定1.31 EXE雜湊＋dosgolem高位LE0x247BE1＋34 01 C3。305舊停點同次追加「XOR AL立即值停點已由規格 306 接通」及本檔連結，保留原始IRQ7／CPU停點收據。回填入口apps/moo2/tools/startup_probe_131.py --check-xor-al-immediate-spec-backlinks；缺裸34定位、完整AL／五旗標與AF邊界、0x231ADF／0x231AE2真實返回／MOV消費、兩收據或舊標記必須拒絕。其他XOR寬度／形狀與既有音訊回填不受影響。
+
+正常Esc IRQ1已由規格 307 接線：[307](307-moo2-protected-keyboard-irq1.md)驗證正常controller的01／81、97／77步返回與原caller續行；完整鍵盤、主選單／玩家路徑仍未知，後續OUT022C=D0平台缺件另列。

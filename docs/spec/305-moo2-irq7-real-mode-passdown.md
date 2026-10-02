@@ -88,3 +88,5 @@ outer_step42356668，實際caller高位LE0x257FC9，完整R=120 325B80 3258C8 12
 ## XOR AL立即值停點已由規格 306 接通
 
 [306-cpu386-xor-al-imm8.md](306-cpu386-xor-al-imm8.md)以固定EXE與高位LE0x247BE1的34 01 C3閉合三組AL／旗標、真正RET到0x231ADF及0x231AE2的MOV ESI,EAX消費。兩自然到50M無CPU拒絕，386次IRQ7返回與星空片段已驗，PCM記錄限65536byte。較早14次IRQ7及34停點屬305原始基線，未被覆寫；現行下一步為正常鍵盤IRQ1，不稱主選單／完整玩家路徑或人耳完成。
+
+正常Esc IRQ1已由規格 307 接線：[307](307-moo2-protected-keyboard-irq1.md)驗證正常controller的01／81、97／77步返回與原caller續行；完整鍵盤、主選單／玩家路徑仍未知，後續OUT022C=D0平台缺件另列。

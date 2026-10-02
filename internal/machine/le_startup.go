@@ -133,6 +133,7 @@ func (s *MOO2StartupDOS) AttachMachine(m *LEMachine) error {
 	}
 	s.FD2StartupDOS.AttachMachine(m)
 	s.protectedIRQ0 = installLEProtectedIRQ0(m, s.FD2StartupDOS, ports)
+	installLEHardwareKeyboardIRQ1(m, s.FD2StartupDOS, ports)
 	s.mouseCallback = installLEMouseCallback(m, s.DPMI)
 	m.CPU.PortIn, m.CPU.PortOut = ports.In8, ports.Out8
 	s.DPMI.RealModeIO = ports

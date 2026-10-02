@@ -2092,6 +2092,65 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+
+		if group == 3 {
+			// 規格308：只接裸FF 1D的同權限平坦遠呼叫；未知gate仍拒絕。
+			if modrm != 0x1d || segmentOverride >= 0 || repe || repne || c.EFlags&(1<<17) != 0 {
+				return fail("間接遠CALL形狀／前綴／模式未支援")
+			}
+			address, err := c.fetch32()
+			if err != nil {
+				return fail(err.Error())
+			}
+			source, ok := c.segmentLinear(c.Seg[SegDS], address, 6, false)
+			if !ok {
+				return fail("間接遠CALL來源越界")
+			}
+			low, err := c.read16(source)
+			if err != nil {
+				return fail(err.Error())
+			}
+			high, err := c.read16(source + 2)
+			if err != nil {
+				return fail(err.Error())
+			}
+			selector, err := c.read16(source + 4)
+			if err != nil {
+				return fail(err.Error())
+			}
+			target := uint32(low) | uint32(high)<<16
+			current, currentOK := c.Descriptors[c.Seg[SegCS]]
+			destination, destinationOK := c.Descriptors[selector]
+			if c.Seg[SegCS]&^uint16(3) == 0 || !currentOK || current.Base != 0 || c.EIP > current.Limit ||
+				selector&^uint16(3) == 0 || !destinationOK || destination.Base != 0 || selector&3 != c.Seg[SegCS]&3 || target > destination.Limit {
+				return fail("間接遠CALL的CS／權限／目的超出受限模型")
+			}
+			if _, err := c.Bus.Read8(target); err != nil {
+				return fail(err.Error())
+			}
+			if c.R[ESP] < 8 {
+				return fail("間接遠CALL堆疊下溢")
+			}
+			next := c.R[ESP] - 8
+			stack, ok := c.segmentLinear(c.Seg[SegSS], next, 8, true)
+			if !ok {
+				return fail("間接遠CALL堆疊越界或不可寫")
+			}
+			for i := uint32(0); i < 8; i++ {
+				if _, err := c.Bus.Read8(stack + i); err != nil {
+					return fail(err.Error())
+				}
+			}
+			if err := c.write32(stack, c.EIP); err != nil {
+				return fail(err.Error())
+			}
+			if err := c.write32(stack+4, uint32(c.Seg[SegCS])); err != nil {
+				return fail(err.Error())
+			}
+			c.R[ESP], c.Seg[SegCS], c.EIP = next, selector, target
+			break
+		}
+
 		if segmentOverride == SegCS && (group != 4 || modrm>>6 == 3) {
 			return fail("CS override 只支援間接記憶體 JMP")
 		}

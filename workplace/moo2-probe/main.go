@@ -118,6 +118,7 @@ func main() {
 	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	mousePositionSet := false
+	var irq1Target, irq1Previous uint64
 	var dtaSelector uint16
 	var dtaOffset uint32
 	dtaSet := false
@@ -148,6 +149,13 @@ func main() {
 		if number == 0x21 && (uint8(c.R[cpu386.EAX]>>8) == 0x25 || uint8(c.R[cpu386.EAX]>>8) == 0x35) {
 			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
 			handled := services.Handle(c, number)
+			if handled && c.EFlags&cpu386.CF == 0 && uint8(beforeR[cpu386.EAX]) == 9 {
+				if uint8(beforeR[cpu386.EAX]>>8) == 0x25 {
+					irq1Target = uint64(beforeSeg[cpu386.SegDS])<<32 | uint64(beforeR[cpu386.EDX])
+				} else {
+					irq1Previous = uint64(c.Seg[cpu386.SegES])<<32 | uint64(c.R[cpu386.EBX])
+				}
+			}
 			fmt.Printf("dos_vector_service eip=0x%X input=%X input_seg=%X input_flags=0x%X handled=%t output=%X output_seg=%X output_flags=0x%X\n", c.EIP-2, beforeR, beforeSeg, beforeFlags, handled, c.R, c.Seg, c.EFlags)
 			return handled
 		}
@@ -327,6 +335,9 @@ func main() {
 	}
 	ring := make([]sample, 0, 32)
 	irq7FirstPrinted := false
+	keyboardRequested := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000") == "1"
+	keyboardQueued := false
+	var keyboardPrinted uint64
 	xorALSeen, xorALConsumerSteps := 0, 0
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
@@ -539,7 +550,20 @@ func main() {
 				xorStack[j], xorStackReadable = v, xorStackReadable && ok
 			}
 		}
+		if keyboardRequested && !keyboardQueued && i == 48000000 {
+			for _, scan := range []byte{1, 0x81} {
+				if err := services.QueueHardwareScan(scan); err != nil {
+					panic(err)
+				}
+			}
+			keyboardQueued = true
+			fmt.Printf("hardware_keyboard_input outer_step=%d scan=01/81 source=controller_queue eip=%X r=%X seg=%X flags=%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+		}
 		stepErr := m.CPU.Step()
+		if _, _, _, _, _, _, started, completed, last := services.HardwareIRQ1State(); last != nil && started != keyboardPrinted {
+			keyboardPrinted = started
+			fmt.Printf("hardware_keyboard_return outer_step=%d started=%d completed=%d after_eip=%X r=%X seg=%X flags=%X last=%+v raw_2a42ac=%X error=%v\n", i, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, last, m.Mem[0x2a42ac:0x2a42ec], stepErr)
+		}
 		if observeXORAL || observeXORConsumer {
 			phase := "consumer"
 			if observeXORAL {
@@ -612,4 +636,7 @@ func main() {
 	fmt.Printf("step_limit_memory image_bytes=%d dpmi_calls=%v dpmi_unimplemented=%v dos_blocks=%v linear_blocks=%v\n",
 		len(m.Mem), services.DPMI.Calls, services.DPMI.Unimplemented, services.DPMI.DOSMemory(), services.DPMI.Blocks())
 	dumpVBE()
+	if os.Getenv("DOSGOLEM_MOO2_IRQ1_PROTOTYPE") == "1" {
+		runIRQ1Prototype(m, services.DPMI, irq1Target, irq1Previous)
+	}
 }

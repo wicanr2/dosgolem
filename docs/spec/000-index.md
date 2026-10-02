@@ -471,10 +471,14 @@
 
 - [302：AX 與 word 暫存器的短編碼交換](302-cpu386-xchg-ax-word-register.md)：CONFORMED。全部CPU／固定EXE、兩自然三組完整交換／高16位及全部旗標保持與下一ROR完整消費已驗；自然到50M上限無CPU拒絕，已見星空片段，主選單／正常玩家路徑未驗。
 
-- [303：晚期啟動的平台狀態與正常輸入入口](303-moo2-late-startup-platform-observation.md)：DRAFT。90b9f4a基線兩自然各11快照確認時計1375未前進；時間缺口由304接線並驗首block，IRQ7由305閉合14次轉送；鍵盤IRQ1、等待因果與正常玩家路徑仍未知。
+- [303：晚期啟動的平台狀態與正常輸入入口](303-moo2-late-startup-platform-observation.md)：DRAFT。90b9f4a基線兩自然各11快照確認時計1375未前進；時間缺口由304接線並驗首block，IRQ7由305閉合14次轉送；Esc IRQ1由307接線，其他鍵盤／等待因果與正常玩家路徑仍未知。
 
 - [304：兩種 CPU 模式共用的裝置時間](304-le-shared-device-clock.md)：CONFORMED。共用時計／首block已驗，實際IVT1201:0682的IRQ7由305閉合14次轉送；完整音訊與人耳仍未知。
 
 - [305：MOO2 保護模式 IRQ7 的實模式轉送](305-moo2-irq7-real-mode-passdown.md)：CONFORMED。機器層／固定EXE全套及兩自然14次原版73步、EOI／22E／IRET返回與PCM29175已驗，XOR AL,1由306接通；正常玩家流程仍未知。
 
-- [306：AL 與立即 byte 的 XOR](306-cpu386-xor-al-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然三組AL／旗標、RET及MOV ESI,EAX消費已驗；50M無拒絕、386次IRQ7返回與星空片段，正常鍵盤／玩家流程仍未知。
+- [306：AL 與立即 byte 的 XOR](306-cpu386-xor-al-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然三組AL／旗標、RET及MOV ESI,EAX消費已驗；50M無拒絕、386次IRQ7返回與星空片段，正常Esc IRQ1由307接線，完整鍵盤／玩家流程仍未知。
+
+- [307：MOO2 硬體鍵盤與保護模式 IRQ1](307-moo2-protected-keyboard-irq1.md)：CONFORMED。限定正常controller Esc 01／81、97／77步原版IRQ1返回及caller續行；後續D0音訊平台命令拒絕，完整鍵盤／主選單仍未知。
+
+- [308：dword 指標的間接遠呼叫](308-cpu386-call-far-indirect-absolute.md)：CONFORMED。裸FF 1D真實六byte指標／8byte寫回與CB消費、全套與兩自然診斷已驗；完整CPU權限／gate未建模。

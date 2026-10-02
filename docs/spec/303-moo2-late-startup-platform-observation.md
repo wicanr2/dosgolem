@@ -73,3 +73,5 @@ CPU及三份平台來源與302保持相同雜湊。唯讀probe已由兩次自然
 ## 保護模式IRQ7轉送由規格 305 接線
 
 [305-moo2-irq7-real-mode-passdown.md](305-moo2-irq7-real-mode-passdown.md)以固定1.31 EXE、實際IVT1201:0682／實模式線性0x12692及公開DOS/4GW契約閉合14次原版73步、EOI／22E／IRET；兩自然PCM29175及兩時計44647204已驗。較早IRQ7未派送／返回的記錄屬該舊基線，現行限定轉送依305。平台寄存器映射與1µs時鐘是近似，人耳、完整音訊、鍵盤IRQ1、主選單／正常玩家路徑與整款remake仍未知；其他CPU／255／299邊界保持。
+
+正常Esc IRQ1已由規格 307 接線：[307](307-moo2-protected-keyboard-irq1.md)驗證正常controller的01／81、97／77步返回與原caller續行；完整鍵盤、主選單／玩家路徑仍未知，後續OUT022C=D0平台缺件另列。

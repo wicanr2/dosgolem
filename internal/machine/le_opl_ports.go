@@ -3,6 +3,7 @@ package machine
 // LEOPLPorts 沿用既有 OPL／VGA 狀態，並轉接受限 DSP；未知埠明確拒絕。
 // 計時器為既有偵測近似，不代表真實時間或音訊波形。
 type LEOPLPorts struct {
+	keyboardIRQ1                  *leHardwareKeyboardIRQ1
 	PIT0                          LEPIT0
 	BIOSClock                     *LEBIOSClock
 	dmaAuto                       bool
@@ -72,6 +73,9 @@ func oplAlias(p uint16) (uint16, bool) {
 	return 0, false
 }
 func (p *LEOPLPorts) record(port uint16, v uint8, write bool) {
+	if d := p.keyboardIRQ1; d != nil && d.active && d.last != nil && len(d.last.IO) < 64 {
+		d.last.IO = append(d.last.IO, LEOPLPortEvent{port, v, write})
+	}
 	if write {
 		p.Writes[port]++
 	} else {
@@ -108,6 +112,24 @@ func secondaryDMAPageChannel(port uint16) (int, bool) {
 }
 
 func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
+	if d := p.keyboardIRQ1; d != nil && (port == 0x60 || port == 0x61 || port == 0x64) {
+		v := d.latch
+		if port == 0x60 {
+			if !d.full {
+				return 0, false
+			}
+			v = d.data
+			d.full = false
+		}
+		if port == 0x64 {
+			v = 4
+			if d.full {
+				v |= 1
+			}
+		}
+		p.record(port, v, false)
+		return v, true
+	}
 	if port == 0x40 {
 		v, ok := p.PIT0.readLatchedMode2()
 		if ok {
@@ -125,6 +147,11 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 		}
 		if port == 0x20 && p.picReadISR[0] && p.BIOSClock != nil && p.BIOSClock.InService {
 			v |= 1
+		}
+		if d := p.keyboardIRQ1; port == 0x20 && d != nil {
+			if p.picReadISR[0] && d.inService || !p.picReadISR[0] && d.pending {
+				v |= 2
+			}
 		}
 		p.record(port, v, false)
 		return v, true
@@ -146,6 +173,7 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 		return 0, false
 	}
 	if v, ok := p.dma.In8(port); ok {
+
 		p.record(port, v, false)
 		return v, true
 	}
@@ -176,6 +204,11 @@ func (p *LEOPLPorts) In8(port uint16) (uint8, bool) {
 	return v, true
 }
 func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
+	if d := p.keyboardIRQ1; d != nil && port == 0x61 {
+		d.latch = v
+		p.record(port, v, true)
+		return true
+	}
 	if port == 0x43 && v == 0 {
 		if !p.PIT0.latchMode2(p.BIOSClock) {
 			return false
@@ -206,6 +239,8 @@ func (p *LEOPLPorts) Out8(port uint16, v uint8) bool {
 	if port == 0x20 && v == 0x20 {
 		if p.BIOSClock != nil && p.BIOSClock.InService {
 			p.BIOSClock.InService = false
+		} else if p.keyboardIRQ1 != nil && p.keyboardIRQ1.inService {
+			p.keyboardIRQ1.inService = false
 		} else {
 			p.picInService = false
 		}

@@ -60,6 +60,9 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 	if p.realIRQ7 != nil && p.realIRQ7.failed {
 		return fmt.Errorf("IRQ7 轉送已失敗，不可繼續計時")
 	}
+	if p.keyboardIRQ1 != nil && p.keyboardIRQ1.failed {
+		return fmt.Errorf("IRQ1 橋接已失敗，不可繼續計時")
+	}
 	p.virtualMicros++
 	if p.BIOSClock != nil {
 		if err := p.BIOSClock.advance(m, p, c.Flags&cpu.IF != 0); err != nil {
@@ -69,12 +72,17 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 	if err := p.advanceDMA(m); err != nil {
 		return err
 	}
+	if p.keyboardIRQ1 != nil {
+		if err := p.keyboardIRQ1.dispatch(c.Flags&cpu.IF != 0); err != nil {
+			return err
+		}
+	}
 	return p.deliverIRQ7Real(c, m)
 }
 
 // 派送不再加時間，兩種模式共用真實IVT與硬體框架。
 func (p *LEOPLPorts) deliverIRQ7Real(c *cpu.CPU, m *LEMachine) error {
-	if p.picPending && !p.picInService && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
+	if p.picPending && !p.picInService && (p.keyboardIRQ1 == nil || !p.keyboardIRQ1.inService && !p.keyboardIRQ1.active) && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
 		if len(m.Mem) < 64 {
 			return fmt.Errorf("IRQ7 IVT不可讀")
 		}
@@ -176,6 +184,9 @@ func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
 	if p.realIRQ7 != nil && p.realIRQ7.failed {
 		return fmt.Errorf("IRQ7 轉送已失敗，不可繼續計時")
 	}
+	if p.keyboardIRQ1 != nil && p.keyboardIRQ1.failed {
+		return fmt.Errorf("IRQ1 橋接已失敗，不可繼續計時")
+	}
 	p.virtualMicros++
 	if err := p.BIOSClock.advance(m, p, c.EFlags&cpu386.IF != 0); err != nil {
 		return err
@@ -183,8 +194,13 @@ func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
 	if err := p.advanceDMA(m); err != nil {
 		return err
 	}
+	if p.keyboardIRQ1 != nil {
+		if err := p.keyboardIRQ1.dispatch(c.EFlags&cpu386.IF != 0); err != nil {
+			return err
+		}
+	}
 	clock := p.BIOSClock
-	if !p.picPending || p.picInService || clock.InService || p.picMasks[0]&0x80 != 0 || c.EFlags&cpu386.IF == 0 ||
+	if !p.picPending || p.picInService || clock.InService || p.keyboardIRQ1 != nil && (p.keyboardIRQ1.inService || p.keyboardIRQ1.active) || p.picMasks[0]&0x80 != 0 || c.EFlags&cpu386.IF == 0 ||
 		clock.protectedIRQ0 != nil && clock.protectedIRQ0.active || p.realIRQ7 != nil && p.realIRQ7.active {
 		return nil
 	}

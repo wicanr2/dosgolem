@@ -49,6 +49,50 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+
+def validate_hardware_keyboard_resolution(spec_dir):
+    """307正常controller輸入與原版IRQ1／caller須回填。"""
+    current=(spec_dir/'307-moo2-protected-keyboard-irq1.md').read_text()
+    required=('0x239833','AH2509','8:21C4D8','48000000','01／81','97／77',
+              '8:21C573','OUT022C=D0','0x215880','0x215882','0x215885',
+              'hardware-spec approximation','完整鍵盤','主選單',
+              '9a8aad65b88d1748431eb8ddfb17733a7a342cf255f4f0147db6a4b49a957753',
+              '430349cf9d921862d40f73bce9d2f0e65bb9a36a571ed4b51072ba1688801e59',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('正常IRQ1缺向量／controller輸入／原始返回／caller／收據與限定範圍')
+    for number in (303,305,306):
+        names=list(spec_dir.glob(str(number)+'-*.md'))
+        if len(names)!=1:raise RuntimeError('IRQ1舊規格不唯一')
+        text=names[0].read_text()
+        if '正常Esc IRQ1已由規格 307 接線' not in text or '307-moo2-protected-keyboard-irq1.md' not in text:
+            raise RuntimeError('IRQ1舊未知缺有限範圍回填')
+
+if sys.argv[1:]==['--check-hardware-keyboard-spec-backlinks']:
+    validate_hardware_keyboard_resolution(spec_dir)
+    print('正常controller／IRQ1與舊觀測回填通過')
+    raise SystemExit(0)
+
+def validate_far_call_indirect_resolution(spec_dir):
+    """308原始FF1D／遠指標／寫回及CB消費須回填307診斷。"""
+    current=(spec_dir/'308-cpu386-call-far-indirect-absolute.md').read_text()
+    required=('0x21C4EE','FF 1D DC 42 2A 00','09 60 32 00 08 01',
+              'F4 C4 21 00 08 00 00 00','flags12h','既有CB','同RPL',
+              'padding','完整IRQ1',
+              'bced307f87cc1c3afb96409fcfaf247627b583ab50f80f2761c1256de3d1ca43',
+              '089b1a4ad44da3302dadedaaa610e269778b58b34cb9a8e63d3336566e6166b1',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('遠CALL缺原始定位／指標／框架／CB消費／收據與限定範圍')
+    older=(spec_dir/'307-moo2-protected-keyboard-irq1.md').read_text()
+    if 'FF 1D遠呼叫停點已由規格 308 接通' not in older or '308-cpu386-call-far-indirect-absolute.md' not in older:
+        raise RuntimeError('遠CALL的307診斷停點缺回填')
+
+if sys.argv[1:]==['--check-far-call-indirect-spec-backlinks']:
+    validate_far_call_indirect_resolution(spec_dir)
+    print('遠CALL／CB消費與307舊停點回填通過')
+    raise SystemExit(0)
+
 def validate_xor_al_immediate_resolution(spec_dir):
     """306裸34、原始AL與真實返回消費須回填305停點。"""
     current = (spec_dir / '306-cpu386-xor-al-imm8.md').read_text()
