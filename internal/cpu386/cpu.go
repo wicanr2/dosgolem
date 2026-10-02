@@ -3154,6 +3154,36 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if group == 4 {
+			// 規格190-cpu386-d1-shl-rm32：count固定1，記憶體沿用既有位址／段界線。
+			rm := modrm & 7
+			value := c.R[rm]
+			seg, addr := 0, uint32(0)
+			if modrm>>6 != 3 {
+				seg, addr, e = c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				var ok bool
+				value, ok = c.readSegment32(c.Seg[seg], addr)
+				if !ok {
+					return fail("D1 SHL memory read failed")
+				}
+			}
+			result := value << 1
+			if modrm>>6 == 3 {
+				c.R[rm] = result
+			} else if !c.writeSegment32(c.Seg[seg], addr, result) {
+				return fail("D1 SHL memory write failed")
+			}
+			c.setLogicFlags(result)
+			carry := value >> 31
+			c.EFlags |= carry
+			if result>>31^carry != 0 {
+				c.EFlags |= OF
+			}
+			break
+		}
 		if modrm>>6 == 3 && group == 5 {
 			rm := modrm & 7
 			value := c.R[rm]
