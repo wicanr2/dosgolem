@@ -354,6 +354,23 @@ func (c *CPU) setLogicFlags8(value uint8) {
 	}
 }
 
+func (c *CPU) adc32(left, right uint32) uint32 {
+	// 規格300：原CF與兩個舊操作數一起計算，六算術旗標皆定義。
+	sum := uint64(left) + uint64(right) + uint64(c.EFlags&CF)
+	result := uint32(sum)
+	c.setLogicFlags(result)
+	if sum>>32 != 0 {
+		c.EFlags |= CF
+	}
+	if (left^right^result)&0x10 != 0 {
+		c.EFlags |= AF
+	}
+	if ^(left^right)&(left^result)&0x80000000 != 0 {
+		c.EFlags |= OF
+	}
+	return result
+}
+
 func (c *CPU) add32(left, right uint32) uint32 {
 	result := left + right
 	c.EFlags &^= CF | PF | AF | ZF | SF | OF
@@ -1141,6 +1158,19 @@ func (c *CPU) Step() error {
 		} else {
 			c.sub32(value, src)
 		}
+	case op == 0x13:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("ADC dword暫存器不接受前綴")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail("ADC dword只接受暫存器")
+		}
+		dst, src := (modrm>>3)&7, modrm&7
+		c.R[dst] = c.adc32(c.R[dst], c.R[src])
 	case op == 0x03:
 		if operand16 && segmentOverride < 0 && !repe && !repne {
 			modrm, e := c.fetch8()

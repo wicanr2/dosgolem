@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-adc-dword-register-spec-backlinks 只驗證 dword ADC真實消費回填，不啟動DOSBox-X。
 --check-shl-dword-one-spec-backlinks 只驗證 dword 單位SHL回填，不啟動DOSBox-X。
 --check-c1-single-shift-overflow-spec-backlinks 只驗證 C1單位OF契約回填，不啟動DOSBox-X。
 --check-ror-dword-immediate-spec-backlinks 只驗證 dword ROR 規格回填，不啟動 DOSBox-X。
@@ -60,6 +61,31 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_adc_dword_register_resolution(spec_dir):
+    """300 的六定義旗標與真正索引ADD消費須回填舊IRQ0停點。"""
+    current = (spec_dir / '300-cpu386-adc-dword-register.md').read_text()
+    required = ('0x25179F', '13 ED', 'flags847h', 'EBP=1', 'flags2',
+                'DS:00272D44 dword=2', '完整ESI=0071E1D2h', '六算術旗標皆定義',
+                'b7407d43ddaf3eb8d20732acd64f2c7cfb3933924615b29cf7e7e32c7c99c021',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('ADC缺完整原始定位／六旗標／真正索引ADD來源與結果')
+    for name in ('293-cpu386-xor-dword-register-imm8.md',
+                 '294-cpu386-bsf-dword-register.md',
+                 '295-cpu386-or-dword-memory-register.md',
+                 '296-sb16-c6-auto-init-dma.md',
+                 '297-cpu386-ror-dword-register-imm8.md',
+                 '298-cpu386-shl-dword-register-one.md',
+                 '299-cpu386-c1-dword-single-shift-overflow.md'):
+        older = (spec_dir / name).read_text()
+        if 'dword ADC停點已由規格 300 接通' not in older or '300-cpu386-adc-dword-register.md' not in older:
+            raise RuntimeError('ADC舊IRQ0停點缺後續回填')
+
+if sys.argv[1:] == ['--check-adc-dword-register-spec-backlinks']:
+    validate_adc_dword_register_resolution(spec_dir)
+    print('ADC六旗標／真正索引ADD消費與舊停點回填通過')
     raise SystemExit(0)
 
 def validate_shl_dword_one_resolution(spec_dir):

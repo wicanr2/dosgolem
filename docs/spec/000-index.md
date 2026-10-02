@@ -461,6 +461,8 @@
 
 - [297：dword 暫存器的立即數右循環移位](297-cpu386-ror-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然兩組完整ROR／CF／MOV AX,DX消費已驗；多位OF模型明示，IRQ0內D1 SHL停點由298接通。
 
-- [298：dword 暫存器的單位左移](298-cpu386-shl-dword-register-one.md)：CONFORMED。全部CPU／固定EXE與兩自然完整SHL／TEST／JZ及兩個dword寫回已驗，AF模型明示；後續ADC停0x25179F，完整IRQ0返回未知。
+- [298：dword 暫存器的單位左移](298-cpu386-shl-dword-register-one.md)：CONFORMED。全部CPU／固定EXE與兩自然完整SHL／TEST／JZ及兩個dword寫回已驗，AF模型明示；後續ADC停點由300接通，完整IRQ0返回未知。
 
 - [299：C1 dword 單位移的溢位旗標](299-cpu386-c1-dword-single-shift-overflow.md)：CONFORMED。限定公開CPU契約的C1單位OF窄修正，獨立反例／全部CPU與固定EXE通過；未有MOO2自然OF=1同狀態收據，未定義AF／多位OF模型保持。
+
+- [300：dword 暫存器的帶進位加法](300-cpu386-adc-dword-register.md)：CONFORMED。全部CPU／固定EXE與兩自然三組完整ADC／六旗標、索引0／1的dword真實ADD消費已驗；後續word XOR停0x24678C，完整IRQ0返回未知。

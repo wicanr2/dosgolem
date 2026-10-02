@@ -64,3 +64,5 @@ IRQ0 started6174／completed6173、active=false／failed=true；原先277已驗�
 CPU不可變契約鍵：cpu386裸C1／/1／mod11／32位暫存器／imm8；原版停點鍵：固定EXE雜湊＋高位LE0x257662＋C1 CA 10。222／288的舊ROR立即數限制由297擴充，不重寫舊輔助oracle範圍，需保留「dword ROR立即數範圍由規格 297 擴充」及本檔連結。293／294／295／296的同ROR停點需保留「dword ROR停點已由規格 297 接通」及本檔連結。驗證入口 apps/moo2/tools/startup_probe_131.py --check-ror-dword-immediate-spec-backlinks，缺原始定位／完整MOV消費／未定義旗標邊界或任一舊標記須拒絕。主庫玩法閘門不變。
 
 dword SHL單位移停點已由規格 298 接通，見 [298-cpu386-shl-dword-register-one.md](298-cpu386-shl-dword-register-one.md)。兩自然IRQ0內完整EAX0／EBX2與兩個dword真實寫回已驗，後續ADC停高位LE0x25179F。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。
+
+dword ADC停點已由規格 300 接通，見 [300-cpu386-adc-dword-register.md](300-cpu386-adc-dword-register.md)。兩自然三組完整ADC／六旗標與索引ADD真實dword消費已驗，後續word XOR停高位LE0x24678C。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。

@@ -37,3 +37,5 @@
 ## 解析回填
 
 既有186的C1 dword SAR／多位未定義清除模型保持；298的回歸失敗有獨立規格修正。兩份須保存「裸C1單位移OF契約由規格 299 補齊」及本檔連結，避免把298測試預期錯改。驗證入口 apps/moo2/tools/startup_probe_131.py --check-c1-single-shift-overflow-spec-backlinks；缺反例、公開契約、未定義模型、原版限制或任一回填須拒絕。第一次CPU失敗收據保留為證據，不重寫歷史。
+
+dword ADC停點已由規格 300 接通，見 [300-cpu386-adc-dword-register.md](300-cpu386-adc-dword-register.md)。兩自然三組完整ADC／六旗標與索引ADD真實dword消費已驗，後續word XOR停高位LE0x24678C。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。

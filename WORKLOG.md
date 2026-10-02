@@ -375,3 +375,19 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 293–297舊SHL停點與186／298的C1契約／回歸發現同步回填，42個回填函式／28項新缺證據負例、兩個CLI、兩自然完整狀態／分支／寫回與新停點獨立稽核通過。初次收據稽核腳本正規表示式跳脫錯誤，修正後以同一收據重跑通過，未當產品失敗。精確命令、來源／CPU／probe／測試及所有有效／失敗收據SHA-256集中298／299；原始ZIP／patch／417根檔／EXE／MOX.SET再核對一致。原版素材及完整終端／記憶體／gzip／PNG留本機，只提交自製來源／測試／有限診斷及文字證據，沿用github隔離分支推送授權，不推本機origin。
 
 來源／輸出UID:GID1000:1000、工具無root-owned／誤建.md目錄與git diff --check通過。docker ps -a依Go映像與moo2名稱分開核對皆空，本批一次性容器已退出移除，未清理其他專案／映像。下一步只按公開ADC契約與有限唯讀前態／下一消費建立窄CPU規格，不深入IRQ／driver或runtime。
+
+## 2026-10-02：IRQ0 內 ADC 與索引 ADD 真實消費
+
+開工主庫df423d7dd09a9ba202c8051bd40045ed513a4ca0／工具a44c7eaae7f4ac3143a04f183f62ecf91190e124乾淨，上一輪SHL／C1修正已推送並驗真實寫回，屬實際進展。路由命中平台契約／規格閘門、dosgolem、文件職責及結論回填，實際載入入口與上游能力矩陣／分層規格，沿用逆向重製技能。初讀006檔名不符後依實際檔名補讀，未當產品失敗；主庫玩法RE閘門不變。
+
+300同次DRAFT＋索引，以未改CPU的兩自然真正IRQ0前態及公開Intel ADC六定義旗標／別名／保持與拒絕契約審查READY後，補裸13 /r、mod11。四個固定位址各最多三筆唯讀StepHook原樣轉送既有hook，只讀完整R／段／flags／IRQ狀態與八byte來源及原始bytes，不替換CPU／Bus／時計／IRQ橋接、不注入資料或跳指令。
+
+原兩操作數與CF一起用33位總和計算，CF／OF／AF按完整運算、SF／ZF／PF按結果；來源目的相同仍消費舊值。64來源／目的組合、全部byte配對／兩CF、77項bit／補集／符號／繞回／低nibble邊界與64算術初旗標的獨立無號總和／有號範圍／PF計數通過，完整保持、截短／未知前綴／記憶體拒絕及既有ADD／word ADD／SUB／CMP／SBB回歸通過。全部CPU／固定官方EXE全套首次通過。
+
+兩自然各三組完整ADC→索引ADD→MOVSX相同，全部outer_step42349111在同次IRQ0內，不冒稱IRQ內指令序號或總呼叫數。原CF1／0／1令EBP1／0／1、flags2／46h／2；原版ADD以×4索引讀DS:00272D44的dword2或DS:00272D40的dword0，完整ESI為0071E1D2h／0071E1D2h／0071E1D4h、flags6。目的外完整R／段保持，後續MOVSX才將EBP覆寫0；獨立核對真正來源／索引與結果後300限定CONFORMED，不猜欄位用途或深入IRQ0 handler。
+
+同outer_step42349111在外層0x2571C9的IRQ0內轉停高位LE0x24678C，66 83 F7 01、word XOR DI,1缺件。IRQ0 started6174／completed6173／failed=true，完整返回仍未知；等待4579／PNG同已檢視黑圖，工具時計不當硬體wall-clock證據。255／主選單／正常玩家路徑、保護模式PCM／IRQ7、人耳／受控亂數及整款remake未完成，299的原版自然OF=1限制保持。
+
+293–299舊停點與索引同步回填，43個回填函式／七份舊停點28項缺證據負例、--check-adc-dword-register-spec-backlinks CLI及兩自然三組完整資料鏈獨立稽核通過。全部命令／來源／CPU／probe／新測試與前態及有效收據SHA-256集中300；原始ZIP／patch／417根檔／EXE／MOX.SET再核對一致。原版素材及完整終端／記憶體／gzip／PNG留本機，只提交自製來源／測試／有限診斷與文字證據，沿用github隔離分支推送授權，不推本機origin。
+
+來源／輸出UID:GID1000:1000、工具無root-owned／誤建.md目錄及git diff --check通過。docker ps -a依Go映像與moo2名稱分開核對皆空，本批一次性容器已退出移除，未清理其他專案／映像。下一步按公開word XOR立即數的低16位／符號延伸／旗標契約與有限唯讀前態／PUSH消費建立窄CPU規格，不深入IRQ／driver硬體時序或runtime。

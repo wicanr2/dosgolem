@@ -52,3 +52,5 @@ SB16 C6h 停點已由規格 296 接通，見 [296-sb16-c6-auto-init-dma.md](296-
 dword ROR停點已由規格 297 接通，見 [297-cpu386-ror-dword-register-imm8.md](297-cpu386-ror-dword-register-imm8.md)。兩自然完整ROR／CF與MOV AX,DX消費已驗，新停點為原版IRQ0呼叫內的高位LE0x2520B7、D1 E0的SHL EAX,1。原有CPU／DSP證據範圍不擴張，主選單／正常玩家路徑仍未完成。
 
 dword SHL單位移停點已由規格 298 接通，見 [298-cpu386-shl-dword-register-one.md](298-cpu386-shl-dword-register-one.md)。兩自然IRQ0內完整EAX0／EBX2與兩個dword真實寫回已驗，後續ADC停高位LE0x25179F。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。
+
+dword ADC停點已由規格 300 接通，見 [300-cpu386-adc-dword-register.md](300-cpu386-adc-dword-register.md)。兩自然三組完整ADC／六旗標與索引ADD真實dword消費已驗，後續word XOR停高位LE0x24678C。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。
