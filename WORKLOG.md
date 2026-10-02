@@ -311,3 +311,17 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 精確命令、固定輸入／來源、原始定位／bytes、測試與兩自然收據SHA集中於293／294；292／293停點與索引／回填護欄同次維護。原始ZIP／patch／EXE雜湊已重查一致；原版素材與完整終端／記憶體／gzip／PNG留本機，公開只有自製來源／測試／有限診斷與文字證據。沿用github隔離分支推送授權，不推本機origin。
 
 全部37個回填函式、293／294各四項缺證據負例及 --check-xor-dword-imm8-spec-backlinks／--check-bsf-dword-spec-backlinks 兩CLI通過；兩自然完整資料鏈、索引／語法／繁體字／UID／無誤建目錄與git diff --check通過。docker ps -a的Go映像與moo2名稱分開核對，本批一次性容器已退出移除，未清理其他專案／映像。
+
+## 2026-10-02：記憶體 dword OR 與原版完整讀取
+
+主庫0b0faf6df8f46823eab81f620aa380e670e56923／工具a899e9e7e4f397d17054bdccae97faa0f6cf963c乾淨且遠端一致；上一輪XOR／BSF資料鏈已推送，屬實際進展。沿用平台規格優先／規格閘門、dosgolem、文件職責與回填路由及逆向重製技能，主庫玩法RE閘門不變。
+
+295同次DRAFT＋索引，未改CPU的完整R／段／目的dword及公開OR／五定義旗標、AF清除與逐byte錯誤模型審查READY後才實作。只將09 /r記憶體解碼改用既有decodeAddress32；CPU與固定官方EXE全套通過，兩自然40h→2040h寫回及原版MOV EAX讀取完整2040h後，才限定CONFORMED。沒有遊戲位址特例，也沒有修改主庫玩法。
+
+首次CPU失敗是測試借用的Bus拒絕全部byte寫入，改指定byte才失敗的測試Bus，CPU不變，同映像／命令乾淨重跑通過。第一次自然診斷包裝Bus破壞DPMI的Bus身分契約，兩份提早INT31/0500h收據不計OR驗收；改用原樣轉送SegmentRead8返回值，保留Bus，CPU與DPMI不改再跑。最早只觀察到未變的高byte，不當成新增bit13的消費，收窄低兩byte／dword取址端後兩自然真的由MOV EAX讀取完整2040h。精確命令、版本、所有有效／無效收據雜湊及錯誤模型在295；未把診斷錯誤列為產品缺陷。
+
+兩自然第42,347,254步停高位LE0x2454AE的INT31/0300h，實際內層INT66從1201:016A行230步到1201:05D9，OUT 022Ch／C6h尚未支援。IRQ0 started=completed=6173、等待值4579，最終PNG同已檢視黑圖；255／主選單／正常玩家路徑、音效／受控亂數及整款remake未完成。下一步公開SB16 DSP／DMA與sample duration契約加有限原版參數，審查READY再實作；不深挖driver／ISR／DAC／PIT時序。
+
+293／294舊停點與索引／回填護欄同次維護，原始素材與完整終端／記憶體／gzip／PNG留本機，只公開自製來源／測試／有限診斷及文字證據。沿用github隔離分支推送授權，不推本機origin。
+
+全部38個回填函式、293／294兩份各四項缺證據負例、--check-or-dword-memory-spec-backlinks CLI、兩自然完整OR／JMP／MOV／TEST與新停點的獨立算術核對通過。原始ZIP／patch／固定EXE雜湊再核對一致，索引／語法／繁體字／UID／無誤建目錄及git diff --check通過。Docker按Go映像與moo2名稱分開核對，本輪一次性容器已退出移除，未清理其他專案或映像。讀取環境無rg改grep；幾次不存在檔案的讀取假設及一次同檔多段patch拒絕均未改檔，依已定位來源修正。

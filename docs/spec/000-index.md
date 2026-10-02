@@ -453,4 +453,6 @@
 
 - [293：dword 暫存器與符號延伸 imm8 的 XOR](293-cpu386-xor-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然符號延伸後態已驗，AF清除近似明示；294閉合真實BSF consumer。
 
-- [294：dword 暫存器的向前位元掃描](294-cpu386-bsf-dword-register.md)：CONFORMED。全部CPU／固定EXE與兩自然XOR→BSF→ADD→word MOV完整資料鏈通過；ZF定義與未定義模型分開驗，下一停點09記憶體dword OR。
+- [294：dword 暫存器的向前位元掃描](294-cpu386-bsf-dword-register.md)：CONFORMED。全部CPU／固定EXE與兩自然XOR→BSF→ADD→word MOV完整資料鏈通過；ZF定義與未定義模型分開驗，09記憶體dword OR停點已由295接通。
+
+- [295：記憶體 dword 目的與暫存器的 OR](295-cpu386-or-dword-memory-register.md)：CONFORMED。全部CPU／固定EXE、兩自然40h→2040h寫回及MOV EAX的完整dword真實消費已驗；AF／逐byte錯誤模型明示，下一實模式DSP OUT 022Ch／C6h缺件。

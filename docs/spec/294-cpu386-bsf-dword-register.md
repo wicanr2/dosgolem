@@ -49,3 +49,7 @@ XOR完整EAX=400h由BSF讀取，目的外所有R／段保持；ADD只更新EDI�
 IRQ0 started=completed=5936、active=false／failed=false，等待DS:00271148=F6 10 00 00；PIT Mode=2／Reload=5966／Generation=5、Micros=42800171／Deliveries=5956／Pending=false／InService=false。受控滑鼠條件已注入；255完整座標／游標仍READY，主選單／正常玩家路徑、音效／受控亂數及整款remake未完成。
 
 兩自然gzip SHA-256 76a750012abac608e9a4a481372344d014400f0ad727376ed7bb510413fc0e81／b8c34ef4981903fab0e2f25a3a1f180d65a1b14f530858a2ce3c4c1e0645eb05。兩PNG同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。原始ZIP／patch／固定EXE雜湊另行核對一致；原版素材與完整終端／記憶體／gzip／PNG只留本機，公開範圍只有自製來源／測試／有限診斷與文字證據。
+
+## 後續 OR 已接通
+
+記憶體 dword OR 停點已由規格 295 接通，見 [295-cpu386-or-dword-memory-register.md](295-cpu386-or-dword-memory-register.md)。兩自然原版自行將DS:00325864完整40h寫成2040h，再由0x23B693的MOV EAX讀取完整dword。295限定CONFORMED；第42,347,254步轉停實模式DSP OUT 022Ch／C6h，主選單仍未驗收。

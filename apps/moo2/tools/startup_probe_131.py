@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-or-dword-memory-spec-backlinks 只驗證 dword 記憶體 OR 規格回填，不啟動 DOSBox-X。
 --check-or-byte-memory-spec-backlinks 只驗證 byte 記憶體 OR 規格回填，不啟動 DOSBox-X。
 --check-shl-byte-cl-spec-backlinks 只驗證 byte SHL／CL 規格回填，不啟動 DOSBox-X。
 --check-neg-byte-spec-backlinks 只驗證 byte NEG 規格回填，不啟動 DOSBox-X。
@@ -55,6 +56,22 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_or_dword_memory_resolution(spec_dir):
+    """295 的完整OR寫回／真正MOV消費及錯誤模型，須回填293／294停點。"""
+    current = (spec_dir / '295-cpu386-or-dword-memory-register.md').read_text()
+    required = ('0x23C36B', '09 86 84 03 00 00', 'DS:00325864 dword=00002040h', '0x23C371', '0x23B693', '完整EAX=2040h', 'AF未定義', '逐byte Bus錯誤模型', '647de0701fcdf4c582d561ebc5b8b54b2cb34ff6484b73d9908135e5a17ac1ed', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('OR dword缺完整初態／寫回／真正消費／未定義與錯誤模型或可實作狀態')
+    for name in ('293-cpu386-xor-dword-register-imm8.md', '294-cpu386-bsf-dword-register.md'):
+        older = (spec_dir / name).read_text()
+        if '記憶體 dword OR 停點已由規格 295 接通' not in older or '295-cpu386-or-dword-memory-register.md' not in older:
+            raise RuntimeError('OR dword舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-or-dword-memory-spec-backlinks']:
+    validate_or_dword_memory_resolution(spec_dir)
+    print('OR dword完整寫回／真正消費與後續回填通過')
     raise SystemExit(0)
 
 def validate_bsf_dword_resolution(spec_dir):

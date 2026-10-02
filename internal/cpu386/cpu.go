@@ -1245,18 +1245,9 @@ func (c *CPU) Step() error {
 			c.setLogicFlags(c.R[dst])
 			break
 		}
-		if modrm>>6 != 1 || modrm&7 == ESP {
-			return fail(fmt.Sprintf("09 ModRM %02X 尚未支援", modrm))
-		}
-		delta, e := c.fetch8()
+		segment, addr, e := c.decodeAddress32(modrm)
 		if e != nil {
 			return fail(e.Error())
-		}
-		base := modrm & 7
-		addr := uint32(int64(c.R[base]) + int64(int8(delta)))
-		segment := SegDS
-		if base == EBP {
-			segment = SegSS
 		}
 		value, ok := c.readSegment32(c.Seg[segment], addr)
 		if !ok {

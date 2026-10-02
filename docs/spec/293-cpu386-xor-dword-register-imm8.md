@@ -40,3 +40,5 @@ CPU.go SHA-256 606fd2bd8482e012a840f5b4cf3ccccb96fa2fefba27f64643b4c31341448aac�
 BSF 停點已由規格 294 接通，見 [294-cpu386-bsf-dword-register.md](294-cpu386-bsf-dword-register.md)。全部CPU／固定EXE與兩自然重跑完成真實資料消費後，293才限定CONFORMED。第39,983,179步完整 EAX=400h／flags=206h；39,983,181步BSF自行讀取EAX，產生EDX=Ah／定義ZF=0，下一ADD與word MOV存回DS:002726D0=074Ah，其他完整R／段保持規定。AF清除與BSF五未定義旗標保持只屬工具模型，既有C1的多位OF／AF同樣沒有硬體exact聲明。
 
 最終CPU／全套／兩自然收據與下一停點見294，第41,223,220步轉停高位LE0x23C36B的09記憶體dword OR；主選單／正常玩家路徑、音效／受控亂數與整款remake仍未驗收。
+
+此後記憶體 dword OR 停點已由規格 295 接通，見 [295-cpu386-or-dword-memory-register.md](295-cpu386-or-dword-memory-register.md)。40h→2040h的完整寫回／dword MOV消費通過，新停點為實模式DSP OUT 022Ch／C6h；XOR／BSF的原有證據範圍不擴張。

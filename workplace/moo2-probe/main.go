@@ -15,6 +15,14 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
+// 只觀察實際指令的段讀取，不改Bus身分或既有hook返回值。
+type orMemoryReadObserver struct {
+	target, linear         uint32
+	selector               uint16
+	armed, active, matched bool
+	remaining              int
+}
+
 func main() {
 	emptyFixture := len(os.Args) == 3 && os.Args[2] == "--empty-mox-set"
 	fileFixture := len(os.Args) == 4 && os.Args[2] == "--mox-set"
@@ -238,6 +246,7 @@ func main() {
 		}
 	}
 	seen := map[uint32]int{}
+	orReads := &orMemoryReadObserver{remaining: 16}
 	type sample struct {
 		step               int
 		eip, esp, esi, eax uint32
@@ -309,6 +318,37 @@ func main() {
 		if i < 24 {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
+		}
+		if (m.CPU.EIP == 0x23c36b || m.CPU.EIP == 0x23c371 || m.CPU.EIP == 0x23c398) && seen[m.CPU.EIP] <= 3 {
+			addr := m.CPU.R[cpu386.ESI] + 0x384
+			if !orReads.armed && m.CPU.EIP == 0x23c36b {
+				if descriptor, ok := m.CPU.Descriptors[m.CPU.Seg[cpu386.SegDS]]; ok {
+					orReads.target, orReads.linear, orReads.selector, orReads.armed = addr, descriptor.Base+addr, m.CPU.Seg[cpu386.SegDS], true
+					originalRead := m.CPU.SegmentRead8
+					m.CPU.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+						// 排除未變的高兩byte；觀察低兩byte／完整dword的取址端。
+						if orReads.active && selector == orReads.selector && offset >= orReads.target && offset-orReads.target < 2 {
+							orReads.matched = true
+						}
+						if originalRead != nil {
+							return originalRead(selector, offset)
+						}
+						return 0, false
+					}
+				}
+			}
+			var value uint32
+			readable := true
+			for j := uint32(0); j < 4; j++ {
+				b, ok := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], addr+j)
+				value |= uint32(b) << (j * 8)
+				readable = readable && ok
+			}
+			code := make([]byte, 64)
+			for j := range code {
+				code[j], _ = m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegCS], 0x23c398+uint32(j))
+			}
+			fmt.Printf("or_dword_memory_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X destination_ds_offset=0x%X dword=%08X readable=%t next_code_23C398=%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, addr, value, readable, code)
 		}
 		if (m.CPU.EIP == 0x25489c || m.CPU.EIP == 0x25489f || m.CPU.EIP == 0x2548a2) && seen[m.CPU.EIP] <= 3 {
 			fmt.Printf("xor_dword_imm8_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
@@ -387,7 +427,21 @@ func main() {
 		if (m.CPU.EIP == 0x21c2d6 || m.CPU.EIP == 0x21c2da) && seen[m.CPU.EIP] <= 3 {
 			fmt.Printf("sign_branch_input step=%d eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
 		}
-		if err := m.CPU.Step(); err != nil {
+		orReads.active = orReads.armed && orReads.remaining > 0 && m.CPU.EIP != 0x23c36b
+		orReads.matched = false
+		var readEIP, readFlags uint32
+		var readR [8]uint32
+		var readSeg [6]uint16
+		if orReads.active {
+			readEIP, readR, readSeg, readFlags = m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+		}
+		stepErr := m.CPU.Step()
+		orReads.active = false
+		if orReads.matched {
+			orReads.remaining--
+			fmt.Printf("or_dword_memory_consumer step=%d address_space=dosgolem_high_le input_eip=0x%X after_eip=0x%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=0x%X after_flags=0x%X destination_linear=0x%X dword_bytes=%X instruction_bytes=%X error=%v\n", i, readEIP, m.CPU.EIP, readR, m.CPU.R, readSeg, m.CPU.Seg, readFlags, m.CPU.EFlags, orReads.linear, m.Mem[orReads.linear:orReads.linear+4], m.Mem[readEIP:readEIP+16], stepErr)
+		}
+		if err := stepErr; err != nil {
 			var instructionError *cpu386.Error
 			if errors.As(err, &instructionError) && uint64(instructionError.EIP)+16 <= uint64(len(m.Mem)) {
 				fmt.Printf("guest_cpu_stop address_space=dosgolem_high_le eip=0x%X bytes=% X\n", instructionError.EIP, m.Mem[instructionError.EIP:instructionError.EIP+16])
