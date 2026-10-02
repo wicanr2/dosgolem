@@ -484,3 +484,7 @@
 - [308：dword 指標的間接遠呼叫](308-cpu386-call-far-indirect-absolute.md)：CONFORMED。裸FF 1D真實六byte指標／8byte寫回與CB消費、全套與兩自然診斷已驗；完整CPU權限／gate未建模。
 
 - [309：DSP 8 位元 DMA 暫停與恢復](309-sb16-pause-resume-dma8.md)：CONFORMED。正常Esc後真正D0／102步原版IRQ7返回、450096µs暫停來源保持與D4／成功caller／全套已驗；idle／硬體時序／人耳及完整玩家路徑仍未知。
+
+- [310：DOS AH2Ah 與可重播日曆](310-moo2-dos-calendar-date.md)：CONFORMED。明示epoch／兩正常日期與原始caller寫回、未設定拒絕與全套已驗；AH2C／RNG／真實系統日期及玩家流程未知。
+
+- [311：word SUB 完整立即值](311-cpu386-sub-word-register-imm16.md)：CONFORMED。八目的／全word／六旗標／全套與兩正常各兩筆SUB、MOV／SHL／word MOV及兩次堆疊寫回已驗；memory與完整CPU未擴張。

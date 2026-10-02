@@ -51,6 +51,52 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+
+def validate_dos_calendar_resolution(spec_dir):
+    """310明示日曆與原始返回／caller須回填309。"""
+    current=(spec_dir/'310-moo2-dos-calendar-date.md').read_text()
+    required=('0x240A32','0x240A96','SetCalendarEpoch',
+              'DOSGOLEM_MOO2_CALENDAR_EPOCH=1996-01-01','1980','2099',
+              '58553364','58553400','01600101','SS:002BDB90','SS:002BDB8C',
+              'configured=false','AH2C','RNG','platform-spec approximation',
+              '950f0e6690aad7f7546e2dcdcfb8ddd6aeeb4b398aa001c14a483b359d5ba1f8',
+              '09b176610ba23b5f6b221564659a3666ed7bd8d2589b2f984a86e3e66ab4bc79',
+              '5f736d9fa2d296bc138ba0782212e0b775e78d6a258fb569c1d2dcb57eed2589',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('日期服務缺明示初態／原始返回／寫回／拒絕／收據與限定範圍')
+    older=(spec_dir/'309-sb16-pause-resume-dma8.md').read_text()
+    if 'DOS AH2Ah日期停點已由規格 310 接通' not in older or '310-moo2-dos-calendar-date.md' not in older:
+        raise RuntimeError('日期服務的309未知缺回填')
+
+if sys.argv[1:]==['--check-dos-calendar-spec-backlinks']:
+    validate_dos_calendar_resolution(spec_dir)
+    print('明示日曆／日期返回／原始寫回與309回填通過')
+    raise SystemExit(0)
+
+
+def validate_sub_word_imm16_resolution(spec_dir):
+    """311原始SUB與完整消費須回填310。"""
+    current=(spec_dir/'311-cpu386-sub-word-register-imm16.md').read_text()
+    required=('0x240A34','0x240A98','66 81 E9 6C 07','000007CC→00000060',
+              'CF0／PF1／AF0／ZF0／SF0／OF0','高16非零',
+              'MOV CH,AL','01600101','0x240A41','0x240AA5',
+              'SS:002BDB90','SS:002BDB8C','01 01 60 01',
+              '兩時計58554306','0x210C7E','AH2C','RNG',
+              '950f0e6690aad7f7546e2dcdcfb8ddd6aeeb4b398aa001c14a483b359d5ba1f8',
+              '09b176610ba23b5f6b221564659a3666ed7bd8d2589b2f984a86e3e66ab4bc79',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('word SUB iw缺原始定位／六旗標／完整consumer／寫回／收據與限定範圍')
+    older=(spec_dir/'310-moo2-dos-calendar-date.md').read_text()
+    if 'word SUB完整立即值停點已由規格 311 接通' not in older or '311-cpu386-sub-word-register-imm16.md' not in older:
+        raise RuntimeError('word SUB iw的310拒絕缺回填')
+
+if sys.argv[1:]==['--check-sub-word-imm16-spec-backlinks']:
+    validate_sub_word_imm16_resolution(spec_dir)
+    print('word SUB iw／六旗標／完整consumer與310回填通過')
+    raise SystemExit(0)
+
 def validate_dma8_control_resolution(spec_dir):
     """309正常D0／D4與原版返回須回填較早DSP未知。"""
     current=(spec_dir/'309-sb16-pause-resume-dma8.md').read_text()

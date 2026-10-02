@@ -116,13 +116,38 @@ func main() {
 	if err := services.AttachMachine(m); err != nil {
 		panic(err)
 	}
+
+	if setting := os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH"); setting != "" {
+		epoch, err := time.Parse("2006-01-02", setting)
+		if err != nil || len(setting) != 10 || epoch.Format("2006-01-02") != setting {
+			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_CALENDAR_EPOCH 必須為 YYYY-MM-DD 的有效DOS日期")
+			os.Exit(2)
+		}
+		if err := services.SetCalendarEpoch(epoch.Year(), int(epoch.Month()), epoch.Day()); err != nil {
+			panic(err)
+		}
+		fmt.Printf("calendar_initial epoch=%s source=explicit_environment virtual_micros=0 approximation=platform-spec\n", setting)
+	}
 	fmt.Printf("separate_dos_arena=%t dos_arena_base=0x%X\n", m.DOSArenaBase != 0, m.DOSArenaBase)
 	mousePositionSet := false
 	var irq1Target, irq1Previous uint64
 	var dtaSelector uint16
 	var dtaOffset uint32
 	dtaSet := false
+	loopStep := 0
+	calendarConsumerSteps := 0
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x2a {
+			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+			epoch, micros, configured := services.CalendarState()
+			handled := services.Handle(c, number)
+			fmt.Printf("calendar_date_service outer_step=%d address_space=dosgolem_high_le eip=%X epoch=%s virtual_micros=%d configured=%t before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X handled=%t\n", loopStep, c.EIP-2, epoch, micros, configured, beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, handled)
+			if handled {
+				calendarConsumerSteps = 8
+			}
+			return handled
+		}
+
 		if number == 0x31 && uint16(c.R[cpu386.EAX]) == 0x0300 && uint16(c.R[cpu386.EBX]) == 0x0066 {
 			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
 			if !ok {
@@ -290,7 +315,6 @@ func main() {
 		}
 	}
 	seen := map[uint32]int{}
-	loopStep := 0
 	shlSeen := map[uint32]int{}
 	adcSeen := map[uint32]int{}
 	wordXorSeen := map[uint32]int{}
@@ -570,7 +594,32 @@ func main() {
 			dma8BeforeR, dma8BeforeSeg, dma8BeforeEIP, dma8BeforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
 			copy(dma8InstructionBytes[:], m.Mem[dma8BeforeEIP:dma8BeforeEIP+16])
 		}
+
+		observeCalendarConsumer := calendarConsumerSteps > 0
+		var calendarBeforeR [8]uint32
+		var calendarBeforeSeg [6]uint16
+		var calendarBeforeEIP, calendarBeforeFlags uint32
+		var calendarBytes [16]byte
+		var calendarStackBefore, calendarStackAfter [32]byte
+		calendarStackReadable := true
+		if observeCalendarConsumer {
+			calendarBeforeR, calendarBeforeSeg, calendarBeforeEIP, calendarBeforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+			copy(calendarBytes[:], m.Mem[calendarBeforeEIP:calendarBeforeEIP+16])
+			for j := range calendarStackBefore {
+				b, ok := m.CPU.ReadSegment8(calendarBeforeSeg[cpu386.SegSS], calendarBeforeR[cpu386.ESP]+uint32(j))
+				calendarStackBefore[j], calendarStackReadable = b, calendarStackReadable && ok
+			}
+		}
 		stepErr := m.CPU.Step()
+		if observeCalendarConsumer {
+			calendarConsumerSteps--
+			for j := range calendarStackAfter {
+				b, ok := m.CPU.ReadSegment8(calendarBeforeSeg[cpu386.SegSS], calendarBeforeR[cpu386.ESP]+uint32(j))
+				calendarStackAfter[j], calendarStackReadable = b, calendarStackReadable && ok
+			}
+			fmt.Printf("calendar_date_caller outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X error=%v\n", i, calendarBeforeEIP, m.CPU.EIP, calendarBeforeR, m.CPU.R, calendarBeforeSeg, m.CPU.Seg, calendarBeforeFlags, m.CPU.EFlags, calendarBytes, calendarBeforeSeg[cpu386.SegSS], calendarBeforeR[cpu386.ESP], calendarStackReadable, calendarStackBefore, calendarStackAfter, stepErr)
+		}
+
 		if observeDMA8Consumer {
 			dma8ConsumerSteps--
 			fmt.Printf("dma8_control_caller outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, dma8BeforeEIP, m.CPU.EIP, dma8BeforeR, m.CPU.R, dma8BeforeSeg, m.CPU.Seg, dma8BeforeFlags, m.CPU.EFlags, dma8InstructionBytes, stepErr)

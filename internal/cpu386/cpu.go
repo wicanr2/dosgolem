@@ -2504,7 +2504,7 @@ func (c *CPU) Step() error {
 				c.sub16(value, imm)
 				break
 			}
-			if modrm>>6 != 3 || (group != 0 && group != 1 && group != 4) {
+			if modrm>>6 != 3 || (group != 0 && group != 1 && group != 4 && group != 5) {
 				return fail("81 word形狀尚未支援")
 			}
 			imm, e := c.fetch16()
@@ -2514,6 +2514,12 @@ func (c *CPU) Step() error {
 			reg := modrm & 7
 			if group == 0 {
 				v := c.add16(uint16(c.R[reg]), imm)
+				c.R[reg] = c.R[reg]&0xffff0000 | uint32(v)
+				break
+			}
+			if group == 5 {
+				// 規格311：word完整立即值，不按83的imm8符號延伸。
+				v := c.sub16(uint16(c.R[reg]), imm)
 				c.R[reg] = c.R[reg]&0xffff0000 | uint32(v)
 				break
 			}

@@ -78,3 +78,7 @@ DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000=1 DOSGOLEM_MOO2_MAX_STEPS=50000000 DOS
 D0 DMA暫停停點已由規格 309 接通。303／305／306／307均須保留此標記與309-sb16-pause-resume-dma8.md連結；它們較早D0未知只是當時基線。不可變鍵仍為固定EXE＋高位LE0x217AD8＋實模式1201:05DA／OUT022C=D0，不擴張255／299／其他CPU或玩家路徑。驗證入口 apps/moo2/tools/startup_probe_131.py --check-dma8-control-spec-backlinks；缺原始定位、公開契約、102步真實返回、D4／caller／收據、限定範圍或舊回填必須拒絕。
 
 全部51個現行回填函式與27個新增缺證據／較早標記或連結移除負例通過；309 CLI通過。既有308索引正對照與309入口同樣可查，受驗DSP／clock／ports／測試／探針SHA-256未變，CPU SHA-256 6dffa60e7bb5b5c15c1b669a1b683dd8a2c2eb379cdcc6fc92e5a5bdb5cca09b保持。檔案與輸出均UID:GID1000:1000；本批Go容器正常退出且已移除，未清理其他專案或映像。
+
+## 日期服務後續
+
+DOS AH2Ah日期停點已由規格 310 接通，見[310-moo2-dos-calendar-date.md](310-moo2-dos-calendar-date.md)。2026-10-03明示epoch1996-01-01的兩正常48M Esc排程真正日期返回／原始SUB與兩次堆疊寫回已驗；未設定日曆仍維持本規格原拒絕。新停點0x210C7E word ADD記憶體來源，時間／RNG與玩家流程邊界未擴張。

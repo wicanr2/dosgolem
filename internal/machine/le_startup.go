@@ -26,6 +26,7 @@ import (
 type FD2StartupDOS struct {
 	calls     int
 	timeCalls int
+	calendar  *leDOSCalendar
 	// environment 只供明示的測試啟動設定使用；零值保留 FD2 歷史設定。
 	environment []byte
 	moo2Profile bool
@@ -586,6 +587,9 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		return false
 	}
 	function := uint8(c.R[cpu386.EAX] >> 8)
+	if function == 0x2a {
+		return s.getCalendarDate(c)
+	}
 	vectorNumber := uint8(c.R[cpu386.EAX])
 	if function == 0x1a {
 		// DOS DTA 只保存呼叫當下的指標；後續搜尋服務才讀寫該記憶體。
