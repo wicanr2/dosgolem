@@ -69,3 +69,5 @@ VBE Bank7／StartY512／BankSets447／Writes4353364／DisplaySets7，兩PNG同�
 CPU契約鍵：cpu386裸D1／/4／mod11／32位暫存器／固定計數1；原版停點鍵：固定EXE雜湊＋高位LE0x2520B7＋D1 E0。293／294／295／296／297保存「dword SHL單位移停點已由規格 298 接通」及本檔連結，限定這筆IRQ0真實寫回，不擴張舊CPU／平台或所有IRQ0分支。驗證入口 apps/moo2/tools/startup_probe_131.py --check-shl-dword-one-spec-backlinks，缺原始定位／旗標／兩個原版寫回／未定義模型或任一舊標記須拒絕。完整原始素材、終端／gzip／PNG留本機。
 
 dword ADC停點已由規格 300 接通，見 [300-cpu386-adc-dword-register.md](300-cpu386-adc-dword-register.md)。兩自然三組完整ADC／六旗標與索引ADD真實dword消費已驗，後續word XOR停高位LE0x24678C。原有CPU／平台證據範圍不擴張，完整IRQ0返回與正常玩家路徑仍未完成。
+
+word XOR立即數停點已由規格 301 接通，見 [301-cpu386-xor-word-register-imm8.md](301-cpu386-xor-word-register-imm8.md)。兩自然完整word XOR／五旗標與PUSH EDI、PUSH EAX的兩個stack dword真正突變已驗；此IRQ0已返回，後續第42603292步停高位LE0x256171的66 93、XCHG AX,BX。原有CPU／平台與299原版自然OF=1限制保持，主選單／正常玩家路徑仍未完成。

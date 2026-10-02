@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-xor-word-immediate-spec-backlinks 只驗證 word XOR與原版堆疊消費回填，不啟動DOSBox-X。
 --check-adc-dword-register-spec-backlinks 只驗證 dword ADC真實消費回填，不啟動DOSBox-X。
 --check-shl-dword-one-spec-backlinks 只驗證 dword 單位SHL回填，不啟動DOSBox-X。
 --check-c1-single-shift-overflow-spec-backlinks 只驗證 C1單位OF契約回填，不啟動DOSBox-X。
@@ -61,6 +62,35 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_xor_word_immediate_resolution(spec_dir):
+    """301 的五旗標／AF模型與真正PUSH寫入須回填舊word XOR停點。"""
+    current = (spec_dir / '301-cpu386-xor-word-register-imm8.md').read_text()
+    required = ('0x24678C', '66 83 F7 01', '完整EDI=00000001h', 'flags2',
+                'SS:002723FC dword=1', 'SS:002723F8 dword=00325048h',
+                'AF未定義', 'started6228／completed6228',
+                '37e637105219c22d92065f7c173b716667f43f91c525cc5a5bdcd2722bd6d39b',
+                'ccd184dd64aa984b77e21b6624fca6a7407c95b938dfa959203af32ef0901c13',
+                '339eb37ec3be286d6e42b95e7f87d8913ad9423cbf381052a77993fc3025b27b',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('word XOR缺定位／五旗標／AF模型／真正兩個stack dword寫入或IRQ0返回')
+    for name in ('293-cpu386-xor-dword-register-imm8.md',
+                 '294-cpu386-bsf-dword-register.md',
+                 '295-cpu386-or-dword-memory-register.md',
+                 '296-sb16-c6-auto-init-dma.md',
+                 '297-cpu386-ror-dword-register-imm8.md',
+                 '298-cpu386-shl-dword-register-one.md',
+                 '299-cpu386-c1-dword-single-shift-overflow.md',
+                 '300-cpu386-adc-dword-register.md'):
+        older = (spec_dir / name).read_text()
+        if 'word XOR立即數停點已由規格 301 接通' not in older or '301-cpu386-xor-word-register-imm8.md' not in older:
+            raise RuntimeError('word XOR舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-xor-word-immediate-spec-backlinks']:
+    validate_xor_word_immediate_resolution(spec_dir)
+    print('word XOR／真正兩個stack dword寫入與IRQ0返回及舊停點回填通過')
     raise SystemExit(0)
 
 def validate_adc_dword_register_resolution(spec_dir):

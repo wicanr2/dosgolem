@@ -64,3 +64,5 @@ PIT mode2／Reload5966／Generation5，BIOSClock Micros44005445／Deliveries6194
 ## 解析回填
 
 CPU契約鍵：cpu386裸13／/r／mod11／32位暫存器／原CF；原版停點鍵：固定EXE雜湊＋高位LE0x25179F＋13 ED。293–299保存「dword ADC停點已由規格 300 接通」及本檔連結，原有CPU／平台證據範圍不擴張。驗證入口 apps/moo2/tools/startup_probe_131.py --check-adc-dword-register-spec-backlinks，缺原始定位／六旗標／真正索引ADD來源或完整結果／任一舊標記須拒絕。主庫玩法閘門不變，原始素材及完整終端／記憶體／gzip／PNG留本機。
+
+word XOR立即數停點已由規格 301 接通，見 [301-cpu386-xor-word-register-imm8.md](301-cpu386-xor-word-register-imm8.md)。兩自然完整word XOR／五旗標與PUSH EDI、PUSH EAX的兩個stack dword真正突變已驗；此IRQ0已返回，後續第42603292步停高位LE0x256171的66 93、XCHG AX,BX。原有CPU／平台與299原版自然OF=1限制保持，主選單／正常玩家路徑仍未完成。

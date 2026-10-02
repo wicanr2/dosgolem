@@ -391,3 +391,19 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 293–299舊停點與索引同步回填，43個回填函式／七份舊停點28項缺證據負例、--check-adc-dword-register-spec-backlinks CLI及兩自然三組完整資料鏈獨立稽核通過。全部命令／來源／CPU／probe／新測試與前態及有效收據SHA-256集中300；原始ZIP／patch／417根檔／EXE／MOX.SET再核對一致。原版素材及完整終端／記憶體／gzip／PNG留本機，只提交自製來源／測試／有限診斷與文字證據，沿用github隔離分支推送授權，不推本機origin。
 
 來源／輸出UID:GID1000:1000、工具無root-owned／誤建.md目錄及git diff --check通過。docker ps -a依Go映像與moo2名稱分開核對皆空，本批一次性容器已退出移除，未清理其他專案／映像。下一步按公開word XOR立即數的低16位／符號延伸／旗標契約與有限唯讀前態／PUSH消費建立窄CPU規格，不深入IRQ／driver硬體時序或runtime。
+
+## 2026-10-02：word XOR 與原版 PUSH 堆疊消費
+
+開工主庫702b6b39f18312b28603d7a7334feb1143ada2e7／工具752abc607e04b87d830d4a6451af9e51dfc26b78，上一輪ADC索引消費已推送。路由命中平台契約／規格閘門、dosgolem、文件職責與結論回填，沿用已載入入口及逆向重製技能。301同次DRAFT＋索引，以未改CPU的兩自然真正完整IRQ0初態、公開word XOR五定義旗標／AF清除模型及下一PUSH契約審查READY後才實作；主庫玩法RE閘門不變。
+
+只補66 83 /6、mod11的八word目的與全部imm8符號延伸，目的高16位及其他狀態保持，截短／未知前綴／word記憶體拒絕。四固定位址各最多三筆唯讀StepHook保存完整R／段／flags與既有八byte堆疊，原樣轉送既有hook，不替換CPU／Bus／時計／IRQ橋接、不跳指令或注入資料；不追後續CALL目標／IRQ0 handler／ISR／driver硬體時序。
+
+第一次全部CPU的301新指令與PUSH測試通過，舊293仍拒絕已合法word形式、新byte XOR測試誤填保留AF而失敗。依既有286清AF模型修正新增期望，267／293的word XOR舊負例由全部word正例接替，未知拒絕仍保持；CPU未再次修改。保留失敗收據，同映像／命令乾淨重跑全部CPU通過，固定官方EXE全套通過。全部低word／imm8配對、八目的45邊界／256立即數／64初旗標，以逐bit比較／整除／低byte位元計數獨立核對高16位、五旗標及AF模型與完整保持；拒絕／既有指令回歸已驗。
+
+兩自然各一組完整XOR→PUSH EDI→PUSH EAX相同，真正前態與未改CPU收據一致。XOR令完整EDI=1／flags2，下一PUSH EDI令ESP2723FCh、SS:002723FC完整dword從003D6978h變1；PUSH EAX令ESP2723F8h、SS:002723F8從00246752h變00325048h。兩PUSH其餘R／段與flags保持，八bytes由52672400 78693D00到48503200 01000000；完整自然消費獨立核對後301限定CONFORMED。
+
+這次IRQ0成功返回，兩自然第42603292步轉停根CPU高位LE0x256171的66 93、XCHG AX,BX，比前一停點多254181步。IRQ0 active=false／failed=false／started6228／completed6228，等待4634；工具時鐘不稱硬體wall-clock對齊。VBE indexed已有變化，PNG仍同已檢視黑圖。C6返回／來源收據保持，255／主選單／正常玩家路徑、保護模式PCM／IRQ7、人耳／受控亂數及整款remake未驗收；299原版自然OF=1限制保持。
+
+293–300的八份舊停點及索引同步回填，全部44個回填函式／32項新缺證據負例／CLI、兩自然完整XOR／PUSH真實寫入／IRQ0返回／新停點獨立稽核通過。來源／CPU／probe／新測試、前態、失敗及成功收據SHA-256與精確命令集中301；正版ZIP／patch／417根檔／EXE／MOX.SET雜湊再核對一致。初讀猜錯OR測試檔名後依實際檔名補查，未當產品失敗。原版素材及完整終端／記憶體／gzip／PNG留本機，只公開自製來源／測試／有限診斷及文字證據，沿用github隔離分支推送授權，不推本機origin。
+
+來源／輸出UID:GID1000:1000，工具無root-owned／誤建.md目錄與git diff --check通過。本批一次性容器均已退出移除；Go映像清查曾見短暫容器，讀取掛載前已自行移除，歸屬未確認；未停止或移除它，也未清理其他專案／映像。下一步只保存XCHG真正完整前態及下一ROR消費，按公開CPU契約審查窄word暫存器形式；不追helper內部或修改主庫玩法。

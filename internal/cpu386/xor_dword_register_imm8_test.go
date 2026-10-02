@@ -75,7 +75,7 @@ func TestXORDwordImmediateRefusesPrefixesTruncationsMemoryAndUnknownGroups(t *te
 	for register := byte(0); register < 8; register++ {
 		code := []byte{0x83, 0xf0 | register, 0xff}
 		cases := [][]byte{code[:0], code[:1], code[:2], {0x83, 0xd0 | register, 0xff}, {0x83, 0xd8 | register, 0xff}}
-		for _, prefix := range []byte{0x66, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65, 0xf2, 0xf3, 0xf0} {
+		for _, prefix := range []byte{0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65, 0xf2, 0xf3, 0xf0} {
 			cases = append(cases, append([]byte{prefix}, code...))
 		}
 		for mod := byte(0); mod < 3; mod++ {
