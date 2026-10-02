@@ -299,6 +299,9 @@ func main() {
 			}
 		}
 		seen[m.CPU.EIP]++
+		if (m.CPU.EIP == 0x257662 || m.CPU.EIP == 0x257665 || m.CPU.EIP == 0x25766a || m.CPU.EIP == 0x25766d || m.CPU.EIP == 0x257670) && seen[m.CPU.EIP] <= 3 {
+			fmt.Printf("dword_ror_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X bytes=% X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, m.Mem[m.CPU.EIP:m.CPU.EIP+16])
+		}
 		if m.CPU.EIP == 0x2454b0 || m.CPU.EIP == 0x2454b3 || m.CPU.EIP == 0x2454b6 || m.CPU.EIP == 0x2454b8 || m.CPU.EIP == 0x2454e7 {
 			if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && ports.State().DSPAuto8Commands > 0 && c6CallerSeen[m.CPU.EIP] < 3 {
 				c6CallerSeen[m.CPU.EIP]++

@@ -3431,14 +3431,22 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if count != 8 {
-				return fail("C1 ROR 僅支援立即數 08h")
+			count &= 31
+			if count == 0 {
+				break
 			}
 			rm := int(modrm & 7)
 			value := c.R[rm]
-			result := value>>8 | value<<24
+			result := value>>count | value<<(32-count)
 			c.R[rm] = result
 			c.EFlags = c.EFlags&^CF | result>>31&1
+			if count == 1 {
+				c.EFlags &^= OF
+				if result>>31^(result>>30&1) != 0 {
+					c.EFlags |= OF
+				}
+			}
+			// 規格297：多位OF未定義，保留只屬工具近似。
 			break
 		}
 		if modrm>>6 != 3 || (group != 4 && group != 5 && group != 7) {

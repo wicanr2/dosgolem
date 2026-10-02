@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-ror-dword-immediate-spec-backlinks 只驗證 dword ROR 規格回填，不啟動 DOSBox-X。
 --check-sb16-c6-spec-backlinks 只驗證 SB16 C6h 規格回填，不啟動 DOSBox-X。
 --check-or-dword-memory-spec-backlinks 只驗證 dword 記憶體 OR 規格回填，不啟動 DOSBox-X。
 --check-or-byte-memory-spec-backlinks 只驗證 byte 記憶體 OR 規格回填，不啟動 DOSBox-X。
@@ -57,6 +58,33 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_ror_dword_immediate_resolution(spec_dir):
+    """297 的全部計數／旗標／真正MOV消費須回填舊範圍與停點。"""
+    current = (spec_dir / '297-cpu386-ror-dword-register-imm8.md').read_text()
+    required = ('0x257662', 'C1 CA 10', '0AFF0AFFh', 'CF=0', '0x25766A',
+                'MOV AX,DX真實消費', '完整EAX=00340AFFh／0A0A0AFFh',
+                '多位OF未定義', '零計數全部保持',
+                '35ad5bdc11d470d670e044ff4b1894476056930793ade3df2dec7218ca91ca30',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('ROR缺完整初態／計數／旗標邊界／MOV消費或可實作狀態')
+    for name, marker in (
+        ('222-cpu386-ror-r32-imm8.md', 'dword ROR立即數範圍由規格 297 擴充'),
+        ('288-cpu386-rol-dword-register-imm8.md', 'dword ROR立即數範圍由規格 297 擴充'),
+        ('293-cpu386-xor-dword-register-imm8.md', 'dword ROR停點已由規格 297 接通'),
+        ('294-cpu386-bsf-dword-register.md', 'dword ROR停點已由規格 297 接通'),
+        ('295-cpu386-or-dword-memory-register.md', 'dword ROR停點已由規格 297 接通'),
+        ('296-sb16-c6-auto-init-dma.md', 'dword ROR停點已由規格 297 接通'),
+    ):
+        older = (spec_dir / name).read_text()
+        if marker not in older or '297-cpu386-ror-dword-register-imm8.md' not in older:
+            raise RuntimeError('ROR舊範圍或停點缺後續回填')
+
+if sys.argv[1:] == ['--check-ror-dword-immediate-spec-backlinks']:
+    validate_ror_dword_immediate_resolution(spec_dir)
+    print('ROR全部計數／旗標／MOV消費與舊範圍回填通過')
     raise SystemExit(0)
 
 def validate_sb16_c6_resolution(spec_dir):

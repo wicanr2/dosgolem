@@ -27,3 +27,7 @@ READY 審查結論：同次 LOG 的指令文字、位址與零輸入結果互相
 `internal/cpu386/cpu.go` 僅為無前綴、register-direct `C1 /1 08` 新增此路徑；向右循環 8 位，CF 取結果 bit 31，保留其他旗標。合成測試驗證零輸入、非零輸入與 CF 兩種結果，以及非 8 count、記憶體目的、截短輸入和前綴拒絕。固定原檔 `TestMOO2RORImmediateEightCheckpointWhenProvided` 從 LE entry 在合成 PSP／環境下到第 5392 步、**重定位 LE 線性位址** `0x14822D`，核對 EDX=`0`、EFLAGS=`0206h`，單步後到 `0x148230` 且其餘暫存器與旗標不變。這是 dosgolem 自行重生的有限啟動指令收據，與上方 DOSBox-X 原版輔助 LOG 分別記錄。
 
 同一固定原檔繼續執行到第 5529 步，停於**重定位 LE 線性位址** `0x14701B` 的 `08 E0`；此新停點尚未由原版獨立核對。私有 `workplace/moo2-probe-222.txt` SHA-256 `3801d8c21e2a3f9251b766817de4946c953340aa6e5cac74ec449b43bf123eca`。含固定原檔的 `go test -buildvcs=false ./... -count=1` 全通過，私有 `workplace/full-test-223.txt` SHA-256 `e885b326c78ac7c279c7021f0a56202ead68326f3ead9b6d2d055eb2d4cb25ca`；另以 `-v` 確認新整合測試確實執行並通過。原版 EXE 與私有完整輸出不入 Git。仍無 dosgolem 正常玩家畫面或 MOO2 玩法同狀態對拍。
+
+## 後續 ROR 計數擴充
+
+dword ROR立即數範圍由規格 297 擴充，見 [297-cpu386-ror-dword-register-imm8.md](297-cpu386-ror-dword-register-imm8.md)。裸C1 /1的全部imm8計數／零計數保持／單位OF與多位OF保留模型、兩自然完整ROR及MOV AX,DX消費已驗。本檔舊oracle或ROL樣本範圍不擴張，word／記憶體與D3 ROR仍拒絕。

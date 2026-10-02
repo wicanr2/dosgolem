@@ -57,3 +57,7 @@ IRQ0 started=completed=5936、active=false／failed=false，等待DS:00271148=F6
 ## 後續 C6h 停點回填
 
 SB16 C6h 停點已由規格 296 接通，見 [296-sb16-c6-auto-init-dma.md](296-sb16-c6-auto-init-dma.md)。原版完整C6 20 FF 07接受、實模式333步返回、原版MOV／CMP／JZ成功分支已驗；保護模式連續PCM／IRQ7仍未閉合。第42,347,639步轉停高位LE0x257662的dword ROR立即數10h；本檔原有CPU證據範圍不擴張。
+
+## 後續 ROR 停點回填
+
+dword ROR停點已由規格 297 接通，見 [297-cpu386-ror-dword-register-imm8.md](297-cpu386-ror-dword-register-imm8.md)。兩自然完整ROR／CF與MOV AX,DX消費已驗，新停點為原版IRQ0呼叫內的高位LE0x2520B7、D1 E0的SHL EAX,1。原有CPU／DSP證據範圍不擴張，主選單／正常玩家路徑仍未完成。

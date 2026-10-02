@@ -77,3 +77,7 @@ VBE Bank7／StartY512／BankSets447／Writes4353364／DisplaySets7未變，兩PN
 ## 解析回填
 
 不可變鍵：固定官方EXE雜湊＋高位LE0x2454AE的INT31/0300h／BX0066h＋實模式1201:05D9的OUT 022Ch／C6h。293／294／295必須保留「SB16 C6h 停點已由規格 296 接通」及本檔連結；它們舊收據的歷史停點不重寫。245的B0單次16位範圍不受影響，241／243／244的同caller早期其他埠／命令停點不受影響，262／263的03C6h為VGA埠、不同鍵，不回填為DSP。驗證入口 apps/moo2/tools/startup_probe_131.py --check-sb16-c6-spec-backlinks，核對命令／原始定位／返回／caller、46440µs／TimeConstant界限與舊回填；缺定位、證據或舊標記須拒絕。
+
+## 後續 ROR 停點回填
+
+dword ROR停點已由規格 297 接通，見 [297-cpu386-ror-dword-register-imm8.md](297-cpu386-ror-dword-register-imm8.md)。兩自然完整ROR／CF與MOV AX,DX消費已驗，新停點為原版IRQ0呼叫內的高位LE0x2520B7、D1 E0的SHL EAX,1。原有CPU／DSP證據範圍不擴張，主選單／正常玩家路徑仍未完成。

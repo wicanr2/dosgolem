@@ -58,3 +58,7 @@ IRQ0 started=completed=2810、active=false／failed=false，等待 DS:00271148=C
 ## 後續停點回填
 
 byte NEG 停點已由規格 289 接通：[289-cpu386-neg-byte-register.md](289-cpu386-neg-byte-register.md)。兩自然排程自行重生三筆完整 byte 取負／六旗標及下一 MOV 消費，下一 SHL CH,CL 原始停點集中於 289。保留 288 的 ROL／未定義 OF 邊界；不代表主選單或正常玩家路徑完成。
+
+## 後續 ROR 計數擴充
+
+dword ROR立即數範圍由規格 297 擴充，見 [297-cpu386-ror-dword-register-imm8.md](297-cpu386-ror-dword-register-imm8.md)。裸C1 /1的全部imm8計數／零計數保持／單位OF與多位OF保留模型、兩自然完整ROR及MOV AX,DX消費已驗。本檔舊oracle或ROL樣本範圍不擴張，word／記憶體與D3 ROR仍拒絕。
