@@ -986,3 +986,35 @@ func TestShrunkUnitBlankNeedsNoGlyph(t *testing.T) {
 		t.Fatalf("missing %q active %v", string(miss), o.Active())
 	}
 }
+
+// The derived fonts come from the sources of spec 056 §3.3: full characters
+// from the 16×16 base font, half characters from the 8×16 half font of
+// spec 039 at 2× (the 12×24 one is not a source), for both presenters.
+func TestShrinkFontsSources(t *testing.T) {
+	base := halfTestFont("src", "AB.中文")
+	half := halfFontsOf(base)
+	if half.X2.W != 8 || half.X2.H != 16 {
+		t.Fatalf("half source %d×%d", half.X2.W, half.X2.H)
+	}
+	for _, sp := range shrinkLevels {
+		for _, scale := range []int{2, 3} {
+			m := sp.metrics(scale)
+			fs := shrinkFontsOf(base, sp, scale)
+			for _, r := range "AB." {
+				want := shrinkGlyph(half.X2.Glyphs[r], 8, 16, m.HalfW, m.HalfH)
+				if got := fs.Half.Glyphs[r]; string(got) != string(want) {
+					t.Errorf("L%d %d× half %q: % x want % x", sp.Level, scale, r, got, want)
+				}
+			}
+			for _, r := range "中文" {
+				want := shrinkGlyph(base.Glyphs[r], 16, 16, m.FullGlyph, m.FullGlyph)
+				if got := fs.Full.Glyphs[r]; string(got) != string(want) {
+					t.Errorf("L%d %d× full %q: % x want % x", sp.Level, scale, r, got, want)
+				}
+			}
+			if fs.Half.W != m.HalfW || fs.Half.H != m.HalfH || fs.Full.W != m.FullGlyph || fs.Full.H != m.FullGlyph {
+				t.Errorf("L%d %d×: sizes half %d×%d full %d×%d", sp.Level, scale, fs.Half.W, fs.Half.H, fs.Full.W, fs.Full.H)
+			}
+		}
+	}
+}
