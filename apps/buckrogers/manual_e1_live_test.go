@@ -391,3 +391,150 @@ func TestManualE1LiveFormalKeywordRowsCoexist(t *testing.T) {
 		t.Errorf("畫出 %d 題，摘錄有 %d 題", shown, r.manEng.Len())
 	}
 }
+
+func TestManualE1LiveSetStyleKeepsLifecycle(t *testing.T) {
+	texts := manualE1LiveTexts()
+	catalog := manualE1LiveCatalog(texts...)
+	base, _ := manualE1SyntheticFonts(strings.Join(texts, ""))
+	l := manualE1LiveLane(t, catalog, base)
+	p := l.manPres[1]
+	var entry catalogEntry
+	for _, e := range catalog.byIdentity {
+		entry = e
+	}
+	if err := p.SetStyle(ManualTextStyle{Background: 0, Foreground: 10}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []ManualPresentationEvent{
+		{Kind: ManualPresentationBegin, Generation: 1},
+		{Kind: ManualPresentationRequest, Generation: 1, Request: DisplayRequest{Generation: 1, EventKey: entry.eventKey, TextKey: entry.textKey}},
+	} {
+		if err := p.Apply(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Spec 053 §3.2: a style change keeps the plan; the next Clear is accepted.
+	if err := p.SetStyle(ManualTextStyle{Background: 1, Foreground: 11}); err != nil {
+		t.Fatal(err)
+	}
+	if p.e1Plan == nil || len(p.ActiveKeys()) == 0 {
+		t.Fatal("SetStyle 不得清掉 E1 plan")
+	}
+	if err := p.Apply(ManualPresentationEvent{Kind: ManualPresentationClear, Generation: 1}); err != nil {
+		t.Fatalf("Clear 被拒：%v", err)
+	}
+	if len(p.ActiveKeys()) != 0 {
+		t.Fatal("Clear 後 ActiveKeys 應為空")
+	}
+}
+
+func TestManualE1LiveUnnamedDerivedFailsPreflight(t *testing.T) {
+	texts := manualE1LiveTexts()
+	catalog := manualE1LiveCatalog(texts...)
+	base, _ := manualE1SyntheticFonts(strings.Join(texts, ""))
+	layout := loadManualOverlayLayout(t)
+	p, err := NewRuntimeManualOverlayLang(layout, catalog, base, 3, LangZhTW)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloneManualBaseFont(base)
+	var entry catalogEntry
+	for _, e := range catalog.byIdentity {
+		entry = e
+	}
+	req := DisplayRequest{Generation: 1, EventKey: entry.eventKey, TextKey: entry.textKey, Translation: entry.translation}
+	// The derived font of the plain constructor has no name (spec 053 §2 item 2).
+	if _, err := BuildManualE1Plan(layout, catalog, req, clone, p.font, p.half); err == nil {
+		t.Fatal("derived 字型未命名時預檢應失敗")
+	}
+	p.font.Name = manualDerivedFontIdentity
+	if _, err := BuildManualE1Plan(layout, catalog, req, clone, p.font, p.half); err != nil {
+		t.Fatalf("命名後應成功：%v", err)
+	}
+}
+
+// Spec 053 §5.1: with E1 visible, switching 2× and 3× (F2) leaves the 2×
+// bytes as they were without E1, and the 3× bytes differ only inside the
+// manual rectangle.
+func TestManualE1LiveFormalScaleAlternation(t *testing.T) {
+	r := manualE1FormalRuntime(t)
+	l := r.lanes[0]
+	p2, p3 := l.manPres[0], l.manPres[1]
+	var palette [256][3]uint8
+	palette[10] = [3]uint8{85, 255, 85}
+	indexed := make([]byte, 320*200)
+	r.Frame(indexed, palette)
+	differing, same := 0, 0
+	gen := uint64(0)
+	for _, entry := range l.manCatalog.byIdentity {
+		gen++
+		for _, p := range []*RuntimeManualOverlay{p2, p3} {
+			if err := p.SetStyle(ManualTextStyle{Background: 0, Foreground: 10}); err != nil {
+				t.Fatal(err)
+			}
+			for _, ev := range []ManualPresentationEvent{
+				{Kind: ManualPresentationBegin, Generation: gen},
+				{Kind: ManualPresentationRequest, Generation: gen, Request: DisplayRequest{Generation: gen, EventKey: entry.eventKey, TextKey: entry.textKey}},
+			} {
+				if err := p.Apply(ev); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		r.Frame(indexed, palette)
+		compose := func(scale int) []byte {
+			out, _, err := r.ComposeWith(indexed, palette, scale)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return append([]byte(nil), out...)
+		}
+		e2, e3 := compose(2), compose(3)
+		if string(e3) == string(ScaleIndexedRGBA(indexed, palette, 3)) {
+			t.Fatalf("%s：3× 沒有畫出手冊層（ActiveKeys=%d）", entry.textKey, len(p3.ActiveKeys()))
+		}
+		saved := p3.e1Base
+		p3.e1Base = nil
+		// The 3× presenter must be re-applied without E1 to draw the fixed cells.
+		gen++
+		for _, ev := range []ManualPresentationEvent{
+			{Kind: ManualPresentationBegin, Generation: gen},
+			{Kind: ManualPresentationRequest, Generation: gen, Request: DisplayRequest{Generation: gen, EventKey: entry.eventKey, TextKey: entry.textKey}},
+		} {
+			if err := p3.Apply(ev); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r.Frame(indexed, palette)
+		f2, f3 := compose(2), compose(3)
+		p3.e1Base = saved
+		if string(e2) != string(f2) {
+			t.Errorf("%s：E1 開關改變了 2× 位元組", entry.textKey)
+		}
+		if string(e3) == string(f3) {
+			same++
+		} else {
+			differing++
+			// Only the manual rectangle (x21 y216 w915 h336 at 3×) may differ.
+			const w = 960
+			for i := 0; i < len(e3); i += 4 {
+				if string(e3[i:i+4]) != string(f3[i:i+4]) {
+					x, y := (i/4)%w, (i/4)/w
+					if x < 21 || x >= 21+915 || y < 216 || y >= 216+336 {
+						t.Fatalf("%s：矩形外有差異 (%d,%d)", entry.textKey, x, y)
+					}
+				}
+			}
+		}
+		if err := p2.Apply(ManualPresentationEvent{Kind: ManualPresentationClear, Generation: gen - 1}); err != nil {
+			t.Fatal(err)
+		}
+		if err := p3.Apply(ManualPresentationEvent{Kind: ManualPresentationClear, Generation: gen}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("E1 與固定格：相同 %d、不同 %d", same, differing)
+	if differing == 0 {
+		t.Error("至少一題的 E1 應與固定格不同")
+	}
+}
