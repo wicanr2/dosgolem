@@ -511,4 +511,6 @@
 
 - [322：44M Esc正常續行](322-moo2-earlier-escape-new-game-continuation.md)：CONFORMED。八CLI／兩44M正常流程，真實save?.gam搜尋在47995790拒絕；保持46M獨立基線，設定畫面未知。
 
-- [323：DOS問號首次搜尋](323-moo2-dos-findfirst-question-pattern.md)：CONFORMED。真實save?.gam缺檔／EAX12h／CF與12步消費通過，兩原版流程及固定EXE完整測試通過；新00 C3停點，設定畫面未知。
+- [323：DOS問號首次搜尋](323-moo2-dos-findfirst-question-pattern.md)：CONFORMED。真實save?.gam缺檔／EAX12h／CF與12步消費通過，兩原版流程及固定EXE完整測試通過；byte ADD後續見324，設定畫面未知。
+
+- [324：byte ADD目的](324-cpu386-add-byte-register-memory.md)：CONFORMED。1暫存器／7記憶體ADD與24續行、JGE兩方向與全套通過；新記憶體NEG停點，設定畫面未知。

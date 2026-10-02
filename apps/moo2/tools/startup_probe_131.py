@@ -51,6 +51,31 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_byte_add00_resolution(spec_dir):
+    """324原始ADD、記憶體窗口、兩方向分支與323回填必須同時存在。"""
+    name = '324-cpu386-add-byte-register-memory.md'
+    current = (spec_dir / name).read_text()
+    required = ('49442083', '17122B', '00 C3', '171231', '00 1C 06', '2BDB69..2BDB6F',
+                'flags247h→246h', '24續行', 'JGE六次不跳、一次跳', '17124B',
+                '沒有原版非零寫入樣本', '49501135', '2130F3', 'F7 5D D8', '2BD9CC', '來源RAM未另取樣',
+                'a48db475b0157766892c6a47f7d333682b4575457fcefa954df4b7968f5a0073',
+                'dd00bcf329a9841fa4810d94a30f90c76245bcee66c0718c6073a6862464656a',
+                'c9e8b2d3d15c4b8a64fb9ff497513b2a294b67b9a682b5584dc9156d873bf1e3',
+                'd3fd7c1125d6ecda2fbc05f021776a0532a820af6babea1f3693dc6608aace4e',
+                '設定畫面仍未知')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('byte ADD缺原始輸入／窗口／分支／收據或限定邊界')
+    older = (spec_dir / '323-moo2-dos-findfirst-question-pattern.md').read_text()
+    if 'byte ADD停點已由規格324接通' not in older or name not in older:
+        raise RuntimeError('323缺已解出byte ADD停點回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('324缺公開索引入口')
+
+if sys.argv[1:] == ['--check-byte-add00-spec-backlinks']:
+    validate_byte_add00_resolution(spec_dir)
+    print('byte ADD原始輸入／記憶體窗口／兩方向JGE與323回填通過')
+    raise SystemExit(0)
+
 def validate_menu_event_find_resolution(spec_dir):
     """320正對照、321事件消費與322／323搜尋邊界同時回填。"""
     required_by_file = {

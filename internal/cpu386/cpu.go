@@ -1110,6 +1110,33 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("F7 ModRM %02X 尚未支援", modrm))
 		}
 
+	case op == 0x00:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("byte ADD目的前綴尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		src := c.reg8(int((modrm >> 3) & 7))
+		if modrm>>6 == 3 {
+			dst := int(modrm & 7)
+			c.setReg8(dst, c.add8(c.reg8(dst), src))
+			break
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment8(c.Seg[seg], addr)
+		if !ok {
+			return fail("byte ADD目的無法讀取")
+		}
+		// 規格324：單byte寫回成功後才發布六個算術旗標。
+		if !c.writeSegment8(c.Seg[seg], addr, value+src) {
+			return fail("byte ADD目的無法寫入")
+		}
+		c.add8(value, src)
 	case op == 0x01 || op == 0x29:
 		if (operand16 && op != 0x01) || segmentOverride >= 0 || repe || repne {
 			return fail("ADD/SUB prefix尚未支援")

@@ -172,6 +172,9 @@ func main() {
 	phasePrefix := os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX")
 	menuDisplay40Seen := false
 	findQuestionConsumerSteps := 0
+	byteAddSamples, byteAddConsumerBudget, byteAddConsumerSamples := 0, 0, 0
+	var byteAddWatchLinear uint64
+	byteAddWatchReadable := false
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -891,16 +894,53 @@ func main() {
 		var clickBytes [16]byte
 		observeEventConsumer := newGameClick && eventConsumerBudget > 0 && eventConsumerSamples < 32
 		observeFindQuestion := findQuestionConsumerSteps > 0
-		if observeClick || observeEventConsumer || observeFindQuestion || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		observeByteAdd := newGameClick && newGamePressed && byteAddSamples < 32 && (m.CPU.EIP == 0x17122b || m.CPU.EIP == 0x171231)
+		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
+		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
+		}
+		var byteAddBeforeWindow [5]byte
+		var byteAddSelector uint16
+		var byteAddOffset uint32
+		byteAddWindowReadable := false
+		if observeByteAdd && clickBeforeEIP == 0x171231 {
+			byteAddSelector = clickBeforeSeg[cpu386.SegDS]
+			byteAddOffset = clickBeforeR[cpu386.ESI] + clickBeforeR[cpu386.EAX]
+			desc, known := m.CPU.Descriptors[byteAddSelector]
+			linear := uint64(desc.Base) + uint64(byteAddOffset)
+			if known && byteAddOffset >= 2 && uint64(byteAddOffset)+3 <= uint64(desc.Limit)+1 && linear+3 <= uint64(len(m.Mem)) {
+				byteAddWindowReadable = true
+				byteAddWatchLinear, byteAddWatchReadable = linear-2, true
+				copy(byteAddBeforeWindow[:], m.Mem[linear-2:linear+3])
+			}
 		}
 		buttonReadStepActive = newGameClick
 		buttonReadMatched = false
 		buttonPositivePending = false
 		stepErr := m.CPU.Step()
 		buttonReadStepActive = false
+		if observeByteAddConsumer {
+			byteAddConsumerSamples++
+			byteAddConsumerBudget--
+			var window [5]byte
+			if byteAddWatchReadable {
+				copy(window[:], m.Mem[byteAddWatchLinear:byteAddWatchLinear+5])
+			}
+			fmt.Printf("byte_add_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X window_readable=%t raw_window=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, byteAddWatchReadable, window, stepErr)
+		}
+		if observeByteAdd {
+			byteAddSamples++
+			var after [5]byte
+			if byteAddWindowReadable {
+				copy(after[:], m.Mem[byteAddWatchLinear:byteAddWatchLinear+5])
+			}
+			fmt.Printf("byte_add_step outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=%X window_readable=%t before_window=%X after_window=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, byteAddSelector, byteAddOffset, byteAddWindowReadable, byteAddBeforeWindow, after, stepErr)
+			if stepErr == nil {
+				byteAddConsumerBudget = 3
+			}
+		}
 		if observeFindQuestion {
 			findQuestionConsumerSteps--
 			fmt.Printf("find_question_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, stepErr)

@@ -50,3 +50,5 @@ go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe後，沿
 限定CONFORMED只含公開問號匹配、實際檔案集合、既有DTA與正常caller的此次處理。列舉排序／UTC時間／保留區仍是明示platform-spec approximation，不稱原FAT或DOSBox-X完整DTA逐位元同狀態。219／261／322回填323入口，startup_probe_131.py --check-menu-event-find-spec-backlinks核對320–323與較早邊界。下一步依公開CPU契約補00 C3的byte ADD，先READY再實作，沿原44M單次正常輸入重生，不加cap、重點或代寫原版狀態；主庫玩法RE閘門保持。
 
 60個回填函式、原有32負例與320–323新增49負例及兩CLI通過。私有workplace/menu-event-find-323-backlink-tests.txt SHA-256 284f35860025eabeff19d5c68e01b025adc0225b31aac30558b6e49c18f88350。索引正對照先驗已收錄的316，再驗320–323與較早連結；移除原始定位／收據／限定狀態／索引或回填均拒絕。
+
+byte ADD停點已由規格324接通，見[324-cpu386-add-byte-register-memory.md](324-cpu386-add-byte-register-memory.md)。真正一暫存器／七記憶體ADD與JGE兩方向已驗；新記憶體NEG拒絕另列，原搜尋與CB限定收據保留。
