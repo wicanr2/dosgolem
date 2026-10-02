@@ -3350,6 +3350,33 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
+		if op == 0xc1 && group == 0 {
+			if segmentOverride >= 0 || repe || repne || modrm>>6 != 3 {
+				return fail("C1 ROL 只接受無前綴 32 位暫存器")
+			}
+			immediate, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			count := uint(immediate & 31)
+			if count == 0 {
+				break
+			}
+			rm := modrm & 7
+			value := c.R[rm]
+			result := value<<count | value>>(32-count)
+			carry := result & 1
+			c.EFlags = c.EFlags&^CF | carry
+			if count == 1 {
+				c.EFlags &^= OF
+				if result>>31^carry != 0 {
+					c.EFlags |= OF
+				}
+			}
+			// 規格 288：多位 OF 未定義，保留只屬工具近似。
+			c.R[rm] = result
+			break
+		}
 		if op == 0xc1 && group == 1 {
 			if segmentOverride >= 0 || repe || repne || modrm>>6 != 3 {
 				return fail("C1 ROR 只接受無前綴 32 位暫存器")

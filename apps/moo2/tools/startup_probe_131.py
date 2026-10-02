@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-rol-dword-immediate-spec-backlinks 只驗證 ROL dword 規格回填，不啟動 DOSBox-X。
 --check-test-dword-immediate-spec-backlinks 只驗證 TEST dword 規格回填，不啟動 DOSBox-X。
 --check-xor-byte-immediate-spec-backlinks 只驗證 XOR byte 規格回填，不啟動 DOSBox-X。
 --check-add-byte-memory-spec-backlinks 只驗證 ADD byte 規格回填，不啟動 DOSBox-X。
@@ -51,6 +52,21 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_rol_dword_immediate_resolution(spec_dir):
+    """288 的完整 ROL／未定義 OF 邊界與 287 的停點回填必須並存。"""
+    current = (spec_dir / '288-cpu386-rol-dword-register-imm8.md').read_text()
+    required = ('0x254510', 'C1 C0 08', '0x254513', '完整 EAX=2h', '計數大於1的 OF 未定義', '工具近似', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('ROL dword 缺原始初態／後態／OF 邊界或可實作狀態')
+    older = (spec_dir / '287-cpu386-test-dword-register-imm32.md').read_text()
+    if 'dword ROL 停點已由規格 288 接通' not in older or '288-cpu386-rol-dword-register-imm8.md' not in older:
+        raise RuntimeError('ROL dword 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-rol-dword-immediate-spec-backlinks']:
+    validate_rol_dword_immediate_resolution(spec_dir)
+    print('ROL dword 原始初態／後態／OF 邊界與後續回填通過')
     raise SystemExit(0)
 
 def validate_test_dword_immediate_resolution(spec_dir):

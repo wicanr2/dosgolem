@@ -44,3 +44,8 @@ Go 1.24.13／既有映像，GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu3
 IRQ0 started=completed=1598、active=false／failed=false，等待來源 DS:00271148=04 00 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false、Micros=21109931、Deliveries=1618、Pending=false／InService=false。事件條件已注入，255 完整座標／游標仍 READY；主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
 
 自然 gzip SHA-256 b3341128e31fbed5f8fd3f191a7de03967a537cb870f50377dbf59d6caf6b004／c146fc6aae759c1e114fbcd237a9c460571f9e36cfb6072b7b45c95592ed8fa5。兩 PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，同已檢視黑圖。原版素材與完整終端／記憶體／gzip／PNG 留本機，未注入遊戲資料／計時／亂數。
+
+
+## 後續停點回填
+
+dword ROL 停點已由規格 288 接通：[288-cpu386-rol-dword-register-imm8.md](288-cpu386-rol-dword-register-imm8.md)。兩自然排程自行重生三筆資料／CF 與完整目的外狀態，未定義 OF 保留明列工具近似；下一 byte NEG 停點與原始定位集中於 288。這不改 287 第一 JNZ 不跳的既有證據，也不代表主選單或正常玩家路徑完成。
