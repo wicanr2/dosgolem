@@ -333,8 +333,8 @@ func TestLayoutEclTextLevelKoWord(t *testing.T) {
 		for right := uint8(8); right < 30; right++ {
 			_, _, _, wok := layoutEclTextLevel(layoutKo, text, units, level, 0, 0, 0, right, 1)
 			_, _, _, cok := layoutEclTextLevel(layoutKoChars, text, units, level, 0, 0, 0, right, 1)
-			if wok && !cok {
-				t.Errorf("L%d right %d: word level fits, character level does not", level, right)
+			if wok != cok {
+				t.Errorf("L%d right %d: word level fits %v, character level %v", level, right, wok, cok)
 			}
 		}
 	}
@@ -781,4 +781,133 @@ func TestShrunkUnitLifetimeAndColors(t *testing.T) {
 			t.Fatalf("%d×: a Gone row is still drawn", scale)
 		}
 	}
+}
+
+// ---- spec 056 §5.2: the rest of the NPC cases ----
+
+// The opening quotation mark of ja stays at the normal size, belongs to the
+// plain text before the unit, and travels with the unit when the row breaks.
+func TestLayoutEclTextLevelJaOpening(t *testing.T) {
+	names := testNames(t)
+	a := names.Annotate("一二三「巴克」説", "ecl.t", NameCaseUpper, NameTierAll)
+	// 6 + 「 2 + unit (10 | L1 8) + 」 2 + 説 2 = 22 | 20.
+	ls, _, ec, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 19, 0)
+	if !ok || shrinkDump(ls) != "[一二三「@0.0/0][巴克(BUCK)@0.8/1][」説@0.16/0]" || ec != 20 {
+		t.Errorf("one row: %v %s end %d", ok, shrinkDump(ls), ec)
+	}
+	// Row of 14: 一二三「 is 8, the unit (8) does not fit in the 6 left.  「 may not end a
+	// row, so it moves down with the unit.
+	ls, er, ec, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 13, 1)
+	if !ok || shrinkDump(ls) != "[一二三@0.0/0][「@1.0/0][巴克(BUCK)@1.2/1][」説@1.10/0]" || er != 1 || ec != 14 {
+		t.Errorf("break: %v %s end %d,%d", ok, shrinkDump(ls), er, ec)
+	}
+	// With only one row (bottom 0) the unit has nowhere to go: the level fails.
+	if _, _, _, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 13, 0); ok {
+		t.Error("a second row was used with bottom 0")
+	}
+}
+
+// The annotation steps down to the first occurrence only after the shrink
+// levels, and the first-only text is not shrunk.
+func TestEclNameFirstOnlyIsNotShrunk(t *testing.T) {
+	names := testNames(t)
+	text := "巴克巴克巴克巴克巴克巴克巴克" // seven times: all-L2 is 7×5 = 35 units, first-only 10 + 6×4 = 34
+	run := func(right uint8) *EclTextWatcher {
+		w := NewEclTextWatcher(eclFixture(t, "SEVEN", text))
+		w.SetNames(names)
+		e := eclEntry("SEVEN", true, 1, 17)
+		e.Left, e.Right, e.Top, e.Bottom = 1, right, 17, 17
+		w.ObserveEntry(e)
+		return w
+	}
+	w := run(17) // 34 units
+	p := w.Page()
+	if p == nil || w.Stats.NameFirstOnly != 1 || w.Stats.NameShrunk != [2]int{} || w.Stats.NameUnannotated != 0 {
+		t.Fatalf("first only: %+v", w.Stats)
+	}
+	for _, l := range p.Lines {
+		if l.Shrink != 0 {
+			t.Errorf("the first-only layout was shrunk: %s", shrinkDump(p.Lines))
+		}
+	}
+	if got := eclRow(p, 17); got != "巴克(BUCK)巴克巴克巴克巴克巴克巴克" {
+		t.Errorf("row %q", got)
+	}
+	// 35 units: all annotations at L2 fit.
+	if w = run(18); w.Stats.NameShrunk != [2]int{0, 1} || w.Stats.NameFirstOnly != 0 {
+		t.Errorf("all L2: %+v", w.Stats)
+	}
+}
+
+// zh-TW: the space after 甲板 (spec 048) is kept and the annotation is shrunk
+// instead of being dropped; the deck check runs on the layout the tiers chose.
+func TestZhDeckSpaceShrinks(t *testing.T) {
+	pairs := []string{"DECK ", "甲板", "5 B", "5巴克說"}
+	steps := []fsStep{{"DECK ", true, 1}, {"5 B", false, 3}}
+	// 甲板 4 + space 1 + 5 1 + unit (10 | L1 8) + 說 2 = 18 | 16 units.
+	for _, c := range []struct {
+		right   uint8
+		want    string
+		shrunk  [2]int
+		unannot int
+	}{
+		{9, "甲板 5巴克(BUCK)說", [2]int{}, 0},
+		{8, "甲板 5巴克(BUCK)說", [2]int{1, 0}, 0},
+	} {
+		w := zdRun(t, zdOpts{lang: LangZhTW, names: true, right: c.right, bottom: 17}, pairs, steps)
+		p := w.Page()
+		if p == nil || eclRow(p, 17) != c.want || w.Stats.NameShrunk != c.shrunk || w.Stats.NameUnannotated != c.unannot || w.Stats.SpaceDropped != 0 {
+			t.Errorf("right %d: %v %+v", c.right, p, w.Stats)
+		}
+	}
+	// With the levels off the same call drops the annotation and keeps the space.
+	withShrinkLevels(t)
+	w := zdRun(t, zdOpts{lang: LangZhTW, names: true, right: 8, bottom: 17}, pairs, steps)
+	if p := w.Page(); p == nil || eclRow(p, 17) != "甲板 5巴克說" || w.Stats.NameUnannotated != 1 {
+		t.Errorf("control: %v %+v", w.Page(), w.Stats)
+	}
+}
+
+// ko: the call-start space (spec 046) comes with the shrunk unit; the
+// annotation is not dropped to keep the normal size.
+func TestEclNameSpaceKoShrink(t *testing.T) {
+	g, err := LoadNameGlossary([]byte(pre056GlossaryHead+"BUCK\t\t벅\tfull\tp0\tprinted:x\tn\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(right uint8) *EclTextWatcher {
+		w := NewEclTextWatcher(eclFixtureLang(t, LangKo, "GO ", "가자", " B", "벅이 왔다"))
+		w.SetNames(g)
+		w.SetLayout(layoutKo)
+		for _, s := range []struct {
+			o     string
+			clear bool
+			col   uint8
+		}{{"GO ", true, 1}, {" B", false, 3}} {
+			e := eclEntry(s.o, s.clear, s.col, 17)
+			e.Left, e.Right, e.Top, e.Bottom = 1, right, 17, 17
+			w.ObserveEntry(e)
+			eclSpaceRet(w)
+		}
+		return w
+	}
+	// 가자 4, space 1, 벅(BUCK) 8 (L1 6, L2 4), 이 왔다 7: 20 | 18 | 16 units; without annotation 14.
+	for _, c := range []struct {
+		right   uint8
+		shrunk  [2]int
+		unannot int
+	}{{10, [2]int{}, 0}, {9, [2]int{1, 0}, 0}, {8, [2]int{0, 1}, 0}} {
+		w := run(c.right)
+		p := w.Page()
+		if p == nil || eclRow(p, 17) != "가자 벅(BUCK)이 왔다" || w.Stats.NameShrunk != c.shrunk || w.Stats.NameUnannotated != c.unannot || w.Stats.SpaceDropped != 0 {
+			t.Errorf("right %d: %q %+v", c.right, eclRowOf(p), w.Stats)
+		}
+	}
+}
+
+func eclRowOf(p *EclTextPage) string {
+	if p == nil {
+		return "<nil>"
+	}
+	return eclRow(p, 17)
 }
