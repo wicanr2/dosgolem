@@ -42,3 +42,8 @@ Go 1.24.13／既有映像與 GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu
 兩條第 20,651,437 步轉停高位 LE 0x254499，bytes F7 C1 00 00 00 80 75 2A FE 0D C0 26 27 00 75 0C；32 位元暫存器 ECX 與 imm32 的 TEST 缺件。ECX=400h／EAX=80000929h／EBX=3FF09h／EDX=6BBC60h／flags=213h，DS／ES／SS=188h。只按公開 TEST 定義／未定義旗標與下一分支消費建窄規格，不追 helper／runtime／driver／ISR／busy-wait。
 
 IRQ0 started=completed=1598、active=false／failed=false，等待來源 DS:00271148=04 00 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false、Micros=21109785、Deliveries=1618、Pending=false／InService=false。受控滑鼠條件已注入，但 255 完整座標／游標仍 READY。自然 gzip SHA-256 ee93f0ae4120843bf105d14ca5c7f60971fac7f29d3129e743318c1ac6c5bafc／01118b0985ecbc60bed4cf5be32bf718a637f7353241f18d257486e8d5e76489。兩 PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，同已檢視黑圖。原版素材與完整終端／記憶體／gzip／PNG 留本機，主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
+
+
+## 後續停點回填
+
+dword 暫存器 TEST 停點已由規格 287 接通，見 [287-cpu386-test-dword-register-imm32.md](287-cpu386-test-dword-register-imm32.md)。兩個自然排程維持完整 R／段並由第一 JNZ 不跳轉續行，下一停點為 0x254510 的 dword ROL；不推定主選單或玩家路徑已完成。

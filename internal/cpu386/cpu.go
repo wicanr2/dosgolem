@@ -1017,6 +1017,15 @@ func (c *CPU) Step() error {
 			c.setLogicFlags16(value & imm)
 			break
 		}
+		if modrm>>6 == 3 && (modrm>>3)&7 == 0 {
+			// 規格 287：只發布 TEST 旗標，完整來源暫存器保持。
+			mask, e := c.fetch32()
+			if e != nil {
+				return fail(e.Error())
+			}
+			c.setLogicFlags(c.R[modrm&7] & mask)
+			break
+		}
 		if modrm>>6 != 3 && (modrm>>3)&7 == 0 {
 			seg, addr, err := c.decodeAddress32(modrm)
 			if err != nil {

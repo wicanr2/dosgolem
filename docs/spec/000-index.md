@@ -438,4 +438,5 @@
 - [284 — byte 記憶體目的與 imm8 的 SUB](284-cpu386-sub-byte-memory-imm8.md)：CONFORMED。原版自然 byte 16h→0Eh／0Dh→05h、完整 R／段與六旗標已驗；ADD 後續停點由 285 接通。
 
 - [285 — byte 記憶體目的與 imm8 的 ADD](285-cpu386-add-byte-memory-imm8.md)：CONFORMED。原版自然 byte=03h→1Bh／flags=297h→206h 及完整 R／段已驗；XOR 後續停點由 286 接通。
-- [286 — byte 暫存器目的與 imm8 的 XOR](286-cpu386-xor-byte-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 及三筆自然 CL／定義旗標後態已驗；AF 保留工具近似，下一停點為 dword 暫存器 TEST。
+- [286 — byte 暫存器目的與 imm8 的 XOR](286-cpu386-xor-byte-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 及三筆自然 CL／定義旗標後態已驗；AF 保留工具近似，TEST 後續停點由 287 接通。
+- [287 — dword 暫存器與 imm32 的 TEST](287-cpu386-test-dword-register-imm32.md)：CONFORMED。全部 CPU／固定 EXE、自然完整 R／段／定義旗標與第一 JNZ 不跳已驗；下一停點為 dword ROL。
