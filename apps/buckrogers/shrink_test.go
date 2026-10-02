@@ -130,40 +130,63 @@ func TestResampleGlyphKnownAnswer(t *testing.T) {
 	}
 }
 
-// A glyph that has ink and loses all of it is left out of the derived font (so
-// the overlay reports it); blank glyphs stay.
-func TestDeriveShrinkFontOmitsEmptiedGlyphs(t *testing.T) {
+// A glyph the area rule would blank keeps its pixel with the most ink (spec 056
+// §3.3), so every character the source draws stays visible; blank glyphs stay
+// blank.  The overlay still reports a rune the source lacks as missing.
+func TestDeriveShrinkFontKeepsThinStrokes(t *testing.T) {
 	src := &xlate.Font{W: 16, H: 16, Name: "t", Glyphs: map[rune][]byte{}}
 	one := make([]byte, 32)
-	one[2*3] = 0x20 // a single pixel: 1/4 of a target pixel at 8×8
+	one[2*3] = 0x20 // the pixel (2,3): a quarter of the target pixel (1,1) at 8×8
 	src.Glyphs['點'] = one
 	src.Glyphs['滿'] = []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	src.Glyphs[' '] = make([]byte, 32)
+	// Two single pixels with the same (small) ink in different target pixels: the
+	// first in raster order is lit, and only it.
+	pair := make([]byte, 32)
+	pair[2*3] = 0x20 // (2,3) -> target (1,1)
+	pair[2*9] = 0x08 // (4,9) -> target (2,4)
+	src.Glyphs['·'] = pair
 	d := deriveShrinkFont(src, 8, 8, "t.shrink")
-	if _, ok := d.Glyphs['點']; ok {
-		t.Error("emptied glyph kept")
+	if g := d.Glyphs['點']; len(g) != 8 || g[1] != 0x40 || glyphInkCount(g) != 1 {
+		t.Errorf("single pixel: % x", g)
 	}
 	if g, ok := d.Glyphs['滿']; !ok || len(g) != 8 || g[0] != 0xff {
 		t.Errorf("full glyph %v %v", g, ok)
 	}
-	if _, ok := d.Glyphs[' ']; !ok {
-		t.Error("blank glyph dropped")
+	if g, ok := d.Glyphs[' ']; !ok || glyphHasInk(g) {
+		t.Errorf("blank glyph %v %v", g, ok)
+	}
+	if g := d.Glyphs['·']; len(g) != 8 || g[1] != 0x40 || glyphInkCount(g) != 1 {
+		t.Errorf("tie: % x", g)
 	}
 	if d.W != 8 || d.H != 8 || d.Name != "t.shrink" {
 		t.Errorf("font %+v", d)
 	}
-	// The overlay reports the emptied rune as missing and draws nothing.
+	// A glyph the area rule keeps is not touched by the fallback.
+	if string(shrinkGlyph(src.Glyphs['滿'], 16, 16, 8, 8)) != string(resampleGlyph(src.Glyphs['滿'], 16, 16, 8, 8)) {
+		t.Error("fallback changed a glyph that has ink")
+	}
+	// A rune the source lacks is missing in the derived font: the overlay
+	// reports it and draws nothing.
 	base := halfTestFont("miss", "AB中")
-	base.Glyphs['點'] = one
 	o, _ := NewEclTextOverlay(base, 2)
 	withShrinkLevels(t, shrinkLevels[1]) // L2: 8×8 full
-	page := &EclTextPage{Left: 0, Top: 0, Right: 9, Bottom: 0, Lines: []EclTextLine{{Row: 0, Col: 0, Text: []rune("點A"), Shrink: 2}}}
-	if miss := o.Sync([]*EclTextPage{page}, 1, [256][3]uint8{}); string(miss) != "點" {
+	page := &EclTextPage{Left: 0, Top: 0, Right: 9, Bottom: 0, Lines: []EclTextLine{{Row: 0, Col: 0, Text: []rune("缺A"), Shrink: 2}}}
+	if miss := o.Sync([]*EclTextPage{page}, 1, [256][3]uint8{}); string(miss) != "缺" {
 		t.Fatalf("missing %q", string(miss))
 	}
 	if o.Active() {
 		t.Fatal("drew with a missing glyph")
 	}
+}
+
+func glyphInkCount(g []byte) (n int) {
+	for _, b := range g {
+		for ; b != 0; b &= b - 1 {
+			n++
+		}
+	}
+	return
 }
 
 // ---- spec 056 §5.2: layout ----

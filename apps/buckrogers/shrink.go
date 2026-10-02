@@ -162,15 +162,13 @@ func expandShrinkLines(lines []EclTextLine, text []rune, units []NameUnit, level
 	return out
 }
 
-// resampleGlyph is the area rule of spec 056 §3.3: the glyph src (sw×sh,
-// rows of (sw+7)/8 bytes, most significant bit first) at tw×th.  A target
-// pixel is lit when the ink among the source pixels it overlaps covers at
-// least half of it, in integer arithmetic: horizontally a source pixel is tw
-// wide and a target pixel sw wide (vertically th and sh), so a target pixel
-// has area sw×sh.  With equal sizes the glyph is copied.
-func resampleGlyph(src []byte, sw, sh, tw, th int) []byte {
-	sb, tb := (sw+7)/8, (tw+7)/8
-	out := make([]byte, th*tb)
+// resampleInk is the ink area of every target pixel of the glyph src (sw×sh,
+// rows of (sw+7)/8 bytes, most significant bit first) at tw×th, in the
+// integer units of spec 056 §3.3: horizontally a source pixel is tw wide and a
+// target pixel sw wide (vertically th and sh), so a target pixel has area sw×sh.
+func resampleInk(src []byte, sw, sh, tw, th int) []int {
+	sb := (sw + 7) / 8
+	areas := make([]int, tw*th)
 	overlap := func(a0, a1, b0, b1 int) int {
 		lo, hi := max(a0, b0), min(a1, b1)
 		if hi > lo {
@@ -193,10 +191,44 @@ func resampleGlyph(src []byte, sw, sh, tw, th int) []byte {
 					ink += oy * overlap(x*sw, (x+1)*sw, i*tw, (i+1)*tw)
 				}
 			}
-			if 2*ink >= sw*sh {
-				out[y*tb+x/8] |= 0x80 >> uint(x%8)
-			}
+			areas[y*tw+x] = ink
 		}
+	}
+	return areas
+}
+
+// resampleGlyph is the area rule of spec 056 §3.3: the glyph src at tw×th.  A
+// target pixel is lit when the ink among the source pixels it overlaps covers
+// at least half of it (2×ink ≥ sw×sh).  With equal sizes the glyph is copied.
+func resampleGlyph(src []byte, sw, sh, tw, th int) []byte {
+	tb := (tw + 7) / 8
+	out := make([]byte, th*tb)
+	for i, ink := range resampleInk(src, sw, sh, tw, th) {
+		if 2*ink >= sw*sh {
+			x, y := i%tw, i/tw
+			out[y*tb+x/8] |= 0x80 >> uint(x%8)
+		}
+	}
+	return out
+}
+
+// shrinkGlyph is resampleGlyph with the rule of spec 056 §3.3 for strokes the
+// area rule loses (a dot, an apex): a glyph that has ink and would come out
+// blank lights the one target pixel with the most ink (the first in raster
+// order among equals), so every character the source draws stays visible.
+func shrinkGlyph(src []byte, sw, sh, tw, th int) []byte {
+	out := resampleGlyph(src, sw, sh, tw, th)
+	if glyphHasInk(out) || !glyphHasInk(src) {
+		return out
+	}
+	best, at := 0, -1
+	for i, ink := range resampleInk(src, sw, sh, tw, th) {
+		if ink > best {
+			best, at = ink, i
+		}
+	}
+	if at >= 0 {
+		out[(at/tw)*((tw+7)/8)+(at%tw)/8] |= 0x80 >> uint((at%tw)%8)
 	}
 	return out
 }
@@ -210,9 +242,8 @@ func glyphHasInk(g []byte) bool {
 	return false
 }
 
-// deriveShrinkFont resamples every glyph of src to tw×th.  A glyph that has
-// ink in src and none after resampling is left out, so that the overlay
-// reports it as a missing glyph instead of drawing a blank (spec 056 §3.3).
+// deriveShrinkFont resamples every glyph of src to tw×th with shrinkGlyph, so
+// a glyph with ink in src has ink in the result.
 func deriveShrinkFont(src *xlate.Font, tw, th int, name string) *xlate.Font {
 	out := &xlate.Font{W: tw, H: th, Name: name, Glyphs: make(map[rune][]byte, len(src.Glyphs))}
 	sb := (src.W + 7) / 8
@@ -220,11 +251,7 @@ func deriveShrinkFont(src *xlate.Font, tw, th int, name string) *xlate.Font {
 		if len(g) != src.H*sb {
 			continue
 		}
-		d := resampleGlyph(g, src.W, src.H, tw, th)
-		if glyphHasInk(g) && !glyphHasInk(d) {
-			continue
-		}
-		out.Glyphs[r] = d
+		out.Glyphs[r] = shrinkGlyph(g, src.W, src.H, tw, th)
 	}
 	return out
 }

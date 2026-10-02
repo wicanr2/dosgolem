@@ -48,7 +48,7 @@ func shrinkLevelOf(ls []EclTextLine) (lv int, ok bool) {
 type invTally struct {
 	calls, first, same, a, b, bad int
 	shrunk                        [3]int // shrink calls by level (index 1, 2)
-	fits, overflow                int     // new layouts that fit and that did not
+	fits, overflow                int    // new layouts that fit and that did not
 	badSamples                    []string
 }
 

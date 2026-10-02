@@ -450,6 +450,8 @@ func TestReplayPhase257Windows(t *testing.T) {
 		flushAll()
 		reportMissing(t, l.lang, "ECL 畫面", missing)
 		t.Logf("%s ECL：呼叫 %d、命中 %d、未命中 %d、溢出 %d、passthrough %d、加註降段 first %d／none %d", l.lang, st.calls, st.hit, st.miss, st.over, st.pass, st.first, st.none)
+		// Spec 056 §5.6: the shrink counters on a line of their own, so the line above keeps its format.
+		t.Logf("%s ECL 縮小：NameShrunk %v、PlayerShrunk %v、SpaceDropped %d", l.lang, l.ecl.Stats.NameShrunk, l.ecl.Stats.PlayerShrunk, l.ecl.Stats.SpaceDropped)
 		var keys []string
 		for k, n := range perWindow {
 			keys = append(keys, fmt.Sprintf("L%d T%d R%d B%d：%d", k[0], k[1], k[2], k[3], n))
