@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-xor-byte-immediate-spec-backlinks 只驗證 XOR byte 規格回填，不啟動 DOSBox-X。
 --check-add-byte-memory-spec-backlinks 只驗證 ADD byte 規格回填，不啟動 DOSBox-X。
 --check-sub-byte-memory-spec-backlinks 只驗證 SUB byte 規格回填，不啟動 DOSBox-X。
 """
@@ -49,6 +50,21 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_xor_byte_immediate_resolution(spec_dir):
+    """286 的原始 CL／後態與 285 的停點回填必須並存。"""
+    current = (spec_dir / '286-cpu386-xor-byte-register-imm8.md').read_text()
+    required = ('0x254275', '80 F1 FF', '0x254278', '6BBCF9h→6BBC06h', 'AF 未定義', '工具模型', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('XOR byte 缺原始 CL／後態／AF 邊界或可實作狀態')
+    older = (spec_dir / '285-cpu386-add-byte-memory-imm8.md').read_text()
+    if 'byte 暫存器 XOR 停點已由規格 286 接通' not in older or '286-cpu386-xor-byte-register-imm8.md' not in older:
+        raise RuntimeError('XOR byte 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-xor-byte-immediate-spec-backlinks']:
+    validate_xor_byte_immediate_resolution(spec_dir)
+    print('XOR byte 原始 CL／後態／AF 邊界與後續回填通過')
     raise SystemExit(0)
 
 def validate_add_byte_memory_resolution(spec_dir):

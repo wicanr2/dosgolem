@@ -2816,6 +2816,21 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if group == 6 && modrm>>6 == 3 {
+			// 規格 286：裸 byte 暫存器 XOR；AF 沿既有清除近似。
+			if segmentOverride >= 0 || repe || repne {
+				return fail("XOR byte 暫存器不接受前綴")
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			rm := int(modrm & 7)
+			result := c.reg8(rm) ^ imm
+			c.setReg8(rm, result)
+			c.setLogicFlags8(result)
+			break
+		}
 		if group == 0 && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
 			// 規格 285：目的 byte 寫入成功後才提交加法旗標。
 			seg, addr, e := c.decodeAddress32(modrm)

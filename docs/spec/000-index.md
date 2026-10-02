@@ -437,4 +437,5 @@
 - [283 — 從立即埠編號輸入 byte 至 AL](283-cpu386-in-al-imm8.md)：CONFORMED（裸 E4／明示平台 I/O）。全部 CPU／固定 EXE 回歸及兩個自然排程已驗，讀取凍結 PIT count；SUB 後續停點由 284 接通，主選單未驗。
 - [284 — byte 記憶體目的與 imm8 的 SUB](284-cpu386-sub-byte-memory-imm8.md)：CONFORMED。原版自然 byte 16h→0Eh／0Dh→05h、完整 R／段與六旗標已驗；ADD 後續停點由 285 接通。
 
-- [285 — byte 記憶體目的與 imm8 的 ADD](285-cpu386-add-byte-memory-imm8.md)：CONFORMED。原版自然 byte=03h→1Bh／flags=297h→206h 及完整 R／段已驗；下一停點為 byte 暫存器 XOR。
+- [285 — byte 記憶體目的與 imm8 的 ADD](285-cpu386-add-byte-memory-imm8.md)：CONFORMED。原版自然 byte=03h→1Bh／flags=297h→206h 及完整 R／段已驗；XOR 後續停點由 286 接通。
+- [286 — byte 暫存器目的與 imm8 的 XOR](286-cpu386-xor-byte-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 及三筆自然 CL／定義旗標後態已驗；AF 保留工具近似，下一停點為 dword 暫存器 TEST。

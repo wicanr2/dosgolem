@@ -44,3 +44,8 @@ Go 1.24.13／既有映像，GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu3
 IRQ0 started=completed=1595、active=false／failed=false，等待來源 DS:00271148=01 00 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false、Micros=21094693、Deliveries=1615、Pending=false／InService=false。事件條件第 1,612,067 步已注入 x=657／y=189；255 完整座標／游標消費仍 READY。
 
 自然 gzip SHA-256 6c22f3705380a934f0ff26565b3b21f88926c149147b2f6a1d143348eebeff3f／7c8a522b61673f4d145b18bc3e4d5b367f3cfba1b5e54aa28f9dcd39428f4800；兩 PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，同已檢視黑圖。原版素材、完整終端／記憶體／gzip／PNG 留本機；主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
+
+
+## 後續停點回填
+
+byte 暫存器 XOR 停點已由規格 286 接通，見 [286-cpu386-xor-byte-register-imm8.md](286-cpu386-xor-byte-register-imm8.md)。兩個自然排程自行完成三筆 CL XOR 樣本後停 0x254499 的 dword 暫存器 TEST；AF 清除仍是明示工具近似，未推定主選單或玩家路徑已完成。
