@@ -50,3 +50,8 @@ GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu386 -count=1 -v 全部通過�
 IRQ0 started=completed=5346、active=false／failed=false，等待 DS:00271148=A8 0E 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false，Micros=39852240／Deliveries=5366／Pending=false／InService=false。事件條件已注入；255 完整座標／游標仍 READY，主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
 
 自然 gzip SHA-256 495b237c2a7af2f16deeb12bf859a0a07ea36a3b3c0248c4c0d56bb9ac49406d／a444e4bbb0e97291d82b6376d26d4d9f2484b59eee3d52481c18398136e2a9dd。兩 PNG 同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。原版素材與完整終端／記憶體／gzip／PNG 留本機，不進公開版控。
+
+
+## 後續停點回填
+
+byte SHL／CL 停點已由規格 290 接通：[290-cpu386-shl-byte-register-cl.md](290-cpu386-shl-byte-register-cl.md)。291 同次接通記憶體 OR，兩自然排程完成三組 SHL→OR→ADD 的完整資料鏈；未定義旗標近似與下一 REPE SCASD 原始定位集中於 290／291。這不改 289 的 NEG／MOV 證據，也不代表主選單或正常玩家路徑完成。

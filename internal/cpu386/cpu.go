@@ -1296,7 +1296,21 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("08 ModRM %02X 尚未支援", modrm))
+			// 規格 291：byte 目的寫回成功後才發布邏輯旗標。
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail("OR byte 目的無法讀取")
+			}
+			result := value | c.reg8(int((modrm>>3)&7))
+			if !c.writeSegment8(c.Seg[seg], addr, result) {
+				return fail("OR byte 目的無法寫入")
+			}
+			c.setLogicFlags8(result)
+			break
 		}
 		dst, src := int(modrm&7), int((modrm>>3)&7)
 		result := c.reg8(dst) | c.reg8(src)
@@ -3079,7 +3093,7 @@ func (c *CPU) Step() error {
 		} else {
 			return fail(fmt.Sprintf("ModRM %02X 尚未支援", modrm))
 		}
-	case op == 0xd0 || op == 0xc0:
+	case op == 0xd0 || op == 0xc0 || op == 0xd2:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("byte shift prefix未支援")
 		}
@@ -3088,7 +3102,7 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
-		if modrm>>6 != 3 || (group != 4 && group != 5) {
+		if modrm>>6 != 3 || (group != 4 && group != 5) || op == 0xd2 && group != 4 {
 			return fail("byte shift形狀未支援")
 		}
 		count := byte(1)
@@ -3098,6 +3112,9 @@ func (c *CPU) Step() error {
 				return fail(e.Error())
 			}
 			count &= 31
+		} else if op == 0xd2 {
+			// 規格 290：先保存舊 CL，目的 CL／CH 不改變本次計數。
+			count = byte(c.R[ECX]) & 31
 		}
 		if count == 0 {
 			break

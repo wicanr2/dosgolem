@@ -2,6 +2,8 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-or-byte-memory-spec-backlinks 只驗證 byte 記憶體 OR 規格回填，不啟動 DOSBox-X。
+--check-shl-byte-cl-spec-backlinks 只驗證 byte SHL／CL 規格回填，不啟動 DOSBox-X。
 --check-neg-byte-spec-backlinks 只驗證 byte NEG 規格回填，不啟動 DOSBox-X。
 --check-rol-dword-immediate-spec-backlinks 只驗證 ROL dword 規格回填，不啟動 DOSBox-X。
 --check-test-dword-immediate-spec-backlinks 只驗證 TEST dword 規格回填，不啟動 DOSBox-X。
@@ -53,6 +55,36 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_or_byte_memory_resolution(spec_dir):
+    """291 的 byte 寫回／AF 邊界，須和 290 的 consumer 缺件回填並存。"""
+    current = (spec_dir / '291-cpu386-or-byte-memory-register.md').read_text()
+    required = ('0x254A06', '08 2C 17', '0x254A09', 'DS:006BBC60 byte=04h', '0x254A0C', 'AF 未定義', '工具近似', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('byte 記憶體 OR 缺原始初態／寫回／AF 邊界或可實作狀態')
+    older = (spec_dir / '290-cpu386-shl-byte-register-cl.md').read_text()
+    if 'byte 記憶體 OR 停點已由規格 291 接通' not in older or '291-cpu386-or-byte-memory-register.md' not in older:
+        raise RuntimeError('byte 記憶體 OR 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-or-byte-memory-spec-backlinks']:
+    validate_or_byte_memory_resolution(spec_dir)
+    print('byte 記憶體 OR 原始初態／寫回／AF 邊界與後續回填通過')
+    raise SystemExit(0)
+
+def validate_shl_byte_cl_resolution(spec_dir):
+    """290 的完整 CH／CL 與未定義旗標邊界，須和 289 停點回填並存。"""
+    current = (spec_dir / '290-cpu386-shl-byte-register-cl.md').read_text()
+    required = ('0x254A04', 'D2 E5', '0x254A06', '完整 ECX=402h', 'CL=2h 保持', 'AF 未定義', 'CF 未定義', '工具近似', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('byte SHL／CL 缺原始初態／後態／未定義邊界或可實作狀態')
+    older = (spec_dir / '289-cpu386-neg-byte-register.md').read_text()
+    if 'byte SHL／CL 停點已由規格 290 接通' not in older or '290-cpu386-shl-byte-register-cl.md' not in older:
+        raise RuntimeError('byte SHL／CL 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-shl-byte-cl-spec-backlinks']:
+    validate_shl_byte_cl_resolution(spec_dir)
+    print('byte SHL／CL 原始初態／完整後態／未定義邊界與後續回填通過')
     raise SystemExit(0)
 
 def validate_neg_byte_resolution(spec_dir):

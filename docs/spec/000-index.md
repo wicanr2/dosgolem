@@ -443,4 +443,8 @@
 
 - [288：dword 暫存器的立即數左循環移位](288-cpu386-rol-dword-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 與三筆自然完整後態／CF 已驗；多位 OF 保留只屬工具近似，NEG 後續停點由 289 接通。
 
-- [289：byte 暫存器取負](289-cpu386-neg-byte-register.md)：CONFORMED。全部 CPU／固定 EXE、三筆自然完整後態／六旗標與 MOV 消費已驗；下一停點為 SHL CH,CL。
+- [289：byte 暫存器取負](289-cpu386-neg-byte-register.md)：CONFORMED。全部 CPU／固定 EXE、三筆自然完整後態／六旗標與 MOV 消費已驗；SHL／CL 與 OR 後續停點由 290／291 接通。
+
+- [290：以 CL 計數左移 byte 暫存器](290-cpu386-shl-byte-register-cl.md)：CONFORMED。八 byte 目的／全部 CL 及別名／定義旗標已驗，未定義近似明示；291 已閉合真實 OR consumer。
+
+- [291：記憶體 byte 目的與暫存器的 OR](291-cpu386-or-byte-memory-register.md)：CONFORMED。全部 CPU／固定 EXE 與三組自然 SHL→OR→ADD 完整資料鏈通過；AF 清除為工具近似，下一停點 REPE SCASD。
