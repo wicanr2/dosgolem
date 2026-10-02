@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-neg-byte-spec-backlinks 只驗證 byte NEG 規格回填，不啟動 DOSBox-X。
 --check-rol-dword-immediate-spec-backlinks 只驗證 ROL dword 規格回填，不啟動 DOSBox-X。
 --check-test-dword-immediate-spec-backlinks 只驗證 TEST dword 規格回填，不啟動 DOSBox-X。
 --check-xor-byte-immediate-spec-backlinks 只驗證 XOR byte 規格回填，不啟動 DOSBox-X。
@@ -52,6 +53,21 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_neg_byte_resolution(spec_dir):
+    """289 的完整 byte NEG／MOV 消費與 288 的停點回填必須並存。"""
+    current = (spec_dir / '289-cpu386-neg-byte-register.md').read_text()
+    required = ('0x2545EF', 'F6 D9', '0x2545F1', '完整 ECX=FFFFFF0Ah', 'flags=217h', '0x2545F3', '六旗標均定義', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('byte NEG 缺原始初態／後態／六旗標或可實作狀態')
+    older = (spec_dir / '288-cpu386-rol-dword-register-imm8.md').read_text()
+    if 'byte NEG 停點已由規格 289 接通' not in older or '289-cpu386-neg-byte-register.md' not in older:
+        raise RuntimeError('byte NEG 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-neg-byte-spec-backlinks']:
+    validate_neg_byte_resolution(spec_dir)
+    print('byte NEG 原始初態／完整後態／六旗標與後續回填通過')
     raise SystemExit(0)
 
 def validate_rol_dword_immediate_resolution(spec_dir):

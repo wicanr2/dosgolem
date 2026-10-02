@@ -310,6 +310,9 @@ func main() {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
+		if (m.CPU.EIP == 0x2545ef || m.CPU.EIP == 0x2545f1 || m.CPU.EIP == 0x2545f3) && seen[m.CPU.EIP] <= 3 {
+			fmt.Printf("byte_neg_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+		}
 		if (m.CPU.EIP == 0x254510 || m.CPU.EIP == 0x254513 || m.CPU.EIP == 0x25451a) && seen[m.CPU.EIP] <= 3 {
 			fmt.Printf("dword_rol_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
 		}

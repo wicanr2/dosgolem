@@ -506,9 +506,10 @@ func TestByteTESTRegister(t *testing.T) {
 		})
 	}
 
-	c := New(testBus{0xf6, 0xda})
+	// 規格 289 已支援 /3 byte NEG；/2 byte NOT 仍須拒絕。
+	c := New(testBus{0xf6, 0xd2})
 	if err := c.Step(); err == nil {
-		t.Fatal("unapproved F6 register group was accepted")
+		t.Fatal("未知 F6 暫存器 group 被接受")
 	}
 }
 

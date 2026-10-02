@@ -3429,6 +3429,14 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 == 3 && (modrm>>3)&7 == 3 {
+			// 規格 289：byte 取負只寫回目的低／高 byte，六旗標皆定義。
+			rm := int(modrm & 7)
+			value := c.reg8(rm)
+			result := c.sub8(0, value)
+			c.setReg8(rm, result)
+			break
+		}
 		if modrm>>6 == 3 && (modrm>>3)&7 == 4 {
 			result := uint16(c.reg8(0)) * uint16(c.reg8(int(modrm&7)))
 			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(result)

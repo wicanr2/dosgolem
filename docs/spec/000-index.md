@@ -441,4 +441,6 @@
 - [286 — byte 暫存器目的與 imm8 的 XOR](286-cpu386-xor-byte-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 及三筆自然 CL／定義旗標後態已驗；AF 保留工具近似，TEST 後續停點由 287 接通。
 - [287 — dword 暫存器與 imm32 的 TEST](287-cpu386-test-dword-register-imm32.md)：CONFORMED。全部 CPU／固定 EXE、自然完整 R／段／定義旗標與第一 JNZ 不跳已驗；ROL 後續停點由 288 接通。
 
-- [288：dword 暫存器的立即數左循環移位](288-cpu386-rol-dword-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 與三筆自然完整後態／CF 已驗；多位 OF 保留只屬工具近似，下一停點為 byte NEG。
+- [288：dword 暫存器的立即數左循環移位](288-cpu386-rol-dword-register-imm8.md)：CONFORMED。全部 CPU／固定 EXE 與三筆自然完整後態／CF 已驗；多位 OF 保留只屬工具近似，NEG 後續停點由 289 接通。
+
+- [289：byte 暫存器取負](289-cpu386-neg-byte-register.md)：CONFORMED。全部 CPU／固定 EXE、三筆自然完整後態／六旗標與 MOV 消費已驗；下一停點為 SHL CH,CL。

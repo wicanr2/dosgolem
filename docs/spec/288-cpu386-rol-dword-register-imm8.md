@@ -53,3 +53,8 @@ GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu386 -count=1 -v 全部通過�
 IRQ0 started=completed=2810、active=false／failed=false，等待 DS:00271148=C0 04 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false，Micros=27167604／Deliveries=2830／Pending=false／InService=false。事件條件已注入；255 完整座標／游標仍 READY，主選單／正常玩家路徑、音效／受控亂數與整款 remake 未完成。
 
 自然 gzip SHA-256 c08ea3956f0eb327e05d87a4900ced02ba29f1b1f3fab853748ba090aaff9992／8d72e98ab94cd187ba69133e23d70f088e2fa5d76741a4973d18803086875c93。兩 PNG 同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，indexed SHA-256 7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf。原版素材與完整終端／記憶體／gzip／PNG 留本機，不進公開版控。
+
+
+## 後續停點回填
+
+byte NEG 停點已由規格 289 接通：[289-cpu386-neg-byte-register.md](289-cpu386-neg-byte-register.md)。兩自然排程自行重生三筆完整 byte 取負／六旗標及下一 MOV 消費，下一 SHL CH,CL 原始停點集中於 289。保留 288 的 ROL／未定義 OF 邊界；不代表主選單或正常玩家路徑完成。
