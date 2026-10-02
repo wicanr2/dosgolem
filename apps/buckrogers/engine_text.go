@@ -362,6 +362,15 @@ func (c *EngineTextCatalog) itemChinese(t string) (string, bool) {
 // monsterSlot translates a plain slot that is exactly a monster name,
 // keeping its surrounding spaces and trailing punctuation.
 func (c *EngineTextCatalog) monsterSlot(t string) (string, bool) {
+	return c.slotWith(t, func(core string) (string, bool) {
+		z, ok := c.monster[engineIDOf(core)]
+		return z, ok
+	})
+}
+
+// slotWith translates a plain slot whose text, without its surrounding spaces
+// and trailing .,!?, lookup knows; the spaces and the punctuation stay.
+func (c *EngineTextCatalog) slotWith(t string, lookup func(core string) (string, bool)) (string, bool) {
 	core := strings.TrimSpace(t)
 	lead := t[:strings.Index(t, core)]
 	trail := t[len(lead)+len(core):]
@@ -373,7 +382,7 @@ func (c *EngineTextCatalog) monsterSlot(t string) (string, bool) {
 	if core == "" {
 		return "", false
 	}
-	z, ok := c.monster[engineIDOf(core)]
+	z, ok := lookup(core)
 	if !ok {
 		return "", false
 	}
@@ -433,20 +442,37 @@ func (c *EngineTextCatalog) matchTemplate(parts []EnginePart) (string, []int, bo
 
 func engineAlnum(c byte) bool { return engineAlpha(c) || c >= '0' && c <= '9' }
 
+// PartyNameFunc turns the text of a plain slot (spaces and sentence-final
+// punctuation already removed) into the reading of the party member of that
+// exact name (spec 054 §3.3); ok=false leaves the slot as it is.
+type PartyNameFunc func(core string) (reading string, ok bool)
+
 // Translate returns the Chinese for s, or false (spec 029 §2.4).
 func (c *EngineTextCatalog) Translate(s string) (string, bool) {
+	z, ok, _ := c.TranslateParty(s, nil)
+	return z, ok
+}
+
+// TranslateParty is Translate with the spec 054 §3.3 name resolver: in Korean
+// and Japanese a plain slot that is exactly the name of a party member becomes
+// that member's reading.  inline counts those slots; with inline == 0 the text
+// is the one Translate returns.  Every other language ignores names.
+func (c *EngineTextCatalog) TranslateParty(s string, names PartyNameFunc) (string, bool, int) {
 	if c == nil || s == "" {
-		return "", false
+		return "", false, 0
+	}
+	if c.lang != LangKo && c.lang != LangJa {
+		names = nil
 	}
 	// Spec 029 §2.8: the exploration coordinate line swaps only the compass
 	// letter; any caller, since the format is unmistakable.
 	if c.coordDir != nil && engineCoordLine.MatchString(s) {
 		i := strings.IndexByte(s, ' ') + 1
-		return s[:i] + c.coordDir[s[i]] + s[i+1:], true
+		return s[:i] + c.coordDir[s[i]] + s[i+1:], true, 0
 	}
 	// Spec 029 §2.6: a table row keeps its last column where it was.
 	if m := engineTableRow.FindStringSubmatch(s); m != nil {
-		front, ok := c.translateLine(m[1])
+		front, ok, inline := c.translateLineParty(m[1], names)
 		// Spec 039 §3.4: the row is len(s)×2 half units; the last column
 		// (original digits, half width) is right-aligned to the original
 		// right edge, at least one unit after the Chinese, and the gap is
@@ -454,15 +480,15 @@ func (c *EngineTextCatalog) Translate(s string) (string, bool) {
 		total, last := 2*len(s), len(m[3])
 		if !ok {
 			// §2.6 修訂：前段單獨查不到時，片段可能是含空白的整串。
-			return c.translateLine(s)
+			return c.translateLineParty(s, names)
 		}
 		f := stringUnits(front)
 		if f+1+last > total {
-			return "", false
+			return "", false, 0
 		}
-		return string(appendPadding([]rune(front), f, total-last)) + m[3], true
+		return string(appendPadding([]rune(front), f, total-last)) + m[3], true, inline
 	}
-	return c.translateLine(s)
+	return c.translateLineParty(s, names)
 }
 
 var engineCoordLine = regexp.MustCompile(`^[0-9]{1,2},[0-9]{1,2} [NESW] [0-9]{2}:[0-9]{2}$`)
@@ -512,11 +538,20 @@ func (c *EngineTextCatalog) wholeFragment(s string) (string, bool) {
 }
 
 func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
+	z, ok, _ := c.translateLineParty(s, nil)
+	return z, ok
+}
+
+// translateLineParty is translateLine with the spec 054 §3.3 name resolver
+// (nil: none) and the §3.2 particle resolution of Korean.  inline counts the
+// plain slots replaced by a party member's reading.
+func (c *EngineTextCatalog) translateLineParty(s string, names PartyNameFunc) (string, bool, int) {
 	if z, ok := c.monsterSlot(s); ok {
-		return z, true
+		return z, true, 0
 	}
 	parts := c.Decompose(s)
 	hasFixed := false
+	inline := 0
 	zh := make([]string, len(parts))
 	for i, p := range parts {
 		switch p.Kind {
@@ -525,7 +560,7 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 			z := c.fragText[strings.TrimSuffix(p.Key, ".uc")]
 			if z == "" {
 				if _, _, tmpl := c.matchTemplate(parts); !tmpl {
-					return "", false
+					return "", false, 0
 				}
 			}
 			zh[i] = z
@@ -533,39 +568,47 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 			hasFixed = true
 			z, ok := c.itemChinese(p.Text)
 			if !ok {
-				return "", false
+				return "", false, 0
 			}
 			zh[i] = z
 		default:
 			if z, ok := c.monsterSlot(p.Text); ok {
 				zh[i] = z
+			} else if z, ok := c.partySlot(p.Text, names); ok {
+				zh[i] = z
+				inline++
 			} else {
 				zh[i] = p.Text
 			}
 		}
 	}
 	if !hasFixed {
-		return "", false
+		return "", false, 0
 	}
 	if t, slots, ok := c.matchTemplate(parts); ok {
 		if c.lang == LangKo || c.lang == LangJa {
-			return fillTemplateKoJa(c.lang, t, slots, parts, zh), true
+			out := fillTemplateKoJa(c.lang, t, slots, parts, zh)
+			if c.lang == LangKo {
+				out = koResolveMarkers(out)
+			}
+			return out, true, inline
 		}
 		if c.lang == LangZhTW || c.lang == LangZhCN {
-			return fillTemplateZh(t, slots, parts, zh), true
+			return fillTemplateZh(t, slots, parts, zh), true, 0
 		}
 		for i, v := range slots {
 			t = strings.ReplaceAll(t, "{"+strconv.Itoa(i)+"}", strings.TrimSpace(zh[v]))
 		}
-		return t, true
+		return t, true, 0
 	}
 	// Spec 046 §3.2: Korean and Japanese join the pieces by their own rules;
-	// every other language keeps the loop below.
+	// every other language keeps the loop below.  The Korean spacing is
+	// decided on the unresolved marks (spec 054 §3.2), the marks resolved last.
 	switch c.lang {
 	case LangKo:
-		return joinKo(parts, zh), true
+		return koResolveMarkers(joinKo(parts, zh)), true, inline
 	case LangJa:
-		return joinJa(parts, zh), true
+		return joinJa(parts, zh), true, inline
 	}
 	var b strings.Builder
 	for i, p := range parts {
@@ -580,7 +623,17 @@ func (c *EngineTextCatalog) translateLine(s string) (string, bool) {
 		}
 		b.WriteString(z)
 	}
-	return b.String(), true
+	return b.String(), true, 0
+}
+
+// partySlot translates a plain slot that is exactly the name of a party
+// member (spec 054 §3.3), keeping its surrounding spaces and trailing
+// punctuation as monsterSlot does.
+func (c *EngineTextCatalog) partySlot(t string, names PartyNameFunc) (string, bool) {
+	if names == nil {
+		return "", false
+	}
+	return c.slotWith(t, names)
 }
 
 func (f EngineTextFiles) lang() string {

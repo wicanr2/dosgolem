@@ -140,6 +140,9 @@ type EclTextEntry struct {
 	// Player is the spec-038 context read at the entry; nil disables the
 	// player-name check for this call.
 	Player *EclPlayerContext
+	// Party is the spec 054 §3.3 snapshot read at the callers whose sentence
+	// carries a party member's name; nil: no name is looked up.
+	Party *PartySnapshot
 }
 
 // EclTextLine is one laid-out row of Chinese inside the window; Col is the
@@ -165,6 +168,10 @@ type EclTextPage struct {
 	// drawn text does not have (the next call starts with that space).
 	lastRune  rune
 	owedSpace bool
+	// Spec 054 §3.2 (Korean only): the syllable the text drawn so far is read
+	// as, for the particle mark that starts the next call; 0 when it ends with
+	// anything else.
+	lastReading rune
 }
 
 // Shows reports whether the page still masks the given row.
@@ -219,6 +226,11 @@ type EclTextStats struct {
 	// full-width 。, and those among them that had to stay the original
 	// period because 。 did not fit on the row.
 	FullStop, FullStopDropped int
+	// Spec 054 §3.3: sentences drawn with a party member's reading in place
+	// of the English name (InlineNames), those whose reading did not fit and
+	// were drawn as before (InlineNameFallback), and calls whose leading
+	// Korean particle mark was replaced (MarkersResolved).
+	InlineNames, InlineNameFallback, MarkersResolved int
 }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
@@ -367,13 +379,14 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	var (
 		key, text string
 		ok        bool
+		inline    int
 	)
 	if isPlayer {
 		key, ok = "player-name", len(player) != 0
 	} else {
 		key, text, ok = w.catalog.Lookup(e.Original)
 		if !ok && w.engine != nil {
-			if text, ok = w.engine.Translate(string(e.Original)); ok {
+			if text, ok, inline = w.engine.TranslateParty(string(e.Original), w.partyNames(e.Party)); ok {
 				key = "engine"
 			}
 		}
@@ -455,67 +468,32 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			w.Stats.SpaceDropped++
 		}
 	} else {
-		// Every tier starts from the same cursor and continuation state; the
-		// layout is pure, so a failed try changes nothing (spec 036 §3.3).
-		attempt := func(txt string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier) {
-			variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(txt)}}
-			if key != "engine" && key != "passthrough" && w.names != nil {
-				variants = w.names.Variants(txt, key, NameCaseUpper)
-			}
-			for i, v := range variants {
-				if ls, er, ec, ok = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
-					if i > 0 {
-						tier = v.Tier
-					}
-					return
-				}
-			}
-			return
+		// Spec 054 §3.2: a continuing Korean call that starts with a particle
+		// mark takes the syllable the page was last read as.
+		lead := rune(0)
+		if w.catalog.ko() && p != nil && !fresh {
+			lead = p.lastReading
 		}
-		var tier NameTier
-		done := false
-		if fullStop {
-			// Spec 047 §3.2: 。 is two units wide.  The layout moves a lone
-			// two-unit character to the next row when one unit is left
-			// instead of failing, and a full stop never starts a row, so
-			// "does not fit" is a failed layout or an end row other than
-			// the start row; the original text is then laid out as before.
-			w.Stats.FullStop++
-			if ls, er, ec, ok, tr := attempt("。"); ok && er == row {
-				lines, endRow, endCol, fits, tier, done = ls, er, ec, true, tr, true
-			} else {
-				w.Stats.FullStopDropped++
+		// Spec 054 §3.3: the whole placement runs first with the sentence that
+		// carries the party member's reading; when it does not fit, once more
+		// with the current text.  Nothing is counted until one is chosen.
+		pl := w.placeText(text, key, isPlayer, fullStop, fresh, p, lead, spaceNeeded, prevRune, row, col, e)
+		if !pl.fits && inline > 0 {
+			if plain, pok, _ := w.engine.TranslateParty(string(e.Original), nil); pok {
+				w.Stats.InlineNameFallback++
+				pl = w.placeText(plain, key, isPlayer, fullStop, fresh, p, lead, spaceNeeded, prevRune, row, col, e)
 			}
+		} else if inline > 0 {
+			w.Stats.InlineNames++
 		}
-		if !done {
-			spaced := spaceNeeded && text != "" && text[0] != ' ' && !koGlue(prevRune, text)
-			switch {
-			case spaced:
-				// Spec 046 §3.4 (5): the space is never the reason a window turns
-				// into English; without it the text is tried again.
-				lines, endRow, endCol, fits, tier = attempt(" " + text)
-				if !fits {
-					if lines, endRow, endCol, fits, tier = attempt(text); fits {
-						w.Stats.SpaceDropped++
-					}
-				}
-			case !isPlayer && !fresh && w.catalog.zhDeckSpace() && zhDeckDigitCall(p, text, col, eclUnitLeft(e.Left)):
-				// Spec 048: a number right after a deck prompt (甲板) gets a
-				// space.  The result counts only when the first row drawn is
-				// the start row and begins with the space; a space that pushes
-				// the number to the next row is dropped, as is one that does
-				// not fit.
-				lines, endRow, endCol, fits, tier = attempt(" " + text)
-				if !fits || len(lines) == 0 || lines[0].Row != row || len(lines[0].Text) == 0 || lines[0].Text[0] != ' ' {
-					if lines, endRow, endCol, fits, tier = attempt(text); fits {
-						w.Stats.SpaceDropped++
-					}
-				}
-			default:
-				lines, endRow, endCol, fits, tier = attempt(text)
-			}
+		lines, endRow, endCol, fits = pl.lines, pl.endRow, pl.endCol, pl.fits
+		w.Stats.SpaceDropped += pl.spaceDropped
+		w.Stats.FullStop += pl.fullStop
+		w.Stats.FullStopDropped += pl.fullStopDropped
+		if fits && pl.marker {
+			w.Stats.MarkersResolved++
 		}
-		switch tier {
+		switch pl.tier {
 		case NameTierFirst:
 			w.Stats.NameFirstOnly++
 		case NameTierNone:
@@ -544,11 +522,23 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// spaces dropped by the layout) keeps the state of the page before.
 		if p != nil {
 			next.lastRune, next.owedSpace = p.lastRune, p.owedSpace
+			if !fresh {
+				next.lastReading = p.lastReading
+			}
 		}
 		if n := len(lines); n > 0 && len(lines[n-1].Text) > 0 && len(e.Original) > 0 {
 			last := lines[n-1].Text[len(lines[n-1].Text)-1]
 			next.lastRune = last
 			next.owedSpace = e.Original[len(e.Original)-1] == ' ' && last != ' '
+			if w.catalog.ko() {
+				// The whole call, not only its last row: an annotated name wider
+				// than a row breaks at a space inside the annotation.
+				var all []rune
+				for _, l := range lines {
+					all = append(all, l.Text...)
+				}
+				next.lastReading = koReadingTail(string(all))
+			}
 		}
 	}
 	w.gen++
@@ -561,6 +551,101 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	w.inCall = true
 	w.call = e
 	w.Stats.Hits++
+}
+
+// ko reports the Korean catalog (spec 054 §3.2 applies to it only).
+func (c *EclTextCatalog) ko() bool { return c != nil && c.lang == LangKo }
+
+// partyNames is the spec 054 §3.3 resolver of a call's snapshot: only a
+// Korean or Japanese lane with player names has one.
+func (w *EclTextWatcher) partyNames(party *PartySnapshot) PartyNameFunc {
+	if party == nil || w.engine == nil || w.players == nil || w.engine.lang != LangKo && w.engine.lang != LangJa {
+		return nil
+	}
+	return party.NameFunc(w.players)
+}
+
+// eclPlacement is the layout of one non-player call and what it would add to
+// the counters, which are only applied for the layout that is chosen.
+type eclPlacement struct {
+	lines                                   []EclTextLine
+	endRow, endCol                          uint8
+	fits                                    bool
+	tier                                    NameTier
+	marker                                  bool // the leading particle mark was replaced
+	spaceDropped, fullStop, fullStopDropped int
+}
+
+// placeText lays out the text of one call of the ECL catalog, the engine
+// catalog or the passthrough.  Every tier starts from the same cursor and
+// continuation state; the layout is pure, so a failed try changes nothing
+// (spec 036 §3.3).  Whether the call owes a space is decided on txt as it is;
+// the leading particle mark is replaced after that (spec 054 §3.2), or the
+// glue test would see a bare 이.
+func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bool, p *EclTextPage, lead rune, spaceNeeded bool, prevRune rune, row, col uint8, e EclTextEntry) (pl eclPlacement) {
+	body := txt
+	if lead != 0 {
+		body, pl.marker = koResolveLeading(txt, lead)
+	}
+	attempt := func(t string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier) {
+		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(t)}}
+		if key != "engine" && key != "passthrough" && w.names != nil {
+			variants = w.names.Variants(t, key, NameCaseUpper)
+		}
+		for i, v := range variants {
+			if ls, er, ec, ok = layoutEclTextP(w.layout, v.Text, v.Units, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
+				if i > 0 {
+					tier = v.Tier
+				}
+				return
+			}
+		}
+		return
+	}
+	done := false
+	if fullStop {
+		// Spec 047 §3.2: 。 is two units wide.  The layout moves a lone
+		// two-unit character to the next row when one unit is left
+		// instead of failing, and a full stop never starts a row, so
+		// "does not fit" is a failed layout or an end row other than
+		// the start row; the original text is then laid out as before.
+		pl.fullStop++
+		if ls, er, ec, ok, tr := attempt("。"); ok && er == row {
+			pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, done = ls, er, ec, true, tr, true
+		} else {
+			pl.fullStopDropped++
+		}
+	}
+	if done {
+		return
+	}
+	spaced := spaceNeeded && txt != "" && txt[0] != ' ' && !koGlue(prevRune, txt)
+	switch {
+	case spaced:
+		// Spec 046 §3.4 (5): the space is never the reason a window turns
+		// into English; without it the text is tried again.
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(" " + body)
+		if !pl.fits {
+			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body); pl.fits {
+				pl.spaceDropped++
+			}
+		}
+	case !isPlayer && !fresh && w.catalog.zhDeckSpace() && zhDeckDigitCall(p, txt, col, eclUnitLeft(e.Left)):
+		// Spec 048: a number right after a deck prompt (甲板) gets a
+		// space.  The result counts only when the first row drawn is
+		// the start row and begins with the space; a space that pushes
+		// the number to the next row is dropped, as is one that does
+		// not fit.
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(" " + body)
+		if !pl.fits || len(pl.lines) == 0 || pl.lines[0].Row != row || len(pl.lines[0].Text) == 0 || pl.lines[0].Text[0] != ' ' {
+			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body); pl.fits {
+				pl.spaceDropped++
+			}
+		}
+	default:
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body)
+	}
+	return
 }
 
 // Outcomes of layoutPlayerName.

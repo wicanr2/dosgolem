@@ -67,6 +67,9 @@ type LiveRuntime struct {
 
 	// Spec 038: party snapshot (taken only at the name hooks).
 	party partyTracker
+	// Spec 054 §3.3: some lane is Korean or Japanese with player names, so
+	// the sentence callers read a party snapshot of their own.
+	inlineNames bool
 
 	ovl       OverlayUnits // spec 032
 	norm      LegacyNormaliser
@@ -232,7 +235,19 @@ func LoadLiveRuntimeOptions(o LiveOptions) (*LiveRuntime, error) {
 		r.off[lang] = why
 		fmt.Fprintf(os.Stderr, "buckrogers: 語言 %s 停用：%s\n", lang, why)
 	}
+	r.setInlineNames()
 	return r, nil
+}
+
+// setInlineNames records whether some lane is Korean or Japanese with player
+// names (spec 054 §3.3); only then do the sentence callers read a snapshot.
+func (r *LiveRuntime) setInlineNames() {
+	r.inlineNames = false
+	for _, l := range r.lanes {
+		if (l.lang == LangKo || l.lang == LangJa) && l.players != nil {
+			r.inlineNames = true
+		}
+	}
 }
 
 // missingLaneFiles names the first A-family language file that is absent.
@@ -565,10 +580,7 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	}
 	if obs.Kind == ObservedEntry && r.lanes[0].engDisp != nil {
 		key := r.ovl.Key(v, obs.Caller)
-		var party *PartySnapshot
-		if r.lanes[0].engDisp.NeedsParty(key) {
-			party = r.party.refresh(v, v.DS())
-		}
+		party := r.dispatchParty(v, key)
 		r.trace.setStep(v.Steps())
 		for _, l := range r.lanes {
 			h0, m0 := engineStatsOf(l.engDisp)
@@ -716,6 +728,22 @@ func (r *LiveRuntime) BeforeStep(v StepReader) error {
 	return nil
 }
 
+// dispatchParty is the party snapshot a dispatcher entry from caller takes:
+// the spec 038 name callers refresh the shared tracker; the spec 054 §3.3
+// sentence caller reads a snapshot of its own and leaves the tracker alone
+// (a refused read gives no names); every other caller takes none.
+func (r *LiveRuntime) dispatchParty(v StepReader, caller CodeKey) *PartySnapshot {
+	switch {
+	case caller == inlineNameCaller && r.inlineNames:
+		if snap, err := ReadPartySnapshot(v, v.DS()); err == nil {
+			return snap
+		}
+	case r.lanes[0].engDisp.NeedsParty(caller):
+		return r.party.refresh(v, v.DS())
+	}
+	return nil
+}
+
 // observeEclText handles the text-window printer entry and its return for
 // every lane whose watcher needs it; the entry is read once.
 func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
@@ -735,15 +763,23 @@ func (r *LiveRuntime) observeEclText(v StepReader, at Address) {
 		// Spec 038 §3.1–§3.2: only the ECL printer callers take a snapshot
 		// and read the operand table, with the DS of this entry.
 		var player *EclPlayerContext
-		if caller := r.ovl.Key(v, ret); caller == eclNameCallerB79 || caller == eclNameCallerB4A {
+		var inline *PartySnapshot
+		switch caller := r.ovl.Key(v, ret); {
+		case caller == eclNameCallerB79 || caller == eclNameCallerB4A:
 			player = readEclPlayerContext(v, ds, caller, r.party.refresh(v, ds))
+		case r.inlineNames && eclInlineNameCallers[caller]:
+			// Spec 054 §3.3: the sentence callers read a snapshot of their own
+			// (the shared tracker keeps the spec 038 counts); refused: no names.
+			if snap, err := ReadPartySnapshot(v, ds); err == nil {
+				inline = snap
+			}
 		}
 		head := uint16(0)
 		if r.anyLogbook() {
 			head = v.Read16(BDAKeyHead)
 		}
 		e := EclTextEntry{
-			Step: v.Steps(), SS: ss, SP: sp, Return: ret, Original: orig, Player: player,
+			Step: v.Steps(), SS: ss, SP: sp, Return: ret, Original: orig, Player: player, Party: inline,
 			Clear: uint8(arg(8)) != 0, Background: uint8(arg(10)), Foreground: uint8(arg(12)),
 			Bottom: uint8(arg(14)), Right: uint8(arg(16)), Top: uint8(arg(18)), Left: uint8(arg(20)),
 			CursorCol: v.Read8(linear(ds, 0x5F3E)), CursorRow: v.Read8(linear(ds, 0x5F3F)),

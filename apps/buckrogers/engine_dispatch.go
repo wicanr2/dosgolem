@@ -38,7 +38,10 @@ type EngineDispatchWatcher struct {
 	callSS    uint16
 	callSP    uint16
 	gen       uint64
-	Stats     struct{ Hits, Misses, Invalidations int }
+	// InlineNames and InlineNameFallback are spec 054 §3.3: lines drawn with a
+	// party member's reading in place of the English name, and those whose
+	// reading did not fit and were taken from the current translation.
+	Stats struct{ Hits, Misses, Invalidations, InlineNames, InlineNameFallback int }
 	// PartyStats counts spec 038 §3.4 lines wider than the original name
 	// and lines stepped down to Chinese only (diagnostics).
 	PartyStats struct{ Extended, ChineseOnly int }
@@ -135,6 +138,16 @@ func (w *EngineDispatchWatcher) NeedsParty(caller CodeKey) bool {
 		return false
 	}
 	return caller == partyNameCaller && w.names[caller] || partyPanelOnly(caller)
+}
+
+// partyNames is the spec 054 §3.3 resolver of an entry: only the sentence
+// caller of that spec, on a Korean or Japanese lane with player names.
+func (w *EngineDispatchWatcher) partyNames(caller CodeKey, party *PartySnapshot) PartyNameFunc {
+	if caller != inlineNameCaller || party == nil || w.players == nil || w.catalog == nil ||
+		w.catalog.lang != LangKo && w.catalog.lang != LangJa {
+		return nil
+	}
+	return party.NameFunc(w.players)
 }
 
 // SetEclCatalog gives the watcher the spec 027 catalog for §2.9.
@@ -387,7 +400,18 @@ func (w *EngineDispatchWatcher) ObserveEntryParty(caller CodeKey, ss, sp uint16,
 	case nameOnly:
 		zh, ok = w.catalog.monsterSlot(string(original))
 	default:
-		zh, ok = w.catalog.Translate(string(original))
+		var inline int
+		zh, ok, inline = w.catalog.TranslateParty(string(original), w.partyNames(caller, party))
+		// Spec 054 §3.3: a reading wider than the original cells gives way to
+		// the current translation before anything else is tried.
+		if ok && inline > 0 {
+			if stringUnits(zh) > 2*n {
+				w.Stats.InlineNameFallback++
+				zh, ok, _ = w.catalog.TranslateParty(string(original), nil)
+			} else {
+				w.Stats.InlineNames++
+			}
+		}
 	}
 	if !ok && !nameOnly {
 		zh, ok = w.eclPrompt(original)

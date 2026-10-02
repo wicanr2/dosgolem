@@ -302,15 +302,16 @@ func TestZhDeckSpaceOtherLanguagesUnchanged(t *testing.T) {
 // zh, and the page struct has exactly the fields it had before spec 048.
 func TestZhDeckSpaceNoPageState(t *testing.T) {
 	w := zdRun(t, zdOpts{lang: LangZhTW}, deckPairs, []fsStep{{"DECK ", true, 1}, {"5", false, 6}, {".", false, 7}})
-	if p := w.Page(); p.lastRune != 0 || p.owedSpace {
-		t.Errorf("zh 的頁面狀態被設定：lastRune %q owedSpace %v", p.lastRune, p.owedSpace)
+	if p := w.Page(); p.lastRune != 0 || p.owedSpace || p.lastReading != 0 {
+		t.Errorf("zh 的頁面狀態被設定：lastRune %q owedSpace %v lastReading %q", p.lastRune, p.owedSpace, p.lastReading)
 	}
 	var names []string
 	rt := reflect.TypeOf(EclTextPage{})
 	for i := 0; i < rt.NumField(); i++ {
 		names = append(names, rt.Field(i).Name)
 	}
-	want := "Generation Left Top Right Bottom TopCol Background Foreground Lines Keys Gone endRow endCol lastRune owedSpace"
+	// lastReading is spec 054's (Korean only); the deck rule added none.
+	want := "Generation Left Top Right Bottom TopCol Background Foreground Lines Keys Gone endRow endCol lastRune owedSpace lastReading"
 	if got := strings.Join(names, " "); got != want {
 		t.Errorf("EclTextPage 欄位：%s，應為 %s", got, want)
 	}

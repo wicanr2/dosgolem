@@ -65,6 +65,22 @@ func (s *PartySnapshot) FirstNamed(name string) *PartyMember {
 	return nil
 }
 
+// NameFunc is the spec 054 §3.3 name resolver of this snapshot: a slot text
+// that is exactly a member's name gives the reading players chose for that
+// member (the lane's own transliteration).  nil without a party or players.
+func (s *PartySnapshot) NameFunc(players *PlayerNames) PartyNameFunc {
+	if s == nil || len(s.Members) == 0 || players == nil {
+		return nil
+	}
+	return func(core string) (string, bool) {
+		m := s.FirstNamed(core)
+		if m == nil {
+			return "", false
+		}
+		return players.Chinese(m.Name, m.Gender)
+	}
+}
+
 // Names lists the members as NAME/M|F|? (diagnostics, spec 038 §5.3).
 func (s *PartySnapshot) Names() []string {
 	if s == nil {
@@ -284,6 +300,20 @@ var (
 	eclNameCallerB79 = CodeKey{Unit: 0x00904, Offset: 0x0B79}
 	eclNameCallerB4A = CodeKey{Unit: 0x00904, Offset: 0x0B4A}
 	partyNameCaller  = CodeKey{Unit: 0x2BA60, Offset: 0x235A}
+)
+
+// Spec 054 §3.3: the callers whose whole sentence carries a party member's
+// name in a plain slot.  The three ECL printer callers draw the sentence with
+// one 056C call; the dispatcher caller (main program, no overlay unit) with
+// one dispatcher call.  Their party snapshot is read without touching the
+// shared partyTracker.
+var (
+	eclInlineNameCallers = map[CodeKey]bool{
+		{Unit: 0x27BBE, Offset: 0x0AE5}: true,
+		{Unit: 0x1CA15, Offset: 0x1E42}: true,
+		{Unit: 0x00904, Offset: 0x2813}: true,
+	}
+	inlineNameCaller = CodeKey{Segment: 0x0763, Offset: 0x1282}
 )
 
 const (

@@ -260,7 +260,7 @@ func TestModeResetClassifiesEveryField(t *testing.T) {
 		"action": reset, "actRef": keep, "actRects": keep, "body": reset, "manual": reset, "manLayout": keep,
 		"manCatalog": keep, "manEng": keep, "manEngPres": keep, "manEngOff": keep, "textDir": keep, "started": keep,
 		"trace": keep, "files": keep, "storyPending": reset, "prevAt": reset, "prevOp": reset, "storyDirty": keep,
-		"party": keep, "ovl": keep, "norm": keep, "normFrame": keep, "asciiFound": keep, "asciiTry": keep,
+		"party": keep, "inlineNames": keep, "ovl": keep, "norm": keep, "normFrame": keep, "asciiFound": keep, "asciiTry": keep,
 		"asciiScans": keep, "asciiStep": keep, "asciiStoryErrs": keep, "lanes": reset, "cur": keep, "off": keep,
 		"indexed": keep, "palette": keep, "hasFrame": keep, "frameSeen": keep, "resets": keep,
 	}
