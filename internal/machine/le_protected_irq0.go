@@ -155,11 +155,18 @@ func (d *leProtectedIRQ0) step(c *cpu386.CPU) (bool, error) {
 	if !d.active {
 		return false, nil
 	}
-	if c.Seg[cpu386.SegCS] == d.defaultSelector && c.EIP >= d.defaultBase && c.EIP-d.defaultBase < 256 {
-		return true, errors.New("IRQ0 預設核心鏈尚未建模")
+	endChain := c.Seg[cpu386.SegCS] == d.defaultSelector && c.EIP >= d.defaultBase && c.EIP-d.defaultBase < 256
+	if endChain {
+		vector, ok := d.defaultVector(8)
+		if !ok || vector != uint64(c.Seg[cpu386.SegCS])<<32|uint64(c.EIP) {
+			return true, errors.New("IRQ0 預設核心鏈入口無效或未建模")
+		}
 	}
 	op, err := c.Bus.Read8(c.EIP)
 	if err != nil || op != 0xcf {
+		if endChain {
+			return true, errors.New("IRQ0 預設核心鏈入口已污染或不可讀")
+		}
 		return false, nil
 	}
 	if c.Seg[cpu386.SegSS] != d.stackSelector || c.R[cpu386.ESP] != leIRQ0StackSize-12 ||
@@ -172,6 +179,14 @@ func (d *leProtectedIRQ0) step(c *cpu386.CPU) (bool, error) {
 		if !ok || value != expected {
 			return true, errors.New("IRQ0 返回框架已污染或不可讀")
 		}
+	}
+	if endChain {
+		// 規格 281：完整框架確認後，執行受限 BIOS08h；核心布局不搬入 CPU。
+		if err := d.p.BIOSClock.validateDefaultBIOS(d.m); err != nil {
+			return true, err
+		}
+		incrementLEBIOSClockData(d.m)
+		d.p.Out8(0x20, 0x20)
 	}
 	d.returned = true
 	return true, nil

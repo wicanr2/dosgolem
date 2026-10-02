@@ -62,3 +62,8 @@ Go 1.24.13 固定原版全套 `DOSGOLEM_MOO2_EXE=/tmp/game/ORION2.EXE GOMAXPROCS
 DOS08h 派送缺口已由規格 277 接線（原版返回仍未閉合），見 [277-moo2-dos4gw-protected-irq0.md](277-moo2-dos4gw-protected-irq0.md)。只讀向量證據與公開 DOS/4GW 契約支持受限橋接；現行自然路徑已進原版處理器，却在高位 LE 0x244D9A 的 CS 記憶體比較拒絕，不再以 50M 未派送的等待作為目前前沿。276 的限定 PIT 設定／共享週期近似 CONFORMED 保持；277 READY、255 READY。
 
 277 也訂正上一轮誤落 CMP 分支的返回護欄，并以既有真實收據驗證；本项實際 PIT 消费端仍在 0180:0036DAFB，原始收據不失效。具體失败原因、原始索引及證明集中于 277，不改歷史來源。
+
+
+## 規格 281 的等待閉合後續
+
+上述 276／277 早期未派送或未返回為歷史邊界；[281-moo2-protected-irq0-end-chain.md](281-moo2-protected-irq0-end-chain.md) 已自行重生原版返回與模式 2 等待退出，277 限定 CONFORMED。276 的模式 2／3 設定與共享週期近似範圍不變，新的 count latch 不是本項已實作能力，下一停點及收據集中在 281；不宣稱完整計時硬體或正常玩家路徑完成。

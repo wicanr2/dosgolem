@@ -30,6 +30,37 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_irq0_end_chain_resolution(spec_dir):
+    """281 的原始框架與平台收據、舊結束鏈停點回填必須並存。"""
+    current = (spec_dir / '281-moo2-protected-irq0-end-chain.md').read_text()
+    required = ('0180:00378E9C', '0080:00000D49', '0080:00000F16', '0108:00326008', '16 0F 00 00 80 00 00 00 46 00 00 00', '41 27 02 00 00→42 27 02 00 00', '1,595', '01 00 00 00', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('結束鏈缺原始框架／BDA／自然收據或可實作狀態')
+    for name, marker in (
+        ('280-cpu386-far-ret32.md', '預設核心鏈停點已由規格 281 接通'),
+        ('277-moo2-dos4gw-protected-irq0.md', '預設 DOS08h 結束鏈已由規格 281 接通'),
+    ):
+        older = (spec_dir / name).read_text()
+        if marker not in older or '281-moo2-protected-irq0-end-chain.md' not in older:
+            raise RuntimeError('舊結束鏈停點缺後續回填')
+
+if sys.argv[1:] == ['--check-irq0-end-chain-spec-backlinks']:
+    validate_irq0_end_chain_resolution(spec_dir)
+    print('結束鏈原始框架／BDA與後續回填通過')
+    raise SystemExit(0)
+
+def validate_irq0_end_chain_boundary(before, after, bda_before, bda_after):
+    """只驗證黑箱邊界的通用暫存器／資料段、堆疊消費及 BIOS tick。"""
+    if after[2:13] != before[2:13] or int(after[14], 16) != int(before[14], 16) + 12:
+        raise RuntimeError('結束鏈邊界暫存器／資料段或框架消費不符')
+    tick = (int.from_bytes(bda_before[:4], 'little') + 1) & 0xffffffff
+    midnight = bda_before[4]
+    if tick >= 0x1800b0:
+        tick = 0
+        midnight = (midnight + 1) & 0xff
+    if bda_after != tick.to_bytes(4, 'little') + bytes([midnight]):
+        raise RuntimeError('結束鏈 BDA 計數／午夜回繞不符')
+
 def validate_far_ret_resolution(spec_dir):
     """280 的原始框架與 279／277 的後續停點回填必須並存。"""
     current = (spec_dir / '280-cpu386-far-ret32.md').read_text()
@@ -379,7 +410,8 @@ if sys.argv[1:] == ['--check-mouse-spec-backlinks']:
     raise SystemExit(0)
 
 root = pathlib.Path('/shots')
-capture_far_ret = sys.argv[1:] == ['--far-ret']
+capture_irq0_end_chain = sys.argv[1:] == ['--irq0-end-chain']
+capture_far_ret = capture_irq0_end_chain or sys.argv[1:] == ['--far-ret']
 capture_cs_word_es_load = sys.argv[1:] == ['--cs-word-es-load']
 capture_cs_memory_cmp = capture_cs_word_es_load or sys.argv[1:] == ['--cs-memory-cmp']
 capture_dos_timer_vector = capture_far_ret or capture_cs_memory_cmp or sys.argv[1:] == ['--dos-timer-vector']
@@ -416,7 +448,7 @@ capture_mouse_reset = sys.argv[1:] == ['--mouse-reset'] or capture_mouse_sensiti
 capture_or_register_imm8 = sys.argv[1:] == ['--or-register-imm8']
 capture_xor_register_imm32 = sys.argv[1:] == ['--xor-register-imm32']
 if not (capture_dos_timer_vector or capture_pit_mode2 or capture_vtd_entry or capture_xor_word_register or capture_short_sign_branches or capture_inc_word_memory or capture_cmp_word_destination or capture_cmp_memory_register or capture_imul_dword_register or capture_imul_word_register or capture_add_word_register or capture_vbe_display_start or capture_vbe_window_control or capture_div_byte_register or capture_vga_pel_mask or capture_test_word_register or capture_find_current_directory or capture_sar_stack_memory or capture_free_memory or capture_windows_version or capture_mouse_sequence or capture_mouse_reset or capture_or_register_imm8 or capture_xor_register_imm32) and sys.argv[1:] not in ([], ['--sbb'], ['--sbb-word'], ['--add-al-imm8'], ['--low-entry'], ['--enter'], ['--cmp-word'], ['--cmp-byte'], ['--lea-cs'], ['--startup-value'], ['--mouse-query'], ['--mouse-function-21'], ['--mouse-function-1a'], ['--video-mode-03'], ['--full-data-test-word'], ['--dos-memory-0100'], ['--real-video-0300'], ['--real-video-4f01'], ['--video-display-4f07'], ['--video-mode-4f02'], ['--es-store'], ['--or-al-ah'], ['--ror-imm8'], ['--es-byte-load'], ['--es-byte-load-ev'], ['--test-word'], ['--dta'], ['--dta-find'], ['--dta-find-present'], ['--empty-mox-cmp'], ['--xchg'], ['--cmc'], ['--and'], ['--or-memory'], ['--pop-gs']):
-    raise SystemExit('usage: startup_probe_131.py [--check-far-ret-spec-backlinks|--far-ret|--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
+    raise SystemExit('usage: startup_probe_131.py [--irq0-end-chain|--check-irq0-end-chain-spec-backlinks|--check-far-ret-spec-backlinks|--far-ret|--check-cs-es-load-spec-backlinks|--cs-word-es-load|--check-cs-memory-cmp-spec-backlinks|--cs-memory-cmp|--check-protected-irq0-spec-backlinks|--dos-timer-vector|--check-pit-mode2-spec-backlinks|--pit-mode2|--check-vtd-entry-spec-backlinks|--vtd-entry|--check-xor-word-register-spec-backlinks|--xor-word-register|--check-short-sign-branches-spec-backlinks|--short-sign-branches|--check-inc-word-memory-spec-backlinks|--inc-word-memory|--check-cmp-word-destination-spec-backlinks|--cmp-word-destination|--check-cmp-memory-register-spec-backlinks|--cmp-memory-register|--check-imul-dword-register-spec-backlinks|--imul-dword-register|--check-imul-word-register-spec-backlinks|--imul-word-register|--add-word-register|--check-add-word-register-spec-backlinks|--vbe-display-start|--check-vbe-display-start-spec-backlinks|--vbe-window-control|--check-vbe-window-spec-backlinks|--div-byte-register|--check-div-byte-register-spec-backlinks|--vga-pel-mask|--check-vga-pel-mask-spec-backlinks|--test-word-register|--check-test-word-register-spec-backlinks|--find-current-directory|--check-find-current-directory-spec-backlinks|--sbb|--sbb-word|--add-al-imm8|--or-register-imm8|--xor-register-imm32|--mouse-reset|--mouse-sensitivity|--mouse-sequence|--mouse-horizontal-range|--mouse-vertical-range|--mouse-set-sensitivity|--mouse-set-position|--mouse-callback|--mouse-callback-event|--windows-version|--sar-stack-memory|--check-sar-stack-spec-backlinks|--free-memory|--check-free-memory-spec-backlinks|--check-mouse-spec-backlinks|--low-entry|--enter|--cmp-word|--cmp-byte|--lea-cs|--startup-value|--mouse-query|--mouse-function-21|--mouse-function-1a|--video-mode-03|--full-data-test-word|--dos-memory-0100|--real-video-0300|--real-video-4f01|--video-display-4f07|--video-mode-4f02|--empty-mox-cmp|--es-store|--or-al-ah|--ror-imm8|--es-byte-load|--es-byte-load-ev|--test-word|--dta|--dta-find|--dta-find-present|--xchg|--cmc|--and|--or-memory|--pop-gs]')
 capture_sbb = sys.argv[1:] == ['--sbb']
 capture_sbb_word = sys.argv[1:] == ['--sbb-word']
 capture_add_al_imm8 = sys.argv[1:] == ['--add-al-imm8']
@@ -457,7 +489,7 @@ capture_pop_gs = sys.argv[1:] == ['--pop-gs']
 mode = 'add-al-imm8-' if capture_add_al_imm8 else 'video-mode-4f02-' if capture_video_mode_4f02 else 'real-video-4f01-' if capture_real_video_4f01 else 'video-display-4f07-' if capture_video_display_4f07 else 'real-video-0300-' if capture_real_video_0300 else 'dos-memory-0100-' if capture_dos_memory_0100 else 'full-data-test-word-' if capture_full_data_test_word else 'empty-mox-cmp-' if capture_empty_mox_cmp else 'video-mode-03-' if capture_video_mode_03 else 'mouse-function-1a-' if capture_mouse_function_1a else 'mouse-function-21-' if capture_mouse_function_21 else 'es-store-' if capture_es_store else 'mouse-query-' if capture_mouse_query else 'startup-value-' if capture_startup_value else 'dta-find-present-' if capture_dta_find_present else 'dta-find-' if capture_dta_find else 'dta-' if capture_dta else 'test-word-' if capture_test_word else 'lea-cs-' if capture_lea_cs else 'or-al-ah-' if capture_or_al_ah else 'ror-imm8-' if capture_ror_imm8 else 'es-byte-load-ev-' if capture_es_byte_load_ev else 'es-byte-load-' if capture_es_byte_load else 'cmp-byte-' if capture_cmp_byte else 'cmp-word-' if capture_cmp_word else 'enter-' if capture_enter else 'low-entry-' if capture_low_entry else 'sbb-word-' if capture_sbb_word else 'pop-gs-' if capture_pop_gs else 'or-memory-' if capture_or_memory else 'and-' if capture_and else 'cmc-' if capture_cmc else 'xchg-' if capture_xchg else 'sbb-' if capture_sbb else ''
 exe = pathlib.Path('/tmp/game/ORION2.EXE')
 if capture_dos_timer_vector:
-    mode = 'far-ret-' if capture_far_ret else 'cs-word-es-load-' if capture_cs_word_es_load else 'cs-memory-cmp-' if capture_cs_memory_cmp else 'dos-timer-vector-'
+    mode = 'irq0-end-chain-' if capture_irq0_end_chain else 'far-ret-' if capture_far_ret else 'cs-word-es-load-' if capture_cs_word_es_load else 'cs-memory-cmp-' if capture_cs_memory_cmp else 'dos-timer-vector-'
 if capture_pit_mode2:
     mode = 'pit-mode2-'
 if capture_vtd_entry:
@@ -1036,8 +1068,9 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if timer_memory('far_ret_instruction_bytes', '0180', '00378E9C', 1) != bytes([0xcb]):
                     raise RuntimeError('CB 遠返回候選原始位元組不符')
                 ss, esp = int(before[13], 16), int(before[14], 16)
-                frame = timer_memory('far_ret_frame_before', format(ss, '04X'), format(esp, '08X'), 8)
-                target_ip, selector_slot = struct.unpack('<II', frame)
+                frame_size = 20 if capture_irq0_end_chain else 8
+                frame = timer_memory('far_ret_frame_before', format(ss, '04X'), format(esp, '08X'), frame_size)
+                target_ip, selector_slot = struct.unpack('<II', frame[:8])
                 target_cs = selector_slot & 0xffff
                 if target_cs & 3 != int(before[0], 16) & 3:
                     raise RuntimeError('CB 樣本不是同權限返回')
@@ -1048,7 +1081,7 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if not log.is_file() or not log.read_bytes().decode('latin1').startswith('0180:00378E9C'):
                     raise RuntimeError('CB 有限單指令起點不符')
                 data = log.read_bytes()
-                (root / 'far-ret-logcpu.txt').write_bytes(data)
+                (root / (mode + 'logcpu.txt')).write_bytes(data)
                 records['far_ret_log_sha256'] = hashlib.sha256(data).hexdigest()
                 snapshots = registers(cmd('EV ' + order, 0.8))
                 returned = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == [format(target_cs, 'x'), format(target_ip, 'x')]), None)
@@ -1057,8 +1090,28 @@ with (root / (mode + 'terminal.raw')).open('wb') as output:
                 if returned[2:14] != before[2:14] or returned[15] != before[15]:
                     raise RuntimeError('CB 改變了其他暫存器／段或旗標')
                 records['far_ret_after'] = returned
-                if timer_memory('far_ret_frame_after', format(ss, '04X'), format(esp, '08X'), 8) != frame:
+                if timer_memory('far_ret_frame_after', format(ss, '04X'), format(esp, '08X'), frame_size) != frame:
                     raise RuntimeError('CB 改寫了原始返回框架')
+                if capture_irq0_end_chain:
+                    return_ip, return_selector, return_flags = struct.unpack('<III', frame[8:])
+                    return_cs = return_selector & 0xffff
+                    if not return_cs or return_cs & 3 != target_cs & 3:
+                        raise RuntimeError('結束鏈返回框架不是同權限的非空 selector')
+                    records['irq0_end_chain_frame'] = frame[8:].hex()
+                    records['irq0_end_chain_target'] = {'cs': return_cs, 'eip': return_ip, 'flags': return_flags}
+                    bda_before = timer_memory('irq0_end_chain_bda_before', '0188', '0000046C', 5)
+                    cmd('BPDEL *')
+                    cmd(f'BP {return_cs:04X}:{return_ip:08X}')
+                    # 核心只黑箱自然執行到既有框架給出的返回點，不擷取內部指令。
+                    cmd('RUN', 12)
+                    snapshots = registers(cmd('EV ' + order, 0.8))
+                    resumed = next((v for v in reversed(snapshots) if len(v) == 16 and v[:2] == [format(return_cs, 'x'), format(return_ip, 'x')]), None)
+                    if not resumed:
+                        raise RuntimeError('結束鏈框架返回點未命中：' + repr(snapshots))
+                    records['irq0_end_chain_after'] = resumed
+                    bda_after = timer_memory('irq0_end_chain_bda_after', '0188', '0000046C', 5)
+                    validate_irq0_end_chain_boundary(returned, resumed, bda_before, bda_after)
+                    timer_memory('irq0_end_chain_frame_after', format(ss, '04X'), format(esp + 8, '08X'), 12)
             else:
                 timer_run_to('timer_mode2_before', '0036DAE8')
                 timer_memory('timer_wait_source_before', '0188', '0039F148', 4)

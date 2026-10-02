@@ -81,12 +81,37 @@ func (b *LEBIOSClock) deliver(m *LEMachine, p *LEOPLPorts, enabled bool) error {
 	if !b.Pending || !enabled || p.picMasks[0]&1 != 0 || b.InService || b.protectedIRQ0 != nil && b.protectedIRQ0.active {
 		return nil
 	}
+	if err := b.validateDefaultBIOS(m); err != nil {
+		return err
+	}
+	if b.protectedIRQ0 != nil {
+		if handled, err := b.protectedIRQ0.dispatch(); handled || err != nil {
+			return err
+		}
+	}
+	incrementLEBIOSClockData(m)
+	b.Pending = false
+	b.Deliveries++
+	return nil
+}
+
+// 規格 281：派送與預設結束鏈共用前提，拒絕未建模的實／保護模式 BIOS 鏈。
+func (b *LEBIOSClock) validateDefaultBIOS(m *LEMachine) error {
+	if len(m.Mem) < 0x471 {
+		return fmt.Errorf("BIOS時鐘資料區不可讀寫")
+	}
 	for _, n := range []int{8, 0x1c} {
 		if binary.LittleEndian.Uint32(m.Mem[n*4:]) != 0 {
 			return fmt.Errorf("BIOS時鐘尚不支援客製INT%02X", n)
 		}
 	}
 	if b.protectedIRQ0 != nil {
+		for _, n := range []uint8{8, 0x1c} {
+			seg, off := b.protectedIRQ0.s.DPMI.RealModeVector(n)
+			if seg != 0 || off != 0 {
+				return fmt.Errorf("BIOS時鐘尚不支援DPMI客製實模式INT%02X", n)
+			}
+		}
 		vector := b.protectedIRQ0.s.dosVectors[0x1c]
 		if vector != 0 && !b.protectedIRQ0.isDefault(vector, 0x1c) {
 			return fmt.Errorf("BIOS時鐘尚不支援保護模式客製INT1C")
@@ -96,17 +121,16 @@ func (b *LEBIOSClock) deliver(m *LEMachine, p *LEOPLPorts, enabled bool) error {
 				return fmt.Errorf("BIOS時鐘預設INT1C已污染或不可讀")
 			}
 		}
-		if handled, err := b.protectedIRQ0.dispatch(); handled || err != nil {
-			return err
-		}
 	}
+	return nil
+}
+
+// 呼叫端先檢查 BDA 與 BIOS 鏈；一次預設 BIOS08h 只增加一次計數。
+func incrementLEBIOSClockData(m *LEMachine) {
 	value := binary.LittleEndian.Uint32(m.Mem[0x46c:]) + 1
 	if value >= 0x1800b0 {
 		value = 0
 		m.Mem[0x470]++
 	}
 	binary.LittleEndian.PutUint32(m.Mem[0x46c:], value)
-	b.Pending = false
-	b.Deliveries++
-	return nil
 }

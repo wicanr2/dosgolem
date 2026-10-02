@@ -246,11 +246,11 @@ func TestProtectedIRQ0RejectsUnmodeledChains(t *testing.T) {
 		t.Fatal("未建模的保護模式 INT1C 不可默默跳過")
 	}
 	s.dosVectors[0x1c] = 0
-	vector, ok := s.protectedIRQ0.defaultVector(8)
+	vector, ok := s.protectedIRQ0.defaultVector(9)
 	if !ok {
 		t.Fatal("預設入口")
 	}
-	// 自製近 JMP 轉到合成核心入口；完整實／保護模式鏈仍明確拒絕。
+	// 規格 281 只接受預設 DOS08h；轉到 DOS09h 仍明確拒絕。
 	c := m.CPU
 	previous := c.StepHook
 	c.StepHook = func(c *cpu386.CPU) (bool, error) {

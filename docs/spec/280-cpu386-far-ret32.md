@@ -46,3 +46,8 @@ Intel 80386 保護模式 RET 的公開流程只要求前三個 word 可讀；32 
 PIT 模式 3／Reload=14916／Generation=3，Micros=1233787、Deliveries=26、InService=false，等待來源 DS:00271148 四 bytes 仍零。這次比 279 多執行一次成功 CB，沒有完整第六次返回或模式 2 等待閉合。事件條件 requested=true／injected=false，不算實際玩家分支驗收。自然 gzip SHA-256 ee40229c9a12fff73978cf2eba833d690538fdc9a9c832033124540992231af5／d6454c281fe069a9784bb4ddcd46b78c2a7da57bfbe092253565f73596f5b45d；VBE Writes=0、PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622 同已檢視黑圖，不重做目視。完整原版資料／終端／gzip／PNG 只留本機，不入公開 Git。
 
 下一步只依公開 DOS/4GW chaining／結束鏈介面契約建立新的受限平台規格，審查 READY 後再實作預設入口的合法完成／拒絕條件。不逆向 ISR、timer driver／busy-wait，不搬入核心位址或猜寫等待值。255／277 仍 READY；主選單／正常玩家路徑、音效、受控亂數及 Go remake 玩法同狀態尚未完成。
+
+
+## 規格 281 的平台結束鏈後續
+
+預設核心鏈停點已由規格 281 接通，見 [281-moo2-protected-irq0-end-chain.md](281-moo2-protected-irq0-end-chain.md)。本規格 CB 的 CPU 範圍保持；上述 started=6／completed=5 是 280 歷史。281 自行重生原版 1,595 次完整返回與等待來源 01 00 00 00，受限 IRQ0／模式 2 等待閉合；下一停點為 PIT count latch，不再是未建模核心鏈。核心布局／逐週期與正常玩家操作仍未知或近似，255 READY。
