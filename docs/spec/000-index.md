@@ -335,4 +335,4 @@
 
 ## 新增 CPU386 位移切片
 
-- [190-cpu386-d1-shl-rm32](190-cpu386-d1-shl-rm32.md)：FD2第十七章正常END後的D1 /4記憶體指令。READY；原版證據與同槽重跑由fd2_re #90追蹤。
+- [190-cpu386-d1-shl-rm32](190-cpu386-d1-shl-rm32.md)：FD2第十七章正常END後的D1 /4記憶體指令。CONFORMED；原版證據與同槽重跑由fd2_re #90追蹤。
