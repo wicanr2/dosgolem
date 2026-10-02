@@ -2447,6 +2447,7 @@ func main() {
 		MemorySHA256              string                            `json:"memory_sha256"`
 		CPUSHA256                 string                            `json:"cpu_sha256,omitempty"`
 		LiveLanguage              string                            `json:"live_language,omitempty"`
+		LiveManualVisibleKey      string                            `json:"live_manual_visible_key,omitempty"`
 		LiveLangSwitches          []string                          `json:"live_lang_switches,omitempty"`
 		LiveFrames                uint64                            `json:"live_frames,omitempty"`
 		LiveLoadMillis            int64                             `json:"live_load_ms,omitempty"`
@@ -2505,6 +2506,9 @@ func main() {
 		// 既有收據逐位元組不變。
 		result.CPUSHA256 = cpuDigestHex(m)
 		result.LiveLanguage = liveAll.Language()
+		if key, ok := liveAll.ManualVisibleKey(); ok {
+			result.LiveManualVisibleKey = key // spec 053 §5.2: the event key only, no text
+		}
 		result.LiveFrames, result.LiveLoadMillis = liveAll.Frames(), liveLoadMillis
 		if nextLangSwitch != len(langSwitches) {
 			fail(fmt.Errorf("lang-switch 有 %d 筆未在停止前套用", len(langSwitches)-nextLangSwitch))

@@ -978,6 +978,9 @@ func (r *LiveRuntime) DebugSummary() string {
 	case r.manEngOff != "":
 		s += " 英文列=off(" + r.manEngOff + ")"
 	}
+	if l0.manE1 != "" {
+		s += " manual-e1=" + l0.manE1
+	}
 	s += l0.counters()
 	for _, l := range r.lanes[1:] {
 		s += " lane[" + l.lang + "]={resets=" + fmt.Sprint(l.resets) + l.halfFontError() + l.counters() + l.stats()
@@ -1033,6 +1036,9 @@ func (r *LiveRuntime) SetManualEnglish(path string) error {
 		return nil
 	}
 	r.manEng = m
+	// Spec 053 §3.4: E1 and the keyword rows coexist only while E1 never uses
+	// more rows than the fixed cells.
+	l0.checkManualE1Keyword(m)
 	return nil
 }
 
@@ -1084,4 +1090,18 @@ func (r *LiveRuntime) rowsTouched(out []byte, scale int, p *HMenuPage) bool {
 		}
 	}
 	return false
+}
+
+// ManualVisibleKey is the event key of the manual question the zh-TW lane's
+// 3× presenter shows now (receipts only; the key carries no manual text).
+func (r *LiveRuntime) ManualVisibleKey() (string, bool) {
+	if r == nil || len(r.lanes) == 0 {
+		return "", false
+	}
+	i := manualE1Index()
+	if i < 0 || r.lanes[0].manPres[i] == nil {
+		return "", false
+	}
+	_, key, ok := r.lanes[0].manPres[i].VisibleRequest()
+	return key, ok
 }

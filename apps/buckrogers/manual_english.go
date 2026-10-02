@@ -202,12 +202,7 @@ func LoadManualEnglish(data []byte, catalog *Catalog, panel []byte, fonts []*xla
 			m.Excluded[key] = "paragraph"
 			continue
 		}
-		k := 0
-		for i, line := range paragraph {
-			if line != "" {
-				k = i + 1
-			}
-		}
+		k := manualUsedRows(paragraph)
 		plan, ok := manualEnglishLayout(k, words, long, short)
 		if !ok {
 			m.Excluded[key] = "layout"
@@ -241,7 +236,7 @@ type manualEnglishPresenter struct {
 func (p *manualEnglishPresenter) sync(m *ManualEnglish, man *RuntimeManualOverlay, palette [256][3]uint8) bool {
 	gen, key, ok := man.VisibleRequest()
 	plan, has := m.plans[key]
-	if !ok || !has || !man.HasStyle() || man.e1Plan != nil {
+	if !ok || !has || !man.HasStyle() {
 		p.layer, p.gen, p.key = nil, 0, ""
 		return false
 	}
@@ -264,4 +259,17 @@ func (p *manualEnglishPresenter) sync(m *ManualEnglish, man *RuntimeManualOverla
 		s.BG, s.FG = palette[man.style.Background], palette[man.style.Foreground]
 	}
 	return true
+}
+
+// manualUsedRows is the number of rows a laid-out paragraph occupies: the
+// index of its last non-empty row plus one.  The keyword row of spec 034
+// starts on the row after it.
+func manualUsedRows(rows []string) int {
+	k := 0
+	for i, line := range rows {
+		if line != "" {
+			k = i + 1
+		}
+	}
+	return k
 }

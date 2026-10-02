@@ -43,6 +43,10 @@ func TestPackagedLanes(t *testing.T) {
 	if len(r.off) != 0 {
 		t.Fatalf("語言停用：%v", r.off)
 	}
+	// Spec 053 §5.5: the zh-TW 3× presenter of the packaged runtime draws E1.
+	if sum := r.DebugSummary(); !strings.Contains(sum, " manual-e1=on") {
+		t.Fatalf("zh-TW 手冊 E1 未啟用：%s", sum)
+	}
 	for _, l := range langs {
 		if err := r.SetLanguage(l); err != nil {
 			t.Fatalf("%s：%v", l, err)
@@ -57,6 +61,11 @@ func TestPackagedLanes(t *testing.T) {
 			continue
 		}
 		lane := r.lanes[i]
+		for _, p := range lane.manPres {
+			if (l != LangZhTW) && p.e1Base != nil {
+				t.Errorf("%s：只有 zh-TW 可以啟用手冊 E1", l)
+			}
+		}
 		if lane.players == nil {
 			t.Errorf("%s：玩家名未啟用（%s）", l, lane.playersOff)
 			continue

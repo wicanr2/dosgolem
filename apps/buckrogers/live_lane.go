@@ -42,7 +42,11 @@ type liveLane struct {
 	manSeen      int
 	manStyle     ManualTextStyle
 	manHas       bool
-	stories      []storyFamily
+	// manE1 is the spec 053 status of the zh-TW lane's 3× presenter (empty on
+	// other lanes); manE1Rows is the rows each paragraph uses under E1.
+	manE1     string
+	manE1Rows map[string]int
+	stories   []storyFamily
 
 	// Spec 038 / 040 §3.1: per-language names; players is nil when the
 	// transliterator of this language is not available.
@@ -215,6 +219,7 @@ func (r *LiveRuntime) loadLane(lang string, font *xlate.Font, langDir string) (*
 		if l.manPres[i], err = NewRuntimeManualOverlayLang(r.manLayout, l.manCatalog, font, scale, lang); err != nil {
 			return nil, err
 		}
+		l.setupManualE1(i)
 		consumer, err := NewManualPresentationConsumer(l.manPres[i])
 		if err != nil {
 			return nil, err
@@ -542,6 +547,11 @@ func (l *liveLane) syncManual(style ManualTextStyle, ok bool, n int) {
 		l.manSeen = n
 		for i := range liveScales {
 			if _, err := l.manSync[i].Sync(); err != nil {
+				// Spec 053 §3.1: a request that fails under E1 is shown with the
+				// fixed cells instead; a second failure is counted as before.
+				if l.lang == LangZhTW && l.manPres[i].e1Base != nil && l.manualE1Fallback(i) {
+					continue
+				}
 				l.resets["manual"]++
 			}
 		}
@@ -1038,7 +1048,12 @@ func (l *liveLane) compose(r *LiveRuntime, i, scale int) ([]byte, error) {
 	}
 	if len(l.manPres[i].ActiveKeys()) != 0 {
 		rgba, missing, _ := l.manPres[i].Draw(r.indexed, r.palette)
-		layer("manual", rgba, missing)
+		if rgba == nil {
+			// Spec 053 §3.2: an E1 draw that failed leaves the original.
+			l.skips["manual"]++
+		} else {
+			layer("manual", rgba, missing)
+		}
 	}
 	// Spec 034: the local English excerpt panel is shown with zh-TW only.
 	if l.lang == LangZhTW && r.manEng != nil && r.manEngPres[i].sync(r.manEng, l.manPres[i], r.palette) {
