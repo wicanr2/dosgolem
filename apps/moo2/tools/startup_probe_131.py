@@ -52,6 +52,32 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_add_word_memory_source_resolution(spec_dir):
+    """312真正word來源／寫回與較早相同停點必須一起保存。"""
+    current=(spec_dir/'312-cpu386-add-word-memory-source.md').read_text()
+    required=('0x210C7E','66 03 05 A4 BE 29 00','DS0188:0029BEA4',
+              'EAX0000000F→00000011','flags202h→216h',
+              'CF0／PF1／AF1／ZF0／SF0／OF0','0x210C85','66 A3 A2 BE 29 00',
+              'DS0188:0029BEA2','0F00000002000200→0F00110002000200',
+              '0x210C8B','0x210C90','58965328',
+              'mouse_started=0','mouse_completed=0','mouse_started=1','mouse_completed=1',
+              '0x14E3DE','66 81 F9 D4 00','Loading Master of Orion II',
+              '35b61654a285c65c619fee17cd49c86720e2fc0def4d405c06552bdfe04d4fc9',
+              '32274bc6d48f28dad1567c74ee515e3a7867f4a8c12b2764c830c79abe6ebb14',
+              'd2d1475f15c94cccd43c012f98427571475c444548decff883f34a73aa7de904',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('word ADD來源缺原始定位／flags／寫回／受控初態與正式收據')
+    for name in ('309-sb16-pause-resume-dma8.md','310-moo2-dos-calendar-date.md','311-cpu386-sub-word-register-imm16.md'):
+        older=(spec_dir/name).read_text()
+        if 'word ADD記憶體來源停點已由規格 312 接通' not in older or '312-cpu386-add-word-memory-source.md' not in older:
+            raise RuntimeError('word ADD來源較早拒絕缺解析回填')
+
+if sys.argv[1:]==['--check-add-word-memory-source-spec-backlinks']:
+    validate_add_word_memory_source_resolution(spec_dir)
+    print('word ADD來源／六旗標／真正寫回與較早三文件回填通過')
+    raise SystemExit(0)
+
 def validate_dos_calendar_resolution(spec_dir):
     """310明示日曆與原始返回／caller須回填309。"""
     current=(spec_dir/'310-moo2-dos-calendar-date.md').read_text()

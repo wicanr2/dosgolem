@@ -79,3 +79,7 @@ DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000=1 DOSGOLEM_MOO2_MAX_STEPS=50000000 DOS
 DOS AH2Ah日期停點已由規格 310 接通。309須保留此標記與本檔連結，限定明示epoch與正常返回，不讓舊日期服務拒絕當現行已設定流程的阻塞。word SUB完整立即值停點已由規格 311 接通，見[311-cpu386-sub-word-register-imm16.md](311-cpu386-sub-word-register-imm16.md)；初始310診斷與失敗測試的SUB拒絕屬當時CPU基線，不重寫歷史。驗證入口apps/moo2/tools/startup_probe_131.py --check-dos-calendar-spec-backlinks；缺原始定位、明示初態、正常日期／寫回、未設定拒絕、收據或舊回填必拒絕。
 
 全部53個回填函式與45個新增缺證據／較早標記與連結移除負例、兩個CLI通過。既有309索引正對照及310／311入口可查，受驗日曆／啟動／CPU／測試／探針來源SHA-256未變。本批三正常流程與全套Go容器均已正常退出移除，未清理其他專案或映像。
+
+## 2026-10-03 ADD來源停點勘誤
+
+word ADD記憶體來源停點已由規格 312 接通，見[312-cpu386-add-word-memory-source.md](312-cpu386-add-word-memory-source.md)。同一固定EXE／高位LE0x210C7E，來源0002h＋AX000Fh、flags216h及真正DS0188:0029BEA2兩byte寫回已驗。原拒絕收據保留；兩明示日期正常流程現在停0x14E3DE word CMP完整立即值，已見原版Loading畫面，其他日期／時間／RNG、音訊、玩家流程與本規格範圍未擴張。

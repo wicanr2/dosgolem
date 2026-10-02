@@ -1189,11 +1189,21 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
+			dst := (modrm >> 3) & 7
+			value := uint16(c.R[modrm&7])
 			if modrm>>6 != 3 {
-				return fail("word ADD僅支援暫存器")
+				// 規格312：word記憶體來源只讀，完整取得後才發布算術結果。
+				seg, addr, e := c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				var ok bool
+				value, ok = c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("word ADD來源越界")
+				}
 			}
-			dst, src := (modrm>>3)&7, modrm&7
-			result := c.add16(uint16(c.R[dst]), uint16(c.R[src]))
+			result := c.add16(uint16(c.R[dst]), value)
 			c.R[dst] = c.R[dst]&0xffff0000 | uint32(result)
 			break
 		}

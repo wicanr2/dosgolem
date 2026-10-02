@@ -488,3 +488,5 @@
 - [310：DOS AH2Ah 與可重播日曆](310-moo2-dos-calendar-date.md)：CONFORMED。明示epoch／兩正常日期與原始caller寫回、未設定拒絕與全套已驗；AH2C／RNG／真實系統日期及玩家流程未知。
 
 - [311：word SUB 完整立即值](311-cpu386-sub-word-register-imm16.md)：CONFORMED。八目的／全word／六旗標／全套與兩正常各兩筆SUB、MOV／SHL／word MOV及兩次堆疊寫回已驗；memory與完整CPU未擴張。
+
+- [312：word ADD 的記憶體來源](312-cpu386-add-word-memory-source.md)：CONFORMED。word記憶體來源／獨立六旗標／全部測試與兩正常ADD、真正兩byte寫回及四caller已驗；已見Loading畫面，主選單未知。

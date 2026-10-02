@@ -82,3 +82,7 @@ D0 DMA暫停停點已由規格 309 接通。303／305／306／307均須保留此
 ## 日期服務後續
 
 DOS AH2Ah日期停點已由規格 310 接通，見[310-moo2-dos-calendar-date.md](310-moo2-dos-calendar-date.md)。2026-10-03明示epoch1996-01-01的兩正常48M Esc排程真正日期返回／原始SUB與兩次堆疊寫回已驗；未設定日曆仍維持本規格原拒絕。新停點0x210C7E word ADD記憶體來源，時間／RNG與玩家流程邊界未擴張。
+
+## 2026-10-03 ADD來源停點勘誤
+
+word ADD記憶體來源停點已由規格 312 接通，見[312-cpu386-add-word-memory-source.md](312-cpu386-add-word-memory-source.md)。同一固定EXE／高位LE0x210C7E，來源0002h＋AX000Fh、flags216h及真正DS0188:0029BEA2兩byte寫回已驗。原拒絕收據保留；兩明示日期正常流程現在停0x14E3DE word CMP完整立即值，已見原版Loading畫面，其他日期／時間／RNG、音訊、玩家流程與本規格範圍未擴張。

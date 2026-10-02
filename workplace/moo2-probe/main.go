@@ -136,6 +136,7 @@ func main() {
 	dtaSet := false
 	loopStep := 0
 	calendarConsumerSteps := 0
+	wordAddMemorySeen, wordAddMemorySteps := 0, 0
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
 		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x2a {
 			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
@@ -610,7 +611,35 @@ func main() {
 				calendarStackBefore[j], calendarStackReadable = b, calendarStackReadable && ok
 			}
 		}
+		observeWordAddMemory := m.CPU.EIP == 0x210c7e && wordAddMemorySeen < 2
+		if observeWordAddMemory {
+			wordAddMemorySeen++
+			wordAddMemorySteps = 4
+		}
+		var wordAddBeforeR [8]uint32
+		var wordAddBeforeSeg [6]uint16
+		var wordAddBeforeEIP, wordAddBeforeFlags uint32
+		var wordAddBytes [16]byte
+		var wordAddBeforeMemory, wordAddAfterMemory [8]byte
+		wordAddReadable := true
+		if wordAddMemorySteps > 0 {
+			wordAddBeforeR, wordAddBeforeSeg, wordAddBeforeEIP, wordAddBeforeFlags = m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+			copy(wordAddBytes[:], m.Mem[wordAddBeforeEIP:wordAddBeforeEIP+16])
+			for j := range wordAddBeforeMemory {
+				b, ok := m.CPU.ReadSegment8(wordAddBeforeSeg[cpu386.SegDS], 0x29bea0+uint32(j))
+				wordAddBeforeMemory[j], wordAddReadable = b, wordAddReadable && ok
+			}
+		}
 		stepErr := m.CPU.Step()
+		if wordAddMemorySteps > 0 {
+			wordAddMemorySteps--
+			for j := range wordAddAfterMemory {
+				b, ok := m.CPU.ReadSegment8(wordAddBeforeSeg[cpu386.SegDS], 0x29bea0+uint32(j))
+				wordAddAfterMemory[j], wordAddReadable = b, wordAddReadable && ok
+			}
+			fmt.Printf("word_add_memory_observation outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X memory_selector=%X memory_offset=29BEA0 memory_readable=%t before_memory=%X after_memory=%X error=%v\n", i, wordAddBeforeEIP, m.CPU.EIP, wordAddBeforeR, m.CPU.R, wordAddBeforeSeg, m.CPU.Seg, wordAddBeforeFlags, m.CPU.EFlags, wordAddBytes, wordAddBeforeSeg[cpu386.SegDS], wordAddReadable, wordAddBeforeMemory, wordAddAfterMemory, stepErr)
+		}
+
 		if observeCalendarConsumer {
 			calendarConsumerSteps--
 			for j := range calendarStackAfter {

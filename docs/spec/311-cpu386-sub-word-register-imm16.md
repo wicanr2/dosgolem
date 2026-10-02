@@ -48,3 +48,7 @@ CPU SHA-256 cfe5bc387aee00907acd897c3c6b77a5e4186828250e53fbc0513d0e40b504e1；i
 word SUB完整立即值停點已由規格 311 接通。310必須保留此標記與本檔連結；它的初始拒絕收據保留，現行依以上有限CPU／正常consumer範圍。不可變鍵固定EXE＋高位LE0x240A34＋66 81 E9 6C 07，另保留同bytes第二caller0x240A98；309的AH2A是不同鍵由310處理，其他word SUB／dword或runtime用途不擴張。驗證入口apps/moo2/tools/startup_probe_131.py --check-sub-word-imm16-spec-backlinks；缺定位、兩筆SUB／六旗標／consumer／原始寫回／收據或310回填必拒絕。
 
 同次53個回填函式／45新增負例與兩CLI通過，所有受驗來源與兩設定／一未設定正常收據保持；索引、所有修改與輸出UID:GID1000:1000，工具工作樹root-owned／.md目錄自檢空，Go容器已退出移除。
+
+## 2026-10-03 ADD來源停點勘誤
+
+word ADD記憶體來源停點已由規格 312 接通，見[312-cpu386-add-word-memory-source.md](312-cpu386-add-word-memory-source.md)。同一固定EXE／高位LE0x210C7E，來源0002h＋AX000Fh、flags216h及真正DS0188:0029BEA2兩byte寫回已驗。原拒絕收據保留；兩明示日期正常流程現在停0x14E3DE word CMP完整立即值，已見原版Loading畫面，其他日期／時間／RNG、音訊、玩家流程與本規格範圍未擴張。
