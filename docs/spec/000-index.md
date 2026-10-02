@@ -470,3 +470,5 @@
 - [301：word 暫存器與符號延伸 imm8 的 XOR](301-cpu386-xor-word-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然完整XOR／PUSH EDI、PUSH EAX的兩個dword真實寫入已驗；IRQ0返回，XCHG停點由302接通；自然到50M上限與星空片段，正常玩家路徑仍未驗收。
 
 - [302：AX 與 word 暫存器的短編碼交換](302-cpu386-xchg-ax-word-register.md)：CONFORMED。全部CPU／固定EXE、兩自然三組完整交換／高16位及全部旗標保持與下一ROR完整消費已驗；自然到50M上限無CPU拒絕，已見星空片段，主選單／正常玩家路徑未驗。
+
+- [303：晚期啟動的平台狀態與正常輸入入口](303-moo2-late-startup-platform-observation.md)：DRAFT。兩自然各11筆唯讀快照與302完整機器收據一致；已證實音訊時計1375／DMA8進度未隨保護模式前進，鍵盤IRQ1未接；等待因果與正常玩家路徑未知。

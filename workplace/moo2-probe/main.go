@@ -230,6 +230,18 @@ func main() {
 	fmt.Printf("entry_bytes=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+16])
 	fmt.Printf("entry_window=% X\n", m.Mem[m.CPU.EIP:m.CPU.EIP+80])
 	mouseEventInjected := false
+	dumpPlatform := func(label string, step int) {
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+			keyboardReads, enqueued := uint64(0), 0
+			keyboardWaiting := false
+			if m.Keyboard != nil {
+				keyboardReads, enqueued, keyboardWaiting = m.Keyboard.Reads, len(m.Keyboard.Enqueued), m.Keyboard.Waiting
+			}
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			seg9, off9 := services.DPMI.RealModeVector(9)
+			fmt.Printf("late_startup_platform label=%s outer_step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X bios_clock=%+v device=%+v irq7_deliveries=%d pcm16_bytes=%d keyboard_installed=%t keyboard_reads=%d keyboard_waiting=%t keyboard_enqueued=%d bda_queue_bytes=%X keyboard_port_reads=%d/%d/%d rm09=%04X:%04X absolute_ivt09=%X mouse_mask=%X mouse_pending=%d mouse_active=%t mouse_started=%d mouse_completed=%d watch_base=0x2A8E40 watch_bytes=%X\n", label, step, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.BIOSClock, ports.State(), ports.IRQ7Deliveries, len(ports.PCM16), m.Keyboard != nil, keyboardReads, keyboardWaiting, enqueued, m.Mem[0x41a:0x41e], ports.Reads[0x60], ports.Reads[0x61], ports.Reads[0x64], seg9, off9, m.Mem[0x24:0x28], mask, pending, active, started, completed, m.Mem[0x2a8e40:0x2a8e58])
+		}
+	}
 	dumpVBE := func() {
 		fmt.Printf("controlled_mouse_event_requested=%t injected=%t\n", os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1", mouseEventInjected)
 		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
@@ -274,6 +286,7 @@ func main() {
 	adcSeen := map[uint32]int{}
 	wordXorSeen := map[uint32]int{}
 	wordXchgSeen := map[uint32]int{}
+	lateCallerSeen := map[uint32]int{}
 	previousStepHook := m.CPU.StepHook
 	m.CPU.StepHook = func(c *cpu386.CPU) (bool, error) {
 		if (c.EIP == 0x2520b7 || c.EIP == 0x2520b9 || c.EIP == 0x2520bb || c.EIP == 0x2520c5 || c.EIP == 0x2520c7 || c.EIP == 0x2520c9 || c.EIP == 0x2520cb || c.EIP == 0x2520d0 || c.EIP == 0x2520d6) && shlSeen[c.EIP] < 3 {
@@ -296,6 +309,10 @@ func main() {
 			active, failed, started, completed := services.IRQ0State()
 			fmt.Printf("word_xchg_state outer_step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X irq0_active=%t irq0_failed=%t irq0_started=%d irq0_completed=%d bytes=% X\n", loopStep, c.EIP, c.R, c.Seg, c.EFlags, active, failed, started, completed, m.Mem[c.EIP:c.EIP+64])
 		}
+		if loopStep >= 49000000 && (c.EIP == 0x231ae4 || c.EIP == 0x231aeb || c.EIP == 0x22fcd2) && lateCallerSeen[c.EIP] < 2 {
+			lateCallerSeen[c.EIP]++
+			dumpPlatform("caller", loopStep)
+		}
 		if previousStepHook != nil {
 			return previousStepHook(c)
 		}
@@ -310,6 +327,9 @@ func main() {
 	ring := make([]sample, 0, 32)
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
+		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
+			dumpPlatform("sample", i)
+		}
 		mouseEventRequested := os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || (os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1" && mousePositionSet)
 		if mouseEventRequested && !mouseEventInjected && m.CPU.EFlags&cpu386.IF != 0 {
 			mask, _, _, _, _ := services.MouseCallbackState()
@@ -536,6 +556,7 @@ func main() {
 		}
 	}
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
+	dumpPlatform("terminal", maxSteps)
 	fmt.Printf("step_limit_registers r=%X seg=%X flags=0x%X bytes=% X\n", m.CPU.R, m.CPU.Seg, m.CPU.EFlags, m.Mem[m.CPU.EIP:m.CPU.EIP+16])
 	for _, s := range ring {
 		fmt.Printf("step_limit_tail step=%d eip=0x%X esp=0x%X esi=0x%X eax=0x%X bytes=% X\n", s.step, s.eip, s.esp, s.esi, s.eax, m.Mem[s.eip:s.eip+8])

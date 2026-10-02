@@ -69,3 +69,8 @@ VBE Bank9／StartY512／BankSets497／Writes4744640／DisplaySets7，indexed SHA
 CPU契約鍵：cpu386 66 91–97／AX與word暫存器／兩高16位與全部旗標保持；原版停點鍵：固定EXE雜湊＋高位LE0x256171＋66 93。293–301的九份同停點保存「word XCHG停點已由規格 302 接通」與本檔連結；原有其他CPU／平台及299原版自然OF=1證據範圍不擴張。驗證入口 apps/moo2/tools/startup_probe_131.py --check-xchg-ax-word-spec-backlinks，缺定位／兩高word／全部旗標保持／真正完整ROR消費／50M上限收據或任一舊標記須拒絕。主庫玩法RE閘門不變，原始素材／完整終端／記憶體／gzip／PNG留本機。
 
 下一步先以有限唯讀觀測確認這個正常啟動流程的等待與鍵鼠入口，再用原版正常輸入重播；不為了跨過上限而跳指令、注入玩法資料或直接猜修等待條件，不深入helper／driver／ISR硬體時序。
+
+
+## 後續平台觀測
+
+2026-10-02的 [303-moo2-late-startup-platform-observation.md](303-moo2-late-startup-platform-observation.md) 已保存兩自然各11筆有限唯讀快照；原有CPU／平台來源、完整終態、XCHG／ROR與圖像收據保持。已證實保護模式未推進音訊時計，正常鍵盤入口尚未接通；等待因果仍未知，本檔的CPU限定CONFORMED及其他限制保持。
