@@ -62,3 +62,7 @@ CPU SHA-256 1448f29f24dad35e83575189055dc15dd7ac9db2b3529c6d450f03baf91c97b1；p
 限定CONFORMED只含無前綴32位記憶體NEG及以上真正寫回／最小消費；晚期Bus部分寫與fetch EIP近似保持，未放寬prefix或主庫RE-first閘門。下一步在相同50M上限與單次正常輸入下，增加唯讀、有界的後段進度／畫面觀測，判定選單之後的可見轉移與最小阻塞；保留原始地址與未知，不追helper內部、不加cap、重點、代寫狀態或提前調整輸入。
 
 62回填函式、原有32／49／25與325新增27缺證據負例、三CLI全部PASS。workplace/neg-dword-325-backlink-tests.txt SHA-256 02e589623a7b22418ead00bb74525b1622d6d8c1ab3c26cd5497f3559ffe8628。獨立正常來源／寫回／六旗標／9續行、舊4123列與兩終圖驗證可在容器內重跑python3 workplace/neg-dword-325-verify.py；本機忽略腳本SHA-256 f13094e9dfc2c75bd089a60b6cbb4f35f459eaf1840a2979a78be53695ea0e83，收據workplace/neg-dword-325-parity-tests.txt SHA-256 b7bd5bca62c91c69c0d784d57e7e1b7177f6acb0bb429c1a287ef28a4e645a84。新檔與收據UID:GID1000:1000，root-owned／誤建.md目錄自檢空；一次性工作容器已退出。
+
+## 2026-10-03 後段唯讀進度
+
+後段唯讀進度觀測已由規格326接通：[326-moo2-post-click-progress-observation.md](326-moo2-post-click-progress-observation.md)。六時點VBE換頁／寫入與可見像素保持，R／堆疊／RAM持續改變；原始325全部列與終圖仍保持。現行下一步為末尾真正DS:29BE74→DS:[EAX]→SS:[EBP-8]與CMP／JE／JLE的最小來源／分支核對。ESI窗口不當作實際來源，不改輸入或cap，設定畫面仍未知。

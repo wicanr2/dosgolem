@@ -515,4 +515,6 @@
 
 - [324：byte ADD目的](324-cpu386-add-byte-register-memory.md)：CONFORMED。1暫存器／7記憶體ADD與24續行、JGE兩方向與全套通過；記憶體NEG後續見325，設定畫面未知。
 
-- [325：32位記憶體NEG](325-cpu386-neg-dword-memory.md)：CONFORMED。3正常NEG寫回／9步MOV、CMP與JGE不跳、全套與舊4123列保持；同50M流程到上限無新CPU拒絕，設定畫面未知。
+- [325：32位記憶體NEG](325-cpu386-neg-dword-memory.md)：CONFORMED。3正常NEG寫回／9步MOV、CMP與JGE不跳、全套與舊4123列保持；同50M流程到上限無新CPU拒絕，後段觀測見326。
+
+- [326：NEW GAME後段進度](326-moo2-post-click-progress-observation.md)：CONFORMED。六時點VBE與像素保持／R、堆疊、RAM有變，完整兩325流程不突變；真實DS:[EAX]讀取與後續玩家路徑未知。

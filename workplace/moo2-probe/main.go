@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -544,8 +545,99 @@ func main() {
 			fmt.Printf("new_game_button_read_control normal8=%d callback8=%d normal16=%d callback16=%d positives8=%d positives16=%d target_samples=%d hook_code_matches=%t/%t\n", buttonRequests[1][0], buttonRequests[1][1], buttonRequests[2][0], buttonRequests[2][1], buttonPositiveCounts[1], buttonPositiveCounts[2], buttonReadSamples, hook8Matches, hook16Matches)
 		}
 	}()
+
+	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
+	postClickVisits := make(map[uint32]uint64)
+	postClickSteps := 0
+	dumpPostClickProgress := func(step int) {
+		if phasePrefix == "" || !newGameClick || !newGamePressed || !newGameReleased || step < 49500000 || step > 50000000 || step%100000 != 0 {
+			return
+		}
+		c := m.CPU
+		r, seg, eip, flags := c.R, c.Seg, c.EIP, c.EFlags
+		control, status, stack, depth := c.FPUControl, c.FPUStatus, c.FPUStack, c.FPUDepth
+		state, ramBefore := m.VBEState(), sha256.Sum256(m.Mem)
+		var instruction [16]byte
+		if uint64(eip)+16 <= uint64(len(m.Mem)) {
+			copy(instruction[:], m.Mem[eip:eip+16])
+		}
+		readWindow := func(selector uint16, offset uint32, out []byte) bool {
+			desc, known := c.Descriptors[selector]
+			linear := uint64(desc.Base) + uint64(offset)
+			if !known || uint64(offset)+uint64(len(out)) > uint64(desc.Limit)+1 || linear+uint64(len(out)) > uint64(len(m.Mem)) {
+				return false
+			}
+			copy(out, m.Mem[linear:linear+uint64(len(out))])
+			return true
+		}
+		var rawStack [64]byte
+		var rawESI [16]byte
+		stackOffset := r[cpu386.EBP] - 0x38
+		stackReadable := r[cpu386.EBP] >= 0x38 && readWindow(seg[cpu386.SegSS], stackOffset, rawStack[:])
+		esiReadable := readWindow(seg[cpu386.SegDS], r[cpu386.ESI], rawESI[:])
+		pixels, rgb := m.VBEIndexed(), m.VBERGB()
+		if len(pixels) != 640*480 || len(rgb) != 640*480*3 {
+			panic("後段VBE快照尺寸錯誤")
+		}
+		out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
+		for pixel := range pixels {
+			copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
+			out.Pix[pixel*4+3] = 255
+		}
+		path := fmt.Sprintf("%s-post-click-%08d.png", phasePrefix, step)
+		file, err := os.Create(path)
+		if err != nil {
+			panic(err)
+		}
+		encodeErr, closeErr := png.Encode(file, out), file.Close()
+		if encodeErr != nil {
+			panic(encodeErr)
+		}
+		if closeErr != nil {
+			panic(closeErr)
+		}
+		encoded, err := os.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+		ramAfter := sha256.Sum256(m.Mem)
+		readonly := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state && ramBefore == ramAfter
+		for j := range stack {
+			readonly = readonly && math.Float64bits(stack[j]) == math.Float64bits(c.FPUStack[j])
+		}
+		if !readonly {
+			panic("後段進度觀測改變原始狀態")
+		}
+		type frequency struct {
+			address uint32
+			count   uint64
+		}
+		hits := make([]frequency, 0, len(postClickVisits))
+		for address, count := range postClickVisits {
+			hits = append(hits, frequency{address, count})
+		}
+		sort.Slice(hits, func(i, j int) bool {
+			if hits[i].count != hits[j].count {
+				return hits[i].count > hits[j].count
+			}
+			return hits[i].address < hits[j].address
+		})
+		hot := make([]string, 0, min(10, len(hits)))
+		for _, hit := range hits[:min(10, len(hits))] {
+			hot = append(hot, fmt.Sprintf("%X:%d", hit.address, hit.count))
+		}
+		micros := uint64(0)
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+			micros = ports.BIOSClock.Micros
+		}
+		fmt.Printf("post_click_progress outer_step=%d address_space=dosgolem_high_le eip=%X instruction_bytes=%X r=%X seg=%X flags=%X virtual_micros=%d state=%+v stack_selector=%X stack_offset=%X stack_readable=%t raw_stack=%X esi_selector=%X esi_offset=%X esi_readable=%t raw_esi=%X observed_steps=%d unique_sites=%d hot_sites=[%s] indexed_sha256=%x rgb_sha256=%x png_sha256=%x ram_before_sha256=%x ram_after_sha256=%x path=%s readonly=%t\n", step, eip, instruction, r, seg, flags, micros, state, seg[cpu386.SegSS], stackOffset, stackReadable, rawStack, seg[cpu386.SegDS], r[cpu386.ESI], esiReadable, rawESI, postClickSteps, len(hits), strings.Join(hot, " "), sha256.Sum256(pixels), sha256.Sum256(rgb), sha256.Sum256(encoded), ramBefore, ramAfter, path, readonly)
+		clear(postClickVisits)
+		postClickSteps = 0
+	}
+
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
+		dumpPostClickProgress(i)
 		if newGameClick && menuDisplay40Seen {
 			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
 			mask, pending, active, started, completed := services.MouseCallbackState()
@@ -943,6 +1035,10 @@ func main() {
 		buttonReadStepActive = newGameClick
 		buttonReadMatched = false
 		buttonPositivePending = false
+		if phasePrefix != "" && newGameClick && newGameReleased && i >= 49500000 {
+			postClickVisits[m.CPU.EIP]++
+			postClickSteps++
+		}
 		stepErr := m.CPU.Step()
 		buttonReadStepActive = false
 		if observeNegDword || observeNegDwordConsumer {
@@ -1121,6 +1217,7 @@ func main() {
 			return
 		}
 	}
+	dumpPostClickProgress(maxSteps)
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
 	dumpPlatform("terminal", maxSteps)
 	fmt.Printf("step_limit_registers r=%X seg=%X flags=0x%X bytes=% X\n", m.CPU.R, m.CPU.Seg, m.CPU.EFlags, m.Mem[m.CPU.EIP:m.CPU.EIP+16])

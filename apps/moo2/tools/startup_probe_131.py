@@ -51,6 +51,32 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_post_click_progress_resolution(spec_dir):
+    """326後段唯讀收據、完整基線、零可見差異與325回填須同時存在。"""
+    name = '326-moo2-post-click-progress-observation.md'
+    current = (spec_dir / name).read_text()
+    required = ('49500000', '49600000', '49700000', '49800000', '49900000', '50000000',
+                '全部3847列', '全部4202列', 'readonly=true', '區段100000', '不同像素皆0',
+                'Writes16194454', 'DisplaySets42', '1326', '2132E0', '29BE74', 'DS:[EAX]',
+                '不代表這組真正', '設定畫面仍未知',
+                'd37cf5c32298e69e38648ac9d70045d6501e188d56f1e7bb3fa2efb6a1877612',
+                'fa3d71704a13552e22ef0b04b5700afc9264934ed709a1c8134b5bb8b76782dc',
+                'd9e9c2b7ab2386e6ae4d49b02b2070ebbd8742599a33a1424a71f5386f9da6e0',
+                '034e6a2c85a3cbbb93d9c7b762d3ba5aea070ec2fc126f82fef30bc913841512')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('後段觀測缺固定時點／不突變／零像素差／原始來源邊界／收據或未知')
+    older = (spec_dir / '325-cpu386-neg-dword-memory.md').read_text()
+    if '後段唯讀進度觀測已由規格326接通' not in older or name not in older:
+        raise RuntimeError('325缺後段唯讀進度觀測回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('326缺公開索引入口')
+
+if sys.argv[1:] == ['--check-post-click-progress-spec-backlinks']:
+    validate_post_click_progress_resolution(spec_dir)
+    print('後段六時點／完整基線／零像素差／原始來源邊界與325回填通過')
+    raise SystemExit(0)
+
+
 def validate_neg_dword_memory_resolution(spec_dir):
     """325原始NEG來源、窗口、最小消費與較早規格回填須同時存在。"""
     name = '325-cpu386-neg-dword-memory.md'
