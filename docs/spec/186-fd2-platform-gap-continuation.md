@@ -1365,3 +1365,7 @@ READY：保護模式 AH40 檔案及主控台寫入依完整 ECX／EAX 計數，
 上限64MiB且先拒絕位址溢位；檔案寫入在完整來源可讀後才更動覆蓋檔。
 ECX=0保留既有截斷語意；原版目錄仍唯讀，16位元 DOS 前端不變。
 驗收207360-byte往返、65536-byte不得誤截斷、來源尾端越界不寫入、唯讀拒絕。
+
+## 2026-10-02：裸C1單位移旗標回填
+
+裸C1單位移OF契約由規格 299 補齊，見 [299-cpu386-c1-dword-single-shift-overflow.md](299-cpu386-c1-dword-single-shift-overflow.md)。298回歸找到既有dword SHL／SHR計數1缺OF的公開CPU契約反例；批次32的SAR OF=0及多位OF／AF清除模型保持。未新增FD2原版動態oracle，沒有MOO2自然OF=1同狀態收據；只限定公開CPU契約與獨立測試修正，原有證據範圍不擴張。

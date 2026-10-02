@@ -1083,7 +1083,7 @@ func TestRegisterRCLAndROR32ByOne(t *testing.T) {
 		})
 	}
 
-	for _, code := range [][]byte{{0xd1, 0x10}, {0xd1, 0xe0}, {0x66, 0xd1, 0xd0}} {
+	for _, code := range [][]byte{{0xd1, 0x10}, {0xd1, 0xd8}, {0x66, 0xd1, 0xd0}} {
 		c := New(testBus(code))
 		if err := c.Step(); err == nil {
 			t.Fatalf("未授權 D1 形狀 % X 被接受", code)

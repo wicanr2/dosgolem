@@ -3223,6 +3223,19 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if modrm>>6 == 3 && group == 4 {
+			// 規格298：裸D1 /4的dword單位左移，AF清除只屬工具模型。
+			rm := modrm & 7
+			value := c.R[rm]
+			result, carry := value<<1, value>>31
+			c.setLogicFlags(result)
+			c.EFlags |= carry
+			if result>>31^carry != 0 {
+				c.EFlags |= OF
+			}
+			c.R[rm] = result
+			break
+		}
 		if modrm>>6 == 3 && group == 5 {
 			rm := modrm & 7
 			value := c.R[rm]
@@ -3472,6 +3485,10 @@ func (c *CPU) Step() error {
 			c.setLogicFlags(result)
 			if carry != 0 {
 				c.EFlags |= CF
+			}
+			// 規格299：只有單位移的OF已定義，多位清除沿既有工具模型。
+			if count == 1 && (group == 4 && result>>31^carry != 0 || group == 5 && value>>31 != 0) {
+				c.EFlags |= OF
 			}
 			c.R[rm] = result
 		}

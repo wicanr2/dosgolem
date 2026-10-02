@@ -459,4 +459,8 @@
 
 - [296：SB16 C6h 的 8 位元自動初始化 DMA](296-sb16-c6-auto-init-dma.md)：CONFORMED。原版C6 20 FF 07接受／333步返回與MOV／CMP／JZ成功分支、條件DMA時鐘／block與ring已驗；保護模式連續PCM／IRQ7未知，ROR立即數停點由297接通，保留原有音訊邊界。
 
-- [297：dword 暫存器的立即數右循環移位](297-cpu386-ror-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然兩組完整ROR／CF／MOV AX,DX消費已驗；多位OF模型明示，下一IRQ0呼叫內的D1 SHL EAX,1缺件。
+- [297：dword 暫存器的立即數右循環移位](297-cpu386-ror-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然兩組完整ROR／CF／MOV AX,DX消費已驗；多位OF模型明示，IRQ0內D1 SHL停點由298接通。
+
+- [298：dword 暫存器的單位左移](298-cpu386-shl-dword-register-one.md)：CONFORMED。全部CPU／固定EXE與兩自然完整SHL／TEST／JZ及兩個dword寫回已驗，AF模型明示；後續ADC停0x25179F，完整IRQ0返回未知。
+
+- [299：C1 dword 單位移的溢位旗標](299-cpu386-c1-dword-single-shift-overflow.md)：CONFORMED。限定公開CPU契約的C1單位OF窄修正，獨立反例／全部CPU與固定EXE通過；未有MOO2自然OF=1同狀態收據，未定義AF／多位OF模型保持。

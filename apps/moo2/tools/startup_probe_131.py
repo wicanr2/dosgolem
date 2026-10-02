@@ -2,6 +2,8 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-shl-dword-one-spec-backlinks 只驗證 dword 單位SHL回填，不啟動DOSBox-X。
+--check-c1-single-shift-overflow-spec-backlinks 只驗證 C1單位OF契約回填，不啟動DOSBox-X。
 --check-ror-dword-immediate-spec-backlinks 只驗證 dword ROR 規格回填，不啟動 DOSBox-X。
 --check-sb16-c6-spec-backlinks 只驗證 SB16 C6h 規格回填，不啟動 DOSBox-X。
 --check-or-dword-memory-spec-backlinks 只驗證 dword 記憶體 OR 規格回填，不啟動 DOSBox-X。
@@ -58,6 +60,48 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_shl_dword_one_resolution(spec_dir):
+    """298 的IRQ0完整前後態與真正兩個dword寫回須回填舊停點。"""
+    current = (spec_dir / '298-cpu386-shl-dword-register-one.md').read_text()
+    required = ('0x2520B7', 'D1 E0 D1 E3', 'flags46h', '0x2520CB', '0x2520D0',
+                'DS:00272D40／DS:00272D44真實寫回', 'AF未定義',
+                '7cb0cade0c7b66adc37e01d458f9f22a1a57e2112afa03e62c91417d3a8a2f7c',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('SHL缺完整原始狀態／旗標／真實寫回／未定義模型')
+    for name in ('293-cpu386-xor-dword-register-imm8.md',
+                 '294-cpu386-bsf-dword-register.md',
+                 '295-cpu386-or-dword-memory-register.md',
+                 '296-sb16-c6-auto-init-dma.md',
+                 '297-cpu386-ror-dword-register-imm8.md'):
+        older = (spec_dir / name).read_text()
+        if 'dword SHL單位移停點已由規格 298 接通' not in older or '298-cpu386-shl-dword-register-one.md' not in older:
+            raise RuntimeError('SHL舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-shl-dword-one-spec-backlinks']:
+    validate_shl_dword_one_resolution(spec_dir)
+    print('SHL完整狀態／旗標／真實寫回與舊停點回填通過')
+    raise SystemExit(0)
+
+def validate_c1_single_shift_overflow_resolution(spec_dir):
+    """299 的CPU反例與公開契約範圍不能包裝成原版動態旗標驗收。"""
+    current = (spec_dir / '299-cpu386-c1-dword-single-shift-overflow.md').read_text()
+    required = ('C1 E0 01', 'flags603h', 'flagsE03h', '計數0全部保持',
+                'C1多位OF目前清除', '沒有MOO2自然OF=1同狀態收據',
+                '7c672d84df30bdd041903bc7812b6bb839f000de01222b8af640520eaba52b33',
+                '7cb0cade0c7b66adc37e01d458f9f22a1a57e2112afa03e62c91417d3a8a2f7c')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('C1單位OF缺反例／定義與未定義旗標模型／原版限制')
+    for name in ('186-fd2-platform-gap-continuation.md', '298-cpu386-shl-dword-register-one.md'):
+        older = (spec_dir / name).read_text()
+        if '裸C1單位移OF契約由規格 299 補齊' not in older or '299-cpu386-c1-dword-single-shift-overflow.md' not in older:
+            raise RuntimeError('C1單位OF缺舊契約或回歸發現回填')
+
+if sys.argv[1:] == ['--check-c1-single-shift-overflow-spec-backlinks']:
+    validate_c1_single_shift_overflow_resolution(spec_dir)
+    print('C1單位OF公開契約／原版限制與回歸發現回填通過')
     raise SystemExit(0)
 
 def validate_ror_dword_immediate_resolution(spec_dir):
