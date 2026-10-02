@@ -1018,3 +1018,71 @@ func TestShrinkFontsSources(t *testing.T) {
 		}
 	}
 }
+
+// Counterpart of TestEclPlayerNameSpaceNotGluedLikeParticle with the levels on:
+// 갑판 4 + space 1 + 도(DOE) 2+5 = 12 units; L1 is 11 (6 px-units of the unit),
+// L2 is 9.
+func TestEclPlayerNameSpaceNotGluedShrink(t *testing.T) {
+	for _, c := range []struct {
+		right        uint8
+		want         string
+		shrink       uint8
+		shrunk       [2]int
+		chineseOnly  int
+		spaceDropped int
+	}{
+		{7, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 14 units
+		{6, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 12 units: fits at the normal size
+		{5, "갑판 도(DOE)", 2, [2]int{0, 1}, 0, 0}, // 10 units: L1 11 does not fit, L2 9 does
+		{4, "갑판 도", 0, [2]int{}, 1, 0},          // 8 units: Chinese only with its space (7)
+		{3, "갑판도", 0, [2]int{}, 1, 1},           // 6 units: 7 does not fit, the space goes
+	} {
+		w, p := koPlayerCall(t, layoutKo, "DOE", "도", c.right)
+		var shrink uint8
+		if p != nil {
+			for _, l := range p.Lines {
+				shrink |= l.Shrink
+			}
+		}
+		if p == nil || eclRow(p, 17) != c.want || shrink != c.shrink || w.Stats.PlayerShrunk != c.shrunk || w.Stats.PlayerNameChineseOnly != c.chineseOnly || w.Stats.SpaceDropped != c.spaceDropped {
+			t.Errorf("right=%d：%q shrink %d %+v，應為 %q", c.right, eclRowOf(p), shrink, w.Stats, c.want)
+		}
+	}
+}
+
+// Counterpart of TestZhDeckSpacePlayerNameStays: a player name after 甲板 gets
+// no space (spec 048 is for numbers) and is drawn small before it steps down.
+// 甲板 4 + 塞萊絲特(CELESTE): 17 units at the normal size, 13 at L1, 9 at L2;
+// Chinese only is 8.
+func TestZhDeckSpacePlayerNameShrinks(t *testing.T) {
+	party, _ := ReadPartySnapshot(partyMem(1, partyRec{seg: 0x5747, off: 2, name: "CELESTE"}), testDS)
+	ctx := eclCtx(party, eclNameCallerB79, 0x81, eclVarName, partyRec{})
+	for _, c := range []struct {
+		right  uint8
+		want   string
+		shrunk [2]int
+		cnOnly int
+	}{
+		{11, "甲板塞萊絲特(CELESTE)", [2]int{}, 0},    // 22 units: 21 fits
+		{9, "甲板塞萊絲特(CELESTE)", [2]int{1, 0}, 0}, // 18 units: L1 17 fits
+		{8, "甲板塞萊絲特(CELESTE)", [2]int{0, 1}, 0}, // 16 units: L1 17 does not, L2 13 does
+		{6, "甲板塞萊絲特", [2]int{}, 1},              // 12 units: Chinese only (12)
+	} {
+		w := NewEclTextWatcher(eclFixtureLang(t, LangZhTW, "DECK ", "甲板"))
+		w.SetPlayerNames(NewPlayerNames(fakeTranslit{"CELESTE": "塞萊絲特"}, nil))
+		e := eclEntry("DECK ", true, 1, 17)
+		e.Right, e.Bottom = c.right, 17
+		w.ObserveEntry(e)
+		eclSpaceRet(w)
+		e2 := eclPlayerEntry("CELESTE", false, 6, 17, ctx)
+		e2.Right, e2.Bottom = c.right, 17
+		w.ObserveEntry(e2)
+		got := "<nil>"
+		if p := w.Page(); p != nil {
+			got = rowText(p, 17)
+		}
+		if got != c.want || w.Stats.PlayerShrunk != c.shrunk || w.Stats.PlayerNameChineseOnly != c.cnOnly || w.Stats.SpaceDropped != 0 {
+			t.Errorf("right=%d：%q %+v，應為 %q", c.right, got, w.Stats, c.want)
+		}
+	}
+}
