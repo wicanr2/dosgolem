@@ -139,6 +139,7 @@ func main() {
 	wordAddMemorySeen, wordAddMemorySteps := 0, 0
 	cmpWordSamples, cmpWordSteps, cmpWordTotal := 0, 0, 0
 	cmpWordBoundarySeen := false
+	mouseExchangeSamples, mouseExchangeSteps := 0, 0
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -248,7 +249,17 @@ func main() {
 		}
 		if number == 0x33 {
 			beforeR, beforeFlags := c.R, c.EFlags
+			beforeSeg := c.Seg
+			oldSelector, oldOffset := services.MouseCallbackTarget()
+			oldMask, oldPending, oldActive, oldStarted, oldCompleted := services.MouseCallbackState()
 			handled := services.Handle(c, number)
+			if uint16(beforeR[cpu386.EAX]) == 0x14 && mouseExchangeSamples < 3 {
+				mouseExchangeSamples++
+				mouseExchangeSteps = 5
+				newSelector, newOffset := services.MouseCallbackTarget()
+				newMask, newPending, newActive, newStarted, newCompleted := services.MouseCallbackState()
+				fmt.Printf("mouse_exchange_service input_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X old_target=%04X:%08X new_target=%04X:%08X old_mask=%X new_mask=%X old_pending=%d new_pending=%d old_active=%t new_active=%t old_started=%d new_started=%d old_completed=%d new_completed=%d handled=%t\n", c.EIP-2, beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, oldSelector, oldOffset, newSelector, newOffset, oldMask, newMask, oldPending, newPending, oldActive, newActive, oldStarted, newStarted, oldCompleted, newCompleted, handled)
+			}
 			if handled && uint16(beforeR[cpu386.EAX]) == 4 {
 				mousePositionSet = true
 			}
@@ -660,7 +671,25 @@ func main() {
 				cmpWordStackBefore[j], cmpWordStackReadable = b, cmpWordStackReadable && ok
 			}
 		}
+		mouseExchangeObserve := mouseExchangeSteps > 0
+		mouseExchangeBefore := m.CPU.R
+		mouseExchangeSeg := m.CPU.Seg
+		mouseExchangeEIP, mouseExchangeFlags := m.CPU.EIP, m.CPU.EFlags
+		var mouseExchangeBytes [16]byte
+		var mouseExchangeStack [32]byte
+		mouseExchangeReadable := true
+		if mouseExchangeObserve {
+			copy(mouseExchangeBytes[:], m.Mem[mouseExchangeEIP:mouseExchangeEIP+16])
+			for j := range mouseExchangeStack {
+				b, ok := m.CPU.ReadSegment8(mouseExchangeSeg[cpu386.SegSS], mouseExchangeBefore[cpu386.ESP]+uint32(j))
+				mouseExchangeStack[j], mouseExchangeReadable = b, mouseExchangeReadable && ok
+			}
+		}
 		stepErr := m.CPU.Step()
+		if mouseExchangeObserve {
+			mouseExchangeSteps--
+			fmt.Printf("mouse_exchange_caller outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X stack=%X stack_readable=%t error=%v\n", i, mouseExchangeEIP, m.CPU.EIP, mouseExchangeBefore, m.CPU.R, mouseExchangeSeg, m.CPU.Seg, mouseExchangeFlags, m.CPU.EFlags, mouseExchangeBytes, mouseExchangeStack, mouseExchangeReadable, stepErr)
+		}
 		if cmpWordSteps > 0 {
 			cmpWordSteps--
 			for j := range cmpWordStackAfter {

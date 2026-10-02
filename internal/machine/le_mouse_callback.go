@@ -96,6 +96,28 @@ func (d *leMouseCallbackDispatcher) register(c *cpu386.CPU) bool {
 	return true
 }
 
+// exchange 沿規格314先驗證新目標，再回傳原有完整遠指標。
+func (d *leMouseCallbackDispatcher) exchange(c *cpu386.CPU) bool {
+	if d == nil {
+		return false
+	}
+	mask, target := d.mask, d.target
+	if !d.register(c) {
+		return false
+	}
+	c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | uint32(mask)
+	c.Seg[cpu386.SegES], c.R[cpu386.EDX] = target.selector, target.offset
+	return true
+}
+
+// MouseCallbackTarget 只讀取目前註冊目標，供有界平台收據使用。
+func (s *MOO2StartupDOS) MouseCallbackTarget() (selector uint16, offset uint32) {
+	if s.mouseCallback != nil {
+		return s.mouseCallback.target.selector, s.mouseCallback.target.offset
+	}
+	return 0, 0
+}
+
 // InjectMouseEvent 送明示的絕對位置、三按鍵與 mickey 位移；不推算主機速度。
 // SetMouseState 則只設定查詢初態，兩個入口的用途不同。
 func (s *MOO2StartupDOS) InjectMouseEvent(x, y, buttons uint16, deltaX, deltaY int16) error {

@@ -65,3 +65,5 @@ word CMP完整立即值停點已由規格 313 接通。309-sb16-pause-resume-dma
 限定CONFORMED只補此CPU形狀與上述原版正常消費。滑鼠AX0014h、255完整座標／游標、AH2Ch／RNG、299自然OF=1、人耳、完整鍵盤、主選單／正常玩家路徑與remake同狀態未驗，主庫玩法RE閘門保持。原始素材與完整收據留本機忽略目錄，不公開。下一步按公開滑鼠API核對AX0014h與既有callback儲存，READY後接平台服務，不深入driver、代寫遊戲資料或提高50M上限。
 
 同次55回填函式、33新增缺定位／狀態／正式收據／較早標記／連結負例與313 CLI通過。全部受驗CPU／測試／探針與正式收據保持；索引與新檔UID:GID1000:1000，工具root-owned／異形.md目錄自檢空，本輪有界容器已退出移除。
+
+AX0014h交換停點已由規格 314 接通，見[314-moo2-protected-mouse-callback-exchange.md](314-moo2-protected-mouse-callback-exchange.md)。同一固定EXE的24次交換與前三次C3返回已由正常入口重生；舊拒絕與本檔原範圍保持。兩流程目前到50M上限、高位LE0x23856E，主選單面板部分滑入，完整主選單／玩家路徑未驗。

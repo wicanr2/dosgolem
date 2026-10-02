@@ -491,4 +491,6 @@
 
 - [312：word ADD 的記憶體來源](312-cpu386-add-word-memory-source.md)：CONFORMED。word記憶體來源／獨立六旗標／全部測試與兩正常ADD、真正兩byte寫回及四caller已驗；已見Loading畫面，主選單未知。
 
-- [313：word CMP 完整立即值](313-cpu386-cmp-word-register-imm16.md)：CONFORMED。八來源／全word／全套、兩正常三組CMP旗標及JL跳轉／不跳轉已驗；已見標題背景，AX0014h與主選單未知。
+- [313：word CMP 完整立即值](313-cpu386-cmp-word-register-imm16.md)：CONFORMED。八來源／全word／全套、兩正常三組CMP旗標及JL跳轉／不跳轉已驗；已見標題背景，AX0014h續見314，完整主選單未知。
+
+- [314：保護模式滑鼠回呼交換](314-moo2-protected-mouse-callback-exchange.md)：CONFORMED。24次正常交換／三次C3返回、全套與三流程通過；兩組到50M，主選單部分滑入，完整操作未驗。

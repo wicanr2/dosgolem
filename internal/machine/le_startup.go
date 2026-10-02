@@ -539,6 +539,8 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			return true
 		case 0x0c:
 			return s.mouseCallback.register(c)
+		case 0x14:
+			return s.mouseCallback.exchange(c)
 		case 7, 8:
 			bounds := newMouseCoordinateRange(uint16(c.R[cpu386.ECX]), uint16(c.R[cpu386.EDX]))
 			if uint16(c.R[cpu386.EAX]) == 7 {

@@ -87,3 +87,5 @@ word ADD記憶體來源停點已由規格 312 接通，見[312-cpu386-add-word-m
 ## 2026-10-03 CMP完整立即值停點勘誤
 
 word CMP完整立即值停點已由規格 313 接通，見[313-cpu386-cmp-word-register-imm16.md](313-cpu386-cmp-word-register-imm16.md)。固定EXE／高位LE0x14E3DE的六旗標與後續JL兩方向、兩正常外層212到訪已驗。原拒絕收據保留；新停點0x24C31B的INT33／AX0014h滑鼠服務，已見原版標題背景，主選單按鈕未見，其他CPU／日期／音訊／玩家路徑範圍未擴張。
+
+AX0014h交換停點已由規格 314 接通，見[314-moo2-protected-mouse-callback-exchange.md](314-moo2-protected-mouse-callback-exchange.md)。同一固定EXE的24次交換與前三次C3返回已由正常入口重生；舊拒絕與本檔原範圍保持。兩流程目前到50M上限、高位LE0x23856E，主選單面板部分滑入，完整主選單／玩家路徑未驗。

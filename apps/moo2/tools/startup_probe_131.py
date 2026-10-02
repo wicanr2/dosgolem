@@ -52,6 +52,31 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_mouse_exchange_resolution(spec_dir):
+    """314交換回傳與原版C3返回須回填同AX0014h停點。"""
+    current=(spec_dir/'314-moo2-protected-mouse-callback-exchange.md').read_text()
+    required=('0x24C31B','AX0014h','CD 33','0008:002136D1',
+              '1→1、1→2B、2B→1','49564006／49564388／49602023',
+              '0x24C31D→0x24C1AE','ESP002BDA88→002BDA8C',
+              'SS0188:002BDA88','24次','platform-spec approximation',
+              'step_limit=50000000 eip=0x23856E','62461366','8383',
+              '主選單面板正在滑入','未擷取之後返回值寫回',
+              '41923df89d7657f6ceb015cb740c6d426e09d0892ab4968a59f414cb53141b30',
+              'a912b61514f85eb348271958666486ee991b80fc5a6b331a5acbb6ababd4dfe9',
+              '053d2d831055b737673985b6ddf48ea50e1bf7dd2646b0c56b94de3fe83eedbb',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('滑鼠交換缺原始定位／完整返回／收據與近似邊界')
+    for name in ('309-sb16-pause-resume-dma8.md','310-moo2-dos-calendar-date.md','311-cpu386-sub-word-register-imm16.md','312-cpu386-add-word-memory-source.md','313-cpu386-cmp-word-register-imm16.md'):
+        older=(spec_dir/name).read_text()
+        if 'AX0014h交換停點已由規格 314 接通' not in older or '314-moo2-protected-mouse-callback-exchange.md' not in older:
+            raise RuntimeError('AX0014h較早拒絕缺回填')
+
+if sys.argv[1:]==['--check-mouse-exchange-spec-backlinks']:
+    validate_mouse_exchange_resolution(spec_dir)
+    print('滑鼠交換／原版返回與較早五文件回填通過')
+    raise SystemExit(0)
+
 def validate_cmp_word_imm16_resolution(spec_dir):
     """313原始CMP與兩方向JL消費須回填全部較早相同停點。"""
     current=(spec_dir/'313-cpu386-cmp-word-register-imm16.md').read_text()
