@@ -52,6 +52,27 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_menu_click_resolution(spec_dir):
+    """317時點／318真正CB／319寫後須同時保留未知consumer。"""
+    required_by_file = {
+        '317-moo2-menu-display40-observation.md': ('49882420', '63906833', '117580', 'readonly=true', '35e2604c0d223e7170e6774dee33c67828992269d75ab41bb0c7607c26c1d0b7', '318-moo2-new-game-normal-click.md'),
+        '318-moo2-new-game-normal-click.md': ('49882421', '49882522', '49883408', '49883496', '2137F2', '191', 'flags246h', 'flags207h', 'f49d8ab7c7cc6c88c7229d0dfac0d23e01d4d02da4e286086793cba217ab744a', 'f3f80f78409e490f1c4a0a0d1ffca00194eab0b0b614d7a61d1f436e3573ab24', '按鍵寫後已由規格 319 取樣', '319-moo2-new-game-button-consumer.md'),
+        '319-moo2-new-game-button-consumer.md': ('buttons_word=0100', 'buttons_word=0000', '全部318原始列', '2cab77b5f3ddcb4a6dcc024e4a0b07462ee63a8be660ab662d71fb46ee4f6a10', '597266974b32440f35818cc672464573202bb997ebcf3dd29a7d2fd65bf8ac9e', 'new_game_button_read零筆', '讀取覆蓋尚未有真實正對照', 'consumer仍未知', '不能推論按住期間沒有任何讀取')
+    }
+    for name, required in required_by_file.items():
+        current = (spec_dir / name).read_text()
+        if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+            raise RuntimeError('選單點擊缺原始定位／收據或未知邊界：' + name)
+    older = (spec_dir / '316-moo2-configured-hardware-escape-schedule.md').read_text()
+    if '317-moo2-menu-display40-observation.md' not in older or '318-moo2-new-game-normal-click.md' not in older:
+        raise RuntimeError('316缺後續換頁／正常CB回填')
+
+if sys.argv[1:] == ['--check-menu-click-spec-backlinks']:
+    validate_menu_click_resolution(spec_dir)
+    print('第40換頁／兩原版CB／寫後與consumer未知回填通過')
+    raise SystemExit(0)
+
+
 def validate_escape_schedule_resolution(spec_dir):
     """316新排程須保留原版IRQ1／四收據與315基線回填。"""
     current=(spec_dir/'316-moo2-configured-hardware-escape-schedule.md').read_text()

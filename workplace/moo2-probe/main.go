@@ -60,6 +60,11 @@ func main() {
 		keyboardRequested, keyboardStep = true, value
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
+	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
+	if newGameClick && (!keyboardRequested || keyboardStep != 46000000 || maxSteps != 50000000 || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求46M Esc、1996-01-01、50M cap且無早期滑鼠事件")
+		os.Exit(2)
+	}
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -163,6 +168,7 @@ func main() {
 	phaseFrames := 0
 	var phaseLastDisplay uint64
 	phasePrefix := os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX")
+	menuDisplay40Seen := false
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -269,7 +275,11 @@ func main() {
 			handled := services.Handle(c, number)
 			fmt.Printf("vbe_display_start eip=0x%X input=%X handled=%t output=%X state=%+v\n", c.EIP-2, beforeR, handled, c.R, m.VBEState())
 			state := m.VBEState()
-			if phasePrefix != "" && handled && loopStep >= keyboardStep && state.Active && phaseFrames < 16 && state.DisplaySets != phaseLastDisplay {
+			if handled && state.Active && state.DisplaySets == 40 {
+				menuDisplay40Seen = true
+			}
+			// 規格317：保留既有16張，另只讀擷取已見的第40換頁。
+			if phasePrefix != "" && handled && loopStep >= keyboardStep && state.Active && (phaseFrames < 16 || state.DisplaySets == 40) && state.DisplaySets != phaseLastDisplay {
 				phaseFrames++
 				phaseLastDisplay = state.DisplaySets
 				beforeR, beforeSeg, beforeEIP, beforeFlags := c.R, c.Seg, c.EIP, c.EFlags
@@ -449,8 +459,78 @@ func main() {
 	keyboardQueued := false
 	var keyboardPrinted uint64
 	xorALSeen, xorALConsumerSteps := 0, 0
+	newGamePressed, newGameReleased := false, false
+	var newGamePressMicros uint64
+	newGameCallbackSamples := 0
+	buttonReadSamples := 0
+	buttonReadStepActive := false
+	buttonReadMatched := false
+	var buttonReadWidth uint32
+	var buttonReadWord [2]byte
+	observeButtonRequest := func(selector uint16, offset, width uint32) {
+		if !buttonReadStepActive || !newGamePressed || buttonReadSamples >= 32 {
+			return
+		}
+		descriptor, known := m.CPU.Descriptors[selector]
+		_, _, callbackActive, _, _ := services.MouseCallbackState()
+		linear := uint64(descriptor.Base) + uint64(offset)
+		if known && !callbackActive && uint64(offset)+uint64(width) <= uint64(descriptor.Limit)+1 && linear <= 0x2a121b && linear+uint64(width) > 0x2a121a {
+			buttonReadMatched, buttonReadWidth = true, width
+			copy(buttonReadWord[:], m.Mem[0x2a121a:0x2a121c])
+		}
+	}
+	defer func() {
+		if newGameClick {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("new_game_mouse_terminal pressed=%t released=%t samples=%d mask=%X pending=%d active=%t started=%d completed=%d\n", newGamePressed, newGameReleased, newGameCallbackSamples, mask, pending, active, started, completed)
+		}
+	}()
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
+		if newGameClick && menuDisplay40Seen {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			selector, offset := services.MouseCallbackTarget()
+			if ok && ports.BIOSClock != nil && m.CPU.EFlags&cpu386.IF != 0 && pending == 0 && !active {
+				phase, x, buttons := "", uint16(1000), uint16(1)
+				if !newGamePressed && selector == 8 && offset == 0x2136d1 && mask&3 == 3 {
+					phase = "press"
+				} else if newGamePressed && !newGameReleased && completed >= 1 && ports.BIOSClock.Micros >= newGamePressMicros+20000 && mask&1 != 0 {
+					phase, x, buttons = "release", 1002, 0
+				}
+				if phase != "" {
+					if err := services.InjectMouseEvent(x, 229, buttons, 0, 0); err != nil {
+						panic(err)
+					}
+					fmt.Printf("new_game_mouse_input phase=%s outer_step=%d virtual_micros=%d x=%d y=229 buttons=%d delta=0/0 mask=%X target=%X:%X started=%d completed=%d eip=%X r=%X seg=%X flags=%X\n", phase, i, ports.BIOSClock.Micros, x, buttons, mask, selector, offset, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+					if phase == "press" {
+						newGamePressed, newGamePressMicros = true, ports.BIOSClock.Micros
+						// 規格319：初始化完成後接現存鏈，保留普通RAM的fallback。
+						original8, original16 := m.CPU.SegmentRead8, m.CPU.SegmentRead16
+						m.CPU.SegmentRead8 = func(selector uint16, offset uint32) (uint8, bool) {
+							var value uint8
+							var ok bool
+							if original8 != nil {
+								value, ok = original8(selector, offset)
+							}
+							observeButtonRequest(selector, offset, 1)
+							return value, ok
+						}
+						m.CPU.SegmentRead16 = func(selector uint16, offset uint32) (uint16, bool) {
+							var value uint16
+							var ok bool
+							if original16 != nil {
+								value, ok = original16(selector, offset)
+							}
+							observeButtonRequest(selector, offset, 2)
+							return value, ok
+						}
+					} else {
+						newGameReleased = true
+					}
+				}
+			}
+		}
 		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
 			dumpPlatform("sample", i)
 		}
@@ -751,7 +831,33 @@ func main() {
 				mouseExchangeStack[j], mouseExchangeReadable = b, mouseExchangeReadable && ok
 			}
 		}
+		_, clickPending, clickActive, clickStarted, clickCompleted := services.MouseCallbackState()
+		observeClick := newGameClick && newGamePressed && newGameCallbackSamples < 256 && (clickPending != 0 || clickActive)
+		var clickBeforeR [8]uint32
+		var clickBeforeSeg [6]uint16
+		var clickBeforeEIP, clickBeforeFlags uint32
+		var clickBytes [16]byte
+		if observeClick || newGameClick && newGamePressed && buttonReadSamples < 32 {
+			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
+			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
+			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
+		}
+		buttonReadStepActive = newGameClick
+		buttonReadMatched = false
 		stepErr := m.CPU.Step()
+		buttonReadStepActive = false
+		if buttonReadMatched {
+			buttonReadSamples++
+			fmt.Printf("new_game_button_read outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X width=%d buttons_word=%X released=%t before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X error=%v\n", i, clickBeforeEIP, m.CPU.EIP, buttonReadWidth, buttonReadWord, newGameReleased, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, stepErr)
+		}
+		if observeClick {
+			newGameCallbackSamples++
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("new_game_mouse_callback outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X before_started=%d before_completed=%d mask=%X pending=%d active=%t started=%d completed=%d error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, clickStarted, clickCompleted, mask, pending, active, started, completed, stepErr)
+			if completed != clickCompleted {
+				fmt.Printf("new_game_button_callback_return outer_step=%d completed=%d buttons_word=%X\n", i, completed, m.Mem[0x2a121a:0x2a121c])
+			}
+		}
 		if mouseExchangeObserve {
 			mouseExchangeSteps--
 			fmt.Printf("mouse_exchange_caller outer_step=%d input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X stack=%X stack_readable=%t error=%v\n", i, mouseExchangeEIP, m.CPU.EIP, mouseExchangeBefore, m.CPU.R, mouseExchangeSeg, m.CPU.Seg, mouseExchangeFlags, m.CPU.EFlags, mouseExchangeBytes, mouseExchangeStack, mouseExchangeReadable, stepErr)

@@ -57,6 +57,8 @@ Go1.24.13固定映像，600s／2GiB／2CPU／128pids／UID1000／network none，
 
 ## 限定結論與回填
 
+第40換頁的原始時點由[317-moo2-menu-display40-observation.md](317-moo2-menu-display40-observation.md)補證；兩正常滑鼠CB由[318-moo2-new-game-normal-click.md](318-moo2-new-game-normal-click.md)限定驗證。設定畫面仍未知，以下保留316原始收據與範圍。
+
 明示Esc排程已由規格 316 接通。315保留48M滑入的原始收據，追加46M不同初態的正常輸入與六個按鈕文字已見收據，不把原48M覆寫成完整主選單。apps/moo2/tools/startup_probe_131.py --check-escape-schedule-spec-backlinks核對預定排程／真正IRQ1／完整終態／四收據與315回填。
 
 限定CONFORMED只包含CLI閘門、新預定排程與上述原版正常返回及可見六按鈕。307仍只涵蓋Esc，255完整游標、303整體DRAFT、299自然OF=1、AH2Ch／RNG、人耳、主選單實際操作／正常玩家路徑與remake同狀態未完成，主庫玩法RE閘門保持。下一步從已見的NEW GAME按鈕定單次滑鼠正常輸入契約，先核對第40換頁的實際步數／可點條件及座標來源，READY後驗原版回呼／自然畫面轉移；不猜熱區或代寫遊戲狀態。

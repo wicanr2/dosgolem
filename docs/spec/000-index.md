@@ -498,3 +498,9 @@
 - [315：主選單滑入階段觀測](315-moo2-menu-slide-observation.md)：CONFORMED。三原版29張唯讀快照／全部基線不突變，已證實畫面持續改變；完整操作未驗，保持50M上限。
 
 - [316：明示硬體Esc排程](316-moo2-configured-hardware-escape-schedule.md)：CONFORMED。11設定閘門／四原版、46M六按鈕文字已見／48M逐列保持；點擊未驗，保持50M上限。
+
+- [317：第40換頁唯讀觀測](317-moo2-menu-display40-observation.md)：CONFORMED。第49882420步／63906833µs六按鈕全見；316全部舊列保持，剩117580步，點擊未驗。
+
+- [318：NEW GAME正常點擊](318-moo2-new-game-normal-click.md)：CONFORMED。兩真正CB／完整R、六段、flags恢復；模式關閉基線保持，設定畫面與按鍵consumer未驗。
+
+- [319：NEW GAME按鍵消費觀測](319-moo2-new-game-button-consumer.md)：CONFORMED。限定兩CB後word0100／0000與318全部列保持；讀取覆蓋無正對照，consumer仍未知。
