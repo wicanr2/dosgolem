@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-add-byte-memory-spec-backlinks 只驗證 ADD byte 規格回填，不啟動 DOSBox-X。
 --check-sub-byte-memory-spec-backlinks 只驗證 SUB byte 規格回填，不啟動 DOSBox-X。
 """
 
@@ -48,6 +49,21 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_add_byte_memory_resolution(spec_dir):
+    """285 的原始 byte／後態與 284 的 CPU 停點回填必須並存。"""
+    current = (spec_dir / '285-cpu386-add-byte-memory-imm8.md').read_text()
+    required = ('0x25425F', '80 05 C0 26 27 00 18', 'DS:002726C0', 'byte=03h', 'byte=1Bh', '0x254266', 'flags=206h', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('ADD byte 缺原始定位／目的 byte／後態或可實作狀態')
+    older = (spec_dir / '284-cpu386-sub-byte-memory-imm8.md').read_text()
+    if 'byte 記憶體 ADD 停點已由規格 285 接通' not in older or '285-cpu386-add-byte-memory-imm8.md' not in older:
+        raise RuntimeError('ADD byte 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-add-byte-memory-spec-backlinks']:
+    validate_add_byte_memory_resolution(spec_dir)
+    print('ADD byte 原始定位／目的 byte／後態與後續回填通過')
     raise SystemExit(0)
 
 def validate_sub_byte_memory_resolution(spec_dir):

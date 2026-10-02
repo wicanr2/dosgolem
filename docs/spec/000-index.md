@@ -427,12 +427,14 @@
 - [273 — 短距離負號與非負號分支](273-cpu386-short-sign-branches.md)：CONFORMED。JS／JNS 的完整條件／位移／保持狀態及有限原版分支已驗；步數上限擷取已修正，word XOR 停點已由規格 274 接通，仍未進入主選單。
 - [274 — 16 位元暫存器間的 XOR](274-cpu386-xor-word-register.md)：CONFORMED（有限 CPU／下一段載入）。原版 word XOR 高半部／定義旗標與 MOV ES 消費、全套及兩條自然路徑已驗；VTD 空入口停點已由規格 275 接通。
 - [275 — MOO2 未安裝 VTD 的裝置入口查詢](275-moo2-protected-vtd-entry-query.md)：CONFORMED（限定未安裝 VTD 的平台查詢）。完整返回保持、原版 record 保存／讀取及兩條自然路徑已驗；PIT 模式 2 停點已由規格 276 接通。
-- [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED（限定設定與週期近似）。模式 2／3 設定已驗；277／281 已閉合原版返回與模式 2 等待，count latch 仍待補。
+- [276 — PIT 通道 0 的模式 2 設定與共享週期](276-pit0-mode2-shared-clock.md)：CONFORMED（限定設定與週期近似）。模式 2／3 設定已驗；277／281 已閉合原版返回與模式 2 等待，count latch 已由 282／283 接通。
 - [277 — MOO2 DOS/4GW 保護模式向量與 IRQ0 派送](277-moo2-dos4gw-protected-irq0.md)：CONFORMED（受限向量／IRQ0／模式 2 等待）。281 兩個自然排程自行完成 1,595 次返回、等待值變化與退出；完整核心／玩家路徑未驗。
 - [278 — CS 記憶體目的與帶符號 imm8 的比較](278-cpu386-cs-memory-cmp-imm8.md)：CONFORMED（有限 CPU 比較）。原版樣本與全部 CPU／固定 EXE 回歸通過；後續返回／等待範圍見 277／281。
 - [279 — 從 CS 絕對 word 位址載入 ES](279-cpu386-cs-absolute-es-load.md)：CONFORMED（限定 CPU／既有 selector 模型）。有限原版與全部 CPU／固定 EXE 回歸通過；後續 CB／結束鏈見 280／281。
 - [280 — 32 位元同權限遠返回 CB](280-cpu386-far-ret32.md)：CONFORMED（限定同權限 CPU 返回）。有限原版框架及回歸通過；預設核心鏈停點已由 281 接通。
 - [281 — MOO2 保護模式 IRQ0 的預設結束鏈](281-moo2-protected-irq0-end-chain.md)：CONFORMED（受限預設入口／BIOS tick／EOI）。1,595 次自然返回及模式 2 等待閉合；PIT 鎖存停點已由 282／283 接通，玩家路徑未驗。
 - [282 — PIT 通道 0 模式 2 的計數鎖存](282-pit0-mode2-count-latch.md)：CONFORMED（受限模式 2 latch／低高讀取）。共享時鐘／凍結與拒絕測試通過；283 已讓原版自然消費兩次 IN，硬體時序仍近似。
-- [283 — 從立即埠編號輸入 byte 至 AL](283-cpu386-in-al-imm8.md)：CONFORMED（裸 E4／明示平台 I/O）。全部 CPU／固定 EXE 回歸及兩個自然排程已驗，讀取凍結 PIT count 後停 byte 記憶體 SUB，主選單未驗。
-- [284 — byte 記憶體目的與 imm8 的 SUB](284-cpu386-sub-byte-memory-imm8.md)：CONFORMED。原版 DS byte=16h／imm8=08h 與公開 SUB 六旗標契約已審查；待記憶體目的實作及自然後態。
+- [283 — 從立即埠編號輸入 byte 至 AL](283-cpu386-in-al-imm8.md)：CONFORMED（裸 E4／明示平台 I/O）。全部 CPU／固定 EXE 回歸及兩個自然排程已驗，讀取凍結 PIT count；SUB 後續停點由 284 接通，主選單未驗。
+- [284 — byte 記憶體目的與 imm8 的 SUB](284-cpu386-sub-byte-memory-imm8.md)：CONFORMED。原版自然 byte 16h→0Eh／0Dh→05h、完整 R／段與六旗標已驗；ADD 後續停點由 285 接通。
+
+- [285 — byte 記憶體目的與 imm8 的 ADD](285-cpu386-add-byte-memory-imm8.md)：CONFORMED。原版自然 byte=03h→1Bh／flags=297h→206h 及完整 R／段已驗；下一停點為 byte 暫存器 XOR。

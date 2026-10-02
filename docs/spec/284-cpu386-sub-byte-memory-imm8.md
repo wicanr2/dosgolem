@@ -47,3 +47,8 @@ Go 1.24.13／映像沿 283，GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu
 IRQ0 started=completed=1595、active=false／failed=false，等待來源 DS:00271148=01 00 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false、Micros=21094685、Deliveries=1615、Pending=false／InService=false。事件條件 requested=true／injected=true，第 1,612,067 步 x=657／y=189，仍不是完整座標／游標或玩家操作驗收。
 
 自然 gzip SHA-256 01efe7de89d0f2968720aa52ad742093d3fc5864624b19d782b326cc91703b06／ceb730b6fb5002e0e32f02a868e6363f05a20148834399cf2582cf402783486f。兩 PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，indexed 7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf、RGB 0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366，同已檢視黑圖。原版素材與完整終端／記憶體／gzip／PNG 留本機；主選單、正常玩家路徑、音效／受控亂數及整款 remake 未完成，255 READY。
+
+
+## 後續停點回填
+
+byte 記憶體 ADD 停點已由規格 285 接通，見 [285-cpu386-add-byte-memory-imm8.md](285-cpu386-add-byte-memory-imm8.md)。兩個原版自然排程自行加 18h 後轉停 0x254275 的 byte 暫存器 XOR；不推定完整玩家路徑已完成。
