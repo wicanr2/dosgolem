@@ -130,7 +130,9 @@ func engineStatsOf(w *EngineDispatchWatcher) (hits, misses int) {
 
 // engineUnits is the width of the catalog translation of an engine string
 // (-1 without one): it shows whether a miss is a missing translation or a
-// translation wider than the original allows.
+// translation wider than the original allows.  It is the translation without
+// party names (spec 054 §3.3), so the column does not follow a party member's
+// reading.
 func engineUnits(w *EngineDispatchWatcher, original []byte) int {
 	if w == nil || w.catalog == nil {
 		return -1

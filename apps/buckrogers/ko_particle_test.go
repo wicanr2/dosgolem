@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // Buck repo spec 054: Korean particles by final consonant (§3.1, §3.2 first
@@ -400,5 +402,22 @@ func TestTranslateKoTableRowUsesResolvedFront(t *testing.T) {
 		if u := stringUnits(got); u != 2*len(tc.row) {
 			t.Errorf("%q：共 %d 單位，應為原版的 %d", tc.row, u, 2*len(tc.row))
 		}
+	}
+}
+
+// Every form a mark can be replaced by is in the Korean font: a mark that
+// resolves to a character the font lacks would leave a hole in the sentence.
+func TestKoParticleFormsInFont(t *testing.T) {
+	_, _, koFont := koInputs(t)
+	f, err := xlate.LoadFont(koFont)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forms []rune
+	for _, m := range koParticleMarkers {
+		forms = append(forms, []rune(m.with+m.without)...)
+	}
+	if missing := fontLacksRunes(f, forms); len(missing) != 0 {
+		t.Errorf("韓文字型缺助詞字形：%q", string(missing))
 	}
 }

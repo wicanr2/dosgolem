@@ -442,6 +442,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		endRow, endCol uint8
 		fits           bool
 	)
+	var nameReading rune // spec 054 §3.2: the last syllable of the reading drawn
 	if key == "player-name" {
 		// Spec 038 §3.3: 中文(英文) → Chinese only → the original English
 		// through the existing passthrough.  Every try starts from the same
@@ -453,9 +454,11 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		switch c.kind {
 		case playerFull:
 			w.Stats.PlayerNames++
+			nameReading = lastHangul(player[len(player)-1].Text)
 		case playerChineseOnly:
 			w.Stats.PlayerNames++
 			w.Stats.PlayerNameChineseOnly++
+			nameReading = lastHangul(player[len(player)-1].Text)
 		default:
 			w.Stats.PlayerNameEnglish++
 			if p == nil {
@@ -531,13 +534,18 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			next.lastRune = last
 			next.owedSpace = e.Original[len(e.Original)-1] == ' ' && last != ' '
 			if w.catalog.ko() {
-				// The whole call, not only its last row: an annotated name wider
-				// than a row breaks at a space inside the annotation.
-				var all []rune
-				for _, l := range lines {
-					all = append(all, l.Text...)
+				if key == "player-name" {
+					// The reading itself, not the annotation after it.
+					next.lastReading = nameReading
+				} else {
+					// The whole call, not only its last row: an annotated name
+					// wider than a row breaks at a space inside the annotation.
+					var all []rune
+					for _, l := range lines {
+						all = append(all, l.Text...)
+					}
+					next.lastReading = koReadingTail(string(all))
 				}
-				next.lastReading = koReadingTail(string(all))
 			}
 		}
 	}
@@ -551,6 +559,14 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 	w.inCall = true
 	w.call = e
 	w.Stats.Hits++
+}
+
+// lastHangul is the last character of rs when it is a Hangul syllable, else 0.
+func lastHangul(rs []rune) rune {
+	if n := len(rs); n > 0 && isHangulSyllable(rs[n-1]) {
+		return rs[n-1]
+	}
+	return 0
 }
 
 // ko reports the Korean catalog (spec 054 §3.2 applies to it only).

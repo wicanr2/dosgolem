@@ -464,6 +464,16 @@ func (c *EngineTextCatalog) TranslateParty(s string, names PartyNameFunc) (strin
 	if c.lang != LangKo && c.lang != LangJa {
 		names = nil
 	}
+	z, ok, inline := c.translateParty(s, names)
+	if !ok && names != nil {
+		// Never worse than without names: a table row whose front became too
+		// wide for the original columns is the one that gives way here.
+		return c.translateParty(s, nil)
+	}
+	return z, ok, inline
+}
+
+func (c *EngineTextCatalog) translateParty(s string, names PartyNameFunc) (string, bool, int) {
 	// Spec 029 §2.8: the exploration coordinate line swaps only the compass
 	// letter; any caller, since the format is unmistakable.
 	if c.coordDir != nil && engineCoordLine.MatchString(s) {
