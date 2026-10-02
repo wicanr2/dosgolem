@@ -1072,26 +1072,18 @@ func (c *CPU) Step() error {
 			break
 		}
 
-		if modrm == 0x5c {
-			sib, e := c.fetch8()
+		if modrm>>6 != 3 && (modrm>>3)&7 == 3 {
+			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
 				return fail(e.Error())
 			}
-			if sib != 0x24 {
-				return fail(fmt.Sprintf("stack NEG SIB %02X 尚未支援", sib))
-			}
-			delta, e := c.fetch8()
-			if e != nil {
-				return fail(e.Error())
-			}
-			addr := uint32(int64(c.R[ESP]) + int64(int8(delta)))
-			value, ok := c.readSegment32(c.Seg[SegSS], addr)
+			value, ok := c.readSegment32(c.Seg[seg], addr)
 			if !ok {
-				return fail(fmt.Sprintf("stack NEG read %04X:%08X 未處理", c.Seg[SegSS], addr))
+				return fail("NEG dword來源無法讀取")
 			}
-			result := uint32(0) - value
-			if !c.writeSegment32(c.Seg[SegSS], addr, result) {
-				return fail(fmt.Sprintf("stack NEG write %04X:%08X 未處理", c.Seg[SegSS], addr))
+			// 規格325：沿既有逐byte Bus寫回，全部成功後才發布flags。
+			if !c.writeSegment32(c.Seg[seg], addr, uint32(0)-value) {
+				return fail("NEG dword目的無法寫入")
 			}
 			c.sub32(0, value)
 			break

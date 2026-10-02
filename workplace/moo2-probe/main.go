@@ -175,6 +175,11 @@ func main() {
 	byteAddSamples, byteAddConsumerBudget, byteAddConsumerSamples := 0, 0, 0
 	var byteAddWatchLinear uint64
 	byteAddWatchReadable := false
+	negDwordSamples, negDwordConsumerBudget, negDwordConsumerSamples := 0, 0, 0
+	var negDwordWatchLinear uint64
+	var negDwordWatchSelector uint16
+	var negDwordWatchOffset uint32
+	negDwordWatchReadable := false
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -896,7 +901,9 @@ func main() {
 		observeFindQuestion := findQuestionConsumerSteps > 0
 		observeByteAdd := newGameClick && newGamePressed && byteAddSamples < 32 && (m.CPU.EIP == 0x17122b || m.CPU.EIP == 0x171231)
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
-		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
+		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
+		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -916,11 +923,46 @@ func main() {
 				copy(byteAddBeforeWindow[:], m.Mem[linear-2:linear+3])
 			}
 		}
+		var negDwordBeforeWindow [16]byte
+		if observeNegDword {
+			negDwordWatchSelector = clickBeforeSeg[cpu386.SegSS]
+			negDwordWatchOffset = clickBeforeR[cpu386.EBP] - 0x28
+			negDwordWatchReadable = false
+			desc, known := m.CPU.Descriptors[negDwordWatchSelector]
+			if known && clickBeforeR[cpu386.EBP] >= 0x2c {
+				start := clickBeforeR[cpu386.EBP] - 0x2c
+				linear := uint64(desc.Base) + uint64(start)
+				if uint64(start)+16 <= uint64(desc.Limit)+1 && linear+16 <= uint64(len(m.Mem)) {
+					negDwordWatchLinear, negDwordWatchReadable = linear, true
+				}
+			}
+		}
+		if (observeNegDword || observeNegDwordConsumer) && negDwordWatchReadable {
+			copy(negDwordBeforeWindow[:], m.Mem[negDwordWatchLinear:negDwordWatchLinear+16])
+		}
 		buttonReadStepActive = newGameClick
 		buttonReadMatched = false
 		buttonPositivePending = false
 		stepErr := m.CPU.Step()
 		buttonReadStepActive = false
+		if observeNegDword || observeNegDwordConsumer {
+			var after [16]byte
+			if negDwordWatchReadable {
+				copy(after[:], m.Mem[negDwordWatchLinear:negDwordWatchLinear+16])
+			}
+			label := "neg_dword_consumer"
+			if observeNegDword {
+				label = "neg_dword_step"
+				negDwordSamples++
+			} else {
+				negDwordConsumerSamples++
+				negDwordConsumerBudget--
+			}
+			fmt.Printf("%s outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=%X window_linear=%X window_readable=%t before_window=%X after_window=%X error=%v\n", label, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, negDwordWatchSelector, negDwordWatchOffset, negDwordWatchLinear, negDwordWatchReadable, negDwordBeforeWindow, after, stepErr)
+			if observeNegDword && stepErr == nil {
+				negDwordConsumerBudget = 3
+			}
+		}
 		if observeByteAddConsumer {
 			byteAddConsumerSamples++
 			byteAddConsumerBudget--

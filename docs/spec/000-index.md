@@ -513,4 +513,6 @@
 
 - [323：DOS問號首次搜尋](323-moo2-dos-findfirst-question-pattern.md)：CONFORMED。真實save?.gam缺檔／EAX12h／CF與12步消費通過，兩原版流程及固定EXE完整測試通過；byte ADD後續見324，設定畫面未知。
 
-- [324：byte ADD目的](324-cpu386-add-byte-register-memory.md)：CONFORMED。1暫存器／7記憶體ADD與24續行、JGE兩方向與全套通過；新記憶體NEG停點，設定畫面未知。
+- [324：byte ADD目的](324-cpu386-add-byte-register-memory.md)：CONFORMED。1暫存器／7記憶體ADD與24續行、JGE兩方向與全套通過；記憶體NEG後續見325，設定畫面未知。
+
+- [325：32位記憶體NEG](325-cpu386-neg-dword-memory.md)：CONFORMED。3正常NEG寫回／9步MOV、CMP與JGE不跳、全套與舊4123列保持；同50M流程到上限無新CPU拒絕，設定畫面未知。

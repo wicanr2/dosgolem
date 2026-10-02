@@ -54,3 +54,7 @@ CPU SHA-256 d3fd7c1125d6ecda2fbc05f021776a0532a820af6babea1f3693dc6608aace4e；p
 限定CONFORMED只含無前綴00 /r契約與上述真正ADD／最小消費。未支援prefix、記憶體NEG、正常新遊戲與主庫玩法RE閘門保持；下一步依公開NEG契約先READY、實作、固定EXE全套、同44M原版正常輸入重生，記實際SS來源／目的與最小caller，不追helper內部、不加cap／重點或代寫狀態。
 
 61回填函式、原有32／49負例與324新增25負例及兩CLI通過。私有workplace/byte-add-324-backlink-tests.txt SHA-256 7e134f37db5edeb23ee21a6258a1e5f0655654d2d29663080460d4ed43f1554b；缺原始輸入、窗口、兩方向、正式收據、未知邊界、323勘誤或索引均拒絕。新檔與收據UID:GID1000:1000，工具root-owned／誤建.md目錄自檢空。本輪首次唯讀Docker呼叫的自動核准審查逾時未建立程序，依回報重試一次成功；不是工具或產品失敗。
+
+## 2026-10-03 記憶體NEG後續
+
+記憶體NEG停點已由規格325接通：[325-cpu386-neg-dword-memory.md](325-cpu386-neg-dword-memory.md)。324當時來源未取樣的歷史收據保留；325正常SS取樣三次FFFFFFFFh→1h與九步MOV／CMP／JGE不跳已證，設定畫面仍未知。同44M／50M流程已到上限，沒有新CPU拒絕。現行下一步為相同輸入的後段唯讀進度／畫面觀測，未加cap或重點。

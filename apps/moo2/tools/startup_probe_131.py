@@ -51,6 +51,33 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_neg_dword_memory_resolution(spec_dir):
+    """325原始NEG來源、窗口、最小消費與較早規格回填須同時存在。"""
+    name = '325-cpu386-neg-dword-memory.md'
+    current = (spec_dir / name).read_text()
+    required = ('49501135', '2130F3', 'F7 5D D8', 'SS188:2BD9CC',
+                'sequential Bus', '晚期Bus部分寫', '來源FFFFFFFFh', '結果1h',
+                'flags286h→213h', 'MOV EAX', 'CMP AX', 'JGE三次不跳',
+                '4123列保持', 'f98aa39690cc448441483c927be79f48d73dc943970819136b4d7e8ace851d03', '5c269c7fbd6360ad5248da763e2f57f302ea3b837e48a41d1896cb73a16a1d7b', '1448f29f24dad35e83575189055dc15dd7ac9db2b3529c6d450f03baf91c97b1',
+                '設定畫面仍未知', '沒有新CPU拒絕', '固定 EXE')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('dword NEG缺原始來源／窗口／旗標／最小消費／收據或未知邊界')
+    older_by_file = {'324-cpu386-add-byte-register-memory.md': '記憶體NEG停點已由規格325接通',
+                     '180-cpu386-neg-stack-disp8.md': '原測試「wrong SIB」',
+                     '084-cpu386-neg-register.md': '一般無前綴32位記憶體NEG'}
+    for filename, token in older_by_file.items():
+        text = (spec_dir / filename).read_text()
+        if token not in text or name not in text:
+            raise RuntimeError('dword NEG較早規格缺勘誤回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('325缺公開索引入口')
+
+if sys.argv[1:] == ['--check-neg-dword-memory-spec-backlinks']:
+    validate_neg_dword_memory_resolution(spec_dir)
+    print('dword NEG原始來源／六旗標／最小消費與180／324回填通過')
+    raise SystemExit(0)
+
+
 def validate_byte_add00_resolution(spec_dir):
     """324原始ADD、記憶體窗口、兩方向分支與323回填必須同時存在。"""
     name = '324-cpu386-add-byte-register-memory.md'

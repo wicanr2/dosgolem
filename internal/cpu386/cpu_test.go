@@ -1262,7 +1262,8 @@ func TestNegStackDisp8Dword(t *testing.T) {
 	}{
 		{name: "read-only", code: []byte{0xf7, 0x5c, 0x24, 4}},
 		{name: "bounds", code: []byte{0xf7, 0x5c, 0x24, 0x1f}, writable: true},
-		{name: "wrong SIB", code: []byte{0xf7, 0x5c, 0x25, 4}, writable: true},
+		// 規格325已支援合法EBP SIB，改驗仍未審查的LOCK前綴。
+		{name: "LOCK prefix", code: []byte{0xf0, 0xf7, 0x5c, 0x24, 4}, writable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mem := testBus(make([]byte, 0x40))
