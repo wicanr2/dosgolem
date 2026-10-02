@@ -52,6 +52,30 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_menu_slide_resolution(spec_dir):
+    """315唯讀觀測須保留原始終態、三收據與314勘誤。"""
+    current=(spec_dir/'315-moo2-menu-slide-observation.md').read_text()
+    required=('0x23856E','late_startup_platform label=terminal',
+              'irq7_passdown_state label=terminal','step_limit_registers',
+              '3530C4／0／F3／1／2BDB10／2BDB68／4F6F42／353316',
+              'flags206h','IRQ7 started388／completed388','DOSGOLEM_MOO2_VBE_FRAME_PREFIX',
+              'readonly=true','共29張','每一既有314列均逐列相同','49967220','62395438',
+              '546c234534a8f82e3a5e37de82e95fc46d220af0e428184ac2eafbaf64fc530d',
+              '91ff5b147572fc6a7dbe706c3e19f832fdd3ab61b8c7ed6a0e2c29a9cc6ba779',
+              '6d53ab8d999c22f89814fa2793316a59ffada212f6fe14639cfc904e270f9926',
+              '4895e5e54aa52d12d0333f1fc1cec86bfeb5121957dbadfc0316ee9962f7a701',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('滑入觀測缺原始終態／唯讀基線／正式收據')
+    older=(spec_dir/'314-moo2-protected-mouse-callback-exchange.md').read_text()
+    if '314終態缺快照斷言已由規格 315 勘誤' not in older or '315-moo2-menu-slide-observation.md' not in older:
+        raise RuntimeError('314終態誤判缺勘誤回填')
+
+if sys.argv[1:]==['--check-menu-slide-spec-backlinks']:
+    validate_menu_slide_resolution(spec_dir)
+    print('主選單階段觀測／314終態勘誤與原始收據回填通過')
+    raise SystemExit(0)
+
 def validate_mouse_exchange_resolution(spec_dir):
     """314交換回傳與原版C3返回須回填同AX0014h停點。"""
     current=(spec_dir/'314-moo2-protected-mouse-callback-exchange.md').read_text()

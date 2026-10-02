@@ -47,7 +47,7 @@ internal/machine/le_mouse_callback.go SHA-256 044817ffbb3a22e1446bf729e1dd37a205
 
 所有313交換停點前的完整前綴除mtime／DTA四bytes外逐列保持，第三未設定日期的完整原始313流程同樣保持0x240A32拒絕，沒有任何交換觀測。不默認日期，不固定正式遊戲亂數。兩初態的既有受控回呼0／1分開驗，三次交換時pending0、activefalse、started／completed保持0／0或1／1。新mask後沒有新增事件驗收，255完整座標／游標保持未知。
 
-兩設定流程沒有step_error或guest_cpu_stop，均step_limit=50000000 eip=0x23856E；這是有界觀測終止，不是未支援指令。時計62461366、IRQ0 started8383／completed8383／failedfalse，VBE Bank7／StartY512／BankSets815／Writes9385664／DisplaySets21，indexed SHA-256 4aec1cb98a44d2f9bdae79b9722f6a8b0821c162ca9c5a819a634b6d20d733eb。兩末尾窗口逐列相同，但本次上限沒有完整R／六段／IRQ7終態快照，不冒稱完整終態核心相同。受控滑鼠另使DOS allocator selector及unique_sites不同，這是已明示的不同初態，不抹除差異作同狀態聲明。
+兩設定流程沒有step_error或guest_cpu_stop，均step_limit=50000000 eip=0x23856E；這是有界觀測終止，不是未支援指令。時計62461366、IRQ0 started8383／completed8383／failedfalse，VBE Bank7／StartY512／BankSets815／Writes9385664／DisplaySets21，indexed SHA-256 4aec1cb98a44d2f9bdae79b9722f6a8b0821c162ca9c5a819a634b6d20d733eb。兩末尾窗口逐列相同，完整終態R／六段／flags與IRQ7快照亦已保存並核對，勘誤見315。受控滑鼠另使DOS allocator selector及unique_sites不同，這是已明示的不同初態，不抹除差異作同狀態聲明。
 
 兩PNG SHA-256 8f7791ae57649991fbf9bf3a86fdacab602e792f39a9b3d57ae691484a754d47，逐位元相同。已實際檢視原版標題背景，右側主選單面板正在滑入、文字僅部分可見，尚未完整展開，正常點擊／完整主選單未驗。第三圖保持黑色過場1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。
 
@@ -61,6 +61,8 @@ internal/machine/le_mouse_callback.go SHA-256 044817ffbb3a22e1446bf729e1dd37a205
 
 AX0014h交換停點已由規格 314 接通。309／310／311／312／313同一固定EXE＋高位LE0x24C31B＋AX0014h同次追加勘誤與本檔連結，保留舊拒絕及其歷史範圍。護欄apps/moo2/tools/startup_probe_131.py --check-mouse-exchange-spec-backlinks驗定位、公開近似、正常交換／返回、三收據與五份回填，缺項即拒絕。
 
-限定CONFORMED只包含受控交換服務、上述正常原版返回與24次R／flags觀測。32位元橋接／佇列時序仍是platform-spec approximation，未擷取寫回與全終態保持未知。303整體觀測DRAFT、255完整游標READY、299自然OF=1、AH2Ch／RNG、人耳、完整主選單／玩家路徑與remake同狀態未完成，主庫玩法RE閘門保持。下一步在50M內補主選單滑入的有界唯讀階段觀測，先辨識正常等待與輸入條件，不提高上限、猜欄位或跳過動畫。
+限定CONFORMED只包含受控交換服務、上述正常原版返回與24次R／flags觀測。32位元橋接／佇列時序仍是platform-spec approximation，未擷取寫回保持未知，終態已保存。303整體觀測DRAFT、255完整游標READY、299自然OF=1、AH2Ch／RNG、人耳、完整主選單／玩家路徑與remake同狀態未完成，主庫玩法RE閘門保持。下一步在50M內補主選單滑入的有界唯讀階段觀測，先辨識正常等待與輸入條件，不提高上限、猜欄位或跳過動畫。
 
 同次56回填函式、31新增缺定位／狀態／收據／舊標記／連結負例與CLI通過。首輪文件護欄因遠指標文字未含完整冒號形式拒絕，只補正ES:EDX=0008:002136D1並乾淨重跑，程式與正式收據不改。全部檔案及收據UID:GID1000:1000，工具root-owned／異形.md目錄檢查空。20:20:54 UTC本輪有界容器均已退出移除，其他Go容器掛載均屬hr專案，保留未操作；未清理映像。
+
+314終態缺快照斷言已由規格 315 勘誤，見[315-moo2-menu-slide-observation.md](315-moo2-menu-slide-observation.md)。同一兩原始gzip實際含label=terminal與step_limit_registers；完整R／六段／flags206h及IRQ7 started388／completed388已核對，只有既有受控mouse_started／mouse_completed0／1不同。原始收據保持，錯誤來自前輪只搜尋limit／step_limit標籤，漏讀terminal，不是缺觀測或程式故障。

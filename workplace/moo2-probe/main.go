@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -140,6 +141,9 @@ func main() {
 	cmpWordSamples, cmpWordSteps, cmpWordTotal := 0, 0, 0
 	cmpWordBoundarySeen := false
 	mouseExchangeSamples, mouseExchangeSteps := 0, 0
+	phaseFrames := 0
+	var phaseLastDisplay uint64
+	phasePrefix := os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX")
 	defer func() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
@@ -245,6 +249,50 @@ func main() {
 			beforeR := c.R
 			handled := services.Handle(c, number)
 			fmt.Printf("vbe_display_start eip=0x%X input=%X handled=%t output=%X state=%+v\n", c.EIP-2, beforeR, handled, c.R, m.VBEState())
+			state := m.VBEState()
+			if phasePrefix != "" && handled && loopStep >= 48000000 && state.Active && phaseFrames < 16 && state.DisplaySets != phaseLastDisplay {
+				phaseFrames++
+				phaseLastDisplay = state.DisplaySets
+				beforeR, beforeSeg, beforeEIP, beforeFlags := c.R, c.Seg, c.EIP, c.EFlags
+				control, status, stack, depth := c.FPUControl, c.FPUStatus, c.FPUStack, c.FPUDepth
+				pixels, rgb := m.VBEIndexed(), m.VBERGB()
+				path := fmt.Sprintf("%s-%03d.png", phasePrefix, state.DisplaySets)
+				if len(pixels) != 640*480 || len(rgb) != 640*480*3 {
+					panic("VBE換頁快照尺寸錯誤")
+				}
+				out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
+				for pixel := range pixels {
+					copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
+					out.Pix[pixel*4+3] = 255
+				}
+				f, err := os.Create(path)
+				if err != nil {
+					panic(err)
+				}
+				encodeErr, closeErr := png.Encode(f, out), f.Close()
+				if encodeErr != nil {
+					panic(encodeErr)
+				}
+				if closeErr != nil {
+					panic(closeErr)
+				}
+				encoded, err := os.ReadFile(path)
+				if err != nil {
+					panic(err)
+				}
+				readonly := c.R == beforeR && c.Seg == beforeSeg && c.EIP == beforeEIP && c.EFlags == beforeFlags && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state
+				for j := range stack {
+					readonly = readonly && math.Float64bits(stack[j]) == math.Float64bits(c.FPUStack[j])
+				}
+				if !readonly {
+					panic("VBE換頁觀測改變原始狀態")
+				}
+				micros := uint64(0)
+				if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+					micros = ports.BIOSClock.Micros
+				}
+				fmt.Printf("menu_slide_phase outer_step=%d address_space=dosgolem_high_le callsite=%X virtual_micros=%d display=%d state=%+v r=%X seg=%X flags=%X indexed_sha256=%x rgb_sha256=%x png_sha256=%x path=%s readonly=%t\n", loopStep, c.EIP-2, micros, state.DisplaySets, state, c.R, c.Seg, c.EFlags, sha256.Sum256(pixels), sha256.Sum256(rgb), sha256.Sum256(encoded), path, readonly)
+			}
 			return handled
 		}
 		if number == 0x33 {

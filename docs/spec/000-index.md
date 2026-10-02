@@ -494,3 +494,5 @@
 - [313：word CMP 完整立即值](313-cpu386-cmp-word-register-imm16.md)：CONFORMED。八來源／全word／全套、兩正常三組CMP旗標及JL跳轉／不跳轉已驗；已見標題背景，AX0014h續見314，完整主選單未知。
 
 - [314：保護模式滑鼠回呼交換](314-moo2-protected-mouse-callback-exchange.md)：CONFORMED。24次正常交換／三次C3返回、全套與三流程通過；兩組到50M，主選單部分滑入，完整操作未驗。
+
+- [315：主選單滑入階段觀測](315-moo2-menu-slide-observation.md)：CONFORMED。三原版29張唯讀快照／全部基線不突變，已證實畫面持續改變；完整操作未驗，保持50M上限。
