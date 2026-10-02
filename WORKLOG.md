@@ -325,3 +325,19 @@ Intel80386 REP頁面偽碼退出條件與文字矛盾，以正式SDM2B確認比�
 293／294舊停點與索引／回填護欄同次維護，原始素材與完整終端／記憶體／gzip／PNG留本機，只公開自製來源／測試／有限診斷及文字證據。沿用github隔離分支推送授權，不推本機origin。
 
 全部38個回填函式、293／294兩份各四項缺證據負例、--check-or-dword-memory-spec-backlinks CLI、兩自然完整OR／JMP／MOV／TEST與新停點的獨立算術核對通過。原始ZIP／patch／固定EXE雜湊再核對一致，索引／語法／繁體字／UID／無誤建目錄及git diff --check通過。Docker按Go映像與moo2名稱分開核對，本輪一次性容器已退出移除，未清理其他專案或映像。讀取環境無rg改grep；幾次不存在檔案的讀取假設及一次同檔多段patch拒絕均未改檔，依已定位來源修正。
+
+## 2026-10-02：SB16 C6h 命令與原版成功返回
+
+開工主庫eac4a998ba1a4dc4d0a515eb9ab510c3670652da／工具418ca3cf6d874e24127da24c0ba66e9fafecf6e7乾淨，上一輪OR與完整MOV消費已推送。沿用平台規格優先／規格閘門、dosgolem、文件職責與後續回填路由及逆向重製技能，主庫玩法RE閘門不變。
+
+296同次DRAFT＋索引，有限非自然參數探針取得C6 20 FF 07／22050Hz／4096byte DMA ring；第4byte強制拒絕，不當自然成功。公開Creative命令／每channel與TimeConstant、sample duration／block與ring區分審查READY後才實作，未深入driver／ISR／DAC／PIT／DMA逐週期。專用C6回呼、四mode／完整length與8位DMA格式／取樣計數接通，CPU與其他命令不改。
+
+全部CPU／機器層與固定官方EXE全套首次通過，獨立取樣數、原版形狀46440µs首block與92880µs ring重載、IRQ隔離／ack／EOI／IRET、mask／reset／拒絕／來源邊界已驗。兩原版自然排程接受完整C6並實模式333步返回，原版MOV EBX讀成功值0、CMP／JZ進0x2454E7成功分支，完整外層R／段／旗標及50byte封包差異已驗，296才限定CONFORMED。
+
+第一份正式來源診斷誤取尚未設定的呼叫前DMA，改取返回後base／page；舊收據保留而不當C6來源證據，同映像／命令重生兩自然。來源ring確為物理14000h／4096byte／全80h；返回只有21µs、信用926100，小於第一sample門檻，PCMBytes=0。原版保護模式連續PCM／IRQ7仍未知，條件實模式pattern測試不能替代音訊／人耳或玩家路徑驗收。唯讀知識載入的自動核准審查逾時後依工具指示重試一次，成功；一筆文件編輯JS字串錯誤未執行，修正後繼續。沒有退回主機工作負載或另建映像。
+
+兩自然第42,347,639步轉停高位LE0x257662的C1 CA 10，dword ROR立即數10h缺件；IRQ0 started=completed=6173、等待值4579，PNG同已檢視黑圖。255座標／游標、主選單／正常玩家路徑、保護模式音訊／IRQ7、受控亂數與整款remake未完成。下一步為公開ROR計數／旗標契約與有限唯讀初態，審查READY後補窄CPU形式，不猜遊戲欄位用途。
+
+精確命令、輸入／工具／來源與所有有效／參數／診斷更正收據SHA-256集中於296；293／294／295舊停點與索引同次回填。全部39個回填函式、三份舊停點共15項缺證據負例、--check-sb16-c6-spec-backlinks與兩自然獨立時間／封包／完整caller／新停點稽核通過。原版ZIP／patch／EXE雜湊再核對，原版素材及完整終端／記憶體／gzip／PNG留本機，只提交自製來源／測試／有限診斷與文字證據。沿用github隔離分支推送授權，不推本機origin。
+
+來源／輸出UID:GID1000:1000、工具無root-owned／誤建.md目錄及git diff --check通過。本批一次性Go容器已退出移除，moo2名稱無殘留；同Go映像的0da5d78f687c掛載皆屬fd2，保留其他專案工作。未清理其他專案或映像。

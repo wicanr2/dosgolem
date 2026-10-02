@@ -53,3 +53,7 @@ IRQ0 started=completed=5936、active=false／failed=false，等待DS:00271148=F6
 ## 後續 OR 已接通
 
 記憶體 dword OR 停點已由規格 295 接通，見 [295-cpu386-or-dword-memory-register.md](295-cpu386-or-dword-memory-register.md)。兩自然原版自行將DS:00325864完整40h寫成2040h，再由0x23B693的MOV EAX讀取完整dword。295限定CONFORMED；第42,347,254步轉停實模式DSP OUT 022Ch／C6h，主選單仍未驗收。
+
+## 後續 C6h 停點回填
+
+SB16 C6h 停點已由規格 296 接通，見 [296-sb16-c6-auto-init-dma.md](296-sb16-c6-auto-init-dma.md)。原版完整C6 20 FF 07接受、實模式333步返回、原版MOV／CMP／JZ成功分支已驗；保護模式連續PCM／IRQ7仍未閉合。第42,347,639步轉停高位LE0x257662的dword ROR立即數10h；本檔原有CPU證據範圍不擴張。

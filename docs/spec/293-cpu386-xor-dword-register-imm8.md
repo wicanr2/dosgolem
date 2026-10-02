@@ -42,3 +42,7 @@ BSF 停點已由規格 294 接通，見 [294-cpu386-bsf-dword-register.md](294-c
 最終CPU／全套／兩自然收據與下一停點見294，第41,223,220步轉停高位LE0x23C36B的09記憶體dword OR；主選單／正常玩家路徑、音效／受控亂數與整款remake仍未驗收。
 
 此後記憶體 dword OR 停點已由規格 295 接通，見 [295-cpu386-or-dword-memory-register.md](295-cpu386-or-dword-memory-register.md)。40h→2040h的完整寫回／dword MOV消費通過，新停點為實模式DSP OUT 022Ch／C6h；XOR／BSF的原有證據範圍不擴張。
+
+## 後續 C6h 停點回填
+
+SB16 C6h 停點已由規格 296 接通，見 [296-sb16-c6-auto-init-dma.md](296-sb16-c6-auto-init-dma.md)。原版完整C6 20 FF 07接受、實模式333步返回、原版MOV／CMP／JZ成功分支已驗；保護模式連續PCM／IRQ7仍未閉合。第42,347,639步轉停高位LE0x257662的dword ROR立即數10h；本檔原有CPU證據範圍不擴張。

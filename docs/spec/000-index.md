@@ -455,4 +455,6 @@
 
 - [294：dword 暫存器的向前位元掃描](294-cpu386-bsf-dword-register.md)：CONFORMED。全部CPU／固定EXE與兩自然XOR→BSF→ADD→word MOV完整資料鏈通過；ZF定義與未定義模型分開驗，09記憶體dword OR停點已由295接通。
 
-- [295：記憶體 dword 目的與暫存器的 OR](295-cpu386-or-dword-memory-register.md)：CONFORMED。全部CPU／固定EXE、兩自然40h→2040h寫回及MOV EAX的完整dword真實消費已驗；AF／逐byte錯誤模型明示，下一實模式DSP OUT 022Ch／C6h缺件。
+- [295：記憶體 dword 目的與暫存器的 OR](295-cpu386-or-dword-memory-register.md)：CONFORMED。全部CPU／固定EXE、兩自然40h→2040h寫回及MOV EAX的完整dword真實消費已驗；AF／逐byte錯誤模型明示，C6h停點由296接通，CPU證據範圍不擴張。
+
+- [296：SB16 C6h 的 8 位元自動初始化 DMA](296-sb16-c6-auto-init-dma.md)：CONFORMED。原版C6 20 FF 07接受／333步返回與MOV／CMP／JZ成功分支、條件DMA時鐘／block與ring已驗；保護模式連續PCM／IRQ7未知，下一dword ROR立即數10h缺件。

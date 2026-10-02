@@ -5,6 +5,9 @@ type SoundBlasterDSP struct {
 	SpeakerOn                      bool
 	RateNumerator, RateDenominator uint64
 	StartAutoDMA                   func(uint32) bool
+	StartSB16AutoDMA               func(uint32, byte) bool
+	Auto8Command                   [4]byte
+	Auto8Commands                  uint64
 	Start16DMA                     func(uint32) bool
 	BlockSize                      uint32
 	BlockSizeKnown                 bool
@@ -12,6 +15,7 @@ type SoundBlasterDSP struct {
 	lengthLow                      byte
 	lengthHighNext                 bool
 	b0Step                         uint8
+	c6Step, c6Mode                 uint8
 	StartDMA                       func(uint32) bool
 	CancelDMA                      func()
 	IRQPending                     bool
@@ -90,6 +94,35 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		return true
 	}
 	if port == 0x22c && !s.reset {
+		// 規格296：C6完整mode／長度收到並啟動成功後才發布block與診斷。
+		if s.pending == 0xc6 {
+			switch s.c6Step {
+			case 0:
+				if v&^0x30 != 0 {
+					return false
+				}
+				s.c6Mode, s.c6Step = v, 1
+				return true
+			case 1:
+				s.lengthLow, s.c6Step = v, 2
+				return true
+			case 2:
+				n := uint32(s.lengthLow) + uint32(v)*256 + 1
+				if s.StartSB16AutoDMA == nil || !s.StartSB16AutoDMA(n, s.c6Mode) {
+					return false
+				}
+				s.BlockSize, s.BlockSizeKnown = n, true
+				s.Auto8Command = [4]byte{0xc6, s.c6Mode, s.lengthLow, v}
+				s.Auto8Commands++
+				s.pending, s.c6Step = 0, 0
+				return true
+			}
+			return false
+		}
+		if s.pending == 0 && v == 0xc6 {
+			s.pending, s.c6Step = v, 0
+			return true
+		}
 		if s.pending == 0xb0 {
 			switch s.b0Step {
 			case 0:
@@ -206,6 +239,7 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		s.pending = 0
 		s.lengthHighNext = false
 		s.b0Step = 0
+		s.c6Step, s.c6Mode = 0, 0
 		s.IRQPending = false
 		s.IRQ16Pending = false
 		if s.CancelDMA != nil {

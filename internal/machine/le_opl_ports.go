@@ -3,33 +3,34 @@ package machine
 // LEOPLPorts 沿用既有 OPL／VGA 狀態，並轉接受限 DSP；未知埠明確拒絕。
 // 計時器為既有偵測近似，不代表真實時間或音訊波形。
 type LEOPLPorts struct {
-	PIT0             LEPIT0
-	BIOSClock        *LEBIOSClock
-	dmaAuto          bool
-	dmaBlockSize     uint32
-	sampleCredit     uint64
-	device           *Machine
-	virtualMicros    uint64
-	dmaActive        bool
-	dma16Active      bool
-	dma16WordsLeft   uint32
-	sample16Credit   uint64
-	dmaLeft          uint32
-	picPending       bool
-	picInService     bool
-	picReadISR       [2]bool
-	DMACompletions   uint64
-	DMA16Completions uint64
-	IRQ7Deliveries   uint64
-	PCM              []byte
-	PCM16            []byte
-	dsp              SoundBlasterDSP
-	picMasks         [2]byte
-	dma              *DMA8237
-	secondaryDMA     *DMA8237
-	Log              []LEOPLPortEvent
-	Reads            map[uint16]uint64
-	Writes           map[uint16]uint64
+	PIT0                          LEPIT0
+	BIOSClock                     *LEBIOSClock
+	dmaAuto                       bool
+	dmaStereo, dmaSigned, dmaFIFO bool
+	dmaBlockSize                  uint32
+	sampleCredit                  uint64
+	device                        *Machine
+	virtualMicros                 uint64
+	dmaActive                     bool
+	dma16Active                   bool
+	dma16WordsLeft                uint32
+	sample16Credit                uint64
+	dmaLeft                       uint32
+	picPending                    bool
+	picInService                  bool
+	picReadISR                    [2]bool
+	DMACompletions                uint64
+	DMA16Completions              uint64
+	IRQ7Deliveries                uint64
+	PCM                           []byte
+	PCM16                         []byte
+	dsp                           SoundBlasterDSP
+	picMasks                      [2]byte
+	dma                           *DMA8237
+	secondaryDMA                  *DMA8237
+	Log                           []LEOPLPortEvent
+	Reads                         map[uint16]uint64
+	Writes                        map[uint16]uint64
 }
 type LEOPLPortEvent struct {
 	Port  uint16
@@ -44,9 +45,11 @@ func NewLEOPLPorts() *LEOPLPorts {
 	p.dsp.StartDMA = p.startDSPDMA
 	p.dsp.Start16DMA = p.startDSP16DMA
 	p.dsp.StartAutoDMA = func(n uint32) bool { return p.startDMA(n, true) }
+	p.dsp.StartSB16AutoDMA = p.startSB16AutoDMA
 	p.dsp.CancelDMA = func() {
 		p.dmaActive = false
 		p.dmaLeft = 0
+		p.dmaStereo, p.dmaSigned, p.dmaFIFO = false, false, false
 		p.dma16Active = false
 		p.dma16WordsLeft = 0
 		p.picPending = false
@@ -264,6 +267,17 @@ type LEDeviceState struct {
 	DMA16Active                           bool
 	DSPTimeConstant                       byte
 	DSPTimeConstantKnown                  bool
+	DSPRateNumerator, DSPRateDenominator  uint64
+	DMAKnown                              [8]uint8
+	DMAPageKnown                          [4]bool
+	DMAActive, DMAAuto                    bool
+	DMABytesLeft, DMABlockSize            uint32
+	DMACompletions, DMA16Completions      uint64
+	PCMBytes                              int
+	DMA8Stereo, DMA8Signed, DMA8FIFO      bool
+	DSPAuto8Command                       [4]byte
+	DSPAuto8Commands                      uint64
+	DMA8SampleCredit                      uint64
 }
 
 func (p *LEOPLPorts) State() LEDeviceState {
@@ -274,5 +288,12 @@ func (p *LEOPLPorts) State() LEDeviceState {
 		SecondaryDMABase: p.secondaryDMA.Base, SecondaryDMACurrent: p.secondaryDMA.Current,
 		SecondaryDMAPage: p.secondaryDMA.Page, SecondaryDMAMode: p.secondaryDMA.Mode, SecondaryDMAMask: p.secondaryDMA.Mask,
 		DMA16Active: p.dma16Active, DSPTimeConstant: p.dsp.TimeConstant, DSPTimeConstantKnown: p.dsp.TimeConstantKnown,
+		DSPRateNumerator: p.dsp.RateNumerator, DSPRateDenominator: p.dsp.RateDenominator,
+		DMAKnown: p.dma.Known, DMAPageKnown: p.dma.PageKnown,
+		DMAActive: p.dmaActive, DMAAuto: p.dmaAuto, DMABytesLeft: p.dmaLeft, DMABlockSize: p.dmaBlockSize,
+		DMACompletions: p.DMACompletions, DMA16Completions: p.DMA16Completions, PCMBytes: len(p.PCM),
+		DMA8Stereo: p.dmaStereo, DMA8Signed: p.dmaSigned, DMA8FIFO: p.dmaFIFO,
+		DSPAuto8Command: p.dsp.Auto8Command, DSPAuto8Commands: p.dsp.Auto8Commands,
+		DMA8SampleCredit: p.sampleCredit,
 	}
 }

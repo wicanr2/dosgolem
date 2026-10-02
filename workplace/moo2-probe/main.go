@@ -122,6 +122,29 @@ func main() {
 	var dtaOffset uint32
 	dtaSet := false
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		if number == 0x31 && uint16(c.R[cpu386.EAX]) == 0x0300 && uint16(c.R[cpu386.EBX]) == 0x0066 {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			if !ok {
+				return services.Handle(c, number)
+			}
+			before := ports.State()
+			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
+			handled := services.Handle(c, number)
+			after := ports.State()
+			if after.DSPAuto8Commands != before.DSPAuto8Commands && after.DSPAuto8Commands <= 3 {
+				start := uint32(after.DMAPage[1])*65536 + uint32(after.DMABase[2])
+				size := uint32(after.DMABase[3]) + 1
+				var sourceHash [32]byte
+				var sourcePrefix []byte
+				sourceReadable := uint64(start)+uint64(size) <= uint64(len(m.Mem))
+				if sourceReadable {
+					sourceHash = sha256.Sum256(m.Mem[start : start+size])
+					sourcePrefix = append([]byte(nil), m.Mem[start:start+min(size, 16)]...)
+				}
+				fmt.Printf("sb16_c6_call address_space=dosgolem_high_le eip=0x%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=0x%X after_flags=0x%X handled=%t command=%X before_state=%+v after_state=%+v source_timing=after_real_mode_return source_linear=0x%X source_bytes=%d source_sha256=%x source_prefix=%X pcm_prefix=%X source_readable=%t real_mode=%+v\n", c.EIP-2, beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, handled, after.DSPAuto8Command, before, after, start, size, sourceHash, sourcePrefix, ports.PCM[:min(len(ports.PCM), 16)], sourceReadable, services.DPMI.RealModeLast)
+			}
+			return handled
+		}
 		if number == 0x21 && (uint8(c.R[cpu386.EAX]>>8) == 0x25 || uint8(c.R[cpu386.EAX]>>8) == 0x35) {
 			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
 			handled := services.Handle(c, number)
@@ -246,6 +269,7 @@ func main() {
 		}
 	}
 	seen := map[uint32]int{}
+	c6CallerSeen := map[uint32]int{}
 	orReads := &orMemoryReadObserver{remaining: 16}
 	type sample struct {
 		step               int
@@ -275,6 +299,12 @@ func main() {
 			}
 		}
 		seen[m.CPU.EIP]++
+		if m.CPU.EIP == 0x2454b0 || m.CPU.EIP == 0x2454b3 || m.CPU.EIP == 0x2454b6 || m.CPU.EIP == 0x2454b8 || m.CPU.EIP == 0x2454e7 {
+			if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && ports.State().DSPAuto8Commands > 0 && c6CallerSeen[m.CPU.EIP] < 3 {
+				c6CallerSeen[m.CPU.EIP]++
+				fmt.Printf("sb16_c6_caller step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X device=%+v\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.State())
+			}
+		}
 		if (m.CPU.EIP == 0x146903 || m.CPU.EIP == 0x14822d || m.CPU.EIP == 0x15c1df) && seen[m.CPU.EIP] <= 3 {
 			esi := m.CPU.R[cpu386.ESI]
 			var source string

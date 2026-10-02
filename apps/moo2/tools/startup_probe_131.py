@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-sb16-c6-spec-backlinks 只驗證 SB16 C6h 規格回填，不啟動 DOSBox-X。
 --check-or-dword-memory-spec-backlinks 只驗證 dword 記憶體 OR 規格回填，不啟動 DOSBox-X。
 --check-or-byte-memory-spec-backlinks 只驗證 byte 記憶體 OR 規格回填，不啟動 DOSBox-X。
 --check-shl-byte-cl-spec-backlinks 只驗證 byte SHL／CL 規格回填，不啟動 DOSBox-X。
@@ -56,6 +57,28 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_sb16_c6_resolution(spec_dir):
+    """296 的命令／返回／成功caller及音訊邊界須回填293／294／295。"""
+    current = (spec_dir / '296-sb16-c6-auto-init-dma.md').read_text()
+    required = ('0x2454AE', '1201:05D9', 'C6 20 FF 07', 'Returned=true', '333步',
+                '0x2454B3', '0x2454B6', '0x2454E7', '46440µs', 'TimeConstant',
+                '926100', 'PCMBytes=0', '保護模式連續PCM／IRQ7仍未知',
+                'hardware-spec approximation',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('C6h缺原始定位／命令／返回／caller／條件時鐘或音訊邊界')
+    for name in ('293-cpu386-xor-dword-register-imm8.md',
+                 '294-cpu386-bsf-dword-register.md',
+                 '295-cpu386-or-dword-memory-register.md'):
+        older = (spec_dir / name).read_text()
+        if 'SB16 C6h 停點已由規格 296 接通' not in older or '296-sb16-c6-auto-init-dma.md' not in older:
+            raise RuntimeError('C6h舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-sb16-c6-spec-backlinks']:
+    validate_sb16_c6_resolution(spec_dir)
+    print('C6h命令／返回／成功caller與音訊邊界回填通過')
     raise SystemExit(0)
 
 def validate_or_dword_memory_resolution(spec_dir):

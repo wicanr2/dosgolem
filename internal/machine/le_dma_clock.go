@@ -7,6 +7,21 @@ import (
 
 func (p *LEOPLPorts) startDSPDMA(n uint32) bool { return p.startDMA(n, false) }
 
+func (p *LEOPLPorts) startSB16AutoDMA(samples uint32, mode byte) bool {
+	if mode&^0x30 != 0 || p.dsp.RateDenominator == 0 {
+		return false
+	}
+	denominator := p.dsp.RateDenominator
+	if mode&0x20 != 0 && p.dsp.TimeConstantKnown {
+		denominator *= 2
+	}
+	if p.dsp.RateNumerator < 5000*denominator || p.dsp.RateNumerator > 45000*denominator || !p.startDMA(samples, true) {
+		return false
+	}
+	p.dmaStereo, p.dmaSigned, p.dmaFIFO = mode&0x20 != 0, mode&0x10 != 0, true
+	return true
+}
+
 func (p *LEOPLPorts) startDSP16DMA(words uint32) bool {
 	d := p.secondaryDMA
 	if words != 1 || p.dmaActive || p.dma16Active || p.dsp.RateNumerator == 0 || p.dsp.RateDenominator == 0 ||
@@ -34,6 +49,7 @@ func (p *LEOPLPorts) startDMA(n uint32, auto bool) bool {
 	p.dmaLeft = n
 	p.dmaBlockSize = n
 	p.dmaAuto = auto
+	p.dmaStereo, p.dmaSigned, p.dmaFIFO = false, false, false
 	p.sampleCredit = 0
 	return true
 }
@@ -47,7 +63,12 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 		}
 	}
 	if p.dmaActive && p.dma.Mask&2 == 0 {
-		p.sampleCredit += p.dsp.RateNumerator
+		multiplier := uint64(1)
+		// 41h的rate是每channel；40h TimeConstant已包含channels，勿重複乘2。
+		if p.dmaStereo && !p.dsp.TimeConstantKnown {
+			multiplier = 2
+		}
+		p.sampleCredit += multiplier * p.dsp.RateNumerator
 	}
 	if p.dmaActive && p.sampleCredit >= 1000000*p.dsp.RateDenominator && p.dma.Mask&2 == 0 {
 		p.sampleCredit -= 1000000 * p.dsp.RateDenominator

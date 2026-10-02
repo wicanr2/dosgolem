@@ -62,3 +62,7 @@ MOV前完整R：3500B 2BDB68 3259A0 1234DD 2BDB68 18D88B 3254E0 3500B，段8 188
 兩自然最後第42,347,254步停高位LE0x2454AE，bytes CD 31 8B 5D 14 83 FB 00 74 2F 66 8B 45 E2 66 8B；AX=0300h／BX=0066h。實模式INT66從1201:016A前進230步停1201:05D9，OUT 022Ch／C6h尚未支援，Returned=false；DPMI INT31未處理只是外層回報。下一步先公開SB16 DSP命令／DMA與sample duration契約、有限原版參數與caller審查，不深挖driver／ISR／DAC／PIT硬體wall-clock。
 
 IRQ0 started=completed=6173、active=false／failed=false，等待DS:00271148=E3 11 00 00，即4579；PIT Mode2／Reload5966／Generation5，Micros43985557／Deliveries6193／Pending=false／InService=false。VBE Bank7／StartY512／BankSets447／Writes4353364／DisplaySets7，索引SHA-256 7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf。兩自然gzip SHA-256 2d8bb4b224cdbb24440177d6ae4856de345b7602b36323f2f280c4eca862dac1／3c1bd060f88f34ca1aaf9d4055571b830ecfef834dcbb416b4d1af818925fdce。兩PNG同已檢視黑圖 SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622。受控滑鼠事件已注入x657／y189，255／主選單／正常玩家路徑、音效／受控亂數及整款remake仍未完成。
+
+## 後續 C6h 停點回填
+
+SB16 C6h 停點已由規格 296 接通，見 [296-sb16-c6-auto-init-dma.md](296-sb16-c6-auto-init-dma.md)。原版完整C6 20 FF 07接受、實模式333步返回、原版MOV／CMP／JZ成功分支已驗；保護模式連續PCM／IRQ7仍未閉合。第42,347,639步轉停高位LE0x257662的dword ROR立即數10h；本檔原有CPU證據範圍不擴張。
