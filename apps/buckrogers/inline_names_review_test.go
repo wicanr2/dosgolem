@@ -126,6 +126,7 @@ func TestEclLastReadingAcrossWrappedAnnotation(t *testing.T) {
 // A name drawn as its reading only (the annotation did not fit) leaves the
 // reading's last syllable.
 func TestEclLastReadingChineseOnlyTier(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	party := inlineParty(t, recMarion)
 	w := inlineEclWatcher(t, LangKo, layoutKo, nil, " IS HIT", "이(가) 서서히")
 	e := eclPlayerEntry("MARION", true, 1, 17, eclCtx(party, eclNameCallerB79, 0x81, eclVarName, partyRec{}))

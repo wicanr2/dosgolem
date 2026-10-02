@@ -162,6 +162,7 @@ func TestZhDeckSpaceRows(t *testing.T) {
 }
 
 func TestZhDeckSpacePlayerNameStays(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	party, _ := ReadPartySnapshot(partyMem(2, partyRec{seg: 0x5747, off: 2, name: "CELESTE"}, partyRec{seg: 0x5747, off: 0x200, name: "5BOB"}), testDS)
 	ctxCeleste := eclCtx(party, eclNameCallerB79, 0x81, eclVarName, partyRec{})
 	run := func(name string, right uint8, tr fakeTranslit, bottom uint8) (*EclTextWatcher, string) {

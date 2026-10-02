@@ -28,6 +28,7 @@ func layoutPlayerNamePre045(prof *LayoutProfile, player []AnnotatedText, origina
 }
 
 func TestLayoutPlayerNameMatchesPre045WithoutSpace(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	mk := func(zh, orig string) []AnnotatedText {
 		full := []rune(zh + "(" + orig + ")")
 		cn := []rune(zh)

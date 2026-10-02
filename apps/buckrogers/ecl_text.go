@@ -150,6 +150,10 @@ type EclTextEntry struct {
 type EclTextLine struct {
 	Row, Col uint8
 	Text     []rune
+	// Shrink is the level (spec 056) a name unit is drawn at: 1 or 2.  Such a
+	// line is exactly one unit and takes W_s half units from Col; 0 is a line
+	// of normal size.
+	Shrink uint8
 }
 
 // EclTextPage is one window's presentation: the mask rectangle (in 8×8
@@ -231,6 +235,9 @@ type EclTextStats struct {
 	// were drawn as before (InlineNameFallback), and calls whose leading
 	// Korean particle mark was replaced (MarkersResolved).
 	InlineNames, InlineNameFallback, MarkersResolved int
+	// Spec 056 §3.7: calls whose name units (NPC annotations, player names)
+	// were drawn at shrink level 1 or 2 (index level-1) to fit.
+	NameShrunk, PlayerShrunk [2]int
 }
 
 func NewEclTextWatcher(c *EclTextCatalog) *EclTextWatcher {
@@ -454,6 +461,9 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		switch c.kind {
 		case playerFull:
 			w.Stats.PlayerNames++
+			if c.shrink > 0 {
+				w.Stats.PlayerShrunk[c.shrink-1]++
+			}
 			nameReading = lastHangul(player[len(player)-1].Text)
 		case playerChineseOnly:
 			w.Stats.PlayerNames++
@@ -501,6 +511,9 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 			w.Stats.NameFirstOnly++
 		case NameTierNone:
 			w.Stats.NameUnannotated++
+		}
+		if fits && pl.shrink > 0 {
+			w.Stats.NameShrunk[pl.shrink-1]++
 		}
 	}
 	if !fits {
@@ -588,6 +601,7 @@ type eclPlacement struct {
 	endRow, endCol                          uint8
 	fits                                    bool
 	tier                                    NameTier
+	shrink                                  int  // spec 056: the shrink level of the name units, 0 for normal size
 	marker                                  bool // the leading particle mark was replaced
 	spaceDropped, fullStop, fullStopDropped int
 }
@@ -603,7 +617,7 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 	if lead != 0 {
 		body, pl.marker = koResolveLeading(txt, lead)
 	}
-	attempt := func(t string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier) {
+	attempt := func(t string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier, lv int) {
 		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(t)}}
 		if key != "engine" && key != "passthrough" && w.names != nil {
 			variants = w.names.Variants(t, key, NameCaseUpper)
@@ -614,6 +628,16 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 					tier = v.Tier
 				}
 				return
+			}
+			// Spec 056 §3.4: the annotated text is drawn smaller before the
+			// annotation steps down to the first occurrence only.
+			if i == 0 && len(v.Units) > 0 {
+				for _, s := range shrinkLevels {
+					if ls, er, ec, ok = layoutEclTextLevel(w.layout, v.Text, v.Units, s.Level, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
+						lv = s.Level
+						return
+					}
+				}
 			}
 		}
 		return
@@ -626,8 +650,8 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 		// "does not fit" is a failed layout or an end row other than
 		// the start row; the original text is then laid out as before.
 		pl.fullStop++
-		if ls, er, ec, ok, tr := attempt("。"); ok && er == row {
-			pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, done = ls, er, ec, true, tr, true
+		if ls, er, ec, ok, tr, lv := attempt("。"); ok && er == row {
+			pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink, done = ls, er, ec, true, tr, lv, true
 		} else {
 			pl.fullStopDropped++
 		}
@@ -640,9 +664,9 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 	case spaced:
 		// Spec 046 §3.4 (5): the space is never the reason a window turns
 		// into English; without it the text is tried again.
-		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(" " + body)
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink = attempt(" " + body)
 		if !pl.fits {
-			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body); pl.fits {
+			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink = attempt(body); pl.fits {
 				pl.spaceDropped++
 			}
 		}
@@ -652,14 +676,14 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 		// the start row and begins with the space; a space that pushes
 		// the number to the next row is dropped, as is one that does
 		// not fit.
-		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(" " + body)
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink = attempt(" " + body)
 		if !pl.fits || len(pl.lines) == 0 || pl.lines[0].Row != row || len(pl.lines[0].Text) == 0 || pl.lines[0].Text[0] != ' ' {
-			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body); pl.fits {
+			if pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink = attempt(body); pl.fits {
 				pl.spaceDropped++
 			}
 		}
 	default:
-		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier = attempt(body)
+		pl.lines, pl.endRow, pl.endCol, pl.fits, pl.tier, pl.shrink = attempt(body)
 	}
 	return
 }
@@ -675,6 +699,7 @@ const (
 type playerLayout struct {
 	kind           int
 	spaced         bool // the text starts with the space of spec 045 §3.4
+	shrink         int  // spec 056: the shrink level of the name unit, 0 for normal size
 	lines          []EclTextLine
 	endRow, endCol uint8
 	fits           bool
@@ -700,16 +725,30 @@ func layoutPlayerName(prof *LayoutProfile, player []AnnotatedText, original []by
 		ls, er, ec, ok := layoutEclTextP(prof, text, units, row, col, left, right, bottom)
 		return playerLayout{kind: kind, spaced: hasSpace, lines: ls, endRow: er, endCol: ec, fits: ok}, ok
 	}
+	// Spec 056 §3.4: the full format is tried at the normal size and then at
+	// each shrink level before the layout steps down to Chinese only.
+	tryTier := func(kind int, hasSpace bool, text []rune, units []NameUnit) (playerLayout, bool) {
+		if c, ok := try(kind, hasSpace, text, units); ok || kind != playerFull {
+			return c, ok
+		}
+		for _, sp := range shrinkLevels {
+			ls, er, ec, ok := layoutEclTextLevel(prof, text, units, sp.Level, row, col, left, right, bottom)
+			if ok {
+				return playerLayout{kind: kind, spaced: hasSpace, shrink: sp.Level, lines: ls, endRow: er, endCol: ec, fits: true}, true
+			}
+		}
+		return playerLayout{kind: kind, spaced: hasSpace}, false
+	}
 	if space {
 		for i, v := range player {
 			sv := spaced(v)
-			if c, ok := try(i, true, sv.Text, sv.Units); ok {
+			if c, ok := tryTier(i, true, sv.Text, sv.Units); ok {
 				return c
 			}
 		}
 	}
 	for i, v := range player {
-		if c, ok := try(i, false, v.Text, v.Units); ok {
+		if c, ok := tryTier(i, false, v.Text, v.Units); ok {
 			return c
 		}
 	}

@@ -35,6 +35,7 @@ func koPlayerCall(t *testing.T, prof *LayoutProfile, name, kr string, right uint
 }
 
 func TestEclPlayerNameSpaceKo(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	// 갑판 is 4 units; the space 1; 셀레스트(CELESTE) 17; 셀레스트 8; CELESTE 7.
 	cases := []struct {
 		label         string
@@ -71,6 +72,7 @@ func TestEclPlayerNameSpaceKo(t *testing.T) {
 // string (DOE → 도) still gets its space (condition 3 of spec 046 §3.4 does
 // not apply to player names).
 func TestEclPlayerNameSpaceNotGluedLikeParticle(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	// 갑판 4 + space 1 + 도(DOE) 2+5 = 12 units.
 	for _, c := range []struct {
 		right        uint8
@@ -136,6 +138,7 @@ func TestEclPlayerNameSpaceOtherProfiles(t *testing.T) {
 // for variants where the order can be told apart (a Chinese-only form wider
 // than the full one is not natural, but the order is the contract).
 func TestLayoutPlayerNameOrder(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	mk := func(s string) AnnotatedText {
 		r := []rune(s)
 		return AnnotatedText{Text: r, Units: []NameUnit{{0, len(r)}}}

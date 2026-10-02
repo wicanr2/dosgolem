@@ -28,7 +28,7 @@ func isHalfwidth(r rune) bool { return r >= 0x20 && r <= 0x7E || r == 0x2022 }
 
 // runeUnits is the width of r in half units.
 func runeUnits(r rune) int {
-	if isHalfwidth(r) {
+	if isHalfwidth(r) || isShrinkPlaceholder(r) {
 		return 1
 	}
 	return 2

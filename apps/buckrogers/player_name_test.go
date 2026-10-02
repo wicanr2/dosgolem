@@ -447,6 +447,7 @@ func TestEclPlayerNameOperandTypes(t *testing.T) {
 }
 
 func TestEclPlayerNameContinuationAndFallback(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	party, _ := ReadPartySnapshot(partyMem(2, recFlavius, recCeleste), testDS)
 	ctx := eclCtx(party, eclNameCallerB79, 0x81, eclVarName, partyRec{})
 	finish := func(w *EclTextWatcher, e EclTextEntry) { w.ObserveInstruction(e.Return, e.SS, e.SP+eclTextReturnDelta) }

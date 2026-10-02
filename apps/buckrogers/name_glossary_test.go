@@ -150,6 +150,7 @@ func TestLayoutKeepsNameUnitTogether(t *testing.T) {
 }
 
 func TestEclNameTiersFallback(t *testing.T) {
+	noShrink(t) // spec 056 §5.8: this test asserts the step-down order of spec 036/038/045 without shrinking
 	// Window of 10 columns × 2 rows.
 	entry := func(s string, clear bool, col, row uint8) EclTextEntry {
 		e := eclEntry(s, clear, col, row)

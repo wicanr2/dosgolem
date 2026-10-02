@@ -13,6 +13,7 @@ import (
 type EclTextOverlay struct {
 	layer *xlate.Layer
 	fonts segmentFonts
+	base  *xlate.Font // the 16×16 font the shrink fonts of spec 056 derive from
 	scale int
 	gen   uint64
 	cols  [][2]uint8 // background, foreground per stamp
@@ -27,20 +28,77 @@ func NewEclTextOverlay(font *xlate.Font, scale int) (*EclTextOverlay, error) {
 		full = manualThreeXFont(font)
 		full.Name = font.Name + ".ecl.3x22"
 	}
-	return &EclTextOverlay{layer: &xlate.Layer{W: 320, H: 200}, fonts: familyFonts(font, full, scale), scale: scale}, nil
+	return &EclTextOverlay{layer: &xlate.Layer{W: 320, H: 200}, fonts: familyFonts(font, full, scale), base: font, scale: scale}, nil
 }
 
 // eclRowText assembles one masked row from start (cell) to right (cell)
 // out of the page lines on that row (columns in half units), padded per
-// spec 039 §3.1.  Later lines overwrite earlier ones, as before.
+// spec 039 §3.1.  Later lines overwrite earlier ones, as before.  A shrunk
+// name unit (spec 056) is not part of the text: its slots are blank here.
 func eclRowText(p *EclTextPage, row, start uint8) []rune {
+	t, _ := eclRowTextShrink(p, row, start)
+	return t
+}
+
+// eclRowTextShrink is eclRowText that also returns the shrunk name units that
+// survive on the row, in order (spec 056 §3.6).  A unit takes W_s slots and
+// takes part in the same last-writer-wins flow: the full-width halves it cuts
+// are cleared as for any text, a later line that overwrites one of its slots
+// removes the whole unit, and a unit that does not lie inside [start, right]
+// is not drawn and writes no slot.
+func eclRowTextShrink(p *EclTextPage, row, start uint8) ([]rune, []EclTextLine) {
 	from, to := int(eclUnitLeft(start)), int(eclUnitRight(p.Right))+1
-	slots := make([]rune, to-from) // 0 empty, -1 second unit of a full-width rune
+	slots := make([]rune, to-from)   // 0 empty, -1 second unit of a full-width rune
+	owner := make([]int, len(slots)) // 1 + the index of the shrunk unit that holds the slot, 0 none
+	var units []EclTextLine
+	var alive []bool
+	kill := func(k int) {
+		if !alive[k] {
+			return
+		}
+		alive[k] = false
+		for i := range owner {
+			if owner[i] == k+1 {
+				owner[i] = 0
+			}
+		}
+	}
+	cut := func(k int) {
+		if owner[k] != 0 {
+			kill(owner[k] - 1)
+		}
+		if slots[k] == -1 && k > 0 {
+			slots[k-1] = 0
+		}
+		if slots[k] > 0 && runeUnits(slots[k]) == 2 && k+1 < len(slots) {
+			slots[k+1] = 0
+		}
+	}
 	for _, l := range p.Lines {
 		if l.Row != row {
 			continue
 		}
 		u := int(l.Col) - from
+		if l.Shrink != 0 {
+			spec, ok := shrinkSpecFor(int(l.Shrink))
+			if !ok {
+				continue
+			}
+			w := shrinkUnitUnits(l.Text, spec)
+			if u < 0 || u+w > len(slots) {
+				continue
+			}
+			for k := u; k < u+w; k++ {
+				cut(k)
+				slots[k] = 0
+			}
+			units = append(units, l)
+			alive = append(alive, true)
+			for k := u; k < u+w; k++ {
+				owner[k] = len(units)
+			}
+			continue
+		}
 		for _, r := range l.Text {
 			w := runeUnits(r)
 			if u < 0 || u+w > len(slots) {
@@ -48,12 +106,7 @@ func eclRowText(p *EclTextPage, row, start uint8) []rune {
 				continue
 			}
 			for k := u; k < u+w; k++ {
-				if slots[k] == -1 && k > 0 {
-					slots[k-1] = 0
-				}
-				if slots[k] > 0 && runeUnits(slots[k]) == 2 && k+1 < len(slots) {
-					slots[k+1] = 0
-				}
+				cut(k)
 			}
 			slots[u] = r
 			if w == 2 {
@@ -76,7 +129,13 @@ func eclRowText(p *EclTextPage, row, start uint8) []rune {
 		out = appendPadding(out, u, e)
 		u = e
 	}
-	return out
+	var keep []EclTextLine
+	for k, l := range units {
+		if alive[k] {
+			keep = append(keep, l)
+		}
+	}
+	return out, keep
 }
 
 // Sync rebuilds the stamps when the watcher moved to a new generation.
@@ -91,6 +150,12 @@ func (o *EclTextOverlay) Sync(pages []*EclTextPage, gen uint64, palette [256][3]
 	var miss []rune
 	for _, p := range pages {
 		for _, l := range p.Lines {
+			if l.Shrink != 0 {
+				if spec, ok := shrinkSpecFor(int(l.Shrink)); ok {
+					miss = append(miss, missingShrinkRunes(shrinkFontsOf(o.base, spec, o.scale), l.Text)...)
+				}
+				continue
+			}
 			miss = append(miss, o.fonts.missingRunes(l.Text)...)
 		}
 	}
@@ -107,8 +172,17 @@ func (o *EclTextOverlay) Sync(pages []*EclTextPage, gen uint64, palette [256][3]
 				start = p.TopCol
 			}
 			bg, fg := palette[p.Background], palette[p.Foreground]
-			stamps := o.fonts.segmentStamps(fmt.Sprintf("ecl.%d.row.%d", pi, row), int(start)*8, int(row)*8,
-				eclRowText(p, row, start), nil, func(int) ([3]uint8, [3]uint8) { return bg, fg })
+			rowKey := fmt.Sprintf("ecl.%d.row.%d", pi, row)
+			text, shrunk := eclRowTextShrink(p, row, start)
+			stamps := o.fonts.segmentStamps(rowKey, int(start)*8, int(row)*8, text, nil, func(int) ([3]uint8, [3]uint8) { return bg, fg })
+			// Spec 056 §3.6: the shrunk units come after the normal segments,
+			// so the background fill of those does not cover them.
+			for _, l := range shrunk {
+				if spec, ok := shrinkSpecFor(int(l.Shrink)); ok {
+					stamps = append(stamps, shrinkStamps(rowKey, len(stamps), int(l.Col), int(row)*8, l.Text, spec, o.scale,
+						shrinkFontsOf(o.base, spec, o.scale), bg, fg)...)
+				}
+			}
 			for _, s := range stamps {
 				o.layer.Stamps = append(o.layer.Stamps, s)
 				o.cols = append(o.cols, [2]uint8{p.Background, p.Foreground})
