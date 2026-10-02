@@ -457,7 +457,7 @@
 
 - [295：記憶體 dword 目的與暫存器的 OR](295-cpu386-or-dword-memory-register.md)：CONFORMED。全部CPU／固定EXE、兩自然40h→2040h寫回及MOV EAX的完整dword真實消費已驗；AF／逐byte錯誤模型明示，C6h停點由296接通，CPU證據範圍不擴張。
 
-- [296：SB16 C6h 的 8 位元自動初始化 DMA](296-sb16-c6-auto-init-dma.md)：CONFORMED。原版C6 20 FF 07接受／333步返回與MOV／CMP／JZ成功分支、條件DMA時鐘／block與ring已驗；保護模式連續PCM／IRQ7未知，ROR立即數停點由297接通，保留原有音訊邊界。
+- [296：SB16 C6h 的 8 位元自動初始化 DMA](296-sb16-c6-auto-init-dma.md)：CONFORMED。原版C6 20 FF 07接受／333步返回與MOV／CMP／JZ成功分支、條件DMA時鐘／block與ring已驗；305已驗14次IRQ7／PCM傳輸，完整音訊與人耳仍未知，ROR立即數停點由297接通，保留原有音訊邊界。
 
 - [297：dword 暫存器的立即數右循環移位](297-cpu386-ror-dword-register-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然兩組完整ROR／CF／MOV AX,DX消費已驗；多位OF模型明示，IRQ0內D1 SHL停點由298接通。
 
@@ -471,6 +471,8 @@
 
 - [302：AX 與 word 暫存器的短編碼交換](302-cpu386-xchg-ax-word-register.md)：CONFORMED。全部CPU／固定EXE、兩自然三組完整交換／高16位及全部旗標保持與下一ROR完整消費已驗；自然到50M上限無CPU拒絕，已見星空片段，主選單／正常玩家路徑未驗。
 
-- [303：晚期啟動的平台狀態與正常輸入入口](303-moo2-late-startup-platform-observation.md)：DRAFT。90b9f4a基線兩自然各11快照確認時計1375未前進；時間缺口由304接線並驗首block，保護模式IRQ7／鍵盤IRQ1、等待因果與正常玩家路徑仍未知。
+- [303：晚期啟動的平台狀態與正常輸入入口](303-moo2-late-startup-platform-observation.md)：DRAFT。90b9f4a基線兩自然各11快照確認時計1375未前進；時間缺口由304接線並驗首block，IRQ7由305閉合14次轉送；鍵盤IRQ1、等待因果與正常玩家路徑仍未知。
 
-- [304：兩種 CPU 模式共用的裝置時間](304-le-shared-device-clock.md)：READY。機器層／固定EXE全套與兩自然首block真正PCM2048個80h已驗；兩時計44032078，停在實際IVT1201:0682的保護模式IRQ7，pending保留，正式轉送未知。
+- [304：兩種 CPU 模式共用的裝置時間](304-le-shared-device-clock.md)：CONFORMED。共用時計／首block已驗，實際IVT1201:0682的IRQ7由305閉合14次轉送；完整音訊與人耳仍未知。
+
+- [305：MOO2 保護模式 IRQ7 的實模式轉送](305-moo2-irq7-real-mode-passdown.md)：CONFORMED。機器層／固定EXE全套及兩自然14次原版73步、EOI／22E／IRET返回與PCM29175已驗，XOR AL,1為下一停點；正常玩家流程仍未知。

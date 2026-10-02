@@ -1,6 +1,6 @@
 # 304：兩種 CPU 模式共用的裝置時間
 
-狀態：**READY**
+狀態：**CONFORMED**
 日期：2026-10-02
 範圍：修正dosgolem保護模式缺少DMA／音訊時計的接線；採既有1微秒／指令的硬體規格近似（hardware-spec approximation）。
 
@@ -82,3 +82,7 @@ IRQ0 active=false／failed=false／started6176／completed6176，BIOS Deliveries
 不可變鍵：固定1.31 EXE雜湊＋高位LE0x2454AE／INT31／C6 20 FF 07＋LEOPLPorts.AdvanceRealMode／保護模式時計接線。241、293–298、300–303的十一份平台音訊邊界同次追加「保護模式裝置時計缺口由規格 304 接線」與本檔連結；只解時間到首block，保護模式IRQ7派送、連續PCM及人耳仍未知。299的自然OF=1、其他CPU／平台契約與245的16位單字檢測範圍不受影響。回填驗證入口 apps/moo2/tools/startup_probe_131.py --check-shared-device-clock-spec-backlinks，缺定位、兩時計／首block、真正PCM來源／IRQ7向量與pending／未完成限制或任一舊標記須拒絕。
 
 304保持READY，首block與明確停止已驗，IRQ7正式轉送／返回仍未知。下一步以實際IVT1201:0682與公開DOS/4GW框架建立窄派送契約，保留CPU／共享裝置與來源確認、EOI／IRET；不翻譯driver、不猜正常鍵盤輸入或等待值，不提高50M上限。主庫玩法閘門不變，正常玩家路徑與完整remake未驗收。
+
+## 保護模式IRQ7轉送由規格 305 接線
+
+[305-moo2-irq7-real-mode-passdown.md](305-moo2-irq7-real-mode-passdown.md)以固定1.31 EXE、實際IVT1201:0682／實模式線性0x12692及公開DOS/4GW契約閉合14次原版73步、EOI／22E／IRET；兩自然PCM29175及兩時計44647204已驗。較早IRQ7未派送／返回的記錄屬該舊基線，現行限定轉送依305。平台寄存器映射與1µs時鐘是近似，人耳、完整音訊、鍵盤IRQ1、主選單／正常玩家路徑與整款remake仍未知；其他CPU／255／299邊界保持。

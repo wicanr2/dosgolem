@@ -63,3 +63,7 @@ word XCHG停點已由規格 302 接通，見 [302-cpu386-xchg-ax-word-register.m
 ## 共用裝置時間後續
 
 保護模式裝置時計缺口由規格 304 接線，見[304-le-shared-device-clock.md](304-le-shared-device-clock.md)。2026-10-03兩自然首block真正PCM2048個80h／兩時計44032078已驗；第42356668步以absolute IVT1201:0682停在未建模的保護模式IRQ7，pending保留。只解時間到首block，IRQ7轉送／連續PCM、人耳及正常玩家路徑仍未知，其他原有證據與限制保持。
+
+## 保護模式IRQ7轉送由規格 305 接線
+
+[305-moo2-irq7-real-mode-passdown.md](305-moo2-irq7-real-mode-passdown.md)以固定1.31 EXE、實際IVT1201:0682／實模式線性0x12692及公開DOS/4GW契約閉合14次原版73步、EOI／22E／IRET；兩自然PCM29175及兩時計44647204已驗。較早IRQ7未派送／返回的記錄屬該舊基線，現行限定轉送依305。平台寄存器映射與1µs時鐘是近似，人耳、完整音訊、鍵盤IRQ1、主選單／正常玩家路徑與整款remake仍未知；其他CPU／255／299邊界保持。

@@ -57,6 +57,9 @@ func (p *LEOPLPorts) startDMA(n uint32, auto bool) bool {
 
 // AdvanceRealMode 使用明示的1微秒／指令近似，並依真實IVT派送IRQ7。
 func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
+	if p.realIRQ7 != nil && p.realIRQ7.failed {
+		return fmt.Errorf("IRQ7 轉送已失敗，不可繼續計時")
+	}
 	p.virtualMicros++
 	if p.BIOSClock != nil {
 		if err := p.BIOSClock.advance(m, p, c.Flags&cpu.IF != 0); err != nil {
@@ -66,6 +69,11 @@ func (p *LEOPLPorts) AdvanceRealMode(c *cpu.CPU, m *LEMachine) error {
 	if err := p.advanceDMA(m); err != nil {
 		return err
 	}
+	return p.deliverIRQ7Real(c, m)
+}
+
+// 派送不再加時間，兩種模式共用真實IVT與硬體框架。
+func (p *LEOPLPorts) deliverIRQ7Real(c *cpu.CPU, m *LEMachine) error {
 	if p.picPending && !p.picInService && (p.BIOSClock == nil || !p.BIOSClock.InService) && p.picMasks[0]&0x80 == 0 && c.Flags&cpu.IF != 0 {
 		if len(m.Mem) < 64 {
 			return fmt.Errorf("IRQ7 IVT不可讀")
@@ -163,8 +171,11 @@ func (p *LEOPLPorts) advanceDMA(m *LEMachine) error {
 	return nil
 }
 
-// AdvanceProtectedMode 沿規格304共用1微秒近似；未知IRQ7保留現場並明確停止。
+// AdvanceProtectedMode 沿規格304共用1微秒近似；規格305轉送有限的實模式IRQ7。
 func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
+	if p.realIRQ7 != nil && p.realIRQ7.failed {
+		return fmt.Errorf("IRQ7 轉送已失敗，不可繼續計時")
+	}
 	p.virtualMicros++
 	if err := p.BIOSClock.advance(m, p, c.EFlags&cpu386.IF != 0); err != nil {
 		return err
@@ -174,7 +185,7 @@ func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
 	}
 	clock := p.BIOSClock
 	if !p.picPending || p.picInService || clock.InService || p.picMasks[0]&0x80 != 0 || c.EFlags&cpu386.IF == 0 ||
-		clock.protectedIRQ0 != nil && clock.protectedIRQ0.active {
+		clock.protectedIRQ0 != nil && clock.protectedIRQ0.active || p.realIRQ7 != nil && p.realIRQ7.active {
 		return nil
 	}
 	ivt, err := m.Read32(0x0f * 4)
@@ -186,6 +197,12 @@ func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
 	if d := clock.protectedIRQ0; d != nil {
 		vector = d.s.dosVectors[0x0f]
 		seg, off = d.s.DPMI.RealModeVector(0x0f)
+		if d.s.moo2Profile && vector == 0 && seg == 0 && off == 0 {
+			if p.realIRQ7 == nil {
+				p.realIRQ7 = &leRealIRQ7{h: d.s.DPMI}
+			}
+			return p.realIRQ7.dispatch(c, m, p)
+		}
 	}
 	return fmt.Errorf("IRQ7 保護模式派送尚未建模：absolute_ivt0f=%08X dpmi_rm0f=%04X:%04X dos_pm0f=%04X:%08X", ivt, seg, off, uint16(vector>>32), uint32(vector))
 }

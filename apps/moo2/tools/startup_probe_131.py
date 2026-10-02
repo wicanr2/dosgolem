@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-irq7-passdown-spec-backlinks 只驗證IRQ7轉送／返回及較早音訊邊界回填，不啟動DOSBox-X。
 --check-shared-device-clock-spec-backlinks 只驗證共用DMA時計及首block／IRQ7邊界回填，不啟動DOSBox-X。
 --check-xchg-ax-word-spec-backlinks 只驗證 word XCHG及完整ROR消費回填，不啟動DOSBox-X。
 --check-xor-word-immediate-spec-backlinks 只驗證 word XOR與原版堆疊消費回填，不啟動DOSBox-X。
@@ -47,6 +48,31 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_irq7_passdown_resolution(spec_dir):
+    """305實際IVT、來源確認／返回與限定範圍須同步回填。"""
+    current = (spec_dir / '305-moo2-irq7-real-mode-passdown.md').read_text()
+    required = ('0x257FC9', '1201:0682', '0x12692', 'OUT0020=20', 'IN022E=00',
+                'IRET實模式1201:0729', '73條', '44032151=44032078+73',
+                'PCM29175／DMACompletions14／信用60600', 'IRQ7 started14／completed14',
+                '0x247BE1', '34 01 C3', '正常鍵盤IRQ1', '平台近似',
+                '47169dd3acc1613268ffa4a3cef6121c7b3a00009bd7b7388795a16d57fefbdf',
+                'c4e9db17c3b29249867db6eb41eac9bc2744cd5f09e0e21ba122d12718e3f8a1',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('IRQ7轉送缺實際IVT／來源確認／返回／收據或限定範圍')
+    for number in (241, 293, 294, 295, 296, 297, 298, 300, 301, 302, 303, 304):
+        names = list(spec_dir.glob(str(number) + '-*.md'))
+        if len(names) != 1:
+            raise RuntimeError('IRQ7較早音訊規格缺檔或定位不唯一')
+        older = names[0].read_text()
+        if '保護模式IRQ7轉送由規格 305 接線' not in older or '305-moo2-irq7-real-mode-passdown.md' not in older:
+            raise RuntimeError('IRQ7較早音訊邊界缺回填')
+
+if sys.argv[1:] == ['--check-irq7-passdown-spec-backlinks']:
+    validate_irq7_passdown_resolution(spec_dir)
+    print('IRQ7實際轉送／返回／限定範圍與十二份舊規格回填通過')
+    raise SystemExit(0)
+
 def validate_shared_device_clock_resolution(spec_dir):
     """304共用時計、真正首block與未完成IRQ7邊界須同步回填。"""
     current = (spec_dir / '304-le-shared-device-clock.md').read_text()

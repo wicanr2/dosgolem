@@ -240,6 +240,7 @@ func main() {
 			mask, pending, active, started, completed := services.MouseCallbackState()
 			seg9, off9 := services.DPMI.RealModeVector(9)
 			fmt.Printf("late_startup_platform label=%s outer_step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X bios_clock=%+v device=%+v irq7_deliveries=%d pcm16_bytes=%d keyboard_installed=%t keyboard_reads=%d keyboard_waiting=%t keyboard_enqueued=%d bda_queue_bytes=%X keyboard_port_reads=%d/%d/%d rm09=%04X:%04X absolute_ivt09=%X mouse_mask=%X mouse_pending=%d mouse_active=%t mouse_started=%d mouse_completed=%d watch_base=0x2A8E40 watch_bytes=%X\n", label, step, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.BIOSClock, ports.State(), ports.IRQ7Deliveries, len(ports.PCM16), m.Keyboard != nil, keyboardReads, keyboardWaiting, enqueued, m.Mem[0x41a:0x41e], ports.Reads[0x60], ports.Reads[0x61], ports.Reads[0x64], seg9, off9, m.Mem[0x24:0x28], mask, pending, active, started, completed, m.Mem[0x2a8e40:0x2a8e58])
+			fmt.Printf("irq7_passdown_state label=%s outer_step=%d started=%d completed=%d trace=%+v\n", label, step, ports.IRQ7Passdowns, ports.IRQ7Returns, ports.IRQ7Last)
 		}
 	}
 	dumpVBE := func() {
@@ -325,6 +326,7 @@ func main() {
 		eip, esp, esi, eax uint32
 	}
 	ring := make([]sample, 0, 32)
+	irq7FirstPrinted := false
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
 		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
@@ -522,6 +524,10 @@ func main() {
 			readEIP, readR, readSeg, readFlags = m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags
 		}
 		stepErr := m.CPU.Step()
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && !irq7FirstPrinted && ports.IRQ7Returns != 0 {
+			irq7FirstPrinted = true
+			dumpPlatform("first_irq7_return", i)
+		}
 		orReads.active = false
 		if orReads.matched {
 			orReads.remaining--
@@ -550,6 +556,11 @@ func main() {
 			fmt.Printf("stop_bytes=% X\n", m.Mem[ring[len(ring)-1].eip:ring[len(ring)-1].eip+16])
 			for _, s := range ring {
 				fmt.Printf("tail step=%d eip=0x%X esp=0x%X esi=0x%X eax=0x%X\n", s.step, s.eip, s.esp, s.esi, s.eax)
+			}
+			if os.Getenv("DOSGOLEM_MOO2_IRQ7_PROTOTYPE") == "1" {
+				if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+					runIRQ7Prototype(m, services.DPMI, ports)
+				}
 			}
 			return
 		}

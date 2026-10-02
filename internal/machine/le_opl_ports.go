@@ -22,6 +22,10 @@ type LEOPLPorts struct {
 	DMACompletions                uint64
 	DMA16Completions              uint64
 	IRQ7Deliveries                uint64
+	IRQ7Passdowns                 uint64
+	IRQ7Returns                   uint64
+	IRQ7Last                      *LERealIRQ7Trace
+	realIRQ7                      *leRealIRQ7
 	PCM                           []byte
 	PCM16                         []byte
 	dsp                           SoundBlasterDSP
