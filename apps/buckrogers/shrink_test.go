@@ -837,6 +837,11 @@ func TestEclNameFirstOnlyIsNotShrunk(t *testing.T) {
 	if w = run(18); w.Stats.NameShrunk != [2]int{0, 1} || w.Stats.NameFirstOnly != 0 {
 		t.Errorf("all L2: %+v", w.Stats)
 	}
+	// 32 units: the first-only text would fit at L1 (8 + 6×4), but it is never
+	// shrunk: the annotation is dropped instead.
+	if w = run(16); w.Stats.NameUnannotated != 1 || w.Stats.NameShrunk != [2]int{} || w.Stats.NameFirstOnly != 0 {
+		t.Errorf("none: %+v", w.Stats)
+	}
 }
 
 // zh-TW: the space after 甲板 (spec 048) is kept and the annotation is shrunk
@@ -910,4 +915,74 @@ func eclRowOf(p *EclTextPage) string {
 		return "<nil>"
 	}
 	return eclRow(p, 17)
+}
+
+// An NPC annotation that ends a call leaves its reading as well (spec 054
+// §3.2): the reading is read from the lines of the call in (Row, Col) order, the
+// shrunk unit included.
+func TestEclLastReadingShrunkNPC(t *testing.T) {
+	g, err := LoadNameGlossary([]byte(pre056GlossaryHead+"BUCK\t\t벅\tfull\tp0\tprinted:x\tn\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewEclTextWatcher(eclFixtureLang(t, LangKo, "HERE B", "여기 벅", " IS", "이(가) 서서히"))
+	w.SetNames(g)
+	w.SetLayout(layoutKo)
+	// 6 units wide: 벅(BUCK) is 8 at the normal size, 6 at L1.
+	e := eclEntry("HERE B", true, 1, 17)
+	e.Left, e.Right, e.Top, e.Bottom = 1, 3, 17, 20
+	w.ObserveEntry(e)
+	eclSpaceRet(w)
+	p := w.Page()
+	if p == nil || w.Stats.NameShrunk != [2]int{1, 0} || p.lastReading != '벅' {
+		t.Fatalf("fixture: %+v %+v", w.Stats, p)
+	}
+	n := eclEntry(" IS", false, 3, 18)
+	n.Left, n.Right, n.Top, n.Bottom = 1, 3, 17, 20
+	w.ObserveEntry(n)
+	var all []rune
+	for _, l := range w.Page().Lines {
+		all = append(all, l.Text...)
+	}
+	if got := string(all); !strings.Contains(got, "벅(BUCK)이") || strings.Contains(got, "(가)") || w.Stats.MarkersResolved != 1 {
+		t.Errorf("%q %+v", got, w.Stats)
+	}
+}
+
+// The keys of a row's stamps are unique: the shrunk stamps continue the row's
+// numbering after the normal segments (spec 056 §3.6).
+func TestShrunkUnitKeysUnique(t *testing.T) {
+	base := halfTestFont("keys", "AB中文 ")
+	for _, scale := range []int{2, 3} {
+		p := shrinkPage(
+			EclTextLine{Row: 0, Col: 0, Text: []rune("中A")},
+			EclTextLine{Row: 0, Col: 3, Text: []rune("中AB"), Shrink: 1},
+			EclTextLine{Row: 0, Col: 6, Text: []rune("文 "), Shrink: 2},
+		)
+		o, _ := shrinkRender(t, base, scale, p)
+		seen := map[string]bool{}
+		for _, s := range o.layer.Stamps {
+			if seen[s.Key] {
+				t.Fatalf("%d×: duplicate stamp key %q", scale, s.Key)
+			}
+			seen[s.Key] = true
+		}
+		if len(o.layer.Stamps) < 4 {
+			t.Fatalf("%d×: %d stamps", scale, len(o.layer.Stamps))
+		}
+	}
+}
+
+// A space inside a shrunk unit (a long English name) needs no glyph of its own,
+// as at the normal size.
+func TestShrunkUnitBlankNeedsNoGlyph(t *testing.T) {
+	base := halfTestFont("blank", "AB中") // no U+0020 glyph
+	o, err := NewEclTextOverlay(base, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := shrinkPage(EclTextLine{Row: 0, Col: 0, Text: []rune("中A B"), Shrink: 1})
+	if miss := o.Sync([]*EclTextPage{p}, 1, shrinkPalette()); len(miss) != 0 || !o.Active() {
+		t.Fatalf("missing %q active %v", string(miss), o.Active())
+	}
 }
