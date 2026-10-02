@@ -41,6 +41,25 @@ func main() {
 		}
 		maxSteps = value
 	}
+	keyboardRequested := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000") == "1"
+	keyboardStep := 48000000
+	if setting := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_STEP"); setting != "" {
+		if keyboardRequested {
+			fmt.Fprintln(os.Stderr, "兩種硬體Esc排程設定互斥")
+			os.Exit(2)
+		}
+		digits := true
+		for _, ch := range setting {
+			digits = digits && ch >= '0' && ch <= '9'
+		}
+		value, parseErr := strconv.Atoi(setting)
+		if !digits || parseErr != nil || value < 1 || value >= maxSteps {
+			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_HARDWARE_ESCAPE_STEP 必須為小於maxSteps的十進位正整數")
+			os.Exit(2)
+		}
+		keyboardRequested, keyboardStep = true, value
+		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
+	}
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -250,7 +269,7 @@ func main() {
 			handled := services.Handle(c, number)
 			fmt.Printf("vbe_display_start eip=0x%X input=%X handled=%t output=%X state=%+v\n", c.EIP-2, beforeR, handled, c.R, m.VBEState())
 			state := m.VBEState()
-			if phasePrefix != "" && handled && loopStep >= 48000000 && state.Active && phaseFrames < 16 && state.DisplaySets != phaseLastDisplay {
+			if phasePrefix != "" && handled && loopStep >= keyboardStep && state.Active && phaseFrames < 16 && state.DisplaySets != phaseLastDisplay {
 				phaseFrames++
 				phaseLastDisplay = state.DisplaySets
 				beforeR, beforeSeg, beforeEIP, beforeFlags := c.R, c.Seg, c.EIP, c.EFlags
@@ -427,7 +446,6 @@ func main() {
 	irq7FirstPrinted := false
 	var dma8ControlsPrinted uint64
 	dma8ConsumerSteps := 0
-	keyboardRequested := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000") == "1"
 	keyboardQueued := false
 	var keyboardPrinted uint64
 	xorALSeen, xorALConsumerSteps := 0, 0
@@ -642,7 +660,7 @@ func main() {
 				xorStack[j], xorStackReadable = v, xorStackReadable && ok
 			}
 		}
-		if keyboardRequested && !keyboardQueued && i == 48000000 {
+		if keyboardRequested && !keyboardQueued && i == keyboardStep {
 			for _, scan := range []byte{1, 0x81} {
 				if err := services.QueueHardwareScan(scan); err != nil {
 					panic(err)

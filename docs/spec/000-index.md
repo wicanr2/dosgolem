@@ -496,3 +496,5 @@
 - [314：保護模式滑鼠回呼交換](314-moo2-protected-mouse-callback-exchange.md)：CONFORMED。24次正常交換／三次C3返回、全套與三流程通過；兩組到50M，主選單部分滑入，完整操作未驗。
 
 - [315：主選單滑入階段觀測](315-moo2-menu-slide-observation.md)：CONFORMED。三原版29張唯讀快照／全部基線不突變，已證實畫面持續改變；完整操作未驗，保持50M上限。
+
+- [316：明示硬體Esc排程](316-moo2-configured-hardware-escape-schedule.md)：CONFORMED。11設定閘門／四原版、46M六按鈕文字已見／48M逐列保持；點擊未驗，保持50M上限。

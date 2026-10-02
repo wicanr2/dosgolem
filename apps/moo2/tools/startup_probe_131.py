@@ -52,6 +52,32 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_escape_schedule_resolution(spec_dir):
+    """316新排程須保留原版IRQ1／四收據與315基線回填。"""
+    current=(spec_dir/'316-moo2-configured-hardware-escape-schedule.md').read_text()
+    required=('DOSGOLEM_MOO2_HARDWARE_ESCAPE_STEP','step=46000000 source=explicit_environment max_steps=50000000',
+              '0x257BC3','257BC8','257BCA','97／77','started2／completed2',
+              '0x2385AC','361BC4／0／95／0／2BDB10／2BDB68／4FF3A0／361DD8','flags246h',
+              '64282188','IRQ7 started427／completed427','DisplaySets40','每一原始列',
+              '57399685a537099ed8871151e9d79d07c4570d94a1f3f498a77efcd0e60efdaa',
+              '55f6fa2f53c58f507b95dd9aa62a7e935da4050e0649da4d9a3fd01c041f8379',
+              '06d0fe6d2cb2e4bfa676ab67a514f5165a33e4cfc6d458e83975976626108209',
+              'c820da5c2d3e2f11be4d1fe09932d2880210a7d3946c13b8a6183b7ba78d337a',
+              'e4cef3b724b933508b331a6746c3ec11bbfc7464d126a30f14b76801329363a3',
+              '32306c41cd16d801f2dd99cca5c03b7584e1d2406eabf1793d8e0c6412d83a60',
+              '六個按鈕','不冒稱已進入新遊戲',
+              '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(v in current for v in required) or not re.search(r'^狀態：\*\*CONFORMED',current,re.M):
+        raise RuntimeError('Esc排程缺原始IRQ1／完整終態／四收據或玩家邊界')
+    older=(spec_dir/'315-moo2-menu-slide-observation.md').read_text()
+    if '明示Esc排程已由規格 316 接通' not in older or '316-moo2-configured-hardware-escape-schedule.md' not in older:
+        raise RuntimeError('315較早部分滑入缺新排程回填')
+
+if sys.argv[1:]==['--check-escape-schedule-spec-backlinks']:
+    validate_escape_schedule_resolution(spec_dir)
+    print('明示Esc／原版返回／48M基線與315回填通過')
+    raise SystemExit(0)
+
 def validate_menu_slide_resolution(spec_dir):
     """315唯讀觀測須保留原始終態、三收據與314勘誤。"""
     current=(spec_dir/'315-moo2-menu-slide-observation.md').read_text()
