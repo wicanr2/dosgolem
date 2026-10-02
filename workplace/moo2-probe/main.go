@@ -310,6 +310,10 @@ func main() {
 			v, _ := m.Read16(0x21996)
 			fmt.Printf("trace step=%d eip=0x%X edx=0x%X flags=0x%X timer_word=0x%X\n", i, m.CPU.EIP, m.CPU.R[cpu386.EDX], m.CPU.EFlags, v)
 		}
+		if (m.CPU.EIP == 0x254249 || m.CPU.EIP == 0x254250) && seen[m.CPU.EIP] <= 3 {
+			value, readable := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegDS], 0x2726c0)
+			fmt.Printf("byte_sub_state step=%d address_space=dosgolem_high_le eip=0x%X r=%X seg=%X flags=0x%X operand_ds_offset=0x2726C0 byte=%02X readable=%t\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, value, readable)
+		}
 		if (m.CPU.EIP == 0x239b3a || m.CPU.EIP == 0x239b3c || m.CPU.EIP == 0x239b3e || m.CPU.EIP == 0x239b40 || m.CPU.EIP == 0x239b42 || m.CPU.EIP == 0x239b44 || m.CPU.EIP == 0x239b46) && seen[m.CPU.EIP] <= 3 {
 			if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
 				fmt.Printf("pit_count_latch_state step=%d eip=0x%X r=%X seg=%X flags=0x%X pit=%+v clock=%+v\n", i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, ports.PIT0, ports.BIOSClock)

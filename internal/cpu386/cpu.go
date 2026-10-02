@@ -2816,6 +2816,26 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		group := (modrm >> 3) & 7
+		if group == 5 && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
+			// 規格 284：目的 byte 寫入成功後才提交算術旗標。
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail("SUB byte 來源越界")
+			}
+			if !c.writeSegment8(c.Seg[seg], addr, value-imm) {
+				return fail("SUB byte 寫入失敗")
+			}
+			c.sub8(value, imm)
+			break
+		}
 		if (group == 1 || group == 4 || group == 6) && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {

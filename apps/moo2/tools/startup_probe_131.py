@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-sub-byte-memory-spec-backlinks 只驗證 SUB byte 規格回填，不啟動 DOSBox-X。
 """
 
 import hashlib
@@ -47,6 +48,21 @@ def validate_pit_count_latch_resolution(spec_dir):
 if sys.argv[1:] == ['--check-pit-count-latch-spec-backlinks']:
     validate_pit_count_latch_resolution(spec_dir)
     print('PIT latch 原始定位／契約與後續回填通過')
+    raise SystemExit(0)
+
+def validate_sub_byte_memory_resolution(spec_dir):
+    """284 的原始 byte／後態與 283 的 CPU 停點回填必須並存。"""
+    current = (spec_dir / '284-cpu386-sub-byte-memory-imm8.md').read_text()
+    required = ('0x254249', '80 2D C0 26 27 00 08', 'DS:002726C0', 'byte=16h', 'byte=0Eh', '0x254250', '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*(READY|CONFORMED)', current, re.M):
+        raise RuntimeError('SUB byte 缺原始定位／目的 byte／後態或可實作狀態')
+    older = (spec_dir / '283-cpu386-in-al-imm8.md').read_text()
+    if 'byte 記憶體 SUB 停點已由規格 284 接通' not in older or '284-cpu386-sub-byte-memory-imm8.md' not in older:
+        raise RuntimeError('SUB byte 舊停點缺後續回填')
+
+if sys.argv[1:] == ['--check-sub-byte-memory-spec-backlinks']:
+    validate_sub_byte_memory_resolution(spec_dir)
+    print('SUB byte 原始定位／目的 byte／後態與後續回填通過')
     raise SystemExit(0)
 
 def validate_in_al_immediate_resolution(spec_dir):

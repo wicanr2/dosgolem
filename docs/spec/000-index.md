@@ -435,3 +435,4 @@
 - [281 — MOO2 保護模式 IRQ0 的預設結束鏈](281-moo2-protected-irq0-end-chain.md)：CONFORMED（受限預設入口／BIOS tick／EOI）。1,595 次自然返回及模式 2 等待閉合；PIT 鎖存停點已由 282／283 接通，玩家路徑未驗。
 - [282 — PIT 通道 0 模式 2 的計數鎖存](282-pit0-mode2-count-latch.md)：CONFORMED（受限模式 2 latch／低高讀取）。共享時鐘／凍結與拒絕測試通過；283 已讓原版自然消費兩次 IN，硬體時序仍近似。
 - [283 — 從立即埠編號輸入 byte 至 AL](283-cpu386-in-al-imm8.md)：CONFORMED（裸 E4／明示平台 I/O）。全部 CPU／固定 EXE 回歸及兩個自然排程已驗，讀取凍結 PIT count 後停 byte 記憶體 SUB，主選單未驗。
+- [284 — byte 記憶體目的與 imm8 的 SUB](284-cpu386-sub-byte-memory-imm8.md)：CONFORMED。原版 DS byte=16h／imm8=08h 與公開 SUB 六旗標契約已審查；待記憶體目的實作及自然後態。

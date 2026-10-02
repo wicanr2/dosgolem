@@ -43,3 +43,8 @@ Go 1.24.13／映像沿 281；GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu
 IRQ0 started=completed=1595、active=false／failed=false，等待來源 DS:00271148=01 00 00 00；PIT Mode=2／Reload=5966／Generation=5、readPending=false、Micros=21094625、Deliveries=1615、Pending=false／InService=false。事件條件 requested=true／injected=true，第 1,612,067 步 x=657／y=189，仍不算 255 完整座標／游標或正常玩家操作驗收。
 
 自然 gzip SHA-256 a4cadecfd90e37dafc30fb8cd472169cd216039956a479f5ea45a933fc77f468／9a3554fc9a7023fa375c814b6685574c5fa03aa83b4b3069df06a657a0efb181。兩 PNG SHA-256 1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622，indexed 7818f5542a0404157573be6cffc0e0c8e68ce3c0f5d17d07ccdd9313fb700baf、RGB 0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366，同已檢視黑圖；VBE Writes=4046164 不代表目前主選單已呈現。原版完整資料／終端／gzip／PNG 留本機，只有自製原始碼／測試與文字證據公開。主選單、正常玩家路徑、音效／受控亂數及 Go remake 玩法同狀態未完成，255 READY。
+
+
+## 後續停點回填
+
+byte 記憶體 SUB 停點已由規格 284 接通，見 [284-cpu386-sub-byte-memory-imm8.md](284-cpu386-sub-byte-memory-imm8.md)。兩個自然排程自行減去 08h 後轉停 0x25425F 的 byte 記憶體 ADD；只解除標準 CPU 缺件，不推定完整玩家路徑已完成。
