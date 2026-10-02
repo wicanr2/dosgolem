@@ -327,6 +327,7 @@ func main() {
 	}
 	ring := make([]sample, 0, 32)
 	irq7FirstPrinted := false
+	xorALSeen, xorALConsumerSteps := 0, 0
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
 		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
@@ -523,7 +524,33 @@ func main() {
 		if orReads.active {
 			readEIP, readR, readSeg, readFlags = m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags
 		}
+		observeXORAL := m.CPU.EIP == 0x247be1 && xorALSeen < 3
+		observeXORConsumer := !observeXORAL && xorALConsumerSteps > 0
+		xorBeforeEIP, xorBeforeR, xorBeforeSeg, xorBeforeFlags := m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+		var xorStack [4]byte
+		var xorInstructionBytes []byte
+		xorStackReadable := true
+		if observeXORAL || observeXORConsumer {
+			if uint64(xorBeforeEIP)+8 <= uint64(len(m.Mem)) {
+				xorInstructionBytes = append([]byte(nil), m.Mem[xorBeforeEIP:xorBeforeEIP+8]...)
+			}
+			for j := range xorStack {
+				v, ok := m.CPU.ReadSegment8(m.CPU.Seg[cpu386.SegSS], m.CPU.R[cpu386.ESP]+uint32(j))
+				xorStack[j], xorStackReadable = v, xorStackReadable && ok
+			}
+		}
 		stepErr := m.CPU.Step()
+		if observeXORAL || observeXORConsumer {
+			phase := "consumer"
+			if observeXORAL {
+				phase = "xor"
+				xorALSeen++
+				xorALConsumerSteps = 3
+			} else {
+				xorALConsumerSteps--
+			}
+			fmt.Printf("xor_al_immediate_observation phase=%s step=%d address_space=dosgolem_high_le input_eip=0x%X after_eip=0x%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=0x%X after_flags=0x%X input_stack=%X stack_readable=%t instruction_bytes=%X error=%v\n", phase, i, xorBeforeEIP, m.CPU.EIP, xorBeforeR, m.CPU.R, xorBeforeSeg, m.CPU.Seg, xorBeforeFlags, m.CPU.EFlags, xorStack, xorStackReadable, xorInstructionBytes, stepErr)
+		}
 		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && !irq7FirstPrinted && ports.IRQ7Returns != 0 {
 			irq7FirstPrinted = true
 			dumpPlatform("first_irq7_return", i)

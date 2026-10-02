@@ -475,4 +475,6 @@
 
 - [304：兩種 CPU 模式共用的裝置時間](304-le-shared-device-clock.md)：CONFORMED。共用時計／首block已驗，實際IVT1201:0682的IRQ7由305閉合14次轉送；完整音訊與人耳仍未知。
 
-- [305：MOO2 保護模式 IRQ7 的實模式轉送](305-moo2-irq7-real-mode-passdown.md)：CONFORMED。機器層／固定EXE全套及兩自然14次原版73步、EOI／22E／IRET返回與PCM29175已驗，XOR AL,1為下一停點；正常玩家流程仍未知。
+- [305：MOO2 保護模式 IRQ7 的實模式轉送](305-moo2-irq7-real-mode-passdown.md)：CONFORMED。機器層／固定EXE全套及兩自然14次原版73步、EOI／22E／IRET返回與PCM29175已驗，XOR AL,1由306接通；正常玩家流程仍未知。
+
+- [306：AL 與立即 byte 的 XOR](306-cpu386-xor-al-imm8.md)：CONFORMED。全部CPU／固定EXE與兩自然三組AL／旗標、RET及MOV ESI,EAX消費已驗；50M無拒絕、386次IRQ7返回與星空片段，正常鍵盤／玩家流程仍未知。

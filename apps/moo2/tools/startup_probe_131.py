@@ -2,6 +2,7 @@
 
 容器內需要 /tmp/game/ORION2.EXE、可寫 /shots、DISPLAY 與外層 Xvfb trap。
 原版檔案及輸出的完整終端／記憶體資料不可加入公開版控。
+--check-xor-al-immediate-spec-backlinks 只驗證34 ib與原版RET／MOV消費回填，不啟動DOSBox-X。
 --check-irq7-passdown-spec-backlinks 只驗證IRQ7轉送／返回及較早音訊邊界回填，不啟動DOSBox-X。
 --check-shared-device-clock-spec-backlinks 只驗證共用DMA時計及首block／IRQ7邊界回填，不啟動DOSBox-X。
 --check-xchg-ax-word-spec-backlinks 只驗證 word XCHG及完整ROR消費回填，不啟動DOSBox-X。
@@ -48,6 +49,26 @@ def validate_mouse_sensitivity_resolution(spec_dir):
         raise RuntimeError('滑鼠敏感度舊規格缺勘誤回填')
 
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
+def validate_xor_al_immediate_resolution(spec_dir):
+    """306裸34、原始AL與真實返回消費須回填305停點。"""
+    current = (spec_dir / '306-cpu386-xor-al-imm8.md').read_text()
+    required = ('0x247BE1', '34 01 C3', '297h→246h', '202h→202h',
+                'AF未定義', '工具近似', '0x231ADF', '0x231AE2', 'MOV ESI,EAX',
+                'DF 1A 23 00', '五定義旗標', '正常鍵盤', 'IRQ7 started386／completed386',
+                '7a984c68b925623589aa6dae45973ef8431b98b72df65523dbed65eaeb485720',
+                'd4526b29dc51b057566604e4538c0adb4c379b06ad005a589e38d59a2a84506e',
+                '4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('XOR AL立即值缺原始定位／旗標／真正返回消費／收據或限定範圍')
+    older = (spec_dir / '305-moo2-irq7-real-mode-passdown.md').read_text()
+    if 'XOR AL立即值停點已由規格 306 接通' not in older or '306-cpu386-xor-al-imm8.md' not in older:
+        raise RuntimeError('XOR AL立即值的305舊停點缺回填')
+
+if sys.argv[1:] == ['--check-xor-al-immediate-spec-backlinks']:
+    validate_xor_al_immediate_resolution(spec_dir)
+    print('XOR AL立即值／RET／MOV消費與305舊停點回填通過')
+    raise SystemExit(0)
+
 def validate_irq7_passdown_resolution(spec_dir):
     """305實際IVT、來源確認／返回與限定範圍須同步回填。"""
     current = (spec_dir / '305-moo2-irq7-real-mode-passdown.md').read_text()

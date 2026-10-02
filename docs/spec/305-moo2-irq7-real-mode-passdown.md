@@ -84,3 +84,7 @@ outer_step42356668，實際caller高位LE0x257FC9，完整R=120 325B80 3258C8 12
 ## 解析回填
 
 不可變鍵：固定1.31 EXE雜湊＋高位LE0x257FC9＋absolute IVT0F1201:0682／實模式線性0x12692＋EOI／22E／IRET。241、293–298、300–304共十二份較早平台音訊邊界同次追加「保護模式IRQ7轉送由規格 305 接線」與本檔連結。只閉合公開passdown近似下的14次原版轉送／來源確認／返回與PCM傳輸；人耳、全部音訊／後續回呼、正常鍵盤IRQ1、主選單／正常玩家路徑、受控亂數及整款remake仍未知。255／299與其他CPU契約不受影響。回填入口apps/moo2/tools/startup_probe_131.py --check-irq7-passdown-spec-backlinks，缺原始定位、返回／I/O／時計／兩收據／限定範圍或任一舊標記須拒絕。
+
+## XOR AL立即值停點已由規格 306 接通
+
+[306-cpu386-xor-al-imm8.md](306-cpu386-xor-al-imm8.md)以固定EXE與高位LE0x247BE1的34 01 C3閉合三組AL／旗標、真正RET到0x231ADF及0x231AE2的MOV ESI,EAX消費。兩自然到50M無CPU拒絕，386次IRQ7返回與星空片段已驗，PCM記錄限65536byte。較早14次IRQ7及34停點屬305原始基線，未被覆寫；現行下一步為正常鍵盤IRQ1，不稱主選單／完整玩家路徑或人耳完成。

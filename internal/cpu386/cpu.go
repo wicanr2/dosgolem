@@ -662,6 +662,18 @@ func (c *CPU) Step() error {
 		c.R[dst] ^= value
 		c.setLogicFlags(c.R[dst])
 
+	case op == 0x34:
+		// 規格306：裸AL與立即byte XOR，AF清除沿既有工具近似。
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("XOR AL prefix尚未支援")
+		}
+		imm, err := c.fetch8()
+		if err != nil {
+			return fail(err.Error())
+		}
+		value := uint8(c.R[EAX]) ^ imm
+		c.setReg8(0, value)
+		c.setLogicFlags8(value)
 	case op == 0x35:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("XOR EAX prefix尚未支援")
