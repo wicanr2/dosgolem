@@ -517,6 +517,8 @@ func (*fakeStoryFamily) name() string                                           
 func (*fakeStoryFamily) glyphEntry(Address, uint16, uint16, [7]uint16, uint64)                 {}
 func (*fakeStoryFamily) verifiedReturn(uint64, Address, Address, byte, uint16, uint16, uint64) {}
 func (*fakeStoryFamily) discontinuity()                                                        {}
+func (*fakeStoryFamily) modeReset()                                                            {}
+func (*fakeStoryFamily) active() bool                                                          { return false }
 func (*fakeStoryFamily) clearWrite(Address, uint16, uint16, uint16) bool                       { return false }
 func (*fakeStoryFamily) prewrite(machine.VideoWrite)                                           {}
 func (*fakeStoryFamily) frame([]byte, [256][3]uint8)                                           {}

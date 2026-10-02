@@ -216,6 +216,9 @@ func (o liveObserver) BeforeStep(v session.StepView) error {
 	return o.r.BeforeStep(o.cursor)
 }
 func (o liveObserver) VideoWrite(w machine.VideoWrite) { o.r.VideoWrite(w) }
+
+// VideoModeChange makes liveObserver a session.ModeObserver (Buck spec 052).
+func (o liveObserver) VideoModeChange(c machine.ModeChange) { o.r.VideoModeChange(c) }
 func (o liveObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	o.r.Frame(indexed, palette)
 }

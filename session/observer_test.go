@@ -196,3 +196,68 @@ func TestObserverStopsAtProgramExit(t *testing.T) {
 		t.Fatalf("結束後仍觀測或執行：BeforeStep %d 次、%d 步", len(obs.ips), r.Steps)
 	}
 }
+
+// modeObserver adds the optional ModeObserver extension (Buck spec 052).
+type modeObserver struct {
+	recordingObserver
+	modes []machine.ModeChange
+	panic bool
+}
+
+func (m *modeObserver) VideoModeChange(c machine.ModeChange) {
+	m.modes = append(m.modes, c)
+	if m.panic {
+		panic("mode boom")
+	}
+}
+
+// mov ax,0013h / int 10h / jmp $ : one video mode set, then a loop.
+var observerModeCOM = []byte{0xB8, 0x13, 0x00, 0xCD, 0x10, 0xEB, 0xFE}
+
+func TestModeObserverSeesTheModeSetAndChangesNothing(t *testing.T) {
+	obs := &modeObserver{}
+	with := startSyntheticOwner(t, observerModeCOM)
+	with.observer = obs
+	bare := startSyntheticOwner(t, observerModeCOM)
+	for i := 0; i < 2; i++ {
+		a, err := runTurn(t, with, 20)
+		if err != nil {
+			t.Fatalf("observed turn: %+v %v", a, err)
+		}
+		if _, err := runTurn(t, bare, 20); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(obs.modes) != 1 || obs.modes[0].Mode != 0x13 || obs.modes[0].Step == 0 {
+		t.Fatalf("modes=%+v", obs.modes)
+	}
+	if machineDigest(with) != machineDigest(bare) {
+		t.Fatal("ModeObserver 改變了 machine 狀態")
+	}
+	// Outside a turn the callback is gone.
+	before := len(obs.modes)
+	with.machine.SetVideoMode(0x03)
+	if len(obs.modes) != before {
+		t.Fatal("回合結束後仍轉發模式事件")
+	}
+}
+
+func TestModeObserverPanicStopsAfterThatStep(t *testing.T) {
+	o := startSyntheticOwner(t, observerModeCOM)
+	o.observer = &modeObserver{panic: true}
+	r, err := runTurn(t, o, 20)
+	// Step 1: mov; step 2: int 10h (the mode set, the panic); the step completes.
+	assertObserverFault(t, o, r, err, 2)
+}
+
+func TestPlainObserverIsNotAModeObserver(t *testing.T) {
+	obs := &recordingObserver{}
+	o := startSyntheticOwner(t, observerModeCOM)
+	o.observer = obs
+	if _, err := runTurn(t, o, 10); err != nil {
+		t.Fatal(err)
+	}
+	if o.machine.VideoMode() != 0x13 {
+		t.Fatal("mode set not executed")
+	}
+}

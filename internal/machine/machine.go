@@ -230,6 +230,8 @@ type Machine struct {
 	onRead             func(addr uint32, v uint8)
 	onWrite            func(addr uint32, old, new uint8)
 	onVideoWrite       func(VideoWrite)
+	// 視訊模式觀測（Buck 規格 052）。callback 在 SetVideoMode 末尾呼叫；ModeChanges 照舊追加。
+	onModeChange func(ModeChange)
 
 	// 音訊觀測（`docs/spec/240`）。掛上時 OPL／Speaker 序列不再追加。
 	onOPL        func(OPLWrite)
@@ -498,6 +500,13 @@ type VideoWrite struct {
 // ObserveVideoWrites 掛上 A000 pre-write observer；nil 關閉。callback 在
 // VGA.Write 前呼叫，因此同值 write 也可見，且不得改變執行狀態。
 func (m *Machine) ObserveVideoWrites(fn func(VideoWrite)) { m.onVideoWrite = fn }
+
+// ObserveModeChanges 掛上視訊模式設定 observer；nil 關閉。callback 在 SetVideoMode
+// 的最後（BDA、平面、時序暫存器與 planarOn 都已更新）呼叫一次，早於 BIOS 載入調色盤；
+// 它不得改變執行狀態、不得讀 Palette()。平面模式的清除不經 Write8，所以
+// ObserveVideoWrites 看不到；任何模式設定都是顯示的不連續點。
+// callback 不進 Snapshot 或 state（同 onVideoWrite）。
+func (m *Machine) ObserveModeChanges(fn func(ModeChange)) { m.onModeChange = fn }
 
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。
 //

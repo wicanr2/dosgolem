@@ -17,6 +17,14 @@ type storyFamily interface {
 	glyphEntry(caller Address, ss, sp uint16, args [7]uint16, step uint64)
 	verifiedReturn(entryStep uint64, caller Address, prev Address, opcode byte, ss, sp uint16, step uint64)
 	discontinuity()
+	// modeReset is the Buck spec 052 video mode event: the watcher forgets its
+	// in-flight frame and active content, then the presenters and the applied
+	// generation go (in that order).  Families whose discontinuity counts a drop
+	// skip it when nothing of theirs is in flight, so an empty family changes
+	// no counter.
+	modeReset()
+	// active reports content shown or held (read-only; tests and receipts).
+	active() bool
 	// clearWrite is the 0CF4:1B3A REP STOSB; it reports an invalidation.
 	clearWrite(at Address, es, di, cx uint16) bool
 	prewrite(w machine.VideoWrite)
@@ -920,4 +928,60 @@ func storyPageComplete(eventName string, events []byte, textName string, texts [
 		return errStoryPageSkipped
 	}
 	return nil
+}
+
+// --- Buck spec 052: video mode event -------------------------------------
+
+// Opening and pages 2, 3, 5 count a drop in ObserveExecutionDiscontinuity, so
+// an empty family (nothing active, nothing in flight, nothing drawn) is left
+// alone.  The others have no drop counter and always reset.
+func (f *storyOpeningLive) modeReset() {
+	if !f.w.Active() && !f.w.Pending() && f.gen == 0 {
+		return
+	}
+	f.discontinuity()
+	f.clear()
+}
+func (f *storyPage2Live) modeReset() {
+	if !f.w.Active() && !f.w.Pending() && f.gen == 0 {
+		return
+	}
+	f.discontinuity()
+	f.clear()
+}
+func (f *storyPage3Live) modeReset() {
+	if !f.w.Active() && !f.w.Pending() && f.gen == 0 {
+		return
+	}
+	f.discontinuity()
+	f.clear()
+}
+func (f *storyPage5Live) modeReset() {
+	if !f.w.Active() && !f.w.Pending() && f.gen == 0 {
+		return
+	}
+	f.discontinuity()
+	f.clear()
+}
+func (f *storyPage4Live) modeReset() { f.discontinuity(); f.clear() }
+func (f *storyPage6Live) modeReset() { f.discontinuity(); f.clear() }
+func (f *storyPage7Live) modeReset() { f.discontinuity(); f.clear() }
+func (f *storyPage8Live) modeReset() { f.discontinuity(); f.clear() }
+func (f *storyPage9Live) modeReset() { f.discontinuity(); f.clear() }
+
+func (f *storyOpeningLive) active() bool { return f.w.Active() || f.w.Pending() }
+func (f *storyPage2Live) active() bool   { return f.w.Active() || f.w.Pending() }
+func (f *storyPage3Live) active() bool   { return f.w.Active() || f.w.Pending() }
+func (f *storyPage5Live) active() bool   { return f.w.Active() || f.w.Pending() }
+func (f *storyPage4Live) active() bool   { return f.w.Active() }
+func (f *storyPage6Live) active() bool   { return f.w.Active() || f.w.Pending() }
+func (f *storyPage7Live) active() bool   { return f.w.Active() }
+func (f *storyPage8Live) active() bool   { return f.w.Active() }
+func (f *storyPage9Live) active() bool {
+	for i := range liveScales {
+		if f.owner[i].Watcher.Active() || f.owner[i].Watcher.Pending() {
+			return true
+		}
+	}
+	return false
 }

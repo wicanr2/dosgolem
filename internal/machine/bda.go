@@ -83,6 +83,9 @@ func (m *Machine) SetVideoMode(mode uint8) {
 		setModeTiming(&m.VGA.crtc, mode)
 	}
 	m.planarOn = m.planarActive()
+	if m.onModeChange != nil {
+		m.onModeChange(ModeChange{Mode: mode, Step: m.Steps})
+	}
 }
 
 // VideoMode 讀回目前模式。

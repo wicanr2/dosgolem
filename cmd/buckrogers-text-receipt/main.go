@@ -491,6 +491,7 @@ func main() {
 	liveManualEnglish := flag.String("manual-english", "", "本機手冊英文摘錄（規格 034；只接 -live-text-dir 路徑）")
 	liveOut := flag.String("live-rgba-out", "", "LiveRuntime 在 live-scale 的合成 RGBA")
 	liveScale := flag.Int("live-scale", 2, "LiveRuntime 輸出倍率")
+	injectMode := flag.Int("inject-mode-event", -1, "僅供測試（Buck 規格 052 §5.4）：主迴圈在 -until 正常結束後，對 LiveRuntime 注入一次視訊模式事件（不呼叫 SetVideoMode，機器狀態不變）；需 -lang 與 -live-text-dir。-1 表示不注入")
 	// 規格 040 §5.3：多語通道的切換收據。
 	liveLang := flag.String("lang", "", "LiveRuntime 起始語言（zh-TW、zh-CN、en…；zz 需 -test-lang-dir 或 -lang-dir zz=…）；給了就在收據輸出 CPU 雜湊")
 	// Buck repo 規格 041 §3.9：任意語言的目錄與字型（取代只收 zz 的測試旗標；zz 仍可用）。
@@ -1661,6 +1662,11 @@ func main() {
 			}
 		})
 	}
+	// Buck spec 052: a video mode set reaches the live runtime (the legacy
+	// families of this runner are not wired; spec 052 §3.1).
+	if liveAll != nil {
+		m.ObserveModeChanges(func(c machine.ModeChange) { liveAll.VideoModeChange(c) })
+	}
 	var instructionTrace []instructionTraceJSON
 	storyBefore := make([]byte, 320*40)
 	if *storyPixelTrace {
@@ -2359,6 +2365,24 @@ func main() {
 			fail(err)
 		}
 	}
+	var injectPre, injectOriginal string
+	var injectActive []string
+	if *injectMode >= 0 {
+		if liveAll == nil || !langFlags {
+			fail(fmt.Errorf("inject-mode-event 需要 -lang 與 -live-text-dir"))
+		}
+		if d.Exited || m.Steps != *until {
+			fail(fmt.Errorf("inject-mode-event 要求主迴圈在 -until 正常結束（steps=%d until=%d exited=%v）", m.Steps, *until, d.Exited))
+		}
+		pre, ok, err := liveAll.ComposeWith(m.Indexed(), m.Palette(), *liveScale)
+		if err != nil || !ok {
+			fail(fmt.Errorf("inject-mode-event 注入前 compose：ok=%v err=%v", ok, err))
+		}
+		injectPre = sha256hex(pre)
+		injectOriginal = sha256hex(buckrogers.ScaleIndexedRGBA(m.Indexed(), m.Palette(), *liveScale))
+		injectActive = liveAll.ActiveFamilies(liveAll.Language())
+		liveAll.VideoModeChange(machine.ModeChange{Mode: uint8(*injectMode), Step: m.Steps})
+	}
 	if liveAll != nil {
 		fmt.Fprintln(os.Stderr, "live:", liveAll.DebugSummary())
 	}
@@ -2448,6 +2472,9 @@ func main() {
 		CPUSHA256                 string                            `json:"cpu_sha256,omitempty"`
 		LiveLanguage              string                            `json:"live_language,omitempty"`
 		LiveManualVisibleKey      string                            `json:"live_manual_visible_key,omitempty"`
+		LiveInjectPreSHA256       string                            `json:"live_inject_pre_compose_sha256,omitempty"`
+		LiveInjectOriginalSHA256  string                            `json:"live_inject_original_sha256,omitempty"`
+		LiveInjectActive          []string                          `json:"live_inject_active_families,omitempty"`
 		LiveLangSwitches          []string                          `json:"live_lang_switches,omitempty"`
 		LiveFrames                uint64                            `json:"live_frames,omitempty"`
 		LiveLoadMillis            int64                             `json:"live_load_ms,omitempty"`
@@ -2506,6 +2533,7 @@ func main() {
 		// 既有收據逐位元組不變。
 		result.CPUSHA256 = cpuDigestHex(m)
 		result.LiveLanguage = liveAll.Language()
+		result.LiveInjectPreSHA256, result.LiveInjectOriginalSHA256, result.LiveInjectActive = injectPre, injectOriginal, injectActive
 		if key, ok := liveAll.ManualVisibleKey(); ok {
 			result.LiveManualVisibleKey = key // spec 053 §5.2: the event key only, no text
 		}

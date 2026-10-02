@@ -30,6 +30,14 @@ type AudioObserver interface {
 	PITChannel2(c machine.PIT2Change)
 }
 
+// ModeObserver is an optional extension of StepObserver (Buck spec 052): it is
+// told every video mode set (int 10h AH=00), which no A000 write observer can
+// see.  The callback runs inside a Step; it must not change execution state
+// and must not read the palette (the BIOS loads it after the call).
+type ModeObserver interface {
+	VideoModeChange(c machine.ModeChange)
+}
+
 // muteAudio keeps m.OPL/m.Speaker from growing while AdLib is on and no
 // AudioObserver is forwarding (§3.1): the empty collectors drop every write.
 func (o *Owner) muteAudio() {
@@ -156,24 +164,30 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		}()
 		o.observer.Frame(o.machine.Indexed(), o.machine.Palette())
 	})
-	if ao, ok := o.observer.(AudioObserver); ok {
-		guard := func(name string, f func()) {
-			if videoPanic != nil {
-				return
-			}
-			defer func() {
-				if r := recover(); r != nil {
-					videoPanic = fmt.Errorf("session: 觀測器 %s panic：%v", name, r)
-				}
-			}()
-			f()
+	// guard latches a panic raised inside a Step by an optional observer
+	// extension (audio, video mode); shared by all of them.
+	guard := func(name string, f func()) {
+		if videoPanic != nil {
+			return
 		}
+		defer func() {
+			if r := recover(); r != nil {
+				videoPanic = fmt.Errorf("session: 觀測器 %s panic：%v", name, r)
+			}
+		}()
+		f()
+	}
+	if mo, ok := o.observer.(ModeObserver); ok {
+		o.machine.ObserveModeChanges(func(c machine.ModeChange) { guard("VideoModeChange", func() { mo.VideoModeChange(c) }) })
+	}
+	if ao, ok := o.observer.(AudioObserver); ok {
 		o.machine.ObserveOPLWrites(func(w machine.OPLWrite) { guard("OPLWrite", func() { ao.OPLWrite(w) }) })
 		o.machine.ObserveSpeaker(func(s machine.SpeakerSample) { guard("SpeakerSample", func() { ao.SpeakerSample(s) }) })
 		o.machine.ObservePITChannel2(func(c machine.PIT2Change) { guard("PITChannel2", func() { ao.PITChannel2(c) }) })
 	}
 	defer func() {
 		o.machine.ObserveVideoWrites(nil)
+		o.machine.ObserveModeChanges(nil)
 		o.machine.SetOnFrame(nil)
 		if o.machine.AdLibPresent() {
 			o.muteAudio()
