@@ -280,3 +280,76 @@ func TestModeResetClassifiesEveryField(t *testing.T) {
 	check("liveLane", reflect.TypeOf(liveLane{}), lane)
 	check("LiveRuntime", reflect.TypeOf(LiveRuntime{}), runtime)
 }
+
+// A mode set between a post-join call and its return: the rebuilt watcher
+// knows nothing of the call, so the return fails closed (spec 052 §6: this is
+// the expected fail-closed result and it is counted by resetPostJoin).
+func TestModeResetPostJoinStraddleFailsClosed(t *testing.T) {
+	c := postJoinTestCatalog()
+	w, _ := NewPostJoinMenuWatcher(c)
+	e := postJoinEvent(0, Address{0x37f1, 0x15bd}, 1)
+	if err := w.ObserveEntry(e); err != nil {
+		t.Fatal(err)
+	}
+	if w.idle() {
+		t.Fatal("entry 之後不是閒置")
+	}
+	rebuilt, _ := NewPostJoinMenuWatcher(c) // what VideoModeChange does for a non-idle watcher
+	e.PostCallStep = e.EntryStep + 1
+	if err := rebuilt.ObserveReturn(e); err == nil {
+		t.Fatal("跨事件的 return 應 fail closed")
+	}
+	// A watcher that already failed is not rebuilt: its failure stays pending.
+	f, _ := NewPostJoinMenuWatcher(c)
+	f.ObserveDiscontinuity()
+	if f.idle() || !f.failed {
+		t.Fatal("failed 的 watcher 不是閒置")
+	}
+	if err := f.ObserveEntry(postJoinEvent(0, Address{0x37f1, 0x15bd}, 2)); err == nil {
+		t.Fatal("failed 的 watcher 在下一次 entry 應回錯（由 resetPostJoin 計數）")
+	}
+}
+
+// Q1 shown, the mode is set, then the original prints Q2: the restored
+// watcher has not accepted Q1, so Q2 fails and the lane's recover counts it
+// once per scale.
+func TestModeResetExitPromptQ1ThenQ2Entry(t *testing.T) {
+	c, q1, q2 := exitPromptFixture()
+	l := &liveLane{lang: LangZhTW, font: exitPromptFont(), exitCatalog: c,
+		resets: map[string]int{}, rebuilds: map[string]int{}, skips: map[string]int{}}
+	var palette [256][3]uint8
+	for i, scale := range liveScales {
+		o, err := NewPostJoinExitPromptOwner(c, l.font, scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.exit[i] = o
+		if err := o.ObserveEntry(q1); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.ObserveReturn(exitPromptReturn(q1, q1.EntryStep+9000), palette); err != nil || len(o.Presenter.ActiveKeys()) == 0 {
+			t.Fatalf("Q1 應顯示：err=%v", err)
+		}
+		o.Restore() // VideoModeChange
+		if len(o.Presenter.ActiveKeys()) != 0 {
+			t.Fatal("Restore 後 presenter 應為空")
+		}
+		if o.Watcher.Failed() {
+			t.Fatal("Restore 不得使 watcher failed")
+		}
+	}
+	// The original now prints Q2.
+	for i := range liveScales {
+		if l.exit[i].Watcher.ShouldObserveEntry(q2) {
+			if err := l.exit[i].ObserveEntry(q2); err == nil {
+				t.Fatal("Q2 在 Q1 未被接受時應 fail")
+			}
+			if err := l.recover("exit-prompt", func() error { return l.resetExit(i) }); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if l.resets["exit-prompt"] != 2 {
+		t.Fatalf("resets[exit-prompt] = %d，應為每個倍率各一次（2）", l.resets["exit-prompt"])
+	}
+}
