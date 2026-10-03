@@ -1166,6 +1166,92 @@ func main() {
 	}()
 	// 350 END iteration_state
 
+	// 351 BEGIN completion_state
+	completionSeen := [12]bool{}
+	completionHeads, completionEvents := 0, 0
+	completionFull := false
+	completionDump := func(step, group, phase int) {
+		c := m.CPU
+		var code, boundCode [16]byte
+		var stack [96]byte
+		var frame [48]byte
+		var bound [2]byte
+		codeOK, boundCodeOK, stackOK, frameOK, boundOK := false, false, false, false, false
+		boundOffset := uint32(0)
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			codeOK = peekSourceWindow(c.Seg[cpu386.SegCS], c.EIP, code[:])
+			boundCodeOK = peekSourceWindow(c.Seg[cpu386.SegCS], 0x16af1c, boundCode[:])
+			if boundCodeOK && boundCode[0] == 0x66 && boundCode[1] == 0x3b && boundCode[2] == 0x35 {
+				boundOffset = uint32(boundCode[3]) | uint32(boundCode[4])<<8 | uint32(boundCode[5])<<16 | uint32(boundCode[6])<<24
+				boundOK = peekSourceWindow(c.Seg[cpu386.SegDS], boundOffset, bound[:])
+			}
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			if generationSP >= 56 {
+				frameOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-56, frame[:])
+			}
+		}) && ram == sha256.Sum256(m.Mem)
+		completionEvents++
+		fmt.Printf("generation_completion_observation sequence=%d phase=%d outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d instruction_bytes=%X code_readable=%t bound_instruction_bytes=%X bound_code_readable=%t bound_offset=%X bound_raw=%X bound_readable=%t bound_signed=%d stack_offset=%X stack_readable=%t stack_window=%X frame_offset=%X frame_readable=%t frame_window=%X ram_before_sha256=%x ram_after_sha256=%x readonly=%t\n", group, phase, step, c.EIP, c.R, c.Seg, c.EFlags, c.FPUControl, c.FPUStatus, c.FPUDepth, code, codeOK, boundCode, boundCodeOK, boundOffset, bound, boundOK, int16(uint16(bound[0])|uint16(bound[1])<<8), c.R[4], stackOK, stack, generationSP-56, frameOK, frame, ram, sha256.Sum256(m.Mem), readonly)
+	}
+	observeGenerationCompletion := func(step int) {
+		if !universe160 || !generationSeen[2] {
+			return
+		}
+		c := m.CPU
+		phase := -1
+		if c.EIP == 0x16bae3 && c.R[4] == generationSP && c.R[5] == generationBP {
+			phase = 11
+		} else if !generationSeen[13] {
+			if c.EIP == 0x16b01f && c.R[4] == generationSP-4 {
+				phase = 10
+			} else if c.R[5] == generationSP-24 {
+				switch c.EIP {
+				case 0x16ad7d:
+					if completionHeads < 72 {
+						completionDump(step, completionHeads, 0)
+						completionHeads++
+					} else {
+						completionFull = true
+					}
+				case 0x16af1c:
+					if uint16(c.R[6]) == 36 {
+						phase = 1
+					}
+				case 0x16af23:
+					if uint16(c.R[6]) == 36 {
+						phase = 2
+					}
+				case 0x16af29:
+					phase = 3
+				case 0x16af35:
+					phase = 4
+				case 0x16af68:
+					phase = 5
+				case 0x16af6e:
+					phase = 6
+				case 0x16b014:
+					phase = 7
+				case 0x16b018:
+					phase = 8
+				case 0x16b01a:
+					phase = 9
+				}
+			}
+		}
+		if phase > 0 && !completionSeen[phase] {
+			completionSeen[phase] = true
+			completionDump(step, -1, phase)
+		}
+	}
+	defer func() {
+		if universe160 {
+			completionDump(loopStep+1, -1, 12)
+			fmt.Printf("generation_completion_totals heads=%d seen=%v events=%d max_heads=72 max_boundaries=11 max_events=84 full=%t budget=160000000 outer_returned=%t\n", completionHeads, completionSeen, completionEvents, completionFull, generationSeen[13])
+		}
+	}()
+	// 351 END completion_state
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -1467,6 +1553,10 @@ func main() {
 		// 350 BEGIN iteration_call
 		observeGenerationIteration(i)
 		// 350 END iteration_call
+
+		// 351 BEGIN completion_call
+		observeGenerationCompletion(i)
+		// 351 END completion_call
 
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]

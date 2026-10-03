@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_generation_completion_resolution(spec_dir):
+    """351限定原連續進度及160M截斷，出口／RET未見。"""
+    name = "351-moo2-generation-completion-boundary.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原連續迭代與160M截斷點","153880145","159926951","SI1..26","6046806","151326..338347","73049","16AF29","16AF35","16B01F","caller16BAE3","heads26／events27／full=false","outer_returned=false","尚未取得收據","固定180M","10570原350列","36PNG","1693原列","6cc3c65f7648e9582713a69fd51fa13a2d2a824cdec79204a7c88e90b22a183c","389a328d590e406bf2a09134cbc864476bcee5ee31e09288e82a1c51fb65db95","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("351缺原連續進度／160M截斷／未見出口或限定狀態")
+    older = (spec_dir / "350-moo2-generation-iteration-bound.md").read_text()
+    if name not in older or "原連續SI1到26與160M截斷已由規格351驗證" not in older:
+        raise RuntimeError("350缺原連續進度與截斷回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("351缺公開索引入口")
+
+if sys.argv[1:] == ['--check-generation-completion-spec-backlinks']:
+    validate_generation_completion_resolution(spec_dir)
+    print("原連續進度／160M截斷／未見出口／較早回填通過")
+    raise SystemExit(0)
+
 def validate_generation_iteration_resolution(spec_dir):
     """350限定首四原迭代／signed界限36，全出口與RET未知。"""
     name = "350-moo2-generation-iteration-bound.md"

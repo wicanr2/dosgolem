@@ -566,3 +566,5 @@
 - [349：後續母星生成呼叫的原入口與等待狀態](349-moo2-generation-entry.md)：限定CONFORMED。153878499原CALL／框架／三直接返回與首距離返回已驗，外層160M pending；10542原列／36PNG及關閉8M保持，完整開局未知。
 
 - [350：後續生成的外層迭代上限與重繪邊界](350-moo2-generation-iteration-bound.md)：限定CONFORMED。首四原SI迭代／signed界限36及JL已驗，10556原列／36PNG與關閉8M保持；全部出口／RET與完整開局未知。
+
+- [351：後續生成的外層出口、後段與返回邊界](351-moo2-generation-completion-boundary.md)：限定CONFORMED。原SI1..26連續、耗時與160M截斷已驗，10570原列／36PNG與關閉8M保持；出口／後段／RET及完整開局未知。
