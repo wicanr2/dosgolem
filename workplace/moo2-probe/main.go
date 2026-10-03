@@ -257,6 +257,11 @@ func main() {
 	negWordSeen, negWordBudget := false, 0
 	// 358 END neg_word_state
 
+	// 359 BEGIN sub_word_state
+	subWordSeen, subWordBudget := false, 0
+	var subWordTargetOffset, subWordStackOffset uint32
+	// 359 END sub_word_state
+
 	// 356 BEGIN set_memory_state
 	setMemorySeen, setMemoryBudget := false, 0
 	// 356 END set_memory_state
@@ -2644,6 +2649,33 @@ func main() {
 		}
 		// 358 END neg_word_pre
 
+		// 359 BEGIN sub_word_pre
+		if bannerRed && !subWordSeen && m.CPU.EIP == 0x1d0944 {
+			subWordSeen, subWordBudget = true, 5
+			subWordTargetOffset = m.CPU.R[cpu386.EBX] + 0xe8
+			subWordStackOffset = m.CPU.R[cpu386.ESP]
+		}
+		observeSubWord := subWordBudget > 0
+		subWordR, subWordSeg, subWordEIP, subWordFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var subWordCode [24]byte
+		var subWordSource [4]byte
+		var subWordDestination [20]byte
+		subWordOffset := subWordTargetOffset
+		subWordSourceReadable, subWordDestinationReadable := false, false
+		var subWordRAM [32]byte
+		subWordReadonly := false
+		var subWordRAMCopy []byte
+		if observeSubWord {
+			subWordRAM = sha256.Sum256(m.Mem)
+			subWordRAMCopy = append([]byte(nil), m.Mem...)
+			subWordReadonly = activationPeek(func() {
+				copy(subWordCode[:], m.Mem[subWordEIP:subWordEIP+24])
+				subWordSourceReadable = peekSourceWindow(subWordSeg[cpu386.SegDS], subWordOffset, subWordSource[:])
+				subWordDestinationReadable = peekSourceWindow(subWordSeg[cpu386.SegSS], subWordStackOffset, subWordDestination[:])
+			}) && sha256.Sum256(m.Mem) == subWordRAM
+		}
+		// 359 END sub_word_pre
+
 		// 356 BEGIN set_memory_pre
 		if bannerRed && !setMemorySeen && m.CPU.EIP == 0x1ce387 {
 			setMemorySeen, setMemoryBudget = true, 3
@@ -3006,6 +3038,32 @@ func main() {
 			}
 		}
 		// 358 END neg_word_post
+
+		// 359 BEGIN sub_word_post
+		if observeSubWord {
+			subWordBudget--
+			var sourceAfter [4]byte
+			var destinationAfter [20]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable, afterDestinationReadable := false, false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(subWordSeg[cpu386.SegDS], subWordOffset, sourceAfter[:])
+				afterDestinationReadable = peekSourceWindow(subWordSeg[cpu386.SegSS], subWordStackOffset, destinationAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && subWordReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range subWordRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fmt.Printf("sub_word_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X destination_selector=%X destination_offset=%X destination_readable=%t after_destination_readable=%t before_destination=%X after_destination=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, subWordEIP, m.CPU.EIP, subWordR, m.CPU.R, subWordSeg, m.CPU.Seg, subWordFlags, m.CPU.EFlags, subWordCode, subWordSeg[cpu386.SegDS], subWordOffset, subWordSourceReadable, afterSourceReadable, subWordSource, sourceAfter, subWordSeg[cpu386.SegSS], subWordStackOffset, subWordDestinationReadable, afterDestinationReadable, subWordDestination, destinationAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, subWordRAM == ram, subWordBudget, stepErr)
+			if stepErr != nil {
+				subWordBudget = 0
+			}
+		}
+		// 359 END sub_word_post
 
 		// 356 BEGIN set_memory_post
 		if observeSetMemory {

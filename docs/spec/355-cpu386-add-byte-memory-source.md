@@ -56,7 +56,7 @@ CPU16行02 memory分支替換1行拒絕，三observer區塊逆轉逐byte保持35
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:1CDD0F→1CDD1E | 四SS byte來源00的ADD AL與第五目的ADD零結果／flags／RAM及正常續行 | 354、353、352 | 原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通 |
 
-原1CE387 memory SETE已由356接通；下一步依358回填帳擷取原1D0944的DS188:5AA6D1 word SUB目的／AX來源與後續消費，沿同180M，不增加cap或深入helper。原byte1 reader／第三CMP數值與完整開局未知。
+原1CE387 memory SETE已由356接通；下一步依359回填帳核對原1D2A33的CWD與下一SUB／shift，沿同180M，不增加cap或深入helper。原byte1 reader／第三CMP數值與完整開局未知。
 
 ### 本機忽略證據索引與命令
 
@@ -118,12 +118,16 @@ python3 apps/moo2/tools/startup_probe_131.py --check-add-byte-source-spec-backli
 
 ### 356的後續勘誤回填
 
-原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。原356於164567987停在1CF90A的word IMUL，來源word0000與原低word寫回已由357驗證；下一步依358回填帳擷取原1D0944的DS188:5AA6D1 word SUB目的／AX來源與後續消費，沿同180M，不增加cap或深入helper。完整生成／開局、正式writer、RNG與remake同狀態未知。
+原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。原356於164567987停在1CF90A的word IMUL，來源word0000與原低word寫回已由357驗證；下一步依359回填帳核對原1D2A33的CWD與下一SUB／shift，沿同180M，不增加cap或深入helper。完整生成／開局、正式writer、RNG與remake同狀態未知。
 
 ## 2026-10-04 word立即值IMUL回填
 
-原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通，見[357](357-cpu386-imul-word-immediate.md)。原DS188:5A2084 word0000×5=0、EDI005AA5F4→005A0000／高word005A保持、定義CF／OF0與下一兩MOV dword0→0已驗；兩MOV不消費DI，undefined flags保存只屬工具近似。10767正常前綴／35frames／固定EXE全套保持，正式DI reader／原非零與overflow未知。原357的1CFD3F word NEG來源0000與原零值結果／下一分支已由358驗證；下一步依358回填帳擷取原1D0944的DS188:5AA6D1 word SUB目的／AX來源與後續消費，沿同180M，不增加cap或深入helper。完整生成／開局、正式writer、RNG與remake同狀態未知，保留本檔原歷史定位與收據。
+原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通，見[357](357-cpu386-imul-word-immediate.md)。原DS188:5A2084 word0000×5=0、EDI005AA5F4→005A0000／高word005A保持、定義CF／OF0與下一兩MOV dword0→0已驗；兩MOV不消費DI，undefined flags保存只屬工具近似。10767正常前綴／35frames／固定EXE全套保持，正式DI reader／原非零與overflow未知。原357的1CFD3F word NEG來源0000與原零值結果／下一分支已由358驗證；下一步依359回填帳核對原1D2A33的CWD與下一SUB／shift，沿同180M，不增加cap或深入helper。完整生成／開局、正式writer、RNG與remake同狀態未知，保留本檔原歷史定位與收據。
 
 ## 2026-10-04 word NEG回填
 
-原1CFD3F word NEG與下一EB09已由規格358接通，見[358](358-cpu386-neg-word.md)。原DS188:5A207C word0000→0000、六定義flags246h與下一EB09到1CFD4E已驗；第三CMP只觀測flags246h→206h，SS:[EBP-564]來源未取，數值／NEG word reader不列驗收，第四JE按觀測ZF0不跳。10770正常前綴／35frames及固定EXE全套保持，晚期Bus第二byte失敗可部分寫但不發布flags。325舊66負例限定未知selector、268舊word register NEG負例加segment prefix，新全值域正例接合法word。新164610300在1D0944的word SUB memory目的拒絕，after1D0946只解碼、DS188:5AA6D1目的word未知／來源AX0；下一步依358回填帳，維持180M。原非零NEG／溢位與完整開局、資料語意／正式writer／RNG及remake同狀態未知，保留本檔原定位與收據。
+原1CFD3F word NEG與下一EB09已由規格358接通，見[358](358-cpu386-neg-word.md)。原DS188:5A207C word0000→0000、六定義flags246h與下一EB09到1CFD4E已驗；第三CMP只觀測flags246h→206h，SS:[EBP-564]來源未取，數值／NEG word reader不列驗收，第四JE按觀測ZF0不跳。10770正常前綴／35frames及固定EXE全套保持，晚期Bus第二byte失敗可部分寫但不發布flags。325舊66負例限定未知selector、268舊word register NEG負例加segment prefix，新全值域正例接合法word。歷史358於164610300在1D0944的word SUB memory目的拒絕，after1D0946只解碼、當時DS188:5AA6D1目的word未知／來源AX0，現已由359核對；下一步依359回填帳核對原1D2A33的CWD與下一SUB／shift，沿同180M，不增加cap或深入helper。原非零NEG／溢位與完整開局、資料語意／正式writer／RNG及remake同狀態未知，保留本檔原定位與收據。
+
+## 359回填
+
+原1D0944 word SUB與三POP及RET已由規格359接通，見[359](359-cpu386-sub-word-register-source.md)。原DS188:5AA6D1 word0003-AX0000=0003、六flags206h，SS188真正槽的EDX0000000E／ECX005AA5E8／EBX00000000與RET001D1E0B／ESP2BDB5C已驗，POP／RET不是目的word reader。10775正常前綴／35frames／固定EXE全套保持，既有ADD／其他SUB及十一舊測試不改，第二byte晚期部分寫不發布flags。原164984957於1D2A33的66 99 word CWD拒絕，after1D2A35，AX0001／DX0000；下一步依359回填帳取CWD／下一SUB與shift，沿同180M。原非零SUB來源／借位／溢位、目的word reader／欄位語意、正式writer／RNG／完整開局與remake同狀態未知，保留原歷史定位與收據。

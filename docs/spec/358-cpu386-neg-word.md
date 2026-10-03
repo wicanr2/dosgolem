@@ -48,11 +48,11 @@ CPU只新增獨立word group3分支，memory兩byte寫回成功後才sub16發布
 
 CPU SHA-256 9840611ea0e3ae22ece69fd1f6f545dd08a316d1ed87247bbe061bf3f7f09522；新測試ab96fa39e050cca58f1f0b8c46275eeb0e3f3f56d9aa3210e9148f58a51839e3；兩舊測試NEG dword3ec49cd5357fdb65d416b92da4f13519155c0138572f8357a0ad68ccfaf60307／word IMUL9edb03bb303a26ec1f3437820c59d2d7f3cd558c80a308f8f9d7ec0cd5074010。正式probe07243e3f82540f6ffb9c99a3134e187b20dc27194593661f677587010df7633c；原正式收據a334a424881733be645038a99b2d7f36a724ae3a833a66caa77737f45905d25e；乾淨全套8a600babc81848f516e97569ee5098953c560ffa6cd5bc6e147278522f392020。
 
-### 新停止與unknown
+### 歷史358停止與unknown
 
-原164610300於dosgolem_high_le input1D0944 bytes66 29 83 E9 00 00 00 5A 59 5B C3 53 51 52 56 57拒絕word SUB memory目的，after1D0946只解碼，未取ModRM／目的或source。R=[0 64 0 5AA5E8 2BDB4C 2BDBA0 5AA614 5AA5F4]／段=[8 188 188 0 20 188]／flags206h；DS188:[EBX+E9h] offset5AA6D1目的word未知，來源AX0000。尚未達180M；下一步取目的word／來源低word與相鄰資料、後續POP／RET消費，審查29 /r word SUB，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
+原164610300於dosgolem_high_le input1D0944 bytes66 29 83 E9 00 00 00 5A 59 5B C3 53 51 52 56 57拒絕word SUB memory目的，after1D0946只解碼，未取ModRM／目的或source。R=[0 64 0 5AA5E8 2BDB4C 2BDBA0 5AA614 5AA5F4]／段=[8 188 188 0 20 188]／flags206h；DS188:[EBX+E9h] offset5AA6D1目的word未知，來源AX0000。尚未達180M；目的與原SUB／POP／RET已由359接通；下一步依359回填帳核對CWD與下一SUB／shift，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
 
-finalPNG逐byte保持357，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原非零NEG／8000溢位、CMP數值與NEG word reader、新SUB目的／正常消費、資料語意／正式writer、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
+finalPNG逐byte保持357，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原非零NEG／8000溢位、CMP數值與NEG word reader、新SUB目的／POP／RET已見359、目的word reader與資料語意／正式writer、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
 
 ### 回填帳與實際命令
 
@@ -109,3 +109,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-neg-word-spec-backlinks
 | new-game-358-cli-tests.txt | 0c39c7d30d26388473df3e31ad7be38651d38f98677857d9e5a9de59a4aaac43 |
 | new-game-358-backlink-verify.py | aca396e00133a792a03645020d61830f4f15b5e30c3883b681639ca57cb137ce |
 | new-game-358-backlink-tests.txt | 460a5e9c5b2a48db1f4dc21138eefdf436c303f1b34f787c4a10c170f6b329b9 |
+
+## 359回填
+
+原1D0944 word SUB與三POP及RET已由規格359接通，見[359](359-cpu386-sub-word-register-source.md)。原DS188:5AA6D1 word0003-AX0000=0003、六flags206h，SS188真正槽的EDX0000000E／ECX005AA5E8／EBX00000000與RET001D1E0B／ESP2BDB5C已驗，POP／RET不是目的word reader。10775正常前綴／35frames／固定EXE全套保持，既有ADD／其他SUB及十一舊測試不改，第二byte晚期部分寫不發布flags。原164984957於1D2A33的66 99 word CWD拒絕，after1D2A35，AX0001／DX0000；下一步依359回填帳取CWD／下一SUB與shift，沿同180M。原非零SUB來源／借位／溢位、目的word reader／欄位語意、正式writer／RNG／完整開局與remake同狀態未知，保留原歷史定位與收據。

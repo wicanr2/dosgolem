@@ -1169,12 +1169,35 @@ func (c *CPU) Step() error {
 		}
 		c.add8(value, src)
 	case op == 0x01 || op == 0x29:
-		if (operand16 && op != 0x01) || segmentOverride >= 0 || repe || repne {
+		if segmentOverride >= 0 || repe || repne {
 			return fail("ADD/SUB prefix尚未支援")
 		}
 		modrm, err := c.fetch8()
 		if err != nil {
 			return fail(err.Error())
+		}
+		if operand16 && op == 0x29 {
+			// 規格359：完整word寫回成功後才發布SUB旗標。
+			src := uint16(c.R[modrm>>3&7])
+			if modrm>>6 == 3 {
+				dst := modrm & 7
+				result := c.sub16(uint16(c.R[dst]), src)
+				c.R[dst] = c.R[dst]&0xffff0000 | uint32(result)
+				break
+			}
+			seg, addr, err := c.decodeAddress32(modrm)
+			if err != nil {
+				return fail(err.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[seg], addr)
+			if !ok {
+				return fail("word SUB目的無法讀取")
+			}
+			if !c.writeSegment16(c.Seg[seg], addr, value-src) {
+				return fail("word SUB目的無法寫入")
+			}
+			c.sub16(value, src)
+			break
 		}
 		if operand16 {
 			src := uint16(c.R[modrm>>3&7])

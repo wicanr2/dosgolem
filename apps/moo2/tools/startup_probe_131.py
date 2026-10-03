@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_sub_word_register_source_resolution(spec_dir):
+    """359限定29 word／原三POP與RET，目的word reader／晚期部分寫未知保持。"""
+    name = "359-cpu386-sub-word-register-source.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：word SUB與原三POP／RET","全部10845原358列","10775共通正常列","35既有frames","164610300","164610301","164610302","164610303","164610304","DS188:5AA6D1 word0003-AX0000=0003","CF0／OF0／SF0／ZF0／AF0／PF1","EIP1D094B","SS188:2BDB4C","RET槽001D1E0B","EIP1D1E0B／ESP2BDB5C","POP／RET不是目的word reader","ram_changes=[]","IRQ41960／41960","2097152","1048576","131072","第二byte晚期部分寫模型","十一份舊測試保持","既有66 2B word原已支援","CPU38682.239s","1693原列","32新180M負例","164984957","input1D2A33","after1D2A35只取prefix／opcode","AX0001／DX0000","尚未達180M","995f059949b7caac9618ab8b2513999b64b4cb2c928bd608da96eff171d3a8d1","a5421d88e46dea38d24ad92c49d8abd1a46ed341d93e25ead73efcfcd09ec856","f341b54cc3b33ecc90c7900fb9b1a9a29033434b3d2c62e2a56868d799cec0c7","完整生成／開局與remake同狀態仍未驗","原同值寫回Bus次數未取"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("359缺word SUB契約／原三POP與RET／部分寫限制／新CWD")
+    for older_name in ["358-cpu386-neg-word.md","357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1D0944 word SUB與三POP及RET已由規格359接通" not in older:
+            raise RuntimeError("較早規格缺word SUB回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("359缺公開索引入口")
+
+if sys.argv[1:] == ['--check-sub-word-register-source-spec-backlinks']:
+    validate_sub_word_register_source_resolution(spec_dir)
+    print("原word SUB／三POP與RET／六flags／新CWD及較早回填通過")
+    raise SystemExit(0)
+
 def validate_neg_word_resolution(spec_dir):
     """358限定word NEG／原零值與EB09，CMP來源／NEG reader與部分寫限制明示。"""
     name = "358-cpu386-neg-word.md"
