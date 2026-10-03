@@ -96,3 +96,7 @@ python3 workplace/new-game-341-formal-verify.py PASS只核算原按鍵返回、�
 | workplace/new-game-341-old339-cli-tests.txt | e4461c40e971daf4de8338567b57b68f0945355ed595b7c5c09620a2590be774 |
 
 78項規格回填、341新增29缺證據負例、340 28負例、338／339各26負例與兩CLI通過。24份來源／收據與新檔1000:1000，gofmt／Git差異通過，工具root-owned／誤建.md目錄空，Docker兩工作區掛載篩選空，沒有本輪遺留容器。
+
+## 368可寫紅旗正常輸入與寫檔回填
+
+[368-moo2-overlay-banner-red](368-moo2-overlay-banner-red.md)已驗可寫99M真實完整550byte表後一次正常press，原24C31B pressed查詢、214104 RET20DB5B／20E165返回AX1後release，原160M生成UI親看。原237024的SAVE10.GAM 3D01返回handle9／CF0，237093 truncate及238310共208000bytes正常寫入並close，隔離state的SAVE10.GAM與MOX.SET副本hash已核對。362唯讀拒絕與339／341原輸入收據仍有效，不外推可寫same-state。367原99M未送旗色的歷史保持，後續由368限定接通。原169E49／20D0的新CPU拒絕尚未修正；旗色正式持久語意、讀檔、180M與完整開局未驗，主庫RE-first保持。

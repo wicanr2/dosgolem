@@ -105,3 +105,7 @@ Go1.24.13、原ZIP／patch唯讀、417新鮮根檔／官方EXE／MOX.SET、44M E
 | --- | --- |
 | workplace/new-game-339-backlink-verify.py | e5e11057102f59e863b5b21491248f275500049ce6933da9b102eecbc32650a5 |
 | workplace/new-game-339-backlink-tests.txt | 3499c8deb32ad69c4bfb6acea4332039308806d913a265b3cec0cd34463fc4b1 |
+
+## 368可寫紅旗正常輸入與寫檔回填
+
+[368-moo2-overlay-banner-red](368-moo2-overlay-banner-red.md)已驗可寫99M真實完整550byte表後一次正常press，原24C31B pressed查詢、214104 RET20DB5B／20E165返回AX1後release，原160M生成UI親看。原237024的SAVE10.GAM 3D01返回handle9／CF0，237093 truncate及238310共208000bytes正常寫入並close，隔離state的SAVE10.GAM與MOX.SET副本hash已核對。362唯讀拒絕與339／341原輸入收據仍有效，不外推可寫same-state。367原99M未送旗色的歷史保持，後續由368限定接通。原169E49／20D0的新CPU拒絕尚未修正；旗色正式持久語意、讀檔、180M與完整開局未驗，主庫RE-first保持。

@@ -75,3 +75,7 @@ bash workplace/new-game-362-off-run.sh
 ## 364可寫ACCEPT限定驗收回填
 
 可寫profile正常ACCEPT與90M選族頁已由[364](364-moo2-overlay-setup-accept.md)驗證。原336唯讀guard保持，獨立profile核對原overlay完整935byte表／五窗口後一次press／release；真正20DDDB選擇store word0000→0F00，原SELECT RACE畫面與既有原圖相同。原418來源檔保持，state仍僅sound.lbx，不稱存檔成功。下一步依新90M完整880bytes表另立Humans輸入規格，完整可寫玩家路徑／RNG／remake同狀態仍未驗。
+
+## 368可寫紅旗正常輸入與寫檔回填
+
+[368-moo2-overlay-banner-red](368-moo2-overlay-banner-red.md)已驗可寫99M真實完整550byte表後一次正常press，原24C31B pressed查詢、214104 RET20DB5B／20E165返回AX1後release，原160M生成UI親看。原237024的SAVE10.GAM 3D01返回handle9／CF0，237093 truncate及238310共208000bytes正常寫入並close，隔離state的SAVE10.GAM與MOX.SET副本hash已核對。362唯讀拒絕與339／341原輸入收據仍有效，不外推可寫same-state。367原99M未送旗色的歷史保持，後續由368限定接通。原169E49／20D0的新CPU拒絕尚未修正；旗色正式持久語意、讀檔、180M與完整開局未驗，主庫RE-first保持。

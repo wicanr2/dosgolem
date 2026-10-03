@@ -67,3 +67,7 @@ python3 workplace/new-game-367-verify.py
 ```
 
 既有Docker執行，READY審查先於profile實作，修正後正常guest一次。首次錯置收據與修正後收據均連到主庫研究入口；原PNG／LOG／RAM與版權資料只留忽略workplace，不入Git。下一步以99M真實完整550byte表／CPU／FPU／RGB／callback與IRQ，先審查獨立正常紅旗press／poll／GUI selection／release契約，保留339唯讀guard。
+
+## 368可寫紅旗正常輸入與寫檔回填
+
+[368-moo2-overlay-banner-red](368-moo2-overlay-banner-red.md)已驗可寫99M真實完整550byte表後一次正常press，原24C31B pressed查詢、214104 RET20DB5B／20E165返回AX1後release，原160M生成UI親看。原237024的SAVE10.GAM 3D01返回handle9／CF0，237093 truncate及238310共208000bytes正常寫入並close，隔離state的SAVE10.GAM與MOX.SET副本hash已核對。362唯讀拒絕與339／341原輸入收據仍有效，不外推可寫same-state。367原99M未送旗色的歷史保持，後續由368限定接通。原169E49／20D0的新CPU拒絕尚未修正；旗色正式持久語意、讀檔、180M與完整開局未驗，主庫RE-first保持。
