@@ -470,6 +470,10 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 	if stamps < 1 && op.overlay == "on" && (st.Kind != phantasie.RouteSnap || len(st.Expect) > 0) {
 		why = append(why, "疊字數為 0")
 	}
+	if n := ov.C.Get("protected"); n != 0 {
+		// 到達保護清單的字串（手冊對照提示，AGENTS.md §1）：路線不得走到這裡，不作答、不繞過，停止該分支並回報使用者。
+		why = append(why, fmt.Sprintf("protected=%d（到達手冊對照提示：停止這條路線並回報，不作答）", n))
+	}
 	if n := ov.C.Get("unpaired"); n != 0 {
 		why = append(why, fmt.Sprintf("unpaired=%d", n))
 	}
