@@ -604,3 +604,5 @@
 - [368：可寫旗色頁正常紅旗輸入與後續開局觀察](368-moo2-overlay-banner-red.md)，CONFORMED限定正常紅旗輸入／原成功寫檔／新20 D0拒絕；讀檔與完整開局未驗。
 
 - [369：byte目的AND與暫存器來源](369-cpu386-and-byte-register-source.md)，CONFORMED限定原AND／POP／RET與實際180M續行；母星命名未確認，完整開局未驗。
+
+- [370：母星命名來源與正常輸入前置觀察](370-moo2-home-name-source.md)，CONFORMED限定Sol候選與兩時點只讀；母星ACCEPT未送，持久writer未知。

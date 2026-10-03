@@ -62,3 +62,7 @@ python3 workplace/new-game-369-verify.py
 ```
 
 下一步由本369實際180M表與完整CPU／FPU／clock／VBE／callback／IRQ建立母星命名正常ACCEPT契約，先核對候選字串與原返回端再READY。維持正常裝置輸入、受控release與首次匹配失敗即停，不代寫核心或RAM。固定日期不代表RNG seed；原名稱與旗色持久語意、正式讀檔、完整開局與remake同狀態仍未知。
+
+## 370母星候選來源回填
+
+[370](370-moo2-home-name-source.md)沿本規格相同輸入，以只讀原表DS188:298848 index2+24確認DS188:28439D的32byte為Sol補零，170M／180M保持。170M完整CPU／FPU／VBE／clock、target8:2136D1、mask2B／callback12／12及IRQ44492／44492已取，未送母星確認。index1+24→261AC2是原始窗口，非直接ACCEPT標籤；正常確認及持久writer仍未知。14282共通原列及39PNG保持，補觀察不改本輪原續行範圍。
