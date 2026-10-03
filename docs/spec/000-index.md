@@ -606,3 +606,5 @@
 - [369：byte目的AND與暫存器來源](369-cpu386-and-byte-register-source.md)，CONFORMED限定原AND／POP／RET與實際180M續行；母星命名未確認，完整開局未驗。
 
 - [370：母星命名來源與正常輸入前置觀察](370-moo2-home-name-source.md)，CONFORMED限定Sol候選與兩時點只讀；母星ACCEPT未送，持久writer未知。
+
+- [371：母星Sol的正常ACCEPT確認](371-moo2-home-name-normal-accept.md)，CONFORMED限定母星正常ACCEPT／星圖與新F6EC拒絕；完整開局未驗。

@@ -66,3 +66,7 @@ python3 workplace/new-game-369-verify.py
 ## 370母星候選來源回填
 
 [370](370-moo2-home-name-source.md)沿本規格相同輸入，以只讀原表DS188:298848 index2+24確認DS188:28439D的32byte為Sol補零，170M／180M保持。170M完整CPU／FPU／VBE／clock、target8:2136D1、mask2B／callback12／12及IRQ44492／44492已取，未送母星確認。index1+24→261AC2是原始窗口，非直接ACCEPT標籤；正常確認及持久writer仍未知。14282共通原列及39PNG保持，補觀察不改本輪原續行範圍。
+
+## 371正常母星名稱確認回填
+
+[371](371-moo2-home-name-normal-accept.md)已沿370原170M完整前置一次正常press，原24C31B查詢讀到BX1／CX550／DX260，首次安全release後，170024419原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0100；32byteSol候選保持，命名視窗消失、回到星圖已親看。這是母星確認上下文，統治者名稱與正式持久writer不由共享buffer／store推定。後續174213914於1749C0／F6EC遇新CPU拒絕，未達180M／完整開局；原CPU與本文件舊收據保持。

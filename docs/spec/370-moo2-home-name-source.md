@@ -58,3 +58,7 @@ python3 workplace/new-game-370-verify.py
 ```
 
 下一步依已證實170M原核心、完整165byte表／候選／RGB與target／clock／IRQ，審查母星預設Sol的正常ACCEPT press與受控release。275,260與276,260唯一落index1；正常裝置x550／552、y260沿既有x÷2映射。consumer及共享store是否命中待實測，不代寫核心或RAM。維持180M及既有輸入，正式名稱／旗色持久語意、正式讀檔、完整開局、seed與remake同狀態仍未驗。
+
+## 371正常母星名稱確認回填
+
+[371](371-moo2-home-name-normal-accept.md)已沿370原170M完整前置一次正常press，原24C31B查詢讀到BX1／CX550／DX260，首次安全release後，170024419原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0100；32byteSol候選保持，命名視窗消失、回到星圖已親看。這是母星確認上下文，統治者名稱與正式持久writer不由共享buffer／store推定。後續174213914於1749C0／F6EC遇新CPU拒絕，未達180M／完整開局；原CPU與本文件舊收據保持。

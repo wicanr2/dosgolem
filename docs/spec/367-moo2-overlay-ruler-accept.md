@@ -75,3 +75,7 @@ python3 workplace/new-game-367-verify.py
 ## 369 byte AND能力與原續行回填
 
 本文件原有收據與驗收範圍保持。官方1.31／dosgolem_high_le:169E49／20D0的368 CPU拒絕，已由[369](369-cpu386-and-byte-register-source.md)解出：原AND、下一POP ECX及RET依真實stack通過，相同輸入實際達180M，無新CPU停止。AF清0只屬工具模型。終態是母星命名視窗，尚未正常確認；不把此新續行當舊唯讀same-state、正式讀檔或完整開局。
+
+## 371正常母星名稱確認回填
+
+[371](371-moo2-home-name-normal-accept.md)已沿370原170M完整前置一次正常press，原24C31B查詢讀到BX1／CX550／DX260，首次安全release後，170024419原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0100；32byteSol候選保持，命名視窗消失、回到星圖已親看。這是母星確認上下文，統治者名稱與正式持久writer不由共享buffer／store推定。後續174213914於1749C0／F6EC遇新CPU拒絕，未達180M／完整開局；原CPU與本文件舊收據保持。
