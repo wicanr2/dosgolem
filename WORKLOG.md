@@ -568,3 +568,14 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 - python3 workplace/new-game-340-return-verify.py PASS：7708原列／28PNG／完整550bytes表／核心與RGB保持99M前置，首次AX3／原RET與release核算通過。核算首次誤取GUI checkpoint IRQ欄位，改讀既有setup_table_snapshot後乾淨重讀同收據PASS，未重跑原版。python3 workplace/new-game-340-source-verify.py PASS：3有界觀測與一個旗標release前置之外全部來源保持339。正式同binary舊338 CLI17拒絕及正對照、339 CLI22拒絕與120M／100M正對照通過。
 - 77項規格回填、340新增28缺證據負例、338／339各26負例與三CLI通過；340限定CONFORMED，339／索引與回填guard同次更新。15份來源／收據／核算雜湊見[340](docs/spec/340-moo2-banner-pressed-consumer.md)。新檔1000:1000、gofmt／Git差異通過；工具root-owned／誤建.md目錄空，Docker兩工作區掛載篩選空，本輪沒有遺留容器。
 - 下一步只保存340原20DB5B之後最多192個非callback／IRQ正常步、實際20DB5E分支與原返回框架。原選色消費、正式持久名稱／旗色writer、typed種族特性、完整開局、RNG與remake同狀態未知，主庫RE-first保持。不盲調cap或重送，不深挖原helper。
+
+## 2026-10-03：旗幟後段按鍵返回已驗，原續行揭露記憶體TEST缺口
+
+- 起點工具0b141e6cf2a00d86c028054c68d247c9e526a5c0／主庫f93e17de0f1268a2bd6251da3afe1fc654ff6c4b。命中dosgolem、GUI、規格閘門、文件職責與回填路由。341先DRAFT，兩份獨立private prototype各保存192個非callback／IRQ正常步；每份全部9968原340列與32PNG保持，source五區塊剝除後保持340。首次trace觀測post位置在建置前修正，未錯跑原版。
+- 第一視窗已證實20DB5E JNZ20E0BF，20E0BF再查按鍵後返回0，原X getter返回139；第二視窗由原Y caller返回20E138開始，原Y190、raw locals139／190與三原word定位已驗，20E160再CALL214075，RET20E165返回0，原20E168 JZ跳20E4EB。原後段確實再次查按鍵，首次RET20DB5B已見1仍不足。沒有從局部branch猜持久旗色writer。
+- 證據與bytes／stack／分支獨立核算足夠後READY。只增加3有界後段RET觀測及一個本fixture release前置，原99M press／全部前置／120M cap保持。正式同新版source只重生一次，99084354原RET20E165實際AX1、完整stack／核心／readonly valid；99084355首次合法mask1放開，差245792微秒，callback12／12。
+- 原版step99415524在184694 bytes85 82 19 52 26 00拒絕，error=TEST dword ModRM 82 尚未支援；尚未到120M。終PNG全黑、共享20DDDB未命中，原旗色結果、下一頁與完整開局未驗。probe exit0仍有明確CPU stop，不當作正常流程成功。主庫玩法與CPU／平台未改。
+- Docker每次300s／2GiB／2CPU／128pids／UID1000／network none，Go1.24.13，原ZIP／patch唯讀，新鮮417根檔／固定EXE／MOX.SET。兩份探索與一份正式fixture各重生一次，不重跑未受影響六基準／Go全套。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe；固定日期不是seed。
+- 兩份trace與原branch／stack核算、正式7708原列／28PNG／完整表與兩RET／首次合法release／CPU負結果、source三區塊及release逆轉後保持340，全部PASS。初版source核算腳本逆轉字串誤寫，修正後重讀同來源PASS，沒有重跑原版。private核算固定不可變340 baseline，不拿當轮已修訂production當舊基準。舊338 CLI17拒絕與正對照、339 CLI22拒絕及120M／100M正對照通過。
+- 78項規格回填、341新增29缺證據負例、340 28負例、338／339各26負例與兩CLI通過；341限定CONFORMED，340／索引與guard同次回填。24份來源／收據／核算見[341](docs/spec/341-moo2-banner-after-gui-return.md)。來源與新檔1000:1000、gofmt／Git差異通過，工具root-owned／誤建.md目錄空，Docker兩工作區掛載篩選空，無本輪遺留容器。
+- 下一步先保存原85 82 @184694的有效位址／source／mask／flags／SETNE與RET最小消費，經DRAFT→READY再補CPU支援；按同341輸入續行與固定EXE完整CPU測試。原旗色與持久writer、下一頁／完整開局、正式RNG與remake同狀態未知，主庫RE-first及整款remake／中文化目標保持。

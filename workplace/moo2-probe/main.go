@@ -169,6 +169,15 @@ func main() {
 	bannerPolled := false
 	// 339 END parse
 
+	// 341 BEGIN gate_state
+	bannerSelectionGateSeen := false
+	var bannerGateR [8]uint32
+	var bannerGateSeg [6]uint16
+	var bannerGateFlags uint32
+	var bannerGateStack [4]byte
+	bannerGateReadable, bannerGateReadonly := false, false
+	// 341 END gate_state
+
 	// 340 BEGIN return_state
 	bannerGUIButtonSeen := false
 	var bannerReturnR [8]uint32
@@ -1318,7 +1327,7 @@ func main() {
 					panic("旗幟紅色點擊的原表或輸入條件不符")
 				}
 				phase = "press"
-			} else if available && bannerPolled && bannerGUIButtonSeen && completed >= bannerPressStarted+1 && ports.BIOSClock.Micros >= bannerPressMicros+20000 {
+			} else if available && bannerPolled && bannerGUIButtonSeen && bannerSelectionGateSeen && completed >= bannerPressStarted+1 && ports.BIOSClock.Micros >= bannerPressMicros+20000 {
 				phase, x, buttons = "release", 278, 0
 			}
 			if phase != "" {
@@ -1917,6 +1926,17 @@ func main() {
 			publishBus.active, publishBus.step, publishBus.eip = true, i, m.CPU.EIP
 			publishBus.steps++
 		}
+		// 341 BEGIN gate_pre
+		observeBannerGate := bannerRed && bannerPressed && bannerGUIButtonSeen && !bannerSelectionGateSeen && m.CPU.EIP == 0x214104
+		if observeBannerGate {
+			bannerGateR, bannerGateSeg, bannerGateFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+			ram := sha256.Sum256(m.Mem)
+			bannerGateReadonly = activationPeek(func() {
+				bannerGateReadable = peekSourceWindow(bannerGateSeg[cpu386.SegSS], bannerGateR[cpu386.ESP], bannerGateStack[:])
+			}) && sha256.Sum256(m.Mem) == ram
+		}
+		// 341 END gate_pre
+
 		// 340 BEGIN return_pre
 		observeBannerReturn := bannerRed && bannerPressed && !bannerGUIButtonSeen && m.CPU.EIP == 0x214104
 		if observeBannerReturn {
@@ -1946,6 +1966,19 @@ func main() {
 			bannerGUIButtonSeen = true
 		}
 		// 340 END return_post
+
+		// 341 BEGIN gate_post
+		if observeBannerGate && m.CPU.EIP == 0x20e165 {
+			expected := bannerGateR
+			expected[cpu386.ESP] += 4
+			valid := bannerGateReadonly && bannerGateReadable && bannerGateStack == [4]byte{0x65, 0xe1, 0x20, 0} && bannerGateR[cpu386.EAX]&0xffff == 1 && bannerGateSeg[cpu386.SegCS] == 8 && bannerGateSeg[cpu386.SegDS] == 0x188 && bannerGateSeg[cpu386.SegSS] == 0x188 && m.CPU.R == expected && m.CPU.Seg == bannerGateSeg && m.CPU.EFlags == bannerGateFlags && stepErr == nil
+			fmt.Printf("banner_red_selection_gate_return outer_step=%d address_space=dosgolem_high_le input_eip=214104 after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X stack_selector=%X stack_offset=%X raw_return=%X readable=%t readonly=%t valid=%t error=%v\n", i, m.CPU.EIP, bannerGateR, m.CPU.R, bannerGateSeg, m.CPU.Seg, bannerGateFlags, m.CPU.EFlags, bannerGateSeg[cpu386.SegSS], bannerGateR[cpu386.ESP], bannerGateStack, bannerGateReadable, bannerGateReadonly, valid, stepErr)
+			if !valid {
+				panic("旗幟後段caller未收到原正常pressed返回")
+			}
+			bannerSelectionGateSeen = true
+		}
+		// 341 END gate_post
 
 		if observeScasWord {
 			scasWordBudget--

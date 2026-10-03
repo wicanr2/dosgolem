@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_banner_late_pressed_gate_resolution(spec_dir):
+    """341只閉合原後段按鍵返回，後續原CPU拒絕必須保留。"""
+    name = '341-moo2-banner-after-gui-return.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原後段按鍵返回與正常放開，後續CPU拒絕","兩個獨立192步","9968原340列","32PNG","7708原列","28PNG","20DB5E","20E165","20E168","20E4EB","65E12000","99084354","99084355","245792微秒","callback12／12","99415524","184694","TEST dword ModRM 82 尚未支援","16f40cba5262cb7765fdfd8c8478b95d31a7ff38f40438dc255e2d96b6fcef2c","9e6dc06295aaf43383350abb53e8e9a4e0f883ff261ebbc54cc728e2173e7656","90f6c34305a588cc42759639f771065b3c59ec4128fef445c0e9b91b219cee47","5add8c37fbd9849eddfca09950f4d0c4dfca077cd439f038cdf144633ec55618","1610444d26adb3135e7e933dd44912044bb636728af59c70e614945278d3c622","沒有修改CPU／平台／主庫玩法","原旗色選擇／正式writer、下一頁與完整開局未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('341缺原後段按鍵返回／分支／限定驗收／CPU負收據或未知邊界')
+    older = (spec_dir / '340-moo2-banner-pressed-consumer.md').read_text()
+    if name not in older or '原20DB5E分支與20E165後段按鍵返回已由規格341接通' not in older:
+        raise RuntimeError('340缺原GUI後段按鍵回填與CPU拒絕邊界')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('341缺公開索引入口')
+
+if sys.argv[1:] == ['--check-banner-late-pressed-gate-spec-backlinks']:
+    validate_banner_late_pressed_gate_resolution(spec_dir)
+    print('原後段按鍵返回／正常放開／CPU拒絕／340回填通過')
+    raise SystemExit(0)
+
+
 def validate_banner_gui_pressed_return_resolution(spec_dir):
     """340僅閉合原GUI按鍵返回與正常放開，旗色選擇仍未知。"""
     name = '340-moo2-banner-pressed-consumer.md'
