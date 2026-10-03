@@ -38,8 +38,8 @@ const regSP = 0xFF00 // 一般狀況的 SP：遠高於所有表內區間
 
 func TestRegionsDefaultLoads(t *testing.T) {
 	tb := regDefault(t)
-	if len(tb.rows) != 6 {
-		t.Errorf("內嵌表應有 6 列（buffer、static、static@ov1、static@ov2、monster、town），得到 %d", len(tb.rows))
+	if len(tb.rows) != 7 {
+		t.Errorf("內嵌表應有 7 列（兩筆 buffer：行緩衝區與位置描述區、static、static@ov1、static@ov2、monster、town），得到 %d", len(tb.rows))
 	}
 	if strings.Join(tb.tags, ",") != "ov1,ov2" {
 		t.Errorf("overlay 字樣 = %v，要 ov1、ov2", tb.tags)
@@ -157,9 +157,14 @@ func TestRegionsOther(t *testing.T) {
 			regCase{"名冊 A648", 0xA648, regSP, ov, KindOther},
 			regCase{"名冊 A762", 0xA762, regSP, ov, KindOther},
 			regCase{"名冊 A87C", 0xA87C, regSP, ov, KindOther},
-			regCase{"位置描述 C99D", 0xC99D, regSP, ov, KindOther},
-			regCase{"位置描述 C9C5", 0xC9C5, regSP, ov, KindOther},
-			regCase{"位置描述 CA3D", 0xCA3D, regSP, ov, KindOther},
+			// 位置描述區 [C94D, CA65)：OUT*.DAT 讀進 DS:C6FA，偏移 253h 起 7 筆 40 bytes（docs/spec/003 §12 第 6 項）。
+			regCase{"位置描述 C99D", 0xC99D, regSP, ov, KindBuffer},
+			regCase{"位置描述 C9C5", 0xC9C5, regSP, ov, KindBuffer},
+			regCase{"位置描述 CA3D", 0xCA3D, regSP, ov, KindBuffer},
+			regCase{"位置描述區起點 C94D", 0xC94D, regSP, ov, KindBuffer},
+			regCase{"位置描述區前一格 C94C", 0xC94C, regSP, ov, KindOther},
+			regCase{"位置描述區末位元組 CA64", 0xCA64, regSP, ov, KindBuffer},
+			regCase{"位置描述區界外 CA65", 0xCA65, regSP, ov, KindOther},
 			regCase{"空指標區之後的未知位址", 0x4000, regSP, ov, KindOther},
 		)
 	}
