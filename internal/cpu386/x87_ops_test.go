@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// 掃過整個 FD2.EXE 的 code 段之後，它用到的 x87 只有 17 種、75 條指令。這一批是
-// 其中原本沒有的：DC /0 FADD、DC /6 FDIV、DD /0 FLD m64、DD /3 FSTP m64、
+// 這一批補上當時靜態掃描定位的 x87 指令。掃描清單不代表執行期完整覆蓋；
+// 191／192記錄正常玩家路徑後續遇到的缺口。當時尚未支援的包括：DC /0 FADD、DC /6 FDIV、DD /0 FLD m64、DD /3 FSTP m64、
 // DD /7 FNSTSW、DA /1 FIMUL、DE C1 FADDP、DE C9 FMULP、D9 FA FSQRT、D9 E4 FTST。
 // 一次盤完再補，比一輪撞一個省好幾輪四十分鐘的實跑。
 

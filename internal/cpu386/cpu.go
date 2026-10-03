@@ -1670,6 +1670,25 @@ func (c *CPU) Step() error {
 			break
 		}
 		switch modrm {
+		case 0xfe, 0xff:
+			// 192：FSIN／FCOS，沿既有 float64 近似；C2供呼叫者判斷範圍。
+			if c.FPUDepth == 0 {
+				return fail("FSIN／FCOS x87 stack underflow")
+			}
+			value := c.FPUStack[0]
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return fail("FSIN／FCOS 非有限值例外尚未支援")
+			}
+			if math.Abs(value) >= 0x1p63 {
+				c.FPUStatus |= 0x0400
+				break
+			}
+			if modrm == 0xfe {
+				c.FPUStack[0] = math.Sin(value)
+			} else {
+				c.FPUStack[0] = math.Cos(value)
+			}
+			c.FPUStatus &^= 0x0400
 		case 0xfa:
 			if c.FPUDepth == 0 {
 				return fail("FSQRT x87 stack underflow")
