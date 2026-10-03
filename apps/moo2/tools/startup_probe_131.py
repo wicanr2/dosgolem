@@ -51,6 +51,25 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_button_branch_return_resolution(spec_dir):
+    """331原來源、caller消費、第一筆限定跳過與330回填須同時存在。"""
+    name = '331-moo2-button-branch-call-return.md'
+    current = (spec_dir / name).read_text()
+    required = ("全部3847／4414／6354","72PNG","47863862..47864195","96實際caller步","238省略callee步","sample_budget","未達caller RET","全部96 caller步獨立","[32,32,32,104,38]","[1,500,229,260001h,0]","DS188:26C480","298848","DS:29BE0E word9","DS:29BE12 dword0","55 byte stride","0A00140019002300","14001E0023002D00","47864164","20DCE5","flags216h","20DCE7 JLE不跳","20DDAE","index1→2","僅第一筆因x500>25被跳過已證實","不能稱所有範圍不命中","正常開局／NEW GAME指令仍未知","不提高原流程cap","a74ea3d6d2d0af74126ba3df8a8b9e5617464883fc3617d82e5e21ba8ce0b87b","7ec5479ec14b80b6790b08b495e7d1ad0cd6953aa2f857e3b5b135af543a9a88","ec2a35b53c8e20fa1dbecf205b5f12d241c0fe69a907d233fce8895e5d1265c8","58094ab282f5e2e0c35212a3500b801f83c658d492fe16c7449f40dce821bbf9","2b224220f0a6d7d5c08b30905c95ed37a229ba8cfa08222891608b38075fa251","05592edc1f377a163687a09f82ef2d1293e94d3577b8bf26ee5c41d2c80b3e23",)
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('非零臂缺原bytes／caller與自然返回／限定跳過／收據或未知')
+    older = (spec_dir / '330-moo2-event-return-caller.md').read_text()
+    if '非零臂caller與原範圍來源已由規格331接通' not in older or name not in older:
+        raise RuntimeError('330缺非零臂與原範圍來源回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('331缺公開索引入口')
+
+if sys.argv[1:] == ['--check-button-branch-spec-backlinks']:
+    validate_button_branch_return_resolution(spec_dir)
+    print('非零臂原來源／caller與自然返回／第一筆限定跳過／330回填通過')
+    raise SystemExit(0)
+
+
 def validate_event_return_caller_resolution(spec_dir):
     """330實際RET／上層邊界、329完整保持與未知須同時存在。"""
     name = '330-moo2-event-return-caller.md'

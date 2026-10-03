@@ -58,3 +58,5 @@ python3 workplace/new-game-330-verify.py PASS：扣除330新觀察列，baseline
 probe SHA-256 931bb9d364a144460f2b358543f36e110f07e732020b80f69cadc5a6dbcdbdc1；CPU 1448f29f24dad35e83575189055dc15dd7ac9db2b3529c6d450f03baf91c97b1，startup／provider／matcher／VBE與329保持。原始輸入、LOG／PNG／RAM留本機忽略，不公開。限定CONFORMED只含兩組事件返回／首Jcc或CALL與舊基線保持；主庫RE-first、255完整游標、303整體DRAFT、299自然OF=1、AH2Ch／RNG／人耳仍未知。
 
 67回填函式與既有32／49／25／27／27／34／31／36、新增31缺證據負例、兩CLI PASS；workplace/new-game-330-backlink-tests.txt SHA-256 4423e974f97d1852c72ccd57080070b6fb6dbfdfa07aaafacffc7c6714b00584。原ZIP／patch／EXE／MOX.SET／417檔與來源保持再核對、gofmt、擁有權及工具root-owned／誤建.md目錄自檢通過。
+
+非零臂caller與原範圍來源已由規格331接通：[331-moo2-button-branch-call-return](331-moo2-button-branch-call-return.md)。正常返回x500／y229，index1因x500>25跳過、續查index2；仍未達完整caller RET，NEW GAME指令與最終命中未知。

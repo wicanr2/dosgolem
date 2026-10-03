@@ -526,3 +526,5 @@
 - [329：正常NEW GAME的100M有界續行](329-moo2-bounded-new-game-continuation.md)：CONFORMED。14 CLI／50M兩基線與100M前綴保持；六快照與較晚致謝文字變化已見、無新CPU拒絕，NEW GAME激活未知。
 
 - [330：正常事件返回與上層判定](330-moo2-event-return-caller.md)：CONFORMED。兩組32步／三RET／非零JNE與CALL邊界、329三流程及72PNG保持；NEW GAME指令仍未知。
+
+- [331：非零事件分支與正常CALL返回](331-moo2-button-branch-call-return.md)：CONFORMED。96 caller步、五自然返回與第一筆x500>25跳過，原來源／舊基線保持；其餘命中與最終返回未知。

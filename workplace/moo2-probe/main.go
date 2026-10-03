@@ -658,6 +658,18 @@ func main() {
 		return same
 	}
 
+	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
+	branchSeen, branchActive, branchWaiting := false, false, false
+	branchStart, branchSamples, branchCallStep := 0, 0, 0
+	var branchSelector, branchStackSelector, branchReturnSelector uint16
+	var branchStackOffset, branchReturnEIP, branchReturnESP uint32
+	branchStop := ""
+	defer func() {
+		if newGameClick && phasePrefix != "" {
+			fmt.Printf("new_game_button_branch_terminal seen=%t active=%t waiting=%t start=%d samples=%d max_samples=96 max_outer_steps=8192 return_eip=%X return_selector=%X return_esp=%X stop=%s\n", branchSeen, branchActive, branchWaiting, branchStart, branchSamples, branchReturnEIP, branchReturnSelector, branchReturnESP, branchStop)
+		}
+	}()
+
 	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
 	postClickVisits := make(map[uint32]uint64)
 	postClickSteps := 0
@@ -1160,6 +1172,48 @@ func main() {
 			}
 		}
 
+		branchBegin, branchResumed, branchSkipped := false, false, 0
+		_, _, branchCallback, _, _ := services.MouseCallbackState()
+		branchIRQActive, branchIRQFailed, branchIRQStarted, branchIRQCompleted := services.IRQ0State()
+		if phasePrefix != "" && newGameClick && newGameReleased && !branchCallback && !branchIRQActive && !branchSeen && m.CPU.EIP == 0x20db87 {
+			branchSeen, branchActive, branchBegin, branchStart = true, true, true, i
+			branchSelector, branchStackSelector = m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS]
+			branchStackOffset = m.CPU.R[cpu386.EBP] - 160
+		}
+		if branchActive && i-branchStart >= 8192 {
+			branchActive, branchStop = false, "outer_budget"
+		}
+		if branchActive && branchWaiting && m.CPU.EIP == branchReturnEIP && m.CPU.Seg[cpu386.SegSS] == branchReturnSelector && m.CPU.R[cpu386.ESP] == branchReturnESP && !branchCallback && !branchIRQActive {
+			branchWaiting, branchResumed, branchSkipped = false, true, i-branchCallStep-1
+		}
+		if branchActive && !branchWaiting && (branchCallback || branchIRQActive || branchIRQFailed) {
+			branchActive, branchStop = false, "interrupt_before"
+		}
+		observeBranch := branchActive && !branchWaiting && branchSamples < 96
+		var branchBeforeEvent [16]byte
+		var branchBeforeCounter, branchBeforeTop [4]byte
+		var branchBeforeGlobals [192]byte
+		var branchBeforeHeader [16]byte
+		var branchBeforeSource [8]byte
+		var branchBeforeStack [320]byte
+		var branchBeforePointer [64]byte
+		branchEventReadable, branchCounterReadable, branchGlobalsReadable, branchStackReadable, branchTopReadable, branchPointerReadable, branchHeaderReadable, branchSourceReadable := false, false, false, false, false, false, false, false
+		branchBeforeReadonly := true
+		branchPointerOffset := m.CPU.R[cpu386.EBX]
+		branchSourceOffset := m.CPU.R[cpu386.EAX]
+		if observeBranch {
+			branchBeforeReadonly = activationPeek(func() {
+				branchEventReadable = peekSourceWindow(branchSelector, 0x2a121a, branchBeforeEvent[:])
+				branchCounterReadable = peekSourceWindow(branchSelector, 0x2a11ec, branchBeforeCounter[:])
+				branchGlobalsReadable = peekSourceWindow(branchSelector, 0x26c480, branchBeforeGlobals[:])
+				branchHeaderReadable = peekSourceWindow(branchSelector, 0x29be0e, branchBeforeHeader[:])
+				branchSourceReadable = peekSourceWindow(branchSelector, branchSourceOffset, branchBeforeSource[:])
+				branchStackReadable = branchStackOffset <= ^uint32(0)-320 && peekSourceWindow(branchStackSelector, branchStackOffset, branchBeforeStack[:])
+				branchTopReadable = peekSourceWindow(m.CPU.Seg[cpu386.SegSS], m.CPU.R[cpu386.ESP], branchBeforeTop[:])
+				branchPointerReadable = peekSourceWindow(branchSelector, branchPointerOffset, branchBeforePointer[:])
+			})
+		}
+
 		activationBegin := false
 		_, _, activationCallback, _, _ := services.MouseCallbackState()
 		if phasePrefix != "" && newGameClick && newGamePressed && newGameReleased && !activationCallback && activationBudget == 0 {
@@ -1261,7 +1315,7 @@ func main() {
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
 		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
 		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
-		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || observeBranch || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -1314,6 +1368,75 @@ func main() {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		if observeBranch {
+			var afterEvent [16]byte
+			var afterCounter, afterTopBytes [4]byte
+			var afterGlobals [192]byte
+			var afterHeader [16]byte
+			var afterSource [8]byte
+			var afterStack [320]byte
+			var afterPointer [64]byte
+			afterTopReadable := false
+			afterReadonly := activationPeek(func() {
+				afterTopReadable = peekSourceWindow(m.CPU.Seg[cpu386.SegSS], m.CPU.R[cpu386.ESP], afterTopBytes[:])
+				if branchEventReadable {
+					peekSourceWindow(branchSelector, 0x2a121a, afterEvent[:])
+				}
+				if branchCounterReadable {
+					peekSourceWindow(branchSelector, 0x2a11ec, afterCounter[:])
+				}
+				if branchHeaderReadable {
+					peekSourceWindow(branchSelector, 0x29be0e, afterHeader[:])
+				}
+				if branchSourceReadable {
+					peekSourceWindow(branchSelector, branchSourceOffset, afterSource[:])
+				}
+				if branchGlobalsReadable {
+					peekSourceWindow(branchSelector, 0x26c480, afterGlobals[:])
+				}
+				if branchStackReadable {
+					peekSourceWindow(branchStackSelector, branchStackOffset, afterStack[:])
+				}
+				if branchPointerReadable {
+					peekSourceWindow(branchSelector, branchPointerOffset, afterPointer[:])
+				}
+			})
+			_, _, afterCallback, afterStarted, afterCompleted := services.MouseCallbackState()
+			afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted := services.IRQ0State()
+			interrupted := branchIRQStarted != afterIRQStarted || branchIRQCompleted != afterIRQCompleted || afterIRQActive || afterIRQFailed || afterCallback
+			top := uint32(branchBeforeTop[0]) | uint32(branchBeforeTop[1])<<8 | uint32(branchBeforeTop[2])<<16 | uint32(branchBeforeTop[3])<<24
+			afterTop := uint32(afterTopBytes[0]) | uint32(afterTopBytes[1])<<8 | uint32(afterTopBytes[2])<<16 | uint32(afterTopBytes[3])<<24
+			actualReturn := !interrupted && stepErr == nil && clickBytes[0] == 0xc3 && branchTopReadable && m.CPU.EIP == top && m.CPU.R[cpu386.ESP] == clickBeforeR[cpu386.ESP]+4
+			callTarget := uint32(0)
+			if clickBytes[0] == 0xe8 {
+				callTarget = clickBeforeEIP + 5 + (uint32(clickBytes[1]) | uint32(clickBytes[2])<<8 | uint32(clickBytes[3])<<16 | uint32(clickBytes[4])<<24)
+			}
+			actualCall := !interrupted && stepErr == nil && clickBytes[0] == 0xe8 && m.CPU.EIP == callTarget && m.CPU.R[cpu386.ESP]+4 == clickBeforeR[cpu386.ESP] && afterTopReadable && afterTop == clickBeforeEIP+5
+			branchSamples++
+			if actualCall {
+				branchWaiting, branchCallStep, branchReturnEIP, branchReturnESP, branchReturnSelector = true, i, clickBeforeEIP+5, clickBeforeR[cpu386.ESP], clickBeforeSeg[cpu386.SegSS]
+			}
+			unsupportedCall := clickBytes[0] == 0x9a || clickBytes[0] == 0xff && (clickBytes[1]>>3&7 == 2 || clickBytes[1]>>3&7 == 3)
+			stop := ""
+			if stepErr != nil {
+				stop = "error"
+			} else if interrupted {
+				stop = "interrupt_redirect"
+			} else if actualReturn {
+				stop = "caller_ret"
+			} else if clickBytes[0] == 0xe8 && !actualCall || unsupportedCall {
+				stop = "unverified_call"
+			} else if clickBytes[0] == 0xc3 && !actualReturn || clickBytes[0] == 0xc2 || clickBytes[0] == 0xca || clickBytes[0] == 0xcb {
+				stop = "unverified_ret"
+			} else if branchSamples == 96 {
+				stop = "sample_budget"
+			}
+			fmt.Printf("new_game_button_branch_consumer begin=%t resumed=%t skipped_steps=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X event_readable=%t before_event=%X after_event=%X counter_readable=%t before_counter=%X after_counter=%X globals_offset=26C480 globals_readable=%t before_globals=%X after_globals=%X header_offset=29BE0E header_readable=%t before_header=%X after_header=%X source_offset=%X source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X pointer_selector=%X pointer_offset=%X pointer_readable=%t before_pointer=%X after_pointer=%X return_selector=%X return_offset=%X return_readable=%t return_bytes=%X after_return_readable=%t after_return_bytes=%X actual_return=%t actual_call=%t call_target=%X before_started=%d before_completed=%d after_started=%d after_completed=%d before_irq_active=%t before_irq_failed=%t before_irq_started=%d before_irq_completed=%d after_irq_active=%t after_irq_failed=%t after_irq_started=%d after_irq_completed=%d readonly=%t samples=%d waiting=%t stop=%s error=%v\n", branchBegin, branchResumed, branchSkipped, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, branchSelector, branchEventReadable, branchBeforeEvent, afterEvent, branchCounterReadable, branchBeforeCounter, afterCounter, branchGlobalsReadable, branchBeforeGlobals, afterGlobals, branchHeaderReadable, branchBeforeHeader, afterHeader, branchSourceOffset, branchSourceReadable, branchBeforeSource, afterSource, branchStackSelector, branchStackOffset, branchStackReadable, branchBeforeStack, afterStack, branchSelector, branchPointerOffset, branchPointerReadable, branchBeforePointer, afterPointer, clickBeforeSeg[cpu386.SegSS], clickBeforeR[cpu386.ESP], branchTopReadable, branchBeforeTop, afterTopReadable, afterTopBytes, actualReturn, actualCall, callTarget, clickStarted, clickCompleted, afterStarted, afterCompleted, branchIRQActive, branchIRQFailed, branchIRQStarted, branchIRQCompleted, afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted, branchBeforeReadonly && afterReadonly, branchSamples, branchWaiting, stop, stepErr)
+			if stop != "" {
+				branchActive, branchStop = false, stop
+			}
+		}
 
 		if observeActivation {
 			var afterEvent [16]byte
