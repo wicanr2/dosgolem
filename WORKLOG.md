@@ -527,3 +527,13 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 原版同100M到21595F，無新CPU拒絕，SELECT RACE選族頁PNG人工確認，正常ACCEPT已證實；種族選擇／完整開局與remake同狀態仍未知。已保存90M／100M原16筆表／880bytes供下一正常輸入；不深挖renderer／helper。
 
 15新增CLI拒絕與有效正對照、同binary舊334 14拒絕與正對照、73回填函式、既有負例與新增28缺證據負例、兩CLI通過。CPU／startup／provider／matcher逐位元保持335，335固定EXE Go全套仍有效；只改probe與規格，gofmt及來源／新收據1000:1000通過，工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案。命令、來源與十三私有收據集中[336](docs/spec/336-moo2-setup-accept-normal-click.md)，原版素材不公開；沿授權推github隔離分支，主庫RE-first保持。
+
+## 2026-10-03：正常第7筆選族與統治者名稱頁
+
+起點7c84f3931953cf3c9ffcbdc0718852e9c700b3ba。命中dosgolem／GUI輸入／規格閘門與文件職責路由；337先DRAFT，直接獨立審查336已保存兩原16筆表／880bytes、90M完整初態與候選唯一index7，不重跑相同初態。證據足夠後READY，只加明示RACE_HUMANS_CLICK=1與固定90M原表／RGB／callback／IRQ前置。人類是測試情境，不改主庫正式預設或typed種族。
+
+六原版由乾淨417根檔／官方EXE各一次重生，固定Go1.24.13 Docker900s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀；go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe。python3 workplace/new-game-337-verify.py PASS，五舊基線3847／4829／6769／8149／7752列及132PNG保持，humans額外90M輸入前6821原列保持獨立ACCEPT。
+
+90000000 press／90010495 release，差42293微秒，只經InjectMouseEvent；90056672原20DDDB word0000→0700，callback8／8完成。原版同100M到215DEE、無新CPU拒絕，Enter Ruler Name與預設Strader／ACCEPT原PNG人工確認；typed種族、名稱原buffer／確認與完整開局未知。原100M已保存3筆名稱表／165bytes，供下一正常輸入前置；不深入renderer／helper。
+
+16新增CLI拒絕與有效正對照、同binary舊336 15拒絕與正對照、74回填函式與新增27缺證據負例、兩CLI通過。CPU／startup／provider／matcher逐位元保持335，335固定EXE Go全套仍有效；來源／新收據1000:1000與gofmt通過；工具root-owned／誤建.md目錄自檢空、Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案。命令、來源與十三私有收據集中[337](docs/spec/337-moo2-race-humans-normal-click.md)。原版素材不公開，沿授權推github隔離分支；主庫RE-first保持，下一步只補較早名稱頁可接受輸入初態與原buffer，不重開已完成選族／ACCEPT／SCASW。

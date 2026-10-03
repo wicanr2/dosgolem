@@ -105,6 +105,24 @@ if sys.argv[1:] == ['--check-setup-accept-spec-backlinks']:
     validate_setup_accept_resolution(spec_dir)
     print('完整原17筆表／正常ACCEPT／選族頁／335回填通過')
     raise SystemExit(0)
+
+def validate_race_humans_resolution(spec_dir):
+    """337只確認正常第7筆選擇與名稱頁，不把名稱頁當完整開局。"""
+    name = '337-moo2-race-humans-normal-click.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原16筆選族表／正常第7筆選擇／統治者名稱頁／五舊基線保持","全部3847／4829／6769／8149／7752","全部132PNG","6821原列","90010495","42293微秒","90056672","word0000→0700","下一EIP20DDE1","callback8／8","Enter Ruler Name","預設Strader","無新CPU拒絕","16無效值","不代寫原種族","未改CPU／平台","名稱原buffer／正常確認尚未驗","f03515b12cb289bfcfe49b46d5cf8619f8f4e300ccfd1bd4ca43107f1c313ade","541d0032fa9711a65fe00f62018cf00bea7a78daed46dc06ce79fe8b5de20e45","7f1725d8669cacd9758350420bb60e4dcf6f01c8139ad422edc1e49b3577fc61","9b41ace6e35830796bade6341a10688f7800bbd37522b5172e124826709ae30f","22d72c914180b92bec7ae33148f59702fe53d1d839221c0d51dc25aef271fce1","6d13d37c144e35cea19a2decc1b623b4d24023d07cee341a25d4ff5f5ba93712"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('337缺原表、正常第7筆選擇、名稱頁、收據或驗收邊界')
+    older = (spec_dir / '336-moo2-setup-accept-normal-click.md').read_text()
+    if name not in older or '正常第7筆選族與名稱頁已由規格337接通' not in older:
+        raise RuntimeError('336缺正常選族與名稱頁回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('337缺公開索引入口')
+
+if sys.argv[1:] == ['--check-race-humans-spec-backlinks']:
+    validate_race_humans_resolution(spec_dir)
+    print('原16筆選族表／正常第7筆選擇／名稱頁／336回填通過')
+    raise SystemExit(0)
 def validate_menu_table_return_resolution(spec_dir):
     """333原表更換、自然返回與332回填須同時保留。"""
     name = '333-moo2-menu-table-return.md'

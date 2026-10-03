@@ -74,3 +74,7 @@ python3 workplace/new-game-336-cli-verify.py PASS：15無效值／缺依賴在�
 73回填函式、既有缺證據負例及新增28負例、兩CLI通過。私有backlink收據workplace/new-game-336-backlink-tests.txt SHA-256 4d79d60bd98d9b0eddf69c3a4a855e10077477f90632cf1252ae78f240d42e74。
 
 下一步只獨立解碼已保存90M／100M的原16筆選族表與正常種族輸入前置，再依新READY規格送一次正常選擇；不重開已完成ACCEPT或SCASW，不深入renderer／原helper。正式RNG、完整開局、remake同狀態與中文化保持未知，主庫RE-first保持。原版LOG／PNG／RAM留忽略workplace，不公開素材。
+
+## 2026-10-03 正常選族回填
+
+正常第7筆選族與名稱頁已由規格337接通，見[337](337-moo2-race-humans-normal-click.md)。人類候選第7筆原store已核對，正常進入Enter Ruler Name；五舊基線與132PNG保持。本文先前種族選擇未知屬先前範圍，typed種族／trait、名稱確認、完整開局與remake同狀態仍未知。
