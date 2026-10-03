@@ -339,7 +339,7 @@ func TestOverlayEventBlank(t *testing.T) {
 		ovFire(o, ovRec(0, 25, "  ")) // Row 25：y0=200，矩形落在畫布外
 		ovCheckCounters(t, o, map[string]uint64{"events": 1, "blank": 1, "clipped": 1})
 		o = ovNewTW(t)
-		ovFire(o, ovRec(38, 0, ovSp(4))) // Col 38 加 4 個字元：x1=312+... 超過 320
+		ovFire(o, ovRec(38, 0, ovSp(4))) // Col 38 起 4 個字元：x0=304，右緣 336 超過 320
 		ovCheckCounters(t, o, map[string]uint64{"events": 1, "blank": 1, "clipped": 1})
 	})
 }
@@ -498,6 +498,62 @@ func TestOverlayUntranslatedIdentityArgs(t *testing.T) {
 	ovCheckStrs(t, "KeySet(untranslated)", o.C.KeySet("untranslated"), nil)
 	ovCheckStrs(t, "KeySet(untranslated_at)", o.C.KeySet("untranslated_at"), []string{"2000|%s"})
 	ovCheckStrs(t, "KeySet(untranslated_args_at)", o.C.KeySet("untranslated_args_at"), []string{"2000|%s"})
+
+	// 模板有譯文、靜態引數缺譯：事件照常翻譯（OK），Missed 仍列入 untranslated_args。
+	o = ovNewTW(t)
+	r := ovRec(2, 3, "Sound Zork")
+	r.Format = "Sound %s"
+	r.ArgStrs = []ArgStr{{Ptr: 0x4000, Content: "Zork", Kind: KindStatic}}
+	ovFire(o, r)
+	ovCheckDump(t, o, // "音效Zork" 8 h，avail 20 h，補 12 個空白
+		ovS{"g1", 16, 24, 2, 8, "音效", "FF"},
+		ovS{"g1", 32, 24, 16, 4, "Zork" + ovSp(12), "FFFFFFFFFFFFFFFF"})
+	ovCheckCounters(t, o, map[string]uint64{"events": 1, "translated": 1, "untranslated_args": 1})
+	ovCheckStrs(t, "KeySet(untranslated_args)", o.C.KeySet("untranslated_args"), []string{"Zork"})
+	ovCheckStrs(t, "KeySet(untranslated_args_at)", o.C.KeySet("untranslated_args_at"), []string{"2000|Sound %s"})
+	ovCheckStrs(t, "Hits(g1)", o.Hits("g1"), []string{"Sound %s"})
+}
+
+func TestOverlayUntranslatedReasonsClearAndCount(t *testing.T) {
+	protected := &Language{Name: "zh-TW", Cat: NewCatalog(ovTWUI(), nil, []string{"Secret"}), Font: &xlate.Font{Name: "ovfont-zh-TW"}, Wide: ovWide, Enabled: true}
+	badarg := ovRecS(2, 3, "A", KindStatic)
+	badarg.ArgStrs[0].Content = "A\x01" // 引數含非可列印的位元組
+	cases := []struct {
+		name  string
+		rec   *EventRecord
+		want  map[string]uint64
+		wantK string // untranslated_at 的鍵，空字串表示不記
+	}{
+		{"保護清單", ovRec(2, 3, "Secret"), map[string]uint64{"protected": 1}, ""},
+		{"沒有字母", ovRec(2, 3, "123"), map[string]uint64{"passthrough": 1}, ""},
+		{"格式尾端的 %", ovRec(2, 3, "100%"), map[string]uint64{"untranslated": 1, "badformat": 1}, "2000|100%"},
+		{"引數含非可列印位元組", badarg, map[string]uint64{"untranslated": 1, "badarg": 1}, "2000|%s"},
+		{"譯文含換行", ovRec(2, 3, "Bad"), map[string]uint64{"untranslated": 1, "badformat": 1}, "2000|Bad"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := ovNew(t, protected)
+			ovFire(o, ovRec(2, 3, "Hello"))
+			ovFire(o, c.rec)
+			// 一律對事件矩形 Clear，原文照常顯示。
+			if n := ovOpaque(o, 16, 24, 16+8*len(c.rec.Text), 32); n != 0 {
+				t.Fatalf("事件矩形內仍有 %d 個未透明格：%s", n, ovFmtDump(ovDump(o)))
+			}
+			want := map[string]uint64{"events": 2, "translated": 1}
+			for k, v := range c.want {
+				want[k] = v
+			}
+			ovCheckCounters(t, o, want)
+			var wantK []string
+			if c.wantK != "" {
+				wantK = []string{c.wantK}
+			}
+			ovCheckStrs(t, "KeySet(untranslated_at)", o.C.KeySet("untranslated_at"), wantK)
+			if o.Record("g2") != nil {
+				t.Fatal("不翻譯的事件不留記錄")
+			}
+		})
+	}
 }
 
 // ---------- A、B 配對與提交時機 ----------
@@ -540,8 +596,12 @@ func TestOverlayPairingDupOpen(t *testing.T) {
 	r1 := ovRec(2, 3, "Hello")
 	r1d := ovRec(2, 3, "Hello") // 同一次呼叫被 IRQ0 重複觸發：SP、BP、Caller、Col、Row、FmtPtr、Text 都相同
 	r1d.Step = 99               // Step 不在識別內
-	o.Begin(r1, false)
-	o.Begin(r1d, false)
+	if !o.Begin(r1, false) {
+		t.Fatal("開啟新事件的 Begin 要回 true")
+	}
+	if o.Begin(r1d, false) {
+		t.Fatal("重入的 Begin 要回 false")
+	}
 	if r1d.ID != "" {
 		t.Fatalf("重入的記錄不得拿到事件編號：%q", r1d.ID)
 	}
@@ -588,7 +648,9 @@ func TestOverlayPairingUnpaired(t *testing.T) {
 			r2 := ovRec(2, 3, "Hello")
 			c.mut(r2)
 			o.Begin(r1, false)
-			o.Begin(r2, false) // 識別不同：上一個事件缺 B，先提交
+			if !o.Begin(r2, false) { // 識別不同：上一個事件缺 B，先提交
+				t.Fatal("識別不同的 Begin 要開啟新事件（回 true）")
+			}
 			if r1.ID != "g1" || r2.ID != "g2" {
 				t.Fatalf("事件編號 = %q、%q，要 g1、g2", r1.ID, r2.ID)
 			}
@@ -749,6 +811,28 @@ func TestOverlayPatchSymbolInsideLabel(t *testing.T) {
 	}
 	ovCheckStrs(t, "Hits(g2)", o.Hits("g2"), []string{"Mode -"})
 	ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 1, "patched": 1})
+}
+
+func TestOverlayPatchChainsOnLatestRecord(t *testing.T) {
+	// 取被覆蓋疊字所屬事件組的最新記錄：舊記錄 g1 與新記錄 g2 的矩形都含第 6 格，第二次修補要建在 g2 上。
+	o := ovNewTW(t)
+	ovFire(o, ovRecS(4, 6, "Mode ++", KindStatic)) // 第 5、6 格各有一個符號；"雙開" 4 h，補 10 個空白
+	ovCheckDump(t, o,
+		ovS{"g1", 32, 48, 2, 8, "雙開", "FF"},
+		ovS{"g1", 48, 48, 10, 4, ovSp(10), "FFFFFFFFFF"})
+	ovFire(o, ovRecC(9, 6, '-')) // k=5
+	ovCheckDump(t, o,
+		ovS{"g2", 32, 48, 2, 8, "半關", "FF"},
+		ovS{"g2", 48, 48, 10, 4, ovSp(10), "FFFFFFFFFF"})
+	ovFire(o, ovRecC(10, 6, '-')) // k=6：建在 g2 上得 "Mode --"（建在 g1 上會是 "Mode +-"，沒有譯文）
+	ovCheckDump(t, o,
+		ovS{"g3", 32, 48, 2, 8, "雙關", "FF"},
+		ovS{"g3", 48, 48, 10, 4, ovSp(10), "FFFFFFFFFF"})
+	if r := o.Record("g3"); r == nil || r.Text != "Mode --" || r.ArgStrs[0].Content != "Mode --" || string(r.Cells) != "Mode --" {
+		t.Fatalf("g3 = %+v", r)
+	}
+	ovCheckStrs(t, "Hits(g3)", o.Hits("g3"), []string{"Mode --"})
+	ovCheckCounters(t, o, map[string]uint64{"events": 3, "translated": 1, "patched": 2})
 }
 
 func TestOverlayPatchLiteralEvent(t *testing.T) {
@@ -987,6 +1071,23 @@ func TestOverlaySwitchSameOriginKeepsOtherEvent(t *testing.T) {
 	ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 2})
 }
 
+func TestOverlaySwitchKeepsDYAfterScroll(t *testing.T) {
+	// 001 §10 的捲動序列：疊字經 Layer.Scroll 上移一列後切換語言，新疊字沿用 DY（Y = Row×8 + DY）。
+	o := ovNew(t, ovLang("zh-TW", ovTWUI()), ovLang("ja", ovJAUI()))
+	ovFire(o, ovRec(2, 3, "Hello")) // Y=24
+	o.Layer.Scroll(0, 16, 320, 40, -8)
+	ovCheckDump(t, o,
+		ovS{"g1", 16, 16, 2, 8, "你好", "FF"},
+		ovS{"g1", 32, 16, 6, 4, ovSp(6), "FFFFFF"})
+	if err := o.SetDisplay("ja"); err != nil {
+		t.Fatal(err)
+	}
+	ovCheckDump(t, o, ovS{"g1", 16, 16, 5, 8, "こんにちは", "FFFFF"})
+	if r := o.Record("g1"); r == nil || r.Row != 3 {
+		t.Fatalf("記錄的 Row 不隨捲動改變：%+v", r)
+	}
+}
+
 func TestOverlaySwitchHiddenIsNotRevivedByTransparentFlags(t *testing.T) {
 	// 004 §7 第 4 項：同一事件兩段，Clear 把第二段整筆移除後切換語言，第二段的範圍仍不可見。
 	o := ovNew(t, ovLang("zh-TW", ovTWUI()), ovLang("ja", ovJAUI()))
@@ -1150,7 +1251,7 @@ func TestOverlayShadowLangStart(t *testing.T) {
 
 	// 第一個已啟用的非 en 語言：en 與停用的語言都不算。
 	o = NewOverlay()
-	o.AddLanguage(&Language{Name: "en", Enabled: true})
+	o.AddLanguage(ovLang("en", ovTWUI())) // 完整啟用的 en 也不算
 	if o.ShadowLang() != "" {
 		t.Fatalf("只有 en 時 shadowLang = %q，要空", o.ShadowLang())
 	}
@@ -1304,6 +1405,21 @@ func TestOverlayRecordsEvictedAreLostOnSwitch(t *testing.T) {
 	}
 	ovCheckDump(t, o)
 	ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 2, "rebuild_lost": 2})
+}
+
+func TestOverlayLogKeepsLatestMaxLog(t *testing.T) {
+	o := ovNewTW(t)
+	for i := 0; i < MaxLog+4; i++ {
+		ovFire(o, ovRec(2, 3, "Hello"))
+	}
+	log := o.Log()
+	if len(log) != MaxLog {
+		t.Fatalf("稽核日誌 %d 筆，要 %d", len(log), MaxLog)
+	}
+	// 事件編號 g1 至 g4100，保留最新的 4096 筆，最舊在前。
+	if log[0].ID != "g5" || log[len(log)-1].ID != "g"+strconv.Itoa(MaxLog+4) {
+		t.Fatalf("稽核日誌首尾 = %s、%s，要 g5、g%d", log[0].ID, log[len(log)-1].ID, MaxLog+4)
+	}
 }
 
 func TestOverlayKeysShown(t *testing.T) {

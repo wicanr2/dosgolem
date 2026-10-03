@@ -19,6 +19,13 @@ func FrameBuffers(o *oracle.Oracle) (indexed, rgb []uint8) {
 func ComposeImage(ov *Overlay, indexed, rgb []uint8, scale int, missing func(rune)) *image.RGBA {
 	w, h := screenW*scale, screenH*scale
 	dst := make([]uint8, w*h*4)
+	ComposeInto(dst, ov, indexed, rgb, scale, missing)
+	return &image.RGBA{Pix: dst, Stride: w * 4, Rect: image.Rect(0, 0, w, h)}
+}
+
+// ComposeInto 同 ComposeImage，但寫進呼叫端的緩衝區（長度要有 (320×scale)×(200×scale)×4），供前端每幀重用。
+func ComposeInto(dst []uint8, ov *Overlay, indexed, rgb []uint8, scale int, missing func(rune)) {
+	w, h := screenW*scale, screenH*scale
 	for y := 0; y < h; y++ {
 		sy := y / scale
 		for x := 0; x < w; x++ {
@@ -30,7 +37,6 @@ func ComposeImage(ov *Overlay, indexed, rgb []uint8, scale int, missing func(run
 	if ov != nil && ov.Drawing() {
 		ov.Layer.Draw(dst, scale, missing)
 	}
-	return &image.RGBA{Pix: dst, Stride: w * 4, Rect: image.Rect(0, 0, w, h)}
 }
 
 // WritePNG 把影像存成 PNG。

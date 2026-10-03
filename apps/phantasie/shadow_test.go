@@ -172,7 +172,7 @@ func TestShadowKnownEvictsLeastRecentlyUsed(t *testing.T) {
 	if _, state := st.get(2); state != shadowUnknown {
 		t.Errorf("被淘汰的 2 應為未知，得 %v", state)
 	}
-	if s, state := st.get(3); state != shadowKnown || s[0].ID != "g3b" {
+	if s, state := st.get(3); state != shadowKnown || len(s) != 1 || s[0].ID != "g3b" {
 		t.Errorf("get(3) = %v, %v，要 g3b", s, state)
 	}
 }
@@ -579,6 +579,9 @@ func TestShadowScrollThenRegisterKeepsY(t *testing.T) {
 	o.Layer.Clear(0, 0, 320, 200)
 	o.OnLoad(0x51)
 	shEq(t, "還原後 Y 與捲動後一致", shViews(o), []string{"g1 X16 Y32 4x8 [甲乙丙丁] P"})
+	if len(s) != 1 {
+		t.Fatalf("影子有 %d 筆，要 1 筆", len(s))
+	}
 	if r, ok := o.effRow(s[0]); !ok || r != 4 {
 		t.Errorf("effRow = %d, %v，要 4, true", r, ok)
 	}
@@ -624,6 +627,9 @@ func TestShadowRestoreKeepsTransparentAndStackOrder(t *testing.T) {
 
 	// 疊序以影子為準：把 Layer 內的順序換成 g2 在下、g1 在上，還原後仍是這個順序，
 	// 而且不經 Layer.Add 的覆蓋判斷（g1 的矩形涵蓋 g2，Add 會把 g2 整筆移除）。
+	if len(o.Layer.Stamps) != 2 {
+		t.Fatalf("還原後有 %d 筆疊字，要 2 筆，無法接著測換序", len(o.Layer.Stamps))
+	}
 	o.Layer.Stamps = []*xlate.Stamp{o.Layer.Stamps[1], o.Layer.Stamps[0]}
 	o.OnSave1(0x12)
 	s, _ := o.sh.get(0x12)
@@ -678,6 +684,9 @@ func TestShadowRestoreUsesShadowLangNotDisplay(t *testing.T) {
 		"g1 X32 Y24 2x8 [僧侣] P",
 		"g1 X48 Y24 4x4 [    ] P",
 	})
+	if len(o.Layer.Stamps) == 0 {
+		t.Fatalf("切換語言後還原沒有疊字")
+	}
 	if name := o.Layer.Stamps[0].Font.Name; name != "shfont-cn" {
 		t.Errorf("還原的疊字字型 = %q，要 shfont-cn", name)
 	}
