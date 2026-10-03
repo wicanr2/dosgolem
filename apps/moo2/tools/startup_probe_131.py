@@ -51,6 +51,35 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_post_click_source_resolution(spec_dir):
+    """327實際來源、三類分支、原值寫回與326回填須同時存在。"""
+    name = '327-moo2-post-click-source-consumer.md'
+    current = (spec_dir / name).read_text()
+    required = ('49500045', '49500076', '49500096', '49500158', '49500249', '49500331',
+                'DS188:29BE74', 'D4A33D00', '3DA3D4h', '3DDD67h', '3DDD71h',
+                'groups=[2 2 2 0]', '90步', '剩70步', '跨次全部RAM相同',
+                'JE四次不跳', 'JLE兩次跳', '499300h', '499303h',
+                '中心原本就是FDh', '映射表來源未另取樣', '全部3847列', '全部4208列',
+                '每次RAM雜湊', '設定畫面仍未知',
+                'c781b232058e3ca2c157a14c685ee44c12db851c00c6ed97d7f92344e9377d45',
+                '6e46e29082ceff5cdcab14668c113b89ac8e43f0ba19f7ef2e562e613db564a5',
+                'f994ed0fabea7ad5eca2e51acc088c3988443670952be3258ec3f6990ab89d77',
+                '15fef4b3ed0dd796418a71a1cc2c52bb1826373392ff665f7c8bd27516957664',
+                '73ff02f6b4885207c029c99efa1c1920053e03b3fb2cbafc53db032ca2aef3d2')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('後段來源缺原始定位／三類分支／原值寫回／收據或未知邊界')
+    older = (spec_dir / '326-moo2-post-click-progress-observation.md').read_text()
+    if '後段實際來源與最小消費已由規格327接通' not in older or name not in older:
+        raise RuntimeError('326缺實際來源與最小消費回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('327缺公開索引入口')
+
+if sys.argv[1:] == ['--check-post-click-source-spec-backlinks']:
+    validate_post_click_source_resolution(spec_dir)
+    print('後段來源／三類分支／原值寫回／RAM邊界與326回填通過')
+    raise SystemExit(0)
+
+
 def validate_post_click_progress_resolution(spec_dir):
     """326後段唯讀收據、完整基線、零可見差異與325回填須同時存在。"""
     name = '326-moo2-post-click-progress-observation.md'

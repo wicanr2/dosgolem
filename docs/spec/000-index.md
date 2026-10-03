@@ -517,4 +517,6 @@
 
 - [325：32位記憶體NEG](325-cpu386-neg-dword-memory.md)：CONFORMED。3正常NEG寫回／9步MOV、CMP與JGE不跳、全套與舊4123列保持；同50M流程到上限無新CPU拒絕，後段觀測見326。
 
-- [326：NEW GAME後段進度](326-moo2-post-click-progress-observation.md)：CONFORMED。六時點VBE與像素保持／R、堆疊、RAM有變，完整兩325流程不突變；真實DS:[EAX]讀取與後續玩家路徑未知。
+- [326：NEW GAME後段進度](326-moo2-post-click-progress-observation.md)：CONFORMED。六時點VBE與像素保持／R、堆疊、RAM有變，完整兩325流程不突變；來源與最小消費見327，後續玩家路徑未知。
+
+- [327：後段實際來源與最小消費](327-moo2-post-click-source-consumer.md)：CONFORMED。六組02h／80h／82h來源與分支、兩次原值FDh寫回，90步獨立核對；跨次RAM／70步／畫面發布未知，不改輸入或CPU。

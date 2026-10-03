@@ -62,6 +62,6 @@ Go1.24.13映像sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173
 | workplace/post-click-326-parity-tests.txt | d9e9c2b7ab2386e6ae4d49b02b2070ebbd8742599a33a1424a71f5386f9da6e0 |
 | workplace/post-click-326-verify.py | c0c40c21aa0ef315f64463cd9925a9cd7e56ec2383e1424caf4dc4aadf1f36c7 |
 
-限定CONFORMED只含六時點唯讀觀測與兩流程不突變。下一步依末尾實際指令做最小原始讀取／分支觀測：DS:29BE74指標→DS:[EAX] byte→SS:[EBP-8]→CMP／JE／JLE，必要時核對真正目的RAM寫回。來源與目的按實際地址保存，不命名helper、不追完整renderer，不改輸入、50M cap或主庫玩法RE閘門。AH2Ch／RNG、人耳、正常開局與remake同狀態未知保持。
+限定CONFORMED只含六時點唯讀觀測與兩流程不突變。後段實際來源與最小消費已由規格327接通，見[327](327-moo2-post-click-source-consumer.md)；六組02h／80h／82h分支與兩次原值FDh寫回已驗，設定畫面仍未知。來源與目的按實際地址保存，不命名helper、不追完整renderer，不改輸入、50M cap或主庫玩法RE閘門。AH2Ch／RNG、人耳、正常開局與remake同狀態未知保持。
 
 63回填函式、原有32／49／25／27與326新增27缺證據負例、兩CLI PASS。workplace/post-click-326-backlink-tests.txt SHA-256 434fc2536d4b96a9e68e762dc36f81b712dcf0e51ac95d1b776dd01632c94f62。固定原ZIP／patch／417根檔／EXE／MOX.SET再次核對PASS。新來源／六PNG／收據UID:GID1000:1000，工具root-owned／誤建.md目錄自檢空；本輪一次性工作均已退出，未清理其他專案。

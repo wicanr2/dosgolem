@@ -546,6 +546,27 @@ func main() {
 		}
 	}()
 
+	// 規格327：只讀真正來源與有界消費，不使用CPU讀取hook。
+	var sourceGroups [4]int
+	sourceActive, sourceBudget, sourceGroup := false, 0, 0
+	sourceKind := ""
+	var sourceSelector, sourceStackSelector uint16
+	var sourceBase, sourceIndex, sourceOffset, sourceStackOffset uint32
+	peekSourceWindow := func(selector uint16, offset uint32, out []byte) bool {
+		desc, known := m.CPU.Descriptors[selector]
+		linear := uint64(desc.Base) + uint64(offset)
+		if !known || uint64(offset)+uint64(len(out)) > uint64(desc.Limit)+1 || linear+uint64(len(out)) > uint64(len(m.Mem)) {
+			return false
+		}
+		copy(out, m.Mem[linear:linear+uint64(len(out))])
+		return true
+	}
+	defer func() {
+		if newGameClick && phasePrefix != "" {
+			fmt.Printf("post_click_source_totals groups=%v active=%t remaining=%d max_regular_groups=6 max_steps_per_group=33\n", sourceGroups, sourceActive, sourceBudget)
+		}
+	}()
+
 	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
 	postClickVisits := make(map[uint32]uint64)
 	postClickSteps := 0
@@ -983,6 +1004,58 @@ func main() {
 				mouseExchangeStack[j], mouseExchangeReadable = b, mouseExchangeReadable && ok
 			}
 		}
+
+		sourceBegin := false
+		if phasePrefix != "" && newGameClick && newGameReleased && i >= 49500000 && !sourceActive && m.CPU.EIP == 0x213345 {
+			selector := m.CPU.Seg[cpu386.SegDS]
+			var global [4]byte
+			var value [1]byte
+			known := peekSourceWindow(selector, 0x29be74, global[:])
+			base := uint32(global[0]) | uint32(global[1])<<8 | uint32(global[2])<<16 | uint32(global[3])<<24
+			index := m.CPU.R[cpu386.EAX]
+			offset := base + index
+			known = known && peekSourceWindow(selector, offset, value[:])
+			kind := 3
+			if known {
+				kind = 0
+				if value[0] == 0x80 {
+					kind = 1
+				} else if value[0] > 0x80 {
+					kind = 2
+				}
+			}
+			limit := 2
+			if kind == 3 {
+				limit = 1
+			}
+			if sourceGroups[kind] < limit {
+				sourceGroups[kind]++
+				sourceGroup++
+				sourceKind = []string{"lt80", "eq80", "gt80", "unreadable"}[kind]
+				sourceSelector, sourceBase, sourceIndex, sourceOffset = selector, base, index, offset
+				sourceStackSelector = m.CPU.Seg[cpu386.SegSS]
+				sourceStackOffset = m.CPU.R[cpu386.EBP] - 0x40
+				sourceActive, sourceBudget, sourceBegin = true, 33, true
+			}
+		}
+		observeSource := sourceActive && sourceBudget > 0
+		var sourceBeforeGlobal [4]byte
+		var sourceBeforeWindow, destinationBeforeWindow [5]byte
+		var sourceBeforeStack [80]byte
+		sourceGlobalReadable, sourceWindowReadable, sourceStackReadable, destinationReadable := false, false, false, false
+		var destinationSelector uint16
+		var destinationOffset uint32
+		if observeSource {
+			sourceGlobalReadable = peekSourceWindow(sourceSelector, 0x29be74, sourceBeforeGlobal[:])
+			sourceWindowReadable = sourceOffset >= 2 && peekSourceWindow(sourceSelector, sourceOffset-2, sourceBeforeWindow[:])
+			sourceStackReadable = m.CPU.R[cpu386.EBP] >= 0x40 && peekSourceWindow(sourceStackSelector, sourceStackOffset, sourceBeforeStack[:])
+			if m.CPU.EIP == 0x213336 {
+				destinationSelector = m.CPU.Seg[cpu386.SegDS]
+				destinationOffset = m.CPU.R[cpu386.EDX]
+				destinationReadable = destinationOffset >= 2 && peekSourceWindow(destinationSelector, destinationOffset-2, destinationBeforeWindow[:])
+			}
+		}
+
 		_, clickPending, clickActive, clickStarted, clickCompleted := services.MouseCallbackState()
 		observeClick := newGameClick && newGamePressed && newGameCallbackSamples < 256 && (clickPending != 0 || clickActive)
 		var clickBeforeR [8]uint32
@@ -995,7 +1068,7 @@ func main() {
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
 		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
 		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
-		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -1041,6 +1114,41 @@ func main() {
 		}
 		stepErr := m.CPU.Step()
 		buttonReadStepActive = false
+
+		if observeSource {
+			var afterGlobal [4]byte
+			var afterWindow, afterDestination [5]byte
+			var afterStack [80]byte
+			if sourceGlobalReadable {
+				peekSourceWindow(sourceSelector, 0x29be74, afterGlobal[:])
+			}
+			if sourceWindowReadable {
+				peekSourceWindow(sourceSelector, sourceOffset-2, afterWindow[:])
+			}
+			if sourceStackReadable {
+				peekSourceWindow(sourceStackSelector, sourceStackOffset, afterStack[:])
+			}
+			if destinationReadable {
+				peekSourceWindow(destinationSelector, destinationOffset-2, afterDestination[:])
+			}
+			sourceBudget--
+			stop := "none"
+			if stepErr != nil {
+				stop = "guest_error"
+			} else if clickBeforeEIP == 0x213336 {
+				stop = "destination_write"
+			} else if m.CPU.EIP == 0x213345 {
+				stop = "source_return"
+			} else if sourceBudget == 0 {
+				stop = "budget"
+			}
+			fmt.Printf("post_click_source_consumer group=%d kind=%s begin=%t outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X source_selector=%X source_base=%X source_index=%X source_offset=%X global_readable=%t before_global=%X after_global=%X source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X destination_selector=%X destination_offset=%X destination_readable=%t before_destination=%X after_destination=%X remaining=%d stop=%s error=%v\n", sourceGroup, sourceKind, sourceBegin, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, sourceSelector, sourceBase, sourceIndex, sourceOffset, sourceGlobalReadable, sourceBeforeGlobal, afterGlobal, sourceWindowReadable, sourceBeforeWindow, afterWindow, sourceStackSelector, sourceStackOffset, sourceStackReadable, sourceBeforeStack, afterStack, destinationSelector, destinationOffset, destinationReadable, destinationBeforeWindow, afterDestination, sourceBudget, stop, stepErr)
+			if stop != "none" {
+				sourceActive = false
+				sourceBudget = 0
+			}
+		}
+
 		if observeNegDword || observeNegDwordConsumer {
 			var after [16]byte
 			if negDwordWatchReadable {
