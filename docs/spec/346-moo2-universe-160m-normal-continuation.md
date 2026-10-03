@@ -76,7 +76,7 @@ Go1.24.13 Docker image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae538905
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:17FD1E→17F037／SS188:2BD9F8／group2 | 原120M pending之後120083995正常RET；160M進入Placing home worlds...，完整開局未驗 | 345 | 原120M第三例pending的較晚正常返回與固定160M續行已由規格346驗證 |
 
-下一步維持160M固定預算，用150M至160M的既有畫面變化縮小「Placing home worlds...」文字producer及其caller／狀態，建立最小DRAFT觀測，不逐行翻譯helper，也不直接提高cap或重送。此項是原版診斷閉合，非remake玩法驗收；主庫RE-first仍關閉。
+原配置母星文字來源與實際caller已由規格347驗證，見[347](347-moo2-home-worlds-text-source.md)。保留本輪歷史收據；正常索引161於152598618返回27D1C6，原NUL複製152598741完成，實際caller16B985已定位。完整生成／開局仍未知。下一步維持160M預算，觀察16C78E正常返回16B98A與隨後原word[EBP-8]分支，不猜欄位用途或提高cap。
 
 83項規格回填正對照、新346的23缺證據／狀態／回填／索引負例與全部舊負例通過。來源與新收據1000:1000，工具樹無root-owned／.md目錄，兩個原版容器已結束並移除。
 

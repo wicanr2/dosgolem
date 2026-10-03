@@ -869,6 +869,69 @@ func main() {
 	}
 	// 346 END universe160_checkpoint
 
+	// 347 BEGIN text_state
+	textSeen := [2][3]bool{}
+	textSources := [2]uint32{}
+	textUntil := [2]int{}
+	textLabels := [2]string{"Generating Universe ...", "Placing home worlds ..."}
+	observeProgressText := func(step int) {
+		if !universe160 {
+			return
+		}
+		c := m.CPU
+		group, phase := -1, -1
+		switch c.EIP {
+		case 0x17dca5:
+			group, phase = 0, 0
+		case 0x17dcaa:
+			group, phase = 0, 1
+		case 0x16c8a3:
+			group, phase = 1, 0
+		case 0x16c8a8:
+			group, phase = 1, 1
+		}
+		if phase == 1 && !textSeen[group][phase] {
+			textSources[group] = c.R[0]
+			textUntil[group] = step + 256
+		}
+		if group < 0 {
+			for j := range textUntil {
+				if textSeen[j][1] && !textSeen[j][2] && step <= textUntil[j] {
+					var destination [48]byte
+					readable := false
+					stable := activationPeek(func() { readable = peekSourceWindow(c.Seg[cpu386.SegDS], 0x2842f4, destination[:]) })
+					if stable && readable && c.EIP == [2]uint32{0x17dcba, 0x16c8b6}[j] && c.R[6] == textSources[j]+uint32(len(textLabels[j])+1) && c.R[7] == 0x2842f4+uint32(len(textLabels[j])+1) && strings.HasPrefix(string(destination[:]), textLabels[j]+"\x00") {
+						group, phase = j, 2
+						break
+					}
+				}
+			}
+		}
+		if group < 0 || phase < 0 || textSeen[group][phase] {
+			return
+		}
+		textSeen[group][phase] = true
+		var source, destination [48]byte
+		var stack [96]byte
+		var code [16]byte
+		sourceOK, destinationOK, stackOK := false, false, false
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			sourceOK = peekSourceWindow(c.Seg[cpu386.SegDS], textSources[group], source[:])
+			destinationOK = peekSourceWindow(c.Seg[cpu386.SegDS], 0x2842f4, destination[:])
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			copy(code[:], m.Mem[c.EIP:c.EIP+16])
+		}) && ram == sha256.Sum256(m.Mem)
+		control, status, depth := c.FPUControl, c.FPUStatus, c.FPUDepth
+		fmt.Printf("progress_text_observation group=%d phase=%s outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d instruction_bytes=%X source_offset=%X source_readable=%t source_window=%X destination_offset=2842F4 destination_readable=%t destination_window=%X stack_offset=%X stack_readable=%t stack_window=%X readonly=%t\n", group, [3]string{"lookup_call", "lookup_return", "copy_complete"}[phase], step, c.EIP, c.R, c.Seg, c.EFlags, control, status, depth, code, textSources[group], sourceOK, source, destinationOK, destination, c.R[4], stackOK, stack, readonly)
+	}
+	defer func() {
+		if universe160 {
+			fmt.Printf("progress_text_totals seen=%v source_offsets=%X copy_deadlines=%v max_groups=2 max_events_per_group=3 max_copy_steps=256\n", textSeen, textSources, textUntil)
+		}
+	}()
+	// 347 END text_state
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -1154,6 +1217,10 @@ func main() {
 		// 346 BEGIN universe160_call
 		dumpUniverseCheckpoint(i)
 		// 346 END universe160_call
+
+		// 347 BEGIN text_call
+		observeProgressText(i)
+		// 347 END text_call
 
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]

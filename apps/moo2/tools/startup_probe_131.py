@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_progress_text_resolution(spec_dir):
+    """347限定兩原索引查詢、NUL退出與實際caller，完整生成未驗。"""
+    name = "347-moo2-home-worlds-text-source.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原文字索引、兩次查詢與NUL複製","HESTRNGS.LBX","MSGENG.LBX","IDA linear EA","dosgolem_high_le","16A990","27B41C","2842F4","102875194","102875207","102875330","152598605","152598618","152598741","flags246h","EBP2BDB5C＋24","16B985","16B98A","10523原346列","36PNG","1693原列","正式只比已驗private v2多defer的universe160關閉守衛","3e90425b497fcb452e72a5066a88fcc402042e7fe163342fe6c697a08954d87e","生成完成／完整開局及remake同狀態未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("347缺原文字資料／兩查詢／NUL退出／實際caller與限定驗收")
+    for older_name in ["345-moo2-universe-loop-progress.md", "346-moo2-universe-160m-normal-continuation.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原配置母星文字來源與實際caller已由規格347驗證" not in older:
+            raise RuntimeError("較早規格缺文字來源回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("347缺公開索引入口")
+
+if sys.argv[1:] == ['--check-progress-text-spec-backlinks']:
+    validate_progress_text_resolution(spec_dir)
+    print("原文字資料／兩正常查詢／NUL退出／實際caller與較早回填通過")
+    raise SystemExit(0)
+
 def validate_universe_continuation_resolution(spec_dir):
     """346僅驗固定診斷預算、120M同狀態與第三RET，完整開局未驗。"""
     name = "346-moo2-universe-160m-normal-continuation.md"

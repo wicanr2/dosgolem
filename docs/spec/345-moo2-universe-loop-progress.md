@@ -66,7 +66,7 @@ private v2／正式source SHA-256 03bb2adb3414b8801f35ea25398a1cffc239befd4994f4
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE4e11be14…／dosgolem_high_le:17FCC3／17FD1E→17F037／SS188:2BD9F8 | 原計數前進，兩次RET imm20正常返回；第三例pending | 576步／兩RET與8503列／32PNG保持 | 340／341／342／343／344 | 原17FCC3迴圈進度與兩個正常返回已由規格345驗證 |
 
-原120M第三例pending的較晚正常返回與固定160M續行已由規格346驗證，見[346](346-moo2-universe-160m-normal-continuation.md)。原120M歷史保持，第三例於120083995正常RET；160M原圖已進入Placing home worlds...。完整開局／生成完成仍未驗，下一步維持160M預算追最小文字producer／caller狀態，不盲提高cap。
+原120M第三例pending的較晚正常返回與固定160M續行已由規格346驗證，見[346](346-moo2-universe-160m-normal-continuation.md)。原配置母星文字來源與實際caller已由規格347驗證，見[347](347-moo2-home-worlds-text-source.md)。保留本輪歷史收據；正常索引161於152598618返回27D1C6，原NUL複製152598741完成，實際caller16B985已定位。完整生成／開局仍未知。下一步維持160M預算，觀察16C78E正常返回16B98A與隨後原word[EBP-8]分支，不猜欄位用途或提高cap。
 
 82項規格回填正對照、345新增27缺證據／抽樣／pending／狀態／索引負例與其餘四份較早回填8負例，全部舊負例通過。來源／新收據1000:1000；兩次逾時60partial PNG逐位元保持相應344基準，manifest另保存。
 

@@ -557,4 +557,6 @@
 
 - [345：宇宙生成迴圈的有界進度與正常返回](345-moo2-universe-loop-progress.md)：限定CONFORMED。576原步／兩RET已驗、8503原列與32PNG保持，原120M第三例pending；其較晚RET與160M續行由346接通，完整生成未知。
 
-- [346：固定160M正常宇宙生成續行](346-moo2-universe-160m-normal-continuation.md)：限定CONFORMED。120M完整同狀態／原基準保持，第三RET120083995；160M已進入Placing home worlds...，完整開局未驗。
+- [346：固定160M正常宇宙生成續行](346-moo2-universe-160m-normal-continuation.md)：限定CONFORMED。120M完整同狀態／原基準保持，第三RET120083995；160M已進入Placing home worlds...，原文字來源與caller由347接通，完整開局未驗。
+
+- [347：配置母星文字來源與原正常消費](347-moo2-home-worlds-text-source.md)：限定CONFORMED。原索引242／161查詢、NUL複製與caller16B985已驗，10523原列／36PNG及關閉8M啟動基準保持，完整開局未知。
