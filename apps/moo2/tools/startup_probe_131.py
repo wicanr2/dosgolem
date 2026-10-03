@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_and_word_memory_resolution(spec_dir):
+    """353限定word AND／原三步與新byte memory XCHG停止。"""
+    name = "353-cpu386-and-word-memory-imm16.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：word記憶體AND與原三步","全部10793原352列","10723共通正常列","36PNG","DS188:5AA050 word0000","immFE7F","163795435","163795436","163795437","EIP103BFF","EIP103C02","EIP103C05","flags246h","callback12／12","IRQ41715／41715","零→零沒有Bus寫次數trace","CPU38677.939s","1693原列","32新180M負例","164321317","input223E93","86 06 AA 46 4A 75 F7","after223E95只解碼","尚未達180M","1bfd9e0c7a63453549a7ab1e081d7d669ea8f38c0388e94743f9e0b0049793b1","848dba4c436357de62902e5f4185177bf2b5912decc832d0cd22ba1f34d8624f","5e9ca79374c2a67298872b3b2d04d210d9241035d2644899182ebff3b28433a9","16f9e86bd4b984eef315f5e5fb4497cf7bc77dd55b4a719061ad76ff035128fb","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("353缺CPU契約／同狀態／原三步／新停止或限定範圍")
+    older = (spec_dir / "352-moo2-generation-180m-continuation.md").read_text()
+    if name not in older or "原103BF9 word記憶體AND與三步消費已由規格353接通" not in older:
+        raise RuntimeError("352缺原word AND三步回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("353缺公開索引入口")
+
+if sys.argv[1:] == ['--check-and-word-memory-spec-backlinks']:
+    validate_and_word_memory_resolution(spec_dir)
+    print("原word AND／三步／CPU回歸／新memory XCHG與較早回填通過")
+    raise SystemExit(0)
+
 def validate_generation_180m_resolution(spec_dir):
     """352限定160M保持／原生成RET／新81停止，完整開局未知。"""
     name = "352-moo2-generation-180m-continuation.md"

@@ -2553,6 +2553,27 @@ func (c *CPU) Step() error {
 		}
 		group := (modrm >> 3) & 7
 		if operand16 {
+			// 規格353：完整iw的memory AND只寫word，成功後才發布旗標。
+			if modrm>>6 != 3 && group == 4 {
+				seg, addr, e := c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				imm, e := c.fetch16()
+				if e != nil {
+					return fail(e.Error())
+				}
+				value, ok := c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("AND word來源越界")
+				}
+				result := value & imm
+				if !c.writeSegment16(c.Seg[seg], addr, result) {
+					return fail("AND word寫入越界")
+				}
+				c.setLogicFlags16(result)
+				break
+			}
 			if modrm>>6 != 3 && group == 7 {
 				seg, addr, e := c.decodeAddress32(modrm)
 				if e != nil {

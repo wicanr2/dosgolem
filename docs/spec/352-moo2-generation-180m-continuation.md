@@ -31,7 +31,7 @@ private180M明示預算已量到原35次head、signed SI36的CMP／JL不跳、�
 
 原版在163795435以dosgolem_high_le:103BF9原66 81 63 0C 7F FE拒絕，尚未達180M cap；這是word記憶體AND缺口，requested budget不冒稱實際已執行180M。probe exit0不等於完成。CPU／平台仍保持，本輪只證實延長診斷預算與原生成單一callee返回，不稱母星配置完成。
 
-證據足以批准352預算驗證、實際budget宣告與單次160M readonly checkpoint。正式只能更名352標記，執行語句與已驗private相同；替換列表逆轉逐byte保持351。關閉8M／舊CLI與新180M依賴負例、source／回填通過後限定CONFORMED。下一步獨立窄CPU切片修正word記憶體AND，依原bytes與硬體測試契約審查，不跳過該指令，也不提高cap繞過拒絕。
+證據足以批准352預算驗證、實際budget宣告與單次160M readonly checkpoint。正式只能更名352標記，執行語句與已驗private相同；替換列表逆轉逐byte保持351。關閉8M／舊CLI與新180M依賴負例、source／回填通過後限定CONFORMED。原word記憶體AND後續已由[353](353-cpu386-and-word-memory-imm16.md)接通；此段保留352當時的審查邊界。
 
 核算初版在IRQ欄位迴圈把共通事件列表變數a覆蓋，末尾len(a)驗證誤拒絕。已只更名核算變數、保留初版並重現exit1；相同原版收據重新核算全通過，private／CPU未改，不列產品缺陷。
 
@@ -60,7 +60,7 @@ private180M明示預算已量到原35次head、signed SI36的CMP／JL不跳、�
 
 **已證實，新CPU停止**：原input dosgolem_high_le:103BF9 bytes66 81 63 0C 7F FE，原ModRM63h為/4、[EBX+0Ch]與word immediate FE7Fh；原EBX5AA044，DS188 offset5AA050。cpu386在解碼途中以「81 word形狀尚未支援」拒絕，after EIP103BFC，沒有執行AND寫回；不能把after位址當下一指令已到達。actual stop163795435，診斷defer step163795436、requested budget180000000。probe exit0只是main的錯誤收尾，不代表cap或成功。停止後PNG d493c2b5628d55381176c9e676586ab8940fd62544302195b59570b6136e6ba6是本次dosgolem自行生成，不代替正常開局驗收。
 
-**未知**：AND原word輸入值與正常寫回、下一原消費、完整母星配置／開局、正式writer、RNG、人耳與remake同狀態。下一步獨立窄CPU切片接66 81 /4 word記憶體AND，沿原解碼／分段／邊界與邏輯旗標契約，使用自製針對測試與386回歸；再用同180M正常流程核對拒絕點前保持、實際原寫回與後續。不得跳過指令或提高cap繞過錯誤。
+原103BF9 word記憶體AND與三步消費已由規格353接通，見[353](353-cpu386-and-word-memory-imm16.md)。原word0000、完整iw／SHL EDX0／OR dword0、flags246h及精確EIP已驗；未改CPU10793原列／正式入口前10723原列與36PNG保持，CPU全套通過。原164321317於223E93 memory byte XCHG拒絕，尚未達180M；完整母星配置／開局、正式writer、RNG、人耳與remake同狀態仍未知。下一步按353回填帳捕捉原byte交換與STOSB初態，不提高cap或跳過指令。
 
 ## 保持、接線與重生
 

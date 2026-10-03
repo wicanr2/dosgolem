@@ -569,4 +569,6 @@
 
 - [351：後續生成的外層出口、後段與返回邊界](351-moo2-generation-completion-boundary.md)：限定CONFORMED。原SI1..26連續、耗時與160M截斷已驗，10570原列／36PNG與關閉8M保持；出口／後段／RET已由352回填；完整開局未知。
 
-- [352：固定180M正常續行與160M同狀態核對](352-moo2-generation-180m-continuation.md)：限定CONFORMED。原160M同狀態保持，35迭代／出口／AL0與真正RET已驗；163795435新word記憶體AND停止，未達180M／完整開局未驗。
+- [352：固定180M正常續行與160M同狀態核對](352-moo2-generation-180m-continuation.md)：限定CONFORMED。原160M同狀態保持，35迭代／出口／AL0與真正RET已驗；163795435原word記憶體AND停止已由353接通；完整開局未驗。
+
+- [353：word記憶體AND與完整立即值](353-cpu386-and-word-memory-imm16.md)：限定CONFORMED。原word0000／AND／SHL／OR三步、10723原前綴／36PNG、CPU全套與關閉8M保持；164321317新memory byte XCHG拒絕，完整開局未知。

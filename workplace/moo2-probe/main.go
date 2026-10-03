@@ -244,6 +244,10 @@ func main() {
 	testMemorySeen, testMemoryBudget := false, 0
 	// 342 END test_state
 
+	// 353 BEGIN and_state
+	andWordMemorySeen, andWordMemoryBudget := false, 0
+	// 353 END and_state
+
 	// 341 BEGIN gate_state
 	bannerSelectionGateSeen := false
 	var bannerGateR [8]uint32
@@ -2520,6 +2524,31 @@ func main() {
 		}
 		// 342 END test_pre
 
+		// 353 BEGIN and_pre
+		if bannerRed && !andWordMemorySeen && m.CPU.EIP == 0x103bf9 {
+			andWordMemorySeen, andWordMemoryBudget = true, 3
+		}
+		observeAndWordMemory := andWordMemoryBudget > 0
+		andWordR, andWordSeg, andWordEIP, andWordFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var andWordCode [16]byte
+		var andWordSource [8]byte
+		var andWordStack [4]byte
+		andWordOffset := andWordR[cpu386.EBX] + 0x0c - 1
+		andWordSourceReadable, andWordStackReadable := false, false
+		var andWordRAM [32]byte
+		andWordReadonly := false
+		var andWordRAMCopy []byte
+		if observeAndWordMemory {
+			andWordRAM = sha256.Sum256(m.Mem)
+			andWordRAMCopy = append([]byte(nil), m.Mem...)
+			andWordReadonly = activationPeek(func() {
+				copy(andWordCode[:], m.Mem[andWordEIP:andWordEIP+16])
+				andWordSourceReadable = peekSourceWindow(andWordSeg[cpu386.SegDS], andWordOffset, andWordSource[:])
+				andWordStackReadable = peekSourceWindow(andWordSeg[cpu386.SegSS], andWordR[cpu386.ESP], andWordStack[:])
+			}) && sha256.Sum256(m.Mem) == andWordRAM
+		}
+		// 353 END and_pre
+
 		// 343 BEGIN setle_pre
 		if bannerRed && !setleSeen && m.CPU.EIP == 0x17d536 {
 			setleSeen, setleBudget = true, 2
@@ -2730,6 +2759,32 @@ func main() {
 			}
 		}
 		// 342 END test_post
+
+		// 353 BEGIN and_post
+		if observeAndWordMemory {
+			andWordMemoryBudget--
+			var sourceAfter [8]byte
+			var stackAfter [4]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable, afterStackReadable := false, false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(andWordSeg[cpu386.SegDS], andWordOffset, sourceAfter[:])
+				afterStackReadable = peekSourceWindow(andWordSeg[cpu386.SegSS], andWordR[cpu386.ESP], stackAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && andWordReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range andWordRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fmt.Printf("and_word_memory_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t after_stack_readable=%t before_stack=%X after_stack=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, andWordEIP, m.CPU.EIP, andWordR, m.CPU.R, andWordSeg, m.CPU.Seg, andWordFlags, m.CPU.EFlags, andWordCode, andWordSeg[cpu386.SegDS], andWordOffset, andWordSourceReadable, afterSourceReadable, andWordSource, sourceAfter, andWordSeg[cpu386.SegSS], andWordR[cpu386.ESP], andWordStackReadable, afterStackReadable, andWordStack, stackAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, andWordRAM == ram, andWordMemoryBudget, stepErr)
+			if stepErr != nil {
+				andWordMemoryBudget = 0
+			}
+		}
+		// 353 END and_post
 
 		// 340 BEGIN return_post
 		if observeBannerReturn && m.CPU.EIP == 0x20db5b {
