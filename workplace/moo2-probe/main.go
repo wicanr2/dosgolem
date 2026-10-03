@@ -169,6 +169,15 @@ func main() {
 	bannerPolled := false
 	// 339 END parse
 
+	// 340 BEGIN return_state
+	bannerGUIButtonSeen := false
+	var bannerReturnR [8]uint32
+	var bannerReturnSeg [6]uint16
+	var bannerReturnFlags uint32
+	var bannerReturnStack [4]byte
+	bannerReturnReadable, bannerReturnReadonly := false, false
+	// 340 END return_state
+
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -1309,7 +1318,7 @@ func main() {
 					panic("旗幟紅色點擊的原表或輸入條件不符")
 				}
 				phase = "press"
-			} else if available && bannerPolled && completed >= bannerPressStarted+1 && ports.BIOSClock.Micros >= bannerPressMicros+20000 {
+			} else if available && bannerPolled && bannerGUIButtonSeen && completed >= bannerPressStarted+1 && ports.BIOSClock.Micros >= bannerPressMicros+20000 {
 				phase, x, buttons = "release", 278, 0
 			}
 			if phase != "" {
@@ -1908,11 +1917,35 @@ func main() {
 			publishBus.active, publishBus.step, publishBus.eip = true, i, m.CPU.EIP
 			publishBus.steps++
 		}
+		// 340 BEGIN return_pre
+		observeBannerReturn := bannerRed && bannerPressed && !bannerGUIButtonSeen && m.CPU.EIP == 0x214104
+		if observeBannerReturn {
+			bannerReturnR, bannerReturnSeg, bannerReturnFlags = m.CPU.R, m.CPU.Seg, m.CPU.EFlags
+			ram := sha256.Sum256(m.Mem)
+			bannerReturnReadonly = activationPeek(func() {
+				bannerReturnReadable = peekSourceWindow(bannerReturnSeg[cpu386.SegSS], bannerReturnR[cpu386.ESP], bannerReturnStack[:])
+			}) && sha256.Sum256(m.Mem) == ram
+		}
+		// 340 END return_pre
+
 		stepErr := m.CPU.Step()
 		if publishBus != nil {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		// 340 BEGIN return_post
+		if observeBannerReturn && m.CPU.EIP == 0x20db5b {
+			expected := bannerReturnR
+			expected[cpu386.ESP] += 4
+			valid := bannerReturnReadonly && bannerReturnReadable && bannerReturnStack == [4]byte{0x5b, 0xdb, 0x20, 0} && bannerReturnR[cpu386.EAX]&0xffff == 1 && bannerReturnSeg[cpu386.SegCS] == 8 && bannerReturnSeg[cpu386.SegDS] == 0x188 && bannerReturnSeg[cpu386.SegSS] == 0x188 && m.CPU.R == expected && m.CPU.Seg == bannerReturnSeg && m.CPU.EFlags == bannerReturnFlags && stepErr == nil
+			fmt.Printf("banner_red_gui_button_return outer_step=%d address_space=dosgolem_high_le input_eip=214104 after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X stack_selector=%X stack_offset=%X raw_return=%X readable=%t readonly=%t valid=%t error=%v\n", i, m.CPU.EIP, bannerReturnR, m.CPU.R, bannerReturnSeg, m.CPU.Seg, bannerReturnFlags, m.CPU.EFlags, bannerReturnSeg[cpu386.SegSS], bannerReturnR[cpu386.ESP], bannerReturnStack, bannerReturnReadable, bannerReturnReadonly, valid, stepErr)
+			if !valid {
+				panic("旗幟caller未收到原正常pressed返回")
+			}
+			bannerGUIButtonSeen = true
+		}
+		// 340 END return_post
 
 		if observeScasWord {
 			scasWordBudget--

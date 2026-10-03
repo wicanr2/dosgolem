@@ -558,3 +558,13 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 - 22份私有收據、來源與核算雜湊見[339-moo2-banner-red-normal-click](docs/spec/339-moo2-banner-red-normal-click.md)。338與索引回填，原素材／PNG／LOG／RAM留忽略workplace。下一步只追首個原pressed查詢後的有界正常GUI消費與返回框架；不再提高cap、移動輸入時點或盲重送，主庫RE-first保持。
 
 來源與22份新收據1000:1000，gofmt／Git差異通過；工具root-owned／誤建.md目錄空，兩工作區掛載篩選沒有執行中或停止容器，本輪已清理。
+
+## 2026-10-03：旗幟原GUI按鍵返回已驗，選色仍未完成
+
+- 起點工具7d569e0392fd9061576da8395d3c8b4d10e0886d／主庫3526b6da8334626a992cfa3c13689b318befb664。命中dosgolem、GUI、規格閘門、文件職責與回填路由。340先DRAFT，私有readonly prototype保存192正常步；剝除194新增列後全部10012原339列與32PNG保持，原資料完整、排除callback／IRQ、一次臂後耗盡，source剝除5區塊保持339。
+- 已證實339第一次AX3讀到1之後，20DB56 caller還呼叫214075並再次查詢；原放開後第二次返回0，214104 RET20DB5B也返回0，20DB5E JNZ不跳。原框架與opcode足夠後修訂DRAFT並READY，只在本fixture增加等待原GUI按鍵RET返回1的放開閘門，不改CPU／平台／主庫玩法。
+- 正式新source只重生一次：99M press保持、99083819首次查詢1、99083999原RET返回1，完整SS188:ESP2BD998 top5BDB2000、R只ESP+4、六段／flags202h保持、readonly通過；99084000首次合法mask1 release，差245437微秒。原版120M到228E00，callback12／12與IRQ28866／28866完成，仍SELECT BANNER COLOR，無新CPU拒絕，共享20DDDB未命中。不是原選色完成。
+- Docker每次外層300s／2GiB／2CPU／128pids／UID1000／network none，Go1.24.13，原ZIP／patch唯讀，新鮮417根檔／固定EXE／MOX.SET。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe。日期1996-01-01不是seed。私有探索與正式重播各一次，未重跑未受影響六個舊情境／Go全套。
+- python3 workplace/new-game-340-return-verify.py PASS：7708原列／28PNG／完整550bytes表／核心與RGB保持99M前置，首次AX3／原RET與release核算通過。核算首次誤取GUI checkpoint IRQ欄位，改讀既有setup_table_snapshot後乾淨重讀同收據PASS，未重跑原版。python3 workplace/new-game-340-source-verify.py PASS：3有界觀測與一個旗標release前置之外全部來源保持339。正式同binary舊338 CLI17拒絕及正對照、339 CLI22拒絕與120M／100M正對照通過。
+- 77項規格回填、340新增28缺證據負例、338／339各26負例與三CLI通過；340限定CONFORMED，339／索引與回填guard同次更新。15份來源／收據／核算雜湊見[340](docs/spec/340-moo2-banner-pressed-consumer.md)。新檔1000:1000、gofmt／Git差異通過；工具root-owned／誤建.md目錄空，Docker兩工作區掛載篩選空，本輪沒有遺留容器。
+- 下一步只保存340原20DB5B之後最多192個非callback／IRQ正常步、實際20DB5E分支與原返回框架。原選色消費、正式持久名稱／旗色writer、typed種族特性、完整開局、RNG與remake同狀態未知，主庫RE-first保持。不盲調cap或重送，不深挖原helper。

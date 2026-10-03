@@ -543,4 +543,6 @@
 
 - [338：統治者名稱頁的正常確認](338-moo2-ruler-name-normal-confirmation.md)：限定CONFORMED。正常名稱放開與旗幟頁已見，六舊基線與162PNG保持；共享store未命中／持久名稱writer及完整開局未知。
 
-- [339：旗幟頁正常紅色輸入與按鍵查詢](339-moo2-banner-red-normal-click.md)：限定CONFORMED。完整99M原表／pressed查詢／正常放開已驗，120M仍停旗幟頁；原選色消費、持久旗色與完整開局未知。
+- [339：旗幟頁正常紅色輸入與按鍵查詢](339-moo2-banner-red-normal-click.md)：限定CONFORMED。完整99M原表／pressed查詢／正常放開已驗，120M仍停旗幟頁；原GUI按鍵返回由340接通，選色消費、持久旗色與完整開局未知。
+
+- [340：旗幟首次pressed查詢後的原正常GUI消費](340-moo2-banner-pressed-consumer.md)：限定CONFORMED。192原步已證實339第二次查詢與GUI返回0；340原RET返回1才正常放開，120M仍旗幟頁，選色未完成。

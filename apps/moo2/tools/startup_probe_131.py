@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_banner_gui_pressed_return_resolution(spec_dir):
+    """340僅閉合原GUI按鍵返回與正常放開，旗色選擇仍未知。"""
+    name = '340-moo2-banner-pressed-consumer.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原GUI按鍵返回與正常放開，選色未完成","192筆","10012原339列","32PNG","7708原列","28PNG","99083819","99083999","99084000","245437微秒","214104","20DB5B","5BDB2000","EAX低word1","callback12／12","IRQ28866／28866","無新CPU拒絕","原持久旗色writer未知","bef46d84f24b674d90e3e84e535485a538bf3e2dba9c0e41f4c08fc27898ab56","a57ac9a85155154f0e026391a09fd547791b95b56cf2afa488212329ee36c02c","dec37ddf557a2e35092e006d91b529966064a8f3f81efa5132f19f571d2b59d9","fdcfce7eb7a39bfa24641a15309ec035208efa205c394173c5cdde37e5e6ec11","未改CPU／平台／主庫玩法","原版仍未選色"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('340缺原GUI返回框架、正常放開、負結果、限定驗收或未知邊界')
+    older = (spec_dir / '339-moo2-banner-red-normal-click.md').read_text()
+    if name not in older or '原GUI按鍵返回與正常放開已由規格340接通' not in older:
+        raise RuntimeError('339缺原GUI按鍵返回回填與選色未知邊界')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('340缺公開索引入口')
+
+if sys.argv[1:] == ['--check-banner-gui-pressed-return-spec-backlinks']:
+    validate_banner_gui_pressed_return_resolution(spec_dir)
+    print('原GUI按鍵返回／正常放開／選色未知／339回填通過')
+    raise SystemExit(0)
+
+
 def validate_banner_red_input_resolution(spec_dir):
     """339限於原旗幟表、原pressed查詢與正常放開；原選色消費仍未知。"""
     name = '339-moo2-banner-red-normal-click.md'

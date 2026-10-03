@@ -74,7 +74,7 @@ python3 workplace/new-game-339-input-verify.py PASS：全部7874原ruler列與30
 
 Go1.24.13、原ZIP／patch唯讀、417新鮮根檔／官方EXE／MOX.SET、44M Esc／固定日期1996-01-01及所有338原輸入保持；日期不是seed。Docker外層300s／2GiB／2CPU／128pids／UID1000／network none，go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe。原版PNG／LOG／RAM與可丟棄probe／驗證腳本留本機忽略workplace，不公開。
 
-下一步只保存首個原pressed查詢後的有界正常GUI消費、原事件／選擇與返回框架，找出正常選色未推進的原因；不再靠提高cap、移動時點或盲重送點擊。原持久名稱／旗色writer、typed種族特性、完整正常開局與remake同狀態仍未知。主庫RE-first保持。
+首次pressed查詢後的原GUI按鍵返回與正常放開已由規格340接通，見[340](340-moo2-banner-pressed-consumer.md)。339舊放開後第二次查詢返回0，340以原RET到caller且AX1才放開，原版仍未選色。下一步只保存340的20DB5B後有界正常步與實際分支；不盲改cap或重送。持久名稱／旗色writer、完整開局及remake同狀態未知，主庫RE-first保持。
 
 | 本機忽略收據／來源／核算 | SHA-256 |
 | --- | --- |
