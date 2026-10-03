@@ -546,3 +546,15 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 - python3 workplace/new-game-338-verify.py PASS：六舊情境3847／4829／6769／8149／7752／9030原列與162PNG保持，新輸入前7523原列保持獨立humans，原165bytes表／候選32bytes／核心與RGB吻合。17新CLI拒絕及正對照、同新版binary舊337 16拒絕及正對照、75項規格回填與新338 26負例、337 27負例、兩CLI通過。本輪未重跑Go全套，不外推完整玩法。
 - 338限定CONFORMED，337及索引回填；18份私有腳本／收據雜湊見[338-moo2-ruler-name-normal-confirmation](docs/spec/338-moo2-ruler-name-normal-confirmation.md)。CPU／startup／provider／matcher／mouse callback保持335；來源與新收據1000:1000，gofmt／Git差異通過。工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，本輪容器已清理，未動其他專案。
 - 下一步唯讀取得較早旗幟頁、原10筆表與正常選色前置；持久名稱writer、旗幟選擇、完整開局、正式RNG與remake同狀態未知，主庫RE-first保持。
+
+## 2026-10-03：旗幟頁正常輸入與原按鍵查詢，選色未推進
+
+- 起點工具0c88d04cb59d2b7bfc716e953cc529c54b5fb6e2／主庫f079ef801ab20d3ab1949ad9ee8d5e9693ee9eea。命中dosgolem、GUI、規格閘門、文件職責與回填路由。339先DRAFT，98M／99M唯讀蒐證保持全部7874原ruler列與30PNG。98M只有一筆初始化表，99M才有完整十筆；READY後固定99M紅色fixture，不改正式預設。
+- 首次100M正常press／release與callback12／12完成，仍旗幟頁；保存early來源及負收據。回到DRAFT，僅明示旗標固定120M觀察，同99M輸入與7837原100M前列保持，但仍旗幟頁，沒有新CPU拒絕。不是選色成功。
+- 直接解析原收據：原AX3在press到release之間0次輪詢，之後492次只讀到buttons0。重查GUI路由與既有INT33／InjectMouseEvent，重新READY；release新增等待正常callsite24C31B首次確實讀到pressed。不移動按下時點、不重送、沒有代寫原選擇或CPU／平台。
+- 最新原版99000000按下、99083819正常查詢讀到BX1／CX276／DX190、99083854首次合法mask1放開，相差245291微秒。120M到228DDC，callback12／12及IRQ28866／28866完成，仍SELECT BANNER COLOR；共享20DDDB未命中。339限定CONFORMED只涵蓋原表、正常查詢與放開；選色消費、下一頁及持久旗色writer未完成，不算主庫玩法完成。
+- Docker外層300s／2GiB／2CPU／128pids／UID1000／network none，Go1.24.13，原ZIP／patch唯讀，新鮮417根檔及固定EXE／MOX.SET。新版只重生red一次與新舊CLI，不重跑未受影響六條基準／Go全套。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe；日期不是seed。
+- python3 workplace/new-game-339-verify.py PASS：7708原列與28既有PNG保持獨立99M輸入前置、完整原表與核心／RGB／pressed輪詢／正常順序吻合。22新CLI拒絕、120M與100M正對照、同binary舊338 17拒絕與正對照；76項規格回填、339 26缺證據負例、338 26負例及兩CLI通過。來源六個有界區塊／五guard逆轉後逐位元保持338；CPU／平台仍335。
+- 22份私有收據、來源與核算雜湊見[339-moo2-banner-red-normal-click](docs/spec/339-moo2-banner-red-normal-click.md)。338與索引回填，原素材／PNG／LOG／RAM留忽略workplace。下一步只追首個原pressed查詢後的有界正常GUI消費與返回框架；不再提高cap、移動輸入時點或盲重送，主庫RE-first保持。
+
+來源與22份新收據1000:1000，gofmt／Git差異通過；工具root-owned／誤建.md目錄空，兩工作區掛載篩選沒有執行中或停止容器，本輪已清理。

@@ -92,6 +92,6 @@ python3 workplace/new-game-338-cli-verify.py PASS：17無效值／缺依賴在�
 
 三份原RAM的65818624bytes各自唯讀保持；95M SHA-256 6272fad6da4146af26f7513cba625ec2ad2a040d75cdf31cc2b332cffd7a463c，97M SHA-256 6e1f1ea729118153c95e716b1be96dc072d2208942d7d42510872fcc4c561cad，100M SHA-256 5de3d135522bb1a1b08d701b884b4547f287a57aba57bb10e6500a1cbf6ad673。這些是初態蒐證收據，各次RAM不冒充跨次逐位元相同。
 
-下一步唯讀取得本ruler情境較早旗幟頁、原10筆表與正常選色前置，再依新READY規格送一次可重播色彩fixture。預設名稱正常確認與下一旗幟頁已驗；持久名稱writer、旗幟選擇、完整開局、正式RNG及remake同狀態未知，主庫RE-first保持。不追renderer／helper，不重開已完成名稱放開或SCASW。原版LOG／PNG／RAM留忽略workplace，不公開。
+旗幟正常裝置輸入與按鍵查詢已由規格339接通，見[339-moo2-banner-red-normal-click](339-moo2-banner-red-normal-click.md)。原選色消費與下一頁仍未知，不能把正常裝置輸入當選色完成。預設名稱正常確認與下一旗幟頁已驗；持久名稱writer、旗幟選擇、完整開局、正式RNG及remake同狀態未知，主庫RE-first保持。不追renderer／helper，不重開已完成名稱放開或SCASW。原版LOG／PNG／RAM留忽略workplace，不公開。
 
 75項規格回填正對照、新338 26個缺證據負例及337 27個負例、兩個CLI通過；私有workplace/new-game-338-backlink-tests.txt SHA-256 7ceda5b0175a4d41a30c89cccde10c9d1ff6940241d4d8c41460c7459cf8e042。

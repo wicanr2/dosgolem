@@ -98,8 +98,8 @@ func main() {
 	maxSteps := 8000000
 	if setting := os.Getenv("DOSGOLEM_MOO2_MAX_STEPS"); setting != "" {
 		value, parseErr := strconv.Atoi(setting)
-		if parseErr != nil || value < 1 || value > 100000000 {
-			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 100000000 的十進位整數")
+		if parseErr != nil || value < 1 || value > 100000000 && !(value == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") {
+			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 100000000；完整BANNER_RED_CLICK情境可固定120000000")
 			os.Exit(2)
 		}
 		maxSteps = value
@@ -124,14 +124,14 @@ func main() {
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
 	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
-	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || maxSteps == 100000000 && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || (maxSteps == 100000000 || maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
 		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc與50M cap，或44M Esc與100M cap；1996-01-01且無早期滑鼠事件")
 		os.Exit(2)
 	}
 
 	readyClickSetting := os.Getenv("DOSGOLEM_MOO2_MENU_READY_CLICK")
 	readyClick := readyClickSetting == "1"
-	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
+	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 && !(maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
 		fmt.Fprintln(os.Stderr, "MENU_READY_CLICK要求值1、舊點擊旗標、44M Esc、100M cap、1996-01-01、SEPARATE_DOS=1與frame prefix")
 		os.Exit(2)
 	}
@@ -156,6 +156,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, "RULER_NAME_ACCEPT_CLICK要求值1與完整RACE_HUMANS_CLICK固定情境")
 		os.Exit(2)
 	}
+
+	// 339 BEGIN parse
+	bannerRedSetting := os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK")
+	bannerRed := bannerRedSetting == "1"
+	if bannerRedSetting != "" && (!bannerRed || !rulerAccept) {
+		fmt.Fprintln(os.Stderr, "BANNER_RED_CLICK要求值1與完整RULER_NAME_ACCEPT_CLICK固定情境")
+		os.Exit(2)
+	}
+	bannerPressed, bannerReleased, bannerStoreSeen := false, false, false
+	var bannerPressMicros, bannerPressStarted uint64
+	bannerPolled := false
+	// 339 END parse
 
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
@@ -446,6 +458,17 @@ func main() {
 			oldSelector, oldOffset := services.MouseCallbackTarget()
 			oldMask, oldPending, oldActive, oldStarted, oldCompleted := services.MouseCallbackState()
 			handled := services.Handle(c, number)
+			// 339 BEGIN poll
+			if bannerRed && bannerPressed && !bannerReleased && !bannerPolled && handled && uint16(beforeR[cpu386.EAX]) == 3 && c.EIP-2 == 0x24c31b && !oldActive && uint16(c.R[cpu386.EBX]) == 1 && uint16(c.R[cpu386.ECX]) == 276 && uint16(c.R[cpu386.EDX]) == 190 {
+				bannerPolled = true
+				micros := uint64(0)
+				if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok && ports.BIOSClock != nil {
+					micros = ports.BIOSClock.Micros
+				}
+				fmt.Printf("banner_red_pressed_poll outer_step=%d address_space=dosgolem_high_le callsite=%X virtual_micros=%d before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X callback_active=%t handled=%t\n", loopStep, c.EIP-2, micros, beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, oldActive, handled)
+			}
+			// 339 END poll
+
 			if uint16(beforeR[cpu386.EAX]) == 0x14 && mouseExchangeSamples < 3 {
 				mouseExchangeSamples++
 				mouseExchangeSteps = 5
@@ -585,6 +608,16 @@ func main() {
 	var scasWordSource []byte
 
 	// 規格336：80M原17筆表與設定頁一致後，一次正常ACCEPT輸入。
+
+	// 339 BEGIN state
+	// 規格339：99M原旗幟頁／十筆表一致後，一次正常紅色選擇。
+	defer func() {
+		if bannerRed {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("banner_red_terminal pressed=%t released=%t store_seen=%t mask=%X pending=%d active=%t started=%d completed=%d\n", bannerPressed, bannerReleased, bannerStoreSeen, mask, pending, active, started, completed)
+		}
+	}()
+	// 339 END state
 
 	// 規格338：95M原名稱頁／三筆表與候選bytes一致後，一次正常ACCEPT輸入。
 	rulerPressed, rulerReleased, rulerStoreSeen := false, false, false
@@ -764,7 +797,7 @@ func main() {
 
 	// 規格336唯讀診斷：設定頁原表三時點，不沿舊caller框架猜測。
 	dumpSetupTable := func(step int) {
-		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 {
+		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 && !(bannerRed && maxSteps == 120000000 && step == 120000000) {
 			return
 		}
 		c := m.CPU
@@ -958,7 +991,7 @@ func main() {
 	}
 
 	dumpExtendedProgress := func(step int) {
-		if maxSteps != 100000000 || phasePrefix == "" || !newGameClick || !newGameReleased || step < 50000000 || step > maxSteps || step%10000000 != 0 {
+		if maxSteps != 100000000 && !(bannerRed && maxSteps == 120000000) || phasePrefix == "" || !newGameClick || !newGameReleased || step < 50000000 || step > maxSteps || step%10000000 != 0 {
 			return
 		}
 		c := m.CPU
@@ -1246,6 +1279,53 @@ func main() {
 				}
 			}
 		}
+		// 339 BEGIN input
+		if bannerRed && (!bannerPressed && i == 99000000 || bannerPressed && !bannerReleased) {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			selector, offset := services.MouseCallbackTarget()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			available := ok && ports.BIOSClock != nil && m.CPU.EFlags&cpu386.IF != 0 && pending == 0 && !active && !irqActive && !irqFailed && selector == 8 && offset == 0x2136d1 && (mask == 0x2b || bannerPressed && mask == 1)
+			phase, x, buttons := "", uint16(276), uint16(1)
+			if !bannerPressed {
+				c := m.CPU
+				r, seg, eip, flags := c.R, c.Seg, c.EIP, c.EFlags
+				ramBefore := sha256.Sum256(m.Mem)
+				var globals [192]byte
+				var header [16]byte
+				var records [550]byte
+				g, h, t := false, false, false
+				var rgbHash [32]byte
+				readonly := activationPeek(func() {
+					g = peekSourceWindow(seg[cpu386.SegDS], 0x26c480, globals[:])
+					h = peekSourceWindow(seg[cpu386.SegDS], 0x29be0e, header[:])
+					t = peekSourceWindow(seg[cpu386.SegDS], 0x298848, records[:])
+					rgbHash = sha256.Sum256(m.VBERGB())
+				}) && sha256.Sum256(m.Mem) == ramBefore
+				state := m.VBEState()
+				valid := readonly && available && eip == 0x238599 && flags == 0x206 && r == [8]uint32{0x35b824, 0x47, 0x55, 9, 0x2bd9b8, 0x2bda14, 0x6abc38, 0x35b82d} && seg == [6]uint16{8, 0x188, 0x188, 0, 0x20, 0x188} && c.FPUControl == 0x127f && c.FPUStatus == 0 && c.FPUDepth == 0 && c.FPUStack == [8]float64{} && rulerPressed && rulerReleased && started == 10 && completed == 10 && irqStarted == 22553 && irqCompleted == 22553 && ports.BIOSClock.Micros == 177207342 && state.Active && state.Bank == 4 && state.StartY == 0 && state.BankSets == 1511 && state.Writes == 35010112 && state.DisplaySets == 48 && g && h && t && fmt.Sprintf("%x", sha256.Sum256(globals[:])) == "66d6e38de2de33b12053cb7686087b7e6882007822e92b2e5262980149310594" && fmt.Sprintf("%x", sha256.Sum256(header[:])) == "0943dfdc49b8bd9a5899e8155bd7b98553f3a0dfa5402eeb37ad6a41261711d9" && fmt.Sprintf("%x", sha256.Sum256(records[:])) == "978afb91aaed9e0cb37672a66352e2ae515b382d5b6f472da9238e09fb650dfb" && fmt.Sprintf("%x", rgbHash) == "8c2c573c08ebf4bce0b4e166d4268fb6fcf90f35dd27fbbb2de614b26f187f15"
+				fmt.Printf("banner_red_precondition outer_step=%d address_space=dosgolem_high_le ds=%X globals=%X header=%X records=%X table_pointer=298848 table_count=10 table_stride=55 table_readable=%t rgb_sha256=%x readonly=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d eip=%X r=%X seg=%X flags=%X valid=%t\n", i, seg[cpu386.SegDS], globals, header, records, g && h && t, rgbHash, readonly, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, eip, r, seg, flags, valid)
+				if !valid {
+					panic("旗幟紅色點擊的原表或輸入條件不符")
+				}
+				phase = "press"
+			} else if available && bannerPolled && completed >= bannerPressStarted+1 && ports.BIOSClock.Micros >= bannerPressMicros+20000 {
+				phase, x, buttons = "release", 278, 0
+			}
+			if phase != "" {
+				if err := services.InjectMouseEvent(x, 190, buttons, 0, 0); err != nil {
+					panic(err)
+				}
+				fmt.Printf("banner_red_mouse_input phase=%s outer_step=%d virtual_micros=%d x=%d y=190 buttons=%d delta=0/0 mask=%X target=%X:%X started=%d completed=%d eip=%X r=%X seg=%X flags=%X\n", phase, i, ports.BIOSClock.Micros, x, buttons, mask, selector, offset, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+				if phase == "press" {
+					bannerPressed, bannerPressMicros, bannerPressStarted = true, ports.BIOSClock.Micros, started
+				} else {
+					bannerReleased = true
+				}
+			}
+		}
+		// 339 END input
+
 		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
 			dumpPlatform("sample", i)
 		}
@@ -1711,6 +1791,21 @@ func main() {
 			scasWordReadonly = m.CPU.R == r && m.CPU.Seg == seg && m.CPU.EIP == eip && m.CPU.EFlags == flags && m.CPU.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
 		}
 
+		// 339 BEGIN store_pre
+
+		observeBannerStore := bannerRed && bannerPressed && !bannerStoreSeen && m.CPU.EIP == 0x20dddb
+		bannerBeforeR, bannerBeforeSeg, bannerBeforeEIP, bannerBeforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var bannerBeforeWord [2]byte
+		var bannerBytes [16]byte
+		bannerWordReadable := false
+		if observeBannerStore {
+			bannerWordReadable = peekSourceWindow(bannerBeforeSeg[cpu386.SegDS], 0x26c4a6, bannerBeforeWord[:])
+			if uint64(bannerBeforeEIP)+16 <= uint64(len(m.Mem)) {
+				copy(bannerBytes[:], m.Mem[bannerBeforeEIP:bannerBeforeEIP+16])
+			}
+		}
+		// 339 END store_pre
+
 		observeRulerStore := rulerAccept && rulerPressed && !rulerStoreSeen && m.CPU.EIP == 0x20dddb
 		rulerBeforeR, rulerBeforeSeg, rulerBeforeEIP, rulerBeforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
 		var rulerBeforeWord [2]byte
@@ -1835,6 +1930,18 @@ func main() {
 				scasWordBudget = 0
 			}
 		}
+
+		// 339 BEGIN store_post
+
+		if observeBannerStore {
+			bannerStoreSeen = true
+			var afterWord [2]byte
+			afterReadable := peekSourceWindow(bannerBeforeSeg[cpu386.SegDS], 0x26c4a6, afterWord[:])
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("banner_red_selected_store outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=26C4A6 before_readable=%t after_readable=%t before_word=%X after_word=%X callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d error=%v\n", i, bannerBeforeEIP, m.CPU.EIP, bannerBeforeR, m.CPU.R, bannerBeforeSeg, m.CPU.Seg, bannerBeforeFlags, m.CPU.EFlags, bannerBytes, bannerBeforeSeg[cpu386.SegDS], bannerWordReadable, afterReadable, bannerBeforeWord, afterWord, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, stepErr)
+		}
+		// 339 END store_post
 
 		if observeRulerStore {
 			rulerStoreSeen = true

@@ -51,6 +51,25 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+
+def validate_banner_red_input_resolution(spec_dir):
+    """339限於原旗幟表、原pressed查詢與正常放開；原選色消費仍未知。"""
+    name = '339-moo2-banner-red-normal-click.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原旗幟表／正常按鍵查詢與放開／選色消費未完成","全部7874原ruler列與30PNG","7708原列","全部28既有PNG","99083819","99083854","245291微秒","callback12／12","120M仍旗幟頁","22無效值","共享20DDDB未命中","持久旗色writer仍未知","選色消費與下一頁仍未證實","未改CPU／平台","120M僅明示旗標","7837原100M前列","24C31B","d131475620cda95f77a6c9846dc7a494a5a60bae778196c6ea49555a79b5d4f3","9505df160613d748632e9e43a7e47e73945e9ed56948a9e66f951fbd9ed49965","3f1e74f87087527db0dab08a7ae877015f021bf26b098c18e7d067c52a64d93c","fdcfce7eb7a39bfa24641a15309ec035208efa205c394173c5cdde37e5e6ec11","978afb91aaed9e0cb37672a66352e2ae515b382d5b6f472da9238e09fb650dfb"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('339缺原表、原pressed查詢、正常放開、限定驗收、負收據或選色未知邊界')
+    older = (spec_dir / '338-moo2-ruler-name-normal-confirmation.md').read_text()
+    if name not in older or '旗幟正常裝置輸入與按鍵查詢已由規格339接通' not in older:
+        raise RuntimeError('338缺旗幟正常輸入回填及選色消費未知邊界')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('339缺公開索引入口')
+
+if sys.argv[1:] == ['--check-banner-red-input-spec-backlinks']:
+    validate_banner_red_input_resolution(spec_dir)
+    print('原旗幟表／pressed查詢／正常放開／選色消費未知／338回填通過')
+    raise SystemExit(0)
+
 def validate_ready_menu_click_resolution(spec_dir):
     """334正常選單輸入、實際選擇與新CPU拒絕不能混稱完成。"""
     name = '334-moo2-ready-menu-normal-click.md'
