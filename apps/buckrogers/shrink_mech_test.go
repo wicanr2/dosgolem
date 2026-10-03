@@ -307,7 +307,7 @@ func TestShrinkInjectedTable(t *testing.T) {
 // A level the page's table lacks draws nothing and writes no slot (the current
 // behaviour, spec 056 §3.6): the unit is not drawn and the slots stay blank.
 func TestShrinkMissingLevelDrawsNothing(t *testing.T) {
-	for _, lang := range []string{"", LangJa} {
+	for _, lang := range []string{"", LangJa, LangKo} {
 		p := shrinkPageLang(lang, EclTextLine{Row: 0, Col: 2, Text: []rune("中AB"), Shrink: 3})
 		txt, units := eclRowTextShrink(p, 0, 0)
 		if len(units) != 0 || strings.ContainsAny(string(txt), "中AB") {
