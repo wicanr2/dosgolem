@@ -28,9 +28,11 @@ type TextEvent struct {
 	Col     int
 	Row     int
 	Text    []byte
-	Format  []byte // 格式字串（原版傳進來的，未代入）
-	Caller  uint16 // 近呼叫的返回位址（映像偏移）
-	Overlay string // 呼叫端在 overlay 程式碼時，目前載入的 overlay 名稱；否則空字串
+	Format  []byte   // 格式字串（原版傳進來的，未代入）
+	FmtPtr  uint16   // 格式字串指標（DGROUP 偏移）
+	Args    []uint16 // 格式字串之後的 8 個堆疊字組（可變引數的原始值，語意由格式字串決定）
+	Caller  uint16   // 近呼叫的返回位址（映像偏移）
+	Overlay string   // 呼叫端在 overlay 程式碼時，目前載入的 overlay 名稱；否則空字串
 }
 
 // ImageSeg 回最後一支已載入程式的映像段（PSP + 10h）。還沒有任何程式載入時回 0。
@@ -73,7 +75,11 @@ func Capture(o *oracle.Oracle, img uint16, fn func(TextEvent)) {
 			Row:    int(w(6)),
 			Text:   cstr(o, dg, DSTextBuf, MaxTextChars),
 			Format: cstr(o, dg, w(8), 64),
+			FmtPtr: w(8),
 			Caller: caller,
+		}
+		for i := uint16(0); i < 8; i++ {
+			ev.Args = append(ev.Args, w(10+2*i))
 		}
 		if caller >= OverlayCodeStart {
 			ev.Overlay = overlay
@@ -150,4 +156,28 @@ func CaptureOps(o *oracle.Oracle, img uint16, fn func(OpEvent)) {
 			fn(ev)
 		})
 	}
+}
+
+// OffInt86 是 `int86(intno, inregs, outregs)` 包裝函式的入口（映像偏移，近呼叫，C 慣例）。
+// 原版所有 BIOS 與 DOS 軟體中斷都經過它；引數是 `union REGS` 的 DGROUP 指標，
+// 欄位依序為 ax、bx、cx、dx、si、di、ds、es（各 2 bytes）。
+const OffInt86 = 0x4E60
+
+// Int86Event 是一次 int86 呼叫（入口時的輸入暫存器）。
+type Int86Event struct {
+	Step           uint64
+	Caller         uint16
+	IntNo          uint8
+	AX, BX, CX, DX uint16
+}
+
+// CaptureInt86 在 int86 入口掛唯讀 hook，回報中斷號與輸入暫存器。
+func CaptureInt86(o *oracle.Oracle, img uint16, fn func(Int86Event)) {
+	o.OnCall(oracle.Far(img, OffInt86), func(o *oracle.Oracle) {
+		ds := o.DSReg()
+		in := o.StackWord(2)
+		w := func(off uint16) uint16 { return o.Word(oracle.Far(ds, in+off)) }
+		fn(Int86Event{Step: o.Steps(), Caller: o.StackWord(0), IntNo: uint8(o.StackWord(1)),
+			AX: w(0), BX: w(2), CX: w(4), DX: w(6)})
+	})
 }

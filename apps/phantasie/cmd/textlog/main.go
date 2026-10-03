@@ -47,9 +47,13 @@ func main() {
 	steps := flag.Uint64("steps", 30_000_000, "跑到第幾道指令（絕對步數）")
 	pngPath := flag.String("png", "", "結束時把畫面存成 PNG（CGA 模式 4）")
 	pal := flag.String("palette", "1h", "PNG 用的 CGA 調色盤：0、0h、1、1h")
+	pages := flag.Bool("pages", false, "結束時印出頁面緩衝區變數 DS:5BAA、5BAC、5BAE 與 INT 61h 向量")
+	int10 := flag.Bool("int10", false, "記錄 INT 10h 呼叫（int86 入口的輸入暫存器）")
 	vram := flag.Bool("vram-callers", false, "統計寫視訊記憶體的呼叫端（映像偏移）")
 	ops := flag.Bool("ops", false, "記錄畫面常式的呼叫（反白、整頁存取、視窗…）")
 	keys := flag.String("keys", "", "送鍵：步數:鍵名[,...]，鍵名見 oracle.SendKeys（Return、Down、Esc…）")
+	route := flag.String("route", "", "按鍵路線檔：以空白分隔的鍵名，每次讀鍵送一個（單一字元走字元鍵）；與 -keys 並用時先送路線")
+	args := flag.Bool("args", false, "每筆繪字附上 8 個格式字串之後的堆疊字組")
 	flag.Parse()
 	if *root == "" {
 		flag.Usage()
@@ -86,6 +90,13 @@ func main() {
 			fmt.Printf("O step=%d %s caller=%04X args=%04X\n", e.Step, e.Name, e.Caller, e.Args)
 		})
 	}
+	if *int10 {
+		phantasie.CaptureInt86(o, img, func(e phantasie.Int86Event) {
+			if e.IntNo == 0x10 {
+				fmt.Printf("B step=%d caller=%04X int10 ax=%04X bx=%04X cx=%04X dx=%04X\n", e.Step, e.Caller, e.AX, e.BX, e.CX, e.DX)
+			}
+		})
+	}
 	callers := map[uint16][2]int{}
 	if *vram {
 		phantasie.CaptureVideoWrites(o, img, func(w phantasie.VideoWrite) {
@@ -95,6 +106,21 @@ func main() {
 			callers[w.Caller] = c
 		})
 	}
+	if *route != "" {
+		b, err := os.ReadFile(*route)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if i := strings.Index(line, "#"); i >= 0 {
+				line = line[:i]
+			}
+			for _, tok := range strings.Fields(line) {
+				gate.Press(0, tok)
+			}
+		}
+	}
 	for _, k := range ks {
 		gate.Press(k.step, k.name)
 	}
@@ -103,12 +129,23 @@ func main() {
 		if ov == "" {
 			ov = "-"
 		}
+		if *args {
+			fmt.Printf("T step=%d r=%d c=%d caller=%04X ov=%s fmtptr=%04X fmt=%q text=%q args=%04X\n", e.Step, e.Row, e.Col, e.Caller, ov, e.FmtPtr, e.Format, e.Text, e.Args)
+			return
+		}
 		fmt.Printf("T step=%d r=%d c=%d caller=%04X ov=%s fmt=%q text=%q\n", e.Step, e.Row, e.Col, e.Caller, ov, e.Format, e.Text)
 	})
 	if err := o.RunUntil(atLeast(*steps), oracle.Budget(*steps)); err != nil {
 		fmt.Fprintln(os.Stderr, "收尾：", err)
 	}
 	fmt.Printf("# 結束於步 %d，鍵閘已送 %d、尚餘 %d，BIOS 鍵盤佇列待讀 %d、已讀 %d\n", o.Steps(), gate.Gated, gate.Pending(), o.KeysPending(), o.KeysConsumed())
+	if *pages {
+		dg := img + phantasie.DGroupParas
+		for _, off := range []uint16{0x5BAA, 0x5BAC, 0x5BAE} {
+			fmt.Printf("# DS:%04X = %04X\n", off, o.Word(oracle.Far(dg, off)))
+		}
+		fmt.Printf("# IVT 61h = %04X:%04X\n", o.Word(oracle.Far(0, 0x61*4+2)), o.Word(oracle.Far(0, 0x61*4)))
+	}
 	fmt.Printf("# 開過的檔：%s\n", strings.Join(o.Opened(), " "))
 	if *vram {
 		var ks []int

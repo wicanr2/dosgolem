@@ -51,5 +51,12 @@ func (g *KeyGate) fire() {
 	g.pending = g.pending[1:]
 	if err := g.o.SendKeys(k.name); err == nil {
 		g.Gated++
+		return
+	}
+	// 有名字的鍵之外，單一可列印字元（字母、數字）走 TypeKeys。
+	if r := []rune(k.name); len(r) == 1 {
+		if err := g.o.TypeKeys(k.name); err == nil {
+			g.Gated++
+		}
 	}
 }
