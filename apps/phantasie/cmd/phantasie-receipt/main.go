@@ -147,7 +147,24 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, fmt.Errorf("語言 %s 無法載入：%s", lang, l.Err)
 		}
 		ov.AddLanguage(l)
+		// 路線的 @lang 用到的語言自動載入。
+		need := map[string]bool{}
 		for _, name := range op.extra {
+			need[name] = true
+		}
+		for _, st := range op.steps {
+			if st.Kind == phantasie.RouteLang {
+				need[st.Name] = true
+			}
+		}
+		delete(need, lang)
+		delete(need, "en")
+		var extras []string
+		for name := range need {
+			extras = append(extras, name)
+		}
+		sort.Strings(extras)
+		for _, name := range extras {
 			x := phantasie.LoadLanguage(name, op.textDir, op.fontDir)
 			if !x.Enabled {
 				return false, fmt.Errorf("語言 %s 無法載入：%s", name, x.Err)
