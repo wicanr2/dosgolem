@@ -79,6 +79,58 @@ func argmax(h *[256]int) int {
 	return bi
 }
 
+// majorityPair 對事件的每個原版格各自求 (底, 墨) 色號配對（遮罩為 0 與非 0 的像素各取最多數的色號），
+// 回出現最多的配對（同數取最左格者）。底與墨同色或沒有墨像素的格不計。最多數配對與其對調配對（反白狀態）
+// 合計要涵蓋至少一半有墨的格，否則視為沒有可靠的組色（例如整組幾乎同一色，只有個別格有雜訊）。
+// scan 對每個像素呼叫一次 g。
+func majorityPair(n int, scan func(g func(k int, m, c uint8))) (bg, fg uint8, ok bool) {
+	type hist struct {
+		bg, fg   [256]int
+		nbg, nfg int
+	}
+	hs := make([]hist, n)
+	scan(func(k int, m, c uint8) {
+		if k < 0 || k >= n {
+			return
+		}
+		if m == 0 {
+			hs[k].bg[c]++
+			hs[k].nbg++
+		} else {
+			hs[k].fg[c]++
+			hs[k].nfg++
+		}
+	})
+	count := map[[2]uint8]int{}
+	var order [][2]uint8
+	inked := 0
+	for k := range hs {
+		if hs[k].nbg == 0 || hs[k].nfg == 0 {
+			continue
+		}
+		inked++
+		p := [2]uint8{uint8(argmax(&hs[k].bg)), uint8(argmax(&hs[k].fg))}
+		if p[0] == p[1] {
+			continue
+		}
+		if count[p] == 0 {
+			order = append(order, p)
+		}
+		count[p]++
+	}
+	best := 0
+	var bp [2]uint8
+	for _, p := range order {
+		if count[p] > best {
+			best, bp = count[p], p
+		}
+	}
+	if best == 0 || 2*(best+count[[2]uint8{bp[1], bp[0]}]) < inked {
+		return 0, 0, false
+	}
+	return bp[0], bp[1], true
+}
+
 // MaxBusyFrames 是 Frame 因畫面操作進行中而連續延後的上限。
 const MaxBusyFrames = 600
 
@@ -95,30 +147,37 @@ func (o *Overlay) Frame(indexed, rgb []uint8) {
 		o.C.Inc("frame_busy_forced")
 	}
 	o.busyFrames = 0
-	var pend []*xlate.Stamp
-	for _, s := range o.Layer.Stamps {
-		if s.State == xlate.Pending {
-			pend = append(pend, s)
+	// recolor 把橫跨不同反白狀態的疊字切開時，新疊字是 Pending，同一幀內再跑一輪讓它們定色（最多 3 輪）。
+	for round := 0; round < 3; round++ {
+		o.resplit = false
+		var pend []*xlate.Stamp
+		for _, s := range o.Layer.Stamps {
+			if s.State == xlate.Pending {
+				pend = append(pend, s)
+			}
 		}
-	}
-	o.Layer.Frame(indexed, rgb)
-	seen := map[string]bool{}
-	gated := map[string]bool{}
-	var keys []string
-	for _, s := range pend {
-		if s.State != xlate.Shown {
-			continue
+		o.Layer.Frame(indexed, rgb)
+		seen := map[string]bool{}
+		gated := map[string]bool{}
+		var keys []string
+		for _, s := range pend {
+			if s.State != xlate.Shown {
+				continue
+			}
+			if _, ok := o.gate[s]; ok {
+				gated[s.Key] = true
+			}
+			if !seen[s.Key] {
+				seen[s.Key] = true
+				keys = append(keys, s.Key)
+			}
 		}
-		if _, ok := o.gate[s]; ok {
-			gated[s.Key] = true
+		for _, key := range keys {
+			o.recolor(key, indexed, rgb, gated[key])
 		}
-		if !seen[s.Key] {
-			seen[s.Key] = true
-			keys = append(keys, s.Key)
+		if !o.resplit {
+			break
 		}
-	}
-	for _, key := range keys {
-		o.recolor(key, indexed, rgb, gated[key])
 	}
 	if len(o.gate) > 0 {
 		o.gate = map[*xlate.Stamp]struct{}{}
@@ -150,18 +209,30 @@ func (o *Overlay) recolor(key string, indexed, rgb []uint8, gated bool) {
 	}
 	bgIdx, fgIdx := uint8(argmax(&bgH)), uint8(argmax(&fgH))
 	if bgIdx == fgIdx {
-		if gated {
-			total, same := nbg+nfg, bgH[bgIdx]+fgH[bgIdx]
-			if 10*same >= 9*total {
-				o.removeGroup(key)
-				o.C.Inc("inconsistent_groups")
-				return
+		// 整組取最多數時底與墨同色：事件內有一部分格被反白（兩種狀態的像素數接近）時會發生。
+		// 改取各格自己的 (底, 墨) 配對中最多的一組當組色。
+		b, f, ok := majorityPair(len(rec.Cells), func(g func(k int, m, c uint8)) {
+			o.scanGroup(rec, stamps, indexed, func(k int, m, c uint8, _, _ int) { g(k, m, c) })
+		})
+		if !ok {
+			if gated {
+				total, same := nbg+nfg, bgH[bgIdx]+fgH[bgIdx]
+				if 10*same >= 9*total {
+					o.removeGroup(key)
+					o.C.Inc("inconsistent_groups")
+					return
+				}
 			}
+			o.C.Inc("recolor_fallback")
+			return
 		}
-		o.C.Inc("recolor_fallback")
+		bgIdx, fgIdx = b, f
+	}
+	cells := o.scanCells(rec, stamps, indexed, bgIdx, fgIdx)
+	if gated && o.gateGroup(key, rec, stamps, cells) {
 		return
 	}
-	if gated && o.gateGroup(key, rec, stamps, indexed, bgIdx, fgIdx) {
+	if o.splitByState(key, rec, stamps, cells) {
 		return
 	}
 	var bg, fg [3]uint8
@@ -180,34 +251,183 @@ func (o *Overlay) recolor(key string, indexed, rgb []uint8, gated bool) {
 		return
 	}
 	for _, s := range stamps {
-		s.BG, s.FG = bg, fg
+		if stampSwap(rec, cells, s) {
+			s.BG, s.FG = fg, bg
+		} else {
+			s.BG, s.FG = bg, fg
+		}
 	}
 }
 
 type cellStat struct {
 	n, match, ink, inkKeep int
 	color                  [256]int
+	// 原始計數：add 累計，finish 之後得到 swap、match、inkKeep。
+	bg0, bgF, inkFG, inkBG int
+	swap                   bool
+}
+
+// add 累計一個像素。bgIdx、fgIdx 是事件組的背景與前景色號。
+func (cs *cellStat) add(m, c, bgIdx, fgIdx uint8) {
+	cs.n++
+	cs.color[c]++
+	if m == 0 {
+		if c == bgIdx {
+			cs.bg0++
+		} else if c == fgIdx {
+			cs.bgF++
+		}
+		return
+	}
+	cs.ink++
+	if c == fgIdx {
+		cs.inkFG++
+	} else if c == bgIdx {
+		cs.inkBG++
+	}
+}
+
+// finish 判定這一格是否被反白：遮罩為 0 的像素多數是組前景色，且墨像素多數是組背景色，就是與組色相反的狀態
+// （原版對一段文字做 invert，同一事件可以只反白其中幾格）。底與墨都是前景色的格（純色填滿）不算反白。
+// 反白格以對調後的底色與墨色計 match 與 inkKeep。
+func (cs *cellStat) finish() {
+	cs.swap = cs.bgF > cs.bg0 && cs.inkBG >= cs.inkFG
+	if cs.swap {
+		cs.match, cs.inkKeep = cs.bgF+cs.inkBG, cs.inkBG
+	} else {
+		cs.match, cs.inkKeep = cs.bg0+cs.inkFG, cs.inkFG
+	}
+}
+
+// scanCells 以組色統計事件組每個原版格，並判定各格的反白狀態。
+func (o *Overlay) scanCells(rec *EventRecord, stamps []*xlate.Stamp, indexed []uint8, bgIdx, fgIdx uint8) []cellStat {
+	cells := make([]cellStat, len(rec.Cells))
+	o.scanGroup(rec, stamps, indexed, func(k int, m, c uint8, _, _ int) { cells[k].add(m, c, bgIdx, fgIdx) })
+	for k := range cells {
+		cells[k].finish()
+	}
+	return cells
+}
+
+// cellOf 回疊字第 i 格所屬的原版格序號（以該格左緣計，夾在事件範圍內）。
+func cellOf(rec *EventRecord, s *xlate.Stamp, i int) int {
+	k := (s.X + i*s.CellW - rec.Col*8) / 8
+	if s.X+i*s.CellW < rec.Col*8 || k < 0 {
+		k = 0
+	}
+	if k >= len(rec.Cells) {
+		k = len(rec.Cells) - 1
+	}
+	return k
+}
+
+// stampSwap 回疊字是否整片處於反白狀態（非透明格多數）。疊字已依狀態切開時，各格狀態一致。
+func stampSwap(rec *EventRecord, cells []cellStat, s *xlate.Stamp) bool {
+	sw, n := 0, 0
+	for i := 0; i < s.Cells; i++ {
+		if i < len(s.Transparent) && s.Transparent[i] {
+			continue
+		}
+		n++
+		if cells[cellOf(rec, s, i)].swap {
+			sw++
+		}
+	}
+	return 2*sw > n
+}
+
+// splitByState 把橫跨不同反白狀態的疊字依狀態切開（001 §8 的逐格狀態）。有切開就以新疊字（Pending）取代原疊字
+// 並回 true，Frame 會立刻再跑一輪定色。透明格沿用前一格的狀態，不另外切。
+// 只切沒有實體像素路徑、Text 與格一一對應的疊字；其他情形不切（整片以多數狀態定色）。
+func (o *Overlay) splitByState(key string, rec *EventRecord, stamps []*xlate.Stamp, cells []cellStat) bool {
+	type piece struct{ a, b int }
+	split := false
+	repl := map[*xlate.Stamp][]*xlate.Stamp{}
+	for _, s := range stamps {
+		if s.PixelScale != 0 || len(s.PixelGlyphs) > 0 || len(s.Text) != s.Cells || s.Cells < 2 {
+			continue
+		}
+		// 每格狀態：透明格沿用前一個非透明格，前導的透明格沿用第一個非透明格。
+		st := make([]bool, s.Cells)
+		known := make([]bool, s.Cells)
+		for i := range st {
+			if !(i < len(s.Transparent) && s.Transparent[i]) {
+				st[i], known[i] = cells[cellOf(rec, s, i)].swap, true
+			}
+		}
+		first := -1
+		for i := range known {
+			if known[i] {
+				first = i
+				break
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		for i := 0; i < first; i++ {
+			st[i] = st[first]
+		}
+		for i := first + 1; i < s.Cells; i++ {
+			if !known[i] {
+				st[i] = st[i-1]
+			}
+		}
+		ps := []piece{{0, 1}}
+		for i := 1; i < s.Cells; i++ {
+			if st[i] != st[i-1] {
+				ps = append(ps, piece{i, i + 1})
+			} else {
+				ps[len(ps)-1].b = i + 1
+			}
+		}
+		if len(ps) < 2 {
+			continue
+		}
+		split = true
+		var news []*xlate.Stamp
+		for _, p := range ps {
+			ns := &xlate.Stamp{
+				Key: s.Key, Owner: s.Owner, X: s.X + p.a*s.CellW, Y: s.Y, Cells: p.b - p.a, CellW: s.CellW, CellH: s.CellH,
+				Font: s.Font, GlyphX: s.GlyphX, GlyphY: s.GlyphY, GlyphScale: s.GlyphScale,
+				Text: append([]rune(nil), s.Text[p.a:p.b]...), SwapColors: s.SwapColors, State: xlate.Pending,
+			}
+			if len(s.Transparent) > p.a {
+				hi := p.b
+				if hi > len(s.Transparent) {
+					hi = len(s.Transparent)
+				}
+				ns.Transparent = make([]bool, ns.Cells)
+				copy(ns.Transparent, s.Transparent[p.a:hi])
+			}
+			if _, ok := o.gate[s]; ok {
+				o.gate[ns] = struct{}{}
+			}
+			news = append(news, ns)
+		}
+		repl[s] = news
+	}
+	if !split {
+		return false
+	}
+	out := make([]*xlate.Stamp, 0, len(o.Layer.Stamps)+2)
+	for _, s := range o.Layer.Stamps {
+		if news, ok := repl[s]; ok {
+			out = append(out, news...)
+			delete(o.gate, s)
+			continue
+		}
+		out = append(out, s)
+	}
+	o.Layer.Stamps = out
+	o.C.Inc("recolor_split")
+	o.resplit = true
+	return true
 }
 
 // gateGroup 是有效性閘門（001 §8 步驟 3）：以原版格為單位檢查畫面是否仍是該原文的字模畫出的結果，
-// 不一致的格標 Transparent。回傳 true 表示整組已被移除。
-func (o *Overlay) gateGroup(key string, rec *EventRecord, stamps []*xlate.Stamp, indexed []uint8, bgIdx, fgIdx uint8) bool {
-	cells := make([]cellStat, len(rec.Cells))
-	o.scanGroup(rec, stamps, indexed, func(k int, m, c uint8, _, _ int) {
-		cs := &cells[k]
-		cs.n++
-		cs.color[c]++
-		if m == 0 && c == bgIdx {
-			cs.match++
-		}
-		if m != 0 {
-			cs.ink++
-			if c == fgIdx {
-				cs.match++
-				cs.inkKeep++
-			}
-		}
-	})
+// 不一致的格標 Transparent。cells 是 scanCells 的結果（反白格以對調色計）。回傳 true 表示整組已被移除。
+func (o *Overlay) gateGroup(key string, rec *EventRecord, stamps []*xlate.Stamp, cells []cellStat) bool {
 	var bad []int
 	for k := range cells {
 		cs := &cells[k]

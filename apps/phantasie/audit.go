@@ -106,34 +106,26 @@ func (o *Overlay) AuditStale(indexed []uint8) int {
 			continue
 		}
 		if bgIdx == fgIdx {
-			total, same := m.nbg+m.nfg, m.bg[bgIdx]+m.fg[fgIdx]
-			if 10*same >= 9*total {
-				for _, s := range stamps {
-					for i := 0; i < s.Cells; i++ {
-						if i >= len(s.Transparent) || !s.Transparent[i] {
-							stale++
+			// 事件內一部分格被反白時整組取最多數會底墨同色：改取各格 (底, 墨) 配對的多數（與 recolor 同一規則）。
+			if b, f, ok := majorityPair(len(rec.Cells), func(g func(k int, m, c uint8)) {
+				o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) { g(k, mk, c) })
+			}); ok {
+				bgIdx, fgIdx = b, f
+			} else {
+				total, same := m.nbg+m.nfg, m.bg[bgIdx]+m.fg[fgIdx]
+				if 10*same >= 9*total {
+					for _, s := range stamps {
+						for i := 0; i < s.Cells; i++ {
+							if i >= len(s.Transparent) || !s.Transparent[i] {
+								stale++
+							}
 						}
 					}
 				}
+				continue
 			}
-			continue
 		}
-		cells := make([]cellStat, len(rec.Cells))
-		o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) {
-			cs := &cells[k]
-			cs.n++
-			cs.color[c]++
-			if mk == 0 && c == bgIdx {
-				cs.match++
-			}
-			if mk != 0 {
-				cs.ink++
-				if c == fgIdx {
-					cs.match++
-					cs.inkKeep++
-				}
-			}
-		})
+		cells := o.scanCells(rec, stamps, indexed, bgIdx, fgIdx)
 		for k := range cells {
 			if cells[k].n < gateMinPixels {
 				continue
@@ -213,28 +205,29 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 			}
 		})
 		bgIdx, fgIdx, ok := m.modes()
+		if ok && bgIdx == fgIdx {
+			if b, f, ok2 := majorityPair(len(cells), func(g func(k int, m, c uint8)) {
+				o.scanRect(e.Col, y0, cells, indexed, func(k int, mk, c uint8) {
+					if !skip[k] {
+						g(k, mk, c)
+					}
+				})
+			}); ok2 {
+				bgIdx, fgIdx = b, f
+			}
+		}
 		if !ok || bgIdx == fgIdx {
 			continue
 		}
 		stats := make([]cellStat, len(cells))
 		o.scanRect(e.Col, y0, cells, indexed, func(k int, mk, c uint8) {
-			if skip[k] {
-				return
-			}
-			cs := &stats[k]
-			cs.n++
-			cs.color[c]++
-			if mk == 0 && c == bgIdx {
-				cs.match++
-			}
-			if mk != 0 {
-				cs.ink++
-				if c == fgIdx {
-					cs.match++
-					cs.inkKeep++
-				}
+			if !skip[k] {
+				stats[k].add(mk, c, bgIdx, fgIdx)
 			}
 		})
+		for k := range stats {
+			stats[k].finish()
+		}
 		showing := true
 		for k := range stats {
 			if stats[k].n == 0 {
@@ -252,17 +245,27 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 		// 它的矩形現在顯示的是別的文字（字模可能是舊字模的超集或子集，例如 + 與 -），不能拿舊事件的字模去量。
 		// 只計疊字非透明格範圍內的像素（透明格是玩家輸入等不屬於疊字的格）。
 		if rec, stamps := o.records[e.ID], o.groupStamps(e.ID); rec != nil && len(stamps) > 0 {
-			var c0, c1 [256]int
-			if o.scanGroup(rec, stamps, indexed, func(_ int, mk, c uint8, _, _ int) {
-				if mk == 0 {
-					c0[c]++
-				} else {
-					c1[c]++
+			// 同一事件可以只反白其中幾格：底色與墨色依各格的反白狀態分開統計，同一狀態內才要求單一色號。
+			var c0, c1 [2][256]int
+			if o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) {
+				sw := 0
+				if k < len(stats) && stats[k].swap {
+					sw = 1
 				}
-			}) && (distinct(&c0) > 1 || distinct(&c1) > 1) {
-				strict++
-				if o.AuditDebug != nil {
-					o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 背景色數=%d 墨色數=%d", e.ID, e.Text, distinct(&c0), distinct(&c1)))
+				if mk == 0 {
+					c0[sw][c]++
+				} else {
+					c1[sw][c]++
+				}
+			}) {
+				for sw := 0; sw < 2; sw++ {
+					if distinct(&c0[sw]) > 1 || distinct(&c1[sw]) > 1 {
+						strict++
+						if o.AuditDebug != nil {
+							o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 反白=%d 背景色數=%d 墨色數=%d", e.ID, e.Text, sw, distinct(&c0[sw]), distinct(&c1[sw])))
+						}
+						break
+					}
 				}
 			}
 		}

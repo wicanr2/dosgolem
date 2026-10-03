@@ -70,6 +70,7 @@ type Overlay struct {
 	// 疊字判成與畫面不一致）。連續延後超過 MaxBusyFrames 次視為掛點異常，照常執行並計 frame_busy_forced。
 	Busy       func() bool
 	busyFrames int
+	resplit    bool // recolor 本輪切開了疊字，Frame 要再跑一輪
 
 	langs      map[string]*Language
 	langOrder  []string

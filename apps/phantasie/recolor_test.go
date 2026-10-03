@@ -758,9 +758,24 @@ func TestGateKeepsMixedInvertedGroup(t *testing.T) {
 	rcPaint(idx, 16, 24, "H", 3, 0) // 第 0 格正常：墨 3 底 0
 	rcPaint(idx, 24, 24, "H", 0, 3) // 第 1 格反白：墨 0 底 3
 	rcFrame(o, idx)
-	// 底：色號 0 與 3 各 28，取 0；前景：3 與 0 各 36，取 0。bgIdx = fgIdx = 0，同色號 (28+36)/128 = 50%。
-	rcEq(t, "混合的組不移除", rcViews(o), []string{"g1 X16 Y24 2x8 [甲乙] S"})
-	rcCount(t, o, "recolor_fallback", 1)
+	// 底：色號 0 與 3 各 28，取 0；前景：3 與 0 各 36，取 0。整組取最多數時 bgIdx = fgIdx = 0，
+	// 改取各格的 (底, 墨) 配對：(0, 3) 與 (3, 0) 各一格，同數取最左格者為組色，第 1 格是反白狀態。
+	// 兩格狀態不同，疊字切成兩片各自定色；組不移除、不退回 xlate 的色。
+	rcEq(t, "混合的組不移除，依狀態切開", rcViews(o), []string{
+		"g1 X16 Y24 1x8 [甲] S",
+		"g1 X24 Y24 1x8 [乙] S",
+	})
+	if len(o.Layer.Stamps) != 2 {
+		t.Fatalf("疊字有 %d 片，要 2", len(o.Layer.Stamps))
+	}
+	if s := o.Layer.Stamps[0]; s.BG != rcPal[0] || s.FG != rcPal[3] {
+		t.Errorf("正常片 BG %v FG %v，要 BG 黑 FG 白", s.BG, s.FG)
+	}
+	if s := o.Layer.Stamps[1]; s.BG != rcPal[3] || s.FG != rcPal[0] {
+		t.Errorf("反白片 BG %v FG %v，要 BG 白 FG 黑", s.BG, s.FG)
+	}
+	rcCount(t, o, "recolor_split", 1)
+	rcCount(t, o, "recolor_fallback", 0)
 	rcCount(t, o, "inconsistent_groups", 0)
 	rcCount(t, o, "inconsistent_cells", 0)
 }
@@ -940,4 +955,69 @@ func TestGateMinPixelsBoundary(t *testing.T) {
 		rcEq(t, fmt.Sprintf("半格可見 %d 條掃描線（%d 個像素）", c.rows, 4*c.rows), rcViews(o), []string{want})
 		rcCount(t, o, "inconsistent_cells", cells)
 	}
+}
+
+// ---- 事件只有一部分被反白 ----
+
+// 原版以 invert 只反白一個事件的前幾格（例如旅店分配畫面的名字與職業，同一列的數字不反白）。
+// 疊字依各格反白狀態切開，各片以自己的狀態定色；稽核不把未反白的格判成殘字。
+func TestRecolorSplitsPartiallyInvertedGroup(t *testing.T) {
+	o := rcNew(t, "HHHHl", "甲乙丙丁戊")
+	rcDraw(t, o, 2, 3, "HHHHl")
+	idx := rcScreen(0)
+	rcPaint(idx, 16, 24, "HHH", 0, 3) // 第 0 至 2 格反白：墨 0 底 3
+	rcPaint(idx, 40, 24, "Hl", 3, 0)  // 第 3、4 格正常：墨 3 底 0
+	rcFrame(o, idx)
+	rcEq(t, "依狀態切開", rcViews(o), []string{
+		"g1 X16 Y24 3x8 [甲乙丙] S",
+		"g1 X40 Y24 2x8 [丁戊] S",
+	})
+	rcCount(t, o, "recolor_split", 1)
+	rcCount(t, o, "recolor_fallback", 0)
+	if len(o.Layer.Stamps) != 2 {
+		t.Fatalf("疊字有 %d 片，要 2", len(o.Layer.Stamps))
+	}
+	if s := o.Layer.Stamps[0]; s.BG != rcPal[3] || s.FG != rcPal[0] {
+		t.Errorf("反白片 BG %v FG %v，要 BG 白 FG 黑", s.BG, s.FG)
+	}
+	if s := o.Layer.Stamps[1]; s.BG != rcPal[0] || s.FG != rcPal[3] {
+		t.Errorf("正常片 BG %v FG %v，要 BG 黑 FG 白", s.BG, s.FG)
+	}
+	if got := o.AuditStale(idx); got != 0 {
+		t.Errorf("AuditStale = %d，要 0（未反白的格不是殘字）", got)
+	}
+	if ex, st := o.AuditEvents(idx); ex != 0 || st != 0 {
+		t.Errorf("AuditEvents = (%d, %d)，要 (0, 0)", ex, st)
+	}
+
+	// 反白解除：全部回到正常色，已切開的疊字維持兩片。
+	idx = rcScreen(0)
+	rcPaint(idx, 16, 24, "HHHHl", 3, 0)
+	o.OnInvert(3, 2, 5, false)
+	rcFrame(o, idx)
+	rcEq(t, "解除後", rcViews(o), []string{
+		"g1 X16 Y24 3x8 [甲乙丙] S",
+		"g1 X40 Y24 2x8 [丁戊] S",
+	})
+	for _, s := range o.Layer.Stamps {
+		if s.BG != rcPal[0] || s.FG != rcPal[3] {
+			t.Errorf("X%d 解除後 BG %v FG %v，要 BG 黑 FG 白", s.X, s.BG, s.FG)
+		}
+	}
+	rcCount(t, o, "recolor_split", 1)
+}
+
+// 切開處落在同一個疊字內的透明格（玩家輸入）不另外切；透明格沿用前一格的狀態。
+func TestRecolorSplitKeepsTransparentCells(t *testing.T) {
+	o := rcNew(t, "HHHHl", "甲乙丙丁戊")
+	rcDraw(t, o, 2, 3, "HHHHl")
+	o.Layer.Stamps[0].Transparent = []bool{false, false, true, false, false}
+	idx := rcScreen(0)
+	rcPaint(idx, 16, 24, "HHH", 0, 3)
+	rcPaint(idx, 40, 24, "Hl", 3, 0)
+	rcFrame(o, idx)
+	rcEq(t, "透明格留在前一片", rcViews(o), []string{
+		"g1 X16 Y24 3x8 [甲乙丙] S T=001",
+		"g1 X40 Y24 2x8 [丁戊] S",
+	})
 }
