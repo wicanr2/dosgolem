@@ -587,6 +587,7 @@ func (o *Overlay) tryPatch(rec *EventRecord, x0, y0, x1, y1 int) bool {
 	line, _, err := layoutLine(res.Zh, res.Center, availH(old.Col, len(old.Text)), lang.Wide)
 	if err != nil {
 		o.C.Inc("untranslated")
+		o.C.Inc("badformat")
 		o.clearRect(x0, y0, x1, y1)
 		return true
 	}

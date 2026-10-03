@@ -45,6 +45,7 @@ func ovTWUI() map[string]string {
 		"Sound":    "音效",
 		"Mode ++":  "雙開",
 		"Mode -+":  "半關",
+		"Mode +-":  "右關",
 		"Mode --":  "雙關",
 		"Bad":      "a\nb", // 含換行的譯文是版面錯誤
 	}
@@ -824,7 +825,7 @@ func TestOverlayPatchChainsOnLatestRecord(t *testing.T) {
 	ovCheckDump(t, o,
 		ovS{"g2", 32, 48, 2, 8, "半關", "FF"},
 		ovS{"g2", 48, 48, 10, 4, ovSp(10), "FFFFFFFFFF"})
-	ovFire(o, ovRecC(10, 6, '-')) // k=6：建在 g2 上得 "Mode --"（建在 g1 上會是 "Mode +-"，沒有譯文）
+	ovFire(o, ovRecC(10, 6, '-')) // k=6：建在 g2 上得 "Mode --"（建在 g1 上會是 "Mode +-"，譯文不同）
 	ovCheckDump(t, o,
 		ovS{"g3", 32, 48, 2, 8, "雙關", "FF"},
 		ovS{"g3", 48, 48, 10, 4, ovSp(10), "FFFFFFFFFF"})
@@ -996,11 +997,46 @@ func TestOverlayPatchNotApplicablePassesThrough(t *testing.T) {
 			t.Fatal("不修補就不留新記錄")
 		}
 	})
-	t.Run("覆蓋該格的疊字格已透明", func(t *testing.T) {
+	t.Run("符號格的疊字已被清掉", func(t *testing.T) {
 		o := ovNewTW(t)
 		ovFire(o, ovOptionRec())
 		o.Layer.Clear(32, 48, 40, 56) // 符號格被清掉：半形 "+" 整筆移除，全形段第 0 格透明
 		ovFire(o, ovRecC(4, 6, '+'))
+		ovCheckDump(t, o,
+			ovS{"g1", 36, 48, 3, 8, "開音效", "TFF"},
+			ovS{"g1", 60, 48, 7, 4, ovSp(7), "FFFFFFF"})
+		ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 1, "passthrough": 1})
+	})
+	t.Run("覆蓋該格的疊字格已透明", func(t *testing.T) {
+		o := ovNewTW(t)
+		ovFire(o, ovRecS(4, 6, "Mode ++", KindStatic)) // "雙開" [32,48)，補白 10 格 [48,88)
+		o.Layer.Clear(72, 48, 80, 56)                  // 第 5 格（x 72 至 80）的疊字格轉透明
+		ovCheckDump(t, o,
+			ovS{"g1", 32, 48, 2, 8, "雙開", "FF"},
+			ovS{"g1", 48, 48, 10, 4, ovSp(10), "FFFFFFTTFF"})
+		ovFire(o, ovRecC(9, 6, '-')) // 該格已透明，不算被覆蓋：不修補
+		ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 1, "passthrough": 1})
+		if o.Record("g2") != nil {
+			t.Fatal("不修補就不留新記錄")
+		}
+		// 相鄰的第 6 格（x 80 至 88）不透明：照常修補，且保留已不可見的 [72,80)。
+		ovFire(o, ovRecC(10, 6, '-'))
+		ovCheckDump(t, o,
+			ovS{"g3", 32, 48, 2, 8, "右關", "FF"},
+			ovS{"g3", 48, 48, 10, 4, ovSp(10), "FFFFFFTTFF"})
+		ovCheckCounters(t, o, map[string]uint64{"events": 3, "translated": 1, "passthrough": 1, "patched": 1})
+	})
+	t.Run("多字元事件不是 P 類", func(t *testing.T) {
+		o := ovNewTW(t)
+		ovFire(o, ovOptionRec())
+		ovFire(o, ovRecS(4, 6, "-Sound ", KindStatic)) // 整個標籤重印：T 類，由 Layer.Add 取代舊疊字
+		ovCheckDump(t, o, ovOptionDump("g2", 0, "-關音效")...)
+		ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 2})
+	})
+	t.Run("其他單字元事件不修補", func(t *testing.T) {
+		o := ovNewTW(t)
+		ovFire(o, ovOptionRec())
+		ovFire(o, ovRecC(4, 6, 'x')) // 名字回顯等：走一般流程（%c 沒有字母，passthrough）
 		ovCheckDump(t, o,
 			ovS{"g1", 36, 48, 3, 8, "開音效", "TFF"},
 			ovS{"g1", 60, 48, 7, 4, ovSp(7), "FFFFFFF"})
