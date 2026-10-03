@@ -37,6 +37,22 @@ func TestParseRouteLegal(t *testing.T) {
 	}
 }
 
+// @snap：鍵送出後再執行指定步數擷取（沒有讀鍵入口的畫面，例如戰鬥回合）；@expect 與 @known-untranslated 可接在 @snap 之後。
+func TestParseRouteSnap(t *testing.T) {
+	got, err := ParseRoute("Return\n@snap round 1500\n@expect HITS\n@known-untranslated X\n@check after\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []RouteStep{
+		{Kind: RouteKey, Key: "Return", Line: 1},
+		{Kind: RouteSnap, Name: "round", Steps: 1500, Line: 2, Expect: []string{"HITS"}, Known: []string{"X"}},
+		{Kind: RouteCheck, Name: "after", Line: 5},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("解析結果不同：\n得 %+v\n要 %+v", got, want)
+	}
+}
+
 func TestParseRouteErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"一行兩個鍵", "Return Esc\n", "第 1 行：一行只能有一個按鍵"},
@@ -48,10 +64,15 @@ func TestParseRouteErrors(t *testing.T) {
 		{"check 沒有名稱", "@check\n", "第 1 行：@check 需要一個不含空白的名稱"},
 		{"check 名稱含空白", "@check a b\n", "第 1 行：@check 需要一個不含空白的名稱"},
 		{"expect 沒有鍵", "@check a\n@expect\n", "第 2 行：@expect 需要一個鍵"},
-		{"expect 前面不是 check", "Return\n@expect X\n", "第 2 行：@expect 必須緊接在 @check 之後"},
-		{"known 在開頭", "@known-untranslated X\n", "第 1 行：@known-untranslated 必須緊接在 @check 之後"},
+		{"expect 前面不是 check", "Return\n@expect X\n", "第 2 行：@expect 必須緊接在 @check 或 @snap 之後"},
+		{"known 在開頭", "@known-untranslated X\n", "第 1 行：@known-untranslated 必須緊接在 @check 或 @snap 之後"},
 		{"lang 沒有語言", "@lang\n", "第 1 行：@lang 需要一個語言代碼"},
 		{"未知指令", "@frobnicate 1\n", "第 1 行：未知的指令 @frobnicate"},
+		{"snap 沒有步數", "@snap a\n", "第 1 行：@snap 需要名稱與步數"},
+		{"snap 步數不是數字", "@snap a x\n", "第 1 行：@snap 的步數需要非負整數"},
+		{"snap 步數負數", "@snap a -5\n", "第 1 行：@snap 的步數需要非負整數"},
+		{"snap 名稱與 check 重複", "@check a\n@snap a 10\n", "第 2 行：檢查點名稱 \"a\" 重複"},
+		{"wait 後接 snap", "@wait 2\n@snap a 10\n", "第 2 行：@wait 後面必須接按鍵"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

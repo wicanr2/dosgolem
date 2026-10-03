@@ -324,23 +324,40 @@ func runLang(lang string, op runOpts) (bool, error) {
 			continue
 		}
 		// @check：所有排入的鍵都送出後，再等下一次讀鍵入口。
+		// @snap：所有排入的鍵都送出後，再執行 st.Steps 步（不等事件結束：步數只由路線決定，三種執行模式才可比對；
+		// 稽核本來就略過在途事件）。
 		cond := oracle.NewCond("檢查點 "+st.Name, func(*oracle.Oracle) bool {
 			return gate.Pending() == 0 && gate.Reads > gate.LastSent
 		})
-		for {
-			err := o.RunUntil(cond, oracle.Budget(op.every))
-			if err == nil {
-				break
+		if st.Kind == phantasie.RouteSnap {
+			cond = oracle.NewCond("檢查點 "+st.Name, func(*oracle.Oracle) bool { return gate.Pending() == 0 })
+		}
+		runChunks := func(cond oracle.Cond) error {
+			for {
+				err := o.RunUntil(cond, oracle.Budget(op.every))
+				if err == nil {
+					return nil
+				}
+				var be *oracle.BudgetError
+				if !errors.As(err, &be) {
+					return fmt.Errorf("檢查點 %s：%w", st.Name, err)
+				}
+				if o.Steps() > op.maxSteps {
+					return fmt.Errorf("檢查點 %s：超過步數上限 %d", st.Name, op.maxSteps)
+				}
+				frame()
+				sample()
 			}
-			var be *oracle.BudgetError
-			if !errors.As(err, &be) {
-				return false, fmt.Errorf("檢查點 %s：%w", st.Name, err)
+		}
+		if err := runChunks(cond); err != nil {
+			return false, err
+		}
+		if st.Kind == phantasie.RouteSnap {
+			// 再執行 st.Steps 步。條件以起點步數計，到達即成立（決定性：同路線同步數）。
+			target := o.Steps() + st.Steps
+			if err := runChunks(oracle.NewCond("snap "+st.Name, func(o *oracle.Oracle) bool { return o.Steps() >= target })); err != nil {
+				return false, err
 			}
-			if o.Steps() > op.maxSteps {
-				return false, fmt.Errorf("檢查點 %s：超過步數上限 %d", st.Name, op.maxSteps)
-			}
-			frame()
-			sample()
 		}
 		frame()
 		sample()
@@ -363,7 +380,11 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, fmt.Errorf("鉤子簽章不符：%s", hk.Diag)
 		}
 		staleMax, exposedMax, strictMax = 0, 0, 0
-		fmt.Fprintf(&emit, "@check %s\n", st.Name)
+		if st.Kind == phantasie.RouteSnap {
+			fmt.Fprintf(&emit, "@snap %s %d\n", st.Name, st.Steps)
+		} else {
+			fmt.Fprintf(&emit, "@check %s\n", st.Name)
+		}
 		if ov != nil {
 			for _, k := range ov.KeysShown() {
 				fmt.Fprintf(&emit, "@expect %s\n", k)
@@ -446,7 +467,7 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 			why = append(why, "缺疊字鍵 "+k)
 		}
 	}
-	if stamps < 1 && op.overlay == "on" {
+	if stamps < 1 && op.overlay == "on" && (st.Kind != phantasie.RouteSnap || len(st.Expect) > 0) {
 		why = append(why, "疊字數為 0")
 	}
 	if n := ov.C.Get("unpaired"); n != 0 {
