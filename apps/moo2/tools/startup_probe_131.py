@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_generation_entry_resolution(spec_dir):
+    """349限定原入口／直接返回／外層pending，完整配置未知。"""
+    name = "349-moo2-generation-entry.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原入口、三直接返回與外層等待","153878499","153878500","153878505","153878512","153878623","153878632","153878743","153881393","153979600","153994840","153994869","16BADE","16AD13","EAX2BDB78","EDX147D9","四PUSH","C2 18 00","28指令","AX1／DX3","EAX1CC4D","returned=false","10542原348列","36PNG","1693原列","f2826d243f01ff4b6659aa45d4faae635d218dc779e8357b486f04b5870471be","c47496ca8f677245371ca239a5a945baf7f56747e0cbd7e2471d81c55e24126d","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("349缺原CALL／參數／框架／直接返回／pending或限定狀態")
+    older = (spec_dir / "348-moo2-home-worlds-return.md").read_text()
+    if name not in older or "原後續CALL入口參數及外層等待已由規格349驗證" not in older:
+        raise RuntimeError("348缺後續CALL已確認回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("349缺公開索引入口")
+
+if sys.argv[1:] == ['--check-generation-entry-spec-backlinks']:
+    validate_generation_entry_resolution(spec_dir)
+    print("原入口／直接返回／外層pending／較早回填通過")
+    raise SystemExit(0)
+
 def validate_home_return_resolution(spec_dir):
     """348限定原進度函式RET與上層原零分支，母星配置完整結果未知。"""
     name = "348-moo2-home-worlds-return.md"

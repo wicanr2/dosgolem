@@ -562,3 +562,5 @@
 - [347：配置母星文字來源與原正常消費](347-moo2-home-worlds-text-source.md)：限定CONFORMED。原索引242／161查詢、NUL複製與caller16B985已驗，10523原列／36PNG及關閉8M啟動基準保持，完整開局未知。
 
 - [348：配置母星進度函式返回與上層原分支](348-moo2-home-worlds-return.md)：限定CONFORMED。153214295原RET／caller word0000與JNZ不跳已驗，10530原列／36PNG及關閉8M保持；母星配置與完整開局未驗。
+
+- [349：後續母星生成呼叫的原入口與等待狀態](349-moo2-generation-entry.md)：限定CONFORMED。153878499原CALL／框架／三直接返回與首距離返回已驗，外層160M pending；10542原列／36PNG及關閉8M保持，完整開局未知。

@@ -1020,6 +1020,75 @@ func main() {
 	}()
 	// 348 END home_return_state
 
+	// 349 BEGIN generation_state
+	generationSeen := [17]bool{}
+	generationSP, generationBP, generationInput := uint32(0), uint32(0), uint32(0)
+	generationSites := [16]uint32{0x16bade, 0x16ad13, 0x16ad1b, 0x16ad34, 0x16ad39, 0x16ad56, 0x16ad5b, 0x16adfb, 0x16ae00, 0x16ae0c, 0x16ae7f, 0x16ae84, 0x16b01f, 0x16bae3, 0x16baec, 0}
+	generationDump := func(step, phase int) {
+		c := m.CPU
+		var code [16]byte
+		var stack [96]byte
+		var frame [128]byte
+		var input [64]byte
+		var returnSlot [4]byte
+		codeOK, stackOK, frameOK, inputOK, slotOK := false, false, false, false, false
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			codeOK = peekSourceWindow(c.Seg[cpu386.SegCS], c.EIP, code[:])
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			if generationSP >= 88 {
+				frameOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-88, frame[:])
+			}
+			inputOK = peekSourceWindow(c.Seg[cpu386.SegDS], generationInput, input[:])
+			if generationSP >= 4 {
+				slotOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-4, returnSlot[:])
+			}
+		}) && ram == sha256.Sum256(m.Mem)
+		generationSeen[phase] = true
+		fmt.Printf("generation_entry_observation phase=%d outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d instruction_bytes=%X code_readable=%t stack_offset=%X stack_readable=%t stack_window=%X caller_sp=%X caller_bp=%X callee_bp=%X frame_offset=%X frame_readable=%t frame_window=%X input_offset=%X input_readable=%t input_window=%X return_slot=%X return_slot_readable=%t ram_before_sha256=%x ram_after_sha256=%x readonly=%t\n", phase, step, c.EIP, c.R, c.Seg, c.EFlags, c.FPUControl, c.FPUStatus, c.FPUDepth, code, codeOK, c.R[4], stackOK, stack, generationSP, generationBP, generationSP-24, generationSP-88, frameOK, frame, generationInput, inputOK, input, returnSlot, slotOK, ram, sha256.Sum256(m.Mem), readonly)
+	}
+	observeGenerationEntry := func(step int) {
+		if !universe160 || !homeReturnSeen[9] {
+			return
+		}
+		c := m.CPU
+		phase := -1
+		if !generationSeen[0] && c.EIP == generationSites[0] {
+			generationSP, generationBP, generationInput = c.R[4], c.R[5], c.R[0]
+			phase = 0
+		} else if generationSeen[0] && !generationSeen[15] {
+			for j := 1; j < len(generationSites)-1; j++ {
+				if c.EIP != generationSites[j] || generationSeen[j] {
+					continue
+				}
+				valid := c.R[5] == generationSP-24
+				if j == 1 || j == 12 {
+					valid = c.R[4] == generationSP-4
+				}
+				if j == 13 || j == 14 {
+					valid = c.R[4] == generationSP && c.R[5] == generationBP
+				}
+				if valid {
+					phase = j
+					break
+				}
+			}
+			if generationSeen[14] && !generationSeen[15] && (c.EIP == 0x16bb00 || c.EIP == 0x16baee) && c.R[4] == generationSP && c.R[5] == generationBP {
+				phase = 15
+			}
+		}
+		if phase >= 0 && !generationSeen[phase] {
+			generationDump(step, phase)
+		}
+	}
+	defer func() {
+		if universe160 {
+			generationDump(loopStep+1, 16)
+			fmt.Printf("generation_entry_totals seen=%v max_events=17 budget=160000000 caller_sp=%X caller_bp=%X callee_bp=%X input_offset=%X returned=%t\n", generationSeen, generationSP, generationBP, generationSP-24, generationInput, generationSeen[13])
+		}
+	}()
+	// 349 END generation_state
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -1313,6 +1382,10 @@ func main() {
 		// 348 BEGIN home_return_call
 		observeHomeReturn(i)
 		// 348 END home_return_call
+
+		// 349 BEGIN generation_call
+		observeGenerationEntry(i)
+		// 349 END generation_call
 
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]
