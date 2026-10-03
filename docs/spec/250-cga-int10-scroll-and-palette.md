@@ -1,6 +1,6 @@
 # 250 CGA 圖形模式的 INT 10h 視窗捲動與清除、色彩選擇
 
-狀態：READY（2026-10-03；第二輪「可實作性」與第三輪「契約一致性」兩輪獨立審查，阻擋項與應改項已修）。本規格補 `internal/dos/bios.go` 的 `int 10h` 在 CGA 圖形模式（04h、05h）缺的兩組服務：`AH=06h`／`07h`（捲動視窗、清除視窗）與 `AH=0Bh`（背景色與調色盤選擇），並公開 CGA 四色的 RGB 表。其他視訊模式的行為不變。同號文件在 dosgolem 是允許的（其他分支也有 250 號文件），引用一律連號碼帶檔名（`250-cga-int10-scroll-and-palette`）。
+狀態：CONFORMED（2026-10-04；實作 commit `ebacf6d`，驗收第 1 至 4 項通過，同狀態收據見 §5.1；READY 於 2026-10-03，第二輪「可實作性」與第三輪「契約一致性」兩輪獨立審查，阻擋項與應改項已修）。本規格補 `internal/dos/bios.go` 的 `int 10h` 在 CGA 圖形模式（04h、05h）缺的兩組服務：`AH=06h`／`07h`（捲動視窗、清除視窗）與 `AH=0Bh`（背景色與調色盤選擇），並公開 CGA 四色的 RGB 表。其他視訊模式的行為不變。同號文件在 dosgolem 是允許的（其他分支也有 250 號文件），引用一律連號碼帶檔名（`250-cga-int10-scroll-and-palette`）。
 
 ## 1. 為什麼要做
 
@@ -72,6 +72,27 @@
 3. 負對照：把 `AH=06h` 恢復成「收下就好」，清除與捲動測試應失敗；複製方向反向、奇數 bank 位移寫錯（不加 `2000h`）、每格寬度寫成 1 位元組，各自對應的測試應失敗；把 `BH=1` 的位元寫到 bit 4，調色盤測試應失敗；把色彩選擇改存在新的結構欄位，存態往返應失敗。
 4. 同狀態收據（有原版時）：一個 CGA 程式的清除視窗與清單捲動（`AL=1`）呼叫，以同樣參數餵給 Python 重現，視窗內位元組逐一相同；缺原版時 SKIP，不算驗收。
 5. 其他分支與既有收據：`go test ./...` 既有測試不變。
+
+### 5.1 同狀態收據（第 4 項；2026-10-04）
+
+| 項目 | 內容 |
+|---|---|
+| 被測程式 | 《幽靈戰士》（Phantasie）`PHANTASI.EXE`，SHA-256 `0f00a1af62cfcc383b4ca2e4382321f357063ba1457081da6edca4eb9f28e716`；LZEXE 解壓後映像（載入段 `21AF`，`img:0000` 至 `img:53EA`）SHA-256 `99fd8f97695f47128a41908df68d653f9b4cbcb8b233a79a20f185165ee23728` |
+| 路線 | 私有專案 `phantasie_cht` 的 `tests/routes/weapon-list-scroll.route`（SHA-256 `4a8dcc403db534710fa5456489708126cbc6f6e911295b31eee5a231e5e905dc`）：建立並加入一位隊員、進武器店、在購物清單按 `Down` 六次與 `Up` 四次 |
+| 擷取 | `apps/phantasie` 的 `Hooks.Int10Probe`（唯讀掛點：`int86` 入口與完成，只對 INT 10h 的 `AH=06h`、`07h`）把入口參數與入口、完成時的 `B800:0000` 起 `4000h` bytes 存成檔案（`phantasie-receipt -dump-scroll`） |
+| 重現 | `tools/cga_scroll_replay.py`（Docker 內的 Python，模型是第 1 項的 `tools/cga_scroll_vectors.py`，與 Go 實作無關）。每個呼叫以入口畫面為輸入重現，與完成畫面逐位元組比對整頁 |
+| 結果 | 33 個呼叫全部相同：視窗清除 `AH=06h AL=0` 23 個、上捲 `AH=06h AL=1` 6 個（視窗列 11 至 15、欄 6 至 33）、下捲 `AH=07h AL=1` 4 個（同視窗）。失敗 0 |
+| 實作 commit | dosgolem 分支 `phantasie-cht-overlay` 的 `ebacf6d`（實作）、`157b3e4`、`6790e92`（探針與重現腳本） |
+
+指令（原版目錄與路線不進本儲存庫）：
+
+```sh
+tools/run_receipt.sh tests/routes/weapon-list-scroll.route -dump-scroll /run-data/out/scroll   # 在 phantasie_cht
+docker run --rm --network none -u "$(id -u):$(id -g)" -v "$PWD/tools:/t:ro" -v "<dump 目錄>:/d:ro" \
+  python:3.13-bookworm python -B /t/cga_scroll_replay.py /d
+```
+
+沒有原版時整份收據 SKIP，不算驗收。
 
 ## 6. 未決
 
