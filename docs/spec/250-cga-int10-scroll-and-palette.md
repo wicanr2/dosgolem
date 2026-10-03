@@ -1,6 +1,6 @@
 # 250 CGA 圖形模式的 INT 10h 視窗捲動與清除、色彩選擇
 
-狀態：DRAFT 第二版（依第二輪審查修訂；審查中）。本規格補 `internal/dos/bios.go` 的 `int 10h` 在 CGA 圖形模式（04h、05h）缺的兩組服務：`AH=06h`／`07h`（捲動視窗、清除視窗）與 `AH=0Bh`（背景色與調色盤選擇），並公開 CGA 四色的 RGB 表。其他視訊模式的行為不變。編號 250：其他遠端分支已使用 243 至 249，引用請連號碼帶檔名（`250-cga-int10-scroll-and-palette`）。
+狀態：DRAFT 第二版（依第二輪審查修訂；審查中）。本規格補 `internal/dos/bios.go` 的 `int 10h` 在 CGA 圖形模式（04h、05h）缺的兩組服務：`AH=06h`／`07h`（捲動視窗、清除視窗）與 `AH=0Bh`（背景色與調色盤選擇），並公開 CGA 四色的 RGB 表。其他視訊模式的行為不變。本分支原用 243，與其他遠端分支的 243 號文件同號；同號文件在 dosgolem 是允許的，引用一律連號碼帶檔名（`250-cga-int10-scroll-and-palette`）。
 
 ## 1. 為什麼要做
 
@@ -54,7 +54,7 @@
 
 - `internal/machine/cga.go`：`CGAScanlineOffset`、`CGAScroll(top, left, bottom, right, lines int, down bool, fill byte)`、`ColorSelect()`／`SetColorSelect()`（讀寫 BDA）、色表。`SetVideoMode`（`bda.go`）在 04h、05h 時重設色彩選擇。
 - `internal/dos/bios.go`：把 `0x06` 從舊的收下列移出（否則編譯錯誤：重複 case），新增 `case 0x06, 0x07` 與 `case 0x0B`；非 04h、05h 時 `0x06` 收下、`0x07` 與 `0x0B` 記 `note`（`note` 的鍵含 `AL`：`d.note(0x10, fn, al(c))`，測試用同一個 `AL` 查）。
-- `oracle/oracle.go`：`CGAPalette()`；`CGA4` 改用 `machine.CGAScanlineOffset`，既有 `CGA4` 測試不變。
+- `oracle/oracle.go`：`CGAPalette()`；`CGA4RGB() []uint8`（回 320×200×3 的 RGB，由 `CGA4()` 的色號與 `CGAPalette()` 換算，前端與收據共用同一個入口，不各寫一份）；`CGA4` 改用 `machine.CGAScanlineOffset`，既有 `CGA4` 測試不變。
 
 ## 5. 驗收
 
@@ -67,7 +67,7 @@
    - `CGAScroll` 寫入的位元組由 `oracle.CGA4()` 讀回，與預期像素相同（版面一致性）。
    - 非 CGA 模式（mode 13h）：`AH=06h` 不動視訊記憶體，`AH=07h`、`AH=0Bh` 仍記 `note`。
    - `AH=0Bh`：`BH=0` 設背景並保留高 3 位元，`BH=1` 設調色盤並保留其他位元；`SetVideoMode(0x04)` 後 `[0040:0066] = 30h`，且重設發生在 `onModeChange` 通知之前。
-   - `CGAPalette()`：預設值、調色盤 0／1、有無強度、背景色變更，共 8 組字面值。
+   - `CGAPalette()`：預設值、調色盤 0/1、有無強度、背景色變更，共 8 組字面值；`CGA4RGB()`：以一張已知色號畫面（四個色號各一塊）對照 `CGAPalette()` 的字面 RGB。
    - 存態往返：`AH=0Bh` 改色後 `SaveState`、`LoadState`，`CGAPalette()` 不變。
 3. 負對照：把 `AH=06h` 恢復成「收下就好」，清除與捲動測試應失敗；複製方向反向、奇數 bank 位移寫錯（不加 `2000h`）、每格寬度寫成 1 位元組，各自對應的測試應失敗；把 `BH=1` 的位元寫到 bit 4，調色盤測試應失敗；把色彩選擇改存在新的結構欄位，存態往返應失敗。
 4. 同狀態收據（有原版時）：一個 CGA 程式的清除視窗與清單捲動（`AL=1`）呼叫，以同樣參數餵給 Python 重現，視窗內位元組逐一相同；缺原版時 SKIP，不算驗收。
