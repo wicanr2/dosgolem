@@ -4559,6 +4559,17 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.sub8(uint8(c.R[EAX]), value)
+	case op == 0x7a || op == 0x7b:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("JP／JNP 不接受目前的 prefix")
+		}
+		delta, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if (c.EFlags&PF != 0) == (op == 0x7a) {
+			c.EIP = uint32(int64(c.EIP) + int64(int8(delta)))
+		}
 	case op == 0x74:
 		if operand16 {
 			return fail("74 不接受 operand-size override")

@@ -339,4 +339,6 @@
 
 - [191-cpu386-x87-fmul-m32](191-cpu386-x87-fmul-m32.md)：CONFORMED；FD2第24章D8 /1記憶體乘法，由fd2_re #146追蹤。
 
-- [192-cpu386-x87-trig](192-cpu386-x87-trig.md)：READY；第24章FCOS缺口與同段FSIN，fd2_re #147。
+- [192-cpu386-x87-trig](192-cpu386-x87-trig.md)：有限CONFORMED；第24章FCOS缺口與同段FSIN，fd2_re #147。
+
+- [193-cpu386-short-parity-branch](193-cpu386-short-parity-branch.md)：READY；x87狀態consumer的短JP／JNP，fd2_re #148。
