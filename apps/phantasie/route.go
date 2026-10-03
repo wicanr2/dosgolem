@@ -14,6 +14,7 @@ type RouteKind uint8
 const (
 	RouteKey   RouteKind = iota // 送出一個按鍵
 	RouteCheck                  // @check <名稱>
+	RouteLang                   // @lang <語言>：切換顯示語言（docs/spec/004 §5、§7 第 3 項）
 )
 
 // RouteStep 是路線的一步：按鍵（含它前面的 @wait 讀鍵次數）或檢查點（含 @expect 與 @known-untranslated）。
@@ -21,7 +22,7 @@ type RouteStep struct {
 	Kind   RouteKind
 	Key    string   // RouteKey：鍵名
 	Wait   uint64   // RouteKey：先放過幾次讀鍵入口（@wait）
-	Name   string   // RouteCheck：檢查點名稱
+	Name   string   // RouteCheck：檢查點名稱；RouteLang：語言
 	Expect []string // RouteCheck：必須已有疊字的 catalog 鍵
 	Known  []string // RouteCheck：允許未譯的鍵
 	Line   int
@@ -63,6 +64,14 @@ func ParseRoute(text string) ([]RouteStep, error) {
 				return nil, fmt.Errorf("第 %d 行：@wait 後面必須接按鍵", n)
 			}
 			steps = append(steps, RouteStep{Kind: RouteCheck, Name: arg, Line: n})
+		case "@lang":
+			if arg == "" || strings.ContainsAny(arg, " \t") {
+				return nil, fmt.Errorf("第 %d 行：@lang 需要一個語言代碼：%q", n, arg)
+			}
+			if haveWait {
+				return nil, fmt.Errorf("第 %d 行：@wait 後面必須接按鍵", n)
+			}
+			steps = append(steps, RouteStep{Kind: RouteLang, Name: arg, Line: n})
 		case "@expect", "@known-untranslated":
 			if arg == "" {
 				return nil, fmt.Errorf("第 %d 行：%s 需要一個鍵", n, dir)

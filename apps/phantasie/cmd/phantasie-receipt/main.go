@@ -50,6 +50,8 @@ func main() {
 	routePath := flag.String("route", "", "路線檔（必填）")
 	var langs multi
 	flag.Var(&langs, "lang", "語言（可重複）：zh-TW、zh-CN、ja、ko；預設 zh-TW")
+	var extra multi
+	flag.Var(&extra, "extra-lang", "額外載入的語言（可重複），供路線的 @lang 切換使用")
 	overlay := flag.String("overlay", "on", "on 或 off（off：維護 Layer 但不呼叫 Draw）")
 	hooks := flag.String("hooks", "all", "all 或 none（none：完全不掛鉤子，供唯讀證明）")
 	fault := flag.String("fault", "", "故障注入（僅測試用）：noadd、noclear")
@@ -60,6 +62,7 @@ func main() {
 	fontDir := flag.String("font", "", "字型目錄（<lang>.golemfnt；必填）")
 	auditDebug := flag.Bool("audit-debug", false, "印出稽核找到的每個殘字格與外露事件的細節（診斷用）")
 	dumpStamps := flag.Bool("dump-stamps", false, "每個檢查點印出全部疊字（診斷用）")
+	emitRoute := flag.String("emit-route", "", "把本次觀察到的疊字鍵與未譯鍵寫成路線檔（@expect、@known-untranslated 基線；只用第一個語言的結果）")
 	flag.Parse()
 	if *root == "" || *routePath == "" || *outDir == "" || *fontDir == "" {
 		flag.Usage()
@@ -88,7 +91,7 @@ func main() {
 	for _, lang := range langs {
 		ok, err := runLang(lang, runOpts{
 			root: *root, bat: *bat, steps: steps, routeName: routeName, overlay: *overlay, hooks: *hooks,
-			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps,
+			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, emitRoute: *emitRoute, extra: extra,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s：%v\n", lang, err)
@@ -116,6 +119,8 @@ type runOpts struct {
 	outDir, textDir, fontDir                    string
 	auditDebug                                  bool
 	dumpStamps                                  bool
+	emitRoute                                   string
+	extra                                       multi
 }
 
 func runLang(lang string, op runOpts) (bool, error) {
@@ -140,6 +145,13 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, fmt.Errorf("語言 %s 無法載入：%s", lang, l.Err)
 		}
 		ov.AddLanguage(l)
+		for _, name := range op.extra {
+			x := phantasie.LoadLanguage(name, op.textDir, op.fontDir)
+			if !x.Enabled {
+				return false, fmt.Errorf("語言 %s 無法載入：%s", name, x.Err)
+			}
+			ov.AddLanguage(x)
+		}
 		if err := ov.SetDisplay(lang); err != nil {
 			return false, err
 		}
@@ -192,8 +204,29 @@ func runLang(lang string, op runOpts) (bool, error) {
 	fmt.Fprintln(f, strings.Join(header, "\t"))
 
 	allOK := true
+	cur := lang
+	var emit strings.Builder
 	for _, st := range op.steps {
+		if st.Kind == phantasie.RouteLang {
+			fmt.Fprintf(&emit, "@lang %s\n", st.Name)
+			if ov == nil {
+				continue
+			}
+			target := st.Name
+			if op.overlay == "off" {
+				target = "en"
+			}
+			if err := ov.SetDisplay(target); err != nil {
+				return false, fmt.Errorf("路線第 %d 行：%w", st.Line, err)
+			}
+			cur = st.Name
+			continue
+		}
 		if st.Kind == phantasie.RouteKey {
+			if st.Wait > 0 {
+				fmt.Fprintf(&emit, "@wait %d\n", st.Wait)
+			}
+			fmt.Fprintln(&emit, st.Key)
 			if st.Wait > 0 {
 				gate.PressAfterReads(st.Wait, st.Key)
 			} else {
@@ -227,9 +260,9 @@ func runLang(lang string, op runOpts) (bool, error) {
 				fmt.Printf("# stamp key=%s x=%d y=%d cells=%d cw=%d state=%d fg=%v bg=%v tr=%v text=%q\n", s.Key, s.X, s.Y, s.Cells, s.CellW, s.State, s.FG, s.BG, s.Transparent, string(s.Text))
 			}
 		}
-		row, verdict := receipt(lang, op, st, o, ov, hk, gate, img, dg, staleMax, exposedMax)
+		row, verdict := receipt(cur, op, st, o, ov, hk, gate, img, dg, staleMax, exposedMax)
 		fmt.Fprintln(f, strings.Join(append(row, verdict), "\t"))
-		fmt.Printf("%s\t%s\t%s\t%s\n", lang, st.Name, verdict, row[len(row)-1])
+		fmt.Printf("%s\t%s\t%s\t%s\n", cur, st.Name, verdict, row[len(row)-1])
 		if verdict != "PASS" && !strings.HasPrefix(verdict, "SKIP") {
 			allOK = false
 		}
@@ -237,12 +270,26 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, fmt.Errorf("鉤子簽章不符：%s", hk.Diag)
 		}
 		staleMax, exposedMax = 0, 0
+		fmt.Fprintf(&emit, "@check %s\n", st.Name)
 		if ov != nil {
-			pngPath := filepath.Join(op.outDir, fmt.Sprintf("%s.%s.%s.png", op.routeName, st.Name, lang))
+			for _, k := range ov.KeysShown() {
+				fmt.Fprintf(&emit, "@expect %s\n", k)
+			}
+			for _, k := range append(ov.C.KeySet("untranslated"), ov.C.KeySet("untranslated_args")...) {
+				fmt.Fprintf(&emit, "@known-untranslated %s\n", k)
+			}
+		}
+		if ov != nil {
+			pngPath := filepath.Join(op.outDir, fmt.Sprintf("%s.%s.%s.png", op.routeName, st.Name, cur))
 			idx, rgb := phantasie.FrameBuffers(o)
 			if err := phantasie.WritePNG(pngPath, phantasie.ComposeImage(ov, idx, rgb, 2, nil)); err != nil {
 				return false, err
 			}
+		}
+	}
+	if op.emitRoute != "" {
+		if err := os.WriteFile(op.emitRoute, []byte(emit.String()), 0o644); err != nil {
+			return false, err
 		}
 	}
 	return allOK, nil
