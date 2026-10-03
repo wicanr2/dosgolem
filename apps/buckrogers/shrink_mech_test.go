@@ -378,6 +378,11 @@ func TestShrunkUnitSlotsFollowPageTable(t *testing.T) {
 			t.Errorf("%q: %d units kept, want 1 (the unit takes 2 half units)", lang, n)
 		}
 	}
+	// The L2 of ko (5, 2): (5 + 2 + 2) / 4 rounded up = 3 units; the line over the
+	// third slot removes the unit.
+	if n := units(LangKo); n != 0 {
+		t.Errorf("ko: %d units kept, want 0 (the unit takes 3 half units)", n)
+	}
 	// Injected L2 (5, 3): (5 + 3 + 3) / 4 rounded up = 3 units; the line over the
 	// third slot removes the unit.
 	withLangShrinkLevels(t, LangJa, shrinkLevels[0], injectedL2)
@@ -411,5 +416,12 @@ func TestShrinkSyncMissingRunesFollowPageTable(t *testing.T) {
 	}
 	if miss := sync(LangZhTW); string(miss) != "中" {
 		t.Errorf("zh-TW changed with the table of ja: missing %q", string(miss))
+	}
+	if miss := sync(LangKo); string(miss) != "中" {
+		t.Errorf("ko changed with the table of ja: missing %q", string(miss))
+	}
+	withLangShrinkLevels(t, LangKo, shrinkLevels[0]) // ko without L2
+	if miss := sync(LangKo); len(miss) != 0 {
+		t.Errorf("ko without L2: missing %q, want none", string(miss))
 	}
 }
