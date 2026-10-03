@@ -334,6 +334,9 @@ func callerKey(rec *EventRecord) string {
 }
 
 func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
+	if rec.FmtKind == KindOther {
+		o.C.Key("fmt_other_ptr", fmt.Sprintf("%04X/%04X/%s", rec.Caller, rec.FmtPtr, Digest(NormalizeText(rec.Text)))) // 診斷：格式字串指標不在任何已知區間
+	}
 	lang := o.langs[o.shadowLang]
 	res := (&Resolver{Cat: lang.Cat, Wide: lang.Wide}).Resolve(rec)
 	if len(res.Missed) > 0 {

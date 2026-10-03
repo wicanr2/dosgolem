@@ -62,6 +62,7 @@ func main() {
 	textDir := flag.String("text", "text", "譯文目錄")
 	fontDir := flag.String("font", "", "字型目錄（<lang>.golemfnt；必填）")
 	auditDebug := flag.Bool("audit-debug", false, "印出稽核找到的每個殘字格與外露事件的細節（診斷用）")
+	dumpKeys := flag.Bool("dump-keys", false, "每個檢查點印出診斷鍵集合（untranslated_at、arg_unclassified 等，診斷用）")
 	dumpStamps := flag.Bool("dump-stamps", false, "每個檢查點印出全部疊字（診斷用）")
 	positionOracle := flag.Bool("position-oracle", true, "以 25A5 實際寫入的視訊足跡檢查每個提交事件的疊字位置（docs/spec/001 §10 第 3 項）")
 	emitRoute := flag.String("emit-route", "", "把本次觀察到的疊字鍵與未譯鍵寫成路線檔（@expect、@known-untranslated 基線；只用第一個語言的結果）")
@@ -94,7 +95,7 @@ func main() {
 	for _, lang := range langs {
 		ok, err := runLang(lang, runOpts{
 			root: *root, bat: *bat, steps: steps, routeName: routeName, overlay: *overlay, hooks: *hooks,
-			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, positionOracle: *positionOracle, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
+			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, dumpKeys: *dumpKeys, positionOracle: *positionOracle, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s：%v\n", lang, err)
@@ -122,6 +123,7 @@ type runOpts struct {
 	outDir, textDir, fontDir                    string
 	auditDebug                                  bool
 	dumpStamps                                  bool
+	dumpKeys                                    bool
 	positionOracle                              bool
 	emitRoute                                   string
 	dumpScroll                                  string
@@ -413,6 +415,13 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 		unt = ov.C.KeySet("untranslated")
 		untArgs = ov.C.KeySet("untranslated_args")
 		counters = ov.C.String()
+		if op.dumpKeys {
+			for _, n := range []string{"untranslated_at", "untranslated_args_at", "arg_unclassified", "nonprintable", "truncated", "composed_miss_prefix", "fmt_other_ptr"} {
+				if ks := ov.C.KeySet(n); len(ks) > 0 {
+					fmt.Fprintf(os.Stderr, "KEYS %s %s: %s\n", st.Name, n, strings.Join(ks, " "))
+				}
+			}
+		}
 		stamps = len(ov.Layer.Stamps)
 		layerHash = ov.LayerHash()
 		visibleHash = ov.VisibleHash()

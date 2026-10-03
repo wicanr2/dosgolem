@@ -38,11 +38,12 @@ const regSP = 0xFF00 // 一般狀況的 SP：遠高於所有表內區間
 
 func TestRegionsDefaultLoads(t *testing.T) {
 	tb := regDefault(t)
-	if len(tb.rows) != 7 {
-		t.Errorf("內嵌表應有 7 列（兩筆 buffer：行緩衝區與位置描述區、static、static@ov1、static@ov2、monster、town），得到 %d", len(tb.rows))
+	if len(tb.rows) != 8 {
+		t.Errorf("內嵌表應有 8 列（三筆 buffer：行緩衝區、位置描述區、buffer@ov2 位置訊息行；static、static@ov1、static@ov2、monster、town），得到 %d", len(tb.rows))
 	}
-	if strings.Join(tb.tags, ",") != "ov1,ov2" {
-		t.Errorf("overlay 字樣 = %v，要 ov1、ov2", tb.tags)
+	// 列序依種類優先序（buffer 在 static 之前）穩定排序，buffer@ov2 先出現。
+	if strings.Join(tb.tags, ",") != "ov2,ov1" {
+		t.Errorf("overlay 字樣 = %v，要 ov2、ov1", tb.tags)
 	}
 }
 
@@ -71,7 +72,11 @@ func TestRegionsOverlayData(t *testing.T) {
 		{"ov2 區前一個位元組", 0xB8EF, regSP, "ov2.ovr", KindOther},
 		{"ov2 區起點", 0xB8F0, regSP, "ov2.ovr", KindStatic},
 		{"ov2 區末位元組", 0xC3FF, regSP, "ov2.ovr", KindStatic},
-		{"ov2 區尾是界外", 0xC400, regSP, "ov2.ovr", KindOther},
+		{"ov2 區尾起是位置訊息行緩衝區（buffer@ov2，80 bytes）", 0xC400, regSP, "ov2.ovr", KindBuffer},
+		{"位置訊息行緩衝區末位元組", 0xC44F, regSP, "ov2.ovr", KindBuffer},
+		{"位置訊息行緩衝區界外", 0xC450, regSP, "ov2.ovr", KindOther},
+		{"ov1 下 C400 仍是靜態區（不是 buffer）", 0xC400, regSP, "ov1.ovr", KindStatic},
+		{"沒有載入 overlay 時 C400 不是 buffer", 0xC400, regSP, "", KindOther},
 		{"ov1 的末位元組在 ov2 下是界外", 0xC45D, regSP, "ov2.ovr", KindOther},
 		// overlay 名稱的比對
 		{"大寫", 0xB8F0, regSP, "OV1.OVR", KindStatic},
