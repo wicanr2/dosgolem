@@ -614,3 +614,5 @@
 - [373：正常星圖COLONIES控制的來源前置](373-moo2-star-map-colonies-source.md)，CONFORMED，限定index10來源／callback前置；COLONIES未點擊。
 
 - [374：正常星圖COLONIES一次裝置輸入](374-moo2-star-map-colonies-click.md)，CONFORMED，限定正常press／poll／release及原選取10；黑終圖與列表未驗。
+
+- [375：185M新物件表與原色彩狀態只讀](375-moo2-colonies-color-source.md)，CONFORMED，限定185M完整20表／原DAC全0與索引映色；轉頁與列表未驗。

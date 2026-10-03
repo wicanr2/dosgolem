@@ -68,3 +68,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 372／373／367／371同次追加回填，索引及回填由私有驗證核對；原正常輸入與新窗口不外推到其他玩家路徑。主庫紀錄仍沿既有研究入口。
 
 下一步保持本185M與相同輸入，先取目前20物件完整1100byte表、code16／當前SS:ESP stack16及有界索引使用集合／RGB對應。沿既有internal/machine/moo2_vbe_video.go的VBEIndexed／VBERGB只讀API及既有dumpSetupTable count≤64入口；另審查185M固定取樣條件，不放寬舊count≤16 guard。依來源判斷正常轉頁邊界，不盲目擴cap求過，不深入DAC／PIT／driver或renderer helper。主庫玩法RE-first保持，殖民地列表內容／正常操作／正式存讀語意／完整開局／RNG與remake同狀態未驗。
+
+## 375原色彩來源與20表回填
+
+[375](375-moo2-colonies-color-source.md)保持374相同正常輸入與185M，一次只讀取得DS188:298848 count20／stride55的1100byte完整表，SHA-256 d308de8fbcf9736ce8b4edb64e7c93b3e0cad2bfb8d7024da0776fef36235387。原DAC768bytes全0、maskFF，256bin索引有12723非0但RGB逐pixel仍映為黑；黑色來源已證實為當前全零DAC，轉頁原因／恢復邊界未知，不推定列表開啟或產品缺陷。374全部12253共通原列／39frames／終PNG保持，只有兩新快照；完整核心／FPU／clock／RAM／device／ports及callback IRQ前後保持，原374正文與收據不變。
