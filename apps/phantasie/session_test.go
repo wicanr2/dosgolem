@@ -146,3 +146,39 @@ func TestSessionRealFontRecolor(t *testing.T) {
 		}
 	}
 }
+
+// KeyGate 的去重與讀鍵計數（docs/spec/005 §2、§8）：需要原版，缺檔 SKIP。
+func TestSessionKeyGate(t *testing.T) {
+	root := os.Getenv("DOSGOLEM_TEST_ROOT")
+	if root == "" {
+		t.Skip("未設 DOSGOLEM_TEST_ROOT：沒有原版，跳過（不算驗收）")
+	}
+	data := "/phantasie-data"
+	if _, err := os.Stat(filepath.Join(data, "fonts", "zh-TW.golemfnt")); err != nil {
+		t.Skipf("沒有 %s/fonts/zh-TW.golemfnt：跳過（不算驗收）", data)
+	}
+	s, err := StartSession(SessionOptions{Root: root, TextDir: filepath.Join(data, "text"),
+		FontDir: filepath.Join(data, "fonts"), Langs: []string{"zh-TW"}, Scratch: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// 標題選單的第一次讀鍵之後，送一個 Return（進城鎮）再一個 Esc。
+	s.Gate.Press(0, "Return")
+	s.Gate.PressAfterReads(2, "Esc")
+	if err := s.O.Run(8_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if s.Gate.Err != "" {
+		t.Fatalf("讀鍵函式簽章檢查失敗：%s", s.Gate.Err)
+	}
+	if s.Gate.Gated != 2 || s.Gate.Pending() != 0 {
+		t.Fatalf("送出 %d 個鍵、還有 %d 個待送，期望 2 與 0", s.Gate.Gated, s.Gate.Pending())
+	}
+	if s.Gate.Reads < 4 {
+		t.Fatalf("讀鍵入口只有 %d 次，期望至少 4 次（第一個鍵、跳過 2 次、第二個鍵）", s.Gate.Reads)
+	}
+	if s.O.KeysConsumed() > s.Gate.Gated {
+		t.Fatalf("原版讀走 %d 個鍵，多於送出的 %d 個（重複送鍵）", s.O.KeysConsumed(), s.Gate.Gated)
+	}
+}
