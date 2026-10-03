@@ -1396,6 +1396,36 @@ func (c *CPU) Step() error {
 			return fail(fmt.Sprintf("OR dword write %04X:%08X 未處理", c.Seg[segment], addr))
 		}
 		c.setLogicFlags(result)
+	case op == 0x20:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("byte AND目的前綴尚未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		src := c.reg8(int((modrm >> 3) & 7))
+		if modrm>>6 == 3 {
+			dst := int(modrm & 7)
+			result := c.reg8(dst) & src
+			c.setReg8(dst, result)
+			c.setLogicFlags8(result)
+			break
+		}
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment8(c.Seg[seg], addr)
+		if !ok {
+			return fail("byte AND目的無法讀取")
+		}
+		result := value & src
+		// 規格369：單byte成功寫回後發布旗標，AF清0僅沿工具模型。
+		if !c.writeSegment8(c.Seg[seg], addr, result) {
+			return fail("byte AND目的無法寫入")
+		}
+		c.setLogicFlags8(result)
 	case op == 0x22 || op == 0x02:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("byte暫存器運算prefix尚未支援")

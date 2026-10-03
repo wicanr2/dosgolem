@@ -79,3 +79,7 @@ bash workplace/new-game-362-off-run.sh
 ## 368可寫紅旗正常輸入與寫檔回填
 
 [368-moo2-overlay-banner-red](368-moo2-overlay-banner-red.md)已驗可寫99M真實完整550byte表後一次正常press，原24C31B pressed查詢、214104 RET20DB5B／20E165返回AX1後release，原160M生成UI親看。原237024的SAVE10.GAM 3D01返回handle9／CF0，237093 truncate及238310共208000bytes正常寫入並close，隔離state的SAVE10.GAM與MOX.SET副本hash已核對。362唯讀拒絕與339／341原輸入收據仍有效，不外推可寫same-state。367原99M未送旗色的歷史保持，後續由368限定接通。原169E49／20D0的新CPU拒絕尚未修正；旗色正式持久語意、讀檔、180M與完整開局未驗，主庫RE-first保持。
+
+## 369 byte AND能力與原續行回填
+
+本文件原有收據與驗收範圍保持。官方1.31／dosgolem_high_le:169E49／20D0的368 CPU拒絕，已由[369](369-cpu386-and-byte-register-source.md)解出：原AND、下一POP ECX及RET依真實stack通過，相同輸入實際達180M，無新CPU停止。AF清0只屬工具模型。終態是母星命名視窗，尚未正常確認；不把此新續行當舊唯讀same-state、正式讀檔或完整開局。

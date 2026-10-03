@@ -66,3 +66,7 @@ python3 workplace/new-game-368-verify.py
 ```
 
 均於既有Docker通過；監測同次native，不重跑輸入。下一步以原165113094／169E49的20D0與完整核心另立byte AND規格，補正常register-source consumer、CPU窄測與原前綴保持後沿相同輸入續行。不新增點擊或改cap；正式讀檔／完整開局／RNG與remake同狀態未驗。
+
+## 369 byte AND能力與原續行回填
+
+本文件原有收據與驗收範圍保持。官方1.31／dosgolem_high_le:169E49／20D0的368 CPU拒絕，已由[369](369-cpu386-and-byte-register-source.md)解出：原AND、下一POP ECX及RET依真實stack通過，相同輸入實際達180M，無新CPU停止。AF清0只屬工具模型。終態是母星命名視窗，尚未正常確認；不把此新續行當舊唯讀same-state、正式讀檔或完整開局。
