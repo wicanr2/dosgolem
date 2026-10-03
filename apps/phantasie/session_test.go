@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // 工作階段冒煙測試（docs/spec/005 §3）：需要原版（缺檔 SKIP，不算驗收）。
@@ -61,6 +63,86 @@ func TestSessionSmoke(t *testing.T) {
 		s.Frame()
 		if w != "en" && len(s.Ov.Layer.Stamps) == 0 {
 			t.Errorf("切到 %s 後疊字消失", w)
+		}
+	}
+}
+
+// 真實 FONT 的 recolor 驗證（docs/spec/001 §10 第 1 項）：用遊戲記憶體內的 FONT 為 MONK、NO、HALBERD、MAGIC 1
+// 建出畫面（墨色 3、底色 0，以及反白後墨色 0、底色 3），recolor 得到的 FG、BG 必須與畫面一致，
+// 且 xlate.Colors 的多數色規則在 MONK 上判反（對照：兩種規則確實不同）。需要原版，缺檔 SKIP。
+func TestSessionRealFontRecolor(t *testing.T) {
+	root := os.Getenv("DOSGOLEM_TEST_ROOT")
+	if root == "" {
+		t.Skip("未設 DOSGOLEM_TEST_ROOT：沒有原版，跳過（不算驗收）")
+	}
+	data := "/phantasie-data"
+	if _, err := os.Stat(filepath.Join(data, "fonts", "zh-TW.golemfnt")); err != nil {
+		t.Skipf("沒有 %s/fonts/zh-TW.golemfnt：跳過（不算驗收）", data)
+	}
+	s, err := StartSession(SessionOptions{Root: root, TextDir: filepath.Join(data, "text"),
+		FontDir: filepath.Join(data, "fonts"), Langs: []string{"zh-TW"}, Scratch: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.O.Run(6_500_000); err != nil {
+		t.Fatal(err)
+	}
+	s.Frame()
+	font := s.Ov.font
+	if len(font) != FontSize {
+		t.Fatalf("遊戲的 FONT 長度 %d，期望 %d", len(font), FontSize)
+	}
+	black, white := [3]uint8{0, 0, 0}, [3]uint8{255, 255, 255}
+	for _, text := range []string{"MONK", "NO", "HALBERD", "MAGIC 1"} {
+		for _, inverted := range []bool{false, true} {
+			ink, bg := uint8(3), uint8(0)
+			if inverted {
+				ink, bg = 0, 3
+			}
+			ov := NewOverlay()
+			ov.SetFont(font)
+			const col, row = 3, 5
+			rec := &EventRecord{ID: "g1", Col: col, Row: row, Text: text, Cells: []byte(text)}
+			ov.records["g1"] = rec
+			indexed := make([]uint8, screenW*screenH)
+			rgb := make([]uint8, screenW*screenH*3)
+			var region []uint8
+			for y := row * 8; y < row*8+8; y++ {
+				for x := col * 8; x < (col+len(text))*8; x++ {
+					k := (x - col*8) / 8
+					c := bg
+					if ov.glyphPixel(text[k], y-row*8, (x-col*8)%8) != 0 {
+						c = ink
+					}
+					indexed[y*screenW+x] = c
+					region = append(region, c)
+				}
+			}
+			for i, c := range indexed {
+				v := black
+				if c == 3 {
+					v = white
+				}
+				rgb[3*i], rgb[3*i+1], rgb[3*i+2] = v[0], v[1], v[2]
+			}
+			st := &xlate.Stamp{Key: "g1", X: col * 8, Y: row * 8, Cells: 2 * len(text), CellW: 4, CellH: 8, State: xlate.Pending}
+			ov.Layer.Stamps = []*xlate.Stamp{st}
+			ov.Frame(indexed, rgb)
+			wantFG, wantBG := black, white
+			if !inverted {
+				wantFG, wantBG = white, black
+			}
+			if st.FG != wantFG || st.BG != wantBG {
+				t.Errorf("%q 反白=%v：FG=%v BG=%v，期望 FG=%v BG=%v（recolor_fallback=%d）",
+					text, inverted, st.FG, st.BG, wantFG, wantBG, ov.C.Get("recolor_fallback"))
+			}
+			if text == "MONK" && !inverted {
+				mbg, _ := xlate.Colors(region)
+				if mbg != ink {
+					t.Errorf("對照失敗：xlate.Colors 在 MONK 上應判反（背景判成墨色 %d），得 %d", ink, mbg)
+				}
+			}
 		}
 	}
 }
