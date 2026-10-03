@@ -80,6 +80,63 @@ func shotNPC(t *testing.T, l *liveLane, lang string, win [4]uint8, level int) (*
 	return nil, "", 0, false
 }
 
+// shotHasVoiced reports whether a shrunk unit of the page has a kana with a
+// voiced or semi-voiced sound (the second characters of jaVoicedPairs).
+func shotHasVoiced(p *EclTextPage) bool {
+	var set strings.Builder
+	for _, pr := range jaVoicedPairs {
+		set.WriteString(string([]rune(pr)[1]))
+	}
+	for _, l := range p.Lines {
+		if l.Shrink != 0 && strings.ContainsAny(string(l.Text), set.String()) {
+			return true
+		}
+	}
+	return false
+}
+
+// shotAssertUnitWidths checks every shrunk unit of the pages against the
+// overlay: its stamps start at the unit's column, add up to the width of its
+// characters at the level, and the unit takes W_s half units, that is W_s × 4
+// × scale pixels of the picture.
+func shotAssertUnitWidths(t *testing.T, label, lang string, scale int, o *EclTextOverlay, pages []*EclTextPage) {
+	t.Helper()
+	levels := shrinkLevelsFor(lang)
+	for pi, p := range pages {
+		for _, l := range p.Lines {
+			if l.Shrink == 0 {
+				continue
+			}
+			spec, ok := shrinkSpecIn(levels, int(l.Shrink))
+			if !ok {
+				t.Fatalf("%s：頁面的等級 %d 不在表內", label, l.Shrink)
+			}
+			ws := shrinkUnitUnits(l.Text, spec)
+			x0, sum, n := int(l.Col)*halfUnitPx, 0, 0
+			prefix := fmt.Sprintf("ecl.%d.row.%d", pi, l.Row)
+			for _, s := range o.layer.Stamps {
+				if s.Font == nil || !strings.Contains(s.Font.Name, ".shrink") || rowKeyOf(s.Key) != prefix || s.X < x0 || s.X >= x0+ws*halfUnitPx {
+					continue
+				}
+				if s.X != x0+sum {
+					t.Errorf("%s %d×：單元 %q 的 stamp 在 %d，應接在 %d", label, scale, string(l.Text), s.X, x0+sum)
+				}
+				sum += s.Cells * s.CellW
+				n += s.Cells
+			}
+			if n != len(l.Text) {
+				t.Errorf("%s %d×：單元 %q 有 %d 個格的 stamp", label, scale, string(l.Text), n)
+			}
+			if sum > ws*halfUnitPx || sum <= (ws-1)*halfUnitPx {
+				t.Errorf("%s %d×：單元 %q 的字寬 %d 邏輯像素，W_s=%d", label, scale, string(l.Text), sum, ws)
+			}
+			if got, want := ws*halfUnitPx*scale, (sum+halfUnitPx-1)/halfUnitPx*halfUnitPx*scale; got != want {
+				t.Errorf("%s %d×：單元 %q 占 %d 像素，應為 %d", label, scale, string(l.Text), got, want)
+			}
+		}
+	}
+}
+
 func TestShrinkSyntheticShots(t *testing.T) {
 	dir := os.Getenv("BUCKROGERS_SHRINK_SHOTS")
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
@@ -120,14 +177,28 @@ func TestShrinkSyntheticShots(t *testing.T) {
 		l := r.lanes[r.laneIndex(g.lang)]
 		for _, scale := range []int{2, 3} {
 			for level := 1; level <= 2; level++ {
-				name := "CELESTE"
-				pp, pcol, ok := shotPlayer(t, l, g.lang, name, playerWin, level)
-				if !ok {
-					name = "FLAVIUS"
-					pp, pcol, ok = shotPlayer(t, l, g.lang, name, playerWin, level)
+				// Spec 057 §5.9: the L2 of ja shows a name with voiced sounds
+				// (GILBERT is ギルバート), the sounds the table separates.
+				names := []string{"CELESTE", "FLAVIUS"}
+				if g.lang == LangJa && level == 2 {
+					names = []string{"GILBERT"}
+				}
+				var (
+					name string
+					pp   *EclTextPage
+					pcol int
+					ok   bool
+				)
+				for _, name = range names {
+					if pp, pcol, ok = shotPlayer(t, l, g.lang, name, playerWin, level); ok {
+						break
+					}
 				}
 				if !ok {
 					t.Fatalf("%s L%d：找不到玩家名的起點", g.label, level)
+				}
+				if g.lang == LangJa && level == 2 && !shotHasVoiced(pp) {
+					t.Fatalf("%s L%d：玩家名 %s 的片假名不含濁音或半濁音", g.label, level, name)
 				}
 				np, key, ncol, ok := shotNPC(t, l, g.lang, npcWin, level)
 				if !ok {
@@ -153,6 +224,7 @@ func TestShrinkSyntheticShots(t *testing.T) {
 				if miss := o.Sync([]*EclTextPage{pp, np}, 1, pal); len(miss) != 0 {
 					t.Fatalf("%s %d× L%d：缺字 %q", g.label, scale, level, string(miss))
 				}
+				shotAssertUnitWidths(t, g.label, g.lang, scale, o, []*EclTextPage{pp, np})
 				out, miss := o.Draw(make([]byte, 320*200), pal)
 				if len(miss) != 0 {
 					t.Fatalf("%s %d× L%d：繪製缺字 %q", g.label, scale, level, string(miss))
