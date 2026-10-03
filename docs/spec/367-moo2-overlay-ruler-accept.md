@@ -83,3 +83,7 @@ python3 workplace/new-game-367-verify.py
 ## 372原byte IMUL續行回填
 
 [372](372-cpu386-imul-byte-source.md)已補裸F6 /5：原174213914、dosgolem_high_le:1749C0 F6EC得到AXFFFF，下一A2只寫DS188:281F06 byte01→FF，原E9返回173CFF；完整核心／FPU與RAM效果已按同native核算。相同正常輸入達180M、無CPU拒絕，終圖正常星圖已親看；既有dumpSetupTable取得23物件／1265bytes，沒有放寬舊count≤16 guard。舊371拒絕與本文件其它上下文證據保持歷史來源；正式存讀／名稱持久writer／完整開局及remake同狀態仍未驗。
+
+## 374正常星圖index10選取回填
+
+[374](374-moo2-star-map-colonies-click.md)已沿373完整180M來源一次正常press x86,y450，原24C31B的AX3查詢讀到BX1／CX86／DX450，42860µs後首安全release。180020238原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0A00，原選取10已證實；兩214104 RET按真實stack返回20DB5B／174742，AX0及核心／FPU保持。這是星圖上下文，不推定其它名稱確認或持久writer。固定185M無CPU拒絕，但終RGB全0、indexed非全0，header20物件全表未取，殖民地列表未驗；舊原收據與本文件既有上下文保持。

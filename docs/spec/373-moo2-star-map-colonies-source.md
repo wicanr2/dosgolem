@@ -62,3 +62,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 372同次追加回填，索引與原輸入／source沿前述入口；私有驗證檢查舊正文保持與新引用。其它點擊上下文不由新窗口外推。
 
 下一步建立獨立COLONIES正常一次press、原AX3查詢、首次安全release與原選取consumer契約。邏輯點43,450以既有2:1橫向裝置尺度對應physical x86,y450，release仍在index10內；預定點仍須READY審查，不直接寫原選取word。新輸入需要有界後續觀察窗口，另明示預算與模式，不修改本373的180M收據或加cap挑結果。主庫玩法RE-first保持，正式存讀語意／完整開局／RNG與remake同狀態未驗。
+
+## 374正常星圖index10選取回填
+
+[374](374-moo2-star-map-colonies-click.md)已沿373完整180M來源一次正常press x86,y450，原24C31B的AX3查詢讀到BX1／CX86／DX450，42860µs後首安全release。180020238原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0A00，原選取10已證實；兩214104 RET按真實stack返回20DB5B／174742，AX0及核心／FPU保持。這是星圖上下文，不推定其它名稱確認或持久writer。固定185M無CPU拒絕，但終RGB全0、indexed非全0，header20物件全表未取，殖民地列表未驗；舊原收據與本文件既有上下文保持。

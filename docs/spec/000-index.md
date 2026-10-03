@@ -612,3 +612,5 @@
 - [372：隱含AL的byte IMUL來源](372-cpu386-imul-byte-source.md)，CONFORMED，限定原IMUL／A2／E9及母星確認後180M正常星圖。
 
 - [373：正常星圖COLONIES控制的來源前置](373-moo2-star-map-colonies-source.md)，CONFORMED，限定index10來源／callback前置；COLONIES未點擊。
+
+- [374：正常星圖COLONIES一次裝置輸入](374-moo2-star-map-colonies-click.md)，CONFORMED，限定正常press／poll／release及原選取10；黑終圖與列表未驗。

@@ -70,3 +70,7 @@ SAVE10.GAM208000bytes／0cf71fc5368861758da5a5dffbd791f8b711a48cfd295572eb9a21d2
 ## 373正常星圖來源回填
 
 [373](373-moo2-star-map-colonies-source.md)沿本規格相同180M正常guest只新增一次只讀快照。原23物件index10的+24／+32／+44窗口、target8:2136D1／mask2B／callback14／14／IRQ47425／47425及完整核心／FPU／clock／RGB已取；邏輯43,450唯一命中矩形17,434–79,471，COLONIES對應仍為強推論，沒有送新輸入。12047共通原列、39PNG、原418來源與state保持。新來源不改本規格原CPU／IMUL／A2／E9證據；下一步另審查正常按下／release及consumer，正式存讀及完整開局仍未驗。
+
+## 374正常星圖index10選取回填
+
+[374](374-moo2-star-map-colonies-click.md)已沿373完整180M來源一次正常press x86,y450，原24C31B的AX3查詢讀到BX1／CX86／DX450，42860µs後首安全release。180020238原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0A00，原選取10已證實；兩214104 RET按真實stack返回20DB5B／174742，AX0及核心／FPU保持。這是星圖上下文，不推定其它名稱確認或持久writer。固定185M無CPU拒絕，但終RGB全0、indexed非全0，header20物件全表未取，殖民地列表未驗；舊原收據與本文件既有上下文保持。
