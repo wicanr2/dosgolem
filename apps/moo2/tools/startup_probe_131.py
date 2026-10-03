@@ -51,6 +51,24 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_menu_table_return_resolution(spec_dir):
+    """333原表更換、自然返回與332回填須同時保留。"""
+    name = '333-moo2-menu-table-return.md'
+    current = (spec_dir / name).read_text()
+    required = ["全部3847／4825／6765","72PNG","332 terminal未改","47864850","47990733","20DDF7／SS188／ESP2BDAD8","R=[3CE038 1DF 2100E5 E5 2BDAD8 2BDB40 0 7]","125884外層Step","callback active=false","7816／7816","F7DD2000","pointer298848、count9","完整495bytes","d04abf3b20ccb6058d571a8092aa113242ddd8fd3ddefc42fc79d6cfff2a3a08","pointer298848、count7","完整385bytes","776c6e6e61a5b17529ff383cae79a194edc17c7cf0b9a11f3dc8fc8841339183","415／217／567／238","各3份","waiting=false","強推論，僅顯示關係","正式type／handler","正常開局／NEW GAME指令仍未知","保留44M與單次短按舊基線","不提高100M cap","0157ca8aaf9998e13068830b69624850fbd77fe51ee64dafe9e66aca01b3161e","f268d7b9285eb35b86246d465d6968d82e01c86eb5d2aea3ff24867a6d9ff723","690cd85a374102025fd8092950ad11d66ddb5ccc62a8305cd3f85e5e4a931c82","db1dc3e53c34a40105f34a8549c2a73caf44232e95de858d9e022e4ac192ccaa","3ab912b9a2e8cb2b80511007dc4853875617e6388e713fc88083f7fbab83f16d","fbd038f68ad029c1427cebf5baa852df0c2d90649554c38a95f10964f7ca0b57"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('原表缺完整來源、自然返回、收據或玩家輸入限制')
+    older = (spec_dir / '332-moo2-button-tail-return.md').read_text()
+    if '原表更換與正常20DDF7返回已由規格333接通' not in older or name not in older:
+        raise RuntimeError('332缺原表與正常返回回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('333缺公開索引入口')
+
+if sys.argv[1:] == ['--check-menu-table-spec-backlinks']:
+    validate_menu_table_return_resolution(spec_dir)
+    print('原表完整來源／正常返回／顯示限制／332回填通過')
+    raise SystemExit(0)
+
 def validate_button_tail_return_resolution(spec_dir):
     """332完整範圍消費、原始收據與限制須保留。"""
     name = '332-moo2-button-tail-return.md'

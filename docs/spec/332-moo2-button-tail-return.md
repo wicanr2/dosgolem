@@ -59,3 +59,7 @@ probe SHA-256 32f37ac91a6758e6794f30882a5184228836b5ad84317058b51828a3b336a2a4�
 限定CONFORMED只含上述範圍消費、來源限制、自然返回與舊收據保持。**正常開局／NEW GAME指令仍未知**。下一步以唯讀原表及正常返回核對全畫面index8與目前可見主選單／正式按鈕的關係，保存實際註冊表與待返回20DDF7；未有證據前不猜title skip／輸入過早或指令意義。不提高原流程cap、不改點擊時長、不重點、不深挖209325或整個renderer。主庫RE-first及255完整游標、303整體DRAFT、299自然OF=1、AH2Ch／RNG／人耳／remake同狀態保持未知。
 
 69回填函式、既有32／49／25／27／27／34／31／36／31／37與新增34缺證據負例、--check-button-tail-spec-backlinks／--check-button-branch-spec-backlinks PASS。workplace/new-game-332-backlink-tests.txt SHA-256 66e47bb4a8605e2bcf02e2886f899bb446fab9de363f33bf5d7ffeb31ecff658。原ZIP／patch／EXE／MOX.SET／417檔、CPU／平台來源保持、gofmt／Git差異及新來源／收據1000:1000核對通過，工具root-owned／誤建.md目錄自檢空。一次性容器均已退出移除；未清理其他專案或映像。沿授權推github隔離分支，不推本機origin。
+
+## 2026-10-03：原表與自然返回回填
+
+原表更換與正常20DDF7返回已由規格333接通，見[333](333-moo2-menu-table-return.md)。47990733實際返回原EIP／SS／ESP，開始與返回仍9筆表，50M／100M終態已更換7筆表。332的8192觀察上限與舊收據保留，不再把未捕捉返回當成原呼叫未返回；NEW GAME指令仍未知。

@@ -686,6 +686,78 @@ func main() {
 	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
 	postClickVisits := make(map[uint32]uint64)
 	postClickSteps := 0
+
+	// 規格333：只保存原表與原caller框架，等待已驗CALL的自然返回。
+	menuWaitStarted, menuWaitDone, menuBeginPending := false, false, false
+	menuSnapshots, menuStart, menuLastStep := 0, 0, 0
+	var menuDS, menuSS uint16
+	var menuFrame, menuReturnESP uint32
+	dumpMenuTable := func(step int, kind string) {
+		if !menuWaitStarted || menuSnapshots >= 16 {
+			return
+		}
+		c := m.CPU
+		r, seg, eip, flags, bus := c.R, c.Seg, c.EIP, c.EFlags, c.Bus
+		control, status, depth, fpu := c.FPUControl, c.FPUStatus, c.FPUDepth, c.FPUStack
+		state, ramBefore := m.VBEState(), sha256.Sum256(m.Mem)
+		mask, pending, active, started, completed := services.MouseCallbackState()
+		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+		var globals [192]byte
+		var header, code [16]byte
+		var frame [320]byte
+		var ret [4]byte
+		globalsReadable := peekSourceWindow(menuDS, 0x26c480, globals[:])
+		headerReadable := peekSourceWindow(menuDS, 0x29be0e, header[:])
+		frameReadable := peekSourceWindow(menuSS, menuFrame, frame[:])
+		returnReadable := menuReturnESP >= 4 && peekSourceWindow(menuSS, menuReturnESP-4, ret[:])
+		codeReadable := uint64(0x20ddf2)+16 <= uint64(len(m.Mem))
+		if codeReadable {
+			copy(code[:], m.Mem[0x20ddf2:0x20ddf2+16])
+		}
+		pointer := uint32(globals[0]) | uint32(globals[1])<<8 | uint32(globals[2])<<16 | uint32(globals[3])<<24
+		count := uint16(header[0]) | uint16(header[1])<<8
+		bias := uint32(header[4]) | uint32(header[5])<<8 | uint32(header[6])<<16 | uint32(header[7])<<24
+		var records []byte
+		tableReadable := false
+		if globalsReadable && headerReadable && count <= 16 {
+			records = make([]byte, int(count)*55)
+			tableReadable = peekSourceWindow(menuDS, pointer, records)
+		}
+		ramAfter := sha256.Sum256(m.Mem)
+		afterMask, afterPending, afterActive, afterStarted, afterCompleted := services.MouseCallbackState()
+		afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted := services.IRQ0State()
+		readonly := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.Bus == bus && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state && ramBefore == ramAfter && mask == afterMask && pending == afterPending && active == afterActive && started == afterStarted && completed == afterCompleted && irqActive == afterIRQActive && irqFailed == afterIRQFailed && irqStarted == afterIRQStarted && irqCompleted == afterIRQCompleted
+		for j := range fpu {
+			readonly = readonly && math.Float64bits(fpu[j]) == math.Float64bits(c.FPUStack[j])
+		}
+		if !readonly {
+			panic("原表唯讀快照改變原始狀態")
+		}
+		menuSnapshots++
+		fmt.Printf("new_game_menu_table_snapshot kind=%s outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d fpu_stack=%v state=%+v ds=%X globals_readable=%t globals=%X header_readable=%t header=%X table_pointer=%X table_count=%d table_bias=%X table_stride=55 table_readable=%t records=%X frame_selector=%X frame_offset=%X frame_readable=%t frame=%X return_eip=20DDF7 return_esp=%X return_selector=%X return_readable=%t return_bytes=%X code_offset=20DDF2 code_readable=%t code=%X waiting=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d ram_before_sha256=%x ram_after_sha256=%x readonly=%t samples=%d\n", kind, step, eip, r, seg, flags, control, status, depth, fpu, state, menuDS, globalsReadable, globals, headerReadable, header, pointer, count, bias, tableReadable, records, menuSS, menuFrame, frameReadable, frame, menuReturnESP, menuSS, returnReadable, ret, codeReadable, code, !menuWaitDone, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, ramBefore, ramAfter, readonly, menuSnapshots)
+	}
+	observeMenuTable := func(step int) {
+		menuLastStep = step
+		if !menuWaitStarted || menuWaitDone {
+			return
+		}
+		if m.CPU.EIP == 0x20ddf7 && m.CPU.Seg[cpu386.SegSS] == menuSS && m.CPU.R[cpu386.ESP] == menuReturnESP {
+			menuWaitDone = true
+			dumpMenuTable(step, "natural_return")
+		} else if menuBeginPending {
+			menuBeginPending = false
+			dumpMenuTable(step, "call_begin")
+		} else if step >= 49500000 && step <= 50000000 && step%100000 == 0 || step > 50000000 && step%10000000 == 0 {
+			dumpMenuTable(step, "checkpoint")
+		}
+	}
+	defer func() {
+		if menuWaitStarted {
+			dumpMenuTable(menuLastStep, "terminal")
+			fmt.Printf("new_game_menu_table_terminal seen=true start=%d samples=%d max_samples=16 waiting=%t return_eip=20DDF7 return_selector=%X return_esp=%X\n", menuStart, menuSnapshots, !menuWaitDone, menuSS, menuReturnESP)
+		}
+	}()
+
 	dumpPostClickProgress := func(step int) {
 		if phasePrefix == "" || !newGameClick || !newGamePressed || !newGameReleased || step < 49500000 || step > 50000000 || step%100000 != 0 {
 			return
@@ -826,6 +898,7 @@ func main() {
 
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
+		observeMenuTable(i)
 		dumpPostClickProgress(i)
 		dumpExtendedProgress(i)
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
@@ -1458,6 +1531,11 @@ func main() {
 				label = "new_game_button_tail_consumer"
 			}
 			fmt.Printf("%s begin=%t resumed=%t skipped_steps=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X event_readable=%t before_event=%X after_event=%X counter_readable=%t before_counter=%X after_counter=%X globals_offset=26C480 globals_readable=%t before_globals=%X after_globals=%X header_offset=29BE0E header_readable=%t before_header=%X after_header=%X source_offset=%X source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X pointer_selector=%X pointer_offset=%X pointer_readable=%t before_pointer=%X after_pointer=%X return_selector=%X return_offset=%X return_readable=%t return_bytes=%X after_return_readable=%t after_return_bytes=%X actual_return=%t actual_call=%t call_target=%X before_started=%d before_completed=%d after_started=%d after_completed=%d before_irq_active=%t before_irq_failed=%t before_irq_started=%d before_irq_completed=%d after_irq_active=%t after_irq_failed=%t after_irq_started=%d after_irq_completed=%d readonly=%t samples=%d waiting=%t stop=%s error=%v\n", label, branchBegin, branchResumed, branchSkipped, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, branchSelector, branchEventReadable, branchBeforeEvent, afterEvent, branchCounterReadable, branchBeforeCounter, afterCounter, branchGlobalsReadable, branchBeforeGlobals, afterGlobals, branchHeaderReadable, branchBeforeHeader, afterHeader, branchSourceOffset, branchSourceReadable, branchBeforeSource, afterSource, branchStackSelector, branchStackOffset, branchStackReadable, branchBeforeStack, afterStack, branchSelector, branchPointerOffset, branchPointerReadable, branchBeforePointer, afterPointer, clickBeforeSeg[cpu386.SegSS], clickBeforeR[cpu386.ESP], branchTopReadable, branchBeforeTop, afterTopReadable, afterTopBytes, actualReturn, actualCall, callTarget, clickStarted, clickCompleted, afterStarted, afterCompleted, branchIRQActive, branchIRQFailed, branchIRQStarted, branchIRQCompleted, afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted, branchBeforeReadonly && afterReadonly, branchSamples, branchWaiting, stop, stepErr)
+			if branchTail && actualCall && clickBeforeEIP == 0x20ddf2 && callTarget == 0x209325 && !menuWaitStarted {
+				menuWaitStarted, menuBeginPending, menuStart = true, true, i
+				menuDS, menuSS = branchSelector, clickBeforeSeg[cpu386.SegSS]
+				menuFrame, menuReturnESP = branchStackOffset, clickBeforeR[cpu386.ESP]
+			}
 			if stop != "" {
 				branchActive, branchStop = false, stop
 			}
@@ -1722,6 +1800,7 @@ func main() {
 			return
 		}
 	}
+	observeMenuTable(maxSteps)
 	dumpPostClickProgress(maxSteps)
 	dumpExtendedProgress(maxSteps)
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
