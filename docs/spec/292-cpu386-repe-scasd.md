@@ -52,3 +52,7 @@ GOMAXPROCS=2 go test -buildvcs=false ./internal/cpu386 -count=1 -v 全部通過�
 ## 後續停點回填
 
 2026-10-02：dword XOR／imm8 停點已由規格 293 接通，見 [293-cpu386-xor-dword-register-imm8.md](293-cpu386-xor-dword-register-imm8.md)。完整唯讀初態與公開符號延伸／五旗標及AF未定義模型審查READY後實作。BSF缺件時293保持READY，直到294完成原版XOR→BSF→ADD→word MOV真實資料消費後才一併限定CONFORMED；下一停點0x23C36B的記憶體dword OR。
+
+## 2026-10-03 後續回填
+
+REPNE SCASW已由規格335接通，見[335](335-cpu386-repne-scasw.md)。同ready情境原掃描與下一MOV已核對；原版正常進入NEW GAME設定頁，100M無新CPU拒絕。本文先前拒絕與黑屏屬歷史收據，保留定位；ACCEPT與完整開局仍未知，不擴張本文驗收。

@@ -509,3 +509,11 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 後續76658331原1F3640的F2 66 AF被CPU拒絕，最終PNG全黑，未到100M、未進新遊戲設定頁。限定CONFORMED只含輸入／原選擇／舊基線保持，不稱正式開局完成；下一步依[099](docs/spec/099-cpu386-repne-scasb.md)／[292](docs/spec/292-cpu386-repe-scasd.md)與處理器規格補REPNE SCASW，再用同ready情境重生收據。不深挖原函式或提高cap，不代寫結果。
 
 14新增CLI拒絕與有效正對照、71回填函式、既有負例及新增33缺證據負例、兩CLI通過。九私有收據／腳本與原黑屏雜湊集中[334](docs/spec/334-moo2-ready-menu-normal-click.md)。CPU／startup／provider／matcher未改，325固定EXE既有全套有效而未涵蓋新拒絕。原ZIP／patch／EXE／MOX.SET／417檔、gofmt、Git差異及新來源／收據1000:1000核對通過，工具root-owned／誤建.md目錄自檢空。Docker兩掛載篩選空，本輪沒有遺留容器，未清理其他專案。沿授權推github隔離分支，主庫RE-first及完整remake／中文化目標保持。
+
+## 2026-10-03：REPNE SCASW與正常新遊戲設定頁
+
+起點4501b831842f33ee5a0388b3018ae0c240949bc3。命中CPU公開契約／規格閘門／dosgolem路由；335先DRAFT唯讀取得未改CPU初態，證據審查READY後只加F2＋16位AF通用能力，沒有遊戲位址條件。公開Intel契約與獨立寬值oracle驗92416算術組合、多元素／方向／故障與前綴拒絕；CPU窄測試0.266s與固定EXE Go全套通過，cpu386 106.777s，不稱實機硬體逐週期驗證。
+
+同334四原版各一次乾淨重生，不改輸入或100M cap；三舊基線3847／4829／6769列及72PNG保持，ready原入口前5833列保持。76658331原F266AF匹配第6個word，ECX9→3、EDI1F357B→1F3587、flags246h保持；下一MOV讀原SS stack令EAX2→64h。來源與核心獨立核對；100M無新CPU拒絕，原版NEW GAME設定頁PNG人工確認。正常原點擊、選擇與callback4／4保持；ACCEPT／完整開局／remake同狀態仍未知。
+
+命令、來源、私有LOG／PNG與測試收據集中[335](docs/spec/335-cpu386-repne-scasw.md)。292／334與索引同次回填，72函式、335新增26缺證據負例及兩CLI通過。原輸入唯讀、產物1000:1000、工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案；原版素材不公開。沿既有授權推github隔離分支，主庫玩法RE閘門保持。下一步只保存原設定頁按鈕表與ACCEPT輸入前置，不重開已完成SCASW或renderer考古。

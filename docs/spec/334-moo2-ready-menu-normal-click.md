@@ -64,3 +64,7 @@ probe SHA-256 f58f52154c18389dea984d83d746980327529fd5d0150896d34734433efef8d3�
 下一步只補CPU的F2／66／AF字串指令契約，以硬體語料／公開處理器規格核對ECX／EDI／DF／ZF與定義旗標，再由同一ready情境重生原版收據；不深挖1F3640函式內部，不代寫結果、不增加輸入或提高100M cap。主庫RE-first、正式RNG與remake同狀態保持未知，整款remake／中文化未完成。
 
 71回填函式、既有32／49／25／27／27／34／31／36／31／37／34／35與新增33缺證據負例、--check-ready-menu-spec-backlinks／--check-menu-table-spec-backlinks PASS。workplace/new-game-334-backlink-tests.txt SHA-256 b1e9b6ea218e367510eadf5f1c1a323bd66361af655b8d001c19d4d94d857dc2。原ZIP／patch／EXE／MOX.SET／417檔、CPU／平台來源保持、gofmt／Git差異與新來源／收據1000:1000核對通過，工具root-owned／誤建.md目錄自檢空。有界重播、CLI與驗證容器均已退出移除；一次進度讀取時原容器已自動移除，原PTY隨後回報完成，未重啟或重點。未清理其他專案或映像。沿授權推github隔離分支，原版素材不公開。
+
+## 2026-10-03 後續回填
+
+REPNE SCASW已由規格335接通，見[335](335-cpu386-repne-scasw.md)。同ready情境原掃描與下一MOV已核對；原版正常進入NEW GAME設定頁，100M無新CPU拒絕。本文先前拒絕與黑屏屬歷史收據，保留定位；ACCEPT與完整開局仍未知，不擴張本文驗收。

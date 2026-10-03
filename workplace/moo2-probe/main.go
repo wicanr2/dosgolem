@@ -555,6 +555,12 @@ func main() {
 	xorALSeen, xorALConsumerSteps := 0, 0
 
 	// 規格334：正式7筆表就緒後的一次額外正常輸入，不改舊情境。
+
+	// 規格335唯讀診斷：首個原SCASW與一條MOV消費，最多兩步。
+	scasWordSeen, scasWordBudget := false, 0
+	var scasWordSelector, scasWordStackSelector uint16
+	var scasWordOffset, scasWordStackOffset uint32
+	var scasWordSource []byte
 	readyPressed, readyReleased, readyStoreSeen := false, false, false
 	var readyPressMicros, readyPressStarted uint64
 	defer func() {
@@ -1456,6 +1462,28 @@ func main() {
 
 		_, clickPending, clickActive, clickStarted, clickCompleted := services.MouseCallbackState()
 
+		scasWordBegin := readyClick && !scasWordSeen && m.CPU.EIP == 0x1f3640
+		if scasWordBegin {
+			scasWordSeen, scasWordBudget = true, 2
+			scasWordSelector, scasWordStackSelector = m.CPU.Seg[cpu386.SegES], m.CPU.Seg[cpu386.SegSS]
+			scasWordOffset, scasWordStackOffset = m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.EBP]-4
+			if m.CPU.R[cpu386.ECX] <= 256 && m.CPU.EFlags&cpu386.DF == 0 {
+				scasWordSource = make([]byte, int(m.CPU.R[cpu386.ECX])*2)
+			}
+		}
+		observeScasWord := scasWordBudget > 0
+		var scasWordBefore []byte
+		var scasWordBeforeStack [4]byte
+		scasWordSourceReadable, scasWordStackReadable := false, false
+		scasWordReadonly := false
+		if observeScasWord {
+			r, seg, eip, flags, bus := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags, m.CPU.Bus
+			ramBefore := sha256.Sum256(m.Mem)
+			scasWordBefore = append([]byte(nil), scasWordSource...)
+			scasWordSourceReadable = scasWordSource != nil && peekSourceWindow(scasWordSelector, scasWordOffset, scasWordBefore)
+			scasWordStackReadable = peekSourceWindow(scasWordStackSelector, scasWordStackOffset, scasWordBeforeStack[:])
+			scasWordReadonly = m.CPU.R == r && m.CPU.Seg == seg && m.CPU.EIP == eip && m.CPU.EFlags == flags && m.CPU.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
+		}
 		observeReadyStore := readyClick && readyPressed && !readyStoreSeen && m.CPU.EIP == 0x20dddb
 		var readyBeforeWord [2]byte
 		readyWordReadable := false
@@ -1473,7 +1501,7 @@ func main() {
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
 		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
 		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
-		if observeReadyStore || observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || observeBranch || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		if observeScasWord || observeReadyStore || observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || observeBranch || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -1527,6 +1555,22 @@ func main() {
 		}
 		buttonReadStepActive = false
 
+		if observeScasWord {
+			scasWordBudget--
+			var afterStack [4]byte
+			afterSource := make([]byte, len(scasWordBefore))
+			r, seg, eip, flags, bus := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags, m.CPU.Bus
+			ramBefore := sha256.Sum256(m.Mem)
+			afterSourceReadable := scasWordSource != nil && peekSourceWindow(scasWordSelector, scasWordOffset, afterSource)
+			afterStackReadable := peekSourceWindow(scasWordStackSelector, scasWordStackOffset, afterStack[:])
+			readonly := scasWordReadonly && m.CPU.R == r && m.CPU.Seg == seg && m.CPU.EIP == eip && m.CPU.EFlags == flags && m.CPU.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("repne_scasw_consumer begin=%t outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t after_stack_readable=%t before_stack=%X after_stack=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t remaining=%d error=%v\n", scasWordBegin, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, scasWordSelector, scasWordOffset, scasWordSourceReadable, afterSourceReadable, scasWordBefore, afterSource, scasWordStackSelector, scasWordStackOffset, scasWordStackReadable, afterStackReadable, scasWordBeforeStack, afterStack, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, scasWordBudget, stepErr)
+			if stepErr != nil || scasWordBudget == 1 && m.CPU.EIP != 0x1f3643 {
+				scasWordBudget = 0
+			}
+		}
 		if observeReadyStore {
 			readyStoreSeen = true
 			var afterWord [2]byte

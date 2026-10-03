@@ -69,6 +69,24 @@ if sys.argv[1:] == ['--check-ready-menu-spec-backlinks']:
     print('正式選單正常點擊／第2筆原store／新CPU阻塞／333回填通過')
     raise SystemExit(0)
 
+
+def validate_repne_scasw_resolution(spec_dir):
+    """335只確認CPU契約與正常設定頁，不把設定頁當完整開局。"""
+    name = '335-cpu386-repne-scasw.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：REPNE SCASW契約／原掃描與單筆MOV／正常設定頁","76658331","ECX9→3","EDI1F357B→1F3587","76658332","EAX2→64h","5833原列","全部72PNG","100000000原高位LE228DE8","正常設定頁","ACCEPT消費","公開契約推導的獨立規則驗證","106.777s","不改主庫玩法","967de02753e0dce276413fe67a085e6df16789b52c948999d30ed26c3bb4e6a4","f8e512f4d57cc18e1eb3933f448f7c5493f3e4a2b224c3da72d00d8eecfac97d","c78e848f2577e04bbe46ed34968a9e3476d034197a4f0c860f609532af57c955","00d1c848f02c7d9fdf29fd92b7f4010a96e35f092eeb8b3f630b6e9701959233","1507dfb323dd4614fee5eb1523ab60c5652c7eb2a7fa6c53182772b5bdc64908","2b8c03eb757e9a021b70885047357e77b4c931d23eec7f8f1376f56feae10e52"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('335缺原掃描、最小MOV、基線、設定頁、收據或驗收邊界')
+    for old in ['334-moo2-ready-menu-normal-click.md', '292-cpu386-repe-scasd.md']:
+        if name not in (spec_dir / old).read_text() or 'REPNE SCASW已由規格335接通' not in (spec_dir / old).read_text():
+            raise RuntimeError(old + '缺335回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('335缺公開索引入口')
+
+if sys.argv[1:] == ['--check-repne-scasw-spec-backlinks']:
+    validate_repne_scasw_resolution(spec_dir)
+    print('REPNE SCASW／原掃描與MOV／正常設定頁／292與334回填通過')
+    raise SystemExit(0)
 def validate_menu_table_return_resolution(spec_dir):
     """333原表更換、自然返回與332回填須同時保留。"""
     name = '333-moo2-menu-table-return.md'

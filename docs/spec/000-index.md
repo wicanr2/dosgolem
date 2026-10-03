@@ -533,4 +533,6 @@
 
 - [333：全畫面命中後的原表與正常返回](333-moo2-menu-table-return.md)：限定CONFORMED。47990733正常返回；9筆表更換7筆表，第2筆範圍對應選單位置，NEW GAME尚未實際觸發。
 
-- [334：正式選單就緒後的正常新遊戲點擊](334-moo2-ready-menu-normal-click.md)：限定CONFORMED。正常額外點擊實際選中index2；F2 66 AF新CPU拒絕，設定頁未完成，舊三基線保持。
+- [334：正式選單就緒後的正常新遊戲點擊](334-moo2-ready-menu-normal-click.md)：限定CONFORMED。正常額外點擊實際選中index2；歷史F2 66 AF拒絕與黑屏由335解除，舊三基線保持。
+
+- [335：REPNE SCASW與正式選單後續](335-cpu386-repne-scasw.md)：限定CONFORMED。原F2 66 AF掃描與單筆MOV／全套／三基線保持，正常設定頁已見；ACCEPT與完整開局未驗。

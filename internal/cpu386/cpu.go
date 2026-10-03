@@ -566,8 +566,8 @@ func (c *CPU) Step() error {
 	if repe && op != 0xaa && op != 0xab && op != 0xae && op != 0xaf && op != 0xa5 && op != 0xa4 {
 		return fail("REP／REPE prefix 只支援 STOSB／STOSD／SCASB／SCASD／MOVSD／MOVSB")
 	}
-	if repne && op != 0xae && op != 0xa4 && op != 0xa5 {
-		return fail("F2 prefix 只支援 SCASB／MOVSB／MOVSD")
+	if repne && op != 0xae && op != 0xa4 && op != 0xa5 && !(op == 0xaf && operand16 && segmentOverride < 0) {
+		return fail("F2 prefix 只支援 SCASB／16位SCASW／MOVSB／MOVSD")
 	}
 	if segmentOverride == SegSS && op != 0x8d && (op != 0x89 || !operand16 || repe || repne) {
 		return fail("SS override 只支援 16-bit MOV memory store／LEA")
@@ -1957,6 +1957,29 @@ func (c *CPU) Step() error {
 		}
 		c.EFlags &^= DF
 	case op == 0xaf:
+
+		// 規格335：16位AX／ES word比較，32位計數與目的位址。
+		if repne && operand16 && segmentOverride < 0 {
+			initialFlags := c.EFlags
+			for c.R[ECX] != 0 {
+				value, ok := c.readSegment16(c.Seg[SegES], c.R[EDI])
+				if !ok {
+					c.EFlags = initialFlags
+					return fail(fmt.Sprintf("SCASW read %04X:%08X 未處理", c.Seg[SegES], c.R[EDI]))
+				}
+				c.sub16(uint16(c.R[EAX]), value)
+				if c.EFlags&DF != 0 {
+					c.R[EDI] -= 2
+				} else {
+					c.R[EDI] += 2
+				}
+				c.R[ECX]--
+				if c.EFlags&ZF != 0 {
+					break
+				}
+			}
+			break
+		}
 		// 規格 292：只接 F3 AF，初始 ZF 不限制第一次比較。
 		if !repe || repne || operand16 || segmentOverride >= 0 {
 			return fail("SCASD 僅支援32位 F3 AF")
