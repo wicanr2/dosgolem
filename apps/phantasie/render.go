@@ -121,3 +121,39 @@ func (o *Overlay) VisibleHash() uint64 {
 	}
 	return fnv64(b)
 }
+
+// ContentHash 是疊字內容的雜湊：位置、格數、字面、透明格與顏色，不含事件編號與狀態。供「關閉視窗後的疊字集合
+// 等於沒有開過視窗的原生畫面」這類比對（docs/spec/002 §8 第 2 項），事件編號不同但內容相同時雜湊相同。
+func (o *Overlay) ContentHash() uint64 {
+	type item struct {
+		y, x int
+		b    []byte
+	}
+	var items []item
+	for _, s := range o.Layer.Stamps {
+		b := []byte(string(s.Text))
+		b = append(b, 0, byte(s.Cells), byte(s.CellW))
+		b = append(b, s.FG[:]...)
+		b = append(b, s.BG[:]...)
+		for i := 0; i < s.Cells; i++ {
+			t := byte(0)
+			if i < len(s.Transparent) && s.Transparent[i] {
+				t = 1
+			}
+			b = append(b, t)
+		}
+		items = append(items, item{s.Y, s.X, b})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].y != items[j].y {
+			return items[i].y < items[j].y
+		}
+		return items[i].x < items[j].x
+	})
+	var all []byte
+	for _, it := range items {
+		all = append(all, byte(it.y), byte(it.y>>8), byte(it.x), byte(it.x>>8))
+		all = append(all, it.b...)
+	}
+	return fnv64(all)
+}

@@ -152,7 +152,13 @@ func (o *Overlay) AuditStale(indexed []uint8) int {
 // AuditExposed 回英文外露事件數（005 §5.1 第 2 項）：事件日誌內的事件，其事件矩形目前仍顯示該原文
 // （字模遮罩一致檢查），而 Layer 沒有覆蓋該矩形全部像素的非透明疊字。事件日誌與 records 的清理無關。
 func (o *Overlay) AuditExposed(indexed []uint8) int {
-	exposed := 0
+	exposed, _ := o.AuditEvents(indexed)
+	return exposed
+}
+
+// AuditEvents 同 AuditExposed，另回「遮罩對應率不是 100%」的事件數（001 §10 第 1 項）：仍顯示該原文的事件
+// （格一致檢查全通過），遮罩為 0 的像素必須全為同一色號、非 0 的像素全為另一色號。
+func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 	var openRec *EventRecord
 	if rec, ok := o.Open(); ok {
 		openRec = rec
@@ -209,6 +215,20 @@ func (o *Overlay) AuditExposed(indexed []uint8) int {
 		if !showing {
 			continue
 		}
+		var c0, c1 [256]int
+		o.scanRect(e.Col, y0, cells, indexed, func(_ int, mk, c uint8) {
+			if mk == 0 {
+				c0[c]++
+			} else {
+				c1[c]++
+			}
+		})
+		if distinct(&c0) != 1 || distinct(&c1) != 1 {
+			strict++
+			if o.AuditDebug != nil {
+				o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 背景色數=%d 墨色數=%d", e.ID, e.Text, distinct(&c0), distinct(&c1)))
+			}
+		}
 		x0, x1 := e.Col*8, e.Col*8+len(cells)*8
 		if x1 > screenW {
 			x1 = screenW
@@ -239,5 +259,15 @@ func (o *Overlay) AuditExposed(indexed []uint8) int {
 			exposed++
 		}
 	}
-	return exposed
+	return exposed, strict
+}
+
+func distinct(h *[256]int) int {
+	n := 0
+	for _, v := range h {
+		if v > 0 {
+			n++
+		}
+	}
+	return n
 }

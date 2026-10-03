@@ -25,6 +25,7 @@ type RouteStep struct {
 	Wait   uint64   // RouteKey：先放過幾次讀鍵入口（@wait）
 	Name   string   // RouteCheck：檢查點名稱；RouteLang：語言
 	Other  string   // RouteAssert：第二個檢查點名稱（Name 是第一個）
+	Screen bool     // RouteAssert：為真是 @assert-same-screen（vram 與疊字內容都相同），否則是 @assert-visible-same
 	Expect []string // RouteCheck：必須已有疊字的 catalog 鍵
 	Known  []string // RouteCheck：允許未譯的鍵
 	Line   int
@@ -71,20 +72,20 @@ func ParseRoute(text string) ([]RouteStep, error) {
 			}
 			seen[arg] = true
 			steps = append(steps, RouteStep{Kind: RouteCheck, Name: arg, Line: n})
-		case "@assert-visible-same":
+		case "@assert-visible-same", "@assert-same-screen":
 			f := strings.Fields(arg)
 			if len(f) != 2 {
-				return nil, fmt.Errorf("第 %d 行：@assert-visible-same 需要兩個檢查點名稱：%q", n, arg)
+				return nil, fmt.Errorf("第 %d 行：%s 需要兩個檢查點名稱：%q", n, dir, arg)
 			}
 			for _, name := range f {
 				if !seen[name] {
-					return nil, fmt.Errorf("第 %d 行：@assert-visible-same 的檢查點 %q 必須先出現", n, name)
+					return nil, fmt.Errorf("第 %d 行：%s 的檢查點 %q 必須先出現", n, dir, name)
 				}
 			}
 			if haveWait {
 				return nil, fmt.Errorf("第 %d 行：@wait 後面必須接按鍵", n)
 			}
-			steps = append(steps, RouteStep{Kind: RouteAssert, Name: f[0], Other: f[1], Line: n})
+			steps = append(steps, RouteStep{Kind: RouteAssert, Name: f[0], Other: f[1], Screen: dir == "@assert-same-screen", Line: n})
 		case "@lang":
 			if arg == "" || strings.ContainsAny(arg, " \t") {
 				return nil, fmt.Errorf("第 %d 行：@lang 需要一個語言代碼：%q", n, arg)

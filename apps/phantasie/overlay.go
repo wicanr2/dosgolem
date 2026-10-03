@@ -59,6 +59,8 @@ type Overlay struct {
 	Faults map[string]bool // 測試用故障注入：noadd、noclear（005 §5.1）
 	// AuditDebug 非 nil 時，稽核把每個殘字格與外露事件的細節送給它（診斷用，不影響結果）。
 	AuditDebug func(string)
+	// CommitHook 非 nil 時，T 類事件的疊字加入 Layer 之後呼叫（位置 oracle 用，不影響結果）。
+	CommitHook func(rec *EventRecord, stamps []*xlate.Stamp)
 
 	langs      map[string]*Language
 	langOrder  []string
@@ -363,12 +365,16 @@ func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
 	if o.Faults["noadd"] {
 		return
 	}
-	for _, s := range buildStamps(rec.ID, x0, y0, line, lang.Wide, lang.Font, nil) {
+	stamps := buildStamps(rec.ID, x0, y0, line, lang.Wide, lang.Font, nil)
+	for _, s := range stamps {
 		o.Layer.Add(s)
 	}
 	o.store(rec, res.Hits)
 	o.C.Inc("translated")
 	o.appendLog(rec)
+	if o.CommitHook != nil {
+		o.CommitHook(rec, stamps)
+	}
 }
 
 func (o *Overlay) appendLog(rec *EventRecord) {

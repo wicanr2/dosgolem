@@ -15,6 +15,7 @@ import (
 
 	"github.com/wicanr2/dosgolem/apps/phantasie"
 	"github.com/wicanr2/dosgolem/oracle"
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 type multi []string
@@ -42,7 +43,7 @@ func set(ss []string) map[string]bool {
 
 var header = []string{"lang", "mode", "check", "image_hash", "img_seg", "hook_sig", "font_hash", "steps", "reads",
 	"vram_hash", "mem_hash", "stamps", "layer_hash", "keys", "untranslated", "untranslated_args", "counters",
-	"stale_cells", "exposed_events", "visible_hash", "png", "verdict"}
+	"stale_cells", "exposed_events", "visible_hash", "content_hash", "mask_strict", "png", "verdict"}
 
 func main() {
 	root := flag.String("root", "", "原版目錄（必填；缺檔時 SKIP）")
@@ -62,6 +63,7 @@ func main() {
 	fontDir := flag.String("font", "", "字型目錄（<lang>.golemfnt；必填）")
 	auditDebug := flag.Bool("audit-debug", false, "印出稽核找到的每個殘字格與外露事件的細節（診斷用）")
 	dumpStamps := flag.Bool("dump-stamps", false, "每個檢查點印出全部疊字（診斷用）")
+	positionOracle := flag.Bool("position-oracle", true, "以 25A5 實際寫入的視訊足跡檢查每個提交事件的疊字位置（docs/spec/001 §10 第 3 項）")
 	emitRoute := flag.String("emit-route", "", "把本次觀察到的疊字鍵與未譯鍵寫成路線檔（@expect、@known-untranslated 基線；只用第一個語言的結果）")
 	dumpScroll := flag.String("dump-scroll", "", "把每次 INT 10h AH=06h 或 07h 的入口參數與前後視訊記憶體存成檔案（目錄；dosgolem 規格 250 的同狀態收據用）")
 	flag.Parse()
@@ -92,7 +94,7 @@ func main() {
 	for _, lang := range langs {
 		ok, err := runLang(lang, runOpts{
 			root: *root, bat: *bat, steps: steps, routeName: routeName, overlay: *overlay, hooks: *hooks,
-			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
+			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, positionOracle: *positionOracle, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s：%v\n", lang, err)
@@ -120,6 +122,7 @@ type runOpts struct {
 	outDir, textDir, fontDir                    string
 	auditDebug                                  bool
 	dumpStamps                                  bool
+	positionOracle                              bool
 	emitRoute                                   string
 	dumpScroll                                  string
 	extra                                       multi
@@ -205,6 +208,16 @@ func runLang(lang string, op runOpts) (bool, error) {
 		if op.auditDebug {
 			ov.AuditDebug = func(s string) { fmt.Println("# " + s) }
 		}
+		if op.positionOracle {
+			ov.CommitHook = func(rec *phantasie.EventRecord, stamps []*xlate.Stamp) {
+				if why := phantasie.CheckPosition(rec, stamps, hk.Writes()); why != "" {
+					ov.C.Inc("pos_bad")
+					ov.C.Key("pos_bad", fmt.Sprintf("%04X|%d,%d|%s", rec.Caller, rec.Col, rec.Row, why))
+				} else {
+					ov.C.Inc("pos_ok")
+				}
+			}
+		}
 	}
 	gate := phantasie.NewKeyGate(o, img)
 
@@ -215,7 +228,7 @@ func runLang(lang string, op runOpts) (bool, error) {
 		idx, rgb := phantasie.FrameBuffers(o)
 		ov.Frame(idx, rgb)
 	}
-	var staleMax, exposedMax int
+	var staleMax, exposedMax, strictMax int
 	sample := func() {
 		if ov == nil || (hk != nil && hk.Busy()) {
 			return
@@ -224,8 +237,12 @@ func runLang(lang string, op runOpts) (bool, error) {
 		if n := ov.AuditStale(idx); n > staleMax {
 			staleMax = n
 		}
-		if n := ov.AuditExposed(idx); n > exposedMax {
-			exposedMax = n
+		ex, strict := ov.AuditEvents(idx)
+		if ex > exposedMax {
+			exposedMax = ex
+		}
+		if strict > strictMax {
+			strictMax = strict
 		}
 	}
 
@@ -240,16 +257,32 @@ func runLang(lang string, op runOpts) (bool, error) {
 	allOK := true
 	cur := lang
 	vis := map[string]uint64{}
+	scr := map[string][2]uint64{} // 檢查點 → {vram_hash, content_hash}
 	var emit strings.Builder
 	for _, st := range op.steps {
 		if st.Kind == phantasie.RouteAssert {
-			fmt.Fprintf(&emit, "@assert-visible-same %s %s\n", st.Name, st.Other)
+			name := "@assert-visible-same"
+			if st.Screen {
+				name = "@assert-same-screen"
+			}
+			fmt.Fprintf(&emit, "%s %s %s\n", name, st.Name, st.Other)
 			if ov == nil {
 				continue
 			}
 			verdict := "PASS"
 			if vis[st.Name] != vis[st.Other] {
 				verdict = fmt.Sprintf("FAIL：可見格集合不同（%016x 與 %016x）", vis[st.Name], vis[st.Other])
+			}
+			if st.Screen {
+				a, b := scr[st.Name], scr[st.Other]
+				switch {
+				case a[0] != b[0]:
+					verdict = fmt.Sprintf("FAIL：vram_hash 不同（%016x 與 %016x），兩個畫面不是同一狀態", a[0], b[0])
+				case a[1] != b[1]:
+					verdict = fmt.Sprintf("FAIL：疊字內容不同（content_hash %016x 與 %016x）", a[1], b[1])
+				}
+			}
+			if verdict != "PASS" {
 				allOK = false
 			}
 			fmt.Printf("assert\t%s\t%s\t%s\n", st.Name, st.Other, verdict)
@@ -308,9 +341,10 @@ func runLang(lang string, op runOpts) (bool, error) {
 				fmt.Printf("# stamp key=%s x=%d y=%d cells=%d cw=%d state=%d fg=%v bg=%v tr=%v text=%q\n", s.Key, s.X, s.Y, s.Cells, s.CellW, s.State, s.FG, s.BG, s.Transparent, string(s.Text))
 			}
 		}
-		row, verdict := receipt(cur, op, st, o, ov, hk, gate, img, dg, staleMax, exposedMax)
+		row, verdict := receipt(cur, op, st, o, ov, hk, gate, img, dg, staleMax, exposedMax, strictMax)
 		if ov != nil {
 			vis[st.Name] = ov.VisibleHash()
+			scr[st.Name] = [2]uint64{phantasie.VramHash(o), ov.ContentHash()}
 		}
 		fmt.Fprintln(f, strings.Join(append(row, verdict), "\t"))
 		fmt.Printf("%s\t%s\t%s\t%s\n", cur, st.Name, verdict, row[len(row)-1])
@@ -320,7 +354,7 @@ func runLang(lang string, op runOpts) (bool, error) {
 		if hk != nil && hk.Failed() {
 			return false, fmt.Errorf("鉤子簽章不符：%s", hk.Diag)
 		}
-		staleMax, exposedMax = 0, 0
+		staleMax, exposedMax, strictMax = 0, 0, 0
 		fmt.Fprintf(&emit, "@check %s\n", st.Name)
 		if ov != nil {
 			for _, k := range ov.KeysShown() {
@@ -348,7 +382,7 @@ func runLang(lang string, op runOpts) (bool, error) {
 
 // receipt 組出一列收據與判定（005 §5、§5.1）。回傳不含判定欄的列與判定字串。
 func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, ov *phantasie.Overlay, hk *phantasie.Hooks,
-	gate *phantasie.KeyGate, img, dg uint16, stale, exposed int) ([]string, string) {
+	gate *phantasie.KeyGate, img, dg uint16, stale, exposed, strict int) ([]string, string) {
 	mode := op.overlay + "-" + op.hooks
 	sig, imageHash, fontHash := "none", "-", "-"
 	if hk != nil {
@@ -367,6 +401,7 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 	stamps := 0
 	layerHash := uint64(0)
 	visibleHash := uint64(0)
+	contentHash := uint64(0)
 	if ov != nil {
 		keys = ov.KeysShown()
 		unt = ov.C.KeySet("untranslated")
@@ -375,6 +410,7 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 		stamps = len(ov.Layer.Stamps)
 		layerHash = ov.LayerHash()
 		visibleHash = ov.VisibleHash()
+		contentHash = ov.ContentHash()
 	}
 	row := []string{lang, mode, st.Name, imageHash, fmt.Sprintf("%04X", img), sig, fontHash,
 		fmt.Sprint(o.Steps()), fmt.Sprint(gate.Reads),
@@ -382,6 +418,7 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 		fmt.Sprint(stamps), fmt.Sprintf("%016x", layerHash), join(keys), join(unt), join(untArgs), counters,
 		fmt.Sprint(stale), fmt.Sprint(exposed),
 		fmt.Sprintf("%016x", visibleHash),
+		fmt.Sprintf("%016x", contentHash), fmt.Sprint(strict),
 		fmt.Sprintf("%s.%s.%s.png", op.routeName, st.Name, lang)}
 
 	if ov == nil {
@@ -411,6 +448,12 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 	}
 	if exposed != 0 {
 		why = append(why, fmt.Sprintf("exposed_events=%d", exposed))
+	}
+	if strict != 0 {
+		why = append(why, fmt.Sprintf("mask_strict=%d", strict))
+	}
+	if n := ov.C.Get("pos_bad"); n != 0 {
+		why = append(why, fmt.Sprintf("pos_bad=%d（%s）", n, strings.Join(ov.C.KeySet("pos_bad"), "；")))
 	}
 	if len(why) == 0 {
 		return row, "PASS"

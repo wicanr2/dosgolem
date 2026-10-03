@@ -120,6 +120,7 @@ type Hooks struct {
 
 	overlay     string
 	fontChecked bool
+	writes      []VideoWrite // 開啟中事件的視訊寫入足跡（位置 oracle 用）
 	pend        map[string]*opPending
 }
 
@@ -151,6 +152,17 @@ func InstallHooks(o *oracle.Oracle, img uint16, ov *Overlay, regions *RegionTabl
 		h.handleA(aRegs{o.Steps(), o.SP(), o.BP(), o.DI(), o.DSReg() == dg})
 	})
 	at(OffDrawDone, func(o *oracle.Oracle) { h.handleB() })
+	at(OffMemMove, func(o *oracle.Oracle) {
+		if !h.armed || h.dead {
+			return
+		}
+		if _, open := h.Ov.Open(); !open {
+			return
+		}
+		if seg := o.StackWord(4); seg == 0xB800 || seg == 0xBA00 {
+			h.writes = append(h.writes, VideoWrite{Step: o.Steps(), Caller: o.StackWord(0), Seg: seg, Off: o.StackWord(3), Count: o.StackWord(5)})
+		}
+	})
 	at(OffSprintf, func(o *oracle.Oracle) { h.handleS(o.Steps(), o.SP()) })
 	at(OffStrcat, func(o *oracle.Oracle) { h.handleT(o.SP()) })
 	for _, op := range opHooks {
@@ -330,7 +342,11 @@ func (h *Hooks) handleA(r aRegs) {
 	if !skip {
 		composed, misses = h.Compose.Associate(rec, h.readStr)
 	}
-	if h.Ov.Begin(rec, skip) && !skip {
+	opened := h.Ov.Begin(rec, skip)
+	if opened {
+		h.writes = h.writes[:0]
+	}
+	if opened && !skip {
 		c.Add("composed", uint64(composed))
 		for m, k := range misses {
 			c.Add(MissCounter(m), uint64(k))
@@ -474,3 +490,7 @@ func (h *Hooks) opExit(name string) {
 		h.Ov.OnRow24(p.h, p.hNew)
 	}
 }
+
+// Writes 回目前開啟中的事件自 A 起的視訊寫入（B800、BA00 段的複製）；供位置 oracle 在提交時比對（CheckPosition）。
+// 事件關閉後內容保留到下一個 A。
+func (h *Hooks) Writes() []VideoWrite { return h.writes }
