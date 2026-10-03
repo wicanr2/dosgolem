@@ -340,3 +340,56 @@ func TestShrinkLanesShareNoTable(t *testing.T) {
 		}
 	}
 }
+
+// The slots a shrunk unit takes in a row follow the table of the page's
+// language (spec 057 §3.2): with a unit three half units wide in that table and
+// two in the default one, a later line over the third slot removes the unit
+// only where the table says so.
+func TestShrunkUnitSlotsFollowPageTable(t *testing.T) {
+	unit := EclTextLine{Row: 0, Col: 2, Text: []rune("中AB"), Shrink: 2}
+	over := EclTextLine{Row: 0, Col: 4, Text: []rune("文")}
+	units := func(lang string) int {
+		_, kept := eclRowTextShrink(shrinkPageLang(lang, unit, over), 0, 0)
+		return len(kept)
+	}
+	// Default L2 (4, 2): (4 + 2 + 2) / 4 = 2 units; the line at 4 is outside it.
+	for _, lang := range []string{"", LangZhTW, LangZhCN, LangJa} {
+		if n := units(lang); n != 1 {
+			t.Errorf("%q: %d units kept, want 1 (the unit takes 2 half units)", lang, n)
+		}
+	}
+	// Injected L2 (5, 3): (5 + 3 + 3) / 4 rounded up = 3 units; the line over the
+	// third slot removes the unit.
+	withLangShrinkLevels(t, LangJa, shrinkLevels[0], injectedL2)
+	if n := units(LangJa); n != 0 {
+		t.Errorf("ja with the injected table: %d units kept, want 0 (the unit takes 3 half units)", n)
+	}
+	if n := units(LangZhTW); n != 1 {
+		t.Errorf("zh-TW changed with the table of ja: %d units kept", n)
+	}
+}
+
+// A level the page's table lacks is not looked up in the default table when
+// the overlay checks the fonts (spec 057 §3.2): the unit is not drawn and no
+// glyph is reported missing, while a table that has the level reports the
+// runes the font lacks.
+func TestShrinkSyncMissingRunesFollowPageTable(t *testing.T) {
+	unit := EclTextLine{Row: 0, Col: 2, Text: []rune("中AB"), Shrink: 2}
+	sync := func(lang string) []rune {
+		o, err := NewEclTextOverlay(halfTestFont("missing", "AB"), 2) // no glyph for 中
+		if err != nil {
+			t.Fatal(err)
+		}
+		return o.Sync([]*EclTextPage{shrinkPageLang(lang, unit)}, 1, shrinkPalette())
+	}
+	if miss := sync(LangJa); string(miss) != "中" {
+		t.Errorf("ja with L2: missing %q, want 中", string(miss))
+	}
+	withLangShrinkLevels(t, LangJa, shrinkLevels[0]) // ja without L2; the default table still has it
+	if miss := sync(LangJa); len(miss) != 0 {
+		t.Errorf("ja without L2: missing %q, want none", string(miss))
+	}
+	if miss := sync(LangZhTW); string(miss) != "中" {
+		t.Errorf("zh-TW changed with the table of ja: missing %q", string(miss))
+	}
+}
