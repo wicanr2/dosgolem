@@ -932,6 +932,94 @@ func main() {
 	}()
 	// 347 END text_state
 
+	// 348 BEGIN home_return_state
+	homeReturnSeen := [11]bool{}
+	homeCallerSP, homeCallerBP := uint32(0), uint32(0)
+	homeDump := func(step, phase int) {
+		c := m.CPU
+		var code [16]byte
+		var stack [96]byte
+		var callerWord, localWord [2]byte
+		var returnSlot [4]byte
+		codeOK, stackOK, callerOK, localOK, slotOK := false, false, false, false, false
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			codeOK = peekSourceWindow(c.Seg[cpu386.SegCS], c.EIP, code[:])
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			if homeCallerBP >= 8 {
+				callerOK = peekSourceWindow(c.Seg[cpu386.SegSS], homeCallerBP-8, callerWord[:])
+			}
+			if c.R[5] >= 8 {
+				localOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[5]-8, localWord[:])
+			}
+			if homeCallerSP >= 4 {
+				slotOK = peekSourceWindow(c.Seg[cpu386.SegSS], homeCallerSP-4, returnSlot[:])
+			}
+		}) && ram == sha256.Sum256(m.Mem)
+		homeReturnSeen[phase] = true
+		fmt.Printf("home_return_observation phase=%d outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d instruction_bytes=%X code_readable=%t stack_offset=%X stack_readable=%t stack_window=%X caller_sp=%X caller_bp=%X caller_word_offset=%X caller_word=%X caller_word_readable=%t local_word=%X local_word_readable=%t return_slot=%X return_slot_readable=%t ram_before_sha256=%x ram_after_sha256=%x readonly=%t\n", phase, step, c.EIP, c.R, c.Seg, c.EFlags, c.FPUControl, c.FPUStatus, c.FPUDepth, code, codeOK, c.R[4], stackOK, stack, homeCallerSP, homeCallerBP, homeCallerBP-8, callerWord, callerOK, localWord, localOK, returnSlot, slotOK, ram, sha256.Sum256(m.Mem), readonly)
+	}
+	observeHomeReturn := func(step int) {
+		if !universe160 {
+			return
+		}
+		c := m.CPU
+		phase := -1
+		if !homeReturnSeen[0] && c.EIP == 0x16b985 {
+			homeCallerSP, homeCallerBP = c.R[4], c.R[5]
+			phase = 0
+		} else if homeReturnSeen[0] && !homeReturnSeen[9] {
+			switch c.EIP {
+			case 0x16c78e:
+				if c.R[4] == homeCallerSP-4 {
+					phase = 1
+				}
+			case 0x16c8b6:
+				if c.R[5] == homeCallerSP-28 {
+					phase = 2
+				}
+			case 0x16c8e1:
+				if c.R[5] == homeCallerSP-28 {
+					phase = 3
+				}
+			case 0x16bf57:
+				if c.R[5] == homeCallerSP-28 {
+					phase = 4
+				}
+			case 0x16bd81:
+				if c.R[4] == homeCallerSP-24 {
+					phase = 5
+				}
+			case 0x16bd86:
+				if c.R[4] == homeCallerSP-4 {
+					phase = 6
+				}
+			case 0x16b98a:
+				if c.R[4] == homeCallerSP {
+					phase = 7
+				}
+			case 0x16b98f:
+				if c.R[4] == homeCallerSP {
+					phase = 8
+				}
+			case 0x16b995, 0x16bb0c:
+				if homeReturnSeen[8] && c.R[4] == homeCallerSP {
+					phase = 9
+				}
+			}
+		}
+		if phase >= 0 && !homeReturnSeen[phase] {
+			homeDump(step, phase)
+		}
+	}
+	defer func() {
+		if universe160 {
+			homeDump(loopStep+1, 10)
+			fmt.Printf("home_return_totals seen=%v max_events=11 budget=160000000 caller_sp=%X caller_bp=%X\n", homeReturnSeen, homeCallerSP, homeCallerBP)
+		}
+	}()
+	// 348 END home_return_state
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -1221,6 +1309,10 @@ func main() {
 		// 347 BEGIN text_call
 		observeProgressText(i)
 		// 347 END text_call
+
+		// 348 BEGIN home_return_call
+		observeHomeReturn(i)
+		// 348 END home_return_call
 
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]

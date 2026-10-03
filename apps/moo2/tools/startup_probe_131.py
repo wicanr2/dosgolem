@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_home_return_resolution(spec_dir):
+    """348限定原進度函式RET與上層原零分支，母星配置完整結果未知。"""
+    name = "348-moo2-home-worlds-return.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原進度函式RET與上層零分支","149825343","149825344","153214295","153214296","153214297","153214298","16BD86","16B98A","16B98F","16B995","C3","caller word0000","callee local7779","SS188:2BDB98","IDA linear EA","dosgolem_high_le","10530原347列","36PNG","1693原列","2aa4d46019d0c532fef169ba686f48aaadc347ccdb9b4b49928b8054a2dc8571","33623a56218c0c0684b9513704266928c47ed49488ae880b5a55eb9181c73efa","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("348缺原RET／兩框架／caller分支／保持或限定狀態")
+    older = (spec_dir / "347-moo2-home-worlds-text-source.md").read_text()
+    if name not in older or "原進度函式正常RET與上層分支已由規格348驗證" not in older:
+        raise RuntimeError("347缺原RET與上層分支回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("348缺公開索引入口")
+
+if sys.argv[1:] == ['--check-home-return-spec-backlinks']:
+    validate_home_return_resolution(spec_dir)
+    print("原RET／caller零分支／較早未知回填通過")
+    raise SystemExit(0)
+
 def validate_progress_text_resolution(spec_dir):
     """347限定兩原索引查詢、NUL退出與實際caller，完整生成未驗。"""
     name = "347-moo2-home-worlds-text-source.md"
