@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_save_permission_diagnostic_resolution(spec_dir):
+    """362只驗唯讀拒絕，隔離可寫正常路徑保持DRAFT。"""
+    name = "362-moo2-save-permission-boundary.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定唯讀存檔拒絕診斷；覆蓋層正常玩家驗收DRAFT","14498正規化舊列與38PNG保持","128筆診斷","165025480","dosgolem_high_le:237024","DS188:2BDB68 ASCIZ SAVE10.GAM","AX0005／CF1／flags203h","不是AH40失敗","CPU／DOS服務／provider／所有既有測試保持","80M setup_accept_precondition valid=false","未到165M存檔","第1177共通列開始改變","1260000 EIP24659F","1410000 EIP238291","004AFA3C／004B0D14／004AE634／004B2084／004B3294","各增8000h","其他欄位逐byte保持","指向內容與實際消費尚未取","不接state旗標／overlay列舉新方法","原失敗收據不覆寫","state bytes／來源全檔收據未完成","CPU386130.397s／machine1.643s","窄測0.053s","主庫玩法RE-first保持","正式存檔／完整開局／RNG／remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定唯讀', current, re.M):
+        raise RuntimeError("362缺原開寫拒絕／唯讀保持／可寫失敗與DRAFT限制")
+    for older_name in ["360-cpu386-cwd-word.md","359-cpu386-sub-word-register-source.md","358-cpu386-neg-word.md","357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md","297-cpu386-ror-dword-register-imm8.md","361-cpu386-ror-dword-memory-imm8.md","336-moo2-setup-accept-normal-click.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原237024 SAVE10.GAM唯讀拒絕已由規格362定位；可寫正常路徑仍DRAFT" not in older:
+            raise RuntimeError("較早規格缺存檔拒絕回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("362缺公開索引入口")
+
+if sys.argv[1:] == ['--check-save-permission-diagnostic-spec-backlinks']:
+    validate_save_permission_diagnostic_resolution(spec_dir)
+    print("原SAVE10唯讀拒絕／診斷保持／可寫80M失敗與DRAFT／較早回填通過")
+    raise SystemExit(0)
+
 def validate_ror_dword_memory_resolution(spec_dir):
     """361限定memory ROR與真正A1，OF及存檔路徑限制保持。"""
     name = "361-cpu386-ror-dword-memory-imm8.md"

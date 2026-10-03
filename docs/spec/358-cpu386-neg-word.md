@@ -120,4 +120,8 @@ python3 apps/moo2/tools/startup_probe_131.py --check-neg-word-spec-backlinks
 
 ## 361回填
 
-原2376CB memory ROR與下一A1已由規格361接通，見[361](361-cpu386-ror-dword-memory-imm8.md)。原DS188:270FC4 dword000B1818 ROR8→18000B18、CF0與保持flags、三RAM差異270FC5／270FC6／270FC7、下一A1真正load到EAX18000B18已驗；count8 OF未定義，保留只驗工具模型。10949正常前綴／35frames與全套保持，十四舊測試不改，297舊memory負例限定未知DS並有完整新正例。沿同180M已無CPU拒絕，但終圖為旗色選單的Error saving game／Permission denied，完整開局未驗。下一步依361回填帳捕捉失敗DOS呼叫／檔名與返回，審查既有DirectoryOverlayFiles的隔離接線，不提高cap／代寫／重送／深入helper。原其他count／CF1／OF、存檔writer／內容、RNG與remake同狀態未知，保留原定位與收據。
+原2376CB memory ROR與下一A1已由規格361接通，見[361](361-cpu386-ror-dword-memory-imm8.md)。原DS188:270FC4 dword000B1818 ROR8→18000B18、CF0與保持flags、三RAM差異270FC5／270FC6／270FC7、下一A1真正load到EAX18000B18已驗；count8 OF未定義，保留只驗工具模型。10949正常前綴／35frames與全套保持，十四舊測試不改，297舊memory負例限定未知DS並有完整新正例。沿同180M已無CPU拒絕，但終圖為旗色選單的Error saving game／Permission denied，完整開局未驗。呼叫／檔名與返回已由362定位；可寫試作80M前置仍DRAFT，下一步見362，不提高cap／代寫／重送／深入helper。原其他count／CF1／OF、存檔writer／內容、RNG與remake同狀態未知，保留原定位與收據。
+
+## 362存檔拒絕回填
+
+原237024 SAVE10.GAM唯讀拒絕已由規格362定位；可寫正常路徑仍DRAFT，見[362](362-moo2-save-permission-boundary.md)。原165025480的INT21／3D01／DS188:2BDB68／SAVE10.GAM回AX5／CF1及RAM保持已取，拒絕源於唯讀provider無WriteFileProvider。先前呼叫與檔名未知已解；尚不稱原存檔成功。隔離overlay試跑改變前段流程，在80M完整表閘門停止，設定頁RGB相同而record11–15的+44四byte窗口各增8000h，欄位與消費未知；可寫試作只留本機，不接公開玩家path，不改原336 guard或點擊時刻。下一步依362有界讀初段開檔與這五窗口候選值所指內容，再審查正常輸入，完整開局／RNG與remake同狀態未驗。

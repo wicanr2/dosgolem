@@ -588,3 +588,5 @@
 - [360：word CWD符號延伸](360-cpu386-cwd-word.md)：限定CONFORMED。原CWD AX1／DX0與下一SUB／SAR、10789正常前綴／35frames／全套保持；原168496272 memory ROR與A1已由361接通；同180M終圖存檔權限錯誤，完整開局未驗。
 
 - [361：dword記憶體ROR與立即數](361-cpu386-ror-dword-memory-imm8.md)：限定CONFORMED。原ROR000B1818→18000B18／CF0與A1真正load、10949正常前綴／35frames／全套通過；同180M無CPU拒絕，終圖存檔Permission denied，完整開局未驗。
+
+- [362：正常開局DOS存檔權限邊界](362-moo2-save-permission-boundary.md)，CONFORMED限定唯讀拒絕診斷，覆蓋層玩家驗收DRAFT。

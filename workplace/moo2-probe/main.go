@@ -416,7 +416,50 @@ func main() {
 		fmt.Printf("cmp_word_immediate_totals observed_site=14E3DE total=%d sample_groups=%d boundary212_observed=%t\n", cmpWordTotal, cmpWordSamples, cmpWordBoundarySeen)
 	}()
 
+	// 362 BEGIN diagnostic_state
+	saveDiagnosticSamples := 0
+	// 362 END diagnostic_state
 	m.CPU.IntHook = func(c *cpu386.CPU, number uint8) bool {
+		// 362 BEGIN save_diagnostic
+		fileFunction := uint8(c.R[cpu386.EAX] >> 8)
+		if universe180 && loopStep >= 160000000 && loopStep < 180000000 && number == 0x21 && saveDiagnosticSamples < 128 && (fileFunction >= 0x3c && fileFunction <= 0x43 || fileFunction == 0x6c) {
+			saveDiagnosticSamples++
+			beforeR, beforeSeg, beforeFlags, beforeEIP := c.R, c.Seg, c.EFlags, c.EIP
+			control, status, depth, stack := c.FPUControl, c.FPUStatus, c.FPUDepth, c.FPUStack
+			bus, vbe := c.Bus, m.VBEState()
+			ramHash := sha256.Sum256(m.Mem)
+			var path []byte
+			pathOK, terminated := false, false
+			if fileFunction == 0x3c || fileFunction == 0x3d || fileFunction == 0x41 || fileFunction == 0x43 {
+				desc, known := c.Descriptors[c.Seg[cpu386.SegDS]]
+				pathOK = known
+				for i := uint64(0); known && i < 260; i++ {
+					off := uint64(c.R[cpu386.EDX]) + i
+					linear := uint64(desc.Base) + off
+					if off > uint64(desc.Limit) || off > 0xffffffff || linear >= uint64(len(m.Mem)) {
+						pathOK = false
+						break
+					}
+					ch := m.Mem[linear]
+					if ch == 0 {
+						terminated = true
+						break
+					}
+					path = append(path, ch)
+				}
+			}
+			readonly := c.R == beforeR && c.Seg == beforeSeg && c.EFlags == beforeFlags && c.EIP == beforeEIP && c.Bus == bus && m.VBEState() == vbe && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && sha256.Sum256(m.Mem) == ramHash
+			for j := range stack {
+				readonly = readonly && math.Float64bits(stack[j]) == math.Float64bits(c.FPUStack[j])
+			}
+			if !readonly {
+				panic("存檔診斷改變原始狀態")
+			}
+			handled := services.Handle(c, number)
+			fmt.Printf("save_dos_diagnostic outer_step=%d address_space=dosgolem_high_le callsite=%X function=%X mode=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X path_hex=%X path_readable=%t terminated=%t readonly=%t handled=%t ax=%X cf=%t ram_before_sha256=%x ram_after_sha256=%x\n", loopStep, beforeEIP-2, fileFunction, uint8(beforeR[cpu386.EAX]), beforeR, c.R, beforeSeg, c.Seg, beforeFlags, c.EFlags, path, pathOK, terminated, readonly, handled, uint16(c.R[cpu386.EAX]), c.EFlags&cpu386.CF != 0, ramHash, sha256.Sum256(m.Mem))
+			return handled
+		}
+		// 362 END save_diagnostic
 		if number == 0x21 && uint8(c.R[cpu386.EAX]>>8) == 0x2a {
 			beforeR, beforeSeg, beforeFlags := c.R, c.Seg, c.EFlags
 			epoch, micros, configured := services.CalendarState()

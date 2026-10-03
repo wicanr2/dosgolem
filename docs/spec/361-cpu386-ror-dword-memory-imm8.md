@@ -46,7 +46,7 @@ READY於2026-10-04。原輸入收據SHA-256 40eb10b9ba8e3fd07c94d2a9e2bd632b9cb9
 
 CPU SHA-256 b8c1844163fddd7e3557e19fc51abcb9bcb9c1d021fd415dae376b2afbb9c72b；新測試96bee4520e99c09b5edb8cda11de95fbf745811f15c1b9545c1ccc56f4663ab1；297修改後測試8e0e36c37f5f3a0469475ec4f5b6c19693964986cf437acafc1f6e2cfc3a1bca；正式probe4fd257a6edf9a3460af7f7d792ab2624474f0fd7070f3eb5ef9877d2357cd787。原正式收據40fb333d1aaeb9160779b6fe56b439b390d19b9d6f6ddfb7d50ec7d577eff512；乾淨全套965899b1f79e4a78f356155613b1da31feb50f65f3104a74f3f48c040a1aa081。
 
-### 同180M端點與新玩家阻塞
+### 歷史361端點與當輪玩家阻塞
 
 同一輸入自然達step_limit180000000，EIP215DCA／R=[FFFFFFFF D6 2C0864 A5 2BD630 2BD654 FC D8]／段=[8 188 188 0 20 188]／flags202h，bytes89 45 F4 83 7D F4 FF 74 35 8B 55 EC C1 E2 02 A1；無guest_cpu_stop／step_error／DOS exit。沒有增加cap，不能把exit0或無CPU拒絕稱完整開局。
 
@@ -81,3 +81,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-ror-dword-memory-spec-backl
 ```
 
 98項規格回填正對照、新361的39＋28缺證據負例與所有既有負例通過。公開守衛入口以上述命令執行；覆蓋限定ROR／真正A1、OF未知邊界、同180M存檔錯誤及十五份較早規格回填。
+
+## 362存檔拒絕回填
+
+原237024 SAVE10.GAM唯讀拒絕已由規格362定位；可寫正常路徑仍DRAFT，見[362](362-moo2-save-permission-boundary.md)。原165025480的INT21／3D01／DS188:2BDB68／SAVE10.GAM回AX5／CF1及RAM保持已取，拒絕源於唯讀provider無WriteFileProvider。先前呼叫與檔名未知已解；尚不稱原存檔成功。隔離overlay試跑改變前段流程，在80M完整表閘門停止，設定頁RGB相同而record11–15的+44四byte窗口各增8000h，欄位與消費未知；可寫試作只留本機，不接公開玩家path，不改原336 guard或點擊時刻。下一步依362有界讀初段開檔與這五窗口候選值所指內容，再審查正常輸入，完整開局／RNG與remake同狀態未驗。

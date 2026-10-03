@@ -78,3 +78,7 @@ python3 workplace/new-game-336-cli-verify.py PASS：15無效值／缺依賴在�
 ## 2026-10-03 正常選族回填
 
 正常第7筆選族與名稱頁已由規格337接通，見[337](337-moo2-race-humans-normal-click.md)。人類候選第7筆原store已核對，正常進入Enter Ruler Name；五舊基線與132PNG保持。本文先前種族選擇未知屬先前範圍，typed種族／trait、名稱確認、完整開局與remake同狀態仍未知。
+
+## 362存檔拒絕回填
+
+原237024 SAVE10.GAM唯讀拒絕已由規格362定位；可寫正常路徑仍DRAFT，見[362](362-moo2-save-permission-boundary.md)。原165025480的INT21／3D01／DS188:2BDB68／SAVE10.GAM回AX5／CF1及RAM保持已取，拒絕源於唯讀provider無WriteFileProvider。先前呼叫與檔名未知已解；尚不稱原存檔成功。隔離overlay試跑改變前段流程，在80M完整表閘門停止，設定頁RGB相同而record11–15的+44四byte窗口各增8000h，欄位與消費未知；可寫試作只留本機，不接公開玩家path，不改原336 guard或點擊時刻。下一步依362有界讀初段開檔與這五窗口候選值所指內容，再審查正常輸入，完整開局／RNG與remake同狀態未驗。
