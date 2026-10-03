@@ -58,3 +58,7 @@ python3 workplace/new-game-365-verify.py
 ## 366名稱readiness回填
 
 可寫95M IF關閉與首個自然恢復平台readiness已由[366](366-moo2-name-ready-boundary.md)核對。原95000065／EIP234A49／flags216h，完整165byte表／候選與RGB保持；原mask1／callback8／8終態已取，無名稱press／release，原338唯讀guard保持。下一步依新真實初態另立正常確認契約，按下mask1的原玩家結果／持久名稱與存檔仍未知。
+
+## 367可寫名稱正常確認回填
+
+[367](367-moo2-overlay-ruler-accept.md)已核對原95000065／dosgolem_high_le:234A49的mask1正常名稱ACCEPT。原95008897於20DDDB實際六byte66A3A6C42600寫DS188:26C4A6 word0000→0100，正常一次press／release後99M進入SELECT BANNER COLOR，未送旗色輸入。338唯讀未命中共享store的收據仍有效，可寫367才命中；365、366各輪未送名稱輸入的歷史保持，後續正常確認由367限定接通。原338與339唯讀guard保留，正式名稱持久writer／存檔／完整開局未驗。

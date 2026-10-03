@@ -597,4 +597,6 @@
 
 - [365：可寫覆蓋層正常選取 Humans](365-moo2-overlay-race-humans.md)，CONFORMED限定隔離Humans／名稱頁；完整可寫玩家路徑未驗。
 
-- [366：可寫名稱頁的首個可接受輸入狀態](366-moo2-name-ready-boundary.md)，CONFORMED限定只讀readiness；正常名稱確認DRAFT。
+- [366：可寫名稱頁的首個可接受輸入狀態](366-moo2-name-ready-boundary.md)，CONFORMED限定只讀readiness；正常名稱確認由367限定接通。
+
+- [367：可寫名稱頁的正常ACCEPT確認](367-moo2-overlay-ruler-accept.md)，CONFORMED限定獨立profile正常名稱確認／99M旗色頁；保留338與339唯讀guard，持久名稱與完整開局未驗。

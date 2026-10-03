@@ -43,3 +43,7 @@ python3 workplace/new-game-366-verify.py
 ```
 
 既有Docker執行並通過，11份私有來源／收據雜湊同次保存主庫研究入口。原LOG／PNG／資產窗口不公開。下一步另立名稱確認DRAFT：使用原95000065的完整165bytes／globals／header／CPU／FPU／RGB／32byte候選與同target／IF／callback／IRQ安全條件；按下mask1的flags3可排既有平台回呼，但原正常確認結果仍未驗，先審查才送一次press／release。原338唯讀guard保持，不靠單純換hash繞過95M IF關閉，也不深入helper。正式名稱writer／旗色／存檔／完整開局／RNG及remake同狀態仍未知，主庫RE-first保持。
+
+## 367可寫名稱正常確認回填
+
+[367](367-moo2-overlay-ruler-accept.md)已核對原95000065／dosgolem_high_le:234A49的mask1正常名稱ACCEPT。原95008897於20DDDB實際六byte66A3A6C42600寫DS188:26C4A6 word0000→0100，正常一次press／release後99M進入SELECT BANNER COLOR，未送旗色輸入。338唯讀未命中共享store的收據仍有效，可寫367才命中；365、366各輪未送名稱輸入的歷史保持，後續正常確認由367限定接通。原338與339唯讀guard保留，正式名稱持久writer／存檔／完整開局未驗。
