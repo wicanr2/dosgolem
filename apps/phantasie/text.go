@@ -7,7 +7,7 @@ import (
 // 映像偏移（CS = 映像段）與 DGROUP 偏移。證據：私有研究紀錄，靜態反組譯加動態軌跡。
 const (
 	// OffDrawFormatted 是繪字函式（`printf` 風格：欄、列、格式字串、可變引數）
-	// 完成格式化、開始取字模之前的位置。此時 DS:DSTextBuf 起是以 00h 結尾的已格式化字串，
+	// 完成格式化與取字模、視訊寫入之前的位置。此時 DS:DSTextBuf 起是以 00h 結尾的已格式化字串，
 	// 欄、列、格式字串指標在 [BP+4]、[BP+6]、[BP+8]，近呼叫的返回位址在 [BP+2]。
 	OffDrawFormatted = 0x26E9
 	// OffOverlayLoad 是 overlay 載入器入口：`[SP+2]` 是 DGROUP 內檔名字串的指標。

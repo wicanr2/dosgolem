@@ -16,7 +16,7 @@ const (
 	opInvert, opInvertDone   = 0x0672, 0x073F
 	opInvert2, opInvert2Done = 0x0740, 0x0799
 	opSave1, opSave1Done     = 0x0D30, 0x0D4F
-	opSave2, opSave2Done     = 0x0D50, 0x0D70
+	opCopy12, opCopy12Done   = 0x0D50, 0x0D70
 	opLoad1, opLoad1Done     = 0x0CF0, 0x0D0F
 	opLoad2, opLoad2Done     = 0x0D10, 0x0D2F
 	opRow24, opRow24Done     = 0x372D, 0x376D
@@ -54,7 +54,7 @@ func installOps(o *oracle.Oracle, img uint16, layer *xlate.Layer, fonts map[stri
 	t := &opsTracker{o: o, dg: img + 0xC9F, layer: layer, fonts: fonts, known: map[uint64][]byte{}, counts: map[string]int{}, verbose: verbose}
 	at := func(off uint16, fn func(*oracle.Oracle)) { o.OnCall(oracle.Far(img, off), fn) }
 	at(opSave1Done, func(*oracle.Oracle) { t.save("save1") })
-	at(opSave2Done, func(*oracle.Oracle) { t.save("save2") })
+	at(opCopy12Done, func(*oracle.Oracle) { t.counts["copy12"]++ })
 	at(opLoad1, func(*oracle.Oracle) { t.loadEnter(page1OffVar) })
 	at(opLoad1Done, func(*oracle.Oracle) { t.loadDone("load1") })
 	at(opLoad2, func(*oracle.Oracle) { t.loadEnter(page2OffVar) })
@@ -111,6 +111,9 @@ func (t *opsTracker) loadDone(name string) {
 		}
 	}
 	t.layer.Clear(0, 0, 320, 200)
+	if snap, err := t.layer.Snapshot(); err == nil {
+		t.known[t.loadHash] = snap // 空層是該內容的正確影子（spec 002 §4）
+	}
 	t.counts[name+"-miss"]++
 	t.logf("%s miss hash=%016x", name, t.loadHash)
 }
