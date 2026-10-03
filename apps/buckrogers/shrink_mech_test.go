@@ -1,7 +1,9 @@
 package buckrogers
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -297,6 +299,44 @@ func TestShrinkMissingLevelDrawsNothing(t *testing.T) {
 		}
 		if miss := o.Sync([]*EclTextPage{p}, 1, shrinkPalette()); len(miss) != 0 {
 			t.Errorf("%q: missing %q", lang, string(miss))
+		}
+	}
+}
+
+// Spec 057 §5.1 (environment gate): one runtime with the four languages loaded.
+// Each lane's watcher reads the table of its language, and the layouts of the
+// lanes, in either order, equal the layouts of a runtime that loaded that
+// language alone (no table is shared or left behind by another language, and
+// switching the language with F4 has nothing to rebuild).
+func TestShrinkLanesShareNoTable(t *testing.T) {
+	langs := []string{LangZhTW, LangZhCN, LangJa, LangKo}
+	dump := func(r *LiveRuntime, lang string) string {
+		w, places, players, _, _ := shrinkFormalCorpus(t, r, lang, 300)
+		if !reflect.DeepEqual(w.levels(), shrinkLevelsFor(lang)) {
+			t.Errorf("%s：watcher 取的表不是 %s 的表", lang, lang)
+		}
+		var sb strings.Builder
+		for _, p := range places {
+			c := p.c
+			shrinkDumpPlacement(&sb, w.placeText(c.txt, p.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry()))
+		}
+		for _, c := range players {
+			shrinkDumpPlayer(&sb, layoutPlayerName(w.layout, w.levels(), c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b))
+		}
+		return fmt.Sprintf("%x", sha256.Sum256([]byte(sb.String())))
+	}
+	all := shrinkFormalLoad(t)
+	fwd, rev := map[string]string{}, map[string]string{}
+	for _, l := range langs {
+		fwd[l] = dump(all, l)
+	}
+	for i := len(langs) - 1; i >= 0; i-- {
+		rev[langs[i]] = dump(all, langs[i])
+	}
+	for _, l := range langs {
+		alone := dump(shrinkFormalLoad(t, l), l)
+		if fwd[l] != alone || rev[l] != alone {
+			t.Errorf("%s：四語言載入（順 %s、逆 %s）與單獨載入（%s）的版面不同", l, fwd[l][:8], rev[l][:8], alone[:8])
 		}
 	}
 }

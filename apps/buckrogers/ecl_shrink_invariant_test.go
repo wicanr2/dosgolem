@@ -201,17 +201,33 @@ type shrinkFormalPlace struct {
 }
 
 // shrinkFormalLoad loads the formal runtime of the four languages (the
-// environment gate of the tests on the text/ catalogs).
-func shrinkFormalLoad(t *testing.T) *LiveRuntime {
+// environment gate of the tests on the text/ catalogs); with arguments only
+// the zh-TW lane and the languages named.
+func shrinkFormalLoad(t *testing.T, only ...string) *LiveRuntime {
 	t.Helper()
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
 	fonts := map[string]string{LangZhCN: os.Getenv("BUCKROGERS_ZHCN_FONT"), LangJa: os.Getenv("BUCKROGERS_JA_FONT"), LangKo: os.Getenv("BUCKROGERS_KO_FONT")}
 	tw := os.Getenv("BUCKROGERS_ZHTW_FONT")
-	if root == "" || tw == "" || fonts[LangZhCN] == "" || fonts[LangJa] == "" || fonts[LangKo] == "" {
-		t.Skip("BUCKROGERS_CHT_ROOT 與四個語言字型環境變數未設定")
+	langs := []string{LangZhCN, LangJa, LangKo}
+	if len(only) > 0 {
+		langs = nil
+		for _, l := range only {
+			if l != LangZhTW {
+				langs = append(langs, l)
+			}
+		}
 	}
-	r, err := LoadLiveRuntimeOptions(LiveOptions{TextDir: root + "/text", FontPath: tw,
-		Langs: []string{LangZhCN, LangJa, LangKo}, LangFonts: fonts})
+	if root == "" || tw == "" {
+		t.Skip("BUCKROGERS_CHT_ROOT 與語言字型環境變數未設定")
+	}
+	lf := map[string]string{}
+	for _, l := range langs {
+		if fonts[l] == "" {
+			t.Skip("BUCKROGERS_CHT_ROOT 與語言字型環境變數未設定")
+		}
+		lf[l] = fonts[l]
+	}
+	r, err := LoadLiveRuntimeOptions(LiveOptions{TextDir: root + "/text", FontPath: tw, Langs: langs, LangFonts: lf})
 	if err != nil {
 		t.Fatal(err)
 	}
