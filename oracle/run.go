@@ -621,6 +621,7 @@ func (o *Oracle) DX() uint16 { return o.m.CPU.R[cpu.DX] }
 func (o *Oracle) SI() uint16 { return o.m.CPU.R[cpu.SI] }
 func (o *Oracle) DI() uint16 { return o.m.CPU.R[cpu.DI] }
 func (o *Oracle) BP() uint16 { return o.m.CPU.R[cpu.BP] }
+func (o *Oracle) SP() uint16 { return o.m.CPU.R[cpu.SP] }
 
 // ES 讀附加段。表的位址多半是「段來自變數、位移寫死在指令裡」，
 // 段與位移都要才算得出線性位址。
