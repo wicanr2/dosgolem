@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_universe_loop_resolution(spec_dir):
+    """345只閉合576原步與兩RET，第三例pending／完整生成仍未知。"""
+    name = "345-moo2-universe-loop-progress.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：有界迴圈計數與兩個正常返回","8503原344列","32PNG","576","17FC82","17FCC3","17FD1E","17F037","EBP+12","C2 14 00","114058778","117106151","waiting=[false false true]","45次INC","51次CMP","51次JL","60次MOVSX","48次MOVZX","ram_checked=false","正式source逐byte等於已驗v2","c5ffbfda48e4ff7354452ace99bded92c4ccb31f4522e4cdc8534a34d84a4e44","正式writer、生成完成／完整開局與remake同狀態未驗","CPU／平台完全保持344"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("345缺原計數／PUSH ENTER框架／兩RET／抽樣邊界／限定驗收")
+    for older_name in ["340-moo2-banner-pressed-consumer.md", "341-moo2-banner-after-gui-return.md", "342-cpu386-test-dword-memory.md", "343-cpu386-setle-byte-register.md", "344-cpu386-setcc-byte-register.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原17FCC3迴圈進度與兩個正常返回已由規格345驗證" not in older:
+            raise RuntimeError("較早規格缺原迴圈正常返回回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("345缺公開索引入口")
+
+if sys.argv[1:] == ['--check-universe-loop-spec-backlinks']:
+    validate_universe_loop_resolution(spec_dir)
+    print("原迴圈576步／兩RET／第三pending／較早五規格回填通過")
+    raise SystemExit(0)
+
 def validate_setcc_register_resolution(spec_dir):
     """344限定標準暫存器SETcc，兩步原消費與較早四規格回填。"""
     name = "344-cpu386-setcc-byte-register.md"

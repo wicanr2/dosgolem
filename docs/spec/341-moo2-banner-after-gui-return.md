@@ -66,7 +66,7 @@ python3 workplace/new-game-341-formal-verify.py PASS只核算原按鍵返回、�
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:20DB5E／20E138／20E160→214104→20E165 | 原有按鍵分支、位置返回與後段按鍵TEST／JZ；340此caller讀0，341讀1後才放開 | 兩份原192步與正式重播 | 340 | 原20DB5E分支與20E165後段按鍵返回已由規格341接通 |
 
-原184694記憶體TEST與三步消費已由規格342接通，見[342](342-cpu386-test-dword-memory.md)。原版同輸入已進到宇宙生成圖；原17D536 SETLE與SS byte寫入由[343](343-cpu386-setle-byte-register.md)接通，原17D5A0 SETG與下一MOV已由規格344接通，見[344](344-cpu386-setcc-byte-register.md)。同輸入120M到17FCE4且無新CPU拒絕，仍宇宙生成圖，生成完成／完整開局與正式writer未驗；下一步有界唯讀核對生成迴圈進度，主庫RE-first保持。
+原184694記憶體TEST與三步消費已由規格342接通，見[342](342-cpu386-test-dword-memory.md)。原版同輸入已進到宇宙生成圖；原17D536 SETLE與SS byte寫入由[343](343-cpu386-setle-byte-register.md)接通，原17D5A0 SETG與下一MOV已由規格344接通，見[344](344-cpu386-setcc-byte-register.md)。同輸入120M到17FCE4且無新CPU拒絕，仍宇宙生成圖，生成完成／完整開局與正式writer未驗；主庫RE-first保持。 原17FCC3迴圈進度與兩個正常返回已由規格345驗證，見[345](345-moo2-universe-loop-progress.md)。三組576步／兩RET、全部8503原列與32PNG保持；第三組120M仍pending，生成完成／完整開局未驗。下一步另以固定160M明示診斷分支蒐證，先規格審查再續行，主庫RE-first保持。
 
 | 本機忽略來源／收據／核算 | SHA-256 |
 | --- | --- |

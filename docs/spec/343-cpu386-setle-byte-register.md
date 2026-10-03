@@ -60,7 +60,7 @@ CPU SHA-256 76f4b7b3f97156f9422d32e894e55579286f85d2c8b39a26eb90887fa22cc88f，�
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:17D536→17D539→17D53C／SS188:2BDA34 | 原SETLE AL0、所有旗標保持，下一MOV真實write 0 | 兩步／Bus唯一write與全套／343正式收據 | 342 | 原17D536 SETLE與SS byte寫入已由規格343接通 |
 
-原17D5A0 SETG與下一MOV已由規格344接通，見[344](344-cpu386-setcc-byte-register.md)。同輸入120M到17FCE4且無新CPU拒絕，仍宇宙生成圖，生成完成／完整開局與正式writer未驗；下一步有界唯讀核對生成迴圈進度，主庫RE-first保持。 343當輪其餘SETcc拒絕邊界由344擴張為完整16個裸暫存器條件；記憶體與前綴拒絕保持，歷史343收據不重寫。
+原17D5A0 SETG與下一MOV已由規格344接通，見[344](344-cpu386-setcc-byte-register.md)。同輸入120M到17FCE4且無新CPU拒絕，仍宇宙生成圖，生成完成／完整開局與正式writer未驗；主庫RE-first保持。 343當輪其餘SETcc拒絕邊界由344擴張為完整16個裸暫存器條件；記憶體與前綴拒絕保持，歷史343收據不重寫。 原17FCC3迴圈進度與兩個正常返回已由規格345驗證，見[345](345-moo2-universe-loop-progress.md)。三組576步／兩RET、全部8503原列與32PNG保持；第三組120M仍pending，生成完成／完整開局未驗。下一步另以固定160M明示診斷分支蒐證，先規格審查再續行，主庫RE-first保持。
 
 ### 本機忽略證據索引
 

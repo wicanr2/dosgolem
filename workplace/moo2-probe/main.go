@@ -179,6 +179,21 @@ func main() {
 	bannerPolled := false
 	// 339 END parse
 
+	// 345 BEGIN universe_state
+	genAnchors := [3]int{114000000, 117000000, 119900000}
+	var genSeen, genWaiting [3]bool
+	var genBP, genRA [3]uint32
+	var genSelector [3]uint16
+	var genStarts, genCounts [3]int
+	genGroup, genBudget := -1, 0
+	var genCode [16]byte
+	var genFrame [96]byte
+	var genStack [4]byte
+	defer func() {
+		fmt.Printf("universe_loop_totals groups=%v waiting=%v starts=%v samples=%v remaining=%d max_groups=3 max_steps_per_group=192\n", genSeen, genWaiting, genStarts, genCounts, genBudget)
+	}()
+	// 345 END universe_state
+
 	// 344 BEGIN cc_state
 	ccSeen, ccBudget := false, 0
 	// 344 END cc_state
@@ -2042,11 +2057,109 @@ func main() {
 		}
 		// 344 END cc_pre
 
+		// 345 BEGIN universe_pre
+		if bannerRed && genBudget == 0 && m.CPU.EIP == 0x17fcc3 {
+			for j, anchor := range genAnchors {
+				if !genSeen[j] && i >= anchor {
+					genSeen[j], genWaiting[j], genStarts[j], genGroup, genBudget = true, true, i, j, 192
+					genBP[j], genSelector[j] = m.CPU.R[cpu386.EBP], m.CPU.Seg[cpu386.SegSS]
+					var frame [96]byte
+					var code [224]byte
+					readable := false
+					ram := sha256.Sum256(m.Mem)
+					readonly := activationPeek(func() {
+						readable = peekSourceWindow(genSelector[j], genBP[j]-48, frame[:])
+						copy(code[:], m.Mem[0x17fc60:0x17fd40])
+					}) && ram == sha256.Sum256(m.Mem)
+					if readable {
+						genRA[j] = uint32(frame[60]) | uint32(frame[61])<<8 | uint32(frame[62])<<16 | uint32(frame[63])<<24
+					}
+					fmt.Printf("universe_loop_arm group=%d anchor=%d outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X frame_selector=%X frame_offset=%X frame_readable=%t frame=%X candidate_return=%X code_start=17FC60 code=%X readonly=%t\n", j, anchor, i, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags, genSelector[j], genBP[j]-48, readable, frame, genRA[j], code, readonly)
+					break
+				}
+			}
+		}
+		observeGen := genBudget > 0
+		genR, genSeg, genEIP, genFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		genFrameReadable, genStackReadable, genReadonly := false, false, false
+		var genOpcode byte
+		if observeGen || genWaiting[0] || genWaiting[1] || genWaiting[2] {
+			if uint64(genEIP) < uint64(len(m.Mem)) {
+				genOpcode = m.Mem[genEIP]
+			}
+		}
+		genRAMChecked := observeGen && (genCounts[genGroup] == 0 || genBudget == 1)
+		if observeGen {
+			var ram [32]byte
+			if genRAMChecked {
+				ram = sha256.Sum256(m.Mem)
+			}
+			genReadonly = activationPeek(func() {
+				copy(genCode[:], m.Mem[genEIP:genEIP+16])
+				genFrameReadable = peekSourceWindow(genSelector[genGroup], genBP[genGroup]-48, genFrame[:])
+				genStackReadable = peekSourceWindow(genSeg[cpu386.SegSS], genR[cpu386.ESP], genStack[:])
+			})
+			if genRAMChecked {
+				genReadonly = genReadonly && ram == sha256.Sum256(m.Mem)
+			}
+		}
+		// 345 END universe_pre
+
 		stepErr := m.CPU.Step()
 		if publishBus != nil {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		// 345 BEGIN universe_post
+		if observeGen {
+			genBudget--
+			genCounts[genGroup]++
+			var frameAfter [96]byte
+			var ram [32]byte
+			if genRAMChecked {
+				ram = sha256.Sum256(m.Mem)
+			}
+			readable := false
+			readonly := activationPeek(func() {
+				readable = peekSourceWindow(genSelector[genGroup], genBP[genGroup]-48, frameAfter[:])
+			}) && genReadonly
+			if genRAMChecked {
+				readonly = readonly && ram == sha256.Sum256(m.Mem)
+			}
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("universe_loop_step group=%d sample=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X frame_selector=%X frame_offset=%X frame_readable=%t after_frame_readable=%t before_frame=%X after_frame=%X stack_selector=%X stack_offset=%X stack_readable=%t stack=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_checked=%t remaining=%d error=%v\n", genGroup, genCounts[genGroup], i, genEIP, m.CPU.EIP, genR, m.CPU.R, genSeg, m.CPU.Seg, genFlags, m.CPU.EFlags, genCode, genSelector[genGroup], genBP[genGroup]-48, genFrameReadable, readable, genFrame, frameAfter, genSeg[cpu386.SegSS], genR[cpu386.ESP], genStackReadable, genStack, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, genRAMChecked, genBudget, stepErr)
+			if stepErr != nil {
+				genBudget = 0
+			}
+		}
+		if stepErr == nil && (genOpcode == 0xc3 || genOpcode == 0xc2) {
+			for j := range genWaiting {
+				if !genWaiting[j] || m.CPU.EIP != genRA[j] {
+					continue
+				}
+				genWaiting[j] = false
+				var stack [4]byte
+				var code [3]byte
+				readable := false
+				ram := sha256.Sum256(m.Mem)
+				readonly := activationPeek(func() {
+					readable = peekSourceWindow(genSeg[cpu386.SegSS], genR[cpu386.ESP], stack[:])
+					copy(code[:], m.Mem[genEIP:genEIP+3])
+				}) && ram == sha256.Sum256(m.Mem)
+				rawTarget := uint32(stack[0]) | uint32(stack[1])<<8 | uint32(stack[2])<<16 | uint32(stack[3])<<24
+				pop := uint32(4)
+				if genOpcode == 0xc2 {
+					pop += uint32(code[1]) | uint32(code[2])<<8
+				}
+				wantR := genR
+				wantR[cpu386.ESP] += pop
+				valid := readable && rawTarget == genRA[j] && genR[cpu386.ESP] == genBP[j]+12 && m.CPU.R == wantR && m.CPU.Seg == genSeg && m.CPU.EFlags == genFlags
+				fmt.Printf("universe_loop_return group=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X frame_ebp=%X stack_selector=%X stack_offset=%X stack_readable=%t stack=%X raw_target=%X readonly=%t valid=%t error=%v\n", j, i, genEIP, m.CPU.EIP, genR, m.CPU.R, genSeg, m.CPU.Seg, genFlags, m.CPU.EFlags, code, genBP[j], genSeg[cpu386.SegSS], genR[cpu386.ESP], readable, stack, rawTarget, readonly, valid, stepErr)
+			}
+		}
+		// 345 END universe_post
 
 		// 344 BEGIN cc_post
 		if observeCC {
