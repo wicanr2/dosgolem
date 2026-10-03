@@ -48,6 +48,7 @@ func main() {
 	pngPath := flag.String("png", "", "結束時把畫面存成 PNG（CGA 模式 4）")
 	pal := flag.String("palette", "1h", "PNG 用的 CGA 調色盤：0、0h、1、1h")
 	pages := flag.Bool("pages", false, "結束時印出頁面緩衝區變數 DS:5BAA、5BAC、5BAE 與 INT 61h 向量")
+	spf := flag.Bool("sprintf", false, "記錄 sprintf 呼叫，並標出以 sprintf 緩衝區當格式字串的繪字事件")
 	int10 := flag.Bool("int10", false, "記錄 INT 10h 呼叫（int86 入口的輸入暫存器）")
 	vram := flag.Bool("vram-callers", false, "統計寫視訊記憶體的呼叫端（映像偏移）")
 	ops := flag.Bool("ops", false, "記錄畫面常式的呼叫（反白、整頁存取、視窗…）")
@@ -97,6 +98,13 @@ func main() {
 			}
 		})
 	}
+	dests := map[uint16]string{}
+	if *spf {
+		phantasie.CaptureSprintf(o, img, func(e phantasie.SprintfEvent) {
+			dests[e.Dest] = string(e.Fmt)
+			fmt.Printf("S step=%d caller=%04X dest=%04X fmt=%q args=%04X\n", e.Step, e.Caller, e.Dest, e.Fmt, e.Args)
+		})
+	}
 	callers := map[uint16][2]int{}
 	if *vram {
 		phantasie.CaptureVideoWrites(o, img, func(w phantasie.VideoWrite) {
@@ -128,6 +136,16 @@ func main() {
 		ov := e.Overlay
 		if ov == "" {
 			ov = "-"
+		}
+		if *spf {
+			if f, ok := dests[e.FmtPtr]; ok {
+				fmt.Printf("# composed-fmt %q\n", f)
+			}
+			for _, a := range e.Args {
+				if f, ok := dests[a]; ok && a != 0 {
+					fmt.Printf("# composed-arg %04X %q\n", a, f)
+				}
+			}
 		}
 		if *args {
 			fmt.Printf("T step=%d r=%d c=%d caller=%04X ov=%s fmtptr=%04X fmt=%q text=%q args=%04X\n", e.Step, e.Row, e.Col, e.Caller, ov, e.FmtPtr, e.Format, e.Text, e.Args)

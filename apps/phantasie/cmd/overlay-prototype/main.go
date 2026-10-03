@@ -116,9 +116,12 @@ func main() {
 	catPath := flag.String("catalog", "", "譯文 TSV（key、translation、source）")
 	steps := flag.Uint64("steps", 12_000_000, "跑到第幾道指令")
 	keys := flag.String("keys", "", "送鍵：步數:鍵名[,...]")
+	route := flag.String("route", "", "按鍵路線檔（空白分隔的鍵名，每次讀鍵送一個）")
 	shots := flag.String("shots", "", "存圖：步數:路徑[,...]")
 	every := flag.Uint64("frame-every", 20_000, "每幾道指令呼叫一次 Layer.Frame")
 	scale := flag.Int("scale", 2, "放大倍率")
+	useOps := flag.Bool("ops", true, "依 spec 002 處理畫面操作（反白、整頁影子、視窗清除）")
+	opsVerbose := flag.Bool("ops-verbose", false, "印出每次畫面操作的處理")
 	flag.Parse()
 	if *root == "" || *fontPath == "" || *catPath == "" {
 		flag.Usage()
@@ -155,11 +158,27 @@ func main() {
 	}
 	img := phantasie.ImageSeg(o)
 	layer := &xlate.Layer{W: 320, H: 200}
+	fonts := map[string]*xlate.Font{font.Name: font}
+	layer.FontRegistry = fonts
+	var tracker *opsTracker
+	if *useOps {
+		tracker = installOps(o, img, layer, fonts, *opsVerbose)
+	}
 	gate := phantasie.NewKeyGate(o, img)
 	for _, it := range strings.Split(*keys, ",") {
 		if i := strings.Index(it, ":"); i > 0 {
 			n, _ := strconv.ParseUint(it[:i], 10, 64)
 			gate.Press(n, it[i+1:])
+		}
+	}
+	if *route != "" {
+		b, err := os.ReadFile(*route)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		for _, tok := range strings.Fields(string(b)) {
+			gate.Press(0, tok)
 		}
 	}
 	var shotList []shot
@@ -195,4 +214,7 @@ func main() {
 		}
 	}
 	fmt.Printf("# 結束於步 %d，疊字 %d 筆，缺字 %d\n", o.Steps(), len(layer.Stamps), len(missingSeen))
+	if tracker != nil {
+		fmt.Printf("# 操作計數 %v\n", tracker.counts)
+	}
 }
