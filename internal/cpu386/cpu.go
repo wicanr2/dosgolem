@@ -5279,15 +5279,23 @@ func (c *CPU) Step() error {
 			if e != nil {
 				return fail(e.Error())
 			}
-			if modrm>>6 != 3 {
-				return fail(fmt.Sprintf("0F %02X ModRM %02X 尚未支援", extended, modrm))
-			}
 			value := uint8(0)
 			// 344：標準16條件只消費旗標；目的byte之外的狀態保持。
 			cf, zf, sf, of, pf := c.EFlags&CF != 0, c.EFlags&ZF != 0, c.EFlags&SF != 0, c.EFlags&OF != 0, c.EFlags&PF != 0
 			conditions := [16]bool{of, !of, cf, !cf, zf, !zf, cf || zf, !cf && !zf, sf, !sf, pf, !pf, sf != of, sf == of, zf || sf != of, !zf && sf == of}
 			if conditions[extended&15] {
 				value = 1
+			}
+			if modrm>>6 != 3 {
+				seg, addr, e := c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				// 規格356：SETcc目的是純byte寫入，全部旗標與register保持。
+				if !c.writeSegment8(c.Seg[seg], addr, value) {
+					return fail("SETcc byte目的無法寫入")
+				}
+				break
 			}
 			c.setReg8(int(modrm&7), value)
 			break

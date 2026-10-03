@@ -58,7 +58,7 @@ CPU只用16行memory分支替換1行拒絕，逆轉逐byte保持353；原registe
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:223E93→223E95→223E96 | 原DS0E／ALFF交換及ES STOSB，兩步各一byte RAM差異、flags保持 | 353、352 | 原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通 |
 
-原1CDD0F byte加法已由355接通；下一步依355回填帳捕捉原1CE387的0F94 memory目的與後續消費，沿同180M，不提高cap或深入helper；完整開局與remake同狀態未知。
+原1CDD0F byte加法已由355接通；下一步依356回填帳捕捉原1CF90A的word IMUL來源與後續消費，沿同180M，不提高cap或深入helper；完整開局與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 
@@ -118,4 +118,8 @@ python3 apps/moo2/tools/startup_probe_131.py --check-xchg-byte-memory-spec-backl
 
 ### 355的後續勘誤回填
 
-原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。新164561579停於1CE387的0F94 memory目的，byte未知；下一步依355回填帳取原目的及後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。原164561579的1CE387記憶體SETE已由356接通；下一步依356回填帳取原1CF90A的word IMUL來源與後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+
+### 356的後續勘誤回填
+
+原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。新164567987停於1CF90A的66 6B word IMUL，DS188:5A2084來源word未知；下一步依356回填帳，沿180M，不增加cap或深挖helper。完整生成／開局、正式writer、RNG與remake同狀態未知。

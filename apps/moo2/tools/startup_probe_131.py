@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_setcc_byte_memory_resolution(spec_dir):
+    """356限定memory SETcc／原SETE與JMP，第三CMP與byte reader限制明示。"""
+    name = "356-cpu386-setcc-byte-memory.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：SETcc記憶體目的與原SETE／JMP","全部10834原355列","10764共通正常列","35既有frames","164561579","164561580","SS188:2BD834 byte41→01","index2BD834","EIP1CE38B","1CE61E","flags246h保持","4194304","目的一byteread拒絕仍成功","相同byte仍一write","原第三步CMP數值驗收","不稱新byte的reader","callback12／12","IRQ41946／41946","CPU386137.976s","1693原列","32新180M負例","164567987","input1CF90A","after1CF90C只解碼","offset5A2084","尚未達180M","17854f07854ba4d59e70b9ac4ed4b1ec2b5e1a01b4df4336c60ef3bbed2ffe66","386ac92b1570e1f1f7d4956752f2b87606b06e41286bc1b8c11bafb87df54978","6315adceb9f636c4a9628b2850c6d753eaa6b59166e142bc12a853577259887c","完整生成／開局與remake同狀態仍未驗","初態probe為兩步","正式三步probe只改診斷budget","未fetch ModRM／source"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("356缺CPU契約／原寫回／JMP／限制或新停止")
+    for older_name in ["355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1CE387記憶體SETE寫回與下一JMP已由規格356接通" not in older:
+            raise RuntimeError("較早規格缺memory SETcc回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("356缺公開索引入口")
+
+if sys.argv[1:] == ['--check-setcc-byte-memory-spec-backlinks']:
+    validate_setcc_byte_memory_resolution(spec_dir)
+    print("原memory SETcc／SETE與JMP／第三CMP限制／新word IMUL與較早回填通過")
+    raise SystemExit(0)
+
 def validate_add_byte_source_resolution(spec_dir):
     """355限定02 memory來源ADD／五步零結果與新0F94 memory目的停止。"""
     name = "355-cpu386-add-byte-memory-source.md"

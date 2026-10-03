@@ -58,7 +58,7 @@ CPU只新增353的21行word記憶體AND分支，逆轉後逐byte保持352；正�
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:103BF9→103BFF→103C02→103C05 | 原word0000／AND完整iw／SHL EDX0／OR dword0與flags246h三步 | 352 | 原103BF9 word記憶體AND與三步消費已由規格353接通 |
 
-原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原DS0E→FF／ALFF→0E及ESFF→0E、EDI增1／flags保持與兩步單byte RAM差異已驗，10742正常前綴／35frames與全套保持。原164560803的1CDD0F memory byte ADD已由355接通；下一步依355回填帳捕捉1CE387的0F94 memory目的，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原DS0E→FF／ALFF→0E及ESFF→0E、EDI增1／flags保持與兩步單byte RAM差異已驗，10742正常前綴／35frames與全套保持。原164560803的1CDD0F memory byte ADD已由355接通；下一步依356回填帳捕捉1CF90A的word IMUL來源，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 
@@ -121,4 +121,8 @@ python3 apps/moo2/tools/startup_probe_131.py --check-and-word-memory-spec-backli
 
 ### 355的後續勘誤回填
 
-原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。新164561579停於1CE387的0F94 memory目的，byte未知；下一步依355回填帳取原目的及後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。原164561579的1CE387記憶體SETE已由356接通；下一步依356回填帳取原1CF90A的word IMUL來源與後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+
+### 356的後續勘誤回填
+
+原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。新164567987停於1CF90A的66 6B word IMUL，DS188:5A2084來源word未知；下一步依356回填帳，沿180M，不增加cap或深挖helper。完整生成／開局、正式writer、RNG與remake同狀態未知。

@@ -127,7 +127,7 @@ func TestSETccRegisterKeepsJccTruth(t *testing.T) {
 	}
 }
 
-func TestSETccRegisterRejectsMemoryPrefixesAndTruncation(t *testing.T) {
+func TestSETccRegisterRejectsUnknownMemoryPrefixesAndTruncation(t *testing.T) {
 	for opcode := byte(0x90); opcode <= 0x9f; opcode++ {
 		codes := [][]byte{{}, {0x0f}, {0x0f, opcode}}
 		for _, prefix := range []byte{0x66, 0x67, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65, 0xf0, 0xf2, 0xf3} {
@@ -145,6 +145,8 @@ func TestSETccRegisterRejectsMemoryPrefixesAndTruncation(t *testing.T) {
 				for rm := byte(0); rm < 8; rm++ {
 					code := []byte{0x0f, opcode, mod<<6 | reg<<3 | rm, 0, 32, 0, 0, 0}
 					c, mem := subByteMemoryFixture(code)
+					// 356：有效memory已接通，舊負例限定未知selector拒絕。
+					c.Seg[SegDS], c.Seg[SegSS] = 0x200, 0x200
 					want := snapshotInImmediate(c)
 					before := append([]byte(nil), mem...)
 					bus := &subByteFailureBus{memory: mem, failWrite: true}

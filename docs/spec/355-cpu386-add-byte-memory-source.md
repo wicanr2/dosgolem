@@ -40,7 +40,7 @@ DRAFT未改CPU正常180M重播，全部10829原354列／36PNG保持；三observe
 
 首遇前10759共通正常列／35既有frames與同一原R／四來源byte保持；DRAFT未改CPU全部10829原354列／36PNG保持。正式finalPNG仍1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，逐byte與354相同，沿354人工檢視主要黑底與小型方形圖形，未見完整地圖。PNG保持不代表正常開局完成。
 
-**已證實，新停止**：164561579於dosgolem_high_le input1CE387 bytes0F 94 45 F4 E9 8E 02 00 00 83 EF 04 F6 47 01 02拒絕「0F 94 ModRM 45 尚未支援」。after1CE38A只解碼，memory目的SS188:[EBP-12] offset2BD834 byte未知，原未執行。R=[5AA5F4 0 0 256 2BD36C 2BD840 5AA5E8 5AA614]／段=[8 188 188 0 20 188]／flags246h，ZF1。requested budget180000000、actual stop164561579尚未達180M；probe exit0只是錯誤收尾。資料語意、後續消費與完整開局未知。
+**已證實，當輪停止**：164561579於dosgolem_high_le input1CE387 bytes0F 94 45 F4 E9 8E 02 00 00 83 EF 04 F6 47 01 02拒絕「0F 94 ModRM 45 尚未支援」。after1CE38A只解碼，memory目的SS188:[EBP-12] offset2BD834 byte未知，原未執行。R=[5AA5F4 0 0 256 2BD36C 2BD840 5AA5E8 5AA614]／段=[8 188 188 0 20 188]／flags246h，ZF1。requested budget180000000、actual stop164561579尚未達180M；probe exit0只是錯誤收尾。資料語意、後續消費與完整開局未知。
 
 **已證實，CPU回歸**：八register全部256×256及兩種算術flags初態、64flags組合，以規格324獨立較寬加法／nibble進位／signed範圍／popcount與規格354獨立little-endian byte視圖驗證，未呼叫CPU add8。所有ModRM／SIB、相異DS／SS、AL／AH等base／index別名、負disp8／32位繞回／最後byte／相鄰資料及非零FPU保持。唯讀memory成功且Bus零寫；未知selector／段外／線性溢位／Bus讀失敗／prefix／截短不發布register／flags／RAM；原02／22 register的64配對各保持，22 memory仍拒絕。
 
@@ -56,7 +56,7 @@ CPU16行02 memory分支替換1行拒絕，三observer區塊逆轉逐byte保持35
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:1CDD0F→1CDD1E | 四SS byte來源00的ADD AL與第五目的ADD零結果／flags／RAM及正常續行 | 354、353、352 | 原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通 |
 
-下一步只接原1CE387的0F 94 memory目的；先捕捉SS188:2BD834 byte與相鄰資料、flags246h及後續原消費，核對既有標準16條件ISA，再審查通用memory byte目的與寫回失敗不發布。沿同180M正常輸入，不增加cap或深挖helper。原非零ADD／進位、完整生成／開局、正式writer、RNG與remake同狀態仍未知。
+原1CE387 memory SETE已由356接通；下一步依356回填帳取原1CF90A的word IMUL來源與原DI／imm05，沿同180M，不增加cap。原byte1 reader／第三CMP數值與完整開局未知。
 
 ### 本機忽略證據索引與命令
 
@@ -115,3 +115,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-add-byte-source-spec-backli
 | new-game-355-backlink-tests.txt | 2d37edfccf2a0a4d2fda48942e960387daa915af59b2604c3ba4dd6cfc096db0 |
 | new-game-355-off-attempt1-run.sh | 2ac94e8e0ba001a75813c882a457dc0ac2cd58e208e594ca1abbd66580524faf |
 | new-game-355-off-attempt1-output.txt | da277346d8fa7f358ee1d958e3d5c6ab6edb08bc4a13f9bba3eb54810c78eb32 |
+
+### 356的後續勘誤回填
+
+原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。新164567987停於1CF90A的66 6B word IMUL，DS188:5A2084來源word未知；下一步依356回填帳，沿180M，不增加cap或深挖helper。完整生成／開局、正式writer、RNG與remake同狀態未知。

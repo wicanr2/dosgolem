@@ -249,6 +249,10 @@ func main() {
 	// 353 END and_state
 
 	// 354 BEGIN xchg_state
+	// 356 BEGIN set_memory_state
+	setMemorySeen, setMemoryBudget := false, 0
+	// 356 END set_memory_state
+
 	// 355 BEGIN add_source_state
 	addSourceSeen, addSourceBudget := false, 0
 	// 355 END add_source_state
@@ -2582,6 +2586,29 @@ func main() {
 		}
 		// 354 END xchg_pre
 
+		// 356 BEGIN set_memory_pre
+		if bannerRed && !setMemorySeen && m.CPU.EIP == 0x1ce387 {
+			setMemorySeen, setMemoryBudget = true, 3
+		}
+		observeSetMemory := setMemoryBudget > 0
+		setMemoryR, setMemorySeg, setMemoryEIP, setMemoryFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var setMemoryCode [16]byte
+		var setMemorySource [3]byte
+		setMemoryOffset := setMemoryR[cpu386.EBP] - 13
+		setMemorySourceReadable := false
+		var setMemoryRAM [32]byte
+		setMemoryReadonly := false
+		var setMemoryRAMCopy []byte
+		if observeSetMemory {
+			setMemoryRAM = sha256.Sum256(m.Mem)
+			setMemoryRAMCopy = append([]byte(nil), m.Mem...)
+			setMemoryReadonly = activationPeek(func() {
+				copy(setMemoryCode[:], m.Mem[setMemoryEIP:setMemoryEIP+16])
+				setMemorySourceReadable = peekSourceWindow(setMemorySeg[cpu386.SegSS], setMemoryOffset, setMemorySource[:])
+			}) && sha256.Sum256(m.Mem) == setMemoryRAM
+		}
+		// 356 END set_memory_pre
+
 		// 355 BEGIN add_source_pre
 		if bannerRed && !addSourceSeen && m.CPU.EIP == 0x1cdd0f {
 			addSourceSeen, addSourceBudget = true, 5
@@ -2869,6 +2896,30 @@ func main() {
 			}
 		}
 		// 354 END xchg_post
+
+		// 356 BEGIN set_memory_post
+		if observeSetMemory {
+			setMemoryBudget--
+			var sourceAfter [3]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable := false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(setMemorySeg[cpu386.SegSS], setMemoryOffset, sourceAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && setMemoryReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range setMemoryRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fmt.Printf("setcc_byte_memory_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, setMemoryEIP, m.CPU.EIP, setMemoryR, m.CPU.R, setMemorySeg, m.CPU.Seg, setMemoryFlags, m.CPU.EFlags, setMemoryCode, setMemorySeg[cpu386.SegSS], setMemoryOffset, setMemorySourceReadable, afterSourceReadable, setMemorySource, sourceAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, setMemoryRAM == ram, setMemoryBudget, stepErr)
+			if stepErr != nil {
+				setMemoryBudget = 0
+			}
+		}
+		// 356 END set_memory_post
 
 		// 355 BEGIN add_source_post
 		if observeAddSource {

@@ -121,6 +121,8 @@ func TestSETLERegisterRejectsWithoutDestinationMutation(t *testing.T) {
 			for rm := byte(0); rm < 8; rm++ {
 				code := []byte{0x0f, 0x9e, mod<<6 | ignored<<3 | rm, 0, 32, 0, 0, 0}
 				c, mem := subByteMemoryFixture(code)
+				// 356：有效memory已接通，舊負例限定未知selector拒絕。
+				c.Seg[SegDS], c.Seg[SegSS] = 0x200, 0x200
 				want := snapshotInImmediate(c)
 				before := append([]byte(nil), mem...)
 				bus := &subByteFailureBus{memory: mem, failWrite: true}

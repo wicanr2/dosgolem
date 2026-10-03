@@ -575,4 +575,6 @@
 
 - [354：byte記憶體與暫存器XCHG](354-cpu386-xchg-byte-memory-register.md)：限定CONFORMED。原DS0E／ALFF交換與STOSB兩步、10742原前綴／35frames、CPU全套／8M保持；164560803原byte ADD memory來源已由355接通，完整開局未知。
 
-- [355：byte記憶體來源ADD](355-cpu386-add-byte-memory-source.md)：限定CONFORMED。原四來源ADD與目的ADD零結果／五步旗標、10759原前綴／35frames、全套／8M保持；164561579新0F94 memory目的拒絕，完整開局未知。
+- [355：byte記憶體來源ADD](355-cpu386-add-byte-memory-source.md)：限定CONFORMED。原四來源ADD與目的ADD零結果／五步旗標、10759原前綴／35frames、全套／8M保持；164561579原0F94 memory目的已由356接通，完整開局未知。
+
+- [356：標準SETcc的byte記憶體目的](356-cpu386-setcc-byte-memory.md)：限定CONFORMED。原SETE SS41→01與下一JMP／flags保持、10764原前綴／35frames、全套／8M通過；164567987新word IMUL prefix拒絕，完整開局未知。

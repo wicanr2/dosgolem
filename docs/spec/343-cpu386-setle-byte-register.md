@@ -85,3 +85,7 @@ CPU SHA-256 76f4b7b3f97156f9422d32e894e55579286f85d2c8b39a26eb90887fa22cc88f，�
 | workplace/new-game-343-old339-cli-tests.txt | e4461c40e971daf4de8338567b57b68f0945355ed595b7c5c09620a2590be774 |
 
 80項回填正對照、343新增26負例、342的25負例與340另兩缺回填負例、341的29／340的28／338及339各26負例均通過。來源與新檔1000:1000。
+
+### 356的後續勘誤回填
+
+原1CE387記憶體SETE寫回與下一JMP已由規格356接通，見[356](356-cpu386-setcc-byte-memory.md)。原SS188:2BD834 byte41→01／唯一RAM差異、flags246h保持與原JMP到1CE61E已驗；第三CMP數值與byte1 reader未驗。通用16條件memory純寫、343／344舊memory負例限定未知selector及完整新正例、固定EXE全套通過。新164567987停於1CF90A的66 6B word IMUL，DS188:5A2084來源word未知；下一步依356回填帳，沿180M，不增加cap或深挖helper。完整生成／開局、正式writer、RNG與remake同狀態未知。
