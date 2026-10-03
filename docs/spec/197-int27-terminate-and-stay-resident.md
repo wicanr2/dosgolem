@@ -1,6 +1,6 @@
 # 197 — `int 27h`（舊式常駐結束）
 
-狀態：**READY**（三輪審查：契約對程式、資料對證據、確認輪；第 3 輪只剩文字層級的應改，已併入）
+狀態：**CONFORMED**（三輪審查後 READY；實作與同狀態驗證收據見 §9）
 日期：2026-10-03
 前置：[`008-tsr-resident.md`](008-tsr-resident.md) §3（`AH=31h`）、[`009-exec.md`](009-exec.md) §3（`AH=4Dh`）與 §4（監督佇列）、[`006-layering.md`](006-layering.md) §2
 
@@ -177,3 +177,53 @@ func (d *DOS) tsr27(c *cpu.CPU) {
 - bump 模型使 `0900h` 至 `10FFh` 成為不可用的間隙，真 DOS 的下一支會緊接在 `0900h` 之後。沒有證據顯示遊戲不依賴三塊緩衝區的相對位置，待 §7.3 同狀態量測後確認。
 - 區塊縮減失敗時是否不結束（§3 表的差異）：沒有程式需要，未量到。
 - `TestInt27ExitCodeIsZero` 的「`Exit` 初值 `0xFF`」依賴基底的哨兵設計（`ExecRecord.Exit`）。其他分支若改用獨立的 `Ended` 欄位，日後合併時這條斷言要改成斷言 `Ended`。
+
+## 9. 收據（CONFORMED）
+
+日期：2026-10-03。分支 `phantasie-cht-overlay`，基底為 `origin/buck-rogers-cht-output-overlay`（`beca734`），實作 commit 在規格 commit 之後。
+
+### 9.1 單元測試
+
+§7.1 的八個測試全數通過。`internal/...`、`oracle/...`、`xlate/...`、`session/...` 全套通過（離線模組快取，映像含 ebiten 相依）。`gofmt -l`、`go vet ./internal/dos` 無輸出。
+
+### 9.2 負對照（§7.2，逐一套用、逐一還原）
+
+| 突變 | 失敗的測試 |
+|---|---|
+| 移除 `case 0x27`（改成 `d.note`） | 八個全部 |
+| `DX>>4` 截斷 | `RoundsKeepUp`、`MaxDX`、`RootResidentRoundsUp` |
+| `(DX>>4)+1` 永遠進位 | `ExactMultipleNotRoundedUp`、`RootResidentAdvancesFreeSeg` |
+| `uint16` 回繞 | `MaxDX` |
+| 離開碼取 `al(c)` | `ExitCodeIsZero` |
+| `K` 取 0 | `RoundsKeepUp`、`ExactMultipleNotRoundedUp`、`MaxDX`、`RootResidentAdvancesFreeSeg`、`RootResidentRoundsUp` |
+| `tsr=false` | `RoundsKeepUp`、`MaxDX`、`RootThenQueuedProgramLandsAboveResident`、`RootResidentAdvancesFreeSeg`、`RootResidentRoundsUp` |
+
+規格列出的每一條都由指名的測試殺死（`RootResidentAdvancesFreeSeg` 在 `K` 取 0 與 `tsr=false` 下都失敗；`RoundsKeepUp` 同）。
+
+### 9.3 同狀態（§7.3，`cmd/probe -queue`，三支 `.COM` 串跑）
+
+| 項目 | 預期 | 實測 |
+|---|---|---|
+| 「沒實作的服務」 | 不列 `int 27h` | 0 種 |
+| 向量表 `0180` 至 `018F` 的寫入（`-watch 180-18F`） | 寫入者 CS 依序為三支各自的 PSP，每個位元組只寫一次 | 24 個位元組，寫入者 `0100`（16 個）、`1101`（4 個）、`1950`（4 個），各一次，沒有第二輪重寫 |
+| 向量 61h、62h、63h 的最終值 | 段 `0100h`、`1101h`、`1950h`，偏移 0 | 由上列寫入值得 `0100:0000`、`1101:0000`、`1950:0000` |
+| 兩支佇列程式的 `EXEC 紀錄` | `TSR=true`，`keep=084Eh` | 兩支都是 `TSR=true keep=084E` |
+| 後續程式的 PSP | `1101h`、`1950h`、`219Fh` | `PSP=1101`、`1950`、`219F` |
+| 資料檔讀入緩衝區 | 落在 `0100h` 至 `08FFh` 內，不與 `1101h` 起相交 | 讀入 `0100:0000`，5,273 bytes，範圍 `[0100h, 024Ah)`，不與 `1101h` 起相交 |
+| `-seg-log` | 不進入映像之外的位址（修前進入 `3500:xxxx`） | 段轉移依序為 `1101`、`1950`、各程式的載入 stub 段、主程式映像 `21AF`、堆疊上的中斷小常式 `2E4E`；沒有 `3500` |
+| 連跑兩次的傾印雜湊 | 相同 | `B8000` 起 16 KB 的傾印三次執行雜湊相同 |
+| §1 第 3 條的因果 | 補上後症狀消失 | 主程式讀到 overlay 載入器（`ov1.ovr` 載入 `21AF:53EA` 與 `2E4E:B8F0`），視訊記憶體有寫入；§1 第 3 條由強推論升為已證實 |
+
+`int 27h` 三次以 `-watch` 的寫入者推得，沒有用 `-log-calls` 計次（見 §7.3）。
+
+### 9.4 實作期間的處置
+
+- 實作先在 `2f44a68` 基底完成並驗收，之後為了重用覆繪框架（`xlate`、`session`、`frontend`），以 cherry-pick 搬到 `origin/buck-rogers-cht-output-overlay` 之上，只有 `000-index.md` 有衝突，保留框架分支的內容並加入本規格的列。兩個基底上的結果逐項相同。
+- 框架分支沒有 `cmd/probe -program-path`（屬 `194-stubseg-font-collision-and-program-path`）。本驗收不用它，結果與使用它時相同。
+- `-watch` 與 `-watch-video` 共用同一個掛鉤，不能同時使用；同時使用時 `-watch` 沒有輸出。向量寫入與視訊統計因此分兩次執行。
+
+### 9.5 未量到
+
+- 區塊縮減失敗時是否不結束（§3 表、§8）：沒有程式需要。
+- 疊底行程的 `K`：同狀態不可觀測，只由單元測試覆蓋（§7.3）。
+- 經 stub 鏈接進來的 `int 27h`、父行程經 trampoline EXEC 的 CF（§2）：沿用 `AH=4Ch` 的既有行為，未量。
