@@ -1089,6 +1089,83 @@ func main() {
 	}()
 	// 349 END generation_state
 
+	// 350 BEGIN iteration_state
+	iterationSeen := [4][5]bool{}
+	iterationIndices := [4]uint16{}
+	iterationGroup, iterationGroups, iterationEvents := -1, 0, 0
+	iterationFull := false
+	iterationDump := func(step, group, phase int) {
+		c := m.CPU
+		var code, boundCode [16]byte
+		var stack [96]byte
+		var frame [48]byte
+		var bound [2]byte
+		codeOK, boundCodeOK, stackOK, frameOK, boundOK := false, false, false, false, false
+		boundOffset := uint32(0)
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			codeOK = peekSourceWindow(c.Seg[cpu386.SegCS], c.EIP, code[:])
+			boundCodeOK = peekSourceWindow(c.Seg[cpu386.SegCS], 0x16af1c, boundCode[:])
+			if boundCodeOK && boundCode[0] == 0x66 && boundCode[1] == 0x3b && boundCode[2] == 0x35 {
+				boundOffset = uint32(boundCode[3]) | uint32(boundCode[4])<<8 | uint32(boundCode[5])<<16 | uint32(boundCode[6])<<24
+				boundOK = peekSourceWindow(c.Seg[cpu386.SegDS], boundOffset, bound[:])
+			}
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			if generationSP >= 56 {
+				frameOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-56, frame[:])
+			}
+		}) && ram == sha256.Sum256(m.Mem)
+		iterationEvents++
+		fmt.Printf("generation_iteration_observation group=%d phase=%d outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d instruction_bytes=%X code_readable=%t bound_instruction_bytes=%X bound_code_readable=%t bound_offset=%X bound_raw=%X bound_readable=%t bound_signed=%d stack_offset=%X stack_readable=%t stack_window=%X frame_offset=%X frame_readable=%t frame_window=%X ram_before_sha256=%x ram_after_sha256=%x readonly=%t\n", group, phase, step, c.EIP, c.R, c.Seg, c.EFlags, c.FPUControl, c.FPUStatus, c.FPUDepth, code, codeOK, boundCode, boundCodeOK, boundOffset, bound, boundOK, int16(uint16(bound[0])|uint16(bound[1])<<8), c.R[4], stackOK, stack, generationSP-56, frameOK, frame, ram, sha256.Sum256(m.Mem), readonly)
+	}
+	observeGenerationIteration := func(step int) {
+		if !universe160 || !generationSeen[2] || generationSeen[13] || m.CPU.R[5] != generationSP-24 {
+			return
+		}
+		c := m.CPU
+		if c.EIP == 0x16ad7d {
+			index := uint16(c.R[6])
+			if iterationGroup < 0 || iterationIndices[iterationGroup] != index {
+				if iterationGroups >= len(iterationSeen) {
+					iterationFull = true
+					return
+				}
+				iterationGroup = iterationGroups
+				iterationGroups++
+				iterationIndices[iterationGroup] = index
+			}
+		}
+		if iterationGroup < 0 || iterationFull {
+			return
+		}
+		phase := -1
+		switch c.EIP {
+		case 0x16ad7d:
+			phase = 0
+		case 0x16af1c:
+			phase = 1
+		case 0x16af23:
+			phase = 2
+		case 0x16ae07:
+			phase = 3
+		case 0x16ae0c:
+			if iterationSeen[iterationGroup][3] {
+				phase = 4
+			}
+		}
+		if phase >= 0 && !iterationSeen[iterationGroup][phase] {
+			iterationSeen[iterationGroup][phase] = true
+			iterationDump(step, iterationGroup, phase)
+		}
+	}
+	defer func() {
+		if universe160 {
+			iterationDump(loopStep+1, -1, 5)
+			fmt.Printf("generation_iteration_totals groups=%d indices=%v seen=%v events=%d max_groups=4 max_events_per_group=5 max_events=21 full=%t budget=160000000 outer_returned=%t\n", iterationGroups, iterationIndices, iterationSeen, iterationEvents, iterationFull, generationSeen[13])
+		}
+	}()
+	// 350 END iteration_state
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -1386,6 +1463,10 @@ func main() {
 		// 349 BEGIN generation_call
 		observeGenerationEntry(i)
 		// 349 END generation_call
+
+		// 350 BEGIN iteration_call
+		observeGenerationIteration(i)
+		// 350 END iteration_call
 
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]

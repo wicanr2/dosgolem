@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_generation_iteration_resolution(spec_dir):
+    """350限定首四原迭代／signed界限36，全出口與RET未知。"""
+    name = "350-moo2-generation-iteration-bound.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原迭代前進與實際界限","153880145","154031469","154183024","154349384","154516973","16AD7D","16AF1C","16AF23","28199A","raw2400／signed36","151324","151553","166358","167587","首四組重繪未見不代表後續未重繪","full=true","outer_returned=false","10556原349列","36PNG","1693原列","0cbe29a3e93145f2c7ee71036e0fe76902b6dbc76809571df761a3269d7e70d3","d2c9130ac36766528d7a955a2711e45a863cbee5ca631bea36ad1f4085135231","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("350缺原迭代／signed界限／飽和範圍或限定狀態")
+    older = (spec_dir / "349-moo2-generation-entry.md").read_text()
+    if name not in older or "原首四迭代與實際比較界限已由規格350驗證" not in older:
+        raise RuntimeError("349缺原迭代與比較界限已確認回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("350缺公開索引入口")
+
+if sys.argv[1:] == ['--check-generation-iteration-spec-backlinks']:
+    validate_generation_iteration_resolution(spec_dir)
+    print("原首四迭代／signed界限36／飽和範圍／較早回填通過")
+    raise SystemExit(0)
+
 def validate_generation_entry_resolution(spec_dir):
     """349限定原入口／直接返回／外層pending，完整配置未知。"""
     name = "349-moo2-generation-entry.md"

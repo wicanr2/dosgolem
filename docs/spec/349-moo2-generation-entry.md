@@ -56,7 +56,7 @@ private160M正常流程已捕捉153878499的dosgolem_high_le:16BADE原CALL、153
 
 **已證實，等待邊界**：13事件readonly，seen的0..11與16為true，12..15為false，returned=false。160M原保存外層slot16BAE3與框架仍在；沒有原16B01F RET／16BAE3返回收據。只稱觀察範圍內pending，不將保存返回位址冒稱完成，也不因17FD04仍在就判CPU故障。
 
-**未知**：外層迭代實際上限與剩餘工作、後續重繪分支16AE07、正式持久writer、原frame欄位語意、母星配置完成／完整開局、存檔、RNG、人耳及remake同狀態。
+**未知**：外層全部迭代與剩餘工作、後續重繪分支16AE07、正式持久writer、原frame欄位語意、母星配置完成／完整開局、存檔、RNG、人耳及remake同狀態。首四原迭代與該次實際比較界限36已由350驗證。
 
 ## 保持、接線與重生
 
@@ -76,7 +76,7 @@ READY審查後接正式兩區塊，只更名349標記、執行語句與已驗pri
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:16BADE→16AD13／16AE7F→16B0B4 | 原入口及首次距離返回已證實，外層160M pending | 348 | 原後續CALL入口參數及外層等待已由規格349驗證 |
 
-下一步維持160M，觀察16AD7D／16AF1B..16AF23外層迭代、原word_19199A實際上限及16AE07重繪邊界，再依實際進度決定足夠的續行預算；不逐行翻譯繪圖helper、不猜欄位用途或盲提高cap。主庫RE-first保持，整款remake／中文化仍未完成。
+下一步依350核對原JL不跳出口與後段／RET，維持160M；不由四次樣本推算整段完成時間、不逐行翻譯繪圖helper或猜欄位用途。主庫RE-first保持，整款remake／中文化仍未完成。
 
 86項回填正對照／新349的32缺證據、狀態、較早回填與索引負例／既有負例通過。公開入口：python3 apps/moo2/tools/startup_probe_131.py --check-generation-entry-spec-backlinks，只驗原入口／直接返回／pending及回填，不啟動DOSBox-X。
 
@@ -110,3 +110,7 @@ READY審查後接正式兩區塊，只更名349標記、執行語句與已驗pri
 | workplace/new-game-349-backlink-verify.py | 22d2e06a78f4530bc63ad6d01537ba1c2c1d228dadc8e44e692b6e466f8cfc1c |
 | workplace/new-game-349-backlink-tests.txt | 7091c1cf8e1e8435873cfa8ec2baa81b78ad531d9432fd5bbfad253badee99e9 |
 | workplace/new-game-349-frames.json | 661ebbf70b113592d12355fa40b2632acbfdc68feea7116b2ce315b96584d098 |
+
+## 350後續回填
+
+原首四迭代與實際比較界限已由規格350驗證，見[350原迭代與界限](350-moo2-generation-iteration-bound.md)。原SI1..4後CMP2..5／signed36，首四組重繪未見，第5索引使觀察飽和。全部出口／RET／剩餘工作與完整開局仍未知。本文最初的未知是349快照，不重新開啟已驗首四迭代及該次bound。
