@@ -535,4 +535,6 @@
 
 - [334：正式選單就緒後的正常新遊戲點擊](334-moo2-ready-menu-normal-click.md)：限定CONFORMED。正常額外點擊實際選中index2；歷史F2 66 AF拒絕與黑屏由335解除，舊三基線保持。
 
-- [335：REPNE SCASW與正式選單後續](335-cpu386-repne-scasw.md)：限定CONFORMED。原F2 66 AF掃描與單筆MOV／全套／三基線保持，正常設定頁已見；ACCEPT與完整開局未驗。
+- [335：REPNE SCASW與正式選單後續](335-cpu386-repne-scasw.md)：限定CONFORMED。原F2 66 AF掃描與單筆MOV／全套／三基線保持，正常設定頁已見，ACCEPT由336接通，完整開局未驗。
+
+- [336：原設定頁按鈕表與ACCEPT正常輸入](336-moo2-setup-accept-normal-click.md)：限定CONFORMED。正常ACCEPT實際index15寫回，SELECT RACE已見；四舊基線與102PNG保持，完整開局未驗。

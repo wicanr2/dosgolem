@@ -517,3 +517,13 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 同334四原版各一次乾淨重生，不改輸入或100M cap；三舊基線3847／4829／6769列及72PNG保持，ready原入口前5833列保持。76658331原F266AF匹配第6個word，ECX9→3、EDI1F357B→1F3587、flags246h保持；下一MOV讀原SS stack令EAX2→64h。來源與核心獨立核對；100M無新CPU拒絕，原版NEW GAME設定頁PNG人工確認。正常原點擊、選擇與callback4／4保持；ACCEPT／完整開局／remake同狀態仍未知。
 
 命令、來源、私有LOG／PNG與測試收據集中[335](docs/spec/335-cpu386-repne-scasw.md)。292／334與索引同次回填，72函式、335新增26缺證據負例及兩CLI通過。原輸入唯讀、產物1000:1000、工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案；原版素材不公開。沿既有授權推github隔離分支，主庫玩法RE閘門保持。下一步只保存原設定頁按鈕表與ACCEPT輸入前置，不重開已完成SCASW或renderer考古。
+
+## 2026-10-03：正常ACCEPT與選族頁
+
+起點74f574a78927f6bacdec95ea0519c83078bc71df。命中dosgolem／GUI輸入／規格閘門與文件職責路由；336先DRAFT保存原17筆表三時點，扣新列後8146舊ready列與全部圖保持，935bytes hash與ACCEPT候選範圍足夠後READY。只新增明示SETUP_ACCEPT_CLICK=1、80M原表／畫面／回呼／IRQ前置；全部經InjectMouseEvent，不代寫原選擇或增加cap。
+
+原初態一次600s；正式五流程一次各情境、900s有界容器／固定Go1.24.13／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀重建417檔，原版各條100M cap保持。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe；python3 workplace/new-game-336-verify.py PASS，四舊基線3847／4829／6769／8146列及102PNG保持，accept額外80M輸入前6145原列保持。80000000 press／80011248 release、差42912微秒，callback6／6完成；80124668原20DDDB word0000→0F00，index15實際選擇已核對。
+
+原版同100M到21595F，無新CPU拒絕，SELECT RACE選族頁PNG人工確認，正常ACCEPT已證實；種族選擇／完整開局與remake同狀態仍未知。已保存90M／100M原16筆表／880bytes供下一正常輸入；不深挖renderer／helper。
+
+15新增CLI拒絕與有效正對照、同binary舊334 14拒絕與正對照、73回填函式、既有負例與新增28缺證據負例、兩CLI通過。CPU／startup／provider／matcher逐位元保持335，335固定EXE Go全套仍有效；只改probe與規格，gofmt及來源／新收據1000:1000通過，工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案。命令、來源與十三私有收據集中[336](docs/spec/336-moo2-setup-accept-normal-click.md)，原版素材不公開；沿授權推github隔離分支，主庫RE-first保持。

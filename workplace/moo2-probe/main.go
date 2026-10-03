@@ -135,6 +135,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "MENU_READY_CLICK要求值1、舊點擊旗標、44M Esc、100M cap、1996-01-01、SEPARATE_DOS=1與frame prefix")
 		os.Exit(2)
 	}
+
+	setupAcceptSetting := os.Getenv("DOSGOLEM_MOO2_SETUP_ACCEPT_CLICK")
+	setupAccept := setupAcceptSetting == "1"
+	if setupAcceptSetting != "" && (!setupAccept || !readyClick) {
+		fmt.Fprintln(os.Stderr, "SETUP_ACCEPT_CLICK要求值1與完整MENU_READY_CLICK固定情境")
+		os.Exit(2)
+	}
+
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -561,6 +569,16 @@ func main() {
 	var scasWordSelector, scasWordStackSelector uint16
 	var scasWordOffset, scasWordStackOffset uint32
 	var scasWordSource []byte
+
+	// 規格336：80M原17筆表與設定頁一致後，一次正常ACCEPT輸入。
+	setupPressed, setupReleased, setupStoreSeen := false, false, false
+	var setupPressMicros, setupPressStarted uint64
+	defer func() {
+		if setupAccept {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("setup_accept_terminal pressed=%t released=%t store_seen=%t mask=%X pending=%d active=%t started=%d completed=%d\n", setupPressed, setupReleased, setupStoreSeen, mask, pending, active, started, completed)
+		}
+	}()
 	readyPressed, readyReleased, readyStoreSeen := false, false, false
 	var readyPressMicros, readyPressStarted uint64
 	defer func() {
@@ -709,6 +727,44 @@ func main() {
 	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
 	postClickVisits := make(map[uint32]uint64)
 	postClickSteps := 0
+
+	// 規格336唯讀診斷：設定頁原表三時點，不沿舊caller框架猜測。
+	dumpSetupTable := func(step int) {
+		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 {
+			return
+		}
+		c := m.CPU
+		r, seg, eip, flags, bus := c.R, c.Seg, c.EIP, c.EFlags, c.Bus
+		control, status, depth, fpu := c.FPUControl, c.FPUStatus, c.FPUDepth, c.FPUStack
+		state, ramBefore := m.VBEState(), sha256.Sum256(m.Mem)
+		mask, pending, active, started, completed := services.MouseCallbackState()
+		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+		var globals [192]byte
+		var header, event [16]byte
+		g := peekSourceWindow(seg[cpu386.SegDS], 0x26c480, globals[:])
+		h := peekSourceWindow(seg[cpu386.SegDS], 0x29be0e, header[:])
+		ev := peekSourceWindow(seg[cpu386.SegDS], 0x2a121a, event[:])
+		pointer := uint32(globals[0]) | uint32(globals[1])<<8 | uint32(globals[2])<<16 | uint32(globals[3])<<24
+		count := uint16(header[0]) | uint16(header[1])<<8
+		bias := uint32(header[4]) | uint32(header[5])<<8 | uint32(header[6])<<16 | uint32(header[7])<<24
+		var records []byte
+		t := false
+		if g && h && count <= 64 {
+			records = make([]byte, int(count)*55)
+			t = peekSourceWindow(seg[cpu386.SegDS], pointer, records)
+		}
+		ramAfter := sha256.Sum256(m.Mem)
+		am, ap, aa, ast, ac := services.MouseCallbackState()
+		ia, iff, ist, ic := services.IRQ0State()
+		readonly := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.Bus == bus && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state && ramBefore == ramAfter && mask == am && pending == ap && active == aa && started == ast && completed == ac && irqActive == ia && irqFailed == iff && irqStarted == ist && irqCompleted == ic
+		for j := range fpu {
+			readonly = readonly && math.Float64bits(fpu[j]) == math.Float64bits(c.FPUStack[j])
+		}
+		if !readonly {
+			panic("設定頁唯讀表快照改變原始狀態")
+		}
+		fmt.Printf("setup_table_snapshot outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d fpu_stack=%v state=%+v ds=%X globals_readable=%t globals=%X header_readable=%t header=%X table_pointer=%X table_count=%d table_bias=%X table_stride=55 table_readable=%t records=%X event_readable=%t event=%X callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d ram_before_sha256=%x ram_after_sha256=%x readonly=%t\n", step, eip, r, seg, flags, control, status, depth, fpu, state, seg[cpu386.SegDS], g, globals, h, header, pointer, count, bias, t, records, ev, event, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, ramBefore, ramAfter, readonly)
+	}
 
 	// 規格333：只保存原表與原caller框架，等待已驗CALL的自然返回。
 	menuWaitStarted, menuWaitDone, menuBeginPending := false, false, false
@@ -924,6 +980,7 @@ func main() {
 		observeMenuTable(i)
 		dumpPostClickProgress(i)
 		dumpExtendedProgress(i)
+		dumpSetupTable(i)
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]
 			desc, known := m.CPU.Descriptors[selector]
@@ -1017,6 +1074,50 @@ func main() {
 					readyPressed, readyPressMicros, readyPressStarted = true, ports.BIOSClock.Micros, started
 				} else {
 					readyReleased = true
+				}
+			}
+		}
+
+		if setupAccept && (!setupPressed && i == 80000000 || setupPressed && !setupReleased) {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			selector, offset := services.MouseCallbackTarget()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			available := ok && ports.BIOSClock != nil && m.CPU.EFlags&cpu386.IF != 0 && pending == 0 && !active && !irqActive && !irqFailed && selector == 8 && offset == 0x2136d1 && mask == 0x2b
+			phase, x, buttons := "", uint16(960), uint16(1)
+			if !setupPressed {
+				c := m.CPU
+				r, seg, eip, flags := c.R, c.Seg, c.EIP, c.EFlags
+				ramBefore := sha256.Sum256(m.Mem)
+				var globals [192]byte
+				var header [16]byte
+				var records [935]byte
+				g, h, t := false, false, false
+				var rgbHash [32]byte
+				readonly := activationPeek(func() {
+					g = peekSourceWindow(seg[cpu386.SegDS], 0x26c480, globals[:])
+					h = peekSourceWindow(seg[cpu386.SegDS], 0x29be0e, header[:])
+					t = peekSourceWindow(seg[cpu386.SegDS], 0x298848, records[:])
+					rgbHash = sha256.Sum256(m.VBERGB())
+				}) && sha256.Sum256(m.Mem) == ramBefore
+				valid := readonly && available && readyPressed && readyReleased && readyStoreSeen && started == 4 && completed == 4 && seg[cpu386.SegDS] == 0x188 && g && h && t && globals[0] == 0x48 && globals[1] == 0x88 && globals[2] == 0x29 && globals[3] == 0 && header[0] == 17 && header[1] == 0 && header[4] == 0 && header[5] == 0 && header[6] == 0 && header[7] == 0 && fmt.Sprintf("%x", sha256.Sum256(records[:])) == "2a18a0213dcb1d539de3175c8356b8c8b886c1d61b38f63795b3fa1859a3f52f" && fmt.Sprintf("%x", rgbHash) == "3bbe6c339cfbc74e84b3210bccfdc4574073b4d308ef9b90a1720cc5c74e623e"
+				fmt.Printf("setup_accept_precondition outer_step=%d address_space=dosgolem_high_le ds=%X globals=%X header=%X records=%X table_pointer=298848 table_count=17 table_stride=55 table_readable=%t rgb_sha256=%x readonly=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d eip=%X r=%X seg=%X flags=%X valid=%t\n", i, seg[cpu386.SegDS], globals, header, records, g && h && t, rgbHash, readonly, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, eip, r, seg, flags, valid)
+				if !valid {
+					panic("設定頁ACCEPT點擊的原表或輸入條件不符")
+				}
+				phase = "press"
+			} else if available && completed >= setupPressStarted+1 && ports.BIOSClock.Micros >= setupPressMicros+20000 {
+				phase, x, buttons = "release", 962, 0
+			}
+			if phase != "" {
+				if err := services.InjectMouseEvent(x, 400, buttons, 0, 0); err != nil {
+					panic(err)
+				}
+				fmt.Printf("setup_accept_mouse_input phase=%s outer_step=%d virtual_micros=%d x=%d y=400 buttons=%d delta=0/0 mask=%X target=%X:%X started=%d completed=%d eip=%X r=%X seg=%X flags=%X\n", phase, i, ports.BIOSClock.Micros, x, buttons, mask, selector, offset, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+				if phase == "press" {
+					setupPressed, setupPressMicros, setupPressStarted = true, ports.BIOSClock.Micros, started
+				} else {
+					setupReleased = true
 				}
 			}
 		}
@@ -1484,6 +1585,18 @@ func main() {
 			scasWordStackReadable = peekSourceWindow(scasWordStackSelector, scasWordStackOffset, scasWordBeforeStack[:])
 			scasWordReadonly = m.CPU.R == r && m.CPU.Seg == seg && m.CPU.EIP == eip && m.CPU.EFlags == flags && m.CPU.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
 		}
+
+		observeSetupStore := setupAccept && setupPressed && !setupStoreSeen && m.CPU.EIP == 0x20dddb
+		setupBeforeR, setupBeforeSeg, setupBeforeEIP, setupBeforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var setupBeforeWord [2]byte
+		var setupBytes [16]byte
+		setupWordReadable := false
+		if observeSetupStore {
+			setupWordReadable = peekSourceWindow(setupBeforeSeg[cpu386.SegDS], 0x26c4a6, setupBeforeWord[:])
+			if uint64(setupBeforeEIP)+16 <= uint64(len(m.Mem)) {
+				copy(setupBytes[:], m.Mem[setupBeforeEIP:setupBeforeEIP+16])
+			}
+		}
 		observeReadyStore := readyClick && readyPressed && !readyStoreSeen && m.CPU.EIP == 0x20dddb
 		var readyBeforeWord [2]byte
 		readyWordReadable := false
@@ -1570,6 +1683,15 @@ func main() {
 			if stepErr != nil || scasWordBudget == 1 && m.CPU.EIP != 0x1f3643 {
 				scasWordBudget = 0
 			}
+		}
+
+		if observeSetupStore {
+			setupStoreSeen = true
+			var afterWord [2]byte
+			afterReadable := peekSourceWindow(setupBeforeSeg[cpu386.SegDS], 0x26c4a6, afterWord[:])
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("setup_accept_selected_store outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=26C4A6 before_readable=%t after_readable=%t before_word=%X after_word=%X callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d error=%v\n", i, setupBeforeEIP, m.CPU.EIP, setupBeforeR, m.CPU.R, setupBeforeSeg, m.CPU.Seg, setupBeforeFlags, m.CPU.EFlags, setupBytes, setupBeforeSeg[cpu386.SegDS], setupWordReadable, afterReadable, setupBeforeWord, afterWord, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, stepErr)
 		}
 		if observeReadyStore {
 			readyStoreSeen = true
@@ -1919,6 +2041,7 @@ func main() {
 	observeMenuTable(maxSteps)
 	dumpPostClickProgress(maxSteps)
 	dumpExtendedProgress(maxSteps)
+	dumpSetupTable(maxSteps)
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
 	dumpPlatform("terminal", maxSteps)
 	fmt.Printf("step_limit_registers r=%X seg=%X flags=0x%X bytes=% X\n", m.CPU.R, m.CPU.Seg, m.CPU.EFlags, m.Mem[m.CPU.EIP:m.CPU.EIP+16])

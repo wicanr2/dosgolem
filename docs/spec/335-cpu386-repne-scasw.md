@@ -68,3 +68,7 @@ CPU SHA-256 967de02753e0dce276413fe67a085e6df16789b52c948999d30ed26c3bb4e6a4；�
 **未知與下一步**：設定選項、ACCEPT消費、選族與完整正常開局、正式RNG、remake同狀態與整款中文化仍未驗。下一步只保存此原設定頁的按鈕表與ACCEPT正常輸入前置，按原資料核對狀態；不追原掃描helper或renderer內部。335完成的CPU能力不重列待辦。主庫RE-first保持。
 
 輪末工具root-owned／誤建.md目錄自檢空，Docker兩工作區掛載篩選空，沒有本輪遺留容器。原ZIP／patch／EXE／MOX.SET與417根檔由每次fresh輸入檢查通過；startup／provider／matcher逐位元保持334，gofmt與Git差異檢查通過。
+
+## 2026-10-03 正常玩家路徑回填
+
+正常ACCEPT與選族頁已由規格336接通，見[336](336-moo2-setup-accept-normal-click.md)。原17筆表／正常index15 store已核對，四舊基線與102PNG保持；SELECT RACE畫面已確認。本文原ACCEPT未知屬先前範圍，完整開局、種族選擇、RNG與remake同狀態仍未知。

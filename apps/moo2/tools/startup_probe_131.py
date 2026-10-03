@@ -87,6 +87,24 @@ if sys.argv[1:] == ['--check-repne-scasw-spec-backlinks']:
     validate_repne_scasw_resolution(spec_dir)
     print('REPNE SCASW／原掃描與MOV／正常設定頁／292與334回填通過')
     raise SystemExit(0)
+
+def validate_setup_accept_resolution(spec_dir):
+    """336限定正常ACCEPT與原選族頁，完整開局仍須另驗。"""
+    name = '336-moo2-setup-accept-normal-click.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：完整17筆原表／正常ACCEPT／選族頁／四舊基線保持","935bytes","全部3847／4829／6769／8146","全部102PNG","6145原列","80011248","42912微秒","80124668","word0000→0F00","下一EIP20DDE1","正常callback6／6","SELECT RACE選族頁","無新CPU拒絕","15無效值","100M cap","CPU／startup／provider／matcher逐位元保持335","不深入renderer","2a18a0213dcb1d539de3175c8356b8c8b886c1d61b38f63795b3fa1859a3f52f","a8c64e4519ac73c78578e3d953257c6cd8d19b5be1345899f15cab0c0b86a252","7aec4ca6aad1f948560e184695bd3b415b1145ad9778e536da14a60e11d61861","f03515b12cb289bfcfe49b46d5cf8619f8f4e300ccfd1bd4ca43107f1c313ade","a7488a255580640aef0af2a8b67d1c9572ff7f81e6c9bc0007350e48eee4db0d","503b4534840a44fe81a235244c8ea4e2393610ed8458b2b23f2719db66efc313","cfcc89585eb163e67c3043202501f957708b4818985ddbd6d4b1f2138c635b19"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('336缺完整原表、正常ACCEPT、原store、選族頁、收據或驗收邊界')
+    older = (spec_dir / '335-cpu386-repne-scasw.md').read_text()
+    if name not in older or '正常ACCEPT與選族頁已由規格336接通' not in older:
+        raise RuntimeError('335缺正常ACCEPT與選族頁回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('336缺公開索引入口')
+
+if sys.argv[1:] == ['--check-setup-accept-spec-backlinks']:
+    validate_setup_accept_resolution(spec_dir)
+    print('完整原17筆表／正常ACCEPT／選族頁／335回填通過')
+    raise SystemExit(0)
 def validate_menu_table_return_resolution(spec_dir):
     """333原表更換、自然返回與332回填須同時保留。"""
     name = '333-moo2-menu-table-return.md'
