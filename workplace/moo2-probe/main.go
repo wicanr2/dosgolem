@@ -257,6 +257,10 @@ func main() {
 	negWordSeen, negWordBudget := false, 0
 	// 358 END neg_word_state
 
+	// 360 BEGIN cwd_word_state
+	cwdWordSeen, cwdWordBudget := false, 0
+	// 360 END cwd_word_state
+
 	// 359 BEGIN sub_word_state
 	subWordSeen, subWordBudget := false, 0
 	var subWordTargetOffset, subWordStackOffset uint32
@@ -2649,6 +2653,30 @@ func main() {
 		}
 		// 358 END neg_word_pre
 
+		// 360 BEGIN cwd_word_pre
+		if bannerRed && !cwdWordSeen && m.CPU.EIP == 0x1d2a33 {
+			cwdWordSeen, cwdWordBudget = true, 3
+		}
+		observeCWDWord := cwdWordBudget > 0
+		cwdWordR, cwdWordSeg, cwdWordEIP, cwdWordFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		cwdWordFPU := [3]uint32{uint32(m.CPU.FPUControl), uint32(m.CPU.FPUStatus), uint32(m.CPU.FPUDepth)}
+		var cwdWordFPUStack [8]uint64
+		for j, value := range m.CPU.FPUStack {
+			cwdWordFPUStack[j] = math.Float64bits(value)
+		}
+		var cwdWordCode [16]byte
+		var cwdWordRAM [32]byte
+		cwdWordReadonly := false
+		var cwdWordRAMCopy []byte
+		if observeCWDWord {
+			cwdWordRAM = sha256.Sum256(m.Mem)
+			cwdWordRAMCopy = append([]byte(nil), m.Mem...)
+			cwdWordReadonly = activationPeek(func() {
+				copy(cwdWordCode[:], m.Mem[cwdWordEIP:cwdWordEIP+16])
+			}) && sha256.Sum256(m.Mem) == cwdWordRAM
+		}
+		// 360 END cwd_word_pre
+
 		// 359 BEGIN sub_word_pre
 		if bannerRed && !subWordSeen && m.CPU.EIP == 0x1d0944 {
 			subWordSeen, subWordBudget = true, 5
@@ -3038,6 +3066,31 @@ func main() {
 			}
 		}
 		// 358 END neg_word_post
+
+		// 360 BEGIN cwd_word_post
+		if observeCWDWord {
+			cwdWordBudget--
+			ram := sha256.Sum256(m.Mem)
+			readonly := activationPeek(func() {}) && sha256.Sum256(m.Mem) == ram && cwdWordReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range cwdWordRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fpu := [3]uint32{uint32(m.CPU.FPUControl), uint32(m.CPU.FPUStatus), uint32(m.CPU.FPUDepth)}
+			var fpuStack [8]uint64
+			for j, value := range m.CPU.FPUStack {
+				fpuStack[j] = math.Float64bits(value)
+			}
+			fmt.Printf("cwd_word_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X before_fpu=%X after_fpu=%X before_fpu_stack=%X after_fpu_stack=%X instruction_bytes=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, cwdWordEIP, m.CPU.EIP, cwdWordR, m.CPU.R, cwdWordSeg, m.CPU.Seg, cwdWordFlags, m.CPU.EFlags, cwdWordFPU, fpu, cwdWordFPUStack, fpuStack, cwdWordCode, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, cwdWordRAM == ram, cwdWordBudget, stepErr)
+			if stepErr != nil {
+				cwdWordBudget = 0
+			}
+		}
+		// 360 END cwd_word_post
 
 		// 359 BEGIN sub_word_post
 		if observeSubWord {

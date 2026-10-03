@@ -50,11 +50,11 @@ CPU僅移除29 word早拒絕與新增獨立word SUB分支；來源／目的別�
 
 CPU SHA-256 995f059949b7caac9618ab8b2513999b64b4cb2c928bd608da96eff171d3a8d1；新測試a7a6cb7e44c56b3f49a035c0bcbf87978196c63a59f294ff88a0d9de57b6d0bd；正式probe1d72d00195ff24b6c9e2ba6e48385c6c40e222a5e2e4417f2a21e39984b8434d。正式原收據a5421d88e46dea38d24ad92c49d8abd1a46ed341d93e25ead73efcfcd09ec856；乾淨全套f341b54cc3b33ecc90c7900fb9b1a9a29033434b3d2c62e2a56868d799cec0c7。
 
-### 新停止與unknown
+### 歷史359停止與unknown
 
-原164984957於dosgolem_high_le input1D2A33 bytes66 99 66 2B C2 66 D1 F8 98 01 C7 81 FF FF 7F 00拒絕operand16 CWD，after1D2A35只取prefix／opcode。R=[1 0 0 5A2EED 2BDB24 2BDB58 5A2EED A]／段=[8 188 188 0 20 188]／flags246h。原AX0001／DX0000可回查，尚未達180M；下一步以最多三步只讀診斷取CWD前後與下一SUB／shift的R／段／flags／RAM，審查99 word sign-extension，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
+原164984957於dosgolem_high_le input1D2A33 bytes66 99 66 2B C2 66 D1 F8 98 01 C7 81 FF FF 7F 00拒絕operand16 CWD，after1D2A35只取prefix／opcode。R=[1 0 0 5A2EED 2BDB24 2BDB58 5A2EED A]／段=[8 188 188 0 20 188]／flags246h。原AX0001／DX0000可回查，尚未達180M；原CWD與SUB／SAR已由360接通；下一步依360回填帳取2376CB memory ROR來源與下一A1 load，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
 
-finalPNG逐byte保持358，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原非零SUB來源／借位／溢位、新目的word reader與欄位語意、CWD正常消費、正式writer、RNG、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
+finalPNG逐byte保持358，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原非零SUB來源／借位／溢位、新目的word reader與欄位語意、原CWD／SUB／SAR已見360、新ROR來源與消費、正式writer、RNG、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
 
 ### 回填帳與實際命令
 
@@ -113,3 +113,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-sub-word-register-source-sp
 | new-game-359-cli-tests.txt | 0c39c7d30d26388473df3e31ad7be38651d38f98677857d9e5a9de59a4aaac43 |
 | new-game-359-backlink-verify.py | a1e23ad060dd3d78f8905f402fb18ce9b2c1e36fdd0ade59090f1375482210d1 |
 | new-game-359-backlink-tests.txt | 10dcf5f100ca93d8aeded6fc51ab5d6a627991944d2b66c8328907d8eecd6edf |
+
+## 360回填
+
+原1D2A33 word CWD與下一SUB／SAR已由規格360接通，見[360](360-cpu386-cwd-word.md)。原AX0001／DX0000與CWD完整flags246h保持，真正SUB讀DX以1-0=1／六flags202h，SAR讀AX1→0與五定義flags／EIP1D2A3B已驗，AF不列原版parity。三步全部RAM／FPU原bits保持、10789正常前綴／35frames／固定EXE全套通過；裸CDQ／word SUB與SAR／十三舊測試不改。原168496272在2376CB拒絕C1 /1 memory ROR，DS188:270FC4來源未知／imm08、after2376CD未取disp／imm或source；下一步依360回填帳取原dword／相鄰資料與下一A1 load，沿同180M。原負AX／EDX高word、新ROR來源與消費、正式writer／RNG／完整開局與remake同狀態未知，保留原歷史定位與收據。

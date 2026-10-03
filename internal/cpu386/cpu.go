@@ -709,8 +709,13 @@ func (c *CPU) Step() error {
 			c.R[EAX] = uint32(int32(int16(c.R[EAX])))
 		}
 	case op == 0x99:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if segmentOverride >= 0 || repe || repne {
 			return fail("CDQ prefix尚未支援")
+		}
+		if operand16 {
+			// 規格360：只寫DX低word，CWD不改任何旗標。
+			c.R[EDX] = c.R[EDX]&0xffff0000 | uint32(uint16(int16(c.R[EAX])>>15))
+			break
 		}
 		c.R[EDX] = uint32(int32(c.R[EAX]) >> 31)
 	case op == 0xe2:

@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_cwd_word_resolution(spec_dir):
+    """360限定word CWD與真正SUB／SAR，AF／原負數與高word限制保持。"""
+    name = "360-cpu386-cwd-word.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：word CWD與原SUB／SAR消費","全部10859原359列","10789共通正常列","35既有frames","164984957","164984958","164984959","AX0001符號正、DX0000→0000","完整flags246h","EIP1D2A35","SUB AX0001-DX0000=0001","flags202h","EIP1D2A38","SAR AX0001→0000","CF1／OF0／SF0／ZF1／PF1","EIP1D2A3B／EAX00000000","SAR AF不列原版parity","原AX正／DX原已0","16777216","全部32個flags位元×16邊界AX","十三份舊測試完全保持","CPU38699.385s","1693原列","上一輪359原收據保持","32新180M負例","ram_changes=[]","IRQ42073／42073","八stack bits0不改","168496272","input2376CB","after2376CD只取opcode／ModRM","目的DS188:270FC4、imm08","不能以當時EAX18181818猜目的來源","尚未達180M","ed94eaf7e9c363e8a2c89d5410b30a9e653a60532d31654ee91c14d042f75337","a05e0f46fe83e5fb048112cef174471599185d7a1c20f11d3a623565ddb156e3","7a638098bb95b91ee21387d09949d76e590ba9225be9eb0a5cbf07eba236936f","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("360缺word CWD契約／原SUB與SAR／AF及原負數限制／新ROR")
+    for older_name in ["359-cpu386-sub-word-register-source.md","358-cpu386-neg-word.md","357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1D2A33 word CWD與下一SUB／SAR已由規格360接通" not in older:
+            raise RuntimeError("較早規格缺word CWD回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("360缺公開索引入口")
+
+if sys.argv[1:] == ['--check-cwd-word-spec-backlinks']:
+    validate_cwd_word_resolution(spec_dir)
+    print("原word CWD／SUB與SAR／完整flags與AF限制／新ROR及較早回填通過")
+    raise SystemExit(0)
+
 def validate_sub_word_register_source_resolution(spec_dir):
     """359限定29 word／原三POP與RET，目的word reader／晚期部分寫未知保持。"""
     name = "359-cpu386-sub-word-register-source.md"
