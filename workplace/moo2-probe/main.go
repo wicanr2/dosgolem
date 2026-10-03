@@ -114,22 +114,41 @@ func main() {
 	}
 	// 346 END universe160_parse
 
+	// 352 BEGIN 180_parse
+	universe180Setting := os.Getenv("DOSGOLEM_MOO2_UNIVERSE_CONTINUE_180M")
+	universe180 := universe180Setting == "1"
+	if universe180Setting != "" && !universe180 || universe180 && !universe160 {
+		fmt.Fprintln(os.Stderr, "UNIVERSE_CONTINUE_180M要求值1與原160M旗標")
+		os.Exit(2)
+	}
+	// 352 END 180_parse
+
 	maxSteps := 8000000
 	if setting := os.Getenv("DOSGOLEM_MOO2_MAX_STEPS"); setting != "" {
 		value, parseErr := strconv.Atoi(setting)
-		if parseErr != nil || value < 1 || value > 100000000 && !((value == 120000000 || universe160 && value == 160000000) && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") {
+		if parseErr != nil || value < 1 || value > 100000000 && !((value == 120000000 || universe160 && value == 160000000 || universe180 && value == 180000000) && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") {
 			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 100000000；完整BANNER_RED_CLICK情境可固定120000000")
 			os.Exit(2)
 		}
 		maxSteps = value
 	}
+	// 352 BEGIN 180_cap
+	if universe180 && maxSteps != 180000000 {
+		fmt.Fprintln(os.Stderr, "UNIVERSE_CONTINUE_180M要求固定180000000與完整BANNER_RED_CLICK情境")
+		os.Exit(2)
+	}
+	if universe180 {
+		fmt.Printf("generation_continuation_config baseline_steps=160000000 max_steps=180000000 source=explicit_environment\n")
+	}
+	// 352 END 180_cap
+
 	// 346 BEGIN universe160_cap
-	if universe160 && maxSteps != 160000000 {
+	if universe160 && maxSteps != 160000000 && !(universe180 && maxSteps == 180000000) {
 		fmt.Fprintln(os.Stderr, "UNIVERSE_CONTINUE_160M要求固定160000000與完整BANNER_RED_CLICK情境")
 		os.Exit(2)
 	}
 	if universe160 {
-		fmt.Printf("universe_continuation_config baseline_steps=120000000 max_steps=160000000 source=explicit_environment\n")
+		fmt.Printf("universe_continuation_config baseline_steps=120000000 max_steps=%d source=explicit_environment\n", maxSteps)
 	}
 	// 346 END universe160_cap
 
@@ -153,14 +172,14 @@ func main() {
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
 	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
-	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || (maxSteps == 100000000 || (maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || universe160 && maxSteps == 160000000)) && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || (maxSteps == 100000000 || (maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || (universe160 && maxSteps == 160000000 || universe180 && maxSteps == 180000000))) && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
 		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc與50M cap，或44M Esc與100M cap；1996-01-01且無早期滑鼠事件")
 		os.Exit(2)
 	}
 
 	readyClickSetting := os.Getenv("DOSGOLEM_MOO2_MENU_READY_CLICK")
 	readyClick := readyClickSetting == "1"
-	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 && !(maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || universe160 && maxSteps == 160000000) || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
+	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 && !(maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || (universe160 && maxSteps == 160000000 || universe180 && maxSteps == 180000000)) || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
 		fmt.Fprintln(os.Stderr, "MENU_READY_CLICK要求值1、舊點擊旗標、44M Esc、100M cap、1996-01-01、SEPARATE_DOS=1與frame prefix")
 		os.Exit(2)
 	}
@@ -1015,7 +1034,7 @@ func main() {
 	defer func() {
 		if universe160 {
 			homeDump(loopStep+1, 10)
-			fmt.Printf("home_return_totals seen=%v max_events=11 budget=160000000 caller_sp=%X caller_bp=%X\n", homeReturnSeen, homeCallerSP, homeCallerBP)
+			fmt.Printf("home_return_totals seen=%v max_events=11 budget=%d caller_sp=%X caller_bp=%X\n", homeReturnSeen, maxSteps, homeCallerSP, homeCallerBP)
 		}
 	}()
 	// 348 END home_return_state
@@ -1084,7 +1103,7 @@ func main() {
 	defer func() {
 		if universe160 {
 			generationDump(loopStep+1, 16)
-			fmt.Printf("generation_entry_totals seen=%v max_events=17 budget=160000000 caller_sp=%X caller_bp=%X callee_bp=%X input_offset=%X returned=%t\n", generationSeen, generationSP, generationBP, generationSP-24, generationInput, generationSeen[13])
+			fmt.Printf("generation_entry_totals seen=%v max_events=17 budget=%d caller_sp=%X caller_bp=%X callee_bp=%X input_offset=%X returned=%t\n", generationSeen, maxSteps, generationSP, generationBP, generationSP-24, generationInput, generationSeen[13])
 		}
 	}()
 	// 349 END generation_state
@@ -1161,7 +1180,7 @@ func main() {
 	defer func() {
 		if universe160 {
 			iterationDump(loopStep+1, -1, 5)
-			fmt.Printf("generation_iteration_totals groups=%d indices=%v seen=%v events=%d max_groups=4 max_events_per_group=5 max_events=21 full=%t budget=160000000 outer_returned=%t\n", iterationGroups, iterationIndices, iterationSeen, iterationEvents, iterationFull, generationSeen[13])
+			fmt.Printf("generation_iteration_totals groups=%d indices=%v seen=%v events=%d max_groups=4 max_events_per_group=5 max_events=21 full=%t budget=%d outer_returned=%t\n", iterationGroups, iterationIndices, iterationSeen, iterationEvents, iterationFull, maxSteps, generationSeen[13])
 		}
 	}()
 	// 350 END iteration_state
@@ -1247,10 +1266,45 @@ func main() {
 	defer func() {
 		if universe160 {
 			completionDump(loopStep+1, -1, 12)
-			fmt.Printf("generation_completion_totals heads=%d seen=%v events=%d max_heads=72 max_boundaries=11 max_events=84 full=%t budget=160000000 outer_returned=%t\n", completionHeads, completionSeen, completionEvents, completionFull, generationSeen[13])
+			fmt.Printf("generation_completion_totals heads=%d seen=%v events=%d max_heads=72 max_boundaries=11 max_events=84 full=%t budget=%d outer_returned=%t\n", completionHeads, completionSeen, completionEvents, completionFull, maxSteps, generationSeen[13])
 		}
 	}()
 	// 351 END completion_state
+
+	// 352 BEGIN 180_checkpoint
+	continuationCheckpointSeen := false
+	dumpGenerationContinuationCheckpoint := func(step int) {
+		if !universe180 || step != 160000000 || continuationCheckpointSeen {
+			return
+		}
+		continuationCheckpointSeen = true
+		c := m.CPU
+		var code [16]byte
+		var stack [96]byte
+		var frame [128]byte
+		var input [64]byte
+		var returnSlot [4]byte
+		codeOK, stackOK, frameOK, inputOK, slotOK := false, false, false, false, false
+		var indexedHash, rgbHash [32]byte
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			codeOK = peekSourceWindow(c.Seg[cpu386.SegCS], c.EIP, code[:])
+			stackOK = peekSourceWindow(c.Seg[cpu386.SegSS], c.R[4], stack[:])
+			if generationSP >= 88 {
+				frameOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-88, frame[:])
+			}
+			inputOK = peekSourceWindow(c.Seg[cpu386.SegDS], generationInput, input[:])
+			if generationSP >= 4 {
+				slotOK = peekSourceWindow(c.Seg[cpu386.SegSS], generationSP-4, returnSlot[:])
+			}
+			indexedHash = sha256.Sum256(m.VBEIndexed())
+			rgbHash = sha256.Sum256(m.VBERGB())
+			dumpPlatform("continuation_160m", step)
+		}) && ram == sha256.Sum256(m.Mem)
+		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+		fmt.Printf("generation_continuation_checkpoint outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d fpu_stack=%v instruction_bytes=%X code_readable=%t stack_offset=%X stack_readable=%t stack_window=%X caller_sp=%X caller_bp=%X callee_bp=%X frame_offset=%X frame_readable=%t frame_window=%X input_offset=%X input_readable=%t input_window=%X return_slot=%X return_slot_readable=%t state=%+v indexed_sha256=%x rgb_sha256=%x ram_before_sha256=%x ram_after_sha256=%x readonly=%t irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d\n", step, c.EIP, c.R, c.Seg, c.EFlags, c.FPUControl, c.FPUStatus, c.FPUDepth, c.FPUStack, code, codeOK, c.R[4], stackOK, stack, generationSP, generationBP, generationSP-24, generationSP-88, frameOK, frame, generationInput, inputOK, input, returnSlot, slotOK, m.VBEState(), indexedHash, rgbHash, ram, sha256.Sum256(m.Mem), readonly, irqActive, irqFailed, irqStarted, irqCompleted)
+	}
+	// 352 END 180_checkpoint
 
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
@@ -1283,7 +1337,7 @@ func main() {
 
 	// 規格336唯讀診斷：設定頁原表三時點，不沿舊caller框架猜測。
 	dumpSetupTable := func(step int) {
-		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 && !(bannerRed && maxSteps == 120000000 && step == 120000000 || universe160 && step >= 120000000 && step <= 160000000 && step%10000000 == 0) {
+		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 && !(bannerRed && maxSteps == 120000000 && step == 120000000 || universe160 && step >= 120000000 && step <= maxSteps && step%10000000 == 0) {
 			return
 		}
 		c := m.CPU
@@ -1537,6 +1591,10 @@ func main() {
 		// 346 BEGIN universe160_call
 		dumpUniverseCheckpoint(i)
 		// 346 END universe160_call
+
+		// 352 BEGIN 180_call
+		dumpGenerationContinuationCheckpoint(i)
+		// 352 END 180_call
 
 		// 347 BEGIN text_call
 		observeProgressText(i)

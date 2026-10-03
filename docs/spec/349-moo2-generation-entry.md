@@ -56,7 +56,7 @@ private160M正常流程已捕捉153878499的dosgolem_high_le:16BADE原CALL、153
 
 **已證實，等待邊界**：13事件readonly，seen的0..11與16為true，12..15為false，returned=false。160M原保存外層slot16BAE3與框架仍在；沒有原16B01F RET／16BAE3返回收據。只稱觀察範圍內pending，不將保存返回位址冒稱完成，也不因17FD04仍在就判CPU故障。
 
-**未知**：外層全部迭代與剩餘工作、後續重繪分支16AE07、正式持久writer、原frame欄位語意、母星配置完成／完整開局、存檔、RNG、人耳及remake同狀態。首四原迭代與該次實際比較界限36已由350驗證。
+**目前未知**：後續配置與剩餘工作、後續重繪分支16AE07、正式持久writer、原frame欄位語意、母星配置完成／完整開局、存檔、RNG、人耳與remake同狀態。原第一callee的35迭代／出口／RET與caller返回已由352驗證。
 
 ## 保持、接線與重生
 
@@ -76,7 +76,7 @@ READY審查後接正式兩區塊，只更名349標記、執行語句與已驗pri
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:16BADE→16AD13／16AE7F→16B0B4 | 原入口及首次距離返回已證實，外層160M pending | 348 | 原後續CALL入口參數及外層等待已由規格349驗證 |
 
-下一步依350核對原JL不跳出口與後段／RET，維持160M；不由四次樣本推算整段完成時間、不逐行翻譯繪圖helper或猜欄位用途。主庫RE-first保持，整款remake／中文化仍未完成。
+下一步依352的新word記憶體AND拒絕建立窄CPU切片，再用同180M正常情境續行；不重開原已驗出口／RET、不逐行翻譯繪圖helper或猜欄位用途。主庫RE-first保持，整款remake／中文化仍未完成。
 
 86項回填正對照／新349的32缺證據、狀態、較早回填與索引負例／既有負例通過。公開入口：python3 apps/moo2/tools/startup_probe_131.py --check-generation-entry-spec-backlinks，只驗原入口／直接返回／pending及回填，不啟動DOSBox-X。
 
@@ -114,3 +114,7 @@ READY審查後接正式兩區塊，只更名349標記、執行語句與已驗pri
 ## 350後續回填
 
 原首四迭代與實際比較界限已由規格350驗證，見[350原迭代與界限](350-moo2-generation-iteration-bound.md)。原SI1..4後CMP2..5／signed36，首四組重繪未見，第5索引使觀察飽和。全部出口／RET／剩餘工作與完整開局仍未知。本文最初的未知是349快照，不重新開啟已驗首四迭代及該次bound。
+
+## 352後續回填
+
+原生成35迭代與真正RET及caller返回已由規格352驗證，見[352原出口／返回與新停止](352-moo2-generation-180m-continuation.md)。163755071原SI36的JL不跳，163778787的16B01F C3後次步16BAE3，原AL0／caller ESP與EBP恢復；163779084的16BAEC ZF1，次步16BB00。原第一callee的全部35迭代、出口／後段／RET已閉合，本文160M未見是當時範圍。完整配置／開局與後續writer仍未知；新103BF9的66 81 /4 word記憶體AND拒絕未解。下一步接該CPU缺口，再用同180M正常情境核對，不重開已驗原返回。

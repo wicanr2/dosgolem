@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_generation_180m_resolution(spec_dir):
+    """352限定160M保持／原生成RET／新81停止，完整開局未知。"""
+    name = "352-moo2-generation-180m-continuation.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原35迭代出口、真正返回與新CPU停止","10532共通正常事件","36PNG","完整FPU","163755070","163755071","163755072","163778787","163778788","163779084","163779085","163795435","16B01F","16BAE3","AL0","ESP2BDB74→2BDB78","heads35／full=false／outer_returned=true","input103BF9／after103BFC","66 81 63 0C 7F FE","1693原列","新180M32負例","尚未達180M","requested budget180000000","c49edc0afcb44dfec22139043afb887a72a70b83d172a165d6869ac9a54be4a1","db7630f02daaac46f0a2d45da1813a319d27e14e48c77c7b07a75a97b338c60f","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("352缺同狀態／原真正RET／requested預算與actual新停止或限定狀態")
+    for older_name in ["349-moo2-generation-entry.md", "350-moo2-generation-iteration-bound.md", "351-moo2-generation-completion-boundary.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原生成35迭代與真正RET及caller返回已由規格352驗證" not in older:
+            raise RuntimeError("較早規格缺原生成RET回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("352缺公開索引入口")
+
+if sys.argv[1:] == ['--check-generation-180m-spec-backlinks']:
+    validate_generation_180m_resolution(spec_dir)
+    print("原160M保持／35迭代與真正返回／新81停止／較早回填通過")
+    raise SystemExit(0)
+
 def validate_generation_completion_resolution(spec_dir):
     """351限定原連續進度及160M截斷，出口／RET未見。"""
     name = "351-moo2-generation-completion-boundary.md"
