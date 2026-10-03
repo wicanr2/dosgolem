@@ -48,15 +48,15 @@ func noShrink(t *testing.T) {
 // shrinkTablesUnderTest are the tables whose geometry TestShrinkLevelTable and
 // the drawing tests check: the default one and the language tables.
 func shrinkTablesUnderTest() []struct {
-	name   string
-	levels []shrinkSpec
+	name, lang string
+	levels     []shrinkSpec
 } {
 	return []struct {
-		name   string
-		levels []shrinkSpec
+		name, lang string
+		levels     []shrinkSpec
 	}{
-		{"default", shrinkLevels},
-		{LangJa, shrinkLevelsFor(LangJa)},
+		{"default", "", shrinkLevels},
+		{LangJa, LangJa, shrinkLevelsFor(LangJa)},
 	}
 }
 
@@ -105,44 +105,56 @@ func TestShrinkLevelTable(t *testing.T) {
 	}
 	// The relations of spec 057 §3.2 (3), and the table-level constraints.
 	for _, tb := range shrinkTablesUnderTest() {
-		if len(tb.levels) != 2 || tb.levels[0].Level != 1 || tb.levels[1].Level != 2 {
-			t.Fatalf("%s: a table holds L1 and L2 in this order: %+v", tb.name, tb.levels)
-		}
-		a, b := tb.levels[0], tb.levels[1]
-		if !(b.FullLP < a.FullLP && b.HalfLP <= a.HalfLP || b.FullLP <= a.FullLP && b.HalfLP < a.HalfLP) {
-			t.Errorf("%s: LP does not decrease with the level: %d/%d then %d/%d", tb.name, a.FullLP, a.HalfLP, b.FullLP, b.HalfLP)
-		}
-		for _, s := range tb.levels {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Errorf("%s L%d: %v", tb.name, s.Level, r)
-					}
-				}()
-				s.Thr.get()
+		checkShrinkGeometry(t, tb.name, tb.levels)
+	}
+}
+
+// checkShrinkGeometry asserts the relations of spec 057 §3.2 (3) and the
+// table-level constraints (L1 and L2 in order, the logical widths decrease, the
+// threshold is valid) for one table.
+func checkShrinkGeometry(t *testing.T, name string, levels []shrinkSpec) {
+	t.Helper()
+	l0 := map[int]shrinkMetrics{
+		2: {FullInset: manualGlyphOffset(2)},
+		3: {FullInset: manualGlyphOffset(3)},
+	}
+	if len(levels) != 2 || levels[0].Level != 1 || levels[1].Level != 2 {
+		t.Fatalf("%s: a table holds L1 and L2 in this order: %+v", name, levels)
+	}
+	a, b := levels[0], levels[1]
+	if !(b.FullLP < a.FullLP && b.HalfLP <= a.HalfLP || b.FullLP <= a.FullLP && b.HalfLP < a.HalfLP) {
+		t.Errorf("%s: LP does not decrease with the level: %d/%d then %d/%d", name, a.FullLP, a.HalfLP, b.FullLP, b.HalfLP)
+	}
+	for _, s := range levels {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("%s L%d: %v", name, s.Level, r)
+				}
 			}()
-			for scale, m := range map[int]shrinkMetrics{2: s.X2, 3: s.X3} {
-				r, c0 := 8*scale, l0[scale].FullInset
-				if m.FullCell != s.FullLP*scale || m.HalfW != s.HalfLP*scale {
-					t.Errorf("%s L%d %d×: cell %d half %d vs LP %d/%d", tb.name, s.Level, scale, m.FullCell, m.HalfW, s.FullLP, s.HalfLP)
-				}
-				if m.FullGlyphW <= 0 || m.FullGlyphW > m.FullCell || m.FullGlyphH <= 0 || m.FullGlyphH > r-c0 || m.HalfH <= 0 || m.HalfH > r {
-					t.Errorf("%s L%d %d×: glyph %d×%d half height %d outside cell %d row %d", tb.name, s.Level, scale, m.FullGlyphW, m.FullGlyphH, m.HalfH, m.FullCell, r)
-				}
-				if m.FullInset != (m.FullCell-m.FullGlyphW)/2 {
-					t.Errorf("%s L%d %d×: inset %d", tb.name, s.Level, scale, m.FullInset)
-				}
-				if m.FullGlyphY != r-m.FullGlyphH-c0 || m.HalfGlyphY != r-m.HalfH {
-					t.Errorf("%s L%d %d×: GlyphY %d/%d", tb.name, s.Level, scale, m.FullGlyphY, m.HalfGlyphY)
-				}
-				// The glyph boxes sit on the bottom edges of L0: the full one on its
-				// L0 edge (15 at 2×, 22 at 3×) and the half one on the row bottom.
-				if m.FullGlyphY+m.FullGlyphH != r-c0 || m.HalfGlyphY+m.HalfH != r {
-					t.Errorf("%s L%d %d×: box bottoms %d / %d", tb.name, s.Level, scale, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
-				}
-				if tb.name == "default" && (m.FullGlyphH != m.FullGlyphW || m.HalfH != m.FullCell) {
-					t.Errorf("default L%d %d×: the table of spec 056 has square full glyphs and a half glyph as high as a cell", s.Level, scale)
-				}
+			s.Thr.get()
+		}()
+		for scale, m := range map[int]shrinkMetrics{2: s.X2, 3: s.X3} {
+			r, c0 := 8*scale, l0[scale].FullInset
+			if m.FullCell != s.FullLP*scale || m.HalfW != s.HalfLP*scale {
+				t.Errorf("%s L%d %d×: cell %d half %d vs LP %d/%d", name, s.Level, scale, m.FullCell, m.HalfW, s.FullLP, s.HalfLP)
+			}
+			if m.FullGlyphW <= 0 || m.FullGlyphW > m.FullCell || m.FullGlyphH <= 0 || m.FullGlyphH > r-c0 || m.HalfH <= 0 || m.HalfH > r {
+				t.Errorf("%s L%d %d×: glyph %d×%d half height %d outside cell %d row %d", name, s.Level, scale, m.FullGlyphW, m.FullGlyphH, m.HalfH, m.FullCell, r)
+			}
+			if m.FullInset != (m.FullCell-m.FullGlyphW)/2 {
+				t.Errorf("%s L%d %d×: inset %d", name, s.Level, scale, m.FullInset)
+			}
+			if m.FullGlyphY != r-m.FullGlyphH-c0 || m.HalfGlyphY != r-m.HalfH {
+				t.Errorf("%s L%d %d×: GlyphY %d/%d", name, s.Level, scale, m.FullGlyphY, m.HalfGlyphY)
+			}
+			// The glyph boxes sit on the bottom edges of L0: the full one on its
+			// L0 edge (15 at 2×, 22 at 3×) and the half one on the row bottom.
+			if m.FullGlyphY+m.FullGlyphH != r-c0 || m.HalfGlyphY+m.HalfH != r {
+				t.Errorf("%s L%d %d×: box bottoms %d / %d", name, s.Level, scale, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
+			}
+			if name == "default" && (m.FullGlyphH != m.FullGlyphW || m.HalfH != m.FullCell) {
+				t.Errorf("default L%d %d×: the table of spec 056 has square full glyphs and a half glyph as high as a cell", s.Level, scale)
 			}
 		}
 	}
@@ -666,8 +678,12 @@ func shrinkRender(t *testing.T, base *xlate.Font, scale int, p *EclTextPage) (*E
 	return o, shrinkDraw{out: out, scale: scale, w: 320 * scale}
 }
 
-func shrinkPage(lines ...EclTextLine) *EclTextPage {
-	return &EclTextPage{Left: 0, Top: 0, Right: 5, Bottom: 0, TopCol: 0, Background: 0, Foreground: 10, Lines: lines}
+func shrinkPage(lines ...EclTextLine) *EclTextPage { return shrinkPageLang("", lines...) }
+
+// shrinkPageLang is shrinkPage for a page built by the watcher of a language
+// (its Lang selects the shrink table of the overlay, spec 057 §3.2).
+func shrinkPageLang(lang string, lines ...EclTextLine) *EclTextPage {
+	return &EclTextPage{Left: 0, Top: 0, Right: 5, Bottom: 0, TopCol: 0, Background: 0, Foreground: 10, Lines: lines, Lang: lang}
 }
 
 // The unit "中AB" at L1 takes 6+3+3 = 12 px = 3 units: its stamps come after
@@ -676,13 +692,18 @@ func shrinkPage(lines ...EclTextLine) *EclTextPage {
 // without it, and the pixels right of the last glyph are background.
 func TestShrunkUnitPixels(t *testing.T) {
 	base := halfTestFont("shrinkpx", "中文AB")
+	for _, tb := range shrinkTablesUnderTest() {
+		shrunkUnitPixels(t, base, tb.name, tb.lang, tb.levels)
+	}
+}
+
+func shrunkUnitPixels(t *testing.T, base *xlate.Font, name, lang string, levels []shrinkSpec) {
 	for _, scale := range liveScales {
-		withShrinkLevels(t, shrinkLevels[0], shrinkLevels[1])
-		for _, sp := range shrinkLevels {
+		for _, sp := range levels {
 			unit := []rune("中AB")
 			ws := shrinkUnitUnits(unit, sp) // L1 3, L2 2
-			plain := shrinkPage(EclTextLine{Row: 0, Col: 0, Text: []rune("文")}, EclTextLine{Row: 0, Col: 6, Text: []rune("文")})
-			with := shrinkPage(EclTextLine{Row: 0, Col: 0, Text: []rune("文")}, EclTextLine{Row: 0, Col: 2, Text: unit, Shrink: uint8(sp.Level)},
+			plain := shrinkPageLang(lang, EclTextLine{Row: 0, Col: 0, Text: []rune("文")}, EclTextLine{Row: 0, Col: 6, Text: []rune("文")})
+			with := shrinkPageLang(lang, EclTextLine{Row: 0, Col: 0, Text: []rune("文")}, EclTextLine{Row: 0, Col: 2, Text: unit, Shrink: uint8(sp.Level)},
 				EclTextLine{Row: 0, Col: 6, Text: []rune("文")})
 			_, pd := shrinkRender(t, base, scale, plain)
 			o, wd := shrinkRender(t, base, scale, with)
@@ -698,7 +719,7 @@ func TestShrunkUnitPixels(t *testing.T) {
 						first = i
 					}
 				} else if first >= 0 {
-					t.Fatalf("%d× L%d: a normal stamp %q after the shrunk ones", scale, sp.Level, s.Key)
+					t.Fatalf("%s %d× L%d: a normal stamp %q after the shrunk ones", name, scale, sp.Level, s.Key)
 				}
 			}
 			if first < 0 || len(o.cols) != len(o.layer.Stamps) {
@@ -717,7 +738,7 @@ func TestShrunkUnitPixels(t *testing.T) {
 					if x < x0 || x >= x1 {
 						// Outside the unit: the page without it.
 						if wd.px(x, y) != pd.px(x, y) {
-							t.Fatalf("%d× L%d: pixel (%d,%d) outside the unit changed", scale, sp.Level, x, y)
+							t.Fatalf("%s %d× L%d: pixel (%d,%d) outside the unit changed", name, scale, sp.Level, x, y)
 						}
 						continue
 					}
@@ -738,7 +759,7 @@ func TestShrunkUnitPixels(t *testing.T) {
 						}
 					}
 					if wd.px(x, y) != want {
-						t.Fatalf("%d× L%d: unit pixel (%d,%d) = %v want %v", scale, sp.Level, px, y, wd.px(x, y), want)
+						t.Fatalf("%s %d× L%d: unit pixel (%d,%d) = %v want %v", name, scale, sp.Level, px, y, wd.px(x, y), want)
 					}
 				}
 			}
@@ -747,7 +768,7 @@ func TestShrunkUnitPixels(t *testing.T) {
 			// half box ends at the bottom of the row (2×: 15, 3×: 23).
 			l0 := map[int]int{2: 15, 3: 22}[scale]
 			if m.FullGlyphY+m.FullGlyphH-1 != l0 || m.HalfGlyphY+m.HalfH-1 != 8*scale-1 {
-				t.Errorf("%d× L%d: box bottom %d / %d", scale, sp.Level, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
+				t.Errorf("%s %d× L%d: box bottom %d / %d", name, scale, sp.Level, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
 			}
 			// The shrunk glyph pixels: ink counts of the derived glyphs.
 			count := 0
@@ -771,7 +792,7 @@ func TestShrunkUnitPixels(t *testing.T) {
 				}
 			}
 			if count != ink {
-				t.Errorf("%d× L%d: %d foreground pixels, the derived glyphs have %d", scale, sp.Level, count, ink)
+				t.Errorf("%s %d× L%d: %d foreground pixels, the derived glyphs have %d", name, scale, sp.Level, count, ink)
 			}
 		}
 	}
@@ -1027,22 +1048,24 @@ func TestEclLastReadingShrunkNPC(t *testing.T) {
 // numbering after the normal segments (spec 056 §3.6).
 func TestShrunkUnitKeysUnique(t *testing.T) {
 	base := halfTestFont("keys", "AB中文 ")
-	for _, scale := range []int{2, 3} {
-		p := shrinkPage(
-			EclTextLine{Row: 0, Col: 0, Text: []rune("中A")},
-			EclTextLine{Row: 0, Col: 3, Text: []rune("中AB"), Shrink: 1},
-			EclTextLine{Row: 0, Col: 6, Text: []rune("文 "), Shrink: 2},
-		)
-		o, _ := shrinkRender(t, base, scale, p)
-		seen := map[string]bool{}
-		for _, s := range o.layer.Stamps {
-			if seen[s.Key] {
-				t.Fatalf("%d×: duplicate stamp key %q", scale, s.Key)
+	for _, tb := range shrinkTablesUnderTest() {
+		for _, scale := range []int{2, 3} {
+			p := shrinkPageLang(tb.lang,
+				EclTextLine{Row: 0, Col: 0, Text: []rune("中A")},
+				EclTextLine{Row: 0, Col: 3, Text: []rune("中AB"), Shrink: 1},
+				EclTextLine{Row: 0, Col: 6, Text: []rune("文 "), Shrink: 2},
+			)
+			o, _ := shrinkRender(t, base, scale, p)
+			seen := map[string]bool{}
+			for _, s := range o.layer.Stamps {
+				if seen[s.Key] {
+					t.Fatalf("%s %d×: duplicate stamp key %q", tb.name, scale, s.Key)
+				}
+				seen[s.Key] = true
 			}
-			seen[s.Key] = true
-		}
-		if len(o.layer.Stamps) < 4 {
-			t.Fatalf("%d×: %d stamps", scale, len(o.layer.Stamps))
+			if len(o.layer.Stamps) < 4 {
+				t.Fatalf("%s %d×: %d stamps", tb.name, scale, len(o.layer.Stamps))
+			}
 		}
 	}
 }
