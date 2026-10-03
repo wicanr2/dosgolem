@@ -66,3 +66,7 @@ SAVE10.GAM208000bytes／0cf71fc5368861758da5a5dffbd791f8b711a48cfd295572eb9a21d2
 367／369／370／371同次追加372回填，289補工程拒絕契約。其它CPU／輸入規格與唯讀source不由本輪外推。完整native收據及CPU逆轉／其它public檔保持／所有回填由workplace/new-game-372-verify.py檢查；主庫沿既有研究入口保存收據SHA-256。
 
 下一步以本180M正常星圖與實際23物件，核對首個COLONIES控制的來源、矩形、callback與安全輸入前置；先做有界只讀觀察，再依READY送正常裝置輸入。不直接注入核心或RAM，不為renderer／runtime helper深挖。主庫玩法RE-first保持；正式存讀語意、typed名稱／旗色持久writer、完整開局與remake同狀態未驗。1996固定日期不是seed。
+
+## 373正常星圖來源回填
+
+[373](373-moo2-star-map-colonies-source.md)沿本規格相同180M正常guest只新增一次只讀快照。原23物件index10的+24／+32／+44窗口、target8:2136D1／mask2B／callback14／14／IRQ47425／47425及完整核心／FPU／clock／RGB已取；邏輯43,450唯一命中矩形17,434–79,471，COLONIES對應仍為強推論，沒有送新輸入。12047共通原列、39PNG、原418來源與state保持。新來源不改本規格原CPU／IMUL／A2／E9證據；下一步另審查正常按下／release及consumer，正式存讀及完整開局仍未驗。
