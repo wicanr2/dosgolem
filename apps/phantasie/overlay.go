@@ -362,12 +362,11 @@ func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
 			o.C.Key("truncated", k)
 		}
 	}
-	if o.Faults["noadd"] {
-		return
-	}
 	stamps := buildStamps(rec.ID, x0, y0, line, lang.Wide, lang.Font, nil)
-	for _, s := range stamps {
-		o.Layer.Add(s)
+	if !o.Faults["noadd"] { // 故障注入：事件照常解析與記錄（稽核事件日誌），但不加進 Layer
+		for _, s := range stamps {
+			o.Layer.Add(s)
+		}
 	}
 	o.store(rec, res.Hits)
 	o.C.Inc("translated")

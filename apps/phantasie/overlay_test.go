@@ -1476,9 +1476,13 @@ func TestOverlayFaultNoAdd(t *testing.T) {
 	o.Faults["noadd"] = true
 	ovFire(o, ovRec(2, 3, "Hello"))
 	ovCheckDump(t, o)
-	ovCheckCounters(t, o, map[string]uint64{"events": 1})
-	if o.Record("g1") != nil || len(o.Log()) != 0 {
-		t.Fatal("noadd 時不登記記錄與日誌")
+	// 事件照常解析、記錄與寫入稽核日誌（exposed_events 負對照需要它），只是不加進 Layer（005 §5.1）。
+	ovCheckCounters(t, o, map[string]uint64{"events": 1, "translated": 1})
+	if o.Record("g1") == nil || len(o.Log()) != 1 {
+		t.Fatal("noadd 時仍要登記記錄與稽核日誌")
+	}
+	if len(o.Layer.Stamps) != 0 {
+		t.Fatalf("noadd 時 Layer 必須沒有疊字，得 %d 筆", len(o.Layer.Stamps))
 	}
 }
 
