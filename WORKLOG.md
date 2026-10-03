@@ -579,3 +579,14 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 - 兩份trace與原branch／stack核算、正式7708原列／28PNG／完整表與兩RET／首次合法release／CPU負結果、source三區塊及release逆轉後保持340，全部PASS。初版source核算腳本逆轉字串誤寫，修正後重讀同來源PASS，沒有重跑原版。private核算固定不可變340 baseline，不拿當轮已修訂production當舊基準。舊338 CLI17拒絕與正對照、339 CLI22拒絕及120M／100M正對照通過。
 - 78項規格回填、341新增29缺證據負例、340 28負例、338／339各26負例與兩CLI通過；341限定CONFORMED，340／索引與guard同次回填。24份來源／收據／核算見[341](docs/spec/341-moo2-banner-after-gui-return.md)。來源與新檔1000:1000、gofmt／Git差異通過，工具root-owned／誤建.md目錄空，Docker兩工作區掛載篩選空，無本輪遺留容器。
 - 下一步先保存原85 82 @184694的有效位址／source／mask／flags／SETNE與RET最小消費，經DRAFT→READY再補CPU支援；按同341輸入續行與固定EXE完整CPU測試。原旗色與持久writer、下一頁／完整開局、正式RNG與remake同狀態未知，主庫RE-first及整款remake／中文化目標保持。
+
+## 2026-10-03：342 記憶體TEST與原宇宙生成畫面
+
+- 起點b07cda7188d7139da612f143ba68ea13cca21958。命中CPU平台契約、規格閘門、dosgolem、文件職責與回填路由。342先DRAFT，原184694的85 82來源／完整R／六段／flags／原堆疊以private唯讀三步budget取得；未改CPU仍相同拒絕，全部7849原341列與29PNG保持。
+- 原DS188:265219四bytes01000000即1，EAX0、flags202h，SS188:ESP2BDB68四bytesE3461800返回1846E3。公開Intel TEST契約與原來源充分後READY，通用CPU沿32位ModRM／SIB及readSegment32補85 memory，不寫回、不猜原欄位用途。初稿局部guard誤疑F2暫存器可接受，READY前核對早期prefix已拒絕並修正文字。
+- 首次CPU編譯readSegment32的selector／bool簽名使用錯誤，建置即拒絕、未跑原版；修正後窄測PASS0.909s。全套初跑忽略workplace探索main重複，CPU38661.132s已PASS但整體FAIL，歸類驗證輸入污染。相同Go1.24.13映像／固定EXE／命令於/tmp/test-src乾淨版控輸入加新自製測試重跑PASS，CPU38655.710s、machine2.914s。外部8088實機語料缺檔，沒有冒稱硬體語料通過。
+- 同341輸入／1996calendar／120M cap正常重播，原99415524 TEST交集0、flags246h、EIP18469A；下一SETNE AL0到18469D；原RET只ESP加4、到1846E3，完整核心／RAM與原source／stack保持，三筆observer readonly，callback12／12、IRQ22676／22676。CPU新入口前7789原列／28PNG與全部原正常輸入保持；初版核算包含舊stop診斷，修正比較邊界後重讀同原收據PASS，未重跑原版。
+- 原版實際進到640×480「Generating Universe...」畫面。113628909在原17D536的0F9E拒絕，flags206h；尚未120M、probe exit0不代表正常開局成功。正式writer、完整開局、RNG與remake同狀態未知。主庫玩法／平台／原輸入未改。
+- Docker原版每次300s／全套600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀，各次417根檔／官方EXE／固定MOX.SET。兩次原版為未改CPU初態與READY後重播；兩CLI與79項回填、342新增25負例及340另兩負例、341的29／340的28／338及339各26負例通過，342限定CONFORMED與340／341／索引同次回填。
+- 原來源／18份收據與精確hash、實際Go命令及乾淨輸入重建入口見[342](docs/spec/342-cpu386-test-dword-memory.md)。gofmt／Git差異與ownership1000:1000通過；工具root-owned／誤建.md目錄空，兩工作區掛載篩選Docker容器空，不留本輪程序。
+- 下一步先核對公開SETLE與既有SETcc，保存原17D536完整初態／AL／flags及下一byte store，經DRAFT→READY補通用CPU能力，保持同輸入續行。未推本機origin；整款remake／中文化目標與主庫RE-first保持。

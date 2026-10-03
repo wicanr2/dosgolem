@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_test_memory_dword_resolution(spec_dir):
+    """342只閉合標準CPU比較與原三步，完整開局保持未知。"""
+    name = "342-cpu386-test-dword-memory.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：記憶體TEST／SETNE／RET與正常宇宙生成畫面","7789原341列","28PNG","7849原341列","29PNG","184694","18469A","18469D","1846E3","01000000","E3461800","AF未定義","CPU只增加85 memory分支","113628909","17D536","0F 9E 尚未支援","9181e24bfbd29931985b3e3966c5081cd6b6f367d6faaac8d13e33b9dd155181","923a2fe5b6f669c83579aecfb3b2b14e84fc143948600855133dbdc85e12845e","2877e41d8c9448a37a589fe7e6e35ed8be2059b21cb6a4c5cac7d86101ca663c","e975c476784977be084da3abb7601363bf290c74b96b26d56fc1af0994dd7dd0","正式writer、完整開局與remake同狀態未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("342缺CPU契約／原三步／限定驗收／新拒絕或未知邊界")
+    for older in ["341-moo2-banner-after-gui-return.md", "340-moo2-banner-pressed-consumer.md"]:
+        text = (spec_dir / older).read_text()
+        if name not in text or "原184694記憶體TEST與三步消費已由規格342接通" not in text:
+            raise RuntimeError("較早規格缺342 CPU消費回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("342缺公開索引入口")
+
+if sys.argv[1:] == ['--check-test-memory-dword-spec-backlinks']:
+    validate_test_memory_dword_resolution(spec_dir)
+    print("記憶體TEST／原三步／宇宙生成圖／新CPU拒絕與較早回填通過")
+    raise SystemExit(0)
+
 def validate_banner_late_pressed_gate_resolution(spec_dir):
     """341只閉合原後段按鍵返回，後續原CPU拒絕必須保留。"""
     name = '341-moo2-banner-after-gui-return.md'

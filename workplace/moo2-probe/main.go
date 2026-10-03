@@ -169,6 +169,10 @@ func main() {
 	bannerPolled := false
 	// 339 END parse
 
+	// 342 BEGIN test_state
+	testMemorySeen, testMemoryBudget := false, 0
+	// 342 END test_state
+
 	// 341 BEGIN gate_state
 	bannerSelectionGateSeen := false
 	var bannerGateR [8]uint32
@@ -1948,11 +1952,52 @@ func main() {
 		}
 		// 340 END return_pre
 
+		// 342 BEGIN test_pre
+		if bannerRed && !testMemorySeen && m.CPU.EIP == 0x184694 {
+			testMemorySeen, testMemoryBudget = true, 3
+		}
+		observeTestMemory := testMemoryBudget > 0
+		testR, testSeg, testEIP, testFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var testCode [16]byte
+		var testSource, testStack [4]byte
+		testOffset := testR[cpu386.EDX] + 0x265219
+		testSourceReadable, testStackReadable := false, false
+		var testRAM [32]byte
+		testReadonly := false
+		if observeTestMemory {
+			testRAM = sha256.Sum256(m.Mem)
+			testReadonly = activationPeek(func() {
+				copy(testCode[:], m.Mem[testEIP:testEIP+16])
+				testSourceReadable = peekSourceWindow(testSeg[cpu386.SegDS], testOffset, testSource[:])
+				testStackReadable = peekSourceWindow(testSeg[cpu386.SegSS], testR[cpu386.ESP], testStack[:])
+			}) && sha256.Sum256(m.Mem) == testRAM
+		}
+		// 342 END test_pre
+
 		stepErr := m.CPU.Step()
 		if publishBus != nil {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		// 342 BEGIN test_post
+		if observeTestMemory {
+			testMemoryBudget--
+			var sourceAfter, stackAfter [4]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable, afterStackReadable := false, false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(testSeg[cpu386.SegDS], testOffset, sourceAfter[:])
+				afterStackReadable = peekSourceWindow(testSeg[cpu386.SegSS], testR[cpu386.ESP], stackAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && testReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("test_memory_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t after_stack_readable=%t before_stack=%X after_stack=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t step_ram_unchanged=%t remaining=%d error=%v\n", i, testEIP, m.CPU.EIP, testR, m.CPU.R, testSeg, m.CPU.Seg, testFlags, m.CPU.EFlags, testCode, testSeg[cpu386.SegDS], testOffset, testSourceReadable, afterSourceReadable, testSource, sourceAfter, testSeg[cpu386.SegSS], testR[cpu386.ESP], testStackReadable, afterStackReadable, testStack, stackAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, testRAM == ram, testMemoryBudget, stepErr)
+			if stepErr != nil {
+				testMemoryBudget = 0
+			}
+		}
+		// 342 END test_post
 
 		// 340 BEGIN return_post
 		if observeBannerReturn && m.CPU.EIP == 0x20db5b {

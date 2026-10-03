@@ -66,7 +66,7 @@ python3 workplace/new-game-341-formal-verify.py PASS只核算原按鍵返回、�
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:20DB5E／20E138／20E160→214104→20E165 | 原有按鍵分支、位置返回與後段按鍵TEST／JZ；340此caller讀0，341讀1後才放開 | 兩份原192步與正式重播 | 340 | 原20DB5E分支與20E165後段按鍵返回已由規格341接通 |
 
-下一步先查既有CPU386 TEST與記憶體operand契約，對原85 82 @184694保存原source／mask／有效位址與flags／SETNE／RET最小消費，經DRAFT→READY再補支援；按同341輸入續行與固定EXE完整CPU測試驗證。不得因全黑調GUI座標、cap或重送。持久名稱／旗色writer、typed種族特性、下一頁／完整開局、正式RNG與remake同狀態未知，主庫RE-first保持。
+原184694記憶體TEST與三步消費已由規格342接通，見[342](342-cpu386-test-dword-memory.md)。原版同輸入已進到宇宙生成圖，後續於17D536的0F9E拒絕；完整開局與正式writer未驗。下一步只補該公開CPU契約，保持120M／輸入，主庫RE-first保持。
 
 | 本機忽略來源／收據／核算 | SHA-256 |
 | --- | --- |

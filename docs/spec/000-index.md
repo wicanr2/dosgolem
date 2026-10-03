@@ -547,4 +547,6 @@
 
 - [340：旗幟首次pressed查詢後的原正常GUI消費](340-moo2-banner-pressed-consumer.md)：限定CONFORMED。192原步已證實339第二次查詢與GUI返回0；340原RET返回1才正常放開，120M仍旗幟頁；後段按鍵返回由341接通，原選色未驗。
 
-- [341：旗幟GUI按鍵返回後的原正常分支](341-moo2-banner-after-gui-return.md)：限定CONFORMED。兩個獨立192步／原20E165返回1與正常放開已驗；後續在184694的85 82拒絕並全黑，原選色與完整開局未驗。
+- [341：旗幟GUI按鍵返回後的原正常分支](341-moo2-banner-after-gui-return.md)：限定CONFORMED。兩個獨立192步／原20E165返回1與正常放開已驗；當輪184694的85 82拒絕並全黑；該CPU缺口由342接通，正式writer與完整開局未驗。
+
+- [342：記憶體dword與暫存器的TEST](342-cpu386-test-dword-memory.md)：限定CONFORMED。通用唯讀TEST／原SETNE及RET／正常宇宙生成圖已驗，全套通過；後續17D536的0F9E拒絕，完整開局未知。

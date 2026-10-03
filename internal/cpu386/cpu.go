@@ -1437,7 +1437,20 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("TEST dword ModRM %02X 尚未支援", modrm))
+			if operand16 || repne {
+				return fail("TEST memory 只支援無前綴dword")
+			}
+			// 342：唯讀比較，完整來源成功才發布旗標；AF沿工具模型。
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail(fmt.Sprintf("TEST dword read %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			c.setLogicFlags(value & c.R[(modrm>>3)&7])
+			break
 		}
 		left, right := modrm&7, (modrm>>3)&7
 		if operand16 {
