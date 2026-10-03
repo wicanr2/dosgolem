@@ -86,3 +86,7 @@ python3 workplace/new-game-336-cli-verify.py PASS：15無效值／缺依賴在�
 ## 363前段差異與資料窗口回填
 
 原SOUND3D02與五個+44窗口前128bytes已由規格363核對；可寫玩家路徑仍DRAFT，見[363](363-moo2-overlay-startup-and-setup-source.md)。原1192795／237024的SOUND.LBX讀寫開檔，兩側同原初態但唯讀AX5 CF1／overlay真handle5 CF0。80M五候選值各增8000h，指向的前128byte及RGB相同；兩側各27PNG／各自舊列保持，原418來源檔未變，state僅有內容未變的sound.lbx副本。之前「所指內容未取」已限定解出開頭128bytes，完整物件／角色／原指標消費仍未知。下一步依363另立DRAFT可寫profile正常ACCEPT前置，不忽略位址／調時刻／改舊336唯讀guard。完整存檔／音訊／RNG與remake同狀態未驗。
+
+## 364可寫ACCEPT限定驗收回填
+
+可寫profile正常ACCEPT與90M選族頁已由[364](364-moo2-overlay-setup-accept.md)驗證。原336唯讀guard保持，獨立profile核對原overlay完整935byte表／五窗口後一次press／release；真正20DDDB選擇store word0000→0F00，原SELECT RACE畫面與既有原圖相同。原418來源檔保持，state仍僅sound.lbx，不稱存檔成功。下一步依新90M完整880bytes表另立Humans輸入規格，完整可寫玩家路徑／RNG／remake同狀態仍未驗。

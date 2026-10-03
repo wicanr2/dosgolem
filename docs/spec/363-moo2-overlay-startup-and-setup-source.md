@@ -69,3 +69,7 @@ python3 workplace/new-game-363-pair-verify.py
 原版收據readonly bebf7c93f2a802cc1c6241985eafe0b8955cbfc034fa76f39ef679b0f91dfe6e，overlay72f5cc29637de198914526676953f53c99fb333c20f5dafa449d921fe7c11811，state manifest e35322cba18956bcd245e4091932c822f9460271deda20ddda8b7722aa1375bc。原PNG／LOG／128byte資產窗口／sound副本全留忽略workplace，公開只交自製spec／索引／守衛及雜湊。完整私有收據帳掛到MOO2研究入口docs/re/dosgolem-moo2-intake-20260930.md；主庫玩法RE-first保持。
 
 100項規格回填、新363的37＋34缺證據負例及全部較早負例通過。公開守衛入口python3 apps/moo2/tools/startup_probe_131.py --check-overlay-setup-source-spec-backlinks。只驗雙側只讀證據，不把可寫profile或完整存檔升為完成。
+
+## 364可寫ACCEPT限定驗收回填
+
+可寫profile正常ACCEPT與90M選族頁已由[364](364-moo2-overlay-setup-accept.md)驗證。原336唯讀guard保持，獨立profile核對原overlay完整935byte表／五窗口後一次press／release；真正20DDDB選擇store word0000→0F00，原SELECT RACE畫面與既有原圖相同。原418來源檔保持，state仍僅sound.lbx，不稱存檔成功。下一步依新90M完整880bytes表另立Humans輸入規格，完整可寫玩家路徑／RNG／remake同狀態仍未驗。
