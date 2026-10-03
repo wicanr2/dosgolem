@@ -55,3 +55,7 @@ IRQ0 started=completed=5346、active=false／failed=false，等待 DS:00271148=A
 ## 後續停點回填
 
 byte SHL／CL 停點已由規格 290 接通：[290-cpu386-shl-byte-register-cl.md](290-cpu386-shl-byte-register-cl.md)。291 同次接通記憶體 OR，兩自然排程完成三組 SHL→OR→ADD 的完整資料鏈；未定義旗標近似與下一 REPE SCASD 原始定位集中於 290／291。這不改 289 的 NEG／MOV 證據，也不代表主選單或正常玩家路徑完成。
+
+## 372 byte IMUL支援回填
+
+[372](372-cpu386-imul-byte-source.md)新增裸F6 /5，原NEG拒絕fixture的F6E8是合法IMUL AL，故只移除此過期拒絕樣本；F6 /1、/2、/7與memory NEG拒絕護欄保持。八byte別名及完整輸入由372獨立測試承接。本文件舊NEG／MOV與後續停點證據不變。

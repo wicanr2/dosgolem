@@ -66,3 +66,7 @@ new-game-371-ready-review.py直接核對370原170M核心／FPU／clock／VBE／�
 369／370／367同次追加回填。338／339／340／341／365／366／368既有其它點擊上下文與唯讀原收據不受本母星輸入影響，不把新的store當舊same-state。私有驗證檢查不可變定位與三份回填，缺項即失敗。
 
 公開本規格／索引及三份回填，私有probe／LOG／PNG／RAM／state不入Git，收據掛主庫既有研究入口。下一步以本174213914／1749C0 F6EC及完整核心、ISA契約建立byte IMUL READY規格、補CPU獨立測試與原正常consumer，再沿相同輸入續行，維持180M。不深挖renderer／runtime helper；23物件全表需取時另以有界只讀入口保存。主庫玩法RE-first保持，正式名稱與旗色持久語意／讀檔／完整開局／seed與remake同狀態未驗。
+
+## 372原byte IMUL續行回填
+
+[372](372-cpu386-imul-byte-source.md)已補裸F6 /5：原174213914、dosgolem_high_le:1749C0 F6EC得到AXFFFF，下一A2只寫DS188:281F06 byte01→FF，原E9返回173CFF；完整核心／FPU與RAM效果已按同native核算。相同正常輸入達180M、無CPU拒絕，終圖正常星圖已親看；既有dumpSetupTable取得23物件／1265bytes，沒有放寬舊count≤16 guard。舊371拒絕與本文件其它上下文證據保持歷史來源；正式存讀／名稱持久writer／完整開局及remake同狀態仍未驗。

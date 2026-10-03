@@ -3900,6 +3900,32 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if (modrm>>3)&7 == 5 {
+			// 規格372：先讀舊AL及來源，AH重疊時不得先發布AX。
+			left := int16(int8(c.reg8(0)))
+			var source byte
+			if modrm>>6 == 3 {
+				source = c.reg8(int(modrm & 7))
+			} else {
+				seg, addr, e := c.decodeAddress32(modrm)
+				if e != nil {
+					return fail(e.Error())
+				}
+				value, ok := c.readSegment8(c.Seg[seg], addr)
+				if !ok {
+					return fail("IMUL byte來源越界")
+				}
+				source = value
+			}
+			result := left * int16(int8(source))
+			c.R[EAX] = c.R[EAX]&0xffff0000 | uint32(uint16(result))
+			c.EFlags &^= CF | OF
+			if result != int16(int8(byte(result))) {
+				c.EFlags |= CF | OF
+			}
+			// SF／ZF／AF／PF未定義，沿既有乘法保留模型。
+			break
+		}
 		if modrm>>6 == 3 && (modrm>>3)&7 == 3 {
 			// 規格 289：byte 取負只寫回目的低／高 byte，六旗標皆定義。
 			rm := int(modrm & 7)

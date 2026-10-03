@@ -79,3 +79,7 @@ python3 workplace/new-game-367-verify.py
 ## 371正常母星名稱確認回填
 
 [371](371-moo2-home-name-normal-accept.md)已沿370原170M完整前置一次正常press，原24C31B查詢讀到BX1／CX550／DX260，首次安全release後，170024419原20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0100；32byteSol候選保持，命名視窗消失、回到星圖已親看。這是母星確認上下文，統治者名稱與正式持久writer不由共享buffer／store推定。後續174213914於1749C0／F6EC遇新CPU拒絕，未達180M／完整開局；原CPU與本文件舊收據保持。
+
+## 372原byte IMUL續行回填
+
+[372](372-cpu386-imul-byte-source.md)已補裸F6 /5：原174213914、dosgolem_high_le:1749C0 F6EC得到AXFFFF，下一A2只寫DS188:281F06 byte01→FF，原E9返回173CFF；完整核心／FPU與RAM效果已按同native核算。相同正常輸入達180M、無CPU拒絕，終圖正常星圖已親看；既有dumpSetupTable取得23物件／1265bytes，沒有放寬舊count≤16 guard。舊371拒絕與本文件其它上下文證據保持歷史來源；正式存讀／名稱持久writer／完整開局及remake同狀態仍未驗。
