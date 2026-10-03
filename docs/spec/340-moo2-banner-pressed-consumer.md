@@ -64,7 +64,7 @@ python3 workplace/new-game-340-source-verify.py PASS：只增加3個有界原RET
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:20DB56→214075→214104→20DB5B | GUI讀按鍵的原RET；339返回0、340返回1，完整stack／核心已驗 | 本規格192步與正式重播 | 339 | 原GUI按鍵返回與正常放開已由規格340接通 |
 
-原20DB5E分支與20E165後段按鍵返回已由規格341接通，見[341](341-moo2-banner-after-gui-return.md)。兩個獨立192步已證實原後段仍查按鍵，340返回0並JZ到20E4EB；341等該caller返回1才放開，實際走到184694的85 82記憶體TEST拒絕並全黑。原184694記憶體TEST與三步消費已由規格342接通，見[342](342-cpu386-test-dword-memory.md)；正常已到宇宙生成圖，後續0F9E拒絕。保持座標／cap／輸入。旗色選擇／持久writer、下一頁／完整開局及remake同狀態未知，主庫RE-first保持。
+原20DB5E分支與20E165後段按鍵返回已由規格341接通，見[341](341-moo2-banner-after-gui-return.md)。兩個獨立192步已證實原後段仍查按鍵，340返回0並JZ到20E4EB；341等該caller返回1才放開，實際走到184694的85 82記憶體TEST拒絕並全黑。原184694記憶體TEST與三步消費已由規格342接通，見[342](342-cpu386-test-dword-memory.md)；正常已到宇宙生成圖；SETLE後續由[343](343-cpu386-setle-byte-register.md)接通，當前0F9F拒絕。保持座標／cap／輸入。旗色選擇／持久writer、下一頁／完整開局及remake同狀態未知，主庫RE-first保持。
 
 | 本機忽略來源／收據／核算 | SHA-256 |
 | --- | --- |

@@ -56,7 +56,7 @@ CPU SHA-256 330baaf9917f4534906797e9eb484136b7297fc6a94343252db9b6f8da97c5f7，�
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:184694→18469A→18469D→1846E3 | 原DS來源1、mask0、TEST五旗標／SETNE AL0／RET，後續正常宇宙生成圖 | 原三步與全套／342正式收據 | 341、340 | 原184694記憶體TEST與三步消費已由規格342接通 |
 
-下一步僅核對0F9E SETLE的公開CPU條件與既有SETcc，保存原17D536完整初態／flags／AL與下一原byte store最小消費，經DRAFT→READY補通用能力，再保持同輸入／120M續行。原旗色／姓名正式writer、typed種族特性、生成完成／完整開局、正式RNG與remake同狀態未知；主庫RE-first與整款remake／中文化目標保持。
+原17D536 SETLE與SS byte寫入已由規格343接通，見[343](343-cpu386-setle-byte-register.md)。原兩步與0→0真實Bus write已核算，全套通過；後續17D5A0的0F9F拒絕。下一步以SETG為入口補剩餘標準SETcc條件，保持同輸入／120M；正式writer與完整開局未知、主庫RE-first保持。
 
 正式原workplace/moo2-probe-342-red.txt.gz SHA-256 9181e24bfbd29931985b3e3966c5081cd6b6f367d6faaac8d13e33b9dd155181；乾淨全套workplace/full-test-342.txt SHA-256 2877e41d8c9448a37a589fe7e6e35ed8be2059b21cb6a4c5cac7d86101ca663c。
 

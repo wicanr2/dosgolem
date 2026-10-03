@@ -29,6 +29,10 @@ type orMemoryReadObserver struct {
 
 // 規格328：原Bus每個真正請求只轉呼叫一次；只在CPU.Step內計數。
 type publishBusObserver struct {
+	// 343 BEGIN write_state
+	setleWatch bool
+	// 343 END write_state
+
 	cpu386.Bus
 	active                                        bool
 	step, steps                                   int
@@ -66,6 +70,12 @@ func (b *publishBusObserver) Read8(addr uint32) (uint8, error) {
 }
 func (b *publishBusObserver) Write8(addr uint32, value uint8) error {
 	err := b.Bus.Write8(addr, value)
+	// 343 BEGIN write_event
+	if b.active && b.setleWatch {
+		fmt.Printf("setle_bus_write outer_step=%d address_space=dosgolem_high_le input_eip=%X linear=%X value=%X error=%v\n", b.step, b.eip, addr, value, err)
+	}
+	// 343 END write_event
+
 	if b.active {
 		b.writes++
 		if err != nil {
@@ -168,6 +178,10 @@ func main() {
 	var bannerPressMicros, bannerPressStarted uint64
 	bannerPolled := false
 	// 339 END parse
+
+	// 343 BEGIN setle_state
+	setleSeen, setleBudget := false, 0
+	// 343 END setle_state
 
 	// 342 BEGIN test_state
 	testMemorySeen, testMemoryBudget := false, 0
@@ -1974,11 +1988,55 @@ func main() {
 		}
 		// 342 END test_pre
 
+		// 343 BEGIN setle_pre
+		if bannerRed && !setleSeen && m.CPU.EIP == 0x17d536 {
+			setleSeen, setleBudget = true, 2
+		}
+		observeSetle := setleBudget > 0
+		setleR, setleSeg, setleEIP, setleFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var setleCode [16]byte
+		var setleWindow, setleStack [4]byte
+		setleOffset := setleR[cpu386.EBP] - 5
+		setleReadable, setleStackReadable := false, false
+		var setleRAM [32]byte
+		setleReadonly := false
+		if observeSetle {
+			setleRAM = sha256.Sum256(m.Mem)
+			setleReadonly = activationPeek(func() {
+				copy(setleCode[:], m.Mem[setleEIP:setleEIP+16])
+				setleReadable = peekSourceWindow(setleSeg[cpu386.SegSS], setleOffset, setleWindow[:])
+				setleStackReadable = peekSourceWindow(setleSeg[cpu386.SegSS], setleR[cpu386.ESP], setleStack[:])
+			}) && sha256.Sum256(m.Mem) == setleRAM
+		}
+		if publishBus != nil {
+			publishBus.setleWatch = observeSetle
+		}
+		// 343 END setle_pre
+
 		stepErr := m.CPU.Step()
 		if publishBus != nil {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		// 343 BEGIN setle_post
+		if observeSetle {
+			setleBudget--
+			var windowAfter, stackAfter [4]byte
+			ram := sha256.Sum256(m.Mem)
+			afterReadable, afterStackReadable := false, false
+			readonly := activationPeek(func() {
+				afterReadable = peekSourceWindow(setleSeg[cpu386.SegSS], setleOffset, windowAfter[:])
+				afterStackReadable = peekSourceWindow(setleSeg[cpu386.SegSS], setleR[cpu386.ESP], stackAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && setleReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("setle_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X window_offset=%X operand_offset=%X window_readable=%t after_window_readable=%t before_window=%X after_window=%X stack_selector=%X stack_offset=%X stack_readable=%t after_stack_readable=%t before_stack=%X after_stack=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t step_ram_unchanged=%t remaining=%d error=%v\n", i, setleEIP, m.CPU.EIP, setleR, m.CPU.R, setleSeg, m.CPU.Seg, setleFlags, m.CPU.EFlags, setleCode, setleSeg[cpu386.SegSS], setleOffset, setleOffset+1, setleReadable, afterReadable, setleWindow, windowAfter, setleSeg[cpu386.SegSS], setleR[cpu386.ESP], setleStackReadable, afterStackReadable, setleStack, stackAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, setleRAM == ram, setleBudget, stepErr)
+			if stepErr != nil {
+				setleBudget = 0
+			}
+		}
+		// 343 END setle_post
 
 		// 342 BEGIN test_post
 		if observeTestMemory {

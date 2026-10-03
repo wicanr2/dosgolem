@@ -590,3 +590,14 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 - Docker原版每次300s／全套600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀，各次417根檔／官方EXE／固定MOX.SET。兩次原版為未改CPU初態與READY後重播；兩CLI與79項回填、342新增25負例及340另兩負例、341的29／340的28／338及339各26負例通過，342限定CONFORMED與340／341／索引同次回填。
 - 原來源／18份收據與精確hash、實際Go命令及乾淨輸入重建入口見[342](docs/spec/342-cpu386-test-dword-memory.md)。gofmt／Git差異與ownership1000:1000通過；工具root-owned／誤建.md目錄空，兩工作區掛載篩選Docker容器空，不留本輪程序。
 - 下一步先核對公開SETLE與既有SETcc，保存原17D536完整初態／AL／flags及下一byte store，經DRAFT→READY補通用CPU能力，保持同輸入續行。未推本機origin；整款remake／中文化目標與主庫RE-first保持。
+
+## 2026-10-03：343 SETLE與原SS byte實際write
+
+- 起點0c6e871167259c382c6dac2288ace552c33e2319，主庫ea13175382677216babef8a9b21801e2273d7f44。路由命中CPU平台契約、規格閘門、dosgolem、文件職責與逆向回填。343先DRAFT，原17D536完整R／段／flags206h、SS:2BDA33四byte窗01000000及stack040F0000以private兩步budget唯讀保存，全部8237原342列／31PNG保持。
+- Intel現行SDM的SETLE條件ZF=1或SF≠OF、所有旗標保持；80386鏡像SETLE列and為錯，SETNG列與現行SDM為or，採正確公開契約。完整初態與原SS目的可讀後READY，CPU僅補裸0F9E八個byte暫存器；其他prefix／memory／新SETcc不擴張。
+- 同正常input／120M重播原113628909 SETLE AL28→0、EIP17D539、flags206h與其他完整核心／RAM保持。113628910原88 45 FC真實Bus write linear2BDA34、value0、error nil，EIP17D53C、目的0→0及鄰居／flags保持；兩筆callback12／12、IRQ26735／26735非活動／readonly真。因byte原本0，正式source在既有Bus observer加有界write事件，只forward一次，沒有以RAM不變代替實際write證據。
+- private三／正式五observer區塊逆轉後probe保持不可變342，CPU只增加SETLE register條件。新CPU前8177原342列與30PNG、所有正常輸入與原342三步保持。113628944在17D5A0的0F9F拒絕、flags293h，終圖逐位元保持宇宙生成圖；尚未120M、probe exit0不當完整開局通過，正式writer／生成完成／remake同狀態未知。
+- 2,097,152組byte／ignored reg／旗標與context、47,432組數學signedCMP→SETLE獨立核算，高低byte鄰居／完整core／R／FPU／flags／RAM保持、截短／memory／11prefix拒絕、SETE／SETNE保持與下一SS byte兩向／失敗回歸PASS。窄測4.352s、固定EXE乾淨來源Go全套PASS，cpu386189.431s、machine5.732s；外部386／8088實機語料未取得，不稱硬體語料或逐週期對拍。
+- 兩原版各新鮮417根檔／官方EXE／MOX.SET，先private初態再READY後正式重播各一次；Docker原版300s／全套600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀。Go1.24.13固定映像、原341全部環境／120M保持。沒有改原input／calendar、平台、主庫玩法或重送，固定日期不是seed。
+- 80回填正對照、343新增26負例、342的25與340另兩負例、341的29／340的28／338及339各26負例與兩CLI通過；343限定CONFORMED、342／341／340與索引同次回填。17份忽略來源／收據、完整hash與命令見[343](docs/spec/343-cpu386-setle-byte-register.md)，原素材不入Git。
+- 新來源／收據1000:1000、gofmt／Git差異通過，工具root-owned／誤建.md目錄空，兩工作區掛載篩選Docker容器空，不留本輪程序。下一步以原SETG停點為入口核對剩餘標準SETcc register條件與下一88 C2，走DRAFT→READY、同正常輸入／120M與固定EXE全套。主庫RE-first與整款remake／中文化目標保持；未推本機origin。

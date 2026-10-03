@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_setle_register_resolution(spec_dir):
+    """343只閉合SETLE與原byte writer，新SETG與完整開局保留未知。"""
+    name = "343-cpu386-setle-byte-register.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：SETLE暫存器與原SS byte實際寫入","8237原342列","31PNG","8177原342列","30PNG","17D536","17D539","17D53C","2BDA34","setle_bus_write","value0","所有flags206h","2,097,152","47,432","CPU只增加SETLE register條件","113628944","17D5A0","0F 9F 尚未支援","fffa5bf9edfa2a4c3fdbece2852a0069a3307fe6b96bf9ded086fb73cf35ed9b","3d7697eeec4e3bf79f6fa933c9c2461ca922a6383f2b9638f709cfaed6383aaa","025ca761a9bffc3a248275548ec218ceac829409b5ed63f54991057c97a8e19b","正式writer、生成完成／完整開局與remake同狀態未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("343缺SETLE契約／原byte實際write／限定驗收／新SETG拒絕或未知邊界")
+    older = (spec_dir / "342-cpu386-test-dword-memory.md").read_text()
+    if name not in older or "原17D536 SETLE與SS byte寫入已由規格343接通" not in older:
+        raise RuntimeError("342缺SETLE與原byte寫入回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("343缺公開索引入口")
+
+if sys.argv[1:] == ['--check-setle-register-spec-backlinks']:
+    validate_setle_register_resolution(spec_dir)
+    print("SETLE／原SS byte實際write／新SETG拒絕／342回填通過")
+    raise SystemExit(0)
+
 def validate_test_memory_dword_resolution(spec_dir):
     """342只閉合標準CPU比較與原三步，完整開局保持未知。"""
     name = "342-cpu386-test-dword-memory.md"
