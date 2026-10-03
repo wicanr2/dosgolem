@@ -57,6 +57,7 @@ func shrinkTablesUnderTest() []struct {
 	}{
 		{"default", "", shrinkLevels},
 		{LangJa, LangJa, shrinkLevelsFor(LangJa)},
+		{LangKo, LangKo, shrinkLevelsFor(LangKo)},
 	}
 }
 
@@ -76,6 +77,9 @@ func TestShrinkLevelTable(t *testing.T) {
 	jaL2 := shrinkSpec{Level: 2, FullLP: 4, HalfLP: 2,
 		X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 14, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 2, HalfGlyphY: 8},
 		X3: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}}
+	koL2 := shrinkSpec{Level: 2, FullLP: 5, HalfLP: 2, Thr: shrinkThr{N: 1, D: 3},
+		X2: shrinkMetrics{FullCell: 10, FullGlyphW: 10, FullGlyphH: 12, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 4, HalfGlyphY: 8},
+		X3: shrinkMetrics{FullCell: 15, FullGlyphW: 15, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}}
 	check := func(name string, got, want []shrinkSpec) {
 		if len(got) != len(want) {
 			t.Fatalf("%s: %d levels", name, len(got))
@@ -88,6 +92,7 @@ func TestShrinkLevelTable(t *testing.T) {
 	}
 	check("default", shrinkLevels, defaultWant)
 	check(LangJa, shrinkLevelsFor(LangJa), []shrinkSpec{defaultWant[0], jaL2})
+	check(LangKo, shrinkLevelsFor(LangKo), []shrinkSpec{defaultWant[0], koL2})
 	// Languages without a table read the default one.
 	for _, lang := range []string{"", LangZhTW, LangZhCN, LangEn, LangTest} {
 		if got := shrinkLevelsFor(lang); len(got) != 2 || got[0] != defaultWant[0] || got[1] != defaultWant[1] {
@@ -185,6 +190,59 @@ func TestShrinkUnitUnits(t *testing.T) {
 		// Never wider than the normal unit, never narrower than the pixels.
 		if shrinkUnitUnits(u, l1) > textUnits(u) || shrinkUnitUnits(u, l1)*halfUnitPx < 0 {
 			t.Errorf("%q: shrunk wider than normal", c.unit)
+		}
+	}
+}
+
+// W_s of the table of ko (spec 058 §3.3): ceil((5F + 2H) / 4) at L2, the same
+// as the default table at L1.  F counts the full-width characters, H the
+// half-width ones.
+func TestShrinkUnitUnitsKo(t *testing.T) {
+	ko := shrinkLevelsFor(LangKo)
+	l1, l2 := ko[0], ko[1]
+	if l1 != shrinkLevels[0] || l2.FullLP != 5 || l2.HalfLP != 2 {
+		t.Fatalf("table of ko: %+v", ko)
+	}
+	cases := []struct {
+		unit   string
+		w1, w2 int
+	}{
+		{"셀레스트(CELESTE)", 13, 10}, // F 4, H 9: L1 (24 + 27) / 4 = 12.75, L2 (20 + 18) / 4 = 9.5
+		{"벅(BUCK)", 6, 5},         // F 1, H 6: 24 / 4 = 6, 17 / 4 = 4.25
+		{"도(DOE)", 6, 4},          // F 1, H 5: 21 / 4 = 5.25, 15 / 4 = 3.75
+		{"가", 2, 2},               // F 1: 6 / 4 = 1.5, 5 / 4 = 1.25
+		{"가나", 3, 3},              // F 2: 12 / 4 = 3, 10 / 4 = 2.5
+		{"가나다라", 6, 5},            // F 4: 24 / 4 = 6, 20 / 4 = 5 exactly
+		{"A", 1, 1},               // H 1: 3 / 4, 2 / 4
+		{"ABCD", 3, 2},            // H 4: 12 / 4 = 3, 8 / 4 = 2 exactly
+		{"가A", 3, 2},              // F 1, H 1: 9 / 4 = 2.25, 7 / 4 = 1.75
+		{"가AB", 3, 3},             // F 1, H 2: 12 / 4 = 3, 9 / 4 = 2.25
+	}
+	for _, c := range cases {
+		u := []rune(c.unit)
+		if g := shrinkUnitUnits(u, l1); g != c.w1 {
+			t.Errorf("%q L1: %d want %d", c.unit, g, c.w1)
+		}
+		if g := shrinkUnitUnits(u, l2); g != c.w2 {
+			t.Errorf("%q L2: %d want %d", c.unit, g, c.w2)
+		}
+		// L2 is never wider than L1 and never wider than the normal unit.
+		if shrinkUnitUnits(u, l2) > shrinkUnitUnits(u, l1) || shrinkUnitUnits(u, l1) > textUnits(u) {
+			t.Errorf("%q: the levels do not narrow the unit", c.unit)
+		}
+	}
+	// The cost of the wider cell: L2 of ko takes F/4 half units more than the
+	// default L2 (rounded), never more than L1.
+	for _, f := range []int{0, 1, 2, 3, 4, 5, 8} {
+		for _, h := range []int{0, 1, 2, 5, 9} {
+			unit := []rune(strings.Repeat("가", f) + strings.Repeat("A", h))
+			if f+h == 0 {
+				continue
+			}
+			def, k := shrinkUnitUnits(unit, shrinkLevels[1]), shrinkUnitUnits(unit, l2)
+			if k < def || k > def+(f+3)/4 || k > shrinkUnitUnits(unit, l1) {
+				t.Errorf("F %d H %d: ko L2 %d, default L2 %d, L1 %d", f, h, k, def, shrinkUnitUnits(unit, l1))
+			}
 		}
 	}
 }
@@ -401,26 +459,91 @@ func TestLayoutEclTextLevelKoWord(t *testing.T) {
 	unit := []rune("셀레스트(CELESTE)")
 	text := append(append([]rune{}, unit...), []rune("가 좋다")...)
 	units := []NameUnit{{0, len(unit)}}
-	// L0 17+2+5 = 24; L1 13+2+5 = 20; L2 9+2+5 = 16.
-	for _, c := range []struct {
-		right uint8
-		level int
-		want  string
+	// L0 17+2+5 = 24; L1 13+2+5 = 20; L2 9+2+5 = 16 in the default table and
+	// 10+2+5 = 17 in the table of ko (spec 058).
+	for _, tb := range []struct {
+		name   string
+		levels []shrinkSpec
+		cases  []struct {
+			right uint8
+			level int
+			want  string
+		}
 	}{
-		{19, 1, "[셀레스트(CELESTE)@0.0/1][가 좋다@0.13/0]"},
-		{15, 2, "[셀레스트(CELESTE)@0.0/2][가 좋다@0.9/0]"},
+		{"default", shrinkLevels, []struct {
+			right uint8
+			level int
+			want  string
+		}{
+			{19, 1, "[셀레스트(CELESTE)@0.0/1][가 좋다@0.13/0]"},
+			{15, 2, "[셀레스트(CELESTE)@0.0/2][가 좋다@0.9/0]"},
+		}},
+		{"ko", shrinkLevelsFor(LangKo), []struct {
+			right uint8
+			level int
+			want  string
+		}{
+			{19, 1, "[셀레스트(CELESTE)@0.0/1][가 좋다@0.13/0]"},
+			{16, 2, "[셀레스트(CELESTE)@0.0/2][가 좋다@0.10/0]"},
+		}},
 	} {
-		ls, _, _, ok := layoutEclTextLevel(layoutKo, shrinkLevels, text, units, c.level, 0, 0, 0, c.right, 0)
-		if !ok || shrinkDump(ls) != c.want {
-			t.Errorf("right %d L%d: %v %s", c.right, c.level, ok, shrinkDump(ls))
+		for _, c := range tb.cases {
+			ls, _, _, ok := layoutEclTextLevel(layoutKo, tb.levels, text, units, c.level, 0, 0, 0, c.right, 0)
+			if !ok || shrinkDump(ls) != c.want {
+				t.Errorf("%s right %d L%d: %v %s", tb.name, c.right, c.level, ok, shrinkDump(ls))
+			}
+		}
+		// The new L2 does not fit where the old one did (15 columns: 16 units).
+		if tb.name == "ko" {
+			if _, _, _, ok := layoutEclTextLevel(layoutKo, tb.levels, text, units, 2, 0, 0, 0, 15, 0); ok {
+				t.Errorf("ko L2 (17 units) fits 16 units")
+			}
+		}
+		for _, level := range []int{0, 1, 2} {
+			for right := uint8(8); right < 30; right++ {
+				_, _, _, wok := layoutEclTextLevel(layoutKo, tb.levels, text, units, level, 0, 0, 0, right, 1)
+				_, _, _, cok := layoutEclTextLevel(layoutKoChars, tb.levels, text, units, level, 0, 0, 0, right, 1)
+				if wok != cok {
+					t.Errorf("%s L%d right %d: word level fits %v, character level %v", tb.name, level, right, wok, cok)
+				}
+			}
 		}
 	}
-	for _, level := range []int{0, 1, 2} {
-		for right := uint8(8); right < 30; right++ {
-			_, _, _, wok := layoutEclTextLevel(layoutKo, shrinkLevels, text, units, level, 0, 0, 0, right, 1)
-			_, _, _, cok := layoutEclTextLevel(layoutKoChars, shrinkLevels, text, units, level, 0, 0, 0, right, 1)
-			if wok != cok {
-				t.Errorf("L%d right %d: word level fits %v, character level %v", level, right, wok, cok)
+}
+
+// One token that holds two units (spec 058 §5.1): a name, a particle and a
+// second name glued without a space.  The token's width is the sum of both
+// units' W_s plus the text between; the word-level layout fits it exactly when
+// the character-level one does, per level, and the width is the one of the table
+// the layout was given.
+func TestLayoutEclTextLevelKoTwoUnits(t *testing.T) {
+	a, b := []rune("벅(BUCK)"), []rune("윌마(WILMA)")
+	text := append(append(append([]rune{}, a...), '과'), b...)
+	text = append(text, []rune("가 왔다")...)
+	units := []NameUnit{{0, len(a)}, {len(a) + 1, len(a) + 1 + len(b)}}
+	ko := shrinkLevelsFor(LangKo)
+	// 벅(BUCK) F 1 H 6, 윌마(WILMA) F 2 H 7; 과 and 가 2 units each, the space 1,
+	// 왔다 4.  L1: 6 and 9; default L2: 4 and 6; ko L2: 5 and 6.
+	for _, tb := range []struct {
+		name   string
+		levels []shrinkSpec
+		w1, w2 int
+	}{
+		{"default", shrinkLevels, 6 + 9 + 2 + 2 + 1 + 4, 4 + 6 + 2 + 2 + 1 + 4},
+		{"ko", ko, 6 + 9 + 2 + 2 + 1 + 4, 5 + 6 + 2 + 2 + 1 + 4},
+	} {
+		for level, width := range map[int]int{1: tb.w1, 2: tb.w2} {
+			for right := 4; right < 34; right++ {
+				_, _, _, ok := layoutEclTextLevel(layoutKo, tb.levels, text, units, level, 0, 0, 0, uint8(right), 0)
+				_, _, _, cok := layoutEclTextLevel(layoutKoChars, tb.levels, text, units, level, 0, 0, 0, uint8(right), 0)
+				if ok != cok {
+					t.Errorf("%s L%d right %d: word %v, character %v", tb.name, level, right, ok, cok)
+				}
+				// A row up to the unit column `right` holds right+1 units; the
+				// text fits it exactly when its width is within the row.
+				if fits := width <= right+1; ok != fits {
+					t.Errorf("%s L%d right %d: fits %v, width %d vs %d units", tb.name, level, right, ok, width, right+1)
+				}
 			}
 		}
 	}
@@ -530,8 +653,9 @@ func TestEclPlayerNameShrinkWatcher(t *testing.T) {
 // out is shrunk with the space instead (spec 056 §3.4); SpaceDropped is not
 // counted then.
 func TestEclPlayerNameSpaceKoShrink(t *testing.T) {
-	// 갑판 4 units, space 1, 셀레스트(CELESTE) 17 (L1 13, L2 9), 셀레스트 8.
-	cases := []struct {
+	// 갑판 4 units, space 1, 셀레스트(CELESTE) 17 (L1 13; L2 9 in the default
+	// table and 10 in the table of ko, spec 058), 셀레스트 8.
+	type tcase struct {
 		label    string
 		right    uint8
 		want     string
@@ -539,26 +663,46 @@ func TestEclPlayerNameSpaceKoShrink(t *testing.T) {
 		counters [2]int
 		dropped  int
 		cnOnly   int
-	}{
-		{"fits", 11, "갑판 셀레스트(CELESTE)", 0, [2]int{}, 0, 0},
-		{"L1 with the space", 10, "갑판 셀레스트(CELESTE)", 1, [2]int{1, 0}, 0, 0},
-		{"L2 with the space instead of Chinese only", 8, "갑판 셀레스트(CELESTE)", 2, [2]int{0, 1}, 0, 0},
-		{"Chinese only without the space", 6, "갑판셀레스트", 0, [2]int{}, 1, 1},
 	}
-	for _, c := range cases {
-		w, p := koPlayerCall(t, layoutKo, "CELESTE", "셀레스트", c.right)
-		if p == nil {
-			t.Errorf("%s: no page %+v", c.label, w.Stats)
-			continue
-		}
-		var shrink uint8
-		for _, l := range p.Lines {
-			shrink |= l.Shrink
-		}
-		if eclRow(p, 17) != c.want || shrink != c.shrink || w.Stats.PlayerShrunk != c.counters || w.Stats.SpaceDropped != c.dropped || w.Stats.PlayerNameChineseOnly != c.cnOnly {
-			t.Errorf("%s: %q shrink %d %+v", c.label, eclRow(p, 17), shrink, w.Stats)
+	run := func(t *testing.T, lang string, cases []tcase) {
+		for _, c := range cases {
+			w, p := koPlayerCallLang(t, lang, layoutKo, "CELESTE", "셀레스트", c.right)
+			if p == nil {
+				t.Errorf("%s: no page %+v", c.label, w.Stats)
+				continue
+			}
+			var shrink uint8
+			for _, l := range p.Lines {
+				shrink |= l.Shrink
+			}
+			if eclRow(p, 17) != c.want || shrink != c.shrink || w.Stats.PlayerShrunk != c.counters || w.Stats.SpaceDropped != c.dropped || w.Stats.PlayerNameChineseOnly != c.cnOnly {
+				t.Errorf("%s: %q shrink %d %+v", c.label, eclRow(p, 17), shrink, w.Stats)
+			}
 		}
 	}
+	// The default table (the zh-TW catalog with the Korean profile is the
+	// control of spec 056): L2 9 fits 14 units.
+	t.Run("default table", func(t *testing.T) {
+		run(t, "", []tcase{
+			{"fits", 11, "갑판 셀레스트(CELESTE)", 0, [2]int{}, 0, 0},
+			{"L1 with the space", 10, "갑판 셀레스트(CELESTE)", 1, [2]int{1, 0}, 0, 0},
+			{"L2 with the space instead of Chinese only", 8, "갑판 셀레스트(CELESTE)", 2, [2]int{0, 1}, 0, 0},
+			{"L2 with the space at exactly 14 units", 7, "갑판 셀레스트(CELESTE)", 2, [2]int{0, 1}, 0, 0},
+			{"Chinese only without the space", 6, "갑판셀레스트", 0, [2]int{}, 1, 1},
+		})
+	})
+	// The ko catalog reads the table of ko: L2 is 10 units wide, so 14 units no
+	// longer hold the unit and the layout steps down to Chinese only.
+	t.Run("ko table", func(t *testing.T) {
+		run(t, LangKo, []tcase{
+			{"fits", 11, "갑판 셀레스트(CELESTE)", 0, [2]int{}, 0, 0},
+			{"L1 with the space", 10, "갑판 셀레스트(CELESTE)", 1, [2]int{1, 0}, 0, 0},
+			{"L1 at exactly 18 units", 9, "갑판 셀레스트(CELESTE)", 1, [2]int{1, 0}, 0, 0},
+			{"L2 with the space instead of Chinese only", 8, "갑판 셀레스트(CELESTE)", 2, [2]int{0, 1}, 0, 0},
+			{"the old L2 width no longer fits", 7, "갑판 셀레스트", 0, [2]int{}, 0, 1},
+			{"Chinese only without the space", 6, "갑판셀레스트", 0, [2]int{}, 1, 1},
+		})
+	})
 }
 
 // Through the watcher: an NPC annotation steps down only after the shrink
@@ -969,14 +1113,16 @@ func TestZhDeckSpaceShrinks(t *testing.T) {
 }
 
 // ko: the call-start space (spec 046) comes with the shrunk unit; the
-// annotation is not dropped to keep the normal size.
+// annotation is not dropped to keep the normal size.  The ko catalog reads the
+// table of ko (spec 058): 벅(BUCK) is 8 units at the normal size, 6 at L1 and 5
+// at L2 (4 in the default table).
 func TestEclNameSpaceKoShrink(t *testing.T) {
 	g, err := LoadNameGlossary([]byte(pre056GlossaryHead+"BUCK\t\t벅\tfull\tp0\tprinted:x\tn\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := func(right uint8) *EclTextWatcher {
-		w := NewEclTextWatcher(eclFixtureLang(t, LangKo, "GO ", "가자", " B", "벅이 왔다"))
+	run := func(tail string, right uint8) *EclTextWatcher {
+		w := NewEclTextWatcher(eclFixtureLang(t, LangKo, "GO ", "가자", " B", "벅"+tail))
 		w.SetNames(g)
 		w.SetLayout(layoutKo)
 		for _, s := range []struct {
@@ -991,18 +1137,53 @@ func TestEclNameSpaceKoShrink(t *testing.T) {
 		}
 		return w
 	}
-	// 가자 4, space 1, 벅(BUCK) 8 (L1 6, L2 4), 이 왔다 7: 20 | 18 | 16 units; without annotation 14.
-	for _, c := range []struct {
+	check := func(t *testing.T, tail string, cases []struct {
 		right   uint8
 		shrunk  [2]int
 		unannot int
-	}{{10, [2]int{}, 0}, {9, [2]int{1, 0}, 0}, {8, [2]int{0, 1}, 0}} {
-		w := run(c.right)
-		p := w.Page()
-		if p == nil || eclRow(p, 17) != "가자 벅(BUCK)이 왔다" || w.Stats.NameShrunk != c.shrunk || w.Stats.NameUnannotated != c.unannot || w.Stats.SpaceDropped != 0 {
-			t.Errorf("right %d: %q %+v", c.right, eclRowOf(p), w.Stats)
+		row     string
+	}) {
+		for _, c := range cases {
+			w := run(tail, c.right)
+			p := w.Page()
+			if p == nil || eclRow(p, 17) != c.row || w.Stats.NameShrunk != c.shrunk || w.Stats.NameUnannotated != c.unannot || w.Stats.SpaceDropped != 0 {
+				t.Errorf("tail %q right %d: %q %+v want %q", tail, c.right, eclRowOf(p), w.Stats, c.row)
+			}
 		}
 	}
+	type kase = struct {
+		right   uint8
+		shrunk  [2]int
+		unannot int
+		row     string
+	}
+	// 가자 4, space 1, 벅(BUCK), 이 왔다 7: 20 | 18 | 17 (ko L2) units; the old L2
+	// (16 units) would fit a window of 8 columns, the new one does not.
+	t.Run("ko table", func(t *testing.T) {
+		check(t, "이 왔다", []kase{
+			{10, [2]int{}, 0, "가자 벅(BUCK)이 왔다"},
+			{9, [2]int{1, 0}, 0, "가자 벅(BUCK)이 왔다"},
+			{8, [2]int{}, 1, "가자 벅이 왔다"}, // 17 units do not fit 16: the annotation goes
+		})
+		// 가자 4, space 1, 벅(BUCK), 이왔다 6: 19 | 17 | 16 units: a window of 8
+		// columns holds the new L2.
+		check(t, "이왔다", []kase{
+			{10, [2]int{}, 0, "가자 벅(BUCK)이왔다"},
+			{9, [2]int{1, 0}, 0, "가자 벅(BUCK)이왔다"},
+			{8, [2]int{0, 1}, 0, "가자 벅(BUCK)이왔다"},
+			{7, [2]int{}, 1, "가자 벅이왔다"},
+		})
+	})
+	// The same sentence under the table of spec 056 (the control): L2 is 4
+	// units, so 16 units hold it.
+	t.Run("table of spec 056", func(t *testing.T) {
+		withLangShrinkLevels(t, LangKo, shrinkLevels...)
+		check(t, "이 왔다", []kase{
+			{10, [2]int{}, 0, "가자 벅(BUCK)이 왔다"},
+			{9, [2]int{1, 0}, 0, "가자 벅(BUCK)이 왔다"},
+			{8, [2]int{0, 1}, 0, "가자 벅(BUCK)이 왔다"},
+		})
+	})
 }
 
 func eclRowOf(p *EclTextPage) string {
@@ -1120,29 +1301,31 @@ func TestShrinkFontsSources(t *testing.T) {
 // 갑판 4 + space 1 + 도(DOE) 2+5 = 12 units; L1 is 11 (6 px-units of the unit),
 // L2 is 9.
 func TestEclPlayerNameSpaceNotGluedShrink(t *testing.T) {
-	for _, c := range []struct {
-		right        uint8
-		want         string
-		shrink       uint8
-		shrunk       [2]int
-		chineseOnly  int
-		spaceDropped int
-	}{
-		{7, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 14 units
-		{6, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 12 units: fits at the normal size
-		{5, "갑판 도(DOE)", 2, [2]int{0, 1}, 0, 0}, // 10 units: L1 11 does not fit, L2 9 does
-		{4, "갑판 도", 0, [2]int{}, 1, 0},          // 8 units: Chinese only with its space (7)
-		{3, "갑판도", 0, [2]int{}, 1, 1},           // 6 units: 7 does not fit, the space goes
-	} {
-		w, p := koPlayerCall(t, layoutKo, "DOE", "도", c.right)
-		var shrink uint8
-		if p != nil {
-			for _, l := range p.Lines {
-				shrink |= l.Shrink
+	for _, lang := range []string{"", LangKo} { // the zh-TW catalog is the control; 도(DOE) is 4 units at L2 in both tables
+		for _, c := range []struct {
+			right        uint8
+			want         string
+			shrink       uint8
+			shrunk       [2]int
+			chineseOnly  int
+			spaceDropped int
+		}{
+			{7, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 14 units
+			{6, "갑판 도(DOE)", 0, [2]int{}, 0, 0},     // 12 units: fits at the normal size
+			{5, "갑판 도(DOE)", 2, [2]int{0, 1}, 0, 0}, // 10 units: L1 11 does not fit, L2 9 does
+			{4, "갑판 도", 0, [2]int{}, 1, 0},          // 8 units: Chinese only with its space (7)
+			{3, "갑판도", 0, [2]int{}, 1, 1},           // 6 units: 7 does not fit, the space goes
+		} {
+			w, p := koPlayerCallLang(t, lang, layoutKo, "DOE", "도", c.right)
+			var shrink uint8
+			if p != nil {
+				for _, l := range p.Lines {
+					shrink |= l.Shrink
+				}
 			}
-		}
-		if p == nil || eclRow(p, 17) != c.want || shrink != c.shrink || w.Stats.PlayerShrunk != c.shrunk || w.Stats.PlayerNameChineseOnly != c.chineseOnly || w.Stats.SpaceDropped != c.spaceDropped {
-			t.Errorf("right=%d：%q shrink %d %+v，應為 %q", c.right, eclRowOf(p), shrink, w.Stats, c.want)
+			if p == nil || eclRow(p, 17) != c.want || shrink != c.shrink || w.Stats.PlayerShrunk != c.shrunk || w.Stats.PlayerNameChineseOnly != c.chineseOnly || w.Stats.SpaceDropped != c.spaceDropped {
+				t.Errorf("%q right=%d：%q shrink %d %+v，應為 %q", lang, c.right, eclRowOf(p), shrink, w.Stats, c.want)
+			}
 		}
 	}
 }

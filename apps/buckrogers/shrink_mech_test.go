@@ -160,7 +160,7 @@ func injectedScenario(t *testing.T, lang string) injectedResult {
 	t.Helper()
 	var res injectedResult
 	// The player name セレステ(CELESTE): F 4, H 9; L0 17, L1 (6, 3) 13 units,
-	// default L2 (4, 2) 9, injected L2 (5, 3) 12.
+	// default and ja L2 (4, 2) 9, ko L2 (5, 2) 10, injected L2 (5, 3) 12.
 	party, err := ReadPartySnapshot(partyMem(1, partyRec{seg: 0x5747, off: 2, name: "CELESTE"}), testDS)
 	if err != nil {
 		t.Fatal(err)
@@ -239,45 +239,65 @@ func injectedScenario(t *testing.T, lang string) injectedResult {
 // has the same widths as the default table, so only a table of other widths
 // shows whether the watcher and the overlay read the table at all.
 func TestShrinkInjectedTable(t *testing.T) {
-	// Without injection every language fits the unit at L2 of 9 units (end
-	// column 2 + 9); ja draws its glyphs 8×14, the others 8×8.
-	for _, lang := range []string{"", LangZhTW, LangZhCN, LangJa, LangKo} {
-		r := injectedScenario(t, lang)
-		wantFull := "8x8"
-		if lang == LangJa {
-			wantFull = "8x14"
-		}
-		if lang == LangKo {
-			continue // spec 058 gives Korean its own L2
-		}
-		if r.playerEnd != 11 || r.npcEnd != 11 || r.playerLevel != 2 || r.npcLevel != 2 || r.cellWs != "4,2" || r.fullFont != wantFull || r.halfFont != "4x8" {
-			t.Errorf("%q: %+v", lang, r)
+	// Without injection every language fits the unit at L2.  The unit セレステ
+	// (CELESTE) has F 4 and H 9: W_s 9 (end column 2 + 9) with the default and the
+	// ja cell, 10 with the cell of ko (FullLP 5, HalfLP 2).  The glyphs of the
+	// full-width characters are 8×8 (default), 8×14 (ja) and 10×12 (ko).
+	for lang, want := range map[string]injectedResult{
+		"":       {playerEnd: 11, npcEnd: 11, playerLevel: 2, npcLevel: 2, cellWs: "4,2", fullFont: "8x8", halfFont: "4x8", levelsOfWatcher: 4},
+		LangZhTW: {playerEnd: 11, npcEnd: 11, playerLevel: 2, npcLevel: 2, cellWs: "4,2", fullFont: "8x8", halfFont: "4x8", levelsOfWatcher: 4},
+		LangZhCN: {playerEnd: 11, npcEnd: 11, playerLevel: 2, npcLevel: 2, cellWs: "4,2", fullFont: "8x8", halfFont: "4x8", levelsOfWatcher: 4},
+		LangJa:   {playerEnd: 11, npcEnd: 11, playerLevel: 2, npcLevel: 2, cellWs: "4,2", fullFont: "8x14", halfFont: "4x8", levelsOfWatcher: 4},
+		LangKo:   {playerEnd: 12, npcEnd: 12, playerLevel: 2, npcLevel: 2, cellWs: "5,2", fullFont: "10x12", halfFont: "4x8", levelsOfWatcher: 5},
+	} {
+		if r := injectedScenario(t, lang); r != want {
+			t.Errorf("%q: %+v want %+v", lang, r, want)
 		}
 	}
-	t.Run("injected", func(t *testing.T) {
-		withLangShrinkLevels(t, LangJa, shrinkLevels[0], injectedL2)
-		checkShrinkGeometry(t, "injected", shrinkLevelsFor(LangJa))
-		r := injectedScenario(t, LangJa)
-		if r.playerEnd != 14 || r.npcEnd != 14 || r.playerLevel != 2 || r.npcLevel != 2 || r.levelsOfWatcher != 5 {
-			t.Errorf("ja with the injected table: %+v", r)
-		}
-		if r.cellWs != "5,3" || r.fullFont != "10x12" || r.halfFont != "6x12" {
-			t.Errorf("ja overlay with the injected table: %+v", r)
-		}
-		// The other languages keep the default table.
-		for _, lang := range []string{"", LangZhTW, LangZhCN} {
-			if r := injectedScenario(t, lang); r.playerEnd != 11 || r.npcEnd != 11 || r.fullFont != "8x8" {
-				t.Errorf("%q changed with the table of ja: %+v", lang, r)
+	// A table injected for one language reaches the watcher, the page and the
+	// overlay of that language only; the other languages keep their tables.
+	// (The injected L2 has full 5, half 3, so it differs from the table of every
+	// language, ko included.)
+	for _, inj := range []string{LangJa, LangKo} {
+		t.Run("injected "+inj, func(t *testing.T) {
+			withLangShrinkLevels(t, inj, shrinkLevels[0], injectedL2)
+			checkShrinkGeometry(t, "injected", shrinkLevelsFor(inj))
+			r := injectedScenario(t, inj)
+			if r.playerEnd != 14 || r.npcEnd != 14 || r.playerLevel != 2 || r.npcLevel != 2 || r.levelsOfWatcher != 5 {
+				t.Errorf("%s with the injected table: %+v", inj, r)
 			}
-		}
-	})
+			if r.cellWs != "5,3" || r.fullFont != "10x12" || r.halfFont != "6x12" {
+				t.Errorf("%s overlay with the injected table: %+v", inj, r)
+			}
+			for _, lang := range []string{"", LangZhTW, LangZhCN, LangJa, LangKo} {
+				if lang == inj {
+					continue
+				}
+				want := injectedScenario(t, lang)
+				switch lang {
+				case LangKo:
+					if want.playerEnd != 12 || want.fullFont != "10x12" {
+						t.Errorf("ko changed with the table of %s: %+v", inj, want)
+					}
+				case LangJa:
+					if want.playerEnd != 11 || want.fullFont != "8x14" {
+						t.Errorf("ja changed with the table of %s: %+v", inj, want)
+					}
+				default:
+					if want.playerEnd != 11 || want.npcEnd != 11 || want.fullFont != "8x8" {
+						t.Errorf("%q changed with the table of %s: %+v", lang, inj, want)
+					}
+				}
+			}
+		})
+	}
 	// The order the languages are loaded in changes nothing: every language
 	// gives the same result whatever came before it.
 	want := map[string]injectedResult{}
-	for _, lang := range []string{"", LangZhTW, LangZhCN, LangJa} {
+	for _, lang := range []string{"", LangZhTW, LangZhCN, LangJa, LangKo} {
 		want[lang] = injectedScenario(t, lang)
 	}
-	for _, lang := range []string{LangJa, LangZhCN, LangZhTW, ""} {
+	for _, lang := range []string{LangKo, LangJa, LangZhCN, LangZhTW, ""} {
 		if got := injectedScenario(t, lang); got != want[lang] {
 			t.Errorf("%q: %+v after other languages, %+v before", lang, got, want[lang])
 		}

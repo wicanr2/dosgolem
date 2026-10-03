@@ -71,6 +71,7 @@ var shrinkLevels = []shrinkSpec{
 // shrinking of that language off.  Only tests write it.
 var shrinkLangLevels = map[string][]shrinkSpec{
 	LangJa: jaShrinkLevels,
+	LangKo: koShrinkLevels,
 }
 
 // jaShrinkLevels is the Japanese table of spec 057 §3.3: L1 as in spec 056; L2
@@ -81,6 +82,18 @@ var jaShrinkLevels = []shrinkSpec{
 	{Level: 2, FullLP: 4, HalfLP: 2,
 		X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 14, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 2, HalfGlyphY: 8},
 		X3: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}},
+}
+
+// koShrinkLevels is the Korean table of spec 058 §3.3: L1 as in spec 056; L2
+// takes a cell of 5 logical pixels (the half cell stays 2) and draws the
+// full-width glyph 10×12 (2×) or 15×16 (3×) with the threshold 1/3, so that
+// no two syllables of the name set come out as the same glyph and the double
+// stroke of ㅔ and ㅐ stays.
+var koShrinkLevels = []shrinkSpec{
+	shrinkLevels[0],
+	{Level: 2, FullLP: 5, HalfLP: 2, Thr: shrinkThr{N: 1, D: 3},
+		X2: shrinkMetrics{FullCell: 10, FullGlyphW: 10, FullGlyphH: 12, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 4, HalfGlyphY: 8},
+		X3: shrinkMetrics{FullCell: 15, FullGlyphW: 15, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}},
 }
 
 // shrinkLevelsFor returns the level table of a language: its own table when it

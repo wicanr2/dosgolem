@@ -13,11 +13,21 @@ import (
 // `kr`, in a one-row window that is `right` columns wide from column 1.
 func koPlayerCall(t *testing.T, prof *LayoutProfile, name, kr string, right uint8) (*EclTextWatcher, *EclTextPage) {
 	t.Helper()
+	return koPlayerCallLang(t, "", prof, name, kr, right)
+}
+
+// koPlayerCallLang is koPlayerCall with a catalog of the language: the watcher
+// reads the shrink table of that language (spec 057 §3.2).  koPlayerCall is the
+// zh-TW catalog with the Korean profile, which reads the default table.
+func koPlayerCallLang(t *testing.T, lang string, prof *LayoutProfile, name, kr string, right uint8) (*EclTextWatcher, *EclTextPage) {
+	t.Helper()
 	party, err := ReadPartySnapshot(partyMem(1, partyRec{seg: 0x5747, off: 2, name: name}), testDS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := eclPlayerWatcher(t, "DECK ", "갑판")
+	w := NewEclTextWatcher(eclFixtureLang(t, lang, "UNUSED FIXTURE", "未用", "DECK ", "갑판"))
+	w.SetNames(testNames(t))
+	w.SetPlayerNames(testPlayers(t))
 	w.SetLayout(prof)
 	w.SetPlayerNames(NewPlayerNames(fakeTranslit{name: kr}, nil))
 	e1 := eclEntry("DECK ", true, 1, 17)
