@@ -27,6 +27,66 @@ type orMemoryReadObserver struct {
 	remaining              int
 }
 
+// 規格328：原Bus每個真正請求只轉呼叫一次；只在CPU.Step內計數。
+type publishBusObserver struct {
+	cpu386.Bus
+	active                                        bool
+	step, steps                                   int
+	eip                                           uint32
+	targets                                       [2]uint32
+	sourceStart, sourceEnd                        uint32
+	reads, writes, errors, sourceReads, vbeWrites uint64
+	targetReads, targetWrites                     [2]uint64
+}
+
+func (b *publishBusObserver) Read8(addr uint32) (uint8, error) {
+	value, err := b.Bus.Read8(addr)
+	if b.active {
+		b.reads++
+		if err != nil {
+			b.errors++
+		} else {
+			if addr >= b.sourceStart && addr < b.sourceEnd {
+				b.sourceReads++
+				if b.sourceReads <= 4 {
+					fmt.Printf("post_click_publish_event outer_step=%d input_eip=%X kind=source_read linear=%X value=%X error=%v\n", b.step, b.eip, addr, value, err)
+				}
+			}
+			for j, target := range b.targets {
+				if addr == target {
+					b.targetReads[j]++
+					if b.targetReads[j] <= 4 {
+						fmt.Printf("post_click_publish_event outer_step=%d input_eip=%X kind=target_read target=%d linear=%X value=%X error=%v\n", b.step, b.eip, j, addr, value, err)
+					}
+				}
+			}
+		}
+	}
+	return value, err
+}
+func (b *publishBusObserver) Write8(addr uint32, value uint8) error {
+	err := b.Bus.Write8(addr, value)
+	if b.active {
+		b.writes++
+		if err != nil {
+			b.errors++
+		} else {
+			if addr >= 0xa0000 && addr < 0xb0000 {
+				b.vbeWrites++
+			}
+			for j, target := range b.targets {
+				if addr == target {
+					b.targetWrites[j]++
+					if b.targetWrites[j] <= 4 {
+						fmt.Printf("post_click_publish_event outer_step=%d input_eip=%X kind=target_write target=%d linear=%X value=%X error=%v\n", b.step, b.eip, j, addr, value, err)
+					}
+				}
+			}
+		}
+	}
+	return err
+}
+
 func main() {
 	emptyFixture := len(os.Args) == 3 && os.Args[2] == "--empty-mox-set"
 	fileFixture := len(os.Args) == 4 && os.Args[2] == "--mox-set"
@@ -546,6 +606,15 @@ func main() {
 		}
 	}()
 
+	// 規格328：正常後段的Bus包裝與VBE獨立計數對帳。
+	var publishBus *publishBusObserver
+	var publishBegin machine.MOO2VBEState
+	defer func() {
+		if publishBus != nil {
+			fmt.Printf("post_click_publish_totals begin_step=49500000 steps=%d reads=%d writes=%d errors=%d targets=%X target_reads=%v target_writes=%v source_start=%X source_end=%X source_reads=%d vbe_writes=%d bus_matches=%t begin_state=%+v end_state=%+v\n", publishBus.steps, publishBus.reads, publishBus.writes, publishBus.errors, publishBus.targets, publishBus.targetReads, publishBus.targetWrites, publishBus.sourceStart, publishBus.sourceEnd, publishBus.sourceReads, publishBus.vbeWrites, m.CPU.Bus == publishBus, publishBegin, m.VBEState())
+		}
+	}()
+
 	// 規格327：只讀真正來源與有界消費，不使用CPU讀取hook。
 	var sourceGroups [4]int
 	sourceActive, sourceBudget, sourceGroup := false, 0, 0
@@ -659,6 +728,17 @@ func main() {
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
 		dumpPostClickProgress(i)
+		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
+			selector := m.CPU.Seg[cpu386.SegDS]
+			desc, known := m.CPU.Descriptors[selector]
+			valid := known && uint64(0x499303)+1 <= uint64(desc.Limit)+1 && uint64(desc.Base)+0x499303+1 <= uint64(len(m.Mem)) && uint64(0x3ddd71)+1 <= uint64(desc.Limit)+1 && uint64(desc.Base)+0x3ddd71+1 <= uint64(len(m.Mem))
+			if valid {
+				publishBegin = m.VBEState()
+				publishBus = &publishBusObserver{Bus: m.CPU.Bus, targets: [2]uint32{desc.Base + 0x499300, desc.Base + 0x499303}, sourceStart: desc.Base + 0x3ddd67, sourceEnd: desc.Base + 0x3ddd72}
+				m.CPU.Bus = publishBus
+			}
+			fmt.Printf("post_click_publish_begin outer_step=%d selector=%X descriptor_base=%X descriptor_limit=%X readable=%t state=%+v\n", i, selector, desc.Base, desc.Limit, valid, m.VBEState())
+		}
 		if newGameClick && menuDisplay40Seen {
 			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
 			mask, pending, active, started, completed := services.MouseCallbackState()
@@ -1112,7 +1192,14 @@ func main() {
 			postClickVisits[m.CPU.EIP]++
 			postClickSteps++
 		}
+		if publishBus != nil {
+			publishBus.active, publishBus.step, publishBus.eip = true, i, m.CPU.EIP
+			publishBus.steps++
+		}
 		stepErr := m.CPU.Step()
+		if publishBus != nil {
+			publishBus.active = false
+		}
 		buttonReadStepActive = false
 
 		if observeSource {

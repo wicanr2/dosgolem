@@ -51,6 +51,34 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_post_click_publish_resolution(spec_dir):
+    """328 Bus正對照、零CPU讀回／發布的限定範圍與327回填須同時存在。"""
+    name = '328-moo2-post-click-publish-monitor.md'
+    current = (spec_dir / name).read_text()
+    required = ('5775248', '686978', '500000', 'errors=0', 'target_reads=[0 0]',
+                'target_writes=[3 5]', 'source_reads=154', 'vbe_writes=0', 'bus_matches=true',
+                'descriptor.Base=0', '49500047', '49500122', '49910819', '2176A1',
+                '49614173', 'D5h', '第五次只計數', '全部3847列', '全部4369列',
+                '每次RAM雜湊', '服務直接RAM讀取', '設定畫面仍未知',
+                '5fecae395d6bda9def947025d4571974abc5121adea2708ad94cd213f51958d9',
+                '09ae500cc236aba3c661aa967720b7fe861ffc30fbb9ca83c2de188ca8633878',
+                '90c8908f6cc691c6c464a2a9d2124b2ce2a071c6ca722a3cf2b654aee38b38f8',
+                '332849a1cbf7bb63338fbb9b0283a319eea05d088e6def28fd5f0182cfefd818',
+                '5590a5cad4663dcb91df9124648f04b2a70a6d4a25b9799d0082df262a76f0b5')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('發布觀測缺Bus正對照／區間／零讀回限定／收據或未知')
+    older = (spec_dir / '327-moo2-post-click-source-consumer.md').read_text()
+    if '後段目的RAM與VBE發布監測已由規格328接通' not in older or name not in older:
+        raise RuntimeError('327缺最小發布觀測回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('328缺公開索引入口')
+
+if sys.argv[1:] == ['--check-post-click-publish-spec-backlinks']:
+    validate_post_click_publish_resolution(spec_dir)
+    print('後段Bus正對照／零讀回與VBE發布的限定範圍／327回填通過')
+    raise SystemExit(0)
+
+
 def validate_post_click_source_resolution(spec_dir):
     """327實際來源、三類分支、原值寫回與326回填須同時存在。"""
     name = '327-moo2-post-click-source-consumer.md'

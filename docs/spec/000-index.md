@@ -519,4 +519,6 @@
 
 - [326：NEW GAME後段進度](326-moo2-post-click-progress-observation.md)：CONFORMED。六時點VBE與像素保持／R、堆疊、RAM有變，完整兩325流程不突變；來源與最小消費見327，後續玩家路徑未知。
 
-- [327：後段實際來源與最小消費](327-moo2-post-click-source-consumer.md)：CONFORMED。六組02h／80h／82h來源與分支、兩次原值FDh寫回，90步獨立核對；跨次RAM／70步／畫面發布未知，不改輸入或CPU。
+- [327：後段實際來源與最小消費](327-moo2-post-click-source-consumer.md)：CONFORMED。六組02h／80h／82h來源與分支、兩次原值FDh寫回，90步獨立核對；跨次RAM／70步未驗；後段發布觀測見328，不改輸入或CPU。
+
+- [328：目的RAM與VBE發布監測](328-moo2-post-click-publish-monitor.md)：CONFORMED。後段500000步、兩目標讀回0／寫3與5、VBE提交0，源與目的正對照通過；正常開局與完整renderer未知。
