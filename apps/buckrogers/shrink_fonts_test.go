@@ -186,20 +186,16 @@ func shrinkDistinctReports(font *xlate.Font, runes []rune, levels []shrinkSpec, 
 
 // shrinkDistinctProblems is the verdict of the static check on one report
 // (spec 057 §3.5 (2) and (3)): the characters that came out empty, the groups
-// of full-width characters that are the same.  known is the reason a language
-// has a documented exception (empty: none); such a language is held to the
-// bound of groups written down with it.  Half-width groups are reported only.
-func shrinkDistinctProblems(label string, rep shrinkLevelReport, known string, bound int) []string {
+// of full-width characters that are the same.  Half-width groups are reported
+// only.  (Spec 057 carried a documented exception for ko until spec 058; there
+// is none now.)
+func shrinkDistinctProblems(label string, rep shrinkLevelReport) []string {
 	var out []string
 	if len(rep.Empty) > 0 {
 		out = append(out, fmt.Sprintf("%s：%d 個字衍生後全空（例 %q）：此等級必須從使用該表的語言移除（規格 057 §3.5 第 3 點）", label, len(rep.Empty), string(rep.Empty[:min(len(rep.Empty), 12)])))
 	}
-	if known == "" {
-		for _, g := range rep.FullGroups {
-			out = append(out, fmt.Sprintf("%s：全形字模相同的不同字 %q（規格 057 §3.5 第 2 點的處置）", label, string(g)))
-		}
-	} else if len(rep.FullGroups) > bound {
-		out = append(out, fmt.Sprintf("%s：已知例外（%s）的全形字模相同組 %d，多於記錄值 %d", label, known, len(rep.FullGroups), bound))
+	for _, g := range rep.FullGroups {
+		out = append(out, fmt.Sprintf("%s：全形字模相同的不同字 %q（規格 057 §3.5 第 2 點的處置）", label, string(g)))
 	}
 	return out
 }
@@ -253,21 +249,14 @@ func TestShrinkDistinctSynthetic(t *testing.T) {
 	if len(both) != 2 || both[0].Level != 1 || both[1].Level != 2 || both[0].Checked != 4 || both[1].Checked != 4 {
 		t.Errorf("a two-level table gave %+v", both)
 	}
-	// The verdict: a group fails the check, an empty character fails it, a
-	// documented exception tolerates its recorded groups and no more.
-	if m := shrinkDistinctProblems("syn", r, "", 0); len(m) != 1 {
-		t.Errorf("group without exception: %q", m)
+	// The verdict: a group fails the check and so does an empty character.
+	if m := shrinkDistinctProblems("syn", r); len(m) != 1 {
+		t.Errorf("group: %q", m)
 	}
-	if m := shrinkDistinctProblems("syn", r, "why", len(r.FullGroups)); len(m) != 0 {
-		t.Errorf("group within the bound of an exception: %q", m)
-	}
-	if m := shrinkDistinctProblems("syn", r, "why", len(r.FullGroups)-1); len(m) != 1 {
-		t.Errorf("group over the bound of an exception: %q", m)
-	}
-	if m := shrinkDistinctProblems("syn", shrinkLevelReport{Empty: []rune("あ")}, "", 0); len(m) != 1 {
+	if m := shrinkDistinctProblems("syn", shrinkLevelReport{Empty: []rune("あ")}); len(m) != 1 {
 		t.Errorf("empty character: %q", m)
 	}
-	if m := shrinkDistinctProblems("syn", shrinkLevelReport{HalfGroups: [][]rune{[]rune("HM")}}, "", 0); len(m) != 0 {
+	if m := shrinkDistinctProblems("syn", shrinkLevelReport{HalfGroups: [][]rune{[]rune("HM")}}); len(m) != 0 {
 		t.Errorf("half-width groups are reported only: %q", m)
 	}
 	// A level that keeps the glyph apart finds no group: the full size.
@@ -317,11 +306,6 @@ func TestShrinkFontAvailability(t *testing.T) {
 	// Spec 057 §3.5 (4): the expected levels of every language and a lower bound
 	// on the number of full-width characters the check covers.
 	minFull := map[string]int{LangZhTW: 336, LangZhCN: 336, LangJa: 88, LangKo: 2128}
-	// Spec 057 was implemented before spec 058: until then the Korean table keeps
-	// the groups of spec 056 (2× L2 312, 3× L2 142 on the name set of the day),
-	// which issue #43 removes together with this exception.
-	distinctException := map[string]string{LangKo: "規格 058（#43）尚未實作"}
-	distinctExceptionBound := map[[2]int]int{{2, 2}: 312, {3, 2}: 142}
 	type fontCase struct {
 		label, lang string
 		font        *xlate.Font
@@ -367,7 +351,7 @@ func TestShrinkFontAvailability(t *testing.T) {
 					t.Errorf("%s：名字字元集的全形字 %d 個，少於下限 %d（字元集載入不全？）", c.label, full, minFull[c.lang])
 				}
 				checked += rep.Checked
-				for _, m := range shrinkDistinctProblems(fmt.Sprintf("%s %d× L%d", c.label, scale, rep.Level), rep, distinctException[c.lang], distinctExceptionBound[[2]int{scale, rep.Level}]) {
+				for _, m := range shrinkDistinctProblems(fmt.Sprintf("%s %d× L%d", c.label, scale, rep.Level), rep) {
 					t.Error(m)
 				}
 				for _, g := range rep.FullGroups {
@@ -415,6 +399,30 @@ func TestShrinkFontAvailability(t *testing.T) {
 		}
 		if len(old.FullGroups) == 0 || !found {
 			t.Errorf("負向對照失敗：規格 056 的 ja 3× L2 應回報含 カ／ガ 的組，得到 %q", old.FullGroups)
+		}
+	}
+	// The same for ko (spec 058 §5.2): the table of spec 056 draws 게/계 the same
+	// at 2× and 갠/갱 at 3×.  The exact numbers of groups (312 and 142 on the name
+	// set of the day) are in the phase document, not in the gate: the name set
+	// follows text/.
+	if li := r.laneIndex(LangKo); li >= 0 {
+		l := r.lanes[li]
+		set := shrinkRuneSet(t, textDir, LangKo, l.names.names)
+		for _, c := range []struct {
+			scale int
+			a, b  rune
+		}{{2, '게', '계'}, {3, '갠', '갱'}} {
+			old := shrinkDistinctReports(l.font, set, shrinkLevels[1:], c.scale)[0]
+			found := false
+			for _, g := range old.FullGroups {
+				if strings.ContainsRune(string(g), c.a) && strings.ContainsRune(string(g), c.b) {
+					found = true
+				}
+			}
+			t.Logf("ko %d× L2 of spec 056: %d groups with the same glyph", c.scale, len(old.FullGroups))
+			if len(old.FullGroups) == 0 || !found {
+				t.Errorf("負向對照失敗：規格 056 的 ko %d× L2 應回報含 %c／%c 的組，得到 %d 組", c.scale, c.a, c.b, len(old.FullGroups))
+			}
 		}
 	}
 }

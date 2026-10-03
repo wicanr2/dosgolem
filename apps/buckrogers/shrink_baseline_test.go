@@ -6,16 +6,18 @@ import (
 	"testing"
 )
 
-// Spec 057 §5.5: the layout digests of the synthetic corpus per language and
-// the number of calls, computed on the clean export of dosgolem bba48d9
-// (workplace/phase324/zz_baseline_test.go).  The layout does not change in
-// spec 057, so the current code must give the same values.
+// Spec 057 §5.5 and spec 058 §5.4: the layout digests of the synthetic corpus
+// per language and the number of calls.  zh-TW, zh-CN and ja are the values
+// computed on the clean export of dosgolem bba48d9 (workplace/phase324/
+// zz_baseline_test.go): spec 057 does not change their layout.  ko is the value
+// of the layout of spec 058 (the wider L2 cell), recorded with the classification
+// of shrink_ko_classify_test.go passing.
 var shrinkLayoutBaseline = map[string]struct {
 	calls  int
 	digest string
 }{
 	LangJa:   {59971, "15213337fe31a8b9a53361654a70a4aa4a5ce80285d0d14048d020f49a9eb3a9"},
-	LangKo:   {169117, "26c3d75bced46b168b0a26049f6c867e67c96a0999724218ffd8db461725d74c"},
+	LangKo:   {169117, "0d621fc6595f43d5ad9ab880cd4e6aac7dc4aa642d64b4c9b84b32ea5f7e00ae"}, // bba48d9: 26c3d75b…
 	LangZhCN: {78347, "66019f0eb63effa30b894944c492622f44f11fe21a8d2e3da880a982c75c960e"},
 	LangZhTW: {80231, "5a8819d18d023f0b853b4131faac274f9d9737301e63802b584b7b9740d013e1"},
 }
@@ -35,16 +37,19 @@ func TestShrinkLayoutDigest(t *testing.T) {
 	}
 }
 
-// shrinkFontChanged lists the rows of the font baseline that spec 057 changes
-// on purpose: the full-width font of the ja L2 at both scales.  The value is
-// the digest of the derived font on the formal ja font (frozen).
+// shrinkFontChanged lists the rows of the font baseline that the specs after
+// 056 change on purpose: the full-width font of the L2 of ja (spec 057) and of
+// ko (spec 058) at both scales.  The value is the digest of the derived font on
+// the formal font (frozen).
 var shrinkFontChanged = map[string]string{
 	"ja\t2\tfull": "cc863e36c0578ef3c6900b6c8d1558fb86082bd66e9440a0586569ec58750a6c",
 	"ja\t3\tfull": "2a2f0234a2f4ccfb58936f61d1522c228eab0f1302e0331f899d93e2512ba019",
+	"ko\t2\tfull": "022926e95a68edd0590bdf891eaf90418a05042352e9ef9866c5457a5fb2731d",
+	"ko\t3\tfull": "1fa0b12845617d77e65fc1783c4b902106f077a8ef4cb388bd8dc0ef3f0022ce",
 }
 
-// Spec 057 §5.7: the derived fonts of every formal font, level and scale are
-// byte-equal to bba48d9 except the full-width ja L2.  The test looks the rows
+// Spec 057 §5.7 and spec 058 §5.5: the derived fonts of every formal font, level
+// and scale are byte-equal to bba48d9 except the full-width L2 of ja and ko.  The test looks the rows
 // up by the SHA-256 of the font file and skips a font it has no row for (a
 // different font does not count as an acceptance).
 func TestShrinkFontBaseline(t *testing.T) {
