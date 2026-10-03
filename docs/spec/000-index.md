@@ -594,3 +594,5 @@
 - [363：覆蓋層前段開檔與設定頁五個資料窗口](363-moo2-overlay-startup-and-setup-source.md)，CONFORMED限定早期開檔與五窗口，可寫玩家驗收DRAFT。
 
 - [364：可寫覆蓋層設定頁 ACCEPT 正常輸入](364-moo2-overlay-setup-accept.md)，CONFORMED限定隔離可寫ACCEPT／選族頁；完整可寫玩家路徑未驗。
+
+- [365：可寫覆蓋層正常選取 Humans](365-moo2-overlay-race-humans.md)，CONFORMED限定隔離Humans／名稱頁；完整可寫玩家路徑未驗。

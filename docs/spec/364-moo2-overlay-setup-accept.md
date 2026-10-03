@@ -56,3 +56,7 @@ python3 workplace/new-game-364-verify.py
 ```
 
 以上均在既有Docker內執行並通過，各項欄位與所有舊PNG均直接核對同一次guest收據。原版圖片／LOG／資產與state不公開，私有11份收據雜湊同次記入主庫研究入口。公開只交本規格／索引／336、362、363回填。下一步依本輪已保存原90M全表及既有337正常輸入契約，另立可寫Humans profile；不改舊唯讀race guard、不mask位址或調輸入時刻。主庫RE-first保持。
+
+## 365可寫Humans限定驗收回填
+
+可寫Humans選擇與95M名稱頁已由[365](365-moo2-overlay-race-humans.md)核對。原337唯讀race guard不改；獨立真實完整880byte表與CPU／FPU／IRQ profile正常一次press／release，原20DDDB實寫word0000→0700，進入原Strader名稱頁。原95M完整165byte表與唯讀情境不同，原338 guard false仍保留；候選28439D原32bytes已取，未送名稱確認。原418來源保持，state仍僅sound.lbx，完整可寫玩家路徑／存檔／RNG／remake同狀態未驗。下一步依新95M來源另立名稱ACCEPT契約。

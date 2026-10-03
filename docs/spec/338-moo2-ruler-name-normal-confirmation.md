@@ -95,3 +95,7 @@ python3 workplace/new-game-338-cli-verify.py PASS：17無效值／缺依賴在�
 旗幟正常裝置輸入與按鍵查詢已由規格339接通，見[339-moo2-banner-red-normal-click](339-moo2-banner-red-normal-click.md)。原選色消費與下一頁仍未知，不能把正常裝置輸入當選色完成。預設名稱正常確認與下一旗幟頁已驗；持久名稱writer、旗幟選擇、完整開局、正式RNG及remake同狀態未知，主庫RE-first保持。不追renderer／helper，不重開已完成名稱放開或SCASW。原版LOG／PNG／RAM留忽略workplace，不公開。
 
 75項規格回填正對照、新338 26個缺證據負例及337 27個負例、兩個CLI通過；私有workplace/new-game-338-backlink-tests.txt SHA-256 7ceda5b0175a4d41a30c89cccde10c9d1ff6940241d4d8c41460c7459cf8e042。
+
+## 365可寫Humans限定驗收回填
+
+可寫Humans選擇與95M名稱頁已由[365](365-moo2-overlay-race-humans.md)核對。原337唯讀race guard不改；獨立真實完整880byte表與CPU／FPU／IRQ profile正常一次press／release，原20DDDB實寫word0000→0700，進入原Strader名稱頁。原95M完整165byte表與唯讀情境不同，原338 guard false仍保留；候選28439D原32bytes已取，未送名稱確認。原418來源保持，state仍僅sound.lbx，完整可寫玩家路徑／存檔／RNG／remake同狀態未驗。下一步依新95M來源另立名稱ACCEPT契約。

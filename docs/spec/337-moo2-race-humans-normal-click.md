@@ -72,3 +72,7 @@ python3 workplace/new-game-337-cli-verify.py PASS：16無效值／缺依賴在�
 ## 2026-10-03 名稱確認後續回填
 
 正常名稱確認與後續畫面已由規格338接通，見[338-moo2-ruler-name-normal-confirmation](338-moo2-ruler-name-normal-confirmation.md)。原mask1放開後callback10／10完成，SELECT BANNER COLOR已見，無新CPU拒絕；共享20DDDB未命中，持久名稱writer仍未知。337原收據／來源與限定驗收保留，不外推完整開局或remake同狀態。
+
+## 365可寫Humans限定驗收回填
+
+可寫Humans選擇與95M名稱頁已由[365](365-moo2-overlay-race-humans.md)核對。原337唯讀race guard不改；獨立真實完整880byte表與CPU／FPU／IRQ profile正常一次press／release，原20DDDB實寫word0000→0700，進入原Strader名稱頁。原95M完整165byte表與唯讀情境不同，原338 guard false仍保留；候選28439D原32bytes已取，未送名稱確認。原418來源保持，state仍僅sound.lbx，完整可寫玩家路徑／存檔／RNG／remake同狀態未驗。下一步依新95M來源另立名稱ACCEPT契約。
