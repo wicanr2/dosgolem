@@ -184,6 +184,26 @@ func shrinkDistinctReports(font *xlate.Font, runes []rune, levels []shrinkSpec, 
 	return out
 }
 
+// shrinkDistinctProblems is the verdict of the static check on one report
+// (spec 057 §3.5 (2) and (3)): the characters that came out empty, the groups
+// of full-width characters that are the same.  known is the reason a language
+// has a documented exception (empty: none); such a language is held to the
+// bound of groups written down with it.  Half-width groups are reported only.
+func shrinkDistinctProblems(label string, rep shrinkLevelReport, known string, bound int) []string {
+	var out []string
+	if len(rep.Empty) > 0 {
+		out = append(out, fmt.Sprintf("%s：%d 個字衍生後全空（例 %q）：此等級必須從使用該表的語言移除（規格 057 §3.5 第 3 點）", label, len(rep.Empty), string(rep.Empty[:min(len(rep.Empty), 12)])))
+	}
+	if known == "" {
+		for _, g := range rep.FullGroups {
+			out = append(out, fmt.Sprintf("%s：全形字模相同的不同字 %q（規格 057 §3.5 第 2 點的處置）", label, string(g)))
+		}
+	} else if len(rep.FullGroups) > bound {
+		out = append(out, fmt.Sprintf("%s：已知例外（%s）的全形字模相同組 %d，多於記錄值 %d", label, known, len(rep.FullGroups), bound))
+	}
+	return out
+}
+
 // The comparison finds groups on a synthetic font: two characters whose
 // sources differ by one pixel collapse at 8×8, two characters whose sources are
 // the same are excluded, a very different character stays apart, and a blank
@@ -227,6 +247,28 @@ func TestShrinkDistinctSynthetic(t *testing.T) {
 				t.Errorf("え is far from the others but is in a group: %q", string(g))
 			}
 		}
+	}
+	// Both levels of a table are compared, in the order of the table.
+	both := shrinkDistinctReports(f, runes, shrinkLevels, 2)
+	if len(both) != 2 || both[0].Level != 1 || both[1].Level != 2 || both[0].Checked != 4 || both[1].Checked != 4 {
+		t.Errorf("a two-level table gave %+v", both)
+	}
+	// The verdict: a group fails the check, an empty character fails it, a
+	// documented exception tolerates its recorded groups and no more.
+	if m := shrinkDistinctProblems("syn", r, "", 0); len(m) != 1 {
+		t.Errorf("group without exception: %q", m)
+	}
+	if m := shrinkDistinctProblems("syn", r, "why", len(r.FullGroups)); len(m) != 0 {
+		t.Errorf("group within the bound of an exception: %q", m)
+	}
+	if m := shrinkDistinctProblems("syn", r, "why", len(r.FullGroups)-1); len(m) != 1 {
+		t.Errorf("group over the bound of an exception: %q", m)
+	}
+	if m := shrinkDistinctProblems("syn", shrinkLevelReport{Empty: []rune("あ")}, "", 0); len(m) != 1 {
+		t.Errorf("empty character: %q", m)
+	}
+	if m := shrinkDistinctProblems("syn", shrinkLevelReport{HalfGroups: [][]rune{[]rune("HM")}}, "", 0); len(m) != 0 {
+		t.Errorf("half-width groups are reported only: %q", m)
 	}
 	// A level that keeps the glyph apart finds no group: the full size.
 	big := shrinkSpec{Level: 1, FullLP: 8, HalfLP: 4, X2: shrinkMetrics{FullCell: 16, FullGlyphW: 16, FullGlyphH: 16, HalfW: 8, HalfH: 16}}
@@ -325,22 +367,11 @@ func TestShrinkFontAvailability(t *testing.T) {
 					t.Errorf("%s：名字字元集的全形字 %d 個，少於下限 %d（字元集載入不全？）", c.label, full, minFull[c.lang])
 				}
 				checked += rep.Checked
-				if len(rep.Empty) > 0 {
-					t.Errorf("%s %d× L%d：%d 個字衍生後全空（例 %q）：此等級必須從使用該表的語言移除（規格 057 §3.5 第 3 點）", c.label, scale, rep.Level, len(rep.Empty), string(rep.Empty[:min(len(rep.Empty), 12)]))
+				for _, m := range shrinkDistinctProblems(fmt.Sprintf("%s %d× L%d", c.label, scale, rep.Level), rep, distinctException[c.lang], distinctExceptionBound[[2]int{scale, rep.Level}]) {
+					t.Error(m)
 				}
 				for _, g := range rep.FullGroups {
-					if _, known := distinctException[c.lang]; !known {
-						t.Errorf("%s %d× L%d：全形字模相同的不同字 %q（規格 057 §3.5 第 2 點的處置）", c.label, scale, rep.Level, string(g))
-					}
 					fmt.Fprintf(&report, "%s\t%d×\tL%d\t%s\n", c.label, scale, rep.Level, string(g))
-				}
-				// A language with a known exception is held to the groups it had
-				// when the exception was written; the exception goes away with the
-				// spec that fixes it.
-				if why, known := distinctException[c.lang]; known {
-					if bound := distinctExceptionBound[[2]int{scale, rep.Level}]; len(rep.FullGroups) > bound {
-						t.Errorf("%s %d× L%d：已知例外（%s）的全形字模相同組 %d，多於記錄值 %d", c.label, scale, rep.Level, why, len(rep.FullGroups), bound)
-					}
 				}
 				for _, g := range rep.HalfGroups {
 					fmt.Fprintf(&report, "%s\t%d×\tL%d\t%s\n", c.label, scale, rep.Level, string(g))
