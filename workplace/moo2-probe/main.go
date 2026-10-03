@@ -257,6 +257,10 @@ func main() {
 	negWordSeen, negWordBudget := false, 0
 	// 358 END neg_word_state
 
+	// 361 BEGIN ror_memory_state
+	rorMemorySeen, rorMemoryBudget := false, 0
+	// 361 END ror_memory_state
+
 	// 360 BEGIN cwd_word_state
 	cwdWordSeen, cwdWordBudget := false, 0
 	// 360 END cwd_word_state
@@ -2653,6 +2657,33 @@ func main() {
 		}
 		// 358 END neg_word_pre
 
+		// 361 BEGIN ror_memory_pre
+		if bannerRed && !rorMemorySeen && m.CPU.EIP == 0x2376cb {
+			rorMemorySeen, rorMemoryBudget = true, 2
+		}
+		observeRORMemory := rorMemoryBudget > 0
+		rorMemoryR, rorMemorySeg, rorMemoryEIP, rorMemoryFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		rorMemoryFPU := [3]uint32{uint32(m.CPU.FPUControl), uint32(m.CPU.FPUStatus), uint32(m.CPU.FPUDepth)}
+		var rorMemoryFPUStack [8]uint64
+		for j, value := range m.CPU.FPUStack {
+			rorMemoryFPUStack[j] = math.Float64bits(value)
+		}
+		var rorMemoryCode [16]byte
+		var rorMemorySource [8]byte
+		rorMemorySourceReadable := false
+		var rorMemoryRAM [32]byte
+		rorMemoryReadonly := false
+		var rorMemoryRAMCopy []byte
+		if observeRORMemory {
+			rorMemoryRAM = sha256.Sum256(m.Mem)
+			rorMemoryRAMCopy = append([]byte(nil), m.Mem...)
+			rorMemoryReadonly = activationPeek(func() {
+				copy(rorMemoryCode[:], m.Mem[rorMemoryEIP:rorMemoryEIP+16])
+				rorMemorySourceReadable = peekSourceWindow(rorMemorySeg[cpu386.SegDS], 0x270fc2, rorMemorySource[:])
+			}) && sha256.Sum256(m.Mem) == rorMemoryRAM
+		}
+		// 361 END ror_memory_pre
+
 		// 360 BEGIN cwd_word_pre
 		if bannerRed && !cwdWordSeen && m.CPU.EIP == 0x1d2a33 {
 			cwdWordSeen, cwdWordBudget = true, 3
@@ -3066,6 +3097,35 @@ func main() {
 			}
 		}
 		// 358 END neg_word_post
+
+		// 361 BEGIN ror_memory_post
+		if observeRORMemory {
+			rorMemoryBudget--
+			ram := sha256.Sum256(m.Mem)
+			var sourceAfter [8]byte
+			afterSourceReadable := false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(rorMemorySeg[cpu386.SegDS], 0x270fc2, sourceAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && rorMemoryReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range rorMemoryRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fpu := [3]uint32{uint32(m.CPU.FPUControl), uint32(m.CPU.FPUStatus), uint32(m.CPU.FPUDepth)}
+			var fpuStack [8]uint64
+			for j, value := range m.CPU.FPUStack {
+				fpuStack[j] = math.Float64bits(value)
+			}
+			fmt.Printf("ror_memory_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X before_fpu=%X after_fpu=%X before_fpu_stack=%X after_fpu_stack=%X instruction_bytes=%X selector=%X source_offset=270FC2 source_readable=%t after_source_readable=%t before_source=%X after_source=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, rorMemoryEIP, m.CPU.EIP, rorMemoryR, m.CPU.R, rorMemorySeg, m.CPU.Seg, rorMemoryFlags, m.CPU.EFlags, rorMemoryFPU, fpu, rorMemoryFPUStack, fpuStack, rorMemoryCode, rorMemorySeg[cpu386.SegDS], rorMemorySourceReadable, afterSourceReadable, rorMemorySource, sourceAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, rorMemoryRAM == ram, rorMemoryBudget, stepErr)
+			if stepErr != nil {
+				rorMemoryBudget = 0
+			}
+		}
+		// 361 END ror_memory_post
 
 		// 360 BEGIN cwd_word_post
 		if observeCWDWord {

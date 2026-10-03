@@ -88,9 +88,12 @@ func TestRORDwordRegisterImmediateRejectsWithoutPublishing(t *testing.T) {
 	} {
 		c, mem := subByteMemoryFixture(code)
 		c.R[EAX] = 0
-		// 段均有效，拒絕不能靠未知 selector 掩蓋。
+		// 361：D3仍用合法段拒絕；舊C1 memory負例明示限定未知DS，新正例另驗完整目的。
 		for _, sel := range c.Seg {
 			c.SetDescriptor(sel, Descriptor{Base: 256, Limit: 255, Writable: true})
+		}
+		if code[0] == 0xc1 {
+			c.Seg[SegDS] = 0x200
 		}
 		want := snapshotInImmediate(c)
 		before := append([]byte(nil), mem...)

@@ -13,7 +13,7 @@
 ## 候選實作與驗收
 
 - 將既有只接受08h的dword暫存器ROR擴成全部imm8遮罩計數；完整取得指令bytes才發布目的／CF與計數1 OF，零計數不發布。其他R／段／FPU／記憶體與非算術旗標保持。
-- 裸C1 /1、mod=11；截短、67／segment／REP／LOCK前綴與記憶體形式拒絕，解碼EIP可前進，不稱硬體例外restart。既有D1／D3與word範圍不擴張。
+- 裸C1 /1、mod=11；截短、67／segment／REP／LOCK前綴與記憶體形式當輪拒絕，memory ROR現由361擴張；解碼EIP可前進，不稱硬體例外restart。既有D1／D3與word範圍不擴張。
 - 全八目的／256計數／每bit與補集及邊界／CF與OF初態／保持旗標全清或全設，以逐次單bit整除循環的獨立oracle驗資料與定義旗標；未定義OF模型另驗。拒絕、完整原始初態與既有ROL／ROR路徑回歸。
 - 未改CPU的完整初態與公開契約審查READY後才實作。全部CPU、固定官方EXE全套、兩自然完整後態及原版MOV AX,DX真實消費後才限定CONFORMED；消費缺件保持READY。
 
@@ -30,7 +30,7 @@
 
 ## 受限實作與自然 MOV 消費
 
-限定CONFORMED：既有C1 /1 dword暫存器ROR現在接受全部imm8，只取低五位；零計數全部保持，非零更新CF，計數1計算OF，多位OF保留明示為工具模型。SF／ZF／AF／PF、其他R／段／FPU／記憶體與非算術旗標保持。完整bytes取得後才發布，截短與未知前綴／word／記憶體／D3仍拒絕，既有D1 ROR與ROL回歸通過。原來222測試將07h當未知的負例，依READY範圍改由全部計數的正例驗，其他拒絕護欄保持。不是降低CPU判準，也沒有原版位址特例。
+限定CONFORMED：既有C1 /1 dword暫存器ROR現在接受全部imm8，只取低五位；零計數全部保持，非零更新CF，計數1計算OF，多位OF保留明示為工具模型。SF／ZF／AF／PF、其他R／段／FPU／記憶體與非算術旗標保持。完整bytes取得後才發布，當輪截短與未知前綴／word／記憶體／D3拒絕，memory ROR現由361擴張，其餘護欄保持；既有D1 ROR與ROL回歸通過。原來222測試將07h當未知的負例，依READY範圍改由全部計數的正例驗，其他拒絕護欄保持。不是降低CPU判準，也沒有原版位址特例。
 
 八目的×256計數×32位邊界／每bit及補集×四CF／OF組合×全清或全設保持旗標，以單bit整除循環oracle核對；完整原始R與隔離MOV AX,DX消費／截短／前綴／記憶體形狀及D1回歸通過。CPU SHA-256 35ad5bdc11d470d670e044ff4b1894476056930793ade3df2dec7218ca91ca30；新測試SHA-256 ad63176b71ad06cbe81eb478c16afc4bb9190d707cb87272d7d83951b3e8216b，唯讀probe仍436eeb934caf8d613df6869991aefb9b6c6dca3f7a1386bd2ec834cba3de226c。
 
@@ -79,3 +79,7 @@ word XCHG停點已由規格 302 接通，見 [302-cpu386-xchg-ax-word-register.m
 ## 保護模式IRQ7轉送由規格 305 接線
 
 [305-moo2-irq7-real-mode-passdown.md](305-moo2-irq7-real-mode-passdown.md)以固定1.31 EXE、實際IVT1201:0682／實模式線性0x12692及公開DOS/4GW契約閉合14次原版73步、EOI／22E／IRET；兩自然PCM29175及兩時計44647204已驗。較早IRQ7未派送／返回的記錄屬該舊基線，現行限定轉送依305。平台寄存器映射與1µs時鐘是近似，人耳、完整音訊、鍵盤IRQ1、主選單／正常玩家路徑與整款remake仍未知；其他CPU／255／299邊界保持。
+
+## 361回填
+
+原2376CB memory ROR與下一A1已由規格361接通，見[361](361-cpu386-ror-dword-memory-imm8.md)。原DS188:270FC4 dword000B1818 ROR8→18000B18、CF0與保持flags、三RAM差異270FC5／270FC6／270FC7、下一A1真正load到EAX18000B18已驗；count8 OF未定義，保留只驗工具模型。10949正常前綴／35frames與全套保持，十四舊測試不改，297舊memory負例限定未知DS並有完整新正例。沿同180M已無CPU拒絕，但終圖為旗色選單的Error saving game／Permission denied，完整開局未驗。下一步依361回填帳捕捉失敗DOS呼叫／檔名與返回，審查既有DirectoryOverlayFiles的隔離接線，不提高cap／代寫／重送／深入helper。原其他count／CF1／OF、存檔writer／內容、RNG與remake同狀態未知，保留原定位與收據。

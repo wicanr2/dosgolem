@@ -52,7 +52,7 @@ CPU SHA-256 995f059949b7caac9618ab8b2513999b64b4cb2c928bd608da96eff171d3a8d1；�
 
 ### 歷史359停止與unknown
 
-原164984957於dosgolem_high_le input1D2A33 bytes66 99 66 2B C2 66 D1 F8 98 01 C7 81 FF FF 7F 00拒絕operand16 CWD，after1D2A35只取prefix／opcode。R=[1 0 0 5A2EED 2BDB24 2BDB58 5A2EED A]／段=[8 188 188 0 20 188]／flags246h。原AX0001／DX0000可回查，尚未達180M；原CWD與SUB／SAR已由360接通；下一步依360回填帳取2376CB memory ROR來源與下一A1 load，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
+原164984957於dosgolem_high_le input1D2A33 bytes66 99 66 2B C2 66 D1 F8 98 01 C7 81 FF FF 7F 00拒絕operand16 CWD，after1D2A35只取prefix／opcode。R=[1 0 0 5A2EED 2BDB24 2BDB58 5A2EED A]／段=[8 188 188 0 20 188]／flags246h。原AX0001／DX0000可回查，尚未達180M；原CWD與SUB／SAR已由360接通；下一步依361回填帳捕捉180M旗色選單存檔錯誤的真正DOS呼叫／檔名與返回，審查既有隔離覆蓋層，沿同180M，不提高cap或深入helper。
 
 finalPNG逐byte保持358，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原非零SUB來源／借位／溢位、新目的word reader與欄位語意、原CWD／SUB／SAR已見360、新ROR來源與消費、正式writer、RNG、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
 
@@ -116,4 +116,8 @@ python3 apps/moo2/tools/startup_probe_131.py --check-sub-word-register-source-sp
 
 ## 360回填
 
-原1D2A33 word CWD與下一SUB／SAR已由規格360接通，見[360](360-cpu386-cwd-word.md)。原AX0001／DX0000與CWD完整flags246h保持，真正SUB讀DX以1-0=1／六flags202h，SAR讀AX1→0與五定義flags／EIP1D2A3B已驗，AF不列原版parity。三步全部RAM／FPU原bits保持、10789正常前綴／35frames／固定EXE全套通過；裸CDQ／word SUB與SAR／十三舊測試不改。原168496272在2376CB拒絕C1 /1 memory ROR，DS188:270FC4來源未知／imm08、after2376CD未取disp／imm或source；下一步依360回填帳取原dword／相鄰資料與下一A1 load，沿同180M。原負AX／EDX高word、新ROR來源與消費、正式writer／RNG／完整開局與remake同狀態未知，保留原歷史定位與收據。
+原1D2A33 word CWD與下一SUB／SAR已由規格360接通，見[360](360-cpu386-cwd-word.md)。原AX0001／DX0000與CWD完整flags246h保持，真正SUB讀DX以1-0=1／六flags202h，SAR讀AX1→0與五定義flags／EIP1D2A3B已驗，AF不列原版parity。三步全部RAM／FPU原bits保持、10789正常前綴／35frames／固定EXE全套通過；裸CDQ／word SUB與SAR／十三舊測試不改。歷史360於168496272在2376CB拒絕C1 /1 memory ROR，當時DS188:270FC4來源未知／imm08、after2376CD未取disp／imm或source，現已由361核對；下一步依361回填帳捕捉180M旗色選單存檔錯誤的真正DOS呼叫／檔名與返回，審查既有隔離覆蓋層，沿同180M，不提高cap或深入helper。原負AX／EDX高word、新ROR來源與消費、正式writer／RNG／完整開局與remake同狀態未知，保留原歷史定位與收據。
+
+## 361回填
+
+原2376CB memory ROR與下一A1已由規格361接通，見[361](361-cpu386-ror-dword-memory-imm8.md)。原DS188:270FC4 dword000B1818 ROR8→18000B18、CF0與保持flags、三RAM差異270FC5／270FC6／270FC7、下一A1真正load到EAX18000B18已驗；count8 OF未定義，保留只驗工具模型。10949正常前綴／35frames與全套保持，十四舊測試不改，297舊memory負例限定未知DS並有完整新正例。沿同180M已無CPU拒絕，但終圖為旗色選單的Error saving game／Permission denied，完整開局未驗。下一步依361回填帳捕捉失敗DOS呼叫／檔名與返回，審查既有DirectoryOverlayFiles的隔離接線，不提高cap／代寫／重送／深入helper。原其他count／CF1／OF、存檔writer／內容、RNG與remake同狀態未知，保留原定位與收據。

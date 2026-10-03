@@ -3768,6 +3768,44 @@ func (c *CPU) Step() error {
 			c.R[rm] = result
 			break
 		}
+		if op == 0xc1 && group == 1 && modrm>>6 != 3 {
+			// 規格361：memory ROR四byte寫回成功後才發布定義旗標。
+			if segmentOverride >= 0 || repe || repne {
+				return fail("C1 memory ROR不接受前綴")
+			}
+			seg, addr, err := c.decodeAddress32(modrm)
+			if err != nil {
+				return fail(err.Error())
+			}
+			count, err := c.fetch8()
+			if err != nil {
+				return fail(err.Error())
+			}
+			if _, ok := c.segmentLinear(c.Seg[seg], addr, 4, true); !ok {
+				return fail("C1 memory ROR目的不可寫")
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail("C1 memory ROR目的無法讀取")
+			}
+			count &= 31
+			if count == 0 {
+				break
+			}
+			result := value>>count | value<<(32-count)
+			if !c.writeSegment32(c.Seg[seg], addr, result) {
+				return fail("C1 memory ROR目的無法寫入")
+			}
+			c.EFlags = c.EFlags&^CF | result>>31&1
+			if count == 1 {
+				c.EFlags &^= OF
+				if result>>31^(result>>30&1) != 0 {
+					c.EFlags |= OF
+				}
+			}
+			// 多位OF保留只屬297既有工具模型，count0不寫回。
+			break
+		}
 		if op == 0xc1 && group == 1 {
 			if segmentOverride >= 0 || repe || repne || modrm>>6 != 3 {
 				return fail("C1 ROR 只接受無前綴 32 位暫存器")

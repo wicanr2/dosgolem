@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_ror_dword_memory_resolution(spec_dir):
+    """361限定memory ROR與真正A1，OF及存檔路徑限制保持。"""
+    name = "361-cpu386-ror-dword-memory-imm8.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：memory ROR與原A1真正消費","全部11019原360列","10949共通正常列","35既有frames","168496272","168496273","目的DS188:270FC4 dword000B1818","ROR8→18000B18","CF0、EIP2376D2","EAX18181818→18000B18、EIP2376D7","count8 OF未定義","270FC5／270FC6／270FC7","三個RAM差異不代表只寫三byte","1212416","masked0精確零write","其他count精確四write","十四舊測試保持","CPU38660.001s／machine1.824s","1693原列","前輪360原收據","32新180M負例","IRQ43075／43075","八stack bits0保持","step_limit180000000","無guest_cpu_stop／step_error／DOS exit","SELECT BANNER COLOR","Error saving game／Permission denied","真正失敗DOS呼叫／檔名／mode／errno尚未擷取","OpenDirectoryOverlayFiles(basePath,statePath)","原版資料維持唯讀","固定1996日期不是seed","完整生成／開局與remake同狀態仍未驗","b8c1844163fddd7e3557e19fc51abcb9bcb9c1d021fd415dae376b2afbb9c72b","96bee4520e99c09b5edb8cda11de95fbf745811f15c1b9545c1ccc56f4663ab1","679f08239fe789c2f1ae82b5fa9a72a08cad884aa8d12f756a3fd9badf7f4c3a"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("361缺memory ROR契約／原A1／OF限制／180M存檔錯誤")
+    for older_name in ["360-cpu386-cwd-word.md","359-cpu386-sub-word-register-source.md","358-cpu386-neg-word.md","357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md","297-cpu386-ror-dword-register-imm8.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原2376CB memory ROR與下一A1已由規格361接通" not in older:
+            raise RuntimeError("較早規格缺memory ROR回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("361缺公開索引入口")
+
+if sys.argv[1:] == ['--check-ror-dword-memory-spec-backlinks']:
+    validate_ror_dword_memory_resolution(spec_dir)
+    print("原memory ROR／真正A1／完整保持性與OF限制／180M存檔錯誤及較早回填通過")
+    raise SystemExit(0)
+
 def validate_cwd_word_resolution(spec_dir):
     """360限定word CWD與真正SUB／SAR，AF／原負數與高word限制保持。"""
     name = "360-cpu386-cwd-word.md"

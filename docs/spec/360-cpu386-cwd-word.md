@@ -42,11 +42,11 @@ CPU只移除99的operand16早拒絕並加五行CWD分支，裸CDQ原一行、wor
 
 CPU SHA-256 ed94eaf7e9c363e8a2c89d5410b30a9e653a60532d31654ee91c14d042f75337；新測試bad93e84a75a9e4a7e77c74e904a10a74ed23e82c0919b0ae006581c28b72181；正式probe8d65d37030f58fb8fd034b2396d9da00c3617987211e750da517cdc8b3c1bd9c。原正式收據a05e0f46fe83e5fb048112cef174471599185d7a1c20f11d3a623565ddb156e3；乾淨全套7a638098bb95b91ee21387d09949d76e590ba9225be9eb0a5cbf07eba236936f。
 
-### 新停止與unknown
+### 歷史360停止與unknown
 
-原168496272於dosgolem_high_le input2376CB bytesC1 0D C4 0F 27 00 08 A1 C4 0F 27 00 4E 74 46 25拒絕memory dword ROR，after2376CD只取opcode／ModRM，未取disp32／imm8／source。R=[18181818 0 110 5C 2BD5D8 2BD648 69 34B94C]／段=[8 188 188 0 20 188]／flags202h。指令目的DS188:270FC4、imm08，目的原dword未知；不能以當時EAX18181818猜目的來源。尚未達180M；下一步取DS188:270FC4原dword／相鄰資料與下一A1同地址真正load，審查C1 /1 memory ROR，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
+原168496272於dosgolem_high_le input2376CB bytesC1 0D C4 0F 27 00 08 A1 C4 0F 27 00 4E 74 46 25拒絕memory dword ROR，after2376CD只取opcode／ModRM，未取disp32／imm8／source。R=[18181818 0 110 5C 2BD5D8 2BD648 69 34B94C]／段=[8 188 188 0 20 188]／flags202h。指令目的DS188:270FC4、imm08，目的原dword未知；不能以當時EAX18181818猜目的來源。尚未達180M；原ROR與A1已由361接通；下一步依361回填帳核對存檔權限錯誤，沿同180M，不增加cap／跳指令／代寫或重送／深入helper。
 
-finalPNG逐byte保持359，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原負AX／EDX高word、新ROR來源／正常消費、正式writer／RNG、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
+finalPNG逐byte保持359，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，沿354人工檢視主要黑底與小型方形圖形，未見完整地圖。固定1996日期不是seed；原負AX／EDX高word、原ROR與A1已見361、存檔呼叫／檔名與正式writer／RNG、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
 
 ### 回填帳與實際命令
 
@@ -105,3 +105,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-cwd-word-spec-backlinks
 | new-game-360-cli-tests.txt | 0c39c7d30d26388473df3e31ad7be38651d38f98677857d9e5a9de59a4aaac43 |
 | new-game-360-backlink-verify.py | a12abc12f0390921488c2be3a32f5e508daf528461918e95df6fe349c650edd4 |
 | new-game-360-backlink-tests.txt | 2f15caa9dd2a0509fc267e29461e2bf074c6446ca62cc43a8bc5325cb746f390 |
+
+## 361回填
+
+原2376CB memory ROR與下一A1已由規格361接通，見[361](361-cpu386-ror-dword-memory-imm8.md)。原DS188:270FC4 dword000B1818 ROR8→18000B18、CF0與保持flags、三RAM差異270FC5／270FC6／270FC7、下一A1真正load到EAX18000B18已驗；count8 OF未定義，保留只驗工具模型。10949正常前綴／35frames與全套保持，十四舊測試不改，297舊memory負例限定未知DS並有完整新正例。沿同180M已無CPU拒絕，但終圖為旗色選單的Error saving game／Permission denied，完整開局未驗。下一步依361回填帳捕捉失敗DOS呼叫／檔名與返回，審查既有DirectoryOverlayFiles的隔離接線，不提高cap／代寫／重送／深入helper。原其他count／CF1／OF、存檔writer／內容、RNG與remake同狀態未知，保留原定位與收據。
