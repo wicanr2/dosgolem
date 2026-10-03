@@ -537,3 +537,12 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 90000000 press／90010495 release，差42293微秒，只經InjectMouseEvent；90056672原20DDDB word0000→0700，callback8／8完成。原版同100M到215DEE、無新CPU拒絕，Enter Ruler Name與預設Strader／ACCEPT原PNG人工確認；typed種族、名稱原buffer／確認與完整開局未知。原100M已保存3筆名稱表／165bytes，供下一正常輸入前置；不深入renderer／helper。
 
 16新增CLI拒絕與有效正對照、同binary舊336 15拒絕與正對照、74回填函式與新增27缺證據負例、兩CLI通過。CPU／startup／provider／matcher逐位元保持335，335固定EXE Go全套仍有效；來源／新收據1000:1000與gofmt通過；工具root-owned／誤建.md目錄自檢空、Docker兩工作區掛載篩選空，沒有本輪遺留容器，未清理其他專案。命令、來源與十三私有收據集中[337](docs/spec/337-moo2-race-humans-normal-click.md)。原版素材不公開，沿授權推github隔離分支；主庫RE-first保持，下一步只補較早名稱頁可接受輸入初態與原buffer，不重開已完成選族／ACCEPT／SCASW。
+
+## 2026-10-03：正常統治者名稱確認與旗幟頁
+
+- 起點工具0633c346ce2ca1156ab26c1dbc533ec0e43920e0／主庫5c1b6a4a42d3ff8fc69125d00587cd66277eef96。命中dosgolem、GUI還原、規格閘門與文件職責路由；338先DRAFT。私有唯讀探針首次因少帶IRQ輔助檔而建置失敗，尚未跑原版；完整依賴後100M蒐證一次。Strader加零為8bytes，獨立核算修正長度後直接讀既有收據。95M／97M／100M原165bytes表相同，全部9030原humans列／30PNG保持；95M初態及原候選bytes足夠後READY。
+- 初版七情境由乾淨417根檔／官方EXE各一次重生，Docker900s／2GiB／2CPU／128pids／UID1000／network none、Go1.24.13，原ZIP／patch唯讀。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe。名稱按下後原mask1，過嚴的mask2B放開前置讓探針未放開；無新CPU拒絕。保存首次來源667e3dd2與未放開收據，不當成功。回到DRAFT核對既有InjectMouseEvent，原mask1允許固定移動兼放開，再重新READY。
+- 修訂只改rulerAccept明示分支的一行放開條件，來源核對其餘逐位元相同，CPU／平台不變；六舊基準不重跑。新版只重生ruler與新舊CLI，Docker300s，原版仍100M cap。95000000按下／95015426放開，差47572微秒，callback10／10完成；原版同100M到228E0E，SELECT BANNER COLOR人工確認。共享20DDDB沒有命中，持久名稱writer仍未知。
+- python3 workplace/new-game-338-verify.py PASS：六舊情境3847／4829／6769／8149／7752／9030原列與162PNG保持，新輸入前7523原列保持獨立humans，原165bytes表／候選32bytes／核心與RGB吻合。17新CLI拒絕及正對照、同新版binary舊337 16拒絕及正對照、75項規格回填與新338 26負例、337 27負例、兩CLI通過。本輪未重跑Go全套，不外推完整玩法。
+- 338限定CONFORMED，337及索引回填；18份私有腳本／收據雜湊見[338-moo2-ruler-name-normal-confirmation](docs/spec/338-moo2-ruler-name-normal-confirmation.md)。CPU／startup／provider／matcher／mouse callback保持335；來源與新收據1000:1000，gofmt／Git差異通過。工具root-owned／誤建.md目錄自檢空；Docker兩工作區掛載篩選空，本輪容器已清理，未動其他專案。
+- 下一步唯讀取得較早旗幟頁、原10筆表與正常選色前置；持久名稱writer、旗幟選擇、完整開局、正式RNG與remake同狀態未知，主庫RE-first保持。

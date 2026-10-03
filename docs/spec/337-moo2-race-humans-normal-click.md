@@ -68,3 +68,7 @@ python3 workplace/new-game-337-cli-verify.py PASS：16無效值／缺依賴在�
 74回填函式、既有缺證據負例及新增27負例、兩CLI通過。私有backlink收據workplace/new-game-337-backlink-tests.txt SHA-256 9b9c07085f859ad64350ee7ea8fc919cab4d0dee989eebbe5d6b5df4cd52844f。
 
 下一步只在同humans情境較早正常時點唯讀保存名稱頁與165bytes原表、名稱buffer及ACCEPT可接受輸入前置，再依新READY規格正常確認。此輪未輸入／確認名稱，不深挖renderer或原helper，不重開ACCEPT／SCASW。正式RNG、完整開局、typed種族狀態與remake同狀態未知，主庫RE-first保持。原版LOG／PNG／RAM留忽略workplace，不公開素材。
+
+## 2026-10-03 名稱確認後續回填
+
+正常名稱確認與後續畫面已由規格338接通，見[338-moo2-ruler-name-normal-confirmation](338-moo2-ruler-name-normal-confirmation.md)。原mask1放開後callback10／10完成，SELECT BANNER COLOR已見，無新CPU拒絕；共享20DDDB未命中，持久名稱writer仍未知。337原收據／來源與限定驗收保留，不外推完整開局或remake同狀態。

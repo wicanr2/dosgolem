@@ -150,6 +150,13 @@ func main() {
 		os.Exit(2)
 	}
 
+	rulerAcceptSetting := os.Getenv("DOSGOLEM_MOO2_RULER_NAME_ACCEPT_CLICK")
+	rulerAccept := rulerAcceptSetting == "1"
+	if rulerAcceptSetting != "" && (!rulerAccept || !raceHumans) {
+		fmt.Fprintln(os.Stderr, "RULER_NAME_ACCEPT_CLICK要求值1與完整RACE_HUMANS_CLICK固定情境")
+		os.Exit(2)
+	}
+
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -578,6 +585,16 @@ func main() {
 	var scasWordSource []byte
 
 	// 規格336：80M原17筆表與設定頁一致後，一次正常ACCEPT輸入。
+
+	// 規格338：95M原名稱頁／三筆表與候選bytes一致後，一次正常ACCEPT輸入。
+	rulerPressed, rulerReleased, rulerStoreSeen := false, false, false
+	var rulerPressMicros, rulerPressStarted uint64
+	defer func() {
+		if rulerAccept {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("ruler_name_accept_terminal pressed=%t released=%t store_seen=%t mask=%X pending=%d active=%t started=%d completed=%d\n", rulerPressed, rulerReleased, rulerStoreSeen, mask, pending, active, started, completed)
+		}
+	}()
 
 	// 規格337：90M原16筆選族表與畫面一致後，一次正常Humans輸入。
 	racePressed, raceReleased, raceStoreSeen := false, false, false
@@ -1182,6 +1199,53 @@ func main() {
 				}
 			}
 		}
+
+		if rulerAccept && (!rulerPressed && i == 95000000 || rulerPressed && !rulerReleased) {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			selector, offset := services.MouseCallbackTarget()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			available := ok && ports.BIOSClock != nil && m.CPU.EFlags&cpu386.IF != 0 && pending == 0 && !active && !irqActive && !irqFailed && selector == 8 && offset == 0x2136d1 && (mask == 0x2b || rulerPressed && mask == 1)
+			phase, x, buttons := "", uint16(640), uint16(1)
+			if !rulerPressed {
+				c := m.CPU
+				r, seg, eip, flags := c.R, c.Seg, c.EIP, c.EFlags
+				ramBefore := sha256.Sum256(m.Mem)
+				var globals [192]byte
+				var header [16]byte
+				var records [165]byte
+				var candidate [32]byte
+				candidateReadable := false
+				g, h, t := false, false, false
+				var rgbHash [32]byte
+				readonly := activationPeek(func() {
+					g = peekSourceWindow(seg[cpu386.SegDS], 0x26c480, globals[:])
+					h = peekSourceWindow(seg[cpu386.SegDS], 0x29be0e, header[:])
+					t = peekSourceWindow(seg[cpu386.SegDS], 0x298848, records[:])
+					candidateReadable = peekSourceWindow(seg[cpu386.SegDS], 0x28439d, candidate[:])
+					rgbHash = sha256.Sum256(m.VBERGB())
+				}) && sha256.Sum256(m.Mem) == ramBefore
+				valid := readonly && available && eip == 0x215d9e && flags == 0x202 && r == [8]uint32{0xa0, 0x178, 0x2c0864, 7, 0x2bd94c, 0x2bd970, 0x2843a5, 0x28439d} && seg == [6]uint16{8, 0x188, 0x188, 0, 0x20, 0x188} && c.FPUControl == 0x127f && c.FPUStatus == 0 && c.FPUDepth == 0 && candidateReadable && fmt.Sprintf("%X", candidate) == "5374726164657200000000000000000000000000000000000000000000000000" && racePressed && raceReleased && raceStoreSeen && started == 8 && completed == 8 && irqStarted == 21395 && irqCompleted == 21395 && seg[cpu386.SegDS] == 0x188 && g && h && t && globals[0] == 0x48 && globals[1] == 0x88 && globals[2] == 0x29 && globals[3] == 0 && header[0] == 3 && header[1] == 0 && header[4] == 0 && header[5] == 0 && header[6] == 0 && header[7] == 0 && fmt.Sprintf("%x", sha256.Sum256(records[:])) == "f3dc28cf153edf625b154c5864b3040cddd52fc9ade2a0cfd2a256b80789d0a7" && fmt.Sprintf("%x", rgbHash) == "2646a7ef25939869ede60aa35bcd97d649b906fd2cc287d08deb6c2d8058cc12"
+				fmt.Printf("ruler_name_accept_precondition outer_step=%d address_space=dosgolem_high_le ds=%X globals=%X header=%X records=%X candidate_offset=28439D candidate_readable=%t candidate=%X table_pointer=298848 table_count=3 table_stride=55 table_readable=%t rgb_sha256=%x readonly=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d eip=%X r=%X seg=%X flags=%X valid=%t\n", i, seg[cpu386.SegDS], globals, header, records, candidateReadable, candidate, g && h && t, rgbHash, readonly, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, eip, r, seg, flags, valid)
+				if !valid {
+					panic("名稱ACCEPT點擊的原表或輸入條件不符")
+				}
+				phase = "press"
+			} else if available && completed >= rulerPressStarted+1 && ports.BIOSClock.Micros >= rulerPressMicros+20000 {
+				phase, x, buttons = "release", 642, 0
+			}
+			if phase != "" {
+				if err := services.InjectMouseEvent(x, 239, buttons, 0, 0); err != nil {
+					panic(err)
+				}
+				fmt.Printf("ruler_name_accept_mouse_input phase=%s outer_step=%d virtual_micros=%d x=%d y=239 buttons=%d delta=0/0 mask=%X target=%X:%X started=%d completed=%d eip=%X r=%X seg=%X flags=%X\n", phase, i, ports.BIOSClock.Micros, x, buttons, mask, selector, offset, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+				if phase == "press" {
+					rulerPressed, rulerPressMicros, rulerPressStarted = true, ports.BIOSClock.Micros, started
+				} else {
+					rulerReleased = true
+				}
+			}
+		}
 		if i == 0 || i == 42347255 || i == 42603292 || i == 48000000 {
 			dumpPlatform("sample", i)
 		}
@@ -1647,6 +1711,21 @@ func main() {
 			scasWordReadonly = m.CPU.R == r && m.CPU.Seg == seg && m.CPU.EIP == eip && m.CPU.EFlags == flags && m.CPU.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
 		}
 
+		observeRulerStore := rulerAccept && rulerPressed && !rulerStoreSeen && m.CPU.EIP == 0x20dddb
+		rulerBeforeR, rulerBeforeSeg, rulerBeforeEIP, rulerBeforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var rulerBeforeWord [2]byte
+		var rulerBytes [16]byte
+		var rulerBeforeCandidate [32]byte
+		rulerBeforeCandidateReadable := false
+		rulerWordReadable := false
+		if observeRulerStore {
+			rulerBeforeCandidateReadable = peekSourceWindow(rulerBeforeSeg[cpu386.SegDS], 0x28439d, rulerBeforeCandidate[:])
+			rulerWordReadable = peekSourceWindow(rulerBeforeSeg[cpu386.SegDS], 0x26c4a6, rulerBeforeWord[:])
+			if uint64(rulerBeforeEIP)+16 <= uint64(len(m.Mem)) {
+				copy(rulerBytes[:], m.Mem[rulerBeforeEIP:rulerBeforeEIP+16])
+			}
+		}
+
 		observeRaceStore := raceHumans && racePressed && !raceStoreSeen && m.CPU.EIP == 0x20dddb
 		raceBeforeR, raceBeforeSeg, raceBeforeEIP, raceBeforeFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
 		var raceBeforeWord [2]byte
@@ -1755,6 +1834,17 @@ func main() {
 			if stepErr != nil || scasWordBudget == 1 && m.CPU.EIP != 0x1f3643 {
 				scasWordBudget = 0
 			}
+		}
+
+		if observeRulerStore {
+			rulerStoreSeen = true
+			var afterWord [2]byte
+			var afterCandidate [32]byte
+			afterCandidateReadable := peekSourceWindow(rulerBeforeSeg[cpu386.SegDS], 0x28439d, afterCandidate[:])
+			afterReadable := peekSourceWindow(rulerBeforeSeg[cpu386.SegDS], 0x26c4a6, afterWord[:])
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("ruler_name_accept_selected_store outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=26C4A6 before_readable=%t after_readable=%t before_word=%X after_word=%X callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d candidate_offset=28439D before_candidate_readable=%t after_candidate_readable=%t before_candidate=%X after_candidate=%X error=%v\n", i, rulerBeforeEIP, m.CPU.EIP, rulerBeforeR, m.CPU.R, rulerBeforeSeg, m.CPU.Seg, rulerBeforeFlags, m.CPU.EFlags, rulerBytes, rulerBeforeSeg[cpu386.SegDS], rulerWordReadable, afterReadable, rulerBeforeWord, afterWord, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, rulerBeforeCandidateReadable, afterCandidateReadable, rulerBeforeCandidate, afterCandidate, stepErr)
 		}
 
 		if observeRaceStore {

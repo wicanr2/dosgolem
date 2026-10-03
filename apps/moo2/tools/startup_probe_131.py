@@ -106,6 +106,25 @@ if sys.argv[1:] == ['--check-setup-accept-spec-backlinks']:
     print('完整原17筆表／正常ACCEPT／選族頁／335回填通過')
     raise SystemExit(0)
 
+
+def validate_ruler_name_accept_resolution(spec_dir):
+    """338限定原名稱頁正常確認與旗幟頁，未命中的共享store及持久名稱仍未知。"""
+    name = '338-moo2-ruler-name-normal-confirmation.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：原名稱頁／原候選bytes／正常名稱ACCEPT／旗幟頁／六舊基線保持","全部3847／4829／6769／8149／7752／9030","全部162PNG","7523原列","95015426","47572微秒","mask1","callback10／10","SELECT BANNER COLOR","17無效值","共享20DDDB未命中","持久名稱writer仍未知","沒有代寫名稱","未改CPU／平台","f3dc28cf153edf625b154c5864b3040cddd52fc9ade2a0cfd2a256b80789d0a7","978afb91aaed9e0cb37672a66352e2ae515b382d5b6f472da9238e09fb650dfb","47172f944786e4d134091485ce73ae64d7df622fb75470fa62ddf7a660526e9e","21e94e53b1a4f43b3a6fe736490412ea291bb2c3796c922c1940a6dbd2a5dcbb","96efbd1ce6538c27b019cc6713fe7397d6d0fde7a63c7e01cb82023f75614c67","79a5f7d0444a38afad151dc09544a1aea21339fb5ef4be8f7a36b6a5e6c531e6","c5d03a8a5858cdeb915036ef21e2a8f0f3627b6007bfbe3e54c3745fb624b6b1","1cc5f74e48b63017b4dc68cfe714b2bec674e7adba0c47d8f119f095583f58c5"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('338缺原名稱表、候選bytes、正常放開、旗幟頁、收據或名稱writer未知邊界')
+    older = (spec_dir / '337-moo2-race-humans-normal-click.md').read_text()
+    if name not in older or '正常名稱確認與後續畫面已由規格338接通' not in older:
+        raise RuntimeError('337缺名稱正常確認與旗幟頁回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('338缺公開索引入口')
+
+if sys.argv[1:] == ['--check-ruler-name-accept-spec-backlinks']:
+    validate_ruler_name_accept_resolution(spec_dir)
+    print('原名稱頁／候選bytes／正常放開／旗幟頁／337回填通過')
+    raise SystemExit(0)
+
 def validate_race_humans_resolution(spec_dir):
     """337只確認正常第7筆選擇與名稱頁，不把名稱頁當完整開局。"""
     name = '337-moo2-race-humans-normal-click.md'
