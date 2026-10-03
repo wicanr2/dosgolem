@@ -44,7 +44,7 @@ private未改CPU重播全部8237原342列與31PNG保持，正式新CPU入口前8
 
 **獨立CPU測試**：2,097,152個組合涵蓋八個byte目的／全部unused reg欄／256初始byte／64算術旗標組合／兩種非算術context。以8列字面真值表推導條件，little-endian byte陣列替換驗高低byte別名與其餘24位、其他R／六段／FPU／所有旗標／RAM保持與零writes。77筆32位值的全部配對×八個目的，共47,432組CMP→SETLE；以int64有號差與溢位範圍獨立核算ZF／SF／OF，再以數學有號≤判定目的值，涵蓋等值、正負邊界與溢位。沒有呼叫CPU condition helper當oracle。
 
-原SETE／SETNE八目的與ignored欄保持；截短、memory全ModRM、11前綴、其他未支援SETcc仍拒絕且不發布目的值。下一SS byte store兩方向、相異DS未動、鄰居與完整核心保持，未知段／唯讀／段末／Bus寫入失敗按既有MOV契約拒絕。自製測試是公開CPU契約推導，不稱386實機語料或逐週期對拍，外部8088實機語料也未取得。
+343當輪原SETE／SETNE八目的與ignored欄保持；截短、memory全ModRM、11前綴、其他未支援SETcc仍拒絕且不發布目的值。下一SS byte store兩方向、相異DS未動、鄰居與完整核心保持，未知段／唯讀／段末／Bus寫入失敗按既有MOV契約拒絕。自製測試是公開CPU契約推導，不稱386實機語料或逐週期對拍，外部8088實機語料也未取得。
 
 go test -p 2 -buildvcs=false ./internal/cpu386 -run 'TestSETLERegister|TestTESTDwordMemory|TestTESTDwordRegisterImmediate' -count=1 -v PASS，cpu3864.352s。固定DOSGOLEM_MOO2_EXE=/tmp/game/ORION2.EXE的go test -p 2 -buildvcs=false ./... -count=1 PASS，cpu386189.431s、machine5.732s；全套從/tmp/test-src乾淨版控輸入加本輪新自製測試與現存testdata執行，避免忽略workplace的探索main污染。乾淨輸入仍以342的git ls-files -z | tar --null -T - -cf - | tar xf - -C /tmp/test-src建立，再cp internal/cpu386/setle_byte_register_test.go，原EXE取自fresh official patch。沒有改歷史探索檔或hash。
 
@@ -60,7 +60,7 @@ CPU SHA-256 76f4b7b3f97156f9422d32e894e55579286f85d2c8b39a26eb90887fa22cc88f，�
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE 4e11be14…／dosgolem_high_le:17D536→17D539→17D53C／SS188:2BDA34 | 原SETLE AL0、所有旗標保持，下一MOV真實write 0 | 兩步／Bus唯一write與全套／343正式收據 | 342 | 原17D536 SETLE與SS byte寫入已由規格343接通 |
 
-下一步以原17D5A0的0F9F SETG為入口，核對公開SETG與其餘標準SETcc暫存器條件，保存完整初態／AL／flags與下一原88 C2最小消費；經DRAFT→READY後補通用CPU條件，再固定同輸入／120M與原EXE全套續行。正式姓名／旗色writer、typed種族特性、生成完成／完整開局、正式RNG、人耳與remake同狀態未知，主庫RE-first與整款remake／中文化目標保持。
+原17D5A0 SETG與下一MOV已由規格344接通，見[344](344-cpu386-setcc-byte-register.md)。同輸入120M到17FCE4且無新CPU拒絕，仍宇宙生成圖，生成完成／完整開局與正式writer未驗；下一步有界唯讀核對生成迴圈進度，主庫RE-first保持。 343當輪其餘SETcc拒絕邊界由344擴張為完整16個裸暫存器條件；記憶體與前綴拒絕保持，歷史343收據不重寫。
 
 ### 本機忽略證據索引
 

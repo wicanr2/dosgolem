@@ -549,6 +549,8 @@
 
 - [341：旗幟GUI按鍵返回後的原正常分支](341-moo2-banner-after-gui-return.md)：限定CONFORMED。兩個獨立192步／原20E165返回1與正常放開已驗；當輪184694的85 82拒絕並全黑；該CPU缺口由342接通，正式writer與完整開局未驗。
 
-- [342：記憶體dword與暫存器的TEST](342-cpu386-test-dword-memory.md)：限定CONFORMED。通用唯讀TEST／原SETNE及RET／正常宇宙生成圖已驗，全套通過；當輪17D536的0F9E拒絕由343接通，完整開局未知。
+- [342：記憶體dword與暫存器的TEST](342-cpu386-test-dword-memory.md)：限定CONFORMED。通用唯讀TEST／原SETNE及RET／正常宇宙生成圖已驗，全套通過；當輪17D536的0F9E拒絕由343接通，後續SETG由344接通，120M完整開局未知。
 
-- [343：byte暫存器的SETLE](343-cpu386-setle-byte-register.md)：限定CONFORMED。原SETLE AL0與下一SS byte真實write／固定EXE全套通過；後續17D5A0的0F9F拒絕，完整開局未知。
+- [343：byte暫存器的SETLE](343-cpu386-setle-byte-register.md)：限定CONFORMED。原SETLE AL0與下一SS byte真實write／固定EXE全套通過；當輪17D5A0的0F9F拒絕由344接通，120M完整開局未知。
+
+- [344：完整標準SETcc暫存器條件](344-cpu386-setcc-byte-register.md)：限定CONFORMED。標準16個暫存器條件與原SETG／MOV兩步、固定EXE全套已驗；同120M無新CPU拒絕仍宇宙生成圖，完整開局未知。

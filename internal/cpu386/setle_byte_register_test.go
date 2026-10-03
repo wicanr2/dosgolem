@@ -141,15 +141,14 @@ func TestSETLERegisterRejectsWithoutDestinationMutation(t *testing.T) {
 			}
 		}
 	}
+	// 344明確擴張其餘標準條件；保留上述SETLE拒絕邊界。
 	for opcode := byte(0x90); opcode <= 0x9f; opcode++ {
-		if opcode == 0x94 || opcode == 0x95 || opcode == 0x9e {
-			continue
-		}
 		code := []byte{0x0f, opcode, 0xc0}
 		c, mem := inImmediateFixture(code)
 		want := snapshotInImmediate(c)
-		if err := c.Step(); err == nil || snapshotInImmediate(c) != want || !bytes.Equal(mem, code) {
-			t.Fatalf("既有拒絕0F%X：%v", opcode, err)
+		want.r = setleReplaceByte(want.r, 0, setccExpectedByte(c.EFlags, opcode))
+		if err := c.Step(); err != nil || c.EIP != 3 || snapshotInImmediate(c) != want || !bytes.Equal(mem, code) {
+			t.Fatalf("344擴張0F%X：%v", opcode, err)
 		}
 	}
 }

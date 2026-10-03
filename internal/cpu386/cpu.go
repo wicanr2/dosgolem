@@ -5223,7 +5223,7 @@ func (c *CPU) Step() error {
 			}
 			break
 		}
-		if (extended == 0x94 || extended == 0x95 || extended == 0x9e) && !operand16 && segmentOverride < 0 && !repe {
+		if extended >= 0x90 && extended <= 0x9f && !operand16 && segmentOverride < 0 && !repe {
 			modrm, e := c.fetch8()
 			if e != nil {
 				return fail(e.Error())
@@ -5232,8 +5232,10 @@ func (c *CPU) Step() error {
 				return fail(fmt.Sprintf("0F %02X ModRM %02X 尚未支援", extended, modrm))
 			}
 			value := uint8(0)
-			// 343：SETLE消費ZF／SF／OF，只寫目的byte，所有旗標保持。
-			if extended == 0x94 && c.EFlags&ZF != 0 || extended == 0x95 && c.EFlags&ZF == 0 || extended == 0x9e && (c.EFlags&ZF != 0 || (c.EFlags&SF != 0) != (c.EFlags&OF != 0)) {
+			// 344：標準16條件只消費旗標；目的byte之外的狀態保持。
+			cf, zf, sf, of, pf := c.EFlags&CF != 0, c.EFlags&ZF != 0, c.EFlags&SF != 0, c.EFlags&OF != 0, c.EFlags&PF != 0
+			conditions := [16]bool{of, !of, cf, !cf, zf, !zf, cf || zf, !cf && !zf, sf, !sf, pf, !pf, sf != of, sf == of, zf || sf != of, !zf && sf == of}
+			if conditions[extended&15] {
 				value = 1
 			}
 			c.setReg8(int(modrm&7), value)

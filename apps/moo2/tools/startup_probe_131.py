@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_setcc_register_resolution(spec_dir):
+    """344限定標準暫存器SETcc，兩步原消費與較早四規格回填。"""
+    name = "344-cpu386-setcc-byte-register.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：標準SETcc暫存器與原SETG／MOV兩步","8180原343列","30PNG","17D5A0","17D5A3","17D5A5","AL E6→0","EDX1FA→100","flags293h","524,288","65,536","118,580","512","CPU只擴張裸register SETcc完整16條件","probe三有界observer","生成完成／完整開局與remake同狀態未驗","120000000","17FCE4","無新CPU拒絕","2724628fa913674f41df2af004c3ec4863b02cfb105695c6864f1bd35f4610a9","b7bcf138095b48d20b4a8ca1f43b8f60531a80ae59c6243463f3de52d6e38554"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("344缺標準SETcc契約／原SETG與MOV／限定驗收或終態邊界")
+    for older_name in ["340-moo2-banner-pressed-consumer.md", "341-moo2-banner-after-gui-return.md", "342-cpu386-test-dword-memory.md", "343-cpu386-setle-byte-register.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原17D5A0 SETG與下一MOV已由規格344接通" not in older:
+            raise RuntimeError("較早規格缺SETG回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("344缺公開索引入口")
+
+if sys.argv[1:] == ['--check-setcc-register-spec-backlinks']:
+    validate_setcc_register_resolution(spec_dir)
+    print("SETcc／原SETG與MOV／較早四規格回填通過")
+    raise SystemExit(0)
+
 def validate_setle_register_resolution(spec_dir):
     """343只閉合SETLE與原byte writer，新SETG與完整開局保留未知。"""
     name = "343-cpu386-setle-byte-register.md"

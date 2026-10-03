@@ -179,6 +179,10 @@ func main() {
 	bannerPolled := false
 	// 339 END parse
 
+	// 344 BEGIN cc_state
+	ccSeen, ccBudget := false, 0
+	// 344 END cc_state
+
 	// 343 BEGIN setle_state
 	setleSeen, setleBudget := false, 0
 	// 343 END setle_state
@@ -2013,11 +2017,55 @@ func main() {
 		}
 		// 343 END setle_pre
 
+		// 344 BEGIN cc_pre
+		if bannerRed && !ccSeen && m.CPU.EIP == 0x17d5a0 {
+			ccSeen, ccBudget = true, 2
+		}
+		observeCC := ccBudget > 0
+		ccR, ccSeg, ccEIP, ccFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var ccCode [16]byte
+		var ccRAM [32]byte
+		var ccFPU [8]uint64
+		ccControl, ccStatus, ccDepth := m.CPU.FPUControl, m.CPU.FPUStatus, m.CPU.FPUDepth
+		ccReadonly := false
+		ccVBEUnchanged := func() bool { return false }
+		if observeCC {
+			ccRAM = sha256.Sum256(m.Mem)
+			ccVBE := m.VBEState()
+			ccVBEUnchanged = func() bool { return ccVBE == m.VBEState() }
+			ccReadonly = activationPeek(func() {
+				copy(ccCode[:], m.Mem[ccEIP:ccEIP+16])
+				for j := range ccFPU {
+					ccFPU[j] = math.Float64bits(m.CPU.FPUStack[j])
+				}
+			}) && sha256.Sum256(m.Mem) == ccRAM
+		}
+		// 344 END cc_pre
+
 		stepErr := m.CPU.Step()
 		if publishBus != nil {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		// 344 BEGIN cc_post
+		if observeCC {
+			ccBudget--
+			var afterFPU [8]uint64
+			ram := sha256.Sum256(m.Mem)
+			readonly := activationPeek(func() {
+				for j := range afterFPU {
+					afterFPU[j] = math.Float64bits(m.CPU.FPUStack[j])
+				}
+			}) && sha256.Sum256(m.Mem) == ram && ccReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("setcc_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X before_fpu_control=%X after_fpu_control=%X before_fpu_status=%X after_fpu_status=%X before_fpu_depth=%d after_fpu_depth=%d before_fpu_bits=%X after_fpu_bits=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t step_ram_unchanged=%t step_vbe_unchanged=%t remaining=%d error=%v\n", i, ccEIP, m.CPU.EIP, ccR, m.CPU.R, ccSeg, m.CPU.Seg, ccFlags, m.CPU.EFlags, ccCode, ccControl, m.CPU.FPUControl, ccStatus, m.CPU.FPUStatus, ccDepth, m.CPU.FPUDepth, ccFPU, afterFPU, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, ccRAM == ram, ccVBEUnchanged(), ccBudget, stepErr)
+			if stepErr != nil {
+				ccBudget = 0
+			}
+		}
+		// 344 END cc_post
 
 		// 343 BEGIN setle_post
 		if observeSetle {
