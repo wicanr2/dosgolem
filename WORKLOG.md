@@ -457,3 +457,15 @@ absolute IVT0F1201:0682／實模式線性0x12692、DPMI實模式0F與DOS保護�
 十一份較早音訊邊界與索引同次回填，全部46個回填函式／80項缺證據負例／兩個CLI及完整自然時間／原始PCM／向量／pending核對通過。新增規格校對抓到兩個混用字後修正文件，同命令重跑通過，不改驗證期望或平台來源。CPU／啟動來源保持，來源／輸出UID:GID1000:1000，工具無root-owned／誤建.md目錄及git diff --check通過。304保持READY，時間到首block已驗，真正IRQ7轉送／返回仍未知；下一步只依公開DOS/4GW與實際IVT補窄派送契約，不跳指令、不修改等待值，不深入driver／ISR／busy-wait或改主庫玩法。完整原版素材、終端／記憶體／gzip／PNG留本機，只公開自製來源、測試與有限文字證據。
 
 本輪測試及兩批自然重播的有界一次性容器均已退出移除，moo2名稱清查空；Go映像清查僅見已確認另一FD2專案的confident_williams，保留未操作。未清理其他專案或映像。沿用github隔離分支推送授權，不推本機origin。
+
+## 2026-10-03：正常事件返回與首個上層邊界
+
+起點2bfb2db0f860d115cb0e96e9d1e5938a89a25c23，330先DRAFT／READY，只加probe唯讀觀察。初次第二組遇到callee後的Jcc被標成caller，沒有採作正式結論；回到DRAFT補RET後首CALL立即停止、以ESP與新return核對，再READY。初次收據留忽略330-initial；同容器同命令乾淨重跑三正常流程。
+
+Docker固定Go1.24.13映像／600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀重建417檔；go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe，沿329環境換330輸出，python3 workplace/new-game-330-verify.py PASS。全部3847／4382／6322舊列除既定正規化保持，72PNG逐位元保持，新兩組各16實際步且50M／100M完整32列相同。3 RET／MOV與堆疊／TEST定義flags／非零JNE／CALL獨立核算PASS；CPU／平台／CLI保持，325固定EXE全套PASS有效。
+
+事件DS:2A1228與2A1226均於放開後返回EAX1，20DB69 TEST／JNE跳20DB87；另一組雙RET後20DDF2 CALL209325立即停觀察。不支持未驗短按丟棄修法；NEW GAME命令與正常開局仍未知。下一步只追20DB87非零臂的按鈕判定／指令消費，不加cap或重點，不深入runtime helper。
+
+67回填函式、既有32／49／25／27／27／34／31／36與新增31缺證據負例、--check-event-return-spec-backlinks／--check-bounded-new-game-spec-backlinks PASS。完整來源／收據SHA集中[330](docs/spec/330-moo2-event-return-caller.md)；原ZIP／EXE／MOX.SET與417檔再核對、gofmt／git diff --check／新來源及收據1000:1000、工具root-owned／誤建.md目錄自檢空。原版素材不提交；沿授權推github隔離分支，不推本機origin。主庫RE-first與整款remake／中文化目標保持。
+
+Docker ps -a以主庫與隔離工具鏈兩掛載路徑篩選皆空，本輪無遺留容器，其他專案未清理。

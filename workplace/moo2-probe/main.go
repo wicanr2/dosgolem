@@ -636,6 +636,28 @@ func main() {
 		}
 	}()
 
+	// 規格330：事件返回與首個上層Jcc的有界唯讀觀察。
+	var activationSeen [2]bool
+	activationGroup, activationBudget := -1, 0
+	activationReturned := false
+	var activationSelector, activationStackSelector uint16
+	var activationStackOffset uint32
+	activationPeek := func(read func()) bool {
+		c := m.CPU
+		r, seg, eip, flags, bus := c.R, c.Seg, c.EIP, c.EFlags, c.Bus
+		control, status, stack, depth := c.FPUControl, c.FPUStatus, c.FPUStack, c.FPUDepth
+		state := m.VBEState()
+		read()
+		same := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.Bus == bus && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state
+		for j := range stack {
+			same = same && math.Float64bits(stack[j]) == math.Float64bits(c.FPUStack[j])
+		}
+		if !same {
+			panic("事件返回快照改變原始狀態")
+		}
+		return same
+	}
+
 	// 規格326：只有正常點擊與明示圖像輸出才觀測後段，不改CPU或輸入。
 	postClickVisits := make(map[uint32]uint64)
 	postClickSteps := 0
@@ -1138,6 +1160,44 @@ func main() {
 			}
 		}
 
+		activationBegin := false
+		_, _, activationCallback, _, _ := services.MouseCallbackState()
+		if phasePrefix != "" && newGameClick && newGamePressed && newGameReleased && !activationCallback && activationBudget == 0 {
+			group, offset := -1, uint32(0)
+			if m.CPU.EIP == 0x213c60 {
+				group, offset = 0, 0x2a1228
+			}
+			if m.CPU.EIP == 0x213a7c {
+				group, offset = 1, 0x2a1226
+			}
+			if group >= 0 && !activationSeen[group] {
+				var value [2]byte
+				known := false
+				activationPeek(func() { known = peekSourceWindow(m.CPU.Seg[cpu386.SegDS], offset, value[:]) })
+				if known && value == [2]byte{1, 0} {
+					activationSeen[group], activationGroup, activationBudget, activationBegin = true, group, 48, true
+					activationReturned = false
+					activationSelector, activationStackSelector = m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS]
+					activationStackOffset = m.CPU.R[cpu386.ESP] - 16
+				}
+			}
+		}
+		observeActivation := activationBudget > 0
+		var activationBeforeEvent [16]byte
+		var activationBeforeCounter, activationBeforeGlobal, activationReturnBytes [4]byte
+		var activationBeforeStack [64]byte
+		activationEventReadable, activationCounterReadable, activationGlobalReadable, activationStackReadable, activationReturnReadable := false, false, false, false, false
+		activationBeforeReadonly := true
+		if observeActivation {
+			activationBeforeReadonly = activationPeek(func() {
+				activationEventReadable = peekSourceWindow(activationSelector, 0x2a121a, activationBeforeEvent[:])
+				activationCounterReadable = peekSourceWindow(activationSelector, 0x2a11ec, activationBeforeCounter[:])
+				activationGlobalReadable = peekSourceWindow(activationSelector, 0x26c518, activationBeforeGlobal[:])
+				activationStackReadable = activationStackOffset <= ^uint32(0)-64 && peekSourceWindow(activationStackSelector, activationStackOffset, activationBeforeStack[:])
+				activationReturnReadable = peekSourceWindow(m.CPU.Seg[cpu386.SegSS], m.CPU.R[cpu386.ESP], activationReturnBytes[:])
+			})
+		}
+
 		sourceBegin := false
 		if phasePrefix != "" && newGameClick && newGameReleased && i >= 49500000 && !sourceActive && m.CPU.EIP == 0x213345 {
 			selector := m.CPU.Seg[cpu386.SegDS]
@@ -1201,7 +1261,7 @@ func main() {
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
 		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
 		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
-		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -1254,6 +1314,55 @@ func main() {
 			publishBus.active = false
 		}
 		buttonReadStepActive = false
+
+		if observeActivation {
+			var afterEvent [16]byte
+			var afterCounter, afterGlobal, afterReturnBytes [4]byte
+			var afterStack [64]byte
+			afterReturnReadable := false
+			afterReadonly := activationPeek(func() {
+				afterReturnReadable = peekSourceWindow(m.CPU.Seg[cpu386.SegSS], m.CPU.R[cpu386.ESP], afterReturnBytes[:])
+				if activationEventReadable {
+					peekSourceWindow(activationSelector, 0x2a121a, afterEvent[:])
+				}
+				if activationCounterReadable {
+					peekSourceWindow(activationSelector, 0x2a11ec, afterCounter[:])
+				}
+				if activationGlobalReadable {
+					peekSourceWindow(activationSelector, 0x26c518, afterGlobal[:])
+				}
+				if activationStackReadable {
+					peekSourceWindow(activationStackSelector, activationStackOffset, afterStack[:])
+				}
+			})
+			_, _, afterCallback, afterStarted, afterCompleted := services.MouseCallbackState()
+			returnTarget := uint32(activationReturnBytes[0]) | uint32(activationReturnBytes[1])<<8 | uint32(activationReturnBytes[2])<<16 | uint32(activationReturnBytes[3])<<24
+			wasReturned := activationReturned
+			actualReturn := stepErr == nil && clickBytes[0] == 0xc3 && activationReturnReadable && m.CPU.R[cpu386.ESP] == clickBeforeR[cpu386.ESP]+4 && m.CPU.EIP == returnTarget && !clickActive && !afterCallback
+			activationReturned = activationReturned || actualReturn
+			isJcc := clickBytes[0] >= 0x70 && clickBytes[0] <= 0x7f || clickBytes[0] == 0x0f && clickBytes[1] >= 0x80 && clickBytes[1] <= 0x8f
+			callTarget := uint32(0)
+			if clickBytes[0] == 0xe8 {
+				callTarget = clickBeforeEIP + 5 + (uint32(clickBytes[1]) | uint32(clickBytes[2])<<8 | uint32(clickBytes[3])<<16 | uint32(clickBytes[4])<<24)
+			}
+			afterTop := uint32(afterReturnBytes[0]) | uint32(afterReturnBytes[1])<<8 | uint32(afterReturnBytes[2])<<16 | uint32(afterReturnBytes[3])<<24
+			actualCall := clickBytes[0] == 0xe8 && stepErr == nil && m.CPU.EIP == callTarget && m.CPU.R[cpu386.ESP]+4 == clickBeforeR[cpu386.ESP] && afterReturnReadable && afterTop == clickBeforeEIP+5 && !clickActive && !afterCallback
+			activationBudget--
+			stop := ""
+			if stepErr != nil {
+				stop = "error"
+			} else if wasReturned && isJcc && !clickActive && !afterCallback {
+				stop = "caller_jcc"
+			} else if wasReturned && actualCall {
+				stop = "caller_call"
+			} else if activationBudget == 0 {
+				stop = "budget"
+			}
+			fmt.Printf("new_game_activation_consumer group=%d begin=%t outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X event_readable=%t before_event=%X after_event=%X counter_readable=%t before_counter=%X after_counter=%X global_readable=%t before_global=%X after_global=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X return_selector=%X return_offset=%X return_readable=%t return_bytes=%X return_target=%X actual_return=%t returned=%t after_return_readable=%t after_return_bytes=%X actual_call=%t before_callback=%t after_callback=%t before_started=%d before_completed=%d after_started=%d after_completed=%d readonly=%t remaining=%d stop=%s error=%v\n", activationGroup, activationBegin, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, activationSelector, activationEventReadable, activationBeforeEvent, afterEvent, activationCounterReadable, activationBeforeCounter, afterCounter, activationGlobalReadable, activationBeforeGlobal, afterGlobal, activationStackSelector, activationStackOffset, activationStackReadable, activationBeforeStack, afterStack, clickBeforeSeg[cpu386.SegSS], clickBeforeR[cpu386.ESP], activationReturnReadable, activationReturnBytes, returnTarget, actualReturn, activationReturned, afterReturnReadable, afterReturnBytes, actualCall, clickActive, afterCallback, clickStarted, clickCompleted, afterStarted, afterCompleted, activationBeforeReadonly && afterReadonly, activationBudget, stop, stepErr)
+			if stop != "" {
+				activationBudget = 0
+			}
+		}
 
 		if observeSource {
 			var afterGlobal [4]byte

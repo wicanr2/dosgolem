@@ -63,3 +63,5 @@ probe SHA-256 83154a870ee955744d847c26eb25ba94404eb718ec4ffcdeec5984e7a27a89bf�
 限定CONFORMED只含預算閘門、50M兩基線／100M前綴保持與六點唯讀觀測。已見較晚Bus讀回、VBE寫入和致謝文字變化，沒有新的CPU拒絕，下一步改沿實際按下／放開追最小NEW GAME指令激活與原事件讀取時間，先確認它是否真正離開主選單；不繼續增加預算、不追整個renderer或由綠測試猜玩法。主庫RE-first、255完整游標、303整體DRAFT、299自然OF=1、AH2Ch／RNG／人耳與remake同狀態仍未知。
 
 66回填函式、原有32／49／25／27／27／34／31與329新增36缺證據負例、兩CLI PASS。workplace/new-game-329-backlink-tests.txt SHA-256 f2538841315d8d53db30eb0aaee340e72eb741bc32b5fe39c9b05eb1d9c6bb9d。CPU／平台來源逐位元保持，gofmt通過，所有新來源／收據與PNG1000:1000，工具root-owned／誤建.md目錄自檢空。
+
+正常事件返回與首個上層邊界已由規格330接通：[330-moo2-event-return-caller](330-moo2-event-return-caller.md)。放開後兩個按下事件均返回EAX1，20DB69的TEST／JNE採非零臂到20DB87；NEW GAME指令與正常開局仍未知，不需先延長點擊。

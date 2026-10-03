@@ -524,3 +524,5 @@
 - [328：目的RAM與VBE發布監測](328-moo2-post-click-publish-monitor.md)：CONFORMED。後段500000步、兩目標讀回0／寫3與5、VBE提交0，源與目的正對照通過；獨立較晚畫面見329，正常開局與完整renderer未知。
 
 - [329：正常NEW GAME的100M有界續行](329-moo2-bounded-new-game-continuation.md)：CONFORMED。14 CLI／50M兩基線與100M前綴保持；六快照與較晚致謝文字變化已見、無新CPU拒絕，NEW GAME激活未知。
+
+- [330：正常事件返回與上層判定](330-moo2-event-return-caller.md)：CONFORMED。兩組32步／三RET／非零JNE與CALL邊界、329三流程及72PNG保持；NEW GAME指令仍未知。

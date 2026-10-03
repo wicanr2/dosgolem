@@ -51,6 +51,25 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_event_return_caller_resolution(spec_dir):
+    """330實際RET／上層邊界、329完整保持與未知須同時存在。"""
+    name = '330-moo2-event-return-caller.md'
+    current = (spec_dir / name).read_text()
+    required = ("全部3847列","全部4382列","全部6322列","PNG72","47863846..47863861","47864834..47864849","47863859","213C83","20DB69","20DB87","209197","20DDF2","209325","20DDF7","EAX1","flags206h→202h","所有32步獨立","無callee探勘","每次RAM雜湊","正常開局／remake同狀態未完成","不增加預算","2e3944aef1e541d94231d0b737afd11041bee204bd376cfa5856a6a2ea824a0d","a08c6b3c18fc1a4d89dcaedf69666d0b180e612ade7bff59bc742028025c5cdd","efa03837fe9dcac0be033eab345efc59cfdaa330a67030b5f82204d156ab130a","a9bf44ae5cbd49df4aebba97dfd204243bc375a660065516409f739a6b262e2b","d8c3fe1d846d3d0a41195c65ee38d05af7cafa3e2f471b878b11666a59c62d48","931bb9d364a144460f2b358543f36e110f07e732020b80f69cadc5a6dbcdbdc1",)
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('事件返回缺實際RET／上層邊界／完整保持／收據或未知')
+    older = (spec_dir / '329-moo2-bounded-new-game-continuation.md').read_text()
+    if '正常事件返回與首個上層邊界已由規格330接通' not in older or name not in older:
+        raise RuntimeError('329缺事件返回與上層邊界回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('330缺公開索引入口')
+
+if sys.argv[1:] == ['--check-event-return-spec-backlinks']:
+    validate_event_return_caller_resolution(spec_dir)
+    print('正常事件返回／上層Jcc或CALL／329保持與回填通過')
+    raise SystemExit(0)
+
+
 def validate_bounded_new_game_continuation(spec_dir):
     """329獨立預算、50M保持、100M實際畫面與328回填須同時存在。"""
     name = '329-moo2-bounded-new-game-continuation.md'
