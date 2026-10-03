@@ -56,10 +56,14 @@ func rcRGB(idx []uint8) []uint8 {
 }
 
 // rcPaint 在 (x0, y0) 起逐字元畫 text：墨像素用 ink，其餘（含不在 rcPat 的字元，例如空白）用 bg。
+// 超出畫面下緣的掃描線略過。
 func rcPaint(idx []uint8, x0, y0 int, text string, ink, bg uint8) {
 	for k := 0; k < len(text); k++ {
 		pat, ok := rcPat[text[k]]
 		for r := 0; r < 8; r++ {
+			if y0+r >= screenH {
+				break
+			}
 			for c := 0; c < 8; c++ {
 				v := bg
 				if ok && pat[r][c] == '#' {
@@ -383,6 +387,22 @@ func TestRecolorNoInkFallsBack(t *testing.T) {
 	rcFrame(o, rcScreen(0))
 	rcCount(t, o, "recolor_fallback", 1)
 	rcWant(t, o, "g1", 0, 0) // xlate 只看到一種色號：BG、FG 同色
+
+	// 畫面有三種色號：色號 2 最多、1 次之、0 最少。xlate 定 BG=2、FG=1；
+	// 沒有墨像素時前景直方圖是空的，不能把「空直方圖的眾數 0」當成前景。
+	o = rcNew(t, "ABCD", "甲乙丙丁")
+	rcDraw(t, o, 2, 3, "ABCD")
+	idx := rcScreen(0)
+	rcFill(idx, 16, 24, 48, 32, 2)
+	for i := 0; i < 20; i++ {
+		idx[24*screenW+16+i] = 1
+	}
+	for i := 0; i < 5; i++ {
+		idx[27*screenW+16+i] = 0
+	}
+	rcFrame(o, idx)
+	rcCount(t, o, "recolor_fallback", 1)
+	rcWant(t, o, "g1", 2, 1)
 }
 
 // 部分格被覆蓋（Transparent）：只計入非透明格的像素。
@@ -892,4 +912,32 @@ func TestGateHalfCell(t *testing.T) {
 	rcFrame(o, idx)
 	rcEq(t, "半格變暗", rcViews(o), []string{"g1 X16 Y24 8x4 [abcdefgh] S T=01000000"})
 	rcCount(t, o, "inconsistent_cells", 0)
+}
+
+// 原版格被非透明格覆蓋的像素少於 24 個時略過（視為一致）：疊字的 Y 有位移而下緣被畫面截掉，
+// 半格只剩 5 條掃描線（20 個像素）時略過，剩 6 條（24 個像素）時照常評估。
+func TestGateMinPixelsBoundary(t *testing.T) {
+	for _, c := range []struct {
+		dy   int // 疊字 Y = 192 + dy，畫面內可見的掃描線數 = 8 - dy
+		bad  bool
+		rows int
+	}{{3, false, 5}, {2, true, 6}} {
+		o := rcNew(t, "HlHl", "abcdefgh")
+		rec := rcRec("g1", 2, 24, "HlHl")
+		o.records[rec.ID] = rec
+		o.restoreShadow(Shadow{{ID: rec.ID, DY: c.dy, Hidden: []xrange{{20, 24}}}})
+		y := 192 + c.dy
+		idx := rcScreen(0)
+		rcPaint(idx, 16, y, "HlHl", 3, 0)
+		rcFill(idx, 16, y, 20, screenH, 2) // 原版格 0 的左半（唯一被覆蓋的一半）被與字模無關的圖樣蓋掉
+		rcFrame(o, idx)
+		want := fmt.Sprintf("g1 X16 Y%d 8x4 [abcdefgh] S T=01000000", y)
+		cells := uint64(0)
+		if c.bad {
+			want = fmt.Sprintf("g1 X16 Y%d 8x4 [abcdefgh] S T=11000000", y)
+			cells = 1
+		}
+		rcEq(t, fmt.Sprintf("半格可見 %d 條掃描線（%d 個像素）", c.rows, 4*c.rows), rcViews(o), []string{want})
+		rcCount(t, o, "inconsistent_cells", cells)
+	}
 }

@@ -42,7 +42,7 @@ func set(ss []string) map[string]bool {
 
 var header = []string{"lang", "mode", "check", "image_hash", "img_seg", "hook_sig", "font_hash", "steps", "reads",
 	"vram_hash", "mem_hash", "stamps", "layer_hash", "keys", "untranslated", "untranslated_args", "counters",
-	"stale_cells", "exposed_events", "png", "verdict"}
+	"stale_cells", "exposed_events", "visible_hash", "png", "verdict"}
 
 func main() {
 	root := flag.String("root", "", "原版目錄（必填；缺檔時 SKIP）")
@@ -222,8 +222,22 @@ func runLang(lang string, op runOpts) (bool, error) {
 
 	allOK := true
 	cur := lang
+	vis := map[string]uint64{}
 	var emit strings.Builder
 	for _, st := range op.steps {
+		if st.Kind == phantasie.RouteAssert {
+			fmt.Fprintf(&emit, "@assert-visible-same %s %s\n", st.Name, st.Other)
+			if ov == nil {
+				continue
+			}
+			verdict := "PASS"
+			if vis[st.Name] != vis[st.Other] {
+				verdict = fmt.Sprintf("FAIL：可見格集合不同（%016x 與 %016x）", vis[st.Name], vis[st.Other])
+				allOK = false
+			}
+			fmt.Printf("assert\t%s\t%s\t%s\n", st.Name, st.Other, verdict)
+			continue
+		}
 		if st.Kind == phantasie.RouteLang {
 			fmt.Fprintf(&emit, "@lang %s\n", st.Name)
 			if ov == nil {
@@ -278,6 +292,9 @@ func runLang(lang string, op runOpts) (bool, error) {
 			}
 		}
 		row, verdict := receipt(cur, op, st, o, ov, hk, gate, img, dg, staleMax, exposedMax)
+		if ov != nil {
+			vis[st.Name] = ov.VisibleHash()
+		}
 		fmt.Fprintln(f, strings.Join(append(row, verdict), "\t"))
 		fmt.Printf("%s\t%s\t%s\t%s\n", cur, st.Name, verdict, row[len(row)-1])
 		if verdict != "PASS" && !strings.HasPrefix(verdict, "SKIP") {
@@ -332,6 +349,7 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 	counters := ""
 	stamps := 0
 	layerHash := uint64(0)
+	visibleHash := uint64(0)
 	if ov != nil {
 		keys = ov.KeysShown()
 		unt = ov.C.KeySet("untranslated")
@@ -339,12 +357,14 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 		counters = ov.C.String()
 		stamps = len(ov.Layer.Stamps)
 		layerHash = ov.LayerHash()
+		visibleHash = ov.VisibleHash()
 	}
 	row := []string{lang, mode, st.Name, imageHash, fmt.Sprintf("%04X", img), sig, fontHash,
 		fmt.Sprint(o.Steps()), fmt.Sprint(gate.Reads),
 		fmt.Sprintf("%016x", phantasie.VramHash(o)), fmt.Sprintf("%016x", phantasie.MemHash(o, img, dg)),
 		fmt.Sprint(stamps), fmt.Sprintf("%016x", layerHash), join(keys), join(unt), join(untArgs), counters,
 		fmt.Sprint(stale), fmt.Sprint(exposed),
+		fmt.Sprintf("%016x", visibleHash),
 		fmt.Sprintf("%s.%s.%s.png", op.routeName, st.Name, lang)}
 
 	if ov == nil {

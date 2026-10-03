@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"sort"
 
 	"github.com/wicanr2/dosgolem/oracle"
 )
@@ -81,6 +82,42 @@ func (o *Overlay) LayerHash() uint64 {
 			}
 			b = append(b, t)
 		}
+	}
+	return fnv64(b)
+}
+
+// VisibleHash 是疊字的可見格集合的雜湊（docs/spec/004 §7 第 3 項：語言切換前後可見格集合不變）：
+// 每筆疊字的非透明格換算成像素範圍 (Y, X0, X1)，同一 Y 相鄰範圍合併後雜湊。與 Key、字面、顏色無關。
+func (o *Overlay) VisibleHash() uint64 {
+	type seg struct{ y, x0, x1 int }
+	var rs []seg
+	for _, s := range o.Layer.Stamps {
+		for i := 0; i < s.Cells; i++ {
+			if i < len(s.Transparent) && s.Transparent[i] {
+				continue
+			}
+			rs = append(rs, seg{s.Y, s.X + i*s.CellW, s.X + (i+1)*s.CellW})
+		}
+	}
+	sort.Slice(rs, func(i, j int) bool {
+		if rs[i].y != rs[j].y {
+			return rs[i].y < rs[j].y
+		}
+		return rs[i].x0 < rs[j].x0
+	})
+	var merged []seg
+	for _, r := range rs {
+		if n := len(merged); n > 0 && merged[n-1].y == r.y && r.x0 <= merged[n-1].x1 {
+			if r.x1 > merged[n-1].x1 {
+				merged[n-1].x1 = r.x1
+			}
+			continue
+		}
+		merged = append(merged, r)
+	}
+	var b []byte
+	for _, r := range merged {
+		b = append(b, byte(r.y), byte(r.y>>8), byte(r.x0), byte(r.x0>>8), byte(r.x1), byte(r.x1>>8))
 	}
 	return fnv64(b)
 }
