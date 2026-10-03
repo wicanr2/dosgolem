@@ -738,6 +738,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.fontGlyph(c, false)
 	case 0x20:
 		d.exit(c, 0)
+	case 0x27: // 舊式常駐結束（`docs/spec/197-int27-terminate-and-stay-resident`）
+		d.tsr27(c)
 	case 0x67:
 		d.int67(c)
 	default:

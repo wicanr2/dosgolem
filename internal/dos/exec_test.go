@@ -484,3 +484,139 @@ func TestFileOpsRecordSeekAndRead(t *testing.T) {
 		t.Errorf("讀進來的第一個 byte = %d，預期 100（seek 沒生效）", got)
 	}
 }
+
+// 以下八個測試釘 `int 27h`（`docs/spec/197-int27-terminate-and-stay-resident`）。
+// 期望值一律是字面值：用同一個運算式算期望值，運算式錯了兩邊一起錯。
+
+// runInt27Child 載入一支自編的 .COM 子程式並跑到它結束（TSR 之後行程疊回到空）。
+func runInt27Child(t *testing.T, code []byte) (*machine.Machine, *DOS) {
+	t.Helper()
+	m, d := newTest(t)
+	writeChild(t, d, "T27.COM", code)
+	execChild(m, d, "T27.COM")
+	for i := 0; i < 100 && len(d.procStack) > 0; i++ {
+		if err := m.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.procStack) != 0 {
+		t.Fatal("子程式沒有結束（int 27h 沒被服務？）")
+	}
+	return m, d
+}
+
+// TestInt27RoundsKeepUp：DX 是位元組數，1025 bytes 要留 65 段，不是 64。
+func TestInt27RoundsKeepUp(t *testing.T) {
+	// mov dx,0401h; int 27h
+	_, d := runInt27Child(t, []byte{0xBA, 0x01, 0x04, 0xCD, 0x27})
+	if d.freeSeg != 0x2042 {
+		t.Errorf("freeSeg=%04X，預期 2042（子 PSP 2001 + 41h）", d.freeSeg)
+	}
+	if len(d.ExecLog) != 1 || !d.ExecLog[0].TSR || d.ExecLog[0].Keep != 0x41 {
+		t.Errorf("ExecLog=%+v，預期 TSR 且 Keep=41h", d.ExecLog)
+	}
+}
+
+// TestInt27ExactMultipleNotRoundedUp：剛好整除時不進位。
+func TestInt27ExactMultipleNotRoundedUp(t *testing.T) {
+	// mov dx,0400h; int 27h
+	_, d := runInt27Child(t, []byte{0xBA, 0x00, 0x04, 0xCD, 0x27})
+	if len(d.ExecLog) != 1 || d.ExecLog[0].Keep != 0x40 {
+		t.Errorf("ExecLog=%+v，預期 Keep=40h", d.ExecLog)
+	}
+}
+
+// TestInt27MaxDX：DX=FFFFh 要得 1000h 段；16 位元運算會回繞成 0。
+func TestInt27MaxDX(t *testing.T) {
+	// mov dx,0FFFFh; int 27h
+	_, d := runInt27Child(t, []byte{0xBA, 0xFF, 0xFF, 0xCD, 0x27})
+	if len(d.ExecLog) != 1 || d.ExecLog[0].Keep != 0x1000 {
+		t.Errorf("ExecLog=%+v，預期 Keep=1000h", d.ExecLog)
+	}
+	if d.freeSeg != 0x3001 {
+		t.Errorf("freeSeg=%04X，預期 3001（子 PSP 2001 + 1000h）", d.freeSeg)
+	}
+}
+
+// TestInt27ExitCodeIsZero：離開碼固定 0，AL 的殘值不被採用。
+// 初值是 ExecLog 的 0xFF 哨兵；服務沒接手時行程沒結束，Exit 仍是 0xFF。
+func TestInt27ExitCodeIsZero(t *testing.T) {
+	// mov ax,1234h; mov dx,0400h; int 27h（AL=34h 不能當離開碼）
+	m, d := runInt27Child(t, []byte{0xB8, 0x34, 0x12, 0xBA, 0x00, 0x04, 0xCD, 0x27})
+	if len(d.ExecLog) != 1 || d.ExecLog[0].Exit != 0 {
+		t.Fatalf("ExecLog=%+v，預期 Exit=0", d.ExecLog)
+	}
+	call(m, d, 0x21, 0x4D00)
+	if ax := m.CPU.R[cpu.AX]; ax != 0x0000 {
+		t.Errorf("AH=4Dh 回 AX=%04X，預期 0000", ax)
+	}
+}
+
+// queuedNext 是佇列裡的下一支：mov ax,4C00h; int 21h，補 90h 到 40 bytes
+// （3 個段），開頭不是 MZ。
+func queuedNext() []byte {
+	b := []byte{0xB8, 0x00, 0x4C, 0xCD, 0x21}
+	for len(b) < 40 {
+		b = append(b, 0x90)
+	}
+	return b
+}
+
+// rootInt27 疊底行程（行程疊空、PSP 0100h）以 int 27h 常駐，佇列裡有下一支。
+func rootInt27(t *testing.T, freeSeg, dx uint16) (*machine.Machine, *DOS) {
+	t.Helper()
+	m, d := newTest(t)
+	d.freeSeg = freeSeg
+	writeChild(t, d, "NEXT.COM", queuedNext())
+	d.Enqueue("NEXT.COM", "")
+	m.CPU.R[cpu.DX] = dx
+	call(m, d, 0x27, 0)
+	return m, d
+}
+
+// TestInt27RootThenQueuedProgramLandsAboveResident：對應規格 5.1 的第 1、2 列。
+// 頂層 .COM 名義上擁有整個 64 KB 段，所以 K=0800h 被 max(1100h, 0900h) 吸收。
+func TestInt27RootThenQueuedProgramLandsAboveResident(t *testing.T) {
+	_, d := rootInt27(t, 0x1100, 0x8000)
+	if d.curPSP != 0x1101 {
+		t.Errorf("佇列程式 PSP=%04X，預期 1101", d.curPSP)
+	}
+	if d.freeSeg != 0x1115 {
+		t.Errorf("freeSeg=%04X，預期 1115（1101 + 10h + 3 + 1）", d.freeSeg)
+	}
+}
+
+// TestInt27RootResidentAdvancesFreeSeg：freeSeg 在常駐區之下時，K 才看得見。
+// 0100h + 0800h = 0900h，佇列程式落在 0901h。K 取 0 或 max 不推進都會失敗。
+func TestInt27RootResidentAdvancesFreeSeg(t *testing.T) {
+	_, d := rootInt27(t, 0x0200, 0x8000)
+	if d.curPSP != 0x0901 {
+		t.Errorf("佇列程式 PSP=%04X，預期 0901", d.curPSP)
+	}
+	if d.freeSeg != 0x0915 {
+		t.Errorf("freeSeg=%04X，預期 0915（0901 + 10h + 3 + 1）", d.freeSeg)
+	}
+}
+
+// TestInt27RootResidentRoundsUp：8001h bytes 要 801h 段（截斷會得 800h）。
+func TestInt27RootResidentRoundsUp(t *testing.T) {
+	_, d := rootInt27(t, 0x0200, 0x8001)
+	if d.curPSP != 0x0902 {
+		t.Errorf("佇列程式 PSP=%04X，預期 0902", d.curPSP)
+	}
+	if d.freeSeg != 0x0916 {
+		t.Errorf("freeSeg=%04X，預期 0916（0902 + 10h + 3 + 1）", d.freeSeg)
+	}
+}
+
+// TestInt27NotReportedUnimplemented：服務接手之後不再記「未實作」。
+// 鍵含呼叫端殘留的 AH／AL，所以要走訪整個 map，不能用固定的鍵查。
+func TestInt27NotReportedUnimplemented(t *testing.T) {
+	m, d := newTest(t)
+	call(m, d, 0x27, 0)
+	for k := range d.Unimplemented {
+		if k.Int == 0x27 {
+			t.Fatalf("int 27h 被記成未實作：%+v", k)
+		}
+	}
+}

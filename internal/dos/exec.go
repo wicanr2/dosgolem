@@ -411,6 +411,13 @@ func (d *DOS) tsr(c *cpu.CPU) {
 	d.terminate(c, al(c), true, c.R[cpu.DX])
 }
 
+// tsr27 是 `int 27h`：舊式常駐結束（`docs/spec/197-int27-terminate-and-stay-resident`）。
+// DX 是從 PSP 起要保留的位元組數，向上取整成段數；其餘與 `AH=31h`、AL=00h 相同
+// （離開碼 0，常駐、行程疊與佇列的處理都在 terminate）。
+func (d *DOS) tsr27(c *cpu.CPU) {
+	d.terminate(c, 0, true, uint16((uint32(c.R[cpu.DX])+15)>>4))
+}
+
 // getExitCode 是 `AH=4Dh`（`docs/spec/009` §3）：AL ＝ 離開碼、
 // AH ＝ 結束方式（0 ＝ 正常）。
 //
