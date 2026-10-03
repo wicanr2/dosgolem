@@ -75,17 +75,18 @@ func (o *Overlay) scanRect(col, y0 int, cells []byte, indexed []uint8, f func(k 
 }
 
 // AuditStale 回殘字格數（001 §8、005 §5.1 第 1 項）：每個 Shown 疊字的非透明格所對應的原版格，
-// 畫面已不是該原文的字模畫出的結果（疊字蓋在已不是原文的畫面上）。開啟中事件的事件組略過（A 與 B 之間畫面被半寫）。
+// 畫面已不是該原文的字模畫出的結果（疊字蓋在已不是原文的畫面上）。與開啟中事件矩形相交的事件組略過
+// （A 與 B 之間畫面被半寫，舊疊字的字模檢查必然不成立，不是缺陷）。
 func (o *Overlay) AuditStale(indexed []uint8) int {
 	stale := 0
-	openID := ""
-	if rec, ok := o.Open(); ok {
-		openID = rec.ID
-	}
+	openRec, hasOpen := o.Open()
 	for _, key := range o.groupKeys() {
 		rec := o.records[key]
 		stamps := o.groupStamps(key)
-		if rec == nil || key == openID {
+		if rec == nil || (hasOpen && key == openRec.ID) {
+			continue
+		}
+		if hasOpen && groupOverlapsEvent(stamps, openRec) {
 			continue
 		}
 		shown := true
@@ -139,6 +140,19 @@ func (o *Overlay) AuditStale(indexed []uint8) int {
 		}
 	}
 	return stale
+}
+
+// groupOverlapsEvent 回疊字組的矩形是否與事件 rec 的矩形（原版格 8 像素、同一列）相交。
+func groupOverlapsEvent(stamps []*xlate.Stamp, rec *EventRecord) bool {
+	ex0, ex1 := rec.Col*8, rec.Col*8+len(rec.Cells)*8
+	ey0, ey1 := rec.Row*8, rec.Row*8+8
+	for _, s := range stamps {
+		sx0, sy0, sx1, sy1 := s.Rect()
+		if sx0 < ex1 && ex0 < sx1 && sy0 < ey1 && ey0 < sy1 {
+			return true
+		}
+	}
+	return false
 }
 
 // AuditExposed 回英文外露事件數（005 §5.1 第 2 項）：事件日誌內的事件，其事件矩形目前仍顯示該原文
