@@ -125,3 +125,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-neg-word-spec-backlinks
 ## 362存檔拒絕回填
 
 原237024 SAVE10.GAM唯讀拒絕已由規格362定位；可寫正常路徑仍DRAFT，見[362](362-moo2-save-permission-boundary.md)。原165025480的INT21／3D01／DS188:2BDB68／SAVE10.GAM回AX5／CF1及RAM保持已取，拒絕源於唯讀provider無WriteFileProvider。先前呼叫與檔名未知已解；尚不稱原存檔成功。隔離overlay試跑改變前段流程，在80M完整表閘門停止，設定頁RGB相同而record11–15的+44四byte窗口各增8000h，欄位與消費未知；可寫試作只留本機，不接公開玩家path，不改原336 guard或點擊時刻。下一步依362有界讀初段開檔與這五窗口候選值所指內容，再審查正常輸入，完整開局／RNG與remake同狀態未驗。
+
+## 363前段差異與資料窗口回填
+
+原SOUND3D02與五個+44窗口前128bytes已由規格363核對；可寫玩家路徑仍DRAFT，見[363](363-moo2-overlay-startup-and-setup-source.md)。原1192795／237024的SOUND.LBX讀寫開檔，兩側同原初態但唯讀AX5 CF1／overlay真handle5 CF0。80M五候選值各增8000h，指向的前128byte及RGB相同；兩側各27PNG／各自舊列保持，原418來源檔未變，state僅有內容未變的sound.lbx副本。之前「所指內容未取」已限定解出開頭128bytes，完整物件／角色／原指標消費仍未知。下一步依363另立DRAFT可寫profile正常ACCEPT前置，不忽略位址／調時刻／改舊336唯讀guard。完整存檔／音訊／RNG與remake同狀態未驗。

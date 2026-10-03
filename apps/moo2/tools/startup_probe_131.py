@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_overlay_setup_source_resolution(spec_dir):
+    """363限定SOUND開檔差異與五窗口，可寫玩家路徑仍DRAFT。"""
+    name = "363-moo2-overlay-startup-and-setup-source.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定雙側只讀窗口與早期開檔；可寫玩家驗收DRAFT","6148列、overlay側6271列","各27PNG逐byte保持","沒有ACCEPT press／release","原935bytes guard仍唯讀true／overlay false","每側八個前2M原AH3D開檔","原1192795","dosgolem_high_le:237024","INT21 AX3D02","DS188:26C3AF","sound.lbx","唯讀provider無WriteFileProvider，AX5／CF1／flags203h","真正handle5，CF0／flags202h","前段已不是同一整體執行狀態","後續fonts.lbx開檔原1526485／handle5，overlay1529227／handle6","pointer298848／count17／stride55","49374b4c6dfd2d1d8231cfc137e1b5b7d86c7ec49f6fdf3be7417480d0da948b","首NUL均在offset1","128byte逐byte相同","341126d6d5f317600d89f387b750f90cbe195c7e83958004090ffde1ec5a7e4f","e2b48afd82459643c45a8bea94291387186477c5431351035a6ecd5ca428a9f8","6ab2a1c7f01f7912ef08b9127444b862b751ea944016504f37161c08eff4d8fc","6ce77ceefe8e64b2998a582e73b9551fb70a924c2811bc56c42e87d33b622e0d","c4ee738ae1b11e3ed4125bf1d3d653739af8627cc1b81aa9a7e8ef53adfddabc","完整物件長度／消費端／角色仍未知","兩側原418檔guest前後bytes逐檔SHA-256完全保持","state只有sound.lbx 4250888bytes","3f0354ac5c1b13a3c5c4fd098c2cbc22af37b71e74fc95e582782c22024c449d","未有SAVE10.GAM state，不稱存檔成功","原336唯讀guard保持","不能直接忽略指標差異","公開internal／CPU／DOS服務／provider／probe完全保持4f9c45b","主庫玩法RE-first保持"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定雙側', current, re.M):
+        raise RuntimeError("363缺SOUND同原初態／五窗口／舊列PNG／可寫DRAFT與未知")
+    for older_name in ["360-cpu386-cwd-word.md","359-cpu386-sub-word-register-source.md","358-cpu386-neg-word.md","357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md","297-cpu386-ror-dword-register-imm8.md","361-cpu386-ror-dword-memory-imm8.md","336-moo2-setup-accept-normal-click.md","362-moo2-save-permission-boundary.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原SOUND3D02與五個+44窗口前128bytes已由規格363核對；可寫玩家路徑仍DRAFT" not in older:
+            raise RuntimeError("較早規格缺SOUND與五窗口回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("363缺公開索引入口")
+
+if sys.argv[1:] == ['--check-overlay-setup-source-spec-backlinks']:
+    validate_overlay_setup_source_resolution(spec_dir)
+    print("SOUND同初態CF差異／五個128byte窗口／舊PNG及原檔保持／可寫DRAFT／較早回填通過")
+    raise SystemExit(0)
+
 def validate_save_permission_diagnostic_resolution(spec_dir):
     """362只驗唯讀拒絕，隔離可寫正常路徑保持DRAFT。"""
     name = "362-moo2-save-permission-boundary.md"

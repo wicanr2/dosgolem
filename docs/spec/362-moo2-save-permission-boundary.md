@@ -67,3 +67,7 @@ bash workplace/new-game-362-off-run.sh
 完成聲明只限唯讀診斷與工具拒絕定位。公開源碼不是可寫試作；正式存檔／完整開局／RNG／remake同狀態仍未驗。文件回填鏈與守衛不把DRAFT覆蓋層列為成功。
 
 99項規格回填與新362的29＋32缺證據負例、全部較早負例通過。--check-save-permission-diagnostic-spec-backlinks只驗唯讀拒絕及可寫DRAFT限制。公開probe SHA-256 63b0182fc7311d4e0760dc29906419a1480ea3fa12faf1e58067f61775104bb1；可寫試作f1f2be8d3a2a15cb0fa0d7013b64f8ed97d9798f5b9a2b6d85b69f570602043a；失敗原收據5bc986900a6f8fcd2a5089f93dfbd83a7540a9bb4fac729832b8054770155a62。兩者分開，不把試作與公開程式混稱。唯讀與可寫收據的原檔／腳本雜湊保存於MOO2研究入口docs/re/dosgolem-moo2-intake-20260930.md。歷史formal-run使用當輪試作；未來明示重生用workplace/new-game-362-prototype-rerun.sh，在容器/tmp從固定361 Git輸入與本機已雜湊試作另建隔離source，不覆寫原失敗收據；本輪未執行此重生入口。
+
+## 363前段差異與資料窗口回填
+
+原SOUND3D02與五個+44窗口前128bytes已由規格363核對；可寫玩家路徑仍DRAFT，見[363](363-moo2-overlay-startup-and-setup-source.md)。原1192795／237024的SOUND.LBX讀寫開檔，兩側同原初態但唯讀AX5 CF1／overlay真handle5 CF0。80M五候選值各增8000h，指向的前128byte及RGB相同；兩側各27PNG／各自舊列保持，原418來源檔未變，state僅有內容未變的sound.lbx副本。之前「所指內容未取」已限定解出開頭128bytes，完整物件／角色／原指標消費仍未知。下一步依363另立DRAFT可寫profile正常ACCEPT前置，不忽略位址／調時刻／改舊336唯讀guard。完整存檔／音訊／RNG與remake同狀態未驗。

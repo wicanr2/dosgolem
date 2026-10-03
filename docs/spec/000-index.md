@@ -590,3 +590,5 @@
 - [361：dword記憶體ROR與立即數](361-cpu386-ror-dword-memory-imm8.md)：限定CONFORMED。原ROR000B1818→18000B18／CF0與A1真正load、10949正常前綴／35frames／全套通過；同180M無CPU拒絕，終圖存檔Permission denied，完整開局未驗。
 
 - [362：正常開局DOS存檔權限邊界](362-moo2-save-permission-boundary.md)，CONFORMED限定唯讀拒絕診斷，覆蓋層玩家驗收DRAFT。
+
+- [363：覆蓋層前段開檔與設定頁五個資料窗口](363-moo2-overlay-startup-and-setup-source.md)，CONFORMED限定早期開檔與五窗口，可寫玩家驗收DRAFT。
