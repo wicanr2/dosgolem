@@ -176,6 +176,10 @@ type EclTextPage struct {
 	// as, for the particle mark that starts the next call; 0 when it ends with
 	// anything else.
 	lastReading rune
+	// Lang is the language of the watcher that built the page (spec 057 §3.2):
+	// the overlay reads the shrink table of that language, so the layout and
+	// the drawing of a page always use the same table.  "" is zh-TW.
+	Lang string
 }
 
 // Shows reports whether the page still masks the given row.
@@ -456,7 +460,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		// cursor and continuation state.  Spec 045 §3.4: when the call owes
 		// a space (spaceNeeded, Korean only) each tier is tried with the
 		// space first.
-		c := layoutPlayerName(w.layout, player, e.Original, spaceNeeded, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
+		c := layoutPlayerName(w.layout, w.levels(), player, e.Original, spaceNeeded, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom)
 		lines, endRow, endCol, fits = c.lines, c.endRow, c.endCol, c.fits
 		switch c.kind {
 		case playerFull:
@@ -524,7 +528,7 @@ func (w *EclTextWatcher) ObserveEntry(e EclTextEntry) {
 		return
 	}
 	next := &EclTextPage{Left: e.Left, Top: first, Right: e.Right, Bottom: e.Bottom, TopCol: topCol,
-		Background: e.Background, Foreground: e.Foreground, endRow: endRow, endCol: endCol}
+		Background: e.Background, Foreground: e.Foreground, endRow: endRow, endCol: endCol, Lang: w.catalog.langOf()}
 	if p != nil {
 		next.Lines = append(next.Lines, p.Lines...)
 		next.Keys = append(next.Keys, p.Keys...)
@@ -585,6 +589,17 @@ func lastHangul(rs []rune) rune {
 // ko reports the Korean catalog (spec 054 §3.2 applies to it only).
 func (c *EclTextCatalog) ko() bool { return c != nil && c.lang == LangKo }
 
+// langOf is the language of the catalog; a nil catalog and "" give "" (zh-TW).
+func (c *EclTextCatalog) langOf() string {
+	if c == nil {
+		return ""
+	}
+	return c.lang
+}
+
+// levels is the shrink table of the language of the watcher (spec 057 §3.2).
+func (w *EclTextWatcher) levels() []shrinkSpec { return shrinkLevelsFor(w.catalog.langOf()) }
+
 // partyNames is the spec 054 §3.3 resolver of a call's snapshot: only a
 // Korean or Japanese lane with player names has one.
 func (w *EclTextWatcher) partyNames(party *PartySnapshot) PartyNameFunc {
@@ -617,6 +632,7 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 	if lead != 0 {
 		body, pl.marker = koResolveLeading(txt, lead)
 	}
+	levels := w.levels()
 	attempt := func(t string) (ls []EclTextLine, er, ec uint8, ok bool, tier NameTier, lv int) {
 		variants := []AnnotatedText{{Tier: NameTierNone, Text: []rune(t)}}
 		if key != "engine" && key != "passthrough" && w.names != nil {
@@ -632,8 +648,8 @@ func (w *EclTextWatcher) placeText(txt, key string, isPlayer, fullStop, fresh bo
 			// Spec 056 §3.4: the annotated text is drawn smaller before the
 			// annotation steps down to the first occurrence only.
 			if i == 0 && len(v.Units) > 0 {
-				for _, s := range shrinkLevels {
-					if ls, er, ec, ok = layoutEclTextLevel(w.layout, v.Text, v.Units, s.Level, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
+				for _, s := range levels {
+					if ls, er, ec, ok = layoutEclTextLevel(w.layout, levels, v.Text, v.Units, s.Level, row, col, eclUnitLeft(e.Left), eclUnitRight(e.Right), e.Bottom); ok {
 						lv = s.Level
 						return
 					}
@@ -713,7 +729,7 @@ type playerLayout struct {
 // spec 038 had before.  The space is a token of its own: it is not inside a
 // name unit, so the units shift by one.  When nothing fits, the result is
 // the last try (the plain English text) with fits false.
-func layoutPlayerName(prof *LayoutProfile, player []AnnotatedText, original []byte, space bool, row, col, left, right, bottom uint8) playerLayout {
+func layoutPlayerName(prof *LayoutProfile, levels []shrinkSpec, player []AnnotatedText, original []byte, space bool, row, col, left, right, bottom uint8) playerLayout {
 	spaced := func(v AnnotatedText) AnnotatedText {
 		out := AnnotatedText{Tier: v.Tier, Text: append([]rune{' '}, v.Text...)}
 		for _, u := range v.Units {
@@ -731,8 +747,8 @@ func layoutPlayerName(prof *LayoutProfile, player []AnnotatedText, original []by
 		if c, ok := try(kind, hasSpace, text, units); ok || kind != playerFull {
 			return c, ok
 		}
-		for _, sp := range shrinkLevels {
-			ls, er, ec, ok := layoutEclTextLevel(prof, text, units, sp.Level, row, col, left, right, bottom)
+		for _, sp := range levels {
+			ls, er, ec, ok := layoutEclTextLevel(prof, levels, text, units, sp.Level, row, col, left, right, bottom)
 			if ok {
 				return playerLayout{kind: kind, spaced: hasSpace, shrink: sp.Level, lines: ls, endRow: er, endCol: ec, fits: true}, true
 			}

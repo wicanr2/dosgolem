@@ -47,6 +47,7 @@ func eclRowText(p *EclTextPage, row, start uint8) []rune {
 // removes the whole unit, and a unit that does not lie inside [start, right]
 // is not drawn and writes no slot.
 func eclRowTextShrink(p *EclTextPage, row, start uint8) ([]rune, []EclTextLine) {
+	levels := shrinkLevelsFor(p.Lang)
 	from, to := int(eclUnitLeft(start)), int(eclUnitRight(p.Right))+1
 	slots := make([]rune, to-from)   // 0 empty, -1 second unit of a full-width rune
 	owner := make([]int, len(slots)) // 1 + the index of the shrunk unit that holds the slot, 0 none
@@ -80,7 +81,7 @@ func eclRowTextShrink(p *EclTextPage, row, start uint8) ([]rune, []EclTextLine) 
 		}
 		u := int(l.Col) - from
 		if l.Shrink != 0 {
-			spec, ok := shrinkSpecFor(int(l.Shrink))
+			spec, ok := shrinkSpecIn(levels, int(l.Shrink))
 			if !ok {
 				continue
 			}
@@ -149,9 +150,10 @@ func (o *EclTextOverlay) Sync(pages []*EclTextPage, gen uint64, palette [256][3]
 	o.cols = nil
 	var miss []rune
 	for _, p := range pages {
+		levels := shrinkLevelsFor(p.Lang)
 		for _, l := range p.Lines {
 			if l.Shrink != 0 {
-				if spec, ok := shrinkSpecFor(int(l.Shrink)); ok {
+				if spec, ok := shrinkSpecIn(levels, int(l.Shrink)); ok {
 					miss = append(miss, missingShrinkRunes(shrinkFontsOf(o.base, spec, o.scale), l.Text)...)
 				}
 				continue
@@ -178,7 +180,7 @@ func (o *EclTextOverlay) Sync(pages []*EclTextPage, gen uint64, palette [256][3]
 			// Spec 056 §3.6: the shrunk units come after the normal segments,
 			// so the background fill of those does not cover them.
 			for _, l := range shrunk {
-				if spec, ok := shrinkSpecFor(int(l.Shrink)); ok {
+				if spec, ok := shrinkSpecIn(shrinkLevelsFor(p.Lang), int(l.Shrink)); ok {
 					stamps = append(stamps, shrinkStamps(rowKey, len(stamps), int(l.Col), int(row)*8, l.Text, spec, o.scale,
 						shrinkFontsOf(o.base, spec, o.scale), bg, fg)...)
 				}

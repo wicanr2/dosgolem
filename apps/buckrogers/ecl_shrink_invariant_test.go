@@ -175,7 +175,7 @@ func TestShrinkInvariantSynthetic(t *testing.T) {
 			place.classifyPlace(c, old, cur)
 		})
 		pre056EachPlayer(l, 2, func(c pre056PlayerCase) {
-			cur := layoutPlayerName(l.prof, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
+			cur := layoutPlayerName(l.prof, shrinkLevels, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
 			player.classifyPlayer(c, pre056PlayerFrozen(l.prof, c), cur)
 		})
 		place.check(t, l.lang+" placeText")
@@ -292,7 +292,7 @@ func TestShrinkInvariantFormalText(t *testing.T) {
 					col:  eclUnitLeft(g[0]) + uint8(rnd.Intn(int(eclUnitRight(g[2])-eclUnitLeft(g[0]))+1)),
 					left: eclUnitLeft(g[0]), right: eclUnitRight(g[2]), b: g[3]}
 				c.space = w.layout != nil && w.layout.word && rnd.Intn(2) == 0
-				cur := layoutPlayerName(w.layout, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
+				cur := layoutPlayerName(w.layout, shrinkLevels, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
 				player.classifyPlayer(c, layoutPlayerNamePre056(w.layout, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b), cur)
 			}
 		}

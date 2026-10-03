@@ -22,16 +22,35 @@ import (
 // FullGlyph the square glyph, FullInset the x offset of a full glyph; HalfW and
 // HalfH the half glyph; the Y values are the GlyphY of a bottom-aligned stamp.
 type shrinkMetrics struct {
-	FullCell, FullGlyph, FullInset int
-	HalfW, HalfH                   int
-	FullGlyphY, HalfGlyphY         int
+	FullCell, FullGlyphW, FullGlyphH, FullInset int
+	HalfW, HalfH                                int
+	FullGlyphY, HalfGlyphY                      int
+}
+
+// shrinkThr is the area threshold n/d of the full-width glyphs of a level (spec
+// 057 §3.2): a target pixel is lit when its ink area × d ≥ n × its area.  The
+// zero value is 1/2, the rule of spec 056.
+type shrinkThr struct{ N, D int }
+
+// get returns the normalized threshold.  A value that is neither zero nor
+// 0 < n ≤ d is a table error and panics (TestShrinkLevelTable reports it first).
+func (t shrinkThr) get() (n, d int) {
+	if t == (shrinkThr{}) {
+		return 1, 2
+	}
+	if t.N <= 0 || t.D <= 0 || t.N > t.D {
+		panic(fmt.Sprintf("buckrogers: shrink threshold %d/%d", t.N, t.D))
+	}
+	return t.N, t.D
 }
 
 // shrinkSpec is one level.  FullLP and HalfLP are the logical pixels a full or
-// half character takes (a normal one takes 8 and 4).
+// half character takes (a normal one takes 8 and 4).  Thr applies to the
+// full-width glyphs only; the half-width ones always use 1/2.
 type shrinkSpec struct {
 	Level          int
 	FullLP, HalfLP int
+	Thr            shrinkThr
 	X2, X3         shrinkMetrics
 }
 
@@ -40,11 +59,37 @@ type shrinkSpec struct {
 // switches the feature off); tests that do must not run in parallel.
 var shrinkLevels = []shrinkSpec{
 	{Level: 1, FullLP: 6, HalfLP: 3,
-		X2: shrinkMetrics{FullCell: 12, FullGlyph: 12, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 4, HalfGlyphY: 4},
-		X3: shrinkMetrics{FullCell: 18, FullGlyph: 16, FullInset: 1, HalfW: 9, HalfH: 18, FullGlyphY: 7, HalfGlyphY: 6}},
+		X2: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 12, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 4, HalfGlyphY: 4},
+		X3: shrinkMetrics{FullCell: 18, FullGlyphW: 16, FullGlyphH: 16, FullInset: 1, HalfW: 9, HalfH: 18, FullGlyphY: 7, HalfGlyphY: 6}},
 	{Level: 2, FullLP: 4, HalfLP: 2,
-		X2: shrinkMetrics{FullCell: 8, FullGlyph: 8, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 8, HalfGlyphY: 8},
-		X3: shrinkMetrics{FullCell: 12, FullGlyph: 11, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 12, HalfGlyphY: 12}},
+		X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 8, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 8, HalfGlyphY: 8},
+		X3: shrinkMetrics{FullCell: 12, FullGlyphW: 11, FullGlyphH: 11, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 12, HalfGlyphY: 12}},
+}
+
+// shrinkLangLevels are the level tables of the languages that do not use the
+// default table (spec 057 §3.2).  A key with an empty table switches the
+// shrinking of that language off.  Only tests write it.
+var shrinkLangLevels = map[string][]shrinkSpec{
+	LangJa: jaShrinkLevels,
+}
+
+// jaShrinkLevels is the Japanese table of spec 057 §3.3: L1 as in spec 056; L2
+// keeps the cell (FullLP 4, HalfLP 2) and draws the full-width glyph taller so
+// that the dakuten and handakuten of the kana stay apart.
+var jaShrinkLevels = []shrinkSpec{
+	shrinkLevels[0],
+	{Level: 2, FullLP: 4, HalfLP: 2,
+		X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 14, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 2, HalfGlyphY: 8},
+		X3: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}},
+}
+
+// shrinkLevelsFor returns the level table of a language: its own table when it
+// has one, else the default (spec 057 §3.2).
+func shrinkLevelsFor(lang string) []shrinkSpec {
+	if t, ok := shrinkLangLevels[lang]; ok {
+		return t
+	}
+	return shrinkLevels
 }
 
 // metrics returns the numbers for a presenter scale (2 or 3).
@@ -55,9 +100,9 @@ func (s shrinkSpec) metrics(scale int) shrinkMetrics {
 	return s.X2
 }
 
-// shrinkSpecFor finds a level of the current table.
-func shrinkSpecFor(level int) (shrinkSpec, bool) {
-	for _, s := range shrinkLevels {
+// shrinkSpecIn finds a level of a table.
+func shrinkSpecIn(levels []shrinkSpec, level int) (shrinkSpec, bool) {
+	for _, s := range levels {
 		if s.Level == level {
 			return s, true
 		}
@@ -95,8 +140,8 @@ func shrinkUnitUnits(unit []rune, s shrinkSpec) int {
 // shrink level.  Level 0, an unknown level and a text without units are
 // layoutEclTextP itself.  The units are sorted and disjoint (the contract of
 // layoutEclTextUnits).
-func layoutEclTextLevel(prof *LayoutProfile, text []rune, units []NameUnit, level int, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
-	spec, ok := shrinkSpecFor(level)
+func layoutEclTextLevel(prof *LayoutProfile, levels []shrinkSpec, text []rune, units []NameUnit, level int, row, col, left, right, bottom uint8) ([]EclTextLine, uint8, uint8, bool) {
+	spec, ok := shrinkSpecIn(levels, level)
 	if level == 0 || !ok || len(units) == 0 || len(units) > shrinkPlaceholderMax-shrinkPlaceholderBase {
 		return layoutEclTextP(prof, text, units, row, col, left, right, bottom)
 	}
@@ -201,10 +246,16 @@ func resampleInk(src []byte, sw, sh, tw, th int) []int {
 // target pixel is lit when the ink among the source pixels it overlaps covers
 // at least half of it (2×ink ≥ sw×sh).  With equal sizes the glyph is copied.
 func resampleGlyph(src []byte, sw, sh, tw, th int) []byte {
+	return resampleGlyphThr(src, sw, sh, tw, th, 1, 2)
+}
+
+// resampleGlyphThr is resampleGlyph with the threshold n/d (spec 057 §3.2): a
+// target pixel is lit when its ink area × d ≥ n × its area.
+func resampleGlyphThr(src []byte, sw, sh, tw, th, n, d int) []byte {
 	tb := (tw + 7) / 8
 	out := make([]byte, th*tb)
 	for i, ink := range resampleInk(src, sw, sh, tw, th) {
-		if 2*ink >= sw*sh {
+		if d*ink >= n*sw*sh {
 			x, y := i%tw, i/tw
 			out[y*tb+x/8] |= 0x80 >> uint(x%8)
 		}
@@ -217,7 +268,12 @@ func resampleGlyph(src []byte, sw, sh, tw, th int) []byte {
 // blank lights the one target pixel with the most ink (the first in raster
 // order among equals), so every character the source draws stays visible.
 func shrinkGlyph(src []byte, sw, sh, tw, th int) []byte {
-	out := resampleGlyph(src, sw, sh, tw, th)
+	return shrinkGlyphThr(src, sw, sh, tw, th, 1, 2)
+}
+
+// shrinkGlyphThr is shrinkGlyph with the threshold n/d.
+func shrinkGlyphThr(src []byte, sw, sh, tw, th, n, d int) []byte {
+	out := resampleGlyphThr(src, sw, sh, tw, th, n, d)
 	if glyphHasInk(out) || !glyphHasInk(src) {
 		return out
 	}
@@ -242,16 +298,16 @@ func glyphHasInk(g []byte) bool {
 	return false
 }
 
-// deriveShrinkFont resamples every glyph of src to tw×th with shrinkGlyph, so
-// a glyph with ink in src has ink in the result.
-func deriveShrinkFont(src *xlate.Font, tw, th int, name string) *xlate.Font {
+// deriveShrinkFont resamples every glyph of src to tw×th with shrinkGlyphThr
+// (threshold n/d), so a glyph with ink in src has ink in the result.
+func deriveShrinkFont(src *xlate.Font, tw, th int, name string, n, d int) *xlate.Font {
 	out := &xlate.Font{W: tw, H: th, Name: name, Glyphs: make(map[rune][]byte, len(src.Glyphs))}
 	sb := (src.W + 7) / 8
 	for r, g := range src.Glyphs {
 		if len(g) != src.H*sb {
 			continue
 		}
-		out.Glyphs[r] = shrinkGlyph(g, src.W, src.H, tw, th)
+		out.Glyphs[r] = shrinkGlyphThr(g, src.W, src.H, tw, th, n, d)
 	}
 	return out
 }
@@ -261,8 +317,9 @@ func deriveShrinkFont(src *xlate.Font, tw, th int, name string) *xlate.Font {
 type shrinkFontSet struct{ Full, Half *xlate.Font }
 
 type shrinkFontKey struct {
-	base         *xlate.Font
-	level, scale int
+	base  *xlate.Font
+	spec  shrinkSpec // the whole level: size, threshold and logical widths (spec 057 §3.2)
+	scale int
 }
 
 var shrinkFontCache = struct {
@@ -274,7 +331,7 @@ var shrinkFontCache = struct {
 // overlay was built with (spec 056 §3.3): full characters from base, half
 // characters from the 8×16 half font of spec 039.
 func shrinkFontsOf(base *xlate.Font, s shrinkSpec, scale int) *shrinkFontSet {
-	key := shrinkFontKey{base, s.Level, scale}
+	key := shrinkFontKey{base, s, scale}
 	shrinkFontCache.Lock()
 	defer shrinkFontCache.Unlock()
 	if f, ok := shrinkFontCache.m[key]; ok {
@@ -285,9 +342,10 @@ func shrinkFontsOf(base *xlate.Font, s shrinkSpec, scale int) *shrinkFontSet {
 	if name == "" {
 		name = "buckrogers"
 	}
-	f := &shrinkFontSet{Full: deriveShrinkFont(base, m.FullGlyph, m.FullGlyph, fmt.Sprintf("%s.shrink%d.x%d.full", name, s.Level, scale))}
+	tn, td := s.Thr.get()
+	f := &shrinkFontSet{Full: deriveShrinkFont(base, m.FullGlyphW, m.FullGlyphH, fmt.Sprintf("%s.shrink%d.x%d.full%dx%d.t%dof%d", name, s.Level, scale, m.FullGlyphW, m.FullGlyphH, tn, td), tn, td)}
 	if h := halfFontsOf(base); h != nil && h.Err == nil && h.X2 != nil {
-		f.Half = deriveShrinkFont(h.X2, m.HalfW, m.HalfH, fmt.Sprintf("%s.shrink%d.x%d.half", name, s.Level, scale))
+		f.Half = deriveShrinkFont(h.X2, m.HalfW, m.HalfH, fmt.Sprintf("%s.shrink%d.x%d.half%dx%d", name, s.Level, scale, m.HalfW, m.HalfH), 1, 2)
 	}
 	shrinkFontCache.m[key] = f
 	return f

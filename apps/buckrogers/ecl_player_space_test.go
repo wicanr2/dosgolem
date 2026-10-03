@@ -146,12 +146,12 @@ func TestLayoutPlayerNameOrder(t *testing.T) {
 	// width 10 units, one row, the cursor at the start of the row's cells
 	const left, right, bottom = 1, 5, 17
 	run := func(full, cn string, orig string, space bool, col uint8) playerLayout {
-		return layoutPlayerName(layoutKo, []AnnotatedText{mk(full), mk(cn)}, []byte(orig), space, 17, col*2, left*2, right*2+1, bottom)
+		return layoutPlayerName(layoutKo, shrinkLevels, []AnnotatedText{mk(full), mk(cn)}, []byte(orig), space, 17, col*2, left*2, right*2+1, bottom)
 	}
 	_ = run
 	// Use the real column coordinates instead: eclUnitLeft/eclUnitRight.
 	lay := func(full, cn, orig string, space bool, col uint8) playerLayout {
-		return layoutPlayerName(layoutKo, []AnnotatedText{mk(full), mk(cn)}, []byte(orig), space, 17, col, eclUnitLeft(1), eclUnitRight(5), 17)
+		return layoutPlayerName(layoutKo, shrinkLevels, []AnnotatedText{mk(full), mk(cn)}, []byte(orig), space, 17, col, eclUnitLeft(1), eclUnitRight(5), 17)
 	}
 	start := eclUnitLeft(1) + 2 // two units already drawn on the row: 8 units left
 	type want struct {

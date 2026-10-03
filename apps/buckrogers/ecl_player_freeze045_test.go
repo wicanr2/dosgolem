@@ -55,7 +55,7 @@ func TestLayoutPlayerNameMatchesPre045WithoutSpace(t *testing.T) {
 				for row := uint8(17); row <= bottom; row++ {
 					for col := left; col <= right+1; col++ {
 						kind, lines, er, ec, fits := layoutPlayerNamePre045(pr.p, player, []byte(nm.orig), row, col, left, right, bottom)
-						got := layoutPlayerName(pr.p, player, []byte(nm.orig), false, row, col, left, right, bottom)
+						got := layoutPlayerName(pr.p, shrinkLevels, player, []byte(nm.orig), false, row, col, left, right, bottom)
 						if got.kind != kind || got.spaced || got.fits != fits || got.endRow != er || got.endCol != ec || !equalLines(got.lines, lines) {
 							t.Fatalf("%s %s window %v row %d col %d：kind %d/%d fits %v/%v end %d,%d/%d,%d spaced=%v",
 								pr.name, nm.orig, win, row, col, got.kind, kind, got.fits, fits, got.endRow, got.endCol, er, ec, got.spaced)

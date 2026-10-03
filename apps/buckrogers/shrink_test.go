@@ -7,13 +7,33 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// withShrinkLevels replaces the level table of spec 056 for one test and
-// restores it afterwards.  Tests that use it must not run in parallel.
+// withShrinkLevels replaces the default level table for one test, clears every
+// language table (so all languages read the replaced one) and restores both
+// afterwards.  With no level it switches the shrinking off for all languages.
+// Tests that use it must not run in parallel.
 func withShrinkLevels(t *testing.T, levels ...shrinkSpec) {
 	t.Helper()
-	old := shrinkLevels
-	shrinkLevels = levels
-	t.Cleanup(func() { shrinkLevels = old })
+	old, oldLang := shrinkLevels, shrinkLangLevels
+	shrinkLevels, shrinkLangLevels = levels, map[string][]shrinkSpec{}
+	t.Cleanup(func() { shrinkLevels, shrinkLangLevels = old, oldLang })
+}
+
+// withLangShrinkLevels replaces the table of one language (spec 057 §3.2):
+// with no level it switches the shrinking of that language off.  It restores
+// the table afterwards.
+func withLangShrinkLevels(t *testing.T, lang string, levels ...shrinkSpec) {
+	t.Helper()
+	cp := map[string][]shrinkSpec{}
+	for k, v := range shrinkLangLevels {
+		cp[k] = v
+	}
+	if levels == nil {
+		levels = []shrinkSpec{}
+	}
+	cp[lang] = levels
+	oldMap := shrinkLangLevels
+	shrinkLangLevels = cp
+	t.Cleanup(func() { shrinkLangLevels = oldMap })
 }
 
 // noShrink switches the shrink feature off: the layout steps down exactly as
@@ -25,50 +45,104 @@ func noShrink(t *testing.T) {
 
 // ---- spec 056 §5.1: levels and glyph derivation ----
 
-// The level table is the table of spec 056 §3.2, number by number, and its
-// L0 column is the normal glyph geometry of the code.
+// shrinkTablesUnderTest are the tables whose geometry TestShrinkLevelTable and
+// the drawing tests check: the default one and the language tables.
+func shrinkTablesUnderTest() []struct {
+	name   string
+	levels []shrinkSpec
+} {
+	return []struct {
+		name   string
+		levels []shrinkSpec
+	}{
+		{"default", shrinkLevels},
+		{LangJa, shrinkLevelsFor(LangJa)},
+	}
+}
+
+// The default level table is the table of spec 056 §3.2, number by number; the
+// Japanese table is the one of spec 057 §3.3; and every table follows the
+// geometry relations of spec 057 §3.2 (3).  The L0 column is the normal glyph
+// geometry of the code.
 func TestShrinkLevelTable(t *testing.T) {
-	want := []shrinkSpec{
+	defaultWant := []shrinkSpec{
 		{Level: 1, FullLP: 6, HalfLP: 3,
-			X2: shrinkMetrics{12, 12, 0, 6, 12, 4, 4}, X3: shrinkMetrics{18, 16, 1, 9, 18, 7, 6}},
+			X2: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 12, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 4, HalfGlyphY: 4},
+			X3: shrinkMetrics{FullCell: 18, FullGlyphW: 16, FullGlyphH: 16, FullInset: 1, HalfW: 9, HalfH: 18, FullGlyphY: 7, HalfGlyphY: 6}},
 		{Level: 2, FullLP: 4, HalfLP: 2,
-			X2: shrinkMetrics{8, 8, 0, 4, 8, 8, 8}, X3: shrinkMetrics{12, 11, 0, 6, 12, 12, 12}},
+			X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 8, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 8, HalfGlyphY: 8},
+			X3: shrinkMetrics{FullCell: 12, FullGlyphW: 11, FullGlyphH: 11, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 12, HalfGlyphY: 12}},
 	}
-	if len(shrinkLevels) != len(want) {
-		t.Fatalf("%d levels", len(shrinkLevels))
+	jaL2 := shrinkSpec{Level: 2, FullLP: 4, HalfLP: 2,
+		X2: shrinkMetrics{FullCell: 8, FullGlyphW: 8, FullGlyphH: 14, FullInset: 0, HalfW: 4, HalfH: 8, FullGlyphY: 2, HalfGlyphY: 8},
+		X3: shrinkMetrics{FullCell: 12, FullGlyphW: 12, FullGlyphH: 16, FullInset: 0, HalfW: 6, HalfH: 12, FullGlyphY: 7, HalfGlyphY: 12}}
+	check := func(name string, got, want []shrinkSpec) {
+		if len(got) != len(want) {
+			t.Fatalf("%s: %d levels", name, len(got))
+		}
+		for i, w := range want {
+			if got[i] != w {
+				t.Errorf("%s level %d: %+v want %+v", name, w.Level, got[i], w)
+			}
+		}
 	}
-	for i, w := range want {
-		if shrinkLevels[i] != w {
-			t.Errorf("level %d: %+v want %+v", w.Level, shrinkLevels[i], w)
+	check("default", shrinkLevels, defaultWant)
+	check(LangJa, shrinkLevelsFor(LangJa), []shrinkSpec{defaultWant[0], jaL2})
+	// Languages without a table read the default one.
+	for _, lang := range []string{"", LangZhTW, LangZhCN, LangEn, LangTest} {
+		if got := shrinkLevelsFor(lang); len(got) != 2 || got[0] != defaultWant[0] || got[1] != defaultWant[1] {
+			t.Errorf("language %q: %+v", lang, got)
 		}
 	}
 	// L0: the glyph geometry the code draws with today.
 	hf := DeriveHalfFonts(halfTestFont("l0", "A"))
 	l0 := map[int]shrinkMetrics{
-		2: {FullCell: 16, FullGlyph: 16, FullInset: manualGlyphOffset(2), HalfW: hf.X2.W, HalfH: hf.X2.H},
-		3: {FullCell: 24, FullGlyph: 22, FullInset: manualGlyphOffset(3), HalfW: hf.X3.W, HalfH: hf.X3.H},
+		2: {FullCell: 16, FullGlyphW: 16, FullGlyphH: 16, FullInset: manualGlyphOffset(2), HalfW: hf.X2.W, HalfH: hf.X2.H},
+		3: {FullCell: 24, FullGlyphW: 22, FullGlyphH: 22, FullInset: manualGlyphOffset(3), HalfW: hf.X3.W, HalfH: hf.X3.H},
 	}
 	if l0[2].FullInset != 0 || l0[3].FullInset != 1 || l0[2].HalfW != 8 || l0[2].HalfH != 16 || l0[3].HalfW != 12 || l0[3].HalfH != 24 {
 		t.Fatalf("L0 geometry changed: %+v", l0)
 	}
-	// Every number of a level follows from its LP sizes and the L0 geometry:
-	// the cell is LP × scale, the inset ⌊(cell − glyph)/2⌋, the half glyph is
-	// half a cell wide and a cell high, and both are bottom aligned.
-	for _, s := range shrinkLevels {
-		for scale, m := range map[int]shrinkMetrics{2: s.X2, 3: s.X3} {
-			if m.FullCell != s.FullLP*scale || m.HalfW != s.HalfLP*scale || m.HalfH != m.FullCell {
-				t.Errorf("L%d %d×: cell %d half %d×%d vs LP %d/%d", s.Level, scale, m.FullCell, m.HalfW, m.HalfH, s.FullLP, s.HalfLP)
-			}
-			if m.FullInset != (m.FullCell-m.FullGlyph)/2 {
-				t.Errorf("L%d %d×: inset %d", s.Level, scale, m.FullInset)
-			}
-			r := 8 * scale
-			if m.FullGlyphY != r-m.FullGlyph-l0[scale].FullInset || m.HalfGlyphY != r-m.HalfH {
-				t.Errorf("L%d %d×: GlyphY %d/%d", s.Level, scale, m.FullGlyphY, m.HalfGlyphY)
-			}
-			// The glyph and its stamp cell stay inside the row.
-			if m.FullGlyphY+m.FullGlyph > r || m.HalfGlyphY+m.HalfH > r {
-				t.Errorf("L%d %d×: glyph leaves the row", s.Level, scale)
+	// The relations of spec 057 §3.2 (3), and the table-level constraints.
+	for _, tb := range shrinkTablesUnderTest() {
+		if len(tb.levels) != 2 || tb.levels[0].Level != 1 || tb.levels[1].Level != 2 {
+			t.Fatalf("%s: a table holds L1 and L2 in this order: %+v", tb.name, tb.levels)
+		}
+		a, b := tb.levels[0], tb.levels[1]
+		if !(b.FullLP < a.FullLP && b.HalfLP <= a.HalfLP || b.FullLP <= a.FullLP && b.HalfLP < a.HalfLP) {
+			t.Errorf("%s: LP does not decrease with the level: %d/%d then %d/%d", tb.name, a.FullLP, a.HalfLP, b.FullLP, b.HalfLP)
+		}
+		for _, s := range tb.levels {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("%s L%d: %v", tb.name, s.Level, r)
+					}
+				}()
+				s.Thr.get()
+			}()
+			for scale, m := range map[int]shrinkMetrics{2: s.X2, 3: s.X3} {
+				r, c0 := 8*scale, l0[scale].FullInset
+				if m.FullCell != s.FullLP*scale || m.HalfW != s.HalfLP*scale {
+					t.Errorf("%s L%d %d×: cell %d half %d vs LP %d/%d", tb.name, s.Level, scale, m.FullCell, m.HalfW, s.FullLP, s.HalfLP)
+				}
+				if m.FullGlyphW <= 0 || m.FullGlyphW > m.FullCell || m.FullGlyphH <= 0 || m.FullGlyphH > r-c0 || m.HalfH <= 0 || m.HalfH > r {
+					t.Errorf("%s L%d %d×: glyph %d×%d half height %d outside cell %d row %d", tb.name, s.Level, scale, m.FullGlyphW, m.FullGlyphH, m.HalfH, m.FullCell, r)
+				}
+				if m.FullInset != (m.FullCell-m.FullGlyphW)/2 {
+					t.Errorf("%s L%d %d×: inset %d", tb.name, s.Level, scale, m.FullInset)
+				}
+				if m.FullGlyphY != r-m.FullGlyphH-c0 || m.HalfGlyphY != r-m.HalfH {
+					t.Errorf("%s L%d %d×: GlyphY %d/%d", tb.name, s.Level, scale, m.FullGlyphY, m.HalfGlyphY)
+				}
+				// The glyph boxes sit on the bottom edges of L0: the full one on its
+				// L0 edge (15 at 2×, 22 at 3×) and the half one on the row bottom.
+				if m.FullGlyphY+m.FullGlyphH != r-c0 || m.HalfGlyphY+m.HalfH != r {
+					t.Errorf("%s L%d %d×: box bottoms %d / %d", tb.name, s.Level, scale, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
+				}
+				if tb.name == "default" && (m.FullGlyphH != m.FullGlyphW || m.HalfH != m.FullCell) {
+					t.Errorf("default L%d %d×: the table of spec 056 has square full glyphs and a half glyph as high as a cell", s.Level, scale)
+				}
 			}
 		}
 	}
@@ -146,7 +220,7 @@ func TestDeriveShrinkFontKeepsThinStrokes(t *testing.T) {
 	pair[2*3] = 0x20 // (2,3) -> target (1,1)
 	pair[2*9] = 0x08 // (4,9) -> target (2,4)
 	src.Glyphs['·'] = pair
-	d := deriveShrinkFont(src, 8, 8, "t.shrink")
+	d := deriveShrinkFont(src, 8, 8, "t.shrink", 1, 2)
 	if g := d.Glyphs['點']; len(g) != 8 || g[1] != 0x40 || glyphInkCount(g) != 1 {
 		t.Errorf("single pixel: % x", g)
 	}
@@ -234,7 +308,7 @@ func TestLayoutEclTextLevelSingleUnit(t *testing.T) {
 		{18, 2, "[一二三四五@0.0/0][巴克(BUCK)@0.10/2][說。@0.15/0]", 19},
 	}
 	for _, c := range cases {
-		ls, _, ec, ok := layoutEclTextLevel(nil, a.Text, a.Units, c.level, 0, 0, 0, c.right, 0)
+		ls, _, ec, ok := layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, c.level, 0, 0, 0, c.right, 0)
 		if !ok || shrinkDump(ls) != c.want || ec != c.endCol {
 			t.Errorf("right %d level %d: %v %s end %d", c.right, c.level, ok, shrinkDump(ls), ec)
 		}
@@ -244,17 +318,17 @@ func TestLayoutEclTextLevelSingleUnit(t *testing.T) {
 		right uint8
 		level int
 	}{{21, 0}, {18, 0}, {18, 1}, {17, 2}} {
-		if _, _, _, ok := layoutEclTextLevel(nil, a.Text, a.Units, c.level, 0, 0, 0, c.right, 0); ok {
+		if _, _, _, ok := layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, c.level, 0, 0, 0, c.right, 0); ok {
 			t.Errorf("right %d level %d fits", c.right, c.level)
 		}
 	}
 	// Level 0, an unknown level and no units are layoutEclTextP itself.
 	want, wr, wc, wok := layoutEclTextP(nil, a.Text, a.Units, 0, 0, 0, 23, 0)
-	got, gr, gc, gok := layoutEclTextLevel(nil, a.Text, a.Units, 0, 0, 0, 0, 23, 0)
+	got, gr, gc, gok := layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, 0, 0, 0, 0, 23, 0)
 	if shrinkDump(got) != shrinkDump(want) || gr != wr || gc != wc || gok != wok {
 		t.Error("level 0 differs from layoutEclTextP")
 	}
-	got, _, _, _ = layoutEclTextLevel(nil, a.Text, a.Units, 7, 0, 0, 0, 23, 0)
+	got, _, _, _ = layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, 7, 0, 0, 0, 23, 0)
 	if shrinkDump(got) != shrinkDump(want) {
 		t.Error("unknown level is not level 0")
 	}
@@ -267,29 +341,29 @@ func TestLayoutEclTextLevelAtomicUnit(t *testing.T) {
 	names := testNames(t)
 	// The unit moves whole: row 0 holds 10, the unit (L1: 8) does not fit in 4.
 	a := names.Annotate("一二三四五巴克說。", "ecl.t", NameCaseUpper, NameTierAll)
-	ls, er, ec, ok := layoutEclTextLevel(nil, a.Text, a.Units, 1, 0, 0, 0, 13, 1)
+	ls, er, ec, ok := layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, 1, 0, 0, 0, 13, 1)
 	if !ok || shrinkDump(ls) != "[一二三四五@0.0/0][巴克(BUCK)@1.0/1][說。@1.8/0]" || er != 1 || ec != 12 {
 		t.Errorf("wrap: %v %s end %d,%d", ok, shrinkDump(ls), er, ec)
 	}
 	// A unit with spaces wider than the line: L0 breaks it at the spaces (spec
 	// 036), L1 (W_s 25) fails at width 24 and L2 (17) fits.
 	w := names.Annotate("亞歷山大•威廉到了。", "logbook.1", NameCaseMixed, NameTierAll)
-	if _, _, _, ok := layoutEclTextLevel(nil, w.Text, w.Units, 0, 0, 0, 0, 23, 1); !ok {
+	if _, _, _, ok := layoutEclTextLevel(nil, shrinkLevels, w.Text, w.Units, 0, 0, 0, 0, 23, 1); !ok {
 		t.Fatal("L0 control: the wide unit breaks at its space")
 	}
-	if _, _, _, ok := layoutEclTextLevel(nil, w.Text, w.Units, 1, 0, 0, 0, 23, 1); ok {
+	if _, _, _, ok := layoutEclTextLevel(nil, shrinkLevels, w.Text, w.Units, 1, 0, 0, 0, 23, 1); ok {
 		t.Error("L1 broke a unit at a space")
 	}
-	if ls, _, _, ok := layoutEclTextLevel(nil, w.Text, w.Units, 2, 0, 0, 0, 23, 1); !ok || len(ls) != 2 || ls[0].Shrink != 2 || ls[1].Shrink != 0 {
+	if ls, _, _, ok := layoutEclTextLevel(nil, shrinkLevels, w.Text, w.Units, 2, 0, 0, 0, 23, 1); !ok || len(ls) != 2 || ls[0].Shrink != 2 || ls[1].Shrink != 0 {
 		t.Errorf("L2 wide unit: %v %s", ok, shrinkDump(ls))
 	}
 	// Closing punctuation sticks to the unit: 巴克(BUCK)，is one token of
 	// 8 + 2 units at L1, so it needs 10 units on the row after 一二三.
 	c := names.Annotate("一二三巴克，", "ecl.t", NameCaseUpper, NameTierAll)
-	if ls, _, ec, ok := layoutEclTextLevel(nil, c.Text, c.Units, 1, 0, 0, 0, 15, 0); !ok || shrinkDump(ls) != "[一二三@0.0/0][巴克(BUCK)@0.6/1][，@0.14/0]" || ec != 16 {
+	if ls, _, ec, ok := layoutEclTextLevel(nil, shrinkLevels, c.Text, c.Units, 1, 0, 0, 0, 15, 0); !ok || shrinkDump(ls) != "[一二三@0.0/0][巴克(BUCK)@0.6/1][，@0.14/0]" || ec != 16 {
 		t.Errorf("closing: %v %s end %d", ok, shrinkDump(ls), ec)
 	}
-	if _, _, _, ok := layoutEclTextLevel(nil, c.Text, c.Units, 1, 0, 0, 0, 14, 0); ok {
+	if _, _, _, ok := layoutEclTextLevel(nil, shrinkLevels, c.Text, c.Units, 1, 0, 0, 0, 14, 0); ok {
 		t.Error("the comma left its unit")
 	}
 }
@@ -302,7 +376,7 @@ func TestLayoutEclTextLevelTwoUnits(t *testing.T) {
 		t.Fatalf("units %+v", a.Units)
 	}
 	// L0 10+2+11+2 = 25; L1 8+2+9+2 = 21; L2 5+2+6+2 = 15.
-	ls, _, ec, ok := layoutEclTextLevel(nil, a.Text, a.Units, 1, 0, 0, 0, 21, 0)
+	ls, _, ec, ok := layoutEclTextLevel(nil, shrinkLevels, a.Text, a.Units, 1, 0, 0, 0, 21, 0)
 	if !ok || shrinkDump(ls) != "[巴克(BUCK)@0.0/1][與@0.8/0][威瑪(WILMA)@0.10/1][說@0.19/0]" || ec != 21 {
 		t.Errorf("two units: %v %s end %d", ok, shrinkDump(ls), ec)
 	}
@@ -324,15 +398,15 @@ func TestLayoutEclTextLevelKoWord(t *testing.T) {
 		{19, 1, "[셀레스트(CELESTE)@0.0/1][가 좋다@0.13/0]"},
 		{15, 2, "[셀레스트(CELESTE)@0.0/2][가 좋다@0.9/0]"},
 	} {
-		ls, _, _, ok := layoutEclTextLevel(layoutKo, text, units, c.level, 0, 0, 0, c.right, 0)
+		ls, _, _, ok := layoutEclTextLevel(layoutKo, shrinkLevels, text, units, c.level, 0, 0, 0, c.right, 0)
 		if !ok || shrinkDump(ls) != c.want {
 			t.Errorf("right %d L%d: %v %s", c.right, c.level, ok, shrinkDump(ls))
 		}
 	}
 	for _, level := range []int{0, 1, 2} {
 		for right := uint8(8); right < 30; right++ {
-			_, _, _, wok := layoutEclTextLevel(layoutKo, text, units, level, 0, 0, 0, right, 1)
-			_, _, _, cok := layoutEclTextLevel(layoutKoChars, text, units, level, 0, 0, 0, right, 1)
+			_, _, _, wok := layoutEclTextLevel(layoutKo, shrinkLevels, text, units, level, 0, 0, 0, right, 1)
+			_, _, _, cok := layoutEclTextLevel(layoutKoChars, shrinkLevels, text, units, level, 0, 0, 0, right, 1)
 			if wok != cok {
 				t.Errorf("L%d right %d: word level fits %v, character level %v", level, right, wok, cok)
 			}
@@ -377,14 +451,14 @@ func TestLayoutPlayerNameShrinks(t *testing.T) {
 		{"unspaced Chinese only when the space does not fit either", true, 7, playerChineseOnly, 0, false, true, 8},
 	}
 	for _, c := range cases {
-		got := layoutPlayerName(nil, player, orig, c.space, 0, 0, 0, c.right, 0)
+		got := layoutPlayerName(nil, shrinkLevels, player, orig, c.space, 0, 0, 0, c.right, 0)
 		if got.kind != c.kind || got.shrink != c.shrink || got.spaced != c.spaced || got.fits != c.fits || (c.fits && got.endCol != c.endCol) {
 			t.Errorf("%s: kind %d shrink %d spaced %v fits %v end %d (%s)", c.label, got.kind, got.shrink, got.spaced, got.fits, got.endCol, shrinkDump(got.lines))
 		}
 	}
 	// Without shrink levels the order is the one of spec 038 (control).
 	noShrink(t)
-	got := layoutPlayerName(nil, player, orig, false, 0, 0, 0, 13, 0)
+	got := layoutPlayerName(nil, shrinkLevels, player, orig, false, 0, 0, 0, 13, 0)
 	if got.kind != playerChineseOnly || got.shrink != 0 {
 		t.Errorf("control: %+v", got)
 	}
@@ -397,8 +471,8 @@ func TestLayoutPlayerNameShrinks(t *testing.T) {
 // Pure function: the same call twice gives the same lines.
 func TestLayoutPlayerNameShrinkPure(t *testing.T) {
 	player := playerFixture("塞萊絲特", "CELESTE")
-	a := layoutPlayerName(nil, player, []byte("CELESTE"), true, 0, 2, 0, 13, 0)
-	b := layoutPlayerName(nil, player, []byte("CELESTE"), true, 0, 2, 0, 13, 0)
+	a := layoutPlayerName(nil, shrinkLevels, player, []byte("CELESTE"), true, 0, 2, 0, 13, 0)
+	b := layoutPlayerName(nil, shrinkLevels, player, []byte("CELESTE"), true, 0, 2, 0, 13, 0)
 	if shrinkDump(a.lines) != shrinkDump(b.lines) || a.endCol != b.endCol || a.kind != b.kind || a.shrink != b.shrink {
 		t.Fatal("not pure")
 	}
@@ -672,8 +746,8 @@ func TestShrunkUnitPixels(t *testing.T) {
 			// row as that of a normal full glyph (2×: 15, 3×: 22) and the
 			// half box ends at the bottom of the row (2×: 15, 3×: 23).
 			l0 := map[int]int{2: 15, 3: 22}[scale]
-			if m.FullGlyphY+m.FullGlyph-1 != l0 || m.HalfGlyphY+m.HalfH-1 != 8*scale-1 {
-				t.Errorf("%d× L%d: box bottom %d / %d", scale, sp.Level, m.FullGlyphY+m.FullGlyph-1, m.HalfGlyphY+m.HalfH-1)
+			if m.FullGlyphY+m.FullGlyphH-1 != l0 || m.HalfGlyphY+m.HalfH-1 != 8*scale-1 {
+				t.Errorf("%d× L%d: box bottom %d / %d", scale, sp.Level, m.FullGlyphY+m.FullGlyphH-1, m.HalfGlyphY+m.HalfH-1)
 			}
 			// The shrunk glyph pixels: ink counts of the derived glyphs.
 			count := 0
@@ -791,18 +865,18 @@ func TestLayoutEclTextLevelJaOpening(t *testing.T) {
 	names := testNames(t)
 	a := names.Annotate("一二三「巴克」説", "ecl.t", NameCaseUpper, NameTierAll)
 	// 6 + 「 2 + unit (10 | L1 8) + 」 2 + 説 2 = 22 | 20.
-	ls, _, ec, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 19, 0)
+	ls, _, ec, ok := layoutEclTextLevel(layoutJa, shrinkLevels, a.Text, a.Units, 1, 0, 0, 0, 19, 0)
 	if !ok || shrinkDump(ls) != "[一二三「@0.0/0][巴克(BUCK)@0.8/1][」説@0.16/0]" || ec != 20 {
 		t.Errorf("one row: %v %s end %d", ok, shrinkDump(ls), ec)
 	}
 	// Row of 14: 一二三「 is 8, the unit (8) does not fit in the 6 left.  「 may not end a
 	// row, so it moves down with the unit.
-	ls, er, ec, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 13, 1)
+	ls, er, ec, ok := layoutEclTextLevel(layoutJa, shrinkLevels, a.Text, a.Units, 1, 0, 0, 0, 13, 1)
 	if !ok || shrinkDump(ls) != "[一二三@0.0/0][「@1.0/0][巴克(BUCK)@1.2/1][」説@1.10/0]" || er != 1 || ec != 14 {
 		t.Errorf("break: %v %s end %d,%d", ok, shrinkDump(ls), er, ec)
 	}
 	// With only one row (bottom 0) the unit has nowhere to go: the level fails.
-	if _, _, _, ok := layoutEclTextLevel(layoutJa, a.Text, a.Units, 1, 0, 0, 0, 13, 0); ok {
+	if _, _, _, ok := layoutEclTextLevel(layoutJa, shrinkLevels, a.Text, a.Units, 1, 0, 0, 0, 13, 0); ok {
 		t.Error("a second row was used with bottom 0")
 	}
 }
@@ -1007,12 +1081,12 @@ func TestShrinkFontsSources(t *testing.T) {
 				}
 			}
 			for _, r := range "中文" {
-				want := shrinkGlyph(base.Glyphs[r], 16, 16, m.FullGlyph, m.FullGlyph)
+				want := shrinkGlyph(base.Glyphs[r], 16, 16, m.FullGlyphW, m.FullGlyphH)
 				if got := fs.Full.Glyphs[r]; string(got) != string(want) {
 					t.Errorf("L%d %d× full %q: % x want % x", sp.Level, scale, r, got, want)
 				}
 			}
-			if fs.Half.W != m.HalfW || fs.Half.H != m.HalfH || fs.Full.W != m.FullGlyph || fs.Full.H != m.FullGlyph {
+			if fs.Half.W != m.HalfW || fs.Half.H != m.HalfH || fs.Full.W != m.FullGlyphW || fs.Full.H != m.FullGlyphH {
 				t.Errorf("L%d %d×: sizes half %d×%d full %d×%d", sp.Level, scale, fs.Half.W, fs.Half.H, fs.Full.W, fs.Full.H)
 			}
 		}

@@ -311,8 +311,9 @@ func TestZhDeckSpaceNoPageState(t *testing.T) {
 	for i := 0; i < rt.NumField(); i++ {
 		names = append(names, rt.Field(i).Name)
 	}
-	// lastReading is spec 054's (Korean only); the deck rule added none.
-	want := "Generation Left Top Right Bottom TopCol Background Foreground Lines Keys Gone endRow endCol lastRune owedSpace lastReading"
+	// lastReading is spec 054's (Korean only) and Lang is spec 057's (the
+	// shrink table of the page's language); the deck rule added none.
+	want := "Generation Left Top Right Bottom TopCol Background Foreground Lines Keys Gone endRow endCol lastRune owedSpace lastReading Lang"
 	if got := strings.Join(names, " "); got != want {
 		t.Errorf("EclTextPage 欄位：%s，應為 %s", got, want)
 	}
