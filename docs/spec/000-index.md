@@ -596,3 +596,5 @@
 - [364：可寫覆蓋層設定頁 ACCEPT 正常輸入](364-moo2-overlay-setup-accept.md)，CONFORMED限定隔離可寫ACCEPT／選族頁；完整可寫玩家路徑未驗。
 
 - [365：可寫覆蓋層正常選取 Humans](365-moo2-overlay-race-humans.md)，CONFORMED限定隔離Humans／名稱頁；完整可寫玩家路徑未驗。
+
+- [366：可寫名稱頁的首個可接受輸入狀態](366-moo2-name-ready-boundary.md)，CONFORMED限定只讀readiness；正常名稱確認DRAFT。

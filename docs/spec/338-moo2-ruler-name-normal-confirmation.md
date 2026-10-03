@@ -99,3 +99,7 @@ python3 workplace/new-game-338-cli-verify.py PASS：17無效值／缺依賴在�
 ## 365可寫Humans限定驗收回填
 
 可寫Humans選擇與95M名稱頁已由[365](365-moo2-overlay-race-humans.md)核對。原337唯讀race guard不改；獨立真實完整880byte表與CPU／FPU／IRQ profile正常一次press／release，原20DDDB實寫word0000→0700，進入原Strader名稱頁。原95M完整165byte表與唯讀情境不同，原338 guard false仍保留；候選28439D原32bytes已取，未送名稱確認。原418來源保持，state仍僅sound.lbx，完整可寫玩家路徑／存檔／RNG／remake同狀態未驗。下一步依新95M來源另立名稱ACCEPT契約。
+
+## 366名稱readiness回填
+
+可寫95M IF關閉與首個自然恢復平台readiness已由[366](366-moo2-name-ready-boundary.md)核對。原95000065／EIP234A49／flags216h，完整165byte表／候選與RGB保持；原mask1／callback8／8終態已取，無名稱press／release，原338唯讀guard保持。下一步依新真實初態另立正常確認契約，按下mask1的原玩家結果／持久名稱與存檔仍未知。

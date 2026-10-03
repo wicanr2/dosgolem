@@ -53,4 +53,8 @@ bash workplace/new-game-365-run.sh
 python3 workplace/new-game-365-verify.py
 ```
 
-均於既有Docker執行並通過。12份本機自製腳本／原版收據雜湊同次保存主庫研究入口，原PNG／LOG／資產窗口不入Git。公開只交本規格／索引／337、338、364回填。下一步以原95M完整165bytes／真實CPU／FPU／IRQ及32byte候選另立可寫名稱ACCEPT輸入，沿338固定95M與正常mask1／2B放開契約；不改舊唯讀guard、不mask位址或調時刻，主庫RE-first保持。
+均於既有Docker執行並通過。12份本機自製腳本／原版收據雜湊同次保存主庫研究入口，原PNG／LOG／資產窗口不入Git。公開只交本規格／索引／337、338、364回填。原95M實際EIP22F263／flags12h、IF關閉、callback mask1／8／8與IRQ22338／22338。原338固定95M前置不可沿用；下一步依[366](366-moo2-name-ready-boundary.md)有界只讀捕捉首個自然恢復IF的可接受輸入狀態，再審查名稱ACCEPT，不改原guard或以任意時刻試到成功，主庫RE-first保持。
+
+## 366名稱readiness回填
+
+可寫95M IF關閉與首個自然恢復平台readiness已由[366](366-moo2-name-ready-boundary.md)核對。原95000065／EIP234A49／flags216h，完整165byte表／候選與RGB保持；原mask1／callback8／8終態已取，無名稱press／release，原338唯讀guard保持。下一步依新真實初態另立正常確認契約，按下mask1的原玩家結果／持久名稱與存檔仍未知。
