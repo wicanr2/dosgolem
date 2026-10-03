@@ -220,3 +220,66 @@ var jaProbeDigests = map[string]string{
 	"L2/2×": "f078369bd22c89743454f09c4cf10d8f5952c364d78848675dad79800eeaa559",
 	"L2/3×": "34da08e12217259dbaa9aa1c5a60dced5137fcfc550a9e2e69502a0ddd243985",
 }
+
+// Spec 057 §5.5: the table of ja changes only the glyph rectangle, so the
+// layout under the table of spec 056 and under the ja table is byte-equal
+// (shrink level included).
+
+func jaLayoutDumpSynthetic(t *testing.T) (string, int) {
+	t.Helper()
+	var sb strings.Builder
+	n := 0
+	for _, l := range pre056Langs() {
+		if l.lang != LangJa {
+			continue
+		}
+		w := pre056Watcher(t, l)
+		pre056EachPlace(t, l, 4, func(c pre056PlaceCase) {
+			shrinkDumpPlacement(&sb, adapterPlace(w, c))
+			n++
+		})
+		pre056EachPlayer(l, 2, func(c pre056PlayerCase) {
+			shrinkDumpPlayer(&sb, adapterPlayer(l.lang, l.prof, c))
+			n++
+		})
+	}
+	return sb.String(), n
+}
+
+func TestShrinkJaLayoutSameUnderOldTable(t *testing.T) {
+	cur, n := jaLayoutDumpSynthetic(t)
+	withLangShrinkLevels(t, LangJa, shrinkLevels...)
+	old, m := jaLayoutDumpSynthetic(t)
+	if n == 0 || n != m {
+		t.Fatalf("呼叫 %d 與 %d", n, m)
+	}
+	if cur != old {
+		t.Errorf("ja 在新舊等級表下的版面不同（%d 次呼叫）", n)
+	}
+	if !strings.Contains(cur, ",1,") && !strings.Contains(cur, ",2,") {
+		t.Errorf("語料沒有涵蓋縮小")
+	}
+}
+
+func TestShrinkJaFormalLayoutSameUnderOldTable(t *testing.T) {
+	r := shrinkFormalLoad(t)
+	w, places, players, _, _ := shrinkFormalCorpus(t, r, LangJa, 2000)
+	dump := func() (string, int) {
+		var sb strings.Builder
+		for _, p := range places {
+			c := p.c
+			shrinkDumpPlacement(&sb, w.placeText(c.txt, p.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry()))
+		}
+		for _, c := range players {
+			shrinkDumpPlayer(&sb, layoutPlayerName(w.layout, shrinkLevelsFor(LangJa), c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b))
+		}
+		return sb.String(), len(places) + len(players)
+	}
+	cur, n := dump()
+	withLangShrinkLevels(t, LangJa, shrinkLevels...)
+	old, _ := dump()
+	if n == 0 || cur != old {
+		t.Errorf("ja（text/ 語料 %d 次呼叫）在新舊等級表下的版面不同", n)
+	}
+	t.Logf("ja text/ 語料 %d 次呼叫，新舊表版面相同", n)
+}

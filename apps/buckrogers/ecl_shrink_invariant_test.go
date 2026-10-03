@@ -175,7 +175,7 @@ func TestShrinkInvariantSynthetic(t *testing.T) {
 			place.classifyPlace(c, old, cur)
 		})
 		pre056EachPlayer(l, 2, func(c pre056PlayerCase) {
-			cur := layoutPlayerName(l.prof, shrinkLevels, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
+			cur := layoutPlayerName(l.prof, shrinkLevelsFor(l.lang), c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
 			player.classifyPlayer(c, pre056PlayerFrozen(l.prof, c), cur)
 		})
 		place.check(t, l.lang+" placeText")
@@ -194,12 +194,16 @@ func TestShrinkInvariantSynthetic(t *testing.T) {
 	}
 }
 
-// Spec 056 §5.3 and §3.8 item 1 on the formal text/ catalogs (environment
-// gate): every sentence with a name unit of the four languages, and the
-// player names the lanes can show, in the windows of phase-304 §2.  At most
-// 2,000 sampled calls per language and window (seed 56); no digest, text/
-// changes with proofreading, the receipt records the text/ commit.
-func TestShrinkInvariantFormalText(t *testing.T) {
+// shrinkFormalPlace is a sampled placeText call of the formal text/ corpus.
+type shrinkFormalPlace struct {
+	key string
+	c   pre056PlaceCase
+}
+
+// shrinkFormalLoad loads the formal runtime of the four languages (the
+// environment gate of the tests on the text/ catalogs).
+func shrinkFormalLoad(t *testing.T) *LiveRuntime {
+	t.Helper()
 	root := os.Getenv("BUCKROGERS_CHT_ROOT")
 	fonts := map[string]string{LangZhCN: os.Getenv("BUCKROGERS_ZHCN_FONT"), LangJa: os.Getenv("BUCKROGERS_JA_FONT"), LangKo: os.Getenv("BUCKROGERS_KO_FONT")}
 	tw := os.Getenv("BUCKROGERS_ZHTW_FONT")
@@ -211,92 +215,120 @@ func TestShrinkInvariantFormalText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return r
+}
+
+// shrinkFormalCorpus samples the calls of one language: every sentence with a
+// name unit and the player names the lanes can show, in the windows of
+// phase-304 §2, at most perGeo calls per language and window (seed 56).
+func shrinkFormalCorpus(t *testing.T, r *LiveRuntime, lang string, perGeo int) (*EclTextWatcher, []shrinkFormalPlace, []pre056PlayerCase, int, int) {
+	t.Helper()
+	i := r.laneIndex(lang)
+	if i < 0 {
+		t.Fatalf("語言 %s 沒有載入：%v", lang, r.off)
+	}
+	l := r.lanes[i]
+	w, names := l.ecl, l.names
+	if w == nil || names == nil || l.players == nil {
+		t.Fatalf("%s：ecl %v names %v players %v", lang, w != nil, names != nil, l.players != nil)
+	}
+	type sentence struct{ key, text string }
+	var ss []sentence
+	for _, k := range w.catalog.Keys() {
+		txt := w.catalog.text[k]
+		if v := names.Variants(txt, k, NameCaseUpper); len(v) > 0 && len(v[0].Units) > 0 {
+			ss = append(ss, sentence{k, txt})
+		}
+	}
+	if len(ss) == 0 {
+		t.Fatalf("%s：沒有含名字單元的句子", lang)
+	}
+	rnd := rand.New(rand.NewSource(56))
+	sort.Slice(ss, func(a, b int) bool { return ss[a].key < ss[b].key })
+	var places []shrinkFormalPlace
+	var leads = []rune{0}
+	if lang == LangKo {
+		leads = []rune{0, '각', '가'}
+	}
+	for _, g := range pre056Geos {
+		for n := 0; n < perGeo; n++ {
+			s := ss[rnd.Intn(len(ss))]
+			c := pre056PlaceCase{txt: s.text, lead: leads[rnd.Intn(len(leads))], geo: g,
+				row: g[1] + uint8(rnd.Intn(int(g[3]-g[1])+1)),
+				col: eclUnitLeft(g[0]) + uint8(rnd.Intn(int(eclUnitRight(g[2])-eclUnitLeft(g[0]))+1))}
+			if w.layout != nil && w.layout.word && rnd.Intn(2) == 0 {
+				c.spaceNeeded, c.prevRune = true, []rune{'A', ' ', 0}[rnd.Intn(3)]
+			}
+			if w.catalog.zhDeckSpace() && s.text != "" && s.text[0] >= '0' && s.text[0] <= '9' {
+				c.deck = rnd.Intn(2) == 0
+			}
+			places = append(places, shrinkFormalPlace{s.key, c})
+		}
+	}
+	// Player names: every glossary person and a few plain names.
+	var pl [][2]string
+	seen := map[string]bool{}
+	add := func(en string) {
+		if seen[en] {
+			return
+		}
+		seen[en] = true
+		for _, g := range []translit.Gender{translit.Male, translit.Female} {
+			if zh, ok := l.players.Chinese(en, g); ok && zh != "" {
+				pl = append(pl, [2]string{zh, en})
+				return
+			}
+		}
+	}
+	for _, e := range names.names {
+		add(e.English)
+	}
+	for _, en := range []string{"CELESTE", "FLAVIUS", "MARION", "ARCHIMEDES", "ALEXANDER", "ELIZABETH", "FREDERICK", "BARTHOLOMEW", "AB", "X"} {
+		add(en)
+	}
+	if len(pl) == 0 {
+		t.Fatalf("%s：沒有可顯示的玩家名", lang)
+	}
+	var players []pre056PlayerCase
+	for _, g := range pre056Geos {
+		for n := 0; n < perGeo; n++ {
+			p := pl[rnd.Intn(len(pl))]
+			c := pre056PlayerCase{zh: p[0], en: p[1], geo: g,
+				row:  g[1] + uint8(rnd.Intn(int(g[3]-g[1])+1)),
+				col:  eclUnitLeft(g[0]) + uint8(rnd.Intn(int(eclUnitRight(g[2])-eclUnitLeft(g[0]))+1)),
+				left: eclUnitLeft(g[0]), right: eclUnitRight(g[2]), b: g[3]}
+			c.space = w.layout != nil && w.layout.word && rnd.Intn(2) == 0
+			players = append(players, c)
+		}
+	}
+	return w, places, players, len(ss), len(pl)
+}
+
+// Spec 056 §5.3 and §3.8 item 1 on the formal text/ catalogs (environment
+// gate): every sentence with a name unit of the four languages, and the
+// player names the lanes can show, in the windows of phase-304 §2.  At most
+// 2,000 sampled calls per language and window (seed 56); no digest, text/
+// changes with proofreading, the receipt records the text/ commit.
+func TestShrinkInvariantFormalText(t *testing.T) {
+	r := shrinkFormalLoad(t)
 	const perGeo = 2000
 	var sumPlace, sumPlayer invTally
 	for _, lang := range []string{LangZhTW, LangZhCN, LangJa, LangKo} {
-		i := r.laneIndex(lang)
-		if i < 0 {
-			t.Fatalf("語言 %s 沒有載入：%v", lang, r.off)
-		}
-		l := r.lanes[i]
-		w, names := l.ecl, l.names
-		if w == nil || names == nil || l.players == nil {
-			t.Fatalf("%s：ecl %v names %v players %v", lang, w != nil, names != nil, l.players != nil)
-		}
-		type sentence struct{ key, text string }
-		var ss []sentence
-		for _, k := range w.catalog.Keys() {
-			txt := w.catalog.text[k]
-			if v := names.Variants(txt, k, NameCaseUpper); len(v) > 0 && len(v[0].Units) > 0 {
-				ss = append(ss, sentence{k, txt})
-			}
-		}
-		if len(ss) == 0 {
-			t.Fatalf("%s：沒有含名字單元的句子", lang)
-		}
-		rnd := rand.New(rand.NewSource(56))
-		sort.Slice(ss, func(a, b int) bool { return ss[a].key < ss[b].key })
+		w, places, players, nSent, nPlayers := shrinkFormalCorpus(t, r, lang, perGeo)
 		var place invTally
-		var leads = []rune{0}
-		if lang == LangKo {
-			leads = []rune{0, '각', '가'}
+		for _, p := range places {
+			c := p.c
+			cur := w.placeText(c.txt, p.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry())
+			old := w.placeTextPre056(c.txt, p.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry())
+			place.classifyPlace(c, old, cur)
 		}
-		for _, g := range pre056Geos {
-			for n := 0; n < perGeo; n++ {
-				s := ss[rnd.Intn(len(ss))]
-				c := pre056PlaceCase{txt: s.text, lead: leads[rnd.Intn(len(leads))], geo: g,
-					row: g[1] + uint8(rnd.Intn(int(g[3]-g[1])+1)),
-					col: eclUnitLeft(g[0]) + uint8(rnd.Intn(int(eclUnitRight(g[2])-eclUnitLeft(g[0]))+1))}
-				if w.layout != nil && w.layout.word && rnd.Intn(2) == 0 {
-					c.spaceNeeded, c.prevRune = true, []rune{'A', ' ', 0}[rnd.Intn(3)]
-				}
-				if w.catalog.zhDeckSpace() && s.text != "" && s.text[0] >= '0' && s.text[0] <= '9' {
-					c.deck = rnd.Intn(2) == 0
-				}
-				cur := w.placeText(c.txt, s.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry())
-				old := w.placeTextPre056(c.txt, s.key, false, false, false, c.page(), c.lead, c.spaceNeeded, c.prevRune, c.row, c.col, c.entry())
-				place.classifyPlace(c, old, cur)
-			}
-		}
-		place.check(t, lang+" placeText（text/ 語料，句子 "+fmt.Sprint(len(ss))+"）")
-		// Player names: every glossary person and a few plain names.
-		var pl [][2]string
-		seen := map[string]bool{}
-		add := func(en string) {
-			if seen[en] {
-				return
-			}
-			seen[en] = true
-			for _, g := range []translit.Gender{translit.Male, translit.Female} {
-				if zh, ok := l.players.Chinese(en, g); ok && zh != "" {
-					pl = append(pl, [2]string{zh, en})
-					return
-				}
-			}
-		}
-		for _, e := range names.names {
-			add(e.English)
-		}
-		for _, en := range []string{"CELESTE", "FLAVIUS", "MARION", "ARCHIMEDES", "ALEXANDER", "ELIZABETH", "FREDERICK", "BARTHOLOMEW", "AB", "X"} {
-			add(en)
-		}
-		if len(pl) == 0 {
-			t.Fatalf("%s：沒有可顯示的玩家名", lang)
-		}
+		place.check(t, lang+" placeText（text/ 語料，句子 "+fmt.Sprint(nSent)+"）")
 		var player invTally
-		for _, g := range pre056Geos {
-			for n := 0; n < perGeo; n++ {
-				p := pl[rnd.Intn(len(pl))]
-				c := pre056PlayerCase{zh: p[0], en: p[1], geo: g,
-					row:  g[1] + uint8(rnd.Intn(int(g[3]-g[1])+1)),
-					col:  eclUnitLeft(g[0]) + uint8(rnd.Intn(int(eclUnitRight(g[2])-eclUnitLeft(g[0]))+1)),
-					left: eclUnitLeft(g[0]), right: eclUnitRight(g[2]), b: g[3]}
-				c.space = w.layout != nil && w.layout.word && rnd.Intn(2) == 0
-				cur := layoutPlayerName(w.layout, shrinkLevels, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
-				player.classifyPlayer(c, layoutPlayerNamePre056(w.layout, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b), cur)
-			}
+		for _, c := range players {
+			cur := layoutPlayerName(w.layout, shrinkLevelsFor(lang), c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b)
+			player.classifyPlayer(c, layoutPlayerNamePre056(w.layout, c.player(), []byte(c.en), c.space, c.row, c.col, c.left, c.right, c.b), cur)
 		}
-		player.check(t, lang+" layoutPlayerName（text/ 語料，玩家名 "+fmt.Sprint(len(pl))+"）")
+		player.check(t, lang+" layoutPlayerName（text/ 語料，玩家名 "+fmt.Sprint(nPlayers)+"）")
 		for _, x := range [][2]*invTally{{&sumPlace, &place}, {&sumPlayer, &player}} {
 			x[0].calls += x[1].calls
 			x[0].first += x[1].first
