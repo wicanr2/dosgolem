@@ -105,15 +105,34 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: moo2-probe <original-exe> [--empty-mox-set | --mox-set <local-file> | --game-dir <local-directory>]")
 		os.Exit(2)
 	}
+	// 346 BEGIN universe160_parse
+	universe160Setting := os.Getenv("DOSGOLEM_MOO2_UNIVERSE_CONTINUE_160M")
+	universe160 := universe160Setting == "1"
+	if universe160Setting != "" && !universe160 {
+		fmt.Fprintln(os.Stderr, "UNIVERSE_CONTINUE_160M要求值1")
+		os.Exit(2)
+	}
+	// 346 END universe160_parse
+
 	maxSteps := 8000000
 	if setting := os.Getenv("DOSGOLEM_MOO2_MAX_STEPS"); setting != "" {
 		value, parseErr := strconv.Atoi(setting)
-		if parseErr != nil || value < 1 || value > 100000000 && !(value == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") {
+		if parseErr != nil || value < 1 || value > 100000000 && !((value == 120000000 || universe160 && value == 160000000) && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") {
 			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 100000000；完整BANNER_RED_CLICK情境可固定120000000")
 			os.Exit(2)
 		}
 		maxSteps = value
 	}
+	// 346 BEGIN universe160_cap
+	if universe160 && maxSteps != 160000000 {
+		fmt.Fprintln(os.Stderr, "UNIVERSE_CONTINUE_160M要求固定160000000與完整BANNER_RED_CLICK情境")
+		os.Exit(2)
+	}
+	if universe160 {
+		fmt.Printf("universe_continuation_config baseline_steps=120000000 max_steps=160000000 source=explicit_environment\n")
+	}
+	// 346 END universe160_cap
+
 	keyboardRequested := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_AT_48000000") == "1"
 	keyboardStep := 48000000
 	if setting := os.Getenv("DOSGOLEM_MOO2_HARDWARE_ESCAPE_STEP"); setting != "" {
@@ -134,14 +153,14 @@ func main() {
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
 	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
-	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || (maxSteps == 100000000 || maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || (maxSteps == 100000000 || (maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || universe160 && maxSteps == 160000000)) && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
 		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc與50M cap，或44M Esc與100M cap；1996-01-01且無早期滑鼠事件")
 		os.Exit(2)
 	}
 
 	readyClickSetting := os.Getenv("DOSGOLEM_MOO2_MENU_READY_CLICK")
 	readyClick := readyClickSetting == "1"
-	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 && !(maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1") || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
+	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 && !(maxSteps == 120000000 && os.Getenv("DOSGOLEM_MOO2_BANNER_RED_CLICK") == "1" || universe160 && maxSteps == 160000000) || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
 		fmt.Fprintln(os.Stderr, "MENU_READY_CLICK要求值1、舊點擊旗標、44M Esc、100M cap、1996-01-01、SEPARATE_DOS=1與frame prefix")
 		os.Exit(2)
 	}
@@ -821,6 +840,35 @@ func main() {
 		return same
 	}
 
+	// 346 BEGIN universe160_checkpoint
+	universeCheckpointSeen := false
+	dumpUniverseCheckpoint := func(step int) {
+		if !universe160 || step != 120000000 || universeCheckpointSeen {
+			return
+		}
+		universeCheckpointSeen = true
+		c := m.CPU
+		r, seg, eip, flags := c.R, c.Seg, c.EIP, c.EFlags
+		control, status, stack, depth := c.FPUControl, c.FPUStatus, c.FPUStack, c.FPUDepth
+		state := m.VBEState()
+		var code [16]byte
+		var rgbHash [32]byte
+		ram := sha256.Sum256(m.Mem)
+		readonly := activationPeek(func() {
+			copy(code[:], m.Mem[eip:eip+16])
+			rgbHash = sha256.Sum256(m.VBERGB())
+		}) && ram == sha256.Sum256(m.Mem)
+		mask, pending, active, started, completed := services.MouseCallbackState()
+		irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+		micros := uint64(0)
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+			micros = ports.BIOSClock.Micros
+		}
+		fmt.Printf("universe_continuation_checkpoint outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d fpu_stack=%v state=%+v instruction_bytes=%X virtual_micros=%d rgb_sha256=%x ram_before_sha256=%x ram_after_sha256=%x readonly=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d gen_waiting=%v gen_samples=%v\n", step, eip, r, seg, flags, control, status, depth, stack, state, code, micros, rgbHash, ram, sha256.Sum256(m.Mem), readonly, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, genWaiting, genCounts)
+		dumpPlatform("universe_120m", step)
+	}
+	// 346 END universe160_checkpoint
+
 	// 規格331：只觀察非零臂caller，callee等待原程式正常返回。
 	branchSeen, branchActive, branchWaiting := false, false, false
 	branchStart, branchSamples, branchCallStep := 0, 0, 0
@@ -852,7 +900,7 @@ func main() {
 
 	// 規格336唯讀診斷：設定頁原表三時點，不沿舊caller框架猜測。
 	dumpSetupTable := func(step int) {
-		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 && !(bannerRed && maxSteps == 120000000 && step == 120000000) {
+		if !readyClick || step != 80000000 && step != 90000000 && step != 100000000 && !(bannerRed && maxSteps == 120000000 && step == 120000000 || universe160 && step >= 120000000 && step <= 160000000 && step%10000000 == 0) {
 			return
 		}
 		c := m.CPU
@@ -1046,7 +1094,7 @@ func main() {
 	}
 
 	dumpExtendedProgress := func(step int) {
-		if maxSteps != 100000000 && !(bannerRed && maxSteps == 120000000) || phasePrefix == "" || !newGameClick || !newGameReleased || step < 50000000 || step > maxSteps || step%10000000 != 0 {
+		if maxSteps != 100000000 && !(bannerRed && maxSteps == 120000000) && !universe160 || phasePrefix == "" || !newGameClick || !newGameReleased || step < 50000000 || step > maxSteps || step%10000000 != 0 {
 			return
 		}
 		c := m.CPU
@@ -1103,6 +1151,10 @@ func main() {
 		dumpPostClickProgress(i)
 		dumpExtendedProgress(i)
 		dumpSetupTable(i)
+		// 346 BEGIN universe160_call
+		dumpUniverseCheckpoint(i)
+		// 346 END universe160_call
+
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]
 			desc, known := m.CPU.Descriptors[selector]

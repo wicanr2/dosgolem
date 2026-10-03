@@ -555,4 +555,6 @@
 
 - [344：完整標準SETcc暫存器條件](344-cpu386-setcc-byte-register.md)：限定CONFORMED。標準16個暫存器條件與原SETG／MOV兩步、固定EXE全套已驗；同120M無新CPU拒絕仍宇宙生成圖，完整開局未知。
 
-- [345：宇宙生成迴圈的有界進度與正常返回](345-moo2-universe-loop-progress.md)：限定CONFORMED。576原步／兩RET已驗、8503原列與32PNG保持，第三例pending；下一步獨立160M診斷，完整生成未知。
+- [345：宇宙生成迴圈的有界進度與正常返回](345-moo2-universe-loop-progress.md)：限定CONFORMED。576原步／兩RET已驗、8503原列與32PNG保持，原120M第三例pending；其較晚RET與160M續行由346接通，完整生成未知。
+
+- [346：固定160M正常宇宙生成續行](346-moo2-universe-160m-normal-continuation.md)：限定CONFORMED。120M完整同狀態／原基準保持，第三RET120083995；160M已進入Placing home worlds...，完整開局未驗。

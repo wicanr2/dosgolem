@@ -66,7 +66,7 @@ private v2／正式source SHA-256 03bb2adb3414b8801f35ea25398a1cffc239befd4994f4
 | --- | --- | --- | --- | --- |
 | DOS1.31／ORION2.EXE4e11be14…／dosgolem_high_le:17FCC3／17FD1E→17F037／SS188:2BD9F8 | 原計數前進，兩次RET imm20正常返回；第三例pending | 576步／兩RET與8503列／32PNG保持 | 340／341／342／343／344 | 原17FCC3迴圈進度與兩個正常返回已由規格345驗證 |
 
-下一步保留120M原基準，建立獨立固定160M的明示診斷分支，用同正常輸入續行；先定120M同狀態收據與160M有界終態，再DRAFT→READY。160M是一次性觀測預算，不保證生成完成，未驗默認不開放。若仍同頁，先找生成producer／狀態變化，不連續盲提高cap或重送。正式writer、typed種族特性、生成完成／完整開局、RNG、人耳與remake同狀態未知，整款remake／中文化目標仍活躍。
+原120M第三例pending的較晚正常返回與固定160M續行已由規格346驗證，見[346](346-moo2-universe-160m-normal-continuation.md)。原120M歷史保持，第三例於120083995正常RET；160M原圖已進入Placing home worlds...。完整開局／生成完成仍未驗，下一步維持160M預算追最小文字producer／caller狀態，不盲提高cap。
 
 82項規格回填正對照、345新增27缺證據／抽樣／pending／狀態／索引負例與其餘四份較早回填8負例，全部舊負例通過。來源／新收據1000:1000；兩次逾時60partial PNG逐位元保持相應344基準，manifest另保存。
 

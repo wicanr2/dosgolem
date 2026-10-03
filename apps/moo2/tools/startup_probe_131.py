@@ -52,6 +52,24 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_universe_continuation_resolution(spec_dir):
+    """346僅驗固定診斷預算、120M同狀態與第三RET，完整開局未驗。"""
+    name = "346-moo2-universe-160m-normal-continuation.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：固定160M續行、120M同狀態與第三正常返回","9085原345列","32PNG","9028可比原列","31原frame","120083995","17FD1E","17F037","C2 14 00","gen_waiting=[false false true]","waiting=[false false false]","137423","Placing home worlds...","10523原列","160000000 eip=0x17FD04 unique_sites=39434","09038decb752495dfc75519e89dc8f0cedec997a42fe02c467085fd130d869af","生成完成／完整開局與remake同狀態未驗","CPU／平台完全保持345","四346有界區塊及五guard逆轉後逐byte保持345"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError("346缺固定續行／同狀態／第三RET／新畫面與限定終態證據")
+    older = (spec_dir / "345-moo2-universe-loop-progress.md").read_text()
+    if name not in older or "原120M第三例pending的較晚正常返回與固定160M續行已由規格346驗證" not in older:
+        raise RuntimeError("345缺第三例較晚正常返回回填")
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("346缺公開索引入口")
+
+if sys.argv[1:] == ['--check-universe-continuation-spec-backlinks']:
+    validate_universe_continuation_resolution(spec_dir)
+    print("固定160M／120M同狀態／第三RET／較早回填通過")
+    raise SystemExit(0)
+
 def validate_universe_loop_resolution(spec_dir):
     """345只閉合576原步與兩RET，第三例pending／完整生成仍未知。"""
     name = "345-moo2-universe-loop-progress.md"
