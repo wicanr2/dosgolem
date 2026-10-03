@@ -309,8 +309,8 @@ func TestCatalogRealFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u, p, pr := c.Stats(); u != 677 || p != 981 || pr != 4 {
-		t.Errorf("Stats = %d %d %d，要 677 981 4", u, p, pr)
+	if u, p, pr := c.Stats(); u != 678 || p != 1027 || pr != 4 {
+		t.Errorf("Stats = %d %d %d，要 678 1027 4", u, p, pr)
 	}
 	if v, ok := c.UI("PELNOR"); !ok || v != "佩爾諾" {
 		t.Errorf("UI(PELNOR) = %q %v，要 佩爾諾", v, ok)
