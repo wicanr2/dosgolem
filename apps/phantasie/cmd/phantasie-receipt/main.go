@@ -63,6 +63,7 @@ func main() {
 	auditDebug := flag.Bool("audit-debug", false, "印出稽核找到的每個殘字格與外露事件的細節（診斷用）")
 	dumpStamps := flag.Bool("dump-stamps", false, "每個檢查點印出全部疊字（診斷用）")
 	emitRoute := flag.String("emit-route", "", "把本次觀察到的疊字鍵與未譯鍵寫成路線檔（@expect、@known-untranslated 基線；只用第一個語言的結果）")
+	dumpScroll := flag.String("dump-scroll", "", "把每次 INT 10h AH=06h 或 07h 的入口參數與前後視訊記憶體存成檔案（目錄；dosgolem 規格 250 的同狀態收據用）")
 	flag.Parse()
 	if *root == "" || *routePath == "" || *outDir == "" || *fontDir == "" {
 		flag.Usage()
@@ -91,7 +92,7 @@ func main() {
 	for _, lang := range langs {
 		ok, err := runLang(lang, runOpts{
 			root: *root, bat: *bat, steps: steps, routeName: routeName, overlay: *overlay, hooks: *hooks,
-			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, emitRoute: *emitRoute, extra: extra,
+			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s：%v\n", lang, err)
@@ -120,6 +121,7 @@ type runOpts struct {
 	auditDebug                                  bool
 	dumpStamps                                  bool
 	emitRoute                                   string
+	dumpScroll                                  string
 	extra                                       multi
 }
 
@@ -168,6 +170,21 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, err
 		}
 		hk = phantasie.InstallHooks(o, img, ov, regions)
+		if op.dumpScroll != "" {
+			if err := os.MkdirAll(op.dumpScroll, 0o755); err != nil {
+				return false, err
+			}
+			seq := 0
+			hk.Int10Probe = func(ax, bx, cx, dx uint16, pre, post []byte) {
+				buf := []byte{byte(ax), byte(ax >> 8), byte(bx), byte(bx >> 8), byte(cx), byte(cx >> 8), byte(dx), byte(dx >> 8)}
+				buf = append(append(buf, pre...), post...)
+				name := filepath.Join(op.dumpScroll, fmt.Sprintf("%s.%04d.bin", op.routeName, seq))
+				seq++
+				if err := os.WriteFile(name, buf, 0o644); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
+			}
+		}
 		if op.auditDebug {
 			ov.AuditDebug = func(s string) { fmt.Println("# " + s) }
 		}

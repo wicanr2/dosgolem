@@ -95,6 +95,7 @@ type opPending struct {
 	ax, bx, cx, dx uint16
 	row, col, wid  int
 	h, hNew        uint64
+	pre            []byte
 }
 
 // Hooks 把原版的唯讀鉤子接到一個 Overlay。
@@ -107,6 +108,10 @@ type Hooks struct {
 	ImageHash string // 解壓後映像雜湊（SHA-256，img:0000 至 img:53EA），驗證成功後有值
 	FontHash  string
 	Diag      string // 空字串：尚未驗證；"ok"；或停用原因
+
+	// Int10Probe 非 nil 時，每次 INT 10h AH=06h 或 07h 完成時收到入口參數與入口、完成時的視訊記憶體
+	// （B800:0000 起 4000h bytes）。證據用（dosgolem 規格 250 §5 第 4 項的同狀態收據），不影響機器。
+	Int10Probe func(ax, bx, cx, dx uint16, pre, post []byte)
 
 	mem   memView
 	mode  func() uint8
@@ -409,6 +414,9 @@ func (h *Hooks) opEntry(name string, sp uint16) {
 		p.intNo = uint8(h.mem.Word(sp + 2))
 		in := h.mem.Word(sp + 4)
 		p.ax, p.bx, p.cx, p.dx = h.mem.Word(in), h.mem.Word(in+2), h.mem.Word(in+4), h.mem.Word(in+6)
+		if ah := p.ax >> 8; p.intNo == 0x10 && (ah == 0x06 || ah == 0x07) && h.Int10Probe != nil {
+			p.pre = h.mem.Far(0xB800, 0, pageBytes)
+		}
 	case "invert", "invert2":
 		p.row, p.col, p.wid = int(h.mem.Word(sp+2)), int(h.mem.Word(sp+4)), int(h.mem.Word(sp+6))
 	case "load1":
@@ -445,6 +453,9 @@ func (h *Hooks) opExit(name string) {
 	case "int86":
 		if p.intNo == 0x10 {
 			h.Ov.OnInt10(p.ax, p.bx, p.cx, p.dx)
+			if p.pre != nil && h.Int10Probe != nil {
+				h.Int10Probe(p.ax, p.bx, p.cx, p.dx, p.pre, h.mem.Far(0xB800, 0, pageBytes))
+			}
 		}
 	case "invert":
 		h.Ov.OnInvert(p.row, p.col, p.wid, false)

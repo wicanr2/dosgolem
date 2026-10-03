@@ -91,7 +91,8 @@ CASES = [
     ("top_up2", 0x06, 2, 0, 0, 0, 5, 39),
 ]
 
-print("name\tah\tal\tbh\tch\tcl\tdh\tdl\tsha256")
-for name, ah, al, bh, ch, cl, dh, dl in CASES:
-    fb = scroll(initial(), ah, al, bh, ch, cl, dh, dl)
-    print(f"{name}\t{ah:02X}\t{al}\t{bh}\t{ch}\t{cl}\t{dh}\t{dl}\t{digest(fb)}")
+if __name__ == "__main__":
+    print("name\tah\tal\tbh\tch\tcl\tdh\tdl\tsha256")
+    for name, ah, al, bh, ch, cl, dh, dl in CASES:
+        fb = scroll(initial(), ah, al, bh, ch, cl, dh, dl)
+        print(f"{name}\t{ah:02X}\t{al}\t{bh}\t{ch}\t{cl}\t{dh}\t{dl}\t{digest(fb)}")
