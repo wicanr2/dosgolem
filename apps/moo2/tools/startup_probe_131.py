@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_xchg_byte_memory_resolution(spec_dir):
+    """354限定byte XCHG／STOSB與新ADD memory來源停止。"""
+    name = "354-cpu386-xchg-byte-memory-register.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：byte記憶體XCHG與原STOSB","全部10812原353列","10742共通正常列","35既有frames","164321317","164321318","DS0E→FF／ALFF→0E","ESFF→0E","EDI2BD97A→2BD97B","EIP223E95","EIP223E96","flags202h","index2BD8A8","index2BD97A","callback12／12","IRQ41873／41873","CPU386150.111s","1693原列","32新180M負例","164560803","input1CDD0F","after1CDD11只解碼","來源offset2BDB3C","尚未達180M","1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457","3b4f3dc4e3054bd92ce252f54202414c47dcc501257be7d0cf538c02ea449132","7fe5e0408b1a24d44fcb8b02d3f618f218370aaa917648519d2d518cc1be5e43","ee150537f153e610e107754d74cb6de3abca7daad880a7927495d5fd80449393","顯式F0仍拒絕","完整生成／開局與remake同狀態仍未驗"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("354缺CPU契約／同狀態／兩步／新停止或限定範圍")
+    for older_name in ["353-cpu386-and-word-memory-imm16.md", "352-moo2-generation-180m-continuation.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通" not in older:
+            raise RuntimeError("較早規格缺原byte XCHG回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("354缺公開索引入口")
+
+if sys.argv[1:] == ['--check-xchg-byte-memory-spec-backlinks']:
+    validate_xchg_byte_memory_resolution(spec_dir)
+    print("原byte XCHG／STOSB／CPU回歸／新ADD與較早回填通過")
+    raise SystemExit(0)
+
 def validate_and_word_memory_resolution(spec_dir):
     """353限定word AND／原三步與新byte memory XCHG停止。"""
     name = "353-cpu386-and-word-memory-imm16.md"

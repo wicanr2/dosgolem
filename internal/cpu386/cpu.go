@@ -603,7 +603,22 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail("XCHG byte僅支援暫存器")
+			// 規格354：有效位址與reg8來源先保存，寫成功才發布交換結果。
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := int((modrm >> 3) & 7)
+			source := c.reg8(reg)
+			value, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail("XCHG byte來源越界")
+			}
+			if !c.writeSegment8(c.Seg[seg], addr, source) {
+				return fail("XCHG byte寫入越界")
+			}
+			c.setReg8(reg, value)
+			break
 		}
 		a, b := int((modrm>>3)&7), int(modrm&7)
 		av, bv := c.reg8(a), c.reg8(b)

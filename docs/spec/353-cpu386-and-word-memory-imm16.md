@@ -42,7 +42,7 @@ DRAFT未改CPU以原352相同180M正常輸入重播，全部10793原352列／36P
 
 原首遇前10723共通正常列／36PNG保持，與未改CPU原來源／flags／R／段／stack同狀態。DRAFT未改CPU保持全部10793原352列／36PNG；兩者邊界分開，正式續行不與舊stop診斷比較。原finalPNG仍d493c2b5628d55381176c9e676586ab8940fd62544302195b59570b6136e6ba6／RGB5a416d1db0fa55dc3523c99212ceb813056dda787a301b5e8d26bf799d058b59；沒有新正常開局或人眼畫面驗收。
 
-**已證實，新停止**：164321317於dosgolem_high_le input223E93 bytes86 06 AA 46 4A 75 F7 07 C3 56 57 06 0F A0 0F A8拒絕「XCHG byte僅支援暫存器」。ModRM06為DS:[ESI]與AL的memory byte XCHG，原交換尚未執行；after223E95只解碼。原R=[FF 0 2 2BD976 2BD730 2BD888 2BD8A8 2BD97A]／段=[8 188 188 0 20 188]／flags202h已記錄；目的DS188:2BD8A8 byte與後續ES188:EDI2BD97A的STOSB初態待獨立窄切片捕捉；不猜欄位用途。actual stop164321317，requested budget180000000，尚未達180M。probe exit0只代表錯誤收尾，不當作完整開局。
+**已證實，新停止**：164321317於dosgolem_high_le input223E93 bytes86 06 AA 46 4A 75 F7 07 C3 56 57 06 0F A0 0F A8拒絕「XCHG byte僅支援暫存器」。ModRM06為DS:[ESI]與AL的memory byte XCHG，原交換尚未執行；after223E95只解碼。原R=[FF 0 2 2BD976 2BD730 2BD888 2BD8A8 2BD97A]／段=[8 188 188 0 20 188]／flags202h已記錄；原DS來源0E／ALFF交換與後續ES STOSB已由[354](354-cpu386-xchg-byte-memory-register.md)驗證；不猜欄位用途。actual stop164321317，requested budget180000000，尚未達180M。probe exit0只代表錯誤收尾，不當作完整開局。
 
 **已證實，CPU與回歸**：全部65536 word來源配原mask、65536低byte配對、16位單bit／補數／高位／零與64個初旗標組合通過；全部ModRM／SIB、DS／SS相異base、ESP忽略index／無base DS／非對齊／負disp8／32位繞回／最後word與相鄰byte保持。獨立逐bit交集／五定義旗標，AF工具模型另驗；完整R／段／FPU／RAM與精確EIP核算。未知selector／唯讀／段末／線性溢位／首末byte讀寫／截短／prefix與未審查memory群組拒絕；第二Bus寫入失敗保留低byte的既有工具模型，旗標不發布。原81 word各register群組與memory CMP、83 AND register保持。
 
@@ -58,7 +58,7 @@ CPU只新增353的21行word記憶體AND分支，逆轉後逐byte保持352；正�
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:103BF9→103BFF→103C02→103C05 | 原word0000／AND完整iw／SHL EDX0／OR dword0與flags246h三步 | 352 | 原103BF9 word記憶體AND與三步消費已由規格353接通 |
 
-下一步只接通原223E93的86 /r byte memory XCHG：先捕捉DS:[ESI]、AL、ES:EDI／STOSB條件，再審查通用byte交換／旗標保持／寫入邊界，沿相同180M正常輸入核對。原正式writer、資料語意、完整生成／開局、RNG、人耳與remake同狀態未知；不提高cap或深挖helper。
+原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原DS0E→FF／ALFF→0E及ESFF→0E、EDI增1／flags保持與兩步單byte RAM差異已驗，10742正常前綴／35frames與全套保持。原164560803在1CDD0F memory byte ADD拒絕；下一步依354回填帳捕捉原SS byte來源與AL加法，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 

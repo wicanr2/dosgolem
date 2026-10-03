@@ -60,7 +60,7 @@ private180M明示預算已量到原35次head、signed SI36的CMP／JL不跳、�
 
 **已證實，新CPU停止**：原input dosgolem_high_le:103BF9 bytes66 81 63 0C 7F FE，原ModRM63h為/4、[EBX+0Ch]與word immediate FE7Fh；原EBX5AA044，DS188 offset5AA050。cpu386在解碼途中以「81 word形狀尚未支援」拒絕，after EIP103BFC，沒有執行AND寫回；不能把after位址當下一指令已到達。actual stop163795435，診斷defer step163795436、requested budget180000000。probe exit0只是main的錯誤收尾，不代表cap或成功。停止後PNG d493c2b5628d55381176c9e676586ab8940fd62544302195b59570b6136e6ba6是本次dosgolem自行生成，不代替正常開局驗收。
 
-原103BF9 word記憶體AND與三步消費已由規格353接通，見[353](353-cpu386-and-word-memory-imm16.md)。原word0000、完整iw／SHL EDX0／OR dword0、flags246h及精確EIP已驗；未改CPU10793原列／正式入口前10723原列與36PNG保持，CPU全套通過。原164321317於223E93 memory byte XCHG拒絕，尚未達180M；完整母星配置／開局、正式writer、RNG、人耳與remake同狀態仍未知。下一步按353回填帳捕捉原byte交換與STOSB初態，不提高cap或跳過指令。
+原103BF9 word記憶體AND與三步消費已由規格353接通，見[353](353-cpu386-and-word-memory-imm16.md)。原word0000、完整iw／SHL EDX0／OR dword0、flags246h及精確EIP已驗；未改CPU10793原列／正式入口前10723原列與36PNG保持，CPU全套通過。原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原164560803在1CDD0F memory byte ADD拒絕，尚未達180M；完整母星配置／開局、正式writer、RNG、人耳與remake同狀態仍未知。下一步按354回填帳捕捉原SS來源byte與AL加法，不提高cap或跳過指令。
 
 ## 保持、接線與重生
 
