@@ -1,0 +1,14 @@
+# 指標種類分類表（docs/spec/003 §5.1）。預設拒絕：不在表內的指標一律是 other，不查任何 catalog。
+# 欄位以 TAB 分隔；start、stride、count 是十六進位，不帶 0x；# 開頭的列是註解。
+# kind：static、buffer、monster、town。尾端加 @ov1 或 @ov2 表示只在目前載入的 overlay 名稱含該字樣（不分大小寫）時有效。
+# stride 為 0：連續區間 [start, start+count)，count 是位元組數。
+# stride 大於 0：count 筆記錄，第 i 筆起點是 start+stride*i，指標必須剛好等於某筆的起點。
+# 堆疊（指標大於等於事件 A 時的 SP）隨執行狀態變動，由程式判斷，不在此表。
+# 判定優先序固定為：堆疊、buffer、static、monster、town，與下列列序無關。
+kind	start	stride	count	note
+buffer	638E	0	50	行緩衝區 DS:638E 起 80 bytes，MESS 行、卷軸行、選項欄位與 sprintf 目的（docs/re/009 §1 行緩衝區；docs/spec/003 §5.1 buffer）
+static	0000	0	3244	常駐 DGROUP 靜態字串區，3244 是 FONT 緩衝區起點，實測最大字串偏移 321B（docs/spec/003 §5.1 static）
+static@ov1	B8F0	0	0B6E	OV1 資料區，長度 0B6E（2926）取自 OVR 標頭 data_len，界外起點 C45E（docs/spec/003 §5.1、§12 第 6 項）
+static@ov2	B8F0	0	0B10	OV2 資料區，長度 0B10（2832）取自 OVR 標頭 data_len，界外起點 C400（docs/spec/003 §5.1）
+monster	7522	39	3	怪物記錄 7522 起間距 39h 共 3 筆（count 3），75CD 是 TWNS.INT 載入緩衝區起點（docs/re/009 §1、§5；docs/spec/003 §5.1 monster）
+town	8071	123	C	城鎮名 8071 起間距 123h 共 12 筆（count C），TWNS.INT 載入到 DS:75CD 後偏移 0AA4h 起，動態只量到第 0 筆（docs/re/009 §5；docs/spec/003 §5.1 town）
