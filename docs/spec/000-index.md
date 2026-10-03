@@ -532,3 +532,5 @@
 - [332：同輪其餘範圍與caller返回](332-moo2-button-tail-return.md)：限定CONFORMED。同輪命中全畫面index8；313步來源限制明示，後續CALL209325正常返回已由333接通，NEW GAME仍未知。
 
 - [333：全畫面命中後的原表與正常返回](333-moo2-menu-table-return.md)：限定CONFORMED。47990733正常返回；9筆表更換7筆表，第2筆範圍對應選單位置，NEW GAME尚未實際觸發。
+
+- [334：正式選單就緒後的正常新遊戲點擊](334-moo2-ready-menu-normal-click.md)：限定CONFORMED。正常額外點擊實際選中index2；F2 66 AF新CPU拒絕，設定頁未完成，舊三基線保持。

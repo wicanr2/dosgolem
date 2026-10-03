@@ -68,3 +68,7 @@ probe SHA-256 fbd038f68ad029c1427cebf5baa852df0c2d90649554c38a95f10964f7ca0b57�
 限定CONFORMED只含此原表／來源／正常返回與舊收據保持。**正常開局／NEW GAME指令仍未知**。下一步保留44M與單次短按舊基線，另立正式選單7筆表就緒後的一次正常點擊情境：先確認實際7筆表與第2筆範圍，再正常press／release與原caller消費，不提高100M cap。這是新增驗證情境，不改正式遊戲或用代寫狀態補洞；不深入整個209325／renderer，主庫RE-first保持。
 
 70回填函式、既有32／49／25／27／27／34／31／36／31／37／34及新增35缺證據負例、--check-menu-table-spec-backlinks／--check-button-tail-spec-backlinks PASS。workplace/new-game-333-backlink-tests.txt SHA-256 b1eec641549e6ed249dcaf60a008abd3d1bb7b0d0e68d4332cba2808590282da。原ZIP／patch／EXE／MOX.SET／417檔、CPU／平台來源保持、gofmt／Git差異／新來源及收據1000:1000核對通過，工具root-owned／誤建.md目錄自檢空。有界一次性容器均已退出移除，沒有本輪遺留；未清理其他專案或映像，沿授權推github隔離分支。
+
+## 2026-10-03：正式選單點擊回填
+
+正式7筆表正常點擊與新CPU拒絕已由規格334接通，見[334](334-moo2-ready-menu-normal-click.md)。保留舊三基線，新情境實際選中index2，於76658331的F2 66 AF拒絕，設定頁未完成；不把幾何或正常輸入當完整開局。

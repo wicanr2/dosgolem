@@ -499,3 +499,13 @@ index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命
 全部3847／4825／6765舊列及72PNG保持，原CALL開始快照與332實際CALL逐項對接。47990733實際返回20DDF7／SS188／ESP2BDAD8，原回呼／IRQ非活動，開始與返回完整9筆表495bytes保持；50M／100M終態更換同一指標298848的7筆表385bytes且完全相同。兩側各3份新快照唯讀保持。正式終態index2範圍415／217／567／238幾何命中500／229；人工查看PNG強推論對應NEW GAME位置，尚未再次實際點擊，不宣稱指令已觸發。下一步保留舊基線，另立7筆表就緒後的正常press／release情境，不提高100M cap，不深挖callee。
 
 70回填函式、既有負例與新增35缺證據負例、兩CLI PASS，六收據及來源SHA集中[333](docs/spec/333-moo2-menu-table-return.md)。CPU／startup／provider／matcher／CLI保持，325固定EXE全套及329 CLI有效；gofmt、原ZIP／patch／EXE／MOX.SET／417檔及新來源／收據1000:1000通過。工具root-owned／誤建.md目錄自檢空，Docker兩掛載篩選空，本輪沒有遺留容器，其他專案未清理。沿授權推github隔離分支，不推本機origin；主庫RE-first與整款remake／中文化目標保持。
+
+## 2026-10-03：正式選單正常點擊與新字串指令拒絕
+
+起點d6688b01f7a5306bc6d271e06c4a5eb48a1eb430，334先DRAFT／READY，新增明示MENU_READY_CLICK=1與固定50M的原7筆表／callback／IRQ閘門，只經正常InjectMouseEvent送一次press／release；無旗標舊三基線保持。初次腳本輪次替換誤改預期EXE雜湊，輸入檢查停止、未啟動原版；修正腳本後同隔離設定乾淨重跑，不當產品缺陷。
+
+固定Go1.24.13映像／600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀重建417檔，go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe；沿333三基線換334名各一次，加一條ready100M情境一次。python3 workplace/new-game-334-verify.py PASS：全部3847／4829／6769無旗標舊列及72PNG保持，ready額外輸入前4780原列保持。50000000 press／50011955 release，相隔31339微秒，callback4／4正常完成；61538983原20DDDB word store實際DS26C4A6 0000→0200，選中第2筆已證實。
+
+後續76658331原1F3640的F2 66 AF被CPU拒絕，最終PNG全黑，未到100M、未進新遊戲設定頁。限定CONFORMED只含輸入／原選擇／舊基線保持，不稱正式開局完成；下一步依[099](docs/spec/099-cpu386-repne-scasb.md)／[292](docs/spec/292-cpu386-repe-scasd.md)與處理器規格補REPNE SCASW，再用同ready情境重生收據。不深挖原函式或提高cap，不代寫結果。
+
+14新增CLI拒絕與有效正對照、71回填函式、既有負例及新增33缺證據負例、兩CLI通過。九私有收據／腳本與原黑屏雜湊集中[334](docs/spec/334-moo2-ready-menu-normal-click.md)。CPU／startup／provider／matcher未改，325固定EXE既有全套有效而未涵蓋新拒絕。原ZIP／patch／EXE／MOX.SET／417檔、gofmt、Git差異及新來源／收據1000:1000核對通過，工具root-owned／誤建.md目錄自檢空。Docker兩掛載篩選空，本輪沒有遺留容器，未清理其他專案。沿授權推github隔離分支，主庫RE-first及完整remake／中文化目標保持。

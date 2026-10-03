@@ -51,6 +51,24 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_ready_menu_click_resolution(spec_dir):
+    """334正常選單輸入、實際選擇與新CPU拒絕不能混稱完成。"""
+    name = '334-moo2-ready-menu-normal-click.md'
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：正常輸入／第2筆原store／舊基線保持","新遊戲設定畫面未完成","無旗標全部3847／4829／6769","無旗標全部72PNG","全部4780原列","50000000","50011955","31339微秒","61538983","word0000→0200","下一EIP20DDE1","callback4／4","76658331","F2 66 AF","REPNE SCASW","未跑到100M","仍全黑","14無效值","只經InjectMouseEvent","不增加輸入或提高100M cap","89af01a886da66931c694b5de618b1fa9f16e6adb9cae4fac11d7ca9402104bf","4b8eaa813db115852c5f965e7fc7f482fbcb1d76e45bdc55523ae7c67e5916f0","ac175972abd192de3cf816eb1bf427b77a42c3cf32cd95419cbe81e4c2b09738","23c850a0b1f444da6975a300cd890f9d4022a5223db01a2b764617d1df21baa1","02b8a7e1451cdbf7d608048f61bf8bce900645e809f0f6802faffc446318d229","807639d9171e392e4c92623a2623dcb3a3447b5119a2bbbbda7720c0d8c08f6a","10771963a67d238c3528a1cba08f10bcb383c4a8123b5b74794e8428822ab8fe","5b7e3ab2e595ba8396c74593efeb62daca5ef46729048bcf0625809d4ebd6ac2","f58f52154c18389dea984d83d746980327529fd5d0150896d34734433efef8d3"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('新點擊缺原表、原store、CLI拒絕、收據或CPU阻塞界限')
+    older = (spec_dir / '333-moo2-menu-table-return.md').read_text()
+    if '正式7筆表正常點擊與新CPU拒絕已由規格334接通' not in older or name not in older:
+        raise RuntimeError('333缺正常點擊與新CPU邊界回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('334缺公開索引入口')
+
+if sys.argv[1:] == ['--check-ready-menu-spec-backlinks']:
+    validate_ready_menu_click_resolution(spec_dir)
+    print('正式選單正常點擊／第2筆原store／新CPU阻塞／333回填通過')
+    raise SystemExit(0)
+
 def validate_menu_table_return_resolution(spec_dir):
     """333原表更換、自然返回與332回填須同時保留。"""
     name = '333-moo2-menu-table-return.md'

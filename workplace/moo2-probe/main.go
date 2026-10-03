@@ -128,6 +128,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc與50M cap，或44M Esc與100M cap；1996-01-01且無早期滑鼠事件")
 		os.Exit(2)
 	}
+
+	readyClickSetting := os.Getenv("DOSGOLEM_MOO2_MENU_READY_CLICK")
+	readyClick := readyClickSetting == "1"
+	if readyClickSetting != "" && (!readyClick || !newGameClick || keyboardStep != 44000000 || maxSteps != 100000000 || os.Getenv("DOSGOLEM_MOO2_SEPARATE_DOS") != "1" || os.Getenv("DOSGOLEM_MOO2_VBE_FRAME_PREFIX") == "") {
+		fmt.Fprintln(os.Stderr, "MENU_READY_CLICK要求值1、舊點擊旗標、44M Esc、100M cap、1996-01-01、SEPARATE_DOS=1與frame prefix")
+		os.Exit(2)
+	}
 	b, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -546,6 +553,16 @@ func main() {
 	keyboardQueued := false
 	var keyboardPrinted uint64
 	xorALSeen, xorALConsumerSteps := 0, 0
+
+	// 規格334：正式7筆表就緒後的一次額外正常輸入，不改舊情境。
+	readyPressed, readyReleased, readyStoreSeen := false, false, false
+	var readyPressMicros, readyPressStarted uint64
+	defer func() {
+		if readyClick {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("ready_menu_terminal pressed=%t released=%t store_seen=%t mask=%X pending=%d active=%t started=%d completed=%d\n", readyPressed, readyReleased, readyStoreSeen, mask, pending, active, started, completed)
+		}
+	}()
 	newGamePressed, newGameReleased := false, false
 	var newGamePressMicros uint64
 	newGameCallbackSamples := 0
@@ -954,6 +971,46 @@ func main() {
 					} else {
 						newGameReleased = true
 					}
+				}
+			}
+		}
+
+		if readyClick && (!readyPressed && i == 50000000 || readyPressed && !readyReleased) {
+			ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts)
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			selector, offset := services.MouseCallbackTarget()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			available := ok && ports.BIOSClock != nil && m.CPU.EFlags&cpu386.IF != 0 && pending == 0 && !active && !irqActive && !irqFailed && selector == 8 && offset == 0x2136d1 && mask == 0x2b
+			phase, x, buttons := "", uint16(1000), uint16(1)
+			if !readyPressed {
+				c := m.CPU
+				r, seg, eip, flags, bus := c.R, c.Seg, c.EIP, c.EFlags, c.Bus
+				ramBefore := sha256.Sum256(m.Mem)
+				var globals [192]byte
+				var header [16]byte
+				var records [385]byte
+				g := peekSourceWindow(seg[cpu386.SegDS], 0x26c480, globals[:])
+				h := peekSourceWindow(seg[cpu386.SegDS], 0x29be0e, header[:])
+				t := peekSourceWindow(seg[cpu386.SegDS], 0x298848, records[:])
+				readonly := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.Bus == bus && sha256.Sum256(m.Mem) == ramBefore
+				valid := readonly && available && newGamePressed && newGameReleased && started == 2 && completed == 2 && seg[cpu386.SegDS] == 0x188 && g && h && t && globals[0] == 0x48 && globals[1] == 0x88 && globals[2] == 0x29 && globals[3] == 0 && header[0] == 7 && header[1] == 0 && header[4] == 0 && header[5] == 0 && header[6] == 0 && header[7] == 0 && fmt.Sprintf("%x", sha256.Sum256(records[:])) == "776c6e6e61a5b17529ff383cae79a194edc17c7cf0b9a11f3dc8fc8841339183"
+				fmt.Printf("ready_menu_precondition outer_step=%d ds=%X globals=%X header=%X records=%X table_pointer=298848 table_count=7 table_stride=55 table_readable=%t readonly=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d eip=%X r=%X seg=%X flags=%X valid=%t\n", i, seg[cpu386.SegDS], globals, header, records, g && h && t, readonly, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, eip, r, seg, flags, valid)
+				if !valid {
+					panic("正式選單點擊的原表或輸入條件不符")
+				}
+				phase = "press"
+			} else if available && completed >= readyPressStarted+1 && ports.BIOSClock.Micros >= readyPressMicros+20000 {
+				phase, x, buttons = "release", 1002, 0
+			}
+			if phase != "" {
+				if err := services.InjectMouseEvent(x, 229, buttons, 0, 0); err != nil {
+					panic(err)
+				}
+				fmt.Printf("ready_menu_mouse_input phase=%s outer_step=%d virtual_micros=%d x=%d y=229 buttons=%d delta=0/0 mask=%X target=%X:%X started=%d completed=%d eip=%X r=%X seg=%X flags=%X\n", phase, i, ports.BIOSClock.Micros, x, buttons, mask, selector, offset, started, completed, m.CPU.EIP, m.CPU.R, m.CPU.Seg, m.CPU.EFlags)
+				if phase == "press" {
+					readyPressed, readyPressMicros, readyPressStarted = true, ports.BIOSClock.Micros, started
+				} else {
+					readyReleased = true
 				}
 			}
 		}
@@ -1398,6 +1455,13 @@ func main() {
 		}
 
 		_, clickPending, clickActive, clickStarted, clickCompleted := services.MouseCallbackState()
+
+		observeReadyStore := readyClick && readyPressed && !readyStoreSeen && m.CPU.EIP == 0x20dddb
+		var readyBeforeWord [2]byte
+		readyWordReadable := false
+		if observeReadyStore {
+			readyWordReadable = peekSourceWindow(m.CPU.Seg[cpu386.SegDS], 0x26c4a6, readyBeforeWord[:])
+		}
 		observeClick := newGameClick && newGamePressed && newGameCallbackSamples < 256 && (clickPending != 0 || clickActive)
 		var clickBeforeR [8]uint32
 		var clickBeforeSeg [6]uint16
@@ -1409,7 +1473,7 @@ func main() {
 		observeByteAddConsumer := byteAddConsumerBudget > 0 && byteAddConsumerSamples < 32
 		observeNegDword := newGameClick && newGamePressed && negDwordSamples < 8 && m.CPU.EIP == 0x2130f3
 		observeNegDwordConsumer := negDwordConsumerBudget > 0 && negDwordConsumerSamples < 32
-		if observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || observeBranch || newGameClick && newGamePressed && buttonReadSamples < 32 {
+		if observeReadyStore || observeClick || observeEventConsumer || observeFindQuestion || observeByteAdd || observeByteAddConsumer || observeNegDword || observeNegDwordConsumer || observeSource || observeActivation || observeBranch || newGameClick && newGamePressed && buttonReadSamples < 32 {
 			clickBeforeR, clickBeforeSeg = m.CPU.R, m.CPU.Seg
 			clickBeforeEIP, clickBeforeFlags = m.CPU.EIP, m.CPU.EFlags
 			copy(clickBytes[:], m.Mem[clickBeforeEIP:clickBeforeEIP+16])
@@ -1463,6 +1527,14 @@ func main() {
 		}
 		buttonReadStepActive = false
 
+		if observeReadyStore {
+			readyStoreSeen = true
+			var afterWord [2]byte
+			afterReadable := peekSourceWindow(clickBeforeSeg[cpu386.SegDS], 0x26c4a6, afterWord[:])
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			fmt.Printf("ready_menu_selected_store outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X offset=26C4A6 before_readable=%t after_readable=%t before_word=%X after_word=%X callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d error=%v\n", i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, clickBeforeSeg[cpu386.SegDS], readyWordReadable, afterReadable, readyBeforeWord, afterWord, mask, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, stepErr)
+		}
 		if observeBranch {
 			var afterEvent [16]byte
 			var afterCounter, afterTopBytes [4]byte
