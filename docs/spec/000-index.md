@@ -528,3 +528,5 @@
 - [330：正常事件返回與上層判定](330-moo2-event-return-caller.md)：CONFORMED。兩組32步／三RET／非零JNE與CALL邊界、329三流程及72PNG保持；NEW GAME指令仍未知。
 
 - [331：非零事件分支與正常CALL返回](331-moo2-button-branch-call-return.md)：CONFORMED。96 caller步、五自然返回與第一筆x500>25跳過，原來源／舊基線保持；其餘命中與最終返回未知。
+
+- [332：同輪其餘範圍與caller返回](332-moo2-button-tail-return.md)：限定CONFORMED。同輪命中全畫面index8；313步來源限制明示，後續CALL209325未取得返回，NEW GAME仍未知。

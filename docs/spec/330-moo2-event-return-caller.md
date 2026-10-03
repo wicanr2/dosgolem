@@ -40,7 +40,7 @@ python3 workplace/new-game-330-verify.py PASS：扣除330新觀察列，baseline
 
 | 組別 | 原事件 | 實際返回 | 首個上層邊界 |
 | --- | --- | --- | --- |
-| group0，47863846..47863861，共16步 | DS188:2A1228 word=1，讀後清0 | 47863859，213C83 C3，SS20:ESP2BDAD4的69DB2000，返回20DB69／ESP2BDAD8／EAX1 | 47863860 TEST EAX,EAX令flags206h→202h；47863861 JNE751Ah跳20DB87，ZF=0 |
+| group0，47863846..47863861，共16步 | DS188:2A1228 word=1，讀後清0 | 47863859，213C83 C3，SS188:ESP2BDAD4的69DB2000，返回20DB69／ESP2BDAD8／EAX1 | 47863860 TEST EAX,EAX令flags206h→202h；47863861 JNE751Ah跳20DB87，ZF=0 |
 | group1，47864834..47864849，共16步 | DS188:2A1226 word=1，寫入DS:26C518 word1 | 47864842，213A8E C3返回209197；47864848，20919D C3返回20DDF2；兩次EAX1、ESP增加4 | 47864849，20DDF2 CALL E82EB5FFFF到209325，ESP2BDAD8→2BDAD4，新stack return20DDF7 |
 
 所有32步獨立MOV／POP／RET／TEST／JNE／CALL核算PASS；MOV記憶體前後、三RET指標／ESP、CALL rel32／新return／ESP-4、TEST的已定義flags與JNE分支獨立核對。TEST的AF未定義，不用它當平台契約。每組連續outer_step與完整R／六段／EIP／flags／四視窗保持接續。快照readonly=true，callback前後都非活動，started／completed2，沒有新CPU拒絕。不採第一次誤標的callee分支；正式探針遇首CALL停止，無callee探勘。
@@ -60,3 +60,7 @@ probe SHA-256 931bb9d364a144460f2b358543f36e110f07e732020b80f69cadc5a6dbcdbdc1�
 67回填函式與既有32／49／25／27／27／34／31／36、新增31缺證據負例、兩CLI PASS；workplace/new-game-330-backlink-tests.txt SHA-256 4423e974f97d1852c72ccd57080070b6fb6dbfdfa07aaafacffc7c6714b00584。原ZIP／patch／EXE／MOX.SET／417檔與來源保持再核對、gofmt、擁有權及工具root-owned／誤建.md目錄自檢通過。
 
 非零臂caller與原範圍來源已由規格331接通：[331-moo2-button-branch-call-return](331-moo2-button-branch-call-return.md)。正常返回x500／y229，index1因x500>25跳過、續查index2；仍未達完整caller RET，NEW GAME指令與最終命中未知。
+
+### 2026-10-03 selector註記勘誤
+
+332續觀察前核對原330三RET收據，return_selector皆188h。cpu386/cpu.go的段陣列順序是CS／DS／ES／FS／GS／SS，before_seg=[8 188 188 0 20 188]中的20h屬GS，SS是末槽188h。原表的SS20h是文件誤標，已修正為SS188h；原始位址、bytes、ESP、返回目標與收據雜湊完全保持。

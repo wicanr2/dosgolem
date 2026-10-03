@@ -51,6 +51,24 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_button_tail_return_resolution(spec_dir):
+    """332完整範圍消費、原始收據與限制須保留。"""
+    name = '332-moo2-button-tail-return.md'
+    current = (spec_dir / name).read_text()
+    required = ["全部3847／4511／6451","72PNG","舊331 terminal逐字保持","47864196..47864849","313實際caller步","341省略callee步","311完整來源、2 MOV僅低word來源已驗、1 IRQ堆疊寫回未重建","高word來源未捕捉","7777→7778","index1..6右界","index7左界5000","index8原範圍0／0／639／479","000000007F02DF01","局部index8","DS:26C4A6","CALL208FD4","EAX1","CALL209325","return_eip20DDF7","outer_budget","未達caller RET","SS188h","正常開局／NEW GAME指令仍未知","不提高原流程cap","d8d129deb83dcf71adf8cd46772e22206cbacf61be7f3723600d6e2de5bb2a55","f38048de3d96cc1db43b68f092ebd55fb0cf3443af57ca30a11436cb68d4e501","cfb76ca5490e2dfa89cd74404f2c9a33bd48969fe4a4dcf49875273b3dbdc509","dd9ade15018780b0284232a058eec81678cf17446e1acb9979b2c19d2a3dde08","9744908cee05cf75cf9e788cde86f96cadb1baff6a2cbb933fd48e20a50ab418","32f37ac91a6758e6794f30882a5184228836b5ad84317058b51828a3b336a2a4"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('其餘範圍缺原bytes、實際命中、來源限制、收據或未知')
+    older = (spec_dir / '331-moo2-button-branch-call-return.md').read_text()
+    if '同輪完整範圍命中與後續CALL已由規格332接通' not in older or name not in older:
+        raise RuntimeError('331缺同輪完整範圍回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('332缺公開索引入口')
+
+if sys.argv[1:] == ['--check-button-tail-spec-backlinks']:
+    validate_button_tail_return_resolution(spec_dir)
+    print('其餘範圍實際命中／來源限制／自然返回／331回填通過')
+    raise SystemExit(0)
+
 def validate_button_branch_return_resolution(spec_dir):
     """331原來源、caller消費、第一筆限定跳過與330回填須同時存在。"""
     name = '331-moo2-button-branch-call-return.md'

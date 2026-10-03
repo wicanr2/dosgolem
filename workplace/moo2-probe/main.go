@@ -664,9 +664,22 @@ func main() {
 	var branchSelector, branchStackSelector, branchReturnSelector uint16
 	var branchStackOffset, branchReturnEIP, branchReturnESP uint32
 	branchStop := ""
+	// 規格332：舊96步終態先保存，後續以獨立前綴有界觀察。
+	branchTail, branchOldTerminal := false, ""
+	branchMaxSamples := 96
+	branchTerminal := func(label string, limit int) string {
+		return fmt.Sprintf("%s seen=%t active=%t waiting=%t start=%d samples=%d max_samples=%d max_outer_steps=8192 return_eip=%X return_selector=%X return_esp=%X stop=%s\n", label, branchSeen, branchActive, branchWaiting, branchStart, branchSamples, limit, branchReturnEIP, branchReturnSelector, branchReturnESP, branchStop)
+	}
 	defer func() {
 		if newGameClick && phasePrefix != "" {
-			fmt.Printf("new_game_button_branch_terminal seen=%t active=%t waiting=%t start=%d samples=%d max_samples=96 max_outer_steps=8192 return_eip=%X return_selector=%X return_esp=%X stop=%s\n", branchSeen, branchActive, branchWaiting, branchStart, branchSamples, branchReturnEIP, branchReturnSelector, branchReturnESP, branchStop)
+			if branchOldTerminal != "" {
+				fmt.Print(branchOldTerminal)
+			} else {
+				fmt.Print(branchTerminal("new_game_button_branch_terminal", 96))
+			}
+			if branchTail {
+				fmt.Print(branchTerminal("new_game_button_tail_terminal", 384))
+			}
 		}
 	}()
 
@@ -1180,6 +1193,14 @@ func main() {
 			branchSelector, branchStackSelector = m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS]
 			branchStackOffset = m.CPU.R[cpu386.EBP] - 160
 		}
+		if !branchTail && branchSeen && !branchActive && branchSamples == 96 && branchStop == "sample_budget" && phasePrefix != "" && newGameClick && newGameReleased && !branchCallback && !branchIRQActive && m.CPU.EIP == 0x20dcbd {
+			branchOldTerminal = branchTerminal("new_game_button_branch_terminal", 96)
+			branchTail, branchActive, branchBegin = true, true, true
+			branchMaxSamples, branchSamples, branchStart, branchStop = 384, 0, i, ""
+			branchWaiting = false
+			branchSelector, branchStackSelector = m.CPU.Seg[cpu386.SegDS], m.CPU.Seg[cpu386.SegSS]
+			branchStackOffset = m.CPU.R[cpu386.EBP] - 160
+		}
 		if branchActive && i-branchStart >= 8192 {
 			branchActive, branchStop = false, "outer_budget"
 		}
@@ -1189,7 +1210,7 @@ func main() {
 		if branchActive && !branchWaiting && (branchCallback || branchIRQActive || branchIRQFailed) {
 			branchActive, branchStop = false, "interrupt_before"
 		}
-		observeBranch := branchActive && !branchWaiting && branchSamples < 96
+		observeBranch := branchActive && !branchWaiting && branchSamples < branchMaxSamples
 		var branchBeforeEvent [16]byte
 		var branchBeforeCounter, branchBeforeTop [4]byte
 		var branchBeforeGlobals [192]byte
@@ -1404,7 +1425,7 @@ func main() {
 			})
 			_, _, afterCallback, afterStarted, afterCompleted := services.MouseCallbackState()
 			afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted := services.IRQ0State()
-			interrupted := branchIRQStarted != afterIRQStarted || branchIRQCompleted != afterIRQCompleted || afterIRQActive || afterIRQFailed || afterCallback
+			interrupted := afterIRQStarted < branchIRQStarted || afterIRQCompleted < branchIRQCompleted || afterIRQStarted-branchIRQStarted != afterIRQCompleted-branchIRQCompleted || afterIRQActive || afterIRQFailed || afterCallback
 			top := uint32(branchBeforeTop[0]) | uint32(branchBeforeTop[1])<<8 | uint32(branchBeforeTop[2])<<16 | uint32(branchBeforeTop[3])<<24
 			afterTop := uint32(afterTopBytes[0]) | uint32(afterTopBytes[1])<<8 | uint32(afterTopBytes[2])<<16 | uint32(afterTopBytes[3])<<24
 			actualReturn := !interrupted && stepErr == nil && clickBytes[0] == 0xc3 && branchTopReadable && m.CPU.EIP == top && m.CPU.R[cpu386.ESP] == clickBeforeR[cpu386.ESP]+4
@@ -1429,10 +1450,14 @@ func main() {
 				stop = "unverified_call"
 			} else if clickBytes[0] == 0xc3 && !actualReturn || clickBytes[0] == 0xc2 || clickBytes[0] == 0xca || clickBytes[0] == 0xcb {
 				stop = "unverified_ret"
-			} else if branchSamples == 96 {
+			} else if branchSamples == branchMaxSamples {
 				stop = "sample_budget"
 			}
-			fmt.Printf("new_game_button_branch_consumer begin=%t resumed=%t skipped_steps=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X event_readable=%t before_event=%X after_event=%X counter_readable=%t before_counter=%X after_counter=%X globals_offset=26C480 globals_readable=%t before_globals=%X after_globals=%X header_offset=29BE0E header_readable=%t before_header=%X after_header=%X source_offset=%X source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X pointer_selector=%X pointer_offset=%X pointer_readable=%t before_pointer=%X after_pointer=%X return_selector=%X return_offset=%X return_readable=%t return_bytes=%X after_return_readable=%t after_return_bytes=%X actual_return=%t actual_call=%t call_target=%X before_started=%d before_completed=%d after_started=%d after_completed=%d before_irq_active=%t before_irq_failed=%t before_irq_started=%d before_irq_completed=%d after_irq_active=%t after_irq_failed=%t after_irq_started=%d after_irq_completed=%d readonly=%t samples=%d waiting=%t stop=%s error=%v\n", branchBegin, branchResumed, branchSkipped, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, branchSelector, branchEventReadable, branchBeforeEvent, afterEvent, branchCounterReadable, branchBeforeCounter, afterCounter, branchGlobalsReadable, branchBeforeGlobals, afterGlobals, branchHeaderReadable, branchBeforeHeader, afterHeader, branchSourceOffset, branchSourceReadable, branchBeforeSource, afterSource, branchStackSelector, branchStackOffset, branchStackReadable, branchBeforeStack, afterStack, branchSelector, branchPointerOffset, branchPointerReadable, branchBeforePointer, afterPointer, clickBeforeSeg[cpu386.SegSS], clickBeforeR[cpu386.ESP], branchTopReadable, branchBeforeTop, afterTopReadable, afterTopBytes, actualReturn, actualCall, callTarget, clickStarted, clickCompleted, afterStarted, afterCompleted, branchIRQActive, branchIRQFailed, branchIRQStarted, branchIRQCompleted, afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted, branchBeforeReadonly && afterReadonly, branchSamples, branchWaiting, stop, stepErr)
+			label := "new_game_button_branch_consumer"
+			if branchTail {
+				label = "new_game_button_tail_consumer"
+			}
+			fmt.Printf("%s begin=%t resumed=%t skipped_steps=%d outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X event_readable=%t before_event=%X after_event=%X counter_readable=%t before_counter=%X after_counter=%X globals_offset=26C480 globals_readable=%t before_globals=%X after_globals=%X header_offset=29BE0E header_readable=%t before_header=%X after_header=%X source_offset=%X source_readable=%t before_source=%X after_source=%X stack_selector=%X stack_offset=%X stack_readable=%t before_stack=%X after_stack=%X pointer_selector=%X pointer_offset=%X pointer_readable=%t before_pointer=%X after_pointer=%X return_selector=%X return_offset=%X return_readable=%t return_bytes=%X after_return_readable=%t after_return_bytes=%X actual_return=%t actual_call=%t call_target=%X before_started=%d before_completed=%d after_started=%d after_completed=%d before_irq_active=%t before_irq_failed=%t before_irq_started=%d before_irq_completed=%d after_irq_active=%t after_irq_failed=%t after_irq_started=%d after_irq_completed=%d readonly=%t samples=%d waiting=%t stop=%s error=%v\n", label, branchBegin, branchResumed, branchSkipped, i, clickBeforeEIP, m.CPU.EIP, clickBeforeR, m.CPU.R, clickBeforeSeg, m.CPU.Seg, clickBeforeFlags, m.CPU.EFlags, clickBytes, branchSelector, branchEventReadable, branchBeforeEvent, afterEvent, branchCounterReadable, branchBeforeCounter, afterCounter, branchGlobalsReadable, branchBeforeGlobals, afterGlobals, branchHeaderReadable, branchBeforeHeader, afterHeader, branchSourceOffset, branchSourceReadable, branchBeforeSource, afterSource, branchStackSelector, branchStackOffset, branchStackReadable, branchBeforeStack, afterStack, branchSelector, branchPointerOffset, branchPointerReadable, branchBeforePointer, afterPointer, clickBeforeSeg[cpu386.SegSS], clickBeforeR[cpu386.ESP], branchTopReadable, branchBeforeTop, afterTopReadable, afterTopBytes, actualReturn, actualCall, callTarget, clickStarted, clickCompleted, afterStarted, afterCompleted, branchIRQActive, branchIRQFailed, branchIRQStarted, branchIRQCompleted, afterIRQActive, afterIRQFailed, afterIRQStarted, afterIRQCompleted, branchBeforeReadonly && afterReadonly, branchSamples, branchWaiting, stop, stepErr)
 			if stop != "" {
 				branchActive, branchStop = false, stop
 			}

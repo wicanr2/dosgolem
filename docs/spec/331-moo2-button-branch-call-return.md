@@ -57,3 +57,7 @@ probe SHA-256 05592edc1f377a163687a09f82ef2d1293e94d3577b8bf26ee5c41d2c80b3e23�
 限定CONFORMED只含96步／五自然返回／原來源與第一筆跳過／舊基線保持；**正常開局／NEW GAME指令仍未知**。下一步同輪核對index2..8與最終caller返回、命中項及目前主選單的關係，優先追玩家阻塞；不提高原流程cap、不改點擊時長、不重點、不深入callee或整個renderer。主庫RE-first、255完整游標、303整體DRAFT、299自然OF=1、AH2Ch／RNG／人耳與remake同狀態保持未知。
 
 68回填函式、既有32／49／25／27／27／34／31／36／31與新增37缺證據負例、兩CLI PASS。workplace/new-game-331-backlink-tests.txt SHA-256 e1ceaca0b3593d9ae9d8b7daeee07b2b42cbe91ca7ab10e8261620885881bb15。原ZIP／patch／EXE／MOX.SET／417檔、CPU／平台來源保持、gofmt／Git差異與擁有權核對通過，工具root-owned／誤建.md目錄自檢空。
+
+## 2026-10-03：後續範圍回填
+
+同輪完整範圍命中與後續CALL已由規格332接通，見[332](332-moo2-button-tail-return.md)。原96步限定結論與收據保留；後續證實index8全畫面範圍命中，NEW GAME仍未知。

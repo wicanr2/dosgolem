@@ -481,3 +481,13 @@ Docker ps -a以主庫與隔離工具鏈兩掛載路徑篩選皆空，本輪無�
 68回填函式、既有32／49／25／27／27／34／31／36／31與新37缺證據負例、--check-button-branch-spec-backlinks／--check-event-return-spec-backlinks PASS。CPU／平台／CLI保持，325固定EXE全套與329 CLI有效；原ZIP／patch／EXE／MOX.SET／417檔、gofmt／git diff --check、新來源與收據1000:1000、工具root-owned／誤建.md目錄自檢空。正式六私有收據SHA與命令集中[331](docs/spec/331-moo2-button-branch-call-return.md)，原版素材不提交。沿授權推github隔離分支，未推本機origin；主庫玩法RE閘門與整款remake／中文化目標保持。
 
 Docker ps -a以主庫與隔離工具鏈兩掛載路徑篩選皆空，本輪無遺留容器，其他專案未清理。
+
+## 2026-10-03：完整範圍命中及後續正常CALL
+
+起點a48f536a1132731c1b055e4419854642177b1c5e，332先DRAFT／READY，只續331第96步後的原caller。初次於完成IRQ7777→7778處誤停，回DRAFT修正成對完成中斷的觀察分類，再READY；初次收據留332-initial。同Docker命令乾淨重跑兩50M與獨立100M，原輸入、CPU／平台／CLI及正式流程cap未改。
+
+固定Go1.24.13映像／600s／2GiB／2CPU／128pids／UID1000／network none，原ZIP／patch唯讀重建417檔。go build -p 2 -buildvcs=false -o /tmp/moo2-probe ./workplace/moo2-probe；python3 workplace/new-game-332-verify.py PASS。全部3847／4511／6451舊列除既定正規化保持，72PNG逐位元保持、舊331 terminal保持。新313步與341省略callee步兩預算一致；311完整來源、2 MOV僅低word來源已驗、1 IRQ堆疊寫回未重建，限制已明示。
+
+index1..6右界拒絕、index7左界拒絕、index8全畫面0／0／639／479命中x500／y229，實際局部8及DS26C4A6 word8寫回。CALL208FD4自然返回EAX1；CALL209325新return20DDF7仍待返回，8192觀察上限停止，沒有新CPU拒絕。不能稱NEW GAME已觸發。下一步唯讀核對實際註冊表與可見主選單的關係及正常20DDF7返回，不深挖整個callee或猜新輸入。
+
+69回填函式、既有32／49／25／27／27／34／31／36／31／37及新增34缺證據負例、兩CLI PASS；六收據SHA與命令集中[332](docs/spec/332-moo2-button-tail-return.md)。330的SS20h註記修正為實際SS188h並追加勘誤，保留原定位與收據。CPU／startup／provider／matcher逐位元保持、gofmt、原ZIP／patch／EXE／MOX.SET／417檔及新來源／收據擁有權核對通過。工具root-owned／誤建.md目錄自檢空，Docker兩掛載篩選空，其他專案未清理。沿授權推github隔離分支，主庫RE-first與整款remake／中文化目標保持。
