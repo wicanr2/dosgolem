@@ -2741,12 +2741,52 @@ func (c *CPU) Step() error {
 		c.R[reg] &= value
 		c.setLogicFlags(c.R[reg])
 	case op == 0x69 || op == 0x6b:
-		if operand16 || segmentOverride >= 0 || repe || repne {
+		if segmentOverride >= 0 || repe || repne {
 			return fail("IMUL立即值prefix尚未支援")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if operand16 {
+			// 規格357：完整讀取來源與立即數後才發布word與定義CF／OF。
+			source := uint16(c.R[modrm&7])
+			if modrm>>6 != 3 {
+				seg, addr, err := c.decodeAddress32(modrm)
+				if err != nil {
+					return fail(err.Error())
+				}
+				var ok bool
+				source, ok = c.readSegment16(c.Seg[seg], addr)
+				if !ok {
+					return fail("IMUL word立即值來源越界")
+				}
+			}
+			var imm int16
+			if op == 0x6b {
+				v, err := c.fetch8()
+				if err != nil {
+					return fail(err.Error())
+				}
+				imm = int16(int8(v))
+			} else {
+				v, err := c.fetch16()
+				if err != nil {
+					return fail(err.Error())
+				}
+				imm = int16(v)
+			}
+			product := int32(int16(source)) * int32(imm)
+			result := uint16(product)
+			flags := c.EFlags &^ (CF | OF)
+			if product != int32(int16(result)) {
+				flags |= CF | OF
+			}
+			reg := (modrm >> 3) & 7
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(result)
+			// SF／ZF／AF／PF未定義；保留只屬工具相容近似。
+			c.EFlags = flags
+			break
 		}
 		source := c.R[modrm&7]
 		if modrm>>6 != 3 {

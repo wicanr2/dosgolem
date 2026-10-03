@@ -249,6 +249,10 @@ func main() {
 	// 353 END and_state
 
 	// 354 BEGIN xchg_state
+	// 357 BEGIN imul_word_state
+	imulWordSeen, imulWordBudget := false, 0
+	// 357 END imul_word_state
+
 	// 356 BEGIN set_memory_state
 	setMemorySeen, setMemoryBudget := false, 0
 	// 356 END set_memory_state
@@ -2586,6 +2590,31 @@ func main() {
 		}
 		// 354 END xchg_pre
 
+		// 357 BEGIN imul_word_pre
+		if bannerRed && !imulWordSeen && m.CPU.EIP == 0x1cf90a {
+			imulWordSeen, imulWordBudget = true, 3
+		}
+		observeImulWord := imulWordBudget > 0
+		imulWordR, imulWordSeg, imulWordEIP, imulWordFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var imulWordCode [24]byte
+		var imulWordSource [4]byte
+		var imulWordDestination [20]byte
+		imulWordOffset := imulWordR[cpu386.EBX] + 0x3f
+		imulWordSourceReadable, imulWordDestinationReadable := false, false
+		var imulWordRAM [32]byte
+		imulWordReadonly := false
+		var imulWordRAMCopy []byte
+		if observeImulWord {
+			imulWordRAM = sha256.Sum256(m.Mem)
+			imulWordRAMCopy = append([]byte(nil), m.Mem...)
+			imulWordReadonly = activationPeek(func() {
+				copy(imulWordCode[:], m.Mem[imulWordEIP:imulWordEIP+24])
+				imulWordSourceReadable = peekSourceWindow(imulWordSeg[cpu386.SegDS], imulWordOffset, imulWordSource[:])
+				imulWordDestinationReadable = peekSourceWindow(imulWordSeg[cpu386.SegSS], imulWordR[cpu386.EBP]-44, imulWordDestination[:])
+			}) && sha256.Sum256(m.Mem) == imulWordRAM
+		}
+		// 357 END imul_word_pre
+
 		// 356 BEGIN set_memory_pre
 		if bannerRed && !setMemorySeen && m.CPU.EIP == 0x1ce387 {
 			setMemorySeen, setMemoryBudget = true, 3
@@ -2896,6 +2925,32 @@ func main() {
 			}
 		}
 		// 354 END xchg_post
+
+		// 357 BEGIN imul_word_post
+		if observeImulWord {
+			imulWordBudget--
+			var sourceAfter [4]byte
+			var destinationAfter [20]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable, afterDestinationReadable := false, false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(imulWordSeg[cpu386.SegDS], imulWordOffset, sourceAfter[:])
+				afterDestinationReadable = peekSourceWindow(imulWordSeg[cpu386.SegSS], imulWordR[cpu386.EBP]-44, destinationAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && imulWordReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range imulWordRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fmt.Printf("imul_word_immediate_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X destination_selector=%X destination_offset=%X destination_readable=%t after_destination_readable=%t before_destination=%X after_destination=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, imulWordEIP, m.CPU.EIP, imulWordR, m.CPU.R, imulWordSeg, m.CPU.Seg, imulWordFlags, m.CPU.EFlags, imulWordCode, imulWordSeg[cpu386.SegDS], imulWordOffset, imulWordSourceReadable, afterSourceReadable, imulWordSource, sourceAfter, imulWordSeg[cpu386.SegSS], imulWordR[cpu386.EBP]-44, imulWordDestinationReadable, afterDestinationReadable, imulWordDestination, destinationAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, imulWordRAM == ram, imulWordBudget, stepErr)
+			if stepErr != nil {
+				imulWordBudget = 0
+			}
+		}
+		// 357 END imul_word_post
 
 		// 356 BEGIN set_memory_post
 		if observeSetMemory {

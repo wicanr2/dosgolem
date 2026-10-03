@@ -60,7 +60,7 @@ DRAFT初態probe為兩步，已保存moo2-set-memory-356-input.go SHA-256 daac78
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:1CE387→1CE38B→1CE61E | 原SETE SS byte41→01／唯一RAM差異與下一JMP、flags保持 | 355、354、353、352、344、343 | 原1CE387記憶體SETE寫回與下一JMP已由規格356接通 |
 
-下一步只接原1CF90A的66 6B /r ib word IMUL：先捕捉DS188:5A2084來源word與原DI、imm05及後續原消費，審查signed word乘積／低16bits／CF與OF、其他旗標的未定義邊界／高16bits保持及拒絕不發布。沿同180M正常輸入，不增加cap、不深挖helper。第三CMP來源、byte1 reader、原其餘15條件動態、資料語意、正式writer、完整生成／開局、RNG與remake同狀態未知。
+下一步依357回填帳擷取原1CFD3F的DS188:5A207C word NEG來源與後續消費，沿同180M，不增加cap或深入helper。第三CMP數值／byte1 reader、正式DI reader、資料語意、正式writer、完整生成／開局與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 
@@ -120,3 +120,7 @@ DRAFT實際input-run內容保存input-original-run，重生入口改指向已保
 | new-game-356-backlink-tests.txt | c74c882fe7c2ec2ebac2c325c34fb17ca76c3590ffd20f6eb882d6794aeb026c |
 | moo2-set-memory-356-input.go | daac78a496a13350fbfe38961c1cfc9c7541049a05718b4ef9ac9359c5b1db11 |
 | new-game-356-input-original-run.sh | 6d9362371bb4fa2701a5ee07e2481203f8fb419232268d3f6de9211e65d31ce4 |
+
+## 2026-10-04 word立即值IMUL回填
+
+原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通，見[357](357-cpu386-imul-word-immediate.md)。原DS188:5A2084 word0000×5=0、EDI005AA5F4→005A0000／高word005A保持、定義CF／OF0與下一兩MOV dword0→0已驗；兩MOV不消費DI，undefined flags保存只屬工具近似。10767正常前綴／35frames／固定EXE全套保持，正式DI reader／原非零與overflow未知。新164568139在1CFD3F的66 F7 /3 word memory NEG拒絕、after1CFD42只解碼、DS188:5A207C來源word未知；下一步依357回填帳，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知，保留本檔原歷史定位與收據。

@@ -50,3 +50,7 @@ Active=true、Bank=7、StartY=512、BankSets=6、Writes=307200、DisplaySets=1�
 ## 後續停點解析回填
 
 **記憶體 CMP 停點已由規格 270 接通**：[270-cpu386-cmp-memory-register.md](270-cpu386-cmp-memory-register.md) 已依 Intel 契約、兩側目的值與原版完整旗標／實際 JGE 分支審查 READY。保留 269 的原始停點與收據；270 的自然重跑結果是下一現況入口。絕對資料位址、未定義乘法旗標與正常玩家路徑限制不因這項 CPU 延伸升格。
+
+## 2026-10-04 word立即值IMUL回填
+
+原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通，見[357](357-cpu386-imul-word-immediate.md)。原DS188:5A2084 word0000×5=0、EDI005AA5F4→005A0000／高word005A保持、定義CF／OF0與下一兩MOV dword0→0已驗；兩MOV不消費DI，undefined flags保存只屬工具近似。10767正常前綴／35frames／固定EXE全套保持，正式DI reader／原非零與overflow未知。新164568139在1CFD3F的66 F7 /3 word memory NEG拒絕、after1CFD42只解碼、DS188:5A207C來源word未知；下一步依357回填帳，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知，保留本檔原歷史定位與收據。

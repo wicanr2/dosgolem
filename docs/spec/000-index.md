@@ -577,4 +577,6 @@
 
 - [355：byte記憶體來源ADD](355-cpu386-add-byte-memory-source.md)：限定CONFORMED。原四來源ADD與目的ADD零結果／五步旗標、10759原前綴／35frames、全套／8M保持；164561579原0F94 memory目的已由356接通，完整開局未知。
 
-- [356：標準SETcc的byte記憶體目的](356-cpu386-setcc-byte-memory.md)：限定CONFORMED。原SETE SS41→01與下一JMP／flags保持、10764原前綴／35frames、全套／8M通過；164567987新word IMUL prefix拒絕，完整開局未知。
+- [356：標準SETcc的byte記憶體目的](356-cpu386-setcc-byte-memory.md)：限定CONFORMED。原SETE SS41→01與下一JMP／flags保持、10764原前綴／35frames、全套／8M通過；164567987原word IMUL已由357接通，後續NEG與完整開局見357。
+
+- [357：立即值IMUL的word目的](357-cpu386-imul-word-immediate.md)：CONFORMED，限定word IMUL／原兩MOV零寫／正常續行，非完整開局。原1CF90A word0000×5／DI低word寫回與兩MOV零寫已驗，10767正常前綴／35frames／全套通過；新164568139於1CFD3F的word memory NEG拒絕，完整開局未知。

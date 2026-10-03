@@ -49,3 +49,7 @@ Active=true、Bank=9、StartY=512、Writes=307200。索引 SHA-256 `7818f5542a04
 ## 後續停點解析回填
 
 **dword IMUL 停點已由規格 269 接通**：[269-cpu386-imul-dword-register.md](269-cpu386-imul-dword-register.md) 已依公開 CPU 契約與同次輔助樣本審查 READY。保留 268 的原始停點與收據；269 自然重跑結果是下一個現況入口。字組／雙字組分別驗收，不把未定義旗標或平台布局差異升格為一致。
+
+## 2026-10-04 word立即值IMUL回填
+
+原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通，見[357](357-cpu386-imul-word-immediate.md)。原DS188:5A2084 word0000×5=0、EDI005AA5F4→005A0000／高word005A保持、定義CF／OF0與下一兩MOV dword0→0已驗；兩MOV不消費DI，undefined flags保存只屬工具近似。10767正常前綴／35frames／固定EXE全套保持，正式DI reader／原非零與overflow未知。新164568139在1CFD3F的66 F7 /3 word memory NEG拒絕、after1CFD42只解碼、DS188:5A207C來源word未知；下一步依357回填帳，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知，保留本檔原歷史定位與收據。

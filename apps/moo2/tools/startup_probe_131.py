@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_imul_word_immediate_resolution(spec_dir):
+    """357限定word立即值IMUL／兩MOV零寫，未定義旗標與DI reader限制明示。"""
+    name = "357-cpu386-imul-word-immediate.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：word立即值IMUL與原兩MOV零寫","全部10837原356列","10767共通正常列","35既有frames","164567987","164567988","164567989","DS188:5A2084 word0000×5=0","EDI005AA5F4→005A0000","CF／OF皆0","未定義旗標只屬工具保留近似","兩MOV不消費DI","2BDB2C／2BDB34 dword0→0","EIP1CF90F→1CF916→1CF91D","ram_changes=[]","callback12／12","IRQ41948／41948","33554432","2097152","第一次截短測試失敗","取指直接讀Bus","CPU386121.065s","1693原列","32新180M負例","164568139","input1CFD3F","after1CFD42只解碼","offset5A207C來源word未知","尚未達180M","94fab7c6e4389ce205c485dd498607f1442c20b3b7999212812f7e622fff4bf2","464f05e17bb736116a05a8f18d81edf45a9edcd0f40e4d3fd82c41b937822b71","114cc77fa894252e3fcc3a20b57a4992690101f642e00d1532f9c6c733730a16","完整生成／開局與remake同狀態仍未驗","未取disp8或source"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("357缺word IMUL契約／原零積／未定義旗標／測試失敗記錄／新NEG與限定範圍")
+    for older_name in ["356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1CF90A word立即值IMUL與兩MOV零寫已由規格357接通" not in older:
+            raise RuntimeError("較早規格缺word立即值IMUL回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("357缺公開索引入口")
+
+if sys.argv[1:] == ['--check-imul-word-immediate-spec-backlinks']:
+    validate_imul_word_immediate_resolution(spec_dir)
+    print("原word立即值IMUL／兩MOV零寫／未定義旗標與DI reader限制／新NEG與較早回填通過")
+    raise SystemExit(0)
+
 def validate_setcc_byte_memory_resolution(spec_dir):
     """356限定memory SETcc／原SETE與JMP，第三CMP與byte reader限制明示。"""
     name = "356-cpu386-setcc-byte-memory.md"
