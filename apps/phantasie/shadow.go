@@ -161,7 +161,7 @@ func (o *Overlay) restoreShadow(s Shadow) {
 		return
 	}
 	rs := &Resolver{Cat: lang.Cat, Wide: lang.Wide}
-	for ii := len(s) - 1; ii >= 0; ii-- { e := s[ii]
+	for _, e := range s {
 		rec := o.records[e.ID]
 		if rec == nil {
 			o.C.Inc("shadow_lost")
