@@ -113,6 +113,9 @@ type Hooks struct {
 	// （B800:0000 起 4000h bytes）。證據用（dosgolem 規格 250 §5 第 4 項的同狀態收據），不影響機器。
 	Int10Probe func(ax, bx, cx, dx uint16, pre, post []byte)
 
+	// NoStrcat 為真時 T 掛點（strcat）不處理：故障注入，001 §10 第 5 項的負對照（戰鬥指令列的組句應失敗）。
+	NoStrcat bool
+
 	mem   memView
 	mode  func() uint8
 	armed bool
@@ -394,6 +397,9 @@ func (h *Hooks) handleS(step uint64, sp uint16) {
 
 // handleT 是 T：strcat(dest, src) 入口。[SP+2] dest、[SP+4] src。
 func (h *Hooks) handleT(sp uint16) {
+	if h.NoStrcat {
+		return
+	}
 	if ok, _ := h.gate(); !ok {
 		return
 	}
@@ -494,3 +500,11 @@ func (h *Hooks) opExit(name string) {
 // Writes 回目前開啟中的事件自 A 起的視訊寫入（B800、BA00 段的複製）；供位置 oracle 在提交時比對（CheckPosition）。
 // 事件關閉後內容保留到下一個 A。
 func (h *Hooks) Writes() []VideoWrite { return h.writes }
+
+// VerifyNow 立即驗證簽章（不等視訊模式 04h）。故障注入用：在 LZEXE 解壓之前驗證會失敗，
+// 證明 001 §3.1 的「驗證時機」不可省（001 §10 第 5 項的負對照）。
+func (h *Hooks) VerifyNow() {
+	if !h.armed && !h.dead {
+		h.verify()
+	}
+}

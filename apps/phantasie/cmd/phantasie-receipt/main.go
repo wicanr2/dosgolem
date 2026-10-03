@@ -55,7 +55,7 @@ func main() {
 	flag.Var(&extra, "extra-lang", "額外載入的語言（可重複），供路線的 @lang 切換使用")
 	overlay := flag.String("overlay", "on", "on 或 off（off：維護 Layer 但不呼叫 Draw）")
 	hooks := flag.String("hooks", "all", "all 或 none（none：完全不掛鉤子，供唯讀證明）")
-	fault := flag.String("fault", "", "故障注入（僅測試用）：noadd、noclear")
+	fault := flag.String("fault", "", "故障注入（僅測試用）：noadd、noclear、nostrcat、verify-early")
 	every := flag.Uint64("frame-every", 20_000, "無頭模式在 @check 以外的 Frame 間隔（步數）")
 	maxSteps := flag.Uint64("max-steps", 4_000_000_000, "整條路線的步數上限")
 	outDir := flag.String("out", "", "輸出目錄（收據 TSV 與 PNG；必填）")
@@ -190,6 +190,12 @@ func runLang(lang string, op runOpts) (bool, error) {
 			return false, err
 		}
 		hk = phantasie.InstallHooks(o, img, ov, regions)
+		switch op.fault {
+		case "nostrcat":
+			hk.NoStrcat = true
+		case "verify-early":
+			hk.VerifyNow()
+		}
 		if op.dumpScroll != "" {
 			if err := os.MkdirAll(op.dumpScroll, 0o755); err != nil {
 				return false, err
