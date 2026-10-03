@@ -249,6 +249,10 @@ func main() {
 	// 353 END and_state
 
 	// 354 BEGIN xchg_state
+	// 355 BEGIN add_source_state
+	addSourceSeen, addSourceBudget := false, 0
+	// 355 END add_source_state
+
 	xchgByteMemorySeen, xchgByteMemoryBudget := false, 0
 	// 354 END xchg_state
 
@@ -2578,6 +2582,31 @@ func main() {
 		}
 		// 354 END xchg_pre
 
+		// 355 BEGIN add_source_pre
+		if bannerRed && !addSourceSeen && m.CPU.EIP == 0x1cdd0f {
+			addSourceSeen, addSourceBudget = true, 5
+		}
+		observeAddSource := addSourceBudget > 0
+		addSourceR, addSourceSeg, addSourceEIP, addSourceFlags := m.CPU.R, m.CPU.Seg, m.CPU.EIP, m.CPU.EFlags
+		var addSourceCode [16]byte
+		var addSourceSource [34]byte
+		var addSourceDestination [3]byte
+		addSourceOffset := addSourceR[cpu386.EBP] - 33
+		addSourceSourceReadable, addSourceDestinationReadable := false, false
+		var addSourceRAM [32]byte
+		addSourceReadonly := false
+		var addSourceRAMCopy []byte
+		if observeAddSource {
+			addSourceRAM = sha256.Sum256(m.Mem)
+			addSourceRAMCopy = append([]byte(nil), m.Mem...)
+			addSourceReadonly = activationPeek(func() {
+				copy(addSourceCode[:], m.Mem[addSourceEIP:addSourceEIP+16])
+				addSourceSourceReadable = peekSourceWindow(addSourceSeg[cpu386.SegSS], addSourceOffset, addSourceSource[:])
+				addSourceDestinationReadable = peekSourceWindow(addSourceSeg[cpu386.SegDS], addSourceR[cpu386.EBX]+6, addSourceDestination[:])
+			}) && sha256.Sum256(m.Mem) == addSourceRAM
+		}
+		// 355 END add_source_pre
+
 		// 343 BEGIN setle_pre
 		if bannerRed && !setleSeen && m.CPU.EIP == 0x17d536 {
 			setleSeen, setleBudget = true, 2
@@ -2840,6 +2869,32 @@ func main() {
 			}
 		}
 		// 354 END xchg_post
+
+		// 355 BEGIN add_source_post
+		if observeAddSource {
+			addSourceBudget--
+			var sourceAfter [34]byte
+			var destinationAfter [3]byte
+			ram := sha256.Sum256(m.Mem)
+			afterSourceReadable, afterDestinationReadable := false, false
+			readonly := activationPeek(func() {
+				afterSourceReadable = peekSourceWindow(addSourceSeg[cpu386.SegSS], addSourceOffset, sourceAfter[:])
+				afterDestinationReadable = peekSourceWindow(addSourceSeg[cpu386.SegDS], addSourceR[cpu386.EBX]+6, destinationAfter[:])
+			}) && sha256.Sum256(m.Mem) == ram && addSourceReadonly
+			_, pending, active, started, completed := services.MouseCallbackState()
+			irqActive, irqFailed, irqStarted, irqCompleted := services.IRQ0State()
+			changes := make([]uint32, 0, 4)
+			for address, value := range addSourceRAMCopy {
+				if value != m.Mem[address] {
+					changes = append(changes, uint32(address))
+				}
+			}
+			fmt.Printf("add_byte_source_consumer outer_step=%d address_space=dosgolem_high_le input_eip=%X after_eip=%X before_r=%X after_r=%X before_seg=%X after_seg=%X before_flags=%X after_flags=%X instruction_bytes=%X selector=%X source_offset=%X source_readable=%t after_source_readable=%t before_source=%X after_source=%X destination_selector=%X destination_offset=%X destination_readable=%t after_destination_readable=%t before_destination=%X after_destination=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d irq_active=%t irq_failed=%t irq_started=%d irq_completed=%d readonly=%t ram_changes=%X step_ram_unchanged=%t remaining=%d error=%v\n", i, addSourceEIP, m.CPU.EIP, addSourceR, m.CPU.R, addSourceSeg, m.CPU.Seg, addSourceFlags, m.CPU.EFlags, addSourceCode, addSourceSeg[cpu386.SegSS], addSourceOffset, addSourceSourceReadable, afterSourceReadable, addSourceSource, sourceAfter, addSourceSeg[cpu386.SegDS], addSourceR[cpu386.EBX]+6, addSourceDestinationReadable, afterDestinationReadable, addSourceDestination, destinationAfter, pending, active, started, completed, irqActive, irqFailed, irqStarted, irqCompleted, readonly, changes, addSourceRAM == ram, addSourceBudget, stepErr)
+			if stepErr != nil {
+				addSourceBudget = 0
+			}
+		}
+		// 355 END add_source_post
 
 		// 340 BEGIN return_post
 		if observeBannerReturn && m.CPU.EIP == 0x20db5b {

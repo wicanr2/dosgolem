@@ -1353,7 +1353,22 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		if modrm>>6 != 3 {
-			return fail("byte運算記憶體形式尚未支援")
+			if op != 0x02 {
+				return fail("byte運算記憶體形式尚未支援")
+			}
+			dst := int((modrm >> 3) & 7)
+			left := c.reg8(dst)
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			right, ok := c.readSegment8(c.Seg[seg], addr)
+			if !ok {
+				return fail("byte ADD來源無法讀取")
+			}
+			// 規格355：來源只讀，讀取成功後才發布byte結果與六旗標。
+			c.setReg8(dst, c.add8(left, right))
+			break
 		}
 		dst, src := int((modrm>>3)&7), int(modrm&7)
 		a, b := c.reg8(dst), c.reg8(src)

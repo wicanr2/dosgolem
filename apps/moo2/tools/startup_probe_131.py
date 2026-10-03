@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_add_byte_source_resolution(spec_dir):
+    """355限定02 memory來源ADD／五步零結果與新0F94 memory目的停止。"""
+    name = "355-cpu386-add-byte-memory-source.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：byte記憶體來源ADD與原五步","全部10829原354列","10759共通正常列","35既有frames","164560803..164560806","164560807","SS188:2BDB3C／2BDB28／2BDB40／2BDB24","DS188:5AA5EF","flags202h→246h","EIP1CDD1E","原非零加法／進位證據","沒有Bus寫次數trace","callback12／12","IRQ41945／41945","CPU386123.004s","1693原列","32新180M負例","164561579","input1CE387","after1CE38A只解碼","offset2BD834","尚未達180M","125674de469ef82d4abe457190e28eb0c75b88aca8a876349b395165e77c79e1","58c0834c577fe6a8a32b64ad82567f231e3ae56b314ce21a616d506475bb4454","336f8b09bdd31fba5da14c5b72a2fbc594cf0729f50b87953f548b9ff062467d","完整生成／開局與remake同狀態仍未驗","attempt1","22 memory仍拒絕"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("355缺CPU契約／原五步／零值限制／新停止或限定範圍")
+    for older_name in ["354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通" not in older:
+            raise RuntimeError("較早規格缺byte來源ADD回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("355缺公開索引入口")
+
+if sys.argv[1:] == ['--check-add-byte-source-spec-backlinks']:
+    validate_add_byte_source_resolution(spec_dir)
+    print("原byte來源ADD／五步零值限制／CPU回歸／新0F94與較早回填通過")
+    raise SystemExit(0)
+
 def validate_xchg_byte_memory_resolution(spec_dir):
     """354限定byte XCHG／STOSB與新ADD memory來源停止。"""
     name = "354-cpu386-xchg-byte-memory-register.md"

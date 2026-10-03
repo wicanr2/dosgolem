@@ -58,7 +58,7 @@ CPU只新增353的21行word記憶體AND分支，逆轉後逐byte保持352；正�
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:103BF9→103BFF→103C02→103C05 | 原word0000／AND完整iw／SHL EDX0／OR dword0與flags246h三步 | 352 | 原103BF9 word記憶體AND與三步消費已由規格353接通 |
 
-原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原DS0E→FF／ALFF→0E及ESFF→0E、EDI增1／flags保持與兩步單byte RAM差異已驗，10742正常前綴／35frames與全套保持。原164560803在1CDD0F memory byte ADD拒絕；下一步依354回填帳捕捉原SS byte來源與AL加法，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
+原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通，見[354](354-cpu386-xchg-byte-memory-register.md)。原DS0E→FF／ALFF→0E及ESFF→0E、EDI增1／flags保持與兩步單byte RAM差異已驗，10742正常前綴／35frames與全套保持。原164560803的1CDD0F memory byte ADD已由355接通；下一步依355回填帳捕捉1CE387的0F94 memory目的，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 
@@ -118,3 +118,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-and-word-memory-spec-backli
 | new-game-353-attempt1-verify-output.txt | 40d9fbbed66ee080b1f6d5e4107ebdb0e6ced366041f54704429354839aee198 |
 | new-game-353-backlink-verify.py | 08adcb15b06cfa3436dc1640a2d4e8b4c6b0a492c36c2e55d53594a8438df934 |
 | new-game-353-backlink-tests.txt | 0f8df807f7b5c18644d12f066cff38d3c7d9628b43d23fef4826cbe5fef361d2 |
+
+### 355的後續勘誤回填
+
+原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。新164561579停於1CE387的0F94 memory目的，byte未知；下一步依355回填帳取原目的及後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。

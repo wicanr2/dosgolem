@@ -42,7 +42,7 @@ DRAFT未改CPU的正常180M原重播，全部10812原353列／36PNG保持；三�
 
 原首遇前10742共通正常列／35既有frames保持，同一原DS byte／AL／ES目的與相鄰窗口已驗。DRAFT未改CPU則全部10812原353列／36PNG保持；兩個比較分母分開，舊stop四診斷不列正常前綴。正式finalPNG改為1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17，屬通過XCHG後的較晚原畫面，不聲稱仍保留舊finalPNG。640×480人工檢視主要為黑底，僅小型方形圖形可見；其用途未知，沒有完整地圖或完整開局UI驗收，不當作GUI已完成。
 
-**已證實，新停止**：164560803於dosgolem_high_le input1CDD0F bytes02 45 F8 02 45 E4 02 45 FC 02 45 E0 00 43 07 8A拒絕「byte運算記憶體形式尚未支援」。首三bytes是ADD AL, SS:[EBP-8]，SS188／EBP2BDB44／來源offset2BDB3C、AL0；原來源byte未知，after1CDD11只解碼，沒有執行ADD。原R=[0 5A2044 5AA044 5AA5E8 2BDB18 2BDB44 2 0]／段=[8 188 188 0 20 188]／flags202h。requested budget180000000，actual stop164560803，尚未達180M；probe exit0只是錯誤收尾，不是正常開局。
+**已證實，當輪停止**：164560803於dosgolem_high_le input1CDD0F bytes02 45 F8 02 45 E4 02 45 FC 02 45 E0 00 43 07 8A拒絕「byte運算記憶體形式尚未支援」。首三bytes是ADD AL, SS:[EBP-8]，SS188／EBP2BDB44／來源offset2BDB3C、AL0；原來源byte未知，after1CDD11只解碼，沒有執行ADD。原R=[0 5A2044 5AA044 5AA5E8 2BDB18 2BDB44 2 0]／段=[8 188 188 0 20 188]／flags202h。requested budget180000000，actual stop164560803，尚未達180M；probe exit0只是錯誤收尾，不是正常開局。
 
 **已證實，CPU回歸**：8來源byte register各全部256×256配對，以獨立little-endian byte視圖選lane與交換，不重用CPU遮罩函式；所有ModRM／SIB、相異DS／SS、base／index與AL／AH等來源別名、ESP忽略index／無base DS／負disp8／32位繞回／最後byte／相鄰資料、64旗標組合與非零FPU通過。成功相同byte仍一寫；未知selector／唯讀／段外／線性溢位／讀或寫Bus拒絕不發布來源register／旗標，自製fail-before-write Bus的RAM保持。所有prefix與截短拒絕，原86 register的64配對保持。
 
@@ -58,7 +58,7 @@ CPU只用16行memory分支替換1行拒絕，逆轉逐byte保持353；原registe
 | --- | --- | --- | --- |
 | DOS1.31／EXE4e11be14…／dosgolem_high_le:223E93→223E95→223E96 | 原DS0E／ALFF交換及ES STOSB，兩步各一byte RAM差異、flags保持 | 353、352 | 原223E93 byte記憶體XCHG與STOSB兩步已由規格354接通 |
 
-下一步只接原1CDD0F的02 /r byte ADD register,memory：先捕捉SS188:2BDB3C與AL0及後續原byte加法來源，再審查通用byte結果／六算術旗標／source唯讀／地址別名／失敗不發布。沿同180M正常輸入驗原加法消費，不提高cap，不深入helper。未達完整開局或remake同狀態。
+原1CDD0F byte加法已由355接通；下一步依355回填帳捕捉原1CE387的0F94 memory目的與後續消費，沿同180M，不提高cap或深入helper；完整開局與remake同狀態未知。
 
 ### 本機忽略證據索引與命令
 
@@ -115,3 +115,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-xchg-byte-memory-spec-backl
 | new-game-354-cli-tests.txt | 0c39c7d30d26388473df3e31ad7be38651d38f98677857d9e5a9de59a4aaac43 |
 | new-game-354-backlink-verify.py | 2800ded3b650d67cb6a16bb91ceb3a4acfffc2a349a24a4d08418ce2390130d6 |
 | new-game-354-backlink-tests.txt | 1212830700af6cfbab65c597d0856168ae0b35fc00dfecc858cb5688e28f1b2b |
+
+### 355的後續勘誤回填
+
+原1CDD0F byte記憶體來源ADD與五步零值消費已由規格355接通，見[355](355-cpu386-add-byte-memory-source.md)。四SS來源00／AL00與第五目的00→00、flags202h→246h及RAM保持已驗，原非零ADD／進位未驗；10759正常前綴／35frames與固定EXE全套保持。新164561579停於1CE387的0F94 memory目的，byte未知；下一步依355回填帳取原目的及後續消費，維持180M。完整生成／開局、正式writer、RNG與remake同狀態未知。

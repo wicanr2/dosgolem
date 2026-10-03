@@ -573,4 +573,6 @@
 
 - [353：word記憶體AND與完整立即值](353-cpu386-and-word-memory-imm16.md)：限定CONFORMED。原word0000／AND／SHL／OR三步、10723原前綴／36PNG、CPU全套與關閉8M保持；164321317原memory byte XCHG已由354接通，完整開局未知。
 
-- [354：byte記憶體與暫存器XCHG](354-cpu386-xchg-byte-memory-register.md)：限定CONFORMED。原DS0E／ALFF交換與STOSB兩步、10742原前綴／35frames、CPU全套／8M保持；164560803新byte ADD memory來源拒絕，完整開局未知。
+- [354：byte記憶體與暫存器XCHG](354-cpu386-xchg-byte-memory-register.md)：限定CONFORMED。原DS0E／ALFF交換與STOSB兩步、10742原前綴／35frames、CPU全套／8M保持；164560803原byte ADD memory來源已由355接通，完整開局未知。
+
+- [355：byte記憶體來源ADD](355-cpu386-add-byte-memory-source.md)：限定CONFORMED。原四來源ADD與目的ADD零結果／五步旗標、10759原前綴／35frames、全套／8M保持；164561579新0F94 memory目的拒絕，完整開局未知。
