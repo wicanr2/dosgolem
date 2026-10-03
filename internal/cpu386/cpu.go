@@ -1034,6 +1034,30 @@ func (c *CPU) Step() error {
 			break
 		}
 
+		if operand16 && (modrm>>3)&7 == 3 {
+			// 規格358：word NEG完整memory寫回後才發布六個定義旗標。
+			if modrm>>6 == 3 {
+				reg := modrm & 7
+				value := uint16(c.R[reg])
+				result := c.sub16(0, value)
+				c.R[reg] = c.R[reg]&0xffff0000 | uint32(result)
+				break
+			}
+			seg, addr, err := c.decodeAddress32(modrm)
+			if err != nil {
+				return fail(err.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[seg], addr)
+			if !ok {
+				return fail("NEG word來源無法讀取")
+			}
+			if !c.writeSegment16(c.Seg[seg], addr, uint16(0)-value) {
+				return fail("NEG word目的無法寫入")
+			}
+			c.sub16(0, value)
+			break
+		}
+
 		if operand16 {
 			if (modrm>>3)&7 != 0 {
 				return fail("F7 word形狀尚未支援")

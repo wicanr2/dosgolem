@@ -66,3 +66,7 @@ CPU SHA-256 1448f29f24dad35e83575189055dc15dd7ac9db2b3529c6d450f03baf91c97b1；p
 ## 2026-10-03 後段唯讀進度
 
 後段唯讀進度觀測已由規格326接通：[326-moo2-post-click-progress-observation.md](326-moo2-post-click-progress-observation.md)。六時點VBE換頁／寫入與可見像素保持，R／堆疊／RAM持續改變；原始325全部列與終圖仍保持。現行下一步為末尾真正DS:29BE74→DS:[EAX]→SS:[EBP-8]與CMP／JE／JLE的最小來源／分支核對。ESI窗口不當作實際來源，不改輸入或cap，設定畫面仍未知。
+
+## 2026-10-04 word NEG回填
+
+原1CFD3F word NEG與下一EB09已由規格358接通，見[358](358-cpu386-neg-word.md)。原DS188:5A207C word0000→0000、六定義flags246h與下一EB09到1CFD4E已驗；第三CMP只觀測flags246h→206h，SS:[EBP-564]來源未取，數值／NEG word reader不列驗收，第四JE按觀測ZF0不跳。10770正常前綴／35frames及固定EXE全套保持，晚期Bus第二byte失敗可部分寫但不發布flags。325舊66負例限定未知selector、268舊word register NEG負例加segment prefix，新全值域正例接合法word。新164610300在1D0944的word SUB memory目的拒絕，after1D0946只解碼、DS188:5AA6D1目的word未知／來源AX0；下一步依358回填帳，維持180M。原非零NEG／溢位與完整開局、資料語意／正式writer／RNG及remake同狀態未知，保留本檔原定位與收據。

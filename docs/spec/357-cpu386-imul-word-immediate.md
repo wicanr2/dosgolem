@@ -46,9 +46,9 @@ Go1.24.13 Docker image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae538905
 
 CPU SHA-256 94fab7c6e4389ce205c485dd498607f1442c20b3b7999212812f7e622fff4bf2；新測試628915d9b97a671bce0639d43e7644ec91a07563123c09e5cc4ce6c225291036；正式probe e08cf955cfb1b543f62a8cb573d2b6784630dc2bdc44f06fe47820a008cba2a7。原正式收據464f05e17bb736116a05a8f18d81edf45a9edcd0f40e4d3fd82c41b937822b71；全套114cc77fa894252e3fcc3a20b57a4992690101f642e00d1532f9c6c733730a16。
 
-### 新停止與unknown
+### 357歷史停止與已回填unknown
 
-原164568139在dosgolem_high_le input1CFD3F的66 F7 5B 38 EB 09 8B 55 E4 29 C2 66 89 53 38 83，拒絕word memory NEG，after1CFD42只解碼，未取disp8或source。R=[0 0 4 5A2044 2BD920 2BDB54 0 0]／段=[8 188 188 0 20 188]／flags246h；DS188:[EBX+38h] offset5A207C來源word未知，尚未達180M。下一步先擷取原word與相鄰bytes、後續自然EB09分支／消費，按公開word NEG契約審查，不跳指令、不代寫／重送、不增加180M或深入helper。
+原164568139在dosgolem_high_le input1CFD3F的66 F7 5B 38 EB 09 8B 55 E4 29 C2 66 89 53 38 83，拒絕word memory NEG，after1CFD42只解碼，未取disp8或source。R=[0 0 4 5A2044 2BD920 2BDB54 0 0]／段=[8 188 188 0 20 188]／flags246h；DS188:[EBX+38h] offset5A207C來源word未知，尚未達180M。來源與原NEG已由358接通；下一步依358回填帳擷取1D0944的word SUB目的／AX來源與正常消費，沿180M不增加cap或深入helper。
 
 finalPNG逐byte保持356，SHA-256 1f757f5b16fe492795accf198c8db851443a062450e7f37ecf465c7eae3b6457／RGB04fef4b6a6d6c6c485ef1ce0a82ea71591956cdd3b7cd37b8d1082a023e20e17。沿354人工檢視仍主要黑底與小型方形圖形，未見完整地圖，不當開局完成。固定1996日期不是seed；正式DI reader、原非零／signed overflow、NEG來源／後續消費、資料語意、正式writer、完整生成／開局與remake同狀態仍未驗，主庫RE-first保持。
 
@@ -113,3 +113,7 @@ python3 apps/moo2/tools/startup_probe_131.py --check-imul-word-immediate-spec-ba
 | new-game-357-backlink-tests.txt | 0870d186f33b7775bac8d228a186e72275f5e1c95d2ff8791d4f047a84801ec6 |
 | new-game-357-unit-tests-attempt1.txt | d31e60ddb220607f0f5ab62749843d20e1113f177505cc8003c514bb9f373e29 |
 | new-game-357-backlink-tests-attempt1.txt | a11e1282fe16a014f6d6f7f79e9d61d37ff991d4f1122fc96c3fb3ef8e38aa9e |
+
+## 2026-10-04 word NEG回填
+
+原1CFD3F word NEG與下一EB09已由規格358接通，見[358](358-cpu386-neg-word.md)。原DS188:5A207C word0000→0000、六定義flags246h與下一EB09到1CFD4E已驗；第三CMP只觀測flags246h→206h，SS:[EBP-564]來源未取，數值／NEG word reader不列驗收，第四JE按觀測ZF0不跳。10770正常前綴／35frames及固定EXE全套保持，晚期Bus第二byte失敗可部分寫但不發布flags。325舊66負例限定未知selector、268舊word register NEG負例加segment prefix，新全值域正例接合法word。新164610300在1D0944的word SUB memory目的拒絕，after1D0946只解碼、DS188:5AA6D1目的word未知／來源AX0；下一步依358回填帳，維持180M。原非零NEG／溢位與完整開局、資料語意／正式writer／RNG及remake同狀態未知，保留本檔原定位與收據。

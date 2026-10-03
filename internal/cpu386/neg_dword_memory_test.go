@@ -140,6 +140,10 @@ func TestNegDwordMemoryTruncationPrefixesAndGroups(t *testing.T) {
 		code := append([]byte{prefix}, []byte{0xf7, 0x1d, 32, 0, 0, 0}...)
 		c, mem := subByteMemoryFixture(code)
 		binary.LittleEndian.PutUint32(mem[288:292], 0x12345678)
+		// 358：word NEG已接通，此66負例明確限定未知selector。
+		if prefix == 0x66 {
+			c.Seg[SegDS] = 0x200
+		}
 		want, before := snapshotInImmediate(c), append([]byte(nil), mem...)
 		if err := c.Step(); err == nil || snapshotInImmediate(c) != want || !bytes.Equal(mem, before) {
 			t.Fatalf("前綴 %X：%v", prefix, err)

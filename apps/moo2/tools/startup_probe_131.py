@@ -52,6 +52,25 @@ spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
 
+def validate_neg_word_resolution(spec_dir):
+    """358限定word NEG／原零值與EB09，CMP來源／NEG reader與部分寫限制明示。"""
+    name = "358-cpu386-neg-word.md"
+    current = (spec_dir / name).read_text()
+    required = ["限定驗收：word NEG與原零值寫回／下一EB09","全部10840原357列","10770共通正常列","35既有frames","164568139","164568140","164568141","164568142","DS188:5A207C word0000→0000","CF0／OF0／SF0／ZF1／AF0／PF1","EIP1CFD43","EB09自然跳1CFD4E","來源offset2BD920未在本次窗口","CMP數值不列驗收","不稱NEG word reader","EIP1CFD5B","ram_changes=[]","callback12／12","IRQ41948／41948","4194304","1048576","第二byte晚期部分寫模型","兩修改可逆轉","CPU38666.221s","1693原列","32新180M負例","164610300","input1D0944","after1D0946只解碼","offset5AA6D1目的word未知","來源AX0000","尚未達180M","9840611ea0e3ae22ece69fd1f6f545dd08a316d1ed87247bbe061bf3f7f09522","a334a424881733be645038a99b2d7f36a724ae3a833a66caa77737f45905d25e","8a600babc81848f516e97569ee5098953c560ffa6cd5bc6e147278522f392020","完整生成／開局與remake同狀態仍未驗","同值寫回Bus次數未取"]
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED，限定CPU', current, re.M):
+        raise RuntimeError("358缺word NEG契約／原零值與分支／CMP限制／舊負例與新SUB")
+    for older_name in ["357-cpu386-imul-word-immediate.md","356-cpu386-setcc-byte-memory.md","355-cpu386-add-byte-memory-source.md","354-cpu386-xchg-byte-memory-register.md","353-cpu386-and-word-memory-imm16.md","352-moo2-generation-180m-continuation.md","344-cpu386-setcc-byte-register.md","343-cpu386-setle-byte-register.md","268-cpu386-imul-word-register.md","269-cpu386-imul-dword-register.md","325-cpu386-neg-dword-memory.md"]:
+        older = (spec_dir / older_name).read_text()
+        if name not in older or "原1CFD3F word NEG與下一EB09已由規格358接通" not in older:
+            raise RuntimeError("較早規格缺word NEG回填：" + older_name)
+    if name not in (spec_dir / "000-index.md").read_text():
+        raise RuntimeError("358缺公開索引入口")
+
+if sys.argv[1:] == ['--check-neg-word-spec-backlinks']:
+    validate_neg_word_resolution(spec_dir)
+    print("原word NEG／EB09／六flags與CMP限制／新SUB及較早回填通過")
+    raise SystemExit(0)
+
 def validate_imul_word_immediate_resolution(spec_dir):
     """357限定word立即值IMUL／兩MOV零寫，未定義旗標與DI reader限制明示。"""
     name = "357-cpu386-imul-word-immediate.md"
