@@ -124,6 +124,7 @@ type Hooks struct {
 	overlay     string
 	fontChecked bool
 	writes      []VideoWrite // 開啟中事件的視訊寫入足跡（位置 oracle 用）
+	blankCtl    [32]bool     // FONT 內字模全 0 的控制字元（畫出來是空白）
 	pend        map[string]*opPending
 }
 
@@ -144,6 +145,7 @@ func (h *Hooks) Failed() bool { return h.dead }
 func InstallHooks(o *oracle.Oracle, img uint16, ov *Overlay, regions *RegionTable) *Hooks {
 	dg := img + DGroupParas
 	h := NewHooks(ov, regions, img, dg, oracleMem{o, dg}, o.VideoMode)
+	ov.Busy = h.Busy
 	at := func(off uint16, fn func(*oracle.Oracle)) { o.OnCall(oracle.Far(img, off), fn) }
 	at(OffOverlayLoad, func(o *oracle.Oracle) {
 		if h.dead {
@@ -231,6 +233,15 @@ func (h *Hooks) loadFont() {
 	sum := sha256.Sum256(b)
 	h.FontHash = hex.EncodeToString(sum[:])
 	h.Ov.SetFont(b)
+	for g := 1; g < 32; g++ {
+		blank := true
+		for _, v := range b[g*16 : g*16+16] {
+			if v != 0 {
+				blank = false
+			}
+		}
+		h.blankCtl[g] = blank
+	}
 }
 
 // readStr 讀 DGROUP 內以 NUL 結尾的字串：回內容與是否讀滿 max 仍無 NUL。
@@ -238,10 +249,27 @@ func (h *Hooks) readStr(ptr uint16, max int) (string, bool) {
 	b := h.mem.Bytes(ptr, max)
 	for i, c := range b {
 		if c == 0 {
-			return string(b[:i]), false
+			return h.normBlank(b[:i]), false
 		}
 	}
-	return string(b), true
+	return h.normBlank(b), true
+}
+
+// normBlank 把字模全空的控制字元（例如 0Dh）換成空格：原版以它們當空白填充（OUT*.DAT 的描述行），畫出來與空格相同，
+// 事件文字、格式字串與 %s 引數內容一律正規化後再比對與查 catalog（長度不變，所以與 DI 的比對不受影響）。
+func (h *Hooks) normBlank(b []byte) string {
+	for i, c := range b {
+		if c < 32 && h.blankCtl[c] {
+			cp := append([]byte(nil), b...)
+			for j := i; j < len(cp); j++ {
+				if cp[j] < 32 && h.blankCtl[cp[j]] {
+					cp[j] = 0x20
+				}
+			}
+			return string(cp)
+		}
+	}
+	return string(b)
 }
 
 // stringArgWords 回格式字串中每個 %s 轉換對應的引數字組序（%ld、%lu 佔 2 個字組）。
@@ -316,11 +344,16 @@ func (h *Hooks) handleA(r aRegs) {
 	}
 	skip := false
 	text, _ := h.readStr(DSTextBuf, MaxTextChars)
+	rec.Text = text
+	// 重入（IRQ0 雙觸發）整個忽略，只計 dup_open；診斷計數不得翻倍（001 §3.2）。
+	if h.Ov.IsDupOpen(rec) {
+		c.Inc("dup_open")
+		return
+	}
 	if len(text) != int(r.di) {
 		c.Inc("badlen")
 		skip = true
 	}
-	rec.Text = text
 	rec.Cells = []byte(text)
 	format, tr := h.readStr(rec.FmtPtr, maxFmtBytes)
 	if tr {

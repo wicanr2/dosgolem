@@ -414,7 +414,7 @@ func TestOverlayTranslateFields(t *testing.T) {
 	}
 	ovCheckStrs(t, "Hits(g1)", o.Hits("g1"), []string{"Hello"})
 	ovCheckStrs(t, "KeysShown", o.KeysShown(), []string{"Hello"})
-	if want := []LogEvent{{ID: "g1", Col: 2, Row: 3, Text: "Hello"}}; !reflect.DeepEqual(o.Log(), want) {
+	if want := []LogEvent{{N: 1, ID: "g1", Col: 2, Row: 3, Text: "Hello"}}; !reflect.DeepEqual(o.Log(), want) {
 		t.Fatalf("稽核日誌 = %+v，要 %+v", o.Log(), want)
 	}
 	if !o.Drawing() {
@@ -771,7 +771,7 @@ func TestOverlayPatchIdentityPercentS(t *testing.T) {
 	ovCheckStrs(t, "KeysShown", o.KeysShown(), []string{"-Sound"})
 	ovCheckCounters(t, o, map[string]uint64{"events": 2, "translated": 1, "patched": 1})
 	// P 類的新記錄也寫進稽核日誌，Text 是修補後的內容。
-	wantLog := []LogEvent{{ID: "g1", Col: 4, Row: 6, Text: "+Sound "}, {ID: "g2", Col: 4, Row: 6, Text: "-Sound "}}
+	wantLog := []LogEvent{{N: 1, ID: "g1", Col: 4, Row: 6, Text: "+Sound "}, {N: 2, ID: "g2", Col: 4, Row: 6, Text: "-Sound "}}
 	if !reflect.DeepEqual(o.Log(), wantLog) {
 		t.Fatalf("稽核日誌 = %+v，要 %+v", o.Log(), wantLog)
 	}

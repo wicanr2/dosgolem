@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
@@ -32,7 +33,11 @@ type Language struct {
 }
 
 // LogEvent 是稽核事件日誌的一筆（005 §5.1）：T 類且提交時 Resolve 回 OK 的事件。
+// evRect 是一個已提交事件的矩形（序號、像素列、x 範圍）。
+type evRect struct{ n, y, x0, x1 int }
+
 type LogEvent struct {
+	N        int // 事件序號（ID 的數字部分）
 	ID       string
 	Col, Row int
 	Text     string
@@ -61,6 +66,10 @@ type Overlay struct {
 	AuditDebug func(string)
 	// CommitHook 非 nil 時，T 類事件的疊字加入 Layer 之後呼叫（位置 oracle 用，不影響結果）。
 	CommitHook func(rec *EventRecord, stamps []*xlate.Stamp)
+	// Busy 非 nil 且回傳 true 時，Frame 延後（畫面操作在入口與完成之間，畫面是暫態：反白進行到一半時取樣會把剛還原的
+	// 疊字判成與畫面不一致）。連續延後超過 MaxBusyFrames 次視為掛點異常，照常執行並計 frame_busy_forced。
+	Busy       func() bool
+	busyFrames int
 
 	langs      map[string]*Language
 	langOrder  []string
@@ -76,10 +85,11 @@ type Overlay struct {
 	open          *openEvent
 	pendingSwitch bool
 
-	font []byte // 原版 FONT 2032 bytes（001 §8）；nil 時不做字模遮罩
-	gate map[*xlate.Stamp]struct{}
-	sh   *shadowStore
-	log  []LogEvent
+	font  []byte // 原版 FONT 2032 bytes（001 §8）；nil 時不做字模遮罩
+	gate  map[*xlate.Stamp]struct{}
+	sh    *shadowStore
+	log   []LogEvent
+	rects []evRect // 每個已提交事件（任何類別）的矩形，依提交順序；稽核用（扣掉被後來事件覆寫的格）
 }
 
 // NewOverlay 建立空的疊字核心。
@@ -185,6 +195,11 @@ func identityOf(r *EventRecord) eventIdentity {
 	return eventIdentity{r.SP, r.BP, r.Caller, r.Col, r.Row, r.FmtPtr, fnv64([]byte(r.Text))}
 }
 
+// IsDupOpen 回 rec 是否與開啟中的事件識別相同（重入）。handleA 在計任何診斷計數之前先問，重入整個忽略。
+func (o *Overlay) IsDupOpen(rec *EventRecord) bool {
+	return o.open != nil && o.open.id == identityOf(rec)
+}
+
 // Begin 是 A：開啟事件。已有開啟中的事件且識別相同視為重入（dup_open）；不同則上一個事件缺 B（unpaired），
 // 先以已擷取的資料提交。skip 為 true 的事件（badlen、truncated_input）照常開啟與配對，提交時不動 Layer。
 // 回傳 false 表示重入（dup_open），沒有開啟新事件。
@@ -288,6 +303,7 @@ func (o *Overlay) commit(ev *openEvent) {
 	if clipped {
 		o.C.Inc("clipped")
 	}
+	o.noteRect(rec.ID, x0, y0, x1)
 	switch {
 	case isSpaces(t):
 		o.clearRect(x0, y0, x1, y1)
@@ -377,7 +393,7 @@ func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
 }
 
 func (o *Overlay) appendLog(rec *EventRecord) {
-	o.log = append(o.log, LogEvent{ID: rec.ID, Col: rec.Col, Row: rec.Row, Text: rec.Text, Step: rec.Step})
+	o.log = append(o.log, LogEvent{N: eventNum(rec.ID), ID: rec.ID, Col: rec.Col, Row: rec.Row, Text: rec.Text, Step: rec.Step})
 	if len(o.log) > MaxLog {
 		o.log = append(o.log[:0], o.log[len(o.log)-MaxLog:]...)
 	}
@@ -700,4 +716,24 @@ func (o *Overlay) KeysShown() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// eventNum 取事件編號 g<N> 的數字部分（格式不符回 0）。
+func eventNum(id string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "g"))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// noteRect 記下一個已提交事件的矩形（任何類別，含未譯、空白、非可列印）。上限 MaxLog 筆，與稽核事件日誌同量級。
+func (o *Overlay) noteRect(id string, x0, y0, x1 int) {
+	if x0 >= x1 {
+		return
+	}
+	o.rects = append(o.rects, evRect{n: eventNum(id), y: y0, x0: x0, x1: x1})
+	if len(o.rects) > 2*MaxLog {
+		o.rects = append(o.rects[:0], o.rects[len(o.rects)-2*MaxLog:]...)
+	}
 }

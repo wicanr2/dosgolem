@@ -79,10 +79,22 @@ func argmax(h *[256]int) int {
 	return bi
 }
 
+// MaxBusyFrames 是 Frame 因畫面操作進行中而連續延後的上限。
+const MaxBusyFrames = 600
+
 // Frame 是前端每個呈現幀的入口：先 Layer.Frame（定色與指紋偵測），再對本次由 Pending 轉為 Shown 的疊字
 // 所屬的每個事件組執行 recolor（001 §8）。Layer.Add、Clear、Frame 以 l.Stamps[:0] 就地過濾，
 // 所以先複製 Pending 疊字的指標（001 §7 實作注意）。indexed 是色號畫面，rgb 是同一幀的 RGB（每像素 3 bytes）。
 func (o *Overlay) Frame(indexed, rgb []uint8) {
+	if o.Busy != nil && o.Busy() {
+		if o.busyFrames < MaxBusyFrames {
+			o.busyFrames++
+			o.C.Inc("frame_deferred")
+			return
+		}
+		o.C.Inc("frame_busy_forced")
+	}
+	o.busyFrames = 0
 	var pend []*xlate.Stamp
 	for _, s := range o.Layer.Stamps {
 		if s.State == xlate.Pending {

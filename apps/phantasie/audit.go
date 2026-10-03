@@ -156,8 +156,21 @@ func (o *Overlay) AuditExposed(indexed []uint8) int {
 	return exposed
 }
 
+// laterRanges 回事件 e 之後提交的事件（任何類別）在同一列的矩形 x 範圍：那些像素是後來的事件畫的，
+// 不再屬於事件 e（例如輸入欄位後來被另一個事件寫上數字），稽核對事件 e 不計入。
+func (o *Overlay) laterRanges(e LogEvent, y0 int) []xrange {
+	var out []xrange
+	for _, r := range o.rects {
+		if r.n > e.N && r.y == y0 {
+			out = append(out, xrange{r.x0, r.x1})
+		}
+	}
+	return out
+}
+
 // AuditEvents 同 AuditExposed，另回「遮罩對應率不是 100%」的事件數（001 §10 第 1 項）：仍顯示該原文的事件
 // （格一致檢查全通過），遮罩為 0 的像素必須全為同一色號、非 0 的像素全為另一色號。
+// 被後來事件覆寫的原版格（laterRanges）不計。
 func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 	var openRec *EventRecord
 	if rec, ok := o.Open(); ok {
@@ -180,14 +193,34 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 				continue
 			}
 		}
+		later := o.laterRanges(e, e.Row*8)
+		skip := make([]bool, len(cells))
+		kept := 0
+		for k := range cells {
+			if !intersects(xrange{e.Col*8 + 8*k, e.Col*8 + 8*k + 8}, later) {
+				kept++
+			} else {
+				skip[k] = true
+			}
+		}
+		if kept == 0 {
+			continue
+		}
 		var m modeAcc
-		o.scanRect(e.Col, y0, cells, indexed, func(_ int, mk, c uint8) { m.add(mk, c) })
+		o.scanRect(e.Col, y0, cells, indexed, func(k int, mk, c uint8) {
+			if !skip[k] {
+				m.add(mk, c)
+			}
+		})
 		bgIdx, fgIdx, ok := m.modes()
 		if !ok || bgIdx == fgIdx {
 			continue
 		}
 		stats := make([]cellStat, len(cells))
 		o.scanRect(e.Col, y0, cells, indexed, func(k int, mk, c uint8) {
+			if skip[k] {
+				return
+			}
 			cs := &stats[k]
 			cs.n++
 			cs.color[c]++
@@ -215,23 +248,36 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 		if !showing {
 			continue
 		}
-		var c0, c1 [256]int
-		o.scanRect(e.Col, y0, cells, indexed, func(_ int, mk, c uint8) {
-			if mk == 0 {
-				c0[c]++
-			} else {
-				c1[c]++
-			}
-		})
-		if distinct(&c0) != 1 || distinct(&c1) != 1 {
-			strict++
-			if o.AuditDebug != nil {
-				o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 背景色數=%d 墨色數=%d", e.ID, e.Text, distinct(&c0), distinct(&c1)))
+		// 遮罩對應率 100% 只對「疊字還在 Layer 內、畫面在疊字之下仍是該原文」的事件判定：已被後來事件取代的舊事件，
+		// 它的矩形現在顯示的是別的文字（字模可能是舊字模的超集或子集，例如 + 與 -），不能拿舊事件的字模去量。
+		// 只計疊字非透明格範圍內的像素（透明格是玩家輸入等不屬於疊字的格）。
+		if rec, stamps := o.records[e.ID], o.groupStamps(e.ID); rec != nil && len(stamps) > 0 {
+			var c0, c1 [256]int
+			if o.scanGroup(rec, stamps, indexed, func(_ int, mk, c uint8, _, _ int) {
+				if mk == 0 {
+					c0[c]++
+				} else {
+					c1[c]++
+				}
+			}) && (distinct(&c0) > 1 || distinct(&c1) > 1) {
+				strict++
+				if o.AuditDebug != nil {
+					o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 背景色數=%d 墨色數=%d", e.ID, e.Text, distinct(&c0), distinct(&c1)))
+				}
 			}
 		}
-		x0, x1 := e.Col*8, e.Col*8+len(cells)*8
-		if x1 > screenW {
-			x1 = screenW
+		// 覆蓋檢查：事件矩形（扣掉被後來事件覆寫的格）必須被非透明疊字蓋滿。
+		var need []xrange
+		for k := range cells {
+			if !skip[k] {
+				a, b := e.Col*8+8*k, e.Col*8+8*k+8
+				if b > screenW {
+					b = screenW
+				}
+				if a < b {
+					need = append(need, xrange{a, b})
+				}
+			}
 		}
 		var cover []xrange
 		for _, s := range o.Layer.Stamps {
@@ -245,18 +291,25 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 				cover = append(cover, xrange{s.X + i*s.CellW, s.X + (i+1)*s.CellW})
 			}
 		}
-		covered := false
-		cur := x0
-		for _, r := range mergeRanges(cover) {
-			if r.X0 <= cur && r.X1 > cur {
-				cur = r.X1
+		cover = mergeRanges(cover)
+		covered := true
+		for _, n := range need {
+			cur := n.X0
+			for _, r := range cover {
+				if r.X0 <= cur && r.X1 > cur {
+					cur = r.X1
+				}
 			}
-		}
-		if cur >= x1 {
-			covered = true
+			if cur < n.X1 {
+				covered = false
+				break
+			}
 		}
 		if !covered {
 			exposed++
+			if o.AuditDebug != nil {
+				o.AuditDebug(fmt.Sprintf("英文外露 key=%s text=%q 列=%d 欄=%d", e.ID, e.Text, e.Row, e.Col))
+			}
 		}
 	}
 	return exposed, strict
