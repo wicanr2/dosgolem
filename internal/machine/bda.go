@@ -67,6 +67,11 @@ type ModeChange struct {
 // `int 10h AH=00h` 與 `AH=0Fh` 兩邊都讀它，所以只留這一份。
 func (m *Machine) SetVideoMode(mode uint8) {
 	m.Mem[bdaSeg*16+0x49] = mode
+	// CGA 圖形模式：色彩選擇重設為調色盤 1、高強度、背景黑（docs/spec/250-cga-int10-scroll-and-palette §3.2）；
+	// 放在這裡而不是 bios.go 的 AH=00h 分支，因為測試與其他呼叫端會直接呼叫 SetVideoMode，且要在通知觀察者之前完成。
+	if isCGAGraphics(mode) {
+		m.SetColorSelect(cgaDefaultColorSelect)
+	}
 	m.ModeChanges = append(m.ModeChanges, ModeChange{Mode: mode, Step: m.Steps})
 	// mode 13h 是 320×200；欄數要跟著改，`AH=0Fh` 會回它。
 	if mode == 0x13 {

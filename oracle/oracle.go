@@ -470,14 +470,9 @@ func (o *Oracle) TextScreen() []string {
 	return out
 }
 
-// CGA 模式 4 的版面（320×200，四色，兩個 bit 一個像素）。
-const (
-	cgaSeg = 0xB800
-	// cgaOddPlane 是奇數列那一半的位移。**掃描線是交錯的**：偶數列從 0 起、
-	// 奇數列從 0x2000 起，各 8000 bytes。照線性讀會得到一張梳子。
-	cgaOddPlane = 0x2000
-	cgaStride   = 80 // 320 像素 × 2 bit ÷ 8
-)
+// CGA 模式 4 的版面（320×200，四色，兩個 bit 一個像素）。**掃描線是交錯的**：偶數列從 0 起、奇數列從 0x2000 起，
+// 各 8000 bytes，照線性讀會得到一張梳子。位移公式只有 machine.CGAScanlineOffset 一份（docs/spec/250 §3）。
+const cgaSeg = 0xB800
 
 // CGA4 回 CGA 模式 4 的畫面，320×200 個色號（0…3）。
 //
@@ -490,15 +485,29 @@ const (
 func (o *Oracle) CGA4() []uint8 {
 	out := make([]uint8, Width*Height)
 	for y := 0; y < Height; y++ {
-		base := uint32(y/2) * cgaStride
-		if y%2 == 1 {
-			base += cgaOddPlane
-		}
+		base := machine.CGAScanlineOffset(y) // 版面常數只有 machine 一份（docs/spec/250 §3）
 		row := out[y*Width:]
 		for x := 0; x < Width; x++ {
 			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/4))
 			row[x] = (b >> (6 - 2*uint(x%4))) & 3
 		}
+	}
+	return out
+}
+
+// CGAPalette 回 CGA 模式 04h、05h 目前四個色號的 RGB：色號 0 是背景色，色號 1 至 3 依色彩選擇暫存器
+// （BDA `0040:0066`，由 INT 10h AH=0Bh 與設模式維護）取調色盤與強度。模式不是 04h、05h 時回預設值
+// （調色盤 1、高強度、背景黑）。docs/spec/250-cga-int10-scroll-and-palette §3.3。
+func (o *Oracle) CGAPalette() [4][3]uint8 { return o.m.CGAPalette() }
+
+// CGA4RGB 回 CGA 模式 4 的畫面換算成 RGB（320×200×3 位元組，逐點），由 `CGA4()` 的色號與 `CGAPalette()` 換算。
+// 前端與收據共用這一個入口，不各寫一份換算。
+func (o *Oracle) CGA4RGB() []uint8 {
+	idx := o.CGA4()
+	pal := o.CGAPalette()
+	out := make([]uint8, len(idx)*3)
+	for i, c := range idx {
+		out[3*i], out[3*i+1], out[3*i+2] = pal[c][0], pal[c][1], pal[c][2]
 	}
 	return out
 }

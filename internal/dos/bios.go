@@ -153,8 +153,31 @@ func (d *DOS) int10(c *cpu.CPU) {
 			d.note(0x10, 0x10, al(c))
 		}
 
-	case 0x02, 0x03, 0x05, 0x06, 0x09, 0x0A:
-		// 設游標／取游標／設頁／捲動／寫字元：收下就好，
+	case 0x06, 0x07: // 捲動視窗（上捲、下捲）與清除視窗
+		// CGA 圖形模式（04h、05h）才動作（docs/spec/250-cga-int10-scroll-and-palette §3.1）；
+		// 其他模式維持原行為：AH=06h 收下沒有動作，AH=07h 記一筆 note。
+		if d.M.IsCGAGraphics() {
+			d.M.CGAScroll(int(c.R[cpu.CX]>>8), int(c.R[cpu.CX]&0xFF), int(c.R[cpu.DX]>>8), int(c.R[cpu.DX]&0xFF),
+				int(al(c)), fn == 0x07, bh(c))
+		} else if fn == 0x07 {
+			d.note(0x10, fn, al(c))
+		}
+
+	case 0x0B: // 設定背景色與調色盤（CGA 圖形模式）
+		// 色彩選擇存在 BDA 0040:0066，位元定義同 3D9 埠；BH=0 設背景（低 5 位元），BH=1 選調色盤（bit 5）。
+		switch {
+		case !d.M.IsCGAGraphics():
+			d.note(0x10, fn, al(c))
+		case bh(c) == 0:
+			d.M.SetColorSelect(d.M.ColorSelect()&0xE0 | bl(c)&0x1F)
+		case bh(c) == 1:
+			d.M.SetColorSelect(d.M.ColorSelect()&0xDF | (bl(c)&1)<<5)
+		default:
+			d.note(0x10, fn, al(c))
+		}
+
+	case 0x02, 0x03, 0x05, 0x09, 0x0A:
+		// 設游標／取游標／設頁／寫字元：收下就好，
 	default:
 		d.note(0x10, fn, al(c))
 	}
