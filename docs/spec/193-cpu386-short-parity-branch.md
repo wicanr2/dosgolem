@@ -1,6 +1,6 @@
 # 193：CPU386 短奇偶條件跳躍
 
-狀態：**READY**
+狀態：**CONFORMED**
 日期：2026-10-04
 追蹤：https://github.com/wicanr2/fd2_re/issues/148
 
@@ -45,3 +45,7 @@ JP在PF為1時取分支，JNP在PF為0時取分支。
 ## 2026-10-04 相關回歸
 
 針對性測試先重現7A／7B拒絕，修正後全部通過。完整cpu386／machine／FD2 oracle回歸通過，parity無測試但建置通過；固定原版EXE／ROOT唯讀掛載，沒有缺來源略過。收據workplace/fd2-parity-branch-regression-20261004.jsonl。原版同槽重跑尚待，狀態保持READY。
+
+## 2026-10-04 原版有限驗收
+
+30746f0同槽r5舊2115點全部一致。原3C868 JNP已越過，18個指令後完成6958650886步，在26FDB DF /0 word FILD未支援停止，另由fd2_re #149處理。CPUexit2，driver因seq2115等待逾時exit5，容器自行退出及移除。CONFORMED限JNP阻擋與CPU測試，JP原版到達性未知；完整章#142未完成。主證據fd2_re/docs/data/ida/fd2_ch24_oracle_parity_branch_20261004.json。

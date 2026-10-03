@@ -1632,6 +1632,26 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 != 3 && (modrm>>3)&7 == 0 {
+			// 194：FILD m16int，先完成容量與完整word讀取，再發布堆疊。
+			if c.FPUDepth >= 8 {
+				return fail("FILD word x87 stack overflow")
+			}
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			raw, ok := c.readSegment16(c.Seg[seg], addr)
+			if !ok {
+				return fail(fmt.Sprintf("FILD word read %04X:%08X 未處理", c.Seg[seg], addr))
+			}
+			for i := int(c.FPUDepth); i > 0; i-- {
+				c.FPUStack[i] = c.FPUStack[i-1]
+			}
+			c.FPUStack[0] = float64(int16(raw))
+			c.FPUDepth++
+			break
+		}
 		if modrm != 0xe0 {
 			return fail(fmt.Sprintf("x87 DF ModRM %02X 尚未支援", modrm))
 		}
