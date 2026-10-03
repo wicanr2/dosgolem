@@ -51,6 +51,37 @@ def validate_mouse_sensitivity_resolution(spec_dir):
 spec_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'spec'
 
 
+def validate_bounded_new_game_continuation(spec_dir):
+    """329獨立預算、50M保持、100M實際畫面與328回填須同時存在。"""
+    name = '329-moo2-bounded-new-game-continuation.md'
+    current = (spec_dir / name).read_text()
+    required = ('14 CLI負例PASS', '全部3847列', '全部4382列', '前綴4335列',
+                '50000000', '60000000', '70000000', '80000000', '90000000', '100000000',
+                '157193966', '27018', 'target_reads=[2 2]', 'target_writes=[446 423]',
+                '52040', '50500000', '444340260', '54307571', 'errors0',
+                '0／186／408／484／891', 'Game Design／Steve Barcia', '設定畫面仍未知',
+                '不繼續增加預算', 'NEW GAME指令激活', '每次RAM雜湊',
+                '553cca0bcd9ba0b44bb2284877345efa1f0c6f25bb85354ee64bb1514f150bc4',
+                '07aa81ac86c5e142fc11c99530907424241aadd320800c9a855625a67ab78f64',
+                'c7dc2bb37a5292f588d3027cc7d99ac1e682d618bf8259dfc067bb6f533793c5',
+                '365aaaa3a75ae05c12a430aa58310fd86ee8897e9444cc9bf931af4a95021989',
+                '1e10a48db678caf3ed6a40ba4c6021fc6f8012729928a0c65dfc853ae240902c',
+                '8c041b02e2ac4594e2c3db9d0e47ee706bc3badd65d3c71d458e155796b97b98',
+                '83154a870ee955744d847c26eb25ba94404eb718ec4ffcdeec5984e7a27a89bf')
+    if not all(value in current for value in required) or not re.search(r'^狀態：\*\*CONFORMED', current, re.M):
+        raise RuntimeError('100M續行缺50M保持／原始畫面／限定範圍／收據或未知')
+    older = (spec_dir / '328-moo2-post-click-publish-monitor.md').read_text()
+    if '獨立100M有界續行已由規格329接通' not in older or name not in older:
+        raise RuntimeError('328缺獨立有界續行回填')
+    if name not in (spec_dir / '000-index.md').read_text():
+        raise RuntimeError('329缺公開索引入口')
+
+if sys.argv[1:] == ['--check-bounded-new-game-spec-backlinks']:
+    validate_bounded_new_game_continuation(spec_dir)
+    print('50M保持／100M原畫面與限定範圍／328回填通過')
+    raise SystemExit(0)
+
+
 def validate_post_click_publish_resolution(spec_dir):
     """328 Bus正對照、零CPU讀回／發布的限定範圍與327回填須同時存在。"""
     name = '328-moo2-post-click-publish-monitor.md'

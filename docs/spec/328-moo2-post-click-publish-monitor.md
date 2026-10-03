@@ -58,6 +58,6 @@ VBE寫次數與Writes差額0獨立對帳通過，終圖仍PNG59f76749db5232f97a6
 
 probe SHA-256 5590a5cad4663dcb91df9124648f04b2a70a6d4a25b9799d0082df262a76f0b5；CPU仍1448f29f24dad35e83575189055dc15dd7ac9db2b3529c6d450f03baf91c97b1，startup／provider／matcher沿327逐位元保持。固定官方EXE與來源ZIP／patch／MOX.SET不改。
 
-限定CONFORMED為此區間CPU Bus觀測／原呼叫透傳／三源MOV與兩目的MOV正對照／VBE計數對帳與既有列保持。完整RAM跨次一致、80h後續、服務直接RAM路徑、正常設定畫面與remake同狀態仍未知。既定50M收據已到上限且沒有新CPU拒絕，未有足夠證據把問題路由成CPU／素材／renderer故障；下一步以獨立觀測規格評估延長有界執行時間，保留50M正式基線、同44M Esc與單次輸入，不追整個helper或猜規則。
+限定CONFORMED為此區間CPU Bus觀測／原呼叫透傳／三源MOV與兩目的MOV正對照／VBE計數對帳與既有列保持。完整RAM跨次一致、80h後續、服務直接RAM路徑、正常設定畫面與remake同狀態仍未知。既定50M收據已到上限且沒有新CPU拒絕，未有足夠證據把問題路由成CPU／素材／renderer故障；獨立100M有界續行已由規格329接通，見[329](329-moo2-bounded-new-game-continuation.md)；50M兩基線與前綴保持，較晚Bus讀回／VBE寫入與致謝文字已見，仍主選單。下一步追最小NEW GAME激活，不繼續加預算或追整個renderer。
 
 65回填函式、原有32／49／25／27／27／34與328新增31缺證據負例、兩CLI PASS。workplace/post-click-publish-328-backlink-tests.txt SHA-256 aab8c33aa44a17a15d66de7d707d38eff4f1da3eef72a4abd203c2fbd123d9b7。CPU／平台與VBE服務來源逐位元保持，gofmt通過，所有新來源／本機收據1000:1000，工具root-owned／誤建.md目錄自檢空。

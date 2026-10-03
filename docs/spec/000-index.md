@@ -521,4 +521,6 @@
 
 - [327：後段實際來源與最小消費](327-moo2-post-click-source-consumer.md)：CONFORMED。六組02h／80h／82h來源與分支、兩次原值FDh寫回，90步獨立核對；跨次RAM／70步未驗；後段發布觀測見328，不改輸入或CPU。
 
-- [328：目的RAM與VBE發布監測](328-moo2-post-click-publish-monitor.md)：CONFORMED。後段500000步、兩目標讀回0／寫3與5、VBE提交0，源與目的正對照通過；正常開局與完整renderer未知。
+- [328：目的RAM與VBE發布監測](328-moo2-post-click-publish-monitor.md)：CONFORMED。後段500000步、兩目標讀回0／寫3與5、VBE提交0，源與目的正對照通過；獨立較晚畫面見329，正常開局與完整renderer未知。
+
+- [329：正常NEW GAME的100M有界續行](329-moo2-bounded-new-game-continuation.md)：CONFORMED。14 CLI／50M兩基線與100M前綴保持；六快照與較晚致謝文字變化已見、無新CPU拒絕，NEW GAME激活未知。

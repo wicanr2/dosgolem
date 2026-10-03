@@ -98,8 +98,8 @@ func main() {
 	maxSteps := 8000000
 	if setting := os.Getenv("DOSGOLEM_MOO2_MAX_STEPS"); setting != "" {
 		value, parseErr := strconv.Atoi(setting)
-		if parseErr != nil || value < 1 || value > 50000000 {
-			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 50000000 的十進位整數")
+		if parseErr != nil || value < 1 || value > 100000000 {
+			fmt.Fprintln(os.Stderr, "DOSGOLEM_MOO2_MAX_STEPS 必須為 1 至 100000000 的十進位整數")
 			os.Exit(2)
 		}
 		maxSteps = value
@@ -124,8 +124,8 @@ func main() {
 		fmt.Printf("hardware_keyboard_schedule step=%d source=explicit_environment max_steps=%d\n", keyboardStep, maxSteps)
 	}
 	newGameClick := os.Getenv("DOSGOLEM_MOO2_NEW_GAME_CLICK_AFTER_DISPLAY40") == "1"
-	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || maxSteps != 50000000 || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
-		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc、1996-01-01、50M cap且無早期滑鼠事件")
+	if newGameClick && (!keyboardRequested || keyboardStep != 44000000 && keyboardStep != 46000000 || !(maxSteps == 50000000 || maxSteps == 100000000 && keyboardStep == 44000000) || os.Getenv("DOSGOLEM_MOO2_CALENDAR_EPOCH") != "1996-01-01" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT") == "1" || os.Getenv("DOSGOLEM_MOO2_MOUSE_EVENT_AFTER_POSITION") == "1") {
+		fmt.Fprintln(os.Stderr, "NEW GAME點擊要求44M或46M Esc與50M cap，或44M Esc與100M cap；1996-01-01且無早期滑鼠事件")
 		os.Exit(2)
 	}
 	b, err := os.ReadFile(os.Args[1])
@@ -725,9 +725,62 @@ func main() {
 		postClickSteps = 0
 	}
 
+	dumpExtendedProgress := func(step int) {
+		if maxSteps != 100000000 || phasePrefix == "" || !newGameClick || !newGameReleased || step < 50000000 || step > maxSteps || step%10000000 != 0 {
+			return
+		}
+		c := m.CPU
+		r, seg, eip, flags, bus := c.R, c.Seg, c.EIP, c.EFlags, c.Bus
+		control, status, stack, depth := c.FPUControl, c.FPUStatus, c.FPUStack, c.FPUDepth
+		state, ramBefore := m.VBEState(), sha256.Sum256(m.Mem)
+		pixels, rgb := m.VBEIndexed(), m.VBERGB()
+		if len(pixels) != 640*480 || len(rgb) != 640*480*3 {
+			panic("續行VBE快照尺寸錯誤")
+		}
+		out := image.NewNRGBA(image.Rect(0, 0, 640, 480))
+		for pixel := range pixels {
+			copy(out.Pix[pixel*4:pixel*4+3], rgb[pixel*3:pixel*3+3])
+			out.Pix[pixel*4+3] = 255
+		}
+		path := fmt.Sprintf("%s-extended-%08d.png", phasePrefix, step)
+		file, err := os.Create(path)
+		if err != nil {
+			panic(err)
+		}
+		encodeErr, closeErr := png.Encode(file, out), file.Close()
+		if encodeErr != nil {
+			panic(encodeErr)
+		}
+		if closeErr != nil {
+			panic(closeErr)
+		}
+		encoded, err := os.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+		ramAfter := sha256.Sum256(m.Mem)
+		readonly := c.R == r && c.Seg == seg && c.EIP == eip && c.EFlags == flags && c.Bus == bus && c.FPUControl == control && c.FPUStatus == status && c.FPUDepth == depth && m.VBEState() == state && ramBefore == ramAfter
+		for j := range stack {
+			readonly = readonly && math.Float64bits(stack[j]) == math.Float64bits(c.FPUStack[j])
+		}
+		if !readonly {
+			panic("續行快照改變原始狀態")
+		}
+		micros := uint64(0)
+		if ports, ok := services.DPMI.RealModeIO.(*machine.LEOPLPorts); ok {
+			micros = ports.BIOSClock.Micros
+		}
+		fmt.Printf("extended_new_game_checkpoint outer_step=%d address_space=dosgolem_high_le eip=%X r=%X seg=%X flags=%X fpu_control=%X fpu_status=%X fpu_depth=%d fpu_stack=%v virtual_micros=%d state=%+v indexed_sha256=%x rgb_sha256=%x png_sha256=%x ram_before_sha256=%x ram_after_sha256=%x path=%s readonly=%t\n", step, eip, r, seg, flags, control, status, depth, stack, micros, state, sha256.Sum256(pixels), sha256.Sum256(rgb), sha256.Sum256(encoded), ramBefore, ramAfter, path, readonly)
+		if publishBus != nil {
+			mask, pending, active, started, completed := services.MouseCallbackState()
+			fmt.Printf("extended_new_game_counters outer_step=%d publish_steps=%d reads=%d writes=%d errors=%d target_reads=%v target_writes=%v source_reads=%d vbe_writes=%d bus_matches=%t callback_mask=%X callback_pending=%d callback_active=%t callback_started=%d callback_completed=%d callback_samples=%d button_requests=%v positives=%v target_samples=%d\n", step, publishBus.steps, publishBus.reads, publishBus.writes, publishBus.errors, publishBus.targetReads, publishBus.targetWrites, publishBus.sourceReads, publishBus.vbeWrites, m.CPU.Bus == publishBus, mask, pending, active, started, completed, newGameCallbackSamples, buttonRequests, buttonPositiveCounts, buttonReadSamples)
+		}
+	}
+
 	for i := 0; i < maxSteps; i++ {
 		loopStep = i
 		dumpPostClickProgress(i)
+		dumpExtendedProgress(i)
 		if i == 49500000 && newGameClick && newGameReleased && phasePrefix != "" {
 			selector := m.CPU.Seg[cpu386.SegDS]
 			desc, known := m.CPU.Descriptors[selector]
@@ -1413,6 +1466,7 @@ func main() {
 		}
 	}
 	dumpPostClickProgress(maxSteps)
+	dumpExtendedProgress(maxSteps)
 	fmt.Printf("step_limit=%d eip=0x%X unique_sites=%d\n", maxSteps, m.CPU.EIP, len(seen))
 	dumpPlatform("terminal", maxSteps)
 	fmt.Printf("step_limit_registers r=%X seg=%X flags=0x%X bytes=% X\n", m.CPU.R, m.CPU.Seg, m.CPU.EFlags, m.Mem[m.CPU.EIP:m.CPU.EIP+16])
