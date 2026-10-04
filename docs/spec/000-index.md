@@ -626,3 +626,5 @@
 - [379：殖民地Sol II行的原選取來源](379-moo2-colonies-row-source.md)，CONFORMED，限定378既有195M來源與原第一命中規則；行點擊未驗。
 
 - [380：Sol II列表行的一次正常裝置輸入](380-moo2-colonies-row-click.md)，CONFORMED，限定正常行press／poll／release與原選取13；200M黑圖，殖民地畫面未驗。
+
+- [381：200M末態的堆疊框架與直接呼叫來源](381-moo2-colonies-frame-source.md)，CONFORMED，限定同200M只讀原框架與直接呼叫定位；殖民地畫面未驗。

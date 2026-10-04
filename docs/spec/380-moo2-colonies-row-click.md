@@ -68,3 +68,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 378／379正文保留並追加380，索引與backlink同次驗證；較早其它選取上下文不由本row13外推。原LOG／PNG／RAM／journal／state及private probe維持本機，Docker清理與收據連主庫研究入口。
 
 下一步依200M原完整核心、count1／55零bytes、當前223A23 code與SS188:2BD908 stack16，只追正常畫面建立所需的最小上層來源；先核對21A6F3是否真為該路徑的return定位與其原呼叫邊界，再由來源決定下一個有界畫面觀察，不盲目加cap或深挖renderer／DAC／PIT helper。主庫玩法RE-first保持，人口調整／正式存讀／完整開局／RNG與remake同狀態未驗，固定日期不是seed。
+
+## 381 原框架回填
+
+[381：200M末態的堆疊框架與直接呼叫來源](381-moo2-colonies-frame-source.md)已在相同200M輸入與cap下只讀原32bytes框架。原sub_1338C9配置260h區域空間，ESP2BD908首值21A6F3不在本函式返回槽；真正SS188:EBP2BDB68+10h的2BDB78讀得22341C，吻合IDA linear EA133417的E8AD040000→sub_1338C9。caller屬sub_133237，当前呼叫鏈強推論，未觀察自然RET或新UI。原13032列、35876 DAC事件、完整非新增final、PNG及state保持。原380正文及黑圖邊界保留，未把回填當殖民地畫面驗收。
