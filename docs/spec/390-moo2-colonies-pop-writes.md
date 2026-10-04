@@ -68,3 +68,8 @@ READY審查：固定389來源、15事件及原dispatch／兩分支／AND寫入by
 不可變鍵：DOS／官方1.31 ORION2.EXE／IDA linear EA BF6ED、B9E94、1237D9及1237DB；EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f。runtime投影加F0000h。原kind7按下／selector由[392](392-moo2-colonies-pop-place-input.md)補驗；當次getter至20DB8C候選未觀測，不能作消費閘門。
 
 [393](393-moo2-colonies-pop-release.md)以selector真SS返回EAX2、新GUI及callback20安全release，原BF6ED→B9E94與BF6F2真返回、下一正常1B0845及50個raw writer已驗。原MOV SS／MOV ESP中間Step的堆疊不可讀屬被動unknown，真near仍要求至少4-byte合法槽。較早kind6來源及391靜態getter仍有效，不能外推該getter候選到此kind7正常路徑。正式job欄位／跨殖民地／存讀及remake同狀態仍未知。
+
+
+## 394 職務位元與產出讀取端回填
+
+見[394人口槽位職務與產出讀取端](394-moo2-pop-slot-consumers.md)。官方1.31原BA6DF／BA6E5／BA6E8寫第7、8位，BA6EF設第9位；DE393依第9位篩選，DE39F／DE3A6抽出職務，三caller送0／1／2。不可變390／393正常收據證實八槽保持、四個原農夫改派工人，產出分布由4／2／2經選取暫停的0／2／2到0／6／2。較早正文的正式job未知只屬當時證據邊界；394補證限定此次同殖民地路徑。job3／跨殖民地／正常存讀與remake同狀態仍未驗，不改原receipt或歷史正文。

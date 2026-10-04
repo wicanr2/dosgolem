@@ -42,3 +42,8 @@ READY來源審查：392完整原前4phase、selector真SS／SP+4／EAX2／callba
 五個新writer以IDA9.4各八個鄰近指令補證，83列／53EA／8筆LE重定位差異，原MZ／LE／2object／365page／51363fixup records獨立核對；所有50個runtime writer的原bytes及+F0000h投影通過。sub_BA5DA只保存實際BA6E8／BA6EF寫入鄰近上下文，沒有翻譯整個函式或深入renderer／平台helper。IDA殼層exit0、idat_exit1，非空JSON、原檔hash、schema及獨立原bytes均通過；不以殼層exit覆蓋內層狀態。
 
 固定日期不是seed；原418輸入與實際SAVE10／MOX副本保持，沒有正常存讀或跨殖民地實測。主庫RE-first保持，正式職務位元語意及remake同狀態未知。正常放開／配置分支已驗，不外推整款遊戲。
+
+
+## 394 職務位元與產出讀取端回填
+
+見[394人口槽位職務與產出讀取端](394-moo2-pop-slot-consumers.md)。官方1.31原BA6DF／BA6E5／BA6E8寫第7、8位，BA6EF設第9位；DE393依第9位篩選，DE39F／DE3A6抽出職務，三caller送0／1／2。不可變390／393正常收據證實八槽保持、四個原農夫改派工人，產出分布由4／2／2經選取暫停的0／2／2到0／6／2。較早正文的正式job未知只屬當時證據邊界；394補證限定此次同殖民地路徑。job3／跨殖民地／正常存讀與remake同狀態仍未驗，不改原receipt或歷史正文。
