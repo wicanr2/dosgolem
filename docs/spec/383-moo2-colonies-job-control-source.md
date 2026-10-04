@@ -48,3 +48,9 @@ IDA沿locked-v1 image、120s／2GiB／2CPU／128pids／UID1000／network none，
 ## 384 原前置快照回填
 
 [384](384-moo2-colonies-job-source-snapshot.md)沿同輸入及210M完成只讀來源。DS188:2879DA／DC／DE原pointer words均310；current raw4、pool5B2044、361byte record5B25E8已取得，未命名正式job語意。原scene callback2A8840=0而enable26C48C=1均可讀；靜態C07D2／C07E1設置鏈不代表本次已觸發或已進入穩定輸入。完整382終態／journal／PNG／state保持，人口操作未驗。下一步核對C07C1→sub_BF456返回與callback設置時序，不直接由職業列熱區送輸入。
+
+## 385 回呼runtime地址勘誤
+
+見[385實際結果](385-moo2-colonies-scene-ready.md)。原IDA linear EA 1A8840加F0000h後為dosgolem_high_le／DS188:298840；原runtime 2091EA的A340882900亦直接指定298840。384觀察器誤用2A8840，偏差10000h。舊收據在2A8840讀到四bytes零的事實保持，但「scene callback為0」的欄位語意撤回；正確298840讀值與實際store全RAM差異尚未取得，不當CPU缺陷。
+
+385原guest僅一次；原BF456返回203219421、原callback A3寫入203219451、setup返回203219467、首正常輸入CALL205804505已觀察。首次輸入PNG與原210M相同。先前仍需等待場景設置的推論被此次原指令與時序否定。current／pool／361byte record、三pointer、enable／水平偏移原定位保持。本節追加訂正，舊正文與收據不改；385回呼觀察契約回到DRAFT，下一輪先修正只讀地址，不送人口輸入。

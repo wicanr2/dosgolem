@@ -57,3 +57,9 @@ READY審查：固定382完整210M與383原bytes／fixup／三pointer通過；初
 驗證腳本首次在exec來源檢查後，b被覆蓋為整數，導致既有日誌迭代TypeError；首腳本與輸出保留first-check。只隔離來源檢查namespace，同一收據完成全套驗收，沒有重跑guest或改原收據。READY初版對115988間接WORD指令誤要求relocation已另保留及訂正。
 
 下一步只核對原sub_C058A的C07C1→sub_BF456返回邊界與C07D2／C07E1的callback設置，保留210M原callback0作前置。來源足夠後才建立一次有界等待／安全輸入契約；不直接加cap、送人口輸入或深入共享renderer。主庫RE-first保持。
+
+## 385 回呼runtime地址勘誤
+
+見[385實際結果](385-moo2-colonies-scene-ready.md)。原IDA linear EA 1A8840加F0000h後為dosgolem_high_le／DS188:298840；原runtime 2091EA的A340882900亦直接指定298840。384觀察器誤用2A8840，偏差10000h。舊收據在2A8840讀到四bytes零的事實保持，但「scene callback為0」的欄位語意撤回；正確298840讀值與實際store全RAM差異尚未取得，不當CPU缺陷。
+
+385原guest僅一次；原BF456返回203219421、原callback A3寫入203219451、setup返回203219467、首正常輸入CALL205804505已觀察。首次輸入PNG與原210M相同。先前仍需等待場景設置的推論被此次原指令與時序否定。current／pool／361byte record、三pointer、enable／水平偏移原定位保持。本節追加訂正，舊正文與收據不改；385回呼觀察契約回到DRAFT，下一輪先修正只讀地址，不送人口輸入。
