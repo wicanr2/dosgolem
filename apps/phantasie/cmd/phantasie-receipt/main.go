@@ -366,6 +366,10 @@ func runLang(lang string, op runOpts) (bool, error) {
 				if err == nil {
 					return nil
 				}
+				var waiting *oracle.InputWaitError
+				if st.Kind == phantasie.RouteCheck && errors.As(err, &waiting) && cond.Ready(o) {
+					return nil
+				}
 				var be *oracle.BudgetError
 				if !errors.As(err, &be) {
 					return fmt.Errorf("檢查點 %s：%w", st.Name, err)

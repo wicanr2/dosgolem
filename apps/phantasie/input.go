@@ -8,13 +8,25 @@ import (
 )
 
 // OffReadKey 是讀鍵包裝函式的入口（映像偏移）：它先做一次 `INT 16h AH=00`，
-// 返回後 AL 是 ASCII、AH 是掃描碼。另有丟棄回傳值的等鍵路徑 37A0，
-// 目前 KeyGate 尚未涵蓋，該路徑的訊息會因空佇列不阻塞而立即返回。
+// 返回後 AL 是 ASCII、AH 是掃描碼。丟棄回傳值的 37A0 等鍵另由 guard 處理。
 const OffReadKey = 0x37C2
 
 // OffReadKeyDone 是讀鍵包裝函式的 retn（映像偏移 37FA，以執行期位元組核對：
 // 入口 55 8B EC，結尾 5D C3）。KeyGate 用它關閉「開啟旗標」做重複觸發去重。
 const OffReadKeyDone = 0x37FA
+
+// 第二條等鍵在清空佇列後的 call 前暫停，見專案規格 008。
+const (
+	OffWaitKey     = 0x37A0
+	OffWaitKeyCall = 0x37B8
+	OffWaitKeyDone = 0x37C1
+)
+
+var waitKeySignature = []byte{
+	0x55, 0x8B, 0xEC, 0xE8, 0x8D, 0x01, 0xC7, 0x06, 0xCE, 0xB8, 0x00, 0x00,
+	0xB8, 0xDE, 0xB8, 0x50, 0xB8, 0xCE, 0xB8, 0x50, 0xB8, 0x16, 0x00, 0x50,
+	0xE8, 0xA5, 0x16, 0x83, 0xC4, 0x06, 0x8B, 0xE5, 0x5D, 0xC3,
+}
 
 // KeyGate 讓按鍵在「原版即將讀鍵」的那一刻才放進 BIOS 鍵盤佇列。
 //
@@ -38,10 +50,14 @@ type KeyGate struct {
 	Dups     int    // 被去重忽略的重複入口與完成
 	Err      string // 讀鍵函式簽章不符時的診斷（此時不去重）
 
-	checked bool
-	dedupe  bool
-	open    bool
-	openSP  uint16
+	checked  bool
+	dedupe   bool
+	open     bool
+	openSP   uint16
+	waitOpen bool
+	waitSP   uint16
+	waitSeen bool
+	waitSent bool
 }
 
 type gateKey struct {
@@ -55,7 +71,60 @@ func NewKeyGate(o *oracle.Oracle, img uint16) *KeyGate {
 	g := &KeyGate{o: o, img: img}
 	o.OnCall(oracle.Far(img, OffReadKey), func(o *oracle.Oracle) { g.enter(o.SP()) })
 	o.OnCall(oracle.Far(img, OffReadKeyDone), func(o *oracle.Oracle) { g.leave() })
+	o.OnCall(oracle.Far(img, OffWaitKeyDone), func(*oracle.Oracle) { g.waitOpen = false })
+	o.SetStepGuard(g.guard)
 	return g
+}
+
+func (g *KeyGate) guard(o *oracle.Oracle) error {
+	ip := o.IP().Linear()
+	if ip == oracle.Far(g.img, OffWaitKey).Linear() {
+		if got := o.Bytes(oracle.Far(g.img, OffWaitKey), len(waitKeySignature)); !bytes.Equal(got, waitKeySignature) {
+			g.Err = fmt.Sprintf("確認等鍵函式簽章不符：% X", got)
+			return fmt.Errorf("%s", g.Err)
+		}
+		if !g.waitOpen || g.waitSP != o.SP() {
+			g.waitOpen, g.waitSP, g.waitSeen, g.waitSent = true, o.SP(), false, false
+		}
+	}
+	if ip != oracle.Far(g.img, OffWaitKeyCall).Linear() {
+		return nil
+	}
+	if !g.waitOpen || o.SP() != g.waitSP-uint16(8) {
+		return fmt.Errorf("確認等鍵堆疊不符：開啟=%t SP=%04X 入口=%04X", g.waitOpen, o.SP(), g.waitSP)
+	}
+	if !g.waitSeen {
+		g.waitSeen = true
+		g.Reads++
+	}
+	if g.waitSent {
+		return nil
+	}
+	if len(g.pending) == 0 {
+		return &oracle.InputWaitError{Stopped: o.IP()}
+	}
+	k := g.pending[0]
+	if o.Steps() < k.after || k.skip != 0 {
+		return fmt.Errorf("確認等鍵不能略過或等待未來指令：after=%d skip=%d 目前=%d", k.after, k.skip, o.Steps())
+	}
+	if err := sendGateKey(o, k.name); err != nil {
+		return err
+	}
+	g.pending = g.pending[1:]
+	g.Gated++
+	g.LastSent = g.Reads
+	g.waitSent = true
+	return nil
+}
+
+func sendGateKey(o *oracle.Oracle, name string) error {
+	if err := o.SendKeys(name); err == nil {
+		return nil
+	}
+	if len([]rune(name)) == 1 {
+		return o.TypeKeys(name)
+	}
+	return fmt.Errorf("不認得確認按鍵 %q", name)
 }
 
 // Press 排入一個按鍵（名稱見 oracle.SendKeys）。依呼叫順序送出，每次讀鍵入口最多送一個，

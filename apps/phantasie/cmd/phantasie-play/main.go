@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"image/color"
@@ -19,6 +20,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/wicanr2/dosgolem/apps/phantasie"
+	"github.com/wicanr2/dosgolem/oracle"
 )
 
 const maxQueued = 16
@@ -73,6 +75,10 @@ func (g *game) Update() error {
 	}
 	if g.err == nil {
 		if err := g.s.O.Run(g.stepsPer); err != nil {
+			var waiting *oracle.InputWaitError
+			if errors.As(err, &waiting) {
+				return nil
+			}
 			g.err = err
 			fmt.Fprintln(os.Stderr, "原版結束或出錯：", err)
 		}

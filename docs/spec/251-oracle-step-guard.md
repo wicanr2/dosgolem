@@ -19,7 +19,7 @@
 
 程式：`oracle/oracle.go` 加私有 guard 欄位；`oracle/run.go` 加 setter、InputWaitError 與指令前判定；新增 `oracle/step_guard_test.go`。不改 CPU、DOS、BIOS、Machine 或其他 apps。
 
-審查：2026-10-04 兩種唯讀審查報告在專案本機 `workplace/review/wait-contract.md`、`wait-evidence.md`。主代理核對唯一阻擋並明確列出一般輸入 API 的 BDA 副作用例外後 READY。驗收待測試。
+審查：2026-10-04 兩種唯讀審查報告在專案本機 `workplace/review/wait-contract.md`、`wait-evidence.md`。主代理核對唯一阻擋並明確列出一般輸入 API 的 BDA 副作用例外後 READY。驗收見下節。
 
 ## 驗收收據
 
