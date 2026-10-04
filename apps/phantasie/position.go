@@ -80,6 +80,10 @@ func CheckPosition(rec *EventRecord, stamps []*xlate.Stamp, ws []VideoWrite) str
 	if fx0 != ex0 || fy0 != ey0 || fx1 != ex1 || fy1 != ey1 {
 		return fmt.Sprintf("事件矩形 [%d,%d)x[%d,%d) 與寫入足跡 [%d,%d)x[%d,%d) 不同", ex0, ex1, ey0, ey1, fx0, fx1, fy0, fy1)
 	}
+	// The original write footprint above remains independent of visual width.
+	if isScrollRow(rec) {
+		fx1 = 320
+	}
 	var cover []xrange
 	for _, s := range stamps {
 		sx0, sy0, sx1, sy1 := s.Rect()

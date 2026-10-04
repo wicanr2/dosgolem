@@ -172,7 +172,7 @@ func (o *Overlay) restoreShadow(s Shadow) {
 			o.C.Inc("shadow_lost")
 			continue
 		}
-		line, _, err := layoutLine(res.Zh, res.Center, availH(rec.Col, len(rec.Text)), lang.Wide)
+		line, _, err := layoutLine(res.Zh, res.Center, availH(rec.Col, displayCells(rec)), lang.Wide)
 		if err != nil {
 			o.C.Inc("shadow_lost")
 			continue

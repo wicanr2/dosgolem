@@ -37,7 +37,8 @@ func (o *Overlay) scanGroup(rec *EventRecord, stamps []*xlate.Stamp, indexed []u
 		}
 	}
 	ex0 := rec.Col * 8
-	ex1 := ex0 + len(rec.Cells)*8
+	mask := maskCells(rec)
+	ex1 := ex0 + len(mask)*8
 	if ex1 > screenW {
 		ex1 = screenW
 	}
@@ -59,7 +60,7 @@ func (o *Overlay) scanGroup(rec *EventRecord, stamps []*xlate.Stamp, indexed []u
 				}
 				for x := cx0; x < cx1; x++ {
 					k := (x - ex0) / 8
-					g := rec.Cells[k]
+					g := mask[k]
 					m := o.glyphPixel(g, y-y0, (x-ex0)%8)
 					f(k, m, indexed[y*screenW+x], x, y)
 				}
@@ -211,7 +212,7 @@ func (o *Overlay) recolor(key string, indexed, rgb []uint8, gated bool) {
 	if bgIdx == fgIdx {
 		// 整組取最多數時底與墨同色：事件內有一部分格被反白（兩種狀態的像素數接近）時會發生。
 		// 改取各格自己的 (底, 墨) 配對中最多的一組當組色。
-		b, f, ok := majorityPair(len(rec.Cells), func(g func(k int, m, c uint8)) {
+		b, f, ok := majorityPair(len(maskCells(rec)), func(g func(k int, m, c uint8)) {
 			o.scanGroup(rec, stamps, indexed, func(k int, m, c uint8, _, _ int) { g(k, m, c) })
 		})
 		if !ok {
@@ -301,7 +302,7 @@ func (cs *cellStat) finish() {
 
 // scanCells 以組色統計事件組每個原版格，並判定各格的反白狀態。
 func (o *Overlay) scanCells(rec *EventRecord, stamps []*xlate.Stamp, indexed []uint8, bgIdx, fgIdx uint8) []cellStat {
-	cells := make([]cellStat, len(rec.Cells))
+	cells := make([]cellStat, len(maskCells(rec)))
 	o.scanGroup(rec, stamps, indexed, func(k int, m, c uint8, _, _ int) { cells[k].add(m, c, bgIdx, fgIdx) })
 	for k := range cells {
 		cells[k].finish()
@@ -315,8 +316,8 @@ func cellOf(rec *EventRecord, s *xlate.Stamp, i int) int {
 	if s.X+i*s.CellW < rec.Col*8 || k < 0 {
 		k = 0
 	}
-	if k >= len(rec.Cells) {
-		k = len(rec.Cells) - 1
+	if k >= len(maskCells(rec)) {
+		k = len(maskCells(rec)) - 1
 	}
 	return k
 }
@@ -434,7 +435,7 @@ func (o *Overlay) gateGroup(key string, rec *EventRecord, stamps []*xlate.Stamp,
 		if cs.n < gateMinPixels {
 			continue
 		}
-		if rec.Cells[k] == ' ' {
+		if maskCells(rec)[k] == ' ' {
 			mx := 0
 			for _, v := range cs.color {
 				if v > mx {

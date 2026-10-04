@@ -301,7 +301,7 @@ func (o *Overlay) commit(ev *openEvent) {
 	if len(t) == 0 {
 		return
 	}
-	x0, y0, x1, y1, clipped := rectOf(rec.Col, rec.Row, len(t))
+	x0, y0, x1, y1, clipped := rectOf(rec.Col, rec.Row, displayCells(rec))
 	if clipped {
 		o.C.Inc("clipped")
 	}
@@ -369,7 +369,7 @@ func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
 		o.clearRect(x0, y0, x1, y1)
 		return
 	}
-	line, truncated, err := layoutLine(res.Zh, res.Center, availH(rec.Col, len(rec.Text)), lang.Wide)
+	line, truncated, err := layoutLine(res.Zh, res.Center, availH(rec.Col, displayCells(rec)), lang.Wide)
 	if err != nil {
 		o.C.Inc("untranslated")
 		o.C.Inc("badformat")
@@ -473,7 +473,7 @@ func visibleRanges(stamps []*xlate.Stamp) []xrange {
 // hiddenOf 是事件矩形的 x 範圍減去組內可見範圍的補集（002 §4）。影子登記、影子還原與語言切換共用。
 func hiddenOf(rec *EventRecord, stamps []*xlate.Stamp) []xrange {
 	x0 := rec.Col * 8
-	x1 := x0 + len(rec.Text)*8
+	x1 := x0 + displayCells(rec)*8
 	if x1 > screenW {
 		x1 = screenW
 	}
@@ -662,7 +662,7 @@ func (o *Overlay) rebuild() {
 			o.C.Inc("switch_untranslated")
 			continue
 		}
-		line, _, err := layoutLine(res.Zh, res.Center, availH(rec.Col, len(rec.Text)), lang.Wide)
+		line, _, err := layoutLine(res.Zh, res.Center, availH(rec.Col, displayCells(rec)), lang.Wide)
 		if err != nil {
 			o.removeGroup(key)
 			o.C.Inc("switch_untranslated")

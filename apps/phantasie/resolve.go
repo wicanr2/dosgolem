@@ -195,7 +195,7 @@ func (r *Resolver) resolvePiece(p *Piece) pieceResult {
 		if !printable(a.Content) {
 			return pieceResult{why: WhyBadArg}
 		}
-		ts, rep, ctr, bad := r.argText(&res, a, identity && nS == 1 && strings.TrimSpace(p.Fmt) == "%s")
+		ts, rep, ctr, bad := r.argText(&res, a, identity && nS == 1 && strings.TrimSpace(p.Fmt) == "%s", identity && nS == 1 && p.Fmt == "%s" && len(p.Appends) == 0)
 		if bad {
 			return pieceResult{why: WhyBadArg}
 		}
@@ -212,7 +212,7 @@ func (r *Resolver) resolvePiece(p *Piece) pieceResult {
 		if !printable(a.Content) {
 			return pieceResult{why: WhyBadArg}
 		}
-		ts, rep, _, bad := r.argText(&res, a, false)
+		ts, rep, _, bad := r.argText(&res, a, false, false)
 		if bad {
 			return pieceResult{why: WhyBadArg}
 		}
@@ -277,7 +277,7 @@ func (r *Resolver) resolveLiteral(p *Piece) pieceResult {
 }
 
 // argText 依 a.Kind 查表（003 §5.2 的 lookupArg 與組句 Piece）。回傳顯示用的字串、是否換成譯文、是否要求整句置中、是否資料錯誤。
-func (r *Resolver) argText(res *pieceResult, a ArgStr, singleS bool) (ts TargetStr, replaced, center, bad bool) {
+func (r *Resolver) argText(res *pieceResult, a ArgStr, singleS, wholeLine bool) (ts TargetStr, replaced, center, bad bool) {
 	orig := TargetStr{Text: a.Content}
 	if a.Piece != nil {
 		inner := r.resolvePiece(a.Piece)
@@ -314,6 +314,13 @@ func (r *Resolver) argText(res *pieceResult, a ArgStr, singleS bool) (ts TargetS
 		return orig, false, false, false
 	}
 	body, c := stripCenter(v)
+	if strings.Contains(body, "<blank>") {
+		if body != "<blank>" || !wholeLine || c || res.center {
+			return orig, false, false, true
+		}
+		res.hits = append(res.hits, hitKey)
+		return TargetStr{Translated: true}, true, false, false
+	}
 	if c {
 		if !singleS {
 			return orig, false, false, true // 資料引數帶 \c 只允許卷軸行的單一 %s 恆等模板

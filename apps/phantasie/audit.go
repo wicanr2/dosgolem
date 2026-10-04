@@ -108,7 +108,7 @@ func (o *Overlay) AuditStale(indexed []uint8) int {
 		}
 		if bgIdx == fgIdx {
 			// 事件內一部分格被反白時整組取最多數會底墨同色：改取各格 (底, 墨) 配對的多數（與 recolor 同一規則）。
-			if b, f, ok := majorityPair(len(rec.Cells), func(g func(k int, m, c uint8)) {
+			if b, f, ok := majorityPair(len(maskCells(rec)), func(g func(k int, m, c uint8)) {
 				o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) { g(k, mk, c) })
 			}); ok {
 				bgIdx, fgIdx = b, f
@@ -131,10 +131,10 @@ func (o *Overlay) AuditStale(indexed []uint8) int {
 			if cells[k].n < gateMinPixels {
 				continue
 			}
-			if !auditCell(&cells[k], rec.Cells[k], bgIdx, fgIdx) {
+			if !auditCell(&cells[k], maskCells(rec)[k], bgIdx, fgIdx) {
 				stale++
 				if o.AuditDebug != nil {
-					o.AuditDebug(fmt.Sprintf("殘字格 key=%s k=%d ch=%q n=%d match=%d ink=%d keep=%d bg=%d fg=%d text=%q", key, k, rec.Cells[k], cells[k].n, cells[k].match, cells[k].ink, cells[k].inkKeep, bgIdx, fgIdx, rec.Text))
+					o.AuditDebug(fmt.Sprintf("殘字格 key=%s k=%d ch=%q n=%d match=%d ink=%d keep=%d bg=%d fg=%d text=%q", key, k, maskCells(rec)[k], cells[k].n, cells[k].match, cells[k].ink, cells[k].inkKeep, bgIdx, fgIdx, rec.Text))
 				}
 			}
 		}
@@ -260,10 +260,11 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 		// 只計疊字非透明格範圍內的像素（透明格是玩家輸入等不屬於疊字的格）。
 		if rec, stamps := o.records[e.ID], o.groupStamps(e.ID); rec != nil && len(stamps) > 0 {
 			// 同一事件可以只反白其中幾格：底色與墨色依各格的反白狀態分開統計，同一狀態內才要求單一色號。
+			visualStats := o.scanCells(rec, stamps, indexed, bgIdx, fgIdx)
 			var c0, c1 [2][256]int
 			if o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) {
 				sw := 0
-				if k < len(stats) && stats[k].swap {
+				if k < len(visualStats) && visualStats[k].swap {
 					sw = 1
 				}
 				if mk == 0 {
