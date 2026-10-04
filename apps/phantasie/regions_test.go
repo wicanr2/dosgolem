@@ -54,36 +54,36 @@ func TestRegionsStatic(t *testing.T) {
 		{"靜態區末位元組", 0x3243, regSP, "", KindStatic},
 		{"靜態區界外（FONT 緩衝區起點）", 0x3244, regSP, "", KindOther},
 		{"靜態區界外之後", 0x3245, regSP, "", KindOther},
-		{"載入 ov1 時靜態區照常有效", 0x0100, regSP, "ov1.ovr", KindStatic},
-		{"載入 ov2 時靜態區照常有效", 0x3243, regSP, "ov2.ovr", KindStatic},
+		{"載入 ov1 時靜態區照常有效", 0x0100, regSP, "ov1.test", KindStatic},
+		{"載入 ov2 時靜態區照常有效", 0x3243, regSP, "ov2.test", KindStatic},
 	})
 }
 
 func TestRegionsOverlayData(t *testing.T) {
 	regRun(t, regDefault(t), []regCase{
 		// ov1：[B8F0, C45E)
-		{"ov1 區前一個位元組", 0xB8EF, regSP, "ov1.ovr", KindOther},
-		{"ov1 區起點", 0xB8F0, regSP, "ov1.ovr", KindStatic},
-		{"ov1 區中段（超過 ov2 區尾）", 0xC400, regSP, "ov1.ovr", KindStatic},
-		{"ov1 區末位元組", 0xC45D, regSP, "ov1.ovr", KindStatic},
-		{"ov1 區尾是界外", 0xC45E, regSP, "ov1.ovr", KindOther},
-		{"ov1 區尾之後", 0xC45F, regSP, "ov1.ovr", KindOther},
+		{"ov1 區前一個位元組", 0xB8EF, regSP, "ov1.test", KindOther},
+		{"ov1 區起點", 0xB8F0, regSP, "ov1.test", KindStatic},
+		{"ov1 區中段（超過 ov2 區尾）", 0xC400, regSP, "ov1.test", KindStatic},
+		{"ov1 區末位元組", 0xC45D, regSP, "ov1.test", KindStatic},
+		{"ov1 區尾是界外", 0xC45E, regSP, "ov1.test", KindOther},
+		{"ov1 區尾之後", 0xC45F, regSP, "ov1.test", KindOther},
 		// ov2：[B8F0, C400)
-		{"ov2 區前一個位元組", 0xB8EF, regSP, "ov2.ovr", KindOther},
-		{"ov2 區起點", 0xB8F0, regSP, "ov2.ovr", KindStatic},
-		{"ov2 區末位元組", 0xC3FF, regSP, "ov2.ovr", KindStatic},
-		{"ov2 區尾起是位置訊息行緩衝區（buffer@ov2，80 bytes）", 0xC400, regSP, "ov2.ovr", KindBuffer},
-		{"位置訊息行緩衝區末位元組", 0xC44F, regSP, "ov2.ovr", KindBuffer},
-		{"位置訊息行緩衝區界外", 0xC450, regSP, "ov2.ovr", KindOther},
-		{"ov1 下 C400 仍是靜態區（不是 buffer）", 0xC400, regSP, "ov1.ovr", KindStatic},
+		{"ov2 區前一個位元組", 0xB8EF, regSP, "ov2.test", KindOther},
+		{"ov2 區起點", 0xB8F0, regSP, "ov2.test", KindStatic},
+		{"ov2 區末位元組", 0xC3FF, regSP, "ov2.test", KindStatic},
+		{"ov2 區尾起是位置訊息行緩衝區（buffer@ov2，80 bytes）", 0xC400, regSP, "ov2.test", KindBuffer},
+		{"位置訊息行緩衝區末位元組", 0xC44F, regSP, "ov2.test", KindBuffer},
+		{"位置訊息行緩衝區界外", 0xC450, regSP, "ov2.test", KindOther},
+		{"ov1 下 C400 仍是靜態區（不是 buffer）", 0xC400, regSP, "ov1.test", KindStatic},
 		{"沒有載入 overlay 時 C400 不是 buffer", 0xC400, regSP, "", KindOther},
-		{"ov1 的末位元組在 ov2 下是界外", 0xC45D, regSP, "ov2.ovr", KindOther},
+		{"ov1 的末位元組在 ov2 下是界外", 0xC45D, regSP, "ov2.test", KindOther},
 		// overlay 名稱的比對
-		{"大寫", 0xB8F0, regSP, "OV1.OVR", KindStatic},
-		{"含路徑", 0xB8F0, regSP, `C:\PHANTASI\Ov2.Ovr`, KindStatic},
+		{"大寫", 0xB8F0, regSP, "OV1.TEST", KindStatic},
+		{"含路徑", 0xB8F0, regSP, `C:\PHANTASI\Ov2.test`, KindStatic},
 		{"沒有載入 overlay 不判", 0xB8F0, regSP, "", KindOther},
 		{"不認得的 overlay 不判", 0xB8F0, regSP, "ov3.ovr", KindOther},
-		{"同時含 ov1 與 ov2（有歧義）不判", 0xB8F0, regSP, "ov1ov2.ovr", KindOther},
+		{"同時含 ov1 與 ov2（有歧義）不判", 0xB8F0, regSP, "ov1ov2.test", KindOther},
 		{"沒有載入 overlay 時區尾內也不判", 0xC000, regSP, "", KindOther},
 	})
 }
@@ -95,7 +95,7 @@ func TestRegionsLineBuffer(t *testing.T) {
 		{"行緩衝區 80 bytes 內", 0x63A0, regSP, "", KindBuffer},
 		{"行緩衝區末位元組", 0x63DD, regSP, "", KindBuffer},
 		{"行緩衝區尾是界外", 0x63DE, regSP, "", KindOther},
-		{"與 overlay 無關", 0x638E, regSP, "ov1.ovr", KindBuffer},
+		{"與 overlay 無關", 0x638E, regSP, "ov1.test", KindBuffer},
 	})
 }
 
@@ -128,7 +128,7 @@ func TestRegionsMonster(t *testing.T) {
 		{"記錄 1 起點前一個位元組", 0x755A, regSP, "", KindOther},
 		{"記錄 1 起點後一個位元組", 0x755C, regSP, "", KindOther},
 		{"第 0 筆前一個位元組", 0x7521, regSP, "", KindOther},
-		{"與 overlay 無關", 0x755B, regSP, "ov2.ovr", KindMonster},
+		{"與 overlay 無關", 0x755B, regSP, "ov2.test", KindMonster},
 	})
 }
 
@@ -146,14 +146,14 @@ func TestRegionsTown(t *testing.T) {
 	}
 	cases = append(cases,
 		regCase{"i=12 是界外", 0x8E15, regSP, "", KindOther},
-		regCase{"與 overlay 無關", 0x8194, regSP, "ov1.ovr", KindTown},
+		regCase{"與 overlay 無關", 0x8194, regSP, "ov1.test", KindTown},
 	)
 	regRun(t, regDefault(t), cases)
 }
 
 func TestRegionsOther(t *testing.T) {
 	var cases []regCase
-	for _, ov := range []string{"", "ov1.ovr", "ov2.ovr"} {
+	for _, ov := range []string{"", "ov1.test", "ov2.test"} {
 		cases = append(cases,
 			regCase{"玩家記錄內的名字欄", 0x5CBE, regSP, ov, KindOther},
 			regCase{"玩家記錄陣列起點", 0x5BB0, regSP, ov, KindOther},
@@ -196,7 +196,7 @@ func TestRegionsParseLegal(t *testing.T) {
 		{"ov9 的第 3 筆界外", 0x160, 0, "ov9.ovr", KindOther},
 		{"ov9 不在起點", 0x101, 0, "ov9.ovr", KindOther},
 		{"沒載入 ov9", 0x100, 0, "", KindOther},
-		{"載入別的 overlay", 0x100, 0, "ov1.ovr", KindOther},
+		{"載入別的 overlay", 0x100, 0, "ov1.test", KindOther},
 		{"區間到 FFFF（含）", 0xFFFF, 0, "", KindBuffer},
 		{"區間起點", 0xFFF0, 0, "", KindBuffer},
 		{"區間前一個位元組", 0xFFEF, 0, "", KindOther},

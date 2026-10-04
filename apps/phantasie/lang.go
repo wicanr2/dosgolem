@@ -21,6 +21,13 @@ func LoadLanguage(name, textDir, fontDir string) *Language {
 		l.Err = fmt.Sprintf("catalog：%v", err)
 		return l
 	}
+	manual, err := os.ReadFile(filepath.Join(textDir, "manual."+name+".tsv"))
+	if err == nil {
+		cat.manual, err = parseManualCatalog(manual)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		l.ManualErr = fmt.Sprintf("手冊提示停用：%v", err)
+	}
 	data, err := os.ReadFile(filepath.Join(fontDir, name+".golemfnt"))
 	if err != nil {
 		l.Err = fmt.Sprintf("字型：%v", err)

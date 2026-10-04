@@ -2,12 +2,15 @@ package phantasie
 
 import (
 	"strings"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // Resolver 把 EventRecord 解析成譯文（docs/spec/003 §5.2）。純函式：只讀 EventRecord 與 catalog。
 type Resolver struct {
 	Cat  Lookup
 	Wide WideFunc
+	Font *xlate.Font // 本機手冊提示必須先驗證字模；一般譯文沿用既有流程。
 }
 
 // pieceResult 是 resolvePiece 的內部結果。
@@ -70,6 +73,9 @@ func dedupe(in []string) []string {
 
 // Resolve 是 001 §5 的 Resolve。
 func (r *Resolver) Resolve(rec *EventRecord) Result {
+	if hint, ok := r.manualHint(rec); ok {
+		return hint
+	}
 	if r.protectedRec(rec) {
 		return Result{Why: WhyProtected}
 	}

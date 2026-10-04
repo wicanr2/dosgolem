@@ -5,6 +5,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -43,7 +44,7 @@ func set(ss []string) map[string]bool {
 
 var header = []string{"lang", "mode", "check", "image_hash", "img_seg", "hook_sig", "font_hash", "steps", "reads",
 	"vram_hash", "mem_hash", "stamps", "layer_hash", "keys", "untranslated", "untranslated_args", "counters",
-	"stale_cells", "exposed_events", "visible_hash", "content_hash", "mask_strict", "png", "verdict"}
+	"stale_cells", "exposed_events", "visible_hash", "content_hash", "mask_strict", "png", "verdict", "full_mem_hash"}
 
 func main() {
 	root := flag.String("root", "", "原版目錄（必填；缺檔時 SKIP）")
@@ -148,6 +149,9 @@ func runLang(lang string, op runOpts) (bool, error) {
 	if op.hooks != "none" {
 		ov = phantasie.NewOverlay()
 		l := phantasie.LoadLanguage(lang, op.textDir, op.fontDir)
+		if l.ManualErr != "" {
+			fmt.Fprintln(os.Stderr, lang+"："+l.ManualErr)
+		}
 		if !l.Enabled {
 			return false, fmt.Errorf("語言 %s 無法載入：%s", lang, l.Err)
 		}
@@ -171,6 +175,9 @@ func runLang(lang string, op runOpts) (bool, error) {
 		sort.Strings(extras)
 		for _, name := range extras {
 			x := phantasie.LoadLanguage(name, op.textDir, op.fontDir)
+			if x.ManualErr != "" {
+				fmt.Fprintln(os.Stderr, name+"："+x.ManualErr)
+			}
 			if !x.Enabled {
 				return false, fmt.Errorf("語言 %s 無法載入：%s", name, x.Err)
 			}
@@ -371,7 +378,8 @@ func runLang(lang string, op runOpts) (bool, error) {
 			vis[st.Name] = ov.VisibleHash()
 			scr[st.Name] = [2]uint64{phantasie.VramHash(o), ov.ContentHash()}
 		}
-		fmt.Fprintln(f, strings.Join(append(row, verdict), "\t"))
+		fullMem := sha256.Sum256(o.Bytes(oracle.Far(0, 0), 1<<20))
+		fmt.Fprintln(f, strings.Join(append(row, verdict, fmt.Sprintf("%x", fullMem)), "\t"))
 		fmt.Printf("%s\t%s\t%s\t%s\n", cur, st.Name, verdict, row[len(row)-1])
 		if verdict != "PASS" && !strings.HasPrefix(verdict, "SKIP") {
 			allOK = false
@@ -471,8 +479,8 @@ func receipt(lang string, op runOpts, st phantasie.RouteStep, o *oracle.Oracle, 
 		why = append(why, "疊字數為 0")
 	}
 	if n := ov.C.Get("protected"); n != 0 {
-		// 到達保護清單的字串（手冊對照提示，AGENTS.md §1）：路線不得走到這裡，不作答、不繞過，停止該分支並回報使用者。
-		why = append(why, fmt.Sprintf("protected=%d（到達手冊對照提示：停止這條路線並回報，不作答）", n))
+		// 缺少已核對的本機提示或事件不符時仍判失敗，不能以原文退回冒稱驗收。
+		why = append(why, fmt.Sprintf("protected=%d（手冊提示未接通，保留原文）", n))
 	}
 	if n := ov.C.Get("unpaired"); n != 0 {
 		why = append(why, fmt.Sprintf("unpaired=%d", n))

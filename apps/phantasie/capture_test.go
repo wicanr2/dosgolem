@@ -684,7 +684,7 @@ func TestCaptureVerifyingTriggerIsProcessed(t *testing.T) {
 func TestCaptureHandleARecordFields(t *testing.T) {
 	f := capNew(t)
 	f.arm()
-	f.h.overlay = "OV1.OVR"
+	f.h.overlay = "OV1.TEST"
 	f.m.setStr(0x1040, "%d %s %ld %s")
 	f.m.setStr(0x1100, "Decoy")
 	f.m.setStr(0x7522, "Orc")
@@ -696,7 +696,7 @@ func TestCaptureHandleARecordFields(t *testing.T) {
 	c.text = "3 Orc 285217136 Tarok" // 0x11001170 = 285217136
 	f.drawA(c)
 	want := EventRecord{
-		ID: "g1", Step: 777, SP: 0xFA00, BP: 0xFA10, Caller: 0x1234, Overlay: "OV1.OVR",
+		ID: "g1", Step: 777, SP: 0xFA00, BP: 0xFA10, Caller: 0x1234, Overlay: "OV1.TEST",
 		Col: 5, Row: 7, Text: "3 Orc 285217136 Tarok", FmtPtr: 0x1040, Format: "%d %s %ld %s", FmtKind: KindStatic,
 		Args:    [12]uint16{3, 0x7522, 0x1170, 0x1100, 0x8071, 0x0505, 0x0506, 0x0507, 0x0508, 0x0509, 0x050A, 0x050B},
 		ArgStrs: []ArgStr{{Ptr: 0x7522, Content: "Orc", Kind: KindMonster}, {Ptr: 0x8071, Content: "Tarok", Kind: KindTown}},
@@ -721,7 +721,7 @@ func TestCaptureFmtKind(t *testing.T) {
 		{"行緩衝區", 0x638E, "", KindBuffer},
 		{"堆疊（大於等於 SP）", 0xFC00, "", KindBuffer},
 		{"其他", 0x5000, "", KindOther},
-		{"overlay 資料區，OV1 載入中", 0xB900, "OV1.OVR", KindStatic},
+		{"overlay 資料區，OV1 載入中", 0xB900, "OV1.TEST", KindStatic},
 		{"overlay 資料區，沒有 overlay", 0xB900, "", KindOther},
 	}
 	for _, c := range cases {
@@ -1296,7 +1296,7 @@ func TestCaptureArgKindUsesOverlayAndSP(t *testing.T) {
 	t.Run("A 的 %s 引數指向 overlay 資料區", func(t *testing.T) {
 		f := capNew(t)
 		f.arm()
-		f.h.overlay = "OV1.OVR"
+		f.h.overlay = "OV1.TEST"
 		f.m.setStr(0xB900, "Ghoul")
 		c := capBase()
 		c.fmtPtr, c.args, c.text = 0x1020, []uint16{0xB900}, "Ghoul"

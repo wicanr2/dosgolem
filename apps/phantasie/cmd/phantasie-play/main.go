@@ -142,6 +142,9 @@ func main() {
 	for _, f := range s.Failed {
 		fmt.Fprintln(os.Stderr, "語言停用：", f)
 	}
+	for _, warning := range s.Warnings {
+		fmt.Fprintln(os.Stderr, warning)
+	}
 	g := &game{s: s, stepsPer: *ips / 60, rgba: make([]uint8, 640*400*4), baseName: "幽靈戰士（Phantasie）繁體中文化"}
 	g.img = ebiten.NewImage(640, 400)
 	ebiten.SetWindowTitle(g.baseName)

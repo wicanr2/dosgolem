@@ -33,6 +33,7 @@ type Catalog struct {
 	ui        map[string]string
 	prose     map[string]string
 	protected map[string]struct{}
+	manual    map[string]string // 可選的本機答案提示，不列入一般 catalog 筆數。
 }
 
 var _ Lookup = (*Catalog)(nil)

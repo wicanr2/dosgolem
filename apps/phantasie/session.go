@@ -17,13 +17,14 @@ type SessionOptions struct {
 
 // Session 是一個執行中的原版加疊字層（docs/spec/005 §3）。
 type Session struct {
-	O      *oracle.Oracle
-	Ov     *Overlay
-	Hk     *Hooks
-	Gate   *KeyGate
-	Img    uint16
-	DG     uint16
-	Failed []string // 載入失敗而停用的語言與原因
+	O        *oracle.Oracle
+	Ov       *Overlay
+	Hk       *Hooks
+	Gate     *KeyGate
+	Img      uint16
+	DG       uint16
+	Failed   []string // 載入失敗而停用的語言與原因
+	Warnings []string // 可選本機資料的診斷，不停用一般語言。
 }
 
 // StartSession 啟動原版（照 .BAT 的順序）、載入語言、安裝唯讀鉤子與鍵閘。回傳的 Session 尚未跑進遊戲本體
@@ -54,6 +55,9 @@ func StartSession(opt SessionOptions) (*Session, error) {
 			continue
 		}
 		l := LoadLanguage(name, opt.TextDir, opt.FontDir)
+		if l.ManualErr != "" {
+			s.Warnings = append(s.Warnings, name+"："+l.ManualErr)
+		}
 		if !l.Enabled {
 			s.Failed = append(s.Failed, fmt.Sprintf("%s：%s", name, l.Err))
 			continue

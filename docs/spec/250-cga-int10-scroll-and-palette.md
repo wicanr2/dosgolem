@@ -77,7 +77,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 被測程式 | 《幽靈戰士》（Phantasie）`PHANTASI.EXE`，SHA-256 `0f00a1af62cfcc383b4ca2e4382321f357063ba1457081da6edca4eb9f28e716`；LZEXE 解壓後映像（載入段 `21AF`，`img:0000` 至 `img:53EA`）SHA-256 `99fd8f97695f47128a41908df68d653f9b4cbcb8b233a79a20f185165ee23728` |
+| 被測程式 | 《幽靈戰士》（Phantasie）的原版壓縮主程式，SHA-256 `0f00a1af62cfcc383b4ca2e4382321f357063ba1457081da6edca4eb9f28e716`；LZEXE 解壓後映像（載入段 `21AF`，`img:0000` 至 `img:53EA`）SHA-256 `99fd8f97695f47128a41908df68d653f9b4cbcb8b233a79a20f185165ee23728` |
 | 路線 | 私有專案 `phantasie_cht` 的 `tests/routes/weapon-list-scroll.route`（SHA-256 `4a8dcc403db534710fa5456489708126cbc6f6e911295b31eee5a231e5e905dc`）：建立並加入一位隊員、進武器店、在購物清單按 `Down` 六次與 `Up` 四次 |
 | 擷取 | `apps/phantasie` 的 `Hooks.Int10Probe`（唯讀掛點：`int86` 入口與完成，只對 INT 10h 的 `AH=06h`、`07h`）把入口參數與入口、完成時的 `B800:0000` 起 `4000h` bytes 存成檔案（`phantasie-receipt -dump-scroll`） |
 | 重現 | `tools/cga_scroll_replay.py`（Docker 內的 Python，模型是第 1 項的 `tools/cga_scroll_vectors.py`，與 Go 實作無關）。每個呼叫以入口畫面為輸入重現，與完成畫面逐位元組比對整頁 |

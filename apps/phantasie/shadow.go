@@ -160,7 +160,7 @@ func (o *Overlay) restoreShadow(s Shadow) {
 	if lang == nil {
 		return
 	}
-	rs := &Resolver{Cat: lang.Cat, Wide: lang.Wide}
+	rs := &Resolver{Cat: lang.Cat, Wide: lang.Wide, Font: lang.Font}
 	for _, e := range s {
 		rec := o.records[e.ID]
 		if rec == nil {

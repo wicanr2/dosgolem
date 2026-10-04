@@ -576,7 +576,7 @@ func TestComposeStrcatNoRecord(t *testing.T) {
 	if r := e.c.OnStrcat(0x7777, "OV1", cpStat(0x5000, ".OVR")); r != AppendNoRec {
 		t.Errorf("無記錄的 dest = %d，要 AppendNoRec", r)
 	}
-	cpMiss(t, e.c, 0x7777, "OV1.OVR", MissDest) // 沒有因此建立記錄
+	cpMiss(t, e.c, 0x7777, "OV1.TEST", MissDest) // 沒有因此建立記錄
 
 	// 記錄被格式錯誤的 sprintf 移除之後同樣是無記錄
 	e.sprintf(cpLine, "good", cpW(), nil, "good")

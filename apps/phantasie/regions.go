@@ -196,7 +196,7 @@ func (t *RegionTable) activeOverlay(overlay string) string {
 }
 
 // Classify 依 003 §5.1 分類指標。ptr 是 DS 偏移，sp 是事件 A 時的 SP，overlay 是 L 記錄的目前載入 overlay 名稱
-// （如 "ov1.ovr"，不分大小寫）。預設拒絕：不在表內回 KindOther。
+// （如 "ov1.test"，不分大小寫）。預設拒絕：不在表內回 KindOther。
 //
 // 優先序：堆疊（ptr >= sp，SS=DS，堆疊在高位址）→ buffer → static（含目前 overlay 的資料區）→ monster → town。
 // sp 為 0 視為沒有堆疊資訊（未擷取），不套用堆疊規則，否則 ptr >= 0 會把所有指標都判成 buffer。

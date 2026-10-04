@@ -24,12 +24,13 @@ const (
 
 // Language 是一個語言通道（004 §4）。
 type Language struct {
-	Name    string
-	Cat     Lookup
-	Font    *xlate.Font
-	Wide    WideFunc
-	Enabled bool
-	Err     string // 停用原因
+	Name      string
+	Cat       Lookup
+	Font      *xlate.Font
+	Wide      WideFunc
+	Enabled   bool
+	Err       string // 停用原因
+	ManualErr string // 可選本機手冊表失敗，不停用一般語言。
 }
 
 // LogEvent 是稽核事件日誌的一筆（005 §5.1）：T 類且提交時 Resolve 回 OK 的事件。
@@ -338,7 +339,7 @@ func (o *Overlay) commitText(rec *EventRecord, x0, y0, x1, y1 int) {
 		o.C.Key("fmt_other_ptr", fmt.Sprintf("%04X/%04X/%s", rec.Caller, rec.FmtPtr, Digest(NormalizeText(rec.Text)))) // 診斷：格式字串指標不在任何已知區間
 	}
 	lang := o.langs[o.shadowLang]
-	res := (&Resolver{Cat: lang.Cat, Wide: lang.Wide}).Resolve(rec)
+	res := (&Resolver{Cat: lang.Cat, Wide: lang.Wide, Font: lang.Font}).Resolve(rec)
 	if len(res.Missed) > 0 {
 		o.C.Inc("untranslated_args")
 		for _, k := range res.Missed {
@@ -640,7 +641,7 @@ func (o *Overlay) rebuild() {
 		return
 	}
 	o.gcRecords()
-	rs := &Resolver{Cat: lang.Cat, Wide: lang.Wide}
+	rs := &Resolver{Cat: lang.Cat, Wide: lang.Wide, Font: lang.Font}
 	for _, key := range o.groupKeys() {
 		stamps := o.groupStamps(key)
 		rec := o.records[key]
