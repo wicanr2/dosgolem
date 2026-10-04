@@ -62,3 +62,7 @@ callback target8:2136D1／mask2B／pending0／inactive、started completed16／1
 378正文保留並追加379、索引及backlink同次核對；全部公開internal／CPU／DOS／原probe保持d2df07f。沿378固定官方EXE完整CPU386／machine通過收據，未重跑無關測試。Docker容器清理，私有收據與實際IDA命令連主庫研究入口。
 
 下一步以本195M完整來源建立一次正常Sol II行press／原AX3 pressed poll／安全release的獨立READY契約，明示新玩家輸入的固定後續預算，先驗原13選取store及實際畫面。不能以再加cap、重啟、代寫word13或跳原handler求過。主庫玩法RE-first保持，正式存讀／完整開局／RNG與remake同狀態未驗。
+
+## 380正常行輸入回填
+
+[380](380-moo2-colonies-row-click.md)在本完整195M來源通過後送一次正常physical86,48 press／原AX3 pressed poll／首安全physical88,48 release。原195226311、dosgolem_high_le:20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0D00；原195225486 RET按真實stack回20DB5B，AX0與其它核心保持。正常index13選取已證實，未將13命名為typed colony id或持久欄位。明示一次200M新輸入窗口，末圖仍黑／table count1，新的殖民地UI未驗；本379來源正文與收據保持。

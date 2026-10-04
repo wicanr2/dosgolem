@@ -68,3 +68,7 @@ Docker沿Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae5389
 ## 379原列表行來源回填
 
 [379](379-moo2-colonies-row-source.md)重用本195M完整來源與終PNG，固定官方EXE另建一次性IDA9.4資料庫。原索引遞增、signed含端點矩形與首命中即離開已核對；Sol II名稱區logical43,48／44,48幾何命中13與19，原順序先13，type7非14／11。預期index13為原靜態規則導出，實際行點擊與word13未驗。本輪沒有新guest、cap、輸入或CPU／state改動；378四consumer與195M恢復正文及收據保留。
+
+## 380正常Sol II行選取回填
+
+[380](380-moo2-colonies-row-click.md)保持本完整195M前置／39frames／可見列表PNG與24601 DAC前綴，再一次正常行press／poll／release；原20DDDB在195226311把shared word寫0→13，正常選取已證實。新200M固定窗口末圖為黑，11輪新降色與count1／55零bytes另保存，殖民地畫面未驗。本四consumer與195M恢復正文及收據保持，不能把新末態當本195M變更。

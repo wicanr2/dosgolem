@@ -624,3 +624,5 @@
 - [378：CPU386 SUB AL立即數與原2C17](378-cpu386-sub-al-immediate.md)，CONFORMED，限定naked2C／原四consumer與195M可見殖民地列表；列表操作未驗。
 
 - [379：殖民地Sol II行的原選取來源](379-moo2-colonies-row-source.md)，CONFORMED，限定378既有195M來源與原第一命中規則；行點擊未驗。
+
+- [380：Sol II列表行的一次正常裝置輸入](380-moo2-colonies-row-click.md)，CONFORMED，限定正常行press／poll／release與原選取13；200M黑圖，殖民地畫面未驗。
