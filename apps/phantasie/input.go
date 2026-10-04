@@ -8,7 +8,8 @@ import (
 )
 
 // OffReadKey 是讀鍵包裝函式的入口（映像偏移）：它先做一次 `INT 16h AH=00`，
-// 返回後 AL 是 ASCII、AH 是掃描碼。每個等待按鍵的畫面都經過它。
+// 返回後 AL 是 ASCII、AH 是掃描碼。另有丟棄回傳值的等鍵路徑 37A0，
+// 目前 KeyGate 尚未涵蓋，該路徑的訊息會因空佇列不阻塞而立即返回。
 const OffReadKey = 0x37C2
 
 // OffReadKeyDone 是讀鍵包裝函式的 retn（映像偏移 37FA，以執行期位元組核對：
