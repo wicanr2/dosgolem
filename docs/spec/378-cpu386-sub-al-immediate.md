@@ -64,3 +64,7 @@ Docker沿Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae5389
 [377](377-moo2-colonies-restore-continuation.md)正文保留並追加378，索引與backlink同次核對。CPU／原平台／時序範圍保持，Docker容器收尾；收據SHA-256與實際命令連主庫既有研究入口。
 
 下一步以195M可見Sol II與同時取得的20物件表，核對正常列表行的熱區／原選取來源及callback前置，再建立一次正常press／原AX3 poll／安全release的限定驗證。不增加cap或猜欄位，不深挖DAC／PIT／renderer helper。主庫玩法RE-first保持；列表操作／正式存讀／完整開局／RNG與remake同狀態未驗，固定日期不是seed。
+
+## 379原列表行來源回填
+
+[379](379-moo2-colonies-row-source.md)重用本195M完整來源與終PNG，固定官方EXE另建一次性IDA9.4資料庫。原索引遞增、signed含端點矩形與首命中即離開已核對；Sol II名稱區logical43,48／44,48幾何命中13與19，原順序先13，type7非14／11。預期index13為原靜態規則導出，實際行點擊與word13未驗。本輪沒有新guest、cap、輸入或CPU／state改動；378四consumer與195M恢復正文及收據保留。

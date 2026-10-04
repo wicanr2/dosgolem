@@ -622,3 +622,5 @@
 - [377：降色後首色彩恢復與195M邊界](377-moo2-colonies-restore-continuation.md)，CONFORMED，限定185M前置與188532362原2C17停止；首色彩恢復與列表未驗。
 
 - [378：CPU386 SUB AL立即數與原2C17](378-cpu386-sub-al-immediate.md)，CONFORMED，限定naked2C／原四consumer與195M可見殖民地列表；列表操作未驗。
+
+- [379：殖民地Sol II行的原選取來源](379-moo2-colonies-row-source.md)，CONFORMED，限定378既有195M來源與原第一命中規則；行點擊未驗。
