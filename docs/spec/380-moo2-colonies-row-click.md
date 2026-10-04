@@ -72,3 +72,9 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 ## 381 原框架回填
 
 [381：200M末態的堆疊框架與直接呼叫來源](381-moo2-colonies-frame-source.md)已在相同200M輸入與cap下只讀原32bytes框架。原sub_1338C9配置260h區域空間，ESP2BD908首值21A6F3不在本函式返回槽；真正SS188:EBP2BDB68+10h的2BDB78讀得22341C，吻合IDA linear EA133417的E8AD040000→sub_1338C9。caller屬sub_133237，當前呼叫鏈強推論，未觀察自然RET或新UI。原13032列、35876 DAC事件、完整非新增final、PNG及state保持。原380正文及黑圖邊界保留，未把回填當殖民地畫面驗收。
+
+## 382 原自然返回與可見畫面回填
+
+固定官方1.31 EXE／dosgolem_high_le的同200M前置由[382](382-moo2-colonies-upper-continuation.md)核對。原父槽SS188:2BDBB4=1B078E唯一吻合IDA linear EA C0789→sub_133237。203011820原2234BA C3按真stack自然返回1B078E／ESP+4已證實；原200M黑圖與本文件歷史收據保持。
+
+382另一次明示210M窗口的終圖可見Colony of Sol II，count36完整表及DAC／PNG已驗；首DAC非0仍黑，沒有冒稱首非0即完成。這閉合本次轉頁的原父返回與畫面出現，人口操作、正式存讀、RNG與remake同狀態仍未知。其他生命周期、版本或共用callee不外推。

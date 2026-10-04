@@ -628,3 +628,5 @@
 - [380：Sol II列表行的一次正常裝置輸入](380-moo2-colonies-row-click.md)，CONFORMED，限定正常行press／poll／release與原選取13；200M黑圖，殖民地畫面未驗。
 
 - [381：200M末態的堆疊框架與直接呼叫來源](381-moo2-colonies-frame-source.md)，CONFORMED，限定同200M只讀原框架與直接呼叫定位；殖民地畫面未驗。
+
+- [382：原上層返回與殖民地畫面建立的有界觀察](382-moo2-colonies-upper-continuation.md)，CONFORMED，原200M來源與一次210M窗口；UI結果未知。

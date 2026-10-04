@@ -61,3 +61,9 @@ READY審查：固定原EXE file offsets、原4push／4pop RET、七個直接E8�
 下一步只查sub_133237直接上層的CALL／返回邊界與正常畫面建立入口，使用已讀原框架定位；來源充分後才決定一次有界畫面完成觀察。不延伸palette計算、renderer或DAC／PIT helper，不盲增cap。
 
 200M仍是黑圖／count1空表，殖民地正常畫面未驗。主庫RE-first保持；人口調整、正式存讀、完整開局、RNG及remake同狀態仍未驗。
+
+## 382 原自然返回與可見畫面回填
+
+固定官方1.31 EXE／dosgolem_high_le的同200M前置由[382](382-moo2-colonies-upper-continuation.md)核對。原父槽SS188:2BDBB4=1B078E唯一吻合IDA linear EA C0789→sub_133237。203011820原2234BA C3按真stack自然返回1B078E／ESP+4已證實；原200M黑圖與本文件歷史收據保持。
+
+382另一次明示210M窗口的終圖可見Colony of Sol II，count36完整表及DAC／PNG已驗；首DAC非0仍黑，沒有冒稱首非0即完成。這閉合本次轉頁的原父返回與畫面出現，人口操作、正式存讀、RNG與remake同狀態仍未知。其他生命周期、版本或共用callee不外推。
