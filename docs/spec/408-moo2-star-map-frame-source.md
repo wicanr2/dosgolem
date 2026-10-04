@@ -17,7 +17,7 @@
 | 外層epilog的saved registers起點 | 首輸入EBP＋82h＋4 | 2BDBCC |
 | 五個pop之後的outer near RET slot | 首輸入EBP＋82h＋4＋20 | 2BDBE0 |
 
-這些是框架定位，不是存檔欄位或新的玩法規則。406取到226846736的8763F，但當次ESP是2BD378，與outer saved registers起點2BDBCC不同。只用EIP命中共用尾段會套錯框架。不同作用域已由原ESP與來源算式核對；為何進入該作用域與當次返回值仍未知，不猜間接caller或重入機制。406原input return17651B與mode8 writer未取樣，不稱外層退出已驗。
+這些是框架定位，不是存檔欄位或新的玩法規則。406取到226846736的8763F，但當次ESP是2BD378，與outer saved registers起點2BDBCC不同。只用EIP命中共用尾段會套錯框架。已證實原ESP異於outer算式的位置；強推論為另一個活動框架。為何進入該位置與當次返回值仍未知，不猜間接caller或重入機制。406原input return17651B與mode8 writer未取樣，不稱外層退出已驗。
 
 ## 下一個最小觀察
 
