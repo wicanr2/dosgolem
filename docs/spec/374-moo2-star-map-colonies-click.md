@@ -72,3 +72,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 ## 375原色彩來源與20表回填
 
 [375](375-moo2-colonies-color-source.md)保持374相同正常輸入與185M，一次只讀取得DS188:298848 count20／stride55的1100byte完整表，SHA-256 d308de8fbcf9736ce8b4edb64e7c93b3e0cad2bfb8d7024da0776fef36235387。原DAC768bytes全0、maskFF，256bin索引有12723非0但RGB逐pixel仍映為黑；黑色來源已證實為當前全零DAC，轉頁原因／恢復邊界未知，不推定列表開啟或產品缺陷。374全部12253共通原列／39frames／終PNG保持，只有兩新快照；完整核心／FPU／clock／RAM／device／ports及callback IRQ前後保持，原374正文與收據不變。
+
+## 376正常轉頁窗口DAC序列回填
+
+[376](376-moo2-colonies-dac-write-journal.md)保持375正常輸入與185M，原DAC初592非0，完整11275事件獨立重播通過。11輪均maskFF／index0..255／768色值，全部色值單調不增；首次全0與末DAC事件同為device sequence290512、loop觀察182566943／419464025µs、目前EIP222D1C。到185M無新增DAC write；降色來源已證實，恢復與列表正常畫面仍未知。375全部12255共通原列／39frames／黑終圖與兩只讀快照保持。這是loop邊界，未推定埠指令逐週期時間，舊正文與收據保持。

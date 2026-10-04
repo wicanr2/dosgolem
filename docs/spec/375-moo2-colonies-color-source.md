@@ -60,3 +60,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 | 官方1.31／185M／DS188:298848 count20 stride55；VBEIndexed／同device DAC | 完整1100byte表與DAC全0／maskFF／非0索引12723映為黑已證實；轉頁原因未知 | 374 | 追加只讀新結果，保留374原收據與輸入歷史 |
 
 下一步保持相同輸入與185M，審查internal/machine/machine.go的DAC ports既有寫入入口，再以有界私有只讀觀察保存180M起到185M的DAC寫入總數、首個全零與最近寫入邊界及其原核心／clock。只觀察已存在的寫入，不添加IO、palette修補、輸入或盲目擴cap；先由來源判斷正常轉頁邊界，不深入DAC／PIT／driver或renderer helper。主庫玩法RE-first保持，列表內容／正常操作／正式存讀語意／完整開局／RNG與remake同狀態未驗。
+
+## 376正常轉頁窗口DAC序列回填
+
+[376](376-moo2-colonies-dac-write-journal.md)保持375正常輸入與185M，原DAC初592非0，完整11275事件獨立重播通過。11輪均maskFF／index0..255／768色值，全部色值單調不增；首次全0與末DAC事件同為device sequence290512、loop觀察182566943／419464025µs、目前EIP222D1C。到185M無新增DAC write；降色來源已證實，恢復與列表正常畫面仍未知。375全部12255共通原列／39frames／黑終圖與兩只讀快照保持。這是loop邊界，未推定埠指令逐週期時間，舊正文與收據保持。
