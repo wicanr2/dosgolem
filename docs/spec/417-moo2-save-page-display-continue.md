@@ -58,4 +58,4 @@ CONFORMED只限本頁首次原顯示及實際可見。原first reader返回0是�
 
 ## 418 輸入來源回填
 
-[418](418-moo2-save-slot-name-input-source.md)已以當次原物件／25項表與915列原bytes錨定第一格kind11、原名稱pointer與SAVE ID21、selected writer與原保存CALL。正常選格／命名／保存仍未驗；[419](419-moo2-save-first-slot-submit.md)只READY到原保存callee入口，尚無Go／guest，不執行未查明的檔案寫入。
+[418](418-moo2-save-slot-name-input-source.md)錨定原名稱／ID／writer與保存CALL；[419](419-moo2-save-first-slot-submit.md)原守衛失敗保持，由[420](420-moo2-save-release-guard-correction.md)取代。420已驗第一格選取與SAVE到原callee入口，本417的首次顯示契約與原收據不變；正式存讀與鍵盤命名仍未驗。

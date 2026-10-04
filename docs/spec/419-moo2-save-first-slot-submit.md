@@ -1,6 +1,6 @@
 # 419：原第一存檔格與SAVE正常提交
 
-狀態：**READY，限定正常第一格與SAVE到保存入口**
+狀態：**SUPERSEDED，由420修正工具守衛並驗證；原419失敗保留**
 日期：2026-10-05
 
 本契約依[418](418-moo2-save-slot-name-input-source.md)來源及[417](417-moo2-save-page-display-continue.md)完整末態，驗證第一格選取、原名稱處理與SAVE輸入到原保存callee入口。只新增dosgolem私有觀察與正常裝置輸入；不改主庫玩法、公開CPU／probe／DOS或解除主庫RE-first。
@@ -35,4 +35,32 @@ phase上限32，所有新增snapshot核對CPU／RAM／device前後不變；原�
 
 ## 來源與範圍審查
 
-418原控件1／21、kind11、兩組ID、選格writer、原SAVE分派與保存CALL已逐bytes核對；完整417顯示末態及實際PNG保持。release守衛是一次固定正常輸入的驗證方法，未知結果保持未知，不能因失敗猜改原碼。本READY只允許私有原版觀察器，主庫玩法閘門保持；尚無419 Go或guest。
+418原控件1／21、kind11、兩組ID、選格writer、原SAVE分派與保存CALL已逐bytes核對；完整417顯示末態及實際PNG保持。release守衛是一次固定正常輸入的驗證方法，未知結果保持未知，不能因失敗猜改原碼。本READY只允許私有原版觀察器，主庫玩法閘門保持；419已實作並跑唯一guest，限定結果見末節。
+
+
+## 固定檔案元資料補充審查
+
+原FindFirst使用file.Stat.ModTime建立DOS DTA，初始解壓與副本建立／寫入都會帶入當輪宿主時間。原417完整頁面包含日期；保留原PNG／日期欄比對，不放寬normalize。
+
+原417 runtime229A59、DS188:295828的實際DTA保留SAVE10.GAM／208000bytes。原raw第4413／7946行timeAC38；第14744至14793行的20筆timeACF5；date均5D44。DTA兩群已證實；依既有copy-on-write provider歸屬base／可寫overlay是強推論，不證明原guest已寫入存檔內容。分別對應2026-10-04 21:33:48／21:39:42 UTC，DOS兩秒解析度；原宿主奈秒未知。首次誤認全log只有一個time的審查失敗另存new-game-419-metadata-initial-failure.json；當時沒有改檔，也沒有guest。
+
+本機overlay-files-419-metadata-input.txt可精確反轉回362。只在旗標1且OpenRead命中SAVE10測試副本時包裝Stat.ModTime，保留FileInfo其他欄位與原Read／Seek／Close；原版寫入內容仍由既有OpenWrite完成。初始base同名檔在容器內固定原AC38時間。其他檔案、關旗標、公開provider、原ZIP／EXE及guest RAM／CPU不變。只在複製時設時間會被後續原寫入覆蓋，故固定提供給DOS的元資料，不改既有寫入語義。
+
+來源hash與READY補充存new-game-419-metadata-input-review.json，原419 READY收據不覆寫。實作前檢查普通讀寫、bytes、真DOS date-time公式、寫入後元資料、旗標關閉／其他檔案／base及路徑拒絕。正式guest仍只跑一次。這是受控測試輸入，不稱為宿主或原硬體wall-clock parity。
+
+
+## 唯一419原guest結果與守衛勘誤
+
+單次session1794，outer exit1／probe exit2，完整417八phase／terminal含日期與PNG及所有祖先保持。238285407原16E1FD CALL、238285408真SS到2071AB、return16E202／ESP−4；正常400,54,1 press已送。238295560原204176 C3、238295561原真SS return20E1AC／ESP＋4、實際EAX1，確認原first-hit為第一名稱控件。九個新增phase全部只讀，裝置呼叫只有一次。
+
+同一步原mask由2Bh改1，callback25／25 idle／pending0、target8:2136D1、buttons1。私有Input額外要求mask2Bh，原419 READY只要求selector消費後idle／pending0，因此工具在release-before拒絕，沒有派送release或SAVE。原reader未返回、selected仍FFFF、editor active0／focusFFFF；不宣稱第一格已定案。這是觀察器守衛錯誤，沒有新CPU拒絕證據。原415已驗release-before也為mask1。
+
+獨立verifier session76204 exit0限定確認完整舊前置、原第一press／真selector RET與工具拒絕。不是SAVE驗收通過。285CLI、六份重生、六項日期測試通過；當次22筆SAVE10 DTA日期與原兩群一致，cgroup峰值1498697728bytes／OOM增量0、418原輸入與SAVE10／MOX保持、overlay無新內容差異。
+
+實際PNG45262e3491d09fb7882b8538621729a68092b598b375b040888b0b0641da49d7已人工檢視：存檔頁可見、游標位於第一空格，沒有保存成功回饋。436份完整當次產物按failed1-419前綴另存並由manifest釘選；原419不覆寫、不重跑。原元資料歸屬的推論等級與內容未變邊界見new-game-419-metadata-attribution-review.json。
+
+修正見[420](420-moo2-save-release-guard-correction.md)：完整九phase與失敗末態核對後才接受mask1的正常release，不改延遲、座標或原CPU／RAM。原419失敗收據維持當時結果；正常release、選格與SAVE到callee由420補驗，正式存讀及remake同狀態仍未驗。
+
+## 420已閉合正常輸入
+
+420已驗第一格選取與SAVE到原callee入口，selected由FFFF變0、兩個reader實際返回1／21，真CALL／參數0已核對；完整原419失敗九phase與末態保持。此419版本曾因額外守衛拒絕mask1而失敗，實作與收據保持，由[420](420-moo2-save-release-guard-correction.md)取代目前續行契約；正式存讀、鍵盤命名與remake對拍仍未驗。
