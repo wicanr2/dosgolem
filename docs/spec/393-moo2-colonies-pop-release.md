@@ -47,3 +47,7 @@ READY來源審查：392完整原前4phase、selector真SS／SP+4／EAX2／callba
 ## 394 職務位元與產出讀取端回填
 
 見[394人口槽位職務與產出讀取端](394-moo2-pop-slot-consumers.md)。官方1.31原BA6DF／BA6E5／BA6E8寫第7、8位，BA6EF設第9位；DE393依第9位篩選，DE39F／DE3A6抽出職務，三caller送0／1／2。不可變390／393正常收據證實八槽保持、四個原農夫改派工人，產出分布由4／2／2經選取暫停的0／2／2到0／6／2。較早正文的正式job未知只屬當時證據邊界；394補證限定此次同殖民地路徑。job3／跨殖民地／正常存讀與remake同狀態仍未驗，不改原receipt或歷史正文。
+
+### 397正常RETURN補證
+
+[397正常RETURN](397-moo2-colony-return-deferred-release.md)完整保持本篇15phase／50writer及212590909配置末態，再正常按下右下RETURN18；396的7357µs即時放開候選被拒絕，397首次安全20ms後放開，原trueSS返回0x1004ef已驗；2071AB及畫面切換未驗。本篇人口配置結果不變，正常存讀與remake同狀態未驗。

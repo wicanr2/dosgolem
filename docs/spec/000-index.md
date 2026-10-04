@@ -650,3 +650,9 @@
 - [393 原 kind7 selector 真返回的正常放開](393-moo2-colonies-pop-release.md)：CONFORMED，原正常release、BF6ED→B9E94真返回、下一輸入點與50個raw writer已驗；職務位元由394補證，正常存讀未驗。
 
 - [394 人口槽位職務與產出讀取端](394-moo2-pop-slot-consumers.md)：CONFORMED，限定RE；官方1.31職務位元／第9位產出gate與四槽正常改派已核對，八槽保持。正常存讀與remake同狀態未驗。
+
+- [395 原RETURN與存讀選單來源](395-moo2-player-return-options-source.md)：CONFORMED，限定RE；原436列／4與43-entry跳表／RETURN18來源已驗，正常返回／存讀由後續原輸入另驗。
+
+- [396 原殖民地RETURN正常輸入](396-moo2-colony-return-input.md)：DRAFT，正常press及selector真返回已驗；7357µs未達20ms，未送release，不宣稱自然返回。
+
+- [397 原RETURN辨識後的正常放開](397-moo2-colony-return-deferred-release.md)：CONFORMED，396原前五phase與完整393保持，正常放開／真SS RETURN已驗；畫面切換、下一輸入及正常存讀未驗。

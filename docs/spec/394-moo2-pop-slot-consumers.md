@@ -67,3 +67,7 @@ python3 workplace/dosgolem/workplace/new-game-394-verify.py
 前三項在工具副本根目錄與既有IDA／Go容器執行，最後一項在moo2主庫根目錄的Go容器執行。原patch唯讀，UID/GID1000，network none；IDA120s／2GiB／2CPU／128pids，bytes核對90s／2GiB／1CPU，收據核對30s／512MiB／1CPU／64pids。沿既有image，未建新image。
 
 結果 `new-game-394-result.json`：8個實際writer、三階段slot數／職務分布、50個變更重建與16個別版相符錨點通過。原EXE／IDA／JSON／PNG／LOG及private scripts維持本機忽略；公開只提交自撰來源記錄、索引及歷史追加回填。
+
+### 395 原存讀跳表補證
+
+[395原RETURN與存讀選單來源](395-moo2-player-return-options-source.md)逐原bytes解碼8011F的四個跳表項，raw mode2到802BF／802C2讀檔，mode3到802C9／802CC存檔。此兩個靜態分支由強推論升為已證實，保留本篇原caller定位；正常GUI存讀仍未驗，不直接派送ID。
