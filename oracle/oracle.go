@@ -71,7 +71,8 @@ type Oracle struct {
 	idaOffset uint32
 	dgroupSeg uint16
 
-	onCall map[uint32][]func(*Oracle)
+	onCall    map[uint32][]func(*Oracle)
+	stepGuard func(*Oracle) error
 
 	// stubs 是「走到這個位址就換成我的回傳值」的替身表（`docs/spec/005` §5）。
 	stubs map[uint32]func(*Oracle) uint32

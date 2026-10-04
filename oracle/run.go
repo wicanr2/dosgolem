@@ -64,6 +64,19 @@ func (e *ExitError) Error() string {
 		e.Code, e.Console)
 }
 
+// InputWaitError 表示執行在指令前等待鍵盤，並未跑足要求的步數。
+// 呼叫端可送一般按鍵後再呼叫 Run（docs/spec/251-oracle-step-guard.md）。
+type InputWaitError struct{ Stopped Addr }
+
+func (e *InputWaitError) Error() string {
+	return fmt.Sprintf("等待鍵盤輸入：%s", e.Stopped)
+}
+
+// SetStepGuard 設定條件與護欄之後、hook 與指令之前的執行閘門。
+// 回錯即原樣停止；nil 關閉。guard 只可維護主機狀態或送一般輸入，
+// 不可直接修改原版狀態以跳過程式。一台 Oracle 只有一個 guard 擁有者。
+func (o *Oracle) SetStepGuard(guard func(*Oracle) error) { o.stepGuard = guard }
+
 // Run 純跑 n 道指令。程式中途結束或 CPU 出錯都回錯誤。
 func (o *Oracle) Run(n uint64) error {
 	return o.RunUntil(Steps(n), Budget(n+1))
@@ -109,6 +122,11 @@ func (o *Oracle) RunUntil(c Cond, opts ...RunOpt) error {
 		lin := cpu.Linear(o.m.CPU.Seg[cpu.CS], o.m.CPU.IP)
 		if lin >= machine.VideoSeg*16 && lin < machine.MemSize {
 			return fmt.Errorf("跑出可用記憶體：%s（線性 %05X）", o.IP(), lin)
+		}
+		if o.stepGuard != nil {
+			if err := o.stepGuard(o); err != nil {
+				return err
+			}
 		}
 		key := lin & 0xFFFFF
 		if o.hookBits != nil && o.hookBits[key>>6]&(1<<(key&63)) != 0 {
