@@ -28,3 +28,5 @@ sub_86188末端8763F是JMP83D00，原bytes e9bcc6ffff。87643位於這條指令�
 ## 406首輪同前置原值補證
 
 406首輪在完整404凍結後的225305800只讀驗出19417C／191976／191830＝6／0／34；沒有送出新的GAME輸入。來源405的86BC9是原GAME分支將191830設0，不能把writer輸出當成分支前置。34只標原word實測值，不推定星圖中的語意。first-hit6、callback22／22、IF與裝置buttons0均保持。原405四查詢及byte索引不覆寫，失敗收據見[406](406-moo2-star-map-game-input.md)。
+
+409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。

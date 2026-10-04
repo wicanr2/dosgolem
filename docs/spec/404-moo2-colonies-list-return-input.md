@@ -42,3 +42,5 @@
 同一404末態23×55＝1265原bytes，raw6／kind0矩形249,5..307,21，GUI280,13對應裝置560,13；九個含端點與外側first-hit案例通過。404當時以強推論標raw6幾何對應頂端GAME；[405](405-moo2-star-map-game-source.md)保存producer／consumer，[406](406-moo2-star-map-game-input.md)補驗當次UI word6、正常press／真SS selector6與release。選單與外層自然返回仍未驗。此畫面raw3是不可見kind8項，不沿用列表RETURN3。
 
 本機入口workplace/new-game-404-table-verify.py保存同一末態的原表核對與人工畫面記錄，沒有新guest或輸入。405來源與406正常輸入已有收據；406共用尾段scope拒絕仍DRAFT。下一[409](409-moo2-game-outer-frame-continue.md)按408框架只讀續行，選單與存讀另驗。不直接派送mode8或控件ID，不追平台／renderer內部。
+
+409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。

@@ -17,7 +17,7 @@
 | 外層epilog的saved registers起點 | 首輸入EBP＋82h＋4 | 2BDBCC |
 | 五個pop之後的outer near RET slot | 首輸入EBP＋82h＋4＋20 | 2BDBE0 |
 
-這些是框架定位，不是存檔欄位或新的玩法規則。406取到226846736的8763F，但當次ESP是2BD378，與outer saved registers起點2BDBCC不同。只用EIP命中共用尾段會套錯框架。已證實原ESP異於outer算式的位置；強推論為另一個活動框架。為何進入該位置與當次返回值仍未知，不猜間接caller或重入機制。406原input return17651B與mode8 writer未取樣，不稱外層退出已驗。
+這些是框架定位，不是存檔欄位或新的玩法規則。406取到226846736的8763F，但當次ESP是2BD378，與outer saved registers起點2BDBCC不同。只用EIP命中共用尾段會套錯框架。已證實原ESP異於outer算式的位置；強推論為另一個活動框架。為何進入該位置仍未知；當次返回值由409補讀為174BC9，不猜間接caller或重入機制。406原input return17651B與mode8 writer未取樣，不稱外層退出已驗。
 
 ## 下一個最小觀察
 
@@ -28,3 +28,5 @@
 本機忽略入口workplace/new-game-408-ida-run.sh、new-game-408-byte-verify.py、new-game-408-source-verify.py。原JSON／LOG／byte index及私有腳本不公開。IDA9.4 locked-v1、Go1.24.13／Python3.11，UID/GID1000、network none、patch唯讀；IDA120s／2GiB／2CPU／128pids、bytes90s／2GiB／1CPU。殼層exit0／idat_exit1、非空JSON／5365函式與固定原hash通過。
 
 來源回填：[405](405-moo2-star-map-game-source.md)保留原8763F／83D05定位，但實際outer scope改依本篇框架；[406](406-moo2-star-map-game-input.md)仍DRAFT，正常GUI選取6及放開已驗，outer return與選單尚未驗。
+
+409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。

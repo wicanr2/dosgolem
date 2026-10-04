@@ -677,6 +677,10 @@
 
 - [407 原選單控件建立與真正mode0輸入來源](407-moo2-menu-control-input-source.md)：CONFORMED，7D061控件建立、真RET7D891及完整174指令7DD41已核對；第一原正常輸入CALL7DD77→1171AB仍待觀察。
 
-- [408 原星圖框架與共用收尾段作用域](408-moo2-star-map-frame-source.md)：CONFORMED，ENTER6CC／EBP減82與首輸入框架核對；outer slot2BDBE0與已觀測較低tail作用域分開，實際outer target仍未知。
+- [408 原星圖框架與共用收尾段作用域](408-moo2-star-map-frame-source.md)：CONFORMED，ENTER6CC／EBP減82與首輸入框架核對；outer slot2BDBE0與較低tail作用域分開；409已讀到兩側實際target並驗真RET。
 
-- [409 原完整406七phase後的外層只讀續行](409-moo2-game-outer-frame-continue.md)：READY，凍結原七phase與正常GAME輸入，無新裝置輸入；只讀outer作用域與真正選單reader，尚未實作。
+- [409 原完整406七phase後的外層只讀續行](409-moo2-game-outer-frame-continue.md)：DRAFT，完整七phase保持；原mode8、真正outer返回1004BC與8012F入口已驗，230M未到正常reader。
+
+- [410 原GAME末態與最小helper返回邊界](410-moo2-menu-frontier-source.md)：CONFORMED，限定原12F7C1 byte-copy與prologue／RET定位；實際helper caller與正常reader未知。
+
+- [411 完整409末態後的原GAME只讀續行](411-moo2-game-frontier-continue.md)：READY，先凍結230M完整末態與15phase；零新裝置輸入，尚未實作。

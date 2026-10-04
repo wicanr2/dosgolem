@@ -56,3 +56,5 @@ session10879殼層exit1／probe exit2。完整404／402／401／399／397保持�
 3GiB與GOMEMLIMIT＝1GiB下，cgroup峰值2119880704bytes，guest前後oom／oom_kill增量均0；環境驗收通過。第二輪SIGKILL的原OOM旗標仍未知，不回填成確診。原418檔與SAVE10／MOX保持。六份生成器產物在容器暫存區逐bytes重生一致，沒有額外guest。下一步先查真正的外層框架與原出口，再建新的READY只讀續行觀察，不添加RAM寫入、ID注入或新的點擊。
 
 作用域來源已由[408](408-moo2-star-map-frame-source.md)核對，下一步[409](409-moo2-game-outer-frame-continue.md)凍結本篇七個原phase、無新輸入，只讀真outer slot及正常選單reader。本篇完整選單觀察契約仍DRAFT，不把正常press／selector／release的成功寫成完整通過。
+
+409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。

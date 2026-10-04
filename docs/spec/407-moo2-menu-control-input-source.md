@@ -19,8 +19,10 @@
 
 ## 下一個最小觀察
 
-[409](409-moo2-game-outer-frame-continue.md)已建立READY：凍結406已有七phase與正常GAME press／release，按[408](408-moo2-star-map-frame-source.md)的outer slot分開作用域，再只讀續行到原mode8 writer、控件建立與真RET、case0的7DD41入口與7DD77→1171AB第一正常輸入。沒有新點擊，不預設新控件ID或把原表形狀等同星圖。到達後另存原PNG／完整表與實際綁定物件；存讀按鈕再各自建立契約。主庫RE-first與玩法保持。
+[409](409-moo2-game-outer-frame-continue.md)最初經READY授權：凍結406已有七phase與正常GAME press／release，按[408](408-moo2-star-map-frame-source.md)的outer slot分開作用域，再只讀續行到原mode8 writer、控件建立與真RET、case0的7DD41入口與7DD77→1171AB第一正常輸入。沒有新點擊，不預設新控件ID或把原表形狀等同星圖。到達後另存原PNG／完整表與實際綁定物件；存讀按鈕再各自建立契約。主庫RE-first與玩法保持。
 
 本機忽略入口workplace/new-game-407-ida-run.sh、new-game-407-mode0-ida-run.sh、new-game-407-byte-verify.py、new-game-407-source-verify.py；原JSON／byte index／LOG及私有腳本不公開。沿Go1.24.13／Python3.11及IDA9.4 locked-v1，UID/GID1000、network none、patch唯讀。IDA120s／2GiB／1CPU／128pids、bytes90s／2GiB／1CPU。兩殼層exit0／idat_exit1、非空JSON／5365函式與固定EXE雜湊通過。407沒有新guest、裝置輸入或Go修改。
 
 首次source verifier把7D1BB的DX誤寫為BX bytes，原IDA rows及原file bytes早已一致；保存failed1-407兩份產物與manifest，依原6689502A修正驗證器後重核同一批收據。沒有重跑IDA或guest。
+
+409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。
