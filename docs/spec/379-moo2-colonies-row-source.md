@@ -66,3 +66,9 @@ callback target8:2136D1／mask2B／pending0／inactive、started completed16／1
 ## 380正常行輸入回填
 
 [380](380-moo2-colonies-row-click.md)在本完整195M來源通過後送一次正常physical86,48 press／原AX3 pressed poll／首安全physical88,48 release。原195226311、dosgolem_high_le:20DDDB／66A3A6C42600真正寫DS188:26C4A6 word0000→0D00；原195225486 RET按真實stack回20DB5B，AX0與其它核心保持。正常index13選取已證實，未將13命名為typed colony id或持久欄位。明示一次200M新輸入窗口，末圖仍黑／table count1，新的殖民地UI未驗；本379來源正文與收據保持。
+
+## 387 職業列座標來源回填
+
+見[387條件座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)。不可變定位為官方1.31／IDA linear EA sub_1236D1的123729／12372D／12372F與123738、1237F2／CB；runtime callback8:2136D1及DS188:2A3A38／2A3A36。原回呼只有在word_17C51A及+2皆0時，將ECX低word作signed SAR1成GUI X，Y保存EDX低word；初始化range為2×(width−1)及height−1。原2:1列表來源未被推翻，這輪補齊其旗標及range條件，不改原列表輸入／收據。
+
+持按實際選取器是sub_113FB9，與原事件來源的11DC掃描分開；原11E160再次AX3，為0後到11E4EB，kind6在11E508呼叫1192D1並於11E50D清共享選取。條件控制流已證實，人口操作是否觸發仍未知；不能只用原pressed poll當作職業列已消費。386完整首輸入沒有取得本輪新旗標／座標／range，下一步388先補只讀前置，不送人口輸入。

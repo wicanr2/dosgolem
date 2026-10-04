@@ -60,3 +60,9 @@ IDA沿locked-v1 image、120s／2GiB／2CPU／128pids／UID1000／network none，
 不可變定位為官方1.31 ORION2.EXE／IDA linear EA dword_1A8840、1191EA／A340881A00；dosgolem_high_le runtime2091EA／A340882900及DS188:298840。見[386限定驗收](386-moo2-colonies-callback-read.md)。386沿同輸入與原210M取得原203219451寫入前55451700、寫入後21ED1A00／raw1AED21，全RAM僅實際四bytes改變已驗；首正常輸入205804505的完整原385前置守衛通過，第9只讀窗298840仍21ED1A00。
 
 正確callback值與寫入範圍由未知／強推論升為**已證實，限定此次原A3及首輸入**。這不是原384在210M已取過正確值，也不外推全部callback生命週期。舊2A8840零raw維持未分類，原錯誤385觀察器與其DRAFT狀態保留；沒有改舊正文／Go／收據，也不當CPU缺陷。人口正常操作／正式存讀／remake同狀態仍未知。
+
+## 387 職業列座標來源回填
+
+見[387條件座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)。不可變定位為官方1.31／IDA linear EA sub_1236D1的123729／12372D／12372F與123738、1237F2／CB；runtime callback8:2136D1及DS188:2A3A38／2A3A36。原回呼只有在word_17C51A及+2皆0時，將ECX低word作signed SAR1成GUI X，Y保存EDX低word；初始化range為2×(width−1)及height−1。原2:1列表來源未被推翻，這輪補齊其旗標及range條件，不改原列表輸入／收據。
+
+持按實際選取器是sub_113FB9，與原事件來源的11DC掃描分開；原11E160再次AX3，為0後到11E4EB，kind6在11E508呼叫1192D1並於11E50D清共享選取。條件控制流已證實，人口操作是否觸發仍未知；不能只用原pressed poll當作職業列已消費。386完整首輸入沒有取得本輪新旗標／座標／range，下一步388先補只讀前置，不送人口輸入。

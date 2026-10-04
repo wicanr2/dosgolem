@@ -637,3 +637,4 @@
 
 - [385：殖民地回呼設置與首個輸入入口](385-moo2-colonies-scene-ready.md)：DRAFT，原返回及首輸入已驗；原觀察器地址投影拒絕，正確讀值由386補驗，人口操作未驗。
 - [386：原回呼地址校正與首輸入只讀前置](386-moo2-colonies-callback-read.md)：CONFORMED，限定正確回呼讀值及原首輸入前置，人口操作未驗。
+- [387：職業列裝置座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)：CONFORMED，限定條件座標及持按／放開靜態來源；實際旗標與人口操作未驗。
