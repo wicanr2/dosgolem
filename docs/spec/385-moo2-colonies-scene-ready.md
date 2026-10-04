@@ -53,3 +53,9 @@ READY審查：固定EXE／新IDA bytes及原384完整210M前置、原RET／store
 獨立驗證session93305 exit0，SAFE EVIDENCE PASS限定上述原返回／首輸入／舊收據保持；ADDRESS MODEL REJECTED明示回呼欄位定位失敗。首次驗證以Python重新序列化Go事件導致key順序與HTML escape雜湊差異；改核對原journal中的事件文字切片後同收據通過。首腳本與輸出保留，沒有guest重跑。生成器第一次定位到三個同名marshal段落，在寫Go前拒絕；限定唯一上層payload後生成。RE verifier初次寫到唯讀mount失敗，改用既有可寫工作樹，屬環境問題。
 
 383與384追加地址勘誤，索引移除目前零callback斷言。本契約由READY回到DRAFT，原private Go及guest收據保留，舊READY審查作歷史紀錄；不再以錯誤定位啟動新guest。下一輪386先依原A3運算元校正298840的只讀觀察與守衛，再在已定位205804505首輸入狀態驗正確讀值；維持原輸入與210M，不猜座標比例、不深入共享renderer。主庫RE-first保持；人口選取／放置、正式存讀、完整開局與remake同狀態仍未驗。
+
+## 386 正確回呼讀值回填
+
+不可變定位為官方1.31 ORION2.EXE／IDA linear EA dword_1A8840、1191EA／A340881A00；dosgolem_high_le runtime2091EA／A340882900及DS188:298840。見[386限定驗收](386-moo2-colonies-callback-read.md)。386沿同輸入與原210M取得原203219451寫入前55451700、寫入後21ED1A00／raw1AED21，全RAM僅實際四bytes改變已驗；首正常輸入205804505的完整原385前置守衛通過，第9只讀窗298840仍21ED1A00。
+
+正確callback值與寫入範圍由未知／強推論升為**已證實，限定此次原A3及首輸入**。這不是原384在210M已取過正確值，也不外推全部callback生命週期。舊2A8840零raw維持未分類，原錯誤385觀察器與其DRAFT狀態保留；沒有改舊正文／Go／收據，也不當CPU缺陷。人口正常操作／正式存讀／remake同狀態仍未知。

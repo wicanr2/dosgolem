@@ -63,3 +63,9 @@ READY審查：固定382完整210M與383原bytes／fixup／三pointer通過；初
 見[385實際結果](385-moo2-colonies-scene-ready.md)。原IDA linear EA 1A8840加F0000h後為dosgolem_high_le／DS188:298840；原runtime 2091EA的A340882900亦直接指定298840。384觀察器誤用2A8840，偏差10000h。舊收據在2A8840讀到四bytes零的事實保持，但「scene callback為0」的欄位語意撤回；正確298840讀值與實際store全RAM差異尚未取得，不當CPU缺陷。
 
 385原guest僅一次；原BF456返回203219421、原callback A3寫入203219451、setup返回203219467、首正常輸入CALL205804505已觀察。首次輸入PNG與原210M相同。先前仍需等待場景設置的推論被此次原指令與時序否定。current／pool／361byte record、三pointer、enable／水平偏移原定位保持。本節追加訂正，舊正文與收據不改；385回呼觀察契約回到DRAFT，下一輪先修正只讀地址，不送人口輸入。
+
+## 386 正確回呼讀值回填
+
+不可變定位為官方1.31 ORION2.EXE／IDA linear EA dword_1A8840、1191EA／A340881A00；dosgolem_high_le runtime2091EA／A340882900及DS188:298840。見[386限定驗收](386-moo2-colonies-callback-read.md)。386沿同輸入與原210M取得原203219451寫入前55451700、寫入後21ED1A00／raw1AED21，全RAM僅實際四bytes改變已驗；首正常輸入205804505的完整原385前置守衛通過，第9只讀窗298840仍21ED1A00。
+
+正確callback值與寫入範圍由未知／強推論升為**已證實，限定此次原A3及首輸入**。這不是原384在210M已取過正確值，也不外推全部callback生命週期。舊2A8840零raw維持未分類，原錯誤385觀察器與其DRAFT狀態保留；沒有改舊正文／Go／收據，也不當CPU缺陷。人口正常操作／正式存讀／remake同狀態仍未知。

@@ -633,6 +633,7 @@
 
 - [383：殖民地職業列原熱區與輸入來源](383-moo2-colonies-job-control-source.md)：CONFORMED，限定靜態來源與原210M收據，正常人口操作未驗。
 
-- [384：同210M殖民地控制前置的只讀快照](384-moo2-colonies-job-source-snapshot.md)：CONFORMED，限定同210M只讀raw前置；回呼投影385已勘誤，正確讀值與人口操作未驗。
+- [384：同210M殖民地控制前置的只讀快照](384-moo2-colonies-job-source-snapshot.md)：CONFORMED，限定同210M只讀raw前置；回呼投影385已勘誤，正確首輸入讀值見386，人口操作未驗。
 
-- [385：殖民地回呼設置與首個輸入入口](385-moo2-colonies-scene-ready.md)：DRAFT，原返回及首輸入已驗；回呼地址投影拒絕，正確讀值與人口操作未驗。
+- [385：殖民地回呼設置與首個輸入入口](385-moo2-colonies-scene-ready.md)：DRAFT，原返回及首輸入已驗；原觀察器地址投影拒絕，正確讀值由386補驗，人口操作未驗。
+- [386：原回呼地址校正與首輸入只讀前置](386-moo2-colonies-callback-read.md)：CONFORMED，限定正確回呼讀值及原首輸入前置，人口操作未驗。
