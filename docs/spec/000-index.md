@@ -689,6 +689,6 @@
 
 - [413 原存檔子頁入口與第一輸入來源](413-moo2-save-entry-input-source.md)：CONFORMED限定來源，225列／135EA／26fixup；7E1E6控件建立與7E1FD正常reader已錨定，實際頁面／存讀未驗。
 
-- [414 MOO2保護模式檔案屬性](414-moo2-protected-file-attributes.md)：CONFORMED限定工程，MOO2 AH43／AL0唯讀查詢與12案例／相關套件／建置通過；普通檔近似，原續行未驗。
+- [414 MOO2保護模式檔案屬性](414-moo2-protected-file-attributes.md)：CONFORMED限定工程，MOO2 AH43／AL0唯讀查詢與12案例／相關套件／建置通過；普通檔近似，原缺檔分支與SAVE入口由415補驗，成功屬性分支仍限工程。
 
-- [415 原SAVE屬性查詢與存檔入口續行](415-moo2-save-attributes-continue.md)：READY，凍結原成功14phase，明示414平台build input與實際路徑查詢；240M保持，尚無Go或guest。
+- [415 原SAVE屬性查詢與存檔入口續行](415-moo2-save-attributes-continue.md)：CONFORMED限定原缺檔分支與入口；完整前置保持，SAVE1.GAM回AX2／CF1，238113912真CALL到16E154，完整存讀未驗。

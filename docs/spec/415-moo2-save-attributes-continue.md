@@ -1,6 +1,6 @@
 # 415：正常SAVE輸入後的檔案屬性服務續行
 
-狀態：**READY，限定原AH43查詢與存檔入口**
+狀態：**CONFORMED，限定原AH43錯誤分支與存檔入口**
 日期：2026-10-05
 
 來源是[412](412-moo2-menu-save-normal-input.md)原成功輸入、[413](413-moo2-save-entry-input-source.md)下一玩家入口及[414](414-moo2-protected-file-attributes.md)限定平台查詢。原1.31 EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f、原名與IDA EA／runtime＋F0000h／file offset分列保持。這是私有原版觀察，不修改主庫玩法。
@@ -27,8 +27,28 @@ runner必須把本輪受版控internal/machine/le_startup.go明示copy進固定a
 
 412唯一guest雖有完整收據仍outer124，這次只把工具外層wall-clock限改1200s、state capture1150s，加入kill-after15s；虛擬時間、240M、3GiB／2CPU／128pids、GOMEMLIMIT1GiB與所有原輸入保持。使用Go1.24.13既有image、UID/GID1000、network none，原ZIP／patch唯讀；owned PID trap、cgroup及Docker清理保持。不把增加工具等待時間寫成玩法變更或原硬體逐週期一致。
 
-本機忽略入口workplace/new-game-415-source412-prefix.json；後續私有腳本沿new-game-415-generator.py、run.sh、implementation-source-verify.py與verify.py。原EXE／Go／PNG／JSON／LOG不公開。尚無415 Go或guest；原PNG人工與數值驗證分開，正常存讀及remake同狀態未驗。
+本機忽略入口workplace/new-game-415-source412-prefix.json；後續私有腳本沿new-game-415-generator.py、run.sh、implementation-source-verify.py與verify.py。原EXE／Go／PNG／JSON／LOG不公開。415私有Go與唯一原guest已驗，收據見下節；原PNG人工與數值驗證分開，正常存讀及remake同狀態未驗。
 
 ## 來源與契約審查
 
-原成功14phase、實際DS188h／EDX2BD904／AX4300拒絕、Microsoft契約與414工程驗證已核對。明示新的平台建置輸入，保持邏輯／原輸入與實際provider分支；不重寫412拒絕。原稿hash與new-game-415-ready-review.json保存。READY只授權上述私有觀察器；尚無415 Go或guest。
+原成功14phase、實際DS188h／EDX2BD904／AX4300拒絕、Microsoft契約與414工程驗證已核對。明示新的平台建置輸入，保持邏輯／原輸入與實際provider分支；不重寫412拒絕。原稿hash與new-game-415-ready-review.json保存。READY只授權上述私有觀察器；本次限定驗證見下節。
+
+## 原版續行與限定驗證
+
+唯一原guest session56037，outer及probe均exit0。完整411／409及全部祖先、412已成功14phase保持；255CLI含209拒絕／46正對照、7個可反轉patch、唯一Step與原getter、零額外裝置輸入、六份逐bytes重生通過。平台建置輸入SHA-256 0d1860f0c22c7583e25865cfa5697dc54b11061efb0a38b8e1feceb85f40b90d與公開414一致。
+
+238069860原runtime219E75／AX4300、DS188h／EDX2BD904，實際NUL路徑SAVE1.GAM，bytes 53415645312E47414D00。原資料及覆蓋層均無此檔；238069861唯一下一Step到219E77，AX2／CF1、CX與所有非輸出暫存器／segment／RAM／裝置保持。這是已支援服務的正常缺檔回傳，不再是未支援INT拒絕。既有檔archive20h分支仍只具工程驗證，不升格為原FAT對拍。
+
+238113911原runtime1702CC CALL、238113912真SS到16E154，ESP−4與return1702D1通過；原43132µs正常release及mode3 writer保持。18個SAVE與4個屬性phase全只讀，原Code16／LE fixups、實際檔案集合與前後非輸出狀態由獨立驗證器核對。到入口即停止，未執行下一控件建立／reader。
+
+原418輸入及SAVE10／MOX保持，覆蓋層無新差異；cgroup峰值1841967104bytes、oom／oom_kill增量0。原PNG已人工檢視，仍顯示GAME面板及SAVE游標，存檔頁尚未繪製；人工與數值分開。CONFORMED只限本契約，完整保存／讀取與remake同狀態未驗。後續玩家入口沿[413來源](413-moo2-save-entry-input-source.md)建立窄觀察，不深挖平台helper。
+
+實際入口：python3 workplace/new-game-415-generator.py、bash workplace/new-game-415-run.sh、python3 workplace/new-game-415-implementation-source-verify.py、python3 workplace/new-game-415-verify.py。前置建置與重生沒有啟動guest，未重跑原版。new-game-415-conformance-review.json與人工檢視保存於本機忽略工作區。
+
+| 本機收據 | SHA-256 |
+| --- | --- |
+| moo2-colony-return-415.go | 63237795ea000ded0675c7886738f1196db1877cabdc9cc1961eb95a91eaadfb |
+| new-game-415-save-events.json | 1a2023911f78c1eb3e5bf610c8b0ae2f9f747e878fa32c8f303fdc8c1e2a2d69 |
+| new-game-415-attributes-events.json | 3dedcd3ed3dd67641d50e79e43f7d48f5bb0a283725c5f4e374205203e923fce |
+| new-game-415-verification-result.json | b5118f6400b9394f2dfdb962ea0bee2603aec5ef747ead9a2c88b6ca63fbf975 |
+| new-game-415-visual-review.json | 43bc045f7c2a976ac04e3046d52cdc018a3f8f72715f75c89fba52dd19ab8c58 |

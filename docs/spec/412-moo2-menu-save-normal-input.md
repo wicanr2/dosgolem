@@ -1,6 +1,6 @@
 # 412：原GAME選單的正常SAVE GAME輸入
 
-狀態：**DRAFT，正常輸入已驗，原存檔入口未到**
+狀態：**DRAFT，保留當輪服務拒絕；後續入口由415補驗**
 日期：2026-10-05
 
 來源是[411](411-moo2-game-frontier-continue.md)實際原正常輸入、[407](407-moo2-menu-control-input-source.md)控件writer與完整mode0，以及[395](395-moo2-player-return-options-source.md)原case3。官方1.31 EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f；IDA9.4 linear EA、runtime＝EA＋F0000h與原file offset分列。本契約只建立私有原版觀察器，不修改主庫玩法或解除RE-first。
@@ -50,3 +50,7 @@
 唯一原session26701 outer exit124；原probe exit0但明確記錄cpu_stop／step_error，resource-after、gzip與state manifest完成，Docker容器已刪除。外層900s時間邊界與原平台拒絕分列，不把probe exit0當玩家完成。389份當次產物以failed1-412前綴及manifest保存，沒有第二個guest。412完整契約回DRAFT，原已成功14phase另給後續凍結，不改原15phase或cpu_stop terminal。
 
 來源[413](413-moo2-save-entry-input-source.md)只補下一子頁的控件與reader；平台缺口由[414](414-moo2-protected-file-attributes.md)限定工程補驗，原版續行見[415](415-moo2-save-attributes-continue.md)。正式存讀與remake同狀態仍未驗。
+
+## 後續缺口回填
+
+[415](415-moo2-save-attributes-continue.md)保留本輪成功14phase及原15phase／cpu_stop收據，明示414平台輸入後另行驗證。實際查詢SAVE1.GAM不存在，原AX2／CF1正常返回；238113912原case3真CALL到16E154入口。當輪拒絕與失敗產物不改寫，412 DRAFT保留原工具版本結果；存檔入口缺口已解，不重開。完整存讀與存檔頁仍待驗。

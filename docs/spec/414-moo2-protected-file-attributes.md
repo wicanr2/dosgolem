@@ -9,7 +9,7 @@
 
 固定官方1.31 EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f，runtime dosgolem_high_le。原412在runtime219E75 bytes CD21呼叫INT21h，EAX4300、DS188h、EDX2BD904、ECX0，拒絕後EIP219E77；檔名未取樣，不能猜成SAVE10或某個LBX。原服務的欠缺在FD2StartupDOS保護模式路由，不是CD指令解碼；16位dos已有AH43，不能拿它作保護模式已接通的證據。
 
-Microsoft原契約：AL0、ASCIIZ路徑，成功CF0、CX屬性；失敗CF1、AX錯誤碼。具體路徑與返回仍要在下一原guest以同狀態取樣。本規格只補這個公開平台契約，不逆向DOS／Windows檔案wrapper內部。
+Microsoft原契約：AL0、ASCIIZ路徑，成功CF0、CX屬性；失敗CF1、AX錯誤碼。具體路徑與返回已由[415](415-moo2-save-attributes-continue.md)取樣；本規格的成功屬性分支仍只具工程證據。本規格只補這個公開平台契約，不逆向DOS／Windows檔案wrapper內部。
 
 ## 限定實作契約
 
@@ -21,7 +21,7 @@ Microsoft原契約：AL0、ASCIIZ路徑，成功CF0、CX屬性；失敗CF1、AX�
 
 測試涵蓋實際原DS188h／EDX2BD904及完整32位pointer、既有檔與case-insensitive provider、缺檔、nil provider、越界、溢位、260bytes未終止、拒絕AL1及非MOO2 profile；成功／錯誤的非輸出狀態、RAM、handle與來源檔bytes保持。另跑internal/machine、internal/dos與internal/dosfile相關套件及建置。
 
-只在工程測試通過後標示平台實作驗證；412正常原玩家路徑仍待新guest，不以測試綠宣稱已越過拒絕。保留412原Go、完整15phase與cpu_stop terminal；下一觀察器凍結此前成功phase，不把已拒絕的INT收據改寫成成功。原檔／私有JSON／PNG／Go不公開。
+只在工程測試通過後標示平台實作驗證；412當輪原服務拒絕保持；原玩家續行已由[415](415-moo2-save-attributes-continue.md)另行驗證，不以工程測試取代。保留412原Go、完整15phase與cpu_stop terminal；下一觀察器凍結此前成功phase，不把已拒絕的INT收據改寫成成功。原檔／私有JSON／PNG／Go不公開。
 
 ## 來源與契約審查
 
@@ -29,6 +29,6 @@ Microsoft原契約：AL0、ASCIIZ路徑，成功CF0、CX屬性；失敗CF1、AX�
 
 ## 工程實作與證據限制
 
-internal/machine/le_startup.go接通MOO2 profile的AH43／AL0，保留FD2、AL1及實模式拒絕；沒有新CPU解碼或玩法。新增兩組測試共12個案例通過，含原高位EDX、缺檔、拒絕與非輸出狀態；internal/machine、internal/dos及internal/dosfile套件通過。go build -p2 ./internal/... ./cmd/...通過。平台測試不能證明原412已越過拒絕，下一原guest見[415](415-moo2-save-attributes-continue.md)。
+internal/machine/le_startup.go接通MOO2 profile的AH43／AL0，保留FD2、AL1及實模式拒絕；沒有新CPU解碼或玩法。新增兩組測試共12個案例通過，含原高位EDX、缺檔、拒絕與非輸出狀態；internal/machine、internal/dos及internal/dosfile套件通過。go build -p2 ./internal/... ./cmd/...通過。平台測試不能證明原412已越過拒絕，後續原版收據見[415](415-moo2-save-attributes-continue.md)。
 
-首輪測試把ECX索引與已初始化handle表錯設，兩份fixture／輸出及manifest保存；修正測試，服務實作不變。首次go build ./...誤包含忽略的workplace私有Go與不同package，失敗輸出保存，改用核心與命令程式建置範圍通過；不把它列成產品缺陷，也沒有因此重跑原guest。本機忽略收據new-game-414-target-tests.txt、new-game-414-package-tests.txt、new-game-414-build-tests.txt。屬性20h仍是普通檔平台近似，當次原檔名與保存頁未驗。
+首輪測試把ECX索引與已初始化handle表錯設，兩份fixture／輸出及manifest保存；修正測試，服務實作不變。首次go build ./...誤包含忽略的workplace私有Go與不同package，失敗輸出保存，改用核心與命令程式建置範圍通過；不把它列成產品缺陷，也沒有因此重跑原guest。本機忽略收據new-game-414-target-tests.txt、new-game-414-package-tests.txt、new-game-414-build-tests.txt。屬性20h仍是普通檔平台近似。415已驗原SAVE1.GAM缺檔AX2／CF1及真SAVE入口，保存頁與完整存讀未驗。
