@@ -52,3 +52,11 @@ READY審查：固定388完整首輸入與raw/device、原first-hit1、持按CALL
 下一步390沿同輸入及210M，追查206658147之後原C086E→C02F9與B9C3D／B9E94的最小正式寫入鏈，定位這8個record差異與可放置狀態；取得證據才訂一次跨職業列放置。不假設8,000k→4,000k已完成換職或刪除人口，不盲增cap或深挖renderer／平台helper。
 
 原population收據入口為本機忽略的workplace/new-game-389-pop-terminal.json、new-game-389-verify.py及new-game-389-state-verify.py；重生用new-game-389-run.sh與本契約Docker邊界。原JSON／PNG／RAM／LOG／state與private Go不公開。主庫玩法RE閘門保持。
+
+## 390 原選取寫入回填
+
+見[390限定原寫入鏈](390-moo2-colonies-pop-writes.md)。不可變鍵為官方1.31／IDA linear EA C086E→C02F9／BF627／B9C3D／B9CAF，runtime及file offset各自見390索引。修正版原210M／step_limit保持389全部15事件、完整日誌與DAC journal、末態EIP1A5042／482658319µs及原PNG。206659890到C086E、206659891到C02F9、206660054到C0337、206660055到BF627。206697288原BF681將17AABB由0設1；206697307原B9C81把17A974由FFFF設4。原B9CAF於206697426／545／664／783依序將record+0Dh／11h／15h／19h的bit1清除，02→00。BF6ED及B9E94未到達，限定此次走選取分支。
+
+69個實際Step變更重建四個監看範圍終值；8個首末record差異均定位。+E7h的word由原DE727在206700878寫0；+C8h先由原E19C6在206704020寫FE70h，再由E1CD9在206704659加到FEB9h，後續重算保持FEB9h；+0Bh由E1E64在206704718將FF改02。另有+EFh／F2h／FCh／104h等先清除再重建的中間值，首末比較不會顯示，均保留實際byte變更。record+0Ah原08保持；原+0B／C8／E7正式名稱與職務數量仍未定型。
+
+391先捕捉選取後下一個原輸入點1B0845，核對原17AABB=1、17A974=4及第二列signed熱區；條件成立才以正常裝置660,107一次按下及安全放開，驗證BF6ED→B9E94與四槽是否恢復。不得直接改bit／派送ID，不把210M中途renderer末態當可按輸入點。 原較早正文與receipt保持，不將局部選取升格為配置完成。

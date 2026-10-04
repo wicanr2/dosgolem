@@ -640,3 +640,5 @@
 - [387：職業列裝置座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)：CONFORMED，限定條件座標及持按／放開靜態來源；首輸入前置由388補驗，職業列輸入由389補驗，正式放置與人口語意未驗。
 - [388：首輸入座標按鍵與裝置範圍只讀前置](388-moo2-colonies-mouse-source.md)：CONFORMED，限定原首輸入raw及裝置range只讀前置，職業列輸入由389補驗，正式放置與人口語意未驗。
 - [389：職業列一次正常按下與放開](389-moo2-colonies-pop-press.md)：CONFORMED，原正常press／場景回呼／release與record差異已驗，正式放置及人口語意未驗。
+
+- [390 原職業列放開後寫入](390-moo2-colonies-pop-writes.md)：CONFORMED，原選取分支及8個record差異writer已驗，正式放置未知。
