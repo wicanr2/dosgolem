@@ -685,4 +685,10 @@
 
 - [411 完整409末態後的原GAME只讀續行](411-moo2-game-frontier-continue.md)：CONFORMED，完整230M前置保持；真helper返回16EE5E及236253170正常GAME輸入、實際11表與原面板可見，正常存讀未驗。
 
-- [412 原GAME正常SAVE GAME輸入](412-moo2-menu-save-normal-input.md)：READY，當次binding3及九個熱區已核對；先只讀啟用word再送正常press／release，到原case3入口停止，尚未實作。
+- [412 原GAME正常SAVE GAME輸入](412-moo2-menu-save-normal-input.md)：DRAFT，正常SAVE press／selector3／43132µs release及mode3已驗；AH43平台拒絕，原存檔入口未到。
+
+- [413 原存檔子頁入口與第一輸入來源](413-moo2-save-entry-input-source.md)：CONFORMED限定來源，225列／135EA／26fixup；7E1E6控件建立與7E1FD正常reader已錨定，實際頁面／存讀未驗。
+
+- [414 MOO2保護模式檔案屬性](414-moo2-protected-file-attributes.md)：CONFORMED限定工程，MOO2 AH43／AL0唯讀查詢與12案例／相關套件／建置通過；普通檔近似，原續行未驗。
+
+- [415 原SAVE屬性查詢與存檔入口續行](415-moo2-save-attributes-continue.md)：READY，凍結原成功14phase，明示414平台build input與實際路徑查詢；240M保持，尚無Go或guest。

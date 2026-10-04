@@ -1,6 +1,6 @@
 # 412：原GAME選單的正常SAVE GAME輸入
 
-狀態：**READY，限定正常按鈕與原存檔入口**
+狀態：**DRAFT，正常輸入已驗，原存檔入口未到**
 日期：2026-10-05
 
 來源是[411](411-moo2-game-frontier-continue.md)實際原正常輸入、[407](407-moo2-menu-control-input-source.md)控件writer與完整mode0，以及[395](395-moo2-player-return-options-source.md)原case3。官方1.31 EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f；IDA9.4 linear EA、runtime＝EA＋F0000h與原file offset分列。本契約只建立私有原版觀察器，不修改主庫玩法或解除RE-first。
@@ -29,8 +29,24 @@
 
 原418檔與來源SAVE10／MOX唯讀保持，隔離覆蓋層的實際變動另存；不得假定後續檔案不變。原PNG人工與數值分開，正式保存／讀取及remake同狀態仍未驗，不把固定日期當seed。
 
-本機忽略入口workplace/new-game-412-source-verify.py；後續私有觀察器沿既有workplace/new-game-412-generator.py、run.sh、verify.py命名。原EXE／Go／PNG／JSON／LOG不公開。沿Go1.24.13、UID/GID1000、network none、原ZIP／patch唯讀；guest900s／state850s／3GiB／2CPU／128pids、GOMEMLIMIT1GiB、cgroup收據、owned PID trap與Docker清理保持。尚無412 Go或guest。
+本機忽略入口workplace/new-game-412-source-verify.py；後續私有觀察器沿既有workplace/new-game-412-generator.py、run.sh、verify.py命名。原EXE／Go／PNG／JSON／LOG不公開。沿Go1.24.13、UID/GID1000、network none、原ZIP／patch唯讀；guest900s／state850s／3GiB／2CPU／128pids、GOMEMLIMIT1GiB、cgroup收據、owned PID trap與Docker清理保持。412私有Go及唯一原guest已執行，實際收據見下節。
 
 ## 來源與契約審查
 
-完整411當次前置、原控件writer／啟用條件／case3 CALL、九個熱區與唯一Step邊界已核對。new-game-412-draft-review.json保存原稿hash；new-game-412-ready-review.json保存來源審查。未知啟用值保留為執行前只讀guard，不能猜補。READY只授權此私有原版觀察器；尚無412 Go或guest。
+完整411當次前置、原控件writer／啟用條件／case3 CALL、九個熱區與唯一Step邊界已核對。new-game-412-draft-review.json保存原稿hash；new-game-412-ready-review.json保存來源審查。未知啟用值保留為執行前只讀guard，不能猜補。READY只授權此私有原版觀察器；412私有Go及唯一原guest已執行，實際收據見下節。
+
+## 實作前置驗證
+
+私有Go SHA-256 6ad43493b3adc0ff46669e1299e755f243f57ef1e8d138cb1137ec4a0f609a67；9個精確可反轉patch、唯一Step／原getter、兩個正常裝置呼叫與245CLI含201拒絕／44正對照通過，完整235前綴保持。六份產物在容器暫存目錄逐bytes再生一致，沒有額外guest。實作來源驗證入口為workplace/new-game-412-implementation-source-verify.py，保留已凍結的412來源／熱區收據不覆寫。執行期收據完成後才判定CONFORMED；正式存讀與remake同狀態仍未驗。
+
+## 原正常SAVE輸入與平台拒絕
+
+245CLI、9個精確反轉patch、唯一Step／原getter與兩個新裝置呼叫通過；完整411 terminal／12phase、409 terminal／15phase、406七phase與全部較早前置保持。原236253170 actual enable word1919E4讀到0後正常press458,81,1；236263377原selector入口，236263779 C3真SS槽20E1AC，236263780唯一下一Step／ESP＋4與EAX3通過。新GUI229,81已取樣。
+
+236264659 elapsed43132µs、callback24／24且idle，正常release458,81,0；CPU／RAM前後保持。236282811原207261 C3、真SS return16DD7C，236282812唯一下一Step返回EAX3／ESP＋4；236282825原7DF12、236282827原7DF18、236282831原7DF29 writer及下一Step寫mode3已核對。15個新phase全只讀；正常SAVE輸入消費及writer已驗。
+
+238069860原runtime219E75 bytes CD21、AX4300／DS188h／EDX2BD904未支援，拒絕後EIP219E77；當次檔名未知，沒有到7E154。獨立數值驗證通過限定結果，不能將它寫成完整存檔入口成功。原PNG人工仍可見GAME面板、游標在SAVE GAME，沒有存檔頁。原418檔與SAVE10／MOX保持，覆蓋層沒有新差異；cgroup峰值1518264320bytes、oom／oom_kill增量0。
+
+唯一原session26701 outer exit124；原probe exit0但明確記錄cpu_stop／step_error，resource-after、gzip與state manifest完成，Docker容器已刪除。外層900s時間邊界與原平台拒絕分列，不把probe exit0當玩家完成。389份當次產物以failed1-412前綴及manifest保存，沒有第二個guest。412完整契約回DRAFT，原已成功14phase另給後續凍結，不改原15phase或cpu_stop terminal。
+
+來源[413](413-moo2-save-entry-input-source.md)只補下一子頁的控件與reader；平台缺口由[414](414-moo2-protected-file-attributes.md)限定工程補驗，原版續行見[415](415-moo2-save-attributes-continue.md)。正式存讀與remake同狀態仍未驗。

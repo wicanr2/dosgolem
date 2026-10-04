@@ -198,6 +198,59 @@ func (s *FD2StartupDOS) HasHandle(handle uint16) bool { return s.handles().Has(h
 
 func (s *FD2StartupDOS) Close() error { return s.handles().CloseAll() }
 
+// 規格414：普通虛擬檔只讀屬性模型；原FAT屬性尚未逐值對拍。
+func (s *FD2StartupDOS) fileAttributesReadOnly(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	if s.files == nil {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	path := make([]byte, 0, 32)
+	terminated := false
+	for offset := uint32(0); offset < 260; offset++ {
+		if c.R[cpu386.EDX] > ^uint32(0)-offset {
+			setError(dosfile.ErrPathNotFound)
+			return
+		}
+		value, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+offset)
+		if !ok {
+			setError(dosfile.ErrPathNotFound)
+			return
+		}
+		if value == 0 {
+			terminated = true
+			break
+		}
+		path = append(path, value)
+	}
+	if !terminated {
+		setError(dosfile.ErrPathNotFound)
+		return
+	}
+	file, err := s.files.OpenRead(string(path))
+	if err != nil {
+		code := uint16(dosfile.ErrAccessDenied)
+		if errors.Is(err, fs.ErrNotExist) {
+			code = dosfile.ErrFileNotFound
+		}
+		setError(code)
+		return
+	}
+	if file == nil {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	if err = file.Close(); err != nil {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	c.R[cpu386.ECX] = c.R[cpu386.ECX]&0xffff0000 | 0x20
+	c.EFlags &^= cpu386.CF
+}
+
 func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
 	setError := func(code uint16) {
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
@@ -659,6 +712,13 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 		}
 		s.dosVectors[vectorNumber] = vector
 		c.EFlags &^= cpu386.CF
+		return true
+	}
+	if function == 0x43 {
+		if !s.moo2Profile || uint8(c.R[cpu386.EAX]) != 0 {
+			return false
+		}
+		s.fileAttributesReadOnly(c)
 		return true
 	}
 	if function == 0x3d {

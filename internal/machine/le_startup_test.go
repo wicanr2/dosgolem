@@ -957,3 +957,111 @@ func TestFD2StartupDOSInterruptVectors(t *testing.T) {
 		t.Fatalf("DPMI vector was contaminated ECX=%X EDX=%X", c.R[cpu386.ECX], c.R[cpu386.EDX])
 	}
 }
+
+// 規格414：依原拒絕的高位EDX核對，只讀查詢不得配置handle或改來源。
+func TestMOO2ProtectedFileAttributesReadOnly(t *testing.T) {
+	root := t.TempDir()
+	input := []byte("original-data")
+	name := filepath.Join(root, "SAVE10.GAM")
+	if err := os.WriteFile(name, input, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "DIRECTORY"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := OpenDirectoryReadOnlyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer provider.Close()
+	for _, tc := range []struct {
+		name, path                            string
+		err                                   uint32
+		invalid, overflow, noNUL, nilProvider bool
+	}{
+		{name: "原高位指標與普通檔", path: "save10.gam"},
+		{name: "缺檔", path: "MISSING.GAM", err: 2},
+		{name: "目錄拒絕", path: "DIRECTORY", err: 5},
+		{name: "路徑拒絕", path: "../SAVE10.GAM", err: 5},
+		{name: "無提供者", path: "SAVE10.GAM", err: 5, nilProvider: true},
+		{name: "descriptor越界", path: "SAVE10.GAM", err: 3, invalid: true},
+		{name: "32位指標溢位", path: "SAVE10.GAM", err: 3, overflow: true},
+		{name: "未終止", err: 3, noNUL: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := make([]byte, 0x2bd904+280)
+			copy(mem[0x2bd904:], append([]byte(tc.path), 0))
+			if tc.noNUL {
+				for i := 0; i < 260; i++ {
+					mem[0x2bd904+i] = 'A'
+				}
+			}
+			c := cpu386.New(startupBus(mem))
+			c.Seg[cpu386.SegDS] = 0x188
+			c.SetDescriptor(0x188, cpu386.Descriptor{Base: 0, Limit: uint32(len(mem) - 1), Writable: true})
+			c.R = [8]uint32{cpu386.EAX: 0xabcd4300, cpu386.ECX: 0x98761234, cpu386.EDX: 0x1212eeee, cpu386.EBX: 0x1234abcd, cpu386.ESP: 0x88888888, cpu386.EBP: 0x99999999, cpu386.ESI: 0x13572468, cpu386.EDI: 0x24681357}
+			c.R[cpu386.EDX] = 0x2bd904
+			if tc.invalid {
+				c.SetDescriptor(0x188, cpu386.Descriptor{Base: 0, Limit: 0x2bd903, Writable: true})
+			}
+			if tc.overflow {
+				c.R[cpu386.EDX] = 0xffffffff
+			}
+			c.EIP, c.EFlags = 0x219e75, 0x247
+			oldR, oldSeg, oldIP, oldFlags := c.R, c.Seg, c.EIP, c.EFlags
+			oldMem := append([]byte(nil), mem...)
+			s := NewMOO2StartupDOS(provider)
+			if tc.nilProvider {
+				s = NewMOO2StartupDOS(nil)
+			}
+			oldTable := s.table
+			if !s.Handle(c, 0x21) {
+				t.Fatal("已支援的AH43/AL0未路由")
+			}
+			wantR := oldR
+			wantFlags := oldFlags
+			if tc.err == 0 {
+				wantR[cpu386.ECX] = 0x98760020
+				wantFlags &^= cpu386.CF
+			} else {
+				wantR[cpu386.EAX] = 0xabcd0000 | tc.err
+				wantFlags |= cpu386.CF
+			}
+			if c.R != wantR || c.Seg != oldSeg || c.EIP != oldIP || c.EFlags != wantFlags || !bytes.Equal(mem, oldMem) || s.table != oldTable || s.HasHandle(5) || s.Calls() != 0 {
+				t.Fatalf("唯讀屬性或非輸出狀態錯誤：R=%X flags=%X", c.R, c.EFlags)
+			}
+			got, e := os.ReadFile(name)
+			if e != nil || !bytes.Equal(got, input) {
+				t.Fatal("查詢改變來源檔")
+			}
+		})
+	}
+}
+func TestMOO2ProtectedFileAttributesUnsupportedPreservesState(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ax        uint32
+		fd2       bool
+		interrupt uint8
+	}{
+		{"AL1保持拒絕", 0x4301, false, 0x21}, {"其他AL", 0x4302, false, 0x21},
+		{"FD2保持拒絕", 0x4300, true, 0x21}, {"非DOS中斷", 0x4300, false, 0x22},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := make([]byte, 16)
+			c := cpu386.New(startupBus(mem))
+			c.R[cpu386.EAX] = tc.ax
+			c.R[cpu386.EDX] = 0xffffffff
+			c.EFlags = 0x247
+			s := NewMOO2StartupDOS(nil).FD2StartupDOS
+			if tc.fd2 {
+				s = NewFD2StartupDOS(nil)
+			}
+			r, seg, ip, flags := c.R, c.Seg, c.EIP, c.EFlags
+			oldTable := s.table
+			if s.Handle(c, tc.interrupt) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != flags || s.Calls() != 0 || s.table != oldTable || s.HasHandle(5) {
+				t.Fatal("未支援子功能改狀態或放行")
+			}
+		})
+	}
+}
