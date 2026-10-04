@@ -670,3 +670,13 @@
 - [403 原殖民地列表RETURN綁定來源](403-moo2-list-return-binding-source.md)：CONFORMED，238列／209EA／70fixup，完整121指令handler與原UI word producer已驗；當次raw3綁定由404真SS正常點擊補驗。
 
 - [404 原完整402前置後的正常列表RETURN輸入](404-moo2-colonies-list-return-input.md)：CONFORMED，完整402前置、當次UI word3／4／0、正常press／release、真SS selector3與C4562自然返回已驗；225305800回星圖與下一輸入，23表GAME候選6及九個熱區案例通過。
+
+- [405 原星圖GAME綁定與選項入口來源](405-moo2-star-map-game-source.md)：CONFORMED，限定原source／真共享RET與選單輸入CALL；當次UI word與正常GAME操作待406。
+
+- [406 原完整404前置後的正常GAME輸入](406-moo2-star-map-game-input.md)：DRAFT，正常GAME press／selector6／release已驗；共用收尾段caller guard拒絕，外層返回與選單入口未驗。
+
+- [407 原選單控件建立與真正mode0輸入來源](407-moo2-menu-control-input-source.md)：CONFORMED，7D061控件建立、真RET7D891及完整174指令7DD41已核對；第一原正常輸入CALL7DD77→1171AB仍待觀察。
+
+- [408 原星圖框架與共用收尾段作用域](408-moo2-star-map-frame-source.md)：CONFORMED，ENTER6CC／EBP減82與首輸入框架核對；outer slot2BDBE0與已觀測較低tail作用域分開，實際outer target仍未知。
+
+- [409 原完整406七phase後的外層只讀續行](409-moo2-game-outer-frame-continue.md)：READY，凍結原七phase與正常GAME輸入，無新裝置輸入；只讀outer作用域與真正選單reader，尚未實作。
