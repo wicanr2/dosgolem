@@ -53,3 +53,9 @@ READY審查：固定26個E8、256x16有界退出、381原200M的117／1與父框
 原guest僅一次。驗證器初次錯找不存在的200M color_source標記，改用原restore_terminal；第二次漏套既有row journal封裝hash正規化，獨立原195M核心／FPU／clock／table／DAC／PNG已通過後才沿381既有規則修正。兩者是驗證腳本問題，沒有改原收據、guest、輸入或cap。主庫玩法仍受RE-first；人口調整、正式存讀語意、完整開局、RNG與remake同狀態未知，固定日期不是seed。
 
 下一步保持本次210M來源，先核對36筆原熱區與人口職業列的輸入消費端及安全輸入前置。來源充分後才訂正常操作觀察契約，不盲增cap或深入renderer／palette helper。
+
+## 383 職業列來源回填
+
+固定官方1.31 EXE／原210M的36表由[383](383-moo2-colonies-job-control-source.md)核對。index1／2／3均kind6；原+18h僅word值，+20h才是pointer。IDA linear EA 11B0B8比較樹到11C2C2，11C2CF→1156E2，115988間接寫原pointer暫存；不同kind不共用pointer語意。source file bytes及IDA已套fixup bytes分別核對，保留原relocation record。
+
+本382的210M原收據及可見畫面保持。383沒有新guest或操作，正式人口變更仍未知；下一步維持210M補只讀pointer值、current colony／pool／record與scene callback，不直接由熱區推定安全點選或拖曳契約。
