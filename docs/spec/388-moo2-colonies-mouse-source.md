@@ -66,3 +66,9 @@ READY審查：new-game-388-ready-review.py通過原387 bytes、386完整首輸�
 下一步389固定本次完整首輸入、原旗標及range，建立一次正常職業列press觀察契約；候選裝置660,77按原signed SAR1為GUI330,77，原36表先命中kind6 index1。先追原持按選取與1192D1／場景回呼，依實際消費點安全release；不把候選命中當人口變更或預設職業語意。
 
 固定輸入與影像：官方1.31 EXE雜湊及Go1.24.13 image沿上方來源；新mouse-source JSON SHA-256 650876e32fe41394fe85ae2b7dc871ccc7de551a72153fe16d2f0fee6beee49d。PNG沿原1a0e7551173173b43897be18ccf5295755ca80b222be7dc6dbca0b1d986c8c03。私有收據入口為本機workplace/new-game-388-mouse-source.json及new-game-388-verify.py，需沿new-game-388-run.sh在唯讀原ZIP／patch、UID1000／network none的有界Docker重生；本契約不支持未控制完整開局或正式人口對拍。
+
+## 389 正常職業列輸入回填
+
+見[389正常press與release](389-moo2-colonies-pop-press.md)。不可變鍵為官方1.31／IDA linear EA 11E1A7→113FB9、1192F3／1A8840、BED21、11E508／11E50D；dosgolem_high_le投影分開見389時序。原205804505完整388前置後，正常660,77按下，原選取器返回1，場景依真SS返回後安全放開；零按鍵、kind6場景回呼與共享active清除已驗。原8-byte record差異只在206658147之後到210M形成，正式職務與放置語意未驗。較早未知是當時收據邊界，389補驗限定此正常輸入；不改舊正文或receipt。
+
+下一步390沿同輸入及210M，追查206658147之後原C086E→C02F9與B9C3D／B9E94的最小正式寫入鏈，定位這8個record差異與可放置狀態；取得證據才訂一次跨職業列放置。不假設8,000k→4,000k已完成換職或刪除人口，不盲增cap或深挖renderer／平台helper。

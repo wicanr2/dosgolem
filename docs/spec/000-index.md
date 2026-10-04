@@ -631,11 +631,12 @@
 
 - [382：原上層返回與殖民地畫面建立的有界觀察](382-moo2-colonies-upper-continuation.md)，CONFORMED，原200M來源與一次210M窗口；殖民地畫面已驗，人口操作未驗。
 
-- [383：殖民地職業列原熱區與輸入來源](383-moo2-colonies-job-control-source.md)：CONFORMED，限定靜態來源與原210M收據，正常人口操作未驗。
+- [383：殖民地職業列原熱區與輸入來源](383-moo2-colonies-job-control-source.md)：CONFORMED，限定靜態來源與原210M收據，正常職業列輸入由389補驗，正式放置與人口語意未驗。
 
 - [384：同210M殖民地控制前置的只讀快照](384-moo2-colonies-job-source-snapshot.md)：CONFORMED，限定同210M只讀raw前置；回呼投影385已勘誤，正確首輸入讀值見386，人口操作未驗。
 
 - [385：殖民地回呼設置與首個輸入入口](385-moo2-colonies-scene-ready.md)：DRAFT，原返回及首輸入已驗；原觀察器地址投影拒絕，正確讀值由386補驗，人口操作未驗。
 - [386：原回呼地址校正與首輸入只讀前置](386-moo2-colonies-callback-read.md)：CONFORMED，限定正確回呼讀值及原首輸入前置，人口操作未驗。
-- [387：職業列裝置座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)：CONFORMED，限定條件座標及持按／放開靜態來源；首輸入前置由388補驗，人口操作未驗。
-- [388：首輸入座標按鍵與裝置範圍只讀前置](388-moo2-colonies-mouse-source.md)：CONFORMED，限定原首輸入raw及裝置range只讀前置，人口操作未驗。
+- [387：職業列裝置座標與持按／放開來源](387-moo2-colonies-input-coordinates.md)：CONFORMED，限定條件座標及持按／放開靜態來源；首輸入前置由388補驗，職業列輸入由389補驗，正式放置與人口語意未驗。
+- [388：首輸入座標按鍵與裝置範圍只讀前置](388-moo2-colonies-mouse-source.md)：CONFORMED，限定原首輸入raw及裝置range只讀前置，職業列輸入由389補驗，正式放置與人口語意未驗。
+- [389：職業列一次正常按下與放開](389-moo2-colonies-pop-press.md)：CONFORMED，原正常press／場景回呼／release與record差異已驗，正式放置及人口語意未驗。
