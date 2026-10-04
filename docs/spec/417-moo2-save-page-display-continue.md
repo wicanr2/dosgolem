@@ -55,3 +55,7 @@
 275CLI含225拒絕／50正對照、10個反轉patch、六份逐bytes重生、原LE bytes／fixups及所有完整來源保持。原418輸入、SAVE10／MOX與覆蓋層保持，cgroup峰值2012610560bytes，oom／oom_kill增量0。收據沿new-game-417-verification-result.json、visual-review.json及conformance-review.json，原EXE／Go／JSON／PNG／state仍本機忽略。
 
 CONFORMED只限本頁首次原顯示及實際可見。原first reader返回0是當次結果，後續選格、命名、正式保存／讀取及remake同狀態仍未驗。下一步先核對當次第一空格kind11與兩組ID的正常輸入分派、選格／文字編輯／SAVE的consumer，形成來源審查後才決定下一個有界原輸入。主庫玩法RE-first保持。
+
+## 418 輸入來源回填
+
+[418](418-moo2-save-slot-name-input-source.md)已以當次原物件／25項表與915列原bytes錨定第一格kind11、原名稱pointer與SAVE ID21、selected writer與原保存CALL。正常選格／命名／保存仍未驗；[419](419-moo2-save-first-slot-submit.md)只READY到原保存callee入口，尚無Go／guest，不執行未查明的檔案寫入。

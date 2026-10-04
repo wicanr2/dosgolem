@@ -30,3 +30,7 @@
 ## 417 顯示驗證回填
 
 [417](417-moo2-save-page-display-continue.md)已保持本來源與完整416末態，238251948第一原VBE顯示107→108。實際PNG可見九個空格、Auto Save與SAVE／CANCEL，原4516E0物件兩組ID1..10／11..20及+232h＝21已只讀捕捉。早先GAME圖片保留其原停止時點，不重寫舊收據。選格／命名／正式存讀及remake同狀態仍未驗。
+
+## 418 輸入來源回填
+
+[418](418-moo2-save-slot-name-input-source.md)已以當次原物件／25項表與915列原bytes錨定第一格kind11、原名稱pointer與SAVE ID21、selected writer與原保存CALL。正常選格／命名／保存仍未驗；[419](419-moo2-save-first-slot-submit.md)只READY到原保存callee入口，尚無Go／guest，不執行未查明的檔案寫入。
