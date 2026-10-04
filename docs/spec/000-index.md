@@ -632,3 +632,5 @@
 - [382：原上層返回與殖民地畫面建立的有界觀察](382-moo2-colonies-upper-continuation.md)，CONFORMED，原200M來源與一次210M窗口；殖民地畫面已驗，人口操作未驗。
 
 - [383：殖民地職業列原熱區與輸入來源](383-moo2-colonies-job-control-source.md)：CONFORMED，限定靜態來源與原210M收據，正常人口操作未驗。
+
+- [384：同210M殖民地控制前置的只讀快照](384-moo2-colonies-job-source-snapshot.md)：CONFORMED，限定同210M只讀raw前置；scene callback0，人口操作未驗。

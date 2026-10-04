@@ -44,3 +44,7 @@ C058A在C086E呼叫sub_C02F9分派場景操作。三列控制由sub_BCB07／BCB4
 IDA沿locked-v1 image、120s／2GiB／2CPU／128pids／UID1000／network none，patch唯讀、tmp DB一次性、輸出既有workplace。Go與Python沿既有Go1.24.13 image，資料唯讀，private輸出UID1000。原EXE／JSON／LOG／bytes index／PNG／state留本機忽略目錄，公開只保存自撰來源文件與回鏈。
 
 下一步先建立384只讀觀察契約，維持同輸入與210M；補讀kind6的三個原pointer值、原current colony／pool、完整361byte record、相關UI暫存與場景callback。以原210M完整核心／畫面作守衛，不送新輸入，不延長預算，不預填正式job語意。取得可回播前置後才訂一次正常人口選取／放置契約。固定日期不是RNG seed，人口操作、正式存讀、完整開局與remake同狀態未知。
+
+## 384 原前置快照回填
+
+[384](384-moo2-colonies-job-source-snapshot.md)沿同輸入及210M完成只讀來源。DS188:2879DA／DC／DE原pointer words均310；current raw4、pool5B2044、361byte record5B25E8已取得，未命名正式job語意。原scene callback2A8840=0而enable26C48C=1均可讀；靜態C07D2／C07E1設置鏈不代表本次已觸發或已進入穩定輸入。完整382終態／journal／PNG／state保持，人口操作未驗。下一步核對C07C1→sub_BF456返回與callback設置時序，不直接由職業列熱區送輸入。
