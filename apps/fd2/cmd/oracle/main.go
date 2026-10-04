@@ -73,6 +73,7 @@ func main() {
 	frameFrom := flag.Int("frame-from", 0, "逐幀擷取的起始指令數；之前不取樣")
 	frameTo := flag.Int("frame-to", 0, "逐幀擷取的結束指令數；0 表示不設上界")
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
+	frameUnits := flag.Bool("frame-units", false, "逐格附加同時點單位原始記錄；需要 -frame-dir，唯讀觀測")
 	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
 	eipTrace := flag.String("eip-trace", "", "逗號分隔的十六進位位址（最多16個）；每次進入時把 step、control seq、EAX/EDX/EBX/ECX/ESI/EDI/ESP 與堆疊前 8 個 dword 追加到 -run-dir 的 eip-trace.jsonl（Watcom 暫存器呼叫慣例：前四個整數引數在 EAX/EDX/EBX/ECX）")
 	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆（1至200000）；超過就停止記錄")
@@ -400,21 +401,7 @@ func main() {
 				writeFrame(label)
 			}
 		}
-		base, _ := m.Read32(0x53a45)
-		count, _ := m.Read32(0x53beb)
-		units := []map[string]any{}
-		if count <= 128 && uint64(base)+uint64(count)*80 <= uint64(len(m.Mem)) {
-			for i := uint32(0); i < count; i++ {
-				r := m.Mem[base+80*i : base+80*(i+1)]
-				units = append(units, map[string]any{
-					"index": i, "x": r[0], "y": r[1], "pose": r[3], "motion": r[4],
-					"byte5": r[5], "camp": r[6], "fig": r[7], "identity": r[8],
-					"level": r[0x21], "exp": r[0x3c],
-					"hp":      uint16(r[0x40]) | uint16(r[0x41])<<8,
-					"raw_hex": fmt.Sprintf("%x", r),
-				})
-			}
-		}
+		base, _, units, _ := readFD2UnitRows(m)
 		view := readViewGlobals()
 		// BIOS 環形緩衝的頭尾在 0x41a／0x41c，兩者相差即尚未被遊戲取走的按鍵
 		// 數。驅動端要靠它決定「這一格該不該再送鍵」——固定速率送鍵會在遊戲
@@ -496,6 +483,9 @@ func main() {
 			panic("frame-eip 不是十六進位位址")
 		}
 		frameEIPValue = v
+	}
+	if *frameUnits && *frameDir == "" {
+		panic("frame-units需要frame-dir")
 	}
 	if *frameDir != "" && *frameStride == 0 && frameEIPValue == 0 {
 		panic("frame-dir 需要 -frame-stride 或 -frame-eip 至少一項")
@@ -628,6 +618,7 @@ func main() {
 			"port_3da_reads": opl.Reads[0x3da],
 			"palette_writes": opl.Writes[0x3c9],
 		}
+		appendFD2FrameUnits(record, m, *frameUnits)
 		if len(eipWatchAddrs) > 0 {
 			watch := map[string]uint64{}
 			for i, addr := range eipWatchAddrs {
@@ -1044,4 +1035,36 @@ func (w eipTraceWindow) valid() bool {
 
 func (w eipTraceWindow) allows(step, entries int) bool {
 	return step >= w.from && (w.to == 0 || step <= w.to) && entries < w.max
+}
+
+// readFD2UnitRows 沿用checkpoint原始欄位，見012-fd2-parity-capture第8節。
+// 整段範圍驗證先於切片，不把無效來源偽裝為合法空隊伍。
+func readFD2UnitRows(m *machine.LEMachine) (uint32, uint32, []map[string]any, bool) {
+	base, baseErr := m.Read32(0x53a45)
+	count, countErr := m.Read32(0x53beb)
+	units := []map[string]any{}
+	if baseErr != nil || countErr != nil || count > 128 || uint64(base)+uint64(count)*80 > uint64(len(m.Mem)) {
+		return base, count, units, false
+	}
+	for i := uint32(0); i < count; i++ {
+		r := m.Mem[base+80*i : base+80*(i+1)]
+		units = append(units, map[string]any{
+			"index": i, "x": r[0], "y": r[1], "pose": r[3], "motion": r[4],
+			"byte5": r[5], "camp": r[6], "fig": r[7], "identity": r[8],
+			"level": r[0x21], "exp": r[0x3c],
+			"hp":      uint16(r[0x40]) | uint16(r[0x41])<<8,
+			"raw_hex": fmt.Sprintf("%x", r),
+		})
+	}
+	return base, count, units, true
+}
+
+// appendFD2FrameUnits 只在PNG接受時同步讀取；停用時不讀取或改metadata。
+func appendFD2FrameUnits(record map[string]any, m *machine.LEMachine, enabled bool) {
+	if !enabled {
+		return
+	}
+	base, count, units, valid := readFD2UnitRows(m)
+	record["unit_base"], record["unit_count"] = base, count
+	record["units"], record["frame_units_valid"] = units, valid
 }

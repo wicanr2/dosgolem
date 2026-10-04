@@ -130,3 +130,30 @@ dosgolem 後必須由 dosgolem 重生正式原版畫面。不得把 DOSBox 圖�
 
 這份 READY 只授權觀測工具擴充。它不授權放寬記憶體邊界、
 跳過素材解碼，或宣稱第十八章通過。
+
+## 8. 逐格單位原始記錄
+
+狀態：**READY**。日期：2026-10-05。
+工單：[fd2_re #171](https://github.com/wicanr2/fd2_re/issues/171)，父項[#166](https://github.com/wicanr2/fd2_re/issues/166)。
+
+物理返回地圖的逐格PNG與checkpoint在不同指令時點，overlay selector已直接
+觀察到不同值。不得以後一停點單位／視圖拼成同狀態影格。原始欄位沿用oracle
+既有checkpoint讀取端：LE線性53A45指標、53BEB筆數、80-byte stride；固定EXE
+身分同本規格第2節，不新增原版欄位語意。
+
+- `-frame-units` 預設停用。啟用需要 `-frame-dir`。
+- 只對既有窗口、去重、settle與上限已接受的PNG，在相同指令時點附加
+  `units` 及 `frame_units_valid` 至同一筆 `frames.jsonl`。
+- 每列沿用checkpoint的原始index、x/y、pose/motion、byte5、camp、fig、
+  identity、level、exp、hp及80-byte `raw_hex`。沒有有效欄位語意不另猜名稱。
+- 允許0至128筆。全域讀取或完整陣列範圍不合法時輸出空陣列與false；
+  消費端必須拒收false。用uint64檢查總範圍，不讀越界。
+- 所有讀取皆唯讀，不改CPU、遊戲記憶體、RNG、按鍵、擷取相位或PNG。
+  未啟用時維持原metadata及checkpoint契約。
+- 包裝入口以 `FD2_ORACLE_FRAME_UNITS=1` 傳遞並記錄來源。
+- 驗證原始資料與128筆端點、非法範圍及記憶體不變；固定第十二章計畫
+  實跑還須逐byte核對controls、停點、trace與所有PNG，新增欄位之外的
+  逐格metadata保持。返回地圖caller取得完整33筆來源才可關閉工具工單。
+
+本READY只授權可重跑的觀測工具，不驗收重製地圖返回或PLAYER-E2，
+也不改近堆重用初值的工具政策。

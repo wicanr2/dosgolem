@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"github.com/wicanr2/dosgolem/internal/machine"
+	"testing"
+)
 
 func TestFD2KeyNamesIncludeSecretShopFunctionChords(t *testing.T) {
 	keys := fd2KeyNames()
@@ -49,5 +56,88 @@ func TestEIPTraceWindowBoundariesAndEntryBudget(t *testing.T) {
 		if !w.valid() {
 			t.Fatalf("拒絕合法窗口 %+v", w)
 		}
+	}
+}
+
+func TestFD2FrameUnitsCaptureRawRowsWithoutChangingGuest(t *testing.T) {
+	m := &machine.LEMachine{Mem: make([]byte, 0x60000)}
+	base := uint32(len(m.Mem) - 128*80)
+	binary.LittleEndian.PutUint32(m.Mem[0x53a45:], base)
+	binary.LittleEndian.PutUint32(m.Mem[0x53beb:], 128)
+	for i := 0; i < 128*80; i++ {
+		m.Mem[int(base)+i] = byte(i*13 + 7)
+	}
+	before := append([]byte(nil), m.Mem...)
+	record := map[string]any{"step": uint64(4000799496), "eip": "0x11EED", "file": "frame-000043.png"}
+	appendFD2FrameUnits(record, m, true)
+	if !record["frame_units_valid"].(bool) {
+		t.Fatal("拒收剛好落在記憶體尾端的128筆")
+	}
+	rows := record["units"].([]map[string]any)
+	if len(rows) != 128 {
+		t.Fatalf("單位筆數%d", len(rows))
+	}
+	for i, row := range rows {
+		raw, err := hex.DecodeString(row["raw_hex"].(string))
+		expected := before[int(base)+i*80 : int(base)+(i+1)*80]
+		if err != nil || !bytes.Equal(raw, expected) || row["index"] != uint32(i) {
+			t.Fatalf("原始列%d損壞", i)
+		}
+		if row["hp"] != binary.LittleEndian.Uint16(expected[0x40:]) || row["pose"] != expected[3] || row["camp"] != expected[6] {
+			t.Fatalf("原始投影%d錯誤", i)
+		}
+	}
+	if !bytes.Equal(m.Mem, before) || record["step"] != uint64(4000799496) || record["eip"] != "0x11EED" {
+		t.Fatal("觀測改變原記憶體或同時點標記")
+	}
+	m.Mem[base] = 0
+	raw, _ := hex.DecodeString(rows[0]["raw_hex"].(string))
+	if raw[0] != before[base] {
+		t.Fatal("已產生收據仍引用可變原記憶體")
+	}
+}
+
+func TestFD2FrameUnitsRejectInvalidNativeSources(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		size        int
+		base, count uint32
+	}{
+		{"count", 0x60000, 0x10000, 129},
+		{"partial-record", 0x60000, 0x60000 - 79, 1},
+		{"base-overflow", 0x60000, 0xfffffff0, 128},
+		{"missing-globals", 128, 0, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := &machine.LEMachine{Mem: make([]byte, c.size)}
+			if c.size >= 0x53beb+4 {
+				binary.LittleEndian.PutUint32(m.Mem[0x53a45:], c.base)
+				binary.LittleEndian.PutUint32(m.Mem[0x53beb:], c.count)
+			}
+			before := append([]byte(nil), m.Mem...)
+			record := map[string]any{}
+			appendFD2FrameUnits(record, m, true)
+			if record["frame_units_valid"].(bool) || len(record["units"].([]map[string]any)) != 0 {
+				t.Fatal("無效來源偽裝為可用")
+			}
+			if !bytes.Equal(before, m.Mem) {
+				t.Fatal("非法來源觀測改寫記憶體")
+			}
+		})
+	}
+}
+
+func TestFD2FrameUnitsDisabledPreservesMetadataAndEmptyRows(t *testing.T) {
+	record := map[string]any{"step": 123, "unit_base": 456, "unit_count": 7}
+	before, _ := json.Marshal(record)
+	appendFD2FrameUnits(record, nil, false)
+	after, _ := json.Marshal(record)
+	if !bytes.Equal(before, after) {
+		t.Fatal("停用旗標仍改metadata")
+	}
+	m := &machine.LEMachine{Mem: make([]byte, 0x60000)}
+	appendFD2FrameUnits(record, m, true)
+	if !record["frame_units_valid"].(bool) || len(record["units"].([]map[string]any)) != 0 {
+		t.Fatal("合法零筆與非法來源混淆")
 	}
 }
