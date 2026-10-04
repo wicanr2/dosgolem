@@ -26,3 +26,7 @@
 首次source verifier把7D1BB的DX誤寫為BX bytes，原IDA rows及原file bytes早已一致；保存failed1-407兩份產物與manifest，依原6689502A修正驗證器後重核同一批收據。沒有重跑IDA或guest。
 
 409動態回填：完整406七phase與先前正常玩家前置保持，227146859原first-input返回EAX6、原mode8與1004BC outer真RET、8012F入口已驗。230M尚未到控件建立或真正正常reader，409仍DRAFT；見[409](409-moo2-game-outer-frame-continue.md)。末態最小來源由[410](410-moo2-menu-frontier-source.md)保存，下一私有只讀續行依[411](411-moo2-game-frontier-continue.md) READY，不新增裝置輸入。原版正常存讀與remake同狀態仍未驗。
+
+### 411原正常GAME輸入補驗
+
+[411](411-moo2-game-frontier-continue.md)保持409完整230M末態及15phase後，自然驗出helper trueSS target16EE5E與ESP＋4；原8028F控件建立、7D891真RET、802AE case0及7DD77 CALL均由唯一下一Step驗證。236253170到2071AB、trueSS return16DD7C，實際11表及原GAME面板可見。本篇舊收據與證據作用域保持；409舊完整契約仍DRAFT，正常存讀與remake同狀態仍未知。SAVE GAME的當次binding及啟用條件見[412](412-moo2-menu-save-normal-input.md)。

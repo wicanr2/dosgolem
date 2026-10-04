@@ -42,3 +42,7 @@ outer173D05只在ESP＝已算出的2BDBE0時保存，當次target須與凍結點
 230000000末態runtime21F7C1，尚未到8028F控件建立、7D891返回、case0或7DD77正常reader。實際原PNG人工檢視仍為星圖，沒有GAME選單；與數值verifier分開保存。原418檔、SAVE10／MOX保持；cgroup峰值1479024640bytes、oom／oom_kill增量0。六份生成器產物在容器暫存區逐bytes重生一致，沒有為畫面重跑guest。
 
 本篇完整選單契約仍DRAFT，不以外層返回替代完成。[410](410-moo2-menu-frontier-source.md)只保存真正末態的最小原helper定位；[411](411-moo2-game-frontier-continue.md)另建完整230M凍結後的只讀續行。正式存讀與remake同狀態未驗。
+
+### 411原正常GAME輸入補驗
+
+[411](411-moo2-game-frontier-continue.md)保持409完整230M末態及15phase後，自然驗出helper trueSS target16EE5E與ESP＋4；原8028F控件建立、7D891真RET、802AE case0及7DD77 CALL均由唯一下一Step驗證。236253170到2071AB、trueSS return16DD7C，實際11表及原GAME面板可見。本篇舊收據與證據作用域保持；409舊完整契約仍DRAFT，正常存讀與remake同狀態仍未知。SAVE GAME的當次binding及啟用條件見[412](412-moo2-menu-save-normal-input.md)。

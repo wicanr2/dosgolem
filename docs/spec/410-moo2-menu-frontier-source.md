@@ -24,3 +24,7 @@
 本機忽略入口workplace/new-game-410-ida-run.sh、new-game-410-epilog-ida-run.sh、new-game-410-byte-verify.py、new-game-410-source-verify.py。原JSON／LOG／byte index及私有腳本不公開。IDA9.4 locked-v1、Go1.24.13／Python3.11、UID/GID1000、network none、patch唯讀；IDA120s／2GiB／2CPU／128pids，bytes90s／2GiB／1CPU。兩殼層exit0／idat_exit1、非空JSON與5365函式、固定hash及UID通過。
 
 回填：[408](408-moo2-star-map-frame-source.md)的較低target已由409讀到174BC9；[405](405-moo2-star-map-game-source.md)的原mode8／1004BC／8012F已動態觀察。409仍DRAFT，正常選單、存讀與remake同狀態尚未驗。
+
+### 411原正常GAME輸入補驗
+
+[411](411-moo2-game-frontier-continue.md)保持409完整230M末態及15phase後，自然驗出helper trueSS target16EE5E與ESP＋4；原8028F控件建立、7D891真RET、802AE case0及7DD77 CALL均由唯一下一Step驗證。236253170到2071AB、trueSS return16DD7C，實際11表及原GAME面板可見。本篇舊收據與證據作用域保持；409舊完整契約仍DRAFT，正常存讀與remake同狀態仍未知。SAVE GAME的當次binding及啟用條件見[412](412-moo2-menu-save-normal-input.md)。

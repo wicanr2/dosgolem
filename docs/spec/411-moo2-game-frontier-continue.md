@@ -1,6 +1,6 @@
 # 411：完整409末態後的 GAME 原版只讀續行
 
-狀態：**READY，限定完整409末態後的只讀續行**
+狀態：**CONFORMED，限定完整409末態後的原GAME正常輸入入口**
 日期：2026-10-05
 
 來源是[410最小末態邊界](410-moo2-menu-frontier-source.md)、[409](409-moo2-game-outer-frame-continue.md)與[407正常reader](407-moo2-menu-control-input-source.md)。這是私有原版觀察契約，主庫RE-first與玩法保持。
@@ -29,8 +29,20 @@
 
 原PNG人工檢視與數值驗證分開；正常選單reader、正式存讀與remake同狀態分開，不把固定日期當seed。完整409末態凍結與下一段原自然返回只支持本次原版觀察，不替代正常保存／讀取或remake驗收。
 
-本機忽略入口workplace/new-game-411-generator.py、new-game-411-run.sh、new-game-411-source-verify.py、new-game-411-verify.py。原EXE／Go／PNG／JSON／LOG不公開。沿既有Go1.24.13、UID/GID1000、network none、原ZIP／patch唯讀；guest900s／state850s／3GiB／2CPU／128pids、GOMEMLIMIT1GiB、cgroup memory.events、owned PID trap及Docker清理保持。尚無411 Go或guest。
+本機忽略入口workplace/new-game-411-generator.py、new-game-411-run.sh、new-game-411-source-verify.py、new-game-411-verify.py。原EXE／Go／PNG／JSON／LOG不公開。沿既有Go1.24.13、UID/GID1000、network none、原ZIP／patch唯讀；guest900s／state850s／3GiB／2CPU／128pids、GOMEMLIMIT1GiB、cgroup memory.events、owned PID trap及Docker清理保持。411私有Go及唯一原guest已執行，收據見下節。
 
 ## 來源與只讀審查
 
-409固定Go、完整15phase與230M末態雜湊、410原prologue／RET框架、407真正reader與原225CLI均已核對。new-game-411-ready-review.json保存審查；actual helper target仍未知，不預填caller。READY只授權此私有觀察器；尚無411 Go或guest。
+409固定Go、完整15phase與230M末態雜湊、410原prologue／RET框架、407真正reader與原225CLI均已核對。new-game-411-ready-review.json保存審查；原READY只授權此私有觀察器；當次target已由真SS讀出並自然返回，不回填成靜態推測。
+
+## 實際原版觀察
+
+唯一guest session60197殼層exit0，236253170到正常reader後提早停止，沒有延長240M上限。完整409的230M terminal及15phase、原406七phase與404／402／401／399／397保持。235CLI、11個精確反轉patch、唯一Step、原getter與零新裝置呼叫通過；六份生成器產物逐bytes重生一致。
+
+12個新phase全部只讀。230237065原12F7E5 RET的trueSS slot2BD948讀到runtime16EE5E，下一Step同CS／SS及ESP＋4通過，吻合原7EE59 CALL12F578的返回定位。236250619原8028F CALL7D061，236253032原7D891 RET到170294；236253039原802AE CALL7DD41，236253169原7DD77 CALL1171AB。各CALL／RET的唯一下一Step、trueSS return及SP握手通過。236253170原2071AB、ESP2BD704、trueSS return16DD7C為第一正常GAME輸入入口。
+
+當次控件表11項／605bytes，pointer298848、bias0；物件4516E0的+28h／2Ah／30h／32h為1／3／5／6。原PNG人工檢視可見GAME面板、SAVE GAME、LOAD GAME及RETURN，與數值收據分開保存。原SAVE enable word1919E4尚未取樣，不因按鈕可見推定可儲存。
+
+原418檔、SAVE10／MOX保持，cgroup峰值1501089792bytes、oom／oom_kill增量0。來源、獨立數值驗證與再生均通過；本次正常原選單入口CONFORMED。409舊230M完整契約仍DRAFT，不重寫它的末態。正式存讀與remake同狀態未驗，固定日期不是RNG seed。
+
+本機忽略收據：new-game-411-verification-result.json、new-game-411-frontier-events.json、new-game-411-frontier-terminal.json及new-game-411-visual-review.json；原PNG moo2-411-writes-place-return-frontier-terminal.png SHA-256 9c4e1dd9c34470082332b5eeda274a005d4a37f7cdc01e3ed22a63352cad8073。下一窄任務見[412正常SAVE GAME](412-moo2-menu-save-normal-input.md)，不以選單可見宣稱存讀完成。
