@@ -141,3 +141,131 @@ func TestFD2FrameUnitsDisabledPreservesMetadataAndEmptyRows(t *testing.T) {
 		t.Fatal("合法零筆與非法來源混淆")
 	}
 }
+
+func mapStateFixture(t *testing.T, size int) (*machine.LEMachine, *machine.LEOPLPorts) {
+	t.Helper()
+	m := &machine.LEMachine{Mem: make([]byte, size)}
+	ports := machine.NewLEOPLPorts()
+	if !machine.InstallLEVideo(m, ports) {
+		t.Fatal("video install")
+	}
+	m.Video.Mode = 0x13
+	return m, ports
+}
+
+func TestFD2MapStateCapturesWidthBitsAndIndependentPalette(t *testing.T) {
+	m, ports := mapStateFixture(t, 0xb0000)
+	binary.LittleEndian.PutUint32(m.Mem[0x53a45:], 0x70000)
+	binary.LittleEndian.PutUint32(m.Mem[0x53beb:], 1)
+	for i := 0; i < 80; i++ {
+		m.Mem[0x70000+i] = byte(i * 3)
+	}
+	binary.LittleEndian.PutUint32(m.Mem[0x53c0f:], 0xffff8001)
+	binary.LittleEndian.PutUint32(m.Mem[0x51a93:], 0xffffffff)
+	binary.LittleEndian.PutUint32(m.Mem[0x51a0c:], 0xf2)
+	m.Mem[0x51aab], m.Mem[0x51aac], m.Mem[0x60002] = 1, 0, 15
+	binary.LittleEndian.PutUint16(m.Mem[0x60000:], 0x8001)
+	binary.LittleEndian.PutUint16(m.Mem[0x46c:], 0xffff)
+	ports.Out8(0x3c8, 0)
+	for i := 0; i < 768; i++ {
+		ports.Out8(0x3c9, byte(i%64))
+	}
+	memBefore := append([]byte(nil), m.Mem...)
+	portsBefore, _ := json.Marshal(ports)
+	record := map[string]any{"step": 4000799496, "eip": "0x11EED"}
+	appendFD2MapState(record, m, true)
+	if !record["map_runtime_valid"].(bool) || !record["frame_units_valid"].(bool) {
+		t.Fatal("valid source rejected")
+	}
+	runtime := record["map_runtime"].(map[string]any)
+	fields := runtime["globals"].([]map[string]any)
+	if len(fields) != 16 {
+		t.Fatalf("globals %d", len(fields))
+	}
+	values := map[string]uint32{}
+	for _, f := range fields {
+		raw, e := hex.DecodeString(f["raw_hex"].(string))
+		if e != nil || len(raw) != int(f["width_bytes"].(uint32)) {
+			t.Fatal("raw width")
+		}
+		values[f["address"].(string)] = f["value"].(uint32)
+	}
+	for a, v := range map[string]uint32{"0x53C0F": 0xffff8001, "0x51A93": 0xffffffff, "0x51A0C": 0xf2, "0x51AAB": 1, "0x51AAC": 0, "0x60002": 15, "0x60000": 0x8001, "0x46C": 0xffff} {
+		if values[a] != v {
+			t.Fatalf("%s bits=%x want=%x", a, values[a], v)
+		}
+	}
+	rgb, _ := hex.DecodeString(runtime["palette_rgb_hex"].(string))
+	dac, _ := hex.DecodeString(runtime["palette_dac6_hex"].(string))
+	if len(rgb) != 768 || len(dac) != 768 {
+		t.Fatal("palette length")
+	}
+	for i := range dac {
+		if dac[i] != byte(i%64) || rgb[i] != (dac[i]<<2|dac[i]>>4) {
+			t.Fatalf("palette %d", i)
+		}
+	}
+	portsAfter, _ := json.Marshal(ports)
+	if !bytes.Equal(m.Mem, memBefore) || !bytes.Equal(portsBefore, portsAfter) {
+		t.Fatal("observation changed guest or ports")
+	}
+	m.Mem[0x53c0f] = 0
+	if values["0x53C0F"] != 0xffff8001 {
+		t.Fatal("mutable receipt")
+	}
+}
+
+func TestFD2MapStateRejectsMissingAndPartialSources(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		size  int
+		mode  byte
+		count uint32
+	}{
+		{"last-global-missing", 0x60002, 0x13, 0},
+		{"short-global", 0x60001, 0x13, 0},
+		{"count", 0xb0000, 0x13, 129},
+		{"video-mode", 0xb0000, 3, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m, ports := mapStateFixture(t, c.size)
+			m.Video.Mode = c.mode
+			binary.LittleEndian.PutUint32(m.Mem[0x53beb:], c.count)
+			before := append([]byte(nil), m.Mem...)
+			portBefore, _ := json.Marshal(ports)
+			rec := map[string]any{}
+			appendFD2MapState(rec, m, true)
+			rt := rec["map_runtime"].(map[string]any)
+			if rec["map_runtime_valid"].(bool) || len(rt["globals"].([]map[string]any)) != 0 || rt["palette_rgb_hex"] != "" || rt["palette_dac6_hex"] != "" {
+				t.Fatal("partial source published")
+			}
+			portAfter, _ := json.Marshal(ports)
+			if !bytes.Equal(m.Mem, before) || !bytes.Equal(portBefore, portAfter) {
+				t.Fatal("invalid source changed guest")
+			}
+		})
+	}
+	for _, m := range []*machine.LEMachine{nil, {Mem: make([]byte, 0x60003)}} {
+		rec := map[string]any{}
+		appendFD2MapState(rec, m, true)
+		if rec["map_runtime_valid"].(bool) {
+			t.Fatal("missing video accepted")
+		}
+	}
+}
+
+func TestFD2MapStateDisabledAndExactEnd(t *testing.T) {
+	rec := map[string]any{"step": 123}
+	old, _ := json.Marshal(rec)
+	appendFD2MapState(rec, nil, false)
+	after, _ := json.Marshal(rec)
+	if !bytes.Equal(old, after) {
+		t.Fatal("disabled metadata changed")
+	}
+	m, _ := mapStateFixture(t, 0x60003)
+	binary.LittleEndian.PutUint32(m.Mem[0x53a45:], 0x60003)
+	appendFD2MapState(rec, m, true)
+	if !rec["map_runtime_valid"].(bool) {
+		t.Fatal("exact end zero units rejected")
+	}
+}

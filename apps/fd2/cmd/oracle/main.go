@@ -74,6 +74,7 @@ func main() {
 	frameTo := flag.Int("frame-to", 0, "逐幀擷取的結束指令數；0 表示不設上界")
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
 	frameUnits := flag.Bool("frame-units", false, "逐格附加同時點單位原始記錄；需要 -frame-dir，唯讀觀測")
+	mapState := flag.Bool("map-state", false, "同步附加地圖全域、單位與色盤；需要frame-dir或eip-trace，唯讀觀測")
 	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
 	eipTrace := flag.String("eip-trace", "", "逗號分隔的十六進位位址（最多16個）；每次進入時把 step、control seq、EAX/EDX/EBX/ECX/ESI/EDI/ESP 與堆疊前 8 個 dword 追加到 -run-dir 的 eip-trace.jsonl（Watcom 暫存器呼叫慣例：前四個整數引數在 EAX/EDX/EBX/ECX）")
 	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆（1至200000）；超過就停止記錄")
@@ -484,6 +485,9 @@ func main() {
 		}
 		frameEIPValue = v
 	}
+	if *mapState && *frameDir == "" && strings.TrimSpace(*eipTrace) == "" {
+		panic("map-state需要frame-dir或eip-trace")
+	}
 	if *frameUnits && *frameDir == "" {
 		panic("frame-units需要frame-dir")
 	}
@@ -619,6 +623,7 @@ func main() {
 			"palette_writes": opl.Writes[0x3c9],
 		}
 		appendFD2FrameUnits(record, m, *frameUnits)
+		appendFD2MapState(record, m, *mapState)
 		if len(eipWatchAddrs) > 0 {
 			watch := map[string]uint64{}
 			for i, addr := range eipWatchAddrs {
@@ -757,11 +762,23 @@ func main() {
 				}
 				// rng_word 是 0x627B8 當下的值：對拍時重製端在同一個入口對齊它。
 				rngWord, _ := m.Read16(0x627b8)
-				fmt.Fprintf(eipTraceLog,
+				traceLine := fmt.Sprintf(
 					`{"step":%d,"control_seq":%d,"eip":"0x%X","eax":"0x%X","edx":"0x%X","ebx":"0x%X","ecx":"0x%X","esi":"0x%X","edi":"0x%X","esp":"0x%X","rng_word":%d,"stack":[%s]}`+"\n",
 					steps, controlSeq, instructionEIP,
 					m.CPU.R[cpu386.EAX], m.CPU.R[cpu386.EDX], m.CPU.R[cpu386.EBX], m.CPU.R[cpu386.ECX],
 					m.CPU.R[cpu386.ESI], m.CPU.R[cpu386.EDI], m.CPU.R[cpu386.ESP], rngWord, strings.Join(quoteAll(stack), ","))
+				if *mapState {
+					extra := map[string]any{"view": readViewGlobals()}
+					appendFD2MapState(extra, m, true)
+					encoded, e := json.Marshal(extra)
+					if e != nil {
+						panic(e)
+					}
+					traceLine = strings.TrimSuffix(traceLine, "}\n") + "," + string(encoded[1:]) + "\n"
+				}
+				if _, e := fmt.Fprint(eipTraceLog, traceLine); e != nil {
+					panic(e)
+				}
 				eipTraceCount++
 				break
 			}
@@ -1067,4 +1084,62 @@ func appendFD2FrameUnits(record map[string]any, m *machine.LEMachine, enabled bo
 	base, count, units, valid := readFD2UnitRows(m)
 	record["unit_base"], record["unit_count"] = base, count
 	record["units"], record["frame_units_valid"] = units, valid
+}
+
+// fd2MapGlobals保留原始位址／寬度；語意與writer見012第9節及fd2_re #173。
+var fd2MapGlobals = []struct {
+	address uint32
+	width   uint32
+}{
+	{0x53c07, 4}, {0x53c0b, 4}, {0x53c0f, 4}, {0x53c1f, 4},
+	{0x539f4, 4}, {0x53a40, 4}, {0x53a00, 4}, {0x53a04, 4},
+	{0x53a08, 4}, {0x51a93, 4}, {0x046c, 2},
+	{0x51aab, 1}, {0x51aac, 1}, {0x51a0c, 4}, {0x60000, 2}, {0x60002, 1},
+}
+
+// appendFD2MapState只在既有同時點讀取；無效來源不發布部分map／palette。
+func appendFD2MapState(record map[string]any, m *machine.LEMachine, enabled bool) {
+	if !enabled {
+		return
+	}
+	record["map_runtime_valid"] = false
+	record["map_runtime"] = map[string]any{"address_space": "FD2.EXE LE linear", "globals": []map[string]any{},
+		"palette_rgb_hex": "", "palette_dac6_hex": ""}
+	if m == nil {
+		return
+	}
+	appendFD2FrameUnits(record, m, true)
+	if !record["frame_units_valid"].(bool) || m.Video == nil || m.Video.Mode != 0x13 {
+		return
+	}
+	for _, f := range fd2MapGlobals {
+		if uint64(f.address)+uint64(f.width) > uint64(len(m.Mem)) {
+			return
+		}
+	}
+	globals := make([]map[string]any, 0, len(fd2MapGlobals))
+	for _, f := range fd2MapGlobals {
+		raw := m.Mem[f.address : f.address+f.width]
+		var value uint32
+		for i, b := range raw {
+			value |= uint32(b) << uint(i*8)
+		}
+		globals = append(globals, map[string]any{"address": fmt.Sprintf("0x%X", f.address),
+			"width_bytes": f.width, "raw_hex": fmt.Sprintf("%x", raw), "value": value})
+	}
+	palette := m.Video.Palette()
+	rgb, dac := make([]byte, 0, 768), make([]byte, 0, 768)
+	for _, color := range palette {
+		for _, component := range color {
+			six := component >> 2
+			if component != (six<<2 | six>>4) {
+				return
+			}
+			rgb = append(rgb, component)
+			dac = append(dac, six)
+		}
+	}
+	record["map_runtime"] = map[string]any{"address_space": "FD2.EXE LE linear",
+		"globals": globals, "palette_rgb_hex": fmt.Sprintf("%x", rgb), "palette_dac6_hex": fmt.Sprintf("%x", dac)}
+	record["map_runtime_valid"] = true
 }

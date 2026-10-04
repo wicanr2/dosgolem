@@ -157,3 +157,19 @@ dosgolem 後必須由 dosgolem 重生正式原版畫面。不得把 DOSBox 圖�
 
 本READY只授權可重跑的觀測工具，不驗收重製地圖返回或PLAYER-E2，
 也不改近堆重用初值的工具政策。
+
+## 9. 同時點地圖狀態
+
+狀態：**READY**。日期：2026-10-05。工單：[fd2_re #173](https://github.com/wicanr2/fd2_re/issues/173)，父項#166。
+
+固定EXE身分同第2節；審查來源為fd2_re的 docs/data/ida/fd2_physical_background_selection_20261004.json，physical_map_runtime_evidence／spec。既有IDA9.4原始定位保持，未重做closed RE。
+
+- -map-state預設停用，需要frame-dir或eip-trace；FD2包裝以FD2_ORACLE_MAP_STATE=1傳遞。非法值或沒有目的拒收。
+- 16項LE全域保留address、width_bytes、raw_hex與unsigned value：53C07／53C0B／53C0F／53C1F／539F4／53A40／53A00／53A04／53A08／51A93為dword；046C／60000為word；51AAB／51AAC／60002為byte；51A0C為dword。
+- 在既有有界trace或已接受frame同一指令同步讀取globals、view與171完整units。任一越界、units非法或缺mode13 video時map_runtime_valid=false，不發布半份globals／palette。
+- 色盤取正式Palette API的256個RGB8，另存768-byte DAC6；驗證RGB8==(DAC6<<2|DAC6>>4)。不從像素推導，不改port counters、guest memory或CPU。
+- 停用保持原metadata位元組；不改PNG去重、settle、窗口及上限。
+- 驗證寬度／signed bits、端點／越界、缺video／units、palette round-trip、guest memory與ports不變及停用。來源提交後同槽／seed／1539controls重生，四停點、既有trace原欄位及44PNG保持。
+- 290C2與11CAC入口觀測arg1；11EED／11D3B觀測copy出口。consumer依前狀態合成、後狀態核對，不由後狀態再推cycle。
+
+只授權觀測工具。raw／palette留本地work，公開庫只保存工具與hash。不提升map parity、原版配置器或PLAYER-E2。

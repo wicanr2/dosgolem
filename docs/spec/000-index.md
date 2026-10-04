@@ -344,3 +344,5 @@
 - [193-cpu386-short-parity-branch](193-cpu386-short-parity-branch.md)：有限CONFORMED；x87狀態消費端的短JP／JNP，fd2_re #148。
 
 - [194-cpu386-x87-fild-m16](194-cpu386-x87-fild-m16.md)：READY；DF /0 m16int與正常乘加消費鏈，fd2_re #149。
+
+- [012-fd2-parity-capture](012-fd2-parity-capture.md)第9節：#173同時點map globals／units／palette，READY。
