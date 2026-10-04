@@ -86,3 +86,9 @@ IDA沿locked-v1 image、120s／2GiB／2CPU／128pids／UID1000／network none，
 69個實際Step變更重建四個監看範圍終值；8個首末record差異均定位。+E7h的word由原DE727在206700878寫0；+C8h先由原E19C6在206704020寫FE70h，再由E1CD9在206704659加到FEB9h，後續重算保持FEB9h；+0Bh由E1E64在206704718將FF改02。另有+EFh／F2h／FCh／104h等先清除再重建的中間值，首末比較不會顯示，均保留實際byte變更。record+0Ah原08保持；原+0B／C8／E7正式名稱與職務數量仍未定型。
 
 391先捕捉選取後下一個原輸入點1B0845，核對原17AABB=1、17A974=4及第二列signed熱區；條件成立才以正常裝置660,107一次按下及安全放開，驗證BF6ED→B9E94與四槽是否恢復。不得直接改bit／派送ID，不把210M中途renderer末態當可按輸入點。 原較早正文與receipt保持，不將局部選取升格為配置完成。
+
+## 391 選取後 kind7 來源回填
+
+見[391 kind7與放開來源](391-moo2-colonies-pop-place.md)。不可變鍵為官方1.31／IDA linear EA 11CEF5的11E1EC／11E334／11E503、11E582／11E69D及123C1B／1B1222。原390的210M控件表已成37列，前三職業列kind7，第二列signed矩形310,90..510,118；原SAR1下裝置660,107仍first-hit2。kind7不呼叫kind6 held場景，不能沿用等待held場景返回的release守衛。123C1B讀cached word_1B1222，須與當次新裝置／座標／callback完成分開核對；既有snapshot的calls為s.calls啟動服務計數，不能當AX3 poll次數。舊36表kind6仍是205804505原首輸入階段，不改其receipt或歷史正文。391沒有新guest或輸入，正式放置未驗。
+
+下一步392保留原390至210M後，有界捕捉原1B0845及當次37表／kind7，正常660,107 press；觀察213C1B依真SS返回20DB8C的低AX1及新座標、callback完成、安全IRQ與至少20ms條件，再release。實際selector／BF6ED→B9E94及record／原畫面另驗，不使用calls增加或kind6場景回呼作放開閘門。

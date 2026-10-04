@@ -72,3 +72,9 @@ READY審查：new-game-388-ready-review.py通過原387 bytes、386完整首輸�
 見[389正常press與release](389-moo2-colonies-pop-press.md)。不可變鍵為官方1.31／IDA linear EA 11E1A7→113FB9、1192F3／1A8840、BED21、11E508／11E50D；dosgolem_high_le投影分開見389時序。原205804505完整388前置後，正常660,77按下，原選取器返回1，場景依真SS返回後安全放開；零按鍵、kind6場景回呼與共享active清除已驗。原8-byte record差異只在206658147之後到210M形成，正式職務與放置語意未驗。較早未知是當時收據邊界，389補驗限定此正常輸入；不改舊正文或receipt。
 
 下一步390沿同輸入及210M，追查206658147之後原C086E→C02F9與B9C3D／B9E94的最小正式寫入鏈，定位這8個record差異與可放置狀態；取得證據才訂一次跨職業列放置。不假設8,000k→4,000k已完成換職或刪除人口，不盲增cap或深挖renderer／平台helper。
+
+## 391 選取後 kind7 來源回填
+
+見[391 kind7與放開來源](391-moo2-colonies-pop-place.md)。不可變鍵為官方1.31／IDA linear EA 11CEF5的11E1EC／11E334／11E503、11E582／11E69D及123C1B／1B1222。原390的210M控件表已成37列，前三職業列kind7，第二列signed矩形310,90..510,118；原SAR1下裝置660,107仍first-hit2。kind7不呼叫kind6 held場景，不能沿用等待held場景返回的release守衛。123C1B讀cached word_1B1222，須與當次新裝置／座標／callback完成分開核對；既有snapshot的calls為s.calls啟動服務計數，不能當AX3 poll次數。舊36表kind6仍是205804505原首輸入階段，不改其receipt或歷史正文。391沒有新guest或輸入，正式放置未驗。
+
+下一步392保留原390至210M後，有界捕捉原1B0845及當次37表／kind7，正常660,107 press；觀察213C1B依真SS返回20DB8C的低AX1及新座標、callback完成、安全IRQ與至少20ms條件，再release。實際selector／BF6ED→B9E94及record／原畫面另驗，不使用calls增加或kind6場景回呼作放開閘門。

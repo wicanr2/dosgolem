@@ -56,3 +56,9 @@ READY審查：固定389來源、15事件及原dispatch／兩分支／AND寫入by
 首輪觀察器以目前DS必須188誤拒，session94008 exit1，原失敗88份產物按failed-390前綴及manifest保留；無原CPU缺陷證據。改監看固定descriptor188，實際getter隔離測試重現舊拒絕並證實三種DS切換、只讀及越界拒絕；DRAFT→修正版READY後同命令／同輸入／210M乾淨重跑。修正版session42905 exit0；獨立驗證session84523 exit0，同一批收據，無第三次guest。
 
 391先捕捉選取後下一個原輸入點1B0845，核對原17AABB=1、17A974=4及第二列signed熱區；條件成立才以正常裝置660,107一次按下及安全放開，驗證BF6ED→B9E94與四槽是否恢復。不得直接改bit／派送ID，不把210M中途renderer末態當可按輸入點。 正式放置、人口配置、存檔語意及remake同狀態未驗；主庫RE-first保持。
+
+## 391 選取後 kind7 來源回填
+
+見[391 kind7與放開來源](391-moo2-colonies-pop-place.md)。不可變鍵為官方1.31／IDA linear EA 11CEF5的11E1EC／11E334／11E503、11E582／11E69D及123C1B／1B1222。原390的210M控件表已成37列，前三職業列kind7，第二列signed矩形310,90..510,118；原SAR1下裝置660,107仍first-hit2。kind7不呼叫kind6 held場景，不能沿用等待held場景返回的release守衛。123C1B讀cached word_1B1222，須與當次新裝置／座標／callback完成分開核對；既有snapshot的calls為s.calls啟動服務計數，不能當AX3 poll次數。舊36表kind6仍是205804505原首輸入階段，不改其receipt或歷史正文。391沒有新guest或輸入，正式放置未驗。
+
+下一步392保留原390至210M後，有界捕捉原1B0845及當次37表／kind7，正常660,107 press；觀察213C1B依真SS返回20DB8C的低AX1及新座標、callback完成、安全IRQ與至少20ms條件，再release。實際selector／BF6ED→B9E94及record／原畫面另驗，不使用calls增加或kind6場景回呼作放開閘門。

@@ -642,3 +642,5 @@
 - [389：職業列一次正常按下與放開](389-moo2-colonies-pop-press.md)：CONFORMED，原正常press／場景回呼／release與record差異已驗，正式放置及人口語意未驗。
 
 - [390 原職業列放開後寫入](390-moo2-colonies-pop-writes.md)：CONFORMED，原選取分支及8個record差異writer已驗，正式放置未知。
+
+- [391 原第二職業列放置](391-moo2-colonies-pop-place.md)：CONFORMED，限定RE來源；選取後37表／kind7與按下放開分派已錨定，正常放置未驗。
