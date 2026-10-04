@@ -52,3 +52,7 @@ runner必須把本輪受版控internal/machine/le_startup.go明示copy進固定a
 | new-game-415-attributes-events.json | 3dedcd3ed3dd67641d50e79e43f7d48f5bb0a283725c5f4e374205203e923fce |
 | new-game-415-verification-result.json | b5118f6400b9394f2dfdb962ea0bee2603aec5ef747ead9a2c88b6ca63fbf975 |
 | new-game-415-visual-review.json | 43bc045f7c2a976ac04e3046d52cdc018a3f8f72715f75c89fba52dd19ab8c58 |
+
+## 後續入口回填
+
+[416](416-moo2-save-page-input-continue.md)已保持本篇完整18＋4phase及末態，補驗原子頁控件建立、真RET及第一reader；25項控件已建立，原PNG尚未刷新。顯示更新續行見[417](417-moo2-save-page-display-continue.md)，完整存讀及remake同狀態仍未驗。
