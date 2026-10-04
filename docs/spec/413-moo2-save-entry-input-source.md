@@ -26,3 +26,7 @@
 416附帶一次窄IDA查詢，只取reader返回後48指令及同玩家函式的分支目標，不讀callee內部。62列／59EA／12fixup差異已用原LE／file bytes獨立核對。原7E202將EAX複製到EBX、7E204檢查AX；7E226與7E240分別比對原dword_194038物件的+38h／+7Ch加2×signed DX的word，7E29D限定十列迴圈。原7E2AC另比對物件+232h的word。上述bytes、原位址、operands與比較已證實；當次物件內容、控件名稱、slot語意及正式保存仍未知，不能從offset或局部var名猜補。
 
 本機忽略入口new-game-416-ida-run.sh、new-game-416-byte-verify.py、new-game-416-dispatch-source-verify.py及dispatch-source-result.json，原JSON／byte index不公開。來源結果首次寫入誤用唯讀掛載，失敗收據已保存；改用UID1000可寫容器後通過，沒有重跑IDA或原guest。416正常存檔頁續行見[工具契約](416-moo2-save-page-input-continue.md)；來源只支持上述比較，不宣稱已完成存檔操作。
+
+## 417 顯示驗證回填
+
+[417](417-moo2-save-page-display-continue.md)已保持本來源與完整416末態，238251948第一原VBE顯示107→108。實際PNG可見九個空格、Auto Save與SAVE／CANCEL，原4516E0物件兩組ID1..10／11..20及+232h＝21已只讀捕捉。早先GAME圖片保留其原停止時點，不重寫舊收據。選格／命名／正式存讀及remake同狀態仍未驗。

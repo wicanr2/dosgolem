@@ -695,4 +695,4 @@
 
 - [416 原存檔頁第一正常輸入續行](416-moo2-save-page-input-continue.md)：CONFORMED限定控件建立與第一reader，完整415保持，9個只讀phase／25項表／真CALL-RET通過；原PNG尚未刷新，保存與讀取未驗。
 
-- [417 原存檔頁第一顯示更新](417-moo2-save-page-display-continue.md)：READY，保持416完整9phase及25項表，只讀第一原VBE顯示更新；不猜返回值或強制輸入，240M保持，尚無Go或guest。
+- [417 原存檔頁第一顯示更新](417-moo2-save-page-display-continue.md)：CONFORMED限定首次原顯示與實際存檔頁可見；完整416保持，8個只讀phase／275CLI／重生通過，240M保持。選格／命名／正式存讀未驗。

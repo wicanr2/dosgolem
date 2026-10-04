@@ -60,3 +60,7 @@
 | new-game-416-save-page-terminal.json | bfb51eaa961768b594d3379e216519842ad70fc798161bcff987928aaeabc599 |
 | new-game-416-verification-result.json | a6ca744d153442ddea68545ec9fd2b77edb78a864f886f704f3eb30c9195915c |
 | new-game-416-visual-review.json | 0d1d811874c9ca19d1a2b0eca9c240b00fb0a3c446514b75c9b5c5ecad6a89bb |
+
+## 417 顯示驗證回填
+
+[417](417-moo2-save-page-display-continue.md)已保持本來源與完整416末態，238251948第一原VBE顯示107→108。實際PNG可見九個空格、Auto Save與SAVE／CANCEL，原4516E0物件兩組ID1..10／11..20及+232h＝21已只讀捕捉。早先GAME圖片保留其原停止時點，不重寫舊收據。選格／命名／正式存讀及remake同狀態仍未驗。
