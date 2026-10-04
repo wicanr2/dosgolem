@@ -44,7 +44,7 @@ func set(ss []string) map[string]bool {
 
 var header = []string{"lang", "mode", "check", "image_hash", "img_seg", "hook_sig", "font_hash", "steps", "reads",
 	"vram_hash", "mem_hash", "stamps", "layer_hash", "keys", "untranslated", "untranslated_args", "counters",
-	"stale_cells", "exposed_events", "visible_hash", "content_hash", "mask_strict", "png", "verdict", "full_mem_hash"}
+	"stale_cells", "exposed_events", "visible_hash", "content_hash", "mask_strict", "png", "verdict", "full_mem_hash", "state_in_hash", "state_hash"}
 
 func main() {
 	root := flag.String("root", "", "原版目錄（必填；缺檔時 SKIP）")
@@ -60,6 +60,7 @@ func main() {
 	every := flag.Uint64("frame-every", 20_000, "無頭模式在 @check 以外的 Frame 間隔（步數）")
 	maxSteps := flag.Uint64("max-steps", 4_000_000_000, "整條路線的步數上限")
 	outDir := flag.String("out", "", "輸出目錄（收據 TSV 與 PNG；必填）")
+	stateDir := flag.String("state", "", "存檔基底目錄，各語言獨立；空字串不落地寫檔")
 	textDir := flag.String("text", "text", "譯文目錄")
 	fontDir := flag.String("font", "", "字型目錄（<lang>.golemfnt；必填）")
 	auditDebug := flag.Bool("audit-debug", false, "印出稽核找到的每個殘字格與外露事件的細節（診斷用）")
@@ -80,6 +81,10 @@ func main() {
 	if len(langs) == 0 {
 		langs = multi{"zh-TW"}
 	}
+	states, err := prepareStates(*root, *outDir, *stateDir, langs)
+	if err != nil {
+		fatal(err)
+	}
 	rb, err := os.ReadFile(*routePath)
 	if err != nil {
 		fatal(err)
@@ -96,6 +101,7 @@ func main() {
 	for _, lang := range langs {
 		ok, err := runLang(lang, runOpts{
 			root: *root, bat: *bat, steps: steps, routeName: routeName, overlay: *overlay, hooks: *hooks,
+			state: states[lang],
 			fault: *fault, every: *every, maxSteps: *maxSteps, outDir: *outDir, textDir: *textDir, fontDir: *fontDir, auditDebug: *auditDebug, dumpStamps: *dumpStamps, dumpKeys: *dumpKeys, positionOracle: *positionOracle, emitRoute: *emitRoute, dumpScroll: *dumpScroll, extra: extra,
 		})
 		if err != nil {
@@ -118,6 +124,7 @@ func fatal(err error) {
 }
 
 type runOpts struct {
+	state                                       string
 	root, bat, routeName, overlay, hooks, fault string
 	steps                                       []phantasie.RouteStep
 	every, maxSteps                             uint64
@@ -132,11 +139,25 @@ type runOpts struct {
 }
 
 func runLang(lang string, op runOpts) (bool, error) {
+	initial, err := snapshotState(op.state, "initial")
+	if err != nil {
+		return false, err
+	}
+	manifest := stateManifest{Initial: initial, Checks: []statePoint{}}
+	manifestPath := filepath.Join(op.outDir, fmt.Sprintf("%s.%s.%s-%s.state.json", op.routeName, lang, op.overlay, op.hooks))
+	if op.state != "" {
+		if err := writeStateManifest(manifestPath, manifest); err != nil {
+			return false, err
+		}
+	}
 	o, names, err := phantasie.Launch(op.root, op.bat)
 	if err != nil {
 		return false, err
 	}
 	defer o.Close()
+	if op.state != "" {
+		o.SetScratch(op.state)
+	}
 	chain := oracle.NewCond("鏈載入完成", func(o *oracle.Oracle) bool { return len(o.ExecLog()) >= len(names)-1 })
 	if err := o.RunUntil(chain, oracle.Budget(op.maxSteps)); err != nil {
 		return false, fmt.Errorf("等鏈載入：%w", err)
@@ -379,7 +400,17 @@ func runLang(lang string, op runOpts) (bool, error) {
 			scr[st.Name] = [2]uint64{phantasie.VramHash(o), ov.ContentHash()}
 		}
 		fullMem := sha256.Sum256(o.Bytes(oracle.Far(0, 0), 1<<20))
-		fmt.Fprintln(f, strings.Join(append(row, verdict, fmt.Sprintf("%x", fullMem)), "\t"))
+		point, err := snapshotState(op.state, st.Name)
+		if err != nil {
+			return false, err
+		}
+		if op.state != "" {
+			manifest.Checks = append(manifest.Checks, point)
+			if err := writeStateManifest(manifestPath, manifest); err != nil {
+				return false, err
+			}
+		}
+		fmt.Fprintln(f, strings.Join(append(row, verdict, fmt.Sprintf("%x", fullMem), initial.Hash, point.Hash), "\t"))
 		fmt.Printf("%s\t%s\t%s\t%s\n", cur, st.Name, verdict, row[len(row)-1])
 		if verdict != "PASS" && !strings.HasPrefix(verdict, "SKIP") {
 			allOK = false
