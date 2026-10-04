@@ -655,10 +655,14 @@
 
 - [396 原殖民地RETURN正常輸入](396-moo2-colony-return-input.md)：DRAFT，正常press及selector真返回已驗；7357µs未達20ms，未送release，不宣稱自然返回。
 
-- [397 原RETURN辨識後的正常放開](397-moo2-colony-return-deferred-release.md)：CONFORMED，396原前五phase與完整393保持，正常放開／真SS RETURN已驗；畫面切換、下一輸入及正常存讀未驗。
+- [397 原RETURN辨識後的正常放開](397-moo2-colony-return-deferred-release.md)：CONFORMED，396原前五phase與完整393保持，正常放開／真SS RETURN已驗；畫面切換與下一輸入由402補驗，正常存讀未驗。
 
-- [398 原RETURN分派狀態與篩選邊界](398-moo2-return-mode-source.md)：CONFORMED，限定RE；原320列／完整44項／兩個mode恢復writer／151指令owner及B5051邊界已驗，399已補當次raw20；實際父入口未取樣。
+- [398 原RETURN分派狀態與篩選邊界](398-moo2-return-mode-source.md)：CONFORMED，限定RE；原320列／完整44項／兩個mode恢復writer／151指令owner及B5051邊界已驗，399已補當次raw20，401已直接補驗C4562父入口。
 
-- [399 原RETURN分派狀態只讀追蹤](399-moo2-return-mode-trace.md)：CONFORMED，11個只讀phase及原writer1→20／last20→1已驗，完整397保持；父C4562只作強推論，實際入口與下一輸入未驗。
+- [399 原RETURN分派狀態只讀追蹤](399-moo2-return-mode-trace.md)：CONFORMED，11個只讀phase及原writer1→20／last20→1已驗，完整397保持；399父C4562為強推論，實際entry由401補驗，下一輸入由402補驗。
 
-- [400 原分派20父入口與輸入來源](400-moo2-return-parent-source.md)：CONFORMED，限定RE；135指令C4562及C472A原輸入／C4343返回邊界已驗，當次實際入口與下一輸入未驗。
+- [400 原分派20父入口與輸入來源](400-moo2-return-parent-source.md)：CONFORMED，限定RE；135指令C4562及C472A原輸入／C4343返回邊界已驗，當次entry由401補驗，下一輸入由402補驗。
+
+- [401 原RETURN父入口與篩選自然返回追蹤](401-moo2-return-parent-trace.md)：CONFORMED，實際C4562入口及12次篩選呼叫／10次真SS RET1Ch已驗，完整399／397保持；401限定215M未到第一父層正常輸入，402已補驗。
+
+- [402 原215M完整前置後的父層正常輸入續跑](402-moo2-return-parent-continue.md)：CONFORMED，215M完整401／399／397保持，222329889真SS到父層輸入並早停；原COLONIES列表可見Sol II的6工人／2科學家，正常存讀與remake同狀態未驗。

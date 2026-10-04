@@ -56,6 +56,12 @@ READY審查以396原結果、原callback／IRQ／物理裝置與7357µs實測為
 | place-return-colony-returned | 213103590 | 0x1004ef |
 | place-return-terminal | 215000000 | 0x1a5051 |
 
-這只證明正常裝置放開及原C058A函式自然返回；畫面切換與下一正常輸入未驗，正常存讀及remake同狀態未驗。public CPU／DOS及主庫Go玩法保持。初次397 CLI缺檔正對照誤假設退出值1，而原panic為2，原guest前拒絕；保留new-game-397-cli-rejected.txt，修正腳本後同入口重跑。398已核對1004EF控制流，1A5051是槽位篩選邊界。399只讀驗當次分派碼20及完整397保持；400補C4562父入口來源，實際父入口與下一輸入仍待驗。不直接派送ID或寫RAM。
+397收據只證明正常裝置放開及原C058A函式自然返回；畫面切換與下一正常輸入當時未驗，已由402補驗。正常存讀及remake同狀態仍未驗。public CPU／DOS及主庫Go玩法保持。初次397 CLI缺檔正對照誤假設退出值1，而原panic為2，原guest前拒絕；保留new-game-397-cli-rejected.txt，修正腳本後同入口重跑。398已核對1004EF控制流，1A5051是槽位篩選邊界。399只讀驗當次分派碼20及完整397保持；400補C4562父入口來源，實際父入口由401補驗，下一輸入及列表畫面已由402補驗。不直接派送ID或寫RAM。
 
 原返回後分派證據回鏈：[398](398-moo2-return-mode-source.md)、[399](399-moo2-return-mode-trace.md)、[400](400-moo2-return-parent-source.md)。原215M及上述timeline保持，未新增正常存讀或remake parity聲明。
+
+後續回鏈：[401](401-moo2-return-parent-trace.md)實際C4562 entry及RET1Ch真SS通過；[402](402-moo2-return-parent-continue.md)保留本篇正常RETURN及完整215M前置後另追父層輸入。本篇16phase／原215M不覆寫。
+
+## 402正常父層輸入與畫面回填
+
+[402](402-moo2-return-parent-continue.md)保持完整215M原前置，於222329889真SS進入C4562的1171AB父層輸入並提前停止；原PNG已可見COLONIES列表、Sol II的6工人／2科學家。原正常RETURN→分派20→C4562→列表輸入鏈與畫面返回已驗。新20控件的RETURN／options後續操作、正常存讀及remake同狀態仍待驗，本篇原來源與收據不覆寫。

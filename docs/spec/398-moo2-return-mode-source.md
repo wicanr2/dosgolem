@@ -9,7 +9,7 @@
 
 已證實：main__0的10365呼叫151指令sub_1049B。1049F清ESI，10687測ESI；ESI=0時以word_191A08索引原跳表。case1在104EA呼叫C058A，104EF設byte_191F19=1，104F6跳10687。case0在104B7呼叫86188，case8在104A6呼叫8012F，case39在104D9呼叫8B956；不得直接派送raw碼。
 
-已證實：C058A正常清理後，C0925讀word_191A08並與word_191A10比較。不同走C0934／C093A，把191A10寫回191A08；相同走C0942／C0948／C094E，從word_1979E8同時寫回兩者。較早C070F..C0724在兩碼不同時保存191A10到1979E8。8B956原入口8B960先將word_191A08清0。本篇只證原讀寫與分派流程，399已補驗當次raw碼1→20與last byte20→1；raw20來源指向C4562，實際父入口仍未直接取樣。
+已證實：C058A正常清理後，C0925讀word_191A08並與word_191A10比較。不同走C0934／C093A，把191A10寫回191A08；相同走C0942／C0948／C094E，從word_1979E8同時寫回兩者。較早C070F..C0724在兩碼不同時保存191A10到1979E8。8B956原入口8B960先將word_191A08清0。本篇只證原讀寫與分派流程，399已補驗當次raw碼1→20與last byte20→1；raw20來源指向C4562，實際父入口由401直接補驗。
 
 ## 原215M末態邊界
 
@@ -19,7 +19,7 @@
 
 ## 解決回鏈與下一驗證
 
-[397](397-moo2-colony-return-deferred-release.md)原215M結果保持；本篇補明1A5051是篩選邊界，返回目的地待[399原分派狀態只讀追蹤](399-moo2-return-mode-trace.md)。私有重生入口workplace/new-game-398-ida-run.sh、new-game-398-mode-ida-run.sh及new-game-398-byte-verify.py；原JSON／LOG／EXE／Go／PNG只留本機忽略。主庫RE-first／公開CPU與DOS保持，正常存讀與remake同狀態未驗。
+[397](397-moo2-colony-return-deferred-release.md)原215M結果保持；本篇補明1A5051是篩選邊界，返回分派由[399原分派狀態只讀追蹤](399-moo2-return-mode-trace.md)補驗，正常父層輸入與畫面由402補驗。私有重生入口workplace/new-game-398-ida-run.sh、new-game-398-mode-ida-run.sh及new-game-398-byte-verify.py；原JSON／LOG／EXE／Go／PNG只留本機忽略。主庫RE-first／公開CPU與DOS保持，正常存讀與remake同狀態未驗。
 
 ## 完整跳表與395範圍勘誤
 
@@ -29,4 +29,8 @@
 
 ## 399原分派碼回填
 
-[399](399-moo2-return-mode-trace.md)已驗當次原writer C093A與104EF，raw分派20及完整397保持。來源raw20在1050C呼叫C4562；父入口只作強推論，實際入口與下一正常輸入待驗，窄來源見[400](400-moo2-return-parent-source.md)。B5051只保留篩選邊界，不稱輸入等待。
+[399](399-moo2-return-mode-trace.md)已驗當次原writer C093A與104EF，raw分派20及完整397保持。來源raw20在1050C呼叫C4562；399父入口只作強推論；實際C4562 entry由[401](401-moo2-return-parent-trace.md)補驗，下一正常輸入已由[402](402-moo2-return-parent-continue.md)補驗，窄來源見[400](400-moo2-return-parent-source.md)。B5051只保留篩選邊界，不稱輸入等待。
+
+## 402正常父層輸入與畫面回填
+
+[402](402-moo2-return-parent-continue.md)保持完整215M原前置，於222329889真SS進入C4562的1171AB父層輸入並提前停止；原PNG已可見COLONIES列表、Sol II的6工人／2科學家。原正常RETURN→分派20→C4562→列表輸入鏈與畫面返回已驗。新20控件的RETURN／options後續操作、正常存讀及remake同狀態仍待驗，本篇原來源與收據不覆寫。

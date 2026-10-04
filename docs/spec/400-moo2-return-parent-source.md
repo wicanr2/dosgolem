@@ -1,6 +1,6 @@
 # 400：原RETURN分派20的父入口與輸入邊界
 
-狀態：**CONFORMED，限定原RE來源，實際父入口未直接取樣**
+狀態：**CONFORMED，限定原RE來源；實際父入口由401補驗**
 日期：2026-10-04
 
 接續[399原分派碼](399-moo2-return-mode-trace.md)。官方1.31 ORION2.EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f；IDA9.4 linear EA、runtime+F0000h及原file offset分開保存。兩次窄查詢404列／229EA／113fixup差異，原2object／365page／51363fixup records獨立核對通過。殼層exit0、idat_exit1、非空JSON／5365函式／固定SHA／UID1000均保存。本來源輪無新guest、Go修改或裝置輸入。
@@ -17,12 +17,18 @@ C4725呼叫12C2A0，C472A呼叫原1171AB；C4732保存EAX，C4735呼叫114177，
 
 B4EF6的原C541C caller位於sub_C53C9 C53C9..C5426共35指令；其direct caller為C54D6。此處只保留caller定位及呼叫前原參數，不深入篩選helper。C3947／C3996及C4343的direct callers保留原EA索引；沒有來源證明它們直接呼叫C53C9，不補虛構call chain。
 
-399原分派點1006A7的EAX20與398完整44項表支持父C4562的強推論；399沒有直接取樣C4562入口，原215M仍為B5051。真SS返回鏈、實際父入口、下一正常輸入、畫面切換與控件表變化仍未知。正常存讀與remake同狀態未驗。
+399原分派點1006A7的EAX20與398完整44項表支持父C4562的強推論；399沒有直接取樣C4562入口，原215M仍為B5051。401已直接補驗實際C4562 entry及B4EF6的12次呼叫／10次RET1Ch自然返回；402已補驗下一正常輸入、列表畫面返回與20項控件表；其RETURN操作仍待後續。正常存讀與remake同狀態未驗。
 
 ## 重生與下一閘門
 
 本機忽略入口workplace/new-game-400-ida-run.sh、new-game-400-flow-ida-run.sh、new-game-400-byte-verify.py、new-game-400-source-verify.py。Go1.24.13與IDA9.4 locked-v1既有image，UID/GID1000、network none、patch唯讀；IDA120s／2GiB／2CPU／128pids，bytes90s／2GiB／1CPU。原JSON／EXE／LOG及private scripts不公開。
 
-下一401先建立只讀READY契約，保持完整399／397與原215M；只捕捉原1050C／C4562實際入口、B4EF6的真SS caller及C472A／1171AB邊界。不得新增press／release、延長cap或代寫guest RAM。主庫RE-first保持。
+401只讀驗證已通過，完整399／397及215M保持；父層下一輸入已由402的完整前置與230M有界續跑補驗。不得新增press／release或代寫guest RAM。主庫RE-first保持。
 
 解決回鏈：[398](398-moo2-return-mode-source.md)來源raw20→1050C CALL C4562；[399](399-moo2-return-mode-trace.md)只讀原分派碼與原末態；[397](397-moo2-colony-return-deferred-release.md)自然RETURN收據不變。
+
+原實際entry解決回鏈：[401](401-moo2-return-parent-trace.md)，原213103600 CALL／213103601 C4562真SS，固定官方EXE與EA基準沿本文。401的原C2C5A caller及B4EF6自然RET收據保留原定位；不從C53C9靜態caller補不存在的實際call chain。
+
+## 402正常父層輸入與畫面回填
+
+[402](402-moo2-return-parent-continue.md)保持完整215M原前置，於222329889真SS進入C4562的1171AB父層輸入並提前停止；原PNG已可見COLONIES列表、Sol II的6工人／2科學家。原正常RETURN→分派20→C4562→列表輸入鏈與畫面返回已驗。新20控件的RETURN／options後續操作、正常存讀及remake同狀態仍待驗，本篇原來源與收據不覆寫。
