@@ -56,4 +56,6 @@ READY審查以396原結果、原callback／IRQ／物理裝置與7357µs實測為
 | place-return-colony-returned | 213103590 | 0x1004ef |
 | place-return-terminal | 215000000 | 0x1a5051 |
 
-這只證明正常裝置放開及原C058A函式自然返回；畫面切換與下一正常輸入未驗，正常存讀及remake同狀態未驗。public CPU／DOS及主庫Go玩法保持。初次397 CLI缺檔正對照誤假設退出值1，而原panic為2，原guest前拒絕；保留new-game-397-cli-rejected.txt，修正腳本後同入口重跑。下一步398先核對1004EF返回後控制流及1A5051等待，定位真正正常輸入入口，不直接派送ID或寫RAM。
+這只證明正常裝置放開及原C058A函式自然返回；畫面切換與下一正常輸入未驗，正常存讀及remake同狀態未驗。public CPU／DOS及主庫Go玩法保持。初次397 CLI缺檔正對照誤假設退出值1，而原panic為2，原guest前拒絕；保留new-game-397-cli-rejected.txt，修正腳本後同入口重跑。398已核對1004EF控制流，1A5051是槽位篩選邊界。399只讀驗當次分派碼20及完整397保持；400補C4562父入口來源，實際父入口與下一輸入仍待驗。不直接派送ID或寫RAM。
+
+原返回後分派證據回鏈：[398](398-moo2-return-mode-source.md)、[399](399-moo2-return-mode-trace.md)、[400](400-moo2-return-parent-source.md)。原215M及上述timeline保持，未新增正常存讀或remake parity聲明。
