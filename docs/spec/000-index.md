@@ -666,3 +666,7 @@
 - [401 原RETURN父入口與篩選自然返回追蹤](401-moo2-return-parent-trace.md)：CONFORMED，實際C4562入口及12次篩選呼叫／10次真SS RET1Ch已驗，完整399／397保持；401限定215M未到第一父層正常輸入，402已補驗。
 
 - [402 原215M完整前置後的父層正常輸入續跑](402-moo2-return-parent-continue.md)：CONFORMED，215M完整401／399／397保持，222329889真SS到父層輸入並早停；原COLONIES列表可見Sol II的6工人／2科學家，正常存讀與remake同狀態未驗。
+
+- [403 原殖民地列表RETURN綁定來源](403-moo2-list-return-binding-source.md)：CONFORMED，238列／209EA／70fixup，完整121指令handler與原UI word producer已驗；當次raw3綁定由404真SS正常點擊補驗。
+
+- [404 原完整402前置後的正常列表RETURN輸入](404-moo2-colonies-list-return-input.md)：CONFORMED，完整402前置、當次UI word3／4／0、正常press／release、真SS selector3與C4562自然返回已驗；225305800回星圖與下一輸入，23表GAME候選6及九個熱區案例通過。

@@ -53,4 +53,4 @@ READY來源審查：398原320列／mode兩恢復分支／caller及397真返回�
 
 ## 402正常父層輸入與畫面回填
 
-[402](402-moo2-return-parent-continue.md)保持完整215M原前置，於222329889真SS進入C4562的1171AB父層輸入並提前停止；原PNG已可見COLONIES列表、Sol II的6工人／2科學家。原正常RETURN→分派20→C4562→列表輸入鏈與畫面返回已驗。新20控件的RETURN／options後續操作、正常存讀及remake同狀態仍待驗，本篇原來源與收據不覆寫。
+[402](402-moo2-return-parent-continue.md)保持完整215M原前置，於222329889真SS進入C4562的1171AB父層輸入並提前停止；原PNG已可見COLONIES列表、Sol II的6工人／2科學家。原正常RETURN→分派20→C4562→列表輸入鏈與畫面返回已驗。新20控件的RETURN已由[404](404-moo2-colonies-list-return-input.md)正常點擊回到星圖；options、正常存讀及remake同狀態仍待驗，本篇原來源與收據不覆寫。

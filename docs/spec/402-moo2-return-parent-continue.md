@@ -35,7 +35,7 @@ CPU stop／DOS exit保存實際點；原碼出現未支援指令時，以其原b
 
 末態VBE StartY0／DisplaySets102，控件表runtime pointer0x298848／count20／stride55。原PNG SHA-256 299868824b0ea14741bbcd781a8aa353c8344ef29bd5997f50f5be6d211de8c2經實際圖像檢視：已回COLONIES列表，Sol II列農夫欄空、6個工人、2個科學家；上方欄名與下方排序／RETURN按鈕可辨讀。這是同一原guest內的畫面返回與正常父層input entry，驗證範圍不涵蓋remake逐像素或同狀態驗收。原215M PNG與舊收據不覆寫。
 
-initializer-returned監看點未取樣，不猜C2259何時返回，也不把B4EF6呼叫鏈補成C53C9靜態caller。已證原C4562進入與C472A／1171AB輸入，但新控件20表的RETURN ID、點擊及後續星圖／options存讀仍待403來源與正常輸入另驗。正常存讀及remake同狀態未驗，固定日期不是seed，主庫RE-first保持。
+initializer-returned監看點未取樣，不猜C2259何時返回，也不把B4EF6呼叫鏈補成C53C9靜態caller。已證原C4562進入與C472A／1171AB輸入，403已保存新控件20表的RETURN producer／handler，404已補驗實際ID3、正常點擊與星圖返回；options／存讀仍待後續。正常存讀及remake同狀態未驗，固定日期不是seed，主庫RE-first保持。
 
 本機視覺收據workplace/new-game-402-visual-review.json記錄原PNG hash、實際scope與人工檢視結果；new-game-402-verify.py獨立核對數值／原code／真SS／完整前置，新視覺判讀不偽裝成該程式自動通過。402 source／verifier與native一次通過，沒有新的guest失敗或重跑。
 
@@ -43,4 +43,6 @@ initializer-returned監看點未取樣，不猜C2259何時返回，也不把B4EF
 
 本機入口workplace/new-game-402-table-verify.py使用同一402末態，不重跑guest、不新增裝置輸入。runtime data pointer0x298848、bias0、20×55＝1100原bytes，九個含端點及外側first-hit案例通過。已證實：raw index3、kind0矩形531,445..615,470；GUI590,468對應裝置1180,468，外側first-hit為19。原index18矩形現為378,34..510,64，不沿用395的RETURN18。
 
-強推論：raw3的矩形與實際原PNG右下RETURN一致，是下一正常點擊候選；尚未實際按下，不將幾何解碼當成原選取返回值。400的C4343只保存mode恢復writer與17B0EE／17B0F0來源，當次控件ID綁定仍須窄來源查證。下一403先核對原handler比較點與當次UI word，再建READY正常press／release契約；正常星圖返回、options及存讀另驗。兩個私有table收據由本篇索引。
+強推論：raw3的矩形與實際原PNG右下RETURN一致，是下一正常點擊候選；尚未實際按下，不將幾何解碼當成原選取返回值。400的C4343只保存mode恢復writer與17B0EE／17B0F0來源，403已保存原handler與producer，404已補驗當次UI word、正常press／release與星圖返回；options及存讀另驗。兩個私有table收據由本篇索引。
+
+後續解決回鏈：[403控件綁定來源](403-moo2-list-return-binding-source.md)、[404正常列表RETURN與星圖返回](404-moo2-colonies-list-return-input.md)。本篇原222329889末態與230M上限保持。
