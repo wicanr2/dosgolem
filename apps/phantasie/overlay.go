@@ -43,6 +43,7 @@ type LogEvent struct {
 	Col, Row int
 	Text     string
 	Step     uint64
+	dimCells []bool // 已由 invert2 完整涵蓋的原版格；只供嚴格稽核候選模型。
 }
 
 type eventIdentity struct {

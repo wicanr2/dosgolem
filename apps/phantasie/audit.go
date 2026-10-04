@@ -261,26 +261,11 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 		if rec, stamps := o.records[e.ID], o.groupStamps(e.ID); rec != nil && len(stamps) > 0 {
 			// 同一事件可以只反白其中幾格：底色與墨色依各格的反白狀態分開統計，同一狀態內才要求單一色號。
 			visualStats := o.scanCells(rec, stamps, indexed, bgIdx, fgIdx)
-			var c0, c1 [2][256]int
-			if o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, _ int) {
-				sw := 0
-				if k < len(visualStats) && visualStats[k].swap {
-					sw = 1
-				}
-				if mk == 0 {
-					c0[sw][c]++
-				} else {
-					c1[sw][c]++
-				}
-			}) {
-				for sw := 0; sw < 2; sw++ {
-					if distinct(&c0[sw]) > 1 || distinct(&c1[sw]) > 1 {
-						strict++
-						if o.AuditDebug != nil {
-							o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q 反白=%d 背景色數=%d 墨色數=%d", e.ID, e.Text, sw, distinct(&c0[sw]), distinct(&c1[sw])))
-						}
-						break
-					}
+			if !o.strictMask(rec, stamps, indexed, visualStats, nil) &&
+				!o.strictMask(rec, stamps, indexed, visualStats, e.dimCells) {
+				strict++
+				if o.AuditDebug != nil {
+					o.AuditDebug(fmt.Sprintf("遮罩對應率不是 100%% key=%s text=%q", e.ID, e.Text))
 				}
 			}
 		}
@@ -331,6 +316,49 @@ func (o *Overlay) AuditEvents(indexed []uint8) (exposed, strict int) {
 		}
 	}
 	return exposed, strict
+}
+
+// strictMask 核對既有像素集合的單色映射。dims 非空時只讓已知變暗格的
+// 掃描線 2、4 使用精確清除模型：同格兩線必須同為 0，或反白後的 3。
+// 其他像素仍全部按原字模核對，不改定色、粗略顯示判定或覆蓋檢查。
+func (o *Overlay) strictMask(rec *EventRecord, stamps []*xlate.Stamp, indexed []uint8, stats []cellStat, dims []bool) bool {
+	var c0, c1 [2][256]int
+	colors := make(map[int]uint8)
+	valid := true
+	if len(stamps) == 0 {
+		return true
+	}
+	y0 := stamps[0].Y
+	ok := o.scanGroup(rec, stamps, indexed, func(k int, mk, c uint8, _, y int) {
+		if k < len(dims) && dims[k] && (y-y0 == 2 || y-y0 == 4) {
+			if c != 0 && c != 3 {
+				valid = false
+			}
+			if prior, seen := colors[k]; seen && prior != c {
+				valid = false
+			}
+			colors[k] = c
+			return
+		}
+		sw := 0
+		if k < len(stats) && stats[k].swap {
+			sw = 1
+		}
+		if mk == 0 {
+			c0[sw][c]++
+		} else {
+			c1[sw][c]++
+		}
+	})
+	if !ok {
+		return true // 沿用無可掃描字模／不一致列時的原有行為。
+	}
+	for sw := 0; sw < 2; sw++ {
+		if distinct(&c0[sw]) > 1 || distinct(&c1[sw]) > 1 {
+			return false
+		}
+	}
+	return valid
 }
 
 func distinct(h *[256]int) int {

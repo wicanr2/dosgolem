@@ -293,6 +293,31 @@ func (o *Overlay) OnInvert(row, col, width int, dim bool) {
 		o.C.Inc("op_invert")
 	}
 	x0, y0, x1, y1 := col*8, row*8, (col+width)*8, (row+1)*8
+	if dim && width > 0 && x1 > x0 {
+		// 資格綁原始事件 id；只登記同一實際列中完整受原版操作涵蓋的格。
+		// 日誌與資格一同由 MaxLog 淘汰，新繪字事件不繼承。
+		for i := range o.log {
+			e := &o.log[i]
+			stamps := o.groupStamps(e.ID)
+			if len(stamps) == 0 {
+				continue
+			}
+			dy, ok := groupDY(stamps, &EventRecord{Row: e.Row})
+			if !ok || e.Row*8+dy != y0 {
+				continue
+			}
+			for k := range []byte(e.Text) {
+				left := (e.Col + k) * 8
+				if left < 0 || left+8 > screenW || left < x0 || left+8 > x1 {
+					continue
+				}
+				if len(e.dimCells) == 0 {
+					e.dimCells = make([]bool, len(e.Text))
+				}
+				e.dimCells[k] = true
+			}
+		}
+	}
 	hit := map[string]struct{}{}
 	for _, s := range o.Layer.Stamps {
 		sx0, sy0, sx1, sy1 := s.Rect()
