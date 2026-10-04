@@ -62,3 +62,7 @@ Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce617
 375與374正文保留並追加376，索引及backlink由私有驗證核對。原序列／rawDAC／LOG／PNG／state／probe與getter維持本機，私有收據SHA-256與實際Docker入口見主庫既有研究檔。原guest一次，固定日期不是seed；相關Docker容器清理。
 
 下一步以376已證實的11輪單調降色與182566943歸零為來源，先審查新的轉頁觀察契約：保留185M完整前置，限定追加一次10M窗口至195M，追首個恢復非0色值的DAC寫入並保存原核心／clock與可見頁；未恢復時記錄實際邊界，不以加碼重跑求過。不得代寫palette、增加玩家輸入或深入DAC／PIT／driver及renderer helper。主庫玩法RE-first保持，列表內容／正常操作／正式存讀／完整開局／RNG與remake同狀態未驗。
+
+## 377續跑實際CPU邊界回填
+
+[377](377-moo2-colonies-restore-continuation.md)保持376完整185M前置，原11275 baseline groups／12188共通原列／39frames及黑PNG保持。明示一次10M至195M的觀察先在188259170–188265776新增一輪1025個全零DAC事件，首恢復未命中；原188532362、dosgolem_high_le:1F455D／2C17因未支援2C而停，沒有195M step_limit。停止PNG仍黑、索引與VBE保持，20表有10個raw byte自然變化，語意未知。下一步補SUB AL,imm8及其原consumer，不以再加cap求過；376原降色與末寫入歷史保持。

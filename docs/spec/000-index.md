@@ -618,3 +618,5 @@
 - [375：185M新物件表與原色彩狀態只讀](375-moo2-colonies-color-source.md)，CONFORMED，限定185M完整20表／原DAC全0與索引映色；轉頁與列表未驗。
 
 - [376：正常COLONIES窗口DAC寫入序列](376-moo2-colonies-dac-write-journal.md)，CONFORMED，限定11輪單調降色／182566943歸零與末寫入；恢復與列表未驗。
+
+- [377：降色後首色彩恢復與195M邊界](377-moo2-colonies-restore-continuation.md)，CONFORMED，限定185M前置與188532362原2C17停止；首色彩恢復與列表未驗。
