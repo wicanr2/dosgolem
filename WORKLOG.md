@@ -140,3 +140,11 @@ DOSBox兩頁原始擷取及腳本保存於本機dosbox-dialogue-20260908研究�
 ## 2026-09-08 FD2 首關對拍暫停交接
 
 批次127–146補平台缺口，最新dosfile／machine／cpu386共720項通過、0失敗、0略過。批次145／146以原版動態IOMode上限20、舊handle150、FD2.TMP要求207360卻只寫10752的證據修正代號重用與完整ECX寫入。修正後r12從START自行擷取首攻返回，人物已正常，至第2回合後依使用者要求暫停。r11到城鎮但存在模式表表外寫入，不作最終收據。規格186與FD2文件94保存來源；未提交推送，未宣稱完整雙側通關。
+
+## 2026-10-05 FD2 #173：同時點map state觀測
+
+依[012-fd2-parity-capture](docs/spec/012-fd2-parity-capture.md)第9節與fd2_re主契約先複核16項欄位，RE-CLOSED／READY先於實作。唯一oracle新增預設停用-map-state，在既有有界trace與接受frame同步讀取raw globals、view、units與獨立palette。unsigned bits及寬度保持，無效來源false；guest memory及port counters不改。
+
+8項oracle頂層測試通過，parity套件無測試。FD2包裝語法、96項控制器與9項來源鏈回歸通過。初次wrapper檢查缺/orig與/drive.py掛載，補齊後同命令r2通過。收尾計數初版把縮排子案例一併算入，改依行首分類後確定8項，沒有改測試或原日誌。工具提交81df503已推送，本筆追加驗證紀錄；完整命令與hash保存在fd2_re主契約及work/oracle-map-state-*。
+
+下一步clean來源同槽／seed／1539controls重生，核對44PNG及原欄位，取得11CAC(1)前後資料。不宣稱map parity或PLAYER-E2。資料僅本地，原始素材與其他專案未改。
