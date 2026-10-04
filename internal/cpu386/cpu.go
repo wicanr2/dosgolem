@@ -5096,6 +5096,16 @@ func (c *CPU) Step() error {
 		reg, rm := (modrm>>3)&7, modrm&7
 		c.R[reg] |= c.R[rm]
 		c.setLogicFlags(c.R[reg])
+	// 規格378：naked SUB AL,imm8；立即數fetch完成後才發布AL與六算術旗標。
+	case op == 0x2c:
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("2C 不接受目前的 prefix")
+		}
+		value, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		c.setReg8(0, c.sub8(c.reg8(0), value))
 	case op == 0x2d:
 		if segmentOverride >= 0 || repe || repne {
 			return fail("SUB accumulator prefix未支援")

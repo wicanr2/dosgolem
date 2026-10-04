@@ -70,3 +70,7 @@ Docker Go1.24.13 image sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae538905
 下一步依原1F455D／2C17與完整188532362來源，建立CPU386的SUB AL,imm8規格，核對公開ISA契約與既有byte SUB旗標模型；READY後實作2C並用獨立256×256輸入、保留EAX高24bit／其它暫存器／段／FPU／非算術flags及立即數fetch失敗驗收，再重播同377窗口。原consumer自然恢復與正常畫面另驗，不再擴cap。主庫玩法RE-first保持，列表正常操作／正式存讀／完整開局／RNG與remake同狀態未驗；固定日期不是seed。
 
 ISA名稱交叉核對：[Intel SDM Vol.2B](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)，SUB條目4-654頁列2C ib／SUB AL,imm8；這只確認待支援指令名稱，原guest尚未執行該指令，旗標與實作驗收留下一規格。
+
+## 378補2C與同窗口恢復回填
+
+[378](378-cpu386-sub-al-immediate.md)補naked2C並通過393216組與完整CPU386／machine固定官方EXE全套。原188532362自然SUB AL1Ah→03h／flags206h，CMP→293h／JA未跳／MOVZX四consumer通過。377完整185M前置／39frames及至2C共通原列、全部12300 DAC事件前綴保持；沒有新輸入或再加cap。同195M窗口首次非0DAC在189322149，但當時RGB仍黑，195M終PNG親看為Sol II殖民地列表。原第三RET與共享word0000另保存，不把早先選取10當持久結果。377舊CPU停態與黑圖歷史保持；列表正常操作／正式存讀／完整開局／RNG與remake同狀態未驗。
