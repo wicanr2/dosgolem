@@ -58,3 +58,9 @@ READY先於只讀模型；387 SOURCE PASS限原靜態來源與既有收據。379
 見[389正常press與release](389-moo2-colonies-pop-press.md)。不可變鍵為官方1.31／IDA linear EA 11E1A7→113FB9、1192F3／1A8840、BED21、11E508／11E50D；dosgolem_high_le投影分開見389時序。原205804505完整388前置後，正常660,77按下，原選取器返回1，場景依真SS返回後安全放開；零按鍵、kind6場景回呼與共享active清除已驗。原8-byte record差異只在206658147之後到210M形成，正式職務與放置語意未驗。較早未知是當時收據邊界，389補驗限定此正常輸入；不改舊正文或receipt。
 
 下一步390沿同輸入及210M，追查206658147之後原C086E→C02F9與B9C3D／B9E94的最小正式寫入鏈，定位這8個record差異與可放置狀態；取得證據才訂一次跨職業列放置。不假設8,000k→4,000k已完成換職或刪除人口，不盲增cap或深挖renderer／平台helper。
+
+## 392／393 正常 kind7 放開回填
+
+不可變鍵：DOS／官方1.31 ORION2.EXE／IDA linear EA BF6ED、B9E94、1237D9及1237DB；EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f。runtime投影加F0000h。原kind7按下／selector由[392](392-moo2-colonies-pop-place-input.md)補驗；當次getter至20DB8C候選未觀測，不能作消費閘門。
+
+[393](393-moo2-colonies-pop-release.md)以selector真SS返回EAX2、新GUI及callback20安全release，原BF6ED→B9E94與BF6F2真返回、下一正常1B0845及50個raw writer已驗。原MOV SS／MOV ESP中間Step的堆疊不可讀屬被動unknown，真near仍要求至少4-byte合法槽。較早kind6來源及391靜態getter仍有效，不能外推該getter候選到此kind7正常路徑。正式job欄位／跨殖民地／存讀及remake同狀態仍未知。

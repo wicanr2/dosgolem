@@ -92,3 +92,9 @@ IDA沿locked-v1 image、120s／2GiB／2CPU／128pids／UID1000／network none，
 見[391 kind7與放開來源](391-moo2-colonies-pop-place.md)。不可變鍵為官方1.31／IDA linear EA 11CEF5的11E1EC／11E334／11E503、11E582／11E69D及123C1B／1B1222。原390的210M控件表已成37列，前三職業列kind7，第二列signed矩形310,90..510,118；原SAR1下裝置660,107仍first-hit2。kind7不呼叫kind6 held場景，不能沿用等待held場景返回的release守衛。123C1B讀cached word_1B1222，須與當次新裝置／座標／callback完成分開核對；既有snapshot的calls為s.calls啟動服務計數，不能當AX3 poll次數。舊36表kind6仍是205804505原首輸入階段，不改其receipt或歷史正文。391沒有新guest或輸入，正式放置未驗。
 
 下一步392保留原390至210M後，有界捕捉原1B0845及當次37表／kind7，正常660,107 press；觀察213C1B依真SS返回20DB8C的低AX1及新座標、callback完成、安全IRQ與至少20ms條件，再release。實際selector／BF6ED→B9E94及record／原畫面另驗，不使用calls增加或kind6場景回呼作放開閘門。
+
+## 392／393 正常 kind7 放開回填
+
+不可變鍵：DOS／官方1.31 ORION2.EXE／IDA linear EA BF6ED、B9E94、1237D9及1237DB；EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f。runtime投影加F0000h。原kind7按下／selector由[392](392-moo2-colonies-pop-place-input.md)補驗；當次getter至20DB8C候選未觀測，不能作消費閘門。
+
+[393](393-moo2-colonies-pop-release.md)以selector真SS返回EAX2、新GUI及callback20安全release，原BF6ED→B9E94與BF6F2真返回、下一正常1B0845及50個raw writer已驗。原MOV SS／MOV ESP中間Step的堆疊不可讀屬被動unknown，真near仍要求至少4-byte合法槽。較早kind6來源及391靜態getter仍有效，不能外推該getter候選到此kind7正常路徑。正式job欄位／跨殖民地／存讀及remake同狀態仍未知。

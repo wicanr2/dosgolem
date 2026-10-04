@@ -54,3 +54,9 @@ READY來源審查：固定390原36／37表、9個kind7含端點命中與y92反�
 ## CONFORMED 限定來源結果
 
 兩份IDA／238列原bytes、390整表與cached／device反例、九個熱區含端點正對照及y92型別轉換反例通過。READY先於來源結果收斂；無新guest、輸入、CLI旗標或Go實作。正式放置未驗。
+
+## 392／393 正常 kind7 放開回填
+
+不可變鍵：DOS／官方1.31 ORION2.EXE／IDA linear EA BF6ED、B9E94、1237D9及1237DB；EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f。runtime投影加F0000h。原kind7按下／selector由[392](392-moo2-colonies-pop-place-input.md)補驗；當次getter至20DB8C候選未觀測，不能作消費閘門。
+
+[393](393-moo2-colonies-pop-release.md)以selector真SS返回EAX2、新GUI及callback20安全release，原BF6ED→B9E94與BF6F2真返回、下一正常1B0845及50個raw writer已驗。原MOV SS／MOV ESP中間Step的堆疊不可讀屬被動unknown，真near仍要求至少4-byte合法槽。較早kind6來源及391靜態getter仍有效，不能外推該getter候選到此kind7正常路徑。正式job欄位／跨殖民地／存讀及remake同狀態仍未知。

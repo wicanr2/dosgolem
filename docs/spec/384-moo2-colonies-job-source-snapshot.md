@@ -69,3 +69,9 @@ READY審查：固定382完整210M與383原bytes／fixup／三pointer通過；初
 不可變定位為官方1.31 ORION2.EXE／IDA linear EA dword_1A8840、1191EA／A340881A00；dosgolem_high_le runtime2091EA／A340882900及DS188:298840。見[386限定驗收](386-moo2-colonies-callback-read.md)。386沿同輸入與原210M取得原203219451寫入前55451700、寫入後21ED1A00／raw1AED21，全RAM僅實際四bytes改變已驗；首正常輸入205804505的完整原385前置守衛通過，第9只讀窗298840仍21ED1A00。
 
 正確callback值與寫入範圍由未知／強推論升為**已證實，限定此次原A3及首輸入**。這不是原384在210M已取過正確值，也不外推全部callback生命週期。舊2A8840零raw維持未分類，原錯誤385觀察器與其DRAFT狀態保留；沒有改舊正文／Go／收據，也不當CPU缺陷。人口正常操作／正式存讀／remake同狀態仍未知。
+
+## 392／393 正常 kind7 放開回填
+
+不可變鍵：DOS／官方1.31 ORION2.EXE／IDA linear EA BF6ED、B9E94、1237D9及1237DB；EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f。runtime投影加F0000h。原kind7按下／selector由[392](392-moo2-colonies-pop-place-input.md)補驗；當次getter至20DB8C候選未觀測，不能作消費閘門。
+
+[393](393-moo2-colonies-pop-release.md)以selector真SS返回EAX2、新GUI及callback20安全release，原BF6ED→B9E94與BF6F2真返回、下一正常1B0845及50個raw writer已驗。原MOV SS／MOV ESP中間Step的堆疊不可讀屬被動unknown，真near仍要求至少4-byte合法槽。較早kind6來源及391靜態getter仍有效，不能外推該getter候選到此kind7正常路徑。正式job欄位／跨殖民地／存讀及remake同狀態仍未知。

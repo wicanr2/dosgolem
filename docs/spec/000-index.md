@@ -643,4 +643,8 @@
 
 - [390 原職業列放開後寫入](390-moo2-colonies-pop-writes.md)：CONFORMED，原選取分支及8個record差異writer已驗，正式放置未知。
 
-- [391 原第二職業列放置](391-moo2-colonies-pop-place.md)：CONFORMED，限定RE來源；選取後37表／kind7與按下放開分派已錨定，正常放置未驗。
+- [391 原第二職業列放置](391-moo2-colonies-pop-place.md)：CONFORMED，限定RE來源；選取後37表／kind7與按下放開分派已錨定，正常放開與配置分支由393補驗；正式job欄位與存讀未驗。
+
+- [392 原 kind7 第二職業列正常輸入](392-moo2-colonies-pop-place-input.md)：DRAFT，正常kind7按下／selector真返回已驗，候選getter消費閘門拒絕；放開與正式配置未驗。
+
+- [393 原 kind7 selector 真返回的正常放開](393-moo2-colonies-pop-release.md)：CONFORMED，原正常release、BF6ED→B9E94真返回、下一輸入點與50個raw writer已驗；正式job欄位與存讀未驗。
