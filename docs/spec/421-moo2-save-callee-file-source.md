@@ -45,3 +45,5 @@
 兩次窄IDA查詢共526列／447個EA／64處fixup差異；原LE與file bytes獨立核對。新輸入釘選與420完整末態保持。首次腳本換行字串SyntaxError沒有新JSON或guest，四份失敗按failed1-421前綴與manifest保存；修正語法後同image／UID／命令重跑。兩次有效查詢wrapper0，idat實際exit1、非空JSON／5365函式與原SHA核對，退出碼照實保存。
 
 本項CONFORMED只能表示來源核對通過。SAVE1.GAM是否真正建立、寫入範圍與完整檔案、fclose／返回、成功GUI、正常讀檔、鍵盤命名與remake同狀態仍未驗。主庫RE-first保持。[422 有界存檔續行](422-moo2-save-callee-continue.md)只準備私有原版觀察，不授權猜補平台行為。
+
+目前動態結論回填：422已驗SAVE1.GAM／wb實際buffer與AH3C平台拒絕，正式存檔未完成。見[422原實際請求](422-moo2-save-callee-continue.md)；原fopen未返回、53個fwrite來源尚未成為實際寫入，後續平台補缺依[423](423-moo2-protected-create-file.md)。

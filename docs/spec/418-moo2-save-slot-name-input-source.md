@@ -48,3 +48,5 @@ IDA wrapper exit0，idat實際exit1與非空JSON／5365函式／固定hash均記
 ## 421檔案交易來源回填
 
 421已驗原存檔檔名、wb開啟、53個fwrite來源與close／共用返回尾端，見[421](421-moo2-save-callee-file-source.md)。已證實原CALL與資料來源，實際檔案請求／寫入、close／返回、成功GUI與正式讀回仍未驗。原有收據與限定驗收不變；下一有界原版觀察契約見[422](422-moo2-save-callee-continue.md)。
+
+目前動態結論回填：422已驗SAVE1.GAM／wb實際buffer與AH3C平台拒絕，正式存檔未完成。見[422原實際請求](422-moo2-save-callee-continue.md)；原fopen未返回、53個fwrite來源尚未成為實際寫入，後續平台補缺依[423](423-moo2-protected-create-file.md)。

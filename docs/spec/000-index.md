@@ -703,4 +703,6 @@
 - [420 原第一格放開守衛修正](420-moo2-save-release-guard-correction.md)：CONFORMED限定私有原版正常輸入；完整419失敗先凍結，26只讀phase／四次裝置操作，原selected0、兩個reader1／21、238505421真CALL到10160B／參數0；callee未執行，正式存讀與remake對拍未驗。
 
 - [421 原存檔交易檔案／資料來源](421-moo2-save-callee-file-source.md)：CONFORMED限定來源；2窄IDA、526列／447EA／64fixup、六caller、原wb／53個fwrite／close與共用尾端，沒有新guest。
-- [422 原存檔callee有界續行](422-moo2-save-callee-continue.md)：READY限定私有原版觀察；完整420先凍結、零新輸入，沿原檔案請求到close／返回或實際拒絕，250M／1200s；尚無Go／guest，正式存讀與remake對拍未驗。
+- [422 原存檔callee有界續行](422-moo2-save-callee-continue.md)：CONFORMED限定實際請求／拒絕觀察，8只讀phase／完整祖先保持；SAVE1.GAM／wb與缺檔AX2已驗，AH3C未處理、沒有寫入或返回，正式存讀未完成。
+
+- [423 MOO2保護模式普通檔建立](423-moo2-protected-create-file.md)：READY限定AH3C／CX0與可寫overlay，依原422 AX3C80實際請求及Microsoft契約；尚無平台實作或新guest，主庫玩法閘門保持。
