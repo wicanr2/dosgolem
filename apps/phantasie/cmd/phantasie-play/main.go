@@ -98,6 +98,18 @@ func (g *game) title() {
 	ebiten.SetWindowTitle(g.baseName + "（" + g.s.Ov.Display() + "・" + names[g.theme] + "）")
 }
 
+func defaultStateDir() (string, error) {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "phantasie-cht"), nil
+}
+
 func main() {
 	root := flag.String("root", "", "原版目錄（唯讀；必填）")
 	bat := flag.String("bat", "", "啟動批次檔名；空字串＝目錄內唯一的 .BAT")
@@ -109,7 +121,24 @@ func main() {
 	theme := flag.String("theme", "auto", "顯示主題：auto、original、amber、hd；Shift+F12 切換")
 	zoom := flag.Int("zoom", 1, "視窗倍率（1 或 2；視窗為 640x400 的倍數）")
 	ips := flag.Uint64("ips", 6_000_000, "每秒執行的原版指令數")
+	recordRoute := flag.String("record-route", "", "重播正常玩家路線並結束")
+	frameDir := flag.String("frame-dir", "", "逐格 PNG 與收據的新目錄；空字串只輸出 JSON")
+	frameEvery := flag.Int("frame-every", 2, "每幾個虛擬格寫入 PNG")
+	holdFrames := flag.Int("hold-frames", 60, "正常停點保持格數，1 至 600")
+	showcase := flag.Bool("showcase", false, "正常進城後展示主題及語言切換")
+	recordBundle := flag.String("record-bundle", "", "核對正式封包的清冊及實際錄影程式")
 	flag.Parse()
+	var captureFlag bool
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "frame-dir", "frame-every", "hold-frames", "showcase", "record-bundle":
+			captureFlag = true
+		}
+	})
+	if (*recordRoute == "" && captureFlag) || (*recordRoute != "" && (*state == "" || *frameEvery < 1 || *holdFrames < 1 || *holdFrames > 600 || *ips < 60)) {
+		fmt.Fprintln(os.Stderr, "擷取旗標須搭配 -record-route、明示新 -state，以及有效的格數與 ips")
+		os.Exit(2)
+	}
 	if *root == "" || *fontDir == "" {
 		flag.Usage()
 		os.Exit(2)
@@ -143,19 +172,29 @@ func main() {
 	}
 	dir := *state
 	if dir == "" {
-		base := os.Getenv("XDG_DATA_HOME")
-		if base == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			base = filepath.Join(home, ".local", "share")
+		var err error
+		dir, err = defaultStateDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
-		dir = filepath.Join(base, "phantasie-cht")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	var dirErr error
+	if *recordRoute != "" {
+		playerDir, err := defaultStateDir()
+		if err != nil {
+			dirErr = err
+		} else {
+			dirErr = captureNewDir(dir, *root, *textDir, *fontDir, *artDir, *frameDir, playerDir)
+		}
+		if dirErr == nil && *frameDir != "" {
+			dirErr = captureNewDir(*frameDir, *root, *textDir, *fontDir, *artDir, dir)
+		}
+	} else {
+		dirErr = os.MkdirAll(dir, 0o755)
+	}
+	if dirErr != nil {
+		fmt.Fprintln(os.Stderr, dirErr)
 		os.Exit(1)
 	}
 	langs := []string{*lang}
@@ -177,6 +216,21 @@ func main() {
 	}
 	for _, warning := range s.Warnings {
 		fmt.Fprintln(os.Stderr, warning)
+	}
+	if *recordRoute != "" {
+		if len(s.Failed) != 0 {
+			fmt.Fprintln(os.Stderr, "錄影所需語言未全部啟用")
+			os.Exit(1)
+		}
+		if err := recordGameplay(s, *theme, art, captureOptions{
+			Route: *recordRoute, Dir: *frameDir, Bundle: *recordBundle,
+			Root: *root, Text: *textDir, Font: *fontDir, Art: *artDir,
+			Every: *frameEvery, Hold: *holdFrames, IPS: *ips, Showcase: *showcase,
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "錄影失敗：", err)
+			os.Exit(1)
+		}
+		return
 	}
 	g := &game{s: s, stepsPer: *ips / 60, rgba: make([]uint8, 640*400*4), baseName: "幽靈戰士（Phantasie）繁體中文化", theme: *theme, art: art}
 	g.img = ebiten.NewImage(640, 400)
