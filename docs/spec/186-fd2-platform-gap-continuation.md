@@ -1605,3 +1605,11 @@ SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
 __ExpandDGROUP初始化free block不列入再配置判定。
 這是既有硬體近似profile上的原始指令生命週期，非章oracle／全硬體exact。
 正式近堆仍未取代，第十八章同r3前綴到T8另行驗收。
+
+
+2026-10-06追加勘誤：相同完整平台設定的012defb2與6f6b1d7a乾淨重跑，
+生命週期全欄位相同，皆達一百萬步與59／39／26配置、釋放、同指標再配置。
+前述5650步TEST停止來自最初缺檔案及周邊設定的局部路徑；
+完整平台生命週期成功不能歸因於TEST修正。TEST支援仍由先FAIL後PASS的
+CPU回歸證明。兩份最終收據及來源雜湊在fd2_re
+docs/data/ida/fd2_ch18_oracle_stosb_20261003.json的allocator_natural_lifecycle。

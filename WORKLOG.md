@@ -148,3 +148,11 @@ DOSBox兩頁原始擷取及腳本保存於本機dosbox-dialogue-20260908研究�
 8項oracle頂層測試通過，parity套件無測試。FD2包裝語法、96項控制器與9項來源鏈回歸通過。初次wrapper檢查缺/orig與/drive.py掛載，補齊後同命令r2通過。收尾計數初版把縮排子案例一併算入，改依行首分類後確定8項，沒有改測試或原日誌。工具提交81df503已推送，本筆追加驗證紀錄；完整命令與hash保存在fd2_re主契約及work/oracle-map-state-*。
 
 下一步clean來源同槽／seed／1539controls重生，核對44PNG及原欄位，取得11CAC(1)前後資料。不宣稱map parity或PLAYER-E2。資料僅本地，原始素材與其他專案未改。
+
+
+2026-10-06追加勘誤：相同完整平台設定的012defb2與6f6b1d7a乾淨重跑，
+生命週期全欄位相同，皆達一百萬步與59／39／26配置、釋放、同指標再配置。
+前述5650步TEST停止來自最初缺檔案及周邊設定的局部路徑；
+完整平台生命週期成功不能歸因於TEST修正。TEST支援仍由先FAIL後PASS的
+CPU回歸證明。兩份最終收據及來源雜湊在fd2_re
+docs/data/ida/fd2_ch18_oracle_stosb_20261003.json的allocator_natural_lifecycle。
