@@ -100,3 +100,38 @@ func (p *DirectoryOverlayFiles) OpenWrite(name string, readWrite bool) (io.ReadS
 	}
 	return p.state.OpenFile(actual, mode, 0600)
 }
+
+// CreateFileProvider 是規格423的可選能力；OpenWrite仍不建立缺檔。
+type CreateFileProvider interface {
+	CreateFile(name string) (io.ReadSeekCloser, error)
+}
+
+// normalDOSCreateName限定既有平坦8.3模型，保留DOS裝置名稱。
+func normalDOSCreateName(name string) bool {
+	base, _, ok := exactDOSName(name)
+	if !ok {
+		return false
+	}
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return false
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9' {
+		return false
+	}
+	return true
+}
+
+func (p *DirectoryOverlayFiles) CreateFile(name string) (io.ReadSeekCloser, error) {
+	if !normalDOSCreateName(name) {
+		return nil, fs.ErrPermission
+	}
+	actual, err := p.stateName(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		actual = name
+	} else if err != nil {
+		return nil, err
+	}
+	// state是唯一可寫根；不存在時不讀或複製base，既有普通檔截成零長。
+	return p.state.OpenFile(actual, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
+}

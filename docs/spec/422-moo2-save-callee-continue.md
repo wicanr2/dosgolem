@@ -47,4 +47,6 @@
 
 418個base輸入全部保持，SAVE10／MOX副本與overlay內容無差異，沒有SAVE1.GAM。cgroup峰值1782833152bytes、OOM增量0，owned capture完成，唯一容器已移除。完整當次失敗以failed1-422-manifest.json保存；原碼、JSON、PNG與存檔不公開。
 
-本規格只對實際請求與拒絕觀察CONFORMED；正式存檔／讀回仍未完成。下一步依Microsoft平台契約補[423 AH3C普通檔建立](423-moo2-protected-create-file.md)，不追fopen內部或猜補保存資料。
+本規格只對實際請求與拒絕觀察CONFORMED；正式存檔／讀回仍未完成。[423 AH3C普通檔建立](423-moo2-protected-create-file.md)已完成工程接線；原成功保存依424另驗，不追fopen內部或猜補保存資料。
+
+平台補缺回填：423已接MOO2保護模式AH3C／CX0並通過工程測試；422原拒絕維持，原成功建立／寫入須由[424正常續行](424-moo2-save-create-continue.md)另驗，不把平台工程升格為正式保存成功。

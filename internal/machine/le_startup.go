@@ -251,6 +251,75 @@ func (s *FD2StartupDOS) fileAttributesReadOnly(c *cpu386.CPU) {
 	c.EFlags &^= cpu386.CF
 }
 
+// 規格423：普通檔建立只使用明示可寫提供者，不動原版base。
+func (s *FD2StartupDOS) createFile(c *cpu386.CPU) {
+	setError := func(code uint16) {
+		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
+		c.EFlags |= cpu386.CF
+	}
+	path := make([]byte, 0, 32)
+	terminated := false
+	for offset := uint32(0); offset < 260; offset++ {
+		if c.R[cpu386.EDX] > ^uint32(0)-offset {
+			setError(dosfile.ErrPathNotFound)
+			return
+		}
+		value, ok := c.ReadSegment8(c.Seg[cpu386.SegDS], c.R[cpu386.EDX]+offset)
+		if !ok {
+			setError(dosfile.ErrPathNotFound)
+			return
+		}
+		if value == 0 {
+			terminated = true
+			break
+		}
+		path = append(path, value)
+	}
+	if !terminated {
+		setError(dosfile.ErrPathNotFound)
+		return
+	}
+	name := string(path)
+	if !normalDOSCreateName(name) {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	provider, ok := s.files.(CreateFileProvider)
+	if !ok {
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	table := s.handles()
+	// 先確認容量，避免滿表後才截斷既有檔。範圍沿NewReusingTable。
+	available := false
+	for handle := uint32(dosfile.FirstHandle); handle < 0xffff; handle++ {
+		if !table.Has(uint16(handle)) {
+			available = true
+			break
+		}
+	}
+	if !available {
+		setError(dosfile.ErrTooManyOpen)
+		return
+	}
+	file, err := provider.CreateFile(name)
+	if err != nil || file == nil {
+		if file != nil {
+			_ = file.Close()
+		}
+		setError(dosfile.ErrAccessDenied)
+		return
+	}
+	handle, code := table.Add(file, name)
+	if code != 0 {
+		_ = file.Close()
+		setError(code)
+		return
+	}
+	c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(handle)
+	c.EFlags &^= cpu386.CF
+}
+
 func (s *FD2StartupDOS) openReadOnly(c *cpu386.CPU) {
 	setError := func(code uint16) {
 		c.R[cpu386.EAX] = c.R[cpu386.EAX]&0xffff0000 | uint32(code)
@@ -719,6 +788,13 @@ func (s *FD2StartupDOS) Handle(c *cpu386.CPU, number uint8) bool {
 			return false
 		}
 		s.fileAttributesReadOnly(c)
+		return true
+	}
+	if function == 0x3c {
+		if !s.moo2Profile || uint16(c.R[cpu386.ECX]) != 0 {
+			return false
+		}
+		s.createFile(c)
 		return true
 	}
 	if function == 0x3d {

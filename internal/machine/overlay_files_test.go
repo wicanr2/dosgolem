@@ -170,3 +170,106 @@ func TestDOSOverlayFullWidthWriteAndPreflight(t *testing.T) {
 		t.Fatal("原檔污染")
 	}
 }
+
+func TestMOO2OverlayCreateFilePreservesBase(t *testing.T) {
+	for _, tc := range []struct {
+		name, requested, existing string
+	}{
+		{"建立缺檔", "SAVE1.GAM", ""},
+		{"大小寫既有檔截斷", "SAVE1.GAM", "save1.gam"},
+		{"base同名檔不複製", "save1.gam", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, state := t.TempDir(), t.TempDir()
+			source := []byte("original immutable bytes")
+			if tc.name != "建立缺檔" {
+				if err := os.WriteFile(filepath.Join(base, "SAVE1.GAM"), source, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.existing != "" {
+				if err := os.WriteFile(filepath.Join(state, tc.existing), []byte("long obsolete save"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p, err := OpenDirectoryOverlayFiles(base, state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer p.Close()
+			f, err := p.CreateFile(tc.requested)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pos, err := f.Seek(0, io.SeekCurrent); err != nil || pos != 0 {
+				t.Fatal("建立位置不是零", pos, err)
+			}
+			if b, err := io.ReadAll(f); err != nil || len(b) != 0 {
+				t.Fatal("建立未截成零長", b, err)
+			}
+			if _, err := f.(io.Writer).Write([]byte("new")); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			name := tc.requested
+			if tc.existing != "" {
+				name = tc.existing
+			}
+			if b, err := os.ReadFile(filepath.Join(state, name)); err != nil || string(b) != "new" {
+				t.Fatal("建立後內容錯誤", b, err)
+			}
+			entries, err := os.ReadDir(state)
+			if err != nil || len(entries) != 1 {
+				t.Fatal("大小寫造成重複檔", entries, err)
+			}
+			if b, err := os.ReadFile(filepath.Join(base, "SAVE1.GAM")); tc.name == "建立缺檔" && !os.IsNotExist(err) || tc.name != "建立缺檔" && (err != nil || string(b) != string(source)) {
+				t.Fatal("base被改寫", b, err)
+			}
+			if f, err := p.OpenWrite("MISSING.GAM", true); err == nil {
+				f.Close()
+				t.Fatal("OpenWrite偷偷建立缺檔")
+			}
+		})
+	}
+}
+
+func TestMOO2OverlayCreateFileRejectsNonRegular(t *testing.T) {
+	base, state := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "KEEP.GAM"), []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "KEEP.GAM"), filepath.Join(state, "LINK.GAM")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(state, "DIR.GAM"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"DUP.GAM", "dup.gam"} {
+		if err := os.WriteFile(filepath.Join(state, n), []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := OpenDirectoryOverlayFiles(base, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for _, name := range []string{"", "..", "../KEEP.GAM", "C:KEEP.GAM", "a/b", "a\\b", "*.GAM", "NINECHARS.GAM", "CON", "NUL.GAM", "COM1.TXT", "LPT9", "LINK.GAM", "DIR.GAM", "DuP.gam"} {
+		t.Run(name, func(t *testing.T) {
+			if f, err := p.CreateFile(name); err == nil {
+				f.Close()
+				t.Fatal("非法普通檔未拒絕")
+			}
+		})
+	}
+	for _, name := range []string{"DUP.GAM", "dup.gam"} {
+		if b, err := os.ReadFile(filepath.Join(state, name)); err != nil || string(b) != "keep" {
+			t.Fatal("拒絕截斷既有檔", name, b, err)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(base, "KEEP.GAM")); err != nil || string(b) != "original" {
+		t.Fatal("symlink造成base污染", b, err)
+	}
+}

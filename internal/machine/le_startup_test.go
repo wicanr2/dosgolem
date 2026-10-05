@@ -3,12 +3,16 @@ package machine
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/wicanr2/dosgolem/internal/cpu"
 	"github.com/wicanr2/dosgolem/internal/cpu386"
+	"github.com/wicanr2/dosgolem/internal/dosfile"
 )
 
 func TestMOO2WindowsVersionAbsentPreservesState(t *testing.T) {
@@ -1062,6 +1066,198 @@ func TestMOO2ProtectedFileAttributesUnsupportedPreservesState(t *testing.T) {
 			if s.Handle(c, tc.interrupt) || c.R != r || c.Seg != seg || c.EIP != ip || c.EFlags != flags || s.Calls() != 0 || s.table != oldTable || s.HasHandle(5) {
 				t.Fatal("未支援子功能改狀態或放行")
 			}
+		})
+	}
+}
+
+type create423File struct {
+	*bytes.Reader
+	closed bool
+}
+
+func (f *create423File) Close() error { f.closed = true; return nil }
+
+type create423Provider struct {
+	file  io.ReadSeekCloser
+	err   error
+	calls int
+}
+
+func (p *create423Provider) OpenRead(string) (io.ReadSeekCloser, error) { return nil, os.ErrNotExist }
+func (p *create423Provider) CreateFile(string) (io.ReadSeekCloser, error) {
+	p.calls++
+	return p.file, p.err
+}
+
+func create423CPU() (*cpu386.CPU, []byte) {
+	mem := make([]byte, 0x2bd894+280)
+	copy(mem[0x2bd894:], []byte("SAVE1.GAM\x00"))
+	c := cpu386.New(startupBus(mem))
+	c.Seg = [6]uint16{cpu386.SegCS: 0x180, cpu386.SegDS: 0x188, cpu386.SegES: 0x188, cpu386.SegGS: 0x20, cpu386.SegSS: 0x188}
+	c.SetDescriptor(0x188, cpu386.Descriptor{Limit: uint32(len(mem) - 1), Writable: true})
+	c.R = [8]uint32{cpu386.EAX: 0xabcd3c80, cpu386.ECX: 0x98760000, cpu386.EDX: 0x2bd894, cpu386.EBX: 0x12340042, cpu386.ESP: 0x2bd458, cpu386.EBP: 0x2bd88a, cpu386.ESI: 0x24681357, cpu386.EDI: 0xffffffff}
+	c.EIP, c.EFlags = 0x237107, 0x247
+	return c, mem
+}
+func assertCreate423State(t *testing.T, c *cpu386.CPU, oldR [8]uint32, oldSeg [6]uint16, oldIP, oldFlags uint32, mem, oldMem []byte, result uint16, success bool) {
+	t.Helper()
+	oldR[cpu386.EAX] = oldR[cpu386.EAX]&0xffff0000 | uint32(result)
+	if success {
+		oldFlags &^= cpu386.CF
+	} else {
+		oldFlags |= cpu386.CF
+	}
+	if c.R != oldR || c.Seg != oldSeg || c.EIP != oldIP || c.EFlags != oldFlags || !bytes.Equal(mem, oldMem) {
+		t.Fatalf("非輸出狀態變更：R=%X flags=%X", c.R, c.EFlags)
+	}
+}
+
+func TestMOO2ProtectedCreateFileAndWriteClose(t *testing.T) {
+	base, state := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "SAVE1.GAM"), []byte("immutable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := OpenDirectoryOverlayFiles(base, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	s := NewMOO2StartupDOS(p)
+	defer s.Close()
+	for _, al := range []uint32{0x80, 0, 0xff} {
+		c, mem := create423CPU()
+		c.R[cpu386.EAX] = 0xabcd3c00 | al
+		oldR, oldSeg, oldIP, oldFlags := c.R, c.Seg, c.EIP, c.EFlags
+		oldMem := append([]byte(nil), mem...)
+		if !s.Handle(c, 0x21) {
+			t.Fatal("原AH3C未接通")
+		}
+		handle := uint16(c.R[cpu386.EAX])
+		assertCreate423State(t, c, oldR, oldSeg, oldIP, oldFlags, mem, oldMem, handle, true)
+		if handle != 5 || !s.HasHandle(handle) || s.Calls() != 0 {
+			t.Fatal("handle重用或startup計數錯誤")
+		}
+		copy(mem[64:], []byte("saved"))
+		c.R[cpu386.EAX], c.R[cpu386.EBX], c.R[cpu386.ECX], c.R[cpu386.EDX] = 0x4000, uint32(handle), 5, 64
+		if !s.Handle(c, 0x21) || c.EFlags&cpu386.CF != 0 || c.R[cpu386.EAX] != 5 {
+			t.Fatal("新handle寫入失敗")
+		}
+		c.R[cpu386.EAX] = 0x3e00
+		if !s.Handle(c, 0x21) || c.EFlags&cpu386.CF != 0 || s.HasHandle(handle) {
+			t.Fatal("原close未接入")
+		}
+		if b, err := os.ReadFile(filepath.Join(state, "SAVE1.GAM")); err != nil || string(b) != "saved" {
+			t.Fatal("實際保存內容錯誤", b, err)
+		}
+		if b, err := os.ReadFile(filepath.Join(base, "SAVE1.GAM")); err != nil || string(b) != "immutable" {
+			t.Fatal("base內容變更", b, err)
+		}
+	}
+}
+
+func TestMOO2ProtectedCreateFileFailures(t *testing.T) {
+	for _, name := range []string{"無能力", "唯讀provider", "provider錯誤", "nil檔案", "錯誤附檔案", "越界", "溢位", "260未終止", "非法路徑", "裝置名稱", "handle滿"} {
+		t.Run(name, func(t *testing.T) {
+			c, mem := create423CPU()
+			provider := &create423Provider{file: &create423File{Reader: bytes.NewReader(nil)}}
+			s := NewMOO2StartupDOS(provider)
+			defer s.Close()
+			want := uint16(5)
+			wantCalls := 0
+			switch name {
+			case "無能力":
+				s = NewMOO2StartupDOS(nil)
+			case "唯讀provider":
+				p, err := OpenDirectoryReadOnlyFiles(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer p.Close()
+				s = NewMOO2StartupDOS(p)
+			case "provider錯誤":
+				provider.file = nil
+				provider.err = errors.New("denied")
+				wantCalls = 1
+			case "nil檔案":
+				provider.file = nil
+				wantCalls = 1
+			case "錯誤附檔案":
+				provider.err = errors.New("denied")
+				wantCalls = 1
+			case "越界":
+				c.SetDescriptor(0x188, cpu386.Descriptor{Limit: 0x2bd893, Writable: true})
+				want = 3
+			case "溢位":
+				c.R[cpu386.EDX] = 0xffffffff
+				want = 3
+			case "260未終止":
+				for i := 0; i < 260; i++ {
+					mem[0x2bd894+i] = 'A'
+				}
+				want = 3
+			case "非法路徑":
+				copy(mem[0x2bd894:], []byte("../SAVE1.GAM\x00"))
+			case "裝置名稱":
+				copy(mem[0x2bd894:], []byte("AUX.GAM\x00"))
+			case "handle滿":
+				want = 4
+				f := &create423File{Reader: bytes.NewReader(nil)}
+				// 使用不重用的表填入，避免fixture為每個handle做線性搜尋。
+				s.table = dosfile.NewTable()
+				for h := uint32(dosfile.FirstHandle); h < 0xffff; h++ {
+					if handle, code := s.table.Add(f, "occupied"); code != 0 || uint32(handle) != h {
+						t.Fatal("滿表fixture", handle, code)
+					}
+				}
+			}
+			oldR, oldSeg, oldIP, oldFlags := c.R, c.Seg, c.EIP, c.EFlags
+			oldMem := append([]byte(nil), mem...)
+			if !s.Handle(c, 0x21) {
+				t.Fatal("支援的AH3C未回錯誤")
+			}
+			assertCreate423State(t, c, oldR, oldSeg, oldIP, oldFlags, mem, oldMem, want, false)
+			if provider.calls != wantCalls || name != "handle滿" && s.HasHandle(5) {
+				t.Fatal("失敗呼叫provider或配置handle", provider.calls)
+			}
+			if name == "錯誤附檔案" && !provider.file.(*create423File).closed {
+				t.Fatal("provider錯誤漏關檔")
+			}
+		})
+	}
+}
+func TestMOO2ProtectedCreateFileUnsupportedKeepsState(t *testing.T) {
+	for _, name := range []string{"FD2", "非零屬性", "其他interrupt", "實模式"} {
+		t.Run(name, func(t *testing.T) {
+			c, mem := create423CPU()
+			p := &create423Provider{file: &create423File{Reader: bytes.NewReader(nil)}}
+			s := NewMOO2StartupDOS(p).FD2StartupDOS
+			if name == "FD2" {
+				s = NewFD2StartupDOS(p)
+			}
+			if name == "非零屬性" {
+				c.R[cpu386.ECX] |= 1
+			}
+			oldR, oldSeg, oldIP, oldFlags := c.R, c.Seg, c.EIP, c.EFlags
+			oldMem := append([]byte(nil), mem...)
+			n := uint8(0x21)
+			if name == "其他interrupt" {
+				n = 0x22
+			}
+			if name == "實模式" {
+				s.DPMI.m = &LEMachine{Mem: make([]byte, 1024)}
+				r := &cpu.CPU{}
+				r.R[cpu.AX] = 0x3c80
+				old := r.R
+				if s.HandleRealMode(r, 0x21) || r.R != old {
+					t.Fatal("實模式不當接通")
+				}
+			} else if s.Handle(c, n) {
+				t.Fatal("不支援契約被接通")
+			}
+			if c.R != oldR || c.Seg != oldSeg || c.EIP != oldIP || c.EFlags != oldFlags || !bytes.Equal(mem, oldMem) || p.calls != 0 || s.HasHandle(5) {
+				t.Fatal("拒絕有副作用")
+			}
+			s.Close()
 		})
 	}
 }
