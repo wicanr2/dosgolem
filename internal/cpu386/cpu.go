@@ -2836,6 +2836,28 @@ func (c *CPU) Step() error {
 			break
 		}
 
+		if operand16 && group == 0 && modrm>>6 != 3 && segmentOverride < 0 && !repe && !repne {
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment16(c.Seg[seg], addr)
+			if !ok {
+				return fail("ADD word來源越界")
+			}
+			flags := c.EFlags
+			result := c.add16(value, uint16(int16(int8(imm))))
+			if !c.writeSegment16(c.Seg[seg], addr, result) {
+				c.EFlags = flags
+				return fail("ADD word寫入越界")
+			}
+			break
+		}
+
 		if operand16 {
 			if segmentOverride >= 0 || repe || repne || group != 7 || modrm>>6 != 1 || modrm&7 == ESP {
 				return fail("16-bit 83 形狀尚未支援")

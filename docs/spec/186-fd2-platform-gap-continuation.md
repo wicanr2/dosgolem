@@ -1673,3 +1673,49 @@ adapter一百萬步JSON保持4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1
 驗證程式曾把既有cpu386.Descriptor誤寫為SegmentDescriptor造成編譯失敗。
 只訂正測試名稱後，同一容器與命令乾淨重跑PASS；保留失敗log。
 此為驗證程式錯誤，不是原始CPU或產品缺陷。
+
+
+## 批次156：第十八章原生近堆 T8 END 的 word ADD 83（CPU CONFORMED；正式重跑待驗）
+
+2026-10-06，fd2_re #192，父題 #102。固定 FD2.EXE 357074 bytes，
+SHA-256 222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f。
+唯一受版控 oracle 在乾淨 3d2ca72a 的 native 模式重跑同
+docs/data/parity-plans/ch18-guard-r3.jsonl，正常按鍵到 T8 END，
+10,084,671,521 步在 dosgolem relocated LE 0x22A47 停止。
+actual next_bytes 為 66 83 46 4C 0F，下一條 66 83 46 4E 0F。
+只作已知位址機械式解碼，不另命名遊戲函式或欄位。
+主證據是 fd2_re docs/data/ida/fd2_ch18_oracle_stosb_20261003.json
+的 allocator_native_chapter；保留輸入／runner／計畫／槽／控制及停止報告雜湊。
+
+平台依據：[Intel SDM Volume2A ADD，3-31..3-32](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf)。
+補 operand16 的 83 /0 memory、32-bit address 解碼形狀：
+readSegment16 先讀完整兩 byte，imm8 有號延伸到16位元，沿既有 add16
+發布結果及 CF／PF／AF／ZF／SF／OF，其餘 flags 保持。
+decodeAddress32 沿既有 DS／SS／SIB／disp；writeSegment16 核對完整可寫 span。
+來源／寫入失敗、未知 selector、截斷與未支援 prefix 拒收；
+寫入失敗恢復 flags，不發布 GPR、segment 或記憶體交易。
+不補 LOCK／segment override／address16，不改其他 group 或既有 register 形狀。
+
+READY 審查：實際原始 bytes 與公開 ISA 契約吻合，
+現有 add16、word ADD 01 與 dword ADD 83 已有一致 helper；
+只補 CPU 必要形狀，不改遊戲規則、配置器清零政策或槽資料。
+驗收實際 ESI+0x4C／0x4E、正負 imm8、進位／零／溢位／輔助進位／奇偶，
+DS／SS／SIB、鄰接 byte 與全部 GPR 保存；唯讀、短 span／bus、
+未知 selector、截斷／prefix 拒收且 flags 不變。
+先在基底重現回歸 FAIL，再驗 CPU／machine／oracle 完整 PASS；
+提交後由來源清冊審查的唯一正式 runner 重跑同 r3，
+此前 native 前綴逐位元相同並越過 0x22A47，後续結果如實保留。
+
+舊 adapter 與 native 的進戰場 RNG 及 +0x28..+0x30 殘值不同，
+本批不宣稱與舊 adapter 前綴相同；不重擲或改狀態強造相同路徑。
+#102 原有驗收與既有章 PLAYER-E2 保持。到 T8 或越過步数本身，
+不證明相同 FIG 配對／懸空 BG consumer 已重現。
+
+
+2026-10-06 CPU 驗證：基底新增回歸 before-r2 真實拒收 word ADD 83；
+修正後 after-r2 的 cpu386／machine／FD2 oracle 完整回歸 PASS。
+驗證程式初版引用未定義的 TF 常數，另有負溢位案例漏算 PF；
+只訂正驗證程式，沿用既有 add16，不把這兩项錯誤列為產品缺陷。
+同一 Docker／命令乾淨重跑通過，失敗 log 保留於 fd2_re 主證據。
+有限 CPU 契約已 CONFORMED，正式同 r3 重跑與此前 native 前綴仍待驗；
+父 #102 原有同舊前綴條件未通過。
