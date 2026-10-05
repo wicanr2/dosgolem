@@ -3604,3 +3604,67 @@ func TestNativeHeapPopGSRejectsWithoutTransactions(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeStartupTESTDwordMemory(t *testing.T) {
+	for _, tc := range []struct {
+		code                       []byte
+		base                       int
+		offset, value, mask, flags uint32
+	}{
+		{[]byte{0x85, 0x73, 0x0c}, EBX, 0x20, 0x600, 0x600, PF},
+		{[]byte{0x85, 0x73, 0x0c}, EBX, 0x20, 0x100, 0x600, ZF | PF},
+		{[]byte{0x85, 0x73, 0x0c}, EBX, 0x20, 0x80000001, 0xffffffff, SF},
+		{[]byte{0x85, 0x75, 0xfc}, EBP, 0x30, 0x80000000, 0x80000000, SF | PF},
+		{[]byte{0x85, 0x74, 0x24, 0x04}, ESP, 0x28, 0x102, 0xffffffff, 0},
+	} {
+		mem := testBus(bytes.Repeat([]byte{0xa5}, 0x80))
+		copy(mem, tc.code)
+		c := New(mem)
+		c.Seg[SegDS], c.Seg[SegSS] = 0x100, 0x108
+		c.SetDescriptor(0x100, Descriptor{Base: 0x10, Limit: 0x3f, Writable: false})
+		c.SetDescriptor(0x108, Descriptor{Base: 0x20, Limit: 0x3f, Writable: false})
+		at := tc.offset + 0x10 + 0x0c
+		if tc.base == EBP {
+			at = tc.offset + 0x20 - 4
+		}
+		if tc.base == ESP {
+			at = tc.offset + 0x20 + 4
+		}
+		binary.LittleEndian.PutUint32(mem[at:at+4], tc.value)
+		c.R = [8]uint32{1, 2, 3, 4, 5, 6, 7, 8}
+		c.R[tc.base], c.R[ESI], c.EFlags = tc.offset, tc.mask, CF|OF|AF|IF|DF
+		regs, before := c.R, append([]byte(nil), mem...)
+		if err := c.Step(); err != nil || c.R != regs || c.EFlags != tc.flags|IF|DF || c.EIP != uint32(len(tc.code)) || !bytes.Equal(mem, before) {
+			t.Fatalf("TEST code=%X flags=%X err=%v", tc.code, c.EFlags, err)
+		}
+	}
+}
+
+func TestNativeStartupTESTMemoryRejectsWithoutTransactions(t *testing.T) {
+	for _, tc := range []struct {
+		code     []byte
+		limit    uint32
+		memlen   int
+		selector uint16
+	}{
+		{[]byte{0x85, 0x73, 0x0c}, 0x2e, 0x60, 0x100},
+		{[]byte{0x85, 0x73, 0x0c}, 0x3f, 0x2f, 0x100},
+		{[]byte{0x85, 0x73, 0x0c}, 0x3f, 0x60, 0x108},
+		{[]byte{0x66, 0x85, 0x73, 0x0c}, 0x3f, 0x60, 0x100},
+		{[]byte{0x26, 0x85, 0x73, 0x0c}, 0x3f, 0x60, 0x100},
+		{[]byte{0xf3, 0x85, 0x73, 0x0c}, 0x3f, 0x60, 0x100},
+		{[]byte{0xf2, 0x85, 0x73, 0x0c}, 0x3f, 0x60, 0x100},
+		{[]byte{0x85, 0x73}, 0x3f, 2, 0x100},
+	} {
+		mem := testBus(bytes.Repeat([]byte{0xa5}, tc.memlen))
+		copy(mem, tc.code)
+		c := New(mem)
+		c.Seg[SegDS] = tc.selector
+		c.SetDescriptor(0x100, Descriptor{Limit: tc.limit, Writable: true})
+		c.R[EBX], c.R[ESI], c.EFlags = 0x20, 0xffffffff, 0xabcdef
+		regs, segs, before := c.R, c.Seg, append([]byte(nil), mem...)
+		if err := c.Step(); err == nil || c.R != regs || c.Seg != segs || c.EFlags != 0xabcdef || !bytes.Equal(mem, before) {
+			t.Fatalf("TEST reject=%X err=%v", tc.code, err)
+		}
+	}
+}

@@ -1565,3 +1565,43 @@ cdecl ESP與保存的EBX／ESI／EBP、GS／FS／ES皆恢復。
 正式oracle自然啟動1,000,000步JSON與feb0e355基底全檔bytes相同，
 SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
 自然原生配置整合、後續釋放／重用與#102同r3到T8另行驗收。
+
+## 批次154：自然原生近堆啟動的TEST memory dword（CONFORMED）
+
+2026-10-05，fd2_re #190，父題#102。
+固定FD2.EXE 357074 bytes、SHA-256
+222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f。
+受版控自然LE entry生命週期診斷第5650步在dosgolem relocated LE
+0x3DC7D raw85 73 0C停止，EBX=0x5285A、ESI=0x600。
+raw bytes由目前固定映像機械式擷取；不命名檔案服務未知語意，
+不重做已閉合IDA allocator／caller證據。
+
+平台依據：[Intel SDM Volume2B，TEST 4-679／4-680](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)。
+無前綴85 /r memory dword：先完整讀r/m32再與reg32做AND，
+更新SF／ZF／PF、清CF／OF，結果不寫回。未定義AF沿既有profile清除，
+其他flags／GPR／memory保持。沿decodeAddress32的DS／SS／SIB與disp規則，
+readSegment32核對已登錄selector／descriptor／完整span。
+未知前綴、16位元、短bus／limit、未知selector或截斷拒收，不發布資料與flags交易。
+既有mod3的運算保持，不改近堆選洞、清零或遊戲資料。
+
+READY審查：實際raw85 73 0C與公開TEST契約吻合，只補平台先決形狀。
+驗收實際EBX+0x0C、SS／負disp／SIB、全寬sign／zero／parity與唯讀memory，
+非法前綴／shortspan／selector／截斷保持，三相關套件完整PASS；
+原始自然生命週期越過0x3DC7D並如實記錄後續。
+自然_nfree含__ExpandDGROUP建立free block的呼叫，不把它自動當成玩家配置重用。
+正式近堆適配、原生整合及#102同r3到T8仍另行驗收。
+
+
+2026-10-05批次154驗證：新TEST回歸先FAIL，補形狀後完整cpu386、
+machine與FD2 oracle回歸PASS。固定EXE bytes與Intel TEST 4-679／4-680
+吻合；正式oracle自然一百萬步JSON與012defb2基底全檔bytes相同，
+SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
+
+局部探針最初未接檔案服務，會進退出路徑；只接檔案後未設周邊IO，
+又在INT66h模擬處拒收。兩項是診斷環境缺件，不列為新產品缺陷。
+沿正式oracle已有的BIOS data、LEVideo、LEOPLPorts、clock及keyboard
+設定後，逐檔核對唯讀資產清單20檔，自然原生近堆跑完1,000,000步無CPU錯誤，
+記錄59次配置、39次釋放及26次先配置／釋放後同指標再配置。
+__ExpandDGROUP初始化free block不列入再配置判定。
+這是既有硬體近似profile上的原始指令生命週期，非章oracle／全硬體exact。
+正式近堆仍未取代，第十八章同r3前綴到T8另行驗收。

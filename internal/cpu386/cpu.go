@@ -1231,18 +1231,27 @@ func (c *CPU) Step() error {
 		c.setReg8(dst, v)
 		c.setLogicFlags8(v)
 	case op == 0x85:
-		if operand16 || segmentOverride >= 0 || repe {
+		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("85 不接受目前的 prefix")
 		}
 		modrm, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
 		}
-		if modrm>>6 != 3 {
-			return fail(fmt.Sprintf("TEST dword ModRM %02X 尚未支援", modrm))
+		if modrm>>6 == 3 {
+			left, right := modrm&7, (modrm>>3)&7
+			c.setLogicFlags(c.R[left] & c.R[right])
+			break
 		}
-		left, right := modrm&7, (modrm>>3)&7
-		c.setLogicFlags(c.R[left] & c.R[right])
+		seg, addr, e := c.decodeAddress32(modrm)
+		if e != nil {
+			return fail(e.Error())
+		}
+		value, ok := c.readSegment32(c.Seg[seg], addr)
+		if !ok {
+			return fail(fmt.Sprintf("TEST dword read %04X:%08X 未處理", c.Seg[seg], addr))
+		}
+		c.setLogicFlags(value & c.R[(modrm>>3)&7])
 	case op == 0x84:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("84 不接受目前的 prefix")
