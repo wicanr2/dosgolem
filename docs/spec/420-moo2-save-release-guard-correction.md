@@ -40,4 +40,8 @@
 
 cgroup峰值1679069184bytes、OOM增量0；418原輸入、SAVE10／MOX保持，overlay無新內容差異，22筆受控日期與原兩群一致。平台硬體時間仍為既有近似，固定calendar不是整段PRNG seed對拍。原419失敗保存，Docker專案容器已清理。
 
-本CONFORMED只限正常第一格與SAVE到原callee入口。原CALL／參數與selected writer已證實；callee保存用途為強推論，內部檔案writer、成功回饋、正式保存／讀取與鍵盤命名未知，remake同狀態未驗。下一步只讀原IDA 1160B的玩家保存控制流，定位首個檔案請求、資料範圍與返回契約；不追C runtime／OS wrapper內部，RE充分與READY後才續行。
+本CONFORMED只限正常第一格與SAVE到原callee入口。原CALL／參數與selected writer已證實；421已補原檔案與資料來源，實際寫入／close／返回、成功回饋、正式保存／讀取與鍵盤命名仍未知，remake同狀態未驗。下一步依422 READY作有界原版觀察，不追C runtime／OS wrapper內部。
+
+## 421檔案交易來源回填
+
+421已驗原存檔檔名、wb開啟、53個fwrite來源與close／共用返回尾端，見[421](421-moo2-save-callee-file-source.md)。已證實原CALL與資料來源，實際檔案請求／寫入、close／返回、成功GUI與正式讀回仍未驗。原有收據與限定驗收不變；下一有界原版觀察契約見[422](422-moo2-save-callee-continue.md)。

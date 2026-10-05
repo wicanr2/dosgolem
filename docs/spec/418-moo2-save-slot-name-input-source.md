@@ -39,8 +39,12 @@ IDA wrapper exit0，idat實際exit1與非空JSON／5365函式／固定hash均記
 
 ## 語意等級
 
-已證實的是原控件bytes／ID、比較與writer、37-byte pointer關係及7E3F4 CALL／參數資料流。「保存入口」是依SAVE頁分派建立的強推論用途名稱，sub_1160B內部、檔案writer與成功回饋仍未知。名稱不取代原函式名與位址，正常輸入到此CALL已由420補驗，見下節。
+已證實的是原控件bytes／ID、比較與writer、37-byte pointer關係及7E3F4 CALL／參數資料流。「保存入口」是依SAVE頁分派建立的強推論用途名稱，421已補sub_1160B的原檔案與資料來源；實際檔案writer結果與成功回饋仍未知。名稱不取代原函式名與位址，正常輸入到此CALL已由420補驗，見下節。
 
 ## 正常輸入回鏈
 
-[419](419-moo2-save-first-slot-submit.md)原失敗保持；[420](420-moo2-save-release-guard-correction.md)修正額外守衛後，420已驗第一格選取與SAVE到原callee入口。16E23A selected writer與16E3F4→10160B／參數0已由正常輸入實測，callee內部、正式存讀與鍵盤命名仍未知。
+[419](419-moo2-save-first-slot-submit.md)原失敗保持；[420](420-moo2-save-release-guard-correction.md)修正額外守衛後，420已驗第一格選取與SAVE到原callee入口。16E23A selected writer與16E3F4→10160B／參數0已由正常輸入實測，callee檔案來源由421補驗；正式存讀與鍵盤命名仍未知。
+
+## 421檔案交易來源回填
+
+421已驗原存檔檔名、wb開啟、53個fwrite來源與close／共用返回尾端，見[421](421-moo2-save-callee-file-source.md)。已證實原CALL與資料來源，實際檔案請求／寫入、close／返回、成功GUI與正式讀回仍未驗。原有收據與限定驗收不變；下一有界原版觀察契約見[422](422-moo2-save-callee-continue.md)。

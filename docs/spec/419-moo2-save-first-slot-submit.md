@@ -64,3 +64,7 @@ phase上限32，所有新增snapshot核對CPU／RAM／device前後不變；原�
 ## 420已閉合正常輸入
 
 420已驗第一格選取與SAVE到原callee入口，selected由FFFF變0、兩個reader實際返回1／21，真CALL／參數0已核對；完整原419失敗九phase與末態保持。此419版本曾因額外守衛拒絕mask1而失敗，實作與收據保持，由[420](420-moo2-save-release-guard-correction.md)取代目前續行契約；正式存讀、鍵盤命名與remake對拍仍未驗。
+
+## 421檔案交易來源回填
+
+421已驗原存檔檔名、wb開啟、53個fwrite來源與close／共用返回尾端，見[421](421-moo2-save-callee-file-source.md)。已證實原CALL與資料來源，實際檔案請求／寫入、close／返回、成功GUI與正式讀回仍未驗。原有收據與限定驗收不變；下一有界原版觀察契約見[422](422-moo2-save-callee-continue.md)。

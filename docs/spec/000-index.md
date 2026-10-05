@@ -701,3 +701,6 @@
 - [419 原第一格與SAVE正常提交](419-moo2-save-first-slot-submit.md)：SUPERSEDED；原press／selector1及mask1遭額外守衛拒絕的完整失敗保持，由420修正並閉合正常輸入。
 
 - [420 原第一格放開守衛修正](420-moo2-save-release-guard-correction.md)：CONFORMED限定私有原版正常輸入；完整419失敗先凍結，26只讀phase／四次裝置操作，原selected0、兩個reader1／21、238505421真CALL到10160B／參數0；callee未執行，正式存讀與remake對拍未驗。
+
+- [421 原存檔交易檔案／資料來源](421-moo2-save-callee-file-source.md)：CONFORMED限定來源；2窄IDA、526列／447EA／64fixup、六caller、原wb／53個fwrite／close與共用尾端，沒有新guest。
+- [422 原存檔callee有界續行](422-moo2-save-callee-continue.md)：READY限定私有原版觀察；完整420先凍結、零新輸入，沿原檔案請求到close／返回或實際拒絕，250M／1200s；尚無Go／guest，正式存讀與remake對拍未驗。
