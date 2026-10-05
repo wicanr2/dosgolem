@@ -23,3 +23,5 @@ SAVE後是否實際以真SS從16DA12返回1004AB、原場景word值、分派是�
 同locked-v1 image／UID1000／network none／2GiB／2CPU／128pids／180s：sessions73043、36378 wrapper0／idat1，非空JSON／schema／原EXE SHA／5365函式及UID1000核對通過。Go1.24.13容器python3 workplace/new-game-426-source-verify.py退出0，原MZ／LE／51363 fixup及44個表target核對通過。
 
 本機new-game-426-source-result.json保存14份來源SHA；source-plan.json、source-verify.py／tests、兩組moo2-426-ida-save-parent-callers及save-parent-resume腳本／JSON／log／stdout、ida-run.sh／output保存原輸出。公開只提交自撰文件；000-index、424及425同次回鏈，原反組譯／JSON不公開。
+
+後續[427結果](427-moo2-save-parent-return-observation.md)已驗原entry17012F及真SS1004AB，原250M未達parent返回與分派。418獨立PNG及owned生命週期通過；整體仍DRAFT。下一只追parent局部退出旗標與保存後玩家consumer，末態支援候選邊界見[428](428-moo2-save-terminal-support-boundary.md)。

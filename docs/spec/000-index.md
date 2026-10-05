@@ -712,4 +712,5 @@
 - [425 原SAVE頁返回與上一層旗標來源](425-moo2-save-parent-return-source.md)：CONFORMED限定來源，146列／146EA及七列共用尾端、原415真stack核對；實際parent上一層caller／正常reader與新動態返回未驗。
 
 - [426 原保存父層直接caller與主畫面分派](426-moo2-save-parent-caller-dispatch-source.md)：CONFORMED限定135列／108EA來源，唯一104A6 caller與44項原表；動態返回／正常input未驗。
-- [427 原保存父層返回及第一場景分派觀察](427-moo2-save-parent-return-observation.md)：READY限定私有原觀察器，原250M／512保持，唯一PNG與容器內owned timeout先工程驗證；私有Go／325CLI及PNG／owned timeout工程已驗，唯一原session23415執行中；正常input／正式讀回仍未知。
+- [427 原保存父層返回及第一場景分派觀察](427-moo2-save-parent-return-observation.md)：DRAFT，原250M未達parent返回／分派；418獨立PNG、208000bytes交易及owned生命週期已驗。
+- [428 原保存後末態圖像支援候選邊界](428-moo2-save-terminal-support-boundary.md)：CONFORMED限定129列／111EA原bytes與直接caller；圖像支援語意強推論，實際caller／parent退出仍未知。

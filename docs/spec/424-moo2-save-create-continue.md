@@ -67,4 +67,4 @@ SAVE1.GAM為208000bytes，SHA-256 2e587bf7437efcf73ffe0928276cd36ea9f848da63249f
 
 後續來源回填：[425](425-moo2-save-parent-return-source.md)已驗實際child return1702D1對應IDA802CC caller、原parent[EBP-0Ch]指標與802E6／802EB的退出讀取，以及七列共用尾端。只限來源CONFORMED，424整體仍DRAFT；下一查詢縮到parent上一層caller／第一正常reader，不重查已閉合的146列。
 
-目前來源回填：426已驗唯一原104A6 caller、1004AB返回與44項場景分派表；下一正常輸入仍未知，見[426](426-moo2-save-parent-caller-dispatch-source.md)。原動態返回仍未驗；下一私有觀察依[427 READY](427-moo2-save-parent-return-observation.md)，不回到已推翻的同頁reader。
+目前來源回填：426已驗唯一原104A6 caller、1004AB返回與44項場景分派表；下一正常輸入仍未知，見[426](426-moo2-save-parent-caller-dispatch-source.md)。427已驗原parent entry／真SS1004AB，但原250M未達parent返回／分派，整體DRAFT；418獨立PNG及owned生命週期已驗，見[427結果](427-moo2-save-parent-return-observation.md)。末態支援函式邊界見[428](428-moo2-save-terminal-support-boundary.md)，下一只追parent旗標及保存後玩家consumer。

@@ -33,4 +33,4 @@
 
 本機入口new-game-425-source-plan.json、source-result.json、source-verify.py／tests、moo2-425-ida-save-parent-source.py／json／log／stdout與new-game-425-ida-run.sh／output。source-result保存原輸入及十份證據SHA；入口掛000-index，424同次回鏈。原反組譯、JSON、遊戲檔案與存檔只留本機；公開只提交自撰規格。
 
-目前來源回填：426已驗唯一原104A6 caller、1004AB返回與44項場景分派表；下一正常輸入仍未知，見[426](426-moo2-save-parent-caller-dispatch-source.md)。原動態返回仍未驗；下一私有觀察依[427 READY](427-moo2-save-parent-return-observation.md)，不回到已推翻的同頁reader。
+目前來源回填：426已驗唯一原104A6 caller、1004AB返回與44項場景分派表；下一正常輸入仍未知，見[426](426-moo2-save-parent-caller-dispatch-source.md)。427已驗原parent entry／真SS1004AB，但原250M未達parent返回／分派，整體DRAFT；418獨立PNG及owned生命週期已驗，見[427結果](427-moo2-save-parent-return-observation.md)。末態支援函式邊界見[428](428-moo2-save-terminal-support-boundary.md)，下一只追parent旗標及保存後玩家consumer。

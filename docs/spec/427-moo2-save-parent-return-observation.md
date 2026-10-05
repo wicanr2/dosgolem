@@ -1,6 +1,6 @@
 # 427：原保存父層返回與主分派只讀觀察
 
-狀態：**READY，限定父層真返回與第一個原場景分派、私有觀察工具**
+狀態：**DRAFT，原250M未達父層返回與分派；檔案交易、獨立PNG及有界生命週期已驗**
 日期：2026-10-05
 
 來源為[424原保存交易](424-moo2-save-create-continue.md)、[425父層旗標](425-moo2-save-parent-return-source.md)與[426直接caller及分派](426-moo2-save-parent-caller-dispatch-source.md)。固定官方1.31 EXE SHA-256 4e11be14217b4aafa1839f333bf5eba037f98b0c44e9e4752c96c464c260419f，dosgolem_high_le；IDA static各減F0000h，原file offset另保存。只授權私有只讀觀察器，公開CPU、平台與主庫玩法不變。
@@ -36,10 +36,20 @@ parent或dispatch未到則回RE／spec，數值／snapshot不能外推下一正�
 
 私有觀察器由原424經11個精確反轉patch產出；唯一CPU.Step／原getter／滑鼠及鍵盤注入數保持，沒有新CPU／guest RAM寫入。保存callee各phase立即按ordinal／step／kind存獨立PNG並以O_EXCL拒絕碰撞，原phase欄位／source420與422前置保持。父層entry、真RET及原44-target table只讀觀察已建置。
 
-325CLI含265拒絕／60正對照，原315項前綴保持。五份產物在隔離/tmp逐bytes重生；實際PNG archive closure用兩張不同原生圖片驗同kind留存與碰撞拒絕。GNU timeout普通完成0、TERM逾時124、忽略TERM的KILL、外部TERM均確認所有子程序停止；原state capture也完成最後副本。限定工程CONFORMED，原版的owned時間邊界仍須實際核對。
+325CLI含265拒絕／60正對照，原315項前綴保持。五份產物在隔離/tmp逐bytes重生；實際PNG archive closure用兩張不同原生圖片驗同kind留存與碰撞拒絕。GNU timeout普通完成0、TERM逾時124、忽略TERM的KILL、外部TERM均確認所有子程序停止；原state capture也完成最後副本。限定工程CONFORMED；原版另確認在owned時間邊界內自然完成，未觸發timeout信號。
 
 第一次生成器trap引號SyntaxError與PNG測試harness全域換行替換失敗均保存failed1／failed2-427，修正同image／命令重跑，沒有原guest。啟動前發現native會重跑工程測試並改寫耗時收據；原24份啟動輸入及READY快照保存failed3-427-manifest，native改為只驗證既有工程證據，重新前置／重生後固定one-guest-ready-v2。前述舊快照在原guest前SUPERSEDED，不是第二個guest。
 
-獨立new-game-427-verify.py在guest前固定，直接從原LE重建code／fixup／44項表，不使用生成器target map；驗真CALL／SS RET、全部phase各自原生PNG與有序buffer／file。24份v2執行前SHA固定後，唯一原session23415、容器moo2-save-427-20261005／f36706eefe17已啟動；終態、parent返回、分派／PNG及正常下一input均未核對，不當作CONFORMED原版結果。
+獨立new-game-427-verify.py在guest前固定，直接從原LE重建code／fixup／44項表，不使用生成器target map；驗真CALL／SS RET、全部phase各自原生PNG與有序buffer／file。24份v2執行前SHA固定後，唯一原session23415、容器moo2-save-427-20261005／f36706eefe17自然到原250M上限，外層及owned腳本退出0，耗時938.771s；容器已移除。父層返回與分派均未到，整體回DRAFT。
 
-本機新增入口new-game-427-one-guest-ready-v2.json、prelaunch-correction-review.json、generator.py／tests、patches.json、run.sh、implementation-source-verify.py／tests、regeneration.py／result、tooling-tests.py／txt／engineering-result、verify.py、launch.json與owned-lifecycle-result.json。原v1與424原16份輸入／完整失敗保持；目前活狀態以launch、進程handle及最終owned-lifecycle收據為準。
+本機新增入口new-game-427-one-guest-ready-v2.json、prelaunch-correction-review.json、generator.py／tests、patches.json、run.sh、implementation-source-verify.py／tests、regeneration.py／result、tooling-tests.py／txt／engineering-result、verify.py、launch.json與owned-lifecycle-result.json。原v1與424原16份輸入／完整失敗保持；實際結果以verification-result、conformance-review及owned-lifecycle收據為準。
+
+## 唯一原版結果及未通過範圍
+
+獨立verifier退出0，只證明已觀察範圍。53個原fwrite call site全部實際return=count，有序buffer合成208000bytes，逐bytes等於SAVE1.GAM，SHA-256 2e587bf7437efcf73ffe0928276cd36ea9f848da63249fb2c6a64c3db349b375。原fclose真return0、保存callee近RET返回16E3F9已驗；原base418檔保持。MOX.SET553bytes變更照實保留。這是檔案交易，正式存讀往返仍未驗。
+
+418只讀phase各有獨立原生PNG，418個不同路徑全部核對。完整420／祖先與422前六phase／專用PNG保持。424缺失的48張不補造。427最後PNG與424最後PNG相同，畫面可見星圖、GAME及SAVE按鈕，slot列表消失；不能外推正常輸入或成功回饋。
+
+原父層entry17012F在227148176實際命中，真SS return1004AB與426來源相符。原250M末態EIP238B82、虛擬時間576422528µs。parent_returned=false、dispatcher_reached=false、next_input_reached=false；不得稱正常玩家返回CONFORMED。cgroup峰值1844297728bytes、OOM增量0。owned腳本在938.771s完成，低於1150s guest／1300s整批邊界；原版未送TERM／KILL，信號處理能力只由四個工程案例證明。
+
+failed4-427-manifest.json凍結1080份本次實際產物，原24份v2輸入SHA保持；conformance-review保存限定成功與整體未通過。新[428末態邊界來源](428-moo2-save-terminal-support-boundary.md)只核對linked圖像支援候選與caller，沒有重跑guest或提高250M。下一窄任務是原parent局部退出旗標與保存callee後的玩家consumer；不深入掃描線helper，也不以延長上限追成功。主庫RE-first保持。
