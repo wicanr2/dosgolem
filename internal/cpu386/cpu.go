@@ -730,7 +730,7 @@ func (c *CPU) Step() error {
 			return fail(e.Error())
 		}
 		c.setLogicFlags(c.R[EAX] & value)
-	case op == 0x1b:
+	case op == 0x19 || op == 0x1b:
 		if operand16 || segmentOverride >= 0 || repe || repne {
 			return fail("SBB prefix尚未支援")
 		}
@@ -741,8 +741,12 @@ func (c *CPU) Step() error {
 		if modrm>>6 != 3 {
 			return fail("SBB記憶體形狀尚未支援")
 		}
-		dst := modrm >> 3 & 7
-		left, right := c.R[dst], c.R[modrm&7]
+		// docs/spec/186-fd2-platform-gap-continuation.md 批次150。
+		dst, src := modrm>>3&7, modrm&7
+		if op == 0x19 {
+			dst, src = src, dst
+		}
+		left, right := c.R[dst], c.R[src]
 		carry := c.EFlags & CF
 		result := c.sub32(left, right+carry)
 		c.EFlags &^= CF | AF | OF
@@ -4219,6 +4223,15 @@ func (c *CPU) Step() error {
 		if e != nil {
 			return fail(e.Error())
 		}
+		if modrm>>6 == 3 {
+			if operand16 {
+				return fail("XCHG word register尚未支援")
+			}
+			reg, rm := (modrm>>3)&7, modrm&7
+			left, right := c.R[reg], c.R[rm]
+			c.R[reg], c.R[rm] = right, left
+			break
+		}
 		seg, addr, e := c.decodeAddress32(modrm)
 		if e != nil {
 			return fail(e.Error())
@@ -4656,6 +4669,22 @@ func (c *CPU) Step() error {
 		extended, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if extended == 0xa9 {
+			if operand16 || segmentOverride >= 0 || repe || repne {
+				return fail("POP GS prefix未支援")
+			}
+			value, ok := c.readSegment32(c.Seg[SegSS], c.R[ESP])
+			selector := uint16(value)
+			if !ok || c.R[ESP] > ^uint32(0)-4 {
+				return fail("POP GS stack read未處理")
+			}
+			if !c.canLoadSegment(selector, SegGS) {
+				return fail(fmt.Sprintf("GS selector %04X 未登錄", selector))
+			}
+			c.Seg[SegGS] = selector
+			c.R[ESP] += 4
+			break
 		}
 		if extended == 0xa8 {
 			// 沿用PUSH ES／DS零擴充profile；批次148明示硬體差異。
