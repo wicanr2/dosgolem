@@ -32,3 +32,5 @@
 單次narrow IDA：bash /out/new-game-425-ida-run.sh，session91096 wrapper0、idat1；非空JSON／schema／EXE SHA／5365函式及UID1000檢查通過，不隱藏原退出碼。沿既有Go1.24.13 image／UID1000／network none／2GiB／60s執行python3 workplace/new-game-425-source-verify.py，退出0；原MZ／LE／51363 relocation records、146新列、七列重用尾端及原415真stack核對通過。
 
 本機入口new-game-425-source-plan.json、source-result.json、source-verify.py／tests、moo2-425-ida-save-parent-source.py／json／log／stdout與new-game-425-ida-run.sh／output。source-result保存原輸入及十份證據SHA；入口掛000-index，424同次回鏈。原反組譯、JSON、遊戲檔案與存檔只留本機；公開只提交自撰規格。
+
+目前來源回填：426已驗唯一原104A6 caller、1004AB返回與44項場景分派表；下一正常輸入仍未知，見[426](426-moo2-save-parent-caller-dispatch-source.md)。原動態返回仍未驗；下一私有觀察依[427 READY](427-moo2-save-parent-return-observation.md)，不回到已推翻的同頁reader。

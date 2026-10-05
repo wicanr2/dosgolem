@@ -710,3 +710,6 @@
 - [424 原正常保存越過AH3C續行](424-moo2-save-create-continue.md)：DRAFT，原53次寫入／208000bytes、close0與callee真返回已驗；原同頁reader前提有誤、48事件PNG未留存、外層逾時未結束guest，正常玩家返回／讀回及remake同狀態未驗。
 
 - [425 原SAVE頁返回與上一層旗標來源](425-moo2-save-parent-return-source.md)：CONFORMED限定來源，146列／146EA及七列共用尾端、原415真stack核對；實際parent上一層caller／正常reader與新動態返回未驗。
+
+- [426 原保存父層直接caller與主畫面分派](426-moo2-save-parent-caller-dispatch-source.md)：CONFORMED限定135列／108EA來源，唯一104A6 caller與44項原表；動態返回／正常input未驗。
+- [427 原保存父層返回及第一場景分派觀察](427-moo2-save-parent-return-observation.md)：READY限定私有原觀察器，原250M／512保持，唯一PNG與容器內owned timeout先工程驗證；私有Go／325CLI及PNG／owned timeout工程已驗，唯一原session23415執行中；正常input／正式讀回仍未知。
