@@ -3325,3 +3325,157 @@ func TestESOverrideWordRead(t *testing.T) {
 		t.Fatal("rejected segment cell was accepted")
 	}
 }
+
+func TestNativeHeapANDRegisterContract(t *testing.T) {
+	for _, v := range []struct {
+		code                     []byte
+		left, right, want, flags uint32
+	}{
+		{[]byte{0x23, 0xc1}, 0x80000003, 0x80000001, 0x80000001, SF},
+		{[]byte{0x23, 0xc1}, 1, 2, 0, ZF | PF},
+		{[]byte{0x23, 0xc1}, 3, 3, 3, PF},
+		{[]byte{0x23, 0xf9}, 0xf0000000, 0x70000000, 0x70000000, PF},
+		{[]byte{0x23, 0xc0}, 0x80000000, 0x80000000, 0x80000000, SF | PF},
+	} {
+		mem := testBus(append([]byte(nil), v.code...))
+		c := New(mem)
+		dst, src := v.code[1]>>3&7, v.code[1]&7
+		c.R[dst], c.R[src] = v.left, v.right
+		before := c.R
+		c.EFlags = CF | OF | AF | IF | DF
+		if err := c.Step(); err != nil || c.R[dst] != v.want || c.EFlags != v.flags|IF|DF || c.EIP != 2 {
+			t.Fatalf("AND code=%X result=%X flags=%X error=%v", v.code, c.R[dst], c.EFlags, err)
+		}
+		before[dst] = v.want
+		if c.R != before || !bytes.Equal(mem, v.code) {
+			t.Fatal("AND 改動其他狀態")
+		}
+	}
+	for _, code := range [][]byte{{0x23, 0x01}, {0x66, 0x23, 0xc1}, {0x26, 0x23, 0xc1}, {0xf3, 0x23, 0xc1}, {0x23}} {
+		c := New(testBus(code))
+		c.R[EAX], c.R[ECX], c.EFlags = 0x1234, 0xabcd, 0xffffffff
+		before := c.R
+		if err := c.Step(); err == nil || c.R != before || c.EFlags != 0xffffffff {
+			t.Fatalf("AND非法形式 %X 未拒收: %v", code, err)
+		}
+	}
+}
+
+func TestNativeHeapPushGSContract(t *testing.T) {
+	mem := testBus(bytes.Repeat([]byte{0xa5}, 0x60))
+	copy(mem, []byte{0x0f, 0xa8})
+	c := New(mem)
+	c.Seg[SegSS], c.Seg[SegGS] = 0x168, 0x1234
+	c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x1f, Writable: true})
+	c.R = [8]uint32{1, 2, 3, 4, 0x10, 6, 7, 8}
+	c.EFlags = 0xabcdef
+	beforeR, beforeSeg, beforeMem := c.R, c.Seg, append([]byte(nil), mem...)
+	if err := c.Step(); err != nil || c.EIP != 2 || c.R[ESP] != 0xc || c.Seg != beforeSeg || c.EFlags != 0xabcdef {
+		t.Fatalf("PUSH GS state: %v", err)
+	}
+	beforeR[ESP] = 0xc
+	binary.LittleEndian.PutUint32(beforeMem[0x2c:0x30], 0x1234)
+	if c.R != beforeR || !bytes.Equal(mem, beforeMem) {
+		t.Fatalf("PUSH GS stack/GPR: %X", mem[0x2c:0x30])
+	}
+}
+
+func TestNativeHeapPushGSRejectsWithoutStackWrites(t *testing.T) {
+	for _, tc := range []struct {
+		esp, limit uint32
+		writable   bool
+		memlen     int
+	}{
+		{3, 0xff, true, 32}, {0x24, 0x1f, true, 64}, {0x10, 0x1f, false, 32}, {0x20, 0xff, true, 31},
+	} {
+		mem := testBus(bytes.Repeat([]byte{0xa5}, tc.memlen))
+		copy(mem, []byte{0x0f, 0xa8})
+		c := New(mem)
+		c.Seg[SegSS], c.Seg[SegGS] = 0x168, 0x1234
+		c.SetDescriptor(0x168, Descriptor{Limit: tc.limit, Writable: tc.writable})
+		c.R[ESP], c.EFlags = tc.esp, 0xffffffff
+		beforeR, beforeSeg, beforeMem := c.R, c.Seg, append([]byte(nil), mem...)
+		if err := c.Step(); err == nil || c.R != beforeR || c.Seg != beforeSeg || c.EFlags != 0xffffffff || !bytes.Equal(mem, beforeMem) {
+			t.Fatalf("PUSH GS拒收交易 esp=%X limit=%X: %v", tc.esp, tc.limit, err)
+		}
+	}
+	for _, code := range [][]byte{{0x66, 0x0f, 0xa8}, {0xf3, 0x0f, 0xa8}, {0x26, 0x0f, 0xa8}, {0x0f}} {
+		c := New(testBus(code))
+		c.R[ESP], c.EFlags = 0x10, 0xffffffff
+		if err := c.Step(); err == nil || c.R[ESP] != 0x10 || c.EFlags != 0xffffffff {
+			t.Fatalf("PUSH GS非法形式 %X: %v", code, err)
+		}
+	}
+}
+
+func TestNativeHeapBlockTagOR(t *testing.T) {
+	for _, tc := range []struct {
+		code                       []byte
+		reg                        int
+		offset, value, want, flags uint32
+	}{
+		{[]byte{0x83, 0x0e, 1}, ESI, 0x18, 128, 129, PF},
+		{[]byte{0x83, 0x4d, 0xfc, 0xfc}, EBP, 0x28, 1, 0xfffffffd, SF},
+	} {
+		mem := testBus(bytes.Repeat([]byte{0xa5}, 0x90))
+		copy(mem, tc.code)
+		seg, at := SegDS, tc.offset+0x20
+		if tc.reg == EBP {
+			seg, at = SegSS, tc.offset-4+0x20
+		}
+		binary.LittleEndian.PutUint32(mem[at:at+4], tc.value)
+		c := New(mem)
+		c.Seg[seg] = 0x168
+		c.SetDescriptor(0x168, Descriptor{Base: 0x20, Limit: 0x3f, Writable: true})
+		c.R[tc.reg], c.EFlags = tc.offset, CF|OF|AF|IF|DF
+		before := append([]byte(nil), mem...)
+		beforeR := c.R
+		binary.LittleEndian.PutUint32(before[at:at+4], tc.want)
+		if err := c.Step(); err != nil || c.EFlags != tc.flags|IF|DF || c.R != beforeR || !bytes.Equal(mem, before) {
+			t.Fatalf("OR memory code=%X flags=%X err=%v", tc.code, c.EFlags, err)
+		}
+	}
+	for _, tc := range []struct {
+		offset, limit uint32
+		writable      bool
+		length        int
+		code          []byte
+	}{
+		{0x20, 0x1f, true, 64, []byte{0x83, 0x0e, 1}},
+		{0x18, 0xff, false, 64, []byte{0x83, 0x0e, 1}},
+		{0x1c, 0xff, true, 31, []byte{0x83, 0x0e, 1}},
+		{0x18, 0xff, true, 64, []byte{0x66, 0x83, 0x0e, 1}},
+		{0x18, 0xff, true, 2, []byte{0x83, 0x0e}},
+	} {
+		mem := testBus(bytes.Repeat([]byte{0xa5}, tc.length))
+		copy(mem, tc.code)
+		c := New(mem)
+		c.Seg[SegDS] = 0x168
+		c.SetDescriptor(0x168, Descriptor{Limit: tc.limit, Writable: tc.writable})
+		c.R[ESI], c.EFlags = tc.offset, 0xffffffff
+		before := append([]byte(nil), mem...)
+		beforeR := c.R
+		if err := c.Step(); err == nil || c.EFlags != 0xffffffff || c.R != beforeR || !bytes.Equal(mem, before) {
+			t.Fatalf("OR memory illegal=%X err=%v", tc.code, err)
+		}
+	}
+}
+func TestNativeHeapWordAlignmentAND(t *testing.T) {
+	for _, tc := range []struct{ value, want, flags uint32 }{
+		{0xabcd0017, 0xabcd0014, PF}, {0xdead8003, 0xdead8000, SF | PF}, {0xabcd0003, 0xabcd0000, ZF | PF},
+	} {
+		mem := testBus{0x66, 0x83, 0xe6, 0xfc}
+		c := New(mem)
+		c.R[ESI], c.EFlags = tc.value, CF|OF|AF|IF|DF
+		before := c.R
+		before[ESI] = tc.want
+		if err := c.Step(); err != nil || c.R != before || c.EFlags != tc.flags|IF|DF || c.EIP != 4 || !bytes.Equal(mem, []byte{0x66, 0x83, 0xe6, 0xfc}) {
+			t.Fatalf("AND SI=%X flags=%X err=%v", c.R[ESI], c.EFlags, err)
+		}
+	}
+	c := New(testBus{0x66, 0x83, 0xe6})
+	c.R[ESI], c.EFlags = 0xabcd0017, 0xffffffff
+	if err := c.Step(); err == nil || c.R[ESI] != 0xabcd0017 || c.EFlags != 0xffffffff {
+		t.Fatalf("AND SI truncated: %v", err)
+	}
+}

@@ -607,6 +607,22 @@ func (c *CPU) Step() error {
 		av, bv := c.reg8(a), c.reg8(b)
 		c.setReg8(a, bv)
 		c.setReg8(b, av)
+	case op == 0x23:
+		// docs/spec/186-fd2-platform-gap-continuation.md 批次148。
+		if operand16 || segmentOverride >= 0 || repe || repne {
+			return fail("AND23 prefix未支援")
+		}
+		modrm, e := c.fetch8()
+		if e != nil {
+			return fail(e.Error())
+		}
+		if modrm>>6 != 3 {
+			return fail("AND23僅支援32位元暫存器")
+		}
+		dst, src := (modrm>>3)&7, modrm&7
+		value := c.R[dst] & c.R[src]
+		c.R[dst] = value
+		c.setLogicFlags(value)
 	case op == 0x33:
 		if operand16 && segmentOverride < 0 && !repe && !repne {
 			modrm, e := c.fetch8()
@@ -2676,6 +2692,38 @@ func (c *CPU) Step() error {
 		}
 		group := (modrm >> 3) & 7
 
+		// docs/spec/186-fd2-platform-gap-continuation.md 批次149。
+		if modrm>>6 != 3 && group == 1 && !operand16 && segmentOverride < 0 && !repe && !repne {
+			seg, addr, e := c.decodeAddress32(modrm)
+			if e != nil {
+				return fail(e.Error())
+			}
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			value, ok := c.readSegment32(c.Seg[seg], addr)
+			if !ok {
+				return fail("OR dword來源越界")
+			}
+			result := value | uint32(int32(int8(imm)))
+			if !c.writeSegment32(c.Seg[seg], addr, result) {
+				return fail("OR dword寫入越界")
+			}
+			c.setLogicFlags(result)
+			break
+		}
+		if operand16 && modrm>>6 == 3 && group == 4 && segmentOverride < 0 && !repe && !repne {
+			imm, e := c.fetch8()
+			if e != nil {
+				return fail(e.Error())
+			}
+			reg := modrm & 7
+			value := uint16(c.R[reg]) & uint16(int16(int8(imm)))
+			c.R[reg] = c.R[reg]&0xffff0000 | uint32(value)
+			c.setLogicFlags16(value)
+			break
+		}
 		if modrm>>6 != 3 && group == 5 && !operand16 && segmentOverride < 0 && !repe && !repne {
 			seg, addr, e := c.decodeAddress32(modrm)
 			if e != nil {
@@ -4608,6 +4656,25 @@ func (c *CPU) Step() error {
 		extended, e := c.fetch8()
 		if e != nil {
 			return fail(e.Error())
+		}
+		if extended == 0xa8 {
+			// 沿用PUSH ES／DS零擴充profile；批次148明示硬體差異。
+			if operand16 || segmentOverride >= 0 || repe || repne {
+				return fail("PUSH GS prefix未支援")
+			}
+			if c.R[ESP] < 4 {
+				return fail("ESP underflow")
+			}
+			nextESP := c.R[ESP] - 4
+			// Stack RAM先核對完整四個byte，避免短bus的部分寫入。
+			if _, ok := c.readSegment32(c.Seg[SegSS], nextESP); !ok {
+				return fail("PUSH GS stack span不可讀")
+			}
+			if !c.writeSegment32(c.Seg[SegSS], nextESP, uint32(c.Seg[SegGS])) {
+				return fail("PUSH GS stack write未處理")
+			}
+			c.R[ESP] = nextESP
+			break
 		}
 		if segmentOverride == SegES {
 			if extended != 0xb6 || operand16 || repe || repne {

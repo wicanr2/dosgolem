@@ -1394,3 +1394,60 @@ F5 只反轉 EFLAGS.CF，其他旗標、暫存器與記憶體不改；指令指�
 `4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39`。
 這只是有限啟動前綴，不取代 #102 的完整 r3／T8 驗收。
 後續兩項 CPU 缺口登記於 fd2_re #184。
+
+
+## 批次 148：原生近堆的 AND 暫存器與 PUSH GS（CONFORMED）
+
+2026-10-05，fd2_re #184，父題 #102。固定 FD2.EXE 357074 bytes，
+SHA-256 `222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f`。
+IDA Pro 9.4、IDA LE `__MemAllocator` 0x3D28D 的23 C1與0x3D2B4的23 F9；
+自然LE入口的 `_nmalloc` 在0x36D2B遇0F A8。既有#102局部探針完整保留停止收據。
+
+契約取自 [Intel SDM Volume 2A，AND 3-78／3-79](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)
+與 [Volume 2B，PUSH 4-511／4-512](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)。
+只補無前綴23 /r、mod3、32位元暫存器：先讀兩來源、結果寫reg欄，
+CF／OF清除，SF／ZF／PF依結果；未定義AF沿用既有setLogicFlags的清除政策。
+16位元、記憶體與前綴形狀維持拒收。
+
+無前綴0F A8的GS selector按既有PUSH ES／DS的32位元零擴充profile寫SS:ESP-4，
+成功才發布ESP；GS、其他GPR與flags保持。Intel契約容許32位元segment push
+採零擴充或只寫16位元，現代Core／Atom可保留高半部；本切片明示沿用既有零擴充profile，
+不宣稱所有x86硬體的高半部內容相同。失敗時不發布ESP，descriptor／bus尾端拒收不寫入。
+不增開原生近堆政策，不改_nmalloc／_nfree攔截、不改記憶體邊界。
+
+審查：IDA byte與已停止的CPU形狀符合平台契約，READY範圍限定已觀察入口。
+驗收：AND高位／零／奇偶／來源別名、GS段基址與stack邊界、拒收零交易、
+全部cpu386／machine／FD2 oracle回歸與固定原版局部探針越過兩個停止點。
+原生首次配置與#102同r3到T8仍獨立驗收，不以單指令通過外推。
+
+
+## 批次 149：原生近堆 block tag與word對齊（CONFORMED）
+
+2026-10-05，fd2_re #185，父題#102。固定EXE、IDA9.4與SHA沿用批次148。
+已觀察IDA LE 0x3D30C raw83 0E 01 OR dword [ESI],1，
+以及__ExpandDGROUP的0x3D516 raw66 83 E6 FC AND SI,0xFFFC。
+兩項停止來自受版控局部探針，沒有遊戲狀態修改或原生配置完整宣稱。
+
+平台依據沿用批次148的Intel AND，另見同Volume2B的OR 4-166／4-167。
+只補無前綴83 /1 memory dword OR，以及66 83 /4 mod3 word AND：
+imm8先符號延伸至operand寬度，使用既有位址解碼和SS／DS規則；
+word目的端保留GPR高16位。邏輯旗標沿用setLogicFlags／setLogicFlags16，
+未定義AF仍按現行profile清除，其他不屬邏輯旗標的bits保持。
+記憶體OR讀完整span後嘗試完整descriptor寫入，成功才發布旗標；
+非法descriptor、短bus、唯讀及指令尾端截斷零資料交易。其他前綴／opcode不放寬。
+
+證據審查：固定raw bytes、先前CPU停點與已知平台契約吻合，限定範圍READY。
+驗收：正／負立即數、word高半部、零／sign／parity、SS／DS與失敗零交易，
+完整相關Go回歸；六項原始helper人工fixture到合法回傳。自然LE entry
+後續如實保留，未到非零合法近指標就不宣稱原生配置器可用。
+
+2026-10-05批次148／149驗證：各自先在補指令前重現FAIL；
+加入限定指令後，全部cpu386、machine及FD2 oracle回歸PASS。
+固定原始helper的六項人工fixture均回傳：24-byte rover／prefix-reset分別選
+0x180504／0x180104，tag皆29；1-byte使用tag13；124-byte使用tag129；
+129-byte無適合洞與zero請求皆回0。前8-byte payload保留原free-list指標，
+與目前最低位址first-fit／重用清零適配不同。這是局部原始指令證據，
+不外推第十八章自然heap重用。自然LE entry在595步的0x3D467遇19 C0，
+原生首次配置尚未回傳，保持近堆正式政策及章T8門檻。主證據仍由fd2_re #102登錄。
+
+批次148／149的正式oracle自然啟動1,000,000步JSON與def0b231基底全檔bytes相同，SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。後續自然入口SBB停止登記於fd2_re #186；不提升章驗收或原生近堆policy等級。
