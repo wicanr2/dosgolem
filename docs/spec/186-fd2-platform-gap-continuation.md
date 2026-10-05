@@ -1492,7 +1492,7 @@ READY審查：IDA原始bytes、實際CPU停止與平台契約吻合，不補遊�
 非法前綴／截斷零交易，完整相關Go回歸；自然入口越過0x3D3E3並保留後續結果。
 原生首次配置、正式近堆政策及#102同r3到T8仍獨立驗收。
 
-## 批次152：原始 _nmalloc 返回鏈 POP GS（READY）
+## 批次152：原始 _nmalloc 返回鏈 POP GS（CONFORMED）
 
 2026-10-05，fd2_re #188，父題#102。固定EXE／hash沿用批次150。
 受版控自然LE entry第805步，dosgolem relocated LE 0x36D90 raw0F A9，
@@ -1525,3 +1525,43 @@ cpu386、machine及FD2 oracle測試PASS。自然入口依序從595步0x3D467
 正式oracle自然啟動1,000,000步JSON與7c6ad7a1基底全檔bytes相同，
 SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
 正式近堆適配及#102同r3到T8驗收保持。
+
+## 批次153：FD2啟動已設定GS的合法還原（CONFORMED）
+
+2026-10-05，fd2_re #189，依賴#188，父題#102。
+固定EXE／hash與既有IDA_nmalloc身分／caller沿用批次152。
+受版控fd2_re工具的自然入口追蹤確認：
+第11步dosgolem relocated LE 0x3CA03 rawCD21，由FD2StartupDOS設定GS=0x0020；
+第489步0x36D2B raw0F A8保存至SS:0x55660，實際dword=0x20；
+期間保存槽未被改寫，第805步0x36D90 raw0F A9讀回同值。
+初始GS為0；沒有人工heap或章內狀態注入。
+
+writer為既有internal/machine/le_startup.go的第一項固定FD2服務。
+既有CONFORMED規格009／010已明示GS=0x0020的固定啟動狀態，
+其descriptor base與一般segment-memory仍DRAFT。
+consumer為CPU的canLoadSegment與原始_nmalloc保存／還原。
+目前SegmentLoadOK只登記PSP／environment，漏掉服務自己已設定的GS。
+
+READY限定修正：只有selector0x0020且destination為SegGS時，
+啟動服務的SegmentLoadOK允許還原。其他目的端仍拒收；
+不新增Descriptor，不指定未知base／limit，不開放segment記憶體讀寫。
+這是維持現有固定oracle段狀態的載入契約，不宣稱原版完整GDT／硬體映射。
+原始GS的記憶體base／limit未證實，將來若有實際解參照consumer才另開窄題目。
+
+驗收：先重現已設定GS仍無法POP還原，修正後原始非零與null保存值皆
+符合既有CPU契約；其他destination／selector拒收、無Descriptor與
+未知記憶體拒收保持。CPU／machine／FD2 oracle完整回歸。
+自然入口越過0x36D90、回到0x4CC51，核對EAX非零、實際block tag與payload
+有可讀寫backing及ESP／GS／FS／ES恢復；若未回傳如實保留缺口。
+首次配置不證明自然釋放／重用、全原版heap或#102同r3到T8。
+
+2026-10-05批次152／153驗證：新的啟動GS還原測試先在既有服務FAIL，
+補上限定目的端後cpu386、machine與FD2 oracle完整回歸PASS。
+自然LE entry第811步首次回到原始caller0x4CC51，EAX=0x100018、
+request1的原始block tag13；payload有backing、原值寫回成功。
+cdecl ESP與保存的EBX／ESI／EBP、GS／FS／ES皆恢復。
+這取代同址「缺少指令／未知selector導致首次返回未完成」的現況；
+舊收據保留。GS一般base／limit仍未知且拒收，未建立假Descriptor。
+正式oracle自然啟動1,000,000步JSON與feb0e355基底全檔bytes相同，
+SHA-256 4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
+自然原生配置整合、後續釋放／重用與#102同r3到T8另行驗收。

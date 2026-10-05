@@ -327,3 +327,47 @@ func TestFD2StartupDOSInterruptVectors(t *testing.T) {
 		t.Fatalf("DPMI vector was contaminated ECX=%X EDX=%X", c.R[cpu386.ECX], c.R[cpu386.EDX])
 	}
 }
+
+func TestFD2StartupDOSRestoresItsGSWithoutInventingMemory(t *testing.T) {
+	mem := startupBus(make([]byte, 0x80))
+	copy(mem, []byte{0x0f, 0xa9})
+	mem[0x40] = 0x20
+	c := cpu386.New(mem)
+	s := &FD2StartupDOS{}
+	c.R[cpu386.EAX], c.R[cpu386.EBX] = 0x3000, 0x50484152
+	if !s.Handle(c, 0x21) {
+		t.Fatal("startup query rejected")
+	}
+	for _, dest := range []int{cpu386.SegCS, cpu386.SegDS, cpu386.SegES, cpu386.SegFS, cpu386.SegSS} {
+		if c.SegmentLoadOK(0x20, dest) {
+			t.Fatalf("GS selector accepted destination %d", dest)
+		}
+	}
+	if c.SegmentLoadOK(0x21, cpu386.SegGS) {
+		t.Fatal("unknown selector accepted")
+	}
+	if _, ok := c.Descriptors[0x20]; ok {
+		t.Fatal("invented GS descriptor")
+	}
+	for _, at := range []uint32{0, 0x2c, 0x80, 0xffffffff} {
+		if _, ok := c.SegmentRead8(0x20, at); ok {
+			t.Fatal("invented GS byte memory")
+		}
+		if _, ok := c.SegmentRead16(0x20, at); ok {
+			t.Fatal("invented GS word memory")
+		}
+	}
+	c.R[cpu386.ESP], c.Seg[cpu386.SegGS], c.EFlags = 0x40, 0, 0xabcdef
+	r, seg := c.R, c.Seg
+	r[cpu386.ESP], seg[cpu386.SegGS] = 0x44, 0x20
+	if err := c.Step(); err != nil || c.EIP != 2 || c.R != r || c.Seg != seg || c.EFlags != 0xabcdef {
+		t.Fatalf("restore startup GS: %v", err)
+	}
+	// selector能還原不代表已有一般記憶體映射。
+	copy(mem, []byte{0xa1, 0, 0, 0, 0})
+	c.EIP, c.Seg[cpu386.SegDS] = 0, 0x20
+	r, seg = c.R, c.Seg
+	if err := c.Step(); err == nil || c.R != r || c.Seg != seg || c.EFlags != 0xabcdef {
+		t.Fatalf("opaque selector memory accepted: %v", err)
+	}
+}
