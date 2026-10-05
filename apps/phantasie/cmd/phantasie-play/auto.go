@@ -252,7 +252,20 @@ func captureBundle(path string, o captureOptions, inputs map[string]string) (map
 		if b.LocalOriginal == "" {
 			return nil, fmt.Errorf("錄影HD只能本機包")
 		}
-		needed = append(needed, b.Art+"/profile.json", b.Art+"/town-painted.png")
+		if !safe(b.Art) {
+			return nil, fmt.Errorf("錄影 HD 路徑無效")
+		}
+		profile, err := os.ReadFile(filepath.Join(base, filepath.FromSlash(b.Art), "profile.json"))
+		if err != nil || len(profile) > 65536 {
+			return nil, fmt.Errorf("錄影 HD profile 不可讀")
+		}
+		names, err := p.ArtAssetNames(profile)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			needed = append(needed, b.Art+"/"+name)
+		}
 	}
 	for _, name := range needed {
 		if !records[name] {

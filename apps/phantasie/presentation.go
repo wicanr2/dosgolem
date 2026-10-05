@@ -28,9 +28,13 @@ type ArtProfile struct {
 }
 
 type TownArt struct {
-	rect   image.Rectangle
-	source []byte
-	paint  *image.RGBA
+	rect     image.Rectangle
+	source   []byte
+	paint    *image.RGBA
+	pages    []*TownArt
+	preserve []image.Rectangle
+	sprites  []artSprite
+	anchors  map[uint32][]int
 }
 
 func artBaseName(name string) bool {
@@ -89,6 +93,18 @@ func LoadTownArt(root, dir string) (*TownArt, error) {
 	b, err := artRead(filepath.Join(dir, "profile.json"), 64*1024)
 	if err != nil {
 		return nil, err
+	}
+	if err := uniqueArtJSON(b); err != nil {
+		return nil, err
+	}
+	var header struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal(b, &header); err != nil {
+		return nil, err
+	}
+	if header.Schema == 2 {
+		return loadArtCollection(root, dir, b)
 	}
 	var p ArtProfile
 	d := json.NewDecoder(strings.NewReader(string(b)))
@@ -176,19 +192,7 @@ func ComposePresentationInto(dst []byte, ov *Overlay, indexed, rgb []byte, theme
 		ComposeInto(dst, ov, indexed, rgb, 2, nil)
 	} else {
 		ComposeInto(dst, nil, indexed, rgb, 2, nil)
-		if protected, ok := art.Match(indexed); ok {
-			r := art.rect
-			for y := r.Min.Y * 2; y < r.Max.Y*2; y++ {
-				for x := r.Min.X * 2; x < r.Max.X*2; x++ {
-					if image.Pt(x/2, y/2).In(protected) {
-						continue
-					}
-					i := (y*640 + x) * 4
-					j := (y-r.Min.Y*2)*art.paint.Stride + (x-r.Min.X*2)*4
-					copy(dst[i:i+4], art.paint.Pix[j:j+4])
-				}
-			}
-		}
+		art.draw(dst, indexed, rgb)
 		if ov != nil && ov.Drawing() {
 			ov.Layer.Draw(dst, 2, nil)
 		}
