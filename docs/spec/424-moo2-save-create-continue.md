@@ -1,6 +1,6 @@
 # 424：原正常保存越過AH3C後續行
 
-狀態：**READY，限定私有原版存檔交易觀察**
+狀態：**DRAFT，檔案交易已驗；正常返回與觀察工具契約待訂正**
 日期：2026-10-05
 
 接續[422原實際檔案請求](422-moo2-save-callee-continue.md)與[423普通檔建立工程驗證](423-moo2-protected-create-file.md)。目標是由原EXE自然建立SAVE1.GAM、寫入、close與返回正常owner，或保存下一個實際拒絕。不增加玩家輸入、不代寫名稱或存檔，不直接呼叫保存函式。
@@ -30,7 +30,7 @@
 - 原101BCBh fclose及真RET、共用尾端10160Ah近RET到真SS返回16E3F9h，ESP＋4；下一正常16E1FDh CALL→2071ABh／true return16E202後停止。未到不補造返回。
 - 讀取平台handle與實際overlay只作觀察，不更改檔案位置或再開可寫檔。正常返回後的原畫面／名稱刷新另以PNG檢視，不由記憶體名稱推定可見成功。
 
-250M後段與1200s外層／1150s owned capture保持；3GiB／2CPU／128pids／UID1000／network none／GOMEMLIMIT1GiB。快照預算在執行前固定512，涵蓋55個CALL各before／after／RETbefore／after及DOS before／after；不宣稱已知DOS緩衝請求數。超過預算或下一平台／CPU拒絕即保存實際結果，不調上限追成功。零新增裝置輸入，沒有正式永久測試seed。
+原READY預定250M後段與1200s外層／1150s state capture；3GiB／2CPU／128pids／UID1000／network none／GOMEMLIMIT1GiB。快照預算在執行前固定512，涵蓋55個CALL各before／after／RETbefore／after及DOS before／after；不宣稱已知DOS緩衝請求數。超過預算或下一平台／CPU拒絕即保存實際結果，不調上限追成功。零新增裝置輸入，沒有正式永久測試seed。
 
 ## 驗收與證據限制
 
@@ -40,8 +40,27 @@ READY後才建立私有觀察器。先驗精確反轉、唯一Step／原getter�
 
 正常讀回、鍵盤命名、其他slot／版本及remake同狀態另驗。snapshot／數值與人工PNG檢視分開；固定seed與不同PRNG未建立等價條件，本輪沒有亂數規則對拍。主庫RE-first保持，這份規格不修改Go／Ebitengine玩法、CPU解碼或新增DOS能力。
 
-本機前置入口new-game-422-verification-result.json、save-callee-events.json、failed1-422-manifest.json與new-game-423-engineering-result.json；424原稿／READY review保存workplace/，公開入口掛000-index。尚無424 Go或guest。
+本機前置入口new-game-422-verification-result.json、save-callee-events.json、failed1-422-manifest.json與new-game-423-engineering-result.json；424原稿／READY review保存workplace/，公開入口掛000-index。原READY快照及16個執行前SHA維持，私有觀察器與唯一原guest已執行。
 
 ## 來源與橋接審查
 
-422的六個成功／請求phase與最後兩個拒絕phase已逐項區分；423可寫能力／工程結果／四份source與原metadata provider已核對。原稿與new-game-424-ready-review.json分開固定。只授權私有觀察器及一個有界原guest，來源不足或下一拒絕回RE／spec，不猜補正式玩法。尚無424 Go或guest。
+422的六個成功／請求phase與最後兩個拒絕phase已逐項區分；423可寫能力／工程結果／四份source與原metadata provider已核對。原稿與new-game-424-ready-review.json分開固定。只授權私有觀察器及一個有界原guest，來源不足或下一拒絕回RE／spec，不猜補正式玩法。下列結果使目前整體規格回DRAFT。
+
+
+## 2026-10-05 實際結果與訂正
+
+**已證實，限定原版檔案交易。** 唯一原session74232沿完整420及全部祖先重生；31份事件／末態與PNG、source420的26phase、422前六phase／專用PNG均核對。沒有新裝置輸入，418個唯讀base全部保持。原237107h／238506393的AH3C成功，AX9／CF0且非輸出狀態保持。原fopen真RET返回2559630，53個不同fwrite call site各實際執行一次並成功返回count；按原順序拼接buffer與實際SAVE1.GAM逐bytes相同。
+
+SAVE1.GAM為208000bytes，SHA-256 2e587bf7437efcf73ffe0928276cd36ea9f848da63249fb2c6a64c3db349b375。原fclose真RET返回0，238518704→238518705的原10160Ah近RET依真SS返回16E3F9h。MOX.SET實際變更為553bytes／3ee8d483cbeaef249414b420d946e4178fa1dc26f296d801efe6310e228f9e61，沒有還原隱藏；SAVE10.GAM與sound.lbx保持。這證明原保存函式完成檔案交易，不證明正常玩家返回或正式存讀往返。
+
+**已證實，原下一輸入點前提有誤。** 既有418 IDA匯出及獨立原LE bytes顯示，IDA EA7E41F寫原[EBP+72h]=1；7E492回7E1F2後，7E1F7的非零分支到7E4AC，略過7E1FD reader，再沿7E505／7E50B／7E50C到共用尾端7DA0D。位址為IDA linear EA，runtime各加F0000h。原SAVE完成後應追上一層consumer，不能預定回同頁16E1FD。實際後續分支、上一層reader與正常可操作末態仍未知。
+
+**觀察工具失敗。** 418個只讀phase數值／原碼／CALL及RET已獨立核對，末態250M／238611h為step_limit，next_input_reached=false。原verifier因重複kind檔名覆寫PNG退出1。原verifier及16份SHA保持；verify-v2僅對同次moo2-424-原生PNG做SHA索引，172個事件的原檔名已被覆寫，其中48個事件PNG bytes沒有留存，370個事件仍有同hash原生圖片。缺圖列入獨立review，不用舊guest圖補齊、不重新執行424。數值核對通過不能升格為所有PNG通過。
+
+**容器生命週期未符合1200s契約。** 外層退出137後，唯一容器仍被觀察為Up21minutes；state capture的1150s只限制捕捉程序，不限制guest。原guest最後到預定250M，probe_exit0，完整after-capture產出後由--rm移除；後續exec／stop均No such container，未送出SIGSTOP或人工停止guest。cgroup峰值1475690496bytes，OOM／OOM kill增量0。下一執行器須在容器內設owned timeout及trap，外層另留解壓、建置和收據餘裕，不能僅提高步數或時間。
+
+人工檢視實際末態PNG，星圖／GAME背景與SAVE按鈕可見，slot列表未顯示。不稱此為可操作的正常返回、名稱刷新或完整UI驗收。鍵盤命名、正常讀回、其他slot／版本、亂數同條件與remake同狀態均未驗，主庫RE-first保持。
+
+本機收據：new-game-424-verification-result.json、verify-v2.py／output、file-return-review.py／output、file-transaction-review.json、return-premise-review.json、png-retention-review.json、lifecycle-review.json及failed2-424-manifest.json。後者固定625份當次產物及失敗副本；原failed1-424前置五份失敗另保持。原碼／JSON／PNG／save均不公開。
+
+下一最小行動：只查既有7DA0D尾端與上一層caller／reader來源，建立正確返回驗收條件；同時修正唯一PNG檔名及owned timeout，經READY來源審查後才跑新的有界觀察。不得把這份DRAFT當作下一guest授權。

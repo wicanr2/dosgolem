@@ -1,5 +1,7 @@
 # 421：原存檔交易的檔案與資料來源
 
+目前證據：424已驗原SAVE1.GAM的53次寫入共208000bytes、close0與callee真返回；正常玩家返回及讀回未驗，詳見[424原保存續行結果](424-moo2-save-create-continue.md)。本文件的來源或原失敗驗收範圍保持；424整體回DRAFT，截圖留存、返回路徑與容器逾時待修。
+
 狀態：**CONFORMED，限定原版檔案／資料來源核對**
 日期：2026-10-05
 
@@ -46,4 +48,4 @@
 
 本項CONFORMED只能表示來源核對通過。SAVE1.GAM是否真正建立、寫入範圍與完整檔案、fclose／返回、成功GUI、正常讀檔、鍵盤命名與remake同狀態仍未驗。主庫RE-first保持。[422 有界存檔續行](422-moo2-save-callee-continue.md)只準備私有原版觀察，不授權猜補平台行為。
 
-目前動態結論回填：422已驗SAVE1.GAM／wb實際buffer與AH3C平台拒絕，正式存檔未完成。見[422原實際請求](422-moo2-save-callee-continue.md)；原fopen未返回、53個fwrite來源尚未成為實際寫入，後續平台補缺依[423](423-moo2-protected-create-file.md)。
+422當次動態結論：422已驗SAVE1.GAM／wb實際buffer與AH3C平台拒絕，正式存檔未完成。見[422原實際請求](422-moo2-save-callee-continue.md)；原fopen未返回、53個fwrite來源尚未成為實際寫入，後續平台補缺依[423](423-moo2-protected-create-file.md)。

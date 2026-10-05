@@ -705,6 +705,6 @@
 - [421 原存檔交易檔案／資料來源](421-moo2-save-callee-file-source.md)：CONFORMED限定來源；2窄IDA、526列／447EA／64fixup、六caller、原wb／53個fwrite／close與共用尾端，沒有新guest。
 - [422 原存檔callee有界續行](422-moo2-save-callee-continue.md)：CONFORMED限定實際請求／拒絕觀察，8只讀phase／完整祖先保持；SAVE1.GAM／wb與缺檔AX2已驗，AH3C未處理、沒有寫入或返回，正式存讀未完成。
 
-- [423 MOO2保護模式普通檔建立](423-moo2-protected-create-file.md)：CONFORMED限定工程，AH3C／CX0接可寫overlay、33子案例／三種AL、相關套件與建置通過；原422拒絕保持，尚無原版續行。
+- [423 MOO2保護模式普通檔建立](423-moo2-protected-create-file.md)：CONFORMED限定工程，AH3C／CX0接可寫overlay、33子案例／三種AL、相關套件與建置通過；原422拒絕保持，原檔案交易由424另驗。
 
-- [424 原正常保存越過AH3C續行](424-moo2-save-create-continue.md)：READY限定私有觀察，423工程來源固定、完整420／祖先及422前六phase先凍結，零新輸入沿原建立／寫入／close／返回或拒絕；尚無Go或guest，正式存讀與remake同狀態未驗。
+- [424 原正常保存越過AH3C續行](424-moo2-save-create-continue.md)：DRAFT，原53次寫入／208000bytes、close0與callee真返回已驗；原同頁reader前提有誤、48事件PNG未留存、外層逾時未結束guest，正常玩家返回／讀回及remake同狀態未驗。
