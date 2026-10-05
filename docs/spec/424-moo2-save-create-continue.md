@@ -64,3 +64,5 @@ SAVE1.GAM為208000bytes，SHA-256 2e587bf7437efcf73ffe0928276cd36ea9f848da63249f
 本機收據：new-game-424-verification-result.json、verify-v2.py／output、file-return-review.py／output、file-transaction-review.json、return-premise-review.json、png-retention-review.json、lifecycle-review.json及failed2-424-manifest.json。後者固定625份當次產物及失敗副本；原failed1-424前置五份失敗另保持。原碼／JSON／PNG／save均不公開。
 
 下一最小行動：只查既有7DA0D尾端與上一層caller／reader來源，建立正確返回驗收條件；同時修正唯一PNG檔名及owned timeout，經READY來源審查後才跑新的有界觀察。不得把這份DRAFT當作下一guest授權。
+
+後續來源回填：[425](425-moo2-save-parent-return-source.md)已驗實際child return1702D1對應IDA802CC caller、原parent[EBP-0Ch]指標與802E6／802EB的退出讀取，以及七列共用尾端。只限來源CONFORMED，424整體仍DRAFT；下一查詢縮到parent上一層caller／第一正常reader，不重查已閉合的146列。

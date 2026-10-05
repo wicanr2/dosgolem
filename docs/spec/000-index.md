@@ -708,3 +708,5 @@
 - [423 MOO2保護模式普通檔建立](423-moo2-protected-create-file.md)：CONFORMED限定工程，AH3C／CX0接可寫overlay、33子案例／三種AL、相關套件與建置通過；原422拒絕保持，原檔案交易由424另驗。
 
 - [424 原正常保存越過AH3C續行](424-moo2-save-create-continue.md)：DRAFT，原53次寫入／208000bytes、close0與callee真返回已驗；原同頁reader前提有誤、48事件PNG未留存、外層逾時未結束guest，正常玩家返回／讀回及remake同狀態未驗。
+
+- [425 原SAVE頁返回與上一層旗標來源](425-moo2-save-parent-return-source.md)：CONFORMED限定來源，146列／146EA及七列共用尾端、原415真stack核對；實際parent上一層caller／正常reader與新動態返回未驗。
