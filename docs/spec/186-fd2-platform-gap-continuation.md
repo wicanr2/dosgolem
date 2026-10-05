@@ -1362,3 +1362,35 @@ READY：保護模式 AH40 檔案及主控台寫入依完整 ECX／EAX 計數，
 上限64MiB且先拒絕位址溢位；檔案寫入在完整來源可讀後才更動覆蓋檔。
 ECX=0保留既有截斷語意；原版目錄仍唯讀，16位元 DOS 前端不變。
 驗收207360-byte往返、65536-byte不得誤截斷、來源尾端越界不寫入、唯讀拒絕。
+
+
+## 批次 147：原生近堆 helper 的 CMC（CONFORMED）
+
+2026-10-05，fd2_re #183，父題 #102。固定 FD2.EXE 357074 bytes，
+SHA-256 `222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f`。
+IDA Pro 9.4、IDA LE 線性位址 `__MemAllocator` 0x3D270 的 0x3D28A 原始 byte F5。
+固定原版 CPU 局部探針在此停止；人工 free list 僅診斷入口，不是章 oracle。
+主證據入口：fd2_re `docs/data/ida/fd2_ch18_oracle_stosb_20261003.json`；
+探針：fd2_re `tools/fd2_watcom_heap_probe.go`。
+
+平台契約取自 [Intel SDM Volume 2A，CMC，3-174](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf)：
+F5 只反轉 EFLAGS.CF，其他旗標、暫存器與記憶體不改；指令指標前進 1。
+本切片只加入無前綴 F5，未具取證的前綴形式沿用 cpu386 嚴格拒收；
+不更動 `_nmalloc`／`_nfree` 攔截、近堆配置政策、遊戲狀態或記憶體邊界。
+
+證據審查：byte、位址、CPU 停止與公開平台契約互相吻合，無需猜補遊戲語意。
+驗收：CF 兩種初值、其他旗標保持、連續兩次恢復原值、所有 GPR／記憶體保持、
+前綴拒收零交易；全部 cpu386、machine、FD2 oracle 回歸通過，原版局部探針越過 0x3D28A。
+通過本切片仍不代表第十八章同 r3 到 T8，#102 保持獨立驗收。
+
+2026-10-05 驗證：新 CMC 回歸先在 a01ff084 上實際失敗；加入無前綴 F5 後，
+`go test ./internal/cpu386 ./internal/machine ./apps/fd2/cmd/oracle -count=1` 全部通過。
+同一固定原版局部探針越過 0x3D28A，下一個停止是 0x3D28D 的 23 C1；
+自然 LE 入口則在 0x36D2B 的 0F A8 停止。這兩項屬後續 CPU 缺口，
+不提升原生配置器或第十八章驗收等級，沒有修改正式近堆政策。
+
+正式 `apps/fd2/cmd/oracle` 同參數自然啟動前 1,000,000 步：
+修正前後 JSON 全檔 SHA-256 均為
+`4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39`。
+這只是有限啟動前綴，不取代 #102 的完整 r3／T8 驗收。
+後續兩項 CPU 缺口登記於 fd2_re #184。

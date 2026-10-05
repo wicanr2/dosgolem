@@ -579,11 +579,14 @@ func (c *CPU) Step() error {
 		return fail("segment override 只支援 8A／8B／8C／8E")
 	}
 	switch {
-	case op == 0xf8 || op == 0xf9:
+	case op == 0xf5 || op == 0xf8 || op == 0xf9:
 		if operand16 || segmentOverride >= 0 || repe || repne {
-			return fail("CLC／STC前綴未支援")
+			return fail("CMC／CLC／STC前綴未支援")
 		}
-		if op == 0xf8 {
+		// docs/spec/186-fd2-platform-gap-continuation.md 批次 147；Intel CMC 契約。
+		if op == 0xf5 {
+			c.EFlags ^= CF
+		} else if op == 0xf8 {
 			c.EFlags &^= CF
 		} else {
 			c.EFlags |= CF
