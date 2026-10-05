@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/wicanr2/dosgolem/internal/cpu386"
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"testing"
 )
@@ -267,5 +268,119 @@ func TestFD2MapStateDisabledAndExactEnd(t *testing.T) {
 	appendFD2MapState(rec, m, true)
 	if !rec["map_runtime_valid"].(bool) {
 		t.Fatal("exact end zero units rejected")
+	}
+}
+
+func TestFD2NativeHeapProfileRoutesOnlyKnownOriginalEntries(t *testing.T) {
+	for _, profile := range []string{"adapter", "native"} {
+		calls := 0
+		c := &cpu386.CPU{}
+		c.StepHook = func(*cpu386.CPU) (bool, error) { calls++; return true, nil }
+		if err := applyFD2HeapProfile(c, fd2NativeHeapEXESHA256, profile); err != nil {
+			t.Fatal(err)
+		}
+		for _, addr := range []uint32{0x36d26, 0x37426, 0x46114, 0x36d98, 0x375c0, 0x12345} {
+			c.EIP = addr
+			before := *c
+			oldCalls := calls
+			handled, err := c.StepHook(c)
+			nativeEntry := profile == "native" && (addr == 0x36d26 || addr == 0x37426 || addr == 0x46114)
+			if err != nil || handled == nativeEntry || calls-oldCalls != boolInt(!nativeEntry) {
+				t.Fatalf("%s %X %v %v calls%d", profile, addr, handled, err, calls-oldCalls)
+			}
+			if c.EIP != before.EIP || c.R != before.R || c.Seg != before.Seg || c.EFlags != before.EFlags {
+				t.Fatal("routing changed guest")
+			}
+		}
+	}
+}
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func TestFD2NativeHeapProfileRejectsUnknownInputsAndUninstalledPlatform(t *testing.T) {
+	for _, profile := range []string{"", "Native", "first-fit", "native ", "other"} {
+		if validateFD2HeapProfile(profile, false) == nil {
+			t.Fatalf("accepted %q", profile)
+		}
+	}
+	if validateFD2HeapProfile("native", true) == nil {
+		t.Fatal("native accepted adapter capacity")
+	}
+	if err := applyFD2HeapProfile(&cpu386.CPU{}, fd2NativeHeapEXESHA256, "native"); err == nil {
+		t.Fatal("native accepted missing platform")
+	}
+	c := &cpu386.CPU{EIP: 0x36d26}
+	calls := 0
+	c.StepHook = func(*cpu386.CPU) (bool, error) { calls++; return true, nil }
+	if err := applyFD2HeapProfile(c, "wrong", "native"); err == nil {
+		t.Fatal("wrong EXE accepted")
+	}
+	c.StepHook(c)
+	if calls != 1 {
+		t.Fatal("rejection changed installed hook")
+	}
+	r := map[string]any{"existing": 123}
+	before, _ := json.Marshal(r)
+	appendFD2NativeHeapReport(r, nil)
+	after, _ := json.Marshal(r)
+	if !bytes.Equal(before, after) {
+		t.Fatal("disabled profile altered receipt")
+	}
+}
+
+func TestFD2NativeHeapObserverTracksReturnsAndReuseWithoutGuestWrites(t *testing.T) {
+	m := &machine.LEMachine{Mem: make([]byte, 0x1000), CPU: &cpu386.CPU{}}
+	c := m.CPU
+	c.Seg[cpu386.SegDS] = 0x160
+	c.Seg[cpu386.SegSS] = 0x160
+	c.Descriptors = map[uint16]cpu386.Descriptor{0x160: {Base: 0, Limit: 0xfff, Writable: true}}
+	o := newFD2NativeHeapObserver()
+	event := func(entry, param, ptr uint32, step int) {
+		binary.LittleEndian.PutUint32(m.Mem[0x100:], 0x90)
+		binary.LittleEndian.PutUint32(m.Mem[0x104:], param)
+		c.EIP = entry
+		c.R[cpu386.ESP] = 0x100
+		before := append([]byte(nil), m.Mem...)
+		regs, seg, flags := c.R, c.Seg, c.EFlags
+		o.observe(m, step)
+		if !bytes.Equal(before, m.Mem) || regs != c.R || seg != c.Seg || flags != c.EFlags || c.EIP != entry {
+			t.Fatal("entry observation changed guest")
+		}
+		c.EIP = 0x90
+		c.R[cpu386.ESP] = 0x104
+		c.R[cpu386.EAX] = ptr
+		before = append([]byte(nil), m.Mem...)
+		regs = c.R
+		o.observe(m, step+10)
+		if !bytes.Equal(before, m.Mem) || regs != c.R || seg != c.Seg || flags != c.EFlags || c.EIP != 0x90 {
+			t.Fatal("return observation changed guest")
+		}
+	}
+	binary.LittleEndian.PutUint32(m.Mem[0x1fc:], 13)
+	event(0x37426, 0x200, 0, 0) // 建立free block不算先配置後重用。
+	event(0x36d26, 8, 0x200, 20)
+	if o.reuses != 0 {
+		t.Fatal("initial free mistaken for reuse")
+	}
+	event(0x37426, 0x200, 0, 40)
+	event(0x36d26, 8, 0x200, 60)
+	if o.allocations != 2 || o.frees != 2 || o.reuses != 1 || o.invalidPointers != 0 || len(o.pending) != 0 {
+		t.Fatalf("observer %+v", o)
+	}
+	// 完整span不足仍只記錄invalid，不越界讀取，不改原始CPU路徑。
+	event(0x36d26, 8, 0xfffffff0, 80)
+	if o.invalidPointers != 1 {
+		t.Fatal("invalid allocation pointer passed")
+	}
+	// 樣本滿仍持續計數，不變成原始執行停止點。
+	for i := 0; i < 260; i++ {
+		event(0x36d26, 8, 0x200, 100+i*20)
+	}
+	if len(o.events) != 256 || o.allocations != 263 {
+		t.Fatal("sample cap stopped totals")
 	}
 }

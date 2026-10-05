@@ -61,6 +61,7 @@ func main() {
 	traceTail := flag.Bool("trace-tail", false, "唯讀記錄最後2000個指令位置")
 	dialogueEnters := flag.Int("dialogue-enters", 0, "等待邊界送 Enter 的有界次數")
 	dialogueFrames := flag.String("dialogue-frames", "", "逐頁原生收據目錄，必須存在且不得覆寫")
+	heapProfile := flag.String("heap-profile", "adapter", "近堆模式：adapter或native；native執行固定版本原始近堆入口")
 	heapMiB := flag.Int("heap-mib", 32, "明示近堆預算MiB（1至64），非原版配置器位址契約")
 	runDir := flag.String("run-dir", "", "互動對拍目錄；空值維持與 bootprobe 相同的一次性行為")
 	firstChunk := flag.Int("first-chunk", 700000000, "互動模式第一個控制邊界前的指令數（1至2000000000）")
@@ -81,6 +82,15 @@ func main() {
 	eipTraceFrom := flag.Int("eip-trace-from", 0, "唯讀 EIP 追蹤起始指令數；含首尾")
 	eipTraceTo := flag.Int("eip-trace-to", 0, "唯讀 EIP 追蹤終止指令數；0 表示不設上界")
 	flag.Parse()
+	heapExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "heap-mib" {
+			heapExplicit = true
+		}
+	})
+	if err := validateFD2HeapProfile(*heapProfile, heapExplicit); err != nil {
+		panic(err)
+	}
 	traceWindow := eipTraceWindow{*eipTraceFrom, *eipTraceTo, *eipTraceMax}
 	if !traceWindow.valid() {
 		panic("eip-trace 範圍或筆數越界")
@@ -222,6 +232,13 @@ func main() {
 	}
 	if !machine.InstallLEBIOSKeyboard(m) {
 		panic("BIOS鍵盤安裝失敗")
+	}
+	if err := applyFD2HeapProfile(m.CPU, hash, *heapProfile); err != nil {
+		panic(err)
+	}
+	var nativeHeap *fd2NativeHeapObserver
+	if *heapProfile == "native" {
+		nativeHeap = newFD2NativeHeapObserver()
 	}
 	var input []uint16
 	keyNames := fd2KeyNames()
@@ -443,7 +460,7 @@ func main() {
 				chain = append(chain, fmt.Sprintf("0x%X", v))
 			}
 		}
-		d, _ := json.Marshal(map[string]any{
+		checkpoint := map[string]any{
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
 			"exe_sha256": hash, "address_space": "dosgolem relocated LE linear",
 			"state_injections": injections(), "steps": steps,
@@ -460,7 +477,9 @@ func main() {
 			"dos_file_calls": append([]map[string]any(nil), fileCalls...),
 			"input_chain":    chain,
 			"view":           view, "registers": m.CPU.R, "units": units,
-		})
+		}
+		appendFD2NativeHeapReport(checkpoint, nativeHeap)
+		d, _ := json.Marshal(checkpoint)
 		if e := os.WriteFile(filepath.Join(*runDir, label+".json"), d, 0o600); e != nil {
 			panic(e)
 		}
@@ -848,6 +867,9 @@ func main() {
 		if *traceTail && steps >= *budget-2000 {
 			tail = append(tail, instructionEIP)
 		}
+		if nativeHeap != nil {
+			nativeHeap.observe(m, steps)
+		}
 		if stop = m.CPU.Step(); stop != nil {
 			break
 		}
@@ -912,7 +934,13 @@ func main() {
 			r["watcom_int386_input"] = map[string]any{"stack": stack, "regs": regs, "valid": valid, "abi": "existing cdecl REGS; read-only observation"}
 		}
 	}
-	r["heap_capacity_bytes"] = uint32(*heapMiB) * 1024 * 1024
+	if nativeHeap == nil {
+		r["heap_capacity_bytes"] = uint32(*heapMiB) * 1024 * 1024
+	}
+	appendFD2NativeHeapReport(r, nativeHeap)
+	if nativeHeap != nil {
+		r["runtime_adapter"] = "original _nmalloc/_nfree/__Init_Argv instructions; existing other Watcom/DOS/DPMI/BIOS adapters"
+	}
 	r["eip_trace_window"] = map[string]any{
 		"from_step": traceWindow.from, "to_step": traceWindow.to,
 		"max_entries": traceWindow.max, "entries": eipTraceCount,
@@ -1142,4 +1170,153 @@ func appendFD2MapState(record map[string]any, m *machine.LEMachine, enabled bool
 	record["map_runtime"] = map[string]any{"address_space": "FD2.EXE LE linear",
 		"globals": globals, "palette_rgb_hex": fmt.Sprintf("%x", rgb), "palette_dac6_hex": fmt.Sprintf("%x", dac)}
 	record["map_runtime_valid"] = true
+}
+
+const fd2NativeHeapEXESHA256 = "222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f"
+
+// 規格186批次155。固定版本三入口交回CPU；其他平台hook保持。
+func validateFD2HeapProfile(profile string, heapExplicit bool) error {
+	if profile != "adapter" && profile != "native" {
+		return fmt.Errorf("未知近堆模式：%q", profile)
+	}
+	if profile == "native" && heapExplicit {
+		return fmt.Errorf("native不接受heap-mib；原始近堆沿既有DPMI服務成長")
+	}
+	return nil
+}
+
+func applyFD2HeapProfile(c *cpu386.CPU, hash, profile string) error {
+	if err := validateFD2HeapProfile(profile, false); err != nil {
+		return err
+	}
+	if hash != fd2NativeHeapEXESHA256 {
+		return fmt.Errorf("FD2 heap profile hash mismatch")
+	}
+	if profile == "adapter" {
+		return nil
+	}
+	if c == nil || c.StepHook == nil {
+		return fmt.Errorf("native需要完整既有平台hook")
+	}
+	installed := c.StepHook
+	c.StepHook = func(c *cpu386.CPU) (bool, error) {
+		switch c.EIP {
+		case 0x36d26, 0x37426, 0x46114:
+			return false, nil
+		}
+		return installed(c)
+	}
+	return nil
+}
+
+type fd2NativeHeapFrame struct {
+	entry, caller, esp, parameter uint32
+	started                       int
+}
+type fd2NativeHeapObserver struct {
+	pending                                                  []fd2NativeHeapFrame
+	events                                                   []map[string]any
+	reuseEvents                                              []map[string]any
+	allocated                                                map[uint32]bool
+	freed                                                    map[uint32]int
+	allocations, frees, reuses, invalidPointers, argvEntries int
+	allocationEntries, freeEntries                           int
+}
+
+func newFD2NativeHeapObserver() *fd2NativeHeapObserver {
+	return &fd2NativeHeapObserver{allocated: map[uint32]bool{}, freed: map[uint32]int{}}
+}
+
+// 原始cdecl入口／返回配對，唯讀且有界；樣本上限不影響執行或累計。
+func (o *fd2NativeHeapObserver) observe(m *machine.LEMachine, step int) {
+	c := m.CPU
+	if len(o.pending) > 0 {
+		f := o.pending[len(o.pending)-1]
+		if c.EIP == f.caller && c.R[cpu386.ESP] == f.esp+4 {
+			kind, ptr := "allocation", c.R[cpu386.EAX]
+			if f.entry == 0x37426 {
+				kind, ptr = "free", f.parameter
+			}
+			e := map[string]any{"kind": kind, "entry": f.entry, "caller": f.caller, "parameter": f.parameter,
+				"entry_esp": f.esp, "return_esp": c.R[cpu386.ESP], "eax": c.R[cpu386.EAX],
+				"steps_entry": f.started, "steps_return": step, "pointer": ptr}
+			if ptr >= 4 && uint64(ptr)+8 <= uint64(len(m.Mem)) {
+				e["block_tag"] = binary.LittleEndian.Uint32(m.Mem[ptr-4 : ptr])
+				e["payload_first8_hex"] = fmt.Sprintf("%x", m.Mem[ptr:ptr+8])
+			}
+			if kind == "allocation" {
+				o.allocations++
+				valid := ptr == 0
+				if desc, ok := c.Descriptors[c.Seg[cpu386.SegDS]]; ok && ptr >= 4 {
+					span := uint64(f.parameter)
+					if span == 0 {
+						span = 1
+					}
+					valid = desc.Base == 0 && desc.Writable && ptr <= desc.Limit &&
+						span <= uint64(desc.Limit)-uint64(ptr)+1 && uint64(ptr)+span <= uint64(len(m.Mem))
+					if valid {
+						valid = binary.LittleEndian.Uint32(m.Mem[ptr-4:ptr])&1 == 1
+					}
+				}
+				e["allocation_pointer_valid"] = valid
+				if !valid {
+					o.invalidPointers++
+				}
+				if ptr != 0 {
+					if freeStep, ok := o.freed[ptr]; ok {
+						o.reuses++
+						if len(o.reuseEvents) < 64 {
+							o.reuseEvents = append(o.reuseEvents, map[string]any{"pointer": ptr, "free_return_step": freeStep, "allocation_return_step": step, "request": f.parameter, "block_tag": e["block_tag"]})
+						}
+						delete(o.freed, ptr)
+					}
+					o.allocated[ptr] = true
+				}
+			} else {
+				o.frees++
+				if o.allocated[ptr] {
+					o.freed[ptr] = step
+				}
+			}
+			if len(o.events) < 256 {
+				o.events = append(o.events, e)
+			}
+			o.pending = o.pending[:len(o.pending)-1]
+		}
+	}
+	if c.EIP == 0x46114 {
+		o.argvEntries++
+	}
+	if c.EIP != 0x36d26 && c.EIP != 0x37426 {
+		return
+	}
+	if c.EIP == 0x36d26 {
+		o.allocationEntries++
+	} else {
+		o.freeEntries++
+	}
+	desc, ok := c.Descriptors[c.Seg[cpu386.SegSS]]
+	if !ok || c.R[cpu386.ESP] > desc.Limit || 7 > desc.Limit-c.R[cpu386.ESP] {
+		return
+	}
+	at := uint64(desc.Base) + uint64(c.R[cpu386.ESP])
+	if at+8 > uint64(len(m.Mem)) {
+		return
+	}
+	o.pending = append(o.pending, fd2NativeHeapFrame{c.EIP, binary.LittleEndian.Uint32(m.Mem[at : at+4]), c.R[cpu386.ESP], binary.LittleEndian.Uint32(m.Mem[at+4 : at+8]), step})
+}
+func appendFD2NativeHeapReport(r map[string]any, o *fd2NativeHeapObserver) {
+	if o == nil {
+		return
+	}
+	r["heap_profile"] = "native"
+	r["near_heap_execution"] = map[string]any{
+		"kind":               "original_instructions_with_existing_platform_adapters",
+		"entries":            map[string]any{"_nmalloc": "0x36D26", "_nfree": "0x37426", "__Init_Argv": "0x46114"},
+		"entry_hits":         map[string]int{"_nmalloc": o.allocationEntries, "_nfree": o.freeEntries, "__Init_Argv": o.argvEntries},
+		"preserved_hooks":    []string{"memset 0x375C0", "int386 0x36D98", "LEVideo", "BIOS clock", "BIOS keyboard", "FD2StartupDOS/DPMI"},
+		"allocation_returns": o.allocations, "free_returns": o.frees, "exact_pointer_reuse_count": o.reuses,
+		"invalid_allocation_pointers": o.invalidPointers, "pending_frames": len(o.pending),
+		"events": o.events, "exact_pointer_reuse_samples": o.reuseEvents, "event_sample_limit": 256,
+		"limits": "bounded read-only observation; existing DPMI/device hardware-spec approximation; not all heap branches, real hardware, or chapter PLAYER-E2"}
 }

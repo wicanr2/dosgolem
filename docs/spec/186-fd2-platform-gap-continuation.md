@@ -1613,3 +1613,63 @@ __ExpandDGROUP初始化free block不列入再配置判定。
 完整平台生命週期成功不能歸因於TEST修正。TEST支援仍由先FAIL後PASS的
 CPU回歸證明。兩份最終收據及來源雜湊在fd2_re
 docs/data/ida/fd2_ch18_oracle_stosb_20261003.json的allocator_natural_lifecycle。
+
+
+## 批次155：正式FD2 oracle明示原生近堆模式（CONFORMED）
+
+2026-10-06，fd2_re #191，父題#102。固定FD2.EXE為357074 bytes、
+SHA-256 222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f。
+入口與caller沿既有RE，IDA9.4 IDA LE線性位址；動態為dosgolem relocated LE linear。
+主證據在fd2_re docs/data/ida/fd2_ch18_oracle_stosb_20261003.json的
+allocator_natural_lifecycle。相同完整平台、20檔固定唯讀資產與344筆指令bytes
+下，乾淨012defb2／6f6b1d7a自然生命週期相同，59次配置、39次釋放、26次同指標再配置。
+這是有界已證實實驗，正式章與所有heap分支仍未知，不以TEST修正解釋完整平台成功。
+
+唯一apps/fd2/cmd/oracle接受-heap-profile adapter或native，預設adapter。
+native只在固定EXE上繞過原始_nmalloc 0x36D26、_nfree 0x37426、
+__Init_Argv 0x46114三個替代入口，交回原始CPU指令。其餘現行
+memset 0x375C0、int386 0x36D98、BIOS data、LEVideo、LEOPLPorts、
+BIOS clock、keyboard與DOS／DPMI服務保持。原始近堆的DPMI成長沿現行平台近似，
+不把替代heap容量當作原始allocator的capacity，不猜原始GDT或重用初值。
+heap-mib僅供adapter；native與明示heap-mib並用拒收。未知模式、錯版本拒收，
+不得以fallback悄悄執行adapter。
+
+native模式在checkpoint及一次性報告加入heap_profile與唯讀near_heap_execution。
+記錄三入口的hit數、原始cdecl返回、DS平坦writable完整指標span／tag、
+配置／釋放計數、先配置後釋放再回同指標的次數，以及少量有界事件。
+首次Expand建立free block不算配置重用。觀測不得改客體regs、flags、記憶體或流程，
+不依事件樣本容量提前停止執行。adapter現有報告與前綴保持。
+
+fd2_re tools/dosgolem_oracle.sh及tools/dosgolem_oracle_container.sh
+以FD2_ORACLE_HEAP_PROFILE=adapter或native明示傳參。
+runner.json以實際來源SHA綁定已審查入口與hook政策；native未命中清冊時拒收，
+adapter未命中仍標unknown。source記錄runtime、main、CPU、LE startup，
+不得因選項字串或commit本身宣稱原生配置器已證實。
+原始內容由原始指令決定，仍保留DPMI／周邊硬體近似及未驗證分支限制。
+
+驗收：非法選項與wrong hash拒收、原始三入口不攔截而其他hook照常；
+cpu386／machine／oracle全部回歸、adapter一百萬步JSON與既有SHA相同；
+正式native BOOT收據在一百萬步記錄可比的59／39／26與合法指標；
+由正常BIOS鍵盤到標題並抽測選單按鍵，沒有人工heap／章注入。
+若後續指令或平台拒收，登記有界缺口，保留#191開放，不以局部helper取代驗收。
+#102同ch18-guard-r3前綴至T8另驗；不增加章PLAYER-E2或全硬體exact聲明。
+
+READY審查：最小bypass集合與受版控探針一致，完整平台前後實測不矛盾；
+未知是後續尚未執行分支，保持拒收。只改原版執行器模式與證據，
+不改remake規則、素材、玩家存檔或章驗收標準。
+
+
+2026-10-06批次155有限驗證：三相關套件完整PASS，含三入口routing、
+保留其他hook、錯hash／未知模式／native容量並用拒收，以及唯讀觀測、
+非法指標與樣本滿仍累計。真實CLI及runner來源清冊拒收測試通過。
+adapter一百萬步JSON保持4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1802607d565b39。
+正式native一百萬步記錄59／39／26配置、釋放、同指標再配置，
+非法指標0、pending0。原始入口走到0x1FE60標題caller並以正常BIOS down／up
+消費兩鍵，畫面依序START／LOAD／START，沒有heap／章狀態注入。
+原型收據如實標dirty；提交後以同一受版控容器入口及計畫另生乾淨收據。
+唯一數字、來源hash與FD2／dosgolem提交回填父題canonical及#191。
+第十八章同r3到T8尚未重跑，不能將本批BOOT提升為章PLAYER-E2。
+
+驗證程式曾把既有cpu386.Descriptor誤寫為SegmentDescriptor造成編譯失敗。
+只訂正測試名稱後，同一容器與命令乾淨重跑PASS；保留失敗log。
+此為驗證程式錯誤，不是原始CPU或產品缺陷。

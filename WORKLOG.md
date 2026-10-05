@@ -156,3 +156,13 @@ DOSBox兩頁原始擷取及腳本保存於本機dosbox-dialogue-20260908研究�
 完整平台生命週期成功不能歸因於TEST修正。TEST支援仍由先FAIL後PASS的
 CPU回歸證明。兩份最終收據及來源雜湊在fd2_re
 docs/data/ida/fd2_ch18_oracle_stosb_20261003.json的allocator_natural_lifecycle。
+
+2026-10-06 #191：批次155已依固定EXE、既有IDA與兩個乾淨提交自然生命週期證據
+完成READY審查。整合只限唯一正式oracle的明示native模式及來源政策；
+先驗非法選項／hook邊界，再以真實BOOT及正常標題按鍵驗收。#102同r3到T8保持。
+
+2026-10-06 #191實作與有限CONFORMED：唯一oracle新增明示heap-profile；
+native交回三個原始入口、保留既有平台，唯讀記錄caller／指標與配置生命週期。
+CLI與來源hash拒收、三套件完整回歸、adapter原前綴及正常標題down／up通過。
+驗證程式Descriptor名稱錯誤已分類修正並同命令重跑；未修改產品語意。
+原型來源dirty如實記錄，提交後重生乾淨正式wrapper收據再結案。
