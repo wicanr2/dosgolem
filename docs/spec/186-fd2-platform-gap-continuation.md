@@ -1675,7 +1675,7 @@ adapter一百萬步JSON保持4a1152605f09128d7e70a8259587329c0039bd8c990e6d6f3b1
 此為驗證程式錯誤，不是原始CPU或產品缺陷。
 
 
-## 批次156：第十八章原生近堆 T8 END 的 word ADD 83（CPU CONFORMED；正式重跑待驗）
+## 批次156：第十八章原生近堆 T8 END 的 word ADD 83（CONFORMED）
 
 2026-10-06，fd2_re #192，父題 #102。固定 FD2.EXE 357074 bytes，
 SHA-256 222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f。
@@ -1719,3 +1719,14 @@ DS／SS／SIB、鄰接 byte 與全部 GPR 保存；唯讀、短 span／bus、
 同一 Docker／命令乾淨重跑通過，失敗 log 保留於 fd2_re 主證據。
 有限 CPU 契約已 CONFORMED，正式同 r3 重跑與此前 native 前綴仍待驗；
 父 #102 原有同舊前綴條件未通過。
+
+
+2026-10-06 正式驗證：乾淨 5f97a253、固定槽與同 r3 計畫重跑完成。
+停止前2024個完整JSON bytes／PNG及1445筆EIP trace皆與3d2ca72a相同，
+正常輸入保持；checkpoint2024越過10,084,671,521步的0x22A47停止，
+此前沒有注入。其後正常到T9，再依計畫一次清敵，進戰後城鎮、
+完成買賣、酒店槽0寫入及Alt-F8秘密商店。唯一數字／SHA／命令在
+fd2_re主證據allocator_native_chapter.original_r2與cpu_followup。
+本批有限CPU／native前綴接續CONFORMED，fd2_re #192可結案。
+舊adapter前綴與native仍不相同，#102不關閉；新來源remake的第一個AI
+分岔另在#194，後續BG拒收#193為分岔後狀態。沒有新增章PLAYER-E2。
