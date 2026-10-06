@@ -3,7 +3,7 @@
 //
 //	phantasie-play -root <原版目錄> -text text -font <字型目錄> -lang zh-TW
 //
-// F11 全螢幕、F12 依序切換語言（zh-TW、zh-CN、en、ja、ko 中已啟用者）。這兩個鍵不送給原版。
+// F1 操作說明、F11 全螢幕、F12 切換語言、Shift+F12 切換主題，均不送給原版。
 package main
 
 import (
@@ -29,7 +29,7 @@ var namedKeys = map[ebiten.Key]string{
 	ebiten.KeyEnter: "Return", ebiten.KeyNumpadEnter: "Return", ebiten.KeyEscape: "Esc",
 	ebiten.KeyBackspace: "Backspace", ebiten.KeyTab: "Tab", ebiten.KeySpace: "Space",
 	ebiten.KeyArrowUp: "Up", ebiten.KeyArrowDown: "Down", ebiten.KeyArrowLeft: "Left", ebiten.KeyArrowRight: "Right",
-	ebiten.KeyF1: "F1", ebiten.KeyF2: "F2", ebiten.KeyF3: "F3", ebiten.KeyF4: "F4", ebiten.KeyF5: "F5",
+	ebiten.KeyF2: "F2", ebiten.KeyF3: "F3", ebiten.KeyF4: "F4", ebiten.KeyF5: "F5",
 	ebiten.KeyF6: "F6", ebiten.KeyF7: "F7", ebiten.KeyF8: "F8", ebiten.KeyF9: "F9", ebiten.KeyF10: "F10",
 }
 
@@ -43,15 +43,39 @@ type game struct {
 	art      *phantasie.TownArt
 	err      error
 	full     bool
+	helpOn   bool
+	help     map[string]*helpPage
 }
 
 func (g *game) Update() error {
-	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
+	in := frameInput{f1: inpututil.IsKeyJustPressed(ebiten.KeyF1), esc: inpututil.IsKeyJustPressed(ebiten.KeyEscape),
+		f11: inpututil.IsKeyJustPressed(ebiten.KeyF11), f12: inpututil.IsKeyJustPressed(ebiten.KeyF12),
+		shift: ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)}
+	for k, name := range namedKeys {
+		if inpututil.IsKeyJustPressed(k) {
+			in.keys = append(in.keys, name)
+		}
+	}
+	for _, r := range ebiten.AppendInputChars(nil) {
+		if r >= 0x20 && r < 0x7F && r != ' ' {
+			in.keys = append(in.keys, string(r))
+		}
+	}
+	return g.tick(in)
+}
+
+type frameInput struct {
+	f1, esc, f11, f12, shift bool
+	keys                     []string
+}
+
+func (g *game) tick(in frameInput) error {
+	if in.f11 {
 		g.full = !g.full
 		ebiten.SetFullscreen(g.full)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
-		if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight) {
+	if in.f12 {
+		if in.shift {
 			g.theme = phantasie.NextTheme(g.theme, g.art)
 		} else {
 			if _, err := g.s.NextDisplay(); err != nil {
@@ -60,14 +84,16 @@ func (g *game) Update() error {
 		}
 		g.title()
 	}
-	for k, name := range namedKeys {
-		if inpututil.IsKeyJustPressed(k) && g.s.Gate.Pending() < maxQueued {
-			g.s.Gate.Press(0, name)
-		}
+	if in.f1 || (g.helpOn && in.esc) {
+		g.helpOn = !g.helpOn
+		return nil
 	}
-	for _, r := range ebiten.AppendInputChars(nil) {
-		if r >= 0x20 && r < 0x7F && r != ' ' && g.s.Gate.Pending() < maxQueued {
-			g.s.Gate.Press(0, string(r))
+	if g.helpOn {
+		return nil
+	}
+	for _, name := range in.keys {
+		if g.s.Gate.Pending() < maxQueued {
+			g.s.Gate.Press(0, name)
 		}
 	}
 	if g.err == nil {
@@ -84,6 +110,10 @@ func (g *game) Update() error {
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
+	if g.helpOn {
+		g.drawHelp(screen)
+		return
+	}
 	idx, rgb := g.s.Frame()
 	phantasie.ComposePresentationInto(g.rgba, g.s.Ov, idx, rgb, g.theme, g.art)
 	g.img.WritePixels(g.rgba)
@@ -233,6 +263,7 @@ func main() {
 		return
 	}
 	g := &game{s: s, stepsPer: *ips / 60, rgba: make([]uint8, 640*400*4), baseName: "幽靈戰士（Phantasie）繁體中文化", theme: *theme, art: art}
+	g.help = loadHelpPages(s, *textDir)
 	g.img = ebiten.NewImage(640, 400)
 	g.title()
 	ebiten.SetWindowSize(640**zoom, 400**zoom)

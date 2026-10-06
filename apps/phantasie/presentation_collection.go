@@ -34,6 +34,7 @@ type artPageSpec struct {
 	Preserve   [][4]int `json:"preserve"`
 }
 type artSpriteSpec struct {
+	Kind         string `json:"kind,omitempty"`
 	Source       string `json:"source"`
 	SourceOffset int    `json:"source_offset"`
 	Width        int    `json:"width"`
@@ -51,6 +52,7 @@ type artCollectionSpec struct {
 	Sprites []artSpriteSpec `json:"sprites"`
 }
 type artSprite struct {
+	kind                        string
 	width, height, index, state int
 	raw                         []byte
 	paint                       *image.RGBA
@@ -135,7 +137,11 @@ func decodeArtCollection(data []byte) (artCollectionSpec, error) {
 	if err := d.Decode(&p); err != nil {
 		return p, err
 	}
-	if p.Schema != 2 || len(p.Sources) < 1 || len(p.Sources) > 8 || len(p.Images) < 1 || len(p.Images) > 32 || len(p.Pages) > 4 || len(p.Sprites) > 160 || len(p.Pages)+len(p.Sprites) == 0 {
+	maxSprites := 160
+	if p.Schema == 3 {
+		maxSprites = 192
+	}
+	if (p.Schema != 2 && p.Schema != 3) || len(p.Sources) < 1 || len(p.Sources) > 8 || len(p.Images) < 1 || len(p.Images) > 32 || len(p.Pages) > 4 || len(p.Sprites) > maxSprites || len(p.Pages)+len(p.Sprites) == 0 {
 		return p, fmt.Errorf("art collection limits")
 	}
 	return p, nil
@@ -165,6 +171,13 @@ func artCollectionShape(data []byte) error {
 		"images":  {"file", "bytes", "sha256"},
 		"pages":   {"source", "source_rect", "image", "image_rect", "preserve"},
 		"sprites": {"source", "source_offset", "width", "height", "index", "state", "image", "image_rect"},
+	}
+	var schema int
+	if err := json.Unmarshal(root["schema"], &schema); err != nil {
+		return err
+	}
+	if schema == 3 {
+		groups["sprites"] = append(groups["sprites"], "kind")
 	}
 	for group, names := range groups {
 		var rows []map[string]json.RawMessage
@@ -251,6 +264,12 @@ func decodeArtSource(raw []byte, s artSource) ([]byte, error) {
 		}
 		return raw, nil
 	}
+	if s.Encoding == "raw-linear" {
+		if len(raw) != s.DecodedBytes {
+			return nil, fmt.Errorf("art raw linear size")
+		}
+		return raw, nil
+	}
 	if s.Encoding != "zero-rle-page" && s.Encoding != "zero-rle-linear" {
 		return nil, fmt.Errorf("art source encoding")
 	}
@@ -324,6 +343,9 @@ func loadArtCollection(root, dir string, data []byte) (*TownArt, error) {
 	files := map[string]bool{}
 	sourceFiles := map[string]artImage{}
 	for _, s := range p.Sources {
+		if p.Schema == 2 && s.Encoding == "raw-linear" {
+			return nil, fmt.Errorf("art schema 2 source encoding")
+		}
 		if !artBaseName(s.ID) || !artBaseName(s.File) || sources[s.ID] != nil || files[strings.ToLower(s.File)] {
 			return nil, fmt.Errorf("art source name")
 		}
@@ -347,7 +369,7 @@ func loadArtCollection(root, dir string, data []byte) (*TownArt, error) {
 	// Construct source identities before reading images; no partial result escapes.
 	for _, page := range p.Pages {
 		source := sources[page.Source]
-		if len(source) != 16384 || encodings[page.Source] == "zero-rle-linear" || len(page.Preserve) > 16 {
+		if len(source) != 16384 || (encodings[page.Source] != "cga-page" && encodings[page.Source] != "zero-rle-page") || len(page.Preserve) > 16 {
 			return nil, fmt.Errorf("art page source")
 		}
 		r, err := artRect(page.SourceRect, image.Rect(0, 0, 320, 200), 9)
@@ -369,23 +391,47 @@ func loadArtCollection(root, dir string, data []byte) (*TownArt, error) {
 		}
 		a.pages = append(a.pages, entry)
 	}
-	identities := map[[2]int]bool{}
+	type spriteIdentity struct {
+		kind         string
+		index, state int
+	}
+	identities := map[spriteIdentity]bool{}
 	bitmaps := map[string]int{}
 	for _, spec := range p.Sprites {
 		source := sources[spec.Source]
 		w, h := spec.Width, spec.Height
-		identity := [2]int{spec.Index, spec.State}
-		if encodings[spec.Source] != "zero-rle-linear" || w < 16 || w > 80 || w%4 != 0 || h < 1 || h > 80 || spec.SourceOffset < 0 || w/4*h > len(source) || spec.SourceOffset > len(source)-w/4*h || spec.Index < 0 || spec.State < 0 || identities[identity] {
+		kind := spec.Kind
+		if p.Schema == 2 {
+			kind = "monster"
+		}
+		identity := spriteIdentity{kind, spec.Index, spec.State}
+		encoding := "zero-rle-linear"
+		if p.Schema == 3 {
+			switch kind {
+			case "monster":
+				if spec.Index < 0 || spec.Index > 79 || (spec.State != 1 && spec.State != 2) {
+					return nil, fmt.Errorf("art monster identity")
+				}
+			case "party":
+				encoding = "raw-linear"
+				if len(source) != 4096 || w != 32 || h != 32 || spec.Index < 0 || spec.Index > 15 || (spec.State != 1 && spec.State != 2) || spec.SourceOffset != spec.Index*256 {
+					return nil, fmt.Errorf("art party geometry or identity")
+				}
+			default:
+				return nil, fmt.Errorf("art sprite kind")
+			}
+		}
+		if encodings[spec.Source] != encoding || w < 16 || w > 80 || w%4 != 0 || h < 1 || h > 80 || spec.SourceOffset < 0 || w/4*h > len(source) || spec.SourceOffset > len(source)-w/4*h || spec.Index < 0 || spec.State < 0 || identities[identity] {
 			return nil, fmt.Errorf("art sprite geometry or identity")
 		}
 		identities[identity] = true
 		raw := source[spec.SourceOffset : spec.SourceOffset+w/4*h]
-		key := fmt.Sprintf("%d/%d/", w, h) + string(raw)
+		key := fmt.Sprintf("%s/%d/%d/", kind, w, h) + string(raw)
 		if _, exists := bitmaps[key]; exists {
 			return nil, fmt.Errorf("duplicate art bitmap")
 		}
 		bitmaps[key] = len(a.sprites)
-		sprite := artSprite{width: w, height: h, index: spec.Index, state: spec.State, raw: raw, white: true}
+		sprite := artSprite{kind: kind, width: w, height: h, index: spec.Index, state: spec.State, raw: raw, white: true}
 		nonzero := false
 		for _, v := range raw {
 			if v != 0 {
@@ -514,8 +560,15 @@ func (a *TownArt) spriteMatches(indexed []byte) ([]artMatch, bool) {
 	if len(indexed) != 320*200 {
 		return nil, false
 	}
-	packed := make([]byte, 80*151)
-	for y := 0; y < 151; y++ {
+	rows := 151
+	for _, s := range a.sprites {
+		if s.kind == "party" {
+			rows = 200
+			break
+		}
+	}
+	packed := make([]byte, 80*rows)
+	for y := 0; y < rows; y++ {
 		for xb := 0; xb < 80; xb++ {
 			for j := 0; j < 4; j++ {
 				packed[y*80+xb] |= (indexed[y*320+xb*4+j] & 3) << uint(6-2*j)
@@ -525,13 +578,20 @@ func (a *TownArt) spriteMatches(indexed []byte) ([]artMatch, bool) {
 	matches := []artMatch{}
 	seen := map[[3]int]bool{}
 	comparisons := 0
-	for y := 0; y < 151; y++ {
+	for y := 0; y < rows; y++ {
 		for xb := 0; xb <= 76; xb++ {
 			anchor := binary.LittleEndian.Uint32(packed[y*80+xb:])
 			for _, si := range a.anchors[anchor] {
 				s := a.sprites[si]
 				ox, oy := xb-s.anchorByte, y-s.anchorRow
-				if ox < 0 || oy < 0 || ox > 80-s.width/4 || oy > 151-s.height {
+				if ox < 0 || oy < 0 || ox > 80-s.width/4 {
+					continue
+				}
+				if s.kind == "party" {
+					if oy != 156 || s.width != 32 || s.height != 32 {
+						continue
+					}
+				} else if oy > 151-s.height {
 					continue
 				}
 				comparisons++

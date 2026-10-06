@@ -103,7 +103,7 @@ func LoadTownArt(root, dir string) (*TownArt, error) {
 	if err := json.Unmarshal(b, &header); err != nil {
 		return nil, err
 	}
-	if header.Schema == 2 {
+	if header.Schema == 2 || header.Schema == 3 {
 		return loadArtCollection(root, dir, b)
 	}
 	var p ArtProfile
