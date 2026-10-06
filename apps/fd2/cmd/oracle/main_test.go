@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"github.com/wicanr2/dosgolem/internal/cpu386"
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -382,5 +386,167 @@ func TestFD2NativeHeapObserverTracksReturnsAndReuseWithoutGuestWrites(t *testing
 	}
 	if len(o.events) != 256 || o.allocations != 263 {
 		t.Fatal("sample cap stopped totals")
+	}
+}
+
+func TestFD2MemoryChangeAddressBounds(t *testing.T) {
+	for _, text := range []string{"1,", ",1", " ", "-1", "+1", "xyz", "100000000", "1,0x1", "0x0X1", "0x"} {
+		if _, err := parseFD2MemoryChangeAddresses(text); err == nil {
+			t.Fatalf("accepted %q", text)
+		}
+	}
+	parts := make([]string, 17)
+	for i := range parts {
+		parts[i] = strconv.FormatInt(int64(i), 16)
+	}
+	if _, err := parseFD2MemoryChangeAddresses(strings.Join(parts, ",")); err == nil {
+		t.Fatal("accepted17")
+	}
+	addresses, err := parseFD2MemoryChangeAddresses("0X0, ffffffff, 0x10")
+	if err != nil || len(addresses) != 3 || addresses[1] != 0xffffffff {
+		t.Fatalf("valid parse %v %v", addresses, err)
+	}
+	if addresses, err := parseFD2MemoryChangeAddresses(""); err != nil || len(addresses) != 0 {
+		t.Fatal("disabled parse")
+	}
+}
+
+func memoryChangeTestMachine() *machine.LEMachine {
+	m := &machine.LEMachine{Mem: make([]byte, 512)}
+	copy(m.Mem, []byte{
+		0xc6, 0x05, 0x00, 0x01, 0x00, 0x00, 0x01,
+		0xc6, 0x05, 0x00, 0x01, 0x00, 0x00, 0x01,
+		0xc7, 0x05, 0x00, 0x01, 0x00, 0x00, 0x05, 0x04, 0x03, 0x02,
+		0x0f, 0x0b,
+	})
+	m.CPU = cpu386.New(m)
+	m.CPU.SetDescriptor(0x08, cpu386.Descriptor{Limit: 511})
+	m.CPU.SetDescriptor(0x10, cpu386.Descriptor{Limit: 511, Writable: true})
+	m.CPU.Seg[cpu386.SegCS] = 0x08
+	for _, segment := range []int{cpu386.SegDS, cpu386.SegES, cpu386.SegSS} {
+		m.CPU.Seg[segment] = 0x10
+	}
+	return m
+}
+
+func decodeMemoryChangeRecords(t *testing.T, data []byte) []map[string]any {
+	t.Helper()
+	records := []map[string]any{}
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+func TestFD2MemoryChangeUsesSuccessfulInstructionWithoutChangingGuest(t *testing.T) {
+	m, plain := memoryChangeTestMachine(), memoryChangeTestMachine()
+	var output bytes.Buffer
+	o := &fd2MemoryChangeObserver{addresses: []uint32{0x100, 0x101}, window: eipTraceWindow{0, 0, 20}, encoder: json.NewEncoder(&output)}
+	for step := 0; step < 4; step++ {
+		// 控制邊界在第二步改另一個byte，不能冒充第二步mov的writer。
+		if step == 1 {
+			m.Mem[0x101] = 7
+			plain.Mem[0x101] = 7
+		}
+		err := stepFD2WithMemoryObservation(m, o, step, 19)
+		wantErr := plain.CPU.Step()
+		if (err == nil) != (wantErr == nil) || !bytes.Equal(m.Mem, plain.Mem) ||
+			m.CPU.R != plain.CPU.R || m.CPU.EIP != plain.CPU.EIP || m.CPU.EFlags != plain.CPU.EFlags {
+			t.Fatalf("observer changed guest at step%d: %v %v", step, err, wantErr)
+		}
+	}
+	records := decodeMemoryChangeRecords(t, output.Bytes())
+	if len(records) != 3 || records[0]["kind"] != "baseline" || records[1]["kind"] != "change" || records[2]["kind"] != "change" {
+		t.Fatalf("wrong records %s", output.Bytes())
+	}
+	if records[1]["instruction_step"] != float64(0) || records[1]["step"] != float64(1) || records[1]["eip_before"] != "0x0" || records[1]["eip_after"] != "0x7" {
+		t.Fatal("instruction boundary wrong")
+	}
+	samples := records[2]["samples"].([]any)
+	if len(samples) != 2 || records[2]["instruction_step"] != float64(2) || records[2]["control_seq"] != float64(19) {
+		t.Fatal("same-step byte grouping wrong")
+	}
+	second := samples[1].(map[string]any)
+	if second["before"] != float64(7) || second["after"] != float64(4) {
+		t.Fatal("control mutation attributed to instruction")
+	}
+}
+
+func TestFD2MemoryChangeWindowBudgetAndInvalidSource(t *testing.T) {
+	for _, w := range []eipTraceWindow{{1, 1, 20}, {0, 0, 1}, {0, 0, 2}} {
+		m := memoryChangeTestMachine()
+		var output bytes.Buffer
+		o := &fd2MemoryChangeObserver{addresses: []uint32{0x100}, window: w, encoder: json.NewEncoder(&output)}
+		for step := 0; step < 3; step++ {
+			if err := stepFD2WithMemoryObservation(m, o, step, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		records := decodeMemoryChangeRecords(t, output.Bytes())
+		want := 1
+		if w.max == 2 {
+			want = 2
+		}
+		if len(records) != want {
+			t.Fatalf("window%+v records%s", w, output.Bytes())
+		}
+		if w.from == 1 && records[0]["instruction_step"] != float64(1) {
+			t.Fatal("window start not inclusive")
+		}
+	}
+	for _, addresses := range [][]uint32{{511}, {512}, {0xffffffff}} {
+		m := memoryChangeTestMachine()
+		var output bytes.Buffer
+		o := &fd2MemoryChangeObserver{addresses: addresses, window: eipTraceWindow{0, 0, 3}, encoder: json.NewEncoder(&output)}
+		before := append([]byte(nil), m.Mem...)
+		o.begin(m, 0, 0)
+		records := decodeMemoryChangeRecords(t, output.Bytes())
+		want := addresses[0] == 511
+		if records[0]["memory_valid"] != want || !bytes.Equal(before, m.Mem) {
+			t.Fatal("source validation changed memory")
+		}
+		if !want && (len(records[0]["samples"].([]any)) != 0 || !o.invalid) {
+			t.Fatal("invalid source published data")
+		}
+	}
+	var output bytes.Buffer
+	o := &fd2MemoryChangeObserver{addresses: []uint32{0}, window: eipTraceWindow{0, 0, 3}, encoder: json.NewEncoder(&output)}
+	if o.begin(nil, 0, 0) {
+		t.Fatal("nil source accepted")
+	}
+}
+
+func TestFD2MemoryChangeRejectsOverwriteAndDisabledDoesNotCreateFile(t *testing.T) {
+	dir := t.TempDir()
+	f, err := openFD2MemoryChangeLog(dir, nil)
+	if err != nil || f != nil {
+		t.Fatal("disabled log")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "memory-change.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("disabled created file")
+	}
+	if _, err := openFD2MemoryChangeLog("", []uint32{1}); err == nil {
+		t.Fatal("missing run-dir accepted")
+	}
+	f, err = openFD2MemoryChangeLog(dir, []uint32{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := openFD2MemoryChangeLog(dir, []uint32{1}); err == nil {
+		t.Fatal("overwritten")
+	}
+	m := memoryChangeTestMachine()
+	var output bytes.Buffer
+	o := &fd2MemoryChangeObserver{encoder: json.NewEncoder(&output)}
+	if err := stepFD2WithMemoryObservation(m, o, 0, 0); err != nil || output.Len() != 0 {
+		t.Fatal("disabled observation")
 	}
 }

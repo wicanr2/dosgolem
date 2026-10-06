@@ -173,3 +173,43 @@ dosgolem 後必須由 dosgolem 重生正式原版畫面。不得把 DOSBox 圖�
 - 290C2與11CAC入口觀測arg1；11EED／11D3B觀測copy出口。consumer依前狀態合成、後狀態核對，不由後狀態再推cycle。
 
 只授權觀測工具。raw／palette留本地work，公開庫只保存工具與hash。不提升map parity、原版配置器或PLAYER-E2。
+
+## 10. 有界原始位元組變更觀察
+
+狀態：READY。日期：2026-10-06。
+工單：[fd2_re #197](https://github.com/wicanr2/fd2_re/issues/197)，父項[#52](https://github.com/wicanr2/fd2_re/issues/52)。
+
+目前native第十二章固定槽前綴，seq3146在畫面(11,85)仍有原版118對remake116。
+EIP trace能確認map work與physical copy plane重用指標，卻沒有目標byte的寫入值。
+不以配置位址重用推定最後writer。來源為fd2_re主契約
+docs/data/ida/fd2_terrain_mode3_review_20261001.json的native_profile_recheck。
+
+工具只擴充apps/fd2/cmd/oracle/main.go，沿原始FD2.EXE固定身分與既有CPU／平台，
+不改CPU、heap、鍵盤、RNG、影片、檔案服務或遊戲資料。
+
+- 新選用旗標-memory-change為逗號分隔的1至16個不同LE線性byte位址，十六進位。
+  預設空值停用；需要-run-dir。重複、空項、負值、非法字元與32-bit越界在原版啟動前拒收。
+- 觀察窗口與上限重用-eip-trace-from／to／max，但變更收據有獨立筆數，
+  不搶EIP trace預算。輸出-run-dir/memory-change.jsonl，檔案存在時拒絕覆寫。
+- 每個允許觀察的instruction先讀宣告byte，再成功執行既有CPU.Step，然後讀同一byte。
+  第一次先寫baseline；後續只在該instruction前後byte不同時寫change。
+  控制邊界的外部狀態注入不冒充instruction寫入。CPU.Step失敗不寫change。
+- 每筆保留kind、instruction_step、step、control_seq、eip_before、eip_after、
+  address_space及samples。baseline的step是執行前；change的step是instruction_step+1，
+  samples保留address、before、after原始byte值，無推測語意或自訂名字。
+  一步多個byte改變合併為一筆，最多16個樣本。
+- 用uint64與實際Mem長度檢查每個來源；越界輸出memory_valid=false及空samples，
+  停止本觀察，不改guest或中止既有遊戲。消費端拒收false，不以0偽裝成功讀取。
+- 同值寫入不會出現change，收據只能證明最後改變值的步驟。既有平台adapter的整批寫入
+  仍標成當次Step來源，不稱為未觀察到的CPU內部逐byte指令。
+- 停用時不新增既有checkpoint或最終metadata欄位，不建立觀察檔、不讀guest。
+  啟用只在最終報告增加memory_change_observation的位址、窗口、筆數與上限；
+  FD2 wrapper以FD2_ORACLE_MEMORY_CHANGE傳遞並在runner記錄同一設定。
+- 最小回歸包含非法參數、首尾窗口與筆數、baseline／改變／同值、同一步多byte、
+  memory越界、CPU.Step失敗、記憶體與CPU不變、停用及檔案拒絕覆寫。
+  正式來源提交後以固定第三方短槽正常按鍵核對完整checkpoint／PNG／controls不變，
+  第十二章既有native同槽計畫再驗目標byte來源。不得用新收據放寬像素比較。
+
+這份規格只授權必要byte的唯讀觀察，不擴展到通用heap逆向，不驗收#52或PLAYER-E2。
+
+審查2026-10-06：已核對oracle控制邊界、nativeHeap.observe及成功CPU.Step的順序。觀察前後限包住同一CPU.Step，不能把控制注入當writer；停用直接維持既有Step，runtime與heap來源不改。READY只允許上述工具契約，最後pixel writer仍未知。

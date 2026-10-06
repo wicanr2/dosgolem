@@ -76,6 +76,7 @@ func main() {
 	frameEIP := flag.String("frame-eip", "", "在此 EIP 取一幀（十六進位，如 0x11CAC）；可與 -frame-stride 並用")
 	frameUnits := flag.Bool("frame-units", false, "逐格附加同時點單位原始記錄；需要 -frame-dir，唯讀觀測")
 	mapState := flag.Bool("map-state", false, "同步附加地圖全域、單位與色盤；需要frame-dir或eip-trace，唯讀觀測")
+	memoryChange := flag.String("memory-change", "", "有界唯讀byte變更觀察，最多16個LE線性位址；需要run-dir")
 	eipWatch := flag.String("eip-watch", "", "逗號分隔的十六進位位址（最多16個）；每一幀記錄各自的累計進入次數")
 	eipTrace := flag.String("eip-trace", "", "逗號分隔的十六進位位址（最多16個）；每次進入時把 step、control seq、EAX/EDX/EBX/ECX/ESI/EDI/ESP 與堆疊前 8 個 dword 追加到 -run-dir 的 eip-trace.jsonl（Watcom 暫存器呼叫慣例：前四個整數引數在 EAX/EDX/EBX/ECX）")
 	eipTraceMax := flag.Int("eip-trace-max", 200000, "eip-trace 最多記錄幾筆（1至200000）；超過就停止記錄")
@@ -94,6 +95,13 @@ func main() {
 	traceWindow := eipTraceWindow{*eipTraceFrom, *eipTraceTo, *eipTraceMax}
 	if !traceWindow.valid() {
 		panic("eip-trace 範圍或筆數越界")
+	}
+	memoryAddresses, err := parseFD2MemoryChangeAddresses(*memoryChange)
+	if err != nil {
+		panic(err)
+	}
+	if len(memoryAddresses) != 0 && *runDir == "" {
+		panic("memory-change 需要 -run-dir")
 	}
 	if *cpuProfile != "" {
 		f, e := os.Create(*cpuProfile)
@@ -569,6 +577,15 @@ func main() {
 		eipTraceLog = f
 		defer f.Close()
 	}
+	var memoryObserver *fd2MemoryChangeObserver
+	if len(memoryAddresses) != 0 {
+		f, e := openFD2MemoryChangeLog(*runDir, memoryAddresses)
+		if e != nil {
+			panic(e)
+		}
+		defer f.Close()
+		memoryObserver = &fd2MemoryChangeObserver{addresses: memoryAddresses, window: traceWindow, encoder: json.NewEncoder(f)}
+	}
 	frameIndex, frameNext, framePendingCount := 0, 0, 0
 	var frameLast, framePending [32]byte
 	var frameLog *os.File
@@ -870,7 +887,12 @@ func main() {
 		if nativeHeap != nil {
 			nativeHeap.observe(m, steps)
 		}
-		if stop = m.CPU.Step(); stop != nil {
+		if memoryObserver == nil {
+			stop = m.CPU.Step()
+		} else {
+			stop = stepFD2WithMemoryObservation(m, memoryObserver, steps, controlSeq)
+		}
+		if stop != nil {
 			break
 		}
 		if m.Keyboard.Waiting {
@@ -945,6 +967,12 @@ func main() {
 		"from_step": traceWindow.from, "to_step": traceWindow.to,
 		"max_entries": traceWindow.max, "entries": eipTraceCount,
 		"addresses": eipTraceAddrs,
+	}
+	if memoryObserver != nil {
+		r["memory_change_observation"] = map[string]any{
+			"addresses": memoryAddresses, "from_step": traceWindow.from, "to_step": traceWindow.to,
+			"max_entries": traceWindow.max, "entries": memoryObserver.entries, "invalid_source": memoryObserver.invalid,
+		}
 	}
 	r["instruction_tail"] = tail
 	r["state_directory"] = *state
@@ -1319,4 +1347,143 @@ func appendFD2NativeHeapReport(r map[string]any, o *fd2NativeHeapObserver) {
 		"invalid_allocation_pointers": o.invalidPointers, "pending_frames": len(o.pending),
 		"events": o.events, "exact_pointer_reuse_samples": o.reuseEvents, "event_sample_limit": 256,
 		"limits": "bounded read-only observation; existing DPMI/device hardware-spec approximation; not all heap branches, real hardware, or chapter PLAYER-E2"}
+}
+
+// fd2MemoryChangeObserver 只觀察成功 Step 前後的原始 byte；見 012 §10。
+type fd2MemoryChangeObserver struct {
+	addresses        []uint32
+	window           eipTraceWindow
+	encoder          *json.Encoder
+	before           [16]byte
+	entries          int
+	started, invalid bool
+}
+
+func parseFD2MemoryChangeAddresses(text string) ([]uint32, error) {
+	if text == "" {
+		return nil, nil
+	}
+	parts := strings.Split(text, ",")
+	if len(parts) > 16 {
+		return nil, fmt.Errorf("memory-change 位址超過16個")
+	}
+	addresses := make([]uint32, 0, len(parts))
+	seen := map[uint32]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "0x") || strings.HasPrefix(part, "0X") {
+			part = part[2:]
+		}
+		if part == "" {
+			return nil, fmt.Errorf("memory-change 空位址")
+		}
+		for _, c := range part {
+			if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+				return nil, fmt.Errorf("memory-change 不是十六進位位址")
+			}
+		}
+		value, err := strconv.ParseUint(part, 16, 32)
+		if err != nil {
+			return nil, fmt.Errorf("memory-change 32-bit位址越界: %w", err)
+		}
+		address := uint32(value)
+		if seen[address] {
+			return nil, fmt.Errorf("memory-change 重複位址")
+		}
+		seen[address] = true
+		addresses = append(addresses, address)
+	}
+	return addresses, nil
+}
+
+func openFD2MemoryChangeLog(runDir string, addresses []uint32) (*os.File, error) {
+	if len(addresses) == 0 {
+		return nil, nil
+	}
+	if runDir == "" {
+		return nil, fmt.Errorf("memory-change 需要 -run-dir")
+	}
+	return os.OpenFile(filepath.Join(runDir, "memory-change.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
+func (o *fd2MemoryChangeObserver) sourceValid(m *machine.LEMachine) bool {
+	if m == nil {
+		return false
+	}
+	for _, address := range o.addresses {
+		if uint64(address)+1 > uint64(len(m.Mem)) {
+			return false
+		}
+	}
+	return true
+}
+
+func (o *fd2MemoryChangeObserver) emit(kind string, step, control int, beforeEIP, afterEIP uint32, valid bool, samples []map[string]any) {
+	completed := step
+	if kind == "change" {
+		completed++
+	}
+	record := map[string]any{"kind": kind, "instruction_step": step, "step": completed, "control_seq": control,
+		"eip_before": fmt.Sprintf("0x%X", beforeEIP), "eip_after": fmt.Sprintf("0x%X", afterEIP),
+		"address_space": "dosgolem relocated LE linear", "memory_valid": valid, "samples": samples}
+	if err := o.encoder.Encode(record); err != nil {
+		panic(err)
+	}
+	o.entries++
+}
+
+func (o *fd2MemoryChangeObserver) begin(m *machine.LEMachine, step, control int) bool {
+	if o == nil || len(o.addresses) == 0 || o.invalid || !o.window.allows(step, o.entries) {
+		return false
+	}
+	eip := uint32(0)
+	if m != nil && m.CPU != nil {
+		eip = m.CPU.EIP
+	}
+	if !o.sourceValid(m) {
+		o.emit("invalid", step, control, eip, eip, false, []map[string]any{})
+		o.invalid = true
+		return false
+	}
+	for i, address := range o.addresses {
+		o.before[i] = m.Mem[address]
+	}
+	if !o.started {
+		samples := make([]map[string]any, 0, len(o.addresses))
+		for i, address := range o.addresses {
+			samples = append(samples, map[string]any{"address": fmt.Sprintf("0x%X", address), "before": o.before[i], "after": o.before[i]})
+		}
+		o.emit("baseline", step, control, eip, eip, true, samples)
+		o.started = true
+	}
+	return o.window.allows(step, o.entries)
+}
+
+func (o *fd2MemoryChangeObserver) end(m *machine.LEMachine, step, control int, beforeEIP uint32) {
+	if !o.sourceValid(m) {
+		o.emit("invalid", step, control, beforeEIP, m.CPU.EIP, false, []map[string]any{})
+		o.invalid = true
+		return
+	}
+	var samples []map[string]any
+	for i, address := range o.addresses {
+		value := m.Mem[address]
+		if value != o.before[i] {
+			samples = append(samples, map[string]any{"address": fmt.Sprintf("0x%X", address), "before": o.before[i], "after": value})
+		}
+	}
+	if len(samples) != 0 {
+		o.emit("change", step, control, beforeEIP, m.CPU.EIP, true, samples)
+	}
+}
+
+// 控制邊界與既有平台注入都在此呼叫之外，不能冒充 Step 的 writer。
+func stepFD2WithMemoryObservation(m *machine.LEMachine, o *fd2MemoryChangeObserver, step, control int) error {
+	observing := o.begin(m, step, control)
+	eip := m.CPU.EIP
+	err := m.CPU.Step()
+	if err == nil && observing {
+		o.end(m, step, control, eip)
+	}
+	return err
 }
