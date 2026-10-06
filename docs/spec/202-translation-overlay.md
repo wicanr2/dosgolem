@@ -73,6 +73,20 @@
 - `Snapshot() ([]byte, error)`、`Restore([]byte, fonts map[string]*Font) error`：疊字層存成 JSON（字型以 `Font.Name` 記），給逐步操作（規格 `201`）跨步保留。
   指紋與連續不同次數也一起存，否則還原後第一次 `Frame` 會誤判成畫面變了。`OnDrop` 不存（是呼叫端的 hook）。快照裡的字型名稱在 `fonts` 找不到時整批回錯。
 
+#### 2.3.1 顯示中的色盤更新
+
+狀態：READY，2026-10-02。證據入口為 `psychic_war_cht/docs/re/038-hd-theme-feasibility.md` §52，
+本機 `workplace/hd/over-frontend-colors-v1-20261002.json`。原版先將兩個不同色號都映成黑色，
+前兩行定色後才把色號15恢復白色；色號指紋不變，舊固定RGB導致中文前兩行保持黑色。已證實。
+
+- Pending按原契約選背景／前景色號，另在記憶體保存所選色號。
+- Shown只從仍可見且指紋與原版基準相同的格取RGB，更新相同色號的顏色；不存在該色號時保留先前RGB。
+- 色盤變化不重新定指紋、不重置失效次數、不改透明格或錨定格。
+- 快照格式與原版存檔不變。Restore保留既有FG／BG；第一次Frame若所有可見格均吻合，
+  以相同定色及SwapColors規則重建記憶體色號。未吻合時不猜色號，原失效機制照常運作。
+- 測試涵蓋黑色色盤恢復、SwapColors、失配格拒絕取色、快照及舊快照恢復；
+  正常視窗三行中文及語言／HD切換須另驗，不以單元測試冒稱GUI完成。
+
 ### 2.4 字模放大倍率
 
 `Stamp.GlyphScale int`：字模一個點在放大後畫布上佔幾個像素。0 表示 `scale / 3`（原本的 24 點字型配 8 像素字格、放大 3 倍）。

@@ -34,10 +34,22 @@ type Stamp struct {
 	Transparent []bool
 	// SwapColors 把定色的背景與前景對調（spec 202 §2.3）。用途：字比底密的區塊
 	// （字模填滿整條橫幅時，字的像素多於底），「最多的當背景」在那裡會反過來。
-	SwapColors bool
-	State      State
-	FG         [3]uint8
-	BG         [3]uint8
+	SwapColors        bool
+	State             State
+	FG                [3]uint8
+	BG                [3]uint8
+	fgIndex, bgIndex  uint8 // 顯示顏色追隨原版色盤；只存記憶體，快照格式不變
+	colorIndicesKnown bool
+
+	// spec 204：圖面使用明確的原版基準，不沿用文字的永久透明格。
+	Art         bool
+	Pix         []uint8
+	PixScale    int
+	Reference   []uint8
+	Order       int
+	artHidden   []bool
+	artOpaque   []bool // 登記時核對，每格資產是否全不透明
+	scaleWarned bool
 
 	hashes  []uint64 // 每一格的指紋（Frame 定色時記），Shown 之後用來判斷哪幾格還有效
 	misses  []int    // 每一格連續指紋不同的次數
@@ -52,6 +64,7 @@ func (s *Stamp) Rect() (x0, y0, x1, y1 int) {
 // Layer 是目前所有疊字。W、H 是原版畫面大小，0 當 320×200（spec 202 §2.3）。
 type Layer struct {
 	Stamps []*Stamp
+	Art    []*Stamp // spec 204：圖先畫，文字最後
 	// OnDrop 在一筆被移除時呼叫（原因：overlap、scroll、changed）。可為 nil。
 	// 不會被 Snapshot／Restore 保存——那是呼叫端接上去的 hook，不是狀態。
 	OnDrop func(s *Stamp, why string)
@@ -60,7 +73,8 @@ type Layer struct {
 	Frozen func(s *Stamp) bool
 	W, H   int
 
-	watchers []*Watcher // spec 203：以畫面內容當觸發點
+	watchers  []*Watcher      // spec 203：以畫面內容當觸發點
+	artOwners map[string]bool // spec 204：本幀整組的比對結果
 }
 
 func overlap(a, b *Stamp) bool {
@@ -75,6 +89,12 @@ func overlap(a, b *Stamp) bool {
 // 為什麼不整筆移除：原版會在訊息框旁邊開別的框（例如輸入檔名的面板），只蓋住訊息的右半。
 // 整筆移除的話，沒被蓋到的左半會露出原版英文。
 func (l *Layer) Add(s *Stamp) {
+	if s != nil && s.Art {
+		if err := l.AddArt(s); err != nil {
+			l.drop(s, "art")
+		}
+		return
+	}
 	keep := l.Stamps[:0]
 	nx0, ny0, nx1, ny1 := s.Rect()
 	for _, old := range l.Stamps {
@@ -279,11 +299,62 @@ func pick(s *Stamp, indexed, rgb []uint8, c uint8, w, h int) [3]uint8 {
 	return [3]uint8{}
 }
 
+func (s *Stamp) rememberColorIndices(indexed []uint8, w, h int) {
+	s.bgIndex, s.fgIndex = Colors(s.region(indexed, w, h))
+	if s.SwapColors {
+		s.bgIndex, s.fgIndex = s.fgIndex, s.bgIndex
+	}
+	s.colorIndicesKnown = true
+}
+
+// 只取指紋仍吻合的可見格；色盤變動不重設失效或透明狀態。
+func (s *Stamp) refreshColors(indexed, rgb []uint8, w, h int, now []uint64) {
+	if !s.colorIndicesKnown {
+		for i := 0; i < s.Cells; i++ {
+			if !s.transparent(i) && now[i] != s.hashes[i] {
+				return // 舊快照來源已變，不猜原來的色號
+			}
+		}
+		s.rememberColorIndices(indexed, w, h)
+	}
+	bgFound, fgFound := false, false
+	for i := 0; i < s.Cells; i++ {
+		if s.transparent(i) || now[i] != s.hashes[i] {
+			continue
+		}
+		for y := s.Y; y < s.Y+s.CellH; y++ {
+			for x := s.X + i*s.CellW; x < s.X+(i+1)*s.CellW; x++ {
+				if x < 0 || x >= w || y < 0 || y >= h {
+					continue
+				}
+				at := y*w + x
+				color := [3]uint8{rgb[3*at], rgb[3*at+1], rgb[3*at+2]}
+				if !bgFound && indexed[at] == s.bgIndex {
+					s.BG, bgFound = color, true
+				}
+				if !fgFound && indexed[at] == s.fgIndex {
+					s.FG, fgFound = color, true
+				}
+				if bgFound && fgFound {
+					return
+				}
+			}
+		}
+	}
+}
+
 // Frame 在機器停下來之後呼叫一次：定色、檢查失效（spec 202 §2.3）。
 // indexed 是原版色號畫面（寬 l.width()），rgb 是同一幀的 RGB。
 func (l *Layer) Frame(indexed, rgb []uint8) {
-	l.checkWatchers(indexed)
 	w, h := l.width(), l.height()
+	if len(indexed) != w*h || len(rgb) != 3*w*h {
+		for _, s := range l.Art {
+			s.State = Printing
+		}
+		return
+	}
+	l.checkWatchers(indexed)
+	l.frameArt(indexed)
 	keep := l.Stamps[:0]
 	for _, s := range l.Stamps {
 		if l.Frozen != nil && l.Frozen(s) {
@@ -292,6 +363,7 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 		}
 		switch s.State {
 		case Pending:
+			s.rememberColorIndices(indexed, w, h)
 			reg := s.region(indexed, w, h)
 			bg, fg := Colors(reg)
 			if s.SwapColors {
@@ -314,6 +386,7 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 				s.anchors = s.cellAnchors(indexed, w, h)
 			}
 			now := s.cellHashes(indexed, w, h)
+			s.refreshColors(indexed, rgb, w, h, now)
 			for i := 0; i < s.Cells; i++ {
 				if s.transparent(i) {
 					continue
@@ -350,21 +423,36 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 // Draw 把顯示中的疊字畫進放大後的 RGBA（寬 l.width()×scale）。scale 必須是 3 的倍數。
 // missing 對字型沒有的字呼叫（可為 nil）。回有沒有畫任何東西。
 func (l *Layer) Draw(dst []uint8, scale int, missing func(r rune)) bool {
-	if scale%3 != 0 {
+	return l.DrawWithBackground(dst, scale, missing, nil, nil)
+}
+
+// DrawWithBackground只為呼叫端指定的文字採用同位置全不透明圖面背景。
+// 非全不透明、缺圖面或未指定時沿用原背景；字模與狀態不變（204-art-plane §5）。
+func (l *Layer) DrawWithBackground(dst []uint8, scale int, missing func(r rune), background []uint8, useBackground func(*Stamp) bool) bool {
+	n, ok := product(l.width(), l.height(), scale, scale, 4)
+	if !ok || scale <= 0 || len(dst) != n {
 		return false
 	}
+	drew := l.drawArt(dst, scale)
+	if scale%3 != 0 {
+		return drew
+	}
 	W := l.width() * scale
-	drew := false
 	for _, s := range l.Stamps {
 		if s.State != Shown {
 			continue
 		}
 		drew = true
+		use := len(background) == n && useBackground != nil && useBackground(s)
 		x0, y0, x1, y1 := s.Rect()
 		for y := y0 * scale; y < y1*scale; y++ {
 			for x := x0 * scale; x < x1*scale; x++ {
 				if s.covered(x / scale) {
-					set(dst, W, x, y, s.BG)
+					bg := s.BG
+					if i := 4 * (y*W + x); use && x >= 0 && x < W && i >= 0 && i+3 < n && background[i+3] == 255 {
+						copy(bg[:], background[i:i+3])
+					}
+					set(dst, W, x, y, bg)
 				}
 			}
 		}
@@ -460,12 +548,17 @@ type layerSnapshot struct {
 	W      int             `json:"w"`
 	H      int             `json:"h"`
 	Stamps []stampSnapshot `json:"stamps"`
+	Art    []artSnapshot   `json:"art,omitempty"`
 }
 
 // Snapshot 把疊字層存成 JSON，供逐步操作（spec 201）跨步保留（spec 202 §2.3）。
 // 不含 OnDrop（那是呼叫端接的 hook，不是狀態）。
 func (l *Layer) Snapshot() ([]byte, error) {
 	snap := layerSnapshot{W: l.W, H: l.H, Stamps: make([]stampSnapshot, len(l.Stamps))}
+	for _, s := range l.Art {
+		snap.Art = append(snap.Art, artSnapshot{Key: s.Key, Owner: s.Owner, X: s.X, Y: s.Y,
+			Cells: s.Cells, CellW: s.CellW, CellH: s.CellH, PixScale: s.PixScale, Order: s.Order})
+	}
 	for i, s := range l.Stamps {
 		name := ""
 		if s.Font != nil {
@@ -533,6 +626,8 @@ func (l *Layer) Restore(data []byte, fonts map[string]*Font) error {
 	}
 	l.W, l.H = snap.W, snap.H
 	l.Stamps = stamps
+	l.Art = nil
+	l.artOwners = nil
 	return nil
 }
 

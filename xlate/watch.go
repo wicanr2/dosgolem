@@ -14,6 +14,9 @@ type Watcher struct {
 	Probe []int   // 先比這幾個位置（Want 的索引）；空的話自己均勻取 8 點
 	// Make 在比對到時呼叫，回傳要加的疊字（呼叫端決定文字、字型、格數）。
 	Make func() []*Stamp
+	// spec 204：圖面每幀比對啟用區，ArtKeys 定義完整列集合。
+	Art     bool
+	ArtKeys []string
 }
 
 // probes 回實際要先比的位置。
@@ -90,7 +93,15 @@ func (w *Watcher) match(indexed []uint8, sw, sh int) bool {
 // checkWatchers 由 Frame 呼叫：沒有活著的疊字的 watcher 比對成功就加疊字。
 func (l *Layer) checkWatchers(indexed []uint8) {
 	w, h := l.width(), l.height()
+	l.artOwners = nil
 	for _, wa := range l.watchers {
+		if wa.Art {
+			if l.artOwners == nil {
+				l.artOwners = make(map[string]bool)
+			}
+			l.checkArtWatcher(wa, indexed, w, h)
+			continue
+		}
 		if wa.Make == nil || l.alive(wa.Key) {
 			continue
 		}
