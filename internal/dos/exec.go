@@ -116,22 +116,28 @@ func imageParags(data []byte) uint16 {
 	return uint16((len(data)+15)/16) + 0x11
 }
 
-// placeChild 給子行程找 PSP＋映像的落點，回傳 MCB 段（PSP＝MCB+1）。
+// placeChild 給子行程找 PSP＋映像的落點，回傳 MCB 段（PSP＝MCB+1）
+// 與配給它的塊頂（PSP:0002 的值，不含）。
 //
-// arena 還沒建（nil：本輪第一次碰記憶體）回 freeSeg，容量檢查由呼叫端照舊做
-// （spawn 與 queue 的邊界條件本來就差一段，各留各的）；arena 存在時找自由段，
-// 找不到回 ok=false（R55 E142 根因：盲用 freeSeg+1 會蓋掉活的堆）。
+// 真 DOS 配給子行程的是整塊自由區（不是剛好映像大小），
+// 子行程再用 4Ah 把尾巴還回去；PSP:0002 就是這塊的尾端。
+// arena 還沒建（nil：本輪第一次碰記憶體）回 freeSeg，塊頂是 MemTop，
+// 容量檢查由呼叫端照舊做（spawn 與 queue 的邊界條件本來就差一段，
+// 各留各的）；arena 存在時找自由段，塊頂是該段原尾端
+// （carve 之前先記下來），找不到回 ok=false
+// （R55 E142 根因：盲用 freeSeg+1 會蓋掉活的堆）。
 // need 是 imageParags 原值（含 MCB＋PSP）；want 扣掉 MCB 那一段。
-func (d *DOS) placeChild(need uint16) (mcb uint16, ok bool) {
+func (d *DOS) placeChild(need uint16) (mcb, top uint16, ok bool) {
 	if d.arena == nil {
-		return d.freeSeg, true
+		return d.freeSeg, uint16(machine.MemTop), true
 	}
 	if i := d.pickBlock(need - 1); i >= 0 {
 		mcb := d.arena[i].seg
+		top := d.arena[i].seg + d.arena[i].size + 1
 		d.carveBlock(i, need-1)
-		return mcb, true
+		return mcb, top, true
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // spawn 載入並跳到一支子程式。失敗時設 CF 與 AX，行程疊不變。
@@ -142,7 +148,7 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	}
 
 	need := imageParags(data)
-	mcb, placed := d.placeChild(need)
+	mcb, top, placed := d.placeChild(need)
 	if d.arena == nil {
 		// 舊路徑：容量照舊檢查。
 		if avail := uint16(machine.MemTop) - d.freeSeg; need > avail {
@@ -189,9 +195,12 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	// PSP 欄位（`docs/spec/009` §2.4）。
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, f.psp) // 父行程 PSP
-	// 子行程 PSP:0002 是它自己的記憶體上限（擁有塊尾端），不是全域 MemTop
-	//（真 DOS 配給子行程剛好需要的塊；見 spawn 同一修正的註解）。
-	d.M.Write16(base+0x02, prog.EndSeg)
+	// 子行程 PSP:0002 是配給它的塊頂（整塊自由區的尾端，不是映像尾端；
+	// 真 DOS 把整塊自由區配給子行程，子再用 4Ah 縮。以前這裡填映像尾端，
+	// 拿它定堆疊／覆疊上限的程式（TLINK）會拿到小到不真實的數字而失敗；
+	// 更早以前填全域 MemTop，洞裡的子行程又會拿到大到不真實的數字
+	//（Watcom 6.5 啟動碼，`retro-runtime-study-private#32` R48）。
+	d.M.Write16(base+0x02, top)
 	envSeg := p.envSeg
 	if envSeg == 0 { // 繼承父行程的環境段
 		envSeg = d.M.Read16(uint32(f.psp)*16 + 0x2C)
@@ -443,7 +452,7 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 		return
 	}
 	need := imageParags(data)
-	mcb, placed := d.placeChild(need)
+	mcb, top, placed := d.placeChild(need)
 	if d.arena == nil {
 		// 舊路徑：容量照舊檢查（邊界條件逐字保留）。
 		if mcb+1+need > machine.MemTop {
@@ -468,8 +477,8 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 	}
 	base := uint32(psp) * 16
 	d.M.Write16(base+0x16, psp) // 疊底的父行程是自己
-	// 子行程 PSP:0002 是它自己的記憶體上限（同上，與 spawn 一致）。
-	d.M.Write16(base+0x02, prog.EndSeg)
+	// 子行程 PSP:0002 是配給它的塊頂（同上，與 spawn 一致）。
+	d.M.Write16(base+0x02, top)
 
 	// 命令列尾：長度 ＋ 內容 ＋ CR（`docs/spec/009` §4）。
 	args := []byte(q.Args)

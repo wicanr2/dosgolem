@@ -47,3 +47,25 @@ chained `WCC EMPTY.C／HELLO.C／FLOAT.C` 在 dosrun 下全乾淨
 附帶發現（非本規格範圍）：WCG 乾淨退出碼是 255（`pop` 回傳值慣用法），
 與 `ExecRecord.Exit` 的 `0xFF＝還沒結束` 哨兵撞碼——記錄正確、顯示混淆，
 `memops` 會把乾淨退出的子印成 `exit=FF`。另案處理。
+
+## 6. 補遺（2026-10-08）：PSP:0002＝配給塊頂，不是映像尾端
+
+c673226 把子行程 `PSP:0002` 從全域 `MemTop` 改成映像尾端
+（`prog.EndSeg`），理由寫「真 DOS 配給子行程剛好需要的塊」——
+這句是錯的。真 DOS 配給子行程的是**整塊自由區**
+（子再用 `4Ah` 縮），`PSP:0002` 是該塊尾端。證據：BCC 2.0
+編譯鏈在 c673226 之後斷掉（TLINK 拿映像尾端當記憶體上限，
+`exit=02`；只回退兩行 `Write16(base+0x02, …)` 即復活，
+`tlink exit=00`、`strlen.exe` 產出）。
+
+正確規則（`placeChild` 回傳塊頂，`spawn`／`spawnQueued` 照填）：
+
+- arena 還沒建：整段 `[freeSeg, MemTop)` 都是子行程的，填 `MemTop`
+  （BCC／TLINK 場景；c673226 之前這格根本沒寫、留零，
+  TLINK 碰巧能跑——零不是正確值，只是沒踩到）。
+- 落在洞裡：填該自由段原尾端（carve 之前先記），不填 `MemTop`
+  （Watcom WCC／WCG 場景；R48 的「大到不真實」仍修好）。
+
+映像尾端與全域頂都是錯的兩端，塊頂才是真 DOS 語意。
+測試：`TestChildPSPHasFullBlockTop`（nil 路徑＝`MemTop`）、
+`TestChildPSPHasHoleTop`（洞頂＝活塊 MCB 段）。
