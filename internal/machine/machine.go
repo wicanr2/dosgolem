@@ -489,6 +489,24 @@ type Machine struct {
 	// UnmappedPhysWrites 是 WritePhys* 寫到沒有對應記憶體的位址而被丟棄的次數（診斷計數，不進狀態）。
 	UnmappedPhysWrites uint64
 
+	// 432（docs/spec/432-linear-memory-and-paging）：保護模式 profile 與線性層。
+	//
+	// pmProfile、cr0、cr3、eflagsHi、pmCPL 是狀態（存進 PM 與 Snapshot）；xlat、paging、
+	// cplUser 是衍生欄位，只在 setter、Restore、LoadState 時由 recalcPM 重算
+	// （431 §4：任何核心都不得直接改它們）。tlbGen 是 TLB 的世代號，不存檔。
+	pmProfile bool
+	cr0, cr3  uint32
+	eflagsHi  uint16
+	pmCPL     uint8
+	xlat      bool
+	paging    bool
+	cplUser   bool
+	tlbGen    uint32
+	// wordXlat 是 pollWords 上一次看到的 xlat（xlat 改變的那一步重新取樣，不發變化通知）。
+	wordXlat bool
+	// PageTableWrites 是頁表走訪寫回 accessed／dirty 的次數（診斷計數，不存檔）。
+	PageTableWrites uint64
+
 	// dosFiles 是 SetDOSFiles 的值（0 ＝ 關閉，`docs/spec/429-dos-sft-chain`）。
 	// programLoaded 在 LoadEXE/LoadCOM/LoadState 之後為真，之後不能改 dosFiles。
 	dosFiles      int
@@ -686,7 +704,9 @@ func New() *Machine {
 		// 空區間 ＝ 監看關閉（見 WatchWrites）。零值的 lo=hi=0 會誤中位址 0。
 		watchLo: 1, watchHi: 0,
 		rWatchLo: 1, rWatchHi: 0,
-		VGA: newVGA(),
+		VGA:    newVGA(),
+		cr0:    pmCR0Init,
+		tlbGen: 1,
 	}
 	if MemPoison != 0 {
 		for i := range m.Mem {
@@ -763,6 +783,8 @@ func (m *Machine) ClockSkew() float64 {
 // SetA20 開關 A20（XMS 的 `AH=03h`–`06h` 走它）。
 func (m *Machine) SetA20(on bool) {
 	m.a20 = on
+	// A20 變動時作廢 TLB（432 §5.1，對齊 DOSBox-X `hardware/memory.cpp:1301-1317`）。
+	m.invalidateTLB()
 	m.syncCodeFastPath()
 }
 
@@ -779,6 +801,19 @@ func (m *Machine) SetA20(on bool) {
 //   - HMA：成立。A20 打開之後 `段:偏移` 到得了 1 MB 之上
 //     （`docs/spec/189`），而 HMA 不在 `Mem[]` 裡——快路徑會把那些
 //     位址讀成低記憶體的內容，執行的是另一段程式碼。
+//   - 轉換開啟（`m.xlat`，`docs/spec/432-linear-memory-and-paging` §5.4）：成立。
+//     線性位址要經 A20 遮罩與（C2 起）分頁才是實體位址，`Mem[]` 的直接索引
+//     兩者都不做。轉換開啟時 `CPU.Code` 一律停用（A20 開時現行已停用，
+//     所以 JEMM 場景沒有新損失）。
+//
+// 判準表（任一欄成立就停用）：
+//
+//	| 讀取監看 | A20 開 | 轉換開啟 | CPU.Code |
+//	|---|---|---|---|
+//	| 是 | – | – | nil |
+//	| – | 是 | – | nil |
+//	| – | – | 是 | nil |
+//	| 否 | 否 | 否 | m.Mem |
 //
 // ⚠ **`Read8` 再多做一件事，就回來過一次這張判準表。** 分開判斷的話
 // 遲早會漏一個，而漏掉的症狀都是「跑錯東西但不報錯」。
@@ -786,7 +821,7 @@ func (m *Machine) syncCodeFastPath() {
 	if m.CPU == nil {
 		return
 	}
-	if m.onRead != nil || m.a20 {
+	if m.onRead != nil || m.a20 || m.xlat {
 		m.CPU.Code = nil
 		return
 	}
@@ -804,27 +839,41 @@ func (m *Machine) hmaAddr(a uint32) (uint32, bool) {
 	return a - MemSize, true
 }
 
+// Read8 是 CPU 的位址空間（線性層，docs/spec/432-linear-memory-and-paging §3.2）。
+//
+// 轉換關閉（預設）：HMA 之外的位址遮成 20 位元後交給實體層，與 432 之前逐位元組相同。
+// 轉換開啟：見 linear.go 的 readLin。
 func (m *Machine) Read8(a uint32) uint8 {
+	// 熱路徑捷徑（`docs/spec/015` 的量法、432 §9 第 12 項的 97% 門檻）：傳統記憶體的低半部
+	// （VGA 平面視窗之下）、轉換關閉、讀取監看關閉時，實體層只剩 Mem[a]。這一行與
+	// readPhysRaw 的完整本體等價，隨機差分測試（physical_test.go）逐位元組證明；
+	// readPhysRaw 加新行為時，這個條件要跟著檢查。
+	if a < vgaLo && !m.xlat && m.rWatchLo > m.rWatchHi {
+		return m.Mem[a]
+	}
+	if m.xlat {
+		return m.readLin(a, m.cplUser)
+	}
 	if off, ok := m.hmaAddr(a); ok {
 		if m.Ext != nil {
 			return m.Ext[off]
 		}
 		return m.hma[off]
 	}
-	a &= 0xFFFFF
-	// 平面模式的 A0000 視窗不在線性記憶體裡（`docs/spec/013` §3.1）。
-	// ⚠ **讀它有副作用**：四個 latch 會被載入，而 latch 決定之後那次
-	// 寫入在 Bit Mask 之外的位元（`docs/spec/011` §4）。
-	if m.planarOn && a >= vgaLo && a < vgaHi {
-		return m.VGA.Read(a - vgaLo)
-	}
-	if m.rWatchLo <= a && a <= m.rWatchHi {
-		m.onRead(a, m.Mem[a])
-	}
-	return m.Mem[a]
+	return m.readPhysRaw(a & 0xFFFFF)
 }
 
 func (m *Machine) Write8(a uint32, v uint8) {
+	// 熱路徑捷徑：同 Read8。低於 VGA 視窗的位址沒有 ROM 保護與影片紀錄，寫入監看都關閉時
+	// 實體層只剩 Mem[a] = v。
+	if a < vgaLo && !m.xlat && m.watchLo > m.watchHi && len(m.writeWatches) == 0 {
+		m.Mem[a] = v
+		return
+	}
+	if m.xlat {
+		m.writeLin(a, v, m.cplUser)
+		return
+	}
 	if off, ok := m.hmaAddr(a); ok {
 		if m.Ext != nil {
 			m.Ext[off] = v
@@ -833,60 +882,7 @@ func (m *Machine) Write8(a uint32, v uint8) {
 		m.hma[off] = v
 		return
 	}
-	a &= 0xFFFFF
-	if a >= ROMBase {
-		m.noteROMWrite(a, v)
-		return
-	}
-	if m.onVideoWrite != nil && a >= vgaLo && a < vgaHi {
-		cs, ip := m.CPU.OpAddr()
-		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode()})
-	}
-	if m.planarOn && a >= vgaLo && a < vgaHi {
-		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。
-		// VideoRowWrites 補這個洞：**要分辨「程式沒畫」與「畫了但沒生效」**，
-		// 除了看結果還得看它到底有沒有寫進去。
-		stride := m.planarStride()
-		if m.RowWritesFrom > 0 && m.Steps >= m.RowWritesFrom {
-			if r := int(a-vgaLo) / stride; r < len(m.VideoRowWrites) {
-				m.VideoRowWrites[r]++
-			}
-		}
-		// 用過哪些 write mode、誰在寫視訊記憶體——**畫面上看得到的東西，
-		// 一定有人把它寫進 plane**，這是沒有原始碼時找繪圖常式最短的路。
-		m.WriteModeUse[m.VGA.WriteMode()]++
-		if m.VRAMSites != nil && (m.VRAMAt < 0 || uint32(m.VRAMAt) == a-vgaLo) {
-			cs, ip := m.CPU.OpAddr()
-			m.VRAMSites[uint32(cs)<<16|uint32(ip)]++
-		}
-		// **留最後 40 筆，不是前 40 筆**：要知道畫面上最後是誰寫的，
-		// 前面那幾筆通常是被蓋掉的那一批。
-		if m.VGATraceRow1 > m.VGATraceRow0 && m.Steps >= m.RowWritesFrom {
-			off := int(a - vgaLo)
-			r, c := off/stride, off%stride
-			inCol := m.VGATraceCol1 == 0 || (c >= m.VGATraceCol0 && c < m.VGATraceCol1)
-			if r >= m.VGATraceRow0 && r < m.VGATraceRow1 && inCol {
-				m.VGATrace = append(m.VGATrace, m.vgaSnap(a-vgaLo, v, r))
-				if len(m.VGATrace) > 40 {
-					m.VGATrace = m.VGATrace[1:]
-				}
-			}
-		}
-		m.VGA.Write(a-vgaLo, v)
-		return
-	}
-	if m.watchLo <= a && a <= m.watchHi && m.Mem[a] != v {
-		m.onWrite(a, m.Mem[a], v)
-	}
-	if len(m.writeWatches) > 0 {
-		old := m.Mem[a]
-		m.Mem[a] = v
-		// ⚠ **值沒變也算一次寫入**（與 WatchWrites 不同）：
-		// 「誰在寫這個位址」與「這個值變了沒」是兩個問題，後者用 WatchWord。
-		m.noteWrite(a, old, v)
-		return
-	}
-	m.Mem[a] = v
+	m.writePhysRaw(a&0xFFFFF, v)
 }
 
 // planarStride 是平面模式每一列的位元組數（寬 ÷ 8）。
@@ -1601,14 +1597,14 @@ func (m *Machine) QueueScanCodes(codes ...uint8) { m.QueueScan(codes...) }
 // 有些程式直接讀它算時間，不裝任何 ISR。
 func (m *Machine) bumpBDATicks() {
 	const at = 0x0040*16 + 0x6C
-	v := uint32(m.Read16(at)) | uint32(m.Read16(at+2))<<16
+	v := uint32(m.ReadPhys16(at)) | uint32(m.ReadPhys16(at+2))<<16
 	v++
 	if v >= 0x001800B0 { // 一天的 tick 數
 		v = 0
-		m.Write8(0x0040*16+0x70, m.Read8(0x0040*16+0x70)+1)
+		m.WritePhys8(0x0040*16+0x70, m.ReadPhys8(0x0040*16+0x70)+1)
 	}
-	m.Write16(at, uint16(v))
-	m.Write16(at+2, uint16(v>>16))
+	m.WritePhys16(at, uint16(v))
+	m.WritePhys16(at+2, uint16(v>>16))
 }
 
 // ---- 中斷向量表 ----------------------------------------------------------
@@ -1773,7 +1769,7 @@ func (m *Machine) TypeScan(s string) error {
 // 每一列的尾端空白會去掉，但**空白列會保留**：第幾列有東西本身是資訊。
 func (m *Machine) TextScreen(cols int) []string {
 	if cols <= 0 || cols > 132 {
-		cols = int(m.Read16(0x44A))
+		cols = int(m.ReadPhys16(0x44A))
 	}
 	if cols <= 0 || cols > 132 {
 		cols = 80
@@ -1782,7 +1778,7 @@ func (m *Machine) TextScreen(cols int) []string {
 	for row := range rows {
 		line := make([]byte, cols)
 		for col := 0; col < cols; col++ {
-			ch := m.Read8(TextSeg*16 + uint32(row*cols+col)*2)
+			ch := m.ReadPhys8(TextSeg*16 + uint32(row*cols+col)*2)
 			if ch < 0x20 || ch > 0x7E {
 				ch = ' '
 			}

@@ -44,6 +44,7 @@ SCCD 映像位移（檔案位移減 `0x200`）：
     `Peek8`（`internal/machine/peek.go`）三處都改。實模式可達範圍不變：A20 開時只有
     `0x100000`–`0x10FFEF`，`0x10FFF0` 以上照舊折回低記憶體。
   - 新增實體位址存取 `ReadPhys8／16／32`、`WritePhys8／16／32(a uint32)`：
+    （2026-10-15 修訂：`a < 0x100000` 時改走 `432-linear-memory-and-paging` 的實體層，不再經 `Read8`／`Write8`。）
     - `a < 0x100000`：走 `Read8`／`Write8`（含 VGA、ROM、監看）。
     - `0x100000 ≤ a < 0x100000+len(Ext)`：讀寫 `Ext`。
     - 其他：讀回 `0xFF`；寫入丟棄並累加 `UnmappedPhysWrites`（診斷計數，不進狀態，與 `ROMWrites` 同類）。

@@ -1117,7 +1117,7 @@ func main() {
 	{
 		nz := 0
 		for a := uint32(0xB8000); a < 0xB8000+0x8000; a++ {
-			if m.Read8(a) != 0 {
+			if m.ReadPhys8(a) != 0 {
 				nz++
 			}
 		}
@@ -1201,7 +1201,7 @@ func main() {
 		}
 		buf := make([]byte, n)
 		for k := range buf {
-			buf[k] = m.Read8(addr + uint32(k))
+			buf[k] = peek8(m, addr+uint32(k))
 		}
 		if err := os.WriteFile(path, buf, 0o644); err != nil {
 			die(err)
@@ -1271,13 +1271,13 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	// 而 tick 沒動的原因只有兩種：沒送中斷，或 IF 一直是 0。
 	fmt.Printf("計時器：送出 %d 次  IF=%v  int08 向量 %04X:%04X  int1C 向量 %04X:%04X\n",
 		m.Ticks, m.CPU.Flag(cpu.IF),
-		m.Read16(0x08*4+2), m.Read16(0x08*4),
-		m.Read16(0x1C*4+2), m.Read16(0x1C*4))
+		m.ReadPhys16(0x08*4+2), m.ReadPhys16(0x08*4),
+		m.ReadPhys16(0x1C*4+2), m.ReadPhys16(0x1C*4))
 	fmt.Printf("DS=%04X ES=%04X SS:SP=%04X:%04X  視訊模式 %02Xh\n",
 		c.Seg[cpu.DS], c.Seg[cpu.ES], c.Seg[cpu.SS], c.R[cpu.SP], m.VideoMode())
 	if m.KeyIRQs > 0 || m.KeyEvery > 0 {
 		fmt.Printf("鍵盤中斷送出 %d 次（int 09h 向量 %04X:%04X）\n",
-			m.KeyIRQs, m.Read16(0x09*4+2), m.Read16(0x09*4))
+			m.KeyIRQs, m.ReadPhys16(0x09*4+2), m.ReadPhys16(0x09*4))
 	}
 	fmt.Printf("planar write mode 使用次數：0=%d 1=%d 2=%d 3=%d\n",
 		m.WriteModeUse[0], m.WriteModeUse[1], m.WriteModeUse[2], m.WriteModeUse[3])
@@ -1569,7 +1569,7 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("\n硬體鍵盤：送出 IRQ1 %d 次（其中 %d 次因為沒人裝 int 09h 而留著），"+
 			"佇列還剩 %d 個事件\n  int 09h 向量 ＝ %04X:%04X（stub 段是 %04X）\n",
 			n, m.KeyStalls(), m.KeyQueueLen(),
-			m.Read16(0x09*4+2), m.Read16(0x09*4), uint16(machine.StubSeg))
+			m.ReadPhys16(0x09*4+2), m.ReadPhys16(0x09*4), uint16(machine.StubSeg))
 	}
 	if len(d.KeyReads) > 0 || len(d.Stdin) > 0 {
 		fmt.Printf("\n按鍵去向（取走 %d 個，佇列還剩 %d 個）：\n",
@@ -2129,7 +2129,7 @@ func stackDump(m *machine.Machine, c *cpu.CPU) string {
 	b.WriteString("\n      [bp+]")
 	base := uint32(c.Seg[cpu.SS])*16 + uint32(c.R[cpu.BP])
 	for i := 0; i < 12; i++ {
-		b.WriteString(fmt.Sprintf(" %02X:%04X", i*2, m.Read16(base+uint32(i*2))))
+		b.WriteString(fmt.Sprintf(" %02X:%04X", i*2, peek16(m, base+uint32(i*2))))
 	}
 	return b.String()
 }
@@ -2247,7 +2247,7 @@ func dumpPeek(m *machine.Machine, spec string) {
 		}
 		buf := make([]string, 0, n)
 		for i := 0; i < n; i++ {
-			buf = append(buf, fmt.Sprintf("%02X", m.Read8(addr+uint32(i))))
+			buf = append(buf, fmt.Sprintf("%02X", peek8(m, addr+uint32(i))))
 		}
 		fmt.Printf("  %-14s（執行期 %05X）%s\n", label, addr, strings.Join(buf, " "))
 	}
@@ -2598,7 +2598,7 @@ func writeCGA(path string, m *machine.Machine) error {
 	for y := 0; y < 200; y++ {
 		base := uint32(0xB8000) + uint32(y&1)*0x2000 + uint32(y/2)*80
 		for x := 0; x < 640; x++ {
-			b := m.Read8(base + uint32(x/8))
+			b := m.ReadPhys8(base + uint32(x/8))
 			if b&(0x80>>uint(x%8)) != 0 {
 				img.SetGray(x, y, color.Gray{Y: 255})
 			}
@@ -2824,21 +2824,21 @@ func (c *callArgLog) record(m *machine.Machine) {
 		bp := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.BP])
 		w := make([]uint16, c.n)
 		for i := range w {
-			w[i] = m.Read16(bp + 6 + uint32(i*2))
+			w[i] = peek16(m, bp+6+uint32(i*2))
 		}
 		c.rows = append(c.rows, callArgRow{
-			step: m.Steps, retOff: m.Read16(bp + 2), retSeg: m.Read16(bp + 4), w: w,
+			step: m.Steps, retOff: peek16(m, bp+2), retSeg: peek16(m, bp+4), w: w,
 			regs: snapRegs(m), text: c.readLengthString(m, w)})
 		return
 	}
 	base := uint32(m.CPU.Seg[cpu.SS])*16 + uint32(m.CPU.R[cpu.SP])
 	// 遠呼叫的返回位址佔前四個位元組，參數從第五個開始；
 	// 返回位址本身就是**呼叫端是誰**，同一支被叫上千次時只有它分得出來。
-	off := m.Read16(base)
-	seg := m.Read16(base + 2)
+	off := peek16(m, base)
+	seg := peek16(m, base+2)
 	w := make([]uint16, c.n)
 	for i := range w {
-		w[i] = m.Read16(base + 4 + uint32(i*2))
+		w[i] = peek16(m, base+4+uint32(i*2))
 	}
 	c.rows = append(c.rows, callArgRow{
 		step: m.Steps, retSeg: seg, retOff: off, w: w,
@@ -2850,10 +2850,10 @@ func (c *callArgLog) readLengthString(m *machine.Machine, w []uint16) string {
 		return ""
 	}
 	base := cpu.Addr(w[1], w[0])
-	n := int(m.Read8(base))
+	n := int(peek8(m, base))
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = m.Read8(base + 1 + uint32(i))
+		b[i] = peek8(m, base+1+uint32(i))
 	}
 	return string(b)
 }
@@ -2966,7 +2966,7 @@ func doDumpMem(m *machine.Machine, spec string) error {
 		buf := make([]byte, n)
 		base := cpu.Addr(uint16(seg), uint16(off))
 		for i := range buf {
-			buf[i] = m.Read8(base + uint32(i))
+			buf[i] = peek8(m, base+uint32(i))
 		}
 		name := fmt.Sprintf("%s-%04X_%04X.bin", prefix, seg, off)
 		if err := os.WriteFile(name, buf, 0o644); err != nil {
@@ -3348,7 +3348,7 @@ func writeToneWAV(m *machine.Machine, path string) error {
 func dumpShot(m *machine.Machine, sh memShot) {
 	buf := make([]byte, sh.n)
 	for k := range buf {
-		buf[k] = m.Read8(sh.addr + uint32(k))
+		buf[k] = peek8(m, sh.addr+uint32(k))
 	}
 	if err := os.WriteFile(sh.path, buf, 0o644); err != nil {
 		die(err)

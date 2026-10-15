@@ -827,7 +827,7 @@ func (d *DOS) note(intNo, ah, al uint8) {
 // 「FMDRV.COM : cannot execute.」然後帶著 65h 離開——服務本身做對了，
 // 只有旗標到不了（源平合戰，`docs/spec/004` §2.1）。
 func (d *DOS) fixStackedCF(c *cpu.CPU) {
-	at := cpu.Addr(c.Seg[cpu.SS], c.R[cpu.SP]+4)
+	at := d.M.SvcAddr(c.Seg[cpu.SS], c.R[cpu.SP]+4)
 	w := d.M.Read16(at)
 	if c.Flags&cpu.CF != 0 {
 		w |= cpu.CF
@@ -855,17 +855,17 @@ func (d *DOS) noteCPU(c *cpu.CPU, intNo, fn, sub uint8) {
 		SI: c.R[cpu.SI], DI: c.R[cpu.DI],
 	}
 	if intNo == 0x21 && fn == 0x4B {
-		pathAddr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+		pathAddr := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 		for i := 0; i < 260; i++ {
-			b := d.M.Read8(pathAddr + uint32(i))
+			b := d.diagRead8(pathAddr + uint32(i))
 			if b == 0 {
 				break
 			}
 			detail.Path += string([]byte{b})
 		}
-		paramAddr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+		paramAddr := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.BX])
 		for i := range detail.Param {
-			detail.Param[i] = d.M.Read8(paramAddr + uint32(i))
+			detail.Param[i] = d.diagRead8(paramAddr + uint32(i))
 		}
 	}
 	d.UnimplementedDetails = append(d.UnimplementedDetails, detail)

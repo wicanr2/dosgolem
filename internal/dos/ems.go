@@ -222,7 +222,7 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 		// **這是 EMS 4.0 程式問「page frame 長什麼樣」的方式**，
 		// 回 84h（沒這功能）它就當成不能用。
 		if al(c) == 0x00 {
-			dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI])
+			dst := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DI])
 			for p := 0; p < emsPhysPages; p++ {
 				d.M.Write16(dst+uint32(p)*4, machine.EMSFrameSeg+uint16(p)*(emsPageSize/16))
 				d.M.Write16(dst+uint32(p)*4+2, uint16(p))
@@ -384,7 +384,7 @@ func (d *DOS) emsPageMap(c *cpu.CPU) {
 	const entry = 4
 	switch al(c) {
 	case 0x00, 0x02: // 存（02 是先存再取）
-		dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI])
+		dst := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DI])
 		for p := 0; p < emsPhysPages; p++ {
 			h, page := uint16(0xFFFF), uint16(0xFFFF)
 			if m := e.frame[p]; m != nil {
@@ -399,7 +399,7 @@ func (d *DOS) emsPageMap(c *cpu.CPU) {
 		}
 		fallthrough
 	case 0x01: // 取回
-		src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+		src := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 		// **先把現在映著的寫回去**，再照表重映——順序反了的話，
 		// 被換掉的那一頁的修改會留在 page frame 裡然後被寫進新的那一頁。
 		for p := 0; p < emsPhysPages; p++ {
@@ -438,7 +438,7 @@ func (d *DOS) emsMapMultiple(c *cpu.CPU) {
 		return
 	}
 	n := int(c.R[cpu.CX])
-	src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	src := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 	type pair struct{ logical, phys uint16 }
 	list := make([]pair, 0, n)
 

@@ -300,7 +300,7 @@ func (d *DOS) xmsRealloc(c *cpu.CPU) {
 // 通過後逐 byte 由低位址往高位址複製（重疊時照此順序，不做 memmove）；
 // 實體存取不受 A20 影響，等同 DOSBox-X 複製期間 A20 視為開啟。
 func (d *DOS) xmsMoveExt(c *cpu.CPU) uint8 {
-	desc := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	desc := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 	n := uint32(d.M.Read16(desc)) | uint32(d.M.Read16(desc+2))<<16
 	if n&1 != 0 {
 		return xmsErrLength

@@ -45,7 +45,7 @@ func (d *DOS) int10(c *cpu.CPU) {
 			step = 2
 		}
 		for i := uint16(0); i < c.R[cpu.CX]; i++ {
-			ch := d.M.Read8(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BP]+i*step))
+			ch := d.M.Read8(d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.BP]+i*step))
 			if ch >= 0x20 || ch == '\r' || ch == '\n' {
 				d.Console = append(d.Console, ch)
 			}
@@ -99,7 +99,7 @@ func (d *DOS) int10(c *cpu.CPU) {
 		table := make([]byte, 64)
 		table[0x25] = 0x08 // 顯示卡代碼：VGA 彩色
 		table[0x29] = 0x03 // 記憶體大小：256 KB
-		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
+		d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DI]), table)
 		setAL(c, 0x1B) // 表示本服務有支援
 
 	case 0x10: // 調色盤（`docs/spec/011`）
@@ -109,7 +109,7 @@ func (d *DOS) int10(c *cpu.CPU) {
 		// 不同的東西**：AL=00/01/02/07/08/09 動的是 16 色的屬性暫存器
 		// （4 位元色號 → 6 位元 DAC 索引），AL=10/12/15/17 動的才是 DAC。
 		// 接錯不會報錯，只會讓顏色安靜地變成別的東西。
-		addr := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DX])
+		addr := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DX])
 		switch al(c) {
 		case 0x00: // 設單一屬性暫存器：BL ＝ 索引、BH ＝ 值
 			if bl(c) < 16 {
@@ -630,14 +630,14 @@ func (d *DOS) noteKeyPoll(c *cpu.CPU, fn uint8, available bool) {
 // 三個鍵回溯到同一個位址、對回一顆 overlay 的一行，才看得出是哪一支在讀。
 func (d *DOS) noteKeyWord(c *cpu.CPU, via string, word uint16) {
 	ss, bp := c.Seg[cpu.SS], c.R[cpu.BP]
-	outer := d.M.Read16(cpu.Addr(ss, bp))
+	outer := d.diagRead16(d.M.SvcAddr(ss, bp))
 	d.KeyReads = append(d.KeyReads, KeyRead{
 		Step: d.M.Steps, Via: via, Key: uint8(word), Word: word,
 		CS: c.Seg[cpu.CS], IP: c.IP,
-		CallerIP:  d.M.Read16(cpu.Addr(ss, bp+2)),
-		CallerCS:  d.M.Read16(cpu.Addr(ss, bp+4)),
-		Caller2IP: d.M.Read16(cpu.Addr(ss, outer+2)),
-		Caller2CS: d.M.Read16(cpu.Addr(ss, outer+4)),
+		CallerIP:  d.diagRead16(d.M.SvcAddr(ss, bp+2)),
+		CallerCS:  d.diagRead16(d.M.SvcAddr(ss, bp+4)),
+		Caller2IP: d.diagRead16(d.M.SvcAddr(ss, outer+2)),
+		Caller2CS: d.diagRead16(d.M.SvcAddr(ss, outer+4)),
 	})
 }
 

@@ -77,7 +77,7 @@ func (m *Machine) SetVideoMode(mode uint8) {
 	m.ModeChanges = append(m.ModeChanges, ModeChange{Mode: mode, Step: m.Steps})
 	// mode 13h 是 320×200；欄數要跟著改，`AH=0Fh` 會回它。
 	if mode == 0x13 {
-		m.Write16(bdaSeg*16+0x4A, 40)
+		m.WritePhys16(bdaSeg*16+0x4A, 40)
 	}
 	// 平面模式的記憶體不在 Mem 裡（`docs/spec/007` §3.1／`013`）。
 	// 設模式清畫面，真機的 BIOS 也清。
@@ -154,20 +154,20 @@ func (m *Machine) kbAdvance(p uint16) uint16 {
 // 或叫 `int 16h` 都拿得到），那一條送掃描碼中斷給程式自己的 `int 09h`。
 func (m *Machine) PushBIOSKey(scan, ascii uint8) bool {
 	base := uint32(bdaSeg * 16)
-	tail := m.Read16(base + kbTail)
+	tail := m.ReadPhys16(base + kbTail)
 	next := m.kbAdvance(tail)
-	if next == m.Read16(base+kbHead) {
+	if next == m.ReadPhys16(base+kbHead) {
 		return false
 	}
-	m.Write16(base+uint32(tail), uint16(scan)<<8|uint16(ascii))
-	m.Write16(base+kbTail, next)
+	m.WritePhys16(base+uint32(tail), uint16(scan)<<8|uint16(ascii))
+	m.WritePhys16(base+kbTail, next)
 	return true
 }
 
 // BIOSKeyCount 是緩衝區裡還沒被讀走的鍵數。
 func (m *Machine) BIOSKeyCount() int {
 	base := uint32(bdaSeg * 16)
-	head, tail := m.Read16(base+kbHead), m.Read16(base+kbTail)
+	head, tail := m.ReadPhys16(base+kbHead), m.ReadPhys16(base+kbTail)
 	if tail >= head {
 		return int(tail-head) / 2
 	}
@@ -181,17 +181,17 @@ func (m *Machine) BIOSKeyCount() int {
 // 不存在的鍵，比沒清更糟。
 func (m *Machine) FlushKeys() {
 	base := uint32(bdaSeg * 16)
-	m.Write16(base+kbHead, m.Read16(base+kbTail))
+	m.WritePhys16(base+kbHead, m.ReadPhys16(base+kbTail))
 }
 
 // PeekKey 回傳緩衝區最前面那一筆，不取走。
 func (m *Machine) PeekKey() (uint16, bool) {
 	base := uint32(bdaSeg * 16)
-	head := m.Read16(base + kbHead)
-	if head == m.Read16(base+kbTail) {
+	head := m.ReadPhys16(base + kbHead)
+	if head == m.ReadPhys16(base+kbTail) {
 		return 0, false
 	}
-	return m.Read16(base + uint32(head)), true
+	return m.ReadPhys16(base + uint32(head)), true
 }
 
 // PopKey 取走最前面那一筆。
@@ -201,6 +201,6 @@ func (m *Machine) PopKey() (uint16, bool) {
 		return 0, false
 	}
 	base := uint32(bdaSeg * 16)
-	m.Write16(base+kbHead, m.kbAdvance(m.Read16(base+kbHead)))
+	m.WritePhys16(base+kbHead, m.kbAdvance(m.ReadPhys16(base+kbHead)))
 	return v, true
 }

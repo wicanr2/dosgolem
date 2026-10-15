@@ -524,7 +524,7 @@ func (o *Oracle) TextScreen() []string {
 	for r := 0; r < TextRows; r++ {
 		line := make([]byte, TextCols)
 		for c := 0; c < TextCols; c++ {
-			ch := o.m.Read8(cpu.Addr(textSeg, uint16(2*(r*TextCols+c))))
+			ch := o.m.ReadPhys8(cpu.Addr(textSeg, uint16(2*(r*TextCols+c))))
 			if ch < 0x20 || ch > 0x7E {
 				ch = ' ' // 制表符與高位字元用空白代替，方便肉眼比對
 			}
@@ -553,7 +553,7 @@ func (o *Oracle) CGA4() []uint8 {
 		base := machine.CGAScanlineOffset(y) // 版面常數只有 machine 一份（docs/spec/250 §3）
 		row := out[y*Width:]
 		for x := 0; x < Width; x++ {
-			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/4))
+			b := o.m.ReadPhys8(cpu.Addr(cgaSeg, 0) + base + uint32(x/4))
 			row[x] = (b >> (6 - 2*uint(x%4))) & 3
 		}
 	}
@@ -595,7 +595,7 @@ func (o *Oracle) Tandy16() []uint8 {
 		base := uint32(y%banks)*bank + uint32(y/banks)*stride
 		row := out[y*Width:]
 		for x := 0; x < Width; x++ {
-			b := o.m.Read8(cpu.Addr(cgaSeg, 0) + base + uint32(x/2))
+			b := o.m.ReadPhys8(cpu.Addr(cgaSeg, 0) + base + uint32(x/2))
 			if x%2 == 0 {
 				row[x] = b >> 4
 			} else {

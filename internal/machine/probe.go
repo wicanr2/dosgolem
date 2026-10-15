@@ -55,9 +55,34 @@ func (m *Machine) WatchWord(addr uint32, on WordHook) int {
 	if on == nil {
 		return 0
 	}
+	m.syncWordXlat()
 	m.nextProbe++
-	m.wordWatches = append(m.wordWatches, wordWatch{m.nextProbe, addr, m.Read16(addr), on})
+	m.wordWatches = append(m.wordWatches, wordWatch{m.nextProbe, addr, m.sampleWord(addr), on})
 	return m.nextProbe
+}
+
+// sampleWord 讀被監看的 word（`docs/spec/432-linear-memory-and-paging` §6、§10 第 8 項）。
+// 轉換開啟時用 Peek16，位址是線性視角，與讀寫監看（實體位址）不同；
+// 轉換關閉時維持 Read16（Peek 對平面 VGA 視窗與讀取監看的行為不同，改了會讓轉換關閉的路徑變動）。
+func (m *Machine) sampleWord(addr uint32) uint16 {
+	if m.xlat {
+		return m.Peek16(addr)
+	}
+	return m.Read16(addr)
+}
+
+// syncWordXlat 在 m.xlat 與上次取樣時不同時，重新取樣所有被監看的 word 並記下新的 xlat，
+// 不發變化通知（轉換開啟前後位址空間的視角不同，那不是客體寫入造成的變化）。
+// 回傳是否重新取樣過。
+func (m *Machine) syncWordXlat() bool {
+	if m.xlat == m.wordXlat {
+		return false
+	}
+	m.wordXlat = m.xlat
+	for i := range m.wordWatches {
+		m.wordWatches[i].last = m.sampleWord(m.wordWatches[i].addr)
+	}
+	return true
 }
 
 // Unwatch 拿掉一個監看點。id 不存在就什麼都不做。
@@ -213,9 +238,12 @@ func (m *Machine) noteWrite(a uint32, old, v uint8) {
 
 // pollWords 在每一條指令做完之後檢查被監看的 word。
 func (m *Machine) pollWords() {
+	if m.syncWordXlat() {
+		return
+	}
 	for i := range m.wordWatches {
 		w := &m.wordWatches[i]
-		if now := m.Read16(w.addr); now != w.last {
+		if now := m.sampleWord(w.addr); now != w.last {
 			old := w.last
 			w.last = now
 			w.on(m, w.addr, old, now)

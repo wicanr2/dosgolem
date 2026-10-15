@@ -125,3 +125,88 @@ func TestSpecIndexListsEverySpec(t *testing.T) {
 		t.Errorf("索引沒列到 %d 份規格：%s", len(missing), strings.Join(missing, "、"))
 	}
 }
+
+// findCPUAddrCalls 回 src 裡所有 `cpu.Addr(` 呼叫的位置。
+func findCPUAddrCalls(filename string, src any) ([]string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	var at []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Addr" {
+			return true
+		}
+		if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "cpu" {
+			at = append(at, fset.Position(call.Pos()).String())
+		}
+		return true
+	})
+	return at, nil
+}
+
+// internal/dos 的非測試檔不得呼叫 `cpu.Addr(`（docs/spec/432-linear-memory-and-paging §4）。
+//
+// `cpu.Addr` 把 段:偏移 遮成 20 位元。轉換開啟且 A20 開時，客體的 `FFFF:0010` 起是線性
+// 0x100000 起，服務層卻會讀到 0 起——編得過、既有測試也過（轉換關閉時兩者相等），
+// 只有 JEMM 場景才錯。服務層的客體指標一律用 `Machine.SvcAddr`。
+// 沒有白名單：診斷回溯也用 SvcAddr。
+func TestDOSServiceDoesNotCallCPUAddr(t *testing.T) {
+	dir := filepath.Join(root, "internal", "dos")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		checked++
+		at, err := findCPUAddrCalls(filepath.Join(dir, n), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range at {
+			t.Errorf("%s：internal/dos 不得呼叫 cpu.Addr，改用 d.M.SvcAddr", p)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("internal/dos 一個非測試檔都沒找到，路徑可能錯了")
+	}
+}
+
+// 規則本身要抓得到：新增一個 `cpu.Addr(` 呼叫就失敗。
+func TestCPUAddrRuleCatchesNewCall(t *testing.T) {
+	const bad = `package dos
+
+import "github.com/wicanr2/dosgolem/internal/cpu"
+
+func f(c *cpu.CPU) uint32 { return cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]) }
+`
+	at, err := findCPUAddrCalls("bad.go", bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(at) != 1 {
+		t.Fatalf("找到 %d 處 cpu.Addr 呼叫，應為 1：%v", len(at), at)
+	}
+	const good = `package dos
+
+func f(d *DOS) uint32 { return d.M.SvcAddr(1, 2) }
+`
+	at, err = findCPUAddrCalls("good.go", good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(at) != 0 {
+		t.Fatalf("SvcAddr 不該被抓：%v", at)
+	}
+}

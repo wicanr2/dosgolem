@@ -293,7 +293,7 @@ func (d *DOS) chdir(c *cpu.CPU) {
 // 佇列空的時候回「空的一行」而不是阻塞：這一層沒有排程器，
 // 而阻塞式的 `AH=01h` 已經有 `Blocked` 那條路（`docs/spec/008`）。
 func (d *DOS) bufferedInput(c *cpu.CPU) {
-	base := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	base := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 	maxLen := int(d.M.Read8(base))
 	if maxLen == 0 {
 		clearCarry(c)

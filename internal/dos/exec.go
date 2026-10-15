@@ -80,7 +80,7 @@ func (d *DOS) Enqueue(name, args string) {
 // exec 是 `AH=4Bh`。AL=00h 是載入並執行，AL=03h 是載入 overlay。
 func (d *DOS) exec(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
-	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+	pb := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.BX])
 	switch al(c) {
 	case 0x00:
 		// 參數區 ES:BX：+0 env（0＝繼承）、+2/+4 尾巴、+6/+8 FCB1、+A/+C FCB2
@@ -216,8 +216,8 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	d.copyCmdTail(base, p.tailSeg, p.tailOff)
 	// FCB 原樣各抄 16 bytes。
 	for i := uint32(0); i < 16; i++ {
-		d.M.Write8(base+0x5C+i, d.M.Read8(cpu.Addr(p.fcb1Seg, p.fcb1Off)+i))
-		d.M.Write8(base+0x6C+i, d.M.Read8(cpu.Addr(p.fcb2Seg, p.fcb2Off)+i))
+		d.M.Write8(base+0x5C+i, d.M.Read8(d.M.SvcAddr(p.fcb1Seg, p.fcb1Off)+i))
+		d.M.Write8(base+0x6C+i, d.M.Read8(d.M.SvcAddr(p.fcb2Seg, p.fcb2Off)+i))
 	}
 
 	d.enterProgram(c, prog)
@@ -244,7 +244,7 @@ func (d *DOS) loadOverlay(c *cpu.CPU, name string, loadSeg, relocFactor uint16) 
 	if !ok {
 		return
 	}
-	pb := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.BX])
+	pb := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.BX])
 
 	// ⚠ 參數區塊要在載入**之前**抄起來。overlay 常常就載在參數區塊
 	// 所在的那一段，載完再讀會讀到剛寫進去的映像——那會讓診斷輸出
@@ -255,10 +255,10 @@ func (d *DOS) loadOverlay(c *cpu.CPU, name string, loadSeg, relocFactor uint16) 
 	// INT 指令本身 2 byte，所以 CallIP-2 是它的起點；往前再留 22 byte
 	// 看參數是怎麼備好的。
 	for i := 0; i < 32; i++ {
-		rec.CallSite[i] = d.M.Read8(cpu.Addr(c.Seg[cpu.CS], c.IP-24+uint16(i)))
+		rec.CallSite[i] = d.diagRead8(d.M.SvcAddr(c.Seg[cpu.CS], c.IP-24+uint16(i)))
 	}
 	for i := 0; i < 8; i++ {
-		rec.PBRaw[i] = d.M.Read8(pb + uint32(i))
+		rec.PBRaw[i] = d.diagRead8(pb + uint32(i))
 	}
 
 	if err := d.M.LoadOverlay(data, loadSeg, relocFactor); err != nil {
@@ -328,7 +328,7 @@ func (d *DOS) copyCmdTail(psp uint32, tailSeg, tailOff uint16) {
 		d.M.WriteBytes(psp+0x80, []byte{0, 0x0D})
 		return
 	}
-	src := cpu.Addr(tailSeg, tailOff)
+	src := d.M.SvcAddr(tailSeg, tailOff)
 	n := d.M.Read8(src)
 	if n > 126 {
 		n = 126

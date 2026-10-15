@@ -100,7 +100,7 @@ func (m *Machine) timedKeyTick() bool {
 	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
 		return false
 	}
-	if m.Read16(0x09*4+2) == StubSeg {
+	if m.ReadPhys16(0x09*4+2) == StubSeg {
 		m.keyStalls++
 		return false
 	}

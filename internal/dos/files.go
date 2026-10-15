@@ -219,7 +219,7 @@ const maxHandles = 20
 
 // readCString 讀一個 NUL 結尾的字串。
 func (d *DOS) readCString(seg, off uint16, limit int) string {
-	addr := cpu.Addr(seg, off)
+	addr := d.M.SvcAddr(seg, off)
 	out := make([]byte, 0, 64)
 	for i := 0; i < limit; i++ {
 		ch := d.M.Read8(addr + uint32(i))
@@ -308,15 +308,15 @@ func (d *DOS) noteMissingAccess(c *cpu.CPU, name string) {
 		if bp == 0 {
 			break
 		}
-		frame := StackFrame{BP: bp, IP: d.M.Read16(cpu.Addr(access.SS, bp+2)), CS: d.M.Read16(cpu.Addr(access.SS, bp+4))}
+		frame := StackFrame{BP: bp, IP: d.diagRead16(d.M.SvcAddr(access.SS, bp+2)), CS: d.diagRead16(d.M.SvcAddr(access.SS, bp+4))}
 		for j := range frame.Code {
-			frame.Code[j] = d.M.Read8(cpu.Addr(frame.CS, frame.IP-8+uint16(j)))
+			frame.Code[j] = d.diagRead8(d.M.SvcAddr(frame.CS, frame.IP-8+uint16(j)))
 		}
 		for j := range frame.Args {
-			frame.Args[j] = d.M.Read16(cpu.Addr(access.SS, bp+6+uint16(j*2)))
+			frame.Args[j] = d.diagRead16(d.M.SvcAddr(access.SS, bp+6+uint16(j*2)))
 		}
 		access.Callers[i] = frame
-		next := d.M.Read16(cpu.Addr(access.SS, bp))
+		next := d.diagRead16(d.M.SvcAddr(access.SS, bp))
 		if next <= bp {
 			break
 		}
@@ -482,7 +482,7 @@ func (d *DOS) read(c *cpu.CPU) {
 	}
 	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
 		Pos: pos, Len: n, Step: d.M.Steps})
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
+	d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
 	d.Reads = append(d.Reads, ReadOp{
 		Step: d.M.Steps, Name: h.name, Handle: bx,
 		Seg: c.Seg[cpu.DS], Off: c.R[cpu.DX], Want: cx, Got: n,
@@ -542,7 +542,7 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 		n = len(d.Stdin)
 	}
 	if n > 0 {
-		d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), d.Stdin[:n])
+		d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX]), d.Stdin[:n])
 		for _, ch := range d.Stdin[:n] {
 			d.noteKey("int21-3F", ch)
 		}
@@ -562,7 +562,7 @@ func (d *DOS) readStdin(c *cpu.CPU, want uint16) {
 		clearCarry(c)
 		return
 	}
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), []byte{d.StdinFill})
+	d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX]), []byte{d.StdinFill})
 	c.R[cpu.AX] = 1
 	clearCarry(c)
 }
@@ -622,7 +622,7 @@ func (d *DOS) seek(c *cpu.CPU) {
 func (d *DOS) write(c *cpu.CPU) {
 	bx, cx := c.R[cpu.BX], c.R[cpu.CX]
 	buf := make([]byte, cx)
-	addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	addr := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 	for i := range buf {
 		buf[i] = d.M.Read8(addr + uint32(i))
 	}

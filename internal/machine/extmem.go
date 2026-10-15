@@ -65,33 +65,16 @@ func (m *Machine) XMSEntryOff() uint16 {
 	return XMSTrapOff
 }
 
-// ReadPhys8 以實體位址讀一個 byte，純記憶體視圖，**不套 A20 遮罩**（分頁匯流排自行處理）：
+// ReadPhys8 以實體位址讀一個 byte，純記憶體視圖，**不套 A20 遮罩、不做分頁轉換**。
+// 走實體層（physical.go，`docs/spec/432-linear-memory-and-paging` §3.1）：
 //
-//   - a < 1 MB：走 Read8（含 VGA、ROM、監看）；
+//   - a < 1 MB：低記憶體路徑（含 VGA、ROM、監看）；
 //   - 1 MB ≤ a < 1 MB + len(Ext)：讀 Ext；
 //   - 其他：0xFF。
-func (m *Machine) ReadPhys8(a uint32) uint8 {
-	if a < ExtBase {
-		return m.Read8(a)
-	}
-	if off := a - ExtBase; off < uint32(len(m.Ext)) {
-		return m.Ext[off]
-	}
-	return 0xFF
-}
+func (m *Machine) ReadPhys8(a uint32) uint8 { return m.readPhysRaw(a) }
 
 // WritePhys8 以實體位址寫一個 byte；沒有對應記憶體的位址丟棄並累加 UnmappedPhysWrites。
-func (m *Machine) WritePhys8(a uint32, v uint8) {
-	if a < ExtBase {
-		m.Write8(a, v)
-		return
-	}
-	if off := a - ExtBase; off < uint32(len(m.Ext)) {
-		m.Ext[off] = v
-		return
-	}
-	m.UnmappedPhysWrites++
-}
+func (m *Machine) WritePhys8(a uint32, v uint8) { m.writePhysRaw(a, v) }
 
 // ReadPhys16／32 與 WritePhys16／32 逐 byte 組成，跨越區段邊界時各 byte 各自歸類。
 func (m *Machine) ReadPhys16(a uint32) uint16 {

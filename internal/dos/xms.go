@@ -284,7 +284,7 @@ func (d *DOS) freeUMB(seg uint16) bool {
 // +6 dword 來源位移、+0Ah word 目的 handle、+0Ch dword 目的位移。
 // **handle 0 ＝ 常規記憶體**，此時位移欄是 seg:off 的 far 指標。
 func (d *DOS) xmsMove(c *cpu.CPU) {
-	desc := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	desc := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 	n := uint32(d.M.Read16(desc)) | uint32(d.M.Read16(desc+2))<<16
 	srcH := d.M.Read16(desc + 4)
 	srcOff := uint32(d.M.Read16(desc+6)) | uint32(d.M.Read16(desc+8))<<16

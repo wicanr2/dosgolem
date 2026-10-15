@@ -27,7 +27,7 @@ func (d *DOS) country(c *cpu.CPU) {
 		setCarry(c)
 		return
 	}
-	at := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	at := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 	tab := make([]byte, 0x18)           // DOSBox-X 也只寫 18h bytes
 	tab[0] = 2                          // 日期格式：2 ＝ 年月日
 	copy(tab[2:], []byte{0x5C, 0x00})   // 貨幣符號（Shift-JIS 的 ¥）
@@ -62,7 +62,7 @@ func (d *DOS) dbcs(c *cpu.CPU) {
 		c.R[cpu.SI] = dbcsTableOff
 		clearCarry(c)
 	case 0x01: // 設 DBCS 向量表 ← DS:SI：真的抄回來，之後 AL=00 回抄過的
-		src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+		src := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 		for i := 0; i < 32; i++ {
 			b := d.M.Read8(src + uint32(i))
 			d.M.Write8(at+uint32(i), b)

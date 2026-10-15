@@ -76,7 +76,7 @@ func (m *Machine) CGAPalette() [4][3]uint8 {
 // 成立就不動作（先比較，後夾邊）；再夾到螢幕（列 0–24、欄 0–39）。填色取 fill 的低 2 位元複製到一個位元組的
 // 4 個像素。lines 為 0，或不小於視窗列數：整個視窗填色。其他：視窗內容逐條掃描線複製（只動視窗橫向範圍的位元組），
 // 空出的 lines 列填色；上捲由上往下複製、下捲由下往上複製，避免來源被覆蓋。
-// 寫入走 Write8（保留寫入觀察者的通知）。不改暫存器與游標。
+// 寫入走 WritePhys8（實體層，保留寫入觀察者的通知；BIOS 側不經分頁，docs/spec/432 §3.4）。不改暫存器與游標。
 func (m *Machine) CGAScroll(top, left, bottom, right, lines int, down bool, fill byte) {
 	if top > bottom || left > right {
 		return
@@ -98,7 +98,7 @@ func (m *Machine) CGAScroll(top, left, bottom, right, lines int, down bool, fill
 		for y := r * cgaCellH; y < (r+1)*cgaCellH; y++ {
 			base := cgaBase + CGAScanlineOffset(y)
 			for x := x0; x < x1; x++ {
-				m.Write8(base+uint32(x), attr)
+				m.WritePhys8(base+uint32(x), attr)
 			}
 		}
 	}
@@ -107,7 +107,7 @@ func (m *Machine) CGAScroll(top, left, bottom, right, lines int, down bool, fill
 			s := cgaBase + CGAScanlineOffset(src*cgaCellH+i)
 			d := cgaBase + CGAScanlineOffset(dst*cgaCellH+i)
 			for x := x0; x < x1; x++ {
-				m.Write8(d+uint32(x), m.Read8(s+uint32(x)))
+				m.WritePhys8(d+uint32(x), m.ReadPhys8(s+uint32(x)))
 			}
 		}
 	}

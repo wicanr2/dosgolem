@@ -85,6 +85,10 @@ type Snapshot struct {
 	kbdAwaitOutport bool
 	emsAbsent       bool
 
+	// 432：保護模式 profile 與其狀態（衍生欄位、TLB 不存，Restore 時重算）。
+	pmProfile bool
+	pmFields
+
 	// SetDOSFiles 的「已載入」旗標（`docs/spec/429-dos-sft-chain`）。
 	programLoaded bool
 
@@ -188,6 +192,9 @@ func (m *Machine) Snapshot() *Snapshot {
 		picMask:     m.picMask,
 
 		programLoaded: m.programLoaded,
+
+		pmProfile: m.pmProfile,
+		pmFields:  pmFields{cpl: m.pmCPL, cr0: m.cr0, cr3: m.cr3, eflagsHi: m.eflagsHi},
 	}
 	s.vga = m.VGA.clone()
 	if m.Ext != nil {
@@ -206,6 +213,9 @@ func (m *Machine) Snapshot() *Snapshot {
 // Restore 把機器倒回快照。沒有錯誤回傳：快照的 Ext 長度與這台機器不同時 panic
 // （Ext 在程式載入前就設好，同一台機器的長度不會變）。
 func (m *Machine) Restore(s *Snapshot) {
+	if s.pmProfile != m.pmProfile {
+		panic(fmt.Sprintf("machine: Restore 的快照保護模式 profile 是 %t，這台是 %t", s.pmProfile, m.pmProfile))
+	}
 	if len(s.ext) != len(m.Ext) {
 		panic(fmt.Sprintf("machine: Restore 的快照延伸記憶體是 %d bytes，這台是 %d bytes", len(s.ext), len(m.Ext)))
 	}
@@ -261,6 +271,10 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.syncSpeakerLast()
 	m.pit, m.picMask = s.pit, s.picMask
 	m.IRQ0Clamped = s.irq0Clamped
+
+	// 432：保護模式狀態。TLB 世代加一，衍生欄位與 CPU.Code 依還原後的 CR0 重算
+	// （上面 syncCodeFastPath 用的是還原前的 xlat）。
+	m.applyPM(s.pmFields)
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。

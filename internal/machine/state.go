@@ -218,6 +218,7 @@ func (m *Machine) SaveState(w io.Writer) error {
 
 		EMSAbsent:       m.emsAbsent,
 		KbdAwaitOutport: m.kbdAwaitOutport,
+		PM:              m.encodePM(), // profile 關閉時為 nil
 	}
 	// kb > 0：HMA 就是 Ext[0:HMASize]，不另存 HMA 欄位（規格 430 §3）。
 	if m.Ext != nil {
@@ -256,6 +257,18 @@ func (m *Machine) LoadState(r io.Reader) error {
 	if s.EMSAbsent != m.emsAbsent {
 		return fmt.Errorf("machine: 狀態檔的 EMM 呈現是 %t，這台是 %t（先用 SetEMSPresent／-no-ems 設成相同）",
 			!s.EMSAbsent, !m.emsAbsent)
+	}
+	// 432：PM 與機器設定（profile 開關）要一致，且內容要通過驗證；同樣在任何寫入之前，
+	// 失敗時機器維持原狀（docs/spec/432-linear-memory-and-paging §7、§10 第 6 項）。
+	pm := pmFields{}
+	if hasPM := len(s.PM) != 0; hasPM != m.pmProfile {
+		return fmt.Errorf("machine: 狀態檔的保護模式 profile 是 %t，這台是 %t（先用 SetProtectedModeProfile 設成相同）",
+			hasPM, m.pmProfile)
+	} else if hasPM {
+		var err error
+		if pm, err = decodePM(s.PM); err != nil {
+			return err
+		}
 	}
 	// 新檔的埠統計在 slice 裡，舊檔在 map 裡；統一倒進 map 再用。
 	for _, pv := range s.PortList {
@@ -357,5 +370,6 @@ func (m *Machine) LoadState(r io.Reader) error {
 
 	m.FreeSeg, m.ImageBase, m.ImageLen = s.FreeSeg, s.ImageBase, s.ImageLen
 	m.programLoaded = true
+	m.applyPM(pm) // TLB 世代加一、重算衍生欄位與取指令快路徑
 	return nil
 }

@@ -170,7 +170,7 @@ func (d *DOS) createTemp(c *cpu.CPU) {
 		d.fail(c, 3) // 路徑找不到
 		return
 	}
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), append([]byte(full), 0))
+	d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX]), append([]byte(full), 0))
 	d.create(c) // 讀的就是我們剛寫回去的那個字串
 }
 
@@ -207,7 +207,7 @@ func (d *DOS) trueName(c *cpu.CPU) {
 		d.fail(c, 3)
 		return
 	}
-	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI]), append([]byte(out), 0))
+	d.M.WriteBytes(d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DI]), append([]byte(out), 0))
 	c.R[cpu.AX] = c.R[cpu.AX] & 0xFF00 // DOS 把 AL 清成 0
 	clearCarry(c)
 }

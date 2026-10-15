@@ -145,7 +145,7 @@ func (d *DOS) int15(c *cpu.CPU) {
 // fontGlyph 是兩支 stub 的實作：CX ＝ 字碼，ES:SI ＝ 呼叫端的 32 byte 緩衝。
 func (d *DOS) fontGlyph(c *cpu.CPU, full bool) {
 	ch, cl := uint8(c.R[cpu.CX]>>8), uint8(c.R[cpu.CX])
-	dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.SI])
+	dst := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.SI])
 
 	var name string
 	var n, size int
@@ -244,7 +244,7 @@ const (
 // CX 是**要搬幾個 word**，不是 byte——看成 byte 的話只搬一半，
 // 而後半段留著上一次的內容，看起來像資料檔只壞了後面。
 func (d *DOS) int15Move(c *cpu.CPU) {
-	gdt := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.SI])
+	gdt := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.SI])
 	base := func(off uint32) uint32 {
 		lo := uint32(d.M.Read16(gdt + off + 2))
 		hi := uint32(d.M.Read8(gdt + off + 4))

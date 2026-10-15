@@ -66,7 +66,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 		d.bufferedInput(c)
 
 	case 0x09: // 輸出 $ 結尾的字串
-		addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+		addr := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 		for i := 0; i < 1024; i++ {
 			ch := d.M.Read8(addr + uint32(i))
 			if ch == '$' {
@@ -230,7 +230,7 @@ func (d *DOS) int21(c *cpu.CPU) {
 		clearCarry(c)
 
 	case 0x47: // 取目前目錄 → DS:SI（64 bytes）
-		addr := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+		addr := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
 		buf := []byte(d.Dir)
 		if len(buf) > 63 {
 			buf = buf[:63]
@@ -423,8 +423,8 @@ func (d *DOS) conOut(c *cpu.CPU, fn uint8) {
 // ⚠ **`SI` 一定要推進。** 呼叫端常常是「解析一個、再解析下一個」的迴圈；
 // 不動 `SI` 的話它會解析同一個名字直到天荒地老，而**沒有任何錯誤訊息**。
 func (d *DOS) parseFilename(c *cpu.CPU) {
-	src := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
-	dst := cpu.Addr(c.Seg[cpu.ES], c.R[cpu.DI])
+	src := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.SI])
+	dst := d.M.SvcAddr(c.Seg[cpu.ES], c.R[cpu.DI])
 
 	// 跳過前置空白與 tab。
 	off := uint16(0)
@@ -975,7 +975,7 @@ const (
 // 用 `int 13h` 直接讀開機磁區，那條路也失敗之後就停在換片提示上
 // ——《Dungeon Master》DOS 版點過 ENTER 之後正是停在那裡。
 func (d *DOS) deviceParameters(c *cpu.CPU) {
-	at := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX])
+	at := d.M.SvcAddr(c.Seg[cpu.DS], c.R[cpu.DX])
 	// 位移 0 是**輸入**（呼叫端要目前的還是預設的 BPB），不要覆寫。
 	d.M.Write8(at+1, 0x05)    // 裝置型別：固定硬碟
 	d.M.Write16(at+2, 0x0001) // 屬性：bit0 ＝ 不可移除

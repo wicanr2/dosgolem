@@ -59,7 +59,7 @@ func (d *DOS) findFirst(c *cpu.CPU) {
 
 // findNext 是 `AH=4Fh`：接著上一次的位置。
 func (d *DOS) findNext(c *cpu.CPU) {
-	base := cpu.Addr(d.dtaSeg, d.dtaOff)
+	base := d.M.SvcAddr(d.dtaSeg, d.dtaOff)
 	if d.M.Read8(base) != dtaFindMagic {
 		// DTA 裡沒有我們的搜尋狀態。**回「沒有更多檔案」而不是隨便挑一個**：
 		// 挑一個的話程式會拿到一個它沒搜尋過的檔名。
@@ -88,7 +88,7 @@ func (d *DOS) emitFind(c *cpu.CPU, id, idx uint16) {
 		return
 	}
 
-	base := cpu.Addr(d.dtaSeg, d.dtaOff)
+	base := d.M.SvcAddr(d.dtaSeg, d.dtaOff)
 	d.M.WriteBytes(base, make([]byte, 43))
 	d.M.Write8(base, dtaFindMagic)
 	d.M.Write16(base+1, id)
