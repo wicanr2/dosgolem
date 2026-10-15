@@ -41,6 +41,18 @@ type embState struct {
 	Data []byte
 }
 
+// xmsBlockState 是 kb > 0 時一塊實體化 XMS 區塊的線上版本
+// （docs/spec/430-physical-memory-and-xms-unification §3）。
+// ⚠ 欄位與型別在「只加欄位」的 commit 定案，之後不得再改，
+// 否則 gob 的型別描述會第二次改變。
+type xmsBlockState struct {
+	H        uint16
+	BasePage int // 相對 Ext 起點（實體 0x100000）的 4 KB 頁號；0 頁區塊為 0
+	Pages    int
+	KB       int
+	Locks    int
+}
+
 type emsHandleState struct {
 	H     uint16
 	Pages [][]byte
@@ -119,6 +131,8 @@ type dosState struct {
 	EMB     map[uint16][]byte
 	EMBList []embState
 	NextEMB uint16
+	// XMSBlocks：430，kb > 0 時的實體化區塊，依 handle 排序。
+	XMSBlocks []xmsBlockState `json:",omitempty"`
 	// HMAOwned／A20Local：v3 起才有。
 	HMAOwned bool
 	A20Local int

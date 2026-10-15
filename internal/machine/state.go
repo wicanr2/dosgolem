@@ -135,6 +135,16 @@ type machineState struct {
 	FreeSeg   uint16
 	ImageBase uint32
 	ImageLen  int
+
+	// 430（docs/spec/430-physical-memory-and-xms-unification §3）：
+	// Ext 是 1 MB 之上的延伸記憶體（含 HMA），kb == 0 時為空；EMSAbsent 是
+	// SetEMSPresent(false)；KbdAwaitOutport 是 8042 的 D1h 狀態機旗標。
+	// 都標 omitempty，零值不進 StateDigest 的 JSON。
+	// ⚠ 這三個欄位在「只加欄位」的 commit 先加完，之後不得再增減或改型別，
+	// 否則 gob 的型別描述（錨點測試的位元組常數）會第二次改變。
+	Ext             []uint8 `json:",omitempty"`
+	EMSAbsent       bool    `json:",omitempty"`
+	KbdAwaitOutport bool    `json:",omitempty"`
 }
 
 // SaveState 把整台機器寫出去。
