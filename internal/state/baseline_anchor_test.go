@@ -55,7 +55,7 @@ func anchorEXE() []byte {
 }
 
 type anchorSums struct {
-	Mem, MachineState, MachineDigest, DOSState string
+	Mem, MachineState, MachineDigest, DOSState, DOSDigest string
 }
 
 func hex(b []byte) string { return fmt.Sprintf("%x", b) }
@@ -93,6 +93,12 @@ func anchorMeasure(t *testing.T, load func(*machine.Machine) error) anchorSums {
 	}
 	ds := sha256.Sum256(db.Bytes())
 	s.DOSState = hex(ds[:])
+
+	dd, err := dos.StateDigest(bytes.NewReader(db.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DOSDigest = hex(dd[:])
 	return s
 }
 
@@ -110,12 +116,14 @@ var (
 		MachineState:  "d042ff196fed40aa7830d5d37d2b54874900362066c770de9efab83b50f6daeb",
 		MachineDigest: "f1fc9fcfacaa82f4df011708d6bd95999ac69c467e70093d402c062f81db3b55",
 		DOSState:      "6f1bf7e6c96c727c3e72bbc51b328bf7ca93915f3af2086516d04af525be865f",
+		DOSDigest:     "e24dd93659449209d6fa38f672a9aee05e7ce223ab3fbb105d16cc0874ffee02",
 	}
 	anchorCOMWant = anchorSums{
 		Mem:           "396efb9c4be37c09147ab292bf12d9e4447b560ad3069511a7ebd539f2464b1d",
 		MachineState:  "91c95067b125025edc6d893892306987910ec966780938d10c4f6d64a0d59caf",
 		MachineDigest: "1927242326e91a008d480bd5ad35e1118e54dc554ac71b728193fe4df8fc7579",
 		DOSState:      "fd38140393f665bade495c92a1b105fdb4419b5b073ad42caa3cf0eba4e34934",
+		DOSDigest:     "fcf10f07497ae2a4bff738e45a5354483518f359a8de02c368e734cdb8319278",
 	}
 )
 
