@@ -1,6 +1,6 @@
 # 431 — 混合 CPU 架構：實模式與 V86 用既有核心，保護模式用 cpu386
 
-狀態：**DRAFT**（第 4 版）
+狀態：**READY**（四輪審查；最後一輪只剩文字與契約補寫，已套用）
 日期：2026-10-15
 前置：[`429-dos-sft-chain`](429-dos-sft-chain.md)、[`430-physical-memory-and-xms-unification`](430-physical-memory-and-xms-unification.md)、
 [`015-execution-speed`](015-execution-speed.md)、[`197-cpu386-real-mode-subset`](197-cpu386-real-mode-subset.md)
@@ -42,9 +42,9 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 
 ## 2. 啟用與目標型號
 
-- `Machine.SetProtectedModeProfile(on)`，預設關閉；細節在 433。關閉時 432–435 的行為都不發生，既有收據不變。
-- 目標 CPU 固定為 386（`197` §5：`AC` 立不起來）。型號相依的行為照 386：`EFLAGS.AC`、`ID` 不可改；`CR4` 存取為 `#UD`；
-  分頁權限：使用者存取時 PDE 與 PTE 的 U/S 取 AND、寫入時 R/W 取 AND，監督者不受限（無 `WP`）；DOSBox-X 的現行路徑是 `cpu/paging.cpp:150-172` 的 `translate_array` 加 `210-230` 的 `fault_table`，不分型號；`DR7` 寫入照 `cpu/cpu.cpp:2713`。
+- `Machine.SetProtectedModeProfile(on)`，預設關閉；定義於 432 §2，433 加 `-pm-profile` 旗標與 `SysRegs`。關閉時 432–435 的行為都不發生，既有收據不變。
+- 目標 CPU 固定為 386（`197-cpu386-real-mode-subset` §5：`AC` 立不起來）。型號相依的行為照 386：`EFLAGS.AC`、`ID` 不可改；`CR4` 存取為 `#UD`；
+  分頁權限：使用者存取時 PDE 與 PTE 的 U/S 取 AND、寫入時 R/W 取 AND，監督者不受限（無 `WP`）；DOSBox-X 一般核心的路徑是 `cpu/paging.cpp:150-172` 的 `translate_array` 加 `210-230` 的 `fault_table`，不分型號（同檔 `708-719` 的舊 386 分支只供 `InitPageUserROHandler`／`InitPageCheckOnly` 使用，語意不同，對拍時不以它為準）；`DR7` 寫入照 `cpu/cpu.cpp:2713`。
   DOSBox-X 對拍用 `cputype=386`。
 
 ## 3. 執行模式
@@ -58,7 +58,9 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 - 任一時刻只有一個核心執行，只在指令邊界交接。模式由 `CR0.PE` 與 `VM` 推得，不另存。
 - 兩核心共用 `m.Steps` 與 `Cycles`。cpu386 在 `DOSBoxCost` 開啟時每道指令計 1（字串指令每次迭代計 1），關閉時也計 1；
   這與既有核心的 8086 成本表不同，`CycleClock` 的 IRQ0 在保護模式期間節奏因此不同，寫入 434 的已知限制。
-- 保護模式期間不遞送 IRQ，留在待處理，回 V86 或實模式後遞送；同一條 IRQ 的待處理合併為一筆（同 8259 的 IRR）。JEMM 在 ring 0
+- 保護模式期間不遞送 IRQ，留在待處理，回 V86 或實模式後遞送。合併只適用電平型的 IRQ0（現行 `irq0Pending` 布林，維持
+  `machineState` 頂層欄位）；按鍵佇列（`keyQueue`）每個事件都保留、不合併。`startCallback`、`periodic` 的 `FarCall`、`keyTick`、
+  `timedKeyTick` 在保護模式期間全部延後、留在佇列。這些動作讀的 `IF` 一律經作用中核心的視圖（`Machine.EFlags()`），433 列出消費者。JEMM 在 ring 0
   長時間執行時 IRQ0 因此延後。cpu386 在保護模式遇到 `HLT`，或有待處理 IRQ 且 `IF=1` 而連續一百萬步未離開保護模式時，
   失敗即關閉並寫明原因，不安靜卡住。保護模式內的 IDT 遞送需要時另立規格。
 
@@ -68,13 +70,16 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 |---|---|---|
 | `CR0`、`CR2`、`CR3`、`DR0`–`DR7`、`GDTR`、`IDTR`、`LDTR`、`TR`（含快取） | Machine 的 `SysRegs` | 433 |
 | 段描述元快取 ×6 | cpu386 | 434。既有核心在實模式與 V86 由段值推得基底，不用快取 |
-| `CPL` | Machine 判定 | 實模式 0；V86 為 3（由 `PE` 與 `VM` 推得，432）；保護模式由 cpu386 經 434 提供 |
+| `CPL` | Machine 判定 | 實模式 0；V86 為 3（由 `PE` 與 `VM` 推得，432；DOSBox-X `cpu/cpu.cpp:1047`、`1624`）；保護模式由 cpu386 經 Machine 的 `SetPMCPL` 寫入（434） |
 | `EFLAGS` 低 16 位元 | 作用中核心 | 熱路徑不動 |
-| `EFLAGS` 高 16 位元（`RF`、`VM`；386 的 `AC`、`ID` 恆 0） | Machine 的 `EFlagsHi` | 既有核心執行期間不變；`Machine.EFlags()` 組合出完整值 |
+| `EFLAGS` 高 16 位元（`RF`、`VM`；386 的 `AC`、`ID` 恆 0） | 既有核心執行時為 Machine 的 `EFlagsHi`；cpu386 執行時為 cpu386 的 `EFlags` | 交接時單向同步；`Machine.EFlags()` 組合出完整值 |
 | 通用暫存器、`IP`／`EIP`、段值 | 作用中核心 | 交接時搬移（433、434） |
 | `FPUCW` | Machine 共用 | 其餘 x87 狀態只在 cpu386；V86 下 `FNINIT`、`FNSTCW`、`FLDCW`、`FWAIT` 以外的 ESC 失敗即關閉 |
 | TLB | Machine | 432；不存檔，`Restore`／`LoadState` 後清空 |
 | 指令位址視圖 | Machine 的 `ActiveOp()` | 取代直接讀 `m.CPU.Seg[CS]`／`IP` 的觀測點（433 列出全部消費者） |
+
+`CR0`、`EFlagsHi`、`pmCPL` 的寫入只能經 Machine 的方法（432 的 setter、433 的 `mov cr0`、434、S4 的交接），由方法重算 432 的衍生欄位
+（`xlat`、`paging`、`cplUser`）；任何核心都不得直接改這些欄位。
 
 段暫存器索引兩邊順序不同（既有核心 `Seg[4]` 為 `ES, CS, SS, DS`，FS、GS 另放 `FSeg`、`GSeg`；cpu386 `Seg[6]` 為
 `CS, DS, ES, FS, GS, SS`），交接一律經單一映射函式。
@@ -90,7 +95,8 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 ### 4.2 狀態檔
 
 使用者定案（2026-10-15）：`machineState` 只新增一個不透明欄位 `PM []byte`（`omitempty`），內容自帶版本號與編碼，存放 432–435 的全部
-保護模式狀態（`PMProfile`、控制與除錯暫存器、描述表暫存器、`EFlagsHi`、`EIP` 高 16 位元、cpu386 段快取與 FPU、待處理 IRQ）。
+保護模式狀態（`PMProfile`、控制與除錯暫存器、描述表暫存器、`EFlagsHi`、`EIP` 高 16 位元、cpu386 段快取與 FPU）。IRQ0 的待處理維持既有的頂層欄位
+`IRQ0Pending`，不遷入。
 模式與 CPL 讀回時推得，不另存。profile 關閉時 `PM` 為 nil，`StateDigest` 不變；gob 位元組錨點在 432 新增此欄位的 commit 改變一次
 （430 之後第二次），之後 433–435 只改 `PM` 的內部格式，不再改 gob 型別。
 
@@ -113,9 +119,9 @@ dosgolem 的 DOS／BIOS 服務在 V86 下仍由 `StubSeg` 的 trampoline 觸發�
 
 ## 7. 效能門檻
 
-基準是 `015-execution-speed`（`cmd/probe` 約 24.9 M 道／秒；即時遊玩下限 `StepsPerSecond` 約 11.58 M）。
+基準：`cmd/probe` 約 24.9 M 道／秒（`015-execution-speed`）；即時遊玩下限約 11.58 M 道／秒（`machine.StepsPerSecond()`，`internal/machine/pit.go`）。
 
-- profile 關閉：432–435 每份實作後，同一容器內對固定合成程式交錯跑新舊各三次取最快，不低於修改前的 97%。
+- profile 關閉：432–435 每份實作後，同一容器內對固定合成程式交錯跑新舊各五次取最快，不低於修改前的 97%。
 - 新增合成迴圈的 `BenchmarkStepRealMode`、`BenchmarkStepV86`、`BenchmarkStepV86Paged`，不依賴原版檔；基準測試要在行為 commit 之前
   先提交，才能在修改前的版本編出比較用的測試程式。同一容器交錯跑新舊各五次取最快，落在門檻附近時重跑，收據記錄 load average。
 - V86 分頁迴圈不低於 11.58 M 道／秒；量不到時另立 TLB 與取指令優化的規格，不在功能規格裡順手改。
