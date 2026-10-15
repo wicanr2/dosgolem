@@ -26,8 +26,19 @@ type LERealIRQ7Trace struct {
 
 type leRealIRQ7 struct {
 	h              *DPMIHost
+	services       *FD2StartupDOS
 	stackSegment   uint16
 	active, failed bool
+}
+
+// InstallLERealIRQ7 依429明示接線預設實模式IRQ7，不安裝其他中斷橋接。
+func InstallLERealIRQ7(m *LEMachine, s *FD2StartupDOS, p *LEOPLPorts) error {
+	if m == nil || m.CPU == nil || s == nil || s.DPMI == nil || s.DPMI.m != m ||
+		p == nil || p.BIOSClock == nil || s.DPMI.RealModeIO != p || p.realIRQ7 != nil {
+		return fmt.Errorf("IRQ7 安裝上下文無效或重複")
+	}
+	p.realIRQ7 = &leRealIRQ7{h: s.DPMI, services: s}
+	return nil
 }
 
 type leIRQ7Bus struct {

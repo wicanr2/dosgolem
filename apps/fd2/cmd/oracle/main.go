@@ -238,6 +238,9 @@ func main() {
 	if !machine.InstallLEBIOSClock(m, opl) {
 		panic("BIOS clock安裝失敗")
 	}
+	if err := machine.InstallLERealIRQ7(m, services, opl); err != nil {
+		panic(err)
+	}
 	if !machine.InstallLEBIOSKeyboard(m) {
 		panic("BIOS鍵盤安裝失敗")
 	}
@@ -1047,6 +1050,9 @@ func main() {
 	r["device_state"] = opl.State()
 	r["dma_completions"] = opl.DMACompletions
 	r["irq7_deliveries"] = opl.IRQ7Deliveries
+	r["irq7_passdowns"] = opl.IRQ7Passdowns
+	r["irq7_returns"] = opl.IRQ7Returns
+	r["irq7_last"] = opl.IRQ7Last
 	r["pcm_observed_bytes"] = len(opl.PCM)
 	ivt := map[string]string{}
 	for _, n := range []uint32{8, 15, 0x66} {
