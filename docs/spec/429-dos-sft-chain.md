@@ -1,6 +1,6 @@
 # 429 — DOS 系統檔案表（SFT）鏈
 
-狀態：**DRAFT**（第 3 版，依第 1、2 輪審查修訂；待第 3 輪）
+狀態：**DRAFT**（第 4 版：第二張表改放 ROM 區；待第 3 輪）
 日期：2026-10-15
 前置：[`012-mcb-chain`](012-mcb-chain.md)（list of lists 的 `[BX-2]`）
 
@@ -32,7 +32,7 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
 
 ## 2. 規則
 
-新增常數 `SFTSeg = 0x0060`（第一張表）與 `SFT2Seg = 0xE000`（第二張表）。
+新增常數 `SFTSeg = 0x0060`（第一張表）與 `SFT2Seg = 0xF000`（第二張表）。
 `MCBSeg`（同為 `0x0060`）目前只有宣告、沒有任何程式讀寫，本規格不沿用它的名稱，
 免得讀者以為 SFT 是 MCB 鏈的一部分。
 
@@ -41,7 +41,8 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
 - `n == 0` 是預設值，行為與本規格之前完全相同：不寫入任何位元組。
 - `n` 在 6 到 255 之間時，`LoadEXE`、`LoadCOM` 在 `initMCB()` 之後呼叫 `initSFT()` 寫入下表。
 - 其他值回錯誤。下界 6 沿用 DOSBox-X（`dos_classes.cpp:136`，`files=` 小於 6 即結束）；
-  上界 255 讓第二張表留在 `E000` 段內（`6 + 251*59 = 14,815` bytes）。
+  上界 255 時第二張表佔 `F0000`–`F39DE`（`6 + 251*59 = 14,815` bytes），不碰 8×8 字型（`F000:FA6E`，
+  `199-rom-font-8x8`）與開機尾段（`FFFF0`，`191-bios-rom-tail`）。
 - 判斷「已載入」用新增的未匯出旗標 `programLoaded`，由 `LoadEXE`、`LoadCOM`、`LoadState` 設為真；
   不用 `ImageLen`（舊狀態檔可能為 0）。`programLoaded` 為真時呼叫 `SetDOSFiles`（含 `n == 0`）一律回錯誤，
   不安靜失效。同一 Machine 不支援重載後改設 SFT。
@@ -53,12 +54,12 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
 | 線性位址 | 內容 |
 |---|---|
 | `LOLSeg*16 + 0x14` | 第一張表的 far pointer：`0060:0000`（offset 在前） |
-| `0060:0000` | 下一張表 far pointer：`E000:0000` |
+| `0060:0000` | 下一張表 far pointer：`F000:0000` |
 | `0060:0004` | 第一張表的檔案數：`4` |
 | `0060:0006` 起 | 4 筆 59-byte 項目，全部清零；第 0–2 筆位移 `0x20` 寫 `"CON "`，第 3 筆寫 `"AUX "` |
-| `E000:0000` | `FFFF:FFFF`（鏈尾） |
-| `E000:0004` | 第二張表的檔案數：`n - 4` |
-| `E000:0006` 起 | `n - 4` 筆 59-byte 項目，全部清零 |
+| `F000:0000` | `FFFF:FFFF`（鏈尾） |
+| `F000:0004` | 第二張表的檔案數：`n - 4` |
+| `F000:0006` 起 | `n - 4` 筆 59-byte 項目，全部清零 |
 
 依據：DOSBox-X `src/dos/dos_classes.cpp` `DOS_InfoBlock::SetLocation` 第 129–168 行：
 表頭 6 bytes（下一張 far pointer、檔案數），項目 59 bytes（`include/dos_inc.h`
@@ -71,9 +72,13 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
   （`0x0700`–`0x07FF`）之後緊接 `StubSeg`，放不下。改放 `0x0600`–`0x06F1`，放 4 筆共
   242 bytes，第 5 筆（`PRN`）不寫。
 - DOSBox-X 的第二張表由 `DOS_GetMemory` 配在 DOS 私有記憶體。dosgolem 傳統記憶體
-  的配置由 MCB 鏈決定，搶一塊會改變所有程式可用的記憶體。改放 `E000` 段：dosgolem
-  在 `C000`–`CFFF` 給 UMB（`internal/dos/xms.go` `umbStart`、`umbEnd`）、`D000` 給 EMS 頁框
-  （`machine.EMSFrameSeg`），`E000` 段目前沒有用途。
+  的配置由 MCB 鏈決定，搶一塊會改變所有程式可用的記憶體。改放 BIOS ROM 區 `F000` 段：
+  - 第 3 版放 `E000` 段，但 JEMM（`430` 的觸發案例）把 EMS 頁框設在 `E000h`，頁框映射後 SFT 會被 EMS 頁蓋掉；
+    `C000`–`CFFF` 是 UMB、`D000` 是內建 EMS 頁框，也都不行。
+  - `F0000` 起目前沒有內容。ROM 區對程式唯讀（`Write8` 對 `ROMBase` 以上只記錄），`initSFT` 直接寫 `Mem`。
+    SFT 項目內容本規格本來就不模擬，程式寫不進去不影響走鏈與計數。
+  - JEMM 的遊戲映射狀態會把 `C0000`–`FFFFF` 別名到 `B8000`（`430` 觸發案例的 `003-jemm-api.md` §3），
+    該狀態下讀不到 SFT；程式在呼叫 DOS 前會切回 DOS 映射，屬原版行為。
 - `docs/spec/008-ems-paging.md` §2 寫頁框段是 `0xE000`，與程式（`EMSFrameSeg = 0xD000`）
   不符，該段已過期；以程式為準。本規格在 008 加一行註記指向這裡。
 
@@ -116,17 +121,17 @@ Buck Rogers 收據的 `memory_sha256`、`cmd/state-compare` 的機器摘要。�
    16 張表（超過即失敗）。逐表核對表頭、項目數、`CON`／`AUX` 名稱位置，總數等於 25。
 2. 預設不變，兩層錨點：
    (a) `MemPoison` 為 0 與 `0xCC` 各跑一次：未呼叫 `SetDOSFiles` 時載入後，`0x0600`–`0x06FF`、
-       `0x0714`–`0x0717`、`E0000`–`EFFFF` 與 `New()` 剛建好時逐位元組相同。
+       `0x0714`–`0x0717`、`F0000`–`F3FFF` 與 `New()` 剛建好時逐位元組相同。
    (b) 先提交只含測試的前置 commit，以未修改的 loader 算出固定程式載入後整機記憶體的
        SHA-256，寫成測試常數（同型做法見 `le_machine_test.go`）；實作 commit 後，`n = 0`
        的雜湊必須等於該常數。
 3. 差異範圍（`MemPoison = 0xCC` 下）：`n = 25` 與 `n = 0` 載入同一支程式，整機記憶體的差異
-   位址集合恰好等於 `0x0600`–`0x06F1`、`0x0714`–`0x0717`、`E0000`–`E0000+6+21*59-1` 的聯集
+   位址集合恰好等於 `0x0600`–`0x06F1`、`0x0714`–`0x0717`、`F0000`–`F0000+6+21*59-1` 的聯集
    （每個位址都要不同，因為 poison 值不是 0 也不是表內容）。
 4. 邊界：`SetDOSFiles(5)`、`(256)`、`(-1)` 回錯誤；`(6)` 第二張表 2 筆；`(255)` 第二張表
-   251 筆，並斷言 `0xE0000 + 6 + 251*59 <= 0xF0000`；載入後呼叫（含 `n = 0`）回錯誤。
+   251 筆，並斷言 `0xF0000 + 6 + 251*59 <= 0xFFA6E`（字型起點）；載入後呼叫（含 `n = 0`）回錯誤。
 5. 常數守門（`internal/dos` 或 `internal/machine`）：`SFTSeg*16 + 6 + 4*59 <= LOLSeg*16`；
-   `SFT2Seg` 段不與 `umbStart`–`umbEnd` 及 `EMSFrameSeg` 段重疊。
+   `SFT2Seg*16 + 6 + 251*59` 小於 8×8 字型起點與開機尾段；`SFT2Seg` 不與 `umbStart`–`umbEnd`、`EMSFrameSeg` 及 `E000` 段重疊。
 6. 存讀往返（`internal/machine`）：`n = 25` 載入後 `SaveState`，以新的 `New()` 機器 `LoadState`，
    三段記憶體相同，且 `DOSFiles()` 回 0、`SetDOSFiles` 回錯誤。
 7. 負對照（walker 本身要能失敗）：在第 1 項的機器上，載入後把鏈尾改寫成 `0000:0000`、把第一張表
