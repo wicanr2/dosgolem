@@ -18,9 +18,11 @@ import (
 // 程式載入後的整機狀態。之後的實作 commit 在預設選項下（SetDOSFiles(0)、
 // extended memory 0、未呼叫 SetEMSPresent）必須讓它們維持不變。
 //
-// 語意錨點（記憶體雜湊、兩個 StateDigest）永不變；gob 位元組可因 430 新增欄位的
-// 型別描述改變一次（本 commit）。MachineState、DOSState 兩個常數已在該 commit 更新，
-// 之後的行為 commit 不得再動。
+// 語意錨點（記憶體雜湊、兩個 StateDigest、poison 的 Mem）永不變；gob 位元組
+// （MachineState、DOSState）在 430、432 各變一次：430 新增 Ext／EMSAbsent／
+// KbdAwaitOutport，432 新增 PM（docs/spec/432-linear-memory-and-paging §7）。
+// 之後保護模式狀態只改 PM 的內部格式，不再動 gob 型別，所以這兩個常數不得再動。
+// 432 的那一次只有 MachineState 改變，DOSState 沒有（PM 在 machineState 內）。
 //
 // 改動任一個常數，等於宣告「預設行為改變」：既有收據記的是當時的記憶體內容，
 // 預設值一變，舊收據重跑會得到另一個畫面而沒有任何測試報錯
@@ -117,14 +119,14 @@ func anchorCheck(t *testing.T, name string, got, want anchorSums) {
 var (
 	anchorEXEWant = anchorSums{
 		Mem:           "4f3a968fef00769408fc8a6e7c820b095ac78143c2b9e4069e66192f6666a4ad",
-		MachineState:  "b26e47038326be86935e5d1fb9a6e39021ad77d521487d30da41b3b10997e7f0",
+		MachineState:  "9ccc5971366c5d77adaa4466e68b6eaa062855cfa09e9120c8c4014e154d994d",
 		MachineDigest: "f1fc9fcfacaa82f4df011708d6bd95999ac69c467e70093d402c062f81db3b55",
 		DOSState:      "01227c1c9f97333e289e682321d67afcdcc7c7b67e809da6da88b6aab533a47b",
 		DOSDigest:     "e24dd93659449209d6fa38f672a9aee05e7ce223ab3fbb105d16cc0874ffee02",
 	}
 	anchorCOMWant = anchorSums{
 		Mem:           "396efb9c4be37c09147ab292bf12d9e4447b560ad3069511a7ebd539f2464b1d",
-		MachineState:  "efd1997c178c19cfd65258c7dcfdc72f98303c1579d3c888eb824f62c75947cb",
+		MachineState:  "20b8b23527b8076068d035af140f2d68a1485792dfb5839637a2a0de1b3c993a",
 		MachineDigest: "1927242326e91a008d480bd5ad35e1118e54dc554ac71b728193fe4df8fc7579",
 		DOSState:      "8cda094fe2bef9eaa3c91d4af6eb0b0bcbfe6ebc7a739fc79d2e45eb3fba614e",
 		DOSDigest:     "fcf10f07497ae2a4bff738e45a5354483518f359a8de02c368e734cdb8319278",

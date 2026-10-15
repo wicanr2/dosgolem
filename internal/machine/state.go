@@ -140,11 +140,18 @@ type machineState struct {
 	// Ext 是 1 MB 之上的延伸記憶體（含 HMA），kb == 0 時為空；EMSAbsent 是
 	// SetEMSPresent(false)；KbdAwaitOutport 是 8042 的 D1h 狀態機旗標。
 	// 都標 omitempty，零值不進 StateDigest 的 JSON。
-	// ⚠ 這三個欄位在「只加欄位」的 commit 先加完，之後不得再增減或改型別，
-	// 否則 gob 的型別描述（錨點測試的位元組常數）會第二次改變。
 	Ext             []uint8 `json:",omitempty"`
 	EMSAbsent       bool    `json:",omitempty"`
 	KbdAwaitOutport bool    `json:",omitempty"`
+
+	// PM 是保護模式狀態的不透明欄位（docs/spec/431-hybrid-cpu-protected-mode §4.2、
+	// docs/spec/432-linear-memory-and-paging §7）。內容自帶版本號與編碼；profile 關閉時為 nil，
+	// 不進 StateDigest 的 JSON。
+	//
+	// ⚠ gob 位元組的政策：語意錨點（記憶體雜湊、StateDigest）永不變；gob 型別描述
+	// （錨點測試的位元組常數）在 430、432 各變一次，之後 433–435 的保護模式狀態只改
+	// PM 的內部格式，不得再增減或改型別機器狀態欄位。
+	PM []byte `json:",omitempty"`
 }
 
 // SaveState 把整台機器寫出去。

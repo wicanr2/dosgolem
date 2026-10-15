@@ -31,3 +31,23 @@ func TestSaveStateLeavesNewFieldsZero(t *testing.T) {
 		t.Error("KbdAwaitOutport 應為 false")
 	}
 }
+
+// 432 的「只加欄位」commit（docs/spec/432-linear-memory-and-paging §7）：SaveState 不寫 PM，
+// 解碼後 PM 必須是 nil。profile 關閉時之後的行為 commit 仍須如此。
+func TestSaveStateLeavesPMNil(t *testing.T) {
+	m := New()
+	if err := m.LoadCOM([]byte{0xB4, 0x4C, 0xCD, 0x21}); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	if err := m.SaveState(&b); err != nil {
+		t.Fatal(err)
+	}
+	var s machineState
+	if err := gob.NewDecoder(&b).Decode(&s); err != nil {
+		t.Fatal(err)
+	}
+	if s.PM != nil {
+		t.Errorf("PM = %d bytes，應為 nil", len(s.PM))
+	}
+}
