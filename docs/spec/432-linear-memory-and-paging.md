@@ -1,6 +1,6 @@
 # 432 — 實體與線性存取分層、A20、分頁與共用 TLB
 
-狀態：**DRAFT**（第 3 版，依第 2 輪審查補寫決定）
+狀態：**READY**（四輪審查；最後一輪的文字與契約補寫已套用於 §10）
 日期：2026-10-15
 前置：[`430-physical-memory-and-xms-unification`](430-physical-memory-and-xms-unification.md)、
 [`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（架構契約）、[`015-execution-speed`](015-execution-speed.md)
@@ -15,7 +15,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮演「實體存取」與「CPU 的位址空間」，且 430 的 `ReadPhys8` 在
 1 MB 以下呼叫 `Read8`（`internal/machine/extmem.go` 約 73–95 行）；直接讓 `Read8` 做分頁轉換，頁表走訪會遞迴。另外，JEMM 開分頁前
 就以平坦選擇子寫 1 MB 以上的 XMS 區（430 §1），現行 `Read8` 卻把 HMA 以外的位址 `&0xFFFFF` 折回低記憶體（`machine.go` 約 807–826 行）；
-386 只遮 bit 20（DOSBox-X `hardware/memory.cpp:1301-1316`，386 的 `address_bits=32`，`1935-1946`）。
+386 只遮 bit 20（DOSBox-X `hardware/memory.cpp:1301-1317`，386 的 `address_bits=32`，`1935-1946`）。
 
 ## 2. 啟用條件與公開設定
 
@@ -52,7 +52,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 `ReadPhys*`／`WritePhys*`（430）改用實體層；430 §2.1 補一行修訂紀錄指向本規格。
 
 `Read8` 的轉換關閉路徑也改為呼叫 `readPhysRaw`（只保留前面的 `hmaAddr` 與 `&0xFFFFF`），避免兩份本體。以隨機差分測試證明：對隨機
-`a < 1 MB` 與各種監看、平面模式組合，新舊路徑逐位元組相同（`machine.go` 約 779–798 行的判準表同步改寫，加入「轉換開啟」一欄）。
+`a < 1 MB` 與各種監看、平面模式組合，新舊路徑逐位元組相同（`machine.go` 約 769–795 行的 `syncCodeFastPath` 判準表同步改寫，加入「轉換開啟」一欄）。
 
 ### 3.2 線性層（`Read8`／`Write8`）
 
@@ -64,8 +64,8 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 ### 3.3 監督者存取
 
 新增 `ReadSup8`／`ReadSup16`／`ReadSup32`、`WriteSup8`／`WriteSup16`／`WriteSup32`：與線性層相同，但一律以監督者身分檢查權限
-（不論目前 CPL）。供 435 經 IDT 遞送 V86 事件時讀 IDT、TSS、寫 ring 0 堆疊（同 DOSBox-X 以 `cpu.mpl=0` 標示的隱含特權存取，
-`cpu/paging.cpp:786`；`cpu/cpu.cpp:662-673`、`840-859`）。不採全域旗標，避免設定後漏還原。cpu386 的 Bus 轉接在 434。
+（不論目前 CPL）。供 435 經 IDT 遞送 V86 事件時讀 IDT、TSS、寫 ring 0 堆疊（讀 IDT、TSS 對應 DOSBox-X 以 `cpu.mpl=0` 標示的隱含特權存取，`cpu/paging.cpp:786`；
+`cpu/cpu.cpp:662-673`、`840-859`、`1095-1104`；寫 ring 0 堆疊則對應 `CPU_SetCPL(cs_dpl)`（`cpu.cpp:1413`）之後的監督者身分）。不採全域旗標，避免設定後漏還原。cpu386 的 Bus 轉接在 434。
 
 ### 3.4 呼叫點分類
 
@@ -227,3 +227,46 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
     `BenchmarkMemPaged` 的數值記入收據，不做斷言；連續 10 萬次 `SetCR3` 以 `testing.AllocsPerRun` 量測為 0 次配置。
 13. `go build ./...`、`go vet ./...`、`tools/go.sh test ./internal/... ./cmd/probe ./session ./oracle` 全綠（需顯示器的套件照現行以
     `xvfb-run`）。
+
+## 10. 補充規則（第 4 輪複審）
+
+以下規則優先於前文中與之衝突的敘述。
+
+1. **哨兵與分頁錯誤**：`CPU.Step()` 回傳控制流哨兵（433 的 `ErrModeSwitch`、435 的 `V86Event`）且同一步有分頁紀錄時，`Machine.Step`
+   回分頁錯誤，哨兵不遞送。錯誤型別匯出為 `*PageFaultError`（含 `PageFaultRecord`）；與 CPU 錯誤並存時以 `%w` 包住 CPU 錯誤，
+   `errors.Is`、`errors.As` 都可用。
+2. **profile 關閉時的 setter**：`SetCR0`、`SetCR3`、`SetEFlagsHi`、`SetVM`、`SetPMCPL` 在 profile 關閉時回錯誤（`SetCR0`、`SetCR3` 的簽章
+   因此回傳 `error`）。`SetProtectedModeProfile` 只能在 `CR0` 為初值時切換，切換後重算衍生欄位；開啟時另要求 `m.CPU.Model == Model80386`。
+   `SetPMCPL` 要求 `cpl <= 3`。`SetCR0` 把 PE 由 1 寫成 0 而 `VM=1` 時回錯誤（431 §5：保護模式→實模式不支援）。
+3. **`EFlagsHi`**：新增 `SetEFlagsHi(hi uint16) error`，只接受 RF（bit 0）與 VM（bit 1），`VM=1` 需 `PE=1`；`SetVM` 是它的包裝。
+   `EFlagsHi = EFLAGS >> 16`。
+4. **公開存取器**：`PageFault() (PageFaultRecord, bool)`、`LastPageFault() (PageFaultRecord, bool)`；`CR0()`、`CR3()`、`PMCPL()`、
+   `EFlagsHi()`；`Translating() bool`（即 `m.xlat`，供 `internal/dos` 的診斷回溯選擇 `Peek` 或 `Read8`）；`PeekOK16(a) (uint16, bool)`。
+5. **錯誤紀錄細節**：PDE 的 P=0 時 `PTE` 欄位填 0。TLB 命中而權限錯誤時，紀錄的 PTE 由條目記住的 PTE 位址重讀，PDE 由 `CR3` 與線性位址
+   重算位址後讀取（皆經 `pageRead32`，無副作用）。P=0 與權限錯誤的走訪不填 TLB（沒有負向快取）。`Step` 第一動作在沒有殘留紀錄時
+   不動 `LastPageFault()`。`Step` 以外存取連續產生多筆時，`PageFault()` 非空就不覆蓋。`Restore`、`LoadState` 清空兩個紀錄。
+6. **`LoadState` 對 `PM` 的驗證**（全部回錯誤，且在任何寫入之前）：未知版本號、長度小於該版本的大小、`PM[2]`（`PMProfile`）不為 1、
+   `pmCPL > 3`、`CR0` 含 386 保留位元、`EFlagsHi` 含 RF 與 VM 以外的位元、`VM=1` 而 `PE=0`。
+7. **監督者存取的用途**：除了 435 的 IDT、TSS 與 ring 0 堆疊，434 的 cpu386 在 CPL=3 載入段描述元時讀 GDT、LDT（通常 U/S=0），以及
+   435 的 I/O 權限點陣圖，都經 `ReadSup*`。
+8. **字組監看的位址語意**：`pollWords`、`WatchWord` 在轉換開啟時用 `Peek16`，位址是線性視角，與讀寫監看（實體位址）不同。`m.xlat`
+   改變的那一步重新取樣 `last` 值，不發出變化通知。
+9. **走訪順序**：跟隨 DOSBox-X（`cpu/paging.cpp:837-844`）：先讀 PDE、再讀 PTE，然後寫 PDE 的 accessed，最後做 PTE 的存在與權限檢查。
+   頁目錄自我映射時結果因此與 DOSBox-X 相同。
+10. **固定結構的分類**：BDA 與 `StubSeg` 依賴恆等映射；`VideoSeg` 與 EMS 頁框在服務層經線性層時看得到 JEMM 的別名，這是正確行為。
+    手算 `seg*16` 的清單包含 `exec.go` 的 `psp*16`（約 203、213、493 行）與 `int10text.go`；直接動 `Ext` 的列包含
+    `internal/dos/xms_ext.go` 約 288 行。
+11. **A20 作廢的立場**：A20 變動時作廢 TLB 對齊 DOSBox-X，是因為 A20 在 JEMM 執行期間不會改變（SCCD 於載入 JEMM 前開啟，`002` §1），
+    作廢與否不影響觸發案例，選擇與對照組一致較容易判讀差異；「真機的 A20 閘在 TLB 之後、不作廢 TLB」是推論（假說），未查證手冊。
+    `hack_check` 會改變遊戲可觀察的行為，所以那裡採真機語意。
+12. **`CR0` 讀回與 DOSBox-X 的差異**：本規格清除 386 保留位元，DOSBox-X 只補 `FPUPRESENT`、不清其他位元（`cpu.cpp:2582`），對拍時
+    `CR0` 讀回可能不同，屬已知差異。
+
+驗收補充（併入 §9 執行）：
+
+- 第 1 項：取指令落在不存在頁、讀回 `0xFF` 被解成哨兵時，`Step` 回 `*PageFaultError` 且 `errors.As` 取得紀錄。
+- 第 2、3、6 項：每條錯誤條件各一例。
+- 第 5 項：TLB 命中的權限錯誤紀錄含正確 PDE、PTE；P=0 後修好 PTE 而不重載 `CR3`，再存取成功（證明沒有負向快取）。
+- 第 8 項：`m.xlat` 改變那一步不產生變化通知。
+- 第 9 項：頁目錄自我映射的合成頁表，accessed 位元結果與預期相同。
+
