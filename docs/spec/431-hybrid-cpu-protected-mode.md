@@ -88,7 +88,7 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 
 新增欄位只存來源（`SysRegs`、`EFlagsHi`、`EIP` 高 16 位元、cpu386 的段快取與 FPU、`PMProfile`、待處理 IRQ），模式與 CPL 讀回時推得。
 欄位一律用指標或 slice，`kb == 0` 且 profile 關閉時 `StateDigest` 不變。這是 430 之後第二次改變 gob 位元組錨點：依 430 §3 的程序
-在 433 的「只加欄位」commit 一次加完 432–435 需要的所有欄位，並同步修改錨點測試檔頭與 `internal/machine/state.go` 註解的政策語句。
+在 432 實作開頭的「只加欄位」commit 一次加完 432–435 需要的所有欄位，並同步修改錨點測試檔頭與 `internal/machine/state.go` 註解的政策語句。
 
 ## 5. 交接點
 
