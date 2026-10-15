@@ -171,6 +171,10 @@ type CPU struct {
 	// DOSBoxCost 開著時 Cycles 照 DOSBox-X normal core 累計：每道指令 1、
 	// 字串指令每次迭代 1，其他不計（`docs/spec/198` §2）。
 	DOSBoxCost bool
+
+	// Sys 是系統暫存器的介面（`docs/spec/433-real-mode-system-instructions` §3.1）。
+	// nil 時行為完全不變；Machine 只在保護模式 profile 開啟時裝上。
+	Sys SysBus
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。

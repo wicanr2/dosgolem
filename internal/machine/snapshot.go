@@ -194,7 +194,7 @@ func (m *Machine) Snapshot() *Snapshot {
 		programLoaded: m.programLoaded,
 
 		pmProfile: m.pmProfile,
-		pmFields:  pmFields{cpl: m.pmCPL, cr0: m.cr0, cr3: m.cr3, eflagsHi: m.eflagsHi},
+		pmFields:  pmFields{cpl: m.pmCPL, cr0: m.cr0, cr3: m.cr3, eflagsHi: m.eflagsHi, sysRegs: m.sys},
 	}
 	s.vga = m.VGA.clone()
 	if m.Ext != nil {

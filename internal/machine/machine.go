@@ -662,6 +662,10 @@ type Machine struct {
 	// ImageBase／ImageLen 是載進去的映像位置與長度。
 	ImageBase uint32
 	ImageLen  int
+
+	// sys 是 433 §2 的其餘 SysRegs（CR2、DR、GDTR、IDTR、LDTR、TR），存進 PM 與 Snapshot。
+	// 放在結構尾端，不把 432 的熱欄位（xlat、paging、cplUser）與監看欄位往後推。
+	sys sysRegs
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -712,6 +716,7 @@ func New() *Machine {
 		rWatchLo: 1, rWatchHi: 0,
 		VGA:    newVGA(),
 		cr0:    pmCR0Init,
+		sys:    sysRegsInit(),
 		tlbGen: 1,
 	}
 	if MemPoison != 0 {

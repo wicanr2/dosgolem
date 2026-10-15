@@ -260,7 +260,8 @@ func (m *Machine) LoadState(r io.Reader) error {
 	}
 	// 432：PM 與機器設定（profile 開關）要一致，且內容要通過驗證；同樣在任何寫入之前，
 	// 失敗時機器維持原狀（docs/spec/432-linear-memory-and-paging §7、§10 第 6 項）。
-	pm := pmFields{}
+	// profile 關閉時套用初值（433 §2.1：不用零值，避免 IDTR 界限、DR6 出現 0）。
+	pm := pmFields{sysRegs: sysRegsInit()}
 	if hasPM := len(s.PM) != 0; hasPM != m.pmProfile {
 		return fmt.Errorf("machine: 狀態檔的保護模式 profile 是 %t，這台是 %t（先用 SetProtectedModeProfile 設成相同）",
 			hasPM, m.pmProfile)

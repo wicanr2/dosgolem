@@ -58,7 +58,8 @@ var errNoProfile = fmt.Errorf("machine: 保護模式 profile 未開啟（先 Set
 //  4. 開啟時 CPU 型號不是 80386，錯誤；
 //  5. 與現值不同時，CR0 必須是初值（432 §10 第 2 項）。
 //
-// 切換成功後 CR3、EFlagsHi、pmCPL 回到初值（它們只在 profile 開啟時才有意義）。
+// 切換成功後 CR3、EFlagsHi、pmCPL 與 433 §2 的全部 SysRegs 回到初值（它們只在 profile
+// 開啟時才有意義），並裝上（開啟）或拿掉（關閉）既有核心的 Sys（433 §3.1）。
 func (m *Machine) SetProtectedModeProfile(on bool) error {
 	if m.programLoaded {
 		return fmt.Errorf("machine: 程式已載入，不能再切換保護模式 profile")
@@ -80,6 +81,12 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 	}
 	m.pmProfile = on
 	m.cr3, m.eflagsHi, m.pmCPL = 0, 0, 0
+	m.sys = sysRegsInit()
+	if on {
+		m.CPU.Sys = m
+	} else {
+		m.CPU.Sys = nil
+	}
 	m.invalidateTLB()
 	m.recalcPM()
 	return nil

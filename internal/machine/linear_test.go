@@ -624,37 +624,51 @@ func TestSyncCodeFastPathCriteria(t *testing.T) {
 
 // ---- 狀態檔與快照（§7、§10 第 6 項）-----------------------------------------
 
+// TestPMV1Layout 以手造的版本 1 位元組驗解碼相容（433 §2.1：encodePM 改輸出版本 2，
+// 版本 1 只剩讀取；缺的欄位取 SysRegs 初值）。版本 2 的位移在 sysregs_test.go。
 func TestPMV1Layout(t *testing.T) {
-	m := newPM(t)
-	mustNil(t, "SetCR0", m.SetCR0(0x80000000|cr0PE|0x8))
-	mustNil(t, "SetCR3", m.SetCR3(0xDEADB000))
-	mustNil(t, "SetPMCPL", m.SetPMCPL(2))
-	mustNil(t, "SetEFlagsHi", m.SetEFlagsHi(eflagsHiRF))
-	b := m.encodePM()
-	if len(b) != 16 {
-		t.Fatalf("PM 版本 1 共 16 bytes，實際 %d", len(b))
-	}
+	// 逐 byte（小端序）：版本 1、PMProfile 1、pmCPL 2、CR0 80000019h、CR3 DEADB000h、EFlagsHi RF、保留 0。
+	v1 := []byte{1, 0, 1, 2, 0x19, 0, 0, 0x80, 0x00, 0xB0, 0xAD, 0xDE, 1, 0, 0, 0}
+	f, err := decodePM(v1)
+	mustNil(t, "decodePM(版本 1)", err)
 	le := binary.LittleEndian
 	for _, c := range []struct {
 		name      string
 		got, want uint64
 	}{
-		{"版本號（位移 0，2 bytes）", uint64(le.Uint16(b[0:])), 1},
-		{"PMProfile（位移 2）", uint64(b[2]), 1},
-		{"pmCPL（位移 3）", uint64(b[3]), 2},
-		{"CR0（位移 4，4 bytes）", uint64(le.Uint32(b[4:])), 0x8000001F & (0x80000000 | cr0PE | 0x8 | pmCR0Init)},
-		{"CR3（位移 8，4 bytes）", uint64(le.Uint32(b[8:])), 0xDEADB000},
-		{"EFlagsHi（位移 12，2 bytes）", uint64(le.Uint16(b[12:])), eflagsHiRF},
-		{"保留（位移 14，2 bytes）", uint64(le.Uint16(b[14:])), 0},
+		{"版本號（位移 0，2 bytes）", uint64(le.Uint16(v1[0:])), 1},
+		{"pmCPL（位移 3）", uint64(f.cpl), 2},
+		{"CR0（位移 4，4 bytes）", uint64(f.cr0), 0x80000019},
+		{"CR3（位移 8，4 bytes）", uint64(f.cr3), 0xDEADB000},
+		{"EFlagsHi（位移 12，2 bytes）", uint64(f.eflagsHi), eflagsHiRF},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %X，應為 %X", c.name, c.got, c.want)
 		}
 	}
-	// 逐 byte 對照（小端序）。
-	want := []byte{1, 0, 1, 2, 0x19, 0, 0, 0x80, 0x00, 0xB0, 0xAD, 0xDE, 1, 0, 0, 0}
-	if !bytes.Equal(b, want) {
-		t.Errorf("PM bytes = % X\n want   % X", b, want)
+	if f.sysRegs != sysRegsInit() {
+		t.Errorf("版本 1 缺的 SysRegs 應取初值：%+v", f.sysRegs)
+	}
+	// 版本 1 長度不足仍回錯誤。
+	if _, err := decodePM(v1[:15]); err == nil {
+		t.Error("版本 1 只有 15 bytes：應回錯誤")
+	}
+	// 經 LoadState 讀版本 1 的狀態檔，再存檔變成版本 2（屬預期）。
+	src := newPM(t)
+	mustNil(t, "LoadCOM", src.LoadCOM([]byte{0xB4, 0x4C, 0xCD, 0x21}))
+	st := decodeStateForTest(t, saveBytes(t, src))
+	st.PM = v1
+	m := newPM(t)
+	m.SetDR(7, 0xFF) // 先弄髒，證明讀檔後回初值
+	mustNil(t, "LoadState(版本 1)", m.LoadState(bytes.NewReader(encodeStateForTest(t, st))))
+	if m.CR0() != 0x80000019 || m.CR3() != 0xDEADB000 || m.PMCPL() != 2 || m.EFlagsHi() != eflagsHiRF {
+		t.Errorf("版本 1 讀入：CR0=%08X CR3=%X CPL=%d hi=%X", m.CR0(), m.CR3(), m.PMCPL(), m.EFlagsHi())
+	}
+	if m.sys != sysRegsInit() {
+		t.Errorf("版本 1 讀入後 SysRegs 應為初值：%+v", m.sys)
+	}
+	if b := m.encodePM(); len(b) != pmV2Size || le.Uint16(b) != 2 {
+		t.Errorf("版本 1 讀入後再存應為版本 2（80 bytes）：%d bytes 版本 %d", len(b), le.Uint16(b))
 	}
 	// profile 關閉時為 nil。
 	off := newExt(t, 4096)
@@ -671,8 +685,8 @@ func TestPMRoundTripThroughSaveState(t *testing.T) {
 	mustNil(t, "SetPMCPL", src.SetPMCPL(3))
 	mustNil(t, "SetEFlagsHi", src.SetEFlagsHi(eflagsHiRF|eflagsHiVM))
 	data := saveBytes(t, src)
-	if s := decodeStateForTest(t, data); len(s.PM) != 16 {
-		t.Fatalf("存檔後 PM 應有 16 bytes：%d", len(s.PM))
+	if s := decodeStateForTest(t, data); len(s.PM) != 80 {
+		t.Fatalf("存檔後 PM 應有 80 bytes：%d", len(s.PM))
 	}
 
 	dst := newPM(t)
@@ -738,9 +752,11 @@ func TestLoadStatePMValidation(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"未知版本號", mut(func(p []byte) []byte { p[0] = 2; return p })},
+		{"未知版本號", mut(func(p []byte) []byte { p[0] = 3; return p })},
 		{"版本號 0", mut(func(p []byte) []byte { p[0] = 0; return p })},
-		{"長度小於版本 1 的大小", mut(func(p []byte) []byte { return p[:15] })},
+		{"長度小於版本 2 的大小", mut(func(p []byte) []byte { return p[:79] })},
+		{"版本 2 只有版本 1 的長度", mut(func(p []byte) []byte { return p[:16] })},
+		{"版本 1 長度不足", mut(func(p []byte) []byte { p[0] = 1; return p[:15] })},
 		{"長度連版本號都不夠", mut(func(p []byte) []byte { return p[:1] })},
 		{"PMProfile 不為 1", mut(func(p []byte) []byte { p[2] = 0; return p })},
 		{"PMProfile 為 2", mut(func(p []byte) []byte { p[2] = 2; return p })},
