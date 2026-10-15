@@ -931,7 +931,7 @@
 - [429 DOS 系統檔案表（SFT）鏈](429-dos-sft-chain.md)：READY。`SetDOSFiles` 選項開啟、預設不寫入；觸發案例 Strike Commander `SCCD.EXE` 的 FILES 檢查。
 - [430 延伸實體記憶體與 XMS 統一](430-physical-memory-and-xms-unification.md)：READY。選項開啟的 `Ext` 延伸記憶體、XMS 區塊實體化、可掛鉤 XMS 入口、8042 A20、不安裝內建 EMM。
 - [431 混合 CPU 架構](431-hybrid-cpu-protected-mode.md)：DRAFT（第 3 版）。架構契約：分工、狀態擁有權、交接點、效能門檻；實作拆到 432–435。
-- [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：DRAFT（第 1 版）。
+- [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：DRAFT（第 2 版）。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
