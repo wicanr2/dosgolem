@@ -270,3 +270,36 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 - 第 8 項：`m.xlat` 改變那一步不產生變化通知。
 - 第 9 項：頁目錄自我映射的合成頁表，accessed 位元結果與預期相同。
 
+
+## 11. 實作收據（2026-10-15）
+
+commit：`418edb2`（基準）、`92d6138`（只加 `PM` 欄位）、`09314fb`（C1：兩層存取、`SvcAddr`、setter、`PM` 編碼）、C2（分頁與 TLB，
+見 `git log`）。
+
+### 驗收結果
+
+- 第 1–11、13 項與 §10 補充驗收：測試通過（容器內 `go build ./...`、`go vet`、`go test ./internal/... ./cmd/probe ./session ./oracle`）。
+  錨點語意常數全程不變；gob 位元組常數只在 `92d6138` 改變一次。
+- 突變自檢：C1 的熱路徑捷徑與監看條件 5 個突變、C2 的 accessed 順序、U/S 改 OR、拿掉 TLB 作廢，皆被測試抓到，已還原。
+- 第 12 項效能：
+  - `BenchmarkStepV86Paged` 15.8–15.9 M 道／秒，高於 11.58 M。`BenchmarkStepV86` 20.4–22.0 M。`BenchmarkMemLinear` 147–200 M 讀／秒，
+    `BenchmarkMemPaged`（TLB 命中）97.5–111 M。
+  - profile 關閉的 `BenchmarkStepRealMode` 與 `418edb2` 交錯比較（C1 五輪、C2 二十五對），主機 load average 13–30，單次樣本差 2–3 倍。
+    最快值新舊相當（C2：新 28.26、舊 28.79 ns/op），但單輪比值落在 87%–112%，**未能證明穩定不低於 97%**。待主機安靜時重量，
+    本項維持開放。
+
+### 實作期間的處置
+
+1. `SetProtectedModeProfile` 切換成功時把 `CR3`、`EFlagsHi`、`pmCPL` 回初值；同值呼叫回 nil。檢查順序：`programLoaded`、`Ext`、`len(Mem)`、
+   `Model`、同值、`CR0` 非初值。
+2. `LoadState` 讀入的 `CR0` 一律補 `0x10`；`PM` 尾端多出的 bytes 不報錯，位移 14 的保留欄位不驗證。
+3. `SetVM(false)` 在 `PE=0` 時不報錯。
+4. `pageWrite32` 寫到範圍外時丟棄、不計 `UnmappedPhysWrites`；`PageTableWrites` 只在值有改變時遞增（同 DOSBox-X 只在需要時更新）。
+5. 診斷回溯除 `CallSite` 外，`exec.go` overlay 紀錄的 `PBRaw` 也改 `diagRead8`。
+6. `cmd/probe` 的 dump 用 `peek8`／`peek16`；B8000 與 CGA 輸出歸硬體側，用 `ReadPhys8`。
+7. 錯誤紀錄的 PDE 是 accessed 寫回之後的值；PTE 的 P=0 時紀錄讀到的 PTE 值。
+8. `*PageFaultError` 的 `Error()` 是 CPU 錯誤訊息加分頁錯誤說明（§10 第 1 項優先於 §5.3）；CPU 錯誤與分頁錯誤並存的真實整合情境要到
+   433、435 有哨兵後才能測，目前以自訂錯誤驗證包裝語意。
+9. `tlbMarkDirty` 不檢查 PTE 的 P：條目填入後 PTE 被清成 P=0，dirty 仍寫上（不重走權限）。
+10. 純 `machine` 的合成測試與基準一律 `IRQ0Every = 0`：沒有掛服務層時，`int 1Ch` 的預設 stub 會遞迴（既有行為，不在本規格範圍）。
+11. TLB 第一層陣列以指標在第一次填入時配置，避免放在 `Machine` 結構內拖慢實模式。

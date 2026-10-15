@@ -46,8 +46,14 @@ func (m *Machine) PeekOK16(a uint32) (uint16, bool) {
 
 // peekLin 是轉換開啟時的觀測轉換：TLB 條目世代符合就用（看到 CPU 此刻會看到的，
 // 含舊轉換）；不符就無副作用地走頁表，不填 TLB、不寫 accessed／dirty、不產生錯誤紀錄
-// （分頁在 C2）。之後套 A20，走 peekPhysRaw。
+// （peekXlatPage，paging.go）。不檢查權限（監督者身分）。之後套 A20，走 peekPhysRaw。
 func (m *Machine) peekLin(a uint32) (uint8, bool) {
+	if m.paging {
+		var ok bool
+		if a, ok = m.peekXlatPage(a); !ok {
+			return 0xFF, false
+		}
+	}
 	if !m.a20 {
 		a &^= 0x100000
 	}

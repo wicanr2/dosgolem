@@ -90,11 +90,12 @@ func decodePM(b []byte) (pmFields, error) {
 	return f, nil
 }
 
-// applyPM 套用解碼後的保護模式狀態（或在 profile 關閉時還原初值），
+// applyPM 套用解碼後的保護模式狀態（或在 profile 關閉時還原初值），清空分頁錯誤紀錄，
 // 作廢 TLB 並重算衍生欄位。LoadState、Restore 共用。
 func (m *Machine) applyPM(f pmFields) {
 	m.cr0 = f.cr0 | pmCR0Init
 	m.cr3, m.eflagsHi, m.pmCPL = f.cr3, f.eflagsHi, f.cpl
 	m.invalidateTLB()
+	m.clearPageFaults()
 	m.recalcPM()
 }

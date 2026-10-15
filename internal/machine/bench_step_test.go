@@ -66,3 +66,90 @@ func BenchmarkStepRealMode(b *testing.B) {
 	b.StopTimer()
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds()/1e6, "Msteps/s")
 }
+
+// BenchmarkStepV86 以 SetVM 注入 V86 狀態（PE=1、VM=1，無分頁）跑同一個合成迴圈
+// （docs/spec/431-hybrid-cpu-protected-mode §7、432 §9 第 12 項）。
+// 轉換開啟：每次記憶體存取走線性層（A20 遮罩加實體層）。
+func BenchmarkStepV86(b *testing.B) {
+	m := New()
+	if err := m.SetExtendedMemoryKB(4096); err != nil {
+		b.Fatal(err)
+	}
+	if err := m.SetProtectedModeProfile(true); err != nil {
+		b.Fatal(err)
+	}
+	m.IRQ0Every = 0
+	if err := m.LoadCOM(stepLoopCOM); err != nil {
+		b.Fatal(err)
+	}
+	m.SetA20(true)
+	if err := m.SetCR0(cr0PE); err != nil {
+		b.Fatal(err)
+	}
+	if err := m.SetVM(true); err != nil {
+		b.Fatal(err)
+	}
+	runStepBench(b, m)
+}
+
+// BenchmarkStepV86Paged 同上，另開分頁：合成的恆等頁表（低 4 MB，使用者可讀寫），
+// 每次記憶體存取走 TLB。
+func BenchmarkStepV86Paged(b *testing.B) {
+	m, _ := newPagedProg(b, stepLoopCOM, fPWU)
+	if err := m.SetVM(true); err != nil {
+		b.Fatal(err)
+	}
+	if !m.paging {
+		b.Fatal("應為分頁")
+	}
+	runStepBench(b, m)
+}
+
+func runStepBench(b *testing.B, m *Machine) {
+	b.Helper()
+	for i := 0; i < 1000; i++ {
+		if err := m.Step(); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if m.Mem[uint32(PSPSeg)*16+0x800] == 0 {
+		b.Fatal("合成迴圈沒有寫到資料區，可能飛掉了")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := m.Step(); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds()/1e6, "Msteps/s")
+}
+
+// BenchmarkMemLinear／BenchmarkMemPaged 量線性層一次 Read8 的成本（不做斷言，數值記入收據）：
+// 轉換開啟、無分頁，以及分頁（TLB 命中）。位址在 64 KB 範圍內循環。
+func BenchmarkMemLinear(b *testing.B) {
+	m, _ := newPaged(b)
+	if err := m.SetCR0(cr0PE); err != nil {
+		b.Fatal(err)
+	}
+	benchRead8(b, m)
+}
+
+func BenchmarkMemPaged(b *testing.B) {
+	m, tb := newPaged(b)
+	tb.identity(0, 0x100000, fPWU)
+	tb.enable(b)
+	benchRead8(b, m)
+}
+
+func benchRead8(b *testing.B, m *Machine) {
+	b.Helper()
+	var sink uint8
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sink += m.Read8(0x10000 + uint32(i)&0xFFFF)
+	}
+	b.StopTimer()
+	_ = sink
+	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds()/1e6, "Mreads/s")
+}

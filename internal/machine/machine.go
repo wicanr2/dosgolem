@@ -502,6 +502,12 @@ type Machine struct {
 	paging    bool
 	cplUser   bool
 	tlbGen    uint32
+	// tlb 是共用 TLB 的第一層（以 4 MB 為單位，第二層懶配置，paging.go）。不存檔。
+	// 第一次填入時才配置：8 KB 的陣列放在 Machine 內會把後面的熱欄位推到別的記憶體頁。
+	tlb *[1024]*tlbBlock
+	// 分頁錯誤紀錄（paging.go）：pf 是目前的，pfLast 是 Step 移出的上一筆。不存檔。
+	pf, pfLast     PageFaultRecord
+	pfOK, pfLastOK bool
 	// wordXlat 是 pollWords 上一次看到的 xlat（xlat 改變的那一步重新取樣，不發變化通知）。
 	wordXlat bool
 	// PageTableWrites 是頁表走訪寫回 accessed／dirty 的次數（診斷計數，不存檔）。
@@ -1395,6 +1401,13 @@ const MaxSegLog = 100_000
 
 // Step 執行一道指令，必要時先送 IRQ1或IRQ0。
 func (m *Machine) Step() error {
+	// 432 §5.3：第一個動作（在 tick、keyTick 之前）把殘留的分頁錯誤紀錄移到
+	// LastPageFault 並清空 PageFault；沒有殘留紀錄時不動 LastPageFault。
+	// 之後在這一步內產生的紀錄，於該步結束時讓 Step 回傳 *PageFaultError。
+	if m.pfOK {
+		m.pfLast, m.pfLastOK = m.pf, true
+		m.pf, m.pfOK = PageFaultRecord{}, false
+	}
 	// **兩個檢查都內聯在這裡**：`tick` 與 `keyTick` 絕大多數指令上
 	// 第一行就 return，而函式呼叫本身佔了執行時間的 3.8%
 	//（`docs/spec/015` §3）。把「要不要進去」提到呼叫端之後，
@@ -1428,6 +1441,9 @@ func (m *Machine) Step() error {
 		if len(m.wordWatches) > 0 {
 			m.pollWords()
 		}
+		if m.pfOK {
+			return m.stepFault(err)
+		}
 		return err
 	}
 	fromSeg, fromOff := m.CPU.Seg[cpu.CS], m.CPU.IP
@@ -1445,6 +1461,9 @@ func (m *Machine) Step() error {
 		})
 	}
 	if !m.TraceSegs {
+		if m.pfOK {
+			return m.stepFault(err)
+		}
 		return err
 	}
 	if cs := m.CPU.Seg[cpu.CS]; cs != fromSeg {
@@ -1462,6 +1481,9 @@ func (m *Machine) Step() error {
 		if len(m.SegLog) > 2*MaxSegLog { // 砍掉前半，留最近的 MaxSegLog 筆
 			m.SegLog = append(m.SegLog[:0], m.SegLog[MaxSegLog:]...)
 		}
+	}
+	if m.pfOK {
+		return m.stepFault(err)
 	}
 	return err
 }

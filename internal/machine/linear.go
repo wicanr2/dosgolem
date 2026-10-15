@@ -11,8 +11,8 @@ import (
 // 「轉換開啟」（衍生欄位 m.xlat）＝ profile 開啟且 CR0.PE=1。其餘情形 Read8／Write8
 // 與 432 之前逐位元組相同。
 //
-// 這一份是 432 實作的前半（C1）：兩層存取、setter、服務層位址、PM 編碼。分頁（§5）
-// 尚未實作，所以 m.paging 恆為 false，轉換開啟時實體＝線性，再套 A20 遮罩。
+// 分頁（§5）在 paging.go：m.paging（xlat 且 CR0.PG）為真時，線性位址先經 TLB／頁表
+// 轉成實體位址，再套 A20 遮罩；否則實體＝線性，再套 A20 遮罩。
 
 const (
 	// pmCR0Init 是 CR0 的初值。386 的 ET（bit 4）恆為 1，寫入時一律補上。
@@ -32,8 +32,7 @@ const (
 func (m *Machine) recalcPM() {
 	pe := m.cr0&cr0PE != 0
 	m.xlat = m.pmProfile && pe
-	// C2 起改為 m.xlat && m.cr0&cr0PG != 0。
-	m.paging = false
+	m.paging = m.xlat && m.cr0&cr0PG != 0
 	m.cplUser = false
 	if pe {
 		m.cplUser = m.eflagsHi&eflagsHiVM != 0 || m.pmCPL == 3
@@ -41,16 +40,13 @@ func (m *Machine) recalcPM() {
 	m.syncCodeFastPath()
 }
 
-// invalidateTLB 把世代號加一（uint32，溢位時整份清除）。TLB 本身在分頁實作（C2）加入。
+// invalidateTLB 把世代號加一（uint32，溢位時整份清除）。TLB 本體在 paging.go。
 func (m *Machine) invalidateTLB() {
 	m.tlbGen++
 	if m.tlbGen == 0 {
 		m.tlbClear()
 	}
 }
-
-// tlbClear 整份清除 TLB（世代號溢位時）。C2 填入。
-func (m *Machine) tlbClear() { m.tlbGen = 1 }
 
 var errNoProfile = fmt.Errorf("machine: 保護模式 profile 未開啟（先 SetProtectedModeProfile(true)）")
 
@@ -170,11 +166,17 @@ func (m *Machine) EFlagsHi() uint16  { return m.eflagsHi }
 func (m *Machine) Translating() bool { return m.xlat }
 
 // readLin／writeLin 是轉換開啟時的線性層（xlat 為真才呼叫）。
-// 線性位址 a → 分頁（m.paging，C2）→ 實體位址 → 套 A20：phys = a20 ? phys : phys &^ 0x100000
+// 線性位址 a → 分頁（m.paging）→ 實體位址 → 套 A20：phys = a20 ? phys : phys &^ 0x100000
 // → 實體層。分頁時 A20 套在轉換之後的實體位址上。
 // user 是存取者身分（Read8／Write8 傳 m.cplUser，監督者存取傳 false）。
+// 分頁錯誤時讀回 0xFF、寫入丟棄，並記下 PageFaultRecord（§5.3）。
 func (m *Machine) readLin(a uint32, user bool) uint8 {
-	_ = user // C2 起供權限檢查使用
+	if m.paging {
+		var ok bool
+		if a, ok = m.xlatPage(a, false, user); !ok {
+			return 0xFF
+		}
+	}
 	if !m.a20 {
 		a &^= 0x100000
 	}
@@ -182,7 +184,12 @@ func (m *Machine) readLin(a uint32, user bool) uint8 {
 }
 
 func (m *Machine) writeLin(a uint32, v uint8, user bool) {
-	_ = user
+	if m.paging {
+		var ok bool
+		if a, ok = m.xlatPage(a, true, user); !ok {
+			return
+		}
+	}
 	if !m.a20 {
 		a &^= 0x100000
 	}
