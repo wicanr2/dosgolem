@@ -281,6 +281,9 @@ func (c *CPU) idiv32(v uint32) bool {
 // 不是 8086 的「下一道」。16 位元除法仍走 `divideError`（語料驗證的 8086
 // 行為，`docs/spec/002` §4 第 3 點）；這裡只管新的 32 位元路徑。
 func (c *CPU) divideFault() {
+	if c.ivtGuard(0, "#DE（32 位元除法）") { // 433 §2
+		return
+	}
 	if len(c.DivErrors) < 32 {
 		c.DivErrors = append(c.DivErrors, DivError{CS: c.opCS, IP: c.opIP})
 	}

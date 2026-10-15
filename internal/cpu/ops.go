@@ -800,6 +800,10 @@ func (c *CPU) pushOperand(o operand) {
 // **沒實作的服務不會安靜地變成 nop**——hook 回 false 就照跳，
 // 跳到沒填的向量會很快出事，那正是我們要的訊號（`rich2/docs/re/005` §3.1）。
 func (c *CPU) doInt(n uint8) {
+	// 433 §2：IDTR 守門在 IntHook 之前，DOS 服務類 INT 也會被擋。
+	if c.ivtGuard(n, "軟體中斷") {
+		return
+	}
 	if c.IntHook != nil && c.IntHook(c, n) {
 		return
 	}
@@ -811,6 +815,9 @@ func (c *CPU) doInt(n uint8) {
 // **8086 推的返回位址指向下一道指令**，不是指令本身（`docs/spec/002` §4 第 3 點）
 // ——此時 IP 已經走完整道指令，所以直接走 Interrupt 就是對的。
 func (c *CPU) divideError() {
+	if c.ivtGuard(0, "#DE（16 位元除法）") { // 433 §2
+		return
+	}
 	// 除以零幾乎一定是「餵進來的資料不對」，而 C runtime 只會印一句
 	// `R6003` 就走人——**現場的 CS:IP 不記下來就永遠找不回來**。
 	if len(c.DivErrors) < 32 {

@@ -83,3 +83,23 @@ func (m *Machine) User() bool { return m.cplUser }
 func (m *Machine) IVTMismatch() bool {
 	return m.pmProfile && m.cr0&cr0PE == 0 && m.sys.idtrBase != 0
 }
+
+// ivtGuardIRQ 是 IDTR 守門的 Machine 側（tick 的 INT 08h、keyTick 與 timedKeyTick 的 INT 09h）。
+// CPU.Interrupt 沒有回傳值，所以條件成立時不呼叫它，把錯誤存進 m.irqErr，由 Step 回傳。
+func (m *Machine) ivtGuardIRQ(vec uint8) bool {
+	if !m.IVTMismatch() {
+		return false
+	}
+	if m.irqErr == nil {
+		m.irqErr = fmt.Errorf("machine: IRQ（INT %02Xh）：實模式下 IDTR 基底 %08X（界限 %04X）不為 0，"+
+			"dosgolem 只讀 0000:0000 的 IVT，失敗即關閉（docs/spec/433 §2）", vec, m.sys.idtrBase, m.sys.idtrLimit)
+	}
+	return true
+}
+
+// takeIRQErr 取出並清掉 m.irqErr。
+func (m *Machine) takeIRQErr() error {
+	err := m.irqErr
+	m.irqErr = nil
+	return err
+}

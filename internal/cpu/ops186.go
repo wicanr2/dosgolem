@@ -39,7 +39,10 @@ func (c *CPU) op186_6x(op uint8) error {
 		hi := int16(c.read16(m.rm.seg, m.rm.off+2))
 		if idx < lo || idx > hi {
 			// 和除法例外一樣，例外要回到**這一道指令的起點**
-			// （`docs/spec/002` §4）。
+			// （`docs/spec/002` §4）。433 §2 的 IDTR 守門在恢復 CS:IP 之前。
+			if c.ivtGuard(5, "BOUND 越界") {
+				break
+			}
 			c.Seg[CS], c.IP = c.opCS, c.opIP
 			c.Interrupt(5)
 		}

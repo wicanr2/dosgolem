@@ -20,6 +20,10 @@ import "math/bits"
 //	0F B6／B7／BE／BF  MOVZX／MOVSX
 //	0F BC／BD  BSF／BSR
 //
+// `Sys` 非 nil（保護模式 profile 開啟）時，`default` 分支另外交給 sys.go 處理
+// `0F 00`–`03`、`06`、`20`–`24`、`26` 的實模式系統指令（`docs/spec/433-real-mode-system-instructions` §4）；
+// `Sys` 為 nil 時這些照下列「不實作」處理，錯誤訊息不變。
+//
 // 刻意**不**實作（沒有證據用到；用到時再補，補之前照樣失敗即關閉）：
 // `0F 00／01` 系統指令、MOV CR／DR／TR、486 以上的 BSWAP／XADD／CMPXCHG／
 // CPUID。偵測常式回報 386，486 指令在這顆 CPU 上本來就不存在。
@@ -171,6 +175,13 @@ func (c *CPU) execute0F() error {
 		}
 
 	default:
+		// 433 §4：系統指令只在 Sys 非 nil（保護模式 profile 開啟）時處理；
+		// 未處理的照現況失敗即關閉，Sys == nil 時錯誤訊息與現況逐字相同。
+		if c.Sys != nil {
+			if handled, err := c.execSys0F(op2); handled {
+				return err
+			}
+		}
 		return c.errf(op2, "0F %02X：80386 子集沒有這一道（docs/spec/197 §2.2）", op2)
 	}
 	return nil

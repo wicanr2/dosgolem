@@ -104,6 +104,10 @@ func (m *Machine) timedKeyTick() bool {
 		m.keyStalls++
 		return false
 	}
+	// 433 §2：IDTR 守門在取出 timedKeys[0] 之前。回 true：這一步不再試 keyTick（Step 會回錯誤）。
+	if m.ivtGuardIRQ(0x09) {
+		return true
+	}
 	ev := m.timedKeys[0].Ev
 	m.timedKeys = m.timedKeys[1:]
 	m.kbdData = ev.Code()

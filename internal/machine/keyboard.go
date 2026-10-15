@@ -114,6 +114,10 @@ func (m *Machine) keyTick() {
 		m.keyStalls++
 		return
 	}
+	// 433 §2：IDTR 守門在推進 nextKey、取出佇列之前。
+	if m.ivtGuardIRQ(0x09) {
+		return
+	}
 	m.nextKey = m.Steps + m.KeyEvery
 	ev := m.keyQueue[0]
 	m.keyQueue = m.keyQueue[1:]

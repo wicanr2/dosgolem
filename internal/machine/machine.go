@@ -666,6 +666,9 @@ type Machine struct {
 	// sys 是 433 §2 的其餘 SysRegs（CR2、DR、GDTR、IDTR、LDTR、TR），存進 PM 與 Snapshot。
 	// 放在結構尾端，不把 432 的熱欄位（xlat、paging、cplUser）與監看欄位往後推。
 	sys sysRegs
+	// irqErr 是 433 §2 的 IDTR 守門（Machine 側）擋下 IRQ 時存的錯誤。tick／keyTick 回來後
+	// 由 Step 在同一個分支內檢查：非 nil 就清掉並直接回傳，不執行 CPU.Step()、Steps 不加。
+	irqErr error
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -1427,11 +1430,22 @@ func (m *Machine) Step() error {
 		m.irq0Pending || (m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0) ||
 		(m.CycleClock && m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc) {
 		m.tick()
+		if m.irqErr != nil { // 433 §2：IDTR 守門擋下 IRQ0
+			return m.takeIRQErr()
+		}
 	}
 	// 定時事件優先（`197` §3.1）：同一道指令只送一個事件。
-	if len(m.timedKeys) == 0 || !m.timedKeyTick() {
-		if len(m.keyQueue) > 0 {
+	if len(m.timedKeys) != 0 {
+		if !m.timedKeyTick() && len(m.keyQueue) > 0 {
 			m.keyTick()
+		}
+		if m.irqErr != nil { // 433 §2
+			return m.takeIRQErr()
+		}
+	} else if len(m.keyQueue) > 0 {
+		m.keyTick()
+		if m.irqErr != nil { // 433 §2
+			return m.takeIRQErr()
 		}
 	}
 	m.Steps++
@@ -1575,6 +1589,10 @@ func (m *Machine) tick() {
 		return
 	}
 	if !m.irq0Pending {
+		return
+	}
+	// 433 §2：IDTR 守門在消耗狀態（irq0Pending、Ticks、onTick）之前；條件仍成立時下一步再回同一錯誤。
+	if m.ivtGuardIRQ(0x08) {
 		return
 	}
 	m.irq0Pending = false
