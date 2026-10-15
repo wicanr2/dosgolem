@@ -1,6 +1,6 @@
 # 433 — 既有核心的實模式系統指令與實模式→保護模式交棒
 
-狀態：**DRAFT**（第 3 版，依第 2 輪複審修訂）
+狀態：**DRAFT**（第 4 版，依第 3 輪複審修訂）
 日期：2026-10-15
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（契約）、
 [`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)（已實作）、
@@ -38,8 +38,15 @@ cpu386 的分段模式與作用中核心的觀測視圖在 `434-cpu386-segmented
 
 實模式的 `INT` 與 `tick()` 一律讀 `0000:0000` 的 IVT，不看 `IDTR`。這是刻意差異：DOSBox-X 與真機在實模式以 `IDTR` 基底取向量
 （`cpu/cpu.cpp:1294-1296`）。dosgolem 的服務層向量檢查與 `tick()` 都假設 IVT 在 0，所以不改。為了不讓差異悄悄影響結果：profile 開啟、
-`IDTR` 基底不為 0、仍在實模式時，若發生軟體 `INT` 或要遞送 IRQ，失敗即關閉並寫明原因。JEMM 的 `lidt`（`0x41F7`）到 `mov cr0`（`0x4203`）之間
-只有三道指令，觸發案例收據記錄這段期間 `IF` 的值。
+`IDTR` 基底不為 0、仍在實模式時，若發生軟體 `INT` 或要遞送 IRQ，失敗即關閉並寫明原因。JEMM 的 `lidt`（`0x41F7`）與 `mov cr0`（`0x4203`）之間
+有兩道指令（`0x41FC`、`0x41FF`，不含 `mov cr0`），觸發案例收據記錄這段期間 `IF` 的值。
+
+守門機制（「實模式」判定為 `Sys != nil && Sys.CR(0)&1 == 0`；V86 的 IDT 遞送屬 435，不在此範圍）：
+
+- CPU 例外與軟體中斷：檢查放在 `doInt`（`ops.go`，在 `IntHook` 之前，所以 DOS 服務類 `INT` 也會被擋）、`divideError`（`ops.go`、`wide.go` 兩處
+  `INT 0`）與 186 `BOUND`（`ops186.go` 的 `INT 5`）的最前面，以 `failf` 回報，不呼叫 `Interrupt`。
+- IRQ：`CPU.Interrupt` 沒有回傳值，且呼叫點在 `CPU.Step()` 之外（`machine.go` 的 `tick`、`keyboard.go`、`keyhold.go`、`le_dma_clock.go`）。
+  守門放在 Machine 層，送出前檢查；條件成立時不呼叫 `Interrupt`，把錯誤存進 `Machine.Step` 這一步要回傳的欄位，該步回錯誤。
 
 ### 2.1 `PM` 版本 2
 
@@ -65,9 +72,10 @@ cpu386 的分段模式與作用中核心的觀測視圖在 `434-cpu386-segmented
 | 74 | 4 | `TR` 界限 |
 | 78 | 2 | `TR` 屬性 |
 
-`pmFields` 增加上表欄位；`Snapshot` 內嵌 `pmFields`，所以 `Restore` 自動涵蓋新增的 `SysRegs`。
+新增 `sysRegs` 結構，收齊上表 `CR2`、`DR`、`GDTR`、`IDTR`、`LDTR`、`TR` 欄位。Machine 持有一份，`pmFields` 內嵌它，`Snapshot()` 與 `applyPM`
+整份複製，不逐欄賦值。profile 關閉時 `applyPM` 套用的 `sysRegs` 用上表初值，不用零值（不影響行為，避免 `IDTR` 界限、`DR6` 出現 0）。
 
-`LoadState` 的驗證比照 432 §10 第 6 項，另加：版本 2 長度至少 80；`DR6 & FFFF0FF0h == FFFF0FF0h`（bit 12 不驗）；`DR7` 的 bit 10 為 1 且 bit 12、14、15 為 0。
+`LoadState` 的驗證比照 432 §10 第 6 項，另加：版本 2 長度至少 80；`DR6 & FFFF0FF0h == FFFF0FF0h`（bit 12 不驗）；`DR7` 的 bit 10 為 1 且 bit 12、14、15 為 0；`LDTR`、`TR` 屬性的 bit 8–11 與 bit 13 為 0。
 版本 1 的狀態檔載入後再存檔會變成版本 2，屬預期。432 的 `PM` 測試要改：`TestPMV1Layout` 改以手造的版本 1 位元組驗解碼相容；往返測試的長度斷言
 由 16 改 80；「未知版本號」的例子改用 3；「長度不足」「尾端多餘 bytes」依版本 2 重新檢查。`StateDigest` 以 JSON 編碼整個 `machineState`，
 `PM` 在 profile 開啟時會進摘要，版本 2 會改變 profile 開啟時的摘要；profile 關閉時 `PM` 為 nil，摘要不變。目前沒有 profile 開啟的摘要收據。
@@ -142,16 +150,21 @@ Machine 有未匯出欄位 `pm PMCore`（434 填入 cpu386 的轉接；測試以
 - 判定：`SetCR(0, v)` 或 `lmsw` 寫入前後比較 PE，只在 0 變 1 時回哨兵 `ErrModeSwitch`（`errors.Is` 可判）。只改 TS、MP 或寫入不改 PE 時不回。
   這道指令照常完成（`IP` 前進、`CR0` 更新、衍生欄位重算）。
 - `Machine.Step`：只在 `CPU.Step()` 回錯誤時才進哨兵判斷（正常步沒有額外成本）。三個回傳點抽成一個輔助函式，順序為：先依 432 §10 第 1 項處理
-  分頁紀錄（同一步有紀錄時回 `*PageFaultError`，哨兵不處理）；否則若是 `ErrModeSwitch`，組出 `Handoff`（段快取設為實模式推得的值：基底＝段值×16、
+  分頁紀錄（同一步有紀錄時回 `*PageFaultError`，哨兵不交棒，但依下方規則設停擺旗標）；否則若是 `ErrModeSwitch`，組出 `Handoff`（段快取設為實模式推得的值：基底＝段值×16、
   界限 `FFFFh`、CS 屬性 `009Bh`（present、DPL0、可執行可讀、accessed、16 位元）、其餘段 `0093h`（present、DPL0、可讀寫、accessed、16 位元））：
   - `m.pm` 為 nil：回 `ErrPMCoreNotAvailable`（`errors.Is` 可判），診斷寫明交棒指令的起點位址（JEMM 為 img `0x4203`）、下一道位址（`0x4206`）與 `CR0`；
-    並設停擺旗標，之後每次 `Step` 都回同一個錯誤，不讓既有核心在 `PE=1` 下繼續執行。`Restore`、`LoadState` 清除停擺旗標。
+    並設停擺旗標，之後每次 `Step` 都回同一個錯誤，不讓既有核心在 `PE=1` 下繼續執行。`Restore`、`LoadState` 的處置見本節最後一項。
   - `m.pm` 非 nil：呼叫 `Enter`，`Enter` 回錯誤時同上設停擺並回該錯誤。成功後的最小分派：`PE=1` 且 `VM=0` 時，`Machine.Step` 改呼叫
-    `m.pm.Step()`（`tick`、`keyTick` 依 431 §3 在保護模式延後），其餘照舊。434 再擴充（觀測視圖、回 V86 的交接）。
-- 同一步有分頁紀錄而回 `*PageFaultError` 時，若該步的 CPU 錯誤是 `ErrModeSwitch`（PE 已設起），同樣設停擺旗標。
-- 停擺旗標是預先算好的 bool；檢查放在 `Machine.Step` 的最前面（432 移走殘留分頁紀錄之後、`tick`／`keyTick` 之前），熱路徑只讀它一次。
-- `Restore`、`LoadState` 不單純清除停擺旗標，而是重新判定：`Sys` 非 nil、`PE=1`、`VM=0` 且 `m.pm` 為 nil 時設起，否則清除。432 的合成測試以
-  `SetCR0` 設 `PE=1` 後直接 `Step`，不經 `Restore`／`LoadState`，不受影響。
+    `m.pm.Step()`（`tick`、`keyTick` 依 431 §3 在保護模式延後），`m.Steps++` 與 `stepFault` 包裝照舊；`Enter` 成功的那一步回 nil。其餘照舊。
+    434 再擴充（觀測視圖、回 V86 的交接）。
+- `ErrModeSwitch` 由 `CPU.Step()` 回傳，定義在 `internal/cpu`；`ErrPMCoreNotAvailable` 定義在 `internal/machine`。
+- 同一步有分頁紀錄而回 `*PageFaultError` 時，若該步的 CPU 錯誤是 `ErrModeSwitch`（PE 已設起），同樣設停擺旗標；這一步回 `*PageFaultError`，
+  之後的 `Step` 回停擺錯誤（`ErrPMCoreNotAvailable`）。
+- 停擺與 PM 分派合成一個預先算好的模式值（實模式／V86 照舊、停擺、PM 分派），在每次 PE、VM、`m.pm` 或停擺狀態改變時更新。檢查放在 `Machine.Step`
+  的最前面（432 移走殘留分頁紀錄之後、`tick`／`keyTick` 之前），熱路徑只讀它一次；停擺判斷先於分派。
+- `Restore`、`LoadState` 不單純清除停擺旗標，而是重新判定：`Sys` 非 nil、`PE=1`、`VM=0` 時設起，否則清除。`m.pm` 非 nil 也設起，因為 cpu386 的
+  狀態不在 `Snapshot` 與狀態檔裡，存取屬 434；434 完成前不得以舊的 cpu386 狀態繼續執行。重新判定而設起時沒有交棒當下的位址，診斷用通用訊息，
+  仍滿足 `errors.Is(err, ErrPMCoreNotAvailable)`。432 的合成測試（例如 `paging_test.go` 在 `PE=1`、`VM=0` 下 `Restore`）之後不 `Step`，不受影響。
 
 432 既有測試在 `PE=1、VM=0` 下以既有核心執行（例如 `paging_test.go` 的權限驗收）不經交棒路徑，不受停擺旗標影響。
 
@@ -176,18 +189,21 @@ cpu386 的執行與作用中核心的觀測視圖（434）；V86 路徑與 `#GP`
    `DOSGOLEM_EXTRA_MOUNTS="/home/anr2/cht/dosgolem/testdata/8088:/src/testdata/8088:ro"` 傳入（`go.sh` 會檢查來源存在）。
 3. `SysRegs`：每個欄位的寫入規則與初值各一例（含 `DR4`→`DR6`、`DR5`→`DR7` 別名）；`PM` 版本 2 逐欄位位移；手造版本 1 可讀且缺欄位取初值；
    §2.1 的驗證條件各一例。`LDTR`、`TR` 在本規格沒有指令寫入路徑，只驗初值、內部欄位賦值後的 `PM` 往返與 `SetProtectedModeProfile`
-   切換時回初值。profile 開啟、`IDTR` 基底不為 0 的實模式 `INT` 與 IRQ 各失敗即關閉一例。
+   切換時回初值。`Snapshot`／`Restore` 與 `SaveState`／`LoadState` 對所有新欄位往返各一例。profile 開啟、`IDTR` 基底不為 0 的實模式失敗即關閉：
+   一般 `INT`、被 `IntHook` 攔截的 `INT 21h`、`div 0`、IRQ（`tick`）各一例；IRQ 一例要驗不呼叫 `Interrupt`、錯誤在同一步回傳。
 4. 指令：§4 每列至少一例，並含：`smsw` 讀到 `0010h`；16 位元暫存器形式保留高半；`66 smsw eax` 讀整個 `CR0`；`66 smsw [mem]` 只寫 2 bytes；
    `mov eax,cr0` 讀到 `CR0 | 7FFFFFF0h`；`lgdt` 後 `sgdt` 的 24／32 位元往返；暫存器運算元 `lgdt` 失敗即關閉；`mov cr4` 失敗即關閉；`mov eax,cr3`
    遮低 12 位元；`0F 22 40 xx` 之後 `IP` 恰好前進 3；`clts` 只清 TS；`0F 00 /4`–`/7`、`0F 01` 記憶體 `/5`、`/7`、`0F 24`、`0F 26` 失敗即關閉；
    `Sys.User()` 為真時特權指令失敗即關閉（以 432 式的合成 `PE=1`、`VM=1` 狀態）；`lmsw` 不能清 PE（合成 `PE=1` 狀態）。
 5. 交棒：合成程式設 PE 後，`m.pm` 為 nil 時 `Step` 回 `ErrPMCoreNotAvailable`，診斷含起點與下一道位址；`IP` 已越過 `mov cr0`；再 `Step` 回同一錯誤；
-   `Restore` 到實模式快照後清除、到 `PE=1`、`VM=0` 的快照時重新設起。注入替身時，`Enter` 成功後的 `Step` 呼叫替身的 `Step`；`Enter` 回錯誤時停擺。注入 `PMCore` 替身時，`Enter` 收到的 `Handoff`（暫存器含高半、旗標、段值、段快取屬性）正確；段索引映射雙向往返，CS 與 SS
+   `Restore` 到實模式快照後清除、到 `PE=1`、`VM=0` 的快照時重新設起（`m.pm` 為 nil 與非 nil 各一例）。注入替身時，`Enter` 成功的那一步回 nil、`Steps` 加 1，
+   之後的 `Step` 呼叫替身的 `Step`；`Enter` 回錯誤時停擺。注入 `PMCore` 替身時，`Enter` 收到的 `Handoff`（暫存器含高半、旗標、段值、段快取屬性）正確；段索引映射雙向往返，CS 與 SS
    對調的負對照會失敗。`mov cr0` 不改 PE、`lmsw 0`、只動 TS 都不回哨兵。同一步分頁紀錄與哨兵並存的情形以包住 `SysBus` 的替身在 `SetCR` 內
-   注入分頁紀錄，`Step` 回 `*PageFaultError`。
+   注入分頁紀錄，`Step` 回 `*PageFaultError`，再 `Step` 回 `ErrPMCoreNotAvailable`。
 6. probe：`-pm-profile` 與 `-ext-mem-kb 0` 同給回錯誤；與 `-load-state` 的一致性規則各一例；`SetProtectedModeProfile(false)` 後 `Sys` 為 nil。
 7. 突變自檢：`lmsw` 改成可清 PE、`sgdt` 改成遮 24 位元、段索引映射 CS 與 SS 對調、`mov crN` 改走 `decodeModRM`、`CR3` 讀回不遮罩、`66 smsw`
-   寬度、哨兵邊緣判定改成「PE 為 1 就回」，各至少一個測試失敗。
+   寬度、哨兵邊緣判定改成「PE 為 1 就回」、移除 `IDTR` 守門（`doInt` 與 IRQ 兩處）、`Restore` 不重新判定、`Enter` 失敗不停擺、分頁紀錄加哨兵不停擺，
+   各至少一個測試失敗。
 8. 效能：profile 關閉時 `BenchmarkStepRealMode` 與 432 完成的版本（`82fe8b4`）交錯比較（`431-hybrid-cpu-protected-mode` §7），照實記錄。
 9. 觸發案例（需原版，另附 probe 收據）：`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile` 通過 `smsw`、XMS 與 A20 檢查，進 JEMM；
    `sgdt` 存到 `3E12` 的值為 GDT（界限 0、基底 0）、`sidt` 存到 `3E18` 的值為 IDT（界限 `03FFh`、基底 0）；`lgdt`／`lidt` 以 16 位元形式載入
