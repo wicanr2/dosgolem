@@ -1,5 +1,7 @@
 # 規格索引
 
+- [429-fd2-irq7-real-mode-chain](429-fd2-irq7-real-mode-chain.md)：READY。固定FD2自然啟動的IRQ7實模式處理器、來源確認、EOI／IRET與完整caller返回；不恢復舊輪詢近似。
+
 `docs/spec/` 是 dosgolem 的規格目錄。SDD 的規則沒變：**只有標 `READY`
 的規格可以動手**，反組譯／量測 → 規格 → 才寫程式。
 
