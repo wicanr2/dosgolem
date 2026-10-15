@@ -138,8 +138,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 
 - 使用者存取（`m.cplUser`）：PDE 與 PTE 的 U/S 任一為 0 即錯誤；寫入時 R/W 任一為 0 即錯誤（`cpu/paging.cpp:210-230` 的
   `fault_table`，WP=0）。監督者存取不檢查 U/S、R/W。
-- 隱含監督者存取：線性層介面多一個存取特權參數（預設依 CPL）。435 經 IDT 遞送 V86 事件時讀 IDT、TSS、寫 ring 0 堆疊，以監督者
-  身分存取（同 DOSBox-X 的 `cpu.mpl`，`cpu/paging.cpp:786`；`cpu/cpu.cpp:662-673`、`840-859`）。
+- 隱含監督者存取：經 §3.3 的 `ReadSup*`／`WriteSup*`，不檢查 U/S 與 R/W。
 - 頁不存在（PDE 或 PTE 的 P=0）：錯誤。
 - 本規格不遞送 `#PF`，錯誤紀錄的生命週期：
   - 型別 `PageFaultRecord{Linear uint32; PDE, PTE uint32; Write, User bool; Steps uint64}`。`Steps` 記錄產生時的 `m.Steps`（`tick`、
