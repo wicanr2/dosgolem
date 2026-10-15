@@ -225,3 +225,38 @@ cpu386 的執行與作用中核心的觀測視圖（434）；V86 路徑與 `#GP`
    `sgdt` 存到 `3E12` 的值為 GDT（界限 0、基底 0）、`sidt` 存到 `3E18` 的值為 IDT（界限 `03FFh`、基底 0）；`lgdt`／`lidt` 以 16 位元形式載入
    （GDT 界限 `012Fh`、IDT 界限 `07FFh`）；在 img `0x4203` 交棒，停在 `ErrPMCoreNotAvailable`。若在此之前停在別的指令，照實記錄。
 10. `go build ./...`、`go vet`、`tools/go.sh test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 9. 實作收據（2026-10-15）
+
+commit：`709191f`（階段 1：`SysRegs`、`PM` 版本 2）、`5af3a74`（階段 2：系統指令與 `IDTR` 守門）、`a846473`（階段 3：交棒、停擺、
+最小分派、`-pm-profile`）。
+
+### 驗收結果
+
+- 第 1–7、10 項：容器內 `gofmt -l` 無輸出，`go build`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle`
+  13 個套件全部 ok。SingleStepTests 315 個子測試 PASS、0 SKIP，`knownGaps` 不變（`F6.7: 6218`、`F7.7: 6371`）。錨點測試通過，gob 位元組未變。
+  每階段由主代理在獨立容器重跑後才提交。
+- 第 7 項突變自檢：18 個突變（含 `66 smsw` 暫存器與記憶體兩種寬度、CPU 側四處與 Machine 側三處守門各自移除）全被測試抓到，已還原。
+- 第 8 項效能：profile 關閉的 `BenchmarkStepRealMode` 與 `82fe8b4` 交錯 20 對，load average 12–18。全體最快值新 28.62、舊 28.26 ns/op
+  （98.7%），單對比值 75.9%–131.3%。與 432 相同，**未能證明穩定不低於 97%**，維持開放，待主機安靜時重量。
+- 第 9 項觸發案例（`SCCD.EXE` SHA-256 `5dbfe18c…`，`JEMM.OVL` `fcdcd5f2…`；`-dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile`）：
+  - 執行 12119 道後停止：`保護模式核心不可用 … 交棒指令起點 2000:4203（線性 24203）、下一道 2000:4206（線性 24206）、CR0=00000011`。
+    JEMM 映像載入在段 `2000h`，偏移即 img 位址，與預期的 img `0x4203` 相同。
+  - `2000:3E12` 的 `sgdt` 存值 `0000 00000000`（界限 0、基底 0）；`2000:3E18` 的 `sidt` 存值 `FF03 00000000`（界限 `03FFh`、基底 0）。
+  - `lgdt [3E02]` 來源 `2F01 00140200`：16 位元形式取 24 位元基底 `021400h`、界限 `012Fh`；`lidt [3E08]` 來源 `FF07 30150200`：基底
+    `021530h`、界限 `07FFh`。
+  - `lidt` 之後到 `mov cr0` 之間的兩道是 `mov eax,cr0`（`41FC`，`0F 20 C0`）與 `or eax,1`（`41FF`，`66 83 C8 01`），停止時 `IF=0`，
+    計時器與鍵盤中斷送出 0 次。這段期間 `IDTR` 基底不為 0，但沒有 `INT` 或 IRQ，守門沒有觸發。
+  - 指令位元組取自 `strike_commander` 的 JEMM 解壓映像；暫存器以 `-regs-at`、`-trace` 取得。
+
+### 實作期間的處置
+
+1. `SegCache` 在階段 1 先定義，`Handoff` 沿用。
+2. PE 邊緣由指令處理函式在 `SetCR(0)` 前後各讀一次 `CR(0)` 判定；`Machine.SetCR` 不回哨兵。
+3. `SetCR(2, ·)` 在 profile 關閉時回 `errNoProfile`；`SetDR`、`SetGDTR`、`SetIDTR` 只經 `Sys` 呼叫，不另檢查 profile。
+4. `timedKeyTick` 被守門擋下時回 true，`Step` 不再試 `keyTick`；`irqErr` 只記第一個錯誤。
+5. `0F 01` 先解 ModRM、暫存器形式不合法先失敗，再做特權檢查。
+6. `Enter` 失敗的錯誤以 `fmt.Errorf("%w…%w")` 同時包住 `ErrPMCoreNotAvailable` 與原錯誤（效果同 `errors.Join`）。
+7. `SetProtectedModeProfile` 切換時清 `entered` 與停擺。PM 分派路徑不做 `Coverage`、`insnCS`／`insnIP`、`pollWords`、`irqErr`，
+   留給 434 的觀測視圖；`m.pm.Step()` 的錯誤原樣回傳、不設停擺。
+8. 停擺錯誤是一般 `error`，不是 `*cpu.Error`；`cmd/probe` 照常印出「停止原因」。
