@@ -1,6 +1,6 @@
 # 430 — 延伸實體記憶體與 XMS 統一
 
-狀態：**DRAFT**（第 2 版，依第 1 輪審查修訂）
+狀態：**DRAFT**（第 3 版：依 main `81c85be` 的 StubSeg 佈局搬移 XMS 入口）
 日期：2026-10-15
 前置：[`011-xms`](011-xms.md)（已部分過期，現行行為以 `internal/dos/xms.go` 為準）、[`014-ems`](014-ems.md)、
 [`189-a20-gate-and-hma-addressing`](189-a20-gate-and-hma-addressing.md)、
@@ -77,15 +77,18 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 
 ### 2.3 可掛鉤的 XMS 入口（`kb > 0` 時）
 
-- 新入口放在 `StubSeg:0x444`，內容 `EB 03 90 90 90 CD F5 CB`（8 bytes）。`0x444`–`0x45F` 目前沒有使用：
-  `0x420`–`0x442` 是 BIOS 計時器 stub（`internal/dos/font.go:221`），`0x460` 起是其他資料。
-- 舊位置 `XMSTrapOff`（`0x40C`）的 `CD F5 CB` 保留不動；常數 `XMSTrapOff` 的意義不變
-  （`TestXMSEntryIsFarCallNotInterrupt` 釘住它）。不用 `0x40C`，因為字型 stub 在 `0x410`、`0x414`
-  （`font.go:58-59`）。
-- `int 2Fh AX=4310h` 回 `ES=StubSeg`、`BX` = Machine 回報的目前入口位移（新增 `XMSEntryOff()`）。
-- 依 §1 的 SCCD 證據：第一個 byte 是 `EBh`，SCCD 以 `0x444+2+3 = 0x449` 為原處理常式，即 `CD F5 CB`；
-  改寫的 5 bytes 是 `0x444`–`0x448`，不碰 trampoline。`int F5h` 的分派只看中斷號（`dos.go:721`、`739-743`），
-  與入口位置無關。
+- StubSeg 佈局的唯一權威是 `internal/machine/machine.go` 的特殊 stub 常數區塊（main `81c85be`）：
+  `0x40C` XMS 入口、`0x410` 回呼返回哨兵、`0x414`／`0x418` 字型 entry、`0x420`–`0x442` BIOS 計時器、
+  `0x448` 系統設定表、`0x450` InDOS、`0x460` DBCS 表、`0x480`–`0x4A1` 國別資訊表，上界 `0x4F0`
+  （`EnvMCBSeg`）。
+- 在該區塊新增常數 `XMSHookEntryOff = specialStubBase + 0xB0`，新入口佔 `0x4B0`–`0x4B7`，內容
+  `EB 03 90 90 90 CD F5 CB`，落在國別表之後、上界之前的空段。
+- 舊位置 `XMSTrapOff`（`0x40C`）的 `CD F5 CB` 保留不動，常數意義不變（`TestXMSEntryIsFarCallNotInterrupt`
+  釘住它）。`0x40C` 之後 1 byte 就是回呼哨兵（`0x410`），放不下 8 bytes。
+- `int 2Fh AX=4310h` 回 `ES=StubSeg`、`BX` = Machine 回報的目前入口位移（新增 `XMSEntryOff()`：`kb == 0` 回
+  `XMSTrapOff`，`kb > 0` 回 `XMSHookEntryOff`）。
+- 依 §1 的 SCCD 證據：第一個 byte 是 `EBh`，SCCD 以 `0x4B0+2+3 = 0x4B5` 為原處理常式，即 `CD F5 CB`；
+  改寫的 5 bytes 是 `0x4B0`–`0x4B4`，不碰 trampoline。`int F5h` 的分派只看中斷號，與入口位置無關。
 
 ### 2.4 8042 A20（`kb > 0` 時）
 
@@ -139,7 +142,7 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 掛鉤、`SetEMSPresent` 的 DOS 側（用 `newTest`）；同時涉及兩者的存讀往返放 `internal/state`。
 
 1. 預設不變（`kb == 0`、`SetEMSPresent` 未呼叫）：
-   (a) 既有測試全綠；`0x40C` 仍是 `CD F5 CB`，`int 2Fh AX=4310h` 回 `BX=0x40C`。
+   (a) 既有測試全綠；`0x40C` 仍是 `CD F5 CB`，`0x4B0`–`0x4B7` 未寫入，`int 2Fh AX=4310h` 回 `BX=0x40C`。
    (b) 前置 commit 釘住固定程式載入後的 `m.Mem` SHA-256、`SaveState` 位元組 SHA-256、`StateDigest`、
        `dos.SaveState` 位元組 SHA-256，實作後全部相同。
 2. `SetExtendedMemoryKB`：0、4096、64512 成功；4095、4097、64516、65536、-4 失敗；載入後呼叫失敗。
@@ -152,7 +155,7 @@ SCCD 映像位移（檔案位移減 `0x200`）：
    重疊搬移依逐 byte 方向的期望值；`0Fh` 原地擴大與搬移各一例；鎖定計數到 255 停止。
 5. 掛鉤入口：以真正執行指令的方式（`Step` 跑遠呼叫，不直接呼叫 `d.handle`）驗證：合成程式依 §2.3 的 SCCD 邏輯
    改寫入口並鏈回 `+5`，服務照常；負對照：掛鉤不鏈回時服務不執行；鏈到 `+3` 時失敗。`Install()` 後入口
-   8 bytes 完整（字型 stub 共存）。
+   8 bytes 完整，且相鄰的國別資訊表與系統設定表內容不變。
 6. 8042：`D1h`＋`DFh` 開、`D1h`＋`DDh` 關；`D1h` 後接另一個 `64h` 命令再 `out 60h` 不影響 A20；位元 0 為 0
    不重設；`kb > 0` 時既有鍵盤測試照常通過。
 7. `SetEMSPresent(false)`：`int 67h` 向量段的 `:000A` 不是 `EMMXXXX0`；呼叫 `int 67h AH=40h` 後暫存器不變；
