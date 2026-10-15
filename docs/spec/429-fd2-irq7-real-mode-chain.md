@@ -1,6 +1,6 @@
 # 429：FD2的IRQ7實模式處理器與返回鏈
 
-狀態：**READY**
+狀態：**CONFORMED，限下列FD2實際路徑**
 日期：2026-10-15
 
 ## 問題與證據
@@ -9,7 +9,7 @@
 LE線性0x373FE拒收IRQ7。固定FD2.EXE為357074bytes，MD5 b97caf2239a27a896069d03549d96e1e，
 SHA-256 222b7d067ad4450eb9c5f6e6bce1797d54bb050417ba39ced6067f8039f28c4f。
 actual IVT0F為67FF:06F3，實模式線性0x686E3；DOS保護模式0F與DPMI實模式0F皆零。
-目前只證明已安裝的入口與待派送狀態，ISR是否返回尚未知。
+這是修正前的停止收據；修正後ISR返回與正常輸入結果見下節。
 主收據由fd2_re的docs/data/fd2-remake-toolchain-recovery-20261015.json保存。
 
 使用者選擇先補完整IRQ7鏈再繼續章對拍，不恢復先前輪詢近似。
@@ -46,3 +46,21 @@ actual IVT0F為67FF:06F3，實模式線性0x686E3；DOS保護模式0F與DPMI實�
 3. 固定EXE從自然LE入口越過原停止，原始ISR的入口／I/O／返回與下一caller有收據。
 4. 同固定槽與受版控正常鍵盤計畫重新取得第一個輸入及後續操作。舊／新平台差異完整記錄，
    不用BOOT圖相同宣稱整段同狀態；未知消費端另開窄任務。
+
+## 驗證結果
+
+實作提交e26fb41ff68b38bceb89326dccd8fdceeab51666。cpu386／machine／FD2 oracle三套件
+2021項通過、10項略過；略過皆為未提供MOO2原版的可選項，FD2固定EXE已提供。
+真實原版ISR入口67FF:06F3每次76條指令，DSP確認、PIC EOI及IRET返回FFFF:FFF0。
+600萬步完成3次；自然啟動52516893步到標題等待時504次進場／504次返回，完整caller保持。
+
+固定同一第三方CONTINUE槽SHA-256 f46d9c54d3037f84f05d72714569c282e63f39bf125251a9cf5cd9593ff3241f，
+受版控ch30-command6-side1-player-r2計畫由標題進戰場、指令環、法術清單、確認後返回游標。
+兩輪乾淨來源皆594524785步，233份完整狀態、233張完整PNG及3筆EIP trace一致。
+這是正常鍵盤窄路徑，槽來源已明示，不提升整章PLAYER-E2。
+
+與舊fa25f6e比較仍failed，保留446筆差異；233份單位raw資料、鍵盤讀取、DOS檔案呼叫相同，
+view差異只在163點aux_phase。CPU／步數／近堆觀察時間及完整PNG／trace仍不同。
+沒有新增忽略欄位，不稱跨平台逐步或逐像素相同，也不把211張不同PNG全歸因於動畫。
+原始收據、測試命令、來源與輸出雜湊由
+[FD2主證據](https://github.com/wicanr2/fd2_re/blob/main/docs/data/fd2-remake-toolchain-recovery-20261015.json)保存。
