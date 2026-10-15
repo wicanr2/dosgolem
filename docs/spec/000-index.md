@@ -929,7 +929,7 @@
 - [427 原保存父層返回及第一場景分派觀察](427-moo2-save-parent-return-observation.md)：DRAFT，原250M未達parent返回／分派；418獨立PNG、208000bytes交易及owned生命週期已驗。
 - [428 原保存後末態圖像支援候選邊界](428-moo2-save-terminal-support-boundary.md)：CONFORMED限定129列／111EA原bytes與直接caller；圖像支援語意強推論，實際caller／parent退出仍未知。
 - [429 DOS 系統檔案表（SFT）鏈](429-dos-sft-chain.md)：READY。`SetDOSFiles` 選項開啟、預設不寫入；觸發案例 Strike Commander `SCCD.EXE` 的 FILES 檢查。
-- [430 延伸實體記憶體與 XMS 統一](430-physical-memory-and-xms-unification.md)：DRAFT（第 5 版）。選項開啟的 `Ext` 延伸記憶體、XMS 區塊實體化、可掛鉤 XMS 入口、8042 A20、不安裝內建 EMM。
+- [430 延伸實體記憶體與 XMS 統一](430-physical-memory-and-xms-unification.md)：READY。選項開啟的 `Ext` 延伸記憶體、XMS 區塊實體化、可掛鉤 XMS 入口、8042 A20、不安裝內建 EMM。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
