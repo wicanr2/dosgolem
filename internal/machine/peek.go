@@ -7,6 +7,9 @@ package machine
 // 一律回 0——觀測器要的是堆疊與資料段，不是平面顯示記憶體。
 func (m *Machine) Peek8(a uint32) uint8 {
 	if off, ok := m.hmaAddr(a); ok {
+		if m.Ext != nil {
+			return m.Ext[off]
+		}
 		return m.hma[off]
 	}
 	a &= 0xFFFFF

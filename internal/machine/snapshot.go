@@ -1,6 +1,10 @@
 package machine
 
-import "github.com/wicanr2/dosgolem/internal/cpu"
+import (
+	"fmt"
+
+	"github.com/wicanr2/dosgolem/internal/cpu"
+)
 
 // Snapshot 是一份完整的機器狀態。
 //
@@ -76,6 +80,10 @@ type Snapshot struct {
 	// A20 與 HMA（`docs/spec/191-bios-rom-tail` §4）。HMA 是陣列，值複製。
 	a20 bool
 	hma [HMASize]uint8
+	// 430：Ext（kb == 0 時為 nil）、8042 旗標與 EMS 旗標。
+	ext             []uint8
+	kbdAwaitOutport bool
+	emsAbsent       bool
 
 	// SetDOSFiles 的「已載入」旗標（`docs/spec/429-dos-sft-chain`）。
 	programLoaded bool
@@ -106,6 +114,9 @@ type Snapshot struct {
 func (s *Snapshot) Mem() []uint8 { return s.mem }
 
 // Snapshot 拍一份快照。1 MB 記憶體，約 1 毫秒。
+//
+// kb > 0（SetExtendedMemoryKB）時要複製整個 Ext，成本隨 kb 線性增加
+// （63 MB 約數十毫秒，且每張快照多佔同樣大的記憶體）。
 func (m *Machine) Snapshot() *Snapshot {
 	s := &Snapshot{
 		mem:          make([]uint8, len(m.Mem)),
@@ -147,6 +158,9 @@ func (m *Machine) Snapshot() *Snapshot {
 		a20:          m.a20,
 		hma:          m.hma,
 
+		kbdAwaitOutport: m.kbdAwaitOutport,
+		emsAbsent:       m.emsAbsent,
+
 		periodicOn:    m.periodic.on,
 		periodicSeg:   m.periodic.seg,
 		periodicOff:   m.periodic.off,
@@ -176,6 +190,9 @@ func (m *Machine) Snapshot() *Snapshot {
 		programLoaded: m.programLoaded,
 	}
 	s.vga = m.VGA.clone()
+	if m.Ext != nil {
+		s.ext = append([]uint8(nil), m.Ext...)
+	}
 	copy(s.mem, m.Mem)
 	for k, v := range m.Ports {
 		s.ports[k] = v
@@ -186,9 +203,15 @@ func (m *Machine) Snapshot() *Snapshot {
 	return s
 }
 
-// Restore 把機器倒回快照。
+// Restore 把機器倒回快照。沒有錯誤回傳：快照的 Ext 長度與這台機器不同時 panic
+// （Ext 在程式載入前就設好，同一台機器的長度不會變）。
 func (m *Machine) Restore(s *Snapshot) {
+	if len(s.ext) != len(m.Ext) {
+		panic(fmt.Sprintf("machine: Restore 的快照延伸記憶體是 %d bytes，這台是 %d bytes", len(s.ext), len(m.Ext)))
+	}
 	copy(m.Mem, s.mem)
+	copy(m.Ext, s.ext)
+	m.kbdAwaitOutport, m.emsAbsent = s.kbdAwaitOutport, s.emsAbsent
 	m.CPU.R, m.CPU.Seg, m.CPU.IP = s.regs, s.segs, s.ip
 	m.CPU.Hi, m.CPU.FSeg, m.CPU.GSeg = s.hi, s.fseg, s.gseg
 	m.CPU.SetFlags(s.flags)

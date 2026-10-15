@@ -216,6 +216,13 @@ func main() {
 	dosFiles := flag.Int("dos-files", 0,
 		"DOS 系統檔案表（SFT）的檔案總數，0（預設）不寫入；6..255 才寫（`docs/spec/429-dos-sft-chain`）。\n"+
 			"    相當於 CONFIG.SYS 的 FILES=；不能與 -load-state 並用（狀態檔整份覆蓋記憶體）")
+	extMemKB := flag.Int("ext-mem-kb", 0,
+		"1 MB 之上的延伸實體記憶體大小（KB），0（預設）關閉；否則 4096..64512 且為 4 的倍數，"+
+			"XMS 區塊改住在這裡（`docs/spec/430-physical-memory-and-xms-unification`）。\n"+
+			"    可與 -load-state 同給，但必須與狀態檔一致（載入 kb>0 的狀態檔時必須給相同的值）")
+	noEMS := flag.Bool("no-ems", false,
+		"不安裝內建 EMM：int 67h 不服務、EMMXXXX0 不再視為裝置（`docs/spec/430` §2.5）。"+
+			"可與 -load-state 同給，但必須與狀態檔一致")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	biosKeys := flag.String("bios-keys", "",
 		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
@@ -316,6 +323,11 @@ func main() {
 	}
 
 	m := machine.New()
+	// 延伸記憶體與 EMM 旗標在載入後仍影響執行，必須在 LoadEXE／LoadCOM／state.Load 之前就設好；
+	// 放在 `if *loadState == ""` 區塊之外，兩條路徑都涵蓋。
+	if err := configureMem(m, *extMemKB, *noEMS); err != nil {
+		die(err)
+	}
 	m.ProgramPath = *programPath
 	if *adlib {
 		m.SetAdLib(true)
@@ -2513,6 +2525,18 @@ func writeScreen(m *machine.Machine, path string, top, height int) error {
 func validateDOSFiles(n int, loadState string) error {
 	if n != 0 && loadState != "" {
 		return fmt.Errorf("-dos-files 不能與 -load-state 並用（狀態檔整份覆蓋記憶體）")
+	}
+	return nil
+}
+
+// configureMem 依旗標設定延伸記憶體與 EMM（`docs/spec/430-physical-memory-and-xms-unification` §3）。
+// kb 範圍由 SetExtendedMemoryKB 自己檢查。
+func configureMem(m *machine.Machine, kb int, noEMS bool) error {
+	if err := m.SetExtendedMemoryKB(kb); err != nil {
+		return fmt.Errorf("-ext-mem-kb：%w", err)
+	}
+	if err := m.SetEMSPresent(!noEMS); err != nil {
+		return fmt.Errorf("-no-ems：%w", err)
 	}
 	return nil
 }

@@ -549,7 +549,11 @@ func (d *DOS) getExitCode(c *cpu.CPU) {
 
 // isEMMDevice 回 basename 是不是 EMM 驅動的字元裝置名。
 // 開啟它成功 ＝ EMS 驅動存在（GIN3.COM 01D9–01F0 就是這樣偵測的）。
-func isEMMDevice(name string) bool {
+// SetEMSPresent(false) 之後不再視為裝置（`docs/spec/430-physical-memory-and-xms-unification` §2.5）。
+func (d *DOS) isEMMDevice(name string) bool {
+	if !d.M.EMSPresent() {
+		return false
+	}
 	base := name
 	for i := len(base) - 1; i >= 0; i-- {
 		if base[i] == '/' || base[i] == '\\' || base[i] == ':' {

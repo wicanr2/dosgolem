@@ -125,6 +125,7 @@ func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 //	0x420–0x442  BIOS int 08h（35 bytes，含 40:40 馬達倒數）
 //	0x448  int 15h AH=C0h 系統設定表（8 bytes）
 //	0x450  InDOS 旗標              0x460  DBCS 表        0x480  國別資訊表
+//	0x4B0–0x4B7  可掛鉤的 XMS 入口（8 bytes，只在 SetExtendedMemoryKB(kb>0) 後寫入）
 //
 // > 事故（2026-09-10，EOB1）：字型 stub 挑了 0x20／0x24，而 0x24 是向量
 // > 09h（IRQ1 鍵盤）的 stub。EOB.EXE 掛了自己的 int 09h 再 chain 回舊向量，
@@ -173,6 +174,11 @@ const (
 	DBCSTableOff = specialStubBase + 0x60
 	// CountryOff 是國別資訊表（`int 21h AH=38h`，34 bytes）。
 	CountryOff = specialStubBase + 0x80
+	// XMSHookEntryOff 是可掛鉤的 XMS 入口（`docs/spec/430-physical-memory-and-xms-unification`
+	// §2.3），8 bytes：`EB 03 90 90 90 CD F5 CB`。只在 `SetExtendedMemoryKB(kb>0)` 時寫入，
+	// `int 2Fh AX=4310h` 此時回這裡（見 XMSEntryOff）。落在國別資訊表之後、
+	// `EnvMCBSeg` 換算的上界 0x4F0 之前。
+	XMSHookEntryOff = specialStubBase + 0xB0
 )
 
 // DefaultIRQ0Every 是**分頻 17,000 時**計時器中斷的間隔，單位是指令數。
@@ -473,6 +479,15 @@ type Machine struct {
 	// 見 A20Enabled 的說明：預設關著（8086 的環繞行為）。
 	a20 bool
 	hma [HMASize]uint8
+
+	// Ext 是實體位址 0x100000 起的延伸記憶體（`docs/spec/430-physical-memory-and-xms-unification`），
+	// kb == 0（預設）時為 nil。前 HMASize 個 byte 就是 HMA，此時不使用 hma 陣列。
+	// emsAbsent／kbdAwaitOutport 見 extmem.go。
+	Ext             []uint8
+	emsAbsent       bool
+	kbdAwaitOutport bool
+	// UnmappedPhysWrites 是 WritePhys* 寫到沒有對應記憶體的位址而被丟棄的次數（診斷計數，不進狀態）。
+	UnmappedPhysWrites uint64
 
 	// dosFiles 是 SetDOSFiles 的值（0 ＝ 關閉，`docs/spec/429-dos-sft-chain`）。
 	// programLoaded 在 LoadEXE/LoadCOM/LoadState 之後為真，之後不能改 dosFiles。
@@ -791,6 +806,9 @@ func (m *Machine) hmaAddr(a uint32) (uint32, bool) {
 
 func (m *Machine) Read8(a uint32) uint8 {
 	if off, ok := m.hmaAddr(a); ok {
+		if m.Ext != nil {
+			return m.Ext[off]
+		}
 		return m.hma[off]
 	}
 	a &= 0xFFFFF
@@ -808,6 +826,10 @@ func (m *Machine) Read8(a uint32) uint8 {
 
 func (m *Machine) Write8(a uint32, v uint8) {
 	if off, ok := m.hmaAddr(a); ok {
+		if m.Ext != nil {
+			m.Ext[off] = v
+			return
+		}
 		m.hma[off] = v
 		return
 	}
@@ -1139,6 +1161,12 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
 	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。
 	m.pit.out(p, v)
+
+	// 8042 的 A20 控制（`docs/spec/430-physical-memory-and-xms-unification` §2.4），
+	// 只在 SetExtendedMemoryKB(kb>0) 後生效，kb == 0 的行為不變。
+	if m.Ext != nil {
+		m.out8042(p, v)
+	}
 
 	// 埠 0x61 要**讀得回自己寫進去的值**。鍵盤 ISR 的 ack 是
 	// 「讀 → 設 bit7 → 寫回 → 清 bit7 → 寫回」，讀不回去的話

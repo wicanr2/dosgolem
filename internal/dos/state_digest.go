@@ -20,6 +20,7 @@ func StateDigest(r io.Reader) ([32]byte, error) {
 		return [32]byte{}, fmt.Errorf("dos: 狀態檔不認得（%q v%d）", s.Magic, s.Version)
 	}
 	sort.Slice(s.Handles, func(i, j int) bool { return s.Handles[i].H < s.Handles[j].H })
+	sort.Slice(s.XMSBlocks, func(i, j int) bool { return s.XMSBlocks[i].H < s.XMSBlocks[j].H })
 	sort.Slice(s.EMSHandles, func(i, j int) bool { return s.EMSHandles[i].H < s.EMSHandles[j].H })
 	b, err := json.Marshal(s)
 	if err != nil {

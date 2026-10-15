@@ -129,6 +129,13 @@ func (d *DOS) emsLoad(p int, handle, page uint16) {
 //
 // **回傳慣例是 AH ＝ 0 成功、非 0 是錯誤碼**，不是 DOS 的 CF。
 func (d *DOS) emsCall(c *cpu.CPU) {
+	// SetEMSPresent(false)：不呈現 EMM 就不服務，暫存器原樣返回（等同無驅動時的 iret），
+	// 記一筆讓呼叫在診斷中看得見（`docs/spec/430-physical-memory-and-xms-unification` §2.5）。
+	// 閘在 emsState() 之前，d.ems 不會被建出來。
+	if !d.M.EMSPresent() {
+		d.noteCPU(c, 0x67, ah(c), al(c))
+		return
+	}
 	e := d.emsState()
 	switch ah(c) {
 	case 0x40: // Get Status

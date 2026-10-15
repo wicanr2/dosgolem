@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 )
 
@@ -19,6 +20,9 @@ type StateDigest struct {
 	AdLib bool
 	// ClockPercent 是機器時脈比例（docs/spec/242）。
 	ClockPercent int
+	// ExtSHA256 是延伸記憶體 Ext 的 SHA-256（十六進位；docs/spec/430）。
+	// 沒有延伸記憶體（預設）時為空字串，不影響既有收據。
+	ExtSHA256 string
 	// IRQ0Clamped 是計時器間隔被下限夾住的次數（docs/spec/242 §4）。
 	IRQ0Clamped int
 }
@@ -38,6 +42,10 @@ func (o *Owner) Digest() (StateDigest, error) {
 	m := o.machine
 	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited, AdLib: m.AdLibPresent(), ClockPercent: m.ClockPercent(), IRQ0Clamped: m.IRQ0Clamped}
 	d.MemorySHA256 = sha256.Sum256(m.Mem[:])
+	if m.Ext != nil {
+		sum := sha256.Sum256(m.Ext)
+		d.ExtSHA256 = hex.EncodeToString(sum[:])
+	}
 	cpu := make([]byte, 0, 2*(len(m.CPU.R)+len(m.CPU.Seg)+2))
 	for _, v := range m.CPU.R {
 		cpu = binary.LittleEndian.AppendUint16(cpu, v)

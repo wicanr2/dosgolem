@@ -44,7 +44,7 @@ func (d *DOS) int2F(c *cpu.CPU) {
 		setAL(c, 0x80)
 	case 0x10: // driver entry → ES:BX
 		c.Seg[cpu.ES] = machine.StubSeg
-		c.R[cpu.BX] = XMSTrapOff
+		c.R[cpu.BX] = d.M.XMSEntryOff()
 	default:
 		d.note(0x2F, 0x43, al(c))
 	}
@@ -56,6 +56,10 @@ func (d *DOS) xmsCall(c *cpu.CPU) {
 	if d.emb == nil {
 		d.emb = map[uint16][]byte{}
 		d.nextEMB = 1
+	}
+	// kb > 0：配置、搬移、鎖定、重配置走實體化的區塊（xms_ext.go）。
+	if d.M.Ext != nil && d.xmsExtCall(c) {
+		return
 	}
 	switch ah(c) {
 	case 0x00: // Get XMS Version

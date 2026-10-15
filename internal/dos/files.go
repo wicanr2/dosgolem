@@ -239,7 +239,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
-	if isEMMDevice(name) {
+	if d.isEMMDevice(name) {
 		d.openDevice(c, name, 0)
 		return
 	}
@@ -503,7 +503,7 @@ func (d *DOS) fileAttr(c *cpu.CPU) {
 		return
 	}
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
-	if d.resolve(name) == "" && !isEMMDevice(name) {
+	if d.resolve(name) == "" && !d.isEMMDevice(name) {
 		// 目錄存在回目錄屬性 0x10（`docs/spec/198`）。
 		if d.dirExists(name) && strings.Trim(name, `\/ `) != "" {
 			c.R[cpu.CX] = 0x10

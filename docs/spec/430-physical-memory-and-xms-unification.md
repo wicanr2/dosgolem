@@ -204,3 +204,31 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 10. probe（`cmd/probe` 測試）：呼叫 `configureMem` 後 `state.Load`，以合成狀態檔驗證 `-ext-mem-kb` 與狀態檔不同、漏給、多給，
     以及 `-no-ems` 不一致時，載入各回錯誤，一致時成功。
 11. `tools/go.sh test ./internal/machine ./internal/dos ./internal/state ./cmd/probe` 全綠。
+
+## 6. 實作收據（2026-10-15）
+
+實作 commit 見 `git log` 的「feat: 430」；前置 `cbce2d9`（錨點）、`f1e8e1b`（`dos.StateDigest` 錨點）、`5b8f878`（只加欄位）。
+
+### 實作期間的處置
+
+1. 成功時的 `BL` 照 DOSBox-X `SET_RESULT`：`08h`、`09h`、`0Ah`、`0Dh`、`0Fh` 成功時 `BL=0`；`0Bh`、`0Ch` 不動 `BL`；`0Eh` 的 `BL`
+   是空 handle 數。`09h` 失敗時 `DX=0`。
+2. `kb == 0` 時 `ReadPhys*` 在 1 MB 以上讀 `0xFF`、`WritePhys*` 丟棄並計數，不暴露獨立的 `hma` 陣列。
+3. handle 0 的「位址加長度超過 `0x10FFF0`」以 64 位元計算；DOSBox-X 以 32 位元計算，長度接近 4 GB 時會溢位放行，視為其缺陷。
+4. 0 頁區塊的 `BasePage` 以 0 表示「沒有」（相對頁號 0 是 HMA，不會是合法配置）；Lock 在基底為 0 時回 0。
+   `DOS.LoadState` 另檢查 `XMSBlocks` 一致性（handle 1..64、`Pages == ceil(KB/4)`、頁範圍在 `Ext` 內且不重疊、鎖定計數
+   0..255），都在任何寫入之前。
+5. `state.Load` 先載機器再載 DOS；DOS 側互斥檢查失敗時機器已載入。整體原子性未做，列為已知限制。
+6. 8042 位元 0 為 0 的重設要求只記在 `PortLog`。`D1h` 狀態機只在 `kb > 0` 時生效。
+7. `kb > 0` 時 `DOS.SaveState` 不寫 `EMBList`。
+8. `kb > 0` 的 `0Bh` 與 `int 15h AH=87h` 沿用 `XMSMoves` 診斷記錄。
+
+### 驗收結果
+
+- 第 1–8、10、11 項：測試通過（容器內 `go test ./internal/... ./cmd/probe ./session ./oracle`）。錨點常數在行為 commit 不變。
+- 突變自檢：`BestMatch` 改首次適配、入口第一個 byte 改 `0x90`，對應測試皆失敗，已還原。
+- 全 repo 另有 `apps/phantasie/cmd/phantasie-play`、`cmd/buckrogers-play`、`frontend/ebiten` 因無顯示器（GLFW）失敗；
+  在 main `81c85be` 上同樣失敗，是既有的 `xvfb-run` 需求，非本規格造成。
+- 第 9 項（觸發案例）：`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems` 通過 SFT 與 EMM 檢查，走「沒有 EMM」路徑，停在
+  `0294:07A9`（映像 `0x1FE9`）的 `smsw ax`：dosgolem 的 80386 子集沒有這道指令。尚未到 XMS 檢查與 JEMM，下一關卡屬 CPU 規格。
+  本規格因此維持 READY。

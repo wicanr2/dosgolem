@@ -18,9 +18,17 @@ func StateDigest(r io.Reader) ([32]byte, error) {
 	if s.Magic != stateMagic || s.Version != stateVersion {
 		return [32]byte{}, fmt.Errorf("machine: 狀態檔不認得（%q v%d）", s.Magic, s.Version)
 	}
+	// 430：Ext 先算 SHA-256，不把整個 Ext 做 JSON base64。kb == 0 時 Ext 為空，
+	// 摘要與加欄位之前完全相同。
+	ext := s.Ext
+	s.Ext = nil
 	b, err := json.Marshal(s)
 	if err != nil {
 		return [32]byte{}, fmt.Errorf("machine: 編碼狀態摘要：%w", err)
 	}
-	return sha256.Sum256(b), nil
+	if len(ext) == 0 {
+		return sha256.Sum256(b), nil
+	}
+	extSum := sha256.Sum256(ext)
+	return sha256.Sum256(append(b, extSum[:]...)), nil
 }

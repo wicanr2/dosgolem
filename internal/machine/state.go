@@ -208,6 +208,14 @@ func (m *Machine) SaveState(w io.Writer) error {
 		A20:            m.a20,
 		HMA:            append([]uint8(nil), m.hma[:]...),
 		IRQ0Pinned:     m.IRQ0Pinned,
+
+		EMSAbsent:       m.emsAbsent,
+		KbdAwaitOutport: m.kbdAwaitOutport,
+	}
+	// kb > 0：HMA 就是 Ext[0:HMASize]，不另存 HMA 欄位（規格 430 §3）。
+	if m.Ext != nil {
+		s.HMA = nil
+		s.Ext = append([]uint8(nil), m.Ext...)
 	}
 	for k, v := range m.Ports {
 		s.PortList = append(s.PortList, PortState{Port: k, Val: v})
@@ -232,6 +240,16 @@ func (m *Machine) LoadState(r io.Reader) error {
 	if len(s.Mem) != len(m.Mem) {
 		return fmt.Errorf("machine: 狀態檔的記憶體是 %d bytes，這台是 %d", len(s.Mem), len(m.Mem))
 	}
+	// 430：Ext 長度與 EMS 旗標在載入後仍影響執行，必須在載入前就設好；
+	// 比對放在任何寫入之前，失敗時機器維持原狀。
+	if len(s.Ext) != len(m.Ext) {
+		return fmt.Errorf("machine: 狀態檔的延伸記憶體是 %d KB，這台是 %d KB（先用 SetExtendedMemoryKB／-ext-mem-kb 設成相同）",
+			len(s.Ext)/1024, len(m.Ext)/1024)
+	}
+	if s.EMSAbsent != m.emsAbsent {
+		return fmt.Errorf("machine: 狀態檔的 EMM 呈現是 %t，這台是 %t（先用 SetEMSPresent／-no-ems 設成相同）",
+			!s.EMSAbsent, !m.emsAbsent)
+	}
 	// 新檔的埠統計在 slice 裡，舊檔在 map 裡；統一倒進 map 再用。
 	for _, pv := range s.PortList {
 		if s.Ports == nil {
@@ -254,6 +272,10 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.LegacyState = s.Version < stateVersion
 	m.hma = [HMASize]uint8{}
 	copy(m.hma[:], s.HMA)
+	if m.Ext != nil {
+		copy(m.Ext, s.Ext)
+	}
+	m.kbdAwaitOutport = s.KbdAwaitOutport
 	m.a20 = s.A20
 	m.syncCodeFastPath()
 	m.CPU.R, m.CPU.Seg, m.CPU.IP = s.R, s.Seg, s.IP

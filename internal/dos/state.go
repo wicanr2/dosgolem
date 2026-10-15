@@ -199,10 +199,15 @@ func (d *DOS) SaveState(w io.Writer) error {
 		s.Handles = append(s.Handles, handleState{H: h, Name: fh.name, Path: fh.path, Off: off, Size: fh.size, PSP: fh.psp})
 	}
 	sort.Slice(s.Handles, func(i, j int) bool { return s.Handles[i].H < s.Handles[j].H })
-	for k, v := range d.emb {
-		s.EMBList = append(s.EMBList, embState{H: k, Data: append([]byte(nil), v...)})
+	if d.M.Ext != nil {
+		// kb > 0：區塊內容在 Machine.Ext，這裡只存配置表（規格 430 §3）；不寫 EMBList。
+		s.XMSBlocks = d.xmsBlocksState()
+	} else {
+		for k, v := range d.emb {
+			s.EMBList = append(s.EMBList, embState{H: k, Data: append([]byte(nil), v...)})
+		}
+		sort.Slice(s.EMBList, func(i, j int) bool { return s.EMBList[i].H < s.EMBList[j].H })
 	}
-	sort.Slice(s.EMBList, func(i, j int) bool { return s.EMBList[i].H < s.EMBList[j].H })
 	for _, f := range d.procStack {
 		s.Stack = append(s.Stack, procState{R: f.r, Seg: f.seg, IP: f.ip, Fl: f.fl,
 			PSP: f.psp, FreeSeg: f.freeSeg, IVT: f.ivt})
@@ -238,6 +243,10 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	if s.Magic != dosStateMagic || s.Version < dosStateVersionMin || s.Version > dosStateVersion {
 		return fmt.Errorf("dos: 狀態檔不認得（%q v%d）", s.Magic, s.Version)
+	}
+	// 430：XMS 內容與這台機器不相容時，在任何寫入之前失敗。
+	if err := d.checkXMSState(&s); err != nil {
+		return err
 	}
 	for _, h := range d.handles {
 		h.f.Close()
@@ -289,6 +298,13 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	for _, e := range s.EMBList {
 		d.emb[e.H] = append([]byte(nil), e.Data...)
+	}
+	d.xmsBlocks = nil
+	for _, b := range s.XMSBlocks {
+		if d.xmsBlocks == nil {
+			d.xmsBlocks = map[uint16]*xmsBlock{}
+		}
+		d.xmsBlocks[b.H] = &xmsBlock{base: b.BasePage, pages: b.Pages, kb: b.KB, locks: b.Locks}
 	}
 	d.nextEMB = s.NextEMB
 	d.hmaOwned, d.a20Local = s.HMAOwned, s.A20Local

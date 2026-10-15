@@ -403,6 +403,9 @@ type DOS struct {
 	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
 	emb     map[uint16][]byte
 	nextEMB uint16
+	// xmsBlocks 是 kb > 0（`machine.SetExtendedMemoryKB`）時實體化的 XMS 區塊
+	// （`docs/spec/430-physical-memory-and-xms-unification` §2.2，xms_ext.go）。
+	xmsBlocks map[uint16]*xmsBlock
 
 	// EMS（`docs/spec/014`）：邏輯頁的內容放 Go 端，page frame 在
 	// 1 MB 空間裡的 D000h 段。

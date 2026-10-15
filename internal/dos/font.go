@@ -83,9 +83,17 @@ func (d *DOS) installFont() {
 func (d *DOS) int15(c *cpu.CPU) {
 	switch ah(c) {
 	case 0x88: // 取延伸記憶體大小（KB，1 MB 之上）
-		// XMS 之前的程式問這個。**回 0 會被讀成「沒有延伸記憶體」**，
-		// 於是它連 XMS 都不問，直接把資料塞進傳統記憶體。
-		c.R[cpu.AX] = xmsTotalKB
+		// 兩種語意（`docs/spec/430-physical-memory-and-xms-unification` §2.2）：
+		//   - kb == 0（預設）：回 xmsTotalKB。XMS 之前的程式問這個，**回 0 會被讀成
+		//     「沒有延伸記憶體」**，於是它連 XMS 都不問，直接把資料塞進傳統記憶體。
+		//     保留既有收據的行為。
+		//   - kb > 0：回 0。XMS 存在時 DOSBox-X 回 0（`bios.cpp` 7098–7102：
+		//     `other_memsystems ? 0 : size_extended`），延伸記憶體交給 XMS 管。
+		if d.M.Ext != nil {
+			c.R[cpu.AX] = 0
+		} else {
+			c.R[cpu.AX] = xmsTotalKB
+		}
 		clearCarry(c)
 		return
 
@@ -244,8 +252,15 @@ func (d *DOS) int15Move(c *cpu.CPU) {
 	}
 	src, dst := base(0x10), base(0x18)
 	n := uint32(c.R[cpu.CX]) * 2
-	for i := uint32(0); i < n; i++ {
-		d.M.Write8(dst+i, d.M.Read8(src+i))
+	if d.M.Ext != nil {
+		// kb > 0：GDT 基底是 24 位元實體位址，走實體存取（430 §2.2）。
+		for i := uint32(0); i < n; i++ {
+			d.M.WritePhys8(dst+i, d.M.ReadPhys8(src+i))
+		}
+	} else {
+		for i := uint32(0); i < n; i++ {
+			d.M.Write8(dst+i, d.M.Read8(src+i))
+		}
 	}
 	setAH(c, 0) // 搬移成功
 	clearCarry(c)
