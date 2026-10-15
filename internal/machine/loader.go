@@ -157,6 +157,8 @@ func (m *Machine) LoadEXE(data []byte) error {
 	m.FreeSeg = p.EndSeg
 
 	m.initMCB()
+	m.initSFT()
+	m.programLoaded = true
 	m.setEntry(p)
 	return nil
 }
@@ -175,6 +177,8 @@ func (m *Machine) LoadCOM(data []byte) error {
 	m.FreeSeg = PSPSeg + 0x1000
 
 	m.initMCB()
+	m.initSFT()
+	m.programLoaded = true
 	m.setEntry(p)
 	// COM 的 SP 指向段頂，堆疊上壓一個 0：`ret` 回 PSP:0 的 `int 20h`。
 	m.Write16(cpu.Addr(p.PSPSeg, 0xFFFE), 0)

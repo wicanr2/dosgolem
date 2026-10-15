@@ -474,6 +474,11 @@ type Machine struct {
 	a20 bool
 	hma [HMASize]uint8
 
+	// dosFiles 是 SetDOSFiles 的值（0 ＝ 關閉，`docs/spec/429-dos-sft-chain`）。
+	// programLoaded 在 LoadEXE/LoadCOM/LoadState 之後為真，之後不能改 dosFiles。
+	dosFiles      int
+	programLoaded bool
+
 	// ROMWrites 是被忽略的 ROM 寫入次數，ROMWriteLog 是最前面幾筆
 	// （`bios_rom.go`、`docs/spec/191-bios-rom-tail`）。
 	ROMWrites   uint64

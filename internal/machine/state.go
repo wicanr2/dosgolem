@@ -317,5 +317,6 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.ProgramPath = s.ProgramPath
 
 	m.FreeSeg, m.ImageBase, m.ImageLen = s.FreeSeg, s.ImageBase, s.ImageLen
+	m.programLoaded = true
 	return nil
 }

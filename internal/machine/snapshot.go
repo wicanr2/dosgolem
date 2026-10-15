@@ -76,6 +76,10 @@ type Snapshot struct {
 	// A20 與 HMA（`docs/spec/191-bios-rom-tail` §4）。HMA 是陣列，值複製。
 	a20 bool
 	hma [HMASize]uint8
+
+	// SetDOSFiles 的「已載入」旗標（`docs/spec/429-dos-sft-chain`）。
+	programLoaded bool
+
 	vga *VGA
 
 	// ⚠ **回呼與週期時鐘也是狀態。** 漏了的話從快照展開的機器
@@ -168,6 +172,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		pit:         m.pit,
 		irq0Clamped: m.IRQ0Clamped,
 		picMask:     m.picMask,
+
+		programLoaded: m.programLoaded,
 	}
 	s.vga = m.VGA.clone()
 	copy(s.mem, m.Mem)
@@ -213,6 +219,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.VGA.restore(s.vga)
 	m.planarOn = s.planarOn
 	m.a20, m.hma = s.a20, s.hma
+	m.programLoaded = s.programLoaded
 	m.syncCodeFastPath()
 
 	m.periodic.on, m.periodic.seg, m.periodic.off = s.periodicOn, s.periodicSeg, s.periodicOff

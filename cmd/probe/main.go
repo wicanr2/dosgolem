@@ -213,6 +213,9 @@ func main() {
 			"⚠ **步數一律是絕對值**：讀檔之後步數從存檔當時繼續往上加，"+
 			"-steps／-clicks／-shots／-save-state 的數字都要用絕對步數，"+
 			"給「還要跑幾道」那種預算值會一道都不跑（而且不會報錯）")
+	dosFiles := flag.Int("dos-files", 0,
+		"DOS 系統檔案表（SFT）的檔案總數，0（預設）不寫入；6..255 才寫（`docs/spec/429-dos-sft-chain`）。\n"+
+			"    相當於 CONFIG.SYS 的 FILES=；不能與 -load-state 並用（狀態檔整份覆蓋記憶體）")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	biosKeys := flag.String("bios-keys", "",
 		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
@@ -290,6 +293,9 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+	if err := validateDOSFiles(*dosFiles, *loadState); err != nil {
+		die(err)
+	}
 
 	if *cpuProfile != "" {
 		pf, err := os.Create(*cpuProfile)
@@ -327,6 +333,9 @@ func main() {
 		img, rerr := os.ReadFile(*exe)
 		if rerr != nil {
 			die(rerr)
+		}
+		if err := m.SetDOSFiles(*dosFiles); err != nil {
+			die(err)
 		}
 		// 副檔名不是判準：看 MZ magic。不是 MZ 就當 .COM（無檔頭、載到 PSP+100h）。
 		if len(img) >= 2 && img[0] == 'M' && img[1] == 'Z' {
@@ -2496,6 +2505,15 @@ func writeScreen(m *machine.Machine, path string, top, height int) error {
 		return err
 	}
 	fmt.Printf("\n寫出 %s（%d×%d，y 偏移 %d）\n", path, w, height, top)
+	return nil
+}
+
+// validateDOSFiles 檢查 -dos-files 與 -load-state 的組合：狀態檔整份覆蓋記憶體，
+// 這時 SFT 寫入會被蓋掉，所以明確拒絕，不安靜失效（`docs/spec/429-dos-sft-chain` §3）。
+func validateDOSFiles(n int, loadState string) error {
+	if n != 0 && loadState != "" {
+		return fmt.Errorf("-dos-files 不能與 -load-state 並用（狀態檔整份覆蓋記憶體）")
+	}
 	return nil
 }
 
