@@ -60,7 +60,7 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
   這與既有核心的 8086 成本表不同，`CycleClock` 的 IRQ0 在保護模式期間節奏因此不同，寫入 434 的已知限制。
 - 保護模式期間不遞送 IRQ，留在待處理，回 V86 或實模式後遞送。合併只適用電平型的 IRQ0（現行 `irq0Pending` 布林，維持
   `machineState` 頂層欄位）；按鍵佇列（`keyQueue`）每個事件都保留、不合併。`startCallback`、`periodic` 的 `FarCall`、`keyTick`、
-  `timedKeyTick` 在保護模式期間全部延後、留在佇列。這些動作讀的 `IF` 一律經作用中核心的視圖（`Machine.EFlags()`），433 列出消費者。JEMM 在 ring 0
+  `timedKeyTick` 在保護模式期間全部延後、留在佇列。這些動作讀的 `IF` 一律經作用中核心的視圖（`Machine.EFlags()`），434 列出消費者。JEMM 在 ring 0
   長時間執行時 IRQ0 因此延後。cpu386 在保護模式遇到 `HLT`，或有待處理 IRQ 且 `IF=1` 而連續一百萬步未離開保護模式時，
   失敗即關閉並寫明原因，不安靜卡住。保護模式內的 IDT 遞送需要時另立規格。
 
@@ -76,7 +76,7 @@ cpu386 是平坦核心：段查詢以選擇子為鍵、描述元由主機登錄�
 | 通用暫存器、`IP`／`EIP`、段值 | 作用中核心 | 交接時搬移（433、434） |
 | `FPUCW` | Machine 共用 | 其餘 x87 狀態只在 cpu386；V86 下 `FNINIT`、`FNSTCW`、`FLDCW`、`FWAIT` 以外的 ESC 失敗即關閉 |
 | TLB | Machine | 432；不存檔，`Restore`／`LoadState` 後清空 |
-| 指令位址視圖 | Machine 的 `ActiveOp()` | 取代直接讀 `m.CPU.Seg[CS]`／`IP` 的觀測點（433 列出全部消費者） |
+| 指令位址視圖 | Machine 的觀測方法 | 取代直接讀 `m.CPU.Seg[CS]`／`IP` 的觀測點；分「指令起點」與「下一道」兩種語意（434 定義並列出全部消費者） |
 
 `CR0`、`EFlagsHi`、`pmCPL` 的寫入只能經 Machine 的方法（432 的 setter、433 的 `mov cr0`、434、S4 的交接），由方法重算 432 的衍生欄位
 （`xlat`、`paging`、`cplUser`）；任何核心都不得直接改這些欄位。
