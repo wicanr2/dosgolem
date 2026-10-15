@@ -1,6 +1,6 @@
 # 429 — DOS 系統檔案表（SFT）鏈
 
-狀態：**DRAFT**（第 4 版：第二張表改放 ROM 區；待第 3 輪）
+狀態：**READY**（三輪審查）
 日期：2026-10-15
 前置：[`012-mcb-chain`](012-mcb-chain.md)（list of lists 的 `[BX-2]`）
 
@@ -40,6 +40,8 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
 
 - `n == 0` 是預設值，行為與本規格之前完全相同：不寫入任何位元組。
 - `n` 在 6 到 255 之間時，`LoadEXE`、`LoadCOM` 在 `initMCB()` 之後呼叫 `initSFT()` 寫入下表。
+  `initSFT` 一律直接寫 `m.Mem`，不經 `Write8`／`Write16`／`WriteBytes`：第二張表在 ROM 區，`Write8` 對
+  `ROMBase` 以上的寫入會丟棄並計 `ROMWrites`（`internal/machine/machine.go` 的 `Write8`）。
 - 其他值回錯誤。下界 6 沿用 DOSBox-X（`dos_classes.cpp:136`，`files=` 小於 6 即結束）；
   上界 255 時第二張表佔 `F0000`–`F39DE`（`6 + 251*59 = 14,815` bytes），不碰 8×8 字型（`F000:FA6E`，
   `199-rom-font-8x8`）與開機尾段（`FFFF0`，`191-bios-rom-tail`）。
@@ -73,12 +75,16 @@ dosgolem 的 `AH=52h` 回 `0070:0010`，但 `0070:0014` 沒有寫入，SFT 指�
   242 bytes，第 5 筆（`PRN`）不寫。
 - DOSBox-X 的第二張表由 `DOS_GetMemory` 配在 DOS 私有記憶體。dosgolem 傳統記憶體
   的配置由 MCB 鏈決定，搶一塊會改變所有程式可用的記憶體。改放 BIOS ROM 區 `F000` 段：
-  - 第 3 版放 `E000` 段，但 JEMM（`430` 的觸發案例）把 EMS 頁框設在 `E000h`，頁框映射後 SFT 會被 EMS 頁蓋掉；
+  - 不放 `E000` 段：JEMM（`430` 的觸發案例）把 EMS 頁框設在 `E000h`，頁框映射後 SFT 會被 EMS 頁蓋掉。
     `C000`–`CFFF` 是 UMB、`D000` 是內建 EMS 頁框，也都不行。
-  - `F0000` 起目前沒有內容。ROM 區對程式唯讀（`Write8` 對 `ROMBase` 以上只記錄），`initSFT` 直接寫 `Mem`。
-    SFT 項目內容本規格本來就不模擬，程式寫不進去不影響走鏈與計數。
-  - JEMM 的遊戲映射狀態會把 `C0000`–`FFFFF` 別名到 `B8000`（`430` 觸發案例的 `003-jemm-api.md` §3），
-    該狀態下讀不到 SFT；程式在呼叫 DOS 前會切回 DOS 映射，屬原版行為。
+  - `F0000` 起目前沒有內容（`initROM` 只寫 `FFFF0` 起，8×8 字型在 `FFA6E` 起）。
+- 已知限制：
+  - 程式對 SFT 的寫入（例如在鏈尾追加新表以擴充 FILES 的常駐程式改寫 `F000:0000` 的 next 指標）會被 ROM
+    保護安靜丟棄，只在 `ROMWrites` 留痕。這是刻意取捨：本規格不模擬 SFT 項目內容。
+  - 真 DOS 的 SFT 在傳統記憶體。JEMM 的遊戲映射狀態把 `C0000`–`FFFFF` 別名到 `B8000`（`430` 觸發案例的
+    `003-jemm-api.md` §3），該狀態下本設計讀不到第二張表，原版讀得到。已知 SCCD 在 JEMM 啟動前走鏈；
+    `STRIKE.EXE` 是否在映射狀態 1 走鏈未驗證。
+- `191-bios-rom-tail` 寫 `F0000`–`FFFEF` 維持 0；本規格開啟時例外，在 191 加一行註記指向這裡。
 - `docs/spec/008-ems-paging.md` §2 寫頁框段是 `0xE000`，與程式（`EMSFrameSeg = 0xD000`）
   不符，該段已過期；以程式為準。本規格在 008 加一行註記指向這裡。
 
@@ -118,8 +124,8 @@ Buck Rogers 收據的 `memory_sha256`、`cmd/state-compare` 的機器摘要。�
 
 1. 契約測試（EXE 與 COM 各一，`internal/dos`）：`SetDOSFiles(25)` 後載入最小程式，從 `AH=52h`
    回傳的 `ES:BX` 起，先斷言 `[BX+4]` 是 `0060:0000`，再走鏈：offset 為 `FFFFh` 即停，最多走
-   16 張表（超過即失敗）。逐表核對表頭、項目數、`CON`／`AUX` 名稱位置，總數等於 25。
-2. 預設不變，兩層錨點：
+   16 張表（超過即失敗）。逐表核對表頭、項目數、`CON`／`AUX` 名稱位置，總數等於 25；載入後 `ROMWrites == 0`。
+2. 預設不變，兩層錨點（與 `430` 驗收 1(b) 共用同一個測試夾具與前置 commit）：
    (a) `MemPoison` 為 0 與 `0xCC` 各跑一次：未呼叫 `SetDOSFiles` 時載入後，`0x0600`–`0x06FF`、
        `0x0714`–`0x0717`、`F0000`–`F3FFF` 與 `New()` 剛建好時逐位元組相同。
    (b) 先提交只含測試的前置 commit，以未修改的 loader 算出固定程式載入後整機記憶體的
@@ -133,11 +139,13 @@ Buck Rogers 收據的 `memory_sha256`、`cmd/state-compare` 的機器摘要。�
 5. 常數守門（`internal/dos` 或 `internal/machine`）：`SFTSeg*16 + 6 + 4*59 <= LOLSeg*16`；
    `SFT2Seg*16 + 6 + 251*59` 小於 8×8 字型起點與開機尾段；`SFT2Seg` 不與 `umbStart`–`umbEnd`、`EMSFrameSeg` 及 `E000` 段重疊。
 6. 存讀往返（`internal/machine`）：`n = 25` 載入後 `SaveState`，以新的 `New()` 機器 `LoadState`，
-   三段記憶體相同，且 `DOSFiles()` 回 0、`SetDOSFiles` 回錯誤。
+   三段記憶體相同，且 `DOSFiles()` 回 0、`SetDOSFiles` 回錯誤。`Snapshot`／`Restore` 一併保存 `programLoaded`：
+   對新機器 `Restore` 之後 `SetDOSFiles` 回錯誤。
 7. 負對照（walker 本身要能失敗）：在第 1 項的機器上，載入後把鏈尾改寫成 `0000:0000`、把第一張表
-   檔案數改成 5，walker 各自報錯（前者撞到 16 張上限）。
+   檔案數改成 5，walker 各自報錯（前者撞到 16 張上限）。改寫一律直接改 `m.Mem`（`F000` 段經 `Write16` 會被
+   ROM 保護吞掉，測試會變成假紅）。
 8. `validateDOSFiles` 單元測試：`(30, "x.state")` 回錯誤；`(30, "")`、`(0, "x.state")` 不回錯誤。
 9. 觸發案例（需要原版素材，缺檔 skip，不算進第 10 項的「全綠」，另附 probe 收據）：
    `cmd/probe -exe SCCD.EXE -dos-files 30` 不再於 `0294:0806` 迴圈，並走到
-   `int 2Fh AX=4300h`（映像 `0x206C`）或更後面。
+   `int 2Fh AX=4300h`（映像 `0x206C` 的 `mov ax,4300h`，`int 2Fh` 在 `0x206F`）或更後面。
 10. `tools/go.sh test ./internal/machine ./internal/dos ./cmd/probe` 全綠。

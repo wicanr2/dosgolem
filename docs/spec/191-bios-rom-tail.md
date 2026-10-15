@@ -98,3 +98,6 @@
 - 既有測試全過。這次沒動 CPU 層；SingleStepTests 的語料不在工作副本時照規則 skip。
 - logh3：全部收據在這一版重跑，畫面有變的逐條說明原因（logh3 `docs/re/336`）；
   `fcmd-occ-phz-t4` 不再轉跑 `ENDING.EXE`。
+
+
+> 2026-10-15 註：`429-dos-sft-chain` 以選項開啟時，SFT 第二張表寫在 `F0000` 起，見該規格 §2。預設關閉時本規格不變。
