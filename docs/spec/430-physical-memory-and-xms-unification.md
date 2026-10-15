@@ -1,6 +1,6 @@
 # 430 — 延伸實體記憶體與 XMS 統一
 
-狀態：**DRAFT**（第 5 版，依第 3 輪複審修訂）
+狀態：**READY**（四輪審查；最後一輪只剩文字修正，已套用）
 日期：2026-10-15
 前置：[`011-xms`](011-xms.md)（已部分過期，現行行為以 `internal/dos/xms.go` 為準）、[`014-ems`](014-ems.md)、
 [`189-a20-gate-and-hma-addressing`](189-a20-gate-and-hma-addressing.md)、
@@ -32,8 +32,8 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 （以 4 KB 頁為單位，與 §2.2 的配置粒度一致）。其他值、`programLoaded` 為真、或 `len(m.Mem) != MemSize`
 （LE 路徑會增長 `Mem`）時回錯誤。
 
-- 檢查順序：先看 `programLoaded`（為真回錯誤），再看目前值。`kb` 仍為 0 時，`SetExtendedMemoryKB(0)` 是無害空呼叫；
-  設成 `kb > 0` 之後再呼叫（含改回 0、改成別的值）回錯誤。
+- 檢查順序固定：(1) `programLoaded` 為真回錯誤；(2) `len(m.Mem) != MemSize` 回錯誤；(3) 範圍與倍數不合回錯誤；
+  (4) 目前值：`kb` 仍為 0 時 `SetExtendedMemoryKB(0)` 是無害空呼叫；設成 `kb > 0` 之後再呼叫（含改回 0、改成別的值）回錯誤。
 - `kb == 0`：行為與本規格之前完全相同。
 - `kb > 0` 時 `SetExtendedMemoryKB` 本身完成三件事：建立 `Ext`、把現有 `hma` 陣列內容複製到 `Ext[0:HMASize]`、
   在 `StubSeg:XMSHookEntryOff` 寫入 §2.3 的 8 bytes 入口。入口不由 `Install()` 寫，因為 `initVectors` 在
@@ -74,13 +74,13 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 | `0Ch` | handle 無效 `A2h`；鎖定計數小於 255 才加一；`DX:BX` = 區塊實體基底 | `xms.cpp:356-361` |
 | `0Dh` | handle 無效 `A2h`；計數為 0 回 `AAh`；否則減一 | `xms.cpp:363-370` |
 | `0Eh` | handle 無效 `A2h`；`BH` = 鎖定計數、`BL` = 空 handle 數、`DX` = KB | `xms.cpp:372-382` |
-| `0Fh` | handle 無效 `A2h`；已鎖定 `ABh`；新舊頁數相等時只更新 KB（`memory.cpp:1233`）；新大小能原地容納（縮小或後方有空頁）就原地，否則依 `BestMatch` 另找空洞，找洞時舊頁仍算占用，配到後複製原內容再釋放舊頁（`memory.cpp:1263-1267`），都不行回 `A0h`。占 0 頁的區塊（`09h` 配的 0 KB、或縮到 0 的區塊）擴大時一律視為新配置，以 `BestMatch(pages)` 找洞，不論原基底值。新大小為 0 時釋放全部頁，handle 保留、大小 0、基底 0（Lock 回 0）；DOSBox-X 此時把底層 handle 設成 -1（`memory.cpp:1207-1220`），dosgolem 改用基底 0 以免位址溢位 | `xms.cpp:384-394`；`memory.cpp:1263` |
+| `0Fh` | handle 無效 `A2h`；已鎖定 `ABh`；新舊頁數相等時只更新 KB（`memory.cpp:1225`）；新大小能原地容納（縮小或後方有空頁）就原地，否則依 `BestMatch` 另找空洞，找洞時舊頁仍算占用，配到後複製原內容再釋放舊頁（`memory.cpp:1263-1267`），都不行回 `A0h`。占 0 頁的區塊（`09h` 配的 0 KB、或縮到 0 的區塊）擴大時一律視為新配置，以 `BestMatch(pages)` 找洞，不論原基底值。這點刻意偏離 DOSBox-X：DOSBox-X 的 0 KB 區塊持有一個未標記占用的頁（`xms.cpp:244` 的 `MEM_GetNextFreePage`），擴大到 1 頁時直接成功，會與其他區塊共用同一頁。新大小為 0 時釋放全部頁，handle 保留、大小 0、基底 0（Lock 回 0）；DOSBox-X 此時把底層 handle 設成 -1（`memory.cpp:1207-1220`），dosgolem 改用基底 0 以免位址溢位 | `xms.cpp:384-394`；`memory.cpp:1263` |
 | `10h`、`11h` | 維持現行 UMB 行為（`C000`–`CFFF`） | 不在範圍 |
 | `03h`–`07h` | 維持現行 A20 簿記。8042 直接寫入（§2.4）不更新這套簿記，與真機一致 | |
 
 `kb == 0` 時 XMS 行為完全不變（含既有的奇數長度照搬、合成 Lock 位址），本節只在 `kb > 0` 生效。
 
-`int 15h AH=88h` 在 `kb > 0` 時回 `AX=0`：XMS 存在時 DOSBox-X 回 0（`src/ints/bios.cpp:7098-7102`，`other_memsystems ? 0 : size_extended`；`other_memsystems` 由 XMS 初始化遞增，`xms.cpp:839`）。`kb == 0` 維持回 `xmsTotalKB`（8192），兩者差異是刻意的：`kb == 0` 保留既有收據的行為，`kb > 0` 照 DOSBox-X。`internal/dos/font.go` 的 `AH=88h` 註解（「回 0 會被讀成沒有延伸記憶體」）要同步改寫成這兩種語意。觸發案例不受影響：SCCD 只在沒有 XMS 時才呼叫 `AH=88h`（`002-sccd-launch-flow.md` §1 步驟 12a）；`AH=87h` 在 `kb > 0` 時以 `ReadPhys`／`WritePhys` 存取
+`int 15h AH=88h` 在 `kb > 0` 時回 `AX=0`：XMS 存在時 DOSBox-X 回 0（`src/ints/bios.cpp:7098-7102`，`other_memsystems ? 0 : size_extended`；`other_memsystems` 由 XMS 初始化經 `BIOS_ZeroExtendedSize(true)` 遞增，`xms.cpp:839`、`bios.cpp:7978`）。`kb == 0` 維持回 `xmsTotalKB`（8192），兩者差異是刻意的：`kb == 0` 保留既有收據的行為，`kb > 0` 照 DOSBox-X。`internal/dos/font.go` 的 `AH=88h` 註解（「回 0 會被讀成沒有延伸記憶體」）要同步改寫成這兩種語意。觸發案例不受影響：SCCD 只在沒有 XMS 時才呼叫 `AH=88h`（`002-sccd-launch-flow.md` §1 步驟 12a）；`AH=87h` 在 `kb > 0` 時以 `ReadPhys`／`WritePhys` 存取
 24 位元實體位址。`kb == 0` 時兩者不變。
 
 ### 2.3 可掛鉤的 XMS 入口（`kb > 0` 時）
@@ -126,21 +126,27 @@ SCCD 映像位移（檔案位移減 `0x200`）：
   `SetEMSPresent`、`EMSPresent`、`XMSEntryOff`。
 - `cmd/probe`：`-ext-mem-kb N`、`-no-ems`。兩者在 `machine.New()` 之後、`if *loadState == ""` 區塊之外呼叫，
   所以同時涵蓋「載入程式」與「載入狀態檔」兩條路徑，且早於 `LoadEXE`／`LoadCOM`／`state.Load` 與 `d.Install()`。
-  旗標組合規則抽成純函式 `validateMemFlags(kb int, noEMS bool, loadState string) error`（目前只檢查 `kb` 範圍，
-  與 `-load-state` 的一致性交給 `LoadState`），以利測試。可與 `-load-state` 同給：probe 先依旗標設定機器，再 `LoadState`；
+  抽出 `configureMem(m *machine.Machine, kb int, noEMS bool) error`（依序呼叫 `SetExtendedMemoryKB`、`SetEMSPresent`），
+  由 `main` 在上述位置呼叫；測試直接呼叫它再 `state.Load`。`kb` 範圍由 `SetExtendedMemoryKB` 自己檢查，不另設驗證函式。可與 `-load-state` 同給：probe 先依旗標設定機器，再 `LoadState`；
   旗標值必須與狀態檔一致，不一致由 `LoadState` 回錯誤（與 `429` 的 `-dos-files` 不同：`Ext` 與 EMS 旗標在載入後
   仍影響執行，必須在載入前就設好）。載入 `kb > 0` 的狀態檔時必須給相同的 `-ext-mem-kb`。
 - 狀態檔（`internal/machine/state.go`）：**不升版號**。新增欄位 `Ext`、`EMSAbsent`、`KbdAwaitOutport`，
-  JSON 標 `omitempty`。舊狀態檔照常讀得進來（先例見 `state.go` 對 `Hi` 的註解）。`kb > 0` 時不另存 `HMA` 欄位
+  JSON 標 `omitempty`。`LoadState` 的 `Ext` 長度與 `EMSAbsent` 比對放在任何寫入之前（現有 `len(s.Mem)` 檢查旁），
+  失敗時機器維持原狀。舊狀態檔照常讀得進來（先例見 `state.go` 對 `Hi` 的註解）。`kb > 0` 時不另存 `HMA` 欄位
   （`Ext` 已含 HMA）。
 - gob 在串流開頭寫出 struct 的型別描述，含全部欄位名；即使新欄位都是零值，`SaveState`（機器與 DOS 兩側）的位元組
   也會改變。既有收據用的是 `session` 的摘要與記憶體雜湊，不是 gob 原始位元組；`machine.StateDigest`、
   `dos.StateDigest` 是解碼後的 JSON，新欄位加 `omitempty` 後 `kb == 0` 不變。實作分兩個 commit：先提交「只加欄位、
   不改行為」的 commit，在其中更新錨點測試的兩個 gob 位元組常數並註明原因；之後的行為 commit 必須讓全部錨點維持不變。
+  machine 與 DOS 兩側所有新欄位與新型別（含 slice 的元素型別）都要在這一個 commit 加完，之後再加或改欄位、型別會讓
+  gob 位元組第二次改變。這個 commit 的 `SaveState` 不寫入任何新欄位，由「解碼後新欄位皆零值」測試把關。錨點測試檔頭
+  註解同步改寫，區分「語意錨點（記憶體雜湊、兩個 `StateDigest`）永不變」與「gob 位元組可因型別描述改變一次」。
 - 載入規則：狀態檔 `Ext` 長度與機器不同（含一邊為 0）時回錯誤；`EMSAbsent` 與機器設定不同時回錯誤。
-- DOS 側狀態（`internal/dos/state.go`）：`kb > 0` 時以「handle、基底頁、頁數、KB、鎖定計數」的列表取代
-  `EMB map`，依 handle 排序存成 slice（比照 main `ca3696c` 對 EMB 的處理：gob 編 map 的順序不固定）。舊的 `EMB map` 狀態檔載入到 `kb > 0` 的機器回錯誤。
-- `Snapshot`／`Restore`（`snapshot.go`）同步涵蓋 `Ext`、8042 旗標、EMS 旗標與 `programLoaded`。`kb > 0` 時快照要複製
+- DOS 側狀態（`internal/dos/state.go`）：現有 `EMB`（只讀舊檔）與 `EMBList []embState`（`kb == 0` 的 Go 端內容）不變。
+  新增欄位 `XMSBlocks []xmsBlockState`（元素：handle、基底頁、頁數、KB、鎖定計數），依 handle 排序（比照 main `ca3696c`），
+  JSON 標 `omitempty`（`dos.StateDigest` 對整個 struct 做 `json.Marshal`）。`kb > 0` 時存檔只寫 `XMSBlocks`；載入時
+  `EMB` 或 `EMBList` 非空而機器 `kb > 0`、或 `XMSBlocks` 非空而機器 `kb == 0`，回錯誤。
+- `Snapshot`／`Restore`（`snapshot.go`）同步涵蓋 `Ext`、8042 旗標與 EMS 旗標（`programLoaded` 已由 429 涵蓋）。`kb > 0` 時快照要複製
   整個 `Ext`，成本隨 `kb` 線性增加，寫進該函式註解。`Restore` 沒有錯誤回傳：`Ext` 長度與機器不同時 panic，
   訊息寫明兩邊長度。
 - `StateDigest` 對 `Ext` 先算 SHA-256 再放入摘要，不把整個 `Ext` 做 JSON base64。
@@ -179,7 +185,7 @@ SCCD 映像位移（檔案位移減 `0x200`）：
    ≤ `0xFE0000`、4 KB 對齊；`WritePhys` 寫入後 XMS Move 讀回；兩區塊不重疊；釋放中間區塊後再配置落在洞內；
    容量耗盡 `A0h`；handle 用完 `A1h`；Move 的 `A3h`–`A7h` 各一例且鄰近區塊與 HMA 不變；
    重疊搬移依逐 byte 方向的期望值；`0Fh` 原地擴大、搬移、新大小 0 各一例；鎖定計數到 255 停止；`BestMatch` 的
-   「剛好相等優先」與「最小可容納」各一例；`0Bh` 來源與目的兩側都錯時回來源的錯誤碼。
+   「剛好相等優先」與「最小可容納」各一例；0 KB 區塊擴大到 1 頁後與其他區塊不重疊；`0Bh` 來源與目的兩側都錯時回來源的錯誤碼。
 5. 掛鉤入口：以真正執行指令的方式（`Step` 跑遠呼叫，不直接呼叫 `d.handle`）驗證：合成程式依 §2.3 的 SCCD 邏輯
    改寫入口並鏈回 `+5`，服務照常；負對照：掛鉤不鏈回時服務不執行；在已套用 `EA` 改寫的入口上鏈到 `+3` 時失敗
    （未改寫前 `+2`–`+4` 都是 NOP，會成功）。另加版面守門測試（比照 `internal/dos/stub_layout_test.go`）：
@@ -190,11 +196,11 @@ SCCD 映像位移（檔案位移減 `0x200`）：
 7. `SetEMSPresent`：§2.5 檢查順序表的四種情形與「載入後呼叫」各一例；`SetEMSPresent(false)` 之後：`int 67h` 向量段的 `:000A` 不是 `EMMXXXX0`；呼叫 `int 67h AH=40h` 後暫存器不變；
    開 `EMMXXXX0` 回找不到檔案；`fileAttr` 回 2；`MemPoison = 0xCC` 時 `EMSSeg` 區還原成 `0xCC`。
 8. 狀態往返（`internal/state`）：`kb = 8192` 配兩個區塊、鎖一個、寫內容後存讀，`Ext`、配置表、鎖定計數、
-   8042 與 EMS 旗標相同；同一狀態連存兩次位元組相同（比照 `TestDOSSaveStateIsByteIdentical`）；`kb` 不同、`EMSAbsent` 不同、舊 `EMB map` 狀態檔載入到 `kb > 0` 各回錯誤；
+   8042 與 EMS 旗標相同；同一狀態連存兩次位元組相同（比照 `TestDOSSaveStateIsByteIdentical`）；`kb` 不同、`EMSAbsent` 不同、`EMBList` 非空的狀態檔載入到 `kb > 0`、`XMSBlocks` 非空的狀態檔載入到 `kb == 0` 各回錯誤；
    `Snapshot`／`Restore` 後 `Ext` 還原。
 9. 觸發案例（需原版，缺檔 skip，不算進第 11 項，另附 probe 收據）：`SCCD.EXE` 搭配
    `-dos-files 30 -ext-mem-kb 8192 -no-ems` 通過 SFT、EMM、XMS 檢查與映像 `0x37E`，`call 0:12` 抵達 JEMM，
    停在第一個 dosgolem 尚未支援的系統指令（預期是 img `0x41E8` 的 `sgdt`）。
-10. probe（`cmd/probe` 測試）：`validateMemFlags` 的範圍檢查；以合成狀態檔驗證 `-ext-mem-kb` 與狀態檔不同、漏給、多給，
+10. probe（`cmd/probe` 測試）：呼叫 `configureMem` 後 `state.Load`，以合成狀態檔驗證 `-ext-mem-kb` 與狀態檔不同、漏給、多給，
     以及 `-no-ems` 不一致時，載入各回錯誤，一致時成功。
 11. `tools/go.sh test ./internal/machine ./internal/dos ./internal/state ./cmd/probe` 全綠。
