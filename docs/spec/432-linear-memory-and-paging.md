@@ -84,7 +84,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 | oracle 的段:偏移 API | `oracle` 的 `Byte`、`Word`、`SetByte` 等，以及讀寫客體堆疊的 `oracle/run.go`、`oracle/state.go`、`oracle/call.go`（`cpu.Addr(ss,sp)` 加 `Read16`／`Write16`） | 位址仍以 `cpu.Addr` 計算（20 位元段:偏移，不在本規格範圍）；存取經線性層，轉換開啟時會走分頁，錯誤由 `PageFault()` 查詢 |
 
 讀寫監看、`noteWrite`、影片寫入紀錄比對的是實體位址；轉換開啟時文件改稱「實體位址」。影片寫入紀錄與 `VRAMSites` 讀的
-`m.CPU.OpAddr()` 在 cpu386 執行時會是舊值，由 433 的 `ActiveOp()` 修正（本規格只註明）。
+`m.CPU.OpAddr()` 在 cpu386 執行時會是舊值，由 434 的觀測視圖修正（本規格只註明）。
 
 ## 4. 服務層的位址計算
 

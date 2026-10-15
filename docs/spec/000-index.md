@@ -932,7 +932,7 @@
 - [430 延伸實體記憶體與 XMS 統一](430-physical-memory-and-xms-unification.md)：READY。選項開啟的 `Ext` 延伸記憶體、XMS 區塊實體化、可掛鉤 XMS 入口、8042 A20、不安裝內建 EMM。
 - [431 混合 CPU 架構](431-hybrid-cpu-protected-mode.md)：READY。架構契約：分工、狀態擁有權、交接點、效能門檻；實作拆到 432–435。
 - [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：READY。
-- [433 既有核心的實模式系統指令與實模式→保護模式交棒](433-real-mode-system-instructions.md)：DRAFT（第 2 版）。
+- [433 既有核心的實模式系統指令與實模式→保護模式交棒](433-real-mode-system-instructions.md)：DRAFT（第 3 版）。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
