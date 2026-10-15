@@ -38,6 +38,7 @@ func (m *Machine) recalcPM() {
 		m.cplUser = m.eflagsHi&eflagsHiVM != 0 || m.pmCPL == 3
 	}
 	m.syncCodeFastPath()
+	m.recalcMode() // 433 §5：PE、VM 改變時更新模式值
 }
 
 // invalidateTLB 把世代號加一（uint32，溢位時整份清除）。TLB 本體在 paging.go。
@@ -82,6 +83,7 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 	m.pmProfile = on
 	m.cr3, m.eflagsHi, m.pmCPL = 0, 0, 0
 	m.sys = sysRegsInit()
+	m.entered, m.halt = false, nil
 	if on {
 		m.CPU.Sys = m
 	} else {

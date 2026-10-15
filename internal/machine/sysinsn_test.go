@@ -349,7 +349,7 @@ func TestSysModeSwitchSentinel(t *testing.T) {
 	m := newSysProg(t, []byte{0x0F, 0x22, 0xC0, 0x90})
 	m.CPU.R[cpu.AX] = 0x0001
 	ip := m.CPU.IP
-	err := m.Step()
+	err := m.CPU.Step() // 直接看 CPU 的回傳；Machine.Step 會接手處理哨兵（§5，handoff_test.go）
 	if !errors.Is(err, cpu.ErrModeSwitch) {
 		t.Fatalf("mov cr0 設 PE：應回 ErrModeSwitch，實際 %v", err)
 	}
@@ -359,10 +359,11 @@ func TestSysModeSwitchSentinel(t *testing.T) {
 	// lmsw 1 同樣回哨兵。
 	m = newSysProg(t, []byte{0x0F, 0x01, 0xF0})
 	m.CPU.R[cpu.AX] = 0x0001
-	if err := m.Step(); !errors.Is(err, cpu.ErrModeSwitch) {
+	if err := m.CPU.Step(); !errors.Is(err, cpu.ErrModeSwitch) {
 		t.Errorf("lmsw 設 PE：應回 ErrModeSwitch，實際 %v", err)
 	}
-	// 不回哨兵：mov cr0 不改 PE、lmsw 0、只動 TS、PE 已是 1 再寫 1。
+	// 不回哨兵：mov cr0 不改 PE、lmsw 0、只動 TS、PE 已是 1 再寫 1（經 Machine.Step：
+	// 若回了哨兵，這裡會看到 ErrPMCoreNotAvailable）。
 	for _, c := range []struct {
 		name  string
 		code  []byte

@@ -229,4 +229,5 @@ func (m *Machine) applyPM(f pmFields) {
 	m.invalidateTLB()
 	m.clearPageFaults()
 	m.recalcPM()
+	m.rejudgeHalt() // 433 §5：清除 entered，停擺重新判定
 }

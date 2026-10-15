@@ -223,6 +223,9 @@ func main() {
 	noEMS := flag.Bool("no-ems", false,
 		"不安裝內建 EMM：int 67h 不服務、EMMXXXX0 不再視為裝置（`docs/spec/430` §2.5）。"+
 			"可與 -load-state 同給，但必須與狀態檔一致")
+	pmProfile := flag.Bool("pm-profile", false,
+		"開啟保護模式 profile：實模式系統指令、IDTR 守門與 PE 交棒（`docs/spec/433-real-mode-system-instructions` §6）。\n"+
+			"    需要 -ext-mem-kb > 0；可與 -load-state 同給，但必須與狀態檔一致")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	biosKeys := flag.String("bios-keys", "",
 		"逐個送進 **BIOS 鍵盤緩衝區**（BDA 0040:001E）的字元（`\\n` ＝ Enter）。\n"+
@@ -326,6 +329,9 @@ func main() {
 	// 延伸記憶體與 EMM 旗標在載入後仍影響執行，必須在 LoadEXE／LoadCOM／state.Load 之前就設好；
 	// 放在 `if *loadState == ""` 區塊之外，兩條路徑都涵蓋。
 	if err := configureMem(m, *extMemKB, *noEMS); err != nil {
+		die(err)
+	}
+	if err := configurePM(m, *pmProfile); err != nil {
 		die(err)
 	}
 	m.ProgramPath = *programPath
@@ -2537,6 +2543,15 @@ func configureMem(m *machine.Machine, kb int, noEMS bool) error {
 	}
 	if err := m.SetEMSPresent(!noEMS); err != nil {
 		return fmt.Errorf("-no-ems：%w", err)
+	}
+	return nil
+}
+
+// configurePM 依 -pm-profile 開關保護模式 profile（`docs/spec/433-real-mode-system-instructions` §6）。
+// 要在 configureMem 之後呼叫（profile 需要延伸記憶體）；與 -load-state 的一致性由 LoadState 檢查，這裡只轉述錯誤。
+func configurePM(m *machine.Machine, on bool) error {
+	if err := m.SetProtectedModeProfile(on); err != nil {
+		return fmt.Errorf("-pm-profile：%w", err)
 	}
 	return nil
 }
