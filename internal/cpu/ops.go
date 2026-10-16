@@ -408,6 +408,10 @@ func (c *CPU) executeCore(op uint8) error {
 		c.setReg8(0, c.read8(c.dataSeg(DS), uint32(c.R[BX]+uint16(uint8(c.R[AX])))))
 	case op >= 0xD8 && op <= 0xDF: // ESC：探測語意見 spec 202，其餘只做記憶體讀取
 		m := c.decodeModRM()
+		if c.segmented && !x87Allowed(op, m) {
+			// 431 §4、434 §6：保護模式下 FNINIT、FNSTCW、FLDCW（與非 ESC 的 FWAIT）以外失敗即關閉。
+			return c.errf(op, "x87 ESC %02X /%d：分段模式只支援 FNINIT、FNSTCW、FLDCW、FWAIT（docs/spec/434 §6）", op, m.reg)
+		}
 		switch {
 		case op == 0xDB && m.mod == 3 && m.reg == 4 && m.rm.isReg && m.rm.reg == 3:
 			c.FPUCW = 0x037F // FNINIT（`DB E3`）
@@ -482,6 +486,10 @@ func (c *CPU) executeCore(op uint8) error {
 
 	// ---- F4–FF ----------------------------------------------------------
 	case op == 0xF4: // HLT
+		if c.segmented {
+			// 434 §5.3、431 §3：保護模式期間不遞送 IRQ，hlt 會永遠等不到中斷。
+			return c.errf(op, "HLT：分段模式下不遞送 IRQ（保護模式 IDT 遞送屬 435），失敗即關閉（docs/spec/434 §5.3）")
+		}
 		c.Halted = true
 	case op == 0xF5: // CMC
 		c.setFlag(CF, !c.Flag(CF))
@@ -810,6 +818,18 @@ func (c *CPU) pushOperand(o operand) {
 		return
 	}
 	c.push(c.get16(o))
+}
+
+// x87Allowed：分段模式容許的 ESC 形式（434 §6）：FNINIT（DB E3）、FNSTCW m16（D9 /7）、FLDCW m16（D9 /5）。
+// FLDCW 照既有實作只讀記憶體。
+func x87Allowed(op uint8, m modrm) bool {
+	switch {
+	case op == 0xDB && m.rm.isReg && m.reg == 4 && m.rm.reg == 3:
+		return true
+	case op == 0xD9 && !m.rm.isReg && (m.reg == 7 || m.reg == 5):
+		return true
+	}
+	return false
 }
 
 // farCall 是 16 位元同特權遠呼叫（9A、FF /3）：推 CS、IP 各 2 bytes，載入新的 CS:IP。

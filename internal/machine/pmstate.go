@@ -318,6 +318,7 @@ func (m *Machine) applyPM(f pmFields) {
 	for i, c := range f.cache {
 		m.CPU.SetSegCache(i, c)
 	}
+	m.resetSegWait()
 	m.invalidateTLB()
 	m.clearPageFaults()
 	m.recalcPM()

@@ -92,6 +92,9 @@ func (c *CPU) insOuts(op uint8) {
 		size = 16
 	}
 	d := c.delta(size)
+	if c.segmented && !c.ioAllowed(c.R[DX]) { // 434 §6
+		return
+	}
 
 	once := func() {
 		switch op {

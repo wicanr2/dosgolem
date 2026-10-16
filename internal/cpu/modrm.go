@@ -9,12 +9,14 @@ package cpu
 // 記憶體運算元帶**段索引**與 uint32 偏移（434 §4.2）：段在存取當下才取值或快取。
 // 實模式偏移恆 ≤ FFFFh；w32 只在分段模式的 67 定址（ModRM32、moffs32）為真，
 // 表示多 byte 存取與 +2、+4 以 32 位元相加（434 §4.1）。
+//
+// 欄位順序與寬度讓整個值維持 16 bytes（熱路徑上 modrm 以值傳遞）。
 type operand struct {
 	isReg bool
 	w32   bool   // 偏移寬度 32 位元（只在分段模式的 67 定址）
-	reg   int    // isReg 時的暫存器索引
-	seg   int    // 記憶體時的段索引（已經套過段前綴）
+	seg   uint8  // 記憶體時的段索引（已經套過段前綴）
 	off   uint32 // 記憶體時的位移
+	reg   int    // isReg 時的暫存器索引
 }
 
 // at 回「同一運算元往後 k bytes」：偏移依寬度相加（16 位元環繞或 32 位元），用於遠指標、
@@ -93,7 +95,7 @@ func (c *CPU) decodeModRM() modrm {
 		off += c.fetch16()
 	}
 
-	return modrm{reg: reg, mod: mod, rm: operand{seg: c.dataSeg(def), off: uint32(off)}}
+	return modrm{reg: reg, mod: mod, rm: operand{seg: uint8(c.dataSeg(def)), off: uint32(off)}}
 }
 
 // decodeModRM32 是 0x67 位址大小前綴下的 ModRM（含 SIB），`docs/spec/197` §3。
@@ -158,19 +160,19 @@ func (c *CPU) decodeModRM32() modrm {
 
 	c.ea32 = ea
 	if c.segmented {
-		return modrm{reg: reg, mod: mod, rm: operand{seg: c.dataSeg(def), off: ea, w32: true}}
+		return modrm{reg: reg, mod: mod, rm: operand{seg: uint8(c.dataSeg(def)), off: ea, w32: true}}
 	}
 	if ea > 0xFFFF && !c.eaNoLimit {
 		c.failf("32 位元有效位址 %08X 超出實模式 64 KB 段限（docs/spec/197 §3）", ea)
 	}
-	return modrm{reg: reg, mod: mod, rm: operand{seg: c.dataSeg(def), off: uint32(uint16(ea))}}
+	return modrm{reg: reg, mod: mod, rm: operand{seg: uint8(c.dataSeg(def)), off: uint32(uint16(ea))}}
 }
 
 func (c *CPU) get8(o operand) uint8 {
 	if o.isReg {
 		return c.reg8(o.reg)
 	}
-	return c.read8(o.seg, o.off)
+	return c.read8(int(o.seg), o.off)
 }
 
 func (c *CPU) set8(o operand, v uint8) {
@@ -178,7 +180,7 @@ func (c *CPU) set8(o operand, v uint8) {
 		c.setReg8(o.reg, v)
 		return
 	}
-	c.write8(o.seg, o.off, v)
+	c.write8(int(o.seg), o.off, v)
 }
 
 func (c *CPU) get16(o operand) uint16 {
@@ -186,9 +188,9 @@ func (c *CPU) get16(o operand) uint16 {
 		return c.R[o.reg]
 	}
 	if o.w32 {
-		return uint16(c.segRead(o.seg, o.off, 2, true))
+		return uint16(c.segRead(int(o.seg), o.off, 2, true))
 	}
-	return c.read16(o.seg, o.off)
+	return c.read16(int(o.seg), o.off)
 }
 
 func (c *CPU) set16(o operand, v uint16) {
@@ -197,10 +199,10 @@ func (c *CPU) set16(o operand, v uint16) {
 		return
 	}
 	if o.w32 {
-		c.segWrite(o.seg, o.off, 2, true, uint32(v))
+		c.segWrite(int(o.seg), o.off, 2, true, uint32(v))
 		return
 	}
-	c.write16(o.seg, o.off, v)
+	c.write16(int(o.seg), o.off, v)
 }
 
 // regOperand 把 ModRM 的 reg 欄位包成 operand，讓 r/m 與 r 兩邊走同一組存取函式。

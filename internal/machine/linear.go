@@ -88,6 +88,7 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 	for i := cpu.ES; i <= cpu.GS; i++ {
 		m.CPU.SetSegCache(i, SegCache{})
 	}
+	m.resetSegWait()
 	if on {
 		m.CPU.Sys = m
 	} else {

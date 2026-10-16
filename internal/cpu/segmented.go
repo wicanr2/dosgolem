@@ -269,3 +269,57 @@ func (c *CPU) loadSegPM(i int, sel uint16) bool {
 	c.cache[i] = d
 	return true
 }
+
+// seg0F00 是分段模式的 0F 00 群組（434 §6）：
+//
+//	/0 SLDT、/1 STR：寫 LDTR、TR 的選擇子（一律 16 位元，DOSBox-X prefix_0f.h 的 earw／SaveMw；TR 目前恆 0）
+//	/2 LLDT：空選擇子使 LDTR 不可用；否則須在 GDT（TI=1 失敗，刻意從嚴）、描述元 S=0 type 2、present
+//	/3 LTR：失敗即關閉（TSS 與任務切換屬 S4；本規格的驗收停點）
+//	/4、/5（VERR、VERW）與 /6、/7：失敗即關閉
+func (c *CPU) seg0F00() error {
+	const op2 = 0x00
+	m := c.decodeModRM()
+	switch m.reg {
+	case 0:
+		sel, _ := c.Sys.LDTR()
+		c.set16(m.rm, sel)
+	case 1:
+		c.set16(m.rm, c.Sys.TRSel())
+	case 2:
+		if err := c.privileged(op2, "LLDT"); err != nil {
+			return err
+		}
+		return c.lldt(c.get16(m.rm))
+	case 3:
+		return c.errf(op2, "0F 00 /3 LTR：TSS、任務切換與進 V86 屬 S4，失敗即關閉（docs/spec/434 §6 的驗收停點）")
+	default:
+		return c.errf(op2, "0F 00 /%d：分段模式失敗即關閉（JEMM 沒用，docs/spec/434 §6）", m.reg)
+	}
+	return nil
+}
+
+// lldt 照 DOSBox-X include/cpu.h:524-541，但 TI=1 失敗（Intel 語意，刻意從嚴）。
+func (c *CPU) lldt(sel uint16) error {
+	const op2 = 0x00
+	if sel&0xFFFC == 0 {
+		c.Sys.SetLDTR(0, SegCache{})
+		return nil
+	}
+	if sel&4 != 0 {
+		return c.errf(op2, "LLDT %04X：選擇子須在 GDT（TI=1 失敗即關閉，docs/spec/434 §6）", sel)
+	}
+	base, limit := c.Sys.GDTR()
+	idx := uint32(sel &^ 7)
+	if idx+7 > uint32(limit) {
+		return c.errf(op2, "LLDT %04X：索引 %X×8＋7 超出 GDT 界限 %X（docs/spec/434 §6）", sel, idx>>3, limit)
+	}
+	d := descriptor(c.Sys.ReadSup32(base+idx), c.Sys.ReadSup32(base+idx+4))
+	if uint8(d.Attr)&0x1F != 2 {
+		return c.errf(op2, "LLDT %04X：描述元不是 LDT（access %02X，docs/spec/434 §6）", sel, uint8(d.Attr))
+	}
+	if d.Attr&attrP == 0 {
+		return c.errf(op2, "LLDT %04X：LDT 描述元不存在（P=0，docs/spec/434 §6）", sel)
+	}
+	c.Sys.SetLDTR(sel, d)
+	return nil
+}

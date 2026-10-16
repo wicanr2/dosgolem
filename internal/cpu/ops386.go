@@ -106,7 +106,7 @@ func (c *CPU) execute386(op uint8) (handled bool, err error) {
 // 分段模式不截斷，界限由段快取檢查（434 §4.2）。
 func (c *CPU) moffs32(op uint8) error {
 	off := c.fetch32()
-	o := operand{seg: c.dataSeg(DS), off: off, w32: true}
+	o := operand{seg: uint8(c.dataSeg(DS)), off: off, w32: true}
 	if !c.segmented {
 		if off > 0xFFFF {
 			return c.errf(op, "moffs 位移 %08X 超出實模式 64 KB 段限（docs/spec/197 §3）", off)
@@ -483,9 +483,9 @@ func (c *CPU) get32(o operand) uint32 {
 		return c.reg32(o.reg)
 	}
 	if o.w32 {
-		return c.segRead(o.seg, o.off, 4, true)
+		return c.segRead(int(o.seg), o.off, 4, true)
 	}
-	return c.read32(o.seg, o.off)
+	return c.read32(int(o.seg), o.off)
 }
 
 func (c *CPU) set32(o operand, v uint32) {
@@ -494,10 +494,10 @@ func (c *CPU) set32(o operand, v uint32) {
 		return
 	}
 	if o.w32 {
-		c.segWrite(o.seg, o.off, 4, true, v)
+		c.segWrite(int(o.seg), o.off, 4, true, v)
 		return
 	}
-	c.write32(o.seg, o.off, v)
+	c.write32(int(o.seg), o.off, v)
 }
 
 // push32／pop32：堆疊指標仍是 16 位元的 SP（實模式與分段模式的 SS 都是 B=0；B=1 失敗即關閉），

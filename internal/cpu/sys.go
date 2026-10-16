@@ -46,7 +46,14 @@ const (
 // ivtGuard 是 433 §2 的 IDTR 守門（CPU 側）：profile 開啟、仍在實模式、IDTR 基底不為 0 時，
 // 實模式的 INT 與例外失敗即關閉（dosgolem 一律讀 0000:0000 的 IVT，真機與 DOSBox-X 以 IDTR 基底取向量，
 // DOSBox-X cpu/cpu.cpp:1294-1296）。成立時以 failf 記下原因並回 true，呼叫端不得呼叫 Interrupt。
+//
+// 434 §5.3 擴充：分段模式下同樣失敗即關閉（保護模式 IDT 遞送屬 435／S6）。
 func (c *CPU) ivtGuard(n uint8, what string) bool {
+	if c.segmented {
+		c.failf("%s（INT %02Xh）：分段模式下的中斷與例外經保護模式 IDT 遞送，屬 435／S6，失敗即關閉"+
+			"（docs/spec/434 §5.3）", what, n)
+		return true
+	}
 	if c.Sys == nil || !c.Sys.IVTMismatch() {
 		return false
 	}
@@ -61,6 +68,13 @@ func (c *CPU) ivtGuard(n uint8, what string) bool {
 func (c *CPU) execSys0F(op2 uint8) (handled bool, err error) {
 	switch op2 {
 	case 0x00, 0x02, 0x03:
+		if c.segmented {
+			// 434 §6：分段模式的 0F 00 群組在 seg0F00；LAR、LSL 失敗即關閉（JEMM 沒用）。
+			if op2 == 0x00 {
+				return true, c.seg0F00()
+			}
+			return true, c.errf(op2, "0F %02X：分段模式的 LAR、LSL 失敗即關閉（JEMM 沒用，docs/spec/434 §6）", op2)
+		}
 		// 0F 00 整組、LAR、LSL：DOSBox-X 在實模式送 IVT 第 6 項（prefix_0f.h:22、128、141）；刻意從嚴。
 		return true, c.errf(op2, "0F %02X：實模式的 0F 00 群組、LAR、LSL 失敗即關閉"+
 			"（DOSBox-X 送 IVT 第 6 項；刻意從嚴，docs/spec/433 §4）", op2)

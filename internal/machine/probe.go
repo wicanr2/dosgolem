@@ -114,6 +114,17 @@ func (m *Machine) BreakAt(seg, off uint16) int {
 	return m.nextProbe
 }
 
+// AddLinearBreak 以線性位址設一個執行中斷點（434 §7）：分段模式的位址（可大於 1 MB）只能經這裡設定。
+// 比對見 atBreak：分段模式比 PCLinear()，否則比 cpu.Addr(CS, IP)。
+func (m *Machine) AddLinearBreak(addr uint32) int {
+	m.nextProbe++
+	if m.breaks == nil {
+		m.breaks = map[int]uint32{}
+	}
+	m.breaks[m.nextProbe] = addr
+	return m.nextProbe
+}
+
 // ClearBreak 拿掉一個中斷點。
 func (m *Machine) ClearBreak(id int) { delete(m.breaks, id) }
 
@@ -212,7 +223,11 @@ func (m *Machine) atBreak() bool {
 	if len(m.breaks) == 0 {
 		return false
 	}
+	// 434 §7：分段模式用 PCLinear()；否則維持 cpu.Addr（20 位元遮罩）不變。
 	at := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP)
+	if m.CPU.Segmented() {
+		at = m.PCLinear()
+	}
 	for _, a := range m.breaks {
 		if a == at {
 			return true
@@ -221,7 +236,8 @@ func (m *Machine) atBreak() bool {
 	return false
 }
 
-// Insn 是目前這一條指令的起點（`Step` 進來時的 CS:IP）。
+// Insn 是目前這一條指令的起點（`Step` 進來時的 CS:IP）。分段模式下照舊回「選擇子:偏移」；
+// 需要線性位址者用 InsnLinear()（434 §7）。
 //
 // 監看點觸發時 `CPU.IP` 已經被解碼推過去了，所以「是誰寫的」要問這裡。
 // 差別在有運算元的指令上會到好幾個位元組——而那正是要回去對碼的位址。

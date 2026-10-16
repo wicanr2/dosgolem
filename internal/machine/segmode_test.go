@@ -69,6 +69,8 @@ func TestSegLGDTReplica(t *testing.T) {
 	})
 	putDesc(m, segGDT, 0x28, segData, 0xFFFF, 0x92, 0)
 	copy(m.Mem[newGDT:newGDT+0x80], m.Mem[segGDT:segGDT+0x80]) // 「複製到 XMS」
+	// 副本的項 28h 仍指向「舊基底」50000h（JEMM 的副本項 20h 仍是 20000h）：以選擇子查新表會寫到 51400h 一帶。
+	putDesc(m, newGDT, 0x28, 0x50000, 0xFFFF, 0x92, 0)
 	copy(m.Mem[0x1200:], []byte{0x7F, 0x00, 0x00, 0x14, 0x06, 0x00})
 	for i := 0; i < 6; i++ {
 		mustStep(t, m, "42AD 仿製")
@@ -81,6 +83,9 @@ func TestSegLGDTReplica(t *testing.T) {
 	}
 	if got := m.Mem[segGDT+0x2A : segGDT+0x2D]; got[0] != 0 || got[1] != 0 || got[2] != 0x06 {
 		t.Errorf("舊表不得被寫：% X", got)
+	}
+	if m.Mem[0x5142A] != 0 || m.Mem[0x5142B] != 0 || m.Mem[0x5142C] != 0 {
+		t.Errorf("以選擇子查新表的位置不得被寫：% X", m.Mem[0x5142A:0x5142D])
 	}
 	if c := m.CPU.SegCache(cpu.ES); c.Base != segData {
 		t.Errorf("ES 快取不因換表而改變：%+v", c)

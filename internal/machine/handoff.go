@@ -51,5 +51,6 @@ func (m *Machine) enterSegmented() error {
 		c.SetSegCache(i, SegCache{Base: uint32(v) << 4, Limit: 0xFFFF, Attr: attr})
 	}
 	c.SetSegmented(true)
+	m.resetSegWait()
 	return m.SetPMCPL(0)
 }

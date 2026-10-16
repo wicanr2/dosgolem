@@ -669,6 +669,13 @@ type Machine struct {
 	// irqErr 是 433 §2 的 IDTR 守門（Machine 側）擋下 IRQ 時存的錯誤。tick／keyTick 回來後
 	// 由 Step 在同一個分支內檢查：非 nil 就清掉並直接回傳，不執行 CPU.Step()、Steps 不加。
 	irqErr error
+
+	// 434 §5.3：分段模式下「有待處理 IRQ 且 IF=1」連續的步數（segWaitN）與上一次計數的步號
+	// （segWaitAt，避免同一步在 tick 與鍵盤分支各算一次）。不進狀態檔。
+	segWaitN, segWaitAt uint64
+	// insnSeg、insnBase：本道指令起點是否在分段模式，以及當時的 CS 快取基底（434 §7 的 InsnLinear）。
+	insnSeg  bool
+	insnBase uint32
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -1435,26 +1442,29 @@ func (m *Machine) Step() error {
 		}
 	}
 	// 定時事件優先（`197` §3.1）：同一道指令只送一個事件。
-	if len(m.timedKeys) != 0 {
-		if !m.timedKeyTick() && len(m.keyQueue) > 0 {
+	// 434 §5.3：分段模式下 keyTick、timedKeyTick 都不執行、不消耗狀態（431 §3 的延後），只計待處理步數。
+	if len(m.timedKeys) != 0 || len(m.keyQueue) > 0 {
+		if m.CPU.Segmented() {
+			m.segWait()
+		} else if len(m.timedKeys) != 0 {
+			if !m.timedKeyTick() && len(m.keyQueue) > 0 {
+				m.keyTick()
+			}
+		} else {
 			m.keyTick()
 		}
-		if m.irqErr != nil { // 433 §2
-			return m.takeIRQErr()
-		}
-	} else if len(m.keyQueue) > 0 {
-		m.keyTick()
-		if m.irqErr != nil { // 433 §2
+		if m.irqErr != nil { // 433 §2；434 §5.3
 			return m.takeIRQErr()
 		}
 	}
 	m.Steps++
 	if m.Coverage != nil {
-		if a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP); int(a) < len(m.Coverage) {
-			m.Coverage[a] = true
-		}
+		m.cover()
 	}
 	m.insnCS, m.insnIP = m.CPU.Seg[cpu.CS], m.CPU.IP
+	if m.insnSeg = m.CPU.Segmented(); m.insnSeg {
+		m.insnBase = m.CPU.SegCache(cpu.CS).Base
+	}
 	if !m.TraceSegs && !m.WatchDSOn {
 		err := m.CPU.Step()
 		if len(m.wordWatches) > 0 {
@@ -1538,19 +1548,24 @@ func (m *Machine) Step() error {
 // 絕大多數指令連呼叫都不用發（`docs/spec/015` §3），漏掉就等於那件事
 // 永遠不會發生。
 func (m *Machine) tick() {
-	// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
-	// 事件是有時序意義的，週期回呼晚一格沒差。
-	if m.startCallback() {
-		return
-	}
-	// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
-	// 遊戲的回呼，遊戲那一支自己 `cli/pushf … popf/retf`。
-	// 掛在 IF 上的話初始化期間那一大段 `cli` 會把時鐘整個吃掉。
-	if m.periodic.on && m.Steps >= m.periodic.next {
-		m.periodic.next = m.Steps + m.periodic.every
-		m.periodic.Calls++
-		m.CPU.FarCall(m.periodic.seg, m.periodic.off)
-		return
+	// 434 §5.3：分段模式下回呼與週期遠呼叫都延後，不執行、不消耗狀態（431 §3）。
+	// 閘門在 startCallback 之前；幀計數與 IRQ0 時鐘照常（不經 CPU），只延後遞送（見下方）。
+	segmented := m.CPU.Segmented()
+	if !segmented {
+		// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
+		// 事件是有時序意義的，週期回呼晚一格沒差。
+		if m.startCallback() {
+			return
+		}
+		// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
+		// 遊戲的回呼，遊戲那一支自己 `cli/pushf … popf/retf`。
+		// 掛在 IF 上的話初始化期間那一大段 `cli` 會把時鐘整個吃掉。
+		if m.periodic.on && m.Steps >= m.periodic.next {
+			m.periodic.next = m.Steps + m.periodic.every
+			m.periodic.Calls++
+			m.CPU.FarCall(m.periodic.seg, m.periodic.off)
+			return
+		}
 	}
 	// 垂直回掃 ＝ 螢幕刷新一次 ＝ 一幀。
 	//
@@ -1585,6 +1600,12 @@ func (m *Machine) tick() {
 			m.irq0Pending = true
 		}
 	}
+	// 434 §5.3：分段模式只延後遞送（irq0Pending 照常設起並保留；Ticks、onTick、Interrupt 都不執行），
+	// 並計算「有待處理 IRQ 且 IF=1」的連續步數。
+	if segmented {
+		m.segWait()
+		return
+	}
 	if !m.CPU.Flag(cpu.IF) || m.picMask&0x01 != 0 {
 		return
 	}
@@ -1601,6 +1622,62 @@ func (m *Machine) tick() {
 		m.onTick()
 	}
 	m.CPU.Interrupt(0x08)
+}
+
+// segWaitLimit 是分段模式下「有待處理 IRQ 且 IF=1」容許的連續步數（431 §3、434 §5.3）。
+const segWaitLimit = 1_000_000
+
+// segWait 在分段模式的延後分支（tick 的遞送閘門、鍵盤分支）呼叫，每步最多算一次：有待處理 IRQ
+// （irq0Pending 或鍵盤佇列非空）且 IF=1 時計數，否則歸零；到達一百萬步時把錯誤存進 irqErr，
+// 由 Step 回傳（不執行 CPU.Step）。條件仍成立時之後每一步都回錯誤。
+func (m *Machine) segWait() {
+	if m.segWaitAt == m.Steps+1 {
+		return
+	}
+	m.segWaitAt = m.Steps + 1
+	if !(m.irq0Pending || len(m.keyQueue) > 0) || !m.CPU.Flag(cpu.IF) {
+		m.segWaitN = 0
+		return
+	}
+	m.segWaitN++
+	if m.segWaitN >= segWaitLimit && m.irqErr == nil {
+		m.irqErr = fmt.Errorf("machine: 分段模式下有待處理 IRQ（irq0Pending=%t、鍵盤佇列 %d 筆）且 IF=1，"+
+			"連續 %d 步未離開分段模式，失敗即關閉（保護模式 IDT 遞送屬 435；docs/spec/431 §3、434 §5.3）",
+			m.irq0Pending, len(m.keyQueue), m.segWaitN)
+	}
+}
+
+// resetSegWait 把 segWait 的計數歸零（進入分段模式、Restore、LoadState、profile 切換）。
+func (m *Machine) resetSegWait() { m.segWaitN, m.segWaitAt = 0, 0 }
+
+// cover 記 Coverage（434 §7）：分段模式用 PCLinear()；否則維持 cpu.Addr（20 位元遮罩）。
+// 超出 len(Coverage) 不記。
+func (m *Machine) cover() {
+	a := cpu.Addr(m.CPU.Seg[cpu.CS], m.CPU.IP)
+	if m.CPU.Segmented() {
+		a = m.PCLinear()
+	}
+	if uint64(a) < uint64(len(m.Coverage)) {
+		m.Coverage[a] = true
+	}
+}
+
+// PCLinear 是下一道（步間）指令的線性位址（434 §7）：分段模式為 CS 快取基底＋IP，
+// 否則為 cpu.Linear(CS, IP)（不遮罩）。
+func (m *Machine) PCLinear() uint32 {
+	if m.CPU.Segmented() {
+		return m.CPU.SegCache(cpu.CS).Base + uint32(m.CPU.IP)
+	}
+	return cpu.Linear(m.CPU.Seg[cpu.CS], m.CPU.IP)
+}
+
+// InsnLinear 是本道指令起點（Step 進來時的 CS:IP）的線性位址（434 §7）：分段模式以 Step 記下的
+// CS 快取基底加 insnIP，否則為 cpu.Linear(insnCS, insnIP)。
+func (m *Machine) InsnLinear() uint32 {
+	if m.insnSeg {
+		return m.insnBase + uint32(m.insnIP)
+	}
+	return cpu.Linear(m.insnCS, m.insnIP)
 }
 
 // SetOnFrame 登記「每一次垂直回掃就呼叫」（`docs/spec/187`）。nil 取消。
