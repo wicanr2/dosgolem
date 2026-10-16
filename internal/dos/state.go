@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"sort"
+
+	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
 // 存檔／讀檔：DOS 這一層的狀態。與 `machine.SaveState` 合起來才是一台
@@ -313,6 +315,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 		d.procStack = append(d.procStack, procFrame{r: f.R, seg: f.Seg, ip: f.IP, fl: f.Fl,
 			psp: f.PSP, freeSeg: f.FreeSeg, ivt: f.IVT})
 	}
+	d.rebuildArenaOwnership()
 	d.ems = &ems{handles: map[uint16]*emsHandle{}, next: s.EMSNext}
 	for _, e := range s.EMSHandles {
 		eh := &emsHandle{}
@@ -330,4 +333,47 @@ func (d *DOS) LoadState(r io.Reader) error {
 		}
 	}
 	return nil
+}
+
+// rebuildArenaOwnership 在讀檔後由客體 MCB 與行程疊重建 arena 擁有者、各框架的 arenaSeg
+// 與 queuedSeg（`docs/spec/440-dos-loadstate-arena-ownership` §2）。狀態檔不存這三項
+// （`DOSState` 錨點不能再動），少了它們，讀檔後子行程結束時 `releaseOwnedBy` 與
+// `freeArenaSeg` 都找不到要回收的塊，下一次 EXEC 回錯誤 8。
+//
+// 呼叫前 arena 與 procStack 必須已還原，客體記憶體（machine.LoadState）也要先載入。
+func (d *DOS) rebuildArenaOwnership() {
+	// 第 1 項：已用塊的擁有者直接取客體 MCB 偏移 1 的 word；0 補成 PSPSeg。
+	for i := range d.arena {
+		b := &d.arena[i]
+		if b.free {
+			b.owner = 0
+			continue
+		}
+		o := d.M.ReadPhys16(uint32(b.seg)*16 + 1)
+		if o == 0 {
+			o = uint16(machine.PSPSeg)
+		}
+		b.owner = o
+	}
+	// 第 2 項：procStack[i] 是啟動第 i 個子行程時存下的父框架；子 PSP 是下一層框架的 psp，
+	// 最上層則是 curPSP。子行程程式塊的擁有者是父 PSP（placeChild 配置時的 blockOwner），
+	// 不取客體值：spawn 在客體 MCB 寫的是子 PSP，第一次 syncMCB 才改成父 PSP。
+	for i := range d.procStack {
+		child := d.curPSP
+		if i+1 < len(d.procStack) {
+			child = d.procStack[i+1].psp
+		}
+		d.procStack[i].arenaSeg = 0
+		if j := d.arenaIndex(child - 1); j >= 0 && !d.arena[j].free {
+			d.procStack[i].arenaSeg = d.arena[j].seg
+			d.arena[j].owner = d.procStack[i].psp
+		}
+	}
+	// 第 3 項：佇列推出的底層行程。頂層初始程式的 PSPSeg−1 不在 arena 內。
+	d.queuedSeg = 0
+	if len(d.procStack) == 0 {
+		if j := d.arenaIndex(d.curPSP - 1); j >= 0 && !d.arena[j].free {
+			d.queuedSeg = d.arena[j].seg
+		}
+	}
 }
