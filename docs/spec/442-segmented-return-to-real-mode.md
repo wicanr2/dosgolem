@@ -355,4 +355,7 @@ commit：`bbacc53`。
 - `go test -v ./apps/...`：測試名稱與結果與改動前相同；`phantasie-play` 前後都因無顯示器失敗；`buckrogers` 一個 overlay 測試在一輪中偶發失敗，單獨 `-count=20` 全過，與本規格無關。
 - 效能（`BenchmarkStepRealMode`，同一容器交錯新舊各 5 次，load average 約 16）：最快值改動前 35.51 ns/op、改動後 35.77 ns/op，約 99.3%。
 - 實作選擇：P=0 改設預設快取時仍設離開旗標；`err != nil` 的非 fault 錯誤也清旗標；子狀態 iret 計三次彈出週期；`66` 遠轉移的子狀態檢查在 `farJmp32`、`farCall32`、`farRet32` 開頭（`66 FF /3`、`/5` 先讀記憶體運算元）。
-- 需要原版的觸發案例與 DOSBox-X 獨立對照尚未做：STRIKE.EXE 目前先停在 443 的 D=1 碼段，到不了 JEMM 卸載。
+- 觸發案例（2026-10-17，`strike_commander` 的 `workplace/logs/probe460.log`）：`SCCD.EXE` 冷開機、SB16 設定（`-ma -ds`）加 `-sound-blaster -adlib`，
+  MENU 印「cannot locate the sound card(s)」以 1 結束，SCCD 讓 JEMM 卸載：經 `519E` 清 PE、子狀態執行到 `51ED iret` 回實模式，SCCD 印「You've won this time...」
+  後以 `AH=4Ch` 離開碼 0 結束，共 4431748 道。沒有停點。
+- DOSBox-X 獨立對照尚未做。
