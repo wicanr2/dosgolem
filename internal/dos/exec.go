@@ -69,6 +69,9 @@ type ExecRecord struct {
 	FreeSeg, CurPSP uint16
 	// Parags 是映像需要的段數（`imageParags`）。
 	Parags uint16
+	// EnvSeg 是 `ExecEnvCopy` 替子行程建的環境段（資料段，MCB 在前一段）；
+	// 選項關閉、AL=03h 與監督佇列都是 0（`docs/spec/439-exec-child-environment` §2.2 第 7 項）。
+	EnvSeg uint16
 }
 
 // Enqueue 排入一支待跑程式。行程疊空了（第一支程式結束或常駐）之後
@@ -134,9 +137,12 @@ func imageParags(data []byte) uint16 {
 // （carve 之前先記下來），找不到回 ok=false
 // （R55 E142 根因：盲用 freeSeg+1 會蓋掉活的堆）。
 // need 是 imageParags 原值（含 MCB＋PSP）；want 扣掉 MCB 那一段。
-func (d *DOS) placeChild(need uint16) (mcb, top uint16, ok bool) {
+// off 只用在 arena 為 nil 時：程式塊的 MCB 從 freeSeg+off 起（`ExecEnvCopy` 把
+// 環境塊放在 freeSeg，`docs/spec/439-exec-child-environment` §2.2 第 4 項）；
+// 不建環境的呼叫端傳 0，行為不變。
+func (d *DOS) placeChild(need, off uint16) (mcb, top uint16, ok bool) {
 	if d.arena == nil {
-		return d.freeSeg, uint16(machine.MemTop), true
+		return d.freeSeg + off, uint16(machine.MemTop), true
 	}
 	if i := d.pickBlock(need - 1); i >= 0 {
 		mcb := d.arena[i].seg
@@ -155,16 +161,54 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	}
 
 	need := imageParags(data)
-	mcb, top, placed := d.placeChild(need)
+
+	// 子行程的環境塊（`docs/spec/439-exec-child-environment` §2.2）：在程式塊之前配置，
+	// 內容與客體 MCB 等全部成功之後才寫。選項關閉時 env 是 nil、envOff 是 0。
+	var env *childEnv
+	var envOff uint16
+	if d.ExecEnvCopy {
+		e, code := d.prepareChildEnv(name, p.envSeg)
+		if code != 0 {
+			d.fail(c, code) // 3：路徑太長；10：環境無效。未配置任何塊。
+			return
+		}
+		if d.arena == nil {
+			// 不呼叫 initArena（會改變既有行為）：環境 MCB 在 freeSeg，
+			// 程式塊的 MCB 在 freeSeg+1+envParags。
+			if avail := uint16(machine.MemTop) - d.freeSeg; uint32(e.parags)+1 > uint32(avail) {
+				d.fail(c, 8)
+				c.R[cpu.BX] = avail
+				return
+			}
+			e.mcb = d.freeSeg
+			envOff = e.parags + 1
+		} else {
+			i := d.pickBlock(e.parags)
+			if i < 0 {
+				d.fail(c, 8)
+				c.R[cpu.BX] = d.largestFree()
+				return
+			}
+			e.mcb = d.arena[i].seg
+			d.carveBlock(i, e.parags)
+		}
+		env = e
+	}
+
+	mcb, top, placed := d.placeChild(need, envOff)
 	if d.arena == nil {
-		// 舊路徑：容量照舊檢查。
-		if avail := uint16(machine.MemTop) - d.freeSeg; need > avail {
+		// 舊路徑：容量照舊檢查（環境塊在前時連它一起算）。
+		if avail := uint16(machine.MemTop) - d.freeSeg; uint32(envOff)+uint32(need) > uint32(avail) {
 			c.R[cpu.AX] = 8 // 記憶體不足
 			c.R[cpu.BX] = avail
 			setCarry(c)
 			return
 		}
 	} else if !placed {
+		if env != nil {
+			// 環境塊已配、程式塊配不到：不留下半配置的塊。
+			d.freeArenaSeg(env.mcb)
+		}
 		// arena 滿：與 AH=48h 配不出來一致。
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = d.largestFree()
@@ -173,6 +217,13 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	}
 	// 子行程 PSP ＝ MCB 段＋1（那一格是假 MCB，與 AH=48h 一致）。
 	psp := mcb + 1
+	if env != nil && d.arena != nil {
+		// 環境塊屬於子行程：非駐留結束時 terminate 的 releaseOwnedBy 一併釋放，
+		// 駐留時保留（§2.2 第 5 項）。carveBlock 記的是父行程。
+		if i := d.arenaIndex(env.mcb); i >= 0 {
+			d.arena[i].owner = psp
+		}
+	}
 
 	// 壓父行程框。此時 IP 已指到 int 21h 的下一道，存起來的就是
 	// 正確的接續點。
@@ -191,6 +242,11 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 
 	prog, err := d.M.LoadProgramAt(psp, data)
 	if err != nil {
+		if env != nil && d.arena != nil {
+			// 環境塊與程式塊都還回去（§2.2 第 6 項；選項關閉時維持舊行為）。
+			d.freeArenaSeg(env.mcb)
+			d.freeArenaSeg(mcb)
+		}
 		d.Missing = append(d.Missing, fmt.Sprintf("%s（%v）", name, err))
 		c.R[cpu.AX] = 8
 		setCarry(c)
@@ -198,6 +254,9 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	}
 	d.procStack = append(d.procStack, f)
 	d.M.WriteMCB(mcb, false, psp, prog.EndSeg-mcb)
+	if env != nil {
+		d.writeChildEnv(env, psp)
+	}
 
 	// PSP 欄位（`docs/spec/009` §2.4）。
 	base := uint32(psp) * 16
@@ -211,6 +270,9 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	envSeg := p.envSeg
 	if envSeg == 0 { // 繼承父行程的環境段
 		envSeg = d.M.Read16(uint32(f.psp)*16 + 0x2C)
+	}
+	if env != nil {
+		envSeg = env.mcb + 1 // 子行程自己的環境副本
 	}
 	d.M.Write16(base+0x2C, envSeg)
 	d.copyCmdTail(base, p.tailSeg, p.tailOff)
@@ -226,12 +288,100 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 		// 降回去會讓下一次落子與 TSR 保留計算用到已佔的低段。
 		d.freeSeg = f.freeSeg
 	}
-	d.ExecLog = append(d.ExecLog, ExecRecord{
+	rec := ExecRecord{
 		Name: name, Base: filepath.Base(path), PSP: psp, Exit: 0xFF,
 		FreeSeg: f.freeSeg, CurPSP: f.psp, Parags: need,
-	})
+	}
+	if env != nil {
+		rec.EnvSeg = env.mcb + 1
+	}
+	d.ExecLog = append(d.ExecLog, rec)
 	d.Opened = append(d.Opened, name)
 	clearCarry(c)
+}
+
+// execEnvScanMax 是環境掃描的上限：DOSBox-X `MakeEnv` 的 `MAXENV - ENV_KEEPFREE`
+// （32768 − 83）。到這個偏移仍找不到雙 0 回錯誤 10（`docs/spec/439` §1 第 2 項）。
+const execEnvScanMax = 32768 - 83
+
+// childEnv 是 EXEC 替子行程準備的環境塊。
+type childEnv struct {
+	body   []byte // 來源環境（含結尾雙 0），或沒有環境時的一個 0 byte
+	path   string // 正規化後的子程式路徑，寫在 word 0001h 之後
+	parags uint16 // 資料段數
+	mcb    uint16 // 配到的 MCB 段（資料在 mcb+1）
+}
+
+// prepareChildEnv 照 `docs/spec/439-exec-child-environment` §2.2 第 1–3 項算出環境內容
+// 與大小，不配置、不寫客體記憶體。失敗回 DOS 錯誤碼（3 或 10）。
+//
+// 來源 bytes 在這裡就抄進 Go 端：之後的 LoadProgramAt 會重寫全域環境區塊
+// （`machine.initPSPAt`），等全部成功才讀的話可能讀到被換掉的內容。
+func (d *DOS) prepareChildEnv(name string, envSeg uint16) (*childEnv, uint16) {
+	path := d.canonical(name)
+	if len(path) > 127 {
+		return nil, 3
+	}
+	src := envSeg
+	if src == 0 {
+		src = d.M.Read16(uint32(d.curPSP)*16 + 0x2C)
+	}
+	var body []byte
+	if src == 0 {
+		body = []byte{0} // 沒有環境：只寫一個 0 byte（envsize=1）
+	} else {
+		n := -1
+		for i := 0; i < execEnvScanMax; i++ {
+			if d.M.Read16(d.M.SvcAddr(src, uint16(i))) == 0 {
+				n = i
+				break
+			}
+		}
+		if n < 0 {
+			return nil, 10
+		}
+		body = make([]byte, n+2)
+		for i := range body {
+			body[i] = d.M.Read8(d.M.SvcAddr(src, uint16(i)))
+		}
+	}
+	keep := 2 + len(path) + 1
+	if keep < 83 {
+		keep = 83
+	}
+	parags := (len(body) + keep + 15) / 16
+	if parags == 0 {
+		parags = 1
+	}
+	return &childEnv{body: body, path: path, parags: uint16(parags)}, 0
+}
+
+// writeChildEnv 把環境內容與它的客體 MCB 寫進記憶體（§2.2 第 4–6 項：全部成功之後才寫）。
+// MCB 的 size 用實際配到的段數（carveBlock 剩餘不足時整塊吃掉），擁有者是子 PSP。
+func (d *DOS) writeChildEnv(e *childEnv, psp uint16) {
+	size, last := e.parags, false
+	if d.arena != nil {
+		if i := d.arenaIndex(e.mcb); i >= 0 {
+			size, last = d.arena[i].size, i == len(d.arena)-1
+		}
+	}
+	d.M.WriteMCB(e.mcb, last, psp, size)
+	at := uint32(e.mcb+1) * 16
+	d.M.WriteBytes(at, e.body)
+	at += uint32(len(e.body))
+	d.M.Write16(at, 0x0001)
+	d.M.WriteBytes(at+2, append([]byte(e.path), 0))
+}
+
+// arenaIndex 回 MCB 段為 seg 的 arena 項目索引；−1 ＝ 沒有。
+// 第二次 carve 會讓索引位移，所以用段位址回頭找。
+func (d *DOS) arenaIndex(seg uint16) int {
+	for i := range d.arena {
+		if d.arena[i].seg == seg {
+			return i
+		}
+	}
+	return -1
 }
 
 // loadOverlay 是 `AH=4Bh AL=03h`：把映像放到指定的段，什麼都不切。
@@ -467,7 +617,7 @@ func (d *DOS) spawnQueued(c *cpu.CPU, q Queued) {
 		return
 	}
 	need := imageParags(data)
-	mcb, top, placed := d.placeChild(need)
+	mcb, top, placed := d.placeChild(need, 0)
 	if d.arena == nil {
 		// 舊路徑：容量照舊檢查（邊界條件逐字保留）。
 		if mcb+1+need > machine.MemTop {

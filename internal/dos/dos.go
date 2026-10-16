@@ -343,6 +343,14 @@ type DOS struct {
 	// 要真 DOS 語意的程式（EOB3 的 Borland exec，`docs/spec/200`）由轉接層打開。
 	StrictPSPGrowth bool
 
+	// ExecEnvCopy 為真時，`AH=4Bh AL=00h` 替子行程配一塊新環境：複製來源環境
+	// （參數區塊的環境段，0 則父行程 PSP:2Ch），接 word 0001h 與子程式的正規化路徑，
+	// 子 PSP:2Ch 指向它，擁有者是子 PSP（`docs/spec/439-exec-child-environment` §2）。
+	//
+	// 預設為假＝舊行為：子行程共用父行程的環境段，環境尾端的程式路徑仍是父程式的。
+	// 開啟後子程式的 PSP 位置會往上移，既有收據可能改變，所以預設不開。
+	ExecEnvCopy bool
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
