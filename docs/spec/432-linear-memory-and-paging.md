@@ -19,7 +19,8 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 
 ## 2. 啟用條件與公開設定
 
-「轉換開啟」（衍生欄位 `m.xlat`）＝ `PMProfile` 開啟且 `CR0.PE=1`。其餘情形 `Read8`／`Write8` 與現行逐位元組相同；430 的測試
+「轉換開啟」（衍生欄位 `m.xlat`）＝ `PMProfile` 開啟且（`CR0.PE=1` 或既有核心在分段模式）。後者只在 442 的殘留快取實模式
+（`segmented=true`、`PE=0`）成立，讓 1 MB 以上的快取基底經線性層存取（由 442 修訂）。其餘情形 `Read8`／`Write8` 與現行逐位元組相同；430 的測試
 （例如 `extmem_test.go` 約 262–272 行「`Write8(0x10FFF0)` 折回」）不改。
 
 本規格先於 433 實作，所以先提供下列公開設定（433 再擴充成完整的 `SysRegs` 與交接）：
@@ -154,7 +155,8 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 ### 5.4 取指令快路徑
 
 轉換開啟時 `CPU.Code` 一律停用（A20 開時現行已停用，所以 JEMM 場景沒有新損失）；所有 setter、`Restore`、`LoadState` 呼叫
-`syncCodeFastPath`。
+`syncCodeFastPath`。`syncCodeFastPath` 的判準看 `m.xlat`，所以 442 的殘留快取實模式在 A20 關閉時也停用 `CPU.Code`；離開分段模式的路徑
+（442 的 `leaveSegmented`）同樣經 `recalcPM` 呼叫它（由 442 修訂）。
 
 ## 6. 觀測
 

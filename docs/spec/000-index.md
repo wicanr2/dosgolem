@@ -940,7 +940,8 @@
 - [438 probe 護欄改看實體位址](438-probe-guard-physical-pc.md)：READY（第 2 版），已實作。
 - [439 EXEC 子行程環境副本](439-exec-child-environment.md)：READY（第 3 版），已實作。
 - [440 讀檔後重建 arena 擁有者](440-dos-loadstate-arena-ownership.md)：READY（第 2 版），已實作。
-- [441 子行程結束時併回 nil 路徑程式塊](441-exec-reclaim-nil-path-child-block.md)：READY（第 2 版）。選項 `ExecReclaim`／`-exec-reclaim`，預設關閉。
+- [441 子行程結束時併回 nil 路徑程式塊](441-exec-reclaim-nil-path-child-block.md)：READY（第 2 版），已實作。選項 `ExecReclaim`／`-exec-reclaim`，預設關閉。
+- [442 分段模式清 PE 回實模式（S9）](442-segmented-return-to-real-mode.md)：READY（第 2 版）。殘留快取實模式子狀態；連動修訂 431–434。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 

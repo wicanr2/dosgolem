@@ -53,7 +53,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 - 既有核心新增未匯出欄位 `segmented bool` 與 `cache [6]SegCache`，索引與既有常數相同（`ES`、`CS`、`SS`、`DS`、`FS`、`GS`，`internal/cpu/cpu.go:33-46`）。
   只經下列方法讀寫，供 Machine 使用：`Segmented() bool`、`SetSegmented(on bool)`、`SegCache(i int) SegCache`、`SetSegCache(i int, c SegCache)`。
 - 「不可用」的快取：`Attr` 的 P 位元（bit 7）為 0，且 `Base`、`Limit` 為 0。
-- 不變式：`segmented=true` ⇒ `PE=1`、`VM=0`、profile 開啟 ⇒ 432 的 `xlat=true` ⇒ `CPU.Code==nil`（`machine.go` 的 `syncCodeFastPath` 已因 `xlat` 清除）。
+- 不變式：`segmented=true` ⇒ profile 開啟、`VM=0`、`pmCPL=0`，且（`PE=1`）或（`PE=0`、`PG=0`，442 的殘留快取實模式）⇒ 432 的 `xlat=true`
+  ⇒ `CPU.Code==nil`（`machine.go` 的 `syncCodeFastPath` 已因 `xlat` 清除）（由 442 修訂）。
 
 ### 2.1 `PE=1`、`VM=0` 而 `segmented=false`
 
@@ -76,7 +77,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 共 142 bytes。`decodePM` 支援版本 1、2（`segmented=false`、快取全 0）與 3。`LoadState` 另驗：
 
 - `segmented` 只能是 0 或 1；保留 byte 為 0；
-- `segmented=0` 時六個快取全 0；`segmented=1` 時 `PE=1`、`VM=0`、`pmCPL=0`；
+- `segmented=0` 時六個快取全 0；`segmented=1` 時 `VM=0`、`pmCPL=0`，且 `PE=1` 或（`PE=0`、`PG=0`）（由 442 修訂）；
 - 各 `Attr` 的 bit 8–11、13 為 0；`cache[CS]` 與 `cache[SS]` 的 D/B（bit 14）為 0。
 
 433 的 `PM` 測試要改：版本 2 的逐欄位位移測試改成「手造版本 2 可讀」；往返長度 80 改 142；「未知版本號」改用 4；長度不足與尾端多餘 bytes 依版本 3
@@ -108,7 +109,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 ### 3.2 離開與不變式的守門
 
-- `SetCR0` 在 `segmented=true` 時拒絕清 PE（回錯誤，`CR0` 不改）；`mov cr0` 因此失敗即關閉（S9）。
+- `SetCR0` 在 `segmented=true` 時把 PE 由 1 清為 0：PG 同時清除則進入 442 的殘留快取實模式，PG 保留則回錯誤、`CR0` 不改；離開分段模式由
+  442 §2.7 處理（由 442 修訂）。
 - `SetVM(true)`、設 `VM` 的 `SetEFlagsHi`、`SetPMCPL(≠0)` 在 `segmented=true` 時拒絕。`VM` 由 0 變 1 的路徑（`iretd`、任務切換）在本規格都失敗即關閉。
 - `Restore`、`LoadState` 依 `PM` 的 `segmented` 欄位還原，不重新推導。
 - `SetProtectedModeProfile` 切換時 `SetSegmented(false)`、快取清 0。
@@ -174,7 +176,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 `pop cs`（`ops.go:125`）、`mov cs`（`8E /1`）、`iret`（`ops.go:356`）與 `66` 形式在分段模式失敗即關閉。實作時以 grep `Seg\[`、`FSeg`、`GSeg`
 的賦值確認沒有遺漏，收據列出最終清單。
 
-`segmented=false` 時 `loadSeg` 只寫段值，行為不變。`segmented=true` 時：
+`segmented=false` 時 `loadSeg` 只寫段值，行為不變。`segmented=true` 且 `PE=0`（殘留快取實模式）時照 442 §2.4（由 442 修訂）。`segmented=true` 且 `PE=1` 時：
 
 1. 空選擇子：`(sel & 0xFFFC) == 0`（RPL 忽略；`04h` 不算空）。`CS`、`SS` 載入空選擇子失敗即關閉（`CS` 見 `cpu.cpp:1796-1798`）；`DS`／`ES`／`FS`／`GS`
    允許，快取設為不可用。（DOSBox-X `cpu.cpp:3037-3040` 只設段值與基底 0，之後照常存取；本規格經它存取失敗即關閉，刻意從嚴。）
@@ -258,7 +260,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 ## 8. 不在範圍
 
 `iretd` 與任務切換、`ltr`、TSS、V86 進入（S4）；`#GP`／`#SS`／`#NP`／`#PF` 的遞送（S6、435）；保護模式 IDT 遞送與 IRQ（435）；32 位元碼段、
-B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉移；accessed 位元寫回；回實模式（S9）。
+B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉移；accessed 位元寫回。回實模式（S9）見 442（由 442 修訂）。
 
 ## 9. 驗收
 
@@ -267,7 +269,8 @@ B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉�
 3. `PM` 版本 3：逐欄位位移；手造版本 1、2 可讀；版本 1、2 帶 `PE=1`、`VM=0` 被拒；§2.2 的驗證各一例；`Snapshot`／`Restore` 與 `SaveState`／`LoadState`
    對 `segmented` 與六個快取往返；還原 `segmented=1` 後 `CPU.Code==nil`，且 `Step` 以分段模式繼續。
 4. 進入：合成程式在實模式設 PE 後 `segmented=true`、快取為實模式推得值、`CPL=0`；同一步有分頁紀錄時回 `*PageFaultError` 且已進分段模式；
-   `SetCR0` 直接設 PE 不進分段模式（§2.1 的狀態照 432 語意執行）；分段模式下 `SetCR0` 清 PE、`SetVM(true)`、`SetEFlagsHi` 設 VM 都被拒。
+   `SetCR0` 直接設 PE 不進分段模式（§2.1 的狀態照 432 語意執行）；分段模式下 `SetCR0` 清 PE 而保留 PG、`SetVM(true)`、`SetEFlagsHi` 設 VM
+   都被拒；清 PE 且清 PG 的驗收在 442 §3（由 442 修訂）。
 5. 位址：仿 img `42AD`–`42BE` 的合成程式（ES 以舊表載入、換 GDTR、經 ES 寫新表）證明以索引取快取；`67` 定址的有效位址 `> FFFFh` 在分段模式可用、
    在實模式仍記 fault（ModRM32 與 `moffs32` 各一例）；`67` 定址的 dword 寫入跨過 `FFFFh` 以 32 位元相加；向上與向下展開界限邊界各一例（剛好在內、剛好超出）；
    寫入唯讀段、讀不可讀碼段、經不可用快取存取失敗即關閉；`lea` 超出界限不失敗；`CS` 基底非零時取指令正確；`FS`／`GS` 前綴走各自的快取。

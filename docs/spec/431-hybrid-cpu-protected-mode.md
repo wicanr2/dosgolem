@@ -107,7 +107,7 @@ JEMM 從切保護模式到進 V86 之間執行的碼全在 16 位元碼段（GDT
 | 實模式→保護模式 | `mov cr0` 或 `lmsw` 使 PE 由 0 變 1，完成該道指令後回傳哨兵 `ErrModeSwitch`（433）；Machine 讓同一顆核心進分段模式 | 433、434 |
 | 保護模式→V86 | `iretd` 彈出 `VM=1`，或任務切換載入 `VM=1` | 後續規格 S4 |
 | V86→保護模式 | V86 遇到 `INT n`、IOPL 敏感指令、特權指令、例外、IRQ，產生 `V86Event`，依 IDT 遞送 | 435 |
-| 保護模式→實模式 | 不支援，失敗即關閉 | 後續規格 S9 |
+| 保護模式→實模式 | 分段模式下 `mov cr0` 同時清 PE 與 PG，進入殘留快取實模式；六個段暫存器都重載成實模式推得值的那一步回哨兵 `ErrLeaveSegmented`，Machine 離開分段模式（由 442 修訂） | 442 |
 | 16 位元碼段→32 位元碼段 | CS 載入 D=1 的描述元 | 失敗即關閉，後續規格 |
 
 `V86Event` 帶 `Kind`、`Vector`、`HasError`、`ErrorCode`、`InstrIP`、`NextIP`。轉 `#GP`、`#UD` 與 IOPL 敏感的例外，框架的 `EIP` 用
@@ -133,7 +133,7 @@ dosgolem 的 DOS／BIOS 服務在 V86 下仍由 `StubSeg` 的 trampoline 觸發�
 |---|---|
 | S4 | TSS、`ltr`、`iretd` 帶 NT 的任務返回、進 V86（規格 436） |
 | S6 | `#PF`、`#DB`、TF 單步、除錯暫存器觸發 |
-| S9 | 保護模式→實模式（JEMM 的卸載路徑） |
+| S9 | 保護模式→實模式（JEMM 的卸載路徑）：規格 442（由 442 修訂）；由殘留快取實模式再進保護模式不在 442 範圍 |
 | — | 32 位元碼段（JEMM 選擇子 `98h`、`128h`，`int15` 的 `CU`、`XC` 複製常式）：既有核心加 D=1 預設，或接 cpu386 |
 | — | 保護模式內的 IDT 遞送、VCPI、`invlpg`、4 MB 頁、`WP`、`#NM` |
 

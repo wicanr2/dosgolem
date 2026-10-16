@@ -41,8 +41,10 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 `IDTR` 基底不為 0、仍在實模式時，若發生軟體 `INT` 或要遞送 IRQ，失敗即關閉並寫明原因。JEMM 的 `lidt`（`0x41F7`）與 `mov cr0`（`0x4203`）之間
 有兩道指令（`0x41FC`、`0x41FF`，不含 `mov cr0`），觸發案例收據記錄這段期間 `IF` 的值。
 
-守門機制（V86 的 IDT 遞送屬 435，不在此範圍）。條件只有一個定義：`SysBus.IVTMismatch() bool`，由 Machine 以
-`pmProfile && cr0&PE == 0 && idtr.base != 0` 實作；CPU 側判 `c.Sys != nil && c.Sys.IVTMismatch()`，Machine 側直接讀同一組欄位。
+守門機制（V86 的 IDT 遞送屬 435，不在此範圍）。條件只有一個定義：`SysBus.IVTMismatch(vec uint8) bool`，由 Machine 以
+`pmProfile && cr0&PE == 0 && (idtr.base != 0 || 4*vec+3 > idtr.limit)` 實作；CPU 側判 `c.Sys != nil && c.Sys.IVTMismatch(n)`，Machine 側
+（`ivtGuardIRQ`）以遞送的向量呼叫同一個方法。界限只擋「向量超出界限」：界限大於 `3FFh` 無害；DOSBox-X 不查界限（`cpu/cpu.cpp:1293-1296`），
+這裡刻意從嚴（由 442 修訂）。
 
 - CPU 例外與軟體中斷，四處，檢查放在函式最前面，以 `failf` 回報，不呼叫 `Interrupt`：
   - `doInt`（`ops.go:802`），在 `IntHook` 之前，所以 DOS 服務類 `INT` 也會被擋；
@@ -205,7 +207,8 @@ Machine 有未匯出欄位 `pm PMCore`（434 填入 cpu386 的轉接；測試以
    切換時回初值。`Snapshot`／`Restore` 與 `SaveState`／`LoadState` 對所有新欄位往返各一例。profile 開啟、`IDTR` 基底不為 0 的實模式失敗即關閉：
    每個守門點各一例：一般 `INT`、被 `IntHook` 攔截的 `INT 21h`、16 位元 `div 0`（`divideError`）、32 位元 `div 0`（`divideFault`）、`BOUND` 越界
    （`Model80386`）、`tick`、`keyTick`、`timedKeyTick`。IRQ 三例要驗：不呼叫 `Interrupt`、錯誤在同一步回傳、該步不執行 `CPU.Step()` 且 `Steps`
-   不加、`irq0Pending`／鍵盤佇列未被消耗（清掉 `IDTR` 基底後下一步照常送出）。
+   不加、`irq0Pending`／鍵盤佇列未被消耗（清掉 `IDTR` 基底後下一步照常送出）。界限條件（由 442 修訂）：基底 0、界限 `1Fh` 時 `INT 07h`
+   照常、`INT 08h` 與 IRQ0 失敗即關閉；界限 `7FFh` 時照常。
 4. 指令：§4 每列至少一例，並含：`smsw` 讀到 `0010h`；16 位元暫存器形式保留高半；`66 smsw eax` 讀整個 `CR0`；`66 smsw [mem]` 只寫 2 bytes；
    `mov eax,cr0` 讀到 `CR0 | 7FFFFFF0h`；`lgdt` 後 `sgdt` 的 24／32 位元往返；暫存器運算元 `lgdt` 失敗即關閉；`mov cr4` 失敗即關閉；`mov eax,cr3`
    遮低 12 位元；`0F 22 40 xx` 之後 `IP` 恰好前進 3；`clts` 只清 TS；`0F 00 /4`–`/7`、`0F 01` 記憶體 `/5`、`/7`、`0F 24`、`0F 26` 失敗即關閉；
