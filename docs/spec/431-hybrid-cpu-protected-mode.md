@@ -1,6 +1,6 @@
 # 431 — CPU 架構：既有核心執行實模式、16 位元保護模式與 V86
 
-狀態：**DRAFT**（第 2 版：依使用者 2026-10-16 定案改分工，待重審）
+狀態：**READY**（第 2 版：依使用者 2026-10-16 定案改分工；與 434 一併審查兩輪）
 日期：2026-10-15；第 2 版 2026-10-16
 前置：[`429-dos-sft-chain`](429-dos-sft-chain.md)、[`430-physical-memory-and-xms-unification`](430-physical-memory-and-xms-unification.md)、
 [`015-execution-speed`](015-execution-speed.md)、[`197-cpu386-real-mode-subset`](197-cpu386-real-mode-subset.md)

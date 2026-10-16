@@ -930,7 +930,7 @@
 - [428 原保存後末態圖像支援候選邊界](428-moo2-save-terminal-support-boundary.md)：CONFORMED限定129列／111EA原bytes與直接caller；圖像支援語意強推論，實際caller／parent退出仍未知。
 - [429 DOS 系統檔案表（SFT）鏈](429-dos-sft-chain.md)：READY。`SetDOSFiles` 選項開啟、預設不寫入；觸發案例 Strike Commander `SCCD.EXE` 的 FILES 檢查。
 - [430 延伸實體記憶體與 XMS 統一](430-physical-memory-and-xms-unification.md)：READY。選項開啟的 `Ext` 延伸記憶體、XMS 區塊實體化、可掛鉤 XMS 入口、8042 A20、不安裝內建 EMM。
-- [431 CPU 架構](431-hybrid-cpu-protected-mode.md)：DRAFT（第 2 版）。既有核心執行實模式、16 位元保護模式與 V86；cpu386 不改。實作拆到 432–435。
+- [431 CPU 架構](431-hybrid-cpu-protected-mode.md)：READY（第 2 版）。既有核心執行實模式、16 位元保護模式與 V86；cpu386 不改。實作拆到 432–435。
 - [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：READY。
 - [433 既有核心的實模式系統指令與實模式→保護模式交棒](433-real-mode-system-instructions.md)：READY（第 5 版），已實作；交棒接收端由 434 取代。
 - [434 既有核心的分段模式](434-legacy-core-segmented-mode.md)：READY（第 3 版）。
