@@ -222,7 +222,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 | `EA ptr16:16`、`FF /5`（16 位元） | 遠跳，§5.1 的 `CS` 規則 | `CPU_JMP` |
 | `9A`、`FF /3`（16 位元） | 同特權遠呼叫：推 `CS`、`IP` 各 2 bytes | `CPU_CALL` 的非一致碼段同特權分支 |
 | `CB`、`CA iw`（16 位元） | 同特權遠返回 | `CPU_RET` |
-| `66` 形式的遠轉移與 `66 CB` | 失敗即關閉（只在 VCPI 分支 `44F1`，本案不可達） | |
+| `66` 形式的遠轉移與 `66 CB` | 由 [`437`](437-segmented-32bit-far-transfers.md) 取代；`66 FF /2`、`/4` 等仍失敗即關閉 | |
 | `CF`、`66 CF` | 失敗即關閉（S4、435） | |
 | `0F 00 /2`（`lldt r/m16`） | 空選擇子使 `LDTR` 不可用；否則須在 GDT（TI=1 失敗，Intel 語意；DOSBox-X 依 TI 查現行 LDT，`include/cpu.h:497-509`，刻意從嚴），描述元 S=0、type 2、present，載入 `LDTR` | `include/cpu.h:524-541` |
 | `0F 00 /3`（`ltr`） | 失敗即關閉，診斷含「S4」。**本規格的驗收停點** | |
