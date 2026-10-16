@@ -41,3 +41,11 @@
    對到 `A0000h`–`MemSize` 時停；頁不存在時以 `PageFaultError` 結束而不是護欄訊息。
 3. 觸發案例（需原版，另附 probe 收據）：`B002:2937` 不再被護欄攔下（實體 `128937h`）；照實記錄繼續執行後的最後停點、原因、步數、`EXEC` 紀錄與視訊模式變化。
 4. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 4. 實作收據（2026-10-16）
+
+commit：`6cddfed`。`Machine.PCPhys` 與 `cmd/probe/guard.go` 的 `pcGuard`；測試 `internal/machine/pcphys_test.go`、`cmd/probe/guard_test.go`。
+
+- 第 1、2、4 項：`go test ./internal/... ./cmd/probe ./session ./oracle` 全 ok；SingleStepTests 315 PASS；`go test ./apps/...` 只有既有的 GLFW 失敗。
+- 第 3 項觸發案例：`B002:2937` 不再被攔。共執行 4300124 道後停在 `0070:519E` 的 `mov cr0,eax`（清 PE，保護模式回實模式，S9）。途中 `MENU.EXE` 以結束碼 1
+  結束（沒有送任何輸入），第 4276660 步視訊模式回到 `03h`，之後 SCCD 經 `int 15h` 的 `UN` 讓 JEMM 卸載（`docs/re/004` §4 的 S9 路徑 `583C`→`5187`）。
