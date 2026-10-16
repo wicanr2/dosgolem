@@ -196,6 +196,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		pmProfile: m.pmProfile,
 		pmFields:  pmFields{cpl: m.pmCPL, cr0: m.cr0, cr3: m.cr3, eflagsHi: m.eflagsHi, sysRegs: m.sys},
 	}
+	// 434 §2.2：分段模式旗標與六個快取。
+	s.pmFields.segmented, s.pmFields.cache = m.cpuPMFields()
 	s.vga = m.VGA.clone()
 	if m.Ext != nil {
 		s.ext = append([]uint8(nil), m.Ext...)

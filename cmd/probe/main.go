@@ -224,7 +224,8 @@ func main() {
 		"不安裝內建 EMM：int 67h 不服務、EMMXXXX0 不再視為裝置（`docs/spec/430` §2.5）。"+
 			"可與 -load-state 同給，但必須與狀態檔一致")
 	pmProfile := flag.Bool("pm-profile", false,
-		"開啟保護模式 profile：實模式系統指令、IDTR 守門與 PE 交棒（`docs/spec/433-real-mode-system-instructions` §6）。\n"+
+		"開啟保護模式 profile：實模式系統指令、IDTR 守門（`docs/spec/433-real-mode-system-instructions` §6），\n"+
+			"    PE 由 0 變 1 後既有核心以分段模式執行 16 位元保護模式碼（`docs/spec/434-legacy-core-segmented-mode`）。\n"+
 			"    需要 -ext-mem-kb > 0；可與 -load-state 同給，但必須與狀態檔一致")
 	keys := flag.String("keys", "", "先排進鍵盤佇列的按鍵（`\\n` 是 Enter）")
 	biosKeys := flag.String("bios-keys", "",

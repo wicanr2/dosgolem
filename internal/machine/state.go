@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -269,6 +270,11 @@ func (m *Machine) LoadState(r io.Reader) error {
 		var err error
 		if pm, err = decodePM(s.PM); err != nil {
 			return err
+		}
+		// 434 §2.1：版本 1、2 帶 PE=1、VM=0 的存檔只可能來自 433 的停擺狀態，不能可靠恢復。
+		// 拒絕放在這裡，不在 decodePM（直接呼叫 decodePM 的測試不受影響）。
+		if v := binary.LittleEndian.Uint16(s.PM); v < pmVersion3 && pm.cr0&cr0PE != 0 && pm.eflagsHi&eflagsHiVM == 0 {
+			return fmt.Errorf("machine: PM 版本 %d 帶 PE=1、VM=0（433 的停擺狀態），不能可靠恢復（docs/spec/434 §2.1）", v)
 		}
 	}
 	// 新檔的埠統計在 slice 裡，舊檔在 map 裡；統一倒進 map 再用。

@@ -175,6 +175,11 @@ type CPU struct {
 	// Sys 是系統暫存器的介面（`docs/spec/433-real-mode-system-instructions` §3.1）。
 	// nil 時行為完全不變；Machine 只在保護模式 profile 開啟時裝上。
 	Sys SysBus
+
+	// segmented 與 cache 是分段模式的狀態（`docs/spec/434-legacy-core-segmented-mode` §2，
+	// segcache.go）。只經 Segmented／SetSegmented／SegCache／SetSegCache 讀寫。
+	segmented bool
+	cache     [6]SegCache
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。

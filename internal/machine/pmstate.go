@@ -3,17 +3,20 @@ package machine
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/wicanr2/dosgolem/internal/cpu"
 )
 
 // PM 欄位的內容（docs/spec/432-linear-memory-and-paging §7、§10 第 6 項；
-// docs/spec/433-real-mode-system-instructions §2.1）。
+// docs/spec/433-real-mode-system-instructions §2.1；docs/spec/434-legacy-core-segmented-mode §2.2）。
 //
-// machineState.PM 是不透明的 []byte，自帶版本號。encodePM 一律輸出版本 2（80 bytes，小端序）；
-// decodePM 支援版本 1（16 bytes，缺的欄位取 sysRegsInit 的初值）與版本 2：
+// machineState.PM 是不透明的 []byte，自帶版本號。encodePM 一律輸出版本 3（142 bytes，小端序）；
+// decodePM 支援版本 1（16 bytes，缺的欄位取 sysRegsInit 的初值）、版本 2（80 bytes，
+// segmented=false、快取全 0）與版本 3：
 //
 //	| 位移 | 大小 | 欄位 |
 //	|---|---|---|
-//	| 0 | 2 | 版本號（1 或 2） |
+//	| 0 | 2 | 版本號（1、2 或 3） |
 //	| 2 | 1 | PMProfile（0 或 1） |
 //	| 3 | 1 | pmCPL |
 //	| 4 | 4 | CR0 |
@@ -36,6 +39,9 @@ import (
 //	| 70 | 4 | TR 基底 |
 //	| 74 | 4 | TR 界限 |
 //	| 78 | 2 | TR 屬性 |
+//	| 80 | 1 | segmented（0 或 1；以下為版本 3） |
+//	| 81 | 1 | 保留，0 |
+//	| 82 | 60 | cache[0..5]（ES、CS、SS、DS、FS、GS），每項 Base 4、Limit 4、Attr 2 |
 //
 // 435 之後以提升版本號在尾端增加內容，讀取時支援所有舊版本（舊版本缺的欄位取初值）。
 // 尾端多出的 bytes 不報錯（432 實作收據第 2 項）。profile 關閉時 PM 為 nil。
@@ -45,6 +51,8 @@ const (
 	pmV1Size   = 16
 	pmVersion2 = 2
 	pmV2Size   = 80
+	pmVersion3 = 3
+	pmV3Size   = 142
 )
 
 // SysRegs 的初值與寫入規則（433 §2）。
@@ -60,13 +68,11 @@ const (
 	segAttrZero = 0x2F00
 )
 
-// SegCache 是段描述元快取（433 §3.2）。Attr：bits 0–7 為 386 描述元的 access byte；
-// bits 8–11 恆 0；bit 12 AVL；bit 13 恆 0；bit 14 D/B；bit 15 G。Limit 是已依 G 展開的
-// 有效界限。LDTR、TR 的屬性用同一編碼。
-type SegCache struct {
-	Base, Limit uint32
-	Attr        uint16
-}
+// SegCache 是段描述元快取（433 §3.2 的型別與編碼）。434 §2 移到 internal/cpu，這裡以型別別名沿用。
+type SegCache = cpu.SegCache
+
+// segAttrDB 是快取屬性的 D/B 位元（bit 14）。
+const segAttrDB = 1 << 14
 
 // sysSeg 是 LDTR、TR：選擇子＋快取。433 只保存，載入在 434 與後續 S4。
 type sysSeg struct {
@@ -92,22 +98,33 @@ func sysRegsInit() sysRegs {
 	return sysRegs{dr6: dr6Init, dr7: dr7Init, idtrLimit: idtrInitLim}
 }
 
-// pmFields 是 PM 解碼後的內容。
+// pmFields 是 PM 解碼後的內容。segmented 與 cache 是既有核心的分段模式狀態（434 §2.2），
+// Snapshot 經 CPU 的 Segmented／SegCache 取得，applyPM 以 SetSegmented／SetSegCache 還原。
 type pmFields struct {
 	cpl      uint8
 	cr0, cr3 uint32
 	eflagsHi uint16
 	sysRegs
+	segmented bool
+	cache     [6]SegCache
 }
 
-// encodePM 編碼目前的保護模式狀態（版本 2）；profile 關閉回 nil。
+// cpuPMFields 取既有核心的分段模式狀態（Snapshot、encodePM 共用）。
+func (m *Machine) cpuPMFields() (seg bool, cache [6]SegCache) {
+	for i := range cache {
+		cache[i] = m.CPU.SegCache(i)
+	}
+	return m.CPU.Segmented(), cache
+}
+
+// encodePM 編碼目前的保護模式狀態（版本 3）；profile 關閉回 nil。
 func (m *Machine) encodePM() []byte {
 	if !m.pmProfile {
 		return nil
 	}
-	b := make([]byte, pmV2Size)
+	b := make([]byte, pmV3Size)
 	le := binary.LittleEndian
-	le.PutUint16(b[0:], pmVersion2)
+	le.PutUint16(b[0:], pmVersion3)
 	b[2] = 1
 	b[3] = m.pmCPL
 	le.PutUint32(b[4:], m.cr0)
@@ -126,7 +143,27 @@ func (m *Machine) encodePM() []byte {
 	le.PutUint16(b[54:], r.idtrLimit)
 	putSysSeg(b[56:], r.ldtr)
 	putSysSeg(b[68:], r.tr)
+	seg, cache := m.cpuPMFields()
+	if seg {
+		b[80] = 1
+	}
+	for i, c := range cache {
+		putSegCache(b[82+10*i:], c)
+	}
 	return b
+}
+
+// putSegCache／getSegCache 是分段模式快取的 10 bytes：基底 4、界限 4、屬性 2。
+func putSegCache(b []byte, c SegCache) {
+	le := binary.LittleEndian
+	le.PutUint32(b[0:], c.Base)
+	le.PutUint32(b[4:], c.Limit)
+	le.PutUint16(b[8:], c.Attr)
+}
+
+func getSegCache(b []byte) SegCache {
+	le := binary.LittleEndian
+	return SegCache{Base: le.Uint32(b[0:]), Limit: le.Uint32(b[4:]), Attr: le.Uint16(b[8:])}
 }
 
 // putSysSeg／getSysSeg 是 LDTR、TR 的 12 bytes：選擇子 2、基底 4、界限 4、屬性 2。
@@ -150,7 +187,11 @@ func getSysSeg(b []byte) sysSeg {
 // pmCPL > 3、CR0 含 386 保留位元、EFlagsHi 含 RF 與 VM 以外的位元、VM=1 而 PE=0。
 // 版本 2 另加（433 §2.1）：DR6&FFFF0FF0h != FFFF0FF0h（bit 12 不驗）；DR7 的 bit 10 不為 1
 // 或 bit 12、14、15 不為 0；LDTR、TR 屬性的 bit 8–11 或 bit 13 不為 0。
-// 版本 1 沒有的欄位取 sysRegsInit 的初值。
+// 版本 3 另加（434 §2.2）：segmented 只能是 0 或 1；保留 byte 為 0；segmented=0 時六個快取全 0；
+// segmented=1 時 PE=1、VM=0、pmCPL=0；各快取 Attr 的 bit 8–11、13 為 0；cache[CS]、cache[SS] 的 D/B 為 0。
+// 版本 1 沒有的欄位取 sysRegsInit 的初值；版本 1、2 沒有的分段模式狀態為 segmented=false、快取全 0。
+//
+// 「版本 1、2 帶 PE=1、VM=0」的拒絕不在這裡，在 LoadState（434 §2.1），直接呼叫 decodePM 的測試不受影響。
 func decodePM(b []byte) (pmFields, error) {
 	f := pmFields{sysRegs: sysRegsInit()}
 	if len(b) < 2 {
@@ -166,6 +207,10 @@ func decodePM(b []byte) (pmFields, error) {
 	case pmVersion2:
 		if len(b) < pmV2Size {
 			return f, fmt.Errorf("machine: PM 版本 2 需要 %d bytes，只有 %d", pmV2Size, len(b))
+		}
+	case pmVersion3:
+		if len(b) < pmV3Size {
+			return f, fmt.Errorf("machine: PM 版本 3 需要 %d bytes，只有 %d", pmV3Size, len(b))
 		}
 	default:
 		return f, fmt.Errorf("machine: PM 版本 %d 不認得", ver)
@@ -217,17 +262,63 @@ func decodePM(b []byte) (pmFields, error) {
 	if r.tr.cache.Attr&segAttrZero != 0 {
 		return f, fmt.Errorf("machine: PM 的 TR 屬性 %04X 的 bit 8–11 或 bit 13 不為 0", r.tr.cache.Attr)
 	}
-	return f, nil
+	if ver == pmVersion2 {
+		return f, nil
+	}
+	return f, decodePMV3(b, &f)
+}
+
+// decodePMV3 解碼並驗證版本 3 增加的分段模式狀態（434 §2.2）。
+func decodePMV3(b []byte, f *pmFields) error {
+	switch b[80] {
+	case 0, 1:
+	default:
+		return fmt.Errorf("machine: PM 的 segmented 欄位是 %d，應為 0 或 1", b[80])
+	}
+	if b[81] != 0 {
+		return fmt.Errorf("machine: PM 的位移 81 保留 byte 是 %d，應為 0", b[81])
+	}
+	f.segmented = b[80] == 1
+	for i := range f.cache {
+		f.cache[i] = getSegCache(b[82+10*i:])
+	}
+	if !f.segmented {
+		for i, c := range f.cache {
+			if c != (SegCache{}) {
+				return fmt.Errorf("machine: PM 的 segmented=0，但快取 %d 不為 0（%+v）", i, c)
+			}
+		}
+		return nil
+	}
+	if f.cr0&cr0PE == 0 || f.eflagsHi&eflagsHiVM != 0 || f.cpl != 0 {
+		return fmt.Errorf("machine: PM 的 segmented=1 要求 PE=1、VM=0、pmCPL=0（CR0=%08X EFlagsHi=%04X CPL=%d）",
+			f.cr0, f.eflagsHi, f.cpl)
+	}
+	for i, c := range f.cache {
+		if c.Attr&segAttrZero != 0 {
+			return fmt.Errorf("machine: PM 的快取 %d 屬性 %04X 的 bit 8–11 或 bit 13 不為 0", i, c.Attr)
+		}
+	}
+	for _, i := range []int{cpu.CS, cpu.SS} {
+		if f.cache[i].Attr&segAttrDB != 0 {
+			return fmt.Errorf("machine: PM 的快取 %d（CS 或 SS）屬性 %04X 的 D/B 為 1", i, f.cache[i].Attr)
+		}
+	}
+	return nil
 }
 
 // applyPM 套用解碼後的保護模式狀態（或在 profile 關閉時還原初值），清空分頁錯誤紀錄，
-// 作廢 TLB 並重算衍生欄位。LoadState、Restore 共用。
+// 作廢 TLB 並重算衍生欄位。LoadState、Restore 共用。分段模式狀態依 PM 的 segmented 欄位
+// 還原，不重新推導（434 §3.2）。
 func (m *Machine) applyPM(f pmFields) {
 	m.cr0 = f.cr0 | pmCR0Init
 	m.cr3, m.eflagsHi, m.pmCPL = f.cr3, f.eflagsHi, f.cpl
 	m.sys = f.sysRegs // 433 §2.1：整份複製
+	m.CPU.SetSegmented(f.segmented)
+	for i, c := range f.cache {
+		m.CPU.SetSegCache(i, c)
+	}
 	m.invalidateTLB()
 	m.clearPageFaults()
 	m.recalcPM()
-	m.rejudgeHalt() // 433 §5：清除 entered，停擺重新判定
 }

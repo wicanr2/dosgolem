@@ -1,30 +1,13 @@
 package machine
 
 import (
-	"bytes"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
-	"github.com/wicanr2/dosgolem/internal/cpu386"
 )
 
-// docs/spec/433-real-mode-system-instructions §8 第 5 項：交棒。
-
-// stubPM 是 PMCore 替身：記下 Enter 收到的 Handoff 與 Step 次數。
-type stubPM struct {
-	entered  []Handoff
-	enterErr error
-	steps    int
-}
-
-func (s *stubPM) Enter(h Handoff) error {
-	s.entered = append(s.entered, h)
-	return s.enterErr
-}
-
-func (s *stubPM) Step() error { s.steps++; return nil }
+// docs/spec/434-legacy-core-segmented-mode §9 第 4 項：進入分段模式（取代 433 §8 第 5 項的交棒測試）。
 
 // handoffProg：mov cr0,eax（EAX=1，PE 0→1）；之後是 nop。
 func handoffProg(t *testing.T) *Machine {
@@ -34,198 +17,74 @@ func handoffProg(t *testing.T) *Machine {
 	return m
 }
 
-func TestHandoffNoPMCoreHalts(t *testing.T) {
-	m := handoffProg(t)
-	cs, ip := m.CPU.Seg[cpu.CS], m.CPU.IP
-	steps := m.Steps
-	err := m.Step()
-	if !errors.Is(err, ErrPMCoreNotAvailable) {
-		t.Fatalf("m.pm 為 nil：應回 ErrPMCoreNotAvailable，實際 %v", err)
-	}
-	if m.Steps != steps+1 {
-		t.Errorf("交棒指令本身照常計步：Steps %d→%d", steps, m.Steps)
-	}
-	// 診斷含起點與下一道位址、CR0。
-	for _, want := range []string{
-		strings.ToUpper(hex4(cs) + ":" + hex4(ip)),
-		strings.ToUpper(hex4(cs) + ":" + hex4(ip+3)),
-		"CR0=00000011",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("診斷應含 %q：%v", want, err)
-		}
-	}
-	if m.CPU.IP != ip+3 || m.CR0()&cr0PE == 0 {
-		t.Errorf("IP 應已越過 mov cr0（+%d），CR0=%08X", m.CPU.IP-ip, m.CR0())
-	}
-	// 之後每次 Step 都回同一個錯誤，既有核心不再執行。
-	for i := 0; i < 3; i++ {
-		if err2 := m.Step(); err2 != err {
-			t.Errorf("第 %d 次再 Step：應回同一個錯誤值，實際 %v", i+2, err2)
-		}
-	}
-	if m.CPU.IP != ip+3 || m.Steps != steps+1 {
-		t.Errorf("停擺後不得再執行：IP +%d、Steps %d", m.CPU.IP-ip, m.Steps)
-	}
-}
-
-func hex4(v uint16) string {
-	const d = "0123456789ABCDEF"
-	return string([]byte{d[v>>12], d[v>>8&15], d[v>>4&15], d[v&15]})
-}
-
-// TestHandoffRestoreRejudge：Restore 到實模式快照後清除停擺，到 PE=1、VM=0 的快照時重新設起
-// （m.pm 為 nil 與非 nil 各一例）；LoadState 同理。
-func TestHandoffRestoreRejudge(t *testing.T) {
-	for _, withPM := range []bool{false, true} {
-		m := handoffProg(t)
-		realSnap := m.Snapshot()
-		realState := saveBytes(t, m)
-		stub := &stubPM{}
-		if withPM {
-			m.setPMCore(stub)
-		}
-		err := m.Step()
-		if withPM {
-			mustNil(t, "Enter 成功的那一步", err)
-			if !m.entered || m.mode != modePM {
-				t.Fatalf("withPM：應進入 PM 分派（entered=%v mode=%d）", m.entered, m.mode)
-			}
-		} else if !errors.Is(err, ErrPMCoreNotAvailable) {
-			t.Fatalf("m.pm 為 nil：%v", err)
-		}
-		pmSnap := m.Snapshot() // PE=1、VM=0
-		pmState := saveBytes(t, m)
-
-		m.Restore(realSnap)
-		if m.halt != nil || m.entered || m.mode != modeNormal {
-			t.Errorf("withPM=%v：Restore 到實模式快照後應清除停擺與 entered", withPM)
-		}
-		m.Restore(pmSnap)
-		if !errors.Is(m.halt, ErrPMCoreNotAvailable) || m.entered || m.mode != modeHalt {
-			t.Errorf("withPM=%v：Restore 到 PE=1、VM=0 的快照應重新設起停擺（halt=%v entered=%v）", withPM, m.halt, m.entered)
-		}
-		stepsBefore := stub.steps
-		if err := m.Step(); !errors.Is(err, ErrPMCoreNotAvailable) {
-			t.Errorf("withPM=%v：重新設起後 Step 應回 ErrPMCoreNotAvailable，實際 %v", withPM, err)
-		}
-		if stub.steps != stepsBefore {
-			t.Errorf("withPM=%v：停擺先於分派，不得呼叫替身的 Step", withPM)
-		}
-
-		// LoadState 同樣重新判定。
-		mustNil(t, "LoadState(實模式)", m.LoadState(bytes.NewReader(realState)))
-		if m.halt != nil || m.entered || m.mode != modeNormal {
-			t.Errorf("withPM=%v：LoadState 實模式後應清除", withPM)
-		}
-		mustNil(t, "LoadState(PE=1)", m.LoadState(bytes.NewReader(pmState)))
-		if !errors.Is(m.halt, ErrPMCoreNotAvailable) || m.entered {
-			t.Errorf("withPM=%v：LoadState 到 PE=1、VM=0 應重新設起停擺", withPM)
-		}
-	}
-	// PE=1、VM=1（V86）的快照不設停擺。
-	m := newSysProg(t, []byte{0x90})
-	mustNil(t, "SetCR0", m.SetCR0(cr0PE))
-	mustNil(t, "SetVM", m.SetVM(true))
-	snap := m.Snapshot()
-	m.Restore(snap)
-	if m.halt != nil {
-		t.Error("PE=1、VM=1 的快照不應設停擺")
-	}
-}
-
-func TestHandoffEnterWithStub(t *testing.T) {
-	m := handoffProg(t)
-	c := m.CPU
-	// 每個暫存器高低半都可辨識。
-	for i := 0; i < 8; i++ {
-		c.R[i], c.Hi[i] = uint16(0x1000+i), uint16(0xA000+i)
-	}
-	c.R[cpu.AX], c.Hi[cpu.AX] = 0x0001, 0xA000 // mov cr0,eax：EAX 低 bit 是 PE
-	c.Seg[cpu.ES], c.Seg[cpu.SS], c.Seg[cpu.DS] = 0x1111, 0x3333, 0x4444
-	c.FSeg, c.GSeg = 0x5555, 0x6666
-	cs := c.Seg[cpu.CS]
-	// mov cr0 不碰記憶體運算元；SS:SP 隨意。
-	c.SetFlags(cpu.IF | cpu.CF | cpu.ZF)
-	mustNil(t, "SetEFlagsHi", m.SetEFlagsHi(eflagsHiRF))
-	stub := &stubPM{}
-	m.setPMCore(stub)
-	steps := m.Steps
-	ip := c.IP
-
-	mustNil(t, "Enter 成功的那一步", m.Step())
-	if m.Steps != steps+1 {
-		t.Errorf("Enter 成功的那一步 Steps 加 1：%d→%d", steps, m.Steps)
-	}
-	if len(stub.entered) != 1 {
-		t.Fatalf("Enter 應被呼叫一次，實際 %d", len(stub.entered))
-	}
-	h := stub.entered[0]
-	// 暫存器含高半（cpu386 順序 EAX…EDI 與既有核心 AX…DI 相同）。
-	wantR := [8]uint32{}
-	for i := 0; i < 8; i++ {
-		wantR[i] = uint32(0xA000+i)<<16 | uint32(0x1000+i)
-	}
-	wantR[cpu386.EAX] = 0xA0000001
-	if h.R != wantR {
-		t.Errorf("Handoff.R = %08X，應為 %08X", h.R, wantR)
-	}
-	if h.EIP != uint32(ip+3) {
-		t.Errorf("EIP = %X，應為下一道 %X", h.EIP, ip+3)
-	}
-	if h.EFlags != 0x00010000|uint32(c.Flags) || h.EFlags&uint32(cpu.IF|cpu.CF|cpu.ZF) != uint32(cpu.IF|cpu.CF|cpu.ZF) {
-		t.Errorf("EFlags = %08X（含 EFlagsHi 的 RF）", h.EFlags)
-	}
-	wantSeg := [6]uint16{}
-	wantSeg[cpu386.SegCS], wantSeg[cpu386.SegDS], wantSeg[cpu386.SegES] = cs, 0x4444, 0x1111
-	wantSeg[cpu386.SegFS], wantSeg[cpu386.SegGS], wantSeg[cpu386.SegSS] = 0x5555, 0x6666, 0x3333
-	if h.Seg != wantSeg {
-		t.Errorf("Handoff.Seg = %04X，應為 %04X", h.Seg, wantSeg)
-	}
-	for i, s := range wantSeg {
+// realModeCaches 是 434 §3.1 第 1 項的實模式推得值。
+func realModeCaches(c *cpu.CPU) [6]SegCache {
+	vals := [6]uint16{}
+	vals[cpu.ES], vals[cpu.CS], vals[cpu.SS], vals[cpu.DS] = c.Seg[cpu.ES], c.Seg[cpu.CS], c.Seg[cpu.SS], c.Seg[cpu.DS]
+	vals[cpu.FS], vals[cpu.GS] = c.FSeg, c.GSeg
+	var want [6]SegCache
+	for i, v := range vals {
 		attr := uint16(0x0093)
-		if i == cpu386.SegCS {
+		if i == cpu.CS {
 			attr = 0x009B
 		}
-		if want := (SegCache{Base: uint32(s) << 4, Limit: 0xFFFF, Attr: attr}); h.Cache[i] != want {
-			t.Errorf("Cache[%d] = %+v，應為 %+v", i, h.Cache[i], want)
+		want[i] = SegCache{Base: uint32(v) << 4, Limit: 0xFFFF, Attr: attr}
+	}
+	return want
+}
+
+func TestEnterSegmentedOnPEEdge(t *testing.T) {
+	m := handoffProg(t)
+	c := m.CPU
+	// 六個段值各不相同（FS、GS 走 FSeg、GSeg）；mov cr0 不碰記憶體運算元。
+	c.Seg[cpu.ES], c.Seg[cpu.SS], c.Seg[cpu.DS] = 0x1111, 0x3333, 0x4444
+	c.FSeg, c.GSeg = 0x5555, 0x6666
+	if c.Segmented() {
+		t.Fatal("實模式下 segmented 應為 false")
+	}
+	ip, steps := c.IP, m.Steps
+	mustNil(t, "mov cr0 設 PE 的那一步", m.Step())
+	if !c.Segmented() {
+		t.Fatal("PE 由 0 變 1 後應進分段模式")
+	}
+	if m.Steps != steps+1 || c.IP != ip+3 || m.CR0()&cr0PE == 0 {
+		t.Errorf("mov cr0 照常完成：Steps +%d、IP +%d、CR0=%08X", m.Steps-steps, c.IP-ip, m.CR0())
+	}
+	want := realModeCaches(c)
+	for i := range want {
+		if got := c.SegCache(i); got != want[i] {
+			t.Errorf("快取 %d = %+v，應為實模式推得值 %+v", i, got, want[i])
 		}
 	}
-	// 之後的 Step 呼叫替身的 Step，Steps 照舊加 1，既有核心不動。
-	ip2 := c.IP
-	for i := 0; i < 3; i++ {
-		mustNil(t, "PM 分派", m.Step())
+	if m.PMCPL() != 0 {
+		t.Errorf("進分段模式後 CPL = %d，應為 0", m.PMCPL())
 	}
-	if stub.steps != 3 || m.Steps != steps+4 || c.IP != ip2 {
-		t.Errorf("PM 分派：替身 Step %d 次、Steps +%d、IP 變化 %d", stub.steps, m.Steps-steps, c.IP-ip2)
+	if c.Code != nil || !m.Translating() {
+		t.Error("不變式：segmented ⇒ xlat ⇒ CPU.Code == nil")
+	}
+	// 負對照：FS、GS 的快取來自 FSeg／GSeg（與 ES、DS 對調會不同）。
+	if want[cpu.FS] == want[cpu.ES] || want[cpu.GS] == want[cpu.DS] {
+		t.Error("負對照：六個段值應各不相同")
 	}
 }
 
-func TestHandoffEnterErrorHalts(t *testing.T) {
+// 進入前 CPL 為 3（合成）：enterSegmented 把它寫回 0。
+func TestEnterSegmentedResetsCPL(t *testing.T) {
 	m := handoffProg(t)
-	boom := errors.New("替身 Enter 失敗")
-	stub := &stubPM{enterErr: boom}
-	m.setPMCore(stub)
-	err := m.Step()
-	if !errors.Is(err, ErrPMCoreNotAvailable) || !errors.Is(err, boom) {
-		t.Fatalf("Enter 失敗：errors.Is 應同時判得原錯誤與 ErrPMCoreNotAvailable，實際 %v", err)
-	}
-	if err2 := m.Step(); err2 != err {
-		t.Errorf("停擺後應回同一個錯誤：%v", err2)
-	}
-	if stub.steps != 0 || m.entered {
-		t.Error("Enter 失敗不得分派")
+	m.pmCPL = 3 // 實模式下 CPL 沒有意義；直接寫欄位造出非 0 的值
+	mustNil(t, "mov cr0 設 PE", m.Step())
+	if !m.CPU.Segmented() || m.PMCPL() != 0 || m.cplUser {
+		t.Errorf("enterSegmented 應 SetPMCPL(0)：segmented=%v CPL=%d cplUser=%v", m.CPU.Segmented(), m.PMCPL(), m.cplUser)
 	}
 }
 
-func TestHandoffSetCR0WithoutEnterDoesNotDispatch(t *testing.T) {
-	m := newSysProg(t, []byte{0x90, 0x90})
-	stub := &stubPM{}
-	m.setPMCore(stub)
-	mustNil(t, "SetCR0", m.SetCR0(cr0PE))
-	mustStep(t, m, "nop（PE=1，未經 Enter）")
-	if stub.steps != 0 || len(stub.entered) != 0 || m.mode != modeNormal {
-		t.Errorf("經 SetCR0 直接設 PE=1 而未 Enter：不得呼叫替身（steps=%d enter=%d）", stub.steps, len(stub.entered))
+// lmsw 設 PE 同樣進分段模式。
+func TestEnterSegmentedViaLMSW(t *testing.T) {
+	m := newSysProg(t, []byte{0x0F, 0x01, 0xF0, 0x90})
+	m.CPU.R[cpu.AX] = 0x0001
+	mustNil(t, "lmsw 1", m.Step())
+	if !m.CPU.Segmented() {
+		t.Error("lmsw 設 PE 後應進分段模式")
 	}
 }
 
@@ -238,48 +97,105 @@ func (p pfSys) SetCR(n int, v uint32) error {
 	return err
 }
 
-func TestHandoffPageFaultAndSentinel(t *testing.T) {
-	for _, withPM := range []bool{false, true} {
-		m := handoffProg(t)
-		stub := &stubPM{}
-		if withPM {
-			m.setPMCore(stub)
-		}
-		m.CPU.Sys = pfSys{m}
-		err := m.Step()
-		var pfe *PageFaultError
-		if !errors.As(err, &pfe) || !errors.Is(err, cpu.ErrModeSwitch) {
-			t.Fatalf("withPM=%v：同一步有分頁紀錄時回 *PageFaultError（包住哨兵），實際 %v", withPM, err)
-		}
-		if len(stub.entered) != 0 {
-			t.Errorf("withPM=%v：哨兵不交棒", withPM)
-		}
-		if err := m.Step(); !errors.Is(err, ErrPMCoreNotAvailable) {
-			t.Errorf("withPM=%v：之後的 Step 回停擺錯誤，實際 %v", withPM, err)
+// 同一步有分頁紀錄時回 *PageFaultError，且已進分段模式（434 §3.1 第 2 項）。
+func TestEnterSegmentedWithPageFault(t *testing.T) {
+	m := handoffProg(t)
+	m.CPU.Sys = pfSys{m}
+	err := m.Step()
+	var pfe *PageFaultError
+	if !errors.As(err, &pfe) || !errors.Is(err, cpu.ErrModeSwitch) {
+		t.Fatalf("同一步有分頁紀錄時回 *PageFaultError（包住哨兵），實際 %v", err)
+	}
+	if !m.CPU.Segmented() {
+		t.Error("回 *PageFaultError 時應已進分段模式")
+	}
+	if got, want := m.CPU.SegCache(cpu.CS), realModeCaches(m.CPU)[cpu.CS]; got != want {
+		t.Errorf("CS 快取 = %+v，應為 %+v", got, want)
+	}
+}
+
+// SetCR0 直接設 PE 不進分段模式（434 §2.1 的狀態照 432 語意執行）。
+func TestSetCR0DoesNotEnterSegmented(t *testing.T) {
+	m := newSysProg(t, []byte{0x90, 0x90})
+	mustNil(t, "SetCR0", m.SetCR0(cr0PE))
+	if m.CPU.Segmented() {
+		t.Fatal("SetCR0 直接設 PE 不得進分段模式")
+	}
+	mustStep(t, m, "nop（PE=1、VM=0、segmented=false）")
+	if m.CPU.Segmented() {
+		t.Error("§2.1 的狀態執行之後仍不得進分段模式")
+	}
+	for i := 0; i < 6; i++ {
+		if c := m.CPU.SegCache(i); c != (SegCache{}) {
+			t.Errorf("未分段時快取 %d 應為 0：%+v", i, c)
 		}
 	}
 }
 
-func TestSegmentMappingRoundTrip(t *testing.T) {
-	c := cpu.New(nil)
-	c.Seg[cpu.ES], c.Seg[cpu.CS], c.Seg[cpu.SS], c.Seg[cpu.DS] = 0x1111, 0x2222, 0x3333, 0x4444
-	c.FSeg, c.GSeg = 0x5555, 0x6666
-	s := segsToPM(c)
-	want := [6]uint16{}
-	want[cpu386.SegES], want[cpu386.SegCS], want[cpu386.SegSS] = 0x1111, 0x2222, 0x3333
-	want[cpu386.SegDS], want[cpu386.SegFS], want[cpu386.SegGS] = 0x4444, 0x5555, 0x6666
-	if s != want {
-		t.Errorf("segsToPM = %04X，應為 %04X", s, want)
+// 分段模式下 SetCR0 清 PE、SetVM(true)、SetEFlagsHi 設 VM、SetPMCPL(≠0) 都被拒，狀態不改（434 §3.2）。
+func TestSegmentedGuards(t *testing.T) {
+	m := handoffProg(t)
+	mustNil(t, "mov cr0 設 PE", m.Step())
+	if !m.CPU.Segmented() {
+		t.Fatal("前提：應在分段模式")
 	}
-	d := cpu.New(nil)
-	segsFromPM(s, d)
-	if d.Seg != c.Seg || d.FSeg != c.FSeg || d.GSeg != c.GSeg {
-		t.Errorf("segsFromPM 往返：%04X %04X %04X", d.Seg, d.FSeg, d.GSeg)
+	cr0, hi, cpl := m.CR0(), m.EFlagsHi(), m.PMCPL()
+	mustErr(t, "分段模式下 SetCR0 清 PE", m.SetCR0(0))
+	mustErr(t, "分段模式下 SetCR(0) 清 PE", m.SetCR(0, pmCR0Init))
+	mustErr(t, "分段模式下 SetVM(true)", m.SetVM(true))
+	mustErr(t, "分段模式下 SetEFlagsHi 設 VM", m.SetEFlagsHi(eflagsHiVM))
+	mustErr(t, "分段模式下 SetEFlagsHi 設 RF|VM", m.SetEFlagsHi(eflagsHiRF|eflagsHiVM))
+	for _, c := range []uint8{1, 2, 3} {
+		mustErr(t, "分段模式下 SetPMCPL(≠0)", m.SetPMCPL(c))
 	}
-	// 負對照：CS 與 SS 對調的映射會被上面的比較抓到。
-	bad := s
-	bad[cpu386.SegCS], bad[cpu386.SegSS] = bad[cpu386.SegSS], bad[cpu386.SegCS]
-	if bad == want {
-		t.Error("負對照：CS 與 SS 對調後應與期望不同")
+	if m.CR0() != cr0 || m.EFlagsHi() != hi || m.PMCPL() != cpl || !m.CPU.Segmented() {
+		t.Errorf("被拒的寫入不得改狀態：CR0 %08X→%08X hi %X→%X CPL %d→%d", cr0, m.CR0(), hi, m.EFlagsHi(), cpl, m.PMCPL())
+	}
+	// 不涉及離開分段模式的寫入照常：SetPMCPL(0)、只設 RF、PE 保持 1 而設 PG。
+	mustNil(t, "SetPMCPL(0)", m.SetPMCPL(0))
+	mustNil(t, "SetEFlagsHi(RF)", m.SetEFlagsHi(eflagsHiRF))
+	mustNil(t, "SetCR0(PE|PG)", m.SetCR0(cr0PE|cr0PG))
+	if !m.CPU.Segmented() || !m.paging {
+		t.Error("PE 保持 1 的寫入不得離開分段模式；PG 由 432 的 SetCR0 重算")
+	}
+	// mov cr0 清 PE 失敗即關閉（S9）。
+	m2 := newSysProg(t, []byte{0x0F, 0x22, 0xC0, 0x0F, 0x22, 0xC3, 0x90}) // mov cr0,eax；mov cr0,ebx
+	m2.CPU.R[cpu.AX] = 0x0001
+	mustNil(t, "mov cr0 設 PE", m2.Step())
+	m2.CPU.R[cpu.BX], m2.CPU.Hi[cpu.BX] = 0x0010, 0
+	if err := m2.Step(); err == nil {
+		t.Error("分段模式下 mov cr0 清 PE 應失敗即關閉")
+	}
+	if m2.CR0()&cr0PE == 0 || !m2.CPU.Segmented() {
+		t.Error("mov cr0 清 PE 失敗後 CR0 與 segmented 不變")
+	}
+}
+
+// 未分段（PE=0，或 §2.1 的 PE=1、segmented=false）時 SetPMCPL、SetVM 照 432 的規則。
+func TestGuardsInactiveWhenNotSegmented(t *testing.T) {
+	m := newSysProg(t, []byte{0x90})
+	mustNil(t, "SetCR0", m.SetCR0(cr0PE))
+	mustNil(t, "未分段時 SetPMCPL(3)", m.SetPMCPL(3))
+	mustNil(t, "未分段時 SetVM(true)", m.SetVM(true))
+	mustNil(t, "SetVM(false)", m.SetVM(false))
+	mustNil(t, "SetPMCPL(0)", m.SetPMCPL(0))
+	mustNil(t, "未分段時 SetCR0 清 PE", m.SetCR0(0))
+}
+
+// SetProtectedModeProfile 切換時離開分段模式、快取清 0（434 §3.2）。CR0 必須是初值才能切換，
+// 所以 segmented=true 時切換本身會被擋；這裡以直接寫 CPU 的分段狀態（PE=0）驗清除。
+func TestProfileSwitchClearsSegmented(t *testing.T) {
+	m := newPM(t)
+	m.CPU.SetSegmented(true)
+	m.CPU.SetSegCache(cpu.GS, SegCache{Base: 1, Limit: 2, Attr: 0x93})
+	mustNil(t, "SetProtectedModeProfile(false)", m.SetProtectedModeProfile(false))
+	if m.CPU.Segmented() || m.CPU.SegCache(cpu.GS) != (SegCache{}) {
+		t.Error("關閉 profile 後 segmented 應為 false、快取清 0")
+	}
+	m.CPU.SetSegmented(true)
+	m.CPU.SetSegCache(cpu.ES, SegCache{Base: 3})
+	mustNil(t, "SetProtectedModeProfile(true)", m.SetProtectedModeProfile(true))
+	if m.CPU.Segmented() || m.CPU.SegCache(cpu.ES) != (SegCache{}) {
+		t.Error("開啟 profile 後 segmented 應為 false、快取清 0")
 	}
 }

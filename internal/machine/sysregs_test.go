@@ -8,7 +8,8 @@ import (
 
 // docs/spec/433-real-mode-system-instructions §8 第 3 項的狀態類測試：SysRegs 的寫入規則與初值、
 // PM 版本 2 的位移、§2.1 的驗證條件、Snapshot／Restore 與 SaveState／LoadState 往返、
-// SetProtectedModeProfile 切換時回初值與 Sys 的裝卸。
+// SetProtectedModeProfile 切換時回初值與 Sys 的裝卸。434 §2.2 起 encodePM 輸出版本 3，
+// 版本 2 改以手造位元組驗讀取相容；版本 3 增加的部分在 segstate_test.go。
 
 func TestSysRegsInitialValues(t *testing.T) {
 	m := newPM(t)
@@ -140,7 +141,8 @@ func fillSys(t *testing.T, m *Machine) {
 	m.sys.tr = sysSeg{sel: 0x0030, cache: SegCache{Base: 0x55667788, Limit: 0x000FFFFF, Attr: 0xD08B}}
 }
 
-func TestPMV2Layout(t *testing.T) {
+// TestPMV3LayoutPrefix：版本 3 的前 80 bytes 與版本 2 的位移相同（434 §2.2），未分段時尾端為 0。
+func TestPMV3LayoutPrefix(t *testing.T) {
 	m := newPM(t)
 	mustNil(t, "SetCR0", m.SetCR0(0x80000000|cr0PE|0x8))
 	mustNil(t, "SetCR3", m.SetCR3(0xDEADB000))
@@ -148,15 +150,20 @@ func TestPMV2Layout(t *testing.T) {
 	mustNil(t, "SetEFlagsHi", m.SetEFlagsHi(eflagsHiRF))
 	fillSys(t, m)
 	b := m.encodePM()
-	if len(b) != 80 {
-		t.Fatalf("PM 版本 2 共 80 bytes，實際 %d", len(b))
+	if len(b) != 142 {
+		t.Fatalf("PM 版本 3 共 142 bytes，實際 %d", len(b))
+	}
+	for i, v := range b[80:] {
+		if v != 0 {
+			t.Errorf("未分段時位移 %d（segmented、保留、快取）應為 0：%02X", 80+i, v)
+		}
 	}
 	le := binary.LittleEndian
 	for _, c := range []struct {
 		name      string
 		got, want uint64
 	}{
-		{"版本號（0，2）", uint64(le.Uint16(b[0:])), 2},
+		{"版本號（0，2）", uint64(le.Uint16(b[0:])), 3},
 		{"PMProfile（2）", uint64(b[2]), 1},
 		{"pmCPL（3）", uint64(b[3]), 2},
 		{"CR0（4，4）", uint64(le.Uint32(b[4:])), 0x80000019},
@@ -192,6 +199,52 @@ func TestPMV2Layout(t *testing.T) {
 	mustNil(t, "decodePM", err)
 	if f.sysRegs != m.sys || f.cr0 != m.cr0 || f.cr3 != m.cr3 || f.cpl != m.pmCPL || f.eflagsHi != m.eflagsHi {
 		t.Errorf("decodePM(encodePM) 不同：%+v", f)
+	}
+}
+
+// TestPMV2HandBuiltReadable：手造的版本 2（80 bytes）可讀，segmented=false、快取全 0（434 §2.2）。
+func TestPMV2HandBuiltReadable(t *testing.T) {
+	le := binary.LittleEndian
+	b := make([]byte, 80)
+	le.PutUint16(b[0:], 2)
+	b[2], b[3] = 1, 2
+	le.PutUint32(b[4:], 0x80000019)
+	le.PutUint32(b[8:], 0xDEADB000)
+	le.PutUint16(b[12:], eflagsHiRF)
+	le.PutUint32(b[16:], 0xC2C2C2C2)
+	for i := 0; i < 4; i++ {
+		le.PutUint32(b[20+4*i:], 0xD0D0D0D0+uint32(i)*0x01010101)
+	}
+	le.PutUint32(b[36:], 0xFFFF4FFF)
+	le.PutUint32(b[40:], 0x000027FF)
+	le.PutUint32(b[44:], 0x00ABCDEF)
+	le.PutUint16(b[48:], 0x012F)
+	le.PutUint32(b[50:], 0x00012345)
+	le.PutUint16(b[54:], 0x07FF)
+	le.PutUint16(b[56:], 0x0028)
+	le.PutUint32(b[58:], 0x11223344)
+	le.PutUint32(b[62:], 0x0000FFFF)
+	le.PutUint16(b[66:], 0x0082)
+	le.PutUint16(b[68:], 0x0030)
+	le.PutUint32(b[70:], 0x55667788)
+	le.PutUint32(b[74:], 0x000FFFFF)
+	le.PutUint16(b[78:], 0xD08B)
+	f, err := decodePM(b)
+	mustNil(t, "decodePM(手造版本 2)", err)
+	want := sysRegs{cr2: 0xC2C2C2C2, dr: [4]uint32{0xD0D0D0D0, 0xD1D1D1D1, 0xD2D2D2D2, 0xD3D3D3D3},
+		dr6: 0xFFFF4FFF, dr7: 0x000027FF, gdtrBase: 0x00ABCDEF, gdtrLimit: 0x012F,
+		idtrBase: 0x00012345, idtrLimit: 0x07FF,
+		ldtr: sysSeg{sel: 0x0028, cache: SegCache{Base: 0x11223344, Limit: 0x0000FFFF, Attr: 0x0082}},
+		tr:   sysSeg{sel: 0x0030, cache: SegCache{Base: 0x55667788, Limit: 0x000FFFFF, Attr: 0xD08B}}}
+	if f.sysRegs != want || f.cr0 != 0x80000019 || f.cr3 != 0xDEADB000 || f.cpl != 2 || f.eflagsHi != eflagsHiRF {
+		t.Errorf("手造版本 2 解碼：%+v", f)
+	}
+	if f.segmented || f.cache != [6]SegCache{} {
+		t.Errorf("版本 2 沒有分段模式狀態：segmented=%v cache=%+v", f.segmented, f.cache)
+	}
+	// 版本 2 長度不足。
+	if _, err := decodePM(b[:79]); err == nil {
+		t.Error("版本 2 只有 79 bytes：應回錯誤")
 	}
 }
 

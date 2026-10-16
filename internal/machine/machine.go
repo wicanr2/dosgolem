@@ -669,13 +669,6 @@ type Machine struct {
 	// irqErr 是 433 §2 的 IDTR 守門（Machine 側）擋下 IRQ 時存的錯誤。tick／keyTick 回來後
 	// 由 Step 在同一個分支內檢查：非 nil 就清掉並直接回傳，不執行 CPU.Step()、Steps 不加。
 	irqErr error
-
-	// 433 §5 交棒（handoff.go）：pm 是保護模式核心（434 填入，測試以替身注入）；entered 是 Enter 成功過；
-	// halt 是停擺錯誤（一律包住 ErrPMCoreNotAvailable）；mode 是預先算好的模式值，Step 最前面只讀它一次。
-	pm      PMCore
-	entered bool
-	halt    error
-	mode    uint8
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -1422,19 +1415,6 @@ func (m *Machine) Step() error {
 	if m.pfOK {
 		m.pfLast, m.pfLastOK = m.pf, true
 		m.pf, m.pfOK = PageFaultRecord{}, false
-	}
-	// 433 §5：停擺與 PM 分派合成一個預先算好的模式值，熱路徑只讀一次；停擺判斷先於分派。
-	// 保護模式期間 tick、keyTick 延後（431 §3）。
-	if m.mode != modeNormal {
-		if m.mode == modeHalt {
-			return m.halt
-		}
-		m.Steps++
-		err := m.pm.Step()
-		if m.pfOK {
-			return m.stepFault(err)
-		}
-		return err
 	}
 	// **兩個檢查都內聯在這裡**：`tick` 與 `keyTick` 絕大多數指令上
 	// 第一行就 return，而函式呼叫本身佔了執行時間的 3.8%

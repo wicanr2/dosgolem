@@ -349,7 +349,7 @@ func TestSysModeSwitchSentinel(t *testing.T) {
 	m := newSysProg(t, []byte{0x0F, 0x22, 0xC0, 0x90})
 	m.CPU.R[cpu.AX] = 0x0001
 	ip := m.CPU.IP
-	err := m.CPU.Step() // 直接看 CPU 的回傳；Machine.Step 會接手處理哨兵（§5，handoff_test.go）
+	err := m.CPU.Step() // 直接看 CPU 的回傳；Machine.Step 收到哨兵後進分段模式（434 §3.1，handoff_test.go）
 	if !errors.Is(err, cpu.ErrModeSwitch) {
 		t.Fatalf("mov cr0 設 PE：應回 ErrModeSwitch，實際 %v", err)
 	}
@@ -363,7 +363,7 @@ func TestSysModeSwitchSentinel(t *testing.T) {
 		t.Errorf("lmsw 設 PE：應回 ErrModeSwitch，實際 %v", err)
 	}
 	// 不回哨兵：mov cr0 不改 PE、lmsw 0、只動 TS、PE 已是 1 再寫 1（經 Machine.Step：
-	// 若回了哨兵，這裡會看到 ErrPMCoreNotAvailable）。
+	// 若回了哨兵，Machine 會進分段模式，這裡以 Segmented() 為假判定沒有回哨兵，434 §3.1）。
 	for _, c := range []struct {
 		name  string
 		code  []byte
@@ -383,6 +383,9 @@ func TestSysModeSwitchSentinel(t *testing.T) {
 		m.CPU.R[cpu.AX] = c.ax
 		if err := m.Step(); err != nil {
 			t.Errorf("%s：不應回哨兵或錯誤，實際 %v", c.name, err)
+		}
+		if m.CPU.Segmented() {
+			t.Errorf("%s：不應回哨兵（Machine 收到哨兵才進分段模式）", c.name)
 		}
 	}
 }

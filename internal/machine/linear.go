@@ -38,7 +38,6 @@ func (m *Machine) recalcPM() {
 		m.cplUser = m.eflagsHi&eflagsHiVM != 0 || m.pmCPL == 3
 	}
 	m.syncCodeFastPath()
-	m.recalcMode() // 433 §5：PE、VM 改變時更新模式值
 }
 
 // invalidateTLB 把世代號加一（uint32，溢位時整份清除）。TLB 本體在 paging.go。
@@ -60,7 +59,8 @@ var errNoProfile = fmt.Errorf("machine: 保護模式 profile 未開啟（先 Set
 //  5. 與現值不同時，CR0 必須是初值（432 §10 第 2 項）。
 //
 // 切換成功後 CR3、EFlagsHi、pmCPL 與 433 §2 的全部 SysRegs 回到初值（它們只在 profile
-// 開啟時才有意義），並裝上（開啟）或拿掉（關閉）既有核心的 Sys（433 §3.1）。
+// 開啟時才有意義），既有核心離開分段模式、快取清 0（434 §3.2），並裝上（開啟）或拿掉（關閉）
+// 既有核心的 Sys（433 §3.1）。
 func (m *Machine) SetProtectedModeProfile(on bool) error {
 	if m.programLoaded {
 		return fmt.Errorf("machine: 程式已載入，不能再切換保護模式 profile")
@@ -83,7 +83,11 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 	m.pmProfile = on
 	m.cr3, m.eflagsHi, m.pmCPL = 0, 0, 0
 	m.sys = sysRegsInit()
-	m.entered, m.halt = false, nil
+	// 434 §3.2：切換時離開分段模式並清快取。
+	m.CPU.SetSegmented(false)
+	for i := cpu.ES; i <= cpu.GS; i++ {
+		m.CPU.SetSegCache(i, SegCache{})
+	}
 	if on {
 		m.CPU.Sys = m
 	} else {
@@ -98,8 +102,8 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 func (m *Machine) ProtectedModeProfile() bool { return m.pmProfile }
 
 // SetCR0 寫 CR0。一律補 00000010h，只保留 bit 0–4 與 bit 31（含 WP 在內的其餘位元清為 0）。
-// PE 或 PG 改變時作廢 TLB。profile 關閉回錯誤；PE 由 1 寫成 0 而 VM=1 也回錯誤
-// （431 §5：保護模式→實模式不支援）。
+// PE 或 PG 改變時作廢 TLB。profile 關閉回錯誤；PE 由 1 寫成 0 而 VM=1 或在分段模式也回錯誤
+// （431 §5、434 §3.2：保護模式→實模式不支援，屬 S9），CR0 不改。
 func (m *Machine) SetCR0(v uint32) error {
 	if !m.pmProfile {
 		return errNoProfile
@@ -107,6 +111,9 @@ func (m *Machine) SetCR0(v uint32) error {
 	v = v&cr0Mask | pmCR0Init
 	if m.cr0&cr0PE != 0 && v&cr0PE == 0 && m.eflagsHi&eflagsHiVM != 0 {
 		return fmt.Errorf("machine: VM=1 時不能把 CR0.PE 清成 0（保護模式→實模式不支援）")
+	}
+	if v&cr0PE == 0 && m.segmented() {
+		return fmt.Errorf("machine: 分段模式下不能把 CR0.PE 清成 0（保護模式→實模式不支援，S9；docs/spec/434 §3.2）")
 	}
 	if (m.cr0^v)&(cr0PE|cr0PG) != 0 {
 		m.invalidateTLB()
@@ -127,7 +134,8 @@ func (m *Machine) SetCR3(v uint32) error {
 }
 
 // SetEFlagsHi 寫 EFLAGS 的高 16 位元（EFlagsHi ＝ EFLAGS >> 16）。只接受 RF（bit 0）
-// 與 VM（bit 1）；386 的 AC、ID 恆為 0。VM=1 需要 PE=1。
+// 與 VM（bit 1）；386 的 AC、ID 恆為 0。VM=1 需要 PE=1，且分段模式下不能設 VM
+// （434 §3.2：分段模式→V86 屬 S4）。
 func (m *Machine) SetEFlagsHi(hi uint16) error {
 	if !m.pmProfile {
 		return errNoProfile
@@ -137,6 +145,9 @@ func (m *Machine) SetEFlagsHi(hi uint16) error {
 	}
 	if hi&eflagsHiVM != 0 && m.cr0&cr0PE == 0 {
 		return fmt.Errorf("machine: CR0.PE=0 時不能設 VM")
+	}
+	if hi&eflagsHiVM != 0 && m.segmented() {
+		return fmt.Errorf("machine: 分段模式下不能設 VM（進 V86 屬 S4；docs/spec/434 §3.2）")
 	}
 	m.eflagsHi = hi
 	m.recalcPM()
@@ -153,7 +164,8 @@ func (m *Machine) SetVM(on bool) error {
 	return m.SetEFlagsHi(hi)
 }
 
-// SetPMCPL 寫保護模式的 CPL（由 434 的 cpu386 寫入；本規格內只供測試，預設 0）。
+// SetPMCPL 寫保護模式的 CPL。434 只支援 CPL 0：進分段模式時寫 0（enterSegmented），
+// 分段模式下寫非 0 回錯誤（434 §3.2、§5.1）。其餘呼叫只供測試注入。
 func (m *Machine) SetPMCPL(cpl uint8) error {
 	if !m.pmProfile {
 		return errNoProfile
@@ -161,10 +173,16 @@ func (m *Machine) SetPMCPL(cpl uint8) error {
 	if cpl > 3 {
 		return fmt.Errorf("machine: CPL %d 超出 0..3", cpl)
 	}
+	if cpl != 0 && m.segmented() {
+		return fmt.Errorf("machine: 分段模式只支援 CPL 0，不能寫 CPL %d（docs/spec/434 §5.1）", cpl)
+	}
 	m.pmCPL = cpl
 	m.recalcPM()
 	return nil
 }
+
+// segmented 回既有核心是否在分段模式（434 §2）。
+func (m *Machine) segmented() bool { return m.CPU != nil && m.CPU.Segmented() }
 
 // CR0／CR3／PMCPL／EFlagsHi 回目前的值；Translating 回「轉換是否開啟」（m.xlat），
 // 供 internal/dos 的診斷回溯選擇 Peek 或 Read8。
@@ -206,7 +224,7 @@ func (m *Machine) writeLin(a uint32, v uint8, user bool) {
 }
 
 // 監督者存取（432 §3.3）：與線性層相同，但一律以監督者身分檢查權限（不論目前 CPL）。
-// 供 435 經 IDT 遞送 V86 事件時讀 IDT、TSS、寫 ring 0 堆疊，434 的 cpu386 在 CPL=3
+// 供 435 經 IDT 遞送 V86 事件時讀 IDT、TSS、寫 ring 0 堆疊，434 的既有核心在分段模式
 // 載入段描述元時讀 GDT、LDT，以及 435 的 I/O 權限點陣圖（§10 第 7 項）。
 // 不採全域旗標，避免設定後漏還原。轉換關閉時與 Read8／Write8 相同。
 //
