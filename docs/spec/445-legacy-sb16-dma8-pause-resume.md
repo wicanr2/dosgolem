@@ -322,3 +322,15 @@ DOSBox-X 接受這些命令（§1.3），差異登記在 §4.1。
 5. **隱式取消不動 IRR7、ISR7、`IRQPending`**（依審查）。清 IRR7 是 DSP 重設的語意，新命令在 DOSBox-X 也不降 PIC 線。
 6. **不加觀測欄位**（依審查）。隱式取消以「與新 `start` 同一步、同 `CS:IP`」辨識，`SBDMAEventFields` 與 probe 表頭不變。
 7. **`sbDMA8StateV` 維持 1，新欄位用 `omitempty`**（主代理決定）。未暫停時摘要不變；gob 位元組改變，照實登記（§2.10）。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`8ef399c`。
+
+- §3 單元測試：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出。
+  突變 19 條各至少一個測試失敗。§2.12 列為不改的檔案無 diff；LE 測試不變；`go test -v ./apps/...` 與改動前相同。
+- 與 §2.8 字面的差異：靜音（`80h`）被取消時 `Transferred` 沿用 444 記 0（靜音沒有 DMA 位元組）；445 路徑上觀測不到（靜音不能暫停）。
+- 觸發案例（`strike_commander` 的 `workplace/logs/probe471.log`、`workplace/scratch/p471/sbdma.tsv`）：SB16 設定冷開機，旗標同 §1。越過第 131427746 步：
+  `D0h` 暫停（進度 5920，與 §3 預測相同），第 131431883 步同一緩衝區隱式取消並重新開始，第 150641175 步完成、遞送 IRQ7、EOI；下一段 12726 bytes 同樣暫停、重啟、
+  完成。第 172112189 步完成時 IVT[0Fh] 已指回 StubSeg，IRQ7 由 BIOS 預設處理（`defaulted`）；第 176621909 步驅動對 idle 的 DSP 送 `D0h`，§2.3 拒絕而停。
+  idle `D0h` 在真機與 DOSBox-X 無害，由規格 446 改為接受。每次 `start` 到 `D0h` 約 617 萬步，原因是 `22Ch` 恆回 0，驅動等忙碌位元脈衝到逾時；同由 446 處理。
