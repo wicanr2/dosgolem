@@ -212,7 +212,9 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
   不消耗狀態（`startCallback` 與 `periodic` 在 `machine.go` 約 1563–1572 行，位於 IF 檢查之前，閘門要放在它們前面）。IRQ0 的時鐘照常累積並設
   `irq0Pending`（`machine.go` 約 1600–1606 行），只延後遞送：閘門放在遞送段（約 1608 行起）之前，`Ticks++`、`onTick`、`Interrupt(0x08)` 都不執行。
   `VGAFrameEvery` 的幀計數照常（不經 CPU）。
-- 431 §3 的失敗條件：分段模式遇到 `hlt` 失敗即關閉；有待處理 IRQ（`irq0Pending` 或鍵盤佇列非空）且 `IF=1` 而連續一百萬步仍在分段模式，失敗即關閉。
+- 431 §3 的失敗條件：分段模式遇到 `hlt` 失敗即關閉；有待處理 IRQ（`irq0Pending`、鍵盤佇列非空，或 444 開啟時可遞送的 IRQ7：IRR7＝1、ISR7＝0、IMR bit7＝0）
+  且 `IF=1` 而連續一百萬步仍在分段模式，失敗即關閉。錯誤字串列出 IRQ7 的 IRR、ISR 與 IMR 位元。（IRQ7 部分由 444 修訂）
+- IRQ7（444 開啟時）：分段模式下同樣只延後、不消耗；IRQ7 分支自己呼叫 `segWait`。444 的 DMA 傳輸與靜音在分段模式下照常到期完成（不經 CPU）。（由 444 修訂）
   計數在離開分段模式或條件不成立時歸零，存在 Machine，不進狀態檔。
 
 ## 6. 指令

@@ -40,7 +40,7 @@ JEMM 的路徑分析出自 `strike_commander` 的 `workplace/re/jemm-api/img.dis
 | 軟體中斷 | V86 的 `CD nn`（§4 的服務層例外除外） | nn | 無 | IOPL<3 改送 `#GP(0)`（`cpu.cpp:1302-1309`） | 閘 DPL < 3 改送 `#GP(nn*8+2)`（`1317-1320`） | 下一道 |
 | `INTO`（`CE`，OF=1） | | 4 | 無 | 有 | 有 | 下一道 |
 | `INT 3`（`CC`） | | 3 | 無 | 無（`prefix_none.h:1054` 的 `NoIOPLCheck`） | 有 | 下一道 |
-| 外部中斷 | IRQ0（`tick`）、IRQ1（`keyTick`、`timedKeyTick`） | `08h`、`09h` | 無 | 無 | 無 | 遞送當下的 `IP` |
+| 外部中斷 | IRQ0（`tick`）、IRQ1（`keyTick`、`timedKeyTick`）、IRQ7（444 的 IRQ7 分支，選項開啟時；由 444 修訂） | `08h`、`09h`、`0Fh` | 無 | 無 | 無 | 遞送當下的 `IP` |
 | `#DE` | 除以零、商溢位（16、32 位元，含 `AAM 0`） | 0 | 無 | 無 | 無 | 指令起點（含前綴） |
 | `#BR` | `BOUND` 越界 | 5 | 無 | 無 | 無 | 指令起點 |
 | `#GP(0)` | IOPL<3 的 `cli`、`sti`、`pushf`、`popf`、`iret`；`hlt`；特權指令（433 以 `Sys.User()` 判定者：`mov crN`、`mov drN`、`lgdt`、`lidt`、`lmsw`、`clts`）；I/O 點陣圖拒絕 | 13 | 0 | 無 | 無 | 指令起點 |
