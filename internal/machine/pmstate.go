@@ -188,7 +188,8 @@ func getSysSeg(b []byte) sysSeg {
 // 版本 2 另加（433 §2.1）：DR6&FFFF0FF0h != FFFF0FF0h（bit 12 不驗）；DR7 的 bit 10 不為 1
 // 或 bit 12、14、15 不為 0；LDTR、TR 屬性的 bit 8–11 或 bit 13 不為 0。
 // 版本 3 另加（434 §2.2）：segmented 只能是 0 或 1；保留 byte 為 0；segmented=0 時六個快取全 0；
-// segmented=1 時 PE=1、VM=0、pmCPL=0；各快取 Attr 的 bit 8–11、13 為 0；cache[CS]、cache[SS] 的 D/B 為 0。
+// segmented=1 時 VM=0、pmCPL=0，且 PE=1 或（PE=0、PG=0，442 的殘留快取實模式；由 442 修訂）；各快取 Attr 的
+// bit 8–11、13 為 0；cache[CS]、cache[SS] 的 D/B 為 0。
 // 版本 1 沒有的欄位取 sysRegsInit 的初值；版本 1、2 沒有的分段模式狀態為 segmented=false、快取全 0。
 //
 // 「版本 1、2 帶 PE=1、VM=0」的拒絕不在這裡，在 LoadState（434 §2.1），直接呼叫 decodePM 的測試不受影響。
@@ -290,8 +291,9 @@ func decodePMV3(b []byte, f *pmFields) error {
 		}
 		return nil
 	}
-	if f.cr0&cr0PE == 0 || f.eflagsHi&eflagsHiVM != 0 || f.cpl != 0 {
-		return fmt.Errorf("machine: PM 的 segmented=1 要求 PE=1、VM=0、pmCPL=0（CR0=%08X EFlagsHi=%04X CPL=%d）",
+	// 442 §2.8：PE=0 只在 PG=0 時合法（殘留快取實模式）。
+	if f.eflagsHi&eflagsHiVM != 0 || f.cpl != 0 || (f.cr0&cr0PE == 0 && f.cr0&cr0PG != 0) {
+		return fmt.Errorf("machine: PM 的 segmented=1 要求 VM=0、pmCPL=0，且 PE=1 或（PE=0、PG=0）（CR0=%08X EFlagsHi=%04X CPL=%d）",
 			f.cr0, f.eflagsHi, f.cpl)
 	}
 	for i, c := range f.cache {

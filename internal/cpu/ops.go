@@ -88,6 +88,7 @@ func (c *CPU) Step() error {
 			// 指令途中記下的「不能照做」優先於一般回傳值。
 			f := c.fault
 			c.fault = nil
+			c.leavePending = false // 442 §2.7：指令失敗時清除，不回哨兵
 			if c.ev != nil {
 				// 435 §2.2：V86 事件。IP 設回本道起點，事件移到副本後清掉 ev（殘留會讓之後的一般 failf 被誤判）。
 				c.evOut = *c.ev
@@ -96,6 +97,14 @@ func (c *CPU) Step() error {
 				return ErrV86Event
 			}
 			return f
+		}
+		// 442 §2.7：離開檢查旗標只在 segmented=true 的分支設定；實模式熱路徑只多這一次布林判斷。
+		// 旗標一律在這裡清除；只有 execute 回 nil 且六個快取都滿足條件時回 ErrLeaveSegmented（指令已完成）。
+		if c.leavePending {
+			c.leavePending = false
+			if err == nil && c.leaveReady() {
+				return ErrLeaveSegmented
+			}
 		}
 		return err
 	}
@@ -382,6 +391,11 @@ func (c *CPU) executeCore(op uint8) error {
 		}
 	case op == 0xCF: // IRET
 		if c.segmented {
+			// 442 §2.5：殘留快取實模式走實模式 iret，不看 NT（DOSBox-X CPU_IRET 先判 !cpu.pmode，cpu.cpp:1528-1540）。
+			if c.realCache() {
+				c.iretRealCache()
+				break
+			}
 			// 436 §3.1：NT=1 是任務返回；NT=0 的保護模式 iret 仍失敗即關閉（16 位元 CF 回 V86 不支援，435 §2.5）。
 			if c.Flags&NT != 0 {
 				return c.taskReturn()
@@ -916,16 +930,35 @@ func (c *CPU) farCall(seg, off uint16) {
 }
 
 // farRet 是 16 位元同特權遠返回（CA、CB）：彈出 IP、CS。分段模式下彈出的 CS 的 RPL ≠ CPL
-// 失敗即關閉（434 §5.1），再經 loadSeg 載入。
+// 失敗即關閉（434 §5.1），再經 loadSeg 載入。殘留快取實模式不做 RPL 檢查（442 §2.5：實模式沒有 RPL）。
 func (c *CPU) farRet() {
 	ip := c.pop()
 	cs := c.pop()
-	if c.segmented && !c.retRPLOK(cs) {
+	if c.segmented && !c.realCache() && !c.retRPLOK(cs) {
 		return
 	}
 	if c.loadSeg(CS, cs) {
 		c.IP = ip
 	}
+}
+
+// iretRealCache 是殘留快取實模式的 16 位元 iret（442 §2.5，DOSBox-X CPU_IRET 實模式分支 cpu/cpu.cpp:1528-1540），
+// 不看 NT。順序：stackCheck；以 read16 經 SS 快取讀 SP、SP+2、SP+4（各自 16 位元環繞）而不動 SP；看 fault；
+// loadSeg(CS)（實模式語意）；成功後設 IP、SetFlags（386 遮罩）、SP += 6。任一步失敗時 Seg[CS]、快取、IP、SP、
+// 旗標都不改。週期照實模式 iret 的三次彈出計。
+func (c *CPU) iretRealCache() {
+	c.charge(3 * cycStack)
+	c.stackCheck()
+	sp := c.R[SP]
+	ip := c.read16(SS, uint32(sp))
+	cs := c.read16(SS, uint32(sp+2))
+	fl := c.read16(SS, uint32(sp+4))
+	if c.fault != nil || !c.loadSeg(CS, cs) {
+		return
+	}
+	c.IP = ip
+	c.SetFlags(fl)
+	c.R[SP] = sp + 6
 }
 
 // doInt 走 IntHook；沒攔就跳真正的向量表。

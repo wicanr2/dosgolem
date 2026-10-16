@@ -351,6 +351,9 @@ func (c *CPU) execute32(op uint8) error {
 	// ---- CF：IRETD（436 §3.1、435 §2.5）---------------------------------------------
 	case op == 0xCF:
 		if c.segmented {
+			if c.realCache() { // 442 §2.5：不得走 taskReturn 或 v86ReturnRead
+				return c.errf(op, "66 CF IRETD：殘留快取實模式下失敗即關閉（docs/spec/442 §2.5）")
+			}
 			if c.Flags&NT != 0 {
 				return c.taskReturn() // DOSBox-X 的任務返回不看運算元大小（cpu.cpp:1586-1597）
 			}
@@ -427,9 +430,21 @@ func (c *CPU) farOffOK(off uint32, sel uint16) bool {
 	return true
 }
 
+// far32RealCache：殘留快取實模式下 437 的 16:32 遠轉移失敗即關閉（442 §2.5），狀態不改。
+func (c *CPU) far32RealCache(what string) bool {
+	if !c.realCache() {
+		return false
+	}
+	c.failf("%s：殘留快取實模式下的 32 位元遠轉移失敗即關閉（docs/spec/442 §2.5）", what)
+	return true
+}
+
 // farJmp32 是分段模式的 66 EA、66 FF /5（437 §2）。順序：指標已讀完、看 fault、驗偏移高半、
 // loadSeg(CS)、設 IP。失敗時 CS、CS 快取不變。
 func (c *CPU) farJmp32(off uint32, sel uint16) {
+	if c.far32RealCache("66 EA／66 FF /5") {
+		return
+	}
 	if c.fault != nil || !c.farOffOK(off, sel) {
 		return
 	}
@@ -442,6 +457,9 @@ func (c *CPU) farJmp32(off uint32, sel uint16) {
 // 順序：指標已讀完、看 fault、驗偏移高半、堆疊預檢（stackCheck，SP-8–SP-1 以 16 位元環繞做寫入的
 // segCheck）、loadSeg(CS)、推入、設 IP。loadSeg 成功後的推入不會再失敗（已預檢）。
 func (c *CPU) farCall32(off uint32, sel uint16) {
+	if c.far32RealCache("66 9A／66 FF /3") {
+		return
+	}
 	if c.fault != nil || !c.farOffOK(off, sel) {
 		return
 	}
@@ -468,6 +486,9 @@ func (c *CPU) farCall32(off uint32, sel uint16) {
 // 高半不檢查），SP += 8 + iw。順序：stackCheck、讀 SP 與 SP+4 的兩個 dword 而不動 SP、看 fault、
 // 驗偏移高半、retRPLOK、loadSeg(CS)、改 SP、設 IP。失敗時 CS、CS 快取、SP 都不變。
 func (c *CPU) farRet32(n uint16) {
+	if c.far32RealCache("66 CA／66 CB") {
+		return
+	}
 	c.charge(2 * cycStack)
 	c.stackCheck()
 	sp := c.R[SP]

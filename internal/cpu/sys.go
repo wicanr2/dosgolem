@@ -23,8 +23,9 @@ type SysBus interface {
 	SetIDTR(base uint32, limit uint16)
 	// User 回目前是否為使用者模式（432 的 cplUser）。實模式恆為 false。
 	User() bool
-	// IVTMismatch 是 433 §2 的 IDTR 守門條件：profile 開啟、PE=0 而 IDTR 基底不為 0。
-	IVTMismatch() bool
+	// IVTMismatch 是 433 §2 的 IDTR 守門條件（由 442 §2.7 修訂為依向量）：profile 開啟、PE=0，且 IDTR 基底不為 0
+	// 或 4×vec＋3 超出 IDTR 界限。
+	IVTMismatch(vec uint8) bool
 
 	// 434 §5.2：分段模式的段載入用。
 	// CPL 回目前的 CPL（Machine 的 pmCPL）。
@@ -57,6 +58,10 @@ var ErrModeSwitch = errors.New("cpu: CR0.PE 由 0 變 1，交棒給保護模式�
 // 任務切換由 Machine 做（436 §3.2）。
 var ErrTaskReturn = errors.New("cpu: 分段模式 iret 且 NT=1，任務返回交給 Machine（docs/spec/436 §3）")
 
+// ErrLeaveSegmented 是殘留快取實模式的離開哨兵（442 §2.7）：六個段暫存器的快取都等於實模式推得值的那一步，
+// 指令照常完成（IP 指向下一道，與 ErrTaskReturn 不同）後由 Step 回傳。Machine 離開分段模式（leaveSegmented）。
+var ErrLeaveSegmented = errors.New("cpu: 殘留快取實模式的段快取都已是實模式推得值，離開分段模式（docs/spec/442 §2.7）")
+
 const (
 	cr0PE = 1 << 0
 	cr0TS = 1 << 3
@@ -67,8 +72,14 @@ const (
 // DOSBox-X cpu/cpu.cpp:1294-1296）。成立時以 failf 記下原因並回 true，呼叫端不得呼叫 Interrupt。
 //
 // 434 §5.3 擴充：分段模式下同樣失敗即關閉（保護模式 IDT 遞送屬 435／S6）。
+// 442 §2.6：殘留快取實模式也走分段分支失敗即關閉，診斷註明子狀態。
+// 442 §2.7：條件依向量（IVTMismatch(n)），診斷寫出基底、界限與向量。
 func (c *CPU) ivtGuard(n uint8, what string) bool {
 	if c.segmented {
+		if c.realCache() {
+			c.failf("%s（INT %02Xh）：殘留快取實模式下的中斷與例外不遞送，失敗即關閉（docs/spec/442 §2.6）", what, n)
+			return true
+		}
 		c.failf("%s（INT %02Xh）：分段模式下的中斷與例外經保護模式 IDT 遞送，屬 435／S6，失敗即關閉"+
 			"（docs/spec/434 §5.3）", what, n)
 		return true
@@ -83,12 +94,12 @@ func (c *CPU) ivtGuard(n uint8, what string) bool {
 			Reason: fmt.Sprintf("V86 %s（INT %02Xh）：經保護模式 IDT 遞送（docs/spec/435 §2.1）", what, n)})
 		return true
 	}
-	if !c.Sys.IVTMismatch() {
+	if !c.Sys.IVTMismatch(n) {
 		return false
 	}
 	base, limit := c.Sys.IDTR()
-	c.failf("%s（INT %02Xh）：實模式下 IDTR 基底 %08X（界限 %04X）不為 0，dosgolem 只讀 0000:0000 的 IVT，"+
-		"失敗即關閉（docs/spec/433 §2）", what, n, base, limit)
+	c.failf("%s（INT %02Xh）：實模式下 IDTR 基底 %08X、界限 %04X 與 dosgolem 讀的 0000:0000 IVT 第 %02Xh 項不符"+
+		"（基底不為 0 或向量超出界限），失敗即關閉（docs/spec/433 §2、442 §2.7）", what, n, base, limit, n)
 	return true
 }
 
@@ -97,14 +108,14 @@ func (c *CPU) ivtGuard(n uint8, what string) bool {
 func (c *CPU) execSys0F(op2 uint8) (handled bool, err error) {
 	switch op2 {
 	case 0x00, 0x02, 0x03:
-		if c.segmented {
+		if c.segmented && !c.realCache() {
 			// 434 §6：分段模式的 0F 00 群組在 seg0F00；LAR、LSL 失敗即關閉（JEMM 沒用）。
 			if op2 == 0x00 {
 				return true, c.seg0F00()
 			}
 			return true, c.errf(op2, "0F %02X：分段模式的 LAR、LSL 失敗即關閉（JEMM 沒用，docs/spec/434 §6）", op2)
 		}
-		// 0F 00 整組、LAR、LSL：DOSBox-X 在實模式送 IVT 第 6 項（prefix_0f.h:22、128、141）；刻意從嚴。
+		// 0F 00 整組、LAR、LSL：實模式與 442 §2.5 的殘留快取實模式。DOSBox-X 在實模式送 IVT 第 6 項（prefix_0f.h:22、128、141）；刻意從嚴。
 		return true, c.errf(op2, "0F %02X：實模式的 0F 00 群組、LAR、LSL 失敗即關閉"+
 			"（DOSBox-X 送 IVT 第 6 項；刻意從嚴，docs/spec/433 §4）", op2)
 	case 0x01:
@@ -215,6 +226,8 @@ func (c *CPU) sys0F01() error {
 }
 
 // setCR0 經 Sys 寫 CR0，PE 由 0 變 1 時回 ErrModeSwitch（433 §5：寫入前後比較 PE）。
+// 442 §2.2：分段模式下 PE 由 1 變 0（進入殘留快取實模式）時不回哨兵，設離開檢查旗標（§2.7），
+// 下一道仍以分段模式的位址計算取指令。
 func (c *CPU) setCR0(op2 uint8, name string, old, v uint32) error {
 	if err := c.Sys.SetCR(0, v); err != nil {
 		return c.errf(op2, "%s：%v", name, err)
@@ -225,6 +238,9 @@ func (c *CPU) setCR0(op2 uint8, name string, old, v uint32) error {
 	}
 	if old&cr0PE == 0 && now&cr0PE != 0 {
 		return ErrModeSwitch
+	}
+	if c.segmented && old&cr0PE != 0 && now&cr0PE == 0 {
+		c.leavePending = true
 	}
 	return nil
 }

@@ -183,6 +183,11 @@ type CPU struct {
 	segmented bool
 	cache     [6]SegCache
 
+	// leavePending 是 442 §2.7 的離開檢查旗標（不持久化）：只在 segmented=true 的分支設定（殘留快取實模式的
+	// 段載入、分段模式 mov cr0 清 PE 的那一步）；Step 在指令結束時消費並清除，指令失敗、SetSegmented、
+	// SetSegCache 也清除。
+	leavePending bool
+
 	// taskNextIP 是任務返回時記下的下一道指令位址（436 §3.1，TaskReturnNextIP）。
 	taskNextIP uint16
 

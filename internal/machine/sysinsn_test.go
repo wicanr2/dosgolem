@@ -423,7 +423,8 @@ func guardProg(t *testing.T, code []byte) *Machine {
 	t.Helper()
 	m := newSysProg(t, code)
 	m.SetIDTR(0x00012000, 0x07FF)
-	if !m.IVTMismatch() {
+	// 442 §2.10：依向量；本檔用的 IRQ 向量是 08h、09h，基底非 0 時都成立。
+	if !m.IVTMismatch(0x08) || !m.IVTMismatch(0x09) {
 		t.Fatal("守門條件應成立")
 	}
 	return m

@@ -395,22 +395,34 @@ func TestSetProtectedModeProfileResetsSysRegs(t *testing.T) {
 	}
 }
 
+// 442 §2.7：IVTMismatch 依向量（4×vec＋3 > 界限也成立）。原預期不變，另補界限的案例。
 func TestIVTMismatchCondition(t *testing.T) {
 	off := newExt(t, 4096)
 	off.SetIDTR(0x1000, 0x3FF)
-	if off.IVTMismatch() {
+	if off.IVTMismatch(0) || off.IVTMismatch(0xFF) {
 		t.Error("profile 關閉：不成立")
 	}
 	m := newPM(t)
-	if m.IVTMismatch() {
-		t.Error("IDTR 基底 0：不成立")
+	if m.IVTMismatch(0) || m.IVTMismatch(0xFF) {
+		t.Error("IDTR 基底 0、界限 3FFh：向量 0 與 FFh 都不成立")
+	}
+	m.SetIDTR(0, 0x1F)
+	if m.IVTMismatch(7) {
+		t.Error("基底 0、界限 1Fh：向量 7（4×7＋3＝1Fh）不成立")
+	}
+	if !m.IVTMismatch(8) {
+		t.Error("基底 0、界限 1Fh：向量 8（4×8＋3＝23h）成立")
+	}
+	m.SetIDTR(0, 0x7FF)
+	if m.IVTMismatch(0xFF) {
+		t.Error("基底 0、界限 7FFh：向量 FFh 不成立（界限大於 3FFh 無害）")
 	}
 	m.SetIDTR(0x1000, 0x3FF)
-	if !m.IVTMismatch() {
+	if !m.IVTMismatch(0) || !m.IVTMismatch(0xFF) {
 		t.Error("profile 開、PE=0、IDTR 基底非 0：成立")
 	}
 	mustNil(t, "SetCR0", m.SetCR0(cr0PE))
-	if m.IVTMismatch() {
+	if m.IVTMismatch(0) || m.IVTMismatch(0xFF) {
 		t.Error("PE=1：不成立")
 	}
 }

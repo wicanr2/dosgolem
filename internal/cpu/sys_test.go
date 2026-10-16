@@ -20,7 +20,7 @@ func (f *fakeSys) SetGDTR(uint32, uint16)  { f.calls++ }
 func (f *fakeSys) IDTR() (uint32, uint16)  { f.calls++; return 0, 0x3FF }
 func (f *fakeSys) SetIDTR(uint32, uint16)  { f.calls++ }
 func (f *fakeSys) User() bool              { f.calls++; return false }
-func (f *fakeSys) IVTMismatch() bool       { f.calls++; return false }
+func (f *fakeSys) IVTMismatch(uint8) bool  { f.calls++; return false }
 
 // 434 §5.2 的增補。
 func (f *fakeSys) CPL() uint8               { f.calls++; return 0 }

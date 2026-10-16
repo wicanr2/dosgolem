@@ -37,6 +37,15 @@ type cplSys struct {
 
 func (s *cplSys) CPL() uint8 { return s.cpl }
 
+// CR(0) 回 PE=1（11h），使 newSegCPU 仍代表分段模式（442 §2.10：fakeSys 的 CR(0) 是 PE=0，
+// 不覆寫的話 SetSegmented(true) 會變成殘留快取實模式）。
+func (s *cplSys) CR(n int) (uint32, error) {
+	if n == 0 {
+		return 0x11, nil
+	}
+	return s.fakeSys.CR(n)
+}
+
 func newSegCPU(t *testing.T, cpl uint8) (*CPU, *testBus) {
 	t.Helper()
 	b := newTestBus()

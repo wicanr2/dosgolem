@@ -77,11 +77,13 @@ func (m *Machine) SetIDTR(base uint32, limit uint16) { m.sys.idtrBase, m.sys.idt
 // User 回目前是否為使用者模式（432 的 cplUser）。實模式恆為 false。
 func (m *Machine) User() bool { return m.cplUser }
 
-// IVTMismatch 是 433 §2 的 IDTR 守門條件的唯一定義：profile 開啟、仍在實模式、
-// IDTR 基底不為 0。成立時實模式的 INT 與 IRQ 失敗即關閉（dosgolem 一律讀 0000:0000 的 IVT，
-// 真機與 DOSBox-X 以 IDTR 基底取向量）。
-func (m *Machine) IVTMismatch() bool {
-	return m.pmProfile && m.cr0&cr0PE == 0 && m.sys.idtrBase != 0
+// IVTMismatch 是 433 §2 的 IDTR 守門條件的唯一定義（由 442 §2.7 修訂為依向量）：profile 開啟、仍在實模式（PE=0），
+// 且 IDTR 基底不為 0 或向量 vec 的 IVT 項（4×vec＋3）超出 IDTR 界限。成立時實模式的 INT 與 IRQ 失敗即關閉
+// （dosgolem 一律讀 0000:0000 的 IVT、不查界限；真機以 IDTR 基底取向量並查界限，DOSBox-X 以基底取向量、
+// 不查界限）。界限大於 3FFh 無害。CPU 側（ivtGuard）與 Machine 側（ivtGuardIRQ）各傳自己的向量。
+func (m *Machine) IVTMismatch(vec uint8) bool {
+	return m.pmProfile && m.cr0&cr0PE == 0 &&
+		(m.sys.idtrBase != 0 || 4*uint32(vec)+3 > uint32(m.sys.idtrLimit))
 }
 
 // CPL 回目前的 CPL（434 §5.2）。
@@ -115,12 +117,13 @@ func (m *Machine) ivtGuardIRQ(vec uint8) bool {
 		m.irqPlan, m.irqPlanOK = p, true
 		return false
 	}
-	if !m.IVTMismatch() {
+	if !m.IVTMismatch(vec) {
 		return false
 	}
 	if m.irqErr == nil {
-		m.irqErr = fmt.Errorf("machine: IRQ（INT %02Xh）：實模式下 IDTR 基底 %08X（界限 %04X）不為 0，"+
-			"dosgolem 只讀 0000:0000 的 IVT，失敗即關閉（docs/spec/433 §2）", vec, m.sys.idtrBase, m.sys.idtrLimit)
+		m.irqErr = fmt.Errorf("machine: IRQ（INT %02Xh）：實模式下 IDTR 基底 %08X、界限 %04X 與 dosgolem 讀的 0000:0000 IVT "+
+			"第 %02Xh 項不符（基底不為 0 或向量超出界限），失敗即關閉（docs/spec/433 §2、442 §2.7）",
+			vec, m.sys.idtrBase, m.sys.idtrLimit, vec)
 	}
 	return true
 }

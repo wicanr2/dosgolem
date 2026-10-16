@@ -8,8 +8,9 @@ import (
 
 // 線性層與保護模式 profile（docs/spec/432-linear-memory-and-paging §2、§3.2、§3.3、§4）。
 //
-// 「轉換開啟」（衍生欄位 m.xlat）＝ profile 開啟且 CR0.PE=1。其餘情形 Read8／Write8
-// 與 432 之前逐位元組相同。
+// 「轉換開啟」（衍生欄位 m.xlat）＝ profile 開啟且（CR0.PE=1 或既有核心在分段模式）。後者只在 442 的
+// 殘留快取實模式（segmented=true、PE=0）成立，讓 1 MB 以上的快取基底經線性層存取（由 442 修訂）。
+// 其餘情形 Read8／Write8 與 432 之前逐位元組相同。
 //
 // 分頁（§5）在 paging.go：m.paging（xlat 且 CR0.PG）為真時，線性位址先經 TLB／頁表
 // 轉成實體位址，再套 A20 遮罩；否則實體＝線性，再套 A20 遮罩。
@@ -31,7 +32,7 @@ const (
 // 431 §4 規定 CR0、EFlagsHi、pmCPL 的所有寫入都經這些方法，所以衍生欄位不會過期。
 func (m *Machine) recalcPM() {
 	pe := m.cr0&cr0PE != 0
-	m.xlat = m.pmProfile && pe
+	m.xlat = m.pmProfile && (pe || m.segmented()) // 442 §2.3：殘留快取實模式也開轉換（paging 因 PG=0 為 false）
 	m.paging = m.xlat && m.cr0&cr0PG != 0
 	m.cplUser = false
 	m.v86 = m.xlat && m.eflagsHi&eflagsHiVM != 0
@@ -104,8 +105,11 @@ func (m *Machine) SetProtectedModeProfile(on bool) error {
 func (m *Machine) ProtectedModeProfile() bool { return m.pmProfile }
 
 // SetCR0 寫 CR0。一律補 00000010h，只保留 bit 0–4 與 bit 31（含 WP 在內的其餘位元清為 0）。
-// PE 或 PG 改變時作廢 TLB。profile 關閉回錯誤；PE 由 1 寫成 0 而 VM=1 或在分段模式也回錯誤
-// （431 §5、434 §3.2：保護模式→實模式不支援，屬 S9），CR0 不改。
+// PE 或 PG 改變時作廢 TLB。profile 關閉回錯誤；PE 由 1 寫成 0 而 VM=1 回錯誤（431 §5），CR0 不改。
+//
+// 分段模式（442 §2.2，由 442 修訂 434 §3.2）：PE 由 1 清為 0 且 PG 同時清為 0 時接受，進入殘留快取實模式
+// （segmented=true、PE=0）；清 PE 而保留 PG 回錯誤。子狀態內新值設 PE 或 PG 都回錯誤（由子狀態再進保護模式
+// 不在 442 範圍）；PE、PG 維持 0 的寫入（clts、只改 MP、EM、TS）接受。錯誤時 CR0 不改。
 func (m *Machine) SetCR0(v uint32) error {
 	if !m.pmProfile {
 		return errNoProfile
@@ -114,8 +118,15 @@ func (m *Machine) SetCR0(v uint32) error {
 	if m.cr0&cr0PE != 0 && v&cr0PE == 0 && m.eflagsHi&eflagsHiVM != 0 {
 		return fmt.Errorf("machine: VM=1 時不能把 CR0.PE 清成 0（保護模式→實模式不支援）")
 	}
-	if v&cr0PE == 0 && m.segmented() {
-		return fmt.Errorf("machine: 分段模式下不能把 CR0.PE 清成 0（保護模式→實模式不支援，S9；docs/spec/434 §3.2）")
+	if m.segmented() {
+		switch {
+		case m.cr0&cr0PE != 0 && v&cr0PE == 0 && v&cr0PG != 0:
+			return fmt.Errorf("machine: 分段模式下清 CR0.PE 而保留 PG 不支援（Intel #GP(0)；docs/spec/442 §2.2）")
+		case m.cr0&cr0PE == 0 && v&cr0PE != 0:
+			return fmt.Errorf("machine: 殘留快取實模式下不能再設 CR0.PE（由子狀態再進保護模式不在範圍；docs/spec/442 §2.2、§2.11）")
+		case m.cr0&cr0PE == 0 && v&cr0PG != 0:
+			return fmt.Errorf("machine: 殘留快取實模式下不能設 CR0.PG（docs/spec/442 §2.2）")
+		}
 	}
 	if (m.cr0^v)&(cr0PE|cr0PG) != 0 {
 		m.invalidateTLB()

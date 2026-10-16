@@ -96,7 +96,8 @@ func TestLoadStatePMV3Validation(t *testing.T) {
 			}
 			le.PutUint16(p[82+10*cpu.GS+8:], 0x0093)
 		}},
-		{"segmented=1 而 PE=0", func(p []byte) { p[4] &^= 1 }},
+		// 442 §2.8：segmented=1、PE=0 只在 PG=0 時可讀（殘留快取實模式，見下方對照組）。
+		{"segmented=1 而 PE=0、PG=1", func(p []byte) { p[4] &^= 1; p[7] |= 0x80 }},
 		{"segmented=1 而 VM=1", func(p []byte) { p[12] |= 2 }},
 		{"segmented=1 而 pmCPL=1", func(p []byte) { p[3] = 1 }},
 		{"segmented=1 而 pmCPL=3", func(p []byte) { p[3] = 3 }},
@@ -124,6 +125,7 @@ func TestLoadStatePMV3Validation(t *testing.T) {
 		{"原檔", func([]byte) {}},
 		{"ES 的 D/B 為 1", attr(cpu.ES, 0x4092)},
 		{"CS 的 G 與 AVL", attr(cpu.CS, 0x909A)},
+		{"segmented=1、PE=0、PG=0（442 的殘留快取實模式）", func(p []byte) { p[4] &^= 1 }},
 		{"segmented=0 且快取全 0", func(p []byte) {
 			p[80] = 0
 			for i := 82; i < 142; i++ {

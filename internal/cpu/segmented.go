@@ -142,14 +142,78 @@ func (c *CPU) stackCheck() {
 }
 
 // loadSeg 是「載入新段值」的唯一入口（434 §5.1）。segmented=false 時只寫段值，行為不變；
-// segmented=true 時讀描述元、檢查、通過後才寫段值與快取。失敗時以 failf 記下原因、
-// 段值與快取都不寫，回 false。
+// segmented=true 且 PE=1 時讀描述元、檢查、通過後才寫段值與快取。失敗時以 failf 記下原因、
+// 段值與快取都不寫，回 false。segmented=true 且 PE=0（殘留快取實模式）時走 loadSegReal（442 §2.4）。
 func (c *CPU) loadSeg(i int, sel uint16) bool {
 	if !c.segmented {
 		c.setSegVal(i, sel)
 		return true
 	}
+	if c.realCache() {
+		return c.loadSegReal(i, sel)
+	}
 	return c.loadSegPM(i, sel)
+}
+
+// realCache 回目前是否在殘留快取實模式（442 §2.1）：segmented=true、Sys 非 nil、CR0.PE=0（經 Sys.CR(0) 讀）。
+// 只在 segmented=true 的分支呼叫，實模式熱路徑不經過。
+func (c *CPU) realCache() bool {
+	if !c.segmented || c.Sys == nil {
+		return false
+	}
+	cr0, err := c.Sys.CR(0)
+	return err == nil && cr0&cr0PE == 0
+}
+
+// loadSegReal 是殘留快取實模式的段載入（442 §2.4，DOSBox-X CPU_SetSegGeneral 的實模式分支，cpu/cpu.cpp:2976-2991）：
+//
+//  1. 本道指令已有 fault（pop、get16 讀取失敗時回 0 仍呼叫 loadSeg）時回 false，段值與快取不寫、不標記離開檢查。
+//  2. 寫段值。
+//  3. 目標快取不可用（P=0）時設實模式預設快取（基底＝值×16、界限 FFFFh、CS 屬性 009Bh、其餘 0093h），跳過 4、5。
+//  4. 否則基底＝值×16，界限不變（實模式載入不改界限）。
+//  5. 屬性不變，但 CS、SS 清 D/B（實模式載入 SS 時 stack.big=false；遠轉移、iret 後 code.big=false）。
+//  6. 不查描述元表、不做選擇子、型別、DPL、RPL、present 檢查；不寫 accessed；CS 的值不併入 CPL。
+//  7. 設離開檢查旗標（§2.7），回 true。
+func (c *CPU) loadSegReal(i int, sel uint16) bool {
+	if c.fault != nil {
+		return false
+	}
+	c.setSegVal(i, sel)
+	sc := &c.cache[i]
+	switch {
+	case sc.Attr&attrP == 0:
+		attr := uint16(0x0093)
+		if i == CS {
+			attr = 0x009B
+		}
+		*sc = SegCache{Base: uint32(sel) << 4, Limit: 0xFFFF, Attr: attr}
+	default:
+		sc.Base = uint32(sel) << 4
+		if i == CS || i == SS {
+			sc.Attr &^= attrDB
+		}
+	}
+	c.leavePending = true
+	return true
+}
+
+// leaveReady 是 442 §2.7 的離開條件：六個段暫存器（段值以 segVal 取，含 FS、GS）都滿足
+// 基底＝段值×16、界限＝FFFFh、P＝1 且 S＝1；ES、SS、DS、FS、GS 為資料段時向上展開（EC＝0）；CS、SS 的 D/B＝0。
+// 不比較 RW、可執行、DPL、accessed、AVL、G 與資料段的 B。
+func (c *CPU) leaveReady() bool {
+	for i := ES; i <= GS; i++ {
+		sc := &c.cache[i]
+		a := sc.Attr
+		switch {
+		case sc.Base != uint32(c.segVal(i))<<4,
+			sc.Limit != 0xFFFF,
+			a&(attrP|attrS) != attrP|attrS,
+			i != CS && a&attrExec == 0 && a&attrEC != 0,
+			(i == CS || i == SS) && a&attrDB != 0:
+			return false
+		}
+	}
+	return true
 }
 
 // retRPLOK：遠返回時彈出的 CS 的 RPL 必須等於 CPL（434 §5.1）。
