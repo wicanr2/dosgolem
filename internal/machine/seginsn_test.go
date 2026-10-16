@@ -50,29 +50,8 @@ func TestSegInsnFarCallPushesAndRetfImm(t *testing.T) {
 	}
 }
 
-// 66 形式的遠轉移與 66 CB 失敗即關閉。
-func TestSegInsn66FarTransfersFail(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		code []byte
-	}{
-		{"66 jmp far", []byte{0x66, 0xEA, 0, 0, 0, 0, 0x18, 0}},
-		{"66 call far", []byte{0x66, 0x9A, 0, 0, 0, 0, 0x18, 0}},
-		{"66 retf", []byte{0x66, 0xCB}},
-		{"66 retf imm", []byte{0x66, 0xCA, 0, 0}},
-		{"66 call far [m]", []byte{0x66, 0xFF, 0x1E, 0x00, 0x02}},
-		{"66 jmp far [m]", []byte{0x66, 0xFF, 0x2E, 0x00, 0x02}},
-	} {
-		m := segProg(t, c.code)
-		cs := m.CPU.Seg[cpu.CS]
-		if err := m.Step(); err == nil {
-			t.Errorf("%s：應失敗即關閉", c.name)
-		}
-		if m.CPU.Seg[cpu.CS] != cs {
-			t.Errorf("%s：CS 不得改變", c.name)
-		}
-	}
-}
+// 66 形式的遠轉移與 66 CB 由 docs/spec/437 取代（434 §6），測試在 seginsn437_test.go；
+// 範圍外的 66 FF /2、/4、E8、E9、C2、C3 見 Test437OutOfScopeFail。
 
 // lldt：空選擇子、GDT 的 LDT 描述元、TI=1、非 LDT、不存在、超出界限；之後以 TI=1 選擇子載入成功。
 func TestSegInsnLLDT(t *testing.T) {

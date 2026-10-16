@@ -369,7 +369,7 @@ func (c *CPU) execute32(op uint8) error {
 	case op == 0xF7:
 		return c.group3_32(op)
 
-	// ---- FF：group 5（只實作 inc／dec／push）---------------------------------
+	// ---- FF：group 5（inc／dec／push；分段模式另有 /3、/5 遠轉移）-------------------
 	case op == 0xFF:
 		m := c.decodeModRM()
 		switch m.reg {
@@ -379,14 +379,105 @@ func (c *CPU) execute32(op uint8) error {
 			c.set32(m.rm, c.dec32(c.get32(m.rm)))
 		case 6:
 			c.push32(c.get32(m.rm))
-		default:
-			return c.errf(op, "66 FF /%d：32 位元的 call／jmp 未實作（docs/spec/197 §2）", m.reg)
+		case 3, 5: // CALL／JMP FAR m16:32（437 §2：只在分段模式）
+			if !c.segmented {
+				return c.errf(op, "66 FF /%d：32 位元遠轉移只在分段模式實作（docs/spec/197 §2、437 §2）", m.reg)
+			}
+			if m.rm.isReg { // DOSBox-X prefix_66.h:732、752 為非法指令
+				return c.errf(op, "66 FF /%d：遠指標運算元不能是暫存器（mod=3），失敗即關閉（docs/spec/437 §2）", m.reg)
+			}
+			off := c.get32(m.rm)
+			sel := c.get16(m.rm.at(4))
+			if m.reg == 3 {
+				c.farCall32(off, sel)
+			} else {
+				c.farJmp32(off, sel)
+			}
+		default: // 2、4
+			return c.errf(op, "66 FF /%d：32 位元的近 call／jmp 未實作（docs/spec/197 §2、437 §2）", m.reg)
 		}
+
+	// ---- 9A／EA／CA／CB：分段模式的 16:32 遠轉移（437 §2）---------------------
+	case op == 0xEA && c.segmented:
+		c.charge(cycFar)
+		off := c.fetch32()
+		c.farJmp32(off, c.fetch16())
+	case op == 0x9A && c.segmented:
+		off := c.fetch32()
+		c.farCall32(off, c.fetch16())
+	case op == 0xCA && c.segmented:
+		c.charge(cycFar)
+		c.farRet32(c.fetch16())
+	case op == 0xCB && c.segmented:
+		c.charge(cycFar)
+		c.farRet32(0)
 
 	default:
 		return c.errf(op, "66 %02X：80386 子集沒有這一道（docs/spec/197 §2）", op)
 	}
 	return nil
+}
+
+// farOffOK：目標偏移高 16 位元須為 0（D=0 碼段的 IP 只有 16 位元；刻意從嚴，437 §2）。
+func (c *CPU) farOffOK(off uint32, sel uint16) bool {
+	if off>>16 != 0 {
+		c.failf("分段模式 32 位元遠轉移：目標 %04X:%08X 的偏移高 16 位元非 0（D=0 碼段，失敗即關閉，docs/spec/437 §2）", sel, off)
+		return false
+	}
+	return true
+}
+
+// farJmp32 是分段模式的 66 EA、66 FF /5（437 §2）。順序：指標已讀完、看 fault、驗偏移高半、
+// loadSeg(CS)、設 IP。失敗時 CS、CS 快取不變。
+func (c *CPU) farJmp32(off uint32, sel uint16) {
+	if c.fault != nil || !c.farOffOK(off, sel) {
+		return
+	}
+	if c.loadSeg(CS, sel) {
+		c.IP = uint16(off)
+	}
+}
+
+// farCall32 是分段模式的 66 9A、66 FF /3（437 §2）：推 32 位元 CS（高 16 位元 0）、32 位元 EIP。
+// 順序：指標已讀完、看 fault、驗偏移高半、堆疊預檢（stackCheck，SP-8–SP-1 以 16 位元環繞做寫入的
+// segCheck）、loadSeg(CS)、推入、設 IP。loadSeg 成功後的推入不會再失敗（已預檢）。
+func (c *CPU) farCall32(off uint32, sel uint16) {
+	if c.fault != nil || !c.farOffOK(off, sel) {
+		return
+	}
+	c.stackCheck()
+	if c.fault != nil {
+		return
+	}
+	sp := c.R[SP]
+	for k := uint16(1); k <= 8; k++ {
+		if !c.segCheck(SS, uint32(sp-k), accWrite) {
+			return
+		}
+	}
+	oldCS, oldIP := c.Seg[CS], c.IP
+	if !c.loadSeg(CS, sel) {
+		return
+	}
+	c.push32(uint32(oldCS))
+	c.push32(uint32(oldIP))
+	c.IP = uint16(off)
+}
+
+// farRet32 是分段模式的 66 CB、66 CA iw（437 §2）：彈出 32 位元 EIP、32 位元 CS（取低 16 位元，
+// 高半不檢查），SP += 8 + iw。順序：stackCheck、讀 SP 與 SP+4 的兩個 dword 而不動 SP、看 fault、
+// 驗偏移高半、retRPLOK、loadSeg(CS)、改 SP、設 IP。失敗時 CS、CS 快取、SP 都不變。
+func (c *CPU) farRet32(n uint16) {
+	c.charge(2 * cycStack)
+	c.stackCheck()
+	sp := c.R[SP]
+	ip := c.read32(SS, uint32(sp))
+	cs := uint16(c.read32(SS, uint32(sp+4)))
+	if c.fault != nil || !c.farOffOK(ip, cs) || !c.retRPLOK(cs) || !c.loadSeg(CS, cs) {
+		return
+	}
+	c.R[SP] = sp + 8 + n
+	c.IP = uint16(ip)
 }
 
 // group3_32 是 66 F7：TEST／NOT／NEG／MUL／IMUL／DIV／IDIV r/m32。
