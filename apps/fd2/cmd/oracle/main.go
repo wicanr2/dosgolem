@@ -55,6 +55,7 @@ func main() {
 	lockAllyHP := flag.Bool("lock-ally-hp", false,
 		"作弊：把我方單位的 HP 壓回歷史最高值，讓長關卡跑得完。這是修改路徑，"+
 			"收據會在 state_injections 標記，不得當成一般玩家路徑證據")
+	allowHPLockControl := flag.Bool("allow-hp-lock-control", false, "430：准許明示且有界的hp_lock測試控制")
 	timedKeys := flag.String("timed-keys", "", "指令時點輸入：80000000:enter，逗號分隔且嚴格遞增")
 	keys := flag.String("keys", "", "等待邊界的BIOS按鍵序列，以逗號分隔：up,down,left,right,enter,esc")
 	state := flag.String("state", "", "獨立可寫檔案覆蓋目錄；空值維持唯讀")
@@ -83,6 +84,9 @@ func main() {
 	eipTraceFrom := flag.Int("eip-trace-from", 0, "唯讀 EIP 追蹤起始指令數；含首尾")
 	eipTraceTo := flag.Int("eip-trace-to", 0, "唯讀 EIP 追蹤終止指令數；0 表示不設上界")
 	flag.Parse()
+	if *allowHPLockControl && *lockAllyHP {
+		panic("selective hp_lock cannot combine with lock-ally-hp")
+	}
 	heapExplicit := false
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "heap-mib" {
@@ -320,6 +324,7 @@ func main() {
 	// 談傷害、存活或任何與我方 HP 有關的結論——每一份快照的 state_injections 都
 	// 會寫明注入了什麼、寫了幾次。
 	allyPeakHP := map[byte]uint16{}
+	var hpLocks fd2HPLocks
 	allyHPWrites := 0
 	forceEnemyClearCommands := 0
 	forceEnemyClearWrites := 0
@@ -353,6 +358,9 @@ func main() {
 
 	injections := func() []string {
 		out := []string{}
+		if *allowHPLockControl {
+			out = append(out, fmt.Sprintf("hp-lock-control：430明示修改路徑；更新%d次、活動綁定%v、逐index寫入%v；不能用於傷害、存活或PLAYER-E2。", hpLocks.updates, hpLocks.cells, hpLocks.writes))
+		}
 		if *lockAllyHP {
 			out = append(out, fmt.Sprintf(
 				"lock-ally-hp：我方（camp 2）record +0x40 的 HP 每 2000 指令壓回該 identity "+
@@ -475,6 +483,7 @@ func main() {
 			"schema": 1, "runner": "dosgolem", "input_kind": "normal BIOS keys",
 			"exe_sha256": hash, "address_space": "dosgolem relocated LE linear",
 			"state_injections": injections(), "steps": steps,
+			"hp_lock_control":             hpLocks.report(*allowHPLockControl),
 			"frame_deferred":              frameDeferred,
 			"frames_deferred_so_far":      checkpointDeferred,
 			"normal_player_path_verified": false,
@@ -680,6 +689,16 @@ func main() {
 	}
 
 	for ; steps < *budget; steps++ {
+		if len(hpLocks.cells) > 0 {
+			base, e1 := m.Read32(0x53a45)
+			count, e2 := m.Read32(0x53beb)
+			if e1 != nil || e2 != nil {
+				panic("hp_lock runtime globals unavailable")
+			}
+			if err := hpLocks.apply(m.Mem, base, count); err != nil {
+				panic(err)
+			}
+		}
 		// 間隔要夠密：一次攻擊演出就可能把單位從滿血打到 0，檢查得太稀疏會來不及。
 		if *lockAllyHP && steps%2000 == 0 {
 			lockAllyHPNow()
@@ -711,7 +730,9 @@ func main() {
 					Key             string
 					Steps           int
 					Stop            bool
-					ForceEnemyClear bool `json:"force_enemy_clear"`
+					ForceEnemyClear bool               `json:"force_enemy_clear"`
+					HPLock          *[]fd2HPLockTarget `json:"hp_lock"`
+					PreserveHPLocks bool               `json:"preserve_hp_locks"`
 				}
 				if e == nil && json.Unmarshal(d, &cmd) == nil && cmd.Seq > controlSeq {
 					if cmd.Stop {
@@ -725,7 +746,26 @@ func main() {
 					if cmd.Steps < 1 || cmd.Steps > 100000000 {
 						panic("互動步數越界")
 					}
+					if cmd.HPLock != nil {
+						if !*allowHPLockControl || cmd.Key != "" || cmd.ForceEnemyClear {
+							panic("hp_lock requires explicit capability and a separate control")
+						}
+						base, e1 := m.Read32(0x53a45)
+						count, e2 := m.Read32(0x53beb)
+						if e1 != nil || e2 != nil {
+							panic("hp_lock runtime globals unavailable")
+						}
+						if err := hpLocks.update(m.Mem, base, count, *cmd.HPLock); err != nil {
+							panic(err)
+						}
+						if err := hpLocks.apply(m.Mem, base, count); err != nil {
+							panic(err)
+						}
+					}
 					if cmd.ForceEnemyClear {
+						if hpLocks.enemyLocks() > 0 && !cmd.PreserveHPLocks {
+							panic("force-enemy-clear conflicts with active enemy HP locks")
+						}
 						base, e1 := m.Read32(0x53a45)
 						count, e2 := m.Read32(0x53beb)
 						if e1 != nil || e2 != nil || count > 128 ||
@@ -736,7 +776,7 @@ func main() {
 						for i := uint32(0); i < count; i++ {
 							r := m.Mem[base+80*i : base+80*(i+1)]
 							hp := binary.LittleEndian.Uint16(r[0x40:])
-							if r[6] == 0 && hp > 0 {
+							if r[6] == 0 && hp > 0 && !(cmd.PreserveHPLocks && hpLocks.protects(int(i))) {
 								binary.LittleEndian.PutUint16(r[0x40:], 0)
 								writes++
 							}
@@ -934,6 +974,7 @@ func main() {
 		msg = stop.Error()
 	}
 	r := map[string]any{"schema": 1, "runner": "dosgolem", "exe_sha256": hash, "steps_completed": steps, "step_budget": *budget, "main_entry_step": mainStep, "stop_eip": fmt.Sprintf("0x%X", instructionEIP), "cpu_eip_after_error": fmt.Sprintf("0x%X", m.CPU.EIP), "address_space": "dosgolem relocated LE linear", "next_bytes": raw, "error": msg, "registers": m.CPU.R, "esp": fmt.Sprintf("0x%X", m.CPU.R[cpu386.ESP]), "state_injections": injections(), "runtime_adapter": "existing InstallFD2WatcomRuntime and FD2StartupDOS", "original_root_read_only": true, "game_screen_produced": false, "normal_player_path_verified": false}
+	r["hp_lock_control"] = hpLocks.report(*allowHPLockControl)
 
 	if instructionEIP == 0x36d98 {
 		stack := make([]uint32, 4)
