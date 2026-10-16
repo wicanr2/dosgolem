@@ -1,6 +1,6 @@
 # 433 — 既有核心的實模式系統指令與實模式→保護模式交棒
 
-狀態：**READY**（第 5 版，依第 4 輪複審修訂）
+狀態：**READY**（第 5 版，依第 4 輪複審修訂）。§3.2 的 `PMCore`／`Handoff` 與 §5 的停擺、最小分派由 [`434`](434-legacy-core-segmented-mode.md) §3.1 取代（431 第 2 版改分工）
 日期：2026-10-15
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（契約）、
 [`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)（已實作）、
