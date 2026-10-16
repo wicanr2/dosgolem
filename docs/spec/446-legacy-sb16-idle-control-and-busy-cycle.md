@@ -165,7 +165,7 @@ dosgolem 的 `22Ch` 讀值在非重設時恆為 0（`internal/machine/sb_dsp.go:
 | 指令數時鐘，`IRQ0Every>0` | `m.Steps` | `IRQ0Every·315000000` | `264·PITDiv` |
 | 指令數時鐘，`IRQ0Every==0` | `m.Steps` | `165000·315000000·pct` | `264·17000·100` |
 
-- 時鐘種類依讀取當下的 `m.CycleClock`，不用傳輸的 `s.cycles`（忙碌週期與傳輸無關）。`PITDiv`、`IRQ0Every`、`pct` 也取讀取當下的值。
+- 時鐘種類依讀取當下的 `m.CycleClock`，不用傳輸的 `s.cycles`（忙碌週期與傳輸無關）。`PITDiv`、`IRQ0Every`、`pct` 也取讀取當下的值。`PITDiv` 是欄位 `m.PITDiv`，不是 `m.PITDivisor()`（理由見 444 §2.4；`m.pit.divisor` 讀檔後不還原，屬既有缺口，記於 §4.1）。
 - `t` 是這道 `in` 執行時的值：步數時鐘下等於本道指令的序號（`Step` 在 `CPU.Step` 之前已遞增）；週期時鐘下已含這道 `in` 的 `charge(cycIO)`（445 §2.5 同理）。
 - 程式改 PIT 分頻時 `A/B` 隨之改變，下一次重新取相位會跳。這是決定性的，收據記錄分頻即可。
 
@@ -391,6 +391,7 @@ dosgolem 的 `22Ch` 讀值在非重設時恆為 0（`internal/machine/sb_dsp.go:
 |---|---|
 | `03BC` 的呼叫點 | 前兩段（`start` 後約 20 萬步，之後 4137 步重新開始）像是 `10E5` 路徑；最後一段像是 `1141`（§1.3 第 3 點）。都是強推論，§3 第 11 項記錄 |
 | `defaulted` 之後的 `IRQPending` | 登記，不改規則。ISR 沒跑時 `22Eh` 沒被讀，`IRQPending` 留為真；444 §2.5 第 3 步規定 `IRQPending` 已為真時完成不再拉 IRR7。靜態證據（強推論）：`0228` 在 `022F`、`0234` 與逾時分支 `0277`、`027C` 讀 `cs:[100]`＝`22Eh`（§1.2），每次 DSP 寫入（含 `14h`）之前都會清 `IRQPending` 與 IRR7，下一段傳輸的完成照常拉 IRR7。這與真機的邊緣觸發一致；DOSBox-X 在新 DMA 命令清 `pending_8bit`（`sblaster.cpp:1181`），較寬鬆。§3 第 11 項記錄 `22Eh` 的增量與下一段是否有 `irq7` |
+| `m.pit.divisor` 讀檔後不還原 | 既有缺口（不是 446 引入）：`LoadState` 只還原 `m.PITDiv`（`state.go:350-356`），不碰 `m.pit`，讀檔後 `PITDivisor()` 回 65536、`PITHz()` 失準。444、446 改讀 `m.PITDiv` 避開；其他使用 `PITDivisor()` 的路徑（診斷、`le_machine.go:217`）不在本規格範圍，另立規格 |
 | 絕對步號移動 | `0228` 每次寫入至多多讀 16 次（§2.5），444 §5、445 §5、probe470、probe471 的步號與檢查點不再適用（版本 3 檢查點本來就不能載入開 `-sb-dma8` 的機器） |
 | 以整個位元組比較 `22Ch` 的程式 | 讀值由 `0`／`80h` 變成 `7Fh`／`FFh`。只看 bit7 的程式（本驅動以 `or al,al` 加 `js`／`jns`）不受影響；以 `cmp al,0`、`test al,7Fh` 或其他位元判斷的程式行為會變。只在選項開啟時發生。MENU 以外的程式（OPTTEST、MKTERR、STRIKE）未查，§3 第 11 項的讀取次數可看出影響 |
 | 浮點與整數的差異 | 相位邊界上可能與 DOSBox-X 差一格（§2.4）。只影響重新取相位那一次讀取 |

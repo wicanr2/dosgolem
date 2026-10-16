@@ -204,7 +204,7 @@ DMA 傳輸（`14h` 與 ADPCM）在下列條件全部成立時回 true；任一�
 | 指令數時鐘，`IRQ0Every>0` | `Steps` | `⌈N·D·IRQ0Every·315000000 / (R·264·PITDiv)⌉` |
 | 指令數時鐘，`IRQ0Every==0` | `Steps` | `⌈N·D·165000·315000000·pct / (R·264·17000·100)⌉` |
 
-- `R`、`D` 為 `SoundBlasterDSP` 的 `RateNumerator`、`RateDenominator`；`PITDiv` 為 `m.PITDivisor()`；`pct` 為 `ClockPercent()`。
+- `R`、`D` 為 `SoundBlasterDSP` 的 `RateNumerator`、`RateDenominator`；`PITDiv` 為欄位 `m.PITDiv`（由 446 修訂：原寫 `m.PITDivisor()`。`m.PITDiv` 是 IRQ0 時鐘實際使用、且存進狀態檔的分頻（`machine.go:1333`、`state.go:350`）；`m.pit.divisor` 讀檔後不還原，`PITDivisor()` 讀檔後回 65536，會讓讀檔前後的 Δ 不同）；`pct` 為 `ClockPercent()`。
 - 第二列近似 `N·D/R` 秒乘 `StepsPerSecondNow()`（`opl_vgm.go:28`），第三列近似乘 `StepsPerSecondScaled()`；DSP 與 IRQ0、`-dump-vgm` 用同一個時基。
 - 分頻的影響：`IRQ0Every` 未釘死時由 `recalcIRQ0` 設成 `stepsPerTick(IRQ0Base, PITDiv)`，即 `round(IRQ0Base·PITDiv/17000)`（`pit.go:121`），
   `IRQ0Every/PITDiv` 近似常數，乘積約為 11.58 M 步／秒，Δ 與分頻無關，只差四捨五入造成的幾步。`IRQ0Pinned` 時，或分頻很小使 `IRQ0Every` 被夾到
