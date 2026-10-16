@@ -109,7 +109,8 @@ func (m *Machine) ProtectedModeProfile() bool { return m.pmProfile }
 //
 // 分段模式（442 §2.2，由 442 修訂 434 §3.2）：PE 由 1 清為 0 且 PG 同時清為 0 時接受，進入殘留快取實模式
 // （segmented=true、PE=0）；清 PE 而保留 PG 回錯誤。子狀態內新值設 PE 或 PG 都回錯誤（由子狀態再進保護模式
-// 不在 442 範圍）；PE、PG 維持 0 的寫入（clts、只改 MP、EM、TS）接受。錯誤時 CR0 不改。
+// 不在 442 範圍）；PE、PG 維持 0 的寫入（clts、只改 MP、EM、TS）接受。清 PE 時 CS 為 D=1 碼段回錯誤
+// （443 §2.9）。錯誤時 CR0 不改。
 func (m *Machine) SetCR0(v uint32) error {
 	if !m.pmProfile {
 		return errNoProfile
@@ -122,6 +123,9 @@ func (m *Machine) SetCR0(v uint32) error {
 		switch {
 		case m.cr0&cr0PE != 0 && v&cr0PE == 0 && v&cr0PG != 0:
 			return fmt.Errorf("machine: 分段模式下清 CR0.PE 而保留 PG 不支援（Intel #GP(0)；docs/spec/442 §2.2）")
+		case m.cr0&cr0PE != 0 && v&cr0PE == 0 && m.CPU.Code32():
+			// 443 §2.9：子狀態第一道指令仍依快取解碼，D=1 會以 32 位元解讀實模式碼。
+			return fmt.Errorf("machine: 分段模式下清 CR0.PE 時 CS 為 D=1 碼段，失敗即關閉（docs/spec/443 §2.9）")
 		case m.cr0&cr0PE == 0 && v&cr0PE != 0:
 			return fmt.Errorf("machine: 殘留快取實模式下不能再設 CR0.PE（由子狀態再進保護模式不在範圍；docs/spec/442 §2.2、§2.11）")
 		case m.cr0&cr0PE == 0 && v&cr0PG != 0:

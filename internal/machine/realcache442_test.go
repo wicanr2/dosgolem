@@ -494,6 +494,8 @@ func TestRC442LoadSites(t *testing.T) {
 		steps int
 		code  []byte
 		db    bool // 預設快取帶 D/B（會經堆疊彈出 SS 的位置不帶，否則 434 的 B=1 堆疊失敗即關閉）
+		// CS 的列不帶 D：子狀態下 CS 的 D=1 不可達（443 §2.9，SetCR0 擋下），注入的話 Step 依 443 §2.1 改以 32 位元解碼；
+		// 「實模式載入清 CS 的 D」改在 internal/cpu 的 TestRealCacheLoadSegClearsCSD 直接驗。
 	}{
 		{"pop es", cpu.ES, push, 1, []byte{0x07}, true},
 		{"pop ss", cpu.SS, push, 1, []byte{0x17}, false},
@@ -503,14 +505,14 @@ func TestRC442LoadSites(t *testing.T) {
 		{"mov ds,ax", cpu.DS, nil, 0, []byte{0x8E, 0xD8}, true},
 		{"mov fs,ax", cpu.FS, nil, 0, []byte{0x8E, 0xE0}, true},
 		{"mov gs,ax", cpu.GS, nil, 0, []byte{0x8E, 0xE8}, true},
-		{"call far ptr（9A）", cpu.CS, nil, 0, []byte{0x9A, 0x00, 0x00, 0x00, 0x02}, true},
-		{"jmp far ptr（EA）", cpu.CS, nil, 0, []byte{0xEA, 0x00, 0x00, 0x00, 0x02}, true},
-		{"call far [m]（FF /3）", cpu.CS, nil, 0, far(0xFF, 0x1E), true},
-		{"jmp far [m]（FF /5）", cpu.CS, nil, 0, far(0xFF, 0x2E), true},
+		{"call far ptr（9A）", cpu.CS, nil, 0, []byte{0x9A, 0x00, 0x00, 0x00, 0x02}, false},
+		{"jmp far ptr（EA）", cpu.CS, nil, 0, []byte{0xEA, 0x00, 0x00, 0x00, 0x02}, false},
+		{"call far [m]（FF /3）", cpu.CS, nil, 0, far(0xFF, 0x1E), false},
+		{"jmp far [m]（FF /5）", cpu.CS, nil, 0, far(0xFF, 0x2E), false},
 		{"les", cpu.ES, nil, 0, far(0xC4, 0x1E), true},
 		{"lds", cpu.DS, nil, 0, far(0xC5, 0x1E), true},
-		{"retf imm16", cpu.CS, append(append([]byte{}, push...), 0x6A, 0x00), 2, []byte{0xCA, 0x02, 0x00}, true},
-		{"retf", cpu.CS, append(append([]byte{}, push...), 0x6A, 0x00), 2, []byte{0xCB}, true},
+		{"retf imm16", cpu.CS, append(append([]byte{}, push...), 0x6A, 0x00), 2, []byte{0xCA, 0x02, 0x00}, false},
+		{"retf", cpu.CS, append(append([]byte{}, push...), 0x6A, 0x00), 2, []byte{0xCB}, false},
 		{"pop fs", cpu.FS, push, 1, []byte{0x0F, 0xA1}, true},
 		{"pop gs", cpu.GS, push, 1, []byte{0x0F, 0xA9}, true},
 		{"lss", cpu.SS, nil, 0, far(0x0F, 0xB2, 0x1E), true},

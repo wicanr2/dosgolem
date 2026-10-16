@@ -88,11 +88,23 @@ func (c *CPU) execute386(op uint8) (handled bool, err error) {
 	if op == 0x0F {
 		return true, c.execute0F()
 	}
+	if c.segmented && c.cache[CS].Attr&attrDB != 0 {
+		// 443 §2.4：D=1 碼段的相對轉移與計數迴圈，不論 operand32、addr32，先於隱含位址分派。
+		switch {
+		case op >= 0x70 && op <= 0x7F, op == 0xEB, op >= 0xE0 && op <= 0xE3:
+			c.relJump32(op)
+			return true, nil
+		}
+	}
 	if c.addr32 {
 		switch {
 		case op >= 0xA0 && op <= 0xA3: // MOV AL/AX/EAX ↔ moffs（32 位元位移）
 			return true, c.moffs32(op)
 		case implicitAddr(op):
+			if c.Code32() && (op >= 0xA4 && op <= 0xA7 || op >= 0xAA && op <= 0xAF) {
+				c.stringOpA32(op) // 443 §2.5
+				return true, nil
+			}
 			return true, c.errf(op, "0x67 前綴下的隱含位址指令未實作（docs/spec/197 §3）")
 		}
 	}
@@ -100,6 +112,66 @@ func (c *CPU) execute386(op uint8) (handled bool, err error) {
 		return true, c.execute32(op)
 	}
 	return false, nil
+}
+
+// relJump32 是 D=1 碼段的 70–7F、EB、E0–E3（443 §2.3、§2.4）：
+//
+//   - 目標寬度看 operand32：32 時以 uint32(IP)＋符號延伸的位移計算，大於 FFFFh 失敗即關閉、IP 不設為越界目標
+//     （DOSBox-X JumpCond32_b，core_normal/support.h:76-88；EB 見 prefix_66.h:652-657）；16 時 16 位元環繞。
+//   - E0–E3 的計數暫存器看 addr32：ECX（32 位元遞減、判斷含高半）或 CX（只動低 16 位元）。
+//   - 週期照 executeCore 的同一道指令：70–7F 成立時、EB 一律 charge(cycJump)；E0–E3 不另計。
+func (c *CPU) relJump32(op uint8) {
+	disp := uint32(int32(int8(c.fetch8())))
+	take := false
+	switch {
+	case op <= 0x7F:
+		take = c.cond(op & 0x0F)
+		if take {
+			c.charge(cycJump)
+		}
+	case op == 0xEB:
+		take = true
+		c.charge(cycJump)
+	default: // E0–E3：計數暫存器 ECX（addr32）或 CX
+		var cnt uint32
+		if c.addr32 {
+			cnt = c.reg32(CX)
+		} else {
+			cnt = uint32(c.R[CX])
+		}
+		if op != 0xE3 {
+			if c.addr32 {
+				cnt--
+				c.setReg32(CX, cnt)
+			} else {
+				cnt = uint32(uint16(cnt - 1))
+				c.R[CX] = uint16(cnt)
+			}
+		}
+		switch op {
+		case 0xE0: // LOOPNZ
+			take = cnt != 0 && !c.Flag(ZF)
+		case 0xE1: // LOOPZ
+			take = cnt != 0 && c.Flag(ZF)
+		case 0xE2: // LOOP
+			take = cnt != 0
+		default: // JECXZ／JCXZ
+			take = cnt == 0
+		}
+	}
+	if !take {
+		return
+	}
+	if !c.operand32 {
+		c.IP += uint16(disp) // 運算元大小 16：16 位元環繞（443 §2.3）
+		return
+	}
+	target := uint32(c.IP) + disp
+	if target > 0xFFFF {
+		c.failf("相對轉移目標 %08X：EIP 超過 FFFFh，docs/spec/443 §2.3", target)
+		return
+	}
+	c.IP = uint16(target)
 }
 
 // moffs32 是 0x67 下的 A0–A3：位移是 32 位元，實模式超過 64 KB 失敗；

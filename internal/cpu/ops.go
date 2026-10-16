@@ -18,6 +18,11 @@ func (c *CPU) Step() error {
 	c.operand32 = false
 	c.addr32 = false
 	c.ext386 = false
+	if c.segmented && c.cache[CS].Attr&attrDB != 0 {
+		// 443 §2.2：D=1 碼段的預設運算元與定址大小為 32（DOSBox-X core_normal.cpp:167-170 的 code.big）。
+		// 實模式熱路徑只多 segmented 這一個布林判斷。
+		c.operand32, c.addr32, c.ext386 = true, true, true
+	}
 	c.opCS, c.opIP = c.Seg[CS], c.IP
 	c.charge(cycBase)
 	if c.DOSBoxCost {
@@ -48,7 +53,8 @@ func (c *CPU) Step() error {
 			// 80186 及以下落進 execute：8086 把它當 76h 的別名
 			// （語料行為），80186 報「未實作」。
 			if c.Model >= Model80386 {
-				c.operand32 = true
+				// 443 §2.2：設成預設的相反，不是翻轉（66 66 與單一 66 相同；DOSBox-X prefix_none.h:347）。
+				c.operand32 = !c.Code32()
 				c.ext386 = true
 				c.charge(cycPrefix)
 				continue
@@ -68,7 +74,8 @@ func (c *CPU) Step() error {
 		case 0x67:
 			// 位址大小前綴，同樣只在 Model80386。
 			if c.Model >= Model80386 {
-				c.addr32 = true
+				// 443 §2.2：同 66，設成預設的相反（DOSBox-X core_normal.cpp:84-86 的 DO_PREFIX_ADDR）。
+				c.addr32 = !c.Code32()
 				c.ext386 = true
 				c.charge(cycPrefix)
 				continue
@@ -272,6 +279,11 @@ func (c *CPU) executeCore(op uint8) error {
 		c.loadSeg(m.reg&3, c.get16(m.rm))
 	case op == 0x8F: // POP r/m16
 		m := c.decodeModRM()
+		if c.addr32 && c.eaSPBase && !m.rm.isReg && c.Code32() {
+			// 443 §2.4：D=1 下 66 8F 的 ModRM32 以 ESP 為基底時，Intel 以彈出後的 ESP 計算位址，
+			// 這裡先解位址後彈出，順序不同，失敗即關閉。
+			return c.errf(op, "66 8F：D=1 碼段下以 ESP 為基底的 ModRM32 不支援，失敗即關閉（docs/spec/443 §2.4）")
+		}
 		c.set16(m.rm, c.pop())
 
 	// ---- 90–9F ----------------------------------------------------------

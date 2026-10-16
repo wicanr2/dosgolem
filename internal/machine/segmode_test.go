@@ -383,7 +383,7 @@ func TestSegLoadChecks(t *testing.T) {
 		{"FS 系統描述元", cpu.FS, 0x40, 0x89, 0, false},
 		{"GS 資料段", cpu.GS, 0x40, 0x92, 0, true},
 		{"GS 不可讀碼段", cpu.GS, 0x40, 0x98, 0, false},
-		// CS（遠跳）：非一致碼段，RPL ≤ CPL、DPL＝CPL；present；D=0。
+		// CS（遠跳）：非一致碼段，RPL ≤ CPL、DPL＝CPL；present；D=1 可載入（由 443 修訂）。
 		{"CS 非一致碼段", cpu.CS, 0x40, 0x9A, 0, true},
 		{"CS 只可執行碼段", cpu.CS, 0x40, 0x98, 0, true},
 		{"CS 一致碼段", cpu.CS, 0x40, 0x9E, 0, false},
@@ -391,7 +391,7 @@ func TestSegLoadChecks(t *testing.T) {
 		{"CS 資料段", cpu.CS, 0x40, 0x92, 0, false},
 		{"CS DPL≠CPL", cpu.CS, 0x40, 0xBA, 0, false},
 		{"CS RPL>CPL", cpu.CS, 0x43, 0x9A, 0, false},
-		{"CS D=1", cpu.CS, 0x40, 0x9A, 0x4, false},
+		{"CS D=1（443 §2.7：可載入）", cpu.CS, 0x40, 0x9A, 0x4, true},
 		{"CS 不存在", cpu.CS, 0x40, 0x1A, 0, false},
 	}
 	for _, c := range cases {

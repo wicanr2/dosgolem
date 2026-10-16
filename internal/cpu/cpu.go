@@ -154,6 +154,9 @@ type CPU struct {
 	// LEA 要它；eaNoLimit 讓 LEA 解碼時不做 64 KB 檢查（LEA 不碰記憶體）。
 	ea32      uint32
 	eaNoLimit bool
+	// eaSPBase：最近一次 ModRM32 的記憶體運算元以 ESP 為基底（SIB base＝4）。只供 443 §2.4 的
+	// 66 8F 檢查在解碼後立即讀取；mod=3 時不更新。
+	eaSPBase bool
 
 	// FPUCW 是 x87 控制字（`docs/spec/202` 探測語意）。
 	//

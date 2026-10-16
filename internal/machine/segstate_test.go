@@ -104,8 +104,9 @@ func TestLoadStatePMV3Validation(t *testing.T) {
 		{"快取屬性 bit 8", attr(cpu.DS, 0x0192)},
 		{"快取屬性 bit 11", attr(cpu.ES, 0x0892)},
 		{"快取屬性 bit 13", attr(cpu.GS, 0x2093)},
-		{"CS 的 D/B 為 1", attr(cpu.CS, 0x409A)},
 		{"SS 的 D/B 為 1", attr(cpu.SS, 0x4096)},
+		// 443 §2.8：CS 的 D=1 只在 PE=1 時合法；PE=0（442 子狀態）時被拒。
+		{"PE=0、PG=0 而 CS 的 D 為 1", func(p []byte) { p[4] &^= 1; attr(cpu.CS, 0x409A)(p) }},
 	}
 	for _, c := range bad {
 		m := newPM(t)
@@ -117,7 +118,7 @@ func TestLoadStatePMV3Validation(t *testing.T) {
 			t.Errorf("%s：失敗的 LoadState 不得改變機器", c.name)
 		}
 	}
-	// 對照組：原檔；DS、ES 的 D/B 與 CS 的 G、AVL 不驗；segmented=0 且快取全 0（§2.1 的狀態）可讀。
+	// 對照組：原檔；DS、ES 的 D/B 與 CS 的 G、AVL 不驗；PE=1 時 CS 的 D 不驗（443）；segmented=0 且快取全 0（§2.1 的狀態）可讀。
 	ok := []struct {
 		name string
 		f    func([]byte)
@@ -125,6 +126,7 @@ func TestLoadStatePMV3Validation(t *testing.T) {
 		{"原檔", func([]byte) {}},
 		{"ES 的 D/B 為 1", attr(cpu.ES, 0x4092)},
 		{"CS 的 G 與 AVL", attr(cpu.CS, 0x909A)},
+		{"PE=1 而 CS 的 D 為 1（443 §2.8）", attr(cpu.CS, 0x409A)},
 		{"segmented=1、PE=0、PG=0（442 的殘留快取實模式）", func(p []byte) { p[4] &^= 1 }},
 		{"segmented=0 且快取全 0", func(p []byte) {
 			p[80] = 0

@@ -127,7 +127,14 @@ func (c *CPU) segWrite(i int, off uint32, n int, w32 bool, v uint32) {
 }
 
 // segFetch8 取 CS 快取 Base＋IP 的一個 byte（IP 16 位元，434 §4.1），檢查界限。
+//
+// 443 §2.3 第 1 點：D=1 碼段在 IP=FFFFh 取 byte 失敗即關閉（下一道的 EIP 會是 10000h；刻意從嚴，
+// 最後一個 byte 在 FFFFh 的指令也擋下）。D=0 碼段照舊 16 位元環繞。
 func (c *CPU) segFetch8() uint8 {
+	if c.IP == 0xFFFF && c.cache[CS].Attr&attrDB != 0 {
+		c.failf("D=1 碼段在 IP=FFFFh 取指令：EIP 超過 FFFFh，docs/spec/443 §2.3")
+		return 0
+	}
 	if !c.segCheck(CS, uint32(c.IP), accFetch) {
 		return 0
 	}
@@ -254,6 +261,8 @@ func DecodeDescriptor(lo, hi uint32) SegCache {
 //     違反時失敗即關閉，不送例外。
 //  4. 通過後才寫段值與快取。5. 不寫回 accessed 位元。
 //
+// CS 可以載入 D=1 的碼段（443 §2.7）；D 決定之後每道指令的預設大小，由 Step 依快取推導。
+//
 // 只支援 CPL 0：SysBus.CPL() 不為 0 時任何段載入失敗。
 func (c *CPU) loadSegPM(i int, sel uint16) bool {
 	fail := func(format string, a ...any) bool {
@@ -309,9 +318,6 @@ func (c *CPU) loadSegPM(i int, sel uint16) bool {
 		}
 		if rpl > cpl || dpl != cpl {
 			return fail("CS 要求 RPL ≤ CPL 且 DPL＝CPL（RPL %d、CPL %d、DPL %d）", rpl, cpl, dpl)
-		}
-		if a&attrDB != 0 {
-			return fail("D=1 的 32 位元碼段屬後續規格")
 		}
 	default: // DS、ES、FS、GS
 		if a&attrS == 0 {

@@ -124,6 +124,7 @@ func (c *CPU) decodeModRM32() modrm {
 
 	def := DS
 	var ea uint32
+	c.eaSPBase = false
 	switch {
 	case rm == 4:
 		sib := c.fetch8()
@@ -135,6 +136,7 @@ func (c *CPU) decodeModRM32() modrm {
 			ea = c.fetch32()
 		case base == 4:
 			ea, def = c.reg32(SP), SS
+			c.eaSPBase = true
 		case base == 5:
 			ea, def = c.reg32(BP), SS
 		default:

@@ -66,6 +66,22 @@ func TestRealCacheLoadSegCPU(t *testing.T) {
 	}
 }
 
+// 442 §2.4 第 5 條：子狀態的 CS 載入清 D/B。CS 的 D=1 在子狀態不可達（443 §2.9），所以直接呼叫 loadSegReal，
+// 不經 Step 的 32 位元預設（443 §2.1）。
+func TestRealCacheLoadSegClearsCSD(t *testing.T) {
+	c, _, s := newRCCPU(t, []byte{0x90})
+	c.SetSegCache(CS, SegCache{Base: 0x30000, Limit: 0x7FFF, Attr: 0x509B})
+	if !c.loadSegReal(CS, 0x0456) {
+		t.Fatal("loadSegReal(CS) 應成功")
+	}
+	if got, want := c.SegCache(CS), (SegCache{Base: 0x4560, Limit: 0x7FFF, Attr: 0x109B}); got != want || c.Seg[CS] != 0x456 {
+		t.Errorf("CS=%04X 快取 %+v，應為 %+v（清 D/B，界限保留）", c.Seg[CS], got, want)
+	}
+	if s.reads != 0 {
+		t.Errorf("不得讀描述元表（%d 次）", s.reads)
+	}
+}
+
 // §2.5：子狀態的 iret 不看 NT，走實模式 iret；六個快取都成立時同一步回 ErrLeaveSegmented。
 func TestRealCacheIretIgnoresNT(t *testing.T) {
 	c, b, _ := newRCCPU(t, []byte{0xCF})

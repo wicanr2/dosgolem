@@ -8,6 +8,9 @@ package cpu
 // 不變式（由 442 §2.1 修訂）：segmented=true ⇒ profile 開啟、VM=0、pmCPL=0，且（PE=1）或（PE=0、PG=0，
 // 442 的殘留快取實模式）⇒ 432 的 xlat=true ⇒ Code==nil（由 Machine 的 setter 與 syncCodeFastPath 維持，
 // 這裡不檢查）。
+//
+// 443 §2.1：D=1 碼段（cache[CS].Attr 的 bit 14）使每道指令的預設運算元與定址大小為 32。預設大小不另存衍生欄位，
+// 由 Step 在每道指令開頭依 segmented 與 cache[CS] 推導；SetSegCache、loadSeg 寫入快取後自然生效。
 
 // SegCache 是段描述元快取（433 §3.2 的型別與編碼，434 §2 由 internal/machine 移來）。
 // Attr：bits 0–7 為 386 描述元的 access byte；bits 8–11 恆 0；bit 12 AVL；bit 13 恆 0；
@@ -25,6 +28,9 @@ func (c *CPU) Segmented() bool { return c.segmented }
 // SetSegmented 開關分段模式。只由 Machine 呼叫（進入分段模式、Restore、LoadState、profile 切換）。
 // 442 §2.7：同時清除離開檢查旗標。
 func (c *CPU) SetSegmented(on bool) { c.segmented, c.leavePending = on, false }
+
+// Code32 回目前的碼段是否為 D=1（443 §2.1）：segmented=true 且 cache[CS] 的 D 為 1。供 machine 層測試與觀測使用。
+func (c *CPU) Code32() bool { return c.segmented && c.cache[CS].Attr&attrDB != 0 }
 
 // SegCache 回段暫存器 i（ES、CS、SS、DS、FS、GS）的快取。
 func (c *CPU) SegCache(i int) SegCache { return c.cache[i] }

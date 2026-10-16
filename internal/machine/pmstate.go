@@ -43,6 +43,8 @@ import (
 //	| 81 | 1 | 保留，0 |
 //	| 82 | 60 | cache[0..5]（ES、CS、SS、DS、FS、GS），每項 Base 4、Limit 4、Attr 2 |
 //
+// 版本 3 的 CS 快取 Attr bit 14（D）為 1 表示 D=1 碼段（443 §2.8，只在 PE=1 時合法）；不升版本、不加欄位。
+//
 // 435 之後以提升版本號在尾端增加內容，讀取時支援所有舊版本（舊版本缺的欄位取初值）。
 // 尾端多出的 bytes 不報錯（432 實作收據第 2 項）。profile 關閉時 PM 為 nil。
 
@@ -301,10 +303,12 @@ func decodePMV3(b []byte, f *pmFields) error {
 			return fmt.Errorf("machine: PM 的快取 %d 屬性 %04X 的 bit 8–11 或 bit 13 不為 0", i, c.Attr)
 		}
 	}
-	for _, i := range []int{cpu.CS, cpu.SS} {
-		if f.cache[i].Attr&segAttrDB != 0 {
-			return fmt.Errorf("machine: PM 的快取 %d（CS 或 SS）屬性 %04X 的 D/B 為 1", i, f.cache[i].Attr)
-		}
+	// 443 §2.8：SS 的 B 恆為 0；CS 的 D 在 PE=0（442 子狀態）時為 0，PE=1 時可為 1（D=1 碼段）。
+	if f.cache[cpu.SS].Attr&segAttrDB != 0 {
+		return fmt.Errorf("machine: PM 的快取 %d（SS）屬性 %04X 的 B 為 1", cpu.SS, f.cache[cpu.SS].Attr)
+	}
+	if f.cr0&cr0PE == 0 && f.cache[cpu.CS].Attr&segAttrDB != 0 {
+		return fmt.Errorf("machine: PM 的 PE=0（殘留快取實模式），但快取 %d（CS）屬性 %04X 的 D 為 1", cpu.CS, f.cache[cpu.CS].Attr)
 	}
 	return nil
 }

@@ -206,6 +206,10 @@ func (c *CPU) jccNear(op2 uint8) {
 			c.charge(cycJump)
 			target := uint32(c.IP) + rel
 			if target > 0xFFFF {
+				if c.Code32() {
+					c.failf("Jcc rel32 目標 %08X：EIP 超過 FFFFh，docs/spec/443 §2.3", target)
+					return
+				}
 				c.failf("Jcc rel32 目標 %08X 超出實模式 64 KB 段限（docs/spec/197 §2.2）", target)
 				return
 			}

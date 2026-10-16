@@ -214,9 +214,7 @@ func Test437Failures(t *testing.T) {
 		{"jmp 偏移高半非 0", jmp(0x1009E, 0x18), nil, "高 16 位元"},
 		{"call 偏移高半非 0", call(0x1009E, 0x18), nil, "高 16 位元"},
 		{"ret 偏移高半非 0", []byte{0x66, 0xCB}, retFrame(0x10000, 0x18), "高 16 位元"},
-		{"jmp D=1 碼段", jmp(0, sel437D1), nil, "D=1"},
-		{"call D=1 碼段", call(0, sel437D1), nil, "D=1"},
-		{"ret D=1 碼段", []byte{0x66, 0xCB}, retFrame(0, sel437D1), "D=1"},
+		// 目標為 D=1 碼段的三列（jmp、call、ret）由 443 改為成功例，移到 seg443_test.go（443 §2.10）。
 		{"jmp 資料段", jmp(0, 0x08), nil, "碼段"},
 		{"call 資料段", call(0, 0x08), nil, "碼段"},
 		{"jmp RPL＞CPL", jmp(0, 0x1B), nil, "RPL"},
