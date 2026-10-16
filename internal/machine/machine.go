@@ -671,6 +671,10 @@ type Machine struct {
 	// irqErr 是 433 §2 的 IDTR 守門（Machine 側）擋下 IRQ 時存的錯誤。tick／keyTick 回來後
 	// 由 Step 在同一個分支內檢查：非 nil 就清掉並直接回傳，不執行 CPU.Step()、Steps 不加。
 	irqErr error
+	// irqPlan、irqPlanOK：V86 下 ivtGuardIRQ 準備好的 IDT 遞送（435 §2.4），由同一次 tick／keyTick 的 raiseIRQ 提交。
+	// 只在同一步內存活，不進狀態檔。
+	irqPlan   v86Plan
+	irqPlanOK bool
 
 	// 434 §5.3：分段模式下「有待處理 IRQ 且 IF=1」連續的步數（segWaitN）與上一次計數的步號
 	// （segWaitAt，避免同一步在 tick 與鍵盤分支各算一次）。不進狀態檔。
@@ -1552,9 +1556,9 @@ func (m *Machine) Step() error {
 func (m *Machine) tick() {
 	// 434 §5.3：分段模式下回呼與週期遠呼叫都延後，不執行、不消耗狀態（431 §3）。
 	// 閘門在 startCallback 之前；幀計數與 IRQ0 時鐘照常（不經 CPU），只延後遞送（見下方）。
-	// 436 §4：V86（m.v86）下回呼與週期遠呼叫同樣延後。
+	// 435 §4：V86 下照常執行（以 V86 的 SS:SP 推入，段值×16），取消 436 §4 的延後。
 	segmented := m.CPU.Segmented()
-	if !segmented && !m.v86 {
+	if !segmented {
 		// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
 		// 事件是有時序意義的，週期回呼晚一格沒差。
 		if m.startCallback() {
@@ -1624,7 +1628,7 @@ func (m *Machine) tick() {
 	if m.onTick != nil {
 		m.onTick()
 	}
-	m.CPU.Interrupt(0x08)
+	m.raiseIRQ(0x08) // 435 §2.4：V86 提交 IDT 遞送，否則走 IVT
 }
 
 // segWaitLimit 是分段模式下「有待處理 IRQ 且 IF=1」容許的連續步數（431 §3、434 §5.3）。

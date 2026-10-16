@@ -731,7 +731,8 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 			return false
 		}
 	}
-	if seg := d.M.Read16(uint32(n)*4 + 2); seg != machine.StubSeg && !fromOwnStub(c, n) {
+	// 435 §4：IVT 以 ReadSup16 讀（宿主存取，不受 V86 的使用者分頁權限影響；profile 關閉時等同 Read16）。
+	if seg := d.M.ReadSup16(uint32(n)*4 + 2); seg != machine.StubSeg && !fromOwnStub(c, n) {
 		return false // 程式自己裝了處理常式
 	}
 	// Calls 記每一種 (中斷, AH) 呼叫過幾次。**只記不改行為**——
@@ -740,15 +741,12 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.Calls[Call{Int: n, AH: uint8(c.R[cpu.AX] >> 8)}]++
 	}
 	switch n {
-	case 0xF2: // int 21h 的 trampoline（`docs/spec/004` §2.1）：TSR chain 進來的
+	case 0xF2: // int 21h 的 trampoline（`docs/spec/004` §2.1）：TSR chain 進來的；CF 由 writeBackFlags 寫回
 		d.int21(c)
-		d.fixStackedCF(c)
 	case 0xF3:
 		d.int10(c)
-		d.fixStackedCF(c)
 	case 0xF4:
 		d.int15(c)
-		d.fixStackedCF(c)
 	case 0xF5: // XMS driver entry 的 trampoline（`docs/spec/011`）
 		// **不呼叫 fixStackedCF。** entry 是 far call，堆疊上只有 CS:IP，
 		// SP+4 是呼叫端自己的資料；XMS 也不用 CF 回報結果
@@ -812,7 +810,33 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.note(n, uint8(c.R[cpu.AX]>>8), uint8(c.R[cpu.AX]))
 		clearCarry(c)
 	}
+	d.writeBackFlags(c, n)
 	return true
+}
+
+// writeBackFlags 是服務結束後把旗標寫回堆疊框（docs/spec/435 §4 的「旗標回寫」）。
+//
+// 只在服務返回後 Seg[CS]==StubSeg 且 IP 不等於本道起點時才寫：EXEC 啟動子行程時 SS:SP 已換成子行程，
+// 寫入會改到子行程記憶體；Rewind 退回起點的阻塞服務也不寫。這個條件同樣套用到實模式的 fixStackedCF。
+//
+//   - F2／F3／F4（trampoline）：照 fixStackedCF 寫 CF。
+//   - V86 下的 per-vector stub（本道在 StubSeg:StubOff(n)，即 `CD n; CF`）：寫 CF、ZF。V86 下被服務的中斷都由
+//     JEMM 反射而來，堆疊上有 JEMM 推的 FLAGS、CS、IP，stub 結尾的 CF 會把 FLAGS 彈回。
+//   - far call 形式的 F5、F6、F7、F8、F9 不寫。
+func (d *DOS) writeBackFlags(c *cpu.CPU, n uint8) {
+	opCS, opIP := c.Op()
+	if c.Seg[cpu.CS] != machine.StubSeg || c.IP == opIP {
+		return
+	}
+	switch {
+	case n == 0xF2 || n == 0xF3 || n == 0xF4:
+		d.fixStackedCF(c)
+	case n >= 0xF5 && n <= 0xF9:
+	case d.M.VM() && opCS == machine.StubSeg && opIP == machine.StubOff(n):
+		at := d.M.SvcAddr(c.Seg[cpu.SS], c.R[cpu.SP]+4)
+		w := d.M.Read16(at)
+		d.M.Write16(at, w&^(cpu.CF|cpu.ZF)|c.Flags&(cpu.CF|cpu.ZF))
+	}
 }
 
 func (d *DOS) exit(c *cpu.CPU, code uint8) {

@@ -301,15 +301,16 @@ func TestSysPrivilegedInUserMode(t *testing.T) {
 		m := newSysProg(t, c.code)
 		mustNil(t, "SetCR0", m.SetCR0(cr0PE))
 		mustNil(t, "SetVM", m.SetVM(true))
+		installDeliverEnv(t, m)
 		m.CPU.R[cpu.AX], m.CPU.Hi[cpu.AX] = 0x0011, 0
 		cr0, dr7 := m.CR0(), m.DR(7)
 		ip := m.CPU.IP
-		// 435 §2.2：V86 下記 #GP(0) 事件（框架 EIP 為起點、錯誤碼 0），不執行指令本體。
+		// 435 §2.2：V86 下記 #GP(0) 事件（框架 EIP 為起點、錯誤碼 0），不執行指令本體；Machine 經 IDT 遞送到向量 13。
 		err := m.Step()
 		ev := m.CPU.V86Event()
-		if !errors.Is(err, cpu.ErrV86Event) || ev.Vector != 13 || !ev.HasError || ev.ErrorCode != 0 ||
-			ev.FrameEIP != uint32(ip) || m.CPU.IP != ip {
-			t.Errorf("%s：應記 #GP(0) 事件：err=%v 事件 %+v IP=%04X", c.name, err, ev, m.CPU.IP)
+		if err != nil || ev.Vector != 13 || !ev.HasError || ev.ErrorCode != 0 || ev.FrameEIP != uint32(ip) ||
+			m.CPU.IP != gateOff(13) || frameAt(m, dSS0Base, dESP0, 8) != uint32(ip) || frameAt(m, dSS0Base, dESP0, 9) != 0 {
+			t.Errorf("%s：應記 #GP(0) 事件並遞送：err=%v 事件 %+v IP=%04X", c.name, err, ev, m.CPU.IP)
 		}
 		if m.CR0() != cr0 || m.DR(7) != dr7 {
 			t.Errorf("%s：失敗時不得改 CR0／DR7", c.name)

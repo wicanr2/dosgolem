@@ -100,7 +100,7 @@ func (m *Machine) timedKeyTick() bool {
 	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
 		return false
 	}
-	if m.ReadPhys16(0x09*4+2) == StubSeg {
+	if m.ReadSup16(0x09*4+2) == StubSeg { // 435 §4：宿主存取（profile 關閉時等同 ReadPhys16）
 		m.keyStalls++
 		return false
 	}
@@ -112,6 +112,6 @@ func (m *Machine) timedKeyTick() bool {
 	m.timedKeys = m.timedKeys[1:]
 	m.kbdData = ev.Code()
 	m.KeyIRQs++
-	m.CPU.Interrupt(0x09)
+	m.raiseIRQ(0x09)
 	return true
 }

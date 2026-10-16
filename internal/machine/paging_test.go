@@ -1040,26 +1040,46 @@ func TestBIOSSideIgnoresPageRemapping(t *testing.T) {
 	noFault(t, m, "BIOS 側")
 }
 
-// IVT 讀取（keyTick 檢查 int 09h 向量是否仍指 StubSeg）走實體層。
-func TestKeyboardIVTReadIgnoresPageRemapping(t *testing.T) {
-	m, tb := newPaged(t)
-	tb.identity(0, 0x100000, fPWU)
-	tb.mapPage(0x0000, 0x80000)
-	tb.enable(t)
-	// 線性視角的 IVT（實體 80000）全是 0xEE；實體 IVT 的 int 09h 向量指 StubSeg（預設）。
-	for i := range m.Mem[0x80000:0x81000] {
-		m.Mem[0x80000+i] = 0xEE
+// TestKeyboardIVTReadUsesLinearIVT：keyTick、timedKeyTick 以 ReadSup16 讀線性 IVT（docs/spec/435 §4）。
+// 「int 09h 還指著 stub」是客體看得到的 IVT：V86 下客體與 JEMM 都以線性位址讀它，JEMM 會重映線性頁。
+// 線性 0 頁重映到實體 80000h 後依線性頁的內容判斷，且是監督者存取，不產生使用者權限的分頁紀錄。
+func TestKeyboardIVTReadUsesLinearIVT(t *testing.T) {
+	for _, linStub := range []bool{false, true} {
+		m, tb := newPaged(t)
+		tb.identity(0, 0x100000, fPWU)
+		tb.mapFlags(0x0000, 0x80000, fPWU, fP|fW) // 線性 IVT 頁：監督者限定
+		tb.enable(t)
+		mustNil(t, "SetVM", m.SetVM(true))
+		// 實體 IVT 的 int 09h 指 StubSeg（預設）；線性視角（實體 80000）全是 0xEE，或在 09h 放 StubSeg。
+		for i := range m.Mem[0x80000:0x81000] {
+			m.Mem[0x80000+i] = 0xEE
+		}
+		if linStub {
+			m.Mem[0x80000+0x09*4+2], m.Mem[0x80000+0x09*4+3] = byte(StubSeg), byte(StubSeg>>8)
+		}
+		if m.ReadPhys16(0x09*4+2) != StubSeg {
+			t.Fatal("前置：實體 IVT 的 int 09h 應指 StubSeg")
+		}
+		m.QueueScanCodes(0x1E)
+		m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+		m.picMask = 0
+		m.KeyEvery = 1
+		if linStub {
+			m.keyTick()
+			if m.KeyIRQs != 0 || m.KeyStalls() != 1 || m.KeyQueueLen() != 1 {
+				t.Errorf("線性 IVT 指 stub：應留著不送：KeyIRQs=%d KeyStalls=%d 佇列=%d", m.KeyIRQs, m.KeyStalls(), m.KeyQueueLen())
+			}
+		} else {
+			// 線性 IVT 指 EEEE（不是 stub）：判定為遊戲已掛 int 09h，進入遞送（沒有 IDT，prepare 失敗即關閉、不消耗）。
+			m.keyTick()
+			if m.KeyStalls() != 0 {
+				t.Errorf("線性 IVT 不指 stub：不應記 keyStalls（%d）", m.KeyStalls())
+			}
+			if m.irqErr == nil || m.KeyQueueLen() != 1 {
+				t.Errorf("線性 IVT 不指 stub：應進入遞送（無 IDT 時失敗、不取出佇列）：irqErr=%v 佇列=%d", m.irqErr, m.KeyQueueLen())
+			}
+			m.irqErr = nil
+		}
+		noFault(t, m, "keyTick")
 	}
-	if m.ReadPhys16(0x09*4+2) != StubSeg {
-		t.Fatal("前置：實體 IVT 的 int 09h 應指 StubSeg")
-	}
-	m.QueueScanCodes(0x1E)
-	m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
-	// keyTick 讀實體 IVT 判斷「int 09h 還指著 stub」，於是留著不送（keyStalls++）；
-	// 若誤走線性層會讀到 EEEE，把鍵送進一個不存在的處理常式（KeyIRQs++）。
-	m.keyTick()
-	if m.KeyIRQs != 0 || m.KeyStalls() != 1 || m.KeyQueueLen() != 1 {
-		t.Errorf("keyTick 應依實體 IVT 判斷：KeyIRQs=%d KeyStalls=%d 佇列=%d", m.KeyIRQs, m.KeyStalls(), m.KeyQueueLen())
-	}
-	noFault(t, m, "keyTick")
 }

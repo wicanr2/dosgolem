@@ -179,6 +179,9 @@ func TestExecMissingFileFailsInPlace(t *testing.T) {
 // TestTrampolineCarryReachesStackedFlags 釘住 fixStackedCF：
 // 走 trampoline 進來的服務，CF 要寫進堆疊上的旗標框，否則 IRET 把它蓋掉。
 // 症狀是 TSR 落腳後 EXEC 一律「失敗」，殼印 cannot execute 然後離開。
+//
+// CPU 真的從 StubSeg:DosTrapOff 執行 `CD F2`（Machine.Step）：docs/spec/435 §4 的回寫條件以服務返回後
+// CS 回到 StubSeg、IP 不在本道起點為準（EXEC 換了 SS:SP 時不寫），直接呼叫 handle 而 CS 不在 StubSeg 時不寫。
 func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
 	m, d := newTest(t)
 	// 假的中斷框：SS:SP → IP／CS／FLAGS（CF 立著）。
@@ -187,9 +190,17 @@ func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
 	m.Write16(cpu.Addr(0x9000, 0x100), 0)
 	m.Write16(cpu.Addr(0x9000, 0x102), 0)
 	m.Write16(cpu.Addr(0x9000, 0x104), cpu.CF)
+	trap := func(ax uint16) {
+		t.Helper()
+		m.CPU.Seg[cpu.CS], m.CPU.IP = machine.StubSeg, machine.DosTrapOff
+		m.CPU.R[cpu.AX] = ax
+		if err := m.Step(); err != nil {
+			t.Fatalf("CD F2（AX=%04X）：%v", ax, err)
+		}
+	}
 
 	// AH=19h（取目前磁碟）是清 CF 的服務。
-	call(m, d, 0xF2, 0x1900)
+	trap(0x1900)
 	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF != 0 {
 		t.Errorf("堆疊框的 FLAGS=%04X，CF 還立著——IRET 會把假失敗彈回去", w)
 	}
@@ -198,10 +209,11 @@ func TestTrampolineCarryReachesStackedFlags(t *testing.T) {
 	m.CPU.Seg[cpu.DS] = 0x3000
 	m.CPU.R[cpu.DX] = 0
 	m.WriteBytes(cpu.Addr(0x3000, 0), append([]byte("NOPE.BIN"), 0))
-	call(m, d, 0xF2, 0x3D00)
+	trap(0x3D00)
 	if w := m.Read16(cpu.Addr(0x9000, 0x104)); w&cpu.CF == 0 {
 		t.Error("服務設了 CF，但堆疊框沒有")
 	}
+	_ = d
 }
 
 // TestChildSetBlockMovesFreeSeg 釘住「子行程撐大自己的區塊之後，

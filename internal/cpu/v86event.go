@@ -51,7 +51,11 @@ func (c *CPU) V86Event() V86Event { return c.evOut }
 // V86Return 回最近一次 ErrV86Return 的彈出值。內容在下一次 Step 前有效。
 func (c *CPU) V86Return() V86Return { return c.v86Ret }
 
-// v86Event 記下 V86 事件（435 §2.2）：事件存在 c.ev，同時以 failf 設佔位錯誤，由 Step 的 fault 分支統一處理。
+// v86Placeholder 是 v86Event 設在 c.fault 的佔位錯誤（預先配置的單一值）。Step 看到 c.ev 就改回 ErrV86Event，
+// 這個值不會流出核心，也不會被改寫。
+var v86Placeholder = &Error{Reason: "V86 事件佔位（docs/spec/435 §2.2）"}
+
+// v86Event 記下 V86 事件（435 §2.2）：事件存在 c.ev，同時設佔位錯誤，由 Step 的 fault 分支統一處理。
 // 本道指令已先記了一般 failf 時以先記的為準，不記事件。呼叫點在任何寫入之前。
 func (c *CPU) v86Event(ev V86Event) {
 	if c.fault != nil {
@@ -59,7 +63,7 @@ func (c *CPU) v86Event(ev V86Event) {
 	}
 	c.evBuf = ev
 	c.ev = &c.evBuf
-	c.failf("V86 事件（向量 %02Xh）：%s", ev.Vector, ev.Reason)
+	c.fault = v86Placeholder
 }
 
 // v86GP0 記 #GP(0) 事件（435 §2.1）：框架 EIP 為指令起點，錯誤碼 0。

@@ -100,15 +100,20 @@ func (m *Machine) SetTR(sel uint16, c SegCache) { m.sys.tr = sysSeg{sel: sel, ca
 // ivtGuardIRQ 是 IDTR 守門的 Machine 側（tick 的 INT 08h、keyTick 與 timedKeyTick 的 INT 09h）。
 // CPU.Interrupt 沒有回傳值，所以條件成立時不呼叫它，把錯誤存進 m.irqErr，由 Step 回傳。
 //
-// 436 §4 擴充：V86（m.v86）下同樣不遞送（經保護模式 IDT 遞送屬 435）。三個遞送點都已把它放在 IF、PIC 遮罩、
-// 待處理等條件之後、消耗狀態之前，所以只在原本會遞送的那一步失敗。
+// 435 §2.4：V86（m.v86）下改呼叫 prepareV86Delivery：失敗時存 irqErr 並回 true；成功時把 plan 存進
+// irqPlan、回 false，由同一個遞送點的 raiseIRQ 提交。三個遞送點都已把它放在 IF、PIC 遮罩、待處理等條件之後、
+// 消耗狀態之前，所以只在原本會遞送的那一步準備或失敗。
 func (m *Machine) ivtGuardIRQ(vec uint8) bool {
 	if m.v86 {
-		if m.irqErr == nil {
-			m.irqErr = fmt.Errorf("machine: IRQ（INT %02Xh）：V86 下的 IRQ 經保護模式 IDT 遞送，屬 435，"+
-				"失敗即關閉（docs/spec/436 §4）", vec)
+		p, err := m.prepareV86Delivery(cpu.V86Event{Kind: cpu.V86External, Vector: vec, FrameEIP: uint32(m.CPU.IP)})
+		if err != nil {
+			if m.irqErr == nil {
+				m.irqErr = err
+			}
+			return true
 		}
-		return true
+		m.irqPlan, m.irqPlanOK = p, true
+		return false
 	}
 	if !m.IVTMismatch() {
 		return false
@@ -120,9 +125,12 @@ func (m *Machine) ivtGuardIRQ(vec uint8) bool {
 	return true
 }
 
-// takeIRQErr 取出並清掉 m.irqErr。
+// takeIRQErr 取出並清掉 m.irqErr。435 §2.4：prepare 讀取留下分頁紀錄（m.pfOK）時以 stepFault 包成 *PageFaultError。
 func (m *Machine) takeIRQErr() error {
 	err := m.irqErr
 	m.irqErr = nil
+	if m.pfOK {
+		return m.stepFault(err)
+	}
 	return err
 }

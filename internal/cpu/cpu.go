@@ -477,13 +477,10 @@ func (c *CPU) FarCall(seg, off uint16) {
 // （`docs/spec/009` §3.1）。
 //
 // 分段模式下不會經 Machine 到達（434 §5.3）；這裡另以 failf 當第二道防線（434 §5.1），不動任何狀態。
+// V86 下照常執行（以 V86 的 SS:SP 推入，段值×16；docs/spec/435 §4）。
 func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
 	if c.segmented {
 		c.failf("FarCall(%04X:%04X)：分段模式下不支援外部遠呼叫，失敗即關閉（docs/spec/434 §5.1）", seg, off)
-		return
-	}
-	if c.v86() {
-		c.failf("FarCall(%04X:%04X)：V86 下不支援外部遠呼叫（回呼延後，435），失敗即關閉（docs/spec/436 §4）", seg, off)
 		return
 	}
 	c.push(retSeg)

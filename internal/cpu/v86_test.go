@@ -350,12 +350,19 @@ func TestV86HltAndInterrupts(t *testing.T) {
 	c, _, _ = newV86CPU(t, 0, []byte{0xFA})
 	c.Interrupt(8)
 	wantV86Fail(t, c, "Interrupt 之後的 cli", "Interrupt(08h)")
-	// 第二道防線：Interrupt、FarCallWithReturn 不動狀態，錯誤在下一次 Step 回報。
+	// 第二道防線（435 §4）：Interrupt 在 V86 仍不動狀態，錯誤在下一次 Step 回報。
 	c, _, _ = newV86CPU(t, 3, []byte{0x90})
 	c.Interrupt(8)
-	c.FarCallWithReturn(0x1234, 0, 0, 0)
 	if c.R[SP] != 0x100 || c.Seg[CS] != v86Code || c.IP != 0 {
-		t.Errorf("Interrupt／FarCall 不得動狀態：SP=%04X CS:IP=%04X:%04X", c.R[SP], c.Seg[CS], c.IP)
+		t.Errorf("Interrupt 不得動狀態：SP=%04X CS:IP=%04X:%04X", c.R[SP], c.Seg[CS], c.IP)
 	}
 	wantV86Fail(t, c, "Interrupt 之後的 Step", "Interrupt(08h)")
+	// FarCallWithReturn 在 V86 照常執行：以 V86 的 SS:SP 推入返回位址（段值×16）。
+	c, b, _ = newV86CPU(t, 3, []byte{0x90})
+	c.FarCallWithReturn(0x1234, 0x10, 0x5678, 0x9ABC)
+	if c.R[SP] != 0xFC || c.Seg[CS] != 0x1234 || c.IP != 0x10 ||
+		uint16(b.mem[stackAt(b, 0xFC)])|uint16(b.mem[stackAt(b, 0xFD)])<<8 != 0x9ABC ||
+		uint16(b.mem[stackAt(b, 0xFE)])|uint16(b.mem[stackAt(b, 0xFF)])<<8 != 0x5678 {
+		t.Errorf("FarCallWithReturn 應照常執行：SP=%04X CS:IP=%04X:%04X", c.R[SP], c.Seg[CS], c.IP)
+	}
 }
