@@ -1,6 +1,6 @@
 # 435 — V86 事件經 IDT 遞送、回 V86 與服務層在 V86 下的規則
 
-狀態：**DRAFT**（第 2 版，依第 1 輪兩份審查改寫）
+狀態：**READY**（第 3 版，依第 2 輪複審修正）
 日期：2026-10-16
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（第 2 版）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)、
 [`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md)、[`436-tss-task-return-v86-entry`](436-tss-task-return-v86-entry.md)
@@ -54,19 +54,20 @@ V86 下的 `0F 00` 群組、`lar`、`lsl`（真機 `#UD`）維持 436 的失敗�
 
 - 新增 `cpu.V86Event{Kind, Vector, HasError, ErrorCode, FrameEIP, Reason}`（`Reason` 保留 436 的診斷字串，例如「點陣圖」「界限」）。核心以 `c.v86Event(ev)`
   記錄：事件存在 `c.ev`，同時以 `failf` 設佔位錯誤。`Step` 既有的 `if c.fault != nil` 分支統一處理：`c.ev != nil` 時把 `IP` 設回 `opIP`、回哨兵
-  `cpu.ErrV86Event`。熱路徑不增加判斷。`c.V86Event()` 讀取事件，內容在下一次 `Step` 前有效。
+  `cpu.ErrV86Event`，並把事件移到另一份副本後清掉 `c.ev`（避免殘留事件讓之後的一般 `failf` 被誤判）。熱路徑不增加判斷。`c.V86Event()` 讀取副本，內容在下一次 `Step` 前有效。
 - 同一道指令先記了一般 `failf`、後記事件時，以先記的為準（現行 `failf` 只留第一個）。
 - 半狀態：記事件的位置在任何寫入之前。`div`／`idiv`（`alu.go` 的 `div8`／`div16`／`idiv8`／`idiv16` 在回 false 前會先 `divFlags`）與 `AAM 0`
   （`ops.go` 先 `c.logic(0,8)`）在處理函式內以區域變數保留進入時的 `Flags`，V86 記 `#DE` 時還原（386 的 `#DE` 不改旗標）。
 - 436 的 V86 失敗點（`cpu.go` 的 `v86Fail`；`v86.go` 的 `v86Popf`、`v86Iretd`、`v86IOPermit`；`ops.go` 的 `cli`／`sti`／`pushf`／`iret`／`hlt`；`ops386.go` 的
-  `66 9C`／`66 9D`；`ops186.go` 的 `insOuts`）改為記 `#GP(0)` 事件；`sys.go` 的 `privileged` 在 V86 下改記 `#GP(0)`。分段模式（ring 0）的失敗照 434。
+  `66 9C`／`66 9D`；`ops186.go` 的 `insOuts`）改為記 `#GP(0)` 事件；`v86Iretd` 只有 IOPL<3 那支改為事件，`EIP` 高半非 0 仍是一般失敗（刻意從嚴）。
+  `sys.go` 的 `privileged` 在 V86 下記 `#GP(0)` 事件後仍回非 nil 錯誤，呼叫端照舊提早 return，不執行指令本體。分段模式（ring 0）的失敗照 434。
 
 ### 2.3 遞送步驟（V86 → ring 0，照 `CPU_Interrupt` 保護模式分支，`cpu.cpp:1300-1475`）
 
 由 Machine 執行，分成兩段：`prepareV86Delivery(ev) (plan, error)` 只讀不寫（第 1–4 步），`commitV86Delivery(plan)` 只寫且不會失敗（第 5 步）。
 prepare 失敗時狀態不變並失敗即關閉（讀取時 `walk` 設 A 位元與填 TLB 是讀取本身的效果，不算狀態改變）；讀取留下分頁紀錄（`m.pfOK`）時以 `stepFault` 回報。
 
-1. 軟體中斷的 IOPL 檢查（§2.1）；不通過則事件改為 `#GP(0)`、框架 `EIP` 改為指令起點。
+1. 軟體中斷的 IOPL 檢查（§2.1）；不通過則事件改為 `#GP(0)`、框架 `EIP` 改為指令起點（`Step` 已把 `IP` 設回 `opIP`，直接用 `c.IP`）。
 2. IDT：`vector*8+7 ≤ IDTR.limit`，否則失敗即關閉（真機 `#GP(vector*8+2+EXT)`，屬 S6）。讀閘（`ReadSup32`×2）。軟體中斷先做閘 DPL 檢查（DOSBox-X 在型別檢查之前，
    `cpu.cpp:1317`）；不通過則改為 `#GP(vector*8+2)`、框架 `EIP` 改為起點，回到本步重讀向量 13 的閘（改送的 `#GP` 屬例外，不再做 IOPL 與 DPL 檢查）。
    接著：閘須為 386 中斷閘（type `Eh`）或 386 陷阱閘（type `Fh`）、present；286 閘、任務閘失敗即關閉。
@@ -93,7 +94,8 @@ prepare 失敗時狀態不變並失敗即關閉（讀取時 `walk` 設 A 位元�
 `Interrupt` 的位置改呼叫 `m.raiseIRQ(vec)`：V86 時 `commitV86Delivery(plan)`，否則 `CPU.Interrupt(vec)`。順序固定為：
 守門（含 prepare）→ `irq0Pending=false`／彈出佇列 → `Ticks++` → `onTick` → `kbdData`（鍵盤）→ `raiseIRQ`。
 
-`Step` 在 `tick` 之後才評估 `m.CPU.Segmented()`，所以同一步之後的 `keyTick` 走分段模式的延後路徑，不會重複遞送。
+`Step` 在 `tick` 之後才評估 `m.CPU.Segmented()`，所以同一步之後的 `keyTick` 走分段模式的延後路徑，不會重複遞送。IRQ 路徑的錯誤由 `Step` 直接以
+`takeIRQErr()` 回傳（不經 `finishStep`）；prepare 讀取留下分頁紀錄（`m.pfOK`）時，`takeIRQErr` 的結果以 `stepFault` 包成 `*PageFaultError`。
 
 ### 2.5 回 V86：ring 0 的 `iretd`
 
@@ -117,8 +119,8 @@ prepare 失敗時狀態不變並失敗即關閉（讀取時 `walk` 設 A 位元�
 
 ## 4. 服務層在 V86 下的規則
 
-V86 下執行 `CD nn`、`CC`、`CE` 時，`doInt` 的流程為：**先呼叫 `IntHook`；回 false 才記軟體中斷事件**（§2.2），不呼叫 `Interrupt`。`ivtGuard` 的 V86 分支
-只留給 `divideError`、`divideFault`、`BOUND` 三處。
+V86 下執行 `CD nn`、`CC`、`CE` 時，`doInt` 的流程為：**先呼叫 `IntHook`；回 false 才記軟體中斷事件**（§2.2），不呼叫 `Interrupt`。V86 以外維持現行順序
+（先 `ivtGuard` 後 `IntHook`）。`ivtGuard` 的 V86 分支只留給 `divideError`、`divideFault`、`BOUND` 三處。
 
 服務層的條件只寫在 `internal/dos` 的 `handle` 一處：開頭加上「`d.M.VM()` 為真且本道指令的 `CS`（`c.Op()` 的段值）不等於 `StubSeg` 時回 false」，
 其餘沿用現行判斷（IVT[nn] 的段值為 `StubSeg` 或 `fromOwnStub`，`dos.go` 約 686–729 行）。比較的是段暫存器值，不是線性位址。
@@ -132,10 +134,10 @@ stub `0080:0420` 內的 `INT 1Ch` 在遊戲掛了 1Ch 時）。
 
 | 項目 | V86 下的行為 |
 |---|---|
-| 旗標回寫 | V86 下被服務的中斷都由 JEMM 反射而來，堆疊上有 JEMM 推的 `FLAGS`、`CS`、`IP`，stub 結尾的 `CF` 會把 `FLAGS` 彈回。所以服務層處理 per-vector stub（`CS:IP` 為 `StubSeg:StubOff(n)`，即 `CD n; CF`）之後，把 `c.Flags` 的 `CF`、`ZF` 寫回 `SS:SP+4` 的 `FLAGS`；`F2`／`F3`／`F4` 照現行 `fixStackedCF`（`CF`）。far call 形式的 `F5`（XMS）、`F6`（EMS）、`F7`、`F8`（字型）、`F9`（回呼）不寫。實模式不變 |
+| 旗標回寫 | V86 下被服務的中斷都由 JEMM 反射而來，堆疊上有 JEMM 推的 `FLAGS`、`CS`、`IP`，stub 結尾的 `CF` 會把 `FLAGS` 彈回。所以服務層處理 per-vector stub（`CS:IP` 為 `StubSeg:StubOff(n)`，即 `CD n; CF`）之後，把 `c.Flags` 的 `CF`、`ZF` 寫回 `SS:SP+4` 的 `FLAGS`（只改這兩位元；服務未動旗標時寫入等值）；`F2`／`F3`／`F4` 照現行 `fixStackedCF`（`CF`）。far call 形式的 `F5`（XMS）、`F6`（EMS）、`F7`、`F8`（字型）、`F9`（回呼）不寫。**回寫（含 `fixStackedCF`）只在服務返回後 `Seg[CS]==StubSeg` 且 `IP` 不等於本道起點時才做**：EXEC 啟動子行程時 `SS:SP` 已換成子行程（`exec.go` 的 `enterProgram`），寫入會改到子行程記憶體（COM 的 `SP=FFFEh` 時 `SP+4` 繞到 `PSP:0002`）；`Rewind` 退回起點的阻塞服務也不寫。`4Ch`、`INT 20h`、`27h` 終止後 `CS` 回到 StubSeg，照寫。同一條件也套用到實模式的 `fixStackedCF` |
 | 讀 IVT | `handle` 與 `keyTick`、`timedKeyTick` 一律以 `ReadSup16` 讀（宿主存取，不受 V86 的使用者分頁權限影響）；profile 關閉時等同現行 |
 | 阻塞型服務（`int 21h AH=01/07/08` 等） | 照舊以 `Rewind` 退回 `CD` 起點；下一步重新判斷，仍由服務層處理 |
-| 埠 `60h` | JEMM 的 IRQ1 路徑在反射前 `in al,60h`；讀埠 `60h` 不得消耗 `kbdData`，重複讀得到同一值 |
+| 埠 `60h` | JEMM 的 IRQ1 路徑在反射前 `in al,60h`；現行讀埠 `60h` 直接回 `kbdData`、不消耗（`machine.go` 約 1096 行），維持現況並加回歸測試 |
 | `startCallback`、`periodic` 的 `FarCall` | V86 下照常執行（以 V86 的 `SS:SP` 推入，段值×16）；分段模式下照 434 延後。436 §4 的 V86 延後取消，`tick` 的閘門改為 `!segmented` |
 | 第二道防線 | `Interrupt` 在 V86 仍失敗即關閉（V86 不得走 IVT 直送）；`FarCallWithReturn` 的 V86 條件移除 |
 
@@ -181,13 +183,14 @@ V86 的 x87 與 `#UD`；中斷遮蔽（436 §4 的刻意差異維持）。JEMM �
 3. 回 V86：ring 0 `iretd` 彈出 `VM=1` 的框架後，`CS:IP`、`SS:SP`（含 `Hi[SP]`）、四個資料段、旗標（含 IOPL）還原，`segmented=false`；`EIP` 高半非 0、`EFLAGS` 高位元、
    彈出 `VM=0`、CPL≠0 各失敗一例；16 位元 `CF` 失敗。
 4. 往返：合成「V86 `CD 21` → ring 0 處理常式模擬 JEMM 反射（改 V86 堆疊、讀 IVT、`iretd`）→ StubSeg `CD F2` → 服務層 → `CF`」，服務層只被呼叫一次、
-   回到 `CD 21` 的下一道，`CF` 回寫正確；同樣以 per-vector stub 驗 `INT 16h AH=01` 的 `ZF` 與 `INT 13h` 的 `CF` 回寫。
+   回到 `CD 21` 的下一道，`CF` 回寫正確；同樣以 per-vector stub 驗 `INT 16h AH=01` 的 `ZF` 與 `INT 13h` 的 `CF` 回寫；V86 下 EXEC 啟動子行程後子行程 `SS:SP+4`
+   的位元組不變；阻塞服務 `Rewind` 時不回寫。
 5. 服務層條件：`CS`≠StubSeg 時不服務；IVT[nn] 不指 StubSeg 時 StubSeg 內的 `CD nn` 經 IDT；`fromOwnStub` 情形由服務層處理；阻塞服務的 `Rewind` 重跑仍由服務層處理；
    讀埠 `60h` 兩次得到同一值。
 6. 回呼：V86 下 `startCallback`、`periodic` 照常執行；分段模式下延後不消耗。
 7. 效能：profile 關閉的 `BenchmarkStepRealMode` 與本規格動工前的 commit 交錯比較（431 §7）；`BenchmarkStepV86Paged` 不低於 11.58 M 道／秒。照實記錄。
 8. 突變自檢：服務層條件不看 `CS`、關掉 `doInt` 的 V86 分支（往返測試必須失敗）、軟體中斷不做 DPL 檢查、`INT 3` 做 IOPL 檢查、框架少推資料段、
-   `#GP` 的 `FrameEIP` 用下一道、`#DE` 不還原旗標、不載入 `ESP0` 高半、`iretd` 回 V86 不還原資料段、IRQ0 遞送不清 `IF`、per-vector stub 不寫回旗標，
+   `#GP` 的 `FrameEIP` 用下一道、`#DE` 不還原旗標、不載入 `ESP0` 高半、`iretd` 回 V86 不還原資料段、IRQ0 遞送不清 `IF`、per-vector stub 不寫回旗標、回寫不看 `CS`、事件取走後不清 `c.ev`，
    各至少一個測試失敗。
 9. 觸發案例（需原版，另附 probe 收據）：`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile`：
    - 第一個事件 `INT 2Fh`：進入 `18h:4812`（向量 13 小樁）時 `SP=13D8h`；框架 `EIP=000002BEh`、`CS=0110h`、`ESP=000000D2h`、`SS=0216h`、`ES=2000h`、
