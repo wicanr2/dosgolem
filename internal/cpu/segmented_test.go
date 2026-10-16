@@ -74,3 +74,29 @@ func TestSegmentedCPLChecks(t *testing.T) {
 		t.Errorf("CPL 3 的段載入：應失敗，實際 %v", err)
 	}
 }
+
+// ltrSys 記下 ltr 對 TR 與 GDT 的寫入。
+type ltrSys struct {
+	cplSys
+	setTR, writes int
+}
+
+func (s *ltrSys) SetTR(uint16, SegCache)  { s.setTR++ }
+func (s *ltrSys) WriteSup8(uint32, uint8) { s.writes++ }
+
+// 436 §2.2 第 1 項：CPL ≠ 0 的 ltr 失敗即關閉，TR 與 GDT 都不寫。
+func TestSegmentedLTRRequiresCPL0(t *testing.T) {
+	c, b := newSegCPU(t, 3)
+	s := &ltrSys{cplSys: cplSys{cpl: 3}}
+	c.Sys = s
+	for i, v := range []byte{0x0F, 0x00, 0xD9} { // ltr cx
+		b.Write8(0x10000+uint32(i), v)
+	}
+	c.R[CX] = 0xF0
+	if err := c.Step(); err == nil || !strings.Contains(err.Error(), "CPL 3") {
+		t.Errorf("CPL 3 的 ltr：應失敗，實際 %v", err)
+	}
+	if s.setTR != 0 || s.writes != 0 {
+		t.Errorf("失敗時不得寫 TR（%d 次）或 GDT（%d 次）", s.setTR, s.writes)
+	}
+}

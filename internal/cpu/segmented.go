@@ -161,9 +161,10 @@ func (c *CPU) retRPLOK(sel uint16) bool {
 	return true
 }
 
-// descriptor 由 8 bytes 描述元組出快取：Limit 依 G 展開；Attr 照 433 §3.2 的編碼
+// DecodeDescriptor 由 8 bytes 描述元組出快取：Limit 依 G 展開；Attr 照 433 §3.2 的編碼
 // （access byte、AVL、D/B、G；bit 13 恆 0，所以 386 保留的 bit 21 不帶進來）。
-func descriptor(lo, hi uint32) SegCache {
+// 核心的 ltr 與 Machine 的任務返回共用，確保 TR 快取一致（436 §2.1）。
+func DecodeDescriptor(lo, hi uint32) SegCache {
 	limit := lo&0xFFFF | hi&0xF0000
 	base := lo>>16 | (hi&0xFF)<<16 | hi&0xFF000000
 	attr := uint16(hi>>8) & 0xFF
@@ -222,7 +223,7 @@ func (c *CPU) loadSegPM(i int, sel uint16) bool {
 	if idx+7 > tlimit {
 		return fail("索引 %X×8＋7 超出表界限 %X", idx>>3, tlimit)
 	}
-	d := descriptor(c.Sys.ReadSup32(tbase+idx), c.Sys.ReadSup32(tbase+idx+4))
+	d := DecodeDescriptor(c.Sys.ReadSup32(tbase+idx), c.Sys.ReadSup32(tbase+idx+4))
 	a := d.Attr
 	rpl := uint8(sel & 3)
 	dpl := uint8(a>>5) & 3
@@ -272,9 +273,9 @@ func (c *CPU) loadSegPM(i int, sel uint16) bool {
 
 // seg0F00 是分段模式的 0F 00 群組（434 §6）：
 //
-//	/0 SLDT、/1 STR：寫 LDTR、TR 的選擇子（一律 16 位元，DOSBox-X prefix_0f.h 的 earw／SaveMw；TR 目前恆 0）
+//	/0 SLDT、/1 STR：寫 LDTR、TR 的選擇子（一律 16 位元，DOSBox-X prefix_0f.h 的 earw／SaveMw）
 //	/2 LLDT：空選擇子使 LDTR 不可用；否則須在 GDT（TI=1 失敗，刻意從嚴）、描述元 S=0 type 2、present
-//	/3 LTR：失敗即關閉（TSS 與任務切換屬 S4；本規格的驗收停點）
+//	/3 LTR：見 ltr（436 §2.2）
 //	/4、/5（VERR、VERW）與 /6、/7：失敗即關閉
 func (c *CPU) seg0F00() error {
 	const op2 = 0x00
@@ -291,7 +292,7 @@ func (c *CPU) seg0F00() error {
 		}
 		return c.lldt(c.get16(m.rm))
 	case 3:
-		return c.errf(op2, "0F 00 /3 LTR：TSS、任務切換與進 V86 屬 S4，失敗即關閉（docs/spec/434 §6 的驗收停點）")
+		return c.ltr(c.get16(m.rm))
 	default:
 		return c.errf(op2, "0F 00 /%d：分段模式失敗即關閉（JEMM 沒用，docs/spec/434 §6）", m.reg)
 	}
@@ -313,7 +314,7 @@ func (c *CPU) lldt(sel uint16) error {
 	if idx+7 > uint32(limit) {
 		return c.errf(op2, "LLDT %04X：索引 %X×8＋7 超出 GDT 界限 %X（docs/spec/434 §6）", sel, idx>>3, limit)
 	}
-	d := descriptor(c.Sys.ReadSup32(base+idx), c.Sys.ReadSup32(base+idx+4))
+	d := DecodeDescriptor(c.Sys.ReadSup32(base+idx), c.Sys.ReadSup32(base+idx+4))
 	if uint8(d.Attr)&0x1F != 2 {
 		return c.errf(op2, "LLDT %04X：描述元不是 LDT（access %02X，docs/spec/434 §6）", sel, uint8(d.Attr))
 	}
@@ -321,5 +322,46 @@ func (c *CPU) lldt(sel uint16) error {
 		return c.errf(op2, "LLDT %04X：LDT 描述元不存在（P=0，docs/spec/434 §6）", sel)
 	}
 	c.Sys.SetLDTR(sel, d)
+	return nil
+}
+
+// 386 TSS 描述元的型別（access byte 的低 5 位元，S=0）：可用 9、忙碌 Bh。
+const (
+	tss386Avail = 0x09
+	tss386Busy  = 0x0B
+	tssBusyBit  = 0x02
+)
+
+// ltr 照 DOSBox-X CPU_LTR（cpu/cpu.cpp:2452-2477）與 prefix_0f.h:42-47（436 §2.2）；違反時失敗即關閉，
+// TR 與 GDT 都不改：CPL ≠ 0、空選擇子（刻意從嚴）、TI=1 或超出 GDT 界限、不是可用的 386 TSS
+// （286 TSS 刻意從嚴）、not present。通過後先把 GDT 中描述元的 access byte |= 02h（忙碌），再 SetTR。
+func (c *CPU) ltr(sel uint16) error {
+	const op2 = 0x00
+	if cpl := c.Sys.CPL(); cpl != 0 {
+		return c.errf(op2, "LTR %04X：CPL %d ≠ 0（真機 #GP，docs/spec/436 §2.2）", sel, cpl)
+	}
+	if sel&0xFFFC == 0 {
+		return c.errf(op2, "LTR %04X：空選擇子失敗即關閉（DOSBox-X 設為無效 TR；刻意從嚴，docs/spec/436 §2.2）", sel)
+	}
+	if sel&4 != 0 {
+		return c.errf(op2, "LTR %04X：選擇子須在 GDT（TI=1，真機 #GP，docs/spec/436 §2.2）", sel)
+	}
+	base, limit := c.Sys.GDTR()
+	idx := uint32(sel &^ 7)
+	if idx+7 > uint32(limit) {
+		return c.errf(op2, "LTR %04X：索引 %X×8＋7 超出 GDT 界限 %X（真機 #GP，docs/spec/436 §2.2）", sel, idx>>3, limit)
+	}
+	lo, hi := c.Sys.ReadSup32(base+idx), c.Sys.ReadSup32(base+idx+4)
+	d := DecodeDescriptor(lo, hi)
+	if uint8(d.Attr)&0x1F != tss386Avail {
+		return c.errf(op2, "LTR %04X：描述元不是可用的 386 TSS（access %02X；286 TSS 刻意從嚴，docs/spec/436 §2.2）",
+			sel, uint8(d.Attr))
+	}
+	if d.Attr&attrP == 0 {
+		return c.errf(op2, "LTR %04X：TSS 描述元不存在（P=0，真機 #NP，docs/spec/436 §2.2）", sel)
+	}
+	c.Sys.WriteSup8(base+idx+5, uint8(d.Attr)|tssBusyBit)
+	d.Attr |= tssBusyBit
+	c.Sys.SetTR(sel, d)
 	return nil
 }

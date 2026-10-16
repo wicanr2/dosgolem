@@ -29,6 +29,14 @@ func (f *fakeSys) LDTR() (uint16, SegCache) { f.calls++; return 0, SegCache{} }
 func (f *fakeSys) SetLDTR(uint16, SegCache) { f.calls++ }
 func (f *fakeSys) TRSel() uint16            { f.calls++; return 0 }
 
+// 436 §2.1 的增補。
+func (f *fakeSys) VM() bool                { f.calls++; return false }
+func (f *fakeSys) TR() (uint16, SegCache)  { f.calls++; return 0, SegCache{} }
+func (f *fakeSys) SetTR(uint16, SegCache)  { f.calls++ }
+func (f *fakeSys) ReadSup8(uint32) uint8   { f.calls++; return 0 }
+func (f *fakeSys) ReadSup16(uint32) uint16 { f.calls++; return 0 }
+func (f *fakeSys) WriteSup8(uint32, uint8) { f.calls++ }
+
 func TestSysOlderModelsIgnoreSys(t *testing.T) {
 	for _, model := range []Model{Model8086, Model80186} {
 		for _, op2 := range []byte{0x00, 0x01, 0x06, 0x20, 0x22} {

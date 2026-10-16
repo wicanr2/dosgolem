@@ -340,6 +340,16 @@ func (c *CPU) execute32(op uint8) error {
 		}
 		c.set32(m.rm, c.fetch32())
 
+	// ---- CF：IRETD（436 §3.1）---------------------------------------------
+	case op == 0xCF:
+		if c.segmented {
+			if c.Flags&NT != 0 {
+				return c.taskReturn() // DOSBox-X 的任務返回不看運算元大小（cpu.cpp:1586-1597）
+			}
+			return c.errf(op, iretSegFail)
+		}
+		return c.errf(op, "66 %02X：80386 子集沒有這一道（docs/spec/197 §2）", op)
+
 	// ---- F7：group 3 ------------------------------------------------------
 	case op == 0xF7:
 		return c.group3_32(op)

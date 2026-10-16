@@ -92,6 +92,11 @@ func (m *Machine) LDTR() (sel uint16, c SegCache) { return m.sys.ldtr.sel, m.sys
 func (m *Machine) SetLDTR(sel uint16, c SegCache) { m.sys.ldtr = sysSeg{sel: sel, cache: c} }
 func (m *Machine) TRSel() uint16                  { return m.sys.tr.sel }
 
+// VM 回 EFLAGS.VM；TR／SetTR 讀寫 TR 的選擇子與快取（436 §2.1）。
+func (m *Machine) VM() bool                     { return m.eflagsHi&eflagsHiVM != 0 }
+func (m *Machine) TR() (sel uint16, c SegCache) { return m.sys.tr.sel, m.sys.tr.cache }
+func (m *Machine) SetTR(sel uint16, c SegCache) { m.sys.tr = sysSeg{sel: sel, cache: c} }
+
 // ivtGuardIRQ 是 IDTR 守門的 Machine 側（tick 的 INT 08h、keyTick 與 timedKeyTick 的 INT 09h）。
 // CPU.Interrupt 沒有回傳值，所以條件成立時不呼叫它，把錯誤存進 m.irqErr，由 Step 回傳。
 func (m *Machine) ivtGuardIRQ(vec uint8) bool {

@@ -17,7 +17,19 @@ import (
 // 收到 ErrModeSwitch 時先進分段模式，再看分頁紀錄：同一步有紀錄時回 *PageFaultError（此時已進分段模式），
 // 否則回 nil。這取代 432 §10 第 1 項「哨兵不處理」對 ErrModeSwitch 的處置：CR0.PE 已是 1，
 // 不進分段模式反而會以實模式語意執行保護模式碼（434 §3.1）。
+//
+// 收到 cpu.ErrTaskReturn 時做任務返回（436 §3.2，taskreturn.go）：成功回 nil；失敗時該步有分頁紀錄
+// 才包成 *PageFaultError，否則回一般 error。
 func (m *Machine) finishStep(err error) error {
+	if errors.Is(err, cpu.ErrTaskReturn) && !m.pfOK {
+		if e := m.taskReturn(); e != nil {
+			if m.pfOK {
+				return m.stepFault(e)
+			}
+			return e
+		}
+		return nil
+	}
 	if errors.Is(err, cpu.ErrModeSwitch) {
 		if e := m.enterSegmented(); e != nil {
 			return e

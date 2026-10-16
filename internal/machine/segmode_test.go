@@ -573,12 +573,14 @@ func TestSegForbiddenSegmentWrites(t *testing.T) {
 	if m.CPU.Seg[cpu.CS] != cs {
 		t.Error("mov cs 失敗後 CS 不得改變")
 	}
+	// Machine 的 386 初始旗標是 7002h（帶 NT=1）；這兩項要測的是 NT=0 的 iret，所以先清 NT
+	// （NT=1 是任務返回，docs/spec/436 §3.1）。
 	m = segProg(t, []byte{0xCF}) // iret
+	m.CPU.SetFlags(m.CPU.Flags &^ cpu.NT)
 	wantStepErr(t, m, "iret", "IRET")
 	m = segProg(t, []byte{0x66, 0xCF}) // iretd
-	if err := m.Step(); err == nil {
-		t.Error("66 iret 應失敗即關閉")
-	}
+	m.CPU.SetFlags(m.CPU.Flags &^ cpu.NT)
+	wantStepErr(t, m, "66 iret", "IRET")
 	// 遠返回彈出的 CS 的 RPL ≠ CPL：19h（RPL 1）。
 	m = segProg(t, []byte{0x68, 0x19, 0x00, 0x6A, 0x00, 0xCB}) // push 19h；push 0；retf
 	mustStep(t, m, "push 19h")

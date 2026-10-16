@@ -56,6 +56,8 @@ const (
 	IF = 1 << 9
 	DF = 1 << 10
 	OF = 1 << 11
+	// NT 是 286 起的 nested task（436 §2.1）；IOPL（bit 12–13）與它只在 Model80386 的 SetFlags 保留。
+	NT = 1 << 14
 )
 
 // flagsMask／flagsSet 是 8086 固定的保留位元：bit 1 恆為 1、bit 3／5 恆為 0、
@@ -180,6 +182,9 @@ type CPU struct {
 	// segcache.go）。只經 Segmented／SetSegmented／SegCache／SetSegCache 讀寫。
 	segmented bool
 	cache     [6]SegCache
+
+	// taskNextIP 是任務返回時記下的下一道指令位址（436 §3.1，TaskReturnNextIP）。
+	taskNextIP uint16
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。
@@ -413,6 +418,19 @@ func (c *CPU) Interrupt(n uint8) {
 	c.IP = uint16(c.Bus.Read8(off)) | uint16(c.Bus.Read8(off+1))<<8
 	c.Seg[CS] = uint16(c.Bus.Read8(off+2)) | uint16(c.Bus.Read8(off+3))<<8
 	c.Halted = false
+}
+
+// TaskReturnNextIP 回最近一次任務返回（ErrTaskReturn）記下的下一道指令位址（opIP＋指令長度，436 §3.1）。
+func (c *CPU) TaskReturnNextIP() uint16 { return c.taskNextIP }
+
+// iretSegFail 是分段模式 NT=0 的 iret／iretd 的失敗訊息（434 §6 的原文，436 §3.1 沿用於 66 CF）。
+const iretSegFail = "IRET：分段模式失敗即關閉（任務返回與 V86 屬 S4、435；docs/spec/434 §6）"
+
+// taskReturn 是 436 §3.1 的觸發：IP 已走完整道指令，記下它當下一道，IP 設回本道起點，回哨兵。
+func (c *CPU) taskReturn() error {
+	c.taskNextIP = c.IP
+	c.IP = c.opIP
+	return ErrTaskReturn
 }
 
 // OpAddr 回這一道指令的起點（含前綴）。診斷用：記「誰寫的」要記指令起點，

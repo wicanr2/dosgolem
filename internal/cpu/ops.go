@@ -365,7 +365,11 @@ func (c *CPU) executeCore(op uint8) error {
 		}
 	case op == 0xCF: // IRET
 		if c.segmented {
-			return c.errf(op, "IRET：分段模式失敗即關閉（任務返回與 V86 屬 S4、435；docs/spec/434 §6）")
+			// 436 §3.1：NT=1 是任務返回；NT=0 的保護模式 iret 仍失敗即關閉。
+			if c.Flags&NT != 0 {
+				return c.taskReturn()
+			}
+			return c.errf(op, iretSegFail)
 		}
 		c.IP = c.pop()
 		c.Seg[CS] = c.pop()

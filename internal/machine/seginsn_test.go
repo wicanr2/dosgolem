@@ -155,24 +155,57 @@ func TestSegInsnSLDTSTR(t *testing.T) {
 	}
 }
 
-// ltr 是本規格的驗收停點：失敗即關閉，診斷含「S4」與 選擇子:偏移。
-func TestSegInsnLTRStops(t *testing.T) {
+// ltr（436 §2.2）：可用 386 TSS 成功（GDT 描述元變忙碌、TR 快取含忙碌位元）；空選擇子、TI=1、超出 GDT 界限、
+// 資料段、286 TSS、忙碌 TSS、not present 失敗，失敗時 TR 與 GDT 不變。CPL ≠ 0 在 cpu 套件以替身測。
+func TestSegInsnLTR(t *testing.T) {
+	const tss = 0x81D30
 	m := segProg(t, []byte{0xEA, 0x86, 0x45, 0x18, 0x00})  // jmp 18h:4586
 	copy(m.Mem[segCode+0x4586:], []byte{0x0F, 0x00, 0xD9}) // ltr cx
-	m.CPU.R[cpu.CX] = 0xF0
+	putDesc(m, segGDT, 0x30, tss, 0x67, 0x89, 0)
+	m.CPU.R[cpu.CX] = 0x30
 	mustStep(t, m, "jmp 18h:4586")
-	if got := m.PCLinear(); got != segCode+0x4586 {
-		t.Errorf("PCLinear=%08X，應為 %08X", got, segCode+0x4586)
+	mustStep(t, m, "ltr cx")
+	if got := m.Mem[segGDT+0x30+5]; got != 0x8B {
+		t.Errorf("ltr 之後 GDT 描述元的 access byte = %02X，應為 8Bh（忙碌）", got)
 	}
-	err := wantStepErr(t, m, "ltr", "S4")
-	if err != nil && !strings.Contains(err.Error(), "0018:4586") {
-		t.Errorf("診斷應含 0018:4586：%v", err)
+	if sel, c := m.TR(); sel != 0x30 || c != (SegCache{Base: tss, Limit: 0x67, Attr: 0x8B}) {
+		t.Errorf("TR=%04X %+v，應為 0030 {Base:%X Limit:67 Attr:8B}", sel, c, tss)
 	}
 	if got := m.InsnLinear(); got != segCode+0x4586 {
 		t.Errorf("InsnLinear=%08X，應為 %08X", got, segCode+0x4586)
 	}
 	if s, o := m.Insn(); s != 0x18 || o != 0x4586 {
 		t.Errorf("Insn()=%04X:%04X，應為選擇子:偏移 0018:4586", s, o)
+	}
+
+	for _, c := range []struct {
+		name   string
+		sel    uint16
+		access uint8
+		why    string
+	}{
+		{"空選擇子", 0x0003, 0x89, "空選擇子"},
+		{"TI=1", 0x34, 0x89, "TI=1"},
+		{"超出 GDT 界限", 0x80, 0x89, "界限"},
+		{"資料段", 0x30, 0x92, "386 TSS"},
+		{"286 TSS", 0x30, 0x81, "386 TSS"},
+		{"忙碌 TSS", 0x30, 0x8B, "386 TSS"},
+		{"not present", 0x30, 0x09, "不存在"},
+	} {
+		m := segProg(t, []byte{0x0F, 0x00, 0xD9}) // ltr cx
+		putDesc(m, segGDT, 0x30, tss, 0x67, c.access, 0)
+		m.CPU.R[cpu.CX] = c.sel
+		gdt := append([]byte(nil), m.Mem[segGDT:segGDT+0x100]...)
+		err := wantStepErr(t, m, c.name, c.why)
+		if err != nil && !strings.Contains(err.Error(), "LTR") {
+			t.Errorf("%s：診斷應含 LTR：%v", c.name, err)
+		}
+		if sel, tc := m.TR(); sel != 0 || tc != (SegCache{}) {
+			t.Errorf("%s：失敗時 TR 不得改變：%04X %+v", c.name, sel, tc)
+		}
+		if string(m.Mem[segGDT:segGDT+0x100]) != string(gdt) {
+			t.Errorf("%s：失敗時 GDT 不得改變", c.name)
+		}
 	}
 }
 

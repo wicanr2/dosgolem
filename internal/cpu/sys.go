@@ -32,11 +32,27 @@ type SysBus interface {
 	LDTR() (sel uint16, c SegCache)
 	SetLDTR(sel uint16, c SegCache)
 	TRSel() uint16
+
+	// 436 §2.1：ltr、任務返回與 V86。
+	// VM 回 EFLAGS.VM；核心判定 V86 一律用 c.Sys != nil && c.Sys.VM()。
+	VM() bool
+	// TR／SetTR 讀寫 TR 的選擇子與快取。
+	TR() (sel uint16, c SegCache)
+	SetTR(sel uint16, c SegCache)
+	// ReadSup8、ReadSup16、WriteSup8：監督者身分經 432 的線性層存取（GDT 的忙碌位元、TSS 的 I/O 點陣圖）。
+	ReadSup8(addr uint32) uint8
+	ReadSup16(addr uint32) uint16
+	WriteSup8(addr uint32, v uint8)
 }
 
 // ErrModeSwitch 是實模式→保護模式的交棒哨兵（433 §5、431 §5）：`mov cr0` 或 `lmsw` 使 CR0.PE
 // 由 0 變 1 時，該道指令照常完成（IP 前進、CR0 更新）後由 Step 回傳。只改 TS、MP 或 PE 不變時不回。
 var ErrModeSwitch = errors.New("cpu: CR0.PE 由 0 變 1，交棒給保護模式核心（docs/spec/433 §5）")
+
+// ErrTaskReturn 是任務返回的哨兵（436 §3.1）：分段模式下 iret（CF）或 iretd（66 CF）且 EFLAGS.NT=1 時，
+// 核心把 IP 設回本道指令起點、記下下一道的位址（TaskReturnNextIP）後回傳，其他狀態都不改。
+// 任務切換由 Machine 做（436 §3.2）。
+var ErrTaskReturn = errors.New("cpu: 分段模式 iret 且 NT=1，任務返回交給 Machine（docs/spec/436 §3）")
 
 const (
 	cr0PE = 1 << 0
