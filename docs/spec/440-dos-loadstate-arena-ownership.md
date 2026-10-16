@@ -51,3 +51,15 @@
 3. 突變自檢：不重建擁有者、不重建 `arenaSeg`、子行程程式塊擁有者改取客體值、不重建 `queuedSeg`，各至少一個測試失敗。
 4. 觸發案例（需原版，另附 probe 收據）：從冷開機在 MENU 執行中存檔（`-exec-env`），`-load-state` 接著跑並點選 PLAY STRIKE COMMANDER，SCCD 能執行 OPTTEST.EXE。
 5. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 4. 實作收據（2026-10-16）
+
+commit：`ae96a8f`。
+
+- 第 1、2、3、5 項：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出；
+  `go test -v ./apps/...` 改動前後結果相同（`apps/phantasie/cmd/phantasie-play` 前後都因無顯示器失敗）；錨點常數不變；`SaveState` 無改動。
+- 新測試 `internal/dos/loadstate_arena_test.go`：存讀與不存讀兩組結果相同（arena、第二支子程式 PSP、常規記憶體 0–A0000h）；往返 6 組；每次存讀驗 save→load→save 位元組相同。
+- 突變自檢：不重建擁有者、不重建 `arenaSeg`、子行程程式塊擁有者改取客體值、不重建 `queuedSeg`，各至少一個測試失敗。
+- 實作選擇：`queuedSeg` 不命中第 3 項時清為 0；測試照 §3 第 2 項第 4 點用新機器。
+- 已知限制：佇列推出的底層行程在存檔時正執行子行程，讀檔後 `queuedSeg` 為 0，該程式塊只在客體 MCB 擁有者等於其 PSP 時經 `releaseOwnedBy` 回收。
+- 第 4 項觸發案例另附收據。
