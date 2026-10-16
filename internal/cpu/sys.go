@@ -1,6 +1,9 @@
 package cpu
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // SysBus 是既有核心存取系統暫存器的介面（docs/spec/433-real-mode-system-instructions §3.1）。
 //
@@ -73,9 +76,11 @@ func (c *CPU) ivtGuard(n uint8, what string) bool {
 	if c.Sys == nil {
 		return false
 	}
-	// 436 §4：V86 的 INT n、INT3、INTO、BOUND 越界、除以零經 IDT 遞送（435），失敗即關閉；在 IntHook 之前。
+	// 435 §2.1、§4：V86 分支只留給除以零（divideError、divideFault）與 BOUND 越界，記 #DE／#BR 事件，
+	// 框架 EIP 為指令起點。V86 的 INT n、INT3、INTO 在 doInt 另行處理（先 IntHook）。
 	if c.Sys.VM() {
-		c.failf("%s（INT %02Xh）：V86 下的中斷與例外經保護模式 IDT 遞送，屬 435，失敗即關閉（docs/spec/436 §4）", what, n)
+		c.v86Event(V86Event{Kind: V86Exception, Vector: n, FrameEIP: uint32(c.opIP),
+			Reason: fmt.Sprintf("V86 %s（INT %02Xh）：經保護模式 IDT 遞送（docs/spec/435 §2.1）", what, n)})
 		return true
 	}
 	if !c.Sys.IVTMismatch() {
@@ -125,10 +130,14 @@ func (c *CPU) execSys0F(op2 uint8) (handled bool, err error) {
 	return false, nil
 }
 
-// privileged 在 Sys.User() 為真時回錯誤（V86 的特權指令路徑在 435）。實模式恆可執行。
+// privileged 在 Sys.User() 為真時回錯誤。實模式恆可執行。
+// 435 §2.2：V86 下先記 #GP(0) 事件，仍回非 nil 錯誤，呼叫端照舊提早 return，不執行指令本體。
 func (c *CPU) privileged(op2 uint8, name string) error {
 	if c.Sys.User() {
-		return c.errf(op2, "0F %02X %s：使用者模式下的特權指令失敗即關閉（V86 路徑在 435）", op2, name)
+		if c.Sys.VM() {
+			c.v86GP0(fmt.Sprintf("V86 0F %02X %s：特權指令，#GP(0)（docs/spec/435 §2.1）", op2, name))
+		}
+		return c.errf(op2, "0F %02X %s：使用者模式下的特權指令失敗即關閉（V86 記 #GP(0)，docs/spec/435 §2.2）", op2, name)
 	}
 	return nil
 }

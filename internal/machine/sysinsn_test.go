@@ -282,7 +282,7 @@ func TestSysFailClosedForms(t *testing.T) {
 	}
 }
 
-// 合成 PE=1、VM=1（432 式的注入）：Sys.User() 為真，特權指令失敗即關閉；非特權的照常。
+// 合成 PE=1、VM=1（432 式的注入）：Sys.User() 為真，特權指令記 #GP(0) 事件（435 §2.2）；非特權的照常。
 func TestSysPrivilegedInUserMode(t *testing.T) {
 	priv := []struct {
 		name string
@@ -303,7 +303,14 @@ func TestSysPrivilegedInUserMode(t *testing.T) {
 		mustNil(t, "SetVM", m.SetVM(true))
 		m.CPU.R[cpu.AX], m.CPU.Hi[cpu.AX] = 0x0011, 0
 		cr0, dr7 := m.CR0(), m.DR(7)
-		wantStepErr(t, m, c.name, "435")
+		ip := m.CPU.IP
+		// 435 §2.2：V86 下記 #GP(0) 事件（框架 EIP 為起點、錯誤碼 0），不執行指令本體。
+		err := m.Step()
+		ev := m.CPU.V86Event()
+		if !errors.Is(err, cpu.ErrV86Event) || ev.Vector != 13 || !ev.HasError || ev.ErrorCode != 0 ||
+			ev.FrameEIP != uint32(ip) || m.CPU.IP != ip {
+			t.Errorf("%s：應記 #GP(0) 事件：err=%v 事件 %+v IP=%04X", c.name, err, ev, m.CPU.IP)
+		}
 		if m.CR0() != cr0 || m.DR(7) != dr7 {
 			t.Errorf("%s：失敗時不得改 CR0／DR7", c.name)
 		}

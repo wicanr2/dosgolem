@@ -185,6 +185,13 @@ type CPU struct {
 
 	// taskNextIP 是任務返回時記下的下一道指令位址（436 §3.1，TaskReturnNextIP）。
 	taskNextIP uint16
+
+	// ev 是本道指令記下的 V86 事件（435 §2.2，v86event.go）；非 nil 時 Step 的 fault 分支回 ErrV86Event，
+	// 並把事件移到 evOut 後清掉 ev。evBuf 是 ev 指向的存放處（不另配置）。v86Ret 是回 V86 的彈出值（435 §2.5）。
+	ev     *V86Event
+	evBuf  V86Event
+	evOut  V86Event
+	v86Ret V86Return
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。
@@ -408,7 +415,7 @@ func (c *CPU) Interrupt(n uint8) {
 		return
 	}
 	if c.v86() {
-		c.failf("Interrupt(%02Xh)：V86 下的中斷經保護模式 IDT 遞送，屬 435，失敗即關閉（docs/spec/436 §4）", n)
+		c.failf("Interrupt(%02Xh)：V86 下不得走 IVT 直送（經保護模式 IDT 遞送），失敗即關閉（第二道防線，docs/spec/435 §4）", n)
 		return
 	}
 	c.charge(cycInt)
@@ -433,9 +440,9 @@ func (c *CPU) v86() bool { return c.Sys != nil && c.Sys.VM() }
 // iopl3 回 EFLAGS.IOPL 是否為 3（V86 的 cli、sti、pushf、popf、iret 規則，436 §4）。
 func (c *CPU) iopl3() bool { return c.Flags&0x3000 == 0x3000 }
 
-// v86Fail 記下 V86 下「真機會送 #GP，由 435 遞送」的失敗即關閉。
+// v86Fail 記下 V86 下 IOPL 敏感指令的 #GP(0) 事件（435 §2.2）。
 func (c *CPU) v86Fail(what string) {
-	c.failf("V86 %s：IOPL=%d，真機 #GP（遞送屬 435），失敗即關閉（docs/spec/436 §4）", what, c.Flags>>12&3)
+	c.v86GP0(fmt.Sprintf("V86 %s：IOPL=%d，#GP(0)（docs/spec/435 §2.1）", what, c.Flags>>12&3))
 }
 
 // iretSegFail 是分段模式 NT=0 的 iret／iretd 的失敗訊息（434 §6 的原文，436 §3.1 沿用於 66 CF）。

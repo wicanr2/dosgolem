@@ -2,6 +2,7 @@ package machine
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
 )
@@ -41,6 +42,15 @@ func (m *Machine) finishStep(err error) error {
 	}
 	if m.pfOK {
 		return m.stepFault(err)
+	}
+	// 435 階段 1：V86 事件與回 V86 的 Machine 側（§2.3–§2.5 第 4 步）留待階段 2，暫回一般錯誤（保留哨兵供 errors.Is）。
+	if errors.Is(err, cpu.ErrV86Event) {
+		ev := m.CPU.V86Event()
+		return fmt.Errorf("machine: %s（種類 %d、向量 %02Xh、錯誤碼 %t/%X、框架 EIP %08X）：IDT 遞送留待 435 階段 2，失敗即關閉：%w",
+			ev.Reason, ev.Kind, ev.Vector, ev.HasError, ev.ErrorCode, ev.FrameEIP, err)
+	}
+	if errors.Is(err, cpu.ErrV86Return) {
+		return fmt.Errorf("machine: ring 0 iretd 回 V86 的狀態載入留待 435 階段 2，失敗即關閉：%w", err)
 	}
 	return err
 }

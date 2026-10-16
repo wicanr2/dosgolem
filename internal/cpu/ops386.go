@@ -348,11 +348,14 @@ func (c *CPU) execute32(op uint8) error {
 		}
 		c.set32(m.rm, c.fetch32())
 
-	// ---- CF：IRETD（436 §3.1）---------------------------------------------
+	// ---- CF：IRETD（436 §3.1、435 §2.5）---------------------------------------------
 	case op == 0xCF:
 		if c.segmented {
 			if c.Flags&NT != 0 {
 				return c.taskReturn() // DOSBox-X 的任務返回不看運算元大小（cpu.cpp:1586-1597）
+			}
+			if c.Sys != nil && c.Sys.CPL() == 0 {
+				return c.v86ReturnRead(op) // 435 §2.5：ring 0 iretd 回 V86
 			}
 			return c.errf(op, iretSegFail)
 		}

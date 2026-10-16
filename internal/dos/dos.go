@@ -724,6 +724,13 @@ func (d *DOS) Install() {
 // 量到過（2026-09-09，源平合戰）：`OPEN.EXE` 掛 `int 1Ch` 之後，
 // 每一次計時器中斷都遞迴一層。
 func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
+	// 435 §4：V86 下只服務 StubSeg 內的陷入（BIOS／DOS 實作的替身）；其餘（遊戲自己的 INT n）照真機經 IDT
+	// 與 JEMM，反射到 StubSeg 的 stub 後再由這裡處理。比較的是段暫存器值，不是線性位址。
+	if d.M.VM() {
+		if cs, _ := c.Op(); cs != machine.StubSeg {
+			return false
+		}
+	}
 	if seg := d.M.Read16(uint32(n)*4 + 2); seg != machine.StubSeg && !fromOwnStub(c, n) {
 		return false // 程式自己裝了處理常式
 	}

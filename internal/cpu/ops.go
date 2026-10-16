@@ -1,5 +1,7 @@
 package cpu
 
+import "fmt"
+
 // 指令解碼與執行。對照 `docs/spec/002-cpu-8086.md`。
 
 // Step 執行一道指令（含它的前綴）。
@@ -86,6 +88,13 @@ func (c *CPU) Step() error {
 			// 指令途中記下的「不能照做」優先於一般回傳值。
 			f := c.fault
 			c.fault = nil
+			if c.ev != nil {
+				// 435 §2.2：V86 事件。IP 設回本道起點，事件移到副本後清掉 ev（殘留會讓之後的一般 failf 被誤判）。
+				c.evOut = *c.ev
+				c.ev = nil
+				c.IP = c.opIP
+				return ErrV86Event
+			}
 			return f
 		}
 		return err
@@ -373,13 +382,13 @@ func (c *CPU) executeCore(op uint8) error {
 		}
 	case op == 0xCF: // IRET
 		if c.segmented {
-			// 436 §3.1：NT=1 是任務返回；NT=0 的保護模式 iret 仍失敗即關閉。
+			// 436 §3.1：NT=1 是任務返回；NT=0 的保護模式 iret 仍失敗即關閉（16 位元 CF 回 V86 不支援，435 §2.5）。
 			if c.Flags&NT != 0 {
 				return c.taskReturn()
 			}
 			return c.errf(op, iretSegFail)
 		}
-		if c.v86() { // 436 §4（DOSBox-X cpu.cpp:1542-1584）
+		if c.v86() { // 436 §4（DOSBox-X cpu.cpp:1542-1584）；IOPL<3 記 #GP(0)（435 §2.2）
 			if !c.iopl3() {
 				c.v86Fail("IRET")
 				break
@@ -405,8 +414,13 @@ func (c *CPU) executeCore(op uint8) error {
 			// 才進 INT 0——那個值會被推上堆疊，所以不是無關緊要的細節。
 			// 實機資料：SingleStepTests D4 檔裡 47 筆 `aam 0h`，
 			// 全部是 ZF=1 PF=1 SF=0 CF=0 AF=0 OF=0、DF 保留。
+			// 435 §2.2：V86 的 #DE 不改旗標（386），記事件時還原進入時的旗標。
+			fl := c.Flags
 			c.logic(0, 8)
 			c.divideError()
+			if c.ev != nil {
+				c.Flags = fl
+			}
 			return nil
 		}
 		c.setReg8(4, al/imm)
@@ -522,9 +536,13 @@ func (c *CPU) executeCore(op uint8) error {
 
 	// ---- F4–FF ----------------------------------------------------------
 	case op == 0xF4: // HLT
-		if c.segmented || c.v86() {
-			// 434 §5.3、431 §3、436 §4：保護模式與 V86 期間不遞送 IRQ，hlt 會永遠等不到中斷。
-			return c.errf(op, "HLT：分段模式或 V86 下不遞送 IRQ（保護模式 IDT 遞送屬 435），失敗即關閉（docs/spec/434 §5.3、436 §4）")
+		if c.segmented {
+			// 434 §5.3、431 §3：分段模式期間不遞送 IRQ，hlt 會永遠等不到中斷。
+			return c.errf(op, "HLT：分段模式下不遞送 IRQ（保護模式 IDT 遞送屬 S6），失敗即關閉（docs/spec/434 §5.3）")
+		}
+		if c.v86() { // 435 §2.1：V86 的 hlt 是 #GP(0)
+			c.v86GP0("V86 HLT：#GP(0)（docs/spec/435 §2.1）")
+			break
 		}
 		c.Halted = true
 	case op == 0xF5: // CMC
@@ -766,6 +784,7 @@ func (c *CPU) group3(op uint8) error {
 		}
 	case 6: // DIV
 		ok := false
+		fl := c.Flags // 435 §2.2：V86 記 #DE 時還原（div8 等在回 false 前已先 divFlags）
 		if wide {
 			c.charge(cycDiv)
 			ok = c.div16(c.get16(m.rm))
@@ -775,9 +794,13 @@ func (c *CPU) group3(op uint8) error {
 		}
 		if !ok {
 			c.divideError()
+			if c.ev != nil {
+				c.Flags = fl
+			}
 		}
 	case 7: // IDIV
 		ok := false
+		fl := c.Flags
 		if wide {
 			ok = c.idiv16(c.get16(m.rm))
 		} else {
@@ -785,6 +808,9 @@ func (c *CPU) group3(op uint8) error {
 		}
 		if !ok {
 			c.divideError()
+			if c.ev != nil {
+				c.Flags = fl
+			}
 		}
 	}
 	return nil
@@ -906,7 +932,25 @@ func (c *CPU) farRet() {
 //
 // **沒實作的服務不會安靜地變成 nop**——hook 回 false 就照跳，
 // 跳到沒填的向量會很快出事，那正是我們要的訊號（`rich2/docs/re/005` §3.1）。
+//
+// 435 §4：V86 下先呼叫 IntHook（服務層的條件在 internal/dos 的 handle），回 false 才記軟體中斷事件，
+// 不呼叫 Interrupt。種類由本道 opcode 決定：CC 是 INT 3、CE 是 INTO，其餘（CD）是 INT n。框架 EIP 為下一道。
 func (c *CPU) doInt(n uint8) {
+	if c.v86() {
+		if c.IntHook != nil && c.IntHook(c, n) {
+			return
+		}
+		kind, what := V86SoftInt, "INT n"
+		switch c.curOp {
+		case 0xCC:
+			kind, what = V86Int3, "INT 3"
+		case 0xCE:
+			kind, what = V86Into, "INTO"
+		}
+		c.v86Event(V86Event{Kind: kind, Vector: n, FrameEIP: uint32(c.IP),
+			Reason: fmt.Sprintf("V86 %s（INT %02Xh）：經保護模式 IDT 遞送（docs/spec/435 §2.1）", what, n)})
+		return
+	}
 	// 433 §2：IDTR 守門在 IntHook 之前，DOS 服務類 INT 也會被擋。
 	if c.ivtGuard(n, "軟體中斷") {
 		return

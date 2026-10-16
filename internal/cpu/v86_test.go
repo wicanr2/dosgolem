@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -59,8 +60,28 @@ func stackAt(b *ioBus, sp uint16) uint32 { return v86Stack*16 + uint32(sp) }
 func wantV86Fail(t *testing.T, c *CPU, what, contains string) {
 	t.Helper()
 	err := c.Step()
-	if err == nil || !strings.Contains(err.Error(), contains) {
-		t.Errorf("%s：應失敗（含 %q），實際 %v", what, contains, err)
+	if err == nil || errors.Is(err, ErrV86Event) || !strings.Contains(err.Error(), contains) {
+		t.Errorf("%s：應為一般失敗（含 %q），實際 %v", what, contains, err)
+	}
+}
+
+// wantV86GP0 是 435 §2.2：記 #GP(0) 事件，Step 回 ErrV86Event、IP 回本道起點（測試的程式都從 IP 0 起），
+// 框架 EIP 為起點，Reason 保留 436 的診斷字串。
+func wantV86GP0(t *testing.T, c *CPU, what, contains string) {
+	t.Helper()
+	opIP := c.IP
+	err := c.Step()
+	if !errors.Is(err, ErrV86Event) {
+		t.Errorf("%s：應回 ErrV86Event，實際 %v", what, err)
+		return
+	}
+	ev := c.V86Event()
+	if ev.Kind != V86Exception || ev.Vector != 13 || !ev.HasError || ev.ErrorCode != 0 || ev.FrameEIP != uint32(opIP) ||
+		!strings.Contains(ev.Reason, contains) {
+		t.Errorf("%s：事件應為 #GP(0)、框架 EIP %04X、原因含 %q：%+v", what, opIP, contains, ev)
+	}
+	if c.IP != opIP {
+		t.Errorf("%s：IP 應回本道起點 %04X，實際 %04X", what, opIP, c.IP)
 	}
 }
 
@@ -75,7 +96,7 @@ func TestV86CliSti(t *testing.T) {
 	for _, op := range []byte{0xFA, 0xFB} {
 		c, _, _ = newV86CPU(t, 2, []byte{op})
 		fl := c.Flags
-		wantV86Fail(t, c, "IOPL=2 的 cli／sti", "IOPL=2")
+		wantV86GP0(t, c, "IOPL=2 的 cli／sti", "IOPL=2")
 		if c.Flags != fl {
 			t.Errorf("%02X 失敗時旗標不得改變：%04X→%04X", op, fl, c.Flags)
 		}
@@ -99,7 +120,7 @@ func TestV86PushfPopf(t *testing.T) {
 	}
 	for _, code := range [][]byte{{0x9C}, {0x66, 0x9C}, {0x9D}, {0x66, 0x9D}} {
 		c, _, _ = newV86CPU(t, 1, code)
-		wantV86Fail(t, c, "IOPL=1 的 pushf／popf", "IOPL=1")
+		wantV86GP0(t, c, "IOPL=1 的 pushf／popf", "IOPL=1")
 		if c.R[SP] != 0x100 {
 			t.Errorf("% X 失敗時 SP 不得改變：%04X", code, c.R[SP])
 		}
@@ -146,7 +167,7 @@ func TestV86Iret(t *testing.T) {
 	}
 	for _, code := range [][]byte{{0xCF}, {0x66, 0xCF}} {
 		c, _, _ = newV86CPU(t, 0, code)
-		wantV86Fail(t, c, "IOPL=0 的 iret", "IOPL=0")
+		wantV86GP0(t, c, "IOPL=0 的 iret", "IOPL=0")
 		if c.R[SP] != 0x100 || c.Seg[CS] != v86Code {
 			t.Errorf("% X 失敗時 SP、CS 不得改變", code)
 		}
@@ -179,7 +200,7 @@ func TestV86IOBitmap(t *testing.T) {
 			c, b, _ = newV86CPU(t, iopl, f.code)
 			c.R[DX] = 0x3C9
 			bitmap(b, f.port)
-			wantV86Fail(t, c, f.name+"（位元為 1）", "點陣圖")
+			wantV86GP0(t, c, f.name+"（位元為 1）", "點陣圖")
 			if len(b.ins)+len(b.outs) != 0 {
 				t.Errorf("IOPL=%d %s：被擋時不得存取", iopl, f.name)
 			}
@@ -190,7 +211,7 @@ func TestV86IOBitmap(t *testing.T) {
 		c, b, _ := newV86CPU(t, 3, code)
 		c.R[DX] = 0x20
 		bitmap(b, 0x21)
-		wantV86Fail(t, c, "word 存取第二個埠被擋", "點陣圖")
+		wantV86GP0(t, c, "word 存取第二個埠被擋", "點陣圖")
 		if len(b.ins)+len(b.outs) != 0 {
 			t.Errorf("% X：第一個埠也不得存取（in %v out %v）", code, b.ins, b.outs)
 		}
@@ -205,7 +226,7 @@ func TestV86IOBitmap(t *testing.T) {
 	c, b, _ = newV86CPU(t, 3, []byte{0xF3, 0x6E})
 	c.R[DX], c.R[CX] = 0x3C9, 3
 	bitmap(b, 0x3C9)
-	wantV86Fail(t, c, "rep outsb 被擋", "點陣圖")
+	wantV86GP0(t, c, "rep outsb 被擋", "點陣圖")
 	if len(b.outs) != 0 || c.R[CX] != 3 {
 		t.Errorf("rep outsb 被擋：outs %v CX=%d", b.outs, c.R[CX])
 	}
@@ -216,13 +237,13 @@ func TestV86IOBitmap(t *testing.T) {
 	// 位移超過界限、TR 無效、TR 不是 386 TSS。
 	c, b, _ = newV86CPU(t, 3, []byte{0xEC})
 	b.mem[v86TSS+0x66], b.mem[v86TSS+0x67] = 0x69, 0x20
-	wantV86Fail(t, c, "點陣圖位移超過界限", "界限")
+	wantV86GP0(t, c, "點陣圖位移超過界限", "界限")
 	c, b, s = newV86CPU(t, 3, []byte{0xEC})
 	s.trSel, s.tr = 0, SegCache{}
-	wantV86Fail(t, c, "TR 無效", "TR")
+	wantV86GP0(t, c, "TR 無效", "TR")
 	c, b, s = newV86CPU(t, 3, []byte{0xEC})
 	s.tr.Attr = 0x83 // 286 TSS（忙碌）
-	wantV86Fail(t, c, "TR 不是 386 TSS", "386 TSS")
+	wantV86GP0(t, c, "TR 不是 386 TSS", "386 TSS")
 	if len(b.ins) != 0 {
 		t.Error("TR 檢查失敗時不得存取")
 	}
@@ -230,35 +251,105 @@ func TestV86IOBitmap(t *testing.T) {
 
 func TestV86HltAndInterrupts(t *testing.T) {
 	c, _, _ := newV86CPU(t, 3, []byte{0xF4})
-	wantV86Fail(t, c, "hlt", "HLT")
+	wantV86GP0(t, c, "hlt", "HLT")
 	if c.Halted {
-		t.Error("hlt 失敗時不得設 Halted")
+		t.Error("hlt 記事件時不得設 Halted")
 	}
+	// 435 §4：V86 的 CD nn、CC、CE 先呼叫 IntHook；回 true 就是服務完成，回 false 才記軟體中斷事件（框架 EIP 為下一道）。
 	for _, x := range []struct {
 		name string
 		code []byte
-		prep func(c *CPU, b *ioBus)
+		kind V86EventKind
+		vec  uint8
+		prep func(c *CPU)
 	}{
-		{"int 21h", []byte{0xCD, 0x21}, nil},
-		{"int3", []byte{0xCC}, nil},
-		{"into", []byte{0xCE}, func(c *CPU, _ *ioBus) { c.setFlag(OF, true) }},
-		{"div bl（除以零）", []byte{0xF6, 0xF3}, nil},
-		{"66 div ebx（除以零）", []byte{0x66, 0xF7, 0xF3}, nil},
-		{"bound 越界", []byte{0x62, 0x06, 0x00, 0x02}, func(c *CPU, b *ioBus) { c.Seg[DS] = 0x3000; c.R[AX] = 9 }},
+		{"int 21h", []byte{0xCD, 0x21}, V86SoftInt, 0x21, nil},
+		{"int 3（CD 03）", []byte{0xCD, 0x03}, V86SoftInt, 3, nil},
+		{"int3（CC）", []byte{0xCC}, V86Int3, 3, nil},
+		{"into", []byte{0xCE}, V86Into, 4, func(c *CPU) { c.setFlag(OF, true) }},
 	} {
 		for _, iopl := range []uint16{0, 3} {
-			c, b, _ := newV86CPU(t, iopl, x.code)
-			hooked := 0
-			c.IntHook = func(*CPU, uint8) bool { hooked++; return true }
-			if x.prep != nil {
-				x.prep(c, b)
-			}
-			wantV86Fail(t, c, x.name, "V86")
-			if hooked != 0 || c.R[SP] != 0x100 {
-				t.Errorf("IOPL=%d %s：檢查應在 IntHook 之前、不推堆疊（hook %d 次、SP=%04X）", iopl, x.name, hooked, c.R[SP])
+			for _, serve := range []bool{true, false} {
+				c, _, _ := newV86CPU(t, iopl, x.code)
+				hooked := 0
+				c.IntHook = func(_ *CPU, n uint8) bool {
+					hooked++
+					if n != x.vec {
+						t.Errorf("%s：hook 收到向量 %02X", x.name, n)
+					}
+					return serve
+				}
+				if x.prep != nil {
+					x.prep(c)
+				}
+				err := c.Step()
+				if hooked != 1 || c.R[SP] != 0x100 {
+					t.Errorf("IOPL=%d %s：hook 應先被呼叫一次、不推堆疊（hook %d 次、SP=%04X）", iopl, x.name, hooked, c.R[SP])
+				}
+				if serve {
+					if err != nil || c.IP != uint16(len(x.code)) {
+						t.Errorf("IOPL=%d %s：hook 服務後應照常前進（IP=%04X err=%v）", iopl, x.name, c.IP, err)
+					}
+					continue
+				}
+				if !errors.Is(err, ErrV86Event) {
+					t.Fatalf("IOPL=%d %s：hook 回 false 應回 ErrV86Event，實際 %v", iopl, x.name, err)
+				}
+				ev := c.V86Event()
+				if ev.Kind != x.kind || ev.Vector != x.vec || ev.HasError || ev.FrameEIP != uint32(len(x.code)) || c.IP != 0 {
+					t.Errorf("IOPL=%d %s：事件 %+v，IP=%04X（應為種類 %d、向量 %02X、框架 EIP 下一道、IP 回起點）",
+						iopl, x.name, ev, c.IP, x.kind, x.vec)
+				}
 			}
 		}
 	}
+	// 例外（#DE、#BR）：不呼叫 IntHook，框架 EIP 為起點，旗標為指令前的值（386 的 #DE 不改旗標），不記 DivErrors。
+	for _, x := range []struct {
+		name string
+		code []byte
+		vec  uint8
+		prep func(c *CPU, b *ioBus)
+	}{
+		{"div bl（除以零）", []byte{0xF6, 0xF3}, 0, func(c *CPU, _ *ioBus) { c.R[AX] = 0x1234 }},
+		{"div bx（商溢位）", []byte{0xF7, 0xF3}, 0, func(c *CPU, _ *ioBus) { c.R[DX], c.R[BX] = 5, 1 }},
+		{"idiv bl（除以零）", []byte{0xF6, 0xFB}, 0, func(c *CPU, _ *ioBus) { c.R[AX] = 0x8000 }},
+		{"idiv bx（除以零）", []byte{0xF7, 0xFB}, 0, func(c *CPU, _ *ioBus) { c.R[DX] = 0x7FFF }},
+		{"aam 0", []byte{0xD4, 0x00}, 0, func(c *CPU, _ *ioBus) { c.R[AX] = 0x00FF }},
+		{"66 div ebx（除以零）", []byte{0x66, 0xF7, 0xF3}, 0, nil},
+		{"bound 越界", []byte{0x62, 0x06, 0x00, 0x02}, 5, func(c *CPU, b *ioBus) { c.Seg[DS] = 0x3000; c.R[AX] = 9 }},
+	} {
+		c, b, _ := newV86CPU(t, 3, x.code)
+		hooked := 0
+		c.IntHook = func(*CPU, uint8) bool { hooked++; return true }
+		c.SetFlags(c.Flags | CF | OF | SF) // 讓 divFlags／logic 會改到的位元先有值
+		if x.prep != nil {
+			x.prep(c, b)
+		}
+		fl, regs := c.Flags, c.R
+		err := c.Step()
+		if !errors.Is(err, ErrV86Event) {
+			t.Fatalf("%s：應回 ErrV86Event，實際 %v", x.name, err)
+		}
+		ev := c.V86Event()
+		if ev.Kind != V86Exception || ev.Vector != x.vec || ev.HasError || ev.FrameEIP != 0 || c.IP != 0 {
+			t.Errorf("%s：事件 %+v、IP=%04X（應為例外、向量 %d、框架 EIP 0）", x.name, ev, c.IP, x.vec)
+		}
+		if hooked != 0 || c.Flags != fl || c.R != regs || len(c.DivErrors) != 0 {
+			t.Errorf("%s：hook %d 次、旗標 %04X→%04X、暫存器 %v→%v、DivErrors %d（應全不變）",
+				x.name, hooked, fl, c.Flags, regs, c.R, len(c.DivErrors))
+		}
+	}
+	// 事件取走後清掉 c.ev：下一道的一般失敗不得被誤判成事件。
+	c, b, _ := newV86CPU(t, 3, []byte{0xF4})
+	_ = c.Step()
+	c.Seg[CS], c.IP = v86Code, 0
+	copy(b.mem[v86Code*16:], []byte{0x66, 0xCF})
+	copy(b.mem[stackAt(b, 0x100):], []byte{0x34, 0x12, 0x01, 0, 0x00, 0x30, 0, 0, 0x02, 0x30, 0, 0})
+	wantV86Fail(t, c, "事件之後的 iretd（EIP 高半非 0）", "EIP")
+	// 先記的一般失敗為準：Interrupt 的第二道防線之後，同一步的 cli（IOPL<3）不記事件。
+	c, _, _ = newV86CPU(t, 0, []byte{0xFA})
+	c.Interrupt(8)
+	wantV86Fail(t, c, "Interrupt 之後的 cli", "Interrupt(08h)")
 	// 第二道防線：Interrupt、FarCallWithReturn 不動狀態，錯誤在下一次 Step 回報。
 	c, _, _ = newV86CPU(t, 3, []byte{0x90})
 	c.Interrupt(8)
