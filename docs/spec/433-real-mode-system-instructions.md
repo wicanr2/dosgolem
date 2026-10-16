@@ -18,7 +18,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 的 JEMM 解壓映像 objdump，第 1 輪審查核對）。`431-hybrid-cpu-protected-mode` 定案由既有核心在實模式補這幾道，PE 設起時交棒給 cpu386。
 
 本規格補：(1) Machine 的完整 `SysRegs`；(2) 既有核心在實模式的系統指令；(3) 交棒介面與交棒點；(4) `-pm-profile` 旗標。
-cpu386 的分段模式與作用中核心的觀測視圖在 `434-cpu386-segmented-mode`；本規格的交棒在 434 之前停在明確的失敗即關閉。
+既有核心的分段模式與觀測視圖在 `434-legacy-core-segmented-mode`；本規格的交棒在 434 之前停在明確的失敗即關閉。
 
 ## 2. `SysRegs`
 
@@ -189,7 +189,7 @@ Machine 有未匯出欄位 `pm PMCore`（434 填入 cpu386 的轉接；測試以
 
 ## 7. 不在範圍
 
-cpu386 的執行與作用中核心的觀測視圖（434）；V86 路徑與 `#GP` 遞送（435）；`ltr`／`lldt` 的保護模式語意與任務切換（S4）；`#UD`／`#GP` 送 IVT；
+保護模式的執行與觀測視圖（434）；V86 路徑與 `#GP` 遞送（435）；`ltr`／`lldt` 的保護模式語意與任務切換（S4）；`#UD`／`#GP` 送 IVT；
 `DR7` 斷點觸發（S6）。
 
 ## 8. 驗收

@@ -74,7 +74,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 
 | 類別 | 位置 | 改用 |
 |---|---|---|
-| CPU 的位址空間 | 既有核心的 `Bus`、cpu386 分段模式（434） | 線性層 |
+| CPU 的位址空間 | 既有核心的 `Bus`、既有核心分段模式（434） | 線性層 |
 | 服務層的客體指標 | `internal/dos` 的 `cpu.Addr(` 呼叫，含 `fixStackedCF` | `SvcAddr`（§4）＋線性層 |
 | 硬體與 BIOS 側 | `bda.go` 的鍵盤緩衝與 BDA、`bumpBDATicks`、`keyboard.go`／`keyhold.go` 讀 IVT、文字畫面讀出、`cga.go`、`oracle/oracle.go` 的畫面讀出、`cmd/probe` 的 IVT 狀態輸出 | 實體層（`ReadPhys*`／`WritePhys*`） |
 | 載入與初始化 | `initBDA`、`initVectors`、`loader.go`、`WriteMCB`、`SetExtendedMemoryKB`、`SetEMSPresent`、PSP 命令列寫入 | 不變（發生在轉換關閉時），註明為實體語意 |
