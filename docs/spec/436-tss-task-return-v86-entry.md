@@ -1,6 +1,6 @@
 # 436 — TSS、`ltr` 與任務返回進入 V86
 
-狀態：**DRAFT**（第 2 版，依第 1 輪兩份審查改寫）
+狀態：**READY**（第 3 版，依第 2 輪複審修正）
 日期：2026-10-16
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（第 2 版，§8 的 S4）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)、
 [`433-real-mode-system-instructions`](433-real-mode-system-instructions.md)、[`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md)
@@ -52,7 +52,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 ### 1.1 預期停點（強推論，未實測）
 
 `retf` 回 SCCD 映像 `0x1D1F` 後，依 SCCD 反組譯約 18 道 V86 指令到映像 `0x2BE` 的 `INT 2Fh`（`AX=4300h`），這是第一個需要 435 的事件。
-預設 `IRQ0Every=165000`、首次 `nextIRQ0=165000`（`machine.go` 約 194、722 行），第 104587 步時 IRQ0 還沒到期，所以預期不會先停在 IRQ0。
+預設 `IRQ0Every=165000`、首次 `nextIRQ0=165000`（`machine.go` 約 194、722 行），第 104587 步時 IRQ0 還沒到期，所以預期不會先停在 IRQ0。若 PIT 被重新設定，`recalcIRQ0` 可能把 `nextIRQ0` 提前（`machine.go` 約 1353 行），預測失效。
 
 ## 2. 任務暫存器與介面
 
@@ -78,7 +78,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 3. `TI=1` 或超出 GDT 界限（真機 `#GP`）。
 4. 描述元須為可用的 386 TSS（S=0、type 9）；286 TSS、忙碌 TSS、其他型別失敗（DOSBox-X 接受 286 可用 TSS；刻意從嚴）。
 5. not present（真機 `#NP`）。
-6. 先以 `WriteSup8` 把 GDT 中該描述元的 access byte `|= 02h`（忙碌），再 `SetTR`（選擇子、`DecodeDescriptor` 的快取）。
+6. 先以 `WriteSup8` 把 GDT 中該描述元的 access byte `|= 02h`（忙碌），再 `SetTR`（選擇子、`DecodeDescriptor` 的快取；快取 `Attr` 含忙碌位元，例如 `8Bh`）。
 
 434 §6 表中 `ltr` 一列改為本節行為；`internal/machine/seginsn_test.go` 的 `TestSegInsnLTRStops` 改寫為成功例與上列失敗例。
 
@@ -107,10 +107,11 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
    - 新 `EFLAGS` 的 `VM=1`（保護模式任務不在範圍）；
    - 新 `EFLAGS` 的 bit 18–31 為 0（386 沒有 `AC`、`VIF`、`VIP`、`ID`；`SetEFlagsHi` 只接受 `RF`、`VM`）；
    - 新 `EIP` 高 16 位元為 0（DOSBox-X 不檢查；刻意從嚴）。
-   - 分頁：第 2、3 步的讀取若留下分頁紀錄（`m.pfOK`），失敗。第 4、5 步的寫入目標（舊、新描述元的 access byte；舊 TSS 的 `20h`–`5Fh`）以
-     `peekXlatPage`（`internal/machine/paging.go`，無副作用、只判 P）逐一檢查每個寫入範圍的首尾 byte，不存在就失敗。讀取時 `walk` 會照常設 A 位元與填 TLB，
+   - 分頁：第 2、3 步的讀取若留下分頁紀錄（`m.pfOK`），失敗。`m.paging` 為真時，第 4、5 步的寫入目標（舊描述元的 access byte；舊 TSS 的 `20h`–`5Fh`；IRET 路徑不寫新描述元）以
+     `peekXlatPage`（`internal/machine/paging.go`，無副作用、只判 P）逐一檢查每個寫入範圍的首尾 byte，不存在就失敗；`m.paging` 為假時不探測（只有 A20 遮罩，沒有頁面失敗）。讀取時 `walk` 會照常設 A 位元與填 TLB，
      這是讀取本身的效果，不算「狀態改變」。
-   失敗時以 `m.stepFault(err)` 回報，`Err` 非 nil。
+   失敗時：`m.pfOK` 為真才以 `m.stepFault(err)` 包成 `*PageFaultError`（沿用 `finishStep` 現行的 `if m.pfOK` 分流）；其餘回一般 `error`。哨兵在取指之後
+   立刻返回，進入本處理時 `m.pfOK` 為假，第 2、3 步的讀取若設起它，就是這次讀取的紀錄。
 4. 清目前 TSS 描述元的忙碌位元：讀 access byte、`&^= 02h`、`WriteSup8` 寫回（DOSBox-X 以快取描述元整份寫回，`cpu.cpp:960-963`；讀改寫較接近真機，刻意）。
 5. 把目前狀態寫入目前 TSS（`WriteSup8`，32 位元欄位以 4 次寫入）：
    - `EFLAGS` ＝ `uint32(CPU.Flags) | uint32(eflagsHi)<<16`，清 `NT`；
@@ -119,11 +120,12 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
    - 段值 `Seg[ES]`、`Seg[CS]`、`Seg[SS]`、`Seg[DS]`、`FSeg`、`GSeg`，各寫 32 位元、高半 0（DOSBox-X `mem_writed`）。
    不寫 `CR3`、`LDT`、back link。
 6. 新 `CR3` 與目前不同時 `SetCR(3, newCR3)`（432 清 TLB）；相同時不動（DOSBox-X 同）。
-7. 載入新內容，依序：`SetSegmented(false)`、清六個段快取、`SetEFlagsHi(VM)`（`RF` 不載入：DOSBox-X 以 `FMASK_ALL|FLAG_VM` 設旗標，不含 `RF`，
-   `cpu.cpp:1028`；真機會載入，刻意對齊 oracle）、核心 `SetFlags`（低 16 位元，含 `IOPL`、`NT`、`IF`）、`IP`、通用暫存器（低半進 `R`，高半進 `Hi`）、
+7. 載入新內容，依序：`SetSegmented(false)`、清六個段快取、`SetEFlagsHi(VM)`（`RF` 清 0：DOSBox-X 以 `FMASK_ALL|FLAG_VM` 設旗標，保留舊的 `RF`，
+   `cpu.cpp:1028`；本案舊 `RF` 恆為 0，結果相同；真機會載入新 TSS 的 `RF`）、核心 `SetFlags`（低 16 位元，含 `IOPL`、`NT`、`IF`）、`IP`、通用暫存器（低半進 `R`，高半進 `Hi`）、
    `Seg[ES/CS/SS/DS]`、`FSeg`、`GSeg`（直接寫，V86 以段值×16 定址）。`pmCPL` 不改（V86 的 CPL 由 432 從 `VM` 推得為 3）。
 8. `LDTR` 不載入（照 DOSBox-X，`cpu.cpp:1043-1050` 只在非 V86 任務呼叫 `CPU_LLDT`；386 真機會載入 `BBh`。本案 GDT 副本中 `08h` 與 `B8h` 兩個 LDT
-   描述元基底都是 `X+1400h`、界限 7，只差 DPL，所以不載入只影響 `sldt` 的回傳值。刻意對齊 oracle）。
+   描述元基底都是 `X+1400h`、界限 7，只差 DPL（強推論，依 `62B5` 之前的基底改寫碼；觸發案例收據以 `iretd` 前一步的 GDT 傾印證實），所以不載入只影響
+   `sldt` 的回傳值。刻意對齊 oracle）。
 9. `SetTR(新選擇子, DecodeDescriptor(新描述元))`（仍為忙碌）。434 的一百萬步計數歸零。
 10. 這一步回 nil。
 
@@ -138,9 +140,9 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 |---|---|---|---|
 | `ops.go` 的 `FA`、`FB` | `cli`、`sti` | IOPL=3 照常；否則失敗 | `CPU_CLI`／`CPU_STI`，`cpu.cpp:756-773` |
 | `ops.go` 的 `9C`；`ops386.go` 的 `66 9C` | `pushf`、`pushfd` | IOPL=3 照常（核心 `Flags` 只有 16 位元，`pushfd` 推入的高半已為 0，即清 `VM`、`RF`）；否則失敗 | `CPU_PUSHF`，`cpu.cpp:790-800` |
-| `ops.go` 的 `9D`；`ops386.go` 的 `66 9D` | `popf`、`popfd` | IOPL=3 照常，新值 ＝ `pop &^ 3000h | old & 3000h`（不改 IOPL）；`popfd` 的高半丟棄（不改 `VM`、`RF`）；否則失敗 | `CPU_POPF`，`cpu.cpp:774-788` |
-| `ops.go` 的 `CF`；`execute32` 的 `66 CF` | `iret`、`iretd` | IOPL=3 時從 V86 堆疊彈出 `IP`、`CS`、旗標（`iretd` 各 4 bytes，`EIP` 高半非 0 失敗，刻意從嚴），旗標新值 ＝ `pop &^ 3000h | old & 3000h`（`FMASK_NORMAL|NT`）；否則失敗 | `cpu.cpp:1542-1584` |
-| `cycles.go` 的 `in8`／`out8`／`ioAllowed`；`ops186.go` 的 `insOuts` | `in`、`out`、`ins`、`outs` | V86 一律查 `TR` 的 I/O 點陣圖（不論 IOPL）：讀 `TR.base+66h` 的位移 `ofs`，`ofs > TR.limit` 失敗（照 DOSBox-X 只比位移，不檢查點陣圖位元組本身是否超出界限）；讀 `TR.base+ofs+port/8` 起的 16 位元，與遮罩 `((1<<size)-1) << (port&7)` 相交非 0 則失敗。整筆存取（含 word、字串的每次迭代）在動作前一次檢查完；失敗時不呼叫 `In8`／`Out8` | `CPU_IO_Exception`，`cpu.cpp:1093-1111` |
+| `ops.go` 的 `9D`；`ops386.go` 的 `66 9D` | `popf`、`popfd` | IOPL=3 照常，新值為彈出值的 IOPL 位元（bits 12–13）換成舊值（不改 IOPL）；`popfd` 的高半丟棄（不改 `VM`、`RF`）；否則失敗 | `CPU_POPF`，`cpu.cpp:774-788` |
+| `ops.go` 的 `CF`；`execute32` 的 `66 CF` | `iret`、`iretd` | IOPL=3 時從 V86 堆疊彈出 `IP`、`CS`、旗標（`iretd` 各 4 bytes，`EIP` 高半非 0 失敗，刻意從嚴），旗標新值為彈出值的 IOPL 位元換成舊值（DOSBox-X `FMASK_NORMAL` 加 `NT`）；否則失敗 | `cpu.cpp:1542-1584` |
+| `ops.go` 的 `E4`–`E7`、`EC`–`EF`；`cycles.go` 的 `in8`／`out8`／`ioAllowed`；`ops186.go` 的 `insOuts` | `in`、`out`、`ins`、`outs` | 檢查上移到指令層（寬度 1 或 2、起始埠），V86 路徑不在 `in8`／`out8` 內重複檢查。`TR` 無效或快取不是 386 TSS 時失敗（DOSBox-X `cpu.cpp:1096`）。V86 一律查 `TR` 的 I/O 點陣圖（不論 IOPL）：讀 `TR.base+66h` 的位移 `ofs`，`ofs > TR.limit` 失敗（照 DOSBox-X 只比位移，不檢查點陣圖位元組本身是否超出界限）；讀 `TR.base+ofs+port/8` 起的 16 位元，與遮罩 `((1<<size)-1) << (port&7)` 相交非 0 則失敗。整筆存取（含 word、字串的每次迭代）在動作前一次檢查完；失敗時不呼叫 `In8`／`Out8`；`rep` 且 `CX=0` 時不檢查。`66` 的 dword I/O 形式目前未實作，維持失敗 | `CPU_IO_Exception`，`cpu.cpp:1093-1111` |
 | `ops.go` 的 `hlt` | `hlt` | 失敗（條件改為 `segmented` 或 V86） | |
 | `sys.go` 的 `ivtGuard` | `INT n`、`INT3`、`INTO`、`BOUND` 越界、除以零 | 加 V86 分支，失敗；`doInt` 的檢查仍在 `IntHook` 之前 | |
 | `cpu.go` 的 `Interrupt`、`FarCallWithReturn` | 第二道防線 | 加 V86 條件 | |
@@ -149,10 +151,11 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 `sti` 與 `mov ss` 之後的中斷遮蔽不模擬（與現行實模式一致；DOSBox-X `prefix_none.h:1458-1495` 會多執行一道才處理 IRQ。刻意差異，435 遞送 IRQ 時重審）。
 IRQ 的停點因此在「下一道指令取指之前」。
 
-Machine 側（衍生欄位 `m.v86`，在 `recalcPM` 由 `eflagsHi&VM` 與 profile 算出，`Step` 不逐步重算）：
+Machine 側（衍生欄位 `m.v86 = m.xlat && eflagsHi&VM`，在 `recalcPM` 算出，與 `cplUser` 同法，`Step` 不逐步重算）：
 
-- IRQ：`m.v86` 且「該步在實模式會遞送」時失敗即關閉，診斷註明 435。條件與現行遞送相同：`IF=1`，且（`irq0Pending` 且 `picMask&1==0`）或
-  （`picMask&2==0` 且鍵盤佇列非空或定時鍵到期）。閘門放在 `tick` 的 IRQ0 遞送段、`keyTick`、`timedKeyTick` 送出之前，不消耗狀態。不符合遞送條件時照常延後。
+- IRQ：把 433 的 `ivtGuardIRQ`（`internal/machine/sysregs.go`）擴充為「`IVTMismatch()` 或 `m.v86`」，診斷註明 V86 與 435。三個遞送點（`tick` 的 IRQ0、
+  `keyTick`、`timedKeyTick`）都已把它放在 IF、PIC 遮罩、待處理、`KeyEvery`／`nextKey`、定時鍵到期與 `StubSeg` 判斷之後、消耗狀態之前，所以只在原本會遞送的
+  那一步失敗，不重列條件。`tick` 中 `startCallback`、`periodic` 的閘門由 `!segmented` 改為 `!segmented && !m.v86`。
 - `startCallback`、`periodic` 的 `FarCall`：延後，不執行、不消耗（同 434 §5.3）。
 - `VGAFrameEvery` 的幀計數與 IRQ0 時鐘照常。
 
@@ -164,10 +167,10 @@ V86 下的 x87；中斷遮蔽；回實模式（S9）。
 ## 6. 驗收
 
 1. profile 關閉時：錨點測試常數與 gob 位元組不變；`internal/cpu386` 無改動；SingleStepTests 315 PASS、0 SKIP，`knownGaps` 不變。
-2. `ltr`：§2.2 每條各一例（CPL≠0、空選擇子、`TI=1`、超出界限、資料段、286 TSS、忙碌 TSS、not present 失敗；可用 386 TSS 成功），成功後 GDT 描述元變忙碌、
+2. `ltr`：§2.2 每條各一例（CPL≠0 以 `cplSys` 類替身測、空選擇子、`TI=1`、超出界限、資料段、286 TSS、忙碌 TSS、not present 失敗；可用 386 TSS 成功），成功後 GDT 描述元變忙碌、
    `TR` 快取正確；失敗時 `TR` 與 GDT 不變。
 3. 任務返回：合成 GDT 與兩個 TSS（仿 §1 的表）：
-   - 執行後 `VM=1`、`segmented=false`、`CS:IP`、`SS:SP`、`EFLAGS`（`RF` 不載入）、通用暫存器（含高半）、六個段值與新 TSS 相同；`TR` 為新選擇子；`LDTR` 不變；
+   - 執行後 `VM=1`、`segmented=false`、`CS:IP`、`SS:SP`、`EFLAGS`（`RF` 為 0）、通用暫存器（含高半）、六個段值與新 TSS 相同；`TR` 為新選擇子；`LDTR` 不變；
    - 舊 TSS 描述元不再忙碌，新 TSS 仍忙碌；
    - 舊 TSS 的 `EFLAGS`（無 `NT`）、`EIP`（下一道）、通用暫存器與段值（32 位元寫入）正確，`CR3`、`LDT`、back link 未被寫；
    - `CR3` 相同時不清 TLB、不同時清；
