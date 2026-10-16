@@ -408,3 +408,14 @@ dosgolem 的 `22Ch` 讀值在非重設時恆為 0（`internal/machine/sb_dsp.go:
 4. **idle 與靜音中的 `D0h`、`D4h` 接受且無狀態變化**（§2.2）。照 DOSBox-X 在 idle `D0h` 後留一個「空暫停」狀態等 `D4h`，沒有任何可觀測差異的證據，不採用。
 5. **`control-idle` 一個種類涵蓋 idle 與靜音**，以 `Format` 區分，欄數不變。
 6. **時鐘種類另存 `DSPBusyLastCycles`**（§2.6）。不存而讀檔後一律重新取相位的話，在連續讀取中途存讀檔時結果與不中斷的執行不同，違反 §3 第 6 項。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`5feead3`。
+
+- §3 單元測試：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出。
+  突變 31 條各至少一個測試失敗，含「忙碌時基與 `sb8Delta` 改回 `m.PITDivisor()`」兩條（由讀檔測試抓到）。LE 測試不變；`go test -v ./apps/...` 與改動前相同。
+- 實作中發現：`LoadState` 不還原 `m.pit.divisor`，444、446 的時基改讀 `m.PITDiv`（§4.1、444 §2.4）。
+- 觸發案例（`strike_commander` 的 `workplace/logs/probe472.log`、`workplace/scratch/p472/sbdma.tsv`）：SB16 設定冷開機，旗標同 445 §1。跑滿 2000000001 步沒有停點。
+  DMA 完成 19 次、IRQ7 遞送 19 次、BIOS 預設處理 0 次；暫停 12 次、恢復 0 次；idle 控制 0 次；`22Ch` 讀取 746 次、`22Eh` 讀取 177 次。
+  `start` 到 `pause` 的間隔：第 128721446 步到第 128759929 步為 38483 步（舊為約 617 萬步），在 §3 第 11 項的上界內。

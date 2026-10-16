@@ -945,7 +945,7 @@
 - [443 分段模式的 32 位元碼段（D=1）](443-segmented-32bit-code-and-stack.md)：READY（第 2 版），已實作。B=1 堆疊不在範圍；連動修訂 431、434、437。
 - [444 一般機器的 SB16 8 位元單次 DMA、ADPCM、靜音與 IRQ7](444-legacy-sb16-dma8-irq7.md)：READY（第 2 版），已實作。選項 `-sb-dma8`，預設關閉；連動修訂 434、435。
 - [445 一般機器 SB16 8 位元 DMA 暫停與恢復](445-legacy-sb16-dma8-pause-resume.md)：READY（第 2 版），已實作。暫停視為已停止的傳輸；連動修訂 444。
-- [446 一般機器 SB16 idle 控制與 22Ch 忙碌週期](446-legacy-sb16-idle-control-and-busy-cycle.md)：READY（第 2 版）。只在 `-sb-dma8` 生效；連動修訂 444、445。
+- [446 一般機器 SB16 idle 控制與 22Ch 忙碌週期](446-legacy-sb16-idle-control-and-busy-cycle.md)：READY（第 2 版），已實作。只在 `-sb-dma8` 生效；連動修訂 444、445。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
