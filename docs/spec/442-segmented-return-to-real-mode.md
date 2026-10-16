@@ -344,3 +344,15 @@ JEMM 路徑：`51EA pop ds` 之後 CS 基底仍是 `X`，條件不成立；`51ED
    依向量比較界限只擋真機也會出錯的情形，界限大於 `3FFh` 不受影響。
 3. **實模式載入清 CS／SS 的 D/B**，照 DOSBox-X（§2.4 第 5 步）。DOSBox-X 是本專案的交叉對照基準；本案 `70h`、`78h` 的 D/B 都是 0，結果與保留相同。
 4. **子狀態沿用從嚴型別檢查**（§2.3）。與 434 的失敗即關閉一致，偏離時停下而不是安靜執行；造成的視窗內外不一致已在 §2.3 註明，JEMM 路徑不觸發。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`bbacc53`。
+
+- §3 單元測試與突變：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出；
+  新增 `internal/cpu/realcache_test.go`（9 個）與 `internal/machine/realcache442_test.go`（28 個），JEMM `5180`–`51ED` 合成程式逐位元組照 `img.dis`，PG=0 與 PG=1 兩變體都在 `51ED iret` 離開。
+  突變 34 條逐一單獨套用，各至少一個測試失敗。`internal/cpu386`、`internal/state` 無改動，錨點不變。
+- `go test -v ./apps/...`：測試名稱與結果與改動前相同；`phantasie-play` 前後都因無顯示器失敗；`buckrogers` 一個 overlay 測試在一輪中偶發失敗，單獨 `-count=20` 全過，與本規格無關。
+- 效能（`BenchmarkStepRealMode`，同一容器交錯新舊各 5 次，load average 約 16）：最快值改動前 35.51 ns/op、改動後 35.77 ns/op，約 99.3%。
+- 實作選擇：P=0 改設預設快取時仍設離開旗標；`err != nil` 的非 fault 錯誤也清旗標；子狀態 iret 計三次彈出週期；`66` 遠轉移的子狀態檢查在 `farJmp32`、`farCall32`、`farRet32` 開頭（`66 FF /3`、`/5` 先讀記憶體運算元）。
+- 需要原版的觸發案例與 DOSBox-X 獨立對照尚未做：STRIKE.EXE 目前先停在 443 的 D=1 碼段，到不了 JEMM 卸載。
