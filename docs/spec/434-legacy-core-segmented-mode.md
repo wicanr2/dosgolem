@@ -133,8 +133,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 - 型別檢查（刻意從嚴：DOSBox-X 只在載入時查型別）：寫入唯讀資料段或碼段、讀取不可讀碼段、經不可用快取存取。
 - 違反界限或型別時失敗即關閉，診斷寫明段暫存器、選擇子、偏移、界限。`#GP`／`#SS` 的遞送屬 S6。
 - 取指令：快取 `cache[CS].Base + IP`，`IP` 16 位元環繞，同樣檢查界限。
-- 堆疊：`push`／`pop`／`call`／`ret`／`enter`／`leave` 經 `SS` 快取；`SS` 的 B=1 失敗即關閉（`4206`–`4586` 路徑上的 `SS` 都是 B=0；JEMM 其他路徑的
-  `110h`、`118h` 是 B=1，屬後續）。
+- 堆疊：`push`／`pop`／`call`／`ret`／`enter`／`leave` 經 `SS` 快取；`SS` 的 B=1 失敗即關閉（`4206`–`4586` 路徑上的 `SS` 都是 B=0；JEMM 範本的
+  `110h`、`118h` 是 B=1，執行時 `110h` 的 B 由 `int15` SP 子功能改寫。443 維持本條，B=1 屬後續規格；由 443 修訂）。
 - `segmented=false` 時，位址計算與 433 完成時逐位元組相同（以段值×16，`67` 定址超過 `FFFFh` 照舊記 fault）。
 
 ### 4.2 既有核心的改法
@@ -186,7 +186,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 3. 檢查（照 DOSBox-X `CPU_SetSegGeneral`，`cpu.cpp:2976-3078`，與 `CPU_JMP`，`cpu.cpp:1785-1835`；違反時失敗即關閉，不送例外）：
    - `SS`：RPL＝CPL＝DPL；可寫資料段；present。
    - `DS`／`ES`／`FS`／`GS`：資料段與非一致可讀碼段須 RPL ≤ DPL 且 CPL ≤ DPL；一致可讀碼段免檢；其他型別失敗；present。
-   - `CS`（遠跳、遠呼叫、遠返回）：非一致碼段，RPL ≤ CPL、DPL＝CPL；present；D=0。一致碼段、TSS、閘門、D=1 失敗即關閉。
+   - `CS`（遠跳、遠呼叫、遠返回）：非一致碼段，RPL ≤ CPL、DPL＝CPL；present。一致碼段、TSS、閘門失敗即關閉；D=1 的碼段可以載入，D 決定之後每道指令的預設運算元與定址大小（由 443 修訂，443 §2）。
      新 `CS` 值為 `(sel &^ 3) | CPL`。遠跳與遠呼叫不改 CPL（`cpu.cpp:1833` 只把 CPL 併入新 CS 值）。遠返回時彈出的 `CS` RPL ≠ CPL 失敗即關閉。
 4. 通過後才寫入段值與快取；失敗時段值與快取都不寫。
 5. 不寫回 accessed 位元。DOSBox-X 不寫（`CPU_SetSegGeneral` 只讀描述元）；386 真機會寫。JEMM 不讀該位元，靜態上沒有 `lar`、`lsl`、`verr`、
@@ -259,8 +259,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 ## 8. 不在範圍
 
-`iretd` 與任務切換、`ltr`、TSS、V86 進入（S4）；`#GP`／`#SS`／`#NP`／`#PF` 的遞送（S6、435）；保護模式 IDT 遞送與 IRQ（435）；32 位元碼段、
-B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉移；accessed 位元寫回。回實模式（S9）見 442（由 442 修訂）。
+`iretd` 與任務切換、`ltr`、TSS、V86 進入（S4）；`#GP`／`#SS`／`#NP`／`#PF` 的遞送（S6、435）；保護模式 IDT 遞送與 IRQ（435）；32 位元碼段（443）、
+B=1 堆疊與 `66` 遠轉移（437）；CPL 3 保護模式；一致碼段與閘門的轉移；accessed 位元寫回。回實模式（S9）見 442（由 442 修訂）。
 
 ## 9. 驗收
 
