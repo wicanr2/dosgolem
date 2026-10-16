@@ -10,7 +10,8 @@
 [`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md)、[`436-tss-task-return-v86-entry`](436-tss-task-return-v86-entry.md)、
 [`443-segmented-32bit-code-and-stack`](443-segmented-32bit-code-and-stack.md)。LE 路徑的對照：`242`–`245`、`247`、`296`、`304`、`305`、`309`。
 修訂：434 §5.3、435 §2.1 的對應條文已依本規格改寫（各註「由 444 修訂」）。本規格 §2.2、§2.3、§2.4、§2.8、§2.10、§3.4、§3.11、§4.1、§4.2 已依
-[`445-legacy-sb16-dma8-pause-resume`](445-legacy-sb16-dma8-pause-resume.md) 改寫（各註「由 445 修訂」）；§5 收據不動。
+[`445-legacy-sb16-dma8-pause-resume`](445-legacy-sb16-dma8-pause-resume.md) 改寫（各註「由 445 修訂」）；§2.3、§2.10、§3.11、§4.1 另依
+[`446-legacy-sb16-idle-control-and-busy-cycle`](446-legacy-sb16-idle-control-and-busy-cycle.md) 改寫（各註「由 446 修訂」）；§5 收據不動。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/hardware/` 下的檔案。驅動程式位移為 `B5C5:0000` 起的映像位移（§1.2）。
 程式位置以 commit `71d0d53` 為準。推論等級：已證實、強推論、假說、未知。
@@ -170,9 +171,9 @@ PCM 擷取與 16 位元通道上，有 242–309 共十餘份 CONFORMED 收據�
 | `80h` lo hi | 靜音：不用 DMA，`n` 個取樣後拉 IRQ7 | `2219-2222`：`PIC_AddEvent(DSP_RaiseIRQEvent, 1000·(1+len)/freq)`；`3819-3823` 經 `SB_RaiseIRQ(SB_IRQ_8)` |
 | `E1h` | 既有：回 `04h 05h` | `2368` |
 | `22Ah` 讀 | 既有：取回覆位元組 | |
-| `22Ch` 讀 | 既有：重設中回 `80h`，否則 0（不忙） | |
+| `22Ch` 讀 | 選項開啟時為忙碌週期，重設中回 `FFh`（446 §2.4，由 446 修訂）；選項關閉時既有：重設中回 `80h`，否則 0（不忙） | `3192-3219` |
 | `22Eh` 讀 | 既有：清 `IRQPending`，有回覆時 `80h`。開啟時另外：若 IRR7 為 1 且尚未被 CPU 接受，清 IRR7 | `3158-3163`：清 `pending_8bit` 並 `PIC_DeActivateIRQ`；`pic.cpp:95-106` 的 `lower_irq` 清 IRR |
-| `SoundBlasterDSP.Out8` 對 `224h`–`22Fh` 回 false 的寫入 | 失敗即關閉，錯誤含命令位元組與 DSP 半狀態。涵蓋 `1Ch`、`C6h`、`B0h`、自動初始化 ADPCM（`7Dh`、`7Fh`、`1Fh`）及其他未實作命令。`D0h`、`D4h` 由 445 §2.3 處理，被拒絕的組合同樣失敗即關閉，訊息由 445 寫入（由 445 修訂） | |
+| `SoundBlasterDSP.Out8` 對 `224h`–`22Fh` 回 false 的寫入 | 失敗即關閉，錯誤含命令位元組與 DSP 半狀態。涵蓋 `1Ch`、`C6h`、`B0h`、自動初始化 ADPCM（`7Dh`、`7Fh`、`1Fh`）及其他未實作命令。`D0h`、`D4h` 由 445 §2.3 處理，被拒絕的組合同樣失敗即關閉，訊息由 445 寫入（由 445 修訂）；idle 與靜音中的 `D0h`、`D4h` 接受（446 §2.2，由 446 修訂） | |
 
 ADPCM 的參考位元組不另計時間：與 DOSBox-X 相同，`n` 個 DMA byte 一律乘每 byte 的取樣數（`GenerateDMASound` 以 byte 計 `dma.left`，`sblaster.cpp:986-1030`）。
 DOSBox-X 的 `dma.mul` 是 `(1<<14)/3` 這類截斷整數（`140`、`1214`），本規格用精確分數，差異小於萬分之一。
@@ -326,8 +327,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 ### 2.10 不在範圍
 
 聲音輸出、ADPCM 解碼與混音（另立規格）；自動初始化 DMA（`1Ch`、`C6h`、`7Dh`、`7Fh`、`1Fh`、`58h` 模式）；`D0h`／`D4h` 暫停與恢復（由 445 處理；由 445 修訂）；
-16 位元 DMA 與第二組控制器；其他基底、DMA 通道、IRQ；從片 PIC 的 IRQ；PIC 重新程式化；IRQ0、IRQ1 的 ISR；DSP 命令處理時間與忙碌週期
-（DOSBox-X `DSP_busy_cycle`）、重設的 20 µs 延遲、PIC 遞送延遲；8259 的假 IRQ7；dosgolem 內建 EMM（非 JEMM）下以 page frame 為 DMA 緩衝區時的對應
+16 位元 DMA 與第二組控制器；其他基底、DMA 通道、IRQ；從片 PIC 的 IRQ；PIC 重新程式化；IRQ0、IRQ1 的 ISR；DSP 命令處理時間（DOSBox-X `write_busy`；忙碌週期 `DSP_busy_cycle` 由 446 處理，由 446 修訂）、重設的 20 µs 延遲、PIC 遞送延遲；8259 的假 IRQ7；dosgolem 內建 EMM（非 JEMM）下以 page frame 為 DMA 緩衝區時的對應
 （DOSBox-X `dma.cpp:68-74` 的 `UpdateEMSMapping`）；`0x3DA` 的時間模型（§1.4）。
 
 ### 2.11 改動點
@@ -374,7 +374,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 9. 優先序與單一事件：同一步 IRQ0 與 IRQ7 都可送時先送 IRQ0；同一步有回呼啟動或週期遠呼叫時不送 IRQ7。
 10. PIC 埠：`20h` 讀依 OCW3 回 IRR／ISR；`67h` 清 ISR7；`60h`–`66h`、`00h`、`40h` 不動作；ICW1、旋轉、設定優先序、poll、特殊遮罩各一例失敗即關閉；`A1h` 讀回寫入值。
 11. DMA 與 DSP 的失敗即關閉（各一例）：模式 `58h`、`68h`；通道遮罩中啟動；`n > 計數+1`；位址或頁未寫；來源碰到 `A0000h`–`BFFFFh`；傳輸中經 `0Ah`、`0Fh`、`0Dh`
-    遮罩通道 1；傳輸中寫 `02h`、`03h`、`83h`、`0Bh`（通道 1）；`08h`／`09h` 寫非 0；DSP `1Ch`、`C6h` 序列、`7Dh`、無傳輸或靜音中的 `D0h`（由 445 修訂）；Δ 的商超過 `2^63`（以極端 `IRQ0Pinned` 構造）。
+    遮罩通道 1；傳輸中寫 `02h`、`03h`、`83h`、`0Bh`（通道 1）；`08h`／`09h` 寫非 0；DSP `1Ch`、`C6h` 序列、`7Dh`（無傳輸或靜音中的 `D0h` 改為接受，由 446 修訂）；Δ 的商超過 `2^63`（以極端 `IRQ0Pinned` 構造）。
     錯誤在寫入的那一步由 `Step` 回傳，之後每一步回同一錯誤且不執行指令，`Restore` 後清除。傳輸中遮罩通道 0、2、3 或改寫它們的暫存器不報錯。
 12. 取消與進度：傳輸一半時 `226←1`，暫存器依進度 k 更新、不設 TC、不拉 IRR7，紀錄有 `cancel`。傳輸中讀通道 1 的位址與計數得進度值，flip-flop 照常切換，
     未寫過的暫存器回 `FFh` 且不切換。
@@ -412,11 +412,11 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 | 偵測當下的 PIT 分頻 | probe460 只記結束時的 65536；`040h`、`043h` 有寫入紀錄。未釘死時 Δ 幾乎不受影響（§2.4），收據仍記錄 |
 | JEMM 對 IRQ7 的反射 | 435 §1.1 為靜態證據（IRQ0–7 一律反射，`0Dh`、`0Eh` 另判）；IRQ7 的執行期路徑未驗證，收據 B 記錄 |
 | `20h`、`A0h` 的讀取者 | 選項開啟後 `20h` 讀值由 `FFh` 改為 IRR／ISR。審查以靜態反組譯確認 JEMM（`4E54`、`58FD`、`5907`、`4E6F`）與驅動（`05C1`、`05E8`、`0668`、`06E6`）只寫不讀這兩埠；MENU、STRIKE 本身未知，收據記錄兩埠的讀取次數 |
-| 遊戲內的播放路徑 | `14h`、ADPCM、`80h` 已納入。觸發案例在第 131427746 步送 `D0h`（§5），`D0h`／`D4h` 由 445 接上；idle、靜音中與改寫 DMA 後的組合仍失敗即關閉（由 445 修訂） |
+| 遊戲內的播放路徑 | `14h`、ADPCM、`80h` 已納入。觸發案例在第 131427746 步送 `D0h`（§5），`D0h`／`D4h` 由 445 接上；改寫 DMA 後的 `D4h` 仍失敗即關閉（由 445 修訂）；idle 與靜音中的 `D0h`、`D4h` 由 446 接受（由 446 修訂） |
 | IRQ0、IRQ1 沒有 ISR | §2.6 的兩個差異。偵測的處理常式 `05C1` 與播放的 `05E8`／`0678` 都不執行 `sti`，JEMM 的 ring 0 路徑在 `4BDE` 執行 `cli`（435 §3），目前看不到受影響的路徑 |
 | 處理常式之後的 EOI 次序 | 先 EOI 再讀 `22Eh` 時，這裡可能在 EOI 之後立刻再遞送一次（IRR7 尚未清）。本驅動先讀後 EOI，不受影響 |
 | ADPCM 參考位元組的時間 | 真卡上參考位元組只產生一個取樣；本規格照 DOSBox-X 以每 byte 取樣數計，`75h` 等每區塊多算 1–3 個取樣的時間 |
-| DSP 的延遲 | 真卡處理命令、重設都有微秒級延遲（DOSBox-X 重設 20 µs、忙碌週期）。本規格只算傳輸時間 |
+| DSP 的延遲 | 真卡處理命令、重設都有微秒級延遲（DOSBox-X 重設 20 µs、忙碌週期）。本規格只算傳輸時間；`22Ch` 的忙碌週期由 446 處理（由 446 修訂） |
 | `22Eh` 的讀值 | 既有 `SoundBlasterDSP` 回 `80h`／0，DOSBox-X 回 `FFh`／`7Fh`（`sblaster.cpp:3178`）。bit7 的意義一致，其他位元不同，維持既有 |
 | `-mode13-phase` 的代價 | SC 其他等回掃的畫面時間會變，430–443 的收據與檢查點不再適用；版本 3 的檢查點本來也不能載入到開啟 `-sb-dma8` 的機器 |
 | 狀態檔缺口 | 選項關閉時 `picMask` 與 `SoundBlasterDSP` 不在 `SaveState` 內（現況），LoadState 後 `picMask` 回到初值。與本規格無關，另案處理 |
