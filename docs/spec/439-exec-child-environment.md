@@ -81,3 +81,16 @@ dosgolem 的 `exec` 只支援 `AL=00h` 與 `03h`（其餘回 AX=1）；`AL=01h` 
 3. 觸發案例（需原版，另附 probe 收據）：`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile -exec-env`（`workplace/root-nosound/`，冷開機，
    第 3400000000 步點 (160,45)）：印出 OPTTEST 環境塊尾端的路徑字串；OPTTEST 不再開 `C:\SCCD.EXE`；照實記錄 OPTTEST 的行為、後續 `EXEC` 紀錄、最後停點與原因。
 4. `go build ./...`、`go vet ./internal/... ./cmd/probe` 全綠。
+
+## 4. 實作收據（2026-10-16）
+
+commit：`fc20889`。
+
+- 第 1、2、4 項：容器內 `go test ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 315 PASS；選項關閉時主套件與 `go test -v ./apps/...`
+  的輸出（耗時正規化、排序後）與改動前零差異；`internal/cpu386`、`internal/state` 無改動。突變自檢（擁有者不改、程式塊失敗不釋放環境塊、路徑寫成父程式名）
+  全被抓到。
+- 第 3 項觸發案例（`-exec-env`，`workplace/root-nosound/`，冷開機，第 3400000000 步點 (160,45)）：OPTTEST 開啟自己的 `OPTTEST.EXE`（兩次）與 `SC.CFG`、
+  三個 TRE，不再開 `C:\SCCD.EXE`；找存檔 `.\*.sav`、`.\gensave.tmp`（不存在）。第 42 億步為空中過場，第 46 億步為駕駛艙特寫與英文對白字幕，第 50 億步為 OPTTEST
+  主選單（CONTINUE GAME、LOAD GAME 灰色，START NEW GAME、TRAINING MISSION、VIEW OBJECTS）。跑滿 50 億步仍在執行，IVT[08h] 為 `6700:0450`。
+- 處置：新的錯誤 8、3、10 走 `d.fail`；`LoadProgramAt` 失敗時一併釋放程式塊只在選項開啟時生效；`-empty-env` 並用時父程式路徑會被當成環境內容複製（測試記錄）；
+  狀態檔的 arena 不存擁有者，`-load-state` 接續時駐留子行程的環境塊擁有者會遺失（既有限制）。
