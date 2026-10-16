@@ -298,8 +298,16 @@ func (c *CPU) execute32(op uint8) error {
 			c.setReg32(DX, 0)
 		}
 	case op == 0x9C: // PUSHFD：高 16 位元恆 0（VM、RF 在映像裡本來就清掉；AC 寫不進去）
+		if c.v86() && !c.iopl3() { // 436 §4
+			c.v86Fail("PUSHFD")
+			break
+		}
 		c.push32(uint32(c.Flags))
 	case op == 0x9D: // POPFD：只收低 16 位元，EFLAGS 高半（含 AC）丟掉
+		if c.v86() { // 436 §4：高半丟棄（不改 VM、RF）
+			c.v86Popf(func() uint16 { return uint16(c.pop32()) })
+			break
+		}
 		c.SetFlags(uint16(c.pop32()))
 
 	// ---- A1–AF -----------------------------------------------------------
@@ -347,6 +355,10 @@ func (c *CPU) execute32(op uint8) error {
 				return c.taskReturn() // DOSBox-X 的任務返回不看運算元大小（cpu.cpp:1586-1597）
 			}
 			return c.errf(op, iretSegFail)
+		}
+		if c.v86() {
+			c.v86Iretd()
+			return nil
 		}
 		return c.errf(op, "66 %02X：80386 子集沒有這一道（docs/spec/197 §2）", op)
 

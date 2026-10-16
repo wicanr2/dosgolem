@@ -26,7 +26,7 @@ const (
 	eflagsHiVM = 1 << 1 // EFLAGS bit 17
 )
 
-// recalcPM 重算衍生欄位（xlat、paging、cplUser），並同步取指令快路徑。
+// recalcPM 重算衍生欄位（xlat、paging、cplUser、v86），並同步取指令快路徑。
 // 只在 setter、Restore、LoadState 呼叫；Read8／Write8 熱路徑只讀衍生欄位。
 // 431 §4 規定 CR0、EFlagsHi、pmCPL 的所有寫入都經這些方法，所以衍生欄位不會過期。
 func (m *Machine) recalcPM() {
@@ -34,6 +34,7 @@ func (m *Machine) recalcPM() {
 	m.xlat = m.pmProfile && pe
 	m.paging = m.xlat && m.cr0&cr0PG != 0
 	m.cplUser = false
+	m.v86 = m.xlat && m.eflagsHi&eflagsHiVM != 0
 	if pe {
 		m.cplUser = m.eflagsHi&eflagsHiVM != 0 || m.pmCPL == 3
 	}

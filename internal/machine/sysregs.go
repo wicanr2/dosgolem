@@ -99,7 +99,17 @@ func (m *Machine) SetTR(sel uint16, c SegCache) { m.sys.tr = sysSeg{sel: sel, ca
 
 // ivtGuardIRQ 是 IDTR 守門的 Machine 側（tick 的 INT 08h、keyTick 與 timedKeyTick 的 INT 09h）。
 // CPU.Interrupt 沒有回傳值，所以條件成立時不呼叫它，把錯誤存進 m.irqErr，由 Step 回傳。
+//
+// 436 §4 擴充：V86（m.v86）下同樣不遞送（經保護模式 IDT 遞送屬 435）。三個遞送點都已把它放在 IF、PIC 遮罩、
+// 待處理等條件之後、消耗狀態之前，所以只在原本會遞送的那一步失敗。
 func (m *Machine) ivtGuardIRQ(vec uint8) bool {
+	if m.v86 {
+		if m.irqErr == nil {
+			m.irqErr = fmt.Errorf("machine: IRQ（INT %02Xh）：V86 下的 IRQ 經保護模式 IDT 遞送，屬 435，"+
+				"失敗即關閉（docs/spec/436 §4）", vec)
+		}
+		return true
+	}
 	if !m.IVTMismatch() {
 		return false
 	}

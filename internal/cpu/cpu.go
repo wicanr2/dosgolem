@@ -407,6 +407,10 @@ func (c *CPU) Interrupt(n uint8) {
 		c.failf("Interrupt(%02Xh)：分段模式下的中斷遞送屬 435／S6，失敗即關閉（docs/spec/434 §5.1）", n)
 		return
 	}
+	if c.v86() {
+		c.failf("Interrupt(%02Xh)：V86 下的中斷經保護模式 IDT 遞送，屬 435，失敗即關閉（docs/spec/436 §4）", n)
+		return
+	}
 	c.charge(cycInt)
 	c.push(c.Flags)
 	c.setFlag(IF, false)
@@ -422,6 +426,17 @@ func (c *CPU) Interrupt(n uint8) {
 
 // TaskReturnNextIP 回最近一次任務返回（ErrTaskReturn）記下的下一道指令位址（opIP＋指令長度，436 §3.1）。
 func (c *CPU) TaskReturnNextIP() uint16 { return c.taskNextIP }
+
+// v86 回目前是否在 V86（436 §2.1：c.Sys != nil && c.Sys.VM()；profile 關閉時只多一次 nil 比較）。
+func (c *CPU) v86() bool { return c.Sys != nil && c.Sys.VM() }
+
+// iopl3 回 EFLAGS.IOPL 是否為 3（V86 的 cli、sti、pushf、popf、iret 規則，436 §4）。
+func (c *CPU) iopl3() bool { return c.Flags&0x3000 == 0x3000 }
+
+// v86Fail 記下 V86 下「真機會送 #GP，由 435 遞送」的失敗即關閉。
+func (c *CPU) v86Fail(what string) {
+	c.failf("V86 %s：IOPL=%d，真機 #GP（遞送屬 435），失敗即關閉（docs/spec/436 §4）", what, c.Flags>>12&3)
+}
 
 // iretSegFail 是分段模式 NT=0 的 iret／iretd 的失敗訊息（434 §6 的原文，436 §3.1 沿用於 66 CF）。
 const iretSegFail = "IRET：分段模式失敗即關閉（任務返回與 V86 屬 S4、435；docs/spec/434 §6）"
@@ -458,6 +473,10 @@ func (c *CPU) FarCall(seg, off uint16) {
 func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
 	if c.segmented {
 		c.failf("FarCall(%04X:%04X)：分段模式下不支援外部遠呼叫，失敗即關閉（docs/spec/434 §5.1）", seg, off)
+		return
+	}
+	if c.v86() {
+		c.failf("FarCall(%04X:%04X)：V86 下不支援外部遠呼叫（回呼延後，435），失敗即關閉（docs/spec/436 §4）", seg, off)
 		return
 	}
 	c.push(retSeg)

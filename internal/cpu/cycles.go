@@ -65,7 +65,8 @@ func (c *CPU) charge(n int) {
 // in8／out8 是帶計費的埠存取。**CPU 內部一律走這兩支**，
 // 直接呼叫 `c.Bus.In8` 會少算掉最貴的那一類。
 //
-// 分段模式（434 §6）：CPL ≤ IOPL 時照既有路徑；否則失敗即關閉（I/O 許可點陣圖屬 S4），讀回 FFh、寫入丟棄。
+// 分段模式（434 §6）：CPL ≤ IOPL 時照既有路徑；否則失敗即關閉，讀回 FFh、寫入丟棄。
+// V86 的 I/O 許可點陣圖在指令層（ioOK，436 §4），這裡不重複檢查。
 func (c *CPU) in8(port uint16) uint8 {
 	c.charge(cycIO)
 	if c.segmented && !c.ioAllowed(port) {

@@ -501,7 +501,9 @@ type Machine struct {
 	xlat      bool
 	paging    bool
 	cplUser   bool
-	tlbGen    uint32
+	// v86 ＝ xlat && EFLAGS.VM（436 §4 的衍生欄位，與 cplUser 同法在 recalcPM 算出）。
+	v86    bool
+	tlbGen uint32
 	// tlb 是共用 TLB 的第一層（以 4 MB 為單位，第二層懶配置，paging.go）。不存檔。
 	// 第一次填入時才配置：8 KB 的陣列放在 Machine 內會把後面的熱欄位推到別的記憶體頁。
 	tlb *[1024]*tlbBlock
@@ -1550,8 +1552,9 @@ func (m *Machine) Step() error {
 func (m *Machine) tick() {
 	// 434 §5.3：分段模式下回呼與週期遠呼叫都延後，不執行、不消耗狀態（431 §3）。
 	// 閘門在 startCallback 之前；幀計數與 IRQ0 時鐘照常（不經 CPU），只延後遞送（見下方）。
+	// 436 §4：V86（m.v86）下回呼與週期遠呼叫同樣延後。
 	segmented := m.CPU.Segmented()
-	if !segmented {
+	if !segmented && !m.v86 {
 		// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
 		// 事件是有時序意義的，週期回呼晚一格沒差。
 		if m.startCallback() {

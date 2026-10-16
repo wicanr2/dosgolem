@@ -70,7 +70,15 @@ func (c *CPU) ivtGuard(n uint8, what string) bool {
 			"（docs/spec/434 §5.3）", what, n)
 		return true
 	}
-	if c.Sys == nil || !c.Sys.IVTMismatch() {
+	if c.Sys == nil {
+		return false
+	}
+	// 436 §4：V86 的 INT n、INT3、INTO、BOUND 越界、除以零經 IDT 遞送（435），失敗即關閉；在 IntHook 之前。
+	if c.Sys.VM() {
+		c.failf("%s（INT %02Xh）：V86 下的中斷與例外經保護模式 IDT 遞送，屬 435，失敗即關閉（docs/spec/436 §4）", what, n)
+		return true
+	}
+	if !c.Sys.IVTMismatch() {
 		return false
 	}
 	base, limit := c.Sys.IDTR()

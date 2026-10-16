@@ -274,8 +274,16 @@ func (c *CPU) executeCore(op uint8) error {
 		c.farCall(seg, off)
 	case op == 0x9B: // WAIT
 	case op == 0x9C: // PUSHF
+		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_PUSHF）
+			c.v86Fail("PUSHF")
+			break
+		}
 		c.push(c.Flags)
 	case op == 0x9D: // POPF
+		if c.v86() {
+			c.v86Popf(c.pop)
+			break
+		}
 		c.SetFlags(c.pop())
 	case op == 0x9E: // SAHF
 		c.SetFlags(c.Flags&0xFF00 | uint16(c.reg8(4)))
@@ -371,6 +379,16 @@ func (c *CPU) executeCore(op uint8) error {
 			}
 			return c.errf(op, iretSegFail)
 		}
+		if c.v86() { // 436 §4（DOSBox-X cpu.cpp:1542-1584）
+			if !c.iopl3() {
+				c.v86Fail("IRET")
+				break
+			}
+			c.IP = c.pop()
+			c.Seg[CS] = c.pop()
+			c.setFlagsKeepIOPL(c.pop())
+			break
+		}
 		c.IP = c.pop()
 		c.Seg[CS] = c.pop()
 		c.SetFlags(c.pop())
@@ -448,16 +466,22 @@ func (c *CPU) executeCore(op uint8) error {
 			c.IP = uint16(int16(c.IP) + off)
 		}
 	case op == 0xE4:
-		c.setReg8(0, c.in8(uint16(c.fetch8())))
+		if p := uint16(c.fetch8()); c.ioOK(p, 1) {
+			c.setReg8(0, c.in8(p))
+		}
 	case op == 0xE5:
-		p := uint16(c.fetch8())
-		c.R[AX] = uint16(c.in8(p)) | uint16(c.in8(p+1))<<8
+		if p := uint16(c.fetch8()); c.ioOK(p, 2) {
+			c.R[AX] = uint16(c.in8(p)) | uint16(c.in8(p+1))<<8
+		}
 	case op == 0xE6:
-		c.out8(uint16(c.fetch8()), uint8(c.R[AX]))
+		if p := uint16(c.fetch8()); c.ioOK(p, 1) {
+			c.out8(p, uint8(c.R[AX]))
+		}
 	case op == 0xE7:
-		p := uint16(c.fetch8())
-		c.out8(p, uint8(c.R[AX]))
-		c.out8(p+1, uint8(c.R[AX]>>8))
+		if p := uint16(c.fetch8()); c.ioOK(p, 2) {
+			c.out8(p, uint8(c.R[AX]))
+			c.out8(p+1, uint8(c.R[AX]>>8))
+		}
 	case op == 0xE8: // CALL rel16
 		c.charge(cycCall)
 		off := int16(c.fetch16())
@@ -479,20 +503,28 @@ func (c *CPU) executeCore(op uint8) error {
 		off := int16(int8(c.fetch8()))
 		c.IP = uint16(int16(c.IP) + off)
 	case op == 0xEC:
-		c.setReg8(0, c.in8(c.R[DX]))
+		if c.ioOK(c.R[DX], 1) {
+			c.setReg8(0, c.in8(c.R[DX]))
+		}
 	case op == 0xED:
-		c.R[AX] = uint16(c.in8(c.R[DX])) | uint16(c.in8(c.R[DX]+1))<<8
+		if c.ioOK(c.R[DX], 2) {
+			c.R[AX] = uint16(c.in8(c.R[DX])) | uint16(c.in8(c.R[DX]+1))<<8
+		}
 	case op == 0xEE:
-		c.out8(c.R[DX], uint8(c.R[AX]))
+		if c.ioOK(c.R[DX], 1) {
+			c.out8(c.R[DX], uint8(c.R[AX]))
+		}
 	case op == 0xEF:
-		c.out8(c.R[DX], uint8(c.R[AX]))
-		c.out8(c.R[DX]+1, uint8(c.R[AX]>>8))
+		if c.ioOK(c.R[DX], 2) {
+			c.out8(c.R[DX], uint8(c.R[AX]))
+			c.out8(c.R[DX]+1, uint8(c.R[AX]>>8))
+		}
 
 	// ---- F4–FF ----------------------------------------------------------
 	case op == 0xF4: // HLT
-		if c.segmented {
-			// 434 §5.3、431 §3：保護模式期間不遞送 IRQ，hlt 會永遠等不到中斷。
-			return c.errf(op, "HLT：分段模式下不遞送 IRQ（保護模式 IDT 遞送屬 435），失敗即關閉（docs/spec/434 §5.3）")
+		if c.segmented || c.v86() {
+			// 434 §5.3、431 §3、436 §4：保護模式與 V86 期間不遞送 IRQ，hlt 會永遠等不到中斷。
+			return c.errf(op, "HLT：分段模式或 V86 下不遞送 IRQ（保護模式 IDT 遞送屬 435），失敗即關閉（docs/spec/434 §5.3、436 §4）")
 		}
 		c.Halted = true
 	case op == 0xF5: // CMC
@@ -504,8 +536,16 @@ func (c *CPU) executeCore(op uint8) error {
 	case op == 0xF9:
 		c.setFlag(CF, true)
 	case op == 0xFA:
+		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_CLI）
+			c.v86Fail("CLI")
+			break
+		}
 		c.setFlag(IF, false)
 	case op == 0xFB:
+		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_STI）
+			c.v86Fail("STI")
+			break
+		}
 		c.setFlag(IF, true)
 	case op == 0xFC:
 		c.setFlag(DF, false)

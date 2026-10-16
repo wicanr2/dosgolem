@@ -95,6 +95,10 @@ func (c *CPU) insOuts(op uint8) {
 	if c.segmented && !c.ioAllowed(c.R[DX]) { // 434 §6
 		return
 	}
+	// 436 §4：V86 在動作前一次檢查完（埠與寬度每次迭代相同）；rep 且 CX=0 時不檢查。
+	if !(c.repPrefix != 0 && c.R[CX] == 0) && !c.ioOK(c.R[DX], size/8) {
+		return
+	}
 
 	once := func() {
 		switch op {
