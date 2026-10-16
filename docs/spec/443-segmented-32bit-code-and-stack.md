@@ -371,3 +371,18 @@ D=0 碼段（含實模式、V86）帶 `66` 的 `70`–`7F`、帶 `67` 的隱含�
 6. **B=1 堆疊移出本規格**。觸發當下 `110h` 為 B=0（已證實），本遊戲目前沒有 B=1 的證據；維持 434 的失敗即關閉，`stackCheck` 不動，也避開與 442
    實作（`iretRealCache`、`far32RealCache`）的衝突。出現證據時另立規格。
 7. **不維護衍生欄位**（§2.1）。預設大小每道指令由 `cache[CS]` 推導，實模式熱路徑只多一個布林判斷，也省去所有快取寫入點的同步與不變式測試。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`a726ec2`。
+
+- §3 單元測試：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出；
+  新增 `seg443_test.go`、`seg443_string_test.go`、`seg443_mirror_test.go`（鏡像等價約 95 組）、`seg443_bench_test.go`。突變 23 條各至少一個測試失敗。
+  `internal/cpu386`、`internal/state` 無改動，錨點不變。`go test -v ./apps/...` 改動前後排序後逐行相同。
+- 既有測試連動：442 的 `TestRC442LoadSites` 原以注入 CS D=1 驗「子狀態清 CS 的 D」，該狀態在 443 下不可達（§2.9），CS 六列改為 D=0；清 CS D 改由
+  `internal/cpu` 的 `TestRealCacheLoadSegClearsCSD` 直接呼叫 `loadSegReal` 驗證（負對照：拿掉清 CS D 時該測試失敗）。
+- 效能（load average 約 9）：`BenchmarkStepRealMode` 改動後為改動前的 101.7%；`BenchmarkSegmentedRepMovsd32` 單次 CU 1.69–3.93 ms（含區間檢查快速路徑）。
+- 觸發案例（`strike_commander` 的 `workplace/logs/probe453.log`）：從 `p452/s1900.state` 接著跑，`-exec-env -exec-reclaim`，第 19010000000 步點 (160,90)。
+  STRIKE.EXE 經 JEMM `CU` 進出 `98h` 碼段，跑滿 21000000001 步仍在執行，沒有未實作的停點；第 193 億步與第 210 億步的截圖是 F-16 駕駛艙飛行畫面（HUD、MFD 正確）。
+  本段平均 4.4 M 道／秒，遊戲內時間比真機慢約 2.13 倍。開檔：`optdflt.cfg`、`op2misn.iff`、`instant.iff`（建立）、`ARENA.PAK`。
+- 未做：DOSBox-X 交叉對照 CU 四變體；IRQ 延後造成的 tick 損失量（probe 尚無計數）；`110h` 的 SS B 值未記錄（停點前沒有失敗，可推得為 B=0）。
