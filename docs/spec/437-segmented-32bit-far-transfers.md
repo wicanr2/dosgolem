@@ -69,3 +69,17 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
    - 埠 `201h` 在 dosgolem 沒有模型，讀回 `FFh`，搖桿四軸逾時、無按鍵；MENU 如何解讀搖桿結果另行記錄，不算本規格的錯誤；
    - 繼續執行，照實記錄最後停點、原因、步數、`EXEC` 紀錄與視訊模式變化。
 8. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 4. 實作收據（2026-10-16）
+
+commit：`0cd8e55`。
+
+- 第 1–6、8 項：容器內 `gofmt`、`go build`、`go vet` 通過；`go test ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 315 PASS、0 SKIP，
+  `knownGaps` 不變；`go test ./apps/...` 與改動前相同（唯一 FAIL 為既有的 GLFW）；`internal/cpu386`、`internal/state` 無改動。突變自檢全被抓到
+  （「只拿掉 `farCall32` 入口的 fault 檢查」為等價突變：之後的檢查在任何狀態改變前攔下同一錯誤）。效能：profile 關閉，對 `491efbb` 交錯 5 輪，
+  load average 約 10，最快值 new 38.03、old 42.71 ns/op。
+- 第 7 項觸發案例：第 1971309 步進入 `0128:009E`（MENU 的搖桿讀取常式），第 2200751 步以 `retf` 回 `0018:5DA6`，之後回 V86 繼續。共執行 2333937 道後停止：
+  `CS:IP=B002:2937`「跑出可用記憶體」（線性 `B2957h`）。停點前 MENU 段 `158Ch` 的 `0446` 呼叫 `0x3C8` 取得遠指標 `DX:AX=B002:2937`，`0453`–`0455`
+  以 `push dx; push ax; retf` 跳過去。這段常式（`158C:0415` 起）使用 `int 15h AX=1209h` 的 `SM`（`BX=534Dh`）與 `sm`（`BX=736Dh`）。遠指標的來源與正確值未知，
+  需另行查證（DOSBox-X 交叉對照）。`EXEC` 紀錄仍為 `JEMM.OVL`、`MENU.EXE`。
+- 處置：實模式與 V86 的 `66 FF /3`、`/5` 訊息改為「32 位元遠轉移只在分段模式實作」；16 位元 `CA iw` 在分段模式失敗時仍會改 `SP`（434 的既有行為，不在本規格範圍）。
