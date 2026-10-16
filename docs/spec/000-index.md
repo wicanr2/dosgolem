@@ -934,7 +934,8 @@
 - [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：READY。
 - [433 既有核心的實模式系統指令與實模式→保護模式交棒](433-real-mode-system-instructions.md)：READY（第 5 版），已實作；交棒接收端由 434 取代。
 - [434 既有核心的分段模式](434-legacy-core-segmented-mode.md)：READY（第 3 版），已實作。
-- [436 TSS、ltr 與任務返回進入 V86](436-tss-task-return-v86-entry.md)：READY（第 3 版）。
+- [436 TSS、ltr 與任務返回進入 V86](436-tss-task-return-v86-entry.md)：READY（第 3 版），已實作。
+- [435 V86 事件經 IDT 遞送與服務層規則](435-v86-hooks-and-idt-delivery.md)：DRAFT（第 1 版）。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
