@@ -432,3 +432,18 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 8. **範圍納入 ADPCM 與 `80h`**（主代理決定）。驅動的播放路徑靜態上只用這些單次命令（§1.2），一次納入可以讓遊戲內播放走到下一個未知點，觀測紀錄也涵蓋語音。
 9. **IVT[0Fh] 為 StubSeg 時視為 BIOS 預設處理常式**（依審查）。擱置會讓 IRQ7 在之後某個不相干的時刻送進新裝的處理常式；消耗 IRR7 與真機 BIOS 的預設行為較接近，
    收據 A 的結果也因此可預測。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`021ee31`。
+
+- §3 單元測試：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出。
+  突變 31 條各至少一個測試失敗（「LoadState 接受不一致」由 `sb8Apply` 的 nil 指標 panic 抓到，不是斷言）。`dma8237.go`、`le_*.go`、`internal/cpu`、`internal/cpu386`、
+  `internal/state` 無改動；LE 收到 `74h`–`77h`、`16h`、`17h`、`80h` 照舊回 false。`go test -v ./apps/...` 與改動前相同（只差一個 map 走訪順序造成的 Skip 訊息）。
+- 效能（`BenchmarkStepRealMode`，選項關閉，`--cpuset-cpus 6` 綁單核，交錯新舊各 5 次，load average 約 3）：最快值改動前 27.91、改動後 28.62 ns/op，約 97.5%。
+- 實作與規格字面的差異：`228h`、`229h` 是 OPL 別名（190 §8），失敗即關閉的判斷放在別名重對映之後，所以不會停；§2.5「Δ＝1」的舉例與正式規則不符，照正式規則實作
+  並寫死步號；`segWait` 在 IRQ7 條件成立後、檢查 IF 前呼叫（IF=0 的步也歸零計數）。`OnSBDMA` 不為 nil 時不追加 `SBDMALog`（同 `onOPL`）。
+- 觸發案例（`strike_commander` 的 `workplace/logs/probe470.log`、`workplace/scratch/p470/sbdma.tsv`）：SB16 設定（`-ma -ds`）、`-mode13-phase -sound-blaster -adlib -sb-dma8`
+  冷開機。偵測：第 4938225 步 `14h` 長度 4、第 4942395 步完成並遞送 IRQ7、驅動在 `B5C5:05E3` 送 EOI；第二次偵測同樣通過。MENU 播 59750 bytes 取樣
+  （第 16823080 步至 79099541 步，完成時遞送 IRQ7）。第 125256614 步開始 18430 bytes，第 131427746 步驅動送 `D0h`（暫停），本規格不涵蓋而失敗即關閉，
+  由規格 445 處理。`20h` 被讀 1926463 次、`A0h` 0 次（讀者未查）。
