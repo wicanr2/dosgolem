@@ -151,6 +151,7 @@ func main() {
 			"預設會放一條 `COMSPEC=`，那比較接近真 DOS；但 GIN3.COM 在環境非空時"+
 			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
 	execEnv := execEnvFlag(flag.CommandLine)
+	execReclaim := execReclaimFlag(flag.CommandLine)
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -461,6 +462,8 @@ func main() {
 	m.Mode13Phase = *mode13Phase
 	d := dos.New(m, *root)
 	d.ExecEnvCopy = *execEnv // 可與 -load-state 任意搭配；狀態檔不存這個選項
+	// 同上，可與 -load-state 任意搭配（`docs/spec/441-exec-reclaim-nil-path-child-block` §2.1）。
+	d.ExecReclaim = *execReclaim
 	d.Scratch = *scratch
 	if *scratchDir != "" { // civ1 的舊名，同一個暫存層
 		d.Scratch = *scratchDir
@@ -1660,6 +1663,17 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 	for _, l := range d.ArenaDump() {
 		fmt.Println("  " + l)
 	}
+	if len(d.Reclaims) > 0 {
+		// docs/spec/441 §2.4：nil 路徑子行程結束時的併回判斷。
+		fmt.Printf("\nnil 路徑子行程結束的併回（%d 次）：\n", len(d.Reclaims))
+		for _, r := range d.Reclaims {
+			st := "併回"
+			if r.Blocked {
+				st = "TSR 護欄擋下"
+			}
+			fmt.Printf("  #%-10d [%04X, %04X) %s\n", r.Step, r.FreeSeg, r.ArenaSeg, st)
+		}
+	}
 	if len(d.CallTrace) > 0 {
 		fmt.Printf("\nint 21h 的 ES:BX（最後 20 次；★ 表示服務動了 ES 或 BX）：\n")
 		from := len(d.CallTrace) - 20
@@ -2566,6 +2580,14 @@ func execEnvFlag(fs *flag.FlagSet) *bool {
 		"EXEC（AH=4Bh AL=00h）替子行程建一塊新環境，尾端寫子程式的正規化路徑"+
 			"（`docs/spec/439-exec-child-environment`）。預設關＝子行程共用父行程的環境，"+
 			"用 argv[0] 開自己執行檔的子程式會開到父程式。-pm-profile 不會自動打開它")
+}
+
+// execReclaimFlag 註冊 -exec-reclaim（`docs/spec/441-exec-reclaim-nil-path-child-block` §2.1）。
+// 拆成函式是為了讓測試能在獨立的 FlagSet 上驗預設值與開啟後的值。
+func execReclaimFlag(fs *flag.FlagSet) *bool {
+	return fs.Bool("exec-reclaim", false,
+		"巢狀子行程在 EXEC 時 arena 還沒建、執行中才建，非常駐結束時把它的環境與程式塊"+
+			"併回 arena（`docs/spec/441-exec-reclaim-nil-path-child-block`）。預設關＝那段留在 arena 之外")
 }
 
 func die(err error) {

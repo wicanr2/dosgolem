@@ -316,6 +316,7 @@ func (d *DOS) LoadState(r io.Reader) error {
 			psp: f.PSP, freeSeg: f.FreeSeg, ivt: f.IVT})
 	}
 	d.rebuildArenaOwnership()
+	d.nilTSRTop = 0 // 不在狀態檔（`docs/spec/441` §2.3、§4）
 	d.ems = &ems{handles: map[uint16]*emsHandle{}, next: s.EMSNext}
 	for _, e := range s.EMSHandles {
 		eh := &emsHandle{}

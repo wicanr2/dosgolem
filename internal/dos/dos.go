@@ -351,6 +351,17 @@ type DOS struct {
 	// 開啟後子程式的 PSP 位置會往上移，既有收據可能改變，所以預設不開。
 	ExecEnvCopy bool
 
+	// ExecReclaim 為真時，巢狀子行程（EXEC 時 arena 為 nil、執行中才建 arena）非常駐結束，
+	// 把 `[procFrame.freeSeg, arena[0].seg)` 併回 arena（`docs/spec/441-exec-reclaim-nil-path-child-block` §2）。
+	//
+	// 預設為假＝舊行為：那段留在 arena 之外，之後的 EXEC 用不到。開啟後 nil 路徑子行程結束後的
+	// `AH=48h` 與 EXEC 會落在更低段，既有收據可能改變，所以預設不開。
+	ExecReclaim bool
+
+	// Reclaims 記每一次 `docs/spec/441` §2.2 第 1 項前四個條件成立的子行程結束（§2.4），
+	// 含被 TSR 護欄擋下的。診斷用，不進狀態檔。
+	Reclaims []ReclaimRecord
+
 	// Exited 為真表示程式呼叫了 `AH=4Ch`／`AH=00h`；ExitCode 是它的回傳碼。
 	Exited   bool
 	ExitCode uint8
@@ -407,6 +418,10 @@ type DOS struct {
 	// queuedSeg 是監督佇列推出來的程式的 arena MCB 段（0＝舊路徑，不用回收）。
 	// 疊底退出（非 TSR）時釋放它；常駐則留著（欄位歸零，塊照留）。
 	queuedSeg uint16
+	// nilTSRTop 是在 arena 之外常駐的巢狀行程（`procFrame.arenaSeg == 0`）常駐區頂端
+	// （`curPSP + keep`）的最大值，只升不降（`docs/spec/441` §2.3）。併回的下界低於它時不併，
+	// 免得把常駐區當成自由塊。只在 `ExecReclaim` 開啟時記；不進狀態檔，Install 與 LoadState 歸零。
+	nilTSRTop uint16
 
 	// XMS（`docs/spec/011`）：EMB 的內容放 Go 端。
 	emb     map[uint16][]byte
@@ -706,6 +721,7 @@ func fromOwnStub(c *cpu.CPU, n uint8) bool {
 func (d *DOS) Install() {
 	d.freeSeg = d.M.FreeSeg
 	d.arena = nil // 第一次配置時用當時的 freeSeg 建起來
+	d.nilTSRTop = 0
 	d.curPSP = machine.PSPSeg
 	d.installFont()
 	d.M.CPU.IntHook = d.handle

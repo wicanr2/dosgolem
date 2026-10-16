@@ -52,6 +52,7 @@ func saveLoad(t *testing.T, m *machine.Machine, d *DOS) (*machine.Machine, *DOS)
 	}
 	d2 := New(m2, d.Root)
 	d2.ExecEnvCopy = d.ExecEnvCopy
+	d2.ExecReclaim = d.ExecReclaim
 	d2.Install()
 	if err := d2.LoadState(&db); err != nil {
 		t.Fatal(err)

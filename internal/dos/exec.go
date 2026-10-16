@@ -535,6 +535,13 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 			if k := d.curPSP + keep; k > d.freeSeg {
 				d.freeSeg = k
 			}
+			if d.ExecReclaim && f.arenaSeg == 0 {
+				// 常駐區在 arena 之外：記下頂端，父行程結束時不併回它（`docs/spec/441` §2.3）。
+				// 不看當下 arena 是否為 nil：nil 路徑落子、自己建了 arena 再常駐的也要記。
+				if k := d.curPSP + keep; k > d.nilTSRTop {
+					d.nilTSRTop = k
+				}
+			}
 		} else {
 			// 非 TSR：整個子行程（含它 AH=48h 拿走的）LIFO 回收。
 			// 真 DOS 的 AH=4Ch 會釋放該 PSP 擁有的所有 MCB；bump 配置器
@@ -547,7 +554,22 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 				// 那是既有的缺口，不在本輪）。
 				d.freeArenaSeg(f.arenaSeg)
 			}
-			d.freeSeg = f.freeSeg
+			if d.ExecReclaim && f.arenaSeg == 0 && d.arena != nil && len(d.arena) > 0 &&
+				f.freeSeg < d.arena[0].seg {
+				// nil 路徑落子、子行程執行中才建 arena：[f.freeSeg, arena[0].seg) 是子行程的
+				// 環境與程式塊，併回 arena（`docs/spec/441` §2.2）。
+				blocked := d.nilTSRTop > f.freeSeg
+				d.Reclaims = append(d.Reclaims, ReclaimRecord{
+					Step: d.M.Steps, FreeSeg: f.freeSeg, ArenaSeg: d.arena[0].seg, Blocked: blocked,
+				})
+				if blocked {
+					d.freeSeg = f.freeSeg
+				} else {
+					d.reclaimBelowArena(f.freeSeg)
+				}
+			} else {
+				d.freeSeg = f.freeSeg
+			}
 		}
 		d.curPSP = f.psp
 		clearCarry(c)
@@ -590,6 +612,29 @@ func (d *DOS) terminate(c *cpu.CPU, code uint8, tsr bool, keep uint16) {
 	}
 	d.Exited, d.ExitCode = true, code
 	c.Halted = true
+}
+
+// ReclaimRecord 是一次 nil 路徑子行程結束時的併回判斷（`docs/spec/441` §2.4）。
+type ReclaimRecord struct {
+	Step     uint64 // 結束時的步數
+	FreeSeg  uint16 // 父框架的 freeSeg（併回的下界）
+	ArenaSeg uint16 // 併回前的 arena[0].seg
+	Blocked  bool   // 被 TSR 護欄擋下（nilTSRTop > FreeSeg），沒有併回
+}
+
+// reclaimBelowArena 把 [from, arena[0].seg) 併回 arena 最前面（`docs/spec/441` §2.2 第 2 項）。
+// 呼叫端保證 arena 非空且 from < arena[0].seg。
+//
+// 不經 setPSPBlock：那條路是 `AH=4Ah` 的語意，日後為它修改時不該影響這裡。
+func (d *DOS) reclaimBelowArena(from uint16) {
+	if gap := d.arena[0].seg - from; gap >= 2 {
+		d.arena = append([]memBlock{{seg: from, size: gap - 1, free: true}}, d.arena...)
+		d.coalesce() // arena[0] 是已用塊時不會合併
+	}
+	// gap == 1：MCB 放不下，不插塊，留 1 段洞（承襲 setPSPBlock）。
+	d.freeSeg = from
+	// 客體 MCB 鏈跟著改：from 處原本是子行程的環境或程式 MCB。
+	d.syncMCB()
 }
 
 // closeHandlesOf 關掉某個行程名下的所有 handle（真 DOS 的 AH=4Ch）。
