@@ -938,7 +938,7 @@
 - [435 V86 事件經 IDT 遞送與服務層規則](435-v86-hooks-and-idt-delivery.md)：READY（第 3 版），已實作。
 - [437 分段模式的 32 位元遠轉移](437-segmented-32bit-far-transfers.md)：READY（第 2 版），已實作。
 - [438 probe 護欄改看實體位址](438-probe-guard-physical-pc.md)：READY（第 2 版），已實作。
-- [439 EXEC 子行程環境副本](439-exec-child-environment.md)：DRAFT（第 2 版）。
+- [439 EXEC 子行程環境副本](439-exec-child-environment.md)：READY（第 3 版）。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 

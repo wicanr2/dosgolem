@@ -1,6 +1,6 @@
 # 439 — EXEC 為子行程建立環境副本（附程式路徑）
 
-狀態：**DRAFT**（第 2 版，依第 1 輪審查改寫）
+狀態：**READY**（第 3 版，依第 2 輪複審補實作細節）
 日期：2026-10-16
 前置：[`009-exec`](009-exec.md)、[`009-memory-allocator`](009-memory-allocator.md)、[`438-probe-guard-physical-pc`](438-probe-guard-physical-pc.md)
 
@@ -49,8 +49,8 @@ dosgolem 的 `exec` 只支援 `AL=00h` 與 `03h`（其餘回 AX=1）；`AL=01h` 
 4. 配置（在程式塊之前）：
    - arena 非 nil：`pickBlock(envParags)`、`carveBlock(i, envParags)`，再呼叫 `placeChild` 配程式塊。
    - arena 為 nil：不呼叫 `initArena`（會改變既有行為）。環境 MCB 在 `freeSeg`，資料在 `freeSeg+1`，程式塊的 MCB 在 `freeSeg+1+envParags`；`placeChild` 改為接受起點偏移，
-     容量檢查改為 `envParags+1+need > avail`。
-   - 兩條路徑都以 `WriteMCB` 寫環境塊的客體 MCB；size 欄用實際配到的段數（`carveBlock` 在剩餘不足時整塊吃掉，讀 `arena[i].size`）。
+     容量檢查改為 `envParags+1+need > avail`。`placeChild` 的另一個呼叫端 `spawnQueued` 傳 0，行為不變；`spawnQueued` 沒有父行程，不建環境。
+   - 兩條路徑都以 `WriteMCB` 寫環境塊的客體 MCB（寫入時點與環境內容相同，在第 6 項全部成功之後）；size 欄用實際配到的段數（`carveBlock` 在剩餘不足時整塊吃掉，讀 `arena[i].size`）。
    - 位置先後依配置策略（`AH=58h`）決定；預設 first fit 下環境塊在程式塊之前。
 5. 擁有者：PSP 確定後（`psp := mcb+1`），把環境塊的 arena 項目 `owner` 與客體 MCB 的擁有者改成子 PSP。子行程非駐留結束時，`terminate` 既有的
    `releaseOwnedBy(d.curPSP)` 一併釋放；駐留（`AH=31h`、`int 27h`）不呼叫它，環境塊保留。arena 為 nil 時靠結束時 `d.freeSeg = f.freeSeg` 回收。
@@ -60,7 +60,7 @@ dosgolem 的 `exec` 只支援 `AL=00h` 與 `03h`（其餘回 AX=1）；`AL=01h` 
    - 環境塊配置失敗：回錯誤 8。
    - 環境塊已配、程式塊配置失敗（`placeChild`）：釋放環境塊（`freeArenaSeg`），回錯誤 8。
    - `LoadProgramAt` 失敗：釋放環境塊與程式塊（現行程式此處已洩漏程式塊，一併修正）。
-   - 環境內容在以上都成功之後才寫入。
+   - 環境內容與環境塊的客體 MCB 在以上都成功之後才寫入，失敗時客體記憶體也不留環境塊的痕跡。
 7. `ExecRecord` 增加 `EnvSeg`（只在記錄中，不進 `procState`）。
 
 `-empty-env` 產生的環境（`machine/loader.go`）為 `00 01 00 <path> 00`，偏移 0 的 word 不是雙 0；照 §1 第 2 項的掃描會越過路徑繼續找。`-empty-env` 與 `-exec-env`
