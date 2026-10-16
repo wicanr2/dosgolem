@@ -89,7 +89,7 @@ JEMM 從切保護模式到進 V86 之間執行的碼全在 16 位元碼段（GDT
 
 - 保留位元：bit 1 為 1，bit 3、5、15 為 0（與既有核心 `SetFlags` 的 386 分支相同，`internal/cpu/cpu.go:196-202`）。
 - V86 下既有核心：`POPF` 在 IOPL≠3 時 `#GP(0)`、通過時不改 IOPL；`IRET` 只改 `FMASK_NORMAL|NT`；`PUSHFD` 高半清 `VM`、`RF`
-  （`cpu.cpp:774-797`、`1560`、`1572`）。
+  （`CPU_POPF` `cpu.cpp:774-788`、`CPU_PUSHF` `790-800`、V86 `iret` `1542-1584`）。
 - 保護模式（分段模式）：`POPF`／`POPFD` 不改 `VM`、`RF`；CPL>0 時不改 IOPL；CPL>IOPL 時不改 IF（`cpu.cpp:774-788`）。
 
 ### 4.2 狀態檔
