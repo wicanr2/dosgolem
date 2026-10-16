@@ -200,3 +200,37 @@ V86 的 x87 與 `#UD`；中斷遮蔽（436 §4 的刻意差異維持）。JEMM �
      `CD 2F` 在 StubSeg 內由服務層處理；
    - 繼續執行，照實記錄最後停點、原因、步數，以及途中 `EXEC` 了哪些程式（`MENU.EXE` 等）。
 10. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 8. 實作收據（2026-10-16）
+
+commit：`1cbb6ea`（階段 1：核心事件回報、`doInt` 先交服務層、`#DE` 旗標還原、`iretd` 回 V86 的讀取）、`491efbb`（階段 2：Machine 的 prepare／commit 遞送、
+回 V86、服務層旗標回寫與 IVT 線性讀取）。432 規格的 IVT 讀取分類同步改為線性層（`e3fbbf6`）。
+
+### 驗收結果
+
+- 第 1–6、8、10 項：容器內 `gofmt -l` 無輸出，`go build`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle`
+  13 個套件全部 ok；SingleStepTests 315 PASS、0 SKIP，`knownGaps` 不變；`internal/cpu386`、`internal/state` 無改動。`go test ./apps/...` 與 `f74462b`
+  逐行相同（806 PASS、158 SKIP，唯一 FAIL 為既有的 GLFW 無 DISPLAY）。突變自檢 13 項全被抓到。
+- 第 7 項效能：profile 關閉，對 `f74462b` 交錯 5 輪，1 分鐘 load average 7.0–8.0。最快值 `BenchmarkStepRealMode` new 27.93、old 30.59 ns/op；
+  `BenchmarkStepV86` new 41.63、old 41.39；`BenchmarkStepV86Paged` new 47.44（21.08 M 道／秒）、old 53.16。
+- 第 9 項觸發案例（`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile`）：
+  - 第一個事件 `INT 2Fh`：第 104611 步進入 `0018:4812`，`SS:SP=0050:13D8`；框架（低位址起）錯誤碼 `0000017Ah`、`EIP=000002BEh`、`CS=0110h`、
+    `EFLAGS=00023246h`、`ESP=000000D2h`、`SS=0216h`、`ES=2000h`、`DS=01EAh`、`FS=2000h`、`GS=2000h`，與規格期望相同。
+  - `[3ED3]=0`、`[3F38]=0`（走一般反射路徑 `4F1F`）。
+  - 第 104719 步回到 V86 的 `0080:00BC`，`SS:SP=0216:00CC`，`CD 2F` 由服務層處理。
+  - 繼續執行：`EXEC` 紀錄兩筆（`JEMM.OVL`、`MENU.EXE`，`MENU.EXE` 的 PSP `0229h`），第 137919 步切到視訊模式 `13h`，IRQ0 送出 4 次，IVT[08h] 被改為
+    `158C:0457`。共執行 1971309 道後停在 `0018:5DA0` 的 `66 36 FF 2E 4C 3F`（`jmp fword ss:[3F4C]`）：32 位元遠跳未實作（JEMM `int15` 的 `SP` 子功能，
+    此時 `SS=0110h`，B=1 的堆疊）。下一關卡是 32 位元碼段與遠轉移。
+  - 記錄：頁目錄 PDE[0] 所指頁表的 PTE[0..3]＝`00000067h`、`00001067h`、`00002067h`、`00003067h`（線性頁 0–3 恆等映射），所以 BDA 與 IVT 的線性、實體讀取
+    在本案一致。
+
+### 實作期間的處置
+
+1. `V86EventKind` 分為 SoftInt、Into、Int3、External、Exception。
+2. V86 的 `#DE`、`#BR` 不寫進 `DivErrors`；`#DE` 旗標還原以 `c.ev != nil` 為條件。
+3. 佔位錯誤為預先配置的單一值，每個事件不配置。
+4. 閘選擇子為空選擇子時失敗即關閉；進入 ring 0 不清 `Halted`、不重設一百萬步計數；commit 中 `SetEFlagsHi`、`SetPMCPL` 的錯誤不檢查（前提下不會失敗）。
+5. per-vector stub 的判定是本道指令在 `StubSeg:StubOff(n)` 且 n 不在 `F2`–`F9`；`F2`／`F3`／`F4` 走 `fixStackedCF`。
+6. 既有測試調整：`TestTrampolineCarryReachesStackedFlags` 改由 CPU 從 `StubSeg:DosTrapOff` 執行 `CD F2`；`TestKeyboardIVTReadIgnoresPageRemapping`
+   改為 `TestKeyboardIVTReadUsesLinearIVT`。
+7. 實作子代理曾誤把一個測試檔的刪除放進 git index，已以 `git restore --staged` 還原，未進 commit。
