@@ -933,7 +933,8 @@
 - [431 CPU 架構](431-hybrid-cpu-protected-mode.md)：READY（第 2 版）。既有核心執行實模式、16 位元保護模式與 V86；cpu386 不改。實作拆到 432–435。
 - [432 實體與線性存取分層、A20、分頁與共用 TLB](432-linear-memory-and-paging.md)：READY。
 - [433 既有核心的實模式系統指令與實模式→保護模式交棒](433-real-mode-system-instructions.md)：READY（第 5 版），已實作；交棒接收端由 434 取代。
-- [434 既有核心的分段模式](434-legacy-core-segmented-mode.md)：READY（第 3 版）。
+- [434 既有核心的分段模式](434-legacy-core-segmented-mode.md)：READY（第 3 版），已實作。
+- [436 TSS、ltr 與任務返回進入 V86](436-tss-task-return-v86-entry.md)：DRAFT（第 1 版）。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 

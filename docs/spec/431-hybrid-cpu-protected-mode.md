@@ -24,7 +24,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 | `432-linear-memory-and-paging` | Machine 的實體／線性存取分層、A20、兩層頁表、共用 TLB、服務層位址 | 430 |
 | `433-real-mode-system-instructions` | 既有核心在實模式的系統指令、`SysRegs`、實模式→保護模式交棒、`-pm-profile` | 432 |
 | `434-legacy-core-segmented-mode` | 既有核心的分段模式：段描述元快取、從 GDT／LDT 載入選擇子、CS 基底取指令、32 位元偏移、遠轉移、保護模式系統指令、觀測視圖、`PM` 版本 3 | 433 |
-| `435-v86-hooks-and-idt-delivery` | 既有核心的 V86 掛鉤、經 IDT 遞送中斷與例外（含特權切換與堆疊切換）、服務層在 V86 下的規則、IRQ 與回呼 | 434 |
+| `436-tss-task-return-v86-entry` | §8 的 S4：`ltr`、TSS、`NT=1` 的任務返回、進入 V86 與 V86 下的 IOPL 與 I/O 點陣圖規則（觸發案例先碰到，所以先做） | 434 |
+| `435-v86-hooks-and-idt-delivery` | 既有核心的 V86 掛鉤、經 IDT 遞送中斷與例外（含特權切換與堆疊切換）、服務層在 V86 下的規則、IRQ 與回呼 | 436 |
 
 TSS 任務切換、`#PF`、回實模式與 32 位元碼段是更後面的規格（§8）。
 
@@ -130,7 +131,7 @@ dosgolem 的 DOS／BIOS 服務在 V86 下仍由 `StubSeg` 的 trampoline 觸發�
 
 | 編號 | 內容 |
 |---|---|
-| S4 | TSS、`ltr`、`iretd` 帶 NT 的任務返回、進 V86 |
+| S4 | TSS、`ltr`、`iretd` 帶 NT 的任務返回、進 V86（規格 436） |
 | S6 | `#PF`、`#DB`、TF 單步、除錯暫存器觸發 |
 | S9 | 保護模式→實模式（JEMM 的卸載路徑） |
 | — | 32 位元碼段（JEMM 選擇子 `98h`、`128h`，`int15` 的 `CU`、`XC` 複製常式）：既有核心加 D=1 預設，或接 cpu386 |
