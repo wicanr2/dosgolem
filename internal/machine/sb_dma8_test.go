@@ -897,7 +897,7 @@ func TestSB8FailClosed(t *testing.T) {
 	for _, x := range []struct {
 		pre []uint8
 		v   uint8
-	}{{nil, 0x1C}, {[]uint8{0xC6, 0x00, 0x03}, 0x00}, {nil, 0x7D}, {nil, 0xD0}, {nil, 0xD4}, {nil, 0x7F}, {nil, 0x1F}} {
+	}{{nil, 0x1C}, {[]uint8{0xC6, 0x00, 0x03}, 0x00}, {nil, 0x7D}, {nil, 0x7F}, {nil, 0x1F}} { // idle D0h／D4h 改為接受（446 §3 第 3 項）
 		m := newSB8(t, sbOutProg, nil)
 		sbDSP(m, x.pre...)
 		sbFailAt(t, "DSP", m, 0x22C, x.v, "未被接受")
@@ -1751,28 +1751,7 @@ func TestSB8ResumeAfterRewriteRefused(t *testing.T) {
 	}
 }
 
-// 第 2.15 項：idle 與 80h 靜音中的 D0h、D4h 失敗即關閉。
-func TestSB8ControlRefusedIdleAndSilence(t *testing.T) {
-	for _, silence := range []bool{false, true} {
-		for _, v := range []uint8{0xD0, 0xD4} {
-			m := sbCtlMachine(t, nil)
-			want := "沒有進行中的傳輸"
-			if silence {
-				sbDSP(m, 0x40, 0xA6, 0x80, 3)
-				sbOutStep(t, m, 0x22C, 0)
-				want = "靜音"
-			}
-			err := sbStepErr(m, 0x22C, v)
-			if err == nil || !strings.Contains(err.Error(), "未被接受") || !strings.Contains(err.Error(), want) ||
-				!strings.Contains(err.Error(), "docs/spec/445") || strings.Contains(err.Error(), "未實作") {
-				t.Errorf("靜音=%t %02Xh：應失敗即關閉（含「未被接受」「%s」、不含「未實作」）：%v", silence, v, want, err)
-			}
-			if m.sb8.paused || m.SBDMA8Stats().Pauses != 0 {
-				t.Errorf("靜音=%t %02Xh：不應暫停", silence, v)
-			}
-		}
-	}
-}
+// 第 2.15 項（由 446 修訂）：idle 與 80h 靜音中的 D0h、D4h 接受，見 446 §3 第 2 項（TestSB8ControlAcceptedIdleAndSilence 等）。
 
 // 第 2.16 項：暫停中 226h 重設。
 func TestSB8PauseReset(t *testing.T) {
@@ -1802,8 +1781,13 @@ func TestSB8PauseReset(t *testing.T) {
 		if st := m.SBDMA8Stats(); st.Paused || st.Active || m.sb8.pausedAt != 0 || m.sb8.dmaRewritten || m.sb8.irr7 {
 			t.Errorf("改寫=%t：重設清 paused、pausedAt、dmaRewritten、IRR7：%+v", rewrite, st)
 		}
-		if err := sbStepErr(m, 0x22C, 0xD4); err == nil || !strings.Contains(err.Error(), "沒有進行中的傳輸") {
-			t.Errorf("改寫=%t：重設後的 D4h 依 idle 拒絕：%v", rewrite, err)
+		// 446 §3 第 3 項：重設後的 D4h 依 446 §2.2 接受，不恢復。
+		n := len(m.SBDMALog)
+		if err := sbStepErr(m, 0x22C, 0xD4); err != nil || m.sb8Err != nil {
+			t.Errorf("改寫=%t：重設後的 D4h 應接受：%v", rewrite, err)
+		}
+		if st := m.SBDMA8Stats(); st.Resumes != 0 || st.Active || len(m.SBDMALog) != n+1 || m.SBDMALog[n].Kind != "control-idle" {
+			t.Errorf("改寫=%t：重設後的 D4h 不恢復、紀錄多一筆 control-idle：%+v %s", rewrite, st, logKinds(m))
 		}
 	}
 }
@@ -2041,5 +2025,822 @@ func sb444Compat(t *testing.T, saved []byte, fresh func() *Machine) {
 	n.sb8.paused, n.sb8.pausedAt = true, n.sb8.start
 	if jp, _ = json.Marshal(n.sb8Save()); !bytes.Contains(jp, []byte(`"Paused":true`)) {
 		t.Error("暫停時 JSON 應含 Paused")
+	}
+}
+
+// ---- 446 §3：idle 與靜音中的 D0h／D4h、22Ch 忙碌週期 ------------------------------------
+//
+// docs/spec/446-legacy-sb16-idle-control-and-busy-cycle §3 第 1–9 項（machine 層）。22Ch 的期望值在測試內以 math/big
+// 依 §2.4 的有理數式獨立計算（sbBusyRef），不呼叫被測函式。
+
+// sbBusyH 是 §2.4 的 H（8333333/6/16 的 C 整數除法）。測試內另寫，不引用實作的常數。
+const sbBusyH = 86805
+
+// sbBusyTB 是 §2.4 表的 A、B（測試內獨立寫出）。
+type sbBusyTB struct{ a, b *big.Int }
+
+func sbTB(a, b uint64) sbBusyTB {
+	return sbBusyTB{new(big.Int).SetUint64(a), new(big.Int).SetUint64(b)}
+}
+
+// 觸發案例的步數時鐘：IRQ0Every=96506、PITDiv=9943。
+var sbTrigTB = sbBusyTB{new(big.Int).Mul(big.NewInt(96506), big.NewInt(315_000_000)), big.NewInt(264 * 9943)}
+
+// p 回 ⌊16·H·B·t/A⌋ mod 16，以及 t 與最近相位邊界的距離是否超過 1/1000 格。
+func (c sbBusyTB) p(t uint64) (uint8, bool) {
+	num := new(big.Int).Mul(big.NewInt(16*sbBusyH), c.b)
+	num.Mul(num, new(big.Int).SetUint64(t))
+	q, r := new(big.Int).QuoRem(num, c.a, new(big.Int))
+	other := new(big.Int).Sub(c.a, r)
+	if other.Cmp(r) < 0 {
+		r = other
+	}
+	far := new(big.Int).Mul(r, big.NewInt(1000)).Cmp(c.a) > 0
+	return uint8(new(big.Int).And(q, big.NewInt(15)).Uint64()), far
+}
+
+// rephase20 回 (t−last)·50000·B ≥ A（t ≥ last）。
+func (c sbBusyTB) rephase20(t, last uint64) bool {
+	d := new(big.Int).SetUint64(t - last)
+	d.Mul(d, big.NewInt(50000))
+	d.Mul(d, c.b)
+	return d.Cmp(c.a) >= 0
+}
+
+// sbBusyRef 是 §2.4「每次讀取」的獨立參考模型（不含重設中的分支）。
+type sbBusyRef struct {
+	io      uint8
+	last    uint64
+	lastCyc bool
+}
+
+func (r *sbBusyRef) read(c sbBusyTB, t uint64, cyc bool) byte {
+	r.io = (r.io + 1) % 16
+	if r.lastCyc != cyc || t < r.last || c.rephase20(t, r.last) {
+		r.io, _ = c.p(t)
+	}
+	r.last, r.lastCyc = t, cyc
+	if r.io < 8 {
+		return 0xFF
+	}
+	return 0x7F
+}
+
+func sbBusyByte(io uint8) byte {
+	if io < 8 {
+		return 0xFF
+	}
+	return 0x7F
+}
+
+// sbBusyMachine 造一台步數時鐘的機器：IRQ0Pinned、IRQ0Every=96506、PIT 分頻 9943（觸發案例的時鐘）。
+func sbBusyMachine(t *testing.T) *Machine {
+	t.Helper()
+	m := newSB8(t, sbIdle, nil)
+	m.IRQ0Pinned, m.IRQ0Every = true, 96506
+	m.Out8(0x43, 0x36)
+	m.Out8(0x40, 9943&0xFF)
+	m.Out8(0x40, 9943>>8)
+	if m.PITDivisor() != 9943 || m.IRQ0Every != 96506 || m.CycleClock {
+		t.Fatalf("時鐘設定：分頻 %d、IRQ0Every %d", m.PITDivisor(), m.IRQ0Every)
+	}
+	return m
+}
+
+// sbRead22C 以步數時鐘在 t 讀 22Ch（直接設 m.Steps，視同 CPU 的 in；446 §2.4「讀取的來源」）。
+func sbRead22C(m *Machine, t uint64) byte {
+	m.Steps = t
+	return m.In8(0x22C)
+}
+
+// sbRead22CCyc 以週期時鐘在 c 讀 22Ch。
+func sbRead22CCyc(m *Machine, c uint64) byte {
+	m.CPU.Cycles = c
+	return m.In8(0x22C)
+}
+
+// sbBusyFields 回三個忙碌欄位。
+func sbBusyFields(m *Machine) [3]uint64 {
+	c := uint64(0)
+	if m.sb8.busyLastCycles {
+		c = 1
+	}
+	return [3]uint64{uint64(m.sb8.busyIO), m.sb8.busyLast, c}
+}
+
+// sbBusyTs 是第 4.1 項的 19 個讀取點：t₀ 起每 13 步 17 次，再隔 232、231 步。
+func sbBusyTs(t0 uint64, gapR, gapI uint64) []uint64 {
+	var ts []uint64
+	for i := uint64(0); i < 17; i++ {
+		ts = append(ts, t0+13*i)
+	}
+	ts = append(ts, ts[16]+gapR)
+	return append(ts, ts[17]+gapI)
+}
+
+// sbBusyPick 檢查 §3 第 4.1 項 t₀ 的條件：t₀ ≥ 門檻、各點遠離邊界、隔 gapR 那一讀的 p(t) 與「加一」忙碌與否不同、
+// 隔 gapI 那一讀的「加一」與 p(t) 忙碌與否不同。
+func sbBusyPick(c sbBusyTB, ts []uint64, minT uint64) bool {
+	if ts[0] < minT {
+		return false
+	}
+	for _, x := range ts {
+		if _, far := c.p(x); !far {
+			return false
+		}
+	}
+	var r sbBusyRef
+	for _, x := range ts[:17] {
+		r.read(c, x, false)
+	}
+	pR, _ := c.p(ts[17])
+	if sbBusyByte(pR) == sbBusyByte((r.io+1)%16) {
+		return false
+	}
+	pI, _ := c.p(ts[18])
+	return sbBusyByte(pI) != sbBusyByte((pR+1)%16)
+}
+
+// 446 §3 第 1 項：選項關閉時 22Ch 照舊（重設中 80h、其他時候 0）。
+func TestSB8BusyOffKeepsLegacy22C(t *testing.T) {
+	m := New()
+	m.SetSoundBlaster(true)
+	mustNil(t, "LoadCOM", m.LoadCOM(sbIdle))
+	for i := uint64(0); i < 40; i++ {
+		if v := sbRead22C(m, 1000+13*i); v != 0 {
+			t.Fatalf("選項關閉：22Ch 應回 0：%02X", v)
+		}
+	}
+	m.Out8(0x226, 1)
+	if v := m.In8(0x22C); v != 0x80 {
+		t.Errorf("選項關閉、重設中：22Ch 應回 80h：%02X", v)
+	}
+	m.Out8(0x226, 0)
+	if v := m.In8(0x22C); v != 0 {
+		t.Errorf("選項關閉、重設後：22Ch 應回 0：%02X", v)
+	}
+	if m.SBDMA8() {
+		t.Fatal("不應開啟")
+	}
+}
+
+// 446 §3 第 4.1、4.2 項：步數時鐘的 19 個讀值。
+func TestSB8BusyStepClock(t *testing.T) {
+	ts := sbBusyTs(1028, 232, 231)
+	if !sbBusyPick(sbTrigTB, ts, 232) {
+		t.Fatal("t₀=1028 應滿足 §3 第 4.1 項的條件")
+	}
+	if p, _ := sbTrigTB.p(1028); p != 11 {
+		t.Fatalf("p(1028) 應為 11：%d", p)
+	}
+	// 第 4.2 項：寫死的 19 個讀值（7F×5、FF×8、7F×4；1468 重新取相位得 0、1699 加一得 1）。
+	want := []byte{0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x7F, 0x7F, 0x7F, 0xFF, 0xFF}
+	var ref sbBusyRef
+	for i, x := range ts {
+		if v := ref.read(sbTrigTB, x, false); v != want[i] {
+			t.Fatalf("big 參考模型與寫死值不同：第 %d 讀 t=%d：%02X、%02X", i, x, v, want[i])
+		}
+	}
+	if p, _ := sbTrigTB.p(1468); p != 0 || ref.io != 1 {
+		t.Fatalf("1468 重新取相位得 0、1699 加一得 1：p=%d io=%d", p, ref.io)
+	}
+	m := sbBusyMachine(t)
+	for i, x := range ts {
+		if v := sbRead22C(m, x); v != want[i] {
+			t.Errorf("第 %d 讀（t=%d）：%02X，應為 %02X", i, x, v, want[i])
+		}
+	}
+	if m.sb8Err != nil || m.PortsIn[0x22C] != 19 {
+		t.Errorf("不應報錯、讀取次數 19：%v %d", m.sb8Err, m.PortsIn[0x22C])
+	}
+}
+
+// 446 §3 第 4.3 項：週期時鐘兩例（門檻 660／659 與 667／666 週期）。
+func TestSB8BusyCycleClock(t *testing.T) {
+	for _, x := range []struct{ hz, gapR, gapI uint64 }{{33_000_000, 660, 659}, {33_333_333, 667, 666}} {
+		c := sbTB(x.hz, 1)
+		if !c.rephase20(x.gapR, 0) || c.rephase20(x.gapI, 0) {
+			t.Fatalf("hz=%d：門檻應為 %d", x.hz, x.gapR)
+		}
+		var ts []uint64
+		for c0 := uint64(1000); c0 < 200000; c0++ {
+			if cand := sbBusyTs(c0, x.gapR, x.gapI); sbBusyPick(c, cand, x.gapR) {
+				ts = cand
+				break
+			}
+		}
+		if ts == nil {
+			t.Fatalf("hz=%d：找不到符合條件的 c₀", x.hz)
+		}
+		m := newSB8(t, sbIdle, func(m *Machine) { m.CycleClock, m.CPUHz = true, x.hz; m.RecalcIRQ0() })
+		var ref sbBusyRef
+		for i, cy := range ts {
+			want := ref.read(c, cy, true)
+			if v := sbRead22CCyc(m, cy); v != want {
+				t.Errorf("hz=%d 第 %d 讀（Cycles=%d）：%02X，應為 %02X", x.hz, i, cy, v, want)
+			}
+		}
+		if !m.sb8.busyLastCycles {
+			t.Error("週期時鐘下 busyLastCycles 應為真")
+		}
+	}
+}
+
+// 446 §3 第 4.4 項：與 DOSBox-X 的浮點式比對（1000 個遠離邊界的 t）。
+func TestSB8BusyMatchesFloat(t *testing.T) {
+	m := sbBusyMachine(t)
+	rate := float64(96506) * 315_000_000 / (264 * 9943)
+	x, n := uint64(12345), 0
+	tt := uint64(5000)
+	for n < 1000 {
+		x = x*6364136223846793005 + 1442695040888963407
+		tt += 1000 + x>>40 // 每次間隔至少 1000 步：一定重新取相位
+		if _, far := sbTrigTB.p(tt); !far {
+			continue
+		}
+		f := int(math.Mod(float64(tt)/rate*sbBusyH, 1) * 16)
+		sbRead22C(m, tt)
+		if int(m.sb8.busyIO) != f {
+			t.Fatalf("t=%d：整數 p=%d、浮點 %d", tt, m.sb8.busyIO, f)
+		}
+		n++
+	}
+}
+
+// 446 §3 第 4.5 項：重設中回 FFh、三欄不動；226h←0 後恢復。
+func TestSB8BusyDuringReset(t *testing.T) {
+	m := sbBusyMachine(t)
+	ts := sbBusyTs(1028, 232, 231)
+	var ref sbBusyRef
+	for _, x := range ts[:5] {
+		ref.read(sbTrigTB, x, false)
+		sbRead22C(m, x)
+	}
+	before := sbBusyFields(m)
+	m.Out8(0x226, 1)
+	for i := uint64(0); i < 20; i++ {
+		if v := sbRead22C(m, ts[4]+1+i); v != 0xFF {
+			t.Errorf("重設中應回 FFh：%02X", v)
+		}
+	}
+	if sbBusyFields(m) != before {
+		t.Errorf("重設中的讀取不應動三欄：%v → %v", before, sbBusyFields(m))
+	}
+	m.Out8(0x226, 0)
+	for _, x := range ts[5:] {
+		if v, w := sbRead22C(m, x), ref.read(sbTrigTB, x, false); v != w {
+			t.Errorf("重設後 t=%d：%02X，應為 %02X", x, v, w)
+		}
+	}
+}
+
+// 446 §3 第 4.6 項：時鐘種類改變、t < busyLast 時重新取相位。兩者都選在不重新取相位時讀值不同的點。
+func TestSB8BusyRephaseOnClockChangeAndBackwards(t *testing.T) {
+	// 時鐘種類：步數時鐘讀 t，再切週期時鐘（33 MHz）在 t+d（d < 660，不足 20 µs）讀。
+	cyc := sbTB(33_000_000, 1)
+	found := false
+	for t0 := uint64(1000); t0 < 100000 && !found; t0++ {
+		p0, far0 := sbTrigTB.p(t0)
+		c1 := t0 + 10
+		p1, far1 := cyc.p(c1)
+		if !far0 || !far1 || sbBusyByte(p1) == sbBusyByte((p0+1)%16) {
+			continue
+		}
+		found = true
+		m := sbBusyMachine(t)
+		if v := sbRead22C(m, t0); v != sbBusyByte(p0) {
+			t.Fatalf("t=%d：%02X", t0, v)
+		}
+		m.CycleClock, m.CPUHz = true, 33_000_000
+		if v := sbRead22CCyc(m, c1); v != sbBusyByte(p1) {
+			t.Errorf("時鐘種類改變後應重新取相位：Cycles=%d 得 %02X，應為 %02X（加一會是 %02X）", c1, v, sbBusyByte(p1), sbBusyByte((p0+1)%16))
+		}
+	}
+	if !found {
+		t.Fatal("找不到時鐘種類改變的探測點")
+	}
+	// t < busyLast：以 LoadState 構造 DSPBusyLast=MaxUint64。t ≤ 230 時 t−busyLast 環繞後是 t+1 < 232，
+	// 不經 t < busyLast 的判斷就不會重新取相位。
+	m := sbBusyMachine(t)
+	sbRead22C(m, 1028)
+	saved := sbSave(t, m)
+	found = false
+	for tt := uint64(0); tt <= 230 && !found; tt++ {
+		p, far := sbTrigTB.p(tt)
+		for io := uint8(0); io < 16 && !found; io++ {
+			if !far || sbBusyByte(p) == sbBusyByte((io+1)%16) {
+				continue
+			}
+			found = true
+			n := sbBusyMachine(t)
+			mustNil(t, "LoadState", n.LoadState(bytes.NewReader(sbReencode(t, saved, func(st *sbDMA8State) {
+				st.DSPBusyLast, st.DSPBusyIO, st.DSPBusyLastCycles = math.MaxUint64, io, false
+			}))))
+			if v := sbRead22C(n, tt); v != sbBusyByte(p) {
+				t.Errorf("t=%d < busyLast：應重新取相位得 %02X（加一會是 %02X）：%02X", tt, sbBusyByte(p), sbBusyByte((io+1)%16), v)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("找不到 t < busyLast 的探測點")
+	}
+}
+
+// 446 §3 第 4.7 項：時基溢位失敗即關閉。
+func TestSB8BusyOverflow(t *testing.T) {
+	m := newSB8(t, sbOutProg, nil)
+	m.IRQ0Pinned, m.IRQ0Every = true, math.MaxUint64
+	before := sbBusyFields(m)
+	if v := m.In8(0x22C); v != 0xFF {
+		t.Errorf("溢位時回 FFh：%02X", v)
+	}
+	if err := m.SBDMA8Err(); err == nil || !strings.Contains(err.Error(), "時基溢位") || !strings.Contains(err.Error(), "446") {
+		t.Errorf("溢位應失敗即關閉（含「時基溢位」）：%v", err)
+	}
+	if sbBusyFields(m) != before {
+		t.Error("溢位時三欄不動")
+	}
+	if err := m.Step(); err == nil || !strings.Contains(err.Error(), "時基溢位") {
+		t.Errorf("之後的 Step 回同一錯誤：%v", err)
+	}
+}
+
+// 446 §3 第 4.8 項：與傳輸無關（idle、DMA 傳輸中、暫停中、靜音中）。
+func TestSB8BusyIndependentOfTransfer(t *testing.T) {
+	ts := sbBusyTs(1028, 232, 231)
+	var want []byte
+	var ref sbBusyRef
+	for _, x := range ts {
+		want = append(want, ref.read(sbTrigTB, x, false))
+	}
+	for _, x := range []struct {
+		name string
+		prep func(m *Machine)
+	}{
+		{"idle", func(m *Machine) {}},
+		{"DMA 傳輸中", func(m *Machine) { sbProgDMA(m, 0, 0x1000, 0xFFF); sbDSP(m, 0x40, 0xA6, 0x14, 0xFF, 0x0F) }},
+		{"暫停中", func(m *Machine) { sbProgDMA(m, 0, 0x1000, 0xFFF); sbDSP(m, 0x40, 0xA6, 0x14, 0xFF, 0x0F, 0xD0) }},
+		{"靜音中", func(m *Machine) { sbDSP(m, 0x40, 0xA6, 0x80, 0xFF, 0x0F) }},
+	} {
+		m := sbBusyMachine(t)
+		x.prep(m)
+		if m.sb8Err != nil {
+			t.Fatalf("%s：%v", x.name, m.sb8Err)
+		}
+		for i, tt := range ts {
+			if v := sbRead22C(m, tt); v != want[i] {
+				t.Errorf("%s 第 %d 讀：%02X，應為 %02X", x.name, i, v, want[i])
+			}
+		}
+	}
+}
+
+// 446 §3 第 4.9 項：極端大 t（hi ≥ A 的路徑）。
+func TestSB8BusyHugeT(t *testing.T) {
+	m := newSB8(t, sbIdle, func(m *Machine) { m.CycleClock, m.CPUHz = true, 1_000_000; m.RecalcIRQ0() })
+	c := sbTB(1_000_000, 1)
+	sbRead22CCyc(m, math.MaxUint64)
+	if p, _ := c.p(math.MaxUint64); m.sb8.busyIO != p || p != 15 || m.sb8Err != nil {
+		t.Errorf("週期時鐘 Cycles=MaxUint64：p=%d、big %d（試算 15）：%v", m.sb8.busyIO, p, m.sb8Err)
+	}
+	m = newSB8(t, sbIdle, nil)
+	m.IRQ0Pinned, m.IRQ0Every = true, 1000
+	m.Out8(0x43, 0x36)
+	m.Out8(0x40, 0)
+	m.Out8(0x40, 0) // 分頻 65536
+	if m.PITDivisor() != 65536 {
+		t.Fatalf("分頻：%d", m.PITDivisor())
+	}
+	c = sbTB(1000*315_000_000, 264*65536)
+	sbRead22C(m, math.MaxUint64)
+	if p, _ := c.p(math.MaxUint64); m.sb8.busyIO != p || p != 10 || m.sb8Err != nil {
+		t.Errorf("步數時鐘 Steps=MaxUint64：p=%d、big %d（試算 10）：%v", m.sb8.busyIO, p, m.sb8Err)
+	}
+}
+
+// ---- 446 §3 第 2、3 項：idle 與靜音中的 D0h／D4h ----------------------------------
+
+// sbStateNoBusy 回 sb8Save() 的深拷貝，三個忙碌欄位歸零（446 §3 第 2.1 項）。
+func sbStateNoBusy(m *Machine) *sbDMA8State {
+	st := m.sb8Save()
+	st.DSPBusyIO, st.DSPBusyLast, st.DSPBusyLastCycles = 0, 0, false
+	return st
+}
+
+// 446 §3 第 2.1、2.3 項。
+func TestSB8ControlAcceptedIdleAndSilence(t *testing.T) {
+	for _, silence := range []bool{false, true} {
+		for _, seq := range [][]uint8{{0xD0}, {0xD4}, {0xD0, 0xD4}} {
+			m := sbCtlMachine(t, nil)
+			m.CPU.SetFlags(m.CPU.Flags | cpu.IF)
+			sbProgDMA(m, 0, 0x2000, 0x10) // 通道 1 已程式、解除遮罩：idle 控制若動到 DMA 暫存器才比得出來
+			var s uint64
+			if silence {
+				sbDSP(m, 0x40, 0xA6, 0x80, 3)
+				s = sbOutStep(t, m, 0x22C, 0)
+				m.In8(0x22C) // 忙碌欄位不為零也要比得出來（比較時歸零）
+			}
+			due := s + 4170 // 444 §2.4：4 個取樣 × 90 µs，分頻 65536 的指令數時鐘
+			if silence && (m.sb8.due != due || bigDelta([]uint64{4 * 90, 636085, 315_000_000}, []uint64{1_000_000, 264, 65536}) != 4170) {
+				t.Fatalf("靜音的到期：%d", m.sb8.due)
+			}
+			n0 := len(m.SBDMALog)
+			for i, v := range seq {
+				before := sbStateNoBusy(m)
+				st := sbOutStep(t, m, 0x22C, v)
+				if m.sb8Err != nil {
+					t.Fatalf("靜音=%t %02X：應接受：%v", silence, v, m.sb8Err)
+				}
+				// 前後各一次 sb8Save 深拷貝（含 DMA、PIC、DSP 半狀態），忙碌欄位歸零後整體比較。
+				if after := sbStateNoBusy(m); !reflect.DeepEqual(before, after) {
+					t.Errorf("靜音=%t %02X：不應改變狀態：\n%+v\n%+v", silence, v, before, after)
+				}
+				e := m.SBDMALog[n0+i]
+				if e.Kind != "control-idle" || e.Command != v || e.Step != st || e.CS != PSPSeg || e.IP != 0x100 || e.SHA256 != "" || e.Transferred != 0 {
+					t.Errorf("靜音=%t %02X：control-idle 紀錄：%+v", silence, v, e)
+				}
+				if silence && (e.Format != "silence" || e.Due != due || e.Length != 4 || e.Samples != 4) {
+					t.Errorf("靜音中的 control-idle 帶靜音欄位：%+v", e)
+				}
+				if !silence && (e.Format != "" || e.Due != 0 || e.Length != 0) {
+					t.Errorf("idle 的 control-idle 傳輸欄位為零值：%+v", e)
+				}
+			}
+			st := m.SBDMA8Stats()
+			if st.IdleControls != uint64(len(seq)) || st.Pauses != 0 || st.Resumes != 0 || st.Paused || m.sb8.paused {
+				t.Errorf("靜音=%t %X：IdleControls=%d、不得暫停：%+v", silence, seq, len(seq), st)
+			}
+			if !silence {
+				continue
+			}
+			// 靜音照原到期完成並遞送 IRQ7。
+			if got := sbRunUntilComplete(t, m, 6000); got != due {
+				t.Errorf("靜音應在 %d 完成：%d", due, got)
+			}
+			runSteps(t, m, 20, "處理常式")
+			if st := m.SBDMA8Stats(); st.SilenceCompletions != 1 || st.IRQ7Deliveries != 1 || !strings.HasSuffix(logKinds(m), "complete,irq7,eoi") {
+				t.Errorf("靜音完成並遞送 IRQ7：%+v %s", st, logKinds(m))
+			}
+		}
+	}
+}
+
+// 446 §3 第 2.2 項：SaveState 雙機比對。A 寫 D0h、D4h、D3h，B 寫 D3h 三次；最終位元組相同。
+func TestSB8ControlIdleSaveStateEqual(t *testing.T) {
+	for _, silence := range []bool{false, true} {
+		m := sbCtlMachine(t, nil)
+		if silence {
+			sbDSP(m, 0x40, 0xA6, 0x80, 3)
+			sbOutStep(t, m, 0x22C, 0)
+		}
+		sn := m.Snapshot()
+		for _, v := range []uint8{0xD0, 0xD4, 0xD3} {
+			sbOutStep(t, m, 0x22C, v)
+		}
+		a, sa := sbSave(t, m), m.Steps
+		if m.Ports[0x22C] != 0xD3 || m.SBDMA8Stats().IdleControls != 2 {
+			t.Fatalf("靜音=%t：A 的 Ports[22Ch]=%02X", silence, m.Ports[0x22C])
+		}
+		m.Restore(sn)
+		for i := 0; i < 3; i++ {
+			sbOutStep(t, m, 0x22C, 0xD3)
+		}
+		if m.Ports[0x22C] != 0xD3 || m.Steps != sa {
+			t.Fatalf("靜音=%t：B 的 Ports[22Ch]=%02X、步數 %d／%d", silence, m.Ports[0x22C], m.Steps, sa)
+		}
+		if !bytes.Equal(sbSave(t, m), a) {
+			t.Errorf("靜音=%t：idle 控制命令不應改變 SaveState 位元組", silence)
+		}
+	}
+}
+
+// ---- 446 §3 第 5 項：03BC、0228 同形迴圈 -------------------------------------------
+
+const sbBusyFlag = 0x0300 // 03BC 的播放中旗標（cs:[106] 的替身，DS=PSP 段）
+
+// sbStopProg 依 446 §1.2 的形狀組出 03BC 同形程式（不複製原版位元組）：0100 jmp $（前導），
+// 0110 起：進入 8 道、13 道一圈（in 為第 11 道）、mov cx,8000h、5 道一圈、mov al,D0h、out、popf、清旗標、jmp $。
+// 回程式、進入點位移、out 的位移、程式結尾位移。
+func sbStopProg() ([]byte, uint16, uint16, uint16) {
+	code := []byte{0xEB, 0xFE}
+	for len(code) < 0x10 {
+		code = append(code, 0x90)
+	}
+	entry := uint16(0x110)
+	code = append(code,
+		0x55, 0x1E, 0x56, 0x57, 0x9C, // push bp／ds／si／di；pushf
+		0xBA, 0x2C, 0x02, // mov dx,22Ch
+		0xB9, 0x07, 0x00, // mov cx,7
+		0xBB, 0x00, 0x00) // mov bx,0
+	l1 := len(code)
+	code = append(code,
+		0x83, 0xEB, 0x01, // sub bx,1
+		0x83, 0xD9, 0x00, // sbb cx,0
+		0x78, 0x00, // js OUT（後填）
+		0xFB,                               // sti
+		0xEB, 0x00, 0xEB, 0x00, 0xEB, 0x00, // jmp $+2 ×3
+		0x80, 0x3E, byte(sbBusyFlag&0xFF), byte(sbBusyFlag>>8), 0x00, // cmp byte [flag],0
+		0x74, 0x00, // je SKIP（後填）
+		0xFA,       // cli
+		0xEC,       // in al,dx
+		0x08, 0xC0, // or al,al
+		0x79, 0x00) // jns L1（後填）
+	jsOut1, jeSkip, jnsL1 := l1+7, l1+21, len(code)-1
+	code = append(code, 0xB9, 0x00, 0x80) // mov cx,8000h
+	l2 := len(code)
+	code = append(code,
+		0x49,       // dec cx
+		0x74, 0x00, // je OUT（後填）
+		0xEC,       // in al,dx
+		0x08, 0xC0, // or al,al
+		0x78, 0x00) // js L2（後填）
+	jeOut2, jsL2 := l2+2, len(code)-1
+	out := len(code)
+	code = append(code, 0xB0, 0xD0, 0xEE) // mov al,D0h；out dx,al
+	skip := len(code)
+	code = append(code, 0x9D, 0xC6, 0x06, byte(sbBusyFlag&0xFF), byte(sbBusyFlag>>8), 0x00, 0xEB, 0xFE)
+	rel := func(at, to int) { code[at] = byte(int8(to - (at + 1))) }
+	rel(jsOut1, out)
+	rel(jeSkip, skip)
+	rel(jnsL1, l1)
+	rel(jeOut2, out)
+	rel(jsL2, l2)
+	return code, entry, 0x100 + uint16(out) + 2, 0x100 + uint16(len(code))
+}
+
+// sbStopSteps 是 446 §2.5 的步數：8 + 13j + 1 + 5k + 2（含 out）。
+func sbStopSteps(p0 uint8) uint64 {
+	j, k := uint64(1), uint64(8-int(p0))
+	if p0 >= 8 {
+		j, k = uint64(17-int(p0)), 8
+	}
+	return 8 + 13*j + 1 + 5*k + 2
+}
+
+// sbLoopMachine 造一台步數時鐘（觸發案例）的機器，遮罩 IRQ0，CPU 在 0100 的 jmp $。
+func sbLoopMachine(t *testing.T, code []byte) *Machine {
+	t.Helper()
+	m := newSB8(t, code, nil)
+	m.IRQ0Pinned, m.IRQ0Every = true, 96506
+	m.Out8(0x43, 0x36)
+	m.Out8(0x40, 9943&0xFF)
+	m.Out8(0x40, 9943>>8)
+	m.Out8(0x21, 0x01) // IMR bit0：遮罩 IRQ0
+	return m
+}
+
+// sbStepIn 單步執行，斷言沒有處理常式插入（CS 為 PSP 段、IP 落在程式範圍內）。
+func sbStepIn(t *testing.T, m *Machine, lo, hi uint16) {
+	t.Helper()
+	mustStep(t, m, "迴圈")
+	if m.CPU.Seg[cpu.CS] != PSPSeg || m.CPU.IP < lo || m.CPU.IP >= hi {
+		t.Fatalf("第 %d 步跑到 %04X:%04X：有其他事件插入", m.Steps, m.CPU.Seg[cpu.CS], m.CPU.IP)
+	}
+}
+
+// 446 §3 第 5 項：03BC 同形迴圈在 DMA 傳輸中呼叫，D0h 的步號減進入步號等於 §2.5 表中 p₀ 對應的值，且 ≤ 168；寫 D0h 後傳輸暫停。
+// 「進入步號」是第一道指令的序號減一，所以步號差等於含 out 在內的執行道數。
+func TestSB8BusyStopLoop(t *testing.T) {
+	table := [16]uint64{64, 59, 54, 49, 44, 39, 34, 29, 168, 155, 142, 129, 116, 103, 90, 77}
+	code, entry, outIP, end := sbStopProg()
+	seen := map[uint8]bool{}
+	for pre := 300; len(seen) < 16 && pre < 600; pre++ {
+		m := sbLoopMachine(t, code)
+		m.Mem[uint32(PSPSeg)*16+sbBusyFlag] = 1
+		sbProgDMA(m, 0, 0x1000, 0xFFF)
+		sbDSP(m, 0x40, 0xA6, 0x14, 0xFF, 0x0F)
+		runSteps(t, m, pre, "前導")
+		m.CPU.IP = entry
+		e := m.Steps
+		p0, _ := sbTrigTB.p(e + 8 + 11) // 第一次 in 是第 19 道；busyLast=0、t ≥ 232，重新取相位
+		for i := 0; i < 200 && !m.sb8.paused; i++ {
+			sbStepIn(t, m, 0x100, end)
+		}
+		if !m.sb8.paused || m.sb8Err != nil {
+			t.Fatalf("前導 %d：寫 D0h 後傳輸應暫停：%v", pre, m.sb8Err)
+		}
+		d := sbFind(t, m, "pause", 0).Step - e
+		if d != sbStopSteps(p0) || d != table[p0] || d > 168 {
+			t.Errorf("前導 %d、p₀=%d：步數 %d，應為 %d", pre, p0, d, table[p0])
+		}
+		if ev := sbFind(t, m, "pause", 0); ev.IP != outIP || ev.CS != PSPSeg || ev.Command != 0x14 {
+			t.Errorf("pause 應在 out（%04X）、Command 14h：%+v", outIP, ev)
+		}
+		seen[p0] = true
+	}
+	if len(seen) != 16 {
+		t.Errorf("p₀ 應涵蓋 16 個值：%v", seen)
+	}
+}
+
+// 446 §3 第 5 項：0228 同形的 6 道迴圈（等 bit7 落下）讀取次數 ≤ 9。
+func TestSB8BusyWriteWaitLoop(t *testing.T) {
+	code := []byte{0xEB, 0xFE}
+	for len(code) < 0x10 {
+		code = append(code, 0x90)
+	}
+	code = append(code, 0xBA, 0x2C, 0x02, 0xB9, 0x03, 0x00, 0xBB, 0x00, 0x01) // mov dx,22Ch；mov cx,3；mov bx,100h（不借位）
+	l := len(code)
+	code = append(code, 0x83, 0xEB, 0x01, 0x83, 0xD9, 0x00, 0x78, 0x00, 0xEC, 0x08, 0xC0, 0x78, 0x00) // sub；sbb；js T；in；or；js L
+	code[l+7] = byte(int8(len(code) - (l + 8)))
+	code[len(code)-1] = byte(int8(l - len(code)))
+	after := 0x100 + uint16(len(code))
+	code = append(code, 0xEB, 0xFE)
+	end := 0x100 + uint16(len(code))
+	seen := map[uint8]bool{}
+	for pre := 300; len(seen) < 16 && pre < 600; pre++ {
+		m := sbLoopMachine(t, code)
+		runSteps(t, m, pre, "前導")
+		m.CPU.IP = 0x110
+		p0, _ := sbTrigTB.p(m.Steps + 3 + 4) // 第一次 in 是第 7 道
+		for i := 0; i < 100 && m.CPU.IP != after; i++ {
+			sbStepIn(t, m, 0x100, end)
+		}
+		want := uint64(1)
+		if p0 < 8 {
+			want = uint64(9 - p0)
+		}
+		if n := m.PortsIn[0x22C]; m.CPU.IP != after || n != want || n > 9 || m.CPU.R[cpu.CX] != 3 {
+			t.Errorf("前導 %d、p₀=%d：讀取 %d 次（應 %d、≤ 9），IP=%04X", pre, p0, n, want, m.CPU.IP)
+		}
+		seen[p0] = true
+	}
+	if len(seen) != 16 {
+		t.Errorf("p₀ 應涵蓋 16 個值：%v", seen)
+	}
+}
+
+// ---- 446 §3 第 6 項：狀態檔 -------------------------------------------------------
+
+func TestSB8BusyStateRoundTrip(t *testing.T) {
+	ts := sbBusyTs(1028, 232, 231)
+	fresh := func() *Machine {
+		n := New()
+		n.SetSoundBlaster(true)
+		mustNil(t, "SetSBDMA8", n.SetSBDMA8(true))
+		return n
+	}
+	ref := sbBusyMachine(t)
+	var want []byte
+	for _, x := range ts {
+		want = append(want, sbRead22C(ref, x))
+	}
+	final := sbSave(t, ref)
+	const mid = 8 // 第一個迴圈讀到一半（連續讀取中）
+	m := sbBusyMachine(t)
+	for _, x := range ts[:mid] {
+		sbRead22C(m, x)
+	}
+	saved := sbSave(t, m)
+	n := fresh()
+	mustNil(t, "LoadState", n.LoadState(bytes.NewReader(saved)))
+	for i, x := range ts[mid:] {
+		if v := sbRead22C(n, x); v != want[mid+i] {
+			t.Errorf("LoadState 之後第 %d 讀：%02X，應為 %02X", mid+i, v, want[mid+i])
+		}
+	}
+	if !bytes.Equal(sbSave(t, n), final) {
+		t.Error("SaveState／LoadState 之後的最終狀態應與不中斷的執行相同")
+	}
+	sn := m.Snapshot()
+	for _, x := range ts[mid:] {
+		sbRead22C(m, x+5)
+	}
+	m.Restore(sn)
+	for i, x := range ts[mid:] {
+		if v := sbRead22C(m, x); v != want[mid+i] {
+			t.Errorf("Restore 之後第 %d 讀：%02X，應為 %02X", mid+i, v, want[mid+i])
+		}
+	}
+	if !bytes.Equal(sbSave(t, m), final) {
+		t.Error("Snapshot／Restore 之後的最終狀態應與不中斷的執行相同")
+	}
+
+	// DSPBusyIO=16 的竄改檔被拒、機器不變。
+	on := sbBusyMachine(t)
+	sbRead22C(on, 3000)
+	before := sbSave(t, on)
+	if err := on.LoadState(bytes.NewReader(sbReencode(t, saved, func(st *sbDMA8State) { st.DSPBusyIO = 16 }))); err == nil ||
+		!strings.Contains(err.Error(), "446") || !bytes.Equal(sbSave(t, on), before) {
+		t.Errorf("DSPBusyIO=16 應被拒且機器不變：%v", err)
+	}
+	if err := on.LoadState(bytes.NewReader(sbReencode(t, saved, func(st *sbDMA8State) { st.DSPBusyIO = 15 }))); err != nil {
+		t.Errorf("DSPBusyIO=15 應可讀：%v", err)
+	}
+
+	// 不含三欄的 445 版 sbDMA8State（欄位子集的型別）讀成零值。
+	var fields []reflect.StructField
+	rt := reflect.TypeOf(sbDMA8State{})
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		switch f.Name {
+		case "DSPBusyIO", "DSPBusyLast", "DSPBusyLastCycles":
+			continue
+		}
+		fields = append(fields, reflect.StructField{Name: f.Name, Type: f.Type})
+	}
+	old := reflect.New(reflect.StructOf(fields))
+	dec := gob.NewDecoder(bytes.NewReader(saved))
+	var ms machineState
+	mustNil(t, "decode", dec.Decode(&ms))
+	mustNil(t, "decode 445", dec.Decode(old.Interface()))
+	var b bytes.Buffer
+	enc := gob.NewEncoder(&b)
+	mustNil(t, "encode", enc.Encode(&ms))
+	mustNil(t, "encode 445", enc.Encode(old.Interface()))
+	if bytes.Contains(b.Bytes(), []byte("DSPBusy")) {
+		t.Fatal("445 版的編碼不應含新欄位")
+	}
+	o := fresh()
+	mustNil(t, "LoadState 445 版", o.LoadState(bytes.NewReader(b.Bytes())))
+	if sbBusyFields(o) != [3]uint64{} || ts[mid-1] == 0 {
+		t.Errorf("445 版讀成零值：%v", sbBusyFields(o))
+	}
+	sbReencode(t, saved, func(st *sbDMA8State) {
+		if st.DSPBusyLast != ts[mid-1] {
+			t.Errorf("存檔的 DSPBusyLast 應為 %d：%d", ts[mid-1], st.DSPBusyLast)
+		}
+	})
+
+	// 三欄為零時 JSON 不含欄名；非零時 StateDigest 改變。
+	jp, _ := json.Marshal(o.sb8Save())
+	for _, name := range []string{`"DSPBusyIO"`, `"DSPBusyLast"`, `"DSPBusyLastCycles"`} {
+		if bytes.Contains(jp, []byte(name)) {
+			t.Errorf("三欄為零時 JSON 不應含 %s", name)
+		}
+	}
+	d1, err := StateDigest(bytes.NewReader(saved))
+	mustNil(t, "StateDigest", err)
+	d2, err := StateDigest(bytes.NewReader(sbReencode(t, saved, func(st *sbDMA8State) {
+		st.DSPBusyIO, st.DSPBusyLast, st.DSPBusyLastCycles = 0, 0, false
+	})))
+	mustNil(t, "StateDigest", err)
+	if d1 == d2 {
+		t.Error("三欄非零時 StateDigest 應改變")
+	}
+
+	// 週期時鐘：存檔、讀回後同一點讀值相同；所選的點不重新取相位時（加一）與重新取相位時讀值不同。
+	c := sbTB(33_000_000, 1)
+	found := false
+	for c0 := uint64(5000); c0 < 100000 && !found; c0++ {
+		p0, far0 := c.p(c0)
+		c1 := c0 + 13
+		p1, far1 := c.p(c1)
+		if !far0 || !far1 || sbBusyByte(p1) == sbBusyByte((p0+1)%16) {
+			continue
+		}
+		found = true
+		prep := func(m *Machine) { m.CycleClock, m.CPUHz = true, 33_000_000; m.RecalcIRQ0() }
+		r := newSB8(t, sbIdle, prep)
+		sbRead22CCyc(r, c0)
+		sv := sbSave(t, r)
+		wantV := sbRead22CCyc(r, c1)
+		if wantV != sbBusyByte((p0+1)%16) {
+			t.Fatalf("週期時鐘不中斷：加一應得 %02X：%02X", sbBusyByte((p0+1)%16), wantV)
+		}
+		n := New()
+		n.SetSoundBlaster(true)
+		mustNil(t, "SetSBDMA8", n.SetSBDMA8(true))
+		mustNil(t, "LoadState 週期時鐘", n.LoadState(bytes.NewReader(sv)))
+		if !n.sb8.busyLastCycles {
+			t.Error("讀回後 busyLastCycles 應為真")
+		}
+		if v := sbRead22CCyc(n, c1); v != wantV {
+			t.Errorf("週期時鐘讀回後同一點讀值應相同：%02X，應為 %02X", v, wantV)
+		}
+	}
+	if !found {
+		t.Fatal("找不到週期時鐘的探測點")
+	}
+}
+
+// 444 §2.4、446 §2.4（PITDiv 為欄位 m.PITDiv）：讀檔後開始的新傳輸，Δ 與 SBDMAEvent.PITDiv 與不存讀的執行相同。
+// m.pit.divisor 讀檔後不還原（446 §4.1），時基若讀 PITDivisor() 會在這裡差出來。
+func TestSB8DeltaAfterLoadState(t *testing.T) {
+	want := bigDelta([]uint64{4 * 90, 96506, 315_000_000}, []uint64{1_000_000, 264, 9943})
+	start := func(m *Machine) (uint64, SBDMAEvent) {
+		sbProgDMA(m, 0, 0x1000, 3)
+		sbDSP(m, 0x40, 0xA6, 0x14, 3, 0)
+		if !m.sb8.active || m.sb8Err != nil {
+			t.Fatalf("傳輸應開始：%v", m.sb8Err)
+		}
+		return m.sb8.due - m.sb8.start, sbFind(t, m, "start", 0)
+	}
+	ref := sbBusyMachine(t)
+	runSteps(t, ref, 10, "")
+	d0, e0 := start(ref)
+	if d0 != want || e0.PITDiv != 9943 {
+		t.Fatalf("不存讀：Δ=%d（應 %d）、PITDiv=%d", d0, want, e0.PITDiv)
+	}
+	m := sbBusyMachine(t)
+	runSteps(t, m, 10, "")
+	saved := sbSave(t, m)
+	n := New()
+	n.SetSoundBlaster(true)
+	mustNil(t, "SetSBDMA8", n.SetSBDMA8(true))
+	mustNil(t, "LoadState", n.LoadState(bytes.NewReader(saved)))
+	d1, e1 := start(n)
+	if d1 != d0 || e1.PITDiv != e0.PITDiv || e1.Due != e0.Due {
+		t.Errorf("讀檔後的新傳輸：Δ=%d、PITDiv=%d、Due=%d，應為 %d、%d、%d", d1, e1.PITDiv, e1.Due, d0, e0.PITDiv, e0.Due)
 	}
 }

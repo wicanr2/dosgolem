@@ -157,3 +157,42 @@ func TestSBDMA8PauseReport(t *testing.T) {
 		}
 	}
 }
+
+// docs/spec/446-legacy-sb16-idle-control-and-busy-cycle §3 第 7 項（probe 部分）：-sb-dma-log 的說明文字含 control-idle；
+// reportSBDMA8 印出 idle 控制次數與 22Ch、22Eh 的讀取次數。
+func TestSBDMA8IdleReport(t *testing.T) {
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	sbDMA8Flags(fs)
+	if u := fs.Lookup("sb-dma-log").Usage; !strings.Contains(u, "control-idle") {
+		t.Errorf("-sb-dma-log 的說明文字應列出 control-idle：%s", u)
+	}
+	m := machine.New()
+	m.SetSoundBlaster(true)
+	if err := configureSBDMA8(m, true, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.LoadCOM([]byte{0xEB, 0xFE}); err != nil {
+		t.Fatal(err)
+	}
+	// 機器層測試以 In8 代替 CPU 的 in（446 §2.4「讀取的來源」）。
+	for _, w := range [][2]uint16{{0x22C, 0xD0}, {0x22C, 0xD4}, {0x22C, 0x40}, {0x22C, 0xA6}, {0x22C, 0x80}, {0x22C, 3}, {0x22C, 0}, {0x22C, 0xD0}} {
+		m.Out8(w[0], uint8(w[1]))
+	}
+	for i := 0; i < 3; i++ {
+		m.In8(0x22C)
+	}
+	m.In8(0x22E)
+	if err := m.SBDMA8Err(); err != nil {
+		t.Fatal(err)
+	}
+	if st := m.SBDMA8Stats(); st.IdleControls != 3 || st.Pauses != 0 {
+		t.Errorf("IdleControls 應為 3：%+v", st)
+	}
+	var b bytes.Buffer
+	reportSBDMA8(&b, m)
+	for _, want := range []string{"D0h／D4h 3 次", "22Ch 讀取 3 次", "22Eh 讀取 1 次", "docs/spec/446"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("報告應含 %q：%s", want, b.String())
+		}
+	}
+}

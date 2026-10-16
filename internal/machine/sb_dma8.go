@@ -18,6 +18,9 @@ import (
 //
 // DSP D0h／D4h 的暫停與恢復見 docs/spec/445-legacy-sb16-dma8-pause-resume：暫停視為已停止的傳輸，
 // 暫停期間可改寫 DMA，新的啟動命令隱式取消舊傳輸。
+//
+// idle 與靜音中的 D0h／D4h（接受、無狀態變化）與 22Ch 的忙碌週期見
+// docs/spec/446-legacy-sb16-idle-control-and-busy-cycle。
 
 const (
 	// sbDMA8StateV 是 sbDMA8State 自帶的版本號（§2.9）。
@@ -28,6 +31,8 @@ const (
 	sbDMALogMax = 4096
 	// sbDMA8Ch 是固定的 8 位元 DMA 通道（§2.1）。
 	sbDMA8Ch = 1
+	// sbBusyHz 是 446 §2.4 的 H：DOSBox-X busy_cycle_hz 的預設 8333333/6/16（C 整數除法，sblaster.cpp:4344）。
+	sbBusyHz = 8333333 / 6 / 16
 )
 
 // sbDMA8 是 §2.2–§2.7 的狀態：主片 8237 暫存器檔、TC 位元、PIC 的 IRQ7 最小模型與進行中的傳輸。
@@ -57,6 +62,13 @@ type sbDMA8 struct {
 	pauses       uint64 // 實際進入暫停的次數（診斷，不進狀態檔，§2.9）
 	resumes      uint64 // 實際恢復的次數（診斷，不進狀態檔）
 
+	// 446 §2.4：22Ch 的忙碌週期（busy_cycle_io_hack、busy_cycle_last_check）。進狀態檔（446 §2.6）。
+	busyIO         uint8  // busy_cycle_io_hack 對 16 取餘
+	busyLast       uint64 // 上一次一般狀態下讀 22Ch 的 t
+	busyLastCycles bool   // busyLast 的單位：真為 CPU.Cycles
+	// 446 §2.3：idle 與靜音中被接受的 D0h／D4h 次數（診斷，不進狀態檔）。
+	idleControls uint64
+
 	dma8Completions    uint64
 	silenceCompletions uint64
 	irq7Deliveries     uint64
@@ -71,6 +83,8 @@ type SBDMA8Stats struct {
 	// 445 §2.9：Paused 是目前狀態；Pauses、Resumes 是診斷計數（不進狀態檔，讀檔後從本機的累計繼續）。
 	Paused          bool
 	Pauses, Resumes uint64
+	// 446 §2.3：idle 與靜音中被接受的 D0h／D4h 次數（診斷，不進狀態檔）。
+	IdleControls uint64
 }
 
 // SoundBlaster 回 SetSoundBlaster 設的值（§2.1，與 AdLib 同類）。
@@ -87,7 +101,7 @@ func (m *Machine) SBDMA8Stats() SBDMA8Stats {
 	}
 	return SBDMA8Stats{DMA8Completions: s.dma8Completions, SilenceCompletions: s.silenceCompletions,
 		IRQ7Deliveries: s.irq7Deliveries, IRQ7Defaulted: s.irq7Defaulted, IRR7: s.irr7, ISR7: s.isr7, Active: s.active,
-		Paused: s.paused, Pauses: s.pauses, Resumes: s.resumes}
+		Paused: s.paused, Pauses: s.pauses, Resumes: s.resumes, IdleControls: s.idleControls}
 }
 
 // SBDMA8Err 回 §2.7 的黏著錯誤（沒有時 nil）。
@@ -274,7 +288,7 @@ func (m *Machine) sb8Delta(samples, r, d uint64) (uint64, bool) {
 		if hi, lo, ok = mul128x64(h, l, 315_000_000); !ok {
 			return 0, false
 		}
-		if den, ok = mulU64(r, 264, uint64(m.PITDivisor())); !ok {
+		if den, ok = mulU64(r, 264, uint64(m.PITDiv)); !ok {
 			return 0, false
 		}
 	default:
@@ -440,7 +454,7 @@ func sbDMACmd(cmd uint8) bool {
 	return mult != 0 && cmd != 0x80
 }
 
-// sb8Control 是 SoundBlasterDSP.ControlDMA8（445 §2.3）：paused 為真代表 D0h，否則 D4h。
+// sb8Control 是 SoundBlasterDSP.ControlDMA8（445 §2.3，446 §2.2 修訂）：paused 為真代表 D0h，否則 D4h。
 // 拒絕時先以 sb8Fail 寫入訊息再回 false（sb8Fail 只留第一個錯誤，所以保留的是這裡的訊息）。
 func (m *Machine) sb8Control(paused bool) bool {
 	s := m.sb8
@@ -449,12 +463,12 @@ func (m *Machine) sb8Control(paused bool) bool {
 		op = 0xD0
 	}
 	switch {
-	case !s.active:
-		m.sb8Fail("DSP 寫入 22Ch←%02Xh 未被接受：沒有進行中的傳輸（docs/spec/445 §2.3）", op)
-		return false
-	case !sbDMACmd(s.cmd):
-		m.sb8Fail("DSP 寫入 22Ch←%02Xh 未被接受：靜音區塊（80h）進行中，沒有 DMA 請求可暫停或恢復（docs/spec/445 §2.3）", op)
-		return false
+	case !s.active: // 446 §2.2：idle 接受，無狀態變化
+		m.sb8IdleControl(op, false)
+		return true
+	case !sbDMACmd(s.cmd): // 446 §2.2：80h 靜音中接受，無狀態變化；靜音照原到期時刻完成
+		m.sb8IdleControl(op, true)
+		return true
 	case paused:
 		if s.paused { // 冪等：pausedAt 不覆寫，不計數
 			return true
@@ -473,6 +487,15 @@ func (m *Machine) sb8Control(paused bool) bool {
 		return false
 	}
 	return m.sb8Resume()
+}
+
+// sb8IdleControl 是 446 §2.2 前兩列的接受：只計數與記 control-idle（446 §2.3），不動任何狀態。
+// silence 為真時帶入靜音的傳輸欄位（Format=silence），再把 Command 覆寫為 D0h 或 D4h。
+func (m *Machine) sb8IdleControl(op uint8, silence bool) {
+	m.sb8.idleControls++
+	e := m.sb8Event("control-idle", true, silence)
+	e.Command = op
+	m.sb8Log(e)
 }
 
 // sb8Resume 是 445 §2.5 的恢復：d = now − pausedAt，start、due 各加 d；due + d 溢位時失敗即關閉、欄位都不改。
@@ -497,7 +520,7 @@ func (m *Machine) sb8Resume() bool {
 
 // ---- §2.2、§2.6 埠 ------------------------------------------------------------
 
-// sb8In 處理選項開啟時的讀取：00h–08h、20h、A0h、A1h、頁暫存器與 22Eh。回 false 表示交回既有路徑。
+// sb8In 處理選項開啟時的讀取：00h–08h、20h、A0h、A1h、頁暫存器、22Ch（446 §2.4）與 22Eh。回 false 表示交回既有路徑。
 func (m *Machine) sb8In(port uint16) (uint8, bool) {
 	s := m.sb8
 	switch port {
@@ -531,12 +554,86 @@ func (m *Machine) sb8In(port uint16) (uint8, bool) {
 			return v, true
 		}
 		return 0, false // 未寫過的頁暫存器維持現況（FFh）
+	case 0x22C:
+		return m.sb8BusyRead(), true
 	case 0x22E:
 		v, _ := m.soundBlaster.In8(port) // 清 IRQPending
 		s.irr7 = false                   // 尚未被 CPU 接受的 IRR7 一併清除（sblaster.cpp:3158-3163）
 		return v, true
 	}
 	return 0, false
+}
+
+// ---- 446 §2.4 22Ch 的忙碌週期 ------------------------------------------------
+
+// sb8BusyRead 是 446 §2.4 的「每次讀取」。只由 CPU 的 in（含 insb）經 Machine.In8 觸發；主機端工具不得以 In8(22Ch) 窺看。
+//
+// 時基 A/B 與三個常數先算；溢位或 A==0 時失敗即關閉、回 FFh，三個忙碌欄位不動。
+func (m *Machine) sb8BusyRead() uint8 {
+	s := m.sb8
+	if m.soundBlaster.reset { // 226h 寫 1 之後、寫 0 之前：回 FFh，三欄不動（sblaster.cpp:3216-3218）
+		return 0xFF
+	}
+	a, k, g, ok := m.sb8BusyRate()
+	if !ok {
+		m.sb8Fail("22Ch 忙碌週期的時基溢位（CycleClock=%t、CPUHz=%d、IRQ0Every=%d、PITDiv=%d、ClockPercent=%d，docs/spec/446 §2.4）",
+			m.CycleClock, m.CPUHz, m.IRQ0Every, m.PITDiv, m.ClockPercent())
+		return 0xFF
+	}
+	t := m.Steps
+	if m.CycleClock {
+		t = m.CPU.Cycles
+	}
+	s.busyIO = (s.busyIO + 1) & 15 // 第 1 步：在判斷之前（sblaster.cpp:3204）
+	rephase := s.busyLastCycles != m.CycleClock || t < s.busyLast
+	if !rephase { // 20 µs：(t − busyLast)·50000·B ≥ A（sblaster.cpp:1756 的 >=）
+		gh, gl := bits.Mul64(t-s.busyLast, g)
+		rephase = gh != 0 || gl >= a
+	}
+	if rephase { // p(t) = ⌊16·H·B·t / A⌋ mod 16（sblaster.cpp:1757）
+		hi, lo := bits.Mul64(k, t)
+		q, _ := bits.Div64(hi%a, lo, a) // 2^64 是 16 的倍數，只需商的低 64 位元
+		s.busyIO = uint8(q & 15)
+	}
+	s.busyLast, s.busyLastCycles = t, m.CycleClock // 第 3 步：每次都更新（sblaster.cpp:1759）
+	if s.busyIO < 8 {                              // duty 50：(io·100)/16 < 50 ⇔ io < 8
+		return 0xFF
+	}
+	return 0x7F
+}
+
+// sb8BusyRate 回 446 §2.4 的 A（每秒時鐘數的分子）、K = 16·H·B、G = 50000·B。任一溢位或 A==0 時 ok 為假。
+// 時鐘種類、PIT 分頻、IRQ0Every、時脈比例都取讀取當下的值（不用傳輸的 s.cycles）。
+func (m *Machine) sb8BusyRate() (a, k, g uint64, ok bool) {
+	var b uint64
+	switch {
+	case m.CycleClock:
+		a = m.CPUHz
+		if a == 0 {
+			a = DefaultCPUHz
+		}
+		b, ok = 1, true
+	case m.IRQ0Every > 0:
+		if a, ok = mulU64(m.IRQ0Every, 315_000_000); !ok {
+			return 0, 0, 0, false
+		}
+		b, ok = mulU64(264, uint64(m.PITDiv))
+	default:
+		if a, ok = mulU64(165_000, 315_000_000, uint64(m.ClockPercent())); !ok {
+			return 0, 0, 0, false
+		}
+		b, ok = mulU64(264, 17_000, 100)
+	}
+	if !ok || a == 0 {
+		return 0, 0, 0, false
+	}
+	if k, ok = mulU64(16, sbBusyHz, b); !ok {
+		return 0, 0, 0, false
+	}
+	if g, ok = mulU64(50_000, b); !ok {
+		return 0, 0, 0, false
+	}
+	return a, k, g, true
 }
 
 // sb8ReadDMAReg 讀 00h–07h：依 flip-flop 取低／高位元組並切換；Known 位元缺時不切換、回 FFh 並計數。
@@ -801,8 +898,8 @@ func (m *Machine) sb8Mode() string {
 	return "real"
 }
 
-// sb8Event 組一筆觀測。inInsn：事件發生在指令執行中（start、cancel、eoi、pause、resume），CS:IP 取本道指令起點；
-// 否則（complete、irq7、defaulted）取步間的 CS:IP。xfer：帶入傳輸欄位（start、complete、cancel、pause、resume）。
+// sb8Event 組一筆觀測。inInsn：事件發生在指令執行中（start、cancel、eoi、pause、resume、control-idle），CS:IP 取本道指令起點；
+// 否則（complete、irq7、defaulted）取步間的 CS:IP。xfer：帶入傳輸欄位（start、complete、cancel、pause、resume、靜音中的 control-idle）。
 func (m *Machine) sb8Event(kind string, inInsn, xfer bool) SBDMAEvent {
 	s := m.sb8
 	dsp := &m.soundBlaster
@@ -810,7 +907,7 @@ func (m *Machine) sb8Event(kind string, inInsn, xfer bool) SBDMAEvent {
 		CS: m.CPU.Seg[cpu.CS], IP: m.CPU.IP,
 		RateNum: dsp.RateNumerator, RateDen: dsp.RateDenominator, TimeConstant: dsp.TimeConstant,
 		TCKnown: dsp.TimeConstantKnown, SpeakerOn: dsp.SpeakerOn,
-		IRQ0Every: m.IRQ0Every, PITDiv: m.PITDivisor(), Clock: "steps"}
+		IRQ0Every: m.IRQ0Every, PITDiv: m.PITDiv, Clock: "steps"}
 	if inInsn {
 		e.CS, e.IP = m.insnCS, m.insnIP
 	}
@@ -919,6 +1016,11 @@ type sbDMA8State struct {
 	PausedAt                uint64 `json:",omitempty"`
 	DMARewrittenWhilePaused bool   `json:",omitempty"`
 
+	// 446 §2.6：22Ch 忙碌週期。omitempty 讓三欄為零值時的 JSON 與 445 版相同。
+	DSPBusyIO         uint8  `json:",omitempty"`
+	DSPBusyLast       uint64 `json:",omitempty"`
+	DSPBusyLastCycles bool   `json:",omitempty"`
+
 	DMA8Completions, SilenceCompletions, IRQ7Deliveries, IRQ7Defaulted uint64
 }
 
@@ -945,6 +1047,7 @@ func (m *Machine) sb8Save() *sbDMA8State {
 		Active: s.active, Cmd: s.cmd, N: s.n, Samples: s.samples, Start: s.start, Due: s.due, CycleUnit: s.cycles,
 		Addr: s.addr, Count: s.count,
 		Paused: s.paused, PausedAt: s.pausedAt, DMARewrittenWhilePaused: s.dmaRewritten,
+		DSPBusyIO: s.busyIO, DSPBusyLast: s.busyLast, DSPBusyLastCycles: s.busyLastCycles,
 
 		DMA8Completions: s.dma8Completions, SilenceCompletions: s.silenceCompletions,
 		IRQ7Deliveries: s.irq7Deliveries, IRQ7Defaulted: s.irq7Defaulted,
@@ -975,13 +1078,14 @@ func (m *Machine) sb8Apply(st *sbDMA8State) {
 	s.start, s.due, s.cycles = st.Start, st.Due, st.CycleUnit
 	s.addr, s.count = st.Addr, st.Count
 	s.paused, s.pausedAt, s.dmaRewritten = st.Paused, st.PausedAt, st.DMARewrittenWhilePaused
+	s.busyIO, s.busyLast, s.busyLastCycles = st.DSPBusyIO, st.DSPBusyLast, st.DSPBusyLastCycles
 
 	s.dma8Completions, s.silenceCompletions = st.DMA8Completions, st.SilenceCompletions
 	s.irq7Deliveries, s.irq7Defaulted = st.IRQ7Deliveries, st.IRQ7Defaulted
 	m.wireSB8()
 }
 
-// sb8Validate 是 445 §2.10 的讀檔驗證（LoadState 在 V 的檢查之後、任何寫入之前呼叫）。
+// sb8Validate 是 445 §2.10、446 §2.6 的讀檔驗證（LoadState 在 V 的檢查之後、任何寫入之前呼叫）。
 func sb8Validate(st *sbDMA8State) error {
 	switch {
 	case st.Paused && (!st.Active || st.Cmd == 0x80):
@@ -993,6 +1097,8 @@ func sb8Validate(st *sbDMA8State) error {
 	case !st.Paused && (st.PausedAt != 0 || st.DMARewrittenWhilePaused):
 		return fmt.Errorf("machine: sbDMA8State 未暫停但暫停欄位不為零（PausedAt=%d、DMARewrittenWhilePaused=%t，docs/spec/445 §2.10）",
 			st.PausedAt, st.DMARewrittenWhilePaused)
+	case st.DSPBusyIO >= 16:
+		return fmt.Errorf("machine: sbDMA8State 的 DSPBusyIO=%d 不小於 16（docs/spec/446 §2.6）", st.DSPBusyIO)
 	}
 	return nil
 }
