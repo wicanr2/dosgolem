@@ -763,10 +763,9 @@ func main() {
 		// 在我們這台上全是 0，而 `00 00` ＝ `add [bx+si],al` 一路解得下去，
 		// 所以飛掉之後不會有任何錯誤——只會安靜地走完幾百萬道指令
 		// （第一次實驗就是這樣，停在 A303:60BD）。
-		// 434 §7：以 PCLinear()（分段模式為 CS 快取基底＋IP）判斷。
-		if a := m.PCLinear(); a >= machine.VideoSeg*16 && a < machine.MemSize {
-			runErr = fmt.Errorf("跑出可用記憶體：CS:IP ＝ %04X:%04X（線性 %05X）",
-				m.CPU.Seg[cpu.CS], m.CPU.IP, a)
+		// 434 §7、438：以下一道指令的實體位址判斷（pcGuard）。
+		if err := pcGuard(m); err != nil {
+			runErr = err
 			break
 		}
 		if *mouseX >= 0 && m.Steps == moveAt {

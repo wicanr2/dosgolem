@@ -1678,6 +1678,24 @@ func (m *Machine) PCLinear() uint32 {
 	return cpu.Linear(m.CPU.Seg[cpu.CS], m.CPU.IP)
 }
 
+// PCPhys 是下一道指令的實體位址（docs/spec/438 §2），只供 probe 的視訊區護欄用。
+// 轉換關閉時等於 PCLinear()；轉換開啟時與 peekLin 同法：分頁開啟才走頁表（無副作用的
+// peekXlatPage），之後套 A20。頁不存在時回 false。
+func (m *Machine) PCPhys() (uint32, bool) {
+	a := m.PCLinear()
+	if !m.xlat {
+		return a, true
+	}
+	if m.paging {
+		p, ok := m.peekXlatPage(a)
+		if !ok {
+			return 0, false
+		}
+		a = p
+	}
+	return m.a20Mask(a), true
+}
+
 // InsnLinear 是本道指令起點（Step 進來時的 CS:IP）的線性位址（434 §7）：分段模式以 Step 記下的
 // CS 快取基底加 insnIP，否則為 cpu.Linear(insnCS, insnIP)。
 func (m *Machine) InsnLinear() uint32 {
