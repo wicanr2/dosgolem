@@ -61,9 +61,9 @@ func (c *CPU) execute0F() error {
 			v = c.pop()
 		}
 		if op2 == 0xA1 {
-			c.FSeg = v
+			c.loadSeg(FS, v)
 		} else {
-			c.GSeg = v
+			c.loadSeg(GS, v)
 		}
 
 	case op2 == 0xA3, op2 == 0xAB, op2 == 0xB3, op2 == 0xBB:
@@ -134,21 +134,30 @@ func (c *CPU) execute0F() error {
 			return c.errf(op2, "0F %02X：來源必須是記憶體", op2)
 		}
 		c.charge(cycFar)
+		// 遠指標先整個讀完，再載入段暫存器，最後寫通用暫存器（同 LES／LDS，434 §5.1）。
+		var off uint32
 		var seg uint16
 		if c.operand32 {
-			c.setReg32(m.reg, c.read32(m.rm.seg, m.rm.off))
-			seg = c.read16(m.rm.seg, m.rm.off+4)
+			off = c.get32(m.rm)
+			seg = c.get16(m.rm.at(4))
 		} else {
-			c.R[m.reg] = c.read16(m.rm.seg, m.rm.off)
-			seg = c.read16(m.rm.seg, m.rm.off+2)
+			off = uint32(c.get16(m.rm))
+			seg = c.get16(m.rm.at(2))
 		}
+		dst := GS
 		switch op2 {
 		case 0xB2:
-			c.Seg[SS] = seg
+			dst = SS
 		case 0xB4:
-			c.FSeg = seg
-		default:
-			c.GSeg = seg
+			dst = FS
+		}
+		if !c.loadSeg(dst, seg) {
+			break
+		}
+		if c.operand32 {
+			c.setReg32(m.reg, off)
+		} else {
+			c.R[m.reg] = uint16(off)
 		}
 
 	case op2 == 0xB6 || op2 == 0xB7 || op2 == 0xBE || op2 == 0xBF: // MOVZX／MOVSX
@@ -232,12 +241,17 @@ func (c *CPU) bitOp(op2 uint8) error {
 			shift = 5
 		}
 		adj := (bit >> shift) * int32(width/8)
-		eff := int32(o.off) + adj
-		if eff < 0 || eff > 0xFFFF {
-			c.failf("BT 系位址調整後 %d 超出實模式 64 KB 段限（docs/spec/197 §2.2）", eff)
-			return nil
+		if c.segmented {
+			// 434 §4.2：分段模式依偏移寬度相加（16 位元環繞或 32 位元），界限由存取時檢查。
+			o = o.at(uint32(adj))
+		} else {
+			eff := int32(o.off) + adj
+			if eff < 0 || eff > 0xFFFF {
+				c.failf("BT 系位址調整後 %d 超出實模式 64 KB 段限（docs/spec/197 §2.2）", eff)
+				return nil
+			}
+			o.off = uint32(eff)
 		}
-		o.off = uint16(eff)
 	}
 	c.bitApply(op2, o, uint(bit)&uint(width-1), width)
 	return nil

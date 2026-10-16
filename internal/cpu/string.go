@@ -52,43 +52,44 @@ func (c *CPU) stringOnce(op uint8, wide bool, d uint16) {
 		c.Cycles++ // DOSBox-X string.h：沒有 REP 也扣一次
 	}
 	src := c.dataSeg(DS) // 可被段前綴覆寫
-	dst := c.Seg[ES]     // **不可覆寫**
+	const dst = ES       // **不可覆寫**
+	si, di := uint32(c.R[SI]), uint32(c.R[DI])
 	switch op {
 	case 0xA4, 0xA5: // MOVS
 		if wide {
-			c.write16(dst, c.R[DI], c.read16(src, c.R[SI]))
+			c.write16(dst, di, c.read16(src, si))
 		} else {
-			c.write8(dst, c.R[DI], c.read8(src, c.R[SI]))
+			c.write8(dst, di, c.read8(src, si))
 		}
 		c.R[SI] += d
 		c.R[DI] += d
 	case 0xA6, 0xA7: // CMPS：比的是 [SI] − [DI]
 		if wide {
-			c.sub(uint32(c.read16(src, c.R[SI])), uint32(c.read16(dst, c.R[DI])), 0, 16)
+			c.sub(uint32(c.read16(src, si)), uint32(c.read16(dst, di)), 0, 16)
 		} else {
-			c.sub(uint32(c.read8(src, c.R[SI])), uint32(c.read8(dst, c.R[DI])), 0, 8)
+			c.sub(uint32(c.read8(src, si)), uint32(c.read8(dst, di)), 0, 8)
 		}
 		c.R[SI] += d
 		c.R[DI] += d
 	case 0xAA, 0xAB: // STOS
 		if wide {
-			c.write16(dst, c.R[DI], c.R[AX])
+			c.write16(dst, di, c.R[AX])
 		} else {
-			c.write8(dst, c.R[DI], uint8(c.R[AX]))
+			c.write8(dst, di, uint8(c.R[AX]))
 		}
 		c.R[DI] += d
 	case 0xAC, 0xAD: // LODS
 		if wide {
-			c.R[AX] = c.read16(src, c.R[SI])
+			c.R[AX] = c.read16(src, si)
 		} else {
-			c.setReg8(0, c.read8(src, c.R[SI]))
+			c.setReg8(0, c.read8(src, si))
 		}
 		c.R[SI] += d
 	case 0xAE, 0xAF: // SCAS：比的是 AL/AX − [DI]
 		if wide {
-			c.sub(uint32(c.R[AX]), uint32(c.read16(dst, c.R[DI])), 0, 16)
+			c.sub(uint32(c.R[AX]), uint32(c.read16(dst, di)), 0, 16)
 		} else {
-			c.sub(uint32(uint8(c.R[AX])), uint32(c.read8(dst, c.R[DI])), 0, 8)
+			c.sub(uint32(uint8(c.R[AX])), uint32(c.read8(dst, di)), 0, 8)
 		}
 		c.R[DI] += d
 	}

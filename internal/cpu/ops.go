@@ -117,20 +117,24 @@ func (c *CPU) executeCore(op uint8) error {
 	case op == 0x06:
 		c.push(c.Seg[ES])
 	case op == 0x07:
-		c.Seg[ES] = c.pop()
+		c.loadSeg(ES, c.pop())
 	case op == 0x0E:
 		c.push(c.Seg[CS])
 	case op == 0x0F:
-		// **8086 的 0F 是 POP CS**，不是雙位元組前綴。
+		// **8086 的 0F 是 POP CS**，不是雙位元組前綴。分段模式只在 Model80386（0F 不到這裡），
+		// 仍照 434 §5.1 失敗即關閉當防線。
+		if c.segmented {
+			return c.errf(op, "POP CS：分段模式失敗即關閉（docs/spec/434 §5.1）")
+		}
 		c.Seg[CS] = c.pop()
 	case op == 0x16:
 		c.push(c.Seg[SS])
 	case op == 0x17:
-		c.Seg[SS] = c.pop()
+		c.loadSeg(SS, c.pop())
 	case op == 0x1E:
 		c.push(c.Seg[DS])
 	case op == 0x1F:
-		c.Seg[DS] = c.pop()
+		c.loadSeg(DS, c.pop())
 
 	// ---- BCD 調整 --------------------------------------------------------
 	case op == 0x27:
@@ -223,7 +227,7 @@ func (c *CPU) executeCore(op uint8) error {
 		if c.addr32 && !m.rm.isReg {
 			c.R[m.reg] = uint16(c.ea32)
 		} else {
-			c.R[m.reg] = m.rm.off
+			c.R[m.reg] = uint16(m.rm.off)
 		}
 	case op == 0x8E: // MOV Sreg, r/m16
 		c.charge(cycFar)
@@ -231,15 +235,23 @@ func (c *CPU) executeCore(op uint8) error {
 		if c.Model >= Model80386 && m.reg >= 4 {
 			switch m.reg {
 			case 4:
-				c.FSeg = c.get16(m.rm)
+				c.loadSeg(FS, c.get16(m.rm))
 			case 5:
-				c.GSeg = c.get16(m.rm)
+				c.loadSeg(GS, c.get16(m.rm))
 			default:
 				return c.errf(op, "8E /%d：不存在的段暫存器", m.reg)
 			}
 			break
 		}
-		c.Seg[m.reg&3] = c.get16(m.rm)
+		if m.reg&3 == CS {
+			// MOV CS：8086 照寫（語料行為）；分段模式失敗即關閉（434 §5.1）。
+			if c.segmented {
+				return c.errf(op, "MOV CS：分段模式失敗即關閉（docs/spec/434 §5.1）")
+			}
+			c.Seg[CS] = c.get16(m.rm)
+			break
+		}
+		c.loadSeg(m.reg&3, c.get16(m.rm))
 	case op == 0x8F: // POP r/m16
 		m := c.decodeModRM()
 		c.set16(m.rm, c.pop())
@@ -259,9 +271,7 @@ func (c *CPU) executeCore(op uint8) error {
 	case op == 0x9A: // CALL far ptr16:16
 		off := c.fetch16()
 		seg := c.fetch16()
-		c.push(c.Seg[CS])
-		c.push(c.IP)
-		c.Seg[CS], c.IP = seg, off
+		c.farCall(seg, off)
 	case op == 0x9B: // WAIT
 	case op == 0x9C: // PUSHF
 		c.push(c.Flags)
@@ -274,13 +284,13 @@ func (c *CPU) executeCore(op uint8) error {
 
 	// ---- A0–A3：MOV 與絕對位址 ------------------------------------------
 	case op == 0xA0:
-		c.setReg8(0, c.Bus.Read8(Linear(c.dataSeg(DS), c.fetch16())))
+		c.setReg8(0, c.read8(c.dataSeg(DS), uint32(c.fetch16())))
 	case op == 0xA1:
-		c.R[AX] = c.read16(c.dataSeg(DS), c.fetch16())
+		c.R[AX] = c.read16(c.dataSeg(DS), uint32(c.fetch16()))
 	case op == 0xA2:
-		c.Bus.Write8(Linear(c.dataSeg(DS), c.fetch16()), uint8(c.R[AX]))
+		c.write8(c.dataSeg(DS), uint32(c.fetch16()), uint8(c.R[AX]))
 	case op == 0xA3:
-		c.write16(c.dataSeg(DS), c.fetch16(), c.R[AX])
+		c.write16(c.dataSeg(DS), uint32(c.fetch16()), c.R[AX])
 
 	// ---- A4–AF：字串指令 -------------------------------------------------
 	case op >= 0xA4 && op <= 0xAF && op != 0xA8 && op != 0xA9:
@@ -317,16 +327,20 @@ func (c *CPU) executeCore(op uint8) error {
 	case op == 0xC1 || op == 0xC3: // RET
 		c.charge(cycRet)
 		c.IP = c.pop()
-	case op == 0xC4: // LES r16, m
+	case op == 0xC4, op == 0xC5: // LES／LDS r16, m
+		// 遠指標兩個 word 都先讀（段在存取當下才取值，載入 DS 之後再讀會用到新的 DS），
+		// 再載入段暫存器，最後寫通用暫存器（434 §5.1：段載入失敗時段值與快取不寫）。
 		c.charge(cycFar)
 		m := c.decodeModRM()
-		c.R[m.reg] = c.get16(m.rm)
-		c.Seg[ES] = c.read16(m.rm.seg, m.rm.off+2)
-	case op == 0xC5: // LDS r16, m
-		c.charge(cycFar)
-		m := c.decodeModRM()
-		c.R[m.reg] = c.get16(m.rm)
-		c.Seg[DS] = c.read16(m.rm.seg, m.rm.off+2)
+		off := c.get16(m.rm)
+		seg := c.get16(m.rm.at(2))
+		dst := ES
+		if op == 0xC5 {
+			dst = DS
+		}
+		if c.loadSeg(dst, seg) {
+			c.R[m.reg] = off
+		}
 	case op == 0xC6: // MOV r/m8, imm8
 		m := c.decodeModRM()
 		c.set8(m.rm, c.fetch8())
@@ -336,13 +350,11 @@ func (c *CPU) executeCore(op uint8) error {
 	case op == 0xC8 || op == 0xCA: // RETF imm16（C8 是別名）
 		c.charge(cycFar)
 		n := c.fetch16()
-		c.IP = c.pop()
-		c.Seg[CS] = c.pop()
+		c.farRet()
 		c.R[SP] += n
 	case op == 0xC9 || op == 0xCB: // RETF
 		c.charge(cycFar)
-		c.IP = c.pop()
-		c.Seg[CS] = c.pop()
+		c.farRet()
 	case op == 0xCC: // INT 3
 		c.doInt(3)
 	case op == 0xCD: // INT imm8
@@ -352,6 +364,9 @@ func (c *CPU) executeCore(op uint8) error {
 			c.doInt(4)
 		}
 	case op == 0xCF: // IRET
+		if c.segmented {
+			return c.errf(op, "IRET：分段模式失敗即關閉（任務返回與 V86 屬 S4、435；docs/spec/434 §6）")
+		}
 		c.IP = c.pop()
 		c.Seg[CS] = c.pop()
 		c.SetFlags(c.pop())
@@ -390,7 +405,7 @@ func (c *CPU) executeCore(op uint8) error {
 			c.setReg8(0, 0x00)
 		}
 	case op == 0xD7: // XLAT
-		c.setReg8(0, c.Bus.Read8(Linear(c.dataSeg(DS), c.R[BX]+uint16(uint8(c.R[AX])))))
+		c.setReg8(0, c.read8(c.dataSeg(DS), uint32(c.R[BX]+uint16(uint8(c.R[AX])))))
 	case op >= 0xD8 && op <= 0xDF: // ESC：探測語意見 spec 202，其餘只做記憶體讀取
 		m := c.decodeModRM()
 		switch {
@@ -448,7 +463,9 @@ func (c *CPU) executeCore(op uint8) error {
 		c.charge(cycFar)
 		off := c.fetch16()
 		seg := c.fetch16()
-		c.Seg[CS], c.IP = seg, off
+		if c.loadSeg(CS, seg) {
+			c.IP = off
+		}
 	case op == 0xEB: // JMP rel8
 		c.charge(cycJump)
 		off := int16(int8(c.fetch8()))
@@ -750,16 +767,16 @@ func (c *CPU) group45(op uint8) error {
 		c.IP = t
 	case 3: // CALL far m16:16
 		off := c.get16(m.rm)
-		seg := c.read16(m.rm.seg, m.rm.off+2)
-		c.push(c.Seg[CS])
-		c.push(c.IP)
-		c.Seg[CS], c.IP = seg, off
+		seg := c.get16(m.rm.at(2))
+		c.farCall(seg, off)
 	case 4: // JMP near r/m16
 		c.IP = c.get16(m.rm)
 	case 5: // JMP far m16:16
 		off := c.get16(m.rm)
-		seg := c.read16(m.rm.seg, m.rm.off+2)
-		c.Seg[CS], c.IP = seg, off
+		seg := c.get16(m.rm.at(2))
+		if c.loadSeg(CS, seg) {
+			c.IP = off
+		}
 	case 6, 7: // PUSH r/m16
 		c.pushOperand(m.rm)
 	}
@@ -789,10 +806,36 @@ func (c *CPU) group45(op uint8) error {
 func (c *CPU) pushOperand(o operand) {
 	if o.isReg && o.reg == SP && c.Model < Model80386 {
 		c.R[SP] -= 2
-		c.write16(c.Seg[SS], c.R[SP], c.R[SP])
+		c.write16(SS, uint32(c.R[SP]), c.R[SP])
 		return
 	}
 	c.push(c.get16(o))
+}
+
+// farCall 是 16 位元同特權遠呼叫（9A、FF /3）：推 CS、IP 各 2 bytes，載入新的 CS:IP。
+// 分段模式先以 loadSeg 驗證並載入 CS（失敗時不推、不改 CS:IP），再推舊的 CS:IP（434 §6）；
+// 實模式結果與先推後跳相同（推入只寫 SS:SP，不讀 CS）。
+func (c *CPU) farCall(seg, off uint16) {
+	oldCS, oldIP := c.Seg[CS], c.IP
+	if !c.loadSeg(CS, seg) {
+		return
+	}
+	c.push(oldCS)
+	c.push(oldIP)
+	c.IP = off
+}
+
+// farRet 是 16 位元同特權遠返回（CA、CB）：彈出 IP、CS。分段模式下彈出的 CS 的 RPL ≠ CPL
+// 失敗即關閉（434 §5.1），再經 loadSeg 載入。
+func (c *CPU) farRet() {
+	ip := c.pop()
+	cs := c.pop()
+	if c.segmented && !c.retRPLOK(cs) {
+		return
+	}
+	if c.loadSeg(CS, cs) {
+		c.IP = ip
+	}
 }
 
 // doInt 走 IntHook；沒攔就跳真正的向量表。

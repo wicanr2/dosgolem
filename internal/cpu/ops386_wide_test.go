@@ -454,7 +454,7 @@ func TestDivideFault32(t *testing.T) {
 	if c.Seg[CS] != 0x5000 || c.IP != 0x10 {
 		t.Fatalf("沒進 INT 0：%04X:%04X", c.Seg[CS], c.IP)
 	}
-	if got := c.read16(0x3000, 0x100-6); got != 0x40 {
+	if got := busRead16(b, Linear(0x3000, 0x100-6)); got != 0x40 {
 		t.Errorf("推進堆疊的返回 IP ＝ %04X，預期指令起點 0040", got)
 	}
 	if len(c.DivErrors) != 1 || c.DivErrors[0].IP != 0x40 {
@@ -612,8 +612,8 @@ func TestPushPop32(t *testing.T) {
 	c.setReg32(DX, 0x11223344)
 	sp := c.R[SP]
 	run386(t, c, []byte{0x66, 0x50}) // push eax
-	if c.R[SP] != sp-4 || c.read32(0x3000, c.R[SP]) != 0xAABBCCDD {
-		t.Fatalf("push eax：SP＝%04X，堆疊頂＝%08X", c.R[SP], c.read32(0x3000, c.R[SP]))
+	if c.R[SP] != sp-4 || busRead32(c.Bus, Linear(0x3000, c.R[SP])) != 0xAABBCCDD {
+		t.Fatalf("push eax：SP＝%04X，堆疊頂＝%08X", c.R[SP], busRead32(c.Bus, Linear(0x3000, c.R[SP])))
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x5A}) // pop edx
@@ -623,13 +623,13 @@ func TestPushPop32(t *testing.T) {
 	// push imm32 與 push imm8（符號延伸）。
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x68, 0x78, 0x56, 0x34, 0x12})
-	if c.read32(0x3000, c.R[SP]) != 0x12345678 {
-		t.Errorf("push imm32：%08X", c.read32(0x3000, c.R[SP]))
+	if busRead32(c.Bus, Linear(0x3000, c.R[SP])) != 0x12345678 {
+		t.Errorf("push imm32：%08X", busRead32(c.Bus, Linear(0x3000, c.R[SP])))
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x6A, 0xFE})
-	if c.read32(0x3000, c.R[SP]) != 0xFFFFFFFE {
-		t.Errorf("push imm8 −2：%08X", c.read32(0x3000, c.R[SP]))
+	if busRead32(c.Bus, Linear(0x3000, c.R[SP])) != 0xFFFFFFFE {
+		t.Errorf("push imm8 −2：%08X", busRead32(c.Bus, Linear(0x3000, c.R[SP])))
 	}
 	// PUSH ESP 推減之前的值（286 以上）。
 	c, _ = new386()
@@ -638,8 +638,8 @@ func TestPushPop32(t *testing.T) {
 	c.R[SP] = 0x1000
 	c.Hi[SP] = 0xBEEF
 	run386(t, c, []byte{0x66, 0x54})
-	if c.read32(0x3000, 0x0FFC) != 0xBEEF1000 {
-		t.Errorf("push esp：推進 %08X，預期 BEEF1000", c.read32(0x3000, 0x0FFC))
+	if busRead32(c.Bus, Linear(0x3000, 0x0FFC)) != 0xBEEF1000 {
+		t.Errorf("push esp：推進 %08X，預期 BEEF1000", busRead32(c.Bus, Linear(0x3000, 0x0FFC)))
 	}
 }
 
@@ -659,10 +659,10 @@ func TestPushadPopad(t *testing.T) {
 		t.Fatalf("pushad：SP＝%04X", c.R[SP])
 	}
 	// 推入順序 EAX ECX EDX EBX ESP(舊) EBP ESI EDI → 堆疊頂是 EDI。
-	if got := c.read32(0x3000, c.R[SP]); got != c.reg32(DI) {
+	if got := busRead32(c.Bus, Linear(0x3000, c.R[SP])); got != c.reg32(DI) {
 		t.Errorf("堆疊頂應是 EDI：%08X", got)
 	}
-	if got := c.read32(0x3000, c.R[SP]+12); got != 0x2000 {
+	if got := busRead32(c.Bus, Linear(0x3000, c.R[SP]+12)); got != 0x2000 {
 		t.Errorf("第五格應是舊 ESP（2000）：%08X", got)
 	}
 	for i := range c.R {
@@ -727,12 +727,12 @@ func TestPushfdPopfd(t *testing.T) {
 	c.Seg[SS] = 0x3000
 	c.SetFlags(CF | ZF | DF)
 	run386(t, c, []byte{0x66, 0x9C})
-	v := c.read32(0x3000, c.R[SP])
+	v := busRead32(c.Bus, Linear(0x3000, c.R[SP]))
 	if v>>16 != 0 || uint16(v)&(CF|ZF|DF) != CF|ZF|DF || v&2 == 0 {
 		t.Errorf("pushfd：%08X（高 16 位元要是 0、bit1 恆立）", v)
 	}
 	// popfd 的高半（含 AC、VM）丟掉，低 16 位元走 SetFlags。
-	c.write32(0x3000, c.R[SP], 0xFFFC0000|uint32(SF|PF))
+	busWrite32(c.Bus, Linear(0x3000, c.R[SP]), 0xFFFC0000|uint32(SF|PF))
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x9D})
 	if !c.Flag(SF) || !c.Flag(PF) || c.Flag(CF) {
@@ -751,8 +751,8 @@ func TestMov32Variants(t *testing.T) {
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x89, 0x0E, 0x00, 0x02}) // mov [0200h],ecx
-	if c.read32(0x1000, 0x200) != 0x12345678 {
-		t.Errorf("mov [m],ecx：%08X", c.read32(0x1000, 0x200))
+	if busRead32(c.Bus, Linear(0x1000, 0x200)) != 0x12345678 {
+		t.Errorf("mov [m],ecx：%08X", busRead32(c.Bus, Linear(0x1000, 0x200)))
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x8B, 0x16, 0x00, 0x02}) // mov edx,[0200h]
@@ -761,13 +761,13 @@ func TestMov32Variants(t *testing.T) {
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0xC7, 0x06, 0x04, 0x02, 0xEF, 0xBE, 0xAD, 0xDE}) // mov dword [0204h],imm32
-	if c.read32(0x1000, 0x204) != 0xDEADBEEF {
-		t.Errorf("mov dword [m],imm32：%08X", c.read32(0x1000, 0x204))
+	if busRead32(c.Bus, Linear(0x1000, 0x204)) != 0xDEADBEEF {
+		t.Errorf("mov dword [m],imm32：%08X", busRead32(c.Bus, Linear(0x1000, 0x204)))
 	}
 	c.IP = 0
 	run386(t, c, []byte{0x66, 0x87, 0x0E, 0x04, 0x02}) // xchg [0204h],ecx
-	if c.reg32(CX) != 0xDEADBEEF || c.read32(0x1000, 0x204) != 0x12345678 {
-		t.Errorf("xchg：ECX＝%08X [m]＝%08X", c.reg32(CX), c.read32(0x1000, 0x204))
+	if c.reg32(CX) != 0xDEADBEEF || busRead32(c.Bus, Linear(0x1000, 0x204)) != 0x12345678 {
+		t.Errorf("xchg：ECX＝%08X [m]＝%08X", c.reg32(CX), busRead32(c.Bus, Linear(0x1000, 0x204)))
 	}
 	c.IP = 0
 	c.setReg32(AX, 0x1234FFFE)
@@ -887,7 +887,7 @@ func TestStringOps32(t *testing.T) {
 	c.R[DI], c.R[CX] = 0x400, 3
 	run386(t, c, []byte{0x66, 0xF3, 0xAB})
 	for i := 0; i < 3; i++ {
-		if c.read32(0x2000, 0x400+uint16(4*i)) != 0xCAFEBABE {
+		if busRead32(c.Bus, Linear(0x2000, 0x400+uint16(4*i))) != 0xCAFEBABE {
 			t.Errorf("stosd 第 %d 個", i)
 		}
 	}
@@ -1282,7 +1282,7 @@ func TestPrefixesAreAliasesBeforeModel386(t *testing.T) {
 		c.Model = model
 		c.Seg[CS], c.Seg[SS] = 0x1000, 0x1000
 		c.R[SP] = 0x100
-		c.write16(0x1000, 0x100, 0x2000)
+		busWrite16(b, Linear(0x1000, 0x100), 0x2000)
 		b.Write8(Addr(0x1000, 0), 0x0F)
 		if err := c.Step(); err != nil {
 			t.Fatal(err)
@@ -1321,4 +1321,22 @@ func TestResetClears386State(t *testing.T) {
 	if c.Hi != [8]uint16{} || c.FSeg != 0 || c.GSeg != 0 {
 		t.Errorf("Reset 沒清 386 狀態：Hi=%v FS=%d GS=%d", c.Hi, c.FSeg, c.GSeg)
 	}
+}
+
+// busRead16／busWrite16 以線性位址直接讀寫 Bus（記憶體原語改吃段索引之後，
+// 測試裡以「段值:偏移」定址的檢查走這裡，434 §4.2）。
+func busRead16(b Bus, a uint32) uint16 { return uint16(b.Read8(a)) | uint16(b.Read8(a+1))<<8 }
+
+func busWrite16(b Bus, a uint32, v uint16) {
+	b.Write8(a, uint8(v))
+	b.Write8(a+1, uint8(v>>8))
+}
+
+func busRead32(b Bus, a uint32) uint32 {
+	return uint32(busRead16(b, a)) | uint32(busRead16(b, a+2))<<16
+}
+
+func busWrite32(b Bus, a uint32, v uint32) {
+	busWrite16(b, a, uint16(v))
+	busWrite16(b, a+2, uint16(v>>16))
 }

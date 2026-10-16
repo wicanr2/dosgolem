@@ -730,8 +730,8 @@ func TestPagingStepWriteFaultInV86(t *testing.T) {
 		t.Errorf("CPU 沒有錯誤時不該包住別的錯誤：%v", pfe.Unwrap())
 	}
 
-	// SetVM(false)、SetPMCPL(0)：同一道指令寫 R/W=0 頁成功（依 431 此時應由 cpu386 執行，
-	// 這裡只驗 Machine 的權限判斷）。
+	// SetVM(false)、SetPMCPL(0)：同一道指令寫 R/W=0 頁成功。此狀態是 434 §2.1 的「PE=1、VM=0、
+	// segmented=false」（只由測試以 setter 造出），照 432 語意執行；這裡只驗 Machine 的權限判斷。
 	mustNil(t, "SetVM(false)", m.SetVM(false))
 	mustNil(t, "SetPMCPL(0)", m.SetPMCPL(0))
 	m.CPU.IP = 0x100

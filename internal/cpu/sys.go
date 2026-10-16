@@ -22,6 +22,16 @@ type SysBus interface {
 	User() bool
 	// IVTMismatch 是 433 §2 的 IDTR 守門條件：profile 開啟、PE=0 而 IDTR 基底不為 0。
 	IVTMismatch() bool
+
+	// 434 §5.2：分段模式的段載入用。
+	// CPL 回目前的 CPL（Machine 的 pmCPL）。
+	CPL() uint8
+	// ReadSup32 以監督者身分經 432 的線性層讀 4 bytes（讀 GDT、LDT 描述元）。
+	ReadSup32(addr uint32) uint32
+	// LDTR／SetLDTR 讀寫 LDTR 的選擇子與快取；TRSel 回 TR 的選擇子。
+	LDTR() (sel uint16, c SegCache)
+	SetLDTR(sel uint16, c SegCache)
+	TRSel() uint16
 }
 
 // ErrModeSwitch 是實模式→保護模式的交棒哨兵（433 §5、431 §5）：`mov cr0` 或 `lmsw` 使 CR0.PE
@@ -103,8 +113,8 @@ func (c *CPU) sys0F01() error {
 		} else {
 			base, limit = c.Sys.IDTR()
 		}
-		c.write16(m.rm.seg, m.rm.off, limit)
-		c.write32(m.rm.seg, m.rm.off+2, base)
+		c.set16(m.rm, limit)
+		c.set32(m.rm.at(2), base)
 	case 2, 3: // LGDT／LIDT：16 位元運算元只取 24 位元基底，66 前綴取整個 dword
 		name := "LGDT"
 		if sub == 3 {
@@ -113,8 +123,8 @@ func (c *CPU) sys0F01() error {
 		if err := c.privileged(op2, name); err != nil {
 			return err
 		}
-		limit := c.read16(m.rm.seg, m.rm.off)
-		base := c.read32(m.rm.seg, m.rm.off+2)
+		limit := c.get16(m.rm)
+		base := c.get32(m.rm.at(2))
 		if !c.operand32 {
 			base &= 0x00FFFFFF
 		}
@@ -130,7 +140,7 @@ func (c *CPU) sys0F01() error {
 		}
 		switch {
 		case !m.rm.isReg:
-			c.write16(m.rm.seg, m.rm.off, uint16(cr0)) // 記憶體形式一律 2 bytes
+			c.set16(m.rm, uint16(cr0)) // 記憶體形式一律 2 bytes
 		case c.operand32:
 			c.setReg32(m.rm.reg, cr0) // 66 前綴的暫存器形式寫整個 CR0
 		default:

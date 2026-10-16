@@ -22,6 +22,13 @@ func (f *fakeSys) SetIDTR(uint32, uint16)  { f.calls++ }
 func (f *fakeSys) User() bool              { f.calls++; return false }
 func (f *fakeSys) IVTMismatch() bool       { f.calls++; return false }
 
+// 434 §5.2 的增補。
+func (f *fakeSys) CPL() uint8               { f.calls++; return 0 }
+func (f *fakeSys) ReadSup32(uint32) uint32  { f.calls++; return 0 }
+func (f *fakeSys) LDTR() (uint16, SegCache) { f.calls++; return 0, SegCache{} }
+func (f *fakeSys) SetLDTR(uint16, SegCache) { f.calls++ }
+func (f *fakeSys) TRSel() uint16            { f.calls++; return 0 }
+
 func TestSysOlderModelsIgnoreSys(t *testing.T) {
 	for _, model := range []Model{Model8086, Model80186} {
 		for _, op2 := range []byte{0x00, 0x01, 0x06, 0x20, 0x22} {

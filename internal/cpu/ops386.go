@@ -102,29 +102,33 @@ func (c *CPU) execute386(op uint8) (handled bool, err error) {
 	return false, nil
 }
 
-// moffs32 是 0x67 下的 A0–A3：位移是 32 位元，超過 64 KB 失敗。
+// moffs32 是 0x67 下的 A0–A3：位移是 32 位元，實模式超過 64 KB 失敗；
+// 分段模式不截斷，界限由段快取檢查（434 §4.2）。
 func (c *CPU) moffs32(op uint8) error {
 	off := c.fetch32()
-	if off > 0xFFFF {
-		return c.errf(op, "moffs 位移 %08X 超出實模式 64 KB 段限（docs/spec/197 §3）", off)
+	o := operand{seg: c.dataSeg(DS), off: off, w32: true}
+	if !c.segmented {
+		if off > 0xFFFF {
+			return c.errf(op, "moffs 位移 %08X 超出實模式 64 KB 段限（docs/spec/197 §3）", off)
+		}
+		o.w32 = false
 	}
-	seg, o := c.dataSeg(DS), uint16(off)
 	switch op {
 	case 0xA0:
-		c.setReg8(0, c.read8(seg, o))
+		c.setReg8(0, c.get8(o))
 	case 0xA1:
 		if c.operand32 {
-			c.setReg32(AX, c.read32(seg, o))
+			c.setReg32(AX, c.get32(o))
 		} else {
-			c.R[AX] = c.read16(seg, o)
+			c.R[AX] = c.get16(o)
 		}
 	case 0xA2:
-		c.write8(seg, o, uint8(c.R[AX]))
+		c.set8(o, uint8(c.R[AX]))
 	case 0xA3:
 		if c.operand32 {
-			c.write32(seg, o, c.reg32(AX))
+			c.set32(o, c.reg32(AX))
 		} else {
-			c.write16(seg, o, c.R[AX])
+			c.set16(o, c.R[AX])
 		}
 	}
 	return nil
@@ -165,11 +169,11 @@ func (c *CPU) execute32(op uint8) error {
 			case 0x1E:
 				c.push32(uint32(c.Seg[DS]))
 			case 0x07:
-				c.Seg[ES] = uint16(c.pop32())
+				c.loadSeg(ES, uint16(c.pop32()))
 			case 0x17:
-				c.Seg[SS] = uint16(c.pop32())
+				c.loadSeg(SS, uint16(c.pop32()))
 			case 0x1F:
-				c.Seg[DS] = uint16(c.pop32())
+				c.loadSeg(DS, uint16(c.pop32()))
 			}
 		}
 
@@ -271,7 +275,7 @@ func (c *CPU) execute32(op uint8) error {
 		if c.addr32 {
 			c.setReg32(m.reg, c.ea32)
 		} else {
-			c.setReg32(m.reg, uint32(m.rm.off))
+			c.setReg32(m.reg, uint32(uint16(m.rm.off)))
 		}
 	case op == 0x8F: // POP r/m32：先彈再解位址（ESP 相對的位址看彈出後的 ESP）
 		v := c.pop32()
@@ -300,9 +304,9 @@ func (c *CPU) execute32(op uint8) error {
 
 	// ---- A1–AF -----------------------------------------------------------
 	case op == 0xA1: // MOV EAX, moffs16
-		c.setReg32(AX, c.read32(c.dataSeg(DS), c.fetch16()))
+		c.setReg32(AX, c.read32(c.dataSeg(DS), uint32(c.fetch16())))
 	case op == 0xA3: // MOV moffs16, EAX
-		c.write32(c.dataSeg(DS), c.fetch16(), c.reg32(AX))
+		c.write32(c.dataSeg(DS), uint32(c.fetch16()), c.reg32(AX))
 	case op == 0xA5, op == 0xA7, op == 0xAB, op == 0xAD, op == 0xAF:
 		c.stringOp32(op)
 	case op == 0xA9: // TEST EAX, imm32
@@ -413,35 +417,51 @@ func (c *CPU) stringOp32(op uint8) {
 func (c *CPU) stringOnce32(op uint8, d uint16) {
 	c.charge(cycString)
 	src := c.dataSeg(DS)
-	dst := c.Seg[ES]
+	const dst = ES
+	si, di := uint32(c.R[SI]), uint32(c.R[DI])
 	switch op {
 	case 0xA5: // MOVSD
-		c.write32(dst, c.R[DI], c.read32(src, c.R[SI]))
+		c.write32(dst, di, c.read32(src, si))
 		c.R[SI] += d
 		c.R[DI] += d
 	case 0xA7: // CMPSD：[SI] − [DI]
-		c.sub32(c.read32(src, c.R[SI]), c.read32(dst, c.R[DI]), 0)
+		c.sub32(c.read32(src, si), c.read32(dst, di), 0)
 		c.R[SI] += d
 		c.R[DI] += d
 	case 0xAB: // STOSD
-		c.write32(dst, c.R[DI], c.reg32(AX))
+		c.write32(dst, di, c.reg32(AX))
 		c.R[DI] += d
 	case 0xAD: // LODSD
-		c.setReg32(AX, c.read32(src, c.R[SI]))
+		c.setReg32(AX, c.read32(src, si))
 		c.R[SI] += d
 	case 0xAF: // SCASD：EAX − [DI]
-		c.sub32(c.reg32(AX), c.read32(dst, c.R[DI]), 0)
+		c.sub32(c.reg32(AX), c.read32(dst, di), 0)
 		c.R[DI] += d
 	}
 }
 
-func (c *CPU) read32(seg, off uint16) uint32 {
-	return uint32(c.read16(seg, off)) | uint32(c.read16(seg, off+2))<<16
+// read32／write32：段索引、偏移各 byte 16 位元環繞（實模式與 434 之前逐位元組相同）。
+func (c *CPU) read32(i int, off uint32) uint32 {
+	if !c.segmented {
+		b := uint32(c.segVal(i)) << 4
+		o := uint16(off)
+		return uint32(c.Bus.Read8(b+uint32(o))) | uint32(c.Bus.Read8(b+uint32(o+1)))<<8 |
+			uint32(c.Bus.Read8(b+uint32(o+2)))<<16 | uint32(c.Bus.Read8(b+uint32(o+3)))<<24
+	}
+	return c.segRead(i, off, 4, false)
 }
 
-func (c *CPU) write32(seg, off uint16, v uint32) {
-	c.write16(seg, off, uint16(v))
-	c.write16(seg, off+2, uint16(v>>16))
+func (c *CPU) write32(i int, off uint32, v uint32) {
+	if !c.segmented {
+		b := uint32(c.segVal(i)) << 4
+		o := uint16(off)
+		c.Bus.Write8(b+uint32(o), uint8(v))
+		c.Bus.Write8(b+uint32(o+1), uint8(v>>8))
+		c.Bus.Write8(b+uint32(o+2), uint8(v>>16))
+		c.Bus.Write8(b+uint32(o+3), uint8(v>>24))
+		return
+	}
+	c.segWrite(i, off, 4, false, v)
 }
 
 // fetch32 從 CS:IP 取 4 個位元組（小端）。
@@ -462,6 +482,9 @@ func (c *CPU) get32(o operand) uint32 {
 	if o.isReg {
 		return c.reg32(o.reg)
 	}
+	if o.w32 {
+		return c.segRead(o.seg, o.off, 4, true)
+	}
 	return c.read32(o.seg, o.off)
 }
 
@@ -470,20 +493,30 @@ func (c *CPU) set32(o operand, v uint32) {
 		c.setReg32(o.reg, v)
 		return
 	}
+	if o.w32 {
+		c.segWrite(o.seg, o.off, 4, true, v)
+		return
+	}
 	c.write32(o.seg, o.off, v)
 }
 
-// push32／pop32：堆疊指標仍是 16 位元的 SP（實模式 B 位元為 0），
-// ESP 高半不動。每個 word 的位移各自 wrap，與 16 位元的 push／pop 一致。
+// push32／pop32：堆疊指標仍是 16 位元的 SP（實模式與分段模式的 SS 都是 B=0；B=1 失敗即關閉），
+// ESP 高半不動。每個 byte 的位移各自 wrap，與 16 位元的 push／pop 一致。
 func (c *CPU) push32(v uint32) {
 	c.charge(cycStack)
+	if c.segmented {
+		c.stackCheck()
+	}
 	c.R[SP] -= 4
-	c.write32(c.Seg[SS], c.R[SP], v)
+	c.write32(SS, uint32(c.R[SP]), v)
 }
 
 func (c *CPU) pop32() uint32 {
 	c.charge(cycStack)
-	v := c.read32(c.Seg[SS], c.R[SP])
+	if c.segmented {
+		c.stackCheck()
+	}
+	v := c.read32(SS, uint32(c.R[SP]))
 	c.R[SP] += 4
 	return v
 }

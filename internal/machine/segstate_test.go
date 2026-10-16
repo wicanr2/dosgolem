@@ -194,13 +194,20 @@ func TestLoadStateRejectsOldPMWithPE(t *testing.T) {
 }
 
 // TestSegmentedRoundTrip：Snapshot／Restore 與 SaveState／LoadState 對 segmented 與六個快取往返；
-// 還原 segmented=1 後 CPU.Code==nil，且 Step 以分段模式繼續。
-//
-// 階段 1 的限制：分段模式的位址計算（以快取基底定址、界限與型別檢查）在 §4 實作（階段 2）。
-// 這裡的「以分段模式繼續」只驗 Step 之後 segmented 仍為真、快取不被改動；以快取基底取指令的驗證留待階段 2。
+// 還原 segmented=1 後 CPU.Code==nil，且 Step 以分段模式繼續：CS 快取基底指向 70000h，
+// 那裡放一道可辨識的 mov al,5Ah；Seg[CS]×16＋IP 處是 nop。Step 之後 AL＝5Ah 證明自快取基底取指令。
 func TestSegmentedRoundTrip(t *testing.T) {
+	const csBase = 0x70000
 	m := segmentedMachine(t)
-	want := segCachesForTest(csBaseOf(m))
+	for i, c := range segCachesForTest(csBase) {
+		m.CPU.SetSegCache(i, c)
+	}
+	ip := m.CPU.IP
+	copy(m.Mem[csBase+uint32(ip):], []byte{0xB0, 0x5A}) // mov al,5Ah
+	if m.Mem[csBaseOf(m)+uint32(ip)] != 0x90 {
+		t.Fatalf("前提：Seg[CS]×16＋IP 處應是 nop")
+	}
+	want := segCachesForTest(csBase)
 	snap := m.Snapshot()
 	data := saveBytes(t, m)
 
@@ -243,10 +250,13 @@ func TestSegmentedRoundTrip(t *testing.T) {
 	if !bytes.Equal(saveBytes(t, dst), data) {
 		t.Error("存檔→讀檔→存檔不一致")
 	}
-	// 以分段模式繼續（階段 1：只驗狀態延續，見上方說明）。
+	// 以分段模式繼續：自 CS 快取基底取指令。
 	dst.IRQ0Every = 0
-	mustStep(t, dst, "還原後 Step（nop）")
+	mustStep(t, dst, "還原後 Step")
 	check("還原後 Step", dst)
+	if uint8(dst.CPU.R[cpu.AX]) != 0x5A || dst.CPU.IP != ip+2 {
+		t.Errorf("還原後應自 CS 快取基底取指令：AL=%02X IP+%d", uint8(dst.CPU.R[cpu.AX]), dst.CPU.IP-ip)
+	}
 	if dst.PMCPL() != 0 {
 		t.Errorf("還原後 CPL = %d", dst.PMCPL())
 	}

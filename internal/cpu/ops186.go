@@ -35,8 +35,8 @@ func (c *CPU) op186_6x(op uint8) error {
 		// m 指到兩個有號的界，含頭含尾。超出範圍發 INT 5。
 		m := c.decodeModRM()
 		idx := int16(c.R[m.reg])
-		lo := int16(c.read16(m.rm.seg, m.rm.off))
-		hi := int16(c.read16(m.rm.seg, m.rm.off+2))
+		lo := int16(c.get16(m.rm))
+		hi := int16(c.get16(m.rm.at(2)))
 		if idx < lo || idx > hi {
 			// 和除法例外一樣，例外要回到**這一道指令的起點**
 			// （`docs/spec/002` §4）。433 §2 的 IDTR 守門在恢復 CS:IP 之前。
@@ -96,18 +96,18 @@ func (c *CPU) insOuts(op uint8) {
 	once := func() {
 		switch op {
 		case 0x6C: // INSB
-			c.write8(c.Seg[ES], c.R[DI], c.Bus.In8(c.R[DX]))
+			c.write8(ES, uint32(c.R[DI]), c.Bus.In8(c.R[DX]))
 			c.R[DI] += d
 		case 0x6D: // INSW
 			lo := uint16(c.Bus.In8(c.R[DX]))
 			hi := uint16(c.Bus.In8(c.R[DX]))
-			c.write16(c.Seg[ES], c.R[DI], lo|hi<<8)
+			c.write16(ES, uint32(c.R[DI]), lo|hi<<8)
 			c.R[DI] += d
 		case 0x6E: // OUTSB
-			c.Bus.Out8(c.R[DX], c.read8(c.dataSeg(DS), c.R[SI]))
+			c.Bus.Out8(c.R[DX], c.read8(c.dataSeg(DS), uint32(c.R[SI])))
 			c.R[SI] += d
 		case 0x6F: // OUTSW
-			v := c.read16(c.dataSeg(DS), c.R[SI])
+			v := c.read16(c.dataSeg(DS), uint32(c.R[SI]))
 			c.Bus.Out8(c.R[DX], uint8(v))
 			c.Bus.Out8(c.R[DX], uint8(v>>8))
 			c.R[SI] += d
@@ -147,7 +147,7 @@ func (c *CPU) enter() {
 	frame := c.R[SP]
 	for i := uint8(1); i < level; i++ {
 		c.R[BP] -= 2
-		c.push(c.read16(c.Seg[SS], c.R[BP]))
+		c.push(c.read16(SS, uint32(c.R[BP])))
 	}
 	if level > 0 {
 		c.push(frame)

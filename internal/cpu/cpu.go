@@ -263,30 +263,67 @@ func Linear(seg, off uint16) uint32 {
 	return uint32(seg)<<4 + uint32(off)
 }
 
-func (c *CPU) read8(seg, off uint16) uint8     { return c.Bus.Read8(Linear(seg, off)) }
-func (c *CPU) write8(seg, off uint16, v uint8) { c.Bus.Write8(Linear(seg, off), v) }
+// 記憶體原語（`docs/spec/434-legacy-core-segmented-mode` §4.2）：段以**索引**（ES、CS、SS、DS、FS、GS）
+// 指定，偏移是 uint32。
+//
+//   - segmented=false（實模式、V86、434 §2.1 的狀態）：線性位址＝段值×16＋16 位元偏移，
+//     與 434 之前逐位元組相同（呼叫端給的偏移一律先截成 16 位元）。
+//   - segmented=true：交給 segmented.go，以該索引的段描述元快取定址並檢查界限與型別。
+//
+// 分段模式的分支在每個原語內只有一處，實模式分支在前（熱路徑）。
+//
+// 多 byte 存取的各 byte 偏移各自 16 位元環繞：讀 DS:FFFF 的 word 會拿到 DS:FFFF 與 DS:0000，
+// 不是跨到下一段。67 定址的運算元（operand.w32）在分段模式以 32 位元相加，見 get16 等。
 
-// 16 位元存取是兩次 8 位元，而且**位移各自 wrap**：
-// 讀 DS:FFFF 的 word 會拿到 DS:FFFF 與 DS:0000，不是跨到下一段。
-func (c *CPU) read16(seg, off uint16) uint16 {
-	lo := uint16(c.read8(seg, off))
-	hi := uint16(c.read8(seg, off+1))
-	return lo | hi<<8
+func (c *CPU) read8(i int, off uint32) uint8 {
+	if !c.segmented {
+		return c.Bus.Read8(uint32(c.segVal(i))<<4 + uint32(uint16(off)))
+	}
+	return uint8(c.segRead(i, off, 1, false))
 }
 
-func (c *CPU) write16(seg, off uint16, v uint16) {
-	c.write8(seg, off, uint8(v))
-	c.write8(seg, off+1, uint8(v>>8))
+func (c *CPU) write8(i int, off uint32, v uint8) {
+	if !c.segmented {
+		c.Bus.Write8(uint32(c.segVal(i))<<4+uint32(uint16(off)), v)
+		return
+	}
+	c.segWrite(i, off, 1, false, uint32(v))
+}
+
+func (c *CPU) read16(i int, off uint32) uint16 {
+	if !c.segmented {
+		b := uint32(c.segVal(i)) << 4
+		o := uint16(off)
+		return uint16(c.Bus.Read8(b+uint32(o))) | uint16(c.Bus.Read8(b+uint32(o+1)))<<8
+	}
+	return uint16(c.segRead(i, off, 2, false))
+}
+
+func (c *CPU) write16(i int, off uint32, v uint16) {
+	if !c.segmented {
+		b := uint32(c.segVal(i)) << 4
+		o := uint16(off)
+		c.Bus.Write8(b+uint32(o), uint8(v))
+		c.Bus.Write8(b+uint32(o+1), uint8(v>>8))
+		return
+	}
+	c.segWrite(i, off, 2, false, uint32(v))
 }
 
 // fetch8／fetch16 從 CS:IP 取指令位元組並前進 IP。
+// 快路徑（Code 非 nil）不變；分段模式恆有 Code==nil（434 §2 的不變式），所以分段分支放在它之後。
 func (c *CPU) fetch8() uint8 {
 	if c.Code != nil {
 		v := c.Code[Addr(c.Seg[CS], c.IP)]
 		c.IP++
 		return v
 	}
-	v := c.read8(c.Seg[CS], c.IP)
+	var v uint8
+	if !c.segmented {
+		v = c.Bus.Read8(Linear(c.Seg[CS], c.IP))
+	} else {
+		v = c.segFetch8()
+	}
 	c.IP++
 	return v
 }
@@ -297,23 +334,36 @@ func (c *CPU) fetch16() uint16 {
 	return lo | hi<<8
 }
 
-// dataSeg 回報這道指令該用哪個段：有段前綴就用它，否則用 def。
-func (c *CPU) dataSeg(def int) uint16 {
+// dataSeg 回報這道指令該用哪個段的**索引**：有段前綴就用它，否則用 def（434 §4.2）。
+// 段值只在需要值的地方（推入段暫存器、診斷）以 segVal 取。
+func (c *CPU) dataSeg(def int) int {
 	if c.segOverride != noSegOverride {
-		return c.segVal(c.segOverride)
+		return c.segOverride
 	}
-	return c.Seg[def]
+	return def
 }
 
 // segVal 取任一個段暫存器的值，含 FS／GS。
 func (c *CPU) segVal(i int) uint16 {
+	if i < 4 {
+		return c.Seg[i]
+	}
+	if i == FS {
+		return c.FSeg
+	}
+	return c.GSeg
+}
+
+// setSegVal 寫任一個段暫存器的值，含 FS／GS（只寫值，不動快取）。
+func (c *CPU) setSegVal(i int, v uint16) {
 	switch i {
 	case FS:
-		return c.FSeg
+		c.FSeg = v
 	case GS:
-		return c.GSeg
+		c.GSeg = v
+	default:
+		c.Seg[i] = v
 	}
-	return c.Seg[i]
 }
 
 // failf 記下「本道指令不能照做」。只留第一個原因；`Step` 收尾時回報。
@@ -323,30 +373,45 @@ func (c *CPU) failf(format string, a ...any) {
 	}
 }
 
+// push／pop 經 SS（434 §4.1：分段模式經 SS 快取；SS 的 B=1 失敗即關閉）。
 func (c *CPU) push(v uint16) {
 	c.charge(cycStack)
+	if c.segmented {
+		c.stackCheck()
+	}
 	c.R[SP] -= 2
-	c.write16(c.Seg[SS], c.R[SP], v)
+	c.write16(SS, uint32(c.R[SP]), v)
 }
 
 func (c *CPU) pop() uint16 {
 	c.charge(cycStack)
-	v := c.read16(c.Seg[SS], c.R[SP])
+	if c.segmented {
+		c.stackCheck()
+	}
+	v := c.read16(SS, uint32(c.R[SP]))
 	c.R[SP] += 2
 	return v
 }
 
 // Interrupt 走真正的向量表：推旗標與返回位址、清 IF／TF、跳 0000:(n*4)。
+//
+// 分段模式下不會經 Machine 到達（434 §5.3）；這裡另以 failf 當第二道防線（434 §5.1），不動任何狀態。
+// 從 Step 之外呼叫時，錯誤在下一次 Step 回報。
 func (c *CPU) Interrupt(n uint8) {
+	if c.segmented {
+		c.failf("Interrupt(%02Xh)：分段模式下的中斷遞送屬 435／S6，失敗即關閉（docs/spec/434 §5.1）", n)
+		return
+	}
 	c.charge(cycInt)
 	c.push(c.Flags)
 	c.setFlag(IF, false)
 	c.setFlag(TF, false)
 	c.push(c.Seg[CS])
 	c.push(c.IP)
-	off := uint16(n) * 4
-	c.IP = c.read16(0, off)
-	c.Seg[CS] = c.read16(0, off+2)
+	// IVT 在線性 0（433 §2）：以絕對位址讀，不經段索引。
+	off := uint32(n) * 4
+	c.IP = uint16(c.Bus.Read8(off)) | uint16(c.Bus.Read8(off+1))<<8
+	c.Seg[CS] = uint16(c.Bus.Read8(off+2)) | uint16(c.Bus.Read8(off+3))<<8
 	c.Halted = false
 }
 
@@ -370,7 +435,13 @@ func (c *CPU) FarCall(seg, off uint16) {
 // 用途是**返回哨兵**——把返回位址指到一段我們認得的 stub，
 // 常式 `retf` 回到那裡時就知道「回呼跑完了」，可以把暫存器還原
 // （`docs/spec/009` §3.1）。
+//
+// 分段模式下不會經 Machine 到達（434 §5.3）；這裡另以 failf 當第二道防線（434 §5.1），不動任何狀態。
 func (c *CPU) FarCallWithReturn(seg, off, retSeg, retOff uint16) {
+	if c.segmented {
+		c.failf("FarCall(%04X:%04X)：分段模式下不支援外部遠呼叫，失敗即關閉（docs/spec/434 §5.1）", seg, off)
+		return
+	}
 	c.push(retSeg)
 	c.push(retOff)
 	c.Seg[CS], c.IP = seg, off

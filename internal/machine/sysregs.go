@@ -84,6 +84,14 @@ func (m *Machine) IVTMismatch() bool {
 	return m.pmProfile && m.cr0&cr0PE == 0 && m.sys.idtrBase != 0
 }
 
+// CPL 回目前的 CPL（434 §5.2）。
+func (m *Machine) CPL() uint8 { return m.pmCPL }
+
+// LDTR／SetLDTR 讀寫 LDTR 的選擇子與快取；TRSel 回 TR 的選擇子（434 §5.2）。
+func (m *Machine) LDTR() (sel uint16, c SegCache) { return m.sys.ldtr.sel, m.sys.ldtr.cache }
+func (m *Machine) SetLDTR(sel uint16, c SegCache) { m.sys.ldtr = sysSeg{sel: sel, cache: c} }
+func (m *Machine) TRSel() uint16                  { return m.sys.tr.sel }
+
 // ivtGuardIRQ 是 IDTR 守門的 Machine 側（tick 的 INT 08h、keyTick 與 timedKeyTick 的 INT 09h）。
 // CPU.Interrupt 沒有回傳值，所以條件成立時不呼叫它，把錯誤存進 m.irqErr，由 Step 回傳。
 func (m *Machine) ivtGuardIRQ(vec uint8) bool {
