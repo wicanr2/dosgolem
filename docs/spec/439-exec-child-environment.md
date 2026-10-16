@@ -2,7 +2,7 @@
 
 狀態：**DRAFT**（第 1 版）
 日期：2026-10-16
-前置：[`009`](009-dos-exec.md)（EXEC 與 PSP，若檔名不同以 `000-index.md` 為準）、[`438-probe-guard-physical-pc`](438-probe-guard-physical-pc.md)
+前置：[`009-exec`](009-exec.md)、[`009-memory-allocator`](009-memory-allocator.md)、[`438-probe-guard-physical-pc`](438-probe-guard-physical-pc.md)
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
