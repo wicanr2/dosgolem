@@ -76,7 +76,8 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 |---|---|---|
 | CPU 的位址空間 | 既有核心的 `Bus`、既有核心分段模式（434） | 線性層 |
 | 服務層的客體指標 | `internal/dos` 的 `cpu.Addr(` 呼叫，含 `fixStackedCF` | `SvcAddr`（§4）＋線性層 |
-| 硬體與 BIOS 側 | `bda.go` 的鍵盤緩衝與 BDA、`bumpBDATicks`、`keyboard.go`／`keyhold.go` 讀 IVT、文字畫面讀出、`cga.go`、`oracle/oracle.go` 的畫面讀出、`cmd/probe` 的 IVT 狀態輸出 | 實體層（`ReadPhys*`／`WritePhys*`） |
+| 硬體與 BIOS 側 | `bda.go` 的鍵盤緩衝與 BDA、`bumpBDATicks`、文字畫面讀出、`cga.go`、`oracle/oracle.go` 的畫面讀出、`cmd/probe` 的 IVT 狀態輸出 | 實體層（`ReadPhys*`／`WritePhys*`） |
+| 客體可見的 IVT | `keyboard.go`／`keyhold.go` 檢查 IVT[09h] 是否仍指 StubSeg、`internal/dos` 的 `handle` 讀 IVT | 線性層的監督者讀取（`ReadSup16`）；由 435 §4 取代原先的實體層：這個檢查的語意是「客體有沒有掛向量」，V86 下客體與 JEMM 都以線性位址讀寫 IVT |
 | 載入與初始化 | `initBDA`、`initVectors`、`loader.go`、`WriteMCB`、`SetExtendedMemoryKB`、`SetEMSPresent`、PSP 命令列寫入 | 不變（發生在轉換關閉時），註明為實體語意 |
 | 觀測與診斷（不得有副作用） | `pollWords`、`WatchWord` 登記、服務層的診斷回溯（`bios.go` 的 `noteKeyWord` 呼叫者、`files.go` 的 `noteMissingAccess`、`exec.go` 的 `CallSite`、`dos.go` 的 `noteCPU`）、`cmd/probe` 的 dump | §6 |
 | 服務層的固定結構（手算 `seg*16`） | `int9.go` 與 `dos/bios.go`、`dos/dos.go` 的 BDA 存取、`VideoSeg`、`StubSeg`、EMS 頁框等 | 不改，經線性層；依賴 BDA 與 `StubSeg` 在 JEMM 的兩種映射狀態都恆等映射（§4） |
