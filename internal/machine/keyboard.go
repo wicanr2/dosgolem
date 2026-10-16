@@ -123,5 +123,6 @@ func (m *Machine) keyTick() {
 	m.keyQueue = m.keyQueue[1:]
 	m.kbdData = ev.Code()
 	m.KeyIRQs++
+	m.eventThisStep = true // 444 §2.7
 	m.raiseIRQ(0x09)
 }

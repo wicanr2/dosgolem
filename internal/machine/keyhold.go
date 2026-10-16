@@ -112,6 +112,7 @@ func (m *Machine) timedKeyTick() bool {
 	m.timedKeys = m.timedKeys[1:]
 	m.kbdData = ev.Code()
 	m.KeyIRQs++
+	m.eventThisStep = true // 444 §2.7
 	m.raiseIRQ(0x09)
 	return true
 }

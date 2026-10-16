@@ -41,6 +41,8 @@ const (
 	stateMagic      = "DOSGOLEM-M"
 	stateVersion    = 3
 	stateVersionMin = 2
+	// stateVersionMax 是 LoadState 接受的最高版本：4 只在 444 的選項開啟時寫（stateVersionSB8）。
+	stateVersionMax = stateVersionSB8
 )
 
 // machineState 是機器狀態的線上格式。**欄位要匯出**，gob 才看得到。
@@ -234,17 +236,43 @@ func (m *Machine) SaveState(w io.Writer) error {
 		s.PortInList = append(s.PortInList, PortCount{Port: k, Count: v})
 	}
 	sort.Slice(s.PortInList, func(i, j int) bool { return s.PortInList[i].Port < s.PortInList[j].Port })
-	return gob.NewEncoder(w).Encode(&s)
+	// 444 §2.9：選項開啟時寫版本 4，以同一個 Encoder 緊接著編碼 sbDMA8State；關閉時與 444 之前逐位元組相同。
+	if m.sb8 != nil {
+		s.Version = stateVersionSB8
+	}
+	enc := gob.NewEncoder(w)
+	if err := enc.Encode(&s); err != nil {
+		return err
+	}
+	if m.sb8 != nil {
+		return enc.Encode(m.sb8Save())
+	}
+	return nil
 }
 
 // LoadState 把機器倒回存檔的狀態。
 func (m *Machine) LoadState(r io.Reader) error {
 	var s machineState
-	if err := gob.NewDecoder(r).Decode(&s); err != nil {
+	dec := gob.NewDecoder(r)
+	if err := dec.Decode(&s); err != nil {
 		return fmt.Errorf("machine: 讀不開狀態檔：%w", err)
 	}
-	if s.Magic != stateMagic || s.Version < stateVersionMin || s.Version > stateVersion {
+	if s.Magic != stateMagic || s.Version < stateVersionMin || s.Version > stateVersionMax {
 		return fmt.Errorf("machine: 狀態檔不認得（%q v%d）", s.Magic, s.Version)
+	}
+	// 444 §2.9：選項開關與「版本是否為 4」要一致；版本 4 以同一個 Decoder 再解 sbDMA8State。都在任何寫入之前。
+	var sb8 *sbDMA8State
+	if is4 := s.Version == stateVersionSB8; is4 != (m.sb8 != nil) {
+		return fmt.Errorf("machine: 狀態檔版本 %d 與 SB16 DMA8／IRQ7 選項（%t）不一致（版本 4 ⇔ 選項開啟；先用 SetSBDMA8／-sb-dma8 設成相同，docs/spec/444 §2.9）",
+			s.Version, m.sb8 != nil)
+	} else if is4 {
+		sb8 = new(sbDMA8State)
+		if err := dec.Decode(sb8); err != nil {
+			return fmt.Errorf("machine: 讀不開狀態檔的 sbDMA8State：%w", err)
+		}
+		if sb8.V != sbDMA8StateV {
+			return fmt.Errorf("machine: sbDMA8State 版本 %d 不認得（docs/spec/444 §2.9）", sb8.V)
+		}
 	}
 	if len(s.Mem) != len(m.Mem) {
 		return fmt.Errorf("machine: 狀態檔的記憶體是 %d bytes，這台是 %d", len(s.Mem), len(m.Mem))
@@ -296,7 +324,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	copy(m.Mem, s.Mem)
 	// ROM 不是狀態：舊版執行器存下來的那一段是 0，照這一版的 ROM 蓋回去。
 	m.initROM()
-	m.LegacyState = s.Version < stateVersion
+	m.LegacyState = s.Version < 3
 	m.hma = [HMASize]uint8{}
 	copy(m.hma[:], s.HMA)
 	if m.Ext != nil {
@@ -378,5 +406,9 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.FreeSeg, m.ImageBase, m.ImageLen = s.FreeSeg, s.ImageBase, s.ImageLen
 	m.programLoaded = true
 	m.applyPM(pm) // TLB 世代加一、重算衍生欄位與取指令快路徑
+	if sb8 != nil {
+		m.sb8Apply(sb8)
+	}
+	m.sb8Err = nil
 	return nil
 }

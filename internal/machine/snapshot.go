@@ -112,6 +112,9 @@ type Snapshot struct {
 	pit         pit
 	irq0Clamped int
 	picMask     uint8
+
+	// 444 §2.9：選項開啟時的 DSP、DMA、PIC 與傳輸狀態（深拷貝）；選項關閉時為 nil。
+	sb8 *sbDMA8State
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -199,6 +202,9 @@ func (m *Machine) Snapshot() *Snapshot {
 	// 434 §2.2：分段模式旗標與六個快取。
 	s.pmFields.segmented, s.pmFields.cache = m.cpuPMFields()
 	s.vga = m.VGA.clone()
+	if m.sb8 != nil {
+		s.sb8 = m.sb8Save()
+	}
 	if m.Ext != nil {
 		s.ext = append([]uint8(nil), m.Ext...)
 	}
@@ -220,6 +226,9 @@ func (m *Machine) Restore(s *Snapshot) {
 	}
 	if len(s.ext) != len(m.Ext) {
 		panic(fmt.Sprintf("machine: Restore 的快照延伸記憶體是 %d bytes，這台是 %d bytes", len(s.ext), len(m.Ext)))
+	}
+	if (s.sb8 != nil) != (m.sb8 != nil) {
+		panic(fmt.Sprintf("machine: Restore 的快照 SB16 DMA8／IRQ7 選項是 %t，這台是 %t（docs/spec/444 §2.9）", s.sb8 != nil, m.sb8 != nil))
 	}
 	copy(m.Mem, s.mem)
 	copy(m.Ext, s.ext)
@@ -273,6 +282,12 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.syncSpeakerLast()
 	m.pit, m.picMask = s.pit, s.picMask
 	m.IRQ0Clamped = s.irq0Clamped
+	// 444 §2.8、§2.9：sb8 狀態（含 picMask，與上一行同值）、回呼重接；清黏著錯誤與觀測紀錄。
+	if s.sb8 != nil {
+		m.sb8Apply(s.sb8)
+	}
+	m.sb8Err = nil
+	m.SBDMALog, m.SBDMALogDropped = m.SBDMALog[:0], 0
 
 	// 432：保護模式狀態。TLB 世代加一，衍生欄位與 CPU.Code 依還原後的 CR0 重算
 	// （上面 syncCodeFastPath 用的是還原前的 xlat）。

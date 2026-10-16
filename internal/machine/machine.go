@@ -682,6 +682,16 @@ type Machine struct {
 	// insnSeg、insnBase：本道指令起點是否在分段模式，以及當時的 CS 快取基底（434 §7 的 InsnLinear）。
 	insnSeg  bool
 	insnBase uint32
+	// 444（docs/spec/444-legacy-sb16-dma8-irq7）：sb8 為 nil 表示選項關閉；sb8Err 是 §2.7 的黏著錯誤；
+	// eventThisStep 是 §2.7 的每步旗標（只在選項開啟時於 Step 開頭清除、於 IRQ7 分支讀取）。
+	sb8           *sbDMA8
+	sb8Err        error
+	eventThisStep bool
+	// SBDMALog、SBDMALogDropped、OnSBDMA 是 §2.8 的觀測紀錄（不進狀態檔）；SBDMAUnknownReads 是 §2.2 的診斷計數。
+	SBDMALog          []SBDMAEvent
+	SBDMALogDropped   uint64
+	OnSBDMA           func(SBDMAEvent)
+	SBDMAUnknownReads uint64
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -984,7 +994,12 @@ func (m *Machine) AdLib() bool { return m.oplPresent }
 // SetSoundBlaster 明示標準 SB16（基底 220h）存在。Sound Blaster 的 OPL
 // 相容介面也是實體 OPL，所以開啟時一併讓 OPL 偵測成立；關閉 SB 不會
 // 擅自關掉可能由 SetAdLib 獨立開啟的 AdLib。
+//
+// 444 §2.1：SetSBDMA8(true) 之後再 SetSoundBlaster(false) 會 panic（關掉 DSP 而保留 DMA 與 IRQ7 沒有意義）。
 func (m *Machine) SetSoundBlaster(present bool) {
+	if !present && m.sb8 != nil {
+		panic("machine: SB16 DMA8／IRQ7 選項開啟後不能關閉 Sound Blaster（docs/spec/444 §2.1）")
+	}
 	m.soundBlasterPresent = present
 	if present {
 		m.oplPresent = true
@@ -1071,6 +1086,11 @@ func (m *Machine) ClearOPL() { m.OPL = m.OPL[:0] }
 func (m *Machine) In8(port uint16) uint8 {
 	m.PortsIn[port]++
 	m.portTicks++
+	if m.sb8 != nil { // 444 §2.11：DMA、PIC 埠與 22Eh 先交給 sbDMA8
+		if v, ok := m.sb8In(port); ok {
+			return v
+		}
+	}
 	if m.soundBlasterPresent {
 		if v, ok := m.soundBlaster.In8(port); ok {
 			return v
@@ -1172,12 +1192,20 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	m.Ports[p] = v
 	m.PortLog = append(m.PortLog, PortWrite{Port: p, Val: v, Step: m.Steps, Cycles: m.CPU.Cycles})
 
+	if m.sb8 != nil && m.sb8Out(p, v) { // 444 §2.11：DMA、PIC 埠先交給 sbDMA8
+		return
+	}
 	if m.soundBlasterPresent {
 		if m.soundBlaster.Out8(p, v) {
 			return
 		}
 		if alias, ok := oplAlias(p); ok {
 			p = alias
+		} else if m.sb8 != nil && p >= 0x224 && p <= 0x22F {
+			// 444 §2.3 表末列：DSP 回 false 的寫入失敗即關閉。228h／229h 是 OPL 別名（190 §8），
+			// 在上一個分支已改成 388h／389h，不落在這裡。
+			m.sb8DSPFail(p, v)
+			return
 		}
 	}
 
@@ -1429,6 +1457,16 @@ func (m *Machine) Step() error {
 		m.pfLast, m.pfLastOK = m.pf, true
 		m.pf, m.pfOK = PageFaultRecord{}, false
 	}
+	// 444 §2.5、§2.7：選項開啟時（432 §5.3 的分頁紀錄搬移之後），sb8Err 黏著（不執行指令）；清每步旗標；tick 之前判斷傳輸到期。
+	if m.sb8 != nil {
+		if m.sb8Err != nil {
+			return m.sb8Err
+		}
+		m.eventThisStep = false
+		if m.sb8.active {
+			m.sb8Poll()
+		}
+	}
 	// **兩個檢查都內聯在這裡**：`tick` 與 `keyTick` 絕大多數指令上
 	// 第一行就 return，而函式呼叫本身佔了執行時間的 3.8%
 	//（`docs/spec/015` §3）。把「要不要進去」提到呼叫端之後，
@@ -1463,6 +1501,13 @@ func (m *Machine) Step() error {
 			return m.takeIRQErr()
 		}
 	}
+	// 444 §2.7：IRQ7（優先序 IRQ0 > IRQ1 > IRQ7 由判斷次序實現）。
+	if m.sb8 != nil && m.sb8.irr7 {
+		m.sb8IRQ7()
+		if m.irqErr != nil {
+			return m.takeIRQErr()
+		}
+	}
 	m.Steps++
 	if m.Coverage != nil {
 		m.cover()
@@ -1476,8 +1521,8 @@ func (m *Machine) Step() error {
 		if len(m.wordWatches) > 0 {
 			m.pollWords()
 		}
-		if err != nil || m.pfOK {
-			return m.finishStep(err)
+		if err != nil || m.pfOK || m.sb8Err != nil {
+			return m.endStep(err)
 		}
 		return nil
 	}
@@ -1496,8 +1541,8 @@ func (m *Machine) Step() error {
 		})
 	}
 	if !m.TraceSegs {
-		if err != nil || m.pfOK {
-			return m.finishStep(err)
+		if err != nil || m.pfOK || m.sb8Err != nil {
+			return m.endStep(err)
 		}
 		return nil
 	}
@@ -1517,10 +1562,19 @@ func (m *Machine) Step() error {
 			m.SegLog = append(m.SegLog[:0], m.SegLog[MaxSegLog:]...)
 		}
 	}
-	if err != nil || m.pfOK {
-		return m.finishStep(err)
+	if err != nil || m.pfOK || m.sb8Err != nil {
+		return m.endStep(err)
 	}
 	return nil
+}
+
+// endStep 是 Step 三個回傳點的收尾：finishStep 之後，444 §2.7 的 sb8Err 在 err 為 nil 時回傳。
+func (m *Machine) endStep(err error) error {
+	e := m.finishStep(err)
+	if e == nil && m.sb8Err != nil {
+		return m.sb8Err
+	}
+	return e
 }
 
 // tick 是計時器中斷（IRQ0 ＝ `int 08h`）。
@@ -1562,6 +1616,7 @@ func (m *Machine) tick() {
 		// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
 		// 事件是有時序意義的，週期回呼晚一格沒差。
 		if m.startCallback() {
+			m.eventThisStep = true // 444 §2.7
 			return
 		}
 		// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
@@ -1570,6 +1625,7 @@ func (m *Machine) tick() {
 		if m.periodic.on && m.Steps >= m.periodic.next {
 			m.periodic.next = m.Steps + m.periodic.every
 			m.periodic.Calls++
+			m.eventThisStep = true // 444 §2.7
 			m.CPU.FarCall(m.periodic.seg, m.periodic.off)
 			return
 		}
@@ -1628,7 +1684,8 @@ func (m *Machine) tick() {
 	if m.onTick != nil {
 		m.onTick()
 	}
-	m.raiseIRQ(0x08) // 435 §2.4：V86 提交 IDT 遞送，否則走 IVT
+	m.eventThisStep = true // 444 §2.7
+	m.raiseIRQ(0x08)       // 435 §2.4：V86 提交 IDT 遞送，否則走 IVT
 }
 
 // segWaitLimit 是分段模式下「有待處理 IRQ 且 IF=1」容許的連續步數（431 §3、434 §5.3）。
@@ -1642,15 +1699,20 @@ func (m *Machine) segWait() {
 		return
 	}
 	m.segWaitAt = m.Steps + 1
-	if !(m.irq0Pending || len(m.keyQueue) > 0) || !m.CPU.Flag(cpu.IF) {
+	// 444 §2.7 第 4 步：選項開啟時，第 1 步成立的 IRQ7 也算待處理。
+	if !(m.irq0Pending || len(m.keyQueue) > 0 || m.sb8IRQ7Ready()) || !m.CPU.Flag(cpu.IF) {
 		m.segWaitN = 0
 		return
 	}
 	m.segWaitN++
 	if m.segWaitN >= segWaitLimit && m.irqErr == nil {
-		m.irqErr = fmt.Errorf("machine: 分段模式下有待處理 IRQ（irq0Pending=%t、鍵盤佇列 %d 筆）且 IF=1，"+
+		irq7 := ""
+		if s := m.sb8; s != nil {
+			irq7 = fmt.Sprintf("、IRQ7：IRR7=%t ISR7=%t IMR bit7=%d（docs/spec/444 §2.7）", s.irr7, s.isr7, m.picMask>>7)
+		}
+		m.irqErr = fmt.Errorf("machine: 分段模式下有待處理 IRQ（irq0Pending=%t、鍵盤佇列 %d 筆%s）且 IF=1，"+
 			"連續 %d 步未離開分段模式，失敗即關閉（保護模式 IDT 遞送屬 435；docs/spec/431 §3、434 §5.3）",
-			m.irq0Pending, len(m.keyQueue), m.segWaitN)
+			m.irq0Pending, len(m.keyQueue), irq7, m.segWaitN)
 	}
 }
 

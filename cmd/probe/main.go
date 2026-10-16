@@ -157,6 +157,7 @@ func main() {
 	soundBlaster := flag.Bool("sound-blaster", false,
 		"讓 Sound Blaster 16（基底 220h，含 OPL 相容埠）偵測存在"+
 			"（預設不存在；使用 228h/229h 的 FM 音樂路徑要它才會跑）")
+	sbDMA8, sbDMALog := sbDMA8Flags(flag.CommandLine)
 	poke := flag.String("poke", "",
 		"在指定步數直接改記憶體：`<位址>@<步數>=<hex bytes>`，分號分隔。"+
 			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
@@ -343,6 +344,18 @@ func main() {
 	}
 	if *soundBlaster {
 		m.SetSoundBlaster(true)
+	}
+	// 444 §2.1：要在 LoadEXE／LoadCOM／state.Load 之前開啟（兩條路徑都涵蓋）。
+	if err := configureSBDMA8(m, *soundBlaster, *sbDMA8, *sbDMALog); err != nil {
+		die(err)
+	}
+	var sbLogFile *os.File
+	if *sbDMALog != "" {
+		f, ferr := openSBDMALog(m, *sbDMALog)
+		if ferr != nil {
+			die(ferr)
+		}
+		sbLogFile = f
 	}
 	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
 	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境
@@ -1142,6 +1155,14 @@ func main() {
 		if m.IRQ0Clamped > 0 {
 			fmt.Printf("  ⚠ 中斷間隔被夾到下限 %d 次——波形的時間軸不可信\n",
 				m.IRQ0Clamped)
+		}
+	}
+	if m.SBDMA8() {
+		reportSBDMA8(os.Stdout, m)
+	}
+	if sbLogFile != nil {
+		if err := sbLogFile.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "sb-dma-log:", err)
 		}
 	}
 	if *dumpWAV != "" {

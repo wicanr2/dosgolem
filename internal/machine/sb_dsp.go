@@ -28,6 +28,11 @@ type SoundBlasterDSP struct {
 	voiceVolume                    [2]byte
 	voiceVolumeKnown               [2]bool
 	reply                          []byte
+
+	// StartADPCMDMA、StartSilence：docs/spec/444-legacy-sb16-dma8-irq7 §2.3。nil（LEOPLPorts）時
+	// 74h–77h、16h、17h、80h 照原樣回 false。
+	StartADPCMDMA func(cmd byte, n uint32) bool
+	StartSilence  func(n uint32) bool
 }
 
 func (s *SoundBlasterDSP) In8(port uint16) (uint8, bool) {
@@ -95,6 +100,35 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		return true
 	}
 	if port == 0x22c && !s.reset {
+		// 444 §2.3：ADPCM（74h–77h、16h、17h）與靜音（80h）。回呼為 nil 時不設 pending，落到最後回 false。
+		if dspSingleCycleExt(s.pending) {
+			if !s.lengthHighNext {
+				s.lengthLow = v
+				s.lengthHighNext = true
+				return true
+			}
+			n := uint32(s.lengthLow) + uint32(v)*256 + 1
+			var ok bool
+			if s.pending == 0x80 {
+				ok = s.StartSilence(n)
+			} else {
+				ok = s.StartADPCMDMA(s.pending, n)
+			}
+			if !ok {
+				return false
+			}
+			s.pending = 0
+			s.lengthHighNext = false
+			return true
+		}
+		if s.pending == 0 && dspSingleCycleExt(v) {
+			if (v == 0x80 && s.StartSilence == nil) || (v != 0x80 && s.StartADPCMDMA == nil) {
+				return false
+			}
+			s.pending = v
+			s.lengthHighNext = false
+			return true
+		}
 		// 規格296：C6完整mode／長度收到並啟動成功後才發布block與診斷。
 		if s.pending == 0xc6 {
 			switch s.c6Step {
@@ -261,4 +295,13 @@ func (s *SoundBlasterDSP) Out8(port uint16, v uint8) bool {
 		s.reply = []byte{0xaa}
 	}
 	return true
+}
+
+// dspSingleCycleExt 是 444 §2.3 新增的單次命令：ADPCM 74h–77h、16h、17h 與靜音 80h。
+func dspSingleCycleExt(v uint8) bool {
+	switch v {
+	case 0x74, 0x75, 0x76, 0x77, 0x16, 0x17, 0x80:
+		return true
+	}
+	return false
 }
