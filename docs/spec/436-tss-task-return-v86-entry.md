@@ -192,3 +192,35 @@ V86 下的 x87；中斷遮蔽；回實模式（S9）。
      TSS `F0h` 的 `EIP=4596h`、`EFLAGS` 無 `NT`、`CS=18h`，其餘段值與通用暫存器等於 434 收據第 104585 步存檔中的值；
    - 停點：照實記錄停點、原因、步數、`CS:IP`，以及 `irq0Pending`、`picMask`、`nextIRQ0`、`IF`。§1.1 預測停在 SCCD 映像 `0x2BE` 的 `INT 2Fh`。
 9. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 7. 實作收據（2026-10-16）
+
+commit：`93a23ab`（階段 1：`ltr`、任務返回）、`f74462b`（階段 2：V86 規則與閘門）。
+
+### 驗收結果
+
+- 第 1–5、7、9 項：容器內 `gofmt -l` 無輸出，`go build`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle`
+  13 個套件全部 ok；SingleStepTests 315 PASS、0 SKIP，`knownGaps` 不變；`internal/cpu386`、`internal/state` 無改動。每階段由主代理在獨立容器重跑後提交。
+- 第 7 項突變自檢：9 個突變全被測試抓到，已還原。
+- 第 6 項效能：profile 關閉，對 `7a1817a` 交錯 5 輪，1 分鐘 load average 18–25。最快值 `BenchmarkStepRealMode` 舊 35.02、新 34.23 ns/op（102%）；
+  `BenchmarkStepV86` 舊 49.90、新 49.21；`BenchmarkStepV86Paged` 舊 57.12、新 59.84（16.71 M 道／秒，高於 11.58 M）。單輪樣本波動大，
+  97% 門檻與 432–434 同列開放。
+- 第 8 項觸發案例（`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile`）：
+  - 第 104587 步（`ltr` 之後）：GDT 副本中 `F0h` 的 access byte 為 `8Bh`。
+  - 第 104593 步（`iretd` 之後）：`CS:IP=2000:4596`、`SS:SP=2000:0200`，`EFlagsHi=0002h`（VM），`TR=10h`、`LDTR=08h`、`segmented=0`、
+    `CR0=80000011h`、`CR3=0011C000h`；GDT 中 `F0h` 回到 `89h`、`10h` 仍為 `8Bh`；TSS `F0h` 的 `EIP=4596h`、`EFLAGS=3006h`（`iretd` 前為 `7006h`，`NT` 已清）、
+    `CS=18h`、`ES=20h`、`SS=50h`、`DS=20h`、`FS=28h`、`GS=28h`、`EAX=7006h`、`ECX=F0h`、`EBX=111530h`、`ESP=200h`。
+  - 停點：執行 104611 道後停在 `0110:02BE` 的 `INT 2Fh`（`AX=4300h`），訊息註明屬 435。SCCD 映像載入段 `0110h`，即映像 `0x2BE`，與 §1.1 的預測相同。
+    停止時 `IF=1`，計時器與鍵盤中斷送出 0 次。`irq0Pending`、`picMask`、`nextIRQ0` 目前 probe 不輸出，沒有記錄。
+
+### 實作期間的處置
+
+1. 「`TR` 有效」判定為選擇子非空且快取 P 位元為 1。目前 TSS 不忙碌時照常切換，不記 log（Machine 沒有 log 機制）。
+2. 新 TSS 的段值與 `LDT` 欄位各讀 16 位元，其餘 32 位元（同 DOSBox-X）；`LDT` 只讀不載入。
+3. 分頁紀錄在讀 back link、讀新描述元、讀完新 TSS 三處檢查；`finishStep` 進入時 `m.pfOK` 已為真則不切換。
+4. `66 CF` 在分段模式 `NT=0` 時沿用 `CF` 的 434 訊息（含 "IRET"）。
+5. 既有測試 `TestSegForbiddenSegmentWrites` 的 `iret`／`66 iret` 先清 `NT`：Machine 的 386 初始旗標為 `7002h`（帶 `NT`、`IOPL=3`），該測試要測 `NT=0`。
+   Machine 初始旗標未改。
+6. `ltr` 寫忙碌位元前不探測頁面（§2.2 照原樣）；GDT 所在頁不存在時會回 `*PageFaultError` 但 `TR` 已設定。本案 GDT 頁存在。
+7. V86 的 I/O 被擋時暫存器與記憶體都不寫。
+8. `VM()` 回傳原始 `EFLAGS.VM`；Sys 只在 profile 開啟時裝上，與 `m.v86` 等價。
