@@ -117,3 +117,43 @@ func TestSBDMA8AgainstStateFiles(t *testing.T) {
 		}
 	}
 }
+
+// docs/spec/445-legacy-sb16-dma8-pause-resume §3 第 2.18 項（probe 部分）：-sb-dma-log 的說明文字含 pause、resume；
+// reportSBDMA8 印出暫停中、暫停次數、恢復次數。
+func TestSBDMA8PauseReport(t *testing.T) {
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	sbDMA8Flags(fs)
+	if u := fs.Lookup("sb-dma-log").Usage; !strings.Contains(u, "pause") || !strings.Contains(u, "resume") {
+		t.Errorf("-sb-dma-log 的說明文字應列出 pause、resume：%s", u)
+	}
+	m := machine.New()
+	m.SetSoundBlaster(true)
+	if err := configureSBDMA8(m, true, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.LoadCOM([]byte{0xEB, 0xFE}); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range [][2]uint16{{0x0A, 5}, {0x83, 0}, {0x0C, 0}, {0x02, 0}, {0x02, 0x10}, {0x03, 3}, {0x03, 0}, {0x0B, 0x49}, {0x0A, 1},
+		{0x22C, 0x40}, {0x22C, 0xA6}, {0x22C, 0x14}, {0x22C, 3}, {0x22C, 0}, {0x22C, 0xD0}, {0x22C, 0xD0}} {
+		m.Out8(w[0], uint8(w[1]))
+	}
+	if err := m.SBDMA8Err(); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	reportSBDMA8(&b, m)
+	for _, want := range []string{"暫停中=true", "暫停 1 次", "恢復 0 次"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("報告應含 %q：%s", want, b.String())
+		}
+	}
+	m.Out8(0x22C, 0xD4)
+	b.Reset()
+	reportSBDMA8(&b, m)
+	for _, want := range []string{"暫停中=false", "暫停 1 次", "恢復 1 次"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("恢復後報告應含 %q：%s", want, b.String())
+		}
+	}
+}

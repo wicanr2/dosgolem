@@ -273,6 +273,9 @@ func (m *Machine) LoadState(r io.Reader) error {
 		if sb8.V != sbDMA8StateV {
 			return fmt.Errorf("machine: sbDMA8State 版本 %d 不認得（docs/spec/444 §2.9）", sb8.V)
 		}
+		if err := sb8Validate(sb8); err != nil { // 445 §2.10
+			return err
+		}
 	}
 	if len(s.Mem) != len(m.Mem) {
 		return fmt.Errorf("machine: 狀態檔的記憶體是 %d bytes，這台是 %d", len(s.Mem), len(m.Mem))

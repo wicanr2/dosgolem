@@ -11,7 +11,7 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
-// -sb-dma8、-sb-dma-log（docs/spec/444-legacy-sb16-dma8-irq7 §2.1、§2.8、§2.11）。
+// -sb-dma8、-sb-dma-log（docs/spec/444-legacy-sb16-dma8-irq7 §2.1、§2.8、§2.11；445 §2.9）。
 
 // sbDMA8Flags 註冊兩個旗標。拆成函式是為了讓測試能在獨立的 FlagSet 上驗。
 func sbDMA8Flags(fs *flag.FlagSet) (*bool, *string) {
@@ -19,8 +19,8 @@ func sbDMA8Flags(fs *flag.FlagSet) (*bool, *string) {
 		"一般機器的 SB16 8 位元單次 DMA（通道 1）、ADPCM、靜音區塊與 IRQ7（`docs/spec/444-legacy-sb16-dma8-irq7`）。"+
 			"需要同時給 -sound-blaster。預設關＝DMA 埠與 20h／A1h 維持舊行為、不送 IRQ7")
 	log := fs.String("sb-dma-log", "",
-		"把 -sb-dma8 的觀測紀錄（start、complete、cancel、irq7、defaulted、eoi）寫成 TSV，第一列為欄名"+
-			"（`docs/spec/444-legacy-sb16-dma8-irq7` §2.8）")
+		"把 -sb-dma8 的觀測紀錄（start、complete、cancel、irq7、defaulted、eoi、pause、resume）寫成 TSV，第一列為欄名"+
+			"（`docs/spec/444-legacy-sb16-dma8-irq7` §2.8、`docs/spec/445-legacy-sb16-dma8-pause-resume` §2.9）")
 	return on, log
 }
 
@@ -75,6 +75,8 @@ func reportSBDMA8(w io.Writer, m *machine.Machine) {
 	fmt.Fprintf(w, "\nSB16 DMA8／IRQ7（docs/spec/444）：DMA 完成 %d 次、靜音完成 %d 次；IRQ7 遞送 %d 次、BIOS 預設處理 %d 次；"+
 		"終值 IRR7=%t ISR7=%t 傳輸進行中=%t\n", st.DMA8Completions, st.SilenceCompletions, st.IRQ7Deliveries, st.IRQ7Defaulted,
 		st.IRR7, st.ISR7, st.Active)
+	fmt.Fprintf(w, "  DSP D0h／D4h（docs/spec/445）：暫停中=%t；暫停 %d 次、恢復 %d 次（診斷計數，不進狀態檔）\n",
+		st.Paused, st.Pauses, st.Resumes)
 	fmt.Fprintf(w, "  埠讀取：20h ×%d、A0h ×%d；未寫過的 DMA 暫存器讀取 %d 次；觀測紀錄 %d 筆（丟棄 %d）\n",
 		m.PortsIn[0x20], m.PortsIn[0xA0], m.SBDMAUnknownReads, len(m.SBDMALog), m.SBDMALogDropped)
 	if err := m.SBDMA8Err(); err != nil {
