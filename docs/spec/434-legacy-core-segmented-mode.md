@@ -1,6 +1,6 @@
 # 434 — 既有核心的分段模式（16 位元保護模式）
 
-狀態：**DRAFT**（第 2 版，依第 1 輪兩份審查改寫）
+狀態：**READY**（第 3 版，依第 2 輪複審修正引用與清單）
 日期：2026-10-16
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（第 2 版）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)、
 [`433-real-mode-system-instructions`](433-real-mode-system-instructions.md)
@@ -60,7 +60,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 只有測試以 `SetCR0`／`SetVM` 直接造出這個狀態（432 的 `paging_test.go:567`、`674`、`733-741`，433 的 `sysinsn_test.go:368-390`，
 `bench_step_test.go:86`）。它維持 432 的語意：段值×16 定址、經線性層。保留這個狀態讓上列測試不變。
 
-`LoadState`／`Restore` 讀到版本 1、2 的 `PM` 且 `PE=1`、`VM=0` 時回錯誤（這種存檔只可能來自 433 的停擺狀態，不能可靠恢復）。
+`LoadState` 讀到版本 1、2 的 `PM` 且 `PE=1`、`VM=0` 時回錯誤（這種存檔只可能來自 433 的停擺狀態，不能可靠恢復）。拒絕放在 `LoadState`，不在 `decodePM`，
+所以直接呼叫 `decodePM` 的測試不受影響；經 `LoadState` 的 `TestPMV1Layout`（`linear_test.go:627-690`，手造 `CR0=80000019h`、`VM=0`）要改成 `VM=1` 或 `PE=0`。
 
 ### 2.2 `PM` 版本 3
 
@@ -102,12 +103,13 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 1. 呼叫 `m.enterSegmented()`：六個快取設為實模式推得值（基底＝段值×16、界限 `FFFFh`，CS 屬性 `009Bh`，其餘 `0093h`，同 433 §5），
    `SetSegmented(true)`，`SetPMCPL(0)`。
-2. 同一步有分頁紀錄時，依 432 §10 第 1 項回 `*PageFaultError`（此時已進分段模式）；否則回 nil。
+2. 同一步有分頁紀錄時回 `*PageFaultError`（此時已進分段模式）；否則回 nil。這取代 432 §10 第 1 項「哨兵不處理」對 `ErrModeSwitch` 的處置：
+   `CR0.PE` 已是 1，不進分段模式反而會以實模式語意執行保護模式碼。
 
 ### 3.2 離開與不變式的守門
 
 - `SetCR0` 在 `segmented=true` 時拒絕清 PE（回錯誤，`CR0` 不改）；`mov cr0` 因此失敗即關閉（S9）。
-- `SetVM(true)` 與設 `VM` 的 `SetEFlagsHi` 在 `segmented=true` 時拒絕。`VM` 由 0 變 1 的路徑（`iretd`、任務切換）在本規格都失敗即關閉。
+- `SetVM(true)`、設 `VM` 的 `SetEFlagsHi`、`SetPMCPL(≠0)` 在 `segmented=true` 時拒絕。`VM` 由 0 變 1 的路徑（`iretd`、任務切換）在本規格都失敗即關閉。
 - `Restore`、`LoadState` 依 `PM` 的 `segmented` 欄位還原，不重新推導。
 - `SetProtectedModeProfile` 切換時 `SetSegmented(false)`、快取清 0。
 
@@ -143,8 +145,10 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 - 記憶體原語（`read8/16/32`、`write8/16/32`、`fetch8`）改吃段索引與 `uint32` 偏移；`segmented=false` 時以 `segVal(i)<<4` 加 16 位元偏移，與現況相同。
 - 繞過原語、直接 `Bus.Read8(Linear(...))` 的位置（`ops.go:277`、`281`、`393`，`modrm.go:151`、`159`）與直接以 `c.Seg[ES]`、`c.Seg[SS]` 當位址段的位置
   （`string.go:55`，`ops386.go:416`、`481`、`486`，`ops186.go:99`、`104`、`150`，`cpu.go:324`、`329`，`ops.go:792`）改用索引原語；直接讀 `operand.seg`／`off`
-  的位置（`sys.go:106-133`、`ops0f.go:139-143`、`ops.go:324`、`329`、`753`、`761`、`ops186.go:38-39`、`ops386.go:465`、`473`）一併改。多 byte 的
-  `off+2`、`off+4` 改以偏移寬度相加。
+  的位置（`sys.go:106-133`、`ops0f.go:139-143`、`ops.go:324`、`329`、`753`、`761`、`ops186.go:38-39`、`ops386.go:465`、`473`、`modrm.go:166`、`174`）一併改。
+  多 byte 的 `off+2`、`off+4` 改以偏移寬度相加。
+- `BT` 系的位址調整（`ops0f.go:235-240`：`int32(o.off)+adj`、64 KB 的 `failf`、`uint16(eff)` 截斷）改以偏移寬度計算，64 KB 檢查只在 `segmented=false`。
+- `lea`（`ops.go:226`、`ops386.go:274`）取 `m.rm.off` 處依運算元寬度轉型，或改用 `ea32`。
 - 分段模式的分支只放在原語內一處（`if c.segmented`）；熱路徑的實模式分支在前。實作收據列出最終改動的位置清單（以 grep 對照本節）。
 
 `Interrupt` 讀 IVT 的 `read16(0, …)`（`cpu.go:343-344`）在分段模式不會執行（§5.3）。
@@ -164,7 +168,7 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 | `ops.go:340`、`345` | `retf imm16`、`retf` |
 | `ops0f.go:64`、`66`、`147`–`151` | `pop fs`／`pop gs`、`lss`／`lfs`／`lgs` |
 | `ops386.go:168`–`172` | 32 位元 `pop sreg` |
-| `cpu.go:344`、`371` | `Interrupt`、`FarCall`（分段模式不會到達，§5.3） |
+| `cpu.go:344`、`371` | `Interrupt`、`FarCall`／`FarCallWithReturn`：分段模式不會經 Machine 到達（§5.3）；函式開頭另加 `segmented` 時 `failf` 當第二道防線 |
 
 「還原成本道指令起點」的位置（`ops186.go:46`、`wide.go:290`、`cpu.go:383`）只把 `CS:IP` 設回 `opCS:opIP`，CS 快取不變，不經 `loadSeg`。
 `pop cs`（`ops.go:125`）、`mov cs`（`8E /1`）、`iret`（`ops.go:356`）與 `66` 形式在分段模式失敗即關閉。實作時以 grep `Seg\[`、`FSeg`、`GSeg`
@@ -172,16 +176,16 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 `segmented=false` 時 `loadSeg` 只寫段值，行為不變。`segmented=true` 時：
 
-1. 空選擇子：`(sel & 0xFFFC) == 0`（RPL 忽略；`04h` 不算空）。`CS`、`SS` 載入空選擇子失敗即關閉；`DS`／`ES`／`FS`／`GS` 允許，快取設為不可用。
-   （DOSBox-X `cpu.cpp:3029-3033` 設基底 0 且之後照常存取；本規格經它存取失敗即關閉，刻意從嚴。）
+1. 空選擇子：`(sel & 0xFFFC) == 0`（RPL 忽略；`04h` 不算空）。`CS`、`SS` 載入空選擇子失敗即關閉（`CS` 見 `cpu.cpp:1796-1798`）；`DS`／`ES`／`FS`／`GS`
+   允許，快取設為不可用。（DOSBox-X `cpu.cpp:3037-3040` 只設段值與基底 0，之後照常存取；本規格經它存取失敗即關閉，刻意從嚴。）
 2. 讀描述元：`TI=0` 查 GDT，`TI=1` 查 LDT（`LDTR` 快取；不可用時失敗）。`索引×8＋7 > 表界限` 失敗（Intel 語意；DOSBox-X 是
    `(sel &^ 7) >= limit`，`include/cpu.h:481`、`500`、`505`，只在界限不是 `8n−1` 時不同，本案 GDT `12Fh`、LDT `7` 相同）。描述元以 `ReadSup32`
    經 432 的線性層讀取；分頁錯誤依 432 §10 第 1 項回報。
-3. 檢查（照 DOSBox-X `CPU_SetSegGeneral`，`cpu.cpp:2976-3078`，與 `CPU_JMP`，`cpu.cpp:1785-1830`；違反時失敗即關閉，不送例外）：
+3. 檢查（照 DOSBox-X `CPU_SetSegGeneral`，`cpu.cpp:2976-3078`，與 `CPU_JMP`，`cpu.cpp:1785-1835`；違反時失敗即關閉，不送例外）：
    - `SS`：RPL＝CPL＝DPL；可寫資料段；present。
    - `DS`／`ES`／`FS`／`GS`：資料段與非一致可讀碼段須 RPL ≤ DPL 且 CPL ≤ DPL；一致可讀碼段免檢；其他型別失敗；present。
    - `CS`（遠跳、遠呼叫、遠返回）：非一致碼段，RPL ≤ CPL、DPL＝CPL；present；D=0。一致碼段、TSS、閘門、D=1 失敗即關閉。
-     新 `CS` 值為 `(sel &^ 3) | CPL`。遠跳與遠呼叫不改 CPL（`cpu.cpp:1823-1830`）。遠返回時彈出的 `CS` RPL ≠ CPL 失敗即關閉。
+     新 `CS` 值為 `(sel &^ 3) | CPL`。遠跳與遠呼叫不改 CPL（`cpu.cpp:1833` 只把 CPL 併入新 CS 值）。遠返回時彈出的 `CS` RPL ≠ CPL 失敗即關閉。
 4. 通過後才寫入段值與快取；失敗時段值與快取都不寫。
 5. 不寫回 accessed 位元。DOSBox-X 不寫（`CPU_SetSegGeneral` 只讀描述元）；386 真機會寫。JEMM 不讀該位元，靜態上沒有 `lar`、`lsl`、`verr`、
    `verw`、`arpl`（`docs/re/004` §2）。
@@ -202,8 +206,9 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 - CPU 側：`doInt`、`divideError`、`divideFault`、`BOUND` 的 433 守門擴充為「`IVTMismatch()` 或 `segmented`」，分段模式下失敗即關閉，診斷註明
   保護模式 IDT 遞送屬 435／S6。`doInt` 的檢查仍在 `IntHook` 之前。
-- Machine 側依 431 §3 延後，不報錯：`segmented=true` 時 `tick` 的 `startCallback`、`periodic` 的 `FarCall`、IRQ0，以及 `keyTick`、`timedKeyTick`
-  都不執行、不消耗狀態（`startCallback` 與 `periodic` 在 `machine.go` 約 1563–1572 行，位於 IF 檢查之前，閘門要放在它們前面）。
+- Machine 側依 431 §3 延後，不報錯：`segmented=true` 時 `tick` 的 `startCallback`、`periodic` 的 `FarCall`，以及 `keyTick`、`timedKeyTick` 都不執行、
+  不消耗狀態（`startCallback` 與 `periodic` 在 `machine.go` 約 1563–1572 行，位於 IF 檢查之前，閘門要放在它們前面）。IRQ0 的時鐘照常累積並設
+  `irq0Pending`（`machine.go` 約 1600–1606 行），只延後遞送：閘門放在遞送段（約 1608 行起）之前，`Ticks++`、`onTick`、`Interrupt(0x08)` 都不執行。
   `VGAFrameEvery` 的幀計數照常（不經 CPU）。
 - 431 §3 的失敗條件：分段模式遇到 `hlt` 失敗即關閉；有待處理 IRQ（`irq0Pending` 或鍵盤佇列非空）且 `IF=1` 而連續一百萬步仍在分段模式，失敗即關閉。
   計數在離開分段模式或條件不成立時歸零，存在 Machine，不進狀態檔。
@@ -241,8 +246,8 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
 
 | 位置 | 用途 | 分段模式的處置 |
 |---|---|---|
-| `internal/machine/machine.go:1473` | `Coverage` | 改用 `PCLinear()`；超出 `len(Coverage)` 不記 |
-| `internal/machine/probe.go:215` | `atBreak` | 改用 `PCLinear()`；`AddBreak`（`probe.go:113`）存 `seg*16+off`，分段模式的位址（可大於 1 MB）只能經新增的 `AddLinearBreak(addr uint32)` 設定 |
+| `internal/machine/machine.go:1473` | `Coverage` | 分段模式用 `PCLinear()`；否則維持 `cpu.Addr`（20 位元遮罩）不變；超出 `len(Coverage)` 不記 |
+| `internal/machine/probe.go:215` | `atBreak` | 分段模式用 `PCLinear()`；否則維持 `cpu.Addr`。`AddBreak`（`probe.go:113`）存 `seg*16+off`，分段模式的位址（可大於 1 MB）只能經新增的 `AddLinearBreak(addr uint32)` 設定 |
 | `cmd/probe/main.go:765` | `CS:IP` 落入視訊區的護欄 | 改用 `PCLinear()` |
 | `internal/machine/probe.go:228` 的 `Insn()` | 指令起點 | 照舊回選擇子:偏移；需要線性位址者用 `InsnLinear()` |
 
@@ -267,7 +272,8 @@ B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉�
    在實模式仍記 fault（ModRM32 與 `moffs32` 各一例）；`67` 定址的 dword 寫入跨過 `FFFFh` 以 32 位元相加；向上與向下展開界限邊界各一例（剛好在內、剛好超出）；
    寫入唯讀段、讀不可讀碼段、經不可用快取存取失敗即關閉；`lea` 超出界限不失敗；`CS` 基底非零時取指令正確；`FS`／`GS` 前綴走各自的快取。
 6. 段載入：§5.1 每條檢查各一個失敗例與一個成功例（含 `CS` 空選擇子、`04h` 不算空）；GDT 與自建 LDT 各一例；表界限邊界；accessed 位元不被寫回；
-   失敗時段值與快取不變；§5.1 表中每個位置在分段模式下都經 `loadSeg`（逐一以合成程式觸發）；`pop cs`、`mov cs`、`iret` 失敗即關閉。
+   失敗時段值與快取不變；§5.1 表中每個位置在分段模式下都經 `loadSeg`（逐一以合成程式觸發；`Interrupt`、`FarCall` 兩列改驗直接呼叫時失敗即關閉）；
+   `pop cs`、`mov cs`、`iret` 失敗即關閉；分段模式下 `SetPMCPL(3)` 被拒。
 7. 指令：§6 每列至少一例；`lldt` 後以 `TI=1` 選擇子載入成功（自建 LDT）；`mov cr0` 設 PG 不回哨兵。§5.3：分段模式下 `INT`、`IntHook` 攔截的 `INT 21h`、
    `div 0` 失敗即關閉；IRQ0、按鍵、`startCallback`、`periodic` 延後且不消耗；`hlt` 失敗；`IF=1` 且有待處理 IRQ 一百萬步後失敗（`IF=0` 時不失敗）。
 8. 效能：profile 關閉的 `BenchmarkStepRealMode` 與本規格動工前的 commit 交錯比較（431 §7），照實記錄 load average；若主機仍不安靜，

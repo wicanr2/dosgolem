@@ -29,7 +29,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 | `SetProtectedModeProfile(on bool) error` | `programLoaded` 為真回錯誤；開啟時 `ExtendedMemoryKB() == 0` 回錯誤（否則 PE 由 0 變 1 時 HMA 內容會消失）；`len(m.Mem) != MemSize` 回錯誤 |
 | `SetCR0(v uint32)`、`SetCR3(v uint32)` | `CR0` 一律補 `00000010h`，只保留 386 有意義的 bit 0–4 與 bit 31，其餘（含 bit 16 `WP`）寫入時清為 0；寫入後依 §5.1 作廢 TLB、重算衍生欄位、呼叫 `syncCodeFastPath` |
 | `SetVM(on bool) error` | `CR0.PE=0` 時回錯誤；否則設 `EFlagsHi` 的 VM 位元並重算衍生欄位。真正的進出 V86 由 435 與 S4 處理；本規格的測試以它注入 V86 狀態，屬合成測試 |
-| `SetPMCPL(cpl uint8)` | 保護模式的 CPL，由 434 的 cpu386 寫入；本規格內只供測試，預設 0 |
+| `SetPMCPL(cpl uint8)` | 保護模式的 CPL，由 434 的分段模式寫入；本規格內只供測試，預設 0 |
 
 衍生欄位：`m.xlat`、`m.paging`（`xlat && CR0.PG`）、`m.cplUser`（`PE ? (VM ? true : pmCPL==3) : false`，`pmCPL` 在 434 前為 0）。
 只在上述 setter、`Restore`、`LoadState` 時重算，`Read8` 熱路徑只讀衍生欄位。431 §4 規定 `CR0`、`EFlagsHi`、`pmCPL` 的所有寫入
@@ -84,7 +84,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
 | oracle 的段:偏移 API | `oracle` 的 `Byte`、`Word`、`SetByte` 等，以及讀寫客體堆疊的 `oracle/run.go`、`oracle/state.go`、`oracle/call.go`（`cpu.Addr(ss,sp)` 加 `Read16`／`Write16`） | 位址仍以 `cpu.Addr` 計算（20 位元段:偏移，不在本規格範圍）；存取經線性層，轉換開啟時會走分頁，錯誤由 `PageFault()` 查詢 |
 
 讀寫監看、`noteWrite`、影片寫入紀錄比對的是實體位址；轉換開啟時文件改稱「實體位址」。影片寫入紀錄與 `VRAMSites` 讀的
-`m.CPU.OpAddr()` 在 cpu386 執行時會是舊值，由 434 的觀測視圖修正（本規格只註明）。
+分段模式下 `m.CPU.OpAddr()` 回選擇子:偏移，線性位址改用 434 §7 的 `InsnLinear()`。
 
 ## 4. 服務層的位址計算
 
@@ -247,7 +247,7 @@ A20 與分頁才變成實體位址。現行 `Machine.Read8`／`Write8` 同時扮
    不動 `LastPageFault()`。`Step` 以外存取連續產生多筆時，`PageFault()` 非空就不覆蓋。`Restore`、`LoadState` 清空兩個紀錄。
 6. **`LoadState` 對 `PM` 的驗證**（全部回錯誤，且在任何寫入之前）：未知版本號、長度小於該版本的大小、`PM[2]`（`PMProfile`）不為 1、
    `pmCPL > 3`、`CR0` 含 386 保留位元、`EFlagsHi` 含 RF 與 VM 以外的位元、`VM=1` 而 `PE=0`。
-7. **監督者存取的用途**：除了 435 的 IDT、TSS 與 ring 0 堆疊，434 的 cpu386 在 CPL=3 載入段描述元時讀 GDT、LDT（通常 U/S=0），以及
+7. **監督者存取的用途**：除了 435 的 IDT、TSS 與 ring 0 堆疊，434 的分段模式載入段描述元時讀 GDT、LDT（通常 U/S=0），以及
    435 的 I/O 權限點陣圖，都經 `ReadSup*`。
 8. **字組監看的位址語意**：`pollWords`、`WatchWord` 在轉換開啟時用 `Peek16`，位址是線性視角，與讀寫監看（實體位址）不同。`m.xlat`
    改變的那一步重新取樣 `last` 值，不發出變化通知。
