@@ -9,7 +9,8 @@
 [`433-real-mode-system-instructions`](433-real-mode-system-instructions.md)、[`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md)、
 [`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md)、[`436-tss-task-return-v86-entry`](436-tss-task-return-v86-entry.md)、
 [`443-segmented-32bit-code-and-stack`](443-segmented-32bit-code-and-stack.md)。LE 路徑的對照：`242`–`245`、`247`、`296`、`304`、`305`、`309`。
-修訂：434 §5.3、435 §2.1 的對應條文已依本規格改寫（各註「由 444 修訂」）。
+修訂：434 §5.3、435 §2.1 的對應條文已依本規格改寫（各註「由 444 修訂」）。本規格 §2.2、§2.3、§2.4、§2.8、§2.10、§3.4、§3.11、§4.1、§4.2 已依
+[`445-legacy-sb16-dma8-pause-resume`](445-legacy-sb16-dma8-pause-resume.md) 改寫（各註「由 445 修訂」）；§5 收據不動。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/hardware/` 下的檔案。驅動程式位移為 `B5C5:0000` 起的映像位移（§1.2）。
 程式位置以 commit `71d0d53` 為準。推論等級：已證實、強推論、假說、未知。
@@ -142,11 +143,12 @@ PCM 擷取與 16 位元通道上，有 242–309 共十餘份 CONFORMED 收據�
 - 改寫通道 1：`02h`、`03h`、`83h`，或 `0Bh` 且 `v&3==1`。
 
 真機會暫停或改道，屬後續規格（DOSBox-X 以 `DMA_MASKED`、`DMA_UNMASKED` 事件暫停，`sblaster.cpp:3636-3667`）。TC 自動設遮罩不算寫入。
+本條只適用於未暫停的傳輸；被 `D0h` 暫停的傳輸期間的寫入見 445 §2.6（由 445 修訂）。
 
 ### 2.3 DSP 命令
 
 一般機器沿用 `SoundBlasterDSP`（`sb_dsp.go`）的命令解析。開啟時接上 `StartDMA`、`CancelDMA`，以及本規格新增的兩個回呼。
-`StartAutoDMA`、`StartSB16AutoDMA`、`Start16DMA`、`ControlDMA8` 維持 nil。
+`StartAutoDMA`、`StartSB16AutoDMA`、`Start16DMA` 維持 nil。`ControlDMA8` 由 445 §2.1 接上（由 445 修訂）。
 
 `sb_dsp.go` 的增補（LE 行為不變）：
 
@@ -170,7 +172,7 @@ PCM 擷取與 16 位元通道上，有 242–309 共十餘份 CONFORMED 收據�
 | `22Ah` 讀 | 既有：取回覆位元組 | |
 | `22Ch` 讀 | 既有：重設中回 `80h`，否則 0（不忙） | |
 | `22Eh` 讀 | 既有：清 `IRQPending`，有回覆時 `80h`。開啟時另外：若 IRR7 為 1 且尚未被 CPU 接受，清 IRR7 | `3158-3163`：清 `pending_8bit` 並 `PIC_DeActivateIRQ`；`pic.cpp:95-106` 的 `lower_irq` 清 IRR |
-| `SoundBlasterDSP.Out8` 對 `224h`–`22Fh` 回 false 的寫入 | 失敗即關閉，錯誤含命令位元組與 DSP 半狀態。涵蓋 `1Ch`、`C6h`、`B0h`、`D0h`、`D4h`、自動初始化 ADPCM（`7Dh`、`7Fh`、`1Fh`）及其他未實作命令 | |
+| `SoundBlasterDSP.Out8` 對 `224h`–`22Fh` 回 false 的寫入 | 失敗即關閉，錯誤含命令位元組與 DSP 半狀態。涵蓋 `1Ch`、`C6h`、`B0h`、自動初始化 ADPCM（`7Dh`、`7Fh`、`1Fh`）及其他未實作命令。`D0h`、`D4h` 由 445 §2.3 處理，被拒絕的組合同樣失敗即關閉，訊息由 445 寫入（由 445 修訂） | |
 
 ADPCM 的參考位元組不另計時間：與 DOSBox-X 相同，`n` 個 DMA byte 一律乘每 byte 的取樣數（`GenerateDMASound` 以 byte 計 `dma.left`，`sblaster.cpp:986-1030`）。
 DOSBox-X 的 `dma.mul` 是 `(1<<14)/3` 這類截斷整數（`140`、`1214`），本規格用精確分數，差異小於萬分之一。
@@ -182,7 +184,7 @@ DOSBox-X 的 `dma.mul` 是 `(1<<14)/3` 這類截斷整數（`140`、`1214`），
 
 DMA 傳輸（`14h` 與 ADPCM）在下列條件全部成立時回 true；任一不成立回 false，由 §2.3 的規則失敗即關閉：
 
-1. 沒有進行中的傳輸。
+1. 沒有進行中的傳輸。被 `D0h` 暫停的傳輸先依 445 §2.7 隱式取消，再檢查第 2–8 項（由 445 修訂）。
 2. 通道 1 的位址、計數兩個暫存器的高低位元組都寫過（`Known[2]==3`、`Known[3]==3`），頁暫存器寫過（`PageKnown[1]`）。
 3. `Mode[1]==48h`（單次、讀、遞增、不自動初始化）。其他模式（含 `58h` 自動初始化、`68h` 遞減、需求或區塊模式）屬後續規格。
 4. 通道 1 未遮罩（`Mask&2==0`）。
@@ -285,7 +287,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 
 | 欄位 | 內容 |
 |---|---|
-| `Kind` | `start`、`complete`、`cancel`、`irq7`（CPU 接受）、`defaulted`（§2.7 第 5 步）、`eoi`（ISR7 清除） |
+| `Kind` | `start`、`complete`、`cancel`、`irq7`（CPU 接受）、`defaulted`（§2.7 第 5 步）、`eoi`（ISR7 清除）、`pause`、`resume`（445 §2.9；由 445 修訂） |
 | `Step`、`Cycles` | 事件當下的 `m.Steps`、`m.CPU.Cycles` |
 | `CPUMode` | `real`、`v86`、`seg`（分段模式） |
 | `CS`、`IP` | 事件當下的段值與位移（`start` 為寫長度高位元組的那一道） |
@@ -296,11 +298,12 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 | `Channel`、`DMAMode`、`Page`、`Addr`、`Count` | 開始時的通道 1 設定（`Count` 為程式寫入的計數）；靜音為 0 |
 | `Phys` | 開始實體位址 `Page<<16|Addr`；靜音為 0 |
 | `Due` | 到期時刻（單位見 `Clock`） |
-| `Transferred` | `complete` 為 `n`；`cancel` 為進度 `k` |
-| `SHA256` | `start` 與 `complete` 各算一次（§2.5 第 2 步的方法），靜音為空。兩者不同表示傳輸期間 CPU 改寫了緩衝區 |
+| `Transferred` | `complete` 為 `n`；`cancel` 為進度 `k`；`pause`、`resume` 為凍結的進度（由 445 修訂） |
+| `SHA256` | 只在 `start` 與 `complete` 各算一次（§2.5 第 2 步的方法），靜音為空；`cancel`、`pause`、`resume` 為空（由 445 修訂）。兩者不同表示傳輸期間 CPU 改寫了緩衝區 |
 
-偵測用的 4 bytes 傳輸（`Format=pcm8`、`Length=4`、`Phys=0`）同樣會記錄。消費端依 `Format`、`Length`、`Phys` 與對應的讀檔紀錄過濾；
-語音段落如何由多個區塊組成、字幕鍵的格式，留給 M3 的規格。
+偵測用的 4 bytes 傳輸（`Format=pcm8`、`Length=4`、`Phys=0`）同樣會記錄。消費端先以 `Kind` 過濾，再依 `Format`、`Length`、`Phys` 與對應的讀檔紀錄過濾。
+暫停過的傳輸 `start.Due ≠ complete.Due`（`complete.Due` 是 445 §2.5 平移後的到期時刻）；被隱式取消的傳輸沒有 `complete`，以與下一個 `start` 同一步的 `cancel` 結束
+（由 445 修訂）。語音段落如何由多個區塊組成、字幕鍵的格式，留給 M3 的規格。
 
 ### 2.9 狀態檔
 
@@ -322,7 +325,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 
 ### 2.10 不在範圍
 
-聲音輸出、ADPCM 解碼與混音（另立規格）；自動初始化 DMA（`1Ch`、`C6h`、`7Dh`、`7Fh`、`1Fh`、`58h` 模式）；`D0h`／`D4h` 暫停與恢復；
+聲音輸出、ADPCM 解碼與混音（另立規格）；自動初始化 DMA（`1Ch`、`C6h`、`7Dh`、`7Fh`、`1Fh`、`58h` 模式）；`D0h`／`D4h` 暫停與恢復（由 445 處理；由 445 修訂）；
 16 位元 DMA 與第二組控制器；其他基底、DMA 通道、IRQ；從片 PIC 的 IRQ；PIC 重新程式化；IRQ0、IRQ1 的 ISR；DSP 命令處理時間與忙碌週期
 （DOSBox-X `DSP_busy_cycle`）、重設的 20 µs 延遲、PIC 遞送延遲；8259 的假 IRQ7；dosgolem 內建 EMM（非 JEMM）下以 page frame 為 DMA 緩衝區時的對應
 （DOSBox-X `dma.cpp:68-74` 的 `UpdateEMSMapping`）；`0x3DA` 的時間模型（§1.4）。
@@ -359,7 +362,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
    - 觀測紀錄依序為 `start`、`complete`、`irq7`、`eoi`，`start`、`complete` 的 `SHA256` 等於測試以 `Mem[0:4]` 獨立算出的值。
    時鐘變體各一例：指令數時鐘（預設）、`IRQ0Pinned`、`IRQ0Every=0` 且 `ClockPercent=50`、週期時鐘（`CPUHz` 任一值與 `CPUHz=0`）。
 4. ADPCM 與靜音：`74h`、`75h`、`76h`、`77h`、`16h`、`17h` 各一例，Δ 依 2、3、4 倍取樣數；`80h` 一例，不改 DMA 暫存器、`Phys=0`、到期後拉 IRQ7。
-   傳輸進行中再送任何啟動命令失敗即關閉。
+   傳輸進行中（未暫停）再送任何啟動命令失敗即關閉；暫停中的情形見 445 §2.7（由 445 修訂）。
 5. V86：沿用 `v86deliver_test.go` 的 `TestV86DeliverIRQ` 夾具，IRQ7 經 IDT 閘 `0Fh` 進 ring 0，框架 9 個 dword、`EIP` 為遞送當下的 `IP`、清 IF、
    進分段模式；ring 0 的 stub 寫 `out 20h,20h` 後 `iretd` 回 V86，ISR7 清除、`CS:IP` 回原處。
 6. BIOS 預設處理：IVT[0Fh] 為 StubSeg 時（實模式與 V86 各一例）不遞送、IRR7 清除、ISR7 為 0、`IRQ7Defaulted` 加 1、紀錄有 `defaulted`。
@@ -371,7 +374,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 9. 優先序與單一事件：同一步 IRQ0 與 IRQ7 都可送時先送 IRQ0；同一步有回呼啟動或週期遠呼叫時不送 IRQ7。
 10. PIC 埠：`20h` 讀依 OCW3 回 IRR／ISR；`67h` 清 ISR7；`60h`–`66h`、`00h`、`40h` 不動作；ICW1、旋轉、設定優先序、poll、特殊遮罩各一例失敗即關閉；`A1h` 讀回寫入值。
 11. DMA 與 DSP 的失敗即關閉（各一例）：模式 `58h`、`68h`；通道遮罩中啟動；`n > 計數+1`；位址或頁未寫；來源碰到 `A0000h`–`BFFFFh`；傳輸中經 `0Ah`、`0Fh`、`0Dh`
-    遮罩通道 1；傳輸中寫 `02h`、`03h`、`83h`、`0Bh`（通道 1）；`08h`／`09h` 寫非 0；DSP `1Ch`、`C6h` 序列、`7Dh`、`D0h`；Δ 的商超過 `2^63`（以極端 `IRQ0Pinned` 構造）。
+    遮罩通道 1；傳輸中寫 `02h`、`03h`、`83h`、`0Bh`（通道 1）；`08h`／`09h` 寫非 0；DSP `1Ch`、`C6h` 序列、`7Dh`、無傳輸或靜音中的 `D0h`（由 445 修訂）；Δ 的商超過 `2^63`（以極端 `IRQ0Pinned` 構造）。
     錯誤在寫入的那一步由 `Step` 回傳，之後每一步回同一錯誤且不執行指令，`Restore` 後清除。傳輸中遮罩通道 0、2、3 或改寫它們的暫存器不報錯。
 12. 取消與進度：傳輸一半時 `226←1`，暫存器依進度 k 更新、不設 TC、不拉 IRR7，紀錄有 `cancel`。傳輸中讀通道 1 的位址與計數得進度值，flip-flop 照常切換，
     未寫過的暫存器回 `FFh` 且不切換。
@@ -409,7 +412,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 | 偵測當下的 PIT 分頻 | probe460 只記結束時的 65536；`040h`、`043h` 有寫入紀錄。未釘死時 Δ 幾乎不受影響（§2.4），收據仍記錄 |
 | JEMM 對 IRQ7 的反射 | 435 §1.1 為靜態證據（IRQ0–7 一律反射，`0Dh`、`0Eh` 另判）；IRQ7 的執行期路徑未驗證，收據 B 記錄 |
 | `20h`、`A0h` 的讀取者 | 選項開啟後 `20h` 讀值由 `FFh` 改為 IRR／ISR。審查以靜態反組譯確認 JEMM（`4E54`、`58FD`、`5907`、`4E6F`）與驅動（`05C1`、`05E8`、`0668`、`06E6`）只寫不讀這兩埠；MENU、STRIKE 本身未知，收據記錄兩埠的讀取次數 |
-| 遊戲內的播放路徑 | `14h`、ADPCM、`80h` 已納入。`D0h`／`D4h`（停止、恢復）未納入，遇到時失敗即關閉，用來界定下一份規格 |
+| 遊戲內的播放路徑 | `14h`、ADPCM、`80h` 已納入。觸發案例在第 131427746 步送 `D0h`（§5），`D0h`／`D4h` 由 445 接上；idle、靜音中與改寫 DMA 後的組合仍失敗即關閉（由 445 修訂） |
 | IRQ0、IRQ1 沒有 ISR | §2.6 的兩個差異。偵測的處理常式 `05C1` 與播放的 `05E8`／`0678` 都不執行 `sti`，JEMM 的 ring 0 路徑在 `4BDE` 執行 `cli`（435 §3），目前看不到受影響的路徑 |
 | 處理常式之後的 EOI 次序 | 先 EOI 再讀 `22Eh` 時，這裡可能在 EOI 之後立刻再遞送一次（IRR7 尚未清）。本驅動先讀後 EOI，不受影響 |
 | ADPCM 參考位元組的時間 | 真卡上參考位元組只產生一個取樣；本規格照 DOSBox-X 以每 byte 取樣數計，`75h` 等每區塊多算 1–3 個取樣的時間 |
@@ -427,6 +430,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 4. **未實作的 DSP 命令失敗即關閉**（主代理決定）。只記錄會讓驅動等一個永遠不來的 IRQ，症狀離成因很遠。
 5. **狀態檔版本 4 加第二個 gob 值**（主代理決定）。gob 型別與錨點不動；在 `internal/state` 加第三段的話，舊版程式讀檔時會靜默丟掉它，版本 4 則讓舊版程式拒絕。
 6. **傳輸中遮罩通道 1 或改寫其暫存器失敗即關閉**（主代理決定）。暫停語意要等出現證據再照 DOSBox-X 另立規格，避免沒有原版證據的行為。
+   `D0h` 暫停之後的寫入改由 445 §2.6 允許；未暫停時本條不變（由 445 修訂）。
 7. **IRQ0、IRQ1 不加 ISR**（主代理決定）。BIOS 的 `int 08h` stub（`machine.go` 的 `initVectors`，`biosTimerOff`）沒有 EOI，加了之後 IRQ0 在第一次之後永遠被擋；
    差異由 §4.1 追蹤。
 8. **範圍納入 ADPCM 與 `80h`**（主代理決定）。驅動的播放路徑靜態上只用這些單次命令（§1.2），一次納入可以讓遊戲內播放走到下一個未知點，觀測紀錄也涵蓋語音。
