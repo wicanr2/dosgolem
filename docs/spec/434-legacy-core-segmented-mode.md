@@ -290,3 +290,44 @@ B=1 堆疊與 `66` 遠轉移；CPL 3 保護模式；一致碼段與閘門的轉�
     - 記錄（不斷言）：總步數；停點時實體 `0`–`FFFh` 是否與交棒時相同（`573F` 頁 0 別名的推論為假說）；`CR3` 所指 PDE[0..3] 與前幾個 PTE。
     - 若在此之前停在別的指令，照實記錄停點、原因與步數。
 11. `go build ./...`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle` 全綠。
+
+## 10. 實作收據（2026-10-16）
+
+commit：`c64ca5f`（階段 1：分段狀態、`PM` 版本 3、以 `enterSegmented` 取代 433 交棒接收端）、`84d8799`（階段 2：段索引與 32 位元偏移、`loadSeg`、
+`SysBus` 增補）、`7a1817a`（階段 3：中斷與回呼延後、`0F 00` 分流、觀測、I/O 與 `hlt`）。
+
+### 驗收結果
+
+- 第 1–7、9、11 項：容器內 `gofmt -l` 無輸出，`go build`、`go vet ./internal/... ./cmd/probe`、`go test ./internal/... ./cmd/probe ./session ./oracle`
+  13 個套件全部 ok；SingleStepTests 315 PASS、0 SKIP，`knownGaps` 不變；錨點測試通過；`internal/cpu386`、`internal/state` 無改動。每階段由主代理在獨立容器重跑後提交。
+- 第 9 項突變自檢：11 個突變全被測試抓到，已還原。
+- 第 8 項效能：profile 關閉的 `BenchmarkStepRealMode` 對 `a846473` 交錯兩輪各 10 對。第 1 輪最快值 old 31.24、new 33.98 ns/op（91.9%）；
+  `operand` 壓成 16 bytes 後第 2 輪 old 28.62、new 29.12（98.3%），單對比值 77.5%–112.8%；1 分鐘 load average 10–12，15 分鐘約 30。
+  **未能證明穩定不低於 97%**，與 432、433 同列開放。
+- 第 10 項觸發案例（`SCCD.EXE -dos-files 30 -ext-mem-kb 8192 -no-ems -pm-profile`）：
+  - 執行 104587 道後停止：`0018:4586 … 0F 00 /3 LTR：TSS、任務切換與進 V86 屬 S4，失敗即關閉`。img `4245` 第一次到達是第 63332 步，`43A7` 是第 63422 步。
+  - `X`＝`110000h`。第 63332 步時線性 `X`–`X+9FFFh` 與 `20000h`–`29FFFh` 逐位元組相同。
+  - 停點前一步（第 104585 步存檔）：`CR0=80000011h`、`CR3=0011C000h`（≥ `X+8000h`）、GDTR＝(`111400h`, `12Fh`)、IDTR＝(`111530h`, `7FFh`)、
+    `segmented=1`；CS、DS、ES、SS 快取基底 `X`（CS 屬性 `009Ah`、界限 `FFFFFh`；SS `0096h`、界限 0），FS、GS 基底 0、界限 4 GB（選擇子 `28h`）。
+  - 副本 GDT：項 `08h` `X+1400h`、`10h` `X+1D98h`、`18h`／`20h`／`50h` `X`、`80h` `X+7830h`、`F0h` `X+1D30h`，皆符合。
+  - 記錄：PDE[0..3]＝`118027h`、`119007h`、`11A007h`、`11B007h`；線性 `0`–`FFFh`（分頁後的線性視角）與交棒時相同。
+  - `IF=0`，計時器與鍵盤中斷送出 0 次。
+
+### 實作期間的處置
+
+1. 版本 3 的欄位驗證放在 `decodePM`；「版本 1、2 帶 `PE=1`、`VM=0`」放在 `LoadState`。
+2. 偏移寬度跟著運算元：只有分段模式的 ModRM32 與 `moffs32` 以 32 位元相加；堆疊、字串、`enter`、取指令一律 16 位元環繞。
+3. 多 byte 存取先檢查全部 byte，任一失敗則整筆不讀不寫。
+4. `SS` 的 B=1 只在堆疊原語檢查。
+5. 遠指標載入先讀完兩個欄位再載入段暫存器，失敗時通用暫存器也不寫；遠呼叫先載入 CS 再推舊的 `CS:IP`。
+6. 只可執行、不可讀的碼段可以載入 CS；取指令只查界限。
+7. 一百萬步計數放在已會進入的延後分支；待處理條件只看 `irq0Pending` 與鍵盤佇列，不看 `picMask`。
+8. I/O 檢查不通過時讀回 `FFh`、寫入丟棄並記錯。
+9. `operand` 的段索引為 `uint8`，整個值 16 bytes。
+10. `sldt`、`str` 一律寫 16 位元。
+
+### 已知限制（probe）
+
+- `-dump-mem-at` 的位址是「IDA 位址」，即線性位址加 `EF00h`（本次載入的映像基底）；收據的位址已換算。
+- `-dump-mem` 只涵蓋 1 MB 內的 `m.Mem`，給 1 MB 以上的範圍會 panic（`cmd/probe/main.go` 的 `writeOneMemDump`，既有問題，未改）。
+- `BreakAt` 存 `seg*16+off` 不遮罩，`atBreak` 在實模式以 `cpu.Addr`（20 位元）比對，兩者在 1 MB 以上不一致（既有問題，未改）。
