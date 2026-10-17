@@ -101,6 +101,7 @@ func (m *Machine) KeyStalls() uint64 { return m.keyStalls }
 // ⚠ **向量還指著 stub 時不送，而且不從佇列拿走。** 送出去等於丟進垃圾桶
 // （stub 只會記一筆未實作然後 iret），而那個鍵就此消失——症狀是
 // 「第一個鍵沒反應，後面的才有」。留著等程式裝好處理常式再送。
+// KbdIntercept 開啟時 stub 是 BIOS 的客體碼（`docs/spec/447` §2.5），不擋。
 func (m *Machine) keyTick() {
 	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
 		return
@@ -110,7 +111,7 @@ func (m *Machine) keyTick() {
 	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
 		return
 	}
-	if m.ReadSup16(0x09*4+2) == StubSeg { // 435 §4：宿主存取（profile 關閉時等同 ReadPhys16）
+	if !m.KbdIntercept && m.ReadSup16(0x09*4+2) == StubSeg { // 435 §4：宿主存取（profile 關閉時等同 ReadPhys16）
 		m.keyStalls++
 		return
 	}

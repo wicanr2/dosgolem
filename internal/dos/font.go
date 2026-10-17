@@ -126,6 +126,14 @@ func (d *DOS) int15(c *cpu.CPU) {
 		clearCarry(c)
 		return
 	}
+	if ah(c) == 0x4F && d.M.KbdIntercept {
+		// 鍵盤攔截（`docs/spec/447` §2.4）：預設服務設 CF=1、AL 不變，BIOS int 09h 的客體碼照常放進緩衝
+		// （DOSBox-X `src/ints/bios.cpp` 6963–6966 行）。清 CF 的話每個鍵都被丟掉。
+		// 經 F4h trampoline 進來時 writeBackFlags 的 fixStackedCF 把 CF 寫回堆疊框。
+		d.KbdIntercepts++
+		setCarry(c)
+		return
+	}
 	if ah(c) != 0x50 || al(c) != 0x00 {
 		d.note(0x15, ah(c), al(c))
 		clearCarry(c)

@@ -74,9 +74,26 @@ func extendedKey(scan uint8) bool {
 	return false
 }
 
+// intKbdTranslate 是 BIOS int 09h 客體碼（`machine.KbdInterceptOff`，`docs/spec/447` §2.2）呼叫的中斷號：
+// `int 15h AH=4Fh` 回 CF=1 之後以 AL 為掃描碼翻譯放進緩衝。真機沒有這一支。
+//
+// ⚠ 不能用 F2–F9：F2–F6 是服務型中斷的 trampoline，F7／F8 是字型 stub，F9 是回呼返回哨兵。
+const intKbdTranslate = 0xFA
+
 // biosInt9 處理一次鍵盤中斷：埠 0x60 上的掃描碼。
 func (d *DOS) biosInt9(c *cpu.CPU) {
-	code := d.M.In8(0x60)
+	d.biosInt9Code(d.M.In8(0x60))
+}
+
+// kbdTranslate 是 `int FAh`（447 §2.3）：AL 是 `int 15h AH=4Fh` 之後的掃描碼（攔截常式可以改它），
+// **不再讀埠 60h**。
+func (d *DOS) kbdTranslate(c *cpu.CPU) {
+	d.KbdTranslates++
+	d.biosInt9Code(al(c))
+}
+
+// biosInt9Code 是 202 §2 的翻譯：修飾鍵狀態、通碼翻譯、放進緩衝。
+func (d *DOS) biosInt9Code(code uint8) {
 	scan, release := code&0x7F, code&0x80 != 0
 	flags := d.M.Read8(bdaSeg*16 + bdaKbdFlags)
 

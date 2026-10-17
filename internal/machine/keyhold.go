@@ -100,7 +100,7 @@ func (m *Machine) timedKeyTick() bool {
 	if !m.CPU.Flag(cpu.IF) || m.picMask&0x02 != 0 {
 		return false
 	}
-	if m.ReadSup16(0x09*4+2) == StubSeg { // 435 §4：宿主存取（profile 關閉時等同 ReadPhys16）
+	if !m.KbdIntercept && m.ReadSup16(0x09*4+2) == StubSeg { // 435 §4：宿主存取；447 §2.5：攔截開啟時不擋
 		m.keyStalls++
 		return false
 	}

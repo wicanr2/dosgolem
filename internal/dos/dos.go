@@ -397,6 +397,11 @@ type DOS struct {
 	KeyPollTraceFrom  uint64
 	KeyPollTraceLimit int
 
+	// KbdIntercepts 是 `int 15h AH=4Fh` 由 Go 服務的次數，KbdTranslates 是 `int FAh`（客體碼的翻譯）的次數
+	// （`docs/spec/447` §2.6）。診斷用，不進狀態檔。前者大而後者小＝攔截常式回 CF=0 把鍵吃掉。
+	KbdIntercepts int
+	KbdTranslates int
+
 	handles map[uint16]*handle
 	// MaxHandles 是這個程序同時開得了幾個檔（含 0–4 的標準 handle）。
 	// DOS 的預設是 20，`AH=67h` 可以調高。
@@ -757,7 +762,13 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 	}
 	// 435 §4：IVT 以 ReadSup16 讀（宿主存取，不受 V86 的使用者分頁權限影響；profile 關閉時等同 Read16）。
 	if seg := d.M.ReadSup16(uint32(n)*4 + 2); seg != machine.StubSeg && !fromOwnStub(c, n) {
-		return false // 程式自己裝了處理常式
+		return false // 程式自己裝了處理常式（含 `IVT[FAh]` 被程式改走：CPU 跳到程式的向量，447 §2.3）
+	}
+	// 447 §2.3：鍵盤攔截開啟時 int 09h 的預設處理是 StubSeg 的客體碼，讓 CPU 照 `IVT[09h]` 進去。
+	// 否則實模式的軟體 `int 09h` 會被 Go 直接翻譯、跳過 `int 15h AH=4Fh`，與 IRQ1、V86 的路徑不同。
+	// 在 Calls 之前返回：這一次沒有服務，客體碼的 `int FAh` 才是。
+	if n == 0x09 && d.M.KbdIntercept {
+		return false
 	}
 	// Calls 記每一種 (中斷, AH) 呼叫過幾次。**只記不改行為**——
 	// 「它到底在做什麼」在沒有畫面可看的時候只剩這個問得到。
@@ -783,8 +794,12 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 		d.int2F(c)
 	case 0x09:
 		// BIOS 的鍵盤處理：程式的 ISR 只是包裝、chain 回舊向量（我們的 stub）時
-		// 要有人把埠 0x60 的掃描碼翻進 BDA 緩衝（`docs/spec/202`）。
+		// 要有人把埠 0x60 的掃描碼翻進 BDA 緩衝（`docs/spec/202`）。KbdIntercept 開啟時走不到這裡（上面已讓位）。
 		d.biosInt9(c)
+	case intKbdTranslate:
+		// 鍵盤攔截客體碼的翻譯（`docs/spec/447` §2.3）。不受 KbdIntercept 限制：選項關閉時沒有客體碼會執行它。
+		// 本道不在 StubOff(FAh)，writeBackFlags 不寫旗標。
+		d.kbdTranslate(c)
 	case 0x08, 0x1C:
 		// 計時器中斷鏈上的空 stub。向量還在 StubSeg ＝ 沒人裝，
 		// 它的語意就是 IRET——**不記一筆**，否則每次 tick 都會
@@ -847,6 +862,7 @@ func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
 //   - V86 下的 per-vector stub（本道在 StubSeg:StubOff(n)，即 `CD n; CF`）：寫 CF、ZF。V86 下被服務的中斷都由
 //     JEMM 反射而來，堆疊上有 JEMM 推的 FLAGS、CS、IP，stub 結尾的 CF 會把 FLAGS 彈回。
 //   - far call 形式的 F5、F6、F7、F8、F9 不寫。
+//   - FAh（鍵盤攔截客體碼的翻譯，447 §2.3）在 KbdInterceptOff 之內、不在 StubOff(FAh)，落不進上面任何一支，不寫。
 func (d *DOS) writeBackFlags(c *cpu.CPU, n uint8) {
 	opCS, opIP := c.Op()
 	if c.Seg[cpu.CS] != machine.StubSeg || c.IP == opIP {

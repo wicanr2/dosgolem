@@ -1,0 +1,74 @@
+package machine
+
+import "fmt"
+
+// BIOS int 09h 的預設處理改成客體碼，呼叫 `int 15h AH=4Fh` 鍵盤攔截
+// （`docs/spec/447-bios-int09-int15-keyboard-intercept`）。
+//
+// 真機的 int 09h 讀到掃描碼之後以 `AH=4Fh`、`CF=1` 呼叫 `int 15h`，回來 `CF=0` 就丟掉這個碼。
+// 有些程式不掛 int 09h，改在這個攔截點收每一個按下與放開碼（《Strike Commander》的 `STRIKE.EXE`，
+// 447 §1.2）。Go 端的 `biosInt9`（202）直接翻譯放進緩衝，不經 `int 15h`，這種程式就收不到鍵，
+// 而且不報錯：IRQ1 送了、緩衝也有鍵，只是遊戲自己的按鍵常式從來沒被呼叫。
+//
+// 這段碼與 DOSBox-X 的 `CB_IRQ1`（`src/cpu/callback.cpp` 413–475 行）同形，差在不送 EOI（447 §2.2）。
+
+// kbdInterceptCode 是 KbdInterceptOff 起的 14 bytes（447 §2.2 的表）。
+var kbdInterceptCode = [...]byte{
+	0x50,       // push ax
+	0xE4, 0x60, // in al,60h
+	0xB4, 0x4F, // mov ah,4Fh
+	0xF9,       // stc
+	0xCD, 0x15, // int 15h
+	0x73, 0x02, // jnc +2（跳過 int FAh）
+	0xCD, 0xFA, // int FAh：internal/dos 以 AL 為掃描碼做 202 的翻譯
+	0x58, // pop ax
+	0xCF, // iret
+}
+
+// kbdStub9 是向量 9 的 per-vector stub 改寫後的 3 bytes：`jmp near KbdInterceptOff`。
+// 位移以下一道指令（StubOff(9)+3）起算。
+func kbdStub9() [3]byte {
+	rel := uint16(KbdInterceptOff) - (StubOff(0x09) + 3)
+	return [3]byte{0xE9, uint8(rel), uint8(rel >> 8)}
+}
+
+// EnableKbdIntercept 寫入 447 §2.2 的客體碼並把向量 9 的 stub 改成跳過去，逐 byte 讀回驗證；
+// 全部相符才設 KbdIntercept 為真並回 nil。不符回錯誤，KbdIntercept 不改。可重複呼叫，結果相同。
+//
+// 寫入與讀回走 WriteSup8／ReadSup8（客體線性視角、監督者身分）。⚠ **不能用 WriteBytes**：
+// 它經 Write8，轉換開啟且 cplUser（V86）時以使用者身分檢查頁面權限，線性 0 頁是監督者限定的話
+// 寫入被安靜丟掉（`linear.go` 的 writeLin），而 V86 客體執行的是線性位址上的位元組。
+//
+// `IVT[09h]` 不改：沒掛 int 09h 的程式與掛了再 chain 回 `StubSeg:StubOff(9)` 的程式都走到這段碼。
+// 被蓋掉的 `CD 09 CF` 是 per-vector stub「不被蓋」不變量的唯一例外（447 §2.2）。
+func (m *Machine) EnableKbdIntercept() error {
+	base := uint32(StubSeg) * 16
+	stub := kbdStub9()
+	type span struct {
+		at uint32
+		b  []byte
+	}
+	spans := []span{
+		{base + uint32(KbdInterceptOff), kbdInterceptCode[:]},
+		{base + uint32(StubOff(0x09)), stub[:]},
+	}
+	for _, s := range spans {
+		for i, v := range s.b {
+			m.WriteSup8(s.at+uint32(i), v)
+		}
+	}
+	for _, s := range spans {
+		for i, v := range s.b {
+			if got := m.ReadSup8(s.at + uint32(i)); got != v {
+				return fmt.Errorf("machine: 鍵盤攔截客體碼寫入後讀回不符：線性 %05X 是 %02X，應為 %02X"+
+					"（docs/spec/447 §2.1）", s.at+uint32(i), got, v)
+			}
+		}
+	}
+	m.KbdIntercept = true
+	return nil
+}
+
+// KbdInterceptStub9 回向量 9 的 stub 在選項開啟時的 3 bytes（`E9 91 04`）。
+// 給前端做「狀態檔是在選項開啟時存的」的不一致偵測（447 §2.1）。
+func KbdInterceptStub9() [3]byte { return kbdStub9() }

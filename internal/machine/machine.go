@@ -126,6 +126,7 @@ func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 //	0x448  int 15h AH=C0h 系統設定表（8 bytes）
 //	0x450  InDOS 旗標              0x460  DBCS 表        0x480  國別資訊表
 //	0x4B0–0x4B7  可掛鉤的 XMS 入口（8 bytes，只在 SetExtendedMemoryKB(kb>0) 後寫入）
+//	0x4B8–0x4C5  BIOS int 09h 鍵盤攔截客體碼（14 bytes，只在 EnableKbdIntercept 後寫入）
 //
 // > 事故（2026-09-10，EOB1）：字型 stub 挑了 0x20／0x24，而 0x24 是向量
 // > 09h（IRQ1 鍵盤）的 stub。EOB.EXE 掛了自己的 int 09h 再 chain 回舊向量，
@@ -179,6 +180,10 @@ const (
 	// `int 2Fh AX=4310h` 此時回這裡（見 XMSEntryOff）。落在國別資訊表之後、
 	// `EnvMCBSeg` 換算的上界 0x4F0 之前。
 	XMSHookEntryOff = specialStubBase + 0xB0
+	// KbdInterceptOff 是 BIOS int 09h 的客體碼（`docs/spec/447-bios-int09-int15-keyboard-intercept` §2.2），
+	// 14 bytes：讀埠 60h、以 `AH=4Fh`、`CF=1` 呼叫 `int 15h`，回來 CF=1 才 `int FAh` 放進緩衝。
+	// 只在 EnableKbdIntercept 時寫入，同時把向量 9 的 per-vector stub 改成 `jmp near` 到這裡。
+	KbdInterceptOff = specialStubBase + 0xB8
 )
 
 // DefaultIRQ0Every 是**分頻 17,000 時**計時器中斷的間隔，單位是指令數。
@@ -634,6 +639,10 @@ type Machine struct {
 	KeyIRQs   uint64
 	keyStalls uint64
 	nextKey   uint64
+	// KbdIntercept 為真時 BIOS int 09h 的預設處理是 KbdInterceptOff 的客體碼（`docs/spec/447`），
+	// keyTick／timedKeyTick 不再因 `IVT[09h]` 在 StubSeg 而擋下 IRQ1。只由 EnableKbdIntercept 設成真；
+	// 不進狀態檔（客體碼本身在記憶體裡，隨狀態檔保存）。
+	KbdIntercept bool
 	// clockPct 是時脈比例（`docs/spec/242`）；0 表示未設定（100）。
 	clockPct int
 	// KeyEvery 是兩次鍵盤中斷之間至少隔幾道指令。

@@ -152,6 +152,7 @@ func main() {
 			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
 	execEnv := execEnvFlag(flag.CommandLine)
 	execReclaim := execReclaimFlag(flag.CommandLine)
+	kbdInt15 := kbdInt15Flag(flag.CommandLine) // docs/spec/447
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -308,6 +309,9 @@ func main() {
 		os.Exit(2)
 	}
 	if err := validateDOSFiles(*dosFiles, *loadState); err != nil {
+		die(err)
+	}
+	if err := checkKbdInt15Keys(*kbdInt15, *keys, *keysAt); err != nil {
 		die(err)
 	}
 
@@ -523,6 +527,10 @@ func main() {
 			m.RecalcIRQ0()
 			fmt.Printf("載入狀態後改用週期時鐘：CPUHz = %d\n", *obsCPUHz)
 		}
+	}
+	// 447 §2.1：-load-state 之後（狀態檔整份覆蓋記憶體）、送鍵排程之前。關閉時檢查狀態檔是不是在開啟時存的。
+	if err := configureKbdInt15(m, *kbdInt15); err != nil {
+		die(err)
 	}
 	// ⚠ **-press 的排程要在 -load-state 之後**：state.Load 會整份覆蓋機器，
 	// 先設的按鍵佇列與下次送鍵時點會被清掉（巫術7 主選單實測：
@@ -1603,6 +1611,9 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			"佇列還剩 %d 個事件\n  int 09h 向量 ＝ %04X:%04X（stub 段是 %04X）\n",
 			n, m.KeyStalls(), m.KeyQueueLen(),
 			m.ReadPhys16(0x09*4+2), m.ReadPhys16(0x09*4), uint16(machine.StubSeg))
+	}
+	if m.KbdIntercept {
+		reportKbdInt15(os.Stdout, m, d)
 	}
 	if len(d.KeyReads) > 0 || len(d.Stdin) > 0 {
 		fmt.Printf("\n按鍵去向（取走 %d 個，佇列還剩 %d 個）：\n",

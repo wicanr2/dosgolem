@@ -9,6 +9,9 @@ import (
 // TestFontStubsLeaveVectorStubsIntact 釘住 `docs/spec/194-stubseg-font-collision-and-program-path` §1：
 // 字型 stub 蓋掉向量 9 的 `CD 09 CF` 的話，程式 chain 回舊 INT 9 時跑到 `retf`，
 // 每按一個鍵堆疊少 2 byte，幾百萬道指令之後才在某個 `retf` 跳進垃圾。
+//
+// 只在鍵盤攔截（`docs/spec/447`）關閉時成立：開啟時向量 9 的 stub 刻意改成 `E9 91 04`（447 §2.2 的唯一例外），
+// 由 kbd_intercept_test.go 驗。
 func TestFontStubsLeaveVectorStubsIntact(t *testing.T) {
 	m, _ := newTest(t)
 	base := uint32(machine.StubSeg) * 16
@@ -35,6 +38,9 @@ func TestFontStubsLeaveVectorStubsIntact(t *testing.T) {
 //
 // 服務型資料表要放 StubSeg 的話，位移向 `machine` 那份佈局圖要，
 // 不要自己挑數字。
+//
+// 只在鍵盤攔截（`docs/spec/447`）關閉時成立：開啟時向量 9 的 stub 改成 `jmp near` 到 BIOS int 09h 的客體碼，
+// 被蓋的仍是向量 9 自己的預設行為（447 §2.2 的唯一例外）。
 func TestPerVectorStubsAreNeverOverwritten(t *testing.T) {
 	m, d := newTest(t)
 
