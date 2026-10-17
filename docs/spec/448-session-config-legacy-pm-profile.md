@@ -1,6 +1,6 @@
 # 448：session.Config 支援 JEMM／SB16／鍵盤攔截的執行選項
 
-狀態：**READY**（第 3 版，依兩輪審查修訂）
+狀態：**READY**（第 3 版，依兩輪審查修訂），已實作（§5）
 日期：2026-10-18
 前置：[`238-session-step-observer-draft`](238-session-step-observer-draft.md)、[`240-opl-audio-output-draft`](240-opl-audio-output-draft.md)、
 [`242-machine-clock-scale-draft`](242-machine-clock-scale-draft.md)、[`430-physical-memory-and-xms-unification`](430-physical-memory-and-xms-unification.md)、
@@ -141,3 +141,47 @@ probe502、502b 沒帶 `-kbd-int15`，`KbdIntercept` 開啟時 stub 區記憶體
 - `ClockPercent` 與 `Mode13Phase` 同時使用的交互沒有量，§3.2 以 `ClockPercent` 零值為準。
 - §3.2 的暫存器比對是局部的：probe 的報表只有 CS:IP、AX、BX、CX、DX、DS、ES、SS、SP，SI、DI、BP、FLAGS 與 `CPUSHA256` 無法對拍。
 - `BootInput` 只驗 `SCCD.EXE`。MENU、OPTTEST、STRIKE、`JEMM.OVL` 由 DOS 從 `SaveRoot` 讀取，雜湊由呼叫端記錄（§5 收據寫 `SaveRoot` 內各檔的 SHA-256）。
+
+## 5. 實作收據（2026-10-18）
+
+實作 `d888b92`（`session/owner.go` 的 `Config` 新欄位與 `applyMachineConfig`；測試 `session/legacy_pm_profile_test.go`、`legacy_pm_profile_long_test.go`）。實作由子代理完成，主代理在 Docker 內重跑。
+
+### 5.1 單元測試與回歸
+
+- `go vet`、`go test ./session/` 全過，§3.1 的 15 個測試 PASS（主代理重跑）。
+- 零值錨點：主代理以 `git archive 9544c12`（改動前）另行量測，680 步後 Memory `74169ded…2b86d`、CPU `65451108…3125`，與測試的字面值相同。
+- §3.1.6 三個負對照各自讓對應測試失敗（`strike_commander` 的 `workplace/i448/neg1`–`neg3`）。
+- `go test ./...` 改前改後都因容器內沒有顯示裝置，在 `apps/phantasie/cmd/phantasie-play`、`cmd/buckrogers-play`、`frontend/ebiten` 失敗；正規化後兩次結果逐行相同。
+
+### 5.2 觸發案例
+
+`SaveRoot` 來源是 `workplace/root-session448`（`cp -r --no-preserve=links`，51 個檔，各檔 SHA-256 在 `workplace/root-session448.sha256`），測試在每個子測試內再實體複製一次。Docker：`dosgolem-go-ebiten:1.24-r1`，`--memory 3g --cpus 2 --network none`，`go test ./session/ -run 'TestLegacyPMProfileTrigger/<子測試>$' -timeout 35m`。
+
+| 子測試 | 結果 | 時間 |
+|---|---|---|
+| `KbdOn`（§3.2 的完整 `Config`） | PASS：Indexed `4d752df6…2148`、Palette `ea48da3e…5b60`、暫存器 CS:IP `060F:034A` 等與 probe 相同 | 266 秒 |
+| `KbdOff`（同上但 `KbdIntercept` 關） | PASS，數值同上 | 279 秒 |
+
+### 5.3 負對照（逐一關掉一個欄位）
+
+| 關掉的欄位 | Indexed | Palette | 暫存器 | 說明 |
+|---|---|---|---|---|
+| `DOSFiles` | 變 | 變 | 變 | 第 10 億步畫面不同 |
+| `ExtendedMemoryKB`（連帶關 `ProtectedModeProfile`） | 變 | 變 | 變 | 第 9568 步 CPU 停在 `0F 01`（386 子集） |
+| `NoEMS` | 變 | 變 | 變 | 第 9639 步程式結束 |
+| `ProtectedModeProfile` | 變 | 變 | 變 | 第 9568 步 CPU 停在 `0F 01` |
+| `SoundBlaster`（連帶關 `SBDMA8`） | 變 | 變 | 變 | 第 6944108 步程式結束 |
+| `SBDMA8` | 變 | 變 | 變 | 第 12553481 步程式結束 |
+| `Mode13Phase` | 變 | 變 | 變 | 第 4431671 步程式結束 |
+| `ExecEnvCopy` | 不變 | 不變 | 變 | |
+| `ProgramPath` | 不變 | 不變 | 不變 | 觸發案例無法證明，由 §3.1.2 負責 |
+| `ExecReclaim` | 不變 | 不變 | 不變 | 觸發案例無法證明，由 §3.1.2 負責（前 10 億步只有 SCCD 與 MENU） |
+| `KbdIntercept` | 不變 | 不變 | 不變 | 預期如此（§3.2 判定）；由 §3.1.3 負責 |
+
+輸出在 `strike_commander` 的 `workplace/i448/long-*.txt`。
+
+### 5.4 實作期間的處置
+
+- `SetExtendedMemoryKB`、`SetEMSPresent`、`SetProtectedModeProfile`、`SetSBDMA8`、`SetDOSFiles` 不論值都呼叫（零值皆為空呼叫），不合法值統一由 setter 檢查；只有 `SetAdLib`、`SetSoundBlaster`、`EnableKbdIntercept` 以真值為條件。
+- 加了 `ProgramPath` 為空時 `d.Dir == "RICH2"` 的測試（`internal/dos/dos.go` `newDOS` 的預設）。
+- 負對照 `Off_ExtendedMemoryKB` 連帶關 `ProtectedModeProfile`，否則 `New` 先失敗。
