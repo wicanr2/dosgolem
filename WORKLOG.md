@@ -723,3 +723,16 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
   `MAIN.EXE` 從自己讀 overlay、經 `5700h` 搬進 EMS、切到 mode 12h，之後以 exit 4 結束。
   停在 overlay manager 載入 ov20 的當下，結束前唯一的服務呼叫是一筆 handle `FFFF` 的 XMS move；
   另一個候選是未實作的 `INT 21h AX=4408h`。都未追完，不在本分支範圍（分析在 san5 的 `docs/re/012`）。
+
+## 2026-10-18：三國志V 跑到標題選單（分支 `san5-coverage`）
+
+- `433-last-fit-allocates-at-top`：MSC overlay manager 先設 last fit 再配 overlay 表。從開頭切的話表落在
+  PSP 區塊後方，程式撐大區塊之後 far heap 寫進表裡（`-watch` 證實），下一次載入 overlay 走錯路徑而 exit 4。
+  `placeChild` 改用 `carveBlock` 的回傳段。
+- `434-mscdex-minimal`：光碟機偵測、曲目資訊與播放狀態，曲目表由呼叫端給（`probe -cdrom D:<檔>`）。
+  三國志V 核對各軌長度（光碟身分），所以曲目表要是真實光碟的。
+- `435-ioctl-removable-media`：`AX=4408h` 以前一律回「可抽換」。
+- 驗收：`tools/ci.sh` 頂層測試 2,715 個通過、略過 338、CPU 語料全過；三項各有負對照。
+  原版素材測試（大富翁2、炎龍騎士團 2）這一輪沒跑（使用者 2026-10-18：各專案各自處理）。
+- 三國志V：放入光碟的提示按確認後進到標題選單，未實作服務 0 種（分析在 san5 的 `docs/re/013`）。
+- 另見：XMS move 對不存在的 handle 也回成功並讀到 0，XMS 規格是 AX=0、BL=A3h／A5h，未修。
