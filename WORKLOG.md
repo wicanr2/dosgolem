@@ -736,3 +736,12 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
   原版素材測試（大富翁2、炎龍騎士團 2）這一輪沒跑（使用者 2026-10-18：各專案各自處理）。
 - 三國志V：放入光碟的提示按確認後進到標題選單，未實作服務 0 種（分析在 san5 的 `docs/re/013`）。
 - 另見：XMS move 對不存在的 handle 也回成功並讀到 0，XMS 規格是 AX=0、BL=A3h／A5h，未修。
+
+## 2026-10-18：XMS move 驗證與 SDA（分支 `san5-xms-sda`，從 `san5-coverage` 分出）
+
+- 使用者要求另開分支修 XMS 搬移與 `AX=5D06h`。
+- `436-xms-move-validation`：以前不檢查描述子，無效 handle 也回成功。既有的 `TestEMBInfoAndReallocKeepContents`
+  搬 1 byte，依 XMS 3.0 是錯誤，改成 2 bytes。
+- `437-swappable-data-area`：SDA 放 `StubSeg:04D0`，InDOS 從 `0450` 移到 SDA+1（`AH=34h` 回的位址因此改變）。
+- 驗收：`tools/ci.sh` 頂層測試 2,717 個通過、略過 338、CPU 語料全過；兩項各有負對照。三國志V 到標題選單的畫面與修正前
+  逐位元組相同，未實作服務 0 種。原版素材測試沒跑（各專案各自處理）。
