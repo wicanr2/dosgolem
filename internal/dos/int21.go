@@ -258,7 +258,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x51, 0x62: // 取目前行程的 PSP → BX
 		// **這是 `KI.EXE` 的第一道指令。** 不實作的話 BX 是呼叫端留下的值，
 		// 接著 `mov ds,bx / mov al,ds:80h` 就把垃圾當成命令列長度。
-		c.R[cpu.BX] = machine.PSPSeg
+		// 回**目前行程**的 PSP（`docs/spec/432-current-psp-query`）。以前回常數
+		// PSPSeg，EXEC 的子行程因此拿到第一支程式的 PSP；`GRP480C.EXE` 拿它算
+		// TSR 常駐大小，子行程載得越高留得越多。
+		c.R[cpu.BX] = d.blockOwner()
 		clearCarry(c)
 	case 0x4E:
 		d.findFirst(c)
