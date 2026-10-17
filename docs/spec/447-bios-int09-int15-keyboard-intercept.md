@@ -165,3 +165,17 @@ skip: cli / mov al,20h / out 20h,al / pop ax / iret
 - 狀態檔存整份記憶體：選項開啟時存下的狀態帶著 §2.2 的客體碼。probe 會擋下選項關閉時讀入（§2.1）；其他前端讀入時按鍵會因 `AH=4Fh` 清 CF 而
   不進緩衝。
 - `-hold` 的 typematic 重複送按下碼（197），BIOS 與 `int 15h` 攔截照真機各收一次。
+
+## 5. 實作收據（2026-10-17）
+
+commit：`7aecc56`。
+
+- §3 第 1–6 項：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 0 SKIP；`go build`、`go vet`、`gofmt` 無輸出；
+  `go test -v ./apps/...` 與改動前相同（`apps/phantasie/cmd/phantasie-play` 前後都因無顯示器失敗）。突變 15 條各至少一個測試失敗（§3 第 5 項 12 條，另加
+  `timedKeyTick` 選項條件、拿掉 `pop ax`、拿掉 F4 的 `fixStackedCF`）。V86 三項以 `internal/dos/v86_test.go` 工具做到，監督者限定頁以手建 PD/PT 測。
+- 與規格的出入：旗標以 `kbdInt15Flag(fs)` 註冊（同 `execReclaimFlag`）；另匯出 `machine.KbdInterceptStub9()` 給 probe 做不一致偵測；讀回不符時欄位維持原值。
+- 觸發案例（`strike_commander` 的 `workplace/logs/probe477a.log`、`probe477b.log`）：從 `p474a/s660.state` 開 `-kbd-int15`。
+  - 不送鍵：`KeyIRQs`＝0、`KbdIntercepts`＝0；第 69 億步截圖與未開選項的 `probe474a` 逐位元組相同。
+  - `-hold left@6600000000+300000000`：定時事件 279 個，IRQ1 送出 279 次、`KeyStalls`＝0；`KbdIntercepts`＝278、`KbdTranslates`＝278（最後一個放開碼在第
+    6900000000 步才送出，跑滿時尚未處理）；`int 16h AH=00` ×278。`int 15h` 經 JEMM 反射到 STRIKE 的 `69EE:000F`，再 chain 回 `0080:0408` 由 Go 服務。
+    第 66.5 億步起畫面與對照不同：座艙視角切換、地平線傾斜。按鍵在遊戲內的語意未確認。
