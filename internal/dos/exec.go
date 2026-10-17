@@ -155,10 +155,18 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	}
 
 	need := imageParags(data)
+	// 子行程自己的環境區塊，配在程式區塊之前（`docs/spec/430-exec-child-environment`）。
+	// preEnv 是配環境之前的游標：子行程非 TSR 結束時退回這裡，環境一起回收。
+	preEnv := d.freeSeg
+	env, ok := d.makeChildEnv(c, name, p.envSeg)
+	if !ok {
+		return
+	}
 	mcb, top, placed := d.placeChild(need)
 	if d.arena == nil {
 		// 舊路徑：容量照舊檢查。
 		if avail := uint16(machine.MemTop) - d.freeSeg; need > avail {
+			env.undo(d, preEnv)
 			c.R[cpu.AX] = 8 // 記憶體不足
 			c.R[cpu.BX] = avail
 			setCarry(c)
@@ -166,6 +174,7 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 		}
 	} else if !placed {
 		// arena 滿：與 AH=48h 配不出來一致。
+		env.undo(d, preEnv)
 		c.R[cpu.AX] = 8
 		c.R[cpu.BX] = d.largestFree()
 		setCarry(c)
@@ -178,7 +187,7 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	// 正確的接續點。
 	f := procFrame{
 		r: c.R, seg: c.Seg, ip: c.IP, fl: c.Flags,
-		psp: d.curPSP, freeSeg: d.freeSeg,
+		psp: d.curPSP, freeSeg: preEnv,
 	}
 	if d.arena != nil {
 		// arena 路徑才有 MCB 段可回收；舊路徑 arenaSeg 留 0。
@@ -191,6 +200,10 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 
 	prog, err := d.M.LoadProgramAt(psp, data)
 	if err != nil {
+		if f.arenaSeg != 0 {
+			d.freeArenaSeg(f.arenaSeg)
+		}
+		env.undo(d, preEnv)
 		d.Missing = append(d.Missing, fmt.Sprintf("%s（%v）", name, err))
 		c.R[cpu.AX] = 8
 		setCarry(c)
@@ -208,11 +221,8 @@ func (d *DOS) spawn(c *cpu.CPU, name string, p execParams) {
 	// 更早以前填全域 MemTop，洞裡的子行程又會拿到大到不真實的數字
 	//（Watcom 6.5 啟動碼，`retro-runtime-study-private#32` R48）。
 	d.M.Write16(base+0x02, top)
-	envSeg := p.envSeg
-	if envSeg == 0 { // 繼承父行程的環境段
-		envSeg = d.M.Read16(uint32(f.psp)*16 + 0x2C)
-	}
-	d.M.Write16(base+0x2C, envSeg)
+	env.own(d, psp)
+	d.M.Write16(base+0x2C, env.seg)
 	d.copyCmdTail(base, p.tailSeg, p.tailOff)
 	// FCB 原樣各抄 16 bytes。
 	for i := uint32(0); i < 16; i++ {
@@ -558,4 +568,108 @@ func isEMMDevice(name string) bool {
 		}
 	}
 	return strings.EqualFold(base, "EMMXXXX0")
+}
+
+// childEnv 是替子行程配的環境區塊（`docs/spec/430-exec-child-environment`）。
+type childEnv struct {
+	seg   uint16 // 資料段（PSP+2Ch 的值）
+	paras uint16 // 資料段數
+	arena bool   // 配在 arena 裡（否則是 freeSeg 遞增配的）
+}
+
+// envKeepFree 是 DOSBox-X `ENV_KEEPFREE` 的預設值：環境區塊在字串區之後
+// 至少多留這麼多 bytes，`01 00` 加程式路徑放在這裡（§2 第 5 點）。
+const envKeepFree = 83
+
+// envMax 是字串區掃描上限（DOSBox-X `MAXENV`）。
+const envMax = 32768
+
+// envStrings 讀 seg 開頭的環境字串區，含結尾的空字串（§2 第 3 點）。
+// seg 為 0 回單一 `00`。超過 envMax 回 ok=false。
+func (d *DOS) envStrings(seg uint16) ([]byte, bool) {
+	if seg == 0 {
+		return []byte{0}, true
+	}
+	base := uint32(seg) * 16
+	var out []byte
+	for {
+		start := len(out)
+		for {
+			if len(out) >= envMax {
+				return nil, false
+			}
+			b := d.M.Read8(base + uint32(len(out)))
+			out = append(out, b)
+			if b == 0 {
+				break
+			}
+		}
+		if len(out)-start == 1 { // 空字串：字串區結束
+			return out, true
+		}
+	}
+}
+
+// makeChildEnv 配一塊環境區塊並寫好內容（§2）。失敗時已設好 AX／BX／CF。
+func (d *DOS) makeChildEnv(c *cpu.CPU, name string, src uint16) (childEnv, bool) {
+	if src == 0 {
+		src = d.M.Read16(uint32(d.curPSP)*16 + 0x2C)
+	}
+	strs, ok := d.envStrings(src)
+	if !ok {
+		c.R[cpu.AX] = 0x0A // environment invalid
+		setCarry(c)
+		return childEnv{}, false
+	}
+	path := d.canonical(name)
+	blk := append(append(strs, 0x01, 0x00), append([]byte(path), 0)...)
+	paras := uint16((len(strs) + envKeepFree + 15) / 16)
+	if need := uint16((len(blk) + 15) / 16); need > paras {
+		paras = need
+	}
+	var e childEnv
+	if d.arena == nil {
+		// 舊路徑：MCB 在 freeSeg，資料從下一段開始，游標推過去。
+		if avail := uint16(machine.MemTop) - d.freeSeg; paras+1 > avail {
+			c.R[cpu.AX] = 8
+			c.R[cpu.BX] = avail
+			setCarry(c)
+			return childEnv{}, false
+		}
+		e = childEnv{seg: d.freeSeg + 1, paras: paras}
+		d.freeSeg += paras + 1
+	} else {
+		i := d.pickBlock(paras)
+		if i < 0 {
+			c.R[cpu.AX] = 8
+			c.R[cpu.BX] = d.largestFree()
+			setCarry(c)
+			return childEnv{}, false
+		}
+		e = childEnv{seg: d.carveBlock(i, paras), paras: paras, arena: true}
+	}
+	d.M.WriteBytes(uint32(e.seg)*16, blk)
+	return e, true
+}
+
+// own 把環境區塊的擁有者設成子行程（§2 第 7 點）：非 TSR 結束時
+// `releaseOwnedBy` 才回收得到它。
+func (e childEnv) own(d *DOS, psp uint16) {
+	if e.arena {
+		for i := range d.arena {
+			if d.arena[i].seg+1 == e.seg {
+				d.arena[i].owner = psp
+			}
+		}
+	}
+	d.M.WriteMCB(e.seg-1, false, psp, e.paras)
+}
+
+// undo 在子行程沒建成時還回環境區塊（§2 第 9 點）。
+func (e childEnv) undo(d *DOS, preEnv uint16) {
+	if e.arena {
+		d.freeArenaSeg(e.seg - 1)
+		return
+	}
+	d.freeSeg = preEnv
 }

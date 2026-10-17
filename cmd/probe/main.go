@@ -320,7 +320,11 @@ func main() {
 	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
 	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境
 	// 找自己的路徑（`docs/re/269`）。
-	m.ProgramPath = `C:\` + strings.ToUpper(filepath.Base(*exe))
+	// 給了 `-program-path` 就照給的（`docs/spec/430-exec-child-environment` §3）：
+	// 以前這裡無條件覆寫，旗標從來沒生效。
+	if m.ProgramPath == "" {
+		m.ProgramPath = `C:\` + strings.ToUpper(filepath.Base(*exe))
+	}
 	m.EmptyEnv = *emptyEnv
 	var err error
 	if *loadState == "" {
