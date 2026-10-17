@@ -641,13 +641,14 @@ func (c *CPU) aluImm(op uint8) error {
 //	D0: r/m8,  1     D1: r/m16, 1
 //	D2: r/m8,  CL    D3: r/m16, CL
 //
-// **CL 不遮罩成 5 位元**，而且 **CL ＝ 0 時完全不動旗標**
-// （`docs/spec/002` §4 第 2 點）。
+// Model8086 的 **CL 不遮罩成 5 位元**（`docs/spec/002` §4 第 2 點，語料是 8086 的）；
+// 80186 以上遮成 `CL & 31`（`docs/spec/431-cpu-shift-count-mask`）。
+// 兩者都是 **位移量 ＝ 0 時完全不動旗標**。
 func (c *CPU) shiftGroup(op uint8) error {
 	m := c.decodeModRM()
 	count := uint8(1)
 	if op >= 0xD2 {
-		count = uint8(c.R[CX])
+		count = c.shiftCount(uint8(c.R[CX]))
 	}
 	if op&1 == 0 {
 		c.set8(m.rm, uint8(c.shiftRotate(m.reg, uint16(c.get8(m.rm)), count, 8)))
@@ -655,6 +656,18 @@ func (c *CPU) shiftGroup(op uint8) error {
 		c.set16(m.rm, c.shiftRotate(m.reg, c.get16(m.rm), count, 16))
 	}
 	return nil
+}
+
+// shiftCount 依機型處理移位量：8086 用整個 byte，80186 以上只取低 5 位元
+// （DOSBox-X `cpu/instructions.h` 的 `CPU_SHIFTOP_MASK`，`docs/spec/431-cpu-shift-count-mask`）。
+//
+// ⚠ 不遮的話 386 程式的 CPU 偵測（`mov cl,21h; shr ax,cl` 看結果是不是 0）
+// 會把機器判成 8086；三國志V 的 `BGMSEQ.COM` 因此 exit 7，整場沒有音樂。
+func (c *CPU) shiftCount(n uint8) uint8 {
+	if c.Model >= Model80186 {
+		return n & 0x1F
+	}
+	return n
 }
 
 // group3 是 F6／F7：TEST／NOT／NEG／MUL／IMUL／DIV／IDIV。

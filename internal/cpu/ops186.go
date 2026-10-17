@@ -127,7 +127,7 @@ func (c *CPU) insOuts(op uint8) {
 // 8086 沒有這兩個（那裡是 `RET` 的別名），所以移位次數只能放 CL。
 func (c *CPU) shiftImm(op uint8) error {
 	m := c.decodeModRM()
-	count := c.fetch8()
+	count := c.shiftCount(c.fetch8()) // 只在 80186 以上解得到，一定遮成 5 位元
 	if op == 0xC0 {
 		c.set8(m.rm, uint8(c.shiftRotate(m.reg, uint16(c.get8(m.rm)), count, 8)))
 	} else {
