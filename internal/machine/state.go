@@ -79,9 +79,14 @@ type machineState struct {
 	Cycles      uint64
 	NextIRQ0Cyc uint64
 	PITDiv      uint32
-	PITAccess   uint8
-	PITPhase    uint8
-	PITLo       uint8
+	// PITPortDivisor／PITPortWrites 是 pit.go 那一份解碼的狀態（`PITHz()` 讀它）。
+	// 以前沒存：`-load-state` 之後退回 65536，`StepsPerSecondNow()` 小了分頻的倍數，
+	// 倒 VGM、CD WAV 的時間軸跟著縮放（`docs/spec/439-state-pit-port-divisor`）。舊檔讀進來是 0，行為同以前。
+	PITPortDivisor uint32
+	PITPortWrites  uint64
+	PITAccess      uint8
+	PITPhase       uint8
+	PITLo          uint8
 
 	// `docs/spec/242`：242 之前的存檔沒有這幾個欄位（ClockPercent 為 0）。
 	VGAFrameEvery uint64
@@ -141,33 +146,35 @@ type machineState struct {
 func (m *Machine) SaveState(w io.Writer) error {
 	s := machineState{
 		Magic: stateMagic, Version: stateVersion,
-		Mem:           append([]uint8(nil), m.Mem...),
-		R:             m.CPU.R,
-		Hi:            m.CPU.Hi,
-		FSeg:          m.CPU.FSeg,
-		GSeg:          m.CPU.GSeg,
-		Seg:           m.CPU.Seg,
-		IP:            m.CPU.IP,
-		Flags:         m.CPU.Flags,
-		Halted:        m.CPU.Halted,
-		Model:         int(m.CPU.Model),
-		Steps:         m.Steps,
-		Ticks:         m.Ticks,
-		PortTicks:     m.portTicks,
-		NextIRQ0:      m.nextIRQ0,
-		IRQ0Pending:   m.irq0Pending,
-		IRQ0Every:     m.IRQ0Every,
-		IRQ0Base:      m.IRQ0Base,
-		CPUHz:         m.CPUHz,
-		CycleClock:    m.CycleClock,
-		DOSBoxCost:    m.CPU.DOSBoxCost,
-		Cycles:        m.CPU.Cycles,
-		NextIRQ0Cyc:   m.nextIRQ0Cyc,
-		PITDiv:        m.PITDiv,
-		PITAccess:     m.pitAccess,
-		PITPhase:      m.pitPhase,
-		PITLo:         m.pitLo,
-		VGAFrameEvery: m.VGAFrameEvery, NextFrame: m.nextFrame, KeyEvery: m.KeyEvery, NextKey: m.nextKey,
+		Mem:            append([]uint8(nil), m.Mem...),
+		R:              m.CPU.R,
+		Hi:             m.CPU.Hi,
+		FSeg:           m.CPU.FSeg,
+		GSeg:           m.CPU.GSeg,
+		Seg:            m.CPU.Seg,
+		IP:             m.CPU.IP,
+		Flags:          m.CPU.Flags,
+		Halted:         m.CPU.Halted,
+		Model:          int(m.CPU.Model),
+		Steps:          m.Steps,
+		Ticks:          m.Ticks,
+		PortTicks:      m.portTicks,
+		NextIRQ0:       m.nextIRQ0,
+		IRQ0Pending:    m.irq0Pending,
+		IRQ0Every:      m.IRQ0Every,
+		PITPortDivisor: m.pit.divisor,
+		PITPortWrites:  m.pit.writes,
+		IRQ0Base:       m.IRQ0Base,
+		CPUHz:          m.CPUHz,
+		CycleClock:     m.CycleClock,
+		DOSBoxCost:     m.CPU.DOSBoxCost,
+		Cycles:         m.CPU.Cycles,
+		NextIRQ0Cyc:    m.nextIRQ0Cyc,
+		PITDiv:         m.PITDiv,
+		PITAccess:      m.pitAccess,
+		PITPhase:       m.pitPhase,
+		PITLo:          m.pitLo,
+		VGAFrameEvery:  m.VGAFrameEvery, NextFrame: m.nextFrame, KeyEvery: m.KeyEvery, NextKey: m.nextKey,
 		ClockPercent:   m.ClockPercent(),
 		DAC:            append([]uint8(nil), m.DAC[:]...),
 		DACMaskPresent: true,
@@ -255,6 +262,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.Steps, m.Ticks = s.Steps, s.Ticks
 	m.portTicks, m.nextIRQ0, m.irq0Pending = s.PortTicks, s.NextIRQ0, s.IRQ0Pending
 	m.IRQ0Every = s.IRQ0Every
+	m.pit.divisor, m.pit.writes = s.PITPortDivisor, s.PITPortWrites
 	// 舊的狀態檔沒有這幾個欄位；讀到零值就退回開機預設，
 	// 不要讓分頻變成 0（那會讓 IRQ0 間隔算成 0）。
 	m.IRQ0Base, m.PITDiv = s.IRQ0Base, s.PITDiv

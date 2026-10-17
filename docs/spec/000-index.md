@@ -951,7 +951,7 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
-### 三國志V（san5）（9 份）
+### 三國志V（san5）（11 份）
 
 跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
 依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
@@ -965,6 +965,8 @@
 - [435 — `INT 21h AX=4408h` 區塊裝置可不可抽換](435-ioctl-removable-media.md)：READY。硬碟回固定式，光碟機與不存在的代號設 CF；以前一律回「可抽換」。
 - [436 — XMS move 先驗證再搬](436-xms-move-validation.md)：READY。handle、位移、長度不合回 AX=0 與 BL（A3h 到 A7h），記憶體不動；以前一律回成功。
 - [437 — `INT 21h AX=5D06h` DOS 可交換資料區](437-swappable-data-area.md)：READY。SDA 在 `StubSeg:04D0`，InDOS 移到 SDA+1，`AH=34h` 指同一格。
+- [438 — MSCDEX 的 CD 音軌倒成 WAV](438-mscdex-cd-audio-dump.md)：READY。曲目表加映像位移，播放紀錄對上 raw 光碟映像，`probe -dump-cd-wav` 輸出 44.1 kHz 立體聲。
+- [439 — 狀態檔保存 PIT 埠解碼分頻](439-state-pit-port-divisor.md)：READY。以前 `-load-state` 之後 `PITHz()` 退回 18.2 Hz，`StepsPerSecondNow()` 縮了分頻的倍數。
 
 ## 新增 CPU386 位移切片
 
