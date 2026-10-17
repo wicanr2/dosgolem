@@ -115,6 +115,71 @@ type Config struct {
 	AdLib bool
 	// ClockPercent 是機器時脈比例 10–100（docs/spec/242）；0 視為 100。
 	ClockPercent int
+
+	// 以下對應 cmd/probe 的同名選項（docs/spec/448 §2.1），零值等於不設。
+
+	// ProgramPath 是環境區塊裡的程式全路徑（probe 設成 `C:\` 加執行檔名）；
+	// 帶目錄時 dos.New 把目前目錄設成該目錄。空字串維持 machine 預設。
+	ProgramPath string
+	// DOSFiles 是 SFT 檔案數（-dos-files），0 或 6..255。
+	DOSFiles int
+	// ExtendedMemoryKB 是延伸記憶體 KB 數（-ext-mem-kb）。
+	ExtendedMemoryKB int
+	// NoEMS 撤銷內建 EMM（-no-ems）。
+	NoEMS bool
+	// ProtectedModeProfile 開保護模式 profile（-pm-profile），需要 ExtendedMemoryKB。
+	ProtectedModeProfile bool
+	// SoundBlaster 讓 SB16（220h）存在（-sound-blaster），一併讓 OPL 存在。
+	SoundBlaster bool
+	// SBDMA8 開 SB16 的 8 位元 DMA 與 IRQ7（-sb-dma8），需要 SoundBlaster。
+	SBDMA8 bool
+	// Mode13Phase 讓 mode 13h 的 3DAh 回掃相位依指令數推算（-mode13-phase）。
+	Mode13Phase bool
+	// ExecEnvCopy 讓 EXEC 替子行程建新環境（-exec-env，docs/spec/439）。
+	ExecEnvCopy bool
+	// ExecReclaim 讓巢狀子行程結束時併回 arena（-exec-reclaim，docs/spec/441）。
+	ExecReclaim bool
+	// KbdIntercept 讓 BIOS int 09h 經 int 15h AH=4Fh 攔截（-kbd-int15，docs/spec/447）。
+	KbdIntercept bool
+}
+
+// applyMachineConfig 依 docs/spec/448 §2.2 的順序把 Config 的 machine 選項套到剛建好的機器，
+// 與 cmd/probe 冷開機路徑的先後相同。只在 New 內、dos.New 之前呼叫。
+//
+// SetAdLib 與 SetSoundBlaster 只以真值呼叫：SetSoundBlaster(false) 在 SBDMA8 開啟後會 panic，
+// 無條件的 SetAdLib(false) 會把 SoundBlaster 開的 OPL 關掉（448 §2.1）。
+func applyMachineConfig(m *machine.Machine, cfg Config) error {
+	if err := m.SetExtendedMemoryKB(cfg.ExtendedMemoryKB); err != nil {
+		return fmt.Errorf("session: ExtendedMemoryKB：%w", err)
+	}
+	if err := m.SetEMSPresent(!cfg.NoEMS); err != nil {
+		return fmt.Errorf("session: NoEMS：%w", err)
+	}
+	if err := m.SetProtectedModeProfile(cfg.ProtectedModeProfile); err != nil {
+		return fmt.Errorf("session: ProtectedModeProfile：%w", err)
+	}
+	if cfg.ProgramPath != "" {
+		m.ProgramPath = cfg.ProgramPath
+	}
+	if cfg.AdLib {
+		m.SetAdLib(true)
+	}
+	if cfg.SoundBlaster {
+		m.SetSoundBlaster(true)
+	}
+	if err := m.SetSBDMA8(cfg.SBDMA8); err != nil {
+		return fmt.Errorf("session: SBDMA8：%w", err)
+	}
+	if err := m.SetDOSFiles(cfg.DOSFiles); err != nil {
+		return fmt.Errorf("session: DOSFiles：%w", err)
+	}
+	m.Mode13Phase = cfg.Mode13Phase
+	if cfg.KbdIntercept {
+		if err := m.EnableKbdIntercept(); err != nil {
+			return fmt.Errorf("session: KbdIntercept：%w", err)
+		}
+	}
+	return nil
 }
 
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
@@ -172,11 +237,20 @@ func New(cfg Config) (*Owner, error) {
 	if cfg.InitialLayout.Epoch == 0 && cfg.InitialLayout != (host.MouseLayout{}) {
 		return nil, errors.New("session: InitialLayout 非零時必須有 layout epoch")
 	}
+	// 448 §2.3：在呼叫任何 setter 之前檢查。
+	if cfg.SBDMA8 && !cfg.SoundBlaster {
+		return nil, errors.New("session: SBDMA8 需要 SoundBlaster（docs/spec/444 §2.1）")
+	}
 	panel, err := host.NewPanelController(cfg.InitialScale)
 	if err != nil {
 		return nil, err
 	}
 	m := machine.New()
+	// 448 §2.2：machine 的選項要在 dos.New 之前套用（ProgramPath 決定目前目錄）。
+	// 這時 DOS 還沒建立，錯誤直接回傳。
+	if err := applyMachineConfig(m, cfg); err != nil {
+		return nil, err
+	}
 	d := dos.New(m, "")
 	// DOS.Install must follow LoadEXE.  This narrow owner has no original
 	// boot yet, so Booting deliberately does not install DOS or permit steps.
@@ -187,6 +261,8 @@ func New(cfg Config) (*Owner, error) {
 			d.Close()
 		}
 	}()
+	d.ExecEnvCopy = cfg.ExecEnvCopy
+	d.ExecReclaim = cfg.ExecReclaim
 	mouse, err := host.NewMouseBridge(d)
 	if err != nil {
 		return nil, err
@@ -218,8 +294,9 @@ func New(cfg Config) (*Owner, error) {
 		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
 	o.observer = cfg.Observer
-	if cfg.AdLib {
-		m.SetAdLib(true)
+	// 448 §2.4：SoundBlaster 也會讓 OPL 存在，沒有觀測器時 OPL 寫入會一直累積，
+	// 所以只要 OPL 存在就掛空收集器（與 runObserved 的 defer 判準相同）。
+	if m.AdLibPresent() {
 		o.muteAudio()
 	}
 	if cfg.ClockPercent != 0 {
