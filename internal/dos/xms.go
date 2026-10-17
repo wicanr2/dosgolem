@@ -304,6 +304,17 @@ func (d *DOS) xmsMove(c *cpu.CPU) {
 	if dstH == 0 {
 		dstBase = xmsLinear(dstOff)
 	}
+	// 先驗證再搬（`docs/spec/436-xms-move-validation`，照 DOSBox-X `XMS_MoveMemory`）。
+	// 以前不驗：不存在的 handle 讀到 0、寫入丟掉，搬移照樣回成功——三國志V 的
+	// overlay manager 在表被蓋掉時就拿 handle FFFFh 搬了 576 個 0 到常規記憶體。
+	if code := d.xmsMoveCheck(n, srcH, srcBase, dstH, dstBase); code != 0 {
+		d.xmsFail(c, code)
+		d.XMSMoves = append(d.XMSMoves, XMSMove{
+			Step: d.M.Steps, Len: n, SrcH: srcH, SrcOff: srcOff, DstH: dstH, DstOff: dstOff,
+			Status: code,
+		})
+		return
+	}
 
 	// bits 是搬過去的位元數。**「搬移回報成功」不等於「搬到了東西」**——
 	// 來源算錯或區塊配小了都是靜靜回 0，而字圖全 0 在畫面上就是「沒這個字」。
@@ -319,6 +330,39 @@ func (d *DOS) xmsMove(c *cpu.CPU) {
 		Bits: bits,
 	})
 	clearCarry(c)
+}
+
+// xmsMoveCheck 回 AH=0Bh 的錯誤碼，0 表示可以搬。順序照 DOSBox-X：
+// 長度奇數 A7h；來源 handle 無效 A3h、位移超出 A4h、長度超出 A7h；
+// 目的端同理 A5h、A6h、A7h；常規記憶體端（handle 0）的線性位址加長度
+// 超過 10FFF0h 回 A7h。
+func (d *DOS) xmsMoveCheck(n uint32, srcH uint16, src uint32, dstH uint16, dst uint32) uint8 {
+	if n&1 != 0 {
+		return 0xA7
+	}
+	end := func(h uint16, off uint32, badH, badOff uint8) uint8 {
+		if h == 0 {
+			if uint64(off)+uint64(n) > 0x10FFF0 {
+				return 0xA7
+			}
+			return 0
+		}
+		blk, ok := d.emb[h]
+		if !ok {
+			return badH
+		}
+		if off >= uint32(len(blk)) {
+			return badOff
+		}
+		if n > uint32(len(blk))-off {
+			return 0xA7
+		}
+		return 0
+	}
+	if code := end(srcH, src, 0xA3, 0xA4); code != 0 {
+		return code
+	}
+	return end(dstH, dst, 0xA5, 0xA6)
 }
 
 // xmsLinear 把 handle 0 的 far 指標（高 word 段、低 word 位移）算成

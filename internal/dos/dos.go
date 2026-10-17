@@ -500,6 +500,8 @@ type XMSMove struct {
 	SrcOff, DstOff uint32
 	// Bits 是搬過去的資料裡有幾個 1。0 表示搬了一片空白。
 	Bits int
+	// Status 是失敗時回給程式的 BL（`docs/spec/436-xms-move-validation`），0 ＝ 成功。
+	Status uint8
 }
 
 // ReadOp 是一次讀檔（`AH=3Fh`）。Seg:Off 是緩衝區。

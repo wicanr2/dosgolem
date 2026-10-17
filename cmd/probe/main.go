@@ -1329,8 +1329,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			if i >= 30 {
 				break
 			}
-			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X  bits=%d\n",
-				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits)
+			st := ""
+			if w.Status != 0 {
+				st = fmt.Sprintf("  失敗 BL=%02X", w.Status)
+			}
+			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X  bits=%d%s\n",
+				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits, st)
 		}
 	}
 	if len(d.EMSOps) > 0 {
