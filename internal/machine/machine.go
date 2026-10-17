@@ -124,8 +124,9 @@ func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 //	0x410  回呼返回哨兵            0x414／0x418  DOS/V 字型 entry（RETF）
 //	0x420–0x442  BIOS int 08h（35 bytes，含 40:40 馬達倒數）
 //	0x448  int 15h AH=C0h 系統設定表（8 bytes）
-//	0x450  InDOS 旗標              0x460  DBCS 表        0x480  國別資訊表
+//	0x460  DBCS 表                0x480  國別資訊表
 //	0x4B0  MSCDEX device header（0x17 bytes）
+//	0x4D0  DOS 可交換資料區（SDA，0x1A bytes；+1 是 InDOS 旗標）
 //
 // > 事故（2026-09-10，EOB1）：字型 stub 挑了 0x20／0x24，而 0x24 是向量
 // > 09h（IRQ1 鍵盤）的 stub。EOB.EXE 掛了自己的 int 09h 再 chain 回舊向量，
@@ -168,8 +169,12 @@ const (
 	// ⚠ 不能是 0x440：計時器 stub 長到 35 bytes 之後佔到 0x442，
 	// 設定表一寫就蓋掉它結尾的 `pop ax／pop ds／iret`。
 	SysConfigOff = specialStubBase + 0x48
-	// InDOSOff 是 InDOS 旗標（1 byte）。
-	InDOSOff = specialStubBase + 0x50
+	// InDOSOff 是 InDOS 旗標（1 byte），在 DOS 可交換資料區（SDA）的 +1
+	// （`docs/spec/437-swappable-data-area`）。真 DOS 的 `AH=34h` 指的就是 SDA 裡
+	// 這一格，前一格是 critical error 旗標；`AX=5D06h` 回 SDA 起點的程式（三國志V
+	// 的 CD 模組）讀 SDA+0 的 word 判斷能不能進 DOS，兩個指標要指同一格。
+	// ⚠ 以前在 0x450：SDA 有 0x1A bytes，從 0x44F 起會蓋到 0x460 的 DBCS 表。
+	InDOSOff = SDAOff + 1
 	// DBCSTableOff 是 DBCS 前導位元組表（`int 21h AH=63h`，最多 32 bytes）。
 	DBCSTableOff = specialStubBase + 0x60
 	// CountryOff 是國別資訊表（`int 21h AH=38h`，34 bytes）。
@@ -177,6 +182,10 @@ const (
 	// MSCDEXHeaderOff 是光碟機的 device header（0x16 bytes，後接 1 byte RETF；
 	// `docs/spec/434-mscdex-minimal`）。國別資訊表到 0x4A2，上界是 0x4F0。
 	MSCDEXHeaderOff = specialStubBase + 0xB0
+	// SDAOff 是 DOS 可交換資料區（0x1A bytes，到 0x4EA；上界 0x4F0）。
+	SDAOff = specialStubBase + 0xD0
+	// SDASize 是 SDA 的大小（DOSBox-X `sSDA` 的 0x1A bytes）。
+	SDASize = 0x1A
 )
 
 // DefaultIRQ0Every 是**分頻 17,000 時**計時器中斷的間隔，單位是指令數。

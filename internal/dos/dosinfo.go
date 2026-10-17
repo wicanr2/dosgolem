@@ -77,6 +77,34 @@ func (d *DOS) inDOSFlag(c *cpu.CPU) {
 	clearCarry(c)
 }
 
+// sdaAddress 是 `AX=5D06h`：DS:SI ＝ DOS 可交換資料區（SDA），CX ＝ 在 DOS 裡時要交換的大小，
+// DX ＝ 永遠要交換的大小（`docs/spec/437-swappable-data-area`，照 DOSBox-X `dos.cpp` 與 `sSDA`）。
+//
+// 版面：+0 critical error 旗標、+1 InDOS、+2 發生 critical error 的磁碟機（FFh）、
+// +3 錯誤位置、+4 延伸錯誤碼、+6 建議動作、+7 錯誤類別、+8 錯誤的 ES:DI、
+// +0Ch 目前 DTA、+10h 目前 PSP、+12h INT 23h 的 SP、+14h 上一個行程的離開碼、
+// +16h 目前磁碟機、+17h 延伸 break 旗標、+18h 兩個保留。
+//
+// 我們的 `int 21h` 一次做完，旗標恆為 0；DTA、PSP、離開碼與磁碟機在每次呼叫時寫進去
+// （不是隨時同步的）。
+func (d *DOS) sdaAddress(c *cpu.CPU) {
+	base := uint32(machine.StubSeg)*16 + machine.SDAOff
+	for i := uint32(0); i < machine.SDASize; i++ {
+		d.M.Write8(base+i, 0)
+	}
+	d.M.Write8(base+2, 0xFF)
+	d.M.Write16(base+0x0C, d.dtaOff)
+	d.M.Write16(base+0x0E, d.dtaSeg)
+	d.M.Write16(base+0x10, d.blockOwner())
+	d.M.Write16(base+0x14, d.lastExit)
+	d.M.Write8(base+0x16, d.Drive)
+	c.Seg[cpu.DS] = machine.StubSeg
+	c.R[cpu.SI] = machine.SDAOff
+	c.R[cpu.CX] = machine.SDASize
+	c.R[cpu.DX] = machine.SDASize
+	clearCarry(c)
+}
+
 // switchChar 是 `AH=37h`：取／設「選項字元」（DOS 的 `/`、Unix 的 `-`）。
 //
 // 程式用它決定要把命令列裡的 `/S` 當成選項還是當成路徑。回垃圾的話，

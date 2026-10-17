@@ -951,7 +951,7 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
-### 三國志V（san5）（7 份）
+### 三國志V（san5）（9 份）
 
 跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
 依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
@@ -963,6 +963,8 @@
 - [433 — last fit 從自由區塊尾端切](433-last-fit-allocates-at-top.md)：READY。MSC overlay manager 把 overlay 表放到記憶體頂端；從開頭切的話 far heap 會寫進表裡。
 - [434 — MSCDEX 最小集](434-mscdex-minimal.md)：READY。光碟機偵測、曲目資訊與播放狀態；曲目表由呼叫端給（`probe -cdrom`），不出聲、不讀資料扇區。
 - [435 — `INT 21h AX=4408h` 區塊裝置可不可抽換](435-ioctl-removable-media.md)：READY。硬碟回固定式，光碟機與不存在的代號設 CF；以前一律回「可抽換」。
+- [436 — XMS move 先驗證再搬](436-xms-move-validation.md)：READY。handle、位移、長度不合回 AX=0 與 BL（A3h 到 A7h），記憶體不動；以前一律回成功。
+- [437 — `INT 21h AX=5D06h` DOS 可交換資料區](437-swappable-data-area.md)：READY。SDA 在 `StubSeg:04D0`，InDOS 移到 SDA+1，`AH=34h` 指同一格。
 
 ## 新增 CPU386 位移切片
 

@@ -212,7 +212,8 @@ func (d *DOS) fontBytes(name string, off, size int) []byte {
 }
 
 // sysConfigOff 是 `int 15h AH=C0h` 的系統設定表在 StubSeg 裡的位移，
-// inDOSOff 是 `int 21h AH=34h` 的 InDOS 旗標。
+// inDOSOff 是 `int 21h AH=34h` 的 InDOS 旗標。現在在 SDA 的 +1（`machine.InDOSOff`，
+// `docs/spec/437-swappable-data-area`）；下面是它以前放在 0x450 時記下的鄰居限制，仍適用於 StubSeg 的佈局。
 //
 // ⚠ **上下兩邊都有鄰居，只避開一邊不夠。**
 // 下面是 stub：每個向量的 stub 佔 0x000–0x3FF，特殊 stub 從 0x400 起，

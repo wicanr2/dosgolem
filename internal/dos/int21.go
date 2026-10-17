@@ -299,6 +299,12 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x32: // 取磁碟參數區塊
 		d.driveParams(c)
 
+	case 0x5D: // 只做 AL=06h：取 DOS 可交換資料區（`docs/spec/437-swappable-data-area`）
+		if al(c) == 0x06 {
+			d.sdaAddress(c)
+		} else {
+			d.note(0x21, 0x5D, al(c))
+		}
 	case 0x34: // 取 InDOS 旗標位址 → ES:BX
 		d.inDOSFlag(c)
 
