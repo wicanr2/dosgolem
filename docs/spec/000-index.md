@@ -951,6 +951,16 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
+### 三國志V（san5）（4 份）
+
+跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
+依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
+
+- [429 — EMS 4.0 `INT 67h AH=57h`（Move／Exchange Memory Region）](429-ems-move-exchange-region.md)：READY。MSC overlay manager 把 overlay 搬進 EMS；映著的頁經 frame 存取，複製式分頁下不必 flush。
+- [430 — EXEC 子行程的環境區塊](430-exec-child-environment.md)：READY。每次 EXEC 配一塊新環境，字串照抄、尾端換成子行程自己的路徑，配在程式區塊之前、歸子行程所有；`probe -program-path` 不再被覆寫。
+- [431 — 移位量遮罩：80186 以上取 `CL & 31`](431-cpu-shift-count-mask.md)：READY。`Model8086` 不變（語料路徑），修正 `002-cpu-8086` §4 第 2 點的適用範圍。
+- [432 — `INT 21h AH=51h／62h` 回目前行程的 PSP](432-current-psp-query.md)：READY。以前回常數 `PSPSeg`，子行程拿到第一支程式的 PSP。
+
 ## 新增 CPU386 位移切片
 
 - [190-cpu386-d1-shl-rm32](190-cpu386-d1-shl-rm32.md)：FD2第十七章正常END後的D1 /4記憶體指令。CONFORMED；原版證據與同槽重跑由fd2_re #90追蹤。

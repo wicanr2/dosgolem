@@ -703,3 +703,23 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
 - `ci.sh` 加「合併衝突標記」一步（gofmt 只看 Go 檔）；測試步驟改存完整紀錄到
   `workplace/ci-test.log`，並列出略過的數量與原因，避免把略過讀成通過。
 - `build_image.sh` 把 Dockerfile 的雜湊標在映像上，`go.sh` 發現映像比 Dockerfile 舊時提醒。
+
+## 2026-10-17：三國志V 的四個缺口（分支 `san5-coverage`）
+
+- 起因：`wicanr2/san5-remake` 的涵蓋度量測（該庫 `docs/re/010-dosgolem-coverage.md`）列出
+  `MAIN.EXE` 跑不進遊戲碼的兩個停點與兩個偏差。依 DOSBox-X 原始碼補上，各一份規格：
+  `429-ems-move-exchange-region`、`430-exec-child-environment`、`431-cpu-shift-count-mask`、
+  `432-current-psp-query`。
+- 行為改變（影響所有 EXEC 鏈）：子行程 PSP 比以前高「環境段數 + 1」段，`AH=51h／62h`
+  在子行程內回子行程的 PSP。`exec_test.go` 三個寫死 `2001` 的測試改成從 `ExecLog` 取子行程 PSP。
+- `probe -program-path` 以前被 `cmd/probe/main.go` 無條件覆寫（旗標在 09-30 加入，覆寫在
+  09-10 就在，合併後旗標從沒生效）。改為旗標空白才用 `C:\<檔名>`。
+- 驗收：`tools/ci.sh` 與改版前的 main（乾淨 worktree）比較，頂層測試 2,696 → 2,707（新增 11 個），
+  略過數 338 不變，CPU 語料 323 檔全過。四項各做負對照（拿掉修正後新測試必須失敗），均確認。
+  原版測試兩邊相同：炎龍騎士團 2 頂層 574 個通過（集合一致）；大富翁2（`oracle`、`apps/rich2`）
+  61 個通過。`orig_tests.sh` 的大富翁2 在這台負載下兩邊都撞 `go test` 預設 10 分鐘上限，
+  改以 `-timeout 65m` 各跑一次。
+- 三國志V 實跑（`SAN5.COM`，未修補的原版檔）：`BGMSEQ.COM` exit 0 常駐，`GRP480C.EXE` 常駐 `0599h` 段，
+  `MAIN.EXE` 從自己讀 overlay、經 `5700h` 搬進 EMS、切到 mode 12h，之後以 exit 4 結束。
+  停在 overlay manager 載入 ov20 的當下，結束前唯一的服務呼叫是一筆 handle `FFFF` 的 XMS move；
+  另一個候選是未實作的 `INT 21h AX=4408h`。都未追完，不在本分支範圍（分析在 san5 的 `docs/re/012`）。
