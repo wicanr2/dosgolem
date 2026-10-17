@@ -951,7 +951,7 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
-### 三國志V（san5）（4 份）
+### 三國志V（san5）（7 份）
 
 跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
 依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
@@ -960,6 +960,9 @@
 - [430 — EXEC 子行程的環境區塊](430-exec-child-environment.md)：READY。每次 EXEC 配一塊新環境，字串照抄、尾端換成子行程自己的路徑，配在程式區塊之前、歸子行程所有；`probe -program-path` 不再被覆寫。
 - [431 — 移位量遮罩：80186 以上取 `CL & 31`](431-cpu-shift-count-mask.md)：READY。`Model8086` 不變（語料路徑），修正 `002-cpu-8086` §4 第 2 點的適用範圍。
 - [432 — `INT 21h AH=51h／62h` 回目前行程的 PSP](432-current-psp-query.md)：READY。以前回常數 `PSPSeg`，子行程拿到第一支程式的 PSP。
+- [433 — last fit 從自由區塊尾端切](433-last-fit-allocates-at-top.md)：READY。MSC overlay manager 把 overlay 表放到記憶體頂端；從開頭切的話 far heap 會寫進表裡。
+- [434 — MSCDEX 最小集](434-mscdex-minimal.md)：READY。光碟機偵測、曲目資訊與播放狀態；曲目表由呼叫端給（`probe -cdrom`），不出聲、不讀資料扇區。
+- [435 — `INT 21h AX=4408h` 區塊裝置可不可抽換](435-ioctl-removable-media.md)：READY。硬碟回固定式，光碟機與不存在的代號設 CF；以前一律回「可抽換」。
 
 ## 新增 CPU386 位移切片
 

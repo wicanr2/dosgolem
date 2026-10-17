@@ -215,6 +215,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 				d.noteCPU(c, 0x21, 0x44, al(c))
 			}
 			c.R[cpu.AX] = 0
+		case 0x08: // 區塊裝置可不可抽換（`docs/spec/435-ioctl-removable-media`）
+			if d.removable(c) {
+				return
+			}
 		case 0x0E: // 取邏輯磁碟對應：BL ＝ 磁碟（0＝預設）
 			// 一個實體機只對一個代號時 DOS 回 AL=0。回別的值等於告訴程式
 			// 「這台是某個實體機的第 n 個代號」，它會去切換代號再找一次檔。

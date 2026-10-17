@@ -34,6 +34,10 @@ const (
 
 // xms 是 `int 2Fh` 的 XMS 偵測（AH=43h）。
 func (d *DOS) int2F(c *cpu.CPU) {
+	if ah(c) == 0x15 && d.CD != nil { // MSCDEX（`docs/spec/434-mscdex-minimal`）
+		d.mscdex(c)
+		return
+	}
 	if ah(c) != 0x43 {
 		d.note(0x2F, ah(c), al(c))
 		clearCarry(c)

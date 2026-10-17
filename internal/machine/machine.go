@@ -125,6 +125,7 @@ func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 //	0x420–0x442  BIOS int 08h（35 bytes，含 40:40 馬達倒數）
 //	0x448  int 15h AH=C0h 系統設定表（8 bytes）
 //	0x450  InDOS 旗標              0x460  DBCS 表        0x480  國別資訊表
+//	0x4B0  MSCDEX device header（0x17 bytes）
 //
 // > 事故（2026-09-10，EOB1）：字型 stub 挑了 0x20／0x24，而 0x24 是向量
 // > 09h（IRQ1 鍵盤）的 stub。EOB.EXE 掛了自己的 int 09h 再 chain 回舊向量，
@@ -173,6 +174,9 @@ const (
 	DBCSTableOff = specialStubBase + 0x60
 	// CountryOff 是國別資訊表（`int 21h AH=38h`，34 bytes）。
 	CountryOff = specialStubBase + 0x80
+	// MSCDEXHeaderOff 是光碟機的 device header（0x16 bytes，後接 1 byte RETF；
+	// `docs/spec/434-mscdex-minimal`）。國別資訊表到 0x4A2，上界是 0x4F0。
+	MSCDEXHeaderOff = specialStubBase + 0xB0
 )
 
 // DefaultIRQ0Every 是**分頻 17,000 時**計時器中斷的間隔，單位是指令數。

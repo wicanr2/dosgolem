@@ -150,6 +150,10 @@ func main() {
 		"環境字串區留空（只留結尾標記與程式路徑）。"+
 			"預設會放一條 `COMSPEC=`，那比較接近真 DOS；但 GIN3.COM 在環境非空時"+
 			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
+	cdrom := flag.String("cdrom", "",
+		"掛一台 MSCDEX 光碟機：`<磁碟機字母>:<曲目表檔>`（例 `D:/orig/san5.toc`）。"+
+			"曲目表每行 `<軌號> audio|data <LBA>` 加 `leadout <LBA>`；只回答曲目與播放狀態，"+
+			"不出聲音、不讀資料扇區（`docs/spec/434-mscdex-minimal`）")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -454,6 +458,21 @@ func main() {
 		d.Calls = map[dos.Call]int{}
 	}
 	d.Install()
+	if *cdrom != "" {
+		letter, path, ok := strings.Cut(*cdrom, ":")
+		if !ok || len(letter) != 1 {
+			die(fmt.Errorf("-cdrom 要寫成 `D:<曲目表檔>`：%q", *cdrom))
+		}
+		toc, err := os.ReadFile(path)
+		if err != nil {
+			die(err)
+		}
+		cd, err := dos.ParseCDTOC(strings.ToUpper(letter)[0]-'A', string(toc))
+		if err != nil {
+			die(err)
+		}
+		d.CD = cd
+	}
 	if *loadState != "" {
 		if err := state.Load(*loadState, m, d); err != nil {
 			die(err)
@@ -1332,7 +1351,18 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 					o.Step, o.Handle, o.Logical, o.Phys, st)
 			case 0x45:
 				fmt.Printf("  #%-9d 釋放 handle=%d\n", o.Step, o.Handle)
+			case 0x57:
+				fmt.Printf("  #%-9d 搬移／交換區域 狀態 %02X\n", o.Step, o.Status)
 			}
+		}
+	}
+	if len(d.CDRequests) > 0 {
+		fmt.Printf("\nMSCDEX device request（%d 次，最多列 20）：\n", len(d.CDRequests))
+		for i, r := range d.CDRequests {
+			if i >= 20 {
+				break
+			}
+			fmt.Printf("  #%-9d 命令 %02X 狀態 %04X\n", r.Step, r.Fn, r.Status)
 		}
 	}
 	if len(d.Reads) > 0 && readsOf != "" {

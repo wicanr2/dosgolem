@@ -307,6 +307,11 @@ type DOS struct {
 	// 「取錯位移」的症狀是**某些字畫不出來**，其餘完全正常。
 	XMSMoves []XMSMove
 
+	// CD 是 MSCDEX 掛的光碟機（`docs/spec/434-mscdex-minimal`），nil ＝ 沒有 MSCDEX。
+	// CDRequests 是送進來的 device request。
+	CD         *CDROM
+	CDRequests []CDRequest
+
 	// Wrote 記下「程式想寫檔」的每一次。**我們不寫**（原版素材唯讀），
 	// 但安靜地報成功會讓「存檔壞掉」查不出來。
 	Wrote []Write
@@ -477,6 +482,13 @@ type EMSOp struct {
 	Phys    uint8  // 44h：實體頁 0–3
 	Pages   int    // 43h：配了幾頁
 	Status  uint8  // 回傳的 AH
+}
+
+// CDRequest 是一次 MSCDEX device request（`AX=1510h`）。
+type CDRequest struct {
+	Step   uint64
+	Fn     uint8
+	Status uint16
 }
 
 // XMSMove 是一次 XMS 的 move（`AH=0Bh`）。handle 0 表示常規記憶體，
