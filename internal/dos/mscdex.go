@@ -2,7 +2,10 @@ package dos
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -24,6 +27,17 @@ type CDTrack struct {
 	Number uint8
 	Data   bool   // 資料軌（attr 40h）；否則是音軌（attr 00h）
 	Start  uint32 // 起點 LBA（不含 150 frames 的前導）
+	// Offset 是這一軌第一個扇區在光碟映像檔裡的位元組位移（每扇區 2352 bytes），
+	// −1 ＝ 曲目表沒給，這一軌不能倒成音訊（`docs/spec/438-mscdex-cd-audio-dump`）。
+	Offset int64
+}
+
+// CDPlay 是一段實際播放：從 FromStep 起播 Start 開始的 Length frames，
+// 在 ToStep（0 ＝ 沒被停）或播滿長度時結束。SPS 是當時的每秒指令數。
+type CDPlay struct {
+	FromStep, ToStep uint64
+	Start, Length    uint32
+	SPS              float64
 }
 
 // CDROM 是 MSCDEX 掛的光碟機與它的播放狀態。
@@ -36,6 +50,9 @@ type CDROM struct {
 	playing, paused bool
 	start, length   uint32 // 起點 LBA 與長度（frames）
 	startStep       uint64 // 開始播放時的指令數
+
+	// Plays 是播放紀錄，給 WriteWAV 倒音訊用。
+	Plays []CDPlay
 }
 
 // cdFramePad 是 Red Book 的 2 秒前導（150 frames）：MSF ＝ LBA ＋ 150。
@@ -66,18 +83,23 @@ func ParseCDTOC(drive uint8, text string) (*CDROM, error) {
 			cd.LeadOut = uint32(v)
 			continue
 		}
-		if len(f) != 3 || (f[1] != "audio" && f[1] != "data") {
-			return nil, fmt.Errorf("曲目表第 %d 行要是 `<軌號> audio|data <LBA>`：%q", line, sc.Text())
+		if (len(f) != 3 && len(f) != 4) || (f[1] != "audio" && f[1] != "data") {
+			return nil, fmt.Errorf("曲目表第 %d 行要是 `<軌號> audio|data <LBA> [映像位移]`：%q", line, sc.Text())
 		}
 		n, err1 := strconv.ParseUint(f[0], 10, 8)
 		lba, err2 := strconv.ParseUint(f[2], 10, 32)
-		if err1 != nil || err2 != nil {
+		off := int64(-1)
+		var err3 error
+		if len(f) == 4 {
+			off, err3 = strconv.ParseInt(f[3], 10, 64)
+		}
+		if err1 != nil || err2 != nil || err3 != nil {
 			return nil, fmt.Errorf("曲目表第 %d 行的數字不對：%q", line, sc.Text())
 		}
 		if int(n) != len(cd.Tracks)+1 {
 			return nil, fmt.Errorf("曲目表第 %d 行：軌號 %d 不連續", line, n)
 		}
-		cd.Tracks = append(cd.Tracks, CDTrack{Number: uint8(n), Data: f[1] == "data", Start: uint32(lba)})
+		cd.Tracks = append(cd.Tracks, CDTrack{Number: uint8(n), Data: f[1] == "data", Start: uint32(lba), Offset: off})
 	}
 	if len(cd.Tracks) == 0 || cd.LeadOut == 0 {
 		return nil, fmt.Errorf("曲目表至少要一軌與 leadout")
@@ -198,6 +220,7 @@ func (d *DOS) cdRequest(req uint32) {
 		if d.M.Read8(req+0x0D) != 0 {
 			start = redBookToLBA(start)
 		}
+		cd.stopLog(d)
 		cd.playing, cd.paused = false, false
 		cd.start, cd.length = start, 0
 	case 0x84: // PLAY AUDIO
@@ -205,11 +228,14 @@ func (d *DOS) cdRequest(req uint32) {
 		if d.M.Read8(req+0x0D) != 0 {
 			start = redBookToLBA(start)
 		}
+		cd.stopLog(d)
 		cd.playing, cd.paused = true, false
 		cd.start, cd.length = start, read32(d, req+0x12)
 		cd.startStep = d.M.Steps
+		cd.startLog(d)
 	case 0x85: // STOP AUDIO：播放中是暫停，已停是重設
 		if cur, playing := cd.pos(d); playing {
+			cd.stopLog(d)
 			cd.playing, cd.paused = false, true
 			cd.length -= cur - cd.start
 			cd.start = cur
@@ -221,6 +247,7 @@ func (d *DOS) cdRequest(req uint32) {
 		if cd.paused {
 			cd.playing, cd.paused = true, false
 			cd.startStep = d.M.Steps
+			cd.startLog(d)
 		}
 	case 0x80, 0x82: // READ LONG：不讀資料扇區
 		d.note(0x2F, 0x15, fn)
@@ -364,4 +391,95 @@ func (d *DOS) removable(c *cpu.CPU) bool {
 	}
 	setCarry(c)
 	return true
+}
+
+// startLog 記下一段播放的開頭。
+func (cd *CDROM) startLog(d *DOS) {
+	cd.Plays = append(cd.Plays, CDPlay{FromStep: d.M.Steps, Start: cd.start, Length: cd.length, SPS: d.M.StepsPerSecondNow()})
+}
+
+// stopLog 在還在播的那一段記下停止的指令數。
+func (cd *CDROM) stopLog(d *DOS) {
+	if n := len(cd.Plays); n > 0 && cd.Plays[n-1].ToStep == 0 {
+		cd.Plays[n-1].ToStep = d.M.Steps
+	}
+}
+
+// cdSampleRate 與 cdSectorBytes：CD-DA 是 44.1 kHz、16 位元立體聲，一個扇區 2352 bytes ＝ 588 個樣本。
+const (
+	cdSampleRate  = 44100
+	cdSectorBytes = 2352
+)
+
+// sectorOffset 回 LBA 在映像檔裡的位移；那一軌沒有位移或是資料軌回 −1。
+func (cd *CDROM) sectorOffset(lba uint32) int64 {
+	t := cd.trackAt(lba)
+	if t.Data || t.Offset < 0 {
+		return -1
+	}
+	return t.Offset + int64(lba-t.Start)*cdSectorBytes
+}
+
+// WriteWAV 把播放紀錄倒成 44.1 kHz 16 位元立體聲 WAV（`docs/spec/438-mscdex-cd-audio-dump`）。
+// 時間軸從指令 0 到 endStep：每段播放從 FromStep 換算的樣本位置起，複製映像裡的音軌資料，
+// 到 ToStep 或播滿長度為止；其餘是靜音。CD-DA 的取樣格式就是 WAV 的格式，不重取樣。
+func (cd *CDROM) WriteWAV(path string, image io.ReaderAt, endStep uint64, sps float64) (played int, err error) {
+	total := int64(float64(endStep) / sps * cdSampleRate)
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}()
+	data := total * 4
+	hdr := make([]byte, 44)
+	copy(hdr[0:], "RIFF")
+	binary.LittleEndian.PutUint32(hdr[4:], uint32(36+data))
+	copy(hdr[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(hdr[16:], 16)
+	binary.LittleEndian.PutUint16(hdr[20:], 1) // PCM
+	binary.LittleEndian.PutUint16(hdr[22:], 2)
+	binary.LittleEndian.PutUint32(hdr[24:], cdSampleRate)
+	binary.LittleEndian.PutUint32(hdr[28:], cdSampleRate*4)
+	binary.LittleEndian.PutUint16(hdr[32:], 4)
+	binary.LittleEndian.PutUint16(hdr[34:], 16)
+	copy(hdr[36:], "data")
+	binary.LittleEndian.PutUint32(hdr[40:], uint32(data))
+	if _, err := f.Write(hdr); err != nil {
+		return 0, err
+	}
+	if err := f.Truncate(44 + data); err != nil { // 靜音：未寫到的部分是 0
+		return 0, err
+	}
+	buf := make([]byte, cdSectorBytes)
+	for _, p := range cd.Plays {
+		from := int64(float64(p.FromStep) / sps * cdSampleRate)
+		n := int64(p.Length) * (cdSectorBytes / 4) // 樣本數
+		if p.ToStep != 0 {
+			if stop := int64(float64(p.ToStep-p.FromStep) / p.SPS * cdSampleRate); stop < n {
+				n = stop
+			}
+		}
+		if from+n > total {
+			n = total - from
+		}
+		for i := int64(0); i < n; i += cdSectorBytes / 4 {
+			off := cd.sectorOffset(p.Start + uint32(i/(cdSectorBytes/4)))
+			if off < 0 {
+				break
+			}
+			k := min(int64(cdSectorBytes/4), n-i)
+			if _, err := image.ReadAt(buf[:k*4], off); err != nil {
+				return played, fmt.Errorf("讀映像 %d：%w", off, err)
+			}
+			if _, err := f.WriteAt(buf[:k*4], 44+(from+i)*4); err != nil {
+				return played, err
+			}
+		}
+		played++
+	}
+	return played, nil
 }

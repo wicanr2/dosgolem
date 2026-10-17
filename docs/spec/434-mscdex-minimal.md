@@ -23,7 +23,7 @@
 
 - 只在呼叫端設了 `DOS.CD` 時生效。沒設時與以前相同。
 - 一台光碟機、一個子單位。曲目表由呼叫端給（`dos.ParseCDTOC`，`probe -cdrom D:<檔>`）：
-  每行 `<軌號> audio|data <LBA>`，加一行 `leadout <LBA>`，軌號從 1 連續。
+  每行 `<軌號> audio|data <LBA>`（可加第四欄映像位移，見 `438`），加一行 `leadout <LBA>`，軌號從 1 連續。
 - 不讀資料扇區、不出聲音。播放只維護位置與 BUSY。
 
 ## 3. 語意
@@ -89,7 +89,7 @@ MSF 一律以「LBA + 150」換算（Red Book 的 2 秒前導）。
 
 | 項目 | 本實作 | 來源 | 分類 |
 |---|---|---|---|
-| 聲音 | 不出聲 | DOSBox-X 播放影像檔的音軌 | remake-owned：oracle 只需要狀態。到期條件：要錄 CD 音樂時 |
+| 聲音 | 不即時出聲；倒成 WAV 見 [`438-mscdex-cd-audio-dump`](438-mscdex-cd-audio-dump.md) | DOSBox-X 播放影像檔的音軌 | remake-owned。到期條件：有通用的即時前端時 |
 | 資料扇區與光碟上的檔案 | 不支援，光碟機代號不能開檔 | DOSBox-X 掛 ISO 或目錄 | remake-owned。三國志V 的資料全在硬碟。到期條件：遇到從光碟讀檔的程式 |
 | 播放狀態與狀態檔 | 播放狀態不存進狀態檔；`-load-state` 之後要重給 `-cdrom` | 參考實作沒有狀態檔 | remake-owned。到期條件：要跨狀態檔對拍 CD 音樂時 |
 | `AH=11h` 網路重導偵測 | 不處理 | DOSBox-X 對 DADAh 回 ADADh | 沒有觀測到的程式使用 |

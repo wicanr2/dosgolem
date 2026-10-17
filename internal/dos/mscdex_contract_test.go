@@ -1,6 +1,10 @@
 package dos
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/cpu"
@@ -180,5 +184,59 @@ func TestIOCTLRemovableMedia(t *testing.T) {
 		if cf != tc.cf || m.CPU.R[cpu.AX] != tc.ax {
 			t.Errorf("%s：CF=%v AX=%04X，預期 CF=%v AX=%04X", tc.name, cf, m.CPU.R[cpu.AX], tc.cf, tc.ax)
 		}
+	}
+}
+
+// 播放紀錄倒成 WAV（`docs/spec/438-mscdex-cd-audio-dump`）：音軌資料原樣複製到播放時刻，
+// 被 STOP 截斷，其餘是靜音。
+func TestMSCDEXWriteWAVCopiesPlayedSectors(t *testing.T) {
+	m, d := newTest(t)
+	// 映像：第 1 軌資料 2 扇區，第 2 軌音軌 4 扇區，第 n 個音軌扇區的 byte 全是 n+1。
+	img := make([]byte, 6*cdSectorBytes)
+	for s := 0; s < 4; s++ {
+		for i := 0; i < cdSectorBytes; i++ {
+			img[(2+s)*cdSectorBytes+i] = byte(s + 1)
+		}
+	}
+	cd, err := ParseCDTOC(3, fmt.Sprintf("1 data 0 0\n2 audio 152 %d\nleadout 156\n", 2*cdSectorBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.CD = cd
+	sps := m.StepsPerSecondNow()
+	m.Steps = uint64(sps)                               // 約第 1 秒開始播第 2 軌的第 1 個扇區起，3 扇區
+	start := int(float64(m.Steps) / sps * cdSampleRate) // 與 WriteWAV 同一個換算
+	cdReq(m, d, 0x84, func(req, _ uint32) {
+		m.Write16(req+0x0E, 153)
+		m.Write16(req+0x12, 3)
+	})
+	// 播 1.5 扇區的時間後停。
+	m.Steps += uint64(sps * 1.5 / 75)
+	cdReq(m, d, 0x85, nil)
+	m.Steps = uint64(sps * 2)
+
+	path := filepath.Join(t.TempDir(), "cd.wav")
+	n, err := d.CD.WriteWAV(path, bytes.NewReader(img), m.Steps, sps)
+	if err != nil || n != 1 {
+		t.Fatalf("WriteWAV：n=%d err=%v", n, err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 指令數換算成樣本數會捨去，容許差一個樣本。
+	if got := len(b) - 44; got < 2*cdSampleRate*4-4 || got > 2*cdSampleRate*4 {
+		t.Fatalf("資料長度 %d，預期約 2 秒 %d", got, 2*cdSampleRate*4)
+	}
+	at := func(sample int) byte { return b[44+sample*4] }
+	per := cdSectorBytes / 4
+	if at(start-1) != 0 {
+		t.Error("播放之前不是靜音")
+	}
+	if at(start) != 2 || at(start+per) != 3 {
+		t.Errorf("播放內容 %d %d，預期第 2、3 個音軌扇區（2、3）", at(start), at(start+per))
+	}
+	if at(start+2*per) != 0 {
+		t.Error("STOP 之後還有聲音")
 	}
 }

@@ -154,6 +154,11 @@ func main() {
 		"掛一台 MSCDEX 光碟機：`<磁碟機字母>:<曲目表檔>`（例 `D:/orig/san5.toc`）。"+
 			"曲目表每行 `<軌號> audio|data <LBA>` 加 `leadout <LBA>`；只回答曲目與播放狀態，"+
 			"不出聲音、不讀資料扇區（`docs/spec/434-mscdex-minimal`）")
+	cdromImage := flag.String("cdrom-image", "",
+		"光碟映像檔（每扇區 2352 bytes 的 raw，例如 .mdf／.bin）。配 -cdrom 與 -dump-cd-wav："+
+			"曲目表第四欄是各軌在映像裡的位元組位移（`docs/spec/438-mscdex-cd-audio-dump`）")
+	dumpCDWAV := flag.String("dump-cd-wav", "",
+		"跑完把程式要求播放的 CD 音軌倒成 44.1 kHz 16 位元立體聲 WAV，時間軸對齊指令數。要配 -cdrom 與 -cdrom-image")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -1141,6 +1146,11 @@ func main() {
 			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
 		}
 	}
+	if *dumpCDWAV != "" {
+		if err := writeCDWAV(m, d, *cdromImage, *dumpCDWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-cd-wav:", err)
+		}
+	}
 	if *dumpOPLWAV != "" {
 		if err := writeOPLWAV(m, *dumpOPLWAV, *oplDisable, *oplOnly, *oplExcept); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-opl-wav:", err)
@@ -1361,11 +1371,23 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		}
 	}
 	if len(d.CDRequests) > 0 {
-		fmt.Printf("\nMSCDEX device request（%d 次，最多列 20）：\n", len(d.CDRequests))
-		for i, r := range d.CDRequests {
-			if i >= 20 {
-				break
+		count := map[uint8]int{}
+		for _, r := range d.CDRequests {
+			count[r.Fn]++
+		}
+		fmt.Printf("\nMSCDEX device request（%d 次）：", len(d.CDRequests))
+		for fn := 0; fn < 256; fn++ {
+			if n := count[uint8(fn)]; n > 0 {
+				fmt.Printf(" %02X×%d", fn, n)
 			}
+		}
+		fmt.Println()
+		n := 0
+		for _, r := range d.CDRequests {
+			if r.Fn == 0x03 || n >= 30 { // IOCTL 查詢太多，只列控制命令
+				continue
+			}
+			n++
 			fmt.Printf("  #%-9d 命令 %02X 狀態 %04X\n", r.Step, r.Fn, r.Status)
 		}
 	}
@@ -3351,4 +3373,26 @@ func dumpShot(m *machine.Machine, sh memShot) {
 	}
 	fmt.Printf("#%d 傾印記憶體 %s（%05X）%d bytes → %s\n",
 		m.Steps, sh.label, sh.addr, sh.n, sh.path)
+}
+
+// writeCDWAV 把 MSCDEX 的播放紀錄倒成 WAV（`docs/spec/438-mscdex-cd-audio-dump`）。
+func writeCDWAV(m *machine.Machine, d *dos.DOS, image, path string) error {
+	if d.CD == nil || image == "" {
+		return fmt.Errorf("要配 -cdrom 與 -cdrom-image")
+	}
+	f, err := os.Open(image)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	n, err := d.CD.WriteWAV(path, f, m.Steps, m.StepsPerSecondNow())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("CD 音軌 → %s（%d 段播放，%.1f 秒）\n", path, n, float64(m.Steps)/m.StepsPerSecondNow())
+	for _, p := range d.CD.Plays {
+		fmt.Printf("  #%-10d LBA %d 長度 %d frames（%.1f 秒）停在 #%d\n",
+			p.FromStep, p.Start, p.Length, float64(p.Length)/75, p.ToStep)
+	}
+	return nil
 }
