@@ -754,6 +754,17 @@ func (d *DOS) pickBlock(want uint16) int {
 func (d *DOS) carveBlock(i int, want uint16) uint16 {
 	b := &d.arena[i]
 	seg := b.seg
+	// last fit 從尾端切（`docs/spec/433-last-fit-allocates-at-top`）。MSC 的 overlay
+	// manager 用它把 overlay 表放到記憶體頂端；從開頭切的話表落在 PSP 區塊正後方，
+	// 程式撐大區塊之後 far heap 就寫進表裡。
+	if d.allocStrategy&0x03 == 2 && b.size > want {
+		top := memBlock{seg: b.seg + b.size - want, size: want, owner: d.blockOwner()}
+		b.size -= want + 1
+		d.arena = append(d.arena, memBlock{})
+		copy(d.arena[i+2:], d.arena[i+1:])
+		d.arena[i+1] = top
+		return top.seg + 1
+	}
 	if b.size >= want+2 {
 		rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
 		b.size = want

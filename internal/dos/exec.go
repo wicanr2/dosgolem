@@ -139,9 +139,9 @@ func (d *DOS) placeChild(need uint16) (mcb, top uint16, ok bool) {
 		return d.freeSeg, uint16(machine.MemTop), true
 	}
 	if i := d.pickBlock(need - 1); i >= 0 {
-		mcb := d.arena[i].seg
 		top := d.arena[i].seg + d.arena[i].size + 1
-		d.carveBlock(i, need-1)
+		// 落點用 carveBlock 的回傳值：last fit 從尾端切（spec 433）。
+		mcb := d.carveBlock(i, need-1) - 1
 		return mcb, top, true
 	}
 	return 0, 0, false
