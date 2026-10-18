@@ -28,6 +28,21 @@ var (
 	_ session.StepObserver = (*SessionObserver)(nil)
 )
 
+// AttachOverlays 把存讀檔對話框的繪圖事件與全螢幕 blit 入口的清除送到每個倍率的 Overlay（004 §3.1、§3.3）。
+// 每次呼叫取代前一次的接線。
+func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
+	s.Labels.OnArt = func(ev ArtEvent) {
+		for _, ov := range ovs {
+			ov.AddDialogArt(ev)
+		}
+	}
+	s.Labels.OnClearArt = func(uint64) {
+		for _, ov := range ovs {
+			ov.ClearArt()
+		}
+	}
+}
+
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	s.Labels.Observe(v)
 	return nil
@@ -72,6 +87,7 @@ type ReceiptConfig struct {
 	StopSteps   uint64 // 跑到這一步（絕對步數）
 	Scales      []int  // 合成圖的倍率，例如 2、3
 	Catalog     map[string]string
+	GfxCatalog  map[string]string // 圖形字 catalog（text/menu_gfx，004 §3.6）；nil 時對話框不產生圖面
 	Font        *LabelFont
 	Overlay     bool // false：不裝觀察器（同狀態 A/B 的關）
 	CursorY     int  // 滑鼠游標中心列，負值為未知
@@ -103,6 +119,8 @@ type ShotResult struct {
 	Composites map[int][]byte
 	Plain      map[int][]byte
 	Check      map[int]CompositeCheck
+	// ArtKeys 是 shot 時各倍率的存讀檔對話框圖面 Key（004 §3.3）。
+	ArtKeys map[int][]string
 }
 
 // ReceiptResult 是收據執行的結果。
@@ -116,6 +134,10 @@ type ReceiptResult struct {
 	LogDropped   int
 	PartialBlits int
 	Shots        []ShotResult // 只在 Overlay 開時有值，與 ReceiptConfig.Shots 平行
+	// Arts 是被接受的存讀檔對話框繪圖事件（004 §3.1），依先後；只記中繼資料，不含解碼陣列。
+	Arts []ArtEvent
+	// ArtClears 是圖面清除（全螢幕 blit 入口）且清除前有圖面的步數。
+	ArtClears []uint64
 
 	// 以下只在 Overlay 開時有值。
 	Frame          []byte // 停止時最後一次回掃的畫格
@@ -152,7 +174,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		lo := NewLabelObserver()
 		lo.InkCheck, lo.CursorY, lo.noCallerCheck, lo.noBoardCaller = true, cfg.CursorY, cfg.noCallerCheck, cfg.noBoardCaller
 		for _, sc := range cfg.Scales {
-			ov, err := NewOverlay(cfg.Font, cfg.Catalog, sc)
+			ov, err := NewOverlay(cfg.Font, cfg.Catalog, cfg.GfxCatalog, sc)
 			if err != nil {
 				return nil, err
 			}
@@ -177,6 +199,22 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			res.Stamps = append(res.Stamps, counts)
 		}
 		so = &SessionObserver{Labels: lo}
+		var ovs []*Overlay
+		for _, sc := range cfg.Scales {
+			ovs = append(ovs, overlays[sc])
+		}
+		so.AttachOverlays(ovs...)
+		forward, clear := lo.OnArt, lo.OnClearArt
+		lo.OnArt = func(ev ArtEvent) {
+			res.Arts = append(res.Arts, ArtEvent{Steps: ev.Steps, G: ev.G, K: ev.K, X: ev.X, Y: ev.Y, Order: ev.Order, W: ev.W, H: ev.H})
+			forward(ev)
+		}
+		lo.OnClearArt = func(steps uint64) {
+			if len(ovs) != 0 && len(ovs[0].Art()) != 0 {
+				res.ArtClears = append(res.ArtClears, steps)
+			}
+			clear(steps)
+		}
 		obs = so
 	}
 	o, err := session.New(SessionConfig(obs))
@@ -268,14 +306,15 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if so.LastIndexed == nil {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
 			}
-			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}}
+			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}}
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
 				ov.Sync(so.Labels.Visible(), so.Labels.Generation())
 				comp, _ := ov.Draw(so.LastIndexed, so.LastPalette)
 				plain := ScaleIndexedRGBA(so.LastIndexed, so.LastPalette, sc)
 				sr.Composites[sc], sr.Plain[sc] = comp, plain
-				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps())
+				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
+				sr.ArtKeys[sc] = ov.ArtKeys()
 			}
 			res.Shots = append(res.Shots, sr)
 		}
@@ -301,13 +340,14 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		comp, _ := ov.Draw(res.Frame, res.Palette)
 		plain := ScaleIndexedRGBA(res.Frame, res.Palette, sc)
 		res.Composites[sc], res.Plain[sc] = comp, plain
-		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps())
+		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
 	}
 	return res, nil
 }
 
-// CheckComposite 逐像素比較合成圖與原版放大圖：差異只能落在遮蓋 stamp（Font == nil）的框 × 倍率內。
-func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp) CompositeCheck {
+// CheckComposite 逐像素比較合成圖與原版放大圖：差異只能落在遮蓋 stamp（Font == nil）的框，
+// 或存讀檔對話框圖面的字帶（004 §3.3）× 倍率內。
+func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect) CompositeCheck {
 	var c CompositeCheck
 	w := 320 * scale
 	for i := 0; i+3 < len(comp) && i+3 < len(plain); i += 4 {
@@ -319,6 +359,12 @@ func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp) Compos
 		in := false
 		for _, s := range stamps {
 			if s.Font == nil && x >= s.X && x < s.X+s.Cells*s.CellW && y >= s.Y && y < s.Y+s.CellH {
+				in = true
+				break
+			}
+		}
+		for _, a := range art {
+			if x >= a.X && x < a.X+a.W && y >= a.Y && y < a.Y+a.H {
 				in = true
 				break
 			}

@@ -1,0 +1,26 @@
+# strike_commander 規格 004 §4.2 案例 F：p485/s449.state（營房）。
+# 讀檔段取自 strike_commander workplace/i015/l8.script（開啟、滑到 CANCEL、按下、在外放開），
+# 去掉 dump、ip、vwatch，另加開啟後 5M 步內的 shot（4739000000）與關閉後的 shot。
+# 存檔段取自 i015/s1.script 的輸入 (232, 136)，接在讀檔對話框關閉之後；步數沒有 ip.tsv 可對，只斷言 k 的順序。
+move 4490600000 296 104
+down 4492000000 296 104
+up   4495000000 296 104
+move 4730000000 152 120
+down 4732000000 152 120
+up   4735000000 152 120
+shot 4739000000 open
+shot 4744000000 pre
+move 4745000000 130 147
+shot 4752000000 hover
+down 4755000000 130 147
+shot 4762000000 pressed
+move 4765000000 40 100
+shot 4772000000 dragout
+up   4775000000 40 100
+shot 4782000000 released
+shot 4800000000 closed
+move 4810000000 232 136
+down 4812000000 232 136
+up   4815000000 232 136
+shot 4819000000 save
+stop 4820000000

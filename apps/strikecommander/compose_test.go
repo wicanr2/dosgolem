@@ -131,7 +131,7 @@ func TestResolveLabelMiss(t *testing.T) {
 
 func composedOverlay(t *testing.T, cat map[string]string) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), cat, 2)
+	ov, err := NewOverlay(testLabelFont(t), cat, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

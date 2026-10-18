@@ -122,16 +122,24 @@ type Overlay struct {
 	info   map[*xlate.Stamp]stampInfo
 	boards []boardBG
 
+	// 存讀檔對話框的圖面（004 §3.3）：獨立的 layer，不與文字 stamp 共用。
+	artLayer *xlate.Layer
+	gfx      map[string]string // 圖形字 catalog（text/menu_gfx），不併進 tr（004 §3.6）
+	arts     []*artEntry
+	artPal   [256][3]uint8
+	artPalOK bool
+
 	Misses []Miss
 	Skips  []Skip
 }
 
 // NewOverlay 建一個 overlay。scale 接受 1、2、3；1 倍時永遠不產生 stamp（§2.6）。
-func NewOverlay(font *LabelFont, tr map[string]string, scale int) (*Overlay, error) {
+// tr 是熱點標籤 catalog（text/opttest_labels），gfx 是圖形字 catalog（text/menu_gfx，004 §3.6；可為 nil）。
+func NewOverlay(font *LabelFont, tr, gfx map[string]string, scale int) (*Overlay, error) {
 	if font == nil || font.Font == nil || scale < 1 || scale > 3 {
 		return nil, fmt.Errorf("strikecommander: overlay 輸入無效")
 	}
-	return &Overlay{layer: &xlate.Layer{W: 320, H: 200}, font: font, tr: tr, scale: scale}, nil
+	return &Overlay{layer: &xlate.Layer{W: 320, H: 200}, artLayer: &xlate.Layer{W: 320, H: 200}, font: font, tr: tr, gfx: gfx, scale: scale}, nil
 }
 
 // Scale 回輸出倍率。
@@ -143,6 +151,7 @@ func (o *Overlay) SetScale(scale int) error {
 		return fmt.Errorf("strikecommander: 倍率 %d 不支援", scale)
 	}
 	o.scale, o.built = scale, false
+	o.replanArt()
 	return nil
 }
 
@@ -227,8 +236,12 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 // Draw 把原版畫格放大成 RGBA 並畫上 stamp。每次繪製前依各 stamp 記下的色號從目前色盤設 BG、FG：
 // label 是 0、15 號，board 是 164、10 號。board 的兩個 stamp 以 boardBackground 當底（003 §3.4），
 // label 照 001 填實心底色。回傳合成圖與 Layer 回報的缺字。
+//
+// 順序（004 §3.3）：1. 原版畫格放大；2. 存讀檔對話框的圖面（獨立 layer，逐格比對原版基準）；
+// 3. 001 到 003 的文字 stamp。
 func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	out := ScaleIndexedRGBA(indexed, palette, o.scale)
+	o.drawArt(out, indexed, palette)
 	for _, s := range o.layer.Stamps {
 		si := o.info[s]
 		s.BG, s.FG = palette[si.bg], palette[si.fg]

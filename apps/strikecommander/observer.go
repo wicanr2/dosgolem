@@ -214,6 +214,10 @@ type LabelObserver struct {
 	CursorY int
 	// OnCommit 在每次提交後呼叫（同一個 Observe 呼叫之內）。可為 nil。
 	OnCommit func(Commit)
+	// OnArt 在每個被接受的存讀檔對話框繪圖事件呼叫（004 §3.1）；事件的陣列是複本。可為 nil。
+	OnArt func(ArtEvent)
+	// OnClearArt 在每次全螢幕 blit 入口呼叫（004 §3.3：圖面全部移除）。可為 nil。
+	OnClearArt func(steps uint64)
 
 	// noCallerCheck 關掉 §2.3（只供 §3.3 的負對照）。
 	noCallerCheck bool
@@ -240,6 +244,9 @@ type LabelObserver struct {
 	accepted   int
 	ignored    int
 	lastCommit uint64
+
+	artOrder int             // 繪圖事件的 Order，依先後遞增（004 §3.3）
+	artBadCS map[uint16]bool // 候選 base 驗證失敗、已記過 log 的 CS
 
 	commits      int
 	partialBlits int
@@ -293,6 +300,8 @@ func (o *LabelObserver) Observe(v View) {
 			o.putc(v)
 		}
 	case ipBlitEntry:
+		// shape 繪製常式入口也是 IP == 0（004 §3.1）：先比 CS 與簽章，blit 的判斷不變。
+		o.shapeEntry(v)
 		if o.baseKnown && o.baseOK {
 			o.blitEntry(v)
 		}
@@ -318,6 +327,20 @@ func (o *LabelObserver) verifyBase(v View, base uint16) bool {
 		}
 	}
 	return true
+}
+
+// checkBase 是不記 log 的 base 驗證，供 shape 入口的候選 base（004 §3.1）：puts 入口簽章（001 §2.2）
+// 加上 verifyBase 的各列。回第一個不符的列名，全部相符回空字串。
+func (o *LabelObserver) checkBase(v View, base uint16) string {
+	if !match(v, base+segText, ipPutsEntry, sigPutsEntry, 0) {
+		return "puts 入口"
+	}
+	for _, r := range baseRows {
+		if !match(v, base+r.seg, r.off, r.bytes, base+segText) {
+			return r.name
+		}
+	}
+	return ""
 }
 
 func (o *LabelObserver) putsEntry(v View) {
@@ -495,6 +518,10 @@ func (o *LabelObserver) blitEntry(v View) {
 		}
 		o.partialBlits++
 		return
+	}
+	// 全螢幕 blit 入口：存讀檔對話框的圖面全部移除（004 §3.3）。非全螢幕 blit 不清。
+	if o.OnClearArt != nil {
+		o.OnClearArt(steps)
 	}
 	if o.paired {
 		o.note(steps, "blit", "前一次全螢幕 blit（第 %d 步）沒有配對的返回", o.pairEntry)

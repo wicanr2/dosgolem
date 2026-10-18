@@ -287,7 +287,7 @@ func TestBoardInk(t *testing.T) {
 		if l.Before != nil || l.After != nil || r.Skipped == "" || r.OK() {
 			t.Fatalf("前後列應作廢：前列 %d、後列 %d bytes，核對 %s", len(l.Before), len(l.After), r)
 		}
-		ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, 2)
+		ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, nil, 2)
 		ov.Sync([]Label{l}, 1)
 		if len(ov.Stamps()) != 0 || len(ov.Skips) != 1 {
 			t.Fatalf("前後列作廢時仍產生 stamp：%d 個，skips %+v", len(ov.Stamps()), ov.Skips)
@@ -371,7 +371,7 @@ func TestBoardFontCheck(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, 2)
+			ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, nil, 2)
 			ov.Sync([]Label{boardLabel("GROUND", c.font, c.kind)}, 1)
 			if c.stamp && (len(ov.Stamps()) != 2 || len(ov.Skips) != 0) {
 				t.Fatalf("要產生 stamp：%d 個，skips %+v", len(ov.Stamps()), ov.Skips)
@@ -427,7 +427,7 @@ func TestBoardDraw(t *testing.T) {
 
 	g := Label{Key: "GROUND", X0: 177, X1: 250, Y: 45, Font: boardFont, Kind: KindBoard, Before: before, After: after}
 	r := Label{Key: "Return to office", X0: 100, X1: 160, Y: 175, Font: measuredFont, Kind: KindLabel}
-	ov, err := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面", "Return to office": "測試"}, 2)
+	ov, err := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面", "Return to office": "測試"}, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestBoardDraw(t *testing.T) {
 	if c := at(2*122, 2*176+6); c != pal[15] {
 		t.Errorf("label 字模點 %v，要 15 號 %v", c, pal[15])
 	}
-	if cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps()); cc.Diffs == 0 || cc.Outside != 0 {
+	if cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil); cc.Diffs == 0 || cc.Outside != 0 {
 		t.Errorf("合成圖比較 %+v", cc)
 	}
 

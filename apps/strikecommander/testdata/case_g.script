@@ -1,0 +1,12 @@
+# strike_commander 規格 004 §4.3 案例 G：p539/s500b.state（帳篷）。
+# 輸入取自 strike_commander workplace/i015/t1.script（帳篷點 Save Game），去掉 ip。
+move 5000650000 56 140
+down 5002000000 56 140
+up   5005000000 56 140
+shot 5249000000 tent
+move 5250000000 104 136
+down 5252000000 104 136
+up   5255000000 104 136
+shot 5259000000 open
+shot 5261000000 tsave
+stop 5262000001

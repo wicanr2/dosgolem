@@ -381,7 +381,7 @@ func TestRecordOtherFont(t *testing.T) {
 	if len(vis) != 1 || vis[0].Font != 0x1234 {
 		t.Fatalf("其他字型的標籤要照記：%+v", vis)
 	}
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), 2)
+	ov, err := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

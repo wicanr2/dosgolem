@@ -35,19 +35,20 @@ func main() {
 	script := flag.String("script", "", "腳本檔（strike_commander 規格 002 §2.4）")
 	scales := flag.String("scales", "2,3", "合成圖倍率，逗號分隔（2、3）")
 	tsv := flag.String("tsv", "", "譯文 catalog（key、translation、source）")
+	gfxTSV := flag.String("gfx-tsv", "", "圖形字 catalog text/menu_gfx.<lang>.tsv（存讀檔對話框，規格 004 §3.6）；可省")
 	fontPath := flag.String("font", "", "GOLEMFNT 字型")
 	out := flag.String("out", "", "輸出目錄（PNG 與 RGBA 原始檔）")
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
 	cursorY := flag.Int("cursor-y", -1, "滑鼠游標中心的原版列；負值為未知（墨跡框核對不略過）")
 	ab := flag.Bool("ab", true, "另跑一次觀察器與 stamp 關閉，比較 Digest")
 	flag.Parse()
-	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *fontPath, *out, *work, *cursorY, *ab); err != nil {
+	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *fontPath, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
 		os.Exit(1)
 	}
 }
 
-func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, fontPath, out, work string, cursorY int, ab bool) error {
+func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, fontPath, out, work string, cursorY int, ab bool) error {
 	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || fontPath == "" || out == "" {
 		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps 或 -script、-tsv -font -out）")
 	}
@@ -98,12 +99,18 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err != nil {
 		return err
 	}
+	var gfx map[string]string
+	if gfxTSV != "" {
+		if gfx, err = strikecommander.LoadCatalog(gfxTSV); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
 	cfg := strikecommander.ReceiptConfig{
 		State: raw, StateSHA256: want, RebaseFrom: rebaseFrom, StopSteps: steps,
-		Scales: scales, Catalog: cat, Font: font, Overlay: true, CursorY: cursorY,
+		Scales: scales, Catalog: cat, GfxCatalog: gfx, Font: font, Overlay: true, CursorY: cursorY,
 		Inputs: sc.Inputs, Shots: sc.Shots,
 	}
 	on, err := runOnce(root, work, cfg)
@@ -122,6 +129,9 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 				fmt.Printf("  墨跡框核對：%s\n", c.Ink[j])
 			}
 		}
+	}
+	for _, a := range on.Arts {
+		fmt.Printf("對話框繪圖事件 第 %d 步：組 %d、k %d、位置 (%d,%d)、Order %d\n", a.Steps, a.G, a.K, a.X, a.Y, a.Order)
 	}
 	for _, e := range on.Log {
 		fmt.Printf("紀錄 第 %d 步 %s：%s\n", e.Steps, e.Kind, e.Detail)
@@ -150,6 +160,9 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		for _, sc := range scales {
 			cc := s.Check[sc]
 			fmt.Printf("shot 第 %d 步 %s，%d 倍：合成圖差異 %d、遮蓋框外 %d\n", s.Steps, s.Name, sc, cc.Diffs, cc.Outside)
+			if len(s.ArtKeys[sc]) != 0 {
+				fmt.Printf("  圖面 %v\n", s.ArtKeys[sc])
+			}
 			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
 				return err
 			}

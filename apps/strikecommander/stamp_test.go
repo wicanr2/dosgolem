@@ -121,7 +121,7 @@ func TestTestdataCatalog(t *testing.T) {
 
 func syncOne(t *testing.T, l Label, tr string, scale int) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), map[string]string{l.Key: tr}, scale)
+	ov, err := NewOverlay(testLabelFont(t), map[string]string{l.Key: tr}, nil, scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestStampExamples(t *testing.T) {
 }
 
 func TestStampOrderMultiple(t *testing.T) {
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), 2)
+	ov, err := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestStampNotProduced(t *testing.T) {
 		}
 	})
 	t.Run("缺譯文", func(t *testing.T) {
-		ov, _ := NewOverlay(testLabelFont(t), map[string]string{}, 2)
+		ov, _ := NewOverlay(testLabelFont(t), map[string]string{}, nil, 2)
 		ov.Sync([]Label{l}, 1)
 		if len(ov.Stamps()) != 0 || len(ov.Misses) != 1 || ov.Misses[0].Reason != "translation" {
 			t.Fatalf("缺譯文：stamps %d misses %+v", len(ov.Stamps()), ov.Misses)
@@ -218,7 +218,7 @@ func TestStampNotProduced(t *testing.T) {
 
 func TestStampGenerationAndScale(t *testing.T) {
 	l := Label{Key: "Talk to Gwen", X0: 114, X1: 204, Y: 175, Font: measuredFont}
-	ov, _ := NewOverlay(testLabelFont(t), testCatalog(), 2)
+	ov, _ := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
 	ov.Sync([]Label{l}, 1)
 	first := ov.Stamps()[1]
 	ov.Sync(nil, 1) // generation 相同：不重建
@@ -269,7 +269,7 @@ func TestStampDrawColors(t *testing.T) {
 	if c := at(2*139, 2*176+6); c != pal[15] {
 		t.Errorf("色盤改變後字模點 %v，要 %v", c, pal[15])
 	}
-	cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps())
+	cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil)
 	if cc.Diffs == 0 || cc.Outside != 0 {
 		t.Errorf("合成圖比較 %+v", cc)
 	}
