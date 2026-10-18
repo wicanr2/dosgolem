@@ -15,6 +15,12 @@
 //	shot STEP NAME                      存最後一次回掃的畫格（NAME.png 與原始色號 NAME.idx）
 //	trace FROM TO                       FROM 到 TO 之間依序記下每次 puts 與 blit（RE 012 的 3C3C:0000）入口，寫進 trace.tsv
 //	dump STEP SEG:OFF LEN NAME          在 STEP 之後的第一步把 SEG:OFF 起 LEN bytes 存成 NAME.bin（十六進位位址與長度）
+//	                                    NAME 寫成 !NAME 時改為等到 CS 等於 SEG 才傾印（EMS 換頁下讀程式碼段用）
+//	watch FROM TO SEG:OFF LEN           FROM 到 TO 之間每步比對 SEG:OFF 起 LEN bytes，值變了就把上一步的 CS:IP、
+//	                                    BP 鏈與堆疊頂三個字寫進 watch.tsv（只抓「值變了」；LEN 十六進位，上限 100h）。
+//	                                    CS < 0100h（JEMM 保護模式）時不比對，JEMM 跑過後的第一步只重取快照（頁對映可能換了）
+//	vwatch FROM TO X0 Y0 X1 Y1          FROM 到 TO 之間寫進實體 VGA 視窗、落在 mode 13h 矩形內的位元組，依寫入 CS:IP 彙整到 vwatch.tsv
+//	ip FROM TO SEG:OFF                  FROM 到 TO 之間每次執行到 SEG:OFF 就記一列到 ip.tsv（含 BP 鏈）
 //	stop STEP
 package main
 
@@ -73,6 +79,7 @@ type dumpReq struct {
 	n        int
 	name     string
 	data     []byte
+	whenCS   bool // NAME 以 ! 開頭：等到 CS 等於 SEG（程式正在那一段執行、對映是它自己的）才傾印
 }
 
 type observer struct {
@@ -88,9 +95,158 @@ type observer struct {
 	traceFrom uint64
 	traceTo   uint64
 	trace     []string
+	watches   []*watchReq
+	ips       []*ipReq
+	prevCS    uint16
+	prevIP    uint16
+	jemmRan   bool
+	vws       []*vwReq
+	vwStats   map[string]*vwStat
+	vwOrder   []string
+	vwPending *vwStat
+	vwFrames  map[uint64]int
+	lastRegs  string
+	watchLog  []string
+	ipLog     []string
 }
 
-func (o *observer) VideoWrite(machine.VideoWrite) {}
+// watchReq 是寫入監看（以每步比對近似）；ipReq 是執行位址監看。
+type watchReq struct {
+	from, to uint64
+	seg, off uint16
+	n        int
+	snap     []byte
+}
+
+type ipReq struct {
+	from, to uint64
+	seg, off uint16
+}
+
+// chainAt 回傳 BP 鏈上最多 depth 層的呼叫端。
+func (o *observer) chainAt(v session.StepView, depth int) string {
+	ss := v.SS()
+	var ch []string
+	bp := v.BP()
+	for d := 0; d < depth && bp != 0; d++ {
+		ip, seg := rd16(v, ss, bp+2), rd16(v, ss, bp+4)
+		ch = append(ch, o.rel(seg, ip))
+		nbp := rd16(v, ss, bp)
+		if nbp <= bp {
+			break
+		}
+		bp = nbp
+	}
+	return strings.Join(ch, "<")
+}
+
+func (o *observer) watchStep(v session.StepView) {
+	st := v.Steps()
+	// 段值小於 0100h 視為 JEMM 保護模式選擇子（0018、0080、00D8 等）；那時的線性對映不是遊戲的，不比對。
+	game := v.CS() >= 0x100
+	// JEMM 跑過之後頁對映可能換了（EMS 換頁），這一步只重取快照、不算寫入。
+	resnap := game && o.jemmRan
+	if !game {
+		o.jemmRan = true
+	} else {
+		o.jemmRan = false
+	}
+	for _, w := range o.watches {
+		if st < w.from || st >= w.to || !game {
+			continue
+		}
+		base := uint32(w.seg)<<4 + uint32(w.off)
+		if w.snap == nil || resnap {
+			if w.snap == nil {
+				w.snap = make([]byte, w.n)
+			}
+			for i := range w.snap {
+				w.snap[i] = v.Read8(base + uint32(i))
+			}
+			continue
+		}
+		lo, hi := -1, -1
+		var nb strings.Builder
+		for i := range w.snap {
+			b := v.Read8(base + uint32(i))
+			if b != w.snap[i] {
+				if lo < 0 {
+					lo = i
+				}
+				hi = i
+				w.snap[i] = b
+			}
+		}
+		if lo < 0 {
+			continue
+		}
+		for i := lo; i <= hi; i++ {
+			fmt.Fprintf(&nb, "%02X", w.snap[i])
+		}
+		ss, sp := v.SS(), v.SP()
+		o.watchLog = append(o.watchLog, fmt.Sprintf("%d\t%04X:%04X+%X..%X\t%s\t%s\t%04X:%04X\t%s\t%04X %04X %04X\tES=%04X DS=%04X DI=%04X SI=%04X CX=%04X",
+			st, w.seg, w.off, lo, hi, nb.String(), o.rel(o.prevCS, o.prevIP), v.CS(), v.IP(), o.chainAt(v, 5),
+			rd16(v, ss, sp), rd16(v, ss, sp+2), rd16(v, ss, sp+4), v.ES(), v.DS(), v.DI(), v.SI(), v.CX()))
+	}
+	for _, r := range o.ips {
+		if st < r.from || st >= r.to || v.CS() != r.seg || v.IP() != r.off {
+			continue
+		}
+		ss, sp := v.SS(), v.SP()
+		o.ipLog = append(o.ipLog, fmt.Sprintf("%d\t%04X:%04X\t%04X %04X %04X %04X %04X %04X %04X %04X\t%s\tAX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X DS=%04X ES=%04X",
+			st, r.seg, r.off, rd16(v, ss, sp), rd16(v, ss, sp+2), rd16(v, ss, sp+4), rd16(v, ss, sp+6), rd16(v, ss, sp+8), rd16(v, ss, sp+10), rd16(v, ss, sp+12), rd16(v, ss, sp+14),
+			o.chainAt(v, 5), v.AX(), v.BX(), v.CX(), v.DX(), v.SI(), v.DI(), v.DS(), v.ES()))
+	}
+}
+
+// vwReq 是 VRAM 寫入監看：FROM 到 TO 之間寫進矩形 (x0,y0)–(x1,y1)（mode 13h，一列 320）的位元組，
+// 依寫入指令 CS:IP 彙整，另記前 limit 筆的暫存器（取自寫入前一刻的 BeforeStep）。
+type vwReq struct {
+	from, to       uint64
+	x0, y0, x1, y1 int
+}
+
+type vwStat struct {
+	count       int
+	first, last uint64
+	minOff      uint32
+	maxOff      uint32
+	regs, chain string
+	needChain   bool
+}
+
+func (o *observer) VideoWrite(w machine.VideoWrite) {
+	if len(o.vws) == 0 {
+		return
+	}
+	x, y := int(w.Offset%320), int(w.Offset/320)
+	for _, r := range o.vws {
+		if w.Step < r.from || w.Step >= r.to || x < r.x0 || x > r.x1 || y < r.y0 || y > r.y1 {
+			continue
+		}
+		k := o.rel(w.CS, w.IP)
+		s := o.vwStats[k]
+		if s == nil {
+			s = &vwStat{first: w.Step, minOff: w.Offset, regs: o.lastRegs, needChain: true}
+			o.vwStats[k] = s
+			o.vwOrder = append(o.vwOrder, k)
+			o.vwPending = s
+		}
+		s.count++
+		s.last = w.Step
+		if w.Offset < s.minOff {
+			s.minOff = w.Offset
+		}
+		if w.Offset > s.maxOff {
+			s.maxOff = w.Offset
+		}
+		if o.vwFrames == nil {
+			o.vwFrames = map[uint64]int{}
+		}
+		o.vwFrames[w.Step/10000]++
+		break
+	}
+}
 
 func (o *observer) Frame(indexed []byte, palette [256][3]uint8) {
 	o.frame, o.palette = indexed, palette
@@ -102,8 +258,24 @@ func rd16(v session.StepView, seg, off uint16) uint16 {
 }
 
 func (o *observer) BeforeStep(v session.StepView) error {
+	if o.inVW(v.Steps()) {
+		if o.vwPending != nil {
+			o.vwPending.chain = o.chainAt(v, 6)
+			o.vwPending = nil
+		}
+		o.lastRegs = fmt.Sprintf("CS:IP=%04X:%04X DS=%04X SI=%04X ES=%04X DI=%04X CX=%04X AX=%04X BX=%04X DX=%04X SS=%04X SP=%04X BP=%04X",
+			v.CS(), v.IP(), v.DS(), v.SI(), v.ES(), v.DI(), v.CX(), v.AX(), v.BX(), v.DX(), v.SS(), v.SP(), v.BP())
+	}
+	if len(o.watches) > 0 || len(o.ips) > 0 {
+		o.watchStep(v)
+		defer func() {
+			if v.CS() >= 0x100 {
+				o.prevCS, o.prevIP = v.CS(), v.IP()
+			}
+		}()
+	}
 	for _, d := range o.dumps {
-		if d.data == nil && v.Steps() >= d.step {
+		if d.data == nil && v.Steps() >= d.step && (!d.whenCS || v.CS() == d.seg) {
 			d.data = make([]byte, d.n)
 			base := uint32(d.seg)<<4 + uint32(d.off)
 			for i := range d.data {
@@ -268,6 +440,43 @@ func parseScript(path string) ([]event, error) {
 				return nil, fmt.Errorf("第 %d 列：%q", n, line)
 			}
 			evs = append(evs, event{step: s, kind: "dump", x: int(sg), y: int(of), name: fs[4] + ":" + strconv.FormatUint(ln, 10)})
+		case "vwatch":
+			var a [6]uint64
+			for i := range a {
+				if a[i], err = num(i + 1); err != nil {
+					return nil, err
+				}
+			}
+			if a[1] <= a[0] {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			evs = append(evs, event{step: a[0], kind: "vwatch", name: fmt.Sprintf("%d:%d:%d:%d:%d", a[1], a[2], a[3], a[4], a[5])})
+		case "watch", "ip":
+			a, e1 := num(1)
+			b, e2 := num(2)
+			if e1 != nil || e2 != nil || b <= a || len(fs) < 4 {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			so := strings.SplitN(fs[3], ":", 2)
+			if len(so) != 2 {
+				return nil, fmt.Errorf("第 %d 列：位址要 SEG:OFF", n)
+			}
+			sg, e3 := strconv.ParseUint(so[0], 16, 16)
+			of, e4 := strconv.ParseUint(so[1], 16, 16)
+			if e3 != nil || e4 != nil {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			ln := uint64(0)
+			if fs[0] == "watch" {
+				if len(fs) < 5 {
+					return nil, fmt.Errorf("第 %d 列：watch 要給長度", n)
+				}
+				var e5 error
+				if ln, e5 = strconv.ParseUint(fs[4], 16, 16); e5 != nil || ln == 0 || ln > 0x100 {
+					return nil, fmt.Errorf("第 %d 列：%q", n, line)
+				}
+			}
+			evs = append(evs, event{step: a, kind: fs[0], x: int(sg), y: int(of), name: fmt.Sprintf("%d:%d", b, ln)})
 		case "stop":
 			s, err := num(1)
 			if err != nil {
@@ -355,7 +564,26 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		if e.kind == "dump" {
 			i := strings.LastIndex(e.name, ":")
 			n, _ := strconv.Atoi(e.name[i+1:])
-			obs.dumps = append(obs.dumps, &dumpReq{step: e.step, seg: uint16(e.x), off: uint16(e.y), n: n, name: e.name[:i]})
+			nm := e.name[:i]
+			obs.dumps = append(obs.dumps, &dumpReq{step: e.step, seg: uint16(e.x), off: uint16(e.y), n: n, name: strings.TrimPrefix(nm, "!"), whenCS: strings.HasPrefix(nm, "!")})
+		}
+		if e.kind == "vwatch" {
+			r := &vwReq{from: e.step}
+			fmt.Sscanf(e.name, "%d:%d:%d:%d:%d", &r.to, &r.x0, &r.y0, &r.x1, &r.y1)
+			obs.vws = append(obs.vws, r)
+			if obs.vwStats == nil {
+				obs.vwStats = map[string]*vwStat{}
+			}
+		}
+		if e.kind == "watch" || e.kind == "ip" {
+			var to uint64
+			var ln int
+			fmt.Sscanf(e.name, "%d:%d", &to, &ln)
+			if e.kind == "watch" {
+				obs.watches = append(obs.watches, &watchReq{from: e.step, to: to, seg: uint16(e.x), off: uint16(e.y), n: ln})
+			} else {
+				obs.ips = append(obs.ips, &ipReq{from: e.step, to: to, seg: uint16(e.x), off: uint16(e.y)})
+			}
 		}
 	}
 	o, err := session.New(strikecommander.SessionConfig(obs))
@@ -428,7 +656,7 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 			if err = writePNG(filepath.Join(out, e.name+".png"), obs.frame, obs.palette); err == nil {
 				err = os.WriteFile(filepath.Join(out, e.name+".idx"), obs.frame, 0o644)
 			}
-		case "dump", "trace":
+		case "dump", "trace", "watch", "ip", "vwatch":
 			// 由觀察器在之後的步讀取或記錄。
 		case "stop":
 			stopped = true
@@ -463,6 +691,38 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 			return err
 		}
 	}
+	if len(obs.watches) > 0 {
+		tr := "step\twatch\tnew\tprev_csip\tcs_ip\tbp_chain\tstack_top\tregs\n" + strings.Join(obs.watchLog, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(out, "watch.tsv"), []byte(tr), 0o644); err != nil {
+			return err
+		}
+	}
+	if len(obs.vws) > 0 {
+		var sb strings.Builder
+		sb.WriteString("cs_ip\tcount\tfirst\tlast\tmin_xy\tmax_xy\tregs_before_first\tbp_chain\n")
+		for _, k := range obs.vwOrder {
+			s := obs.vwStats[k]
+			fmt.Fprintf(&sb, "%s\t%d\t%d\t%d\t(%d,%d)\t(%d,%d)\t%s\t%s\n", k, s.count, s.first, s.last, s.minOff%320, s.minOff/320, s.maxOff%320, s.maxOff/320, s.regs, s.chain)
+		}
+		var ks []uint64
+		for b := range obs.vwFrames {
+			ks = append(ks, b)
+		}
+		sort.Slice(ks, func(i, j int) bool { return ks[i] < ks[j] })
+		sb.WriteString("\nbucket_10k_steps\twrites\n")
+		for _, b := range ks {
+			fmt.Fprintf(&sb, "%d\t%d\n", b*10000, obs.vwFrames[b])
+		}
+		if err := os.WriteFile(filepath.Join(out, "vwatch.tsv"), []byte(sb.String()), 0o644); err != nil {
+			return err
+		}
+	}
+	if len(obs.ips) > 0 {
+		tr := "step\tcs_ip\tstack_top8\tbp_chain\tregs\n" + strings.Join(obs.ipLog, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(out, "ip.tsv"), []byte(tr), 0o644); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("停在第 %d 步；puts 呼叫 %d 次，base %04X（簽章 %v），不同（呼叫鏈、字串）%d 組\n",
 		steps, obs.calls, obs.base, obs.sigOK, len(obs.order))
 	f, err := os.Create(filepath.Join(out, "census.tsv"))
@@ -480,4 +740,13 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func (o *observer) inVW(st uint64) bool {
+	for _, r := range o.vws {
+		if st >= r.from && st < r.to+1 {
+			return true
+		}
+	}
+	return false
 }
