@@ -161,6 +161,12 @@ type DOS struct {
 	// **原版素材目錄永遠不寫**。
 	Scratch string
 
+	// RebaseTo 非空時，下一次 LoadState 把狀態檔裡的開檔路徑以 RebasePath 改寫到它底下，
+	// 前綴集合是狀態檔的 Root 加 RebaseFrom；讀檔後 Root 設成 RebaseTo（docs/spec/450 §2.2）。
+	// 兩者在 LoadState 返回前（成功或失敗）清空。空字串時 LoadState 行為不變。
+	RebaseTo   string
+	RebaseFrom []string
+
 	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
 	Mouse Mouse

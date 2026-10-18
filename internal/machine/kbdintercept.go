@@ -72,3 +72,16 @@ func (m *Machine) EnableKbdIntercept() error {
 // KbdInterceptStub9 回向量 9 的 stub 在選項開啟時的 3 bytes（`E9 91 04`）。
 // 給前端做「狀態檔是在選項開啟時存的」的不一致偵測（447 §2.1）。
 func KbdInterceptStub9() [3]byte { return kbdStub9() }
+
+// CheckKbdInterceptAbsent 檢查向量 9 的 stub 不是 KbdInterceptStub9()（447 §2.1）。
+// 讀檔之後、鍵盤攔截選項關閉時呼叫：stub 是 `E9 91 04` 表示狀態檔是在選項開啟時存的，回錯誤。
+// 只讀不寫（ReadSup8）。cmd/probe 的 -kbd-int15 與 session 的 BootFromState（docs/spec/450 §2.3 第 6 步）共用。
+func (m *Machine) CheckKbdInterceptAbsent() error {
+	at := uint32(StubSeg)*16 + uint32(StubOff(0x09))
+	got := [3]byte{m.ReadSup8(at), m.ReadSup8(at + 1), m.ReadSup8(at + 2)}
+	if got == kbdStub9() {
+		return fmt.Errorf("machine: 向量 9 的 stub 是 % X：狀態檔是在鍵盤攔截開啟時存的，讀檔時要同樣開啟"+
+			"（docs/spec/447 §2.1、§4）", got[:])
+	}
+	return nil
+}

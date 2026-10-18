@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // maxBootEXESize is a corrupt-input guard, not a version assertion.
@@ -29,9 +30,18 @@ type BootInput struct {
 }
 
 // BootReceipt proves one completed boot without exposing machine state.
+// BootOriginal fills EXESHA256 and leaves the three state fields zero;
+// BootFromState fills the state fields and leaves EXESHA256 zero
+// (docs/spec/450 §2.1).
 type BootReceipt struct {
 	Phase     Phase
 	EXESHA256 [32]byte
+	// StateSHA256 是狀態檔的 SHA-256。
+	StateSHA256 [32]byte
+	// Steps 是讀檔後的 m.Steps（docs/spec/450 §2.3 的零步例外）。
+	Steps uint64
+	// LegacyState 是讀檔後的 m.LegacyState。
+	LegacyState bool
 }
 
 // BootOriginal loads the executable, installs DOS and enters Running.
@@ -51,21 +61,8 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 	if input.ExpectedEXESHA256 == zero {
 		return BootReceipt{}, errors.New("session: 缺少 EXE SHA-256 期望值")
 	}
-	if input.SaveRoot == "" {
-		return BootReceipt{}, errors.New("session: 缺少 save root")
-	}
-	info, err := os.Lstat(input.SaveRoot)
-	if err != nil {
-		return BootReceipt{}, fmt.Errorf("session: save root 不可用: %v", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return BootReceipt{}, errors.New("session: save root 不可為 symlink")
-	}
-	if !info.IsDir() {
-		return BootReceipt{}, errors.New("session: save root 不是目錄")
-	}
-	if err := fsaccess.Writable(input.SaveRoot); err != nil {
-		return BootReceipt{}, fmt.Errorf("session: save root 不可寫: %v", err)
+	if err := checkSaveRoot(input.SaveRoot); err != nil {
+		return BootReceipt{}, err
 	}
 	exe := append([]byte(nil), input.EXE...)
 	sum := sha256.Sum256(exe)
@@ -84,4 +81,30 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 		return BootReceipt{}, err
 	}
 	return BootReceipt{Phase: PhaseRunning, EXESHA256: sum}, nil
+}
+
+// checkSaveRoot 是 BootOriginal 與 BootFromState 共用的 save root 檢查
+// （docs/spec/450 §2.1）：拒絕空字串與含 NUL，再 Lstat、symlink、目錄、可寫。
+// 不做 filepath.Clean：檢查與使用的是同一個字串。
+func checkSaveRoot(root string) error {
+	if root == "" {
+		return errors.New("session: 缺少 save root")
+	}
+	if strings.IndexByte(root, 0) >= 0 {
+		return errors.New("session: save root 含 NUL")
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("session: save root 不可用: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("session: save root 不可為 symlink")
+	}
+	if !info.IsDir() {
+		return errors.New("session: save root 不是目錄")
+	}
+	if err := fsaccess.Writable(root); err != nil {
+		return fmt.Errorf("session: save root 不可寫: %v", err)
+	}
+	return nil
 }

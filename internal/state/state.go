@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -71,6 +72,10 @@ func Save(path string, m *machine.Machine, d *dos.DOS) error {
 	return bw.Flush()
 }
 
+// ErrNotGzip 表示輸入不是 gzip（gzip.NewReader 失敗）。LoadFrom 回的錯誤包著它，
+// Load 再包上路徑（docs/spec/450 §2.1）。
+var ErrNotGzip = errors.New("state: 不是 gzip")
+
 // Load 把 path 的狀態倒進機器與 DOS。
 //
 // 呼叫之前機器要建好、`dos.Install()` 要跑過——中斷處理常式掛在 Go 這端，
@@ -81,9 +86,20 @@ func Load(path string, m *machine.Machine, d *dos.DOS) error {
 		return err
 	}
 	defer f.Close()
-	zr, err := gzip.NewReader(bufio.NewReaderSize(f, 1<<20))
+	if err := LoadFrom(f, m, d); err != nil {
+		if errors.Is(err, ErrNotGzip) {
+			return fmt.Errorf("state: %s 不是 gzip：%w", path, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// LoadFrom 從 r 讀狀態倒進機器與 DOS，前提同 Load（docs/spec/450 §2.1）。
+func LoadFrom(r io.Reader, m *machine.Machine, d *dos.DOS) error {
+	zr, err := gzip.NewReader(bufio.NewReaderSize(r, 1<<20))
 	if err != nil {
-		return fmt.Errorf("state: %s 不是 gzip：%w", path, err)
+		return fmt.Errorf("%w：%v", ErrNotGzip, err)
 	}
 	defer zr.Close()
 	ms, err := readSection(zr)

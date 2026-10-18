@@ -5,6 +5,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+
+	"github.com/wicanr2/dosgolem/internal/dos"
+	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
 // StateDigest is a value-only fingerprint of the owned machine, for same-state
@@ -39,8 +42,12 @@ func (o *Owner) Digest() (StateDigest, error) {
 	if o.turnPending {
 		return StateDigest{}, errors.New("session: 回合進行中不可取摘要")
 	}
-	m := o.machine
-	d := StateDigest{Steps: m.Steps, DOSExited: o.dos.Exited, AdLib: m.AdLibPresent(), ClockPercent: m.ClockPercent(), IRQ0Clamped: m.IRQ0Clamped}
+	return digestOf(o.machine, o.dos), nil
+}
+
+// digestOf 是 Digest 的本體，也給測試對存檔端的 machine／DOS 取同一種摘要（docs/spec/450 §3.2）。
+func digestOf(m *machine.Machine, dd *dos.DOS) StateDigest {
+	d := StateDigest{Steps: m.Steps, DOSExited: dd.Exited, AdLib: m.AdLibPresent(), ClockPercent: m.ClockPercent(), IRQ0Clamped: m.IRQ0Clamped}
 	d.MemorySHA256 = sha256.Sum256(m.Mem[:])
 	if m.Ext != nil {
 		sum := sha256.Sum256(m.Ext)
@@ -63,5 +70,5 @@ func (o *Owner) Digest() (StateDigest, error) {
 		flat = append(flat, c[:]...)
 	}
 	d.PaletteSHA256 = sha256.Sum256(flat)
-	return d, nil
+	return d
 }

@@ -256,6 +256,13 @@ type Owner struct {
 	// noHeldRepeats is a test-only switch for the docs/spec/449 §3.2
 	// negative control; nothing outside this package's tests sets it.
 	noHeldRepeats bool
+	// noKbdRewrite is a test-only switch for the docs/spec/450 §3.4
+	// negative control (BootFromState skips step 6).
+	noKbdRewrite bool
+
+	// clockPercent 是 Config.ClockPercent 的原值（docs/spec/450 §2.4）。
+	// m.ClockPercent() 對 0 與 100 都回 100，不能拿來判斷是否明示給過。
+	clockPercent int
 }
 
 // New creates a new sealed, synthetic-ready owner.  It neither loads an
@@ -322,6 +329,7 @@ func New(cfg Config) (*Owner, error) {
 		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
 	o.observer = cfg.Observer
+	o.clockPercent = cfg.ClockPercent
 	// 448 §2.4：SoundBlaster 也會讓 OPL 存在，沒有觀測器時 OPL 寫入會一直累積，
 	// 所以只要 OPL 存在就掛空收集器（與 runObserved 的 defer 判準相同）。
 	if m.AdLibPresent() {

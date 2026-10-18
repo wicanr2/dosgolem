@@ -43,11 +43,8 @@ func configureKbdInt15(m *machine.Machine, on bool) error {
 		}
 		return nil
 	}
-	at := uint32(machine.StubSeg)*16 + uint32(machine.StubOff(0x09))
-	got := [3]byte{m.ReadSup8(at), m.ReadSup8(at + 1), m.ReadSup8(at + 2)}
-	if got == machine.KbdInterceptStub9() {
-		return fmt.Errorf("向量 9 的 stub 是 % X：狀態檔是在 -kbd-int15 開啟時存的，要同樣給 -kbd-int15"+
-			"（docs/spec/447 §2.1、§4）", got[:])
+	if err := m.CheckKbdInterceptAbsent(); err != nil {
+		return fmt.Errorf("%w；要同樣給 -kbd-int15", err)
 	}
 	return nil
 }
