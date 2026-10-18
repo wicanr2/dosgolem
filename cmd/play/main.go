@@ -232,6 +232,7 @@ func main() {
 	m.ObserveOPLWrites(mix.OPLWrite)
 	m.ObserveSpeaker(mix.SpeakerSample)
 	m.ObservePITChannel2(mix.PITChannel2)
+	mix.PrimeOPL(m.OPLRegs(0), m.OPLRegs(1)) // 規格 442；從開機跑時全是 0，不寫
 	if *cdromImage != "" {
 		if d.CD == nil {
 			die(errors.New("-cdrom-image 要配 -cdrom"))

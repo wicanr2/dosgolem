@@ -243,3 +243,31 @@ func TestStateKeepsPITPortDivisor(t *testing.T) {
 		t.Fatalf("讀回 PITHz=%.2f programmed=%v，預期 %.2f 與 true", got, n.PITProgrammed(), want)
 	}
 }
+
+func TestStateKeepsOPLRegisters(t *testing.T) {
+	m := New()
+	m.SetAdLib(true)
+	for _, w := range [][3]uint16{{0x388, 0x01, 0x20}, {0x388, 0xB0, 0x31}, {0x38A, 0x05, 0x01}, {0x388, 0x04, 0x01}} {
+		m.Out8(w[0], uint8(w[1]))
+		m.Out8(w[0]+1, uint8(w[2]))
+	}
+	m.Out8(0x388, 0x08) // 索引停在 08h
+	var buf bytes.Buffer
+	if err := m.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	n := New()
+	n.SetAdLib(true)
+	if err := n.LoadState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if n.OPLRegs(0) != m.OPLRegs(0) || n.OPLRegs(1) != m.OPLRegs(1) {
+		t.Fatal("暫存器檔沒有讀回")
+	}
+	if n.oplReg != m.oplReg {
+		t.Fatalf("索引 %v，要 %v", n.oplReg, m.oplReg)
+	}
+	if got, want := n.oplStatus(), m.oplStatus(); got != want || want == 0 {
+		t.Fatalf("狀態埠 %02X，要 %02X（且不為 0）", got, want)
+	}
+}

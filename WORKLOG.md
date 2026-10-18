@@ -768,3 +768,12 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
   不同的只有訊息框音效那 3 秒。`play -frames 600 -wav` 與 `probe -dump-mix-wav` 同步數的 WAV 逐位元組相同。
   容器內 xvfb 單獨跑每秒 53 格（目標 60，主機負載約 21）。
 - 沒跑 `tools/ci.sh` 與原版素材測試（使用者指示）。
+
+## 2026-10-18：狀態檔保存 OPL 暫存器（分支 `san5-mixer`）
+
+- 使用者授權推送 `san5-mixer` 後「繼續」。先查三國志V 設定畫面：背景音樂、音效、音量是 `DS:01DE` 的位元 2、1、100h，
+  音量只經 BGMSEQ `AH=17h` 調 FM，不動 CD，混音器不需新功能。
+- `442-state-opl-registers`：狀態檔存 OPL 暫存器檔、索引與計時器旗標；`Mixer.PrimeOPL` 接續時寫回合成器，probe 與 play 都呼叫。
+- 規格初稿的前提（三國志V 接續後波形選擇失效、音色不同）實測不成立：prime 與不 prime 的混音逐位元組相同。
+  `audio/nukedopl` 不看 `01h` 的波形選擇位元，三國志V 每個音效也重寫整組音色。已把 §1 與驗收改成實測。
+- 驗收：`./audio/mixer`、`./internal/machine` 測試通過，兩個負對照確認後還原。沒跑 `tools/ci.sh`（使用者指示）。

@@ -25,6 +25,7 @@ type mixWAV struct {
 	first  uint64 // 時間軸的起點（第一道指令的步數）
 	last   uint64 // 已經 Render 到的步數
 	frames int64
+	primed int // PrimeOPL 寫入的筆數
 	buf    []float32
 	out    []byte
 }
@@ -58,6 +59,7 @@ func newMixWAV(path string, m *machine.Machine, d *dos.DOS, image string) (*mixW
 		w.mix.SpeakerSample(x)
 	})
 	m.ObservePITChannel2(w.mix.PITChannel2)
+	w.primed = w.mix.PrimeOPL(m.OPLRegs(0), m.OPLRegs(1)) // 狀態檔接續時把暫存器寫回合成器（規格 442）
 	return w, nil
 }
 
@@ -120,7 +122,7 @@ func (w *mixWAV) finish(m *machine.Machine, d *dos.DOS) error {
 	if d.CD != nil && w.img != nil {
 		plays = len(d.CD.Plays)
 	}
-	fmt.Printf("混音 → %s（48 kHz 立體聲，%.1f 秒，起點第 %d 道指令；OPL 寫入 %d 筆、CD 播放 %d 段、讀映像錯誤 %d、夾值樣本 %d）\n",
-		w.path, float64(w.frames)/mixer.SampleRate, w.first, len(m.OPL), plays, w.mix.CDErrors(), w.mix.Clipped())
+	fmt.Printf("混音 → %s（48 kHz 立體聲，%.1f 秒，起點第 %d 道指令；OPL 起始暫存器 %d 筆、寫入 %d 筆、CD 播放 %d 段、讀映像錯誤 %d、夾值樣本 %d）\n",
+		w.path, float64(w.frames)/mixer.SampleRate, w.first, w.primed, len(m.OPL), plays, w.mix.CDErrors(), w.mix.Clipped())
 	return nil
 }

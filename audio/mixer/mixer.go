@@ -189,3 +189,34 @@ func (m *Mixer) clamp(v float64) float32 {
 	}
 	return float32(v)
 }
+
+// PrimeOPL 把機器的 OPL 暫存器檔寫進合成器（`docs/spec/442-state-opl-registers` §2.2）：
+// 從狀態檔接續時，合成器的暫存器才會與機器一致。只寫不為 0 的暫存器，計時器 02h–04h 不寫；
+// 第二組 05h 先寫，B0h–B8h（key-on）留到各組最後；NEW 位元沒設時第二組只寫 05h。回傳寫入筆數。
+func (m *Mixer) PrimeOPL(bank0, bank1 [256]uint8) (n int) {
+	write := func(bank uint8, reg int, v uint8) {
+		if v == 0 {
+			return
+		}
+		if addr, ok := m.oplAddr(machine.OPLWrite{Bank: bank, Reg: uint8(reg), Val: v}); ok {
+			m.chip.WriteRegBuffered(addr, v)
+			n++
+		}
+	}
+	write(1, 0x05, bank1[0x05])
+	for bank, regs := range [2][256]uint8{bank0, bank1} {
+		if bank == 1 && !m.newm {
+			break
+		}
+		for r := 0; r < 256; r++ {
+			if (bank == 1 && r == 0x05) || (r >= 0xB0 && r <= 0xB8) {
+				continue
+			}
+			write(uint8(bank), r, regs[r])
+		}
+		for r := 0xB0; r <= 0xB8; r++ {
+			write(uint8(bank), r, regs[r])
+		}
+	}
+	return n
+}
