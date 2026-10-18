@@ -951,7 +951,7 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
-### 三國志V（san5）（11 份）
+### 三國志V（san5）（13 份）
 
 跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
 依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
@@ -967,6 +967,8 @@
 - [437 — `INT 21h AX=5D06h` DOS 可交換資料區](437-swappable-data-area.md)：READY。SDA 在 `StubSeg:04D0`，InDOS 移到 SDA+1，`AH=34h` 指同一格。
 - [438 — MSCDEX 的 CD 音軌倒成 WAV](438-mscdex-cd-audio-dump.md)：READY。曲目表加映像位移，播放紀錄對上 raw 光碟映像，`probe -dump-cd-wav` 輸出 44.1 kHz 立體聲。
 - [439 — 狀態檔保存 PIT 埠解碼分頻](439-state-pit-port-divisor.md)：READY。以前 `-load-state` 之後 `PITHz()` 退回 18.2 Hz，`StepsPerSecondNow()` 縮了分頻的倍數。
+- [440 — 混音器加入 CD 音軌，probe 輸出混音 WAV](440-mixer-cd-audio.md)：READY。MSCDEX 播放紀錄對上 raw 映像，44.1→48 kHz 線性內插，和 OPL、喇叭同一條步數時間軸；`probe -dump-mix-wav`。
+- [441 — 通用的即時前端 `cmd/play`](441-play-frontend.md)：READY。不認識特定程式，畫面、鍵盤、滑鼠、聲音；每格固定步數，自動模式的混音與 probe 逐位元組相同。
 
 ## 新增 CPU386 位移切片
 

@@ -754,3 +754,17 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
   `439-state-pit-port-divisor` 補上（gob 新增欄位，舊檔行為不變）。機器裡有兩份 PIT 分頻解碼，合併留待整理。
 - 三國志V 新開執行到 28 億道指令：開場第 2 軌從 0.01 秒起完整播完（196.6 秒），標題選單第 21 軌從 207.68 秒起；
   兩段與標準版 `.mdf` 逐位元組相同（前 190 秒、前 30 秒）。CI 頂層測試 2,719 個通過。
+
+## 2026-10-18：混音器加 CD 音軌、通用前端 `cmd/play`（分支 `san5-mixer`，從 `san5-xms-sda` 分出）
+
+- 使用者要求加上混音器配合三國志V，並調查它需要哪些播放；只專注三國志V，不跑 dosgolem CI。
+- 調查（san5 的 `docs/re/014-san5-audio.md`）：背景音樂全走 CD 音軌，音效走 BGMSEQ 轉 FMOPL2 的 OPL2；PCM 分支是空函式，
+  沒有 SB DSP。所以要混的是 OPL 加 CD。
+- `440-mixer-cd-audio`：`audio/mixer` 接 MSCDEX 播放紀錄與 raw 映像，44.1→48 kHz 線性內插；`probe -dump-mix-wav`。
+  `internal/dos` 的 `sectorOffset` 改成匯出（`SectorOffset`）給混音器用。
+- `441-play-frontend`：不認識特定程式的 Ebitengine 前端，畫面、鍵盤、滑鼠、聲音；時間軸固定步數，不做 webplay 的即時校正。
+- 驗收：`./audio/mixer`、`./cmd/play`（xvfb）測試通過，各有負對照（第一次的內插負對照沒抓到：測試資料斜率 1，分數部分本來就捨去，
+  改成斜率 7 後才抓到）。三國志V 從開機跑到第一個月的主畫面（4.7 億道）：混音 WAV 的 CD 部分與 `.mdf` 獨立內插逐樣本相同，
+  不同的只有訊息框音效那 3 秒。`play -frames 600 -wav` 與 `probe -dump-mix-wav` 同步數的 WAV 逐位元組相同。
+  容器內 xvfb 單獨跑每秒 53 格（目標 60，主機負載約 21）。
+- 沒跑 `tools/ci.sh` 與原版素材測試（使用者指示）。
