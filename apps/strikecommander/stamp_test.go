@@ -12,8 +12,9 @@ import (
 
 // testFontRunes：全形字（來源位元組 bit 7 = 1）；testHalfRunes：半形字。
 // 數字刻意缺 ７（002 §3.1：缺字時 "… (17)" 記 glyph miss、CheckFontExtra 失敗）。
+// 地面空中是計分板欄名的譯文（003 §3.5）。
 const (
-	testFontRunes = "測試譯文甲乙丙一二三ＡＩＭ－９Ｊ尾追式飛彈卸下０１２３４５６８（）"
+	testFontRunes = "測試譯文甲乙丙一二三ＡＩＭ－９Ｊ尾追式飛彈卸下０１２３４５６８（）地面空中"
 	testHalfRunes = "a -"
 )
 
@@ -105,10 +106,11 @@ func TestTestdataCatalog(t *testing.T) {
 	}
 	labl := testLABL("Talk to Gwen", "Transport to Strike Base", "Fly Mission", "Talk to Janet")
 	rep := Lint(b, testLabelFont(t).Wide, labl)
-	// 漏譯：Talk to Janet、九個長名稱、兩個範本、九個短代號（002 §2.3 的 key 集合）。
+	// 漏譯：Talk to Janet、九個長名稱、兩個範本、九個短代號（002 §2.3 的 key 集合）、四個 EXE 字串（003 §3.5）。
 	wantU := []string{"Talk to Janet", TemplateCount, TemplateRemove}
 	wantU = append(wantU, WeaponLongNames[:]...)
 	wantU = append(wantU, WeaponShortNames[:]...)
+	wantU = append(wantU, ExeKeys[:]...)
 	sort.Strings(wantU)
 	if !rep.OK() || strings.Join(rep.Untranslated, "|") != strings.Join(wantU, "|") {
 		t.Fatalf("testdata lint：%+v", rep)

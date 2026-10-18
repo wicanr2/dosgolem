@@ -116,8 +116,8 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 			i, c.BlitEntry, c.BlitReturn, c.Accepted, c.Ignored, c.Generation, on.Stamps[i])
 		for j, l := range c.Labels {
 			text, rule, reason := strikecommander.ResolveLabel(l.Key, cat)
-			fmt.Printf("  %q X0 %d X1 %d Y %d 字型 %04X 段 %04X puts 第 %d 步，有譯文 %t（%s%s）%s\n",
-				l.Key, l.X0, l.X1, l.Y, l.Font, l.Seg, l.Steps, text != nil, rule, reason, string(text))
+			fmt.Printf("  %q 種類 %s X0 %d X1 %d Y %d 字型 %04X 段 %04X puts 第 %d 步，有譯文 %t（%s%s）%s\n",
+				l.Key, l.Kind, l.X0, l.X1, l.Y, l.Font, l.Seg, l.Steps, text != nil, rule, reason, string(text))
 			if j < len(c.Ink) {
 				fmt.Printf("  墨跡框核對：%s\n", c.Ink[j])
 			}

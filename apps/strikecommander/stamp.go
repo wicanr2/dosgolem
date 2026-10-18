@@ -6,13 +6,19 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 熱點標籤的 stamp 規劃（001 §2.6）。幾何都是原版像素，整數運算，除法向下取整。
+// 熱點標籤的 stamp 規劃（001 §2.6），計分板 board 標籤的規劃（003 §3.4）。
+// 幾何都是原版像素，整數運算，除法向下取整。
 const (
-	stampCellH = 14 // 墨跡框高 [Y+1, Y+15)
+	stampCellH = 14 // label 墨跡框高 [Y+1, Y+15)
+	boardCellH = 8  // board 格高：前後列 [Y+1, Y+9)
 	glyphPx    = 16
 	// 原版色盤的 0 號是黑外框、15 號是白字（RE 012 §5）。
 	bgIndex = 0
 	fgIndex = 15
+	// 白板底色是 164 號 (215, 215, 215)，墨跡最深的是 10 號 (60, 60, 60)（003 §2.3）。
+	// board 的背景實際取自畫格加墨跡還原，164 號只在背景圖缺時當底色。
+	boardBGIndex = 164
+	boardFGIndex = 10
 )
 
 // Miss 是缺譯文或缺字的紀錄；畫面維持英文。
@@ -22,22 +28,25 @@ type Miss struct {
 	Runes  []rune // 缺的字（只對 glyph）
 }
 
-// Skip 是其他不產生 stamp 的原因（倍率、字型、超寬）。
+// Skip 是其他不產生 stamp 的原因（倍率、字型、超寬、前後列作廢）。
 type Skip struct {
 	Key    string
 	Reason string
 }
 
-// Plan 是一筆熱點標籤的兩個 stamp：遮蓋 stamp 在前、文字 stamp 在後。
+// Plan 是一筆標籤的兩個 stamp：遮蓋 stamp 在前、文字 stamp 在後。
+// Kind 與色號隨 stamp 帶出（xlate.Stamp 沒有種類欄位），由 Overlay 記住，Draw 時依色盤設色。
 type Plan struct {
 	Cover, Text *xlate.Stamp
+	Kind        Kind
+	BG, FG      uint8 // 背景、前景色號
 }
 
-// PlanLabel 依 §2.6 規劃一筆熱點標籤的 stamp。scale 只接受 2、3；text 是譯文。
-// 字模檢查、字型 D7E6 檢查由 Overlay 做；這裡只算幾何。
+// PlanLabel 依種類規劃一筆標籤的 stamp：label 照 001 §2.6，board 照 003 §3.4。
+// scale 只接受 2、3；text 是譯文。字模檢查、字型檢查由 Overlay 做；這裡只算幾何。
 func PlanLabel(l Label, text []rune, scale int, font *xlate.Font) (Plan, error) {
 	if scale != 2 && scale != 3 {
-		return Plan{}, fmt.Errorf("%d 倍輸出不產生 stamp（框高 14 放不下 16 像素字模）", scale)
+		return Plan{}, fmt.Errorf("%d 倍輸出不產生 stamp（框高放不下 16 像素字模）", scale)
 	}
 	n := len(text)
 	if n == 0 {
@@ -48,6 +57,22 @@ func PlanLabel(l Label, text []rune, scale int, font *xlate.Font) (Plan, error) 
 	if w > 320 {
 		return Plan{}, fmt.Errorf("譯文 %d 字寬 %d 超過 320", n, w)
 	}
+	y := l.Y + 1
+	if l.Kind == KindBoard {
+		// 右對齊到執行期的 x1（擊落數也右對齊到同一處，003 §2.1）；左伸超出畫面時夾到 0。
+		x := max(0, l.X1-w)
+		txt := &xlate.Stamp{
+			Key: l.Key + ".text", X: x, Y: y, Cells: n, CellW: cellW, CellH: boardCellH,
+			Font: font, GlyphX: (cellW*scale - glyphPx) / 2, GlyphY: (boardCellH*scale - glyphPx) / 2, GlyphScale: 1,
+			Text: append([]rune(nil), text...), State: xlate.Shown,
+		}
+		cx0, cx1 := min(l.X0, x), max(l.X1, x+w)
+		cx0, cx1 = max(cx0, 0), min(cx1, 320)
+		cover := &xlate.Stamp{
+			Key: l.Key + ".cover", X: cx0, Y: y, Cells: 1, CellW: cx1 - cx0, CellH: boardCellH, State: xlate.Shown,
+		}
+		return Plan{Cover: cover, Text: txt, Kind: KindBoard, BG: boardBGIndex, FG: boardFGIndex}, nil
+	}
 	x := (l.X0+l.X1)/2 - w/2
 	if x < 0 {
 		x = 0
@@ -55,7 +80,6 @@ func PlanLabel(l Label, text []rune, scale int, font *xlate.Font) (Plan, error) 
 	if x+w > 320 {
 		x = 320 - w
 	}
-	y := l.Y + 1
 	txt := &xlate.Stamp{
 		Key: l.Key + ".text", X: x, Y: y, Cells: n, CellW: cellW, CellH: stampCellH,
 		Font: font, GlyphX: (cellW*scale - glyphPx) / 2, GlyphY: (stampCellH*scale - glyphPx) / 2, GlyphScale: 1,
@@ -66,7 +90,21 @@ func PlanLabel(l Label, text []rune, scale int, font *xlate.Font) (Plan, error) 
 	cover := &xlate.Stamp{
 		Key: l.Key + ".cover", X: cx0, Y: y, Cells: 1, CellW: cx1 - cx0, CellH: stampCellH, State: xlate.Shown,
 	}
-	return Plan{Cover: cover, Text: txt}, nil
+	return Plan{Cover: cover, Text: txt, Kind: KindLabel, BG: bgIndex, FG: fgIndex}, nil
+}
+
+// stampInfo 是 Overlay 為每個 stamp 記的種類與色號。
+type stampInfo struct {
+	kind   Kind
+	bg, fg uint8
+}
+
+// boardBG 是一筆 board 標籤繪製背景所需的資料（003 §3.4）：遮蓋範圍與前後列。
+type boardBG struct {
+	label         int // 在最近一次 Sync 的 labels 中的索引
+	key           string
+	x0, x1, y0    int // 遮蓋範圍 [x0, x1) × [y0, y0+8)，y0 = Y+1 也是前後列的第一列
+	before, after []byte
 }
 
 // Overlay 自有一個 xlate.Layer，依可見集合與 generation 重建 stamp（同 apps/buckrogers/hmenu_overlay.go）。
@@ -80,6 +118,9 @@ type Overlay struct {
 	built bool
 	// exactOnly 讓解析只留第 1 步（只供 002 §3.2 案例 D 的負對照）。
 	exactOnly bool
+	// info 記每個 stamp 的種類與色號；boards 記 board 標籤的背景資料。重建 stamp 時清空。
+	info   map[*xlate.Stamp]stampInfo
+	boards []boardBG
 
 	Misses []Miss
 	Skips  []Skip
@@ -108,20 +149,46 @@ func (o *Overlay) SetScale(scale int) error {
 // Stamps 回 layer 上的 stamp（呼叫端不得修改）。
 func (o *Overlay) Stamps() []*xlate.Stamp { return o.layer.Stamps }
 
-// Sync 在 generation 改變（或倍率改變）時依可見集合重建 stamp。
+// StampKind 回 stamp 的種類；不是這個 overlay 的 stamp 時回空字串。
+func (o *Overlay) StampKind(s *xlate.Stamp) Kind { return o.info[s].kind }
+
+// labelFont 回種類要求的字型：board 是 FB12，label 是 D7E6（003 §3.2）。只有這兩組量過墨跡框。
+func labelFont(k Kind) uint16 {
+	if k == KindBoard {
+		return boardFont
+	}
+	return measuredFont
+}
+
+// Sync 在 generation 改變（或倍率改變）時依可見集合重建 stamp。generation 沒變時不重建，
+// 但仍以這次的 labels 更新各 board 標籤的前後列（003 §3.3：sameLabels 不比前後列）。
 func (o *Overlay) Sync(labels []Label, gen uint64) {
 	if o.built && gen == o.gen {
+		for i := range o.boards {
+			b := &o.boards[i]
+			if b.label < len(labels) {
+				if l := labels[b.label]; l.Kind == KindBoard && l.Key == b.key && l.Before != nil && l.After != nil {
+					b.before, b.after = l.Before, l.After
+				}
+			}
+		}
 		return
 	}
 	o.built, o.gen = true, gen
 	o.layer.Stamps = nil
-	for _, l := range labels {
+	o.info = map[*xlate.Stamp]stampInfo{}
+	o.boards = nil
+	for i, l := range labels {
 		if o.scale != 2 && o.scale != 3 {
 			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("%d 倍輸出不覆繪", o.scale)})
 			continue
 		}
-		if l.Font != measuredFont {
-			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("字型 %04X 的墨跡框沒量過", l.Font)})
+		if want := labelFont(l.Kind); l.Font != want {
+			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("%s 標籤的字型 %04X 不是 %04X，墨跡框沒量過", l.Kind, l.Font, want)})
+			continue
+		}
+		if l.Kind == KindBoard && (l.Before == nil || l.After == nil) {
+			o.Skips = append(o.Skips, Skip{l.Key, "board 標籤的前後列作廢"})
 			continue
 		}
 		// 組合標籤由解析代入譯文（002 §2.2）；Label.Key 仍是觀察到的原文。
@@ -146,19 +213,58 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 			continue
 		}
 		o.layer.Stamps = append(o.layer.Stamps, p.Cover, p.Text)
+		si := stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG}
+		o.info[p.Cover], o.info[p.Text] = si, si
+		if p.Kind == KindBoard {
+			o.boards = append(o.boards, boardBG{
+				label: i, key: l.Key, x0: p.Cover.X, x1: p.Cover.X + p.Cover.CellW, y0: p.Cover.Y,
+				before: l.Before, after: l.After,
+			})
+		}
 	}
 }
 
-// Draw 把原版畫格放大成 RGBA 並畫上 stamp。每次繪製前把 BG、FG 設成目前色盤的 0、15 號。
-// 回傳合成圖與 Layer.Draw 回報的缺字。
+// Draw 把原版畫格放大成 RGBA 並畫上 stamp。每次繪製前依各 stamp 記下的色號從目前色盤設 BG、FG：
+// label 是 0、15 號，board 是 164、10 號。board 的兩個 stamp 以 boardBackground 當底（003 §3.4），
+// label 照 001 填實心底色。回傳合成圖與 Layer 回報的缺字。
 func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	out := ScaleIndexedRGBA(indexed, palette, o.scale)
 	for _, s := range o.layer.Stamps {
-		s.BG, s.FG = palette[bgIndex], palette[fgIndex]
+		si := o.info[s]
+		s.BG, s.FG = palette[si.bg], palette[si.fg]
+	}
+	var bg []byte
+	if len(o.boards) != 0 {
+		bg = o.boardBackground(indexed, palette)
 	}
 	var miss []rune
-	o.layer.Draw(out, o.scale, func(r rune) { miss = append(miss, r) })
+	o.layer.DrawWithBackground(out, o.scale, func(r rune) { miss = append(miss, r) }, bg,
+		func(s *xlate.Stamp) bool { return o.info[s].kind == KindBoard })
 	return out, miss
+}
+
+// boardBackground 依 003 §3.4 建 board stamp 的背景（放大後的 RGBA）：
+//  1. 從原版畫格開始；
+//  2. 每筆 board 標籤遮蓋範圍內的每個像素，若是墨跡像素（前列 ≠ 後列）而且目前畫格在該點仍等於後列，
+//     換成前列的顏色；其他像素保留目前畫格（滑鼠游標、白板細線都留著）；
+//  3. 依色盤換成 RGBA、放大。
+func (o *Overlay) boardBackground(indexed []byte, palette [256][3]uint8) []byte {
+	idx := append([]byte(nil), indexed...)
+	for _, b := range o.boards {
+		for y := b.y0; y < b.y0+boardRows; y++ {
+			if y < 0 || y >= 200 {
+				continue
+			}
+			row := (y - b.y0) * 320
+			for x := max(b.x0, 0); x < min(b.x1, 320); x++ {
+				bf, af := b.before[row+x], b.after[row+x]
+				if bf != af && idx[y*320+x] == af {
+					idx[y*320+x] = bf
+				}
+			}
+		}
+	}
+	return ScaleIndexedRGBA(idx, palette, o.scale)
 }
 
 // ScaleIndexedRGBA 把 320×200 的色號畫格依色盤放大成 RGBA。

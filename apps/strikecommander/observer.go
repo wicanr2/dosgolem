@@ -30,8 +30,10 @@ const (
 	ipLabelRet  = 0x082A // 輸出函式返回到標籤常式的位址
 	ipLabelCall = 0x0819 // 標籤呼叫指令序列的起點
 
-	// 字型 DS:D7E6 是唯一量過墨跡框的字型（001 §2.4）。
+	// 字型 DS:D7E6 是熱點標籤與計分板底部標籤的字型（001 §2.4、003 §2.1）。
 	measuredFont = 0xD7E6
+	// 字型 DS:FB12 是計分板白板欄名的手寫字型（003 §2.1、RE 014）。
+	boardFont = 0xFB12
 
 	maxLabelBytes = 64
 	maxPending    = 16
@@ -73,6 +75,36 @@ var baseRows = []sigRow{
 	{"輸出函式序言", segText, 0x05FF, []int{0x55, 0x8B, 0xEC}},
 }
 
+// Kind 是標籤的種類（003 §3.1）：決定墨跡框、核對時點、字型與 stamp 規劃。
+type Kind string
+
+const (
+	// KindLabel：001 的熱點標籤，以及計分板的底部標籤（字型 D7E6，y 175）。
+	KindLabel Kind = "label"
+	// KindBoard：計分板白板的欄名 GROUND、AIR（字型 FB12，手寫風格）。
+	KindBoard Kind = "board"
+)
+
+// boardSite 是計分板程式呼叫輸出函式 +3942:05FF 的一個呼叫點（003 §2.1）。
+// ret 是返回位址的段內位移，bytes 是返回位址之前的位元組；-1 的兩個位置是 call far 的段字，
+// 依序等於 base + 3942h 的低、高位元組。
+type boardSite struct {
+	ret   uint16
+	bytes []int
+	kind  Kind
+}
+
+// boardSites 是 003 §3.1 條件 2 的呼叫端位元組表。計分板程式在 overlay 區，執行期段由 overlay 管理器決定，
+// 段不寫死，每次都讀位元組比對。呼號（1407）與擊落數（1499、14B5）的呼叫點不在表內（003 §1）。
+var boardSites = []boardSite{
+	// GROUND：push 1068h（%X%Y%S）、lea ax,[bp−202h]、push ax、call far 05FF（檔案位移 606ECh 起）
+	{0x1369, []int{0x68, 0x68, 0x10, 0x8D, 0x86, 0xFE, 0xFD, 0x50, 0x9A, 0xFF, 0x05, -1, -1}, KindBoard},
+	// AIR：格式 106Fh（檔案位移 60708h 起）
+	{0x1385, []int{0x68, 0x6F, 0x10, 0x8D, 0x86, 0xFE, 0xFD, 0x50, 0x9A, 0xFF, 0x05, -1, -1}, KindBoard},
+	// 底部標籤：push AFh（y 175）、push 2、push 108Bh（%J%Y%S）、lea ax,[bp−21Ch]（檔案位移 60862h 起）
+	{0x14E4, []int{0x68, 0xAF, 0x00, 0x6A, 0x02, 0x68, 0x8B, 0x10, 0x8D, 0x86, 0xE4, 0xFD, 0x50, 0x9A, 0xFF, 0x05, -1, -1}, KindLabel},
+}
+
 // lin 把 段:位移 換成線性位址；位移以 16 位元環繞。
 func lin(seg, off uint16) uint32 { return uint32(seg)<<4 + uint32(off) }
 
@@ -106,12 +138,35 @@ type Label struct {
 	Seg   uint16 // [DS:obj+2]，緩衝段
 	List  uint16 // [DS:obj+4]，緩衝描述元的列表指標
 	Steps uint64 // puts 入口的步數
+	Kind  Kind   // 呼叫端判定的種類（003 §3.1）
+
+	// Before、After 只對 board 有值（003 §3.3）：puts 入口與同一筆 puts 返回時讀下的緩衝列
+	// [Y+1, Y+9) × [0, 320)，各 8 × 320 bytes。第一次 putc 的 y 與入口不同時兩者作廢（nil）。
+	// 只用於繪製背景與核對，不寫入原版狀態。
+	Before, After []byte
+	// BoardInk 是 board 的墨跡核對結果，在 puts 返回時算（003 §3.2）。
+	BoardInk InkResult
 
 	ink inkCapture
 }
 
-// Box 回墨跡框 [X0, X1) × [Y+1, Y+15)。
-func (l Label) Box() (x0, y0, x1, y1 int) { return l.X0, l.Y + 1, l.X1, l.Y + 15 }
+// Box 回墨跡框：label 是 [X0, X1) × [Y+1, Y+15)（001 §2.4），board 是 [X0, X1) × [Y+1, Y+8)（003 §3.2）。
+func (l Label) Box() (x0, y0, x1, y1 int) {
+	if l.Kind == KindBoard {
+		return l.X0, l.Y + 1, l.X1, l.Y + boardInkH + 1
+	}
+	return l.X0, l.Y + 1, l.X1, l.Y + 15
+}
+
+// staleBox 回非全螢幕 blit 失效判斷用的矩形。label 等於墨跡框。board 的 stamp 遮蓋範圍依倍率與譯文寬度而定
+// （003 §3.4 的 tx = max(0, x1 − w)），觀察器看不到這兩者，所以取任何倍率、任何譯文的遮蓋都落在其中的
+// 超集 [0, 320) × [Y+1, Y+9)：只會多清、不會漏清。
+func (l Label) staleBox() (x0, y0, x1, y1 int) {
+	if l.Kind == KindBoard {
+		return 0, l.Y + 1, 320, l.Y + 1 + boardRows
+	}
+	return l.Box()
+}
 
 func sameLabels(a, b []Label) bool {
 	if len(a) != len(b) {
@@ -162,6 +217,9 @@ type LabelObserver struct {
 
 	// noCallerCheck 關掉 §2.3（只供 §3.3 的負對照）。
 	noCallerCheck bool
+	// noBoardCaller 只關掉 003 §3.1 的條件 2（計分板呼叫點），供 003 §4.2 的負對照。
+	// noCallerCheck 會連呼號都收下，語意不同。
+	noBoardCaller bool
 
 	baseKnown bool
 	base      uint16
@@ -282,7 +340,11 @@ func (o *LabelObserver) putsEntry(v View) {
 		return
 	}
 	ss, sp, ds := v.SS(), v.SP(), v.DS()
-	if !o.noCallerCheck && !o.isLabelCall(v, ss) {
+	kind, ok := o.classifyCall(v, ss)
+	if o.noCallerCheck {
+		ok = true
+	}
+	if !ok {
 		o.ignored++
 		return
 	}
@@ -299,33 +361,53 @@ func (o *LabelObserver) putsEntry(v View) {
 		o.note(steps, "puts", "上一筆 %q 的 puts 沒有返回，捨棄", o.cur.label.Key)
 	}
 	l := Label{
-		Key: key, Steps: steps,
+		Key: key, Steps: steps, Kind: kind,
 		Font: rd16(v, ds, obj+objFont), Seg: rd16(v, ds, obj+objSeg), List: rd16(v, ds, obj+objList),
 	}
-	if o.InkCheck {
-		l.ink.yPrime = int(rd16(v, ds, obj+objY))
+	l.ink.yPrime = int(rd16(v, ds, obj+objY))
+	switch {
+	case kind == KindBoard:
+		// board 的前列一律在 puts 入口取（繪製背景要用），不受 InkCheck 限制（003 §3.2）。
+		l.Before = readRows(v, ds, l.Seg, l.List, l.ink.yPrime+1, l.ink.yPrime+1+boardRows)
+	case o.InkCheck:
 		l.ink.before = readRows(v, ds, l.Seg, l.List, l.ink.yPrime-2, l.ink.yPrime+17)
 	}
 	o.cur = &inflight{label: l, obj: obj, ss: ss, sp: sp}
 }
 
-// isLabelCall 是 001 §2.3 的四個比較。puts 入口時 BP 是格式化函式的框架。
-func (o *LabelObserver) isLabelCall(v View, ss uint16) bool {
+// classifyCall 是呼叫端判定（001 §2.3，003 §3.1 修訂為二選一）。puts 入口時 BP 是格式化函式的框架 P，
+// [P] 是輸出函式的框架 Q，[Q+2]、[Q+4] 是輸出函式的返回位址 s:r。
+//  1. 返回到標籤常式 +0AB1:082A：種類 label。
+//  2. 返回到計分板程式：r 在 boardSites 裡，s:r 之前的位元組與該列逐一相等；種類照該列。
+//
+// 兩者都要求格式化函式返回到輸出函式（[P+2] == 061Eh、[P+4] == base + 3942h）。
+func (o *LabelObserver) classifyCall(v View, ss uint16) (Kind, bool) {
 	p := v.BP()
 	if rd16(v, ss, p+2) != ipFmtRet {
-		return false
+		return KindLabel, false
 	}
 	if rd16(v, ss, p+4) != o.base+segText {
-		return false
+		return KindLabel, false
 	}
 	q := rd16(v, ss, p)
-	if rd16(v, ss, q+2) != ipLabelRet {
-		return false
+	r, s := rd16(v, ss, q+2), rd16(v, ss, q+4)
+	if r == ipLabelRet && s == o.base+segLabel {
+		return KindLabel, true
 	}
-	if rd16(v, ss, q+4) != o.base+segLabel {
-		return false
+	if o.noBoardCaller {
+		return KindLabel, false
 	}
-	return true
+	for _, site := range boardSites {
+		if r != site.ret {
+			continue
+		}
+		// 段 s 不寫死：overlay 管理器決定載入段（RE 014 §1），每次讀 s:r 之前的位元組比對。
+		if match(v, s, r-uint16(len(site.bytes)), site.bytes, o.base+segText) {
+			return site.kind, true
+		}
+		return KindLabel, false
+	}
+	return KindLabel, false
 }
 
 // readLabelString 從 DS:str 起最多讀 64 bytes，第一個 00h 之前是字串；只接受 20h 到 7Eh。
@@ -370,6 +452,9 @@ func (o *LabelObserver) putsReturn(v View) {
 		return
 	}
 	c.label.X1 = int(rd16(v, v.DS(), c.obj+objX))
+	if c.label.Kind == KindBoard {
+		o.boardReturn(v, &c.label)
+	}
 	if len(o.pending) >= maxPending {
 		o.note(v.Steps(), "pending", "待提交清單滿 %d 筆，捨棄最舊的 %q", maxPending, o.pending[0].Key)
 		o.pending = append(o.pending[:0], o.pending[1:]...)
@@ -400,7 +485,7 @@ func (o *LabelObserver) blitEntry(v View) {
 	if sr != fullScreen || dr != fullScreen {
 		// 非全螢幕：不設配對旗標，待提交清單保留。
 		for _, l := range o.visible {
-			bx0, by0, bx1, by1 := l.Box()
+			bx0, by0, bx1, by1 := l.staleBox()
 			if dr.x0 < bx1 && bx0 < dr.x1+1 && dr.y0 < by1 && by0 < dr.y1+1 {
 				o.visible = nil
 				o.gen++
@@ -430,6 +515,11 @@ func (o *LabelObserver) blitEntry(v View) {
 	o.candInk = nil
 	if o.InkCheck {
 		for _, l := range o.candidates {
+			if l.Kind == KindBoard {
+				// board 的核對已在 puts 返回時算（003 §3.2）；在這裡取會看到同一帶其他字串的墨跡。
+				o.candInk = append(o.candInk, l.BoardInk)
+				continue
+			}
 			o.candInk = append(o.candInk, o.inkCheck(v, ds, l))
 		}
 	}

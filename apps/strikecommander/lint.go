@@ -21,10 +21,11 @@ func (r LintReport) OK() bool { return len(r.Errors) == 0 }
 //   - 譯文每字都在全形表裡（半形字、缺字分別報）；範本譯文恰好一個 %s、一個 %d，
 //     拿掉這兩個佔位符後其餘字元照同一規則檢查；
 //   - 2 倍時 n × 8 ≤ 320（範本以拿掉佔位符後的字數計）；
-//   - 每個 key 都在 key 集合（labl ∪ 兩個範本 ∪ 九個短代號）裡；labl 是 OPTIONS.IFF 與
-//     OPTIONS2.IFF 的 LABL 去重；
+//   - 每個 key 都在 key 集合（labl ∪ 兩個範本 ∪ 九個短代號 ∪ ExeKeys）裡；labl 是 OPTIONS.IFF 與
+//     OPTIONS2.IFF 的 LABL 去重；ExeKeys 是計分板的 EXE 字串（003 §3.5）；
 //   - 漏譯（key 集合有而 catalog 沒有）列在 Untranslated；
-//   - 防呆（只看 labl）：沒有 key 符合 removeRe 或 countRe、短代號不在 labl、WeaponLongNames 都在 labl。
+//   - 防呆（只看 labl）：沒有 key 符合 removeRe 或 countRe、短代號不在 labl、WeaponLongNames 都在 labl、
+//     ExeKeys 不在 labl（003 §3.5）。
 //
 // 字型的固定附加字另由 CheckFontExtra 檢查。
 func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
@@ -38,12 +39,15 @@ func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
 	if header != catalogHeader {
 		bad("第 1 列欄名要是 key、translation、source")
 	}
-	keys := make(map[string]bool, len(labl)+2+len(WeaponShortNames))
+	keys := make(map[string]bool, len(labl)+2+len(WeaponShortNames)+len(ExeKeys))
 	for k, ok := range labl {
 		keys[k] = keys[k] || ok
 	}
 	keys[TemplateCount], keys[TemplateRemove] = true, true
 	for _, k := range WeaponShortNames {
+		keys[k] = true
+	}
+	for _, k := range ExeKeys {
 		keys[k] = true
 	}
 	seen := make(map[string]int, len(rows))
@@ -58,7 +62,7 @@ func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
 			seen[r.key] = r.line
 		}
 		if !keys[r.key] {
-			bad("第 %d 列 key %q 不在 LABL、範本、短代號集合（孤兒 key）", r.line, r.key)
+			bad("第 %d 列 key %q 不在 LABL、範本、短代號、EXE 字串集合（孤兒 key）", r.line, r.key)
 		}
 		if r.tr == "" {
 			bad("第 %d 列 key %q 譯文是空的", r.line, r.key)
@@ -114,6 +118,12 @@ func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
 	for _, k := range WeaponLongNames {
 		if !labl[k] {
 			bad("武器長名稱 %q 不在 LABL 集合", k)
+		}
+	}
+	// 003 §3.5：EXE 字串與 LABL 沒有交集。
+	for _, k := range ExeKeys {
+		if labl[k] {
+			bad("EXE 字串 %q 也在 LABL 集合", k)
 		}
 	}
 	return rep

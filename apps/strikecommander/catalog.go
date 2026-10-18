@@ -16,6 +16,11 @@ import (
 
 const catalogHeader = "key\ttranslation\tsource"
 
+// ExeKeys 是計分板畫面的 EXE 字串（003 §3.5）：OPTTEST.EXE 資料段檔案位移 52E8Dh 起，不在 OPTIONS.IFF 的 LABL。
+// GROUND、AIR 是白板欄名（board），Return to office、Return to tent 是底部標籤（label，同一個呼叫點 14E4）。
+// LABL 的 Return to Office、Return to Tent 是大寫 O、T，是不同的 key。
+var ExeKeys = [...]string{"GROUND", "AIR", "Return to office", "Return to tent"}
+
 // catalogRow 是一列解析結果，lint 與載入共用。
 type catalogRow struct {
 	line            int

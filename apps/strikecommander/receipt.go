@@ -82,19 +82,24 @@ type ReceiptConfig struct {
 
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
+	noBoardCaller bool // 003 §4.2 案例 E 的負對照：只關掉計分板呼叫點（003 §3.1 條件 2）
 }
 
 // CommitStamps 是一次提交後某倍率的 stamp 數與文字 stamp 的文字（依 stamp 順序）。
+// Kinds 與 Texts 平行，是各文字 stamp 的種類（003 §3.4）。
 type CommitStamps struct {
 	Scale  int
 	Stamps int
 	Texts  []string
+	Kinds  []Kind
 }
 
 // ShotResult 是腳本一個 shot 的結果：當時各倍率的合成圖、原版放大圖與比較。
 type ShotResult struct {
 	Steps      uint64
 	Name       string
+	Indexed    []byte // 出圖用的回掃畫格（320×200 色號）與色盤，供離線比對（003 §4.2）
+	Palette    [256][3]uint8
 	Composites map[int][]byte
 	Plain      map[int][]byte
 	Check      map[int]CompositeCheck
@@ -145,7 +150,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			return nil, errors.New("strikecommander: 收據缺字型")
 		}
 		lo := NewLabelObserver()
-		lo.InkCheck, lo.CursorY, lo.noCallerCheck = true, cfg.CursorY, cfg.noCallerCheck
+		lo.InkCheck, lo.CursorY, lo.noCallerCheck, lo.noBoardCaller = true, cfg.CursorY, cfg.noCallerCheck, cfg.noBoardCaller
 		for _, sc := range cfg.Scales {
 			ov, err := NewOverlay(cfg.Font, cfg.Catalog, sc)
 			if err != nil {
@@ -164,6 +169,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				for _, s := range ov.Stamps() {
 					if s.Font != nil {
 						cs.Texts = append(cs.Texts, string(s.Text))
+						cs.Kinds = append(cs.Kinds, ov.StampKind(s))
 					}
 				}
 				counts = append(counts, cs)
@@ -262,7 +268,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if so.LastIndexed == nil {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
 			}
-			sr := ShotResult{Steps: it.Steps, Name: it.Name, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}}
+			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}}
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
 				ov.Sync(so.Labels.Visible(), so.Labels.Generation())

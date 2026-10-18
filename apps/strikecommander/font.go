@@ -1,7 +1,8 @@
 // Package strikecommander 是《Strike Commander》（陸空戰將）的中文化 adapter。
 //
-// 目前只有 OPTTEST 熱點標籤的覆繪（strike_commander repo 的 docs/spec/001）：唯讀觀察
-// 標籤常式在 0CF2:082A 印出的那一行，於畫格 blit 完成後提交，規劃 xlate stamp。
+// 目前是 OPTTEST 熱點標籤的覆繪（strike_commander repo 的 docs/spec/001、002）：唯讀觀察
+// 標籤常式在 0CF2:082A 印出的那一行，於畫格 blit 完成後提交，規劃 xlate stamp；
+// 以及計分板的白板欄名與底部標籤（docs/spec/003），呼叫端在 overlay 區的計分板程式。
 // 遊戲位址、簽章與呼叫端規則只放這個套件，不加進 xlate、session 或 internal（001 §2.1）。
 package strikecommander
 

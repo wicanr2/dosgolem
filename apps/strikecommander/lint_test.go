@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// lintCatalogRows 回合格夾具的列：001 的三個 key、兩個範本、九個短代號與九個長名稱（002 §2.3）。
-// 譯文只用測試字型有的字。
+// lintCatalogRows 回合格夾具的列：001 的三個 key、兩個範本、九個短代號與九個長名稱（002 §2.3），
+// 以及四個 EXE 字串（003 §3.5）。譯文只用測試字型有的字。
 func lintCatalogRows() []string {
 	rows := []string{
 		"Talk to Gwen\t測試譯文甲\t已觀察",
@@ -20,6 +20,12 @@ func lintCatalogRows() []string {
 	for _, k := range WeaponLongNames {
 		rows = append(rows, k+"\t測試譯文\t未觀察")
 	}
+	rows = append(rows,
+		"GROUND\t地面\t已觀察",
+		"AIR\t空中\t已觀察",
+		"Return to office\t測試\t已觀察",
+		"Return to tent\t測試\t未觀察",
+	)
 	return rows
 }
 
@@ -103,7 +109,7 @@ func TestLint(t *testing.T) {
 func TestLintUntranslatedComposed(t *testing.T) {
 	wide := testLabelFont(t).Wide
 	labl := testLABL("Talk to Gwen", "Fly Mission")
-	for _, k := range []string{TemplateCount, TemplateRemove, "AIM-9J", "AIM-120"} {
+	for _, k := range []string{TemplateCount, TemplateRemove, "AIM-9J", "AIM-120", "GROUND", "Return to tent"} {
 		t.Run(k, func(t *testing.T) {
 			rep := Lint([]byte(lintTSV([]string{k}, nil)), wide, labl)
 			if !rep.OK() || strings.Join(rep.Untranslated, "|") != k {
@@ -128,6 +134,9 @@ func TestLintGuards(t *testing.T) {
 		{"LABL 含 X (1)", testLABL("Talk to Gwen", "Fly Mission", "X (1)"), "符合組合標籤"},
 		{"LABL 含短代號", testLABL("Talk to Gwen", "Fly Mission", "AIM-9J"), "短代號"},
 		{"LABL 缺長名稱", noLong, "武器長名稱"},
+		// 003 §3.5：ExeKeys 與 LABL 沒有交集。
+		{"LABL 含 GROUND", testLABL("Talk to Gwen", "Fly Mission", "GROUND"), "EXE 字串"},
+		{"LABL 含 Return to office", testLABL("Talk to Gwen", "Fly Mission", "Return to office"), "EXE 字串"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

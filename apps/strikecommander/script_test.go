@@ -87,3 +87,27 @@ func TestCaseDScript(t *testing.T) {
 		t.Fatalf("案例 D 腳本 %+v，要 %+v", sc, want)
 	}
 }
+
+// 003 §4.2 案例 E 的腳本（RE 014 kb3.script 的輸入部分）。狀態檔步數在第一個事件之前，這裡以 0 解析。
+func TestCaseEScript(t *testing.T) {
+	b, err := os.ReadFile("testdata/case_e.script")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err := ParseScript(b, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Script{
+		Inputs: []ScriptedInput{
+			{4490600000, "move", 40, 96}, {4492000000, "down", 40, 96}, {4495000000, "up", 40, 96},
+			{4730000000, "move", 296, 56}, {4732000000, "down", 296, 56}, {4735000000, "up", 296, 56},
+			{4984000000, "move", 8, 156},
+		},
+		Shots: []Shot{{caseEShot, ""}},
+		Stop:  caseETo,
+	}
+	if !reflect.DeepEqual(sc, want) {
+		t.Fatalf("案例 E 腳本 %+v，要 %+v", sc, want)
+	}
+}
