@@ -26,6 +26,7 @@ const (
 	scRootEnv     = "DOSGOLEM_SC_ROOT"
 	scStateDirEnv = "DOSGOLEM_SC_STATE_DIR"
 	scFontEnv     = "DOSGOLEM_SC_FONT"
+	scCatalogEnv  = "DOSGOLEM_SC_CATALOG"
 	// 448 §3.2 的 SB16 設定（含 -ma -ds）。
 	scCFGSHA256 = "317b0abdbf538f52d95e13b7358712e6da30a1a6d6e312e78d4943254b34e36f"
 )
@@ -102,8 +103,9 @@ func runTrigger(t *testing.T, tc triggerCase, overlay, noCaller bool) *ReceiptRe
 	for i, c := range res.Commits {
 		t.Logf("提交 %d：blit 入口 %d 返回 %d，接受 %d、忽略 %d，gen %d，stamp %v", i, c.BlitEntry, c.BlitReturn, c.Accepted, c.Ignored, c.Generation, res.Stamps[i])
 		for j, l := range c.Labels {
-			_, has := cat[l.Key]
-			t.Logf("  %q X0 %d X1 %d Y %d 字型 %04X 段 %04X 列表 %04X puts 第 %d 步，有譯文 %t", l.Key, l.X0, l.X1, l.Y, l.Font, l.Seg, l.List, l.Steps, has)
+			text, rule, reason := ResolveLabel(l.Key, cat)
+			t.Logf("  %q X0 %d X1 %d Y %d 字型 %04X 段 %04X 列表 %04X puts 第 %d 步，有譯文 %t（%s%s）",
+				l.Key, l.X0, l.X1, l.Y, l.Font, l.Seg, l.List, l.Steps, text != nil, rule, reason)
 			if j < len(c.Ink) {
 				t.Logf("  墨跡框核對：%s", c.Ink[j])
 			}
@@ -212,7 +214,7 @@ func TestBuiltFont(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	labl := map[string]bool{"Talk to Gwen": true, "Transport to Strike Base": true, "Fly Mission": true}
+	labl := testLABL("Talk to Gwen", "Transport to Strike Base", "Fly Mission")
 	if rep := Lint(b, f.Wide, labl); !rep.OK() {
 		t.Fatalf("lint：%v", rep.Errors)
 	}
@@ -230,11 +232,13 @@ func TestBuiltFont(t *testing.T) {
 
 // TestFormalCatalog 以 lint 檢查正式譯文：DOSGOLEM_SC_CATALOG 是 text/opttest_labels.<lang>.tsv，
 // DOSGOLEM_SC_LABL 是 OPTIONS.IFF 與 OPTIONS2.IFF 的 LABL 去重清單（每列一個 key，原始位元組），
-// 字型取 DOSGOLEM_SC_FONT。三者都設定時才執行。
+// 字型取 DOSGOLEM_SC_FONT，DOSGOLEM_SC_FONT_EXTRA 是 strike_commander font/zh-TW.extra.txt。
+// 四者都設定時才執行。斷言 lint 通過、漏譯為 0（002 §2.3）、extra 檔內容等於 FontExtraRunes，
+// 且字型含這 12 字（002 §2.5）。
 func TestFormalCatalog(t *testing.T) {
-	cp, lp, fp := os.Getenv("DOSGOLEM_SC_CATALOG"), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv(scFontEnv)
-	if cp == "" || lp == "" || fp == "" {
-		t.Skip("DOSGOLEM_SC_CATALOG、DOSGOLEM_SC_LABL、" + scFontEnv + " 未全部設定")
+	cp, lp, fp, xp := os.Getenv(scCatalogEnv), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv(scFontEnv), os.Getenv("DOSGOLEM_SC_FONT_EXTRA")
+	if cp == "" || lp == "" || fp == "" || xp == "" {
+		t.Skip(scCatalogEnv + "、DOSGOLEM_SC_LABL、" + scFontEnv + "、DOSGOLEM_SC_FONT_EXTRA 未全部設定")
 	}
 	f, err := LoadLabelFont(fp, "full16-zh-TW")
 	if err != nil {
@@ -256,5 +260,18 @@ func TestFormalCatalog(t *testing.T) {
 	t.Logf("LABL %d 個，漏譯 %d：%v", len(labl), len(rep.Untranslated), rep.Untranslated)
 	if !rep.OK() {
 		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
+	}
+	if len(rep.Untranslated) != 0 {
+		t.Fatalf("正式 catalog 漏譯 %d：%v", len(rep.Untranslated), rep.Untranslated)
+	}
+	xb, err := os.ReadFile(xp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(xb) != FontExtraRunes {
+		t.Fatalf("%s 的內容 %q，要等於 FontExtraRunes %q", xp, xb, FontExtraRunes)
+	}
+	if err := CheckFontExtra(f.Wide); err != nil {
+		t.Fatal(err)
 	}
 }

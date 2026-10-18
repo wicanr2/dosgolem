@@ -1,0 +1,10 @@
+# strike_commander 規格 002 §3.2 案例 D：p539/s500b.state（停機坪）。
+# 步數與 strike_commander workplace/i013/fly2.script（盤點工具）相同；shot 不帶 NAME。
+move 5000650000 160 75
+down 5001000000 160 75
+up   5004000000 160 75
+move 5600000000 56 120
+shot 5606000000
+move 5620000000 56 88
+shot 5626000000
+stop 5630000000

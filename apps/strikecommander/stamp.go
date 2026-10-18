@@ -18,7 +18,7 @@ const (
 // Miss 是缺譯文或缺字的紀錄；畫面維持英文。
 type Miss struct {
 	Key    string
-	Reason string // "translation" 或 "glyph"
+	Reason string // MissTranslation、MissTemplate（002 §2.2）或 MissGlyph
 	Runes  []rune // 缺的字（只對 glyph）
 }
 
@@ -78,6 +78,8 @@ type Overlay struct {
 	scale int
 	gen   uint64
 	built bool
+	// exactOnly 讓解析只留第 1 步（只供 002 §3.2 案例 D 的負對照）。
+	exactOnly bool
 
 	Misses []Miss
 	Skips  []Skip
@@ -122,12 +124,12 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("字型 %04X 的墨跡框沒量過", l.Font)})
 			continue
 		}
-		t, ok := o.tr[l.Key]
-		if !ok {
-			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: "translation"})
+		// 組合標籤由解析代入譯文（002 §2.2）；Label.Key 仍是觀察到的原文。
+		text, _, reason := resolveLabel(l.Key, o.tr, o.exactOnly)
+		if text == nil {
+			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: reason})
 			continue
 		}
-		text := []rune(t)
 		var miss []rune
 		for _, r := range text {
 			if !o.font.Wide.Wide(r) || o.font.Font.Glyphs[r] == nil {
@@ -135,7 +137,7 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 			}
 		}
 		if len(miss) != 0 {
-			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: "glyph", Runes: miss})
+			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: MissGlyph, Runes: miss})
 			continue
 		}
 		p, err := PlanLabel(l, text, o.scale, o.font.Font)

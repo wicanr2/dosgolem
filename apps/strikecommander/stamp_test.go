@@ -3,6 +3,7 @@ package strikecommander
 import (
 	"encoding/binary"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -10,8 +11,9 @@ import (
 )
 
 // testFontRunes：全形字（來源位元組 bit 7 = 1）；testHalfRunes：半形字。
+// 數字刻意缺 ７（002 §3.1：缺字時 "… (17)" 記 glyph miss、CheckFontExtra 失敗）。
 const (
-	testFontRunes = "測試譯文甲乙丙一二三ＡＩＭ－９Ｊ"
+	testFontRunes = "測試譯文甲乙丙一二三ＡＩＭ－９Ｊ尾追式飛彈卸下０１２３４５６８（）"
 	testHalfRunes = "a -"
 )
 
@@ -48,6 +50,18 @@ func testLabelFont(t *testing.T) *LabelFont {
 		t.Fatal(err)
 	}
 	return f
+}
+
+// testLABL 回測試用的 LABL 集合：九個武器長名稱（002 §2.3 防呆要求它們在 LABL 裡）加上 extra。
+func testLABL(extra ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, k := range WeaponLongNames {
+		m[k] = true
+	}
+	for _, k := range extra {
+		m[k] = true
+	}
+	return m
 }
 
 func testCatalog() map[string]string {
@@ -89,9 +103,14 @@ func TestTestdataCatalog(t *testing.T) {
 			t.Fatalf("testdata %q = %q，要 %q", k, c[k], v)
 		}
 	}
-	labl := map[string]bool{"Talk to Gwen": true, "Transport to Strike Base": true, "Fly Mission": true, "Talk to Janet": true}
+	labl := testLABL("Talk to Gwen", "Transport to Strike Base", "Fly Mission", "Talk to Janet")
 	rep := Lint(b, testLabelFont(t).Wide, labl)
-	if !rep.OK() || strings.Join(rep.Untranslated, "|") != "Talk to Janet" {
+	// 漏譯：Talk to Janet、九個長名稱、兩個範本、九個短代號（002 §2.3 的 key 集合）。
+	wantU := []string{"Talk to Janet", TemplateCount, TemplateRemove}
+	wantU = append(wantU, WeaponLongNames[:]...)
+	wantU = append(wantU, WeaponShortNames[:]...)
+	sort.Strings(wantU)
+	if !rep.OK() || strings.Join(rep.Untranslated, "|") != strings.Join(wantU, "|") {
 		t.Fatalf("testdata lint：%+v", rep)
 	}
 }

@@ -75,14 +75,29 @@ type ReceiptConfig struct {
 	Font        *LabelFont
 	Overlay     bool // false：不裝觀察器（同狀態 A/B 的關）
 	CursorY     int  // 滑鼠游標中心列，負值為未知
+	// Inputs、Shots 是腳本事件（002 §2.4）；StopSteps 取腳本的 stop。
+	// 觀察器開、關兩次執行都照同一份事件推進；Overlay 關時 shot 只切分推進、不出圖。
+	Inputs []ScriptedInput
+	Shots  []Shot
 
-	noCallerCheck bool // §3.3 的負對照
+	noCallerCheck bool // 001 §3.3 的負對照
+	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
 }
 
-// CommitStamps 是一次提交後各倍率的 stamp 數。
+// CommitStamps 是一次提交後某倍率的 stamp 數與文字 stamp 的文字（依 stamp 順序）。
 type CommitStamps struct {
 	Scale  int
 	Stamps int
+	Texts  []string
+}
+
+// ShotResult 是腳本一個 shot 的結果：當時各倍率的合成圖、原版放大圖與比較。
+type ShotResult struct {
+	Steps      uint64
+	Name       string
+	Composites map[int][]byte
+	Plain      map[int][]byte
+	Check      map[int]CompositeCheck
 }
 
 // ReceiptResult 是收據執行的結果。
@@ -95,6 +110,7 @@ type ReceiptResult struct {
 	Log          []Event
 	LogDropped   int
 	PartialBlits int
+	Shots        []ShotResult // 只在 Overlay 開時有值，與 ReceiptConfig.Shots 平行
 
 	// 以下只在 Overlay 開時有值。
 	Frame          []byte // 停止時最後一次回掃的畫格
@@ -112,7 +128,13 @@ type CompositeCheck struct {
 	Outside int // 落在遮蓋 stamp 框（× 倍率）外的差異像素
 }
 
-// RunReceipt 從狀態檔啟動 session，跑到 StopSteps，記錄每次提交與合成圖。
+// RunReceipt 從狀態檔啟動 session，依腳本事件推進到 StopSteps，記錄每次提交與合成圖。
+// 回合節奏同 cmd/strikecommander-census（002 §2.4）：
+//  1. 推進到事件步數：重新 View，交付空更新，Advance 到該步；
+//  2. 輸入事件：重新 View，交付對應的輸入，Advance(1)；
+//  3. shot：Sync(Visible(), Generation()) 後以最後一次回掃的畫格出各倍率合成圖與原版放大圖。
+//
+// 每次 Advance 後核對 MachineStepsAfter 等於目標；早停時回錯誤。沒有事件時只推進到 StopSteps。
 func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	res := &ReceiptResult{}
 	var so *SessionObserver
@@ -129,14 +151,22 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if err != nil {
 				return nil, err
 			}
+			ov.exactOnly = cfg.exactOnly
 			overlays[sc] = ov
 		}
 		lo.OnCommit = func(c Commit) {
 			res.Commits = append(res.Commits, c)
 			var counts []CommitStamps
 			for _, sc := range cfg.Scales {
-				overlays[sc].Sync(c.Labels, c.Generation)
-				counts = append(counts, CommitStamps{sc, len(overlays[sc].Stamps())})
+				ov := overlays[sc]
+				ov.Sync(c.Labels, c.Generation)
+				cs := CommitStamps{Scale: sc, Stamps: len(ov.Stamps())}
+				for _, s := range ov.Stamps() {
+					if s.Font != nil {
+						cs.Texts = append(cs.Texts, string(s.Text))
+					}
+				}
+				counts = append(counts, cs)
 			}
 			res.Stamps = append(res.Stamps, counts)
 		}
@@ -153,22 +183,96 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		return nil, err
 	}
 	res.Boot = boot
-	if cfg.StopSteps <= boot.Steps {
-		return nil, fmt.Errorf("strikecommander: 停止步數 %d 不大於狀態檔步數 %d", cfg.StopSteps, boot.Steps)
-	}
-	v, err := o.View()
-	if err != nil {
+	evs, items := receiptEvents(cfg.Inputs, cfg.Shots, cfg.StopSteps)
+	if err := validateScript(evs, true, cfg.StopSteps, boot.Steps); err != nil {
 		return nil, err
 	}
-	if _, err := o.Deliver(session.CapturedUpdate{StartedPanel: v.Panel, Layout: v.Layout, SourceGeneration: v.SourceGeneration}); err != nil {
-		return nil, err
+	steps := boot.Steps
+	// deliver 以當次 View 交付；mk 依當次 Layout 填入輸入（nil 為空更新）。
+	deliver := func(mk func(l host.MouseLayout, u *session.CapturedUpdate)) error {
+		v, err := o.View()
+		if err != nil {
+			return err
+		}
+		u := session.CapturedUpdate{StartedPanel: v.Panel, Layout: v.Layout, SourceGeneration: v.SourceGeneration}
+		if mk != nil {
+			mk(v.Layout, &u)
+		}
+		_, err = o.Deliver(u)
+		return err
 	}
-	r, err := o.Advance(session.InstructionBudget(cfg.StopSteps - boot.Steps))
-	if err != nil {
-		return res, fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
+	advance := func(target uint64) error {
+		r, err := o.Advance(session.InstructionBudget(target - steps))
+		if err != nil {
+			return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
+		}
+		if r.MachineStepsAfter != target {
+			return fmt.Errorf("strikecommander: 停在第 %d 步，要 %d", r.MachineStepsAfter, target)
+		}
+		steps = target
+		return nil
 	}
-	if r.MachineStepsAfter != cfg.StopSteps {
-		return res, fmt.Errorf("strikecommander: 停在第 %d 步，要 %d", r.MachineStepsAfter, cfg.StopSteps)
+	for i, e := range evs {
+		// 1. 推進到事件步數（stop 也是）。
+		if err := deliver(nil); err != nil {
+			return res, err
+		}
+		if err := advance(e.steps); err != nil {
+			return res, err
+		}
+		if e.kind == "stop" {
+			break
+		}
+		switch it := items[i].(type) {
+		case ScriptedInput:
+			// 2. 輸入事件：DOS 邏輯像素換成 host 座標。
+			var kind host.MouseEventKind
+			switch it.Kind {
+			case "move":
+				kind = host.MouseEventMove
+			case "down":
+				kind = host.MouseEventDown
+			case "up":
+				kind = host.MouseEventUp
+			default:
+				return res, fmt.Errorf("strikecommander: 第 %d 步的輸入 %q 不支援", it.Steps, it.Kind)
+			}
+			err := deliver(func(l host.MouseLayout, u *session.CapturedUpdate) {
+				ev := host.MouseEvent{Kind: kind, X: it.X * int(l.Scale), Y: l.ChromeHeight + it.Y*int(l.Scale), Target: host.MouseTargetCanvas}
+				switch kind {
+				case host.MouseEventMove:
+					u.PointerMoves = []host.MouseEvent{ev}
+				case host.MouseEventDown:
+					u.PointerDown = &ev
+				case host.MouseEventUp:
+					u.PointerUp = &ev
+				}
+			})
+			if err != nil {
+				return res, fmt.Errorf("strikecommander: 第 %d 步 %s：%w", it.Steps, it.Kind, err)
+			}
+			if err := advance(steps + 1); err != nil {
+				return res, err
+			}
+		case Shot:
+			// 3. shot：只在 Overlay 開時出圖；關時只切分推進，與開的那次相同。
+			if !cfg.Overlay {
+				continue
+			}
+			if so.LastIndexed == nil {
+				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
+			}
+			sr := ShotResult{Steps: it.Steps, Name: it.Name, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}}
+			for _, sc := range cfg.Scales {
+				ov := overlays[sc]
+				ov.Sync(so.Labels.Visible(), so.Labels.Generation())
+				comp, _ := ov.Draw(so.LastIndexed, so.LastPalette)
+				plain := ScaleIndexedRGBA(so.LastIndexed, so.LastPalette, sc)
+				sr.Composites[sc], sr.Plain[sc] = comp, plain
+				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps())
+			}
+			res.Shots = append(res.Shots, sr)
+		}
 	}
 	if res.Digest, err = o.Digest(); err != nil {
 		return res, err

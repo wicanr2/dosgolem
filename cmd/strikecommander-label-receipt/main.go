@@ -5,6 +5,9 @@
 //	strikecommander-label-receipt -root <SB16 設定樹> -state <s449.state> -state-sha256 <hex> \
 //	    -steps 4492700000 -tsv <catalog.tsv> -font <zh-TW.golemfnt> -out <輸出目錄>
 //
+// -script 給規格 002 §2.4 的腳本（move、down、up、shot、stop）時，依腳本送滑鼠事件，
+// 每個 shot 另出各倍率的合成 PNG；-steps 可省，給了就必須等於腳本的 stop。
+//
 // -root 是唯讀來源；每次執行另外實體複製一份到 -work 底下當 SaveRoot（遊戲會寫入），結束時刪除。
 package main
 
@@ -28,7 +31,8 @@ func main() {
 	statePath := flag.String("state", "", "probe -save-state 狀態檔")
 	stateSHA := flag.String("state-sha256", "", "狀態檔 SHA-256（十六進位）")
 	rebase := flag.String("rebase-from", "/scratch", "狀態檔開檔路徑的舊前綴，逗號分隔（狀態檔的 Root 自動包含）")
-	steps := flag.Uint64("steps", 0, "停止步數（絕對）")
+	steps := flag.Uint64("steps", 0, "停止步數（絕對）；有 -script 時可省")
+	script := flag.String("script", "", "腳本檔（strike_commander 規格 002 §2.4）")
 	scales := flag.String("scales", "2,3", "合成圖倍率，逗號分隔（2、3）")
 	tsv := flag.String("tsv", "", "譯文 catalog（key、translation、source）")
 	fontPath := flag.String("font", "", "GOLEMFNT 字型")
@@ -37,15 +41,30 @@ func main() {
 	cursorY := flag.Int("cursor-y", -1, "滑鼠游標中心的原版列；負值為未知（墨跡框核對不略過）")
 	ab := flag.Bool("ab", true, "另跑一次觀察器與 stamp 關閉，比較 Digest")
 	flag.Parse()
-	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *scales, *tsv, *fontPath, *out, *work, *cursorY, *ab); err != nil {
+	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *fontPath, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
 		os.Exit(1)
 	}
 }
 
-func run(root, statePath, stateSHA, rebase string, steps uint64, scalesArg, tsv, fontPath, out, work string, cursorY int, ab bool) error {
-	if root == "" || statePath == "" || stateSHA == "" || steps == 0 || tsv == "" || fontPath == "" || out == "" {
-		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps -tsv -font -out）")
+func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, fontPath, out, work string, cursorY int, ab bool) error {
+	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || fontPath == "" || out == "" {
+		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps 或 -script、-tsv -font -out）")
+	}
+	var sc strikecommander.Script
+	if script != "" {
+		b, err := os.ReadFile(script)
+		if err != nil {
+			return err
+		}
+		// 狀態檔步數要等啟動後才知道；RunReceipt 會以 BootReceipt.Steps 再驗一次。
+		if sc, err = strikecommander.ParseScript(b, 0); err != nil {
+			return err
+		}
+		if steps != 0 && steps != sc.Stop {
+			return fmt.Errorf("-steps %d 不等於腳本的 stop %d", steps, sc.Stop)
+		}
+		steps = sc.Stop
 	}
 	var want [32]byte
 	if b, err := hex.DecodeString(stateSHA); err != nil || len(b) != 32 {
@@ -85,6 +104,7 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, scalesArg, tsv,
 	cfg := strikecommander.ReceiptConfig{
 		State: raw, StateSHA256: want, RebaseFrom: rebaseFrom, StopSteps: steps,
 		Scales: scales, Catalog: cat, Font: font, Overlay: true, CursorY: cursorY,
+		Inputs: sc.Inputs, Shots: sc.Shots,
 	}
 	on, err := runOnce(root, work, cfg)
 	if err != nil {
@@ -95,8 +115,9 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, scalesArg, tsv,
 		fmt.Printf("提交 %d：blit 入口 %d、返回 %d，接受 %d、忽略 %d，generation %d，stamp %v\n",
 			i, c.BlitEntry, c.BlitReturn, c.Accepted, c.Ignored, c.Generation, on.Stamps[i])
 		for j, l := range c.Labels {
-			_, has := cat[l.Key]
-			fmt.Printf("  %q X0 %d X1 %d Y %d 字型 %04X 段 %04X，有譯文 %t\n", l.Key, l.X0, l.X1, l.Y, l.Font, l.Seg, has)
+			text, rule, reason := strikecommander.ResolveLabel(l.Key, cat)
+			fmt.Printf("  %q X0 %d X1 %d Y %d 字型 %04X 段 %04X puts 第 %d 步，有譯文 %t（%s%s）%s\n",
+				l.Key, l.X0, l.X1, l.Y, l.Font, l.Seg, l.Steps, text != nil, rule, reason, string(text))
 			if j < len(c.Ink) {
 				fmt.Printf("  墨跡框核對：%s\n", c.Ink[j])
 			}
@@ -119,6 +140,22 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, scalesArg, tsv,
 		}
 		if err := writePNG(filepath.Join(out, fmt.Sprintf("plain-%dx.png", sc)), on.Plain[sc], sc); err != nil {
 			return err
+		}
+	}
+	for _, s := range on.Shots {
+		name := fmt.Sprintf("shot-%d", s.Steps)
+		if s.Name != "" {
+			name += "-" + s.Name
+		}
+		for _, sc := range scales {
+			cc := s.Check[sc]
+			fmt.Printf("shot 第 %d 步 %s，%d 倍：合成圖差異 %d、遮蓋框外 %d\n", s.Steps, s.Name, sc, cc.Diffs, cc.Outside)
+			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
+				return err
+			}
+			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-plain-%dx.png", name, sc)), s.Plain[sc], sc); err != nil {
+				return err
+			}
 		}
 	}
 	printDigest("開", on.Digest)
