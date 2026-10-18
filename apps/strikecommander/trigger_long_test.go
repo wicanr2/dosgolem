@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ import (
 //   - DOSGOLEM_SC_ROOT：448 的 SB16 設定樹（每個子測試實體複製到 t.TempDir() 當 SaveRoot）
 //   - DOSGOLEM_SC_STATE_DIR：strike_commander 的 workplace/scratch（底下有 p485、p530、p539）
 //   - DOSGOLEM_SC_FONT：tools/font/build.sh 建的 zh-TW.golemfnt
-// 譯文是 testdata/opttest_labels.test.tsv（不是正式譯文）。
+// 譯文是 testdata/opttest_labels.test.tsv（不是正式譯文），字型要含測試字（strike_commander font/README.md 的 font-test）。
 //
 // 子測試：
 //   - A、B、C：§3.3 的三個案例，斷言提交、墨跡框核對、每次提交的 stamp 數與合成圖差異範圍。
@@ -224,5 +225,36 @@ func TestBuiltFont(t *testing.T) {
 	t.Logf("字數 %d，ASCII 半形 %d", f.Wide.Len(), half)
 	if half != 95 {
 		t.Fatalf("ASCII 20h 到 7Eh 應全部以半形收入，得 %d", half)
+	}
+}
+
+// TestFormalCatalog 以 lint 檢查正式譯文：DOSGOLEM_SC_CATALOG 是 text/opttest_labels.<lang>.tsv，
+// DOSGOLEM_SC_LABL 是 OPTIONS.IFF 與 OPTIONS2.IFF 的 LABL 去重清單（每列一個 key，原始位元組），
+// 字型取 DOSGOLEM_SC_FONT。三者都設定時才執行。
+func TestFormalCatalog(t *testing.T) {
+	cp, lp, fp := os.Getenv("DOSGOLEM_SC_CATALOG"), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv(scFontEnv)
+	if cp == "" || lp == "" || fp == "" {
+		t.Skip("DOSGOLEM_SC_CATALOG、DOSGOLEM_SC_LABL、" + scFontEnv + " 未全部設定")
+	}
+	f, err := LoadLabelFont(fp, "full16-zh-TW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb, err := os.ReadFile(lp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labl := map[string]bool{}
+	for _, k := range strings.Split(strings.TrimSuffix(string(lb), "\n"), "\n") {
+		labl[k] = true
+	}
+	rep := Lint(b, f.Wide, labl)
+	t.Logf("LABL %d 個，漏譯 %d：%v", len(labl), len(rep.Untranslated), rep.Untranslated)
+	if !rep.OK() {
+		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
 	}
 }
