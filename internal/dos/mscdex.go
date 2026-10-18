@@ -411,8 +411,8 @@ const (
 	cdSectorBytes = 2352
 )
 
-// sectorOffset 回 LBA 在映像檔裡的位移；那一軌沒有位移或是資料軌回 −1。
-func (cd *CDROM) sectorOffset(lba uint32) int64 {
+// SectorOffset 回 LBA 在映像檔裡的位移；那一軌沒有位移或是資料軌回 −1。
+func (cd *CDROM) SectorOffset(lba uint32) int64 {
 	t := cd.trackAt(lba)
 	if t.Data || t.Offset < 0 {
 		return -1
@@ -467,7 +467,7 @@ func (cd *CDROM) WriteWAV(path string, image io.ReaderAt, endStep uint64, sps fl
 			n = total - from
 		}
 		for i := int64(0); i < n; i += cdSectorBytes / 4 {
-			off := cd.sectorOffset(p.Start + uint32(i/(cdSectorBytes/4)))
+			off := cd.SectorOffset(p.Start + uint32(i/(cdSectorBytes/4)))
 			if off < 0 {
 				break
 			}

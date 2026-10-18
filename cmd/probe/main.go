@@ -159,6 +159,9 @@ func main() {
 			"曲目表第四欄是各軌在映像裡的位元組位移（`docs/spec/438-mscdex-cd-audio-dump`）")
 	dumpCDWAV := flag.String("dump-cd-wav", "",
 		"跑完把程式要求播放的 CD 音軌倒成 44.1 kHz 16 位元立體聲 WAV，時間軸對齊指令數。要配 -cdrom 與 -cdrom-image")
+	dumpMixWAV := flag.String("dump-mix-wav", "",
+		"把 OPL、喇叭與 CD 音軌經混音器混成 48 kHz 16 位元立體聲 WAV，邊跑邊寫（`docs/spec/440-mixer-cd-audio`）。"+
+			"給了 -cdrom 與 -cdrom-image 才有 CD 音軌；OPL 要配 -adlib")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -746,6 +749,12 @@ func main() {
 	// 而感覺分不出「這一段本來就有幾十億道指令」與「執行器每道指令太貴」。
 	started := time.Now()
 	startSteps, startCycles := m.Steps, m.CPU.Cycles
+	var mixOut *mixWAV
+	if *dumpMixWAV != "" {
+		if mixOut, err = newMixWAV(*dumpMixWAV, m, d, *cdromImage); err != nil {
+			die(err)
+		}
+	}
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// -ega-every：每 N 道指令存一張。**單張只看得到終點**，
 		// 看不出按鍵是送早了還是送晚了。
@@ -972,6 +981,11 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
+		if mixOut != nil {
+			if err := mixOut.step(m); err != nil {
+				die(err)
+			}
+		}
 		// 阻塞在鍵盤輸入時程式一道指令都不往前走（spec 008），
 		// 再跑下去只是把 INT 重跑幾百萬次。留 blockAfter 步給計時器
 		// 推背景動畫，之後就停——繼續燒預算不會有新資訊。
@@ -1149,6 +1163,11 @@ func main() {
 	if *dumpCDWAV != "" {
 		if err := writeCDWAV(m, d, *cdromImage, *dumpCDWAV); err != nil {
 			fmt.Fprintln(os.Stderr, "dump-cd-wav:", err)
+		}
+	}
+	if mixOut != nil {
+		if err := mixOut.finish(m, d); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-mix-wav:", err)
 		}
 	}
 	if *dumpOPLWAV != "" {

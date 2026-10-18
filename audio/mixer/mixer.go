@@ -1,5 +1,6 @@
 // Package mixer 把 machine 的 OPL、喇叭與 PIT 通道 2 事件依步數合成成
-// 48 kHz 立體聲（`docs/spec/240` §3.4–3.5）。
+// 48 kHz 立體聲（`docs/spec/240` §3.4–3.5），掛上光碟時再混入 CD 音軌
+// （`docs/spec/440-mixer-cd-audio`）。
 //
 // 時間基準是模擬步數：樣本序號 = 絕對步數 × 取樣率 ÷ 每秒步數，
 // 以整數換算，不累積誤差。事件只收集、不在 Step 內合成；Render 在
@@ -57,6 +58,9 @@ type Mixer struct {
 	lp         float64 // 喇叭的一階低通狀態（近似喇叭紙盆的高頻衰減）
 
 	opl [2]int16
+
+	cd      *cdSource // nil：沒有 CD 音軌
+	clipped uint64    // 夾值的樣本數（左右各算）
 }
 
 // New 建一個混音器。stepsPerSecond 是前端推進速率（每秒步數）。
@@ -155,7 +159,12 @@ func (m *Mixer) Render(dst []float32, before, after uint64) []float32 {
 		}
 		m.chip.GenerateStream(m.opl[:])
 		s := m.speaker()
-		dst = append(dst, clamp(float64(m.opl[0])/32768+s), clamp(float64(m.opl[1])/32768+s))
+		l, r := float64(m.opl[0])/32768+s, float64(m.opl[1])/32768+s
+		if m.cd != nil {
+			cl, cr := m.cdSample(m.next)
+			l, r = l+float64(cl)/32768, r+float64(cr)/32768
+		}
+		dst = append(dst, m.clamp(l), m.clamp(r))
 	}
 	// 這一段尚未輪到的事件（理論上不會有：事件步數都小於 after）照樣套用，
 	// 讓暫存器狀態不落後。
@@ -166,11 +175,16 @@ func (m *Mixer) Render(dst []float32, before, after uint64) []float32 {
 	return dst
 }
 
-func clamp(v float64) float32 {
+// Clipped 回夾值的樣本數（左右聲道各算一次）。
+func (m *Mixer) Clipped() uint64 { return m.clipped }
+
+func (m *Mixer) clamp(v float64) float32 {
 	if v > 1 {
+		m.clipped++
 		return 1
 	}
 	if v < -1 {
+		m.clipped++
 		return -1
 	}
 	return float32(v)

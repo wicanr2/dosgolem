@@ -33,7 +33,7 @@ PLAY AUDIO 播第 21 軌，播完再送一次（量測：`wicanr2/san5-remake` �
 
 | 項目 | 本實作 | 來源 | 分類 |
 |---|---|---|---|
-| 即時播放 | 只倒檔，不接混音器與前端 | DOSBox-X 即時混音 | remake-owned。到期條件：有通用的即時前端要出聲時，把 `CDPlay` 接進 `audio/mixer` |
+| 即時播放 | 本規格只倒檔；混音與即時播放見 `440-mixer-cd-audio`、`441-play-frontend` | DOSBox-X 即時混音 | 已由 440、441 處理 |
 | 聲道與音量（IOCTL OUTPUT 03h） | 不套用 | DOSBox-X 套用 | 三國志V 未觀測到改音量 |
 | 狀態檔之前的播放 | `-load-state` 之後只記得到新的播放 | 狀態檔不存 MSCDEX（`434` §4） | 同 `434` |
 
