@@ -1,6 +1,6 @@
 # 450：session 從 probe 狀態檔啟動
 
-狀態：**READY**（第 4 版）
+狀態：**READY**（第 4 版），已實作（§5）
 日期：2026-10-18
 前置：[`235-sealed-owner-private-boot-draft`](235-sealed-owner-private-boot-draft.md)（`BootOriginal` 與 save root）、[`447-bios-int09-int15-keyboard-intercept`](447-bios-int09-int15-keyboard-intercept.md)、
 [`448-session-config-legacy-pm-profile`](448-session-config-legacy-pm-profile.md)、[`449-session-irq1-scan-channel`](449-session-irq1-scan-channel.md)
@@ -190,6 +190,38 @@ psc.sh p530 probe543 -kbd-int15 -load-state /scratch/s449.state -steps 449040000
 - 待送的滑鼠回呼（`QueueCallback`）不在狀態檔裡，是 probe 就有的現況。
 - 狀態檔含原版的整份記憶體，`State` 位元組與存檔都不得散布（同 `oracle.LoadStateFile` 的註記）。
 
-## 5. 實作收據
+## 5. 實作收據（2026-10-18）
 
-（實作後填寫。）
+實作 commit 見本收據的上一個 commit。實作由子代理完成，測試由主代理在 Docker 內重跑。
+
+### 5.1 單元測試與回歸
+
+- `go vet ./...` 通過；`session`、`internal/dos`、`internal/state`、`internal/machine`、`cmd/probe`、`oracle` 的 `go test -count=1` 全過（主代理重跑）。
+- 測試：`internal/dos` 的 `TestRebasePath`（19 列）、`TestLoadStateRebasesHandles`、`TestLoadStateRebaseFailureKeepsDOS`、`TestLoadStateWithoutRebaseKeepsPaths`；`internal/state` 的 `TestLoadFromMatchesLoad`、`TestNotGzipSentinel`；`session` 的 `TestBootFromStateRejectsWithoutFailing`、`TestBootFromStateLoadFailureFailsOwner`、`TestBootFromStateRoundTrip`、`TestBootFromStateRootIsSaveRoot`、`TestBootFromStateRejectsHeldMouseButton`、`TestBootFromStateKbdIntercept`。
+- 回歸：改動前（`git archive 319739f` 的乾淨樹）與改動後的 `go test -count=1 ./...` 套件結果相同（42 ok、3 FAIL，3 個是容器沒有顯示器的 ebiten 套件，改動前就失敗）。
+
+### 5.2 負對照
+
+§3.3 的 14 列由子代理逐列執行（輸出在 `strike_commander` 的 `workplace/i450/neg/`），13 列照預期使對應測試失敗。處置：
+
+- 「`RebasePath` 不先 Clean」對 `..` 案例是等價突變：`filepath.Rel` 內部會先 Clean 兩個參數，`/orig/../etc/x` 有沒有先 Clean 都不符合 `/orig`。這一列改由同一張表的兩個案例鑑別，突變時都失敗：前綴含重複分隔字元時的最長前綴比較、空字串前綴的略過。
+- 「驗證移到賦值之後」使 §3.1 第 3 項失敗的機制是舊檔案代號已被關閉、`SaveState` 回錯，不是摘要值不同；仍是同一項失敗。
+
+主代理另在複製樹上把 `BootFromState` 的 `RebaseTo` 設為空字串，§3.4 的 `Base` 失敗於「還原時開不了 /orig/OPTTEST.EXE」。
+
+### 5.3 觸發案例
+
+`TestBootFromStateTrigger/Base` 通過（0.9 秒）。SaveRoot 由 `strike_commander` 的 `workplace/root` 實體複製，4 個還原檔案的 SHA-256：`OPTTEST.EXE` `e8c47cfe…a1f1`、`LILTRE.TRE` `ac1ae00c…78de`、`BIGTRE.TRE` `96c2ba71…0594`、`VOCLIST.TRE` `7301c330…2785`。`RebaseFrom: ["/scratch"]` 在這份資料上沒有用到（4 個檔案代號都在 `/orig`）。
+
+| 斷言 | 結果 |
+|---|---|
+| `BootReceipt.Steps` | 4490000000，`LegacyState` 假，`StateSHA256` `7dff6dd2…47a0` |
+| 第 4490400000 步 Indexed、Palette | `b26228b4…3883`、`f7816e01…2db0`，相同 |
+| 第 4490400000 步暫存器 | `0CF2:0C07`，AX、BX、CX、DX `0000`，DS、ES `4E66`，SS:SP `4E66:FC46`，相同 |
+
+負對照 `NoKbdRewrite`：步數、Indexed、Palette、暫存器都未改變，與 §3.4 的預期相同（這段 `KeyIRQs=0`）。
+
+### 5.4 實作期間的處置
+
+- `Load` 的錯誤訊息照規格包上路徑，字面會重複「不是 gzip」（sentinel 本身含這四個字）。
+- 長測試負對照的開關是未匯出欄位 `Owner.noKbdRewrite`，沒有新增公開 API。
