@@ -13,6 +13,8 @@
 //	up   STEP X Y
 //	grid FROM X0 Y0 X1 Y1 DX DY DWELL   從 FROM 起每 DWELL 步移到下一格（列優先）
 //	shot STEP NAME                      存最後一次回掃的畫格（NAME.png）
+//	trace FROM TO                       FROM 到 TO 之間依序記下每次 puts 與 blit（RE 012 的 3C3C:0000）入口，寫進 trace.tsv
+//	dump STEP SEG:OFF LEN NAME          在 STEP 之後的第一步把 SEG:OFF 起 LEN bytes 存成 NAME.bin（十六進位位址與長度）
 //	stop STEP
 package main
 
@@ -39,6 +41,9 @@ import (
 // putsSig 是 OPTTEST 整行輸出的前 16 bytes（RE 011 §2，檔案位移 3F36Bh）。
 var putsSig = []byte{0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x06, 0x56, 0x57, 0x8B, 0x76, 0x06, 0x8B, 0x7E, 0x08, 0xFF, 0x74}
 
+// blitSegOff 是 blit（RE 012 §2，3C3C:0000）相對 base 的段偏移。
+const blitSegOff = 0x39FB
+
 // putsSegOff 是 puts 相對載入段 base 的段偏移（3B83 − base；base = 3B83 − 3942h）。
 const putsSegOff, putsIP = 0x3942, 0x034B
 
@@ -58,6 +63,16 @@ type callStat struct {
 	count       int
 	first, last uint64
 	cx, cy      uint16
+	obj, font   uint16
+}
+
+// dumpReq 是待做的記憶體傾印；BeforeStep 在步數到了之後的第一步讀取。
+type dumpReq struct {
+	step     uint64
+	seg, off uint16
+	n        int
+	name     string
+	data     []byte
 }
 
 type observer struct {
@@ -69,6 +84,10 @@ type observer struct {
 	frame     []byte
 	palette   [256][3]uint8
 	calls     int
+	dumps     []*dumpReq
+	traceFrom uint64
+	traceTo   uint64
+	trace     []string
 }
 
 func (o *observer) VideoWrite(machine.VideoWrite) {}
@@ -83,6 +102,18 @@ func rd16(v session.StepView, seg, off uint16) uint16 {
 }
 
 func (o *observer) BeforeStep(v session.StepView) error {
+	for _, d := range o.dumps {
+		if d.data == nil && v.Steps() >= d.step {
+			d.data = make([]byte, d.n)
+			base := uint32(d.seg)<<4 + uint32(d.off)
+			for i := range d.data {
+				d.data[i] = v.Read8(base + uint32(i))
+			}
+		}
+	}
+	if o.baseKnown && v.IP() == 0 && v.CS() == o.base+blitSegOff && v.Steps() >= o.traceFrom && v.Steps() < o.traceTo {
+		o.trace = append(o.trace, fmt.Sprintf("%d\tblit\t\t", v.Steps()))
+	}
 	if v.IP() != putsIP {
 		return nil
 	}
@@ -137,9 +168,12 @@ func (o *observer) BeforeStep(v session.StepView) error {
 		}
 	}
 	k := callKey{strings.Join(chain, "<"), sb.String()}
+	if v.Steps() >= o.traceFrom && v.Steps() < o.traceTo {
+		o.trace = append(o.trace, fmt.Sprintf("%d\tputs\t%s\t%s", v.Steps(), chain[0], k.text))
+	}
 	st := o.stats[k]
 	if st == nil {
-		st = &callStat{first: v.Steps(), cx: rd16(v, ds, obj+0x10), cy: rd16(v, ds, obj+0x12)}
+		st = &callStat{first: v.Steps(), cx: rd16(v, ds, obj+0x10), cy: rd16(v, ds, obj+0x12), obj: obj, font: rd16(v, ds, obj+0x14)}
 		o.stats[k] = st
 		o.order = append(o.order, k)
 	}
@@ -211,6 +245,29 @@ func parseScript(path string) ([]event, error) {
 				return nil, fmt.Errorf("第 %d 列：%q", n, line)
 			}
 			evs = append(evs, event{step: s, kind: "shot", name: fs[2]})
+		case "trace":
+			a, e1 := num(1)
+			b, e2 := num(2)
+			if e1 != nil || e2 != nil || b <= a {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			evs = append(evs, event{step: a, kind: "trace", name: strconv.FormatUint(b, 10)})
+		case "dump":
+			s, err := num(1)
+			if err != nil || len(fs) < 5 {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			so := strings.SplitN(fs[2], ":", 2)
+			if len(so) != 2 {
+				return nil, fmt.Errorf("第 %d 列：位址要 SEG:OFF", n)
+			}
+			sg, e1 := strconv.ParseUint(so[0], 16, 16)
+			of, e2 := strconv.ParseUint(so[1], 16, 16)
+			ln, e3 := strconv.ParseUint(fs[3], 16, 32)
+			if e1 != nil || e2 != nil || e3 != nil || ln == 0 || ln > 0x100000 {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			evs = append(evs, event{step: s, kind: "dump", x: int(sg), y: int(of), name: fs[4] + ":" + strconv.FormatUint(ln, 10)})
 		case "stop":
 			s, err := num(1)
 			if err != nil {
@@ -290,6 +347,17 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		return err
 	}
 	obs := &observer{stats: map[callKey]*callStat{}}
+	for _, e := range evs {
+		if e.kind == "trace" {
+			obs.traceFrom = e.step
+			obs.traceTo, _ = strconv.ParseUint(e.name, 10, 64)
+		}
+		if e.kind == "dump" {
+			i := strings.LastIndex(e.name, ":")
+			n, _ := strconv.Atoi(e.name[i+1:])
+			obs.dumps = append(obs.dumps, &dumpReq{step: e.step, seg: uint16(e.x), off: uint16(e.y), n: n, name: e.name[:i]})
+		}
+	}
 	o, err := session.New(strikecommander.SessionConfig(obs))
 	if err != nil {
 		return err
@@ -358,6 +426,8 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 				continue
 			}
 			err = writePNG(filepath.Join(out, e.name+".png"), obs.frame, obs.palette)
+		case "dump", "trace":
+			// 由觀察器在之後的步讀取或記錄。
 		case "stop":
 			stopped = true
 		}
@@ -376,6 +446,21 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 			}
 		}
 	}
+	for _, d := range obs.dumps {
+		if d.data == nil {
+			fmt.Printf("dump %s：第 %d 步之後沒有再執行，未傾印\n", d.name, d.step)
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(out, d.name+".bin"), d.data, 0o644); err != nil {
+			return err
+		}
+	}
+	if len(obs.trace) > 0 {
+		tr := "step\tkind\tcaller\ttext\n" + strings.Join(obs.trace, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(out, "trace.tsv"), []byte(tr), 0o644); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("停在第 %d 步；puts 呼叫 %d 次，base %04X（簽章 %v），不同（呼叫鏈、字串）%d 組\n",
 		steps, obs.calls, obs.base, obs.sigOK, len(obs.order))
 	f, err := os.Create(filepath.Join(out, "census.tsv"))
@@ -383,10 +468,10 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		return err
 	}
 	w := bufio.NewWriter(f)
-	fmt.Fprintln(w, "chain\ttext\tcount\tfirst\tlast\tcursor_x\tcursor_y")
+	fmt.Fprintln(w, "chain\ttext\tcount\tfirst\tlast\tcursor_x\tcursor_y\tobj\tfont")
 	for _, k := range obs.order {
 		s := obs.stats[k]
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", k.chain, k.text, s.count, s.first, s.last, s.cx, s.cy)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%04X\t%04X\n", k.chain, k.text, s.count, s.first, s.last, s.cx, s.cy, s.obj, s.font)
 	}
 	if err := w.Flush(); err != nil {
 		f.Close()
