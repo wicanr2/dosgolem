@@ -950,6 +950,7 @@
 - [448 session.Config 支援 JEMM／SB16／鍵盤攔截的執行選項](448-session-config-legacy-pm-profile.md)：READY（第 3 版），已實作。`ProgramPath`、`DOSFiles`、延伸記憶體、`NoEMS`、PM profile、SB16、`Mode13Phase`、EXEC 選項、`KbdIntercept` 接進 `session.New`；IRQ1 送鍵通道另立 449。
 - [449 session 的 IRQ1 掃描碼送鍵通道](449-session-irq1-scan-channel.md)：READY（第 4 版），已實作。`CapturedUpdate.ScanEvents` 經 `timedKeys` 送 IRQ1，與 `HoldKey` 逐步等價；按住狀態移進 `Machine`，oracle 委派；暫停與失焦時強制放開；修訂 199 §3.3。
 - [450 session 從 probe 狀態檔啟動](450-session-boot-from-state.md)：READY（第 4 版），已實作。`BootFromState` 讀 probe 狀態檔；`dos.RebasePath` 把還原的檔案代號路徑改寫到 SaveRoot，驗證在任何寫入之前；`KbdIntercept` 讀檔後重寫客體碼。
+- [451 session 的滑鼠移動事件](451-session-pointer-move.md)：READY（第 4 版），已實作。`host.MouseEventMove` 與 `CapturedUpdate.PointerMoves`（上限 64，先於 `PointerDown`）；移動不看 `Button`、不改按鍵狀態；唯讀 `Owner.DOSMouse`。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 

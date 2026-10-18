@@ -96,6 +96,10 @@ type CapturedUpdate struct {
 	PointerUp        *host.MouseEvent
 	FocusLost        bool
 	BIOSKeys         []dos.Key
+	// PointerMoves 是不按鍵的游標移動，依序在 PointerDown 之前規劃與交付
+	// （docs/spec/451 §2.2）。每個元素的 Kind 都必須是 host.MouseEventMove，
+	// 最多 maxPointerMoves 個；違反時整批拒絕。
+	PointerMoves []host.MouseEvent
 	// ScanEvents 是硬體鍵盤事件（按下／放開），依序經 IRQ1 送出（docs/spec/449）。
 	ScanEvents []ScanEvent
 }
@@ -106,6 +110,10 @@ type ScanEvent struct {
 	Scan  uint8
 	Break bool
 }
+
+// maxPointerMoves 是一批 PointerMoves 的上限（docs/spec/451 §2.2）。前端要自行合併，
+// 通常每畫格只送最後的位置。
+const maxPointerMoves = 64
 
 // InputReceipt records a successfully accepted update. Epoch is an accepted
 // batch ordinal, not a DOS step count. A paused panel batch still has one.
@@ -459,13 +467,26 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 	}
 	plan := deliveredPlan{owner: o, generation: o.generation, base: base, final: base, baseMouse: baseMouse, layout: o.layout}
 	plan.finalMouse = plan.baseMouse
-	hasPointer := update.PointerDown != nil || update.PointerUp != nil || update.FocusLost
+	hasPointer := update.PointerDown != nil || update.PointerUp != nil || update.FocusLost || len(update.PointerMoves) != 0
 	if hasPointer {
 		// MouseBridge deliberately permits FocusLost to release an existing
 		// press even after its internal press epoch has changed. The batch layout
 		// itself was already required above to be the current View layout.
 		if !plan.baseMouse.HasCurrent || plan.baseMouse.Current != o.layout {
 			return deliveredPlan{}, errors.New("session: owner mouse snapshot 與私有 layout 不一致")
+		}
+		// 451 §2.2：移動先於 PointerDown 規劃；commit 依 plan.mouseEvents 的順序交付，
+		// 所以「移動到 A、在 B 按下」會先送 MoveMouse(A)。Target 未分類由 planMouseEvent 拒絕。
+		if len(update.PointerMoves) > maxPointerMoves {
+			return deliveredPlan{}, fmt.Errorf("session: PointerMoves %d 個，超過上限 %d（docs/spec/451 §2.2）", len(update.PointerMoves), maxPointerMoves)
+		}
+		for _, move := range update.PointerMoves {
+			if move.Kind != host.MouseEventMove {
+				return deliveredPlan{}, errors.New("session: PointerMoves 必須是 MouseEventMove")
+			}
+			if err := planMouseEvent(&plan, update.Layout, move); err != nil {
+				return deliveredPlan{}, err
+			}
 		}
 		if update.PointerDown != nil {
 			if update.PointerDown.Kind != host.MouseEventDown {

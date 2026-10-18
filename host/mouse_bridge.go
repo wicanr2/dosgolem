@@ -23,6 +23,9 @@ const (
 	MouseEventDown MouseEventKind = iota + 1
 	MouseEventUp
 	MouseEventFocusLost
+	// MouseEventMove 是不按鍵的游標移動（docs/spec/451 §2.1）。它不看 Button，
+	// 也不改按鍵與 host 捕捉狀態。
+	MouseEventMove
 )
 
 // MouseEvent uses host logical pixels. Button 0 is the DOS left button.
@@ -186,6 +189,9 @@ func (b *MouseBridge) Handle(layout MouseLayout, event MouseEvent) MouseRoute {
 	if !b.hasCurrent || layout != b.current {
 		return MouseRoute{Reason: "stale-layout-epoch-rejected"}
 	}
+	if event.Kind == MouseEventMove {
+		return b.handleMove(layout, event)
+	}
 	if event.Kind != MouseEventDown && event.Kind != MouseEventUp {
 		return MouseRoute{Reason: "unknown-event-rejected"}
 	}
@@ -237,6 +243,25 @@ func (b *MouseBridge) Handle(layout MouseLayout, event MouseEvent) MouseRoute {
 	b.output.PressMouse(0)
 	b.pressed, b.pressedEpoch = true, layout.Epoch
 	return MouseRoute{ForwardedToDOS: true, Reason: "canvas-down-forwarded"}
+}
+
+// handleMove 是 docs/spec/451 §2.1 第 2 到 5 列；第 1 列（過期 layout）由 Handle 先判。
+// 判定順序必須與 PlanMouseRoute 相同。移動在 Button 檢查之前處理，所以拖曳右鍵時
+// 帶非零 Button 的移動照常送出。
+func (b *MouseBridge) handleMove(layout MouseLayout, event MouseEvent) MouseRoute {
+	if b.hostCaptured {
+		return MouseRoute{ConsumedByHost: true, Reason: "host-captured-move-consumed"}
+	}
+	if layout.PanelOpen {
+		return MouseRoute{ConsumedByHost: true, Reason: "panel-open-move-consumed"}
+	}
+	// host 層不夾限：畫布外的移動整筆不送，DOS 游標停在最後一次畫布內的位置。
+	if event.Target != MouseTargetCanvas || !layout.canvasContains(event.X, event.Y) {
+		return MouseRoute{Reason: "outside-canvas-move-rejected"}
+	}
+	// 按住期間換過 layout 也照目前 layout 換算；按鍵留給之後的 Up 處置。
+	b.output.MoveMouse(event.X/int(layout.Scale), (event.Y-layout.ChromeHeight)/int(layout.Scale))
+	return MouseRoute{ForwardedToDOS: true, Reason: "canvas-move-forwarded"}
 }
 
 func (b *MouseBridge) releaseOnly(reason string) MouseRoute {

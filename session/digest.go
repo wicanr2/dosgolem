@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"github.com/wicanr2/dosgolem/internal/dos"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -71,4 +72,27 @@ func digestOf(m *machine.Machine, dd *dos.DOS) StateDigest {
 	}
 	d.PaletteSHA256 = sha256.Sum256(flat)
 	return d
+}
+
+// DOSMouseState 是 DOS 滑鼠狀態的值複本（docs/spec/451 §2.4），欄位型別同 dos.Mouse。
+// 它不帶任何寫入能力。
+type DOSMouseState struct {
+	X, Y             uint16
+	MickeyX, MickeyY int16
+	Buttons          uint16
+}
+
+// DOSMouse 回傳目前的 DOS 游標座標、累計 mickey 與按鍵狀態，供同狀態比對與前端除錯顯示。
+// 只在 PhaseRunning 時可呼叫；與 Digest 不同，回合進行中（turnPending）也可以，
+// 因為 Deliver 對 DOS 滑鼠的寫入在 commit 內一次完成，沒有半寫入狀態。
+// 其他 phase 回錯誤，不改 phase。
+func (o *Owner) DOSMouse() (DOSMouseState, error) {
+	if o == nil {
+		return DOSMouseState{}, errors.New("session: Owner 不得為 nil")
+	}
+	if o.phase != PhaseRunning {
+		return DOSMouseState{}, fmt.Errorf("session: phase %d 不可讀 DOS 滑鼠狀態", o.phase)
+	}
+	m := &o.dos.Mouse
+	return DOSMouseState{X: m.X, Y: m.Y, MickeyX: m.MickeyX, MickeyY: m.MickeyY, Buttons: m.Buttons}, nil
 }

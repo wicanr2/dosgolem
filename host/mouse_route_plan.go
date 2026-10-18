@@ -69,6 +69,23 @@ func PlanMouseRoute(snapshot MouseBridgeSnapshot, layout MouseLayout, event Mous
 		plan.Route = MouseRoute{Reason: "stale-layout-epoch-rejected"}
 		return plan, nil
 	}
+	// docs/spec/451 §2.1 第 2 到 5 列，與 MouseBridge.handleMove 逐項一致。
+	// 移動不看 Button，也不改 Pressed、PressedEpoch、HostCaptured。
+	if event.Kind == MouseEventMove {
+		switch {
+		case plan.Next.HostCaptured:
+			plan.Route = MouseRoute{ConsumedByHost: true, Reason: "host-captured-move-consumed"}
+		case layout.PanelOpen:
+			plan.Route = MouseRoute{ConsumedByHost: true, Reason: "panel-open-move-consumed"}
+		case event.Target != MouseTargetCanvas || !layout.canvasContains(event.X, event.Y):
+			plan.Route = MouseRoute{Reason: "outside-canvas-move-rejected"}
+		default:
+			plan.add(MouseAction{Kind: MouseActionMove,
+				X: event.X / int(layout.Scale), Y: (event.Y - layout.ChromeHeight) / int(layout.Scale)})
+			plan.Route = MouseRoute{ForwardedToDOS: true, Reason: "canvas-move-forwarded"}
+		}
+		return plan, nil
+	}
 	if event.Kind != MouseEventDown && event.Kind != MouseEventUp {
 		plan.Route = MouseRoute{Reason: "unknown-event-rejected"}
 		return plan, nil

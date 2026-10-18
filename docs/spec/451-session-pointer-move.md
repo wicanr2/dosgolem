@@ -211,3 +211,47 @@ psc.sh p530 probe546 -kbd-int15 -load-state /scratch/s449.state -steps 449560000
 - 移動事件不帶時間戳。同一回合內的多個移動在同一個指令邊界送出，原版只看到回呼佇列裡排著的多個事件，看不到其間的時間差。
 - 一批內只能先移動再按鍵；按下之後同一畫格的位移延到下一批（§2.2）。
 - 整批拒絕會讓 owner 進入 `PhaseFailed`。前端要保證移動事件的 `Kind` 與 `Target` 合法，並自行合併超過 64 個的移動。
+
+## 5. 實作收據（2026-10-18）
+
+實作由子代理完成，主代理在 Docker 內重跑測試。改動：`host/mouse_bridge.go`（`MouseEventMove`、`handleMove`）、`host/mouse_route_plan.go`、`session/owner.go`（`PointerMoves`、`maxPointerMoves`）、`session/digest.go`（`DOSMouseState`、`DOSMouse`）；測試 `host/mouse_move_test.go`、`session/pointer_move_test.go`、`apps/strikecommander/pointer_move_long_test.go`（`TestPointerMoveTrigger`）。
+
+### 5.1 單元測試與回歸
+
+- gofmt 無輸出，`go vet ./host/ ./session/ ./apps/strikecommander/` 通過，三個套件的 `go test -count=1` 全過（主代理重跑）。
+- `DOSMouseState` 實際型別與 §2.4 相同。
+- 回歸：改動前（`15c769e` 的乾淨匯出）與改動後，`go test -count=1 ./...` 的套件結果相同：3 個 ebiten 套件無顯示器失敗，`internal/repolint` 因 451 未登索引失敗。補上 `000-index.md` 後 repolint 通過。
+- 長測試：
+  - 450 `TestBootFromStateTrigger` 通過。
+  - strike_commander 規格 001 `TestLabelOverlayTrigger` 的 A、B、C、ANoCaller、AOverlayOff 通過（字型用含測試字的 `font-test`）。
+  - 449 `TestIRQ1ScanTrigger` 的 Base、NoRepeats 在 `--memory 6g` 通過。在 `--memory 3g` 被 OOM 砍掉，改動前的乾淨樹在同樣設定下也被砍，與本規格無關。449 §5 當時以 3g 通過，差異原因未查。
+
+### 5.2 負對照
+
+N1 到 N26 由子代理逐列執行（`strike_commander/workplace/i451/neg/results.txt`），全部使對應測試失敗，沒有等價突變。
+
+- N2 只改 `Handle`，Plan 單測照預期通過，由 Plan 對 Handle 一致的測試與 §3.1 第 4 項抓到。
+- N23c 到 f 的 Plan 對 Handle 測試通過：兩邊共用 `canvasContains`，由 Plan 單測抓到。
+- 子代理另加兩列補充 N23g、N23h（左內緣、下內緣），並為此補一個案例 `row5-other-inner-edges`。
+- 主代理在工作樹複本上抽驗 N12、N14，對應測試失敗。
+
+### 5.3 觸發案例
+
+`TestPointerMoveTrigger` 通過（約 12 秒）：
+
+| 項目 | 結果 |
+|---|---|
+| 甲的 Indexed | `133eaa94…d779`，等於 probe `h.png` |
+| 甲的移動回合 | `DOSCallsCommitted` 1 |
+| 甲的熱點標籤 | 第 4496160311 步的 blit 提交 `"Transport to Strike Base"`，X0 68、X1 251、Y 175；之前五筆是 `"Talk to Gwen"` |
+| 預期（甲、乙全同） | 成立。Memory `b13b3ddc…`、CPU `e270e559…`、Indexed、Palette、Ext 全同；`DOSMouse` 兩邊都是 X 160、Y 75、MickeyX 0、MickeyY −80、Buttons 0 |
+| 負對照（不移動） | Indexed `813fc5c5…`，與甲不同；第 4496151737 步仍提交 `"Talk to Gwen"` |
+
+乙經 probe 存檔、session 讀檔後與甲逐位元組相同，所以 §2.5 的推論在這個案例成立。乙的狀態檔沒有跳到 `0000:0000`。
+
+### 5.4 實作期間的處置
+
+- §3.1 第 9 項的 Handler：回呼以 `FarCallWithReturn` 進入，只推返回位址，所以樁用 `RETF`，不是規格寫的 `IRET`。合成 COM 是 `90 90 90 90 CB`，Handler 指向 `CS:0104`，一開始就設好。「第一批之後才設 Handler」不夠：第二批的移動也會排回呼，下一次 `Advance` 仍會跳到 Handler。
+- 第三批的 `up-release` 由測試先呼叫 `o.prepare`、讀出 route 再 `commit` 取得。
+- `CapturedUpdate.PointerMoves` 放在 `BIOSKeys` 之後，避免 gofmt 重排既有欄位。
+- 規格行號以 `a59dc5c` 為準，與實作時的 `15c769e` 有偏移，內容一致。
