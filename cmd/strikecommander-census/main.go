@@ -12,7 +12,7 @@
 //	down STEP X Y
 //	up   STEP X Y
 //	grid FROM X0 Y0 X1 Y1 DX DY DWELL   從 FROM 起每 DWELL 步移到下一格（列優先）
-//	shot STEP NAME                      存最後一次回掃的畫格（NAME.png）
+//	shot STEP NAME                      存最後一次回掃的畫格（NAME.png 與原始色號 NAME.idx）
 //	trace FROM TO                       FROM 到 TO 之間依序記下每次 puts 與 blit（RE 012 的 3C3C:0000）入口，寫進 trace.tsv
 //	dump STEP SEG:OFF LEN NAME          在 STEP 之後的第一步把 SEG:OFF 起 LEN bytes 存成 NAME.bin（十六進位位址與長度）
 //	stop STEP
@@ -425,7 +425,9 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 				fmt.Printf("第 %d 步 shot %s：還沒有回掃畫格\n", steps, e.name)
 				continue
 			}
-			err = writePNG(filepath.Join(out, e.name+".png"), obs.frame, obs.palette)
+			if err = writePNG(filepath.Join(out, e.name+".png"), obs.frame, obs.palette); err == nil {
+				err = os.WriteFile(filepath.Join(out, e.name+".idx"), obs.frame, 0o644)
+			}
 		case "dump", "trace":
 			// 由觀察器在之後的步讀取或記錄。
 		case "stop":
