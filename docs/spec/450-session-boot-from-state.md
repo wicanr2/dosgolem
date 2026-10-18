@@ -192,7 +192,7 @@ psc.sh p530 probe543 -kbd-int15 -load-state /scratch/s449.state -steps 449040000
 
 ## 5. 實作收據（2026-10-18）
 
-實作 commit 見本收據的上一個 commit。實作由子代理完成，測試由主代理在 Docker 內重跑。
+實作 commit `4a33bb9`。實作由子代理完成，測試由主代理在 Docker 內重跑。
 
 ### 5.1 單元測試與回歸
 
