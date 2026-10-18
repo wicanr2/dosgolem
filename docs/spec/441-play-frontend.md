@@ -43,7 +43,7 @@
 - 滑鼠：`Layout` 回畫面的寬高，所以 `ebiten.CursorPosition()` 已經是畫面像素座標；變化時 `MoveMouse`；左鍵、右鍵的按下與放開送
   `PressMouse`／`ReleaseMouse`（0 左、1 右）。游標在畫面外不送移動。
 - 鍵盤：按下的鍵查表得到 set 1 掃描碼與 ASCII（字母依 Shift 與 Caps Lock 分大小寫，數字列與符號依 Shift）。
-  `-input bios` 推 BIOS 鍵盤佇列（`PushKey`），`hw` 送 IRQ1 掃描碼（按下送碼、放開送碼加 80h），`both` 兩者都送。預設 `bios`。
+  `-input bios` 推 BIOS 鍵盤佇列（`PushKey`；單獨的 Ctrl、Shift、Alt 不推，實機 BIOS 不放進 int 16h 佇列），`hw` 送 IRQ1 掃描碼（按下送碼、放開送碼加 80h），`both` 兩者都送。預設 `bios`。
 
 ### 2.5 自動模式
 
@@ -64,7 +64,7 @@
 
 1. `cmd/play/play_test.go`：
    - `TestFrameTargetsNoDrift`：`S = 11,580,882` 時 600 格的目標步數總和等於 `600 × S ÷ 60`，每格步數只差 0 或 1。
-   - `TestKeyTable`：字母依 Shift 分大小寫、`Enter` 給 0Dh、方向鍵 ASCII 為 0；掃描碼抽查與 `webplay` 的表相同。
+   - `TestKeyTable`：字母依 Shift 分大小寫、`Enter` 給 0Dh、方向鍵 ASCII 為 0；掃描碼抽查與 `webplay` 的表相同；單獨的 Shift、Ctrl、Alt 判為修飾鍵。
    - `TestMouseInside`：640×480 的畫面，(639, 479) 在畫面內，(640, 0)、(0, 480)、(−1, 0) 在畫面外。
 2. 負對照：目標步數改成每格固定 `S ÷ 60`，第 1 條的第一個測試必須失敗（2026-10-18 手動確認後還原）。
 3. 上層收據（三國志V，在容器內以 xvfb 跑）：`play -frames 600 -wav` 與 `probe -steps 115808820（= 600 格的目標 600 × S ÷ 60）-dump-mix-wav`

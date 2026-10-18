@@ -129,7 +129,7 @@ func (g *game) hostInput() {
 		if !ok {
 			continue
 		}
-		if g.input == "bios" || g.input == "both" {
+		if (g.input == "bios" || g.input == "both") && !modifierOnly(key) {
 			g.d.PushKey(key)
 		}
 		if g.input == "hw" || g.input == "both" {

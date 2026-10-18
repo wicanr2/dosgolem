@@ -47,6 +47,15 @@ func TestKeyTable(t *testing.T) {
 			t.Errorf("%s %+v：(%02X, %02X, %v)，要 (%02X, %02X)", c.k, c.mod, k.Scan, k.ASCII, ok, c.scan, c.ascii)
 		}
 	}
+	for _, k := range []ebiten.Key{ebiten.KeyShiftLeft, ebiten.KeyShiftRight, ebiten.KeyControlLeft, ebiten.KeyAltLeft} {
+		key, ok := hostKey(keyCode(k), modifiers{})
+		if !ok || !modifierOnly(key) {
+			t.Errorf("%s 應是單獨的修飾鍵（不進 BIOS 佇列）", k)
+		}
+	}
+	if key, _ := hostKey(keyCode(ebiten.KeyA), modifiers{}); modifierOnly(key) {
+		t.Error("A 不是修飾鍵")
+	}
 	if _, ok := hostKey(keyCode(ebiten.KeyNumpad5), modifiers{}); ok {
 		t.Error("表外的鍵不該送")
 	}

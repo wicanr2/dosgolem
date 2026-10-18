@@ -95,3 +95,13 @@ func hostKey(code string, mod modifiers) (dos.Key, bool) {
 	}
 	return dos.Key{Scan: scan, ASCII: ascii}, true
 }
+
+// modifierOnly 回這個鍵是不是單獨的修飾鍵（Ctrl、左右 Shift、Alt）。實機 BIOS 不把它們放進 int 16h 的佇列，
+// 只有 IRQ1 的掃描碼看得到。
+func modifierOnly(k dos.Key) bool {
+	switch k.Scan {
+	case 0x1D, 0x2A, 0x36, 0x38:
+		return k.ASCII == 0
+	}
+	return false
+}
