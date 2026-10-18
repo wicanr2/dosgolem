@@ -630,8 +630,12 @@ type Machine struct {
 	// timedKeys 是定時掃描碼事件（`docs/spec/197`），依步數排序，不受 KeyEvery 節流。
 	timedKeys   []timedKey
 	timedKeySeq uint64
-	kbdData     uint8
-	kbdPortB    uint8
+	// heldScans 與 heldMask 是即時按住的鍵（`docs/spec/449` §2.2）。固定大小陣列：
+	// Snapshot 值複製即可，迭代順序固定，沒有 nil 與空 map 之分。
+	heldScans [128]heldScan
+	heldMask  [2]uint64
+	kbdData   uint8
+	kbdPortB  uint8
 
 	// KeyIRQs 是實際送出去的鍵盤中斷數，keyStalls 是「有鍵但沒人裝
 	// int 09h」而留著沒送的次數。**送不出去與遊戲不理會是兩件事**，

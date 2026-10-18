@@ -43,11 +43,11 @@
 ### 3.3 即時按鍵
 
 - `(*Oracle).KeyDown(scan uint8)`：鍵沒有按著時，在目前步數排一個按下碼（`machine.ScheduleKey`），記下按住的起點；已經按著就不動。
-- `(*Oracle).KeyUp(scan uint8)`：鍵按著時，取消這個鍵在目前步數之後還沒送出的按下碼，再排一個放開碼；沒按著就不動。
+- `(*Oracle).KeyUp(scan uint8)`：鍵按著時，取消這個鍵 `Step >= max(now, downStep+1)` 還沒送出的按下碼（`now` 是目前步數，`downStep` 是按下的步數），再排一個放開碼；沒按著就不動。取消範圍依 `449` §2.3 修訂：原本只取消 `Step > now`，`Step == now` 的重複碼會排在放開碼之前，比 `HoldKey` 多一次 IRQ1；下限取 `downStep+1` 是為了不刪掉同一步的按下碼。
 - `(*Oracle).HeldKeys() []uint8`：目前按著的鍵，依掃描碼排序。
 - typematic：按住的鍵在「起點 ＋ 延遲」之後每個週期補一個按下碼。步數換算用 `InstructionsPerSecond()`（規格 `198` §3.2）。
   `RunCycles(n)` 開始時，把落在 `[目前步數, 目前步數 ＋ n]` 之內的重複事件排進去（每道指令至少一個 cycle，所以步數不會超過 n）。
-- `machine.CancelTimedKeys(scan uint8, afterStep uint64) int`：移除該鍵、步數大於 `afterStep` 的**按下**事件，回移除數。
+- `machine.CancelTimedKeys(scan uint8, afterStep uint64) int`：移除該鍵、步數大於 `afterStep` 的**按下**事件，回移除數。`KeyUp` 改用 `machine.CancelTimedKeysFrom(scan, fromStep)`（步數大於或等於 `fromStep`，`449` §2.3）；按住狀態放在 `Machine`，`KeyDown`、`KeyUp`、`HeldKeys` 委派給它（`449` §2.2）。
 
 ### 3.4 狀態檔
 

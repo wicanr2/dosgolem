@@ -413,5 +413,8 @@ func (m *Machine) LoadState(r io.Reader) error {
 		m.sb8Apply(sb8)
 	}
 	m.sb8Err = nil
+	// 449 §2.2：提交點清空按住狀態（Steps 已換成任意值，舊的 next 會讓重複碼一次補排）。
+	// timedKeys 不清，是既有行為。
+	m.clearHeldKeys()
 	return nil
 }

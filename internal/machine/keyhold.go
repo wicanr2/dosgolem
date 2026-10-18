@@ -69,6 +69,124 @@ func (m *Machine) CancelTimedKeys(scan uint8, afterStep uint64) int {
 	return n
 }
 
+// CancelTimedKeysFrom 移除 scan 在 fromStep（含）之後還沒送出的按下事件，回移除數（`docs/spec/449` §2.3）。
+// 與 CancelTimedKeys 的差別只在下限含 fromStep。
+func (m *Machine) CancelTimedKeysFrom(scan uint8, fromStep uint64) int {
+	kept := m.timedKeys[:0]
+	n := 0
+	for _, k := range m.timedKeys {
+		if k.Ev.Scan == scan && !k.Ev.Break && k.Step >= fromStep {
+			n++
+			continue
+		}
+		kept = append(kept, k)
+	}
+	m.timedKeys = kept
+	return n
+}
+
+// heldScan 是一個按著的鍵（`docs/spec/449` §2.2）：按下的步數、按下時算好的 typematic
+// 延遲與週期，以及下一個重複碼的步數。
+type heldScan struct {
+	downStep, delay, period, next uint64
+}
+
+func (m *Machine) heldBit(scan uint8) (int, uint64) { return int(scan >> 6), 1 << (scan & 63) }
+
+func (m *Machine) isHeld(scan uint8) bool {
+	i, b := m.heldBit(scan)
+	return m.heldMask[i]&b != 0
+}
+
+// HeldKeyDown 在目前步數按下 scan（`docs/spec/449` §2.2）。scan 為 0 或 >= 80h、或已經按著時
+// 不排程並回 false；否則排按下碼、記下按住紀錄，回 true。delay、period 在這裡算一次，
+// 之後機器速度改變不影響這個鍵，與 HoldKey 相同。
+func (m *Machine) HeldKeyDown(scan uint8) bool {
+	if scan == 0 || scan >= 0x80 || m.isHeld(scan) {
+		return false
+	}
+	sps := m.InstructionsPerSecond()
+	delay := uint64(TypematicDelayMS / 1000 * sps)
+	period := uint64(sps / TypematicRate)
+	now := m.Steps
+	m.ScheduleKey(now, scan, false)
+	m.heldScans[scan] = heldScan{downStep: now, delay: delay, period: period, next: now + delay}
+	i, b := m.heldBit(scan)
+	m.heldMask[i] |= b
+	return true
+}
+
+// HeldKeyUp 在目前步數放開 scan。scan 為 0 或 >= 80h、或沒按著時不排程並回 false。
+// 否則取消該鍵 Step >= max(now, downStep+1) 的按下事件（與 HoldKey 的 t < end 等價，
+// 又不刪同一步的按下碼，§2.3），排放開碼，清除按住紀錄，回 true。
+func (m *Machine) HeldKeyUp(scan uint8) bool {
+	if scan == 0 || scan >= 0x80 || !m.isHeld(scan) {
+		return false
+	}
+	now := m.Steps
+	m.CancelTimedKeysFrom(scan, max(now, m.heldScans[scan].downStep+1))
+	m.ScheduleKey(now, scan, true)
+	m.heldScans[scan] = heldScan{}
+	i, b := m.heldBit(scan)
+	m.heldMask[i] &^= b
+	return true
+}
+
+// ScheduleHeldRepeats 依掃描碼由小到大，把每個按著的鍵 next <= Steps+n 的重複碼排進去（`docs/spec/449` §2.3）。
+// period 為 0 的鍵不排重複碼。
+func (m *Machine) ScheduleHeldRepeats(n uint64) {
+	if m.heldMask == [2]uint64{} {
+		return
+	}
+	end := m.Steps + n
+	if end < m.Steps {
+		end = ^uint64(0)
+	}
+	for scan := 1; scan < 0x80; scan++ {
+		if !m.isHeld(uint8(scan)) {
+			continue
+		}
+		h := &m.heldScans[scan]
+		if h.period == 0 {
+			continue
+		}
+		for ; h.next <= end; h.next += h.period {
+			m.ScheduleKey(h.next, uint8(scan), false)
+		}
+	}
+}
+
+// ReleaseHeldKeys 依掃描碼由小到大放開每個按著的鍵，回放開的個數（`docs/spec/449` §2.4）。
+func (m *Machine) ReleaseHeldKeys() int {
+	n := 0
+	for scan := 1; scan < 0x80; scan++ {
+		if m.HeldKeyUp(uint8(scan)) {
+			n++
+		}
+	}
+	return n
+}
+
+// HeldKeys 回按著的鍵，依掃描碼排序。
+func (m *Machine) HeldKeys() []uint8 {
+	out := []uint8{}
+	for scan := 1; scan < 0x80; scan++ {
+		if m.isHeld(uint8(scan)) {
+			out = append(out, uint8(scan))
+		}
+	}
+	return out
+}
+
+// HeldMask 回按著的鍵的位元遮罩：bit scan 立起表示按著（給收據用）。
+func (m *Machine) HeldMask() [2]uint64 { return m.heldMask }
+
+// clearHeldKeys 清空按住狀態，不動 timedKeys（LoadState 用，`docs/spec/449` §2.2）。
+func (m *Machine) clearHeldKeys() {
+	m.heldScans = [128]heldScan{}
+	m.heldMask = [2]uint64{}
+}
+
 // ScheduledKey 是一個還沒送出的定時事件（唯讀檢視）。
 type ScheduledKey struct {
 	Step uint64

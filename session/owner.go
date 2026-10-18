@@ -63,11 +63,20 @@ type TickReceipt struct {
 	Steps              uint64
 	KeysPendingBefore  int
 	KeysPendingAfter   int
-	RawStop            machine.Stop
-	HasRawStop         bool
-	RawError           error
-	Phase              Phase
-	Reason             StopReason
+	// ScanPendingBefore/After bracket the machine's timed scan-event depth
+	// (docs/spec/449 §2.6): Before is taken after ScheduleHeldRepeats, After
+	// after the machine ran. Early returns report the entry depth for both.
+	ScanPendingBefore int
+	ScanPendingAfter  int
+	// KeyIRQs and KeyStalls are this turn's deltas of machine.KeyIRQs and
+	// machine.KeyStalls() (KeyStalls counts blocked steps, not events).
+	KeyIRQs    uint64
+	KeyStalls  uint64
+	RawStop    machine.Stop
+	HasRawStop bool
+	RawError   error
+	Phase      Phase
+	Reason     StopReason
 }
 
 // CapturedUpdate is the value-only input captured for one future frontend
@@ -87,6 +96,15 @@ type CapturedUpdate struct {
 	PointerUp        *host.MouseEvent
 	FocusLost        bool
 	BIOSKeys         []dos.Key
+	// ScanEvents 是硬體鍵盤事件（按下／放開），依序經 IRQ1 送出（docs/spec/449）。
+	ScanEvents []ScanEvent
+}
+
+// ScanEvent is one hardware keyboard event (docs/spec/449 §2.1).  Scan is the
+// scan code without bit 7; Break reports a release.
+type ScanEvent struct {
+	Scan  uint8
+	Break bool
 }
 
 // InputReceipt records a successfully accepted update. Epoch is an accepted
@@ -100,6 +118,12 @@ type InputReceipt struct {
 	// whose coordinate is unchanged intentionally produces no DOS move event.
 	DOSCallsCommitted uint64
 	Paused            bool
+	// ScanEventsCommitted counts HeldKeyDown/HeldKeyUp calls that returned
+	// true; ScanReleasesForced is the ReleaseHeldKeys result; HeldScans is
+	// HeldMask() after commit (docs/spec/449 §2.6).  None is a DOS call.
+	ScanEventsCommitted uint64
+	ScanReleasesForced  int
+	HeldScans           [2]uint64
 }
 
 // Config contains value-only host construction choices. In particular it does
@@ -228,6 +252,10 @@ type Owner struct {
 	viewToken  uint64
 	viewOpen   bool
 	viewMisuse bool
+
+	// noHeldRepeats is a test-only switch for the docs/spec/449 §3.2
+	// negative control; nothing outside this package's tests sets it.
+	noHeldRepeats bool
 }
 
 // New creates a new sealed, synthetic-ready owner.  It neither loads an
@@ -362,6 +390,8 @@ type deliveredPlan struct {
 	panelEvents []preparedPanelEvent
 	mouseEvents []preparedMouseEvent
 	biosKeys    []dos.Key
+	scanEvents  []ScanEvent
+	focusLost   bool
 	hostChanged bool
 	paused      bool
 }
@@ -486,10 +516,21 @@ func (o *Owner) prepare(update CapturedUpdate) (deliveredPlan, error) {
 		plan.finalMouse.Current = projectedLayout
 		plan.finalMouse.HasCurrent = true
 	}
+	// 449 §2.1：拒絕條件在 paused 批次也照查。
+	if len(update.ScanEvents) != 0 && len(update.BIOSKeys) != 0 {
+		return deliveredPlan{}, errors.New("session: 同一批不得同時有 ScanEvents 與 BIOSKeys（docs/spec/449 §2.1）")
+	}
+	for _, ev := range update.ScanEvents {
+		if ev.Scan == 0 || ev.Scan >= 0x80 {
+			return deliveredPlan{}, fmt.Errorf("session: ScanEvent 掃描碼 %02Xh 不在 01h..7Fh（docs/spec/449 §2.1）", ev.Scan)
+		}
+	}
 	plan.paused = plan.base.Open || plan.final.Open || plan.hostChanged
 	if !plan.paused {
 		plan.biosKeys = append(plan.biosKeys, update.BIOSKeys...)
 	}
+	plan.scanEvents = append([]ScanEvent(nil), update.ScanEvents...)
+	plan.focusLost = update.FocusLost
 	return plan, nil
 }
 
@@ -565,13 +606,47 @@ func (o *Owner) commit(plan deliveredPlan) (InputReceipt, error) {
 	for _, key := range plan.biosKeys {
 		o.dos.PushKey(key)
 	}
+	scanCommitted, scanForced := o.commitScanEvents(plan)
 	o.epoch++
 	o.generation++
 	o.turnPending = true
 	o.turnPaused = plan.paused
 	keyCalls := uint64(len(plan.biosKeys))
 	return InputReceipt{Epoch: o.epoch, Phase: o.phase, HostChanged: plan.hostChanged,
-		DOSCallsCommitted: keyCalls + mouseActionCount(plan.mouseEvents), Paused: plan.paused}, nil
+		DOSCallsCommitted: keyCalls + mouseActionCount(plan.mouseEvents), Paused: plan.paused,
+		ScanEventsCommitted: scanCommitted, ScanReleasesForced: scanForced, HeldScans: o.machine.HeldMask()}, nil
+}
+
+// commitScanEvents applies docs/spec/449 §2.4 after mouse, panel, and BIOS
+// keys.  It touches only the machine's timed keys and held state.
+func (o *Owner) commitScanEvents(plan deliveredPlan) (committed uint64, forced int) {
+	m := o.machine
+	switch {
+	case plan.paused:
+		// 規則 3：全部不 commit，強制放開。
+	case plan.focusLost:
+		// 規則 2：只 commit 放開事件。
+		for _, ev := range plan.scanEvents {
+			if ev.Break && m.HeldKeyUp(ev.Scan) {
+				committed++
+			}
+		}
+	default:
+		// 規則 1。
+		for _, ev := range plan.scanEvents {
+			var ok bool
+			if ev.Break {
+				ok = m.HeldKeyUp(ev.Scan)
+			} else {
+				ok = m.HeldKeyDown(ev.Scan)
+			}
+			if ok {
+				committed++
+			}
+		}
+		return committed, 0
+	}
+	return committed, m.ReleaseHeldKeys()
 }
 
 func mouseActionCount(events []preparedMouseEvent) uint64 {
@@ -595,6 +670,8 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	receipt := TickReceipt{Epoch: o.epoch, Budget: budget, Phase: o.phase, Reason: o.terminalReason}
 	receipt.KeysPendingBefore = o.dos.KeysPending()
 	receipt.KeysPendingAfter = receipt.KeysPendingBefore
+	receipt.ScanPendingBefore = o.machine.TimedKeysPending()
+	receipt.ScanPendingAfter = receipt.ScanPendingBefore
 	switch o.phase {
 	case PhaseStopped:
 		receipt.Reason = StopReasonProgramStopped
@@ -637,6 +714,12 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 		return receipt, nil
 	}
 
+	// 449 §2.5：跑機器之前排好這一回合的 typematic 重複碼。
+	if !o.noHeldRepeats {
+		o.machine.ScheduleHeldRepeats(uint64(budget))
+	}
+	receipt.ScanPendingBefore = o.machine.TimedKeysPending()
+	keyIRQs, keyStalls := o.machine.KeyIRQs, o.machine.KeyStalls()
 	receipt.MachineStepsBefore = o.machine.Steps
 	var rawStop machine.Stop
 	var rawErr, observerErr error
@@ -650,6 +733,9 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	receipt.RawError = rawErr
 	receipt.MachineStepsAfter = o.machine.Steps
 	receipt.KeysPendingAfter = o.dos.KeysPending()
+	receipt.ScanPendingAfter = o.machine.TimedKeysPending()
+	receipt.KeyIRQs = o.machine.KeyIRQs - keyIRQs
+	receipt.KeyStalls = o.machine.KeyStalls() - keyStalls
 	if receipt.MachineStepsAfter < receipt.MachineStepsBefore {
 		return o.originalFaultReceipt(receipt, errors.New("session: Machine.Steps 不得倒退"))
 	}

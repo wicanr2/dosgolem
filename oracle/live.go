@@ -43,70 +43,25 @@ func (o *Oracle) RunCycles(n uint64) error {
 	return o.RunUntil(cond, Budget(n+1))
 }
 
-// heldKey 是一個按著的鍵：下一個 typematic 按下碼排在第幾步。
-type heldKey struct{ next uint64 }
+// KeyDown 在目前步數按下 scan（`199` §3.3）；已經按著、或 scan 為 0 或 >= 80h 就不動。
+// 按住狀態在機器裡（`docs/spec/449` §2.2），隨 Save／Restore 一起保存與還原。
+func (o *Oracle) KeyDown(scan uint8) { o.m.HeldKeyDown(scan) }
 
-// KeyDown 在目前步數按下 scan（`199` §3.3）；已經按著就不動。
-func (o *Oracle) KeyDown(scan uint8) {
-	if o.held == nil {
-		o.held = map[uint8]*heldKey{}
-	}
-	if _, ok := o.held[scan]; ok {
-		return
-	}
-	now := o.m.Steps
-	o.m.ScheduleKey(now, scan, false)
-	delay := uint64(machine.TypematicDelayMS / 1000 * o.m.InstructionsPerSecond())
-	o.held[scan] = &heldKey{next: now + delay}
-}
-
-// KeyUp 在目前步數放開 scan；沒按著就不動。之後還沒送出的重複按下碼一併取消。
-func (o *Oracle) KeyUp(scan uint8) {
-	if _, ok := o.held[scan]; !ok {
-		return
-	}
-	now := o.m.Steps
-	o.m.CancelTimedKeys(scan, now)
-	o.m.ScheduleKey(now, scan, true)
-	delete(o.held, scan)
-}
+// KeyUp 在目前步數放開 scan；沒按著就不動。之後還沒送出的重複按下碼一併取消
+// （取消範圍 Step >= max(now, downStep+1)，`docs/spec/449` §2.3）。
+func (o *Oracle) KeyUp(scan uint8) { o.m.HeldKeyUp(scan) }
 
 // HeldKeys 回目前按著的鍵，依掃描碼排序。
-func (o *Oracle) HeldKeys() []uint8 {
-	out := make([]uint8, 0, len(o.held))
-	for k := range o.held {
-		out = append(out, k)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
-}
+func (o *Oracle) HeldKeys() []uint8 { return o.m.HeldKeys() }
 
 // scheduleRepeats 把落在接下來 n 道指令之內的 typematic 重複排進去。
-func (o *Oracle) scheduleRepeats(n uint64) {
-	if len(o.held) == 0 {
-		return
-	}
-	period := uint64(o.m.InstructionsPerSecond() / machine.TypematicRate)
-	if period == 0 {
-		period = 1
-	}
-	end := o.m.Steps + n
-	for _, scan := range o.HeldKeys() {
-		h := o.held[scan]
-		for ; h.next <= end; h.next += period {
-			o.m.ScheduleKey(h.next, scan, false)
-		}
-	}
-}
+func (o *Oracle) scheduleRepeats(n uint64) { o.m.ScheduleHeldRepeats(n) }
 
 // LoadStateFile 讀 probe `-save-state` 格式的狀態檔（`199` §3.4）。
 // ⚠ 狀態檔含原版的整份記憶體，呼叫端負責不散布。
 func (o *Oracle) LoadStateFile(path string) error {
-	if err := state.Load(path, o.m, o.d); err != nil {
-		return err
-	}
-	o.held = nil
-	return nil
+	// 按住狀態由 Machine.LoadState 在提交點清空（`docs/spec/449` §2.2）。
+	return state.Load(path, o.m, o.d)
 }
 
 // SaveStateFile 寫 probe `-load-state` 讀得懂的狀態檔。⚠ 同上，不要散布。
