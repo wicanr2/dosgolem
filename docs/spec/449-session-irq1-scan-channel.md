@@ -1,6 +1,6 @@
 # 449：session 的 IRQ1 掃描碼送鍵通道
 
-狀態：**READY**（第 4 版，依三輪審查修訂）
+狀態：**READY**（第 4 版，依三輪審查修訂），已實作（§5）
 日期：2026-10-18
 前置：[`197-key-hold-and-typematic`](197-key-hold-and-typematic.md)、[`199-live-session-api`](199-live-session-api.md)、
 [`238-session-step-observer-draft`](238-session-step-observer-draft.md)、[`447-bios-int09-int15-keyboard-intercept`](447-bios-int09-int15-keyboard-intercept.md)、
@@ -283,6 +283,53 @@ MENU 在這段讀走 16 個 make 事件（`probe449ref30.log` 的按鍵去向：
 - `period` 為 0 的分支（§2.2）在現有 setter 下不可達，沒有測試。
 - `ScheduleKey` 每次重排整個 `timedKeys`（`keyhold.go` 33 行）。前端對很大的 `budget` 呼叫 `Advance` 時，`ScheduleHeldRepeats` 一次排入大量重複碼（`CyclesXT` 下每 10 億步約 4.5 萬個）。前端以畫格為單位推進時每回合只有幾個；改成插入排序不在本規格。
 
-## 5. 實作收據
+## 5. 實作收據（2026-10-18）
 
-（實作後填寫。）
+實作 commit `73ee63b`。實作由子代理完成，測試由主代理在 Docker 內重跑。
+
+### 5.1 單元測試與回歸
+
+- `go vet ./...` 通過；`session`、`oracle`、`internal/machine`、`cmd/step` 的 `go test -count=1` 全過（主代理重跑）。
+- §3.1 對應的測試：
+
+| 項 | 測試 |
+|---|---|
+| 1 | `TestScanEventsRejectedBeforeCommit` |
+| 2 | `TestScanEventsHoldMatchesHoldKey`（`d` 取 480000 與 472288，後者落在重複碼上；三種切法） |
+| 3 | `TestScanEventsTapSameBatch`、`TestHeldKeyOracleTapZeroMS` |
+| 4 | `TestHeldKeyOracleMatchesHoldKeyExactly`、`TestHeldKeyOracleSaveRestore`、`TestHeldKeyOracleSpeedChangeKeepsDelayPeriod` |
+| 5 | `TestScanEventsPanelFocusAndReceipts` |
+| 6 | `TestScanEventsTickCounters` |
+| 7 | `TestScanEventsTwoKeyOrder` |
+| 8 | `TestHeldKeysSnapshotRestore`、`TestHeldKeysLoadStateClearsAtCommit`、`TestHeldKeyDownRange`、`TestCancelTimedKeysFromIncludesStep` |
+| 9 | 既有 `TestLegacyConfigZeroValueAnchor` 不變；另加 `TestScanEventsZeroValueReceipts` |
+
+- 回歸：改動前後 `go test -count=1 ./...` 的套件結果相同（42 ok、3 FAIL）。3 個 FAIL 是 `apps/phantasie/cmd/phantasie-play`、`cmd/buckrogers-play`、`frontend/ebiten`，容器內沒有顯示器，ebiten 初始化失敗，改動前就失敗。
+
+### 5.2 負對照
+
+子代理逐列改壞再還原，17 列使對應測試失敗（輸出在 `strike_commander` 的 `workplace/i449/neg/`）。主代理在複製樹上獨立重做兩列：`CancelTimedKeysFrom` 改成 `>`，第 2、4 項失敗；`ScheduleHeldRepeats` 上界改成 `<`，第 2、7 項失敗。
+
+「paused 回合也呼叫 `ScheduleHeldRepeats`」這一列測不出來，是等價突變：§2.4 規則 3 讓每個 paused 批次 commit 之後按住集合必定為空，paused 回合預排重複碼沒有對象。§2.5「paused 回合不呼叫」因此由規則 3 保證，不另設測試。
+
+### 5.3 觸發案例
+
+`TestIRQ1ScanTrigger/Base` 通過（162 秒），`SaveRoot` 用 `strike_commander` 的 `workplace/root-session448`（448 §5 的複製樹）。§3.2 的全部斷言相符：
+
+| 斷言 | 結果 |
+|---|---|
+| 第 1030000000 步 Indexed、Palette | `bc24e8ab…e114`、`ea48da3e…5b60`，相同 |
+| 第 1090000000 步 Indexed、Palette | `02e210d5…5098`、`ea48da3e…5b60`，相同 |
+| 第 1100000000 步暫存器 | `0018:581D` AX `BAB6` BX `13DC` CX `2000` DX `0020` DS `0020` ES `00D8` SS:SP `0050:13BA`，相同 |
+| `KeyIRQs` 總數、`KeyStalls` 總數 | 18、0，相同 |
+
+各回合（`ScanPendingBefore→After`，`KeyIRQs`）：1010000000 起 15→0、15；1030000000 起 1→0、1；1050000000 起 1→0、1；1053000000 起 1→0、1；其餘為 0。第一回合的 15 是按下碼 1 個加預排到回合尾的重複碼 14 個，與 probe 讀走的 make 事件數相同。
+
+負對照 `TestIRQ1ScanTrigger/NoRepeats`：`KeyIRQs` 4，第 1100000000 步 CS:IP `0018:4D85`、AX `00D8`、CX `00AE`、SP `13BC`，與 Base 不同；兩張截圖不變，與 §3.2 的預測相同。這組值也與 probe `-hold-typematic=false`（`probe449nt.log`）的 `KeyIRQs=4`、CS:IP `0018:4D85` 一致。
+
+### 5.4 實作期間的處置
+
+- 第 5 項的 slice 複製測試改在 package 內以 `prepare`、改呼叫端 slice、`commit` 的順序驗證；`Deliver` 是同步完成的，照 §3.1 字面在 `Deliver` 之後改 slice 驗不到這條規則。
+- 第 2 項的逐回合 `ScanPendingBefore` 只對 `d = 480000` 斷言。`d` 落在重複碼上時，最後一回合 session 已預排 `end` 那一步的重複碼（放開時才取消），參考機器的 `HoldKey` 因 `t < end` 沒有這個事件，兩者在該回合本來就不同；最終排程相同由同一項的序列比對負責。
+- 第 8 項的讀檔失敗另加一種能解碼、但延伸記憶體大小不符的狀態檔，涵蓋「解碼後、驗證前就清空」的錯誤位置。
+- 長測試負對照的開關是未匯出欄位 `Owner.noHeldRepeats`，沒有新增公開 API。
