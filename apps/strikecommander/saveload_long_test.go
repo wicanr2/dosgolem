@@ -8,22 +8,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-// strike_commander 規格 004 §4.2 案例 F（營房讀檔、存檔）與 §4.3 案例 G（帳篷存檔）。
+// strike_commander 規格 004 §4.2 案例 F（營房讀檔、存檔）與 §4.3 案例 G（帳篷存檔），
+// 以及規格 007 §4.2 到 §4.4 的案例 I（營房離開確認）、J（營房覆寫確認）、K（帳篷離開確認）；
+// I、J、K 的補充斷言在 saveload_confirm_long_test.go 的 slExtra。
 //
-// 長測試（F 約 3.3 億步、G 約 2.6 億步，各開、關一次）。只在下列環境變數都設定時執行，否則 t.Skip：
+// 長測試（F 約 3.3 億步、G 約 2.6 億步、J 約 5.2 億步，各開、關一次）。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR：同 trigger_long_test.go
-//   - DOSGOLEM_SC_FONT：font-test（正式字型的超集）
+//   - DOSGOLEM_SC_FONT：正式字型（007 起含確認框的 7 個新字）
 //   - DOSGOLEM_SC_CATALOG：正式 catalog text/opttest_labels.zh-TW.tsv
 //   - DOSGOLEM_SC_GFX_CATALOG：正式圖形字 catalog text/menu_gfx.zh-TW.tsv
 //   - DOSGOLEM_SC_I015：strike_commander workplace/i015（SAVELOAD.SHP，游標欄核對用）
 //
 // DOSGOLEM_SC_OUT 有設定時，把每個 shot 的 2、3 倍合成圖、原版放大圖、原版色號畫格與色盤寫到
-// <OUT>/case-f、<OUT>/case-g，供主代理做 §4.2 的獨立比對。
+// <OUT>/case-f、<OUT>/case-g（007 另有 case-i、case-j、case-k），供主代理做 §4.2 的獨立比對。
 //
-// 期望值取自盤點工具的 strike_commander workplace/i015/l7/ip.tsv、l8/ip.tsv、t1/ip.tsv（同一輸入的步數），
-// 獨立於本規格的實作。
+// 期望值取自盤點工具的 strike_commander workplace/i015/l7/ip.tsv、l8/ip.tsv、t1/ip.tsv，以及
+// workplace/i017/q2/ip.tsv、k5/ip.tsv、tq/ip.tsv（同一輸入的步數），獨立於本規格的實作。
 
 type slWant struct {
 	steps uint64 // 0：不斷言步數（只斷言順序）
@@ -54,6 +57,41 @@ var slCases = map[string]slCase{
 			{5255492361, 1, 0}, {5255524794, 1, 2}, {5255526654, 1, 6}, {5255528829, 1, 8},
 		},
 		[]string{"tent"}, []string{"open", "tsave"}},
+	// 007 §4.2 案例 I（q2/ip.tsv）：開啟 k0、k2、k6、k8 在 ip 範圍外（只斷言順序）；QUIT 按放 k9、k8；確認框 k15、k17、k19；
+	// NO 按放 k20、k19；重畫 k0、k2、k6、k8（k10、k12、k14 不產生圖面）；SAVE 按下 k3（強推論，沒有原版收據）。
+	"I": {"I", "p485/s449.state", "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0", "testdata/case_i.script",
+		[]slWant{
+			{0, 0, 0}, {0, 0, 2}, {0, 0, 6}, {0, 0, 8},
+			{4750001396, 0, 9}, {4760001044, 0, 8},
+			{4760010772, 0, 15}, {4760021615, 0, 17}, {4760023288, 0, 19},
+			{4800001549, 0, 20}, {4810001341, 0, 19},
+			{4810005877, 0, 0}, {4810037484, 0, 2}, {4810039344, 0, 6}, {4810041519, 0, 8},
+			{0, 0, 3},
+		},
+		nil, []string{"confirm", "nopressed", "no10", "savepressed"}},
+	// 007 §4.3 案例 J（k5/ip.tsv，ip 從 4895000002 起）：第一次開啟 k0、k2、k6、k8 只斷言順序；打字存檔後關閉。
+	"J": {"J", "p485/s449.state", "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0", "testdata/case_j.script",
+		[]slWant{
+			{0, 0, 0}, {0, 0, 2}, {0, 0, 6}, {0, 0, 8},
+			{4895642986, 0, 0}, {4895674593, 0, 2}, {4895676453, 0, 6}, {4895678628, 0, 8},
+			{4913010230, 0, 15}, {4913021073, 0, 17}, {4913022746, 0, 19}, {4913025317, 0, 16},
+			{4930001443, 0, 20}, {4940000953, 0, 19},
+			{4940005490, 0, 0}, {4940037097, 0, 2}, {4940038957, 0, 6}, {4940041132, 0, 8},
+			{4963010238, 0, 15}, {4963021081, 0, 17}, {4963022754, 0, 19}, {4963025325, 0, 16},
+			{4985001443, 0, 18}, {4995001293, 0, 17},
+			{4995005984, 0, 0}, {4995037591, 0, 2}, {4995039451, 0, 6}, {4995041626, 0, 8},
+		},
+		[]string{"yes10"}, []string{"bs", "c", "ow", "nopressed", "no10", "ow2", "yespressed"}},
+	// 007 §4.4 案例 K（帳篷，tq/ip.tsv 從 5261000002 起；開啟的 e 21、23、27、29 步數取自 t1/ip.tsv，同狀態、同輸入）。
+	"K": {"K", "p539/s500b.state", "0fbe712170ff91b9d83a5346fcaac9f98a5f09ef10b6295d4e6914b51f0d4ee6", "testdata/case_k.script",
+		[]slWant{
+			{5255492361, 1, 0}, {5255524794, 1, 2}, {5255526654, 1, 6}, {5255528829, 1, 8},
+			{5265001517, 1, 9}, {5270001318, 1, 8},
+			{5270011080, 1, 15}, {5270021979, 1, 17}, {5270023652, 1, 19},
+			{5290001617, 1, 20}, {5300000963, 1, 19},
+			{5300005513, 1, 0}, {5300037946, 1, 2}, {5300039806, 1, 6}, {5300041981, 1, 8},
+		},
+		nil, []string{"tsave", "tq", "tnopressed", "tno"}},
 }
 
 func runSaveLoadCase(t *testing.T, c slCase, overlay bool) *ReceiptResult {
@@ -295,9 +333,9 @@ func checkTentColors(t *testing.T, res *ReceiptResult) {
 			t.Errorf("%d 倍：停止時圖面 %d 列，要 4", sc, len(ov.arts))
 		}
 		for _, e := range ov.arts {
-			c, h := dialogColors(e.ev)
+			c, h, hasH := dialogColors(e.ev)
 			w := want[e.ev.K]
-			if e.ev.G != 1 || c != w[0] || h != w[1] {
+			if e.ev.G != 1 || c != w[0] || h != w[1] || !hasH {
 				t.Errorf("%d 倍 %s：組 %d c %d h %d，要組 1 c %d h %d", sc, e.rect.Key, e.ev.G, c, h, w[0], w[1])
 			}
 		}
@@ -310,15 +348,20 @@ func TestSaveLoadCase(t *testing.T) {
 			t.Skip(e + " 未設定：004 §4.2、§4.3 需要設定樹、狀態檔、字型、兩份正式 catalog 與 i015")
 		}
 	}
-	for _, name := range []string{"F", "G"} {
+	for _, name := range []string{"F", "G", "I", "J", "K"} {
 		c := slCases[name]
 		t.Run(name, func(t *testing.T) {
+			t0 := time.Now()
 			on := runSaveLoadCase(t, c, true)
+			t.Logf("開：%d 步，耗時 %v", on.Digest.Steps-on.Boot.Steps, time.Since(t0))
 			checkSaveLoadCase(t, c, on)
 			writeStop(t, "case-"+strings.ToLower(name), on) // 006 §3.3
-			if name == "G" {
+			if name == "G" || name == "K" {
 				checkTentColors(t, on)
 				checkNoSig(t, on) // 005 §4.4
+			}
+			if x := slExtra[name]; x != nil {
+				x(t, on) // 007 §4.2 到 §4.4
 			}
 			if name == "F" {
 				checkCaseF005(t, on) // 005 §4.2（含 sig 紀錄檢查）
@@ -327,7 +370,9 @@ func TestSaveLoadCase(t *testing.T) {
 				t.Logf("005：shot %s Visible %q Hidden %v", s.Name, s.Visible, s.Hidden)
 			}
 			logMeasure(t, name, on)
+			t1 := time.Now()
 			off := runSaveLoadCase(t, c, false)
+			t.Logf("關：%d 步，耗時 %v", off.Digest.Steps-off.Boot.Steps, time.Since(t1))
 			a, b := on.Digest, off.Digest
 			t.Logf("開：Memory %x CPU %x Indexed %x Palette %x", a.MemorySHA256, a.CPUSHA256, a.IndexedSHA256, a.PaletteSHA256)
 			t.Logf("關：Memory %x CPU %x Indexed %x Palette %x", b.MemorySHA256, b.CPUSHA256, b.IndexedSHA256, b.PaletteSHA256)

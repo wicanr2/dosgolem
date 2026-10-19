@@ -35,19 +35,30 @@ type tElem struct {
 	key       string
 }
 
+// k2、k4 的字帶是 007 §3.9 下移後的 y 2 到 10；k15 到 k19 是 007 §3.2 的表，位置取自 RE 017 §2。
 var tElems = []tElem{
 	{0, 182, 131, [4]int{44, 6, 139, 17}, [4]int{47, 9, 133, 14}, 80, 30, "saveload/80,30/0"},
 	{1, 107, 12, [4]int{8, 0, 103, 11}, [4]int{11, 3, 102, 8}, 114, 36, "saveload/114,36/1"},
-	{2, 75, 12, [4]int{20, 1, 59, 9}, [4]int{24, 3, 51, 7}, 134, 127, "saveload/134,127/2"},
-	{4, 75, 12, [4]int{20, 1, 59, 9}, [4]int{22, 3, 53, 7}, 134, 127, "saveload/134,127/4"},
+	{2, 75, 12, [4]int{20, 2, 59, 10}, [4]int{24, 3, 51, 7}, 134, 127, "saveload/134,127/2"},
+	{4, 75, 12, [4]int{20, 2, 59, 10}, [4]int{22, 3, 53, 7}, 134, 127, "saveload/134,127/4"},
 	{6, 80, 12, [4]int{12, 1, 67, 9}, [4]int{15, 3, 63, 7}, 90, 142, "saveload/90,142/6"},
 	{8, 80, 12, [4]int{2, 1, 77, 9}, [4]int{3, 3, 74, 7}, 174, 142, "saveload/174,142/8"},
+	{15, 132, 44, [4]int{18, 11, 112, 19}, [4]int{24, 13, 106, 17}, 101, 85, "saveload/101,85/15"},
+	{16, 95, 9, [4]int{0, 0, 94, 8}, [4]int{14, 2, 78, 6}, 119, 96, "saveload/119,96/16"},
+	{17, 46, 12, [4]int{4, 1, 41, 9}, [4]int{14, 3, 34, 7}, 119, 110, "saveload/119,110/17"},
+	{19, 44, 12, [4]int{4, 1, 39, 9}, [4]int{15, 3, 30, 7}, 170, 110, "saveload/170,110/19"},
 }
 
-// tElemFor 回 k（0 到 9）的元素列；按下態 {3,5,7,9} 用 k−1 的列、墨跡框下移 1 列。
+// tPressed 是按下態集合 {3, 5, 7, 9, 18, 20}（004 §2.2、007 §3.2）。
+func tPressed(k int) bool { return k == 3 || k == 5 || k == 7 || k == 9 || k == 18 || k == 20 }
+
+// tKs 是產生圖面的 k：0 到 9、15 到 20（007 §3.1）。
+var tKs = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 18, 19, 20}
+
+// tElemFor 回 k（tKs）的元素列；按下態用 k−1 的列、墨跡框下移 1 列。
 func tElemFor(t *testing.T, k int) tElem {
 	t.Helper()
-	n, pressed := k, k == 3 || k == 5 || k == 7 || k == 9
+	n, pressed := k, tPressed(k)
 	if pressed {
 		n = k - 1
 	}
@@ -230,7 +241,8 @@ func artLogs(o *LabelObserver) []Event {
 
 func TestDialogEventAccept(t *testing.T) {
 	file := loadSHP(t)
-	for _, e := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 22, 25, 27, 29} {
+	// 007 §4.1 第 1 項：0 組與 21 組的 k 15 到 20 也產生圖面，k18、k20 與 k17、k19 同 Key。
+	for _, e := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 22, 25, 27, 29, 15, 16, 17, 18, 19, 20, 36, 37, 38, 39, 40, 41} {
 		k := e % 21
 		el := tElemFor(t, k)
 		h, evs := artHarness(t, file, true)
@@ -286,7 +298,8 @@ func TestDialogEventReject(t *testing.T) {
 		{"圖檔最後一個 byte 改動", func(h *harness) { h.f.mem[lin(tSHPSeg, 0)+42013]++ }, tDst, 6},
 		{"e 10", func(h *harness) {}, tDst, 10},
 		{"e 14", func(h *harness) {}, tDst, 14},
-		{"e 15", func(h *harness) {}, tDst, 15},
+		{"e 31（21 組 k10）", func(h *harness) {}, tDst, 31},
+		{"e 35（21 組 k14）", func(h *harness) {}, tDst, 35},
 		{"e 44（第 2 組）", func(h *harness) {}, tDst, 44},
 		{"e 63（第 3 組）", func(h *harness) {}, tDst, 63},
 	}
@@ -442,8 +455,8 @@ func TestBandCoverage(t *testing.T) {
 			}
 		}
 	}
-	// 每個 k 的墨跡框（含按下態下移後）在字帶內；實作的表與測試內數值逐列相同。
-	for k := 0; k <= 9; k++ {
+	// 每個 k 的墨跡框（含按下態下移後）在字帶內；實作的表與測試內數值逐列相同（007 §4.1 第 2 項含 k15 到 k20）。
+	for _, k := range tKs {
 		el := tElemFor(t, k)
 		if el.ink[0] < el.band[0] || el.ink[1] < el.band[1] || el.ink[2] > el.band[2] || el.ink[3] > el.band[3] {
 			t.Errorf("k%d 的墨跡框 %v 不在字帶 %v 內", k, el.ink, el.band)
@@ -455,24 +468,40 @@ func TestBandCoverage(t *testing.T) {
 			t.Errorf("k%d：實作的表 %+v 墨跡框 %+v，測試 %+v", k, pe, pink, el)
 		}
 	}
-	for k := 10; k < 21; k++ {
+	for k := 10; k <= 14; k++ {
 		if _, _, ok := elementFor(k); ok {
 			t.Errorf("k%d 不應有元素列", k)
+		}
+	}
+	// 007 §3.2：k15 字帶的絕對矩形 (101+18, 85+11)–(101+112, 85+19) 等於 k16 元素矩形 (119,96)–(213,104)。
+	e15, e16 := tElemFor(t, 15), tElemFor(t, 16)
+	got := [4]int{e15.x + e15.band[0], e15.y + e15.band[1], e15.x + e15.band[2], e15.y + e15.band[3]}
+	if want := [4]int{e16.x, e16.y, e16.x + e16.w - 1, e16.y + e16.h - 1}; got != want || want != [4]int{119, 96, 213, 104} {
+		t.Errorf("k15 字帶絕對矩形 %v，k16 元素矩形 %v，要 (119,96)–(213,104)", got, want)
+	}
+	// 007 §3.9：k2、k4 字帶由 y 1 到 9 改為 y 2 到 10（字帶高仍 9 列，x 不變）。
+	for _, k := range []int{2, 3, 4, 5} {
+		if el, _, _ := elementFor(k); el.band != (box{20, 2, 59, 10}) {
+			t.Errorf("k%d 字帶 %+v，要 (20,2)–(59,10)", k, el.band)
 		}
 	}
 }
 
 // --- 第 4 項：無字底 ---
 
-// tBG 是 004 勘誤的底色集合 B（0 組）：標題 k0、k1 為 {9, 13}，按鈕 k2 到 k9 為 {8, 9, 13}。
+// tBG 是 004 勘誤的底色集合 B（0 組）：標題 k0、k1 為 {9, 13}，按鈕 k2 到 k9 為 {8, 9, 13}；
+// 確認框 k15 到 k20 為 {4, 5, 8, 9, 10}（007 §3.3）。
 func tBG(k int) map[uint8]bool {
-	if k == 0 || k == 1 {
+	switch {
+	case k == 0 || k == 1:
 		return map[uint8]bool{9: true, 13: true}
+	case k >= 15 && k <= 20:
+		return map[uint8]bool{4: true, 5: true, 8: true, 9: true, 10: true}
 	}
 	return map[uint8]bool{8: true, 9: true, 13: true}
 }
 
-// tJudge 是 004 勘誤的墨跡判定框：按鈕沿用墨跡框（按下態已下移）；標題往下延 1 列含陰影，
+// tJudge 是 004 勘誤的墨跡判定框：按鈕與確認框（007 §3.3）沿用墨跡框（按下態已下移）；標題往下延 1 列含陰影，
 // k0 右緣延到 134（第二次勘誤）。
 func tJudge(t *testing.T, k int) [4]int {
 	t.Helper()
@@ -488,7 +517,7 @@ func tJudge(t *testing.T, k int) [4]int {
 func TestInpaint(t *testing.T) {
 	file := loadSHP(t)
 	for _, g := range []int{0, 1} {
-		for k := 0; k <= 9; k++ {
+		for _, k := range tKs {
 			el := tElemFor(t, k)
 			jb := tJudge(t, k)
 			bg := tBG(k)
@@ -552,6 +581,9 @@ func TestInpaint(t *testing.T) {
 			}
 			if len(fbWant) != 0 {
 				t.Logf("組 %d k%d：退回原規則 4 的 %d 點：%s", g, k, len(fbWant), strings.Join(fbWant, " "))
+				if k >= 15 {
+					t.Errorf("組 %d k%d：確認框不應退回（007 §3.3）", g, k)
+				}
 			}
 			if len(fb) != len(fbWant) {
 				t.Errorf("組 %d k%d：退回清單 %d 點，要 %d", g, k, len(fb), len(fbWant))
@@ -616,7 +648,7 @@ type tStamp struct {
 func TestArtStamp(t *testing.T) {
 	file := loadSHP(t)
 	for _, sc := range []int{2, 3} {
-		for _, e := range []int{0, 1, 2, 4, 6, 7, 8, 27} {
+		for _, e := range []int{0, 1, 2, 3, 4, 6, 7, 8, 27, 15, 16, 17, 18, 19, 20, 36, 37, 39, 41} {
 			el := tElemFor(t, e%21)
 			ov := newArtOverlay(t, sc)
 			ev := mkEvent(t, file, e, el.x, el.y, 1)
@@ -764,6 +796,28 @@ func glyphBox(t *testing.T, ov *Overlay, ev ArtEvent) (left, top int) {
 	return
 }
 
+// glyphBottom 回 idx 與放大無字底不同的像素中最下面一列。
+func glyphBottom(t *testing.T, ov *Overlay, ev ArtEvent) int {
+	t.Helper()
+	el := tElemFor(t, ev.K)
+	bw := el.band[2] - el.band[0] + 1
+	bg := dialogBackground(ev)
+	sc := ov.scale
+	bottom := -1
+	for _, a := range ov.arts {
+		if a.ev.Order != ev.Order {
+			continue
+		}
+		for i, c := range a.idx {
+			x, y := i%(bw*sc), i/(bw*sc)
+			if c != bg[(y/sc)*bw+x/sc] {
+				bottom = max(bottom, y)
+			}
+		}
+	}
+	return bottom
+}
+
 func TestArtGlyphPlacement(t *testing.T) {
 	file := loadSHP(t)
 	// CANCEL → 「地面」（2 字）。k6 字帶 x 12 到 67（56 寬）、墨跡框 x 15 到 63，相對字帶 3 到 51。
@@ -787,23 +841,59 @@ func TestArtGlyphPlacement(t *testing.T) {
 			t.Errorf("%d 倍：k6、k7 字模上緣相差 %d", sc, t7-t6)
 		}
 	}
+	// 007 §3.5、§3.9：k2 到 k5 與 k15 到 k20（0 組）。值是「字模外接框左緣、上緣」：有高光時左緣是 gx − 1。
+	// 水平 tx = floor(((x0 + x1 + 1) × 倍率 − W) / 2) + (步距 − 16) / 2（x0、x1 墨跡框相對字帶）；
+	// 垂直 ty = clamp(floor(((iy0 + iy1 + 1) × 倍率 − 16) / 2) − by0 × 倍率, 0, bh × 倍率 − 16)。
+	// 測試 catalog 字數：SAVE 2、LOAD 2、ARE YOU SURE 3、OVERWRITE 4、YES 1、NO 1。
+	//   - k2：墨跡 x 4 到 31，2 倍 W 32 → 20，高光 19；3 倍 W 36 → 36 + 1 = 37，高光 36。
+	//     ty 2 倍一般 floor((22−16)/2) − 4 = −1 → 0、按下 5 − 4 = 1；3 倍一般 8 − 6 = 2、按下 11 − 6 = 5。
+	//   - k4：墨跡 x 2 到 33，和同 k2。
+	//   - k15：墨跡 x 6 到 88，2 倍 W 48 → (190 − 48)/2 = 71，高光 70；3 倍 W 54 → 115 + 1，高光 115。ty 23 − 22 = 1、38 − 33 = 5。
+	//   - k16：墨跡 x 14 到 78，2 倍 W 64 → 61，高光 60；3 倍 W 72 → 103 + 1，高光 103。ty 1、5。
+	//   - k17：墨跡 x 10 到 30，2 倍 W 16 → 33，高光 32；3 倍 W 18 → 52 + 1，高光 52。ty 1、5；k18 2、8。
+	//   - k19：墨跡 x 11 到 26，2 倍 → 30；3 倍 → 48 + 1 = 49；沒有高光（007 §3.4），左緣即 gx。ty 1、5；k20 2、8。
+	type pl struct{ left, top int }
+	more := map[int]map[int]pl{
+		2: {2: {19, 0}, 3: {19, 1}, 4: {19, 0}, 5: {19, 1}, 15: {70, 1}, 16: {60, 1}, 17: {32, 1}, 18: {32, 2}, 19: {30, 1}, 20: {30, 2}},
+		3: {2: {36, 2}, 3: {36, 5}, 4: {36, 2}, 5: {36, 5}, 15: {115, 5}, 16: {103, 5}, 17: {52, 5}, 18: {52, 8}, 19: {49, 5}, 20: {49, 8}},
+	}
+	for sc, m := range more {
+		for k, w := range m {
+			el := tElemFor(t, k)
+			ov := newArtOverlay(t, sc)
+			ev := mkEvent(t, file, k, el.x, el.y, 1)
+			ov.AddDialogArt(ev)
+			if l, tp := glyphBox(t, ov, ev); l != w.left || tp != w.top {
+				t.Errorf("%d 倍 k%d：字模左上 (%d,%d)，要 (%d,%d)", sc, k, l, tp, w.left, w.top)
+			}
+			// 下緣：測試字模 16 列每列都有點，字模沒有被裁掉時最底列是 ty + 15（ty 不得小於 0，007 §3.9 的下界夾切）。
+			if b := glyphBottom(t, ov, ev); b != w.top+15 {
+				t.Errorf("%d 倍 k%d：字模下緣 %d，要 %d", sc, k, b, w.top+15)
+			}
+		}
+	}
 }
 
 func TestArtTextColors(t *testing.T) {
 	file := loadSHP(t)
 	// 004 §3.5 表（按下態同一般態）：{0 組 c, 0 組 h, 21 組 c, 21 組 h}。
+	// 007 §3.4 表：k15 到 k18 為 82／15、31／87；k19、k20 為 58、44，兩組都沒有高光（0 表示無高光）。
 	want := map[int][4]uint8{
 		0: {49, 15, 55, 209}, 1: {49, 15, 55, 209},
 		2: {82, 15, 31, 87}, 4: {82, 15, 31, 209}, 6: {82, 15, 31, 209}, 8: {82, 15, 31, 87},
+		15: {82, 15, 31, 87}, 16: {82, 15, 31, 87}, 17: {82, 15, 31, 87}, 19: {58, 0, 44, 0},
 	}
-	for k := 0; k <= 9; k++ {
+	for _, k := range tKs {
 		el := tElemFor(t, k)
 		w := want[normalKTest(k)]
 		for gi, g := range []int{0, 21} {
 			ev := mkEvent(t, file, g+k, el.x, el.y, 1)
-			c, h := dialogColors(ev)
-			if c != w[2*gi] || h != w[2*gi+1] {
-				t.Errorf("組 %d k%d：c %d h %d，要 %d %d", g, k, c, h, w[2*gi], w[2*gi+1])
+			c, h, hasH := dialogColors(ev)
+			if !hasH {
+				h = 0
+			}
+			if c != w[2*gi] || h != w[2*gi+1] || hasH != (w[2*gi+1] != 0) {
+				t.Errorf("組 %d k%d：c %d h %d（高光 %t），要 %d %d", g, k, c, h, hasH, w[2*gi], w[2*gi+1])
 			}
 		}
 	}
@@ -826,7 +916,7 @@ func TestArtTextColors(t *testing.T) {
 }
 
 func normalKTest(k int) int {
-	if k == 3 || k == 5 || k == 7 || k == 9 {
+	if tPressed(k) {
 		return k - 1
 	}
 	return k
@@ -1073,7 +1163,8 @@ func TestFormalGfxCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"SAVE GAME": "儲存進度", "LOAD GAME": "讀取進度", "SAVE": "儲存", "LOAD": "讀取", "CANCEL": "取消", "QUIT TO DOS": "離開遊戲"}
+	want := map[string]string{"SAVE GAME": "儲存進度", "LOAD GAME": "讀取進度", "SAVE": "儲存", "LOAD": "讀取", "CANCEL": "取消", "QUIT TO DOS": "離開遊戲",
+		"ARE YOU SURE": "確定嗎", "OVERWRITE": "覆蓋存檔", "YES": "是", "NO": "否"}
 	for k, v := range want {
 		if c[k] != v {
 			t.Errorf("%q 譯文 %q，要 %q", k, c[k], v)

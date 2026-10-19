@@ -11,16 +11,19 @@ import (
 //	move STEP X Y
 //	down STEP X Y
 //	up   STEP X Y
+//	kdown STEP SCAN    硬體鍵盤按下；掃描碼十六進位、01 到 7F（不含 bit 7），同 cmd/strikecommander-census（007 §3.8）
+//	kup   STEP SCAN    硬體鍵盤放開
 //	shot STEP [NAME]   以最後一次回掃的畫格出合成圖；NAME 可省，有就當輸出檔名的一部分
 //	stop STEP
 //
-// 空白列與 # 開頭的列略過。cmd/strikecommander-census 的腳本不含 grid 時也能讀。
+// 空白列與 # 開頭的列略過。cmd/strikecommander-census 的腳本不含 grid、ip、vwatch、trace、dump、watch 時也能讀。
 
-// ScriptedInput 是腳本的一筆滑鼠輸入。Kind 是 "move"、"down" 或 "up"。
+// ScriptedInput 是腳本的一筆輸入。Kind 是 "move"、"down"、"up"（滑鼠，用 X、Y）或 "kdown"、"kup"（鍵盤，用 Scan）。
 type ScriptedInput struct {
 	Steps uint64
 	Kind  string
 	X, Y  int
+	Scan  uint8
 }
 
 // Shot 是腳本的一筆 shot。
@@ -74,6 +77,15 @@ func ParseScript(b []byte, start uint64) (Script, error) {
 				return Script{}, bad()
 			}
 			sc.Inputs = append(sc.Inputs, ScriptedInput{Steps: s, Kind: fs[0], X: int(x), Y: int(y)})
+		case "kdown", "kup":
+			if len(fs) != 3 {
+				return Script{}, bad()
+			}
+			code, err := strconv.ParseUint(fs[2], 16, 8)
+			if err != nil || code == 0 || code > 0x7F {
+				return Script{}, fmt.Errorf("strikecommander: 腳本第 %d 列：掃描碼要 01–7F：%q", n, line)
+			}
+			sc.Inputs = append(sc.Inputs, ScriptedInput{Steps: s, Kind: fs[0], Scan: uint8(code)})
 		case "shot":
 			if len(fs) > 3 {
 				return Script{}, bad()

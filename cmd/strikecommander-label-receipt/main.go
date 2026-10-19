@@ -5,8 +5,8 @@
 //	strikecommander-label-receipt -root <SB16 設定樹> -state <s449.state> -state-sha256 <hex> \
 //	    -steps 4492700000 -tsv <catalog.tsv> -font <zh-TW.golemfnt> -out <輸出目錄>
 //
-// -script 給規格 002 §2.4 的腳本（move、down、up、shot、stop）時，依腳本送滑鼠事件，
-// 每個 shot 另出各倍率的合成 PNG；-steps 可省，給了就必須等於腳本的 stop。
+// -script 給規格 002 §2.4 的腳本（move、down、up、kdown、kup、shot、stop；kdown、kup 見規格 007 §3.8）時，
+// 依腳本送滑鼠與鍵盤事件，每個 shot 另出各倍率的合成 PNG；-steps 可省，給了就必須等於腳本的 stop。
 //
 // -root 是唯讀來源；每次執行另外實體複製一份到 -work 底下當 SaveRoot（遊戲會寫入），結束時刪除。
 package main
@@ -32,7 +32,7 @@ func main() {
 	stateSHA := flag.String("state-sha256", "", "狀態檔 SHA-256（十六進位）")
 	rebase := flag.String("rebase-from", "/scratch", "狀態檔開檔路徑的舊前綴，逗號分隔（狀態檔的 Root 自動包含）")
 	steps := flag.Uint64("steps", 0, "停止步數（絕對）；有 -script 時可省")
-	script := flag.String("script", "", "腳本檔（strike_commander 規格 002 §2.4）")
+	script := flag.String("script", "", "腳本檔（strike_commander 規格 002 §2.4；鍵盤 kdown、kup 見規格 007 §3.8）")
 	scales := flag.String("scales", "2,3", "合成圖倍率，逗號分隔（2、3）")
 	tsv := flag.String("tsv", "", "譯文 catalog（key、translation、source）")
 	gfxTSV := flag.String("gfx-tsv", "", "圖形字 catalog text/menu_gfx.<lang>.tsv（存讀檔對話框，規格 004 §3.6）；可省")

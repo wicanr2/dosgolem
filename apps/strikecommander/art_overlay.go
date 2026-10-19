@@ -33,7 +33,9 @@ func artKey(ev ArtEvent) string {
 
 // AddDialogArt 依一個繪圖事件規劃一列圖面（004 §3.3）。同 Key 的後畫替換前畫。
 // 譯文缺 key、字型缺字記 Miss；超寬、倍率、矩形不合法記 Skip；兩者都不產生圖面，畫面維持英文。
+// 規劃之前先依 007 §3.6 移除確認框的圖面（與這次事件是否產生圖面無關）。
 func (o *Overlay) AddDialogArt(ev ArtEvent) {
+	o.dropConfirmArt(ev)
 	e, miss, skip := o.planArt(ev)
 	if miss != nil {
 		o.Misses = append(o.Misses, *miss)
@@ -50,6 +52,35 @@ func (o *Overlay) AddDialogArt(ev ArtEvent) {
 		}
 	}
 	o.arts = append(o.arts, e)
+}
+
+// dropConfirmArt 是 007 §3.6 的生命期規則（防禦；逐欄比對已讓關閉後的確認框停畫）：
+//  1. k0 的繪圖事件（確認框關閉後整個對話框重畫的第一筆）移除一般態屬於 {15, 16, 17, 19} 的圖面；
+//  2. k15 的繪圖事件移除一般態 16 的圖面（新一次確認框）。
+//
+// 同時從 artLayer 移除：drawArt 在沒有圖面時直接返回，不會替 layer 對帳。
+func (o *Overlay) dropConfirmArt(ev ArtEvent) {
+	var drop func(n int) bool
+	switch ev.K {
+	case 0:
+		drop = confirmElement
+	case 15:
+		drop = func(n int) bool { return n == 16 }
+	default:
+		return
+	}
+	keep := o.arts[:0]
+	for _, e := range o.arts {
+		if drop(normalK(e.ev.K)) {
+			o.artLayer.DropArt(e.rect.Key)
+			continue
+		}
+		keep = append(keep, e)
+	}
+	for i := len(keep); i < len(o.arts); i++ {
+		o.arts[i] = nil
+	}
+	o.arts = keep
 }
 
 // ClearArt 移除全部圖面（全螢幕 blit 入口，004 §3.3）。
@@ -115,7 +146,7 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 		return nil, &Miss{Key: el.key, Reason: MissGlyph, Runes: missing}, nil
 	}
 	sc := o.scale
-	gx, gy, step, err := glyphOrigin(len(text), sc, el.band, ink, pressedState(ev.K))
+	gx, gy, step, err := glyphOrigin(len(text), sc, el.band, ink)
 	if err != nil {
 		return nil, nil, &Skip{el.key, err.Error()}
 	}
@@ -128,7 +159,7 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 	for y := 0; y < bh; y++ {
 		copy(ref[y*bw:(y+1)*bw], ev.Entry[(el.band.y0+y)*el.w+el.band.x0:])
 	}
-	c, h := dialogColors(ev)
+	c, h, hasH := dialogColors(ev)
 	bg := dialogBackground(ev)
 	ow, oh := bw*sc, bh*sc
 	idx := make([]uint8, ow*oh)
@@ -145,7 +176,11 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 		}
 	}
 	// 高光在筆畫左側：先以 h 在字模左移 1 個輸出像素處畫一次，再以 c 畫字模（004 §3.5）。
+	// 原版沒有高光（0 組墨跡框內沒有 15，007 §3.4）時跳過第一趟。
 	for pass, col := range []uint8{h, c} {
+		if pass == 0 && !hasH {
+			continue
+		}
 		dx := pass - 1 // 第一趟 −1，第二趟 0
 		for i, r := range text {
 			g := font.Glyphs[r]

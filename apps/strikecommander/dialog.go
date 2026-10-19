@@ -47,7 +47,8 @@ type ArtEvent struct {
 //     未知時以 CS − 3A97h 為候選，以 001 的 puts 簽章與其餘簽章驗證後採用；
 //  2. 描述元 DS:d 的段是 FFFFh、矩形全螢幕；
 //  3. 圖檔 p 起 u32 等於 42014，整檔 SHA-256 相符（每次都重算）；
-//  4. g = e / 21、k = e mod 21：g 為 0、1 且 k 屬於 0 到 9 才產生事件；g == 2 記 skip；
+//  4. g = e / 21、k = e mod 21：g 為 0、1 且 k 屬於 0 到 9 或 15 到 20（確認框，007 §3.1）才產生事件；
+//     k 屬於 10 到 14（箭頭、滑塊）不產生也不記錄；g == 2 記 skip；
 //  5. 解碼條目 e 與條目 k，尺寸要等於 §2.2 的元素尺寸。
 func (o *LabelObserver) shapeEntry(v View) {
 	cs := v.CS()
@@ -108,7 +109,7 @@ func (o *LabelObserver) shapeEntry(v View) {
 		return
 	case g >= 3:
 		return
-	case k >= 10:
+	case k >= 10 && k <= 14:
 		return
 	}
 	el, _, _ := elementFor(k)

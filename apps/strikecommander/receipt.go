@@ -376,6 +376,19 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		}
 		switch it := items[i].(type) {
 		case ScriptedInput:
+			if it.Kind == "kdown" || it.Kind == "kup" {
+				// 2a. 鍵盤事件（007 §3.8）：硬體掃描碼經 IRQ1，kup 為放開；之後同滑鼠推進 1 步。
+				err := deliver(func(_ host.MouseLayout, u *session.CapturedUpdate) {
+					u.ScanEvents = []session.ScanEvent{{Scan: it.Scan, Break: it.Kind == "kup"}}
+				})
+				if err != nil {
+					return res, fmt.Errorf("strikecommander: 第 %d 步 %s：%w", it.Steps, it.Kind, err)
+				}
+				if err := advance(steps + 1); err != nil {
+					return res, err
+				}
+				continue
+			}
 			// 2. 輸入事件：DOS 邏輯像素換成 host 座標。
 			var kind host.MouseEventKind
 			switch it.Kind {
