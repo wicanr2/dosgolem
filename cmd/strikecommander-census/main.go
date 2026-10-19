@@ -21,11 +21,14 @@
 //	                                    CS < 0100h（JEMM 保護模式）時不比對，JEMM 跑過後的第一步只重取快照（頁對映可能換了）
 //	vwatch FROM TO X0 Y0 X1 Y1          FROM 到 TO 之間寫進實體 VGA 視窗、落在 mode 13h 矩形內的位元組，依寫入 CS:IP 彙整到 vwatch.tsv
 //	ip FROM TO SEG:OFF                  FROM 到 TO 之間每次執行到 SEG:OFF 就記一列到 ip.tsv（含 BP 鏈）
+//	frames FROM TO                      FROM 到 TO 之間每次回掃（Frame）記下步數、畫格 FNV-1a、與上一次回掃的差異像素數，寫進 frames.tsv
 //	kdown STEP SCAN                     送硬體鍵盤按下（掃描碼十六進位，不含 bit 7；經 IRQ1，docs/spec/449）
 //	kup   STEP SCAN                     送硬體鍵盤放開
 //	stop STEP
 //
 // -keep-root 時不刪 SaveRoot 複本，執行結束後可檢查遊戲寫入的檔案（例如存檔）。
+// -puts-profile 選 puts 的判定：auto（預設，OPTTEST 與 STRIKE 都試）、opttest、strike。
+// STRIKE 沒有 blit 路徑，trace 只記 puts。
 package main
 
 import (
@@ -51,14 +54,63 @@ import (
 // keepRoot 對應 -keep-root。
 var keepRoot bool
 
+// putsCands 對應 -puts-profile。
+var putsCands = putsProfiles
+
 // putsSig 是 OPTTEST 整行輸出的前 16 bytes（RE 011 §2，檔案位移 3F36Bh）。
+// STRIKE 的 puts（RE 020 §3.1，61BB:0345，檔案位移 67CE5h）前 16 bytes 與它相同。
 var putsSig = []byte{0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x06, 0x56, 0x57, 0x8B, 0x76, 0x06, 0x8B, 0x7E, 0x08, 0xFF, 0x74}
 
-// blitSegOff 是 blit（RE 012 §2，3C3C:0000）相對 base 的段偏移。
-const blitSegOff = 0x39FB
+// putsProfile 是一支程式的 puts 位置：入口 IP、相對載入段 base 的段偏移、前 16 bytes 簽章，
+// 以及 blit（RE 012 §2）的段偏移（0 表示該程式沒有這條路徑，trace 不記 blit）。
+type putsProfile struct {
+	name       string
+	ip, segOff uint16
+	sig        []byte
+	blitSegOff uint16
+}
 
-// putsSegOff 是 puts 相對載入段 base 的段偏移（3B83 − base；base = 3B83 − 3942h）。
-const putsSegOff, putsIP = 0x3942, 0x034B
+// putsProfiles：
+//   - opttest：puts 3B83:034B（base = 3B83 − 3942h），blit 3C3C:0000（base + 39FBh）。
+//   - strike：puts 61BB:0345，載入段 0241（RE 020 §3.1），段偏移 61BB − 0241 = 5F7Ah；沒有 blit。
+var putsProfiles = []putsProfile{
+	{name: "opttest", ip: 0x034B, segOff: 0x3942, sig: putsSig, blitSegOff: 0x39FB},
+	{name: "strike", ip: 0x0345, segOff: 0x5F7A, sig: putsSig},
+}
+
+// selectProfiles 依 -puts-profile 回傳要嘗試的 profile；auto 全部嘗試。
+func selectProfiles(name string) ([]putsProfile, error) {
+	if name == "" || name == "auto" {
+		return putsProfiles, nil
+	}
+	for _, p := range putsProfiles {
+		if p.name == name {
+			return []putsProfile{p}, nil
+		}
+	}
+	return nil, fmt.Errorf("-puts-profile 不認得 %q（auto、opttest、strike）", name)
+}
+
+// detectPuts 判定 CS:IP 是否為 cands 中某個 profile 的 puts 入口：IP 相符、CS ≥ 段偏移，
+// 且 CS:IP 起 16 bytes 與簽章相同。命中時回傳該 profile 與載入段 base。read 讀線性位址。
+func detectPuts(read func(uint32) uint8, cs, ip uint16, cands []putsProfile) (putsProfile, uint16, bool) {
+	for _, p := range cands {
+		if ip != p.ip || cs < p.segOff {
+			continue
+		}
+		ok := true
+		for i, b := range p.sig {
+			if read(uint32(cs)<<4+uint32(ip)+uint32(i)) != b {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return p, cs - p.segOff, true
+		}
+	}
+	return putsProfile{}, 0, false
+}
 
 type event struct {
 	step uint64
@@ -90,6 +142,8 @@ type dumpReq struct {
 }
 
 type observer struct {
+	cands     []putsProfile // 待判定的 puts profile（-puts-profile）
+	prof      putsProfile   // 判定後的 profile
 	base      uint16
 	baseKnown bool
 	sigOK     bool
@@ -115,6 +169,13 @@ type observer struct {
 	lastRegs  string
 	watchLog  []string
 	ipLog     []string
+	// frames FROM TO（RE 021）：每次回掃的步數與畫格雜湊。
+	curStep    uint64
+	nextDump   uint64
+	framesFrom uint64
+	framesTo   uint64
+	frameLog   []string
+	prevFrame  []byte
 }
 
 // watchReq 是寫入監看（以每步比對近似）；ipReq 是執行位址監看。
@@ -256,6 +317,22 @@ func (o *observer) VideoWrite(w machine.VideoWrite) {
 }
 
 func (o *observer) Frame(indexed []byte, palette [256][3]uint8) {
+	if o.curStep >= o.framesFrom && o.curStep < o.framesTo {
+		// frames：記下這次回掃的步數（最近一次 BeforeStep 的步數）、畫格 FNV-1a 與相對上一次回掃的差異像素數。
+		h := uint32(2166136261)
+		diff := -1
+		if o.prevFrame != nil {
+			diff = 0
+		}
+		for i, b := range indexed {
+			h = (h ^ uint32(b)) * 16777619
+			if o.prevFrame != nil && i < len(o.prevFrame) && o.prevFrame[i] != b {
+				diff++
+			}
+		}
+		o.frameLog = append(o.frameLog, fmt.Sprintf("%d\t%08X\t%d", o.curStep, h, diff))
+		o.prevFrame = append(o.prevFrame[:0], indexed...)
+	}
 	o.frame, o.palette = indexed, palette
 }
 
@@ -265,6 +342,7 @@ func rd16(v session.StepView, seg, off uint16) uint16 {
 }
 
 func (o *observer) BeforeStep(v session.StepView) error {
+	o.curStep = v.Steps()
 	if o.inVW(v.Steps()) {
 		if o.vwPending != nil {
 			o.vwPending.chain = o.chainAt(v, 6)
@@ -281,39 +359,41 @@ func (o *observer) BeforeStep(v session.StepView) error {
 			}
 		}()
 	}
-	for _, d := range o.dumps {
-		if d.data == nil && v.Steps() >= d.step && (!d.whenCS || v.CS() == d.seg) {
-			d.data = make([]byte, d.n)
-			base := uint32(d.seg)<<4 + uint32(d.off)
-			for i := range d.data {
-				d.data[i] = v.Read8(base + uint32(i))
+	// nextDump：還沒傾印的 dump 中最小的步數（RE 021：上千筆 dump 時避免每步走訪全部）。
+	if len(o.dumps) > 0 && v.Steps() >= o.nextDump {
+		next := ^uint64(0)
+		for _, d := range o.dumps {
+			if d.data == nil && v.Steps() >= d.step && (!d.whenCS || v.CS() == d.seg) {
+				d.data = make([]byte, d.n)
+				base := uint32(d.seg)<<4 + uint32(d.off)
+				for i := range d.data {
+					d.data[i] = v.Read8(base + uint32(i))
+				}
+			}
+			if d.data == nil {
+				s := d.step
+				if d.whenCS && v.Steps() >= d.step {
+					s = v.Steps() + 1 // 等 CS 相符：之後每步都要再檢查
+				}
+				if s < next {
+					next = s
+				}
 			}
 		}
+		o.nextDump = next
 	}
-	if o.baseKnown && v.IP() == 0 && v.CS() == o.base+blitSegOff && v.Steps() >= o.traceFrom && v.Steps() < o.traceTo {
+	if o.baseKnown && o.prof.blitSegOff != 0 && v.IP() == 0 && v.CS() == o.base+o.prof.blitSegOff && v.Steps() >= o.traceFrom && v.Steps() < o.traceTo {
 		o.trace = append(o.trace, fmt.Sprintf("%d\tblit\t\t", v.Steps()))
-	}
-	if v.IP() != putsIP {
-		return nil
 	}
 	cs := v.CS()
 	if !o.baseKnown {
-		if cs < putsSegOff {
-			return nil
-		}
-		ok := true
-		for i, b := range putsSig {
-			if v.Read8(uint32(cs)<<4+putsIP+uint32(i)) != b {
-				ok = false
-				break
-			}
-		}
+		p, base, ok := detectPuts(v.Read8, cs, v.IP(), o.cands)
 		if !ok {
 			return nil
 		}
-		o.base, o.baseKnown, o.sigOK = cs-putsSegOff, true, true
+		o.prof, o.base, o.baseKnown, o.sigOK = p, base, true, true
 	}
-	if cs != o.base+putsSegOff {
+	if v.IP() != o.prof.ip || cs != o.base+o.prof.segOff {
 		return nil
 	}
 	o.calls++
@@ -424,6 +504,13 @@ func parseScript(path string) ([]event, error) {
 				return nil, fmt.Errorf("第 %d 列：%q", n, line)
 			}
 			evs = append(evs, event{step: s, kind: "shot", name: fs[2]})
+		case "frames":
+			a, e1 := num(1)
+			b, e2 := num(2)
+			if e1 != nil || e2 != nil || b <= a {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			evs = append(evs, event{step: a, kind: "frames", name: strconv.FormatUint(b, 10)})
 		case "trace":
 			a, e1 := num(1)
 			b, e2 := num(2)
@@ -537,7 +624,14 @@ func main() {
 	out := flag.String("out", "", "輸出目錄")
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
 	flag.BoolVar(&keepRoot, "keep-root", false, "結束時保留 SaveRoot 複本（檢查遊戲寫入的檔案）")
+	profile := flag.String("puts-profile", "auto", "puts 判定：auto、opttest（RE 011）、strike（RE 020）")
 	flag.Parse()
+	cands, err := selectProfiles(*profile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "strikecommander-census：", err)
+		os.Exit(2)
+	}
+	putsCands = cands
 	if err := run(*root, *statePath, *stateSHA, *rebase, *script, *out, *work); err != nil {
 		fmt.Fprintln(os.Stderr, "strikecommander-census：", err)
 		os.Exit(1)
@@ -577,8 +671,12 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
-	obs := &observer{stats: map[callKey]*callStat{}}
+	obs := &observer{stats: map[callKey]*callStat{}, cands: putsCands}
 	for _, e := range evs {
+		if e.kind == "frames" {
+			obs.framesFrom = e.step
+			obs.framesTo, _ = strconv.ParseUint(e.name, 10, 64)
+		}
 		if e.kind == "trace" {
 			obs.traceFrom = e.step
 			obs.traceTo, _ = strconv.ParseUint(e.name, 10, 64)
@@ -684,7 +782,7 @@ loop:
 			}
 		case "kdown", "kup":
 			_, err = deliver(session.CapturedUpdate{ScanEvents: []session.ScanEvent{{Scan: uint8(e.x), Break: e.kind == "kup"}}})
-		case "dump", "trace", "watch", "ip", "vwatch":
+		case "dump", "trace", "watch", "ip", "vwatch", "frames":
 			// 由觀察器在之後的步讀取或記錄。
 		case "stop":
 			stopped = true
@@ -750,14 +848,20 @@ loop:
 			return err
 		}
 	}
+	if obs.framesTo > 0 {
+		tr := "step\tfnv1a\tdiff_prev\n" + strings.Join(obs.frameLog, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(out, "frames.tsv"), []byte(tr), 0o644); err != nil {
+			return err
+		}
+	}
 	if len(obs.ips) > 0 {
 		tr := "step\tcs_ip\tstack_top8\tbp_chain\tregs\n" + strings.Join(obs.ipLog, "\n") + "\n"
 		if err := os.WriteFile(filepath.Join(out, "ip.tsv"), []byte(tr), 0o644); err != nil {
 			return err
 		}
 	}
-	fmt.Printf("停在第 %d 步；puts 呼叫 %d 次，base %04X（簽章 %v），不同（呼叫鏈、字串）%d 組\n",
-		steps, obs.calls, obs.base, obs.sigOK, len(obs.order))
+	fmt.Printf("停在第 %d 步；puts 呼叫 %d 次，base %04X（簽章 %v，profile %s），不同（呼叫鏈、字串）%d 組\n",
+		steps, obs.calls, obs.base, obs.sigOK, obs.prof.name, len(obs.order))
 	f, err := os.Create(filepath.Join(out, "census.tsv"))
 	if err != nil {
 		return err
