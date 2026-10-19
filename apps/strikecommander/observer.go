@@ -37,9 +37,10 @@ const (
 
 	maxLabelBytes = 64
 	maxPending    = 16
-	// ResetSteps：可見集合非空、上次提交後經過這麼多步仍沒有配對的 blit 返回就清空（001 §2.5）。
-	ResetSteps = 5_000_000
-	maxLog     = 4096
+	// SigCheckSteps：可見集合非空、上次提交或上次檢查後經過這麼多步時，重驗 base 的簽章（005 §3.1 第 4 條）。
+	// 001 §2.5 的計步重置由 005 取代：步數到了不清空，只有簽章不符才清空。
+	SigCheckSteps = 5_000_000
+	maxLog        = 4096
 )
 
 // 物件 DS:obj 的欄位位移（RE 012 §2.1）。
@@ -140,6 +141,10 @@ type Label struct {
 	Steps uint64 // puts 入口的步數
 	Kind  Kind   // 呼叫端判定的種類（003 §3.1）
 
+	// Ref 是提交時從 blit 來源緩衝讀下的參考列 [Y+1, Y+1+h) × [0, 320)，h 見 refRows；越出 [0, 200) 的列為 0
+	// （005 §3.1 第 2 條）。只用於比對，不寫入原版狀態；sameLabels 不比它。
+	Ref []byte
+
 	// Before、After 只對 board 有值（003 §3.3）：puts 入口與同一筆 puts 返回時讀下的緩衝列
 	// [Y+1, Y+9) × [0, 320)，各 8 × 320 bytes。第一次 putc 的 y 與入口不同時兩者作廢（nil）。
 	// 只用於繪製背景與核對，不寫入原版狀態。
@@ -166,6 +171,14 @@ func (l Label) staleBox() (x0, y0, x1, y1 int) {
 		return 0, l.Y + 1, 320, l.Y + 1 + boardRows
 	}
 	return l.Box()
+}
+
+// refRows 回參考列與比對框的列高 h（005 用語）：label 是 stampCellH（14），board 是 boardCellH（8）。
+func refRows(k Kind) int {
+	if k == KindBoard {
+		return boardCellH
+	}
+	return stampCellH
 }
 
 func sameLabels(a, b []Label) bool {
@@ -234,16 +247,19 @@ type LabelObserver struct {
 	visible []Label
 	gen     uint64
 
-	paired     bool
-	pairSP     uint16
-	pairEntry  uint64
-	candidates []Label
-	candInk    []InkResult
-	snapAcc    int
-	snapIgn    int
-	accepted   int
-	ignored    int
-	lastCommit uint64
+	paired    bool
+	pairSP    uint16
+	pairEntry uint64
+	// 配對的全螢幕 blit 入口的來源描述元（005 §3.1 第 1 條）：DS、[DS:src]、[DS:src+2]。
+	pairDS, pairBufSeg, pairBufList uint16
+	candidates                      []Label
+	candInk                         []InkResult
+	snapAcc                         int
+	snapIgn                         int
+	accepted                        int
+	ignored                         int
+	// lastSig 是簽章層的計時（005 §3.1 第 4 條）：每次提交與每次檢查設成當時步數。
+	lastSig uint64
 
 	artOrder int             // 繪圖事件的 Order，依先後遞增（004 §3.3）
 	artBadCS map[uint16]bool // 候選 base 驗證失敗、已記過 log 的 CS
@@ -310,13 +326,29 @@ func (o *LabelObserver) Observe(v View) {
 			o.blitReturn(v)
 		}
 	}
-	if len(o.visible) != 0 {
-		if s := v.Steps(); s-o.lastCommit >= ResetSteps {
-			o.visible = nil
-			o.gen++
-			o.note(s, "reset", "上次提交（第 %d 步）後 %d 步沒有配對的 blit 返回，可見集合清空", o.lastCommit, s-o.lastCommit)
+	// 簽章層（005 §3.1 第 4 條）：OPTTEST 正常運作時約每 116 萬步提交一次，這裡只在久無提交時執行。
+	if len(o.visible) != 0 && o.baseKnown {
+		if s := v.Steps(); s-o.lastSig >= SigCheckSteps {
+			o.lastSig = s
+			if why := o.checkBase(v, o.base); why != "" {
+				o.visible = nil
+				o.gen++
+				o.cur, o.pending, o.candidates, o.candInk, o.paired = nil, nil, nil, nil, false
+				o.baseKnown, o.baseOK = false, false
+				o.note(s, "sig", "base %04X 的 %s 簽章不符，可見集合清空", o.base, why)
+			}
 		}
 	}
+}
+
+// dropVisible 是 005 §3.1 第 5 條：停用 base 或定位到不同的 base 時清空可見集合
+// （集合原本為空時 generation 不加），並記一筆 "sig" 紀錄。
+func (o *LabelObserver) dropVisible(steps uint64, format string, a ...any) {
+	if len(o.visible) != 0 {
+		o.visible = nil
+		o.gen++
+	}
+	o.note(steps, "sig", format, a...)
 }
 
 func (o *LabelObserver) verifyBase(v View, base uint16) bool {
@@ -349,6 +381,7 @@ func (o *LabelObserver) putsEntry(v View) {
 	if !match(v, cs, ipPutsEntry, sigPutsEntry, 0) {
 		if o.baseKnown && cs == o.base+segText {
 			o.note(v.Steps(), "base", "base %04X 的 puts 入口簽章已不符，停用", o.base)
+			o.dropVisible(v.Steps(), "base %04X 停用（puts 入口簽章不符），可見集合清空", o.base)
 			o.baseKnown, o.baseOK = false, false
 			o.cur, o.pending, o.paired = nil, nil, false
 		}
@@ -356,6 +389,9 @@ func (o *LabelObserver) putsEntry(v View) {
 	}
 	base := cs - segText
 	if !o.baseKnown || base != o.base {
+		if o.baseKnown {
+			o.dropVisible(v.Steps(), "puts 入口定位到不同的 base %04X（原 %04X），可見集合清空", base, o.base)
+		}
 		o.base, o.baseKnown = base, true
 		o.baseOK = o.verifyBase(v, base)
 	}
@@ -528,6 +564,8 @@ func (o *LabelObserver) blitEntry(v View) {
 	}
 	o.paired, o.pairSP, o.pairEntry = true, sp, steps
 	bufSeg := rd16(v, ds, src)
+	// 來源描述元：+0 段、+2 列表指標（005 §3.1 第 1 條）；參考列在配對的返回時以這組讀。
+	o.pairDS, o.pairBufSeg, o.pairBufList = ds, bufSeg, rd16(v, ds, src+2)
 	o.candidates = o.candidates[:0:0]
 	for _, l := range o.pending {
 		if l.Seg != bufSeg {
@@ -560,11 +598,16 @@ func (o *LabelObserver) blitReturn(v View) {
 	prev := o.visible
 	o.visible = o.candidates
 	o.candidates = nil
+	// 參考列（005 §3.1 第 2 條）：返回時從入口存的來源描述元讀，與「提交時的畫面」同義。
+	for i := range o.visible {
+		l := &o.visible[i]
+		l.Ref = readRows(v, o.pairDS, o.pairBufSeg, o.pairBufList, l.Y+1, l.Y+1+refRows(l.Kind))
+	}
 	if !sameLabels(prev, o.visible) {
 		o.gen++
 	}
 	o.paired = false
-	o.lastCommit = steps
+	o.lastSig = steps
 	o.commits++
 	if o.OnCommit != nil {
 		o.OnCommit(Commit{

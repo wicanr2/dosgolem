@@ -73,6 +73,10 @@ func (o *LabelObserver) shapeEntry(v View) {
 			}
 			return
 		}
+		if o.baseKnown && cand != o.base {
+			// 定位到不同的 base（005 §3.1 第 5 條）。
+			o.dropVisible(v.Steps(), "shape 入口定位到不同的 base %04X（原 %04X），可見集合清空", cand, o.base)
+		}
 		o.base, o.baseKnown, o.baseOK = cand, true, true
 		o.note(v.Steps(), "art", "由 shape 入口 %04X:0000 定位 base %04X", cs, cand)
 	}

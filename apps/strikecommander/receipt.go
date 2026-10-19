@@ -21,6 +21,11 @@ type SessionObserver struct {
 	LastIndexed []byte
 	LastPalette [256][3]uint8
 	Frames      int
+	// OnFrame 在每次回掃、更新 LastIndexed 之前呼叫（005 §4.4 的量測）：old 是上一次回掃的畫格（可為 nil），
+	// cur 是這次的；steps 是最後一次 BeforeStep 的步數。可為 nil。兩者都不得修改。
+	OnFrame func(old, cur []byte, steps uint64)
+
+	steps uint64
 }
 
 var (
@@ -44,6 +49,7 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 }
 
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
+	s.steps = v.Steps()
 	s.Labels.Observe(v)
 	return nil
 }
@@ -51,6 +57,9 @@ func (s *SessionObserver) BeforeStep(v session.StepView) error {
 func (s *SessionObserver) VideoWrite(machine.VideoWrite) {}
 
 func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
+	if s.OnFrame != nil {
+		s.OnFrame(s.LastIndexed, indexed, s.steps)
+	}
 	s.LastIndexed, s.LastPalette = indexed, palette
 	s.Frames++
 }
@@ -121,6 +130,37 @@ type ShotResult struct {
 	Check      map[int]CompositeCheck
 	// ArtKeys 是 shot 時各倍率的存讀檔對話框圖面 Key（004 §3.3）。
 	ArtKeys map[int][]string
+	// Hidden 是各倍率 Draw 因比對不符而不畫的標籤 Key（005 §4.2）；Visible 是 shot 時可見集合的 Key。
+	Hidden  map[int][]string
+	Visible []string
+	// Covers 是 shot 時各倍率遮蓋 stamp 的矩形 [x0, y0, x1, y1)（1×），以 stamp Key 索引（005 §4.2 的比對框）。
+	Covers map[int]map[string][4]int
+}
+
+// FrameMeasure 是 005 §4.4 的量測：每次回掃時以各倍率 Overlay 的 Match 統計「可見集合非空但有標籤不符」的回掃數。
+// 兩種取樣並列（勘誤候選，見 strike_commander workplace/i005/report.md）：
+//   - Cur：Match(這次回掃的畫格)，即回掃之後前端會畫的那一張；
+//   - Old：Match(上一次回掃的畫格，LastIndexed)，即回掃之前前端一直在畫的那一張。
+//
+// 分類依序判定：(1) 上一次回掃早於上次提交（Old 的畫格比 Ref 舊；對 Cur 是「兩次回掃之間有提交」）；
+// (2) 腳本最後一次 move 的游標 11×11 矩形與不符標籤的比對框相交；(3) 其他。
+type FrameMeasure struct {
+	Frames int // 可見集合非空的回掃數
+	Cur    map[int]*MeasureCount
+	Old    map[int]*MeasureCount
+}
+
+// MeasureCount 是一個倍率、一種取樣的分類次數；Others 逐筆列出 (3)。
+type MeasureCount struct {
+	Mismatch int
+	Class    [3]int
+	Others   []MeasureEvent
+}
+
+// MeasureEvent 是一筆 (3) 類：回掃步數與不符的 Key。
+type MeasureEvent struct {
+	Steps uint64
+	Keys  []string
 }
 
 // ReceiptResult 是收據執行的結果。
@@ -147,6 +187,21 @@ type ReceiptResult struct {
 	Composites     map[int][]byte
 	Plain          map[int][]byte
 	CompositeCheck map[int]CompositeCheck
+	Measure        FrameMeasure // 005 §4.4
+}
+
+// cursorHits 回游標 11×11 矩形 [x−5, x+6) × [y−5, y+6) 是否與 keys 任一筆的比對框相交（005 §4.4 分類 2）。
+func cursorHits(ov *Overlay, keys []string, p *Point) bool {
+	if p == nil {
+		return false
+	}
+	for _, k := range keys {
+		x0, y0, x1, y1, ok := ov.MatchBox(k)
+		if ok && p.X-5 < x1 && x0 < p.X+6 && p.Y-5 < y1 && y0 < p.Y+6 {
+			return true
+		}
+	}
+	return false
 }
 
 // CompositeCheck 是合成圖與原版畫格放大後的逐像素比較。
@@ -167,6 +222,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	var so *SessionObserver
 	var obs session.StepObserver
 	overlays := map[int]*Overlay{}
+	var lastMove *Point // 腳本最後一次 move 的 DOS 座標（005 §4.4 分類 2）
 	if cfg.Overlay {
 		if cfg.Font == nil {
 			return nil, errors.New("strikecommander: 收據缺字型")
@@ -181,7 +237,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			ov.exactOnly = cfg.exactOnly
 			overlays[sc] = ov
 		}
+		var lastCommit, prevFrame uint64
 		lo.OnCommit = func(c Commit) {
+			lastCommit = c.BlitReturn
 			res.Commits = append(res.Commits, c)
 			var counts []CommitStamps
 			for _, sc := range cfg.Scales {
@@ -214,6 +272,42 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				res.ArtClears = append(res.ArtClears, steps)
 			}
 			clear(steps)
+		}
+		// 005 §4.4 的量測。簽章層與 §3.1 第 5 條清空時不經 OnCommit，所以先以 Visible()、Generation() Sync。
+		res.Measure = FrameMeasure{Cur: map[int]*MeasureCount{}, Old: map[int]*MeasureCount{}}
+		for _, sc := range cfg.Scales {
+			res.Measure.Cur[sc], res.Measure.Old[sc] = &MeasureCount{}, &MeasureCount{}
+		}
+		classify := func(mc *MeasureCount, ov *Overlay, bad []string, steps uint64) {
+			if len(bad) == 0 {
+				return
+			}
+			mc.Mismatch++
+			switch {
+			case prevFrame < lastCommit:
+				mc.Class[0]++
+			case cursorHits(ov, bad, lastMove):
+				mc.Class[1]++
+			default:
+				mc.Class[2]++
+				mc.Others = append(mc.Others, MeasureEvent{Steps: steps, Keys: bad})
+			}
+		}
+		so.OnFrame = func(old, cur []byte, steps uint64) {
+			defer func() { prevFrame = steps }()
+			vis := lo.Visible()
+			if len(vis) == 0 {
+				return
+			}
+			res.Measure.Frames++
+			for _, sc := range cfg.Scales {
+				ov := overlays[sc]
+				ov.Sync(vis, lo.Generation())
+				classify(res.Measure.Cur[sc], ov, ov.Match(cur), steps)
+				if old != nil {
+					classify(res.Measure.Old[sc], ov, ov.Match(old), steps)
+				}
+			}
 		}
 		obs = so
 	}
@@ -295,6 +389,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if err != nil {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 %s：%w", it.Steps, it.Kind, err)
 			}
+			if kind == host.MouseEventMove {
+				lastMove = &Point{it.X, it.Y}
+			}
 			if err := advance(steps + 1); err != nil {
 				return res, err
 			}
@@ -306,7 +403,10 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if so.LastIndexed == nil {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
 			}
-			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}}
+			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}, Hidden: map[int][]string{}, Covers: map[int]map[string][4]int{}}
+			for _, l := range so.Labels.Visible() {
+				sr.Visible = append(sr.Visible, l.Key)
+			}
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
 				ov.Sync(so.Labels.Visible(), so.Labels.Generation())
@@ -315,6 +415,13 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				sr.Composites[sc], sr.Plain[sc] = comp, plain
 				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
 				sr.ArtKeys[sc] = ov.ArtKeys()
+				sr.Hidden[sc] = append([]string(nil), ov.Hidden...)
+				sr.Covers[sc] = map[string][4]int{}
+				for _, s := range ov.Stamps() {
+					if s.Font == nil {
+						sr.Covers[sc][s.Key] = [4]int{s.X, s.Y, s.X + s.Cells*s.CellW, s.Y + s.CellH}
+					}
+				}
 			}
 			res.Shots = append(res.Shots, sr)
 		}

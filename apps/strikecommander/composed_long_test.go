@@ -235,6 +235,8 @@ func TestComposedLabelCaseD(t *testing.T) {
 	t.Run("D", func(t *testing.T) {
 		on := runCaseD(t, true, false)
 		checkCaseD(t, on, false)
+		checkNoSig(t, on) // 005 §4.4
+		logMeasure(t, "D", on)
 		off := runCaseD(t, false, false)
 		a, b := on.Digest, off.Digest
 		t.Logf("開：Memory %x CPU %x Indexed %x Palette %x", a.MemorySHA256, a.CPUSHA256, a.IndexedSHA256, a.PaletteSHA256)

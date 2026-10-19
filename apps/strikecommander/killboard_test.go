@@ -427,6 +427,8 @@ func TestBoardDraw(t *testing.T) {
 
 	g := Label{Key: "GROUND", X0: 177, X1: 250, Y: 45, Font: boardFont, Kind: KindBoard, Before: before, After: after}
 	r := Label{Key: "Return to office", X0: 100, X1: 160, Y: 175, Font: measuredFont, Kind: KindLabel}
+	// 005 §4.1：Ref 取自已疊上人工游標像素的畫格（游標靜止時在 blit 前已畫進緩衝，003 §2.3）。
+	g.Ref, r.Ref = refFromFrame(idx, g), refFromFrame(idx, r)
 	ov, err := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面", "Return to office": "測試"}, nil, 2)
 	if err != nil {
 		t.Fatal(err)

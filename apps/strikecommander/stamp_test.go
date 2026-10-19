@@ -240,12 +240,13 @@ func TestStampGenerationAndScale(t *testing.T) {
 }
 
 func TestStampDrawColors(t *testing.T) {
-	l := Label{Key: "Talk to Gwen", X0: 114, X1: 204, Y: 175, Font: measuredFont}
-	ov := syncOne(t, l, "測試譯文甲", 2)
 	idx := make([]byte, 64000)
 	for i := range idx {
 		idx[i] = 7
 	}
+	l := Label{Key: "Talk to Gwen", X0: 114, X1: 204, Y: 175, Font: measuredFont}
+	l.Ref = refFromFrame(idx, l) // 005 §4.1：畫格與提交時相同
+	ov := syncOne(t, l, "測試譯文甲", 2)
 	var pal [256][3]uint8
 	pal[0], pal[7], pal[15] = [3]uint8{1, 2, 3}, [3]uint8{70, 70, 70}, [3]uint8{250, 251, 252}
 	out, miss := ov.Draw(idx, pal)

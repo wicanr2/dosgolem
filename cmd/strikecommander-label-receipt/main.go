@@ -163,11 +163,29 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 			if len(s.ArtKeys[sc]) != 0 {
 				fmt.Printf("  圖面 %v\n", s.ArtKeys[sc])
 			}
+			// 規格 005 §4.2：shot 時的可見集合與比對不符而不畫的標籤。
+			fmt.Printf("  Visible %q Hidden %q\n", s.Visible, s.Hidden[sc])
 			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
 				return err
 			}
 			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-plain-%dx.png", name, sc)), s.Plain[sc], sc); err != nil {
 				return err
+			}
+		}
+	}
+	// 規格 005 §4.4 的量測。
+	for _, sc := range scales {
+		for _, m := range []struct {
+			tag string
+			mc  *strikecommander.MeasureCount
+		}{{"cur", on.Measure.Cur[sc]}, {"old", on.Measure.Old[sc]}} {
+			if m.mc == nil {
+				continue
+			}
+			fmt.Printf("量測 %d 倍 %s：可見非空回掃 %d，不符 %d，分類 (1) %d (2) %d (3) %d\n",
+				sc, m.tag, on.Measure.Frames, m.mc.Mismatch, m.mc.Class[0], m.mc.Class[1], m.mc.Class[2])
+			for _, e := range m.mc.Others {
+				fmt.Printf("  (3) 第 %d 步 %v\n", e.Steps, e.Keys)
 			}
 		}
 	}

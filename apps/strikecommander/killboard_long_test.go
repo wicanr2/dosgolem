@@ -308,6 +308,8 @@ func TestKillBoardCaseE(t *testing.T) {
 	t.Run("E", func(t *testing.T) {
 		on := runCaseE(t, true, false)
 		checkCaseE(t, on)
+		checkNoSig(t, on) // 005 §4.4
+		logMeasure(t, "E", on)
 		off := runCaseE(t, false, false)
 		a, b := on.Digest, off.Digest
 		t.Logf("開：Memory %x CPU %x Indexed %x Palette %x", a.MemorySHA256, a.CPUSHA256, a.IndexedSHA256, a.PaletteSHA256)

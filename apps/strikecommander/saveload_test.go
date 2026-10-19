@@ -925,12 +925,15 @@ func TestArtDrawOrder(t *testing.T) {
 	ov := newArtOverlay(t, 2)
 	ov.AddDialogArt(mkEvent(t, file, 6, el.x, el.y, 1))
 	// 熱點標籤 stamp：遮蓋 x 90 到 169、y 141 到 154，與 CANCEL 字帶 (102,143)-(157,151) 重疊。
-	ov.Sync([]Label{{Key: "Talk to Gwen", X0: 90, X1: 170, Y: 140, Font: measuredFont, Kind: KindLabel}}, 1)
+	// 合成情境（005 §3.2 第 4 條）：真實流程中對話框矩形與標籤比對框不重疊。Ref 取自同一畫格。
+	frame := make([]byte, 64000)
+	paint(t, frame, file, 6, el.x, el.y)
+	gwen := Label{Key: "Talk to Gwen", X0: 90, X1: 170, Y: 140, Font: measuredFont, Kind: KindLabel}
+	gwen.Ref = refFromFrame(frame, gwen)
+	ov.Sync([]Label{gwen}, 1)
 	if len(ov.Stamps()) != 2 {
 		t.Fatalf("文字 stamp %d 個", len(ov.Stamps()))
 	}
-	frame := make([]byte, 64000)
-	paint(t, frame, file, 6, el.x, el.y)
 	snap := func() string {
 		var b strings.Builder
 		for _, s := range ov.Stamps() {

@@ -54,7 +54,7 @@ var triggerCases = map[string]triggerCase{
 		{4491518424, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
 		{4492676586, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
 	}},
-	"B": {"p530/s4495b.state", "34c5b2e5a50131cda4537428ad0c1e4d999a3302a6bc6e60c34ba177fc3b48cd", 4496200000, 75, []wantCommit{
+	"B": {"p530/s4495b.state", "34c5b2e5a50131cda4537428ad0c1e4d999a3302a6bc6e60c34ba177fc3b48cd", 4496400000, 75, []wantCommit{
 		{4496160311, "Transport to Strike Base", 68, 251, 175, 1, 0, 0},
 	}},
 	"C": {"p539/s500b.state", "0fbe712170ff91b9d83a5346fcaac9f98a5f09ef10b6295d4e6914b51f0d4ee6", 5000900000, 75, []wantCommit{
@@ -161,7 +161,7 @@ func checkTrigger(t *testing.T, tc triggerCase, res *ReceiptResult) {
 	t.Logf("最後回掃畫格與停止時 Indexed 相同：%t", res.FrameMatches)
 	for _, sc := range []int{2, 3} {
 		cc := res.CompositeCheck[sc]
-		t.Logf("%d 倍合成圖：差異 %d、框外 %d；misses %+v skips %+v", sc, cc.Diffs, cc.Outside, res.Overlays[sc].Misses, res.Overlays[sc].Skips)
+		t.Logf("%d 倍合成圖：差異 %d、框外 %d；misses %+v skips %+v；Hidden %q（005 §3.2）", sc, cc.Diffs, cc.Outside, res.Overlays[sc].Misses, res.Overlays[sc].Skips, res.Overlays[sc].Hidden)
 		if cc.Outside != 0 || cc.Diffs == 0 {
 			t.Errorf("%d 倍合成圖差異 %d、框外 %d", sc, cc.Diffs, cc.Outside)
 		}
@@ -177,7 +177,10 @@ func TestLabelOverlayTrigger(t *testing.T) {
 	for _, name := range []string{"A", "B", "C"} {
 		t.Run(name, func(t *testing.T) {
 			tc := triggerCases[name]
-			checkTrigger(t, tc, runTrigger(t, tc, true, false))
+			res := runTrigger(t, tc, true, false)
+			checkTrigger(t, tc, res)
+			checkNoSig(t, res) // 005 §4.4
+			logMeasure(t, name, res)
 		})
 	}
 	t.Run("ANoCaller", func(t *testing.T) {

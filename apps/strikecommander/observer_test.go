@@ -540,26 +540,7 @@ func TestCommitLabelAfterBlit(t *testing.T) {
 	}
 }
 
-func TestCommitReset(t *testing.T) {
-	h := newHarness(t)
-	h.label("Talk to Gwen", 114, 204)
-	h.blit()
-	last := h.commits[0].BlitReturn
-	h.f.steps = last + ResetSteps - 1
-	h.idle()
-	if len(h.o.Visible()) != 1 {
-		t.Fatal("未滿 5,000,000 步就清空")
-	}
-	h.idle()
-	if len(h.o.Visible()) != 0 || h.o.Generation() != 2 {
-		t.Fatalf("5,000,000 步後 visible %q gen %d", keys(h.o.Visible()), h.o.Generation())
-	}
-	h.f.steps += ResetSteps
-	h.idle()
-	if h.o.Generation() != 2 {
-		t.Fatal("重置觸發第二次")
-	}
-}
+// TestCommitReset 已由 005 §4.1 第 1 條 TestSigNoReset（labelframe_test.go）取代。
 
 func TestCommitAcceptedIgnored(t *testing.T) {
 	h := newHarness(t)

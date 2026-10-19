@@ -107,6 +107,19 @@ type boardBG struct {
 	before, after []byte
 }
 
+// labelMatch 是一筆產生了 stamp 的標籤的比對資料（005 §3.2 第 1 條）。比對框是
+// [cover.X, cover.X + cover.Cells × cover.CellW) × [Y+1, Y+1+h) 與畫面的交集。
+type labelMatch struct {
+	label          int // 在最近一次 Sync 的 labels 中的索引
+	key            string
+	kind           Kind
+	h              int
+	y              int // 標籤的 Y；參考列的第一列是 Y+1
+	x0, y0, x1, y1 int // 比對框 [x0, x1) × [y0, y1)
+	ref            []byte
+	cover, text    *xlate.Stamp
+}
+
 // Overlay 自有一個 xlate.Layer，依可見集合與 generation 重建 stamp（同 apps/buckrogers/hmenu_overlay.go）。
 // 不呼叫 Layer.Frame、Add、Replace：Add 遇到部分重疊會把遮蓋 stamp 的格子設成透明而丟掉它。
 type Overlay struct {
@@ -121,6 +134,10 @@ type Overlay struct {
 	// info 記每個 stamp 的種類與色號；boards 記 board 標籤的背景資料。重建 stamp 時清空。
 	info   map[*xlate.Stamp]stampInfo
 	boards []boardBG
+	// matches 記每筆產生了 stamp 的標籤的比對資料（005 §3.2 第 1 條），依 labels 順序。重建 stamp 時清空。
+	matches []labelMatch
+	// Hidden 是最近一次 Draw 因比對不符而不畫的標籤 Key（005 §3.2 第 3 條），每次 Draw 開頭清空。
+	Hidden []string
 
 	// 存讀檔對話框的圖面（004 §3.3）：獨立的 layer，不與文字 stamp 共用。
 	artLayer *xlate.Layer
@@ -170,7 +187,8 @@ func labelFont(k Kind) uint16 {
 }
 
 // Sync 在 generation 改變（或倍率改變）時依可見集合重建 stamp。generation 沒變時不重建，
-// 但仍以這次的 labels 更新各 board 標籤的前後列（003 §3.3：sameLabels 不比前後列）。
+// 但仍以這次的 labels 更新各 board 標籤的前後列（003 §3.3：sameLabels 不比前後列），
+// 以及各標籤的參考列 Ref（005 §3.2 第 1 條：同索引、同 Key；新 Ref 為 nil 時沿用舊值）。
 func (o *Overlay) Sync(labels []Label, gen uint64) {
 	if o.built && gen == o.gen {
 		for i := range o.boards {
@@ -181,12 +199,21 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 				}
 			}
 		}
+		for i := range o.matches {
+			m := &o.matches[i]
+			if m.label < len(labels) {
+				if l := labels[m.label]; l.Key == m.key && l.Ref != nil {
+					m.ref = l.Ref
+				}
+			}
+		}
 		return
 	}
 	o.built, o.gen = true, gen
 	o.layer.Stamps = nil
 	o.info = map[*xlate.Stamp]stampInfo{}
 	o.boards = nil
+	o.matches = nil
 	for i, l := range labels {
 		if o.scale != 2 && o.scale != 3 {
 			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("%d 倍輸出不覆繪", o.scale)})
@@ -224,6 +251,13 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 		o.layer.Stamps = append(o.layer.Stamps, p.Cover, p.Text)
 		si := stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG}
 		o.info[p.Cover], o.info[p.Text] = si, si
+		h := refRows(l.Kind)
+		o.matches = append(o.matches, labelMatch{
+			label: i, key: l.Key, kind: l.Kind, h: h, y: l.Y,
+			x0: max(p.Cover.X, 0), x1: min(p.Cover.X+p.Cover.Cells*p.Cover.CellW, 320),
+			y0: max(l.Y+1, 0), y1: min(l.Y+1+h, 200),
+			ref: l.Ref, cover: p.Cover, text: p.Text,
+		})
 		if p.Kind == KindBoard {
 			o.boards = append(o.boards, boardBG{
 				label: i, key: l.Key, x0: p.Cover.X, x1: p.Cover.X + p.Cover.CellW, y0: p.Cover.Y,
@@ -239,6 +273,9 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 //
 // 順序（004 §3.3）：1. 原版畫格放大；2. 存讀檔對話框的圖面（獨立 layer，逐格比對原版基準）；
 // 3. 001 到 003 的文字 stamp。
+//
+// 第 3 步之前以 Match 逐筆比對（005 §3.2 第 3 條）：不符的標籤兩個 stamp 都不畫，Key 記入 Hidden；
+// 照畫的 stamp 組成暫時的 layer 交給 DrawWithBackground。不改 Stamp.State。
 func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	out := ScaleIndexedRGBA(indexed, palette, o.scale)
 	o.drawArt(out, indexed, palette)
@@ -246,14 +283,76 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 		si := o.info[s]
 		s.BG, s.FG = palette[si.bg], palette[si.fg]
 	}
+	bad := o.mismatched(indexed)
+	o.Hidden = nil
+	hidden := map[int]bool{}
+	shown := &xlate.Layer{W: 320, H: 200}
+	for i, m := range o.matches {
+		if bad[i] {
+			o.Hidden = append(o.Hidden, m.key)
+			hidden[m.label] = true
+			continue
+		}
+		shown.Stamps = append(shown.Stamps, m.cover, m.text)
+	}
+	var boards []boardBG
+	for _, b := range o.boards {
+		if !hidden[b.label] {
+			boards = append(boards, b)
+		}
+	}
 	var bg []byte
-	if len(o.boards) != 0 {
-		bg = o.boardBackground(indexed, palette)
+	if len(boards) != 0 {
+		bg = o.boardBackground(indexed, palette, boards)
 	}
 	var miss []rune
-	o.layer.DrawWithBackground(out, o.scale, func(r rune) { miss = append(miss, r) }, bg,
+	shown.DrawWithBackground(out, o.scale, func(r rune) { miss = append(miss, r) }, bg,
 		func(s *xlate.Stamp) bool { return o.info[s].kind == KindBoard })
 	return out, miss
+}
+
+// Match 回比對不符的標籤 Key（005 §3.2 第 2 條），不出圖。比對框內每個 (x, y)：indexed[y*320+x]
+// 對 Ref[(y−Y−1)*320+x]。len(indexed) < 64000、Ref 為 nil、或 len(Ref) != h × 320 視為不符。
+func (o *Overlay) Match(indexed []byte) []string {
+	var out []string
+	for i, b := range o.mismatched(indexed) {
+		if b {
+			out = append(out, o.matches[i].key)
+		}
+	}
+	return out
+}
+
+// mismatched 回與 o.matches 平行的不符旗標。
+func (o *Overlay) mismatched(indexed []byte) []bool {
+	bad := make([]bool, len(o.matches))
+	for i, m := range o.matches {
+		if len(indexed) < 64000 || m.ref == nil || len(m.ref) != m.h*320 {
+			bad[i] = true
+			continue
+		}
+	scan:
+		for y := m.y0; y < m.y1; y++ {
+			row := (y - m.y - 1) * 320
+			for x := m.x0; x < m.x1; x++ {
+				if indexed[y*320+x] != m.ref[row+x] {
+					bad[i] = true
+					break scan
+				}
+			}
+		}
+	}
+	return bad
+}
+
+// MatchBox 回 Key 的比對框 [x0, x1) × [y0, y1)；沒有這筆時 ok 為 false（量測與收據用）。
+func (o *Overlay) MatchBox(key string) (x0, y0, x1, y1 int, ok bool) {
+	for _, m := range o.matches {
+		if m.key == key {
+			return m.x0, m.y0, m.x1, m.y1, true
+		}
+	}
+	return 0, 0, 0, 0, false
 }
 
 // boardBackground 依 003 §3.4 建 board stamp 的背景（放大後的 RGBA）：
@@ -261,9 +360,11 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 //  2. 每筆 board 標籤遮蓋範圍內的每個像素，若是墨跡像素（前列 ≠ 後列）而且目前畫格在該點仍等於後列，
 //     換成前列的顏色；其他像素保留目前畫格（滑鼠游標、白板細線都留著）；
 //  3. 依色盤換成 RGBA、放大。
-func (o *Overlay) boardBackground(indexed []byte, palette [256][3]uint8) []byte {
+//
+// boards 是這次照畫的 board 標籤（005 §3.2 第 3 條：比對不符的不列入）。
+func (o *Overlay) boardBackground(indexed []byte, palette [256][3]uint8, boards []boardBG) []byte {
 	idx := append([]byte(nil), indexed...)
-	for _, b := range o.boards {
+	for _, b := range boards {
 		for y := b.y0; y < b.y0+boardRows; y++ {
 			if y < 0 || y >= 200 {
 				continue

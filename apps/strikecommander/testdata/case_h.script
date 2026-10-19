@@ -1,0 +1,15 @@
+# strike_commander 規格 005 §4.3 案例 H：p486/s600.state（露天武裝掛載）。以下取自 strike_commander workplace/i016/h.script，未改。
+# 探針：s600（露天武裝掛載）點座艙離開 OPTTEST
+move 6002000000 160 90
+shot 6015000000 hover
+down 6020000000 160 90
+up   6023000000 160 90
+shot 6025000000 a25
+shot 6030000000 a30
+shot 6040000000 a40
+shot 6060000000 a60
+shot 6100000000 a100
+shot 6200000000 a200
+shot 6300000000 a300
+shot 6450000000 a450
+stop 6460000000

@@ -336,7 +336,15 @@ func TestSaveLoadCase(t *testing.T) {
 			checkSaveLoadCase(t, c, on)
 			if name == "G" {
 				checkTentColors(t, on)
+				checkNoSig(t, on) // 005 §4.4
 			}
+			if name == "F" {
+				checkCaseF005(t, on) // 005 §4.2（含 sig 紀錄檢查）
+			}
+			for _, s := range on.Shots {
+				t.Logf("005：shot %s Visible %q Hidden %v", s.Name, s.Visible, s.Hidden)
+			}
+			logMeasure(t, name, on)
 			off := runSaveLoadCase(t, c, false)
 			a, b := on.Digest, off.Digest
 			t.Logf("開：Memory %x CPU %x Indexed %x Palette %x", a.MemorySHA256, a.CPUSHA256, a.IndexedSHA256, a.PaletteSHA256)
