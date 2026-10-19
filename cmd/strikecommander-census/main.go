@@ -21,7 +21,11 @@
 //	                                    CS < 0100h（JEMM 保護模式）時不比對，JEMM 跑過後的第一步只重取快照（頁對映可能換了）
 //	vwatch FROM TO X0 Y0 X1 Y1          FROM 到 TO 之間寫進實體 VGA 視窗、落在 mode 13h 矩形內的位元組，依寫入 CS:IP 彙整到 vwatch.tsv
 //	ip FROM TO SEG:OFF                  FROM 到 TO 之間每次執行到 SEG:OFF 就記一列到 ip.tsv（含 BP 鏈）
+//	kdown STEP SCAN                     送硬體鍵盤按下（掃描碼十六進位，不含 bit 7；經 IRQ1，docs/spec/449）
+//	kup   STEP SCAN                     送硬體鍵盤放開
 //	stop STEP
+//
+// -keep-root 時不刪 SaveRoot 複本，執行結束後可檢查遊戲寫入的檔案（例如存檔）。
 package main
 
 import (
@@ -43,6 +47,9 @@ import (
 	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/session"
 )
+
+// keepRoot 對應 -keep-root。
+var keepRoot bool
 
 // putsSig 是 OPTTEST 整行輸出的前 16 bytes（RE 011 §2，檔案位移 3F36Bh）。
 var putsSig = []byte{0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x06, 0x56, 0x57, 0x8B, 0x76, 0x06, 0x8B, 0x7E, 0x08, 0xFF, 0x74}
@@ -477,6 +484,16 @@ func parseScript(path string) ([]event, error) {
 				}
 			}
 			evs = append(evs, event{step: a, kind: fs[0], x: int(sg), y: int(of), name: fmt.Sprintf("%d:%d", b, ln)})
+		case "kdown", "kup":
+			s, e1 := num(1)
+			if e1 != nil || len(fs) < 3 {
+				return nil, fmt.Errorf("第 %d 列：%q", n, line)
+			}
+			sc, e2 := strconv.ParseUint(fs[2], 16, 8)
+			if e2 != nil || sc == 0 || sc > 0x7F {
+				return nil, fmt.Errorf("第 %d 列：掃描碼要 01–7F：%q", n, line)
+			}
+			evs = append(evs, event{step: s, kind: fs[0], x: int(sc)})
 		case "stop":
 			s, err := num(1)
 			if err != nil {
@@ -519,6 +536,7 @@ func main() {
 	script := flag.String("script", "", "腳本檔")
 	out := flag.String("out", "", "輸出目錄")
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
+	flag.BoolVar(&keepRoot, "keep-root", false, "結束時保留 SaveRoot 複本（檢查遊戲寫入的檔案）")
 	flag.Parse()
 	if err := run(*root, *statePath, *stateSHA, *rebase, *script, *out, *work); err != nil {
 		fmt.Fprintln(os.Stderr, "strikecommander-census：", err)
@@ -548,7 +566,11 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(saveRoot)
+	if keepRoot {
+		fmt.Printf("SaveRoot 保留於 %s\n", saveRoot)
+	} else {
+		defer os.RemoveAll(saveRoot)
+	}
 	if err := strikecommander.CopyTree(root, saveRoot); err != nil {
 		return err
 	}
@@ -631,12 +653,16 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		return host.MouseEvent{Kind: kind, X: x * int(l.Scale), Y: l.ChromeHeight + y*int(l.Scale), Target: host.MouseTargetCanvas}
 	}
 	stopped := false
+	// loopErr：session 中途結束（例如程式離開）時先寫出已收集的結果，最後再回報錯誤。
+	var loopErr error
+loop:
 	for _, e := range evs {
 		if e.step < steps {
 			return fmt.Errorf("事件步數 %d 早於目前第 %d 步", e.step, steps)
 		}
 		if err := advanceTo(e.step); err != nil {
-			return err
+			loopErr = err
+			break loop
 		}
 		switch e.kind {
 		case "move":
@@ -656,25 +682,32 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 			if err = writePNG(filepath.Join(out, e.name+".png"), obs.frame, obs.palette); err == nil {
 				err = os.WriteFile(filepath.Join(out, e.name+".idx"), obs.frame, 0o644)
 			}
+		case "kdown", "kup":
+			_, err = deliver(session.CapturedUpdate{ScanEvents: []session.ScanEvent{{Scan: uint8(e.x), Break: e.kind == "kup"}}})
 		case "dump", "trace", "watch", "ip", "vwatch":
 			// 由觀察器在之後的步讀取或記錄。
 		case "stop":
 			stopped = true
 		}
 		if err != nil {
-			return fmt.Errorf("第 %d 步 %s：%w", e.step, e.kind, err)
+			loopErr = fmt.Errorf("第 %d 步 %s：%w", e.step, e.kind, err)
+			break loop
 		}
 		if stopped {
 			break
 		}
-		if e.kind == "move" || e.kind == "down" || e.kind == "up" {
+		if e.kind == "move" || e.kind == "down" || e.kind == "up" || e.kind == "kdown" || e.kind == "kup" {
 			// 交付後要 Advance 才能再 Deliver；推進 1 步，維持事件之間的步數。
 			r, err := o.Advance(1)
 			steps = r.MachineStepsAfter
 			if err != nil {
-				return fmt.Errorf("Advance 停在第 %d 步：%w", steps, err)
+				loopErr = fmt.Errorf("Advance 停在第 %d 步：%w", steps, err)
+				break loop
 			}
 		}
+	}
+	if loopErr != nil {
+		fmt.Printf("執行中止：%v\n", loopErr)
 	}
 	for _, d := range obs.dumps {
 		if d.data == nil {
@@ -739,7 +772,10 @@ func run(root, statePath, stateSHA, rebase, script, out, work string) error {
 		f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return loopErr
 }
 
 func (o *observer) inVW(st uint64) bool {
