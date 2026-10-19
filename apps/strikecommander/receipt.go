@@ -277,7 +277,8 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		so.AttachOverlays(ovs...)
 		forward, clear := lo.OnArt, lo.OnClearArt
 		lo.OnArt = func(ev ArtEvent) {
-			res.Arts = append(res.Arts, ArtEvent{Steps: ev.Steps, G: ev.G, K: ev.K, X: ev.X, Y: ev.Y, Order: ev.Order, W: ev.W, H: ev.H})
+			// 檔別要帶上，artKey 才算得對（008 §3.1）。
+			res.Arts = append(res.Arts, ArtEvent{Steps: ev.Steps, File: ev.File, G: ev.G, K: ev.K, X: ev.X, Y: ev.Y, Order: ev.Order, W: ev.W, H: ev.H, Line: ev.Line})
 			forward(ev)
 		}
 		lo.OnClearArt = func(steps uint64) {

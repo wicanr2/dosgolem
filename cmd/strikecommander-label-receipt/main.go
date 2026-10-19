@@ -35,7 +35,7 @@ func main() {
 	script := flag.String("script", "", "腳本檔（strike_commander 規格 002 §2.4；鍵盤 kdown、kup 見規格 007 §3.8）")
 	scales := flag.String("scales", "2,3", "合成圖倍率，逗號分隔（2、3）")
 	tsv := flag.String("tsv", "", "譯文 catalog（key、translation、source）")
-	gfxTSV := flag.String("gfx-tsv", "", "圖形字 catalog text/menu_gfx.<lang>.tsv（存讀檔對話框，規格 004 §3.6）；可省")
+	gfxTSV := flag.String("gfx-tsv", "", "圖形字 catalog text/menu_gfx.<lang>.tsv（存讀檔對話框、主選單、MENU 片頭選單，規格 004 §3.6、008 §3.7）；可省")
 	fontPath := flag.String("font", "", "GOLEMFNT 字型")
 	out := flag.String("out", "", "輸出目錄（PNG 與 RGBA 原始檔）")
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
@@ -131,7 +131,7 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		}
 	}
 	for _, a := range on.Arts {
-		fmt.Printf("對話框繪圖事件 第 %d 步：組 %d、k %d、位置 (%d,%d)、Order %d\n", a.Steps, a.G, a.K, a.X, a.Y, a.Order)
+		fmt.Printf("圖形字繪圖事件 第 %d 步：%v、組 %d、k %d、位置 (%d,%d)、Order %d\n", a.Steps, a.File, a.G, a.K, a.X, a.Y, a.Order)
 	}
 	for _, e := range on.Log {
 		fmt.Printf("紀錄 第 %d 步 %s：%s\n", e.Steps, e.Kind, e.Detail)

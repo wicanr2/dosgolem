@@ -1164,7 +1164,10 @@ func TestFormalGfxCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{"SAVE GAME": "儲存進度", "LOAD GAME": "讀取進度", "SAVE": "儲存", "LOAD": "讀取", "CANCEL": "取消", "QUIT TO DOS": "離開遊戲",
-		"ARE YOU SURE": "確定嗎", "OVERWRITE": "覆蓋存檔", "YES": "是", "NO": "否"}
+		"ARE YOU SURE": "確定嗎", "OVERWRITE": "覆蓋存檔", "YES": "是", "NO": "否",
+		// 008 §3.5、§3.7：主選單五行與 MENU 片頭選單兩個。
+		"CONTINUE GAME": "繼續遊戲", "START NEW GAME": "開始新遊戲", "TRAINING MISSION": "訓練任務", "VIEW OBJECTS": "檢視物件",
+		"PLAY STRIKE COMMANDER": "進入陸空戰將", "PLAY TACTICAL OPERATIONS": "進入戰術行動"}
 	for k, v := range want {
 		if c[k] != v {
 			t.Errorf("%q 譯文 %q，要 %q", k, c[k], v)

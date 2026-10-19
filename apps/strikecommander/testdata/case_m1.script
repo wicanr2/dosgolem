@@ -1,0 +1,12 @@
+# strike_commander 規格 008 §4.2 案例 M1：i018-st/m242.state，根目錄另有 ABC.sav（DOSGOLEM_SC_ROOT_SAV1）。
+# 輸入取自 strike_commander workplace/i018/a4.script（去掉 ip、trace、vwatch）：在灰色 CONTINUE 按下、移到 LOAD 放開。
+shot 2440000000 menu
+move 2445000000 160 40
+down 2450000000 160 40
+shot 2455000000 press_cont
+move 2458000000 160 57
+shot 2459000000 press_cont_off
+up 2460000000 160 57
+shot 2470000000 rel_cont
+shot 2500000000 after_cont
+stop 2520000001

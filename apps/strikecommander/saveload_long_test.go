@@ -96,10 +96,39 @@ var slCases = map[string]slCase{
 
 func runSaveLoadCase(t *testing.T, c slCase, overlay bool) *ReceiptResult {
 	t.Helper()
+	return runSaveLoadCaseRoot(t, c, overlay, scRootEnv)
+}
+
+// preserveMtimes 把 dst 樹中每個一般檔案的修改時間設成 src 樹同一路徑的修改時間。
+func preserveMtimes(src, dst string) error {
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil || !info.Mode().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		return os.Chtimes(filepath.Join(dst, rel), info.ModTime(), info.ModTime())
+	})
+}
+
+// runSaveLoadCaseRoot 同 runSaveLoadCase，SaveRoot 由環境變數 rootEnv 指的樹複製（008 §4.2：每案例指定根目錄）。
+func runSaveLoadCaseRoot(t *testing.T, c slCase, overlay bool, rootEnv string) *ReceiptResult {
+	t.Helper()
 	root := t.TempDir()
-	if err := CopyTree(os.Getenv(scRootEnv), root); err != nil {
+	if os.Getenv(rootEnv) == "" {
+		t.Fatalf("%s 未設定", rootEnv)
+	}
+	if err := CopyTree(os.Getenv(rootEnv), root); err != nil {
 		t.Fatal(err)
 	}
+	// 修改時間照來源樹：DOS findfirst 回傳檔案時間（internal/dos/find.go 的 dosDateTime），遊戲找 *.sav 時
+	// 會把它讀進記憶體。CopyTree 的複本時間是複製當下，開、關兩次執行不同，Digest 的 Memory 就不同（008 案例 M1）。
+	if err := preserveMtimes(os.Getenv(rootEnv), root); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("SaveRoot 由 %s 複製（保留修改時間）", rootEnv)
 	cfg, err := os.ReadFile(filepath.Join(root, "SC.CFG"))
 	if err != nil {
 		t.Fatal(err)

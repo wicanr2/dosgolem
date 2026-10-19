@@ -1,0 +1,22 @@
+# strike_commander 規格 008 §4.2 案例 L：i018-st/m242.state（主選單尚未畫，根目錄無存檔）。
+# 輸入取自 strike_commander workplace/i018/a6.script（去掉 ip、trace）：按下、放開 VIEW OBJECTS 進 OBJECT VIEWER，
+# 按 EXIT 回主選單（重畫），之後回到片頭動畫。另加 shot 2440M（主選單）、2452M（VIEW OBJECTS 按下）、2531M（EXIT 後重畫）。
+shot 2440000000 menu
+move 2445000000 160 108
+down 2450000000 160 108
+shot 2452000000 press_view
+up 2455000000 160 108
+shot 2500000000 objview
+move 2505000000 285 176
+down 2510000000 285 176
+shot 2512000000 exit_press
+up 2515000000 285 176
+shot 2531000000 redraw
+shot 2540000000 back1
+shot 2560000000 back2
+move 2565000000 160 91
+down 2570000000 160 91
+up 2575000000 160 91
+shot 2620000000 tm1
+shot 2690000000 tm2
+stop 2700000001

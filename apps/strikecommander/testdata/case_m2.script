@@ -1,0 +1,11 @@
+# strike_commander 規格 008 §4.2 案例 M2：i018-st/m242.state，根目錄另有 ABC.sav 與 gensave.tmp（DOSGOLEM_SC_ROOT_SAV2）。
+# 輸入取自 strike_commander workplace/i018/a5.script（去掉 ip、trace、vwatch）：按下、放開 LOAD GAME，開讀檔對話框（第 42 組）。
+shot 2440000000 menu
+move 2445000000 160 57
+down 2450000000 160 57
+shot 2455000000 press_load
+up 2460000000 160 57
+shot 2470000000 rel_load
+shot 2500000000 after_load
+shot 2550000000 after_load2
+stop 2560000001

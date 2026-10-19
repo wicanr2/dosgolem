@@ -1,0 +1,15 @@
+# strike_commander 規格 008 §4.2 案例 N：i018-cold/c800.state（冷開機，MENU 片頭動畫中）。
+# 輸入取自 strike_commander workplace/i018/m1.script（去掉 ip、vwatch、dump）：滑過、按下 PLAY STRIKE COMMANDER，
+# 移到按鈕外 (160,150) 放開（仍執行），之後進 OPTTEST。
+shot 905000000 menu
+move 915000000 160 85
+shot 920000000 hov_to
+move 925000000 160 45
+down 930000000 160 45
+shot 935000000 press_sc
+move 940000000 160 150
+shot 945000000 press_sc_off
+up 950000000 160 150
+shot 960000000 after_up
+shot 990000000 after_up2
+stop 1000000001

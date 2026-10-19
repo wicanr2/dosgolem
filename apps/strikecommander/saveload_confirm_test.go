@@ -402,7 +402,8 @@ func TestConfirmMissLint(t *testing.T) {
 			t.Errorf("%s 應報錯", name)
 		}
 	}
-	if keys := ArtCatalogKeys(); len(keys) != 10 {
-		t.Errorf("ArtCatalogKeys %q，要 10 個", keys)
+	// 008 §3.7：004、007 的 10 個加主選單與片頭選單（LOAD GAME 共用）共 16 個；逐一比對見 TestMenuLint。
+	if keys := ArtCatalogKeys(); len(keys) != 16 {
+		t.Errorf("ArtCatalogKeys %q，要 16 個", keys)
 	}
 }

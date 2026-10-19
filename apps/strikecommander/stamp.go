@@ -175,12 +175,14 @@ type Overlay struct {
 	// 每次重建清空再填，不累加；不寫進 Skips。
 	BGFallbacks []Skip
 
-	// 存讀檔對話框的圖面（004 §3.3）：獨立的 layer，不與文字 stamp 共用。
+	// 存讀檔對話框、主選單與 MENU 片頭選單的圖面（004 §3.3、008 §3.6）：獨立的 layer，不與文字 stamp 共用。
 	artLayer *xlate.Layer
 	gfx      map[string]string // 圖形字 catalog（text/menu_gfx），不併進 tr（004 §3.6）
 	arts     []*artEntry
 	artPal   [256][3]uint8
 	artPalOK bool
+	// platePending 是主選單底板事件（008 §3.4）：等下一個 MAINMENU 按鈕事件帶來按鈕檔，才建五行灰字的圖面。
+	platePending *ArtEvent
 
 	Misses []Miss
 	Skips  []Skip

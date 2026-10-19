@@ -227,7 +227,8 @@ type LabelObserver struct {
 	CursorY int
 	// OnCommit 在每次提交後呼叫（同一個 Observe 呼叫之內）。可為 nil。
 	OnCommit func(Commit)
-	// OnArt 在每個被接受的存讀檔對話框繪圖事件呼叫（004 §3.1）；事件的陣列是複本。可為 nil。
+	// OnArt 在每個被接受的繪圖事件呼叫（存讀檔對話框 004 §3.1，主選單與 MENU 片頭選單 008 §3.1）；
+	// 事件的陣列是複本。可為 nil。
 	OnArt func(ArtEvent)
 	// OnClearArt 在每次全螢幕 blit 入口呼叫（004 §3.3：圖面全部移除）。可為 nil。
 	OnClearArt func(steps uint64)
@@ -325,6 +326,9 @@ func (o *LabelObserver) Observe(v View) {
 		if o.baseKnown && o.baseOK && o.paired {
 			o.blitReturn(v)
 		}
+	case ipMenuShape:
+		// MENU.EXE 的 shape 繪製常式 +1BA2:0002（008 §3.1）：獨立的入口，不經 base。
+		o.menuShapeEntry(v)
 	}
 	// 簽章層（005 §3.1 第 4 條）：OPTTEST 正常運作時約每 116 萬步提交一次，這裡只在久無提交時執行。
 	if len(o.visible) != 0 && o.baseKnown {

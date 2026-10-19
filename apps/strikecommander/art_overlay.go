@@ -2,13 +2,14 @@ package strikecommander
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 存讀檔對話框的圖面（strike_commander 規格 004 §3.3 到 §3.5）：每個繪圖事件一列 204 圖面，
-// 放在 Overlay 自有的獨立 artLayer。Reference 是解碼的原版色號（不從畫面取樣），Owner 空字串，
-// 顯示由 204 的逐格比對決定。
+// 圖形字的圖面（strike_commander 規格 004 §3.3 到 §3.5；主選單與 MENU 片頭選單見規格 008 §3.4 到 §3.6）：
+// 每個繪圖事件一列 204 圖面（主選單底板一個事件五列），放在 Overlay 自有的獨立 artLayer。
+// Reference 是解碼的原版色號（不從畫面取樣），Owner 空字串，顯示由 204 的逐格比對決定。
 
 // ArtRect 是一列圖面的 Key 與字帶矩形（1×，[X, X+W) × [Y, Y+H)）。
 type ArtRect struct {
@@ -26,16 +27,62 @@ type artEntry struct {
 	built bool    // 已以 artPal 建 Pix 並登記到 artLayer
 }
 
-// artKey 回 004 §3.3 的 Key：saveload/<元素 x>,<元素 y>/<一般態 k>。
+// 主選單圖面的 Key 前綴（008 §3.6）。
+const (
+	keyMainMenu      = "mainmenu/"
+	keyMainMenuPlate = "mainmenu-plate/"
+	keyTomenu        = "tomenu/"
+)
+
+// artKey 回圖面的 Key（004 §3.3、008 §3.6），依檔別：
+//   - SAVELOAD：saveload/<元素 x>,<元素 y>/<一般態 k>；
+//   - MAINMENU 按鈕：mainmenu/<x>,<y>/<n>，n = k mod 5；
+//   - MAINMENU 底板列：mainmenu-plate/<n>，n 是行號；
+//   - TOMENU 按鈕：tomenu/<x>,<y>/<n>，n = k mod 2。
 func artKey(ev ArtEvent) string {
+	switch ev.File {
+	case ArtMainMenuButtons:
+		return fmt.Sprintf("%s%d,%d/%d", keyMainMenu, ev.X, ev.Y, ev.K%mmLines)
+	case ArtMainMenuPlate:
+		return fmt.Sprintf("%s%d", keyMainMenuPlate, ev.Line)
+	case ArtTomenuButtons:
+		return fmt.Sprintf("%s%d,%d/%d", keyTomenu, ev.X, ev.Y, ev.K%2)
+	}
 	return fmt.Sprintf("saveload/%d,%d/%d", ev.X, ev.Y, normalK(ev.K))
 }
 
-// AddDialogArt 依一個繪圖事件規劃一列圖面（004 §3.3）。同 Key 的後畫替換前畫。
+// AddDialogArt 依一個繪圖事件規劃圖面（004 §3.3、008 §3.4）。同 Key 的後畫替換前畫。
 // 譯文缺 key、字型缺字記 Miss；超寬、倍率、矩形不合法記 Skip；兩者都不產生圖面，畫面維持英文。
-// 規劃之前先依 007 §3.6 移除確認框的圖面（與這次事件是否產生圖面無關）。
+//   - SAVELOAD：規劃之前先依 007 §3.6 移除確認框的圖面（與這次事件是否產生圖面無關）。
+//   - MAINMENU 底板：移除 Key 前綴 mainmenu、mainmenu-plate 的舊列，記下事件，先不產生圖面（008 §3.4、§3.6）。
+//   - MAINMENU 按鈕：有記下的底板時，先以這個事件的按鈕檔為五行灰字建列（Order 取底板事件），
+//     與這個按鈕事件本身是否產生圖面無關，再規劃按鈕本身。
 func (o *Overlay) AddDialogArt(ev ArtEvent) {
-	o.dropConfirmArt(ev)
+	switch ev.File {
+	case ArtSaveLoad:
+		o.dropConfirmArt(ev)
+	case ArtMainMenuPlate:
+		o.dropArt(func(e *artEntry) bool {
+			return strings.HasPrefix(e.rect.Key, keyMainMenu) || strings.HasPrefix(e.rect.Key, keyMainMenuPlate)
+		})
+		p := ev
+		o.platePending = &p
+		return
+	case ArtMainMenuButtons:
+		if p := o.platePending; p != nil {
+			o.platePending = nil
+			for n := 0; n < mmLines; n++ {
+				row := *p
+				row.Line, row.Buttons = n, ev.Buttons
+				o.addArt(row)
+			}
+		}
+	}
+	o.addArt(ev)
+}
+
+// addArt 規劃一列圖面並加入（同 Key 替換）。
+func (o *Overlay) addArt(ev ArtEvent) {
 	e, miss, skip := o.planArt(ev)
 	if miss != nil {
 		o.Misses = append(o.Misses, *miss)
@@ -54,24 +101,11 @@ func (o *Overlay) AddDialogArt(ev ArtEvent) {
 	o.arts = append(o.arts, e)
 }
 
-// dropConfirmArt 是 007 §3.6 的生命期規則（防禦；逐欄比對已讓關閉後的確認框停畫）：
-//  1. k0 的繪圖事件（確認框關閉後整個對話框重畫的第一筆）移除一般態屬於 {15, 16, 17, 19} 的圖面；
-//  2. k15 的繪圖事件移除一般態 16 的圖面（新一次確認框）。
-//
-// 同時從 artLayer 移除：drawArt 在沒有圖面時直接返回，不會替 layer 對帳。
-func (o *Overlay) dropConfirmArt(ev ArtEvent) {
-	var drop func(n int) bool
-	switch ev.K {
-	case 0:
-		drop = confirmElement
-	case 15:
-		drop = func(n int) bool { return n == 16 }
-	default:
-		return
-	}
+// dropArt 移除符合 drop 的圖面，同時從 artLayer 移除：drawArt 在沒有圖面時直接返回，不會替 layer 對帳。
+func (o *Overlay) dropArt(drop func(e *artEntry) bool) {
 	keep := o.arts[:0]
 	for _, e := range o.arts {
-		if drop(normalK(e.ev.K)) {
+		if drop(e) {
 			o.artLayer.DropArt(e.rect.Key)
 			continue
 		}
@@ -83,9 +117,31 @@ func (o *Overlay) dropConfirmArt(ev ArtEvent) {
 	o.arts = keep
 }
 
-// ClearArt 移除全部圖面（全螢幕 blit 入口，004 §3.3）。
+// dropConfirmArt 是 007 §3.6 的生命期規則（防禦；逐欄比對已讓關閉後的確認框停畫），只對 SAVELOAD 的事件：
+//  1. k0 的繪圖事件（確認框關閉後整個對話框重畫的第一筆）移除一般態屬於 {15, 16, 17, 19} 的圖面；
+//  2. k15 的繪圖事件移除一般態 16 的圖面（新一次確認框）。
+//
+// 只移除 SAVELOAD 的圖面；主選單的 k0 事件不經這裡（008 §3.1）。
+func (o *Overlay) dropConfirmArt(ev ArtEvent) {
+	if ev.File != ArtSaveLoad {
+		return
+	}
+	var drop func(n int) bool
+	switch ev.K {
+	case 0:
+		drop = confirmElement
+	case 15:
+		drop = func(n int) bool { return n == 16 }
+	default:
+		return
+	}
+	o.dropArt(func(e *artEntry) bool { return e.ev.File == ArtSaveLoad && drop(normalK(e.ev.K)) })
+}
+
+// ClearArt 移除全部圖面與記下的主選單底板（全螢幕 blit 入口，004 §3.3）。
 func (o *Overlay) ClearArt() {
 	o.arts = nil
+	o.platePending = nil
 	o.artLayer.ClearArt()
 }
 
@@ -108,6 +164,7 @@ func (o *Overlay) ArtKeys() []string {
 }
 
 // replanArt 在倍率改變後依保留的事件重新規劃（不再記 Miss、Skip；規劃失敗的列移除）。
+// 底板列的事件自帶行號與按鈕檔，照常重建。
 func (o *Overlay) replanArt() {
 	evs := o.arts
 	o.arts = nil
@@ -119,21 +176,21 @@ func (o *Overlay) replanArt() {
 	}
 }
 
-// planArt 依 004 §3.3 到 §3.5 規劃一列圖面。
+// planArt 依 004 §3.3 到 §3.5 與 008 §3.2 到 §3.6 規劃一列圖面。
 func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
-	el, ink, ok := elementFor(ev.K)
+	sp, ok := artSpecFor(ev)
 	if !ok {
-		return nil, nil, &Skip{fmt.Sprintf("SAVELOAD k%d", ev.K), "不是有字的元素"}
+		return nil, nil, &Skip{fmt.Sprintf("%s k%d", ev.File, ev.K), "不是有字的元素"}
 	}
 	if o.scale != 2 && o.scale != 3 {
-		return nil, nil, &Skip{el.key, fmt.Sprintf("%d 倍輸出不覆繪", o.scale)}
+		return nil, nil, &Skip{sp.key, fmt.Sprintf("%d 倍輸出不覆繪", o.scale)}
 	}
-	if ev.W != el.w || ev.H != el.h || len(ev.Entry) != el.w*el.h || len(ev.Base0) != el.w*el.h {
-		return nil, nil, &Skip{el.key, fmt.Sprintf("條目尺寸 %d×%d 不是 %d×%d", ev.W, ev.H, el.w, el.h)}
+	if ev.W != sp.w || ev.H != sp.h || len(ev.Entry) != sp.w*sp.h || len(ev.Base0) != sp.w*sp.h {
+		return nil, nil, &Skip{sp.key, fmt.Sprintf("條目尺寸 %d×%d 不是 %d×%d", ev.W, ev.H, sp.w, sp.h)}
 	}
-	tr, ok := o.gfx[el.key]
+	tr, ok := o.gfx[sp.key]
 	if !ok || tr == "" {
-		return nil, &Miss{Key: el.key, Reason: MissTranslation}, nil
+		return nil, &Miss{Key: sp.key, Reason: MissTranslation}, nil
 	}
 	text := []rune(tr)
 	var missing []rune
@@ -143,24 +200,26 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 		}
 	}
 	if len(missing) != 0 {
-		return nil, &Miss{Key: el.key, Reason: MissGlyph, Runes: missing}, nil
+		return nil, &Miss{Key: sp.key, Reason: MissGlyph, Runes: missing}, nil
 	}
 	sc := o.scale
-	gx, gy, step, err := glyphOrigin(len(text), sc, el.band, ink)
+	gx, gy, step, err := glyphOrigin(len(text), sc, sp.band, sp.center)
 	if err != nil {
-		return nil, nil, &Skip{el.key, err.Error()}
+		return nil, nil, &Skip{sp.key, err.Error()}
 	}
-	bw, bh := el.band.x1-el.band.x0+1, el.band.y1-el.band.y0+1
-	rect := ArtRect{Key: artKey(ev), X: ev.X + el.band.x0, Y: ev.Y + el.band.y0, W: bw, H: bh}
+	bw, bh := sp.band.x1-sp.band.x0+1, sp.band.y1-sp.band.y0+1
+	rect := ArtRect{Key: sp.rectKey, X: ev.X + sp.band.x0, Y: ev.Y + sp.band.y0, W: bw, H: bh}
 	if rect.X < 0 || rect.Y < 0 || rect.X+bw > 320 || rect.Y+bh > 200 {
-		return nil, nil, &Skip{el.key, fmt.Sprintf("字帶 (%d,%d) %d×%d 超出畫面", rect.X, rect.Y, bw, bh)}
+		return nil, nil, &Skip{sp.key, fmt.Sprintf("字帶 (%d,%d) %d×%d 超出畫面", rect.X, rect.Y, bw, bh)}
 	}
 	ref := make([]uint8, bw*bh)
 	for y := 0; y < bh; y++ {
-		copy(ref[y*bw:(y+1)*bw], ev.Entry[(el.band.y0+y)*el.w+el.band.x0:])
+		copy(ref[y*bw:(y+1)*bw], ev.Entry[(sp.band.y0+y)*sp.w+sp.band.x0:])
 	}
-	c, h, hasH := dialogColors(ev)
-	bg := dialogBackground(ev)
+	bg, passes, err := artBackground(ev)
+	if err != nil {
+		return nil, nil, &Skip{sp.key, err.Error()}
+	}
 	ow, oh := bw*sc, bh*sc
 	idx := make([]uint8, ow*oh)
 	for y := 0; y < oh; y++ {
@@ -175,20 +234,15 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 			idx[y*ow+x] = col
 		}
 	}
-	// 高光在筆畫左側：先以 h 在字模左移 1 個輸出像素處畫一次，再以 c 畫字模（004 §3.5）。
-	// 原版沒有高光（0 組墨跡框內沒有 15，007 §3.4）時跳過第一趟。
-	for pass, col := range []uint8{h, c} {
-		if pass == 0 && !hasH {
-			continue
-		}
-		dx := pass - 1 // 第一趟 −1，第二趟 0
+	// 各趟依序畫，先畫的在下；最後一趟是字色 c（004 §3.5、008 §3.5）。
+	for _, p := range passes {
 		for i, r := range text {
 			g := font.Glyphs[r]
-			ox := gx + i*step + dx
+			ox, oy := gx+i*step+p.dx, gy+p.dy
 			for py := 0; py < font.H; py++ {
 				for px := 0; px < font.W; px++ {
 					if g[py*rb+px/8]&(0x80>>uint(px%8)) != 0 {
-						plot(ox+px, gy+py, col)
+						plot(ox+px, oy+py, p.col)
 					}
 				}
 			}

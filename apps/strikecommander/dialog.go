@@ -6,20 +6,36 @@ import (
 	"encoding/hex"
 )
 
-// 存讀檔對話框的繪圖事件（strike_commander 規格 004 §3.1、§3.2）。
+// 圖形字的繪圖事件：存讀檔對話框（strike_commander 規格 004 §3.1、§3.2）、主選單與 MENU 片頭選單（規格 008 §3.1）。
 // shape 繪製常式 +3A97:0000（檔案位移 40570h）在入口時，參數在 [SP+4] 起：
 // 描述元近指標、x、y、圖檔遠指標（偏移、段）、條目號（RE 015 §3；dis-3A97.txt 的 [bp+6] 起）。
+// MENU.EXE 的 +1BA2:0002 是同一份程式碼（16 bytes 相同，RE 018 §1.2、§5.3），參數堆疊相同。
 const (
 	segShape = 0x3A97
 
+	// ipMenuShape 是 MENU.EXE shape 繪製常式入口的 IP（008 §3.1 第 1 條）。
+	ipMenuShape = 0x0002
+
 	saveLoadSize  = 42014
 	saveLoadGroup = 21 // 每組條目數；組基底 0、21、42（RE 015 §2）
+
+	// 008 §2 的子條目長度（首 u32）。執行期 p 指向子條目（RE 018 §1.1；TOMENU 是 LZW 解壓後）。
+	mainMenuButtonsSize = 15606 // MAINMENU.PAK 條目 0：10 張 211×15 按鈕
+	mainMenuPlateSize   = 8593  // MAINMENU.PAK 條目 1：233×104 底板
+	tomenuButtonsSize   = 10314 // TOMENU.PAK 條目 1：4 張按鈕
 )
 
 // saveLoadSHA256 是 SAVELOAD.SHP 整檔的 SHA-256（RE 015 §1）。
 var saveLoadSHA256 = mustHex("617f7270097913ea2c9841035fd201d4196d084e2408cc593eaf056d7f97ef6a")
 
-// sigShapeEntry 是 +3A97:0000 起 16 bytes 的入口簽章（RE 015 §4 簽章表）。
+// 008 §2 子條目的 SHA-256。
+var (
+	mainMenuButtonsSHA256 = mustHex("3729dfc27900368bbe27e7fb1e7deaa2e16e5666476fbbf715b719139208d0af")
+	mainMenuPlateSHA256   = mustHex("abebe6c16aee0408fa27e93881f3a8ade463745c68ce3a1bdabcedef1210d380")
+	tomenuButtonsSHA256   = mustHex("13dfa8ecdd986cf8b298aea6d64fccf62ed61a956f4fba476e689597b4f0e37a")
+)
+
+// sigShapeEntry 是 +3A97:0000 起 16 bytes 的入口簽章（RE 015 §4 簽章表）；MENU 的 +1BA2:0002 起相同（RE 018 §5.3）。
 var sigShapeEntry = []int{0xC8, 0x52, 0x01, 0x00, 0x56, 0x57, 0x1E, 0xFC, 0x16, 0x07, 0x1E, 0x0F, 0xA9, 0x8B, 0x76, 0x06}
 
 func mustHex(s string) [32]byte {
@@ -30,26 +46,52 @@ func mustHex(s string) [32]byte {
 	return out
 }
 
-// ArtEvent 是一次被接受的繪圖事件（004 §3.1）。Entry、Base0 都是複本：Entry 是條目 e 的解碼陣列，
-// Base0 是同一 k 的 0 組條目（條目 k）的解碼陣列，兩者尺寸都等於 §2.2 的元素尺寸 W×H。
+// ArtFile 是繪圖事件的檔別（008 §3.1）。零值是 SAVELOAD.SHP。
+type ArtFile int
+
+const (
+	ArtSaveLoad        ArtFile = iota // SAVELOAD.SHP（004、007）
+	ArtMainMenuButtons                // MAINMENU.PAK 條目 0：主選單按鈕
+	ArtMainMenuPlate                  // MAINMENU.PAK 條目 1：主選單底板（含五行灰字）
+	ArtTomenuButtons                  // TOMENU.PAK 條目 1：MENU 片頭選單按鈕
+)
+
+func (f ArtFile) String() string {
+	switch f {
+	case ArtSaveLoad:
+		return "SAVELOAD"
+	case ArtMainMenuButtons:
+		return "MAINMENU 按鈕"
+	case ArtMainMenuPlate:
+		return "MAINMENU 底板"
+	case ArtTomenuButtons:
+		return "TOMENU 按鈕"
+	}
+	return "未知"
+}
+
+// ArtEvent 是一次被接受的繪圖事件（004 §3.1、008 §3.1）。陣列都是複本。
+//   - Entry 是條目 e 的解碼陣列，尺寸 W×H。
+//   - Base0：SAVELOAD 是同一 k 的 0 組條目（條目 k）；主選單與片頭選單是 Entry 本身（沒有組別）。
+//   - Buttons：MAINMENU 按鈕事件是整個按鈕檔（規則 P 要 k 與 k+5，008 §3.3）；底板列是建列時的按鈕檔（§3.4）。
+//   - Line：底板列的行號 n（0 到 4，§3.4）。底板事件本身與其他檔為 0。
 type ArtEvent struct {
-	Steps uint64
-	G, K  int
-	X, Y  int
-	Order int
-	W, H  int
-	Entry []uint8
-	Base0 []uint8
+	Steps   uint64
+	File    ArtFile
+	G, K    int
+	X, Y    int
+	Order   int
+	W, H    int
+	Entry   []uint8
+	Base0   []uint8
+	Buttons []byte
+	Line    int
 }
 
 // shapeEntry 處理 IP == 0 時的 shape 繪製常式入口（004 §3.1）。依序：
 //  1. CS:0000 起 16 bytes 等於入口簽章；base 已知時另要求 CS == base + 3A97h，
 //     未知時以 CS − 3A97h 為候選，以 001 的 puts 簽章與其餘簽章驗證後採用；
-//  2. 描述元 DS:d 的段是 FFFFh、矩形全螢幕；
-//  3. 圖檔 p 起 u32 等於 42014，整檔 SHA-256 相符（每次都重算）；
-//  4. g = e / 21、k = e mod 21：g 為 0、1 且 k 屬於 0 到 9 或 15 到 20（確認框，007 §3.1）才產生事件；
-//     k 屬於 10 到 14（箭頭、滑塊）不產生也不記錄；g == 2 記 skip；
-//  5. 解碼條目 e 與條目 k，尺寸要等於 §2.2 的元素尺寸。
+//  2. 之後同 shapeDraw。
 func (o *LabelObserver) shapeEntry(v View) {
 	cs := v.CS()
 	if o.baseKnown && o.baseOK {
@@ -81,6 +123,23 @@ func (o *LabelObserver) shapeEntry(v View) {
 		o.base, o.baseKnown, o.baseOK = cand, true, true
 		o.note(v.Steps(), "art", "由 shape 入口 %04X:0000 定位 base %04X", cs, cand)
 	}
+	o.shapeDraw(v)
+}
+
+// menuShapeEntry 處理 IP == 0002 時 MENU.EXE 的 shape 繪製常式入口（008 §3.1 第 1、2 條）：
+// CS:0002 起 16 bytes 等於入口簽章才接 shapeDraw。不經 CS − 3A97h 與 base 檢查，也不學 base。
+func (o *LabelObserver) menuShapeEntry(v View) {
+	if !match(v, v.CS(), ipMenuShape, sigShapeEntry, 0) {
+		return
+	}
+	o.shapeDraw(v)
+}
+
+// shapeDraw 是兩個入口共用的後半（004 §3.1、008 §3.1 第 3 到 5 條）：
+//  1. 描述元 DS:d 的段是 FFFFh、矩形全螢幕；
+//  2. 圖檔 p 起 u32 等於四個長度之一（先比長度，不符不讀整段），整段 SHA-256 相符（每次都重算），決定檔別；
+//  3. 依檔別產生事件（saveLoadEvent、menuEvent）。
+func (o *LabelObserver) shapeDraw(v View) {
 	ss, sp, ds := v.SS(), v.SP(), v.DS()
 	d := rd16(v, ss, sp+4)
 	x := int(int16(rd16(v, ss, sp+6)))
@@ -91,17 +150,40 @@ func (o *LabelObserver) shapeEntry(v View) {
 		return // 裁切重畫（FCE5 等）、畫外緩衝與游標的 DB2E 都不收
 	}
 	base := lin(pSeg, pOff)
-	if readLin32(v, base) != saveLoadSize {
+	var kind ArtFile
+	var want [32]byte
+	n := readLin32(v, base)
+	switch n {
+	case saveLoadSize:
+		kind, want = ArtSaveLoad, saveLoadSHA256
+	case mainMenuButtonsSize:
+		kind, want = ArtMainMenuButtons, mainMenuButtonsSHA256
+	case mainMenuPlateSize:
+		kind, want = ArtMainMenuPlate, mainMenuPlateSHA256
+	case tomenuButtonsSize:
+		kind, want = ArtTomenuButtons, tomenuButtonsSHA256
+	default:
 		return
 	}
-	file := make([]byte, saveLoadSize)
+	file := make([]byte, n)
 	for i := range file {
 		file[i] = v.Read8(base + uint32(i))
 	}
-	if sha256.Sum256(file) != saveLoadSHA256 {
+	if sha256.Sum256(file) != want {
 		return
 	}
-	steps := v.Steps()
+	if kind == ArtSaveLoad {
+		o.saveLoadEvent(v.Steps(), file, e, x, y)
+		return
+	}
+	o.menuEvent(v.Steps(), kind, file, e, x, y)
+}
+
+// saveLoadEvent 是 SAVELOAD.SHP 的事件（004 §3.1 第 6 條、§3.2）：
+//   - g = e / 21、k = e mod 21：g 為 0、1 且 k 屬於 0 到 9 或 15 到 20（確認框，007 §3.1）才產生事件；
+//     k 屬於 10 到 14（箭頭、滑塊）不產生也不記錄；g == 2 記 skip；
+//   - 解碼條目 e 與條目 k，尺寸要等於 §2.2 的元素尺寸。
+func (o *LabelObserver) saveLoadEvent(steps uint64, file []byte, e, x, y int) {
 	g, k := e/saveLoadGroup, e%saveLoadGroup
 	switch {
 	case g == 2:
@@ -130,6 +212,34 @@ func (o *LabelObserver) shapeEntry(v View) {
 	o.artOrder++
 	if o.OnArt != nil {
 		o.OnArt(ArtEvent{Steps: steps, G: g, K: k, X: x, Y: y, Order: o.artOrder, W: ent.W, H: ent.H, Entry: ent.Pix, Base0: b0.Pix})
+	}
+}
+
+// menuEvent 是主選單與片頭選單的事件（008 §3.1 第 5 條）：MAINMENU 按鈕檔 k 0 到 9、底板檔只有條目 0、
+// TOMENU 按鈕檔 k 0 到 3；條目超出不產生也不記錄；解碼後的尺寸要等於 §3.2，不符記一筆 art 紀錄。
+// MAINMENU 按鈕事件另帶整個按鈕檔的複本（file 本身就是這次讀出的複本）。
+func (o *LabelObserver) menuEvent(steps uint64, kind ArtFile, file []byte, e, x, y int) {
+	w, h, ok := menuElementSize(kind, e)
+	if !ok {
+		return
+	}
+	ent, err := decodeEntry(file, e)
+	if err != nil {
+		o.note(steps, "art", "%s 條目 %d 解碼失敗：%v", kind, e, err)
+		return
+	}
+	if ent.W != w || ent.H != h {
+		o.note(steps, "art", "%s 條目 %d 尺寸 %d×%d，要 %d×%d，略過", kind, e, ent.W, ent.H, w, h)
+		return
+	}
+	ev := ArtEvent{Steps: steps, File: kind, K: e, X: x, Y: y, W: w, H: h, Entry: ent.Pix, Base0: ent.Pix}
+	if kind == ArtMainMenuButtons {
+		ev.Buttons = file
+	}
+	o.artOrder++
+	ev.Order = o.artOrder
+	if o.OnArt != nil {
+		o.OnArt(ev)
 	}
 }
 

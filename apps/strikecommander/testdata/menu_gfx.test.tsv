@@ -1,5 +1,5 @@
 key	translation	source
-CONTINUE GAME	尾追	測試（004 §4.1 第 9 項：主選單 key 不報錯）
+CONTINUE GAME	尾追式飛	測試（008 §4.1：字數同正式譯文）
 SAVE GAME	測試譯文	測試（004 §4.1）
 LOAD GAME	一二三甲	測試（004 §4.1）
 SAVE	測試	測試（004 §4.1）
@@ -10,3 +10,8 @@ ARE YOU SURE	一二三	測試（007 §4.1）
 OVERWRITE	飛彈卸下	測試（007 §4.1）
 YES	甲	測試（007 §4.1）
 NO	乙	測試（007 §4.1）
+START NEW GAME	甲乙丙一二	測試（008 §4.1）
+TRAINING MISSION	測試譯文	測試（008 §4.1）
+VIEW OBJECTS	地面空中	測試（008 §4.1）
+PLAY STRIKE COMMANDER	測試譯文甲乙	測試（008 §4.1）
+PLAY TACTICAL OPERATIONS	一二三甲乙丙	測試（008 §4.1）

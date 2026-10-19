@@ -68,11 +68,25 @@ func elementFor(k int) (artElement, box, bool) {
 	return el, ink, true
 }
 
-// ArtCatalogKeys 回對照中的 10 個圖形字 key，依一般態 k 排序（LintArt 用；004 §3.6、007 §3.7）。
+// ArtCatalogKeys 回對照中的 16 個圖形字 key（LintArt 用）：SAVELOAD 的 10 個依一般態 k 排序（004 §3.6、007 §3.7），
+// 再接主選單五行（LOAD GAME 與 SAVELOAD k1 共用，不重複）與 MENU 片頭選單兩個（008 §3.7）。
 func ArtCatalogKeys() []string {
 	var out []string
+	seen := map[string]bool{}
+	add := func(k string) {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
 	for _, n := range []int{0, 1, 2, 4, 6, 8, 15, 16, 17, 19} {
-		out = append(out, artElements[n].key)
+		add(artElements[n].key)
+	}
+	for _, k := range mmKeys {
+		add(k)
+	}
+	for _, el := range tmElements {
+		add(el.key)
 	}
 	return out
 }
@@ -237,7 +251,7 @@ func glyphOrigin(n, scale int, band, ink box) (gx, gy, step int, err error) {
 }
 
 // LintArt 依 004 §3.6 檢查圖形字 catalog（text/menu_gfx.<lang>.tsv）：欄名、欄數、key 唯一；
-// 對照中的 10 個 key（007 §3.7）都在、譯文非空、每字都是字型收入的全形字。catalog 其餘 key（主選單）不報錯。
+// 對照中的 16 個 key（007 §3.7、008 §3.7）都在、譯文非空、每字都是字型收入的全形字。catalog 其餘 key 不報錯。
 // 不走 Lint：它會把 LABL 以外的 key 全報孤兒。
 func LintArt(b []byte, wide *WideTable) LintReport {
 	var rep LintReport
