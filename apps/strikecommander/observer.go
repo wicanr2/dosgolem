@@ -145,11 +145,11 @@ type Label struct {
 	// （005 §3.1 第 2 條）。只用於比對，不寫入原版狀態；sameLabels 不比它。
 	Ref []byte
 
-	// Before、After 只對 board 有值（003 §3.3）：puts 入口與同一筆 puts 返回時讀下的緩衝列
-	// [Y+1, Y+9) × [0, 320)，各 8 × 320 bytes。第一次 putc 的 y 與入口不同時兩者作廢（nil）。
-	// 只用於繪製背景與核對，不寫入原版狀態。
+	// Before、After 是 puts 入口與同一筆 puts 返回時讀下的緩衝列 [Y+1, Y+1+h) × [0, 320)，
+	// h 見 refRows：label 14 列、board 8 列（003 §3.3、006 §3.1）。label 與 board 都有值；
+	// 第一次 putc 的 y 與入口不同時兩者作廢（nil）。只用於繪製背景與核對，不寫入原版狀態；sameLabels 不比它們。
 	Before, After []byte
-	// BoardInk 是 board 的墨跡核對結果，在 puts 返回時算（003 §3.2）。
+	// BoardInk 是 board 的墨跡核對結果，在 puts 返回時算（003 §3.2）。label 不算，維持零值。
 	BoardInk InkResult
 
 	ink inkCapture
@@ -424,11 +424,12 @@ func (o *LabelObserver) putsEntry(v View) {
 		Font: rd16(v, ds, obj+objFont), Seg: rd16(v, ds, obj+objSeg), List: rd16(v, ds, obj+objList),
 	}
 	l.ink.yPrime = int(rd16(v, ds, obj+objY))
-	switch {
-	case kind == KindBoard:
-		// board 的前列一律在 puts 入口取（繪製背景要用），不受 InkCheck 限制（003 §3.2）。
-		l.Before = readRows(v, ds, l.Seg, l.List, l.ink.yPrime+1, l.ink.yPrime+1+boardRows)
-	case o.InkCheck:
+	// 前列一律在 puts 入口取（繪製背景要用），不受 InkCheck 限制（003 §3.2、006 §3.1 第 1 條）：
+	// label 是 [y′+1, y′+15)，board 是 [y′+1, y′+9)。兩個 if 互不取代。
+	if kind == KindLabel || kind == KindBoard {
+		l.Before = readRows(v, ds, l.Seg, l.List, l.ink.yPrime+1, l.ink.yPrime+1+refRows(kind))
+	}
+	if kind == KindLabel && o.InkCheck {
 		l.ink.before = readRows(v, ds, l.Seg, l.List, l.ink.yPrime-2, l.ink.yPrime+17)
 	}
 	o.cur = &inflight{label: l, obj: obj, ss: ss, sp: sp}
@@ -511,9 +512,8 @@ func (o *LabelObserver) putsReturn(v View) {
 		return
 	}
 	c.label.X1 = int(rd16(v, v.DS(), c.obj+objX))
-	if c.label.Kind == KindBoard {
-		o.boardReturn(v, &c.label)
-	}
+	// label 與 board 都在 puts 返回時讀後列（006 §3.1 第 2 條）。
+	o.rowsReturn(v, &c.label)
 	if len(o.pending) >= maxPending {
 		o.note(v.Steps(), "pending", "待提交清單滿 %d 筆，捨棄最舊的 %q", maxPending, o.pending[0].Key)
 		o.pending = append(o.pending[:0], o.pending[1:]...)

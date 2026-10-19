@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -282,27 +281,9 @@ func checkCursorColumns(t *testing.T, file []byte, res *ReceiptResult, s ShotRes
 	}
 }
 
+// writeSaveLoadShot 寫 shot 的收據檔（006 §3.3 第 2 條），前綴 shot-<步數>-<名稱>（ShotPrefix）。
 func writeSaveLoadShot(dir string, s *ShotResult) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	name := "shot-" + strconv.FormatUint(s.Steps, 10) + "-" + s.Name
-	for _, sc := range []int{2, 3} {
-		if err := writeRGBAPNG(filepath.Join(dir, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
-			return err
-		}
-		if err := writeRGBAPNG(filepath.Join(dir, fmt.Sprintf("%s-plain-%dx.png", name, sc)), s.Plain[sc], sc); err != nil {
-			return err
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, name+"-frame.idx"), s.Indexed, 0o644); err != nil {
-		return err
-	}
-	pal := make([]byte, 0, 768)
-	for _, c := range s.Palette {
-		pal = append(pal, c[0], c[1], c[2])
-	}
-	return os.WriteFile(filepath.Join(dir, name+"-palette.bin"), pal, 0o644)
+	return WriteShotFiles(dir, ShotPrefix(s), s, []int{2, 3})
 }
 
 // checkTentColors 依 004 §3.5 的表檢查帳篷（21 組）圖面的字色與高光，用執行期事件的解碼陣列。
@@ -334,6 +315,7 @@ func TestSaveLoadCase(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			on := runSaveLoadCase(t, c, true)
 			checkSaveLoadCase(t, c, on)
+			writeStop(t, "case-"+strings.ToLower(name), on) // 006 §3.3
 			if name == "G" {
 				checkTentColors(t, on)
 				checkNoSig(t, on) // 005 §4.4

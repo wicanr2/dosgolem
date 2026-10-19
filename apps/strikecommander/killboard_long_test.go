@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"image"
-	"image/png"
 	"os"
 	"path/filepath"
 	"sort"
@@ -261,42 +259,27 @@ func checkCaseE(t *testing.T, res *ReceiptResult) {
 	}
 }
 
-// writeCaseEShot 把 shot 的 2、3 倍合成圖、原版放大圖、原版色號畫格（320×200）與色盤（768 bytes）寫到 dir。
+// writeCaseEShot 把 shot 的 2、3 倍合成圖、原版放大圖、原版色號畫格（320×200）、色盤（768 bytes）與
+// 006 §3.3 的 labels.tsv、rows.bin 寫到 dir。前綴沿用 003 時的 shot-<步數>（沒有名稱）。
 func writeCaseEShot(dir string, s *ShotResult) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	name := fmt.Sprintf("shot-%d", s.Steps)
-	for _, sc := range []int{2, 3} {
-		if err := writeRGBAPNG(filepath.Join(dir, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
-			return err
-		}
-		if err := writeRGBAPNG(filepath.Join(dir, fmt.Sprintf("%s-plain-%dx.png", name, sc)), s.Plain[sc], sc); err != nil {
-			return err
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, name+"-frame.idx"), s.Indexed, 0o644); err != nil {
-		return err
-	}
-	pal := make([]byte, 0, 768)
-	for _, c := range s.Palette {
-		pal = append(pal, c[0], c[1], c[2])
-	}
-	return os.WriteFile(filepath.Join(dir, name+"-palette.bin"), pal, 0o644)
+	return WriteShotFiles(dir, fmt.Sprintf("shot-%d", s.Steps), s, []int{2, 3})
 }
 
-// writeRGBAPNG 同 cmd/strikecommander-label-receipt 的 writePNG。
-func writeRGBAPNG(path string, rgba []byte, scale int) error {
-	img := &image.RGBA{Pix: rgba, Stride: 320 * scale * 4, Rect: image.Rect(0, 0, 320*scale, 200*scale)}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
+// writeRGBAPNG 同 WriteRGBAPNG。
+func writeRGBAPNG(path string, rgba []byte, scale int) error { return WriteRGBAPNG(path, rgba, scale) }
+
+// writeStop 在 DOSGOLEM_SC_OUT 有設定時把停止點寫到 <OUT>/<sub>（006 §3.3 第 2 條，前綴 stop-<步數>）。
+func writeStop(t *testing.T, sub string, res *ReceiptResult) {
+	t.Helper()
+	dir := os.Getenv(scOutEnv)
+	if dir == "" {
+		return
 	}
-	if err := png.Encode(f, img); err != nil {
-		f.Close()
-		return err
+	out := filepath.Join(dir, sub)
+	if err := WriteStopFiles(out, res, []int{2, 3}); err != nil {
+		t.Fatal(err)
 	}
-	return f.Close()
+	t.Logf("停止點輸出寫到 %s（stop-%d）", out, res.Digest.Steps)
 }
 
 func TestKillBoardCaseE(t *testing.T) {
@@ -308,7 +291,8 @@ func TestKillBoardCaseE(t *testing.T) {
 	t.Run("E", func(t *testing.T) {
 		on := runCaseE(t, true, false)
 		checkCaseE(t, on)
-		checkNoSig(t, on) // 005 §4.4
+		writeStop(t, "case-e", on) // 006 §3.3
+		checkNoSig(t, on)          // 005 §4.4
 		logMeasure(t, "E", on)
 		off := runCaseE(t, false, false)
 		a, b := on.Digest, off.Digest

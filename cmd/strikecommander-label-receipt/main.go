@@ -151,11 +151,17 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		if err := writePNG(filepath.Join(out, fmt.Sprintf("plain-%dx.png", sc)), on.Plain[sc], sc); err != nil {
 			return err
 		}
+		fmt.Printf("  BGFallbacks %+v\n", ov.BGFallbacks)
 	}
-	for _, s := range on.Shots {
-		name := fmt.Sprintf("shot-%d", s.Steps)
-		if s.Name != "" {
-			name += "-" + s.Name
+	// 規格 006 §3.3：停止點的 frame.idx、palette.bin、labels.tsv、rows.bin 與 PNG（前綴 stop-<步數>）。
+	if err := strikecommander.WriteStopFiles(out, on, scales); err != nil {
+		return err
+	}
+	for i := range on.Shots {
+		s := &on.Shots[i]
+		// 規格 006 §3.3：shot 的收據檔（前綴 shot-<步數>-<名稱>，含 PNG）。
+		if err := strikecommander.WriteShotFiles(out, strikecommander.ShotPrefix(s), s, scales); err != nil {
+			return err
 		}
 		for _, sc := range scales {
 			cc := s.Check[sc]
@@ -165,12 +171,6 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 			}
 			// 規格 005 §4.2：shot 時的可見集合與比對不符而不畫的標籤。
 			fmt.Printf("  Visible %q Hidden %q\n", s.Visible, s.Hidden[sc])
-			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-composite-%dx.png", name, sc)), s.Composites[sc], sc); err != nil {
-				return err
-			}
-			if err := writePNG(filepath.Join(out, fmt.Sprintf("%s-plain-%dx.png", name, sc)), s.Plain[sc], sc); err != nil {
-				return err
-			}
 		}
 	}
 	// 規格 005 §4.4 的量測。

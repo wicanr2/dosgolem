@@ -118,16 +118,21 @@ const (
 	boardInkH = 7 // 墨跡框高 [Y+1, Y+8)
 )
 
-// boardReturn 在 board 標籤的 puts 返回時讀後列並核對。第一次 putc 的 y 與 puts 入口的 y 不同時，
-// 前後列作廢（之後不產生 stamp，由 Overlay 記 skip）。
-func (o *LabelObserver) boardReturn(v View, l *Label) {
+// rowsReturn 在 label 與 board 標籤的 puts 返回時讀後列（列數依種類 refRows：label 14、board 8；006 §3.1 第 2 條），
+// board 另做墨跡核對。第一次 putc 的 y 與 puts 入口的 y 不同時前後列作廢：board 之後不產生 stamp（Overlay 記 skip），
+// label 照 001 畫實心底（Overlay 記 BGFallbacks）。BoardInk 只對 board 算，label 維持零值。
+func (o *LabelObserver) rowsReturn(v View, l *Label) {
 	yp := l.ink.yPrime
 	if l.Y != yp {
 		l.Before, l.After = nil, nil
-		l.BoardInk = InkResult{Key: l.Key, Skipped: fmt.Sprintf("第一次 putc 的 Y %d 不等於 puts 入口的 y′ %d，前後列作廢", l.Y, yp)}
-		o.note(v.Steps(), "board", "%q：第一次 putc 的 Y %d 不等於 puts 入口的 y′ %d，前後列作廢", l.Key, l.Y, yp)
+		if l.Kind == KindBoard {
+			l.BoardInk = InkResult{Key: l.Key, Skipped: fmt.Sprintf("第一次 putc 的 Y %d 不等於 puts 入口的 y′ %d，前後列作廢", l.Y, yp)}
+		}
+		o.note(v.Steps(), string(l.Kind), "%s 標籤 %q：第一次 putc 的 Y %d 不等於 puts 入口的 y′ %d，前後列作廢", l.Kind, l.Key, l.Y, yp)
 		return
 	}
-	l.After = readRows(v, v.DS(), l.Seg, l.List, l.Y+1, l.Y+1+boardRows)
-	l.BoardInk = diffRows(*l, l.Before, l.After, l.Y+1)
+	l.After = readRows(v, v.DS(), l.Seg, l.List, l.Y+1, l.Y+1+refRows(l.Kind))
+	if l.Kind == KindBoard {
+		l.BoardInk = diffRows(*l, l.Before, l.After, l.Y+1)
+	}
 }

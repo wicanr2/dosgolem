@@ -135,6 +135,8 @@ type ShotResult struct {
 	Visible []string
 	// Covers 是 shot 時各倍率遮蓋 stamp 的矩形 [x0, y0, x1, y1)（1×），以 stamp Key 索引（005 §4.2 的比對框）。
 	Covers map[int]map[string][4]int
+	// BG 是 shot 時各倍率 Draw 之後的 BGReport（006 §3.3）。
+	BG map[int][]BGEntry
 }
 
 // FrameMeasure 是 005 §4.4 的量測：每次回掃時以各倍率 Overlay 的 Match 統計「可見集合非空但有標籤不符」的回掃數。
@@ -188,6 +190,8 @@ type ReceiptResult struct {
 	Plain          map[int][]byte
 	CompositeCheck map[int]CompositeCheck
 	Measure        FrameMeasure // 005 §4.4
+	// BG 是停止時各倍率 Draw 之後的 BGReport（006 §3.3）。
+	BG map[int][]BGEntry
 }
 
 // cursorHits 回游標 11×11 矩形 [x−5, x+6) × [y−5, y+6) 是否與 keys 任一筆的比對框相交（005 §4.4 分類 2）。
@@ -240,7 +244,16 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		var lastCommit, prevFrame uint64
 		lo.OnCommit = func(c Commit) {
 			lastCommit = c.BlitReturn
-			res.Commits = append(res.Commits, c)
+			// 保存的複本中 label 去掉前後列（006 §3.1 第 4 條，省記憶體）；board 保留。
+			// 另建 Labels 切片，Overlay 仍收到完整的 c.Labels。
+			kept := c
+			kept.Labels = append([]Label(nil), c.Labels...)
+			for i := range kept.Labels {
+				if kept.Labels[i].Kind == KindLabel {
+					kept.Labels[i].Before, kept.Labels[i].After = nil, nil
+				}
+			}
+			res.Commits = append(res.Commits, kept)
 			var counts []CommitStamps
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
@@ -403,7 +416,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			if so.LastIndexed == nil {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
 			}
-			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}, Hidden: map[int][]string{}, Covers: map[int]map[string][4]int{}}
+			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}, Hidden: map[int][]string{}, Covers: map[int]map[string][4]int{}, BG: map[int][]BGEntry{}}
 			for _, l := range so.Labels.Visible() {
 				sr.Visible = append(sr.Visible, l.Key)
 			}
@@ -416,6 +429,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
 				sr.ArtKeys[sc] = ov.ArtKeys()
 				sr.Hidden[sc] = append([]string(nil), ov.Hidden...)
+				sr.BG[sc] = ov.BGReport()
 				sr.Covers[sc] = map[string][4]int{}
 				for _, s := range ov.Stamps() {
 					if s.Font == nil {
@@ -441,10 +455,12 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	res.FrameMatches = sha256.Sum256(res.Frame) == res.Digest.IndexedSHA256
 	res.Overlays = overlays
 	res.Composites, res.Plain, res.CompositeCheck = map[int][]byte{}, map[int][]byte{}, map[int]CompositeCheck{}
+	res.BG = map[int][]BGEntry{}
 	for _, sc := range cfg.Scales {
 		ov := overlays[sc]
 		ov.Sync(so.Labels.Visible(), so.Labels.Generation())
 		comp, _ := ov.Draw(res.Frame, res.Palette)
+		res.BG[sc] = ov.BGReport()
 		plain := ScaleIndexedRGBA(res.Frame, res.Palette, sc)
 		res.Composites[sc], res.Plain[sc] = comp, plain
 		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())

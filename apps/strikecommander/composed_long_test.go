@@ -235,6 +235,14 @@ func TestComposedLabelCaseD(t *testing.T) {
 	t.Run("D", func(t *testing.T) {
 		on := runCaseD(t, true, false)
 		checkCaseD(t, on, false)
+		writeStop(t, "case-d", on) // 006 §3.3
+		if dir := os.Getenv(scOutEnv); dir != "" {
+			for i := range on.Shots {
+				if err := writeSaveLoadShot(filepath.Join(dir, "case-d"), &on.Shots[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
 		checkNoSig(t, on) // 005 §4.4
 		logMeasure(t, "D", on)
 		off := runCaseD(t, false, false)

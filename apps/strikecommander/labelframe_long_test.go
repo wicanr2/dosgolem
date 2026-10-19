@@ -232,6 +232,7 @@ func TestLabelFrameCaseH(t *testing.T) {
 	}
 	on := runCaseH(t, true)
 	checkCaseH(t, on)
+	writeStop(t, "case-h", on) // 006 §3.3
 	logMeasure(t, "H", on)
 	off := runCaseH(t, false)
 	a, b := on.Digest, off.Digest

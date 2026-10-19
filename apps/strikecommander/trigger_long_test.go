@@ -179,7 +179,8 @@ func TestLabelOverlayTrigger(t *testing.T) {
 			tc := triggerCases[name]
 			res := runTrigger(t, tc, true, false)
 			checkTrigger(t, tc, res)
-			checkNoSig(t, res) // 005 §4.4
+			writeStop(t, "case-"+strings.ToLower(name), res) // 006 §3.3
+			checkNoSig(t, res)                               // 005 §4.4
 			logMeasure(t, name, res)
 		})
 	}
