@@ -38,6 +38,13 @@ type ModeObserver interface {
 	VideoModeChange(c machine.ModeChange)
 }
 
+// SBDMAObserver 是 StepObserver 的選配擴充（docs/spec/452）：轉發 SB16 8 位元 DMA 的每一筆觀測事件
+// （machine.SBDMAEvent，444 §2.8、445 §2.9），全部 Kind 照原值、不過濾。回呼在步驟嘗試之內呼叫，
+// 沒有開著的 StepView；需要讀記憶體的消費端在下一次 BeforeStep 讀（452 §2.4）。
+type SBDMAObserver interface {
+	SBDMA(e machine.SBDMAEvent)
+}
+
 // muteAudio keeps m.OPL/m.Speaker from growing while AdLib is on and no
 // AudioObserver is forwarding (§3.1): the empty collectors drop every write.
 func (o *Owner) muteAudio() {
@@ -185,9 +192,17 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		o.machine.ObserveSpeaker(func(s machine.SpeakerSample) { guard("SpeakerSample", func() { ao.SpeakerSample(s) }) })
 		o.machine.ObservePITChannel2(func(c machine.PIT2Change) { guard("PITChannel2", func() { ao.PITChannel2(c) }) })
 	}
+	// 452 §2.3：只在觀察器實作 SBDMAObserver 時安裝；否則不碰 OnSBDMA，事件照現況進 SBDMALog。
+	so, sbdma := o.observer.(SBDMAObserver)
+	if sbdma {
+		o.machine.OnSBDMA = func(e machine.SBDMAEvent) { guard("SBDMA", func() { so.SBDMA(e) }) }
+	}
 	defer func() {
 		o.machine.ObserveVideoWrites(nil)
 		o.machine.ObserveModeChanges(nil)
+		if sbdma {
+			o.machine.OnSBDMA = nil
+		}
 		o.machine.SetOnFrame(nil)
 		if o.machine.AdLibPresent() {
 			o.muteAudio()

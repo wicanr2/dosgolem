@@ -1,0 +1,9 @@
+# strike_commander 規格 010 §4.2 案例 K1s：i019-a/s500.state（session 腳本；probe -clicks 的等價寫法見 §4.2「輸入」）
+move 5019800000 160 75
+down 5020000000 160 75
+up 5022000000 160 75
+move 5101800000 160 100
+down 5102000000 160 100
+up 5104000000 160 100
+shot 5106000000 paused
+stop 5170000000

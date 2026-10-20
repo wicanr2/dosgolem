@@ -1,0 +1,7 @@
+# strike_commander 規格 010 §4.2 案例 H12：i022-h/s390.state（session 腳本；probe -clicks 的等價寫法見 §4.2「輸入」）
+move 3919800000 95 128
+down 3920000000 95 128
+up 3922000000 95 128
+shot 4145000000 split
+shot 4530000000 oa
+stop 4900000000

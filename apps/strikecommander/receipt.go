@@ -24,14 +24,32 @@ type SessionObserver struct {
 	// OnFrame 在每次回掃、更新 LastIndexed 之前呼叫（005 §4.4 的量測）：old 是上一次回掃的畫格（可為 nil），
 	// cur 是這次的；steps 是最後一次 BeforeStep 的步數。可為 nil。兩者都不得修改。
 	OnFrame func(old, cur []byte, steps uint64)
+	// Subtitles 是 010 的語音字幕（nil 為不掛）。BeforeStep 在 Labels 之後呼叫它的 Observe，Frame 之後呼叫它的 Frame，
+	// SBDMA 事件轉給它（010 §3.12）。
+	Subtitles *Subtitles
+	// OnSBDMA 在每筆 SB16 DMA 事件呼叫（010 §4.2 前置步驟的事件紀錄）；可為 nil，不得讀記憶體。
+	OnSBDMA func(e machine.SBDMAEvent)
 
 	steps uint64
 }
 
 var (
-	_ View                 = session.StepView{}
-	_ session.StepObserver = (*SessionObserver)(nil)
+	_ View                  = session.StepView{}
+	_ SubtitleView          = session.StepView{}
+	_ session.StepObserver  = (*SessionObserver)(nil)
+	_ session.SBDMAObserver = (*SessionObserver)(nil)
 )
+
+// SBDMA 實作 dosgolem 452 的 SBDMAObserver：只要裝了觀察器，每次 Advance 都會安裝 OnSBDMA（452 §2.3），
+// 不論 Subtitles 是否為 nil。
+func (s *SessionObserver) SBDMA(e machine.SBDMAEvent) {
+	if s.OnSBDMA != nil {
+		s.OnSBDMA(e)
+	}
+	if s.Subtitles != nil {
+		s.Subtitles.SBDMA(e)
+	}
+}
 
 // AttachOverlays 把存讀檔對話框的繪圖事件與全螢幕 blit 入口的清除送到每個倍率的 Overlay（004 §3.1、§3.3）。
 // 每次呼叫取代前一次的接線。
@@ -51,6 +69,9 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	s.steps = v.Steps()
 	s.Labels.Observe(v)
+	if s.Subtitles != nil {
+		s.Subtitles.Observe(v)
+	}
 	return nil
 }
 
@@ -62,6 +83,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	}
 	s.LastIndexed, s.LastPalette = indexed, palette
 	s.Frames++
+	if s.Subtitles != nil {
+		s.Subtitles.Frame(indexed, s.steps)
+	}
 }
 
 // SessionConfig 是 dosgolem 規格 448 §3.2 的 Config（KbdIntercept 開），觀察器由呼叫端給（nil 為關）。
@@ -104,6 +128,18 @@ type ReceiptConfig struct {
 	// 觀察器開、關兩次執行都照同一份事件推進；Overlay 關時 shot 只切分推進、不出圖。
 	Inputs []ScriptedInput
 	Shots  []Shot
+
+	// 010 §3.12：語音字幕。Subtitles 為 false 時與現況相同；為 true 時要 Overlay 開，並給 SpeechIndex。
+	// 字型沿用 Font。SubtitleE、SubtitleT 是 §3.4、§3.8 的 E 與 T（步數；T 為 0 時取 SubtitleDefaultT）。
+	SpeechIndex   *SpeechIndex
+	SpeechCatalog map[string]string
+	Subtitles     bool
+	SubtitleE     uint64
+	SubtitleT     uint64
+	// SubtitlesOff 讓字幕以 SetEnabled(false) 開始（010 §3.10 的開關；只供驗收）。
+	SubtitlesOff bool
+	// RecordSBDMA 在 Overlay 開時記下全部 SB16 DMA 事件到 ReceiptResult.SBDMA（010 §4.2 前置步驟）。
+	RecordSBDMA bool
 
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
@@ -192,6 +228,26 @@ type ReceiptResult struct {
 	Measure        FrameMeasure // 005 §4.4
 	// BG 是停止時各倍率 Draw 之後的 BGReport（006 §3.3）。
 	BG map[int][]BGEntry
+
+	// 以下是 010 的新增欄位，只在 Overlay 開且對應選項開時有值。
+	// Subs、SubSkips 是字幕條與 skip／miss（010 §3.11）；SubShots 與 Shots 平行，是各 shot 的字幕 stamp。
+	// shot 與停止點的 Composites 已畫上字幕；Check、CompositeCheck 在畫字幕之前算（只涵蓋 Overlay 自己的 stamp）。
+	Subs     []*Subtitle
+	SubSkips []SubSkip
+	SubShots []SubShot
+	// SBDMA 是 RecordSBDMA 開時記下的全部 SB16 DMA 事件（452）。
+	SBDMA []machine.SBDMAEvent
+	// DOSMouse 是停止時的 DOS 滑鼠狀態（451，010 §4.2 案例 M）。
+	DOSMouse session.DOSMouseState
+}
+
+// SubShot 是一個 shot 的字幕狀態（010 §3.11 的 substamps.tsv）。
+type SubShot struct {
+	FrameStep uint64
+	Enabled   bool
+	Blocked   bool
+	Key       string            // 畫出的字幕條 key；沒有時為空
+	Lines     map[int][]SubLine // 各倍率畫出的行
 }
 
 // cursorHits 回游標 11×11 矩形 [x−5, x+6) × [y−5, y+6) 是否與 keys 任一筆的比對框相交（005 §4.4 分類 2）。
@@ -324,6 +380,20 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			}
 		}
 		obs = so
+		// 010 §3.12：Subtitles 隨 Owner 建立，不跨 BootFromState。
+		if cfg.Subtitles {
+			subs, err := NewSubtitles(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.Font, cfg.SubtitleE, cfg.SubtitleT)
+			if err != nil {
+				return nil, err
+			}
+			subs.SetEnabled(!cfg.SubtitlesOff)
+			so.Subtitles = subs
+		}
+		if cfg.RecordSBDMA {
+			so.OnSBDMA = func(e machine.SBDMAEvent) { res.SBDMA = append(res.SBDMA, e) }
+		}
+	} else if cfg.Subtitles {
+		return nil, errors.New("strikecommander: 字幕要 Overlay 開")
 	}
 	o, err := session.New(SessionConfig(obs))
 	if err != nil {
@@ -451,14 +521,26 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 					}
 				}
 			}
+			if so.Subtitles != nil {
+				res.SubShots = append(res.SubShots, drawSubtitles(so.Subtitles, cfg.Scales, sr.Composites))
+			}
 			res.Shots = append(res.Shots, sr)
 		}
 	}
 	if res.Digest, err = o.Digest(); err != nil {
 		return res, err
 	}
+	if cfg.Subtitles || cfg.RecordSBDMA {
+		if res.DOSMouse, err = o.DOSMouse(); err != nil {
+			return res, err
+		}
+	}
 	if !cfg.Overlay {
 		return res, nil
+	}
+	if so.Subtitles != nil {
+		so.Subtitles.Finish()
+		res.Subs, res.SubSkips = so.Subtitles.Subs, so.Subtitles.Skips
 	}
 	res.Log, res.LogDropped = so.Labels.Log()
 	res.PartialBlits = so.Labels.PartialBlits()
@@ -479,7 +561,22 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		res.Composites[sc], res.Plain[sc] = comp, plain
 		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
 	}
+	if so.Subtitles != nil {
+		drawSubtitles(so.Subtitles, cfg.Scales, res.Composites)
+	}
 	return res, nil
+}
+
+// drawSubtitles 在各倍率的合成圖（Overlay.Draw 的輸出）上畫字幕（010 §3.7、§3.12），回這一刻的字幕狀態。
+func drawSubtitles(s *Subtitles, scales []int, comps map[int][]byte) SubShot {
+	ss := SubShot{FrameStep: s.FrameStep(), Enabled: s.Enabled(), Blocked: s.Blocked(), Lines: map[int][]SubLine{}}
+	if c := s.Visible(); c != nil {
+		ss.Key = c.Key
+	}
+	for _, sc := range scales {
+		ss.Lines[sc] = s.Draw(comps[sc], sc)
+	}
+	return ss
 }
 
 // CheckComposite 逐像素比較合成圖與原版放大圖：差異只能落在遮蓋 stamp（Font == nil）的框，

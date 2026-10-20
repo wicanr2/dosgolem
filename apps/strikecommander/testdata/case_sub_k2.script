@@ -1,0 +1,4 @@
+# strike_commander 規格 010 §4.2 案例 K2：i019-a/s510.state（session 腳本；probe -clicks 的等價寫法見 §4.2「輸入」）
+kdown 5102000000 01
+kup 5103000000 01
+stop 5170000000

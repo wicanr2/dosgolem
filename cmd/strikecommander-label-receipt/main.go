@@ -12,6 +12,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -41,11 +42,24 @@ func main() {
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
 	cursorY := flag.Int("cursor-y", -1, "滑鼠游標中心的原版列；負值為未知（墨跡框核對不略過）")
 	ab := flag.Bool("ab", true, "另跑一次觀察器與 stamp 關閉，比較 Digest")
+	flag.StringVar(&sub.index, "speech-index", "", "語音字幕結構表 text/speech.index.tsv（strike_commander 規格 010 §3.5）；給了 -subtitles 時必要")
+	flag.StringVar(&sub.catalog, "speech-tsv", "", "語音字幕譯文 text/speech.<lang>.tsv（規格 010 §3.5）")
+	flag.BoolVar(&sub.on, "subtitles", false, "掛上語音字幕（規格 010），收據另寫 receipt-subs.tsv、receipt-subskips.tsv、receipt-subsmeta.tsv 與各 shot 的 substamps.tsv")
+	flag.Uint64Var(&sub.e, "sub-e", 0, "字幕顯示延長 E（步數，規格 010 §3.8）")
+	flag.Uint64Var(&sub.t, "sub-t", strikecommander.SubtitleDefaultT, "等待續段的逾時 T（步數，規格 010 §3.4）")
+	flag.BoolVar(&sub.sbdmaLog, "sbdma-log", false, "記下全部 SB16 DMA 事件寫成 receipt-sbdma.tsv（欄位同 probe -sb-dma-log；dosgolem 452）")
 	flag.Parse()
 	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *fontPath, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
 		os.Exit(1)
 	}
+}
+
+// sub 是規格 010 的旗標（語音字幕）。
+var sub struct {
+	index, catalog string
+	on, sbdmaLog   bool
+	e, t           uint64
 }
 
 func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, fontPath, out, work string, cursorY int, ab bool) error {
@@ -113,9 +127,57 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		Scales: scales, Catalog: cat, GfxCatalog: gfx, Font: font, Overlay: true, CursorY: cursorY,
 		Inputs: sc.Inputs, Shots: sc.Shots,
 	}
+	var meta strikecommander.SubtitleMeta
+	if sub.on {
+		if sub.index == "" || sub.catalog == "" {
+			return fmt.Errorf("-subtitles 要 -speech-index 與 -speech-tsv")
+		}
+		ib, err := os.ReadFile(sub.index)
+		if err != nil {
+			return err
+		}
+		if cfg.SpeechIndex, err = strikecommander.ParseSpeechIndex(ib); err != nil {
+			return err
+		}
+		cb, err := os.ReadFile(sub.catalog)
+		if err != nil {
+			return err
+		}
+		if cfg.SpeechCatalog, err = strikecommander.ParseCatalog(cb); err != nil {
+			return err
+		}
+		fb, err := os.ReadFile(fontPath)
+		if err != nil {
+			return err
+		}
+		cfg.Subtitles, cfg.SubtitleE, cfg.SubtitleT = true, sub.e, sub.t
+		meta = strikecommander.SubtitleMeta{FontSHA256: sha256Hex(fb), IndexSHA256: sha256Hex(ib), CatalogSHA256: sha256Hex(cb), E: sub.e, T: sub.t}
+	}
+	cfg.RecordSBDMA = sub.sbdmaLog
 	on, err := runOnce(root, work, cfg)
 	if err != nil {
 		return err
+	}
+	if sub.on || sub.sbdmaLog {
+		// 規格 010 §3.11：字幕條、skip、中繼資料與各 shot 的 substamps.tsv（shot 的 PNG 等由下方照舊寫出）。
+		subOnly := *on
+		subOnly.Shots, subOnly.SubShots = nil, nil
+		if err := strikecommander.WriteSubtitleReceipt(out, "receipt", &subOnly, meta, scales); err != nil {
+			return err
+		}
+		for i := range on.Shots {
+			if i < len(on.SubShots) {
+				for _, s := range scales {
+					p := filepath.Join(out, fmt.Sprintf("%s-s%d-substamps.tsv", strikecommander.ShotPrefix(&on.Shots[i]), s))
+					if err := os.WriteFile(p, strikecommander.SubStampsTSV(on.SubShots[i], s), 0o644); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		for _, s := range on.Subs {
+			fmt.Printf("字幕條 %s 起點 %d parts %d 原因 %s：%s\n", s.Key, s.Start, s.Parts, s.Reason, s.Text)
+		}
 	}
 	fmt.Printf("狀態檔 %s SHA-256 %x，啟動步數 %d，停止步數 %d\n", statePath, on.Boot.StateSHA256, on.Boot.Steps, on.Digest.Steps)
 	for i, c := range on.Commits {
@@ -193,7 +255,7 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if !ab {
 		return nil
 	}
-	cfg.Overlay = false
+	cfg.Overlay, cfg.Subtitles, cfg.RecordSBDMA = false, false, false
 	off, err := runOnce(root, work, cfg)
 	if err != nil {
 		return err
@@ -220,6 +282,11 @@ func runOnce(root, work string, cfg strikecommander.ReceiptConfig) (*strikecomma
 	}
 	cfg.SaveRoot = dir
 	return strikecommander.RunReceipt(cfg)
+}
+
+func sha256Hex(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
 }
 
 func printDigest(name string, d session.StateDigest) {
