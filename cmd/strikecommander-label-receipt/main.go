@@ -44,6 +44,7 @@ func main() {
 	ab := flag.Bool("ab", true, "另跑一次觀察器與 stamp 關閉，比較 Digest")
 	flag.StringVar(&sub.index, "speech-index", "", "語音字幕結構表 text/speech.index.tsv（strike_commander 規格 010 §3.5）；給了 -subtitles 時必要")
 	flag.StringVar(&sub.catalog, "speech-tsv", "", "語音字幕譯文 text/speech.<lang>.tsv（規格 010 §3.5）")
+	flag.StringVar(&sub.font, "subtitle-font", "", "語音字幕的 10×10 字型 zh-TW.sub10.golemfnt（SC-SUB10，規格 010 第 4 版 §3.12）；給了 -subtitles 時必要，-font 仍必填")
 	flag.BoolVar(&sub.on, "subtitles", false, "掛上語音字幕（規格 010），收據另寫 receipt-subs.tsv、receipt-subskips.tsv、receipt-subsmeta.tsv 與各 shot 的 substamps.tsv")
 	flag.Uint64Var(&sub.e, "sub-e", 0, "字幕顯示延長 E（步數，規格 010 §3.8）")
 	flag.Uint64Var(&sub.t, "sub-t", strikecommander.SubtitleDefaultT, "等待續段的逾時 T（步數，規格 010 §3.4）")
@@ -60,9 +61,9 @@ func main() {
 
 // sub 是規格 010 的旗標（語音字幕）。
 var sub struct {
-	index, catalog string
-	on, sbdmaLog   bool
-	e, t           uint64
+	index, catalog, font string
+	on, sbdmaLog         bool
+	e, t                 uint64
 }
 
 // fl 是規格 009 的旗標（飛行 HUD、MFD、訊息橫幅）。
@@ -168,8 +169,8 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	}
 	var meta strikecommander.SubtitleMeta
 	if sub.on {
-		if sub.index == "" || sub.catalog == "" {
-			return fmt.Errorf("-subtitles 要 -speech-index 與 -speech-tsv")
+		if sub.index == "" || sub.catalog == "" || sub.font == "" {
+			return fmt.Errorf("-subtitles 要 -speech-index、-speech-tsv 與 -subtitle-font")
 		}
 		ib, err := os.ReadFile(sub.index)
 		if err != nil {
@@ -185,12 +186,16 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		if cfg.SpeechCatalog, err = strikecommander.ParseCatalog(cb); err != nil {
 			return err
 		}
-		fb, err := os.ReadFile(fontPath)
+		fb, err := os.ReadFile(sub.font)
 		if err != nil {
 			return err
 		}
-		cfg.Subtitles, cfg.SubtitleE, cfg.SubtitleT = true, sub.e, sub.t
-		meta = strikecommander.SubtitleMeta{FontSHA256: sha256Hex(fb), IndexSHA256: sha256Hex(ib), CatalogSHA256: sha256Hex(cb), E: sub.e, T: sub.t}
+		sf, err := strikecommander.ParseSubtitleFont(fb, strikecommander.SubtitleFontName)
+		if err != nil {
+			return err
+		}
+		cfg.Subtitles, cfg.SubtitleFont, cfg.SubtitleE, cfg.SubtitleT = true, sf, sub.e, sub.t
+		meta = strikecommander.NewSubtitleMeta(sf, fb, ib, cb, sub.e, sub.t)
 	}
 	cfg.RecordSBDMA = sub.sbdmaLog
 	if err := loadFlight(&cfg); err != nil {

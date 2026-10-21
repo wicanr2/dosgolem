@@ -14,7 +14,8 @@ import (
 
 // strike_commander 規格 010 §4.2 的觸發案例（長測試）。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR（workplace/scratch）：設定樹與狀態檔；
-//   - DOSGOLEM_SC_SUB_FONT：含測試字的字型（010 §4.2、001 §3.3 的做法）；
+//   - DOSGOLEM_SC_SUB_FONT：含測試字的 SC-SUB10 字型（10×10，010 第 4 版 §3.12；build_sub10.sh 加測試 catalog 建置）；
+//   - DOSGOLEM_SC_FONT：Overlay 用的 16×16 字型（010 第 4 版起字幕不再用它）；
 //   - DOSGOLEM_SC_SPEECH_INDEX、DOSGOLEM_SC_SPEECH_CATALOG：結構表與譯文（預設是測試 catalog testdata/speech.test.tsv）；
 //   - DOSGOLEM_SC_I022：workplace/i022（T10、H12 的期望取自 timing-t10.tsv、timing-h12.tsv，獨立於本實作）。
 //
@@ -171,11 +172,16 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 	if _, err := hex.Decode(want[:], []byte(c.sha)); err != nil {
 		t.Fatal(err)
 	}
+	// 010 第 4 版：DOSGOLEM_SC_SUB_FONT 是 SC-SUB10（10×10）；讀不到時 Skip，仍是 16×16 時 ParseSubtitleFont 拒絕而失敗。
 	fontB, err := os.ReadFile(os.Getenv(scSubFontEnv))
+	if err != nil {
+		t.Skip(scSubFontEnv + " 讀不到：" + err.Error())
+	}
+	subFont, err := ParseSubtitleFont(fontB, SubtitleFontName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	font, err := ParseLabelFont(fontB, "full16-zh-TW")
+	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +206,7 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 		t.Fatal(err)
 	}
 	if meta != nil {
-		*meta = SubtitleMeta{FontSHA256: shaHex(fontB), IndexSHA256: shaHex(idxB), CatalogSHA256: shaHex(catB), E: 0, T: SubtitleDefaultT}
+		*meta = NewSubtitleMeta(subFont, fontB, idxB, catB, 0, SubtitleDefaultT)
 	}
 	sb, err := os.ReadFile(c.script)
 	if err != nil {
@@ -215,6 +221,7 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: labels, Font: font, Overlay: mode != modeOff, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
 		SpeechIndex: idx, SpeechCatalog: cat, Subtitles: mode == modeSubs, RecordSBDMA: mode != modeOff,
+		SubtitleFont: subFont,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +385,7 @@ func checkSubShots(t *testing.T, name string, c subLongCase, res *ReceiptResult)
 }
 
 func TestSubtitleCase(t *testing.T) {
-	for _, e := range []string{scRootEnv, scStateDirEnv, scSubFontEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env} {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scSubFontEnv, scFontEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env} {
 		if os.Getenv(e) == "" {
 			t.Skip(e + " 未設定：010 §4.2 需要設定樹、狀態檔、字型、結構表、譯文與 i022")
 		}
@@ -466,12 +473,12 @@ func TestFormalSpeechCatalog(t *testing.T) {
 		}
 		bs = append(bs, b)
 	}
-	f, err := ParseLabelFont(bs[4], "full16-zh-TW")
+	f, err := ParseSubtitleFont(bs[4], SubtitleFontName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rep := LintSpeech(bs[1], bs[0], bs[2], bs[3], f.Wide)
-	t.Logf("漏譯 %d 句；超過 2 行 %v", len(rep.Untranslated), rep.Over2)
+	t.Logf("漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
 	if !rep.OK() {
 		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
 	}

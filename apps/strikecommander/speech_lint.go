@@ -10,7 +10,8 @@ import (
 
 // 語音字幕的 lint（strike_commander 規格 010 §3.9）。
 
-// SpeechLintReport 是 LintSpeech 的結果。Errors 非空即失敗；Untranslated（漏譯）與 Over2（超過 2 行）只列出。
+// SpeechLintReport 是 LintSpeech 的結果。Errors 非空即失敗；Untranslated（漏譯）與 Over2（超過 2 行，
+// 第 4 版即剛好 3 行；超過 3 行是失敗）只列出。
 type SpeechLintReport struct {
 	Errors       []string
 	Untranslated []string
@@ -28,7 +29,7 @@ const (
 
 // speechNameTerms 是譯名一致的檢查集（§3.9，glossary 的 en 值，固定清單）。
 var speechNameTerms = []string{
-	"Stern", "Gwen", "Janet", "Miguel", "Tex", "Billy", "Prideaux", "Farhad", "Muhammed", "Beto", "Tweedly", "Walters", "Lyle", "Virgil", "Ari", "Maxwell",
+	"Stern", "Gwen", "Janet", "Miguel", "Tex", "Billy", "Prideaux", "Farhad", "Muhammed", "Beto", "Tweedly", "Walters", "Lyle", "Virgil", "Ari", "Maxwell", "Mendez",
 	"Wildcats", "Wildcat Base", "Jackals", "Selim's", "Strike Base", "Mission Pool", "Prideaux's niche", "Maverick", "Durandal", "GBU-15", "LAU-3",
 }
 
@@ -375,15 +376,15 @@ func LintSpeech(indexB, catalogB, enB, glossaryB []byte, wide *WideTable) Speech
 				}
 			}
 		}
-		// 行數（2 倍版面，W = 38）。
+		// 行數（2 倍版面，3 倍相同；W 與顯示共用 SubLineCells）。lint 上限 3 行，執行期上限 4 行另計（subMaxLines）。
 		full := withPlaceholders(r.tr)
 		if sp, ok := cat["speaker/"+line.Speaker]; ok {
 			full = append(append(withPlaceholders(sp), '：'), full...)
 		}
-		ls, _ := wrapLine(full, 38)
+		ls, _ := wrapLine(full, SubLineCells)
 		switch {
-		case len(ls) > subMaxLines:
-			bad("譯文第 %d 列 key %q 換行後 %d 行，超過 %d 行", r.line, r.key, len(ls), subMaxLines)
+		case len(ls) > subLintMaxLines:
+			bad("譯文第 %d 列 key %q 換行後 %d 行，超過 %d 行", r.line, r.key, len(ls), subLintMaxLines)
 		case len(ls) > 2:
 			rep.Over2 = append(rep.Over2, fmt.Sprintf("%s（%d 行）", r.key, len(ls)))
 		}

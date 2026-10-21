@@ -145,12 +145,15 @@ type ReceiptConfig struct {
 	Shots  []Shot
 
 	// 010 §3.12：語音字幕。Subtitles 為 false 時與現況相同；為 true 時要 Overlay 開，並給 SpeechIndex。
-	// 字型沿用 Font。SubtitleE、SubtitleT 是 §3.4、§3.8 的 E 與 T（步數；T 為 0 時取 SubtitleDefaultT）。
+	// SubtitleE、SubtitleT 是 §3.4、§3.8 的 E 與 T（步數；T 為 0 時取 SubtitleDefaultT）。
 	SpeechIndex   *SpeechIndex
 	SpeechCatalog map[string]string
 	Subtitles     bool
 	SubtitleE     uint64
 	SubtitleT     uint64
+	// SubtitleFont 是字幕的 10×10 字型 SC-SUB10（010 第 4 版 §3.12）。Subtitles 為真時必要，為 nil 時回錯、不改用 Font；
+	// Font（16×16）照舊用於 Overlay，Subtitles 為真時也必須提供。
+	SubtitleFont *SubtitleFont
 	// SubtitlesOff 讓字幕以 SetEnabled(false) 開始（010 §3.10 的開關；只供驗收）。
 	SubtitlesOff bool
 	// RecordSBDMA 在 Overlay 開時記下全部 SB16 DMA 事件到 ReceiptResult.SBDMA（010 §4.2 前置步驟）。
@@ -342,6 +345,10 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	// 009：飛行字串的觀察器與各倍率 overlay（FlightCatalogs 為 nil 時都不建）。
 	var flight *FlightObserver
 	fovs := map[int]*FlightOverlay{}
+	if cfg.Subtitles && cfg.SubtitleFont == nil {
+		// 010 第 4 版 §3.12：不改用 16×16 的 Font。
+		return nil, errors.New("strikecommander: 字幕缺 SubtitleFont（SC-SUB10）")
+	}
 	if cfg.Overlay {
 		if cfg.Font == nil {
 			return nil, errors.New("strikecommander: 收據缺字型")
@@ -447,7 +454,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		}
 		// 010 §3.12：Subtitles 隨 Owner 建立，不跨 BootFromState。
 		if cfg.Subtitles {
-			subs, err := NewSubtitles(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.Font, cfg.SubtitleE, cfg.SubtitleT)
+			subs, err := NewSubtitles(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.SubtitleFont, cfg.SubtitleE, cfg.SubtitleT)
 			if err != nil {
 				return nil, err
 			}

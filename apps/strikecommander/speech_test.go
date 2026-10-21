@@ -255,7 +255,7 @@ func baseLintFixture() lintFixture {
 		{"Prideaux", "丁"}, {"Farhad", "戊"}, {"Muhammed", "己"}, {"Beto", "庚"}, {"Tweedly", "辛"}, {"Walters", "壬"}, {"Lyle", "萊爾"},
 		{"Virgil", "癸"}, {"Ari", "一"}, {"Maxwell", "二"}, {"Wildcats", "三"}, {"Wildcat Base", "四"}, {"Jackals", "五"}, {"Selim's", "六"},
 		{"Strike Base", "七"}, {"Mission Pool", "八"}, {"Prideaux's niche", "九"}, {"Maverick", "十"}, {"Durandal", "中"},
-		{"GBU-15", "中文（GBU-15）"}, {"LAU-3", "字"}, {"NO", "否"}} {
+		{"GBU-15", "中文（GBU-15）"}, {"LAU-3", "字"}, {"NO", "否"}, {"Mendez", "門德茲"}} {
 		gl += r[0] + "\t" + r[1] + "\t攻略\t\n"
 	}
 	return lintFixture{index: idx, en: en, glossary: gl, cat: []string{
@@ -329,9 +329,10 @@ func TestLintSpeechErrors(t *testing.T) {
 		{"譯名不一致", func(f *lintFixture) {
 			set(f, "conv/011/01", "conv/011/01\t測試二。\tCONV.PAK 第 11 段第 1 句；未觀察")
 		}, "英文含 \"Stern\""},
-		{"超過 4 行", func(f *lintFixture) {
-			set(f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 160)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
-		}, "超過 4 行"},
+		// 第 4 版：W 30、超過 3 行失敗。前綴「史登：」3 字 + 譯文「史登」2 字 + 91 字 = 96 字，換行後 4 行。
+		{"超過 3 行", func(f *lintFixture) {
+			set(f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 91)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
+		}, "超過 3 行"},
 		{"en key 集合不符", func(f *lintFixture) { f.en = strings.Replace(f.en, "conv/011/01\t", "conv/011/02\t", 1) }, "key 集合或列順序"},
 		{"en 列順序不符", func(f *lintFixture) {
 			ls := strings.Split(f.en, "\n")
@@ -365,13 +366,13 @@ func TestLintSpeechErrors(t *testing.T) {
 	if !rep.OK() || len(rep.Untranslated) != 1 || rep.Untranslated[0] != "conv/011/00" {
 		t.Fatalf("缺譯：%v %v", rep.Errors, rep.Untranslated)
 	}
-	// 超過 2 行：列出、不判失敗。
+	// 剛好 3 行：列出、不判失敗（前綴 3 字 + 史登 2 字 + 80 字 = 85 字，W 30 換成 3 行）。
 	f = baseLintFixture()
 	f.cat = append([]string(nil), f.cat...)
-	set(&f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 90)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
+	set(&f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 80)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
 	rep = f.run(t)
-	if !rep.OK() || len(rep.Over2) != 1 {
-		t.Fatalf("超過 2 行：%v %v", rep.Errors, rep.Over2)
+	if !rep.OK() || len(rep.Over2) != 1 || !strings.Contains(rep.Over2[0], "3 行") {
+		t.Fatalf("剛好 3 行：%v %v", rep.Errors, rep.Over2)
 	}
 }
 

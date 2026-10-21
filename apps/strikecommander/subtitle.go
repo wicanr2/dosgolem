@@ -102,10 +102,11 @@ func idOf(e machine.SBDMAEvent) xferID {
 	return xferID{e.Command, e.Addr, e.Count, e.Length, e.Samples}
 }
 
-// SubLine 是一行字幕 stamp 的幾何（010 §3.7）。
+// SubLine 是一行字幕 stamp 的幾何（010 §3.7）：X、Y、CellW、CellH 是原版像素，GlyphX、GlyphY 是輸出像素，
+// GlyphScale 是字模每點放大的倍數（第 4 版等於輸出倍率）。
 type SubLine struct {
-	X, Y, Cells, CellW, CellH, GlyphX, GlyphY int
-	Text                                      []rune
+	X, Y, Cells, CellW, CellH, GlyphX, GlyphY, GlyphScale int
+	Text                                                  []rune
 }
 
 // Subtitle 是一個字幕條（010 §3.4、§3.11）。
@@ -146,7 +147,7 @@ type subObj struct {
 type Subtitles struct {
 	Index   *SpeechIndex
 	Catalog map[string]string
-	Font    *LabelFont
+	Font    *SubtitleFont
 	E, T    uint64
 
 	Subs  []*Subtitle
@@ -170,8 +171,9 @@ type Subtitles struct {
 // subSymbols 是允許的代換符號字母（010 §3.6）。
 const subSymbols = "SNCWPT"
 
-// NewSubtitles 建字幕。T 為 0 時取 SubtitleDefaultT。預設開啟（SetEnabled）。
-func NewSubtitles(index *SpeechIndex, catalog map[string]string, font *LabelFont, e, t uint64) (*Subtitles, error) {
+// NewSubtitles 建字幕。字型是 10×10 的 SC-SUB10（010 第 4 版 §3.12）；font 或 font.Font 為 nil 回錯。
+// T 為 0 時取 SubtitleDefaultT。預設開啟（SetEnabled）。
+func NewSubtitles(index *SpeechIndex, catalog map[string]string, font *SubtitleFont, e, t uint64) (*Subtitles, error) {
 	if index == nil || font == nil || font.Font == nil {
 		return nil, fmt.Errorf("strikecommander: 字幕缺結構表或字型")
 	}
@@ -566,19 +568,27 @@ func wrapLine(c []rune, w int) (lines [][]rune, forced bool) {
 	}
 }
 
-// subGeom 是 §3.7 的倍率表：CellW、CellH（原版像素）、GlyphX、GlyphY（輸出像素）、每行最多格數 W。
-func subGeom(scale int) (cellW, cellH, gx, gy, w int) {
-	if scale == 3 {
-		return 6, 7, 1, 2, 50
-	}
-	return 8, 10, 0, 2, 38
-}
+// §3.7 的版面（第 4 版，SC-SUB10）。字在原版座標固定 10×10，所以 2、3 倍的版面相同，只有輸出像素依倍率放大。
+const (
+	subCellW = 10 // CellW（原版像素）
+	subCellH = 12 // CellH，行距：字高 10 加 2 點（原版像素）
+	// SubLineCells 是每行最多字數 W（§3.7、§3.7.1）：320 ÷ 10 = 32 字會貼邊，取 30 字、左右各留 10 點。lint 與顯示共用。
+	SubLineCells = 30
+	// subMaxLines 是執行期上限（字幕區 48 列放得下 4 行）；第 4 行只作退路（§3.7.1 截斷）。
+	subMaxLines = 4
+	// subLintMaxLines 是 lint 的上限（§3.9）：超過 3 行失敗、3 行列出。
+	subLintMaxLines = 3
+)
 
-const subMaxLines = 4
+// subGeom 是 §3.7 的表：CellW、CellH（原版像素）、GlyphX、GlyphY（輸出像素）、每行最多格數 W、GlyphScale。
+// GlyphY 是 1 個原版點，傳給 xlate 時是 scale 個輸出像素；GlyphScale 等於倍率（字模每點畫成 scale×scale）。
+func subGeom(scale int) (cellW, cellH, gx, gy, w, gs int) {
+	return subCellW, subCellH, 0, scale, SubLineCells, scale
+}
 
 // subLayout 回 scale 倍的各行 stamp 幾何（§3.7）；cut 為超過 4 行而截斷。
 func subLayout(text []rune, scale int) (out []SubLine, forced, cut bool) {
-	cw, ch, gx, gy, w := subGeom(scale)
+	cw, ch, gx, gy, w, gs := subGeom(scale)
 	lines, forced := wrapLine(text, w)
 	if len(lines) > subMaxLines {
 		lines = lines[:subMaxLines]
@@ -590,7 +600,7 @@ func subLayout(text []rune, scale int) (out []SubLine, forced, cut bool) {
 	h := len(lines) * ch
 	y0 := 152 + (48-h)/2
 	for j, l := range lines {
-		out = append(out, SubLine{X: (320 - len(l)*cw) / 2, Y: y0 + j*ch, Cells: len(l), CellW: cw, CellH: ch, GlyphX: gx, GlyphY: gy, Text: l})
+		out = append(out, SubLine{X: (320 - len(l)*cw) / 2, Y: y0 + j*ch, Cells: len(l), CellW: cw, CellH: ch, GlyphX: gx, GlyphY: gy, GlyphScale: gs, Text: l})
 	}
 	return out, forced, cut
 }
@@ -673,7 +683,7 @@ func (s *Subtitles) Draw(dst []byte, scale int) []SubLine {
 	layer := &xlate.Layer{W: 320, H: 200}
 	for _, l := range lines {
 		layer.Stamps = append(layer.Stamps, &xlate.Stamp{Key: c.Key, X: l.X, Y: l.Y, Cells: l.Cells, CellW: l.CellW, CellH: l.CellH,
-			Font: s.Font.Font, GlyphX: l.GlyphX, GlyphY: l.GlyphY, GlyphScale: 1, Text: l.Text, State: xlate.Shown,
+			Font: s.Font.Font, GlyphX: l.GlyphX, GlyphY: l.GlyphY, GlyphScale: l.GlyphScale, Text: l.Text, State: xlate.Shown,
 			FG: [3]uint8{255, 255, 255}, BG: [3]uint8{0, 0, 0}})
 	}
 	bg := append([]byte(nil), dst...)
