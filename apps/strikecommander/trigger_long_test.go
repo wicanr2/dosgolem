@@ -91,11 +91,13 @@ func runTrigger(t *testing.T, tc triggerCase, overlay, noCaller bool) *ReceiptRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := RunReceipt(ReceiptConfig{
+	rc := ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
 		StopSteps: tc.stop, Scales: []int{2, 3}, Catalog: cat, Font: font, Overlay: overlay, CursorY: tc.cursor,
 		noCallerCheck: noCaller,
-	})
+	}
+	applyTextEnv(t, &rc) // 011 §3.9
+	res, err := RunReceipt(rc)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,6 +52,9 @@ func main() {
 	flag.StringVar(&fl.hudFont, "hud-font", "", "HUD12 字型 zh-TW.hud12.golemfnt（strike_commander 規格 009 §3.9）；3 倍時必要")
 	flag.StringVar(&fl.text, "flight-text", "", "text 目錄：讀 strike_hud、strike_mfd、strike_plaque 三個 catalog（規格 009 §3.10）；與 -hud-font 都沒給時不裝飛行字串觀察器")
 	flag.BoolVar(&fl.outlineExp, "flight-outline-exp", false, "樣張用的實驗旗標：MFD、橫幅也畫外框（規格 009 §4.2 樣張，不進驗收）")
+	flag.StringVar(&tx.dir, "font-dir", "", "反鋸齒圖集目錄（zh-TW.cjkb.manifest.tsv 所在，strike_commander 規格 011 §3.9）")
+	flag.StringVar(&tx.expected, "font-expected", "", "圖集預期表 font/zh-TW.cjkb.expected.tsv；正式圖集必要，測試圖集不給")
+	flag.StringVar(&tx.paths, "text-paths", "", "走反鋸齒新路徑的輸出路徑，逗號分隔（label、board、art、flight、subtitle；規格 011 §3.11 (d) 只有 label）")
 	flag.Parse()
 	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *fontPath, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
@@ -64,6 +67,11 @@ var sub struct {
 	index, catalog, font string
 	on, sbdmaLog         bool
 	e, t                 uint64
+}
+
+// tx 是規格 011 的旗標（反鋸齒圖集與新路徑開關）。
+var tx struct {
+	dir, expected, paths string
 }
 
 // fl 是規格 009 的旗標（飛行 HUD、MFD、訊息橫幅）。
@@ -201,6 +209,18 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err := loadFlight(&cfg); err != nil {
 		return err
 	}
+	// 規格 011 §3.9：-text-paths 給了任一路徑時要 -font-dir；(d) 期間 -font 仍必填（計分板、圖面、飛行用舊路徑）。
+	if cfg.TextPaths, err = strikecommander.ParseTextPaths(tx.paths); err != nil {
+		return err
+	}
+	if tx.dir != "" {
+		if cfg.Fonts, err = strikecommander.LoadTextFonts(tx.dir, tx.expected); err != nil {
+			return err
+		}
+		fmt.Printf("圖集 %s，anchor %s\n", tx.dir, cfg.Fonts.Anchor)
+	} else if cfg.TextPaths.Any() {
+		return fmt.Errorf("-text-paths 要搭配 -font-dir")
+	}
 	on, err := runOnce(root, work, cfg)
 	if err != nil {
 		return err
@@ -265,6 +285,12 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	// 規格 006 §3.3：停止點的 frame.idx、palette.bin、labels.tsv、rows.bin 與 PNG（前綴 stop-<步數>）。
 	if err := strikecommander.WriteStopFiles(out, on, scales); err != nil {
 		return err
+	}
+	if cfg.Fonts != nil {
+		// 規格 011 §3.8：fonts.tsv（圖集的 file 列與 anchor）。
+		if err := strikecommander.WriteFontsTSV(out, fmt.Sprintf("stop-%d", on.Digest.Steps), cfg.Fonts, tx.expected); err != nil {
+			return err
+		}
 	}
 	if cfg.FlightCatalogs != nil {
 		// 規格 009 §3.11 接點第 7 條：停止點與每個 shot 的 flight.tsv、flight-rows.bin、digest.txt。

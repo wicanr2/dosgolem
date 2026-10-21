@@ -125,6 +125,8 @@ type labelMatch struct {
 	cover, text    *xlate.Stamp
 	before, after  []byte
 	bgImage        bool
+	// textItem 是新路徑（011 §3.9）的文字項；新路徑沒有文字 stamp（text 為 nil）。
+	textItem *textItem
 }
 
 // BGEntry 是 BGReport 的一筆（006 §3.3 第 1 條）：Overlay 內部實際使用的資料。座標都是原版像素。
@@ -140,6 +142,15 @@ type BGEntry struct {
 	Before, After, Ref                                []byte
 	// Hidden 是最近一次 Draw 是否因比對不符而不畫這筆（重建後尚未 Draw 時為 false）。
 	Hidden bool
+
+	// 以下是 011 §3.8 新增的欄位；Path 為 "new" 時上面的文字 stamp 幾何欄不適用（labels.tsv 填 -），
+	// 為 "old" 時這些欄不適用（填 -）。座標是輸出像素；Ink 是最近一次 Draw 的文字框（沒畫時為空）。
+	Path                string
+	Display             string
+	Px, TxOut, Baseline int
+	Clip, Ink           xlate.AlphaRect
+	Outline             bool
+	E0, E1              int
 }
 
 // 透明、退路的狀態字（006 §3.3 第 1 條）。
@@ -183,6 +194,15 @@ type Overlay struct {
 	artPalOK bool
 	// platePending 是主選單底板事件（008 §3.4）：等下一個 MAINMENU 按鈕事件帶來按鈕檔，才建五行灰字的圖面。
 	platePending *ArtEvent
+
+	// 011 §3.9 的路徑開關：Text 是圖集；TextLabel 為真時 label 種類走反鋸齒新路徑。TextBoard、TextArt 在 (e) 實作，
+	// (d) 設為真時 Sync 照舊路徑處理並不使用。開關在建立後、第一次 Sync 前設定。
+	Text      *TextFonts
+	TextLabel bool
+	TextBoard bool
+	TextArt   bool
+	// lastInk 是最近一次 Draw 各筆（與 matches 平行）新路徑串的文字框；沒畫的為空。重建時清空。
+	lastInk []xlate.AlphaRect
 
 	Misses []Miss
 	Skips  []Skip
@@ -253,6 +273,7 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 	o.info = map[*xlate.Stamp]stampInfo{}
 	o.matches = nil
 	o.lastBad = nil
+	o.lastInk = nil
 	o.BGFallbacks = nil
 	for i, l := range labels {
 		if o.scale != 2 && o.scale != 3 {
@@ -271,6 +292,10 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 		text, _, reason := resolveLabel(l.Key, o.tr, o.exactOnly)
 		if text == nil {
 			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: reason})
+			continue
+		}
+		if o.TextLabel && o.Text != nil && l.Kind != KindBoard {
+			o.syncLabelText(i, l, text)
 			continue
 		}
 		var miss []rune
@@ -316,6 +341,45 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 	}
 }
 
+// syncLabelText 是 Sync 重建時 label 種類的新路徑（011 §3.4、§3.6.1）：N() 之後任一字不在圖集記 MissGlyph
+// （Runes 依序列出全部缺字），排版失敗記 Skip；成功時只加遮蓋 stamp，文字項記在 labelMatch.textItem。
+// 前後列、透明或退路的判定與舊路徑相同。
+func (o *Overlay) syncLabelText(i int, l Label, text []rune) {
+	px := pxLabel[o.scale]
+	f := o.Text.Font(px)
+	if f == nil {
+		o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("圖集缺字級 %d", px)})
+		return
+	}
+	if _, miss := f.Advance(NarrowAlnum(text)); len(miss) != 0 {
+		o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: MissGlyph, Runes: miss})
+		return
+	}
+	p, err := PlanLabelText(l, text, o.scale, o.Text)
+	if err != nil {
+		o.Skips = append(o.Skips, Skip{l.Key, err.Error()})
+		return
+	}
+	h := refRows(l.Kind)
+	rowsOK := validRows(l.Before, h) && validRows(l.After, h)
+	if !rowsOK {
+		o.BGFallbacks = append(o.BGFallbacks, Skip{l.Key, rowsReason(l.Before, l.After, h)})
+	}
+	o.layer.Stamps = append(o.layer.Stamps, p.Cover)
+	o.info[p.Cover] = stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG, bgImage: rowsOK}
+	ti := p.Text
+	m := labelMatch{
+		label: i, key: l.Key, kind: l.Kind, h: h, y: l.Y,
+		x0: max(p.Cover.X, 0), x1: min(p.Cover.X+p.Cover.Cells*p.Cover.CellW, 320),
+		y0: max(l.Y+1, 0), y1: min(l.Y+1+h, 200),
+		ref: l.Ref, cover: p.Cover, bgImage: rowsOK, textItem: &ti,
+	}
+	if rowsOK {
+		m.before, m.after = l.Before, l.After
+	}
+	o.matches = append(o.matches, m)
+}
+
 // rowsReason 回退路的原因（BGFallbacks）。
 func rowsReason(before, after []byte, h int) string {
 	switch {
@@ -349,20 +413,29 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	o.lastBad = bad
 	o.Hidden = nil
 	shown := &xlate.Layer{W: 320, H: 200}
+	items := make([]*textItem, len(o.matches))
 	for i, m := range o.matches {
 		if bad[i] {
 			o.Hidden = append(o.Hidden, m.key)
 			continue
 		}
+		if m.textItem != nil {
+			// 新路徑（011 §3.6.1）：遮蓋 stamp 照舊以 DrawWithBackground 填格，字在之後兩趟畫。
+			shown.Stamps = append(shown.Stamps, m.cover)
+			items[i] = m.textItem
+			continue
+		}
 		shown.Stamps = append(shown.Stamps, m.cover, m.text)
 	}
 	var bg []byte
-	if items, texts := o.backgroundItems(bad); len(items) != 0 {
-		bg = labelBackground(out, indexed, palette, o.scale, items, texts)
+	if bitems, texts := o.backgroundItems(bad); len(bitems) != 0 {
+		bg = labelBackground(out, indexed, palette, o.scale, bitems, texts)
 	}
 	var miss []rune
 	shown.DrawWithBackground(out, o.scale, func(r rune) { miss = append(miss, r) }, bg,
 		func(s *xlate.Stamp) bool { return o.info[s].bgImage })
+	// 全部照畫標籤的外框層，再全部照畫字串的填色層（011 §3.4 第 4 條、§3.6.1）。
+	o.lastInk = drawTextItems(out, o.scale, palette, items)
 	return out, miss
 }
 
@@ -380,7 +453,8 @@ func (o *Overlay) backgroundItems(bad []bool) ([]bgItem, []*xlate.Stamp) {
 			x0: m.cover.X, x1: m.cover.X + m.cover.CellW, y0: m.cover.Y, rows: m.h,
 			before: m.before, after: m.after,
 		})
-		if m.kind == KindBoard {
+		if m.kind == KindBoard || m.textItem != nil {
+			// board 不畫外框；新路徑的外框在 drawTextItems 畫，不畫到背景圖（011 §3.9）。
 			texts = append(texts, nil)
 		} else {
 			texts = append(texts, m.text)
@@ -395,11 +469,22 @@ func (o *Overlay) BGReport() []BGEntry {
 	var out []BGEntry
 	for i, m := range o.matches {
 		e := BGEntry{
-			Key: m.key, Kind: m.kind, State: BGStateFallback, Text: string(m.text.Text),
+			Key: m.key, Kind: m.kind, State: BGStateFallback,
 			CoverX: m.cover.X, CoverY: m.cover.Y, CoverW: m.cover.Cells * m.cover.CellW, CoverH: m.cover.CellH,
-			TextX: m.text.X, TextY: m.text.Y, Cells: m.text.Cells, CellW: m.text.CellW, CellH: m.text.CellH,
-			GlyphX: m.text.GlyphX, GlyphY: m.text.GlyphY,
 			Before: append([]byte(nil), m.before...), After: append([]byte(nil), m.after...), Ref: append([]byte(nil), m.ref...),
+			Path: "old",
+		}
+		if ti := m.textItem; ti != nil {
+			// 新路徑（011 §3.8）：文字 stamp 幾何不適用，填新欄。
+			e.Path, e.Text, e.Display = "new", string(ti.raw), string(ti.display)
+			e.Px, e.TxOut, e.Baseline, e.Clip, e.Outline, e.E0, e.E1 = ti.px, ti.tx, ti.baseline, ti.clip, ti.outline, ti.e0, ti.e1
+			if i < len(o.lastInk) {
+				e.Ink = o.lastInk[i]
+			}
+		} else {
+			e.Text = string(m.text.Text)
+			e.TextX, e.TextY, e.Cells, e.CellW, e.CellH = m.text.X, m.text.Y, m.text.Cells, m.text.CellW, m.text.CellH
+			e.GlyphX, e.GlyphY = m.text.GlyphX, m.text.GlyphY
 		}
 		if m.bgImage {
 			e.State = BGStateTransparent

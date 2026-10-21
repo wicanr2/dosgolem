@@ -165,6 +165,10 @@ type ReceiptConfig struct {
 	FlightCatalogs          *FlightCatalogs
 	FlightOutlineExperiment bool
 
+	// strike_commander 規格 011 §3.9：反鋸齒圖集與各路徑開關。(d) 只有 Label 可開；Font（16×16）照舊必要。
+	Fonts     *TextFonts
+	TextPaths TextPaths
+
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
 	noBoardCaller bool // 003 §4.2 案例 E 的負對照：只關掉計分板呼叫點（003 §3.1 條件 2）
@@ -349,6 +353,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		// 010 第 4 版 §3.12：不改用 16×16 的 Font。
 		return nil, errors.New("strikecommander: 字幕缺 SubtitleFont（SC-SUB10）")
 	}
+	if err := checkTextPaths(cfg.TextPaths, cfg.Fonts); err != nil {
+		return nil, err
+	}
 	if cfg.Overlay {
 		if cfg.Font == nil {
 			return nil, errors.New("strikecommander: 收據缺字型")
@@ -361,6 +368,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				return nil, err
 			}
 			ov.exactOnly = cfg.exactOnly
+			if cfg.TextPaths.Label {
+				ov.Text, ov.TextLabel = cfg.Fonts, true
+			}
 			overlays[sc] = ov
 		}
 		var lastCommit, prevFrame uint64
@@ -380,14 +390,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
 				ov.Sync(c.Labels, c.Generation)
-				cs := CommitStamps{Scale: sc, Stamps: len(ov.Stamps())}
-				for _, s := range ov.Stamps() {
-					if s.Font != nil {
-						cs.Texts = append(cs.Texts, string(s.Text))
-						cs.Kinds = append(cs.Kinds, ov.StampKind(s))
-					}
-				}
-				counts = append(counts, cs)
+				counts = append(counts, ov.commitStamps(sc)) // 011 §3.9：新舊路徑共用
 			}
 			res.Stamps = append(res.Stamps, counts)
 		}
@@ -598,13 +601,15 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				sr.Composites[sc], sr.Plain[sc] = comp, plain
 				// 009 §3.11 接點第 4 條：Overlay.Draw → fov.Sync、fov.Draw → CheckComposite → 010 的字幕。
 				var covers []FlightCover
+				boxes := ov.TextBoxes()
 				if fov := fovs[sc]; fov != nil {
 					fov.Sync(flight.Visible(), flight.Generation())
 					fov.Draw(comp, so.LastIndexed, so.LastPalette)
 					covers = fov.Covers()
+					boxes = append(boxes, fov.TextBoxes()...)
 					sr.FlightHidden[sc], sr.FlightCovers[sc], sr.FlightReport[sc] = append([]string(nil), fov.Hidden...), covers, fov.Report()
 				}
-				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art(), covers...)
+				sr.Check[sc] = CheckCompositeText(comp, plain, sc, ov.Stamps(), ov.Art(), boxes, covers...)
 				sr.ArtKeys[sc] = ov.ArtKeys()
 				sr.Hidden[sc] = append([]string(nil), ov.Hidden...)
 				sr.BG[sc] = ov.BGReport()
@@ -660,13 +665,15 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		plain := ScaleIndexedRGBA(res.Frame, res.Palette, sc)
 		res.Composites[sc], res.Plain[sc] = comp, plain
 		var covers []FlightCover
+		boxes := ov.TextBoxes()
 		if fov := fovs[sc]; fov != nil {
 			fov.Sync(flight.Visible(), flight.Generation())
 			fov.Draw(comp, res.Frame, res.Palette)
 			covers = fov.Covers()
+			boxes = append(boxes, fov.TextBoxes()...)
 			res.FlightReport[sc], res.FlightHidden[sc] = fov.Report(), append([]string(nil), fov.Hidden...)
 		}
-		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art(), covers...)
+		res.CompositeCheck[sc] = CheckCompositeText(comp, plain, sc, ov.Stamps(), ov.Art(), boxes, covers...)
 	}
 	if so.Subtitles != nil {
 		drawSubtitles(so.Subtitles, cfg.Scales, res.Composites)
@@ -689,6 +696,12 @@ func drawSubtitles(s *Subtitles, scales []int, comps map[int][]byte) SubShot {
 // CheckComposite 逐像素比較合成圖與原版放大圖：差異只能落在遮蓋 stamp（Font == nil）的框，
 // 或存讀檔對話框圖面的字帶（004 §3.3）、飛行字串的遮蓋範圍（009 §3.11 接點第 6 條）× 倍率內。
 func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect, flight ...FlightCover) CompositeCheck {
+	return CheckCompositeText(comp, plain, scale, stamps, art, nil, flight...)
+}
+
+// CheckCompositeText 同 CheckComposite，另把照畫的串的文字框（輸出像素，strike_commander 規格 011 §3.5 允許差異區）
+// 算進允許區：像素的 1 倍座標落在遮蓋 stamp、圖面或飛行遮蓋範圍內，或輸出像素座標落在某個文字框內，就算允許。
+func CheckCompositeText(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect, text []xlate.AlphaRect, flight ...FlightCover) CompositeCheck {
 	var c CompositeCheck
 	w := 320 * scale
 	for i := 0; i+3 < len(comp) && i+3 < len(plain); i += 4 {
@@ -696,8 +709,15 @@ func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []
 			continue
 		}
 		c.Diffs++
-		x, y := (i/4)%w/scale, (i/4)/w/scale
+		ox, oy := (i/4)%w, (i/4)/w
+		x, y := ox/scale, oy/scale
 		in := false
+		for _, b := range text {
+			if ox >= b.X0 && ox < b.X1 && oy >= b.Y0 && oy < b.Y1 {
+				in = true
+				break
+			}
+		}
 		for _, s := range stamps {
 			if s.Font == nil && x >= s.X && x < s.X+s.Cells*s.CellW && y >= s.Y && y < s.Y+s.CellH {
 				in = true

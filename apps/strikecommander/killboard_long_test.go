@@ -279,6 +279,7 @@ func writeStop(t *testing.T, sub string, res *ReceiptResult) {
 	if err := WriteStopFiles(out, res, []int{2, 3}); err != nil {
 		t.Fatal(err)
 	}
+	writeFontsTSV(t, out, fmt.Sprintf("stop-%d", res.Digest.Steps)) // 011 §3.8
 	t.Logf("停止點輸出寫到 %s（stop-%d）", out, res.Digest.Steps)
 }
 
