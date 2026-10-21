@@ -19,16 +19,24 @@ type FlightCover struct {
 // FlightEntry 是 Report 的一筆（§3.11）：遮蓋範圍加版面、字色、外框與前後列、Ref。
 type FlightEntry struct {
 	FlightCover
-	CatKey                                    string
-	Text                                      string
-	K                                         int
-	Xs                                        []int
-	TextX0, TextX1, Y, B0, BH                 int // 原版的 X0、X1、Y 與 band
-	FG                                        uint8
-	Outline                                   bool
+	CatKey                                      string
+	Text                                        string
+	K                                           int
+	Xs                                          []int
+	TextX0, TextX1, Y, B0, BH                   int // 原版的 X0、X1、Y 與 band
+	FG                                          uint8
+	Outline                                     bool
 	TX, TY, Cells, CellW, CellH, GlyphX, GlyphY int // 文字 stamp
-	Hidden                                    bool
-	Before, After, Ref                        []byte
+	Hidden                                      bool
+	Before, After, Ref                          []byte
+
+	// strike_commander 規格 011 §3.8 新增：Path 為 "new" 時上面的文字 stamp 欄不適用（flight.tsv 填 -）。
+	// 座標是輸出像素；Ink 是最近一次 Draw 的文字框。
+	Path                string
+	Display             string
+	Px, TxOut, Baseline int
+	Clip, Ink           xlate.AlphaRect
+	E0, E1              int
 }
 
 type flightEntry struct {
@@ -41,6 +49,8 @@ type flightEntry struct {
 	cover    *xlate.Stamp
 	stamp    *xlate.Stamp
 	mask     []bool // 外框用的字形遮罩（重建時快取，§3.8 第 4 條）
+	// ti 是 strike_commander 規格 011 新路徑的文字項（stamp、mask 為 nil）。
+	ti *textItem
 }
 
 // FlightOverlay 依可見集合規劃飛行字串的 stamp 並出圖。
@@ -57,7 +67,12 @@ type FlightOverlay struct {
 	masks   map[string][]bool
 
 	// OutlineAll 是樣張用的實驗旗標：MFD、橫幅也畫外框（§4.2 樣張；不進驗收）。建立後、第一次 Sync 前設定。
+	// 新路徑不理會它（011 §3.9）。
 	OutlineAll bool
+
+	// Text 是 011 的圖集；非 nil 時走反鋸齒新路徑（NewFlightOverlayText）。lastInk 與 entries 平行。
+	Text    *TextFonts
+	lastInk []xlate.AlphaRect
 
 	Hidden      []string
 	Misses      []Miss
@@ -103,7 +118,7 @@ func (o *FlightOverlay) Sync(texts []FlightText, gen uint64) {
 		return
 	}
 	o.built, o.gen = true, gen
-	o.entries, o.lastBad = nil, nil
+	o.entries, o.lastBad, o.lastInk = nil, nil, nil
 	for i, t := range texts {
 		e, miss, skip := o.plan(i, t)
 		switch {
@@ -124,6 +139,9 @@ var errNoStamp = &Skip{}
 
 // plan 規劃一筆的兩個 stamp。不產生 stamp 時回 miss 或 skip（skip.Reason 為空表示不記）。
 func (o *FlightOverlay) plan(i int, t FlightText) (flightEntry, *Miss, *Skip) {
+	if o.Text != nil {
+		return o.planText(i, t)
+	}
 	if o.scale < 2 || (t.Kind == KindHUD && o.scale != 3) {
 		return flightEntry{}, nil, errNoStamp
 	}
@@ -356,6 +374,11 @@ func (o *FlightOverlay) Draw(out []byte, indexed []byte, palette [256][3]uint8) 
 	o.lastBad = bad
 	o.Hidden = nil
 	if len(o.entries) == 0 || o.scale < 2 {
+		o.lastInk = nil
+		return
+	}
+	if o.Text != nil {
+		o.drawText(out, indexed, palette, bad)
 		return
 	}
 	var items []bgItem
@@ -436,9 +459,18 @@ func (o *FlightOverlay) Report() []FlightEntry {
 			FlightCover: FlightCover{Key: t.Key, Kind: t.Kind, X0: e.cx0, Y0: t.B0, X1: e.cx1, Y1: t.B0 + t.BH},
 			CatKey:      t.CatKey, Text: string(e.text), K: t.K, Xs: append([]int(nil), t.Xs...),
 			TextX0: t.X0, TextX1: t.X1, Y: t.Y, B0: t.B0, BH: t.BH, FG: e.fg, Outline: e.outline,
-			TX: e.stamp.X, TY: e.stamp.Y, Cells: e.stamp.Cells, CellW: e.stamp.CellW, CellH: e.stamp.CellH,
-			GlyphX: e.stamp.GlyphX, GlyphY: e.stamp.GlyphY,
 			Before: append([]byte(nil), t.Before...), After: append([]byte(nil), t.After...), Ref: append([]byte(nil), t.Ref...),
+			Path: "old",
+		}
+		if ti := e.ti; ti != nil {
+			// 011 §3.8：新路徑沒有文字 stamp，填新欄。
+			fe.Path, fe.Display, fe.Px, fe.TxOut, fe.Baseline, fe.Clip, fe.E0, fe.E1 = "new", string(ti.display), ti.px, ti.tx, ti.baseline, ti.clip, ti.e0, ti.e1
+			if i < len(o.lastInk) {
+				fe.Ink = o.lastInk[i]
+			}
+		} else {
+			fe.TX, fe.TY, fe.Cells, fe.CellW, fe.CellH = e.stamp.X, e.stamp.Y, e.stamp.Cells, e.stamp.CellW, e.stamp.CellH
+			fe.GlyphX, fe.GlyphY = e.stamp.GlyphX, e.stamp.GlyphY
 		}
 		if i < len(o.lastBad) {
 			fe.Hidden = o.lastBad[i]

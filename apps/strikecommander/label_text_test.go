@@ -3,6 +3,7 @@ package strikecommander
 import (
 	"bytes"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/wicanr2/dosgolem/xlate"
@@ -313,13 +314,16 @@ func TestCommitStampsOldNew(t *testing.T) {
 	}
 }
 
-// TestTextPathsGuard：(d) 只有 Label 可開；Fonts 為 nil 而開關為真時回錯。
+// TestTextPathsGuard：Fonts 為 nil 而開關為真時回錯（(e) 起五條路徑都可開）。
 func TestTextPathsGuard(t *testing.T) {
-	if _, err := RunReceipt(ReceiptConfig{TextPaths: TextPaths{Label: true}}); err == nil {
-		t.Fatal("Fonts 為 nil 應回錯")
+	for _, p := range []TextPaths{{Label: true}, {Board: true}, {Art: true}, {Flight: true}, {Subtitle: true}} {
+		if _, err := RunReceipt(ReceiptConfig{TextPaths: p}); err == nil || !strings.Contains(err.Error(), "Fonts") {
+			t.Fatalf("%+v：Fonts 為 nil 應回錯，得 %v", p, err)
+		}
 	}
-	if _, err := RunReceipt(ReceiptConfig{Fonts: testTextFonts(t), TextPaths: TextPaths{Board: true}}); err == nil {
-		t.Fatal("(d) 開 Board 應回錯")
+	// 標籤、計分板、圖面任一走舊路徑而沒給舊字型時回錯。
+	if _, err := RunReceipt(ReceiptConfig{Overlay: true, Fonts: testTextFonts(t), TextPaths: TextPaths{Label: true, Board: true}}); err == nil || !strings.Contains(err.Error(), "缺字型") {
+		t.Fatalf("缺舊字型應回錯，得 %v", err)
 	}
 	p, err := ParseTextPaths("label, subtitle")
 	if err != nil || !p.Label || !p.Subtitle || p.Board {

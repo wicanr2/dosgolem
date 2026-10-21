@@ -236,7 +236,7 @@ type flightShotSum struct {
 
 func flightEnv(t *testing.T) {
 	t.Helper()
-	for _, e := range []string{scRootEnv, scStateDirEnv, scI021Env, scFontEnv, scHUDFontEnv, scCatalogEnv} {
+	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scI021Env, scFontEnv, scHUDFontEnv, scCatalogEnv}) {
 		if os.Getenv(e) == "" {
 			t.Skip(e + " 未設定：009 §4.2 案例需要設定樹、狀態檔、腳本、字型與 catalog")
 		}
@@ -262,14 +262,7 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 	if _, err := hex.Decode(want[:], []byte(sha)); err != nil {
 		t.Fatal(err)
 	}
-	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
-	hud, err := LoadHUDFont(os.Getenv(scHUDFontEnv), "hud12-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
+	font, hud := optLabelFont(t), optHUDFont(t) // 011 §3.9：五條路徑全開時不要求舊字型
 	labels, err := LoadCatalog(os.Getenv(scCatalogEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -277,6 +270,7 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 	cfg := ReceiptConfig{SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
 		StopSteps: stop, Scales: m.scales, Catalog: labels, Font: font, Overlay: m.overlay, CursorY: -1,
 		Inputs: sc.Inputs, Shots: sc.Shots, HUDFont: hud}
+	applyTextEnv(t, &cfg)
 	if m.flight {
 		cats := flightCatalogsFrom(t, filepath.Dir(os.Getenv(scCatalogEnv)))
 		cfg.FlightCatalogs = &cats
@@ -369,6 +363,7 @@ func writeFlightReceipts(t *testing.T, dir string, res *ReceiptResult, scales []
 	if err := WriteFlightFiles(dir, fmt.Sprintf("stop-%d", res.Digest.Steps), scales, res.FlightReport, res.Digest); err != nil {
 		t.Fatal(err)
 	}
+	writeFontsTSV(t, dir, fmt.Sprintf("stop-%d", res.Digest.Steps)) // 011 §3.8
 	must := func(name string, b []byte) {
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
 			t.Fatal(err)
@@ -576,7 +571,8 @@ func checkFlightWants(t *testing.T, res *ReceiptResult, wants map[string]flightW
 		if w.gunTx {
 			// 使用者 2026-10-21：GUN 譯「機砲」，原位放得下，不左移。
 			for _, sc := range []int{2, 3} {
-				if e, ok := reportEntry(s, sc, "GUN"); !ok || e.TX != 276 || e.Text != "機砲" {
+				// 011 新路徑一律置中，沒有文字 stamp 的 tx；只比譯文（舊路徑照舊比 tx 276）。
+				if e, ok := reportEntry(s, sc, "GUN"); !ok || (e.Path != "new" && e.TX != 276) || e.Text != "機砲" {
 					t.Errorf("%s：%d 倍 GUN tx %d 譯文 %q，要 276「機砲」", n, sc, e.TX, e.Text)
 				}
 			}

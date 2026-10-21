@@ -172,19 +172,22 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 	if _, err := hex.Decode(want[:], []byte(c.sha)); err != nil {
 		t.Fatal(err)
 	}
-	// 010 第 4 版：DOSGOLEM_SC_SUB_FONT 是 SC-SUB10（10×10）；讀不到時 Skip，仍是 16×16 時 ParseSubtitleFont 拒絕而失敗。
-	fontB, err := os.ReadFile(os.Getenv(scSubFontEnv))
-	if err != nil {
-		t.Skip(scSubFontEnv + " 讀不到：" + err.Error())
+	// 011 §3.9：DOSGOLEM_SC_TEXT_PATHS 含 subtitle 時字幕走新路徑，不讀 SC-SUB10。
+	var rc ReceiptConfig
+	applyTextEnv(t, &rc)
+	var fontB []byte
+	var subFont *SubtitleFont
+	if !rc.TextPaths.Subtitle {
+		// 010 第 4 版：DOSGOLEM_SC_SUB_FONT 是 SC-SUB10（10×10）；讀不到時 Skip，仍是 16×16 時 ParseSubtitleFont 拒絕而失敗。
+		fontB, err = os.ReadFile(os.Getenv(scSubFontEnv))
+		if err != nil {
+			t.Skip(scSubFontEnv + " 讀不到：" + err.Error())
+		}
+		if subFont, err = ParseSubtitleFont(fontB, SubtitleFontName); err != nil {
+			t.Fatal(err)
+		}
 	}
-	subFont, err := ParseSubtitleFont(fontB, SubtitleFontName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
+	font := optLabelFont(t)
 	idxB, err := os.ReadFile(os.Getenv(scSpeechIndexEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +209,11 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 		t.Fatal(err)
 	}
 	if meta != nil {
-		*meta = NewSubtitleMeta(subFont, fontB, idxB, catB, 0, SubtitleDefaultT)
+		if rc.TextPaths.Subtitle {
+			*meta = NewSubtitleMetaText(rc.Fonts, idxB, catB, 0, SubtitleDefaultT)
+		} else {
+			*meta = NewSubtitleMeta(subFont, fontB, idxB, catB, 0, SubtitleDefaultT)
+		}
 	}
 	sb, err := os.ReadFile(c.script)
 	if err != nil {
@@ -221,7 +228,7 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: labels, Font: font, Overlay: mode != modeOff, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
 		SpeechIndex: idx, SpeechCatalog: cat, Subtitles: mode == modeSubs, RecordSBDMA: mode != modeOff,
-		SubtitleFont: subFont,
+		SubtitleFont: subFont, Fonts: rc.Fonts, TextPaths: rc.TextPaths,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -367,6 +374,19 @@ func checkSubShots(t *testing.T, name string, c subLongCase, res *ReceiptResult)
 			if ss.Key != "" && in == 0 {
 				t.Errorf("%s shot %s %d 倍：字幕可見卻沒有差異", name, s.Name, sc)
 			}
+			// 011 §4.3 字幕區：CheckSubtitleRegion 框外 0；沒有字幕可見差異 0；可見且開著時差異 > 0。
+			if r, ok := s.SubtitleRegion[sc]; ok {
+				t.Logf("%s shot %s %d 倍字幕區檢查 %+v", name, s.Name, sc, r)
+				if r.Outside != 0 || (!r.Visible && r.Diffs != 0) || (r.Visible && ss.Enabled && r.Diffs == 0) {
+					t.Errorf("%s shot %s %d 倍字幕區檢查 %+v", name, s.Name, sc, r)
+				}
+			}
+		}
+	}
+	for sc, r := range res.StopSubtitleRegion {
+		t.Logf("%s 停止點 %d 倍字幕區檢查 %+v", name, sc, r)
+		if r.Outside != 0 {
+			t.Errorf("%s 停止點 %d 倍字幕區框外 %d", name, sc, r.Outside)
 		}
 	}
 	if name == "M" {
@@ -385,7 +405,7 @@ func checkSubShots(t *testing.T, name string, c subLongCase, res *ReceiptResult)
 }
 
 func TestSubtitleCase(t *testing.T) {
-	for _, e := range []string{scRootEnv, scStateDirEnv, scSubFontEnv, scFontEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env} {
+	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scSubFontEnv, scFontEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env}) {
 		if os.Getenv(e) == "" {
 			t.Skip(e + " 未設定：010 §4.2 需要設定樹、狀態檔、字型、結構表、譯文與 i022")
 		}
@@ -411,6 +431,7 @@ func TestSubtitleCase(t *testing.T) {
 				if err := WriteSubtitleReceipt(filepath.Join(dir, "sub-"+strings.ToLower(name)), "case", on, meta, []int{2, 3}); err != nil {
 					t.Fatal(err)
 				}
+				writeFontsTSV(t, filepath.Join(dir, "sub-"+strings.ToLower(name)), "case") // 011 §3.8
 			}
 			compareProbe(t, name, c, on)
 			checkSubs(t, name, c, on)

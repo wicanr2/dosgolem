@@ -145,6 +145,12 @@ func checkCaseJ007(t *testing.T, res *ReceiptResult) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// strike_commander 規格 011：圖面走新路徑時，對照的「只有 k16」也以同一路徑畫。
+			var rc ReceiptConfig
+			applyTextEnv(t, &rc)
+			if rc.TextPaths.Art {
+				ov.Text, ov.TextArt = rc.Fonts, true
+			}
 			ov.AddDialogArt(mkEvent(t, file, 16, 119, 96, 1))
 			only16, _ := ov.Draw(s.Indexed, s.Palette)
 			if n := diffsIn(s.Composites[sc], only16, sc, 119, 96, 214, 105); n != 0 {

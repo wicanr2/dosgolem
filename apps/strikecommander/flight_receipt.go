@@ -17,14 +17,21 @@ import (
 // Sync 後 Match，不符筆數記入「升格後第一個 Frame 被擋下」；「CU 進行中」的 Frame 也 Match，記入「CU 期間比對不符」。
 // 兩個計數以最大倍率的結果回填 FlightCounts，各倍率的筆數另記在 res。
 func attachFlight(cfg ReceiptConfig, res *ReceiptResult, so *SessionObserver, fovs map[int]*FlightOverlay) error {
-	if cfg.Font == nil {
+	// strike_commander 規格 011 §3.9：TextPaths.Flight 為真時改查 Fonts、用新建構子。
+	if !cfg.TextPaths.Flight && cfg.Font == nil {
 		return fmt.Errorf("strikecommander: 飛行字串缺 16×16 字型")
 	}
 	cats := *cfg.FlightCatalogs
 	flight := NewFlightObserver(func(k Kind, s string) (string, int, bool) { return ResolveFlight(k, s, cats) })
 	maxSc := 0
 	for _, sc := range cfg.Scales {
-		fov, err := NewFlightOverlay(cfg.HUDFont, cfg.Font, cats, sc)
+		var fov *FlightOverlay
+		var err error
+		if cfg.TextPaths.Flight {
+			fov, err = NewFlightOverlayText(cfg.Fonts, cats, sc)
+		} else {
+			fov, err = NewFlightOverlay(cfg.HUDFont, cfg.Font, cats, sc)
+		}
 		if err != nil {
 			return err
 		}
@@ -40,12 +47,7 @@ func attachFlight(cfg ReceiptConfig, res *ReceiptResult, so *SessionObserver, fo
 		for _, sc := range cfg.Scales {
 			fov := fovs[sc]
 			fov.Sync(flight.Visible(), flight.Generation())
-			cs := CommitStamps{Scale: sc, Stamps: 2 * len(fov.entries)}
-			for _, e := range fov.entries {
-				cs.Texts = append(cs.Texts, string(e.text))
-				cs.Kinds = append(cs.Kinds, e.t.Kind)
-			}
-			counts = append(counts, cs)
+			counts = append(counts, fov.commitStamps(sc)) // 011 §3.9：新舊路徑共用 commitStamps
 		}
 		res.FlightStamps = append(res.FlightStamps, counts)
 	}
@@ -82,6 +84,9 @@ var flightTSVHeader = []string{
 	"key", "catkey", "kind", "k", "x0", "xs", "x1", "y", "b0", "bh", "cx0", "cx1", "text", "fg", "outline",
 	"tx", "ty", "cells", "cellw", "cellh", "glyphx", "glyphy", "hidden",
 	"before_off", "before_len", "after_off", "after_len", "ref_off", "ref_len",
+	// strike_commander 規格 011 §3.8：新增在後；新路徑的列舊文字 stamp 欄填 -，舊路徑的列新欄填 -。
+	"display", "px", "tx_out", "baseline", "clip_x0", "clip_y0", "clip_x1", "clip_y1",
+	"ink_x0", "ink_y0", "ink_x1", "ink_y1", "e0", "e1", "path",
 }
 
 // FlightTSV 把一份 Report 編成 flight.tsv 與 flight-rows.bin 的內容。
@@ -111,10 +116,21 @@ func FlightTSV(entries []FlightEntry) (tsv, rows []byte) {
 		bo, bl := put(e.Before)
 		ao, al := put(e.After)
 		ro, rl := put(e.Ref)
-		fmt.Fprintf(&t, "%s\t%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+		geom := fmt.Sprintf("%d\t%d\t%d\t%d\t%d\t%d\t%d", e.TX, e.TY, e.Cells, e.CellW, e.CellH, e.GlyphX, e.GlyphY)
+		extra := strings.Repeat("-\t", 14) + "old"
+		if e.Path == "new" {
+			geom = strings.TrimSuffix(strings.Repeat("-\t", 7), "\t")
+			ink := e.Ink
+			if ink.Empty() {
+				ink.X0, ink.Y0, ink.X1, ink.Y1 = 0, 0, 0, 0
+			}
+			extra = fmt.Sprintf("%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\tnew", e.Display, e.Px, e.TxOut, e.Baseline,
+				e.Clip.X0, e.Clip.Y0, e.Clip.X1, e.Clip.Y1, ink.X0, ink.Y0, ink.X1, ink.Y1, e.E0, e.E1)
+		}
+		fmt.Fprintf(&t, "%s\t%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
 			e.Key, e.CatKey, e.Kind, e.K, e.TextX0, strings.Join(xs, ","), e.TextX1, e.Y, e.B0, e.BH, e.X0, e.X1,
-			e.Text, e.FG, b01(e.Outline), e.TX, e.TY, e.Cells, e.CellW, e.CellH, e.GlyphX, e.GlyphY, b01(e.Hidden),
-			bo, bl, ao, al, ro, rl)
+			e.Text, e.FG, b01(e.Outline), geom, b01(e.Hidden),
+			bo, bl, ao, al, ro, rl, extra)
 	}
 	return []byte(t.String()), r.Bytes()
 }

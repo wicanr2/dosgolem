@@ -111,8 +111,20 @@ func loadFlight(cfg *strikecommander.ReceiptConfig) error {
 }
 
 func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, fontPath, out, work string, cursorY int, ab bool) error {
-	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || fontPath == "" || out == "" {
+	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || out == "" {
 		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps 或 -script、-tsv -font -out）")
+	}
+	// 規格 011 §3.9：-text-paths 給了任一路徑時要 -font-dir；全部路徑都走新路徑且給了 -font-dir 時 -font 可省。
+	paths, err := strikecommander.ParseTextPaths(tx.paths)
+	if err != nil {
+		return err
+	}
+	allText := paths.Label && paths.Board && paths.Art && paths.Flight && paths.Subtitle
+	if paths.Any() && tx.dir == "" {
+		return fmt.Errorf("-text-paths 要搭配 -font-dir")
+	}
+	if fontPath == "" && !(allText && tx.dir != "") {
+		return fmt.Errorf("缺 -font（-text-paths 有任一路徑走舊路徑時必要）")
 	}
 	var sc strikecommander.Script
 	if script != "" {
@@ -153,9 +165,11 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err != nil {
 		return err
 	}
-	font, err := strikecommander.LoadLabelFont(fontPath, "full16-zh-TW")
-	if err != nil {
-		return err
+	var font *strikecommander.LabelFont
+	if fontPath != "" {
+		if font, err = strikecommander.LoadLabelFont(fontPath, "full16-zh-TW"); err != nil {
+			return err
+		}
 	}
 	cat, err := strikecommander.LoadCatalog(tsv)
 	if err != nil {
@@ -173,12 +187,18 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	cfg := strikecommander.ReceiptConfig{
 		State: raw, StateSHA256: want, RebaseFrom: rebaseFrom, StopSteps: steps,
 		Scales: scales, Catalog: cat, GfxCatalog: gfx, Font: font, Overlay: true, CursorY: cursorY,
-		Inputs: sc.Inputs, Shots: sc.Shots,
+		Inputs: sc.Inputs, Shots: sc.Shots, TextPaths: paths,
+	}
+	if tx.dir != "" {
+		if cfg.Fonts, err = strikecommander.LoadTextFonts(tx.dir, tx.expected); err != nil {
+			return err
+		}
+		fmt.Printf("圖集 %s，anchor %s\n", tx.dir, cfg.Fonts.Anchor)
 	}
 	var meta strikecommander.SubtitleMeta
 	if sub.on {
-		if sub.index == "" || sub.catalog == "" || sub.font == "" {
-			return fmt.Errorf("-subtitles 要 -speech-index、-speech-tsv 與 -subtitle-font")
+		if sub.index == "" || sub.catalog == "" || (sub.font == "" && !paths.Subtitle) {
+			return fmt.Errorf("-subtitles 要 -speech-index、-speech-tsv 與 -subtitle-font（字幕走新路徑時改要 -font-dir）")
 		}
 		ib, err := os.ReadFile(sub.index)
 		if err != nil {
@@ -194,32 +214,25 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		if cfg.SpeechCatalog, err = strikecommander.ParseCatalog(cb); err != nil {
 			return err
 		}
-		fb, err := os.ReadFile(sub.font)
-		if err != nil {
-			return err
+		cfg.Subtitles, cfg.SubtitleE, cfg.SubtitleT = true, sub.e, sub.t
+		if paths.Subtitle {
+			meta = strikecommander.NewSubtitleMetaText(cfg.Fonts, ib, cb, sub.e, sub.t) // 規格 011 §3.8
+		} else {
+			fb, err := os.ReadFile(sub.font)
+			if err != nil {
+				return err
+			}
+			sf, err := strikecommander.ParseSubtitleFont(fb, strikecommander.SubtitleFontName)
+			if err != nil {
+				return err
+			}
+			cfg.SubtitleFont = sf
+			meta = strikecommander.NewSubtitleMeta(sf, fb, ib, cb, sub.e, sub.t)
 		}
-		sf, err := strikecommander.ParseSubtitleFont(fb, strikecommander.SubtitleFontName)
-		if err != nil {
-			return err
-		}
-		cfg.Subtitles, cfg.SubtitleFont, cfg.SubtitleE, cfg.SubtitleT = true, sf, sub.e, sub.t
-		meta = strikecommander.NewSubtitleMeta(sf, fb, ib, cb, sub.e, sub.t)
 	}
 	cfg.RecordSBDMA = sub.sbdmaLog
 	if err := loadFlight(&cfg); err != nil {
 		return err
-	}
-	// 規格 011 §3.9：-text-paths 給了任一路徑時要 -font-dir；(d) 期間 -font 仍必填（計分板、圖面、飛行用舊路徑）。
-	if cfg.TextPaths, err = strikecommander.ParseTextPaths(tx.paths); err != nil {
-		return err
-	}
-	if tx.dir != "" {
-		if cfg.Fonts, err = strikecommander.LoadTextFonts(tx.dir, tx.expected); err != nil {
-			return err
-		}
-		fmt.Printf("圖集 %s，anchor %s\n", tx.dir, cfg.Fonts.Anchor)
-	} else if cfg.TextPaths.Any() {
-		return fmt.Errorf("-text-paths 要搭配 -font-dir")
 	}
 	on, err := runOnce(root, work, cfg)
 	if err != nil {

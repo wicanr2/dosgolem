@@ -174,11 +174,13 @@ func runSaveLoadCaseRoot(t *testing.T, c slCase, overlay bool, rootEnv string) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := RunReceipt(ReceiptConfig{
+	rc := ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
 		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, GfxCatalog: gfx, Font: font, Overlay: overlay, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
-	})
+	}
+	applyTextEnv(t, &rc) // strike_commander 規格 011 §3.9
+	res, err := RunReceipt(rc)
 	if err != nil {
 		t.Fatal(err)
 	}

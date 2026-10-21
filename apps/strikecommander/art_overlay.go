@@ -23,8 +23,10 @@ type artEntry struct {
 	ev    ArtEvent
 	rect  ArtRect
 	ref   []uint8 // 字帶內的原版色號，逐列
-	idx   []uint8 // (W×scale)×(H×scale) 輸出像素的色號
+	idx   []uint8 // (W×scale)×(H×scale) 輸出像素的色號（新路徑只有無字底）
 	built bool    // 已以 artPal 建 Pix 並登記到 artLayer
+	// text 是 011 §3.6.3 新路徑的字（nil 為舊路徑：字已畫進 idx）。
+	text *artText
 }
 
 // 主選單圖面的 Key 前綴（008 §3.6）。
@@ -192,6 +194,9 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 	if !ok || tr == "" {
 		return nil, &Miss{Key: sp.key, Reason: MissTranslation}, nil
 	}
+	if o.TextArt && o.Text != nil {
+		return o.planArtText(ev, sp, []rune(tr)) // strike_commander 規格 011 §3.6.3
+	}
 	text := []rune(tr)
 	var missing []rune
 	for _, r := range text {
@@ -252,11 +257,21 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 }
 
 // stamp 以色盤 pal 建這一列的 204 圖面（CellW 1，每欄一格，004 §3.3）。
+// 新路徑（011 §3.6.3）：無字底以色盤轉 RGB、alpha 255，各趟依序以填色層、該趟色號 DrawAlphaText。
 func (e *artEntry) stamp(pal [256][3]uint8, scale int) *xlate.Stamp {
 	pix := make([]uint8, 4*len(e.idx))
 	for i, c := range e.idx {
 		p := pal[c]
 		pix[4*i], pix[4*i+1], pix[4*i+2], pix[4*i+3] = p[0], p[1], p[2], 255
+	}
+	if t := e.text; t != nil {
+		ow, oh := e.rect.W*scale, e.rect.H*scale
+		clip := xlate.AlphaRect{X0: 0, Y0: 0, X1: ow, Y1: oh}
+		t.ink = xlate.AlphaRect{}
+		for _, p := range t.passes {
+			k, _, _ := xlate.DrawAlphaText(pix, ow, oh, t.font, t.display, t.tx+p.dx, t.baseline+p.dy, xlate.AlphaFill, pal[p.col], clip)
+			t.ink = unionRect(t.ink, k)
+		}
 	}
 	return &xlate.Stamp{
 		Key: e.rect.Key, Art: true, X: e.rect.X, Y: e.rect.Y,

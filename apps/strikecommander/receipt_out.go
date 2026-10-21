@@ -112,12 +112,37 @@ func ShotPrefix(s *ShotResult) string {
 
 // WriteShotFiles 以 ShotResult 呼叫 WriteReceiptFiles。
 func WriteShotFiles(dir, prefix string, s *ShotResult, scales []int) error {
-	return WriteReceiptFiles(dir, prefix, s.Indexed, s.Palette, scales, s.Composites, s.Plain, s.BG)
+	if err := WriteReceiptFiles(dir, prefix, s.Indexed, s.Palette, scales, s.Composites, s.Plain, s.BG); err != nil {
+		return err
+	}
+	return writeTextExtras(dir, prefix, scales, s.Arts, s.SubtitleRegion)
 }
 
 // WriteStopFiles 以 ReceiptResult 的停止點呼叫 WriteReceiptFiles，前綴 stop-<步數>。
 func WriteStopFiles(dir string, r *ReceiptResult, scales []int) error {
-	return WriteReceiptFiles(dir, fmt.Sprintf("stop-%d", r.Digest.Steps), r.Frame, r.Palette, scales, r.Composites, r.Plain, r.BG)
+	prefix := fmt.Sprintf("stop-%d", r.Digest.Steps)
+	if err := WriteReceiptFiles(dir, prefix, r.Frame, r.Palette, scales, r.Composites, r.Plain, r.BG); err != nil {
+		return err
+	}
+	return writeTextExtras(dir, prefix, scales, r.StopArts, r.StopSubtitleRegion)
+}
+
+// writeTextExtras 寫 strike_commander 規格 011 §3.8 的新檔：圖面新路徑開時的 arts.tsv；字幕新路徑開時的 subregion.tsv
+// （欄 scale diffs outside ink_pixels visible）。對應路徑沒開時不寫（舊路徑的收據檔不變）。
+func writeTextExtras(dir, prefix string, scales []int, arts map[int][]ArtReportEntry, region map[int]SubtitleRegionCheck) error {
+	if err := writeArtsTSV(dir, prefix, scales, arts); err != nil {
+		return err
+	}
+	if region == nil {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("scale\tdiffs\toutside\tink_pixels\tvisible\n")
+	for _, sc := range scales {
+		c := region[sc]
+		fmt.Fprintf(&b, "%d\t%d\t%d\t%d\t%t\n", sc, c.Diffs, c.Outside, c.InkPixels, c.Visible)
+	}
+	return os.WriteFile(filepath.Join(dir, prefix+"-subregion.tsv"), []byte(b.String()), 0o644)
 }
 
 // WriteRGBAPNG 把 (320 × scale) × (200 × scale) 的 RGBA 寫成 PNG。

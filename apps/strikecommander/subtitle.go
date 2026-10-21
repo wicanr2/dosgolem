@@ -107,6 +107,11 @@ func idOf(e machine.SBDMAEvent) xferID {
 type SubLine struct {
 	X, Y, Cells, CellW, CellH, GlyphX, GlyphY, GlyphScale int
 	Text                                                  []rune
+	// strike_commander 規格 011 §3.6.7 新路徑（Path "new"）：上面的 stamp 幾何不適用；Text 是 N() 後該行的字串，
+	// Px、TxOut、Baseline 是輸出像素，Ink 是最近一次 Draw 該行的文字框。
+	Path                string
+	Px, TxOut, Baseline int
+	Ink                 xlate.AlphaRect
 }
 
 // Subtitle 是一個字幕條（010 §3.4、§3.11）。
@@ -124,6 +129,9 @@ type Subtitle struct {
 	Lines   map[int][]SubLine
 	id      xferID
 	s       uint64 // S(k)
+	// 011 §3.8 subs.tsv 的新欄（新路徑才有值；舊路徑 NewPath 為假，欄位填 -）。
+	NewPath           bool
+	Forced, Truncated map[int]bool
 }
 
 // SubSkip 是一筆 skip 或 miss（010 §3.11 的 subskips.tsv）。
@@ -135,6 +143,8 @@ type SubSkip struct {
 	Seg    string
 	Vptr   string
 	Key    string
+	// Scale 是 011 §3.8 subskips.tsv 的新欄：新路徑的 miss 強制斷行、miss 截斷記 2 或 3，其他為 0（寫成 -）。
+	Scale int
 }
 
 // subObj 是物件紀錄（010 §3.2）。
@@ -149,6 +159,8 @@ type Subtitles struct {
 	Catalog map[string]string
 	Font    *SubtitleFont
 	E, T    uint64
+	// Text 是 011 的圖集；非 nil 時走新路徑（NewSubtitlesText；§3.6.7 的半形代換、像素換行與反鋸齒字）。
+	Text *TextFonts
 
 	Subs  []*Subtitle
 	Skips []SubSkip
@@ -399,6 +411,10 @@ func (s *Subtitles) newSub(v SubtitleView, e machine.SBDMAEvent, line *SpeechLin
 	s.Subs = append(s.Subs, c)
 	s.prevKey, s.prevSub, s.prevAcc = line.Key, c, e.Samples
 	vals := readSubValues(v, o)
+	if s.Text != nil {
+		s.newSubText(c, e.Step, line, vals) // 011 §3.6.7
+		return
+	}
 	text, ok := s.compose(e.Step, line, vals)
 	if !ok {
 		return
@@ -679,6 +695,9 @@ func (s *Subtitles) Draw(dst []byte, scale int) []SubLine {
 	if c == nil || scale < 2 || scale > 3 || len(dst) != 320*scale*200*scale*4 {
 		return nil
 	}
+	if s.Text != nil {
+		return s.drawText(c, dst, scale) // 011 §3.6.7
+	}
 	lines := c.Lines[scale]
 	layer := &xlate.Layer{W: 320, H: 200}
 	for _, l := range lines {
@@ -707,13 +726,23 @@ func (s *Subtitles) Finish() {
 // SubsTSV 編 subs.tsv（§3.11）。
 func SubsTSV(subs []*Subtitle) []byte {
 	var b strings.Builder
-	b.WriteString("key\tstart\tparts\tsamples\tlast_due\tend\treason\ttext\n")
+	b.WriteString("key\tstart\tparts\tsamples\tlast_due\tend\treason\ttext\tforced_s2\tforced_s3\ttruncated_s2\ttruncated_s3\n")
+	b01 := func(v bool) string {
+		if v {
+			return "1"
+		}
+		return "0"
+	}
 	for _, c := range subs {
 		end := ""
 		if c.HasEnd {
 			end = strconv.FormatUint(c.End, 10)
 		}
-		fmt.Fprintf(&b, "%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\n", c.Key, c.Start, c.Parts, c.Acc, c.LastDue, end, c.Reason, c.Text)
+		extra := "-\t-\t-\t-" // 011 §3.8：舊路徑填 -
+		if c.NewPath {
+			extra = b01(c.Forced[2]) + "\t" + b01(c.Forced[3]) + "\t" + b01(c.Truncated[2]) + "\t" + b01(c.Truncated[3])
+		}
+		fmt.Fprintf(&b, "%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", c.Key, c.Start, c.Parts, c.Acc, c.LastDue, end, c.Reason, c.Text, extra)
 	}
 	return []byte(b.String())
 }
@@ -721,9 +750,13 @@ func SubsTSV(subs []*Subtitle) []byte {
 // SubSkipsTSV 編 subskips.tsv（§3.11）。
 func SubSkipsTSV(skips []SubSkip) []byte {
 	var b strings.Builder
-	b.WriteString("step\treason\tobj\trel\tseg\tvptr\tkey\n")
+	b.WriteString("step\treason\tobj\trel\tseg\tvptr\tkey\tscale\n")
 	for _, k := range skips {
-		fmt.Fprintf(&b, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", k.Step, k.Reason, k.Obj, k.Rel, k.Seg, k.Vptr, k.Key)
+		sc := "-"
+		if k.Scale != 0 {
+			sc = strconv.Itoa(k.Scale)
+		}
+		fmt.Fprintf(&b, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", k.Step, k.Reason, k.Obj, k.Rel, k.Seg, k.Vptr, k.Key, sc)
 	}
 	return []byte(b.String())
 }

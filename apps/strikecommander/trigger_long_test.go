@@ -83,10 +83,7 @@ func runTrigger(t *testing.T, tc triggerCase, overlay, noCaller bool) *ReceiptRe
 	if _, err := hex.Decode(want[:], []byte(tc.sha)); err != nil {
 		t.Fatal(err)
 	}
-	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
+	font := optLabelFont(t) // 011 §3.9：五條路徑全開時不要求舊字型
 	cat, err := LoadCatalog("testdata/opttest_labels.test.tsv")
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +168,7 @@ func checkTrigger(t *testing.T, tc triggerCase, res *ReceiptResult) {
 }
 
 func TestLabelOverlayTrigger(t *testing.T) {
-	for _, e := range []string{scRootEnv, scStateDirEnv, scFontEnv} {
+	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scFontEnv}) {
 		if os.Getenv(e) == "" {
 			t.Skip(e + " 未設定：001 §3.3 觸發案例需要設定樹、狀態檔與字型")
 		}

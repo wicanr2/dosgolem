@@ -294,7 +294,7 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: reason})
 			continue
 		}
-		if o.TextLabel && o.Text != nil && l.Kind != KindBoard {
+		if o.Text != nil && ((o.TextLabel && l.Kind != KindBoard) || (o.TextBoard && l.Kind == KindBoard)) {
 			o.syncLabelText(i, l, text)
 			continue
 		}
@@ -346,6 +346,9 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 // 前後列、透明或退路的判定與舊路徑相同。
 func (o *Overlay) syncLabelText(i int, l Label, text []rune) {
 	px := pxLabel[o.scale]
+	if l.Kind == KindBoard {
+		px = pxBoard[o.scale] // 011 §3.6.2
+	}
 	f := o.Text.Font(px)
 	if f == nil {
 		o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("圖集缺字級 %d", px)})
@@ -362,17 +365,22 @@ func (o *Overlay) syncLabelText(i int, l Label, text []rune) {
 	}
 	h := refRows(l.Kind)
 	rowsOK := validRows(l.Before, h) && validRows(l.After, h)
-	if !rowsOK {
+	bgImage := p.Kind == KindBoard || rowsOK
+	if p.Kind == KindBoard && !rowsOK {
+		o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("board 標籤的前後列長度 %d、%d，要 %d", len(l.Before), len(l.After), h*320)})
+		return
+	}
+	if !bgImage {
 		o.BGFallbacks = append(o.BGFallbacks, Skip{l.Key, rowsReason(l.Before, l.After, h)})
 	}
 	o.layer.Stamps = append(o.layer.Stamps, p.Cover)
-	o.info[p.Cover] = stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG, bgImage: rowsOK}
+	o.info[p.Cover] = stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG, bgImage: bgImage}
 	ti := p.Text
 	m := labelMatch{
 		label: i, key: l.Key, kind: l.Kind, h: h, y: l.Y,
 		x0: max(p.Cover.X, 0), x1: min(p.Cover.X+p.Cover.Cells*p.Cover.CellW, 320),
 		y0: max(l.Y+1, 0), y1: min(l.Y+1+h, 200),
-		ref: l.Ref, cover: p.Cover, bgImage: rowsOK, textItem: &ti,
+		ref: l.Ref, cover: p.Cover, bgImage: bgImage, textItem: &ti,
 	}
 	if rowsOK {
 		m.before, m.after = l.Before, l.After

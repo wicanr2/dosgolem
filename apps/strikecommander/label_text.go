@@ -43,15 +43,22 @@ func ParseTextPaths(s string) (TextPaths, error) {
 	return p, nil
 }
 
-// checkTextPaths 是 (d) 的限制：只有 Label 有新路徑；Fonts 為 nil 而任一開關為真時回錯（011 §3.9）。
+// checkTextPaths：Fonts 為 nil 而任一開關為真時回錯（011 §3.9）。
 func checkTextPaths(p TextPaths, fonts *TextFonts) error {
 	if p.Any() && fonts == nil {
 		return fmt.Errorf("strikecommander: TextPaths 有開關為真但沒有 Fonts")
 	}
-	if p.Board || p.Art || p.Flight || p.Subtitle {
-		return fmt.Errorf("strikecommander: 計分板、圖面、飛行、字幕的新路徑尚未實作（規格 011 §3.11 (e)）")
-	}
 	return nil
+}
+
+// NewOverlayText 建一個標籤、計分板、圖面都走新路徑的 Overlay，不需要舊字型（011 §3.9）。
+// scale 接受 1、2、3；tr、gfx 同 NewOverlay。
+func NewOverlayText(fonts *TextFonts, tr, gfx map[string]string, scale int) (*Overlay, error) {
+	if fonts == nil || scale < 1 || scale > 3 {
+		return nil, fmt.Errorf("strikecommander: overlay 輸入無效")
+	}
+	return &Overlay{layer: &xlate.Layer{W: 320, H: 200}, artLayer: &xlate.Layer{W: 320, H: 200}, tr: tr, gfx: gfx, scale: scale,
+		Text: fonts, TextLabel: true, TextBoard: true, TextArt: true}, nil
 }
 
 // textItem 是新路徑一串字的排版結果（011 §3.9）：輸出像素座標。
@@ -128,11 +135,11 @@ func PlanLabelText(l Label, text []rune, scale int, fonts *TextFonts) (PlanText,
 	if scale != 2 && scale != 3 {
 		return PlanText{}, fmt.Errorf("%d 倍輸出不覆繪", scale)
 	}
-	if l.Kind == KindBoard {
-		return PlanText{}, fmt.Errorf("%s 種類的新路徑尚未實作", l.Kind)
-	}
 	if len(text) == 0 {
 		return PlanText{}, fmt.Errorf("譯文是空的")
+	}
+	if l.Kind == KindBoard {
+		return planBoardText(l, text, scale, fonts)
 	}
 	px := pxLabel[scale]
 	f := fonts.Font(px)
@@ -168,6 +175,43 @@ func PlanLabelText(l Label, text []rune, scale int, fonts *TextFonts) (PlanText,
 	return PlanText{Cover: cover, Text: ti, Kind: KindLabel, BG: bgIndex, FG: fgIndex}, nil
 }
 
+// planBoardText 是計分板 GROUND、AIR 的新路徑（011 §3.6.2）：2 倍 16、3 倍 22，字色 10 號，無外框；
+// 英文範圍與可用範圍都是游標 [X0, X1)，m = 0；字帶 [Y+1, Y+9) 置中。取代 003 §3.4 的右對齊。
+func planBoardText(l Label, text []rune, scale int, fonts *TextFonts) (PlanText, error) {
+	px := pxBoard[scale]
+	f := fonts.Font(px)
+	if f == nil {
+		return PlanText{}, fmt.Errorf("圖集缺字級 %d", px)
+	}
+	disp := NarrowAlnum(text)
+	w, miss := f.Advance(disp)
+	if len(miss) != 0 {
+		return PlanText{}, fmt.Errorf("圖集缺字 %q", string(miss))
+	}
+	tx, err := textHorizontal(l.X0, l.X1, l.X0, l.X1, scale, w, 0)
+	if err != nil {
+		return PlanText{}, err
+	}
+	b0, b1 := l.Y+1, l.Y+1+boardCellH
+	_, baseline, err := textVertical(b0, b1, scale, px)
+	if err != nil {
+		return PlanText{}, err
+	}
+	clip := xlate.AlphaRect{X0: max(l.X0*scale, 0), Y0: max((b0-1)*scale, 0), X1: min(l.X1*scale, 320*scale), Y1: min((b1+1)*scale, 200*scale)}
+	box := textBox(f, disp, tx, baseline, clip, false)
+	cx0, cx1 := l.X0, l.X1
+	if !box.Empty() {
+		cx0, cx1 = min(cx0, floorDiv(box.X0, scale)), max(cx1, ceilDiv(box.X1, scale))
+	}
+	cx0, cx1 = max(cx0, 0), min(cx1, 320)
+	cover := &xlate.Stamp{Key: l.Key + ".cover", X: cx0, Y: b0, Cells: 1, CellW: cx1 - cx0, CellH: boardCellH, State: xlate.Shown}
+	ti := textItem{
+		raw: append([]rune(nil), text...), display: disp, font: f, px: px, tx: tx, baseline: baseline, clip: clip, box: box,
+		outline: false, outlineIdx: bgIndex, fgIdx: boardFGIndex, e0: l.X0, e1: l.X1,
+	}
+	return PlanText{Cover: cover, Text: ti, Kind: KindBoard, BG: boardBGIndex, FG: boardFGIndex}, nil
+}
+
 // drawTextItems 是 011 §3.4 第 4 條的兩趟：先對照畫且有外框的串畫外框層，再對照畫的串畫填色層。
 // 回與 items 平行的文字框（兩層 ink 的聯集）；items 中的 nil 不畫、框為空。
 func drawTextItems(out []byte, scale int, palette [256][3]uint8, items []*textItem) []xlate.AlphaRect {
@@ -200,9 +244,6 @@ func (o *Overlay) TextBoxes() []xlate.AlphaRect {
 	}
 	return out
 }
-
-// TextBoxes 回飛行新路徑的文字框；飛行新路徑在 (e)，(d) 一律為空。
-func (o *FlightOverlay) TextBoxes() []xlate.AlphaRect { return nil }
 
 // commitItem 是 CommitStamps 的一筆（011 §3.9）：N() 前的譯文與種類。
 type commitItem struct {
