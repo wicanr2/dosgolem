@@ -952,6 +952,7 @@
 - [450 session 從 probe 狀態檔啟動](450-session-boot-from-state.md)：READY（第 4 版），已實作。`BootFromState` 讀 probe 狀態檔；`dos.RebasePath` 把還原的檔案代號路徑改寫到 SaveRoot，驗證在任何寫入之前；`KbdIntercept` 讀檔後重寫客體碼。
 - [451 session 的滑鼠移動事件](451-session-pointer-move.md)：READY（第 4 版），已實作。`host.MouseEventMove` 與 `CapturedUpdate.PointerMoves`（上限 64，先於 `PointerDown`）；移動不看 `Button`、不改按鍵狀態；唯讀 `Owner.DOSMouse`。
 - [452 session 轉發 SB16 DMA 觀測事件](452-session-sbdma-observer.md)：READY（第 3 版），已實作。選配擴充 `SBDMAObserver`：觀察器實作時 `runObserved` 安裝 `OnSBDMA`，經 `guard` 轉發全部 Kind，回合結束設回 nil；不實作時不碰，事件照舊進 `SBDMALog`；回呼內不得讀記憶體，消費端在下一次 `BeforeStep` 讀。
+- [453 xlate 反鋸齒圖集文字](453-xlate-alpha-atlas-text.md)：READY（第 4 版），未實作。`GOLEMAAF` 8 位元 alpha 圖集（填色層與實心描邊外框層）、`ParseAlphaFont`、`StringMask` 逐字疊合合成、`BlendMask`／`DrawAlphaText` 以 `(c·a+d·(255−a)+127)/255` 混色；不動既有 `Stamp`、`Layer` 與快照。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
