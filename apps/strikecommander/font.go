@@ -111,3 +111,35 @@ func LoadLabelFont(path, name string) (*LabelFont, error) {
 	}
 	return ParseLabelFont(b, name)
 }
+
+// HUDFont 是飛行 HUD 狀態字用的 12×12 字型（HUD12，Fusion Pixel 12px，strike_commander 規格 009 §3.9）與它的寬度表。
+type HUDFont struct {
+	Font *xlate.Font
+	Wide *WideTable
+}
+
+// ParseHUDFont 以同一份位元組建出 xlate.Font 與寬度表。字型必須是 12×12。
+func ParseHUDFont(b []byte, name string) (*HUDFont, error) {
+	f, err := xlate.ParseFont(b)
+	if err != nil {
+		return nil, err
+	}
+	if f.W != 12 || f.H != 12 {
+		return nil, fmt.Errorf("strikecommander: HUD 字型 %dx%d，要 12x12", f.W, f.H)
+	}
+	wt, err := ParseWide(b)
+	if err != nil {
+		return nil, err
+	}
+	f.Name = name
+	return &HUDFont{Font: f, Wide: wt}, nil
+}
+
+// LoadHUDFont 讀檔後呼叫 ParseHUDFont。
+func LoadHUDFont(path, name string) (*HUDFont, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ParseHUDFont(b, name)
+}

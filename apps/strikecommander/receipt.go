@@ -29,12 +29,18 @@ type SessionObserver struct {
 	Subtitles *Subtitles
 	// OnSBDMA 在每筆 SB16 DMA 事件呼叫（010 §4.2 前置步驟的事件紀錄）；可為 nil，不得讀記憶體。
 	OnSBDMA func(e machine.SBDMAEvent)
+	// Flight 是 009 的飛行字串觀察器（nil 為不掛）。BeforeStep 在 Labels 之後呼叫它的 Observe；
+	// Frame 依序：OnFrame → Flight.Frame → 更新 LastIndexed → OnFlightFrame（009 §3.11 接點第 2 條）。
+	Flight *FlightObserver
+	// OnFlightFrame 在 Flight.Frame 與更新 LastIndexed 之後呼叫；steps 是最後一次 BeforeStep 的步數。可為 nil。
+	OnFlightFrame func(indexed []byte, steps uint64)
 
 	steps uint64
 }
 
 var (
 	_ View                  = session.StepView{}
+	_ FlightView            = session.StepView{}
 	_ SubtitleView          = session.StepView{}
 	_ session.StepObserver  = (*SessionObserver)(nil)
 	_ session.SBDMAObserver = (*SessionObserver)(nil)
@@ -69,6 +75,9 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	s.steps = v.Steps()
 	s.Labels.Observe(v)
+	if s.Flight != nil {
+		s.Flight.Observe(v)
+	}
 	if s.Subtitles != nil {
 		s.Subtitles.Observe(v)
 	}
@@ -81,8 +90,14 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	if s.OnFrame != nil {
 		s.OnFrame(s.LastIndexed, indexed, s.steps)
 	}
+	if s.Flight != nil {
+		s.Flight.Frame(indexed, s.steps)
+	}
 	s.LastIndexed, s.LastPalette = indexed, palette
 	s.Frames++
+	if s.OnFlightFrame != nil {
+		s.OnFlightFrame(indexed, s.steps)
+	}
 	if s.Subtitles != nil {
 		s.Subtitles.Frame(indexed, s.steps)
 	}
@@ -141,6 +156,12 @@ type ReceiptConfig struct {
 	// RecordSBDMA 在 Overlay 開時記下全部 SB16 DMA 事件到 ReceiptResult.SBDMA（010 §4.2 前置步驟）。
 	RecordSBDMA bool
 
+	// 009 §3.11 接點第 4 條：FlightCatalogs 為 nil 時不裝 FlightObserver。MFD、橫幅的字型沿用 Font；
+	// HUDFont 在 Scales 含 3 時必要。FlightOutlineExperiment 是樣張用的實驗旗標（MFD、橫幅也畫外框，不進驗收）。
+	HUDFont                 *HUDFont
+	FlightCatalogs          *FlightCatalogs
+	FlightOutlineExperiment bool
+
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
 	noBoardCaller bool // 003 §4.2 案例 E 的負對照：只關掉計分板呼叫點（003 §3.1 條件 2）
@@ -173,6 +194,16 @@ type ShotResult struct {
 	Covers map[int]map[string][4]int
 	// BG 是 shot 時各倍率 Draw 之後的 BGReport（006 §3.3）。
 	BG map[int][]BGEntry
+
+	// 009 §3.11 接點第 5 條。Digest 在 shot 處理一開始取（Overlay 關也有）；其餘只在裝了 FlightObserver 時有值。
+	Digest          session.StateDigest
+	FlightVisible   []string
+	FlightHidden    map[int][]string
+	FlightCovers    map[int][]FlightCover
+	FlightReport    map[int][]FlightEntry
+	FlightCounts    FlightCounts
+	FlightVGAWindow bool
+	FlightGen       uint64
 }
 
 // FrameMeasure 是 005 §4.4 的量測：每次回掃時以各倍率 Overlay 的 Match 統計「可見集合非空但有標籤不符」的回掃數。
@@ -239,6 +270,31 @@ type ReceiptResult struct {
 	SBDMA []machine.SBDMAEvent
 	// DOSMouse 是停止時的 DOS 滑鼠狀態（451，010 §4.2 案例 M）。
 	DOSMouse session.DOSMouseState
+
+	// 以下是 009 的新增欄位（§3.11 接點第 5 條）。ShotDigests 與 ReceiptConfig.Shots 平行，Overlay 關也填；
+	// 其餘只在裝了 FlightObserver 時有值，不併入 Commits、Stamps。
+	ShotDigests    []session.StateDigest
+	FlightCommits  []FlightCommit
+	FlightStamps   [][]CommitStamps
+	FlightLog      []Event
+	FlightLogDrop  int
+	FlightCounts   FlightCounts
+	FlightOverlays map[int]*FlightOverlay
+	// FlightReport、FlightHidden 是停止點各倍率 Draw 之後的 Report 與 Hidden。
+	FlightReport map[int][]FlightEntry
+	FlightHidden map[int][]string
+	// FlightCUFrames 是 CU 期間的每次回掃：步數與各倍率比對不符的筆數（§3.11 接點第 2 條）。
+	FlightCUFrames []FlightCUFrame
+	// FlightFirstBlocked 是每次升格後第一個 Frame 各倍率被擋下的筆數（與 FlightCommits 平行）。
+	FlightFirstBlocked []map[int]int
+}
+
+// FlightCUFrame 是 CU 期間的一次回掃（009 §4.2 的「CU 期間比對不符筆數（逐次）」）。
+type FlightCUFrame struct {
+	Steps    uint64
+	Visible  int
+	Mismatch map[int]int
+	Keys     map[int][]string
 }
 
 // SubShot 是一個 shot 的字幕狀態（010 §3.11 的 substamps.tsv）。
@@ -283,6 +339,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	var obs session.StepObserver
 	overlays := map[int]*Overlay{}
 	var lastMove *Point // 腳本最後一次 move 的 DOS 座標（005 §4.4 分類 2）
+	// 009：飛行字串的觀察器與各倍率 overlay（FlightCatalogs 為 nil 時都不建）。
+	var flight *FlightObserver
+	fovs := map[int]*FlightOverlay{}
 	if cfg.Overlay {
 		if cfg.Font == nil {
 			return nil, errors.New("strikecommander: 收據缺字型")
@@ -380,6 +439,12 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			}
 		}
 		obs = so
+		if cfg.FlightCatalogs != nil {
+			if err := attachFlight(cfg, res, so, fovs); err != nil {
+				return nil, err
+			}
+			flight = so.Flight
+		}
 		// 010 §3.12：Subtitles 隨 Owner 建立，不跨 BootFromState。
 		if cfg.Subtitles {
 			subs, err := NewSubtitles(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.Font, cfg.SubtitleE, cfg.SubtitleT)
@@ -493,6 +558,12 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				return res, err
 			}
 		case Shot:
+			// 009 §3.11 接點第 5 條：Digest 在 shot 處理一開始取，Overlay 關也取。
+			d, err := o.Digest()
+			if err != nil {
+				return res, err
+			}
+			res.ShotDigests = append(res.ShotDigests, d)
 			// 3. shot：只在 Overlay 開時出圖；關時只切分推進，與開的那次相同。
 			if !cfg.Overlay {
 				continue
@@ -501,8 +572,16 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				return res, fmt.Errorf("strikecommander: 第 %d 步 shot：還沒有回掃畫格", it.Steps)
 			}
 			sr := ShotResult{Steps: it.Steps, Name: it.Name, Indexed: append([]byte(nil), so.LastIndexed...), Palette: so.LastPalette, Composites: map[int][]byte{}, Plain: map[int][]byte{}, Check: map[int]CompositeCheck{}, ArtKeys: map[int][]string{}, Hidden: map[int][]string{}, Covers: map[int]map[string][4]int{}, BG: map[int][]BGEntry{}}
+			sr.Digest = d
 			for _, l := range so.Labels.Visible() {
 				sr.Visible = append(sr.Visible, l.Key)
+			}
+			if flight != nil {
+				for _, t := range flight.Visible() {
+					sr.FlightVisible = append(sr.FlightVisible, t.Key)
+				}
+				sr.FlightCounts, sr.FlightVGAWindow, sr.FlightGen = flight.Counts(), flight.VGAWindow(), flight.Generation()
+				sr.FlightHidden, sr.FlightCovers, sr.FlightReport = map[int][]string{}, map[int][]FlightCover{}, map[int][]FlightEntry{}
 			}
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
@@ -510,7 +589,15 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				comp, _ := ov.Draw(so.LastIndexed, so.LastPalette)
 				plain := ScaleIndexedRGBA(so.LastIndexed, so.LastPalette, sc)
 				sr.Composites[sc], sr.Plain[sc] = comp, plain
-				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
+				// 009 §3.11 接點第 4 條：Overlay.Draw → fov.Sync、fov.Draw → CheckComposite → 010 的字幕。
+				var covers []FlightCover
+				if fov := fovs[sc]; fov != nil {
+					fov.Sync(flight.Visible(), flight.Generation())
+					fov.Draw(comp, so.LastIndexed, so.LastPalette)
+					covers = fov.Covers()
+					sr.FlightHidden[sc], sr.FlightCovers[sc], sr.FlightReport[sc] = append([]string(nil), fov.Hidden...), covers, fov.Report()
+				}
+				sr.Check[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art(), covers...)
 				sr.ArtKeys[sc] = ov.ArtKeys()
 				sr.Hidden[sc] = append([]string(nil), ov.Hidden...)
 				sr.BG[sc] = ov.BGReport()
@@ -544,6 +631,12 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	}
 	res.Log, res.LogDropped = so.Labels.Log()
 	res.PartialBlits = so.Labels.PartialBlits()
+	if flight != nil {
+		res.FlightLog, res.FlightLogDrop = flight.Log()
+		res.FlightCounts = flight.Counts()
+		res.FlightOverlays = fovs
+		res.FlightReport, res.FlightHidden = map[int][]FlightEntry{}, map[int][]string{}
+	}
 	if so.LastIndexed == nil {
 		return res, errors.New("strikecommander: 沒有收到任何回掃畫格")
 	}
@@ -559,7 +652,14 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		res.BG[sc] = ov.BGReport()
 		plain := ScaleIndexedRGBA(res.Frame, res.Palette, sc)
 		res.Composites[sc], res.Plain[sc] = comp, plain
-		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art())
+		var covers []FlightCover
+		if fov := fovs[sc]; fov != nil {
+			fov.Sync(flight.Visible(), flight.Generation())
+			fov.Draw(comp, res.Frame, res.Palette)
+			covers = fov.Covers()
+			res.FlightReport[sc], res.FlightHidden[sc] = fov.Report(), append([]string(nil), fov.Hidden...)
+		}
+		res.CompositeCheck[sc] = CheckComposite(comp, plain, sc, ov.Stamps(), ov.Art(), covers...)
 	}
 	if so.Subtitles != nil {
 		drawSubtitles(so.Subtitles, cfg.Scales, res.Composites)
@@ -580,8 +680,8 @@ func drawSubtitles(s *Subtitles, scales []int, comps map[int][]byte) SubShot {
 }
 
 // CheckComposite 逐像素比較合成圖與原版放大圖：差異只能落在遮蓋 stamp（Font == nil）的框，
-// 或存讀檔對話框圖面的字帶（004 §3.3）× 倍率內。
-func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect) CompositeCheck {
+// 或存讀檔對話框圖面的字帶（004 §3.3）、飛行字串的遮蓋範圍（009 §3.11 接點第 6 條）× 倍率內。
+func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect, flight ...FlightCover) CompositeCheck {
 	var c CompositeCheck
 	w := 320 * scale
 	for i := 0; i+3 < len(comp) && i+3 < len(plain); i += 4 {
@@ -599,6 +699,12 @@ func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []
 		}
 		for _, a := range art {
 			if x >= a.X && x < a.X+a.W && y >= a.Y && y < a.Y+a.H {
+				in = true
+				break
+			}
+		}
+		for _, f := range flight {
+			if x >= f.X0 && x < f.X1 && y >= f.Y0 && y < f.Y1 {
 				in = true
 				break
 			}

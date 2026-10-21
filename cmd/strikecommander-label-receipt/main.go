@@ -48,6 +48,9 @@ func main() {
 	flag.Uint64Var(&sub.e, "sub-e", 0, "字幕顯示延長 E（步數，規格 010 §3.8）")
 	flag.Uint64Var(&sub.t, "sub-t", strikecommander.SubtitleDefaultT, "等待續段的逾時 T（步數，規格 010 §3.4）")
 	flag.BoolVar(&sub.sbdmaLog, "sbdma-log", false, "記下全部 SB16 DMA 事件寫成 receipt-sbdma.tsv（欄位同 probe -sb-dma-log；dosgolem 452）")
+	flag.StringVar(&fl.hudFont, "hud-font", "", "HUD12 字型 zh-TW.hud12.golemfnt（strike_commander 規格 009 §3.9）；3 倍時必要")
+	flag.StringVar(&fl.text, "flight-text", "", "text 目錄：讀 strike_hud、strike_mfd、strike_plaque 三個 catalog（規格 009 §3.10）；與 -hud-font 都沒給時不裝飛行字串觀察器")
+	flag.BoolVar(&fl.outlineExp, "flight-outline-exp", false, "樣張用的實驗旗標：MFD、橫幅也畫外框（規格 009 §4.2 樣張，不進驗收）")
 	flag.Parse()
 	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *fontPath, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
@@ -60,6 +63,42 @@ var sub struct {
 	index, catalog string
 	on, sbdmaLog   bool
 	e, t           uint64
+}
+
+// fl 是規格 009 的旗標（飛行 HUD、MFD、訊息橫幅）。
+var fl struct {
+	hudFont, text string
+	outlineExp    bool
+}
+
+// loadFlight 依 -hud-font、-flight-text 設定 cfg（009 §3.11 接點第 6a 條）；兩者都沒給時不裝。
+func loadFlight(cfg *strikecommander.ReceiptConfig) error {
+	if fl.hudFont == "" && fl.text == "" {
+		return nil
+	}
+	if fl.text == "" {
+		return fmt.Errorf("-hud-font 要搭配 -flight-text")
+	}
+	if fl.hudFont != "" {
+		h, err := strikecommander.LoadHUDFont(fl.hudFont, "hud12-zh-TW")
+		if err != nil {
+			return err
+		}
+		cfg.HUDFont = h
+	}
+	var cats strikecommander.FlightCatalogs
+	for _, c := range []struct {
+		name string
+		dst  *map[string]string
+	}{{"strike_hud", &cats.HUD}, {"strike_mfd", &cats.MFD}, {"strike_plaque", &cats.Plaque}} {
+		m, err := strikecommander.LoadCatalog(filepath.Join(fl.text, c.name+".zh-TW.tsv"))
+		if err != nil {
+			return err
+		}
+		*c.dst = m
+	}
+	cfg.FlightCatalogs, cfg.FlightOutlineExperiment = &cats, fl.outlineExp
+	return nil
 }
 
 func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, fontPath, out, work string, cursorY int, ab bool) error {
@@ -154,6 +193,9 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		meta = strikecommander.SubtitleMeta{FontSHA256: sha256Hex(fb), IndexSHA256: sha256Hex(ib), CatalogSHA256: sha256Hex(cb), E: sub.e, T: sub.t}
 	}
 	cfg.RecordSBDMA = sub.sbdmaLog
+	if err := loadFlight(&cfg); err != nil {
+		return err
+	}
 	on, err := runOnce(root, work, cfg)
 	if err != nil {
 		return err
@@ -219,11 +261,34 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err := strikecommander.WriteStopFiles(out, on, scales); err != nil {
 		return err
 	}
+	if cfg.FlightCatalogs != nil {
+		// 規格 009 §3.11 接點第 7 條：停止點與每個 shot 的 flight.tsv、flight-rows.bin、digest.txt。
+		if err := strikecommander.WriteFlightFiles(out, fmt.Sprintf("stop-%d", on.Digest.Steps), scales, on.FlightReport, on.Digest); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(out, "flight-commits.tsv"), strikecommander.FlightCommitsTSV(on.FlightCommits), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("飛行字串：升格 %d 次，計數 %+v\n", len(on.FlightCommits), on.FlightCounts)
+		for _, e := range on.FlightLog {
+			fmt.Printf("飛行紀錄 第 %d 步 %s：%s\n", e.Steps, e.Kind, e.Detail)
+		}
+		for _, sc := range scales {
+			fov := on.FlightOverlays[sc]
+			fmt.Printf("%d 倍飛行 overlay：misses %+v；skips %+v\n", sc, fov.Misses, fov.Skips)
+		}
+	}
 	for i := range on.Shots {
 		s := &on.Shots[i]
 		// 規格 006 §3.3：shot 的收據檔（前綴 shot-<步數>-<名稱>，含 PNG）。
 		if err := strikecommander.WriteShotFiles(out, strikecommander.ShotPrefix(s), s, scales); err != nil {
 			return err
+		}
+		if cfg.FlightCatalogs != nil {
+			if err := strikecommander.WriteFlightFiles(out, strikecommander.ShotPrefix(s), scales, s.FlightReport, s.Digest); err != nil {
+				return err
+			}
+			fmt.Printf("  飛行 Visible %q Hidden %v\n", s.FlightVisible, s.FlightHidden)
 		}
 		for _, sc := range scales {
 			cc := s.Check[sc]
@@ -255,7 +320,7 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if !ab {
 		return nil
 	}
-	cfg.Overlay, cfg.Subtitles, cfg.RecordSBDMA = false, false, false
+	cfg.Overlay, cfg.Subtitles, cfg.RecordSBDMA, cfg.FlightCatalogs = false, false, false, nil
 	off, err := runOnce(root, work, cfg)
 	if err != nil {
 		return err
