@@ -43,8 +43,8 @@ type caseDWant struct {
 
 var caseDWants = []caseDWant{
 	{"Fly Mission", "出擊", 5000833169, 5003149219, 3, false},
-	{"AIM-9J rear aspect missile (42)", "尾追式飛彈（ＡＩＭ－９Ｊ）：４２", 5601146748, 5619673025, 17, true},
-	{"Remove AIM-9J (2)", "卸下尾追式飛彈（ＡＩＭ－９Ｊ）：２", 5620831298, 5628940517, 8, true},
+	{"AIM-9J rear aspect missile (42)", "響尾蛇（ＡＩＭ－９Ｊ）：４２", 5601146748, 5619673025, 17, true},
+	{"Remove AIM-9J (2)", "卸下響尾蛇（ＡＩＭ－９Ｊ）：２", 5620831298, 5628940517, 8, true},
 }
 
 func runCaseD(t *testing.T, overlay, exactOnly bool) *ReceiptResult {
