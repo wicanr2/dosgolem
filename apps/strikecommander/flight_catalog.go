@@ -111,6 +111,26 @@ func normalizeFullwidthASCII(s string) string {
 
 // LintFlight 依 §3.10 檢查一份飛行 catalog。wide 在 hud 用 HUD12 的寬度表，mfd、plaque 用正式字型的。
 func LintFlight(kind Kind, b []byte, wide *WideTable, glossary []GlossaryRow) []error {
+	return lintFlightCore(kind, b, glossary, func(bad badFunc, r catalogRow) {
+		for _, c := range r.tr {
+			if c < 0x80 || (wide.Has(c) && !wide.Wide(c)) {
+				bad("第 %d 列 key %q 含非全形字 %q（U+%04X）", r.line, r.key, c, c)
+			}
+		}
+		n := utf8.RuneCountInString(r.tr)
+		limit := flightMFDMaxRunes
+		if kind != KindMFD {
+			limit = flightMaxRunes[kind][r.key]
+		}
+		if limit > 0 && n > limit {
+			bad("第 %d 列 key %q 譯文 %d 字，上限 %d", r.line, r.key, n, limit)
+		}
+	})
+}
+
+// lintFlightCore 是 LintFlight 與 LintFlightText（strike_commander 規格 011 §3.7）共用的結構與 glossary 檢查；
+// 每個譯文非空的列交給 check 檢查字元與寬度。
+func lintFlightCore(kind Kind, b []byte, glossary []GlossaryRow, check func(bad badFunc, r catalogRow)) []error {
 	var errs []error
 	bad := func(format string, a ...any) { errs = append(errs, fmt.Errorf(format, a...)) }
 	allowed, okKind := flightAllowed[kind]
@@ -155,19 +175,7 @@ func LintFlight(kind Kind, b []byte, wide *WideTable, glossary []GlossaryRow) []
 			bad("第 %d 列 key %q 譯文是空的", r.line, r.key)
 			continue
 		}
-		for _, c := range r.tr {
-			if c < 0x80 || (wide.Has(c) && !wide.Wide(c)) {
-				bad("第 %d 列 key %q 含非全形字 %q（U+%04X）", r.line, r.key, c, c)
-			}
-		}
-		n := utf8.RuneCountInString(r.tr)
-		limit := flightMFDMaxRunes
-		if kind != KindMFD {
-			limit = flightMaxRunes[kind][r.key]
-		}
-		if limit > 0 && n > limit {
-			bad("第 %d 列 key %q 譯文 %d 字，上限 %d", r.line, r.key, n, limit)
-		}
+		check(bad, r)
 		for _, g := range glossary {
 			if g.En != r.key {
 				continue

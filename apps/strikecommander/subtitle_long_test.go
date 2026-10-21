@@ -460,8 +460,10 @@ func TestSubtitleCase(t *testing.T) {
 }
 
 // TestFormalSpeechCatalog 以 lint 檢查正式譯文 text/speech.zh-TW.tsv（010 §3.9）。
+// strike_commander 規格 011 §4.6：(c) 起新舊 lint 都跑。舊 lint 在 DOSGOLEM_SC_SUB_FONT 設定時跑；
+// 新 lint（LintSpeechText）在 DOSGOLEM_SC_FONT_DIR 設定時跑。
 func TestFormalSpeechCatalog(t *testing.T) {
-	envs := []string{"DOSGOLEM_SC_SPEECH_FORMAL", scSpeechIndexEnv, "DOSGOLEM_SC_SPEECH_EN", "DOSGOLEM_SC_GLOSSARY", scSubFontEnv}
+	envs := []string{"DOSGOLEM_SC_SPEECH_FORMAL", scSpeechIndexEnv, "DOSGOLEM_SC_SPEECH_EN", "DOSGOLEM_SC_GLOSSARY"}
 	var bs [][]byte
 	for _, e := range envs {
 		if os.Getenv(e) == "" {
@@ -473,13 +475,34 @@ func TestFormalSpeechCatalog(t *testing.T) {
 		}
 		bs = append(bs, b)
 	}
-	f, err := ParseSubtitleFont(bs[4], SubtitleFontName)
-	if err != nil {
-		t.Fatal(err)
+	sp := os.Getenv(scSubFontEnv)
+	if sp == "" && os.Getenv(scFontDirEnv) == "" {
+		t.Skip(scSubFontEnv + " 或 " + scFontDirEnv + " 未設定")
 	}
-	rep := LintSpeech(bs[1], bs[0], bs[2], bs[3], f.Wide)
-	t.Logf("漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
-	if !rep.OK() {
-		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
+	if sp != "" {
+		fb, err := os.ReadFile(sp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := ParseSubtitleFont(fb, SubtitleFontName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rep := LintSpeech(bs[1], bs[0], bs[2], bs[3], f.Wide)
+		t.Logf("舊 lint：漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
+		if !rep.OK() {
+			t.Fatalf("舊 lint：\n%s", strings.Join(rep.Errors, "\n"))
+		}
+	} else {
+		t.Log("舊 lint 未跑：" + scSubFontEnv + " 未設定")
+	}
+	if tf := envTextFonts(t); tf != nil {
+		rep := LintSpeechText(bs[1], bs[0], bs[2], bs[3], tf)
+		t.Logf("新 lint：漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
+		if !rep.OK() {
+			t.Fatalf("新 lint：\n%s", strings.Join(rep.Errors, "\n"))
+		}
+	} else {
+		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
 	}
 }

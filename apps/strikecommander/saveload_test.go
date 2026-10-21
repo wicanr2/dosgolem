@@ -1143,21 +1143,35 @@ func TestLintArt(t *testing.T) {
 }
 
 // TestFormalGfxCatalog 以 LintArt 檢查正式圖形字 catalog（DOSGOLEM_SC_GFX_CATALOG）與字型（DOSGOLEM_SC_FONT）。
+// strike_commander 規格 011 §4.6：(c) 起另以 LintArtText 對圖集（DOSGOLEM_SC_FONT_DIR）檢查，新舊都跑。
 func TestFormalGfxCatalog(t *testing.T) {
 	cp, fp := os.Getenv(scGfxCatalogEnv), os.Getenv(scFontEnv)
-	if cp == "" || fp == "" {
-		t.Skip(scGfxCatalogEnv + "、" + scFontEnv + " 未設定")
+	if cp == "" || (fp == "" && os.Getenv(scFontDirEnv) == "") {
+		t.Skip(scGfxCatalogEnv + " 與 " + scFontEnv + " 或 " + scFontDirEnv + " 未設定")
 	}
 	b, err := os.ReadFile(cp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := LoadLabelFont(fp, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
+	if fp != "" {
+		f, err := LoadLabelFont(fp, "full16-zh-TW")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep := LintArt(b, f.Wide); !rep.OK() {
+			t.Fatalf("正式圖形字 catalog（舊 lint）：%v", rep.Errors)
+		}
+		t.Log("舊 lint 通過")
+	} else {
+		t.Log("舊 lint 未跑：" + scFontEnv + " 未設定")
 	}
-	if rep := LintArt(b, f.Wide); !rep.OK() {
-		t.Fatalf("正式圖形字 catalog：%v", rep.Errors)
+	if tf := envTextFonts(t); tf != nil {
+		if rep := LintArtText(b, tf); !rep.OK() {
+			t.Fatalf("正式圖形字 catalog（新 lint）：%v", rep.Errors)
+		}
+		t.Log("新 lint 通過")
+	} else {
+		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
 	}
 	c, err := ParseCatalog(b)
 	if err != nil {

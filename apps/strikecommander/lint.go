@@ -29,12 +29,36 @@ func (r LintReport) OK() bool { return len(r.Errors) == 0 }
 //
 // 字型的固定附加字另由 CheckFontExtra 檢查。
 func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
+	rep, _ := lintLabelCore(b, labl, func(bad badFunc, r catalogRow, text string) {
+		for _, c := range text {
+			switch {
+			case !wide.Has(c):
+				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
+			case !wide.Wide(c):
+				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
+			}
+		}
+		if n := utf8.RuneCountInString(text); n*8 > 320 {
+			bad("第 %d 列 key %q 譯文 %d 字，2 倍寬 %d 超過 320", r.line, r.key, n, n*8)
+		}
+	})
+	return rep
+}
+
+// badFunc 是 lint 記錯誤的函式。
+type badFunc func(format string, a ...any)
+
+// lintLabelCore 是 Lint 與 LintLabels（strike_commander 規格 011 §3.7）共用的結構檢查：欄名、欄數、key 唯一、
+// 孤兒 key、空譯文、範本佔位符、漏譯與防呆。每列的字元與寬度檢查交給 check（text 是拿掉範本佔位符後的譯文）。
+// 回傳的 map 是可用列（三欄、非空、首次出現）的 key → 譯文，供組合標籤的檢查。
+func lintLabelCore(b []byte, labl map[string]bool, check func(bad badFunc, r catalogRow, text string)) (LintReport, map[string]string) {
 	var rep LintReport
 	bad := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }
+	cat := map[string]string{}
 	header, rows, err := splitCatalog(b)
 	if err != nil {
 		bad("%v", err)
-		return rep
+		return rep, cat
 	}
 	if header != catalogHeader {
 		bad("第 1 列欄名要是 key、translation、source")
@@ -78,17 +102,10 @@ func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
 			// 佔位符各拿掉一個；多出的會以半形字報出。
 			text = strings.Replace(strings.Replace(text, "%s", "", 1), "%d", "", 1)
 		}
-		for _, c := range text {
-			switch {
-			case !wide.Has(c):
-				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
-			case !wide.Wide(c):
-				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
-			}
+		if _, dup := cat[r.key]; !dup {
+			cat[r.key] = r.tr
 		}
-		if n := utf8.RuneCountInString(text); n*8 > 320 {
-			bad("第 %d 列 key %q 譯文 %d 字，2 倍寬 %d 超過 320", r.line, r.key, n, n*8)
-		}
+		check(bad, r, text)
 	}
 	for k, in := range keys {
 		if _, ok := seen[k]; in && !ok {
@@ -126,5 +143,5 @@ func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
 			bad("EXE 字串 %q 也在 LABL 集合", k)
 		}
 	}
-	return rep
+	return rep, cat
 }

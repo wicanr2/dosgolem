@@ -219,6 +219,38 @@ func withPlaceholders(s string) []rune {
 
 // LintSpeech 依 010 §3.9 檢查結構表、譯文、逐字稿；glossary 是 text/glossary.tsv，wide 是字型的全形表。
 func LintSpeech(indexB, catalogB, enB, glossaryB []byte, wide *WideTable) SpeechLintReport {
+	chars := func(bad badFunc, r catalogRow) {
+		// 每字都在全形表內（代換符號除外）。
+		for _, c := range withoutSymbols(r.tr) {
+			switch {
+			case !wide.Has(c):
+				bad("譯文第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
+			case !wide.Wide(c):
+				bad("譯文第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
+			}
+		}
+	}
+	lines := func(rep *SpeechLintReport, bad badFunc, r catalogRow, speaker string, hasSpeaker bool) {
+		// 行數（2 倍版面，3 倍相同；W 與顯示共用 SubLineCells）。lint 上限 3 行，執行期上限 4 行另計（subMaxLines）。
+		full := withPlaceholders(r.tr)
+		if hasSpeaker {
+			full = append(append(withPlaceholders(speaker), '：'), full...)
+		}
+		ls, _ := wrapLine(full, SubLineCells)
+		switch {
+		case len(ls) > subLintMaxLines:
+			bad("譯文第 %d 列 key %q 換行後 %d 行，超過 %d 行", r.line, r.key, len(ls), subLintMaxLines)
+		case len(ls) > 2:
+			rep.Over2 = append(rep.Over2, fmt.Sprintf("%s（%d 行）", r.key, len(ls)))
+		}
+	}
+	return lintSpeechCore(indexB, catalogB, enB, glossaryB, chars, lines)
+}
+
+// lintSpeechCore 是 LintSpeech 與 LintSpeechText（strike_commander 規格 011 §3.7）共用的結構、符號、
+// source、譯名檢查；每列的字元檢查交給 chars，每句的行數檢查交給 lines（speaker 是說話人譯文，hasSpeaker 為有無）。
+func lintSpeechCore(indexB, catalogB, enB, glossaryB []byte, chars func(bad badFunc, r catalogRow),
+	lines func(rep *SpeechLintReport, bad badFunc, r catalogRow, speaker string, hasSpeaker bool)) SpeechLintReport {
 	var rep SpeechLintReport
 	bad := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }
 	idx, err := ParseSpeechIndex(indexB)
@@ -311,15 +343,7 @@ func LintSpeech(indexB, catalogB, enB, glossaryB []byte, wide *WideTable) Speech
 		if serr != nil {
 			bad("譯文第 %d 列 key %q：%v", r.line, r.key, serr)
 		}
-		// 每字都在全形表內（代換符號除外）。
-		for _, c := range withoutSymbols(r.tr) {
-			switch {
-			case !wide.Has(c):
-				bad("譯文第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
-			case !wide.Wide(c):
-				bad("譯文第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
-			}
-		}
+		chars(bad, r)
 		if strings.HasPrefix(r.key, "speaker/") {
 			code := strings.TrimPrefix(r.key, "speaker/")
 			if !speakers[code] {
@@ -376,18 +400,8 @@ func LintSpeech(indexB, catalogB, enB, glossaryB []byte, wide *WideTable) Speech
 				}
 			}
 		}
-		// 行數（2 倍版面，3 倍相同；W 與顯示共用 SubLineCells）。lint 上限 3 行，執行期上限 4 行另計（subMaxLines）。
-		full := withPlaceholders(r.tr)
-		if sp, ok := cat["speaker/"+line.Speaker]; ok {
-			full = append(append(withPlaceholders(sp), '：'), full...)
-		}
-		ls, _ := wrapLine(full, SubLineCells)
-		switch {
-		case len(ls) > subLintMaxLines:
-			bad("譯文第 %d 列 key %q 換行後 %d 行，超過 %d 行", r.line, r.key, len(ls), subLintMaxLines)
-		case len(ls) > 2:
-			rep.Over2 = append(rep.Over2, fmt.Sprintf("%s（%d 行）", r.key, len(ls)))
-		}
+		sp, ok := cat["speaker/"+line.Speaker]
+		lines(&rep, bad, r, sp, ok)
 	}
 	for _, l := range idx.Lines {
 		if _, ok := cat[l.Key]; !ok {

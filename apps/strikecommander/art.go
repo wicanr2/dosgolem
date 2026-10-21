@@ -254,6 +254,21 @@ func glyphOrigin(n, scale int, band, ink box) (gx, gy, step int, err error) {
 // 對照中的 16 個 key（007 §3.7、008 §3.7）都在、譯文非空、每字都是字型收入的全形字。catalog 其餘 key 不報錯。
 // 不走 Lint：它會把 LABL 以外的 key 全報孤兒。
 func LintArt(b []byte, wide *WideTable) LintReport {
+	return lintArtCore(b, func(bad badFunc, r catalogRow, k string) {
+		for _, c := range r.tr {
+			switch {
+			case !wide.Has(c):
+				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, k, c, c)
+			case !wide.Wide(c):
+				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, k, c, c)
+			}
+		}
+	})
+}
+
+// lintArtCore 是 LintArt 與 LintArtText（strike_commander 規格 011 §3.7）共用的結構檢查；
+// 每個對照中、譯文非空的 key 交給 check 檢查字元與版面。
+func lintArtCore(b []byte, check func(bad badFunc, r catalogRow, k string)) LintReport {
 	var rep LintReport
 	bad := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }
 	header, rows, err := splitCatalog(b)
@@ -286,14 +301,7 @@ func LintArt(b []byte, wide *WideTable) LintReport {
 			bad("第 %d 列 key %q 譯文是空的", r.line, k)
 			continue
 		}
-		for _, c := range r.tr {
-			switch {
-			case !wide.Has(c):
-				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, k, c, c)
-			case !wide.Wide(c):
-				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, k, c, c)
-			}
-		}
+		check(bad, r, k)
 	}
 	return rep
 }

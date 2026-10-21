@@ -237,16 +237,13 @@ func TestBuiltFont(t *testing.T) {
 // TestFormalCatalog 以 lint 檢查正式譯文：DOSGOLEM_SC_CATALOG 是 text/opttest_labels.<lang>.tsv，
 // DOSGOLEM_SC_LABL 是 OPTIONS.IFF 與 OPTIONS2.IFF 的 LABL 去重清單（每列一個 key，原始位元組），
 // 字型取 DOSGOLEM_SC_FONT，DOSGOLEM_SC_FONT_EXTRA 是 strike_commander font/zh-TW.extra.txt。
-// 四者都設定時才執行。斷言 lint 通過、漏譯為 0（002 §2.3）、extra 檔內容等於 FontExtraRunes，
-// 且字型含這 12 字（002 §2.5）。
+// 斷言 lint 通過、漏譯為 0（002 §2.3）、extra 檔內容等於 FontExtraRunes，且字型含這 12 字（002 §2.5）。
+// strike_commander 規格 011 §4.6：(c) 起新舊 lint 都跑。舊 lint 在 DOSGOLEM_SC_FONT 設定時跑；
+// 新 lint（LintLabels、CheckTextExtra）在 DOSGOLEM_SC_FONT_DIR 設定時跑（預期表取 DOSGOLEM_SC_FONT_EXPECTED）。
 func TestFormalCatalog(t *testing.T) {
 	cp, lp, fp, xp := os.Getenv(scCatalogEnv), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv(scFontEnv), os.Getenv("DOSGOLEM_SC_FONT_EXTRA")
-	if cp == "" || lp == "" || fp == "" || xp == "" {
-		t.Skip(scCatalogEnv + "、DOSGOLEM_SC_LABL、" + scFontEnv + "、DOSGOLEM_SC_FONT_EXTRA 未全部設定")
-	}
-	f, err := LoadLabelFont(fp, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
+	if cp == "" || lp == "" || xp == "" || (fp == "" && os.Getenv(scFontDirEnv) == "") {
+		t.Skip(scCatalogEnv + "、DOSGOLEM_SC_LABL、DOSGOLEM_SC_FONT_EXTRA 與 " + scFontEnv + " 或 " + scFontDirEnv + " 未全部設定")
 	}
 	b, err := os.ReadFile(cp)
 	if err != nil {
@@ -260,14 +257,6 @@ func TestFormalCatalog(t *testing.T) {
 	for _, k := range strings.Split(strings.TrimSuffix(string(lb), "\n"), "\n") {
 		labl[k] = true
 	}
-	rep := Lint(b, f.Wide, labl)
-	t.Logf("LABL %d 個，漏譯 %d：%v", len(labl), len(rep.Untranslated), rep.Untranslated)
-	if !rep.OK() {
-		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
-	}
-	if len(rep.Untranslated) != 0 {
-		t.Fatalf("正式 catalog 漏譯 %d：%v", len(rep.Untranslated), rep.Untranslated)
-	}
 	xb, err := os.ReadFile(xp)
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +264,33 @@ func TestFormalCatalog(t *testing.T) {
 	if string(xb) != FontExtraRunes {
 		t.Fatalf("%s 的內容 %q，要等於 FontExtraRunes %q", xp, xb, FontExtraRunes)
 	}
-	if err := CheckFontExtra(f.Wide); err != nil {
-		t.Fatal(err)
+	check := func(which string, rep LintReport) {
+		t.Logf("%s：LABL %d 個，漏譯 %d：%v", which, len(labl), len(rep.Untranslated), rep.Untranslated)
+		if !rep.OK() {
+			t.Fatalf("%s：\n%s", which, strings.Join(rep.Errors, "\n"))
+		}
+		if len(rep.Untranslated) != 0 {
+			t.Fatalf("%s：正式 catalog 漏譯 %d：%v", which, len(rep.Untranslated), rep.Untranslated)
+		}
+	}
+	if fp != "" {
+		f, err := LoadLabelFont(fp, "full16-zh-TW")
+		if err != nil {
+			t.Fatal(err)
+		}
+		check("舊 lint", Lint(b, f.Wide, labl))
+		if err := CheckFontExtra(f.Wide); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Log("舊 lint 未跑：" + scFontEnv + " 未設定")
+	}
+	if tf := envTextFonts(t); tf != nil {
+		check("新 lint", LintLabels(b, tf, labl))
+		if err := CheckTextExtra(tf); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
 	}
 }

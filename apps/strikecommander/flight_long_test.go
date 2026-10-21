@@ -51,20 +51,15 @@ func flightCatalogsFrom(t *testing.T, dir string) FlightCatalogs {
 
 // TestFormalFlightCatalog 以 LintFlight 檢查三個正式飛行 catalog（§4.5；TestFormalCatalog 不改，另寫這支）。
 // hud 用 DOSGOLEM_SC_HUD_FONT 的寬度表，mfd、plaque 用 DOSGOLEM_SC_FONT；glossary 取 text/glossary.tsv。
+// strike_commander 規格 011 §4.6：(c) 起另以 LintFlightText 對圖集（DOSGOLEM_SC_FONT_DIR）檢查，新舊都跑；
+// 舊 lint 在 DOSGOLEM_SC_FONT 與 DOSGOLEM_SC_HUD_FONT 都設定時跑。
 func TestFormalFlightCatalog(t *testing.T) {
 	cp, fp, hp := os.Getenv(scCatalogEnv), os.Getenv(scFontEnv), os.Getenv(scHUDFontEnv)
-	if cp == "" || fp == "" || hp == "" {
-		t.Skip(scCatalogEnv + "、" + scFontEnv + "、" + scHUDFontEnv + " 未全部設定")
+	oldOK := fp != "" && hp != ""
+	if cp == "" || (!oldOK && os.Getenv(scFontDirEnv) == "") {
+		t.Skip(scCatalogEnv + " 與（" + scFontEnv + "、" + scHUDFontEnv + "）或 " + scFontDirEnv + " 未設定")
 	}
 	dir := filepath.Dir(cp)
-	label, err := LoadLabelFont(fp, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
-	hud, err := LoadHUDFont(hp, "hud12-zh-TW")
-	if err != nil {
-		t.Skip("HUD12 字型讀不到：", err)
-	}
 	gb, err := os.ReadFile(filepath.Join(dir, "glossary.tsv"))
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +68,36 @@ func TestFormalFlightCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if tf := envTextFonts(t); tf != nil {
+		for _, c := range []struct {
+			kind Kind
+			file string
+		}{{KindHUD, "strike_hud"}, {KindMFD, "strike_mfd"}, {KindPlaque, "strike_plaque"}} {
+			b, err := os.ReadFile(filepath.Join(dir, c.file+".zh-TW.tsv"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if errs := LintFlightText(c.kind, b, tf, gl); len(errs) != 0 {
+				t.Errorf("%s（新 lint）：%v", c.file, errs)
+			}
+		}
+		t.Log("新 lint 跑完")
+	} else {
+		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
+	}
+	if !oldOK {
+		t.Log("舊 lint 未跑：" + scFontEnv + "、" + scHUDFontEnv + " 未全部設定")
+		return
+	}
+	label, err := LoadLabelFont(fp, "full16-zh-TW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hud, err := LoadHUDFont(hp, "hud12-zh-TW")
+	if err != nil {
+		t.Skip("HUD12 字型讀不到：", err)
+	}
+	t.Log("舊 lint 跑")
 	for _, c := range []struct {
 		kind Kind
 		file string
