@@ -974,6 +974,7 @@
 - [444 — EMS 同一邏輯頁映進兩個實體頁](444-ems-alias-mapping.md)：READY。載入前先寫回別名、寫回只寫差異；四頁滑動視窗的最後一頁會同時映在兩處。
 - [445 — 實模式 SB 單次 8 位元 DMA 與 IRQ7](445-real-mode-sb-single-dma.md)：READY。`-sound-blaster` 時實模式有第一組 DMA，DSP `14h` 依取樣率傳完送 IRQ7，存檔保留進度；中文版魔法門 V 離開商店等語音播完靠它。
 - [446 — 讀檔過濾掛點](446-dos-read-filter.md)：READY。`DOS.ReadFilter` 在 `AH=3Fh` 寫進客體記憶體前就地改寫讀到的 bytes；前端即時換字模用。
+- [447 — 唯讀疊層目錄](447-dos-read-layers.md)：READY。`DOS.Layers` 夾在 Scratch 與 Root 之間供讀檔，永遠不寫；放衍生資料檔用。
 
 ## 新增 CPU386 位移切片
 

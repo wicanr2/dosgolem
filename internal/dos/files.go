@@ -60,13 +60,10 @@ func (d *DOS) resolve(name string) string {
 	// **順序不能顛倒**——先試 basename 的話，頂層剛好有同名檔時
 	// 會開到錯的那一份。
 	if segs := dosPathSegments(name); len(segs) > 1 {
-		if d.Scratch != "" {
-			if p := lookupPath(d.Scratch, segs); p != "" {
+		for _, dir := range d.readOrder() {
+			if p := lookupPath(dir, segs); p != "" {
 				return p
 			}
-		}
-		if p := lookupPath(d.Root, segs); p != "" {
-			return p
 		}
 	}
 	base := baseName(name)
@@ -74,13 +71,31 @@ func (d *DOS) resolve(name string) string {
 		return ""
 	}
 	// 暫存層蓋過原版目錄（`docs/spec/009` §2.2.1）：程式存過的東西
-	// 下一次要讀得到自己寫的那一份，不是原版那一份。
-	if d.Scratch != "" {
-		if p := lookupDOS(d.Scratch, base); p != "" {
+	// 下一次要讀得到自己寫的那一份，不是原版那一份。疊層夾在兩者之間
+	// （`docs/spec/447-dos-read-layers`）。
+	for _, dir := range d.readOrder() {
+		if p := lookupDOS(dir, base); p != "" {
 			return p
 		}
 	}
-	return lookupDOS(d.Root, base)
+	return ""
+}
+
+// readOrder 是讀檔的查找順序：Scratch、Layers、Root，空字串略過。
+func (d *DOS) readOrder() []string {
+	out := make([]string, 0, len(d.Layers)+2)
+	if d.Scratch != "" {
+		out = append(out, d.Scratch)
+	}
+	for _, l := range d.Layers {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	if d.Root != "" {
+		out = append(out, d.Root)
+	}
+	return out
 }
 
 // dosPathSegments 把 DOS 路徑拆成一段一段，回 nil 表示這條路徑不能走

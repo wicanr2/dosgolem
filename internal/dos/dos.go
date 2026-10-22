@@ -161,6 +161,11 @@ type DOS struct {
 	// **原版素材目錄永遠不寫**。
 	Scratch string
 
+	// Layers 是唯讀疊層目錄（`docs/spec/447-dos-read-layers`）：讀檔依序找
+	// Scratch、Layers[0]、Layers[1]…、Root，第一個找到的為準。永遠不寫；
+	// 以寫入模式開疊層裡的檔時，照 Scratch 的規則先複製到暫存層。
+	Layers []string
+
 	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
 	Mouse Mouse

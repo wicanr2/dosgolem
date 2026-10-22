@@ -128,10 +128,7 @@ func (d *DOS) resolveDir(name string) string {
 	if len(dirs) == 0 || file == "" {
 		return ""
 	}
-	for _, layer := range []string{d.Scratch, d.Root} {
-		if layer == "" {
-			continue
-		}
+	for _, layer := range d.readOrder() {
 		dir := walkDirs(layer, dirs)
 		if dir == "" {
 			continue
