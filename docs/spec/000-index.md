@@ -976,6 +976,7 @@
 - [446 — 讀檔過濾掛點](446-dos-read-filter.md)：READY。`DOS.ReadFilter` 在 `AH=3Fh` 寫進客體記憶體前就地改寫讀到的 bytes；前端即時換字模用。
 - [447 — 唯讀疊層目錄](447-dos-read-layers.md)：READY。`DOS.Layers` 夾在 Scratch 與 Root 之間供讀檔，永遠不寫；放衍生資料檔用。
 - [448 — 混音器的 SB 數位聲道](448-mixer-sb-pcm.md)：READY。`Machine.ObserveSB` 逐 byte 送出 445 的取樣，混音器零階保持後與 OPL 相加；前端聽得到語音。
+- [449 — 執行中改指令時脈](449-live-instruction-clock.md)：READY。`SetInstructionClockPercent` 1–3200%，計時器、回掃、鍵盤與進行中的 SB DMA 依比例換算；前端 CPU 倍率用。
 
 ## 新增 CPU386 位移切片
 
