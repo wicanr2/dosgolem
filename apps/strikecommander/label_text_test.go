@@ -9,16 +9,15 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// strike_commander 規格 011 §4.1 第 3 到 7、13、16 項的標籤部分（分期 (d)）。期望值在測試內獨立寫出，字型用 testTextFonts。
+// strike_commander 規格 011 §4.1 第 3 到 7、13、14、16 項的標籤部分。期望值在測試內獨立寫出，字型用 testTextFonts。
 
-// textOverlay 建一個 label 走新路徑的 Overlay（舊字型照舊必要，計分板等仍走舊路徑）。
+// textOverlay 建一個以圖集 fonts 繪製的 Overlay（沒有圖形字 catalog）。
 func textOverlay(t *testing.T, fonts *TextFonts, tr map[string]string, scale int) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), tr, nil, scale)
+	ov, err := NewOverlayText(fonts, tr, nil, scale)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ov.Text, ov.TextLabel = fonts, true
 	return ov
 }
 
@@ -178,7 +177,7 @@ func TestLabelTextDraw(t *testing.T) {
 	if len(boxes) != 1 || boxes[0] != want {
 		t.Errorf("TextBoxes %+v，要 [%+v]", boxes, want)
 	}
-	if bg := ov.BGReport(); len(bg) != 1 || bg[0].Path != "new" || bg[0].Ink != want || bg[0].Display != "高" || bg[0].Px != 22 {
+	if bg := ov.BGReport(); len(bg) != 1 || bg[0].Ink != want || bg[0].Display != "高" || bg[0].Px != 22 {
 		t.Errorf("BGReport %+v", bg)
 	}
 
@@ -294,59 +293,41 @@ func TestCommitStampsOldNew(t *testing.T) {
 		{Key: "Fly Mission", X0: 124, X1: 195, Y: 160, Font: measuredFont, Kind: KindLabel},
 	}
 	tr := map[string]string{"Talk to Gwen": "測試譯文甲", "Fly Mission": "尾（ＡＩＭ－９Ｊ）"}
-	old, err := NewOverlay(testLabelFont(t), tr, nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old.Sync(labels, 1)
 	nw := textOverlay(t, testTextFonts(t), tr, 2)
 	nw.Sync(labels, 1)
-	a, b := old.commitStamps(2), nw.commitStamps(2)
+	// Stamps 是每筆 2 個（遮蓋＋文字）的總數，Texts 是 N() 前的譯文（011 §4.1 第 16 項）。
 	want := CommitStamps{Scale: 2, Stamps: 4, Texts: []string{"測試譯文甲", "尾（ＡＩＭ－９Ｊ）"}, Kinds: []Kind{KindLabel, KindLabel}}
-	eq := func(x, y CommitStamps) bool {
-		return x.Scale == y.Scale && x.Stamps == y.Stamps && slices.Equal(x.Texts, y.Texts) && slices.Equal(x.Kinds, y.Kinds)
+	b := nw.commitStamps(2)
+	if b.Scale != want.Scale || b.Stamps != want.Stamps || !slices.Equal(b.Texts, want.Texts) || !slices.Equal(b.Kinds, want.Kinds) {
+		t.Fatalf("%+v，要 %+v", b, want)
 	}
-	if !eq(a, want) || !eq(b, want) {
-		t.Fatalf("舊 %+v、新 %+v，要 %+v", a, b, want)
-	}
-	if len(old.Stamps()) != 4 || len(nw.Stamps()) != 2 {
-		t.Fatalf("Stamps()：舊 %d、新 %d，要 4、2（新路徑只回遮蓋 stamp）", len(old.Stamps()), len(nw.Stamps()))
+	if len(nw.Stamps()) != 2 {
+		t.Fatalf("Stamps() %d，要 2（只回遮蓋 stamp）", len(nw.Stamps()))
 	}
 }
 
-// TestTextPathsGuard：Fonts 為 nil 而開關為真時回錯（(e) 起五條路徑都可開）。
-func TestTextPathsGuard(t *testing.T) {
-	for _, p := range []TextPaths{{Label: true}, {Board: true}, {Art: true}, {Flight: true}, {Subtitle: true}} {
-		if _, err := RunReceipt(ReceiptConfig{TextPaths: p}); err == nil || !strings.Contains(err.Error(), "Fonts") {
-			t.Fatalf("%+v：Fonts 為 nil 應回錯，得 %v", p, err)
+// TestRunReceiptNeedsFonts：§4.1 第 14 項，Fonts 為 nil 時 RunReceipt 回錯；不再有路徑開關，預設即反鋸齒路徑。
+func TestRunReceiptNeedsFonts(t *testing.T) {
+	for _, cfg := range []ReceiptConfig{{}, {Overlay: true}, {Overlay: true, Subtitles: true}} {
+		if _, err := RunReceipt(cfg); err == nil || !strings.Contains(err.Error(), "Fonts") {
+			t.Fatalf("%+v：Fonts 為 nil 應回錯，得 %v", cfg, err)
 		}
 	}
-	// 標籤、計分板、圖面任一走舊路徑而沒給舊字型時回錯。
-	if _, err := RunReceipt(ReceiptConfig{Overlay: true, Fonts: testTextFonts(t), TextPaths: TextPaths{Label: true, Board: true}}); err == nil || !strings.Contains(err.Error(), "缺字型") {
-		t.Fatalf("缺舊字型應回錯，得 %v", err)
-	}
-	p, err := ParseTextPaths("label, subtitle")
-	if err != nil || !p.Label || !p.Subtitle || p.Board {
-		t.Fatalf("ParseTextPaths %+v %v", p, err)
-	}
-	if _, err := ParseTextPaths("labels"); err == nil {
-		t.Fatal("不認得的路徑應回錯")
-	}
 }
 
-// TestBGTSVNewPath：labels.tsv 新路徑的列舊幾何欄填 -、新欄照填；舊路徑的列新欄填 -（011 §3.8）。
+// TestBGTSVNewPath：labels.tsv 的欄（011 §3.8）。
 func TestBGTSVNewPath(t *testing.T) {
 	es := []BGEntry{
-		{Key: "a", Kind: KindLabel, State: BGStateFallback, Text: "測", CoverW: 10, CoverH: 14, TextX: 3, Cells: 1},
-		{Key: "b", Kind: KindLabel, State: BGStateFallback, Text: "ＡＢ", Path: "new", Display: "AB", Px: 22, TxOut: 263, Baseline: 374,
+		{Key: "a", Kind: KindLabel, State: BGStateFallback, Text: "測", CoverW: 10, CoverH: 14},
+		{Key: "b", Kind: KindLabel, State: BGStateFallback, Text: "ＡＢ", Display: "AB", Px: 22, TxOut: 263, Baseline: 374,
 			Clip: xlate.AlphaRect{X0: 0, Y0: 350, X1: 640, Y1: 382}, Ink: xlate.AlphaRect{X0: 1, Y0: 2, X1: 3, Y1: 4}, Outline: true, E0: 114, E1: 204},
 	}
 	tsv, _ := BGTSV(es)
 	lines := bytes.Split(bytes.TrimSuffix(tsv, []byte("\n")), []byte("\n"))
 	want := []string{
-		"key\tkind\tstate\ttext\tcover_x\tcover_y\tcover_w\tcover_h\ttext_x\ttext_y\tcells\tcell_w\tcell_h\tglyph_x\tglyph_y\thidden\tbefore_off\tbefore_len\tafter_off\tafter_len\tref_off\tref_len\tdisplay\tpx\ttx_out\tbaseline\tclip_x0\tclip_y0\tclip_x1\tclip_y1\tink_x0\tink_y0\tink_x1\tink_y1\toutline\te0\te1\tpath",
-		"a\tlabel\t退路\t測\t0\t0\t10\t14\t3\t0\t1\t0\t0\t0\t0\tfalse\t0\t0\t0\t0\t0\t0\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\told",
-		"b\tlabel\t退路\tＡＢ\t0\t0\t0\t0\t-\t-\t-\t-\t-\t-\t-\tfalse\t0\t0\t0\t0\t0\t0\tAB\t22\t263\t374\t0\t350\t640\t382\t1\t2\t3\t4\ttrue\t114\t204\tnew",
+		"key\tkind\tstate\ttext\tcover_x\tcover_y\tcover_w\tcover_h\thidden\tbefore_off\tbefore_len\tafter_off\tafter_len\tref_off\tref_len\tdisplay\tpx\ttx_out\tbaseline\tclip_x0\tclip_y0\tclip_x1\tclip_y1\tink_x0\tink_y0\tink_x1\tink_y1\toutline\te0\te1",
+		"a\tlabel\t退路\t測\t0\t0\t10\t14\tfalse\t0\t0\t0\t0\t0\t0\t\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\tfalse\t0\t0",
+		"b\tlabel\t退路\tＡＢ\t0\t0\t0\t0\tfalse\t0\t0\t0\t0\t0\t0\tAB\t22\t263\t374\t0\t350\t640\t382\t1\t2\t3\t4\ttrue\t114\t204",
 	}
 	if len(lines) != 3 {
 		t.Fatalf("%d 列", len(lines))

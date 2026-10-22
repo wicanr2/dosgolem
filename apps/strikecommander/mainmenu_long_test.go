@@ -14,7 +14,7 @@ import (
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_ROOT_SAV1（workplace/i018/root-sav，只有 ABC.sav）、
 //     DOSGOLEM_SC_ROOT_SAV2（workplace/i018/root-sav2，另有 gensave.tmp）：SaveRoot 每次由它複製；
 //   - DOSGOLEM_SC_STATE_DIR（i018-st/m242.state、i018-cold/c800.state）；
-//   - DOSGOLEM_SC_FONT、DOSGOLEM_SC_CATALOG、DOSGOLEM_SC_GFX_CATALOG：正式字型與兩份正式 catalog；
+//   - DOSGOLEM_SC_FONT_DIR、DOSGOLEM_SC_CATALOG、DOSGOLEM_SC_GFX_CATALOG：反鋸齒圖集（011 §3.9）與兩份正式 catalog；
 //   - DOSGOLEM_SC_I018：workplace/i018（游標欄核對用的 PAK）。
 //
 // 事件步數取自盤點工具的 strike_commander workplace/i018/a6、a4、a5、m1 的 ip.tsv（同一輸入的步數，
@@ -344,9 +344,9 @@ func checkMenuCase(t *testing.T, name string, mc menuCase, res *ReceiptResult) {
 }
 
 func TestMenuCase(t *testing.T) {
-	for _, e := range []string{scRootEnv, scRootSav1Env, scRootSav2Env, scStateDirEnv, scFontEnv, scCatalogEnv, scGfxCatalogEnv, i018Env} {
+	for _, e := range []string{scRootEnv, scRootSav1Env, scRootSav2Env, scStateDirEnv, scFontDirEnv, scCatalogEnv, scGfxCatalogEnv, i018Env} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：008 §4.2 需要三個設定樹、狀態檔、字型、兩份正式 catalog 與 i018")
+			t.Skip(e + " 未設定：008 §4.2 需要三個設定樹、狀態檔、圖集、兩份正式 catalog 與 i018")
 		}
 	}
 	for _, name := range []string{"L", "M1", "M2", "N"} {

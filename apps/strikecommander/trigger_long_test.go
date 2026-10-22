@@ -14,8 +14,8 @@ import (
 // 長測試。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT：448 的 SB16 設定樹（每個子測試實體複製到 t.TempDir() 當 SaveRoot）
 //   - DOSGOLEM_SC_STATE_DIR：strike_commander 的 workplace/scratch（底下有 p485、p530、p539）
-//   - DOSGOLEM_SC_FONT：tools/font/build.sh 建的 zh-TW.golemfnt
-// 譯文是 testdata/opttest_labels.test.tsv（不是正式譯文），字型要含測試字（strike_commander font/README.md 的 font-test）。
+//   - DOSGOLEM_SC_FONT_DIR（與 DOSGOLEM_SC_FONT_EXPECTED）：反鋸齒圖集（strike_commander 規格 011 §3.9）
+// 譯文是 testdata/opttest_labels.test.tsv（不是正式譯文），圖集要含測試字（build_noto.sh 以測試 catalog 烘的測試圖集）。
 //
 // 子測試：
 //   - A、B、C：§3.3 的三個案例，斷言提交、墨跡框核對、每次提交的 stamp 數與合成圖差異範圍。
@@ -25,7 +25,6 @@ import (
 const (
 	scRootEnv     = "DOSGOLEM_SC_ROOT"
 	scStateDirEnv = "DOSGOLEM_SC_STATE_DIR"
-	scFontEnv     = "DOSGOLEM_SC_FONT"
 	scCatalogEnv  = "DOSGOLEM_SC_CATALOG"
 	// 448 §3.2 的 SB16 設定（含 -ma -ds）。
 	scCFGSHA256 = "317b0abdbf538f52d95e13b7358712e6da30a1a6d6e312e78d4943254b34e36f"
@@ -83,14 +82,13 @@ func runTrigger(t *testing.T, tc triggerCase, overlay, noCaller bool) *ReceiptRe
 	if _, err := hex.Decode(want[:], []byte(tc.sha)); err != nil {
 		t.Fatal(err)
 	}
-	font := optLabelFont(t) // 011 §3.9：五條路徑全開時不要求舊字型
 	cat, err := LoadCatalog("testdata/opttest_labels.test.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}
 	rc := ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
-		StopSteps: tc.stop, Scales: []int{2, 3}, Catalog: cat, Font: font, Overlay: overlay, CursorY: tc.cursor,
+		StopSteps: tc.stop, Scales: []int{2, 3}, Catalog: cat, Overlay: overlay, CursorY: tc.cursor,
 		noCallerCheck: noCaller,
 	}
 	applyTextEnv(t, &rc) // 011 §3.9
@@ -168,9 +166,9 @@ func checkTrigger(t *testing.T, tc triggerCase, res *ReceiptResult) {
 }
 
 func TestLabelOverlayTrigger(t *testing.T) {
-	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scFontEnv}) {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scFontDirEnv} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：001 §3.3 觸發案例需要設定樹、狀態檔與字型")
+			t.Skip(e + " 未設定：001 §3.3 觸發案例需要設定樹、狀態檔與圖集")
 		}
 	}
 	for _, name := range []string{"A", "B", "C"} {
@@ -202,47 +200,14 @@ func TestLabelOverlayTrigger(t *testing.T) {
 	})
 }
 
-// TestBuiltFont 以 Go 重讀 tools/font/build.sh 的產物（獨立於 build_font.py 的核對）：
-// 測試 TSV 的每個譯文字都在全形表裡，lint 通過。只在 DOSGOLEM_SC_FONT 設定時執行。
-func TestBuiltFont(t *testing.T) {
-	p := os.Getenv(scFontEnv)
-	if p == "" {
-		t.Skip(scFontEnv + " 未設定")
-	}
-	f, err := LoadLabelFont(p, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile("testdata/opttest_labels.test.tsv")
-	if err != nil {
-		t.Fatal(err)
-	}
-	labl := testLABL("Talk to Gwen", "Transport to Strike Base", "Fly Mission")
-	if rep := Lint(b, f.Wide, labl); !rep.OK() {
-		t.Fatalf("lint：%v", rep.Errors)
-	}
-	half := 0
-	for r := rune(0x20); r <= 0x7E; r++ {
-		if f.Wide.Has(r) && !f.Wide.Wide(r) {
-			half++
-		}
-	}
-	t.Logf("字數 %d，ASCII 半形 %d", f.Wide.Len(), half)
-	if half != 95 {
-		t.Fatalf("ASCII 20h 到 7Eh 應全部以半形收入，得 %d", half)
-	}
-}
-
-// TestFormalCatalog 以 lint 檢查正式譯文：DOSGOLEM_SC_CATALOG 是 text/opttest_labels.<lang>.tsv，
+// TestFormalCatalog 以 LintLabels 檢查正式譯文：DOSGOLEM_SC_CATALOG 是 text/opttest_labels.<lang>.tsv，
 // DOSGOLEM_SC_LABL 是 OPTIONS.IFF 與 OPTIONS2.IFF 的 LABL 去重清單（每列一個 key，原始位元組），
-// 字型取 DOSGOLEM_SC_FONT，DOSGOLEM_SC_FONT_EXTRA 是 strike_commander font/zh-TW.extra.txt。
-// 斷言 lint 通過、漏譯為 0（002 §2.3）、extra 檔內容等於 FontExtraRunes，且字型含這 12 字（002 §2.5）。
-// strike_commander 規格 011 §4.6：(c) 起新舊 lint 都跑。舊 lint 在 DOSGOLEM_SC_FONT 設定時跑；
-// 新 lint（LintLabels、CheckTextExtra）在 DOSGOLEM_SC_FONT_DIR 設定時跑（預期表取 DOSGOLEM_SC_FONT_EXPECTED）。
+// 圖集取 DOSGOLEM_SC_FONT_DIR（預期表取 DOSGOLEM_SC_FONT_EXPECTED），DOSGOLEM_SC_FONT_EXTRA 是 strike_commander font/zh-TW.extra.txt。
+// 斷言 lint 通過、漏譯為 0（002 §2.3）、extra 檔內容等於 FontExtraRunes，且圖集含這些字（002 §2.5、011 §3.7 CheckTextExtra）。
 func TestFormalCatalog(t *testing.T) {
-	cp, lp, fp, xp := os.Getenv(scCatalogEnv), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv(scFontEnv), os.Getenv("DOSGOLEM_SC_FONT_EXTRA")
-	if cp == "" || lp == "" || xp == "" || (fp == "" && os.Getenv(scFontDirEnv) == "") {
-		t.Skip(scCatalogEnv + "、DOSGOLEM_SC_LABL、DOSGOLEM_SC_FONT_EXTRA 與 " + scFontEnv + " 或 " + scFontDirEnv + " 未全部設定")
+	cp, lp, xp := os.Getenv(scCatalogEnv), os.Getenv("DOSGOLEM_SC_LABL"), os.Getenv("DOSGOLEM_SC_FONT_EXTRA")
+	if cp == "" || lp == "" || xp == "" || os.Getenv(scFontDirEnv) == "" {
+		t.Skip(scCatalogEnv + "、DOSGOLEM_SC_LABL、DOSGOLEM_SC_FONT_EXTRA、" + scFontDirEnv + " 未全部設定")
 	}
 	b, err := os.ReadFile(cp)
 	if err != nil {
@@ -263,33 +228,16 @@ func TestFormalCatalog(t *testing.T) {
 	if string(xb) != FontExtraRunes {
 		t.Fatalf("%s 的內容 %q，要等於 FontExtraRunes %q", xp, xb, FontExtraRunes)
 	}
-	check := func(which string, rep LintReport) {
-		t.Logf("%s：LABL %d 個，漏譯 %d：%v", which, len(labl), len(rep.Untranslated), rep.Untranslated)
-		if !rep.OK() {
-			t.Fatalf("%s：\n%s", which, strings.Join(rep.Errors, "\n"))
-		}
-		if len(rep.Untranslated) != 0 {
-			t.Fatalf("%s：正式 catalog 漏譯 %d：%v", which, len(rep.Untranslated), rep.Untranslated)
-		}
+	tf := envTextFonts(t)
+	rep := LintLabels(b, tf, labl)
+	t.Logf("LABL %d 個，漏譯 %d：%v", len(labl), len(rep.Untranslated), rep.Untranslated)
+	if !rep.OK() {
+		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
 	}
-	if fp != "" {
-		f, err := LoadLabelFont(fp, "full16-zh-TW")
-		if err != nil {
-			t.Fatal(err)
-		}
-		check("舊 lint", Lint(b, f.Wide, labl))
-		if err := CheckFontExtra(f.Wide); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		t.Log("舊 lint 未跑：" + scFontEnv + " 未設定")
+	if len(rep.Untranslated) != 0 {
+		t.Fatalf("正式 catalog 漏譯 %d：%v", len(rep.Untranslated), rep.Untranslated)
 	}
-	if tf := envTextFonts(t); tf != nil {
-		check("新 lint", LintLabels(b, tf, labl))
-		if err := CheckTextExtra(tf); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
+	if err := CheckTextExtra(tf); err != nil {
+		t.Fatal(err)
 	}
 }

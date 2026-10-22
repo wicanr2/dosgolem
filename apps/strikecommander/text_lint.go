@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// 反鋸齒圖集路徑的 lint（strike_commander 規格 011 §3.7）。與舊 lint 並存到 (g)；結構檢查共用舊 lint 的核心，
-// 字元、寬度與垂直檢查改依正式圖集的像素寬度與墨跡列。
+// 反鋸齒圖集路徑的 lint（strike_commander 規格 011 §3.7）。結構檢查由各 catalog 的核心函式做，
+// 字元、寬度與垂直檢查依正式圖集的像素寬度與墨跡列。
 
 // textScales 是覆繪的倍率（011 §3.1：1 倍不覆繪）。
 var textScales = [...]int{2, 3}
@@ -109,7 +109,7 @@ func checkWidth(bad badFunc, where string, fonts *TextFonts, px, s, extra, limit
 	}
 }
 
-// LintLabels 是熱點標籤 catalog 的新 lint（011 §3.7，取代 Lint 的字元與寬度規則）。結構、孤兒 key、漏譯與防呆同 Lint。
+// LintLabels 是熱點標籤 catalog 的 lint（011 §3.7）。結構、孤兒 key、漏譯與防呆由 lintLabelCore 檢查。
 //   - 標籤：W + 2 ≤ 320s（2 倍 22、3 倍 32）；組合標籤以每個長名稱與短代號代入、%d 以 88888 計；
 //   - GROUND、AIR：W ≤ (x1 − x0) × s（2 倍 16、3 倍 22），x1 − x0 取 73、31；
 //   - 墨跡列（標籤含外框層）依 ey 放在裁切框列內。
@@ -207,7 +207,7 @@ func artVerticalRange(it, ib, bhOut int, dys []int) (lo, hi int) {
 	return -mn, bhOut - mx
 }
 
-// LintArtText 是圖形字 catalog 的新 lint（011 §3.7）。結構同 LintArt；每個元素、每個狀態、每個倍率：
+// LintArtText 是圖形字 catalog 的 lint（011 §3.7）。結構由 lintArtCore 檢查；每個元素、每個狀態、每個倍率：
 // W + 2m ≤ 字帶寬 × s；§3.6.3 的 lo ≤ hi（墨跡含各趟 dy 能放進字帶）。
 func LintArtText(b []byte, fonts *TextFonts) LintReport {
 	return lintArtCore(b, func(bad badFunc, r catalogRow, k string) {
@@ -244,7 +244,7 @@ func LintArtText(b []byte, fonts *TextFonts) LintReport {
 	})
 }
 
-// LintFlightText 是飛行 catalog 的新 lint（011 §3.7）。結構與 glossary 同 LintFlight；字元照共通規則；寬度：
+// LintFlightText 是飛行 catalog 的 lint（011 §3.7）。結構與 glossary 由 lintFlightCore 檢查；字元照共通規則；寬度：
 //   - hud（只 3 倍、15 像素）：W + 2 ≤ (R − L + 1) × 3；
 //   - mfd：k = 0 的 key W ≤ 87s，request status W ≤ (306 − 230)s；
 //   - plaque：W ≤ 英文墨跡寬 × s；
@@ -311,7 +311,7 @@ const subTextMaxLines = 3
 // subAvailWidth 是字幕可用寬：[10, 310) 原版像素（011 §3.6.7）。
 func subAvailWidth(s int) int { return 300 * s }
 
-// LintSpeechText 是字幕 catalog 的新 lint（011 §3.7）。結構、符號、source、譯名檢查同 LintSpeech；字元照共通規則
+// LintSpeechText 是字幕 catalog 的 lint（011 §3.7）。結構、符號、source、譯名由 lintSpeechCore 檢查；字元照共通規則
 // （代換符號除外）；行數：2、3 倍各以 wrapPixels 量「說話人顯示名＋：＋譯文」（代換取最壞值，再做 N()），
 // 超過 3 行失敗、3 行列出。
 func LintSpeechText(indexB, catalogB, enB, glossaryB []byte, fonts *TextFonts) SpeechLintReport {

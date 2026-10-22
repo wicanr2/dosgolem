@@ -34,7 +34,7 @@ func rgbAt(out []byte, scale, x, y int) [3]uint8 {
 // drawFlight 以世界目前的畫外緩衝當畫格出圖。
 func drawFlight(t *testing.T, w *world, scale int) ([]byte, []byte, *FlightOverlay) {
 	t.Helper()
-	fo, err := NewFlightOverlay(testHUDFont(t), flightLabelFont(t), flightTestCats(), scale)
+	fo, err := NewFlightOverlayText(flightTextFonts(t), flightTestCats(), scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,8 @@ func drawFlight(t *testing.T, w *world, scale int) ([]byte, []byte, *FlightOverl
 	out := ScaleIndexedRGBA(idx, testPal(), scale)
 	plain := append([]byte(nil), out...)
 	fo.Draw(out, idx, testPal())
-	if cc := CheckComposite(out, plain, scale, nil, nil, fo.Covers()...); cc.Outside != 0 {
-		t.Fatalf("%d 倍：遮蓋範圍外差異 %d", scale, cc.Outside)
+	if cc := CheckCompositeText(out, plain, scale, nil, nil, fo.TextBoxes(), fo.Covers()...); cc.Outside != 0 {
+		t.Fatalf("%d 倍：允許區外差異 %d", scale, cc.Outside)
 	}
 	return out, idx, fo
 }
@@ -60,40 +60,59 @@ func TestFlightBackgroundOutline(t *testing.T) {
 	w.hud("BRAKE", 190, 20)
 	w.hud("000 NONE", 118, 79)
 	w.cuFrame()
-	out, _, fo := drawFlight(t, w, 3)
+	out, idx, fo := drawFlight(t, w, 3)
 	if len(fo.entries) != 4 || len(fo.Hidden) != 0 {
 		t.Fatalf("筆數 %d、Hidden %v", len(fo.entries), fo.Hidden)
 	}
-	for _, e := range fo.Report() {
-		if e.FG != colorHUD || !e.Outline {
-			t.Errorf("%s：fg %d（F9）、外框 %t（F7）", e.Key, e.FG, e.Outline)
+	rep := fo.Report()
+	for _, e := range rep {
+		if e.FG != colorHUD || !e.Outline || e.Px != 15 {
+			t.Errorf("%s：fg %d（F9）、外框 %t（F7）、px %d", e.Key, e.FG, e.Outline, e.Px)
 		}
 	}
-	// 字形：GEAR 起 (190, 11)，每格 12×12，格列 1..11、欄 0..10 為字色；三行都完整（外框不碰鄰行字形）。
-	for _, ln := range []struct {
-		x, y, n int
-	}{{190, 11, 3}, {190, 16, 2}, {190, 21, 2}, {134, 80, 1}} {
-		for i := 0; i < ln.n; i++ {
-			for gy := 1; gy <= 11; gy++ {
-				for gx := 0; gx <= 10; gx++ {
-					if c := rgbAt(out, 3, (ln.x+4*i)*3+gx, ln.y*3+gy); c != pal[colorHUD] {
-						t.Fatalf("(%d,%d) 第 %d 字字形 (%d,%d) 是 %v", ln.x, ln.y, i, gx, gy, c)
+	// 字形（測試圖集方塊字，15 像素、asc 13）：每字填色欄 [tx + 1, tx + 14)、列 [baseline − 12, baseline + 1) 為字色；
+	// 外框層是填色四周各加 1，左上角 (tx, baseline − 13) 與下緣 baseline + 1 是 0 號色。四行都完整（外框不碰鄰行字形）。
+	for _, e := range rep {
+		n := len([]rune(e.Display))
+		for i := 0; i < n; i++ {
+			x0 := e.TxOut + 15*i
+			for y := e.Baseline - 12; y <= e.Baseline; y++ {
+				for x := x0 + 1; x < x0+14; x++ {
+					if c := rgbAt(out, 3, x, y); c != pal[colorHUD] {
+						t.Fatalf("%s 第 %d 字 (%d,%d) 是 %v", e.Key, i, x, y, c)
 					}
 				}
 			}
 		}
+		if c := rgbAt(out, 3, e.TxOut, e.Baseline-13); c != pal[0] {
+			t.Errorf("%s 對角外框點 %v，要 0 號色", e.Key, c)
+		}
+		if c := rgbAt(out, 3, e.TxOut+5, e.Baseline+1); c != pal[0] {
+			t.Errorf("%s 下外框 %v，要 0 號色", e.Key, c)
+		}
 	}
-	// 外框：GEAR 第一字左上角的對角點 (−1, 0) 是 0 號色（8 鄰域；F30 的 4 鄰域不會畫它）。
-	if c := rgbAt(out, 3, 190*3-1, 11*3); c != pal[0] {
-		t.Errorf("對角外框點 %v，要 0 號色", c)
+	// 背景換回前列（F6）：FLAPS 的遮蓋內、文字框外，原版放大圖有英文墨跡（≠ 30）的點，輸出都是 30。
+	plain := ScaleIndexedRGBA(idx, pal, 3)
+	fl := rep[1]
+	if fl.Key != "FLAPS" {
+		t.Fatalf("第 2 筆是 %s", fl.Key)
 	}
-	// 外框下緣在 band 內（GEAR 字形最下列 44、外框 45）。
-	if c := rgbAt(out, 3, 190*3+5, 11*3+12); c != pal[0] {
-		t.Errorf("下外框 %v，要 0 號色", c)
+	replaced := 0
+	for y := fl.Y0 * 3; y < fl.Y1*3; y++ {
+		for x := fl.X0 * 3; x < fl.X1*3; x++ {
+			if x >= fl.Ink.X0 && x < fl.Ink.X1 && y >= fl.Ink.Y0 && y < fl.Ink.Y1 {
+				continue
+			}
+			if c := rgbAt(out, 3, x, y); c != pal[30] {
+				t.Fatalf("FLAPS 遮蓋內、文字框外 (%d,%d) 是 %v，要 30", x, y, c)
+			}
+			if rgbAt(plain, 3, x, y) != pal[30] {
+				replaced++
+			}
+		}
 	}
-	// 背景換回前列：GEAR 第 4 字的墨跡 (203, 13) 不在 3 字譯文與外框內，換回 30（F6）。
-	if c := rgbAt(out, 3, 203*3+1, 13*3+1); c != pal[30] {
-		t.Errorf("英文墨跡沒有換回前列：%v", c)
+	if replaced == 0 {
+		t.Fatal("FLAPS 遮蓋內、文字框外沒有英文墨跡，換回無鑑別力")
 	}
 	// NONE 的數字墨跡保留（F8）：(119, 81) 仍是墨跡色。
 	if c := rgbAt(out, 3, 119*3+1, 81*3+1); c != pal[colorHUD] {
@@ -160,7 +179,7 @@ func TestFlightMismatch(t *testing.T) {
 	w.hud("FLAPS", 190, 15)
 	w.puts(putsOpt{kind: KindMFD, s: "NORM", x: 222, y: 126, color: 220})
 	w.cuFrame()
-	fo, err := NewFlightOverlay(testHUDFont(t), flightLabelFont(t), flightTestCats(), 3)
+	fo, err := NewFlightOverlayText(flightTextFonts(t), flightTestCats(), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +247,7 @@ func TestFlightInkBox(t *testing.T) {
 
 func TestFlightSessionObserver(t *testing.T) {
 	cats := flightTestCats()
-	cfg := ReceiptConfig{Scales: []int{2, 3}, Font: flightLabelFont(t), HUDFont: testHUDFont(t), FlightCatalogs: &cats}
+	cfg := ReceiptConfig{Scales: []int{2, 3}, Fonts: flightTextFonts(t), FlightCatalogs: &cats}
 	res := &ReceiptResult{}
 	so := &SessionObserver{Labels: NewLabelObserver()}
 	fovs := map[int]*FlightOverlay{}
@@ -311,14 +330,15 @@ const goodHUD = "key\ttranslation\tsource\nGEAR\t起落架\ts\nFLAPS\t襟翼\ts\
 const goodMFD = "key\ttranslation\tsource\nComm Mode:\t通訊模式：\ts\nSelect Frequency\t選擇頻道\ts\nNO RECEIVERS\t無人接收\ts\n" +
 	"request status\t回報狀態\ts\nNORM\t正常\ts\nGUN\t機砲\ts\nFUEL:\t燃油：\ts\nAIR\t對空\ts\nGND\t對地\ts\n"
 
+// TestLintFlight：LintFlightText（011 §3.7）的結構、glossary、字元與寬度規則。
 func TestLintFlight(t *testing.T) {
-	hud, label := testHUDFont(t), flightLabelFont(t)
+	fonts := flightTextFonts(t)
 	// FUEL: 的 glossary 用半形冒號：全形 ASCII 正規化後與 catalog 的「燃油：」相同。
 	gl := []GlossaryRow{{"GUN", "機砲", "攻略無，自譯", ""}, {"FUEL:", "燃油:", "x", ""}, {"AIR", "空中", "x", "語境不同"}, {"GEAR", "起落架", "x", ""}}
-	if errs := LintFlight(KindHUD, []byte(goodHUD), hud.Wide, gl); len(errs) != 0 {
+	if errs := LintFlightText(KindHUD, []byte(goodHUD), fonts, gl); len(errs) != 0 {
 		t.Fatalf("hud：%v", errs)
 	}
-	if errs := LintFlight(KindMFD, []byte(goodMFD), label.Wide, gl); len(errs) != 0 {
+	if errs := LintFlightText(KindMFD, []byte(goodMFD), fonts, gl); len(errs) != 0 {
 		t.Fatalf("mfd（FUEL: 全形冒號與 glossary 半形正規化後相同、AIR 語境不同）：%v", errs)
 	}
 	rep := func(s, old, new string) []byte { return []byte(strings.Replace(s, old, new, 1)) }
@@ -336,15 +356,13 @@ func TestLintFlight(t *testing.T) {
 		{"漏譯", KindHUD, rep(goodHUD, "FLAPS\t襟翼\ts\n", ""), "漏譯"},
 		{"數字開頭", KindHUD, []byte(goodHUD + "000 NONE\t無\ts\n"), "數字前綴"},
 		{"武器名", KindHUD, []byte(goodHUD + "999 Vulcan\t無\ts\n"), "武器名"},
-		{"字數超限", KindHUD, rep(goodHUD, "NONE\t無", "NONE\t無無無無無"), "上限"},
-		{"非全形字", KindHUD, rep(goodHUD, "GEAR\t起落架", "GEAR\t起落架a"), "非全形"},
+		// NONE 以 Xs[k] = 134 計：可用 (149 − 134 + 1) × 3 = 48；4 字 60 + 2 超過。
+		{"超寬", KindHUD, rep(goodHUD, "NONE\t無", "NONE\t無無無無"), "超過"},
+		{"半形字", KindHUD, rep(goodHUD, "GEAR\t起落架", "GEAR\t起落架a"), "半形"},
+		{"缺字", KindHUD, rep(goodHUD, "GEAR\t起落架", "GEAR\t起落乂"), "缺字"},
 		{"與 glossary 不一致", KindHUD, rep(goodHUD, "GEAR\t起落架", "GEAR\t起落"), "glossary"},
 	} {
-		wide := hud.Wide
-		if tc.kind != KindHUD {
-			wide = label.Wide
-		}
-		if errs := LintFlight(tc.kind, tc.b, wide, gl); !errHas(errs, tc.want) {
+		if errs := LintFlightText(tc.kind, tc.b, fonts, gl); !errHas(errs, tc.want) {
 			t.Errorf("%s：沒有報「%s」：%v", tc.name, tc.want, errs)
 		}
 	}

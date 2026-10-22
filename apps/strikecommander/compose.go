@@ -1,7 +1,6 @@
 package strikecommander
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -144,19 +143,4 @@ func fullwidthDigits(s string) string {
 		b.WriteRune('０' + (c - '0'))
 	}
 	return b.String()
-}
-
-// CheckFontExtra 檢查字型以全形收入 FontExtraRunes 的每一字（002 §2.5）。
-// 不放進 Lint：測試用的合成字型沒有這些字；只有載入真字型的 TestFormalCatalog 呼叫它。
-func CheckFontExtra(wide *WideTable) error {
-	var miss []rune
-	for _, r := range FontExtraRunes {
-		if !wide.Wide(r) {
-			miss = append(miss, r)
-		}
-	}
-	if len(miss) != 0 {
-		return fmt.Errorf("strikecommander: 字型缺固定附加字 %q", string(miss))
-	}
-	return nil
 }

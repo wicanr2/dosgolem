@@ -18,7 +18,7 @@ import (
 // 長測試，下列環境變數都設定時才執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR（workplace/scratch：p476/s800.state、p487/s760.state、i018-st/m242.state、i018-cold/c800.state）；
 //   - DOSGOLEM_SC_I021（workplace/i021：k1.script、k7.script）；
-//   - DOSGOLEM_SC_FONT（16×16 正式字型，含 strike_mfd、strike_plaque 的字）、DOSGOLEM_SC_HUD_FONT（HUD12）；
+//   - DOSGOLEM_SC_FONT_DIR（與 DOSGOLEM_SC_FONT_EXPECTED）：反鋸齒圖集（strike_commander 規格 011 §3.9）；
 //   - DOSGOLEM_SC_CATALOG（text/opttest_labels.zh-TW.tsv；它的目錄就是 text，讀三個 strike_* catalog）。
 //
 // DOSGOLEM_SC_FLIGHT_CASES 以逗號列出案例（預設 Q,R）；DOSGOLEM_SC_FLIGHT_RUNS 列出 run（預設 off,noflight,on23,on3）。
@@ -26,10 +26,9 @@ import (
 // flight.tsv、flight-rows.bin、digest.txt、合成圖，另有 flight-commits.tsv、flight-cuframes.tsv、flight-counts.txt）。
 
 const (
-	scI021Env    = "DOSGOLEM_SC_I021"
-	scHUDFontEnv = "DOSGOLEM_SC_HUD_FONT"
-	s800SHA      = "f0c0730ca05050371b1f614c117daff8910453e7311964d085b8539ccb3ab7a9"
-	s760SHA      = "6337a0dcd05cf479aed90cab2b918170c4874ade910f2360924ecf0610491801"
+	scI021Env = "DOSGOLEM_SC_I021"
+	s800SHA   = "f0c0730ca05050371b1f614c117daff8910453e7311964d085b8539ccb3ab7a9"
+	s760SHA   = "6337a0dcd05cf479aed90cab2b918170c4874ade910f2360924ecf0610491801"
 )
 
 // flightCatalogsFrom 讀 text 目錄下三個飛行 catalog。
@@ -49,15 +48,12 @@ func flightCatalogsFrom(t *testing.T, dir string) FlightCatalogs {
 	return c
 }
 
-// TestFormalFlightCatalog 以 LintFlight 檢查三個正式飛行 catalog（§4.5；TestFormalCatalog 不改，另寫這支）。
-// hud 用 DOSGOLEM_SC_HUD_FONT 的寬度表，mfd、plaque 用 DOSGOLEM_SC_FONT；glossary 取 text/glossary.tsv。
-// strike_commander 規格 011 §4.6：(c) 起另以 LintFlightText 對圖集（DOSGOLEM_SC_FONT_DIR）檢查，新舊都跑；
-// 舊 lint 在 DOSGOLEM_SC_FONT 與 DOSGOLEM_SC_HUD_FONT 都設定時跑。
+// TestFormalFlightCatalog 以 LintFlightText 檢查三個正式飛行 catalog（§4.5、011 §3.7）與圖集（DOSGOLEM_SC_FONT_DIR）；
+// glossary 取 text/glossary.tsv。
 func TestFormalFlightCatalog(t *testing.T) {
-	cp, fp, hp := os.Getenv(scCatalogEnv), os.Getenv(scFontEnv), os.Getenv(scHUDFontEnv)
-	oldOK := fp != "" && hp != ""
-	if cp == "" || (!oldOK && os.Getenv(scFontDirEnv) == "") {
-		t.Skip(scCatalogEnv + " 與（" + scFontEnv + "、" + scHUDFontEnv + "）或 " + scFontDirEnv + " 未設定")
+	cp := os.Getenv(scCatalogEnv)
+	if cp == "" || os.Getenv(scFontDirEnv) == "" {
+		t.Skip(scCatalogEnv + " 或 " + scFontDirEnv + " 未設定")
 	}
 	dir := filepath.Dir(cp)
 	gb, err := os.ReadFile(filepath.Join(dir, "glossary.tsv"))
@@ -68,62 +64,17 @@ func TestFormalFlightCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tf := envTextFonts(t); tf != nil {
-		for _, c := range []struct {
-			kind Kind
-			file string
-		}{{KindHUD, "strike_hud"}, {KindMFD, "strike_mfd"}, {KindPlaque, "strike_plaque"}} {
-			b, err := os.ReadFile(filepath.Join(dir, c.file+".zh-TW.tsv"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if errs := LintFlightText(c.kind, b, tf, gl); len(errs) != 0 {
-				t.Errorf("%s（新 lint）：%v", c.file, errs)
-			}
-		}
-		t.Log("新 lint 跑完")
-	} else {
-		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
-	}
-	if !oldOK {
-		t.Log("舊 lint 未跑：" + scFontEnv + "、" + scHUDFontEnv + " 未全部設定")
-		return
-	}
-	label, err := LoadLabelFont(fp, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
-	hud, err := LoadHUDFont(hp, "hud12-zh-TW")
-	if err != nil {
-		t.Skip("HUD12 字型讀不到：", err)
-	}
-	t.Log("舊 lint 跑")
+	tf := envTextFonts(t)
 	for _, c := range []struct {
 		kind Kind
 		file string
-		wide *WideTable
-	}{{KindHUD, "strike_hud", hud.Wide}, {KindMFD, "strike_mfd", label.Wide}, {KindPlaque, "strike_plaque", label.Wide}} {
+	}{{KindHUD, "strike_hud"}, {KindMFD, "strike_mfd"}, {KindPlaque, "strike_plaque"}} {
 		b, err := os.ReadFile(filepath.Join(dir, c.file+".zh-TW.tsv"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if errs := LintFlight(c.kind, b, c.wide, gl); len(errs) != 0 {
+		if errs := LintFlightText(c.kind, b, tf, gl); len(errs) != 0 {
 			t.Errorf("%s：%v", c.file, errs)
-		}
-		cat, err := ParseCatalog(b)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f := label.Font
-		if c.kind == KindHUD {
-			f = hud.Font
-		}
-		for k, tr := range cat {
-			for _, r := range tr {
-				if f.Glyphs[r] == nil {
-					t.Errorf("%s %q：字型缺 %q", c.file, k, r)
-				}
-			}
 		}
 	}
 }
@@ -236,9 +187,9 @@ type flightShotSum struct {
 
 func flightEnv(t *testing.T) {
 	t.Helper()
-	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scI021Env, scFontEnv, scHUDFontEnv, scCatalogEnv}) {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scI021Env, scFontDirEnv, scCatalogEnv} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：009 §4.2 案例需要設定樹、狀態檔、腳本、字型與 catalog")
+			t.Skip(e + " 未設定：009 §4.2 案例需要設定樹、狀態檔、腳本、圖集與 catalog")
 		}
 	}
 }
@@ -262,14 +213,13 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 	if _, err := hex.Decode(want[:], []byte(sha)); err != nil {
 		t.Fatal(err)
 	}
-	font, hud := optLabelFont(t), optHUDFont(t) // 011 §3.9：五條路徑全開時不要求舊字型
 	labels, err := LoadCatalog(os.Getenv(scCatalogEnv))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := ReceiptConfig{SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
-		StopSteps: stop, Scales: m.scales, Catalog: labels, Font: font, Overlay: m.overlay, CursorY: -1,
-		Inputs: sc.Inputs, Shots: sc.Shots, HUDFont: hud}
+		StopSteps: stop, Scales: m.scales, Catalog: labels, Overlay: m.overlay, CursorY: -1,
+		Inputs: sc.Inputs, Shots: sc.Shots}
 	applyTextEnv(t, &cfg)
 	if m.flight {
 		cats := flightCatalogsFrom(t, filepath.Dir(os.Getenv(scCatalogEnv)))
@@ -569,11 +519,18 @@ func checkFlightWants(t *testing.T, res *ReceiptResult, wants map[string]flightW
 			}
 		}
 		if w.gunTx {
-			// 使用者 2026-10-21：GUN 譯「機砲」，原位放得下，不左移。
+			// 使用者 2026-10-21：GUN 譯「機砲」，放得下，不推回（011 §3.5：筆位等於對英文範圍置中的 ⌊((E0 + E1)·s − W) / 2⌋）。
 			for _, sc := range []int{2, 3} {
-				// 011 新路徑一律置中，沒有文字 stamp 的 tx；只比譯文（舊路徑照舊比 tx 276）。
-				if e, ok := reportEntry(s, sc, "GUN"); !ok || (e.Path != "new" && e.TX != 276) || e.Text != "機砲" {
-					t.Errorf("%s：%d 倍 GUN tx %d 譯文 %q，要 276「機砲」", n, sc, e.TX, e.Text)
+				e, ok := reportEntry(s, sc, "GUN")
+				want := -1
+				if ok && envText.fonts != nil {
+					if f := envText.fonts.Font(e.Px); f != nil {
+						w, _ := f.Advance([]rune(e.Display))
+						want = floorDiv((e.E0+e.E1)*sc-w, 2)
+					}
+				}
+				if !ok || e.TxOut != want || e.Text != "機砲" {
+					t.Errorf("%s：%d 倍 GUN tx_out %d 譯文 %q，要置中 %d「機砲」", n, sc, e.TxOut, e.Text, want)
 				}
 			}
 		}

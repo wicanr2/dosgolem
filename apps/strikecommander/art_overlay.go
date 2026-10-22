@@ -17,16 +17,15 @@ type ArtRect struct {
 	X, Y, W, H int
 }
 
-// artEntry 是一列圖面的規劃：事件、字帶矩形、原版基準與輸出解析度的色號圖（無字底放大後再畫中文）。
+// artEntry 是一列圖面的規劃：事件、字帶矩形、原版基準、輸出解析度的無字底色號圖與字（011 §3.6.3）。
 // Pix 依色盤在 Draw 時建（事件當步沒有色盤），色盤或倍率改變時重建。
 type artEntry struct {
 	ev    ArtEvent
 	rect  ArtRect
 	ref   []uint8 // 字帶內的原版色號，逐列
-	idx   []uint8 // (W×scale)×(H×scale) 輸出像素的色號（新路徑只有無字底）
+	idx   []uint8 // (W×scale)×(H×scale) 輸出像素的無字底色號
 	built bool    // 已以 artPal 建 Pix 並登記到 artLayer
-	// text 是 011 §3.6.3 新路徑的字（nil 為舊路徑：字已畫進 idx）。
-	text *artText
+	text  *artText
 }
 
 // 主選單圖面的 Key 前綴（008 §3.6）。
@@ -194,84 +193,24 @@ func (o *Overlay) planArt(ev ArtEvent) (*artEntry, *Miss, *Skip) {
 	if !ok || tr == "" {
 		return nil, &Miss{Key: sp.key, Reason: MissTranslation}, nil
 	}
-	if o.TextArt && o.Text != nil {
-		return o.planArtText(ev, sp, []rune(tr)) // strike_commander 規格 011 §3.6.3
-	}
-	text := []rune(tr)
-	var missing []rune
-	for _, r := range text {
-		if !o.font.Wide.Wide(r) || o.font.Font.Glyphs[r] == nil {
-			missing = append(missing, r)
-		}
-	}
-	if len(missing) != 0 {
-		return nil, &Miss{Key: sp.key, Reason: MissGlyph, Runes: missing}, nil
-	}
-	sc := o.scale
-	gx, gy, step, err := glyphOrigin(len(text), sc, sp.band, sp.center)
-	if err != nil {
-		return nil, nil, &Skip{sp.key, err.Error()}
-	}
-	bw, bh := sp.band.x1-sp.band.x0+1, sp.band.y1-sp.band.y0+1
-	rect := ArtRect{Key: sp.rectKey, X: ev.X + sp.band.x0, Y: ev.Y + sp.band.y0, W: bw, H: bh}
-	if rect.X < 0 || rect.Y < 0 || rect.X+bw > 320 || rect.Y+bh > 200 {
-		return nil, nil, &Skip{sp.key, fmt.Sprintf("字帶 (%d,%d) %d×%d 超出畫面", rect.X, rect.Y, bw, bh)}
-	}
-	ref := make([]uint8, bw*bh)
-	for y := 0; y < bh; y++ {
-		copy(ref[y*bw:(y+1)*bw], ev.Entry[(sp.band.y0+y)*sp.w+sp.band.x0:])
-	}
-	bg, passes, err := artBackground(ev)
-	if err != nil {
-		return nil, nil, &Skip{sp.key, err.Error()}
-	}
-	ow, oh := bw*sc, bh*sc
-	idx := make([]uint8, ow*oh)
-	for y := 0; y < oh; y++ {
-		for x := 0; x < ow; x++ {
-			idx[y*ow+x] = bg[(y/sc)*bw+x/sc]
-		}
-	}
-	font := o.font.Font
-	rb := (font.W + 7) / 8
-	plot := func(x, y int, col uint8) {
-		if x >= 0 && x < ow && y >= 0 && y < oh {
-			idx[y*ow+x] = col
-		}
-	}
-	// 各趟依序畫，先畫的在下；最後一趟是字色 c（004 §3.5、008 §3.5）。
-	for _, p := range passes {
-		for i, r := range text {
-			g := font.Glyphs[r]
-			ox, oy := gx+i*step+p.dx, gy+p.dy
-			for py := 0; py < font.H; py++ {
-				for px := 0; px < font.W; px++ {
-					if g[py*rb+px/8]&(0x80>>uint(px%8)) != 0 {
-						plot(ox+px, oy+py, p.col)
-					}
-				}
-			}
-		}
-	}
-	return &artEntry{ev: ev, rect: rect, ref: ref, idx: idx}, nil, nil
+	return o.planArtText(ev, sp, []rune(tr)) // strike_commander 規格 011 §3.6.3
 }
 
-// stamp 以色盤 pal 建這一列的 204 圖面（CellW 1，每欄一格，004 §3.3）。
-// 新路徑（011 §3.6.3）：無字底以色盤轉 RGB、alpha 255，各趟依序以填色層、該趟色號 DrawAlphaText。
+// stamp 以色盤 pal 建這一列的 204 圖面（CellW 1，每欄一格，004 §3.3；011 §3.6.3）：
+// 無字底以色盤轉 RGB、alpha 255，各趟依序以填色層、該趟色號 DrawAlphaText。
 func (e *artEntry) stamp(pal [256][3]uint8, scale int) *xlate.Stamp {
 	pix := make([]uint8, 4*len(e.idx))
 	for i, c := range e.idx {
 		p := pal[c]
 		pix[4*i], pix[4*i+1], pix[4*i+2], pix[4*i+3] = p[0], p[1], p[2], 255
 	}
-	if t := e.text; t != nil {
-		ow, oh := e.rect.W*scale, e.rect.H*scale
-		clip := xlate.AlphaRect{X0: 0, Y0: 0, X1: ow, Y1: oh}
-		t.ink = xlate.AlphaRect{}
-		for _, p := range t.passes {
-			k, _, _ := xlate.DrawAlphaText(pix, ow, oh, t.font, t.display, t.tx+p.dx, t.baseline+p.dy, xlate.AlphaFill, pal[p.col], clip)
-			t.ink = unionRect(t.ink, k)
-		}
+	t := e.text
+	ow, oh := e.rect.W*scale, e.rect.H*scale
+	clip := xlate.AlphaRect{X0: 0, Y0: 0, X1: ow, Y1: oh}
+	t.ink = xlate.AlphaRect{}
+	for _, p := range t.passes {
+		k, _, _ := xlate.DrawAlphaText(pix, ow, oh, t.font, t.display, t.tx+p.dx, t.baseline+p.dy, xlate.AlphaFill, pal[p.col], clip)
+		t.ink = unionRect(t.ink, k)
 	}
 	return &xlate.Stamp{
 		Key: e.rect.Key, Art: true, X: e.rect.X, Y: e.rect.Y,

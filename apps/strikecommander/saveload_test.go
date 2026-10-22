@@ -621,7 +621,7 @@ func TestInpaint(t *testing.T) {
 
 func newArtOverlay(t *testing.T, scale int) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), testGfx(), scale)
+	ov, err := NewOverlayText(testTextFonts(t), testCatalog(), testGfx(), scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,107 +769,41 @@ func TestArtClearOnFullBlit(t *testing.T) {
 	}
 }
 
-// glyphBox 回 idx 與放大無字底不同的像素外接框（左、上）。
-func glyphBox(t *testing.T, ov *Overlay, ev ArtEvent) (left, top int) {
+// artTextOf 回 ov 中 Order 為 order 的圖面字。
+func artTextOf(t *testing.T, ov *Overlay, order int) *artText {
 	t.Helper()
-	el := tElemFor(t, ev.K)
-	bw := el.band[2] - el.band[0] + 1
-	bg := dialogBackground(ev)
-	var e *artEntry
 	for _, a := range ov.arts {
-		if a.ev.Order == ev.Order {
-			e = a
+		if a.ev.Order == order {
+			return a.text
 		}
 	}
-	if e == nil {
-		t.Fatal("沒有規劃")
-	}
-	sc := ov.scale
-	ow := bw * sc
-	left, top = 1<<30, 1<<30
-	for i, c := range e.idx {
-		x, y := i%ow, i/ow
-		if c != bg[(y/sc)*bw+x/sc] {
-			left, top = min(left, x), min(top, y)
-		}
-	}
-	return
+	t.Fatalf("沒有 Order %d 的圖面（misses %+v skips %+v）", order, ov.Misses, ov.Skips)
+	return nil
 }
 
-// glyphBottom 回 idx 與放大無字底不同的像素中最下面一列。
-func glyphBottom(t *testing.T, ov *Overlay, ev ArtEvent) int {
-	t.Helper()
-	el := tElemFor(t, ev.K)
-	bw := el.band[2] - el.band[0] + 1
-	bg := dialogBackground(ev)
-	sc := ov.scale
-	bottom := -1
-	for _, a := range ov.arts {
-		if a.ev.Order != ev.Order {
-			continue
-		}
-		for i, c := range a.idx {
-			x, y := i%(bw*sc), i/(bw*sc)
-			if c != bg[(y/sc)*bw+x/sc] {
-				bottom = max(bottom, y)
-			}
-		}
-	}
-	return bottom
-}
-
+// TestArtGlyphPlacement：011 §3.6.3 的 tx、ey（相對字帶，輸出像素），以測試圖集的實心方塊字（CJK 墨跡在 em 列 1..px−2）手算。
+// CANCEL → 「地面」。k6 字帶 x 12..67（56 寬）、y 1..9（9 高）；墨跡框 x 15..63 → 相對字帶 3..51；y 3..7，按下態 4..8。
+// 有高光趟（dx −1）：m = 1；趟 dy 只有 0，墨跡列 [1, px − 1)，lo = −1、hi = bh·s − (px − 1)。
+//   - 2 倍 16 像素：W 32，tx = ⌊(55×2 − 32) / 2⌋ = 39；ey 一般 ⌊(11×2 − 16) / 2⌋ − 2 = 1、按下 ⌊(13×2 − 16) / 2⌋ − 2 = 3。
+//   - 3 倍 22 像素：W 44，tx = ⌊(165 − 44) / 2⌋ = 60；ey 一般 ⌊(33 − 22) / 2⌋ − 3 = 2、按下 ⌊(39 − 22) / 2⌋ − 3 = 5。
+//
+// 按下 − 一般 ≥ 1，第 5 步保底不作用。
 func TestArtGlyphPlacement(t *testing.T) {
 	file := loadSHP(t)
-	// CANCEL → 「地面」（2 字）。k6 字帶 x 12 到 67（56 寬）、墨跡框 x 15 到 63，相對字帶 3 到 51。
-	// 2 倍：W = 32，tx = ((3+51+1)×2 − 32)/2 = 39，格內置中 0，高光左移 1 → 38；ty 一般 1、按下 2。
-	// 3 倍：W = 36，tx = (165 − 36)/2 = 64，格內置中 (18−16)/2 = 1 → 65，高光 64；ty 一般 5、按下 8。
-	want := map[int][3]int{2: {38, 1, 2}, 3: {64, 5, 8}}
+	want := map[int][3]int{2: {39, 1, 3}, 3: {60, 2, 5}}
 	for sc, w := range want {
-		ov := newArtOverlay(t, sc)
 		e6, e7 := tElemFor(t, 6), tElemFor(t, 7)
-		ev6 := mkEvent(t, file, 6, e6.x, e6.y, 1)
-		ov.AddDialogArt(ev6)
-		l6, t6 := glyphBox(t, ov, ev6)
+		ov := newArtOverlay(t, sc)
+		ov.AddDialogArt(mkEvent(t, file, 6, e6.x, e6.y, 1))
+		a6 := artTextOf(t, ov, 1)
 		ov2 := newArtOverlay(t, sc)
-		ev7 := mkEvent(t, file, 7, e7.x, e7.y, 2)
-		ov2.AddDialogArt(ev7)
-		l7, t7 := glyphBox(t, ov2, ev7)
-		if l6 != w[0] || t6 != w[1] || l7 != w[0] || t7 != w[2] {
-			t.Errorf("%d 倍：k6 字模左上 (%d,%d)、k7 (%d,%d)，要 (%d,%d)、(%d,%d)", sc, l6, t6, l7, t7, w[0], w[1], w[0], w[2])
+		ov2.AddDialogArt(mkEvent(t, file, 7, e7.x, e7.y, 2))
+		a7 := artTextOf(t, ov2, 2)
+		if a6.tx != w[0] || a6.ey != w[1] || a7.tx != w[0] || a7.ey != w[2] {
+			t.Errorf("%d 倍：k6 (tx %d, ey %d)、k7 (tx %d, ey %d)，要 (%d,%d)、(%d,%d)", sc, a6.tx, a6.ey, a7.tx, a7.ey, w[0], w[1], w[0], w[2])
 		}
-		if t7-t6 != map[int]int{2: 1, 3: 3}[sc] {
-			t.Errorf("%d 倍：k6、k7 字模上緣相差 %d", sc, t7-t6)
-		}
-	}
-	// 007 §3.5、§3.9：k2 到 k5 與 k15 到 k20（0 組）。值是「字模外接框左緣、上緣」：有高光時左緣是 gx − 1。
-	// 水平 tx = floor(((x0 + x1 + 1) × 倍率 − W) / 2) + (步距 − 16) / 2（x0、x1 墨跡框相對字帶）；
-	// 垂直 ty = clamp(floor(((iy0 + iy1 + 1) × 倍率 − 16) / 2) − by0 × 倍率, 0, bh × 倍率 − 16)。
-	// 測試 catalog 字數：SAVE 2、LOAD 2、ARE YOU SURE 3、OVERWRITE 4、YES 1、NO 1。
-	//   - k2：墨跡 x 4 到 31，2 倍 W 32 → 20，高光 19；3 倍 W 36 → 36 + 1 = 37，高光 36。
-	//     ty 2 倍一般 floor((22−16)/2) − 4 = −1 → 0、按下 5 − 4 = 1；3 倍一般 8 − 6 = 2、按下 11 − 6 = 5。
-	//   - k4：墨跡 x 2 到 33，和同 k2。
-	//   - k15：墨跡 x 6 到 88，2 倍 W 48 → (190 − 48)/2 = 71，高光 70；3 倍 W 54 → 115 + 1，高光 115。ty 23 − 22 = 1、38 − 33 = 5。
-	//   - k16：墨跡 x 14 到 78，2 倍 W 64 → 61，高光 60；3 倍 W 72 → 103 + 1，高光 103。ty 1、5。
-	//   - k17：墨跡 x 10 到 30，2 倍 W 16 → 33，高光 32；3 倍 W 18 → 52 + 1，高光 52。ty 1、5；k18 2、8。
-	//   - k19：墨跡 x 11 到 26，2 倍 → 30；3 倍 → 48 + 1 = 49；沒有高光（007 §3.4），左緣即 gx。ty 1、5；k20 2、8。
-	type pl struct{ left, top int }
-	more := map[int]map[int]pl{
-		2: {2: {19, 0}, 3: {19, 1}, 4: {19, 0}, 5: {19, 1}, 15: {70, 1}, 16: {60, 1}, 17: {32, 1}, 18: {32, 2}, 19: {30, 1}, 20: {30, 2}},
-		3: {2: {36, 2}, 3: {36, 5}, 4: {36, 2}, 5: {36, 5}, 15: {115, 5}, 16: {103, 5}, 17: {52, 5}, 18: {52, 8}, 19: {49, 5}, 20: {49, 8}},
-	}
-	for sc, m := range more {
-		for k, w := range m {
-			el := tElemFor(t, k)
-			ov := newArtOverlay(t, sc)
-			ev := mkEvent(t, file, k, el.x, el.y, 1)
-			ov.AddDialogArt(ev)
-			if l, tp := glyphBox(t, ov, ev); l != w.left || tp != w.top {
-				t.Errorf("%d 倍 k%d：字模左上 (%d,%d)，要 (%d,%d)", sc, k, l, tp, w.left, w.top)
-			}
-			// 下緣：測試字模 16 列每列都有點，字模沒有被裁掉時最底列是 ty + 15（ty 不得小於 0，007 §3.9 的下界夾切）。
-			if b := glyphBottom(t, ov, ev); b != w.top+15 {
-				t.Errorf("%d 倍 k%d：字模下緣 %d，要 %d", sc, k, b, w.top+15)
-			}
+		if a6.baseline != a6.ey+TextAscent(a6.px) || a6.px != map[int]int{2: 16, 3: 22}[sc] {
+			t.Errorf("%d 倍：px %d baseline %d", sc, a6.px, a6.baseline)
 		}
 	}
 }
@@ -1012,17 +946,21 @@ func TestArtDrawOrder(t *testing.T) {
 	file := loadSHP(t)
 	pal := tPal()
 	el := tElemFor(t, 6)
-	ov := newArtOverlay(t, 2)
+	// 譯文只放一個字：2 倍 22 像素字置中在 x 260 輸出像素附近（原版 x 124 到 136），(104,145) 落在遮蓋內、文字外。
+	ov, err := NewOverlayText(testTextFonts(t), map[string]string{"Talk to Gwen": "測"}, testGfx(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ov.AddDialogArt(mkEvent(t, file, 6, el.x, el.y, 1))
-	// 熱點標籤 stamp：遮蓋 x 90 到 169、y 141 到 154，與 CANCEL 字帶 (102,143)-(157,151) 重疊。
+	// 熱點標籤遮蓋 stamp：x 90 到 169、y 141 到 154，與 CANCEL 字帶 (102,143)-(157,151) 重疊。
 	// 合成情境（005 §3.2 第 4 條）：真實流程中對話框矩形與標籤比對框不重疊。Ref 取自同一畫格。
 	frame := make([]byte, 64000)
 	paint(t, frame, file, 6, el.x, el.y)
 	gwen := Label{Key: "Talk to Gwen", X0: 90, X1: 170, Y: 140, Font: measuredFont, Kind: KindLabel}
 	gwen.Ref = refFromFrame(frame, gwen)
 	ov.Sync([]Label{gwen}, 1)
-	if len(ov.Stamps()) != 2 {
-		t.Fatalf("文字 stamp %d 個", len(ov.Stamps()))
+	if len(ov.Stamps()) != 1 {
+		t.Fatalf("遮蓋 stamp %d 個", len(ov.Stamps()))
 	}
 	snap := func() string {
 		var b strings.Builder
@@ -1037,19 +975,19 @@ func TestArtDrawOrder(t *testing.T) {
 		out, _ = ov.Draw(frame, pal)
 	}
 	if after := snap(); after != before {
-		t.Fatalf("多次 Draw 後文字 stamp 改變：\n%s\n%s", before, after)
+		t.Fatalf("多次 Draw 後 stamp 改變：\n%s\n%s", before, after)
 	}
-	// (104,145) 在遮蓋 stamp 與圖面字帶內、在文字 stamp（x 110 起）之外：輸出是遮蓋的底色 0 號。
+	// (104,145) 在遮蓋 stamp 與圖面字帶內、在文字之外：輸出是遮蓋的底色 0 號。
 	W := 640
 	for dy := 0; dy < 2; dy++ {
 		for dx := 0; dx < 2; dx++ {
 			i := 4 * ((145*2+dy)*W + 104*2 + dx)
 			if [3]uint8{out[i], out[i+1], out[i+2]} != pal[0] {
-				t.Fatalf("文字 stamp 要畫在圖面之上：(104,145) 是 %v", out[i:i+3])
+				t.Fatalf("標籤遮蓋要畫在圖面之上：(104,145) 是 %v", out[i:i+3])
 			}
 		}
 	}
-	// 對照：沒有文字 stamp 時同一點是圖面。
+	// 對照：沒有標籤時同一點是圖面。
 	ov2 := newArtOverlay(t, 2)
 	ov2.AddDialogArt(mkEvent(t, file, 6, el.x, el.y, 1))
 	out2, _ := ov2.Draw(frame, pal)
@@ -1065,7 +1003,7 @@ func TestArtMissSkip(t *testing.T) {
 	file := loadSHP(t)
 	el := tElemFor(t, 6)
 	mk := func(gfx map[string]string) *Overlay {
-		ov, err := NewOverlay(testLabelFont(t), testCatalog(), gfx, 2)
+		ov, err := NewOverlayText(testTextFonts(t), testCatalog(), gfx, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1086,18 +1024,19 @@ func TestArtMissSkip(t *testing.T) {
 		t.Fatalf("缺字：圖面 %d、misses %+v", len(ov.Art()), ov.Misses)
 	}
 	gfx = testGfx()
-	gfx["CANCEL"] = "測試譯文甲乙丙一" // 8 字：2 倍 128 輸出像素，字帶 112
+	// 2 倍 16 像素：字帶 112 輸出像素，高光趟 m = 1，可用 110。7 字 112 超寬。
+	gfx["CANCEL"] = "測試譯文甲乙丙"
 	ov = mk(gfx)
 	if len(ov.Art()) != 0 || len(ov.Skips) != 1 || ov.Skips[0].Key != "CANCEL" {
 		t.Fatalf("超寬：圖面 %d、skips %+v", len(ov.Art()), ov.Skips)
 	}
-	// 對照：7 字（112 像素）放得下。
-	gfx["CANCEL"] = "測試譯文甲乙丙"
+	// 對照：6 字（96 像素）放得下。
+	gfx["CANCEL"] = "測試譯文甲乙"
 	if ov = mk(gfx); len(ov.Art()) != 1 {
-		t.Fatalf("7 字應放得下：skips %+v", ov.Skips)
+		t.Fatalf("6 字應放得下：skips %+v", ov.Skips)
 	}
 	// 1 倍不產生圖面。
-	ov1, _ := NewOverlay(testLabelFont(t), testCatalog(), testGfx(), 1)
+	ov1, _ := NewOverlayText(testTextFonts(t), testCatalog(), testGfx(), 1)
 	ov1.AddDialogArt(mkEvent(t, file, 6, el.x, el.y, 1))
 	if len(ov1.Art()) != 0 {
 		t.Fatal("1 倍不產生圖面")
@@ -1107,12 +1046,12 @@ func TestArtMissSkip(t *testing.T) {
 // --- 第 9 項：lint 與 catalog ---
 
 func TestLintArt(t *testing.T) {
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	b, err := os.ReadFile("testdata/menu_gfx.test.tsv")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep := LintArt(b, wide); !rep.OK() {
+	if rep := LintArtText(b, fonts); !rep.OK() {
 		t.Fatalf("testdata 應通過（含主選單 key CONTINUE GAME）：%v", rep.Errors)
 	}
 	cases := map[string]string{
@@ -1127,12 +1066,12 @@ func TestLintArt(t *testing.T) {
 		if s == string(b) {
 			t.Fatalf("%s：替換沒有生效", name)
 		}
-		if rep := LintArt([]byte(s), wide); rep.OK() {
+		if rep := LintArtText([]byte(s), fonts); rep.OK() {
 			t.Errorf("%s 應報錯", name)
 		}
 	}
 	// puts 輸出 CANCEL 時 001 不產生 stamp：圖形字 catalog 不併進 tr。
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), testGfx(), 2)
+	ov, err := NewOverlayText(fonts, testCatalog(), testGfx(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1142,36 +1081,18 @@ func TestLintArt(t *testing.T) {
 	}
 }
 
-// TestFormalGfxCatalog 以 LintArt 檢查正式圖形字 catalog（DOSGOLEM_SC_GFX_CATALOG）與字型（DOSGOLEM_SC_FONT）。
-// strike_commander 規格 011 §4.6：(c) 起另以 LintArtText 對圖集（DOSGOLEM_SC_FONT_DIR）檢查，新舊都跑。
+// TestFormalGfxCatalog 以 LintArtText 檢查正式圖形字 catalog（DOSGOLEM_SC_GFX_CATALOG）與圖集（DOSGOLEM_SC_FONT_DIR）。
 func TestFormalGfxCatalog(t *testing.T) {
-	cp, fp := os.Getenv(scGfxCatalogEnv), os.Getenv(scFontEnv)
-	if cp == "" || (fp == "" && os.Getenv(scFontDirEnv) == "") {
-		t.Skip(scGfxCatalogEnv + " 與 " + scFontEnv + " 或 " + scFontDirEnv + " 未設定")
+	cp := os.Getenv(scGfxCatalogEnv)
+	if cp == "" || os.Getenv(scFontDirEnv) == "" {
+		t.Skip(scGfxCatalogEnv + " 或 " + scFontDirEnv + " 未設定")
 	}
 	b, err := os.ReadFile(cp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fp != "" {
-		f, err := LoadLabelFont(fp, "full16-zh-TW")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rep := LintArt(b, f.Wide); !rep.OK() {
-			t.Fatalf("正式圖形字 catalog（舊 lint）：%v", rep.Errors)
-		}
-		t.Log("舊 lint 通過")
-	} else {
-		t.Log("舊 lint 未跑：" + scFontEnv + " 未設定")
-	}
-	if tf := envTextFonts(t); tf != nil {
-		if rep := LintArtText(b, tf); !rep.OK() {
-			t.Fatalf("正式圖形字 catalog（新 lint）：%v", rep.Errors)
-		}
-		t.Log("新 lint 通過")
-	} else {
-		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
+	if rep := LintArtText(b, envTextFonts(t)); !rep.OK() {
+		t.Fatalf("正式圖形字 catalog：%v", rep.Errors)
 	}
 	c, err := ParseCatalog(b)
 	if err != nil {

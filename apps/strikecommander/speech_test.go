@@ -232,7 +232,7 @@ func (f lintFixture) catalog() []byte {
 
 func (f lintFixture) run(t *testing.T) SpeechLintReport {
 	t.Helper()
-	return LintSpeech([]byte(f.index), f.catalog(), []byte(f.en), []byte(f.glossary), subTestFont(t).Wide)
+	return LintSpeechText([]byte(f.index), f.catalog(), []byte(f.en), []byte(f.glossary), subTextFonts(t))
 }
 
 func baseLintFixture() lintFixture {
@@ -329,7 +329,7 @@ func TestLintSpeechErrors(t *testing.T) {
 		{"譯名不一致", func(f *lintFixture) {
 			set(f, "conv/011/01", "conv/011/01\t測試二。\tCONV.PAK 第 11 段第 1 句；未觀察")
 		}, "英文含 \"Stern\""},
-		// 第 4 版：W 30、超過 3 行失敗。前綴「史登：」3 字 + 譯文「史登」2 字 + 91 字 = 96 字，換行後 4 行。
+		// 超過 3 行失敗（每行 27 字）。前綴「史登：」3 字 + 譯文「史登」2 字 + 91 字 = 96 字，換行後 4 行。
 		{"超過 3 行", func(f *lintFixture) {
 			set(f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 91)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
 		}, "超過 3 行"},
@@ -366,10 +366,11 @@ func TestLintSpeechErrors(t *testing.T) {
 	if !rep.OK() || len(rep.Untranslated) != 1 || rep.Untranslated[0] != "conv/011/00" {
 		t.Fatalf("缺譯：%v %v", rep.Errors, rep.Untranslated)
 	}
-	// 剛好 3 行：列出、不判失敗（前綴 3 字 + 史登 2 字 + 80 字 = 85 字，W 30 換成 3 行）。
+	// 剛好 3 行：列出、不判失敗。011 §3.7：測試圖集 CJK 前進寬 = 字級，2、3 倍每行 27 字；
+	// 前綴 3 字 + 史登 2 字 + 70 字 = 75 字，換成 3 行。
 	f = baseLintFixture()
 	f.cat = append([]string(nil), f.cat...)
-	set(&f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 80)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
+	set(&f, "conv/011/01", "conv/011/01\t史登"+strings.Repeat("測", 70)+"\tCONV.PAK 第 11 段第 1 句；未觀察")
 	rep = f.run(t)
 	if !rep.OK() || len(rep.Over2) != 1 || !strings.Contains(rep.Over2[0], "3 行") {
 		t.Fatalf("剛好 3 行：%v %v", rep.Errors, rep.Over2)

@@ -1,7 +1,6 @@
 package strikecommander
 
 import (
-	"encoding/binary"
 	"os"
 	"sort"
 	"strings"
@@ -9,49 +8,6 @@ import (
 
 	"github.com/wicanr2/dosgolem/xlate"
 )
-
-// testFontRunes：全形字（來源位元組 bit 7 = 1）；testHalfRunes：半形字。
-// 數字刻意缺 ７（002 §3.1：缺字時 "… (17)" 記 glyph miss、CheckFontExtra 失敗）。
-// 地面空中是計分板欄名的譯文（003 §3.5）。
-const (
-	testFontRunes = "測試譯文甲乙丙一二三ＡＩＭ－９Ｊ尾追式飛彈卸下０１２３４５６８（）地面空中"
-	testHalfRunes = "a -"
-)
-
-// buildTestFont 合成一份 16×16 GOLEMFNT。
-func buildTestFont(wide, half string) []byte {
-	var rs []rune
-	src := map[rune]byte{}
-	for _, r := range wide {
-		rs = append(rs, r)
-		src[r] = 0x81
-	}
-	for _, r := range half {
-		rs = append(rs, r)
-		src[r] = 0x01
-	}
-	b := []byte("GOLEMFNT")
-	b = binary.LittleEndian.AppendUint16(b, 16)
-	b = binary.LittleEndian.AppendUint16(b, 16)
-	b = binary.LittleEndian.AppendUint32(b, uint32(len(rs)))
-	for _, r := range rs {
-		b = binary.LittleEndian.AppendUint32(b, uint32(r))
-		b = append(b, src[r])
-		for i := 0; i < 32; i++ {
-			b = append(b, 0x81) // 每列左右兩緣各一點
-		}
-	}
-	return b
-}
-
-func testLabelFont(t *testing.T) *LabelFont {
-	t.Helper()
-	f, err := ParseLabelFont(buildTestFont(testFontRunes, testHalfRunes), "full16-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
 
 // testLABL 回測試用的 LABL 集合：九個武器長名稱（002 §2.3 防呆要求它們在 LABL 裡）加上 extra。
 func testLABL(extra ...string) map[string]bool {
@@ -70,19 +26,6 @@ func testCatalog() map[string]string {
 		"Talk to Gwen":             "測試譯文甲",
 		"Transport to Strike Base": "測試譯文乙乙乙",
 		"Fly Mission":              "測試丙",
-	}
-}
-
-func TestWideTable(t *testing.T) {
-	f := testLabelFont(t)
-	if !f.Wide.Wide('測') || f.Wide.Wide('a') || !f.Wide.Has('a') || f.Wide.Has('乂') {
-		t.Fatal("全形表解析錯誤")
-	}
-	if f.Wide.Len() != len([]rune(testFontRunes+testHalfRunes)) {
-		t.Fatalf("字數 %d", f.Wide.Len())
-	}
-	if _, err := ParseWide([]byte("GOLEMFNT\x10\x00\x10\x00\x02\x00\x00\x00")); err == nil {
-		t.Fatal("宣告字數不符應回錯")
 	}
 }
 
@@ -105,7 +48,7 @@ func TestTestdataCatalog(t *testing.T) {
 		}
 	}
 	labl := testLABL("Talk to Gwen", "Transport to Strike Base", "Fly Mission", "Talk to Janet")
-	rep := Lint(b, testLabelFont(t).Wide, labl)
+	rep := LintLabels(b, testTextFonts(t), labl)
 	// 漏譯：Talk to Janet、九個長名稱、兩個範本、九個短代號（002 §2.3 的 key 集合）、四個 EXE 字串（003 §3.5）。
 	wantU := []string{"Talk to Janet", TemplateCount, TemplateRemove}
 	wantU = append(wantU, WeaponLongNames[:]...)
@@ -121,14 +64,13 @@ func TestTestdataCatalog(t *testing.T) {
 
 func syncOne(t *testing.T, l Label, tr string, scale int) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), map[string]string{l.Key: tr}, nil, scale)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), map[string]string{l.Key: tr}, scale)
 	ov.Sync([]Label{l}, 1)
 	return ov
 }
 
+// TestStampExamples：001 §2.6 的舊幾何（legacyLabelGeom）照數值例；Overlay 只產生遮蓋 stamp，
+// 遮蓋範圍包住英文游標（011 §3.5），文字以圖集畫（版面值見 TestLabelTextExample）。
 func TestStampExamples(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -147,31 +89,27 @@ func TestStampExamples(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			l := Label{Key: "K", X0: c.x0, X1: c.x1, Y: 175, Font: measuredFont}
+			g, err := legacyLabelGeom(l, c.n, c.scale)
+			if err != nil || g.X != c.x || g.Y != 176 || g.CellW != c.cellW || g.CellH != 14 || g.GlyphX != c.gx || g.GlyphY != c.gy ||
+				c.n*g.CellW != c.w || g.CX0 != c.cx0 || g.CX1 != c.cx1 {
+				t.Errorf("舊幾何 %+v（%v），要 X %d W %d CellW %d Glyph (%d,%d) 遮蓋 [%d, %d)", g, err, c.x, c.w, c.cellW, c.gx, c.gy, c.cx0, c.cx1)
+			}
 			ov := syncOne(t, l, strings.Repeat("測", c.n), c.scale)
 			st := ov.Stamps()
-			if len(st) != 2 {
-				t.Fatalf("stamp %d 個，要 2（遮蓋、文字）", len(st))
+			if len(st) != 1 {
+				t.Fatalf("stamp %d 個，要 1（遮蓋）", len(st))
 			}
-			cv, tx := st[0], st[1]
+			cv := st[0]
 			if cv.Key != "K.cover" || cv.Font != nil || len(cv.Text) != 0 || cv.Cells != 1 || cv.CellH != 14 || cv.Y != 176 ||
-				cv.X != c.cx0 || cv.CellW != c.cx1-c.cx0 || cv.State != xlate.Shown {
-				t.Errorf("遮蓋 stamp %+v，要 [%d, %d) × [176, 190)", *cv, c.cx0, c.cx1)
-			}
-			if tx.Key != "K.text" || tx.Font == nil || len(tx.Text) != c.n || tx.Cells != c.n || tx.CellW != c.cellW || tx.CellH != 14 ||
-				tx.GlyphScale != 1 || tx.GlyphX != c.gx || tx.GlyphY != c.gy || tx.X != c.x || tx.Cells*tx.CellW != c.w || tx.Y != 176 ||
-				tx.State != xlate.Shown {
-				t.Errorf("文字 stamp X %d W %d CellW %d Glyph (%d,%d) scale %d Y %d，要 X %d W %d CellW %d Glyph (%d,%d)",
-					tx.X, tx.Cells*tx.CellW, tx.CellW, tx.GlyphX, tx.GlyphY, tx.GlyphScale, tx.Y, c.x, c.w, c.cellW, c.gx, c.gy)
+				cv.X > max(c.x0, 0) || cv.X+cv.CellW < min(c.x1, 320) || cv.State != xlate.Shown {
+				t.Errorf("遮蓋 stamp %+v，要包住 [%d, %d) × [176, 190)", *cv, c.x0, c.x1)
 			}
 		})
 	}
 }
 
 func TestStampOrderMultiple(t *testing.T) {
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), testCatalog(), 2)
 	ov.Sync([]Label{
 		{Key: "Talk to Gwen", X0: 114, X1: 204, Y: 175, Font: measuredFont},
 		{Key: "Fly Mission", X0: 124, X1: 195, Y: 160, Font: measuredFont},
@@ -180,17 +118,20 @@ func TestStampOrderMultiple(t *testing.T) {
 	for _, s := range ov.Stamps() {
 		ks = append(ks, s.Key)
 	}
-	if got := strings.Join(ks, "|"); got != "Talk to Gwen.cover|Talk to Gwen.text|Fly Mission.cover|Fly Mission.text" {
+	if got := strings.Join(ks, "|"); got != "Talk to Gwen.cover|Fly Mission.cover" {
 		t.Fatalf("順序 %s", got)
+	}
+	if len(ov.matches) != 2 || string(ov.matches[0].textItem.raw) != "測試譯文甲" || string(ov.matches[1].textItem.raw) != "測試丙" {
+		t.Fatal("文字項順序不符")
 	}
 }
 
 func TestStampNotProduced(t *testing.T) {
 	l := Label{Key: "K", X0: 114, X1: 204, Y: 175, Font: measuredFont}
 	t.Run("超寬", func(t *testing.T) {
-		ov := syncOne(t, l, strings.Repeat("測", 41), 2)
+		ov := syncOne(t, l, strings.Repeat("測", 41), 2) // 41 × 22 = 902 > 640 − 2
 		if len(ov.Stamps()) != 0 || len(ov.Skips) != 1 {
-			t.Fatalf("W 328 > 320 仍產生 stamp：%d", len(ov.Stamps()))
+			t.Fatalf("超寬仍產生 stamp：%d", len(ov.Stamps()))
 		}
 	})
 	t.Run("1 倍", func(t *testing.T) {
@@ -200,13 +141,13 @@ func TestStampNotProduced(t *testing.T) {
 		}
 	})
 	t.Run("缺譯文", func(t *testing.T) {
-		ov, _ := NewOverlay(testLabelFont(t), map[string]string{}, nil, 2)
+		ov := textOverlay(t, testTextFonts(t), map[string]string{}, 2)
 		ov.Sync([]Label{l}, 1)
 		if len(ov.Stamps()) != 0 || len(ov.Misses) != 1 || ov.Misses[0].Reason != "translation" {
 			t.Fatalf("缺譯文：stamps %d misses %+v", len(ov.Stamps()), ov.Misses)
 		}
 	})
-	for _, tr := range []string{"測試乂", "測a試"} {
+	for _, tr := range []string{"測試乂", "測ゑ試"} {
 		t.Run("缺字 "+tr, func(t *testing.T) {
 			ov := syncOne(t, l, tr, 2)
 			if len(ov.Stamps()) != 0 || len(ov.Misses) != 1 || ov.Misses[0].Reason != "glyph" || len(ov.Misses[0].Runes) != 1 {
@@ -218,11 +159,11 @@ func TestStampNotProduced(t *testing.T) {
 
 func TestStampGenerationAndScale(t *testing.T) {
 	l := Label{Key: "Talk to Gwen", X0: 114, X1: 204, Y: 175, Font: measuredFont}
-	ov, _ := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
+	ov := textOverlay(t, testTextFonts(t), testCatalog(), 2)
 	ov.Sync([]Label{l}, 1)
-	first := ov.Stamps()[1]
+	first := ov.Stamps()[0]
 	ov.Sync(nil, 1) // generation 相同：不重建
-	if len(ov.Stamps()) != 2 || ov.Stamps()[1] != first {
+	if len(ov.Stamps()) != 1 || ov.Stamps()[0] != first {
 		t.Fatal("generation 相同時重建了")
 	}
 	ov.Sync(nil, 2)
@@ -234,7 +175,7 @@ func TestStampGenerationAndScale(t *testing.T) {
 		t.Fatal(err)
 	}
 	ov.Sync([]Label{l}, 3)
-	if ov.Stamps()[1].CellW != 6 {
+	if len(ov.matches) != 1 || ov.matches[0].textItem.px != pxLabel[3] {
 		t.Fatal("換倍率後未重建")
 	}
 }
@@ -254,23 +195,28 @@ func TestStampDrawColors(t *testing.T) {
 		t.Fatalf("缺字 %q", miss)
 	}
 	at := func(x, y int) [3]uint8 { i := 4 * (y*640 + x); return [3]uint8{out[i], out[i+1], out[i+2]} }
+	// 前後列為 nil 的退路標籤：遮蓋以 0 號實心填格（006 §3.2 第 7 條）。
 	if c := at(2*114, 2*176); c != pal[0] {
 		t.Errorf("遮蓋左上 %v，要 0 號色 %v", c, pal[0])
 	}
 	if c := at(2*114-1, 2*176); c != pal[7] {
 		t.Errorf("遮蓋框外 %v，要原畫格 %v", c, pal[7])
 	}
-	// 文字 stamp 第一格 X 139，GlyphY 6：字模第 0 列最左點（0x81 的 bit 7）在 (278, 352+6)
-	if c := at(2*139, 2*176+6); c != pal[15] {
-		t.Errorf("字模點 %v，要 15 號色 %v", c, pal[15])
+	// 2 倍 22 像素、W 110：tx 263、ey 355、baseline 374；第一字填色方塊 x 264..283、y 356..375。
+	ti := ov.matches[0].textItem
+	if ti.tx != 263 || ti.baseline != 374 {
+		t.Fatalf("tx %d baseline %d，要 263、374", ti.tx, ti.baseline)
+	}
+	if c := at(270, 360); c != pal[15] {
+		t.Errorf("字的填色 %v，要 15 號色 %v", c, pal[15])
 	}
 	// 色盤改變後重畫，跟著改
 	pal[15] = [3]uint8{9, 9, 9}
 	out, _ = ov.Draw(idx, pal)
-	if c := at(2*139, 2*176+6); c != pal[15] {
-		t.Errorf("色盤改變後字模點 %v，要 %v", c, pal[15])
+	if c := at(270, 360); c != pal[15] {
+		t.Errorf("色盤改變後字的填色 %v，要 %v", c, pal[15])
 	}
-	cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil)
+	cc := CheckCompositeText(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil, ov.TextBoxes())
 	if cc.Diffs == 0 || cc.Outside != 0 {
 		t.Errorf("合成圖比較 %+v", cc)
 	}

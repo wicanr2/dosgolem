@@ -406,12 +406,10 @@ func TestMenuNoSaveLoadRules(t *testing.T) {
 	if len(got) != 6 || strings.Join(got[:4], "|") != before || got[4] != "mainmenu/56,34/0" || got[5] != "mainmenu/56,85/3" {
 		t.Fatalf("MAINMENU k0、k3 之後圖面 %q（之前 %q）", got, before)
 	}
-	// k3 是一般態：字樣有陰影 150（(gx+1, gy+1)），沒有按下態的上緣。
+	// k3 是一般態：趟表是陰影 150 (+1,+1)、亮邊 187 (−1,−1)、字色，沒有按下態的上緣 (0,−1)。
 	e := ov.arts[5]
-	gx, gy := tPosMM[3].tx2, tPosMM[3].ty2
-	ow := 207 * 2
-	if c := e.idx[(gy+1)*ow+gx+1]; c != 150 {
-		t.Errorf("MAINMENU k3 的 (gx+1, gy+1) 是 %d，要陰影 150", c)
+	if p := e.text.passes; len(p) != 3 || p[0] != (glyphPass{150, 1, 1}) || p[1] != (glyphPass{187, -1, -1}) || p[2].dx != 0 || p[2].dy != 0 {
+		t.Errorf("MAINMENU k3 的趟表 %+v", p)
 	}
 	if mmPressed(3) || !mmPressed(8) || !mmPressed(6) || mmPressed(4) {
 		t.Error("MAINMENU 按下態要以 k ≥ 5 判")
@@ -764,26 +762,20 @@ func TestMenuGlyphConstants(t *testing.T) {
 	}
 }
 
-// tPos 是 2、3 倍的 tx、ty（含 3 倍字格置中的 +1，相對字帶，輸出像素；rv-a/out/pos.txt）。
-type tPos struct{ tx2, ty2, tx3, ty3 int }
-
-var (
-	tPosMM    = [5]tPos{{177, 2, 278, 7}, {177, 2, 278, 7}, {170, 2, 271, 7}, {177, 2, 278, 7}, {173, 2, 272, 7}}
-	tPosPlate = [5]tPos{{179, 4, 281, 10}, {179, 4, 281, 10}, {172, 4, 274, 10}, {179, 4, 281, 10}, {175, 4, 275, 10}}
-	tPosTM    = [2]tPos{{110, 14, 184, 25}, {112, 14, 187, 25}}
-)
-
-// glyphAt 回圖面 idx（字帶寬 bw、倍率 sc）在 (x, y) 的色號與該點的放大無字底。
-func glyphAt(e *artEntry, bg []uint8, bw, sc, x, y int) (got, base uint8) {
-	return e.idx[y*bw*sc+x], bg[(y/sc)*bw+x/sc]
-}
-
-// TestMenuGlyphStyle：§3.5 每種態的各趟色號與位移、2、3 倍的 tx、ty，按下態與一般態相同。
-// 測試字模每列第 0、7、8、15 欄有點。
+// TestMenuGlyphStyle：008 §3.5 每種態的各趟色號與位移（011 §3.6.3 以填色層逐趟畫），主選單與 TOMENU 按下態的
+// tx、ey 與一般態相同。測試圖集的 CJK 字是實心方塊：填色欄 [tx + 1, tx + px − 1)、列 [ey + 1, ey + px − 1)。
+// 點位 (dx, dy) 相對第一個字填色區的左上角 (tx + 1, ey + 1)；(px−2) 表示填色區寬（高）減 1 再加 1，即右（下）緣外一格。
 func TestMenuGlyphStyle(t *testing.T) {
 	f := loadMenuFiles(t)
+	pal := tPal()
 	for _, sc := range []int{2, 3} {
-		check := func(name string, ev ArtEvent, want tPos, pts [][3]int) {
+		// check 回 (tx, ey)；pts 每點 {dx, dy, 色號}，色號 −1 表示無字底。far 為 true 時 dx、dy 從填色區右下角外一格起算。
+		type pt struct {
+			far    bool
+			dx, dy int
+			col    int
+		}
+		check := func(name string, ev ArtEvent, pts []pt) (int, int) {
 			t.Helper()
 			ov := newArtOverlay(t, sc)
 			ov.addArt(ev)
@@ -791,52 +783,60 @@ func TestMenuGlyphStyle(t *testing.T) {
 				t.Fatalf("%d 倍 %s：沒有圖面（%+v %+v）", sc, name, ov.Misses, ov.Skips)
 			}
 			e := ov.arts[0]
-			sp, _ := artSpecFor(ev)
-			n := len([]rune(testGfx()[sp.key]))
-			gx, gy, _, err := glyphOrigin(n, sc, sp.band, sp.center)
-			tx, ty := want.tx2, want.ty2
-			if sc == 3 {
-				tx, ty = want.tx3, want.ty3
+			at := e.text
+			if c := at.display[0]; c < 0x3000 {
+				t.Fatalf("%d 倍 %s：第一字 %q 不是 CJK，點位不適用", sc, name, c)
 			}
-			if err != nil || gx != tx || gy != ty {
-				t.Errorf("%d 倍 %s：tx、ty %d、%d，要 %d、%d（%v）", sc, name, gx, gy, tx, ty, err)
-			}
-			bg, _, _ := artBackground(ev)
-			bw := sp.band.x1 - sp.band.x0 + 1
+			s := e.stamp(pal, sc)
+			ow := e.rect.W * sc
+			fill := at.px - 2
 			for _, p := range pts {
-				got, base := glyphAt(e, bg, bw, sc, gx+p[0], gy+p[1])
-				w := uint8(p[2])
-				if p[2] < 0 {
-					w = base
+				x, y := at.tx+1+p.dx, at.ey+1+p.dy
+				if p.far {
+					x, y = at.tx+1+fill+p.dx, at.ey+1+fill+p.dy
 				}
-				if got != w {
-					t.Errorf("%d 倍 %s：(gx%+d, gy%+d) 是 %d，要 %d", sc, name, p[0], p[1], got, w)
+				i := y*ow + x
+				w := pal[e.idx[i]]
+				if p.col >= 0 {
+					w = pal[p.col]
+				}
+				if got := [3]uint8{s.Pix[4*i], s.Pix[4*i+1], s.Pix[4*i+2]}; got != w || s.Pix[4*i+3] != 255 {
+					t.Errorf("%d 倍 %s：點 %+v (%d,%d) 是 %v/%d，要 %v", sc, name, p, x, y, got, s.Pix[4*i+3], w)
 				}
 			}
+			return at.tx, at.ey
 		}
 		for n := 0; n < 5; n++ {
 			// 一般態：陰影 150 (+1,+1)、亮邊 187 (−1,−1)、字色 c（k0 139，其餘 140）。
 			nc := [5]int{139, 140, 140, 140, 140}
-			check(fmt.Sprintf("k%d", n), mmEvent(t, f, n, 1), tPosMM[n], [][3]int{
-				{0, 0, nc[n]}, {1, 1, 150}, {-1, -1, 187}, {6, 3, 187}, {9, 16, 150}, {1, 0, -1}})
-			// 按下態：上緣 e (0,−1)、下緣 hb (0,+1)、字色 c；tx、ty 與一般態相同。
+			tx0, ey0 := check(fmt.Sprintf("k%d", n), mmEvent(t, f, n, 1), []pt{
+				{false, 0, 0, nc[n]}, {false, -1, -1, 187}, {true, 0, 0, 150}, {true, -1, -1, nc[n]}, {false, -2, -2, -1}, {true, 1, 1, -1}})
+			// 按下態：上緣 e (0,−1)、下緣 hb (0,+1)、字色 c；tx、ey 與一般態相同。
 			eC := [5]int{139, 140, 140, 140, 140}
 			hbC := [5]int{183, 184, 185, 184, 186}
 			pc := 148
 			if n == 4 {
 				pc = 149
 			}
-			check(fmt.Sprintf("k%d", n+5), mmEvent(t, f, n+5, 1), tPosMM[n], [][3]int{
-				{0, 0, pc}, {0, -1, eC[n]}, {0, 16, hbC[n]}, {1, 0, -1}, {1, 1, -1}, {-1, -1, -1}})
+			tx1, ey1 := check(fmt.Sprintf("k%d", n+5), mmEvent(t, f, n+5, 1), []pt{
+				{false, 0, 0, pc}, {false, 0, -1, eC[n]}, {true, -1, 0, hbC[n]}, {false, -1, 0, -1}, {true, 0, -1, -1}, {false, -1, -1, -1}})
+			if tx1 != tx0 || ey1 != ey0 {
+				t.Errorf("%d 倍 k%d：按下態 (%d,%d) 與一般態 (%d,%d) 不同", sc, n+5, tx1, ey1, tx0, ey0)
+			}
 			// 底板灰字：下緣亮邊 hp (0,+1)、字色 176。
 			ev := plateEvent(t, f, 1)
 			ev.Line, ev.Buttons = n, f.buttons
 			hp := [5]int{183, 182, 183, 183, 182}
-			check(fmt.Sprintf("底板第 %d 行", n), ev, tPosPlate[n], [][3]int{{0, 0, 176}, {0, 16, hp[n]}, {0, -1, -1}, {1, 1, -1}})
+			check(fmt.Sprintf("底板第 %d 行", n), ev, []pt{{false, 0, 0, 176}, {true, -1, 0, hp[n]}, {false, 0, -1, -1}, {true, 0, -1, -1}})
 		}
-		for k := 0; k < 4; k++ {
-			// TOMENU：亮邊 193 (+1,+1)、字色 18；按下態與一般態相同。
-			check(fmt.Sprintf("T%d", k), tmEvent(t, f, k, 1), tPosTM[k%2], [][3]int{{0, 0, 18}, {1, 1, 193}, {9, 16, 193}, {-1, -1, -1}, {0, 16, -1}})
+		for k := 0; k < 2; k++ {
+			// TOMENU：亮邊 193 (+1,+1)、字色 18；按下態（k + 2）的 tx、ey 與一般態相同。
+			pts := []pt{{false, 0, 0, 18}, {true, 0, 0, 193}, {true, -1, -1, 18}, {false, -1, -1, -1}, {true, 1, 1, -1}}
+			tx0, ey0 := check(fmt.Sprintf("T%d", k), tmEvent(t, f, k, 1), pts)
+			tx1, ey1 := check(fmt.Sprintf("T%d", k+2), tmEvent(t, f, k+2, 1), pts)
+			if tx1 != tx0 || ey1 != ey0 {
+				t.Errorf("%d 倍 T%d：按下態 (%d,%d) 與一般態 (%d,%d) 不同", sc, k+2, tx1, ey1, tx0, ey0)
+			}
 		}
 	}
 }
@@ -1011,7 +1011,7 @@ func TestMenuPlateLifecycle(t *testing.T) {
 	// 五列的建立與觸發它的按鈕事件是否產生圖面無關。
 	gfx := testGfx()
 	delete(gfx, "START NEW GAME")
-	ov2, err := NewOverlay(testLabelFont(t), testCatalog(), gfx, 2)
+	ov2, err := NewOverlayText(testTextFonts(t), testCatalog(), gfx, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1030,7 +1030,7 @@ func TestMenuPlateLifecycle(t *testing.T) {
 // --- 第 10 項：lint ---
 
 func TestMenuLint(t *testing.T) {
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	b, err := os.ReadFile("testdata/menu_gfx.test.tsv")
 	if err != nil {
 		t.Fatal(err)
@@ -1041,7 +1041,7 @@ func TestMenuLint(t *testing.T) {
 	if a, w := append([]string(nil), keys...), append([]string(nil), want...); len(a) != 16 || func() bool { sort.Strings(a); sort.Strings(w); return strings.Join(a, "|") != strings.Join(w, "|") }() {
 		t.Fatalf("ArtCatalogKeys %q", keys)
 	}
-	if rep := LintArt(b, wide); !rep.OK() {
+	if rep := LintArtText(b, fonts); !rep.OK() {
 		t.Fatalf("testdata 應通過：%v", rep.Errors)
 	}
 	for _, k := range want {
@@ -1055,7 +1055,7 @@ func TestMenuLint(t *testing.T) {
 		if s == string(b) {
 			t.Fatalf("缺 %s：替換沒有生效", k)
 		}
-		if rep := LintArt([]byte(s), wide); rep.OK() {
+		if rep := LintArtText([]byte(s), fonts); rep.OK() {
 			t.Errorf("缺 %s 應報錯", k)
 		}
 	}

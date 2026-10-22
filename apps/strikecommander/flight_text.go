@@ -6,10 +6,9 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 飛行字串（HUD、MFD、訊息橫幅）的反鋸齒新路徑（strike_commander 規格 011 §3.6.4 到 §3.6.6；分期 (e)）。
-// FlightOverlay.Text 非 nil 時一律走新路徑。
+// 飛行字串（HUD、MFD、訊息橫幅）的版面與反鋸齒字（strike_commander 規格 011 §3.6.4 到 §3.6.6）。
 
-// NewFlightOverlayText 建一個走新路徑的飛行 overlay，不需要舊字型（011 §3.9）。scale 1 到 3；1 不畫，2 不畫 HUD。
+// NewFlightOverlayText 建一個倍率的飛行 overlay（011 §3.9）。scale 1 到 3；1 不畫，2 不畫 HUD。fonts 不得為 nil。
 func NewFlightOverlayText(fonts *TextFonts, cats FlightCatalogs, scale int) (*FlightOverlay, error) {
 	if scale < 1 || scale > 3 {
 		return nil, fmt.Errorf("strikecommander: 飛行 overlay 倍率 %d 不支援", scale)
@@ -17,7 +16,7 @@ func NewFlightOverlayText(fonts *TextFonts, cats FlightCatalogs, scale int) (*Fl
 	if fonts == nil {
 		return nil, fmt.Errorf("strikecommander: 飛行 overlay 缺圖集")
 	}
-	return &FlightOverlay{Text: fonts, cats: cats, scale: scale, HUDScaleOff: scale != 3, masks: map[string][]bool{}}, nil
+	return &FlightOverlay{Text: fonts, cats: cats, scale: scale}, nil
 }
 
 // flightTextRange 回 011 §3.1 表的英文範圍 [e0, e1)、可用範圍 [a0, a1)、邊距 m 與是否畫外框；E′（換回範圍）同英文範圍。
@@ -59,7 +58,7 @@ func flightPx(k Kind, scale int) int {
 	return pxPlaque[scale]
 }
 
-// planText 是 plan 的新路徑（011 §3.5、§3.6.4 到 §3.6.6）。
+// planText 規劃一筆（011 §3.5、§3.6.4 到 §3.6.6）。
 func (o *FlightOverlay) planText(i int, t FlightText) (flightEntry, *Miss, *Skip) {
 	if o.scale < 2 || (t.Kind == KindHUD && o.scale != 3) {
 		return flightEntry{}, nil, errNoStamp
@@ -115,7 +114,7 @@ func (o *FlightOverlay) planText(i int, t FlightText) (flightEntry, *Miss, *Skip
 	return e, nil, nil
 }
 
-// drawText 是 Draw 的新路徑（011 §3.9）：照畫串的遮蓋先以背景圖換回 → 照畫 HUD 串的外框層 → 照畫串的填色層。
+// drawText 是 Draw 的繪製（011 §3.9）：照畫串的遮蓋先以背景圖換回 → 照畫 HUD 串的外框層 → 照畫串的填色層。
 func (o *FlightOverlay) drawText(out []byte, indexed []byte, palette [256][3]uint8, bad []bool) {
 	o.lastInk = make([]xlate.AlphaRect, len(o.entries))
 	var bitems []bgItem
@@ -136,7 +135,7 @@ func (o *FlightOverlay) drawText(out []byte, indexed []byte, palette [256][3]uin
 	if len(bitems) == 0 {
 		return
 	}
-	bg := labelBackground(out, indexed, palette, o.scale, bitems, nil)
+	bg := labelBackground(out, indexed, palette, o.scale, bitems)
 	layer.DrawWithBackground(out, o.scale, func(rune) {}, bg, func(*xlate.Stamp) bool { return true })
 	o.lastInk = drawTextItems(out, o.scale, palette, items)
 }

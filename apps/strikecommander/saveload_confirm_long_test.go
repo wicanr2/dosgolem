@@ -120,10 +120,8 @@ func checkCaseI007(t *testing.T, res *ReceiptResult) {
 
 func checkCaseJ007(t *testing.T, res *ReceiptResult) {
 	file := loadSHP(t)
-	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
+	var rc ReceiptConfig
+	applyTextEnv(t, &rc)
 	gb, err := os.ReadFile(os.Getenv(scGfxCatalogEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -141,15 +139,9 @@ func checkCaseJ007(t *testing.T, res *ReceiptResult) {
 			if !contains(s.ArtKeys[sc], keyK15) {
 				t.Errorf("shot %s %d 倍：沒有 k15 圖面", name, sc)
 			}
-			ov, err := NewOverlay(font, nil, gfx, sc)
+			ov, err := NewOverlayText(rc.Fonts, nil, gfx, sc)
 			if err != nil {
 				t.Fatal(err)
-			}
-			// strike_commander 規格 011：圖面走新路徑時，對照的「只有 k16」也以同一路徑畫。
-			var rc ReceiptConfig
-			applyTextEnv(t, &rc)
-			if rc.TextPaths.Art {
-				ov.Text, ov.TextArt = rc.Fonts, true
 			}
 			ov.AddDialogArt(mkEvent(t, file, 16, 119, 96, 1))
 			only16, _ := ov.Draw(s.Indexed, s.Palette)

@@ -1,7 +1,6 @@
 package strikecommander
 
 import (
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wicanr2/dosgolem/internal/machine"
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // strike_commander 規格 010 §4.1 第 1、3 到 8 項的單元測試：合成的 View、記憶體與 SB16 事件序列。
@@ -23,71 +23,18 @@ const (
 	sWing  = 0x1600 // $W 字串在 DS:(sWing+1)
 )
 
-// subFontRunes 是單元測試字型的全形字：測試譯文用到的字、禁則標點、全形 ASCII、U+3000。
-var subFontRunes = func() string {
-	var b strings.Builder
-	b.WriteString("史登萊爾比利玩家好運輸機已回報測試一二三四五六七八九十甲乙丙丁戊己庚辛壬癸，。、！？；：」』）…「『（　中文字幕今天沒有錢拿")
-	for r := rune(0xFF01); r <= 0xFF5E; r++ {
-		b.WriteRune(r)
-	}
-	return b.String()
-}()
+// subTextRunes 是字幕測試譯文、說話人名與禁則標點用到的字（不收全形英數：繪製與 lint 都先經 N()）。
+const subTextRunes = "史登萊爾比利玩家好運輸機已回報測試一二三四五六七八九十甲乙丙丁戊己庚辛壬癸，。、！？；：」』）…「『（　中文字幕今天沒有錢拿" +
+	"葛雯米蓋泰克斯"
 
-// buildGlyphFont 合成一份 size×size 的 GOLEMFNT（size ≤ 16，每列 2 bytes，最高位元是最左欄）。
-// wide 的來源位元組 0x82（全形，Fusion），half 的是 0x02；glyph 回各字的 size 個列值。
-func buildGlyphFont(size int, wide, half string, glyph func(r rune) []uint16) []byte {
-	var rs []rune
-	src := map[rune]byte{}
-	for _, r := range wide {
-		rs = append(rs, r)
-		src[r] = 0x82
-	}
-	for _, r := range half {
-		rs = append(rs, r)
-		src[r] = 0x02
-	}
-	b := []byte("GOLEMFNT")
-	b = binary.LittleEndian.AppendUint16(b, uint16(size))
-	b = binary.LittleEndian.AppendUint16(b, uint16(size))
-	b = binary.LittleEndian.AppendUint32(b, uint32(len(rs)))
-	for _, r := range rs {
-		b = binary.LittleEndian.AppendUint32(b, uint32(r))
-		b = append(b, src[r])
-		rows := glyph(r)
-		for i := 0; i < size; i++ {
-			b = binary.BigEndian.AppendUint16(b, rows[i])
-		}
-	}
-	return b
-}
-
-// sub10Glyph 是單元測試的 SC-SUB10 字模，照 Fusion 10px 的實況（010 §2「字幕用字的字形」）：
-// 一般字是 BBX 9 9 0 -1 的全亮方塊（格列 1..9、欄 0..8）；「。」是 BBX 4 4 3 1（列 4..7、欄 3..6）；U+3000 全空。
-func sub10Glyph(r rune) []uint16 {
-	rows := make([]uint16, 10)
-	switch r {
-	case '　':
-	case '。':
-		for y := 4; y <= 7; y++ {
-			rows[y] = 0x1E00
-		}
-	default:
-		for y := 1; y <= 9; y++ {
-			rows[y] = 0xFF80
-		}
-	}
-	return rows
-}
-
-func subTestFontBytes() []byte { return buildGlyphFont(10, subFontRunes, "a", sub10Glyph) }
-
-func subTestFont(t *testing.T) *SubtitleFont {
+// subTextFonts 是 testTextFonts 加上 subTextRunes（預設方塊字形）。
+func subTextFonts(t *testing.T) *TextFonts {
 	t.Helper()
-	f, err := ParseSubtitleFont(subTestFontBytes(), SubtitleFontName)
-	if err != nil {
-		t.Fatal(err)
+	add := map[rune]testGlyphFunc{}
+	for _, r := range subTextRunes {
+		add[r] = func(px, asc int) *xlate.AlphaGlyph { return defaultTestGlyph(r, px, asc) }
 	}
-	return f
+	return testTextFontsWith(t, add)
 }
 
 // subRow 是合成結構表的一列。samples 為 0 時表示不在 VOCLIST。
@@ -166,7 +113,7 @@ func newSubH(t *testing.T) *subH {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewSubtitles(idx, subCatalog(), subTestFont(t), 0, 0)
+	s, err := NewSubtitlesText(idx, subCatalog(), subTextFonts(t), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,7 +728,8 @@ func TestSubtitleSubstitution(t *testing.T) {
 	h := newSubH(t)
 	h.at(ipConvDispatch)
 	h.start(1000, 5000, 0x1000)
-	if got := h.s.Subs[0].Text; got != "史登：好，ｓａｍ，運輸機已回報。" {
+	// 011 §3.6.7：玩家資料以半形代入（不經全形轉寫）。
+	if got := h.s.Subs[0].Text; got != "史登：好，sam，運輸機已回報。" {
 		t.Fatalf("$N：%q", got)
 	}
 	// $S 在 conv/011/03（說話人 air，前綴 $C）。
@@ -789,7 +737,7 @@ func TestSubtitleSubstitution(t *testing.T) {
 	h.setRel(0xF8)
 	h.at(ipConvDispatch)
 	h.start(400, 5000, 0x1000)
-	if got := h.s.Subs[0].Text; got != "ａｃｅ：ｌｅｅ，測試三" {
+	if got := h.s.Subs[0].Text; got != "ace：lee，測試三" {
 		t.Fatalf("$S、$C：%q", got)
 	}
 	vals := subValues{S: []byte("lee"), N: []byte("sam"), C: []byte("ace"), W: []byte("Lyle"), P: 2, T: -5}
@@ -800,21 +748,21 @@ func TestSubtitleSubstitution(t *testing.T) {
 	}{
 		{"$W", "Lyle", "萊爾"},
 		{"$W", "", ""},
-		{"$W", "Bob", "Ｂｏｂ"},
-		{"$P、$T", "Lyle", "２、－５"},
+		{"$W", "Bob", "Bob"},
+		{"$P、$T", "Lyle", "2、-5"},
 		{"$5", "Lyle", "$5"},
 	}
 	for _, c := range cases {
 		v := vals
 		v.W = []byte(c.w)
-		got, _ := h.s.substitute(c.tr, v)
+		got, _ := h.s.substituteHalf(c.tr, v)
 		if string(got) != c.want {
 			t.Errorf("%q（$W=%q）→ %q，要 %q", c.tr, c.w, string(got), c.want)
 		}
 	}
-	got, bad := Fullwidth([]byte{'a', 0x80, ' ', 'Z'})
-	if string(got) != "ａ？　Ｚ" || bad != 1 {
-		t.Errorf("全形轉寫 %q bad %d", string(got), bad)
+	got, bad := halfBytes([]byte{'a', 0x80, ' ', 'Z'})
+	if string(got) != "a？ Z" || bad != 1 {
+		t.Errorf("半形代入 %q bad %d", string(got), bad)
 	}
 	// 記憶體路徑的 $W：Lyle 對照譯名。
 	h = newSubH(t)
@@ -828,133 +776,54 @@ func TestSubtitleSubstitution(t *testing.T) {
 
 // ---- 第 6 項：版面與組字 ----------------------------------------------------
 
-// 第 4 版（SC-SUB10）：CellW 10、CellH 12（原版像素）、GlyphX 0、GlyphY 為 s 輸出像素、GlyphScale s、每行 30 字，
-// 2、3 倍的 X、Y、換行結果相同（010 §3.7）。
+// TestSubtitleLayout：011 §3.6.7 的像素換行與行內置中（測試圖集 CJK 字前進寬 = 字級）。
+// 可用寬 300s：2 倍 22 像素每行 27 字（594 ≤ 600，28 字 616）、3 倍 33 像素同為 27 字（891 ≤ 900）；
+// 行距 14 原版列；每行 tx = ⌊(320s − W) / 2⌋。2、3 倍的換行結果相同。
 func TestSubtitleLayout(t *testing.T) {
+	fonts := subTextFonts(t)
 	text := func(n int) []rune { return []rune(strings.Repeat("中", n)) }
 	for _, c := range []struct {
-		n                    int
-		wantX, wantY, wantCs []int
+		n      int
+		counts []int
+		cut    bool
 	}{
-		{5, []int{135}, []int{170}, []int{5}},                                          // 1 行 5 字：X = (320 − 50) / 2
-		{30, []int{10}, []int{170}, []int{30}},                                         // 滿 30 字：X = 10
-		{31, []int{10, 155}, []int{164, 176}, []int{30, 1}},                            // 31 字換行；2 行置中
-		{70, []int{10, 10, 110}, []int{158, 170, 182}, []int{30, 30, 10}},              // 3 行
-		{120, []int{10, 10, 10, 10}, []int{152, 164, 176, 188}, []int{30, 30, 30, 30}}, // 4 行填滿字幕區
+		{5, []int{5}, false},
+		{27, []int{27}, false},
+		{28, []int{27, 1}, false},
+		{60, []int{27, 27, 6}, false},
+		{82, []int{27, 27, 27}, true}, // 4 行截成 3 行
 	} {
 		var prev []SubLine
 		for _, sc := range []int{2, 3} {
-			ls, _, _ := subLayout(text(c.n), sc)
-			if len(ls) != len(c.wantX) {
-				t.Fatalf("%d 倍 %d 字：%d 行，要 %d", sc, c.n, len(ls), len(c.wantX))
+			px := pxSub[sc]
+			ls, _, cut, _ := subTextLines(text(c.n), fonts.Font(px), sc)
+			if len(ls) != len(c.counts) || cut != c.cut {
+				t.Fatalf("%d 倍 %d 字：%d 行、截斷 %t，要 %d、%t", sc, c.n, len(ls), cut, len(c.counts), c.cut)
 			}
 			for j, l := range ls {
-				if l.X != c.wantX[j] || l.Y != c.wantY[j] || l.Cells != c.wantCs[j] || l.CellW != 10 || l.CellH != 12 ||
-					l.GlyphX != 0 || l.GlyphY != sc || l.GlyphScale != sc {
-					t.Errorf("%d 倍 %d 字第 %d 行：%+v", sc, c.n, j, l)
+				n := len(l.Text)
+				if !c.cut && n != c.counts[j] {
+					t.Errorf("%d 倍 %d 字第 %d 行 %d 字，要 %d", sc, c.n, j, n, c.counts[j])
 				}
-				if prev != nil && (prev[j].X != l.X || prev[j].Y != l.Y || string(prev[j].Text) != string(l.Text)) {
-					t.Errorf("%d 字第 %d 行：2、3 倍的版面不同", c.n, j)
+				w := 0
+				for _, r := range l.Text {
+					w += fonts.Font(px).Glyphs[r].Adv
 				}
+				if l.Px != px || l.TxOut != floorDiv(320*sc-w, 2) || w > 300*sc {
+					t.Errorf("%d 倍 %d 字第 %d 行：%+v（寬 %d）", sc, c.n, j, l, w)
+				}
+				if j > 0 && l.Baseline-ls[j-1].Baseline != 14*sc {
+					t.Errorf("%d 倍 %d 字第 %d 行：行距 %d", sc, c.n, j, l.Baseline-ls[j-1].Baseline)
+				}
+				if prev != nil && string(prev[j].Text) != string(l.Text) {
+					t.Errorf("%d 字第 %d 行：2、3 倍的換行不同", c.n, j)
+				}
+			}
+			if c.cut && ls[2].Text[len(ls[2].Text)-1] != '…' {
+				t.Errorf("%d 倍：截斷行末不是 …：%q", sc, string(ls[2].Text))
 			}
 			prev = ls
 		}
-	}
-}
-
-// 字形像素（010 §4.1 第 6 項）：BBX 9 9 0 -1 的全亮方塊在 2 倍畫成 18×18、3 倍 27×27 的白色方塊，左上角在
-// 輸出像素 (X×s, (Y+2)×s)；BBX 4 4 3 1 的「。」畫成 4s×4s，左上角在 ((X+10+3)×s, (Y+1+4)×s)。其餘像素等於背景圖。
-func TestSubtitleGlyphPixels(t *testing.T) {
-	for _, sc := range []int{2, 3} {
-		s := &Subtitles{Font: subTestFont(t), enabled: true}
-		ls, _, _ := subLayout([]rune("中。"), sc)
-		s.Subs = []*Subtitle{{Key: "k", State: SubShowing, Text: "中。", Lines: map[int][]SubLine{sc: ls}}}
-		s.Frame(make([]byte, 64000), 1)
-		W, H := 320*sc, 200*sc
-		dst := make([]byte, W*H*4)
-		for i := 0; i < len(dst); i += 4 {
-			dst[i], dst[i+1], dst[i+2], dst[i+3] = 7, 9, 11, 255
-		}
-		if got := s.Draw(dst, sc); len(got) != 1 || got[0].X != 150 || got[0].Y != 170 {
-			t.Fatalf("%d 倍：畫出 %+v", sc, got)
-		}
-		type rect struct{ x0, y0, w, h int }
-		want := []rect{{150 * sc, (170 + 2) * sc, 9 * sc, 9 * sc}, {(160 + 3) * sc, (170 + 1 + 4) * sc, 4 * sc, 4 * sc}}
-		white, bad := 0, 0
-		for y := 0; y < H; y++ {
-			for x := 0; x < W; x++ {
-				i := 4 * (y*W + x)
-				in := false
-				for _, r := range want {
-					in = in || (x >= r.x0 && x < r.x0+r.w && y >= r.y0 && y < r.y0+r.h)
-				}
-				isWhite := dst[i] == 255 && dst[i+1] == 255 && dst[i+2] == 255
-				isBG := dst[i] == 7 && dst[i+1] == 9 && dst[i+2] == 11
-				if isWhite {
-					white++
-				}
-				if (in && !isWhite) || (!in && !isBG) {
-					bad++
-				}
-			}
-		}
-		if bad != 0 || white != (81+16)*sc*sc {
-			t.Errorf("%d 倍：不符 %d 像素，白 %d，要 %d", sc, bad, white, (81+16)*sc*sc)
-		}
-	}
-}
-
-func TestWrapLine(t *testing.T) {
-	join := func(ls [][]rune) string {
-		var s []string
-		for _, l := range ls {
-			s = append(s, string(l))
-		}
-		return strings.Join(s, "|")
-	}
-	r := func(s string) []rune { return []rune(s) }
-	// 第 4 版 W = 30（010 §3.7.1）；顯示與 lint 共用 SubLineCells。
-	if SubLineCells != 30 {
-		t.Fatalf("SubLineCells %d，要 30", SubLineCells)
-	}
-	a30 := strings.Repeat("甲", 30)
-	if got, _ := wrapLine(r(a30), 30); join(got) != a30 {
-		t.Errorf("30 格：%s", join(got))
-	}
-	if got, _ := wrapLine(r(a30+"乙"), 30); join(got) != a30+"|乙" {
-		t.Errorf("31 格：%s", join(got))
-	}
-	// 滿 30 字的行 X = 10；31 字換行。
-	if ls, _, _ := subLayout(r(a30), 2); len(ls) != 1 || ls[0].X != 10 {
-		t.Errorf("滿行：%+v", ls)
-	}
-	if ls, _, _ := subLayout(r(a30+"乙"), 3); len(ls) != 2 || ls[0].Cells != 30 {
-		t.Errorf("31 字：%+v", ls)
-	}
-	a29 := strings.Repeat("甲", 29)
-	// 下一行開頭為 。：上一行最後一字移到下一行。
-	if got, _ := wrapLine(r(a29+"乙"+"。丙"), 30); join(got) != a29+"|乙。丙" {
-		t.Errorf("行首禁則：%s", join(got))
-	}
-	// 連續兩個行首禁則字。
-	a28 := strings.Repeat("甲", 28)
-	if got, _ := wrapLine(r(a28+"乙。」丁"), 30); join(got) != a28+"|乙。」丁" {
-		t.Errorf("連續行首禁則：%s", join(got))
-	}
-	// 行尾 「：移到下一行。
-	if got, _ := wrapLine(r(a29+"「乙」"), 30); join(got) != a29+"|「乙」" {
-		t.Errorf("行尾禁則：%s", join(got))
-	}
-	// 整行禁則字（一字接 31 個 。）：強制斷行，不接受一字行。
-	s := "甲" + strings.Repeat("。", 31)
-	got, forced := wrapLine(r(s), 30)
-	if !forced || len(got[0]) != 30 {
-		t.Errorf("強制斷行：forced %t 第一行 %d 字", forced, len(got[0]))
-	}
-	// 第 5 行截斷成 …。
-	ls, _, cut := subLayout(r(strings.Repeat("甲", 30*5)), 2)
-	if !cut || len(ls) != 4 || ls[3].Text[29] != '…' || ls[3].Text[28] != '甲' {
-		t.Errorf("截斷：cut %t %d 行", cut, len(ls))
 	}
 }
 
@@ -1009,8 +878,9 @@ func TestSubtitleBackground(t *testing.T) {
 		dst[i] = 255
 	}
 	ls := h.s.Subs[0].Lines[sc]
-	// 格子內、字形以外的像素：SC-SUB10 測試字型的欄 9 全空，所以格內欄 9 的輸出像素（x = X×s + 9s）不是字形。
-	x, y := ls[0].X*sc+9*sc, ls[0].Y*sc+ls[0].GlyphY+3
+	// 測試圖集方塊字（22 像素、asc 19）：第一字填色欄 [tx + 1, tx + 21)、列 [baseline − 18, baseline + 2)。
+	// 字的前進寬內、填色以外的像素（欄 tx）不是字形，保留背景。
+	x, y := ls[0].TxOut, ls[0].Baseline-10
 	i := 4 * (y*W + x)
 	dst[i], dst[i+1], dst[i+2] = 10, 200, 30
 	drawn := h.s.Draw(dst, sc)
@@ -1018,10 +888,10 @@ func TestSubtitleBackground(t *testing.T) {
 		t.Fatal("沒有畫")
 	}
 	if dst[i] != 10 || dst[i+1] != 200 || dst[i+2] != 30 {
-		t.Fatalf("格內非字形像素 %v，要保留背景 (10,200,30)", dst[i:i+3])
+		t.Fatalf("字格內非字形像素 %v，要保留背景 (10,200,30)", dst[i:i+3])
 	}
-	// 字形像素是白（字模列 1、欄 0：輸出像素 (X×s, Y×s + GlyphY + s)）。
-	gx, gy := ls[0].X*sc+ls[0].GlyphX, ls[0].Y*sc+ls[0].GlyphY+sc
+	// 字形像素是白（第一字填色左上角）。
+	gx, gy := ls[0].TxOut+1, ls[0].Baseline-18
 	j := 4 * (gy*W + gx)
 	if dst[j] != 255 || dst[j+1] != 255 || dst[j+2] != 255 {
 		t.Fatalf("字形像素 %v，要白", dst[j:j+3])
@@ -1111,59 +981,20 @@ func TestSubtitleDisplayConditions(t *testing.T) {
 	}
 }
 
-// ---- 第 10 項：字型（第 4 版） ----------------------------------------------
+// ---- 第 10 項：圖集與 subsmeta（011 §3.8、§3.9） -----------------------------
 
-func TestSubtitleFont(t *testing.T) {
-	sub10 := subTestFontBytes()
-	if _, err := ParseSubtitleFont(sub10, SubtitleFontName); err != nil {
-		t.Fatalf("ParseSubtitleFont 拒絕 10×10：%v", err)
-	}
-	full := func(int) func(rune) []uint16 {
-		return func(rune) []uint16 { return make([]uint16, 16) }
-	}
-	for _, size := range []int{16, 12} {
-		if _, err := ParseSubtitleFont(buildGlyphFont(size, "中", "", full(size)), SubtitleFontName); err == nil {
-			t.Errorf("ParseSubtitleFont 收了 %d×%d", size, size)
-		}
-	}
-	if _, err := ParseSubtitleFont(buildTestFont(subFontRunes, "a"), SubtitleFontName); err == nil {
-		t.Error("ParseSubtitleFont 收了 16×16 的標籤測試字型")
-	}
-	if _, err := ParseLabelFont(sub10, "full16-test"); err == nil {
-		t.Error("ParseLabelFont 收了 10×10")
-	}
-	// LoadSubtitleFont(path, "SC-SUB10") 的 Font.Name。
-	dir := t.TempDir()
-	p := filepath.Join(dir, "zh-TW.sub10.golemfnt")
-	if err := os.WriteFile(p, sub10, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f, err := LoadSubtitleFont(p, SubtitleFontName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.Font.Name != "SC-SUB10" || f.Font.W != 10 || f.Font.H != 10 {
-		t.Errorf("LoadSubtitleFont：Name %q、%dx%d，要 SC-SUB10、10x10", f.Font.Name, f.Font.W, f.Font.H)
-	}
-	// NewSubtitles 收到 nil 字型回錯。
+func TestSubtitleTextSetup(t *testing.T) {
 	idx, err := ParseSpeechIndex(subIndexBytes(subRows))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSubtitles(idx, subCatalog(), nil, 0, 0); err == nil {
-		t.Error("NewSubtitles 收了 nil 字型")
+	if _, err := NewSubtitlesText(idx, subCatalog(), nil, 0, 0); err == nil {
+		t.Error("NewSubtitlesText 收了 nil 圖集")
 	}
-	if _, err := NewSubtitles(idx, subCatalog(), &SubtitleFont{}, 0, 0); err == nil {
-		t.Error("NewSubtitles 收了 Font 為 nil 的字型")
-	}
-	// RunReceipt：Subtitles 為真、SubtitleFont 為 nil 時回錯，不改用 16×16 的 Font。
-	_, err = RunReceipt(ReceiptConfig{Scales: []int{2, 3}, Font: testLabelFont(t), Overlay: true, CursorY: -1,
-		SpeechIndex: idx, SpeechCatalog: subCatalog(), Subtitles: true})
-	if err == nil || !strings.Contains(err.Error(), "SubtitleFont") {
-		t.Errorf("RunReceipt 在 SubtitleFont 為 nil 時：%v，要「缺 SubtitleFont」", err)
-	}
-	// subsmeta.tsv：font_name SC-SUB10、font_w、font_h 為 10、font_sha256 是 SC-SUB10 檔的雜湊。
-	meta := NewSubtitleMeta(f, sub10, []byte("i"), []byte("c"), 0, SubtitleDefaultT)
+	// subsmeta.tsv：2、3 倍的字級 22、33，沒有舊字型的 font_name、font_w、font_h、font_sha256 列。
+	fonts := subTextFonts(t)
+	meta := NewSubtitleMetaText(fonts, []byte("i"), []byte("c"), 0, SubtitleDefaultT)
+	dir := t.TempDir()
 	if err := WriteSubtitleReceipt(dir, "m", &ReceiptResult{}, meta, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1176,10 +1007,12 @@ func TestSubtitleFont(t *testing.T) {
 		kv := strings.Split(ln, "\t")
 		rows[kv[0]] = kv[1]
 	}
-	if rows["font_name"] != "SC-SUB10" || rows["font_w"] != "10" || rows["font_h"] != "10" || rows["font_sha256"] != shaHex(sub10) {
+	if rows["font_px_s2"] != "22" || rows["font_px_s3"] != "33" || rows["font_name_s2"] != TextFontName(22) || rows["font_name_s3"] != TextFontName(33) {
 		t.Errorf("subsmeta.tsv：%q", b)
 	}
-	if strings.Contains(strings.ToLower(string(b)), "fusion") {
-		t.Errorf("subsmeta.tsv 含 Fusion：%q", b)
+	for _, k := range []string{"font_name", "font_w", "font_h", "font_sha256"} {
+		if _, ok := rows[k]; ok {
+			t.Errorf("subsmeta.tsv 仍有舊列 %s", k)
+		}
 	}
 }

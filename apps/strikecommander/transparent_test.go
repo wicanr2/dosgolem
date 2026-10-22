@@ -2,7 +2,6 @@ package strikecommander
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -12,120 +11,27 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// strike_commander 規格 006 §4.1：熱點標籤去掉黑底（透明標籤）、中文字加黑外框。
+// strike_commander 規格 006 §4.1：熱點標籤去掉黑底（透明標籤）。外框是圖集的外框層（011 §4.1 第 6 項，label_text_test.go）。
 // 沿用 observer_test.go 的合成 harness、labelframe_test.go 的 lfPal、lfFrame、refFromFrame。
-
-// --- 測試字型：另加有亮點的全形空白，「一」是一條橫線 ---
-
-// otRunes 是本檔的全形字；「一」以外每字每列左右兩緣各一點（同 buildTestFont），「一」只有第 7 列整列亮。
-const otRunes = "測試譯文甲一　"
-
-func otFont(t *testing.T) *LabelFont {
-	t.Helper()
-	rs := []rune(otRunes)
-	b := []byte("GOLEMFNT")
-	b = binary.LittleEndian.AppendUint16(b, 16)
-	b = binary.LittleEndian.AppendUint16(b, 16)
-	b = binary.LittleEndian.AppendUint32(b, uint32(len(rs)))
-	for _, r := range rs {
-		b = binary.LittleEndian.AppendUint32(b, uint32(r))
-		b = append(b, 0x81)
-		for row := 0; row < 16; row++ {
-			switch {
-			case r == '一' && row == 7:
-				b = append(b, 0xFF, 0xFF)
-			case r == '一':
-				b = append(b, 0, 0)
-			default:
-				b = append(b, 0x81, 0x81)
-			}
-		}
-	}
-	f, err := ParseLabelFont(b, "full16-outline-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if g := f.Font.Glyphs['　']; g == nil || g[0] == 0 {
-		t.Fatal("測試字型的全形空白沒有亮點")
-	}
-	return f
-}
-
-// expectGlyphs 在測試內獨立算字形點集（輸出像素）：跳過 i ≥ Cells 與空白，字模第 gy 列第 gx 欄亮時取
-// ((X + i × CellW) × sc + GlyphX + gx, Y × sc + GlyphY + gy)，只留格內的點。GlyphScale 為 1。
-func expectGlyphs(f *xlate.Font, s *xlate.Stamp, sc int) map[[2]int]bool {
-	out := map[[2]int]bool{}
-	for i, r := range s.Text {
-		if i >= s.Cells || r == ' ' || r == '　' {
-			continue
-		}
-		g := f.Glyphs[r]
-		for gy := 0; gy < 16; gy++ {
-			for gx := 0; gx < 16; gx++ {
-				if g[gy*2+gx/8]&(0x80>>uint(gx%8)) == 0 {
-					continue
-				}
-				lx, ly := s.GlyphX+gx, s.GlyphY+gy
-				if lx < 0 || lx >= s.CellW*sc || ly < 0 || ly >= s.CellH*sc {
-					continue
-				}
-				out[[2]int{(s.X+i*s.CellW)*sc + lx, s.Y*sc + ly}] = true
-			}
-		}
-	}
-	return out
-}
-
-// expectOutline 是 8 鄰域膨脹減字形，裁到遮蓋範圍（輸出像素）[cx0, cx1) × [cy0, cy1)。
-func expectOutline(g map[[2]int]bool, cx0, cy0, cx1, cy1 int) map[[2]int]bool {
-	out := map[[2]int]bool{}
-	for p := range g {
-		for dy := -1; dy <= 1; dy++ {
-			for dx := -1; dx <= 1; dx++ {
-				q := [2]int{p[0] + dx, p[1] + dy}
-				if g[q] || q[0] < cx0 || q[0] >= cx1 || q[1] < cy0 || q[1] >= cy1 {
-					continue
-				}
-				out[q] = true
-			}
-		}
-	}
-	return out
-}
-
-func maskSet(m []bool, sc int) map[[2]int]bool {
-	out := map[[2]int]bool{}
-	W := 320 * sc
-	for i, b := range m {
-		if b {
-			out[[2]int{i % W, i / W}] = true
-		}
-	}
-	return out
-}
-
-func setDiff(a, b map[[2]int]bool) (onlyA, onlyB int) {
-	for p := range a {
-		if !b[p] {
-			onlyA++
-		}
-	}
-	for p := range b {
-		if !a[p] {
-			onlyB++
-		}
-	}
-	return
-}
 
 func px(img []byte, sc, x, y int) [3]uint8 {
 	i := 4 * (y*320*sc + x)
 	return [3]uint8{img[i], img[i+1], img[i+2]}
 }
 
-// coverItem 依 PlanLabel 的結果建一筆背景項。
-func coverItem(p Plan, l Label, before, after []byte) bgItem {
-	return bgItem{key: l.Key, kind: l.Kind, x0: p.Cover.X, x1: p.Cover.X + p.Cover.CellW, y0: p.Cover.Y, rows: refRows(l.Kind), before: before, after: after}
+// planCover 以測試圖集規劃一筆標籤，回遮蓋 stamp。
+func planCover(t *testing.T, l Label, text string, sc int) *xlate.Stamp {
+	t.Helper()
+	p, err := PlanLabelText(l, []rune(text), sc, testTextFonts(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.Cover
+}
+
+// coverItem 依遮蓋 stamp 建一筆背景項。
+func coverItem(cv *xlate.Stamp, l Label, before, after []byte) bgItem {
+	return bgItem{key: l.Key, kind: l.Kind, x0: cv.X, x1: cv.X + cv.CellW, y0: cv.Y, rows: refRows(l.Kind), before: before, after: after}
 }
 
 // --- 第 1 項：觀察器 ---
@@ -243,12 +149,9 @@ func TestLabelBackgroundInk(t *testing.T) {
 			if get(before, 140, 182) == 33 || get(before, 150, 183) == 33 {
 				t.Fatal("游標色與前列相同，測試無鑑別力")
 			}
-			p, err := PlanLabel(l, []rune("測試譯文甲"), sc, testLabelFont(t).Font)
-			if err != nil {
-				t.Fatal(err)
-			}
+			cv := planCover(t, l, "測試譯文甲", sc)
 			out := ScaleIndexedRGBA(frame, pal, sc)
-			bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(p, l, before, after)}, []*xlate.Stamp{nil})
+			bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(cv, l, before, after)})
 			check := func(name string, x, y int, want [3]uint8) {
 				t.Helper()
 				for dy := 0; dy < sc; dy++ {
@@ -283,137 +186,6 @@ func TestLabelBackgroundInk(t *testing.T) {
 	}
 }
 
-// --- 第 3 項：外框 ---
-
-func TestGlyphOutline(t *testing.T) {
-	f := otFont(t)
-	pal := lfPal()
-	for _, sc := range []int{2, 3} {
-		t.Run(strconv.Itoa(sc), func(t *testing.T) {
-			frame := lfFrame()
-			l := Label{Key: "K", X0: 100, X1: 220, Y: 175, Font: measuredFont, Kind: KindLabel}
-			l.Before, l.After, l.Ref = refFromFrame(frame, l), refFromFrame(frame, l), refFromFrame(frame, l)
-			text := "測一　一測"
-			p, err := PlanLabel(l, []rune(text), sc, f.Font)
-			if err != nil {
-				t.Fatal(err)
-			}
-			g := expectGlyphs(f.Font, p.Text, sc)
-			if len(g) == 0 {
-				t.Fatal("字形點集是空的")
-			}
-			if a, b := setDiff(maskSet(glyphMask(p.Text, sc), sc), g); a != 0 || b != 0 {
-				t.Fatalf("glyphMask 與獨立算出的字形不同：多 %d、少 %d", a, b)
-			}
-			cx0, cy0, cx1, cy1 := p.Cover.X*sc, 176*sc, (p.Cover.X+p.Cover.CellW)*sc, 190*sc
-			wantOL := expectOutline(g, cx0, cy0, cx1, cy1)
-			// 全形空白格（第 2 格）內部：不是字形、也不在外框。
-			sx0 := (p.Text.X + 2*p.Text.CellW) * sc
-			for y := cy0; y < cy1; y++ {
-				for x := sx0 + 1; x < sx0+p.Text.CellW*sc-1; x++ {
-					if g[[2]int{x, y}] || wantOL[[2]int{x, y}] {
-						t.Fatalf("全形空白格內 (%d, %d) 有字形或外框", x, y)
-					}
-				}
-			}
-			// 直接測 labelBackground：沒有墨跡，背景圖與原版放大圖只差在外框。
-			out := ScaleIndexedRGBA(frame, pal, sc)
-			bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(p, l, l.Before, l.After)}, []*xlate.Stamp{p.Text})
-			gotOL := map[[2]int]bool{}
-			W, H := 320*sc, 200*sc
-			for y := 0; y < H; y++ {
-				for x := 0; x < W; x++ {
-					if px(bg, sc, x, y) == px(out, sc, x, y) {
-						continue
-					}
-					gotOL[[2]int{x, y}] = true
-					if c := px(bg, sc, x, y); c != pal[0] {
-						t.Fatalf("外框 (%d, %d) = %v，要 0 號 %v", x, y, c, pal[0])
-					}
-				}
-			}
-			if a, b := setDiff(gotOL, wantOL); a != 0 || b != 0 {
-				t.Fatalf("外框像素與 8 鄰域膨脹減字形不同：多 %d、少 %d（共 %d）", a, b, len(wantOL))
-			}
-			// 合成圖：字形 15 號、外框 0 號，遮蓋範圍內其他像素等於原版放大圖。
-			ov, err := NewOverlay(f, map[string]string{"K": text}, nil, sc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ov.Sync([]Label{l}, 1)
-			comp, miss := ov.Draw(frame, pal)
-			if len(miss) != 0 || len(ov.Hidden) != 0 || len(ov.BGFallbacks) != 0 {
-				t.Fatalf("缺字 %q、Hidden %v、BGFallbacks %+v", miss, ov.Hidden, ov.BGFallbacks)
-			}
-			for y := cy0; y < cy1; y++ {
-				for x := cx0; x < cx1; x++ {
-					c := px(comp, sc, x, y)
-					switch q := [2]int{x, y}; {
-					case g[q]:
-						if c != pal[15] {
-							t.Fatalf("字形 (%d, %d) = %v，要 15 號", x, y, c)
-						}
-					case wantOL[q]:
-						if c != pal[0] {
-							t.Fatalf("外框 (%d, %d) = %v，要 0 號", x, y, c)
-						}
-					default:
-						if c != px(out, sc, x, y) {
-							t.Fatalf("遮蓋內其他像素 (%d, %d) = %v，要原版 %v", x, y, c, px(out, sc, x, y))
-						}
-					}
-				}
-			}
-		})
-	}
-	t.Run("i ≥ Cells", func(t *testing.T) {
-		for _, sc := range []int{2, 3} {
-			l := Label{Key: "K", X0: 100, X1: 220, Y: 175, Font: measuredFont, Kind: KindLabel}
-			p, err := PlanLabel(l, []rune("測一"), sc, f.Font)
-			if err != nil {
-				t.Fatal(err)
-			}
-			s := *p.Text
-			s.Text = []rune("測一測一") // 第 2、3 格超出 Cells
-			if a, b := setDiff(maskSet(glyphMask(&s, sc), sc), expectGlyphs(f.Font, p.Text, sc)); a != 0 || b != 0 {
-				t.Fatalf("%d 倍：i ≥ Cells 的格仍有字形：多 %d、少 %d", sc, a, b)
-			}
-		}
-	})
-}
-
-// --- 第 4 項：外框裁切 ---
-
-func TestOutlineClip(t *testing.T) {
-	pal := lfPal()
-	font := testLabelFont(t).Font
-	for _, sc := range []int{2, 3} {
-		frame := lfFrame()
-		// 英文窄、譯文寬：文字 stamp 貼齊遮蓋左緣（cover.X = text.X > 0）。
-		l := Label{Key: "K", X0: 100, X1: 110, Y: 175, Font: measuredFont, Kind: KindLabel}
-		before := refFromFrame(frame, l)
-		p, err := PlanLabel(l, []rune("測試譯文甲"), sc, font)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if p.Cover.X <= 0 || p.Cover.X != p.Text.X {
-			t.Fatalf("%d 倍：cover.X %d、text.X %d，要相等且 > 0", sc, p.Cover.X, p.Text.X)
-		}
-		out := ScaleIndexedRGBA(frame, pal, sc)
-		bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(p, l, before, before)}, []*xlate.Stamp{p.Text})
-		x := p.Cover.X*sc - 1
-		for y := 0; y < 200*sc; y++ {
-			if px(bg, sc, x, y) != px(out, sc, x, y) {
-				t.Fatalf("%d 倍：遮蓋左緣外一欄 (%d, %d) 被改動", sc, x, y)
-			}
-		}
-		if sc == 2 && !glyphMask(p.Text, sc)[(176*sc+p.Text.GlyphY)*320*sc+x+1] {
-			// 2 倍 GlyphX 0：字模第 0 欄貼在遮蓋左緣，不裁切時外框會落在 x；確認情境成立。
-			t.Fatal("2 倍：遮蓋左緣第一欄不是字形，測試無鑑別力")
-		}
-	}
-}
-
 // --- 第 5 項：退路 ---
 
 func TestBGFallback(t *testing.T) {
@@ -423,10 +195,7 @@ func TestBGFallback(t *testing.T) {
 	tl.Before, tl.After, tl.Ref = refFromFrame(frame, tl), refFromFrame(frame, tl), refFromFrame(frame, tl)
 	fb := Label{Key: "Fly Mission", X0: 124, X1: 195, Y: 140, Font: measuredFont, Kind: KindLabel}
 	fb.After, fb.Ref = refFromFrame(frame, fb), refFromFrame(frame, fb) // 前列 nil
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), testCatalog(), 2)
 	ov.Sync([]Label{tl, fb}, 1)
 	if len(ov.BGFallbacks) != 1 || ov.BGFallbacks[0].Key != "Fly Mission" || len(ov.Skips) != 0 {
 		t.Fatalf("BGFallbacks %+v、Skips %+v，要只有 Fly Mission、Skips 空", ov.BGFallbacks, ov.Skips)
@@ -435,24 +204,26 @@ func TestBGFallback(t *testing.T) {
 	if len(ov.Hidden) != 0 {
 		t.Fatalf("Hidden %v", ov.Hidden)
 	}
+	// 退路標籤的遮蓋是實心 0 號底：文字框外全是 0 號，文字框內有 15 號的字。
 	cv := coverOf(t, ov, fb.Key)
-	var txt *xlate.Stamp
-	for _, s := range ov.Stamps() {
-		if s.Key == fb.Key+".text" {
-			txt = s
-		}
-	}
-	g := maskSet(glyphMask(txt, 2), 2)
+	box := ov.lastInk[1]
+	n15 := 0
 	for y := cv.Y * 2; y < (cv.Y+cv.CellH)*2; y++ {
 		for x := cv.X * 2; x < (cv.X+cv.CellW)*2; x++ {
-			want := pal[0]
-			if g[[2]int{x, y}] {
-				want = pal[15]
+			c := px(comp, 2, x, y)
+			if x >= box.X0 && x < box.X1 && y >= box.Y0 && y < box.Y1 {
+				if c == pal[15] {
+					n15++
+				}
+				continue
 			}
-			if c := px(comp, 2, x, y); c != want {
-				t.Fatalf("退路標籤遮蓋內 (%d, %d) = %v，要 %v（實心 0 號底）", x, y, c, want)
+			if c != pal[0] {
+				t.Fatalf("退路標籤遮蓋內、文字框外 (%d, %d) = %v，要實心 0 號底", x, y, c)
 			}
 		}
+	}
+	if n15 == 0 {
+		t.Fatal("退路標籤沒有畫出字")
 	}
 	// 重建兩次仍恰一筆；Skips 不變。
 	ov.Sync([]Label{tl, fb}, 2)
@@ -509,9 +280,9 @@ func TestBoardWithTransparentLabel(t *testing.T) {
 	lab.Before, lab.After, lab.Ref = lb, la, refFromFrame(frame, lab)
 	tr := map[string]string{"GROUND": "地面", "Talk to Gwen": "測試譯文甲"}
 	for _, sc := range []int{2, 3} {
-		only, _ := NewOverlay(testLabelFont(t), tr, nil, sc)
+		only := textOverlay(t, testTextFonts(t), tr, sc)
 		only.Sync([]Label{g}, 1)
-		both, _ := NewOverlay(testLabelFont(t), tr, nil, sc)
+		both := textOverlay(t, testTextFonts(t), tr, sc)
 		both.Sync([]Label{g, lab}, 1)
 		a, _ := only.Draw(frame, pal)
 		b, _ := both.Draw(frame, pal)
@@ -531,8 +302,8 @@ func TestBoardWithTransparentLabel(t *testing.T) {
 			}
 		}
 		// board 背景與 006 之前的 boardBackground 逐位元組相同。
-		items, texts := only.backgroundItems(make([]bool, 1))
-		got := labelBackground(ScaleIndexedRGBA(frame, pal, sc), frame, pal, sc, items, texts)
+		items := only.backgroundItems(make([]bool, 1))
+		got := labelBackground(ScaleIndexedRGBA(frame, pal, sc), frame, pal, sc, items)
 		if !bytes.Equal(got, oldBoardBackground(frame, pal, sc, items)) {
 			t.Fatalf("%d 倍：board 背景與 003 的 boardBackground 不同", sc)
 		}
@@ -552,7 +323,7 @@ func TestTransparentSameGenUpdate(t *testing.T) {
 	frame := append([]byte(nil), base...)
 	frame[iy*320+ix] = 77
 	l.Before, l.After, l.Ref = before, after, refFromFrame(frame, l)
-	ov, _ := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
+	ov := textOverlay(t, testTextFonts(t), testCatalog(), 2)
 	ov.Sync([]Label{l}, 1)
 	at := func(img []byte) [3]uint8 { return px(img, 2, 2*ix, 2*iy) }
 	out, _ := ov.Draw(frame, pal)
@@ -563,9 +334,9 @@ func TestTransparentSameGenUpdate(t *testing.T) {
 	after2 := append([]byte(nil), before...)
 	l2 := l
 	l2.Before, l2.After = append([]byte(nil), before...), after2
-	first := ov.Stamps()[1]
+	first := ov.Stamps()[0]
 	ov.Sync([]Label{l2}, 1)
-	if ov.Stamps()[1] != first {
+	if ov.Stamps()[0] != first {
 		t.Fatal("generation 相同時重建了 stamp")
 	}
 	out, _ = ov.Draw(frame, pal)
@@ -584,12 +355,12 @@ func TestTransparentSameGenUpdate(t *testing.T) {
 	if len(rep) != 1 || !bytes.Equal(rep[0].After, after2) || !bytes.Equal(rep[0].Before, before) || rep[0].State != BGStateTransparent || rep[0].Hidden {
 		t.Fatalf("BGReport 不是沿用的那一對：%+v", rep)
 	}
-	e, tx := rep[0], ov.Stamps()[1]
+	e, ti := rep[0], ov.matches[0].textItem
 	cv := ov.Stamps()[0]
-	if e.Text != "測試譯文甲" || e.TextX != tx.X || e.TextY != 176 || e.Cells != 5 || e.CellW != tx.CellW || e.CellH != 14 ||
-		e.GlyphX != tx.GlyphX || e.GlyphY != tx.GlyphY || e.CoverX != cv.X || e.CoverY != 176 || e.CoverW != cv.CellW || e.CoverH != 14 ||
+	if e.Text != "測試譯文甲" || e.Display != "測試譯文甲" || e.Px != 22 || e.TxOut != ti.tx || e.Baseline != ti.baseline || e.Clip != ti.clip ||
+		!e.Outline || e.E0 != 114 || e.E1 != 204 || e.CoverX != cv.X || e.CoverY != 176 || e.CoverW != cv.CellW || e.CoverH != 14 ||
 		!bytes.Equal(e.Ref, l.Ref) || e.Kind != KindLabel || e.Key != l.Key {
-		t.Fatalf("BGReport 欄位與 stamp 不符：%+v", e)
+		t.Fatalf("BGReport 欄位與文字項不符：%+v", e)
 	}
 	// Hidden 取最近一次 Draw。
 	bad := append([]byte(nil), frame...)
@@ -609,15 +380,15 @@ func TestBackgroundItemsSkipBad(t *testing.T) {
 	b := Label{Key: "Fly Mission", X0: 124, X1: 195, Y: 140, Font: measuredFont, Kind: KindLabel}
 	b.Before, b.After, b.Ref = refFromFrame(frame, b), refFromFrame(frame, b), refFromFrame(frame, b)
 	ov := lfOverlay(t, []Label{a, b})
-	items, texts := ov.backgroundItems([]bool{true, false})
-	if len(items) != 1 || items[0].key != "Fly Mission" || len(texts) != 1 || texts[0] == nil || texts[0].Key != "Fly Mission.text" {
+	items := ov.backgroundItems([]bool{true, false})
+	if len(items) != 1 || items[0].key != "Fly Mission" {
 		var ks []string
 		for _, it := range items {
 			ks = append(ks, it.key)
 		}
 		t.Fatalf("背景清單 %q，要只有 Fly Mission", ks)
 	}
-	if items, _ := ov.backgroundItems([]bool{false, false}); len(items) != 2 {
+	if items := ov.backgroundItems([]bool{false, false}); len(items) != 2 {
 		t.Fatalf("都相符時背景清單 %d 筆，要 2", len(items))
 	}
 }
@@ -637,10 +408,7 @@ func TestLabelBackgroundArt(t *testing.T) {
 		for y := 176; y < 190; y++ {
 			copy(frame[y*320:(y+1)*320], after[(y-176)*320:(y-175)*320])
 		}
-		p, err := PlanLabel(l, []rune("測試譯文甲"), sc, testLabelFont(t).Font)
-		if err != nil {
-			t.Fatal(err)
-		}
+		cv := planCover(t, l, "測試譯文甲", sc)
 		// 模擬圖面：原版矩形 [110, 160) × [178, 186) 的輸出像素改成 50 號色。
 		out := ScaleIndexedRGBA(frame, pal, sc)
 		art := pal[50]
@@ -654,7 +422,7 @@ func TestLabelBackgroundArt(t *testing.T) {
 				out[i], out[i+1], out[i+2] = art[0], art[1], art[2]
 			}
 		}
-		bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(p, l, before, after)}, []*xlate.Stamp{nil})
+		bg := labelBackground(out, frame, pal, sc, []bgItem{coverItem(cv, l, before, after)})
 		for dy := 0; dy < sc; dy++ {
 			for dx := 0; dx < sc; dx++ {
 				if c := px(bg, sc, 120*sc+dx, 180*sc+dy); c != art {
@@ -682,12 +450,12 @@ func TestBGTSV(t *testing.T) {
 	}
 	for i, e := range entries {
 		f := strings.Split(lines[i+1], "\t")
-		if len(f) != len(bgTSVHeader) || f[0] != e.Key || f[2] != e.State || f[15] != strconv.FormatBool(e.Hidden) {
+		if len(f) != len(bgTSVHeader) || f[0] != e.Key || f[2] != e.State || f[8] != strconv.FormatBool(e.Hidden) {
 			t.Fatalf("第 %d 列 %q", i, f)
 		}
 		n := func(k int) int { v, _ := strconv.Atoi(f[k]); return v }
 		for k, want := range [][]byte{e.Before, e.After, e.Ref} {
-			off, ln := n(16+2*k), n(17+2*k)
+			off, ln := n(9+2*k), n(10+2*k)
 			if want == nil {
 				if off != 0 || ln != 0 {
 					t.Fatalf("第 %d 列 nil 的列記 %d、%d", i, off, ln)

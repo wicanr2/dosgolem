@@ -1,7 +1,6 @@
 package strikecommander
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -287,7 +286,7 @@ func TestBoardInk(t *testing.T) {
 		if l.Before != nil || l.After != nil || r.Skipped == "" || r.OK() {
 			t.Fatalf("前後列應作廢：前列 %d、後列 %d bytes，核對 %s", len(l.Before), len(l.After), r)
 		}
-		ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, nil, 2)
+		ov := textOverlay(t, testTextFonts(t), map[string]string{"GROUND": "地面"}, 2)
 		ov.Sync([]Label{l}, 1)
 		if len(ov.Stamps()) != 0 || len(ov.Skips) != 1 {
 			t.Fatalf("前後列作廢時仍產生 stamp：%d 個，skips %+v", len(ov.Stamps()), ov.Skips)
@@ -295,8 +294,10 @@ func TestBoardInk(t *testing.T) {
 	})
 }
 
-// --- 第 3 項：PlanLabel ---
+// --- 第 3 項：規劃 ---
 
+// TestBoardPlan：003 §3.4 的舊幾何（右對齊，legacyLabelGeom）照數值例；PlanLabelText 的 board 種類、色號與遮蓋列
+// （水平置中的數值例見 text_e_test.go 的 TestBoardTextExample）。
 func TestBoardPlan(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -313,33 +314,38 @@ func TestBoardPlan(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			l := Label{Key: "K", X0: c.x0, X1: c.x1, Y: 45, Font: boardFont, Kind: KindBoard}
-			p, err := PlanLabel(l, []rune(strings.Repeat("地", c.n)), c.scale, testLabelFont(t).Font)
+			g, err := legacyLabelGeom(l, c.n, c.scale)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if p.Kind != KindBoard || p.BG != 164 || p.FG != 10 {
-				t.Errorf("種類 %s、色號 %d、%d，要 board、164、10", p.Kind, p.BG, p.FG)
-			}
-			tx, cv := p.Text, p.Cover
-			if tx.X != c.x || tx.Y != 46 || tx.Cells != c.cells || tx.CellW != c.cellW || tx.CellH != 8 ||
-				tx.GlyphX != c.gx || tx.GlyphY != c.gy || tx.GlyphScale != 1 || tx.Font == nil || tx.Key != "K.text" {
-				t.Errorf("文字 stamp X %d Y %d Cells %d CellW %d CellH %d Glyph (%d,%d)，要 X %d Y 46 Cells %d CellW %d CellH 8 Glyph (%d,%d)",
-					tx.X, tx.Y, tx.Cells, tx.CellW, tx.CellH, tx.GlyphX, tx.GlyphY, c.x, c.cells, c.cellW, c.gx, c.gy)
-			}
-			if cv.Font != nil || cv.Cells != 1 || cv.X != c.cx0 || cv.CellW != c.cx1-c.cx0 || cv.Y != 46 || cv.CellH != 8 || cv.Key != "K.cover" {
-				t.Errorf("遮蓋 [%d, %d) × [%d, %d)，要 [%d, %d) × [46, 54)", cv.X, cv.X+cv.CellW, cv.Y, cv.Y+cv.CellH, c.cx0, c.cx1)
+			if g.X != c.x || g.Y != 46 || g.CellW != c.cellW || g.CellH != 8 || g.GlyphX != c.gx || g.GlyphY != c.gy || g.CX0 != c.cx0 || g.CX1 != c.cx1 {
+				t.Errorf("舊幾何 %+v，要 X %d Y 46 CellW %d CellH 8 Glyph (%d,%d) 遮蓋 [%d, %d)", g, c.x, c.cellW, c.gx, c.gy, c.cx0, c.cx1)
 			}
 		})
 	}
-	t.Run("label 不變", func(t *testing.T) {
-		l := Label{Key: "K", X0: 114, X1: 204, Y: 175, Font: measuredFont, Kind: KindLabel}
-		p, err := PlanLabel(l, []rune("測試譯文甲"), 2, testLabelFont(t).Font)
+	t.Run("新路徑", func(t *testing.T) {
+		l := Label{Key: "K", X0: 177, X1: 250, Y: 45, Font: boardFont, Kind: KindBoard}
+		p, err := PlanLabelText(l, []rune("地面"), 2, testTextFonts(t))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.Kind != KindLabel || p.BG != 0 || p.FG != 15 || p.Text.X != 139 || p.Text.CellH != 14 || p.Text.GlyphY != 6 ||
-			p.Cover.X != 114 || p.Cover.CellW != 90 || p.Cover.CellH != 14 {
-			t.Errorf("label 規劃 %+v / %+v / %+v", p, *p.Text, *p.Cover)
+		cv := p.Cover
+		if p.Kind != KindBoard || p.BG != 164 || p.FG != 10 || p.Text.outline || p.Text.fgIdx != 10 {
+			t.Errorf("種類 %s、色號 %d、%d、外框 %t，要 board、164、10、無外框", p.Kind, p.BG, p.FG, p.Text.outline)
+		}
+		if cv.Font != nil || cv.Cells != 1 || cv.X != 177 || cv.CellW != 73 || cv.Y != 46 || cv.CellH != 8 || cv.Key != "K.cover" {
+			t.Errorf("遮蓋 [%d, %d) × [%d, %d)，要 [177, 250) × [46, 54)", cv.X, cv.X+cv.CellW, cv.Y, cv.Y+cv.CellH)
+		}
+	})
+	t.Run("label 不變", func(t *testing.T) {
+		l := Label{Key: "K", X0: 114, X1: 204, Y: 175, Font: measuredFont, Kind: KindLabel}
+		g, err := legacyLabelGeom(l, 5, 2)
+		if err != nil || g.X != 139 || g.CellH != 14 || g.GlyphY != 6 || g.CX0 != 114 || g.CX1 != 204 {
+			t.Errorf("label 舊幾何 %+v（%v）", g, err)
+		}
+		p, err := PlanLabelText(l, []rune("測試譯文甲"), 2, testTextFonts(t))
+		if err != nil || p.Kind != KindLabel || p.BG != 0 || p.FG != 15 || !p.Text.outline || p.Cover.CellH != 14 {
+			t.Errorf("label 規劃 %+v（%v）", p, err)
 		}
 	})
 }
@@ -371,9 +377,9 @@ func TestBoardFontCheck(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ov, _ := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面"}, nil, 2)
+			ov := textOverlay(t, testTextFonts(t), map[string]string{"GROUND": "地面"}, 2)
 			ov.Sync([]Label{boardLabel("GROUND", c.font, c.kind)}, 1)
-			if c.stamp && (len(ov.Stamps()) != 2 || len(ov.Skips) != 0) {
+			if c.stamp && (len(ov.Stamps()) != 1 || len(ov.Skips) != 0) {
 				t.Fatalf("要產生 stamp：%d 個，skips %+v", len(ov.Stamps()), ov.Skips)
 			}
 			if !c.stamp && (len(ov.Stamps()) != 0 || len(ov.Skips) != 1) {
@@ -429,13 +435,10 @@ func TestBoardDraw(t *testing.T) {
 	r := Label{Key: "Return to office", X0: 100, X1: 160, Y: 175, Font: measuredFont, Kind: KindLabel}
 	// 005 §4.1：Ref 取自已疊上人工游標像素的畫格（游標靜止時在 blit 前已畫進緩衝，003 §2.3）。
 	g.Ref, r.Ref = refFromFrame(idx, g), refFromFrame(idx, r)
-	ov, err := NewOverlay(testLabelFont(t), map[string]string{"GROUND": "地面", "Return to office": "測試"}, nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), map[string]string{"GROUND": "地面", "Return to office": "測試"}, 2)
 	ov.Sync([]Label{g, r}, 1)
-	if len(ov.Stamps()) != 4 {
-		t.Fatalf("stamp %d 個，要 4", len(ov.Stamps()))
+	if len(ov.Stamps()) != 2 {
+		t.Fatalf("stamp %d 個，要 2（遮蓋）", len(ov.Stamps()))
 	}
 	out, miss := ov.Draw(idx, pal)
 	if len(miss) != 0 {
@@ -462,21 +465,21 @@ func TestBoardDraw(t *testing.T) {
 	check("遮蓋內的白板", 200, 46, 164)
 	check("遮蓋外", 176, 47, 164)
 	check("遮蓋外的列", 200, 54, 7)
-	// 字模：文字 stamp X 234、Y 46，2 倍格寬 16 像素，測試字模每列亮第 0、7、8、15 欄。
-	if c := at(2*234, 2*46); c != pal[10] {
-		t.Errorf("board 字模點 %v，要 10 號 %v", c, pal[10])
+	// 字（測試圖集的實心方塊）：board「地面」2 倍 16 像素，tx 411、baseline 106，填色 x 412..425、428..441，列 93..106。
+	if c := at(415, 100); c != pal[10] {
+		t.Errorf("board 字 %v，要 10 號 %v", c, pal[10])
 	}
-	if c := at(2*234+15, 2*46+15); c != pal[10] {
-		t.Errorf("board 字模點（格右下）%v，要 10 號 %v", c, pal[10])
+	if c := at(430, 100); c != pal[10] {
+		t.Errorf("board 第二字 %v，要 10 號 %v", c, pal[10])
 	}
-	// label：遮蓋是 0 號，字模是 15 號（文字 stamp X 122、GlyphY 6）。
+	// label（退路）：遮蓋是 0 號；「測試」2 倍 22 像素，tx 238、baseline 374，第一字填色 x 239..258、列 356..375。
 	if c := at(2*100, 2*176); c != pal[0] {
 		t.Errorf("label 遮蓋 %v，要 0 號 %v", c, pal[0])
 	}
-	if c := at(2*122, 2*176+6); c != pal[15] {
-		t.Errorf("label 字模點 %v，要 15 號 %v", c, pal[15])
+	if c := at(240, 360); c != pal[15] {
+		t.Errorf("label 字 %v，要 15 號 %v", c, pal[15])
 	}
-	if cc := CheckComposite(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil); cc.Diffs == 0 || cc.Outside != 0 {
+	if cc := CheckCompositeText(out, ScaleIndexedRGBA(idx, pal, 2), 2, ov.Stamps(), nil, ov.TextBoxes()); cc.Diffs == 0 || cc.Outside != 0 {
 		t.Errorf("合成圖比較 %+v", cc)
 	}
 
@@ -485,9 +488,9 @@ func TestBoardDraw(t *testing.T) {
 	set(after2, 180, 47, 164)
 	g2 := g
 	g2.After = after2
-	first := ov.Stamps()[1]
+	first := ov.Stamps()[0]
 	ov.Sync([]Label{g2, r}, 1)
-	if ov.Stamps()[1] != first {
+	if ov.Stamps()[0] != first {
 		t.Fatal("generation 相同時重建了 stamp")
 	}
 	out, _ = ov.Draw(idx, pal)
@@ -501,7 +504,7 @@ func TestBoardDraw(t *testing.T) {
 func TestExeKeysDisjointFromLABL(t *testing.T) {
 	// LABL 的 Return to Office 是大寫 O，與 ExeKeys 的 Return to office 不同 key。
 	labl := testLABL("Talk to Gwen", "Fly Mission", "Return to Office", "Return to Tent")
-	if rep := Lint([]byte(lintTSV(nil, nil)), testLabelFont(t).Wide, labl); !rep.OK() {
+	if rep := LintLabels([]byte(lintTSV(nil, nil)), testTextFonts(t), labl); !rep.OK() {
 		t.Fatalf("大寫 O 的 LABL key 不算交集：%v", rep.Errors)
 	}
 }

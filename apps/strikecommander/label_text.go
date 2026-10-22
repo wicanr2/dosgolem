@@ -9,56 +9,17 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 熱點標籤的反鋸齒新路徑（strike_commander 規格 011 §3.4、§3.5、§3.6.1、§3.8、§3.9；分期 (d)）。
-// 舊路徑（1 位元字模的文字 stamp）照舊；Overlay.TextLabel 為真時 label 種類改走這裡。計分板、圖面、飛行、字幕在 (e)。
+// 熱點標籤與計分板的反鋸齒文字（strike_commander 規格 011 §3.4、§3.5、§3.6.1、§3.6.2、§3.8、§3.9）。
 
-// TextPaths 是各輸出路徑是否走新路徑（011 §3.9）。(d) 只實作 Label。
-type TextPaths struct {
-	Label, Board, Art, Flight, Subtitle bool
-}
-
-// Any 回是否有任一路徑走新路徑。
-func (p TextPaths) Any() bool { return p.Label || p.Board || p.Art || p.Flight || p.Subtitle }
-
-// ParseTextPaths 解析逗號分隔的路徑名（label、board、art、flight、subtitle；空字串為全關）。
-func ParseTextPaths(s string) (TextPaths, error) {
-	var p TextPaths
-	for _, f := range strings.Split(s, ",") {
-		switch strings.TrimSpace(f) {
-		case "":
-		case "label":
-			p.Label = true
-		case "board":
-			p.Board = true
-		case "art":
-			p.Art = true
-		case "flight":
-			p.Flight = true
-		case "subtitle":
-			p.Subtitle = true
-		default:
-			return TextPaths{}, fmt.Errorf("strikecommander: 不認得的路徑 %q", f)
-		}
-	}
-	return p, nil
-}
-
-// checkTextPaths：Fonts 為 nil 而任一開關為真時回錯（011 §3.9）。
-func checkTextPaths(p TextPaths, fonts *TextFonts) error {
-	if p.Any() && fonts == nil {
-		return fmt.Errorf("strikecommander: TextPaths 有開關為真但沒有 Fonts")
-	}
-	return nil
-}
-
-// NewOverlayText 建一個標籤、計分板、圖面都走新路徑的 Overlay，不需要舊字型（011 §3.9）。
-// scale 接受 1、2、3；tr、gfx 同 NewOverlay。
+// NewOverlayText 建一個 overlay（011 §3.9）：標籤、計分板與圖面的中文以圖集 fonts 繪製。fonts 不得為 nil。
+// scale 接受 1、2、3；1 倍時永遠不產生 stamp（001 §2.6）。tr 是熱點標籤 catalog（text/opttest_labels），
+// gfx 是圖形字 catalog（text/menu_gfx，004 §3.6；可為 nil）。
 func NewOverlayText(fonts *TextFonts, tr, gfx map[string]string, scale int) (*Overlay, error) {
 	if fonts == nil || scale < 1 || scale > 3 {
 		return nil, fmt.Errorf("strikecommander: overlay 輸入無效")
 	}
 	return &Overlay{layer: &xlate.Layer{W: 320, H: 200}, artLayer: &xlate.Layer{W: 320, H: 200}, tr: tr, gfx: gfx, scale: scale,
-		Text: fonts, TextLabel: true, TextBoard: true, TextArt: true}, nil
+		Text: fonts}, nil
 }
 
 // textItem 是新路徑一串字的排版結果（011 §3.9）：輸出像素座標。
@@ -129,7 +90,7 @@ func textBox(f *xlate.AlphaFont, rs []rune, tx, baseline int, clip xlate.AlphaRe
 	return b
 }
 
-// PlanLabelText 依 011 §3.5、§3.6.1 規劃一筆熱點標籤（label 種類；計分板在 (e)）。text 是 N() 前的譯文。
+// PlanLabelText 依 011 §3.5、§3.6.1 規劃一筆熱點標籤（board 種類交給 planBoardText，§3.6.2）。text 是 N() 前的譯文。
 // 缺字由呼叫端先以 N() 與圖集檢查（Sync 記 Miss）；這裡的錯誤是 Skip。
 func PlanLabelText(l Label, text []rune, scale int, fonts *TextFonts) (PlanText, error) {
 	if scale != 2 && scale != 3 {
@@ -267,15 +228,11 @@ func (o *Overlay) commitStamps(sc int) CommitStamps {
 	return cs
 }
 
-// commitItems 依重建順序回每筆標籤的 commitItem：舊路徑取文字 stamp，新路徑取 textItem。
+// commitItems 依重建順序回每筆標籤的 commitItem（textItem 的 N() 前譯文與種類）。
 func (o *Overlay) commitItems() []commitItem {
 	var items []commitItem
 	for _, m := range o.matches {
-		if m.textItem != nil {
-			items = append(items, commitItem{string(m.textItem.raw), o.info[m.cover].kind})
-		} else if m.text != nil {
-			items = append(items, commitItem{string(m.text.Text), o.info[m.text].kind})
-		}
+		items = append(items, commitItem{string(m.textItem.raw), o.info[m.cover].kind})
 	}
 	return items
 }

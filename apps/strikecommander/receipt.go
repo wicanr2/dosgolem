@@ -136,8 +136,10 @@ type ReceiptConfig struct {
 	Scales      []int  // 合成圖的倍率，例如 2、3
 	Catalog     map[string]string
 	GfxCatalog  map[string]string // 圖形字 catalog（text/menu_gfx，004 §3.6）；nil 時對話框不產生圖面
-	Font        *LabelFont
-	Overlay     bool // false：不裝觀察器（同狀態 A/B 的關）
+	// Fonts 是反鋸齒圖集（strike_commander 規格 011 §3.2、§3.9）：標籤、計分板、圖面、飛行與字幕的中文都以它繪製。
+	// Overlay 開時必要，nil 回錯（011 §4.1 第 14 項）。
+	Fonts   *TextFonts
+	Overlay bool // false：不裝觀察器（同狀態 A/B 的關）
 	CursorY     int  // 滑鼠游標中心列，負值為未知
 	// Inputs、Shots 是腳本事件（002 §2.4）；StopSteps 取腳本的 stop。
 	// 觀察器開、關兩次執行都照同一份事件推進；Overlay 關時 shot 只切分推進、不出圖。
@@ -151,23 +153,13 @@ type ReceiptConfig struct {
 	Subtitles     bool
 	SubtitleE     uint64
 	SubtitleT     uint64
-	// SubtitleFont 是字幕的 10×10 字型 SC-SUB10（010 第 4 版 §3.12）。Subtitles 為真時必要，為 nil 時回錯、不改用 Font；
-	// Font（16×16）照舊用於 Overlay，Subtitles 為真時也必須提供。
-	SubtitleFont *SubtitleFont
 	// SubtitlesOff 讓字幕以 SetEnabled(false) 開始（010 §3.10 的開關；只供驗收）。
 	SubtitlesOff bool
 	// RecordSBDMA 在 Overlay 開時記下全部 SB16 DMA 事件到 ReceiptResult.SBDMA（010 §4.2 前置步驟）。
 	RecordSBDMA bool
 
-	// 009 §3.11 接點第 4 條：FlightCatalogs 為 nil 時不裝 FlightObserver。MFD、橫幅的字型沿用 Font；
-	// HUDFont 在 Scales 含 3 時必要。FlightOutlineExperiment 是樣張用的實驗旗標（MFD、橫幅也畫外框，不進驗收）。
-	HUDFont                 *HUDFont
-	FlightCatalogs          *FlightCatalogs
-	FlightOutlineExperiment bool
-
-	// strike_commander 規格 011 §3.9：反鋸齒圖集與各路徑開關。(d) 只有 Label 可開；Font（16×16）照舊必要。
-	Fonts     *TextFonts
-	TextPaths TextPaths
+	// 009 §3.11 接點第 4 條：FlightCatalogs 為 nil 時不裝 FlightObserver。
+	FlightCatalogs *FlightCatalogs
 
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
@@ -212,7 +204,7 @@ type ShotResult struct {
 	FlightVGAWindow bool
 	FlightGen       uint64
 
-	// strike_commander 規格 011 §3.8：圖面新路徑開時各倍率的 arts.tsv 內容；字幕新路徑開時各倍率的字幕區檢查。
+	// strike_commander 規格 011 §3.8：各倍率的 arts.tsv 內容；掛字幕時各倍率的字幕區檢查。
 	Arts           map[int][]ArtReportEntry
 	SubtitleRegion map[int]SubtitleRegionCheck
 }
@@ -299,7 +291,7 @@ type ReceiptResult struct {
 	// FlightFirstBlocked 是每次升格後第一個 Frame 各倍率被擋下的筆數（與 FlightCommits 平行）。
 	FlightFirstBlocked []map[int]int
 
-	// strike_commander 規格 011 §3.8：停止點的 arts.tsv 內容（圖面新路徑開時）與字幕區檢查（字幕新路徑開時）。
+	// strike_commander 規格 011 §3.8：停止點的 arts.tsv 內容與字幕區檢查（掛字幕時）。
 	StopArts           map[int][]ArtReportEntry
 	StopSubtitleRegion map[int]SubtitleRegionCheck
 }
@@ -319,7 +311,6 @@ type SubShot struct {
 	Blocked   bool
 	Key       string            // 畫出的字幕條 key；沒有時為空
 	Lines     map[int][]SubLine // 各倍率畫出的行
-	Path      string            // 011 §3.8 substamps.tsv 的 path：字幕走新路徑時為 "new"，否則 "old"
 }
 
 // cursorHits 回游標 11×11 矩形 [x−5, x+6) × [y−5, y+6) 是否與 keys 任一筆的比對框相交（005 §4.4 分類 2）。
@@ -358,38 +349,19 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	// 009：飛行字串的觀察器與各倍率 overlay（FlightCatalogs 為 nil 時都不建）。
 	var flight *FlightObserver
 	fovs := map[int]*FlightOverlay{}
-	if err := checkTextPaths(cfg.TextPaths, cfg.Fonts); err != nil {
-		return nil, err
+	if cfg.Fonts == nil {
+		// strike_commander 規格 011 §4.1 第 14 項：沒有圖集不跑。
+		return nil, errors.New("strikecommander: 收據缺反鋸齒圖集（Fonts）")
 	}
-	if cfg.Subtitles && !cfg.TextPaths.Subtitle && cfg.SubtitleFont == nil {
-		// 010 第 4 版 §3.12：不改用 16×16 的 Font。011 §3.9：TextPaths.Subtitle 為真時改查 Fonts（checkTextPaths）。
-		return nil, errors.New("strikecommander: 字幕缺 SubtitleFont（SC-SUB10）")
-	}
-	tp := cfg.TextPaths
-	overlayText := tp.Label && tp.Board && tp.Art
 	if cfg.Overlay {
-		if cfg.Font == nil && !overlayText {
-			return nil, errors.New("strikecommander: 收據缺字型")
-		}
 		lo := NewLabelObserver()
 		lo.InkCheck, lo.CursorY, lo.noCallerCheck, lo.noBoardCaller = true, cfg.CursorY, cfg.noCallerCheck, cfg.noBoardCaller
 		for _, sc := range cfg.Scales {
-			var ov *Overlay
-			var err error
-			if cfg.Font == nil {
-				// 011 §3.9：標籤、計分板、圖面全走新路徑時不需要舊字型。
-				ov, err = NewOverlayText(cfg.Fonts, cfg.Catalog, cfg.GfxCatalog, sc)
-			} else {
-				ov, err = NewOverlay(cfg.Font, cfg.Catalog, cfg.GfxCatalog, sc)
-			}
+			ov, err := NewOverlayText(cfg.Fonts, cfg.Catalog, cfg.GfxCatalog, sc)
 			if err != nil {
 				return nil, err
 			}
 			ov.exactOnly = cfg.exactOnly
-			if tp.Any() {
-				ov.Text = cfg.Fonts
-				ov.TextLabel, ov.TextBoard, ov.TextArt = tp.Label, tp.Board, tp.Art
-			}
 			overlays[sc] = ov
 		}
 		var lastCommit, prevFrame uint64
@@ -409,7 +381,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			for _, sc := range cfg.Scales {
 				ov := overlays[sc]
 				ov.Sync(c.Labels, c.Generation)
-				counts = append(counts, ov.commitStamps(sc)) // 011 §3.9：新舊路徑共用
+				counts = append(counts, ov.commitStamps(sc)) // 011 §3.9
 			}
 			res.Stamps = append(res.Stamps, counts)
 		}
@@ -476,13 +448,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		}
 		// 010 §3.12：Subtitles 隨 Owner 建立，不跨 BootFromState。
 		if cfg.Subtitles {
-			var subs *Subtitles
-			var err error
-			if tp.Subtitle {
-				subs, err = NewSubtitlesText(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.Fonts, cfg.SubtitleE, cfg.SubtitleT) // 011 §3.9
-			} else {
-				subs, err = NewSubtitles(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.SubtitleFont, cfg.SubtitleE, cfg.SubtitleT)
-			}
+			subs, err := NewSubtitlesText(cfg.SpeechIndex, cfg.SpeechCatalog, cfg.Fonts, cfg.SubtitleE, cfg.SubtitleT) // 011 §3.9
 			if err != nil {
 				return nil, err
 			}
@@ -644,12 +610,10 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 						sr.Covers[sc][s.Key] = [4]int{s.X, s.Y, s.X + s.Cells*s.CellW, s.Y + s.CellH}
 					}
 				}
-				if ov.TextArt {
-					if sr.Arts == nil {
-						sr.Arts = map[int][]ArtReportEntry{}
-					}
-					sr.Arts[sc] = ov.ArtReport() // 011 §3.8 arts.tsv
+				if sr.Arts == nil {
+					sr.Arts = map[int][]ArtReportEntry{}
 				}
+				sr.Arts[sc] = ov.ArtReport() // 011 §3.8 arts.tsv
 			}
 			if so.Subtitles != nil {
 				ss, region := drawSubtitlesChecked(so.Subtitles, cfg.Scales, sr.Composites)
@@ -707,12 +671,10 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			res.FlightReport[sc], res.FlightHidden[sc] = fov.Report(), append([]string(nil), fov.Hidden...)
 		}
 		res.CompositeCheck[sc] = CheckCompositeText(comp, plain, sc, ov.Stamps(), ov.Art(), boxes, covers...)
-		if ov.TextArt {
-			if res.StopArts == nil {
-				res.StopArts = map[int][]ArtReportEntry{}
-			}
-			res.StopArts[sc] = ov.ArtReport()
+		if res.StopArts == nil {
+			res.StopArts = map[int][]ArtReportEntry{}
 		}
+		res.StopArts[sc] = ov.ArtReport()
 	}
 	if so.Subtitles != nil {
 		_, res.StopSubtitleRegion = drawSubtitlesChecked(so.Subtitles, cfg.Scales, res.Composites)
@@ -720,12 +682,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	return res, nil
 }
 
-// drawSubtitlesChecked 同 drawSubtitles；字幕走新路徑時先存各倍率合成圖的複本 pre，畫完以 CheckSubtitleRegion
-// 比對（strike_commander 規格 011 §3.9），回各倍率的結果；舊路徑時第二個回傳值為 nil。
+// drawSubtitlesChecked 同 drawSubtitles；先存各倍率合成圖的複本 pre，畫完以 CheckSubtitleRegion
+// 比對（strike_commander 規格 011 §3.9），回各倍率的結果。
 func drawSubtitlesChecked(s *Subtitles, scales []int, comps map[int][]byte) (SubShot, map[int]SubtitleRegionCheck) {
-	if s.Text == nil {
-		return drawSubtitles(s, scales, comps), nil
-	}
 	pre := map[int][]byte{}
 	for _, sc := range scales {
 		pre[sc] = append([]byte(nil), comps[sc]...)
@@ -741,10 +700,7 @@ func drawSubtitlesChecked(s *Subtitles, scales []int, comps map[int][]byte) (Sub
 
 // drawSubtitles 在各倍率的合成圖（Overlay.Draw 的輸出）上畫字幕（010 §3.7、§3.12），回這一刻的字幕狀態。
 func drawSubtitles(s *Subtitles, scales []int, comps map[int][]byte) SubShot {
-	ss := SubShot{FrameStep: s.FrameStep(), Enabled: s.Enabled(), Blocked: s.Blocked(), Lines: map[int][]SubLine{}, Path: "old"}
-	if s.Text != nil {
-		ss.Path = "new"
-	}
+	ss := SubShot{FrameStep: s.FrameStep(), Enabled: s.Enabled(), Blocked: s.Blocked(), Lines: map[int][]SubLine{}}
 	if c := s.Visible(); c != nil {
 		ss.Key = c.Key
 	}

@@ -102,14 +102,10 @@ func idOf(e machine.SBDMAEvent) xferID {
 	return xferID{e.Command, e.Addr, e.Count, e.Length, e.Samples}
 }
 
-// SubLine 是一行字幕 stamp 的幾何（010 §3.7）：X、Y、CellW、CellH 是原版像素，GlyphX、GlyphY 是輸出像素，
-// GlyphScale 是字模每點放大的倍數（第 4 版等於輸出倍率）。
+// SubLine 是一行字幕（strike_commander 規格 011 §3.6.7）：Text 是 N() 後該行的字串，
+// Px、TxOut、Baseline 是輸出像素，Ink 是最近一次 Draw 該行的文字框。
 type SubLine struct {
-	X, Y, Cells, CellW, CellH, GlyphX, GlyphY, GlyphScale int
-	Text                                                  []rune
-	// strike_commander 規格 011 §3.6.7 新路徑（Path "new"）：上面的 stamp 幾何不適用；Text 是 N() 後該行的字串，
-	// Px、TxOut、Baseline 是輸出像素，Ink 是最近一次 Draw 該行的文字框。
-	Path                string
+	Text                []rune
 	Px, TxOut, Baseline int
 	Ink                 xlate.AlphaRect
 }
@@ -129,8 +125,7 @@ type Subtitle struct {
 	Lines   map[int][]SubLine
 	id      xferID
 	s       uint64 // S(k)
-	// 011 §3.8 subs.tsv 的新欄（新路徑才有值；舊路徑 NewPath 為假，欄位填 -）。
-	NewPath           bool
+	// Forced、Truncated 是 011 §3.8 subs.tsv 的 forced_s2 到 truncated_s3（以倍率索引）。
 	Forced, Truncated map[int]bool
 }
 
@@ -157,9 +152,8 @@ type subObj struct {
 type Subtitles struct {
 	Index   *SpeechIndex
 	Catalog map[string]string
-	Font    *SubtitleFont
 	E, T    uint64
-	// Text 是 011 的圖集；非 nil 時走新路徑（NewSubtitlesText；§3.6.7 的半形代換、像素換行與反鋸齒字）。
+	// Text 是 011 的圖集（NewSubtitlesText；§3.6.7 的半形代換、像素換行與反鋸齒字）。
 	Text *TextFonts
 
 	Subs  []*Subtitle
@@ -182,18 +176,6 @@ type Subtitles struct {
 
 // subSymbols 是允許的代換符號字母（010 §3.6）。
 const subSymbols = "SNCWPT"
-
-// NewSubtitles 建字幕。字型是 10×10 的 SC-SUB10（010 第 4 版 §3.12）；font 或 font.Font 為 nil 回錯。
-// T 為 0 時取 SubtitleDefaultT。預設開啟（SetEnabled）。
-func NewSubtitles(index *SpeechIndex, catalog map[string]string, font *SubtitleFont, e, t uint64) (*Subtitles, error) {
-	if index == nil || font == nil || font.Font == nil {
-		return nil, fmt.Errorf("strikecommander: 字幕缺結構表或字型")
-	}
-	if t == 0 {
-		t = SubtitleDefaultT
-	}
-	return &Subtitles{Index: index, Catalog: catalog, Font: font, E: e, T: t, enabled: true}, nil
-}
 
 // SetEnabled 是前端字幕開關（010 §3.10）。關閉時不畫，字幕條照常追蹤。
 func (s *Subtitles) SetEnabled(on bool) { s.enabled = on }
@@ -410,27 +392,7 @@ func (s *Subtitles) newSub(v SubtitleView, e machine.SBDMAEvent, line *SpeechLin
 	c := &Subtitle{Key: line.Key, Start: e.Step, Parts: 1, Acc: e.Samples, LastDue: e.Due, State: SubShowing, id: idOf(e), s: line.Samples}
 	s.Subs = append(s.Subs, c)
 	s.prevKey, s.prevSub, s.prevAcc = line.Key, c, e.Samples
-	vals := readSubValues(v, o)
-	if s.Text != nil {
-		s.newSubText(c, e.Step, line, vals) // 011 §3.6.7
-		return
-	}
-	text, ok := s.compose(e.Step, line, vals)
-	if !ok {
-		return
-	}
-	c.Text = string(text)
-	c.Lines = map[int][]SubLine{}
-	for _, sc := range []int{2, 3} {
-		lines, forced, cut := subLayout(text, sc)
-		if forced && sc == 2 {
-			s.skip(e.Step, MissForcedBreak, line.Key)
-		}
-		if cut && sc == 2 {
-			s.skip(e.Step, MissTruncated, line.Key)
-		}
-		c.Lines[sc] = lines
-	}
+	s.newSubText(c, e.Step, line, readSubValues(v, o)) // 011 §3.6.7
 }
 
 // subValues 是 §3.6 在解析那一步讀到的代換值（原始 bytes）。
@@ -464,162 +426,8 @@ func readSubValues(v View, o subObj) subValues {
 	}
 }
 
-// Fullwidth 是 §3.6 的全形轉寫：21h–7Eh 換成 FF01h–FF5Eh，20h 換成 3000h，其他 byte 換成「？」（bad 計數）。
-func Fullwidth(b []byte) (out []rune, bad int) {
-	for _, c := range b {
-		switch {
-		case c == 0x20:
-			out = append(out, '　')
-		case c >= 0x21 && c <= 0x7E:
-			out = append(out, rune(c)+0xFEE0)
-		default:
-			out = append(out, '？')
-			bad++
-		}
-	}
-	return out, bad
-}
-
-// fullwidthInt 是 $P、$T 的顯示：全形數字，負號「－」。
-func fullwidthInt(n int16) []rune {
-	r, _ := Fullwidth([]byte(strconv.Itoa(int(n))))
-	return r
-}
-
 // wingmen 是 $W 對照譯名的名字表（010 §3.6，名字表 DS:15BC）。
 var wingmen = map[string]string{"Billy": "speaker/billy", "Gwen": "speaker/gwen", "Lyle": "speaker/lyle", "Miguel": "speaker/miguel", "Tex": "speaker/tex"}
-
-// substitute 把 tr 的代換符號換成玩家資料（§3.6）。bad 是全形轉寫換成「？」的 byte 數。
-func (s *Subtitles) substitute(tr string, vals subValues) (out []rune, bad int) {
-	rs := []rune(tr)
-	for i := 0; i < len(rs); i++ {
-		if rs[i] != '$' || i+1 >= len(rs) {
-			out = append(out, rs[i])
-			continue
-		}
-		var add []rune
-		var b int
-		switch rs[i+1] {
-		case 'S':
-			add, b = Fullwidth(vals.S)
-		case 'N':
-			add, b = Fullwidth(vals.N)
-		case 'C':
-			add, b = Fullwidth(vals.C)
-		case 'W':
-			if k, ok := wingmen[string(vals.W)]; ok && s.Catalog[k] != "" {
-				add = []rune(s.Catalog[k])
-			} else {
-				add, b = Fullwidth(vals.W)
-			}
-		case 'P':
-			add = fullwidthInt(vals.P)
-		case 'T':
-			add = fullwidthInt(vals.T)
-		default:
-			out = append(out, rs[i])
-			continue
-		}
-		out = append(out, add...)
-		bad += b
-		i++
-	}
-	return out, bad
-}
-
-// compose 組字串：說話人顯示名＋「：」＋代換後的譯文（§3.7）。缺譯、缺字時記 miss、回 false。
-func (s *Subtitles) compose(step uint64, line *SpeechLine, vals subValues) ([]rune, bool) {
-	tr, ok := s.Catalog[line.Key]
-	if !ok || tr == "" {
-		s.skip(step, MissNoTranslation, line.Key)
-		return nil, false
-	}
-	var text []rune
-	bad := 0
-	if sp, ok := s.Catalog["speaker/"+line.Speaker]; ok && sp != "" {
-		p, b := s.substitute(sp, vals)
-		text = append(p, '：')
-		bad += b
-	} else {
-		s.skip(step, MissNoSpeaker, line.Key)
-	}
-	body, b := s.substitute(tr, vals)
-	text = append(text, body...)
-	bad += b
-	if bad != 0 {
-		s.skip(step, MissFullwidth, line.Key)
-	}
-	for _, r := range text {
-		if !s.Font.Wide.Wide(r) {
-			s.Skips = append(s.Skips, SubSkip{Step: step, Reason: MissSubGlyph + " " + string(r), Key: line.Key})
-			return nil, false
-		}
-	}
-	return text, true
-}
-
-// 換行禁則（010 §3.7.1）。
-var (
-	wrapHead = map[rune]bool{'，': true, '。': true, '、': true, '！': true, '？': true, '；': true, '：': true, '」': true, '』': true, '）': true, '…': true}
-	wrapTail = map[rune]bool{'「': true, '『': true, '（': true}
-)
-
-// wrapLine 是 010 §3.7.1 的換行演算法；forced 回有沒有強制斷行。lint 與顯示共用。
-func wrapLine(c []rune, w int) (lines [][]rune, forced bool) {
-	i := 0
-	for {
-		if len(c)-i <= w {
-			return append(lines, c[i:]), forced
-		}
-		j := i + w
-		for j > i+1 && (wrapHead[c[j]] || wrapTail[c[j-1]]) {
-			j--
-		}
-		if j == i+1 {
-			j = i + w
-			forced = true
-		}
-		lines = append(lines, c[i:j])
-		i = j
-	}
-}
-
-// §3.7 的版面（第 4 版，SC-SUB10）。字在原版座標固定 10×10，所以 2、3 倍的版面相同，只有輸出像素依倍率放大。
-const (
-	subCellW = 10 // CellW（原版像素）
-	subCellH = 12 // CellH，行距：字高 10 加 2 點（原版像素）
-	// SubLineCells 是每行最多字數 W（§3.7、§3.7.1）：320 ÷ 10 = 32 字會貼邊，取 30 字、左右各留 10 點。lint 與顯示共用。
-	SubLineCells = 30
-	// subMaxLines 是執行期上限（字幕區 48 列放得下 4 行）；第 4 行只作退路（§3.7.1 截斷）。
-	subMaxLines = 4
-	// subLintMaxLines 是 lint 的上限（§3.9）：超過 3 行失敗、3 行列出。
-	subLintMaxLines = 3
-)
-
-// subGeom 是 §3.7 的表：CellW、CellH（原版像素）、GlyphX、GlyphY（輸出像素）、每行最多格數 W、GlyphScale。
-// GlyphY 是 1 個原版點，傳給 xlate 時是 scale 個輸出像素；GlyphScale 等於倍率（字模每點畫成 scale×scale）。
-func subGeom(scale int) (cellW, cellH, gx, gy, w, gs int) {
-	return subCellW, subCellH, 0, scale, SubLineCells, scale
-}
-
-// subLayout 回 scale 倍的各行 stamp 幾何（§3.7）；cut 為超過 4 行而截斷。
-func subLayout(text []rune, scale int) (out []SubLine, forced, cut bool) {
-	cw, ch, gx, gy, w, gs := subGeom(scale)
-	lines, forced := wrapLine(text, w)
-	if len(lines) > subMaxLines {
-		lines = lines[:subMaxLines]
-		last := append([]rune(nil), lines[subMaxLines-1]...)
-		last[len(last)-1] = '…'
-		lines[subMaxLines-1] = last
-		cut = true
-	}
-	h := len(lines) * ch
-	y0 := 152 + (48-h)/2
-	for j, l := range lines {
-		out = append(out, SubLine{X: (320 - len(l)*cw) / 2, Y: y0 + j*ch, Cells: len(l), CellW: cw, CellH: ch, GlyphX: gx, GlyphY: gy, GlyphScale: gs, Text: l})
-	}
-	return out, forced, cut
-}
 
 // subRegionBlack 回字幕區（第 152 到 199 列）15360 個像素全為色號 0（§3.8 條件 2）；長度不是 64000 視為非黑。
 func subRegionBlack(indexed []byte) bool {
@@ -688,26 +496,13 @@ func (s *Subtitles) Visible() *Subtitle {
 	return c
 }
 
-// Draw 把字幕畫進 dst（scale 倍的合成緩衝，Overlay.Draw 的輸出），回畫出的各行（§3.7）。
-// 字形以外的像素維持 dst 原值（以 dst 的複本當背景圖，DrawWithBackground）。
+// Draw 把字幕畫進 dst（scale 倍的合成緩衝，Overlay.Draw 的輸出），回畫出的各行（011 §3.6.7）。
 func (s *Subtitles) Draw(dst []byte, scale int) []SubLine {
 	c := s.Visible()
 	if c == nil || scale < 2 || scale > 3 || len(dst) != 320*scale*200*scale*4 {
 		return nil
 	}
-	if s.Text != nil {
-		return s.drawText(c, dst, scale) // 011 §3.6.7
-	}
-	lines := c.Lines[scale]
-	layer := &xlate.Layer{W: 320, H: 200}
-	for _, l := range lines {
-		layer.Stamps = append(layer.Stamps, &xlate.Stamp{Key: c.Key, X: l.X, Y: l.Y, Cells: l.Cells, CellW: l.CellW, CellH: l.CellH,
-			Font: s.Font.Font, GlyphX: l.GlyphX, GlyphY: l.GlyphY, GlyphScale: l.GlyphScale, Text: l.Text, State: xlate.Shown,
-			FG: [3]uint8{255, 255, 255}, BG: [3]uint8{0, 0, 0}})
-	}
-	bg := append([]byte(nil), dst...)
-	layer.DrawWithBackground(dst, scale, nil, bg, func(*xlate.Stamp) bool { return true })
-	return lines
+	return s.drawText(c, dst, scale)
 }
 
 // Finish 在收據停止時呼叫（§3.3、§3.4）：待解清單記「停止未解」；顯示中、等待續段的字幕條原因「未結束」。
@@ -738,8 +533,9 @@ func SubsTSV(subs []*Subtitle) []byte {
 		if c.HasEnd {
 			end = strconv.FormatUint(c.End, 10)
 		}
-		extra := "-\t-\t-\t-" // 011 §3.8：舊路徑填 -
-		if c.NewPath {
+		// 011 §3.8：缺譯、缺字的條沒有排版（Forced 為 nil），四欄填 -。
+		extra := "-\t-\t-\t-"
+		if c.Forced != nil {
 			extra = b01(c.Forced[2]) + "\t" + b01(c.Forced[3]) + "\t" + b01(c.Truncated[2]) + "\t" + b01(c.Truncated[3])
 		}
 		fmt.Fprintf(&b, "%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", c.Key, c.Start, c.Parts, c.Acc, c.LastDue, end, c.Reason, c.Text, extra)

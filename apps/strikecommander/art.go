@@ -223,50 +223,9 @@ func textColors(entry, base0 []uint8, mask []bool, w int, ink box) (c, h uint8, 
 	return c, h, hasH
 }
 
-// glyphOrigin 依 004 §3.5 與 007 §3.9 回第一個字模的左上角（相對字帶，輸出像素）與每字的步距。
-//   - 每字格寬 cellW = ceil(16 / scale) 原版像素，字模在格內水平置中（同 PlanLabel 的 GlyphX）；
-//   - 文字寬 W = n × cellW × scale，tx = floor(((x0 + x1 + 1) × scale − W) / 2)，x0、x1 是墨跡框相對字帶；
-//   - 垂直用 007 §3.9 的通式（取代 004 的公式）：ty = clamp(floor(((iy0 + iy1 + 1) × scale − 16) / 2) − by0 × scale,
-//     0, 字帶高 × scale − 16)。iy0、iy1 是該態的墨跡框（按下態已下移，不再另加 scale），by0 是字帶起始列。
-//
-// 文字寬超過字帶寬回錯（記 Skip）。tx 夾在字帶內（實作細節：現行譯文不會用到）。
-func glyphOrigin(n, scale int, band, ink box) (gx, gy, step int, err error) {
-	cellW := (glyphPx + scale - 1) / scale
-	step = cellW * scale
-	W := n * step
-	bw, bh := (band.x1-band.x0+1)*scale, (band.y1-band.y0+1)*scale
-	if W > bw {
-		return 0, 0, 0, fmt.Errorf("譯文 %d 字寬 %d 輸出像素超過字帶寬 %d", n, W, bw)
-	}
-	if bh < glyphPx {
-		return 0, 0, 0, fmt.Errorf("字帶高 %d 輸出像素放不下 16 像素字模", bh)
-	}
-	x0, x1 := ink.x0-band.x0, ink.x1-band.x0
-	tx := ((x0+x1+1)*scale - W) / 2
-	tx = max(0, min(tx, bw-W))
-	// (iy0 + iy1 + 1) × scale − 16 對表中每一列都是正數（最小是 k16 2 倍的 2），Go 的 / 向零取整即 floor。
-	ty := ((ink.y0+ink.y1+1)*scale-glyphPx)/2 - band.y0*scale
-	ty = max(0, min(ty, bh-glyphPx))
-	return tx + (step-glyphPx)/2, ty, step, nil
-}
-
-// LintArt 依 004 §3.6 檢查圖形字 catalog（text/menu_gfx.<lang>.tsv）：欄名、欄數、key 唯一；
-// 對照中的 16 個 key（007 §3.7、008 §3.7）都在、譯文非空、每字都是字型收入的全形字。catalog 其餘 key 不報錯。
-// 不走 Lint：它會把 LABL 以外的 key 全報孤兒。
-func LintArt(b []byte, wide *WideTable) LintReport {
-	return lintArtCore(b, func(bad badFunc, r catalogRow, k string) {
-		for _, c := range r.tr {
-			switch {
-			case !wide.Has(c):
-				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, k, c, c)
-			case !wide.Wide(c):
-				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, k, c, c)
-			}
-		}
-	})
-}
-
-// lintArtCore 是 LintArt 與 LintArtText（strike_commander 規格 011 §3.7）共用的結構檢查；
+// lintArtCore 是 LintArtText（strike_commander 規格 011 §3.7）的結構檢查（004 §3.6）：欄名、欄數、key 唯一；
+// 對照中的 16 個 key（007 §3.7、008 §3.7）都在、譯文非空。catalog 其餘 key 不報錯（不走 LintLabels：它會把 LABL 以外的
+// key 全報孤兒）。
 // 每個對照中、譯文非空的 key 交給 check 檢查字元與版面。
 func lintArtCore(b []byte, check func(bad badFunc, r catalogRow, k string)) LintReport {
 	var rep LintReport

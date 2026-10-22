@@ -192,62 +192,7 @@ func wordHit(text, term string) bool {
 	}
 }
 
-// placeholderLen 是行數檢查時代換符號的佔位字數（§3.9）。
-func placeholderLen(sym byte) int {
-	if sym == 'P' || sym == 'T' {
-		return 6
-	}
-	return 19
-}
-
-// withPlaceholders 把譯文的代換符號換成佔位字（全形「Ｘ」，不在禁則集）。
-func withPlaceholders(s string) []rune {
-	rs := []rune(s)
-	var out []rune
-	for i := 0; i < len(rs); i++ {
-		if rs[i] == '$' && i+1 < len(rs) && strings.ContainsRune(subSymbols, rs[i+1]) {
-			for k := 0; k < placeholderLen(byte(rs[i+1])); k++ {
-				out = append(out, 'Ｘ')
-			}
-			i++
-			continue
-		}
-		out = append(out, rs[i])
-	}
-	return out
-}
-
-// LintSpeech 依 010 §3.9 檢查結構表、譯文、逐字稿；glossary 是 text/glossary.tsv，wide 是字型的全形表。
-func LintSpeech(indexB, catalogB, enB, glossaryB []byte, wide *WideTable) SpeechLintReport {
-	chars := func(bad badFunc, r catalogRow) {
-		// 每字都在全形表內（代換符號除外）。
-		for _, c := range withoutSymbols(r.tr) {
-			switch {
-			case !wide.Has(c):
-				bad("譯文第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
-			case !wide.Wide(c):
-				bad("譯文第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
-			}
-		}
-	}
-	lines := func(rep *SpeechLintReport, bad badFunc, r catalogRow, speaker string, hasSpeaker bool) {
-		// 行數（2 倍版面，3 倍相同；W 與顯示共用 SubLineCells）。lint 上限 3 行，執行期上限 4 行另計（subMaxLines）。
-		full := withPlaceholders(r.tr)
-		if hasSpeaker {
-			full = append(append(withPlaceholders(speaker), '：'), full...)
-		}
-		ls, _ := wrapLine(full, SubLineCells)
-		switch {
-		case len(ls) > subLintMaxLines:
-			bad("譯文第 %d 列 key %q 換行後 %d 行，超過 %d 行", r.line, r.key, len(ls), subLintMaxLines)
-		case len(ls) > 2:
-			rep.Over2 = append(rep.Over2, fmt.Sprintf("%s（%d 行）", r.key, len(ls)))
-		}
-	}
-	return lintSpeechCore(indexB, catalogB, enB, glossaryB, chars, lines)
-}
-
-// lintSpeechCore 是 LintSpeech 與 LintSpeechText（strike_commander 規格 011 §3.7）共用的結構、符號、
+// lintSpeechCore 是 LintSpeechText（strike_commander 規格 011 §3.7）的結構、符號、
 // source、譯名檢查；每列的字元檢查交給 chars，每句的行數檢查交給 lines（speaker 是說話人譯文，hasSpeaker 為有無）。
 func lintSpeechCore(indexB, catalogB, enB, glossaryB []byte, chars func(bad badFunc, r catalogRow),
 	lines func(rep *SpeechLintReport, bad badFunc, r catalogRow, speaker string, hasSpeaker bool)) SpeechLintReport {

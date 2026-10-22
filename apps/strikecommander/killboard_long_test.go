@@ -16,7 +16,7 @@ import (
 //
 // 長測試（約 5 億步，開、關、noBoardCaller 各一次）。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR：同 trigger_long_test.go
-//   - DOSGOLEM_SC_FONT：font-test（正式字型的超集）
+//   - DOSGOLEM_SC_FONT_DIR（與 DOSGOLEM_SC_FONT_EXPECTED）：反鋸齒圖集（strike_commander 規格 011 §3.9）
 //   - DOSGOLEM_SC_CATALOG：正式 catalog text/opttest_labels.zh-TW.tsv
 //
 // DOSGOLEM_SC_OUT 有設定時，把第 4989000000 步 shot 的合成圖、原版放大圖、原版色號畫格與色盤寫到該目錄，
@@ -75,14 +75,6 @@ func runCaseE(t *testing.T, overlay, noBoard bool) *ReceiptResult {
 	if _, err := hex.Decode(want[:], []byte(caseESHA)); err != nil {
 		t.Fatal(err)
 	}
-	fontBytes, err := os.ReadFile(os.Getenv(scFontEnv))
-	if err != nil {
-		t.Fatal(err)
-	}
-	font, err := ParseLabelFont(fontBytes, "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
 	catBytes, err := os.ReadFile(os.Getenv(scCatalogEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +83,8 @@ func runCaseE(t *testing.T, overlay, noBoard bool) *ReceiptResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs, cs := sha256.Sum256(fontBytes), sha256.Sum256(catBytes)
-	t.Logf("字型 %s SHA-256 %x；catalog %s SHA-256 %x", os.Getenv(scFontEnv), fs, os.Getenv(scCatalogEnv), cs)
+	cs := sha256.Sum256(catBytes)
+	t.Logf("catalog %s SHA-256 %x", os.Getenv(scCatalogEnv), cs)
 	sb, err := os.ReadFile("testdata/case_e.script")
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +95,7 @@ func runCaseE(t *testing.T, overlay, noBoard bool) *ReceiptResult {
 	}
 	rc := ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
-		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, Font: font, Overlay: overlay, CursorY: -1,
+		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, Overlay: overlay, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots, noBoardCaller: noBoard,
 	}
 	applyTextEnv(t, &rc) // strike_commander 規格 011 §3.9
@@ -286,9 +278,9 @@ func writeStop(t *testing.T, sub string, res *ReceiptResult) {
 }
 
 func TestKillBoardCaseE(t *testing.T) {
-	for _, e := range []string{scRootEnv, scStateDirEnv, scFontEnv, scCatalogEnv} {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scFontDirEnv, scCatalogEnv} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：003 §4.2 案例 E 需要設定樹、狀態檔、字型與正式 catalog")
+			t.Skip(e + " 未設定：003 §4.2 案例 E 需要設定樹、狀態檔、圖集與正式 catalog")
 		}
 	}
 	t.Run("E", func(t *testing.T) {

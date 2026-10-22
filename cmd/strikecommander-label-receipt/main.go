@@ -3,7 +3,7 @@
 // 輸出每次提交、墨跡框核對、指定步數的合成 PNG，以及觀察器與 stamp 開、關各一份 Digest。
 //
 //	strikecommander-label-receipt -root <SB16 設定樹> -state <s449.state> -state-sha256 <hex> \
-//	    -steps 4492700000 -tsv <catalog.tsv> -font <zh-TW.golemfnt> -out <輸出目錄>
+//	    -steps 4492700000 -tsv <catalog.tsv> -font-dir <圖集目錄> [-font-expected <預期表>] -out <輸出目錄>
 //
 // -script 給規格 002 §2.4 的腳本（move、down、up、kdown、kup、shot、stop；kdown、kup 見規格 007 §3.8）時，
 // 依腳本送滑鼠與鍵盤事件，每個 shot 另出各倍率的合成 PNG；-steps 可省，給了就必須等於腳本的 stop。
@@ -37,26 +37,21 @@ func main() {
 	scales := flag.String("scales", "2,3", "合成圖倍率，逗號分隔（2、3）")
 	tsv := flag.String("tsv", "", "譯文 catalog（key、translation、source）")
 	gfxTSV := flag.String("gfx-tsv", "", "圖形字 catalog text/menu_gfx.<lang>.tsv（存讀檔對話框、主選單、MENU 片頭選單，規格 004 §3.6、008 §3.7）；可省")
-	fontPath := flag.String("font", "", "GOLEMFNT 字型")
 	out := flag.String("out", "", "輸出目錄（PNG 與 RGBA 原始檔）")
 	work := flag.String("work", os.TempDir(), "放 SaveRoot 複本的目錄")
 	cursorY := flag.Int("cursor-y", -1, "滑鼠游標中心的原版列；負值為未知（墨跡框核對不略過）")
 	ab := flag.Bool("ab", true, "另跑一次觀察器與 stamp 關閉，比較 Digest")
 	flag.StringVar(&sub.index, "speech-index", "", "語音字幕結構表 text/speech.index.tsv（strike_commander 規格 010 §3.5）；給了 -subtitles 時必要")
 	flag.StringVar(&sub.catalog, "speech-tsv", "", "語音字幕譯文 text/speech.<lang>.tsv（規格 010 §3.5）")
-	flag.StringVar(&sub.font, "subtitle-font", "", "語音字幕的 10×10 字型 zh-TW.sub10.golemfnt（SC-SUB10，規格 010 第 4 版 §3.12）；給了 -subtitles 時必要，-font 仍必填")
 	flag.BoolVar(&sub.on, "subtitles", false, "掛上語音字幕（規格 010），收據另寫 receipt-subs.tsv、receipt-subskips.tsv、receipt-subsmeta.tsv 與各 shot 的 substamps.tsv")
 	flag.Uint64Var(&sub.e, "sub-e", 0, "字幕顯示延長 E（步數，規格 010 §3.8）")
 	flag.Uint64Var(&sub.t, "sub-t", strikecommander.SubtitleDefaultT, "等待續段的逾時 T（步數，規格 010 §3.4）")
 	flag.BoolVar(&sub.sbdmaLog, "sbdma-log", false, "記下全部 SB16 DMA 事件寫成 receipt-sbdma.tsv（欄位同 probe -sb-dma-log；dosgolem 452）")
-	flag.StringVar(&fl.hudFont, "hud-font", "", "HUD12 字型 zh-TW.hud12.golemfnt（strike_commander 規格 009 §3.9）；3 倍時必要")
-	flag.StringVar(&fl.text, "flight-text", "", "text 目錄：讀 strike_hud、strike_mfd、strike_plaque 三個 catalog（規格 009 §3.10）；與 -hud-font 都沒給時不裝飛行字串觀察器")
-	flag.BoolVar(&fl.outlineExp, "flight-outline-exp", false, "樣張用的實驗旗標：MFD、橫幅也畫外框（規格 009 §4.2 樣張，不進驗收）")
-	flag.StringVar(&tx.dir, "font-dir", "", "反鋸齒圖集目錄（zh-TW.cjkb.manifest.tsv 所在，strike_commander 規格 011 §3.9）")
+	flag.StringVar(&fl.text, "flight-text", "", "text 目錄：讀 strike_hud、strike_mfd、strike_plaque 三個 catalog（規格 009 §3.10）；沒給時不裝飛行字串觀察器")
+	flag.StringVar(&tx.dir, "font-dir", "", "反鋸齒圖集目錄（zh-TW.cjkb.manifest.tsv 所在，strike_commander 規格 011 §3.9）；必要")
 	flag.StringVar(&tx.expected, "font-expected", "", "圖集預期表 font/zh-TW.cjkb.expected.tsv；正式圖集必要，測試圖集不給")
-	flag.StringVar(&tx.paths, "text-paths", "", "走反鋸齒新路徑的輸出路徑，逗號分隔（label、board、art、flight、subtitle；規格 011 §3.11 (d) 只有 label）")
 	flag.Parse()
-	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *fontPath, *out, *work, *cursorY, *ab); err != nil {
+	if err := run(*root, *statePath, *stateSHA, *rebase, *steps, *script, *scales, *tsv, *gfxTSV, *out, *work, *cursorY, *ab); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
 		os.Exit(1)
 	}
@@ -64,36 +59,25 @@ func main() {
 
 // sub 是規格 010 的旗標（語音字幕）。
 var sub struct {
-	index, catalog, font string
-	on, sbdmaLog         bool
-	e, t                 uint64
+	index, catalog string
+	on, sbdmaLog   bool
+	e, t           uint64
 }
 
-// tx 是規格 011 的旗標（反鋸齒圖集與新路徑開關）。
+// tx 是規格 011 的旗標（反鋸齒圖集）。
 var tx struct {
-	dir, expected, paths string
+	dir, expected string
 }
 
 // fl 是規格 009 的旗標（飛行 HUD、MFD、訊息橫幅）。
 var fl struct {
-	hudFont, text string
-	outlineExp    bool
+	text string
 }
 
-// loadFlight 依 -hud-font、-flight-text 設定 cfg（009 §3.11 接點第 6a 條）；兩者都沒給時不裝。
+// loadFlight 依 -flight-text 設定 cfg（009 §3.11 接點第 6a 條；字型取 -font-dir 的圖集，011 §3.9）；沒給時不裝。
 func loadFlight(cfg *strikecommander.ReceiptConfig) error {
-	if fl.hudFont == "" && fl.text == "" {
-		return nil
-	}
 	if fl.text == "" {
-		return fmt.Errorf("-hud-font 要搭配 -flight-text")
-	}
-	if fl.hudFont != "" {
-		h, err := strikecommander.LoadHUDFont(fl.hudFont, "hud12-zh-TW")
-		if err != nil {
-			return err
-		}
-		cfg.HUDFont = h
+		return nil
 	}
 	var cats strikecommander.FlightCatalogs
 	for _, c := range []struct {
@@ -106,25 +90,13 @@ func loadFlight(cfg *strikecommander.ReceiptConfig) error {
 		}
 		*c.dst = m
 	}
-	cfg.FlightCatalogs, cfg.FlightOutlineExperiment = &cats, fl.outlineExp
+	cfg.FlightCatalogs = &cats
 	return nil
 }
 
-func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, fontPath, out, work string, cursorY int, ab bool) error {
-	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || out == "" {
-		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps 或 -script、-tsv -font -out）")
-	}
-	// 規格 011 §3.9：-text-paths 給了任一路徑時要 -font-dir；全部路徑都走新路徑且給了 -font-dir 時 -font 可省。
-	paths, err := strikecommander.ParseTextPaths(tx.paths)
-	if err != nil {
-		return err
-	}
-	allText := paths.Label && paths.Board && paths.Art && paths.Flight && paths.Subtitle
-	if paths.Any() && tx.dir == "" {
-		return fmt.Errorf("-text-paths 要搭配 -font-dir")
-	}
-	if fontPath == "" && !(allText && tx.dir != "") {
-		return fmt.Errorf("缺 -font（-text-paths 有任一路徑走舊路徑時必要）")
+func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesArg, tsv, gfxTSV, out, work string, cursorY int, ab bool) error {
+	if root == "" || statePath == "" || stateSHA == "" || (steps == 0 && script == "") || tsv == "" || out == "" || tx.dir == "" {
+		return fmt.Errorf("缺必要參數（-root -state -state-sha256 -steps 或 -script、-tsv -font-dir -out）")
 	}
 	var sc strikecommander.Script
 	if script != "" {
@@ -165,12 +137,6 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err != nil {
 		return err
 	}
-	var font *strikecommander.LabelFont
-	if fontPath != "" {
-		if font, err = strikecommander.LoadLabelFont(fontPath, "full16-zh-TW"); err != nil {
-			return err
-		}
-	}
 	cat, err := strikecommander.LoadCatalog(tsv)
 	if err != nil {
 		return err
@@ -186,19 +152,17 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	}
 	cfg := strikecommander.ReceiptConfig{
 		State: raw, StateSHA256: want, RebaseFrom: rebaseFrom, StopSteps: steps,
-		Scales: scales, Catalog: cat, GfxCatalog: gfx, Font: font, Overlay: true, CursorY: cursorY,
-		Inputs: sc.Inputs, Shots: sc.Shots, TextPaths: paths,
+		Scales: scales, Catalog: cat, GfxCatalog: gfx, Overlay: true, CursorY: cursorY,
+		Inputs: sc.Inputs, Shots: sc.Shots,
 	}
-	if tx.dir != "" {
-		if cfg.Fonts, err = strikecommander.LoadTextFonts(tx.dir, tx.expected); err != nil {
-			return err
-		}
-		fmt.Printf("圖集 %s，anchor %s\n", tx.dir, cfg.Fonts.Anchor)
+	if cfg.Fonts, err = strikecommander.LoadTextFonts(tx.dir, tx.expected); err != nil {
+		return err
 	}
+	fmt.Printf("圖集 %s，anchor %s\n", tx.dir, cfg.Fonts.Anchor)
 	var meta strikecommander.SubtitleMeta
 	if sub.on {
-		if sub.index == "" || sub.catalog == "" || (sub.font == "" && !paths.Subtitle) {
-			return fmt.Errorf("-subtitles 要 -speech-index、-speech-tsv 與 -subtitle-font（字幕走新路徑時改要 -font-dir）")
+		if sub.index == "" || sub.catalog == "" {
+			return fmt.Errorf("-subtitles 要 -speech-index、-speech-tsv")
 		}
 		ib, err := os.ReadFile(sub.index)
 		if err != nil {
@@ -215,20 +179,7 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 			return err
 		}
 		cfg.Subtitles, cfg.SubtitleE, cfg.SubtitleT = true, sub.e, sub.t
-		if paths.Subtitle {
-			meta = strikecommander.NewSubtitleMetaText(cfg.Fonts, ib, cb, sub.e, sub.t) // 規格 011 §3.8
-		} else {
-			fb, err := os.ReadFile(sub.font)
-			if err != nil {
-				return err
-			}
-			sf, err := strikecommander.ParseSubtitleFont(fb, strikecommander.SubtitleFontName)
-			if err != nil {
-				return err
-			}
-			cfg.SubtitleFont = sf
-			meta = strikecommander.NewSubtitleMeta(sf, fb, ib, cb, sub.e, sub.t)
-		}
+		meta = strikecommander.NewSubtitleMetaText(cfg.Fonts, ib, cb, sub.e, sub.t) // 規格 011 §3.8
 	}
 	cfg.RecordSBDMA = sub.sbdmaLog
 	if err := loadFlight(&cfg); err != nil {
@@ -299,11 +250,9 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 	if err := strikecommander.WriteStopFiles(out, on, scales); err != nil {
 		return err
 	}
-	if cfg.Fonts != nil {
-		// 規格 011 §3.8：fonts.tsv（圖集的 file 列與 anchor）。
-		if err := strikecommander.WriteFontsTSV(out, fmt.Sprintf("stop-%d", on.Digest.Steps), cfg.Fonts, tx.expected); err != nil {
-			return err
-		}
+	// 規格 011 §3.8：fonts.tsv（圖集的 file 列與 anchor）。
+	if err := strikecommander.WriteFontsTSV(out, fmt.Sprintf("stop-%d", on.Digest.Steps), cfg.Fonts, tx.expected); err != nil {
+		return err
 	}
 	if cfg.FlightCatalogs != nil {
 		// 規格 009 §3.11 接點第 7 條：停止點與每個 shot 的 flight.tsv、flight-rows.bin、digest.txt。

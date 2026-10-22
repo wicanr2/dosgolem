@@ -6,7 +6,7 @@ import (
 )
 
 // lintCatalogRows 回合格夾具的列：001 的三個 key、兩個範本、九個短代號與九個長名稱（002 §2.3），
-// 以及四個 EXE 字串（003 §3.5）。譯文只用測試字型有的字。
+// 以及四個 EXE 字串（003 §3.5）。譯文只用測試圖集有的字。
 func lintCatalogRows() []string {
 	rows := []string{
 		"Talk to Gwen\t測試譯文甲\t已觀察",
@@ -51,17 +51,17 @@ next:
 	return b.String()
 }
 
-// --- 001 第 6 項、002 §3.1 第 2 項：lint ---
+// --- 001 第 6 項、002 §3.1 第 2 項：lint（011 §3.7 的 LintLabels） ---
 
 func TestLint(t *testing.T) {
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	labl := testLABL("Talk to Gwen", "Fly Mission")
 	good := lintTSV(nil, nil)
-	if rep := Lint([]byte(good), wide, labl); !rep.OK() || len(rep.Untranslated) != 0 {
+	if rep := LintLabels([]byte(good), fonts, labl); !rep.OK() || len(rep.Untranslated) != 0 {
 		t.Fatalf("合格 catalog 被判失敗：%+v", rep)
 	}
 	partial := lintHead + "Talk to Gwen\t測試譯文甲\t已觀察\n"
-	if rep := Lint([]byte(partial), wide, labl); !rep.OK() || len(rep.Untranslated) != len(lintCatalogRows())-1 {
+	if rep := LintLabels([]byte(partial), fonts, labl); !rep.OK() || len(rep.Untranslated) != len(lintCatalogRows())-1 {
 		t.Fatalf("漏譯只列出、不判失敗：%+v", rep)
 	}
 	head := lintHead
@@ -75,7 +75,8 @@ func TestLint(t *testing.T) {
 		{"含半形字", head + "Talk to Gwen\t測a試\tx\n", "半形"},
 		{"半形空白", head + "Talk to Gwen\t測 試\tx\n", "半形"},
 		{"缺字", head + "Talk to Gwen\t測乂\tx\n", "缺字"},
-		{"超寬", head + "Talk to Gwen\t" + strings.Repeat("測", 41) + "\tx\n", "超過 320"},
+		// 2 倍 22 像素：30 字寬 660，加 2 超過 640。
+		{"超寬", head + "Talk to Gwen\t" + strings.Repeat("測", 30) + "\tx\n", "超過 640"},
 		{"孤兒 key", head + "Talk to Janet\t測試\tx\n", "孤兒"},
 		{"孤兒：組合後的整串", head + "AIM-9J rear aspect missile (42)\t測試\tx\n", "孤兒"},
 		{"欄名", "k\tt\ts\nTalk to Gwen\t測試\tx\n", "欄名"},
@@ -88,30 +89,30 @@ func TestLint(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rep := Lint([]byte(c.tsv), wide, labl)
+			rep := LintLabels([]byte(c.tsv), fonts, labl)
 			if rep.OK() || !strings.Contains(strings.Join(rep.Errors, "\n"), c.want) {
 				t.Fatalf("要含 %q 的失敗：%+v", c.want, rep.Errors)
 			}
 		})
 	}
-	// 40 字（2 倍寬 320）剛好可以
-	ok40 := head + "Talk to Gwen\t" + strings.Repeat("測", 40) + "\tx\n"
-	if rep := Lint([]byte(ok40), wide, labl); !rep.OK() {
-		t.Fatalf("40 字應通過：%+v", rep.Errors)
+	// 29 字（2 倍 638 + 2 = 640、3 倍 928 + 2 = 930）剛好可以
+	ok29 := head + "Talk to Gwen\t" + strings.Repeat("測", 29) + "\tx\n"
+	if rep := LintLabels([]byte(ok29), fonts, labl); !rep.OK() {
+		t.Fatalf("29 字應通過：%+v", rep.Errors)
 	}
 	// 範本譯文的順序不限（%d 在前）。
-	if rep := Lint([]byte(lintTSV(nil, map[string]string{TemplateCount: "（%d）%s"})), wide, labl); !rep.OK() {
+	if rep := LintLabels([]byte(lintTSV(nil, map[string]string{TemplateCount: "（%d）%s"})), fonts, labl); !rep.OK() {
 		t.Fatalf("（%%d）%%s 應通過：%+v", rep.Errors)
 	}
 }
 
 // 002 §2.3：缺範本、缺短代號都列入漏譯（不判失敗）。
 func TestLintUntranslatedComposed(t *testing.T) {
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	labl := testLABL("Talk to Gwen", "Fly Mission")
 	for _, k := range []string{TemplateCount, TemplateRemove, "AIM-9J", "AIM-120", "GROUND", "Return to tent"} {
 		t.Run(k, func(t *testing.T) {
-			rep := Lint([]byte(lintTSV([]string{k}, nil)), wide, labl)
+			rep := LintLabels([]byte(lintTSV([]string{k}, nil)), fonts, labl)
 			if !rep.OK() || strings.Join(rep.Untranslated, "|") != k {
 				t.Fatalf("缺 %q：%+v", k, rep)
 			}
@@ -121,7 +122,7 @@ func TestLintUntranslatedComposed(t *testing.T) {
 
 // 002 §2.3 的防呆三條：只看 LABL 清單。
 func TestLintGuards(t *testing.T) {
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	good := []byte(lintTSV(nil, nil))
 	noLong := testLABL("Talk to Gwen", "Fly Mission")
 	delete(noLong, "LAU-3 rocket pod")
@@ -140,32 +141,10 @@ func TestLintGuards(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rep := Lint(good, wide, c.labl)
+			rep := LintLabels(good, fonts, c.labl)
 			if rep.OK() || !strings.Contains(strings.Join(rep.Errors, "\n"), c.want) {
 				t.Fatalf("要含 %q 的失敗：%+v", c.want, rep.Errors)
 			}
 		})
-	}
-}
-
-// 002 §2.5：CheckFontExtra。測試字型刻意缺 ７。
-func TestCheckFontExtra(t *testing.T) {
-	if err := CheckFontExtra(testLabelFont(t).Wide); err == nil || !strings.Contains(err.Error(), "７") {
-		t.Fatalf("缺 ７ 的字型應失敗：%v", err)
-	}
-	f, err := ParseLabelFont(buildTestFont(FontExtraRunes, ""), "extra")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckFontExtra(f.Wide); err != nil {
-		t.Fatalf("含 12 字的字型應通過：%v", err)
-	}
-	// 半形收入不算。
-	h, err := ParseLabelFont(buildTestFont("０１２３４５６８９（）", "７"), "half7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckFontExtra(h.Wide); err == nil {
-		t.Fatal("７ 以半形收入時應失敗")
 	}
 }

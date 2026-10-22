@@ -297,7 +297,7 @@ func TestConfirmLifecycle(t *testing.T) {
 	t.Run("k0 缺譯文仍清", func(t *testing.T) {
 		gfx := testGfx()
 		delete(gfx, "SAVE GAME")
-		ov, err := NewOverlay(testLabelFont(t), testCatalog(), gfx, 2)
+		ov, err := NewOverlayText(testTextFonts(t), testCatalog(), gfx, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -358,7 +358,7 @@ func TestConfirmMissLint(t *testing.T) {
 	file := loadSHP(t)
 	el := tElemFor(t, 17)
 	mk := func(gfx map[string]string) *Overlay {
-		ov, err := NewOverlay(testLabelFont(t), testCatalog(), gfx, 2)
+		ov, err := NewOverlayText(testTextFonts(t), testCatalog(), gfx, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -382,7 +382,7 @@ func TestConfirmMissLint(t *testing.T) {
 	if ov = mk(testGfx()); len(ov.Art()) != 1 {
 		t.Fatalf("對照組沒有圖面：misses %+v skips %+v", ov.Misses, ov.Skips)
 	}
-	wide := testLabelFont(t).Wide
+	fonts := testTextFonts(t)
 	b, err := os.ReadFile("testdata/menu_gfx.test.tsv")
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +397,7 @@ func TestConfirmMissLint(t *testing.T) {
 		if s == string(b) {
 			t.Fatalf("%s：替換沒有生效", name)
 		}
-		rep := LintArt([]byte(s), wide)
+		rep := LintArtText([]byte(s), fonts)
 		if rep.OK() {
 			t.Errorf("%s 應報錯", name)
 		}

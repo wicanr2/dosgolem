@@ -18,16 +18,15 @@ import (
 //   - <前綴>-s<倍率>-rows.bin：依 TSV 的位移與長度串接前列、後列、Ref；nil 的列位移與長度記 0；
 //   - <前綴>-composite-<倍率>x.png、<前綴>-plain-<倍率>x.png：合成圖與原版放大圖。
 
-// bgTSVHeader 是 labels.tsv 的欄名。座標是原版像素；state 是「透明」或「退路」；hidden 是該倍率這次 Draw 是否不畫。
+// bgTSVHeader 是 labels.tsv 的欄名（006 §3.3、011 §3.8）。遮蓋範圍是原版像素；state 是「透明」或「退路」；
+// hidden 是該倍率這次 Draw 是否不畫；display 起的版面欄是輸出像素。
 var bgTSVHeader = []string{
 	"key", "kind", "state", "text",
 	"cover_x", "cover_y", "cover_w", "cover_h",
-	"text_x", "text_y", "cells", "cell_w", "cell_h", "glyph_x", "glyph_y",
 	"hidden",
 	"before_off", "before_len", "after_off", "after_len", "ref_off", "ref_len",
-	// strike_commander 規格 011 §3.8：(d) 到 (f) 在現行欄之後新增；新路徑的列舊幾何欄填 -，舊路徑的列新欄填 -。
 	"display", "px", "tx_out", "baseline", "clip_x0", "clip_y0", "clip_x1", "clip_y1",
-	"ink_x0", "ink_y0", "ink_x1", "ink_y1", "outline", "e0", "e1", "path",
+	"ink_x0", "ink_y0", "ink_x1", "ink_y1", "outline", "e0", "e1",
 }
 
 // BGTSV 把一份 BGReport 編成 labels.tsv 與 rows.bin 的內容。
@@ -47,21 +46,15 @@ func BGTSV(entries []BGEntry) (tsv, rows []byte) {
 		bo, bl := put(e.Before)
 		ao, al := put(e.After)
 		ro, rl := put(e.Ref)
-		geom := fmt.Sprintf("%d\t%d\t%d\t%d\t%d\t%d\t%d", e.TextX, e.TextY, e.Cells, e.CellW, e.CellH, e.GlyphX, e.GlyphY)
-		extra := strings.Repeat("-\t", 15) + "old"
-		if e.Path == "new" {
-			geom = strings.TrimSuffix(strings.Repeat("-\t", 7), "\t")
-			ink := e.Ink
-			if ink.Empty() {
-				ink.X0, ink.Y0, ink.X1, ink.Y1 = 0, 0, 0, 0
-			}
-			extra = fmt.Sprintf("%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%t\t%d\t%d\tnew", e.Display, e.Px, e.TxOut, e.Baseline,
-				e.Clip.X0, e.Clip.Y0, e.Clip.X1, e.Clip.Y1, ink.X0, ink.Y0, ink.X1, ink.Y1, e.Outline, e.E0, e.E1)
+		ink := e.Ink
+		if ink.Empty() {
+			ink.X0, ink.Y0, ink.X1, ink.Y1 = 0, 0, 0, 0
 		}
-		fmt.Fprintf(&t, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%t\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
+		extra := fmt.Sprintf("%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%t\t%d\t%d", e.Display, e.Px, e.TxOut, e.Baseline,
+			e.Clip.X0, e.Clip.Y0, e.Clip.X1, e.Clip.Y1, ink.X0, ink.Y0, ink.X1, ink.Y1, e.Outline, e.E0, e.E1)
+		fmt.Fprintf(&t, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%t\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
 			e.Key, e.Kind, e.State, e.Text,
 			e.CoverX, e.CoverY, e.CoverW, e.CoverH,
-			geom,
 			e.Hidden, bo, bl, ao, al, ro, rl, extra)
 	}
 	return []byte(t.String()), r.Bytes()
@@ -127,8 +120,8 @@ func WriteStopFiles(dir string, r *ReceiptResult, scales []int) error {
 	return writeTextExtras(dir, prefix, scales, r.StopArts, r.StopSubtitleRegion)
 }
 
-// writeTextExtras 寫 strike_commander 規格 011 §3.8 的新檔：圖面新路徑開時的 arts.tsv；字幕新路徑開時的 subregion.tsv
-// （欄 scale diffs outside ink_pixels visible）。對應路徑沒開時不寫（舊路徑的收據檔不變）。
+// writeTextExtras 寫 strike_commander 規格 011 §3.8 的檔：arts.tsv；掛字幕時的 subregion.tsv
+// （欄 scale diffs outside ink_pixels visible）。對應資料為 nil 時不寫。
 func writeTextExtras(dir, prefix string, scales []int, arts map[int][]ArtReportEntry, region map[int]SubtitleRegionCheck) error {
 	if err := writeArtsTSV(dir, prefix, scales, arts); err != nil {
 		return err

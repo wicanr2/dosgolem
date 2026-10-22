@@ -131,11 +131,7 @@ func TestResolveLabelMiss(t *testing.T) {
 
 func composedOverlay(t *testing.T, cat map[string]string) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), cat, nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ov
+	return textOverlay(t, testTextFonts(t), cat, 2)
 }
 
 func TestSyncComposed(t *testing.T) {
@@ -153,22 +149,23 @@ func TestSyncComposed(t *testing.T) {
 			ov := composedOverlay(t, cat)
 			ov.Sync([]Label{{Key: c.key, X0: 100, X1: 200, Y: 175, Font: measuredFont}}, 1)
 			st := ov.Stamps()
-			if len(st) != 2 || len(ov.Misses) != 0 || len(ov.Skips) != 0 {
+			if len(st) != 1 || len(ov.Misses) != 0 || len(ov.Skips) != 0 {
 				t.Fatalf("stamps %d misses %+v skips %+v", len(st), ov.Misses, ov.Skips)
 			}
-			if string(st[1].Text) != c.text || st[1].Key != c.key+".text" || st[0].Key != c.key+".cover" {
-				t.Fatalf("文字 stamp %q %q，要 %q", st[1].Key, string(st[1].Text), c.text)
+			if ti := ov.matches[0].textItem; string(ti.raw) != c.text || st[0].Key != c.key+".cover" {
+				t.Fatalf("文字項 %q、遮蓋 %q，要 %q", string(ti.raw), st[0].Key, c.text)
 			}
 		})
 	}
 }
 
 func TestSyncComposedWidth(t *testing.T) {
-	// 名稱譯文 n 字加「（４２）」4 字：36 字名稱共 40 字（2 倍寬 320）過，37 字名稱共 41 字不過。
+	// 名稱譯文 n 字（各 22）加「（４２）」（N() 後（42），22 + 11 + 11 + 22 = 66）：2 倍可用寬 640 − 2。
+	// 26 字共 638 過，27 字共 660 不過（011 §3.5）。
 	for _, c := range []struct {
 		n             int
 		stamps, skips int
-	}{{36, 2, 0}, {37, 0, 1}} {
+	}{{26, 1, 0}, {27, 0, 1}} {
 		cat := map[string]string{TemplateCount: "%s（%d）", "MK-20 cluster bomb": strings.Repeat("測", c.n)}
 		ov := composedOverlay(t, cat)
 		ov.Sync([]Label{{Key: "MK-20 cluster bomb (42)", X0: 100, X1: 200, Y: 175, Font: measuredFont}}, 1)
@@ -179,15 +176,20 @@ func TestSyncComposedWidth(t *testing.T) {
 }
 
 func TestSyncComposedGlyphMiss(t *testing.T) {
-	// 測試字型缺 ７：(17) 記 glyph miss、不產生 stamp；(16) 照常產生。
+	// 圖集缺 7（數量經 N() 換成半形）：(17) 記 glyph miss、不產生 stamp；(16) 照常產生。
+	fonts := testTextFonts(t)
+	for _, f := range fonts.BySize {
+		delete(f.Glyphs, '7')
+	}
+	delete(fonts.Chars, '7')
 	cat := map[string]string{TemplateRemove: "卸下%s（%d）", "AIM-9J": "ＡＩＭ－９Ｊ"}
-	ov := composedOverlay(t, cat)
+	ov := textOverlay(t, fonts, cat, 2)
 	ov.Sync([]Label{{Key: "Remove AIM-9J (17)", X0: 100, X1: 200, Y: 175, Font: measuredFont}}, 1)
-	if len(ov.Stamps()) != 0 || len(ov.Misses) != 1 || ov.Misses[0].Reason != MissGlyph || string(ov.Misses[0].Runes) != "７" {
+	if len(ov.Stamps()) != 0 || len(ov.Misses) != 1 || ov.Misses[0].Reason != MissGlyph || string(ov.Misses[0].Runes) != "7" {
 		t.Fatalf("(17)：stamps %d misses %+v", len(ov.Stamps()), ov.Misses)
 	}
 	ov.Sync([]Label{{Key: "Remove AIM-9J (16)", X0: 100, X1: 200, Y: 175, Font: measuredFont}}, 2)
-	if len(ov.Stamps()) != 2 {
+	if len(ov.Stamps()) != 1 {
 		t.Fatalf("(16)：stamps %d misses %+v", len(ov.Stamps()), ov.Misses)
 	}
 }

@@ -12,7 +12,7 @@ import (
 //
 // 案例 H 是長測試（約 4.6 億步，開、關各一次）。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR：同 trigger_long_test.go（狀態檔 p486/s600.state）
-//   - DOSGOLEM_SC_FONT：font-test（正式字型的超集）
+//   - DOSGOLEM_SC_FONT_DIR（與 DOSGOLEM_SC_FONT_EXPECTED）：反鋸齒圖集（strike_commander 規格 011 §3.9）
 //   - DOSGOLEM_SC_CATALOG：正式 catalog text/opttest_labels.zh-TW.tsv
 //
 // DOSGOLEM_SC_OUT 有設定時，把每個 shot 寫到 <OUT>/case-h（同 saveload_long_test.go 的格式）。
@@ -133,10 +133,6 @@ func runCaseH(t *testing.T, overlay bool) *ReceiptResult {
 	if _, err := hex.Decode(want[:], []byte(caseHSHA)); err != nil {
 		t.Fatal(err)
 	}
-	font, err := LoadLabelFont(os.Getenv(scFontEnv), "full16-zh-TW")
-	if err != nil {
-		t.Fatal(err)
-	}
 	cat, err := LoadCatalog(os.Getenv(scCatalogEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +147,7 @@ func runCaseH(t *testing.T, overlay bool) *ReceiptResult {
 	}
 	rc := ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
-		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, Font: font, Overlay: overlay, CursorY: -1,
+		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, Overlay: overlay, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
 	}
 	applyTextEnv(t, &rc) // 011 §3.9
@@ -227,9 +223,9 @@ func checkCaseH(t *testing.T, res *ReceiptResult) {
 }
 
 func TestLabelFrameCaseH(t *testing.T) {
-	for _, e := range []string{scRootEnv, scStateDirEnv, scFontEnv, scCatalogEnv} {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scFontDirEnv, scCatalogEnv} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：005 §4.3 案例 H 需要設定樹、狀態檔、字型與正式 catalog")
+			t.Skip(e + " 未設定：005 §4.3 案例 H 需要設定樹、狀態檔、圖集與正式 catalog")
 		}
 	}
 	on := runCaseH(t, true)

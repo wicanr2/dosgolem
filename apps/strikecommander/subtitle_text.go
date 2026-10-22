@@ -7,7 +7,7 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 語音字幕的反鋸齒新路徑（strike_commander 規格 011 §3.6.7；分期 (e)）：半形代換、像素換行（wrapPixels）、
+// 語音字幕的代換、版面與反鋸齒字（strike_commander 規格 011 §3.6.7）：半形代換、像素換行（wrapPixels）、
 // 最多 3 行與附加截斷、行距 14 原版列、行內置中，以 DrawAlphaText 畫白字。
 
 // 011 §3.6.7 的常數。
@@ -17,7 +17,7 @@ const (
 	MissEmptyString = "miss 空字串"
 )
 
-// NewSubtitlesText 建走新路徑的字幕，不需要舊字型（011 §3.9）。T 為 0 時取 SubtitleDefaultT。預設開啟。
+// NewSubtitlesText 建字幕（011 §3.9）：index、fonts 不得為 nil。T 為 0 時取 SubtitleDefaultT。預設開啟（SetEnabled）。
 func NewSubtitlesText(index *SpeechIndex, catalog map[string]string, fonts *TextFonts, e, t uint64) (*Subtitles, error) {
 	if index == nil || fonts == nil {
 		return nil, fmt.Errorf("strikecommander: 字幕缺結構表或圖集")
@@ -155,7 +155,7 @@ func subTextLayout(lines [][]rune, f *xlate.AlphaFont, scale int) []SubLine {
 		w, _ := f.Advance(l)
 		top := y0 + j*subTextPitch*scale
 		base := top + (subTextPitch*scale-f.Px)/2 + TextAscent(f.Px)
-		out = append(out, SubLine{Path: "new", Text: append([]rune(nil), l...), Px: f.Px, TxOut: floorDiv(320*scale-w, 2), Baseline: base})
+		out = append(out, SubLine{Text: append([]rune(nil), l...), Px: f.Px, TxOut: floorDiv(320*scale-w, 2), Baseline: base})
 	}
 	return out
 }
@@ -171,13 +171,13 @@ func subTextLines(text []rune, f *xlate.AlphaFont, scale int) (lines []SubLine, 
 	return subTextLayout(ls, f, scale), forced, cut, false
 }
 
-// newSubText 是 newSub 的新路徑：組字串，2、3 倍各自換行；miss 強制斷行、miss 截斷 2、3 倍各記一筆並帶倍率。
+// newSubText 組字串，2、3 倍各自換行；miss 強制斷行、miss 截斷 2、3 倍各記一筆並帶倍率（011 §3.6.7）。
 func (s *Subtitles) newSubText(c *Subtitle, step uint64, line *SpeechLine, vals subValues) {
 	text, ok := s.composeText(step, line, vals)
 	if !ok {
 		return
 	}
-	c.Text, c.NewPath = string(text), true
+	c.Text = string(text)
 	c.Lines, c.Forced, c.Truncated = map[int][]SubLine{}, map[int]bool{}, map[int]bool{}
 	for _, sc := range []int{2, 3} {
 		lines, forced, cut, empty := subTextLines(text, s.Text.Font(pxSub[sc]), sc)
@@ -265,9 +265,9 @@ func subShotInks(ss SubShot, scale int) []xlate.AlphaRect {
 	return out
 }
 
-// NewSubtitleMetaText 是新路徑的 subsmeta（011 §3.8）：記兩個倍率圖集的名稱、字級與 SHA-256。
+// NewSubtitleMetaText 組 subsmeta（011 §3.8）：記結構表、譯文的雜湊與兩個倍率圖集的名稱、字級與 SHA-256。
 func NewSubtitleMetaText(fonts *TextFonts, indexB, catalogB []byte, e, t uint64) SubtitleMeta {
-	m := SubtitleMeta{IndexSHA256: sha256Hex(indexB), CatalogSHA256: sha256Hex(catalogB), E: e, T: t, Text: true}
+	m := SubtitleMeta{IndexSHA256: sha256Hex(indexB), CatalogSHA256: sha256Hex(catalogB), E: e, T: t}
 	for i, sc := range []int{2, 3} {
 		px := pxSub[sc]
 		m.TextName[i], m.TextPx[i] = TextFontName(px), px

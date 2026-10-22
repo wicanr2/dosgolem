@@ -324,13 +324,10 @@ func lfBoard(idx []byte) Label {
 
 func lfOverlay(t *testing.T, labels []Label) *Overlay {
 	t.Helper()
-	ov, err := NewOverlay(testLabelFont(t), map[string]string{"Talk to Gwen": "測試譯文甲", "GROUND": "地面", "Fly Mission": "測試丙"}, nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), map[string]string{"Talk to Gwen": "測試譯文甲", "GROUND": "地面", "Fly Mission": "測試丙"}, 2)
 	ov.Sync(labels, 1)
-	if len(ov.Stamps()) != 2*len(labels) {
-		t.Fatalf("stamp %d 個，要 %d", len(ov.Stamps()), 2*len(labels))
+	if len(ov.Stamps()) != len(labels) {
+		t.Fatalf("stamp %d 個，要 %d（每筆一個遮蓋）", len(ov.Stamps()), len(labels))
 	}
 	return ov
 }
@@ -485,11 +482,11 @@ func TestOverlayRefUpdate(t *testing.T) {
 	if len(ov.Match(a)) != 0 || len(ov.Match(b)) != 1 {
 		t.Fatal("前置：第一次 Ref 取自 a")
 	}
-	first := ov.Stamps()[1]
+	first := ov.Stamps()[0]
 	l2 := l
 	l2.Ref = refFromFrame(b, l)
 	ov.Sync([]Label{l2}, 1)
-	if ov.Stamps()[1] != first {
+	if ov.Stamps()[0] != first {
 		t.Fatal("generation 不變時重建了 stamp")
 	}
 	if len(ov.Match(b)) != 0 || len(ov.Match(a)) != 1 {

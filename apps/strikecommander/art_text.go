@@ -9,7 +9,7 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 圖面（存讀檔、確認框、主選單、底板灰字、MENU 片頭選單）的反鋸齒新路徑（strike_commander 規格 011 §3.6.3；分期 (e)）。
+// 圖面（存讀檔、確認框、主選單、底板灰字、MENU 片頭選單）的反鋸齒字（strike_commander 規格 011 §3.6.3）。
 
 // artText 是一列圖面新路徑的字：N() 後的字串、字級、相對字帶的筆位與 em 上緣（輸出像素）、趟表。
 type artText struct {
@@ -142,11 +142,9 @@ type ArtReportEntry struct {
 func (o *Overlay) ArtReport() []ArtReportEntry {
 	var out []ArtReportEntry
 	for _, e := range o.arts {
-		r := ArtReportEntry{Key: e.rect.Key, File: e.ev.File, G: e.ev.G, K: e.ev.K, X: e.ev.X, Y: e.ev.Y, Order: e.ev.Order, Path: "old"}
-		if t := e.text; t != nil {
-			r.Path, r.Display, r.Px, r.TxOut, r.Ey, r.Ink = "new", string(t.display), t.px, t.tx, t.ey, t.ink
-		}
-		out = append(out, r)
+		t := e.text
+		out = append(out, ArtReportEntry{Key: e.rect.Key, File: e.ev.File, G: e.ev.G, K: e.ev.K, X: e.ev.X, Y: e.ev.Y, Order: e.ev.Order,
+			Path: "new", Display: string(t.display), Px: t.px, TxOut: t.tx, Ey: t.ey, Ink: t.ink})
 	}
 	return out
 }
@@ -154,16 +152,12 @@ func (o *Overlay) ArtReport() []ArtReportEntry {
 // artsTSVHeader 是 <前綴>-s<倍率>-arts.tsv 的欄名（011 §3.8）。
 var artsTSVHeader = []string{"key", "file", "g", "k", "x", "y", "order", "display", "px", "tx_out", "ey", "ink_x0", "ink_y0", "ink_x1", "ink_y1", "path"}
 
-// ArtsTSV 編 arts.tsv；舊路徑的列 display 起的新欄填 -。
+// ArtsTSV 編 arts.tsv（011 §3.8；path 欄一律 new）。
 func ArtsTSV(es []ArtReportEntry) []byte {
 	var b strings.Builder
 	b.WriteString(strings.Join(artsTSVHeader, "\t") + "\n")
 	for _, e := range es {
 		fmt.Fprintf(&b, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t", e.Key, e.File, e.G, e.K, e.X, e.Y, e.Order)
-		if e.Path != "new" {
-			b.WriteString(strings.Repeat("-\t", 8) + "old\n")
-			continue
-		}
 		ink := e.Ink
 		if ink.Empty() {
 			ink = xlate.AlphaRect{}
@@ -173,7 +167,7 @@ func ArtsTSV(es []ArtReportEntry) []byte {
 	return []byte(b.String())
 }
 
-// writeArtsTSV 寫各倍率的 <prefix>-s<倍率>-arts.tsv；arts 為 nil 時不寫（圖面新路徑沒開）。
+// writeArtsTSV 寫各倍率的 <prefix>-s<倍率>-arts.tsv；arts 為 nil 時不寫。
 func writeArtsTSV(dir, prefix string, scales []int, arts map[int][]ArtReportEntry) error {
 	if arts == nil {
 		return nil

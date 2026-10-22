@@ -14,8 +14,7 @@ import (
 
 // strike_commander 規格 010 §4.2 的觸發案例（長測試）。只在下列環境變數都設定時執行，否則 t.Skip：
 //   - DOSGOLEM_SC_ROOT、DOSGOLEM_SC_STATE_DIR（workplace/scratch）：設定樹與狀態檔；
-//   - DOSGOLEM_SC_SUB_FONT：含測試字的 SC-SUB10 字型（10×10，010 第 4 版 §3.12；build_sub10.sh 加測試 catalog 建置）；
-//   - DOSGOLEM_SC_FONT：Overlay 用的 16×16 字型（010 第 4 版起字幕不再用它）；
+//   - DOSGOLEM_SC_FONT_DIR（與 DOSGOLEM_SC_FONT_EXPECTED）：字幕與 Overlay 用的反鋸齒圖集（strike_commander 規格 011 §3.9）；
 //   - DOSGOLEM_SC_SPEECH_INDEX、DOSGOLEM_SC_SPEECH_CATALOG：結構表與譯文（預設是測試 catalog testdata/speech.test.tsv）；
 //   - DOSGOLEM_SC_I022：workplace/i022（T10、H12 的期望取自 timing-t10.tsv、timing-h12.tsv，獨立於本實作）。
 //
@@ -24,7 +23,6 @@ import (
 // 「輸入重現的前置步驟」（§4.2 第 1、2 步）：每次執行都記下全部 SB16 DMA 事件，與 probe 收據比 start、complete、pause、resume、cancel。
 
 const (
-	scSubFontEnv       = "DOSGOLEM_SC_SUB_FONT"
 	scSpeechCatalogEnv = "DOSGOLEM_SC_SPEECH_CATALOG"
 	scSubCasesEnv      = "DOSGOLEM_SC_SUBCASES"
 	scSubABEnv         = "DOSGOLEM_SC_SUB_AB"
@@ -172,22 +170,9 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 	if _, err := hex.Decode(want[:], []byte(c.sha)); err != nil {
 		t.Fatal(err)
 	}
-	// 011 §3.9：DOSGOLEM_SC_TEXT_PATHS 含 subtitle 時字幕走新路徑，不讀 SC-SUB10。
+	// 011 §3.9：字幕與標籤都以 DOSGOLEM_SC_FONT_DIR 的圖集畫。
 	var rc ReceiptConfig
 	applyTextEnv(t, &rc)
-	var fontB []byte
-	var subFont *SubtitleFont
-	if !rc.TextPaths.Subtitle {
-		// 010 第 4 版：DOSGOLEM_SC_SUB_FONT 是 SC-SUB10（10×10）；讀不到時 Skip，仍是 16×16 時 ParseSubtitleFont 拒絕而失敗。
-		fontB, err = os.ReadFile(os.Getenv(scSubFontEnv))
-		if err != nil {
-			t.Skip(scSubFontEnv + " 讀不到：" + err.Error())
-		}
-		if subFont, err = ParseSubtitleFont(fontB, SubtitleFontName); err != nil {
-			t.Fatal(err)
-		}
-	}
-	font := optLabelFont(t)
 	idxB, err := os.ReadFile(os.Getenv(scSpeechIndexEnv))
 	if err != nil {
 		t.Fatal(err)
@@ -209,11 +194,7 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 		t.Fatal(err)
 	}
 	if meta != nil {
-		if rc.TextPaths.Subtitle {
-			*meta = NewSubtitleMetaText(rc.Fonts, idxB, catB, 0, SubtitleDefaultT)
-		} else {
-			*meta = NewSubtitleMeta(subFont, fontB, idxB, catB, 0, SubtitleDefaultT)
-		}
+		*meta = NewSubtitleMetaText(rc.Fonts, idxB, catB, 0, SubtitleDefaultT)
 	}
 	sb, err := os.ReadFile(c.script)
 	if err != nil {
@@ -225,10 +206,10 @@ func runSubCase(t *testing.T, c subLongCase, mode subRunMode, meta *SubtitleMeta
 	}
 	res, err := RunReceipt(ReceiptConfig{
 		SaveRoot: root, State: raw, StateSHA256: want, RebaseFrom: []string{"/scratch"},
-		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: labels, Font: font, Overlay: mode != modeOff, CursorY: -1,
+		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: labels, Overlay: mode != modeOff, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
 		SpeechIndex: idx, SpeechCatalog: cat, Subtitles: mode == modeSubs, RecordSBDMA: mode != modeOff,
-		SubtitleFont: subFont, Fonts: rc.Fonts, TextPaths: rc.TextPaths,
+		Fonts: rc.Fonts,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -405,9 +386,9 @@ func checkSubShots(t *testing.T, name string, c subLongCase, res *ReceiptResult)
 }
 
 func TestSubtitleCase(t *testing.T) {
-	for _, e := range oldFontOptional([]string{scRootEnv, scStateDirEnv, scSubFontEnv, scFontEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env}) {
+	for _, e := range []string{scRootEnv, scStateDirEnv, scFontDirEnv, scSpeechIndexEnv, scSpeechCatalogEnv, scCatalogEnv, scI022Env} {
 		if os.Getenv(e) == "" {
-			t.Skip(e + " 未設定：010 §4.2 需要設定樹、狀態檔、字型、結構表、譯文與 i022")
+			t.Skip(e + " 未設定：010 §4.2 需要設定樹、狀態檔、圖集、結構表、譯文與 i022")
 		}
 	}
 	if !SessionConfig(nil).SBDMA8 {
@@ -480,15 +461,16 @@ func TestSubtitleCase(t *testing.T) {
 	}
 }
 
-// TestFormalSpeechCatalog 以 lint 檢查正式譯文 text/speech.zh-TW.tsv（010 §3.9）。
-// strike_commander 規格 011 §4.6：(c) 起新舊 lint 都跑。舊 lint 在 DOSGOLEM_SC_SUB_FONT 設定時跑；
-// 新 lint（LintSpeechText）在 DOSGOLEM_SC_FONT_DIR 設定時跑。
+// TestFormalSpeechCatalog 以 LintSpeechText 檢查正式譯文 text/speech.zh-TW.tsv（010 §3.9、011 §3.7）與圖集（DOSGOLEM_SC_FONT_DIR）。
 func TestFormalSpeechCatalog(t *testing.T) {
-	envs := []string{"DOSGOLEM_SC_SPEECH_FORMAL", scSpeechIndexEnv, "DOSGOLEM_SC_SPEECH_EN", "DOSGOLEM_SC_GLOSSARY"}
+	envs := []string{"DOSGOLEM_SC_SPEECH_FORMAL", scSpeechIndexEnv, "DOSGOLEM_SC_SPEECH_EN", "DOSGOLEM_SC_GLOSSARY", scFontDirEnv}
 	var bs [][]byte
 	for _, e := range envs {
 		if os.Getenv(e) == "" {
 			t.Skip(e + " 未設定")
+		}
+		if e == scFontDirEnv {
+			continue
 		}
 		b, err := os.ReadFile(os.Getenv(e))
 		if err != nil {
@@ -496,34 +478,9 @@ func TestFormalSpeechCatalog(t *testing.T) {
 		}
 		bs = append(bs, b)
 	}
-	sp := os.Getenv(scSubFontEnv)
-	if sp == "" && os.Getenv(scFontDirEnv) == "" {
-		t.Skip(scSubFontEnv + " 或 " + scFontDirEnv + " 未設定")
-	}
-	if sp != "" {
-		fb, err := os.ReadFile(sp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, err := ParseSubtitleFont(fb, SubtitleFontName)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rep := LintSpeech(bs[1], bs[0], bs[2], bs[3], f.Wide)
-		t.Logf("舊 lint：漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
-		if !rep.OK() {
-			t.Fatalf("舊 lint：\n%s", strings.Join(rep.Errors, "\n"))
-		}
-	} else {
-		t.Log("舊 lint 未跑：" + scSubFontEnv + " 未設定")
-	}
-	if tf := envTextFonts(t); tf != nil {
-		rep := LintSpeechText(bs[1], bs[0], bs[2], bs[3], tf)
-		t.Logf("新 lint：漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
-		if !rep.OK() {
-			t.Fatalf("新 lint：\n%s", strings.Join(rep.Errors, "\n"))
-		}
-	} else {
-		t.Log("新 lint 未跑：" + scFontDirEnv + " 未設定")
+	rep := LintSpeechText(bs[1], bs[0], bs[2], bs[3], envTextFonts(t))
+	t.Logf("漏譯 %d 句；3 行 %d 句 %v", len(rep.Untranslated), len(rep.Over2), rep.Over2)
+	if !rep.OK() {
+		t.Fatalf("lint：\n%s", strings.Join(rep.Errors, "\n"))
 	}
 }

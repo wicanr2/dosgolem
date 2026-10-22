@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // LintReport 是 §2.7 lint 的結果。Errors 非空即失敗；Untranslated 只列出、不判失敗。
@@ -16,40 +15,18 @@ type LintReport struct {
 // OK 回沒有失敗項。
 func (r LintReport) OK() bool { return len(r.Errors) == 0 }
 
-// Lint 依 001 §2.7 與 002 §2.3 檢查一份熱點標籤 catalog：
-//   - 欄名、每列三欄、key 唯一、譯文非空；
-//   - 譯文每字都在全形表裡（半形字、缺字分別報）；範本譯文恰好一個 %s、一個 %d，
-//     拿掉這兩個佔位符後其餘字元照同一規則檢查；
-//   - 2 倍時 n × 8 ≤ 320（範本以拿掉佔位符後的字數計）；
+// badFunc 是 lint 記錯誤的函式。
+type badFunc func(format string, a ...any)
+
+// lintLabelCore 是 LintLabels（strike_commander 規格 011 §3.7）的結構檢查（001 §2.7、002 §2.3）：
+//   - 欄名、每列三欄、key 唯一、譯文非空；範本譯文恰好一個 %s、一個 %d；
 //   - 每個 key 都在 key 集合（labl ∪ 兩個範本 ∪ 九個短代號 ∪ ExeKeys）裡；labl 是 OPTIONS.IFF 與
 //     OPTIONS2.IFF 的 LABL 去重；ExeKeys 是計分板的 EXE 字串（003 §3.5）；
 //   - 漏譯（key 集合有而 catalog 沒有）列在 Untranslated；
 //   - 防呆（只看 labl）：沒有 key 符合 removeRe 或 countRe、短代號不在 labl、WeaponLongNames 都在 labl、
 //     ExeKeys 不在 labl（003 §3.5）。
 //
-// 字型的固定附加字另由 CheckFontExtra 檢查。
-func Lint(b []byte, wide *WideTable, labl map[string]bool) LintReport {
-	rep, _ := lintLabelCore(b, labl, func(bad badFunc, r catalogRow, text string) {
-		for _, c := range text {
-			switch {
-			case !wide.Has(c):
-				bad("第 %d 列 key %q 缺字 %q（U+%04X）", r.line, r.key, c, c)
-			case !wide.Wide(c):
-				bad("第 %d 列 key %q 含半形字 %q（U+%04X）", r.line, r.key, c, c)
-			}
-		}
-		if n := utf8.RuneCountInString(text); n*8 > 320 {
-			bad("第 %d 列 key %q 譯文 %d 字，2 倍寬 %d 超過 320", r.line, r.key, n, n*8)
-		}
-	})
-	return rep
-}
-
-// badFunc 是 lint 記錯誤的函式。
-type badFunc func(format string, a ...any)
-
-// lintLabelCore 是 Lint 與 LintLabels（strike_commander 規格 011 §3.7）共用的結構檢查：欄名、欄數、key 唯一、
-// 孤兒 key、空譯文、範本佔位符、漏譯與防呆。每列的字元與寬度檢查交給 check（text 是拿掉範本佔位符後的譯文）。
+// 每列的字元與寬度檢查交給 check（text 是拿掉範本佔位符後的譯文）。
 // 回傳的 map 是可用列（三欄、非空、首次出現）的 key → 譯文，供組合標籤的檢查。
 func lintLabelCore(b []byte, labl map[string]bool, check func(bad badFunc, r catalogRow, text string)) (LintReport, map[string]string) {
 	var rep LintReport

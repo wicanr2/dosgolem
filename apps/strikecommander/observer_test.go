@@ -381,12 +381,9 @@ func TestRecordOtherFont(t *testing.T) {
 	if len(vis) != 1 || vis[0].Font != 0x1234 {
 		t.Fatalf("其他字型的標籤要照記：%+v", vis)
 	}
-	ov, err := NewOverlay(testLabelFont(t), testCatalog(), nil, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ov := textOverlay(t, testTextFonts(t), testCatalog(), 2)
 	ov.Sync(vis, h.o.Generation())
-	if len(ov.Stamps()) != 0 || len(ov.Skips) != 1 {
+	if len(ov.Stamps()) != 0 || len(ov.TextBoxes()) != 0 || len(ov.Skips) != 1 {
 		t.Fatalf("字型 1234 不得產生 stamp：stamps %d skips %+v", len(ov.Stamps()), ov.Skips)
 	}
 }

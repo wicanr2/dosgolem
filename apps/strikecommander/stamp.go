@@ -6,12 +6,11 @@ import (
 	"github.com/wicanr2/dosgolem/xlate"
 )
 
-// 熱點標籤的 stamp 規劃（001 §2.6），計分板 board 標籤的規劃（003 §3.4）。
-// 幾何都是原版像素，整數運算，除法向下取整。
+// 熱點標籤與計分板 board 標籤的遮蓋 stamp 與比對（001、003、005、006）；文字以反鋸齒圖集繪製（011 §3.6.1、§3.6.2）。
+// 遮蓋與比對的幾何是原版像素，整數運算，除法向下取整。
 const (
 	stampCellH = 14 // label 墨跡框高 [Y+1, Y+15)
 	boardCellH = 8  // board 格高：前後列 [Y+1, Y+9)
-	glyphPx    = 16
 	// 原版色盤的 0 號是黑外框、15 號是白字（RE 012 §5）。
 	bgIndex = 0
 	fgIndex = 15
@@ -34,65 +33,6 @@ type Skip struct {
 	Reason string
 }
 
-// Plan 是一筆標籤的兩個 stamp：遮蓋 stamp 在前、文字 stamp 在後。
-// Kind 與色號隨 stamp 帶出（xlate.Stamp 沒有種類欄位），由 Overlay 記住，Draw 時依色盤設色。
-type Plan struct {
-	Cover, Text *xlate.Stamp
-	Kind        Kind
-	BG, FG      uint8 // 背景、前景色號
-}
-
-// PlanLabel 依種類規劃一筆標籤的 stamp：label 照 001 §2.6，board 照 003 §3.4。
-// scale 只接受 2、3；text 是譯文。字模檢查、字型檢查由 Overlay 做；這裡只算幾何。
-func PlanLabel(l Label, text []rune, scale int, font *xlate.Font) (Plan, error) {
-	if scale != 2 && scale != 3 {
-		return Plan{}, fmt.Errorf("%d 倍輸出不產生 stamp（框高放不下 16 像素字模）", scale)
-	}
-	n := len(text)
-	if n == 0 {
-		return Plan{}, fmt.Errorf("譯文是空的")
-	}
-	cellW := (glyphPx + scale - 1) / scale // ceil(16 / scale)：2 倍 8、3 倍 6
-	w := n * cellW
-	if w > 320 {
-		return Plan{}, fmt.Errorf("譯文 %d 字寬 %d 超過 320", n, w)
-	}
-	y := l.Y + 1
-	if l.Kind == KindBoard {
-		// 右對齊到執行期的 x1（擊落數也右對齊到同一處，003 §2.1）；左伸超出畫面時夾到 0。
-		x := max(0, l.X1-w)
-		txt := &xlate.Stamp{
-			Key: l.Key + ".text", X: x, Y: y, Cells: n, CellW: cellW, CellH: boardCellH,
-			Font: font, GlyphX: (cellW*scale - glyphPx) / 2, GlyphY: (boardCellH*scale - glyphPx) / 2, GlyphScale: 1,
-			Text: append([]rune(nil), text...), State: xlate.Shown,
-		}
-		cx0, cx1 := min(l.X0, x), max(l.X1, x+w)
-		cx0, cx1 = max(cx0, 0), min(cx1, 320)
-		cover := &xlate.Stamp{
-			Key: l.Key + ".cover", X: cx0, Y: y, Cells: 1, CellW: cx1 - cx0, CellH: boardCellH, State: xlate.Shown,
-		}
-		return Plan{Cover: cover, Text: txt, Kind: KindBoard, BG: boardBGIndex, FG: boardFGIndex}, nil
-	}
-	x := (l.X0+l.X1)/2 - w/2
-	if x < 0 {
-		x = 0
-	}
-	if x+w > 320 {
-		x = 320 - w
-	}
-	txt := &xlate.Stamp{
-		Key: l.Key + ".text", X: x, Y: y, Cells: n, CellW: cellW, CellH: stampCellH,
-		Font: font, GlyphX: (cellW*scale - glyphPx) / 2, GlyphY: (stampCellH*scale - glyphPx) / 2, GlyphScale: 1,
-		Text: append([]rune(nil), text...), State: xlate.Shown,
-	}
-	cx0, cx1 := min(l.X0, x), max(l.X1, x+w)
-	cx0, cx1 = max(cx0, 0), min(cx1, 320)
-	cover := &xlate.Stamp{
-		Key: l.Key + ".cover", X: cx0, Y: y, Cells: 1, CellW: cx1 - cx0, CellH: stampCellH, State: xlate.Shown,
-	}
-	return Plan{Cover: cover, Text: txt, Kind: KindLabel, BG: bgIndex, FG: fgIndex}, nil
-}
-
 // stampInfo 是 Overlay 為每個 stamp 記的種類與色號。bgImage 為真的 stamp 以背景圖填格（006 §3.2 第 1 條）：
 // 透明標籤（前後列皆非 nil 的 label）與 board；退路標籤（前後列任一為 nil 的 label）為假，照 001 填實心底色。
 type stampInfo struct {
@@ -111,7 +51,7 @@ type bgItem struct {
 	before, after []byte
 }
 
-// labelMatch 是一筆產生了 stamp 的標籤的比對資料（005 §3.2 第 1 條）。比對框是
+// labelMatch 是一筆產生了遮蓋 stamp 的標籤的比對資料（005 §3.2 第 1 條）與文字項（011 §3.9）。比對框是
 // [cover.X, cover.X + cover.Cells × cover.CellW) × [Y+1, Y+1+h) 與畫面的交集。
 // before、after 是繪製背景用的前後列（006 §3.2 第 2 條：同 generation 時成對更新），bgImage 只在重建時判定。
 type labelMatch struct {
@@ -122,31 +62,26 @@ type labelMatch struct {
 	y              int // 標籤的 Y；參考列的第一列是 Y+1
 	x0, y0, x1, y1 int // 比對框 [x0, x1) × [y0, y1)
 	ref            []byte
-	cover, text    *xlate.Stamp
+	cover          *xlate.Stamp
 	before, after  []byte
 	bgImage        bool
-	// textItem 是新路徑（011 §3.9）的文字項；新路徑沒有文字 stamp（text 為 nil）。
-	textItem *textItem
+	textItem       *textItem
 }
 
-// BGEntry 是 BGReport 的一筆（006 §3.3 第 1 條）：Overlay 內部實際使用的資料。座標都是原版像素。
+// BGEntry 是 BGReport 的一筆（006 §3.3 第 1 條、011 §3.8）：Overlay 內部實際使用的資料。
+// 遮蓋範圍是原版像素；Px 以下是輸出像素，Ink 是最近一次 Draw 的文字框（沒畫時為空）。
 type BGEntry struct {
 	Key   string
 	Kind  Kind
 	State string // "透明" 或 "退路"（board 一律以背景圖繪製，記 "透明"）
-	Text  string // 文字 stamp 的 Text
+	Text  string // N() 前的譯文
 	// 遮蓋範圍 [CoverX, CoverX+CoverW) × [CoverY, CoverY+CoverH)，CoverY = 標籤 Y + 1。
 	CoverX, CoverY, CoverW, CoverH int
-	// 文字 stamp 的幾何。
-	TextX, TextY, Cells, CellW, CellH, GlyphX, GlyphY int
-	Before, After, Ref                                []byte
+	Before, After, Ref             []byte
 	// Hidden 是最近一次 Draw 是否因比對不符而不畫這筆（重建後尚未 Draw 時為 false）。
 	Hidden bool
 
-	// 以下是 011 §3.8 新增的欄位；Path 為 "new" 時上面的文字 stamp 幾何欄不適用（labels.tsv 填 -），
-	// 為 "old" 時這些欄不適用（填 -）。座標是輸出像素；Ink 是最近一次 Draw 的文字框（沒畫時為空）。
-	Path                string
-	Display             string
+	Display             string // N() 後實際畫的字串
 	Px, TxOut, Baseline int
 	Clip, Ink           xlate.AlphaRect
 	Outline             bool
@@ -166,7 +101,6 @@ func validRows(b []byte, h int) bool { return b != nil && len(b) == h*320 }
 // 不呼叫 Layer.Frame、Add、Replace：Add 遇到部分重疊會把遮蓋 stamp 的格子設成透明而丟掉它。
 type Overlay struct {
 	layer *xlate.Layer
-	font  *LabelFont
 	tr    map[string]string
 	scale int
 	gen   uint64
@@ -195,26 +129,13 @@ type Overlay struct {
 	// platePending 是主選單底板事件（008 §3.4）：等下一個 MAINMENU 按鈕事件帶來按鈕檔，才建五行灰字的圖面。
 	platePending *ArtEvent
 
-	// 011 §3.9 的路徑開關：Text 是圖集；TextLabel 為真時 label 種類走反鋸齒新路徑。TextBoard、TextArt 在 (e) 實作，
-	// (d) 設為真時 Sync 照舊路徑處理並不使用。開關在建立後、第一次 Sync 前設定。
-	Text      *TextFonts
-	TextLabel bool
-	TextBoard bool
-	TextArt   bool
-	// lastInk 是最近一次 Draw 各筆（與 matches 平行）新路徑串的文字框；沒畫的為空。重建時清空。
+	// Text 是反鋸齒圖集（011 §3.2）；標籤、計分板與圖面的中文都以它繪製。
+	Text *TextFonts
+	// lastInk 是最近一次 Draw 各筆（與 matches 平行）的文字框；沒畫的為空。重建時清空。
 	lastInk []xlate.AlphaRect
 
 	Misses []Miss
 	Skips  []Skip
-}
-
-// NewOverlay 建一個 overlay。scale 接受 1、2、3；1 倍時永遠不產生 stamp（§2.6）。
-// tr 是熱點標籤 catalog（text/opttest_labels），gfx 是圖形字 catalog（text/menu_gfx，004 §3.6；可為 nil）。
-func NewOverlay(font *LabelFont, tr, gfx map[string]string, scale int) (*Overlay, error) {
-	if font == nil || font.Font == nil || scale < 1 || scale > 3 {
-		return nil, fmt.Errorf("strikecommander: overlay 輸入無效")
-	}
-	return &Overlay{layer: &xlate.Layer{W: 320, H: 200}, artLayer: &xlate.Layer{W: 320, H: 200}, font: font, tr: tr, gfx: gfx, scale: scale}, nil
 }
 
 // Scale 回輸出倍率。
@@ -294,56 +215,14 @@ func (o *Overlay) Sync(labels []Label, gen uint64) {
 			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: reason})
 			continue
 		}
-		if o.Text != nil && ((o.TextLabel && l.Kind != KindBoard) || (o.TextBoard && l.Kind == KindBoard)) {
-			o.syncLabelText(i, l, text)
-			continue
-		}
-		var miss []rune
-		for _, r := range text {
-			if !o.font.Wide.Wide(r) || o.font.Font.Glyphs[r] == nil {
-				miss = append(miss, r)
-			}
-		}
-		if len(miss) != 0 {
-			o.Misses = append(o.Misses, Miss{Key: l.Key, Reason: MissGlyph, Runes: miss})
-			continue
-		}
-		p, err := PlanLabel(l, text, o.scale, o.font.Font)
-		if err != nil {
-			o.Skips = append(o.Skips, Skip{l.Key, err.Error()})
-			continue
-		}
-		h := refRows(l.Kind)
-		// 透明標籤與 board 以背景圖填格；退路標籤照 001 畫實心底（006 §3.2 第 1、7 條）。
-		// board 的前後列在上面已確認非 nil；長度另驗，不符的列當作不可用（勘誤候選：規格只寫 nil）。
-		rowsOK := validRows(l.Before, h) && validRows(l.After, h)
-		bgImage := p.Kind == KindBoard || rowsOK
-		if p.Kind == KindBoard && !rowsOK {
-			o.Skips = append(o.Skips, Skip{l.Key, fmt.Sprintf("board 標籤的前後列長度 %d、%d，要 %d", len(l.Before), len(l.After), h*320)})
-			continue
-		}
-		if !bgImage {
-			o.BGFallbacks = append(o.BGFallbacks, Skip{l.Key, rowsReason(l.Before, l.After, h)})
-		}
-		o.layer.Stamps = append(o.layer.Stamps, p.Cover, p.Text)
-		si := stampInfo{kind: p.Kind, bg: p.BG, fg: p.FG, bgImage: bgImage}
-		o.info[p.Cover], o.info[p.Text] = si, si
-		m := labelMatch{
-			label: i, key: l.Key, kind: l.Kind, h: h, y: l.Y,
-			x0: max(p.Cover.X, 0), x1: min(p.Cover.X+p.Cover.Cells*p.Cover.CellW, 320),
-			y0: max(l.Y+1, 0), y1: min(l.Y+1+h, 200),
-			ref: l.Ref, cover: p.Cover, text: p.Text, bgImage: bgImage,
-		}
-		if rowsOK {
-			m.before, m.after = l.Before, l.After
-		}
-		o.matches = append(o.matches, m)
+		o.syncLabelText(i, l, text)
 	}
 }
 
-// syncLabelText 是 Sync 重建時 label 種類的新路徑（011 §3.4、§3.6.1）：N() 之後任一字不在圖集記 MissGlyph
+// syncLabelText 是 Sync 重建時的一筆（011 §3.4、§3.6.1、§3.6.2）：N() 之後任一字不在圖集記 MissGlyph
 // （Runes 依序列出全部缺字），排版失敗記 Skip；成功時只加遮蓋 stamp，文字項記在 labelMatch.textItem。
-// 前後列、透明或退路的判定與舊路徑相同。
+// 透明標籤與 board 以背景圖填格；退路標籤照 001 畫實心底（006 §3.2 第 1、7 條）。
+// board 的前後列在 Sync 已確認非 nil；長度另驗，不符的列當作不可用。
 func (o *Overlay) syncLabelText(i int, l Label, text []rune) {
 	px := pxLabel[o.scale]
 	if l.Kind == KindBoard {
@@ -401,15 +280,15 @@ func rowsReason(before, after []byte, h int) string {
 	return fmt.Sprintf("前後列長度 %d、%d，要 %d", len(before), len(after), h*320)
 }
 
-// Draw 把原版畫格放大成 RGBA 並畫上 stamp。每次繪製前依各 stamp 記下的色號從目前色盤設 BG、FG：
-// label 是 0、15 號，board 是 164、10 號。透明標籤與 board 的 stamp 以 labelBackground 的背景圖當底
+// Draw 把原版畫格放大成 RGBA 並畫上遮蓋 stamp 與文字。每次繪製前依各 stamp 記下的色號從目前色盤設 BG、FG：
+// label 是 0、15 號，board 是 164、10 號。透明標籤與 board 的遮蓋 stamp 以 labelBackground 的背景圖當底
 // （003 §3.4、006 §3.2），退路標籤照 001 填實心底色。回傳合成圖與 Layer 回報的缺字。
 //
-// 順序（004 §3.3）：1. 原版畫格放大；2. 存讀檔對話框的圖面（獨立 layer，逐格比對原版基準）；
-// 3. 001 到 003 的文字 stamp。背景圖以第 2 步之後的圖為底（006 §3.2 第 4 條）。
+// 順序（004 §3.3、011 §3.6.1）：1. 原版畫格放大；2. 圖面（獨立 layer，逐格比對原版基準）；3. 遮蓋 stamp；
+// 4. 全部照畫標籤的外框層；5. 全部照畫字串的填色層。背景圖以第 2 步之後的圖為底（006 §3.2 第 4 條）。
 //
-// 第 3 步之前以 Match 逐筆比對（005 §3.2 第 3 條）：不符的標籤兩個 stamp 都不畫，Key 記入 Hidden，
-// 也不列入背景清單（006 §3.2 第 8 條）；照畫的 stamp 組成暫時的 layer 交給 DrawWithBackground。不改 Stamp.State。
+// 第 3 步之前以 Match 逐筆比對（005 §3.2 第 3 條）：不符的標籤不畫，Key 記入 Hidden，
+// 也不列入背景清單（006 §3.2 第 8 條）；照畫的遮蓋 stamp 組成暫時的 layer 交給 DrawWithBackground。不改 Stamp.State。
 func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	out := ScaleIndexedRGBA(indexed, palette, o.scale)
 	o.drawArt(out, indexed, palette)
@@ -427,17 +306,12 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 			o.Hidden = append(o.Hidden, m.key)
 			continue
 		}
-		if m.textItem != nil {
-			// 新路徑（011 §3.6.1）：遮蓋 stamp 照舊以 DrawWithBackground 填格，字在之後兩趟畫。
-			shown.Stamps = append(shown.Stamps, m.cover)
-			items[i] = m.textItem
-			continue
-		}
-		shown.Stamps = append(shown.Stamps, m.cover, m.text)
+		shown.Stamps = append(shown.Stamps, m.cover)
+		items[i] = m.textItem
 	}
 	var bg []byte
-	if bitems, texts := o.backgroundItems(bad); len(bitems) != 0 {
-		bg = labelBackground(out, indexed, palette, o.scale, bitems, texts)
+	if bitems := o.backgroundItems(bad); len(bitems) != 0 {
+		bg = labelBackground(out, indexed, palette, o.scale, bitems)
 	}
 	var miss []rune
 	shown.DrawWithBackground(out, o.scale, func(r rune) { miss = append(miss, r) }, bg,
@@ -448,10 +322,9 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 }
 
 // backgroundItems 回這次照畫、以背景圖繪製的標籤（006 §3.2 第 3、8 條）：依重建順序，透明標籤與 board，
-// bad（與 matches 平行）為真的不列入。texts 與 items 平行：透明標籤是文字 stamp（畫外框），board 是 nil。
-func (o *Overlay) backgroundItems(bad []bool) ([]bgItem, []*xlate.Stamp) {
+// bad（與 matches 平行）為真的不列入。外框在 drawTextItems 畫，不畫到背景圖（011 §3.9）。
+func (o *Overlay) backgroundItems(bad []bool) []bgItem {
 	var items []bgItem
-	var texts []*xlate.Stamp
 	for i, m := range o.matches {
 		if !m.bgImage || (i < len(bad) && bad[i]) {
 			continue
@@ -461,14 +334,8 @@ func (o *Overlay) backgroundItems(bad []bool) ([]bgItem, []*xlate.Stamp) {
 			x0: m.cover.X, x1: m.cover.X + m.cover.CellW, y0: m.cover.Y, rows: m.h,
 			before: m.before, after: m.after,
 		})
-		if m.kind == KindBoard || m.textItem != nil {
-			// board 不畫外框；新路徑的外框在 drawTextItems 畫，不畫到背景圖（011 §3.9）。
-			texts = append(texts, nil)
-		} else {
-			texts = append(texts, m.text)
-		}
 	}
-	return items, texts
+	return items
 }
 
 // BGReport 依重建順序列出每筆產生了 stamp 的標籤（006 §3.3 第 1 條），取 Overlay 內部實際使用的資料
@@ -476,23 +343,16 @@ func (o *Overlay) backgroundItems(bad []bool) ([]bgItem, []*xlate.Stamp) {
 func (o *Overlay) BGReport() []BGEntry {
 	var out []BGEntry
 	for i, m := range o.matches {
+		ti := m.textItem
 		e := BGEntry{
-			Key: m.key, Kind: m.kind, State: BGStateFallback,
+			Key: m.key, Kind: m.kind, State: BGStateFallback, Text: string(ti.raw),
 			CoverX: m.cover.X, CoverY: m.cover.Y, CoverW: m.cover.Cells * m.cover.CellW, CoverH: m.cover.CellH,
 			Before: append([]byte(nil), m.before...), After: append([]byte(nil), m.after...), Ref: append([]byte(nil), m.ref...),
-			Path: "old",
+			Display: string(ti.display), Px: ti.px, TxOut: ti.tx, Baseline: ti.baseline, Clip: ti.clip, Outline: ti.outline,
+			E0: ti.e0, E1: ti.e1,
 		}
-		if ti := m.textItem; ti != nil {
-			// 新路徑（011 §3.8）：文字 stamp 幾何不適用，填新欄。
-			e.Path, e.Text, e.Display = "new", string(ti.raw), string(ti.display)
-			e.Px, e.TxOut, e.Baseline, e.Clip, e.Outline, e.E0, e.E1 = ti.px, ti.tx, ti.baseline, ti.clip, ti.outline, ti.e0, ti.e1
-			if i < len(o.lastInk) {
-				e.Ink = o.lastInk[i]
-			}
-		} else {
-			e.Text = string(m.text.Text)
-			e.TextX, e.TextY, e.Cells, e.CellW, e.CellH = m.text.X, m.text.Y, m.text.Cells, m.text.CellW, m.text.CellH
-			e.GlyphX, e.GlyphY = m.text.GlyphX, m.text.GlyphY
+		if i < len(o.lastInk) {
+			e.Ink = o.lastInk[i]
 		}
 		if m.bgImage {
 			e.State = BGStateTransparent
@@ -562,12 +422,12 @@ func (o *Overlay) MatchBox(key string) (x0, y0, x1, y1 int, ok bool) {
 //  1. 複製 out（drawArt 之後的原版放大圖，含存讀檔圖面）；
 //  2. 每項遮蓋範圍內每個原版像素 (x, y)：若是墨跡像素（前列 ≠ 後列）而且畫格在該點仍等於後列，
 //     對應的 倍率 × 倍率 輸出像素中，目前仍等於畫格顏色（沒被圖面改過）的換成前列的顏色；其他保留
-//     （滑鼠游標、白板細線、圖面都留著）；
-//  3. 每筆透明標籤的文字 stamp 畫外框（glyphMask 的 8 鄰域膨脹減字形，裁到遮蓋範圍，0 號色）。
+//     （滑鼠游標、白板細線、圖面都留著）。
 //
-// items 是這次照畫的項（005 §3.2 第 3 條：比對不符的不列入），texts 與 items 平行，board 項為 nil。
+// 外框不畫到背景圖：011 §3.4 的外框層在 drawTextItems 畫。
+// items 是這次照畫的項（005 §3.2 第 3 條：比對不符的不列入）。
 // 各項的遮蓋範圍假設不重疊；重疊時依清單順序套用，後者看到前者的改動（畫格的複本隨之更新）。
-func labelBackground(out []byte, indexed []byte, palette [256][3]uint8, scale int, items []bgItem, texts []*xlate.Stamp) []byte {
+func labelBackground(out []byte, indexed []byte, palette [256][3]uint8, scale int, items []bgItem) []byte {
 	bg := append([]byte(nil), out...)
 	idx := append([]byte(nil), indexed...)
 	W := 320 * scale
@@ -597,95 +457,7 @@ func labelBackground(out []byte, indexed []byte, palette [256][3]uint8, scale in
 			}
 		}
 	}
-	for k, it := range items {
-		if k < len(texts) && texts[k] != nil {
-			drawOutline(bg, scale, palette[bgIndex], it, texts[k])
-		}
-	}
 	return bg
-}
-
-// drawOutline 是 006 §3.2 第 5 條的外框：字形遮罩 G 以 8 鄰域膨脹一個輸出像素得 D，D − G 中落在遮蓋範圍
-// 輸出像素 [x0 × 倍率, x1 × 倍率) × [y0 × 倍率, (y0 + rows) × 倍率) 內者設成 c。
-func drawOutline(bg []byte, scale int, c [3]uint8, it bgItem, s *xlate.Stamp) {
-	W, H := 320*scale, 200*scale
-	g := glyphMask(s, scale)
-	for y := max(it.y0*scale, 0); y < min((it.y0+it.rows)*scale, H); y++ {
-		for x := max(it.x0*scale, 0); x < min(it.x1*scale, W); x++ {
-			if g[y*W+x] {
-				continue
-			}
-			hit := false
-			for dy := -1; dy <= 1 && !hit; dy++ {
-				for dx := -1; dx <= 1; dx++ {
-					nx, ny := x+dx, y+dy
-					if (dx != 0 || dy != 0) && nx >= 0 && nx < W && ny >= 0 && ny < H && g[ny*W+nx] {
-						hit = true
-						break
-					}
-				}
-			}
-			if hit {
-				i := 4 * (y*W + x)
-				bg[i], bg[i+1], bg[i+2], bg[i+3] = c[0], c[1], c[2], 255
-			}
-		}
-	}
-}
-
-// glyphMask 回文字 stamp 的字形遮罩（輸出像素座標，寬 320 × 倍率、高 200 × 倍率），照 xlate drawGlyphs 逐點算
-// （006 §3.2 第 5 條）：跳過 i ≥ Cells、半形與全形空白、缺字、透明格；字模亮點畫在
-// (X + i × CellW) × 倍率 + GlyphX + gx × k、Y × 倍率 + GlyphY + gy × k（k 是 GlyphScale，0 表示 max(1, 倍率 / 3)），
-// 只取格內的點。字模列寬 (Font.W + 7) / 8 bytes 在這裡自算，不動 xlate。
-func glyphMask(s *xlate.Stamp, scale int) []bool {
-	W, H := 320*scale, 200*scale
-	m := make([]bool, W*H)
-	if s == nil || s.Font == nil {
-		return m
-	}
-	k := s.GlyphScale
-	if k == 0 {
-		k = max(1, scale/3)
-	}
-	if k < 0 {
-		return m
-	}
-	rb := (s.Font.W + 7) / 8
-	cellW, cellH := s.CellW*scale, s.CellH*scale
-	for i, r := range s.Text {
-		if i >= s.Cells || r == ' ' || r == '　' || (i < len(s.Transparent) && s.Transparent[i]) {
-			continue
-		}
-		g, ok := s.Font.Glyphs[r]
-		if !ok {
-			continue
-		}
-		cx, cy := (s.X+i*s.CellW)*scale, s.Y*scale
-		for gy := 0; gy < s.Font.H; gy++ {
-			for gx := 0; gx < s.Font.W; gx++ {
-				if g[gy*rb+gx/8]&(0x80>>uint(gx%8)) == 0 {
-					continue
-				}
-				for dy := 0; dy < k; dy++ {
-					ly := s.GlyphY + gy*k + dy
-					if ly < 0 || ly >= cellH {
-						continue
-					}
-					for dx := 0; dx < k; dx++ {
-						lx := s.GlyphX + gx*k + dx
-						if lx < 0 || lx >= cellW {
-							continue
-						}
-						x, y := cx+lx, cy+ly
-						if x >= 0 && x < W && y >= 0 && y < H {
-							m[y*W+x] = true
-						}
-					}
-				}
-			}
-		}
-	}
-	return m
 }
 
 // ScaleIndexedRGBA 把 320×200 的色號畫格依色盤放大成 RGBA。

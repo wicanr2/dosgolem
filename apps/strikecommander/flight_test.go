@@ -1,9 +1,10 @@
 package strikecommander
 
 import (
-	"encoding/binary"
 	"strings"
 	"testing"
+
+	"github.com/wicanr2/dosgolem/xlate"
 )
 
 // strike_commander 規格 009 §4.1 的單元測試（合成 View）。期望值在測試內獨立寫出。
@@ -904,10 +905,11 @@ func hudText(catKey, key string, x0, y int) FlightText {
 	return t
 }
 
+// TestFlightLayout 以舊幾何算式（legacyFlightGeom，011 §3.11）重驗 009 §3.7 的數值例與 band。
 func TestFlightLayout(t *testing.T) {
 	// HUD 3 倍。
-	g, why := flightLayout(hudText("GEAR", "GEAR", 190, 10), 3, 3)
-	if why != "" || g.tx != 190 || g.ty != 11 || g.cellW != 4 || g.cellH != 4 || g.glyphX != 0 || g.glyphY != 0 || g.cx0 != 189 || g.cx1 != 207 {
+	g, why := legacyFlightGeom(hudText("GEAR", "GEAR", 190, 10), 3, 3)
+	if why != "" || g.X != 190 || g.Y != 11 || g.CellW != 4 || g.CellH != 4 || g.GlyphX != 0 || g.GlyphY != 0 || g.CX0 != 189 || g.CX1 != 207 {
 		t.Fatalf("GEAR：%+v %s", g, why)
 	}
 	if b0, bh := flightBand(KindHUD, 10); b0 != 11 || bh != 5 {
@@ -922,27 +924,27 @@ func TestFlightLayout(t *testing.T) {
 		y   int
 		r   int
 	}{{"GEAR", 10, 213}, {"FLAPS", 15, 212}, {"BRAKE", 20, 211}} {
-		g, why := flightLayout(hudText(tc.key, tc.key, 190, tc.y), 7, 3)
-		if why != "" || g.tx != tc.r+1-28 {
-			t.Errorf("%s 7 字：tx %d（要 %d）%s", tc.key, g.tx, tc.r+1-28, why)
+		g, why := legacyFlightGeom(hudText(tc.key, tc.key, 190, tc.y), 7, 3)
+		if why != "" || g.X != tc.r+1-28 {
+			t.Errorf("%s 7 字：tx %d（要 %d）%s", tc.key, g.X, tc.r+1-28, why)
 		}
 		// 8 字 w = 32：tx = max(183, R + 1 − 32) = 183，183 + 31 = 214 > R。
-		if _, why := flightLayout(hudText(tc.key, tc.key, 190, tc.y), 8, 3); why == "" {
+		if _, why := legacyFlightGeom(hudText(tc.key, tc.key, 190, tc.y), 8, 3); why == "" {
 			t.Errorf("%s 8 字應 Skip", tc.key)
 		}
 	}
 	// 左欄放不下時 Skip（F13）。
-	if g, why := flightLayout(hudText("DGFT", "DGFT", 118, 74), 8, 3); why != "" || g.tx != 118 {
+	if g, why := legacyFlightGeom(hudText("DGFT", "DGFT", 118, 74), 8, 3); why != "" || g.X != 118 {
 		t.Errorf("DGFT 8 字：%+v %s", g, why)
 	}
-	if _, why := flightLayout(hudText("DGFT", "DGFT", 118, 74), 9, 3); why == "" {
+	if _, why := legacyFlightGeom(hudText("DGFT", "DGFT", 118, 74), 9, 3); why == "" {
 		t.Error("DGFT 9 字應 Skip（左欄不能左移）")
 	}
 	none := hudText("NONE", "000 NONE", 118, 79)
-	if g, why := flightLayout(none, 1, 3); why != "" || g.tx != 134 || g.cx0 != 133 || g.cx1 != 151 {
+	if g, why := legacyFlightGeom(none, 1, 3); why != "" || g.X != 134 || g.CX0 != 133 || g.CX1 != 151 {
 		t.Errorf("000 NONE：%+v %s", g, why)
 	}
-	if _, why := flightLayout(none, 5, 3); why == "" {
+	if _, why := legacyFlightGeom(none, 5, 3); why == "" {
 		t.Error("NONE 5 字應 Skip")
 	}
 	// MFD。
@@ -957,27 +959,27 @@ func TestFlightLayout(t *testing.T) {
 	}
 	for _, tc := range []struct{ sc, tx, gx, gy, cw int }{{2, 250, 0, 0, 8}, {3, 264, 1, 5, 6}} {
 		// 7 字的合成例從 x 276 起：放不下時左移（§3.7.2）。
-		g, why := flightLayout(mfd("GUN", "GUN", 276, 126), 7, tc.sc)
-		if why != "" || g.tx != tc.tx || g.glyphX != tc.gx || g.glyphY != tc.gy || g.cellW != tc.cw || g.cellH != 8 || g.ty != 125 {
+		g, why := legacyFlightGeom(mfd("GUN", "GUN", 276, 126), 7, tc.sc)
+		if why != "" || g.X != tc.tx || g.GlyphX != tc.gx || g.GlyphY != tc.gy || g.CellW != tc.cw || g.CellH != 8 || g.Y != 125 {
 			t.Errorf("7 字合成例 %d 倍：%+v %s", tc.sc, g, why)
 		}
 		// GUN 譯「機砲」2 字：原位放得下，不左移（使用者 2026-10-21）。
-		g, why = flightLayout(mfd("GUN", "GUN", 276, 126), 2, tc.sc)
-		if why != "" || g.tx != 276 || g.cx0 != 276 {
+		g, why = legacyFlightGeom(mfd("GUN", "GUN", 276, 126), 2, tc.sc)
+		if why != "" || g.X != 276 || g.CX0 != 276 {
 			t.Errorf("GUN 機砲 %d 倍：%+v %s", tc.sc, g, why)
 		}
-		g, _ = flightLayout(mfd("NORM", "NORM", 222, 126), 2, tc.sc)
-		if g.tx+2*g.cellW-1 >= 276 {
-			t.Errorf("NORM %d 倍右緣 %d 與 GUN 起點 276 相交", tc.sc, g.tx+2*g.cellW-1)
+		g, _ = legacyFlightGeom(mfd("NORM", "NORM", 222, 126), 2, tc.sc)
+		if g.X+2*g.CellW-1 >= 276 {
+			t.Errorf("NORM %d 倍右緣 %d 與 GUN 起點 276 相交", tc.sc, g.X+2*g.CellW-1)
 		}
 	}
-	if _, why := flightLayout(mfd("GUN", "GUN", 276, 126), 11, 2); why == "" {
+	if _, why := legacyFlightGeom(mfd("GUN", "GUN", 276, 126), 11, 2); why == "" {
 		t.Error("MFD w 88 > 87 應 Skip")
 	}
-	if _, why := flightLayout(mfd("GUN", "GUN", 276, 126), 10, 2); why != "" {
+	if _, why := legacyFlightGeom(mfd("GUN", "GUN", 276, 126), 10, 2); why != "" {
 		t.Errorf("MFD w 80 不應 Skip：%s", why)
 	}
-	if g, _ := flightLayout(mfd("AIR", "AIR", 42, 121), 2, 2); g.tx != 42 {
+	if g, _ := legacyFlightGeom(mfd("AIR", "AIR", 42, 121), 2, 2); g.X != 42 {
 		t.Errorf("左 MFD：%+v", g)
 	}
 	// 橫幅：墨跡 125..193。
@@ -985,92 +987,50 @@ func TestFlightLayout(t *testing.T) {
 	pl.Before, pl.After = make([]byte, 9*320), make([]byte, 9*320)
 	pl.After[2*320+125], pl.After[6*320+193] = 5, 5
 	for _, tc := range []struct{ sc, tx, gx, gy int }{{2, 143, 0, 1}, {3, 147, 1, 5}} {
-		g, why := flightLayout(pl, 4, tc.sc)
-		if why != "" || g.tx != tc.tx || g.glyphX != tc.gx || g.glyphY != tc.gy || g.cellH != 9 || g.ty != 2 {
+		g, why := legacyFlightGeom(pl, 4, tc.sc)
+		if why != "" || g.X != tc.tx || g.GlyphX != tc.gx || g.GlyphY != tc.gy || g.CellH != 9 || g.Y != 2 {
 			t.Errorf("橫幅 %d 倍：%+v %s（F28 靠左會得 125）", tc.sc, g, why)
 		}
 	}
-	if _, why := flightLayout(pl, 9, 2); why == "" {
+	if _, why := legacyFlightGeom(pl, 9, 2); why == "" {
 		t.Error("橫幅 w 72 > 69 應 Skip（F22）")
 	}
 }
 
+// TestFlightOverlayScales：缺圖集回錯；2 倍不畫 HUD（AGENTS 2026-10-20，不記 miss、skip），3 倍畫。
 func TestFlightOverlayScales(t *testing.T) {
-	hud, label := testHUDFont(t), flightLabelFont(t)
-	if _, err := NewFlightOverlay(nil, label, flightTestCats(), 3); err == nil {
-		t.Fatal("3 倍缺 HUD 字型應回錯")
-	}
-	if _, err := NewFlightOverlay(nil, label, flightTestCats(), 2); err != nil {
-		t.Fatal(err)
+	if _, err := NewFlightOverlayText(nil, flightTestCats(), 3); err == nil {
+		t.Fatal("缺圖集應回錯")
 	}
 	w := newWorld(t, 0x0241)
 	w.hud("GEAR", 190, 10)
 	w.cuFrame()
 	for _, sc := range []int{2, 3} {
-		fo, err := NewFlightOverlay(hud, label, flightTestCats(), sc)
+		fo, err := NewFlightOverlayText(flightTextFonts(t), flightTestCats(), sc)
 		if err != nil {
 			t.Fatal(err)
 		}
 		fo.Sync(w.o.Visible(), w.o.Generation())
-		if sc == 2 && (len(fo.entries) != 0 || len(fo.Misses) != 0 || len(fo.Skips) != 0 || !fo.HUDScaleOff) {
-			t.Fatalf("2 倍 HUD（F1）：%d 筆、misses %v、skips %v、HUDScaleOff %t", len(fo.entries), fo.Misses, fo.Skips, fo.HUDScaleOff)
+		if sc == 2 && (len(fo.entries) != 0 || len(fo.Misses) != 0 || len(fo.Skips) != 0) {
+			t.Fatalf("2 倍 HUD（F1）：%d 筆、misses %v、skips %v", len(fo.entries), fo.Misses, fo.Skips)
 		}
-		if sc == 3 && (len(fo.entries) != 1 || fo.HUDScaleOff) {
-			t.Fatalf("3 倍 HUD：%d 筆", len(fo.entries))
+		if sc == 3 && len(fo.entries) != 1 {
+			t.Fatalf("3 倍 HUD：%d 筆、misses %v、skips %v", len(fo.entries), fo.Misses, fo.Skips)
 		}
 	}
 }
 
 // ---- 字型 ----
 
-const flightHUDRunes = "起落架襟翼煞車纏鬥掃射短程飛彈無"
-const flightLabelRunes = "通訊模式：選擇頻道無人接收回報狀態正常機砲（ＧＵＮ）燃油對空地時間加速敵機接近追蹤視角外部目標開武器攝影"
+// flightTextRunes 是 flightTestCats 譯文用到、testTextFonts 沒收的字（不收全形英數：繪製前經 N()）。
+const flightTextRunes = "起落架襟翼煞車纏鬥掃射短程無" + "選擇頻道人接收正常機砲燃油對時間加速敵近蹤角外部目武器攝影"
 
-// buildHUD12 合成一份 12×12 GOLEMFNT：每字格列 1..11、欄 0..10 全亮（同 Fusion 的 BBX 11 11 0 -2）。
-func buildHUD12(runes string) []byte {
-	b := []byte("GOLEMFNT")
-	b = binary.LittleEndian.AppendUint16(b, 12)
-	b = binary.LittleEndian.AppendUint16(b, 12)
-	b = binary.LittleEndian.AppendUint32(b, uint32(len([]rune(runes))))
-	for _, r := range runes {
-		b = binary.LittleEndian.AppendUint32(b, uint32(r))
-		b = append(b, 0x82)
-		for row := 0; row < 12; row++ {
-			if row == 0 {
-				b = append(b, 0, 0)
-			} else {
-				b = append(b, 0xFF, 0xE0)
-			}
-		}
-	}
-	return b
-}
-
-func testHUDFont(t *testing.T) *HUDFont {
+// flightTextFonts 是 testTextFonts 加上 flightTextRunes（預設方塊字形）。
+func flightTextFonts(t *testing.T) *TextFonts {
 	t.Helper()
-	f, err := ParseHUDFont(buildHUD12(flightHUDRunes), "hud12-test")
-	if err != nil {
-		t.Fatal(err)
+	add := map[rune]testGlyphFunc{}
+	for _, r := range flightTextRunes {
+		add[r] = func(px, asc int) *xlate.AlphaGlyph { return defaultTestGlyph(r, px, asc) }
 	}
-	return f
-}
-
-func flightLabelFont(t *testing.T) *LabelFont {
-	t.Helper()
-	f, err := ParseLabelFont(buildTestFont(flightLabelRunes, "a -"), "full16-flight-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
-
-// 第 13 項（Go 端）：ParseHUDFont 拒絕 16×16。放置公式與失敗條件由 bdf_to_golemfnt.py --self-test 驗。
-func TestParseHUDFont(t *testing.T) {
-	if _, err := ParseHUDFont(buildTestFont("測", ""), "x"); err == nil {
-		t.Fatal("ParseHUDFont 接受了 16×16")
-	}
-	f := testHUDFont(t)
-	if f.Font.W != 12 || !f.Wide.Wide('起') {
-		t.Fatalf("HUD12：%dx%d", f.Font.W, f.Font.H)
-	}
+	return testTextFontsWith(t, add)
 }
