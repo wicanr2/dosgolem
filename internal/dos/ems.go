@@ -99,6 +99,10 @@ func emsFrameAddr(p int) uint32 {
 //
 // ⚠ **不寫回的話「換頁再換回來」會拿到舊資料**，而且完全不報錯——
 // 遊戲的資料看起來就是隨機少了一塊。
+//
+// **只寫回與邏輯頁現存內容不同的 byte**（`docs/spec/444-ems-alias-mapping`）。
+// 同一邏輯頁映在兩個實體頁時，沒被改過的那個窗口仍是舊值；整頁寫回會把
+// 經另一個窗口寫進去的新值蓋掉。沒有別名時兩種寫法結果相同。
 func (d *DOS) emsFlush(p int) {
 	e := d.emsState()
 	m := e.frame[p]
@@ -110,14 +114,26 @@ func (d *DOS) emsFlush(p int) {
 		return
 	}
 	base := emsFrameAddr(p)
+	page := h.pages[m.page]
 	for i := 0; i < emsPageSize; i++ {
-		h.pages[m.page][i] = d.M.Read8(base + uint32(i))
+		if v := d.M.Read8(base + uint32(i)); v != page[i] {
+			page[i] = v
+		}
 	}
 }
 
 // emsLoad 把邏輯頁的內容搬進實體頁 p。
+//
+// 同一邏輯頁還映在別的實體頁時，先把那幾頁寫回再載入：經那個窗口寫進去、
+// 還沒寫回的內容才不會遺失（`docs/spec/444-ems-alias-mapping`）。
+// 四頁滑動視窗每換一組都會讓最後一頁同時映在兩處。
 func (d *DOS) emsLoad(p int, handle, page uint16) {
 	e := d.emsState()
+	for q := 0; q < emsPhysPages; q++ {
+		if m := e.frame[q]; q != p && m != nil && m.h == handle && m.page == page {
+			d.emsFlush(q)
+		}
+	}
 	h := e.handles[handle]
 	// 走 WriteBytes 而不是直接動 M.Mem：寫入監看要看得到這一筆
 	// （`oracle.WatchLinear` 監的就是「誰把這個位址寫成這樣」）。

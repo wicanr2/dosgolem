@@ -352,3 +352,41 @@ func TestFileAttr(t *testing.T) {
 			m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX])
 	}
 }
+
+// TestEMSAliasMapping：同一邏輯頁映進兩個實體頁（`docs/spec/444-ems-alias-mapping`）。
+// 四頁滑動視窗每換一組都會這樣做；寫回或載入只要一邊漏了，
+// 中文版魔法門 V 的片頭就讀到舊資料，解壓溢位蓋掉封包索引。
+func TestEMSAliasMapping(t *testing.T) {
+	m, d := newTest(t)
+	m.CPU.R[cpu.BX] = 2
+	emsCallAH(m, d, 0x4300) // 配 2 頁
+	h := m.CPU.R[cpu.DX]
+	frame := func(p int) uint32 { return uint32(machine.EMSFrameSeg)*16 + uint32(p)*emsPageSize }
+
+	// 邏輯頁 0 映進 P3，經 P3 寫入。
+	m.CPU.R[cpu.DX], m.CPU.R[cpu.BX] = h, 0
+	emsCallAH(m, d, 0x4403)
+	m.Write8(frame(3)+10, 0x11)
+
+	// 同一頁再映進 P0：要看得到剛才經 P3 寫的值。
+	m.CPU.R[cpu.DX], m.CPU.R[cpu.BX] = h, 0
+	emsCallAH(m, d, 0x4400)
+	if got := m.Read8(frame(0) + 10); got != 0x11 {
+		t.Fatalf("別名映射後 P0 讀到 %02X，預期 11（P3 的寫入沒先寫回）", got)
+	}
+
+	// 經 P0 寫入，再讓 P3 換映別頁：P3 的舊內容不能蓋掉經 P0 寫的值。
+	m.Write8(frame(0)+20, 0x22)
+	m.CPU.R[cpu.DX], m.CPU.R[cpu.BX] = h, 1
+	emsCallAH(m, d, 0x4403)
+	m.CPU.R[cpu.DX], m.CPU.R[cpu.BX] = h, 1
+	emsCallAH(m, d, 0x4400) // P0 換映頁 1，頁 0 寫回
+	m.CPU.R[cpu.DX], m.CPU.R[cpu.BX] = h, 0
+	emsCallAH(m, d, 0x4401) // 頁 0 映進 P1 讀回
+	if got := m.Read8(frame(1) + 20); got != 0x22 {
+		t.Errorf("頁 0 偏移 20 ＝ %02X，預期 22（P3 整頁寫回蓋掉了經 P0 的寫入）", got)
+	}
+	if got := m.Read8(frame(1) + 10); got != 0x11 {
+		t.Errorf("頁 0 偏移 10 ＝ %02X，預期 11", got)
+	}
+}
