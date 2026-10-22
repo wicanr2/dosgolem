@@ -585,35 +585,12 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				sr.FlightHidden, sr.FlightCovers, sr.FlightReport = map[int][]string{}, map[int][]FlightCover{}, map[int][]FlightEntry{}
 			}
 			for _, sc := range cfg.Scales {
-				ov := overlays[sc]
-				ov.Sync(so.Labels.Visible(), so.Labels.Generation())
-				comp, _ := ov.Draw(so.LastIndexed, so.LastPalette)
-				plain := ScaleIndexedRGBA(so.LastIndexed, so.LastPalette, sc)
-				sr.Composites[sc], sr.Plain[sc] = comp, plain
-				// 009 §3.11 接點第 4 條：Overlay.Draw → fov.Sync、fov.Draw → CheckComposite → 010 的字幕。
-				var covers []FlightCover
-				boxes := ov.TextBoxes()
+				// 009 §3.11 接點第 4 條：Overlay.Draw → fov.Sync、fov.Draw → CheckComposite → 010 的字幕（composeScale，012 §3.8.3）。
+				in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: so.LastIndexed, Palette: so.LastPalette}
 				if fov := fovs[sc]; fov != nil {
-					fov.Sync(flight.Visible(), flight.Generation())
-					fov.Draw(comp, so.LastIndexed, so.LastPalette)
-					covers = fov.Covers()
-					boxes = append(boxes, fov.TextBoxes()...)
-					sr.FlightHidden[sc], sr.FlightCovers[sc], sr.FlightReport[sc] = append([]string(nil), fov.Hidden...), covers, fov.Report()
+					in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 				}
-				sr.Check[sc] = CheckCompositeText(comp, plain, sc, ov.Stamps(), ov.Art(), boxes, covers...)
-				sr.ArtKeys[sc] = ov.ArtKeys()
-				sr.Hidden[sc] = append([]string(nil), ov.Hidden...)
-				sr.BG[sc] = ov.BGReport()
-				sr.Covers[sc] = map[string][4]int{}
-				for _, s := range ov.Stamps() {
-					if s.Font == nil {
-						sr.Covers[sc][s.Key] = [4]int{s.X, s.Y, s.X + s.Cells*s.CellW, s.Y + s.CellH}
-					}
-				}
-				if sr.Arts == nil {
-					sr.Arts = map[int][]ArtReportEntry{}
-				}
-				sr.Arts[sc] = ov.ArtReport() // 011 §3.8 arts.tsv
+				storeShotScale(&sr, sc, composeScale(in), in.Flight != nil)
 			}
 			if so.Subtitles != nil {
 				ss, region := drawSubtitlesChecked(so.Subtitles, cfg.Scales, sr.Composites)
@@ -655,26 +632,11 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	res.Composites, res.Plain, res.CompositeCheck = map[int][]byte{}, map[int][]byte{}, map[int]CompositeCheck{}
 	res.BG = map[int][]BGEntry{}
 	for _, sc := range cfg.Scales {
-		ov := overlays[sc]
-		ov.Sync(so.Labels.Visible(), so.Labels.Generation())
-		comp, _ := ov.Draw(res.Frame, res.Palette)
-		res.BG[sc] = ov.BGReport()
-		plain := ScaleIndexedRGBA(res.Frame, res.Palette, sc)
-		res.Composites[sc], res.Plain[sc] = comp, plain
-		var covers []FlightCover
-		boxes := ov.TextBoxes()
+		in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: res.Frame, Palette: res.Palette}
 		if fov := fovs[sc]; fov != nil {
-			fov.Sync(flight.Visible(), flight.Generation())
-			fov.Draw(comp, res.Frame, res.Palette)
-			covers = fov.Covers()
-			boxes = append(boxes, fov.TextBoxes()...)
-			res.FlightReport[sc], res.FlightHidden[sc] = fov.Report(), append([]string(nil), fov.Hidden...)
+			in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 		}
-		res.CompositeCheck[sc] = CheckCompositeText(comp, plain, sc, ov.Stamps(), ov.Art(), boxes, covers...)
-		if res.StopArts == nil {
-			res.StopArts = map[int][]ArtReportEntry{}
-		}
-		res.StopArts[sc] = ov.ArtReport()
+		storeStopScale(res, sc, composeScale(in), in.Flight != nil)
 	}
 	if so.Subtitles != nil {
 		_, res.StopSubtitleRegion = drawSubtitlesChecked(so.Subtitles, cfg.Scales, res.Composites)
@@ -718,7 +680,18 @@ func CheckComposite(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []
 
 // CheckCompositeText 同 CheckComposite，另把照畫的串的文字框（輸出像素，strike_commander 規格 011 §3.5 允許差異區）
 // 算進允許區：像素的 1 倍座標落在遮蓋 stamp、圖面或飛行遮蓋範圍內，或輸出像素座標落在某個文字框內，就算允許。
+// 它是 CheckCompositeMask(…, nil, …) 的包裝（012 §3.8.3）。
 func CheckCompositeText(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect, text []xlate.AlphaRect, flight ...FlightCover) CompositeCheck {
+	return CheckCompositeMask(comp, plain, scale, stamps, art, text, nil, flight...)
+}
+
+// CheckCompositeMask 同 CheckCompositeText，另以 allow（nil 或長度 64000，1 倍像素）放行該像素對應的 s×s 輸出像素
+// （strike_commander 規格 012 §3.8.3）：對每個不同的輸出像素先查 allow[(oy/s)×320 + ox/s]，為真就算允許、不再查矩形。
+// allow 為 nil 時與 CheckCompositeText 的原行為相同。allow 非 nil 而長度不是 64000 時 panic（呼叫端錯誤）。
+func CheckCompositeMask(comp, plain []byte, scale int, stamps []*xlate.Stamp, art []ArtRect, text []xlate.AlphaRect, allow []bool, flight ...FlightCover) CompositeCheck {
+	if allow != nil && len(allow) != 64000 {
+		panic(fmt.Sprintf("strikecommander: CheckCompositeMask 的 allow 長度 %d，要 64000", len(allow)))
+	}
 	var c CompositeCheck
 	w := 320 * scale
 	for i := 0; i+3 < len(comp) && i+3 < len(plain); i += 4 {
@@ -728,6 +701,11 @@ func CheckCompositeText(comp, plain []byte, scale int, stamps []*xlate.Stamp, ar
 		c.Diffs++
 		ox, oy := (i/4)%w, (i/4)/w
 		x, y := ox/scale, oy/scale
+		if allow != nil {
+			if k := y*320 + x; k < len(allow) && allow[k] {
+				continue
+			}
+		}
 		in := false
 		for _, b := range text {
 			if ox >= b.X0 && ox < b.X1 && oy >= b.Y0 && oy < b.Y1 {
