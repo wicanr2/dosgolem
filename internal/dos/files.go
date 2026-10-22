@@ -482,6 +482,9 @@ func (d *DOS) read(c *cpu.CPU) {
 	}
 	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
 		Pos: pos, Len: n, Step: d.M.Steps})
+	if d.ReadFilter != nil && n > 0 {
+		d.ReadFilter(h.name, pos, buf[:n])
+	}
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
 	d.Reads = append(d.Reads, ReadOp{
 		Step: d.M.Steps, Name: h.name, Handle: bx,
