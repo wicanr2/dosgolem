@@ -957,6 +957,7 @@
 - [455 分頁微快取與取指令頁快取](455-fetch-page-cache.md)：READY（第 2 版，事後規格），已實作。`readLin`／`writeLin` 的 64 筆直接對映微快取；轉換開啟時 `FetchPager` 讓同頁取指令直接索引 `Mem`／`Ext`，只記轉換、位元組現讀；`syncCodeFastPath` 依 `xlat` 裝上或拿掉；失效表與 M1–M11 變異表。
 - [456 陸空戰將 SessionObserver 每步不配置 StepView](456-sc-observer-view-alloc.md)：READY（第 2 版，事後規格），已實作。`BeforeStep` 以 `&s.cur` 傳給三個觀察器，免除每步三次介面配置；動態型別改為 `*StepView`、誤用偵測縮小的範圍寫明。
 - [457 executeCore 值 switch](457-executecore-value-switch.md)：撤回（第 2 版）。等價已證，收益未證實（最小 CPU 時間平均約 −2.6%）、測試成本 43 s；程式還原為 `a3cfff5`。
+- [458 session 觀察器的唯讀實體 VGA 讀取與 VideoWrite 執行脈絡欄位](458-session-indexed-into-and-videowrite-ctx.md)：READY（第 3 版），未實作。`Machine.IndexedInto`／`IndexedLayout` 與 `StepView` 對應方法，與 `Frame` 同源、不經頁表、零副作用、呼叫端緩衝；`VideoWrite.Ctx` 記 V86、分段、D=1（不加 EIP，依 443 不變式 IP 即完整 EIP）；驗收以獨立期望值與改動前金樣雜湊。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
