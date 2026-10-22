@@ -48,6 +48,7 @@ func (m *Machine) invalidateTLB() {
 	if m.tlbGen == 0 {
 		m.tlbClear()
 	}
+	m.flushFetch() // 取指令頁快取的保證建立在目前世代的轉換上（fetchpage.go）
 }
 
 var errNoProfile = fmt.Errorf("machine: 保護模式 profile 未開啟（先 SetProtectedModeProfile(true)）")
@@ -217,7 +218,7 @@ func (m *Machine) Translating() bool { return m.xlat }
 func (m *Machine) readLin(a uint32, user bool) uint8 {
 	if m.paging {
 		var ok bool
-		if a, ok = m.xlatPage(a, false, user); !ok {
+		if a, ok = m.xlatRead(a, user); !ok {
 			return 0xFF
 		}
 	}
@@ -230,7 +231,7 @@ func (m *Machine) readLin(a uint32, user bool) uint8 {
 func (m *Machine) writeLin(a uint32, v uint8, user bool) {
 	if m.paging {
 		var ok bool
-		if a, ok = m.xlatPage(a, true, user); !ok {
+		if a, ok = m.xlatWrite(a, user); !ok {
 			return
 		}
 	}

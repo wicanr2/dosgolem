@@ -109,9 +109,68 @@ func (m *Machine) stepFault(cpuErr error) error {
 }
 
 // tlbClear 整份清除 TLB（世代號溢位時）：丟掉所有區塊，世代回到 1。
+// 微快取一併清掉：它的條目以世代號判定有效，世代回到 1 之後舊條目的 gen 可能碰巧又等於 1。
 func (m *Machine) tlbClear() {
 	m.tlb = nil
 	m.tlbGen = 1
+	m.utlbR = [utlbSize]utlbEntry{}
+	m.utlbW = [utlbSize]utlbEntry{}
+}
+
+// 微快取（perf-cpu 分支，無規格條文改動：只省 xlatPage 的查表，不改任何可觀察行為）。
+//
+// readLin／writeLin 在分頁開啟時每個 byte 都要經 xlatPage：兩層指標（tlb → 區塊 → 條目）、
+// 世代比對與權限判斷。微快取是 utlbSize 筆直接對映的條目，讀、寫各一份，記下「這一頁在這個世代、
+// 以這個身分（user）成功轉換過，實體頁是什麼」。
+//
+// 等價性：
+//   - 只在 xlatPage 成功回來之後填入。成功表示共用 TLB 在目前世代有這一頁的條目，且以同一 user 身分
+//     通過權限檢查；之後同世代、同身分再查同一頁，xlatPage 必定走 TLB 命中分支、權限照樣通過。
+//   - 寫入份只在 xlatPage(write=true) 成功之後填入，那時條目的 dirty 已寫回（命中分支的 tlbMarkDirty
+//     或 walk 填入時 pteD 已設），之後 xlatPage 的寫入命中不再有副作用。
+//   - 讀取命中不會寫頁表（xlatPage 讀取命中沒有副作用），所以讀取份不必看 dirty。
+//   - 失敗路徑（頁不存在、權限錯誤）不填，照舊每次經 xlatPage 記錄錯誤。
+//
+// 失效條件：條目的 gen 與 m.tlbGen 不同即無效。tlbGen 在 invalidateTLB 遞增，涵蓋 SetCR0（PE、PG 改變）、
+// SetCR3、SetA20、SetProtectedModeProfile、applyPM（Restore、LoadState）；共用 TLB 條目只在世代改變後
+// 才會被 walk 改寫，所以同世代的微快取條目與共用 TLB 一致。tlbGen 溢位時 tlbClear 清空微快取。
+// CPL、VM 改變不必作廢：user 是條目的鍵。A20 套在轉換之後（readLin 的 a20 遮罩不進微快取），
+// 而 SetA20 本來就作廢 TLB。
+const utlbSize = 64
+
+type utlbEntry struct {
+	page uint32 // 線性頁號（a >> 12）
+	phys uint32 // 實體頁基底（尚未套 A20）
+	gen  uint32 // 填入時的 m.tlbGen；0 永不有效（tlbGen 從 1 起算）
+	user bool
+}
+
+// xlatRead 是 readLin 的分頁轉換：微快取命中就直接回，否則走 xlatPage 並在成功時填入。
+func (m *Machine) xlatRead(a uint32, user bool) (uint32, bool) {
+	p := a >> 12
+	e := &m.utlbR[p&(utlbSize-1)]
+	if e.page == p && e.gen == m.tlbGen && e.user == user {
+		return e.phys | a&0xFFF, true
+	}
+	phys, ok := m.xlatPage(a, false, user)
+	if ok {
+		*e = utlbEntry{page: p, phys: phys &^ 0xFFF, gen: m.tlbGen, user: user}
+	}
+	return phys, ok
+}
+
+// xlatWrite 是 writeLin 的分頁轉換，同 xlatRead。
+func (m *Machine) xlatWrite(a uint32, user bool) (uint32, bool) {
+	p := a >> 12
+	e := &m.utlbW[p&(utlbSize-1)]
+	if e.page == p && e.gen == m.tlbGen && e.user == user {
+		return e.phys | a&0xFFF, true
+	}
+	phys, ok := m.xlatPage(a, true, user)
+	if ok {
+		*e = utlbEntry{page: p, phys: phys &^ 0xFFF, gen: m.tlbGen, user: user}
+	}
+	return phys, ok
 }
 
 // a20Mask 對實體位址套 A20：關閉時清掉 bit 20。

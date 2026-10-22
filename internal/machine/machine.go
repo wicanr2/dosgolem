@@ -705,6 +705,10 @@ type Machine struct {
 	SBDMALogDropped   uint64
 	OnSBDMA           func(SBDMAEvent)
 	SBDMAUnknownReads uint64
+
+	// utlbR、utlbW 是分頁轉換的直接對映微快取（paging.go 的 utlb），放在結構尾端，
+	// 不把前面的熱欄位推到別的快取列。不存檔、不進快照。
+	utlbR, utlbW [utlbSize]utlbEntry
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -764,6 +768,7 @@ func New() *Machine {
 		}
 	}
 	m.CPU = cpu.New(m)
+	m.CPU.SetFetchPager(m) // 轉換開啟時的取指令頁快取（fetchpage.go）
 	// 取指令走直接索引，不走匯流排介面（`docs/spec/015` §4.2）。
 	m.syncCodeFastPath()
 	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
@@ -871,6 +876,9 @@ func (m *Machine) syncCodeFastPath() {
 	if m.CPU == nil {
 		return
 	}
+	// 取指令頁快取（fetchpage.go）與 CPU.Code 依賴同一組條件（讀取監看、A20、轉換、cplUser），
+	// 呼叫這裡的地方（recalcPM、SetA20、WatchReads、LoadState、Restore）都要作廢它。
+	m.CPU.FlushFetch()
 	if m.onRead != nil || m.a20 || m.xlat {
 		m.CPU.Code = nil
 		return
