@@ -36,6 +36,10 @@ type SessionObserver struct {
 	OnFlightFrame func(indexed []byte, steps uint64)
 
 	steps uint64
+	// cur 是這一步的 view。BeforeStep 以 &cur 傳給三個觀察器：StepView 是 16 bytes 的值型別，
+	// 直接轉成介面每次都在堆上配置一份（每步三次），指標轉介面不配置（perf 草稿 2a）。
+	// 觀察器不得保留 view（session 238），所以讀到的永遠是本次 BeforeStep 的 v。
+	cur session.StepView
 }
 
 var (
@@ -74,12 +78,14 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	s.steps = v.Steps()
-	s.Labels.Observe(v)
+	s.cur = v
+	p := &s.cur
+	s.Labels.Observe(p)
 	if s.Flight != nil {
-		s.Flight.Observe(v)
+		s.Flight.Observe(p)
 	}
 	if s.Subtitles != nil {
-		s.Subtitles.Observe(v)
+		s.Subtitles.Observe(p)
 	}
 	return nil
 }
