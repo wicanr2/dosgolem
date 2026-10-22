@@ -208,6 +208,13 @@ func (d *DOS) int21(c *cpu.CPU) {
 				c.R[cpu.DX] = h.dev // 字元裝置（`docs/spec/195-nul-device`）
 			}
 			c.R[cpu.AX] = 0
+		case 0x07: // 取輸出狀態：字元裝置回就緒 FFh（`docs/spec/443-emm-device-ioctl`）
+			if h, ok := d.handles[c.R[cpu.BX]]; ok && h.dev != 0 {
+				setAL(c, 0xFF)
+			} else {
+				d.noteCPU(c, 0x21, 0x44, al(c))
+				c.R[cpu.AX] = 0
+			}
 		case 0x0D:
 			if cl(c) == 0x60 {
 				d.deviceParameters(c)

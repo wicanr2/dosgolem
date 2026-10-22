@@ -27,7 +27,7 @@ type handle struct {
 	// writable 為真時 `AH=40h` 真的寫下去（暫存層或 AllowFileWrites）。
 	writable bool
 	// dev 非零 ＝ 字元裝置，值就是 `AH=44h AL=00h` 回報的裝置資訊字
-	// （`docs/spec/195-nul-device`）。EMMXXXX0 維持 0，行為不變。
+	// （`docs/spec/195-nul-device`、`443-emm-device-ioctl`）。
 	dev uint16
 	// refs 是有幾個 handle 號碼指著這一份。
 	//
@@ -240,7 +240,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
 	if isEMMDevice(name) {
-		d.openDevice(c, name, 0)
+		d.openDevice(c, name, emmDeviceInfo)
 		return
 	}
 	if isNULDevice(name) {
@@ -682,6 +682,12 @@ func (d *DOS) allocHandle() (uint16, bool) {
 // nulDeviceInfo 是 NUL 的裝置資訊字：bit 7 字元裝置、bit 2 NUL
 // （DOSBox-X `device_NUL::GetInformation`；`docs/spec/195-nul-device`）。
 const nulDeviceInfo = 0x0084
+
+// emmDeviceInfo 是 EMMXXXX0 的 `AH=44h AL=00h` 裝置資訊：bit 7 字元裝置、
+// bit 14 支援 IOCTL（`docs/spec/443-emm-device-ioctl`，照 DOSBox-X
+// `device_EMM::GetInformation`）。回 0 等於說「這是檔案」，做標準 EMS 偵測的
+// 程式會判定沒有驅動。
+const emmDeviceInfo = 0x4080
 
 // isNULDevice 回檔名是不是 NUL 裝置。DOS 比對裝置名時忽略目錄與副檔名，
 // 所以 `NUL`、`nul.lst`、`C:\DEV\NUL` 都是它。
