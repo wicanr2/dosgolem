@@ -46,6 +46,13 @@ type (
 	WriteHook = machine.WriteHook
 	WordHook  = machine.WordHook
 	Stop      = machine.Stop
+
+	// 音訊觀測的事件（`docs/spec/240`、`448-mixer-sb-pcm`）。前端要在交給混音器之前
+	// 換算時間軸（例如 `449-live-instruction-clock` 的 CPU 倍率）時，需要寫得出這些型別。
+	OPLWrite      = machine.OPLWrite
+	SpeakerSample = machine.SpeakerSample
+	PIT2Change    = machine.PIT2Change
+	SBSample      = machine.SBSample
 )
 
 // RunUntil 停下來的原因。
