@@ -178,3 +178,24 @@ func ones(frames int) []float32 {
 }
 
 func f32(p []byte, i int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(p[4*i:])) }
+
+// 規格 448：SB 數位聲道。80h 是靜音，取樣以零階保持一直到下一個取樣。
+func TestSBSampleHoldsUntilNext(t *testing.T) {
+	m := New(1_000_000)
+	m.SBSample(machine.SBSample{Step: 0, Value: 0xFF})
+	m.SBSample(machine.SBSample{Step: 500_000, Value: 0x80})
+	out := m.Render(nil, 0, 1_000_000)
+	if len(out) != 2*SampleRate {
+		t.Fatalf("一秒產生 %d 個樣本值", len(out))
+	}
+	want := float32(127.0 / 128 * sbAmp)
+	if l, r := out[0], out[1]; l < want-0.001 || l > want+0.001 || r != l {
+		t.Fatalf("FFh 的輸出 %v %v，該是 %v", l, r, want)
+	}
+	if mid := out[2*(SampleRate/2-10)]; mid < want-0.001 {
+		t.Fatalf("下一個取樣之前要保持：%v", mid)
+	}
+	if late := out[2*(SampleRate/2+10)]; late != 0 {
+		t.Fatalf("80h 之後該是靜音：%v", late)
+	}
+}

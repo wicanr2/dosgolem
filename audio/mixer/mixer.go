@@ -31,6 +31,7 @@ const (
 	evOPL eventKind = iota
 	evSpeaker
 	evPIT2
+	evSB
 )
 
 type event struct {
@@ -39,6 +40,7 @@ type event struct {
 	opl  machine.OPLWrite
 	spk  machine.SpeakerSample
 	pit  machine.PIT2Change
+	sb   uint8
 }
 
 // Mixer 實作 session.AudioObserver，並在 Render 時產生樣本。
@@ -58,6 +60,7 @@ type Mixer struct {
 	lp         float64 // 喇叭的一階低通狀態（近似喇叭紙盆的高頻衰減）
 
 	opl [2]int16
+	sb  float64 // SB 數位聲道目前的取樣（零階保持，`docs/spec/448-mixer-sb-pcm`）
 
 	cd      *cdSource // nil：沒有 CD 音軌
 	clipped uint64    // 夾值的樣本數（左右各算）
@@ -82,6 +85,14 @@ func (m *Mixer) SpeakerSample(s machine.SpeakerSample) {
 func (m *Mixer) PITChannel2(c machine.PIT2Change) {
 	m.events = append(m.events, event{step: c.Step, kind: evPIT2, pit: c})
 }
+
+// SBSample 收一個 SB 8 位元取樣（machine.ObserveSB）。
+func (m *Mixer) SBSample(s machine.SBSample) {
+	m.events = append(m.events, event{step: s.Step, kind: evSB, sb: s.Value})
+}
+
+// sbAmp 是 SB 數位聲道相對滿刻度的振幅；8 位元無號 80h 為靜音。
+const sbAmp = 0.6
 
 // sampleOf 是步數對應的絕對樣本序號（無條件捨去）。
 func (m *Mixer) sampleOf(step uint64) uint64 {
@@ -115,6 +126,8 @@ func (m *Mixer) apply(e event) {
 		m.gate, m.data = e.spk.Gate, e.spk.Level
 	case evPIT2:
 		m.divisor = e.pit.Divisor
+	case evSB:
+		m.sb = (float64(e.sb) - 128) / 128 * sbAmp
 	}
 }
 
@@ -158,7 +171,7 @@ func (m *Mixer) Render(dst []float32, before, after uint64) []float32 {
 			ev = ev[1:]
 		}
 		m.chip.GenerateStream(m.opl[:])
-		s := m.speaker()
+		s := m.speaker() + m.sb
 		l, r := float64(m.opl[0])/32768+s, float64(m.opl[1])/32768+s
 		if m.cd != nil {
 			cl, cr := m.cdSample(m.next)

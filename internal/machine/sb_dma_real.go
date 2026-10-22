@@ -118,8 +118,11 @@ func (m *Machine) sbTick() {
 func (m *Machine) sbTransferByte() {
 	d := m.dma8
 	a := uint32(d.Page[1])<<16 | uint32(d.Current[2])
-	if len(m.SBPCM) < SBPCMCap {
-		m.SBPCM = append(m.SBPCM, m.Read8(a))
+	v := m.Read8(a)
+	if m.onSB != nil {
+		m.onSB(SBSample{Step: m.Steps, Value: v})
+	} else if len(m.SBPCM) < SBPCMCap {
+		m.SBPCM = append(m.SBPCM, v)
 	}
 	d.Current[2]++
 	terminal := d.Current[3] == 0

@@ -333,6 +333,7 @@ type Machine struct {
 	onOPL        func(OPLWrite)
 	onSpeaker    func(SpeakerSample)
 	onPIT2       func(PIT2Change)
+	onSB         func(SBSample)
 	pit2         pit2
 	speakerLast  [2]uint8 // level, gate
 	speakerValid bool
