@@ -354,16 +354,19 @@ func (c *CPU) fetch8() uint8 {
 	return v
 }
 
-// FetchPager 是 Bus 的選配擴充：取指令頁快取（perf-cpu 分支）。
+// FetchPager 是 Bus 的選配擴充：取指令頁快取（docs/spec/455-fetch-page-cache）。
 //
 // FetchRead8(lin) 必須與 Bus.Read8(lin) 完全相同（回傳值與全部副作用），另外回傳一個 4 KB 的
 // slice：「在下一次 FlushFetch 之前，同一個線性頁（lin>>12）任何位移的 Read8 都等於直接索引這個
 // slice，且沒有副作用」。不能保證時回 nil。保證失效的事件，實作端必須呼叫 CPU.FlushFetch。
+//
+// ⚠ 裝上之後同一頁的取指令不再經過 Bus：換掉 CPU.Bus 的呼叫端要先 SetFetchPager(nil)；
+// 以整個結構複製還原 CPU 的呼叫端，還原後要 FlushFetch（455 §2）。
 type FetchPager interface {
 	FetchRead8(lin uint32) (uint8, []byte)
 }
 
-// SetFetchPager 裝上取指令頁快取的來源（nil 拿掉），並清空快取。只由 Machine 呼叫。
+// SetFetchPager 裝上取指令頁快取的來源（nil 拿掉），並清空快取。Machine 在 syncCodeFastPath 依轉換開關呼叫。
 func (c *CPU) SetFetchPager(p FetchPager) { c.fpPager, c.fpTag, c.fpPage = p, 0, nil }
 
 // FlushFetch 清空取指令頁快取。FetchPager 的保證失效時由實作端呼叫。

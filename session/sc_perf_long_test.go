@@ -14,6 +14,7 @@ package session
 // machine.SaveState＋dos.SaveState 未壓縮串流的 SHA-256（含保護模式不透明欄位）。
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -32,9 +33,9 @@ import (
 
 type perfNullObserver struct{}
 
-func (perfNullObserver) BeforeStep(StepView) error      { return nil }
-func (perfNullObserver) VideoWrite(machine.VideoWrite)  {}
-func (perfNullObserver) Frame([]uint8, [256][3]uint8) {}
+func (perfNullObserver) BeforeStep(StepView) error     { return nil }
+func (perfNullObserver) VideoWrite(machine.VideoWrite) {}
+func (perfNullObserver) Frame([]uint8, [256][3]uint8)  {}
 
 // perfCPUTime 是本行程的使用者加系統 CPU 時間（getrusage）。主機負載浮動時牆鐘不穩，CPU 時間較能比較。
 func perfCPUTime() time.Duration {
@@ -165,6 +166,16 @@ func TestSCPerfBench(t *testing.T) {
 		t.Fatal(err)
 	}
 	full := hex.EncodeToString(h.Sum(nil))
+	// sd：machine.StateDigest（gob → JSON 的摘要，與 map 寫入順序、同行程先前的 gob 型別登錄無關），
+	// 是規格 455、456 的同狀態錨點；full 只在同一支二進位的相同執行條件下可比。
+	var sb bytes.Buffer
+	if err := o.machine.SaveState(&sb); err != nil {
+		t.Fatal(err)
+	}
+	sd, err := machine.StateDigest(&sb)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// cpu32：Digest 沒蓋的 386 與保護模式欄位（Hi、FS/GS、六個段快取、CR0/CR3/EFlagsHi/CPL、FPUCW、Cycles）。
 	c := o.machine.CPU
 	var b []byte
@@ -194,6 +205,6 @@ func TestSCPerfBench(t *testing.T) {
 	sps := float64(steps) / elapsed.Seconds()
 	t.Logf("PERF state=%s start=%d end=%d steps=%d chunk=%d obs=%q elapsed=%.3fs steps/s=%.0f cputime=%.3fs",
 		filepath.Base(statePath), start, d.Steps, steps, chunk, os.Getenv("DOSGOLEM_PERF_OBS"), elapsed.Seconds(), sps, cpuTime.Seconds())
-	t.Logf("HASH mem=%x cpu=%x cpu32=%x idx=%x pal=%x ext=%s cycles=%d full=%s",
-		d.MemorySHA256, d.CPUSHA256, cpu32, d.IndexedSHA256, d.PaletteSHA256, d.ExtSHA256, o.machine.CPU.Cycles, full)
+	t.Logf("HASH mem=%x cpu=%x cpu32=%x idx=%x pal=%x ext=%s cycles=%d sd=%x full=%s",
+		d.MemorySHA256, d.CPUSHA256, cpu32, d.IndexedSHA256, d.PaletteSHA256, d.ExtSHA256, o.machine.CPU.Cycles, sd, full)
 }

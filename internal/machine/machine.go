@@ -709,6 +709,9 @@ type Machine struct {
 	// utlbR、utlbW 是分頁轉換的直接對映微快取（paging.go 的 utlb），放在結構尾端，
 	// 不把前面的熱欄位推到別的快取列。不存檔、不進快照。
 	utlbR, utlbW [utlbSize]utlbEntry
+	// noFetchPager 是測試用開關（455 §5 的差分對照）：真時 syncCodeFastPath 永不裝 FetchPager，
+	// 取指令全走 Bus.Read8。非測試程式碼不設它。
+	noFetchPager bool
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
@@ -768,7 +771,7 @@ func New() *Machine {
 		}
 	}
 	m.CPU = cpu.New(m)
-	m.CPU.SetFetchPager(m) // 轉換開啟時的取指令頁快取（fetchpage.go）
+	// 取指令頁快取（fetchpage.go）由下面的 syncCodeFastPath 依 xlat 裝上或拿掉。
 	// 取指令走直接索引，不走匯流排介面（`docs/spec/015` §4.2）。
 	m.syncCodeFastPath()
 	// **這台機器是拿來跑 1990 年代的 DOS 軟體的，不是拿來過語料的。**
@@ -876,9 +879,15 @@ func (m *Machine) syncCodeFastPath() {
 	if m.CPU == nil {
 		return
 	}
-	// 取指令頁快取（fetchpage.go）與 CPU.Code 依賴同一組條件（讀取監看、A20、轉換、cplUser），
+	// 取指令頁快取（fetchpage.go，455）與 CPU.Code 依賴同一組條件（讀取監看、A20、轉換、cplUser），
 	// 呼叫這裡的地方（recalcPM、SetA20、WatchReads、LoadState、Restore）都要作廢它。
-	m.CPU.FlushFetch()
+	// 只在轉換開啟時裝 FetchPager：轉換關閉時 FetchRead8 一律不交頁，裝著只會讓每個指令位元組
+	// 多一層呼叫（455 §3.3）。SetFetchPager 內含清空。noFetchPager 是測試用的對照開關。
+	if m.xlat && !m.noFetchPager {
+		m.CPU.SetFetchPager(m)
+	} else {
+		m.CPU.SetFetchPager(nil)
+	}
 	if m.onRead != nil || m.a20 || m.xlat {
 		m.CPU.Code = nil
 		return

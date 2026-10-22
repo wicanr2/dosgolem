@@ -117,7 +117,7 @@ func (m *Machine) tlbClear() {
 	m.utlbW = [utlbSize]utlbEntry{}
 }
 
-// 微快取（perf-cpu 分支，無規格條文改動：只省 xlatPage 的查表，不改任何可觀察行為）。
+// 微快取（docs/spec/455-fetch-page-cache §3.1：只省 xlatPage 的查表，不改任何可觀察行為）。
 //
 // readLin／writeLin 在分頁開啟時每個 byte 都要經 xlatPage：兩層指標（tlb → 區塊 → 條目）、
 // 世代比對與權限判斷。微快取是 utlbSize 筆直接對映的條目，讀、寫各一份，記下「這一頁在這個世代、
