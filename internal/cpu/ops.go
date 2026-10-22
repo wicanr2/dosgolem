@@ -130,68 +130,77 @@ func (c *CPU) execute(op uint8) error {
 	return c.executeCore(op)
 }
 
+// 值 switch（perf 草稿 3a）：原本是 `switch { case <布林式>: }`，只能逐條比較；改成常數 case 讓編譯器產生跳表。
+// 各 case 的命中集合兩兩不相交，60–6F 與 C0、C1、C8、C9 的機型分流改在 case 內判斷，順序同原式。
+// 原式逐字保留在 opsref_test.go 的 executeCoreRef，由 TestExecuteCoreDifferential 對照。
+//
 //gocyclo:ignore
 func (c *CPU) executeCore(op uint8) error {
-	switch {
+	switch op {
 	// ---- 00–3F：八個 ALU 運算，每個六種定址 ----------------------------
-	case op < 0x40 && op&7 < 6 && op != 0x0F && op != 0x27 && op != 0x2F &&
-		op != 0x37 && op != 0x3F:
+	// 原式 `op < 0x40 && op&7 < 6`（另排除的 0F、27、2F、37、3F 的 op&7 都是 7）。
+	case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+		0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D,
+		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D:
 		return c.aluGroup(op)
 
 	// ---- 段暫存器的 PUSH／POP -------------------------------------------
-	case op == 0x06:
+	case 0x06:
 		c.push(c.Seg[ES])
-	case op == 0x07:
+	case 0x07:
 		c.loadSeg(ES, c.pop())
-	case op == 0x0E:
+	case 0x0E:
 		c.push(c.Seg[CS])
-	case op == 0x0F:
+	case 0x0F:
 		// **8086 的 0F 是 POP CS**，不是雙位元組前綴。分段模式只在 Model80386（0F 不到這裡），
 		// 仍照 434 §5.1 失敗即關閉當防線。
 		if c.segmented {
 			return c.errf(op, "POP CS：分段模式失敗即關閉（docs/spec/434 §5.1）")
 		}
 		c.Seg[CS] = c.pop()
-	case op == 0x16:
+	case 0x16:
 		c.push(c.Seg[SS])
-	case op == 0x17:
+	case 0x17:
 		c.loadSeg(SS, c.pop())
-	case op == 0x1E:
+	case 0x1E:
 		c.push(c.Seg[DS])
-	case op == 0x1F:
+	case 0x1F:
 		c.loadSeg(DS, c.pop())
 
 	// ---- BCD 調整 --------------------------------------------------------
-	case op == 0x27:
+	case 0x27:
 		c.daa()
-	case op == 0x2F:
+	case 0x2F:
 		c.das()
-	case op == 0x37:
+	case 0x37:
 		c.aaa()
-	case op == 0x3F:
+	case 0x3F:
 		c.aas()
 
 	// ---- 40–5F：INC／DEC／PUSH／POP 通用暫存器 --------------------------
-	case op >= 0x40 && op <= 0x47:
+	case 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47:
 		r := int(op - 0x40)
 		c.R[r] = c.inc(c.R[r], 16)
-	case op >= 0x48 && op <= 0x4F:
+	case 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F:
 		r := int(op - 0x48)
 		c.R[r] = c.dec(c.R[r], 16)
-	case op >= 0x50 && op <= 0x57:
+	case 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57:
 		c.pushOperand(regOperand(int(op - 0x50)))
-	case op >= 0x58 && op <= 0x5F:
+	case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F:
 		c.R[op-0x58] = c.pop()
 
 	// ---- 60–6F：機型相關（`docs/spec/002` §1.1）--------------------------
 	//
 	// 8086 把這一段當成 `70`–`7F` 的別名（語料驗證過）；80186 把它給了
 	// `PUSHA` 那一族。**兩者的指令長度不同**，選錯不會報錯，只會錯位。
-	case op >= 0x60 && op <= 0x6F && c.Model >= Model80186:
-		return c.op186_6x(op)
-
+	//
 	// ---- 60–7F：條件跳躍（8086 的 60–6F 是 70–7F 的別名）----------------
-	case op >= 0x60 && op <= 0x7F:
+	case 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+		0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F:
+		if op <= 0x6F && c.Model >= Model80186 {
+			return c.op186_6x(op)
+		}
 		off := int16(int8(c.fetch8()))
 		if c.cond(op & 0x0F) {
 			c.charge(cycJump)
@@ -199,39 +208,39 @@ func (c *CPU) executeCore(op uint8) error {
 		}
 
 	// ---- 80–83：ALU r/m, imm --------------------------------------------
-	case op >= 0x80 && op <= 0x83:
+	case 0x80, 0x81, 0x82, 0x83:
 		return c.aluImm(op)
 
 	// ---- 84–8F ----------------------------------------------------------
-	case op == 0x84: // TEST r/m8, r8
+	case 0x84: // TEST r/m8, r8
 		m := c.decodeModRM()
 		c.logic(uint16(c.get8(m.rm)&c.reg8(m.reg)), 8)
-	case op == 0x85: // TEST r/m16, r16
+	case 0x85: // TEST r/m16, r16
 		m := c.decodeModRM()
 		c.logic(c.get16(m.rm)&c.R[m.reg], 16)
-	case op == 0x86: // XCHG r/m8, r8
+	case 0x86: // XCHG r/m8, r8
 		m := c.decodeModRM()
 		a, b := c.get8(m.rm), c.reg8(m.reg)
 		c.set8(m.rm, b)
 		c.setReg8(m.reg, a)
-	case op == 0x87: // XCHG r/m16, r16
+	case 0x87: // XCHG r/m16, r16
 		m := c.decodeModRM()
 		a, b := c.get16(m.rm), c.R[m.reg]
 		c.set16(m.rm, b)
 		c.R[m.reg] = a
-	case op == 0x88: // MOV r/m8, r8
+	case 0x88: // MOV r/m8, r8
 		m := c.decodeModRM()
 		c.set8(m.rm, c.reg8(m.reg))
-	case op == 0x89: // MOV r/m16, r16
+	case 0x89: // MOV r/m16, r16
 		m := c.decodeModRM()
 		c.set16(m.rm, c.R[m.reg])
-	case op == 0x8A: // MOV r8, r/m8
+	case 0x8A: // MOV r8, r/m8
 		m := c.decodeModRM()
 		c.setReg8(m.reg, c.get8(m.rm))
-	case op == 0x8B: // MOV r16, r/m16
+	case 0x8B: // MOV r16, r/m16
 		m := c.decodeModRM()
 		c.R[m.reg] = c.get16(m.rm)
-	case op == 0x8C: // MOV r/m16, Sreg
+	case 0x8C: // MOV r/m16, Sreg
 		m := c.decodeModRM()
 		if c.Model >= Model80386 && m.reg >= 4 {
 			// 386：/4 ＝ FS、/5 ＝ GS；/6、/7 是 #UD，不是 8086 的別名。
@@ -242,7 +251,7 @@ func (c *CPU) executeCore(op uint8) error {
 			break
 		}
 		c.set16(m.rm, c.Seg[m.reg&3])
-	case op == 0x8D: // LEA r16, m
+	case 0x8D: // LEA r16, m
 		// LEA 不碰記憶體，所以 0x67 下的有效位址不受 64 KB 段限檢查。
 		c.eaNoLimit = true
 		m := c.decodeModRM()
@@ -254,7 +263,7 @@ func (c *CPU) executeCore(op uint8) error {
 		} else {
 			c.R[m.reg] = uint16(m.rm.off)
 		}
-	case op == 0x8E: // MOV Sreg, r/m16
+	case 0x8E: // MOV Sreg, r/m16
 		c.charge(cycFar)
 		m := c.decodeModRM()
 		if c.Model >= Model80386 && m.reg >= 4 {
@@ -277,7 +286,7 @@ func (c *CPU) executeCore(op uint8) error {
 			break
 		}
 		c.loadSeg(m.reg&3, c.get16(m.rm))
-	case op == 0x8F: // POP r/m16
+	case 0x8F: // POP r/m16
 		m := c.decodeModRM()
 		if c.addr32 && c.eaSPBase && !m.rm.isReg && c.Code32() {
 			// 443 §2.4：D=1 下 66 8F 的 ModRM32 以 ESP 為基底時，Intel 以彈出後的 ESP 計算位址，
@@ -287,62 +296,62 @@ func (c *CPU) executeCore(op uint8) error {
 		c.set16(m.rm, c.pop())
 
 	// ---- 90–9F ----------------------------------------------------------
-	case op >= 0x90 && op <= 0x97: // XCHG AX, r16（90 ＝ NOP）
+	case 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97: // XCHG AX, r16（90 ＝ NOP）
 		r := int(op - 0x90)
 		c.R[AX], c.R[r] = c.R[r], c.R[AX]
-	case op == 0x98: // CBW
+	case 0x98: // CBW
 		c.R[AX] = uint16(int16(int8(uint8(c.R[AX]))))
-	case op == 0x99: // CWD
+	case 0x99: // CWD
 		if c.R[AX]&0x8000 != 0 {
 			c.R[DX] = 0xFFFF
 		} else {
 			c.R[DX] = 0
 		}
-	case op == 0x9A: // CALL far ptr16:16
+	case 0x9A: // CALL far ptr16:16
 		off := c.fetch16()
 		seg := c.fetch16()
 		c.farCall(seg, off)
-	case op == 0x9B: // WAIT
-	case op == 0x9C: // PUSHF
+	case 0x9B: // WAIT
+	case 0x9C: // PUSHF
 		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_PUSHF）
 			c.v86Fail("PUSHF")
 			break
 		}
 		c.push(c.Flags)
-	case op == 0x9D: // POPF
+	case 0x9D: // POPF
 		if c.v86() {
 			c.v86Popf(c.pop)
 			break
 		}
 		c.SetFlags(c.pop())
-	case op == 0x9E: // SAHF
+	case 0x9E: // SAHF
 		c.SetFlags(c.Flags&0xFF00 | uint16(c.reg8(4)))
-	case op == 0x9F: // LAHF
+	case 0x9F: // LAHF
 		c.setReg8(4, uint8(c.Flags))
 
 	// ---- A0–A3：MOV 與絕對位址 ------------------------------------------
-	case op == 0xA0:
+	case 0xA0:
 		c.setReg8(0, c.read8(c.dataSeg(DS), uint32(c.fetch16())))
-	case op == 0xA1:
+	case 0xA1:
 		c.R[AX] = c.read16(c.dataSeg(DS), uint32(c.fetch16()))
-	case op == 0xA2:
+	case 0xA2:
 		c.write8(c.dataSeg(DS), uint32(c.fetch16()), uint8(c.R[AX]))
-	case op == 0xA3:
+	case 0xA3:
 		c.write16(c.dataSeg(DS), uint32(c.fetch16()), c.R[AX])
 
 	// ---- A4–AF：字串指令 -------------------------------------------------
-	case op >= 0xA4 && op <= 0xAF && op != 0xA8 && op != 0xA9:
+	case 0xA4, 0xA5, 0xA6, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF:
 		c.stringOp(op)
 
-	case op == 0xA8: // TEST AL, imm8
+	case 0xA8: // TEST AL, imm8
 		c.logic(uint16(uint8(c.R[AX])&c.fetch8()), 8)
-	case op == 0xA9: // TEST AX, imm16
+	case 0xA9: // TEST AX, imm16
 		c.logic(c.R[AX]&c.fetch16(), 16)
 
 	// ---- B0–BF：MOV r, imm ----------------------------------------------
-	case op >= 0xB0 && op <= 0xB7:
+	case 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7:
 		c.setReg8(int(op-0xB0), c.fetch8())
-	case op >= 0xB8 && op <= 0xBF:
+	case 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF:
 		c.R[op-0xB8] = c.fetch16()
 
 	// ---- C0–CF ----------------------------------------------------------
@@ -350,22 +359,23 @@ func (c *CPU) executeCore(op uint8) error {
 	// ⚠ **C0／C1／C8／C9 也是機型相關的**（`docs/spec/002` §1.1）：
 	// 8086 拿它們當 `RET`／`RETF` 的別名，80186 給了移位 imm8 與
 	// `ENTER`／`LEAVE`。長度同樣不同，同樣不會報錯。
-	case (op == 0xC0 || op == 0xC1) && c.Model >= Model80186:
-		return c.shiftImm(op)
-	case op == 0xC8 && c.Model >= Model80186:
-		c.enter()
-	case op == 0xC9 && c.Model >= Model80186:
-		c.leave()
-
-	case op == 0xC0 || op == 0xC2: // RET imm16（C0 是 8086 的別名）
+	// 原式先列 `(C0||C1) && ≥80186` → shiftImm、`C8 && ≥80186` → enter、`C9 && ≥80186` → leave，
+	// 再列 RET／RETF；值 switch 把機型分流放進各 case 開頭。
+	case 0xC0, 0xC2: // RET imm16（C0 是 8086 的別名）
+		if op == 0xC0 && c.Model >= Model80186 {
+			return c.shiftImm(op)
+		}
 		c.charge(cycRet)
 		n := c.fetch16()
 		c.IP = c.pop()
 		c.R[SP] += n
-	case op == 0xC1 || op == 0xC3: // RET
+	case 0xC1, 0xC3: // RET
+		if op == 0xC1 && c.Model >= Model80186 {
+			return c.shiftImm(op)
+		}
 		c.charge(cycRet)
 		c.IP = c.pop()
-	case op == 0xC4, op == 0xC5: // LES／LDS r16, m
+	case 0xC4, 0xC5: // LES／LDS r16, m
 		// 遠指標兩個 word 都先讀（段在存取當下才取值，載入 DS 之後再讀會用到新的 DS），
 		// 再載入段暫存器，最後寫通用暫存器（434 §5.1：段載入失敗時段值與快取不寫）。
 		c.charge(cycFar)
@@ -379,29 +389,37 @@ func (c *CPU) executeCore(op uint8) error {
 		if c.loadSeg(dst, seg) {
 			c.R[m.reg] = off
 		}
-	case op == 0xC6: // MOV r/m8, imm8
+	case 0xC6: // MOV r/m8, imm8
 		m := c.decodeModRM()
 		c.set8(m.rm, c.fetch8())
-	case op == 0xC7: // MOV r/m16, imm16
+	case 0xC7: // MOV r/m16, imm16
 		m := c.decodeModRM()
 		c.set16(m.rm, c.fetch16())
-	case op == 0xC8 || op == 0xCA: // RETF imm16（C8 是別名）
+	case 0xC8, 0xCA: // RETF imm16（C8 是別名）
+		if op == 0xC8 && c.Model >= Model80186 {
+			c.enter()
+			break
+		}
 		c.charge(cycFar)
 		n := c.fetch16()
 		c.farRet()
 		c.R[SP] += n
-	case op == 0xC9 || op == 0xCB: // RETF
+	case 0xC9, 0xCB: // RETF
+		if op == 0xC9 && c.Model >= Model80186 {
+			c.leave()
+			break
+		}
 		c.charge(cycFar)
 		c.farRet()
-	case op == 0xCC: // INT 3
+	case 0xCC: // INT 3
 		c.doInt(3)
-	case op == 0xCD: // INT imm8
+	case 0xCD: // INT imm8
 		c.doInt(c.fetch8())
-	case op == 0xCE: // INTO
+	case 0xCE: // INTO
 		if c.Flag(OF) {
 			c.doInt(4)
 		}
-	case op == 0xCF: // IRET
+	case 0xCF: // IRET
 		if c.segmented {
 			// 442 §2.5：殘留快取實模式走實模式 iret，不看 NT（DOSBox-X CPU_IRET 先判 !cpu.pmode，cpu.cpp:1528-1540）。
 			if c.realCache() {
@@ -429,10 +447,10 @@ func (c *CPU) executeCore(op uint8) error {
 		c.SetFlags(c.pop())
 
 	// ---- D0–D3：移位與旋轉 ----------------------------------------------
-	case op >= 0xD0 && op <= 0xD3:
+	case 0xD0, 0xD1, 0xD2, 0xD3:
 		return c.shiftGroup(op)
 
-	case op == 0xD4: // AAM imm8
+	case 0xD4: // AAM imm8
 		imm := c.fetch8()
 		al := uint8(c.R[AX])
 		if imm == 0 {
@@ -454,21 +472,21 @@ func (c *CPU) executeCore(op uint8) error {
 		// CF／AF／OF 在語料裡被遮掉（metadata 的 flags-mask ＝ F7EE），
 		// 所以清掉是**我們挑的確定值**，不是實機保證。
 		c.logic(uint16(al%imm), 8)
-	case op == 0xD5: // AAD imm8
+	case 0xD5: // AAD imm8
 		imm := c.fetch8()
 		al := uint8(uint16(c.reg8(4))*uint16(imm) + uint16(uint8(c.R[AX])))
 		c.setReg8(0, al)
 		c.setReg8(4, 0)
 		c.logic(uint16(al), 8) // CF／AF／OF 同上，被遮掉
-	case op == 0xD6: // SALC（未公開）
+	case 0xD6: // SALC（未公開）
 		if c.Flag(CF) {
 			c.setReg8(0, 0xFF)
 		} else {
 			c.setReg8(0, 0x00)
 		}
-	case op == 0xD7: // XLAT
+	case 0xD7: // XLAT
 		c.setReg8(0, c.read8(c.dataSeg(DS), uint32(c.R[BX]+uint16(uint8(c.R[AX])))))
-	case op >= 0xD8 && op <= 0xDF: // ESC：探測語意見 spec 202，其餘只做記憶體讀取
+	case 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF: // ESC：探測語意見 spec 202，其餘只做記憶體讀取
 		m := c.decodeModRM()
 		if c.segmented && !x87Allowed(op, m) {
 			// 431 §4、434 §6：保護模式下 FNINIT、FNSTCW、FLDCW（與非 ESC 的 FWAIT）以外失敗即關閉。
@@ -486,7 +504,7 @@ func (c *CPU) executeCore(op uint8) error {
 		}
 
 	// ---- E0–EF ----------------------------------------------------------
-	case op >= 0xE0 && op <= 0xE3:
+	case 0xE0, 0xE1, 0xE2, 0xE3:
 		off := int16(int8(c.fetch8()))
 		take := false
 		switch op {
@@ -505,63 +523,63 @@ func (c *CPU) executeCore(op uint8) error {
 		if take {
 			c.IP = uint16(int16(c.IP) + off)
 		}
-	case op == 0xE4:
+	case 0xE4:
 		if p := uint16(c.fetch8()); c.ioOK(p, 1) {
 			c.setReg8(0, c.in8(p))
 		}
-	case op == 0xE5:
+	case 0xE5:
 		if p := uint16(c.fetch8()); c.ioOK(p, 2) {
 			c.R[AX] = uint16(c.in8(p)) | uint16(c.in8(p+1))<<8
 		}
-	case op == 0xE6:
+	case 0xE6:
 		if p := uint16(c.fetch8()); c.ioOK(p, 1) {
 			c.out8(p, uint8(c.R[AX]))
 		}
-	case op == 0xE7:
+	case 0xE7:
 		if p := uint16(c.fetch8()); c.ioOK(p, 2) {
 			c.out8(p, uint8(c.R[AX]))
 			c.out8(p+1, uint8(c.R[AX]>>8))
 		}
-	case op == 0xE8: // CALL rel16
+	case 0xE8: // CALL rel16
 		c.charge(cycCall)
 		off := int16(c.fetch16())
 		c.push(c.IP)
 		c.IP = uint16(int16(c.IP) + off)
-	case op == 0xE9: // JMP rel16
+	case 0xE9: // JMP rel16
 		c.charge(cycJump)
 		off := int16(c.fetch16())
 		c.IP = uint16(int16(c.IP) + off)
-	case op == 0xEA: // JMP far
+	case 0xEA: // JMP far
 		c.charge(cycFar)
 		off := c.fetch16()
 		seg := c.fetch16()
 		if c.loadSeg(CS, seg) {
 			c.IP = off
 		}
-	case op == 0xEB: // JMP rel8
+	case 0xEB: // JMP rel8
 		c.charge(cycJump)
 		off := int16(int8(c.fetch8()))
 		c.IP = uint16(int16(c.IP) + off)
-	case op == 0xEC:
+	case 0xEC:
 		if c.ioOK(c.R[DX], 1) {
 			c.setReg8(0, c.in8(c.R[DX]))
 		}
-	case op == 0xED:
+	case 0xED:
 		if c.ioOK(c.R[DX], 2) {
 			c.R[AX] = uint16(c.in8(c.R[DX])) | uint16(c.in8(c.R[DX]+1))<<8
 		}
-	case op == 0xEE:
+	case 0xEE:
 		if c.ioOK(c.R[DX], 1) {
 			c.out8(c.R[DX], uint8(c.R[AX]))
 		}
-	case op == 0xEF:
+	case 0xEF:
 		if c.ioOK(c.R[DX], 2) {
 			c.out8(c.R[DX], uint8(c.R[AX]))
 			c.out8(c.R[DX]+1, uint8(c.R[AX]>>8))
 		}
 
 	// ---- F4–FF ----------------------------------------------------------
-	case op == 0xF4: // HLT
+	case 0xF4: // HLT
 		if c.segmented {
 			// 434 §5.3、431 §3：分段模式期間不遞送 IRQ，hlt 會永遠等不到中斷。
 			return c.errf(op, "HLT：分段模式下不遞送 IRQ（保護模式 IDT 遞送屬 S6），失敗即關閉（docs/spec/434 §5.3）")
@@ -571,31 +589,31 @@ func (c *CPU) executeCore(op uint8) error {
 			break
 		}
 		c.Halted = true
-	case op == 0xF5: // CMC
+	case 0xF5: // CMC
 		c.setFlag(CF, !c.Flag(CF))
-	case op == 0xF6 || op == 0xF7:
+	case 0xF6, 0xF7:
 		return c.group3(op)
-	case op == 0xF8:
+	case 0xF8:
 		c.setFlag(CF, false)
-	case op == 0xF9:
+	case 0xF9:
 		c.setFlag(CF, true)
-	case op == 0xFA:
+	case 0xFA:
 		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_CLI）
 			c.v86Fail("CLI")
 			break
 		}
 		c.setFlag(IF, false)
-	case op == 0xFB:
+	case 0xFB:
 		if c.v86() && !c.iopl3() { // 436 §4（DOSBox-X CPU_STI）
 			c.v86Fail("STI")
 			break
 		}
 		c.setFlag(IF, true)
-	case op == 0xFC:
+	case 0xFC:
 		c.setFlag(DF, false)
-	case op == 0xFD:
+	case 0xFD:
 		c.setFlag(DF, true)
-	case op == 0xFE || op == 0xFF:
+	case 0xFE, 0xFF:
 		return c.group45(op)
 
 	default:
