@@ -53,6 +53,11 @@ type (
 	SpeakerSample = machine.SpeakerSample
 	PIT2Change    = machine.PIT2Change
 	SBSample      = machine.SBSample
+
+	// 顯示觀測的事件（ObserveVideoWrites、ObserveModeChanges）。外部模組的覆繪層
+	// 要寫得出回呼型別才能掛上。
+	VideoWrite = machine.VideoWrite
+	ModeChange = machine.ModeChange
 )
 
 // RunUntil 停下來的原因。
