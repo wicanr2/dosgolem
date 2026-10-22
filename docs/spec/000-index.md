@@ -970,6 +970,8 @@
 - [440 — 混音器加入 CD 音軌，probe 輸出混音 WAV](440-mixer-cd-audio.md)：READY。MSCDEX 播放紀錄對上 raw 映像，44.1→48 kHz 線性內插，和 OPL、喇叭同一條步數時間軸；`probe -dump-mix-wav`。
 - [441 — 通用的即時前端 `cmd/play`](441-play-frontend.md)：READY。不認識特定程式，畫面、鍵盤、滑鼠、聲音；每格固定步數，自動模式的混音與 probe 逐位元組相同。
 - [442 — 狀態檔保存 OPL 暫存器，混音器從暫存器起播](442-state-opl-registers.md)：READY。暫存器檔、索引與計時器旗標存進狀態檔；`Mixer.PrimeOPL` 在接續時把非 0 暫存器寫回合成器。
+- [443 — EMMXXXX0 的裝置資訊與輸出狀態](443-emm-device-ioctl.md)：READY。`AX=4400h` 回 `4080h`、字元裝置 `AX=4407h` 回 `FFh`，照 DOSBox-X；中文版魔法門 V 的標準 EMS 偵測靠這兩項。
+- [444 — EMS 同一邏輯頁映進兩個實體頁](444-ems-alias-mapping.md)：READY。載入前先寫回別名、寫回只寫差異；四頁滑動視窗的最後一頁會同時映在兩處。
 
 ## 新增 CPU386 位移切片
 
