@@ -200,6 +200,12 @@ type CPU struct {
 	evBuf  V86Event
 	evOut  V86Event
 	v86Ret V86Return
+
+	// 取指令頁快取（fetchLin）：fpTag＝線性頁號＋1（0＝無效），fpPage 是該頁可直接索引的 4 KB。
+	// 不存檔；由 FetchPager 的實作端以 FlushFetch 作廢。
+	fpPager FetchPager
+	fpTag   uint32
+	fpPage  []byte
 }
 
 // New 造一顆接在 bus 上的 CPU，暫存器全 0、旗標是 8086 的重置值。
@@ -340,11 +346,48 @@ func (c *CPU) fetch8() uint8 {
 	}
 	var v uint8
 	if !c.segmented {
-		v = c.Bus.Read8(Linear(c.Seg[CS], c.IP))
+		v = c.fetchLin(Linear(c.Seg[CS], c.IP))
 	} else {
 		v = c.segFetch8()
 	}
 	c.IP++
+	return v
+}
+
+// FetchPager 是 Bus 的選配擴充：取指令頁快取（docs/spec/455-fetch-page-cache）。
+//
+// FetchRead8(lin) 必須與 Bus.Read8(lin) 完全相同（回傳值與全部副作用），另外回傳一個 4 KB 的
+// slice：「在下一次 FlushFetch 之前，同一個線性頁（lin>>12）任何位移的 Read8 都等於直接索引這個
+// slice，且沒有副作用」。不能保證時回 nil。保證失效的事件，實作端必須呼叫 CPU.FlushFetch。
+//
+// ⚠ 裝上之後同一頁的取指令不再經過 Bus：換掉 CPU.Bus 的呼叫端要先 SetFetchPager(nil)；
+// 以整個結構複製還原 CPU 的呼叫端，還原後要 FlushFetch（455 §2）。
+type FetchPager interface {
+	FetchRead8(lin uint32) (uint8, []byte)
+}
+
+// SetFetchPager 裝上取指令頁快取的來源（nil 拿掉），並清空快取。Machine 在 syncCodeFastPath 依轉換開關呼叫。
+func (c *CPU) SetFetchPager(p FetchPager) { c.fpPager, c.fpTag, c.fpPage = p, 0, nil }
+
+// FlushFetch 清空取指令頁快取。FetchPager 的保證失效時由實作端呼叫。
+func (c *CPU) FlushFetch() { c.fpTag, c.fpPage = 0, nil }
+
+// fetchLin 取線性位址 lin 的一個指令位元組（Code==nil 的路徑：V86、分段模式、A20 開等）。
+// 命中快取頁時直接索引，否則經 FetchPager（或 Bus.Read8）讀取並嘗試記下該頁。
+// fpTag 存「頁號＋1」，零值即無效，所以零值 CPU 不會誤用 nil slice。
+func (c *CPU) fetchLin(lin uint32) uint8 {
+	if lin>>12+1 == c.fpTag {
+		return c.fpPage[lin&0xFFF]
+	}
+	if c.fpPager == nil {
+		return c.Bus.Read8(lin)
+	}
+	v, page := c.fpPager.FetchRead8(lin)
+	if len(page) == 0x1000 {
+		c.fpTag, c.fpPage = lin>>12+1, page
+	} else {
+		c.fpTag, c.fpPage = 0, nil
+	}
 	return v
 }
 

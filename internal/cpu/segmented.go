@@ -138,7 +138,7 @@ func (c *CPU) segFetch8() uint8 {
 	if !c.segCheck(CS, uint32(c.IP), accFetch) {
 		return 0
 	}
-	return c.Bus.Read8(c.cache[CS].Base + uint32(c.IP))
+	return c.fetchLin(c.cache[CS].Base + uint32(c.IP))
 }
 
 // stackCheck：分段模式的堆疊操作只支援 B=0 的 SS（434 §4.1；B=1 屬後續規格）。

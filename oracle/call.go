@@ -80,6 +80,9 @@ func (o *Oracle) CallBudget(budget uint64, a Addr, args ...uint16) (uint32, erro
 	err := o.RunUntil(callReturned(), Budget(budget))
 	ax, dx := c.R[cpu.AX], c.R[cpu.DX]
 	*o.m.CPU = saved
+	// 整個結構複製會把呼叫前的取指令頁快取一起還原；呼叫期間轉換可能已作廢（TLB、A20、CPL），
+	// 所以清掉，下一次取指令重新經 FetchPager 建立（docs/spec/455-fetch-page-cache §2）。
+	o.m.CPU.FlushFetch()
 
 	if err != nil {
 		return 0, fmt.Errorf("呼叫 %s（IDA %#x）：%w", a, o.ToIDA(a), err)

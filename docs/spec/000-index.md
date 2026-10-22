@@ -954,6 +954,9 @@
 - [452 session 轉發 SB16 DMA 觀測事件](452-session-sbdma-observer.md)：READY（第 3 版），已實作。選配擴充 `SBDMAObserver`：觀察器實作時 `runObserved` 安裝 `OnSBDMA`，經 `guard` 轉發全部 Kind，回合結束設回 nil；不實作時不碰，事件照舊進 `SBDMALog`；回呼內不得讀記憶體，消費端在下一次 `BeforeStep` 讀。
 - [453 xlate 反鋸齒圖集文字](453-xlate-alpha-atlas-text.md)：READY（第 4 版），未實作。`GOLEMAAF` 8 位元 alpha 圖集（填色層與實心描邊外框層）、`ParseAlphaFont`、`StringMask` 逐字疊合合成、`BlendMask`／`DrawAlphaText` 以 `(c·a+d·(255−a)+127)/255` 混色；不動既有 `Stamp`、`Layer` 與快照。
 - [454 session 唯讀視圖的批次讀取、送達計數與完整狀態摘要](454-session-view-block-read-and-digest.md)：READY（第 6 版），未實作。`Machine.Deliveries()`／`StepView.Deliveries()` 只計回呼、週期遠呼叫、`raiseIRQ` 三種送達（例外不計）；`PeekBlock`／`StepView.ReadBlock` 逐頁批次讀取；機器摘要加 DOS 摘要。
+- [455 分頁微快取與取指令頁快取](455-fetch-page-cache.md)：READY（第 2 版，事後規格），已實作。`readLin`／`writeLin` 的 64 筆直接對映微快取；轉換開啟時 `FetchPager` 讓同頁取指令直接索引 `Mem`／`Ext`，只記轉換、位元組現讀；`syncCodeFastPath` 依 `xlat` 裝上或拿掉；失效表與 M1–M11 變異表。
+- [456 陸空戰將 SessionObserver 每步不配置 StepView](456-sc-observer-view-alloc.md)：READY（第 2 版，事後規格），已實作。`BeforeStep` 以 `&s.cur` 傳給三個觀察器，免除每步三次介面配置；動態型別改為 `*StepView`、誤用偵測縮小的範圍寫明。
+- [457 executeCore 值 switch](457-executecore-value-switch.md)：撤回（第 2 版）。等價已證，收益未證實（最小 CPU 時間平均約 −2.6%）、測試成本 43 s；程式還原為 `a3cfff5`。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 

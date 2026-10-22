@@ -36,6 +36,11 @@ type SessionObserver struct {
 	OnFlightFrame func(indexed []byte, steps uint64)
 
 	steps uint64
+	// cur 是這一步的 view。BeforeStep 以 &cur 傳給三個觀察器：StepView 是 16 bytes 的值型別，
+	// 直接轉成介面每次都在堆上配置一份（每步三次），指標轉介面不配置（docs/spec/456-sc-observer-view-alloc）。
+	// 觀察器不得保留 view（session 238），所以讀到的永遠是本次 BeforeStep 的 v。介面的動態型別因此是
+	// *session.StepView，下游不得對它做 session.StepView 的型別斷言（456 §3）。
+	cur session.StepView
 }
 
 var (
@@ -74,12 +79,14 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	s.steps = v.Steps()
-	s.Labels.Observe(v)
+	s.cur = v
+	p := &s.cur
+	s.Labels.Observe(p)
 	if s.Flight != nil {
-		s.Flight.Observe(v)
+		s.Flight.Observe(p)
 	}
 	if s.Subtitles != nil {
-		s.Subtitles.Observe(v)
+		s.Subtitles.Observe(p)
 	}
 	return nil
 }
@@ -140,7 +147,7 @@ type ReceiptConfig struct {
 	// Overlay 開時必要，nil 回錯（011 §4.1 第 14 項）。
 	Fonts   *TextFonts
 	Overlay bool // false：不裝觀察器（同狀態 A/B 的關）
-	CursorY     int  // 滑鼠游標中心列，負值為未知
+	CursorY int  // 滑鼠游標中心列，負值為未知
 	// Inputs、Shots 是腳本事件（002 §2.4）；StopSteps 取腳本的 stop。
 	// 觀察器開、關兩次執行都照同一份事件推進；Overlay 關時 shot 只切分推進、不出圖。
 	Inputs []ScriptedInput

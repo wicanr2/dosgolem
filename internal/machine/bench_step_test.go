@@ -92,6 +92,21 @@ func BenchmarkStepV86(b *testing.B) {
 	runStepBench(b, m)
 }
 
+// BenchmarkStepRealA20 跑同一個合成迴圈，實模式但 A20 開：CPU.Code 停用，取指令走 Bus.Read8
+// （docs/spec/455-fetch-page-cache §3.3：轉換關閉時不裝 FetchPager，這條路不得多一層呼叫）。
+func BenchmarkStepRealA20(b *testing.B) {
+	m := New()
+	m.IRQ0Every = 0
+	if err := m.LoadCOM(stepLoopCOM); err != nil {
+		b.Fatal(err)
+	}
+	m.SetA20(true)
+	if m.CPU.Code != nil || m.xlat {
+		b.Fatal("A20 開應停用 CPU.Code、轉換應關閉")
+	}
+	runStepBench(b, m)
+}
+
 // BenchmarkStepV86Paged 同上，另開分頁：合成的恆等頁表（低 4 MB，使用者可讀寫），
 // 每次記憶體存取走 TLB。
 func BenchmarkStepV86Paged(b *testing.B) {

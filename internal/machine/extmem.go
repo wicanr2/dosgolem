@@ -48,6 +48,7 @@ func (m *Machine) SetExtendedMemoryKB(kb int) error {
 		return nil
 	}
 	m.Ext = make([]uint8, kb*1024)
+	m.flushFetch()
 	copy(m.Ext[:HMASize], m.hma[:])
 	m.WriteBytes(uint32(StubSeg)*16+XMSHookEntryOff, xmsHookEntry)
 	return nil
