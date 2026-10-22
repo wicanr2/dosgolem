@@ -70,6 +70,11 @@ type world struct {
 	v    *fv
 	base uint16
 	o    *FlightObserver
+	// shadow 非 nil 時，每次 Observe、Frame 餵完 o 之後也餵它（規格 012 §3.2.2 差分測試用）。
+	shadow interface {
+		Observe(FlightView)
+		Frame([]byte, uint64)
+	}
 }
 
 func flightTestCats() FlightCatalogs {
@@ -119,8 +124,21 @@ func installFlightSigs(v *fv, base uint16) {
 func (w *world) px(x, y int) uint32          { return uint32(tFBBase + y*320 + x) }
 func (w *world) setPx(x, y int, c uint8)     { w.v.mem[w.px(x, y)] = c }
 func (w *world) getPx(x, y int) uint8        { return w.v.mem[w.px(x, y)] }
-func (w *world) at(cs, ip uint16)            { w.v.steps += 100; w.v.cs, w.v.ip = cs, ip; w.o.Observe(w.v) }
-func (w *world) frame()                      { w.v.steps += 100; w.o.Frame(nil, w.v.steps) }
+func (w *world) at(cs, ip uint16) {
+	w.v.steps += 100
+	w.v.cs, w.v.ip = cs, ip
+	w.o.Observe(w.v)
+	if w.shadow != nil {
+		w.shadow.Observe(w.v)
+	}
+}
+func (w *world) frame() {
+	w.v.steps += 100
+	w.o.Frame(nil, w.v.steps)
+	if w.shadow != nil {
+		w.shadow.Frame(nil, w.v.steps)
+	}
+}
 func (w *world) cuIn(ip, cx, sp uint16)      { w.v.cx, w.v.ss, w.v.sp = cx, tSS, sp; w.at(w.base+segFJemm, ip) }
 func (w *world) cuRet(ip, sp uint16)         { w.v.ss, w.v.sp = tSS, sp; w.at(w.base+segFJemm, ip) }
 func (w *world) mu(cx uint16)                { w.v.cx, w.v.ss, w.v.sp = cx, tSS, 0xFDF0; w.at(w.base+segFJemm, ipMU) }
@@ -694,7 +712,7 @@ func TestFlightCUEntryVoided(t *testing.T) {
 	}
 }
 
-func TestFlightTwoCUOneReturn(t *testing.T) {
+func TestFlightCUTwoCUOneReturn(t *testing.T) {
 	w := newWorld(t, 0x0241)
 	w.hud("GEAR", 190, 10)
 	w.cuIn(ipCUDiff, 1, tCUSP)
@@ -764,7 +782,7 @@ func TestFlightCUReset(t *testing.T) {
 	}
 }
 
-func TestFlightCHNonZero(t *testing.T) {
+func TestFlightCUCHNonZero(t *testing.T) {
 	w := newWorld(t, 0x0241)
 	commits := 0
 	w.o.OnCommit = func(FlightCommit) { commits++ }
@@ -807,7 +825,7 @@ func TestFlightCHNonZero(t *testing.T) {
 	}
 }
 
-func TestFlightPlainViaDiff(t *testing.T) {
+func TestFlightCUPlainViaDiff(t *testing.T) {
 	w := newWorld(t, 0x0241)
 	w.hud("GEAR", 190, 10)
 	w.cuIn(ipCUPlain, 0x0001, 0xFDD8)

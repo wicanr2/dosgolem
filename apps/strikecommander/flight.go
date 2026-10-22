@@ -186,10 +186,9 @@ type FlightObserver struct {
 
 	vga bool
 
-	cuIn, cuAwait bool
-	cuSteps       uint64
-	cuSS, cuSP    uint16
-	cuIP          uint16
+	// cu 是 CU 狀態機（規格 012 §3.2.2）；cuh 是它的回呼，第一次用到時建立。
+	cu  cuTracker
+	cuh *cuHooks
 
 	firstRun   int
 	counts     FlightCounts
@@ -218,7 +217,10 @@ func (o *FlightObserver) Pending() []FlightText { return append([]FlightText(nil
 func (o *FlightObserver) Candidates() []FlightText { return append([]FlightText(nil), o.cands...) }
 
 // CUState 回「CU 進行中」與「CU 後待升格」。
-func (o *FlightObserver) CUState() (inProgress, awaitingPromotion bool) { return o.cuIn, o.cuAwait }
+func (o *FlightObserver) CUState() (inProgress, awaitingPromotion bool) {
+	e := o.cu.Entry()
+	return e.InProgress, e.Awaiting
+}
 
 // VGAWindow 回 VGA 視窗旗標（§3.6.4）。
 func (o *FlightObserver) VGAWindow() bool { return o.vga }
@@ -274,17 +276,9 @@ func (o *FlightObserver) Observe(v FlightView) {
 		if o.plq != nil {
 			o.plaqueReturn(v)
 		}
-	case ipCUDiff, ipCUPlain:
+	case ipCUDiff, ipCUPlain, ipCUDiffRet, ipCUPlainRet, ipMU:
 		if o.baseOK {
-			o.cuEntry(v)
-		}
-	case ipCUDiffRet, ipCUPlainRet:
-		if o.baseOK {
-			o.cuReturn(v)
-		}
-	case ipMU:
-		if o.baseOK {
-			o.mu(v)
+			o.cu.Observe(v, o.cuHooks())
 		}
 	}
 	// 簽章層（§3.1 第 5 條）：可見集合非空、上次升格或檢查後經過 SigCheckSteps。
@@ -294,6 +288,7 @@ func (o *FlightObserver) Observe(v FlightView) {
 			if why := o.checkBase(v, o.base); why != "" {
 				o.note(s, "sig", "base %04X 的 %s 簽章不符，可見集合、候選、待提交與 CU 狀態清空，停用", o.base, why)
 				o.baseOK = false
+				o.cu.SetBase(o.base, o.baseOK)
 				o.lastVerify = s
 				o.reset()
 			}
@@ -310,7 +305,7 @@ func (o *FlightObserver) reset() {
 	o.visible, o.pending, o.cands, o.candValid = nil, nil, nil, false
 	o.cur, o.plq = nil, nil
 	o.vga = false
-	o.cuIn, o.cuAwait, o.cuSteps, o.cuSS, o.cuSP, o.cuIP = false, false, 0, 0, 0, 0
+	o.cu.Reset()
 }
 
 func (o *FlightObserver) verifyRows(v View, base uint16) string {
@@ -345,11 +340,14 @@ func (o *FlightObserver) putsEntry(v FlightView) {
 		}
 		o.reset()
 		o.base, o.baseKnown, o.lastVerify = base, true, steps
+		o.cu.SetBase(o.base, o.baseOK)
 		if why := o.verifyRows(v, base); why != "" {
 			o.baseOK = false
+			o.cu.SetBase(o.base, o.baseOK)
 			o.note(steps, "base", "base %04X 停用：%s 簽章不符", base, why)
 		} else {
 			o.baseOK = true
+			o.cu.SetBase(o.base, o.baseOK)
 			o.note(steps, "base", "base %04X 啟用", base)
 		}
 	case !o.baseOK && steps-o.lastVerify >= flightReverifySteps:
@@ -357,6 +355,7 @@ func (o *FlightObserver) putsEntry(v FlightView) {
 		o.lastVerify = steps
 		if why := o.verifyRows(v, base); why == "" {
 			o.baseOK = true
+			o.cu.SetBase(o.base, o.baseOK)
 			o.reset()
 			o.note(steps, "base", "base %04X 重驗成功，啟用", base)
 		}
@@ -608,47 +607,55 @@ func (o *FlightObserver) plaqueReturn(v FlightView) {
 	o.addPending(steps, t)
 }
 
-// jemmOK 比 +1D3A:0090 起 98 bytes（每次都比，不快取，§3.6.2）。
-func (o *FlightObserver) jemmOK(v View) bool {
-	return v.CS() == o.base+segFJemm && match(v, o.base+segFJemm, 0x0090, sigJemm, 0)
+// cuHooks 回 CU 追蹤器的回呼（第一次呼叫時建立）。計數、日誌、待提交與候選的處理都在回呼內，
+// 次序與日誌字串照抽出前的 cuEntry、cuReturn、mu（規格 012 §3.2.2）。
+func (o *FlightObserver) cuHooks() *cuHooks {
+	if o.cuh != nil {
+		return o.cuh
+	}
+	o.cuh = &cuHooks{
+		OnEntryHit: func(_ FlightView, ip uint16) {
+			if ip == ipCUDiff {
+				o.counts.HitCUDiff++
+			} else {
+				o.counts.HitCUPlain++
+			}
+		},
+		// 目的不是 VGA：只計數，不動任何集合（009 §3.6.2）。
+		OnCHNonZero: func(FlightView, uint16) { o.counts.CUCHNonZero++ },
+		OnTimeout: func(steps uint64, old cuEntry) {
+			o.counts.Timeouts++
+			o.note(steps, "cu", "第 %d 步的 CU 入口超過 %d 步沒有返回，逾時", old.Steps, cuTimeoutSteps)
+		},
+		OnDuplicate: func(FlightView, uint16, cuEntry) { o.counts.EntriesDuplicate++ },
+		OnVoided: func(v FlightView, _ uint16, old cuEntry) {
+			o.counts.EntriesVoided++
+			o.note(v.Steps(), "cu", "第 %d 步的 CU 入口（SS:SP %04X:%04X）沒有返回就有新入口（%04X:%04X），舊的作廢", old.Steps, old.SS, old.SP, v.SS(), v.SP())
+		},
+		OnEntryAccepted: o.cuAccept,
+		OnReturn: func(v FlightView, ip uint16, e cuEntry, out cuReturnOutcome) {
+			if ip == ipCUDiffRet {
+				o.counts.HitRetDiff++
+			} else {
+				o.counts.HitRetPlain++
+			}
+			switch out {
+			case cuReturnIgnored:
+				o.counts.ReturnsIgnored++
+			case cuReturnMismatch:
+				o.counts.ReturnsSSMismatch++
+				o.note(v.Steps(), "cu", "CU 返回 %04X SS:SP %04X:%04X 與入口 %04X %04X:%04X 不配對", ip, v.SS(), v.SP(), e.IP, e.SS, e.SP)
+			case cuReturnAccepted:
+				o.counts.ReturnsAccepted++
+			}
+		},
+		OnMU: o.muHit,
+	}
+	return o.cuh
 }
 
-// checkTimeout 是 §3.6.2 的逾時：「CU 進行中」持續 100 萬步沒有返回就清為假。
-func (o *FlightObserver) checkTimeout(steps uint64) {
-	if o.cuIn && steps-o.cuSteps >= cuTimeoutSteps {
-		o.cuIn = false
-		o.counts.Timeouts++
-		o.note(steps, "cu", "第 %d 步的 CU 入口超過 %d 步沒有返回，逾時", o.cuSteps, cuTimeoutSteps)
-	}
-}
-
-func (o *FlightObserver) cuEntry(v FlightView) {
-	if !o.jemmOK(v) {
-		return
-	}
-	ip := v.IP()
-	if ip == ipCUDiff {
-		o.counts.HitCUDiff++
-	} else {
-		o.counts.HitCUPlain++
-	}
-	if v.CX()>>8 != 0 {
-		// 目的不是 VGA：只計數，不動任何集合（§3.6.2）。
-		o.counts.CUCHNonZero++
-		return
-	}
-	steps := v.Steps()
-	ss, sp := v.SS(), v.SP()
-	o.checkTimeout(steps)
-	if o.cuIn {
-		if ss == o.cuSS && sp == o.cuSP && steps-o.cuSteps < cuDupSteps {
-			o.counts.EntriesDuplicate++
-			return
-		}
-		o.counts.EntriesVoided++
-		o.note(steps, "cu", "第 %d 步的 CU 入口（SS:SP %04X:%04X）沒有返回就有新入口（%04X:%04X），舊的作廢", o.cuSteps, o.cuSS, o.cuSP, ss, sp)
-		o.cuIn = false
-	}
+// cuAccept 是被接受的 CU 入口（追蹤器改狀態之前呼叫）：009 §3.6.2 動作第 1 到 4 條；第 5 條「記入口」由追蹤器做。
+func (o *FlightObserver) cuAccept(v FlightView, steps uint64, _ uint16) {
 	// 1. 過期的待提交捨棄。
 	kept := o.pending[:0:0]
 	for _, t := range o.pending {
@@ -664,54 +671,21 @@ func (o *FlightObserver) cuEntry(v FlightView) {
 	// 3. 待提交 → 候選，取代尚未升格的舊候選。
 	if o.candValid {
 		o.counts.CandidatesReplaced++
-		if o.cuAwait {
+		if o.cu.Entry().Awaiting {
 			o.counts.CandidatesReplacedAwaiting++
 		}
 		o.note(steps, "cu", "第 %d 步 CU 的候選 %d 筆尚未升格，被取代", o.candCU, len(o.cands))
 	}
 	o.cands, o.candValid, o.candCU = kept, true, steps
 	o.pending = nil
-	o.cuAwait = false
-	// 4. VGA 視窗旗標設為假；5. 記入口。
+	// 4. VGA 視窗旗標設為假。
 	o.vga = false
-	o.cuIn, o.cuSteps, o.cuSS, o.cuSP, o.cuIP = true, steps, ss, sp, ip
 }
 
-func (o *FlightObserver) cuReturn(v FlightView) {
-	if v.CS() != o.base+segFJemm {
-		return
-	}
-	ip := v.IP()
-	if ip == ipCUDiffRet {
-		o.counts.HitRetDiff++
-	} else {
-		o.counts.HitRetPlain++
-	}
-	steps := v.Steps()
-	o.checkTimeout(steps)
-	if !o.cuIn {
-		o.counts.ReturnsIgnored++
-		return
-	}
-	want := uint16(ipCUDiffRet)
-	if o.cuIP == ipCUPlain {
-		want = ipCUPlainRet
-	}
-	if ip != want || v.SS() != o.cuSS || v.SP() != o.cuSP {
-		o.counts.ReturnsSSMismatch++
-		o.note(steps, "cu", "CU 返回 %04X SS:SP %04X:%04X 與入口 %04X %04X:%04X 不配對", ip, v.SS(), v.SP(), o.cuIP, o.cuSS, o.cuSP)
-		return
-	}
-	o.cuIn, o.cuAwait = false, true
-	o.counts.ReturnsAccepted++
-}
-
-func (o *FlightObserver) mu(v FlightView) {
-	if !o.jemmOK(v) {
-		return
-	}
+// muHit 是 sigJemm 相符的 MU（009 §3.6.4）。
+func (o *FlightObserver) muHit(v FlightView, cx uint16) {
 	o.counts.HitMU++
-	if v.CX() == 0 {
+	if cx == 0 {
 		if len(o.pending) != 0 {
 			o.note(v.Steps(), "vga", "MU CX=0：HMA 視窗指向 VGA，待提交 %d 筆清空", len(o.pending))
 		}
@@ -723,18 +697,18 @@ func (o *FlightObserver) mu(v FlightView) {
 }
 
 // Frame 在每次回掃呼叫（session 的 Frame 回呼內）。steps 是最後一次 BeforeStep 的步數（§3.6.3）。
+// 追蹤器先檢查逾時；沒有升格且仍在進行中時計 CU 期間回掃。
 func (o *FlightObserver) Frame(indexed []byte, steps uint64) {
-	o.checkTimeout(steps)
-	if o.cuIn {
-		o.counts.CUFrames++
-		return
-	}
-	if !o.cuAwait {
+	promote, _ := o.cu.Frame(steps, o.cuHooks())
+	if !promote {
+		if o.cu.Entry().InProgress {
+			o.counts.CUFrames++
+		}
 		return
 	}
 	prev := o.visible
 	o.visible = o.cands
-	o.cands, o.candValid, o.cuAwait = nil, false, false
+	o.cands, o.candValid = nil, false
 	if !sameFlight(prev, o.visible) {
 		o.gen++
 	}
