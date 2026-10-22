@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -34,6 +35,15 @@ type perfNullObserver struct{}
 func (perfNullObserver) BeforeStep(StepView) error      { return nil }
 func (perfNullObserver) VideoWrite(machine.VideoWrite)  {}
 func (perfNullObserver) Frame([]uint8, [256][3]uint8) {}
+
+// perfCPUTime 是本行程的使用者加系統 CPU 時間（getrusage）。主機負載浮動時牆鐘不穩，CPU 時間較能比較。
+func perfCPUTime() time.Duration {
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+		return 0
+	}
+	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+}
 
 func perfEnvU64(t *testing.T, k string, def uint64) uint64 {
 	s := os.Getenv(k)
@@ -121,7 +131,7 @@ func TestSCPerfBench(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := boot.Steps
-	var elapsed time.Duration
+	var elapsed, cpuTime time.Duration
 	for done := uint64(0); done < steps; {
 		n := chunk
 		if steps-done < n {
@@ -134,9 +144,10 @@ func TestSCPerfBench(t *testing.T) {
 		if _, err := o.Deliver(CapturedUpdate{StartedPanel: v.Panel, Layout: v.Layout, SourceGeneration: v.SourceGeneration}); err != nil {
 			t.Fatal(err)
 		}
-		t0 := time.Now()
+		t0, u0 := time.Now(), perfCPUTime()
 		r, err := o.Advance(InstructionBudget(n))
 		elapsed += time.Since(t0)
+		cpuTime += perfCPUTime() - u0
 		if err != nil {
 			t.Fatalf("Advance 停在第 %d 步：%v", r.MachineStepsAfter, err)
 		}
@@ -181,8 +192,8 @@ func TestSCPerfBench(t *testing.T) {
 	b = append(b, o.machine.PMCPL())
 	cpu32 := sha256.Sum256(b)
 	sps := float64(steps) / elapsed.Seconds()
-	t.Logf("PERF state=%s start=%d end=%d steps=%d chunk=%d obs=%q elapsed=%.3fs steps/s=%.0f",
-		filepath.Base(statePath), start, d.Steps, steps, chunk, os.Getenv("DOSGOLEM_PERF_OBS"), elapsed.Seconds(), sps)
+	t.Logf("PERF state=%s start=%d end=%d steps=%d chunk=%d obs=%q elapsed=%.3fs steps/s=%.0f cputime=%.3fs",
+		filepath.Base(statePath), start, d.Steps, steps, chunk, os.Getenv("DOSGOLEM_PERF_OBS"), elapsed.Seconds(), sps, cpuTime.Seconds())
 	t.Logf("HASH mem=%x cpu=%x cpu32=%x idx=%x pal=%x ext=%s cycles=%d full=%s",
 		d.MemorySHA256, d.CPUSHA256, cpu32, d.IndexedSHA256, d.PaletteSHA256, d.ExtSHA256, o.machine.CPU.Cycles, full)
 }
