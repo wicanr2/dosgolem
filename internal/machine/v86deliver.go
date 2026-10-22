@@ -254,6 +254,7 @@ func (m *Machine) commitV86Delivery(p v86Plan) {
 // raiseIRQ 是 tick、keyTick、timedKeyTick 的遞送點（435 §2.4）：ivtGuardIRQ 在 V86 準備好的遞送就提交，
 // 否則照實模式走 IVT。
 func (m *Machine) raiseIRQ(vec uint8) {
+	m.deliveries++ // 454 §2.1：硬體 IRQ 的送達（IRQ0、IRQ1 佇列與定時鍵、IRQ7 共用這一點）
 	if m.irqPlanOK {
 		m.irqPlanOK = false
 		m.commitV86Delivery(m.irqPlan)

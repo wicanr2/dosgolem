@@ -61,7 +61,8 @@ func (m *Machine) writePhysRaw(a uint32, v uint8) {
 	}
 	if m.onVideoWrite != nil && a >= vgaLo && a < vgaHi {
 		cs, ip := m.CPU.OpAddr()
-		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode()})
+		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode(),
+			Ctx: m.videoWriteCtx()})
 	}
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		// planar 的位元組不在 Mem[] 裡，WatchWrites 看不到它們。

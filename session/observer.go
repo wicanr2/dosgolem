@@ -138,6 +138,43 @@ func (v StepView) Read16(a uint32) uint16 {
 	return v.o.machine.Peek16(a)
 }
 
+// Deliveries 回 machine.Deliveries()（docs/spec/454 §2.1）。保留的視圖回 0 並設 viewMisuse。
+func (v StepView) Deliveries() uint64 {
+	if !v.live() {
+		return 0
+	}
+	return v.o.machine.Deliveries()
+}
+
+// ReadBlock 只做一次 live() 檢查，之後呼叫 machine.PeekBlock（docs/spec/454 §2.2）：
+// 線性位址 a 起 len(dst) bytes，與逐位元組 Read8 相同、沒有副作用；ok 為假表示範圍內有頁不存在。
+// 保留的視圖把 dst 清成全 0、回 false 並設 viewMisuse。
+func (v StepView) ReadBlock(a uint32, dst []byte) (ok bool) {
+	if !v.live() {
+		clear(dst)
+		return false
+	}
+	return v.o.machine.PeekBlock(a, dst)
+}
+
+// IndexedLayout 回 machine.IndexedLayout()（docs/spec/458 §2.2）；保留的視圖回零值並設 viewMisuse。
+func (v StepView) IndexedLayout() machine.IndexedLayout {
+	if !v.live() {
+		return machine.IndexedLayout{}
+	}
+	return v.o.machine.IndexedLayout()
+}
+
+// IndexedInto 只做一次 live() 檢查，之後呼叫 machine.IndexedInto（docs/spec/458 §2.2）：把實體 VGA 的畫面色號
+// 寫進 dst[:W*H]，不經線性層與頁表。保留的視圖不寫 dst、回零值與 ok=false 並設 viewMisuse。
+// 消費端以 *StepView 呼叫，以 IndexedLayout() 配緩衝一次、之後重用。
+func (v StepView) IndexedInto(dst []byte) (machine.IndexedLayout, bool) {
+	if !v.live() {
+		return machine.IndexedLayout{}, false
+	}
+	return v.o.machine.IndexedInto(dst)
+}
+
 // errProgramExited stops the observed loop at the first instruction after the
 // program has exited.  It is not an error of the program or the observer.
 var errProgramExited = errors.New("session: 程式已結束")

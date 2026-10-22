@@ -712,16 +712,54 @@ type Machine struct {
 	// noFetchPager 是測試用開關（455 §5 的差分對照）：真時 syncCodeFastPath 永不裝 FetchPager，
 	// 取指令全走 Bus.Read8。非測試程式碼不設它。
 	noFetchPager bool
+	// deliveries 是累計的送達次數（docs/spec/454-session-view-block-read-and-digest §2.1）：
+	// 只在 tick 的回呼、週期遠呼叫與 raiseIRQ 遞增，例外一律不計。不進狀態檔、快照與摘要。
+	// 放在結構最後（454 §3.2 第 1 項以測試斷言），不推動前面的熱欄位。
+	deliveries uint64
 }
 
 // VideoWrite 是一次送進平面 A000 視窗的 byte write。Value 只供機器內部
 // 診斷；content-safe receipt 必須自行投影，不得原樣輸出。
+//
+// CS、IP 是該道指令的起點（CPU.OpAddr）；Offset 是**實體**位址減 A0000h，分頁把線性 A0000 對到別處時
+// 經它的寫入不產生 VideoWrite，別段線性位址對到實體 A0000 時會產生（docs/spec/458 §2.4 第 2 條）。
+// Ctx 是寫入當下的 CPU 執行模式（§2.4）：CS 在實模式與 V86 是段落值，在分段模式是選擇子。
 type VideoWrite struct {
 	Step      uint64
 	CS, IP    uint16
 	Offset    uint32
 	Value     uint8
 	WriteMode uint8
+	Ctx       VideoWriteCtx // 458 新增
+}
+
+// VideoWriteCtx 是一筆 A000 寫入當下的 CPU 執行模式（docs/spec/458 §2.4）。位元集合。
+type VideoWriteCtx uint8
+
+const (
+	VWV86       VideoWriteCtx = 1 << 0 // EFLAGS.VM=1（m.v86）
+	VWSegmented VideoWriteCtx = 1 << 1 // 既有核心在分段模式（434）
+	VWCode32    VideoWriteCtx = 1 << 2 // 分段模式且 CS 的 D=1（CPU.Code32()）
+)
+
+func (c VideoWriteCtx) V86() bool       { return c&VWV86 != 0 }
+func (c VideoWriteCtx) Segmented() bool { return c&VWSegmented != 0 }
+func (c VideoWriteCtx) Code32() bool    { return c&VWCode32 != 0 }
+
+// videoWriteCtx 組 VideoWrite.Ctx（458 §2.4 第 3 條）：只讀既有欄位與方法，不新增狀態。
+// VM 只在 PE=1 時可設、與分段模式互斥；Code32 先看分段模式（segcache.go）。
+func (m *Machine) videoWriteCtx() VideoWriteCtx {
+	var c VideoWriteCtx
+	if m.v86 {
+		c |= VWV86
+	}
+	if m.CPU.Segmented() {
+		c |= VWSegmented
+	}
+	if m.CPU.Code32() {
+		c |= VWCode32
+	}
+	return c
 }
 
 // ObserveVideoWrites 掛上 A000 pre-write observer；nil 關閉。callback 在
@@ -734,6 +772,12 @@ func (m *Machine) ObserveVideoWrites(fn func(VideoWrite)) { m.onVideoWrite = fn 
 // ObserveVideoWrites 看不到；任何模式設定都是顯示的不連續點。
 // callback 不進 Snapshot 或 state（同 onVideoWrite）。
 func (m *Machine) ObserveModeChanges(fn func(ModeChange)) { m.onModeChange = fn }
+
+// Deliveries 回累計的送達次數（docs/spec/454 §2.1）：機器在步驟嘗試開始時把控制權交給
+// 不是該指令的程式碼的次數，只計外部排入的回呼、週期遠呼叫與硬體 IRQ（raiseIRQ）；
+// 例外（V86 的 INT n、#GP、#DE 等）不計。不進狀態檔，LoadState 不動它（session 的
+// BootFromState 只在開機階段、尚未執行任何步驟時呼叫，所以之後從 0 起算）；消費端只用差值。
+func (m *Machine) Deliveries() uint64 { return m.deliveries }
 
 // New 造一台機器：記憶體清空、BDA 建好、向量表填好。
 //
@@ -1460,18 +1504,69 @@ func (m *Machine) WriteBytes(a uint32, b []byte) {
 //
 // **回的是色號不是 RGB**——對拍在色號空間做（`docs/spec/005` §3）。
 // 回傳的是複本，呼叫端改它不會動到機器。
+//
+// 本體是 IndexedInto（docs/spec/458 §2.1 第 1 條）：這裡只配置緩衝。
 func (m *Machine) Indexed() []uint8 {
-	if m.Unchained() {
+	l := m.IndexedLayout()
+	out := make([]uint8, l.W*l.H)
+	if _, ok := m.IndexedInto(out); !ok {
+		panic("machine: Indexed 的緩衝不足（IndexedLayout 與 IndexedInto 不一致）")
+	}
+	return out
+}
+
+// IndexedKind 是畫面色號的來源（docs/spec/458-session-indexed-into-and-videowrite-ctx §2.1）。
+type IndexedKind uint8
+
+const (
+	IndexedLinear    IndexedKind = iota // 實體 Mem[A0000…]，320×200；mode 13h 鏈結走這裡
+	IndexedUnchained                    // 非鏈結 256 色（Mode X），四個平面組成 320×200
+	IndexedPlanar                       // 16 色平面模式，VideoSize() 的 W×H，色號 0–15
+)
+
+// IndexedLayout 描述目前畫面色號的來源與尺寸。值型別。
+type IndexedLayout struct {
+	Kind IndexedKind
+	Mode uint8 // BDA 0040:0049 的視訊模式（VideoMode()）
+	W, H int
+}
+
+// IndexedLayout 回目前畫面色號的來源與尺寸，與 Indexed() 的分支條件相同。沒有副作用。
+//
+// 文字模式（mode 03h）與「模式編號是平面模式但 planarOn 為假」都是 IndexedLinear、320×200，
+// 內容是 Mem[A0000…] 的原樣複製，不是色號；呼叫端以 Kind == IndexedLinear && Mode == 0x13 判 mode 13h 鏈結。
+func (m *Machine) IndexedLayout() IndexedLayout {
+	l := IndexedLayout{Kind: IndexedLinear, Mode: m.VideoMode(), W: VideoWidth, H: VideoHigh}
+	switch {
+	case m.Unchained():
 		// 非鏈結 256 色（Mode X）：320×200 的 8 位元索引，從四個平面組
 		// （`docs/spec/201-vga-unchained-256`）。
-		return m.VGA.Unchained256(VideoWidth, VideoHigh)
+		l.Kind = IndexedUnchained
+	case m.planarOn:
+		l.Kind = IndexedPlanar
+		l.W, l.H = m.VideoSize()
 	}
-	if m.planarOn {
-		return m.planarIndexed()
+	return l
+}
+
+// IndexedInto 把目前畫面色號寫進 dst[:W*H]（docs/spec/458 §2.1）。len(dst) < W*H 時不寫入任何位元組、回 ok=false；
+// 回傳的 IndexedLayout 不論 ok 都有效。沒有副作用，不配置：讀實體 Mem[A0000…]、VGA 平面與 CRTC、BDA 模式位元組，
+// 不經線性層與頁表、不載 VGA latch、不觸發讀取監看。ok 為真時 dst[:W*H] 每個位元組都被寫入。
+func (m *Machine) IndexedInto(dst []byte) (l IndexedLayout, ok bool) {
+	l = m.IndexedLayout()
+	n := l.W * l.H
+	if len(dst) < n {
+		return l, false
 	}
-	out := make([]uint8, VideoWidth*VideoHigh)
-	copy(out, m.Mem[VideoSeg*16:VideoSeg*16+len(out)])
-	return out
+	switch l.Kind {
+	case IndexedUnchained:
+		m.VGA.unchained256Into(dst, l.W, l.H)
+	case IndexedPlanar:
+		m.VGA.pixelsAtInto(dst, int(m.VGA.DisplayStart()), m.VGA.Pitch(l.W), m.VGA.LineCompare(), l.W, l.H)
+	default:
+		copy(dst[:n], m.Mem[VideoSeg*16:VideoSeg*16+n])
+	}
+	return l, true
 }
 
 // Step 執行一道指令，必要時先送 IRQ0。
@@ -1647,6 +1742,7 @@ func (m *Machine) tick() {
 		// 事件是有時序意義的，週期回呼晚一格沒差。
 		if m.startCallback() {
 			m.eventThisStep = true // 444 §2.7
+			m.deliveries++         // 454 §2.1
 			return
 		}
 		// 週期遠呼叫。**不看 IF**：真機上這是別人的 ISR 在 `cli` 之後才呼叫
@@ -1656,6 +1752,7 @@ func (m *Machine) tick() {
 			m.periodic.next = m.Steps + m.periodic.every
 			m.periodic.Calls++
 			m.eventThisStep = true // 444 §2.7
+			m.deliveries++         // 454 §2.1
 			m.CPU.FarCall(m.periodic.seg, m.periodic.off)
 			return
 		}

@@ -485,6 +485,13 @@ func (v *VGA) PixelsFrom(start, w, h int) []uint8 {
 
 func (v *VGA) pixelsAt(start, pitch, split, w, h int) []uint8 {
 	out := make([]uint8, w*h)
+	v.pixelsAtInto(out, start, pitch, split, w, h)
+	return out
+}
+
+// pixelsAtInto 是 pixelsAt 寫進呼叫端緩衝的形式（docs/spec/458 §2.1 第 3 條）：out[:w*h] 每個位元組都被寫入
+// （w 不是 8 的倍數時每列尾端補 0，與 pixelsAt 由 make 歸零的結果相同）。len(out) ≥ w*h 由呼叫端保證。
+func (v *VGA) pixelsAtInto(out []uint8, start, pitch, split, w, h int) {
 	visible := w / 8 // 一列可視多少位元組；邏輯列可能更寬
 	for y := 0; y < h; y++ {
 		// 分割在 line compare 的**下一列**生效（`docs/spec/192` §2.2）：
@@ -517,8 +524,10 @@ func (v *VGA) pixelsAt(start, pitch, split, w, h int) []uint8 {
 				out[base+bit] = px
 			}
 		}
+		if tail := w - visible*8; tail > 0 {
+			clear(out[y*w+visible*8 : (y+1)*w])
+		}
 	}
-	return out
 }
 
 // DACIndex 把 4 bit 像素值翻成 DAC 索引。
@@ -738,6 +747,13 @@ func (v *VGA) setMode13() {
 // 兩者在 Mode X 的標準設定裡都是關的。
 func (v *VGA) Unchained256(w, h int) []uint8 {
 	out := make([]uint8, w*h)
+	v.unchained256Into(out, w, h)
+	return out
+}
+
+// unchained256Into 是 Unchained256 寫進呼叫端緩衝的形式（docs/spec/458 §2.1 第 3 條）：out[:w*h] 逐點寫滿。
+// len(out) ≥ w*h 由呼叫端保證。
+func (v *VGA) unchained256Into(out []uint8, w, h int) {
 	pitch := int(v.crtc[0x13]) * 2
 	if pitch == 0 {
 		pitch = w / 4
@@ -754,7 +770,6 @@ func (v *VGA) Unchained256(w, h int) []uint8 {
 			out[y*w+x] = v.Planes[x&3][(row+x>>2)&(PlaneSize-1)]
 		}
 	}
-	return out
 }
 
 // Unchained 回報目前是不是非鏈結 256 色：視訊模式是 13h、而且 A0000 走平面路徑

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -72,6 +73,54 @@ func digestOf(m *machine.Machine, dd *dos.DOS) StateDigest {
 	}
 	d.PaletteSHA256 = sha256.Sum256(flat)
 	return d
+}
+
+// FullDigest 是機器與 DOS 層的狀態摘要（docs/spec/454 §2.3）。
+type FullDigest struct {
+	Machine [32]byte // machine.SaveState 的 gob 經 machine.StateDigest
+	DOS     [32]byte // dos.SaveState 的 gob 經 dos.StateDigest
+}
+
+// MachineDigest 回機器與 DOS 層的狀態摘要（docs/spec/454 §2.3）。呼叫限制同 Digest：
+// 已關閉、回合進行中回錯誤。兩份 SaveState 都只讀，不改變狀態；成本是編碼整份狀態，
+// 只在收據的截圖點與停止點呼叫。
+//
+// 已知缺漏（不在兩份 SaveState 內，摘要相同不代表它們相同）：待送的按鍵（keyQueue、timedKeys）、
+// 待發與進行中的回呼（cbQueue、cbActive、cbSaved、cbMade）、週期遠呼叫（periodic）、Frames、
+// CPU.FPUCW、454 §2.1 的送達計數。
+func (o *Owner) MachineDigest() (FullDigest, error) {
+	if o == nil {
+		return FullDigest{}, errors.New("session: Owner 不得為 nil")
+	}
+	if o.phase == PhaseClosed || o.closed {
+		return FullDigest{}, errors.New("session: 已關閉的 owner 沒有摘要")
+	}
+	if o.turnPending {
+		return FullDigest{}, errors.New("session: 回合進行中不可取摘要")
+	}
+	return fullDigestOf(o.machine, o.dos)
+}
+
+// fullDigestOf 是 MachineDigest 的本體（測試也對存檔端的 machine／DOS 取同一種摘要）。
+func fullDigestOf(m *machine.Machine, dd *dos.DOS) (FullDigest, error) {
+	var d FullDigest
+	var buf bytes.Buffer
+	if err := m.SaveState(&buf); err != nil {
+		return FullDigest{}, fmt.Errorf("session: 機器摘要：%w", err)
+	}
+	sum, err := machine.StateDigest(&buf)
+	if err != nil {
+		return FullDigest{}, fmt.Errorf("session: 機器摘要：%w", err)
+	}
+	d.Machine = sum
+	buf.Reset()
+	if err := dd.SaveState(&buf); err != nil {
+		return FullDigest{}, fmt.Errorf("session: DOS 摘要：%w", err)
+	}
+	if d.DOS, err = dos.StateDigest(&buf); err != nil {
+		return FullDigest{}, fmt.Errorf("session: DOS 摘要：%w", err)
+	}
+	return d, nil
 }
 
 // DOSMouseState 是 DOS 滑鼠狀態的值複本（docs/spec/451 §2.4），欄位型別同 dos.Mouse。

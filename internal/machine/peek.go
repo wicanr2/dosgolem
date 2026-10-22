@@ -44,6 +44,122 @@ func (m *Machine) PeekOK16(a uint32) (uint16, bool) {
 	return uint16(lo) | uint16(hi)<<8, ok1 && ok2
 }
 
+// PeekBlock 把線性位址 a 起 len(dst) bytes 讀進 dst，與逐位元組 PeekOK 的結果相同（docs/spec/454 §2.2）。
+// ok 為假表示範圍內有頁不存在，該處位元組為 FFh。沒有副作用。len(dst) = 0 時回 true。
+//
+// a + i 以 uint32 環繞。轉換開啟時每個 4 KiB 線性頁只轉換一次（peekXlatPage：TLB 世代符合就用，
+// 否則無副作用地走頁表；不填 TLB、utlb，不寫 accessed／dirty），套 A20 後整段複製；轉換關閉時
+// 依 hmaAddr 與 peekPhysRaw 的分段（低記憶體、HMA、Ext）整段複製。平面模式的 A0000 視窗照 Peek8 回 0。
+func (m *Machine) PeekBlock(a uint32, dst []byte) (ok bool) {
+	ok = true
+	for len(dst) > 0 {
+		n, good := m.peekRun(a, dst)
+		if !good {
+			ok = false
+		}
+		dst = dst[n:]
+		a += uint32(n)
+	}
+	return ok
+}
+
+// peekRun 填 dst 開頭一段讀法相同的連續範圍，回填了幾個 byte（至少 1）與該段是否讀得到。
+func (m *Machine) peekRun(a uint32, dst []byte) (int, bool) {
+	if m.xlat {
+		// 不跨 4 KiB 線性頁：一頁一次轉換，A20 遮罩在頁內不變（bit 20 高於頁內位移）。
+		n := 0x1000 - int(a&0xFFF)
+		if n > len(dst) {
+			n = len(dst)
+		}
+		p := a
+		if m.paging {
+			var ok bool
+			if p, ok = m.peekXlatPage(a); !ok {
+				for i := range dst[:n] {
+					dst[i] = 0xFF
+				}
+				return n, false
+			}
+		}
+		if !m.a20 {
+			p &^= 0x100000
+		}
+		m.peekPhysCopy(p, dst[:n])
+		return n, true
+	}
+	if off, ok := m.hmaAddr(a); ok {
+		n := int(HMASize - off)
+		if n > len(dst) {
+			n = len(dst)
+		}
+		src := m.hma[:]
+		if m.Ext != nil {
+			src = m.Ext
+		}
+		if int(off)+n > len(src) { // Ext 比 HMA 短（Peek8 此時會越界；這裡不越界）
+			n = len(src) - int(off)
+			if n <= 0 {
+				panic("machine: PeekBlock 讀 HMA 超出 Ext")
+			}
+		}
+		copy(dst[:n], src[off:])
+		return n, true
+	}
+	// 其餘照 Peek8：a & 0xFFFFF 走 peekPhysRaw。一段不跨 1 MB 邊界（遮罩環繞），A20 開時
+	// 低於 1 MB 的一段也不跨進 HMA。
+	q := a & 0xFFFFF
+	n := int(0x100000 - q)
+	if m.a20 && a < MemSize && int(MemSize-a) < n {
+		n = int(MemSize - a)
+	}
+	if n > len(dst) {
+		n = len(dst)
+	}
+	m.peekPhysCopy(q, dst[:n])
+	return n, true
+}
+
+// peekPhysCopy 是 peekPhysRaw 的整段版：實體位址 p 起 len(dst) bytes（呼叫端保證 p + len 不超出 32 位元）。
+func (m *Machine) peekPhysCopy(p uint32, dst []byte) {
+	for len(dst) > 0 {
+		if p >= MemSize {
+			if off := p - ExtBase; off < uint32(len(m.Ext)) {
+				k := copy(dst, m.Ext[off:])
+				dst = dst[k:]
+				p += uint32(k)
+				continue
+			}
+			for i := range dst {
+				dst[i] = 0xFF
+			}
+			return
+		}
+		end := uint32(MemSize)
+		if m.planarOn {
+			if p >= vgaLo && p < vgaHi {
+				k := int(vgaHi - p)
+				if k > len(dst) {
+					k = len(dst)
+				}
+				clear(dst[:k])
+				dst = dst[k:]
+				p += uint32(k)
+				continue
+			}
+			if p < vgaLo {
+				end = vgaLo
+			}
+		}
+		k := int(end - p)
+		if k > len(dst) {
+			k = len(dst)
+		}
+		copy(dst[:k], m.Mem[p:])
+		dst = dst[k:]
+		p += uint32(k)
+	}
+}
+
 // peekLin 是轉換開啟時的觀測轉換：TLB 條目世代符合就用（看到 CPU 此刻會看到的，
 // 含舊轉換）；不符就無副作用地走頁表，不填 TLB、不寫 accessed／dirty、不產生錯誤紀錄
 // （peekXlatPage，paging.go）。不檢查權限（監督者身分）。之後套 A20，走 peekPhysRaw。

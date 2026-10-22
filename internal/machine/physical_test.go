@@ -47,7 +47,8 @@ func refWrite8(m *Machine, a uint32, v uint8) {
 	}
 	if m.onVideoWrite != nil && a >= vgaLo && a < vgaHi {
 		cs, ip := m.CPU.OpAddr()
-		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode()})
+		m.onVideoWrite(VideoWrite{Step: m.Steps, CS: cs, IP: ip, Offset: a - vgaLo, Value: v, WriteMode: m.VGA.WriteMode(),
+			Ctx: m.videoWriteCtx()}) // 458 §2.4 第 8 條：與 writePhysRaw 共用同一支組裝函式
 	}
 	if m.planarOn && a >= vgaLo && a < vgaHi {
 		stride := m.planarStride()
