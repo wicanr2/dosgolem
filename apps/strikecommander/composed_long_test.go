@@ -92,7 +92,11 @@ func runCaseD(t *testing.T, overlay, exactOnly bool) *ReceiptResult {
 		Inputs: script.Inputs, Shots: script.Shots, exactOnly: exactOnly,
 	}
 	applyTextEnv(t, &rc) // 011 §3.9
-	res, err := RunReceipt(rc)
+	name := "D"
+	if exactOnly {
+		name = "" // 負對照不做曝光收據
+	}
+	res, err := runReceiptExpo(t, name, rc) // 規格 014 §4.2（DOSGOLEM_SC_EXPO 未設定時同 RunReceipt）
 	if err != nil {
 		t.Fatal(err)
 	}

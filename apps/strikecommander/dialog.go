@@ -146,6 +146,9 @@ func (o *LabelObserver) shapeDraw(v View) {
 	y := int(int16(rd16(v, ss, sp+8)))
 	pOff, pSeg := rd16(v, ss, sp+0x0A), rd16(v, ss, sp+0x0C)
 	e := int(rd16(v, ss, sp+0x0E))
+	if o.OnCursor != nil && o.baseKnown && o.baseOK && rd16(v, ss, sp) == ipCursorRet && rd16(v, ss, sp+2) == o.base+segCursor && rd16(v, ds, d) == 0xFFFF {
+		o.OnCursor(v.Steps(), x, y) // 規格 014 §4.2.2 的游標分類（只供曝光收據）
+	}
 	if rd16(v, ds, d) != 0xFFFF || readRect(v, ds, d) != fullScreen {
 		return // 裁切重畫（FCE5 等）、畫外緩衝與游標的 DB2E 都不收
 	}
@@ -171,6 +174,9 @@ func (o *LabelObserver) shapeDraw(v View) {
 	}
 	if sha256.Sum256(file) != want {
 		return
+	}
+	if o.OnShapeArt != nil {
+		o.OnShapeArt(v.Steps(), kind, file, e, x, y) // 規格 014 §4.2.2（只供曝光收據）
 	}
 	if kind == ArtSaveLoad {
 		o.saveLoadEvent(v.Steps(), file, e, x, y)

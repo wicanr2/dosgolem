@@ -233,6 +233,15 @@ type LabelObserver struct {
 	// OnClearArt 在每次全螢幕 blit 入口呼叫（004 §3.3：圖面全部移除）。可為 nil。
 	OnClearArt func(steps uint64)
 
+	// 以下三個是 strike_commander 規格 014 §4.2.2 墨跡台帳的觀察事件，只供曝光收據；可為 nil，nil 時行為不變。
+	//   - OnPutsReturn：通過呼叫端判定的 puts 返回（前後列已讀，加入待提交之前）；label 的陣列不得修改。
+	//   - OnShapeArt：描述元段 FFFFh、矩形全螢幕、檔案雜湊相符的 shape 入口（含第 2 組、k10 到 k14 等不產生事件者）；
+	//     file 是這次讀出的複本，不得修改。
+	//   - OnCursor：OPTTEST 游標繪製（返回位址 +3745:0649、描述元段 FFFFh）的 shape 入口與其 x、y（RE 015 §6）。
+	OnPutsReturn func(Label)
+	OnShapeArt   func(steps uint64, kind ArtFile, file []byte, e, x, y int)
+	OnCursor     func(steps uint64, x, y int)
+
 	// noCallerCheck 關掉 §2.3（只供 §3.3 的負對照）。
 	noCallerCheck bool
 	// noBoardCaller 只關掉 003 §3.1 的條件 2（計分板呼叫點），供 003 §4.2 的負對照。
@@ -518,6 +527,9 @@ func (o *LabelObserver) putsReturn(v View) {
 	c.label.X1 = int(rd16(v, v.DS(), c.obj+objX))
 	// label 與 board 都在 puts 返回時讀後列（006 §3.1 第 2 條）。
 	o.rowsReturn(v, &c.label)
+	if o.OnPutsReturn != nil {
+		o.OnPutsReturn(c.label)
+	}
 	if len(o.pending) >= maxPending {
 		o.note(v.Steps(), "pending", "待提交清單滿 %d 筆，捨棄最舊的 %q", maxPending, o.pending[0].Key)
 		o.pending = append(o.pending[:0], o.pending[1:]...)

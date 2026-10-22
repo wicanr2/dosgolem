@@ -171,8 +171,8 @@ func runSaveLoadCaseRoot(t *testing.T, c slCase, overlay bool, rootEnv string) *
 		StopSteps: script.Stop, Scales: []int{2, 3}, Catalog: cat, GfxCatalog: gfx, Overlay: overlay, CursorY: -1,
 		Inputs: script.Inputs, Shots: script.Shots,
 	}
-	applyTextEnv(t, &rc) // strike_commander 規格 011 §3.9
-	res, err := RunReceipt(rc)
+	applyTextEnv(t, &rc)                      // strike_commander 規格 011 §3.9
+	res, err := runReceiptExpo(t, c.name, rc) // 規格 014 §4.2（DOSGOLEM_SC_EXPO 未設定時同 RunReceipt）
 	if err != nil {
 		t.Fatal(err)
 	}

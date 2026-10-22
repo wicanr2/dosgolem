@@ -35,6 +35,9 @@ type SessionObserver struct {
 	// OnFlightFrame 在 Flight.Frame 與更新 LastIndexed 之後呼叫；steps 是最後一次 BeforeStep 的步數。可為 nil。
 	OnFlightFrame func(indexed []byte, steps uint64)
 
+	// afterStep 在 BeforeStep 的三個 Observe 之後呼叫（strike_commander 規格 014 §4.5 N1 的合成點；只供曝光收據）。可為 nil。
+	afterStep func(steps uint64)
+
 	steps uint64
 	// cur 是這一步的 view。BeforeStep 以 &cur 傳給三個觀察器：StepView 是 16 bytes 的值型別，
 	// 直接轉成介面每次都在堆上配置一份（每步三次），指標轉介面不配置（docs/spec/456-sc-observer-view-alloc）。
@@ -87,6 +90,9 @@ func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	}
 	if s.Subtitles != nil {
 		s.Subtitles.Observe(p)
+	}
+	if s.afterStep != nil {
+		s.afterStep(s.steps)
 	}
 	return nil
 }
@@ -167,6 +173,10 @@ type ReceiptConfig struct {
 
 	// 009 §3.11 接點第 4 條：FlightCatalogs 為 nil 時不裝 FlightObserver。
 	FlightCatalogs *FlightCatalogs
+
+	// expo 非 nil 時另做 strike_commander 規格 014 §4.2 的英文曝光收據（分期 (b)：基線，現行合成）；要 Overlay 開。
+	// 結果在 ReceiptResult.Expo。nil 時與現行相同。
+	expo *ExpoConfig
 
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
@@ -301,6 +311,9 @@ type ReceiptResult struct {
 	// strike_commander 規格 011 §3.8：停止點的 arts.tsv 內容與字幕區檢查（掛字幕時）。
 	StopArts           map[int][]ArtReportEntry
 	StopSubtitleRegion map[int]SubtitleRegionCheck
+
+	// Expo 是 strike_commander 規格 014 §4.2 的曝光收據（ReceiptConfig.expo 非 nil 時）。
+	Expo *ExpoResult
 }
 
 // FlightCUFrame 是 CU 期間的一次回掃（009 §4.2 的「CU 期間比對不符筆數（逐次）」）。
@@ -356,6 +369,8 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	// 009：飛行字串的觀察器與各倍率 overlay（FlightCatalogs 為 nil 時都不建）。
 	var flight *FlightObserver
 	fovs := map[int]*FlightOverlay{}
+	var expo *expoRun // 規格 014 §4.2（cfg.expo 非 nil 時）
+	var err error
 	if cfg.Fonts == nil {
 		// strike_commander 規格 011 §4.1 第 14 項：沒有圖集不跑。
 		return nil, errors.New("strikecommander: 收據缺反鋸齒圖集（Fonts）")
@@ -465,8 +480,17 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		if cfg.RecordSBDMA {
 			so.OnSBDMA = func(e machine.SBDMAEvent) { res.SBDMA = append(res.SBDMA, e) }
 		}
+		if cfg.expo != nil {
+			// 規格 014 §4.2：曝光收據在既有接線之後串接（不取代），自有實例不碰收據的 overlays、fovs。
+			if expo, err = attachExpo(cfg, so, overlays, fovs, &lastMove); err != nil {
+				return nil, err
+			}
+			res.Expo = expo.res
+		}
 	} else if cfg.Subtitles {
 		return nil, errors.New("strikecommander: 字幕要 Overlay 開")
+	} else if cfg.expo != nil {
+		return nil, errors.New("strikecommander: 曝光收據要 Overlay 開")
 	}
 	o, err := session.New(SessionConfig(obs))
 	if err != nil {
@@ -497,6 +521,40 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		return err
 	}
 	advance := func(target uint64) error {
+		// 規格 014 §4.2.1：合成點只切分推進。每段 Advance 前要有一次 Deliver（session 的回合規則）：第一段沿用呼叫端
+		// 已交付的回合（空更新或輸入），之後各段交付空更新，同 shot 的切分。合成點 c 在 (steps, target]，同步數的合成點
+		// 排在該步的事件之前。expo 為 nil 時只走下面原有的一次 Advance。
+		if expo != nil {
+			delivered := true
+			for {
+				c, ok := expo.nextPoint(steps, target)
+				if !ok {
+					break
+				}
+				if !delivered {
+					if err := deliver(nil); err != nil {
+						return err
+					}
+				}
+				r, err := o.Advance(session.InstructionBudget(c - steps))
+				if err != nil {
+					return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
+				}
+				if r.MachineStepsAfter != c {
+					return fmt.Errorf("strikecommander: 停在第 %d 步，要 %d", r.MachineStepsAfter, c)
+				}
+				steps, delivered = c, false
+				expo.checkpoint(c)
+			}
+			if target == steps {
+				return nil
+			}
+			if !delivered {
+				if err := deliver(nil); err != nil {
+					return err
+				}
+			}
+		}
 		r, err := o.Advance(session.InstructionBudget(target - steps))
 		if err != nil {
 			return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
@@ -593,7 +651,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			}
 			for _, sc := range cfg.Scales {
 				// 009 §3.11 接點第 4 條：Overlay.Draw → fov.Sync、fov.Draw → CheckComposite → 010 的字幕（composeScale，012 §3.8.3）。
-				in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: so.LastIndexed, Palette: so.LastPalette}
+				in := scaleIn{Overlay: overlays[sc], LabelsV: so.Labels.Visible(), LabelsG: so.Labels.Generation(), Scale: sc, Frame: so.LastIndexed, Palette: so.LastPalette}
 				if fov := fovs[sc]; fov != nil {
 					in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 				}
@@ -609,6 +667,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	}
 	if res.Digest, err = o.Digest(); err != nil {
 		return res, err
+	}
+	if expo != nil {
+		expo.finish(res.Digest)
 	}
 	if cfg.Subtitles || cfg.RecordSBDMA {
 		if res.DOSMouse, err = o.DOSMouse(); err != nil {
@@ -639,7 +700,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	res.Composites, res.Plain, res.CompositeCheck = map[int][]byte{}, map[int][]byte{}, map[int]CompositeCheck{}
 	res.BG = map[int][]BGEntry{}
 	for _, sc := range cfg.Scales {
-		in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: res.Frame, Palette: res.Palette}
+		in := scaleIn{Overlay: overlays[sc], LabelsV: so.Labels.Visible(), LabelsG: so.Labels.Generation(), Scale: sc, Frame: res.Frame, Palette: res.Palette}
 		if fov := fovs[sc]; fov != nil {
 			in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 		}

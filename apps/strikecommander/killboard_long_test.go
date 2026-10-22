@@ -99,7 +99,11 @@ func runCaseE(t *testing.T, overlay, noBoard bool) *ReceiptResult {
 		Inputs: script.Inputs, Shots: script.Shots, noBoardCaller: noBoard,
 	}
 	applyTextEnv(t, &rc) // strike_commander 規格 011 §3.9
-	res, err := RunReceipt(rc)
+	name := "E"
+	if noBoard {
+		name = "" // 負對照不做曝光收據
+	}
+	res, err := runReceiptExpo(t, name, rc) // 規格 014 §4.2（DOSGOLEM_SC_EXPO 未設定時同 RunReceipt）
 	if err != nil {
 		t.Fatal(err)
 	}

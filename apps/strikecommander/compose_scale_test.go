@@ -74,7 +74,7 @@ func refStopScales(cfg ReceiptConfig, so *SessionObserver, res *ReceiptResult, o
 // newShotScales、newStopScales 是 RunReceipt 現行的兩段迴圈（receipt.go 截圖點與停止點）。
 func newShotScales(cfg ReceiptConfig, so *SessionObserver, sr *ShotResult, overlays map[int]*Overlay, fovs map[int]*FlightOverlay, flight *FlightObserver) {
 	for _, sc := range cfg.Scales {
-		in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: so.LastIndexed, Palette: so.LastPalette}
+		in := scaleIn{Overlay: overlays[sc], LabelsV: so.Labels.Visible(), LabelsG: so.Labels.Generation(), Scale: sc, Frame: so.LastIndexed, Palette: so.LastPalette}
 		if fov := fovs[sc]; fov != nil {
 			in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 		}
@@ -84,7 +84,7 @@ func newShotScales(cfg ReceiptConfig, so *SessionObserver, sr *ShotResult, overl
 
 func newStopScales(cfg ReceiptConfig, so *SessionObserver, res *ReceiptResult, overlays map[int]*Overlay, fovs map[int]*FlightOverlay, flight *FlightObserver) {
 	for _, sc := range cfg.Scales {
-		in := scaleIn{Overlay: overlays[sc], Labels: so.Labels, Scale: sc, Frame: res.Frame, Palette: res.Palette}
+		in := scaleIn{Overlay: overlays[sc], LabelsV: so.Labels.Visible(), LabelsG: so.Labels.Generation(), Scale: sc, Frame: res.Frame, Palette: res.Palette}
 		if fov := fovs[sc]; fov != nil {
 			in.Flight, in.FlightV, in.FlightG = fov, flight.Visible(), flight.Generation()
 		}
@@ -254,6 +254,32 @@ func TestComposeScaleMatchesReference(t *testing.T) {
 	}
 }
 
+// TestComposeScaleByValue（strike_commander 規格 014 U10）：composeScale 只用 scaleIn 帶來的標籤集合與世代，
+// 不讀觀察器。觀察器仍有兩個標籤、scaleIn 只帶第一個時，結果等於觀察器本身只有第一個標籤的參考實作。
+func TestComposeScaleByValue(t *testing.T) {
+	for _, c := range []composeCase{{name: "標籤"}, {name: "飛行", flight: true, fovScales: []int{2, 3}}} {
+		t.Run(c.name, func(t *testing.T) {
+			a, b := buildComposeFixture(t, c), buildComposeFixture(t, c)
+			a.so.Labels.visible = a.so.Labels.visible[:1]
+			srA, srB := newShotResult(a), newShotResult(b)
+			refShotScales(a.cfg, a.so, &srA, a.overlays, a.fovs, a.flight)
+			for _, sc := range b.cfg.Scales {
+				in := scaleIn{Overlay: b.overlays[sc], LabelsV: b.so.Labels.Visible()[:1], LabelsG: b.so.Labels.Generation(), Scale: sc, Frame: b.so.LastIndexed, Palette: b.so.LastPalette}
+				if fov := b.fovs[sc]; fov != nil {
+					in.Flight, in.FlightV, in.FlightG = fov, b.flight.Visible(), b.flight.Generation()
+				}
+				storeShotScale(&srB, sc, composeScale(in), in.Flight != nil)
+			}
+			if len(b.so.Labels.Visible()) != 2 {
+				t.Fatalf("觀察器的可見集合被改：%d", len(b.so.Labels.Visible()))
+			}
+			if !reflect.DeepEqual(srA, srB) {
+				diffShot(t, srA, srB)
+			}
+		})
+	}
+}
+
 // TestComposeScaleMissingKeys：Flight 為 nil 的倍率不寫 FlightHidden、FlightCovers、FlightReport 與停止點
 // FlightReport、FlightHidden 的鍵（缺鍵，不寫空值）；沒掛 FlightObserver 時這些 map 本身是 nil。
 func TestComposeScaleMissingKeys(t *testing.T) {
@@ -318,7 +344,7 @@ func TestComposeScaleHDNotYet(t *testing.T) {
 			t.Error("HD 非 nil 沒有 panic")
 		}
 	}()
-	composeScale(scaleIn{Overlay: f.overlays[2], Labels: f.so.Labels, Scale: 2, Frame: f.so.LastIndexed, Palette: f.so.LastPalette, HD: &hdSource{}})
+	composeScale(scaleIn{Overlay: f.overlays[2], LabelsV: f.so.Labels.Visible(), LabelsG: f.so.Labels.Generation(), Scale: 2, Frame: f.so.LastIndexed, Palette: f.so.LastPalette, HD: &hdSource{}})
 }
 
 // TestCheckCompositeMask：allow 為真的 1 倍像素放行其 s×s 輸出像素，先於矩形判斷；nil 與 CheckCompositeText 相同。

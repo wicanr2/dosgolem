@@ -9,13 +9,15 @@ type hdSource struct{}
 // HDShot 是一個倍率的 HD 結果（012 §3.8.3：升格鑰匙、閘門為真的像素數、失效原因）。分期 (g) 才填欄位。
 type HDShot struct{}
 
-// scaleIn 是 composeScale 的輸入。
+// scaleIn 是 composeScale 的輸入。標籤與飛行一律收值（strike_commander 規格 014 §3.8、§8：
+// 呈現層以呈現像凍結的集合與世代合成，不讀觀察器的即時狀態）；收據呼叫端傳 Visible()、Generation()。
 type scaleIn struct {
 	Overlay *Overlay
 	Flight  *FlightOverlay // 可為 nil
 	FlightV []FlightText   // flight.Visible()；Flight 為 nil 時不用
 	FlightG uint64         // flight.Generation()
-	Labels  *LabelObserver
+	LabelsV []Label        // 收據：so.Labels.Visible()
+	LabelsG uint64         // 收據：so.Labels.Generation()
 	Scale   int
 	Frame   []byte        // 截圖點：so.LastIndexed；停止點：res.Frame
 	Palette [256][3]uint8 // 截圖點：so.LastPalette；停止點：res.Palette
@@ -45,7 +47,7 @@ func composeScale(in scaleIn) scaleOut {
 		panic("strikecommander: HD 合成在規格 012 分期 (g) 實作")
 	}
 	ov := in.Overlay
-	ov.Sync(in.Labels.Visible(), in.Labels.Generation())
+	ov.Sync(in.LabelsV, in.LabelsG)
 	var out scaleOut
 	out.Comp, _ = ov.Draw(in.Frame, in.Palette)
 	out.BG = ov.BGReport()

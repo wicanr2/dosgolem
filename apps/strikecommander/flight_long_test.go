@@ -226,7 +226,11 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 		cfg.FlightCatalogs = &cats
 	}
 	start := time.Now()
-	res, err := RunReceipt(cfg)
+	ename := ""
+	if m.name == "on23" {
+		ename = name // 規格 014 §4.2 的曝光收據只在 2、3 倍都有的 run 做
+	}
+	res, err := runReceiptExpo(t, ename, cfg) // DOSGOLEM_SC_EXPO 未設定時同 RunReceipt
 	if err != nil {
 		t.Fatal(err)
 	}

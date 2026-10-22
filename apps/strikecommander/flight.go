@@ -166,6 +166,9 @@ type flightPlaque struct {
 type FlightObserver struct {
 	// OnCommit 在每次升格時呼叫（在 Frame 回呼內）。可為 nil。
 	OnCommit func(FlightCommit)
+	// OnAccepted 在字串通過墨跡框核對、加入待提交之前呼叫（strike_commander 規格 014 §4.2.2 墨跡台帳，只供曝光收據）。
+	// 可為 nil；字串的陣列不得修改。
+	OnAccepted func(FlightText)
 
 	resolve func(Kind, string) (string, int, bool)
 
@@ -525,6 +528,9 @@ func inkInBox(r InkResult) bool { return r.Skipped == "" && r.Diffs > 0 && r.Out
 
 // addPending 照 §3.6.1：去重（種類、catalog key、Y、錨點相同保留後到的）、上限 32 筆捨棄最舊。
 func (o *FlightObserver) addPending(steps uint64, t FlightText) {
+	if o.OnAccepted != nil {
+		o.OnAccepted(t)
+	}
 	for i := 0; i < len(o.pending); i++ {
 		p := o.pending[i]
 		if p.Kind == t.Kind && p.CatKey == t.CatKey && p.Y == t.Y && p.Anchor() == t.Anchor() {
