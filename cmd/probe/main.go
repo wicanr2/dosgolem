@@ -1310,6 +1310,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 		fmt.Printf("鍵盤中斷送出 %d 次（int 09h 向量 %04X:%04X）\n",
 			m.KeyIRQs, m.Read16(0x09*4+2), m.Read16(0x09*4))
 	}
+	// `docs/spec/445-real-mode-sb-single-dma`：等語音播完的迴圈與「沒送 IRQ7」從畫面分不開。
+	if m.SoundBlaster() {
+		fmt.Printf("SB 單次 DMA：完成 %d 次、IRQ7 送出 %d 次、向量指 stub 留著 %d 次、DSP 開始被拒 %d 次、取樣 %d bytes（int 0Fh 向量 %04X:%04X）\n",
+			m.SBDMACompletions, m.IRQ7Deliveries, m.IRQ7Stalls, m.SBDMARejects, len(m.SBPCM),
+			m.Read16(0x0f*4+2), m.Read16(0x0f*4))
+	}
 	fmt.Printf("planar write mode 使用次數：0=%d 1=%d 2=%d 3=%d\n",
 		m.WriteModeUse[0], m.WriteModeUse[1], m.WriteModeUse[2], m.WriteModeUse[3])
 	if len(m.ModeChanges) > 0 {
