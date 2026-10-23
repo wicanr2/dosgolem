@@ -1,6 +1,7 @@
 # strike_commander 規格 007 §4.4 案例 K：p539/s500b.state（帳篷），離開確認（第 21 組）。
 # 輸入取自 strike_commander workplace/i017/tq.script（去掉 ip）。
-move 5000650000 56 140
+# 第一筆移動由 5000650000 改 5000700000（dosgolem 規格 459 重錄），理由見 case_g.script。
+move 5000700000 56 140
 down 5002000000 56 140
 up   5005000000 56 140
 move 5250000000 104 136

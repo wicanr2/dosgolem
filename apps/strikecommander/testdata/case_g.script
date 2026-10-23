@@ -1,6 +1,9 @@
 # strike_commander 規格 004 §4.3 案例 G：p539/s500b.state（帳篷）。
 # 輸入取自 strike_commander workplace/i015/t1.script（帳篷點 Save Game），去掉 ip。
-move 5000650000 56 140
+# 第一筆移動由 5000650000 改 5000700000（dosgolem 規格 459 重錄）：459 後時間軸平移，原步數的回呼落在遊戲
+# 畫熱點標籤期間，游標更新常式 49C4:00F2 見鎖 [6BE8]=0 跳過，腳本只有一筆移動而整個漏掉
+# （strike_commander workplace/rerec459 t1why 調查）。
+move 5000700000 56 140
 down 5002000000 56 140
 up   5005000000 56 140
 shot 5249000000 tent

@@ -24,11 +24,14 @@ import (
 //     Owner.noHeldRepeats），只以 t.Log 記錄 KeyIRQs 總數與暫存器是否改變。
 
 const (
+	// 規格 459 重錄：Indexed109 與暫存器取自 strike_commander workplace/rerec459/logs/ref-p449ref30.log 與
+	// rerec459/scratch/p449ref30/r109.png（新執行器，449 §5 配方）。與舊值只差游標：上方向鍵移游標的回應晚約 50 萬步，
+	// 3000000 步的按住期間少移兩格，箭頭停在 y 189（舊 183）；rerec459/scratch/or-irq1-new、or-irq1-old 逐 50 萬步對照。
 	irq1TriggerFinal   = 1100000000
 	irq1Indexed103     = "bc24e8ab4c8d6bc817911e9f8e71a3961125cf823aa74e8d96d5e5fb36d0e114"
-	irq1Indexed109     = "02e210d55663e8ec7e3d9efc059d3cdd3741eed4191c55b573720f7e1fa45098"
+	irq1Indexed109     = "433c55a3f345ac74507b15fb4a9445f2b1cda01b58e4c5ea85271b1977d4d8d4"
 	irq1Palette        = "ea48da3ee0628b0cf7609482ed5946e7ae78939b8c45d2fb0850a8bb566a5b60"
-	irq1RegsWant       = "CS:IP 0018:581D AX BAB6 BX 13DC CX 2000 DX 0020 DS 0020 ES 00D8 SS:SP 0050:13BA"
+	irq1RegsWant       = "CS:IP 0018:4774 AX 8000 BX 13DC CX 2002 DX 0020 DS 0080 ES 00D8 SS:SP 0050:13B4"
 	irq1KeyIRQsWant    = 18
 	irq1KeyStallsWant  = 0
 	irq1Digest103Steps = 1030000000

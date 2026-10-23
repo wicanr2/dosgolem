@@ -48,16 +48,18 @@ type triggerCase struct {
 }
 
 var triggerCases = map[string]triggerCase{
-	"A": {"p485/s449.state", "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0", 4492700000, -1, []wantCommit{
-		{4490362413, "Talk to Gwen", 114, 204, 175, 1, -1, 0},
-		{4491518424, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
-		{4492676586, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
+	// 規格 459 重錄（strike_commander workplace/rerec459）：狀態檔與 blit 入口步數取自新狀態上的 probe
+	// -regs-at 3C3C:0000（rerec459/logs/or-trig-a.log、or-trig-b.log、or-trig-c.log）。
+	"A": {"p485/s449.state", "0e436dd863672caf125af083dde337bfe8fa0373fb8b3ad0cb45976c215623bb", 4492700000, -1, []wantCommit{
+		{4490172207, "Talk to Gwen", 114, 204, 175, 1, -1, 0},
+		{4491325636, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
+		{4492483923, "Talk to Gwen", 114, 204, 175, 1, 1, 0},
 	}},
-	"B": {"p530/s4495b.state", "34c5b2e5a50131cda4537428ad0c1e4d999a3302a6bc6e60c34ba177fc3b48cd", 4496400000, 75, []wantCommit{
-		{4496160311, "Transport to Strike Base", 68, 251, 175, 1, 0, 0},
+	"B": {"p530/s4495b.state", "68dabab6f62a653e4160d0609ee09fd97aa4e810ac0ce2c5180bd58631cd74dd", 4496400000, 75, []wantCommit{
+		{4495967080, "Transport to Strike Base", 68, 251, 175, 1, 0, 0},
 	}},
-	"C": {"p539/s500b.state", "0fbe712170ff91b9d83a5346fcaac9f98a5f09ef10b6295d4e6914b51f0d4ee6", 5000900000, 75, []wantCommit{
-		{5000842631, "Fly Mission", 124, 195, 175, 1, 0, 0xAD22},
+	"C": {"p539/s500b.state", "d6d9f720eb5c3c778c04577d7e451980b9d0dd2e60991652ed543a5c8b0d29d8", 5000900000, 75, []wantCommit{
+		{5000649386, "Fly Mission", 124, 195, 175, 1, 0, 0xAD22},
 	}},
 }
 

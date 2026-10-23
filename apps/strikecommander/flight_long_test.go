@@ -27,8 +27,8 @@ import (
 
 const (
 	scI021Env = "DOSGOLEM_SC_I021"
-	s800SHA   = "f0c0730ca05050371b1f614c117daff8910453e7311964d085b8539ccb3ab7a9"
-	s760SHA   = "6337a0dcd05cf479aed90cab2b918170c4874ade910f2360924ecf0610491801"
+	s800SHA   = "c61b71dc1a3867b266fe20d17eab6bb2c0e3408dc4c07e316e91e63272cf2488" // 規格 459 重錄
+	s760SHA   = "6d95cee0307c1598e4a3dcee6c7211b93000f8c16683e790667e2aede609df65"
 )
 
 // flightCatalogsFrom 讀 text 目錄下三個飛行 catalog。
@@ -367,20 +367,24 @@ type flightWant struct {
 	commFG  bool // Comm Mode: 的 fg 220
 }
 
+// 規格 459 重錄：cu 取自 strike_commander workplace/rerec459/oracle-tools/fq-cu.tsv、fr-cu.tsv（flightcu.py 由
+// rerec459/census/or/fq、fr 的 ip.tsv 與 frames.tsv 重建：shot 當步或之前最後一次回掃 R，配對返回 < R 的最後一次 CU）。
+// k1-10-Tab-a 的 shot 步數剛好是回掃（新鏈回掃相位 ≡ 0 mod 165000），census 該步的 idx 是前一格（CU 8282449186）；
+// 這裡照 FrameSteps ≤ shot 的字面定義取 8282987538，兩格都有 time burst。
 var flightWantQ = map[string]flightWant{
-	"k1-00-base":  {cu: 8000705049, hud3: []string{"000 NONE"}},
-	"k1-01-G-a":   {cu: 8012779028, hud3: []string{"DGFT"}, notVis: []string{"999 Vulcan"}},
-	"k1-03-W-a":   {cu: 8072934756, hud3: []string{"STRF"}, shown: []string{"NORM", "GUN"}, gunTx: true},
-	"k1-07-C-a":   {cu: 8192583279, shown: []string{"Comm Mode:", "Select Frequency", "NO RECEIVERS"}, commFG: true},
-	"k1-10-Tab-a": {cu: 8282384410, shown: []string{"time burst"}},
-	"k1-11-A-a":   {cu: 8312634092, shown: []string{"enemies near"}},
-	"k1-12-AltP-a": {cu: 8340667429, hud3: []string{"DGFT"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, _ map[string]*ShotResult) {
+	"k1-00-base":  {cu: 8000615773, hud3: []string{"000 NONE"}},
+	"k1-01-G-a":   {cu: 8012795685, hud3: []string{"DGFT"}, notVis: []string{"999 Vulcan"}},
+	"k1-03-W-a":   {cu: 8072741576, hud3: []string{"STRF"}, shown: []string{"NORM", "GUN"}, gunTx: true},
+	"k1-07-C-a":   {cu: 8192402599, shown: []string{"Comm Mode:", "Select Frequency", "NO RECEIVERS"}, commFG: true},
+	"k1-10-Tab-a": {cu: 8282987538, shown: []string{"time burst"}},
+	"k1-11-A-a":   {cu: 8312850142, shown: []string{"enemies near"}},
+	"k1-12-AltP-a": {cu: 8340815576, hud3: []string{"DGFT"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, _ map[string]*ShotResult) {
 		hiddenBoth(t, s, "enemies near")
 		if hasStr(s.FlightVisible, "game paused") || s.FlightCounts.SkipVGA == 0 || !s.FlightVGAWindow {
 			t.Errorf("%s：game paused 可見 %t、VGA 略過 %d、VGA 旗標 %t", s.Name, hasStr(s.FlightVisible, "game paused"), s.FlightCounts.SkipVGA, s.FlightVGAWindow)
 		}
 	}},
-	"k1-13-AltP2-mid": {cu: 8340667429, hud3: []string{"DGFT"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, all map[string]*ShotResult) {
+	"k1-13-AltP2-mid": {cu: 8340815576, hud3: []string{"DGFT"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, all map[string]*ShotResult) {
 		hiddenBoth(t, s, "enemies near")
 		if s.FlightVGAWindow || s.FlightCounts.CUCHNonZero < 1 {
 			t.Errorf("%s：VGA 旗標 %t、CH ≠ 0 的 CU %d", s.Name, s.FlightVGAWindow, s.FlightCounts.CUCHNonZero)
@@ -389,7 +393,7 @@ var flightWantQ = map[string]flightWant{
 			t.Errorf("%s：可見集合自 k1-12-AltP-a 之後改變（gen %d → %d）", s.Name, p.FlightGen, s.FlightGen)
 		}
 	}},
-	"k1-13-AltP2-a": {cu: 8372904681, hud3: []string{"DGFT"}, shown: []string{"enemies near"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, _ map[string]*ShotResult) {
+	"k1-13-AltP2-a": {cu: 8372552787, hud3: []string{"DGFT"}, shown: []string{"enemies near"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, _ map[string]*ShotResult) {
 		for _, c := range res.FlightCommits {
 			for _, x := range c.Texts {
 				if x.Key == "game paused" {
@@ -398,28 +402,30 @@ var flightWantQ = map[string]flightWant{
 			}
 		}
 	}},
-	"k1-14-F2-a":   {cu: 8402660718, noHUD: true, shown: []string{"chase plane"}},
-	"k1-17-F6-a":   {cu: 8492657311, shown: []string{"external view"}},
-	"k1-19-F9-a":   {cu: 8552615610, shown: []string{"victim view on"}},
-	"k1-20-F10-a":  {cu: 8582894662, shown: []string{"weapon camera on"}},
-	"k1-22-B-a":    {cu: 8642531345, hud3: []string{"BRAKE"}},
-	"k1-23-F-a":    {cu: 8672351663, hud3: []string{"FLAPS", "BRAKE"}},
-	"k1-24-D-a":    {cu: 8702579210, shown: []string{"FUEL:"}},
-	"k1-25-R-a":    {cu: 8732373702, shown: []string{"AIR"}},
-	"k1-43-AltV-a": {cu: 9272311432, notVis: []string{"version: f2.3 -- instant"}},
-	"k1-44-N-b":    {cu: 9304733889, empty: true},
-	"k1-45-Esc-a":  {cu: 9332325325, hud3: []string{"DGFT", "FLAPS", "BRAKE"}, shown: []string{"FUEL:"}},
+	"k1-14-F2-a":   {cu: 8402693232, noHUD: true, shown: []string{"chase plane"}},
+	"k1-17-F6-a":   {cu: 8492323228, shown: []string{"external view"}},
+	"k1-19-F9-a":   {cu: 8552364017, shown: []string{"victim view on"}},
+	"k1-20-F10-a":  {cu: 8582442938, shown: []string{"weapon camera on"}},
+	"k1-22-B-a":    {cu: 8642695254, hud3: []string{"BRAKE"}},
+	"k1-23-F-a":    {cu: 8672262369, hud3: []string{"FLAPS", "BRAKE"}},
+	"k1-24-D-a":    {cu: 8702885358, shown: []string{"FUEL:"}},
+	"k1-25-R-a":    {cu: 8732392678, shown: []string{"AIR"}},
+	"k1-43-AltV-a": {cu: 9272645313, notVis: []string{"version: f2.3 -- instant"}},
+	"k1-44-N-b":    {cu: 9304745257, empty: true},
+	"k1-45-Esc-a":  {cu: 9332452108, hud3: []string{"DGFT", "FLAPS", "BRAKE"}, shown: []string{"FUEL:"}},
 }
 
+// 規格 459 重錄：k7-00-base 與 k7-05-W-a 維持舊值（停下項目）。新鏈第一次 CU 在 7601746724，k7-00-base（7601000000）
+// 之前沒有任何提交；k7-05-W-a 的 W 鍵畫格 CU 在 7733008957，晚於 shot（rerec459/oracle-tools/fr-cu.tsv）。
 var flightWantR = map[string]flightWant{
 	"k7-00-base":  {cu: 7600133942, hud3: []string{"GEAR"}},
-	"k7-01-C-b":   {cu: 7621726410, shown: []string{"Comm Mode:", "Select Frequency"}, notVis: []string{"1 Hawk"}},
-	"k7-03-C2-a":  {cu: 7671724062, shown: []string{"1 request status"}},
-	"k7-04-B-b":   {cu: 7710267002, hud3: []string{"GEAR", "BRAKE"}},
+	"k7-01-C-b":   {cu: 7621508744, shown: []string{"Comm Mode:", "Select Frequency"}, notVis: []string{"1 Hawk"}},
+	"k7-03-C2-a":  {cu: 7671063546, shown: []string{"1 request status"}},
+	"k7-04-B-b":   {cu: 7710796297, hud3: []string{"GEAR", "BRAKE"}},
 	"k7-05-W-a":   {cu: 7732589387, hud3: []string{"SRM"}, shown: []string{"NORM"}, notVis: []string{"SWDJ"}},
-	"k7-10-D-b":   {cu: 7890814292, shown: []string{"FUEL:"}},
-	"k7-11-R-b":   {cu: 7921443115, shown: []string{"GND"}},
-	"k7-15-F-b":   {cu: 8041833846, hud3: []string{"GEAR", "FLAPS", "BRAKE"}},
+	"k7-10-D-b":   {cu: 7890909869, shown: []string{"FUEL:"}},
+	"k7-11-R-b":   {cu: 7921505166, shown: []string{"GND"}},
+	"k7-15-F-b":   {cu: 8040346754, hud3: []string{"GEAR", "FLAPS", "BRAKE"}},
 }
 
 func hasStr(xs []string, s string) bool {
@@ -748,15 +754,20 @@ func checkFlightQExtra(t *testing.T, res *ReceiptResult) {
 	if c.ReturnsIgnored < 5 {
 		t.Errorf("被忽略的重複返回 %d，要 ≥ 5", c.ReturnsIgnored)
 	}
+	// 規格 459 重錄：CU 期間回掃取自 strike_commander workplace/rerec459/oracle-tools/fq-cu.tsv（census fq 的 frames 與
+	// CU 入口、配對返回；新鏈回掃相位 ≡ 0 mod 165000）。8022960000、8510040000 這兩次的畫面與前一次回掃相同
+	// （frames.tsv diff_prev 0），同舊 9331740001 的「畫面未變，舊集合照畫」，比對不符要 0。
+	unchanged := map[uint64]bool{8022960000: true, 8510040000: true}
 	seen := map[uint64]bool{}
 	for _, f := range res.FlightCUFrames {
 		seen[f.Steps] = true
 		t.Logf("CU 期間回掃第 %d 步：可見 %d，不符 2 倍 %d、3 倍 %d %q", f.Steps, f.Visible, f.Mismatch[2], f.Mismatch[3], f.Keys[3])
-		if f.Steps == 9331740001 && (f.Mismatch[2] != 0 || f.Mismatch[3] != 0) {
-			t.Errorf("9331740001 的 CU 期間比對不符 %v，要 0", f.Mismatch)
+		if unchanged[f.Steps] && (f.Mismatch[2] != 0 || f.Mismatch[3] != 0) {
+			t.Errorf("%d 的 CU 期間比對不符 %v，要 0", f.Steps, f.Mismatch)
 		}
 	}
-	for _, s := range []uint64{9304845001, 9330255001, 9331080001, 9331740001} {
+	for _, s := range []uint64{8022960000, 8130870000, 8401305000, 8401800000, 8407410000, 8408730000, 8409555000,
+		8460870000, 8472255000, 8510040000, 9001575000, 9087210000, 9304845000, 9330420000} {
 		if !seen[s] {
 			t.Errorf("CU 期間回掃沒有第 %d 步", s)
 		}

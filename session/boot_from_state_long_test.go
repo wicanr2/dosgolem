@@ -23,13 +23,15 @@ import (
 
 const (
 	bfsTriggerStateEnv = "DOSGOLEM_SC_STATE"
-	bfsStateSHA256     = "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0"
-	bfsStateSteps      = 4490000000
-	bfsAdvance         = 400000
-	bfsTargetSteps     = bfsStateSteps + bfsAdvance
-	bfsIndexed         = "b26228b4a0ade66ba4e2d9ccd368d0c2add297653396bf3341c5ea3fcbe13883"
-	bfsPalette         = "f7816e01a78377ade14d76015e51cb1d081a12158d69fd979fc55cc7ba3a2db0"
-	bfsRegsWant        = "CS:IP 0CF2:0C07 AX 0000 BX 0000 CX 0000 DX 0000 DS 4E66 ES 4E66 SS:SP 4E66:FC46"
+	// 規格 459 重錄：狀態檔是 strike_commander workplace/rerec459/scratch/p485/s449.state；Indexed、Palette、暫存器取自
+	// 同狀態上 probe543 配方的重跑（rerec459/logs/ref-p543.log、rerec459/scratch/p530/g.png、g.pal），畫面與舊錨點相同。
+	bfsStateSHA256 = "0e436dd863672caf125af083dde337bfe8fa0373fb8b3ad0cb45976c215623bb"
+	bfsStateSteps  = 4490000000
+	bfsAdvance     = 400000
+	bfsTargetSteps = bfsStateSteps + bfsAdvance
+	bfsIndexed     = "b26228b4a0ade66ba4e2d9ccd368d0c2add297653396bf3341c5ea3fcbe13883"
+	bfsPalette     = "f7816e01a78377ade14d76015e51cb1d081a12158d69fd979fc55cc7ba3a2db0"
+	bfsRegsWant    = "CS:IP 0CF2:06E5 AX 45EB BX 0000 CX 0000 DX 0000 DS 4E66 ES 4E66 SS:SP 4E66:FC46"
 )
 
 // bfsHandleFiles 是 s449.state 的 4 個檔案代號（都在 /orig 下，§3.4）。

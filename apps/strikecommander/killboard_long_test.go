@@ -33,7 +33,7 @@ import (
 
 const (
 	caseEState = "p485/s449.state"
-	caseESHA   = "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0"
+	caseESHA   = "0e436dd863672caf125af083dde337bfe8fa0373fb8b3ad0cb45976c215623bb" // 規格 459 重錄
 	// 視窗與游標移動（腳本的 move 4984000000 8 156）。
 	caseEFrom, caseETo = 4980000000, 4990000000
 	caseEMove          = 4984000000
@@ -48,10 +48,11 @@ type caseEWant struct {
 	n         int    // 視窗內的筆數
 }
 
+// 規格 459 重錄：取自 strike_commander workplace/rerec459/census/i013/kb3/trace.tsv（視窗內筆數不變）。
 var caseEWants = []caseEWant{
-	{"GROUND", "地面", KindBoard, 4980293261, 17},
-	{"AIR", "空中", KindBoard, 4980297642, 17},
-	{"Return to office", "返回辦公室", KindLabel, 4984419359, 10},
+	{"GROUND", "地面", KindBoard, 4980293681, 17},
+	{"AIR", "空中", KindBoard, 4980298062, 17},
+	{"Return to office", "返回辦公室", KindLabel, 4984419358, 10},
 }
 
 func runCaseE(t *testing.T, overlay, noBoard bool) *ReceiptResult {

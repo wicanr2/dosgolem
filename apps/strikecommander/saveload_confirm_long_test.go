@@ -161,11 +161,11 @@ func checkCaseJ007(t *testing.T, res *ReceiptResult) {
 		t.Errorf("shot yespressed：%s 最後一筆不是 k18：%+v", keyK17, ev)
 	}
 	wantShown(t, s, keyK17, 123, 111, 38, 9)
-	// yesredraw：k0 重畫（4995005984）之後、全螢幕 blit 之前；圖面沒有確認框的列。畫面內容照實記錄。
+	// yesredraw：k0 重畫（4995006445，規格 459 重錄 rerec459/census/i017/k5/ip.tsv）之後、全螢幕 blit 之前；圖面沒有確認框的列。畫面內容照實記錄。
 	s = shotNamed(t, res, "yesredraw")
 	wantNoConfirm(t, s)
 	for _, c := range res.ArtClears {
-		if c > 4995005984 && c < s.Steps {
+		if c > 4995006445 && c < s.Steps {
 			t.Errorf("shot yesredraw 之前（第 %d 步）已有圖面清除", c)
 		}
 	}

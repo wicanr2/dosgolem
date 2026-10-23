@@ -40,8 +40,9 @@ type menuCase struct {
 }
 
 const (
-	m242SHA = "93bc8986d5e148c0f751e8736b42f25a06e223ef007135cc453b08094586a4ca" // RE 018 狀態檔表
-	c800SHA = "8957dec8ef9c9e447d488d9b35f832bc5ee2e69fbfd2eec25013f785138b562d"
+	// 規格 459 重錄（strike_commander workplace/rerec459/scratch）。
+	m242SHA = "2138b4a26e97c67314dd25c2d4f5da26dad060e961b38682413a85efcec40bac"
+	c800SHA = "c3177455e0683b395b5db5cf5dbaf686aa955c4f6698f49020315f63caa19b23"
 )
 
 func wantMM(steps uint64, k int) mWant {
@@ -54,24 +55,25 @@ func wantPlate(steps uint64) mWant { return mWant{steps, ArtMainMenuPlate, 0, 45
 var menuCases = map[string]menuCase{
 	// a6/ip.tsv：第一次主選單（底板、k2、k3、k4）、VIEW OBJECTS 按下 k9、放開 k4；OBJECT VIEWER 的檔不產生事件；
 	// EXIT 後重畫（底板、k2、k3、k4）。
+	// 規格 459 重錄：步數取自 strike_commander workplace/rerec459/census/i018 的 a6、a4、a5、m1 ip.tsv（同列號、同 k）。
 	"L": {slCase{name: "L", state: "i018-st/m242.state", sha: m242SHA, script: "testdata/case_l.script"}, scRootEnv, []mWant{
-		wantPlate(2432322885), wantMM(2432366211, 2), wantMM(2432372490, 3), wantMM(2432374925, 4),
-		wantMM(2450001938, 9), wantMM(2455000861, 4),
-		wantPlate(2530421954), wantMM(2530462289, 2), wantMM(2530466633, 3), wantMM(2530469068, 4),
+		wantPlate(2432515730), wantMM(2432559056, 2), wantMM(2432565349, 3), wantMM(2432567784, 4),
+		wantMM(2450002162, 9), wantMM(2455001185, 4),
+		wantPlate(2530421930), wantMM(2530462265, 2), wantMM(2530466609, 3), wantMM(2530469044, 4),
 	}},
 	// a4/ip.tsv：CONTINUE 灰，LOAD 可選；按灰色 CONTINUE 沒有事件。
 	"M1": {slCase{name: "M1", state: "i018-st/m242.state", sha: m242SHA, script: "testdata/case_m1.script"}, scRootSav1Env, []mWant{
-		wantPlate(2432602472), wantMM(2432645812, 1), wantMM(2432650762, 2), wantMM(2432655106, 3), wantMM(2432659569, 4),
+		wantPlate(2432794860), wantMM(2432838200, 1), wantMM(2432843150, 2), wantMM(2432847494, 3), wantMM(2432851957, 4),
 	}},
 	// a5/ip.tsv：五項都可選；LOAD 按下 k6、放開 k1；之後的讀檔對話框是 SAVELOAD.SHP 第 42 組（記 skip，不產生事件）。
 	"M2": {slCase{name: "M2", state: "i018-st/m242.state", sha: m242SHA, script: "testdata/case_m2.script"}, scRootSav2Env, []mWant{
-		wantPlate(2432804587), wantMM(2432847927, 0), wantMM(2432855255, 1), wantMM(2432860205, 2), wantMM(2432864549, 3), wantMM(2432866984, 4),
-		wantMM(2450001927, 6), wantMM(2460001107, 1),
+		wantPlate(2432997413), wantMM(2433040753, 0), wantMM(2433048103, 1), wantMM(2433053053, 2), wantMM(2433057397, 3), wantMM(2433059832, 4),
+		wantMM(2450002118, 6), wantMM(2460001606, 1),
 	}},
 	// m1/ip.tsv：k0、k1；按下 k2；在按鈕外放開 k0。背景與底板（另兩個檔）不產生事件。
 	"N": {slCase{name: "N", state: "i018-cold/c800.state", sha: c800SHA, script: "testdata/case_n.script"}, scRootEnv, []mWant{
-		{878638865, ArtTomenuButtons, 0, 89, 33}, {878651762, ArtTomenuButtons, 1, 90, 71},
-		{930001117, ArtTomenuButtons, 2, 89, 33}, {950000911, ArtTomenuButtons, 0, 89, 33},
+		{885113395, ArtTomenuButtons, 0, 89, 33}, {885126292, ArtTomenuButtons, 1, 90, 71},
+		{930001442, ArtTomenuButtons, 2, 89, 33}, {950001200, ArtTomenuButtons, 0, 89, 33},
 	}},
 }
 
@@ -253,7 +255,7 @@ func checkMenuCase(t *testing.T, name string, mc menuCase, res *ReceiptResult) {
 		for n := 2; n <= 4; n++ {
 			wantBand(t, s, btn(n), "大於 0", positive)
 		}
-		// 2531M（EXIT 後重畫的事件在 2530421954 到 2530469068）：§4.2 預期灰字列與 k2 到 k4 顯示欄數大於 0，
+		// 2531M（EXIT 後重畫的事件在 2530421930 到 2530469044）：§4.2 預期灰字列與 k2 到 k4 顯示欄數大於 0，
 		// 但這一步最後一次回掃的原版畫格整張是色號 0（主選單不在畫面上，實作首次取得的證據，寫進報告）。
 		// 這裡斷言觀察到的事實：畫格全 0，圖面全停畫（合成圖等於原版放大圖），並印出各列的顯示欄數。
 		s = shot("redraw")

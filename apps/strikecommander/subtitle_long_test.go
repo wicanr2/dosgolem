@@ -26,10 +26,11 @@ const (
 	scSpeechCatalogEnv = "DOSGOLEM_SC_SPEECH_CATALOG"
 	scSubCasesEnv      = "DOSGOLEM_SC_SUBCASES"
 	scSubABEnv         = "DOSGOLEM_SC_SUB_AB"
-	s500SHA            = "1e98714470a48b06ff6903dab39ec9a341b4f9925bb7cab3ce34ad3a1bd772e8"
-	s510SHA            = "de7a367f93d745b6c83d85715af15bc51c82e7d44bd3cbf17fe34af809b7126b"
-	s500bSHA           = "0fbe712170ff91b9d83a5346fcaac9f98a5f09ef10b6295d4e6914b51f0d4ee6"
-	s390SHA            = "9da24923e55771610d3738dce58f46f1971dc5168b4e97147be4f4de0a013d57"
+	// 規格 459 重錄（strike_commander workplace/rerec459/scratch）。
+	s500SHA  = "7a0129ec242cdff67092e18b84d9e165183c5bffe7394060946cf0baec544055"
+	s510SHA  = "252d3e372bbaf8502f81f1aa5944e7a165a1f42e978dded579af36c03a82c4b8"
+	s500bSHA = "d6d9f720eb5c3c778c04577d7e451980b9d0dd2e60991652ed543a5c8b0d29d8"
+	s390SHA  = "2920645205b6f77d01f447c34b5847ebbc18f00e872a2e014fc3fb0044de86d3"
 )
 
 // wantSub 是一個期望字幕條。end 為 0 時不斷言訖點（播完時訖點等於 lastDue）。
@@ -53,24 +54,29 @@ func played(key string, start, due uint64) wantSub {
 	return wantSub{key, start, due, 1, due, ReasonDone}
 }
 
+// 規格 459 重錄：c11Want 取自 strike_commander workplace/rerec459/i022/timing-c11.tsv（voctiming.py，probe
+// rerec459/logs/ref-i023-c11.log 與 rerec459/scratch/i023-c/sbdma.tsv）；k1Want 取自 rerec459/scratch/i022-k/sbdma-k1.tsv
+// 的 start 與 Due（PCM 雜湊對回條目，rerec459/i022/timing-k1.tsv）。
 var c11Want = []wantSub{
-	played("conv/011/00", 5032689784, 5063722744), played("conv/011/01", 5066534942, 5085408619),
-	played("conv/011/02", 5087511261, 5112063300), played("conv/011/03", 5115122728, 5143010075),
-	played("conv/011/04", 5145739718, 5187147572), played("conv/011/05", 5189368343, 5201637067),
-	played("conv/011/06", 5205694580, 5224280586), played("conv/011/07", 5227691038, 5255664895),
-	played("conv/011/08", 5260589760, 5291022365), played("conv/011/09", 5299234243, 5314943546),
-	played("conv/011/10", 5319766815, 5347983524), played("conv/011/11", 5352409024, 5372928467),
+	played("conv/011/00", 5032690175, 5063723135), played("conv/011/01", 5066534307, 5085407984),
+	played("conv/011/02", 5087510709, 5112062748), played("conv/011/03", 5115122736, 5143010083),
+	played("conv/011/04", 5145738644, 5187146498), played("conv/011/05", 5189355562, 5201624286),
+	played("conv/011/06", 5205693998, 5224280004), played("conv/011/07", 5227686222, 5255660079),
+	played("conv/011/08", 5260589649, 5291022254), played("conv/011/09", 5299235299, 5314944602),
+	played("conv/011/10", 5319766273, 5347982982), played("conv/011/11", 5352418615, 5372938058),
 }
 
 var k1Want = []wantSub{
-	played("conv/011/04", 5107909466, 5149317320), played("conv/011/05", 5151525053, 5163793777),
-	{"conv/011/06", 5167868820, 5186454826, 1, 0, ReasonOpen},
+	played("conv/011/04", 5107915580, 5149323434), played("conv/011/05", 5151524513, 5163793237),
+	{"conv/011/06", 5167869494, 5186455500, 1, 0, ReasonOpen},
 }
 
 var subLongCases = map[string]subLongCase{
 	"C11": {"i019-a/s500.state", s500SHA, "testdata/case_sub_c11.script", "i023-c/sbdma.tsv",
 		func(*testing.T) []wantSub { return c11Want },
-		map[string]string{"n": "conv/011/00", "gap": "", "p": "conv/011/02"}, 5375329016},
+		// 5375326229：對話結束清畫面（+39F6:003E）第一次寫字幕區 (0,152)–(319,199)，規格 459 重錄的 census vwatch
+		// （strike_commander workplace/rerec459/census/or/c11clr152/vwatch.tsv）。
+		map[string]string{"n": "conv/011/00", "gap": "", "p": "conv/011/02"}, 5375326229},
 	"T10": {"i022-t/s500b.state", s500bSHA, "testdata/case_sub_t10.script", "i022-t/sbdma.tsv",
 		func(t *testing.T) []wantSub { return timingWant(t, "timing-t10.tsv", 10, 5710000000) }, nil, 0},
 	"H12": {"i022-h/s390.state", s390SHA, "testdata/case_sub_h12.script", "i022-h/sbdma.tsv",
@@ -82,15 +88,19 @@ var subLongCases = map[string]subLongCase{
 		func(*testing.T) []wantSub { return nil }, nil, 0},
 	"K1s": {"i019-a/s500.state", s500SHA, "testdata/case_sub_k1s.script", "",
 		func(*testing.T) []wantSub {
-			return append([]wantSub{c11Want[0], c11Want[1], {"conv/011/02", 5087511261, 5112063300, 1, 5104910275, ReasonPause}}, k1Want...)
+			// 暫停步數取自 rerec459/scratch/i022-k/sbdma-k1.tsv 的 pause（K2s 為 sbdma-k2.tsv），規格 459 重錄。
+			return append([]wantSub{c11Want[0], c11Want[1], {"conv/011/02", 5087510709, 5112062748, 1, 5104910282, ReasonPause}}, k1Want...)
 		}, map[string]string{"paused": ""}, 0},
 	"K2s": {"i019-a/s500.state", s500SHA, "testdata/case_sub_k2s.script", "",
 		func(*testing.T) []wantSub {
-			return []wantSub{c11Want[0], c11Want[1], {"conv/011/02", 5087511261, 5112063300, 1, 5103562392, ReasonPause}}
+			return []wantSub{c11Want[0], c11Want[1], {"conv/011/02", 5087510709, 5112062748, 1, 5103559599, ReasonPause}}
 		}, nil, 0},
 	"M": {"i019-a/s510.state", s510SHA, "testdata/case_sub_m.script", "",
 		func(*testing.T) []wantSub {
-			return []wantSub{{"conv/011/03", 5115122728, 5143010075, 1, 0, ReasonOpen}}
+			// 規格 459 重錄：M 的兩次移動經 IRQ12 遞送會多跑客體碼，起點不再等於 C11（差 2 步）。取自 probe：s510 起
+			// 5101000000 移到 (160,180)、存檔，再 5108000000 移到 (300,195) 跑到 5120000000 的 SB DMA 紀錄
+			// （strike_commander workplace/rerec459/logs/or-subm1.log、or-subm2.log，scratch/or-subm2/sbdma.tsv）。
+			return []wantSub{{"conv/011/03", 5115122734, 5143010081, 1, 0, ReasonOpen}}
 		}, map[string]string{"m5": "conv/011/03"}, 0},
 }
 

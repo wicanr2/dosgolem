@@ -28,11 +28,13 @@ const (
 	legacyTriggerEnv   = "DOSGOLEM_SC_ROOT"
 	legacyTriggerSteps = 1000000000
 	legacySCCDSHA256   = "5dbfe18c528f51b9b1b0c989c1578cb297ba56c64038be7ca9d903dd88e93d01"
+	// 規格 459 重錄：Indexed、Palette 不變；暫存器取自 strike_commander workplace/rerec459/logs/or-legacy-on2.log、
+	// or-legacy-off2.log（448 配方冷開機 -steps 1000000000，-kbd-int15 開、關兩次相同）。
 	// workplace/root/SC.CFG（SB16 設定，含 -ma -ds）的完整 SHA-256，規格 §3.2 記的是 317b0abd…34e36f。
 	legacySCCFGSHA256     = "317b0abdbf538f52d95e13b7358712e6da30a1a6d6e312e78d4943254b34e36f"
 	legacyTriggerIndexed  = "4d752df6353106aced440d235109abee038776ca2096953ce86c208e405e2148"
 	legacyTriggerPalette  = "ea48da3ee0628b0cf7609482ed5946e7ae78939b8c45d2fb0850a8bb566a5b60"
-	legacyTriggerRegsWant = "CS:IP 060F:034A AX 0000 BX 0000 CX 2042 DX FB54 DS 250B ES 250B SS:SP 250B:FAD6"
+	legacyTriggerRegsWant = "CS:IP 1594:043E AX 1209 BX 0001 CX 2042 DX FB00 DS 250B ES 01EA SS:SP 250B:FAC2"
 )
 
 // legacyRegObserver 只記錄：BeforeStep 看到 Steps == legacyTriggerSteps 時記下暫存器。

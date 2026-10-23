@@ -22,7 +22,7 @@ import (
 
 const (
 	caseHState = "p486/s600.state"
-	caseHSHA   = "2774488e041642b91a4feadc38b2c6b2045dd06b0046071c2c39226fd5901577"
+	caseHSHA   = "1d19139f9c68c109fbb5799956e10d70094dfae895aa3d3147fb0697cc9437eb" // 規格 459 重錄
 	caseHKey   = "Fly mission"
 )
 

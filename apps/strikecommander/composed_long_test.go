@@ -29,7 +29,7 @@ import (
 
 const (
 	caseDState = "p539/s500b.state"
-	caseDSHA   = "0fbe712170ff91b9d83a5346fcaac9f98a5f09ef10b6295d4e6914b51f0d4ee6"
+	caseDSHA   = "d6d9f720eb5c3c778c04577d7e451980b9d0dd2e60991652ed543a5c8b0d29d8" // 規格 459 重錄
 	// caseDStart 是狀態檔的步數（001 §3.3：probe 在第 5000600000 步存的）；只供 TestCaseDScript 驗證腳本。
 	caseDStart = 5000600000
 )
@@ -41,10 +41,12 @@ type caseDWant struct {
 	composed    bool   // 組合標籤（DExactOnly 時 miss）
 }
 
+// 規格 459 重錄：取自 strike_commander workplace/rerec459/census/i013/fly2/census.tsv（082A 鏈的列）。
+// Fly Mission 由 3 次變 4 次：熱點標籤約早 19.3 萬步出現，放開（5004000000）後轉場前多畫一格。
 var caseDWants = []caseDWant{
-	{"Fly Mission", "出擊", 5000833169, 5003149219, 3, false},
-	{"AIM-9J rear aspect missile (42)", "響尾蛇（ＡＩＭ－９Ｊ）：４２", 5601146748, 5619673025, 17, true},
-	{"Remove AIM-9J (2)", "卸下響尾蛇（ＡＩＭ－９Ｊ）：２", 5620831298, 5628940517, 8, true},
+	{"Fly Mission", "出擊", 5000639924, 5004113934, 4, false},
+	{"AIM-9J rear aspect missile (42)", "響尾蛇（ＡＩＭ－９Ｊ）：４２", 5601146764, 5619673050, 17, true},
+	{"Remove AIM-9J (2)", "卸下響尾蛇（ＡＩＭ－９Ｊ）：２", 5620831136, 5628941105, 8, true},
 }
 
 func runCaseD(t *testing.T, overlay, exactOnly bool) *ReceiptResult {

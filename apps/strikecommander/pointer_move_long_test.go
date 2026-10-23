@@ -20,20 +20,23 @@ import (
 //   - 甲：從 p485/s449.state 起跑，停在第 4495000000 步交付移動，再跑到第 4496200000 步。
 //   - 乙：從 p530/s4495b.state（probe 在同一步移動後、第 4495600000 步存的）跑到第 4496200000 步。
 //   - 主斷言：甲的 Indexed 雜湊等於 probe 連續執行的 h.png；移動回合 DOSCallsCommitted 為 1；
-//     甲在第 4496160311 步提交 "Transport to Strike Base"。
+//     甲在第 4495967080 步提交 "Transport to Strike Base"。
 //   - 預期：甲、乙的 Digest 與 DOSMouse 全同。不符只記錄差異欄位，不判失敗。
 //   - 負對照：甲不交付移動，Indexed 必須不同。
 
 const (
 	moveStartState  = "p485/s449.state"
-	moveStartSHA    = "7dff6dd268ef38d04086aeaa3ba22d5e2b23c5dc953de97dfe73fc351b1e47a0"
+	moveStartSHA    = "0e436dd863672caf125af083dde337bfe8fa0373fb8b3ad0cb45976c215623bb" // 規格 459 重錄
 	moveProbeState  = "p530/s4495b.state"
-	moveProbeSHA    = "34c5b2e5a50131cda4537428ad0c1e4d999a3302a6bc6e60c34ba177fc3b48cd"
+	moveProbeSHA    = "68dabab6f62a653e4160d0609ee09fd97aa4e810ac0ce2c5180bd58631cd74dd"
 	moveAt          = 4495000000
 	moveStop        = 4496200000
 	moveDOSX        = 160
 	moveDOSY        = 75
 	moveIndexedWant = "133eaa9464a191e0f71cedf63acce990da37a19eadaa332e425b510f541ad779"
+	// moveCommit 是甲提交 "Transport to Strike Base" 的 blit 入口：規格 459 重錄，取自新 s449 上 probe
+	// -mouse-at 4495000000 -regs-at 3C3C:0000 的連續執行（strike_commander workplace/rerec459/logs/or-ptr.log）。
+	moveCommit = 4495967080
 )
 
 type moveRun struct {
@@ -154,21 +157,21 @@ func TestPointerMoveTrigger(t *testing.T) {
 	}
 	found := false
 	for _, c := range a.commits {
-		if c.BlitEntry != 4496160311 {
+		if c.BlitEntry != moveCommit {
 			continue
 		}
 		found = true
 		if len(c.Labels) != 1 {
-			t.Errorf("第 4496160311 步的提交有 %d 筆標籤，要 1", len(c.Labels))
+			t.Errorf("第 4495967080 步的提交有 %d 筆標籤，要 1", len(c.Labels))
 			break
 		}
 		l := c.Labels[0]
 		if l.Key != "Transport to Strike Base" || l.X0 != 68 || l.X1 != 251 || l.Y != 175 {
-			t.Errorf("第 4496160311 步提交 %q X0 %d X1 %d Y %d，要 \"Transport to Strike Base\" 68 251 175", l.Key, l.X0, l.X1, l.Y)
+			t.Errorf("第 4495967080 步提交 %q X0 %d X1 %d Y %d，要 \"Transport to Strike Base\" 68 251 175", l.Key, l.X0, l.X1, l.Y)
 		}
 	}
 	if !found {
-		t.Error("甲沒有第 4496160311 步的提交")
+		t.Error("甲沒有第 4495967080 步的提交")
 	}
 
 	// 乙與預期：不符只記錄。
