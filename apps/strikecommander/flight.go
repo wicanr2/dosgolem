@@ -192,6 +192,9 @@ type FlightObserver struct {
 	// cu 是 CU 狀態機（規格 012 §3.2.2）；cuh 是它的回呼，第一次用到時建立。
 	cu  cuTracker
 	cuh *cuHooks
+	// onCU 在 CU 追蹤器各回呼的既有處理之後呼叫（strike_commander 規格 014 §3.4.2，只供呈現層）；nil 時行為不變。
+	// 事件的 V 只在這次呼叫內有效（逾時為 nil）。
+	onCU func(cuEvent)
 
 	firstRun   int
 	counts     FlightCounts
@@ -628,17 +631,28 @@ func (o *FlightObserver) cuHooks() *cuHooks {
 			}
 		},
 		// 目的不是 VGA：只計數，不動任何集合（009 §3.6.2）。
-		OnCHNonZero: func(FlightView, uint16) { o.counts.CUCHNonZero++ },
+		OnCHNonZero: func(v FlightView, ip uint16) {
+			o.counts.CUCHNonZero++
+			o.emitCU(cuEvent{Kind: cuEvCHNonZero, IP: ip, V: v})
+		},
 		OnTimeout: func(steps uint64, old cuEntry) {
 			o.counts.Timeouts++
 			o.note(steps, "cu", "第 %d 步的 CU 入口超過 %d 步沒有返回，逾時", old.Steps, cuTimeoutSteps)
+			o.emitCU(cuEvent{Kind: cuEvTimeout, Steps: steps, Entry: old})
 		},
-		OnDuplicate: func(FlightView, uint16, cuEntry) { o.counts.EntriesDuplicate++ },
-		OnVoided: func(v FlightView, _ uint16, old cuEntry) {
+		OnDuplicate: func(v FlightView, ip uint16, cur cuEntry) {
+			o.counts.EntriesDuplicate++
+			o.emitCU(cuEvent{Kind: cuEvDuplicate, IP: ip, Entry: cur, V: v})
+		},
+		OnVoided: func(v FlightView, ip uint16, old cuEntry) {
 			o.counts.EntriesVoided++
 			o.note(v.Steps(), "cu", "第 %d 步的 CU 入口（SS:SP %04X:%04X）沒有返回就有新入口（%04X:%04X），舊的作廢", old.Steps, old.SS, old.SP, v.SS(), v.SP())
+			o.emitCU(cuEvent{Kind: cuEvVoided, IP: ip, Entry: old, V: v})
 		},
-		OnEntryAccepted: o.cuAccept,
+		OnEntryAccepted: func(v FlightView, steps uint64, ip uint16) {
+			o.cuAccept(v, steps, ip)
+			o.emitCU(cuEvent{Kind: cuEvAccepted, IP: ip, Steps: steps, V: v})
+		},
 		OnReturn: func(v FlightView, ip uint16, e cuEntry, out cuReturnOutcome) {
 			if ip == ipCUDiffRet {
 				o.counts.HitRetDiff++
@@ -654,10 +668,39 @@ func (o *FlightObserver) cuHooks() *cuHooks {
 			case cuReturnAccepted:
 				o.counts.ReturnsAccepted++
 			}
+			o.emitCU(cuEvent{Kind: cuEvReturn, IP: ip, Entry: e, Outcome: out, V: v})
 		},
 		OnMU: o.muHit,
 	}
 	return o.cuh
+}
+
+// cuEventKind 是轉送給呈現層的 CU 追蹤器事件種類（strike_commander 規格 014 §3.4.2）。
+type cuEventKind uint8
+
+const (
+	cuEvAccepted  cuEventKind = iota // 被接受的入口（cuAccept 已把待提交轉成候選）
+	cuEvDuplicate                    // 重複入口（不受理）
+	cuEvCHNonZero                    // CH ≠ 0 的入口（不受理）
+	cuEvVoided                       // 進行中的入口被新入口作廢（Entry 是舊入口）
+	cuEvTimeout                      // 進行中的入口逾時（Entry 是舊入口；V 為 nil）
+	cuEvReturn                       // 返回（Outcome 是追蹤器的處理結果）
+)
+
+// cuEvent 是一筆 CU 追蹤器事件。V 只在這次回呼內有效，不得保留。
+type cuEvent struct {
+	Kind    cuEventKind
+	IP      uint16
+	Steps   uint64
+	Entry   cuEntry
+	Outcome cuReturnOutcome
+	V       FlightView
+}
+
+func (o *FlightObserver) emitCU(e cuEvent) {
+	if o.onCU != nil {
+		o.onCU(e)
+	}
 }
 
 // cuAccept 是被接受的 CU 入口（追蹤器改狀態之前呼叫）：009 §3.6.2 動作第 1 到 4 條；第 5 條「記入口」由追蹤器做。

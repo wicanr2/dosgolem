@@ -38,6 +38,10 @@ type SessionObserver struct {
 	// afterStep 在 BeforeStep 的三個 Observe 之後呼叫（strike_commander 規格 014 §4.5 N1 的合成點；只供曝光收據）。可為 nil。
 	afterStep func(steps uint64)
 
+	// present 是規格 014 的呈現層（Presenter.Attach 設定；nil 為不掛）：BeforeStep 在三個 Observe 之後呼叫它的 Observe，
+	// VideoWrite 轉給它，Frame 在 Subtitles.Frame 之後呼叫它的 Frame。nil 時三個回呼的行為與不掛時相同。
+	present *Presenter
+
 	steps uint64
 	// cur 是這一步的 view。BeforeStep 以 &cur 傳給三個觀察器：StepView 是 16 bytes 的值型別，
 	// 直接轉成介面每次都在堆上配置一份（每步三次），指標轉介面不配置（docs/spec/456-sc-observer-view-alloc）。
@@ -91,13 +95,32 @@ func (s *SessionObserver) BeforeStep(v session.StepView) error {
 	if s.Subtitles != nil {
 		s.Subtitles.Observe(p)
 	}
+	if s.present != nil {
+		s.present.Observe(p) // 規格 014 §3.2.1 第 7 條：完成點偵測在三個 Observe 之後
+	}
 	if s.afterStep != nil {
 		s.afterStep(s.steps)
 	}
 	return nil
 }
 
-func (s *SessionObserver) VideoWrite(machine.VideoWrite) {}
+func (s *SessionObserver) VideoWrite(w machine.VideoWrite) {
+	if s.present != nil {
+		s.present.VideoWrite(w)
+	}
+}
+
+// presentObserver 是掛呈現層時交給 session 的觀察器：另實作 ModeObserver，把模式設定轉給呈現層（規格 014 §8）。
+// 不掛呈現層時 session 收到的仍是 *SessionObserver 本身（不實作 ModeObserver），既有收據的接線不變。
+type presentObserver struct{ *SessionObserver }
+
+var _ session.ModeObserver = presentObserver{}
+
+func (o presentObserver) VideoModeChange(c machine.ModeChange) {
+	if o.present != nil {
+		o.present.VideoModeChange(c)
+	}
+}
 
 func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	if s.OnFrame != nil {
@@ -113,6 +136,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	}
 	if s.Subtitles != nil {
 		s.Subtitles.Frame(indexed, s.steps)
+	}
+	if s.present != nil {
+		s.present.Frame(indexed, palette)
 	}
 }
 
@@ -178,6 +204,13 @@ type ReceiptConfig struct {
 	// 結果在 ReceiptResult.Expo。nil 時與現行相同。
 	expo *ExpoConfig
 
+	// Present 開時另掛規格 014 的呈現層（§3.9 D1 丙：預設關；關時不掛，001 到 012 的收據不變）；要 Overlay 開。
+	// 結果在 ShotResult.Presented、ReceiptResult.Presented 與 ReceiptResult.Present。
+	Present    bool
+	presentMut presentMut
+	// machineDigests 開時在每個 shot 與停止點另取 454 的 MachineDigest（規格 014 §4.4 的同狀態 A/B）。
+	machineDigests bool
+
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
 	noBoardCaller bool // 003 §4.2 案例 E 的負對照：只關掉計分板呼叫點（003 §3.1 條件 2）
@@ -224,6 +257,9 @@ type ShotResult struct {
 	// strike_commander 規格 011 §3.8：各倍率的 arts.tsv 內容；掛字幕時各倍率的字幕區檢查。
 	Arts           map[int][]ArtReportEntry
 	SubtitleRegion map[int]SubtitleRegionCheck
+
+	// Presented 是規格 014 §3.9 的呈現合成與差異斷言（ReceiptConfig.Present 開時）。
+	Presented *PresentShot
 }
 
 // FrameMeasure 是 005 §4.4 的量測：每次回掃時以各倍率 Overlay 的 Match 統計「可見集合非空但有標籤不符」的回掃數。
@@ -314,6 +350,13 @@ type ReceiptResult struct {
 
 	// Expo 是 strike_commander 規格 014 §4.2 的曝光收據（ReceiptConfig.expo 非 nil 時）。
 	Expo *ExpoResult
+
+	// 規格 014 §3.9：Present 開時的呈現層與停止點的呈現合成。MachineDigest、ShotMachineDigests 在 machineDigests 開時有值
+	// （§4.4，與 ShotDigests 平行）。
+	Present            *Presenter
+	Presented          *PresentShot
+	MachineDigest      session.FullDigest
+	ShotMachineDigests []session.FullDigest
 }
 
 // FlightCUFrame 是 CU 期間的一次回掃（009 §4.2 的「CU 期間比對不符筆數（逐次）」）。
@@ -487,6 +530,24 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 			}
 			res.Expo = expo.res
 		}
+		if cfg.Present {
+			// 規格 014 §8：呈現層在既有接線（AttachOverlays、收據、曝光收據）之後串接；session 改收 presentObserver
+			// （多實作 ModeObserver）。
+			pr, err := NewPresenter(PresenterConfig{Fonts: cfg.Fonts, Catalog: cfg.Catalog, GfxCatalog: cfg.GfxCatalog,
+				FlightCatalogs: cfg.FlightCatalogs, Scales: cfg.Scales, Subtitles: cfg.Subtitles && !cfg.SubtitlesOff,
+				Receipt: true, exactOnly: cfg.exactOnly, mut: cfg.presentMut})
+			if err != nil {
+				return nil, err
+			}
+			pr.Attach(so)
+			res.Present = pr
+			obs = presentObserver{so}
+			if expo != nil {
+				expo.attachPresenter(pr)
+			}
+		}
+	} else if cfg.Present {
+		return nil, errors.New("strikecommander: 呈現層要 Overlay 開")
 	} else if cfg.Subtitles {
 		return nil, errors.New("strikecommander: 字幕要 Overlay 開")
 	} else if cfg.expo != nil {
@@ -630,6 +691,13 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				return res, err
 			}
 			res.ShotDigests = append(res.ShotDigests, d)
+			if cfg.machineDigests {
+				md, err := o.MachineDigest()
+				if err != nil {
+					return res, err
+				}
+				res.ShotMachineDigests = append(res.ShotMachineDigests, md)
+			}
 			// 3. shot：只在 Overlay 開時出圖；關時只切分推進，與開的那次相同。
 			if !cfg.Overlay {
 				continue
@@ -662,11 +730,19 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				res.SubShots = append(res.SubShots, ss)
 				sr.SubtitleRegion = region
 			}
+			if res.Present != nil {
+				sr.Presented = res.Present.shotCheck(sr.Composites) // 規格 014 §3.9
+			}
 			res.Shots = append(res.Shots, sr)
 		}
 	}
 	if res.Digest, err = o.Digest(); err != nil {
 		return res, err
+	}
+	if cfg.machineDigests {
+		if res.MachineDigest, err = o.MachineDigest(); err != nil {
+			return res, err
+		}
 	}
 	if expo != nil {
 		expo.finish(res.Digest)
@@ -708,6 +784,9 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	}
 	if so.Subtitles != nil {
 		_, res.StopSubtitleRegion = drawSubtitlesChecked(so.Subtitles, cfg.Scales, res.Composites)
+	}
+	if res.Present != nil {
+		res.Presented = res.Present.shotCheck(res.Composites) // 規格 014 §3.9
 	}
 	return res, nil
 }

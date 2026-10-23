@@ -81,7 +81,10 @@ type ExpoCapture struct {
 	Exposed    map[int]int // 各倍率有露出的條目數
 	Cached     bool        // 與上一個合成點的輸入完全相同，沿用判定
 	NoFrame    bool
-	FrameSteps uint64 // 最後一次回掃的步數
+	FrameSteps uint64 // 最後一次回掃的步數（呈現層：呈現像的取像步數）
+	// Seq、Kind 是呈現層的呈現像（基線為 0、空字串）。
+	Seq  uint64
+	Kind PresentKind
 }
 
 // ExpoExposure 是一個合成點、一個倍率、一個台帳條目的露出。
@@ -97,6 +100,7 @@ type ExpoExposure struct {
 	Visible    int    // 呈現像色號等於記錄色的點數
 	Exposed    int    // 在畫面上、不照畫的點數
 	Cursor     int    // 其中落在游標範圍的點數
+	Trail      int    // 其中不在游標範圍、落在游標殘跡欄的點數（§4.2.2 分類 3，第 10 版）
 	// ExposedLit 是照字面規則（區塊內合成圖與原版放大圖至少一點不同）的露出點數。文字 stamp 的筆畫色常與英文墨跡同色
 	// （標籤白字 15、飛行字色取英文墨跡眾數），s×s 區塊整塊被同色筆畫蓋住時字面規則會誤判露出；Exposed 另把「台帳自有
 	// 實例回報照畫的遮蓋範圍內」的區塊算進「與原版不同」（見 judgeEntry）。兩者並列，供主代理審查。
@@ -126,6 +130,7 @@ type LedgerEntry struct {
 // ExpoResult 是曝光收據。
 type ExpoResult struct {
 	Mut         string
+	Present     bool // 判定用呈現層的呈現像（分期 (c)）；假為基線（現行合成）
 	Captures    []ExpoCapture
 	Exposures   []ExpoExposure
 	Ledger      []LedgerEntry
@@ -222,6 +227,17 @@ type expoLedger struct {
 	plates      int
 
 	cursor *Point
+	// trail 是游標殘跡欄（§4.2.2 分類 3，第 10 版）：自上次對話框重畫（k0、主選單底板的 shape 入口）以來，
+	// 游標繪製（OnCursor）的 11×11 矩形覆蓋過的欄。TOMENU 底板沒有觀察事件（只有按鈕檔有雜湊），不重設。
+	trail [320]bool
+}
+
+// cursorAt 記游標位置並把它覆蓋的欄加入游標殘跡欄。
+func (l *expoLedger) cursorAt(x, y int) {
+	l.cursor = &Point{x, y}
+	for c := max(x-5, 0); c < min(x+6, 320); c++ {
+		l.trail[c] = true
+	}
 }
 
 // add 加入一筆條目：已有逐點相同的條目時不變；否則移除墨跡外接框重疊的舊條目（被同位置新條目取代），再加入。
@@ -404,6 +420,9 @@ func (l *expoLedger) onArt(ev ArtEvent) {
 // onShapeArt：圖形字的墨跡（§4.2.2 表第 2 到 4 列）。
 func (l *expoLedger) onShapeArt(steps uint64, kind ArtFile, file []byte, e, x, y int) {
 	l.lastKind, l.lastFile, l.lastE = kind, file, e
+	if (kind == ArtSaveLoad && e%saveLoadGroup == 0 && e/saveLoadGroup < 3) || (kind == ArtMainMenuPlate && e == 0) {
+		l.trail = [320]bool{} // 對話框重畫：游標殘跡欄重設
+	}
 	switch kind {
 	case ArtSaveLoad:
 		l.saveLoadInk(steps, file, e, x, y)
@@ -764,7 +783,12 @@ type expoKey struct {
 	ver, lsg, lfg    uint64
 	cursorX, cursorY int
 	moveX, moveY     int
+	seq              uint64
+	trail            [320]bool
 }
+
+// usePres 回判定是否用呈現層的呈現像（掛了呈現層且不是 N1）。
+func (x *expoRun) usePres() bool { return x.pres != nil && x.mut&expoMutN1 == 0 }
 
 // expoRun 是一次收據執行的曝光收據狀態。
 type expoRun struct {
@@ -797,7 +821,38 @@ type expoRun struct {
 
 	dumpAt  []uint64
 	dumpDir string
+
+	// pres 非 nil 時（規格 014 分期 (c)）判定改用呈現層的呈現像（§4.2.1）：合成點判目前呈現像，另在每個呈現像產生時
+	// 判一次（窮舉模式，phase −2）。N1 模式不用呈現層（照現行合成）。
+	pres *Presenter
 }
+
+// attachPresenter 讓曝光收據改判呈現層的呈現像（§4.2.1 窮舉模式）。
+func (x *expoRun) attachPresenter(p *Presenter) {
+	x.pres = p
+	x.res.Present = true
+	if x.mut&expoMutN1 != 0 {
+		return
+	}
+	// 呈現層在 CU 入口以候選集合取像（§3.3.1 第 3 條），早於升格。台帳自有的 FlightOverlay 原本在升格時才收集合，
+	// CU 入口的呈現像會因台帳實例缺新字串而把照畫的中文誤判成露出；所以呈現層模式下台帳另在 CU 入口收候選
+	// （觀察事件：cuAccept 剛轉入的 Candidates()，同位置取代），升格時照舊。基線（現行合成）不收，數字不變。
+	if f := x.flight; f != nil {
+		prev := f.onCU
+		f.onCU = func(e cuEvent) {
+			if e.Kind == cuEvAccepted {
+				x.led.onFlightCommit(f.Candidates())
+			}
+			if prev != nil {
+				prev(e)
+			}
+		}
+	}
+	p.OnCapture(func(info PresentInfo) { x.judge(info.CaptureSteps, expoPhaseCapture) })
+}
+
+// expoPhaseCapture 是窮舉模式（呈現像產生時）的判定在 ExpoCapture.Phase 的值。
+const expoPhaseCapture = -2
 
 // attachExpo 建呈現用（現行合成）與台帳的實例，串接既有回呼（不取代）。
 func attachExpo(cfg ReceiptConfig, so *SessionObserver, obsOvs map[int]*Overlay, obsFovs map[int]*FlightOverlay, lastMove **Point) (*expoRun, error) {
@@ -869,7 +924,7 @@ func attachExpo(cfg ReceiptConfig, so *SessionObserver, obsOvs map[int]*Overlay,
 		x.led.onShapeArt(steps, kind, file, e, xx, yy)
 	}
 	lo.OnCursor = func(_ uint64, xx, yy int) {
-		x.led.cursor = &Point{xx, yy}
+		x.led.cursorAt(xx, yy)
 	}
 	if f := x.flight; f != nil {
 		fc := f.OnCommit
@@ -938,7 +993,10 @@ func (x *expoRun) afterStep(steps uint64) {
 
 func (x *expoRun) key() expoKey {
 	k := expoKey{frames: x.so.Frames, events: x.events, lgen: x.lo.Generation(), commits: x.lo.Commits(),
-		ver: x.led.ver, lsg: x.led.labelGen, lfg: x.led.flightGen, cursorX: -1, cursorY: -1, moveX: -1, moveY: -1}
+		ver: x.led.ver, lsg: x.led.labelGen, lfg: x.led.flightGen, cursorX: -1, cursorY: -1, moveX: -1, moveY: -1, trail: x.led.trail}
+	if x.usePres() {
+		k.seq = x.pres.Current().Seq
+	}
 	if x.flight != nil {
 		k.fgen, k.promotions = x.flight.Generation(), x.flight.Counts().Promotions
 	}
@@ -955,6 +1013,15 @@ func (x *expoRun) key() expoKey {
 func (x *expoRun) judge(steps uint64, phase int) {
 	cp := ExpoCapture{Phase: phase, Steps: steps, Frames: x.so.Frames, Exposed: map[int]int{}, FrameSteps: x.frameSteps}
 	idx, pal := x.so.LastIndexed, x.so.LastPalette
+	var img *presentImage
+	if x.usePres() {
+		img = x.pres.cur
+		idx = nil
+		if img != nil {
+			idx, pal = img.indexed, img.palette
+			cp.FrameSteps, cp.Seq, cp.Kind = img.info.CaptureSteps, img.info.Seq, img.info.Kind
+		}
+	}
 	if idx == nil {
 		cp.NoFrame = true
 		x.res.Captures = append(x.res.Captures, cp)
@@ -1017,7 +1084,13 @@ func (x *expoRun) judge(steps uint64, phase int) {
 			cur = m
 		}
 		for _, sc := range x.scales {
-			comp, plain := x.presentCompose(sc, idx, pal)
+			var comp, plain []byte
+			if img != nil {
+				// 呈現層：以呈現像凍結的集合合成（不畫字幕：字幕只在全黑的字幕帶，不影響墨跡判定）。
+				comp, plain = x.pres.composeImage(img, sc, false), ScaleIndexedRGBA(idx, pal, sc)
+			} else {
+				comp, plain = x.presentCompose(sc, idx, pal)
+			}
 			lc, cover := x.ledgerCompose(sc, idx, pal)
 			if sc == 3 && len(x.dumpAt) != 0 && steps >= x.dumpAt[0] && x.dumpDir != "" {
 				x.dumpAt = x.dumpAt[1:]
@@ -1035,7 +1108,7 @@ func (x *expoRun) judge(steps uint64, phase int) {
 				if e.hud && sc != 3 {
 					continue // HUD 中文只在 3 倍（AGENTS §2 2026-10-20）
 				}
-				ex := judgeEntry(e, idx, &pal, sc, comp, plain, lc, cur, cover)
+				ex := judgeEntryTrail(e, idx, &pal, sc, comp, plain, lc, cur, cover, &x.led.trail)
 				if ex.Exposed == 0 && ex.ExposedLit == 0 {
 					continue
 				}
@@ -1045,18 +1118,7 @@ func (x *expoRun) judge(steps uint64, phase int) {
 					ex.CurX, ex.CurY = cur.X, cur.Y
 				}
 				ex.Gone = (e.kind == ledLabel || e.kind == ledBoard) && !vis[e.key]
-				switch {
-				case ex.Exposed == 0:
-					ex.Class = "僅字面"
-				case ex.Cursor == ex.Exposed:
-					ex.Class = "游標"
-				case e.group2 || miss[e.key]:
-					ex.Class = "未覆繪"
-				case ex.Contrast == 0:
-					ex.Class = "色盤不可見"
-				default:
-					ex.Class = "其他"
-				}
+				ex.Class = expoClass(ex, e.group2 || miss[e.key], img != nil && img.info.Kind == PresFallback)
 				exps = append(exps, ex)
 				if ex.Exposed > 0 {
 					cp.Exposed[sc]++
@@ -1067,6 +1129,29 @@ func (x *expoRun) judge(steps uint64, phase int) {
 	x.res.Captures = append(x.res.Captures, cp)
 	x.res.Exposures = append(x.res.Exposures, exps...)
 	x.lastCap, x.lastExp = cp, exps
+}
+
+// expoClass 是 §4.2.2 的分類（第 10 版，依序）：色盤不可見 → 游標 → 游標殘跡 → 未覆繪 → 退路 → 其他；
+// 只有字面規則判露出的記「僅字面」。
+//
+// 「色盤不可見」仍以露出點的八鄰點判（Contrast == 0）。§4.2.2「待 (c) 動工前定案的改進規則」（看墨跡點與標籤框外
+// 背景的對比）只寫了方向，沒有寫背景取哪些像素與門檻，分期 (c) 未實作，照規格「定案前照實列出」。
+func expoClass(ex ExpoExposure, unpainted, fallback bool) string {
+	switch {
+	case ex.Exposed == 0:
+		return "僅字面"
+	case ex.Contrast == 0:
+		return "色盤不可見"
+	case ex.Cursor == ex.Exposed:
+		return "游標"
+	case ex.Trail > 0 && ex.Cursor+ex.Trail == ex.Exposed:
+		return "游標殘跡"
+	case unpainted:
+		return "未覆繪"
+	case fallback:
+		return "退路"
+	}
+	return "其他"
 }
 
 // onScreen 是判定第 1 條：墨跡點中呈現像色號等於記錄色的點數 ≥ max(4, 墨跡點數的一半)。
@@ -1085,6 +1170,11 @@ func onScreen(e *ledgerEntry, idx []byte) bool {
 // cover（nil 或長度 64000）是台帳自有實例照畫的範圍（1 倍像素，ledgerCover）：p 落在其中時「與原版不同」改為成立
 // （文字：同色筆畫整塊蓋住英文墨跡；圖面：該欄 stamp 的無字底與原版同色，墨跡點本來就與周圍同色），其餘照字面（Exposed）。
 func judgeEntry(e *ledgerEntry, idx []byte, pal *[256][3]uint8, sc int, comp, plain, lc []byte, cur *Point, cover []bool) ExpoExposure {
+	return judgeEntryTrail(e, idx, pal, sc, comp, plain, lc, cur, cover, nil)
+}
+
+// judgeEntryTrail 同 judgeEntry；trail（可為 nil）是游標殘跡欄：圖面條目的露出點不在游標範圍、而所在欄屬於它時記入 Trail。
+func judgeEntryTrail(e *ledgerEntry, idx []byte, pal *[256][3]uint8, sc int, comp, plain, lc []byte, cur *Point, cover []bool, trail *[320]bool) ExpoExposure {
 	ex := ExpoExposure{Entry: e.id, Kind: e.kind, Key: e.key, EntrySteps: e.steps, Ink: len(e.pts)}
 	W := 320 * sc
 	type cv struct{ same, differ bool }
@@ -1119,10 +1209,15 @@ func judgeEntry(e *ledgerEntry, idx []byte, pal *[256][3]uint8, sc int, comp, pl
 		if pal != nil && contrast(idx, pal, x, y) {
 			ex.Contrast++
 		}
+		inCur := false
 		if cur != nil && x >= cur.X-5 && x < cur.X+6 {
 			if (e.art && cur.Y-5 < e.by1 && e.by0 < cur.Y+6) || (!e.art && y >= cur.Y-5 && y < cur.Y+6) {
 				ex.Cursor++
+				inCur = true
 			}
+		}
+		if !inCur && e.art && trail != nil && trail[x] {
+			ex.Trail++
 		}
 	}
 	return ex
@@ -1312,24 +1407,25 @@ func (r *ExpoResult) Summary() []ExpoSummary {
 }
 
 // WriteExpoFiles 寫 §4.2.5 的檔到 dir（新目錄）：exposure.tsv、captures.tsv、ledger.tsv、counts.txt、digest.txt；
-// windows.tsv、unattributed.tsv、stale.tsv 在基線不適用，只寫說明列。
-func WriteExpoFiles(dir string, r *ExpoResult) error {
+// windows.tsv、unattributed.tsv、stale.tsv 在基線（p 為 nil）不適用，只寫說明列；p 非 nil 時由呈現層寫，另加
+// captures-present.tsv、cu.tsv、present-counts.txt。
+func WriteExpoFiles(dir string, r *ExpoResult, p *Presenter) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	var b bytes.Buffer
-	b.WriteString("phase\tsteps\tscale\tentry\tkind\tkey\tentry_steps\tclass\tink\tvisible\texposed\tcursor\tgone\texposed_lit\tcontrast\tex_x0\tex_y0\tex_x1\tex_y1\tcur_x\tcur_y\n")
+	b.WriteString("phase\tsteps\tscale\tentry\tkind\tkey\tentry_steps\tclass\tink\tvisible\texposed\tcursor\tgone\texposed_lit\tcontrast\tex_x0\tex_y0\tex_x1\tex_y1\tcur_x\tcur_y\ttrail\n")
 	for _, e := range r.Exposures {
-		fmt.Fprintf(&b, "%d\t%d\t%d\t%d\t%s\t%s\t%d\t%s\t%d\t%d\t%d\t%d\t%t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", e.Phase, e.Steps, e.Scale, e.Entry, e.Kind, tsvSafe(e.Key), e.EntrySteps, e.Class, e.Ink, e.Visible, e.Exposed, e.Cursor, e.Gone, e.ExposedLit,
-			e.Contrast, e.ExX0, e.ExY0, e.ExX1, e.ExY1, e.CurX, e.CurY)
+		fmt.Fprintf(&b, "%d\t%d\t%d\t%d\t%s\t%s\t%d\t%s\t%d\t%d\t%d\t%d\t%t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", e.Phase, e.Steps, e.Scale, e.Entry, e.Kind, tsvSafe(e.Key), e.EntrySteps, e.Class, e.Ink, e.Visible, e.Exposed, e.Cursor, e.Gone, e.ExposedLit,
+			e.Contrast, e.ExX0, e.ExY0, e.ExX1, e.ExY1, e.CurX, e.CurY, e.Trail)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "exposure.tsv"), b.Bytes(), 0o644); err != nil {
 		return err
 	}
 	b.Reset()
-	b.WriteString("phase\tsteps\tframes\tframe_steps\ton_screen\texposed_2x\texposed_3x\tcached\tno_frame\n")
+	b.WriteString("phase\tsteps\tframes\tframe_steps\ton_screen\texposed_2x\texposed_3x\tcached\tno_frame\tseq\tkind\n")
 	for _, c := range r.Captures {
-		fmt.Fprintf(&b, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%t\t%t\n", c.Phase, c.Steps, c.Frames, c.FrameSteps, c.OnScreen, c.Exposed[2], c.Exposed[3], c.Cached, c.NoFrame)
+		fmt.Fprintf(&b, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%t\t%t\t%d\t%s\n", c.Phase, c.Steps, c.Frames, c.FrameSteps, c.OnScreen, c.Exposed[2], c.Exposed[3], c.Cached, c.NoFrame, c.Seq, c.Kind)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "captures.tsv"), b.Bytes(), 0o644); err != nil {
 		return err
@@ -1348,6 +1444,9 @@ func WriteExpoFiles(dir string, r *ExpoResult) error {
 	if err := os.WriteFile(filepath.Join(dir, "digest.txt"), DigestText(r.Digest), 0o644); err != nil {
 		return err
 	}
+	if p != nil {
+		return p.WriteFiles(dir, func(name string, b []byte) error { return os.WriteFile(filepath.Join(dir, name), b, 0o644) })
+	}
 	na := "# 基線（現行合成）不適用：窗、未歸屬寫入、陳舊斷言在呈現層（分期 (c)、(f)）才有\n"
 	for _, n := range []string{"windows.tsv", "unattributed.tsv", "stale.tsv"} {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte(na), 0o644); err != nil {
@@ -1362,8 +1461,12 @@ func tsvSafe(s string) string { return strings.NewReplacer("\t", " ", "\n", " ")
 // CountsText 是 counts.txt 的內容。
 func (r *ExpoResult) CountsText() []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "呈現：基線（現行合成）；突變：%s\n", r.Mut)
-	fmt.Fprintf(&b, "合成點間隔 %d 步、%d 相位（φ = 0、48125、96250、144375；phase −1 為 N1 事件合成點）\n", expoInterval, expoPhases)
+	pres := "基線（現行合成）"
+	if r.Present {
+		pres = "呈現層（分期 (c)；N1 時仍為現行合成）"
+	}
+	fmt.Fprintf(&b, "呈現：%s；突變：%s\n", pres, r.Mut)
+	fmt.Fprintf(&b, "合成點間隔 %d 步、%d 相位（φ = 0、48125、96250、144375；phase −1 為 N1 事件合成點，−2 為呈現像產生時的窮舉判定）\n", expoInterval, expoPhases)
 	byPh := map[int][3]int{} // 合成點數、有條目在畫面上、沿用
 	for _, c := range r.Captures {
 		v := byPh[c.Phase]
@@ -1434,7 +1537,11 @@ func (r *ExpoResult) CountsText() []byte {
 	}
 	fmt.Fprintf(&b, "標籤消失的露出（標籤、計分板條目的 Key 不在可見集合；N8 的量測）：%d\n", gone)
 	fmt.Fprintf(&b, "台帳條目 %d；主選單底板入口 %d；讀取器 TRE %q；讀取器錯誤 %q\n", len(r.Ledger), r.PlateEvents, r.ReaderTRE, r.ReaderErr)
-	b.WriteString("不適用（基線）：退路、陳舊、RecaptureMismatch、QueueOverflow、WindowTimeout、ModeTimeout、DuplicateEntry、WindowSkipped、CUResidue、StaleAfterCUVoid（呈現層分期 (c) 以後才有）\n")
+	if r.Present {
+		b.WriteString("呈現層的陳舊斷言與異常計數見 present-counts.txt\n")
+	} else {
+		b.WriteString("不適用（基線）：退路、陳舊、RecaptureMismatch、QueueOverflow、WindowTimeout、ModeTimeout、DuplicateEntry、WindowSkipped、CUResidue、StaleAfterCUVoid（呈現層分期 (c) 以後才有）\n")
+	}
 	for _, e := range r.Errors {
 		fmt.Fprintf(&b, "錯誤：%s\n", e)
 	}
