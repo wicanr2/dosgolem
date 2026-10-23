@@ -4,6 +4,7 @@
 日期：2026-10-16
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（第 2 版）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)、
 [`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md)、[`436-tss-task-return-v86-entry`](436-tss-task-return-v86-entry.md)
+修訂：§2.1 外部中斷列另依 444 加 IRQ7；§2.1 外部中斷列、§4、§5 測試清單、§7 第 6 項依 [`459`](459-mouse-irq12-v86-delivery.md) §7.2 修訂（2026-10-23）。各註「由 444 修訂」「由 459 修訂」。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。JEMM 位址為 img 位移；`X` 為 XMS 區塊線性位址（本案 `110000h`）。
 JEMM 的路徑分析出自 `strike_commander` 的 `workplace/re/jemm-api/img.dis` 靜態反組譯（本機），推論等級逐項標示。
@@ -40,7 +41,7 @@ JEMM 的路徑分析出自 `strike_commander` 的 `workplace/re/jemm-api/img.dis
 | 軟體中斷 | V86 的 `CD nn`（§4 的服務層例外除外） | nn | 無 | IOPL<3 改送 `#GP(0)`（`cpu.cpp:1302-1309`） | 閘 DPL < 3 改送 `#GP(nn*8+2)`（`1317-1320`） | 下一道 |
 | `INTO`（`CE`，OF=1） | | 4 | 無 | 有 | 有 | 下一道 |
 | `INT 3`（`CC`） | | 3 | 無 | 無（`prefix_none.h:1054` 的 `NoIOPLCheck`） | 有 | 下一道 |
-| 外部中斷 | IRQ0（`tick`）、IRQ1（`keyTick`、`timedKeyTick`）、IRQ7（444 的 IRQ7 分支，選項開啟時；由 444 修訂） | `08h`、`09h`、`0Fh` | 無 | 無 | 無 | 遞送當下的 `IP` |
+| 外部中斷 | IRQ0（`tick`）、IRQ1（`keyTick`、`timedKeyTick`）、IRQ7（444 的 IRQ7 分支，選項開啟時；由 444 修訂）、IRQ12（`tick` 的 `mouseIRQ12`，保護模式剖面；由 459 修訂，2026-10-23） | `08h`、`09h`、`0Fh`、`74h` | 無 | 無 | 無 | 遞送當下的 `IP` |
 | `#DE` | 除以零、商溢位（16、32 位元，含 `AAM 0`） | 0 | 無 | 無 | 無 | 指令起點（含前綴） |
 | `#BR` | `BOUND` 越界 | 5 | 無 | 無 | 無 | 指令起點 |
 | `#GP(0)` | IOPL<3 的 `cli`、`sti`、`pushf`、`popf`、`iret`；`hlt`；特權指令（433 以 `Sys.User()` 判定者：`mov crN`、`mov drN`、`lgdt`、`lidt`、`lmsw`、`clts`）；I/O 點陣圖拒絕 | 13 | 0 | 無 | 無 | 指令起點 |
@@ -124,6 +125,7 @@ V86 下執行 `CD nn`、`CC`、`CE` 時，`doInt` 的流程為：**先呼叫 `In
 
 服務層的條件只寫在 `internal/dos` 的 `handle` 一處：開頭加上「`d.M.VM()` 為真且本道指令的 `CS`（`c.Op()` 的段值）不等於 `StubSeg` 時回 false」，
 其餘沿用現行判斷（IVT[nn] 的段值為 `StubSeg` 或 `fromOwnStub`，`dos.go` 約 686–729 行）。比較的是段暫存器值，不是線性位址。
+保護模式剖面的 `int FBh`、`int FCh` 在這個條件之前另以指令位址判斷接手（459 §3.6；`internal/dos/dos.go:765-778`，以 `5b88abd` 為準）。（由 459 修訂，2026-10-23）
 `dpmi_real_mode.go`、`le_real_irq7.go`、`cmd/shots` 等其他 `IntHook` 使用者的 `Sys` 為 nil，不受影響。
 
 理由：StubSeg 代表 BIOS／DOS 的實作。真機上 BIOS 與 DOS 的程式碼在 V86 下原生執行，dosgolem 以 `CD nn` 陷入代替那些程式碼，所以 StubSeg 內的陷入不經 JEMM。
@@ -138,7 +140,7 @@ stub `0080:0420` 內的 `INT 1Ch` 在遊戲掛了 1Ch 時）。
 | 讀 IVT | `handle` 與 `keyTick`、`timedKeyTick` 一律以 `ReadSup16` 讀（宿主存取，不受 V86 的使用者分頁權限影響）；profile 關閉時等同現行 |
 | 阻塞型服務（`int 21h AH=01/07/08` 等） | 照舊以 `Rewind` 退回 `CD` 起點；下一步重新判斷，仍由服務層處理 |
 | 埠 `60h` | JEMM 的 IRQ1 路徑在反射前 `in al,60h`；現行讀埠 `60h` 直接回 `kbdData`、不消耗（`machine.go` 約 1096 行），維持現況並加回歸測試 |
-| `startCallback`、`periodic` 的 `FarCall` | V86 下照常執行（以 V86 的 `SS:SP` 推入，段值×16）；分段模式下照 434 延後。436 §4 的 V86 延後取消，`tick` 的閘門改為 `!segmented` |
+| `startCallback`、`periodic` 的 `FarCall` | V86 下照常執行（以 V86 的 `SS:SP` 推入，段值×16）；分段模式下照 434 延後。436 §4 的 V86 延後取消，`tick` 的閘門改為 `!segmented`。保護模式剖面的滑鼠事件不走 `startCallback`，改經 IRQ12 遞送（459 §3.4；`internal/machine/machine.go:1775`，以 `5b88abd` 為準）；`periodic` 不變（由 459 修訂，2026-10-23） |
 | 第二道防線 | `Interrupt` 在 V86 仍失敗即關閉（V86 不得走 IVT 直送）；`FarCallWithReturn` 的 V86 條件移除 |
 
 ## 5. 改動點
@@ -161,6 +163,10 @@ stub `0080:0420` 內的 `INT 1Ch` 在遊戲掛了 1Ch 時）。
 那段（改為期待 `ErrV86Event`、`IP` 回起點、未動 I/O；`FarCallWithReturn` 在 V86 不再失敗）；`internal/machine/v86gate_test.go` 的 `TestV86IRQ0Gate`、
 `TestV86KeyIRQGate` 與回呼延後段（改為期待遞送與照常執行）；`internal/machine/sysinsn_test.go` 的 `TestSysPrivilegedInUserMode`（改為期待 `#GP(0)` 事件）。
 重構 `ivtGuard` 後重跑 434 的 `segmode_test`、`TestIVTGuardCPU`、`TestIVTGuardIRQ`。
+
+保護模式剖面的 V86 滑鼠回呼改由 459 處理（459 §3）。`v86gate_test.go` 的 `TestV86CallbacksDeferred` 與 `v86deliver_test.go` 的 `TestV86CallbacksRun`
+建的機器開了剖面、沒有服務層，459 之後的期望是：分段模式下延後不消耗（不變）；V86 下 `Step` 回 459 §3.4 條件 1a 的「IRQ12 樁需要服務層」錯誤，不直接遠呼叫。
+IDT 向量 `74h` 的送達與回呼執行在有服務層的夾具驗（459 §6.2 第 2 項）。`periodic` 的期望不變。（由 459 修訂，2026-10-23）
 
 ## 6. 不在範圍
 
@@ -187,7 +193,7 @@ V86 的 x87 與 `#UD`；中斷遮蔽（436 §4 的刻意差異維持）。JEMM �
    的位元組不變；阻塞服務 `Rewind` 時不回寫。
 5. 服務層條件：`CS`≠StubSeg 時不服務；IVT[nn] 不指 StubSeg 時 StubSeg 內的 `CD nn` 經 IDT；`fromOwnStub` 情形由服務層處理；阻塞服務的 `Rewind` 重跑仍由服務層處理；
    讀埠 `60h` 兩次得到同一值。
-6. 回呼：V86 下 `startCallback`、`periodic` 照常執行；分段模式下延後不消耗。
+6. 回呼：V86 下 `startCallback`、`periodic` 照常執行；分段模式下延後不消耗。保護模式剖面的滑鼠回呼不走 `startCallback`，V86 下的驗收改依 459 §6.2 第 2、5、19 項與 §5 末段的新期望（由 459 修訂，2026-10-23）。
 7. 效能：profile 關閉的 `BenchmarkStepRealMode` 與本規格動工前的 commit 交錯比較（431 §7）；`BenchmarkStepV86Paged` 不低於 11.58 M 道／秒。照實記錄。
 8. 突變自檢：服務層條件不看 `CS`、關掉 `doInt` 的 V86 分支（往返測試必須失敗）、軟體中斷不做 DPL 檢查、`INT 3` 做 IOPL 檢查、框架少推資料段、
    `#GP` 的 `FrameEIP` 用下一道、`#DE` 不還原旗標、不載入 `ESP0` 高半、`iretd` 回 V86 不還原資料段、IRQ0 遞送不清 `IF`、per-vector stub 不寫回旗標、回寫不看 `CS`、事件取走後不清 `c.ev`，

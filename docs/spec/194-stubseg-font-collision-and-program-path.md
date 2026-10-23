@@ -5,6 +5,7 @@
 前置：[`004-dos-bios-services.md`](004-dos-bios-services.md)（服務層與 stub）、
 [`008-wolong-services.md`](008-wolong-services.md)（DOS/V 字型服務）、
 [`003-machine-and-loader.md`](003-machine-and-loader.md)（環境區塊與程式路徑）
+修訂：§1.2 佈局表依 447、430 與 [`459`](459-mouse-irq12-v86-delivery.md) 補列（各註「由 459 修訂」，2026-10-23）。
 
 ---
 
@@ -47,11 +48,16 @@
 | `0x400–0x40F` | 四個 trampoline |
 | `0x410` | 回呼返回哨兵 `CD F9` |
 | `0x414`／`0x418` | DOS/V 字型 entry（`CD F7 CB`、`CD F8 CB`） |
-| `0x420–0x442` | BIOS `int 08h`（35 bytes，含 40:40 馬達倒數） |
+| `0x420–0x442` | BIOS `int 08h`（35 bytes，含 40:40 馬達倒數）；保護模式剖面 `0x420–0x447`（40 bytes，加 EOI，459 §3.3a；由 459 修訂，2026-10-23） |
 | `0x448` | `int 15h AH=C0h` 系統設定表 |
 | `0x450` | InDOS 旗標 |
 | `0x460` | DBCS 前導位元組表 |
 | `0x480` | 國別資訊表 |
+| `0x4B0–0x4B7` | 可掛鉤的 XMS 入口（430 §2.3） |
+| `0x4B8–0x4C5` | BIOS `int 09h` 鍵盤攔截客體碼（447 §2.2，14 bytes）；保護模式剖面 `0x4B8–0x4CA`（19 bytes，加 EOI，459 §3.3a；由 459 修訂，2026-10-23） |
+| `0x4CC–0x4DC`、`0x4DD–0x4E8`、`0x4E9–0x4EC` | IRQ12 樁 `Mouse74Off`、返回樁 `Mouse74RetOff`、使用者回呼返回樁 `MouseUIROff`（只在保護模式剖面寫入，459 §3.6；由 459 修訂，2026-10-23） |
+
+現行佈局以 `internal/machine/machine.go` 的 const 區塊為準（`5b88abd` 的 121–133 行註解與 140–198 行常數）。上界是 `0x4F0`。（由 459 修訂，2026-10-23）
 
 系統設定表一度放在 `0x440`。計時器 stub 從 24 bytes 長到 35 bytes 之後，設定表會蓋到
 stub 結尾，所以挪到 `0x448`。

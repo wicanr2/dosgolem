@@ -4,6 +4,7 @@
 日期：2026-10-16
 前置：[`431-hybrid-cpu-protected-mode`](431-hybrid-cpu-protected-mode.md)（第 2 版）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md)、
 [`433-real-mode-system-instructions`](433-real-mode-system-instructions.md)
+修訂：§5.3 的待處理 IRQ 條件另依 [`459`](459-mouse-irq12-v86-delivery.md) 納入 IRQ12 與在服務閘控（註「由 459 修訂」，2026-10-23）。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。JEMM 位址為 img 位移（`strike_commander` `docs/re/003` §1），
 實模式時 JEMM 映像在段 `2000h`，`2000:xxxx` 的偏移即 img 位址。反組譯在 `strike_commander` 的 `workplace/re/jemm-api/img.dis`（本機）。
@@ -214,6 +215,14 @@ DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/` 下的檔案。
   `VGAFrameEvery` 的幀計數照常（不經 CPU）。
 - 431 §3 的失敗條件：分段模式遇到 `hlt` 失敗即關閉；有待處理 IRQ（`irq0Pending`、鍵盤佇列非空，或 444 開啟時可遞送的 IRQ7：IRR7＝1、ISR7＝0、IMR bit7＝0）
   且 `IF=1` 而連續一百萬步仍在分段模式，失敗即關閉。錯誤字串列出 IRQ7 的 IRR、ISR 與 IMR 位元。（IRQ7 部分由 444 修訂）
+- 保護模式剖面（459 §3.3a、§3.4；由 459 修訂，2026-10-23）：「有待處理 IRQ」只計通過在服務閘控的 IRQ，被 ISR 擋住的 IRQ 不算待處理。
+  - IRQ0：`irq0Pending` 且 ISR0 為 0。
+  - 鍵盤：佇列非空且 ISR0、ISR1 為 0。
+  - IRQ7：`sb8IRQ7Ready()`，已含 ISR0、ISR1、ISR2 為 0。
+  - IRQ12：佇列非空、不在使用者回呼中、ISR0、ISR1、ISR2、ISR4 為 0、從片 IMR bit 4 與主片 IMR bit 2 為 0（`irq12Ready`）。
+  - 錯誤字串另列 ISR0、ISR1、ISR2、ISR4、ISR7、UIR、佇列筆數與從片 IMR。
+  - 位置：`internal/machine/machine.go:1873-1903` 的 `segWait`，條件在 `1879-1883`；`irq12Ready` 在 `pic.go:114-116`。行號以 `5b88abd` 為準。
+  - IRQ12 在分段模式下同樣只延後、不消耗。
 - IRQ7（444 開啟時）：分段模式下同樣只延後、不消耗；IRQ7 分支自己呼叫 `segWait`。444 的 DMA 傳輸與靜音在分段模式下照常到期完成（不經 CPU）。（由 444 修訂）
   計數在離開分段模式或條件不成立時歸零，存在 Machine，不進狀態檔。
 

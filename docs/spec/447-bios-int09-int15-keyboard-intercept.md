@@ -5,6 +5,7 @@
 前置：[`014-hardware-keyboard`](014-hardware-keyboard.md)、[`197-key-hold-and-typematic`](197-key-hold-and-typematic.md)、
 [`202-bios-int09-default-handler`](202-bios-int09-default-handler.md)、[`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md)
 修訂：202 §2「向量 9 指向 stub 時由 `handle` 的 `0x09` 分支翻譯」在本規格選項開啟時不適用（§2.3）。
+本規格 §2.2、§3 第 2 項、§4 依 [`459`](459-mouse-irq12-v86-delivery.md) §3.3a、§7.2 改寫（各註「由 459 修訂」，2026-10-23）：保護模式剖面的客體碼送 EOI。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/` 下的檔案，行號以 DOSBox-X commit `e0b4287` 為準。
 dosgolem 的程式位置以 commit `ee695e9` 為準。推論等級：已證實、強推論、假說、未知。
@@ -74,7 +75,7 @@ skip: cli / mov al,20h / out 20h,al / pop ax / iret
 ### 2.2 客體碼
 
 `StubSeg` 佈局新增具名常數 `KbdInterceptOff = specialStubBase + 0xB8`（`0x4B8`），`machine.go` 的佈局註解表加上 `0x4B8–0x4C5`，
-`internal/dos` 只引用這個名字。寫入 14 bytes：
+`internal/dos` 只引用這個名字。實模式剖面寫入 14 bytes（保護模式剖面的 19 bytes 版本見本節末；由 459 修訂，2026-10-23）：
 
 | 位移 | 位元組 | 指令 |
 |---|---|---|
@@ -93,8 +94,22 @@ skip: cli / mov al,20h / out 20h,al / pop ax / iret
 - 這是 `internal/dos/stub_layout_test.go` 的 `TestFontStubsLeaveVectorStubsIntact`、`TestPerVectorStubsAreNeverOverwritten` 所守不變量
   （舊向量 stub 不被蓋）的唯一例外：被蓋的仍是向量 9 自己的預設行為，chain 回來的程式得到的是更完整的 BIOS 處理。兩個測試只在選項關閉時成立，
   測試內註明。
-- 不送 EOI。dosgolem 一般機器不追蹤 IRQ1 的 ISR，BIOS int 08h 的客體碼（`biosTimerOff`）也不送 EOI；444 的非特定 EOI 會清 ISR7
-  （`sb_dma8.go` 775–797 行），在這裡送會清錯位元。與 DOSBox-X 的差異記在 §4。
+- 實模式剖面不送 EOI。實模式剖面不追蹤 IRQ1 的 ISR，BIOS int 08h 的客體碼（`biosTimerOff`）也不送 EOI；444 的非特定 EOI 會清 ISR7
+  （`sb_dma8.go` 775–797 行），在這裡送會清錯位元。與 DOSBox-X 的差異記在 §4。（由 459 修訂，2026-10-23）
+- 保護模式剖面寫 19 bytes 版本（459 §3.3a）。主片有在服務模型，IRQ1 送達時設 ISR1，所以客體碼要送 EOI。在 `pop ax` 之前加
+  `FA B0 20 E6 20`（`cli; mov al,20h; out 20h,al`，對應 DOSBox-X `CB_IRQ1`，`callback.cpp:462-466`），佔 `0x4B8`–`0x4CA`。
+  `jnc +2` 的目標變成這段 EOI，`CF=0` 與 `CF=1` 兩條路都送。位元組見 `internal/machine/kbdintercept.go:32-45`（以 `5b88abd` 為準）。
+  `EnableKbdIntercept` 依剖面選版本寫入並讀回驗證。（由 459 修訂，2026-10-23）
+
+  | 位移 | 位元組 | 指令 |
+  |---|---|---|
+  | `4B8`–`4C1` | 同上表 | `push ax` 到 `jnc 4C4` |
+  | `4C2` | `CD FA` | `int FAh` |
+  | `4C4` | `FA` | `cli` |
+  | `4C5` | `B0 20` | `mov al,20h` |
+  | `4C7` | `E6 20` | `out 20h,al` |
+  | `4C9` | `58` | `pop ax` |
+  | `4CA` | `CF` | `iret` |
 - 不 `sti`，與 DOSBox-X 相同。
 
 ### 2.3 `int 09h` 與 `int FAh`
@@ -145,6 +160,7 @@ skip: cli / mov al,20h / out 20h,al / pop ax / iret
    - `EnableKbdIntercept` 兩次：記憶體與一次相同；`StubOff(9)` 起 3 bytes 為 `E9 91 04`，`KbdInterceptOff` 起 14 bytes 照 §2.2。
    - 選項關閉：`StubOff(9)` 仍為 `CD 09 CF`，不掛 int 09h 時 IRQ1 不送、`KeyStalls` 增加（現行行為）。
    - 202 的三個測試照舊通過。
+   - 本項是實模式剖面。保護模式剖面的 19 bytes 客體碼、兩條路的 EOI 與佈局由 459 §6.2 第 29、30 項驗收，狀態檔內客體碼的版本比對由第 35 項驗收（由 459 修訂，2026-10-23）。
 3. 單元測試，V86（沿用 `internal/dos/v86_test.go` 的工具），選項開啟：
    - `IVT[15h]` 被 V86 程式掛走時，客體碼的 `int 15h` 交給 CPU 經 IDT 遞送（`handle` 回 false），chain 回 `0080:0408` 時 `fixStackedCF` 寫回 `CF=1`。
    - `int FAh` 在 `cs＝StubSeg` 時被 `handle` 攔下並翻譯。
@@ -161,7 +177,7 @@ skip: cli / mov al,20h / out 20h,al / pop ax / iret
 
 ## 4. 已知限制與差異
 
-- 不送 EOI（§2.2）。程式自己的 int 09h chain 回 BIOS、期待 BIOS 送 EOI 的情形，在 dosgolem 不需要 EOI 也能繼續收 IRQ1。
+- 實模式剖面不送 EOI（§2.2）。程式自己的 int 09h chain 回 BIOS、期待 BIOS 送 EOI 的情形，在實模式剖面不需要 EOI 也能繼續收 IRQ1。保護模式剖面送 EOI，與 DOSBox-X 相同（由 459 修訂，2026-10-23）。
 - 狀態檔存整份記憶體：選項開啟時存下的狀態帶著 §2.2 的客體碼。probe 會擋下選項關閉時讀入（§2.1）；其他前端讀入時按鍵會因 `AH=4Fh` 清 CF 而
   不進緩衝。
 - `-hold` 的 typematic 重複送按下碼（197），BIOS 與 `int 15h` 攔截照真機各收一次。

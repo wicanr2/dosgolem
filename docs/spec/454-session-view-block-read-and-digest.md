@@ -2,6 +2,7 @@
 
 狀態：**READY**（第 6 版；陸空戰將規格 012 的四輪獨立審查一併審過，處置見附錄 A；2026-10-22 轉 READY），已實作（2026-10-23）。實作收據：陸空戰將 repo `workplace/impl458/receipt.md`（§3.1 第 1–11 項、負對照 N1–N6／N8–N15、§3.2 靜態檢查與微基準）；主代理在容器內重跑 machine、session、repolint 套件通過，SingleStepTests 315 PASS，負對照「拿掉 `raiseIRQ` 的送達計數」兩套件皆失敗。實作差異：§2.3 沿用既有 `internal/dos/state_digest.go`；§3.1 第 8 項「轉換開、分頁關」組合因 `SetProtectedModeProfile` 無延伸記憶體時回錯而未測；§3.2 第 2 項比對機器碼時另去掉位元組欄（RIP 相對位移隨符號位置改變）；§3.1 第 4 項 IRQ7 沒有用 452 的 SB16 合成程式，改在觀察點白箱立起 `sb8.irr7`，仍經 `sb8IRQ7 → raiseIRQ` 送達，主代理接受（驗的是送達計數，不是 SB16 時序）。實作收據存於陸空戰將 repo 本機 `workplace/impl458/`（不進版控）
 日期：2026-10-22
+修訂：§2.1 送達來源與設置點、§2.3 已知缺漏表依 [`459`](459-mouse-irq12-v86-delivery.md) §7.2 修訂（各註「由 459 修訂」，2026-10-23）。
 前置：[`006-layering`](006-layering.md)（通用層判準）、[`238-session-step-observer-draft`](238-session-step-observer-draft.md)（逐步觀察器）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md) §5.3、§6（分頁錯誤、觀測轉換）、[`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md) §2.2、§2.4（V86 事件與 IDT 遞送）、[`444-legacy-sb16-dma8-irq7`](444-legacy-sb16-dma8-irq7.md) §2.7（IRQ7、`eventThisStep`）、[`450-session-boot-from-state`](450-session-boot-from-state.md)、[`452-session-sbdma-observer`](452-session-sbdma-observer.md)（選配擴充的寫法）
 使用端：strike_commander 規格 012（`docs/spec/012-strike-3d-hd-rerasterize.md`）
 
@@ -46,11 +47,11 @@ machine 內部欄位 `deliveries uint64`，放在 `Machine` 結構的最後（§
 
 | 來源 | 遞增位置（`07cabfa`） | 呼叫端 |
 |---|---|---|
-| 外部排入的回呼 | `tick` 內 `startCallback()` 回真之後（`machine.go:1631–1632`） | — |
+| 外部排入的回呼 | `tick` 內 `startCallback()` 回真之後（`machine.go:1631–1632`）。只在實模式剖面（保護模式剖面的滑鼠事件改走 IRQ12，計入下一列的硬體 IRQ；由 459 修訂，2026-10-23） | — |
 | 週期遠呼叫 | `tick` 內 `CPU.FarCall(periodic…)` 之前（`machine.go:1640–1642`） | — |
-| 硬體 IRQ | 共用的 `raiseIRQ`（`internal/machine/v86deliver.go:256`）開頭 | IRQ0 `machine.go:1701`、IRQ1 佇列 `keyboard.go:128`、IRQ1 定時鍵 `keyhold.go:234`、IRQ7 `sb_dma8.go:837` |
+| 硬體 IRQ | 共用的 `raiseIRQ`（`internal/machine/v86deliver.go:256`）開頭 | IRQ0 `machine.go:1701`、IRQ1 佇列 `keyboard.go:128`、IRQ1 定時鍵 `keyhold.go:234`、IRQ7 `sb_dma8.go:837`、IRQ12 `tick` 的 `mouseIRQ12`（`mouse_irq12.go:89`，以 `5b88abd` 為準；保護模式剖面，由 459 修訂，2026-10-23） |
 
-- 這三種與 444 §2.7 的 `eventThisStep = true` 六處設置點一一對應（`keyboard.go:127`、`keyhold.go:233`、`machine.go:1632`、`1641`、`1700`、`sb_dma8.go:835`）。完整性驗收：實作者以 `grep -n "eventThisStep = true"` 與 `grep -n "raiseIRQ("` 列出兩組位置，寫進 §5，逐一對上本表。
+- 這三種與 444 §2.7 的 `eventThisStep = true` 設置點一一對應，共七處（`keyboard.go:127`、`keyhold.go:233`、`machine.go:1632`、`1641`、`1700`、`sb_dma8.go:835`，加上 459 的 `mouse_irq12.go:88`；七處由 459 修訂，2026-10-23，新增那一處以 `5b88abd` 為準）。保護模式剖面的 IRQ12 每個滑鼠事件只計 1 次，樁內的 `int FBh`、`int FCh` 與使用者回呼入口不計（459 §6.2 第 12 項）。完整性驗收：實作者以 `grep -n "eventThisStep = true"` 與 `grep -n "raiseIRQ("` 列出兩組位置，寫進 §5，逐一對上本表。
 - 遞增不放在 `commitV86Delivery`：那裡同時遞送 V86 的軟體中斷與例外（435 §2.4），放在那裡會把例外算進去。
 - 不計任何例外。例外是指令本身執行的結果，不是機器在步驟嘗試開始時另外交出控制：
   - V86 下的 `INT n`（`internal/cpu/ops.go:99–104` 判斷 V86，`doInt` 回 `ErrV86Event`），不論 gate DPL 3、0 或 IOPL < 3；
@@ -105,7 +106,7 @@ func StateDigest(r io.Reader) ([32]byte, error)
 | 狀態 | 意義 |
 |---|---|
 | `keyQueue`、`timedKeys` | 待送的按鍵 |
-| `cbQueue`、`cbActive`、`cbSaved`、`cbMade` | 待發與進行中的回呼 |
+| `cbQueue`、`cbActive`、`cbSaved`、`cbMade` | 待發與進行中的回呼。保護模式剖面的 `cbQueue` 與 UIR 進 PM 版本 4，`cbActive`、`cbSaved` 恆為初值（459 §5.1）；該剖面只剩 `cbMade` 不在存檔內（由 459 修訂，2026-10-23） |
 | `periodic` | 週期遠呼叫的設定與下次步數 |
 | `Frames` | 回掃計數 |
 | `CPU.FPUCW` | x87 控制字（`internal/cpu/cpu.go:167`） |

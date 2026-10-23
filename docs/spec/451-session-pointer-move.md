@@ -1,6 +1,7 @@
 # 451：session 的滑鼠移動事件
 
 狀態：**READY**（第 4 版，依三輪審查修訂）
+修訂：§2.6 第三項依 [`459`](459-mouse-irq12-v86-delivery.md) §7.2 限定於實模式剖面；§2.5 補保護模式剖面經 IRQ12（2026-10-23）。
 日期：2026-10-18
 前置：[`199-live-session-api`](199-live-session-api.md)、[`449-session-irq1-scan-channel`](449-session-irq1-scan-channel.md)、
 [`450-session-boot-from-state`](450-session-boot-from-state.md)
@@ -92,13 +93,14 @@ session 的對應做法：
 2. 交付一個 DOS 座標為 (X, Y) 的移動。
 3. 下一次 `Advance` 才往下執行。
 
-兩者在同一個指令邊界呼叫同一個 `MoveMouse`。之後的 `Step` 都從開頭的 `tick` 處理回呼佇列（`internal/machine/machine.go` 1492 到 1496 行）。沒有中斷點時，`RunUntil` 與逐次 `Step` 等價（`internal/machine/probe.go` 168 到 190 行）。觀察器是唯讀的步前掛鉤，不碰滑鼠。`Advance` 先呼叫的 `ScheduleHeldRepeats` 在沒有按住的鍵時不改狀態（449 §2.5）。所以同一起點、同一 S，兩者之後的狀態在 `Digest` 涵蓋的範圍內應相同（強推論；§3.2 驗證）。`Digest` 不含 DOS 滑鼠座標、mickey 與回呼佇列（`session/digest.go` 49 到 73 行），§3.2 另以 §2.4 的 `DOSMouse` 比座標與 mickey。
+兩者在同一個指令邊界呼叫同一個 `MoveMouse`。之後的 `Step` 都從開頭的 `tick` 處理回呼佇列（`internal/machine/machine.go` 1492 到 1496 行）。保護模式剖面的 `tick` 不直接遠呼叫，改拉 IRQ12，事件由 IRQ12 樁內的 `int FBh` 取出（459 §3.4、§3.6；`machine.go:1862-1863`，以 `5b88abd` 為準）。probe 與 session 走同一條路，所以本段的等價論證不變。（459 修訂，2026-10-23）沒有中斷點時，`RunUntil` 與逐次 `Step` 等價（`internal/machine/probe.go` 168 到 190 行）。觀察器是唯讀的步前掛鉤，不碰滑鼠。`Advance` 先呼叫的 `ScheduleHeldRepeats` 在沒有按住的鍵時不改狀態（449 §2.5）。所以同一起點、同一 S，兩者之後的狀態在 `Digest` 涵蓋的範圍內應相同（強推論；§3.2 驗證）。`Digest` 不含 DOS 滑鼠座標、mickey 與回呼佇列（`session/digest.go` 49 到 73 行），§3.2 另以 §2.4 的 `DOSMouse` 比座標與 mickey。
 
 ### 2.6 範圍外
 
 - 右鍵、中鍵、滾輪。
 - 相對移動與 mickey 比例（`dos.MoveMouse` 一個邏輯像素算一個 mickey，維持現狀）。
-- 狀態檔在滑鼠移動後不久存檔，接著跑會跳到 `0000:0000`（strike_commander 規格 001 §4，假說：待送的滑鼠回呼不在狀態檔裡）。另立規格。
+- 實模式剖面：狀態檔在滑鼠移動後不久存檔，接著跑會跳到 `0000:0000`（strike_commander 規格 001 §4，假說：待送的滑鼠回呼不在狀態檔裡）。另立規格。
+  保護模式剖面的回呼佇列與 UIR 存進 PM 版本 4，這個缺漏由 459 處理（459 §5.1）。（459 修訂，2026-10-23）
 - 前端何時送移動（每畫格、只在座標改變時）由前端決定；本規格只定 session 怎麼收。
 
 ## 3. 驗收

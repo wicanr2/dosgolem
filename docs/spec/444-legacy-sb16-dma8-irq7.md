@@ -11,7 +11,8 @@
 [`443-segmented-32bit-code-and-stack`](443-segmented-32bit-code-and-stack.md)。LE 路徑的對照：`242`–`245`、`247`、`296`、`304`、`305`、`309`。
 修訂：434 §5.3、435 §2.1 的對應條文已依本規格改寫（各註「由 444 修訂」）。本規格 §2.2、§2.3、§2.4、§2.8、§2.10、§3.4、§3.11、§4.1、§4.2 已依
 [`445-legacy-sb16-dma8-pause-resume`](445-legacy-sb16-dma8-pause-resume.md) 改寫（各註「由 445 修訂」）；§2.3、§2.10、§3.11、§4.1 另依
-[`446-legacy-sb16-idle-control-and-busy-cycle`](446-legacy-sb16-idle-control-and-busy-cycle.md) 改寫（各註「由 446 修訂」）；§5 收據不動。
+[`446-legacy-sb16-idle-control-and-busy-cycle`](446-legacy-sb16-idle-control-and-busy-cycle.md) 改寫（各註「由 446 修訂」）；§2.6、§2.7、§2.9、§2.10、§3 開頭、§4.1、§4.2 另依
+[`459-mouse-irq12-v86-delivery`](459-mouse-irq12-v86-delivery.md) §7.2 改寫（各註「由 459 修訂」，2026-10-23；459 修訂新增的行號以 `5b88abd` 為準）；§5 收據不動。
 
 DOSBox-X 引用一律指 `DOSBox-X-MCP-Debugger/dosbox-src/src/hardware/` 下的檔案。驅動程式位移為 `B5C5:0000` 起的映像位移（§1.2）。
 程式位置以 commit `71d0d53` 為準。推論等級：已證實、強推論、假說、未知。
@@ -234,7 +235,10 @@ DMA 傳輸（`14h` 與 ADPCM）在下列條件全部成立時回 true；任一�
 
 ### 2.6 PIC 主片
 
-選項開啟時以下列最小模型處理 IRQ7；IRQ0、IRQ1 的閘門（`machine.go` 的 `tick`、`keyboard.go` 的 `keyTick`、`keyhold.go` 的 `timedKeyTick`）不改。
+選項開啟、保護模式剖面關閉時，以下列最小模型處理 IRQ7；IRQ0、IRQ1 的閘門（`machine.go` 的 `tick`、`keyboard.go` 的 `keyTick`、`keyhold.go` 的 `timedKeyTick`）不改。
+保護模式剖面開啟時（不論本選項），PIC 埠另套本節末「保護模式剖面」表的規則，未列者照上表（由 459 修訂，2026-10-23）。
+
+PIC 的狀態（從片 IMR、OCW3 讀取選擇）放在 `Machine`，本選項與保護模式剖面共用一份；IRR7、ISR7 仍在 `sbDMA8`。埠的讀寫由 `internal/machine/pic.go` 的 `picIn`、`picOut` 處理（121–162、179–251 行，以 `5b88abd` 為準）。（由 459 修訂，2026-10-23）
 
 | 項目 | 規則 |
 |---|---|
@@ -250,15 +254,35 @@ DMA 傳輸（`14h` 與 ADPCM）在下列條件全部成立時回 true；任一�
 
 優先序：IRQ0 > IRQ1 > IRQ7，由 `Step` 內的判斷次序實現（§2.7）。
 
-IRQ0、IRQ1 不加 ISR（§4.2 第 7 項）。已知差異：真機上 IRQ0 處理常式在 EOI 之前執行 `sti` 時 IRQ7 被 ISR0 擋住，這裡會被遞送；
-ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真機清 ISR0，這裡清 ISR7。
+只開本選項、保護模式剖面關閉時，IRQ0、IRQ1 不加 ISR（§4.2 第 7 項）。已知差異：真機上 IRQ0 處理常式在 EOI 之前執行 `sti` 時 IRQ7 被 ISR0 擋住，這裡會被遞送；
+ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真機清 ISR0，這裡清 ISR7。這個組合目前沒有正式使用者。（由 459 修訂，2026-10-23）
+
+**保護模式剖面**（459 §3.3、§3.3a；由 459 修訂，2026-10-23）。只列與上表不同或新增的項目：
+
+| 項目 | 規則 |
+|---|---|
+| 適用 | 剖面開啟即啟用 `20h`、`A0h`、`A1h` 的埠模型，與本選項是否開啟無關。本選項開啟時由 `sb8In`／`sb8Out` 轉給 `picIn`／`picOut`；只開剖面時由 `In8`、`Out8` 的埠分支轉給同一組函式（`machine.go:1252-1255`、`1336-1339`）。DMA 埠、`22Ch`、`22Eh` 仍只在本選項開啟時接管 |
+| 主片在服務位元 | 建模 ISR0、ISR1、ISR2 與 ISR7。IRQ0 送達設 ISR0，IRQ1 送達設 ISR1，IRQ12 送達設 ISR2 與從片 ISR4，IRQ7 送達設 ISR7 |
+| `20h` 寫，非特定 EOI | 清 ISR0、ISR1、ISR2、ISR7 中編號最小且為 1 的那一位；都為 0 時不動作（`pic.go:255-272`） |
+| `20h` 寫，特定 EOI | `60h`、`61h`、`62h`、`67h` 分別清 ISR0、ISR1、ISR2、ISR7，其餘不動作 |
+| `20h` 讀 | IRR 選擇：bit0＝`irq0Pending`、bit2＝IRQ12 待處理且從片 bit 4 未遮且 ISR4 為 0、bit7＝IRR7。ISR 選擇：bit0＝ISR0、bit1＝ISR1、bit2＝ISR2、bit7＝ISR7 |
+| `A0h` 寫，OCW2 | 非特定 EOI 與 `64h` 清 ISR4；其他 EOI 與 `00h`、`40h` 不動作；旋轉、設定優先序失敗即關閉 |
+| `A0h` 寫，OCW3 | 保存讀取選擇；poll、特殊遮罩失敗即關閉（與 `20h` 相同） |
+| `A0h` 讀 | IRR 選擇回 bit 4＝IRQ12 待處理，ISR 選擇回 bit 4＝ISR4，其餘位元 0 |
+| `A1h` | 保存從片 IMR。bit 4 決定 IRQ12 是否遞送。載入程式後的值為 `EFh`（459 §3.7） |
+| 閘控 | IRQ n 只在沒有編號 ≤ n 的主片在服務位元時遞送：IRQ0 要 ISR0 為 0；IRQ1 要 ISR0、ISR1 為 0；IRQ12 要 ISR0、ISR1、ISR2、ISR4 為 0；IRQ7 要 ISR0、ISR1、ISR2、ISR7 為 0 |
+| 優先序 | IRQ0 > IRQ1 > IRQ12（級聯 IRQ2）> IRQ7 |
+| BIOS 預設處理 | BIOS 計時器樁、鍵盤攔截客體碼與 `biosInt9` 送非特定 EOI（459 §3.3a） |
+| 卡住偵測 | 待處理的 IRQ 被在服務位元擋住超過 L 步即失敗即關閉（459 §3.3a） |
 
 ### 2.7 IRQ7 遞送
 
-新增每步旗標 `m.eventThisStep`：`Step` 開頭清除；`tick` 的 `startCallback` 成功、週期遠呼叫、IRQ0 的 `raiseIRQ`，以及 `keyTick`、`timedKeyTick` 的 `raiseIRQ`
-設起。`Step` 在鍵盤分支之後、`m.Steps++` 之前判斷 IRQ7，條件依序：
+新增每步旗標 `m.eventThisStep`：本選項開啟時（`m.sb8 != nil`）由 `Step` 開頭清除（`machine.go:1620`；選項關閉時不清，讀它的 IRQ7 分支此時不執行；由 459 修訂，2026-10-23）；`tick` 的 `startCallback` 成功、週期遠呼叫、IRQ0 的 `raiseIRQ`，以及 `keyTick`、`timedKeyTick` 的 `raiseIRQ`
+設起。保護模式剖面另有第七個設置點：`tick` 的 IRQ12 遞送（`internal/machine/mouse_irq12.go:88`，以 `5b88abd` 為準；由 459 修訂，2026-10-23）。
+`Step` 在鍵盤分支之後、`m.Steps++` 之前判斷 IRQ7，條件依序：
 
-1. `m.sb8 != nil`、IRR7＝1、ISR7＝0、`picMask` bit7＝0。
+1. `m.sb8 != nil`、IRR7＝1、ISR7＝0、`picMask` bit7＝0，且 ISR0、ISR1、ISR2 都為 0（`sb8IRQ7Ready`，`sb_dma8.go:749-752`）。這三位只在保護模式剖面設起，剖面關閉時恆為 0（由 459 修訂，2026-10-23）。
+   保護模式剖面另在這一步之前更新 IRQ7 的卡住計數（459 §3.3a）。
 2. `eventThisStep` 為假（197 §3.1 的「同一道指令只送一個事件」）。
 3. `IF=1`。
 4. 分段模式（`CPU.Segmented()`，ring 0）：不遞送、不消耗；IRQ7 分支自己呼叫 `segWait`（同一步已呼叫過時 `segWait` 本身會略過）。
@@ -278,6 +302,9 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 致命錯誤：§2.2–§2.6 的失敗即關閉存進黏著欄位 `m.sb8Err`。`Step` 的三處回傳（`machine.go:1479`、`1499`、`1520` 的 `if err != nil || m.pfOK`）
 加上 `m.sb8Err != nil`，`err` 為 nil 時回 `sb8Err`；之後每一步在 `Step` 開頭直接回 `sb8Err`，不執行指令。只有 `Restore`、`LoadState` 清除。
 發生錯誤的那一道 `out` 已執行完（`Ports`、`PortLog` 已寫）。
+
+`sb8Err` 的語意擴大為「PIC 與 SB 的黏著錯誤」（459 §3.3）：只開保護模式剖面、未開本選項時，PIC 埠的失敗即關閉（ICW1、旋轉、設定優先序、poll、特殊遮罩）也寫入這個欄位（`pic.go:166-176`）。
+`Step` 在 `CPU.Step` 之後的三處判斷不看 `sb8` 是否存在，所以錯誤在發生的那一步回傳；`Step` 開頭不執行指令的檢查只在 `sb8 != nil` 時有，所以只開剖面時之後每一步仍先執行指令再回同一個錯誤，呼叫端要在第一個錯誤就停。（由 459 修訂，2026-10-23）
 
 ### 2.8 觀測紀錄
 
@@ -321,13 +348,14 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
   `LegacyState` 改為 `Version < 3`。成功時清 `sb8Err`。舊版程式讀到版本 4 時因版本超出範圍而拒絕，失敗即關閉。
 - `StateDigest`：接受版本 3 與 4。摘要輸入依序為：既有 JSON、`Ext` 的 SHA-256（有 `Ext` 時）、`sbDMA8State` 的 JSON 的 SHA-256（版本 4 時）。版本 3 的摘要不變。
 - `picMask` 在選項關閉時不在 `SaveState` 內（現況缺口，`state.go:159-226` 沒有它；`Snapshot` 有）。本規格只在選項開啟時補存，關閉時不動，以守錨點。
+  保護模式剖面另把主片 IMR、從片 IMR、讀取選擇存進 PM 版本 4（459 §5.1）。兩者都開時 `sbDMA8State` 的 `PICMask`、`SlaveIMR`、`ReadISR` 與 PM 寫同一個值，`LoadState` 讀版本 4 時驗兩處相同，不同就回錯誤、機器不變（459 §5.2）。`sbDMA8State` 的格式不變。（由 459 修訂，2026-10-23）
 - `Snapshot`／`Restore`：加入同一組欄位的深拷貝。`Restore` 在任何寫入之前判定快照與機器的 `sb8` 開關是否一致，不一致時 panic（比照 `snapshot.go:218-223`
   的 profile、`Ext` 檢查）。`SoundBlasterDSP` 的回呼在 `Restore` 後重新接到同一台機器。`Restore` 清 `sb8Err`。
 
 ### 2.10 不在範圍
 
 聲音輸出、ADPCM 解碼與混音（另立規格）；自動初始化 DMA（`1Ch`、`C6h`、`7Dh`、`7Fh`、`1Fh`、`58h` 模式）；`D0h`／`D4h` 暫停與恢復（由 445 處理；由 445 修訂）；
-16 位元 DMA 與第二組控制器；其他基底、DMA 通道、IRQ；從片 PIC 的 IRQ；PIC 重新程式化；IRQ0、IRQ1 的 ISR；DSP 命令處理時間（DOSBox-X `write_busy`；忙碌週期 `DSP_busy_cycle` 由 446 處理，由 446 修訂）、重設的 20 µs 延遲、PIC 遞送延遲；8259 的假 IRQ7；dosgolem 內建 EMM（非 JEMM）下以 page frame 為 DMA 緩衝區時的對應
+16 位元 DMA 與第二組控制器；其他基底、DMA 通道、IRQ；從片 PIC 的 IRQ 與 IRQ0、IRQ1 的 ISR（只指保護模式剖面關閉時；剖面開啟時由 459 處理，由 459 修訂，2026-10-23）；PIC 重新程式化；DSP 命令處理時間（DOSBox-X `write_busy`；忙碌週期 `DSP_busy_cycle` 由 446 處理，由 446 修訂）、重設的 20 µs 延遲、PIC 遞送延遲；8259 的假 IRQ7；dosgolem 內建 EMM（非 JEMM）下以 page frame 為 DMA 緩衝區時的對應
 （DOSBox-X `dma.cpp:68-74` 的 `UpdateEMSMapping`）；`0x3DA` 的時間模型（§1.4）。
 
 ### 2.11 改動點
@@ -348,6 +376,8 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 ---
 
 ## 3. 驗收
+
+保護模式剖面下 459 新增的 PIC 埠行為、在服務模型與 IRQ7 閘控，另由 459 §6.2 第 7、8、9、17、23、26–29、32、33、36 項驗收（由 459 修訂，2026-10-23）。
 
 1. 選項關閉：錨點測試常數、`StateDigest` 不變；新增測試以 §1.1 的完整埠序列跑一段合成程式，`20h`、`A1h`、`08h`、`02h` 讀回 `FFh`，DMA 埠寫入只進
    `PortLog`，沒有 IRQ7，`SoundBlasterDSP` 的半狀態與現況相同。`go test ./internal/...` 中既有測試全部不改而通過。
@@ -411,9 +441,9 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 |---|---|
 | 偵測當下的 PIT 分頻 | probe460 只記結束時的 65536；`040h`、`043h` 有寫入紀錄。未釘死時 Δ 幾乎不受影響（§2.4），收據仍記錄 |
 | JEMM 對 IRQ7 的反射 | 435 §1.1 為靜態證據（IRQ0–7 一律反射，`0Dh`、`0Eh` 另判）；IRQ7 的執行期路徑未驗證，收據 B 記錄 |
-| `20h`、`A0h` 的讀取者 | 選項開啟後 `20h` 讀值由 `FFh` 改為 IRR／ISR。審查以靜態反組譯確認 JEMM（`4E54`、`58FD`、`5907`、`4E6F`）與驅動（`05C1`、`05E8`、`0668`、`06E6`）只寫不讀這兩埠；MENU、STRIKE 本身未知，收據記錄兩埠的讀取次數 |
+| `20h`、`A0h` 的讀取者 | 選項開啟後 `20h` 讀值由 `FFh` 改為 IRR／ISR。審查以靜態反組譯確認 JEMM（`4E54`、`58FD`、`5907`、`4E6F`）與驅動（`05C1`、`05E8`、`0668`、`06E6`）只寫不讀這兩埠；MENU、STRIKE 本身未知，收據記錄兩埠的讀取次數。§5 收據記到 `20h` 被讀 1926463 次。讀取者身分（459 §3.3，由 459 修訂，2026-10-23）：靜態唯一的讀取者是 OPTTEST `12A81h`、MENU 約 `14BC0h`、STRIKE `2AF0Dh`、TOPTTST1 `EFE3h` 的 PIT 精密計時常式，以 OCW3=`0Ah` 讀 IRR、只測 bit 0（強推論）；459 實作收據的冷開機 10 億步中 `in 20h` 15512167 次全部來自 `13F5:00AA`、`in A0h` 0 次（strike_commander `workplace/impl459/receipt.md` §4，已證實，單次執行）。收據把它記為 PIT 精密計時常式讀 IRR；`13F5:00AA` 屬於哪支程式，歸屬未知；s449 起 259 M 步抽樣 0 次 |
 | 遊戲內的播放路徑 | `14h`、ADPCM、`80h` 已納入。觸發案例在第 131427746 步送 `D0h`（§5），`D0h`／`D4h` 由 445 接上；改寫 DMA 後的 `D4h` 仍失敗即關閉（由 445 修訂）；idle 與靜音中的 `D0h`、`D4h` 由 446 接受（由 446 修訂） |
-| IRQ0、IRQ1 沒有 ISR | §2.6 的兩個差異。偵測的處理常式 `05C1` 與播放的 `05E8`／`0678` 都不執行 `sti`，JEMM 的 ring 0 路徑在 `4BDE` 執行 `cli`（435 §3），目前看不到受影響的路徑 |
+| IRQ0、IRQ1 沒有 ISR（只開本選項時；保護模式剖面由 459 §3.3a 建模，由 459 修訂，2026-10-23） | §2.6 的兩個差異。偵測的處理常式 `05C1` 與播放的 `05E8`／`0678` 都不執行 `sti`，JEMM 的 ring 0 路徑在 `4BDE` 執行 `cli`（435 §3），目前看不到受影響的路徑 |
 | 處理常式之後的 EOI 次序 | 先 EOI 再讀 `22Eh` 時，這裡可能在 EOI 之後立刻再遞送一次（IRR7 尚未清）。本驅動先讀後 EOI，不受影響 |
 | ADPCM 參考位元組的時間 | 真卡上參考位元組只產生一個取樣；本規格照 DOSBox-X 以每 byte 取樣數計，`75h` 等每區塊多算 1–3 個取樣的時間 |
 | DSP 的延遲 | 真卡處理命令、重設都有微秒級延遲（DOSBox-X 重設 20 µs、忙碌週期）。本規格只算傳輸時間；`22Ch` 的忙碌週期由 446 處理（由 446 修訂） |
@@ -432,7 +462,7 @@ ISR7 與 IRQ0 同時在服務中時，IRQ0 處理常式的非特定 EOI 在真�
 6. **傳輸中遮罩通道 1 或改寫其暫存器失敗即關閉**（主代理決定）。暫停語意要等出現證據再照 DOSBox-X 另立規格，避免沒有原版證據的行為。
    `D0h` 暫停之後的寫入改由 445 §2.6 允許；未暫停時本條不變（由 445 修訂）。
 7. **IRQ0、IRQ1 不加 ISR**（主代理決定）。BIOS 的 `int 08h` stub（`machine.go` 的 `initVectors`，`biosTimerOff`）沒有 EOI，加了之後 IRQ0 在第一次之後永遠被擋；
-   差異由 §4.1 追蹤。
+   差異由 §4.1 追蹤。保護模式剖面由 459 §3.3a 修訂：主片改為在服務模型，BIOS 計時器樁與鍵盤處理送 EOI；只開本選項時本條不變（由 459 修訂，2026-10-23）。
 8. **範圍納入 ADPCM 與 `80h`**（主代理決定）。驅動的播放路徑靜態上只用這些單次命令（§1.2），一次納入可以讓遊戲內播放走到下一個未知點，觀測紀錄也涵蓋語音。
 9. **IVT[0Fh] 為 StubSeg 時視為 BIOS 預設處理常式**（依審查）。擱置會讓 IRQ7 在之後某個不相干的時刻送進新裝的處理常式；消耗 IRR7 與真機 BIOS 的預設行為較接近，
    收據 A 的結果也因此可預測。

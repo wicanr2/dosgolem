@@ -1,6 +1,7 @@
 # 430 — 延伸實體記憶體與 XMS 統一
 
 狀態：**READY**（四輪審查；最後一輪只剩文字修正，已套用）
+修訂：§2.3 的 StubSeg 佈局依 [`459`](459-mouse-irq12-v86-delivery.md) 補列（註「由 459 修訂」，2026-10-23）。
 日期：2026-10-15
 前置：[`011-xms`](011-xms.md)（已部分過期，現行行為以 `internal/dos/xms.go` 為準）、[`014-ems`](014-ems.md)、
 [`189-a20-gate-and-hma-addressing`](189-a20-gate-and-hma-addressing.md)、
@@ -90,6 +91,10 @@ SCCD 映像位移（檔案位移減 `0x200`）：
   `0x40C` XMS 入口、`0x410` 回呼返回哨兵、`0x414`／`0x418` 字型 entry、`0x420`–`0x442` BIOS 計時器、
   `0x448` 系統設定表、`0x450` InDOS、`0x460` DBCS 表、`0x480`–`0x4A1` 國別資訊表，上界 `0x4F0`
   （`EnvMCBSeg`）。
+- 本規格之後的佈局（由 459 修訂，2026-10-23；以 `5b88abd` 的 `machine.go:121-133` 註解與 `140-198` 行常數為準）：
+  - BIOS 計時器在保護模式剖面為 40 bytes，佔 `0x420`–`0x447`（459 §3.3a）。
+  - `0x4B8`–`0x4C5` 鍵盤攔截客體碼（447 §2.2）；保護模式剖面為 19 bytes，佔 `0x4B8`–`0x4CA`（459 §3.3a）。
+  - `0x4CC`–`0x4EC` 保護模式剖面的 IRQ12 三段樁 `Mouse74Off`、`Mouse74RetOff`、`MouseUIROff`（459 §3.6）。
 - 在該區塊新增常數 `XMSHookEntryOff = specialStubBase + 0xB0`，並在常數區塊上方的佈局註解表加一行。新入口佔 `0x4B0`–`0x4B7`，內容
   `EB 03 90 90 90 CD F5 CB`，落在國別表之後、上界之前的空段。
 - 舊位置 `XMSTrapOff`（`0x40C`）的 `CD F5 CB` 保留不動，常數意義不變（`TestXMSEntryIsFarCallNotInterrupt`

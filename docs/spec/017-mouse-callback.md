@@ -1,6 +1,7 @@
 # 規格017：INT 33h AX=0Ch滑鼠事件callback
 
 狀態：**CONFORMED**
+修訂：typed 行為的 `SI`／`DI` 與停止線依 [`459`](459-mouse-irq12-v86-delivery.md) §7.2 修訂（2026-10-23）。`SI`／`DI` 原文與程式、DOSBox-X 相反；停止線原文不分剖面，陸空戰將的正常玩家路徑需要 IRQ12（strike_commander RE 030）。
 
 ## 平台契約與EOB1證據
 
@@ -16,12 +17,16 @@ Enter、Right、Down、Right+Down、Down+Right及三次Tab後Enter，畫面均�
 
 - `Mouse`保存callback mask、segment及offset；`AX=0000h`重設或`AX=000Ch,CX=0`停用。
 - 移動事件旗標bit 0、左鍵按下bit 1、左鍵放開bit 2；只有與註冊mask交集非零才far call。
-- callback入口：`AX=event`、`BX=buttons`、`CX=X*XScale`、`DX=Y`、`SI`為垂直mickey、`DI`為
-  水平mickey，依Microsoft原始參考手冊，不採後來部分列表的對調版本。
-- driver保存被打斷程式的通用暫存器、段暫存器、IP與FLAGS，far call推入
-  原CS:IP後跳到callback；由原版routine的`RETF`回復後，driver再完整恢復呼叫者狀態。
-  callback必須在100萬道指令內返回，逾時或指令錯誤失敗即關閉（fail-closed）；不偽造
+- callback入口：`AX=event`、`BX=buttons`、`CX=X*XScale`、`DX=Y`、`SI`為水平mickey、`DI`為
+  垂直mickey（`internal/dos/bios.go:775`，以 `5b88abd` 為準；DOSBox-X `ints/mouse.cpp:2274-2275`）。
+  （459 修訂，2026-10-23）
+- 實模式剖面：driver保存被打斷程式的通用暫存器、段暫存器、IP與FLAGS，far call推入
+  原CS:IP後跳到callback；由原版routine的`RETF`回復後，driver再完整恢復呼叫者狀態；不偽造
   軟體中斷框架。
+- 兩種剖面：callback必須在100萬道指令內返回，逾時或指令錯誤失敗即關閉（fail-closed）。
+  （459 修訂，2026-10-23）
+- 保護模式剖面：事件經 IRQ12、IVT[74h] 的 BIOS 樁與 `int FBh` 進入callback，暫存器由樁以
+  `pushad` 存在客體堆疊，見 459 §3。（459 修訂，2026-10-23）
 - `MoveMouse`及`Click`必須由同一事件入口更新狀態；Click順序仍為move／hover／press／hold／
   release／settle，讓每次callback有界執行，不允許未返回時巢狀覆蓋。
 - Save／Restore沿既有Mouse深拷貝保存callback註冊資料。
@@ -43,5 +48,5 @@ LEVEL1，地城視窗色號SHA-256為
 
 ## 停止線
 
-不模擬PS/2 IRQ12、串列滑鼠封包、加速度、真實mickey時序、右／中鍵或巢狀callback；若EOB1正常
+實模式剖面不模擬PS/2 IRQ12；保護模式剖面見 459（459 修訂，2026-10-23）。不模擬串列滑鼠封包、加速度、真實mickey時序、右／中鍵或巢狀callback；若EOB1正常
 玩家路徑需要其中任一能力，另開窄規格。原版檔案與畫面不提交版本庫。

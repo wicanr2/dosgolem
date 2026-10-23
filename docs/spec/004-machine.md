@@ -21,6 +21,20 @@ iret
 反面（在 `int 1Ch` 之前就 pop 完）沒有任何錯誤訊息：DS 漏回被中斷的
 程式，它接著用錯的段讀資料，照樣一路執行下去。
 
+實模式剖面的 stub 是上列 35 bytes，佔 `0x420`–`0x442`，不送 EOI。
+保護模式剖面有主片在服務模型，IRQ0 送達時設 ISR0，所以 stub 要送 EOI
+（[`459`](459-mouse-irq12-v86-delivery.md) §3.3a）：
+
+- 在 `int 1Ch` 之後、`pop dx` 之前加 `FA B0 20 E6 20`
+  （`cli; mov al,20h; out 20h,al`，對應 DOSBox-X `CB_IRQ0`）。
+- 長度 40 bytes，佔 `0x420`–`0x447`，到 `SysConfigOff`（`0x448`）之前沒有餘裕。
+- 由 `LoadEXE`、`LoadCOM` 寫入（`internal/machine/mouse_irq12.go:49`）；版本 1–3 的狀態檔
+  在舊 stub 逐位元組相符時升級換版（459 §5.3 第 3 步）。
+- 位元組定義：`internal/machine/machine.go:2092`（35 bytes）、`2110`（40 bytes）。
+  行號以 `5b88abd` 為準。
+
+還原順序不變：三個 `pop` 仍在 `int 1Ch` 之後。（由 459 修訂，2026-10-23）
+
 > 實例（源平合戰 `MAIN.EXE`，2026-09-06）：它的 1Ch 是
 > `cli / pusha / mov ds,2A1E … popa / sti / jmp far 舊向量`。DS 漏回
 > 位元碼直譯器之後，直譯器改從 `2A1E:SI` 抓位元碼（原本是 `336E:SI`），
