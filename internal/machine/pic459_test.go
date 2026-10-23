@@ -548,17 +548,20 @@ func TestPIC459StuckDetection(t *testing.T) {
 			t.Errorf("%s：最長值應為 0：%d", c.name, m.picd.stuckMax[stuckIRQ0])
 		}
 	}
+}
 
-	// IF 在 0 與 1 之間交錯：IF=0 的步不歸零，IF=1 的步照樣累加，總和超過 L 仍要報錯（第 5 版；
-	// 若 IF=0 就歸零，處理常式開頭的 cli 會讓卡住永遠偵測不到）。
-	m = pm459(t, []byte{0xEB, 0xFE})
+// 第 32 項（第 5 版，N34）：IF 在 0 與 1 之間交錯時，IF=0 的步不歸零，IF=1 的步照樣累加，總和超過 L 仍要報錯
+// （若 IF=0 就歸零，處理常式開頭的 cli 會讓卡住永遠偵測不到）。獨立成一個測試，前面的 Fatalf 不會擋住它。
+func TestPIC459StuckInterleavedIF(t *testing.T) {
+	m := pm459(t, []byte{0xEB, 0xFE})
 	m.IRQ0Every = 1000
-	if m.stuckLimit() != l {
-		t.Fatalf("L 應為 %d：%d", l, m.stuckLimit())
+	l := m.stuckLimit()
+	if l != 10000 {
+		t.Fatalf("L 應為 10000：%d", l)
 	}
 	m.pic.isr = 1
 	m.irq0Pending = true
-	err = nil
+	var err error
 	for i := uint64(0); i < 3*l && err == nil; i++ {
 		if i%2 == 0 {
 			m.CPU.SetFlags(m.CPU.Flags &^ cpu.IF)
