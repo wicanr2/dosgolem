@@ -228,6 +228,11 @@ func TestFlightInkBox(t *testing.T) {
 	if len(p) != 1 || p[0].Ink.Top || p[0].Ink.Left || p[0].Ink.OK() {
 		t.Fatalf("缺三緣：待提交 %d、%s", len(p), p[0].Ink)
 	}
+	// 第 5 版（§3.2.4.5）：三例都是舊路徑，Clip 為 nil、第 5 版計數全 0、log 沒有 clip、inkfb。
+	if p[0].Clip != nil {
+		t.Fatalf("舊路徑的 Clip 不是 nil：%+v", *p[0].Clip)
+	}
+	checkV5Quiet(t, w.o, "第 11 項三例")
 	// 前列取錯時點（F5）：MFD 底在 HUD 字之後才畫（RE 021 §3.2），以 MFD 自己入口時的緩衝當前列才只含自己的墨跡。
 	w2 := newWorld(t, 0x0241)
 	w2.fillBand(0, 200, 30)

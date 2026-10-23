@@ -324,6 +324,7 @@ func writeFlightReceipts(t *testing.T, dir string, res *ReceiptResult, scales []
 		}
 	}
 	must("flight-commits.tsv", FlightCommitsTSV(res.FlightCommits))
+	must("flight-clipped.tsv", FlightClippedTSV(res.FlightClipped)) // 009 第 5 版 §3.11
 	var cf strings.Builder
 	cf.WriteString("steps\tvisible\tmismatch2\tmismatch3\tkeys3\n")
 	for _, f := range res.FlightCUFrames {
@@ -614,11 +615,32 @@ func checkFlightRun(t *testing.T, name, run string, res *ReceiptResult) {
 	if c.Timeouts != 0 || c.ReturnsSSMismatch != 0 || c.EntriesVoided != 0 {
 		t.Errorf("逾時 %d、SS:SP 不符返回 %d、作廢入口 %d，都要 0", c.Timeouts, c.ReturnsSSMismatch, c.EntriesVoided)
 	}
-	if c.SkipInk != 0 || c.SkipVoid != 0 {
-		t.Errorf("墨跡框核對不通過 %d、作廢 %d，要 0", c.SkipInk, c.SkipVoid)
+	// 第 5 版 §4.2 比較表：SkipInk、SkipVoid、InkGlyphFallback、ClipPartialBand 都要 0，不為 0 時逐筆列出。
+	if c.SkipInk != 0 || c.SkipVoid != 0 || c.InkGlyphFallback != 0 || c.ClipPartialBand != 0 {
+		t.Errorf("墨跡框核對不通過 %d、作廢 %d、改用舊規則 %d、band 外部分裁切 %d，要 0", c.SkipInk, c.SkipVoid, c.InkGlyphFallback, c.ClipPartialBand)
 		for _, e := range res.FlightLog {
-			if e.Kind == "ink" || e.Kind == "void" {
+			if e.Kind == "ink" || e.Kind == "void" || e.Kind == "inkfb" {
 				t.Logf("  第 %d 步 %s：%s", e.Steps, e.Kind, e.Detail)
+			}
+		}
+		for _, cm := range res.FlightCommits {
+			for _, x := range cm.Texts {
+				if x.Clip != nil && x.Clip.NEWB != x.Clip.NEW {
+					t.Logf("  ClipPartialBand：CU %d %q y %d B0 %d Clip %+v", cm.CUSteps, x.Key, x.Y, x.B0, *x.Clip)
+				}
+			}
+		}
+	}
+	checkFlightClipped(t, name, run, res)
+	// 未推字串的 B0（第 5 版 §4.2）：Clip 為 nil 或 Shifted 為假的字串，B0 等於 flightBand(Kind, Y)。
+	for _, cm := range res.FlightCommits {
+		for _, x := range cm.Texts {
+			if x.Clip != nil && x.Clip.Shifted {
+				t.Logf("BandShifted：CU %d %q y %d B0 %d Clip %+v", cm.CUSteps, x.Key, x.Y, x.B0, *x.Clip)
+				continue
+			}
+			if b0, _ := flightBand(x.Kind, x.Y); x.B0 != b0 {
+				t.Errorf("CU %d %q：未推字串 B0 %d，要 %d", cm.CUSteps, x.Key, x.B0, b0)
 			}
 		}
 	}
@@ -638,6 +660,73 @@ func checkFlightRun(t *testing.T, name, run string, res *ReceiptResult) {
 		t.Logf("  %d 倍 misses %+v skips %+v", sc, fov.Misses, fov.Skips)
 		if len(fov.Misses) != 0 {
 			t.Errorf("%d 倍有 miss：%+v", sc, fov.Misses)
+		}
+	}
+}
+
+// flightClippedQ 是案例 Q 的 SkipClipped 白名單（第 5 版 §4.2；RE 031 §2）：4 筆左 MFD AIR，步數是 puts 返回時。
+var flightClippedQ = []FlightClipEvent{
+	{Steps: 8740333081, Key: "AIR", YPrime: 187},
+	{Steps: 8740926659, Key: "AIR", YPrime: 190},
+	{Steps: 8752834512, Key: "AIR", YPrime: 188},
+	{Steps: 8753446906, Key: "AIR", YPrime: 191},
+}
+
+// flightClippedREnv 指向案例 R 的 SkipClipped 期望清單（§4.3 第 2 項 oracle 在重錄後產生，每列 steps、key、yprime，
+// 以 Tab 分隔；# 開頭與 steps 欄名列略過）。沒給時案例 R 的這項比對失敗（§4.2：不預設 0，不從長測試輸出回填）。
+const flightClippedREnv = "DOSGOLEM_SC_FLIGHT_R_CLIPPED"
+
+// checkFlightClipped 是第 5 版 §4.2 的 SkipClipped 比對：明細讀 FlightClipped，不讀 log。ClipPartialWindow、BandShifted 照實列出。
+func checkFlightClipped(t *testing.T, name, run string, res *ReceiptResult) {
+	t.Helper()
+	c := res.FlightCounts
+	t.Logf("案例 %s run-%s 第 5 版計數：SkipInk %d、SkipClipped %d、ClipPartialWindow %d、ClipPartialBand %d、BandShifted %d、InkGlyphFallback %d；事件 %d 筆、捨棄 %d",
+		name, run, c.SkipInk, c.SkipClipped, c.ClipPartialWindow, c.ClipPartialBand, c.BandShifted, c.InkGlyphFallback, len(res.FlightClipped), res.FlightClippedDrop)
+	for _, e := range res.FlightClipped {
+		t.Logf("  整串裁切 %+v", e)
+	}
+	var want []FlightClipEvent
+	switch name {
+	case "Q":
+		want = flightClippedQ
+	case "R":
+		p := os.Getenv(flightClippedREnv)
+		if p == "" {
+			t.Errorf("案例 R 的 SkipClipped 期望清單未提供（%s）；實際 %d 筆已列於上", flightClippedREnv, len(res.FlightClipped))
+			return
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Errorf("讀 %s：%v", p, err)
+			return
+		}
+		for _, ln := range strings.Split(string(b), "\n") {
+			f := strings.Split(strings.TrimRight(ln, "\r"), "\t")
+			if len(f) < 3 || strings.HasPrefix(f[0], "#") || f[0] == "steps" {
+				continue
+			}
+			var e FlightClipEvent
+			if _, err := fmt.Sscan(f[0], &e.Steps); err != nil {
+				t.Errorf("%s 列 %q：%v", p, ln, err)
+				return
+			}
+			if _, err := fmt.Sscan(f[2], &e.YPrime); err != nil {
+				t.Errorf("%s 列 %q：%v", p, ln, err)
+				return
+			}
+			e.Key = f[1]
+			want = append(want, e)
+		}
+	default:
+		return
+	}
+	if c.SkipClipped != len(want) || len(res.FlightClipped) != len(want) || res.FlightClippedDrop != 0 {
+		t.Errorf("案例 %s run-%s：SkipClipped %d、事件 %d 筆，要 %d", name, run, c.SkipClipped, len(res.FlightClipped), len(want))
+	}
+	for i := 0; i < min(len(want), len(res.FlightClipped)); i++ {
+		g, w := res.FlightClipped[i], want[i]
+		if g.Steps != w.Steps || g.Key != w.Key || g.YPrime != w.YPrime {
+			t.Errorf("案例 %s run-%s 第 %d 筆整串裁切：步數 %d %q y′ %d，要 %d %q y′ %d", name, run, i, g.Steps, g.Key, g.YPrime, w.Steps, w.Key, w.YPrime)
 		}
 	}
 }

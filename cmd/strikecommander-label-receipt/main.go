@@ -262,6 +262,13 @@ func run(root, statePath, stateSHA, rebase string, steps uint64, script, scalesA
 		if err := os.WriteFile(filepath.Join(out, "flight-commits.tsv"), strikecommander.FlightCommitsTSV(on.FlightCommits), 0o644); err != nil {
 			return err
 		}
+		// 規格 009 第 5 版 §3.11：整串裁切事件。
+		if err := os.WriteFile(filepath.Join(out, "flight-clipped.tsv"), strikecommander.FlightClippedTSV(on.FlightClipped), 0o644); err != nil {
+			return err
+		}
+		if on.FlightClippedDrop != 0 {
+			fmt.Printf("整串裁切事件超過上限，捨棄 %d 筆\n", on.FlightClippedDrop)
+		}
 		fmt.Printf("飛行字串：升格 %d 次，計數 %+v\n", len(on.FlightCommits), on.FlightCounts)
 		for _, e := range on.FlightLog {
 			fmt.Printf("飛行紀錄 第 %d 步 %s：%s\n", e.Steps, e.Kind, e.Detail)

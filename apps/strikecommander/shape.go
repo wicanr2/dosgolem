@@ -69,6 +69,13 @@ func decodeEntry(file []byte, e int) (Shape, error) {
 
 // decodeShape 依 RE 015 §3 解碼一張 shape。
 func decodeShape(b []byte) (Shape, error) {
+	s, _, err := decodeShapeMask(b)
+	return s, err
+}
+
+// decodeShapeMask 同 decodeShape，另回片段寫入過的點（W×H，與 Pix 同排列；strike_commander 規格 009 第 5 版
+// §3.2.4.1）。寫入過的點不看色號：色號 0 的寫入也算。
+func decodeShapeMask(b []byte) (Shape, []bool, error) {
 	p := 0
 	need := func(n int) error {
 		if p+n > len(b) {
@@ -77,7 +84,7 @@ func decodeShape(b []byte) (Shape, error) {
 		return nil
 	}
 	if err := need(8); err != nil {
-		return Shape{}, err
+		return Shape{}, nil, err
 	}
 	right := int(int16(binary.LittleEndian.Uint16(b[0:])))
 	left := int(int16(binary.LittleEndian.Uint16(b[2:])))
@@ -85,20 +92,22 @@ func decodeShape(b []byte) (Shape, error) {
 	bottom := int(int16(binary.LittleEndian.Uint16(b[6:])))
 	w, h := left+right+1, top+bottom+1
 	if w <= 0 || h <= 0 || w > 320 || h > 200 {
-		return Shape{}, fmt.Errorf("shape 尺寸 %d×%d 不合法", w, h)
+		return Shape{}, nil, fmt.Errorf("shape 尺寸 %d×%d 不合法", w, h)
 	}
 	p = 8
 	s := Shape{W: w, H: h, Pix: make([]uint8, w*h)}
+	mask := make([]bool, w*h)
 	put := func(x, y int, c uint8) error {
 		if x < 0 || x >= w || y < 0 || y >= h {
 			return fmt.Errorf("shape 像素 (%d,%d) 超出 %d×%d", x, y, w, h)
 		}
 		s.Pix[y*w+x] = c
+		mask[y*w+x] = true
 		return nil
 	}
 	for {
 		if err := need(2); err != nil {
-			return Shape{}, err
+			return Shape{}, nil, err
 		}
 		code := int(binary.LittleEndian.Uint16(b[p:]))
 		p += 2
@@ -106,7 +115,7 @@ func decodeShape(b []byte) (Shape, error) {
 			break
 		}
 		if err := need(4); err != nil {
-			return Shape{}, err
+			return Shape{}, nil, err
 		}
 		dx := int(int16(binary.LittleEndian.Uint16(b[p:])))
 		dy := int(int16(binary.LittleEndian.Uint16(b[p+2:])))
@@ -115,11 +124,11 @@ func decodeShape(b []byte) (Shape, error) {
 		x, y := left+dx, top+dy
 		if code&1 == 0 {
 			if err := need(n); err != nil {
-				return Shape{}, err
+				return Shape{}, nil, err
 			}
 			for i := 0; i < n; i++ {
 				if err := put(x+i, y, b[p+i]); err != nil {
-					return Shape{}, err
+					return Shape{}, nil, err
 				}
 			}
 			p += n
@@ -127,33 +136,33 @@ func decodeShape(b []byte) (Shape, error) {
 		}
 		for k := 0; k < n; {
 			if err := need(1); err != nil {
-				return Shape{}, err
+				return Shape{}, nil, err
 			}
 			sub := int(b[p])
 			p++
 			m := sub >> 1
 			if m == 0 {
-				return Shape{}, fmt.Errorf("shape 子段長度 0（第 %d byte）", p-1)
+				return Shape{}, nil, fmt.Errorf("shape 子段長度 0（第 %d byte）", p-1)
 			}
 			if sub&1 == 0 {
 				if err := need(m); err != nil {
-					return Shape{}, err
+					return Shape{}, nil, err
 				}
 				for i := 0; i < m; i++ {
 					if err := put(x+k+i, y, b[p+i]); err != nil {
-						return Shape{}, err
+						return Shape{}, nil, err
 					}
 				}
 				p += m
 			} else {
 				if err := need(1); err != nil {
-					return Shape{}, err
+					return Shape{}, nil, err
 				}
 				c := b[p]
 				p++
 				for i := 0; i < m; i++ {
 					if err := put(x+k+i, y, c); err != nil {
-						return Shape{}, err
+						return Shape{}, nil, err
 					}
 				}
 			}
@@ -161,5 +170,10 @@ func decodeShape(b []byte) (Shape, error) {
 		}
 	}
 	s.Consumed = p
-	return s, nil
+	return s, mask, nil
+}
+
+// shapeOrigin 回 shape 標頭的 left、top（decodeShapeMask 的 Pix 以 (left+dx, top+dy) 存放）。b 至少 8 bytes。
+func shapeOrigin(b []byte) (left, top int) {
+	return int(int16(binary.LittleEndian.Uint16(b[2:]))), int(int16(binary.LittleEndian.Uint16(b[4:])))
 }

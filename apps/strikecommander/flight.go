@@ -101,6 +101,8 @@ type FlightText struct {
 	Before, After, Ref []byte
 	Steps              uint64 // 入口步數
 	Ink                InkResult
+	// Clip 是 mfd 新路徑的核對結果（第 5 版 §3.2.4）；舊路徑為 nil。
+	Clip *FlightClip
 }
 
 // Anchor 回去重與 generation 比的錨點：Xs[K]（橫幅為 X0）。
@@ -143,10 +145,16 @@ type FlightCounts struct {
 	CUFrameMismatch                                  int // CU 期間比對不符筆數（Frame 鉤子回填）
 	// 略過（§3.6.1 的各檢查）。
 	SkipBase, SkipVGA, SkipString, SkipDesc, SkipCaller, SkipResolve int
-	SkipVoid, SkipInk, SkipDedup, SkipStale, SkipOverflow           int
-	Promotions                                                      int
-	FirstFrameBlocked                                               int // 升格後第一個 Frame 被擋下的筆數（Frame 鉤子回填）
-	FirstFrameBlockedMaxRun                                         int // 連續幾次升格各至少擋下 1 筆，最長的次數
+	SkipVoid, SkipInk, SkipDedup, SkipStale, SkipOverflow            int
+	Promotions                                                       int
+	FirstFrameBlocked                                                int // 升格後第一個 Frame 被擋下的筆數（Frame 鉤子回填）
+	FirstFrameBlockedMaxRun                                          int // 連續幾次升格各至少擋下 1 筆，最長的次數
+	// 第 5 版（§3.2.4.2、§3.11）：整串裁切；以下三者只在通過時計；改用舊規則（不合法或 |E| = 0）。
+	SkipClipped       int
+	ClipPartialWindow int // E ∩ W ≠ E
+	ClipPartialBand   int // E ∩ W ∩ band ≠ E ∩ W
+	BandShifted       int // B0 經 §3.5 往內推過
+	InkGlyphFallback  int
 }
 
 type flightPuts struct {
@@ -154,6 +162,7 @@ type flightPuts struct {
 	obj    uint16
 	ss, sp uint16
 	yPrime int
+	clip   *flightClipIn // mfd 新路徑；舊路徑為 nil
 }
 
 type flightPlaque struct {
@@ -200,6 +209,11 @@ type FlightObserver struct {
 	counts     FlightCounts
 	log        []Event
 	logDropped int
+
+	// 第 5 版：SHP 快取（§3.2.4.3）與整串裁切事件（§3.11）。
+	shp         *flightShp
+	clipped     []FlightClipEvent
+	clipDropped int
 }
 
 // NewFlightObserver 建一個觀察器。resolve 是 ResolveFlight 包好 catalog 的閉包（§3.4 第 1 條）。
@@ -312,6 +326,7 @@ func (o *FlightObserver) reset() {
 	o.cur, o.plq = nil, nil
 	o.vga = false
 	o.cu.Reset()
+	o.shp = nil // §3.2.4.3：base 改變、簽章層清空時清 SHP 快取
 }
 
 func (o *FlightObserver) verifyRows(v View, base uint16) string {
@@ -398,9 +413,18 @@ func (o *FlightObserver) putsEntry(v FlightView) {
 	yp := int(rd16(v, ds, obj+objY))
 	t := FlightText{Key: key, CatKey: catKey, Kind: kind, K: k, DS: ds, Steps: steps,
 		Seg: rd16(v, ds, obj+objSeg), List: rd16(v, ds, obj+objList)}
-	t.B0, t.BH = flightBand(kind, yp)
+	// 第 5 版 §3.2.1 第 1 條：只對 mfd 讀窗與字型；新路徑先決定 B0（§3.5 列向往內推）再讀前列。
+	var clip *flightClipIn
+	if kind == KindMFD {
+		clip = o.mfdClipEntry(v, steps, ds, obj, key)
+	}
+	if clip != nil {
+		t.B0, t.BH, clip.shifted = mfdClipBand(clip, int(int16(uint16(yp))))
+	} else {
+		t.B0, t.BH = flightBand(kind, yp)
+	}
 	t.Before = readRows(v, ds, t.Seg, t.List, t.B0, t.B0+t.BH)
-	o.cur = &flightPuts{t: t, obj: obj, ss: ss, sp: sp, yPrime: yp}
+	o.cur = &flightPuts{t: t, obj: obj, ss: ss, sp: sp, yPrime: yp, clip: clip}
 }
 
 // flightBand 回種類的 band 起點與列數（§3.5）；y 是 HUD、MFD 的游標 y 或橫幅的入口 y。
@@ -472,6 +496,10 @@ func (o *FlightObserver) putsReturn(v FlightView) {
 		return
 	}
 	t.After = readRows(v, v.DS(), t.Seg, t.List, t.B0, t.B0+t.BH)
+	if c.clip != nil {
+		o.putsReturnClip(v, steps, c, t) // 第 5 版新路徑（§3.2.1 第 3 條第 3 款）
+		return
+	}
 	x0, y0, x1, y1 := t.InkBox()
 	t.Ink = flightInk(t.Key, t.Before, t.After, t.B0, x0, y0, x1, y1)
 	if !inkInBox(t.Ink) {

@@ -343,6 +343,9 @@ type ReceiptResult struct {
 	FlightCUFrames []FlightCUFrame
 	// FlightFirstBlocked 是每次升格後第一個 Frame 各倍率被擋下的筆數（與 FlightCommits 平行）。
 	FlightFirstBlocked []map[int]int
+	// FlightClipped、FlightClippedDrop 是整串裁切事件與因上限捨棄的筆數（009 第 5 版 §3.11）。
+	FlightClipped     []FlightClipEvent
+	FlightClippedDrop int
 
 	// strike_commander 規格 011 §3.8：停止點的 arts.tsv 內容與字幕區檢查（掛字幕時）。
 	StopArts           map[int][]ArtReportEntry
@@ -763,6 +766,7 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	res.PartialBlits = so.Labels.PartialBlits()
 	if flight != nil {
 		res.FlightLog, res.FlightLogDrop = flight.Log()
+		res.FlightClipped, res.FlightClippedDrop = flight.Clipped()
 		res.FlightCounts = flight.Counts()
 		res.FlightOverlays = fovs
 		res.FlightReport, res.FlightHidden = map[int][]FlightEntry{}, map[int][]string{}
