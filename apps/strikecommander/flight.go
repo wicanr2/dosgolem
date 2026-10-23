@@ -155,6 +155,10 @@ type FlightCounts struct {
 	ClipPartialBand   int // E ∩ W ∩ band ≠ E ∩ W
 	BandShifted       int // B0 經 §3.5 往內推過
 	InkGlyphFallback  int
+	// 第 6 版（§3.2.1 第 5 條）：入口送達後撤銷、等重看的次數。
+	PutcRedelivered   int
+	PutsRedelivered   int
+	PlaqueRedelivered int
 }
 
 type flightPuts struct {
@@ -214,6 +218,12 @@ type FlightObserver struct {
 	shp         *flightShp
 	clipped     []FlightClipEvent
 	clipDropped int
+
+	// 第 6 版：入口重看（§3.2.1 第 5 條）。pendOn 為真時 pend 有效。
+	pend           flightPend
+	pendOn         bool
+	redeliv        []FlightRedeliverEvent
+	redelivDropped int
 }
 
 // NewFlightObserver 建一個觀察器。resolve 是 ResolveFlight 包好 catalog 的閉包（§3.4 第 1 條）。
@@ -277,6 +287,9 @@ func (o *FlightObserver) note(steps uint64, kind, format string, a ...any) {
 
 // Observe 在每一步執行前呼叫。熱路徑只比 IP。
 func (o *FlightObserver) Observe(v FlightView) {
+	if o.pendOn {
+		o.checkPend(v) // 第 6 版：入口重看（§3.2.1 第 5 條第 3 款），在 IP 分派之前
+	}
 	switch v.IP() {
 	case ipFPuts:
 		o.putsEntry(v)
@@ -326,7 +339,9 @@ func (o *FlightObserver) reset() {
 	o.cur, o.plq = nil, nil
 	o.vga = false
 	o.cu.Reset()
-	o.shp = nil // §3.2.4.3：base 改變、簽章層清空時清 SHP 快取
+	o.shp = nil      // §3.2.4.3：base 改變、簽章層清空時清 SHP 快取
+	o.pendOn = false // 第 6 版 §3.2.1 第 5 條第 4 款
+	o.pend = flightPend{}
 }
 
 func (o *FlightObserver) verifyRows(v View, base uint16) string {
@@ -425,6 +440,7 @@ func (o *FlightObserver) putsEntry(v FlightView) {
 	}
 	t.Before = readRows(v, ds, t.Seg, t.List, t.B0, t.B0+t.BH)
 	o.cur = &flightPuts{t: t, obj: obj, ss: ss, sp: sp, yPrime: yp, clip: clip}
+	o.markPend(v, RedelivPuts, key)
 }
 
 // flightBand 回種類的 band 起點與列數（§3.5）；y 是 HUD、MFD 的游標 y 或橫幅的入口 y。
@@ -473,6 +489,7 @@ func (o *FlightObserver) putc(v FlightView) {
 		o.cur.t.Y = int(rd16(v, ds, o.cur.obj+objY))
 	}
 	o.cur.t.Xs = append(o.cur.t.Xs, int(rd16(v, ds, o.cur.obj+objX)))
+	o.markPend(v, RedelivPutc, o.cur.t.Key)
 }
 
 func (o *FlightObserver) putsReturn(v FlightView) {
@@ -622,6 +639,7 @@ func (o *FlightObserver) plaqueEntry(v FlightView) {
 	t.B0, t.BH = flightBand(KindPlaque, y)
 	t.Before = readRows(v, ds, t.Seg, t.List, t.B0, t.B0+t.BH)
 	o.plq = &flightPlaque{t: t, cs: cs, ss: ss, sp: sp}
+	o.markPend(v, RedelivPlaque, key)
 }
 
 func (o *FlightObserver) plaqueReturn(v FlightView) {

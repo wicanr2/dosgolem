@@ -29,6 +29,10 @@ const (
 	scI021Env = "DOSGOLEM_SC_I021"
 	s800SHA   = "c61b71dc1a3867b266fe20d17eab6bb2c0e3408dc4c07e316e91e63272cf2488" // 規格 459 重錄
 	s760SHA   = "6d95cee0307c1598e4a3dcee6c7211b93000f8c16683e790667e2aede609df65"
+
+	// Q-legacy（009 第 6 版 §4.2）：舊鏈 s800（459 之前），DOSGOLEM_SC_QLEGACY_STATE 指向該檔。
+	qLegacyStateEnv = "DOSGOLEM_SC_QLEGACY_STATE"
+	s800LegacySHA   = "f0c0730ca05050371b1f614c117daff8910453e7311964d085b8539ccb3ab7a9"
 )
 
 // flightCatalogsFrom 讀 text 目錄下三個飛行 catalog。
@@ -105,6 +109,9 @@ func TestFlightNoActivation(t *testing.T) {
 // kdown 8370000010 19 之後插 shot 8371000000 k1-13-AltP2-mid。
 func flightScript(t *testing.T, name string) (Script, uint64) {
 	t.Helper()
+	if name == "Q-legacy" {
+		name = "Q" // 009 第 6 版 §4.2：腳本與停止點同 Q
+	}
 	file, last, stop := "k1.script", "shot 9342000000 k1-45-Esc-b", uint64(9345000000)
 	if name == "R" {
 		file, last, stop = "k7.script", "shot 8042000000 k7-15-F-b", 8045000000
@@ -198,14 +205,25 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 	t.Helper()
 	sc, stop := flightScript(t, name)
 	state, sha := "p476/s800.state", s800SHA
-	if name == "R" {
+	statePath := ""
+	switch name {
+	case "R":
 		state, sha = "p487/s760.state", s760SHA
+	case "Q-legacy":
+		// 009 第 6 版 §4.2：舊鏈 s800，由 459 之後的引擎升級載入；只供新路徑覆蓋。
+		statePath, sha = os.Getenv(qLegacyStateEnv), s800LegacySHA
+		if statePath == "" {
+			t.Fatalf("案例 Q-legacy 需要 %s（舊鏈 workplace/scratch/p476/s800.state）", qLegacyStateEnv)
+		}
+	}
+	if statePath == "" {
+		statePath = filepath.Join(os.Getenv(scStateDirEnv), state)
 	}
 	root := t.TempDir()
 	if err := CopyTree(os.Getenv(scRootEnv), root); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(os.Getenv(scStateDirEnv), state))
+	raw, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,8 +245,8 @@ func runFlightCase(t *testing.T, name string, m flightRunMode) (*ReceiptResult, 
 	}
 	start := time.Now()
 	ename := ""
-	if m.name == "on23" {
-		ename = name // 規格 014 §4.2 的曝光收據只在 2、3 倍都有的 run 做
+	if m.name == "on23" && name != "Q-legacy" {
+		ename = name // 規格 014 §4.2 的曝光收據只在 2、3 倍都有的 run 做（Q-legacy 是升級狀態，不作其他通道的收據）
 	}
 	res, err := runReceiptExpo(t, ename, cfg) // DOSGOLEM_SC_EXPO 未設定時同 RunReceipt
 	if err != nil {
@@ -325,6 +343,12 @@ func writeFlightReceipts(t *testing.T, dir string, res *ReceiptResult, scales []
 	}
 	must("flight-commits.tsv", FlightCommitsTSV(res.FlightCommits))
 	must("flight-clipped.tsv", FlightClippedTSV(res.FlightClipped)) // 009 第 5 版 §3.11
+	var rd strings.Builder
+	rd.WriteString("steps\tkind\tkey\n") // 009 第 6 版：入口重看撤銷事件
+	for _, e := range res.FlightRedelivered {
+		fmt.Fprintf(&rd, "%d\t%s\t%s\n", e.Steps, e.Kind, e.Key)
+	}
+	must("flight-redelivered.tsv", []byte(rd.String()))
 	var cf strings.Builder
 	cf.WriteString("steps\tvisible\tmismatch2\tmismatch3\tkeys3\n")
 	for _, f := range res.FlightCUFrames {
@@ -365,18 +389,20 @@ type flightWant struct {
 	empty   bool // 可見集合為空
 	gunTx   bool // GUN 譯「機砲」、tx 276（不左移）
 	commFG  bool // Comm Mode: 的 fg 220
+	noMFD   bool // 可見集合沒有 MFD 字串（第 6 版 k7-01-C-pre）
 }
 
 // 規格 459 重錄：cu 取自 strike_commander workplace/rerec459/oracle-tools/fq-cu.tsv、fr-cu.tsv（flightcu.py 由
 // rerec459/census/or/fq、fr 的 ip.tsv 與 frames.tsv 重建：shot 當步或之前最後一次回掃 R，配對返回 < R 的最後一次 CU）。
-// k1-10-Tab-a 的 shot 步數剛好是回掃（新鏈回掃相位 ≡ 0 mod 165000），census 該步的 idx 是前一格（CU 8282449186）；
-// 這裡照 FrameSteps ≤ shot 的字面定義取 8282987538，兩格都有 time burst。
+// 第 6 版（009 §4.2）：shot 取的是 shot 步數之前（不含當步）最後一次回掃的畫格，所以顯示的畫格是 FrameSteps < shot 的
+// 最後一次升格。k1-10-Tab-a 的 shot 步數剛好是回掃（新鏈回掃相位 ≡ 0 mod 165000），取 8282449186
+// （rerec459/oracle-tools/fq-cu-strict-v6.tsv）。
 var flightWantQ = map[string]flightWant{
 	"k1-00-base":  {cu: 8000615773, hud3: []string{"000 NONE"}},
 	"k1-01-G-a":   {cu: 8012795685, hud3: []string{"DGFT"}, notVis: []string{"999 Vulcan"}},
 	"k1-03-W-a":   {cu: 8072741576, hud3: []string{"STRF"}, shown: []string{"NORM", "GUN"}, gunTx: true},
 	"k1-07-C-a":   {cu: 8192402599, shown: []string{"Comm Mode:", "Select Frequency", "NO RECEIVERS"}, commFG: true},
-	"k1-10-Tab-a": {cu: 8282987538, shown: []string{"time burst"}},
+	"k1-10-Tab-a": {cu: 8282449186, shown: []string{"time burst"}},
 	"k1-11-A-a":   {cu: 8312850142, shown: []string{"enemies near"}},
 	"k1-12-AltP-a": {cu: 8340815576, hud3: []string{"DGFT"}, extra: func(t *testing.T, s *ShotResult, res *ReceiptResult, _ map[string]*ShotResult) {
 		hiddenBoth(t, s, "enemies near")
@@ -415,14 +441,15 @@ var flightWantQ = map[string]flightWant{
 	"k1-45-Esc-a":  {cu: 9332452108, hud3: []string{"DGFT", "FLAPS", "BRAKE"}, shown: []string{"FUEL:"}},
 }
 
-// 規格 459 重錄：k7-00-base 與 k7-05-W-a 維持舊值（停下項目）。新鏈第一次 CU 在 7601746724，k7-00-base（7601000000）
-// 之前沒有任何提交；k7-05-W-a 的 W 鍵畫格 CU 在 7733008957，晚於 shot（rerec459/oracle-tools/fr-cu.tsv）。
+// 第 6 版（009 §4.2）：新鏈第一次 CU 在 7601746724，k7-00-base（7601000000）之前沒有任何提交；k7-05-W-a 的 W 鍵畫格
+// CU 在 7733008957，晚於 shot（rerec459/oracle-tools/fr-cu-v6.tsv）。兩張 shot 照實記錄、不設正向斷言，
+// 改斷言同一腳本既有的 k7-01-C-pre、k7-05-W-b。
 var flightWantR = map[string]flightWant{
-	"k7-00-base":  {cu: 7600133942, hud3: []string{"GEAR"}},
+	"k7-01-C-pre": {cu: 7608175471, hud3: []string{"GEAR"}, noMFD: true},
 	"k7-01-C-b":   {cu: 7621508744, shown: []string{"Comm Mode:", "Select Frequency"}, notVis: []string{"1 Hawk"}},
 	"k7-03-C2-a":  {cu: 7671063546, shown: []string{"1 request status"}},
 	"k7-04-B-b":   {cu: 7710796297, hud3: []string{"GEAR", "BRAKE"}},
-	"k7-05-W-a":   {cu: 7732589387, hud3: []string{"SRM"}, shown: []string{"NORM"}, notVis: []string{"SWDJ"}},
+	"k7-05-W-b":   {cu: 7739876199, hud3: []string{"SRM"}, shown: []string{"NORM"}, notVis: []string{"SWDJ"}},
 	"k7-10-D-b":   {cu: 7890909869, shown: []string{"FUEL:"}},
 	"k7-11-R-b":   {cu: 7921505166, shown: []string{"GND"}},
 	"k7-15-F-b":   {cu: 8040346754, hud3: []string{"GEAR", "FLAPS", "BRAKE"}},
@@ -493,10 +520,10 @@ func checkFlightWants(t *testing.T, res *ReceiptResult, wants map[string]flightW
 			t.Errorf("沒有 shot %s", n)
 			continue
 		}
-		// 顯示的畫格：shot 前最後一次升格的候選所屬 CU。
+		// 顯示的畫格：shot 步數之前（不含當步）最後一次升格的候選所屬 CU（第 6 版 §4.2）。
 		var cu uint64
 		for _, c := range res.FlightCommits {
-			if c.FrameSteps <= s.Steps {
+			if c.FrameSteps < s.Steps {
 				cu = c.CUSteps
 			}
 		}
@@ -526,6 +553,22 @@ func checkFlightWants(t *testing.T, res *ReceiptResult, wants map[string]flightW
 			for _, k := range []string{"GEAR", "FLAPS", "BRAKE", "DGFT", "STRF", "SRM", "000 NONE"} {
 				if hasStr(s.FlightVisible, k) {
 					t.Errorf("%s：可見集合有 HUD 字串 %q", n, k)
+				}
+			}
+		}
+		if w.noMFD {
+			// 可見集合是 shot 前最後一次升格的 Texts。
+			for _, c := range res.FlightCommits {
+				if c.FrameSteps >= s.Steps {
+					break
+				}
+				if c.CUSteps != cu {
+					continue
+				}
+				for _, x := range c.Texts {
+					if x.Kind == KindMFD {
+						t.Errorf("%s：可見集合有 MFD 字串 %q", n, x.Key)
+					}
 				}
 			}
 		}
@@ -561,7 +604,7 @@ func checkFlightWants(t *testing.T, res *ReceiptResult, wants map[string]flightW
 
 func TestFlightCase(t *testing.T) {
 	flightEnv(t)
-	cases := []string{"Q", "R"}
+	cases := []string{"Q", "R", "Q-legacy"}
 	if s := os.Getenv("DOSGOLEM_SC_FLIGHT_CASES"); s != "" {
 		cases = strings.Split(s, ",")
 	}
@@ -571,6 +614,12 @@ func TestFlightCase(t *testing.T) {
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
+			if name == "Q-legacy" {
+				// 009 第 6 版 §4.2：只跑 run-on23，只斷言第 5 版計數與事件（期望由 oracle009/qlegacy-*.tsv 提供）。
+				res, _ := runFlightCase(t, name, flightRunModes["on23"])
+				checkFlightQLegacy(t, res)
+				return
+			}
 			sums := map[string][]flightShotSum{}
 			stops := map[string]session.StateDigest{}
 			var on23, on3 *ReceiptResult
@@ -638,18 +687,14 @@ func checkFlightRun(t *testing.T, name, run string, res *ReceiptResult) {
 		}
 	}
 	checkFlightClipped(t, name, run, res)
-	// 未推字串的 B0（第 5 版 §4.2）：Clip 為 nil 或 Shifted 為假的字串，B0 等於 flightBand(Kind, Y)。
-	for _, cm := range res.FlightCommits {
-		for _, x := range cm.Texts {
-			if x.Clip != nil && x.Clip.Shifted {
-				t.Logf("BandShifted：CU %d %q y %d B0 %d Clip %+v", cm.CUSteps, x.Key, x.Y, x.B0, *x.Clip)
-				continue
-			}
-			if b0, _ := flightBand(x.Kind, x.Y); x.B0 != b0 {
-				t.Errorf("CU %d %q：未推字串 B0 %d，要 %d", cm.CUSteps, x.Key, x.B0, b0)
-			}
+	checkFlightRedelivered(t, name, run, res)
+	if name == "Q" || name == "R" {
+		// 第 5 版 ClipPartialWindow、BandShifted：Q、R 為 0（oracle：解析通過的 mfd 字串全在窗內）。
+		if c.ClipPartialWindow != 0 || c.BandShifted != 0 {
+			t.Errorf("案例 %s run-%s：ClipPartialWindow %d、BandShifted %d，要 0", name, run, c.ClipPartialWindow, c.BandShifted)
 		}
 	}
+	checkUnpushedB0(t, res)
 	for i, s := range res.Shots {
 		for sc, cc := range s.Check {
 			if cc.Outside != 0 {
@@ -670,61 +715,169 @@ func checkFlightRun(t *testing.T, name, run string, res *ReceiptResult) {
 	}
 }
 
-// flightClippedQ 是案例 Q 的 SkipClipped 白名單（第 5 版 §4.2；RE 031 §2）：4 筆左 MFD AIR，步數是 puts 返回時。
-var flightClippedQ = []FlightClipEvent{
-	{Steps: 8740333081, Key: "AIR", YPrime: 187},
-	{Steps: 8740926659, Key: "AIR", YPrime: 190},
-	{Steps: 8752834512, Key: "AIR", YPrime: 188},
-	{Steps: 8753446906, Key: "AIR", YPrime: 191},
+// checkUnpushedB0 是 §4.2「未推字串的 B0」（全部案例）：Clip 為 nil 或 Shifted 為假的字串，B0 等於 flightBand(Kind, Y)。
+func checkUnpushedB0(t *testing.T, res *ReceiptResult) {
+	t.Helper()
+	for _, cm := range res.FlightCommits {
+		for _, x := range cm.Texts {
+			if x.Clip != nil && x.Clip.Shifted {
+				t.Logf("BandShifted：CU %d %q y %d B0 %d Clip %+v", cm.CUSteps, x.Key, x.Y, x.B0, *x.Clip)
+				continue
+			}
+			if b0, _ := flightBand(x.Kind, x.Y); x.B0 != b0 {
+				t.Errorf("CU %d %q：未推字串 B0 %d，要 %d", cm.CUSteps, x.Key, x.B0, b0)
+			}
+		}
+	}
 }
 
-// flightClippedREnv 指向案例 R 的 SkipClipped 期望清單（§4.3 第 2 項 oracle 在重錄後產生，每列 steps、key、yprime，
-// 以 Tab 分隔；# 開頭與 steps 欄名列略過）。沒給時案例 R 的這項比對失敗（§4.2：不預設 0，不從長測試輸出回填）。
-const flightClippedREnv = "DOSGOLEM_SC_FLIGHT_R_CLIPPED"
+// checkFlightQLegacy 是案例 Q-legacy（009 第 6 版 §4.2）的斷言：只比第 5 版計數與事件，期望讀 oracle009/qlegacy-*.tsv；
+// 沒有清單時失敗。另照「未推字串的 B0」（全部案例）。
+func checkFlightQLegacy(t *testing.T, res *ReceiptResult) {
+	t.Helper()
+	checkFlightClipped(t, "Q-legacy", "on23", res)
+	checkFlightRedelivered(t, "Q-legacy", "on23", res)
+	checkFlightQLegacyCounts(t, res)
+	checkUnpushedB0(t, res)
+}
 
-// checkFlightClipped 是第 5 版 §4.2 的 SkipClipped 比對：明細讀 FlightClipped，不讀 log。ClipPartialWindow、BandShifted 照實列出。
+// checkFlightQLegacyCounts 比對 Q-legacy 的其餘第 5 版計數：ClipPartialWindow 等於 oracle009/qlegacy-partial.tsv 的列數、
+// BandShifted 等於其中 shifted = 1 的列數（推過的那筆另比 B0）；SkipInk、SkipVoid、InkGlyphFallback、ClipPartialBand 為 0
+// （§4.2 比較表，run-on23）。
+func checkFlightQLegacyCounts(t *testing.T, res *ReceiptResult) {
+	t.Helper()
+	c := res.FlightCounts
+	if c.SkipInk != 0 || c.SkipVoid != 0 || c.InkGlyphFallback != 0 || c.ClipPartialBand != 0 {
+		t.Errorf("Q-legacy：SkipInk %d、SkipVoid %d、InkGlyphFallback %d、ClipPartialBand %d，要 0", c.SkipInk, c.SkipVoid, c.InkGlyphFallback, c.ClipPartialBand)
+		for _, e := range res.FlightLog {
+			if e.Kind == "ink" || e.Kind == "void" || e.Kind == "inkfb" {
+				t.Logf("  第 %d 步 %s：%s", e.Steps, e.Kind, e.Detail)
+			}
+		}
+	}
+	rows, ok := oracleRows(t, "qlegacy-partial.tsv", []string{"steps", "key", "yprime", "W", "|E|", "|EW|", "E列", "列向部分", "B0", "shifted"})
+	if !ok {
+		if os.Getenv(oracle009Env) == "" {
+			t.Errorf("案例 Q-legacy 的部分裁切期望需要 %s（qlegacy-partial.tsv）", oracle009Env)
+		}
+		return
+	}
+	shifted := 0
+	for _, f := range rows {
+		if f[9] != "1" {
+			continue
+		}
+		shifted++
+		// 推過的那筆：可見集合中 Key、y′ 相同、Shifted 的字串 B0 要等於 oracle。
+		var yp, b0 int
+		fmt.Sscan(f[2], &yp)
+		fmt.Sscan(f[8], &b0)
+		found := false
+		for _, cm := range res.FlightCommits {
+			for _, x := range cm.Texts {
+				if x.Key == f[1] && x.Y == yp && x.Clip != nil && x.Clip.Shifted {
+					found = true
+					if x.B0 != b0 {
+						t.Errorf("Q-legacy：%q y′ %d 推過的 B0 %d，要 %d", x.Key, yp, x.B0, b0)
+					}
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Q-legacy：升格集合沒有推過的 %q y′ %d", f[1], yp)
+		}
+	}
+	if c.ClipPartialWindow != len(rows) || c.BandShifted != shifted {
+		t.Errorf("Q-legacy：ClipPartialWindow %d、BandShifted %d，要 %d、%d（qlegacy-partial.tsv）", c.ClipPartialWindow, c.BandShifted, len(rows), shifted)
+	}
+}
+
+// oracle009Env 指向 workplace/rerec459/oracle009/（009 第 6 版 §3.11）：q-、r-、qlegacy- 開頭的 clipped.tsv 與
+// putc-redelivered.tsv 由 §4.3 oracle 產生。取代第 5 版的 DOSGOLEM_SC_FLIGHT_R_CLIPPED。
+const oracle009Env = "DOSGOLEM_SC_ORACLE009"
+
+// oraclePrefix 是案例在 oracle009 目錄的檔名前綴。
+func oraclePrefix(name string) string {
+	switch name {
+	case "Q":
+		return "q"
+	case "R":
+		return "r"
+	case "Q-legacy":
+		return "qlegacy"
+	}
+	return ""
+}
+
+// oracleRows 讀 oracle009 的 TSV，回欄名之後的各列（以 Tab 分欄）。目錄沒設時 ok 為假（呼叫端決定 Skip 或失敗）；
+// 檔案讀不到或沒有欄名列時 t.Errorf 並回 ok 假。
+func oracleRows(t *testing.T, file string, header []string) (rows [][]string, ok bool) {
+	t.Helper()
+	dir := os.Getenv(oracle009Env)
+	if dir == "" {
+		return nil, false
+	}
+	p := filepath.Join(dir, file)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Errorf("讀 oracle 清單 %s：%v", p, err)
+		return nil, false
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != strings.Join(header, "\t") {
+		t.Errorf("%s 的欄名 %q，要 %q", p, lines[0], strings.Join(header, "\t"))
+		return nil, false
+	}
+	for _, ln := range lines[1:] {
+		ln = strings.TrimRight(ln, "\r")
+		if ln == "" {
+			continue
+		}
+		f := strings.Split(ln, "\t")
+		if len(f) != len(header) {
+			t.Errorf("%s 列 %q 有 %d 欄，要 %d", p, ln, len(f), len(header))
+			return nil, false
+		}
+		rows = append(rows, f)
+	}
+	return rows, true
+}
+
+// checkFlightClipped 是 §4.2 的 SkipClipped 比對（第 6 版）：期望讀 oracle009/<前綴>-clipped.tsv（steps、key、yprime），
+// 明細讀 FlightClipped，不讀 log。Q、R 在 oracle 目錄沒設時略過這項並記 log；Q-legacy 沒有清單時失敗。
 func checkFlightClipped(t *testing.T, name, run string, res *ReceiptResult) {
 	t.Helper()
 	c := res.FlightCounts
-	t.Logf("案例 %s run-%s 第 5 版計數：SkipInk %d、SkipClipped %d、ClipPartialWindow %d、ClipPartialBand %d、BandShifted %d、InkGlyphFallback %d；事件 %d 筆、捨棄 %d",
-		name, run, c.SkipInk, c.SkipClipped, c.ClipPartialWindow, c.ClipPartialBand, c.BandShifted, c.InkGlyphFallback, len(res.FlightClipped), res.FlightClippedDrop)
+	t.Logf("案例 %s run-%s 第 5 版計數：SkipInk %d、SkipVoid %d、SkipClipped %d、ClipPartialWindow %d、ClipPartialBand %d、BandShifted %d、InkGlyphFallback %d；事件 %d 筆、捨棄 %d",
+		name, run, c.SkipInk, c.SkipVoid, c.SkipClipped, c.ClipPartialWindow, c.ClipPartialBand, c.BandShifted, c.InkGlyphFallback, len(res.FlightClipped), res.FlightClippedDrop)
 	for _, e := range res.FlightClipped {
 		t.Logf("  整串裁切 %+v", e)
 	}
-	var want []FlightClipEvent
-	switch name {
-	case "Q":
-		want = flightClippedQ
-	case "R":
-		p := os.Getenv(flightClippedREnv)
-		if p == "" {
-			t.Errorf("案例 R 的 SkipClipped 期望清單未提供（%s）；實際 %d 筆已列於上", flightClippedREnv, len(res.FlightClipped))
-			return
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Errorf("讀 %s：%v", p, err)
-			return
-		}
-		for _, ln := range strings.Split(string(b), "\n") {
-			f := strings.Split(strings.TrimRight(ln, "\r"), "\t")
-			if len(f) < 3 || strings.HasPrefix(f[0], "#") || f[0] == "steps" {
-				continue
+	file := oraclePrefix(name) + "-clipped.tsv"
+	rows, ok := oracleRows(t, file, []string{"steps", "key", "yprime"})
+	if !ok {
+		if os.Getenv(oracle009Env) == "" {
+			if name == "Q-legacy" {
+				t.Errorf("案例 Q-legacy 的 SkipClipped 期望清單需要 %s（%s）", oracle009Env, file)
+			} else {
+				t.Logf("%s 未設定：略過案例 %s 的 SkipClipped 比對", oracle009Env, name)
 			}
-			var e FlightClipEvent
-			if _, err := fmt.Sscan(f[0], &e.Steps); err != nil {
-				t.Errorf("%s 列 %q：%v", p, ln, err)
-				return
-			}
-			if _, err := fmt.Sscan(f[2], &e.YPrime); err != nil {
-				t.Errorf("%s 列 %q：%v", p, ln, err)
-				return
-			}
-			e.Key = f[1]
-			want = append(want, e)
 		}
-	default:
 		return
+	}
+	var want []FlightClipEvent
+	for _, f := range rows {
+		var e FlightClipEvent
+		if _, err := fmt.Sscan(f[0], &e.Steps); err != nil {
+			t.Errorf("%s 列 %v：%v", file, f, err)
+			return
+		}
+		if _, err := fmt.Sscan(f[2], &e.YPrime); err != nil {
+			t.Errorf("%s 列 %v：%v", file, f, err)
+			return
+		}
+		e.Key = f[1]
+		want = append(want, e)
 	}
 	if c.SkipClipped != len(want) || len(res.FlightClipped) != len(want) || res.FlightClippedDrop != 0 {
 		t.Errorf("案例 %s run-%s：SkipClipped %d、事件 %d 筆，要 %d", name, run, c.SkipClipped, len(res.FlightClipped), len(want))
@@ -733,6 +886,72 @@ func checkFlightClipped(t *testing.T, name, run string, res *ReceiptResult) {
 		g, w := res.FlightClipped[i], want[i]
 		if g.Steps != w.Steps || g.Key != w.Key || g.YPrime != w.YPrime {
 			t.Errorf("案例 %s run-%s 第 %d 筆整串裁切：步數 %d %q y′ %d，要 %d %q y′ %d", name, run, i, g.Steps, g.Key, g.YPrime, w.Steps, w.Key, w.YPrime)
+		}
+	}
+}
+
+// checkFlightRedelivered 是 §4.2 第 6 版三列（案例 Q、R）：PutcRedelivered 等於 oracle009/<前綴>-putc-redelivered.tsv
+// （比對第一次觀察的步數與所屬字串），PutsRedelivered 0，PlaqueRedelivered 照實記錄。oracle 目錄沒設時略過 Putc 一項並記 log。
+func checkFlightRedelivered(t *testing.T, name, run string, res *ReceiptResult) {
+	t.Helper()
+	c := res.FlightCounts
+	t.Logf("案例 %s run-%s 入口重看：putc %d、puts %d、橫幅 %d；事件 %d 筆、捨棄 %d", name, run,
+		c.PutcRedelivered, c.PutsRedelivered, c.PlaqueRedelivered, len(res.FlightRedelivered), res.FlightRedeliveredDrop)
+	for _, e := range res.FlightRedelivered {
+		t.Logf("  重看 %+v", e)
+	}
+	if res.FlightRedeliveredDrop != 0 {
+		t.Errorf("案例 %s run-%s：重看事件捨棄 %d", name, run, res.FlightRedeliveredDrop)
+	}
+	dir := os.Getenv(oracle009Env)
+	for _, x := range []struct {
+		kind  string
+		count int
+	}{{RedelivPutc, c.PutcRedelivered}, {RedelivPuts, c.PutsRedelivered}} {
+		file := oraclePrefix(name) + "-" + x.kind + "-redelivered.tsv"
+		if dir == "" {
+			if name == "Q-legacy" {
+				t.Errorf("案例 Q-legacy 的 %s 重看期望需要 %s（%s）", x.kind, oracle009Env, file)
+			} else {
+				t.Logf("%s 未設定：略過案例 %s 的 %s 重看比對", oracle009Env, name, x.kind)
+				if x.kind == RedelivPuts && x.count != 0 {
+					t.Errorf("案例 %s run-%s：PutsRedelivered %d，要 0（§4.2）", name, run, x.count)
+				}
+			}
+			continue
+		}
+		if x.kind == RedelivPuts && name != "Q-legacy" {
+			if _, err := os.Stat(filepath.Join(dir, file)); err != nil {
+				// §4.2：Q、R 的 PutsRedelivered 為 0（oracle：census 沒有 0345 的相鄰重複，q-v6-dups.tsv、r-v6-dups.tsv）；
+				// 沒有清單檔時以 0 筆比。
+				if x.count != 0 {
+					t.Errorf("案例 %s run-%s：PutsRedelivered %d，要 0（§4.2，無 %s）", name, run, x.count, file)
+				}
+				continue
+			}
+		}
+		rows, ok := oracleRows(t, file, []string{"first", "dup", "kind", "text", "key"})
+		if !ok {
+			continue
+		}
+		var got []FlightRedeliverEvent
+		for _, e := range res.FlightRedelivered {
+			if e.Kind == x.kind {
+				got = append(got, e)
+			}
+		}
+		if x.count != len(rows) || len(got) != len(rows) {
+			t.Errorf("案例 %s run-%s：%s 重看 %d、事件 %d 筆，要 %d（%s）", name, run, x.kind, x.count, len(got), len(rows), file)
+		}
+		for i := 0; i < min(len(rows), len(got)); i++ {
+			var first uint64
+			if _, err := fmt.Sscan(rows[i][0], &first); err != nil {
+				t.Errorf("%s 列 %v：%v", file, rows[i], err)
+				break
+			}
+			if got[i].Steps != first || got[i].Key != rows[i][3] {
+				t.Errorf("案例 %s run-%s 第 %d 筆 %s 重看：步數 %d %q，要 %d %q", name, run, i, x.kind, got[i].Steps, got[i].Key, first, rows[i][3])
+			}
 		}
 	}
 }
@@ -748,11 +967,19 @@ func genCount(res *ReceiptResult) uint64 {
 func checkFlightQExtra(t *testing.T, res *ReceiptResult) {
 	t.Helper()
 	c := res.FlightCounts
-	if c.CUFrames < 4 {
-		t.Errorf("CU 期間回掃 %d，要 ≥ 4", c.CUFrames)
+	// 第 6 版（009 §4.2）：CU 期間回掃等於 14、被忽略的重複返回等於 34（rerec459/oracle-tools/fq-cu-v6.tsv）。
+	if c.CUFrames != 14 {
+		t.Errorf("CU 期間回掃 %d，要 14", c.CUFrames)
 	}
-	if c.ReturnsIgnored < 5 {
-		t.Errorf("被忽略的重複返回 %d，要 ≥ 5", c.ReturnsIgnored)
+	if c.ReturnsIgnored != 34 {
+		t.Errorf("被忽略的重複返回 %d，要 34", c.ReturnsIgnored)
+	}
+	if len(res.FlightCUFrames) != 14 {
+		t.Errorf("FlightCUFrames %d 筆，要 14", len(res.FlightCUFrames))
+	}
+	// 快照：最後一張 shot（k1-45-Esc-b，9342000000）在 14 次之後。
+	if n := len(res.Shots); n == 0 || res.Shots[n-1].FlightCounts.CUFrames != 14 {
+		t.Errorf("最後一張 shot 的 FlightCounts 快照 CU 期間回掃不是 14")
 	}
 	// 規格 459 重錄：CU 期間回掃取自 strike_commander workplace/rerec459/oracle-tools/fq-cu.tsv（census fq 的 frames 與
 	// CU 入口、配對返回；新鏈回掃相位 ≡ 0 mod 165000）。8022960000、8510040000 這兩次的畫面與前一次回掃相同
