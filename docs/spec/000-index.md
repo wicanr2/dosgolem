@@ -958,7 +958,7 @@
 - [456 陸空戰將 SessionObserver 每步不配置 StepView](456-sc-observer-view-alloc.md)：READY（第 2 版，事後規格），已實作。`BeforeStep` 以 `&s.cur` 傳給三個觀察器，免除每步三次介面配置；動態型別改為 `*StepView`、誤用偵測縮小的範圍寫明。
 - [457 executeCore 值 switch](457-executecore-value-switch.md)：撤回（第 2 版）。等價已證，收益未證實（最小 CPU 時間平均約 −2.6%）、測試成本 43 s；程式還原為 `a3cfff5`。
 - [458 session 觀察器的唯讀實體 VGA 讀取與 VideoWrite 執行脈絡欄位](458-session-indexed-into-and-videowrite-ctx.md)：READY（第 3 版），已實作。`Machine.IndexedInto`／`IndexedLayout` 與 `StepView` 對應方法，與 `Frame` 同源、不經頁表、零副作用、呼叫端緩衝；`VideoWrite.Ctx` 記 V86、分段、D=1（不加 EIP，依 443 不變式 IP 即完整 EIP）；驗收以獨立期望值與改動前金樣雜湊。
-- [459 保護模式剖面的滑鼠 IRQ12 遞送與主片在服務模型](459-mouse-irq12-v86-delivery.md)：READY（第 5 版），已實作（分期 (a)–(c)；(d) 其他規格的文字修訂待辦）。保護模式剖面下 int 33h 使用者回呼改經 PIC IRQ12、IDT 向量 74h 與監控程式反射遞送（照 DOSBox-X `CB_IRQ12`），讓 JEMM 換頁生效；主片 ISR0／ISR1 建模、非特定 EOI 清最高優先在服務位元、BIOS 計時器樁與鍵盤攔截補 EOI；ISR 卡住偵測；PM 狀態 v4 與舊檔升級；實模式剖面零差異。證據：陸空戰將 RE 030。
+- [459 保護模式剖面的滑鼠 IRQ12 遞送與主片在服務模型](459-mouse-irq12-v86-delivery.md)：READY（第 5 版），已實作（分期 (a)–(d)；004、017、194、430、434、435、444、447、451、454 已依 §7.2 修訂）。保護模式剖面下 int 33h 使用者回呼改經 PIC IRQ12、IDT 向量 74h 與監控程式反射遞送（照 DOSBox-X `CB_IRQ12`），讓 JEMM 換頁生效；主片 ISR0／ISR1 建模、非特定 EOI 清最高優先在服務位元、BIOS 計時器樁與鍵盤攔截補 EOI；ISR 卡住偵測；PM 狀態 v4 與舊檔升級；實模式剖面零差異。證據：陸空戰將 RE 030。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
