@@ -122,11 +122,15 @@ func StubOff(n uint8) uint16 { return uint16(n) * stubStride }
 //	0x400  int 21h trampoline      0x404  int 10h trampoline
 //	0x408  int 15h trampoline      0x40C  XMS entry（RETF）
 //	0x410  回呼返回哨兵            0x414／0x418  DOS/V 字型 entry（RETF）
-//	0x420–0x442  BIOS int 08h（35 bytes，含 40:40 馬達倒數）
+//	0x420–0x442  BIOS int 08h（35 bytes，含 40:40 馬達倒數）；保護模式剖面 0x420–0x447（40 bytes，加 EOI，459 §3.3a）
 //	0x448  int 15h AH=C0h 系統設定表（8 bytes）
 //	0x450  InDOS 旗標              0x460  DBCS 表        0x480  國別資訊表
 //	0x4B0–0x4B7  可掛鉤的 XMS 入口（8 bytes，只在 SetExtendedMemoryKB(kb>0) 後寫入）
-//	0x4B8–0x4C5  BIOS int 09h 鍵盤攔截客體碼（14 bytes，只在 EnableKbdIntercept 後寫入）
+//	0x4B8–0x4C5  BIOS int 09h 鍵盤攔截客體碼（14 bytes，只在 EnableKbdIntercept 後寫入）；
+//	             保護模式剖面 0x4B8–0x4CA（19 bytes，加 EOI，459 §3.3a）
+//	0x4CC–0x4DC  IRQ12 樁 Mouse74Off（17 bytes，只在保護模式剖面寫入，459 §3.6）
+//	0x4DD–0x4E8  IRQ12 返回樁 Mouse74RetOff（12 bytes，同上）
+//	0x4E9–0x4EC  使用者回呼返回樁 MouseUIROff（4 bytes，同上）
 //
 // > 事故（2026-09-10，EOB1）：字型 stub 挑了 0x20／0x24，而 0x24 是向量
 // > 09h（IRQ1 鍵盤）的 stub。EOB.EXE 掛了自己的 int 09h 再 chain 回舊向量，
@@ -184,6 +188,13 @@ const (
 	// 14 bytes：讀埠 60h、以 `AH=4Fh`、`CF=1` 呼叫 `int 15h`，回來 CF=1 才 `int FAh` 放進緩衝。
 	// 只在 EnableKbdIntercept 時寫入，同時把向量 9 的 per-vector stub 改成 `jmp near` 到這裡。
 	KbdInterceptOff = specialStubBase + 0xB8
+	// Mouse74Off、Mouse74RetOff、MouseUIROff 是保護模式剖面的 IRQ12 樁（`docs/spec/459-mouse-irq12-v86-delivery`
+	// §3.6），對應 DOSBox-X 的 CB_IRQ12、CB_IRQ12_RET 與 uir_callback。只在剖面開啟時於 LoadEXE／LoadCOM
+	// （或 §5.3 的升級）寫入，IVT[74h] 指向 Mouse74Off。剖面開啟時鍵盤攔截客體碼長到 0x4CA（§3.3a），
+	// 所以從 0x4CC 起：17 bytes 到 0x4DC、12 bytes 到 0x4E8、4 bytes 到 0x4EC，上界 0x4F0 之前。
+	Mouse74Off    = specialStubBase + 0xCC
+	Mouse74RetOff = specialStubBase + 0xDD
+	MouseUIROff   = specialStubBase + 0xE9
 )
 
 // DefaultIRQ0Every 是**分頻 17,000 時**計時器中斷的間隔，單位是指令數。
@@ -712,6 +723,11 @@ type Machine struct {
 	// noFetchPager 是測試用開關（455 §5 的差分對照）：真時 syncCodeFastPath 永不裝 FetchPager，
 	// 取指令全走 Bus.Read8。非測試程式碼不設它。
 	noFetchPager bool
+	// 459（docs/spec/459-mouse-irq12-v86-delivery）：PIC 共用狀態（§3.3，從 sbDMA8 搬來）、保護模式剖面的
+	// 在服務模型與 IRQ12 遞送（§3.3a–§3.6）。pic 是狀態（進 PM 與 Snapshot），picd 是診斷（不進狀態）。
+	// 放在 deliveries 之前（deliveries 必須是最後一個欄位，454 §3.2 第 1 項）。
+	pic  picState
+	picd picDiag
 	// deliveries 是累計的送達次數（docs/spec/454-session-view-block-read-and-digest §2.1）：
 	// 只在 tick 的回呼、週期遠呼叫與 raiseIRQ 遞增，例外一律不計。不進狀態檔、快照與摘要。
 	// 放在結構最後（454 §3.2 第 1 項以測試斷言），不推動前面的熱欄位。
@@ -808,6 +824,8 @@ func New() *Machine {
 		cr0:    pmCR0Init,
 		sys:    sysRegsInit(),
 		tlbGen: 1,
+		// 459 §3.3：從片 IMR 開機全遮（444 的 sbDMA8 初值）；剖面開啟時 LoadEXE／LoadCOM 清 bit 4（§3.7）。
+		pic: picState{slaveIMR: 0xFF},
 	}
 	if MemPoison != 0 {
 		for i := range m.Mem {
@@ -1231,6 +1249,11 @@ func (m *Machine) In8(port uint16) uint8 {
 		// 就把**全部**中斷關掉了，包括鍵盤——之後按什麼都沒反應，
 		// 而畫面照樣在動，看起來像遊戲卡住不像中斷被關。
 		return m.picMask
+	case port == 0x20 || port == 0xA0 || port == 0xA1:
+		// 459 §3.3：保護模式剖面（未開 -sb-dma8）的 PIC 埠模型；剖面關閉時維持 FFh（下方的預設值）。
+		if m.pmProfile {
+			return m.picIn(port)
+		}
 	case port == 0x388:
 		// OPL2／OPL3 狀態埠。
 		//
@@ -1308,6 +1331,13 @@ func (m *Machine) Out8(p uint16, v uint8) {
 	// 8259 的 OCW1。被遮蔽的中斷掛起不送，放行時補送。
 	if p == 0x21 {
 		m.picMask = v
+	}
+	// 459 §3.3：保護模式剖面（未開 -sb-dma8）的 20h、A0h、A1h 進 PIC 埠模型；剖面關閉時只記 PortLog（現況）。
+	if p == 0x20 || p == 0xA0 || p == 0xA1 {
+		if m.pmProfile {
+			m.picOut(p, v)
+			return
+		}
 	}
 
 	// PIT（8253/8254）通道 0 的分頻。
@@ -1740,7 +1770,9 @@ func (m *Machine) tick() {
 	if !segmented {
 		// 外面排進來的回呼（滑鼠事件常式那一類）。**優先於週期回呼**：
 		// 事件是有時序意義的，週期回呼晚一格沒差。
-		if m.startCallback() {
+		// 459 §3.2、§3.4：保護模式剖面的滑鼠事件改經 IRQ12（下方 mouseIRQ12），不走直接遠呼叫；
+		// 只有 §3.8 的診斷開關 SetMouseIRQ12Direct 才照實模式剖面直接遠呼叫。
+		if !m.MouseIRQ12Active() && m.startCallback() {
 			m.eventThisStep = true // 444 §2.7
 			m.deliveries++         // 454 §2.1
 			return
@@ -1796,23 +1828,40 @@ func (m *Machine) tick() {
 		m.segWait()
 		return
 	}
-	if !m.CPU.Flag(cpu.IF) || m.picMask&0x01 != 0 {
+	// 459 §3.4 的固定結構：保護模式剖面先查佇列溢位（§3.2）與 IRQ0、IRQ12 的卡住計數（§3.3a），
+	// 再判 IRQ0；IRQ0 沒送達（IF=0、主片 bit 0 遮、無待處理、ISR0 擋住）時才判 IRQ12。
+	if m.pmProfile {
+		if m.pic.overflow {
+			if m.irqErr == nil {
+				m.irqErr = m.overflowErr()
+			}
+			return
+		}
+		if m.irq0Stuck() || m.irq12Stuck() {
+			return
+		}
+	}
+	if m.CPU.Flag(cpu.IF) && m.picMask&0x01 == 0 && m.irq0Pending && !(m.pmProfile && m.pic.isr&1 != 0) {
+		// 433 §2：IDTR 守門在消耗狀態（irq0Pending、Ticks、onTick）之前；條件仍成立時下一步再回同一錯誤。
+		// 459 §3.4：守門失敗的那一步不判 IRQ12。
+		if m.ivtGuardIRQ(0x08) {
+			return
+		}
+		m.irq0Pending = false
+		m.Ticks++
+		if m.onTick != nil {
+			m.onTick()
+		}
+		m.eventThisStep = true // 444 §2.7
+		if m.pmProfile {       // 459 §3.3a：IRQ0 送達設 ISR0
+			m.irq0Accepted()
+		}
+		m.raiseIRQ(0x08) // 435 §2.4：V86 提交 IDT 遞送，否則走 IVT
 		return
 	}
-	if !m.irq0Pending {
-		return
+	if m.MouseIRQ12Active() {
+		m.mouseIRQ12()
 	}
-	// 433 §2：IDTR 守門在消耗狀態（irq0Pending、Ticks、onTick）之前；條件仍成立時下一步再回同一錯誤。
-	if m.ivtGuardIRQ(0x08) {
-		return
-	}
-	m.irq0Pending = false
-	m.Ticks++
-	if m.onTick != nil {
-		m.onTick()
-	}
-	m.eventThisStep = true // 444 §2.7
-	m.raiseIRQ(0x08)       // 435 §2.4：V86 提交 IDT 遞送，否則走 IVT
 }
 
 // segWaitLimit 是分段模式下「有待處理 IRQ 且 IF=1」容許的連續步數（431 §3、434 §5.3）。
@@ -1827,7 +1876,13 @@ func (m *Machine) segWait() {
 	}
 	m.segWaitAt = m.Steps + 1
 	// 444 §2.7 第 4 步：選項開啟時，第 1 步成立的 IRQ7 也算待處理。
-	if !(m.irq0Pending || len(m.keyQueue) > 0 || m.sb8IRQ7Ready()) || !m.CPU.Flag(cpu.IF) {
+	pending := m.irq0Pending || len(m.keyQueue) > 0 || m.sb8IRQ7Ready()
+	if m.pmProfile {
+		// 459 §3.3a、§3.4：保護模式剖面只計通過在服務閘控的 IRQ（ISR 卡住的不算待處理），另納入 IRQ12 的條件 1、2。
+		pending = (m.irq0Pending && m.pic.isr&1 == 0) || (len(m.keyQueue) > 0 && m.pic.isr&3 == 0) ||
+			m.sb8IRQ7Ready() || m.irq12Ready()
+	}
+	if !pending || !m.CPU.Flag(cpu.IF) {
 		m.segWaitN = 0
 		return
 	}
@@ -1836,6 +1891,10 @@ func (m *Machine) segWait() {
 		irq7 := ""
 		if s := m.sb8; s != nil {
 			irq7 = fmt.Sprintf("、IRQ7：IRR7=%t ISR7=%t IMR bit7=%d（docs/spec/444 §2.7）", s.irr7, s.isr7, m.picMask>>7)
+		}
+		if m.pmProfile {
+			irq7 += fmt.Sprintf("、IRQ12：ISR0=%t ISR1=%t ISR2=%t ISR4=%t ISR7=%t UIR=%t 佇列 %d 筆 從片 IMR=%02Xh（docs/spec/459 §3.4）",
+				m.pic.isr&1 != 0, m.pic.isr&2 != 0, m.pic.isr&4 != 0, m.pic.isr4, m.isr7(), m.pic.uir, len(m.cbQueue), m.pic.slaveIMR)
 		}
 		m.irqErr = fmt.Errorf("machine: 分段模式下有待處理 IRQ（irq0Pending=%t、鍵盤佇列 %d 筆%s）且 IF=1，"+
 			"連續 %d 步未離開分段模式，失敗即關閉（保護模式 IDT 遞送屬 435；docs/spec/431 §3、434 §5.3）",
@@ -2015,20 +2074,7 @@ func (m *Machine) initVectors() {
 	//	push ds / push ax / push dx / mov ax,40h / mov ds,ax /
 	//	inc word [6Ch] / jnz +4 / inc word [6Eh] /
 	//	int 1Ch / pop dx / pop ax / pop ds / iret
-	m.WriteBytes(StubSeg*16+biosTimerOff, []byte{
-		0x1E, 0x50, 0x52,
-		0xB8, 0x40, 0x00, 0x8E, 0xD8,
-		0xFF, 0x06, 0x6C, 0x00,
-		0x75, 0x04,
-		0xFF, 0x06, 0x6E, 0x00,
-		// BIOS 40:40 的非零倒數；不在遊戲層強制跳過等待。
-		0x80, 0x3E, 0x40, 0x00, 0x00, // cmp byte [40h],0
-		0x74, 0x04, // je skip
-		0xFE, 0x0E, 0x40, 0x00, // dec byte [40h]
-		0xCD, 0x1C,
-		0x5A, 0x58, 0x1F,
-		0xCF,
-	})
+	m.WriteBytes(StubSeg*16+biosTimerOff, biosTimerCode[:])
 
 	m.Write16(0x21*4, DosTrapOff)
 	m.Write16(0x10*4, VideoTrapOff)
@@ -2041,6 +2087,37 @@ func (m *Machine) initVectors() {
 	m.Write16(0x67*4, 0)
 	m.Write16(0x67*4+2, EMSSeg)
 }
+
+// biosTimerCode 是 initVectors 寫在 biosTimerOff 的 35 bytes（見上方註解）。
+var biosTimerCode = [...]byte{
+	0x1E, 0x50, 0x52,
+	0xB8, 0x40, 0x00, 0x8E, 0xD8,
+	0xFF, 0x06, 0x6C, 0x00,
+	0x75, 0x04,
+	0xFF, 0x06, 0x6E, 0x00,
+	// BIOS 40:40 的非零倒數；不在遊戲層強制跳過等待。
+	0x80, 0x3E, 0x40, 0x00, 0x00, // cmp byte [40h],0
+	0x74, 0x04, // je skip
+	0xFE, 0x0E, 0x40, 0x00, // dec byte [40h]
+	0xCD, 0x1C,
+	0x5A, 0x58, 0x1F,
+	0xCF,
+}
+
+// biosTimerCodeEOI 是保護模式剖面的 BIOS 計時器樁（docs/spec/459 §3.3a）：在 `int 1Ch` 之後、`pop dx` 之前
+// 插入 `cli; mov al,20h; out 20h,al`（DOSBox-X CB_IRQ0，callback.cpp:393-412），長度 35→40 bytes，
+// 佔 0x420–0x447，正好到 SysConfigOff（0x448）之前。實模式剖面不用它。
+var biosTimerCodeEOI = func() [40]byte {
+	var b [40]byte
+	n := copy(b[:], biosTimerCode[:biosTimerIRetOff-biosTimerOff])
+	n += copy(b[n:], []byte{0xFA, 0xB0, 0x20, 0xE6, 0x20})
+	copy(b[n:], biosTimerCode[biosTimerIRetOff-biosTimerOff:])
+	return b
+}()
+
+// biosTimerIRetOff 是舊版（35 bytes）計時器樁中 `int 1Ch` 的返回位址（`pop dx`）：0x43F。
+// 升級時目前 CS:IP 或巢狀返回位址落在 0x43F–0x442 不能換樁（459 §5.3 第 3 步）。
+const biosTimerIRetOff = biosTimerOff + 0x1F
 
 // VGAState 回目前的圖形控制器、序列器與 latch。
 //

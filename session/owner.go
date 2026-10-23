@@ -214,6 +214,19 @@ func applyMachineConfig(m *machine.Machine, cfg Config) error {
 	return nil
 }
 
+// SetMouseIRQ12Direct 是 docs/spec/459-mouse-irq12-v86-delivery §3.8 的診斷開關（§6.4 N1 的負對照）：保護模式剖面下
+// 讓滑鼠事件照實模式剖面直接遠呼叫，不經 IRQ12。只能在 BootOriginal／BootFromState 之前呼叫；不進 Config、不進狀態檔。
+// 開啟時的結果是負對照，不是正式收據。
+func (o *Owner) SetMouseIRQ12Direct(on bool) error {
+	if o == nil {
+		return errors.New("session: Owner 不得為 nil")
+	}
+	if o.phase != PhaseBooting {
+		return fmt.Errorf("session: SetMouseIRQ12Direct 只能在開機前呼叫（phase %d）", o.phase)
+	}
+	return o.machine.SetMouseIRQ12Direct(on)
+}
+
 // Status is a value-only lifecycle receipt.  It deliberately exposes neither
 // an owned resource nor a mutable routing capability.
 type Status struct {

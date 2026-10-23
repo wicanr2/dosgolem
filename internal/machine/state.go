@@ -294,6 +294,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	// 失敗時機器維持原狀（docs/spec/432-linear-memory-and-paging §7、§10 第 6 項）。
 	// profile 關閉時套用初值（433 §2.1：不用零值，避免 IDTR 界限、DR6 出現 0）。
 	pm := pmFields{sysRegs: sysRegsInit()}
+	var upgrade *pmUpgrade
 	if hasPM := len(s.PM) != 0; hasPM != m.pmProfile {
 		return fmt.Errorf("machine: 狀態檔的保護模式 profile 是 %t，這台是 %t（先用 SetProtectedModeProfile 設成相同）",
 			hasPM, m.pmProfile)
@@ -306,6 +307,19 @@ func (m *Machine) LoadState(r io.Reader) error {
 		// 拒絕放在這裡，不在 decodePM（直接呼叫 decodePM 的測試不受影響）。
 		if v := binary.LittleEndian.Uint16(s.PM); v < pmVersion3 && pm.cr0&cr0PE != 0 && pm.eflagsHi&eflagsHiVM == 0 {
 			return fmt.Errorf("machine: PM 版本 %d 帶 PE=1、VM=0（433 的停擺狀態），不能可靠恢復（docs/spec/434 §2.1）", v)
+		}
+		if pm.pic != nil {
+			// 459 §5.2：兩個選項都開時，PM 與 sbDMA8State 的主片 IMR、從片 IMR、讀取選擇要相同。
+			if sb8 != nil {
+				rd := [2]bool{pm.pic.flags&pmfReadISR0 != 0, pm.pic.flags&pmfReadISR1 != 0}
+				if pm.pic.picMask != sb8.PICMask || pm.pic.slaveIMR != sb8.SlaveIMR || rd != sb8.ReadISR {
+					return fmt.Errorf("machine: PM 版本 4 與 sbDMA8State 的 PIC 狀態不一致（主片 IMR %02X／%02X、從片 IMR %02X／%02X、"+
+						"讀取選擇 %v／%v；docs/spec/459 §5.2）", pm.pic.picMask, sb8.PICMask, pm.pic.slaveIMR, sb8.SlaveIMR, rd, sb8.ReadISR)
+				}
+			}
+		} else if upgrade, err = m.planPMUpgrade(&s, pm, sb8); err != nil {
+			// 459 §5.3：PM 版本 1–3 升級；決定都在任何寫入之前。
+			return err
 		}
 	}
 	// 新檔的埠統計在 slice 裡，舊檔在 map 裡；統一倒進 map 再用。
@@ -411,6 +425,16 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.applyPM(pm) // TLB 世代加一、重算衍生欄位與取指令快路徑
 	if sb8 != nil {
 		m.sb8Apply(sb8)
+	}
+	// 459 §5.1、§5.3：保護模式剖面的 PIC 與 IRQ12 狀態（版本 4 照存檔還原，版本 1–3 升級）。
+	// 卡住偵測的起點不進 PM，載入後歸零重新起算（§5.4）。
+	if m.pmProfile {
+		if pm.pic != nil {
+			m.applyPIC(pm.pic)
+		} else {
+			m.applyPMUpgrade(upgrade)
+		}
+		m.pic.stuckCnt, m.pic.stuckLast = [stuckN]uint64{}, [stuckN]uint64{}
 	}
 	m.sb8Err = nil
 	// 449 §2.2：提交點清空按住狀態（Steps 已換成任意值，舊的 next 會讓重複碼一次補排）。

@@ -37,7 +37,15 @@ type callbackFrame struct {
 
 // QueueCallback 排一次遠呼叫。**排隊不丟**——丟掉的話快速移動的軌跡
 // 會少幾格，而畫面看起來完全正常。
+//
+// 459 §3.2：保護模式剖面下佇列上限 cbQueueMax（4096，與 PM 版本 4 的編碼上限相同）。已滿時不排入，
+// 設黏著的溢位旗標並記下被拒的筆數；tick 每次進入都回溢位錯誤（失敗即關閉）。實模式剖面不設上限。
 func (m *Machine) QueueCallback(q QueuedCall) {
+	if m.pmProfile && len(m.cbQueue) >= cbQueueMax {
+		m.pic.overflow = true
+		m.picd.rejected++
+		return
+	}
 	m.cbQueue = append(m.cbQueue, q)
 }
 
@@ -48,7 +56,14 @@ func (m *Machine) CallbackPending() int { return len(m.cbQueue) }
 //
 // 同步派送（`dos.RunMouseEvent`）要靠它判斷回呼收工了沒：只看
 // CallbacksMade 增加的話，會在回呼**才剛進去**的那一步就以為結束了。
-func (m *Machine) CallbackActive() bool { return m.cbActive }
+//
+// 459 §3.8：滑鼠事件走 IRQ12 時（保護模式剖面）回 UIR（使用者回呼執行中）。
+func (m *Machine) CallbackActive() bool {
+	if m.MouseIRQ12Active() {
+		return m.pic.uir
+	}
+	return m.cbActive
+}
 
 // CallbacksMade 是已經送出去幾次。**收工前看一眼**：0 次與「遊戲不看事件」
 // 長得一模一樣。

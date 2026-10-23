@@ -118,6 +118,10 @@ type Snapshot struct {
 
 	// 444 §2.9：選項開啟時的 DSP、DMA、PIC 與傳輸狀態（深拷貝）；選項關閉時為 nil。
 	sb8 *sbDMA8State
+
+	// 459 §5.4：從片 IMR、讀取選擇、ISR0／ISR1／ISR2／ISR4、UIR、升級血統、溢位旗標與卡住偵測的起點（值複製）。
+	// 佇列在 cbQueue、主片 IMR 在 picMask；丟棄計數、EOI 計數、卡住最長值等診斷不進。
+	pic picState
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -203,6 +207,7 @@ func (m *Machine) Snapshot() *Snapshot {
 
 		pmProfile: m.pmProfile,
 		pmFields:  pmFields{cpl: m.pmCPL, cr0: m.cr0, cr3: m.cr3, eflagsHi: m.eflagsHi, sysRegs: m.sys},
+		pic:       m.pic,
 	}
 	// 434 §2.2：分段模式旗標與六個快取。
 	s.pmFields.segmented, s.pmFields.cache = m.cpuPMFields()
@@ -287,6 +292,7 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.Speaker = append(m.Speaker[:0], s.speaker...)
 	m.syncSpeakerLast()
 	m.pit, m.picMask = s.pit, s.picMask
+	m.pic = s.pic // 459 §5.4
 	m.IRQ0Clamped = s.irq0Clamped
 	// 444 §2.8、§2.9：sb8 狀態（含 picMask，與上一行同值）、回呼重接；清黏著錯誤與觀測紀錄。
 	if s.sb8 != nil {

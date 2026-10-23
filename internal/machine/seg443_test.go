@@ -908,8 +908,8 @@ func TestSeg443StateRoundTrip(t *testing.T) {
 		t.Fatal("前提：存檔點在 D=1 碼段")
 	}
 	pm := m.encodePM()
-	if len(pm) != 142 || pm[0] != 3 || pm[1] != 0 {
-		t.Errorf("encodePM：版本 %d、%d bytes，應為版本 3、142 bytes", uint16(pm[0])|uint16(pm[1])<<8, len(pm))
+	if len(pm) != 148 || pm[0] != 4 || pm[1] != 0 { // 459 §5.1：版本 4，佇列空時 148 bytes
+		t.Errorf("encodePM：版本 %d、%d bytes，應為版本 4、148 bytes", uint16(pm[0])|uint16(pm[1])<<8, len(pm))
 	}
 	data := saveBytes(t, m)
 	snap := m.Snapshot()

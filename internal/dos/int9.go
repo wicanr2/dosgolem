@@ -83,6 +83,10 @@ const intKbdTranslate = 0xFA
 // biosInt9 處理一次鍵盤中斷：埠 0x60 上的掃描碼。
 func (d *DOS) biosInt9(c *cpu.CPU) {
 	d.biosInt9Code(d.M.In8(0x60))
+	// 459 §3.3a：保護模式剖面的 BIOS 預設處理送 EOI（DOSBox-X CB_IRQ1 的 out 20h,20h），經埠模型、記入 PortLog。
+	if d.M.ProtectedModeProfile() {
+		d.M.Out8(0x20, 0x20)
+	}
 }
 
 // kbdTranslate 是 `int FAh`（447 §2.3）：AL 是 `int 15h AH=4Fh` 之後的掃描碼（攔截常式可以改它），

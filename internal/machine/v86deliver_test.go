@@ -489,12 +489,13 @@ func TestV86Port60ReadTwice(t *testing.T) {
 
 // §7 第 6 項：V86 下 startCallback、periodic 照常執行（以 V86 的 SS:SP 推入）；分段模式下延後不消耗。
 func TestV86CallbacksRun(t *testing.T) {
+	// 459 §2.3「剖面開，預期改變」：保護模式剖面的滑鼠回呼改經 IRQ12（V86 下經 IDT 74h，見 mouse459_test.go 的
+	// TestMouse459V86Delivery）；這個夾具沒有服務層，Step 回 §3.4 條件 1a 的錯誤，不直接遠呼叫。
 	m := deliverProg(t, []byte{0x90, 0x90, 0x90})
 	m.QueueCallback(QueuedCall{Seg: 0x2000, Off: 0x20})
-	mustStep(t, m, "V86 回呼")
-	if m.CallbacksMade() != 1 || m.CPU.R[cpu.SP] != dV86SP-4 ||
-		get16(m, dV86SS*16+dV86SP-4) != CallbackRetOff || get16(m, dV86SS*16+dV86SP-2) != StubSeg {
-		t.Errorf("V86 回呼應照常送出並推在 V86 堆疊：made=%d SP=%04X", m.CallbacksMade(), m.CPU.R[cpu.SP])
+	wantStepErr(t, m, "V86 回呼（沒有服務層）", "服務層")
+	if m.CallbacksMade() != 0 || m.CPU.R[cpu.SP] != dV86SP || m.CallbackPending() != 1 {
+		t.Errorf("沒有服務層：不直接遠呼叫、V86 堆疊不動：made=%d SP=%04X", m.CallbacksMade(), m.CPU.R[cpu.SP])
 	}
 	m = deliverProg(t, []byte{0x90, 0x90, 0x90})
 	cs := m.CPU.Seg[cpu.CS]

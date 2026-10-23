@@ -906,7 +906,8 @@ func TestRC442StateRoundTrip(t *testing.T) {
 	stepJEMMTo(t, ref, 0x51A8)
 	wantSub(t, ref, "51A3 之後", true)
 	pm := ref.encodePM()
-	if len(pm) != 142 || binary.LittleEndian.Uint16(pm) != 3 || pm[80] != 1 || binary.LittleEndian.Uint32(pm[4:])&cr0PE != 0 {
+	// 459 §5.1：版本 4（佇列空時 148 bytes），前 142 bytes 照版本 3。
+	if len(pm) != 148 || binary.LittleEndian.Uint16(pm) != 4 || pm[80] != 1 || binary.LittleEndian.Uint32(pm[4:])&cr0PE != 0 {
 		t.Errorf("子狀態的 PM：長度 %d、版本 %d、segmented %d、CR0 %08X", len(pm), binary.LittleEndian.Uint16(pm), pm[80],
 			binary.LittleEndian.Uint32(pm[4:]))
 	}

@@ -1,6 +1,6 @@
 # 459：保護模式剖面的 int 33h 使用者回呼經 IRQ12 遞送
 
-狀態：**READY**（第 4 版，2026-10-23 轉 READY；三輪獨立審查與前置、補充探針的處置見附錄 A）
+狀態：**READY**（第 5 版，2026-10-23；第 4 版轉 READY，三輪獨立審查與前置、補充探針的處置見附錄 A；第 5 版是實作期的裁決，見 A.8）
 日期：2026-10-23
 前置：[`006-layering`](006-layering.md)、[`017-mouse-callback`](017-mouse-callback.md)（本規格修訂其停止線）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md) §7、
 [`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md) §5.3、[`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md)（本規格擴充 §2.1 的外部中斷列）、
@@ -90,7 +90,7 @@
 |---|---|---|
 | `TestV86CallbacksDeferred`（`v86gate_test.go:50-58`） | V86 下 `QueueCallback` 的遠呼叫照常執行、分段模式延後 | 分段模式延後不消耗（不變）；V86 下這個夾具沒有服務層，`Step` 回 §3.4 條件 1a 的「IRQ12 樁需要服務層」錯誤，不直接遠呼叫 |
 | `TestV86CallbacksRun`（`v86deliver_test.go:491-520`） | V86 下回呼照常執行 | 同上，期望條件 1a 的錯誤。IDT `74h` 送達與回呼執行改在有服務層的夾具驗（§6.2 第 2 項） |
-| `session` 的 `noKbdRewrite` 負對照（450 §3.4） | `BootFromState` 跳過第 6 步時鍵盤攔截碼沒被寫 | 剖面開時跳過第 6 步，記憶體裡是狀態檔帶來的客體碼；版本 3 升級來的狀態是 447 的 14 bytes 版本，IRQ1 交給它時不送 EOI，ISR1 卡住，§3.3a 的卡住上限在 IRQ1 再次待處理後觸發失敗即關閉。新期望是該錯誤（訊息含 ISR1） |
+| `session` 的 `noKbdRewrite` 負對照（450 §3.4） | `BootFromState` 跳過第 6 步時鍵盤攔截碼沒被寫 | 剖面開時跳過第 6 步，記憶體裡是狀態檔帶來的客體碼；版本 3 升級來的狀態是 447 的 14 bytes 版本，IRQ1 交給它時不送 EOI，ISR1 卡住，§3.3a 的卡住上限在 IRQ1 再次待處理後觸發失敗即關閉。這個子測試只以 `t.Log` 記錄、不判失敗（`boot_from_state_long_test.go:22`），且 40 萬步內沒有按鍵，IRQ1 不發生，實測無錯誤（實作收據）；要觀察 ISR1 卡住須另加按鍵，不列為本規格的驗收。「從未寫過」的狀態（§5.3 第 3a 步例外，例如 p476/s800）跳過第 6 步時，客體碼全 0、向量 9 的 stub 仍是 `CD 09 CF` 而 `KbdIntercept` 為真，IRQ1 一到會在 stub 上無限遞迴，不是 ISR1 的乾淨錯誤；這個組合只有測試開關走得到，該子測試不得對這類狀態加按鍵 |
 | `linear_test.go:674`、`692` | `encodePM` 長度 142、版本 3 | 版本 4，長度 `148+16n`（佇列空時 148），142 起的欄位照 §5.1 |
 | `realcache442_test.go:909`、`seg443_test.go:911` | PM 版本 3 的位元組 | 同上，版本 4 |
 | `deliveries454_test.go` 中以 `newPM`／`deliverProg` 建機的案例 | 現值 | 不經滑鼠者不變；有滑鼠事件者每事件 `Deliveries` 加 1（不變），送達點由 `startCallback` 改為 `raiseIRQ(74h)` |
@@ -181,13 +181,13 @@ IRQ7 的遞送條件（`sb8IRQ7Ready`，`sb_dma8.go:802-805`）與 `segWait` 中
 
 理由：沒有 ISR0、ISR1，非特定 EOI 無從歸屬；只追蹤不閘控，ISR 位元與遞送脫節；BIOS 預設處理不送 EOI，ISR0／ISR1 會卡住，之後每一次非特定 EOI 都清錯位元。三件事要一起做（DOSBox-X 也是三件一起）。447 當初「不送 EOI」的理由是 dosgolem 沒有 ISR 模型（`kbdintercept.go:13`），本節之後在保護模式剖面不成立。
 
-已知的雙重 EOI：遊戲的 IRQ0 處理常式若自己送 EOI 又鏈回 BIOS 樁，會送兩次；第二次清掉下一個在服務位元。DOSBox-X 行為相同（`CB_IRQ0` 也送），照真機語意處理，不另防。陸空戰將 OPTTEST 的 IRQ0 處理常式 `341D:050D` 送非特定 EOI 2685 次（探針報告 §3a），是否鏈回 BIOS 樁由 (a) 收據記錄。另一個 EOI 點 `1243:0039`（447 次，探針報告 §3a；主代理訊息寫作 `1243:0030`，以報告為準）服務哪一條 IRQ 待辨認，不擋 READY，(a) 收據一併記錄。
+已知的雙重 EOI：遊戲的 IRQ0 處理常式若自己送 EOI 又鏈回 BIOS 樁，會送兩次；第二次清掉下一個在服務位元。DOSBox-X 行為相同（`CB_IRQ0` 也送），照真機語意處理，不另防。陸空戰將 OPTTEST 的 IRQ0 處理常式 `341D:050D` 送非特定 EOI 2685 次（探針報告 §3a），(a) 收據（s449 起 3 億步）：它在 3108 段 IRQ0 內送 EOI，其中 472 段之後鏈回 BIOS 樁。另一個 EOI 點 `1243:0039` 每次送 EOI 前在服務位元都只有 ISR0，服務的是 IRQ0，已證實（抽樣）。冷開機 10 億步的雙重 EOI 只表現為空 EOI，沒有清到非預期位元。
 
 EOI 計數（診斷，不進狀態檔，probe 報告與收據列出）：主片、從片各自的非特定 EOI 次數，按「清掉的位元」分列（ISR0、ISR1、ISR2、ISR7、ISR4），另列「空 EOI」（送出時沒有任何建模的在服務位元）次數。雙重 EOI 表現為空 EOI 或清掉非預期位元，由這組計數看出。
 
 **ISR 卡住偵測**。處理常式不送 EOI 時，閘控會讓較低優先序的 IRQ 永遠不送，而機器照常執行，不報錯。所以：
 
-- 計數：對每個 IRQ（IRQ0、IRQ1、IRQ12、IRQ7）記「待處理但被 ISR 擋住」的連續步數，被擋的原因按擋住它的位元（ISR0、ISR1、ISR2、ISR4、ISR7）分列；每項另記全程最長值。條件不成立（沒有待處理、或已不被擋）時連續步數歸零。`IF=0`、IMR 遮住不算被 ISR 擋住。
+- 計數：對每個 IRQ（IRQ0、IRQ1、IRQ12、IRQ7）記「待處理但被 ISR 擋住」的連續步數，被擋的原因按擋住它的位元（ISR0、ISR1、ISR2、ISR4、ISR7）分列；每項另記全程最長值。條件不成立（沒有待處理、或已不被擋）時連續步數歸零。`IF=0`、IMR 遮住的步不算被 ISR 擋住，連續步數不累加也不歸零：若歸零，處理常式開頭的 `cli` 每次都會重設計數，卡住永遠偵測不到（第 5 版）。
 - 上限：L＝10 × `IRQ0Every` 步；`IRQ0Every` 為 0（週期時鐘，`CycleClock`）時 L＝10 × `DefaultIRQ0Every`。上限只以步數計，不換算成秒（dosgolem `CLAUDE.md` 的兩個時間基準規則；這裡用不到秒），收據記 L 的值與來源。
 - 超過 L：失敗即關閉，錯誤放進 `irqErr`，由 `tick`（IRQ0、IRQ12 待處理時必進）、`keyTick`／`timedKeyTick`（IRQ1）、`sb8IRQ7`（IRQ7）既有的錯誤出口回傳，`Step` 本體不改。訊息列 ISR0、ISR1、ISR2、ISR4、ISR7、各 IRQ 的待處理狀態、被擋的連續步數與最後一次設起該 ISR 的步數。
 - 分段模式下的步數照樣計入（JEMM ring 0 期間 ISR 不會被清，但 ring 0 期間也不會持續超過一百萬步，434 §5.3 的 `segWait` 另管）。
@@ -260,8 +260,10 @@ StubSeg 佈局（`machine.go:104-187` 的 const 區塊；現況 0x4C6–0x4EF �
 
 接手條件（`handle` 開頭，在 435 §4 的 V86 條件與 IVT 段值判斷之前）：
 
-- `n == 0xFB`：`pmProfile` 為真且本道指令 `c.Op()` 為 `StubSeg:Mouse74Off+5` 時服務；否則回 false，照一般軟體中斷經 IVT／IDT。
-- `n == 0xFC`：`pmProfile` 為真且 `c.Op()` 為 `StubSeg:MouseUIROff+1` 時服務；否則回 false。
+- `n == 0xFB`：`pmProfile` 為真且本道指令 `c.Op()` 為 `StubSeg:Mouse74Off+5` 時服務；否則不在這裡接手，照一般軟體中斷處理：IVT 被程式改走時照 IVT 走，否則落到既有的未實作紀錄（第 5 版）。
+- `n == 0xFC`：`pmProfile` 為真且 `c.Op()` 為 `StubSeg:MouseUIROff+1` 時服務；否則同上。
+
+第 4 版寫「回 false」。照字面做，IVT[FBh] 指向 per-vector stub 時，stub 的 `CD FB` 會再回到同一路徑，無限遞迴（`dos.go` 的 `handle` 註解所述的同類症狀）。第 5 版改為交給一般路徑（`dos.go:762-778`）。
 - 不看 IVT[FBh]、IVT[FCh] 的值。理由：第 1 版沿用 `handle` 的 IVT 段值判斷（`dos.go:770`），任何程式在任何位置執行 `CD FB` 都會被接手；改成位址判斷後只有樁本身的那一道算數。
 
 `int FBh`（對應 `INT74_Handler`，`ints/mouse.cpp:2254-2296`），由 `internal/dos` 的 `handle` 分派：
@@ -397,7 +399,7 @@ DOSBox-X 的做法：
 2. 從片 IMR：有 `sbDMA8State` 時取它的 `SlaveIMR`，否則 `FFh`；然後清 bit 4（§3.7 第 3 步）。結果寫進單一儲存位置，所以之後存檔時 `sbDMA8State.SlaveIMR` 與 PM 兩處同步是清過的值，下一次載入的一致性檢查（§5.2）不會互擋。s449 實測 `SlaveIMR=FFh`（探針報告 §1），這一步是必要的。
 2a. 主片 IMR：有 `sbDMA8State` 時取它的 `PICMask`，否則 0（`machine.go:571` 的初值；只開剖面時舊檔沒有存它）。寫進單一儲存位置。s449 實測 `00h`（探針報告 §1）。
 3. BIOS 計時器樁：35 bytes 與舊版逐位元組相同才換成 §3.3a 的 40 bytes 版本；不同就失敗即關閉（`LoadState` 回錯誤、機器不變），訊息列出實際位元組。另檢查返回位址：插入點之後的舊位元組 `0x43F`–`0x442`（`pop dx`、`pop ax`、`pop ds`、`iret`）換版後會移位，`int 1Ch` 推的返回位址就是 `0x43F`。所以目前 `CS:IP`，以及分段模式下 ring 0 堆疊頂 `iretd` 框架的 V86 `CS:IP`，任一落在 `StubSeg:043F`–`0442` 時也失敗即關閉、不換。主代理訊息寫 `0x440`–`0x442`，本規格依 `int 1Ch` 的返回位址擴到 `0x43F`。更深的巢狀返回位址（例如 `int 1Ch` 處理常式內再被中斷）無法逐一偵測，列為限制；s449 的 `iretd` 框架目標由 (a) 收據記錄。
-3a. 鍵盤攔截客體碼：`LoadState` 不寫。實際寫入點是 session `BootFromState` 的第 6 步（450 §2.3），它呼叫 `EnableKbdIntercept`，在保護模式剖面寫 19 bytes 版本並讀回驗證。`LoadState` 只在 `KbdIntercept` 為真時比對狀態檔內的位元組是 447 的 14 bytes 版本或本規格的 19 bytes 版本，兩者皆非就失敗即關閉。`KbdIntercept` 為假時不比對（向量 9 的 stub 由 447 §2.1 的 `CheckKbdInterceptAbsent` 另管）。
+3a. 鍵盤攔截客體碼：`LoadState` 不寫。實際寫入點是 session `BootFromState` 的第 6 步（450 §2.3），它呼叫 `EnableKbdIntercept`，在保護模式剖面寫 19 bytes 版本並讀回驗證。`LoadState` 只在 `KbdIntercept` 為真時比對狀態檔內的位元組是 447 的 14 bytes 版本或本規格的 19 bytes 版本，兩者皆非就失敗即關閉。例外是「從未寫過」：19 bytes 全為 0，且向量 9 的 stub 是原本的 `CD 09 CF`（狀態檔是在鍵盤攔截關閉時存的），這時接受，交第 6 步寫入（第 5 版；第 4 版會擋下 p476/s800，實作收據）。全為 0 而 stub 是其他內容（含已跳過去的 `KbdInterceptStub9()`），仍失敗即關閉。`KbdIntercept` 為假時不比對（向量 9 的 stub 由 447 §2.1 的 `CheckKbdInterceptAbsent` 另管）。
 3b. 寫入 §3.6 的三段樁；IVT[74h] 若仍是 `StubSeg:StubOff(74h)` 就改成 `StubSeg:Mouse74Off`（s449 實測為 `0080:01D0`＝`StubOff(74h)`，探針報告 §1），被程式改過就不動並在升級紀錄記下。
 4. 旗標 bit 5 設 1，`Machine.LegacyMouseUpgrade()` 回真，probe 報告與收據要列出。
 
@@ -460,10 +462,10 @@ DOSBox-X 的做法：
 29. BIOS 預設處理送 EOI：保護模式剖面下，IRQ0 交給 BIOS 計時器樁時樁內送一次 `out 20h`，ISR0 清 0；IRQ1 經鍵盤攔截客體碼（`CF=1` 與 `CF=0` 兩條路）與 Go 端 `biosInt9` 各送一次。實模式剖面下兩段客體碼與 447 的位元組相同、不送 EOI。
 30. 佈局：保護模式剖面下 BIOS 計時器樁佔 `0x420`–`0x447`、鍵盤攔截佔 `0x4B8`–`0x4CA`、滑鼠三段佔 `0x4CC`–`0x4EC`，與其他特殊樁不重疊、不超過 `0x4F0`。
 31. Snapshot 往返：在 ISR0、ISR1、ISR2、ISR4、UIR 為 1、佇列 3 筆、主片與從片 IMR 與讀取選擇為非初值、卡住偵測有起始步數時 `Snapshot`；之後把上述每一項都改成不同的值（佇列清空、ISR 全清、IMR 改值）；`Restore` 後逐項等於 `Snapshot` 當時的值，接著跑同一段程式，`Deliveries`、EOI 計數與不 `Restore` 直接跑的結果相同。
-32. ISR 卡住偵測：合成 IRQ0 處理常式不送 EOI（`iret` 前不 `out 20h`），IRQ0 再次待處理後，第 L+1 步回卡住錯誤，訊息含 ISR0=1 與連續步數；IRQ1 處理常式不送 EOI 時同樣以 ISR1 回錯誤；IRQ12 在 ISR2 卡住時（樁尾 EOI 被拿掉）以 ISR2 回錯誤。送 EOI 的正常處理常式跑 100 × L 步不出錯，最長值小於 L。`IF=0` 或 IMR 遮住的步數不計入。
-33. 主片 IMR 進 PM：只開剖面時寫 `21h`=`FBh`（遮 IRQ2），存檔、載入後 IRQ12 仍被遮；兩個選項都開時，把 `sbDMA8State.PICMask` 與 PM 位移 145 改成不同值，`LoadState` 回錯誤且機器不變。升級：有 `sbDMA8State` 時取其 `PICMask`，否則為 0。
+32. ISR 卡住偵測：合成 IRQ0 處理常式不送 EOI（`iret` 前不 `out 20h`），IRQ0 再次待處理後，第 L+1 步回卡住錯誤，訊息含 ISR0=1 與連續步數；IRQ1 處理常式不送 EOI 時同樣以 ISR1 回錯誤；IRQ12 在 ISR2 卡住時（樁尾 EOI 被拿掉）以 ISR2 回錯誤。送 EOI 的正常處理常式跑 100 × L 步不出錯，最長值小於 L。`IF=0` 或 IMR 遮住的步數不計入。`IF` 每步在 0 與 1 之間交錯、ISR0 不清時，3 × L 步內仍回卡住錯誤（不歸零，第 5 版）。
+33. 主片 IMR 進 PM：只開剖面時寫 `21h`=`04h`（遮 IRQ2），存檔、載入後 IRQ12 仍被遮；兩個選項都開時，把 `sbDMA8State.PICMask` 與 PM 位移 145 改成不同值，`LoadState` 回錯誤且機器不變。升級：有 `sbDMA8State` 時取其 `PICMask`，否則為 0。
 34. 升級的計時器樁：版本 3 狀態檔中計時器樁被改一個 byte，`LoadState` 回錯誤且機器不變；`CS:IP` 為 `StubSeg:043F`、`0441` 各一例回錯誤；分段模式下 ring 0 堆疊頂 `iretd` 框架的 V86 `CS:IP` 落在範圍內時回錯誤。
-35. 升級的鍵盤客體碼：`KbdIntercept` 為真時，狀態檔內是 14 bytes 版本或 19 bytes 版本都接受，其他內容回錯誤；`KbdIntercept` 為假時不比對。
+35. 升級的鍵盤客體碼：`KbdIntercept` 為真時，狀態檔內是 14 bytes 版本或 19 bytes 版本都接受，其他內容回錯誤；「從未寫過」（全 0 且向量 9 的 stub 為 `CD 09 CF`）接受，全 0 而 stub 已跳過去回錯誤；`KbdIntercept` 為假時不比對。
 36. EOI 計數：第 26 項的序列中，按位元分列的計數與空 EOI 計數符合預期；IRQ0 處理常式自己送 EOI 又鏈回 BIOS 樁時，第二次 EOI 記為空 EOI 或清掉下一個在服務位元，計數照實反映。
 ### 6.3 保護模式剖面，陸空戰將（需原版，探針收據）
 
@@ -502,7 +504,7 @@ DOSBox-X 的做法：
 | N9 | `PM` 版本 4 不存佇列 | §6.2 第 11 項 |
 | N10 | 版本 3 升級不清 bit 4 | §6.2 第 11 項 |
 | N11 | 主片非特定 EOI 先清 ISR7 | §6.2 第 8 項 |
-| N12 | 遞送不設 `eventThisStep` | §6.2 第 9 項 |
+| N12 | 遞送不設 `eventThisStep` | 第 5 版免列：保護模式剖面下 IRQ12 送達同時設 ISR2，§3.3 的 IRQ7 條件 `!ISR2` 已擋住同一步的 IRQ7，這個設置點沒有可觀察差異（實作收據）。程式保留它作防禦，與 444 §2.7 其他設置點一致；§6.2 第 9 項的 IRQ7 部分由 N16 守 |
 | N13 | `segWait` 不納入 IRQ12 | §6.2 第 5 項 |
 | N14 | `tick` 的 IRQ12 判斷放在 IRQ0 段的提早返回之後（主片 bit 0 遮或 `IF=0` 時就不判） | §6.2 第 16 項 |
 | N15 | IRQ0 守門失敗那一步仍判 IRQ12 | §6.2 第 16 項 |
@@ -524,6 +526,7 @@ DOSBox-X 的做法：
 | N31 | 升級時計時器樁位元組不符仍照換（或不換也不報錯） | §6.2 第 34 項 |
 | N32 | 返回位址落在 `0x43F`–`0x442` 時仍換樁 | §6.2 第 34 項 |
 | N33 | `KbdIntercept` 為假時也比對鍵盤客體碼 | §6.2 第 35 項 |
+| N34 | 卡住計數在 `IF=0`、IMR 遮住的步歸零（第 5 版） | §6.2 第 32 項的 IF 交錯例 |
 
 ## 7. 影響
 
@@ -784,7 +787,7 @@ PM 版本 4 併進 (a)：(a) 讓從片 IMR 與 OCW3 讀取選擇在只開剖面�
 
 ### A.6 第 4 版差異與第 3 版複審處置
 
-第 3 版複審由主代理轉述（審查報告未存於 `workplace/mouse459/`）：甲無阻擋、應改 1–5；乙阻擋 1、應改 2、3；兩位的建議。處置照主代理裁決：
+第 3 版複審報告由主代理代存於 `workplace/mouse459/review459v3.md`：甲無阻擋、應改 1–5；乙阻擋 1、應改 2、3；兩位的建議。處置照主代理裁決：
 
 | 編號 | 類別 | 處置 |
 |---|---|---|
@@ -813,3 +816,19 @@ PM 版本 4 併進 (a)：(a) 讓從片 IMR 與 OCW3 讀取選擇在只開剖面�
 | 第 3 輪 | 第 3 版 | 甲、乙複審（主代理轉述） | 甲無阻擋（應改 1–5）；乙阻擋 1（`Snapshot` 漏 ISR0／ISR1）、應改 2、3 | 第 4 版（A.6），轉 READY |
 
 第 2 輪沒有獨立審查報告檔，是探針結果與主代理裁決驅動的修訂；表中如實列出。
+
+### A.8 第 5 版：實作期裁決
+
+實作（收據 `workplace/impl459/receipt.md`，陸空戰將 repo）回報的疑點，由主代理裁決：
+
+| 疑點 | 處置 |
+|---|---|
+| §5.3 第 3a 步擋下鍵盤攔截關閉時存的狀態檔（p476/s800 的 `0080:04B8` 為 19 個 0） | 加「從未寫過」例外：全 0 且向量 9 的 stub 是 `CD 09 CF` 時接受，交 `BootFromState` 第 6 步寫入；全 0 而 stub 是其他內容仍失敗即關閉。§6.2 第 35 項加三例 |
+| N12 測不出 | 剖面下 `!ISR2` 已擋同步 IRQ7，設置點無可觀察差異。保留設置點，N12 免列（§6.4） |
+| §6.2 第 33 項「`21h`=`FBh`（遮 IRQ2）」 | 筆誤，`FBh` 的 bit 2 為 0。改為 `04h` |
+| 樁外的 `int FBh`／`FCh` | 不照第 4 版字面「回 false」（會無限遞迴），改交一般路徑（§3.6） |
+| 卡住計數遇 `IF=0`、IMR 遮住 | 不累加也不歸零（§3.3a） |
+| `noKbdRewrite` 新期望 | 該子測試只記錄，40 萬步內無按鍵，實測無錯誤；§2.3 改寫 |
+| `341D:050D`、`1243:0039` | 寫回 (a) 收據的結果（§3.3a） |
+
+第 5 版經兩位獨立審查（互不看對方報告，`workplace/mouse459/review459v5-A.md`、`-B.md`），皆無阻擋、維持 READY。兩人都指出第 3a 步的 stub 條件在 §5.3 與 §6.2 第 35 項寫法不一，程式收緊為「stub 必須是 `CD 09 CF`」並補「其他內容」一例；乙要求補 `IF` 交錯仍累加的測試（§6.2 第 32 項、N34）；甲要求 §2.3 補述「從未寫過」加跳過第 6 步會無限遞迴。三項都已處理。收緊後 §7.1 的 12 個狀態檔（含 p476/s800）以鍵盤攔截開的設定全部升級成功。

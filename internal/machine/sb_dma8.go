@@ -36,13 +36,12 @@ const (
 )
 
 // sbDMA8 是 §2.2–§2.7 的狀態：主片 8237 暫存器檔、TC 位元、PIC 的 IRQ7 最小模型與進行中的傳輸。
+// 從片 IMR 與 OCW3 讀取選擇由 459 §3.3 搬到 Machine（m.pic），與保護模式剖面共用一份。
 type sbDMA8 struct {
-	dma      *DMA8237
-	tc       uint8 // 08h 狀態暫存器 bit0–3（DMA8237 沒有 TC 欄位）
-	slaveIMR uint8 // A1h，初值 FFh
-	irr7     bool
-	isr7     bool
-	readISR  [2]bool // OCW3 讀取選擇：[0] 主片（20h）、[1] 從片（A0h）；false＝IRR
+	dma  *DMA8237
+	tc   uint8 // 08h 狀態暫存器 bit0–3（DMA8237 沒有 TC 欄位）
+	irr7 bool
+	isr7 bool
 
 	// 進行中（或最近一次）的傳輸。active 為假時其餘欄位只是最近一次的紀錄。
 	active  bool
@@ -127,7 +126,8 @@ func (m *Machine) SetSBDMA8(on bool) error {
 	case len(m.Mem) != MemSize:
 		return fmt.Errorf("machine: SB16 DMA8／IRQ7 選項需要 %d bytes 的記憶體，這台是 %d（docs/spec/444 §2.1）", MemSize, len(m.Mem))
 	}
-	m.sb8 = &sbDMA8{dma: NewDMA8237(), slaveIMR: 0xFF}
+	m.sb8 = &sbDMA8{dma: NewDMA8237()}
+	m.pic.slaveIMR = 0xFF // 444 §2.6 的初值；剖面開啟時 LoadEXE／LoadCOM 另清 bit 4（459 §3.7）
 	m.wireSB8()
 	return nil
 }
@@ -421,6 +421,7 @@ func (m *Machine) sb8Poll() {
 func (m *Machine) sb8Cancel() {
 	m.sb8CancelBody()
 	m.sb8.irr7 = false
+	m.stuckClear(stuckIRQ7) // 459 §3.3a：待處理消失，結束被擋住的一段
 }
 
 // sb8CancelBody 是 445 §2.8 的取消主體（隱式取消與 DSP 重設共用）：進行中的傳輸或靜音取消，
@@ -530,25 +531,8 @@ func (m *Machine) sb8In(port uint16) (uint8, bool) {
 		v := s.tc & 0x0F // bit4–7 為 0（dma.cpp:388-397），讀後清 TC
 		s.tc = 0
 		return v, true
-	case 0x20:
-		var v uint8
-		if s.readISR[0] {
-			if s.isr7 {
-				v |= 0x80
-			}
-		} else {
-			if m.irq0Pending {
-				v |= 0x01
-			}
-			if s.irr7 {
-				v |= 0x80
-			}
-		}
-		return v, true
-	case 0xA0:
-		return 0, true
-	case 0xA1:
-		return s.slaveIMR, true
+	case 0x20, 0xA0, 0xA1: // 459 §3.3：共用的 PIC 埠模型（剖面關閉時與 444 相同）
+		return m.picIn(port), true
 	case 0x87, 0x83, 0x81, 0x82:
 		if v, ok := s.dma.In8(port); ok {
 			return v, true
@@ -559,6 +543,7 @@ func (m *Machine) sb8In(port uint16) (uint8, bool) {
 	case 0x22E:
 		v, _ := m.soundBlaster.In8(port) // 清 IRQPending
 		s.irr7 = false                   // 尚未被 CPU 接受的 IRR7 一併清除（sblaster.cpp:3158-3163）
+		m.stuckClear(stuckIRQ7)          // 459 §3.3a：待處理消失，結束被擋住的一段
 		return v, true
 	}
 	return 0, false
@@ -720,14 +705,8 @@ func (m *Machine) sb8Out(p uint16, v uint8) bool {
 	case 0x87, 0x81, 0x82:
 		d.Out8(p, v)
 		return true
-	case 0x20:
-		m.sb8PICWrite(0, v)
-		return true
-	case 0xA0:
-		m.sb8PICWrite(1, v)
-		return true
-	case 0xA1:
-		s.slaveIMR = v
+	case 0x20, 0xA0, 0xA1: // 459 §3.3：共用的 PIC 埠模型（剖面關閉時與 444 相同）
+		m.picOut(p, v)
 		return true
 	}
 	if p <= 0x0F {
@@ -752,40 +731,7 @@ func sb8RewritesCh1(p uint16, v uint8) bool {
 	return false
 }
 
-// sb8PICWrite 是 §2.6 的 20h（i=0）與 A0h（i=1）寫入。
-func (m *Machine) sb8PICWrite(i int, v uint8) {
-	s := m.sb8
-	port := [2]uint16{0x20, 0xA0}[i]
-	switch {
-	case v&0x10 != 0:
-		m.sb8Fail("PIC %02Xh 寫入 ICW1（%02Xh）：不支援重新程式化 PIC", port, v)
-	case v&0x18 == 0x08: // OCW3
-		if i == 0 && v&0x44 != 0 {
-			m.sb8Fail("PIC 20h 寫入 OCW3 %02Xh：poll 或特殊遮罩未建模", v)
-			return
-		}
-		switch v & 3 {
-		case 2:
-			s.readISR[i] = false
-		case 3:
-			s.readISR[i] = true
-		}
-	default: // OCW2
-		switch v & 0xE0 {
-		case 0x00, 0x40:
-		case 0x20: // 非特定 EOI
-			if i == 0 {
-				m.sb8EOI()
-			}
-		case 0x60: // 特定 EOI
-			if i == 0 && v&7 == 7 {
-				m.sb8EOI()
-			}
-		default:
-			m.sb8Fail("PIC %02Xh 寫入 OCW2 %02Xh：旋轉或設定優先序未建模", port, v)
-		}
-	}
-}
+// 20h、A0h 的寫入見 pic.go 的 picOut（459 §3.3；剖面關閉時即 444 §2.6 的原規則）。
 
 // sb8EOI 清 ISR7（為 1 時）並記 eoi。
 func (m *Machine) sb8EOI() {
@@ -799,9 +745,10 @@ func (m *Machine) sb8EOI() {
 // ---- §2.7 IRQ7 遞送 -----------------------------------------------------------
 
 // sb8IRQ7Ready 是 §2.7 第 1 步的條件（也是 segWait 的「有待處理 IRQ」的 IRQ7 部分）。
+// 459 §3.3、§3.3a：另要 ISR0、ISR1、ISR2 為 0（這三位只在保護模式剖面設起，剖面關閉時恆為 0）。
 func (m *Machine) sb8IRQ7Ready() bool {
 	s := m.sb8
-	return s != nil && s.irr7 && !s.isr7 && m.picMask&0x80 == 0
+	return s != nil && s.irr7 && !s.isr7 && m.picMask&0x80 == 0 && m.pic.isr&7 == 0
 }
 
 // sb8IRQ7 是 Step 的 IRQ7 分支（鍵盤分支之後、Steps++ 之前），§2.7 第 1–7 步。
@@ -810,6 +757,10 @@ func (m *Machine) sb8IRQ7Ready() bool {
 // IF=0 的步也要呼叫才會把計數歸零（434 §5.3 的「連續」）。分段模式下 eventThisStep 不會為真、也不遞送，
 // 所以遞送結果與規格的條列次序相同。
 func (m *Machine) sb8IRQ7() {
+	// 459 §3.3a：保護模式剖面在分段模式以外更新 IRQ7 的卡住計數（超過 L 時 irqErr 由 Step 回傳）。
+	if m.pmProfile && !m.CPU.Segmented() && m.irq7Stuck() {
+		return
+	}
 	if !m.sb8IRQ7Ready() {
 		return
 	}
@@ -824,6 +775,7 @@ func (m *Machine) sb8IRQ7() {
 	if m.ReadSup16(0x0F*4+2) == StubSeg {
 		s.irr7 = false
 		s.irq7Defaulted++
+		m.stuckClear(stuckIRQ7)
 		m.sb8Log(m.sb8Event("defaulted", false, false))
 		return
 	}
@@ -833,6 +785,13 @@ func (m *Machine) sb8IRQ7() {
 	s.irr7, s.isr7 = false, true
 	s.irq7Deliveries++
 	m.eventThisStep = true
+	if m.pmProfile {
+		m.stuckClear(stuckIRQ7)
+		m.picd.isrSetAt[4] = m.Steps
+		if m.pic.isr&4 != 0 || m.pic.isr4 || m.pic.uir {
+			m.picd.irq7InIRQ12++
+		}
+	}
 	m.sb8Log(m.sb8Event("irq7", false, false))
 	m.raiseIRQ(0x0F)
 }
@@ -1042,7 +1001,8 @@ func (m *Machine) sb8Save() *sbDMA8State {
 		DMAPage: d.Page, DMAPageKnown: d.PageKnown, DMABase: d.Base, DMACurrent: d.Current, DMAKnown: d.Known,
 		DMAMode: d.Mode, DMAMask: d.Mask, DMAHigh: d.high, DMATC: s.tc,
 
-		PICMask: m.picMask, SlaveIMR: s.slaveIMR, IRR7: s.irr7, ISR7: s.isr7, ReadISR: s.readISR,
+		// 459 §5.2：主片 IMR、從片 IMR、讀取選擇取 Machine 的單一儲存位置（與 PM 版本 4 同值）。
+		PICMask: m.picMask, SlaveIMR: m.pic.slaveIMR, IRR7: s.irr7, ISR7: s.isr7, ReadISR: m.pic.readISR,
 
 		Active: s.active, Cmd: s.cmd, N: s.n, Samples: s.samples, Start: s.start, Due: s.due, CycleUnit: s.cycles,
 		Addr: s.addr, Count: s.count,
@@ -1072,7 +1032,7 @@ func (m *Machine) sb8Apply(st *sbDMA8State) {
 	s.tc = st.DMATC
 
 	m.picMask = st.PICMask
-	s.slaveIMR, s.irr7, s.isr7, s.readISR = st.SlaveIMR, st.IRR7, st.ISR7, st.ReadISR
+	m.pic.slaveIMR, s.irr7, s.isr7, m.pic.readISR = st.SlaveIMR, st.IRR7, st.ISR7, st.ReadISR
 
 	s.active, s.cmd, s.n, s.samples = st.Active, st.Cmd, st.N, st.Samples
 	s.start, s.due, s.cycles = st.Start, st.Due, st.CycleUnit

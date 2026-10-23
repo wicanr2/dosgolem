@@ -150,20 +150,24 @@ func TestPMV3LayoutPrefix(t *testing.T) {
 	mustNil(t, "SetEFlagsHi", m.SetEFlagsHi(eflagsHiRF))
 	fillSys(t, m)
 	b := m.encodePM()
-	if len(b) != 142 {
-		t.Fatalf("PM 版本 3 共 142 bytes，實際 %d", len(b))
+	// 459 §5.1：版本 4（佇列空時 148 bytes），前 142 bytes 照版本 3；尾端 142–147 是 PIC 與佇列。
+	if len(b) != 148 {
+		t.Fatalf("PM 版本 4 共 148 bytes，實際 %d", len(b))
 	}
-	for i, v := range b[80:] {
+	for i, v := range b[80:142] {
 		if v != 0 {
 			t.Errorf("未分段時位移 %d（segmented、保留、快取）應為 0：%02X", 80+i, v)
 		}
+	}
+	if b[142] != 0 || b[143] != 0 || b[144] != 0xFF || b[145] != 0 || b[146] != 0 || b[147] != 0 {
+		t.Errorf("程式未載入時 PM 版本 4 尾端應為 旗標 0、旗標 2 0、從片 IMR FFh、主片 IMR 0、佇列 0：% X", b[142:])
 	}
 	le := binary.LittleEndian
 	for _, c := range []struct {
 		name      string
 		got, want uint64
 	}{
-		{"版本號（0，2）", uint64(le.Uint16(b[0:])), 3},
+		{"版本號（0，2）", uint64(le.Uint16(b[0:])), 4},
 		{"PMProfile（2）", uint64(b[2]), 1},
 		{"pmCPL（3）", uint64(b[3]), 2},
 		{"CR0（4，4）", uint64(le.Uint32(b[4:])), 0x80000019},

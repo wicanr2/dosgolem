@@ -103,6 +103,10 @@ func (m *Machine) KeyStalls() uint64 { return m.keyStalls }
 // 「第一個鍵沒反應，後面的才有」。留著等程式裝好處理常式再送。
 // KbdIntercept 開啟時 stub 是 BIOS 的客體碼（`docs/spec/447` §2.5），不擋。
 func (m *Machine) keyTick() {
+	// 459 §3.3a、§3.4：保護模式剖面更新 IRQ1 的卡住計數，ISR0、ISR1 為 1 時不送。
+	if m.pmProfile && m.irq1Gate() {
+		return
+	}
 	if len(m.keyQueue) == 0 || m.KeyEvery == 0 || m.Steps < m.nextKey {
 		return
 	}
@@ -125,5 +129,8 @@ func (m *Machine) keyTick() {
 	m.kbdData = ev.Code()
 	m.KeyIRQs++
 	m.eventThisStep = true // 444 §2.7
+	if m.pmProfile {       // 459 §3.3a：IRQ1 送達設 ISR1
+		m.irq1Accepted()
+	}
 	m.raiseIRQ(0x09)
 }

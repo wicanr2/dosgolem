@@ -759,6 +759,23 @@ func (d *DOS) Install() {
 // 量到過（2026-09-09，源平合戰）：`OPEN.EXE` 掛 `int 1Ch` 之後，
 // 每一次計時器中斷都遞迴一層。
 func (d *DOS) handle(c *cpu.CPU, n uint8) bool {
+	// 459 §3.6：IRQ12 樁內的 int FBh、使用者回呼返回樁內的 int FCh。只在保護模式剖面、且本道指令正是樁內那一道時接手，
+	// 不看 IVT[FBh]／IVT[FCh]（在 435 §4 的 V86 條件與 IVT 段值判斷之前）。其他位置的 CD FB／CD FC 照一般軟體中斷處理
+	// （IVT 被程式改走時照 IVT 走，否則落到下方的未實作）。
+	if (n == machine.IntMouse74 || n == machine.IntMouseUIR) && d.M.ProtectedModeProfile() {
+		if cs, ip := c.Op(); cs == machine.StubSeg {
+			switch {
+			case n == machine.IntMouse74 && ip == machine.Mouse74TrapIP:
+				d.int74(c)
+				return true
+			case n == machine.IntMouseUIR && ip == machine.MouseUIRTrapIP:
+				if !d.M.ServiceMouseUIR() {
+					d.note(machine.IntMouseUIR, 0, 0) // UIR 本來為 0（AX=0000h 在回呼內重設等）：記下，不吞掉
+				}
+				return true
+			}
+		}
+	}
 	// 435 §4：V86 下只服務 StubSeg 內的陷入（BIOS／DOS 實作的替身）；其餘（遊戲自己的 INT n）照真機經 IDT
 	// 與 JEMM，反射到 StubSeg 的 stub 後再由這裡處理。比較的是段暫存器值，不是線性位址。
 	if d.M.VM() {

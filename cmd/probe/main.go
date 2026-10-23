@@ -153,6 +153,10 @@ func main() {
 	execEnv := execEnvFlag(flag.CommandLine)
 	execReclaim := execReclaimFlag(flag.CommandLine)
 	kbdInt15 := kbdInt15Flag(flag.CommandLine) // docs/spec/447
+	// docs/spec/459 §3.8：隱藏的診斷旗標（-h 不列出）。
+	mouseIRQ12Direct := mouseIRQ12DirectFlag(flag.CommandLine)
+	hideFlags(flag.CommandLine, mouseIRQ12DirectName)
+	flag.Usage = flag.CommandLine.Usage
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -340,6 +344,9 @@ func main() {
 		die(err)
 	}
 	if err := configurePM(m, *pmProfile); err != nil {
+		die(err)
+	}
+	if err := configureMouseIRQ12Direct(m, *mouseIRQ12Direct); err != nil { // 459 §3.8：載入程式或狀態檔之前
 		die(err)
 	}
 	m.ProgramPath = *programPath
@@ -1167,6 +1174,9 @@ func main() {
 	}
 	if m.SBDMA8() {
 		reportSBDMA8(os.Stdout, m)
+	}
+	if m.ProtectedModeProfile() { // 459 §3.8
+		reportPIC459(os.Stdout, m)
 	}
 	if sbLogFile != nil {
 		if err := sbLogFile.Close(); err != nil {

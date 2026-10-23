@@ -282,6 +282,9 @@ func (d *DOS) int33(c *cpu.CPU) {
 		c.R[cpu.BX] = 2      // 兩個鍵
 		m.Buttons = 0
 		m.Handler.Set, m.Handler.Mask = false, 0
+		// 459 §3.7：保護模式剖面另清從片 IMR bit 4、清空待送的事件（計入丟棄）、UIR 清 0（DOSBox-X Mouse_Reset、
+		// Mouse_ResetHardware）。剖面關閉時不動作。
+		d.M.MouseIRQ12Reset()
 
 	case 0x0001, 0x0002: // 顯示／隱藏游標
 		// 遊戲**從來不叫 `AX=1`**（全檔 0 個呼叫端），畫面上那隻小手是
@@ -392,6 +395,16 @@ func (d *DOS) int33(c *cpu.CPU) {
 	default:
 		d.note(0x33, uint8(fn>>8), uint8(fn))
 	}
+}
+
+// int74 是保護模式剖面 IRQ12 樁內 `int FBh` 的服務（docs/spec/459-mouse-irq12-v86-delivery §3.6，
+// DOSBox-X INT74_Handler，mouse.cpp:2254-2296）：取出佇列頭，依**遞送當下**的登記（Handler 的位址與遮罩，
+// DOSBox-X 看 sub_mask）決定呼叫使用者回呼或丟棄。暫存器值取排入時（§8 第 3、4、9 項）。
+func (d *DOS) int74(c *cpu.CPU) {
+	h := &d.Mouse.Handler
+	d.M.ServiceMouse74(func(q machine.QueuedCall) (uint16, uint16, bool) {
+		return h.Seg, h.Off, h.Set && h.Mask&q.AX != 0
+	})
 }
 
 // int16 是 BIOS 鍵盤，按鍵從 `Keys` 佇列來（`docs/spec/008`）。

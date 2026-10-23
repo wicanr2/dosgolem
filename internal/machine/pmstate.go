@@ -10,9 +10,9 @@ import (
 // PM 欄位的內容（docs/spec/432-linear-memory-and-paging §7、§10 第 6 項；
 // docs/spec/433-real-mode-system-instructions §2.1；docs/spec/434-legacy-core-segmented-mode §2.2）。
 //
-// machineState.PM 是不透明的 []byte，自帶版本號。encodePM 一律輸出版本 3（142 bytes，小端序）；
+// machineState.PM 是不透明的 []byte，自帶版本號。encodePM 一律輸出版本 4（見下方，459 起；小端序）；
 // decodePM 支援版本 1（16 bytes，缺的欄位取 sysRegsInit 的初值）、版本 2（80 bytes，
-// segmented=false、快取全 0）與版本 3：
+// segmented=false、快取全 0）、版本 3 與版本 4。版本 3 的版面（版本 4 的前 142 bytes 相同）：
 //
 //	| 位移 | 大小 | 欄位 |
 //	|---|---|---|
@@ -47,6 +47,19 @@ import (
 //
 // 435 之後以提升版本號在尾端增加內容，讀取時支援所有舊版本（舊版本缺的欄位取初值）。
 // 尾端多出的 bytes 不報錯（432 實作收據第 2 項）。profile 關閉時 PM 為 nil。
+//
+// 版本 4（docs/spec/459-mouse-irq12-v86-delivery §5.1）在版本 3 尾端追加 PIC 與 IRQ12 的狀態；encodePM 一律寫版本 4：
+//
+//	| 位移 | 大小 | 欄位 |
+//	|---|---|---|
+//	| 142 | 1 | 旗標：bit 0 ISR4、bit 1 ISR2、bit 2 UIR、bit 3 主片讀 ISR、bit 4 從片讀 ISR、bit 5 升級血統、bit 6 佇列溢位；bit 7 為 0 |
+//	| 143 | 1 | 旗標 2：bit 0 ISR0、bit 1 ISR1；bit 2–7 為 0 |
+//	| 144 | 1 | 從片 IMR |
+//	| 145 | 1 | 主片 IMR（picMask） |
+//	| 146 | 2 | 佇列筆數 n（≤ 4096） |
+//	| 148 | 16×n | 每筆 QueuedCall：Seg、Off、AX、BX、CX、DX、SI、DI，各 2 bytes |
+//
+// 版本 1–3 讀入時由 LoadState 依 §5.3 升級（pic 為 nil）。
 
 const (
 	pmVersion1 = 1
@@ -55,7 +68,30 @@ const (
 	pmV2Size   = 80
 	pmVersion3 = 3
 	pmV3Size   = 142
+	pmVersion4 = 4
+	pmV4Size   = 148 // 佇列空時
+	pmV4Entry  = 16
 )
+
+// PM 版本 4 旗標（位移 142、143）。
+const (
+	pmfISR4     = 1 << 0
+	pmfISR2     = 1 << 1
+	pmfUIR      = 1 << 2
+	pmfReadISR0 = 1 << 3
+	pmfReadISR1 = 1 << 4
+	pmfUpgraded = 1 << 5
+	pmfOverflow = 1 << 6
+	pmf2ISR0    = 1 << 0
+	pmf2ISR1    = 1 << 1
+)
+
+// pmPIC 是 PM 版本 4 追加的內容（解碼後）。
+type pmPIC struct {
+	flags, flags2     uint8
+	slaveIMR, picMask uint8
+	queue             []QueuedCall
+}
 
 // SysRegs 的初值與寫入規則（433 §2）。
 const (
@@ -109,6 +145,8 @@ type pmFields struct {
 	sysRegs
 	segmented bool
 	cache     [6]SegCache
+	// pic 是版本 4 追加的 PIC 與 IRQ12 狀態（459 §5.1）；版本 1–3 為 nil。Snapshot 不用它（另存 picState）。
+	pic *pmPIC
 }
 
 // cpuPMFields 取既有核心的分段模式狀態（Snapshot、encodePM 共用）。
@@ -119,14 +157,15 @@ func (m *Machine) cpuPMFields() (seg bool, cache [6]SegCache) {
 	return m.CPU.Segmented(), cache
 }
 
-// encodePM 編碼目前的保護模式狀態（版本 3）；profile 關閉回 nil。
+// encodePM 編碼目前的保護模式狀態（版本 4，459 §5.1）；profile 關閉回 nil。
 func (m *Machine) encodePM() []byte {
 	if !m.pmProfile {
 		return nil
 	}
-	b := make([]byte, pmV3Size)
+	queue := m.cbQueue
+	b := make([]byte, pmV4Size+pmV4Entry*len(queue))
 	le := binary.LittleEndian
-	le.PutUint16(b[0:], pmVersion3)
+	le.PutUint16(b[0:], pmVersion4)
 	b[2] = 1
 	b[3] = m.pmCPL
 	le.PutUint32(b[4:], m.cr0)
@@ -152,7 +191,82 @@ func (m *Machine) encodePM() []byte {
 	for i, c := range cache {
 		putSegCache(b[82+10*i:], c)
 	}
+	// 459 §5.1：版本 4 的 PIC 與 IRQ12 狀態。
+	p := &m.pic
+	var f, f2 uint8
+	for _, x := range []struct {
+		on  bool
+		bit uint8
+	}{{p.isr4, pmfISR4}, {p.isr&4 != 0, pmfISR2}, {p.uir, pmfUIR}, {p.readISR[0], pmfReadISR0},
+		{p.readISR[1], pmfReadISR1}, {p.upgraded, pmfUpgraded}, {p.overflow, pmfOverflow}} {
+		if x.on {
+			f |= x.bit
+		}
+	}
+	if p.isr&1 != 0 {
+		f2 |= pmf2ISR0
+	}
+	if p.isr&2 != 0 {
+		f2 |= pmf2ISR1
+	}
+	b[142], b[143], b[144], b[145] = f, f2, p.slaveIMR, m.picMask
+	le.PutUint16(b[146:], uint16(len(queue)))
+	for i, q := range queue {
+		o := b[pmV4Size+pmV4Entry*i:]
+		for j, v := range [8]uint16{q.Seg, q.Off, q.AX, q.BX, q.CX, q.DX, q.SI, q.DI} {
+			le.PutUint16(o[2*j:], v)
+		}
+	}
 	return b
+}
+
+// decodePMV4 解碼並驗證版本 4 追加的內容（459 §5.1）：長度至少 148+16n、旗標 bit 7 與旗標 2 的 bit 2–7 為 0、
+// n ≤ 4096。ISR 與 UIR 不加組合限制。
+func decodePMV4(b []byte) (*pmPIC, error) {
+	le := binary.LittleEndian
+	n := int(le.Uint16(b[146:]))
+	switch {
+	case n > cbQueueMax:
+		return nil, fmt.Errorf("machine: PM 版本 4 的佇列筆數 %d 超過上限 %d（docs/spec/459 §5.1）", n, cbQueueMax)
+	case len(b) < pmV4Size+pmV4Entry*n:
+		return nil, fmt.Errorf("machine: PM 版本 4 有 %d 筆佇列，需要 %d bytes，只有 %d（docs/spec/459 §5.1）",
+			n, pmV4Size+pmV4Entry*n, len(b))
+	case b[142]&0x80 != 0:
+		return nil, fmt.Errorf("machine: PM 版本 4 的旗標 %02X 的 bit 7 不為 0（docs/spec/459 §5.1）", b[142])
+	case b[143]&^uint8(pmf2ISR0|pmf2ISR1) != 0:
+		return nil, fmt.Errorf("machine: PM 版本 4 的旗標 2 %02X 的 bit 2–7 不為 0（docs/spec/459 §5.1）", b[143])
+	}
+	p := &pmPIC{flags: b[142], flags2: b[143], slaveIMR: b[144], picMask: b[145]}
+	if n > 0 {
+		p.queue = make([]QueuedCall, n)
+	}
+	for i := range p.queue {
+		o := b[pmV4Size+pmV4Entry*i:]
+		w := func(j int) uint16 { return le.Uint16(o[2*j:]) }
+		p.queue[i] = QueuedCall{Seg: w(0), Off: w(1), AX: w(2), BX: w(3), CX: w(4), DX: w(5), SI: w(6), DI: w(7)}
+	}
+	return p, nil
+}
+
+// applyPIC 套用版本 4 的 PIC 與 IRQ12 狀態（459 §5.1；LoadState 在 applyPM、sb8Apply 之後呼叫）。
+func (m *Machine) applyPIC(p *pmPIC) {
+	m.pic.isr4 = p.flags&pmfISR4 != 0
+	m.pic.uir = p.flags&pmfUIR != 0
+	m.pic.readISR = [2]bool{p.flags&pmfReadISR0 != 0, p.flags&pmfReadISR1 != 0}
+	m.pic.upgraded = p.flags&pmfUpgraded != 0
+	m.pic.overflow = p.flags&pmfOverflow != 0
+	m.pic.isr = 0
+	if p.flags2&pmf2ISR0 != 0 {
+		m.pic.isr |= 1
+	}
+	if p.flags2&pmf2ISR1 != 0 {
+		m.pic.isr |= 2
+	}
+	if p.flags&pmfISR2 != 0 {
+		m.pic.isr |= 4
+	}
+	m.pic.slaveIMR, m.picMask = p.slaveIMR, p.picMask
+	m.cbQueue = append(m.cbQueue[:0], p.queue...)
 }
 
 // putSegCache／getSegCache 是分段模式快取的 10 bytes：基底 4、界限 4、屬性 2。
@@ -215,6 +329,10 @@ func decodePM(b []byte) (pmFields, error) {
 		if len(b) < pmV3Size {
 			return f, fmt.Errorf("machine: PM 版本 3 需要 %d bytes，只有 %d", pmV3Size, len(b))
 		}
+	case pmVersion4:
+		if len(b) < pmV4Size {
+			return f, fmt.Errorf("machine: PM 版本 4 需要至少 %d bytes，只有 %d", pmV4Size, len(b))
+		}
 	default:
 		return f, fmt.Errorf("machine: PM 版本 %d 不認得", ver)
 	}
@@ -268,7 +386,18 @@ func decodePM(b []byte) (pmFields, error) {
 	if ver == pmVersion2 {
 		return f, nil
 	}
-	return f, decodePMV3(b, &f)
+	if err := decodePMV3(b, &f); err != nil {
+		return f, err
+	}
+	if ver == pmVersion3 {
+		return f, nil
+	}
+	p, err := decodePMV4(b) // 459 §5.1
+	if err != nil {
+		return f, err
+	}
+	f.pic = p
+	return f, nil
 }
 
 // decodePMV3 解碼並驗證版本 3 增加的分段模式狀態（434 §2.2）。

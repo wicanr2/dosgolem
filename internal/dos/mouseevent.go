@@ -56,6 +56,7 @@ func (d *DOS) RunMouseEvent(flags uint16, dx, dy int16) (bool, error) {
 		return false, nil
 	}
 	before := d.M.CallbacksMade()
+	discards := d.M.MouseIRQ12Discards()
 	d.fireMouseEventMickeys(flags, dx, dy)
 	for i := 0; i < callbackBudget; i++ {
 		if err := d.M.Step(); err != nil {
@@ -65,6 +66,17 @@ func (d *DOS) RunMouseEvent(flags uint16, dx, dy int16) (bool, error) {
 		if d.M.CallbacksMade() > before && !d.M.CallbackActive() {
 			return true, nil
 		}
+		// 459 §3.8：保護模式剖面的事件被丟棄（登記在遞送前失效，或 AX=0000h 清空）＝與「遊戲沒登記」同義。
+		if d.M.MouseIRQ12Discards() > discards {
+			return false, nil
+		}
+	}
+	if d.M.MouseIRQ12Active() {
+		pending, isr4, isr2, uir, queued, _ := d.M.MouseIRQ12()
+		st := d.M.PICStats()
+		return false, fmt.Errorf("int 33h 回呼 %04X:%04X 在 %d 道指令內沒有返回（IRQ12：待處理=%t ISR4=%t ISR2=%t UIR=%t "+
+			"從片 IMR=%02Xh 佇列 %d 筆；docs/spec/459 §3.8）",
+			m.Handler.Seg, m.Handler.Off, callbackBudget, pending, isr4, isr2, uir, st.SlaveIMR, queued)
 	}
 	return false, fmt.Errorf("int 33h 回呼 %04X:%04X 在 %d 道指令內沒有返回",
 		m.Handler.Seg, m.Handler.Off, callbackBudget)

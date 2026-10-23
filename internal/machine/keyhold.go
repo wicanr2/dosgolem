@@ -66,6 +66,9 @@ func (m *Machine) CancelTimedKeys(scan uint8, afterStep uint64) int {
 		kept = append(kept, k)
 	}
 	m.timedKeys = kept
+	if n > 0 {
+		m.stuckClear(stuckIRQ1) // 459 §3.3a：待處理可能消失，重新起算
+	}
 	return n
 }
 
@@ -82,6 +85,9 @@ func (m *Machine) CancelTimedKeysFrom(scan uint8, fromStep uint64) int {
 		kept = append(kept, k)
 	}
 	m.timedKeys = kept
+	if n > 0 {
+		m.stuckClear(stuckIRQ1) // 459 §3.3a：待處理可能消失，重新起算
+	}
 	return n
 }
 
@@ -212,6 +218,11 @@ func (m *Machine) timedKeyDue() bool {
 
 // timedKeyTick 送出一個到期的定時事件；送出回 true。能送的條件與 keyTick 相同。
 func (m *Machine) timedKeyTick() bool {
+	// 459 §3.3a、§3.4：保護模式剖面更新 IRQ1 的卡住計數，ISR0、ISR1 為 1 時不送。卡住錯誤已存進 irqErr 時
+	// 回 true（這一步不再試 keyTick，Step 回錯誤）。
+	if m.pmProfile && m.irq1Gate() {
+		return m.irqErr != nil
+	}
 	if !m.timedKeyDue() {
 		return false
 	}
@@ -231,6 +242,9 @@ func (m *Machine) timedKeyTick() bool {
 	m.kbdData = ev.Code()
 	m.KeyIRQs++
 	m.eventThisStep = true // 444 §2.7
+	if m.pmProfile {       // 459 §3.3a：IRQ1 送達設 ISR1
+		m.irq1Accepted()
+	}
 	m.raiseIRQ(0x09)
 	return true
 }

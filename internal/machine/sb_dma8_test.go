@@ -773,7 +773,7 @@ func TestSB8PICPorts(t *testing.T) {
 	}
 	m.Out8(0xA0, 0x20)
 	m.Out8(0xA0, 0x0B)
-	if m.sb8Err != nil || !m.sb8.readISR[1] {
+	if m.sb8Err != nil || !m.pic.readISR[1] { // 459 §3.3：讀取選擇搬到 Machine
 		t.Errorf("A0h 的 EOI、OCW3 應接受：%v", m.sb8Err)
 	}
 	for _, x := range []struct {

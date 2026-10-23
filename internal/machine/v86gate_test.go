@@ -49,11 +49,13 @@ func TestV86KeyIRQGate(t *testing.T) {
 
 func TestV86CallbacksDeferred(t *testing.T) {
 	// 435 §4：V86 下不再延後（436 §4 的延後取消）；分段模式的延後見 TestV86CallbacksRun。
+	// 459 §2.3「剖面開，預期改變」：保護模式剖面的回呼改經 IRQ12，這個夾具沒有服務層，Step 回 §3.4 條件 1a 的
+	// 「IRQ12 樁需要服務層」錯誤，不直接遠呼叫（IDT 74h 的送達與回呼執行改在 mouse459_test.go 有服務層的夾具驗）。
 	m := deliverProg(t, []byte{0x90, 0x90, 0x90, 0x90})
 	m.SetPeriodicFarCall(0x2000, 0x10, 1)
 	m.QueueCallback(QueuedCall{Seg: 0x2000, Off: 0x20})
-	mustStep(t, m, "V86 回呼")
-	if m.CallbacksMade() != 1 || m.CallbackPending() != 0 {
-		t.Errorf("V86 下回呼應照常送出：已發 %d 佇列 %d", m.CallbacksMade(), m.CallbackPending())
+	wantStepErr(t, m, "V86 回呼（沒有服務層）", "服務層")
+	if m.CallbacksMade() != 0 || m.CallbackPending() != 1 {
+		t.Errorf("沒有服務層：不直接遠呼叫、佇列不動：已發 %d 佇列 %d", m.CallbacksMade(), m.CallbackPending())
 	}
 }

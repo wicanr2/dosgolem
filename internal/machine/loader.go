@@ -159,6 +159,9 @@ func (m *Machine) LoadEXE(data []byte) error {
 	m.initMCB()
 	m.initSFT()
 	m.programLoaded = true
+	if m.pmProfile { // 459 §2.2、§3.7：只在這一點（與 setter 的次序無關）
+		m.pmLoadInit()
+	}
 	m.setEntry(p)
 	return nil
 }
@@ -179,6 +182,9 @@ func (m *Machine) LoadCOM(data []byte) error {
 	m.initMCB()
 	m.initSFT()
 	m.programLoaded = true
+	if m.pmProfile { // 459 §2.2、§3.7：只在這一點（與 setter 的次序無關）
+		m.pmLoadInit()
+	}
 	m.setEntry(p)
 	// COM 的 SP 指向段頂，堆疊上壓一個 0：`ret` 回 PSP:0 的 `int 20h`。
 	m.Write16(cpu.Addr(p.PSPSeg, 0xFFFE), 0)

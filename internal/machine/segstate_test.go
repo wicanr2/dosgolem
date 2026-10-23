@@ -42,11 +42,12 @@ func csBaseOf(m *Machine) uint32 { return uint32(m.CPU.Seg[cpu.CS]) << 4 }
 func TestPMV3SegmentedLayout(t *testing.T) {
 	m := segmentedMachine(t)
 	b := m.encodePM()
-	if len(b) != 142 {
-		t.Fatalf("PM 版本 3 共 142 bytes，實際 %d", len(b))
+	// 459 §5.1：encodePM 寫版本 4（佇列空時 148 bytes）；前 142 bytes 的版面照版本 3。
+	if len(b) != 148 {
+		t.Fatalf("PM 版本 4 共 148 bytes，實際 %d", len(b))
 	}
 	le := binary.LittleEndian
-	if le.Uint16(b) != 3 || b[80] != 1 || b[81] != 0 {
+	if le.Uint16(b) != 4 || b[80] != 1 || b[81] != 0 {
 		t.Errorf("版本號 %d、segmented（80）%d、保留（81）%d", le.Uint16(b), b[80], b[81])
 	}
 	names := [6]string{"ES", "CS", "SS", "DS", "FS", "GS"}
@@ -147,6 +148,7 @@ func TestLoadStateRejectsOldPMWithPE(t *testing.T) {
 	src := newPM(t)
 	mustNil(t, "LoadCOM", src.LoadCOM([]byte{0xB4, 0x4C, 0xCD, 0x21}))
 	base := decodeStateForTest(t, saveBytes(t, src))
+	preV4State(&base) // 459：版本 1、2 的狀態檔記憶體是舊版的 stub 區（§5.3 的升級前提）
 	le := binary.LittleEndian
 	make12 := func(ver uint16, cr0 uint32, hi uint16) []byte {
 		cur := src.encodePM()

@@ -657,11 +657,12 @@ func TestPMV1Layout(t *testing.T) {
 	if _, err := decodePM(v1[:15]); err == nil {
 		t.Error("版本 1 只有 15 bytes：應回錯誤")
 	}
-	// 經 LoadState 讀版本 1 的狀態檔，再存檔變成版本 3（屬預期）。
+	// 經 LoadState 讀版本 1 的狀態檔，再存檔變成版本 4（屬預期；459 §5.3 的升級）。
 	src := newPM(t)
 	mustNil(t, "LoadCOM", src.LoadCOM([]byte{0xB4, 0x4C, 0xCD, 0x21}))
 	st := decodeStateForTest(t, saveBytes(t, src))
 	st.PM = v1
+	preV4State(&st) // 459：版本 1 的狀態檔記憶體是舊版的 stub 區
 	m := newPM(t)
 	m.SetDR(7, 0xFF) // 先弄髒，證明讀檔後回初值
 	mustNil(t, "LoadState(版本 1)", m.LoadState(bytes.NewReader(encodeStateForTest(t, st))))
@@ -671,8 +672,9 @@ func TestPMV1Layout(t *testing.T) {
 	if m.sys != sysRegsInit() {
 		t.Errorf("版本 1 讀入後 SysRegs 應為初值：%+v", m.sys)
 	}
-	if b := m.encodePM(); len(b) != pmV3Size || le.Uint16(b) != 3 {
-		t.Errorf("版本 1 讀入後再存應為版本 3（142 bytes）：%d bytes 版本 %d", len(b), le.Uint16(b))
+	// 459 §5.1、§5.3：再存為版本 4（佇列空，148 bytes），升級血統 bit 5 為 1。
+	if b := m.encodePM(); len(b) != pmV4Size || le.Uint16(b) != 4 || b[142]&pmfUpgraded == 0 {
+		t.Errorf("版本 1 讀入後再存應為版本 4（148 bytes、升級血統）：%d bytes 版本 %d", len(b), le.Uint16(b))
 	}
 	// profile 關閉時為 nil。
 	off := newExt(t, 4096)
@@ -689,8 +691,8 @@ func TestPMRoundTripThroughSaveState(t *testing.T) {
 	mustNil(t, "SetPMCPL", src.SetPMCPL(3))
 	mustNil(t, "SetEFlagsHi", src.SetEFlagsHi(eflagsHiRF|eflagsHiVM))
 	data := saveBytes(t, src)
-	if s := decodeStateForTest(t, data); len(s.PM) != 142 {
-		t.Fatalf("存檔後 PM 應有 142 bytes（版本 3）：%d", len(s.PM))
+	if s := decodeStateForTest(t, data); len(s.PM) != 148 { // 459 §5.1：版本 4，佇列空時 148
+		t.Fatalf("存檔後 PM 應有 148 bytes（版本 4）：%d", len(s.PM))
 	}
 
 	dst := newPM(t)
@@ -756,7 +758,7 @@ func TestLoadStatePMValidation(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"未知版本號", mut(func(p []byte) []byte { p[0] = 4; return p })},
+		{"未知版本號", mut(func(p []byte) []byte { p[0] = 5; return p })}, // 459：4 已是合法版本
 		{"版本號 0", mut(func(p []byte) []byte { p[0] = 0; return p })},
 		{"長度小於版本 3 的大小", mut(func(p []byte) []byte { return p[:141] })},
 		{"版本 3 只有版本 2 的長度", mut(func(p []byte) []byte { return p[:80] })},
