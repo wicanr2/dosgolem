@@ -961,6 +961,7 @@
 - [459 保護模式剖面的滑鼠 IRQ12 遞送與主片在服務模型](459-mouse-irq12-v86-delivery.md)：READY（第 5 版），已實作（分期 (a)–(d)；004、017、194、430、434、435、444、447、451、454 已依 §7.2 修訂）。保護模式剖面下 int 33h 使用者回呼改經 PIC IRQ12、IDT 向量 74h 與監控程式反射遞送（照 DOSBox-X `CB_IRQ12`），讓 JEMM 換頁生效；主片 ISR0／ISR1 建模、非特定 EOI 清最高優先在服務位元、BIOS 計時器樁與鍵盤攔截補 EOI；ISR 卡住偵測；PM 狀態 v4 與舊檔升級；實模式剖面零差異。證據：陸空戰將 RE 030。
 - [460 session 稀疏觀察：觸發 IP 集合、步數期限與單次喚醒](460-session-sparse-observe.md)：READY（第 3 版），未實作。實作 `SparseObserver` 的觀察器只在登記 IP、步數期限、單次喚醒與事件後 Force 時被呼叫，取代每道指令的 BeforeStep；決定性論證加逐步對拍、稽核影子濾器與期限負對照；陸空戰將實測觀察步 ≤0.58%。
 - [461 讀入狀態檔後的計時器頻率](461-pit-divisor-after-load.md)：READY（第 3 版），未實作。`PITDivisor()` 改讀 IRQ0 實際用的 `PITDiv`（0 回 65,536），`PITProgrammed()` 改讀寫入計數、`LoadState` 清零；刪除 `Machine.pit` 的第二份解讀；修正讀檔後 `StepsPerSecondNow()` 少算 6.59 倍。
+- [462 SB16 8 位元數位音效輸出到主機音訊](462-sb16-pcm-host-audio.md)：READY（第 2 版），未實作。DMA `start` 時於機器內以實體位址取樣，`SBPCMEvent` 經 session `SBPCMObserver` 送 `audio/sbpcm.Source`（到達即記區段、`Sample(j)` 純函式），樣本均勻填滿 `[Start, Due)`，與 OPL 同時基；不門控 SpeakerOn（照 DOSBox-X SB16）；不改機器狀態。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
