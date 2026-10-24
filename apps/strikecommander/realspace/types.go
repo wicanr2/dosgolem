@@ -14,6 +14,7 @@ type Camera struct {
 }
 
 type FaceObs struct {
+	Source   *FaceSourceObs `json:",omitempty"` // 013a opt-in; absent keeps phase-1/2 JSON unchanged.
 	SI       uint16
 	Face     FarPtr
 	Method   FarPtr

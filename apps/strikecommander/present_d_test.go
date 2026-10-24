@@ -226,20 +226,26 @@ func TestDTimeoutWakeAndSparseOracle(t *testing.T) {
 	for _, sparse := range []bool{false, true} {
 		r := newPresRig(t, 0)
 		r.v.steps = 1000
+		r.p.Observe(r.v) // Initial layout and source-drain deadline are already armed.
 		e := dEvent(0)
 		e.Steps = 1000
 		r.so.Labels.OnArt(e)
 		r.p.d.pending = true
-		if got := r.p.nextWake(); got != 201000 {
+		if got := r.p.presentationWake(); got != 201000 {
 			t.Fatal("deadline", got)
 		}
 		r.v.steps = 1500
 		e.Steps = 1500
 		r.so.Labels.OnArt(e)
-		if got := r.p.nextWake(); got != 201500 {
+		if got := r.p.presentationWake(); got != 201500 {
 			t.Fatal("restart", got)
 		}
 		r.v.cs, r.v.ip = 0x9999, 0x1234
+		r.v.steps = 201499
+		r.p.Observe(r.v) // Periodic draining has reached the last point before expiry.
+		if r.p.nextWake() != 201500 {
+			t.Fatal("pause deadline lost behind periodic drain")
+		}
 		if sparse {
 			f := machine.StepFilter{Wake: r.p.nextWake()}
 			if f.ShouldObserve(r.v.ip, 201499) {

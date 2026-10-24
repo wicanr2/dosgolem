@@ -199,6 +199,7 @@ func TestDUnknownReturnCSBranches(t *testing.T) {
 func TestDEndingPendingWake(t *testing.T) {
 	for _, sparse := range []bool{false, true} {
 		r := newPresRig(t, 0)
+		fBoot(r) // establish the legal layout required by a physical capture
 		e := dEvent(15)
 		e.Steps = r.v.steps
 		r.so.Labels.OnArt(e)

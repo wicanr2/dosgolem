@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/wicanr2/dosgolem/internal/machine"
 	"github.com/wicanr2/dosgolem/session"
 )
 
@@ -269,11 +268,13 @@ func (p *Presenter) deferArt(ev ArtEvent) {
 	switch ev.K {
 	case 0:
 		p.d.mode = deferK0
+		p.absorbFallbackInDeferral()
 		p.d.start = ev.Steps
 		p.d.group, p.d.x, p.d.y = ev.G, ev.X, ev.Y
 		p.d.load, p.d.yes, p.d.no = false, false, false
 	case 15:
 		p.d.mode = deferK15
+		p.absorbFallbackInDeferral()
 		p.d.start = ev.Steps
 		p.d.group = ev.G
 		p.d.yes, p.d.no = false, false
@@ -323,18 +324,25 @@ func (p *Presenter) deferWindowClosed(w *presWindow, steps uint64) {
 	}
 }
 func (p *Presenter) observeDeferral(v PresentView) {
-	if p.d.layoutCheckPending {
-		l := v.IndexedLayout()
-		p.d.mode13Known = l.Kind == machine.IndexedLinear && l.Mode == 0x13
-		p.d.layoutCheckPending = false
-	}
 	if p.d.mode != deferIdle && v.Steps()-p.d.start >= presTimeoutDefault {
 		p.counts.ModeTimeout++
 		p.endDeferral(PresRoutine, v.Steps())
 	}
 }
+
+// pendingCaptureReady is read-only. A retained pending flag cannot make a
+// rejected physical capture spin; F4's layout-check wake remains independent.
+func (p *Presenter) pendingCaptureReady() bool {
+	if p.d.mode != deferIdle || len(p.stack) != 0 || !p.d.mode13Known || (p.d.eraseGap && !p.d.flushReadPending) {
+		return false
+	}
+	if p.needFallback && p.f.requested && (p.f.waitFrame || p.cuOpen || (p.f.returnPending && p.steps <= p.f.returnStep)) {
+		return false
+	}
+	return true
+}
 func (p *Presenter) finishPending(v PresentView) {
-	if p.d.mode != deferIdle || len(p.stack) != 0 || (p.d.eraseGap && !p.d.flushReadPending) || (p.d.flushDeferred && !p.d.mode13Known) {
+	if !p.pendingCaptureReady() {
 		return
 	}
 	if p.d.pending || p.d.flushDeferred {
@@ -345,11 +353,7 @@ func (p *Presenter) finishPending(v PresentView) {
 		if p.d.flushDeferred {
 			kind = PresRoutine
 		}
-		flush := p.d.flushDeferred
 		if p.capture(v, kind, v.CS(), v.IP(), nil, nil, p.flightSet()) {
-			if flush {
-				p.counts.CursorEraseFlush++
-			}
 			p.scheduleRecheck()
 		}
 	}
@@ -362,7 +366,7 @@ func (p *Presenter) cursorFrame(indexed []byte, palette [256][3]uint8) {
 		p.d.pending = true
 		return
 	}
-	if p.writingWindow() || len(p.stack) != 0 || p.cuOpen {
+	if p.writingWindow() || p.cuOpen {
 		p.d.flushDeferred = true
 		p.d.flushReadPending = false
 		return
@@ -376,9 +380,11 @@ func (p *Presenter) cursorFrame(indexed []byte, palette [256][3]uint8) {
 	if len(indexed) != 64000 {
 		return
 	}
-	if p.capture(nil, PresRoutine, 0, 0, indexed, &palette, p.flightSet()) {
-		p.counts.CursorEraseFlush++
+	kind := PresRoutine
+	if p.needFallback {
+		kind = PresFallback
 	}
+	p.capture(nil, kind, 0, 0, indexed, &palette, p.flightSet())
 }
 func (p *Presenter) writingWindow() bool {
 	for _, w := range p.stack {
@@ -394,7 +400,7 @@ func (p *Presenter) presentationWake() uint64 {
 	if p.d.layoutCheckPending {
 		return 0
 	}
-	if p.d.mode == deferIdle && len(p.stack) == 0 && ((!p.d.eraseGap && p.d.pending) || (p.d.flushReadPending && p.d.mode13Known)) {
+	if p.pendingCaptureReady() && (p.d.pending || p.d.flushReadPending) {
 		return 0
 	}
 	if p.d.mode != deferIdle {
@@ -528,5 +534,6 @@ func (p *Presenter) routineCountsText() string {
 	return b.String()
 }
 func (p *Presenter) CountsText() []byte {
+	p.drainSourceWrites()
 	return append(p.countsTextBase(), []byte(p.routineCountsText())...)
 }

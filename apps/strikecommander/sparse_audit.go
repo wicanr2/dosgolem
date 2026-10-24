@@ -217,6 +217,12 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 		}
 	}
 	if m := s.Models; m != nil {
+		if m.materialSources && ip == 0x0aa5 {
+			a.fail(steps, ip, "oracle", "材質來源BuildCall獨立IP")
+		}
+		if m.materialSources && m.baseOK && m.sourceProof == nil {
+			a.fail(steps, ip, "oracle", "材質來源簽章尚未確認")
+		}
 		if m.raster != nil && has(sparseAuditRasterIPs) {
 			a.fail(steps, ip, "oracle", "IP 在1倍繪圖錄製器的獨立 IP 表內")
 		}
@@ -231,6 +237,23 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 		}
 	}
 	if p := s.present; p != nil {
+		if !p.sourceWrites.armed || steps >= p.sourceWrites.drainStep+4096 {
+			a.fail(steps, ip, "oracle", "Presenter 來源drain期限到期")
+		}
+		if !p.f.layoutKnown {
+			a.fail(steps, ip, "oracle", "Presenter 初始版面未確認")
+		}
+		writing := false
+		for _, w := range p.stack {
+			if w.wrote {
+				writing = true
+				break
+			}
+		}
+		if p.f.requested && !p.f.waitFrame && p.d.mode13Known && p.d.mode == 0 && !p.cuOpen && !writing && (!p.f.windowWaiting || len(p.stack) == 0) &&
+			(p.f.returnPending || p.f.readPending) && (!p.d.eraseGap || p.d.flushReadPending) {
+			a.fail(steps, ip, "oracle", "Presenter 延後退路待取像")
+		}
 		if has(sparseAuditPresentIPs) {
 			a.fail(steps, ip, "oracle", "IP 在呈現層獨立 IP 表內")
 		}
@@ -240,7 +263,8 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 		if p.d.layoutCheckPending {
 			a.fail(steps, ip, "oracle", "Presenter 游標取像版面待確認")
 		}
-		if p.d.mode == 0 && len(p.stack) == 0 && ((p.d.pending && !p.d.eraseGap) || (p.d.flushReadPending && p.d.mode13Known)) {
+		pendingBlocked := p.needFallback && p.f.requested && (p.f.waitFrame || p.cuOpen || (p.f.returnPending && steps <= p.f.returnStep))
+		if p.d.mode == 0 && len(p.stack) == 0 && p.d.mode13Known && (!p.d.eraseGap || p.d.flushReadPending) && !pendingBlocked && (p.d.pending || p.d.flushReadPending) {
 			a.fail(steps, ip, "oracle", "Presenter 結束或游標待取像")
 		}
 		if p.recheck != nil {
@@ -322,7 +346,7 @@ var sparseAuditExclude = map[string]byte{
 	"Presenter.vga": 'x', "Presenter.tmp": 'x', "Presenter.bufC": 'x',
 	// 輸出累積只取長度
 	"LabelObserver.log": 'n', "FlightObserver.log": 'n', "FlightObserver.clipped": 'n', "FlightObserver.redeliv": 'n',
-	"Presenter.captures": 'n', "Presenter.stale": 'n', "Presenter.windows": 'n', "Presenter.cuRecs": 'n', "Presenter.cache": 'n',
+	"Presenter.captures": 'n', "Presenter.stale": 'n', "Presenter.windows": 'n', "Presenter.cuRecs": 'n', "Presenter.cache": 'n', "Presenter.fallbacks": 'n',
 	"presentDState.verdicts": 'n', "PresentCounts.Routines": 'n',
 	"Subtitles.Skips": 'n',
 	// SHP 快取：原始檔與目錄不可變，只取長度（字形表照走）

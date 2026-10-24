@@ -3,7 +3,7 @@
 狀態：**READY**（第 3 版；第 1 版審查報告存於陸空戰將 repo 本機 `workplace/flicker/review458v1-A.md`、`review458v1-B.md`（不進版控，本 repo 以附錄 B 摘要為準），第 2 版複審兩位審查者同意轉 READY，第 3 版處理複審的應改與建議；2026-10-22 轉 READY，紀錄見附錄 B），已實作（2026-10-23）。實作收據：陸空戰將 repo `workplace/impl458/receipt.md`（金樣雜湊在 `2436db8` 由 `git archive` 解出的樹產生，同一測試檔在該樹通過；§3.1 第 1–13 項、負對照 N1–N13、0 配置、`VideoWrite` 24 bytes、微基準）；主代理在容器內重跑 machine、session 套件通過
 日期：2026-10-22
 前置：[`006-layering`](006-layering.md)（通用層判準）、[`013-vga-planar`](013-vga-planar.md)、[`201-vga-unchained-256`](201-vga-unchained-256.md)、[`187-frame-clock`](187-frame-clock.md)、[`238-session-step-observer-draft`](238-session-step-observer-draft.md)（`StepView` 只在回呼內有效）、[`432-linear-memory-and-paging`](432-linear-memory-and-paging.md) §3.1、§6、[`434-legacy-core-segmented-mode`](434-legacy-core-segmented-mode.md)、[`435-v86-hooks-and-idt-delivery`](435-v86-hooks-and-idt-delivery.md)、[`442-segmented-return-to-real-mode`](442-segmented-return-to-real-mode.md)、[`443-segmented-32bit-code-and-stack`](443-segmented-32bit-code-and-stack.md) §2.3、§2.9、[`454-session-view-block-read-and-digest`](454-session-view-block-read-and-digest.md)、[`455-fetch-page-cache`](455-fetch-page-cache.md)、[`456-sc-observer-view-alloc`](456-sc-observer-view-alloc.md)
-使用端：strike_commander 規格 014（目前在 `strike_commander/workplace/flicker/spec014-draft.md` 第 3 版，尚未進 `docs/spec/`）§3.4.1、§3.4.2、§3.5.1，裁決 D12、D13
+使用端：陸空戰將正式規格 `strike_commander/docs/spec/014-flicker-free-presentation.md`（目前第 14 版）§3.4.1、§3.4.2、§3.5.1，裁決 D12、D13
 
 程式位置以 dosgolem-sc `strike-commander` 分支 `2436db8` 為準。推論等級：已證實、強推論、假說、未知。本規格的事實都來自程式與既有規格，不需要遊戲動態證據。
 
@@ -306,7 +306,7 @@ type VideoWrite struct {
 
 ## 7. 實作收據
 
-（未實作）
+已實作，狀態維持檔頭的 READY，未在本節另宣稱 CONFORMED。實作與主代理驗證入口為陸空戰將 repo `workplace/impl458/receipt.md`；涵蓋獨立金樣、§3.1、N1–N13、零配置與機械尺寸，細節沿用原收據。2026-10-24 核對現存 machine／session API 後移除此處過期的未實作文字，沒有重錄或擴張原驗收。
 
 ## 附錄 A：給規格 014 的回饋
 

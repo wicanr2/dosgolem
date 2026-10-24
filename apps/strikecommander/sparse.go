@@ -56,6 +56,9 @@ func (s *SessionObserver) TriggerIPs() session.IPSet {
 		set.Union(&m)
 	}
 	if s.Models != nil {
+		if s.Models.materialSources {
+			set.Add(0x0aa5)
+		} // 013a opt-in BuildCall only.
 		for _, ip := range modelTriggerIPs {
 			set.Add(ip)
 		}
@@ -130,6 +133,8 @@ func (p *Presenter) nextWake() uint64 {
 	}
 	w := session.NoWake
 	w = min(w, p.presentationWake())
+	w = min(w, p.fallbackWake())
+	w = min(w, p.sourceDrainWake())
 	for _, win := range p.stack {
 		w = min(w, win.entry+win.r.timeout)
 	}

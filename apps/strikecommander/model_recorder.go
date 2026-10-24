@@ -5,6 +5,7 @@ package strikecommander
 // 模型錄製與選配 1 倍重畫共用群組邊界，不畫 HD。
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -83,44 +84,50 @@ type modelFrameState struct {
 }
 
 type modelHit struct {
-	kind       uint16
-	steps, del uint64
-	base       uint16
-	valid      bool
-	ss, sp, bp uint16
-	cam        realspace.Camera
-	obj        realspace.ObjObs
-	face       realspace.FaceObs
-	proj       [3]realspace.FarPtr
-	elem       realspace.FarPtr
-	buf        []byte
-	desc       [6]uint16
-	list       []uint16
-	readFailed bool
-	raster     *rasterHit
-	reads      ModelReadCount
+	sourceGeneration uint64
+	sourceRole       *realspace.FaceSourceRole
+	kind             uint16
+	steps, del       uint64
+	base             uint16
+	valid            bool
+	ss, sp, bp       uint16
+	cam              realspace.Camera
+	obj              realspace.ObjObs
+	face             realspace.FaceObs
+	proj             [3]realspace.FarPtr
+	elem             realspace.FarPtr
+	buf              []byte
+	desc             [6]uint16
+	list             []uint16
+	readFailed       bool
+	raster           *rasterHit
+	reads            ModelReadCount
 }
 
 // ModelRecorder 只保留原版資料複本，從不保留 modelView。
 // OnGroup 在 Frame 升格時呼叫；接收者不得修改這份已封存的複本。
 type ModelRecorder struct {
-	Library *realspace.Library
-	OnGroup func(*ModelGroup)
-	base    uint16
-	baseOK  bool
-	lastSig uint64
-	retryAt uint64
-	pend    *modelHit
-	open    *ModelGroup
-	await   *ModelGroup
-	shown   *ModelGroup
-	vga     bool
-	frames  map[modelFrameKey]modelFrameState
-	tracker cuTracker
-	hooks   cuHooks
-	counts  ModelRecorderCounts
-	logs    []string
-	raster  *rasterRecorder
+	materialSources  bool
+	sourceGeneration uint64
+	sourceProof      *realspace.FaceSourceProof
+	sourceCounts     MaterialSourceCounts
+	Library          *realspace.Library
+	OnGroup          func(*ModelGroup)
+	base             uint16
+	baseOK           bool
+	lastSig          uint64
+	retryAt          uint64
+	pend             *modelHit
+	open             *ModelGroup
+	await            *ModelGroup
+	shown            *ModelGroup
+	vga              bool
+	frames           map[modelFrameKey]modelFrameState
+	tracker          cuTracker
+	hooks            cuHooks
+	counts           ModelRecorderCounts
+	logs             []string
+	raster           *rasterRecorder
 }
 
 func NewModelRecorder(lib *realspace.Library) *ModelRecorder {
@@ -255,6 +262,10 @@ func (r *ModelRecorder) verify(v modelView, base uint16, all bool) bool {
 }
 
 func (r *ModelRecorder) disable(steps uint64) {
+	if r.materialSources {
+		r.sourceGeneration++
+		r.sourceProof = nil
+	}
 	r.baseOK = false
 	r.retryAt = steps + flightReverifySteps
 	r.open, r.await, r.shown, r.pend = nil, nil, nil, nil
@@ -301,7 +312,7 @@ func modelFar(v modelView, seg, off uint16, ok *bool) realspace.FarPtr {
 var modelTriggerIPs = [...]uint16{0x0102, 0x0197, 0x012a, 0x01ed, 0x0a51, 0x0a7c, 0x0a7f, 0x0aab, ipCUPlain, ipCUDiff, ipCUPlainRet, ipCUDiffRet, ipMU}
 
 func (r *ModelRecorder) nextWake() uint64 {
-	if r.pend != nil {
+	if r.pend != nil || r.materialSources && r.baseOK && r.sourceProof == nil {
 		return 0
 	}
 	if r.baseOK {
@@ -314,21 +325,34 @@ func (r *ModelRecorder) Observe(v modelView) {
 	// 先確認暫定命中。只存值與資料複本，不存上一個 StepView。
 	if p := r.pend; p != nil {
 		r.pend = nil
-		if v.Deliveries() == p.del {
+		if v.Deliveries() == p.del && (!r.materialSources || (v.Steps() > p.steps && p.sourceGeneration == r.sourceGeneration && (p.kind == 0x0102 || r.baseOK && p.base == r.base))) {
 			r.apply(p)
 		} else {
 			r.counts.HitsVoidedByDelivery++
+			if r.materialSources && p.sourceRole != nil {
+				r.sourceCounts.Voided++
+			}
 		}
 	}
 	ip := v.IP()
+	if r.materialSources && r.baseOK && r.sourceProof == nil {
+		if !r.verifyMaterialSource(v) {
+			r.disable(v.Steps())
+			return
+		}
+	}
 	if r.baseOK && v.Steps()-r.lastSig >= SigCheckSteps {
 		if !r.verify(v, r.base, true) {
 			r.disable(v.Steps())
 			return
 		}
 		r.lastSig = v.Steps()
+		if r.materialSources && !r.verifyMaterialSource(v) {
+			r.disable(v.Steps())
+			return
+		}
 	}
-	interesting := false
+	interesting := r.materialSources && ip == 0x0aa5
 	for _, x := range modelTriggerIPs {
 		if ip == x {
 			interesting = true
@@ -363,7 +387,7 @@ func (r *ModelRecorder) Observe(v modelView) {
 			return
 		}
 		valid := r.verify(v, base, !r.baseOK)
-		r.pend = &modelHit{kind: ip, steps: v.Steps(), del: v.Deliveries(), base: base, valid: valid}
+		r.pend = &modelHit{kind: ip, steps: v.Steps(), del: v.Deliveries(), base: base, valid: valid, sourceGeneration: r.sourceGeneration}
 		return
 	}
 	if !r.baseOK {
@@ -400,7 +424,7 @@ func (r *ModelRecorder) captureMeasured(v modelView, ip uint16) *modelHit {
 }
 
 func (r *ModelRecorder) capture(v modelView, ip uint16) *modelHit {
-	h := &modelHit{kind: ip, steps: v.Steps(), del: v.Deliveries(), ss: v.SS(), sp: v.SP(), bp: v.BP()}
+	h := &modelHit{kind: ip, steps: v.Steps(), del: v.Deliveries(), ss: v.SS(), sp: v.SP(), bp: v.BP(), base: r.base, sourceGeneration: r.sourceGeneration}
 	if r.raster != nil && r.raster.matches(v, r.base) {
 		h.raster = r.raster.capture(v, r.base, r.open)
 		if ip != 0x01ed {
@@ -517,6 +541,17 @@ func (r *ModelRecorder) capture(v modelView, ip uint16) *modelHit {
 	}
 	h.readFailed = !ok
 	h.obj.ReadFailed = !ok
+	if r.materialSources && (ip == 0x0a7c || ip == 0x0a7f || ip == 0x0aa5 || ip == 0x0aab) {
+		role := r.captureMaterialRole(v)
+		h.sourceRole = &role
+		if ip == 0x0a7c {
+			o1 := uint64(0)
+			if st, found := r.frames[modelFrameKey{h.ss, h.bp}]; found && r.open != nil {
+				o1 = r.open.Objects[st.obj].Steps
+			}
+			h.face.Source = &realspace.FaceSourceObs{Generation: r.sourceGeneration, O1Steps: o1, F1Call: role, Proof: r.sourceProof}
+		}
+	}
 	return h
 }
 
@@ -529,6 +564,10 @@ func (r *ModelRecorder) apply(h *modelHit) {
 		if !r.baseOK {
 			r.base = h.base
 			r.baseOK = true
+			if r.materialSources {
+				r.sourceGeneration++
+				r.sourceProof = nil
+			}
 			r.lastSig = h.steps
 			r.tracker.SetBase(r.base, true)
 		}
@@ -594,6 +633,9 @@ func (r *ModelRecorder) apply(h *modelHit) {
 		o := &g.Objects[st.obj]
 		o.ReadFailed = o.ReadFailed || h.readFailed
 		o.Faces = append(o.Faces, h.face)
+		if h.face.Source != nil {
+			r.sourceCounts.F1Call++
+		}
 		st.face = len(o.Faces) - 1
 		st.ss, st.sp, st.proj = h.ss, h.sp, h.proj
 		r.frames[key] = st
@@ -618,6 +660,18 @@ func (r *ModelRecorder) apply(h *modelHit) {
 		o.ReadFailed = o.ReadFailed || h.readFailed
 		f := &o.Faces[st.face]
 		f.Returned, f.AL, f.Proj = true, h.face.AL, h.face.Proj
+		if f.Source != nil && h.sourceRole != nil {
+			f.Source.F1Return = *h.sourceRole
+			r.sourceCounts.F1Return++
+		}
+	case 0x0aa5:
+		if st, found := r.frames[key]; found && st.face >= 0 {
+			f := &g.Objects[st.obj].Faces[st.face]
+			if f.Source != nil && h.sourceRole != nil {
+				f.Source.BuildCall = *h.sourceRole
+				r.sourceCounts.BuildCall++
+			}
+		}
 	case 0x0aab:
 		st, found := r.frames[key]
 		if !found || st.face < 0 {
@@ -632,6 +686,11 @@ func (r *ModelRecorder) apply(h *modelHit) {
 			return
 		}
 		f.Elem = h.elem
+		if f.Source != nil && h.sourceRole != nil {
+			f.Source.ElementReturn = *h.sourceRole
+			f.Source.Element = h.elem
+			r.sourceCounts.ElementReturn++
+		}
 	case 0x0197:
 		g.EndSteps = h.steps
 		g.Buf3D = h.buf
@@ -661,6 +720,10 @@ func (r *ModelRecorder) Frame(steps uint64) {
 // VideoModeChange 清除三個群組槽與暫定命中，保留仍需重新辨識簽章的基底資料。
 // 不寫原版狀態；條件來自 012 §3.7.2。
 func (r *ModelRecorder) VideoModeChange() {
+	if r.materialSources {
+		r.sourceGeneration++
+		r.sourceProof = nil
+	}
 	r.open, r.await, r.shown, r.pend = nil, nil, nil, nil
 	clear(r.frames)
 	if r.raster != nil {
@@ -668,4 +731,64 @@ func (r *ModelRecorder) VideoModeChange() {
 	}
 	r.tracker.Reset()
 	r.vga = false
+}
+
+// MaterialSourceCounts is separate from the original default recorder counters.
+// Opt-in adds no default JSON fields or process-global epoch counters.
+type MaterialSourceCounts struct{ F1Call, F1Return, BuildCall, ElementReturn, ReadFailed, Voided, SignatureChecks uint64 }
+
+func (r *ModelRecorder) EnableMaterialSources() {
+	if !r.materialSources {
+		r.materialSources = true
+		r.sourceGeneration++
+		r.sourceProof = nil
+	}
+}
+func (r *ModelRecorder) MaterialSourcesEnabled() bool               { return r.materialSources }
+func (r *ModelRecorder) MaterialSourceCounts() MaterialSourceCounts { return r.sourceCounts }
+func (r *ModelRecorder) MaterialSourceStatus() (generation uint64, valid bool) {
+	return r.sourceGeneration, r.materialSources && r.baseOK && r.sourceProof != nil
+}
+func (r *ModelRecorder) verifyMaterialSource(v modelView) bool {
+	p := &realspace.FaceSourceProof{Rule: realspace.FaceSourceRule, Base: r.base, Generation: r.sourceGeneration}
+	for _, sig := range realspace.FaceSourceSignatures() {
+		want := realspace.SourceSignatureBytes(sig, r.base)
+		raw := make([]byte, len(want))
+		if !modelRead(v, r.base+sig.Seg, sig.Off, raw) || !bytes.Equal(raw, want) {
+			return false
+		}
+		p.Bytes = append(p.Bytes, realspace.SourceBytes{Seg: r.base + sig.Seg, Off: sig.Off, Data: raw})
+	}
+	r.sourceProof = p
+	r.sourceCounts.SignatureChecks++
+	return true
+}
+func (r *ModelRecorder) captureMaterialRole(v modelView) realspace.FaceSourceRole {
+	q := realspace.FaceSourceRole{Steps: v.Steps(), Deliveries: v.Deliveries(), Generation: r.sourceGeneration, SS: v.SS(), SP: v.SP(), BP: v.BP(), SI: v.SI()}
+	ok := true
+	q.Face = modelFar(v, v.SS(), v.BP()-0x64, &ok)
+	if v.IP() == 0x0a7c || v.IP() == 0x0aa5 {
+		q.HasFaceArgument = true
+		q.FaceArgument = modelFar(v, v.SS(), v.SP(), &ok)
+	}
+	if st, found := r.frames[modelFrameKey{q.SS, q.BP}]; found && r.open != nil && st.obj >= 0 && st.obj < len(r.open.Objects) {
+		q.Rec = r.open.Objects[st.obj].Rec
+	} else {
+		ok = false
+	}
+	ok = modelRead(v, q.Face.Seg, q.Face.Off, q.Raw[:]) && ok
+	vt := binary.LittleEndian.Uint16(q.Raw[:])
+	q.MethodF1 = modelFar(v, v.DS(), vt+0x18, &ok)
+	q.MethodBuild = modelFar(v, v.DS(), vt+0x1c, &ok)
+	first := binary.LittleEndian.Uint16(q.Raw[8:])
+	for i, at := range []int{6, 10, 14} {
+		q.FullFar[i] = realspace.FarPtr{Off: binary.LittleEndian.Uint16(q.Raw[at:]), Seg: binary.LittleEndian.Uint16(q.Raw[at+2:])}
+		ok = modelRead(v, q.FullFar[i].Seg, q.FullFar[i].Off, q.FullProj[i][:]) && ok
+		ok = modelRead(v, first, q.FullFar[i].Off, q.ConventionProj[i][:]) && ok
+	}
+	q.ReadFailed = !ok
+	if !ok {
+		r.sourceCounts.ReadFailed++
+	}
+	return q
 }

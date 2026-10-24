@@ -794,6 +794,10 @@ func TestU13Palette(t *testing.T) {
 		t.Fatal("未歸屬寫入沒有設旗標")
 	}
 	img := r.p.cur
+	// Isolate palette derivation while an actual writing window defers F4.
+	r.v.ss, r.v.sp = tSS, 0xFB00
+	r.at(t2dCS, t2dEntry)
+	r.write(201, 4, t2dCS, t2dEntry+2, machine.VWV86)
 	r.v.pal[7] = [3]uint8{1, 2, 3}
 	r.frame(img.indexed)
 	if c := r.p.Current(); c.Kind != PresPalette || r.p.cur.palette != r.v.pal || &r.p.cur.indexed[0] != &img.indexed[0] {
@@ -879,7 +883,7 @@ func TestPresentStale(t *testing.T) {
 	if r.p.counts.Stale != 0 {
 		t.Fatal("取像之後畫面沒變卻判陳舊")
 	}
-	r.write(9, 9, 0x5555, 0x10, machine.VWV86) // 未歸屬寫入（分期 (c) 不做退路）
+	r.v.vga[9] = 9 // Bypass VideoWrite so F4 cannot mask this pixel-oracle failure.
 	r.frame(nil)
 	if r.p.counts.Stale != 1 || r.p.stale[len(r.p.stale)-1].Diff != 1 {
 		t.Fatalf("未被取像的改變：陳舊 %d", r.p.counts.Stale)

@@ -241,6 +241,7 @@ type PresentCounts struct {
 	StaleChecked, Stale, StaleNoImage                                                            int
 	Unattributed, UnattributedOffscreen                                                          int
 	IndexedIntoShort, NonLinearLayout, ModeChanges                                               int
+	NonLinear13h, LayoutCorrected, CUFallbackTimeout                                             int
 	Fallback, CursorEraseFlush                                                                   int
 	WindowsOpened                                                                                int
 	MaxDepth                                                                                     int
@@ -359,7 +360,7 @@ type Presenter struct {
 	afterRetAt uint64
 	staleVoid  bool
 
-	needFallback bool // 未歸屬寫入或模式設定之後（退路取像在分期 (f)）
+	needFallback bool // F1: outstanding physical-VGA capture request.
 
 	steps         uint64
 	vwTotal       uint64
@@ -376,14 +377,17 @@ type Presenter struct {
 		rgba []byte
 	}
 
-	counts    PresentCounts
-	captures  []PresentInfo
-	stale     []PresentStale
-	unattr    map[[2]uint16]*PresentUnattr
-	windows   []PresentWindowRec
-	cuRecs    []PresentCURec
-	onCapture []func(PresentInfo)
-	d         presentDState
+	counts       PresentCounts
+	captures     []PresentInfo
+	stale        []PresentStale
+	unattr       map[[2]uint16]*PresentUnattr
+	windows      []PresentWindowRec
+	cuRecs       []PresentCURec
+	onCapture    []func(PresentInfo)
+	d            presentDState
+	f            presentFState
+	fallbacks    []PresentFallbackRec
+	sourceWrites sourceWriteState
 }
 
 // NewPresenter 建呈現層與它自有的呈現用實例（每倍率一個）。
@@ -395,6 +399,7 @@ func NewPresenter(cfg PresenterConfig) (*Presenter, error) {
 		unattr: map[[2]uint16]*PresentUnattr{}}
 	p.counts.Captures = map[PresentKind]int{}
 	p.counts.Routines = map[string]RoutineCount{}
+	p.sourceWrites.rows = make([]pendingSourceWrite, 0, sourcePoolCells)
 	p.d.verdict = FrameVerdict{Class: VerdictNoImage}
 	p.cache = map[int]struct {
 		key  composeCacheKey
@@ -480,6 +485,7 @@ func (p *Presenter) Current() PresentInfo {
 
 // Counts 回計數的快照。
 func (p *Presenter) Counts() PresentCounts {
+	p.drainSourceWrites()
 	c := p.counts
 	c.Captures = map[PresentKind]int{}
 	for k, v := range p.counts.Captures {
@@ -598,6 +604,8 @@ func (p *Presenter) closedItems() bool {
 func (p *Presenter) Observe(v PresentView) {
 	steps := v.Steps()
 	p.steps = steps
+	p.observeSourceDrain(steps)
+	p.observeLayout(v)
 	p.observeDeferral(v)
 	if p.flight != nil {
 		p.cuOpen, _ = p.flight.CUState()
@@ -622,6 +630,7 @@ func (p *Presenter) Observe(v PresentView) {
 		p.dispatch(v, ip)
 	}
 	p.finishPending(v)
+	p.fallbackObserve(v)
 	if p.clearPend {
 		// ClearArt 沒有在同一步開窗的全螢幕 blit：當作沒有所屬窗。
 		p.clearPend = false
@@ -757,6 +766,7 @@ func (p *Presenter) checkTimeouts(steps uint64) {
 			p.counts.WindowTimeout++
 			p.closeWin(p.stack[j], steps, "timeout", j+1)
 		}
+		p.fallbackWindowTimeout()
 		p.stack = p.stack[:i]
 		if len(p.stack) == 0 {
 			p.epWrote, p.lastClosed = false, nil
@@ -793,11 +803,7 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 	if lc != nil {
 		kind = lc.kind
 	}
-	flush := p.d.flushDeferred
 	if p.capture(v, kind, v.CS(), v.IP(), nil, nil, p.flightSet()) {
-		if flush {
-			p.counts.CursorEraseFlush++
-		}
 		p.scheduleRecheck()
 	}
 }
@@ -808,18 +814,28 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 // v 只在 idx 或 pal 為 nil 時使用；在 Frame 內（沒有開著的視圖）呼叫時 v 為 nil，idx 與 pal 都必須給。
 // 同一步依序：套用佇列 → Sync(Labels) → 飛行 Sync(F, presGen) → 色號與色盤 → 字幕狀態 → 建呈現像。
 func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx []byte, pal *[256][3]uint8, F []FlightText) bool {
+	p.drainSourceWrites()
 	if p.d.mode != deferIdle {
 		p.d.pending = true
 		return false
 	}
-	if idx == nil {
-		l := v.IndexedLayout()
-		p.d.mode13Known = l.Kind == machine.IndexedLinear && l.Mode == 0x13
-		if l.Kind != machine.IndexedLinear || l.Mode != 0x13 {
-			p.counts.NonLinearLayout++
-			p.needFallback = true
+	physical := kind != PresCU && kind != PresPalette && kind != PresSubtitle
+	if physical && p.needFallback && p.f.requested {
+		if p.f.waitFrame || p.cuOpen || p.writingWindow() || (p.f.windowWaiting && len(p.stack) != 0) || (p.f.returnPending && p.steps <= p.f.returnStep) || (p.d.eraseGap && v != nil && !p.d.flushReadPending) {
 			return false
 		}
+		if !p.f.absorbed {
+			kind = PresFallback
+			if p.f.returnPending {
+				cs, ip = p.f.returnCS, p.f.returnIP
+			}
+		}
+	}
+	if v != nil && !p.captureLayout(v) {
+		return false
+	}
+	if idx == nil {
+		l := p.f.layout
 		if n := l.W * l.H; len(p.vga) < n {
 			p.vga = make([]byte, n)
 		}
@@ -860,7 +876,9 @@ func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx 
 	img.info = PresentInfo{Seq: p.seq, CaptureSteps: p.steps, Kind: kind, SourceCS: cs, SourceIP: ip}
 	p.cur = img
 	if kind != PresCU && kind != PresPalette && kind != PresSubtitle {
-		p.needFallback = false
+		flush := p.d.eraseGap || p.d.flushDeferred
+		p.fallbackCaptured(img, flush)
+		p.clearFallback()
 		p.d.pending = false
 		p.d.eraseGap = false
 		p.d.flushDeferred = false
@@ -968,6 +986,7 @@ func (p *Presenter) doRecheck(v PresentView) {
 // ---- CU（§3.4.2） ----
 
 func (p *Presenter) onCU(e cuEvent) {
+	p.fallbackCU(e)
 	switch e.Kind {
 	case cuEvAccepted:
 		p.cuPend, p.cuPendIP = true, e.IP
@@ -1153,11 +1172,10 @@ func (p *Presenter) cuAfterReturn(v PresentView) {
 	if !c.captured {
 		return
 	}
-	l := v.IndexedLayout()
-	if l.Kind != machine.IndexedLinear || l.Mode != 0x13 {
-		p.counts.NonLinearLayout++
+	if !p.captureLayout(v) {
 		return
 	}
+	l := p.f.layout
 	if n := l.W * l.H; len(p.vga) < n {
 		p.vga = make([]byte, n)
 	}
@@ -1212,7 +1230,7 @@ func diffBox(a, b []byte) (n, x0, y0, x1, y1 int) {
 // ---- VideoWrite、Frame、模式設定 ----
 
 // VideoWrite 依 §3.2 歸屬（分期 (c)：CU 窗內非 V86 的寫入、開著的 blit 窗範圍內的寫入）。熱路徑不配置
-// （未歸屬寫入的彙整只在新的 CS:IP 第一次出現時配置）。
+// 未歸屬來源在預配池暫存，聚合延到 Observe/Frame 等非熱路徑。
 func (p *Presenter) VideoWrite(w machine.VideoWrite) {
 	p.vwTotal++
 	p.vwSinceCap++
@@ -1241,24 +1259,19 @@ func (p *Presenter) VideoWrite(w machine.VideoWrite) {
 	p.needFallback = true
 	if p.d.mode != deferIdle {
 		p.d.pending = true
+		p.f.reasons |= fReasonPause
 	}
-	k := [2]uint16{w.CS, w.IP}
-	if u := p.unattr[k]; u != nil {
-		u.Count++
-		u.Last = w.Step
-	} else if len(p.unattr) < 4096 {
-		p.unattr[k] = &PresentUnattr{CS: w.CS, IP: w.IP, Ctx: w.Ctx, Count: 1, First: w.Step, Last: w.Step}
-	}
+	p.queueSourceWrite(w)
 }
 
 // VideoModeChange 是模式設定（§3.4.2 清除退用描述元；§3.5.1 的退路標記在分期 (f) 取像）。
-func (p *Presenter) VideoModeChange(machine.ModeChange) {
+func (p *Presenter) VideoModeChange(c machine.ModeChange) {
+	p.drainSourceWrites()
 	p.counts.ModeChanges++
 	p.fbDesc = presDesc{}
-	p.needFallback = true
+	p.fallbackMode(c)
 	p.d.menu = false
 	p.d.optCandidateOK, p.d.strikeCandidateOK = false, false
-	p.d.mode13Known = false
 }
 
 // Frame 在 SessionObserver.Frame 的最後呼叫（Subtitles.Frame 之後）：丟升格後的快照、色盤與字幕呈現像、陳舊斷言。
@@ -1269,6 +1282,7 @@ func (p *Presenter) Frame(indexed []byte, palette [256][3]uint8) {
 }
 
 func (p *Presenter) FrameAt(steps uint64, indexed []byte, palette [256][3]uint8) {
+	p.drainSourceWrites()
 	p.steps = steps
 	if p.d.flightCommitValid {
 		c := p.d.flightCommit
@@ -1289,6 +1303,12 @@ func (p *Presenter) FrameAt(steps uint64, indexed []byte, palette [256][3]uint8)
 			p.snapValid, p.cuSnap = false, nil
 		}
 	}
+	// A failed completion can retain pending without needFallback. Reconfirm
+	// its invalid tracked layout once after this Frame, never on every step.
+	if p.d.pending && p.f.layoutKnown && !p.d.mode13Known {
+		p.d.layoutCheckPending = true
+	}
+	p.fallbackFrame(indexed, palette)
 	p.cursorFrame(indexed, palette)
 	if p.mut&presMutN2 != 0 {
 		// 負對照 N2：回掃取像，覆繪狀態取回掃當下。
@@ -1383,7 +1403,7 @@ func (p *Presenter) shotCheck(cur map[int][]byte) *PresentShot {
 func (p *Presenter) countsTextBase() []byte {
 	var b bytes.Buffer
 	c := p.counts
-	fmt.Fprintf(&b, "呈現層（規格 014 分期 (d) 核心）；突變：%s\n", p.mut)
+	fmt.Fprintf(&b, "呈現層（規格 014 分期 (d)/(f)）；突變：%s\n", p.mut)
 	var ks []string
 	for k := range c.Captures {
 		ks = append(ks, string(k))
@@ -1404,12 +1424,16 @@ func (p *Presenter) countsTextBase() []byte {
 		c.CUNoDesc, c.CUFallbackDescUsed, c.BufCUReadFail, c.CUDuplicate, c.CUCHNonZero, c.CUVoided, c.CUTimeout)
 	fmt.Fprintf(&b, "窗：開窗 %d、最大深度 %d；未歸屬寫入 %d（畫面外 %d，退路取像在分期 (f)）；模式設定 %d；非 13h 鏈結 %d；IndexedIntoShort %d\n",
 		c.WindowsOpened, c.MaxDepth, c.Unattributed, c.UnattributedOffscreen, c.ModeChanges, c.NonLinearLayout, c.IndexedIntoShort)
-	fmt.Fprintf(&b, "退路 %d、CursorEraseFlush %d（分期 (c) 不做退路取像）；佇列剩 %d 項\n", c.Fallback, c.CursorEraseFlush, len(p.queue))
+	fmt.Fprintf(&b, "退路 %d、CursorEraseFlush %d；NonLinear13h %d、LayoutCorrected %d、CUFallbackTimeout %d；佇列剩 %d 項\n", c.Fallback, c.CursorEraseFlush, c.NonLinear13h, c.LayoutCorrected, c.CUFallbackTimeout, len(p.queue))
 	return b.Bytes()
 }
 
 // WriteFiles 寫 captures.tsv、stale.tsv、unattributed.tsv、windows.tsv、cu.tsv、present-counts.txt 到 dir。
 func (p *Presenter) WriteFiles(dir string, write func(name string, b []byte) error) error {
+	p.drainSourceWrites()
+	if err := write("fallback.tsv", p.fallbackFiles()); err != nil {
+		return err
+	}
 	var b bytes.Buffer
 	b.WriteString("seq\tsteps\tkind\tsource\n")
 	for _, c := range p.captures {
