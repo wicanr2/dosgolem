@@ -219,6 +219,56 @@ func (m *Machine) RunUntilObserved(stop func(*Machine) bool, budget uint64, obse
 	return StopBudget, nil
 }
 
+// StepFilter 是 RunUntilSparse 的觀察條件（docs/spec/460 §3.1）。觸發 IP 集合由 session 在每回合開始時複製；
+// Wake、Force 由 session 在觀察點與事件回呼之後寫入。Observed、Forced 是計數（Force 成立的觀察也計入 Observed），
+// 供 460 §5.1 第 3 條的觀察呼叫率。
+type StepFilter struct {
+	IPs    [1024]uint64 // 回合開始時由 session 複製；bit ip 為 1 表示 IP == ip 的步驟要觀察
+	Wake   uint64       // m.Steps >= Wake 時觀察；0 表示下一步
+	Force  bool         // 下一步必觀察；觀察後清除
+	Exited *bool        // 非 nil 且為真時必觀察（程式結束的停止點）
+
+	Observed, Forced uint64
+}
+
+// ShouldObserve 回步驟（目前 CS:IP 的 ip、目前 steps）在稀疏模式是否呼叫 BeforeStep（460 §3.3）。
+// RunUntilSparse、稽核與期限單元測試都呼叫它，不各自重寫述詞。
+func (f *StepFilter) ShouldObserve(ip uint16, steps uint64) bool {
+	return f.Force || steps >= f.Wake || f.IPs[ip>>6]&(1<<(ip&63)) != 0 || (f.Exited != nil && *f.Exited)
+}
+
+// RunUntilSparse 與 RunUntilObserved 逐行相同，只有 observe 呼叫加上 f.ShouldObserve 的條件（docs/spec/460 §3.1）：
+// 成立時清 Force、計數，再呼叫 observe。
+func (m *Machine) RunUntilSparse(stop func(*Machine) bool, budget uint64, f *StepFilter, observe PreStepObserver) (Stop, error) {
+	for i := uint64(0); i < budget; i++ {
+		if i > 0 || len(m.breaks) == 0 {
+			if m.atBreak() {
+				return StopBreakpoint, nil
+			}
+		}
+		if i > 0 && stop != nil && stop(m) {
+			return StopPredicate, nil
+		}
+		if f.ShouldObserve(m.CPU.IP, m.Steps) {
+			if f.Force {
+				f.Forced++
+			}
+			f.Observed++
+			f.Force = false
+			if err := observe(m); err != nil {
+				return StopBudget, err
+			}
+		}
+		if err := m.Step(); err != nil {
+			return StopBudget, err
+		}
+	}
+	if stop != nil && stop(m) {
+		return StopPredicate, nil
+	}
+	return StopBudget, nil
+}
+
 func (m *Machine) atBreak() bool {
 	if len(m.breaks) == 0 {
 		return false

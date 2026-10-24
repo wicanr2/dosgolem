@@ -1,6 +1,6 @@
 # 461 讀入狀態檔後的計時器頻率：通道 0 讀數一律取 IRQ0 實際使用的分頻
 
-狀態：**READY**（第 3 版，2026-10-23；初審與複審各兩位獨立審查者，審查紀錄在陸空戰將 repo `workplace/perf100/review460-461*.md`），未實作。
+狀態：**READY**（第 3 版，2026-10-23；初審與複審各兩位獨立審查者，審查紀錄在陸空戰將 repo `workplace/perf100/review460-461*.md`）。2026-10-24 已實作，現有素材範圍已複驗，未標 CONFORMED。既有單元、負對照、perf100 與 15 支陸空戰將長測試紀錄見陸空戰將 repo `workplace/impl461/receipt.md`；本輪見 §7。MOO2 缺素材，不能列為已驗證。
 基準：dosgolem-sc `395b679`。來源：strike_commander `workplace/perf100/report.md`「時間基準」節；446 §4.1 登記的既有缺口。
 
 ## 0. 處置紀錄
@@ -173,3 +173,13 @@
 - 第 2 版做法：保留 `m.pit` 只供 `PITProgrammed()`，`LoadState` 清零。可行，但留下兩份「寫過沒有」的紀錄來源；第 3 版改為單一解讀者。
 - 備案 B：狀態檔補存 `m.pit`。gob 型別描述含欄位名，新存狀態檔位元組與所有收據的 454 `MachineDigest` 都會變；舊狀態檔仍需退路；與
   strike_commander AGENTS §2（2026-10-15）「gob 位元組錨點只再變這一次」衝突。
+
+## 7. 2026-10-24 接手複驗
+
+工具為 `dosgolem-go-ebiten:1.24-r1`、Go 1.24.13、Linux amd64。
+證據在陸空戰將 repo `workplace/impl460/out/codex-validation-r1/short/`；原版 rich2、FD2 輸入 SHA-256 在 `pit-original-inputs.sha256`。
+
+- `go vet ./...` 與全庫 47 個套件測試通過；本輪沒有改動 461 的正式 Go 來源。
+- `PIT461` 的存讀檔、初值、快照與重播器測試通過。rich2 原版冷開機至 2 億步，165 筆埠寫入、163 次比較、分歧 0；FD2 原版 LE 路徑 3 筆寫入、分歧 0。
+- 七個 461 核心來源與測試檔對先前 `workplace/impl461/src461/` 的逐檔 diff 為空。既有 15 支陸空戰將長測試皆以 exit=0 結束，P1–P4 負對照在指定斷言失敗；原收據仍保留在 `workplace/impl461/`。
+- MOO2 原版素材仍缺，§5 第 6 條的 MOO2 抽樣未完成。維持 READY，不把缺檔列為通過。

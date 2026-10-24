@@ -1,6 +1,6 @@
 # 460 session 稀疏觀察：觸發 IP 集合、步數期限與單次喚醒
 
-狀態：**READY**（第 3 版，2026-10-23；三輪審查：初審與複審各兩位獨立審查者，審查紀錄在陸空戰將 repo `workplace/perf100/review460-461*.md`），未實作。
+狀態：**READY**（第 3 版，2026-10-23；三輪審查：初審與複審各兩位獨立審查者，審查紀錄在陸空戰將 repo `workplace/perf100/review460-461*.md`）。2026-10-24 已實作，尚未 CONFORMED；`sparseDefault` 維持 false。實作收據與已知缺項見陸空戰將 repo `workplace/impl460/receipt.md`；本輪補驗與剩餘閘門見 §8。
 基準：dosgolem-sc `395b679`。來源：strike_commander 計畫 002 §3 P 第 1 項；量測見 `workplace/perf100/report.md`。
 
 ## 0. 處置紀錄
@@ -497,3 +497,34 @@ CS 比對，不讀大塊記憶體；在 §5.4 第 2 條量得超標之前不做�
 3. 稽核（§5.2，先量單次快照成本定取樣率）與期限單元測試 T1 到 T4；§5.3 負對照。
 4. §5.1 全量對拍（含定向與隨機切分）；§5.4 量測與門檻調整；238、452、454 修訂。
 5. §5 全部通過之後，才把 `SessionConfig` 翻成預設稀疏，`DOSGOLEM_SC_SPARSE=0` 改為關閉開關；翻轉後 §5.1 第 1、2 條再跑一次。
+
+## 8. 2026-10-24 接手驗證紀錄
+
+基準為 `b2896ee` 加未提交的 460／461 實作。工具為 `dosgolem-go-ebiten:1.24-r1`、Go 1.24.13、Linux amd64。
+收據根目錄為陸空戰將 repo `workplace/impl460/out/codex-validation-r1/`；輸入檔名與 SHA-256 在 `input-sha256.json`，1,024 份 Go 輸入的 SHA-256 在 `source-sha256.json`。
+`source-manifest-check.json` 證實正式 Go 來源與診斷建立時相同；其後只增加 S9 單元測試。
+步數使用 dosgolem `machine.Steps`，稽核的 IP 使用 `StepView.IP()`，不表示線性 PC。
+
+| 項目 | 本輪結果 | 證據 |
+|---|---|---|
+| 全庫回歸 | 47 個套件 PASS、`go vet ./...` PASS；GUI 套件在 Xvfb 內測試 | `short/gotest-all.log`、`short/vet.log` |
+| Q 定向切分 | 兩模式 2,367 個收據檔、138 個檢查點相同 | `compare-flightQ.json` |
+| R 固定種子隨機切分 | 兩模式 820 個收據檔、47 個檢查點相同，種子 4601 | `compare-flightR.json` |
+| E 的 N1 | 兩模式的定向切分收據相同；各模式切分與不切分也相同 | `compare-expoE-ab.json`、`compare-expoE-{dense,sparse}-splits.json` |
+| R 的 N1 | 回掃升格會改變狀態的路徑中，兩模式 831 個收據檔相同 | `compare-n1-flightR.json` |
+| S8 | E 無差異：E 沒有 Flight，`OnFrame` 只更新 `frameSteps`，不設 `dirty`。R 有 Frame 內的 Flight commit，突變後 3 個曝光檔不同；首筆 N1 判定從 7,601,880,001 延到 7,601,886,086 步 | `negative-S8.json`、`negative-S8-flightR.json`、`negative-details.json`；`exposure.go` 的 Frame 與 Flight commit 回呼 |
+| S9 | 新增 `TestSparseCUTimeoutAuditI1`，由 CU 入口與逾時返回建立前提。正向 PASS，S9 突變讓 I1 失敗 | `short/s9-positive.log`、`short/s9-negative.log` |
+| S13 | 普通存讀檔收據 457 檔相同；影子稽核在 F、G、I、J、K 共抓到 73 次漏掉 `recheck`，五例均 FAIL | `negative-S13-receipts.json`、`negS13-audit/sparse-audit.txt` |
+
+診斷複本只補讀值，不進正式程式。在各 shot 與停止點比較 `Frames`、`Deliveries()`、全部 SBDMA 回呼事件、退路 `SBDMALog` 與完整 DOS 存檔狀態。
+原始 DOS 摘要包含測試暫存路徑，逐次不同。本輪比較只排除明名的 `DOSSHA256` 欄，同時另比 DOS 完整狀態的正規化摘要；只正規化根目錄與其下 handle 路徑，其他欄位不排除。
+因此不宣稱原始 `DOSSHA256` 相同。比對工具為陸空戰將 repo `workplace/impl460/codex-compare.py`。
+
+尚未滿足的閘門：
+
+- §5.2 的飛行長測試仍未補足「鎖存後 64 步全取快照」。本輪 S13 稽核只驗述詞，快照窗與隨機率皆為 0，不能當作正向 64 步驗收。
+- §5.3 的 S8 不會讓既有合成驅動 T2 失敗：T2 的 Force 由驅動設定。本輪由 session 接線單元測試及 R 的 N1 長測試補證；條文對應仍待審查修訂。
+- §5.1 的 DOS 路徑正規化方法尚未回填驗收條文。現有證據保存原始摘要與完整正規化比較結果。
+- 預設翻轉仍依較新的陸空戰將交接 `docs/plan/003-handoff-2026-10-24.md`：460 分期 (b)、014 分期 (d) 合入，並通過擴充情境呼叫率閘門後再處理。
+
+N=5 牆鐘交錯量測仍未做，屬 §5.4 的報告項目，不列為本輪通過聲明。

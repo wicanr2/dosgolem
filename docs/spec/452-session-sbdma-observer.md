@@ -82,6 +82,7 @@ if so, ok := o.observer.(SBDMAObserver); ok {
 | `irq7`、`defaulted` | `m.Steps++` 之前的 IRQ7 判斷（444 §2.7） | 上一道指令的序號 | `e.Step + 1` |
 
   依據：`RunUntilObserved` 在每次 `Step()` 之前呼叫觀察（`internal/machine/probe.go:207–212`），`sb8Event` 取 `m.Steps`（`sb_dma8.go:906`）。
+  稀疏模式（460）下「下一次 `BeforeStep`」由 SBDMA 回呼之後的 `Force` 保證仍是下一次步驟嘗試，表中的步數關係不變（由 460 修訂）。
 - 回合在事件那一步結束時，下一次 `BeforeStep` 在下一次 `Advance` 的開頭，步數關係不變。其間的 `Deliver` 只寫輸入相關的狀態（BIOS 鍵盤緩衝、DOS 滑鼠，449、451）；消費端讀的區域不是這些時，讀到的值與在同一回合內讀相同（強推論）。
 - 這個時點與 probe 的 `-dump-mem-at S`（`m.Steps == S`、下一次 `Step` 之前，`cmd/probe/main.go:992–998`）相同，所以 probe 收據可以當消費端的獨立期望。
 

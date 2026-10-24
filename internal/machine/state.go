@@ -369,6 +369,8 @@ func (m *Machine) LoadState(r io.Reader) error {
 	if m.PITDiv == 0 {
 		m.PITDiv = PITDefaultDivisor
 	}
+	// 461 §2 第 3 條：PITProgrammed 的語意是「本次載入後寫過沒有」，狀態檔不存。
+	m.pitWrites = 0
 	m.pitAccess, m.pitPhase, m.pitLo = s.PITAccess, s.PITPhase, s.PITLo
 	if m.pitAccess == 0 {
 		m.pitAccess = 3

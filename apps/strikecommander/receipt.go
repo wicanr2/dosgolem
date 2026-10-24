@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/wicanr2/dosgolem/host"
 	"github.com/wicanr2/dosgolem/internal/machine"
@@ -42,6 +43,10 @@ type SessionObserver struct {
 	// VideoWrite 轉給它，Frame 在 Subtitles.Frame 之後呼叫它的 Frame。nil 時三個回呼的行為與不掛時相同。
 	present *Presenter
 
+	// audit 是規格 460 §5.2 的稽核（只由測試經 sparseAuditOn 開啟；nil 為關）：session 照逐步模式執行，
+	// 稽核以影子 StepFilter 判斷每一步在稀疏模式會不會被觀察，並檢查略過步。
+	audit *sparseAudit
+
 	steps uint64
 	// cur 是這一步的 view。BeforeStep 以 &cur 傳給三個觀察器：StepView 是 16 bytes 的值型別，
 	// 直接轉成介面每次都在堆上配置一份（每步三次），指標轉介面不配置（docs/spec/456-sc-observer-view-alloc）。
@@ -67,6 +72,9 @@ func (s *SessionObserver) SBDMA(e machine.SBDMAEvent) {
 	if s.Subtitles != nil {
 		s.Subtitles.SBDMA(e)
 	}
+	if s.audit != nil {
+		s.audit.event(s, "sbdma", e.Step)
+	}
 }
 
 // AttachOverlays 把存讀檔對話框的繪圖事件與全螢幕 blit 入口的清除送到每個倍率的 Overlay（004 §3.1、§3.3）。
@@ -85,6 +93,13 @@ func (s *SessionObserver) AttachOverlays(ovs ...*Overlay) {
 }
 
 func (s *SessionObserver) BeforeStep(v session.StepView) error {
+	if s.audit != nil {
+		return s.audit.step(s, v)
+	}
+	return s.beforeStep(v)
+}
+
+func (s *SessionObserver) beforeStep(v session.StepView) error {
 	s.steps = v.Steps()
 	s.cur = v
 	p := &s.cur
@@ -120,6 +135,9 @@ func (o presentObserver) VideoModeChange(c machine.ModeChange) {
 	if o.present != nil {
 		o.present.VideoModeChange(c)
 	}
+	if o.audit != nil {
+		o.audit.event(o.SessionObserver, "mode", 0)
+	}
 }
 
 func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
@@ -140,6 +158,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	if s.present != nil {
 		s.present.Frame(indexed, palette)
 	}
+	if s.audit != nil {
+		s.audit.event(s, "frame", s.steps)
+	}
 }
 
 // SessionConfig 是 dosgolem 規格 448 §3.2 的 Config（KbdIntercept 開），觀察器由呼叫端給（nil 為關）。
@@ -150,6 +171,7 @@ func SessionConfig(obs session.StepObserver) session.Config {
 		InitialLayout: host.MouseLayout{Epoch: 1, Scale: host.OutputScale2, ChromeHeight: 18 * s,
 			Canvas: host.Canvas{Width: 320, Height: 200}, FrameWidth: 320 * s, FrameHeight: 18*s + 200*s},
 		Observer:             obs,
+		SparseObserve:        sparseOn(false), // 規格 460 §3.5
 		ProgramPath:          `C:\SCCD.EXE`,
 		DOSFiles:             30,
 		ExtendedMemoryKB:     8192,
@@ -210,6 +232,12 @@ type ReceiptConfig struct {
 	presentMut presentMut
 	// machineDigests 開時在每個 shot 與停止點另取 454 的 MachineDigest（規格 014 §4.4 的同狀態 A/B）。
 	machineDigests bool
+
+	// sparse 開規格 460 的稀疏觀察（§3.5；測試的 DOSGOLEM_SC_SPARSE 覆寫優先，見 sparseOn）。
+	sparse bool
+	// splits 是規格 460 §5.1 第 4 條的推進切分點（絕對步數，遞增）：在 (目前步數, 目標) 之內的點各切一刀，切分不送輸入，
+	// 各段之前交付空更新（同 shot 與曝光收據合成點的切分）。nil 時取 receiptSplitsOverride（測試設定）。
+	splits []uint64
 
 	noCallerCheck bool // 001 §3.3 的負對照
 	exactOnly     bool // 002 §3.2 案例 D 的負對照：解析只留第 1 步
@@ -559,11 +587,36 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 	} else if cfg.expo != nil {
 		return nil, errors.New("strikecommander: 曝光收據要 Overlay 開")
 	}
-	o, err := session.New(SessionConfig(obs))
+	scfg := SessionConfig(obs)
+	scfg.SparseObserve = sparseOn(cfg.sparse) // 規格 460 §3.5
+	if so != nil && sparseAuditOn {
+		// 規格 460 §5.2：稽核時 session 照逐步模式執行。
+		so.audit = newSparseAudit(so)
+		scfg.SparseObserve = false
+	}
+	o, err := session.New(scfg)
 	if err != nil {
 		return nil, err
 	}
 	defer o.Close()
+	splits := cfg.splits
+	if splits == nil {
+		splits = receiptSplitsOverride
+	}
+	// nextSplit 回 (from, to) 內的第一個切分點（460 §5.1 第 4 條）。
+	nextSplit := func(from, to uint64) (uint64, bool) {
+		i := sort.Search(len(splits), func(i int) bool { return splits[i] > from })
+		if i < len(splits) && splits[i] < to {
+			return splits[i], true
+		}
+		return 0, false
+	}
+	// turnStart 在每次 Advance 之前呼叫（460 §5.2：稽核的回合開始旗標）。
+	turnStart := func() {
+		if so != nil && so.audit != nil {
+			so.audit.turnStart()
+		}
+	}
 	boot, err := o.BootFromState(session.StateInput{State: cfg.State, ExpectedStateSHA256: cfg.StateSHA256, SaveRoot: cfg.SaveRoot, RebaseFrom: cfg.RebaseFrom})
 	if err != nil {
 		return nil, err
@@ -591,37 +644,48 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 		// 規格 014 §4.2.1：合成點只切分推進。每段 Advance 前要有一次 Deliver（session 的回合規則）：第一段沿用呼叫端
 		// 已交付的回合（空更新或輸入），之後各段交付空更新，同 shot 的切分。合成點 c 在 (steps, target]，同步數的合成點
 		// 排在該步的事件之前。expo 為 nil 時只走下面原有的一次 Advance。
-		if expo != nil {
-			delivered := true
-			for {
-				c, ok := expo.nextPoint(steps, target)
-				if !ok {
-					break
-				}
-				if !delivered {
-					if err := deliver(nil); err != nil {
-						return err
-					}
-				}
-				r, err := o.Advance(session.InstructionBudget(c - steps))
-				if err != nil {
-					return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
-				}
-				if r.MachineStepsAfter != c {
-					return fmt.Errorf("strikecommander: 停在第 %d 步，要 %d", r.MachineStepsAfter, c)
-				}
-				steps, delivered = c, false
-				expo.checkpoint(c)
+		// 規格 460 §5.1 第 4 條：切分點與合成點合併，依先後切；同步數時算合成點。splits 為空、expo 為 nil 時只走下面的一次 Advance。
+		delivered := true
+		for {
+			var c uint64
+			var ok, isExpo bool
+			if expo != nil {
+				c, ok = expo.nextPoint(steps, target)
+				isExpo = ok
 			}
-			if target == steps {
-				return nil
+			if sc, sok := nextSplit(steps, target); sok && (!ok || sc < c) {
+				c, ok, isExpo = sc, true, false
+			}
+			if !ok {
+				break
 			}
 			if !delivered {
 				if err := deliver(nil); err != nil {
 					return err
 				}
 			}
+			turnStart()
+			r, err := o.Advance(session.InstructionBudget(c - steps))
+			if err != nil {
+				return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
+			}
+			if r.MachineStepsAfter != c {
+				return fmt.Errorf("strikecommander: 停在第 %d 步，要 %d", r.MachineStepsAfter, c)
+			}
+			steps, delivered = c, false
+			if isExpo {
+				expo.checkpoint(c)
+			}
 		}
+		if expo != nil && target == steps { // 切分點嚴格小於 target，所以只有合成點會走到這裡（與改動前相同）
+			return nil
+		}
+		if !delivered {
+			if err := deliver(nil); err != nil {
+				return err
+			}
+		}
+		turnStart()
 		r, err := o.Advance(session.InstructionBudget(target - steps))
 		if err != nil {
 			return fmt.Errorf("strikecommander: Advance（停在第 %d 步）：%w", r.MachineStepsAfter, err)
@@ -740,6 +804,11 @@ func RunReceipt(cfg ReceiptConfig) (*ReceiptResult, error) {
 				sr.Presented = res.Present.shotCheck(sr.Composites) // 規格 014 §3.9
 			}
 			res.Shots = append(res.Shots, sr)
+		}
+	}
+	if so != nil && so.audit != nil {
+		if err := so.audit.finish(); err != nil { // 規格 460 §5.2
+			return res, err
 		}
 	}
 	if res.Digest, err = o.Digest(); err != nil {

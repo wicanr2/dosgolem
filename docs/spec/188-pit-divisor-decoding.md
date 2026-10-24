@@ -36,6 +36,10 @@ rich2 的 `screen.OriginalFrameHz` 也自己寫了一份 `1193182 / 17000`。
 寫 0 代表 65,536，這是 8254 的定義，不是「沒設定」。兩者要分開回答：
 `PITProgrammed()` 說有沒有被寫過，`PITDivisor()` 說現在是多少。
 
+由 461 修訂（`461-pit-divisor-after-load`，2026-10-23）：`Machine` 的 `PITDivisor()` 是 IRQ0 實際使用的分頻
+`m.PITDiv`（存進狀態檔，讀檔後亦正確）；`PITProgrammed()` 是 `setPITDiv` 的寫入計數，語意為「本次開機或本次載入後，
+程式完整寫過通道 0 的分頻沒有」，狀態檔不存，`LoadState` 之後為假。
+
 輸入時脈是硬體常數：NTSC 彩色副載波 `315/88` MHz ×4 ÷12 ＝ `315/264` MHz
 ＝ **1,193,181.8181… Hz**。文獻常寫 1,193,182，那是四捨五入（差 3×10⁻⁷）；
 兩邊常數要對拍就得用精確值，否則會差在小數第五位。
@@ -45,15 +49,16 @@ rich2 的 `screen.OriginalFrameHz` 也自己寫了一份 `1193182 / 17000`。
 除數解碼屬於**觀測層**（`internal/machine`），不是程式層：任何 DOS 程式都寫同一組
 埠，不必知道那支程式長什麼樣（判準見 `006-layering`）。
 
-實模式的 `Machine` 與保護模式的 `LEMachine` **共用同一份解碼器**——
-保護模式的遊戲一樣是 `out 43h` / `out 40h`。
+保護模式的 `LEMachine` 用 `pit` 型別解碼——保護模式的遊戲一樣是 `out 43h` / `out 40h`。
+實模式的 `Machine` 自 461 起只有一個解讀者：`pitWrite` → `setPITDiv`（同時決定 IRQ0 間隔），
+不再另以 `pit` 型別解讀同一組寫入（由 461 修訂）。
 
 ```go
 const PITBaseHz = 315e6 / 264   // 硬體常數
 const PITDefaultDivisor = 65536 // BIOS 開機值
 
-func (m *Machine) PITDivisor() uint32    // 目前的除數
-func (m *Machine) PITProgrammed() bool   // 程式自己設過沒有
+func (m *Machine) PITDivisor() uint32    // 目前的除數（m.PITDiv，461）
+func (m *Machine) PITProgrammed() bool   // 本次開機或載入後程式自己設過沒有（461）
 func (m *Machine) PITHz() float64        // PITBaseHz / 除數
 // LEMachine 有同名的三支
 ```

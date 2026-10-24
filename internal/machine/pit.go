@@ -18,6 +18,9 @@ const PITDefaultDivisor = 65536
 
 // pit 記通道 0 目前的除數。**只解讀寫入，不推進時鐘**——dosgolem 的時間由
 // 指令數驅動（`IRQ0Every`），這裡回答的是「程式要求多快」，不是「現在幾點」。
+//
+// 只有 `LEMachine` 使用。`Machine` 自 `docs/spec/461` 起只用 `pitWrite`／`setPITDiv`
+// 一個解讀者（`PITDivisor` 讀 `m.PITDiv`）。
 type pit struct {
 	divisor  uint32 // 0 ＝ 還沒被程式設過
 	writes   uint64 // 完成過幾次重載，判「有沒有被設過」用
@@ -72,19 +75,25 @@ func (p *pit) set(d uint32) {
 	p.divisor, p.writes = d, p.writes+1
 }
 
-// PITDivisor 回通道 0 目前的除數；程式沒設過就回 BIOS 的預設 65,536。
+// PITDivisor 回通道 0 目前的除數，即 IRQ0 實際使用的 `m.PITDiv`（`docs/spec/461` §2）。
+// 存進狀態檔、讀檔後亦正確；零值 `Machine`（`PITDiv == 0`）回 BIOS 的預設 65,536。
+//
+// `Machine` 的通道 0 只有一個解讀者（`pitWrite` → `setPITDiv`）；`pit` 型別只剩
+// `LEMachine` 使用。
 func (m *Machine) PITDivisor() uint32 {
-	if m.pit.divisor == 0 {
+	if m.PITDiv == 0 {
 		return PITDefaultDivisor
 	}
-	return m.pit.divisor
+	return m.PITDiv
 }
 
-// PITProgrammed 回報程式有沒有自己設過通道 0。
+// PITProgrammed 回報本次開機或本次載入後，程式有沒有完整寫過通道 0 的分頻
+// （`setPITDiv` 的呼叫次數，`docs/spec/461` §2 第 3 條）。狀態檔不存，`LoadState` 之後為假，
+// 直到程式再寫。
 //
 // **要區分「量到 18.2 Hz」與「沒被設過所以是預設值」**——兩者的數字一樣，
 // 但一個是結論、一個是「還沒發生」。
-func (m *Machine) PITProgrammed() bool { return m.pit.writes > 0 }
+func (m *Machine) PITProgrammed() bool { return m.pitWrites > 0 }
 
 // PITHz 回通道 0 目前的中斷頻率。
 func (m *Machine) PITHz() float64 { return PITBaseHz / float64(m.PITDivisor()) }

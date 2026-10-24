@@ -2815,7 +2815,8 @@ func TestSB8BusyStateRoundTrip(t *testing.T) {
 }
 
 // 444 §2.4、446 §2.4（PITDiv 為欄位 m.PITDiv）：讀檔後開始的新傳輸，Δ 與 SBDMAEvent.PITDiv 與不存讀的執行相同。
-// m.pit.divisor 讀檔後不還原（446 §4.1），時基若讀 PITDivisor() 會在這裡差出來。
+// 461 之後 PITDivisor() 讀檔後亦回 m.PITDiv，「改讀 PITDivisor()」已是等價突變；
+// 這裡抓的是時基改用常數 65,536（461 §5 第 7 條）。
 func TestSB8DeltaAfterLoadState(t *testing.T) {
 	want := bigDelta([]uint64{4 * 90, 96506, 315_000_000}, []uint64{1_000_000, 264, 9943})
 	start := func(m *Machine) (uint64, SBDMAEvent) {

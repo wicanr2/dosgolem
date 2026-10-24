@@ -45,6 +45,38 @@ type SBDMAObserver interface {
 	SBDMA(e machine.SBDMAEvent)
 }
 
+// IPSet 是 65536 位元的 IP 集合（docs/spec/460 §3.1）：bit ip 為 1 表示 IP == ip 的步驟要觀察。
+type IPSet [1024]uint64
+
+// Add 把 ip 加進集合。
+func (s *IPSet) Add(ip uint16) { s[ip>>6] |= 1 << (ip & 63) }
+
+// Has 回 ip 是否在集合內。
+func (s *IPSet) Has(ip uint16) bool { return s[ip>>6]&(1<<(ip&63)) != 0 }
+
+// Union 把 o 併進 s。
+func (s *IPSet) Union(o *IPSet) {
+	for i := range s {
+		s[i] |= o[i]
+	}
+}
+
+// NoWake 是 SparseObserver.NextWake 的「沒有期限」。
+const NoWake = ^uint64(0)
+
+// SparseObserver 是 StepObserver 的選配擴充（docs/spec/460）。Config.SparseObserve 為真且觀察器實作它時，
+// session 只在 460 §3.3 的步驟呼叫 BeforeStep；否則照 238 每步呼叫。
+type SparseObserver interface {
+	StepObserver
+	// TriggerIPs 回觸發 IP 集合。session 只在每次 runObserved 開始時讀一次並複製；回合內集合不變。
+	TriggerIPs() IPSet
+	// NextWake 回下一個無論 IP 都要觀察的步數（BeforeStep 時的 Steps() 值）。0 表示下一步；沒有期限回 NoWake。
+	// session 只在 BeforeStep 正常返回之後讀。
+	NextWake() uint64
+	// FrameAt 在每次 Frame 之前呼叫，steps 是回掃當下的 machine.Steps（460 §2.4）。
+	FrameAt(steps uint64)
+}
+
 // muteAudio keeps m.OPL/m.Speaker from growing while AdLib is on and no
 // AudioObserver is forwarding (§3.1): the empty collectors drop every write.
 func (o *Owner) muteAudio() {
@@ -66,6 +98,7 @@ func (v StepView) live() bool {
 	}
 	if !v.o.viewOpen || v.o.viewToken != v.token {
 		v.o.viewMisuse = true
+		v.o.filter.Force = true // 460 §3.3：稀疏模式下一步必觀察，錯誤照逐步模式在下一步回報
 		return false
 	}
 	return true
@@ -183,6 +216,11 @@ var errProgramExited = errors.New("session: 程式已結束")
 // returned as observerErr so Advance can classify them apart from original
 // program faults.
 func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerErr error) {
+	// 460：稀疏模式只在 Config.SparseObserve 為真且觀察器實作 SparseObserver 時啟用；否則以下照 238 每步呼叫。
+	// filter 的 Force 在稀疏模式之外不被讀取，所以各包裝無條件設定也不改變逐步模式的行為。
+	sp, sparse := o.observer.(SparseObserver)
+	sparse = sparse && o.sparse
+	f := &o.filter
 	// videoPanic latches a panic raised inside a Step (video write or
 	// frame callback); the Step completes and the next attempt stops.
 	var videoPanic error
@@ -193,6 +231,7 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		defer func() {
 			if r := recover(); r != nil {
 				videoPanic = fmt.Errorf("session: 觀測器 VideoWrite panic：%v", r)
+				f.Force = true // 460 §3.3：錯誤在下一步回報
 			}
 		}()
 		o.observer.VideoWrite(w)
@@ -204,25 +243,34 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		defer func() {
 			if r := recover(); r != nil {
 				videoPanic = fmt.Errorf("session: 觀測器 Frame panic：%v", r)
+				f.Force = true
 			}
 		}()
+		if sparse {
+			sp.FrameAt(o.machine.Steps) // 460 §3.3：FrameAt → Frame → Force
+		}
 		o.observer.Frame(o.machine.Indexed(), o.machine.Palette())
+		f.Force = true
 	})
 	// guard latches a panic raised inside a Step by an optional observer
 	// extension (audio, video mode); shared by all of them.
-	guard := func(name string, f func()) {
+	guard := func(name string, fn func()) {
 		if videoPanic != nil {
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				videoPanic = fmt.Errorf("session: 觀測器 %s panic：%v", name, r)
+				f.Force = true
 			}
 		}()
-		f()
+		fn()
 	}
 	if mo, ok := o.observer.(ModeObserver); ok {
-		o.machine.ObserveModeChanges(func(c machine.ModeChange) { guard("VideoModeChange", func() { mo.VideoModeChange(c) }) })
+		o.machine.ObserveModeChanges(func(c machine.ModeChange) {
+			guard("VideoModeChange", func() { mo.VideoModeChange(c) })
+			f.Force = true // 460 §3.3
+		})
 	}
 	if ao, ok := o.observer.(AudioObserver); ok {
 		o.machine.ObserveOPLWrites(func(w machine.OPLWrite) { guard("OPLWrite", func() { ao.OPLWrite(w) }) })
@@ -232,7 +280,10 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 	// 452 §2.3：只在觀察器實作 SBDMAObserver 時安裝；否則不碰 OnSBDMA，事件照現況進 SBDMALog。
 	so, sbdma := o.observer.(SBDMAObserver)
 	if sbdma {
-		o.machine.OnSBDMA = func(e machine.SBDMAEvent) { guard("SBDMA", func() { so.SBDMA(e) }) }
+		o.machine.OnSBDMA = func(e machine.SBDMAEvent) {
+			guard("SBDMA", func() { so.SBDMA(e) })
+			f.Force = true // 460 §3.3：消費端在下一次 BeforeStep 讀（452 §2.4）
+		}
 	}
 	defer func() {
 		o.machine.ObserveVideoWrites(nil)
@@ -274,7 +325,15 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 			observerErr = fmt.Errorf("session: 觀測器 BeforeStep：%w", e)
 			return observerErr
 		}
+		if sparse {
+			f.Wake = sp.NextWake() // 460 §3.1：只在 BeforeStep 正常返回之後讀
+		}
 		return nil
+	}
+	if sparse {
+		// 460 §3.3：回合開始時複製集合、期限歸零、第一步必觀察（回合之間呼叫端可能改過觀察器）。
+		f.IPs = sp.TriggerIPs()
+		f.Wake, f.Force, f.Exited = NoWake, true, &o.dos.Exited
 	}
 	// A BeforeStep panic happens before that instruction's Step, so unwinding
 	// the whole loop here leaves the machine exactly where it was.  Recovering
@@ -290,6 +349,10 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 				stop, rawErr = machine.StopBudget, observerErr
 			}
 		}()
+		if sparse {
+			stop, rawErr = o.machine.RunUntilSparse(nil, budget, f, observe)
+			return
+		}
 		stop, rawErr = o.machine.RunUntilObserved(nil, budget, observe)
 	}()
 	if errors.Is(rawErr, errProgramExited) {
@@ -306,4 +369,13 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 		rawErr = nil
 	}
 	return stop, rawErr, observerErr
+}
+
+// SparseStats 回稀疏模式累計的 BeforeStep 次數與其中因 Force 而呼叫的次數（docs/spec/460 §5.1 第 3 條的觀察呼叫率；
+// 逐步模式兩者為 0）。只讀計數，不碰機器。
+func (o *Owner) SparseStats() (observed, forced uint64) {
+	if o == nil {
+		return 0, 0
+	}
+	return o.filter.Observed, o.filter.Forced
 }

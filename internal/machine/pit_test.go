@@ -178,20 +178,25 @@ func TestPITIgnoresOtherChannelsAndLatch(t *testing.T) {
 	}
 }
 
+// 461 §3.2：零值 `Machine` 斷言預設（§2 第 1 條的 0 防禦）；`New()` 後經 `Out8` 寫分頻。
 func TestPITHzDefaultsToBIOSRate(t *testing.T) {
-	m := &Machine{}
+	z := &Machine{}
+	if z.PITProgrammed() {
+		t.Fatal("零值機器還沒被設過就回報已設定")
+	}
+	if got := z.PITDivisor(); got != PITDefaultDivisor {
+		t.Fatalf("零值機器預設除數 %d，預期 %d", got, PITDefaultDivisor)
+	}
+	if hz := z.PITHz(); hz < 18.2 || hz > 18.3 {
+		t.Fatalf("零值機器預設頻率 %.4f Hz，預期 18.2", hz)
+	}
+	m := New()
 	if m.PITProgrammed() {
 		t.Fatal("還沒被設過就回報已設定")
 	}
-	if got := m.PITDivisor(); got != PITDefaultDivisor {
-		t.Fatalf("預設除數 %d，預期 %d", got, PITDefaultDivisor)
-	}
-	if hz := m.PITHz(); hz < 18.2 || hz > 18.3 {
-		t.Fatalf("預設頻率 %.4f Hz，預期 18.2", hz)
-	}
-	m.pit.out(0x43, 0x36)
-	m.pit.out(0x40, 17000&0xFF)
-	m.pit.out(0x40, 17000>>8)
+	m.Out8(0x43, 0x36)
+	m.Out8(0x40, 17000&0xFF)
+	m.Out8(0x40, 17000>>8)
 	if !m.PITProgrammed() {
 		t.Fatal("設過了卻回報沒設過")
 	}

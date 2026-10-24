@@ -43,6 +43,8 @@ func (m *Machine) Deliveries() uint64
 func (v StepView) Deliveries() uint64
 ```
 
+`Deliveries` 的讀取時點不變（觀察點的 `StepView`）；稀疏模式下的觀察點見 `460-session-sparse-observe`（由 460 修訂，2026-10-23）。
+
 machine 內部欄位 `deliveries uint64`，放在 `Machine` 結構的最後（§3.2 的靜態檢查以此為前提）。遞增點只有既有的三種送達：
 
 | 來源 | 遞增位置（`07cabfa`） | 呼叫端 |

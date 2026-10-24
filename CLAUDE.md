@@ -34,7 +34,8 @@
   `machine.StepsPerSecond()` 是常數，它成立的前提是「IRQ0 間隔跟著 PIT
   分頻走」；`Machine.StepsPerSecondNow()` 是 `IRQ0Every × PITHz`，
   呼叫端用 `-tick` 釘死間隔（`IRQ0Pinned`）時前提不成立，兩者就不一致，
-  差多少看釘的值。
+  差多少看釘的值。`PITHz` 讀 IRQ0 實際使用的 `m.PITDiv`，讀狀態檔後亦正確
+  （`docs/spec/461-pit-divisor-after-load`）。
   要秒數（倒 VGM、寫 WAV、算某一段花了多久）一律用後者。
   **拿錯的症狀是東西照樣產得出來，只是整條時間軸被縮放過**，
   沒有任何一個環節會報錯。理由與已知的不一致見

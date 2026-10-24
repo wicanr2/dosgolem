@@ -10,9 +10,9 @@
   失敗即關閉。
 - `LEMachine` 保存每個 port 最後值及具順序編號的完整 byte 寫入紀錄。
 - 不在此層模擬 PIT wall-clock、IRQ 頻率或逐週期行為。
-- `LEMachine` 另把通道 0 的重載解成除數與頻率（`188-pit-divisor-decoding`），
-  與實模式 `Machine` 共用同一份解碼器。**那是觀測值，不驅動時鐘**——
-  時間仍由指令數決定。
+- `LEMachine` 另把通道 0 的重載解成除數與頻率（`188-pit-divisor-decoding`，`pit` 型別）。
+  實模式 `Machine` 自 461 起不再使用 `pit` 型別（`461-pit-divisor-after-load`），本條只指 LE 路徑。
+  **那是觀測值，不驅動時鐘**——時間仍由指令數決定。
 
 驗收：CPU 合成測試覆蓋 port/value、狀態不變與 consumer 缺失拒絕；LE
 測試覆蓋紀錄順序；固定雜湊 FD2 必須由 LE entry 自然執行 `0x3E86E` 至
@@ -25,3 +25,7 @@ divisor 為零。
 確認三筆序列及零 divisor。
 同一路徑另確認 `PITProgrammed()` 為 true、`PITDivisor()` 為 65,536
 （8254 寫 0 的定義）、`PITHz()` 為 18.2065097 Hz。
+
+461 之後重驗（2026-10-23）：這三個讀數是 `LEMachine` 的方法（LE 自有 `pit`，461 不改）。
+`TestFD2ProgramsPITControl`、`TestFD2ProgramsPITDivisor` 以固定 FD2 原版重跑通過
+（strike_commander `workplace/impl461/out/fd2-pit.txt`）。

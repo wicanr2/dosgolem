@@ -584,8 +584,9 @@ type Machine struct {
 	// portTicks 是所有 `in` 的累計，當作輪詢埠的時鐘。
 	portTicks uint64
 
-	// pit 記通道 0 的除數：程式自己寫的頻率（`Machine.PITHz`）。
-	pit pit
+	// pitWrites 是 setPITDiv 的呼叫次數：本次開機或本次載入後，程式完整寫過通道 0 的分頻幾次
+	// （`PITProgrammed`，`docs/spec/461`）。狀態檔不存，LoadState 清零；記憶體快照存。
+	pitWrites uint64
 
 	nextIRQ0    uint64
 	irq0Pending bool
@@ -1306,10 +1307,6 @@ func (m *Machine) Out8(p uint16, v uint8) {
 		}
 	}
 
-	// PIT 通道 0：程式寫進去的除數決定它自己的時基（`pit.out`）。
-	// **這裡只記設定、不推進時鐘**——時間由 `IRQ0Every` 的指令數驅動。
-	m.pit.out(p, v)
-
 	// 8042 的 A20 控制（`docs/spec/430-physical-memory-and-xms-unification` §2.4），
 	// 只在 SetExtendedMemoryKB(kb>0) 後生效，kb == 0 的行為不變。
 	if m.Ext != nil {
@@ -1340,7 +1337,8 @@ func (m *Machine) Out8(p uint16, v uint8) {
 		}
 	}
 
-	// PIT（8253/8254）通道 0 的分頻。
+	// PIT（8253/8254）通道 0 的分頻。`PITDivisor`、`PITProgrammed`、`PITHz` 也讀這一個解讀者的結果
+	// （`docs/spec/461`）；這裡只記設定、不推進時鐘，時間由 `IRQ0Every` 的指令數驅動。
 	if p == 0x40 || p == 0x43 {
 		m.pitWrite(p, v)
 	}
@@ -1430,11 +1428,13 @@ func (m *Machine) pitWrite(port uint16, v uint8) {
 }
 
 // setPITDiv 換分頻值，並重算 IRQ0 的間隔。寫 0 的意思是 65536。
+// 每次呼叫 pitWrites 加 1（`PITProgrammed`，`docs/spec/461` §2）。
 func (m *Machine) setPITDiv(div uint32) {
 	if div == 0 {
 		div = PITDefaultDivisor
 	}
 	m.PITDiv = div
+	m.pitWrites++
 	m.recalcIRQ0()
 }
 

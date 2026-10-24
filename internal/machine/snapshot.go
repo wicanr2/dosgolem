@@ -112,7 +112,7 @@ type Snapshot struct {
 	// PC 喇叭與 8253 通道 0（`docs/spec/016`）。
 	// 分頻值不還原的話，還原之後的中斷頻率是**上一次跑到最後**的那個值。
 	speaker     []SpeakerSample
-	pit         pit
+	pitWrites   uint64 // 461 §2 第 3 條：PITProgrammed 的寫入計數
 	irq0Clamped int
 	picMask     uint8
 
@@ -199,7 +199,7 @@ func (m *Machine) Snapshot() *Snapshot {
 		kbdPortB:  m.kbdPortB,
 
 		speaker:     append([]SpeakerSample(nil), m.Speaker...),
-		pit:         m.pit,
+		pitWrites:   m.pitWrites,
 		irq0Clamped: m.IRQ0Clamped,
 		picMask:     m.picMask,
 
@@ -291,7 +291,7 @@ func (m *Machine) Restore(s *Snapshot) {
 
 	m.Speaker = append(m.Speaker[:0], s.speaker...)
 	m.syncSpeakerLast()
-	m.pit, m.picMask = s.pit, s.picMask
+	m.pitWrites, m.picMask = s.pitWrites, s.picMask
 	m.pic = s.pic // 459 §5.4
 	m.IRQ0Clamped = s.irq0Clamped
 	// 444 §2.8、§2.9：sb8 狀態（含 picMask，與上一行同值）、回呼重接；清黏著錯誤與觀測紀錄。

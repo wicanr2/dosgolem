@@ -173,6 +173,9 @@ type Config struct {
 	ExecReclaim bool
 	// KbdIntercept 讓 BIOS int 09h 經 int 15h AH=4Fh 攔截（-kbd-int15，docs/spec/447）。
 	KbdIntercept bool
+	// SparseObserve 讓實作 SparseObserver 的觀察器只在觸發 IP、步數期限與單次喚醒的步驟收到 BeforeStep
+	// （docs/spec/460）。預設假：每步呼叫（238）。觀察器不實作 SparseObserver 時沒有作用。
+	SparseObserve bool
 }
 
 // applyMachineConfig 依 docs/spec/448 §2.2 的順序把 Config 的 machine 選項套到剛建好的機器，
@@ -273,6 +276,9 @@ type Owner struct {
 	viewToken  uint64
 	viewOpen   bool
 	viewMisuse bool
+	// sparse 是 Config.SparseObserve；filter 是稀疏模式的觀察條件（docs/spec/460 §3.1），跨回合保留計數。
+	sparse bool
+	filter machine.StepFilter
 
 	// noHeldRepeats is a test-only switch for the docs/spec/449 §3.2
 	// negative control; nothing outside this package's tests sets it.
@@ -350,6 +356,7 @@ func New(cfg Config) (*Owner, error) {
 		o.layout, o.layoutSet = cfg.InitialLayout, true
 	}
 	o.observer = cfg.Observer
+	o.sparse = cfg.SparseObserve
 	o.clockPercent = cfg.ClockPercent
 	// 448 §2.4：SoundBlaster 也會讓 OPL 存在，沒有觀測器時 OPL 寫入會一直累積，
 	// 所以只要 OPL 存在就掛空收集器（與 runObserved 的 defer 判準相同）。

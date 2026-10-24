@@ -52,6 +52,11 @@ Oracle 的 `OnCall` 動態 hook。
    與 `SetOnFrame` 轉發寫入與畫格，回合結束（含錯誤路徑）一律解除轉發。
    沒有觀測器的既有路徑仍不逐步檢查 Exited，這是既有限制，本規格不改。
 
+   由 460 修訂（`460-session-sparse-observe`，2026-10-23）：`BeforeStep` 不再保證每步呼叫。`Config.SparseObserve`
+   為真且觀測器實作 `SparseObserver` 時，session 改呼叫 `RunUntilSparse`，只在觸發 IP、步數期限與單次喚醒
+   （回合第一步、回掃、SBDMA、模式設定、panic 與視圖誤用之後）的步驟呼叫 `BeforeStep`；程式結束後的第一步照舊必呼叫
+   （停止點不變）。其餘情形照本條每步呼叫。
+
 4. **視圖時效**：每個 `StepView` 綁定回合序號與 step 數；回合結束後或 Step 已前進，
    舊視圖的讀取回傳零值並記錄一次觀測器誤用，下一次 `BeforeStep` 回報
    `ObserverFault`。

@@ -16,6 +16,7 @@ import (
 // **它不是另一套模型，是把 StepsPerSecond() 寫成它成立的那個形式。**
 // 分頻沒被釘死時 `recalcIRQ0` 讓 `IRQ0Every = IRQ0Base × d / 65536`，
 // 而 `PITHz = PITBaseHz / d`——相乘之後 d 約掉，得到的就是那個常數。
+// 兩邊的 d 是同一個 `m.PITDiv`（`PITHz` 讀它，讀狀態檔後亦然，`docs/spec/461`）。
 //
 // ⚠ **差別出在 `IRQ0Pinned`。** 呼叫端用 `-tick N` 釘死間隔之後
 // `recalcIRQ0` 不再重算，d 就不會被約掉；這時 `StepsPerSecond()`

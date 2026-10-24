@@ -391,7 +391,7 @@ dosgolem 的 `22Ch` 讀值在非重設時恆為 0（`internal/machine/sb_dsp.go:
 |---|---|
 | `03BC` 的呼叫點 | 前兩段（`start` 後約 20 萬步，之後 4137 步重新開始）像是 `10E5` 路徑；最後一段像是 `1141`（§1.3 第 3 點）。都是強推論，§3 第 11 項記錄 |
 | `defaulted` 之後的 `IRQPending` | 登記，不改規則。ISR 沒跑時 `22Eh` 沒被讀，`IRQPending` 留為真；444 §2.5 第 3 步規定 `IRQPending` 已為真時完成不再拉 IRR7。靜態證據（強推論）：`0228` 在 `022F`、`0234` 與逾時分支 `0277`、`027C` 讀 `cs:[100]`＝`22Eh`（§1.2），每次 DSP 寫入（含 `14h`）之前都會清 `IRQPending` 與 IRR7，下一段傳輸的完成照常拉 IRR7。這與真機的邊緣觸發一致；DOSBox-X 在新 DMA 命令清 `pending_8bit`（`sblaster.cpp:1181`），較寬鬆。§3 第 11 項記錄 `22Eh` 的增量與下一段是否有 `irq7` |
-| `m.pit.divisor` 讀檔後不還原 | 既有缺口（不是 446 引入）：`LoadState` 只還原 `m.PITDiv`（`state.go:350-356`），不碰 `m.pit`，讀檔後 `PITDivisor()` 回 65536、`PITHz()` 失準。444、446 改讀 `m.PITDiv` 避開；其他使用 `PITDivisor()` 的路徑（診斷、`le_machine.go:217`）不在本規格範圍，另立規格 |
+| `m.pit.divisor` 讀檔後不還原 | 已收尾（由 461 處理，`461-pit-divisor-after-load`，2026-10-23）：`Machine` 刪除 `m.pit`，`PITDivisor()` 讀 `m.PITDiv`，讀檔後亦正確。原登記：既有缺口（不是 446 引入），`LoadState` 只還原 `m.PITDiv`，不碰 `m.pit`，讀檔後 `PITDivisor()` 回 65536、`PITHz()` 失準；444、446 改讀 `m.PITDiv` 避開。LE 路徑（`le_machine.go:217`）仍有自己的 `pit`，不在 461 範圍 |
 | 絕對步號移動 | `0228` 每次寫入至多多讀 16 次（§2.5），444 §5、445 §5、probe470、probe471 的步號與檢查點不再適用（版本 3 檢查點本來就不能載入開 `-sb-dma8` 的機器） |
 | 以整個位元組比較 `22Ch` 的程式 | 讀值由 `0`／`80h` 變成 `7Fh`／`FFh`。只看 bit7 的程式（本驅動以 `or al,al` 加 `js`／`jns`）不受影響；以 `cmp al,0`、`test al,7Fh` 或其他位元判斷的程式行為會變。只在選項開啟時發生。MENU 以外的程式（OPTTEST、MKTERR、STRIKE）未查，§3 第 11 項的讀取次數可看出影響 |
 | 浮點與整數的差異 | 相位邊界上可能與 DOSBox-X 差一格（§2.4）。只影響重新取相位那一次讀取 |
@@ -415,6 +415,8 @@ commit：`5feead3`。
 
 - §3 單元測試：容器內 `go test -count=1 ./internal/... ./cmd/probe ./session ./oracle` 13 個套件 ok；SingleStepTests 316 PASS、0 SKIP；`gofmt`、`go vet` 無輸出。
   突變 31 條各至少一個測試失敗，含「忙碌時基與 `sb8Delta` 改回 `m.PITDivisor()`」兩條（由讀檔測試抓到）。LE 測試不變；`go test -v ./apps/...` 與改動前相同。
+  461 之後等價，移除：這兩條在 461 之後是等價突變（`PITDivisor()` 即 `m.PITDiv`），改以 461 §5 第 7 條「時基改用常數 65,536」
+  替代（`TestSB8DeltaAfterLoadState` 失敗）。
 - 實作中發現：`LoadState` 不還原 `m.pit.divisor`，444、446 的時基改讀 `m.PITDiv`（§4.1、444 §2.4）。
 - 觸發案例（`strike_commander` 的 `workplace/logs/probe472.log`、`workplace/scratch/p472/sbdma.tsv`）：SB16 設定冷開機，旗標同 445 §1。跑滿 2000000001 步沒有停點。
   DMA 完成 19 次、IRQ7 遞送 19 次、BIOS 預設處理 0 次；暫停 12 次、恢復 0 次；idle 控制 0 次；`22Ch` 讀取 746 次、`22Eh` 讀取 177 次。
