@@ -55,6 +55,16 @@ func (s *SessionObserver) TriggerIPs() session.IPSet {
 		m := session.IPSet(s.present.ipMask)
 		set.Union(&m)
 	}
+	if s.Models != nil {
+		for _, ip := range modelTriggerIPs {
+			set.Add(ip)
+		}
+		if s.Models.raster != nil {
+			for _, ip := range rasterTriggerIPs {
+				set.Add(ip)
+			}
+		}
+	}
 	return set
 }
 
@@ -69,6 +79,9 @@ func (s *SessionObserver) NextWake() uint64 {
 	}
 	if s.present != nil {
 		w = min(w, s.present.nextWake())
+	}
+	if s.Models != nil {
+		w = min(w, s.Models.nextWake())
 	}
 	return w
 }

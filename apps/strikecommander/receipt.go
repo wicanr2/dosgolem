@@ -33,6 +33,8 @@ type SessionObserver struct {
 	// Flight 是 009 的飛行字串觀察器（nil 為不掛）。BeforeStep 在 Labels 之後呼叫它的 Observe；
 	// Frame 依序：OnFrame → Flight.Frame → 更新 LastIndexed → OnFlightFrame（009 §3.11 接點第 2 條）。
 	Flight *FlightObserver
+	// Models 是規格 013 第 1 期的唯讀模型錄製器；nil 時沿用既有路徑。
+	Models *ModelRecorder
 	// OnFlightFrame 在 Flight.Frame 與更新 LastIndexed 之後呼叫；steps 是最後一次 BeforeStep 的步數。可為 nil。
 	OnFlightFrame func(indexed []byte, steps uint64)
 
@@ -110,6 +112,9 @@ func (s *SessionObserver) beforeStep(v session.StepView) error {
 	if s.Subtitles != nil {
 		s.Subtitles.Observe(p)
 	}
+	if s.Models != nil {
+		s.Models.Observe(p)
+	}
 	if s.present != nil {
 		s.present.Observe(p) // 規格 014 §3.2.1 第 7 條：完成點偵測在三個 Observe 之後
 	}
@@ -125,8 +130,9 @@ func (s *SessionObserver) VideoWrite(w machine.VideoWrite) {
 	}
 }
 
-// presentObserver 是掛呈現層時交給 session 的觀察器：另實作 ModeObserver，把模式設定轉給呈現層（規格 014 §8）。
-// 不掛呈現層時 session 收到的仍是 *SessionObserver 本身（不實作 ModeObserver），既有收據的接線不變。
+// presentObserver 是需要模式事件時交給 session 的觀察器。
+// 呈現層依 014 §8 接線；Models 單獨掛載時也由 SessionConfig 安裝這個包裝。
+// 兩者都沒有時仍使用原始 SessionObserver，保留既有回呼接線。
 type presentObserver struct{ *SessionObserver }
 
 var _ session.ModeObserver = presentObserver{}
@@ -134,6 +140,9 @@ var _ session.ModeObserver = presentObserver{}
 func (o presentObserver) VideoModeChange(c machine.ModeChange) {
 	if o.present != nil {
 		o.present.VideoModeChange(c)
+	}
+	if o.Models != nil {
+		o.Models.VideoModeChange()
 	}
 	if o.audit != nil {
 		o.audit.event(o.SessionObserver, "mode", 0)
@@ -146,6 +155,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 	}
 	if s.Flight != nil {
 		s.Flight.Frame(indexed, s.steps)
+	}
+	if s.Models != nil {
+		s.Models.Frame(s.steps)
 	}
 	s.LastIndexed, s.LastPalette = indexed, palette
 	s.Frames++
@@ -166,6 +178,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 // SessionConfig 是 dosgolem 規格 448 §3.2 的 Config（KbdIntercept 開），觀察器由呼叫端給（nil 為關）。
 func SessionConfig(obs session.StepObserver) session.Config {
 	const s = 2
+	if so, ok := obs.(*SessionObserver); ok && so.Models != nil {
+		obs = presentObserver{so}
+	}
 	return session.Config{
 		InitialScale: host.OutputScale2,
 		InitialLayout: host.MouseLayout{Epoch: 1, Scale: host.OutputScale2, ChromeHeight: 18 * s,

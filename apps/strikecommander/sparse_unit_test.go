@@ -414,7 +414,16 @@ func TestSparseObserverTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rhs []string
-	ast.Inspect(f, func(n ast.Node) bool {
+	var receiptBody *ast.BlockStmt
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "RunReceipt" {
+			receiptBody = fd.Body
+		}
+	}
+	if receiptBody == nil {
+		t.Fatal("找不到 RunReceipt")
+	}
+	ast.Inspect(receiptBody, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
 		if !ok {
 			return true

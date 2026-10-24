@@ -43,6 +43,10 @@ var sparseAuditRawIPs = struct{ label, flight, sub []uint16 }{
 	sub:    []uint16{0x103F, 0x10F3, 0x22BE},
 }
 
+// 013 第 1 期模型資料命中與 CU/MU。刻意獨立於產品 modelTriggerIPs。
+var sparseAuditModelIPs = []uint16{0x0102, 0x0197, 0x012A, 0x01ED, 0x0A51, 0x0A7C, 0x0A7F, 0x0AAB, 0x00A5, 0x00D6, 0x00A7, 0x00D8, 0x00EE}
+var sparseAuditRasterIPs = []uint16{0x000C, 0x0416, 0x083D, 0x0EA8, 0x0C79, 0x0048, 0x004A, 0x020C, 0x04A6, 0x0685}
+
 type sparseAuditEvent struct {
 	kind  string
 	steps uint64
@@ -208,6 +212,20 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 			}
 		}
 	}
+	if m := s.Models; m != nil {
+		if m.raster != nil && has(sparseAuditRasterIPs) {
+			a.fail(steps, ip, "oracle", "IP 在1倍繪圖錄製器的獨立 IP 表內")
+		}
+		if has(sparseAuditModelIPs) {
+			a.fail(steps, ip, "oracle", "IP 在模型錄製器的獨立 IP 表內")
+		}
+		if m.pend != nil {
+			a.fail(steps, ip, "oracle", "模型錄製器有暫定命中")
+		}
+		if m.baseOK && steps-m.lastSig >= SigCheckSteps {
+			a.fail(steps, ip, "oracle", "模型錄製簽章層到期")
+		}
+	}
 	if p := s.present; p != nil {
 		for i := range p.routines {
 			if r := &p.routines[i]; ip == r.entryIP || ip == r.retIP {
@@ -286,6 +304,9 @@ var sparseAuditExclude = map[string]byte{
 	"Presenter.labels": 'x', "Presenter.flight": 'x', "Presenter.subs": 'x', "Presenter.onCapture": 'x',
 	"Subtitles.Index": 'x', "Subtitles.Catalog": 'x', "Subtitles.Text": 'x',
 	"FlightObserver.resolve": 'x', "FlightObserver.cuh": 'x',
+	"ModelRecorder.Library": 'x', "ModelRecorder.OnGroup": 'x', "ModelRecorder.hooks": 'x',
+	"ModelRecorder.logs":    'n',
+	"rasterRecorder.tables": 'x',
 	// 暫存緩衝
 	"Presenter.vga": 'x', "Presenter.tmp": 'x', "Presenter.bufC": 'x',
 	// 輸出累積只取長度
@@ -308,6 +329,9 @@ func sparseAuditRoots(s *SessionObserver) []reflect.Value {
 	}
 	if s.present != nil {
 		r = append(r, reflect.ValueOf(s.present).Elem())
+	}
+	if s.Models != nil {
+		r = append(r, reflect.ValueOf(s.Models).Elem())
 	}
 	return r
 }
