@@ -1,7 +1,9 @@
 # 460 session 稀疏觀察：觸發 IP 集合、步數期限與單次喚醒
 
-狀態：**READY**（第 3 版，2026-10-23；三輪審查：初審與複審各兩位獨立審查者，審查紀錄在陸空戰將 repo `workplace/perf100/review460-461*.md`）。2026-10-24 已實作，尚未 CONFORMED；`sparseDefault` 維持 false。實作收據與已知缺項見陸空戰將 repo `workplace/impl460/receipt.md`；本輪補驗與剩餘閘門見 §8。
-基準：dosgolem-sc `395b679`。來源：strike_commander 計畫 002 §3 P 第 1 項；量測見 `workplace/perf100/report.md`。
+狀態：**READY**（第 4 版，2026-10-24）。分期 (a) 已實作；新增分期 (b) 的 CS／簽章篩選尚未實作，契約見 §9。第 3 版三輪審查紀錄為陸空戰將 repo `workplace/perf100/review460-461*.md`；第 4 版兩位獨立審查均無阻擋，應改已處理，見 `workplace/perf100/review460b-v2-A.md`、`review460b-v2-B.md`。尚未 CONFORMED；`sparseDefault` 維持 false。實作收據與已知缺項見陸空戰將 repo `workplace/impl460/receipt.md`；本輪補驗與剩餘閘門見 §8。
+基準：分期 (a) 為 dosgolem-sc `395b679`，分期 (b) 讀碼基準為 `4095084`。來源：strike_commander 計畫 002 §3 P 第 1 項；量測見 `workplace/perf100/report.md`。
+
+§1–§7 保存分期 (a) 的介面與驗收。下列明文修訂及 §9 是分期 (b) 的擴充契約；(b) 的第二層、刷新、oracle、六類呼叫率與翻預設條件依 §9，不以 (a) 的舊量測取代。§8 是歷史補驗紀錄，保持原貌。
 
 ## 0. 處置紀錄
 
@@ -72,8 +74,8 @@
 決定：
 
 1. 新增選配擴充 `session.SparseObserver`。不實作或未開啟時照舊每步呼叫，行為不變（§3.6）。
-2. 觸發條件只有三種：觸發 IP、步數期限、單次喚醒（下一步必觀察）。沒有 CS 基底、線性位址或記憶體寫監看。
-3. 觸發鍵是 `CPU.IP`，與 `StepView.IP()` 同值。不用 `PCLinear()`（§3.2）。
+2. 觸發類別為 IP、步數期限、單次喚醒；分期 (b) 在 IP 後加 CS 白名單與簽章必要區段（§9）。沒有線性 PC 條件或記憶體寫監看。
+3. 第一層鍵是 `CPU.IP`，與 `StepView.IP()` 同值；(b) 第二層另取 CS 與唯讀 bytes，不用 `PCLinear()`（§9.3）。
 4. 驗收以「稀疏與逐步兩種模式的全部陸空戰將長測試收據逐位元組相同」為準（§5）。
 5. 本規格不改任何觀察器的判定規則、不改 009、010、014 的語意；只改呼叫時機與步數來源。
 
@@ -235,13 +237,13 @@ func (f *StepFilter) ShouldObserve(ip uint16, steps uint64) bool {
 - JEMM 分段模式（434）：`CPU.IP` 是選擇子內的位移；D=1 碼段依 443 不變式 `IP` 即完整 EIP（458 §2）。
 - 刻意與 `atBreak`（`probe.go:222-237`，分段模式比 `PCLinear()`）不同：中斷點是位址語意，觸發集合是「觀察器會在這個 IP
   做事」的語意。改用線性位址會讓 base 未知前的「任何 CS」觸發無法表達。
-- 分期 (b)（集合元素加 CS 與狀態限制）：不做。§6.1 實測只比 IP 的觀察比率最高 0.58%。日後觀察器加了高頻 IP 再重量。
+- 分期 (b) 已列為翻預設前置：新增 CS／狀態與簽章區段篩選、每觀察步刷新，依 §9。§6.1 的 0.58% 是舊 (c) 窗表量測，不能代表 014 (d)。
 
 ### 3.3 何時呼叫 BeforeStep
 
 `Config.SparseObserve` 為真且觀察器實作 `SparseObserver` 時，步驟 n 呼叫 `BeforeStep` 若且唯若下列任一成立：
 
-1. `CPU.IP ∈ IPs`。
+1. `CPU.IP ∈ IPs`；分期 (b) 啟用第二層時，另須符合 §9.3 的規則。Force、Wake、Exited 仍直接放行。
 2. `m.Steps ≥ Wake`。
 3. `Force`。session 在下列時刻設定（逐點接線）：
    - `runObserved` 開始時（每次 `Advance` 的第一步；回合之間呼叫端可能改過觀察器）。
@@ -259,6 +261,7 @@ func (f *StepFilter) ShouldObserve(ip uint16, steps uint64) bool {
 - `TriggerIPs()`：回已掛觀察器的 IP 聯集，每次呼叫現算（session 每回合讀一次）：Labels 恆掛；`Flight`、`Subtitles` 非 nil
   才併入（它們在 `SessionObserver` 建好之後才賦值，`receipt.go` 的 `RunReceipt` 接線）；`present` 非 nil 時併入
   `Presenter.ipMask`（以實際窗表為準）。
+- 分期 (b) 另實作 SparseRuler，回合開始與 BeforeStep 成功返回後刷新規則，見 §9.3、§9.4；第一層仍每回合一次。
 - `NextWake()`：各觀察器 `nextWake()` 的最小值。
   - Labels：可見集合非空且 `baseKnown` 時 `lastSig + SigCheckSteps`，否則 `NoWake`。
   - Flight：`pendOn` 時 0；可見集合非空且 `baseOK` 時 `lastSig + SigCheckSteps`。取較小者。
@@ -411,9 +414,9 @@ func (f *StepFilter) ShouldObserve(ip uint16, steps uint64) bool {
 
 確定性指標（驗收條件）：
 
-1. 觀察呼叫率：§5.1 第 3 條（只對四個長情境斷言，分母排除 `Force` 觀察）。
-2. pprof：飛行 Q 全開 1.5 億步，`runObserved` 稀疏 `observe` 閉包的 cum 佔比 ≤ 5%（現況 `func10` 36.0%）。5% 是暫定門檻，實作後先量
-   一次再調；調整要寫進 WORKLOG 與本節，附量測輸出路徑。
+1. 分期 (a) 呼叫率依 §5.1 第 3 條的原四類；分期 (b) 擴為 §9.7.3 的六類。比率為 (Observed−Forced)/總步數。
+2. 分期 (a) 原成本條件：飛行 Q 全開 1.5 億步，`runObserved` 稀疏 `observe` 閉包的 cum 佔比 ≤ 5%（現況 `func10` 36.0%）。5% 是暫定門檻，實作後先量
+   一次再調；調整要寫進 WORKLOG 與本節，附量測輸出路徑。(b) 依較新的 014 D44 與 §9.7.3，pprof 只報告，仍保留 ≤1% 呼叫率硬閘門。
 
 牆鐘比較（報告用，不作為通過條件）：
 
@@ -469,8 +472,7 @@ func (f *StepFilter) ShouldObserve(ip uint16, steps uint64) bool {
 沒有觀察到 3D 內迴圈落在集合位移上的情形（任一 IP 最高 0.176%）。
 
 成本：觀察步的單步成本高於全體平均（觀察步會進分支讀記憶體、比簽章、取像），不能以平均每步成本乘觀察比率推算。實作後以 §5.4
-的 pprof cum 佔比直接量。分期 (b) 再降 5 倍以上（飛行約 5.5 到 6.8 倍，對話 58 倍，主選單近 7,000 倍）只省誤觸步，誤觸步只做 IP 分派與
-CS 比對，不讀大塊記憶體；在 §5.4 第 2 條量得超標之前不做。
+的 pprof cum 佔比直接量。原版「(b) 暫不做」的取捨已由 014 (d) 新窗表的超標量測推翻；P-b1／P-b2 顯示必須採 CS 加簽章區段，見 §9.2。舊表保留為 (a) 的歷史量測。
 
 附帶觀察：這次主機負載較低，加計數掛鉤的全開倍率（以 `PITDiv` 換算，2 核）為主選單 0.457、對話 0.408、飛行 Q 0.605、飛行 R 0.369，
 比 report.md 的重負載數字高；單次量測，不取代 §5.4。
@@ -485,8 +487,8 @@ CS 比對，不讀大塊記憶體；在 §5.4 第 2 條量得超標之前不做�
 
 - N1：接受 §3.4 等價論證，條件是 §5.1 第 4 條（定向與隨機切分）通過；否則 N1 強制逐步。
 - 程式結束的停止點：`StepFilter.Exited` 每步指標檢查。
-- 分期 (b)：不做（§3.2）。
-- 預設開：§5 全過後才翻（§7 第 5 步）。
+- 分期 (b)：READY，契約見 §9；尚未實作。
+- 預設開：須 (b)、014 (d) 與 §9.7.3 全部通過，才走 §7 第 5 步；目前維持 false。
 
 ## 7. 實作順序
 
@@ -496,7 +498,7 @@ CS 比對，不讀大塊記憶體；在 §5.4 第 2 條量得超標之前不做�
    嵌入包裝型別盤點（§3.6）。
 3. 稽核（§5.2，先量單次快照成本定取樣率）與期限單元測試 T1 到 T4；§5.3 負對照。
 4. §5.1 全量對拍（含定向與隨機切分）；§5.4 量測與門檻調整；238、452、454 修訂。
-5. §5 全部通過之後，才把 `SessionConfig` 翻成預設稀疏，`DOSGOLEM_SC_SPARSE=0` 改為關閉開關；翻轉後 §5.1 第 1、2 條再跑一次。
+5. §5、分期 (b)、014 (d) 與本規格 §9.7.3 的前置條件全部通過之後，才把 `SessionConfig` 翻成預設稀疏，`DOSGOLEM_SC_SPARSE=0` 改為關閉開關；翻轉後 §5.1 第 1、2 條再跑一次。
 
 ## 8. 2026-10-24 接手驗證紀錄
 
@@ -528,3 +530,216 @@ CS 比對，不讀大塊記憶體；在 §5.4 第 2 條量得超標之前不做�
 - 預設翻轉仍依較新的陸空戰將交接 `docs/plan/003-handoff-2026-10-24.md`：460 分期 (b)、014 分期 (d) 合入，並通過擴充情境呼叫率閘門後再處理。
 
 N=5 牆鐘交錯量測仍未做，屬 §5.4 的報告項目，不列為本輪通過聲明。
+
+
+## 9. 分期 (b)：CS 與入口簽章篩選（READY，未實作）
+
+程式基準為 4095084；證據檔案位於陸空戰將 repo 的 workplace/perf100/。草案第 1 版、第二版與兩份審查由該專案交接 003 及 spec460b-draft.md 索引。兩位均無阻擋，修正 CU 逾時、014 節號、注入窗表、聯集掩護與抽選指紋證據限制後整合。
+
+### 9.1 範圍與已有裁決
+
+| 項目 | 契約 |
+|---|---|
+| 第一層 | 保留 (a) 的 IP 全集；每回合建立一次 |
+| 第二層 | 第一層命中後，比 CS 白名單或入口簽章區段 |
+| 規則刷新 | 回合開始，以及每次 BeforeStep 成功返回後 |
+| 任意 CS 的入口 | 採 (b2)，通常比簽章 Off=8 起的 4 bytes |
+| 規則容量 | 每 IP 最多 4 個 CS、5 個簽章；超量保守放行並計數 |
+| 每次呼叫改變的條件 | 保留 cur、plq、paired 等條件，不引入狀態鍵快取 |
+| 返回 IP | 帶 CS；未知 base 的呈現窗使用開窗與最近返回記錄的 CS |
+| 預設開關 | 維持 false；本實作與 014 (d) 全部通過後，才可另行翻轉 |
+
+來源：交接文件「主代理已做的裁決」、014 第 13 版 §3.11、第一版 Q1–Q8，以及 §9.2 的探針。這些是既有路線的具體化，沒有改遊戲規則、資料或玩家操作。
+
+本草案只處理篩選條件、刷新、獨立稽核與驗收。不增加模擬器存檔欄位，不寫原版記憶體，不實作 014 (d)，不把模型探針視為產品驗收。
+
+### 9.2 證據與限制
+
+#### 9.2.1 P-b1／P-b2 結果
+
+來源：`workplace/perf100/pb1/report.md`；原始測試碼 `pb1/src/apps/strikecommander/pb1probe_test.go`，輸入快照 `pb1/src-b2896ee.tar`，原始收據 `pb1/runs/{l,n,h,q,r}/`。
+
+| 情境 | 步數 | (a) 只比 IP | (b1) 加 CS | (b2) Off8 k4 命中步 | (b2) 比率 |
+|---|---:|---:|---:|---:|---:|
+| L 主選單 | 280,000,001 | 5.1856% | 4.8414% | 1,290 | 0.0005% |
+| N MENU 流程 | 200,000,001 | 6.9099% | 3.3092% | 2,698 | 0.0013% |
+| H STRIKE 載入 | 460,000,000 | 1.4393% | 0.5051% | 12,658 | 0.0028% |
+| Q 飛行 | 1,345,000,000 | 1.8778% | 0.3825% | 367,818 | 0.0273% |
+| R 飛行 | 445,000,000 | 2.0208% | 0.2662% | 37,934 | 0.0085% |
+
+- 已證實，限探針樣本：只加 CS 無法讓 L、N 達到 1%。Off8 k4 與 Off0 k12 的命中步數相同，前者讀取較少。
+- 完整簽章條件 A／抽選欄位指紋變動 B：L 1290／1290、N 2698／2698、H 12658／12478、Q 367818／367818、R 37934／37934。所有配置「B 發生而 A 或篩選未命中」均為 0。B 只比較探針抽選的欄位、nil 與集合長度，不能捕捉所有內容替換，不等同 460 深度快照。H 的 A 與 B 不相等，不宣稱兩種動作定義完全相同。
+- 規則數為 14–27。Off8 k4 的刷新數依序為 1318、2715、12674、368160、38041。
+- CS 超過 4 個的次數為 0。IP 0006 在 O、S base 都未知時需要 5 個簽章，故將第一版的 Sig[4] 改為 Sig[5]。
+- L、N 熱點 3A5F:000A／000C 的前置不符，已否定「樣本內是同簽章程式庫複本」的假說。沒有建立 CS 排除表；同一段之後仍可能載入新程式。
+
+限制：探針的 (d) 是模型，時間層的逾時、checkPend 與 base 停用未由上述指紋完整覆蓋。此表不是正式呼叫率，也不是 CONFORMED 證據。
+
+#### 9.2.2 簽章與位址基準
+
+程式定位均為 dosgolem-sc 4095084 的 `apps/strikecommander/`，CS:IP 是觀察器使用的暫存器值，不是 IDA 或檔案偏移。
+
+| 項目 | 已證實的讀碼結果 |
+|---|---|
+| puts | observer.go 的 sigPutsEntry，16 bytes；Off8 起有 4 個已知 bytes |
+| shape | dialog.go 的 sigShapeEntry，16 bytes；Off8 起有 4 個已知 bytes |
+| plaque | flight.go 的 sigPlaqueHead，32 bytes，起點 0182；完整判定另讀 01DC 的 sigPlaqueLoop。只取 head 的必要子條件是保守超集合 |
+| 字幕 | subtitle.go 的 sigConvEntry／sigConvDispatch 各 16 bytes；sigConvFast 僅 9 bytes |
+| 位址 | observer.go 的 lin(seg,off) = (uint32(seg)<<4)+uint32(off)，off 為 uint16；完整簽章比較也用此式 |
+| 讀取 | session.StepView.Read8 轉呼叫 Machine.Peek8；讀取無副作用 |
+
+sigConvFast 的 Off8 只剩 1 byte，必須縮短為 N=1，不能讀未屬於簽章的 3 bytes。P-b1 五案未觸發這個縮短，須由合成正負測試補足。
+
+### 9.3 介面與保守退路
+
+型別放在 `internal/machine`，session 用別名匯出，避免反向匯入。
+
+```go
+type SigPrefix struct {
+    Off uint8
+    N uint8
+    B [8]byte
+}
+type TriggerRule struct {
+    IP uint16
+    Any bool
+    NCS uint8
+    CS [4]uint16
+    NSig uint8
+    Sig [5]SigPrefix
+}
+type TriggerRules struct {
+    N int
+    R [128]TriggerRule
+    Overflow int
+}
+type SparseRuler interface {
+    TriggerRules(dst *TriggerRules)
+}
+```
+
+- TriggerRule 內 Any、CS、Sig 是「或」。每 IP 合併成一條，依 IP 排序。只讀 R[:N] 及各有效長度，尾端舊槽不影響結果。
+- TriggerRules 只讀觀察器狀態，不讀機器、StepView 或記憶體。前置的 bytes 是既有完整簽章的常數。
+- 通常取 Off=8、N=min(4,len(sig)-8)。若區段含萬用 byte，縮為同一區段中已知的連續必要 bytes；沒有可用 bytes 時改 Any。不可把萬用值轉成固定 byte。
+- 同一 IP 的 CS 或 Sig 超量，該 IP 改 Any，Overflow 計數。總 IP 超過 128，整個第二層停用，仍走第一層並計數；不能只丟掉第 129 個 IP。計數須能從稽核或統計讀到。
+- 無效 N、NCS、NSig 或零長度前置不得造成 panic 或漏觀察。建構器須產生合法資料；防禦檢查遇到無效規則時保守放行並可診斷。
+- 不實作 SparseRuler 的觀察器維持 (a) 行為。第一層必須包含各狀態下第二層所有 IP；缺少第一層 IP 是契約錯誤，測試必須抓到。
+
+StepFilter 增加 Rules、HasRules、IPHits。保留 Force、Wake、Exited、Observed、Forced 的既有意義。ShouldObserve 的順序：
+
+1. Force、steps>=Wake 或 Exited 先放行，完全繞過第二層。
+2. 第一層 IP 未命中，略過。
+3. 第一層命中計入 IPHits。未啟用第二層時放行。
+4. 已啟用時，按 IP 二分搜尋。找不到則略過；找到後依 Any、CS、Sig 判斷。
+
+簽章讀取為 `Peek8((uint32(cs)<<4)+uint32(uint16(ip+Off+i)))`。必須先做 16 位元 offset 環繞，再組位址；不得用 PCLinear、描述元 base 或其他位址空間。即使目前 CPU 在保護模式，也要與觀察器當步讀到的位址一致。此規定只描述既有觀察器契約，不宣稱是 CPU 的實際取指位址。
+
+實作要保留第一層未命中的熱路徑。CS 與記憶體讀取只在第一層命中後進行；第二層可另放不內聯函式。型別與函式的最終參數形式以滿足上述語意和零配置為準。
+
+### 9.4 規則刷新與時間層
+
+每次 runObserved 開始建立 IP 全集、重建第二層並設 Force。每次 BeforeStep 成功返回後，先以新狀態重建第二層並更新 NextWake，再執行下一步。回錯或 panic 時按原有停止流程，不讀失效 StepView。
+
+| 狀態來源 | 為何不會漏觀察 |
+|---|---|
+| BeforeStep 學 base、停用 base、開關窗、cur／plq／paired 改變 | 同一步成功返回後刷新 |
+| Frame、SBDMA、模式設定回呼 | session 既有 Force 保證下一步觀察，再刷新；不能依賴第二層先命中 |
+| 回合外 Attach 或改設定 | 回合開始刷新且第一步 Force |
+| overlay／程式載入改記憶體 | 任意 CS 入口仍用當步 Peek8，不快取比較結果，不永久排除 CS |
+| VideoWrite、一般音訊回呼 | 不得改 TriggerRules 或 NextWake 所依賴的欄位；新增 462 的普通 PCM 回呼同樣遵守 |
+
+時間條件不靠 IP 規則取代：NextWake 沿用既有 checkPend、簽章重驗、字幕等待與呈現窗等期限。到期步先由 Wake 放行，BeforeStep 處理後更新規則。CU 逾時沿用 460 §2.2 的契約，只在既有 CU 觸發 IP 或 Frame 檢查，不新增獨立 deadline。已過期的最近返回 CS 晚移除，只會增加觀察，允許；新增有效 CS 或期限提前不得延後刷新／喚醒。
+
+義務 O1 沿用 460 的期限契約；O2b 是「篩選為假時，觀察器不做簿記以外的事」；O3b 是「非強制回呼不改規則或期限依賴」。不使用狀態鍵最佳化。
+
+### 9.5 各分支的規則
+
+所有下列條件都取自 4095084 的實際分支。Prefix 表示 §9.3 的必要簽章區段，完整簽章仍由觀察器檢查。
+
+| IP／分支 | 第二層規則 | 原始定位 |
+|---|---|---|
+| 034B 標籤 puts | Prefix(sigPutsEntry)；baseKnown 時另加 CS{base+3942}，保留壞簽章停用 base 的路徑 | observer.go putsEntry |
+| 03D3／02B2 標籤返回／putc | cur!=nil 時 CS{base+3942}；不額外要求 baseOK | observer.go putsReturn／putc |
+| 0000 標籤 shape／blit | baseKnown&&baseOK 時 CS{base+3A97,base+39FB}；否則 Prefix(sigShapeEntry) | dialog.go shapeEntry；observer.go blitEntry |
+| 008B 標籤 blit 返回 | baseKnown&&baseOK&&paired 時 CS{base+39FB} | observer.go blitReturn |
+| 0002 MENU shape | Prefix(sigShapeEntry) | dialog.go menuShapeEntry |
+| 0345 飛行 puts | Prefix(sigPutsEntry)，任何 base 狀態都保留，供學 base 與重驗 | flight.go putsEntry |
+| 02AC／03CD 飛行 putc／返回 | cur!=nil 時 CS{base+5F7A}；不額外要求 baseOK | flight.go putc／putsReturn |
+| 0182 橫幅入口 | baseOK 時 Prefix(sigPlaqueHead)，Off 以 0182 為起點 | flight.go plaqueEntry |
+| 01F2 橫幅返回 | plq!=nil 時 CS{plq.cs} | flight.go plaqueReturn |
+| 00A5／00D6、00A7／00D8、00EE CU／MU | Flight.baseOK&&tracker.baseOK 時 CS{tracker.base+1D3A} | flight.go Observe；cutracker.go Observe |
+| 103F／10F3／22BE 字幕 | 各自完整簽章的 Prefix；22BE 使用 Off8 N1 | subtitle.go Observe |
+
+同一 IP 的規則要與呈現層聯集。CS 算式照原分支使用 uint16 環繞，不加「合理段址」推測。
+
+呈現層 (c)：遍歷實際 p.routines，分別對 r.entryIP／r.retIP 建規則。progOPTTEST 只有 labels.Base() 有效時放 CS{base+r.seg}；progAbs 用 CS{r.seg}。預設窗表才是 0000／008B 與 base+39FB，不把預設值硬編進規則建構器。
+
+呈現層 (d) 未實作，本草案先固定下列約束，待其實作時由同一原則產生規則：
+
+| 類別 | 入口 | 返回 |
+|---|---|---|
+| OPTTEST／STRIKE，base 已知 | CS{base+seg} | 同 CS，包含 ReturnWithoutEntry |
+| OPTTEST／STRIKE，base 未知 | Prefix(入口簽章) | 開著的同常式窗入口 CS，以及最近返回表內的 CS |
+| MENU | Prefix(入口簽章)；_memcpy_0 僅 MENU 期間放入 | 同上 |
+
+最近返回以 (常式,SS:SP) 記錄，沿用 014 的 200,000 步有效期。未知 base／MENU 返回不因任意 CS 的 IP 命中就新增 ReturnWithoutEntry；必須由開窗或最近返回記錄確認 CS。已知 base 的返回仍保留其無開窗診斷。此契約須與 014 (d) 正式規格同步，不可只在 filter 偷偷略掉原觀察器會做的診斷。
+
+### 9.6 獨立稽核與正確性論證
+
+460 的 L1 允許多餘觀察只改簿記。因此核心條件是無漏觀察，不要求所有保守放行都產生動作。等價證明仍須同時滿足 Wake、回呼與回合切分契約。
+
+| 稽核項目 | 要求 |
+|---|---|
+| rawMayAct | 手寫獨立分支述詞，使用原始 CS 條件和完整簽章，不呼叫產品 TriggerRules／Match 或 Prefix 建構器 |
+| 時間 oracle | 直接讀原始 deadline／pending 狀態，不以被測 NextWake 自己作期望值 |
+| 影子 filter | 每回合與每個影子觀察步後刷新，與 session 同時點 |
+| 深度快照 | 沿用 460 的 64 步窗口與非簿記快照，不能降為 0 或 4 來通過；保留既有正樣本覆蓋要求 |
+| 規則不變式 R | 略過步抽樣重建規則，比較有效 N 條及有效 CS／Sig；忽略尾端舊槽、padding、診斷計數。發現會擴大必要集合的外部變更即失敗 |
+| 定向切分事件 | 增加 rules、base，保留 IP、Wake、Frame、CU 等事件 |
+
+不變式 R 可允許已到期記錄仍在快取造成的保守超集合，但必須逐項證明只是晚移除，不得把新增必要條件的落差放過。比較器不能直接忽略所有差異。
+
+A/B 的 MachineDigest 各欄、完整 DOS 狀態與輸出都按原閘門比較。依 014 §4.4，兩側使用同一個固定 SaveRoot 路徑，逐次還原相同 fixture 與時間戳，再依序執行。不得只把 DOS 路徑正規化後宣稱 raw 雜湊相同；舊輪的正規化比較仍只是補充診斷。
+
+### 9.7 測試
+
+#### 9.7.1 正向
+
+| 編號 | 內容 |
+|---|---|
+| U-b1 | Match 的缺 IP、Any、CS、Prefix 正負、非零 Off、16 位元環繞、舊槽、空前置與容量退路 |
+| U-b2 | 無 SparseRuler 時與 (a) 判定一致；Force／Wake／Exited 優先；第一層未命中不讀記憶體 |
+| U-b3 | 各表列分支在各種 base／cur／plq／paired 狀態，規則拒絕時非簿記快照不變；每個必要分支有完整簽章正樣本。保守 Prefix／Any 不要求反向等價 |
+| U-b4 | 觀察步內改 base／開窗後下一步規則更新；回錯不刷新；Frame／SBDMA／模式回呼走真實 session Force 接線 |
+| U-b5 | 回合 n／n+1 切分、Attach 與不切分輸出相同，允許額外的回合首 Force |
+| U-b6 | 全合成狀態的規則 IP 均在第一層，正常輸入 Overflow=0；另造各級超量驗證只增加觀察 |
+| U-b7 | 建構、Match、ShouldObserve 零配置；既有 BeforeStep 配置測試不退步 |
+| U-b8 | 橫幅以入口保存的 plq.cs 返回；sigConvFast Off8 N1 的正負測試；改後面非簽章 bytes 不改結果 |
+
+#### 9.7.2 負對照
+
+| 編號 | 突變 | 預期被抓到 |
+|---|---|---|
+| S20 | 全部 Any | L／N／H 等呼叫率超標，A/B 仍相同 |
+| S21 | 任意 CS 的 Sig 改 Any | L≥4%、N>1%；不能以模型結果代替產品測試 |
+| S22 | 0345 在 base 未知時誤帶 base CS | Q 漏學 base，獨立 rawMayAct 與輸出比較失敗 |
+| S23 | 034B 拿掉已知 base 的 CS 退路 | 壞簽章停用 base 的合成測試與稽核失敗 |
+| S24 | 只在回合開始刷新 | Q 漏 putc／返回；規則不變式 R 或切分比較失敗 |
+| S25 | 0345 Prefix 任一必要 byte 改錯 | 完整簽章 oracle 抓漏觀察 |
+| S26 | Prefix 改用 PCLinear | 非同一線性位址的保護模式合成測試失敗 |
+| S27 | 規則依賴 VideoWrite 改動的 win.wrote | 合成序列的不變式 R 失敗 |
+| S28 | (d) MENU 返回漏開窗 CS | N 窗無法正常關閉、逾時或 A/B 不同，稽核抓漏返回 |
+
+S22、S25 使用 Present=off，或明確突變合併後的全部 0345 Prefix，避免 (d) 的 STRIKE puts 同 IP 規則掩護 Flight 來源突變。收據必須記錄採用的方式。
+
+沿用 S1–S19。原 S8 的實際 Frame Force 接線使用 session 測試與 R 的 N1 突變驗證；E 沒有相關前提，手動設 Force 的單元測試也不單獨代表真接線已驗證。S13 一般輸出可不變，須由影子 oracle 抓到漏重驗。
+
+#### 9.7.3 產品呼叫率與翻預設
+
+- 呼叫率為 (Observed−Forced)/總步數。另報 IPHits、Prefix 讀取數、Overflow、各原因 Force 與刷新數，避免把第二層成本藏在呼叫率之外。
+- 正式情境是原四案加已裁決 N、H，共六類：主選單 L、基地對話 D、MENU N、STRIKE 載入 H、飛行 Q、飛行 R。D 的兩份既有 fixture 不相同，原 460 的 s500+c11 是閘門；014 的 p539/s500b 可另記。不得因探針只有五案而漏掉 D。
+- 原四案沿用各 3 億步要求。N、H 沿用已定義的完整路徑與停止點，記錄實際步數，不硬延長到會越過路徑的 3 億步。六類在 Present=on、(d) 完整窗表下各須≤1%，另報 Present=off 對照。
+- 倍率 2、3；Present 開、關；全部既有 A/B、切分、原版 CPU／記憶體／indexed／palette／DOS 雜湊、64 步稽核正樣本與全部負對照須通過。
+- 014 (d) 未合入時可驗證 (c)，但不得翻 sparseDefault。S28 或完整窗表呼叫率缺測也不得翻。
+- pprof 與 N=5 wall-clock 只報告，不取代正確性與≤1% 閘門，也不拿舊 (a) 的成本估計當 (b) 測量結果。
+- 本輪不翻預設。未來全部通過後另做開關變更，並重跑原規格要求的驗證。
