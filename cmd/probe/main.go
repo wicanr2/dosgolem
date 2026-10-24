@@ -163,6 +163,7 @@ func main() {
 		"讓 Sound Blaster 16（基底 220h，含 OPL 相容埠）偵測存在"+
 			"（預設不存在；使用 228h/229h 的 FM 音樂路徑要它才會跑）")
 	sbDMA8, sbDMALog := sbDMA8Flags(flag.CommandLine)
+	sbPCMOpts := sbPCMFlags(flag.CommandLine)
 	poke := flag.String("poke", "",
 		"在指定步數直接改記憶體：`<位址>@<步數>=<hex bytes>`，分號分隔。"+
 			"位址寫法同 -peek。**對拍要固定的是狀態，不是運氣**——"+
@@ -367,6 +368,10 @@ func main() {
 			die(ferr)
 		}
 		sbLogFile = f
+	}
+	sbPCM, pcmErr := openSBPCM(m, sbPCMOpts)
+	if pcmErr != nil {
+		die(pcmErr)
 	}
 	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
 	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境
@@ -1005,6 +1010,9 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
+		if sbPCM != nil {
+			sbPCM.flush(m.Steps, false)
+		}
 		// 阻塞在鍵盤輸入時程式一道指令都不往前走（spec 008），
 		// 再跑下去只是把 INT 重跑幾百萬次。留 blockAfter 步給計時器
 		// 推背景動畫，之後就停——繼續燒預算不會有新資訊。
@@ -1019,6 +1027,11 @@ func main() {
 		}
 	}
 
+	if sbPCM != nil {
+		if err := sbPCM.close(m.Steps, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-sbpcm:", err)
+		}
+	}
 	if ca != nil {
 		ca.dump()
 	}

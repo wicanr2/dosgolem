@@ -1,6 +1,6 @@
 # 462：SB16 8 位元數位音效輸出到主機音訊（`SBPCM`）
 
-狀態：**READY**（第 2 版，2026-10-23；兩位獨立審查皆無阻擋，應改依下表處置，審查紀錄在陸空戰將 repo `workplace/sb462/review462-*.md`），未實作。
+狀態：**READY**（第 2 版，2026-10-23；兩位獨立審查皆無阻擋，應改依下表處置，審查紀錄在陸空戰將 repo `workplace/sb462/review462-*.md`）。2026-10-24 已實作並完成下述抽樣驗證，未標 CONFORMED；實作與驗證入口見 §7。
 日期：2026-10-23
 編號：462。dosgolem-sc `strike-commander` 分支的 `docs/spec/` 目前最大號 461（`461-pit-divisor-after-load`）。
 前置：[`006-layering`](006-layering.md)、[`240-opl-audio-output-draft`](240-opl-audio-output-draft.md)（`AudioObserver`、`audio/mixer`、`Ring`）、[`247-sb16-voice-volume-mixer`](247-sb16-voice-volume-mixer.md)、
@@ -394,6 +394,25 @@ v    = (x0·(65536 − f) + x1·f) · 256 >> 16     // int64，算術右移（�
 | 574 | A11「`-wav` 輸出在語音起點有非零樣本，長度符合 `Samples ÷ 取樣率`」 | 改用 462 的驗收（§4.2 G2、G6）：以 `sbpcm.Source` 單獨輸出比對；長度以 `sampleOf(Due) − sampleOf(Start)` 計，不用 `Samples ÷ 取樣率` |
 | 587 | 人工驗收「開場到主選單」 | 加：MENU 偵測時是否聽到一聲短咔嗒（462 §3.4、Q1），記錄有無 |
 | 589 | 人工驗收「任務簡報」 | 去掉「R3 完成後」；加：點擊或 Esc 跳句時的爆音是否刺耳（462 Q5）；字幕與語音的先後差是否明顯（462 Q4） |
+
+## 7. 2026-10-24 實作與抽樣驗證
+
+程式基準為 `4095084`。實作收據位於陸空戰將 repo `workplace/sb462/implementation-receipt.md`，含程式 SHA-256、正負對照與工具版本；主代理驗證根目錄為 `workplace/sb462/codex-validation-r1/`，完整輸入清單為 `input-manifest.json`。工具為既有 `dosgolem-go-ebiten:1.24-r1`、Go 1.24.13、Linux amd64，所有原版輸入與聲音留在本機 Docker。
+
+| 項目 | 已確認結果 | 收據入口 |
+|---|---|---|
+| 自包含正測 | 實體頁／64 KiB 環繞、五種事件、內插、暫停續播、取消、切分、計數、session 守衛與狀態不變均通過 | `implementation-tests-03.log`、`implementation-regression-01.log` |
+| 全庫回歸 | 48 個有測試套件通過；GUI 套件在 Xvfb 內測試；`go vet ./...` 通過 | `codex-validation-r1/gotest-all.log`、`vet.log` |
+| G1／G2 | T10、H12、C11 的 raw 樣本對上原版 VOCLIST；WAV 分別為 3,527,571、4,031,970、1,443,365 個樣本，逐樣本等於獨立 Python 公式。H12 包含拆頁語音 | 各案 `oracle.json`、`expected.wav`、`sbdma.tsv` |
+| G3 | K1 的 258,013 個樣本相同。舊 K2 從播放中載入，沒有 start，只驗證孤立 pause 與空輸出；另從 s500 經正常點擊開始簡報，在看過 start 後點擊／按 Esc，各 279,729 個樣本相同，覆蓋實際截斷 | `k1/`、`k2/`、`k1-observed/`、`k2-observed/` |
+| G5／G6 | T10、K1 三種模式的 Digest、MachineDigest、機器／DOS SaveState bytes 與 SBDMA 相同。真正 mixer 每 192,500 步 Render，float32 輸出逐位元等於獨立期望 WAV 除以 32768；削波 0 | `g56-t10/independent-oracle.json`、`g56-k1/independent-oracle.json` |
+| 負對照 | N1／N2／N3／N5／N6／N7／N8／N9／N10 由指定自包含測試捕獲。N4 使用 overlay 的 probe 跑 H12 到 4,200,000,000 步，獨立 G2 比對有 1,460,522 bytes 不同，如期失敗 | `negative-03-summary.json`、`negative-04-summary.json`、`codex-validation-r1/h12-N4/oracle.json` |
+
+獨立 oracle 的程式為陸空戰將 repo `workplace/sb462/scripts/oracle_pcm.py`，不匯入產品程式；PCM bytes 來自原版 VOCLIST，只有偵測傳輸使用 raw bytes 並另核 SHA。G6 由 `scripts/verify_mixer.py` 比獨立 expected.wav，不拿 Source 自己的輸出當期望值。既有 T10／H12／C11／K1／K2 的 DMA TSV 與重錄基準逐列相同。
+
+G6 的「AdLib 關閉」具體化為不轉送 OPLWrite 到合成器，客體硬體設定不變；兩案 Speaker／PIT2 非零事件均為 0。Source 的區段各自保存當時 Start，避免同回合 resume 改變先前尚未 Render 的區段。
+
+限制：尚未全量重跑 §4.3 指定的有素材長測試與 Buck Rogers 原版 WAV A/B；部分負對照的原版 G 路徑尚未逐項重跑。GUI 即時 Ring、開場咔嗒、跳句爆音、字幕延遲與人耳接受度未驗收。此實作是 hardware-spec approximation，不宣稱真機 DAC 逐週期或逐波形一致，也不據此標 CONFORMED。
 
 ## 附錄 A：版本紀錄
 

@@ -264,6 +264,7 @@ func (m *Machine) sb8Begin(cmd uint8, n uint32, samples uint64) bool {
 	}
 	e := m.sb8Event("start", true, true)
 	m.sb8Log(e)
+	m.sb8PCM(e)
 	return true
 }
 
@@ -404,6 +405,7 @@ func (m *Machine) sb8Poll() {
 	e := m.sb8Event("complete", false, true)
 	e.Transferred = s.n
 	m.sb8Log(e)
+	m.sb8PCM(e)
 	dsp := &m.soundBlaster
 	if !dsp.IRQPending {
 		s.irr7 = true
@@ -443,6 +445,7 @@ func (m *Machine) sb8CancelBody() {
 	e := m.sb8Event("cancel", true, true)
 	e.Transferred = k
 	m.sb8Log(e)
+	m.sb8PCM(e)
 	s.active = false
 	s.paused, s.pausedAt, s.dmaRewritten = false, 0, false
 }
@@ -480,6 +483,7 @@ func (m *Machine) sb8Control(paused bool) bool {
 		e := m.sb8Event("pause", true, true)
 		e.Transferred = m.sb8Progress()
 		m.sb8Log(e)
+		m.sb8PCM(e)
 		return true
 	case !s.paused: // 未暫停的 DMA 傳輸中的 D4h：接受，不動作
 		return true
@@ -516,6 +520,7 @@ func (m *Machine) sb8Resume() bool {
 	e := m.sb8Event("resume", true, true)
 	e.Transferred = k
 	m.sb8Log(e)
+	m.sb8PCM(e)
 	return true
 }
 
@@ -876,7 +881,18 @@ func (m *Machine) sb8Event(kind string, inInsn, xfer bool) SBDMAEvent {
 		e.Command, e.Length, e.Samples, e.Due = s.cmd, s.n, s.samples, s.due
 		e.Format, _ = sbFormat(s.cmd)
 		if s.cmd != 0x80 && (kind == "start" || kind == "complete") { // 445 §2.9：cancel、pause、resume 為空
-			e.SHA256 = m.sb8SHA()
+			data, hash := m.sb8Capture()
+			e.SHA256 = hash
+			if m.onSBPCM != nil {
+				if kind == "start" {
+					m.sb8pcmData, m.sb8pcmStartSHA = data, hash
+				} else {
+					if m.sb8pcmStartSHA != "" && m.sb8pcmStartSHA != hash {
+						m.sb8pcmMutated++
+					}
+					m.sb8pcmStartSHA = ""
+				}
+			}
 		}
 		if s.cmd != 0x80 {
 			e.Channel, e.DMAMode, e.Page = sbDMA8Ch, s.dma.Mode[sbDMA8Ch], s.dma.Page[sbDMA8Ch]
@@ -890,8 +906,8 @@ func (m *Machine) sb8Event(kind string, inInsn, xfer bool) SBDMAEvent {
 	return e
 }
 
-// sb8SHA 以 peekPhysRaw 讀 n 個實體位址 Page<<16 | ((Addr+i)&FFFFh) 算 SHA-256（§2.5 第 2 步）。不寫記憶體。
-func (m *Machine) sb8SHA() string {
+// sb8Capture 以實體位址取樣，在同一個 64 KiB 頁內環繞（462 §3.2）。
+func (m *Machine) sb8Capture() ([]byte, string) {
 	s := m.sb8
 	page := uint32(s.dma.Page[sbDMA8Ch]) << 16
 	buf := make([]byte, s.n)
@@ -899,7 +915,7 @@ func (m *Machine) sb8SHA() string {
 		buf[i] = m.peekPhysRaw(page | uint32(s.addr+uint16(i)))
 	}
 	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:])
+	return buf, hex.EncodeToString(sum[:])
 }
 
 // sb8Log 記一筆觀測：OnSBDMA 非 nil 時只呼叫它（與 onOPL 同類）；否則追加到 SBDMALog，滿 4096 筆丟最舊的。
@@ -1016,6 +1032,7 @@ func (m *Machine) sb8Save() *sbDMA8State {
 
 // sb8Apply 把 sbDMA8State 寫回（深拷貝），並重新接上回呼。呼叫端保證選項開啟。
 func (m *Machine) sb8Apply(st *sbDMA8State) {
+	m.sb8PCMReset()
 	s, d, dsp := m.sb8, m.sb8.dma, &m.soundBlaster
 	dsp.SpeakerOn, dsp.RateNumerator, dsp.RateDenominator = st.SpeakerOn, st.RateNumerator, st.RateDenominator
 	dsp.Auto8Command, dsp.Auto8Commands = st.Auto8Command, st.Auto8Commands

@@ -8,6 +8,7 @@ package mixer
 
 import (
 	"github.com/wicanr2/dosgolem/audio/nukedopl"
+	"github.com/wicanr2/dosgolem/audio/sbpcm"
 	"github.com/wicanr2/dosgolem/internal/machine"
 )
 
@@ -57,12 +58,16 @@ type Mixer struct {
 	lp         float64 // 喇叭的一階低通狀態（近似喇叭紙盆的高頻衰減）
 
 	opl [2]int16
+	pcm *sbpcm.Source
 }
 
 // New 建一個混音器。stepsPerSecond 是前端推進速率（每秒步數）。
 func New(stepsPerSecond uint64) *Mixer {
-	return &Mixer{stepsPerSecond: stepsPerSecond, chip: nukedopl.New(SampleRate)}
+	return &Mixer{stepsPerSecond: stepsPerSecond, chip: nukedopl.New(SampleRate), pcm: sbpcm.New(stepsPerSecond)}
 }
+
+// SBPCM 到達即記區段；同回合事件必須先於 Render（462 §3.5）。
+func (m *Mixer) SBPCM(e machine.SBPCMEvent) { m.pcm.Apply(e) }
 
 // OPLWrite 收一筆 OPL 寫入。
 func (m *Mixer) OPLWrite(w machine.OPLWrite) {
@@ -155,7 +160,12 @@ func (m *Mixer) Render(dst []float32, before, after uint64) []float32 {
 		}
 		m.chip.GenerateStream(m.opl[:])
 		s := m.speaker()
-		dst = append(dst, clamp(float64(m.opl[0])/32768+s), clamp(float64(m.opl[1])/32768+s))
+		if v := m.pcm.Sample(m.next); v != 0 {
+			pcm := float64(v) / 32768
+			dst = append(dst, clamp(float64(m.opl[0])/32768+s+pcm), clamp(float64(m.opl[1])/32768+s+pcm))
+		} else {
+			dst = append(dst, clamp(float64(m.opl[0])/32768+s), clamp(float64(m.opl[1])/32768+s))
+		}
 	}
 	// 這一段尚未輪到的事件（理論上不會有：事件步數都小於 after）照樣套用，
 	// 讓暫存器狀態不落後。
@@ -163,6 +173,7 @@ func (m *Mixer) Render(dst []float32, before, after uint64) []float32 {
 		m.apply(e)
 	}
 	m.events = m.events[:0]
+	m.pcm.Prune(end)
 	return dst
 }
 

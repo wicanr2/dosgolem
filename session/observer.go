@@ -45,6 +45,12 @@ type SBDMAObserver interface {
 	SBDMA(e machine.SBDMAEvent)
 }
 
+// SBPCMObserver 是 StepObserver 的選配音訊擴充（462 §3.3）。
+// 回呼在步驟嘗試內執行；不得使用 StepView 或改變客體狀態。
+type SBPCMObserver interface {
+	SBPCM(e machine.SBPCMEvent)
+}
+
 // IPSet 是 65536 位元的 IP 集合（docs/spec/460 §3.1）：bit ip 為 1 表示 IP == ip 的步驟要觀察。
 type IPSet [1024]uint64
 
@@ -285,11 +291,20 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 			f.Force = true // 460 §3.3：消費端在下一次 BeforeStep 讀（452 §2.4）
 		}
 	}
+	po, sbpcm := o.observer.(SBPCMObserver)
+	if sbpcm {
+		o.machine.ObserveSBPCM(func(e machine.SBPCMEvent) {
+			guard("SBPCM", func() { po.SBPCM(e) })
+		})
+	}
 	defer func() {
 		o.machine.ObserveVideoWrites(nil)
 		o.machine.ObserveModeChanges(nil)
 		if sbdma {
 			o.machine.OnSBDMA = nil
+		}
+		if sbpcm {
+			o.machine.ObserveSBPCM(nil)
 		}
 		o.machine.SetOnFrame(nil)
 		if o.machine.AdLibPresent() {

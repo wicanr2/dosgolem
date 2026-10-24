@@ -713,9 +713,14 @@ type Machine struct {
 	sb8Err        error
 	eventThisStep bool
 	// SBDMALog、SBDMALogDropped、OnSBDMA 是 §2.8 的觀測紀錄（不進狀態檔）；SBDMAUnknownReads 是 §2.2 的診斷計數。
-	SBDMALog          []SBDMAEvent
-	SBDMALogDropped   uint64
-	OnSBDMA           func(SBDMAEvent)
+	SBDMALog        []SBDMAEvent
+	SBDMALogDropped uint64
+	OnSBDMA         func(SBDMAEvent)
+	// 462：唯讀音訊觀測與診斷，不進狀態檔、快照或 Digest。
+	onSBPCM           func(SBPCMEvent)
+	sb8pcmData        []byte
+	sb8pcmStartSHA    string
+	sb8pcmMutated     uint64
 	SBDMAUnknownReads uint64
 
 	// utlbR、utlbW 是分頁轉換的直接對映微快取（paging.go 的 utlb），放在結構尾端，

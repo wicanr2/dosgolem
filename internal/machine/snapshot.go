@@ -231,6 +231,7 @@ func (m *Machine) Snapshot() *Snapshot {
 // Restore 把機器倒回快照。沒有錯誤回傳：快照的 Ext 長度與這台機器不同時 panic
 // （Ext 在程式載入前就設好，同一台機器的長度不會變）。
 func (m *Machine) Restore(s *Snapshot) {
+	m.sb8PCMReset()
 	if s.pmProfile != m.pmProfile {
 		panic(fmt.Sprintf("machine: Restore 的快照保護模式 profile 是 %t，這台是 %t", s.pmProfile, m.pmProfile))
 	}
