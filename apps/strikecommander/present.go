@@ -144,13 +144,12 @@ type presRoutine struct {
 	timeout    uint64
 	kind       PresentKind
 	blit       bool // 入口讀來源、目的矩形，分全螢幕（blit）與非全螢幕（partial）
+	sig        [16]byte
+	signed     bool
 }
 
 // presRoutines 是分期 (c) 的窗表：OPTTEST blit sub_49FB0（§3.2 表第 1 列）。CU 不進 2D 窗堆疊（§3.2.1 第 6 條）。
-var presRoutines = []presRoutine{
-	{name: "blit", prog: progOPTTEST, seg: segBlit, entryIP: ipBlitEntry, retIP: ipBlitRet, ipLo: 0x0000, ipHi: ipBlitRet,
-		completion: true, timeout: presTimeoutDefault, kind: PresBlit, blit: true},
-}
+var presRoutines = presentDRoutines()
 
 type presWindow struct {
 	r          *presRoutine
@@ -245,6 +244,8 @@ type PresentCounts struct {
 	Fallback, CursorEraseFlush                                                                   int
 	WindowsOpened                                                                                int
 	MaxDepth                                                                                     int
+	Routines                                                                                     map[string]RoutineCount
+	ReturnHistoryEvicted, CandidateBaseFailed                                                    int
 }
 
 // PresentStale 是一筆陳舊（或無呈現像、CU 作廢後）的回掃。
@@ -382,6 +383,7 @@ type Presenter struct {
 	windows   []PresentWindowRec
 	cuRecs    []PresentCURec
 	onCapture []func(PresentInfo)
+	d         presentDState
 }
 
 // NewPresenter 建呈現層與它自有的呈現用實例（每倍率一個）。
@@ -392,6 +394,8 @@ func NewPresenter(cfg PresenterConfig) (*Presenter, error) {
 	p := &Presenter{cfg: cfg, mut: cfg.mut, ovs: map[int]*Overlay{}, fovs: map[int]*FlightOverlay{}, subsOn: cfg.Subtitles,
 		unattr: map[[2]uint16]*PresentUnattr{}}
 	p.counts.Captures = map[PresentKind]int{}
+	p.counts.Routines = map[string]RoutineCount{}
+	p.d.verdict = FrameVerdict{Class: VerdictNoImage}
 	p.cache = map[int]struct {
 		key  composeCacheKey
 		rgba []byte
@@ -434,6 +438,7 @@ func (p *Presenter) Attach(so *SessionObserver) {
 			art(ev)
 		}
 		p.stateSinceCap++
+		p.deferArt(ev)
 		p.enqueue(presItem{art: true, ev: ev, steps: ev.Steps})
 	}
 	lo.OnClearArt = func(steps uint64) {
@@ -441,6 +446,7 @@ func (p *Presenter) Attach(so *SessionObserver) {
 			clear(steps)
 		}
 		p.stateSinceCap++
+		p.clearDeferral(steps)
 		p.enqueue(presItem{await: true, steps: steps})
 	}
 	lo.OnCommit = func(c Commit) {
@@ -456,6 +462,8 @@ func (p *Presenter) Attach(so *SessionObserver) {
 				fc(c)
 			}
 			p.stateSinceCap++
+			p.d.flightCommit = c
+			p.d.flightCommitValid = true
 		}
 		f.onCU = p.onCU
 	}
@@ -476,6 +484,10 @@ func (p *Presenter) Counts() PresentCounts {
 	c.Captures = map[PresentKind]int{}
 	for k, v := range p.counts.Captures {
 		c.Captures[k] = v
+	}
+	c.Routines = map[string]RoutineCount{}
+	for k, v := range p.counts.Routines {
+		c.Routines[k] = v
 	}
 	return c
 }
@@ -544,6 +556,11 @@ func (p *Presenter) applyItem(it presItem) {
 	for _, sc := range p.cfg.Scales {
 		if it.art {
 			p.ovs[sc].AddDialogArt(it.ev)
+			if it.ev.File == ArtSaveLoad && it.ev.K == 0 {
+				for _, ev := range presentK0Rows(it.ev) {
+					p.ovs[sc].AddDialogArt(ev)
+				}
+			}
 		} else {
 			p.ovs[sc].ClearArt()
 		}
@@ -581,6 +598,7 @@ func (p *Presenter) closedItems() bool {
 func (p *Presenter) Observe(v PresentView) {
 	steps := v.Steps()
 	p.steps = steps
+	p.observeDeferral(v)
 	if p.flight != nil {
 		p.cuOpen, _ = p.flight.CUState()
 	}
@@ -603,6 +621,7 @@ func (p *Presenter) Observe(v PresentView) {
 	if ip := v.IP(); p.ipMask[ip>>6]&(1<<(ip&63)) != 0 {
 		p.dispatch(v, ip)
 	}
+	p.finishPending(v)
 	if p.clearPend {
 		// ClearArt 沒有在同一步開窗的全螢幕 blit：當作沒有所屬窗。
 		p.clearPend = false
@@ -613,29 +632,7 @@ func (p *Presenter) Observe(v PresentView) {
 }
 
 func (p *Presenter) dispatch(v PresentView, ip uint16) {
-	cs := v.CS()
-	for i := range p.routines {
-		r := &p.routines[i]
-		if ip != r.entryIP && ip != r.retIP {
-			continue
-		}
-		want := r.seg
-		if r.prog == progOPTTEST {
-			base, ok := p.labels.Base()
-			if !ok {
-				continue
-			}
-			want = base + r.seg
-		}
-		if cs != want {
-			continue
-		}
-		if ip == r.entryIP {
-			p.entry(v, r)
-		} else {
-			p.ret(v, r)
-		}
-	}
+	p.dispatchD(v, ip)
 }
 
 func (p *Presenter) logWindow(rec PresentWindowRec) {
@@ -660,11 +657,16 @@ func (p *Presenter) entry(v PresentView, r *presRoutine) {
 			} else {
 				p.counts.DuplicateEntry++
 			}
+			p.routineEntryDuplicate(r, ev == "dup-delivered")
 			p.logWindow(PresentWindowRec{Steps: steps, Event: ev, Routine: r.name, CS: cs, SS: ss, SP: sp, Depth: n})
 			return
 		}
 	}
 	w := &presWindow{r: r, cs: cs, ss: ss, sp: sp, entry: steps, deliv: v.Deliveries(), kind: r.kind}
+	if !r.completion {
+		l := v.IndexedLayout()
+		p.d.mode13Known = l.Kind == machine.IndexedLinear && l.Mode == 0x13
+	}
 	if r.blit {
 		ds := v.DS()
 		src, dst := rd16(v, ss, sp+4), rd16(v, ss, sp+6)
@@ -684,6 +686,7 @@ func (p *Presenter) entry(v PresentView, r *presRoutine) {
 	}
 	p.stack = append(p.stack, w)
 	p.counts.WindowsOpened++
+	p.updateRoutine(r.name, func(c *RoutineCount) { c.Opened++ })
 	p.counts.MaxDepth = max(p.counts.MaxDepth, len(p.stack))
 	p.logWindow(PresentWindowRec{Steps: steps, Event: "open", Routine: r.name, CS: cs, SS: ss, SP: sp, Depth: len(p.stack), Kind: w.kind})
 }
@@ -692,6 +695,19 @@ func (p *Presenter) closeWin(w *presWindow, steps uint64, ev string, depth int) 
 	w.closed = true
 	if w.wrote {
 		p.lastClosed = w
+	}
+	p.updateRoutine(w.r.name, func(c *RoutineCount) {
+		switch ev {
+		case "close":
+			c.Returned++
+		case "skip":
+			c.Skipped++
+		case "timeout":
+			c.Timeout++
+		}
+	})
+	if ev == "close" {
+		p.deferWindowClosed(w, steps)
 	}
 	p.logWindow(PresentWindowRec{Steps: steps, Event: ev, Routine: w.r.name, CS: w.cs, SS: w.ss, SP: w.sp, Depth: depth, Wrote: w.wrote, Len: steps - w.entry, Kind: w.kind})
 }
@@ -712,19 +728,22 @@ func (p *Presenter) ret(v PresentView, r *presRoutine) {
 		p.stack = p.stack[:i]
 		p.lastRetWin, p.haveRetWin = *w, true
 		p.lastRetWin.deliv = v.Deliveries()
+		p.rememberReturn(w, v.Deliveries(), steps)
 		if len(p.stack) == 0 {
 			p.complete(v, w)
 		}
 		return
 	}
 	// 沒有對應的窗：IRQ 在返回點送達造成同一 PC 的重複觀察，或開機時窗已開（§3.2.1 第 4a 條）。
-	if lw := p.lastRetWin; p.haveRetWin && lw.r == r && lw.cs == cs && lw.ss == ss && lw.sp == sp && v.Deliveries() > lw.deliv {
+	if p.duplicateReturn(r, cs, ss, sp, v.Deliveries(), steps) {
 		p.counts.ReturnDuplicateDelivered++
 		p.lastRetWin.deliv = v.Deliveries()
+		p.updateRoutine(r.name, func(c *RoutineCount) { c.ReturnDuplicateDelivered++ })
 		p.logWindow(PresentWindowRec{Steps: steps, Event: "ret-dup-delivered", Routine: r.name, CS: cs, SS: ss, SP: sp})
 		return
 	}
 	p.counts.ReturnWithoutEntry++
+	p.updateRoutine(r.name, func(c *RoutineCount) { c.ReturnWithoutEntry++ })
 	p.logWindow(PresentWindowRec{Steps: steps, Event: "ret-no-entry", Routine: r.name, CS: cs, SS: ss, SP: sp})
 }
 
@@ -755,6 +774,15 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 	if !wrote && !p.closedItems() {
 		return
 	}
+	// The erase gap outlives a deferral. Record the last writing window even
+	// while capture is paused, so a timeout cannot expose the erased cursor.
+	if lc != nil {
+		p.d.eraseGap = !lc.r.completion
+	}
+	if p.d.mode != deferIdle {
+		p.d.pending = true
+		return
+	}
 	if lc != nil && !lc.r.completion {
 		return // 游標擦除窗（分期 (d) 的條目）：延到下一個游標繪製返回
 	}
@@ -765,7 +793,11 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 	if lc != nil {
 		kind = lc.kind
 	}
+	flush := p.d.flushDeferred
 	if p.capture(v, kind, v.CS(), v.IP(), nil, nil, p.flightSet()) {
+		if flush {
+			p.counts.CursorEraseFlush++
+		}
 		p.scheduleRecheck()
 	}
 }
@@ -776,8 +808,13 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 // v 只在 idx 或 pal 為 nil 時使用；在 Frame 內（沒有開著的視圖）呼叫時 v 為 nil，idx 與 pal 都必須給。
 // 同一步依序：套用佇列 → Sync(Labels) → 飛行 Sync(F, presGen) → 色號與色盤 → 字幕狀態 → 建呈現像。
 func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx []byte, pal *[256][3]uint8, F []FlightText) bool {
+	if p.d.mode != deferIdle {
+		p.d.pending = true
+		return false
+	}
 	if idx == nil {
 		l := v.IndexedLayout()
+		p.d.mode13Known = l.Kind == machine.IndexedLinear && l.Mode == 0x13
 		if l.Kind != machine.IndexedLinear || l.Mode != 0x13 {
 			p.counts.NonLinearLayout++
 			p.needFallback = true
@@ -822,6 +859,16 @@ func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx 
 	p.seq++
 	img.info = PresentInfo{Seq: p.seq, CaptureSteps: p.steps, Kind: kind, SourceCS: cs, SourceIP: ip}
 	p.cur = img
+	if kind != PresCU && kind != PresPalette && kind != PresSubtitle {
+		p.needFallback = false
+		p.d.pending = false
+		p.d.eraseGap = false
+		p.d.flushDeferred = false
+		p.d.flushReadPending = false
+	}
+	if kind == PresCU {
+		p.d.cuCapture = presCaptureCU{key: p.cu.entry, captured: p.steps}
+	}
 	p.vwSinceCap, p.stateSinceCap, p.frameSinceCap = 0, 0, false
 	p.publish(img)
 	return true
@@ -957,6 +1004,11 @@ func (p *Presenter) onCU(e cuEvent) {
 			p.cuSnap, p.snapValid = p.flight.Candidates(), true
 			p.afterRet, p.afterRetAt = true, e.V.Steps()
 			p.lastRet = presRet{valid: true, ip: e.IP, ss: e.V.SS(), sp: e.V.SP(), deliv: viewDeliveries(e.V), steps: e.V.Steps()}
+			if p.d.cuCapture.key == e.Entry.Steps {
+				p.d.cuCapture.returned = true
+				p.d.cuCapture.returnVW = p.vwTotal
+				p.d.cuCapture.returnState = p.stateSinceCap
+			}
 			p.lastCH = presRet{}
 			return
 		}
@@ -1127,6 +1179,9 @@ func (p *Presenter) cuAfterReturn(v PresentView) {
 	}
 	n, x0, y0, x1, y1 := diffBox(vga, c.buf)
 	p.counts.CUResidue++
+	if p.d.cuCapture.key == c.entry {
+		p.d.cuCapture.residue = true
+	}
 	rec := PresentCURec{Steps: v.Steps(), Class: "CUResidue", CUEntry: c.entry, Diff: n, X0: x0, Y0: y0, X1: x1, Y1: y1, FallbackDesc: c.fromFB}
 	if c.fromFB {
 		p.counts.CUResidueFallbackDesc++
@@ -1169,8 +1224,12 @@ func (p *Presenter) VideoWrite(w machine.VideoWrite) {
 		if win.r.allCS || (w.CS == win.cs && w.IP >= win.r.ipLo && w.IP <= win.r.ipHi) {
 			if !win.wrote {
 				win.wrote, win.firstWrite = true, w.Step
+				p.updateRoutine(win.r.name, func(c *RoutineCount) { c.WroteVGA++ })
 			}
 			p.epWrote = true
+			if p.d.mode != deferIdle {
+				p.d.pending = true
+			}
 			return
 		}
 	}
@@ -1180,6 +1239,9 @@ func (p *Presenter) VideoWrite(w machine.VideoWrite) {
 	}
 	p.counts.Unattributed++
 	p.needFallback = true
+	if p.d.mode != deferIdle {
+		p.d.pending = true
+	}
 	k := [2]uint16{w.CS, w.IP}
 	if u := p.unattr[k]; u != nil {
 		u.Count++
@@ -1194,10 +1256,30 @@ func (p *Presenter) VideoModeChange(machine.ModeChange) {
 	p.counts.ModeChanges++
 	p.fbDesc = presDesc{}
 	p.needFallback = true
+	p.d.menu = false
+	p.d.optCandidateOK, p.d.strikeCandidateOK = false, false
+	p.d.mode13Known = false
 }
 
 // Frame 在 SessionObserver.Frame 的最後呼叫（Subtitles.Frame 之後）：丟升格後的快照、色盤與字幕呈現像、陳舊斷言。
 func (p *Presenter) Frame(indexed []byte, palette [256][3]uint8) {
+	// Compatibility entry: callers inject the same-step known p.steps; production
+	// SessionObserver uses FrameAt with the proved dense/460 frame timestamp.
+	p.FrameAt(p.steps, indexed, palette)
+}
+
+func (p *Presenter) FrameAt(steps uint64, indexed []byte, palette [256][3]uint8) {
+	p.steps = steps
+	if p.d.flightCommitValid {
+		c := p.d.flightCommit
+		if p.cur != nil && p.cur.info.Kind == PresCU && p.d.cuCapture.key == c.CUSteps && c.FrameSteps == steps {
+			p.d.cuCapture.promoted = true
+			if p.stateSinceCap > 0 {
+				p.stateSinceCap--
+			}
+		}
+		p.d.flightCommitValid = false
+	}
 	p.counts.Frames++
 	p.frameSinceCap = true
 	if p.flight != nil {
@@ -1207,6 +1289,7 @@ func (p *Presenter) Frame(indexed []byte, palette [256][3]uint8) {
 			p.snapValid, p.cuSnap = false, nil
 		}
 	}
+	p.cursorFrame(indexed, palette)
 	if p.mut&presMutN2 != 0 {
 		// 負對照 N2：回掃取像，覆繪狀態取回掃當下。
 		F := []FlightText(nil)
@@ -1226,48 +1309,14 @@ func (p *Presenter) Frame(indexed []byte, palette [256][3]uint8) {
 		}
 	}
 	p.staleCheck(indexed)
+	// CUCapturedNotCopied exempts only its first following Frame, including a
+	// Frame where a higher-priority reason wins. The verdict itself only reads it.
+	p.staleVoid = false
 }
 
 // staleCheck 是陳舊斷言（§4.2.2）：寫 VGA 的 2D 窗堆疊為空、不在 CU 窗內時，目前呈現像的色號必須等於該次回掃。
 func (p *Presenter) staleCheck(indexed []byte) {
-	for _, w := range p.stack {
-		if w.wrote {
-			return
-		}
-	}
-	if p.cuOpen {
-		return
-	}
-	rec := PresentStale{Steps: p.steps}
-	if p.cur != nil {
-		rec.Seq, rec.Kind = p.cur.info.Seq, p.cur.info.Kind
-	}
-	if p.staleVoid {
-		p.staleVoid = false
-		if p.cur == nil || !bytes.Equal(p.cur.indexed, indexed) {
-			p.counts.StaleAfterCUVoid++
-			rec.Class = "after-cu-void"
-			if p.cur != nil {
-				rec.Diff, rec.X0, rec.Y0, rec.X1, rec.Y1 = diffBox(p.cur.indexed, indexed)
-			}
-			p.staleRec(rec)
-		}
-		return
-	}
-	p.counts.StaleChecked++
-	if p.cur == nil {
-		p.counts.StaleNoImage++
-		rec.Class = "no-image"
-		p.staleRec(rec)
-		return
-	}
-	if bytes.Equal(p.cur.indexed, indexed) {
-		return
-	}
-	p.counts.Stale++
-	rec.Class = "stale"
-	rec.Diff, rec.X0, rec.Y0, rec.X1, rec.Y1 = diffBox(p.cur.indexed, indexed)
-	p.staleRec(rec)
+	p.verdictFrame(indexed)
 }
 
 func (p *Presenter) staleRec(r PresentStale) {
@@ -1293,11 +1342,27 @@ func (p *Presenter) shotCheck(cur map[int][]byte) *PresentShot {
 	if !p.frameSinceCap {
 		ps.Why = append(ps.Why, "最後一次取像不在最後一次回掃之前")
 	}
-	if p.vwSinceCap != 0 {
-		ps.Why = append(ps.Why, fmt.Sprintf("取像後有 %d 筆 VideoWrite", p.vwSinceCap))
-	}
-	if p.stateSinceCap != 0 {
-		ps.Why = append(ps.Why, fmt.Sprintf("取像後有 %d 次狀態改變", p.stateSinceCap))
+	if p.cur.info.Kind == PresCU {
+		c := p.d.cuCapture
+		if !c.returned || !c.promoted {
+			ps.Why = append(ps.Why, "CU 尚未返回並升格")
+		}
+		if c.residue {
+			ps.Why = append(ps.Why, "CU 有殘留")
+		}
+		if p.vwTotal != c.returnVW {
+			ps.Why = append(ps.Why, "CU 返回後有 VideoWrite")
+		}
+		if p.stateSinceCap != c.returnState {
+			ps.Why = append(ps.Why, "CU 返回後有升格以外的狀態改變")
+		}
+	} else {
+		if p.vwSinceCap != 0 {
+			ps.Why = append(ps.Why, fmt.Sprintf("取像後有 %d 筆 VideoWrite", p.vwSinceCap))
+		}
+		if p.stateSinceCap != 0 {
+			ps.Why = append(ps.Why, fmt.Sprintf("取像後有 %d 次狀態改變", p.stateSinceCap))
+		}
 	}
 	if sub, blocked := p.subState(p.cur.indexed); sub != p.cur.subPtr || blocked != p.cur.subBlocked {
 		ps.Why = append(ps.Why, "取像後字幕狀態改變")
@@ -1315,10 +1380,10 @@ func (p *Presenter) shotCheck(cur map[int][]byte) *PresentShot {
 // ---- 輸出 ----
 
 // CountsText 是 counts.txt 的內容。
-func (p *Presenter) CountsText() []byte {
+func (p *Presenter) countsTextBase() []byte {
 	var b bytes.Buffer
 	c := p.counts
-	fmt.Fprintf(&b, "呈現層（規格 014 分期 (c)）；突變：%s\n", p.mut)
+	fmt.Fprintf(&b, "呈現層（規格 014 分期 (d) 核心）；突變：%s\n", p.mut)
 	var ks []string
 	for k := range c.Captures {
 		ks = append(ks, string(k))

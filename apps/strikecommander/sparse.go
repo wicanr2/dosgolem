@@ -129,6 +129,7 @@ func (p *Presenter) nextWake() uint64 {
 		return 0
 	}
 	w := session.NoWake
+	w = min(w, p.presentationWake())
 	for _, win := range p.stack {
 		w = min(w, win.entry+win.r.timeout)
 	}

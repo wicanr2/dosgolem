@@ -79,6 +79,11 @@ func newPresRig(t *testing.T, mut presentMut) *presRig {
 	w.o.base, w.o.baseKnown, w.o.baseOK = tpBase, true, true
 	w.o.cu.SetBase(tpBase, true)
 	v := &pview{fv: w.v, vga: make([]byte, 64000), pal: tPal(), mode: 0x13}
+	// 014(d) verifies the original 16-byte entry signature, including blit.
+	_, _, _, blitSig := dFrozenEntry(t, "blit")
+	for i, b := range blitSig {
+		v.mem[lin(tpBase+segBlit, uint16(i))] = b
+	}
 	// 畫外緩衝 FFFF:0010 起（列表 qList），倒序列表 tList2。
 	for y := 0; y < 200; y++ {
 		for x := 0; x < 320; x++ {

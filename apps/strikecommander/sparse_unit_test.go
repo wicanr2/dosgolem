@@ -296,15 +296,32 @@ func TestSparseTriggerIPsAttached(t *testing.T) {
 	if session.IPSet(p.ipMask) != spMask(0x4321, 0x4325) {
 		t.Error("ipMask 與窗表不符")
 	}
-	full := spFull(t).TriggerIPs()
+	// Independent literals: original label/flight/subtitle union remains 19.
+	baseIPs := []uint16{0x034B, 0x03D3, 0x02B2, 0x0000, 0x008B, 0x0002,
+		0x0345, 0x02AC, 0x03CD, 0x0182, 0x01F2, 0x00A5, 0x00D6, 0x00A7, 0x00D8, 0x00EE,
+		0x103F, 0x10F3, 0x22BE}
+	fullObserver := spFull(t)
+	fullObserver.present = nil
+	if got, want := fullObserver.TriggerIPs(), spMask(baseIPs...); got != want {
+		t.Fatal("non-Presenter union changed", got, want)
+	}
+	// READY 014(d) table contributes 26 further unique IPs, shared rows deduplicate.
+	presentIPs := []uint16{0x0000, 0x008B, 0x00F0, 0x034B, 0x03D3, 0x0006, 0x00EA,
+		0x0004, 0x004F, 0x0002, 0x0092, 0x000E, 0x0144, 0x00F2, 0x0008, 0x0053,
+		0x0096, 0x008F, 0x033F, 0x03C7, 0x013C, 0x000C, 0x03E9, 0x34BF, 0x34E2,
+		0x000A, 0x00EE, 0x0055, 0x0098, 0x0138, 0x0091, 0x0345, 0x03CD, 0x00F4}
+	want := spMask(append(baseIPs, presentIPs...)...)
+	if got := spFull(t).TriggerIPs(); got != want {
+		t.Fatal("attached Presenter union differs from independent table", got, want)
+	}
 	n := 0
-	for _, w := range full {
+	for _, w := range want {
 		for ; w != 0; w &= w - 1 {
 			n++
 		}
 	}
-	if n != 19 {
-		t.Errorf("全掛時集合有 %d 個 IP，§2.1 是 19 個", n)
+	if n != 45 {
+		t.Fatal("independent table cardinality", n)
 	}
 }
 

@@ -168,7 +168,9 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 		s.Subtitles.Frame(indexed, s.steps)
 	}
 	if s.present != nil {
-		s.present.Frame(indexed, palette)
+		// 460 §2.4: in dense mode tick/onFrame precedes Steps++; sparse
+		// mode injects that exact machine.Steps through FrameAt before Frame.
+		s.present.FrameAt(s.steps, indexed, palette)
 	}
 	if s.audit != nil {
 		s.audit.event(s, "frame", s.steps)
@@ -178,7 +180,7 @@ func (s *SessionObserver) Frame(indexed []byte, palette [256][3]uint8) {
 // SessionConfig 是 dosgolem 規格 448 §3.2 的 Config（KbdIntercept 開），觀察器由呼叫端給（nil 為關）。
 func SessionConfig(obs session.StepObserver) session.Config {
 	const s = 2
-	if so, ok := obs.(*SessionObserver); ok && so.Models != nil {
+	if so, ok := obs.(*SessionObserver); ok && (so.Models != nil || so.present != nil) {
 		obs = presentObserver{so}
 	}
 	return session.Config{

@@ -47,6 +47,10 @@ var sparseAuditRawIPs = struct{ label, flight, sub []uint16 }{
 var sparseAuditModelIPs = []uint16{0x0102, 0x0197, 0x012A, 0x01ED, 0x0A51, 0x0A7C, 0x0A7F, 0x0AAB, 0x00A5, 0x00D6, 0x00A7, 0x00D8, 0x00EE}
 var sparseAuditRasterIPs = []uint16{0x000C, 0x0416, 0x083D, 0x0EA8, 0x0C79, 0x0048, 0x004A, 0x020C, 0x04A6, 0x0685}
 
+// 014 v14 §3.2 independent original entry/return IP union. Never generated
+// from presRoutines/ipMask or the presenter's scheduling helper.
+var sparseAuditPresentIPs = []uint16{0x0000, 0x008B, 0x00F0, 0x034B, 0x03D3, 0x0006, 0x00EA, 0x0004, 0x004F, 0x0002, 0x0092, 0x000E, 0x0144, 0x00F2, 0x0008, 0x0053, 0x0096, 0x008F, 0x033F, 0x03C7, 0x013C, 0x000C, 0x03E9, 0x34BF, 0x34E2, 0x000A, 0x00EE, 0x0055, 0x0098, 0x0138, 0x0091, 0x0345, 0x03CD, 0x00F4}
+
 type sparseAuditEvent struct {
 	kind  string
 	steps uint64
@@ -227,10 +231,17 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 		}
 	}
 	if p := s.present; p != nil {
-		for i := range p.routines {
-			if r := &p.routines[i]; ip == r.entryIP || ip == r.retIP {
-				a.fail(steps, ip, "oracle", "IP 在呈現層窗表內")
-			}
+		if has(sparseAuditPresentIPs) {
+			a.fail(steps, ip, "oracle", "IP 在呈現層獨立 IP 表內")
+		}
+		if p.d.mode != 0 && steps >= p.d.start+200000 {
+			a.fail(steps, ip, "oracle", "Presenter 暫停期限到期")
+		}
+		if p.d.layoutCheckPending {
+			a.fail(steps, ip, "oracle", "Presenter 游標取像版面待確認")
+		}
+		if p.d.mode == 0 && len(p.stack) == 0 && ((p.d.pending && !p.d.eraseGap) || (p.d.flushReadPending && p.d.mode13Known)) {
+			a.fail(steps, ip, "oracle", "Presenter 結束或游標待取像")
 		}
 		if p.recheck != nil {
 			a.fail(steps, ip, "oracle", "Presenter recheck")
@@ -312,6 +323,7 @@ var sparseAuditExclude = map[string]byte{
 	// 輸出累積只取長度
 	"LabelObserver.log": 'n', "FlightObserver.log": 'n', "FlightObserver.clipped": 'n', "FlightObserver.redeliv": 'n',
 	"Presenter.captures": 'n', "Presenter.stale": 'n', "Presenter.windows": 'n', "Presenter.cuRecs": 'n', "Presenter.cache": 'n',
+	"presentDState.verdicts": 'n', "PresentCounts.Routines": 'n',
 	"Subtitles.Skips": 'n',
 	// SHP 快取：原始檔與目錄不可變，只取長度（字形表照走）
 	"flightShp.raw": 'n', "flightShp.ents": 'n',
