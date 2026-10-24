@@ -405,6 +405,7 @@ v    = (x0·(65536 − f) + x1·f) · 256 >> 16     // int64，算術右移（�
 | 全庫回歸 | 48 個有測試套件通過；GUI 套件在 Xvfb 內測試；`go vet ./...` 通過 | `codex-validation-r1/gotest-all.log`、`vet.log` |
 | G1／G2 | T10、H12、C11 的 raw 樣本對上原版 VOCLIST；WAV 分別為 3,527,571、4,031,970、1,443,365 個樣本，逐樣本等於獨立 Python 公式。H12 包含拆頁語音 | 各案 `oracle.json`、`expected.wav`、`sbdma.tsv` |
 | G3 | K1 的 258,013 個樣本相同。舊 K2 從播放中載入，沒有 start，只驗證孤立 pause 與空輸出；另從 s500 經正常點擊開始簡報，在看過 start 後點擊／按 Esc，各 279,729 個樣本相同，覆蓋實際截斷 | `k1/`、`k2/`、`k1-observed/`、`k2-observed/` |
+| G4 | 冷開機到 1,010,000,000 步，兩次 SpeakerOn=false 的 4-byte 偵測傳輸皆有聲，原始 IVT bytes 為 `a7 01 41 02`；分別 18、17 個輸出樣本與獨立公式相同。片頭其他音效未宣稱逐樣本對拍 | `boot/detection-oracle.json`、`scripts/verify_detection.py` |
 | G5／G6 | T10、K1 三種模式的 Digest、MachineDigest、機器／DOS SaveState bytes 與 SBDMA 相同。真正 mixer 每 192,500 步 Render，float32 輸出逐位元等於獨立期望 WAV 除以 32768；削波 0 | `g56-t10/independent-oracle.json`、`g56-k1/independent-oracle.json` |
 | 負對照 | N1／N2／N3／N5／N6／N7／N8／N9／N10 由指定自包含測試捕獲。N4 使用 overlay 的 probe 跑 H12 到 4,200,000,000 步，獨立 G2 比對有 1,460,522 bytes 不同，如期失敗 | `negative-03-summary.json`、`negative-04-summary.json`、`codex-validation-r1/h12-N4/oracle.json` |
 
