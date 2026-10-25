@@ -1,6 +1,6 @@
 # 464：session首次輸入前的有界PSP相對讀取
 
-狀態：**READY**（第1版，2026-10-25），未實作。前置235私有開機、450狀態啟動、454唯讀語意；不含遊戲名、檔名、載入器辨識或渲染規則。
+狀態：**READY**（第1版，2026-10-25），通用入口已實作，app／正常玩家路徑未驗收。前置235私有開機、450狀態啟動、454唯讀語意；不含遊戲名、檔名、載入器辨識或渲染規則。
 
 本版只澄清重疊Dst順序與ReadBootPSP錯誤原子性。001原SHA `c640f1b5e6b985f7f0d4791f9f93b9232897cb6d4eabd54ec4f20bdc1ae7018c`及其所有凍結產物保持不變；範圍、數字與app分類規則不變。
 
@@ -57,3 +57,11 @@ func (o *Owner) ReadBootPSP(ranges []BootPSPRange) (BootPSPReceipt, error)
 [獨立審查C](../../../strike_commander/workplace/impl016/session-r8/review-c-001.md) SHA `8eec03b428fd54d9a06c8e8952d7d9a21f6c82aa28f3981fbf864eac31644cfd`；[獨立審查A](../../../strike_commander/workplace/impl016/session-r8/review-a-002.md) SHA `8584f013f8021fb6fe46cfbe37c8ce914b680ab993d83ee81b9f4b1dc786044a`。兩者未互讀報告；C要求的重疊Dst順序與錯誤原子性已於002補明，A對002無阻擋或應改。歷史argv保持unknown。
 
 這不補463的缺份production審查；463程式仍暫不套用。464的離線事實、工程規格、實作與正常玩家路徑分別驗收。
+
+## 實作與驗收範圍
+
+三個產品檔為`session/boot_psp.go`、`session/owner.go`及`internal/dos/current_psp.go`。採納source004 SHA `fe889a66f69e2893eb2d3f4b0b2354242df2fbed57b77b25c902212bdb716169`；[主代理程式窄審](../../../strike_commander/workplace/impl016/r8-production-parent-review-004.md)及[獨立程式窄審A](../../../strike_commander/workplace/impl016/session-r8/production-review-a-004.md)均無阻擋／應改。
+
+[實作收據](../../../strike_commander/workplace/impl016/session-r8/RECEIPT-003.md)保存完整單測、race、vet與16項有效負控。套用後在actual工作樹重跑session／internal/dos完整單測及六案零指令測例，結果由[parent-adopt-unit-009.log](../../../strike_commander/workplace/impl016/session-r8/parent-adopt-unit-009.log)及[parent-six-state-009.json](../../../strike_commander/workplace/impl016/session-r8/parent-six-state-009.json)進入。六案72範圍皆與獨立raw雜湊相同，讀取前後memory、兩種摘要及callback計數不變。
+
+這只驗通用API及固定六案零指令連續性。app唯一分類、冷開機正常流程、玩家GUI及完整016 R8仍未驗，因此本版不標CONFORMED。

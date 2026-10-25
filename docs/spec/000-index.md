@@ -1004,4 +1004,4 @@
 - [191 — BIOS ROM 尾巴、ROM 唯讀、狀態檔的 A20；`-watch` 多段與 `-regs-at` 不去重](191-bios-rom-tail.md)：READY。`FFFF0`–`FFFFF` 填 PC/AT 的重置跳躍、BIOS 日期與機型位元組，`F0000`–`FFFFF` 寫入忽略但記下來；狀態檔 v3 存 A20／HMA、仍讀 v2；`-watch` 每一段都監看、`-regs-at` 的 blit 去重改成選用。
 - [189 — Hercules 的畫面在 B0000](189-hercules-b0000.md)：READY。probe 多報 `B0000 非零 bytes`、`-dump-herc`；`oracle.Hercules()`／`HerculesNonZero()`。
 
-- [464 session首次輸入前的有界PSP相對讀取](464-session-boot-psp-read.md)：READY（第1版），未實作。Boot成功後且首次Deliver／Advance嘗試前，一次批次複製caller-owned physical RAM；實際CurPSP、全量先驗、錯誤原子性及既有流程不變。
+- [464 session首次輸入前的有界PSP相對讀取](464-session-boot-psp-read.md)：READY（第1版），通用API已實作；六案零指令核對通過，app／正常玩家路徑未驗收。Boot成功後且首次Deliver／Advance嘗試前一次有界physical批次讀取，不改快照或既有流程。

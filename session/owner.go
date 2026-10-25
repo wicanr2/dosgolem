@@ -272,6 +272,10 @@ type Owner struct {
 	closeErr       error
 	closed         bool
 
+	// 464: these frontend-only flags never enter machine or DOS snapshots.
+	bootPSPUsed   bool
+	bootPSPClosed bool
+
 	observer   StepObserver
 	viewToken  uint64
 	viewOpen   bool
@@ -396,6 +400,8 @@ func (o *Owner) Deliver(update CapturedUpdate) (InputReceipt, error) {
 	if o == nil {
 		return InputReceipt{Phase: PhaseFailed}, errors.New("session: Owner 不得為 nil")
 	}
+	// Even a rejected first attempt closes only the new bootstrap window.
+	o.bootPSPClosed = true
 	receipt := InputReceipt{Epoch: o.epoch, Phase: o.phase}
 	if o.committing {
 		return o.frontendFaultInputReceipt(receipt, errors.New("session: Commit 期間不得重入 Deliver"))
@@ -716,6 +722,8 @@ func (o *Owner) Advance(budget InstructionBudget) (TickReceipt, error) {
 	if o == nil {
 		return TickReceipt{Reason: StopReasonFrontendFault}, errors.New("session: Owner 不得為 nil")
 	}
+	// Even a rejected first attempt closes only the new bootstrap window.
+	o.bootPSPClosed = true
 	receipt := TickReceipt{Epoch: o.epoch, Budget: budget, Phase: o.phase, Reason: o.terminalReason}
 	receipt.KeysPendingBefore = o.dos.KeysPending()
 	receipt.KeysPendingAfter = receipt.KeysPendingBefore
