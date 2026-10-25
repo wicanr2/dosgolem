@@ -217,6 +217,21 @@ func (a *sparseAudit) oracle(s *SessionObserver, steps uint64, ip uint16) {
 		}
 	}
 	if m := s.Models; m != nil {
+		if m.shade != nil && !m.shade.closed && m.baseOK {
+			// Independent deadline from captured proof, not nextWake/next.
+			pendingProof := m.shade.modelGeneration != m.sourceGeneration || m.shade.proof == nil
+			due := false
+			if p := m.shade.proof; p != nil {
+				gap := uint64(500000)
+				if p.Status == 0 {
+					gap = 5000000
+				}
+				due = steps >= p.Steps+gap
+			}
+			if pendingProof || due {
+				a.fail(steps, ip, "oracle", "013b獨立來源驗簽期限")
+			}
+		}
 		if m.materialSources && ip == 0x0aa5 {
 			a.fail(steps, ip, "oracle", "材質來源BuildCall獨立IP")
 		}
@@ -339,7 +354,9 @@ var sparseAuditExclude = map[string]byte{
 	"Presenter.labels": 'x', "Presenter.flight": 'x', "Presenter.subs": 'x', "Presenter.onCapture": 'x',
 	"Subtitles.Index": 'x', "Subtitles.Catalog": 'x', "Subtitles.Text": 'x',
 	"FlightObserver.resolve": 'x', "FlightObserver.cuh": 'x',
-	"ModelRecorder.Library": 'x', "ModelRecorder.OnGroup": 'x', "ModelRecorder.hooks": 'x',
+	// Configuration lock is a one-way setup diagnostic; it never gates Observe.
+	"ModelRecorder.configurationLocked": 'x',
+	"ModelRecorder.Library":             'x', "ModelRecorder.OnGroup": 'x', "ModelRecorder.hooks": 'x',
 	"ModelRecorder.logs":    'n',
 	"rasterRecorder.tables": 'x',
 	// 暫存緩衝

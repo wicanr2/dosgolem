@@ -13,6 +13,7 @@ import (
 
 	"github.com/wicanr2/dosgolem/apps/strikecommander/hd3d"
 	"github.com/wicanr2/dosgolem/apps/strikecommander/realspace"
+	"github.com/wicanr2/dosgolem/apps/strikecommander/shadesource"
 	"github.com/wicanr2/dosgolem/session"
 )
 
@@ -29,6 +30,8 @@ type modelView interface {
 // ModelGroup 是同一 CU 所屬的模型觀察複本。封存後不再修改。
 // ReplayReady 只由 NewSceneRecorder 的 1 倍重畫決定；純模型錄製不會設為真。
 type ModelGroup struct {
+	ShadeSourceError     *shadesource.Error `json:",omitempty"`
+	ShadeSource          *shadesource.Graph `json:",omitempty"`
 	Steps, EndSteps, Key uint64
 	Cameras              []realspace.Camera
 	CameraReadFailed     []bool
@@ -84,6 +87,7 @@ type modelFrameState struct {
 }
 
 type modelHit struct {
+	shade            *shadeHit
 	sourceGeneration uint64
 	sourceRole       *realspace.FaceSourceRole
 	kind             uint16
@@ -107,27 +111,29 @@ type modelHit struct {
 // ModelRecorder 只保留原版資料複本，從不保留 modelView。
 // OnGroup 在 Frame 升格時呼叫；接收者不得修改這份已封存的複本。
 type ModelRecorder struct {
-	materialSources  bool
-	sourceGeneration uint64
-	sourceProof      *realspace.FaceSourceProof
-	sourceCounts     MaterialSourceCounts
-	Library          *realspace.Library
-	OnGroup          func(*ModelGroup)
-	base             uint16
-	baseOK           bool
-	lastSig          uint64
-	retryAt          uint64
-	pend             *modelHit
-	open             *ModelGroup
-	await            *ModelGroup
-	shown            *ModelGroup
-	vga              bool
-	frames           map[modelFrameKey]modelFrameState
-	tracker          cuTracker
-	hooks            cuHooks
-	counts           ModelRecorderCounts
-	logs             []string
-	raster           *rasterRecorder
+	shade               *shadeCapture
+	configurationLocked bool // lifecycle diagnostic only, never affects recorded output
+	materialSources     bool
+	sourceGeneration    uint64
+	sourceProof         *realspace.FaceSourceProof
+	sourceCounts        MaterialSourceCounts
+	Library             *realspace.Library
+	OnGroup             func(*ModelGroup)
+	base                uint16
+	baseOK              bool
+	lastSig             uint64
+	retryAt             uint64
+	pend                *modelHit
+	open                *ModelGroup
+	await               *ModelGroup
+	shown               *ModelGroup
+	vga                 bool
+	frames              map[modelFrameKey]modelFrameState
+	tracker             cuTracker
+	hooks               cuHooks
+	counts              ModelRecorderCounts
+	logs                []string
+	raster              *rasterRecorder
 }
 
 func NewModelRecorder(lib *realspace.Library) *ModelRecorder {
@@ -136,6 +142,7 @@ func NewModelRecorder(lib *realspace.Library) *ModelRecorder {
 		if r.await != nil {
 			r.counts.GroupsReplaced++
 		}
+		r.shadeDrop(r.await)
 		r.await = nil
 		if r.open != nil && r.open.Buf3D != nil {
 			g := r.open
@@ -149,10 +156,12 @@ func NewModelRecorder(lib *realspace.Library) *ModelRecorder {
 			if r.raster != nil {
 				r.raster.check(g)
 			}
+			r.shadeSeal(g, steps)
 			r.await = g
 			r.counts.GroupsSealed++
 		} else {
 			r.counts.No3D++
+			r.shadeDrop(r.open)
 		}
 		r.open = nil
 		clear(r.frames)
@@ -164,6 +173,7 @@ func NewModelRecorder(lib *realspace.Library) *ModelRecorder {
 	r.hooks.OnMU = func(_ FlightView, cx uint16) {
 		r.vga = cx == 0
 		if r.vga {
+			r.shadeReset()
 			r.open = nil
 			clear(r.frames)
 			if r.raster != nil {
@@ -262,6 +272,7 @@ func (r *ModelRecorder) verify(v modelView, base uint16, all bool) bool {
 }
 
 func (r *ModelRecorder) disable(steps uint64) {
+	r.shadeReset()
 	if r.materialSources {
 		r.sourceGeneration++
 		r.sourceProof = nil
@@ -316,18 +327,20 @@ func (r *ModelRecorder) nextWake() uint64 {
 		return 0
 	}
 	if r.baseOK {
-		return r.lastSig + SigCheckSteps
+		return min(r.lastSig+SigCheckSteps, r.shadeWake())
 	}
 	return session.NoWake
 }
 
 func (r *ModelRecorder) Observe(v modelView) {
+	r.configurationLocked = true
 	// 先確認暫定命中。只存值與資料複本，不存上一個 StepView。
 	if p := r.pend; p != nil {
 		r.pend = nil
 		if v.Deliveries() == p.del && (!r.materialSources || (v.Steps() > p.steps && p.sourceGeneration == r.sourceGeneration && (p.kind == 0x0102 || r.baseOK && p.base == r.base))) {
 			r.apply(p)
 		} else {
+			r.shadeVoided(p)
 			r.counts.HitsVoidedByDelivery++
 			if r.materialSources && p.sourceRole != nil {
 				r.sourceCounts.Voided++
@@ -352,6 +365,7 @@ func (r *ModelRecorder) Observe(v modelView) {
 			return
 		}
 	}
+	r.shadeBefore(v)
 	interesting := r.materialSources && ip == 0x0aa5
 	for _, x := range modelTriggerIPs {
 		if ip == x {
@@ -420,6 +434,7 @@ func (r *ModelRecorder) captureMeasured(v modelView, ip uint16) *modelHit {
 	counted := modelReadCountingView{modelView: v}
 	h := r.capture(&counted, ip)
 	h.reads = counted.count
+	h.shade = r.captureShade(v, h)
 	return h
 }
 
@@ -556,6 +571,7 @@ func (r *ModelRecorder) capture(v modelView, ip uint16) *modelHit {
 }
 
 func (r *ModelRecorder) apply(h *modelHit) {
+	defer r.applyShade(h)
 	if h.kind == 0x0102 {
 		if !h.valid {
 			r.disable(h.steps)
@@ -575,6 +591,7 @@ func (r *ModelRecorder) apply(h *modelHit) {
 			r.counts.GroupsDiscarded++
 			r.note(fmt.Sprintf("第 %d 步：R7 取代第 %d 步尚未封存的模型群組", h.steps, r.open.Steps))
 		}
+		r.shadeDrop(r.open)
 		r.open = nil
 		clear(r.frames)
 		if r.raster != nil {
@@ -705,6 +722,7 @@ func (r *ModelRecorder) Frame(steps uint64) {
 		return
 	}
 	if promote, key := r.tracker.Frame(steps, &r.hooks); promote {
+		r.shadeDrop(r.shown)
 		r.shown = r.await
 		r.await = nil
 		if r.shown != nil {
@@ -720,6 +738,7 @@ func (r *ModelRecorder) Frame(steps uint64) {
 // VideoModeChange 清除三個群組槽與暫定命中，保留仍需重新辨識簽章的基底資料。
 // 不寫原版狀態；條件來自 012 §3.7.2。
 func (r *ModelRecorder) VideoModeChange() {
+	r.shadeReset()
 	if r.materialSources {
 		r.sourceGeneration++
 		r.sourceProof = nil
