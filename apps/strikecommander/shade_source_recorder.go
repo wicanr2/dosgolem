@@ -5,6 +5,7 @@ package strikecommander
 import (
 	"crypto/sha256"
 	"github.com/wicanr2/dosgolem/apps/strikecommander/hd3d"
+	"github.com/wicanr2/dosgolem/apps/strikecommander/realspace"
 	"github.com/wicanr2/dosgolem/apps/strikecommander/shadesource"
 	"github.com/wicanr2/dosgolem/session"
 )
@@ -49,6 +50,7 @@ func (r *ModelRecorder) ShadeSourceOwner() *shadesource.Owner {
 	return r.shade.owner
 }
 func (r *ModelRecorder) CloseShadeSources() {
+	r.closeBoundedCapture()
 	if r.shade != nil && !r.shade.closed {
 		r.shade.closed = true
 		if r.pend != nil {
@@ -65,6 +67,9 @@ func (r *ModelRecorder) shadeID(key uint64) shadesource.Identity {
 	return shadesource.Identity{EXESHA: s.exeHash, SignatureSetSHA: shadesource.HashLiteral(shadesource.SignatureSetSHAHex), Base: r.base, ResetGeneration: s.reset, ModelsGeneration: r.sourceGeneration, ShadeEpoch: s.epoch, GroupSerial: s.serial + 1, CUKey: key}
 }
 func (r *ModelRecorder) shadeDrop(g *ModelGroup) {
+	if g != nil && g.hd != nil {
+		g.hd.Arena.retire()
+	}
 	if g != nil && g.ShadeSource != nil {
 		g.ShadeSource.Retire()
 	}
@@ -77,15 +82,42 @@ func (r *ModelRecorder) shadeReset() {
 	if r.pend != nil && r.pend.shade != nil {
 		r.pend.shade.reservation.Release()
 	}
-	r.shadeDrop(r.open)
-	r.shadeDrop(r.await)
-	r.shadeDrop(r.shown)
+	if r.bounded != nil {
+		// Drop persistent producer aliases before retiring their arena references.
+		// External readers keep their own reference and charge until final Release.
+		open, await, shown := r.open, r.await, r.shown
+		r.open, r.await, r.shown, r.pend = nil, nil, nil, nil
+		r.bounded.pending = modelHit{}
+		r.bounded.rasterPending = rasterHit{}
+		r.bounded.role = realspace.FaceSourceRole{}
+		r.bounded.counted.modelView = nil
+		if r.raster != nil {
+			r.raster.reset()
+		}
+		r.tracker.Reset()
+		r.shadeDrop(open)
+		r.shadeDrop(await)
+		r.shadeDrop(shown)
+	} else {
+		r.shadeDrop(r.open)
+		r.shadeDrop(r.await)
+		r.shadeDrop(r.shown)
+	}
 	s.reset++
 	s.epoch++
 	s.proof = nil
 	s.valid = false
 	s.next = 0
 	s.modelGeneration = 0
+	if r.bounded != nil {
+		r.pend = nil
+		r.bounded.pending = modelHit{}
+		r.bounded.rasterPending = rasterHit{}
+		r.bounded.role = realspace.FaceSourceRole{}
+		r.bounded.failed = false
+		r.bounded.rejectedNotified = false
+		r.bounded.rejected = HDCaptureRejected{}
+	}
 
 }
 func (r *ModelRecorder) shadeWake() uint64 {
@@ -210,7 +242,7 @@ func (r *ModelRecorder) captureShade(v modelView, h *modelHit) *shadeHit {
 	out := &shadeHit{reservation: reserve, epoch: s.epoch}
 	ctx := shadeContext(v)
 	if isBuild {
-		st, ok := r.frames[modelFrameKey{h.ss, h.bp}]
+		st, ok := r.frameState(modelFrameKey{h.ss, h.bp})
 		if !ok || st.face < 0 {
 			reserve.Release()
 			g.Count(shadesource.Counters{BindingRejected: 1})
@@ -314,7 +346,12 @@ func (r *ModelRecorder) applyShade(h *modelHit) {
 					}
 				}
 			} else {
-				r.open.ShadeSourceError = &shadesource.Error{Status: shadesource.H3, Reason: shadesource.ResourceLimit, Detail: "source graph allocation rejected"}
+				if r.bounded == nil {
+					r.open.ShadeSourceError = &shadesource.Error{Status: shadesource.H3, Reason: shadesource.ResourceLimit, Detail: "source graph allocation rejected"}
+				} else {
+					r.open.hdSourceError = shadesource.Error{Status: shadesource.H3, Reason: shadesource.ResourceLimit, Detail: "source graph allocation rejected"}
+					r.open.ShadeSourceError = &r.open.hdSourceError
+				}
 			}
 		}
 		return

@@ -177,6 +177,9 @@ type flightPlaque struct {
 
 // FlightObserver 依規格 009 §3.1 到 §3.6 觀察 STRIKE 的飛行字串。只讀 View。
 type FlightObserver struct {
+	// 013c §18：僅由 FrontendRuntime 啟用；舊觀察器預設保持原路徑。
+	discoverCompletionCU bool
+	failedCompletionBase completionBaseFailure
 	// OnCommit 在每次升格時呼叫（在 Frame 回呼內）。可為 nil。
 	OnCommit func(FlightCommit)
 	// OnAccepted 在字串通過墨跡框核對、加入待提交之前呼叫（strike_commander 規格 014 §4.2.2 墨跡台帳，只供曝光收據）。
@@ -310,6 +313,9 @@ func (o *FlightObserver) Observe(v FlightView) {
 			o.plaqueReturn(v)
 		}
 	case ipCUDiff, ipCUPlain, ipCUDiffRet, ipCUPlainRet, ipMU:
+		if o.discoverCompletionCU && (v.IP() == ipCUDiff || v.IP() == ipCUPlain) {
+			o.discoverCUCompletion(v)
+		}
 		if o.baseOK {
 			o.cu.Observe(v, o.cuHooks())
 		}

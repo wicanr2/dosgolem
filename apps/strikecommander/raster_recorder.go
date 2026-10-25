@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"reflect"
 
 	"github.com/wicanr2/dosgolem/apps/strikecommander/hd3d"
 	"github.com/wicanr2/dosgolem/apps/strikecommander/realspace"
@@ -35,9 +36,14 @@ type rasterHit struct {
 	element RasterElement
 }
 type rasterRecorder struct {
-	tables hd3d.Tables
-	stack  []rasterContext
-	blobs  map[[32]byte][]byte
+	owner        *ModelRecorder
+	arena        *legacyArena
+	pending      *rasterHit
+	colorBuf     []byte
+	boundedBlobs []hdInternEntry
+	tables       hd3d.Tables
+	stack        []rasterContext
+	blobs        map[[32]byte][]byte
 }
 
 // NewSceneRecorder 加上 012 的 1 倍呼叫錄製與自檢。tables 應由
@@ -45,15 +51,18 @@ type rasterRecorder struct {
 func NewSceneRecorder(lib *realspace.Library, tables hd3d.Tables) *ModelRecorder {
 	r := NewModelRecorder(lib)
 	tables.R6Table = append([]byte(nil), tables.R6Table...)
-	r.raster = &rasterRecorder{tables: tables}
+	r.raster = &rasterRecorder{tables: tables, owner: r}
 	return r
 }
 
-func (r *rasterRecorder) reset() { r.stack, r.blobs = nil, nil }
+func (r *rasterRecorder) reset() { r.stack, r.blobs, r.boundedBlobs = nil, nil, nil; r.arena = nil }
 
 // 每次命中仍讀取現場 bytes；只在指令確認執行後合併相同複本。
 // 快取跟隨群組清空，不跨玩家畫面累積。
 func (r *rasterRecorder) intern(b []byte) []byte {
+	if r.arena != nil {
+		return r.internBounded(b)
+	}
 	if len(b) == 0 {
 		return b
 	}
@@ -70,7 +79,11 @@ func (r *rasterRecorder) intern(b []byte) []byte {
 
 func (r *rasterRecorder) internCapture(c *hd3d.Capture) {
 	for i := range c.Spans {
-		c.Spans[i].Data = r.intern(c.Spans[i].Data)
+		if r.arena != nil {
+			r.internBoundedOwned(&c.Spans[i].Data)
+		} else {
+			c.Spans[i].Data = r.intern(c.Spans[i].Data)
+		}
 	}
 }
 
@@ -114,28 +127,45 @@ func rasterBuffer(v modelView, g *ModelGroup) ([]byte, bool) {
 }
 
 func (r *rasterRecorder) capture(v modelView, base uint16, g *ModelGroup) *rasterHit {
-	h := &rasterHit{}
+	var h *rasterHit
+	if r.arena == nil {
+		h = &rasterHit{}
+	} else {
+		h = r.pending
+		*h = rasterHit{}
+	}
 	h.call.Steps, h.call.DS, h.call.SS, h.call.SP = v.Steps(), v.DS(), v.SS(), v.SP()
 	ok := true
 	ip := v.IP()
 	if ip == 0x020c || ip == 0x04a6 || ip == 0x0685 {
 		h.kind = "variant"
-		h.fault = fmt.Sprintf("R5 未移植的後段段函式 +2198:%04X", ip)
+		if r.arena == nil {
+			h.fault = fmt.Sprintf("R5 未移植的後段段函式 +2198:%04X", ip)
+		} else {
+			switch ip {
+			case 0x020c:
+				h.fault = "R5 未移植的後段段函式 +2198:020C"
+			case 0x04a6:
+				h.fault = "R5 未移植的後段段函式 +2198:04A6"
+			case 0x0685:
+				h.fault = "R5 未移植的後段段函式 +2198:0685"
+			}
+		}
 		return h
 	}
 	if ip == 0x0048 {
 		h.kind = "entry"
 		h.ctx.key = rasterFrameKey{v.SS(), v.SP()}
-		p := modelFar(v, v.DS(), v.BX(), &ok)
+		p := r.far(v, v.DS(), v.BX(), &ok)
 		h.ctx.method = hd3d.FarPtr{Off: p.Off, Seg: p.Seg}
-		p = modelFar(v, v.SS(), v.SP(), &ok)
+		p = r.far(v, v.SS(), v.SP(), &ok)
 		h.ctx.element = hd3d.FarPtr{Off: p.Off, Seg: p.Seg}
 		h.element = RasterElement{Steps: v.Steps(), Pointer: h.ctx.element, Method: h.ctx.method}
 		ok = modelRead(v, p.Seg, p.Off, h.element.Header[:]) && ok
 		h.ctx.unknown = !rasterKnownMethod(base, h.ctx.method)
 		if h.ctx.unknown {
 			var read bool
-			h.ctx.before, read = rasterBuffer(v, g)
+			h.ctx.before, read = r.buffer(v, g)
 			ok = ok && read
 		}
 		if !ok {
@@ -150,7 +180,7 @@ func (r *rasterRecorder) capture(v modelView, base uint16, g *ModelGroup) *raste
 			if r.stack[i].key == h.ctx.key {
 				h.ctx = r.stack[i]
 				if h.ctx.unknown {
-					h.after, ok = rasterBuffer(v, g)
+					h.after, ok = r.buffer(v, g)
 				}
 				break
 			}
@@ -179,15 +209,15 @@ func (r *rasterRecorder) capture(v modelView, base uint16, g *ModelGroup) *raste
 		c.Kind, nargs = hd3d.R6, 5
 	}
 	// R1–R4 同段內的重入呼叫不重複擷取。
-	if ip != 0x0c79 && ip != 0x01ed && modelWord(v, v.SS(), v.SP()+2, &ok) == base+0x1d5e {
+	if ip != 0x0c79 && ip != 0x01ed && r.word(v, v.SS(), v.SP()+2, &ok) == base+0x1d5e {
 		h.kind = "reentrant"
 		return h
 	}
 	for i := 0; i < nargs; i++ {
-		c.Params[i] = modelWord(v, v.SS(), v.SP()+4+uint16(i*2), &ok)
+		c.Params[i] = r.word(v, v.SS(), v.SP()+4+uint16(i*2), &ok)
 	}
 	for i := range c.Desc {
-		c.Desc[i] = modelWord(v, v.DS(), c.Params[0]+uint16(i*2), &ok)
+		c.Desc[i] = r.word(v, v.DS(), c.Params[0]+uint16(i*2), &ok)
 	}
 	h.desc = c.Desc
 	if c.Desc[2] > c.Desc[4] || c.Desc[3] > c.Desc[5] || c.Desc[4] > 319 || c.Desc[5] > 199 {
@@ -196,46 +226,46 @@ func (r *rasterRecorder) capture(v modelView, base uint16, g *ModelGroup) *raste
 		return h
 	}
 	if g != nil && len(g.List) == 0 {
-		h.list = make([]uint16, int(c.Desc[5])+2)
+		h.list = boundedMake[uint16](r.arena, int(c.Desc[5])+2)
 		for i := range h.list {
-			h.list[i] = modelWord(v, v.DS(), c.Desc[1]+uint16(i*2), &ok)
+			h.list[i] = r.word(v, v.DS(), c.Desc[1]+uint16(i*2), &ok)
 		}
 	}
 	if c.Kind == hd3d.R6 {
-		var color [1]byte
-		ok = modelRead(v, v.DS(), 0x38be, color[:]) && ok
+		color := r.colorBuffer()
+		ok = modelRead(v, v.DS(), 0x38be, color) && ok
 		c.Aux.Color0 = color[0]
 		ok = modelRead(v, v.DS(), 0x38c0, color[:]) && ok
 		c.Aux.Color1 = color[0]
 		c.Aux.HasFlags, c.Aux.Flags = true, v.Flags()
 	} else if c.Kind == hd3d.R5 {
-		c.Verts = make([]byte, 66)
+		c.Verts = boundedMake[byte](r.arena, 66)
 		for i := 0; i < 3; i++ {
 			ok = modelRead(v, c.Params[2], c.Params[1+2*i], c.Verts[i*22:(i+1)*22]) && ok
 		}
-		table := modelFar(v, v.DS(), 0x13da, &ok)
+		table := r.far(v, v.DS(), 0x13da, &ok)
 		c.Aux.TableOff = table.Off
-		c.Aux.Table = make([]byte, 0xc00)
+		c.Aux.Table = boundedMake[byte](r.arena, 0xc00)
 		ok = modelRead(v, table.Seg, table.Off, c.Aux.Table) && ok
 		c.Aux.HasResid = true
-		c.Aux.ResA5 = modelWord(v, v.SS(), v.SP()-2-0xa5, &ok)
-		c.Aux.Res9F = modelWord(v, v.SS(), v.SP()-2-0x9f, &ok)
-		c.Tex.Pixels, ok = rasterCaptureTexture(v, c.Params[8], c.Params[7], c.Params[9], c.Verts, 2, ok)
+		c.Aux.ResA5 = r.word(v, v.SS(), v.SP()-2-0xa5, &ok)
+		c.Aux.Res9F = r.word(v, v.SS(), v.SP()-2-0x9f, &ok)
+		c.Tex.Pixels, ok = r.captureTexture(v, c.Params[8], c.Params[7], c.Params[9], c.Verts, 2, ok)
 		if c.Params[11] != 0 || c.Params[12] != 0 {
-			c.Tex.Shade, ok = rasterCaptureSpan(v, c.Params[12], c.Params[11], 256, ok)
+			c.Tex.Shade, ok = r.captureSpan(v, c.Params[12], c.Params[11], 256, ok)
 		}
 	} else {
 		n := int(c.Params[1])
-		c.Verts = make([]byte, n*22)
+		c.Verts = boundedMake[byte](r.arena, n*22)
 		ok = modelRead(v, c.Params[3], c.Params[2], c.Verts) && ok
 		if c.Kind == hd3d.R2 {
-			c.Table = make([]byte, 256)
+			c.Table = boundedMake[byte](r.arena, 256)
 			ok = modelRead(v, c.Params[5], c.Params[4], c.Table) && ok
 		}
 		if c.Kind == hd3d.R4 {
-			c.Tex.Pixels, ok = rasterCaptureTexture(v, c.Params[5], c.Params[4], c.Params[6], c.Verts, 0, ok)
+			c.Tex.Pixels, ok = r.captureTexture(v, c.Params[5], c.Params[4], c.Params[6], c.Verts, 0, ok)
 			if c.Params[7] != 0 || c.Params[8] != 0 {
-				c.Tex.Shade, ok = rasterCaptureSpan(v, c.Params[8], c.Params[7], 256, ok)
+				c.Tex.Shade, ok = r.captureSpan(v, c.Params[8], c.Params[7], 256, ok)
 			}
 		}
 	}
@@ -274,8 +304,15 @@ func rasterCaptureTexture(v modelView, seg, off, width uint16, verts []byte, pad
 }
 
 func (r *rasterRecorder) append(g *ModelGroup, c hd3d.Call) {
+	if r.arena != nil {
+		r.appendBoundedOwned(g, &c)
+		return
+	}
 	if len(g.Calls) >= 0xffff {
-		g.RasterProblems = append(g.RasterProblems, "光柵化呼叫序號超界")
+		if r.arena != nil {
+			panic(boundedLimit{})
+		}
+		boundedAppend(r.arena, &g.RasterProblems, "光柵化呼叫序號超界")
 		return
 	}
 	c.Seq = uint16(len(g.Calls))
@@ -285,12 +322,12 @@ func (r *rasterRecorder) append(g *ModelGroup, c hd3d.Call) {
 	if len(r.stack) > 0 {
 		c.Element = r.stack[len(r.stack)-1].element
 	}
-	g.Calls = append(g.Calls, c)
+	boundedAppend(r.arena, &g.Calls, c)
 }
 
 func (r *rasterRecorder) apply(g *ModelGroup, h *rasterHit) {
 	if h.fault != "" {
-		g.RasterProblems = append(g.RasterProblems, h.fault)
+		boundedAppend(r.arena, &g.RasterProblems, h.fault)
 	}
 	switch h.kind {
 	case "call":
@@ -299,13 +336,17 @@ func (r *rasterRecorder) apply(g *ModelGroup, h *rasterHit) {
 			g.List = h.list
 		}
 		if g.Desc != h.call.Desc {
-			g.RasterProblems = append(g.RasterProblems, "光柵化描述元不一致")
+			boundedAppend(r.arena, &g.RasterProblems, "光柵化描述元不一致")
 		}
-		r.append(g, h.call)
+		if r.arena != nil {
+			r.appendBoundedOwned(g, &h.call)
+		} else {
+			r.append(g, h.call)
+		}
 	case "entry":
-		g.Elements = append(g.Elements, h.element)
+		boundedAppend(r.arena, &g.Elements, h.element)
 		h.ctx.start = len(g.Calls)
-		r.stack = append(r.stack, h.ctx)
+		boundedAppend(r.arena, &r.stack, h.ctx)
 	case "return":
 		idx := -1
 		for i := len(r.stack) - 1; i >= 0; i-- {
@@ -315,14 +356,21 @@ func (r *rasterRecorder) apply(g *ModelGroup, h *rasterHit) {
 			}
 		}
 		if idx < 0 {
-			g.RasterProblems = append(g.RasterProblems, "R10 返回沒有配對")
+			boundedAppend(r.arena, &g.RasterProblems, "R10 返回沒有配對")
 			return
 		}
 		ctx := r.stack[idx]
 		if idx != len(r.stack)-1 {
-			g.RasterProblems = append(g.RasterProblems, "R10 返回跳過內層框")
+			boundedAppend(r.arena, &g.RasterProblems, "R10 返回跳過內層框")
 		}
-		if ctx.unknown {
+		if ctx.unknown && r.arena != nil {
+			call := h.call
+			call.Kind, call.Desc, call.Element = hd3d.BlackBox, g.Desc, ctx.element
+			index := len(g.Calls)
+			end := index
+			r.append(g, call)
+			boundedAppend(r.arena, &g.hd.PatchJobs, hdPatchJob{Call: index, Start: ctx.start, End: end, Before: ctx.before, After: h.after})
+		} else if ctx.unknown {
 			patch, diag := hd3d.MakePatch(ctx.before, h.after, g.Calls[ctx.start:], g.List, r.tables)
 			if len(diag.Faults) != 0 {
 				g.RasterProblems = append(g.RasterProblems, diag.Faults...)
@@ -337,11 +385,9 @@ func (r *rasterRecorder) apply(g *ModelGroup, h *rasterHit) {
 
 func (r *rasterRecorder) check(g *ModelGroup) {
 	if g.ReadFailed {
-		g.RasterProblems = append(g.RasterProblems, "群組必要輸入讀取失敗")
+		boundedAppend(r.arena, &g.RasterProblems, "群組必要輸入讀取失敗")
 	}
-	if len(r.stack) != 0 {
-		g.RasterProblems = append(g.RasterProblems, "封存時R10框未關閉")
-	}
+	r.checkOpenFrames(g)
 	result := hd3d.Replay(hd3d.Group{Key: g.Key, Calls: g.Calls, List: g.List, Buf3D: g.Buf3D}, r.tables)
 	if len(g.RasterProblems) != 0 {
 		result.Valid, result.Repaintable = false, false
@@ -349,4 +395,124 @@ func (r *rasterRecorder) check(g *ModelGroup) {
 	}
 	g.Raster = &result
 	g.ReplayReady = result.Repaintable
+}
+
+type hdInternEntry struct {
+	Hash  [32]byte
+	Bytes []byte
+}
+
+// appendBoundedOwned moves the pending call into its group before interning.
+// Calls growth reserves old+new capacity while the captured duplicate is still
+// charged. No fixed pending slot can retain a duplicate after its refund.
+func (r *rasterRecorder) appendBoundedOwned(g *ModelGroup, src *hd3d.Call) {
+	if len(g.Calls) >= 0xffff {
+		panic(boundedLimit{})
+	}
+	src.Seq = uint16(len(g.Calls))
+	if len(r.stack) > 0 {
+		src.Element = r.stack[len(r.stack)-1].element
+	}
+	boundedAppend(r.arena, &g.Calls, *src)
+	*src = hd3d.Call{}
+	c := &g.Calls[len(g.Calls)-1]
+	r.internBoundedOwned(&c.Verts)
+	r.internBoundedOwned(&c.Table)
+	r.internBoundedOwned(&c.Aux.Table)
+	r.internCapture(&c.Tex.Pixels)
+	r.internCapture(&c.Tex.Shade)
+}
+
+func (r *rasterRecorder) checkOpenFrames(g *ModelGroup) {
+	if len(r.stack) != 0 {
+		boundedAppend(r.arena, &g.RasterProblems, "封存時R10框未關閉")
+	}
+}
+
+// The value wrapper transfers its input. Production call fields use the owned
+// pointer form so the persistent alias changes before the old charge is freed.
+func (r *rasterRecorder) internBounded(b []byte) []byte {
+	r.internBoundedOwned(&b)
+	return b
+}
+func (r *rasterRecorder) internBoundedOwned(dst *[]byte) {
+	b := *dst
+	if len(b) == 0 {
+		return
+	}
+	hash := sha256.Sum256(b)
+	for _, e := range r.boundedBlobs {
+		if e.Hash == hash && bytes.Equal(e.Bytes, b) {
+			*dst = e.Bytes
+			if reflect.ValueOf(e.Bytes).Pointer() != reflect.ValueOf(b).Pointer() {
+				legacyFree(r.arena, b)
+			}
+			return
+		}
+	}
+	boundedAppend(r.arena, &r.boundedBlobs, hdInternEntry{hash, b})
+}
+func (r *rasterRecorder) buffer(v modelView, g *ModelGroup) ([]byte, bool) {
+	if r.arena == nil {
+		return rasterBuffer(v, g)
+	}
+	if g == nil || len(g.List) == 0 {
+		return nil, false
+	}
+	b := boundedMake[byte](r.arena, 64000)
+	return b, modelRead(v, g.Desc[0], g.List[0], b)
+}
+func (r *rasterRecorder) captureSpan(v modelView, seg, off uint16, n int, ok bool) (hd3d.Capture, bool) {
+	if r.arena == nil {
+		return rasterCaptureSpan(v, seg, off, n, ok)
+	}
+	b := boundedMake[byte](r.arena, n)
+	ok = modelRead(v, seg, off, b) && ok
+	spans := boundedMake[hd3d.Span](r.arena, 1)
+	spans[0] = hd3d.Span{Off: off, Data: b}
+	return hd3d.Capture{Spans: spans}, ok
+}
+func (r *rasterRecorder) captureTexture(v modelView, seg, off, width uint16, verts []byte, pad int, ok bool) (hd3d.Capture, bool) {
+	if r.arena == nil {
+		return rasterCaptureTexture(v, seg, off, width, verts, pad, ok)
+	}
+	var out hd3d.Capture
+	if len(verts) < 22 || len(verts)%22 != 0 {
+		return out, false
+	}
+	minU, minV, maxU, maxV := 256, 256, -1, -1
+	for i := 0; i < len(verts); i += 22 {
+		u := int(binary.LittleEndian.Uint16(verts[i+6:]) >> 8)
+		w := int(binary.LittleEndian.Uint16(verts[i+8:]) >> 8)
+		minU, minV, maxU, maxV = min(minU, u), min(minV, w), max(maxU, u), max(maxV, w)
+	}
+	minU, minV, maxU, maxV = minU-pad, minV-pad, maxU+pad, maxV+pad
+	out.Spans = boundedMake[hd3d.Span](r.arena, maxV-minV+1)
+	for y := minV; y <= maxV; y++ {
+		rowOff := uint16(int(off) + y*int(width) + minU)
+		b := boundedMake[byte](r.arena, maxU-minU+1)
+		ok = modelRead(v, seg, rowOff, b) && ok
+		out.Spans[y-minV] = hd3d.Span{Off: rowOff, Data: b}
+	}
+	return out, ok
+}
+
+func (r *rasterRecorder) word(v modelView, s, o uint16, ok *bool) uint16 {
+	if r.owner != nil {
+		return r.owner.modelWord(v, s, o, ok)
+	}
+	return modelWord(v, s, o, ok)
+}
+func (r *rasterRecorder) far(v modelView, s, o uint16, ok *bool) realspace.FarPtr {
+	if r.owner != nil {
+		return r.owner.modelFar(v, s, o, ok)
+	}
+	return modelFar(v, s, o, ok)
+}
+func (r *rasterRecorder) colorBuffer() []byte {
+	if r.arena != nil {
+		clear(r.colorBuf)
+		return r.colorBuf
+	}
+	return make([]byte, 1)
 }

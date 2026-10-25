@@ -516,6 +516,9 @@ func (p *Presenter) verdictFrame(indexed []byte) {
 		}
 	}
 	p.d.verdict = v
+	if p.frontend != nil {
+		p.frontend.onVerdict(v, indexed, p.frontendPalette)
+	}
 	for _, fn := range p.d.verdicts {
 		fn(v)
 	}

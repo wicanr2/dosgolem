@@ -92,6 +92,7 @@ func qualifyOriginal(in Input, tables hd3d.Tables) (sceneLinks, error) {
 }
 
 type boundPass struct {
+	continuous *continuousPass
 	kind       hd3d.CallKind
 	call       hd3d.Call
 	constant   SampleColor
@@ -110,6 +111,7 @@ type boundTriangle struct {
 	passes []triPass
 }
 type boundFace struct {
+	glass               *glassSurface
 	index               int
 	triangles           []boundTriangle
 	clipped, allClipped bool
@@ -425,4 +427,44 @@ func materialObjectKey(fs []boundFace, id SceneIdentity) [32]byte {
 	var key [32]byte
 	copy(key[:], h.Sum(nil))
 	return key
+}
+
+func boundedMaterialObjectKey(fs []boundFace, id SceneIdentity) (key [32]byte, err error) {
+	h := sha256.New()
+	enc := newBoundedJSONSequence(h)
+	if err = enc.add(&id); err != nil {
+		return
+	}
+	var seen [1024]uint64
+	add := func(c *hd3d.Call) error {
+		word, bit := uint(c.Seq)/64, uint(c.Seq)%64
+		if seen[word]&(uint64(1)<<bit) != 0 {
+			return nil
+		}
+		if e := enc.add(c); e != nil {
+			return e
+		}
+		seen[word] |= uint64(1) << bit
+		return nil
+	}
+	for i := range fs {
+		f := &fs[i]
+		for j := range f.deferred {
+			if err = add(&f.deferred[j].Call); err != nil {
+				return
+			}
+		}
+		for j := range f.triangles {
+			t := &f.triangles[j]
+			for k := range t.passes {
+				if err = add(&t.passes[k].bound.call); err != nil {
+					return
+				}
+			}
+		}
+	}
+	if err = enc.finish(); err == nil {
+		copy(key[:], h.Sum(nil))
+	}
+	return
 }

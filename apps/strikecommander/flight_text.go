@@ -135,7 +135,12 @@ func (o *FlightOverlay) drawText(out []byte, indexed []byte, palette [256][3]uin
 	if len(bitems) == 0 {
 		return
 	}
-	bg := labelBackground(out, indexed, palette, o.scale, bitems)
+	var bg []byte
+	if o.hdBackground != nil {
+		bg = labelBackgroundHD(out, indexed, palette, o.scale, bitems, o.hdBackground)
+	} else {
+		bg = labelBackground(out, indexed, palette, o.scale, bitems)
+	}
 	layer.DrawWithBackground(out, o.scale, func(rune) {}, bg, func(*xlate.Stamp) bool { return true })
 	o.lastInk = drawTextItems(out, o.scale, palette, items)
 }

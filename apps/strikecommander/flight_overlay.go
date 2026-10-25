@@ -47,8 +47,9 @@ type flightEntry struct {
 
 // FlightOverlay 依可見集合規劃飛行字串並出圖（NewFlightOverlayText）。
 type FlightOverlay struct {
-	cats  FlightCatalogs
-	scale int
+	hdBackground *hdFlightBackground
+	cats         FlightCatalogs
+	scale        int
 
 	gen     uint64
 	built   bool

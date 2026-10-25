@@ -21,6 +21,7 @@ type CaptureKind string
 
 const (
 	CaptureBuf3D CaptureKind = "buf3d"
+	CaptureBufCU CaptureKind = "completion-bufcu"
 	CaptureVGA   CaptureKind = "completion-vga"
 	CaptureFrame CaptureKind = "frame"
 )
@@ -100,6 +101,7 @@ type Sample struct {
 
 // Result owns immutable samples. Getter copies never expose its backing buffers.
 type Result struct {
+	compositionGlass     []glassSurface
 	identity             SceneIdentity
 	capture              *CaptureIdentity
 	scale, width, height int
@@ -180,16 +182,17 @@ type Snapshot struct {
 	released  bool
 }
 type Renderer struct {
-	lib       *realspace.Library
-	materials *MaterialLibrary
-	tables    hd3d.Tables
-	limits    Limits
-	mu        sync.Mutex
-	worker    sync.Mutex
-	snapshots map[[32]byte]*Snapshot
-	blocked   map[[32]byte]bool
-	owned     uint64
-	results   int
+	typedFreeze bool //013c only;013a default JSON freeze remains unchanged
+	lib         *realspace.Library
+	materials   *MaterialLibrary
+	tables      hd3d.Tables
+	limits      Limits
+	mu          sync.Mutex
+	worker      sync.Mutex
+	snapshots   map[[32]byte]*Snapshot
+	blocked     map[[32]byte]bool
+	owned       uint64
+	results     int
 }
 
 type PaletteSnapshot struct {

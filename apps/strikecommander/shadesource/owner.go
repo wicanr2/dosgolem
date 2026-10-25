@@ -18,6 +18,7 @@ const fixedReservation uint64 = 40<<20 | 64<<10
 // Owner accounts recorder graphs, two external leases and a single synchronous
 // validation/export worker. It never retains a machine or starts a goroutine.
 type Owner struct {
+	producer       *ProtectedProducer
 	blockedThrough uint64
 	mu             sync.Mutex
 	worker         sync.Mutex
@@ -42,6 +43,7 @@ type RawLease struct {
 	released bool
 }
 type Lease struct {
+	shared   *Graph
 	owner    *Owner
 	data     Packet
 	declared Declaration
@@ -49,6 +51,7 @@ type Lease struct {
 	released bool
 }
 type Reservation struct {
+	producer bool
 	owner    *Owner
 	bytes    uint64
 	released bool
@@ -78,11 +81,11 @@ func (o *Owner) ReservePending() (*Reservation, error) {
 	if o.closed || o.pending {
 		return nil, failure(ResourceLimit, "owner closed/pending occupied")
 	}
-	if e := o.reserve(8192); e != nil {
+	if e := o.reserveProducer(8192); e != nil {
 		return nil, e
 	}
 	o.pending = true
-	return &Reservation{owner: o, bytes: 8192}, nil
+	return &Reservation{owner: o, bytes: 8192, producer: o.producer != nil}, nil
 }
 func (r *Reservation) Release() {
 	if r == nil {
@@ -92,7 +95,7 @@ func (r *Reservation) Release() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if !r.released {
-		o.owned -= r.bytes
+		o.releaseReservation(r.bytes, r.producer)
 		if r.bytes == 8192 {
 			o.pending = false
 		}
@@ -112,11 +115,12 @@ func (o *Owner) NewGraph(id Identity) (*Graph, error) {
 	if o.closed || active >= 3 || len(o.graphs)+o.accepted >= 5 {
 		return nil, failure(ResourceLimit, "live graph limit")
 	}
-	g := &Graph{owner: o, data: InitialPacket(id), refs: 1, token: id}
-	g.bytes = footprint(g.data) + 256
-	if e := o.reserve(g.bytes); e != nil {
+	data := InitialPacket(id)
+	n := footprint(data) + 256
+	if e := o.reserveProducer(n); e != nil {
 		return nil, e
 	}
+	g := &Graph{owner: o, data: data, bytes: n, refs: 1, token: id}
 	o.graphs[g] = struct{}{}
 	return g, nil
 }
@@ -174,7 +178,7 @@ func grow[T any](g *Graph, p *[]T) error {
 	if g.bytes+n > MaxGraphBytes {
 		return failure(ResourceLimit, "graph capacity")
 	}
-	if e := g.owner.reserve(n); e != nil {
+	if e := g.owner.reserveProducer(n); e != nil {
 		return e
 	}
 	v := make([]T, len(*p), newCap)
@@ -182,7 +186,7 @@ func grow[T any](g *Graph, p *[]T) error {
 	old := uint64(cap(*p)) * unit
 	*p = v
 	g.bytes += n - old
-	g.owner.owned -= old
+	g.owner.releaseProducer(old)
 	return nil
 }
 func (g *Graph) reconcile(res *Reservation) error {
@@ -197,11 +201,11 @@ func (g *Graph) reconcile(res *Reservation) error {
 		credit = res.bytes
 	}
 	if actual > old+credit {
-		if e := g.owner.reserve(actual - old - credit); e != nil {
+		if e := g.owner.reserveProducer(actual - old - credit); e != nil {
 			return e
 		}
 	} else {
-		g.owner.owned -= old + credit - actual
+		g.owner.releaseProducer(old + credit - actual)
 	}
 	g.bytes = actual
 	if res != nil {
@@ -229,15 +233,15 @@ func (g *Graph) AddProof(p Proof) (uint32, error) {
 	if e := grow(g, &g.data.Proofs); e != nil {
 		return 0, e
 	}
-	if e := o.reserve(64 << 10); e != nil {
+	if e := o.reserveProducer(64 << 10); e != nil {
 		return 0, e
 	}
-	r := &Reservation{owner: o, bytes: 64 << 10}
+	r := &Reservation{owner: o, bytes: 64 << 10, producer: o.producer != nil}
 	g.data.Proofs = append(g.data.Proofs, p)
 	if e := g.reconcile(r); e != nil {
 		g.data.Proofs[len(g.data.Proofs)-1] = Proof{}
 		g.data.Proofs = g.data.Proofs[:len(g.data.Proofs)-1]
-		o.owned -= r.bytes
+		o.releaseReservation(r.bytes, r.producer)
 		return 0, e
 	}
 	return uint32(len(g.data.Proofs) - 1), nil
@@ -332,7 +336,7 @@ func (g *Graph) drop() {
 	g.refs--
 	if g.refs == 0 {
 		o := g.owner
-		o.owned -= g.bytes
+		o.releaseProducer(g.bytes)
 		delete(o.graphs, g)
 		g.data = Packet{}
 		g.bytes = 0
@@ -358,7 +362,7 @@ func (g *Graph) Acquire() (*RawLease, error) {
 	if !g.frozen || g.retired || o.closed || o.external >= 2 {
 		return nil, failure(ResourceLimit, "raw lease unavailable")
 	}
-	if e := o.reserve(128); e != nil {
+	if e := o.reserveProducer(128); e != nil {
 		return nil, e
 	}
 	o.external++
@@ -383,7 +387,7 @@ func (l *RawLease) Release() {
 	}
 	l.released = true
 	o.external--
-	o.owned -= 128
+	o.releaseProducer(128)
 	l.graph.drop()
 	o.freeFixedIfDone()
 }
@@ -479,7 +483,7 @@ func (l *RawLease) Export(legacy model.Input, dst io.Writer) (Declaration, error
 	o.mu.Unlock()
 	// Hash legacy before creating the private intermediate clone, so each working
 	// stage fits the single reserved 32MiB intermediate arena.
-	h, e := opaque.InputDigest(legacy)
+	h, e := o.profileLegacyDigest(legacy)
 	if e != nil {
 		return Declaration{}, e
 	}
@@ -496,7 +500,7 @@ func (l *RawLease) Export(legacy model.Input, dst io.Writer) (Declaration, error
 		return Declaration{}, e
 	}
 	d := Declaration{h, p.Identity, x}
-	if e = writePacket(dst, p); e != nil {
+	if e = o.profileWritePacket(dst, p); e != nil {
 		return Declaration{}, e
 	}
 	o.mu.Lock()
@@ -573,7 +577,7 @@ func (o *Owner) acceptLocked(legacy model.Input, input Packet, external *Declara
 			o.mu.Unlock()
 		}
 	}()
-	h, e := opaque.InputDigest(legacy)
+	h, e := o.profileLegacyDigest(legacy)
 	if e != nil {
 		return nil, e
 	}
@@ -728,7 +732,7 @@ func (l *Lease) WriteJSON(dst io.Writer) error {
 	}
 	p := l.data
 	o.mu.Unlock()
-	return writePacket(dst, p)
+	return o.profileWritePacket(dst, p)
 }
 func (l *Lease) Release() {
 	if l == nil {
@@ -745,7 +749,13 @@ func (l *Lease) Release() {
 	l.released = true
 	o.external--
 	o.owned -= l.bytes
-	o.accepted--
+	if l.shared != nil {
+		o.releaseProducer(128)
+		l.shared.drop()
+		l.shared = nil
+	} else {
+		o.accepted--
+	}
 	l.data = Packet{}
 	o.freeFixedIfDone()
 }
@@ -826,9 +836,13 @@ func (g *Graph) BindCU(key uint64) {
 
 // Keep work/proof reservations while a post-Close consumer can still export.
 func (o *Owner) freeFixedIfDone() {
-	if o.closed && o.external == 0 && len(o.graphs) == 0 && !o.pending && o.fixed {
+	if o.closed && o.external == 0 && len(o.graphs) == 0 && !o.pending && (o.producer == nil || o.producer.legacyUsed == 0 && o.producer.extraUsed == 0) && o.fixed {
 		o.owned -= fixedReservation
 		o.fixed = false
+		if o.producer != nil && !o.producer.freed {
+			o.owned -= o.producer.legacyLimit + o.producer.extraLimit
+			o.producer.freed = true
+		}
 	}
 }
 

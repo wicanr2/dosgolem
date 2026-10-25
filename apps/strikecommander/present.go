@@ -174,13 +174,15 @@ type PresentInfo struct {
 }
 
 type presentImage struct {
-	info     PresentInfo
-	indexed  []byte // 64000，不可變（呈現像之間可共用）
-	palette  [256][3]uint8
-	labels   []Label
-	labelGen uint64
-	flight   []FlightText
-	presGen  uint64
+	sourceCU  uint64 // 當次接受的 CU entry；在 publish 前固定，與暫存 p.cu 分離。
+	hdBinding hdImageBinding
+	info      PresentInfo
+	indexed   []byte // 64000，不可變（呈現像之間可共用）
+	palette   [256][3]uint8
+	labels    []Label
+	labelGen  uint64
+	flight    []FlightText
+	presGen   uint64
 	// 字幕（§3.3.4）：current() 的值複本與阻擋狀態（以呈現像色號判）。
 	subPtr     *Subtitle
 	sub        Subtitle
@@ -228,8 +230,9 @@ type presRecheck struct {
 
 // PresentCounts 是各種取像數與異常計數（§4.2.3）。
 type PresentCounts struct {
-	Frames   int
-	Captures map[PresentKind]int
+	PlatePreloadMissing, PlateButtonsMismatch int `json:",omitempty"`
+	Frames                                    int
+	Captures                                  map[PresentKind]int
 
 	QueueOverflow, WindowTimeout, ModeTimeout, DuplicateEntry, DuplicateDelivered, WindowSkipped int
 	ReturnWithoutEntry, ReturnDuplicateDelivered                                                 int
@@ -301,6 +304,7 @@ type PresentShot struct {
 
 // PresenterConfig 是 NewPresenter 的輸入（§3.8）。
 type PresenterConfig struct {
+	MenuRoot       string // optional014 R6: preloaded MAINMENU from read-only cache tree
 	Fonts          *TextFonts
 	Catalog        map[string]string
 	GfxCatalog     map[string]string
@@ -321,15 +325,21 @@ type composeCacheKey struct {
 
 // Presenter 是覆蓋模式的呈現層（§3.8）。單一 goroutine 使用。
 type Presenter struct {
-	cfg      PresenterConfig
-	mut      presentMut
-	ovs      map[int]*Overlay
-	fovs     map[int]*FlightOverlay
-	labels   *LabelObserver
-	flight   *FlightObserver
-	subs     *Subtitles
-	routines []presRoutine
-	ipMask   [1024]uint64
+	bindHDImage       func(*presentImage)
+	voidHDCU          func(uint64)
+	menuPreload       PresentMenuPreload
+	presetMenuButtons []byte
+	frontend          *FrontendPresentation
+	frontendPalette   [256][3]uint8
+	cfg               PresenterConfig
+	mut               presentMut
+	ovs               map[int]*Overlay
+	fovs              map[int]*FlightOverlay
+	labels            *LabelObserver
+	flight            *FlightObserver
+	subs              *Subtitles
+	routines          []presRoutine
+	ipMask            [1024]uint64
 
 	queue      []presItem
 	clearPend  bool
@@ -397,6 +407,7 @@ func NewPresenter(cfg PresenterConfig) (*Presenter, error) {
 	}
 	p := &Presenter{cfg: cfg, mut: cfg.mut, ovs: map[int]*Overlay{}, fovs: map[int]*FlightOverlay{}, subsOn: cfg.Subtitles,
 		unattr: map[[2]uint16]*PresentUnattr{}}
+	p.loadPresetMenu(cfg.MenuRoot)
 	p.counts.Captures = map[PresentKind]int{}
 	p.counts.Routines = map[string]RoutineCount{}
 	p.sourceWrites.rows = make([]pendingSourceWrite, 0, sourcePoolCells)
@@ -411,6 +422,8 @@ func NewPresenter(cfg PresenterConfig) (*Presenter, error) {
 			return nil, err
 		}
 		ov.exactOnly = cfg.exactOnly
+		ov.presetButtons = p.presetMenuButtons
+
 		p.ovs[sc] = ov
 		if cfg.FlightCatalogs != nil {
 			fov, err := NewFlightOverlayText(cfg.Fonts, *cfg.FlightCatalogs, sc)
@@ -559,6 +572,9 @@ func (p *Presenter) enqueue(it presItem) {
 }
 
 func (p *Presenter) applyItem(it presItem) {
+	if it.art && it.ev.File == ArtMainMenuButtons && len(p.presetMenuButtons) != 0 && !bytes.Equal(it.ev.Buttons, p.presetMenuButtons) {
+		p.counts.PlateButtonsMismatch++
+	}
 	for _, sc := range p.cfg.Scales {
 		if it.art {
 			p.ovs[sc].AddDialogArt(it.ev)
@@ -602,6 +618,10 @@ func (p *Presenter) closedItems() bool {
 
 // Observe 在 BeforeStep 內、Labels、Flight、Subtitles 的 Observe 之後呼叫（§3.2.1 第 7 條）。
 func (p *Presenter) Observe(v PresentView) {
+	if p.frontend != nil {
+		p.frontend.prepared.enterCallback()
+		defer p.frontend.prepared.leaveCallback()
+	}
 	steps := v.Steps()
 	p.steps = steps
 	p.observeSourceDrain(steps)
@@ -814,6 +834,20 @@ func (p *Presenter) complete(v PresentView, last *presWindow) {
 // v 只在 idx 或 pal 為 nil 時使用；在 Frame 內（沒有開著的視圖）呼叫時 v 為 nil，idx 與 pal 都必須給。
 // 同一步依序：套用佇列 → Sync(Labels) → 飛行 Sync(F, presGen) → 色號與色盤 → 字幕狀態 → 建呈現像。
 func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx []byte, pal *[256][3]uint8, F []FlightText) bool {
+	key := uint64(0)
+	if kind == PresCU {
+		key = p.cu.entry
+	}
+	return p.captureCU(v, kind, cs, ip, idx, pal, F, key)
+}
+
+// captureCU fixes the source identity before publishing. A return caller passes
+// the saved original entry even though p.cu has already been cleared.
+func (p *Presenter) captureCU(v PresentView, kind PresentKind, cs, ip uint16, idx []byte, pal *[256][3]uint8, F []FlightText, entry uint64) bool {
+	if p.frontend != nil {
+		p.frontend.prepared.enterCallback()
+		defer p.frontend.prepared.leaveCallback()
+	}
 	p.drainSourceWrites()
 	if p.d.mode != deferIdle {
 		p.d.pending = true
@@ -846,6 +880,9 @@ func (p *Presenter) capture(v PresentView, kind PresentKind, cs, ip uint16, idx 
 		idx = p.vga[:64000]
 	}
 	img := &presentImage{indexed: append([]byte(nil), idx...)}
+	if kind == PresCU || kind == PresCUReturn {
+		img.sourceCU = entry
+	}
 	if pal != nil {
 		img.palette = *pal
 	} else {
@@ -908,6 +945,9 @@ func (p *Presenter) derive(kind PresentKind, pal [256][3]uint8, sub *Subtitle, b
 }
 
 func (p *Presenter) publish(img *presentImage) {
+	if p.bindHDImage != nil {
+		p.bindHDImage(img)
+	}
 	p.counts.Captures[img.info.Kind]++
 	if len(p.captures) < 4*presMaxRecords {
 		p.captures = append(p.captures, img.info)
@@ -999,6 +1039,9 @@ func (p *Presenter) onCU(e cuEvent) {
 		p.counts.CUCHNonZero++
 		p.lastCH = presRet{valid: true, ip: e.IP, ss: e.V.SS(), sp: e.V.SP(), steps: e.V.Steps()}
 	case cuEvVoided, cuEvTimeout:
+		if p.voidHDCU != nil {
+			p.voidHDCU(e.Entry.Steps)
+		}
 		if e.Kind == cuEvVoided {
 			p.counts.CUVoided++
 		} else {
@@ -1090,7 +1133,7 @@ func (p *Presenter) cuEntryCapture(v PresentView) {
 	}
 	cands := p.flight.Candidates()
 	if p.mut&presMutN6 != 0 {
-		if p.capture(v, PresCU, v.CS(), p.cuPendIP, nil, nil, cands) {
+		if p.captureCU(v, PresCU, v.CS(), p.cuPendIP, nil, nil, cands, p.cu.entry) {
 			p.cu.captured, p.cu.buf = true, p.cur.indexed
 		}
 		return
@@ -1122,7 +1165,7 @@ func (p *Presenter) cuEntryCapture(v PresentView) {
 		p.cu.needReturn = true
 		return
 	}
-	if p.capture(v, PresCU, v.CS(), p.cuPendIP, p.bufC, nil, cands) {
+	if p.captureCU(v, PresCU, v.CS(), p.cuPendIP, p.bufC, nil, cands, p.cu.entry) {
 		p.cu.captured, p.cu.buf, p.cu.desc, p.cu.fromFB = true, p.cur.indexed, d, fromFB
 	}
 }
@@ -1164,7 +1207,7 @@ func (p *Presenter) cuAfterReturn(v PresentView) {
 		return
 	}
 	if c.needReturn {
-		if p.capture(v, PresCUReturn, v.CS(), v.IP(), nil, nil, p.flightSet()) {
+		if p.captureCU(v, PresCUReturn, v.CS(), v.IP(), nil, nil, p.flightSet(), c.entry) {
 			p.scheduleRecheck()
 		}
 		return
@@ -1207,7 +1250,7 @@ func (p *Presenter) cuAfterReturn(v PresentView) {
 	}
 	p.cuRec(rec)
 	if p.mut&presMutN27 == 0 {
-		if p.capture(v, PresCUReturn, v.CS(), v.IP(), vga, nil, p.flightSet()) {
+		if p.captureCU(v, PresCUReturn, v.CS(), v.IP(), vga, nil, p.flightSet(), c.entry) {
 			p.scheduleRecheck()
 		}
 	}
@@ -1232,6 +1275,10 @@ func diffBox(a, b []byte) (n, x0, y0, x1, y1 int) {
 // VideoWrite 依 §3.2 歸屬（分期 (c)：CU 窗內非 V86 的寫入、開著的 blit 窗範圍內的寫入）。熱路徑不配置
 // 未歸屬來源在預配池暫存，聚合延到 Observe/Frame 等非熱路徑。
 func (p *Presenter) VideoWrite(w machine.VideoWrite) {
+	if p.frontend != nil {
+		p.frontend.prepared.enterCallback()
+		defer p.frontend.prepared.leaveCallback()
+	}
 	p.vwTotal++
 	p.vwSinceCap++
 	if p.cuOpen && !w.Ctx.V86() {
@@ -1266,6 +1313,10 @@ func (p *Presenter) VideoWrite(w machine.VideoWrite) {
 
 // VideoModeChange 是模式設定（§3.4.2 清除退用描述元；§3.5.1 的退路標記在分期 (f) 取像）。
 func (p *Presenter) VideoModeChange(c machine.ModeChange) {
+	if p.frontend != nil {
+		p.frontend.prepared.enterCallback()
+		defer p.frontend.prepared.leaveCallback()
+	}
 	p.drainSourceWrites()
 	p.counts.ModeChanges++
 	p.fbDesc = presDesc{}
@@ -1282,6 +1333,11 @@ func (p *Presenter) Frame(indexed []byte, palette [256][3]uint8) {
 }
 
 func (p *Presenter) FrameAt(steps uint64, indexed []byte, palette [256][3]uint8) {
+	if p.frontend != nil {
+		p.frontendPalette = palette
+		p.frontend.prepared.enterCallback()
+		defer p.frontend.prepared.leaveCallback()
+	}
 	p.drainSourceWrites()
 	p.steps = steps
 	if p.d.flightCommitValid {

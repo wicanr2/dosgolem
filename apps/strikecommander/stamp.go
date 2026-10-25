@@ -100,11 +100,14 @@ func validRows(b []byte, h int) bool { return b != nil && len(b) == h*320 }
 // Overlay 自有一個 xlate.Layer，依可見集合與 generation 重建 stamp（同 apps/buckrogers/hmenu_overlay.go）。
 // 不呼叫 Layer.Frame、Add、Replace：Add 遇到部分重疊會把遮蓋 stamp 的格子設成透明而丟掉它。
 type Overlay struct {
-	layer *xlate.Layer
-	tr    map[string]string
-	scale int
-	gen   uint64
-	built bool
+	presetButtons    []byte
+	presetPlate      *ArtEvent
+	onPresetMismatch func()
+	layer            *xlate.Layer
+	tr               map[string]string
+	scale            int
+	gen              uint64
+	built            bool
 	// exactOnly 讓解析只留第 1 步（只供 002 §3.2 案例 D 的負對照）。
 	exactOnly bool
 	// info 記每個 stamp 的種類、色號與是否以背景圖填格。重建 stamp 時清空。
@@ -291,6 +294,11 @@ func rowsReason(before, after []byte, h int) string {
 // 也不列入背景清單（006 §3.2 第 8 條）；照畫的遮蓋 stamp 組成暫時的 layer 交給 DrawWithBackground。不改 Stamp.State。
 func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 	out := ScaleIndexedRGBA(indexed, palette, o.scale)
+	return out, o.drawOverlayInto(out, indexed, palette)
+}
+
+// drawOverlayInto changes only supplied output, preserving the original indexed.
+func (o *Overlay) drawOverlayInto(out, indexed []byte, palette [256][3]uint8) []rune {
 	o.drawArt(out, indexed, palette)
 	for _, s := range o.layer.Stamps {
 		si := o.info[s]
@@ -318,7 +326,7 @@ func (o *Overlay) Draw(indexed []byte, palette [256][3]uint8) ([]byte, []rune) {
 		func(s *xlate.Stamp) bool { return o.info[s].bgImage })
 	// 全部照畫標籤的外框層，再全部照畫字串的填色層（011 §3.4 第 4 條、§3.6.1）。
 	o.lastInk = drawTextItems(out, o.scale, palette, items)
-	return out, miss
+	return miss
 }
 
 // backgroundItems 回這次照畫、以背景圖繪製的標籤（006 §3.2 第 3、8 條）：依重建順序，透明標籤與 board，

@@ -34,7 +34,7 @@ func PaletteHash(p [256][3]uint8) [32]byte {
 	return sha256.Sum256(b[:])
 }
 func captureValid(id SceneIdentity, c CaptureIdentity) bool {
-	return c.Scene == id && c.Steps != 0 && (c.Kind == CaptureBuf3D || c.Kind == CaptureVGA || c.Kind == CaptureFrame) && c.IndexedSHA != ([32]byte{}) && c.OriginalPaletteSHA != ([32]byte{})
+	return c.Scene == id && c.Steps != 0 && (c.Kind == CaptureBuf3D || c.Kind == CaptureVGA || c.Kind == CaptureFrame || c.Kind == CaptureBufCU) && c.IndexedSHA != ([32]byte{}) && c.OriginalPaletteSHA != ([32]byte{})
 }
 func NewPaletteSnapshot(id SceneIdentity, c CaptureIdentity, p [256][3]uint8) (PaletteSnapshot, error) {
 	if !captureValid(id, c) {

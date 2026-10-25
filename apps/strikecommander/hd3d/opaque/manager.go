@@ -143,6 +143,18 @@ func epochKey(id SceneIdentity) [32]byte {
 	return sha256.Sum256(b)
 }
 
+// typed profile never borrows encoding/json's process-global encodeState pool.
+func (r *Renderer) sourceEpochKey(id SceneIdentity) [32]byte {
+	if !r.typedFreeze {
+		return epochKey(id)
+	}
+	key, _ := boundedJSONDigest(struct {
+		State    [32]byte
+		App, Sig uint64
+	}{id.State, id.AppGeneration, id.SignatureGeneration}, 32<<20)
+	return key // fixed fields have a compile-time small bound and no failing kind.
+}
+
 const maxSourceEpochs = 4096
 
 // Reserve a conservative logical allowance for every map entry up front. Both
@@ -152,7 +164,10 @@ const sourceLedgerBytes = uint64(maxSourceEpochs * 128)
 // The caller holds r.mu. A full ledger prevents all new, unrecorded epochs from
 // publishing; otherwise an invalid epoch could be forgotten after capacity fails.
 func (r *Renderer) sourceStatusLocked(id SceneIdentity) error {
-	if r.blocked[epochKey(id)] {
+	if r.typedFreeze && r.limits.IntermediateBytes < boundedJSONFixedWorkspace {
+		return gateFailure(H3, -1, -1, "typed JSON workspace capacity")
+	}
+	if r.blocked[r.sourceEpochKey(id)] {
 		return gateFailure(H4, -1, -1, "source generation disabled")
 	}
 	if len(r.blocked) >= maxSourceEpochs {
@@ -161,7 +176,10 @@ func (r *Renderer) sourceStatusLocked(id SceneIdentity) error {
 	return nil
 }
 func (r *Renderer) blockSourceLocked(id SceneIdentity) error {
-	key := epochKey(id)
+	if r.typedFreeze && r.limits.IntermediateBytes < boundedJSONFixedWorkspace {
+		return gateFailure(H3, -1, -1, "typed JSON workspace capacity")
+	}
+	key := r.sourceEpochKey(id)
 	if r.blocked[key] {
 		return nil
 	}
@@ -191,7 +209,7 @@ func (r *Renderer) Accept(in Input) (*Snapshot, error) {
 	if id.EXE == ([32]byte{}) || id.State == ([32]byte{}) || id.Group == ([32]byte{}) || id.AppGeneration == 0 || id.SignatureGeneration == 0 || id.Assets != r.materials.Key() || id.CUKey != in.Scene.Key || in.Scene.Key != in.Scene.Raster.Key {
 		return fail(H3, "incomplete/mixed source identity")
 	}
-	if in.Capture != nil && !captureValid(id, *in.Capture) {
+	if in.Capture != nil && (!captureValid(id, *in.Capture) || in.Capture.Kind == CaptureBufCU && !r.typedFreeze) {
 		return fail(H3, "capture identity differs")
 	}
 	if in.Capture != nil && in.Capture.Kind == CaptureBuf3D && (len(in.Scene.Raster.Buf3D) != hd3d.PixelCount || in.Capture.IndexedSHA != sha256.Sum256(in.Scene.Raster.Buf3D)) {
@@ -200,20 +218,35 @@ func (r *Renderer) Accept(in Input) (*Snapshot, error) {
 	if e := inputCounts(in.Scene, r.limits); e != nil {
 		return fail(H3, e.Error())
 	}
-	digest, e := InputDigest(in.Scene)
+	var digest [32]byte
+	var e error
+	if r.typedFreeze {
+		digest, e = BoundedInputDigest(in.Scene, r.limits.IntermediateBytes)
+	} else {
+		digest, e = InputDigest(in.Scene)
+	}
 	if e != nil {
 		return fail(H3, e.Error())
 	}
 	if digest != id.Group {
 		return fail(H3, "captured group digest differs")
 	}
-	keyBytes, _ := json.Marshal(struct {
+	keyValue := struct {
 		ID         SceneIdentity
 		Cap        *CaptureIdentity
 		ReadFailed bool
 		Rule       string
-	}{id, in.Capture, in.ReadFailed, RuleVersion})
-	key := sha256.Sum256(keyBytes)
+	}{id, in.Capture, in.ReadFailed, RuleVersion}
+	var key [32]byte
+	if r.typedFreeze {
+		key, e = boundedJSONDigest(keyValue, r.limits.IntermediateBytes)
+		if e != nil {
+			return fail(H3, e.Error())
+		}
+	} else {
+		keyBytes, _ := json.Marshal(keyValue)
+		key = sha256.Sum256(keyBytes)
+	}
 	if prior := r.snapshots[key]; prior != nil && !prior.released {
 		prior.refs++
 		return prior, nil
@@ -227,20 +260,29 @@ func (r *Renderer) Accept(in Input) (*Snapshot, error) {
 	if r.owned+reservation+r.materials.OwnedBytes() > r.limits.TotalBytes {
 		return fail(H3, "snapshot logical reservation capacity")
 	}
-	src := in
-	src.Scene = canonicalScene(in.Scene)
-	raw, e := json.Marshal(src)
-	if e != nil {
-		return fail(H3, e.Error())
-	}
-	if uint64(len(raw)) > r.limits.IntermediateBytes {
-		return fail(H3, "freeze workspace capacity")
-	}
 	var frozen Input
-	if e = json.Unmarshal(raw, &frozen); e != nil {
-		return fail(H3, e.Error())
+	var retained uint64
+	if r.typedFreeze {
+		frozen, retained, e = typedFreezeInput(in, r.limits.IntermediateBytes)
+		if e != nil {
+			return fail(H3, e.Error())
+		}
+	} else {
+		src := in
+		src.Scene = canonicalScene(in.Scene)
+		raw, x := json.Marshal(src)
+		if x != nil {
+			return fail(H3, x.Error())
+		}
+		if uint64(len(raw)) > r.limits.IntermediateBytes {
+			return fail(H3, "freeze workspace capacity")
+		}
+		if x = json.Unmarshal(raw, &frozen); x != nil {
+			return fail(H3, x.Error())
+		}
+		retained = uint64(len(raw))
 	}
-	reservation = sampleBuffers + uint64(len(raw))
+	reservation = sampleBuffers + retained
 	snap := &Snapshot{renderer: r, input: frozen, key: key, owned: reservation, refs: 1}
 	r.snapshots[key] = snap
 	r.owned += reservation

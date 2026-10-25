@@ -1,6 +1,7 @@
 package strikecommander
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -67,9 +68,32 @@ func (o *Overlay) AddDialogArt(ev ArtEvent) {
 			return strings.HasPrefix(e.rect.Key, keyMainMenu) || strings.HasPrefix(e.rect.Key, keyMainMenuPlate)
 		})
 		p := ev
+		if len(o.presetButtons) != 0 {
+			p.Buttons = o.presetButtons
+			o.presetPlate = &p
+			for n := 0; n < mmLines; n++ {
+				row := p
+				row.Line = n
+				o.addArt(row)
+			}
+			return
+		}
 		o.platePending = &p
 		return
 	case ArtMainMenuButtons:
+		if p := o.presetPlate; p != nil {
+			if !bytes.Equal(ev.Buttons, o.presetButtons) && o.onPresetMismatch != nil {
+				o.onPresetMismatch()
+			}
+			if !bytes.Equal(ev.Buttons, p.Buttons) {
+				p.Buttons = ev.Buttons
+				for n := 0; n < mmLines; n++ {
+					row := *p
+					row.Line = n
+					o.addArt(row)
+				}
+			}
+		}
 		if p := o.platePending; p != nil {
 			o.platePending = nil
 			for n := 0; n < mmLines; n++ {
@@ -141,6 +165,8 @@ func (o *Overlay) dropConfirmArt(ev ArtEvent) {
 
 // ClearArt 移除全部圖面與記下的主選單底板（全螢幕 blit 入口，004 §3.3）。
 func (o *Overlay) ClearArt() {
+	o.presetPlate = nil
+
 	o.arts = nil
 	o.platePending = nil
 	o.artLayer.ClearArt()
