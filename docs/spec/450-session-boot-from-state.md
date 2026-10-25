@@ -225,3 +225,8 @@ psc.sh p530 probe543 -kbd-int15 -load-state /scratch/s449.state -steps 449040000
 
 - `Load` 的錯誤訊息照規格包上路徑，字面會重複「不是 gzip」（sentinel 本身含這四個字）。
 - 長測試負對照的開關是未匯出欄位 `Owner.noKbdRewrite`，沒有新增公開 API。
+
+
+## 2026-10-25 明示雙根擴充
+
+[463](463-session-original-save-roots.md)第1版READY另授權`OriginalRoot`非空時的唯讀原版根與可寫SaveRoot。本文原單根狀態啟動、零值行為、舊snapshot及其readonly handle限制不變。463未完成實作／驗收前，不宣稱已支援新模式。

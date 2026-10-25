@@ -111,3 +111,8 @@ SaveRoot 不可寫（含 NUL 路徑）、LoadEXE 壞 bytes、成功後再開機�
 而且是 `bootroot.Prepare` 分離複製的樹，原版樹不受影響；因此 `BootOriginal` 同時把
 `DOS.Scratch` 設成存檔根。合成測試 `TestBootOriginalWritesLandInSaveRoot` 以 MZ 程式
 建檔、寫入、關檔，確認內容落在存檔根。
+
+
+## 2026-10-25 明示雙根擴充
+
+[463](463-session-original-save-roots.md)第1版READY另授權`OriginalRoot`非空時的唯讀原版根與可寫SaveRoot。本文原單根私有開機、零值行為、舊snapshot及其readonly handle限制不變。463未完成實作／驗收前，不宣稱已支援新模式。

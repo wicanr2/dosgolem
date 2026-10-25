@@ -962,6 +962,7 @@
 - [460 session 稀疏觀察：觸發 IP 集合、步數期限與單次喚醒](460-session-sparse-observe.md)：READY（第 4 版）。(a) 已實作、預設關閉；(b) CS／簽章篩選見 §9，未實作。Q／R／E 與 S8／S9／S13 補驗見 §8；64 步快照與原始 DOS 雜湊等閘門仍待完成，不標 CONFORMED。
 - [461 讀入狀態檔後的計時器頻率](461-pit-divisor-after-load.md)：READY（第 3 版），已實作；全庫、rich2 與 FD2 抽樣複驗通過，MOO2 缺素材未驗證。`PITDivisor()` 改讀 IRQ0 實際用的 `PITDiv`（0 回 65,536），`PITProgrammed()` 改讀寫入計數、`LoadState` 清零；刪除 `Machine.pit` 的第二份解讀；修正讀檔後 `StepsPerSecondNow()` 少算 6.59 倍。
 - [462 SB16 8 位元數位音效輸出到主機音訊](462-sb16-pcm-host-audio.md)：READY（第 2 版），已實作、未 CONFORMED。48 套件與 vet 通過，原版 PCM／狀態抽樣及限制見 §7；實作收據在陸空戰將 repo workplace/sb462/。DMA `start` 時於機器內以實體位址取樣，`SBPCMEvent` 經 session `SBPCMObserver` 送 `audio/sbpcm.Source`（到達即記區段、`Sample(j)` 純函式），樣本均勻填滿 `[Start, Due)`，與 OPL 同時基；不門控 SpeakerOn（照 DOSBox-X SB16）；不改機器狀態。
+- [463 session唯讀原版根與存檔根](463-session-original-save-roots.md)：READY（第1版），未實作。兩啟動入口以OriginalRoot明示雙根；安全mutation、Save優先的雙根state重定位；原模式／snapshot格式／readonly恢復handle不變。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
