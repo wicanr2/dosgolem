@@ -15,13 +15,22 @@ import (
 )
 
 // R8 identity is physical CurPSP+10h, not the snapshot's static ProgramPath.
-// Sources: 464 READY and session-r8/raw-mem-result-001.json. Prefix=256,
-// entry=64; only one complete byte match is accepted, never a filename guess.
+// Sources: 464 READY, 016a section 8 and the frozen physical return witness.
+// Prefix=256; SCCD samples resident image+0100h, others sample MZ entry (64).
+// Only one complete byte match is accepted, never a filename guess.
 type frontendProgram struct {
 	name        string
 	image       []byte
 	entry       uint32
 	relocations []uint32
+}
+
+// The sampling profile is separate from the original MZ entry metadata.
+func frontendProgramSampleOffset(p frontendProgram) uint32 {
+	if p.name == "SCCD.EXE" {
+		return 0x100
+	}
+	return p.entry
 }
 
 func parseFrontendProgram(name string, raw []byte) (frontendProgram, error) {
@@ -45,7 +54,7 @@ func parseFrontendProgram(name string, raw []byte) (frontendProgram, error) {
 		return bad()
 	}
 	p.entry = u16(22)*16 + u16(20)
-	if end-header < 256 || uint64(p.entry)+64 > uint64(end-header) {
+	if end-header < 256 || uint64(p.entry)+64 > uint64(end-header) || uint64(frontendProgramSampleOffset(p))+64 > uint64(end-header) {
 		return bad()
 	}
 	p.image = append([]byte(nil), raw[header:end]...)
@@ -125,10 +134,11 @@ func identifyFrontendProgram(read func([]session.BootPSPRange) (session.BootPSPR
 	}
 	ranges := make([]session.BootPSPRange, 0, 2*len(library))
 	for _, p := range library {
-		if len(p.image) < 256 || uint64(p.entry)+64 > uint64(len(p.image)) || p.entry > ^uint32(0)-0x100 {
+		sample := frontendProgramSampleOffset(p)
+		if len(p.image) < 256 || uint64(p.entry)+64 > uint64(len(p.image)) || p.entry > ^uint32(0)-0x100 || uint64(sample)+64 > uint64(len(p.image)) || sample > ^uint32(0)-0x100 {
 			return "", fmt.Errorf("016 R8 %s 候選範圍無效", p.name)
 		}
-		ranges = append(ranges, session.BootPSPRange{Offset: 0x100, Dst: make([]byte, 256)}, session.BootPSPRange{Offset: 0x100 + p.entry, Dst: make([]byte, 64)})
+		ranges = append(ranges, session.BootPSPRange{Offset: 0x100, Dst: make([]byte, 256)}, session.BootPSPRange{Offset: 0x100 + sample, Dst: make([]byte, 64)})
 	}
 	receipt, e := read(ranges)
 	if e != nil {
@@ -140,7 +150,8 @@ func identifyFrontendProgram(read func([]session.BootPSPRange) (session.BootPSPR
 		if e != nil {
 			return "", e
 		}
-		if bytes.Equal(image[:256], ranges[2*i].Dst) && bytes.Equal(image[p.entry:p.entry+64], ranges[2*i+1].Dst) {
+		sample := frontendProgramSampleOffset(p)
+		if bytes.Equal(image[:256], ranges[2*i].Dst) && bytes.Equal(image[sample:sample+64], ranges[2*i+1].Dst) {
 			matches = append(matches, p.name)
 		}
 	}
