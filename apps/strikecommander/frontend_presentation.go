@@ -67,6 +67,7 @@ type FrontendPresentation struct {
 	composeHD         func(FrontendPrepareRequest, []byte) (hdPreparedKind, string, error)
 	fixedFallbackHD   func(FrontendPrepareRequest, []byte, string) (hdPreparedKind, string, error)
 	prepareHDIdentity func(*hdPrepareKey)
+	menu              *frontendMenuPolicy
 }
 
 func NewFrontendPresentation(p *Presenter, fontCatalogSHA [32]byte) (*FrontendPresentation, error) {
@@ -108,6 +109,9 @@ func cloneFrontendSubtitle(s Subtitle) Subtitle {
 func (f *FrontendPresentation) onVerdict(v FrameVerdict, indexed []byte, pal [256][3]uint8) {
 	f.safety.verdict(v, indexed, pal)
 	if v.FrameComplete && len(indexed) == 64000 {
+		if f.menu != nil {
+			f.menu.complete(f.safety.state.FrameCompleteKey, indexed)
+		}
 		sub, blocked := f.presenter.subState(indexed)
 		f.frameSubtitlePresent = sub != nil
 		f.frameSubtitleBlocked = blocked
@@ -120,6 +124,9 @@ func (f *FrontendPresentation) onVerdict(v FrameVerdict, indexed []byte, pal [25
 	f.invalidate()
 }
 func (f *FrontendPresentation) Prepare(req FrontendPrepareRequest) (*FrontendComposite, error) {
+	if f.menu != nil {
+		f.menu.touched = true
+	}
 	f.prepared.mu.Lock()
 	blocked := f.prepared.closed || f.prepared.callbackDepth != 0 || f.prepared.preparing
 	f.prepared.mu.Unlock()
@@ -140,6 +147,10 @@ func (f *FrontendPresentation) Prepare(req FrontendPrepareRequest) (*FrontendCom
 	img := f.presenter.cur
 	info := f.Current()
 	safety := f.safety.state
+	finalizer, e := f.selectMenuFinalizer(img, safety, req.Scale)
+	if e != nil {
+		return nil, e
+	}
 	k := hdPrepareKey{Validity: f.validity(), Safety: safety, Scale: req.Scale, HD: req.HD, Subtitles: req.Subtitles, Language: req.Language, FontCatalogSHA: f.fontCatalogSHA}
 	if img != nil {
 		k.IndexedSHA = sha256.Sum256(img.indexed)
@@ -158,7 +169,7 @@ func (f *FrontendPresentation) Prepare(req FrontendPrepareRequest) (*FrontendCom
 		k.IndexedSHA = sha256.Sum256(f.safety.frame[:])
 		k.PaletteSHA = hashFrontendPalette(f.safety.palette)
 	}
-	lease, e := f.prepared.prepareWithFixedFallback(k, func(dst []byte) (hdPreparedKind, string, error) {
+	produce := func(dst []byte) (hdPreparedKind, string, error) {
 		english := req.Language == "en"
 		if safety.Eligibility != HDEligible || img == nil {
 			scaleFrontendInto(dst, f.safety.frame[:], f.safety.palette, req.Scale)
@@ -180,7 +191,8 @@ func (f *FrontendPresentation) Prepare(req FrontendPrepareRequest) (*FrontendCom
 			return hdFixedFallback, "HD scene source not configured", nil
 		}
 		return hdReady, "", nil
-	}, func(dst []byte, reason string) (hdPreparedKind, string, error) {
+	}
+	rebuild := func(dst []byte, reason string) (hdPreparedKind, string, error) {
 		// This is the already-published failure for this exact key. Recompose only
 		// its immutable 2D fallback, never retry the HD producer.
 		if img == nil || safety.Eligibility != HDEligible || !req.HD {
@@ -195,7 +207,19 @@ func (f *FrontendPresentation) Prepare(req FrontendPrepareRequest) (*FrontendCom
 			f.presenter.composeImageInto(img, req.Scale, req.Subtitles, dst)
 		}
 		return hdFixedFallback, reason, nil
-	})
+	}
+	if f.menu != nil {
+		baseProduce, baseRebuild := produce, rebuild
+		produce = func(dst []byte) (hdPreparedKind, string, error) {
+			kind, reason, err := baseProduce(dst)
+			return finalizer.finish(dst, kind, reason, err)
+		}
+		rebuild = func(dst []byte, reason string) (hdPreparedKind, string, error) {
+			kind, why, err := baseRebuild(dst, reason)
+			return finalizer.finish(dst, kind, why, err)
+		}
+	}
+	lease, e := f.prepared.prepareWithFixedFallback(k, produce, rebuild)
 	if e != nil {
 		return nil, e
 	}
@@ -228,6 +252,10 @@ func (f *FrontendPresentation) Compose(req FrontendPrepareRequest) (*FrontendCom
 }
 func (f *FrontendPresentation) Close() {
 	f.prepared.close()
+	if f.menu != nil {
+		f.menu.close()
+		f.menu = nil
+	}
 	f.fixedFallbackHD = nil
 	if f.presenter.frontend == f {
 		f.presenter.frontend = nil

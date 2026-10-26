@@ -458,6 +458,9 @@ func (p *Presenter) Attach(so *SessionObserver) {
 		p.stateSinceCap++
 		p.deferArt(ev)
 		p.enqueue(presItem{art: true, ev: ev, steps: ev.Steps})
+		if p.frontend != nil && p.frontend.menu != nil {
+			p.frontend.menu.art(ev)
+		}
 	}
 	lo.OnClearArt = func(steps uint64) {
 		if clear != nil {
@@ -945,6 +948,9 @@ func (p *Presenter) derive(kind PresentKind, pal [256][3]uint8, sub *Subtitle, b
 }
 
 func (p *Presenter) publish(img *presentImage) {
+	if p.frontend != nil && p.frontend.menu != nil {
+		p.frontend.menu.bindImage(img)
+	}
 	if p.bindHDImage != nil {
 		p.bindHDImage(img)
 	}

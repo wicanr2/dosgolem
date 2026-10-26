@@ -51,6 +51,9 @@ type frontendHD struct {
 // ConfigureHD is explicit and must finish before the first observation/Prepare.
 // Both HD-off and HD-on runs use this same bounded collector configuration.
 func (r *FrontendRuntime) ConfigureHD(cfg FrontendHDConfig) (err error) {
+	if r.output != nil && r.output.menu != nil {
+		return fmt.Errorf("016a: menu policy and ConfigureHD are not jointly supported")
+	}
 	if r.closed || r.hd != nil || r.present.counts.Frames != 0 || r.so.steps != 0 || cfg.GameRoot == "" || cfg.StateSHA == ([32]byte{}) || cfg.AppGeneration == 0 {
 		return fmt.Errorf("HD configuration requires unused Runtime and actual state/app identity")
 	}

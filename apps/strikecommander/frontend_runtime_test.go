@@ -149,9 +149,11 @@ func TestFrontendHDInitialNoImageAndInactiveKeysNeverMaterialize(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer r.Close()
+	version := uint64(0)
 	for _, hd := range []bool{false, true} {
 		for _, n := range []int{2, 3} {
-			req := FrontendPrepareRequest{Scale: n, Language: "en", HD: hd, SettingsVersion: 1}
+			version++
+			req := FrontendPrepareRequest{Scale: n, Language: "en", HD: hd, SettingsVersion: version}
 			l, e := r.Prepare(req)
 			if e != nil {
 				t.Fatal("initial no-image preparation", hd, n, e)

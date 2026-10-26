@@ -23,6 +23,7 @@ type FrontendRuntimeConfig struct {
 	Sparse               bool
 	Audio                session.AudioObserver
 	PCM                  session.SBPCMObserver
+	Menu                 *FrontendMenuConfig
 }
 
 // FrontendRuntime owns the single normal observer assembly and prepared output.
@@ -40,6 +41,9 @@ type FrontendRuntime struct {
 }
 
 func NewFrontendRuntime(cfg FrontendRuntimeConfig) (*FrontendRuntime, error) {
+	if cfg.Menu != nil && cfg.HD != nil {
+		return nil, fmt.Errorf("016a: menu policy and ConfigureHD are not jointly supported")
+	}
 	if cfg.Fonts == nil || cfg.FlightCatalogs == nil || cfg.SpeechIndex == nil || cfg.CacheRoot == "" || cfg.FontCatalogSHA == ([32]byte{}) {
 		return nil, fmt.Errorf("frontend runtime requires fonts/catalog identity, flight/speech assets and cache root")
 	}
@@ -63,6 +67,13 @@ func NewFrontendRuntime(cfg FrontendRuntimeConfig) (*FrontendRuntime, error) {
 		return nil, e
 	}
 	r := &FrontendRuntime{so: so, present: pr, output: output, audio: cfg.Audio, pcm: cfg.PCM, sparse: cfg.Sparse}
+	if cfg.Menu != nil {
+		output.menu, e = newFrontendMenu(cfg.CacheRoot, *cfg.Menu)
+		if e != nil {
+			r.Close()
+			return nil, e
+		}
+	}
 	if cfg.HD != nil {
 		if e = r.ConfigureHD(*cfg.HD); e != nil {
 			r.Close()
@@ -77,6 +88,11 @@ func (r *FrontendRuntime) SessionConfig() session.Config {
 	return c
 }
 func (r *FrontendRuntime) BeforeStep(v session.StepView) error {
+	if r.output.menu != nil {
+		if err := r.output.menu.observe(); err != nil {
+			return err
+		}
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	e := r.so.BeforeStep(v)
@@ -84,11 +100,17 @@ func (r *FrontendRuntime) BeforeStep(v session.StepView) error {
 	return e
 }
 func (r *FrontendRuntime) VideoWrite(w machine.VideoWrite) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	r.so.VideoWrite(w)
 }
 func (r *FrontendRuntime) Frame(b []byte, p [256][3]uint8) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	r.so.Frame(b, p)
@@ -99,6 +121,9 @@ func (r *FrontendRuntime) Frame(b []byte, p [256][3]uint8) {
 	}
 }
 func (r *FrontendRuntime) VideoModeChange(c machine.ModeChange) {
+	if r.output.menu != nil {
+		r.output.menu.modeChange()
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	if r.hd != nil {
@@ -108,11 +133,17 @@ func (r *FrontendRuntime) VideoModeChange(c machine.ModeChange) {
 	r.syncHDStatus()
 }
 func (r *FrontendRuntime) SBDMA(e machine.SBDMAEvent) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	r.so.SBDMA(e)
 }
 func (r *FrontendRuntime) SBPCM(e machine.SBPCMEvent) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	if r.pcm != nil {
@@ -120,6 +151,9 @@ func (r *FrontendRuntime) SBPCM(e machine.SBPCMEvent) {
 	}
 }
 func (r *FrontendRuntime) OPLWrite(e machine.OPLWrite) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	if r.audio != nil {
@@ -127,6 +161,9 @@ func (r *FrontendRuntime) OPLWrite(e machine.OPLWrite) {
 	}
 }
 func (r *FrontendRuntime) SpeakerSample(e machine.SpeakerSample) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	if r.audio != nil {
@@ -134,6 +171,9 @@ func (r *FrontendRuntime) SpeakerSample(e machine.SpeakerSample) {
 	}
 }
 func (r *FrontendRuntime) PITChannel2(e machine.PIT2Change) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
 	r.output.prepared.enterCallback()
 	defer r.output.prepared.leaveCallback()
 	if r.audio != nil {
@@ -142,7 +182,12 @@ func (r *FrontendRuntime) PITChannel2(e machine.PIT2Change) {
 }
 func (r *FrontendRuntime) TriggerIPs() session.IPSet { return r.so.TriggerIPs() }
 func (r *FrontendRuntime) NextWake() uint64          { return r.so.NextWake() }
-func (r *FrontendRuntime) FrameAt(s uint64)          { r.so.FrameAt(s) }
+func (r *FrontendRuntime) FrameAt(s uint64) {
+	if r.output.menu != nil {
+		r.output.menu.touched = true
+	}
+	r.so.FrameAt(s)
+}
 func (r *FrontendRuntime) Prepare(req FrontendPrepareRequest) (*FrontendComposite, error) {
 	return r.output.Prepare(req)
 }
