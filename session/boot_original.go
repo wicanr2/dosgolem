@@ -1,7 +1,7 @@
 // Sealed owner private boot: LoadEXE, then Install, then Running.
 //
 // The original tree (read-only input) stays with the composition root; the
-// owner only verifies the executable bytes and the save root handed to it.
+// owner verifies the executable bytes and save root; 463 optionally supplies a read-only root.
 // Observer installation, multi-layer composition and save/load are out of
 // scope (Buck #16/#18 DRAFT).
 
@@ -22,11 +22,12 @@ import (
 const maxBootEXESize = 4 << 20
 
 // BootInput carries the executable bytes and the writable save root for one
-// private boot.  Paths to the read-only original tree never enter the owner.
+// private boot. OriginalRoot opts into the protected split-root mode (463).
 type BootInput struct {
 	EXE               []byte
 	ExpectedEXESHA256 [32]byte
 	SaveRoot          string
+	OriginalRoot      string `json:",omitempty"` // Optional split-root mode (463).
 }
 
 // BootReceipt proves one completed boot without exposing machine state.
@@ -61,7 +62,8 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 	if input.ExpectedEXESHA256 == zero {
 		return BootReceipt{}, errors.New("session: 缺少 EXE SHA-256 期望值")
 	}
-	if err := checkSaveRoot(input.SaveRoot); err != nil {
+	originalRoot, saveRoot, err := prepareBootRoots(input.OriginalRoot, input.SaveRoot)
+	if err != nil {
 		return BootReceipt{}, err
 	}
 	exe := append([]byte(nil), input.EXE...)
@@ -69,10 +71,13 @@ func (o *Owner) BootOriginal(input BootInput) (BootReceipt, error) {
 	if sum != input.ExpectedEXESHA256 {
 		return BootReceipt{}, errors.New("session: EXE SHA-256 不符")
 	}
-	o.dos.Root = input.SaveRoot
+	o.dos.Root = saveRoot
 	// 存檔根本身就是已驗證可寫的複製樹；設成 Scratch，遊戲寫檔才會真的落地
 	// （dosgolem 規格 009：Scratch 為空時寫入只記帳）。見規格 235 補充。
-	o.dos.Scratch = input.SaveRoot
+	o.dos.Scratch = saveRoot
+	if originalRoot != "" {
+		o.dos.SetOriginalSaveRoots(originalRoot, saveRoot)
+	}
 	if err := o.machine.LoadEXE(exe); err != nil {
 		return BootReceipt{}, o.fail(fmt.Errorf("session: 載入 EXE: %w", err))
 	}

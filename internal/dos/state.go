@@ -242,8 +242,8 @@ func (d *DOS) SaveState(w io.Writer) error {
 // RebaseTo 非空時開檔路徑先改寫（docs/spec/450 §2.2）：改寫與檢查全在任何寫入之前，
 // 失敗時 DOS 維持原狀。RebaseTo、RebaseFrom 在返回前一律清空。
 func (d *DOS) LoadState(r io.Reader) error {
-	rebaseTo, rebaseFrom := d.RebaseTo, d.RebaseFrom
-	defer func() { d.RebaseTo, d.RebaseFrom = "", nil }()
+	rebaseTo, rebaseFrom, rebaseOriginal := d.RebaseTo, d.RebaseFrom, d.RebaseOriginal
+	defer func() { d.RebaseTo, d.RebaseFrom, d.RebaseOriginal = "", nil, "" }()
 	var s dosState
 	if err := gob.NewDecoder(r).Decode(&s); err != nil {
 		return fmt.Errorf("dos: 讀不開狀態檔：%w", err)
@@ -260,7 +260,14 @@ func (d *DOS) LoadState(r io.Reader) error {
 	for i, hs := range s.Handles {
 		paths[i] = hs.Path
 	}
-	if rebaseTo != "" {
+	var staged map[uint16]*handle
+	if rebaseOriginal != "" {
+		var err error
+		staged, err = d.stageSplitHandles(s, rebaseOriginal, rebaseTo, rebaseFrom)
+		if err != nil {
+			return err
+		}
+	} else if rebaseTo != "" {
 		prefixes := append([]string{s.Root}, rebaseFrom...)
 		for i, hs := range s.Handles {
 			p, err := RebasePath(hs.Path, prefixes, rebaseTo)
@@ -290,7 +297,10 @@ func (d *DOS) LoadState(r io.Reader) error {
 	}
 	// **舊的狀態檔沒有 Root**，那時就沿用目前這一台的設定，
 	// 不要把它清成空字串。
-	if rebaseTo != "" {
+	if rebaseOriginal != "" {
+		d.Root = rebaseOriginal
+		d.Scratch = rebaseTo
+	} else if rebaseTo != "" {
 		d.Root = rebaseTo
 	} else if s.Root != "" {
 		d.Root = s.Root
@@ -316,17 +326,21 @@ func (d *DOS) LoadState(r io.Reader) error {
 	d.Exited, d.ExitCode = s.Exited, s.ExitCode
 
 	d.handles = map[uint16]*handle{}
-	for i, hs := range s.Handles {
-		path := paths[i]
-		f, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("dos: 還原時開不了 %s：%w", path, err)
+	if staged != nil {
+		d.handles = staged
+	} else {
+		for i, hs := range s.Handles {
+			path := paths[i]
+			f, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("dos: 還原時開不了 %s：%w", path, err)
+			}
+			if _, err := f.Seek(hs.Off, io.SeekStart); err != nil {
+				f.Close()
+				return fmt.Errorf("dos: 還原時 seek 不了 %s：%w", path, err)
+			}
+			d.handles[hs.H] = &handle{name: hs.Name, path: path, f: f, size: hs.Size, psp: hs.PSP, refs: 1}
 		}
-		if _, err := f.Seek(hs.Off, io.SeekStart); err != nil {
-			f.Close()
-			return fmt.Errorf("dos: 還原時 seek 不了 %s：%w", path, err)
-		}
-		d.handles[hs.H] = &handle{name: hs.Name, path: path, f: f, size: hs.Size, psp: hs.PSP, refs: 1}
 	}
 	d.emb = map[uint16][]byte{}
 	for k, v := range s.EMB { // 舊檔

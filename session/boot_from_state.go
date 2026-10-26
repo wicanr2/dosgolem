@@ -19,6 +19,7 @@ const maxBootStateSize = 64 << 20
 type StateInput struct {
 	State               []byte // probe -save-state 的整個檔案內容
 	ExpectedStateSHA256 [32]byte
+	OriginalRoot        string `json:",omitempty"` // Optional split-root mode (463).
 	SaveRoot            string // 同 BootInput.SaveRoot
 	// RebaseFrom 是狀態檔裡開檔路徑的舊前綴（probe 的 -scratch 等），讀檔時改寫到 SaveRoot 底下。
 	// 狀態檔內記的 Root 一律包含在內，不必重複給。
@@ -53,7 +54,8 @@ func (o *Owner) BootFromState(input StateInput) (BootReceipt, error) {
 	if sum != input.ExpectedStateSHA256 {
 		return BootReceipt{}, errors.New("session: 狀態檔 SHA-256 不符")
 	}
-	if err := checkSaveRoot(input.SaveRoot); err != nil {
+	originalRoot, saveRoot, err := prepareBootRoots(input.OriginalRoot, input.SaveRoot)
+	if err != nil {
 		return BootReceipt{}, err
 	}
 	if o.clockPercent != 0 {
@@ -61,15 +63,19 @@ func (o *Owner) BootFromState(input StateInput) (BootReceipt, error) {
 	}
 
 	// 第 2 步。
-	o.dos.Root = input.SaveRoot
-	o.dos.Scratch = input.SaveRoot
-	o.dos.RebaseTo = input.SaveRoot
+	o.dos.Root = saveRoot
+	o.dos.Scratch = saveRoot
+	if originalRoot != "" {
+		o.dos.SetOriginalSaveRoots(originalRoot, saveRoot)
+		o.dos.RebaseOriginal = originalRoot
+	}
+	o.dos.RebaseTo = saveRoot
 	o.dos.RebaseFrom = append([]string(nil), input.RebaseFrom...)
 	// 第 3 步：state.Load 的前提是 Install 已跑過；讀檔後不能再跑（會重設 freeSeg、arena、curPSP）。
 	o.dos.Install()
 	// 第 4 步。Machine.LoadState 先失敗時 DOS.LoadState 不會被呼叫，這裡也清一次。
-	err := state.LoadFrom(bytes.NewReader(st), o.machine, o.dos)
-	o.dos.RebaseTo, o.dos.RebaseFrom = "", nil
+	err = state.LoadFrom(bytes.NewReader(st), o.machine, o.dos)
+	o.dos.RebaseTo, o.dos.RebaseFrom, o.dos.RebaseOriginal = "", nil, ""
 	if err != nil {
 		return BootReceipt{}, o.fail(fmt.Errorf("session: 讀狀態檔：%w", err))
 	}

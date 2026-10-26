@@ -179,6 +179,10 @@ func (d *DOS) commitFile(c *cpu.CPU) {
 func (d *DOS) renameFile(c *cpu.CPU) {
 	oldName := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
 	newName := d.readCString(c.Seg[cpu.ES], c.R[cpu.DI], 128)
+	if d.protectedRoots {
+		d.protectedRename(c, oldName, newName)
+		return
+	}
 	if d.Scratch == "" {
 		d.note(0x21, 0x56, 0)
 		d.fail(c, 5) // 拒絕存取
@@ -231,6 +235,19 @@ func (d *DOS) renameFile(c *cpu.CPU) {
 // 而寫檔本來就只記帳不落地——回失敗等於把整條路提早斬斷。
 func (d *DOS) mkdir(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	if d.protectedRoots {
+		p, e := d.protectedTarget(name, true, true)
+		if e != nil {
+			d.fail(c, 5)
+			return
+		}
+		if e = os.MkdirAll(p, 0755); e != nil {
+			d.fail(c, 5)
+			return
+		}
+		clearCarry(c)
+		return
+	}
 	if d.Scratch == "" {
 		d.note(0x21, 0x39, 0)
 		clearCarry(c)
@@ -246,6 +263,19 @@ func (d *DOS) mkdir(c *cpu.CPU) {
 
 func (d *DOS) rmdir(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
+	if d.protectedRoots {
+		p, e := d.protectedTarget(name, true, false)
+		if e != nil {
+			d.fail(c, 5)
+			return
+		}
+		if e = os.Remove(p); e != nil {
+			d.fail(c, 5)
+			return
+		}
+		clearCarry(c)
+		return
+	}
 	if d.Scratch == "" {
 		d.note(0x21, 0x3A, 0)
 		clearCarry(c)

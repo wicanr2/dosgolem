@@ -1,6 +1,6 @@
 # 463：session唯讀原版根與存檔根
 
-狀態：**READY**（第1版，2026-10-25），未實作。明示opt-in的雙根啟動與必要檔案保護；原單根不變。
+狀態：**READY**（第1版，2026-10-25），已實作並通過合成驗證，未CONFORMED。明示opt-in的雙根啟動與必要檔案保護；原單根不變。
 
 前置：[006分層](006-layering.md)、009、[235私有開機](235-sealed-owner-private-boot-draft.md)、[450狀態啟動](450-session-boot-from-state.md)。需求：Strike Commander規格016§3.2、6.1、10 R4；通用規則不含遊戲名稱、檔名或位址。
 
@@ -56,7 +56,15 @@ StateSHA仍hash原始私有State複本。物理根路徑改變會改DOS摘要的
 
 ## 5. 已知限制與實作後閘門
 
-- Linux純探針已實證prefix rename、symlink與hardlink三個現況洞；新模式的portable單連結／實體根驗證機制尚未實作或跨平台驗證，不能因其未知而默認安全。
-- 新雙根state router尚未實作；第3節規則已固定，casefold歧義拒絕。已有450單根rebase不能拿來聲稱已分根。
+- Linux原探針的prefix rename、symlink與hardlink問題已在新模式加入實體根、單連結與最終目標驗證。Windows／macOS production交叉編譯通過，未原生執行，不宣稱完整平台安全性。
+- 新雙根state router已實作並通過第3節合成測試；正常玩家讀回另驗。已有450單根rebase不能拿來聲稱已分根。
 - 已有c800 snapshot只離線解出3個host handle，未含其原mode；不依TRE名字斷言readonly。原格式不能證實writable，這是沿450的界線，不是本切片待猜補。
 - READY只授權本切片實作。實作／負控／兩入口／三平台編譯與可用平台純測，以及016同狀態正常玩家驗收分開留收據；未齊不CONFORMED。
+
+## 6. 實作與採納範圍
+
+002的[主代理程式審查](../../../strike_commander/workplace/impl016/r4-production-parent-review-002.md)及[接續獨立審查](../../../strike_commander/workplace/impl016/r4-production-review-independent-003.md)均已完成。後者找到 create 將長檔名重選為8.3別名後未再驗最終路徑，故002不可直接採用。問題在可寫合成檔案重現，與先前無具體細節的工具旗標分開記錄。
+
+003只在最終路徑選定後、可寫開檔之前再呼叫原有Mutation，限新模式。兩份互不見報告的[增量審查甲](../../../strike_commander/workplace/impl016/r4-create-guard-review-a-003.md)與[乙](../../../strike_commander/workplace/impl016/r4-create-guard-review-b-003.md)均無阻擋／應改。原002凍結檔保持。
+
+[003入口](../../../strike_commander/workplace/impl016/session-r4/README.md)保存來源、產生及測試工具、真負對照、兩種連結反例、三項一般存檔正測、三套件回歸、vet、針對性race及Windows／macOS交叉編譯。19個目標經逐檔來源與基準SHA核對後採入actual工作樹，見[採納清單](../../../strike_commander/workplace/impl016/session-r4/adoption-003.json)。[actual無overlay測試](../../../strike_commander/workplace/impl016/session-r4/actual-unit-003.json)的fsaccess／DOS／session均通過。這些結果不取代冷開機、狀態接續、016 A1或正常玩家存讀檔。

@@ -150,6 +150,9 @@ func (d *DOS) resolveDir(name string) string {
 // 攤平成 `scratch/<basename>`。讀（`resolveDir`）與寫（這裡）用同一套判準，
 // 所以寫進去的檔下一次一定讀得回來。
 func (d *DOS) scratchPath(name string) (string, error) {
+	if d.protectedRoots {
+		return d.protectedTarget(name, false, true)
+	}
 	dirs, file := d.relComponents(name)
 	dir := d.Scratch
 	if d.dirsExist(dirs) {

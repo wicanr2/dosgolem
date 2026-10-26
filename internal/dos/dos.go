@@ -159,7 +159,9 @@ type DOS struct {
 	// Scratch 是可寫的暫存層（`docs/spec/009`）。空字串＝維持「寫入只記帳
 	// 不落地」的舊行為。非空時 `resolve` 先找這裡，建檔與寫檔也落在這裡，
 	// **原版素材目錄永遠不寫**。
-	Scratch string
+	Scratch        string
+	protectedRoots bool   // 463 opt-in only; never serialized.
+	RebaseOriginal string `json:"-"` // One LoadState only; cleared on every outcome.
 
 	// RebaseTo 非空時，下一次 LoadState 把狀態檔裡的開檔路徑以 RebasePath 改寫到它底下，
 	// 前綴集合是狀態檔的 Root 加 RebaseFrom；讀檔後 Root 設成 RebaseTo（docs/spec/450 §2.2）。

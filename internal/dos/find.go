@@ -141,6 +141,9 @@ func (d *DOS) searchFor(pattern string, searchAttr uint8) *findState {
 			continue
 		}
 		for _, e := range entries {
+			if d.protectedRoots && e.Type()&os.ModeSymlink != 0 {
+				continue
+			}
 			isDir := e.IsDir()
 			if isDir && searchAttr&0x10 == 0 {
 				continue

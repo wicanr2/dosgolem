@@ -2,6 +2,7 @@ package dos
 
 import (
 	"fmt"
+	"github.com/wicanr2/dosgolem/internal/fsaccess"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,10 @@ type handle struct {
 // 開檔結果——KOL 就是一路跑進沒有映射的記憶體才停，**看起來像模擬器的 bug，
 // 其實是檔名沒對上**。
 func (d *DOS) resolve(name string) string {
+	if d.protectedRoots {
+		p, _ := d.protectedResolve(name)
+		return p
+	}
 	// 路徑帶真的存在的子目錄（`SAVEGAME\ITEMS_00.BIN`）時先照目錄找
 	// （`docs/spec/198-dos-relative-directories`）；找不到才退回下面兩條規則。
 	if p := d.resolveDir(name); p != "" {
@@ -248,6 +253,14 @@ func (d *DOS) open(c *cpu.CPU) {
 		return
 	}
 	path := d.resolve(name)
+	if d.protectedRoots {
+		var e error
+		path, e = d.protectedResolve(name)
+		if e != nil && !os.IsNotExist(e) {
+			d.fail(c, 5)
+			return
+		}
+	}
 	if path == "" {
 		d.Missing = append(d.Missing, name)
 		d.noteMissingAccess(c, name)
@@ -277,6 +290,9 @@ func (d *DOS) open(c *cpu.CPU) {
 		d.Missing = append(d.Missing, name)
 		d.noteMissingAccess(c, name)
 		c.R[cpu.AX] = 2
+		if d.protectedRoots {
+			c.R[cpu.AX] = 5
+		}
 		setCarry(c)
 		return
 	}
@@ -335,6 +351,11 @@ func (d *DOS) scratchCopy(name, path string) (string, error) {
 	// DOS 檔名不分大小寫：暫存層已有同名不同大小寫的檔就用它，
 	// 不再多造一份（`docs/spec/237` §2.3）。
 	if existing := lookupDOS(filepath.Dir(target), filepath.Base(target)); existing != "" {
+		if d.protectedRoots {
+			if err := fsaccess.Mutation(d.Scratch, existing, false); err != nil {
+				return "", err
+			}
+		}
 		return existing, nil
 	}
 	data, err := os.ReadFile(path)
@@ -357,6 +378,11 @@ func virtualDate() (year int, month time.Month, day int) { return 1993, time.Jan
 // 記憶體；留主機時間的話，同一個 state、同一組按鍵，隔幾秒重跑記憶體就不同。
 // 秒數取偶數，對齊 DOS 的 2 秒解析度。
 func (d *DOS) stampScratch(path string) {
+	if d.protectedRoots {
+		if fsaccess.Mutation(d.Scratch, path, false) != nil {
+			return
+		}
+	}
 	if d.Scratch == "" || path == "" || !strings.HasPrefix(path, d.Scratch) {
 		return
 	}
@@ -392,11 +418,22 @@ func (d *DOS) create(c *cpu.CPU) {
 	path, perr := d.scratchPath(name)
 	if perr != nil {
 		c.R[cpu.AX] = 3 // Path not found
+		if d.protectedRoots {
+			c.R[cpu.AX] = 5
+		}
 		setCarry(c)
 		return
 	}
 	if existing := lookupDOS(filepath.Dir(path), filepath.Base(path)); existing != "" {
 		path = existing // 大小寫不同的既有檔：截斷它，不另建（`docs/spec/237` §2.3）
+	}
+	if d.protectedRoots {
+		// lookupDOS can select an existing 8.3 alias after scratchPath validated
+		// the requested spelling. Validate the final path before truncation.
+		if err := fsaccess.Mutation(d.Scratch, path, false); err != nil {
+			d.fail(c, 5)
+			return
+		}
 	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -423,6 +460,19 @@ func (d *DOS) unlink(c *cpu.CPU) {
 	name := d.readCString(c.Seg[cpu.DS], c.R[cpu.DX], 128)
 	base := baseName(name)
 	if d.Scratch == "" || base == "" {
+		clearCarry(c)
+		return
+	}
+	if d.protectedRoots {
+		p, e := d.protectedTarget(name, false, true)
+		if e != nil {
+			d.fail(c, 5)
+			return
+		}
+		if e = os.Remove(p); e != nil && !os.IsNotExist(e) {
+			d.fail(c, 5)
+			return
+		}
 		clearCarry(c)
 		return
 	}
