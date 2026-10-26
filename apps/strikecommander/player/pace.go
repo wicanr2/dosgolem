@@ -57,6 +57,7 @@ func (p *Pace) Step(dt time.Duration, firstOrResumed bool) PaceStep {
 		cap = base
 		p.slowSeconds += seconds
 	}
+	cap = min(cap, 6*BaseSteps)
 	p.Acc += seconds * float64(StepsPerSecond)
 	n := cap
 	if p.Acc < float64(cap) {

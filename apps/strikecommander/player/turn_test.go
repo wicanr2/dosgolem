@@ -50,25 +50,26 @@ func TestPaceSlowHysteresisLiteral(t *testing.T) {
 	}
 	// 30 long/30 short median=(0.2 + 0.016666666)/2; roundedF1251250.
 	r := p.Step(time.Second, false)
-	if !r.Saturated || !r.Slow || r.Cap != 2502500 || r.Acc != 2502500 {
+	if !r.Saturated || !r.Slow || r.Cap != 1155000 || r.Acc != 1155000 {
 		t.Fatal(r)
 	}
-	// First zero has cap1251250, leaves equalcap (saturated); second median
-	// returns to short dt, cap192500 and clamps; third zero spends it, clean1.
+	// READY7 clamps the long update to cap/debt1155000. First zero has
+	// cap1155000 and spends all debt, so clean1. The second median returns
+	// to short dt, cap192500 with no debt (clean2); third zero is clean3.
 	a := p.Step(0, false)
 	b := p.Step(0, false)
 	r = p.Step(0, false)
-	if a.Cap != 1251250 || !a.Saturated || b.Cap != 192500 || !b.Saturated || r.Saturated || !r.Slow || r.Acc != 0 {
+	if a.Cap != 1155000 || a.N != 1155000 || a.Acc != 0 || a.Saturated || b.Cap != 192500 || b.N != 0 || b.Acc != 0 || b.Saturated || r.Saturated || !r.Slow || r.Acc != 0 || p.clean != 3 {
 		t.Fatal(a, b, r)
 	}
-	for i := 2; i < 120; i++ {
+	for i := 4; i < 120; i++ {
 		r = p.Step(0, false)
-		if !r.Slow || r.Saturated {
+		if !r.Slow || r.Saturated || p.clean != i {
 			t.Fatal(i, r)
 		}
 	}
 	r = p.Step(0, false)
-	if r.Slow || r.Saturated {
+	if r.Slow || r.Saturated || p.clean != 0 {
 		t.Fatal("not120 clean", r)
 	}
 }
