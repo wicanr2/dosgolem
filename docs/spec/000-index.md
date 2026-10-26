@@ -962,7 +962,7 @@
 - [460 session 稀疏觀察：觸發 IP 集合、步數期限與單次喚醒](460-session-sparse-observe.md)：READY（第 4 版）。(a) 已實作、預設關閉；(b) CS／簽章篩選見 §9，未實作。Q／R／E 與 S8／S9／S13 補驗見 §8；64 步快照與原始 DOS 雜湊等閘門仍待完成，不標 CONFORMED。
 - [461 讀入狀態檔後的計時器頻率](461-pit-divisor-after-load.md)：READY（第 3 版），已實作；全庫、rich2 與 FD2 抽樣複驗通過，MOO2 缺素材未驗證。`PITDivisor()` 改讀 IRQ0 實際用的 `PITDiv`（0 回 65,536），`PITProgrammed()` 改讀寫入計數、`LoadState` 清零；刪除 `Machine.pit` 的第二份解讀；修正讀檔後 `StepsPerSecondNow()` 少算 6.59 倍。
 - [462 SB16 8 位元數位音效輸出到主機音訊](462-sb16-pcm-host-audio.md)：READY（第 2 版），已實作、未 CONFORMED。48 套件與 vet 通過，原版 PCM／狀態抽樣及限制見 §7；實作收據在陸空戰將 repo workplace/sb462/。DMA `start` 時於機器內以實體位址取樣，`SBPCMEvent` 經 session `SBPCMObserver` 送 `audio/sbpcm.Source`（到達即記區段、`Sample(j)` 純函式），樣本均勻填滿 `[Start, Due)`，與 OPL 同時基；不門控 SpeakerOn（照 DOSBox-X SB16）；不改機器狀態。
-- [463 session唯讀原版根與存檔根](463-session-original-save-roots.md)：READY（第1版），未實作。兩啟動入口以OriginalRoot明示雙根；安全mutation、Save優先的雙根state重定位；原模式／snapshot格式／readonly恢復handle不變。
+- [463 session唯讀原版根與存檔根](463-session-original-save-roots.md)：READY（第1版），已實作及合成驗證，未CONFORMED。兩啟動入口以OriginalRoot明示雙根；安全mutation、Save優先的雙根state重定位；原模式／snapshot格式／readonly恢復handle不變。003修正與actual測試見§6。
 
 - [202 — 轉譯疊字層](202-translation-overlay.md)：READY。`xlate` 套件：GOLEMFNT、排版、定色、逐格／錨定格失效、捲動、畫字、快照與換行追蹤。
 
@@ -1005,3 +1005,4 @@
 - [189 — Hercules 的畫面在 B0000](189-hercules-b0000.md)：READY。probe 多報 `B0000 非零 bytes`、`-dump-herc`；`oracle.Hercules()`／`HerculesNonZero()`。
 
 - [464 session首次輸入前的有界PSP相對讀取](464-session-boot-psp-read.md)：READY（第1版），通用API已實作；六案零指令核對通過，app／正常玩家路徑未驗收。Boot成功後且首次Deliver／Advance嘗試前一次有界physical批次讀取，不改快照或既有流程。
+- [465 StepView載入計數、目前PSP與有界實體讀取](465-session-step-psp-read.md)：CONFORMED（第1版通用契約）。回呼內讀既有載入紀錄長度、實際PSP及caller-owned實體RAM批次，沿既有視圖有效期；不改464的一次性啟動窗口。五負控、session／464回歸、race／vet及雙程式審查通過；遊戲R8另驗。
