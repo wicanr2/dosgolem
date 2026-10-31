@@ -1,7 +1,7 @@
 # 198 — DM 巡檢 adapter（`apps/dm`）
 
 狀態：**READY**
-日期：2026-09-11
+日期：2026-09-11（2026-10-31 起點改成原版附的存檔，見 §3.6）
 
 ## 1. 目的與範圍
 
@@ -205,18 +205,24 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 ```json
 {
   "map": 2,
-  "start": { "x": 2, "y": 30, "facing": 3 },
+  "save": { "name": "DMSAVE.DAT", "sha256": "b9f6a287…" },
+  "start": { "x": 0, "y": 13, "facing": 0 },
   "steps": [
-    { "dir": "E", "expect": { "x": 3, "y": 30, "facing": 3 } },
-    { "action": "turn", "expect": { "x": 3, "y": 30, "facing": 0 } },
-    { "action": "press", "expect": { "x": 3, "y": 30, "facing": 0 } },
-    { "dir": "N", "expect": { "x": 3, "y": 29, "facing": 0 } }
+    { "dir": "E", "ticks": 8, "expect": { "x": 1, "y": 13, "facing": 0 } },
+    { "action": "turn", "ticks": 8, "expect": { "x": 1, "y": 13, "facing": 1 } },
+    { "action": "press", "ticks": 23, "expect": { "x": 1, "y": 13, "facing": 1 } }
   ],
   "checkpoints": [0, 40, 120],
   "unreachable": [[19,8],[19,9],[2,11],[2,12],[8,19],[8,20],[3,28],[4,28]]
 }
 ```
 
+- **`save`**（2026-10-31 起）：起點的存檔，basename 與 SHA-256（§3.6）。CLI 開跑前比對
+  玩家給的那一份，不同就停。`start` 是存檔裡隊伍的位置與面向。
+- **`ticks`**（2026-10-31 起）：remake 做完這一步之後推進了幾刻。原版側在刻的邊界照
+  同樣的刻數推進（§3.3 的 `Clock`），**不照指令數等**——一般移動是固定的 8 刻，
+  `press` 是「推到門能過」，刻數不固定。照指令數等的話兩側每一步走的刻數不同，
+  之後怪物的位置與事件的時間全部岔開。
 - **`action` 有三種**，省略時是 `move`（相容只有移動的舊格式）：
 
   | `action` | 意思 | remake 側 | 原版側 |
@@ -252,10 +258,9 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
   就被送到第 1 層），`(3,28)` 的唯一通路是 `(4,28)`。路線接受漏掉，
   不為了湊 100% 去開關傳送器——那會動到感應器狀態，而感應器正是要對拍的東西。
 
-⚠ **巡檢非招募不可**：地板感應器要隊伍裡有人才會觸發
-（`SENSOR.C:474` 的 `PartyChampionCount == 0` 就跳過）。空隊伍走過壓力板
-門不會開，路線走到一半就卡住——而畫面看起來只是「沒走那麼遠」。
-招募流程見 `apps/dm/hall.go` 的 `MirrorRoute` ＋ `RecruitFirstChampion`。
+⚠ **隊伍裡要有人**：地板感應器在 `PartyChampionCount == 0` 時直接跳過
+（`SENSOR.C:474`）。從存檔出發（§3.6）隊伍一開始就是四個人；新局招募的流程
+（`apps/dm/hall.go` 的 `MirrorRoute` ＋ `RecruitFirstChampion`）留著，巡檢不再用它。
 
 ⚠ 產生器要用 `dmtool dungeon trigger` 驗一次。`dmtool walk`
 **不跑感應器**，門在它裡面打不開（2026-09-10 在第 0 層踩過）。
@@ -266,8 +271,40 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 寫進指定輸出目錄：每個檢查點一份 `party.json`（§3.1 的結構）＋ `frame.png`
 ＋總表 `receipt.json`。路線裡每一步的 `expect` 對不上就當場中止並回非零碼。
 
+流程：
+
+1. 比對資料根裡 `DMSAVE.DAT` 的 SHA-256 與路線的 `save`，不同就停。
+2. `ToEntrance` → 點 RESUME → 點 OK（§3.6）→ `Bind` → 掛 `Clock`（巡檢寫回開著）、
+   負重 stub。
+3. 跑到第一個刻邊界：遊戲刻要等於存檔的遊戲刻、`ReadParty` 的位置與面向要等於
+   路線的 `start`，否則停。這是第 0 個檢查點。
+4. 逐步：送出這一步的點擊，跑滿這一步的 `ticks` 個刻邊界，`ReadParty` 對 `expect`。
+   對不上就停，回非零碼。檢查點那幾步另外寫 `party.json` 與 `frame.png`。
+
+`party.json` 的鍵：`map_index`、`game_time`、`x`、`y`、`facing`、`champions`
+（每位 `index`、`name`、`title`、`current_health`、`max_health`、`food`、`water`、
+`poison_event_count`、`load`、`slots`），與 remake 側的檢查點檔同一個格式。
+
 收據只記輸入檔的 basename 與 SHA-256、步數、artifact 雜湊；
 **不得記錄私有絕對路徑，也不得嵌入原版 bytes**。
+
+### 3.6 起點：原版附的存檔（2026-10-31）
+
+巡檢從**玩家自備的 DOS 原版 `DMSAVE.DAT`** 出發，不從新局招募、走下樓。
+定案與理由在 dungeon_master 專案規格 73 §9：新局走到第 2 層要解完第 1 層的機關，
+卡在拿不到的第 6 把 GOLD KEY；兩側讀同一份存檔，起點狀態完全相同。
+
+讀檔流程（dosgolem 實測 2026-10-31，`fires` 3.4）：
+
+| 步 | 點哪裡 | 結果 |
+|---|---|---|
+| 1 | 入口選單的 RESUME 寶石 `(249,86)`（紅色那顆，ENTER 下面） | 直接讀 `DMSAVE.DAT`，不換片也不選檔 |
+| 2 | 對話框的 OK `(160,143)` | 「GAME LOADED, READY TO PLAY.」關掉，進地城 |
+
+⚠ **按 OK 之後遊戲就開始走刻**（9000 萬道指令之後遊戲刻從 19662 走到 19697）。
+所以第 0 個檢查點取按 OK 之後的**第一個刻邊界**，`Clock` 要在按 OK 之前掛好。
+
+⚠ 讀檔只讀不寫。CLI 不存檔，資料根是玩家素材的可寫副本（`DMSAVE.DAT` 不得被改到）。
 
 ## 4. 驗證與停止線
 
@@ -288,6 +325,8 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
      這一輪連帶把 `FoodWaterMaximum ＝ 2048` 從**強證據**升到**已確認**：
      寫回之後跑滿 60 刻沒有被別處鉗掉。
 3. **路線與停法**（同樣由私有資料選配）：
+   - **讀檔起點**（2026-10-31）：RESUME → OK 之後第一個刻邊界，遊戲刻等於存檔的遊戲刻、
+     位置與面向等於路線的 `start`。**反對照**：故意把 `start` 改錯，要停。
    - 吃一份只有兩三步的小路線，每一步的 `expect` 都對得上。
    - **反對照**：故意把某一步的 `expect` 改錯，跑起來要**失敗**。
      少了這一條就分不出「對上了」與「根本沒在檢查」。
