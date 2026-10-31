@@ -338,6 +338,8 @@ IDA 裡經由這些全域取用的欄位與 ReDMCSB 的結構一致）：
 | 內容 | 全域 | IDA | 長度 |
 |---|---|---|---|
 | `DUNGEON_HEADER`（44 位元組） | `ds:343C` far 指標 | `dword_3830C` | 44；經由它讀的欄位正是 `+0`／`+2`／`+4`／`+6`／`+8`／`+0Ah`／`+0Ch` |
+| 各層的 `MAP` 描述（一筆 16 位元組） | `ds:3480` far 指標 | `dword_38350` | `MapCount × 16`；經由它只讀 `+8`／`+9`（寬高位元欄位） |
+| 欄累計表 | `ds:33D2` far 指標 | `dword_382A2` | `欄數 × 2`，欄數 ＝ 各層 `寬 + 1` 的和，寬 ＝ `(描述 +8 的 word >> 6) & 0x1F` |
 | 各型別 thing 資料 | `ds:33F0` 16 個 far 指標 | `dword_382C0` | `ThingCount[t] × 位元組數[t]`，位元組數 `4,6,4,8,16,4,4,4,4,8,4,0,0,0,8,4` |
 | 每一格的第一個 thing | `ds:3474` far 指標 | `dword_38344` | `SquareFirstThingCount × 2` |
 | 地圖原始資料 | `ds:347C` far 指標（偏移、段兩個 word） | `word_3834C`／`word_3834E` | `RawMapDataByteCount`（標頭 `+2`） |
@@ -346,9 +348,13 @@ IDA 裡經由這些全域取用的欄位與 ReDMCSB 的結構一致）：
 標頭在 `D000:0002`；讀標頭時核對 `MapCount`（`+4`）在 1–64、型別 11–13 的數量是 0，不對就停，
 不要拿錯的長度去讀別的記憶體。
 
+⚠ **欄累計表會變。** 東西走上一個原本沒有東西的格子時，原版在 `SquareFirstThings` 插一筆、
+後面每一欄的累計數加一。拿存檔的那一份去配記憶體裡的 `SquareFirstThings`，每一格的串列會錯位：
+解出來的怪物在一步之內跳過半張地圖，而且看起來仍然像合法的位置。
+
 `dungeon.bin` 的格式：照 `DUNGEON.DAT` 的順序接起來，只放會變的段：
-`SquareFirstThings`、型別 0–15 的 thing 資料、`RawMapData`。長度全部由同一份標頭算出，
-remake 那一側拿存檔的地城映像當底，把這幾段蓋上去再解碼。
+欄累計表、`SquareFirstThings`、型別 0–15 的 thing 資料、`RawMapData`。長度全部由同一份標頭
+與各層描述算出，remake 那一側拿存檔的地城映像當底，把這幾段蓋上去再解碼。
 
 CLI：每個檢查點的目錄另寫 `dungeon.bin`；`-dungeon-every-step` 時每一步都寫一份到
 `steps/NNNN.bin`（找第一個岔開的刻用，一份約 33 KB）。
