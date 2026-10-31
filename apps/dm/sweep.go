@@ -119,6 +119,22 @@ func (c *Clock) Boundaries() uint64 { return c.boundary }
 // SetSweep 開關每刻寫回（旗標預設關，見 `docs/spec/198` §1）。
 func (c *Clock) SetSweep(on bool) { c.sweep = on }
 
+// NextBoundary 是「再經過一次刻邊界」。與 [Clock.AfterTicks] 不同，
+// 它數的是回呼次數而不是 `GameTime`，所以讀檔之後第一個邊界
+// （`GameTime` 還等於存檔裡的值）也停得下來。
+//
+// ⚠ 同 AfterTicks，**要在 `RunUntil` 之前現做**。
+func (c *Clock) NextBoundary() oracle.Cond {
+	var target uint64
+	first := true
+	return oracle.NewCond("下一個刻邊界", func(*oracle.Oracle) bool {
+		if first {
+			target, first = c.boundary+1, false
+		}
+		return c.boundary >= target
+	})
+}
+
 // AtTick 是「`GameTime` 走到 n（含）」的停止條件。
 func (c *Clock) AtTick(n uint32) oracle.Cond {
 	return oracle.NewCond(fmt.Sprintf("GameTime≥%d", n),

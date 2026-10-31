@@ -529,7 +529,7 @@
 
 - [197 — 滑鼠事件常式要進狀態檔](197-mouse-handler-in-saved-state.md)：READY。漏掉它的症狀是「展開之後點擊全部沒反應」，而畫面逐像素相同。
 
-- [198 — DM 巡檢 adapter（`apps/dm`）](198-dm-sweep-adapter.md)：READY。原版側的全層巡檢介入——刻的邊界寫回生命力／食物／水、負重上限用 `StubValue` 換成 10000；檢查點的鍵是路線步序不是遊戲刻，路線是兩側共用的 JSON。四個攔截點與隊伍座標的位址由 remake 專案反組譯取得。
+- [198 — DM 巡檢 adapter（`apps/dm`）](198-dm-sweep-adapter.md)：READY。原版側的全層巡檢介入——刻的邊界寫回生命力／食物／水、負重上限用 `StubValue` 換成 10000；檢查點的鍵是路線步序不是遊戲刻，路線是兩側共用的 JSON。四個攔截點與隊伍座標的位址由 remake 專案反組譯取得。2026-10-31 起從原版附的 `DMSAVE.DAT` 讀檔出發，`apps/dm/cmd/sweep` 照路線每步的刻數推進並逐步核對 `expect`。
 
 ### Borland C++ 2.0 工具鏈（bcc20-toolchain）（8 份）
 

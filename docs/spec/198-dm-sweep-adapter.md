@@ -205,7 +205,7 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 ```json
 {
   "map": 2,
-  "save": { "name": "DMSAVE.DAT", "sha256": "b9f6a287…" },
+  "save": { "name": "DMSAVE.DAT", "sha256": "b9f6a287…", "game_time": 19662 },
   "start": { "x": 0, "y": 13, "facing": 0 },
   "steps": [
     { "dir": "E", "ticks": 8, "expect": { "x": 1, "y": 13, "facing": 0 } },
@@ -217,8 +217,9 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 }
 ```
 
-- **`save`**（2026-10-31 起）：起點的存檔，basename 與 SHA-256（§3.6）。CLI 開跑前比對
-  玩家給的那一份，不同就停。`start` 是存檔裡隊伍的位置與面向。
+- **`save`**（2026-10-31 起）：起點的存檔，basename、SHA-256 與存檔裡的遊戲刻（§3.6）。
+  CLI 開跑前比對玩家給的那一份，不同就停；遊戲刻是第 0 個檢查點要核對的值（§3.5 第 3 步）。
+  `start` 是存檔裡隊伍的位置與面向。
 - **`ticks`**（2026-10-31 起）：remake 做完這一步之後推進了幾刻。原版側在刻的邊界照
   同樣的刻數推進（§3.3 的 `Clock`），**不照指令數等**——一般移動是固定的 8 刻，
   `press` 是「推到門能過」，刻數不固定。照指令數等的話兩側每一步走的刻數不同，
@@ -274,16 +275,33 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 流程：
 
 1. 比對資料根裡 `DMSAVE.DAT` 的 SHA-256 與路線的 `save`，不同就停。
-2. `ToEntrance` → 點 RESUME → 點 OK（§3.6）→ `Bind` → 掛 `Clock`（巡檢寫回開著）、
-   負重 stub。
-3. 跑到第一個刻邊界：遊戲刻要等於存檔的遊戲刻、`ReadParty` 的位置與面向要等於
-   路線的 `start`，否則停。這是第 0 個檢查點。
+2. `ToEntrance` → 點 RESUME（§3.6）→ 在讀檔對話框上 `Bind`、掛 `Clock`（巡檢寫回開著）、
+   負重 stub → 點 OK。對話框出來時 `fires` 已經在跑、`DS` 已經是 DGROUP，`Bind` 驗得過；
+   `Clock` 必須在 OK 之前掛好，因為按 OK 之後就開始走刻。按 OK 的期間經過任何刻邊界就停
+   （第 0 個檢查點已經錯過）。
+3. 跑到第一個刻邊界（`Clock.NextBoundary`，數回呼次數而不是遊戲刻）：遊戲刻要等於
+   路線 `save.game_time`、`ReadParty` 的位置與面向要等於路線的 `start`，否則停。
+   這是第 0 個檢查點。
 4. 逐步：送出這一步的點擊，跑滿這一步的 `ticks` 個刻邊界，`ReadParty` 對 `expect`。
    對不上就停，回非零碼。檢查點那幾步另外寫 `party.json` 與 `frame.png`。
+
+⚠ **點擊要在刻的邊界當下按下（hover 0）**，不要沿用 `oracle.Click` 的 hover 200 萬道。
+原版在 `GameTime++` 之後進入等輸入的迴圈反覆處理指令佇列（ReDMCSB `MAIN.C:131`、`:177`），
+在那一段按下，指令在下一刻的時間軸之前處理完，與 remake「在刻與刻之間執行指令」同義。
+那一段的長短是「一刻減去這一刻的繪圖工作量」，畫面複雜時不到 200 萬道：實測 hover 200 萬時
+第 183 步（按門之後往前走）按門晚一刻才被處理，門還沒開到過得去；hover 0 同一步過得去。
+`-hover` 旗標留著重現這件事。
 
 `party.json` 的鍵：`map_index`、`game_time`、`x`、`y`、`facing`、`champions`
 （每位 `index`、`name`、`title`、`current_health`、`max_health`、`food`、`water`、
 `poison_event_count`、`load`、`slots`），與 remake 側的檢查點檔同一個格式。
+
+⚠ **`game_time` 取 `Clock` 在刻邊界讀到的值，不讀記憶體。** `RunUntil` 的條件在 hook
+之前檢查，所以停下來的時候 `add word_38B54, 1` 已經跑完、`adc` 還沒跑：記憶體是 N+1，
+`Clock` 記的 N 才是「第 N 刻做完」，與 remake 的 `World.GameTime − 1` 同一個語意。
+
+輸出目錄另有 `steps.jsonl`：每一步一行，位置、面向、遊戲刻，以及 `late`
+（這一步按下之前經過了幾個刻邊界）。
 
 收據只記輸入檔的 basename 與 SHA-256、步數、artifact 雜湊；
 **不得記錄私有絕對路徑，也不得嵌入原版 bytes**。
@@ -332,6 +350,12 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
      少了這一條就分不出「對上了」與「根本沒在檢查」。
    - 停在刻的邊界時 `GameTime` 是遞增**前**的值（§3.3），用連續兩個檢查點的
      差值驗證。
+   **做完 2026-10-31**（`apps/dm/resume_live_test.go` 三支）：第一個刻邊界是 19662，
+   三步各走 8 刻、`expect` 全對；`start` 改錯停在第 0 步、第 2 步的 `expect` 改錯停在第 2 步。
+   變異測試：把位置檢查改成永遠通過，兩支反對照都變紅。
+   CLI 對第 2 層整條路線（526 步）實跑：前 207 步全部對上，第 0–200 步的六個檢查點與
+   remake 逐欄一致；第 208 步原版的隊伍掉到第 3 層，那是 remake 少做了 F249
+   （dungeon_master 專案 `docs/re/77`），不是這一側的問題。
 4. **負重 stub**：開著時 `F309` 回 `10000`。**反對照**：取消 stub，
    同一個呼叫要走真正的計算。
    **做完 2026-09-11**：直接 `oracle.Call` 呼叫 `F309`——stub 開著回
