@@ -35,6 +35,8 @@ type checkpoint struct {
 	Dir         string `json:"dir"`
 	PartySHA256 string `json:"party_sha256"`
 	FrameSHA256 string `json:"frame_sha256"`
+	// DungeonSHA256 是 dungeon.bin（地城映像裡會變的那幾段，§3.7）的雜湊。
+	DungeonSHA256 string `json:"dungeon_sha256"`
 }
 
 type receipt struct {
@@ -69,19 +71,20 @@ func main() {
 	routePath := flag.String("route", "", "巡檢路線 JSON（remake 的 dmtool sweep route 產生）")
 	out := flag.String("out", "", "輸出目錄")
 	flag.Uint64Var(&dm.RouteHover, "hover", dm.RouteHover, "每一步移游標之後、按下之前跑幾道指令")
+	everyStep := flag.Bool("dungeon-every-step", false, "每一步都把地城映像寫到 steps/NNNN.bin（找第一個岔開的刻用）")
 	flag.Parse()
 	if *exe == "" || *root == "" || *routePath == "" || *out == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	code, err := run(*exe, *root, *routePath, *out)
+	code, err := run(*exe, *root, *routePath, *out, *everyStep)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "sweep:", err)
 	}
 	os.Exit(code)
 }
 
-func run(exe, root, routePath, out string) (int, error) {
+func run(exe, root, routePath, out string, everyStep bool) (int, error) {
 	r, err := dm.ReadRoute(routePath)
 	if err != nil {
 		return 2, err
@@ -121,6 +124,7 @@ func run(exe, root, routePath, out string) (int, error) {
 		want[k] = true
 	}
 	var last dm.StepResult
+	var b *dm.Bridge
 	write := func(dir string, s dm.StepResult) (checkpoint, error) {
 		cp := checkpoint{Step: s.Step, GameTime: s.Party.GameTime, Dir: dir}
 		full := filepath.Join(out, dir)
@@ -146,6 +150,15 @@ func run(exe, root, routePath, out string) (int, error) {
 			return cp, err
 		}
 		cp.FrameSHA256 = h.SHA256
+		img, err := b.DungeonImage()
+		if err != nil {
+			return cp, err
+		}
+		if err := os.WriteFile(filepath.Join(full, "dungeon.bin"), img, 0o644); err != nil {
+			return cp, err
+		}
+		sum = sha256.Sum256(img)
+		cp.DungeonSHA256 = hex.EncodeToString(sum[:])
 		return cp, nil
 	}
 
@@ -157,6 +170,11 @@ func run(exe, root, routePath, out string) (int, error) {
 	defer trace.Close()
 	enc := json.NewEncoder(trace)
 
+	if everyStep {
+		if err := os.MkdirAll(filepath.Join(out, "steps"), 0o755); err != nil {
+			return 2, err
+		}
+	}
 	b, c, err := dm.Resume(o)
 	if err == nil {
 		err = b.RunRoute(c, r, func(s dm.StepResult) error {
@@ -165,6 +183,15 @@ func run(exe, root, routePath, out string) (int, error) {
 			if err := enc.Encode(map[string]any{"step": s.Step, "game_time": s.Party.GameTime,
 				"x": s.Party.X, "y": s.Party.Y, "facing": s.Party.Facing}); err != nil {
 				return err
+			}
+			if everyStep {
+				img, err := b.DungeonImage()
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(out, "steps", fmt.Sprintf("%04d.bin", s.Step)), img, 0o644); err != nil {
+					return err
+				}
 			}
 			if !want[s.Step] {
 				return nil

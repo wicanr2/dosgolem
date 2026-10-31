@@ -108,3 +108,33 @@ func TestLiveRouteStopsOnWrongExpect(t *testing.T) {
 		t.Errorf("停下時隊伍在 (%d,%d)，路線前兩步應該走到 (0,15)", last.X, last.Y)
 	}
 }
+
+// TestLiveDungeonImageMatchesSave：讀檔之後第一個刻邊界的地城映像，長度與幾段不會在
+// 一刻裡變的內容要等於存檔（§3.7）。指標或長度錯一個，這裡就對不上。
+//
+// 期望值來自原版附的 `DMSAVE.DAT` 地城段（dungeon_master 專案 `dmtool save info` 的段表）：
+// SquareFirstThings 3958 位元組、thing 資料 16470、RawMapData 12283。
+func TestLiveDungeonImageMatchesSave(t *testing.T) {
+	shortRoute(t) // 只為了確認存檔是原版附的那一份
+	o := load(t)
+	b, _, err := dm.Resume(o)
+	if err != nil {
+		t.Fatalf("讀檔：%v", err)
+	}
+	img, err := b.DungeonImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img) != 3958+16470+12283 {
+		t.Fatalf("地城映像 %d 位元組，存檔是 %d", len(img), 3958+16470+12283)
+	}
+	at := func(off int, want string) {
+		t.Helper()
+		if got := hex.EncodeToString(img[off : off+16]); got != want {
+			t.Errorf("位移 %d：%s，存檔是 %s", off, got, want)
+		}
+	}
+	at(0, "278e6b004104400ca6003f4c984c6c0e")          // SquareFirstThings
+	at(3958+680, "940c0660000afeffe7e00001feff68f0")   // 型別 1（傳送器）
+	at(3958+16470, "00000004002000000000000404040006") // RawMapData
+}
