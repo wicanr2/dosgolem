@@ -359,6 +359,36 @@ IDA 裡經由這些全域取用的欄位與 ReDMCSB 的結構一致）：
 CLI：每個檢查點的目錄另寫 `dungeon.bin`；`-dungeon-every-step` 時每一步都寫一份到
 `steps/NNNN.bin`（找第一個岔開的刻用，一份約 33 KB）。
 
+### 3.8 ACTIVE_GROUP 傾印（2026-11-01）
+
+隊伍那一層的怪物在 `dungeon.bin` 裡只有一半：`GROUP.Cells` 存的是 ACTIVE_GROUP 的索引，
+象限、面向與每隻的樣子（攻擊中、翻面、位移）在 ACTIVE_GROUP 那張表裡（dungeon_master 專案
+`docs/re/32`）。remake 要畫出原版那一刻的怪物，就要這張表（dungeon_master 專案 worklist
+`dosgolem-sweep-active-groups`）。這一側同樣**不解析**，照指標整張讀出來。
+
+位址（DS 偏移；**已確認**：IDA `sub_15ADA` 對到 ReDMCSB 的 `F183_kzzz_GROUP_AddActiveGroup`
+（`GROUP1.C:258`），逐道相符——從 `dword_3837C` 起一筆 16 位元組往後找第一個 `+0 < 0` 的空位、
+`word_35C68` 加一、`+0` 寫 thing 索引 `& 3FFh`、怪物群記錄 `+5`（Cells）抄到 `+3` 再換成這一筆的索引、
+`+8`／`+0Ah` 寫 X、`+9`／`+0Bh` 寫 Y、`+4` 寫 `GameTime − 127`。唯一的不同是找過 `word_38380` 筆還沒有空位時，
+DOS 呼叫 `sub_26A92(47h)`，ST 直接返回）：
+
+| 內容 | 全域 | IDA | 長度 |
+|---|---|---|---|
+| ACTIVE_GROUP 表（`G375_ps_ActiveGroups`） | `ds:34AC` far 指標 | `dword_3837C` | `上限 × 16` |
+| 上限（`G376_ui_MaximumActiveGroupCount`） | `ds:34B0` word | `word_38380` | 2 |
+| 現有筆數（`G377_ui_CurrentActiveGroupCount`） | `ds:0D98` word | `word_35C68` | 2 |
+
+一筆的欄位與 ST 相同（`DEFS.H:555`）：`+0` thing 索引（有號，負的是空位）、`+2` 面向、`+3` 象限、
+`+4` 上次移動的刻、`+5` 延後逃跑、`+6`／`+7` 目標、`+8`／`+9` 前一格、`+0Ah`／`+0Bh` 家、`+0Ch`–`+0Fh` 每隻的樣子。
+這一側只照搬，不讀欄位。
+
+讀表時核對：上限在 1–255、現有筆數不超過上限、`+0 ≥ 0` 的筆數等於現有筆數；不對就回錯誤，
+不要拿錯的長度去讀別的記憶體。
+
+`activegroups.bin` 的格式：整張表原樣（`上限 × 16` 位元組，含空位），不加標頭。
+CLI：每個檢查點的目錄另寫 `activegroups.bin`，收據的檢查點多一欄 `active_groups_sha256`；
+`-dungeon-every-step` 時每一步另寫 `steps/NNNN.groups.bin`。
+
 ## 4. 驗證與停止線
 
 1. **純測試**：結構解碼（給一段合成的 319 位元組緩衝，欄位要落在對的偏移）、
@@ -398,6 +428,12 @@ CLI：每個檢查點的目錄另寫 `dungeon.bin`；`-dungeon-every-step` 時�
    ⚠ 呼叫要用 `Bridge.Code` 給對的 `CS`（§6），而且值超過 16 位元要被拒絕
    （另一支測試守著）。
 5. 缺少私有資料只能明確 skip，**不能偽造 pass**。
+6. **ACTIVE_GROUP 傾印**（§3.8，同樣由私有資料選配）：讀檔之後讀表，
+   `+0 ≥ 0` 的每一筆都要指到一個怪物群記錄，而且那筆記錄的 `+5` 正是這一筆的索引
+   （與 `DungeonImage` 傾印的型別 4 那一段互相印證，兩邊是不同的指標）；
+   上限要等於存檔 `GLOBAL_DATA.MaximumActiveGroupCount`。**反對照**：故意把上限的位址讀錯一個 word，要回錯誤。
+   **做完 2026-11-01**（`TestLiveActiveGroupsPointAtTheirGroups`）：上限 110、第 2 層在用 11 筆，每一筆都指回自己；
+   表的指標錯 4 個位元組時讀到 109 筆在用、與現有筆數 11 不符而停。
 
 ## 5. 原本的未解項（2026-09-11 全數收斂，規格升 READY）
 

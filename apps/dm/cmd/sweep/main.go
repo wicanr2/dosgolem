@@ -37,6 +37,8 @@ type checkpoint struct {
 	FrameSHA256 string `json:"frame_sha256"`
 	// DungeonSHA256 是 dungeon.bin（地城映像裡會變的那幾段，§3.7）的雜湊。
 	DungeonSHA256 string `json:"dungeon_sha256"`
+	// ActiveGroupsSHA256 是 activegroups.bin（整張 ACTIVE_GROUP 表，§3.8）的雜湊。
+	ActiveGroupsSHA256 string `json:"active_groups_sha256"`
 }
 
 type receipt struct {
@@ -71,7 +73,7 @@ func main() {
 	routePath := flag.String("route", "", "巡檢路線 JSON（remake 的 dmtool sweep route 產生）")
 	out := flag.String("out", "", "輸出目錄")
 	flag.Uint64Var(&dm.RouteHover, "hover", dm.RouteHover, "每一步移游標之後、按下之前跑幾道指令")
-	everyStep := flag.Bool("dungeon-every-step", false, "每一步都把地城映像寫到 steps/NNNN.bin（找第一個岔開的刻用）")
+	everyStep := flag.Bool("dungeon-every-step", false, "每一步都把地城映像寫到 steps/NNNN.bin與 ACTIVE_GROUP 表寫到 steps/NNNN.groups.bin（找第一個岔開的刻用）")
 	flag.Parse()
 	if *exe == "" || *root == "" || *routePath == "" || *out == "" {
 		flag.Usage()
@@ -159,6 +161,15 @@ func run(exe, root, routePath, out string, everyStep bool) (int, error) {
 		}
 		sum = sha256.Sum256(img)
 		cp.DungeonSHA256 = hex.EncodeToString(sum[:])
+		groups, err := b.ActiveGroups()
+		if err != nil {
+			return cp, err
+		}
+		if err := os.WriteFile(filepath.Join(full, "activegroups.bin"), groups, 0o644); err != nil {
+			return cp, err
+		}
+		sum = sha256.Sum256(groups)
+		cp.ActiveGroupsSHA256 = hex.EncodeToString(sum[:])
 		return cp, nil
 	}
 
@@ -190,6 +201,13 @@ func run(exe, root, routePath, out string, everyStep bool) (int, error) {
 					return err
 				}
 				if err := os.WriteFile(filepath.Join(out, "steps", fmt.Sprintf("%04d.bin", s.Step)), img, 0o644); err != nil {
+					return err
+				}
+				groups, err := b.ActiveGroups()
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(out, "steps", fmt.Sprintf("%04d.groups.bin", s.Step)), groups, 0o644); err != nil {
 					return err
 				}
 			}

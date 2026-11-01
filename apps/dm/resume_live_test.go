@@ -139,3 +139,42 @@ func TestLiveDungeonImageMatchesSave(t *testing.T) {
 	at(818+3958+680, "940c0660000afeffe7e00001feff68f0")   // 型別 1（傳送器）
 	at(818+3958+16470, "00000004002000000000000404040006") // RawMapData
 }
+
+// TestLiveActiveGroupsPointAtTheirGroups：讀檔之後的 ACTIVE_GROUP 表（§3.8）。
+// 每一筆在用的都要指到一個怪物群記錄，而那筆記錄的 `+5` 正是這一筆的索引——
+// 表與 thing 資料是兩個不同的指標，對得上才算位址對。上限是存檔的
+// `GLOBAL_DATA.MaximumActiveGroupCount`（這一份是 110）。
+// 反對照：上限讀錯一個 word 要回錯誤。
+func TestLiveActiveGroupsPointAtTheirGroups(t *testing.T) {
+	shortRoute(t)
+	o := load(t)
+	b, _, err := dm.Resume(o)
+	if err != nil {
+		t.Fatalf("讀檔：%v", err)
+	}
+	table, err := b.ActiveGroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(table) != 110*16 {
+		t.Fatalf("表有 %d 位元組，存檔的上限是 110 筆", len(table))
+	}
+	used := 0
+	for i := 0; i < 110; i++ {
+		idx := int16(uint16(table[i*16]) | uint16(table[i*16+1])<<8)
+		if idx < 0 {
+			continue
+		}
+		used++
+		if g := b.GroupRecord(int(idx)); int(g[5]) != i {
+			t.Errorf("第 %d 筆指到怪物群 %d，那筆記錄的 +5 是 %d", i, idx, g[5])
+		}
+	}
+	if used == 0 {
+		t.Fatal("第 2 層有怪物，表卻是空的")
+	}
+	t.Logf("在用 %d 筆", used)
+	if _, err := b.ActiveGroupsAt(dm.DSActiveGroups, dm.DSActiveGroupMax+2, dm.DSActiveGroupCount); err == nil {
+		t.Error("上限讀錯一個 word 也通過了，核對沒在擋")
+	}
+}
