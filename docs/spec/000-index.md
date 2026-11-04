@@ -988,3 +988,4 @@
 
 - [191 — BIOS ROM 尾巴、ROM 唯讀、狀態檔的 A20；`-watch` 多段與 `-regs-at` 不去重](191-bios-rom-tail.md)：READY。`FFFF0`–`FFFFF` 填 PC/AT 的重置跳躍、BIOS 日期與機型位元組，`F0000`–`FFFFF` 寫入忽略但記下來；狀態檔 v3 存 A20／HMA、仍讀 v2；`-watch` 每一段都監看、`-regs-at` 的 blit 去重改成選用。
 - [189 — Hercules 的畫面在 B0000](189-hercules-b0000.md)：READY。probe 多報 `B0000 非零 bytes`、`-dump-herc`；`oracle.Hercules()`／`HerculesNonZero()`。
+- [443 — 《大航海時代 II》DOS 版的對拍轉接層](443-koukai2-oracle-adapter.md)：READY。`oracle.Options.COM`、`apps/koukai2`。記錄 `OnCall` 在中斷返回時重複觸發。
