@@ -60,6 +60,7 @@ type receipt struct {
 	Title        map[string]any       `json:"title"`
 	RNG          map[string]any       `json:"rng"`
 	SeedWrites   []koukai2.SeedWrite  `json:"seed_writes"`
+	Password     map[string]any       `json:"password"`
 }
 
 func main() {
@@ -150,6 +151,23 @@ func main() {
 			}
 		}
 	}
+	// 063：防拷挑戰。`45DBC` 呼叫 `45DE0(百位, 十位, 個位)`，`[bp+var_A]` 是 r。
+	o.OnCall(main_.Code(0x45DBC), func(o *oracle.Oracle) {
+		if r.Password == nil {
+			r.Password = map[string]any{
+				"r":      o.Word(oracle.Addr{Seg: o.Regs().SS, Off: o.BP() - 0xA}),
+				"digits": []uint16{o.StackWord(0), o.StackWord(1), o.StackWord(2)},
+			}
+		}
+	})
+	// 結果在 `45DCD`，被 `jmp short` 略過，所以只記 465F1 的回傳值。
+	o.OnCall(main_.Code(0x45DCA), func(o *oracle.Oracle) {
+		if r.Password != nil {
+			if _, ok := r.Password["compare_ax"]; !ok {
+				r.Password["compare_ax"] = o.AX()
+			}
+		}
+	})
 	// 主迴圈第一天：`sub_2B2BA` 第一次進入時的時鐘（010：DS:0CAA..0CAD 初值 15 04 10 18）。
 	o.OnCall(main_.Code(koukai2.AddrOneDay), func(o *oracle.Oracle) {
 		if r.FirstDay == nil {
