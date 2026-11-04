@@ -25,6 +25,7 @@ const (
 	drvSeg      uint16 = 0x0182
 	drvSong     uint16 = 0x05D7 // byte_105D7：目前曲號，0 = 停止
 	drvBusy     uint16 = 0x05E5 // byte_105E5：sub_108CE 進行中，用驅動自己的堆疊
+	stubOff     uint16 = 0x0080 // FMDRV.COM 的 PSP 命令列區，常駐後沒有人用
 )
 
 // 音高與 tools/assets/mml.py 的 cmd_se 相同。
@@ -53,34 +54,45 @@ func main() {
 		die(err)
 	}
 	o.SetTickRate(*every)
-	entry := oracle.Addr{Seg: o.Word(oracle.Addr{Off: 0x19A}), Off: o.Word(oracle.Addr{Off: 0x198})}
-	fmt.Printf("INT 66h 入口 %04X:%04X\n", entry.Seg, entry.Off)
-	// 用真的 INT 指令呼叫，IF 才會和遊戲呼叫時一樣被清掉（BDA 0x4F0..0x4FF 是空的）。
-	stub := oracle.Addr{Seg: 0, Off: 0x4F0}
-	o.SetBytes(stub, []byte{0xCD, 0x66, 0xCB})
 	b := koukai2.MainAt()
 	dgroup := b.Seg(uint16(koukai2.MainDGroup >> 4))
+	stub := oracle.Addr{Seg: drvSeg, Off: stubOff}
 
 	// 驅動的計時常式換到自己的堆疊並把舊 SS:SP 存在固定位置。在它執行中呼叫 INT 66h 會蓋掉
 	// 那份紀錄，所以只在 CPU 離開驅動時才呼叫。
 	safe := oracle.NewCond("離開驅動", func(o *oracle.Oracle) bool {
 		return o.IP().Seg != drvSeg && o.Byte(oracle.Addr{Seg: drvSeg, Off: drvBusy}) == 0
 	})
-	int66 := func(ax, dx uint16) uint16 {
+	waitSafe := func() {
 		if err := o.RunUntil(safe, oracle.Budget(5_000_000)); err != nil {
 			die(err)
 		}
-		o.SetRegs(oracle.CallRegs{AX: ax, SetAX: true, DX: dx, SetDX: true, DS: dgroup, SetDS: true})
+	}
+	// runStub 執行一段以 retf 結尾的程式碼。Call 只還原呼叫當下的暫存器，
+	// 所以先記下遊戲原本的值，呼叫完自己寫回；否則遊戲恢復時暫存器是這裡設的值。
+	runStub := func(code []byte, regs oracle.CallRegs) uint16 {
+		waitSafe()
+		g := o.Regs()
+		o.SetBytes(stub, code)
+		o.SetRegs(regs)
 		v, err := o.CallBudget(5_000_000, stub)
 		if err != nil {
 			die(err)
 		}
+		o.SetRegs(oracle.CallRegs{
+			AX: g.AX, SetAX: true, BX: g.BX, SetBX: true, CX: g.CX, SetCX: true, DX: g.DX, SetDX: true,
+			SI: g.SI, SetSI: true, DI: g.DI, SetDI: true, DS: g.DS, SetDS: true, ES: g.ES, SetES: true,
+		})
 		return uint16(v)
 	}
-	phase := func() string {
+	// 用真的 INT 指令呼叫，IF 才會和遊戲呼叫時一樣被清掉。
+	int66 := func(ax, dx, ds uint16) uint16 {
+		return runStub([]byte{0xCD, 0x66, 0xCB}, oracle.CallRegs{AX: ax, SetAX: true, DX: dx, SetDX: true, DS: ds, SetDS: true})
+	}
+	phase := func() (uint64, string) {
 		c := o.Bytes(oracle.Addr{Seg: uint16(drvCounters >> 4), Off: uint16(drvCounters & 0xF)}, 16)
 		g := o.Bytes(oracle.Addr{Seg: uint16(drvGCount >> 4), Off: uint16(drvGCount & 0xF)}, 2)
-		return fmt.Sprintf("%d %d %d\n", int(g[0])|int(g[1])<<8, c[8], c[9])
+		return o.Ticks(), fmt.Sprintf("%d %d %d", int(g[0])|int(g[1])<<8, c[8], c[9])
 	}
 	save := func(name string, mark int, ph string) {
 		var sb strings.Builder
@@ -91,33 +103,28 @@ func main() {
 		if err := os.WriteFile(*out+"/"+name+".opl", []byte(sb.String()), 0o644); err != nil {
 			die(err)
 		}
-		if err := os.WriteFile(*out+"/"+name+".phase", []byte(ph), 0o644); err != nil {
+		if err := os.WriteFile(*out+"/"+name+".phase", []byte(ph+"\n"), 0o644); err != nil {
 			die(err)
 		}
 		fmt.Printf("%s：%d 筆  步數 %d  IRQ0 %d\n", name, (len(all)-mark)/2, o.Steps(), o.Ticks())
 	}
 
 	for n := *first; n <= *last; n++ {
-		int66(0x0200, 0) // AH=2 AL=0：立刻靜音停止
+		int66(0x0200, 0, dgroup) // AH=2 AL=0：立刻靜音停止
 		if err := o.Run(200_000); err != nil {
 			die(err)
 		}
-		int66(0x0400, 0) // AH=4 AL=0：不迴圈
-		if err := o.RunUntil(safe, oracle.Budget(5_000_000)); err != nil {
-			die(err)
-		}
-		ph := phase()
+		int66(0x0400, 0, dgroup) // AH=4 AL=0：不迴圈
+		waitSafe()
+		_, ph := phase()
 		mark := len(o.PortWritesIn(0x388, 0x389))
-		int66(0x0100|uint16(n), 0) // AH=1
+		int66(0x0100|uint16(n), 0, dgroup) // AH=1
 		var ran uint64
 		for {
 			if err := o.Run(1_000_000); err != nil {
 				die(err)
 			}
 			ran += 1_000_000
-			if ran%100_000_000 == 0 {
-				fmt.Printf("  第 %d 首：跑了 %d 道，寫入 %d 筆，IRQ0 %d，曲號 %d，%s\n", n, ran, (len(o.PortWritesIn(0x388, 0x389))-mark)/2, o.Ticks(), o.Byte(oracle.Addr{Seg: drvSeg, Off: drvSong}), koukai2.Describe(o))
-			}
 			if o.Byte(oracle.Addr{Seg: drvSeg, Off: drvSong}) == 0 {
 				break
 			}
@@ -129,29 +136,39 @@ func main() {
 	}
 
 	if *se {
-		const irqsHold uint64 = 145 // mml.py：int(0.5 * PIT_HZ / IRQ_DIV)
+		const hold uint64 = 145 // mml.py：int(0.5 * PIT_HZ / IRQ_DIV)
 		for k := 0; k < 8; k++ {
-			int66(0x0200, 0)
+			int66(0x0200, 0, dgroup)
 			if err := o.Run(200_000); err != nil {
 				die(err)
 			}
-			if err := o.RunUntil(safe, oracle.Budget(5_000_000)); err != nil {
+			// 遊戲的 sub_19888：AH=5 DS:DX=0:0 清聲道結構。不清的話 LFO 相位沿用上一個音效。
+			int66(0x0500, 0, 0)
+			if err := o.Run(200_000); err != nil {
 				die(err)
 			}
-			ph := phase()
+			waitSafe()
+			t0, ph := phase()
 			mark := len(o.PortWritesIn(0x388, 0x389))
-			int66(0x0500, dsSE+uint16(k)*22) // AH=5 AL=0，DS:DX = 音色
-			int66(0x0600, seNotes[k])        // AH=6 AL=0，DL = 音高
-			t := o.Ticks()
-			if err := o.RunUntil(oracle.AtTick(t+irqsHold), oracle.Budget(100_000_000)); err != nil {
+			// 把 AH=5、AH=6 放在同一段關中斷的程式碼，中間不會插進計時器。
+			// cli; mov ax,0500h; mov dx,voice; int 66h; cli; mov ax,0600h; mov dx,note; int 66h; sti; retf
+			voice, note := dsSE+uint16(k)*22, seNotes[k]
+			runStub([]byte{
+				0xFA, 0xB8, 0x00, 0x05, 0xBA, byte(voice), byte(voice >> 8), 0xCD, 0x66,
+				0xFA, 0xB8, 0x00, 0x06, 0xBA, byte(note), byte(note >> 8), 0xCD, 0x66,
+				0xFB, 0xCB,
+			}, oracle.CallRegs{DS: dgroup, SetDS: true})
+			if err := o.RunUntil(oracle.AtTick(t0+hold), oracle.Budget(100_000_000)); err != nil {
 				die(err)
 			}
-			int66(0x0700, 0) // AH=7
-			t = o.Ticks()
-			if err := o.RunUntil(oracle.AtTick(t+irqsHold), oracle.Budget(100_000_000)); err != nil {
+			waitSafe()
+			t1 := o.Ticks()
+			int66(0x0700, 0, dgroup) // AH=7
+			if err := o.RunUntil(oracle.AtTick(t1+hold), oracle.Budget(100_000_000)); err != nil {
 				die(err)
 			}
-			save(fmt.Sprintf("se%d", k), mark, ph)
+			waitSafe()
+			save(fmt.Sprintf("se%d", k), mark, fmt.Sprintf("%s %d %d", ph, t1-t0, o.Ticks()-t0))
 		}
 	}
 	if u := o.Unimplemented(); len(u) > 0 {
