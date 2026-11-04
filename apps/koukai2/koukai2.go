@@ -56,6 +56,10 @@ type Bind struct {
 
 // Current 回最後一支載入、還沒結束的程式。TSR（FMDRV.COM）不算。
 func Current(o *oracle.Oracle) (Bind, bool) {
+	if len(o.ExecLog()) == 0 && o.Steps() > 0 {
+		// 狀態檔不保存 EXEC 紀錄。探索時視為 MAIN.EXE，收據一律從冷啟動跑。
+		return MainAt(), true
+	}
 	log := o.ExecLog()
 	for i := len(log) - 1; i >= 0; i-- {
 		r := log[i]
