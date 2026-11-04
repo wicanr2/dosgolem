@@ -15,10 +15,18 @@
 //	poll:N         跑到滑鼠再被輪詢 N 次
 //	at:IDA         跑到 IDA 線性位址（MAIN.EXE）
 //	shot:路徑      存 PNG
+//	idx:路徑       存畫面色號（寬×高 bytes）
+//	pal:路徑       存 DAC（256×3 bytes）
+//	ds:偏移:長度:路徑、lin:線性:長度:路徑   存記憶體（十六進位）
+//	peek:偏移:長度 印 DS 內容（十六進位）
+//	poke:偏移:hex  改 DS 內容，收據要明列
+//	log:IDA[:筆數] 掛 hook，印暫存器與堆疊
+//	opl:路徑       存 OPL 埠寫入
 package main
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -160,6 +168,98 @@ func act(o *oracle.Oracle, a string, budget uint64) error {
 		return o.RunUntil(oracle.NewCond("到達 "+f[1], func(o *oracle.Oracle) bool {
 			return o.IP().Linear() == target
 		}), oracle.Budget(budget))
+	case "idx":
+		// 目前畫面的色號，寬×高 bytes（模式 12h 是 640×480）。
+		_, _, px := o.Screen()
+		return os.WriteFile(f[1], px, 0o644)
+	case "pal":
+		// DAC 256 色，每色 R、G、B。
+		pal := o.Palette()
+		raw := make([]byte, 0, 768)
+		for _, c := range pal {
+			raw = append(raw, c[0], c[1], c[2])
+		}
+		return os.WriteFile(f[1], raw, 0o644)
+	case "ds", "lin":
+		// ds:偏移hex:長度hex:路徑；lin:線性hex:長度hex:路徑。
+		off, err := strconv.ParseUint(f[1], 16, 32)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.ParseUint(f[2], 16, 32)
+		if err != nil {
+			return err
+		}
+		var data []byte
+		if f[0] == "ds" {
+			b, _ := koukai2.CurrentOrMain(o)
+			data = o.Bytes(b.DS(uint16(off)), int(n))
+		} else {
+			data = o.Bytes(oracle.Addr{Seg: uint16(off >> 4), Off: uint16(off & 0xF)}, int(n))
+		}
+		return os.WriteFile(f[3], data, 0o644)
+	case "peek":
+		// peek:DS偏移hex:長度hex，印到 stdout。
+		off, err := strconv.ParseUint(f[1], 16, 32)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.ParseUint(f[2], 16, 32)
+		if err != nil {
+			return err
+		}
+		b, _ := koukai2.CurrentOrMain(o)
+		fmt.Printf("  步數 %d DS:%04X = % X\n", o.Steps(), off, o.Bytes(b.DS(uint16(off)), int(n)))
+		return nil
+	case "poke":
+		// poke:DS偏移hex:位元組hex（連續，例如 0A0B）。收據要明列。
+		off, err := strconv.ParseUint(f[1], 16, 32)
+		if err != nil {
+			return err
+		}
+		data, err := hex.DecodeString(f[2])
+		if err != nil {
+			return err
+		}
+		b, _ := koukai2.CurrentOrMain(o)
+		o.SetBytes(b.DS(uint16(off)), data)
+		fmt.Printf("  步數 %d poke DS:%04X = % X\n", o.Steps(), off, data)
+		return nil
+	case "log":
+		// log:IDAhex[:最多幾筆]，在 MAIN.EXE 的 IDA 位址掛 hook，印暫存器與堆疊。
+		// OnCall 在中斷返回時會重複觸發（dosgolem 規格 443 §4）。
+		lin, err := strconv.ParseUint(f[1], 16, 32)
+		if err != nil {
+			return err
+		}
+		max := 40
+		if len(f) > 2 {
+			v, err := strconv.Atoi(f[2])
+			if err != nil {
+				return err
+			}
+			max = v
+		}
+		b, _ := koukai2.CurrentOrMain(o)
+		seen := 0
+		o.OnCall(b.Code(uint32(lin)), func(o *oracle.Oracle) {
+			if seen >= max {
+				return
+			}
+			seen++
+			r := o.Regs()
+			fmt.Printf("  %s #%d 步數 %d AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X SP=%04X 堆疊 %04X %04X %04X %04X %04X %04X\n",
+				f[1], seen, o.Steps(), r.AX, r.BX, r.CX, r.DX, r.SI, r.DI, r.BP, r.SP,
+				o.StackWord(0), o.StackWord(1), o.StackWord(2), o.StackWord(3), o.StackWord(4), o.StackWord(5))
+		})
+		return nil
+	case "opl":
+		// OPL 埠寫入：每行 步數 埠 值。
+		var sb strings.Builder
+		for _, w := range o.PortWritesIn(0x388, 0x389) {
+			fmt.Fprintf(&sb, "%d %03X %02X\n", w.Step, w.Port, w.Val)
+		}
+		return os.WriteFile(f[1], []byte(sb.String()), 0o644)
 	case "shot":
 		return o.WritePNG(f[1])
 	}
