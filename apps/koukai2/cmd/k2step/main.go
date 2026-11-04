@@ -63,7 +63,7 @@ func main() {
 		}
 	}
 	if *dump != "" {
-		b, ok := koukai2.Current(o)
+		b, ok := koukai2.CurrentOrMain(o)
 		if !ok {
 			die(fmt.Errorf("沒有執行中的程式"))
 		}
@@ -152,7 +152,7 @@ func act(o *oracle.Oracle, a string, budget uint64) error {
 		if err != nil {
 			return err
 		}
-		b, ok := koukai2.Current(o)
+		b, ok := koukai2.CurrentOrMain(o)
 		if !ok {
 			return fmt.Errorf("沒有執行中的程式")
 		}

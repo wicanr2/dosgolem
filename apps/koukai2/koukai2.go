@@ -56,10 +56,6 @@ type Bind struct {
 
 // Current 回最後一支載入、還沒結束的程式。TSR（FMDRV.COM）不算。
 func Current(o *oracle.Oracle) (Bind, bool) {
-	if len(o.ExecLog()) == 0 && o.Steps() > 0 {
-		// 狀態檔不保存 EXEC 紀錄。探索時視為 MAIN.EXE，收據一律從冷啟動跑。
-		return MainAt(), true
-	}
 	log := o.ExecLog()
 	for i := len(log) - 1; i >= 0; i-- {
 		r := log[i]
@@ -99,9 +95,19 @@ func (b Bind) ToIDA(a oracle.Addr) uint32 {
 	return a.Linear() - uint32(b.loadSeg())*16 + 0x10000
 }
 
-// Describe 印一行目前狀態：哪一支程式、CS:IP 的 IDA 位址、呼叫端。
+// CurrentOrMain 是 Current，但沒有 EXEC 紀錄時視為 `MAIN.EXE`。
+//
+// 狀態檔不保存 EXEC 紀錄，只有從狀態檔接續的探索才用這一支。收據一律從冷啟動跑。
+func CurrentOrMain(o *oracle.Oracle) (Bind, bool) {
+	if len(o.ExecLog()) == 0 {
+		return MainAt(), true
+	}
+	return Current(o)
+}
+
+// Describe 印一行目前狀態：哪一支程式、CS:IP 的 IDA 位址。
 func Describe(o *oracle.Oracle) string {
-	b, ok := Current(o)
+	b, ok := CurrentOrMain(o)
 	if !ok {
 		return fmt.Sprintf("程式 無  CS:IP %04X:%04X", o.IP().Seg, o.IP().Off)
 	}
