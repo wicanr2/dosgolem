@@ -15,9 +15,9 @@ package main
 //	setgold / dumpds:…     見各自說明
 
 import (
-	"os"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -193,7 +193,7 @@ func (e *env) act092(f []string) error {
 	case "setport_nation":
 		// setport_nation:變數:標籤：DS:0CAE 低位元組 = 國家表 nation[v[n]] 的首都港（DS:117A + 32 * 國 + 10）。測試條件（王命 7、8 的目標國首都）。
 		vn, _ := strconv.ParseUint(f[1], 10, 64)
-		nat := o.Word(b.DS(uint16(0x0D68 + 2*vn))) & 0xFF
+		nat := o.Word(b.DS(uint16(0x0D68+2*vn))) & 0xFF
 		cap := o.Byte(b.DS(uint16(0x117A + 32*uint32(nat) + 10)))
 		old := o.Bytes(b.DS(0x0CAE), 2)
 		o.SetBytes(b.DS(0x0CAE), []byte{cap, 0})

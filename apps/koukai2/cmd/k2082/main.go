@@ -52,15 +52,15 @@ type linWatch struct {
 }
 
 type env struct {
-	lwatches []linWatch
-	o       *oracle.Oracle
-	log     *EvLog82
-	stats   map[string]*HookStat82
-	hits    map[uint32]*int
-	watches []writeWatch
-	max     uint64
-	rndOn   bool
-	rndInst bool
+	lwatches   []linWatch
+	o          *oracle.Oracle
+	log        *EvLog82
+	stats      map[string]*HookStat82
+	hits       map[uint32]*int
+	watches    []writeWatch
+	max        uint64
+	rndOn      bool
+	rndInst    bool
 	rndSkipped *int
 }
 

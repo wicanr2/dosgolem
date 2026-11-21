@@ -191,9 +191,10 @@ func diffExact(prev, cur []byte) [][2]any {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // fnpair:標籤:入口IDA:出口IDA:AX長度:BX長度:DX長度[:堆疊字數]
-//   入口與出口成對的 hook（出口放在函式的 retf 指令位址，AX 是回傳值）。入口記暫存器、堆疊、視窗變數，並把 AX / BX / DX 當作 DS 指標各讀「長度」個 bytes（0 不讀）；
-//   出口記 AX（ret），並用入口記下的同一組指標再讀一次（函式內部改過的結構、out 參數）。事件 lab = 標籤_in / 標籤_out，x.m = {AX, BX, DX 的 hex}。
-//   取代不可靠的出口暫存器（函式尾端 BX、SI、DI 已被重用）。去重同 hookAt。
+//
+//	入口與出口成對的 hook（出口放在函式的 retf 指令位址，AX 是回傳值）。入口記暫存器、堆疊、視窗變數，並把 AX / BX / DX 當作 DS 指標各讀「長度」個 bytes（0 不讀）；
+//	出口記 AX（ret），並用入口記下的同一組指標再讀一次（函式內部改過的結構、out 參數）。事件 lab = 標籤_in / 標籤_out，x.m = {AX, BX, DX 的 hex}。
+//	取代不可靠的出口暫存器（函式尾端 BX、SI、DI 已被重用）。去重同 hookAt。
 func (e *env) fnpair(f []string) error {
 	o := e.o
 	b, _ := CurrentOrMain(o)
@@ -272,7 +273,8 @@ func (e *env) fnpair(f []string) error {
 }
 
 // script:路徑
-//   讀檔，每行一組動作（以逗號分隔），依序執行；# 開頭的行略過。解決 -do 參數長度的限制。
+//
+//	讀檔，每行一組動作（以逗號分隔），依序執行；# 開頭的行略過。解決 -do 參數長度的限制。
 func (e *env) script(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

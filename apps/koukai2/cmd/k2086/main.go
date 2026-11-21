@@ -52,14 +52,14 @@ type linWatch struct {
 }
 
 type env struct {
-	cap *capState
+	cap      *capState
 	lwatches []linWatch
-	o       *oracle.Oracle
-	log     *EvLog78
-	stats   map[string]*HookStat78
-	hits    map[uint32]*int
-	watches []writeWatch
-	max     uint64
+	o        *oracle.Oracle
+	log      *EvLog78
+	stats    map[string]*HookStat78
+	hits     map[uint32]*int
+	watches  []writeWatch
+	max      uint64
 }
 
 func main() {

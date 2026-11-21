@@ -6,11 +6,11 @@ package main
 // 這一層只觀測，不改被觀測程式的記憶體。
 
 import (
-	"unicode"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"unicode"
 
 	"github.com/wicanr2/dosgolem/oracle"
 )
@@ -231,7 +231,6 @@ func Snap78(o *oracle.Oracle, b Bind, log *EvLog78, label string, items []Item78
 	Capture78(o, b, items, &e)
 	log.Emit(e)
 }
-
 
 // Dup78Window 是判定「中斷返回造成的重複觸發」的最大指令間距。
 // 兩次觸發之間只跑了中斷處理常式，間距是 ISR 的長度（實測在百道以內）；

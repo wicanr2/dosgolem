@@ -11,7 +11,7 @@ import (
 )
 
 func u16(o *oracle.Oracle, b Bind, off uint16) uint16 { return o.Word(b.DS(off)) }
-func u8(o *oracle.Oracle, b Bind, off uint16) uint8  { return o.Byte(b.DS(off)) }
+func u8(o *oracle.Oracle, b Bind, off uint16) uint8   { return o.Byte(b.DS(off)) }
 
 func hx(o *oracle.Oracle, b Bind, off uint16, n int) string {
 	return hex.EncodeToString(o.Bytes(b.DS(off), n))
@@ -229,7 +229,9 @@ func (e *env) installBattle() {
 func (e *env) installMini() {
 	o := e.o
 	b, _ := CurrentOrMain(o)
-	gold := func(o *oracle.Oracle) int { return int(int32(uint32(u16(o, b, 0x12AE)) | uint32(u16(o, b, 0x12B0))<<16)) }
+	gold := func(o *oracle.Oracle) int {
+		return int(int32(uint32(u16(o, b, 0x12AE)) | uint32(u16(o, b, 0x12B0))<<16))
+	}
 	hook := func(ida uint32, label string, fn func(o *oracle.Oracle) map[string]any) {
 		d := &dedup{}
 		st := &HookStat78{}

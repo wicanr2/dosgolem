@@ -23,10 +23,10 @@ const (
 	offLoadItem uint16 = 0x849A
 	segWindow   uint16 = 0x2FD9 // sub_32D62：AX = 30*單位列 + 單位欄，展開到 dword_48544
 	offWindow   uint16 = 0x2FD2
-	dsItem       uint16 = 0x06CA  // byte_4881A
-	dsBuf        uint16 = 0x03F4  // dword_48544
-	stride              = 0x60
-	size                = 72
+	dsItem      uint16 = 0x06CA // byte_4881A
+	dsBuf       uint16 = 0x03F4 // dword_48544
+	stride             = 0x60
+	size               = 72
 )
 
 func main() {

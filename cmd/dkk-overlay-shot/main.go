@@ -47,17 +47,17 @@ type shot struct {
 }
 
 type shotResult struct {
-	Name          string `json:"name"`
-	Step          uint64 `json:"step"`
-	IndexedSHA256 string `json:"indexed_sha256"` // 原版色號陣列，與 probe -dump-at 的 .bin 同一份資料
-	BaseSHA256    string `json:"base_sha256"`
-	OverlaySHA256 string `json:"overlay_sha256"`
-	DiffPixels    int    `json:"diff_pixels"`
-	DiffOutside   int    `json:"diff_outside_stamps"`
-	Stamps        int    `json:"stamps"`
-	StampsShown   int    `json:"stamps_shown"`
-	Missing       string `json:"missing_glyphs,omitempty"`
-	Journal       bool   `json:"journal_panel,omitempty"`
+	Name          string   `json:"name"`
+	Step          uint64   `json:"step"`
+	IndexedSHA256 string   `json:"indexed_sha256"` // 原版色號陣列，與 probe -dump-at 的 .bin 同一份資料
+	BaseSHA256    string   `json:"base_sha256"`
+	OverlaySHA256 string   `json:"overlay_sha256"`
+	DiffPixels    int      `json:"diff_pixels"`
+	DiffOutside   int      `json:"diff_outside_stamps"`
+	Stamps        int      `json:"stamps"`
+	StampsShown   int      `json:"stamps_shown"`
+	Missing       string   `json:"missing_glyphs,omitempty"`
+	Journal       bool     `json:"journal_panel,omitempty"`
 	StampList     []string `json:"stamp_list,omitempty"` // 每筆疊字：key、位置、狀態、透明格數、文字（查殘字用）
 }
 

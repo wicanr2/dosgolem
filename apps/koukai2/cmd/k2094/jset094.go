@@ -17,8 +17,8 @@ import (
 )
 
 type jset094 struct {
-	name                                   string
-	seed                                   int
+	name                                 string
+	seed                                 int
 	fx, fy, px, py, dx, dy, mission, tgt int
 }
 

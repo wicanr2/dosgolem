@@ -192,7 +192,6 @@ func Snap77(o *oracle.Oracle, b Bind, log *EvLog77, label string, items []Item77
 	log.Emit(e)
 }
 
-
 // Dup77Window 是判定「中斷返回造成的重複觸發」的最大指令間距。
 // 兩次觸發之間只跑了中斷處理常式，間距是 ISR 的長度（實測在百道以內）；
 // 一般迴圈或逐時段的再次經過，間距至少是一圈的長度。

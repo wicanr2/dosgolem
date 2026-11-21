@@ -18,7 +18,7 @@ import (
 )
 
 func u16(o *oracle.Oracle, b Bind, off uint16) uint16 { return o.Word(b.DS(off)) }
-func u8(o *oracle.Oracle, b Bind, off uint16) uint8  { return o.Byte(b.DS(off)) }
+func u8(o *oracle.Oracle, b Bind, off uint16) uint8   { return o.Byte(b.DS(off)) }
 
 const (
 	fleetBase  = 0x2E76

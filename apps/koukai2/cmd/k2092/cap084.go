@@ -39,7 +39,7 @@ type capHook struct {
 	ret     int
 	written int
 	off     bool
-	fidx    int    // 篩選：堆疊第 fidx 個字等於 DS:foff 的字才記錄（fidx < 0 不篩）
+	fidx    int // 篩選：堆疊第 fidx 個字等於 DS:foff 的字才記錄（fidx < 0 不篩）
 	foff    uint16
 	cur     *capPend
 }
@@ -210,7 +210,7 @@ func (e *env) act084(f []string) error {
 				}
 				rg := p.regs
 				e.log.Emit(Ev78{Kind: "cap", Label: h.name, IDA: fmt.Sprintf("%05X", ent), Step: p.step, Tick: o.Ticks(),
-					Regs: map[string]uint16{"AX": rg.AX, "BX": rg.BX, "CX": rg.CX, "DX": rg.DX, "SI": rg.SI, "DI": rg.DI, "BP": rg.BP, "SP": rg.SP, "DS": rg.DS, "ES": rg.ES, "SS": rg.SS},
+					Regs:  map[string]uint16{"AX": rg.AX, "BX": rg.BX, "CX": rg.CX, "DX": rg.DX, "SI": rg.SI, "DI": rg.DI, "BP": rg.BP, "SP": rg.SP, "DS": rg.DS, "ES": rg.ES, "SS": rg.SS},
 					Stack: p.stack,
 					Extra: map[string]any{"n": h.written, "file": fn, "ret_step": o.Steps(), "bbox": []int{x0, y0, bw, bh}}})
 				h.written++
@@ -299,7 +299,7 @@ func (e *env) capMem(f []string) error {
 			stk = append(stk, o.StackWord(i))
 		}
 		e.log.Emit(Ev78{Kind: "capmem", Label: name, IDA: fmt.Sprintf("%05X", ent), Step: o.Steps(), Tick: o.Ticks(),
-			Regs: map[string]uint16{"AX": r.AX, "BX": r.BX, "CX": r.CX, "DX": r.DX, "SI": r.SI, "DI": r.DI, "BP": r.BP, "SP": r.SP, "DS": r.DS, "ES": r.ES, "SS": r.SS},
+			Regs:  map[string]uint16{"AX": r.AX, "BX": r.BX, "CX": r.CX, "DX": r.DX, "SI": r.SI, "DI": r.DI, "BP": r.BP, "SP": r.SP, "DS": r.DS, "ES": r.ES, "SS": r.SS},
 			Stack: stk, Extra: map[string]any{"n": cnt, "file": fn, "seg": int(a.Seg), "off": int(a.Off), "len": int(n)}})
 		cnt++
 	})

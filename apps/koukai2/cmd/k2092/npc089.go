@@ -16,7 +16,7 @@ import (
 )
 
 type jcase089 struct {
-	name                 string
+	name               string
 	fdx, fdy, pdx, pdy int
 }
 

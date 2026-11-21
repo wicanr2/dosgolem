@@ -97,14 +97,14 @@ type ctx struct {
 		ret   uint32
 		count int
 	}
-	rngCount  uint64
-	repeats   uint64
-	hooked    map[string]bool
-	wrOn      bool
+	rngCount     uint64
+	repeats      uint64
+	hooked       map[string]bool
+	wrOn         bool
 	counters     map[string]int
 	counterOrder []string
-	snaps     map[string]*oracle.State
-	stdoutBuf strings.Builder
+	snaps        map[string]*oracle.State
+	stdoutBuf    strings.Builder
 }
 
 type rngRec struct {
