@@ -411,6 +411,9 @@ func TestChildExitReclaimsMemory(t *testing.T) {
 	if d.freeSeg <= before {
 		t.Fatalf("EXEC 之後配置游標要往上走：%04X → %04X", before, d.freeSeg)
 	}
+	// 子行程 PSP 在它自己的環境區塊之上（`docs/spec/430-exec-child-environment`），
+	// 不是 before+1；記下第一支的位置，第二支要回到同一處。
+	first := d.curPSP
 	for i := 0; i < 100 && !d.Exited && len(d.procStack) > 0; i++ {
 		if err := m.Step(); err != nil {
 			t.Fatal(err)
@@ -424,9 +427,9 @@ func TestChildExitReclaimsMemory(t *testing.T) {
 	}
 	// 回收之後，下一支子程式要能載回同一個位置。
 	call(m, d, 0x21, 0x4B00)
-	if d.curPSP != before+1 {
+	if d.curPSP != first {
 		t.Errorf("第二支子程式的 PSP ＝ %04X，預期 %04X（沒有真的回收）",
-			d.curPSP, before+1)
+			d.curPSP, first)
 	}
 }
 
@@ -509,8 +512,8 @@ func runInt27Child(t *testing.T, code []byte) (*machine.Machine, *DOS) {
 func TestInt27RoundsKeepUp(t *testing.T) {
 	// mov dx,0401h; int 27h
 	_, d := runInt27Child(t, []byte{0xBA, 0x01, 0x04, 0xCD, 0x27})
-	if d.freeSeg != 0x2042 {
-		t.Errorf("freeSeg=%04X，預期 2042（子 PSP 2001 + 41h）", d.freeSeg)
+	if want := d.ExecLog[0].PSP + 0x41; d.freeSeg != want {
+		t.Errorf("freeSeg=%04X，預期 %04X（子 PSP %04X + 41h）", d.freeSeg, want, d.ExecLog[0].PSP)
 	}
 	if len(d.ExecLog) != 1 || !d.ExecLog[0].TSR || d.ExecLog[0].Keep != 0x41 {
 		t.Errorf("ExecLog=%+v，預期 TSR 且 Keep=41h", d.ExecLog)
@@ -533,8 +536,8 @@ func TestInt27MaxDX(t *testing.T) {
 	if len(d.ExecLog) != 1 || d.ExecLog[0].Keep != 0x1000 {
 		t.Errorf("ExecLog=%+v，預期 Keep=1000h", d.ExecLog)
 	}
-	if d.freeSeg != 0x3001 {
-		t.Errorf("freeSeg=%04X，預期 3001（子 PSP 2001 + 1000h）", d.freeSeg)
+	if want := d.ExecLog[0].PSP + 0x1000; d.freeSeg != want {
+		t.Errorf("freeSeg=%04X，預期 %04X（子 PSP %04X + 1000h）", d.freeSeg, want, d.ExecLog[0].PSP)
 	}
 }
 

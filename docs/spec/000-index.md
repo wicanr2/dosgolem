@@ -953,6 +953,26 @@
 | [240](240-opl-audio-output-draft.md) | AdLib（OPL）與 PC 喇叭音訊輸出 | READY |
 - [197 — `int 27h`（舊式常駐結束）](197-int27-terminate-and-stay-resident.md)：CONFORMED。`DX` 是位元組，向上取整成段數後走 `terminate()` 的 TSR 分支；啟動序列依賴三支以它常駐的 `.COM`。
 - [251 — Oracle 指令前等待閘門](251-oracle-step-guard.md)：CONFORMED。選用 guard 的明示停止與等待錯誤，不改預設 BIOS 行為。
+### 三國志V（san5）（14 份）
+
+跑光榮《三國志V》繁中 DOS 版（`SAN5.COM` → TSR 鏈 → `OPEN.EXE` → `MAIN.EXE`）時補上的 DOS 與 CPU 行為，
+依據是 DOSBox-X 原始碼（commit `262a304f`）。量測在 `wicanr2/san5-remake` 的 `docs/re/010-dosgolem-coverage.md`。
+
+- [429 — EMS 4.0 `INT 67h AH=57h`（Move／Exchange Memory Region）](429-ems-move-exchange-region.md)：READY。MSC overlay manager 把 overlay 搬進 EMS；映著的頁經 frame 存取，複製式分頁下不必 flush。
+- [430 — EXEC 子行程的環境區塊](430-exec-child-environment.md)：READY。每次 EXEC 配一塊新環境，字串照抄、尾端換成子行程自己的路徑，配在程式區塊之前、歸子行程所有；`probe -program-path` 不再被覆寫。
+- [431 — 移位量遮罩：80186 以上取 `CL & 31`](431-cpu-shift-count-mask.md)：READY。`Model8086` 不變（語料路徑），修正 `002-cpu-8086` §4 第 2 點的適用範圍。
+- [432 — `INT 21h AH=51h／62h` 回目前行程的 PSP](432-current-psp-query.md)：READY。以前回常數 `PSPSeg`，子行程拿到第一支程式的 PSP。
+- [433 — last fit 從自由區塊尾端切](433-last-fit-allocates-at-top.md)：READY。MSC overlay manager 把 overlay 表放到記憶體頂端；從開頭切的話 far heap 會寫進表裡。
+- [434 — MSCDEX 最小集](434-mscdex-minimal.md)：READY。光碟機偵測、曲目資訊與播放狀態；曲目表由呼叫端給（`probe -cdrom`），不出聲、不讀資料扇區。
+- [435 — `INT 21h AX=4408h` 區塊裝置可不可抽換](435-ioctl-removable-media.md)：READY。硬碟回固定式，光碟機與不存在的代號設 CF；以前一律回「可抽換」。
+- [436 — XMS move 先驗證再搬](436-xms-move-validation.md)：READY。handle、位移、長度不合回 AX=0 與 BL（A3h 到 A7h），記憶體不動；以前一律回成功。
+- [437 — `INT 21h AX=5D06h` DOS 可交換資料區](437-swappable-data-area.md)：READY。SDA 在 `StubSeg:04D0`，InDOS 移到 SDA+1，`AH=34h` 指同一格。
+- [438 — MSCDEX 的 CD 音軌倒成 WAV](438-mscdex-cd-audio-dump.md)：READY。曲目表加映像位移，播放紀錄對上 raw 光碟映像，`probe -dump-cd-wav` 輸出 44.1 kHz 立體聲。
+- [439 — 狀態檔保存 PIT 埠解碼分頻](439-state-pit-port-divisor.md)：READY。以前 `-load-state` 之後 `PITHz()` 退回 18.2 Hz，`StepsPerSecondNow()` 縮了分頻的倍數。
+- [440 — 混音器加入 CD 音軌，probe 輸出混音 WAV](440-mixer-cd-audio.md)：READY。MSCDEX 播放紀錄對上 raw 映像，44.1→48 kHz 線性內插，和 OPL、喇叭同一條步數時間軸；`probe -dump-mix-wav`。
+- [441 — 通用的即時前端 `cmd/play`](441-play-frontend.md)：READY。不認識特定程式，畫面、鍵盤、滑鼠、聲音；每格固定步數，自動模式的混音與 probe 逐位元組相同。
+- [442 — 狀態檔保存 OPL 暫存器，混音器從暫存器起播](442-state-opl-registers.md)：READY。暫存器檔、索引與計時器旗標存進狀態檔；`Mixer.PrimeOPL` 在接續時把非 0 暫存器寫回合成器。
+
 ## 新增 CPU386 位移切片
 
 - [190-cpu386-d1-shl-rm32](190-cpu386-d1-shl-rm32.md)：FD2第十七章正常END後的D1 /4記憶體指令。CONFORMED；原版證據與同槽重跑由fd2_re #90追蹤。
@@ -972,3 +992,5 @@
 - [189 — Hercules 的畫面在 B0000](189-hercules-b0000.md)：READY。probe 多報 `B0000 非零 bytes`、`-dump-herc`；`oracle.Hercules()`／`HerculesNonZero()`。
 
 - [430 FD2選擇性血量鎖定控制](430-fd2-selective-hp-lock-control.md)：READY。明示測試注入、雙側增援抽樣，未啟用不改一般路徑。
+
+- [443 — 《大航海時代 II》DOS 版的對拍轉接層](443-koukai2-oracle-adapter.md)：READY。`oracle.Options.COM`、`apps/koukai2`。記錄 `OnCall` 在中斷返回時重複觸發。

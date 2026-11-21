@@ -123,6 +123,10 @@ type Options struct {
 	// 自己讀 overlay，名字不對就開檔失敗
 	// （`docs/spec/194-stubseg-font-collision-and-program-path` §2）。
 	ProgramPath string
+
+	// COM 表示 exe 是 .COM 映像（`docs/spec/443-koukai2-oracle-adapter` §2）。
+	// 零值維持只收 MZ：拿到非 MZ 檔案就回錯，不猜格式。
+	COM bool
 }
 
 // Load 載入原版執行檔。
@@ -144,7 +148,11 @@ func LoadWith(exe, root string, opt Options) (*Oracle, error) {
 	if opt.Adlib {
 		m.SetAdLib(true)
 	}
-	if err := m.LoadEXE(img); err != nil {
+	load := m.LoadEXE
+	if opt.COM {
+		load = m.LoadCOM
+	}
+	if err := load(img); err != nil {
 		return nil, fmt.Errorf("載入 %s：%w", exe, err)
 	}
 	d := dos.New(m, root)

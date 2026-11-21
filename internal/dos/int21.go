@@ -215,6 +215,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 				d.noteCPU(c, 0x21, 0x44, al(c))
 			}
 			c.R[cpu.AX] = 0
+		case 0x08: // 區塊裝置可不可抽換（`docs/spec/435-ioctl-removable-media`）
+			if d.removable(c) {
+				return
+			}
 		case 0x0E: // 取邏輯磁碟對應：BL ＝ 磁碟（0＝預設）
 			// 一個實體機只對一個代號時 DOS 回 AL=0。回別的值等於告訴程式
 			// 「這台是某個實體機的第 n 個代號」，它會去切換代號再找一次檔。
@@ -258,7 +262,10 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x51, 0x62: // 取目前行程的 PSP → BX
 		// **這是 `KI.EXE` 的第一道指令。** 不實作的話 BX 是呼叫端留下的值，
 		// 接著 `mov ds,bx / mov al,ds:80h` 就把垃圾當成命令列長度。
-		c.R[cpu.BX] = machine.PSPSeg
+		// 回**目前行程**的 PSP（`docs/spec/432-current-psp-query`）。以前回常數
+		// PSPSeg，EXEC 的子行程因此拿到第一支程式的 PSP；`GRP480C.EXE` 拿它算
+		// TSR 常駐大小，子行程載得越高留得越多。
+		c.R[cpu.BX] = d.blockOwner()
 		clearCarry(c)
 	case 0x4E:
 		d.findFirst(c)
@@ -292,6 +299,12 @@ func (d *DOS) int21(c *cpu.CPU) {
 	case 0x32: // 取磁碟參數區塊
 		d.driveParams(c)
 
+	case 0x5D: // 只做 AL=06h：取 DOS 可交換資料區（`docs/spec/437-swappable-data-area`）
+		if al(c) == 0x06 {
+			d.sdaAddress(c)
+		} else {
+			d.note(0x21, 0x5D, al(c))
+		}
 	case 0x34: // 取 InDOS 旗標位址 → ES:BX
 		d.inDOSFlag(c)
 
@@ -751,6 +764,17 @@ func (d *DOS) pickBlock(want uint16) int {
 func (d *DOS) carveBlock(i int, want uint16) uint16 {
 	b := &d.arena[i]
 	seg := b.seg
+	// last fit 從尾端切（`docs/spec/433-last-fit-allocates-at-top`）。MSC 的 overlay
+	// manager 用它把 overlay 表放到記憶體頂端；從開頭切的話表落在 PSP 區塊正後方，
+	// 程式撐大區塊之後 far heap 就寫進表裡。
+	if d.allocStrategy&0x03 == 2 && b.size > want {
+		top := memBlock{seg: b.seg + b.size - want, size: want, owner: d.blockOwner()}
+		b.size -= want + 1
+		d.arena = append(d.arena, memBlock{})
+		copy(d.arena[i+2:], d.arena[i+1:])
+		d.arena[i+1] = top
+		return top.seg + 1
+	}
 	if b.size >= want+2 {
 		rest := memBlock{seg: b.seg + want + 1, size: b.size - want - 1, free: true}
 		b.size = want

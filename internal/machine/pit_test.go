@@ -1,6 +1,9 @@
 package machine
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 // TestPITDivisorScalesIRQ0 程式改 PIT 的分頻，IRQ0 的間隔要跟著按比例走。
 //
@@ -217,5 +220,54 @@ func TestPITStepsPerTick(t *testing.T) {
 		if got := PITStepsPerTick(c.d); got != c.want {
 			t.Errorf("%s：除數 %d 得 %d 道指令，預期 %d", c.name, c.d, got, c.want)
 		}
+	}
+}
+
+// 狀態檔要帶 pit.go 那一份分頻（`docs/spec/439-state-pit-port-divisor`）：
+// 以前沒存，讀回來 PITHz() 退回 18.2 Hz，StepsPerSecondNow() 縮了分頻的倍數。
+func TestStateKeepsPITPortDivisor(t *testing.T) {
+	m := New()
+	m.pit.out(0x43, 0x36)
+	m.pit.out(0x40, 4096&0xFF)
+	m.pit.out(0x40, 4096>>8)
+	want := m.PITHz()
+	var buf bytes.Buffer
+	if err := m.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	n := New()
+	if err := n.LoadState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.PITHz(); got != want || !n.PITProgrammed() {
+		t.Fatalf("讀回 PITHz=%.2f programmed=%v，預期 %.2f 與 true", got, n.PITProgrammed(), want)
+	}
+}
+
+func TestStateKeepsOPLRegisters(t *testing.T) {
+	m := New()
+	m.SetAdLib(true)
+	for _, w := range [][3]uint16{{0x388, 0x01, 0x20}, {0x388, 0xB0, 0x31}, {0x38A, 0x05, 0x01}, {0x388, 0x04, 0x01}} {
+		m.Out8(w[0], uint8(w[1]))
+		m.Out8(w[0]+1, uint8(w[2]))
+	}
+	m.Out8(0x388, 0x08) // 索引停在 08h
+	var buf bytes.Buffer
+	if err := m.SaveState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	n := New()
+	n.SetAdLib(true)
+	if err := n.LoadState(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if n.OPLRegs(0) != m.OPLRegs(0) || n.OPLRegs(1) != m.OPLRegs(1) {
+		t.Fatal("暫存器檔沒有讀回")
+	}
+	if n.oplReg != m.oplReg {
+		t.Fatalf("索引 %v，要 %v", n.oplReg, m.oplReg)
+	}
+	if got, want := n.oplStatus(), m.oplStatus(); got != want || want == 0 {
+		t.Fatalf("狀態埠 %02X，要 %02X（且不為 0）", got, want)
 	}
 }

@@ -703,3 +703,77 @@ ebiten 相關套件要 X11／ALSA 開發檔與 `xvfb-run`，這一輪用本機�
 - `ci.sh` 加「合併衝突標記」一步（gofmt 只看 Go 檔）；測試步驟改存完整紀錄到
   `workplace/ci-test.log`，並列出略過的數量與原因，避免把略過讀成通過。
 - `build_image.sh` 把 Dockerfile 的雜湊標在映像上，`go.sh` 發現映像比 Dockerfile 舊時提醒。
+
+## 2026-10-17：三國志V 的四個缺口（分支 `san5-coverage`）
+
+- 起因：`wicanr2/san5-remake` 的涵蓋度量測（該庫 `docs/re/010-dosgolem-coverage.md`）列出
+  `MAIN.EXE` 跑不進遊戲碼的兩個停點與兩個偏差。依 DOSBox-X 原始碼補上，各一份規格：
+  `429-ems-move-exchange-region`、`430-exec-child-environment`、`431-cpu-shift-count-mask`、
+  `432-current-psp-query`。
+- 行為改變（影響所有 EXEC 鏈）：子行程 PSP 比以前高「環境段數 + 1」段，`AH=51h／62h`
+  在子行程內回子行程的 PSP。`exec_test.go` 三個寫死 `2001` 的測試改成從 `ExecLog` 取子行程 PSP。
+- `probe -program-path` 以前被 `cmd/probe/main.go` 無條件覆寫（旗標在 09-30 加入，覆寫在
+  09-10 就在，合併後旗標從沒生效）。改為旗標空白才用 `C:\<檔名>`。
+- 驗收：`tools/ci.sh` 與改版前的 main（乾淨 worktree）比較，頂層測試 2,696 → 2,707（新增 11 個），
+  略過數 338 不變，CPU 語料 323 檔全過。四項各做負對照（拿掉修正後新測試必須失敗），均確認。
+  原版測試兩邊相同：炎龍騎士團 2 頂層 574 個通過（集合一致）；大富翁2（`oracle`、`apps/rich2`）
+  61 個通過。`orig_tests.sh` 的大富翁2 在這台負載下兩邊都撞 `go test` 預設 10 分鐘上限，
+  改以 `-timeout 65m` 各跑一次。
+- 三國志V 實跑（`SAN5.COM`，未修補的原版檔）：`BGMSEQ.COM` exit 0 常駐，`GRP480C.EXE` 常駐 `0599h` 段，
+  `MAIN.EXE` 從自己讀 overlay、經 `5700h` 搬進 EMS、切到 mode 12h，之後以 exit 4 結束。
+  停在 overlay manager 載入 ov20 的當下，結束前唯一的服務呼叫是一筆 handle `FFFF` 的 XMS move；
+  另一個候選是未實作的 `INT 21h AX=4408h`。都未追完，不在本分支範圍（分析在 san5 的 `docs/re/012`）。
+
+## 2026-10-18：三國志V 跑到標題選單（分支 `san5-coverage`）
+
+- `433-last-fit-allocates-at-top`：MSC overlay manager 先設 last fit 再配 overlay 表。從開頭切的話表落在
+  PSP 區塊後方，程式撐大區塊之後 far heap 寫進表裡（`-watch` 證實），下一次載入 overlay 走錯路徑而 exit 4。
+  `placeChild` 改用 `carveBlock` 的回傳段。
+- `434-mscdex-minimal`：光碟機偵測、曲目資訊與播放狀態，曲目表由呼叫端給（`probe -cdrom D:<檔>`）。
+  三國志V 核對各軌長度（光碟身分），所以曲目表要是真實光碟的。
+- `435-ioctl-removable-media`：`AX=4408h` 以前一律回「可抽換」。
+- 驗收：`tools/ci.sh` 頂層測試 2,715 個通過、略過 338、CPU 語料全過；三項各有負對照。
+  原版素材測試（大富翁2、炎龍騎士團 2）這一輪沒跑（使用者 2026-10-18：各專案各自處理）。
+- 三國志V：放入光碟的提示按確認後進到標題選單，未實作服務 0 種（分析在 san5 的 `docs/re/013`）。
+- 另見：XMS move 對不存在的 handle 也回成功並讀到 0，XMS 規格是 AX=0、BL=A3h／A5h，未修。
+
+## 2026-10-18：XMS move 驗證與 SDA（分支 `san5-xms-sda`，從 `san5-coverage` 分出）
+
+- 使用者要求另開分支修 XMS 搬移與 `AX=5D06h`。
+- `436-xms-move-validation`：以前不檢查描述子，無效 handle 也回成功。既有的 `TestEMBInfoAndReallocKeepContents`
+  搬 1 byte，依 XMS 3.0 是錯誤，改成 2 bytes。
+- `437-swappable-data-area`：SDA 放 `StubSeg:04D0`，InDOS 從 `0450` 移到 SDA+1（`AH=34h` 回的位址因此改變）。
+- 驗收：`tools/ci.sh` 頂層測試 2,717 個通過、略過 338、CPU 語料全過；兩項各有負對照。三國志V 到標題選單的畫面與修正前
+  逐位元組相同，未實作服務 0 種。原版素材測試沒跑（各專案各自處理）。
+
+## 2026-10-18：CD 音樂倒成 WAV、狀態檔的 PIT 分頻（分支 `san5-xms-sda`）
+
+- 使用者要求 MSCDEX 能播三國志V 的音樂。`438-mscdex-cd-audio-dump`：曲目表加映像位移，播放紀錄對上 raw 光碟映像，
+  `probe -cdrom-image -dump-cd-wav` 倒 44.1 kHz 立體聲 WAV。還沒接即時混音器（沒有通用的即時前端）。
+- 驗收時發現從狀態檔接續的執行，`StepsPerSecondNow()` 是新開執行的 1/16：`pit.go` 的分頻沒存進狀態檔。
+  `439-state-pit-port-divisor` 補上（gob 新增欄位，舊檔行為不變）。機器裡有兩份 PIT 分頻解碼，合併留待整理。
+- 三國志V 新開執行到 28 億道指令：開場第 2 軌從 0.01 秒起完整播完（196.6 秒），標題選單第 21 軌從 207.68 秒起；
+  兩段與標準版 `.mdf` 逐位元組相同（前 190 秒、前 30 秒）。CI 頂層測試 2,719 個通過。
+
+## 2026-10-18：混音器加 CD 音軌、通用前端 `cmd/play`（分支 `san5-mixer`，從 `san5-xms-sda` 分出）
+
+- 使用者要求加上混音器配合三國志V，並調查它需要哪些播放；只專注三國志V，不跑 dosgolem CI。
+- 調查（san5 的 `docs/re/014-san5-audio.md`）：背景音樂全走 CD 音軌，音效走 BGMSEQ 轉 FMOPL2 的 OPL2；PCM 分支是空函式，
+  沒有 SB DSP。所以要混的是 OPL 加 CD。
+- `440-mixer-cd-audio`：`audio/mixer` 接 MSCDEX 播放紀錄與 raw 映像，44.1→48 kHz 線性內插；`probe -dump-mix-wav`。
+  `internal/dos` 的 `sectorOffset` 改成匯出（`SectorOffset`）給混音器用。
+- `441-play-frontend`：不認識特定程式的 Ebitengine 前端，畫面、鍵盤、滑鼠、聲音；時間軸固定步數，不做 webplay 的即時校正。
+- 驗收：`./audio/mixer`、`./cmd/play`（xvfb）測試通過，各有負對照（第一次的內插負對照沒抓到：測試資料斜率 1，分數部分本來就捨去，
+  改成斜率 7 後才抓到）。三國志V 從開機跑到第一個月的主畫面（4.7 億道）：混音 WAV 的 CD 部分與 `.mdf` 獨立內插逐樣本相同，
+  不同的只有訊息框音效那 3 秒。`play -frames 600 -wav` 與 `probe -dump-mix-wav` 同步數的 WAV 逐位元組相同。
+  容器內 xvfb 單獨跑每秒 53 格（目標 60，主機負載約 21）。
+- 沒跑 `tools/ci.sh` 與原版素材測試（使用者指示）。
+
+## 2026-10-18：狀態檔保存 OPL 暫存器（分支 `san5-mixer`）
+
+- 使用者授權推送 `san5-mixer` 後「繼續」。先查三國志V 設定畫面：背景音樂、音效、音量是 `DS:01DE` 的位元 2、1、100h，
+  音量只經 BGMSEQ `AH=17h` 調 FM，不動 CD，混音器不需新功能。
+- `442-state-opl-registers`：狀態檔存 OPL 暫存器檔、索引與計時器旗標；`Mixer.PrimeOPL` 接續時寫回合成器，probe 與 play 都呼叫。
+- 規格初稿的前提（三國志V 接續後波形選擇失效、音色不同）實測不成立：prime 與不 prime 的混音逐位元組相同。
+  `audio/nukedopl` 不看 `01h` 的波形選擇位元，三國志V 每個音效也重寫整組音色。已把 §1 與驗收改成實測。
+- 驗收：`./audio/mixer`、`./internal/machine` 測試通過，兩個負對照確認後還原。沒跑 `tools/ci.sh`（使用者指示）。

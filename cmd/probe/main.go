@@ -150,6 +150,18 @@ func main() {
 		"環境字串區留空（只留結尾標記與程式路徑）。"+
 			"預設會放一條 `COMSPEC=`，那比較接近真 DOS；但 GIN3.COM 在環境非空時"+
 			"會掃描它，走進一條與執行器的記憶體配置打架的路（`docs/re/269`）")
+	cdrom := flag.String("cdrom", "",
+		"掛一台 MSCDEX 光碟機：`<磁碟機字母>:<曲目表檔>`（例 `D:/orig/san5.toc`）。"+
+			"曲目表每行 `<軌號> audio|data <LBA>` 加 `leadout <LBA>`；只回答曲目與播放狀態，"+
+			"不出聲音、不讀資料扇區（`docs/spec/434-mscdex-minimal`）")
+	cdromImage := flag.String("cdrom-image", "",
+		"光碟映像檔（每扇區 2352 bytes 的 raw，例如 .mdf／.bin）。配 -cdrom 與 -dump-cd-wav："+
+			"曲目表第四欄是各軌在映像裡的位元組位移（`docs/spec/438-mscdex-cd-audio-dump`）")
+	dumpCDWAV := flag.String("dump-cd-wav", "",
+		"跑完把程式要求播放的 CD 音軌倒成 44.1 kHz 16 位元立體聲 WAV，時間軸對齊指令數。要配 -cdrom 與 -cdrom-image")
+	dumpMixWAV := flag.String("dump-mix-wav", "",
+		"把 OPL、喇叭與 CD 音軌經混音器混成 48 kHz 16 位元立體聲 WAV，邊跑邊寫（`docs/spec/440-mixer-cd-audio`）。"+
+			"給了 -cdrom 與 -cdrom-image 才有 CD 音軌；OPL 要配 -adlib")
 	adlib := flag.Bool("adlib", false, "讓 AdLib（OPL2，埠 388h）偵測存在"+
 		"（預設不存在，開機快；音樂路徑要它才會跑）")
 	soundBlaster := flag.Bool("sound-blaster", false,
@@ -320,7 +332,11 @@ func main() {
 	// 環境區塊裡的程式全路徑要是**這一支**程式，不是 loader 的預設值
 	// `C:\PROG.EXE`。MSC 的啟動碼拿它當 argv[0]；而有些載入器會掃環境
 	// 找自己的路徑（`docs/re/269`）。
-	m.ProgramPath = `C:\` + strings.ToUpper(filepath.Base(*exe))
+	// 給了 `-program-path` 就照給的（`docs/spec/430-exec-child-environment` §3）：
+	// 以前這裡無條件覆寫，旗標從來沒生效。
+	if m.ProgramPath == "" {
+		m.ProgramPath = `C:\` + strings.ToUpper(filepath.Base(*exe))
+	}
 	m.EmptyEnv = *emptyEnv
 	var err error
 	if *loadState == "" {
@@ -450,6 +466,21 @@ func main() {
 		d.Calls = map[dos.Call]int{}
 	}
 	d.Install()
+	if *cdrom != "" {
+		letter, path, ok := strings.Cut(*cdrom, ":")
+		if !ok || len(letter) != 1 {
+			die(fmt.Errorf("-cdrom 要寫成 `D:<曲目表檔>`：%q", *cdrom))
+		}
+		toc, err := os.ReadFile(path)
+		if err != nil {
+			die(err)
+		}
+		cd, err := dos.ParseCDTOC(strings.ToUpper(letter)[0]-'A', string(toc))
+		if err != nil {
+			die(err)
+		}
+		d.CD = cd
+	}
 	if *loadState != "" {
 		if err := state.Load(*loadState, m, d); err != nil {
 			die(err)
@@ -725,6 +756,12 @@ func main() {
 	// 而感覺分不出「這一段本來就有幾十億道指令」與「執行器每道指令太貴」。
 	started := time.Now()
 	startSteps, startCycles := m.Steps, m.CPU.Cycles
+	var mixOut *mixWAV
+	if *dumpMixWAV != "" {
+		if mixOut, err = newMixWAV(*dumpMixWAV, m, d, *cdromImage); err != nil {
+			die(err)
+		}
+	}
 	for m.Steps < *steps && !m.CPU.Halted && !d.Exited {
 		// -ega-every：每 N 道指令存一張。**單張只看得到終點**，
 		// 看不出按鍵是送早了還是送晚了。
@@ -953,6 +990,11 @@ func main() {
 		if runErr = m.Step(); runErr != nil {
 			break
 		}
+		if mixOut != nil {
+			if err := mixOut.step(m); err != nil {
+				die(err)
+			}
+		}
 		// 阻塞在鍵盤輸入時程式一道指令都不往前走（spec 008），
 		// 再跑下去只是把 INT 重跑幾百萬次。留 blockAfter 步給計時器
 		// 推背景動畫，之後就停——繼續燒預算不會有新資訊。
@@ -1125,6 +1167,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "dump-wav:", err)
 		} else {
 			fmt.Printf("喇叭波形 → %s\n", *dumpWAV)
+		}
+	}
+	if *dumpCDWAV != "" {
+		if err := writeCDWAV(m, d, *cdromImage, *dumpCDWAV); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-cd-wav:", err)
+		}
+	}
+	if mixOut != nil {
+		if err := mixOut.finish(m, d); err != nil {
+			fmt.Fprintln(os.Stderr, "dump-mix-wav:", err)
 		}
 	}
 	if *dumpOPLWAV != "" {
@@ -1315,8 +1367,12 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 			if i >= 30 {
 				break
 			}
-			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X  bits=%d\n",
-				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits)
+			st := ""
+			if w.Status != 0 {
+				st = fmt.Sprintf("  失敗 BL=%02X", w.Status)
+			}
+			fmt.Printf("  #%-9d %6d bytes  handle %d:%08X → handle %d:%08X  bits=%d%s\n",
+				w.Step, w.Len, w.SrcH, w.SrcOff, w.DstH, w.DstOff, w.Bits, st)
 		}
 	}
 	if len(d.EMSOps) > 0 {
@@ -1337,7 +1393,30 @@ func report(m *machine.Machine, d *dos.DOS, ring *ring, runErr error, limit uint
 					o.Step, o.Handle, o.Logical, o.Phys, st)
 			case 0x45:
 				fmt.Printf("  #%-9d 釋放 handle=%d\n", o.Step, o.Handle)
+			case 0x57:
+				fmt.Printf("  #%-9d 搬移／交換區域 狀態 %02X\n", o.Step, o.Status)
 			}
+		}
+	}
+	if len(d.CDRequests) > 0 {
+		count := map[uint8]int{}
+		for _, r := range d.CDRequests {
+			count[r.Fn]++
+		}
+		fmt.Printf("\nMSCDEX device request（%d 次）：", len(d.CDRequests))
+		for fn := 0; fn < 256; fn++ {
+			if n := count[uint8(fn)]; n > 0 {
+				fmt.Printf(" %02X×%d", fn, n)
+			}
+		}
+		fmt.Println()
+		n := 0
+		for _, r := range d.CDRequests {
+			if r.Fn == 0x03 || n >= 30 { // IOCTL 查詢太多，只列控制命令
+				continue
+			}
+			n++
+			fmt.Printf("  #%-9d 命令 %02X 狀態 %04X\n", r.Step, r.Fn, r.Status)
 		}
 	}
 	if len(d.Reads) > 0 && readsOf != "" {
@@ -3325,4 +3404,26 @@ func dumpShot(m *machine.Machine, sh memShot) {
 	}
 	fmt.Printf("#%d 傾印記憶體 %s（%05X）%d bytes → %s\n",
 		m.Steps, sh.label, sh.addr, sh.n, sh.path)
+}
+
+// writeCDWAV 把 MSCDEX 的播放紀錄倒成 WAV（`docs/spec/438-mscdex-cd-audio-dump`）。
+func writeCDWAV(m *machine.Machine, d *dos.DOS, image, path string) error {
+	if d.CD == nil || image == "" {
+		return fmt.Errorf("要配 -cdrom 與 -cdrom-image")
+	}
+	f, err := os.Open(image)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	n, err := d.CD.WriteWAV(path, f, m.Steps, m.StepsPerSecondNow())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("CD 音軌 → %s（%d 段播放，%.1f 秒）\n", path, n, float64(m.Steps)/m.StepsPerSecondNow())
+	for _, p := range d.CD.Plays {
+		fmt.Printf("  #%-10d LBA %d 長度 %d frames（%.1f 秒）停在 #%d\n",
+			p.FromStep, p.Start, p.Length, float64(p.Length)/75, p.ToStep)
+	}
+	return nil
 }

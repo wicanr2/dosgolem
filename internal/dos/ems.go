@@ -210,6 +210,11 @@ func (d *DOS) emsCall(c *cpu.CPU) {
 	case 0x51: // Reallocate Pages：BX ＝ 新的頁數、DX ＝ handle
 		d.emsRealloc(c)
 
+	case 0x57: // Move／Exchange Memory Region（EMS 4.0，`docs/spec/429-ems-move-exchange-region`）
+		// MSC 的 overlay manager 用它把 overlay 搬進 EMS；回 84h 的話
+		// 程式印 R6808 後結束（三國志V `MAIN.EXE`）。
+		d.emsMoveRegion(c)
+
 	case 0x58: // Get Mappable Physical Address Array
 		// AL=00：把陣列寫到 ES:DI（每項 ＝ 段 ＋ 實體頁號）；AL=01：只回項數。
 		// **這是 EMS 4.0 程式問「page frame 長什麼樣」的方式**，
@@ -561,4 +566,122 @@ func (d *DOS) EMSLayout() string {
 			p, emsFrameAddr(p), m.h, m.page)
 	}
 	return b.String()
+}
+
+// emsRegion 是 AH=57h 描述子的一端（`docs/spec/429-ems-move-exchange-region` §2）。
+type emsRegion struct {
+	ems    bool   // 型態非 0 ＝ EMS
+	handle uint16 // 型態 1 的 handle
+	base   uint32 // 型態 0：線性位址；型態 1：handle 內的線性位移
+}
+
+// emsRegionAt 讀描述子在 at 的那一端（型態、handle、位移、段／頁號）。
+func (d *DOS) emsRegionAt(at uint32) emsRegion {
+	r := emsRegion{ems: d.M.Read8(at) != 0, handle: d.M.Read16(at + 1)}
+	off, segOrPage := uint32(d.M.Read16(at+3)), uint32(d.M.Read16(at+5))
+	if r.ems {
+		r.base = segOrPage*emsPageSize + off
+	} else {
+		r.base = segOrPage*16 + off
+	}
+	return r
+}
+
+// check 是 §3 第 4 點：handle 存在、範圍在 handle 的頁數內。回 0 表示可以。
+func (r emsRegion) check(e *ems, n uint32) uint8 {
+	if !r.ems {
+		return 0
+	}
+	h, ok := e.handles[r.handle]
+	if !ok {
+		return 0x83
+	}
+	if uint64(r.base)+uint64(n) > uint64(len(h.pages))*emsPageSize {
+		return 0x8A
+	}
+	return 0
+}
+
+// frameOf 回傳 handle 的邏輯頁此刻映在哪一個實體頁，沒有回 -1。
+// 多個實體頁映同一頁時取編號最小的（§4 的假說）。
+func (e *ems) frameOf(handle, page uint16) int {
+	for p, m := range e.frame {
+		if m != nil && m.h == handle && m.page == page {
+			return p
+		}
+	}
+	return -1
+}
+
+// read8／write8 存取區域內第 i 個 byte。映著的 EMS 頁走 frame，
+// 因為複製式分頁下那一頁的現行內容在 frame 裡（§3）。
+func (d *DOS) emsRegionRead8(e *ems, r emsRegion, i uint32) uint8 {
+	if !r.ems {
+		return d.M.Read8(r.base + i)
+	}
+	lin := r.base + i
+	page, off := uint16(lin/emsPageSize), lin%emsPageSize
+	if p := e.frameOf(r.handle, page); p >= 0 {
+		return d.M.Read8(emsFrameAddr(p) + off)
+	}
+	return e.handles[r.handle].pages[page][off]
+}
+
+func (d *DOS) emsRegionWrite8(e *ems, r emsRegion, i uint32, v uint8) {
+	if !r.ems {
+		d.M.Write8(r.base+i, v)
+		return
+	}
+	lin := r.base + i
+	page, off := uint16(lin/emsPageSize), lin%emsPageSize
+	if p := e.frameOf(r.handle, page); p >= 0 {
+		d.M.Write8(emsFrameAddr(p)+off, v)
+		return
+	}
+	e.handles[r.handle].pages[page][off] = v
+}
+
+// emsMoveRegion 是 AH=57h（`docs/spec/429-ems-move-exchange-region`）。
+// AL=00 搬移、AL=01 交換；來源與目的重疊時先整段讀出再寫（§4）。
+func (d *DOS) emsMoveRegion(c *cpu.CPU) {
+	e := d.emsState()
+	if al(c) > 1 {
+		d.note(0x67, 0x57, al(c))
+		setAH(c, 0x84)
+		return
+	}
+	desc := cpu.Addr(c.Seg[cpu.DS], c.R[cpu.SI])
+	n := uint32(d.M.Read16(desc)) | uint32(d.M.Read16(desc+2))<<16
+	src, dst := d.emsRegionAt(desc+4), d.emsRegionAt(desc+0x0B)
+	// 長度上限照 LIM 4.0 回 96h（§4）：不擋的話一個壞描述子會讓 Go 端配幾 GB。
+	var status uint8
+	if n > 1<<20 {
+		status = 0x96
+	}
+	if status == 0 {
+		status = src.check(e, n)
+	}
+	if status == 0 {
+		status = dst.check(e, n)
+	}
+	if status == 0 {
+		a := make([]byte, n)
+		for i := range a {
+			a[i] = d.emsRegionRead8(e, src, uint32(i))
+		}
+		if al(c) == 1 {
+			b := make([]byte, n)
+			for i := range b {
+				b[i] = d.emsRegionRead8(e, dst, uint32(i))
+			}
+			for i, v := range b {
+				d.emsRegionWrite8(e, src, uint32(i), v)
+			}
+		}
+		for i, v := range a {
+			d.emsRegionWrite8(e, dst, uint32(i), v)
+		}
+	}
+	setAH(c, status)
+	d.EMSOps = append(d.EMSOps, EMSOp{Step: d.M.Steps, Fn: 0x57, Status: status})
 }

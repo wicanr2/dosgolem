@@ -190,7 +190,7 @@ func TestEMBInfoAndReallocKeepContents(t *testing.T) {
 	// 塞一個記號進去（handle 0 是常規記憶體那一端）。
 	m.Write8(0x5000, 0x5A)
 	desc := cpu.Addr(0x2000, 0)
-	m.Write16(desc, 1) // 長度 1
+	m.Write16(desc, 2) // 長度 2（XMS 3.0：長度要是偶數，奇數回 A7h；`docs/spec/436-xms-move-validation`）
 	m.Write16(desc+2, 0)
 	m.Write16(desc+4, 0) // 來源 handle 0
 	m.Write16(desc+6, 0x5000&0xFFFF)
