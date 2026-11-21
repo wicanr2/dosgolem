@@ -211,7 +211,17 @@ func (p *LEOPLPorts) AdvanceProtectedMode(c *cpu386.CPU, m *LEMachine) error {
 	}
 	var vector uint64
 	var seg, off uint16
-	if d := clock.protectedIRQ0; d != nil {
+	if bridge := p.realIRQ7; bridge != nil && bridge.services != nil {
+		s := bridge.services
+		if s.DPMI != bridge.h {
+			return fmt.Errorf("IRQ7 已安裝DPMI上下文已改變")
+		}
+		vector = s.dosVectors[0x0f]
+		seg, off = s.DPMI.RealModeVector(0x0f)
+		if vector == 0 && seg == 0 && off == 0 {
+			return bridge.dispatch(c, m, p)
+		}
+	} else if d := clock.protectedIRQ0; d != nil {
 		vector = d.s.dosVectors[0x0f]
 		seg, off = d.s.DPMI.RealModeVector(0x0f)
 		if d.s.moo2Profile && vector == 0 && seg == 0 && off == 0 {
