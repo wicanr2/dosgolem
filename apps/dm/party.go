@@ -56,24 +56,31 @@ const (
 const FoodWaterMaximum = 2048
 
 // Champion 是一位勇士的巡檢相關狀態。
+//
+// JSON 鍵就是 `party.json` 的格式（`docs/spec/198` §3.5），與 remake 側
+// 檢查點檔（dungeon_master 專案 `cmd/dmtool/sweep.go` 的 `sweepChampion`）
+// 同一組鍵，兩邊的檔案可以直接逐欄比。
 type Champion struct {
-	Index            int
-	Name, Title      string
-	CurrentHealth    int
-	MaxHealth        int
-	Food, Water      int
-	PoisonEventCount int
-	Load             int
-	Slots            [SlotCount]uint16
+	Index            int               `json:"index"`
+	Name             string            `json:"name"`
+	Title            string            `json:"title"`
+	CurrentHealth    int               `json:"current_health"`
+	MaxHealth        int               `json:"max_health"`
+	Food             int               `json:"food"`
+	Water            int               `json:"water"`
+	PoisonEventCount int               `json:"poison_event_count"`
+	Load             int               `json:"load"`
+	Slots            [SlotCount]uint16 `json:"slots"`
 }
 
 // Party 是一次取樣。
 type Party struct {
-	MapIndex  int
-	GameTime  int
-	X, Y      int
-	Facing    int // 0＝北 1＝東 2＝南 3＝西
-	Champions []Champion
+	MapIndex  int        `json:"map_index"`
+	GameTime  int        `json:"game_time"`
+	X         int        `json:"x"`
+	Y         int        `json:"y"`
+	Facing    int        `json:"facing"` // 0＝北 1＝東 2＝南 3＝西
+	Champions []Champion `json:"champions"`
 }
 
 // ReadParty 讀出隊伍與勇士的狀態（`docs/spec/198` §3.1）。

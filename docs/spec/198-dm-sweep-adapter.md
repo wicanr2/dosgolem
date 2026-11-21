@@ -1,7 +1,7 @@
 # 198 — DM 巡檢 adapter（`apps/dm`）
 
 狀態：**READY**
-日期：2026-09-11
+日期：2026-09-11（2026-10-31 起點改成原版附的存檔，見 §3.6）
 
 ## 1. 目的與範圍
 
@@ -205,18 +205,25 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 ```json
 {
   "map": 2,
-  "start": { "x": 2, "y": 30, "facing": 3 },
+  "save": { "name": "DMSAVE.DAT", "sha256": "b9f6a287…", "game_time": 19662 },
+  "start": { "x": 0, "y": 13, "facing": 0 },
   "steps": [
-    { "dir": "E", "expect": { "x": 3, "y": 30, "facing": 3 } },
-    { "action": "turn", "expect": { "x": 3, "y": 30, "facing": 0 } },
-    { "action": "press", "expect": { "x": 3, "y": 30, "facing": 0 } },
-    { "dir": "N", "expect": { "x": 3, "y": 29, "facing": 0 } }
+    { "dir": "E", "ticks": 8, "expect": { "x": 1, "y": 13, "facing": 0 } },
+    { "action": "turn", "ticks": 8, "expect": { "x": 1, "y": 13, "facing": 1 } },
+    { "action": "press", "ticks": 23, "expect": { "x": 1, "y": 13, "facing": 1 } }
   ],
   "checkpoints": [0, 40, 120],
   "unreachable": [[19,8],[19,9],[2,11],[2,12],[8,19],[8,20],[3,28],[4,28]]
 }
 ```
 
+- **`save`**（2026-10-31 起）：起點的存檔，basename、SHA-256 與存檔裡的遊戲刻（§3.6）。
+  CLI 開跑前比對玩家給的那一份，不同就停；遊戲刻是第 0 個檢查點要核對的值（§3.5 第 3 步）。
+  `start` 是存檔裡隊伍的位置與面向。
+- **`ticks`**（2026-10-31 起）：remake 做完這一步之後推進了幾刻。原版側在刻的邊界照
+  同樣的刻數推進（§3.3 的 `Clock`），**不照指令數等**——一般移動是固定的 8 刻，
+  `press` 是「推到門能過」，刻數不固定。照指令數等的話兩側每一步走的刻數不同，
+  之後怪物的位置與事件的時間全部岔開。
 - **`action` 有三種**，省略時是 `move`（相容只有移動的舊格式）：
 
   | `action` | 意思 | remake 側 | 原版側 |
@@ -252,10 +259,9 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
   就被送到第 1 層），`(3,28)` 的唯一通路是 `(4,28)`。路線接受漏掉，
   不為了湊 100% 去開關傳送器——那會動到感應器狀態，而感應器正是要對拍的東西。
 
-⚠ **巡檢非招募不可**：地板感應器要隊伍裡有人才會觸發
-（`SENSOR.C:474` 的 `PartyChampionCount == 0` 就跳過）。空隊伍走過壓力板
-門不會開，路線走到一半就卡住——而畫面看起來只是「沒走那麼遠」。
-招募流程見 `apps/dm/hall.go` 的 `MirrorRoute` ＋ `RecruitFirstChampion`。
+⚠ **隊伍裡要有人**：地板感應器在 `PartyChampionCount == 0` 時直接跳過
+（`SENSOR.C:474`）。從存檔出發（§3.6）隊伍一開始就是四個人；新局招募的流程
+（`apps/dm/hall.go` 的 `MirrorRoute` ＋ `RecruitFirstChampion`）留著，巡檢不再用它。
 
 ⚠ 產生器要用 `dmtool dungeon trigger` 驗一次。`dmtool walk`
 **不跑感應器**，門在它裡面打不開（2026-09-10 在第 0 層踩過）。
@@ -266,8 +272,122 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
 寫進指定輸出目錄：每個檢查點一份 `party.json`（§3.1 的結構）＋ `frame.png`
 ＋總表 `receipt.json`。路線裡每一步的 `expect` 對不上就當場中止並回非零碼。
 
+流程：
+
+1. 比對資料根裡 `DMSAVE.DAT` 的 SHA-256 與路線的 `save`，不同就停。
+2. `ToEntrance` → 點 RESUME（§3.6）→ 在讀檔對話框上 `Bind`、掛 `Clock`（巡檢寫回開著）、
+   負重 stub → 點 OK。對話框出來時 `fires` 已經在跑、`DS` 已經是 DGROUP，`Bind` 驗得過；
+   `Clock` 必須在 OK 之前掛好，因為按 OK 之後就開始走刻。按 OK 的期間經過任何刻邊界就停
+   （第 0 個檢查點已經錯過）。
+3. 跑到第一個刻邊界（`Clock.NextBoundary`，數回呼次數而不是遊戲刻）：遊戲刻要等於
+   路線 `save.game_time`、`ReadParty` 的位置與面向要等於路線的 `start`，否則停。
+   這是第 0 個檢查點。
+4. 逐步：送出這一步的點擊，跑滿這一步的 `ticks` 個刻邊界，`ReadParty` 對 `expect`。
+   對不上就停，回非零碼。檢查點那幾步另外寫 `party.json` 與 `frame.png`。
+
+⚠ **點擊要在刻的邊界當下按下（hover 0）**，不要沿用 `oracle.Click` 的 hover 200 萬道。
+原版在 `GameTime++` 之後進入等輸入的迴圈反覆處理指令佇列（ReDMCSB `MAIN.C:131`、`:177`），
+在那一段按下，指令在下一刻的時間軸之前處理完，與 remake「在刻與刻之間執行指令」同義。
+那一段的長短是「一刻減去這一刻的繪圖工作量」，畫面複雜時不到 200 萬道：實測 hover 200 萬時
+第 183 步（按門之後往前走）按門晚一刻才被處理，門還沒開到過得去；hover 0 同一步過得去。
+`-hover` 旗標留著重現這件事。
+
+`party.json` 的鍵：`map_index`、`game_time`、`x`、`y`、`facing`、`champions`
+（每位 `index`、`name`、`title`、`current_health`、`max_health`、`food`、`water`、
+`poison_event_count`、`load`、`slots`），與 remake 側的檢查點檔同一個格式。
+
+⚠ **`game_time` 取 `Clock` 在刻邊界讀到的值，不讀記憶體。** `RunUntil` 的條件在 hook
+之前檢查，所以停下來的時候 `add word_38B54, 1` 已經跑完、`adc` 還沒跑：記憶體是 N+1，
+`Clock` 記的 N 才是「第 N 刻做完」，與 remake 的 `World.GameTime − 1` 同一個語意。
+
+輸出目錄另有 `steps.jsonl`：每一步一行，位置、面向、遊戲刻，以及 `late`
+（這一步按下之前經過了幾個刻邊界）。
+
 收據只記輸入檔的 basename 與 SHA-256、步數、artifact 雜湊；
 **不得記錄私有絕對路徑，也不得嵌入原版 bytes**。
+
+### 3.6 起點：原版附的存檔（2026-10-31）
+
+巡檢從**玩家自備的 DOS 原版 `DMSAVE.DAT`** 出發，不從新局招募、走下樓。
+定案與理由在 dungeon_master 專案規格 73 §9：新局走到第 2 層要解完第 1 層的機關，
+卡在拿不到的第 6 把 GOLD KEY；兩側讀同一份存檔，起點狀態完全相同。
+
+讀檔流程（dosgolem 實測 2026-10-31，`fires` 3.4）：
+
+| 步 | 點哪裡 | 結果 |
+|---|---|---|
+| 1 | 入口選單的 RESUME 寶石 `(249,86)`（紅色那顆，ENTER 下面） | 直接讀 `DMSAVE.DAT`，不換片也不選檔 |
+| 2 | 對話框的 OK `(160,143)` | 「GAME LOADED, READY TO PLAY.」關掉，進地城 |
+
+⚠ **按 OK 之後遊戲就開始走刻**（9000 萬道指令之後遊戲刻從 19662 走到 19697）。
+所以第 0 個檢查點取按 OK 之後的**第一個刻邊界**，`Clock` 要在按 OK 之前掛好。
+
+⚠ 讀檔只讀不寫。CLI 不存檔，資料根是玩家素材的可寫副本（`DMSAVE.DAT` 不得被改到）。
+
+### 3.7 地城映像傾印（2026-10-31）
+
+隊伍的檢查點對得上，怪物卻可能已經岔開：要等隊伍撞上牠們才看得出來（dungeon_master 專案
+worklist `sweep-creature-divergence`）。所以 CLI 另外傾印原版記憶體裡**會變的那幾段地城資料**，
+由 remake 那一側用它既有的 `DUNGEON.DAT` 解碼器還原成怪物位置。這一側**不解析**任何地城結構，
+只照指標讀固定的幾段 bytes。
+
+位址（DS 偏移；IDA 名稱是 DS 基底 `0x34ED0` 加上偏移；**已確認**，兩個獨立證據：
+讀檔之後在記憶體裡搜存檔的位元組，每一段都唯一命中，而且命中處就是這些指標指的地方；
+IDA 裡經由這些全域取用的欄位與 ReDMCSB 的結構一致）：
+
+| 內容 | 全域 | IDA | 長度 |
+|---|---|---|---|
+| `DUNGEON_HEADER`（44 位元組） | `ds:343C` far 指標 | `dword_3830C` | 44；經由它讀的欄位正是 `+0`／`+2`／`+4`／`+6`／`+8`／`+0Ah`／`+0Ch` |
+| 各層的 `MAP` 描述（一筆 16 位元組） | `ds:3480` far 指標 | `dword_38350` | `MapCount × 16`；經由它只讀 `+8`／`+9`（寬高位元欄位） |
+| 欄累計表 | `ds:33D2` far 指標 | `dword_382A2` | `欄數 × 2`，欄數 ＝ 各層 `寬 + 1` 的和，寬 ＝ `(描述 +8 的 word >> 6) & 0x1F` |
+| 各型別 thing 資料 | `ds:33F0` 16 個 far 指標 | `dword_382C0` | `ThingCount[t] × 位元組數[t]`，位元組數 `4,6,4,8,16,4,4,4,4,8,4,0,0,0,8,4` |
+| 每一格的第一個 thing | `ds:3474` far 指標 | `dword_38344` | `SquareFirstThingCount × 2` |
+| 地圖原始資料 | `ds:347C` far 指標（偏移、段兩個 word） | `word_3834C`／`word_3834E` | `RawMapDataByteCount`（標頭 `+2`） |
+
+指標是正規化的 `段:偏移`（偏移 0–15）。型別 11–13 沒有資料，指標指到標頭，長度 0。
+標頭在 `D000:0002`；讀標頭時核對 `MapCount`（`+4`）在 1–64、型別 11–13 的數量是 0，不對就停，
+不要拿錯的長度去讀別的記憶體。
+
+⚠ **欄累計表會變。** 東西走上一個原本沒有東西的格子時，原版在 `SquareFirstThings` 插一筆、
+後面每一欄的累計數加一。拿存檔的那一份去配記憶體裡的 `SquareFirstThings`，每一格的串列會錯位：
+解出來的怪物在一步之內跳過半張地圖，而且看起來仍然像合法的位置。
+
+`dungeon.bin` 的格式：照 `DUNGEON.DAT` 的順序接起來，只放會變的段：
+欄累計表、`SquareFirstThings`、型別 0–15 的 thing 資料、`RawMapData`。長度全部由同一份標頭
+與各層描述算出，remake 那一側拿存檔的地城映像當底，把這幾段蓋上去再解碼。
+
+CLI：每個檢查點的目錄另寫 `dungeon.bin`；`-dungeon-every-step` 時每一步都寫一份到
+`steps/NNNN.bin`（找第一個岔開的刻用，一份約 33 KB）。
+
+### 3.8 ACTIVE_GROUP 傾印（2026-11-01）
+
+隊伍那一層的怪物在 `dungeon.bin` 裡只有一半：`GROUP.Cells` 存的是 ACTIVE_GROUP 的索引，
+象限、面向與每隻的樣子（攻擊中、翻面、位移）在 ACTIVE_GROUP 那張表裡（dungeon_master 專案
+`docs/re/32`）。remake 要畫出原版那一刻的怪物，就要這張表（dungeon_master 專案 worklist
+`dosgolem-sweep-active-groups`）。這一側同樣**不解析**，照指標整張讀出來。
+
+位址（DS 偏移；**已確認**：IDA `sub_15ADA` 對到 ReDMCSB 的 `F183_kzzz_GROUP_AddActiveGroup`
+（`GROUP1.C:258`），逐道相符——從 `dword_3837C` 起一筆 16 位元組往後找第一個 `+0 < 0` 的空位、
+`word_35C68` 加一、`+0` 寫 thing 索引 `& 3FFh`、怪物群記錄 `+5`（Cells）抄到 `+3` 再換成這一筆的索引、
+`+8`／`+0Ah` 寫 X、`+9`／`+0Bh` 寫 Y、`+4` 寫 `GameTime − 127`。唯一的不同是找過 `word_38380` 筆還沒有空位時，
+DOS 呼叫 `sub_26A92(47h)`，ST 直接返回）：
+
+| 內容 | 全域 | IDA | 長度 |
+|---|---|---|---|
+| ACTIVE_GROUP 表（`G375_ps_ActiveGroups`） | `ds:34AC` far 指標 | `dword_3837C` | `上限 × 16` |
+| 上限（`G376_ui_MaximumActiveGroupCount`） | `ds:34B0` word | `word_38380` | 2 |
+| 現有筆數（`G377_ui_CurrentActiveGroupCount`） | `ds:0D98` word | `word_35C68` | 2 |
+
+一筆的欄位與 ST 相同（`DEFS.H:555`）：`+0` thing 索引（有號，負的是空位）、`+2` 面向、`+3` 象限、
+`+4` 上次移動的刻、`+5` 延後逃跑、`+6`／`+7` 目標、`+8`／`+9` 前一格、`+0Ah`／`+0Bh` 家、`+0Ch`–`+0Fh` 每隻的樣子。
+這一側只照搬，不讀欄位。
+
+讀表時核對：上限在 1–255、現有筆數不超過上限、`+0 ≥ 0` 的筆數等於現有筆數；不對就回錯誤，
+不要拿錯的長度去讀別的記憶體。
+
+`activegroups.bin` 的格式：整張表原樣（`上限 × 16` 位元組，含空位），不加標頭。
+CLI：每個檢查點的目錄另寫 `activegroups.bin`，收據的檢查點多一欄 `active_groups_sha256`；
+`-dungeon-every-step` 時每一步另寫 `steps/NNNN.groups.bin`。
 
 ## 4. 驗證與停止線
 
@@ -288,11 +408,19 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
      這一輪連帶把 `FoodWaterMaximum ＝ 2048` 從**強證據**升到**已確認**：
      寫回之後跑滿 60 刻沒有被別處鉗掉。
 3. **路線與停法**（同樣由私有資料選配）：
+   - **讀檔起點**（2026-10-31）：RESUME → OK 之後第一個刻邊界，遊戲刻等於存檔的遊戲刻、
+     位置與面向等於路線的 `start`。**反對照**：故意把 `start` 改錯，要停。
    - 吃一份只有兩三步的小路線，每一步的 `expect` 都對得上。
    - **反對照**：故意把某一步的 `expect` 改錯，跑起來要**失敗**。
      少了這一條就分不出「對上了」與「根本沒在檢查」。
    - 停在刻的邊界時 `GameTime` 是遞增**前**的值（§3.3），用連續兩個檢查點的
      差值驗證。
+   **做完 2026-10-31**（`apps/dm/resume_live_test.go` 三支）：第一個刻邊界是 19662，
+   三步各走 8 刻、`expect` 全對；`start` 改錯停在第 0 步、第 2 步的 `expect` 改錯停在第 2 步。
+   變異測試：把位置檢查改成永遠通過，兩支反對照都變紅。
+   CLI 對第 2 層整條路線（526 步）實跑：前 207 步全部對上，第 0–200 步的六個檢查點與
+   remake 逐欄一致；第 208 步原版的隊伍掉到第 3 層，那是 remake 少做了 F249
+   （dungeon_master 專案 `docs/re/77`），不是這一側的問題。
 4. **負重 stub**：開著時 `F309` 回 `10000`。**反對照**：取消 stub，
    同一個呼叫要走真正的計算。
    **做完 2026-09-11**：直接 `oracle.Call` 呼叫 `F309`——stub 開著回
@@ -300,6 +428,12 @@ func AtTickAfter(c *Clock, n uint32) oracle.Cond {
    ⚠ 呼叫要用 `Bridge.Code` 給對的 `CS`（§6），而且值超過 16 位元要被拒絕
    （另一支測試守著）。
 5. 缺少私有資料只能明確 skip，**不能偽造 pass**。
+6. **ACTIVE_GROUP 傾印**（§3.8，同樣由私有資料選配）：讀檔之後讀表，
+   `+0 ≥ 0` 的每一筆都要指到一個怪物群記錄，而且那筆記錄的 `+5` 正是這一筆的索引
+   （與 `DungeonImage` 傾印的型別 4 那一段互相印證，兩邊是不同的指標）；
+   上限要等於存檔 `GLOBAL_DATA.MaximumActiveGroupCount`。**反對照**：故意把上限的位址讀錯一個 word，要回錯誤。
+   **做完 2026-11-01**（`TestLiveActiveGroupsPointAtTheirGroups`）：上限 110、第 2 層在用 11 筆，每一筆都指回自己；
+   表的指標錯 4 個位元組時讀到 109 筆在用、與現有筆數 11 不符而停。
 
 ## 5. 原本的未解項（2026-09-11 全數收斂，規格升 READY）
 
