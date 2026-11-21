@@ -27,7 +27,7 @@ type handle struct {
 	// writable 為真時 `AH=40h` 真的寫下去（暫存層或 AllowFileWrites）。
 	writable bool
 	// dev 非零 ＝ 字元裝置，值就是 `AH=44h AL=00h` 回報的裝置資訊字
-	// （`docs/spec/195-nul-device`）。EMMXXXX0 維持 0，行為不變。
+	// （`docs/spec/195-nul-device`、`443-emm-device-ioctl`）。
 	dev uint16
 	// refs 是有幾個 handle 號碼指著這一份。
 	//
@@ -60,13 +60,10 @@ func (d *DOS) resolve(name string) string {
 	// **順序不能顛倒**——先試 basename 的話，頂層剛好有同名檔時
 	// 會開到錯的那一份。
 	if segs := dosPathSegments(name); len(segs) > 1 {
-		if d.Scratch != "" {
-			if p := lookupPath(d.Scratch, segs); p != "" {
+		for _, dir := range d.readOrder() {
+			if p := lookupPath(dir, segs); p != "" {
 				return p
 			}
-		}
-		if p := lookupPath(d.Root, segs); p != "" {
-			return p
 		}
 	}
 	base := baseName(name)
@@ -74,13 +71,31 @@ func (d *DOS) resolve(name string) string {
 		return ""
 	}
 	// 暫存層蓋過原版目錄（`docs/spec/009` §2.2.1）：程式存過的東西
-	// 下一次要讀得到自己寫的那一份，不是原版那一份。
-	if d.Scratch != "" {
-		if p := lookupDOS(d.Scratch, base); p != "" {
+	// 下一次要讀得到自己寫的那一份，不是原版那一份。疊層夾在兩者之間
+	// （`docs/spec/447-dos-read-layers`）。
+	for _, dir := range d.readOrder() {
+		if p := lookupDOS(dir, base); p != "" {
 			return p
 		}
 	}
-	return lookupDOS(d.Root, base)
+	return ""
+}
+
+// readOrder 是讀檔的查找順序：Scratch、Layers、Root，空字串略過。
+func (d *DOS) readOrder() []string {
+	out := make([]string, 0, len(d.Layers)+2)
+	if d.Scratch != "" {
+		out = append(out, d.Scratch)
+	}
+	for _, l := range d.Layers {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	if d.Root != "" {
+		out = append(out, d.Root)
+	}
+	return out
 }
 
 // dosPathSegments 把 DOS 路徑拆成一段一段，回 nil 表示這條路徑不能走
@@ -240,7 +255,7 @@ func (d *DOS) open(c *cpu.CPU) {
 	// 字元裝置：開 EMMXXXX0 成功 ＝ EMS 驅動存在（`docs/spec/007` §5）。
 	// launcher 開完就關，不讀不寫；讀寫語意沒有證據，讀回 EOF、寫丟棄。
 	if isEMMDevice(name) {
-		d.openDevice(c, name, 0)
+		d.openDevice(c, name, emmDeviceInfo)
 		return
 	}
 	if isNULDevice(name) {
@@ -482,6 +497,9 @@ func (d *DOS) read(c *cpu.CPU) {
 	}
 	d.FileOps = append(d.FileOps, FileOp{Fn: 0x3F, Handle: bx, Name: h.name,
 		Pos: pos, Len: n, Step: d.M.Steps})
+	if d.ReadFilter != nil && n > 0 {
+		d.ReadFilter(h.name, pos, buf[:n])
+	}
 	d.M.WriteBytes(cpu.Addr(c.Seg[cpu.DS], c.R[cpu.DX]), buf[:n])
 	d.Reads = append(d.Reads, ReadOp{
 		Step: d.M.Steps, Name: h.name, Handle: bx,
@@ -682,6 +700,12 @@ func (d *DOS) allocHandle() (uint16, bool) {
 // nulDeviceInfo 是 NUL 的裝置資訊字：bit 7 字元裝置、bit 2 NUL
 // （DOSBox-X `device_NUL::GetInformation`；`docs/spec/195-nul-device`）。
 const nulDeviceInfo = 0x0084
+
+// emmDeviceInfo 是 EMMXXXX0 的 `AH=44h AL=00h` 裝置資訊：bit 7 字元裝置、
+// bit 14 支援 IOCTL（`docs/spec/443-emm-device-ioctl`，照 DOSBox-X
+// `device_EMM::GetInformation`）。回 0 等於說「這是檔案」，做標準 EMS 偵測的
+// 程式會判定沒有驅動。
+const emmDeviceInfo = 0x4080
 
 // isNULDevice 回檔名是不是 NUL 裝置。DOS 比對裝置名時忽略目錄與副檔名，
 // 所以 `NUL`、`nul.lst`、`C:\DEV\NUL` 都是它。

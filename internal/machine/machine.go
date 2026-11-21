@@ -333,6 +333,7 @@ type Machine struct {
 	onOPL        func(OPLWrite)
 	onSpeaker    func(SpeakerSample)
 	onPIT2       func(PIT2Change)
+	onSB         func(SBSample)
 	pit2         pit2
 	speakerLast  [2]uint8 // level, gate
 	speakerValid bool
@@ -350,6 +351,15 @@ type Machine struct {
 	// LEOPLPorts 驗證的受限硬體契約（docs/spec/190-opl-vgm-dump §8）。
 	soundBlasterPresent bool
 	soundBlaster        SoundBlasterDSP
+	// dma8 是第一組 DMA 控制器，只在 SB 存在時建立；sb 是單次 8 位元傳輸的進度
+	// （`docs/spec/445-real-mode-sb-single-dma`）。
+	dma8 *DMA8237
+	sb   sbDMA
+	// SBPCM 是已傳出的 8 位元取樣（最多 SBPCMCap），觀測用。
+	SBPCM []byte
+	// SBDMACompletions／IRQ7Deliveries／IRQ7Stalls／SBDMARejects 分別是傳輸完成、
+	// IRQ7 送出、向量仍指 stub 而留著、DSP 開始傳輸被拒的次數。
+	SBDMACompletions, IRQ7Deliveries, IRQ7Stalls, SBDMARejects uint64
 	// 計時器：兩個各自有「啟動」與「遮罩」，狀態埠的 bit7 是兩者的 OR。
 	oplT1Started, oplT2Started bool
 	oplT1Masked, oplT2Masked   bool
@@ -951,8 +961,12 @@ func (m *Machine) SetSoundBlaster(present bool) {
 	m.soundBlasterPresent = present
 	if present {
 		m.oplPresent = true
+		m.wireSBDMA()
 	}
 }
+
+// SoundBlaster 回 220h 上有沒有 SB。
+func (m *Machine) SoundBlaster() bool { return m.soundBlasterPresent }
 
 // OPL 暫存器 04h（計時器控制）的位元（YM3812 資料表）。
 const (
@@ -1036,6 +1050,9 @@ func (m *Machine) In8(port uint16) uint8 {
 	m.portTicks++
 	if m.soundBlasterPresent {
 		if v, ok := m.soundBlaster.In8(port); ok {
+			return v
+		}
+		if v, ok := m.dma8.In8(port); ok {
 			return v
 		}
 		if alias, ok := oplAlias(port); ok {
@@ -1137,6 +1154,10 @@ func (m *Machine) Out8(p uint16, v uint8) {
 
 	if m.soundBlasterPresent {
 		if m.soundBlaster.Out8(p, v) {
+			return
+		}
+		// 第一組 DMA（00h–0Fh、頁埠 81h–87h）。不認得的埠回 false，照舊往下走。
+		if m.dma8.Out8(p, v) {
 			return
 		}
 		if alias, ok := oplAlias(p); ok {
@@ -1411,6 +1432,11 @@ func (m *Machine) Step() error {
 		m.irq0Pending || (m.IRQ0Every > 0 && m.Steps >= m.nextIRQ0) ||
 		(m.CycleClock && m.cycPerIRQ0 > 0 && m.CPU.Cycles >= m.nextIRQ0Cyc) {
 		m.tick()
+	}
+	// SB 單次 DMA 與 IRQ7（`docs/spec/445-real-mode-sb-single-dma`）。IRQ0 先送：
+	// 同一道指令兩者都到期時 tick 已經清掉 IF，IRQ7 留到 ISR 返回之後。
+	if m.sb.active || m.sb.irq7Pending {
+		m.sbTick()
 	}
 	// 定時事件優先（`197` §3.1）：同一道指令只送一個事件。
 	if len(m.timedKeys) == 0 || !m.timedKeyTick() {

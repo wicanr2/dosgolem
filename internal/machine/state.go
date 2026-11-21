@@ -89,6 +89,9 @@ type machineState struct {
 	OPLIndex  [2]uint8
 	OPLRegs   [2][256]uint8
 	OPLTimers uint8
+	// SB 的 DMA 控制器、DSP 時間設定與單次傳輸進度（`docs/spec/445-real-mode-sb-single-dma`）。
+	// 以前沒存：播放中存檔、讀回來之後音效永遠播不完。舊檔讀進來是 nil，行為同以前。
+	SB        *SBDMAState
 	PITAccess uint8
 	PITPhase  uint8
 	PITLo     uint8
@@ -172,6 +175,7 @@ func (m *Machine) SaveState(w io.Writer) error {
 		OPLIndex:       m.oplReg,
 		OPLRegs:        m.oplRegs,
 		OPLTimers:      m.oplTimerBits(),
+		SB:             m.sbState(),
 		IRQ0Base:       m.IRQ0Base,
 		CPUHz:          m.CPUHz,
 		CycleClock:     m.CycleClock,
@@ -273,6 +277,7 @@ func (m *Machine) LoadState(r io.Reader) error {
 	m.pit.divisor, m.pit.writes = s.PITPortDivisor, s.PITPortWrites
 	m.oplReg, m.oplRegs = s.OPLIndex, s.OPLRegs
 	m.setOPLTimerBits(s.OPLTimers)
+	m.setSBState(s.SB)
 	// 舊的狀態檔沒有這幾個欄位；讀到零值就退回開機預設，
 	// 不要讓分頻變成 0（那會讓 IRQ0 間隔算成 0）。
 	m.IRQ0Base, m.PITDiv = s.IRQ0Base, s.PITDiv

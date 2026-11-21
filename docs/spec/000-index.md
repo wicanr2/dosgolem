@@ -972,6 +972,13 @@
 - [440 — 混音器加入 CD 音軌，probe 輸出混音 WAV](440-mixer-cd-audio.md)：READY。MSCDEX 播放紀錄對上 raw 映像，44.1→48 kHz 線性內插，和 OPL、喇叭同一條步數時間軸；`probe -dump-mix-wav`。
 - [441 — 通用的即時前端 `cmd/play`](441-play-frontend.md)：READY。不認識特定程式，畫面、鍵盤、滑鼠、聲音；每格固定步數，自動模式的混音與 probe 逐位元組相同。
 - [442 — 狀態檔保存 OPL 暫存器，混音器從暫存器起播](442-state-opl-registers.md)：READY。暫存器檔、索引與計時器旗標存進狀態檔；`Mixer.PrimeOPL` 在接續時把非 0 暫存器寫回合成器。
+- [443 — EMMXXXX0 的裝置資訊與輸出狀態](443-emm-device-ioctl.md)：READY。`AX=4400h` 回 `4080h`、字元裝置 `AX=4407h` 回 `FFh`，照 DOSBox-X；中文版魔法門 V 的標準 EMS 偵測靠這兩項。
+- [444 — EMS 同一邏輯頁映進兩個實體頁](444-ems-alias-mapping.md)：READY。載入前先寫回別名、寫回只寫差異；四頁滑動視窗的最後一頁會同時映在兩處。
+- [445 — 實模式 SB 單次 8 位元 DMA 與 IRQ7](445-real-mode-sb-single-dma.md)：READY。`-sound-blaster` 時實模式有第一組 DMA，DSP `14h` 依取樣率傳完送 IRQ7，存檔保留進度；中文版魔法門 V 離開商店等語音播完靠它。
+- [446 — 讀檔過濾掛點](446-dos-read-filter.md)：READY。`DOS.ReadFilter` 在 `AH=3Fh` 寫進客體記憶體前就地改寫讀到的 bytes；前端即時換字模用。
+- [447 — 唯讀疊層目錄](447-dos-read-layers.md)：READY。`DOS.Layers` 夾在 Scratch 與 Root 之間供讀檔，永遠不寫；放衍生資料檔用。
+- [448 — 混音器的 SB 數位聲道](448-mixer-sb-pcm.md)：READY。`Machine.ObserveSB` 逐 byte 送出 445 的取樣，混音器零階保持後與 OPL 相加；前端聽得到語音。
+- [449 — 執行中改指令時脈](449-live-instruction-clock.md)：READY。`SetInstructionClockPercent` 1–3200%，計時器、回掃、鍵盤與進行中的 SB DMA 依比例換算；前端 CPU 倍率用。
 
 ## 新增 CPU386 位移切片
 

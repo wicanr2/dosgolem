@@ -388,6 +388,28 @@ func TestEMMDeviceOpensAndCloses(t *testing.T) {
 	}
 }
 
+// TestEMMDeviceIOCTL：標準 EMS 偵測對 EMMXXXX0 做的兩個 IOCTL
+// （`docs/spec/443-emm-device-ioctl` §1）。回錯的話，中文版魔法門 V 判定沒有 EMS。
+func TestEMMDeviceIOCTL(t *testing.T) {
+	m, d := newTest(t)
+	m.WriteBytes(0x50000, append([]byte("EMMXXXX0"), 0))
+	m.CPU.Seg[cpu.DS] = 0x5000
+	m.CPU.R[cpu.DX] = 0
+	call(m, d, 0x21, 0x3D00)
+	h := m.CPU.R[cpu.AX]
+
+	m.CPU.R[cpu.BX] = h
+	call(m, d, 0x21, 0x4400)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.DX] != 0x4080 {
+		t.Errorf("AX=4400h：CF=%v DX=%04X，預期 CF=0 DX=4080", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.DX])
+	}
+	m.CPU.R[cpu.BX] = h
+	call(m, d, 0x21, 0x4407)
+	if m.CPU.Flags&cpu.CF != 0 || m.CPU.R[cpu.AX]&0xFF != 0xFF {
+		t.Errorf("AX=4407h：CF=%v AL=%02X，預期 CF=0 AL=FF", m.CPU.Flags&cpu.CF != 0, m.CPU.R[cpu.AX]&0xFF)
+	}
+}
+
 // TestChildExitReclaimsMemory：子程式結束時，它名下的記憶體要還給系統
 // （`docs/spec/010` §1）。
 //

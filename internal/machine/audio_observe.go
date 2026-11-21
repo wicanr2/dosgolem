@@ -66,6 +66,15 @@ func (m *Machine) ObserveOPLWrites(fn func(OPLWrite)) { m.onOPL = fn }
 // ObserveSpeaker 掛上喇叭資料線觀測器；nil 關閉。
 func (m *Machine) ObserveSpeaker(fn func(SpeakerSample)) { m.onSpeaker = fn }
 
+// SBSample 是 SB 單次 DMA 傳出的一個 8 位元無號取樣（`docs/spec/448-mixer-sb-pcm`）。
+type SBSample struct {
+	Step  uint64
+	Value uint8
+}
+
+// ObserveSB 掛上 SB 取樣觀測器；nil 關閉。掛上時 SBPCM 不再追加。
+func (m *Machine) ObserveSB(fn func(SBSample)) { m.onSB = fn }
+
 // ObservePITChannel2 掛上 PIT 通道 2 觀測器；nil 關閉。
 func (m *Machine) ObservePITChannel2(fn func(PIT2Change)) { m.onPIT2 = fn }
 

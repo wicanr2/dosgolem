@@ -161,6 +161,11 @@ type DOS struct {
 	// **原版素材目錄永遠不寫**。
 	Scratch string
 
+	// Layers 是唯讀疊層目錄（`docs/spec/447-dos-read-layers`）：讀檔依序找
+	// Scratch、Layers[0]、Layers[1]…、Root，第一個找到的為準。永遠不寫；
+	// 以寫入模式開疊層裡的檔時，照 Scratch 的規則先複製到暫存層。
+	Layers []string
+
 	// Now 是固定時刻，Mouse 是滑鼠狀態，Font 是 DOS/V 字型服務。
 	Now   Time
 	Mouse Mouse
@@ -330,6 +335,12 @@ type DOS struct {
 	// 記憶體，遊戲每畫一個字就 seek 過去讀 30 bytes
 	// （`~/cht/logh3/docs/re/07`）。
 	FileOps []FileOp
+
+	// ReadFilter 在 `AH=3Fh` 從檔案讀到資料、寫進客體記憶體之前被呼叫
+	// （`docs/spec/446-dos-read-filter`）。name 是程式開檔時給的名字，pos 是這次讀取的起點，
+	// data 是實際讀到的 bytes，可以就地改寫，長度不能變。nil 表示不過濾。
+	// 字元裝置與 handle 0 不經過它。
+	ReadFilter func(name string, pos int64, data []byte)
 
 	// PalOps 記下每一次 int 10h AH=10h 的子功能與暫存器。
 	// 診斷「圖形對了但顏色全錯」用：這一支的 AL 分支語意各不相同，

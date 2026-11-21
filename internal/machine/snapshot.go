@@ -96,6 +96,9 @@ type Snapshot struct {
 	pit         pit
 	irq0Clamped int
 	picMask     uint8
+	// SB 的 DMA 與單次傳輸進度（`docs/spec/445-real-mode-sb-single-dma`）。
+	sb    *SBDMAState
+	sbPCM []byte
 }
 
 // Mem 回快照裡的記憶體，給差分比對用。**不要改它。**
@@ -168,6 +171,8 @@ func (m *Machine) Snapshot() *Snapshot {
 		pit:         m.pit,
 		irq0Clamped: m.IRQ0Clamped,
 		picMask:     m.picMask,
+		sb:          m.sbState(),
+		sbPCM:       append([]byte(nil), m.SBPCM...),
 	}
 	s.vga = m.VGA.clone()
 	copy(s.mem, m.Mem)
@@ -231,6 +236,8 @@ func (m *Machine) Restore(s *Snapshot) {
 	m.syncSpeakerLast()
 	m.pit, m.picMask = s.pit, s.picMask
 	m.IRQ0Clamped = s.irq0Clamped
+	m.setSBState(s.sb)
+	m.SBPCM = append(m.SBPCM[:0], s.sbPCM...)
 }
 
 // 讓 cpu 這個 import 有用途（Snapshot 裡的暫存器型別來自它）。
