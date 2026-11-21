@@ -162,7 +162,7 @@ func (o *Owner) runObserved(budget uint64) (stop machine.Stop, rawErr, observerE
 				videoPanic = fmt.Errorf("session: 觀測器 Frame panic：%v", r)
 			}
 		}()
-		o.observer.Frame(o.machine.Indexed(), o.machine.Palette())
+		o.observer.Frame(o.machine.Indexed(), o.machine.FramePalette())
 	})
 	// guard latches a panic raised inside a Step by an optional observer
 	// extension (audio, video mode); shared by all of them.

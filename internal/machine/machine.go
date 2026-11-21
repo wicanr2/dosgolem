@@ -1305,6 +1305,24 @@ func (m *Machine) recalcIRQ0() {
 	}
 }
 
+// FramePalette 回與 Indexed() 配對的色盤：Indexed() 的值查這張表就是畫面上的顏色。
+//
+// mode 13h 的 Indexed() 是 DAC 色號，回 Palette() 本身。平面模式（0Dh–12h）的
+// Indexed() 是 0–15 的 attribute 色號，要先經屬性控制器（VGA.DACIndex）才是 DAC 色號；
+// 直接查 Palette() 會把 8–15 畫成錯的顏色（預設 EGA 屬性表把 8–15 對到 DAC 0x38–0x3F）。
+// 這裡把 0–15 換成對照後的顏色，16–255 不變。
+func (m *Machine) FramePalette() [256][3]uint8 {
+	pal := m.Palette()
+	if !planarMode(m.VideoMode()) {
+		return pal
+	}
+	out := pal
+	for i := 0; i < 16; i++ {
+		out[i] = pal[m.VGA.DACIndex(uint8(i))]
+	}
+	return out
+}
+
 // Palette 先以像素遮罩選 DAC 色號，再把 6 位元色值轉成 8 位元 RGB。
 func (m *Machine) Palette() [256][3]uint8 {
 	var out [256][3]uint8

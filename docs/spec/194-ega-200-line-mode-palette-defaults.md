@@ -77,3 +77,14 @@ DAC 64–255 不動。
 - 350 線 EGA 與 VGA 的 DAC 預設。
 - `AH=10h AL=03h`（閃爍／高亮切換）等其他子功能。
 - 過掃描色（overscan）的顯示。
+
+## 補充：畫格回呼的色盤（2026-10-15）
+
+`Machine.Indexed()` 在平面模式回 0–15 的 attribute 色號，要經屬性控制器（`VGA.DACIndex`）才是 DAC 色號。
+`session` 的 `Frame(indexed, palette)` 原本交 `Palette()`，8–15 因此畫錯（預設表把 8–15 對到 DAC 0x38–0x3F）。
+新增 `Machine.FramePalette()`：平面模式把 0–15 換成對照後的顏色，16–255 與非平面模式原樣回 `Palette()`；
+`session` 改交它。`StepView.Palette()` 仍是原始 DAC。
+
+- 測試：`internal/machine/frame_palette_test.go`（期望值照 §2.2 列出，不重用 `DACIndex`）。
+- 實測：《Death Knights of Krynn》主選單（mode 0Dh）以 `FramePalette` 合成的畫面與 probe `-dump-screen-png`
+  逐像素相同（death-knights-of-krynn-cht #12）。

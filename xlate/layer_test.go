@@ -728,3 +728,76 @@ func TestShortStampEdgeCoincidenceIsKnownLimit(t *testing.T) {
 		t.Fatalf("已知限制：應保留並只遮第 1 格：剩 %d 筆 transparent=%v", len(l.Stamps), s.Transparent)
 	}
 }
+
+// spec 202 §2.3：部分覆蓋只重新定色，不拿當下畫面重算指紋。
+// 實例（dkk）：查驗題答對後原版一次畫好冒險畫面，同一幀隊伍欄「姓名」蓋到題目右端；
+// 若重算指紋，壓在 3D 視窗上的題目格子會被當成仍然有效，留在畫面上。
+func TestPartialCoverDuringScreenChangeStillInvalidates(t *testing.T) {
+	idx, rgb := rowScreen("ABCDEFGHIJ")
+	l := &Layer{}
+	s := &Stamp{Key: "k", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+	l.Stamps = []*Stamp{s}
+	l.Frame(idx, rgb)
+	next, _ := rowScreen("QRSTUVWXYZ") // 換畫面
+	l.Add(&Stamp{Key: "name", X: 16 + 8*8, Y: 40, Cells: 2, CellW: 8, CellH: 8})
+	frames(l, next, rgb, 5)
+	for _, st := range l.Stamps {
+		if st == s {
+			t.Fatalf("換畫面後舊疊字應移除：transparent=%v", s.Transparent)
+		}
+	}
+	// 對照：畫面沒換時，部分覆蓋後其餘格子照常顯示
+	idx, rgb = rowScreen("ABCDEFGHIJ")
+	s2 := &Stamp{Key: "k2", X: 16, Y: 40, Cells: 10, CellW: 8, CellH: 8, State: Pending}
+	l2 := &Layer{}
+	l2.Stamps = []*Stamp{s2}
+	l2.Frame(idx, rgb)
+	l2.Add(&Stamp{Key: "name", X: 16 + 8*8, Y: 40, Cells: 2, CellW: 8, CellH: 8})
+	frames(l2, idx, rgb, 5)
+	if s2.State != Shown || s2.transparent(0) || !s2.transparent(8) {
+		t.Fatalf("畫面不變時應保留未覆蓋格：state=%v transparent=%v", s2.State, s2.Transparent)
+	}
+}
+
+// spec 202 §2.4.1：Font.Scaled 有登記該倍率時 3× 用變體字型、字點 1:1、格內偏移；
+// 沒登記時照 max(1, scale/3)；GlyphScale 非 0 時不查變體。
+func TestFontForScaleVariant(t *testing.T) {
+	g := make([]byte, 2*16)
+	g[0] = 0x80        // 左上角
+	g[len(g)-1] = 0x01 // 右下角
+	base := &Font{W: 16, H: 16, Name: "base", Glyphs: map[rune][]byte{'字': g}}
+	big := DeriveNearest(base, 22, 22)
+	if big.W != 22 || big.H != 22 || big.Name != "base" || len(big.Glyphs) != 1 {
+		t.Fatalf("DeriveNearest = %dx%d %q %d 字", big.W, big.H, big.Name, len(big.Glyphs))
+	}
+	draw := func(f *Font, scale, gs int) func(x, y int) bool {
+		s := &Stamp{X: 1, Y: 1, Cells: 1, CellW: 8, CellH: 8, Font: f, Text: []rune("字"), State: Shown,
+			FG: [3]uint8{1, 2, 3}, BG: [3]uint8{9, 8, 7}, GlyphScale: gs}
+		l := &Layer{W: 10, H: 10, Stamps: []*Stamp{s}}
+		W := l.W * scale
+		dst := make([]uint8, 4*W*l.H*scale)
+		l.Draw(dst, scale, nil)
+		return func(x, y int) bool { i := 4 * (y*W + x); return dst[i] == 1 && dst[i+1] == 2 && dst[i+2] == 3 }
+	}
+	// 無變體：3× 時 16 點字畫在 24 像素格左上，右下角點在 (3+15, 3+15)。
+	fg := draw(base, 3, 0)
+	if !fg(3, 3) || !fg(18, 18) || fg(19, 19) {
+		t.Error("無變體 3× 應以 16×16 1:1 畫在格左上")
+	}
+	// 有變體：22×22 偏移 (1,1)，左上角放大為 2×2（0..1 → 原點 0），右下角在 (3+1+21, 3+1+21)。
+	withV := &Font{W: 16, H: 16, Name: "base", Glyphs: base.Glyphs, Scaled: map[int]ScaledFont{3: {Font: big, X: 1, Y: 1}}}
+	fg = draw(withV, 3, 0)
+	if fg(3, 3) || !fg(4, 4) || !fg(5, 5) || !fg(25, 25) || fg(26, 26) {
+		t.Error("有變體 3× 應以 22×22 畫在偏移 (1,1)")
+	}
+	// 2× 沒登記變體，照舊 16×16。
+	fg = draw(withV, 2, 0)
+	if !fg(2, 2) || !fg(17, 17) {
+		t.Error("2× 應不受 3× 變體影響")
+	}
+	// GlyphScale 非 0：不查變體。
+	fg = draw(withV, 3, 1)
+	if !fg(3, 3) || !fg(18, 18) || fg(25, 25) {
+		t.Error("GlyphScale=1 應忽略變體")
+	}
+}

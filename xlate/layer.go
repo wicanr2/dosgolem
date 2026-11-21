@@ -31,7 +31,7 @@ type Stamp struct {
 	Font       *Font
 	GlyphX     int
 	GlyphY     int
-	GlyphScale int // 0 表示 max(1, scale/3)（見 §2.4，Draw 裡展開）
+	GlyphScale int // 0 表示依 Font.ForScale（§2.4、§2.4.1，Draw 裡展開）
 
 	Text []rune
 	// PixelScale and PixelGlyphs opt into the physical-pixel path (spec 234).
@@ -68,6 +68,9 @@ type Stamp struct {
 	misses  []int    // 每一格連續指紋不同的次數
 	anchors []bool   // 每一格定色時是否壓在原文墨跡上（spec 202 §2.3）；全部失效就整筆移除
 	changed []bool   // 每一格是否因指紋改變而透明（spec 239 §2.1）；其餘透明格視為覆蓋
+	// recolor：已顯示的疊字被部分覆蓋，回 Pending 只為重新定色；指紋、計數、錨定格沿用（spec 202 §2.3）。
+	// 不重算的理由：覆蓋常與換畫面在同一幀發生，拿新畫面重算指紋會把已失效的格子當成有效。
+	recolor bool
 }
 
 // PixelGlyph is one cropped, physical-pixel glyph in a Stamp plan.
@@ -147,7 +150,7 @@ func (l *Layer) Add(s *Stamp) {
 			l.drop(old, "overlap")
 			continue
 		}
-		old.State = Pending // 剩下的格子要重新定色與重算指紋
+		old.repend() // 剩下的格子重新定色
 		keep = append(keep, old)
 	}
 	l.Stamps = append(keep, s)
@@ -339,7 +342,7 @@ func (l *Layer) Clear(x0, y0, x1, y1 int) {
 			l.drop(s, "clear")
 			continue
 		}
-		s.State = Pending
+		s.repend()
 		keep = append(keep, s)
 	}
 	l.Stamps = keep
@@ -507,6 +510,11 @@ func (l *Layer) Frame(indexed, rgb []uint8) {
 			}
 			s.BG, s.FG = pick(s, indexed, rgb, bg, w, h), pick(s, indexed, rgb, fg, w, h)
 			s.seenBG, s.seenFG, s.colorsSeen = s.BG, s.FG, true
+			if s.recolor && len(s.hashes) == s.Cells && len(s.misses) == s.Cells {
+				s.recolor, s.State = false, Shown
+				break
+			}
+			s.recolor = false
 			s.hashes, s.misses, s.State = s.cellHashes(indexed, w, h), make([]int, s.Cells), Shown
 			s.anchors = s.cellAnchors(indexed, w, h)
 		case Shown:
@@ -790,28 +798,26 @@ func drawPhysicalGlyphs(dst []byte, w int, s *Stamp, scale int) {
 }
 
 // drawGlyphs 畫 s 的字模。每格的字模以前景色畫在「格左上 ＋ (GlyphX, GlyphY)」；
-// 字模每個點畫成 k×k（k = GlyphScale，0 表示 max(1, scale/3)，spec 202 §2.4）。
+// 字模每個點畫成 k×k（k = GlyphScale；0 表示依 Font.ForScale：有該倍率的變體字型就用它、k=1，
+// 否則 max(1, scale/3)，spec 202 §2.4、§2.4.1）。
 // 超出格緣（寬或高）的點不畫——呼叫端保證「格寬 × scale ≥ GlyphX ＋ 字寬 × GlyphScale」，
 // 這裡的邊界檢查是最後一道防線，也同樣套用在高度方向。
 func drawGlyphs(dst []uint8, W int, s *Stamp, scale int, missing func(r rune)) {
-	k := s.GlyphScale
+	k, font, ox, oy := s.GlyphScale, s.Font, 0, 0
 	if k == 0 {
-		k = scale / 3
-		if k < 1 {
-			k = 1
-		}
+		font, k, ox, oy = s.Font.ForScale(scale)
 	}
 	if k < 0 {
 		return
 	}
-	rowBytes := s.Font.rowBytes()
+	rowBytes := font.rowBytes()
 	cellW := s.CellW * scale
 	cellH := s.CellH * scale
 	for i, r := range s.Text {
 		if i >= s.Cells || r == ' ' || r == '　' || s.transparent(i) {
 			continue
 		}
-		g, ok := s.Font.Glyphs[r]
+		g, ok := font.Glyphs[r]
 		if !ok {
 			if missing != nil {
 				missing(r)
@@ -819,18 +825,18 @@ func drawGlyphs(dst []uint8, W int, s *Stamp, scale int, missing func(r rune)) {
 			continue
 		}
 		cx, cy := (s.X+i*s.CellW)*scale, s.Y*scale
-		for gy := 0; gy < s.Font.H; gy++ {
-			for gx := 0; gx < s.Font.W; gx++ {
+		for gy := 0; gy < font.H; gy++ {
+			for gx := 0; gx < font.W; gx++ {
 				if g[gy*rowBytes+gx/8]&(0x80>>uint(gx%8)) == 0 {
 					continue
 				}
 				for dy := 0; dy < k; dy++ {
-					ly := s.GlyphY + gy*k + dy
+					ly := s.GlyphY + oy + gy*k + dy
 					if ly < 0 || ly >= cellH {
 						continue
 					}
 					for dx := 0; dx < k; dx++ {
-						lx := s.GlyphX + gx*k + dx
+						lx := s.GlyphX + ox + gx*k + dx
 						if lx < 0 || lx >= cellW {
 							continue
 						}
@@ -1016,4 +1022,11 @@ type fontNotFoundError struct{ name string }
 
 func (e *fontNotFoundError) Error() string {
 	return "xlate: restore 找不到字型 " + e.name
+}
+
+// repend 把被部分覆蓋或部分清除的疊字送回 Pending。已顯示的只重新定色（recolor），
+// 還沒顯示過的照常在下一幀完整定色（spec 202 §2.3）。
+func (s *Stamp) repend() {
+	s.recolor = s.recolor || s.State == Shown
+	s.State = Pending
 }

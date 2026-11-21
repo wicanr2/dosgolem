@@ -611,6 +611,13 @@ func main() {
 	if err != nil {
 		die(err)
 	}
+	// 依步數排序後以指標前進：每步只看下一個，上千筆（例：整場戰鬥定期寫回生命力）也不拖慢主迴圈。
+	// 同步數的多筆保持輸入順序。
+	sort.SliceStable(memPokes, func(i, j int) bool { return memPokes[i].at < memPokes[j].at })
+	nextPoke := 0
+	for nextPoke < len(memPokes) && memPokes[nextPoke].at < m.Steps {
+		nextPoke++ // 狀態檔起點之前的寫入不會發生（與原本逐筆比對相同）
+	}
 	var lastScreen []uint8
 	clicks, err := parseClicks(*clickScript)
 	if err != nil {
@@ -826,13 +833,15 @@ func main() {
 				downIdx = -1
 			}
 		}
-		for _, p := range memPokes {
-			if m.Steps == p.at {
-				for i, b := range p.data {
-					m.Write8(p.addr+uint32(i), b)
-				}
-				fmt.Printf("#%d 改記憶體 %s（%05X）%d bytes\n", m.Steps, p.label, p.addr, len(p.data))
+		for ; nextPoke < len(memPokes) && memPokes[nextPoke].at <= m.Steps; nextPoke++ {
+			p := memPokes[nextPoke]
+			if p.at != m.Steps {
+				continue // 跳過的步數（與原本逐筆比對相同：只在剛好那一步寫）
 			}
+			for i, b := range p.data {
+				m.Write8(p.addr+uint32(i), b)
+			}
+			fmt.Printf("#%d 改記憶體 %s（%05X）%d bytes\n", m.Steps, p.label, p.addr, len(p.data))
 		}
 		if vgaSite != nil && m.CPU.Seg[cpu.CS] == vgaSite.seg && m.CPU.IP == vgaSite.off &&
 			m.Steps >= *regsFrom && vgaShots < 4 {
@@ -3155,6 +3164,9 @@ func parseBIOSKeys(text, names string) ([]dos.Key, error) {
 			return nil, fmt.Errorf("-bios-key-names 含空名稱")
 		}
 		key, ok := dos.KeyNamed(name)
+		if r := []rune(name); !ok && len(r) == 1 {
+			key, ok = dos.KeyForRune(r[0]) // 單一字元可與具名鍵交錯（例 Esc,Q）
+		}
 		if !ok {
 			return nil, fmt.Errorf("-bios-key-names 不認得 %q", name)
 		}

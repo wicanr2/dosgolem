@@ -23,6 +23,45 @@ type Font struct {
 	W, H   int
 	Glyphs map[rune][]byte
 	Name   string
+	// Scaled 是各輸出倍率改用的字型（spec 202 §2.4.1）；沒有登記的倍率照 GlyphScale 規則放大本字型。
+	// 不屬於檔案格式，也不進快照雜湊。
+	Scaled map[int]ScaledFont
+}
+
+// ScaledFont 是某個輸出倍率改用的字型：字點 1:1 畫在格左上加 (X, Y) 的實體像素位置。
+type ScaledFont struct {
+	Font *Font
+	X, Y int
+}
+
+// ForScale 回 scale 倍輸出時實際畫的字型、字點倍數與格內偏移（spec 202 §2.4.1）。
+// 有登記 Scaled[scale] 時用該字型、倍數 1；否則用本字型、倍數 max(1, scale/3)、偏移 0。
+func (f *Font) ForScale(scale int) (font *Font, k, x, y int) {
+	if v, ok := f.Scaled[scale]; ok && v.Font != nil {
+		return v.Font, 1, v.X, v.Y
+	}
+	return f, max(1, scale/3), 0, 0
+}
+
+// DeriveNearest 以最近鄰把字型放大成 w×h（例：16×16 放成 22×22，供 3× 的 24 像素格）。
+// 字模集合與 Name 不變，Scaled 不複製。
+func DeriveNearest(src *Font, w, h int) *Font {
+	out := &Font{W: w, H: h, Name: src.Name, Glyphs: make(map[rune][]byte, len(src.Glyphs))}
+	srb, drb := src.rowBytes(), out.rowBytes()
+	for r, g := range src.Glyphs {
+		b := make([]byte, drb*h)
+		for y := 0; y < h; y++ {
+			sy := y * src.H / h
+			for x := 0; x < w; x++ {
+				sx := x * src.W / w
+				if g[sy*srb+sx/8]&(0x80>>uint(sx%8)) != 0 {
+					b[y*drb+x/8] |= 0x80 >> uint(x%8)
+				}
+			}
+		}
+		out.Glyphs[r] = b
+	}
+	return out
 }
 
 // rowBytes 回這個字型一列字模佔幾個 byte。
