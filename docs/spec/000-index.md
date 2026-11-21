@@ -970,3 +970,5 @@
 
 - [191 — BIOS ROM 尾巴、ROM 唯讀、狀態檔的 A20；`-watch` 多段與 `-regs-at` 不去重](191-bios-rom-tail.md)：READY。`FFFF0`–`FFFFF` 填 PC/AT 的重置跳躍、BIOS 日期與機型位元組，`F0000`–`FFFFF` 寫入忽略但記下來；狀態檔 v3 存 A20／HMA、仍讀 v2；`-watch` 每一段都監看、`-regs-at` 的 blit 去重改成選用。
 - [189 — Hercules 的畫面在 B0000](189-hercules-b0000.md)：READY。probe 多報 `B0000 非零 bytes`、`-dump-herc`；`oracle.Hercules()`／`HerculesNonZero()`。
+
+- [430 FD2選擇性血量鎖定控制](430-fd2-selective-hp-lock-control.md)：READY。明示測試注入、雙側增援抽樣，未啟用不改一般路徑。
